@@ -1,28 +1,29 @@
 ---
 name: publish
-description: Publish pland stories to Jira and Confluence — publish stories, create epic, push to jira, publish spec, create jira issues. Use after stories.json is approved.
-version: "1.1.0"
+description: Publish pland stories — create handoff summary, story folders, and optionally GitHub Issues. Use after stories.json is approved.
+version: "2.0.0"
 model: sonnet
-argument-hint: "[ITDB-KEY]"
+argument-hint: "[slug]"
 ---
 
 # Publish
 
-Publish pland artifacts from `stories.json` to Jira (Epic + Stories + Subtasks + links) and Confluence (stakeholder spec page). Single atomic action — stories.json is the input, Jira/Confluence become the source of truth after publish.
+Publish pland artifacts from `stories.json`. Always produces a local handoff — a
+`handoff.md` summary and story subfolders. Optionally creates GitHub Issues if
+`makato.config.yml` configures a GitHub provider.
 
 ## When to Use
 
-- After stories.json is approved (status: "approved")
+- After `stories.json` is approved (status: "approved")
 - Ready to hand off pland work to development teams
-- Want to create the full Jira structure (Epic, Stories, Subtasks, links)
-- Want a stakeholder-facing Confluence spec page
+- Want a machine-readable handoff summary with all story details
+- Want to optionally create GitHub Issues for the epic stories
 
 ## When NOT to Use
 
-- stories.json doesn't exist yet (run decompose first)
-- Want to modify existing Jira issues during sprint (that's makato-build refine)
+- `stories.json` doesn't exist yet (run `/decompose` first)
+- Want to modify existing GitHub Issues during sprint (use makato-build refine)
 - Want to assign stories to sprints or people (that's sprint planning)
-- Want to transition issue statuses (manual or makato-build)
 
 ---
 
@@ -32,13 +33,13 @@ Publish pland artifacts from `stories.json` to Jira (Epic + Stories + Subtasks +
 
 #### 1.1: Resolve Spec Folder
 
-From the argument (ITDB key) or auto-detect the most recently modified `specs/{ITDB-KEY}-*/` folder.
+From the argument (slug) or auto-detect the most recently modified `specs/*/` folder.
 
-```
-Args: /publish [ITDB-KEY]
+```text
+Args: /publish [slug]
 Examples:
-  /publish ITDB-1234    → use specs/ITDB-1234-*/  (prefix match)
-  /publish              → auto-detect most recently modified specs/ folder
+  /publish checkout-redesign    → use specs/checkout-redesign/
+  /publish                      → auto-detect most recently modified specs/ folder
 ```
 
 If no spec folder found, inform the user and suggest running upstream skills first.
@@ -48,11 +49,12 @@ If no spec folder found, inform the user and suggest running upstream skills fir
 Read `stories.json` from the resolved spec folder. Validate:
 
 1. File exists and is valid JSON
-2. Has `epic` object with `summary`, `objective`, `pi`, `labels`
-3. Has at least one story in `stories[]`
-4. Check `status` field:
+2. Has `version: "2.0"` (warn if older — schema mismatch may cause issues)
+3. Has `epic` object with `summary` and `objective`
+4. Has at least one story in `stories[]`
+5. Check `status` field:
 
-```
+```text
 If status == "approved" → proceed
 If status == "draft" →
   AskUserQuestion:
@@ -63,21 +65,21 @@ If status == "draft" →
 
 #### 1.3: Check Idempotency State
 
-Check if stories.json already has `jiraKeys` (from a previous publish run):
-- `epic.jiraKey` exists → will UPDATE the epic (not create)
-- `stories[].jiraKey` exists → will UPDATE those stories (not create)
+Check if stories.json already has `githubIssue` fields (from a previous publish run):
 
-Report to user: "Resuming previous publish — N items already published, M remaining."
+- Any `stories[].githubIssue` exists → report "Resuming previous publish — N stories already published."
+- No `githubIssue` fields → fresh publish.
 
 ---
 
 ### Step 2: Load Supporting Artifacts
 
-Read from the spec folder (all optional, for linking purposes only):
-- `prd.md` — will link in story artifact panel
-- `design.md` — will link in story artifact panel
-- `prototype.html` — will link in story artifact panel
-- `decisions.md` — for context on open questions
+Read from the spec folder (all optional, for linking in handoff.md):
+
+- `prd.md`
+- `design.md`
+- `prototype.html`
+- `decisions.md`
 
 Note which artifacts exist. Missing artifacts are simply not linked.
 
@@ -85,418 +87,236 @@ Note which artifacts exist. Missing artifacts are simply not linked.
 
 ### Step 3: Detect Git Remote URL
 
-Auto-detect the repository URL for artifact links:
+Auto-detect the repository URL for artifact links in handoff.md:
 
 ```bash
 git remote get-url origin
 ```
 
 Transform SSH URLs to HTTPS browse URLs:
-- `git@github.tools.sap:ORG/REPO.git` → `https://github.tools.sap/ORG/REPO`
-- `https://github.tools.sap/ORG/REPO.git` → `https://github.tools.sap/ORG/REPO`
 
-Determine the default branch (main/master) for building file links:
+- `git@github.com:owner/repo.git` → `https://github.com/owner/repo`
+- `https://github.com/owner/repo.git` → `https://github.com/owner/repo`
+
+Determine the default branch for building file links:
+
 ```bash
 git symbolic-ref refs/remotes/origin/HEAD
 ```
 
-Build artifact URLs (where `{specFolder}` is the directory name resolved in Step 1.1, e.g., `ITDB-1234-checkout-redesign`):
-- PRD: `{repoUrl}/blob/{branch}/specs/{specFolder}/prd.md`
-- Design: `{repoUrl}/blob/{branch}/specs/{specFolder}/design.md`
-- Prototype: `{repoUrl}/blob/{branch}/specs/{specFolder}/prototype.html`
+Build artifact URLs (where `{slug}` is the spec folder name):
+
+- PRD: `{repoUrl}/blob/{branch}/specs/{slug}/prd.md`
+- Design: `{repoUrl}/blob/{branch}/specs/{slug}/design.md`
+- Prototype: `{repoUrl}/blob/{branch}/specs/{slug}/prototype.html`
 
 ---
 
-### Step 4: Ask Target Jira Project
+### Step 4: Write handoff.md
 
-```
-AskUserQuestion:
-  question: "Which Jira project should the epic and stories be created in?"
-  options:
-    - "DCP (production)" (Recommended)
-    - "DCPAI (testing)"
+Write `specs/{slug}/handoff.md` with this structure:
+
+```markdown
+# Handoff: {epic.summary}
+
+**Objective:** {epic.objective}
+**Published:** {today ISO date}
+**Stories:** {N} ({foundation count} foundation, {happy-path count} happy-path, {edge-cases count} edge-cases)
+**Total SP:** {sum of storyPoints}
+
+## Shaping Artifacts
+
+- [PRD]({prdUrl}) ← only if prd.md exists
+- [Design]({designUrl}) ← only if design.md exists
+- [Prototype]({prototypeUrl}) ← only if prototype.html exists
+
+## Stories
+
+| # | Summary | Phase | SP | Teams |
+|---|---------|-------|----|-------|
+| 1 | {story.summary} | {story.phase} | {story.storyPoints} | {story.teams joined} |
+
+## Story Details
+
+### Story 1: {story.summary}
+
+**Background:** {story.description.background}
+
+**Scope:** {story.description.scope}
+
+**Definition of Done:**
+{story.definitionOfDone as bullet list}
+
+**Acceptance Scenarios:**
+{story.description.successScenarios rendered as Gherkin — Given/When/Then}
+
+**Dependencies:** {story.dependencies.blockedBy as "blocked by story N" list, or "none"}
+
+**External Dependencies:** {story.externalDependencies as bullet list, or "none"}
+
+---
 ```
 
-Store the selected project key for all subsequent Jira operations.
+Repeat the Story Details block for every story in sequence order.
 
 ---
 
-### Step 5: Validate PI Component
+### Step 5: Create Story Subfolders
 
-Check that the PI component from `epic.pi` exists in the target project:
+Create one subfolder per story inside the spec folder:
 
-```
-Use: mcp__plugin_makato-core_jira__get_project_components
-  project: {targetProject}
-```
+Pattern: `specs/{slug}/{sequence:02d}-{story-slug}/`
 
-The tool call above returns an array of components. Find the one whose `name` equals `PI | {epic.pi}` after trimming whitespace and lowercasing both sides (e.g., `epic.pi` of `26/03` matches a component named `PI | 26/03`).
+Story slug rules:
 
-- Exactly one match → use its `id`
-- No match → filter the array to components whose `name` starts with `PI |`, present them to the user, and ask which to use (or abort)
-
----
-
-### Step 6: Prepare Creation Summary (Gate 1)
-
-Build a summary of what will be created/updated and present to the user:
-
-```
-AskUserQuestion:
-  question: "Ready to publish to Jira ({project}). Confirm creation plan?"
-  
-  Show:
-  - Epic: {epic.summary} [CREATE/UPDATE]
-  - Stories (N):
-    1. {story.summary} ({story.storyPoints} SP) [CREATE/UPDATE]
-    2. ...
-  - Subtasks: 4 per story (Implementation, QA Verification, Documentation, Automate acceptance test cases)
-  - Links: Epic→ITDB (Parent-Child), Stories→Epic (epicLink), Story→Story (Dependency)
-  
-  options:
-    - "Proceed with publish"
-    - "Abort"
-```
-
-If aborted → exit gracefully.
-
----
-
-### Step 7: Create/Update Epic
-
-Load @references/jira-field-mapping.md for field IDs.
-
-#### 7.1: Create or Update Epic
-
-If `epic.jiraKey` exists → update:
-```
-Use: mcp__plugin_makato-core_jira__update_issue
-  key: {epic.jiraKey}
-  summary: {epic.summary}
-  labels: {epic.labels}
-```
-
-If no `epic.jiraKey` → create:
-```
-Use: mcp__plugin_makato-core_jira__create_issue
-  project: {targetProject}
-  issuetype: "Epic"
-  summary: {epic.summary}
-  labels: {epic.labels}
-  components: ["PI | {epic.pi}"]
-```
-
-Save the returned key to `epic.jiraKey` in stories.json immediately.
-
-#### 7.2: Link Epic to ITDB Feature
-
-Create Parent-Child link (epic is child-of ITDB feature).
-
-Reads as: "ITDB feature is parent-of epic". The `Parent-Child` link type has outward = "parent-of", so `sourceIssue` is the parent and `targetIssue` is the child.
-
-```
-Use: mcp__plugin_makato-core_jira__create_issue_link
-  type: "Parent-Child"
-  sourceIssue: {feature}          (parent = ITDB feature key)
-  targetIssue: {epic.jiraKey}     (child = epic)
-```
-
----
-
-### Step 8: Create/Update Stories
-
-Load @references/dcp-story-panels.md for the description panel structure.
-
-For each story in `stories[]` (in sequence order):
-
-#### 8.1: Render Story Description
-
-Render the full Jira wiki markup description using the panel template:
-- Background panel ← `story.description.background`
-- Scope panel ← `story.description.scope`
-- Dependencies panel ← `story.externalDependencies` (rendered as bullet list, or "N/A")
-- Feature Toggle panel ← `story.description.featureToggle` fields
-- Success Scenario panel ← `story.description.successScenarios` (rendered as Gherkin)
-- Solution Approach panel ← `story.description.solutionApproach` (or placeholder text)
-- Acceptance Test Cases panel ← `story.description.acceptanceTestCases` (or placeholder text)
-- Wiki documentation panel ← `story.description.wikiDocumentation` (or placeholder text)
-- Out of Scope panel ← `story.description.outOfScope` (bullet list, or "N/A")
-
-Append a "Shaping Artifacts" panel with git links to PRD, design, prototype (only those that exist):
-```
-{panel:title=Shaping Artifacts|borderColor=#deebff|titleBGColor=#deebff|bgColor=#f0f7ff}
-* [PRD|{prdUrl}]
-* [Design|{designUrl}]
-* [Prototype|{prototypeUrl}]
-{panel}
-```
-
-Append a "Definition of Done" panel:
-```
-{panel:title=Definition of Done|borderColor=#e3fcef|titleBGColor=#e3fcef|bgColor=#f1fdf6}
-* {dod item 1}
-* {dod item 2}
-* ...
-{panel}
-```
-
-#### 8.2: Create or Update Story
-
-If `story.jiraKey` exists → update:
-```
-Use: mcp__plugin_makato-core_jira__update_issue
-  key: {story.jiraKey}
-  summary: {story.summary}
-  description: {renderedDescription}
-  labels: {story.labels}
-```
-
-If no `story.jiraKey` → create:
-```
-Use: mcp__plugin_makato-core_jira__create_issue
-  project: {targetProject}
-  issuetype: "Story"
-  summary: {story.summary}
-  description: {renderedDescription}
-  labels: {story.labels}
-  epicLink: {epic.jiraKey}
-  storyPoints: {story.storyPoints}
-```
-
-Set teams field (customfield_16240) if available in the MCP create_issue tool.
-
-Save the returned key to `story.jiraKey` in stories.json immediately after each creation.
-
----
-
-### Step 9: Create Subtasks
-
-Load @references/subtask-templates.md for the 4 subtask templates.
-
-For each story that was just created (has `jiraKey` but no `subtaskKeys`), create 4 subtasks:
-
-1. **Implementation** — empty description
-2. **QA Verification** — pre-populated with acceptance criteria from story's `successScenarios` + `acceptanceTestCases`
-3. **Documentation** — pre-populated with artifact links (git URLs, Confluence page once created)
-4. **Automate acceptance test cases** — pre-populated with Gherkin scenarios and test automation instructions
-
-For each subtask:
-```
-Use: mcp__plugin_makato-core_jira__create_issue
-  project: {targetProject}
-  issuetype: "Sub-Task"
-  parent: {story.jiraKey}
-  summary: {subtaskSummary}
-  description: {subtaskDescription from template}
-```
-
-Save subtask keys to `story.subtaskKeys` in stories.json as a keyed object (not an array), so downstream steps reference subtasks by name instead of by position:
-
-```json
-"subtaskKeys": {
-  "Implementation": "DCP-...",
-  "QA Verification": "DCP-...",
-  "Documentation": "DCP-...",
-  "Automate acceptance test cases": "DCP-..."
-}
-```
-
-> NOTE: Subtask content is pre-populated during publish but may be enriched further by the makato-build `refine` skill during sprint planning.
-
----
-
-### Step 10: Create Inter-Story Dependency Links
-
-For each story that has `dependencies.blockedBy` entries:
-
-Reads as: "this story depends on blocker". The `Dependency` link type has outward = "depends on", so `sourceIssue` is the dependent (blocked) story and `targetIssue` is the blocker.
-
-```
-Use: mcp__plugin_makato-core_jira__create_issue_link
-  type: "Dependency"
-  sourceIssue: {thisStory.jiraKey}            (this story "depends on" the other)
-  targetIssue: {blockerStory.jiraKey}         (the other story "has dependency")
-```
-
-Map sequence numbers from `blockedBy[]` to actual jiraKeys via the stories array.
-
-**Idempotency**: Skip links that already exist. Before creating each link, check `story.dependencyLinksCreated` (a boolean flag saved to stories.json after all dependency links for that story succeed). If the flag is set, skip that story's links entirely. After successfully creating all links for a story, set the flag. This prevents duplicate links on partial-run resume.
-
----
-
-### Step 11: Detect Confluence Domain (Gate 2 Preparation)
-
-Search for the feature's domain in Confluence hierarchy:
-
-```
-Use: mcp__plugin_makato-core_dcp-mcp-wiki__get_child_pages
-  pageId: "2134905309"    (Functional Documentation root in DCPL)
-```
-
-This returns domain pages. For each domain page, check its children for "Feature Specifications - {Domain}" pages.
-
-Heuristic for domain detection:
-1. Check if ITDB feature has a domain label or component
-2. Match against Confluence domain page names
-3. If ambiguous → ask user
-
----
-
-### Step 12: Confirm Confluence Page (Gate 2)
-
-```
-AskUserQuestion:
-  question: "Ready to create Confluence spec page. Confirm placement?"
-  
-  Show:
-  - Space: DCPL
-  - Parent page: "Feature Specifications - {Domain}"
-  - Page title: "Spec - {epic.summary stripped of tag} ({ITDB-key})"
-  
-  options:
-    - "Create page"
-    - "Change parent page"
-    - "Skip Confluence"
-```
-
-If "Change parent page" → ask for parent page ID or let user search.
-If "Skip" → proceed to Step 15 without creating page.
-
----
-
-### Step 13: Create/Update Confluence Spec Page
-
-Load @references/confluence-page-template.md for the XHTML structure.
-
-Build a stakeholder overview page containing:
-- Feature objective (from `epic.objective`)
-- Epic link (Jira URL)
-- Story summary table (sequence, title, SP, status, Jira link)
-- Links to shaping artifacts (PRD, Design, Prototype — git URLs)
-- Phase breakdown (foundation → happy-path → edge-cases)
-
-If `confluencePageId` exists in stories.json → update:
-```
-Use: mcp__plugin_makato-core_dcp-mcp-wiki__update_page
-  pageId: {confluencePageId}
-  title: {pageTitle}
-  content: {renderedXhtml}
-```
-
-If no `confluencePageId` → create:
-```
-Use: mcp__plugin_makato-core_dcp-mcp-wiki__create_page
-  spaceKey: "DCPL"
-  parentId: {parentPageId from Step 12}
-  title: {pageTitle}
-  content: {renderedXhtml}
-```
-
-Save the Confluence page ID to stories.json as `confluencePageId` immediately after creation.
-
----
-
-### Step 14: Update Documentation Subtasks
-
-After the Confluence page is created, update each story's Documentation subtask to include the Confluence link:
-
-```
-Use: mcp__plugin_makato-core_jira__update_issue
-  key: {story.subtaskKeys["Documentation"]}
-  description: {updated description with Confluence link added}
-```
-
-Only run this step if a Confluence page was created in Step 13 (skip if user chose "Skip Confluence").
-
----
-
-### Step 15: Create Epic & Story Folders
-
-After all Jira keys are known, create the folder hierarchy inside the spec folder. The spec folder itself (e.g., `specs/ITDB-1234-feature-name/`) stays unchanged — it's the stable workspace for all shaping artifacts.
-
-#### 15.1: Create Epic Folder
-
-Inside the spec folder, create a subfolder for the epic:
-
-Pattern: `{epicKey}-{slugified-summary}`
-
-Slug rules:
-- Take `epic.summary`
-- Strip the `[Component]` prefix tag if present
-- Lowercase, replace spaces with hyphens
-- Remove special characters
-- Truncate to reasonable length (max 60 chars)
+- Take `story.summary`
+- Strip any `[Component]` prefix tag if present
+- Lowercase, replace spaces and special chars with hyphens
+- Truncate to 60 chars
 
 ```bash
-mkdir -p specs/{spec-folder}/{epicKey}-{slug}
+mkdir -p specs/{slug}/01-{story-1-slug}/
+touch specs/{slug}/01-{story-1-slug}/.gitkeep
+# repeat for each story
 ```
 
-#### 15.2: Create Story Folders
+Example after publish:
 
-Inside the epic folder, create one subfolder per story:
-
-Pattern: `{storyKey}-{slugified-summary}`
-
-Slug rules same as above (strip `[Component]` tag, kebab-case, max 60 chars).
-
-```bash
-mkdir -p specs/{spec-folder}/{epicKey}-{slug}/{storyKey}-{slug}
-```
-
-Example structure after publish:
-```
-specs/ITDB-1234-checkout-redesign/
+```text
+specs/checkout-redesign/
 ├── brainstorm.md
 ├── prd.md
 ├── design.md
-├── prototype.html
-├── decisions.md
 ├── stories.json
-└── DCP-56000-redesign-checkout-flow/
-    ├── DCP-56001-cart-validation-service-foundation/
-    ├── DCP-56002-realtime-validation-errors-cart-ui/
-    ├── DCP-56003-quantity-limit-validation-rule/
-    └── DCP-56004-validation-timeout-degraded-mode/
-```
-
-These folders are empty at publish time — they serve as named anchors indicating that the Jira epic and stories exist. The makato-build `refine` skill populates them with implementation context during sprint planning.
-
-Add a `.gitkeep` in each story folder so git tracks them:
-```bash
-touch specs/{spec-folder}/{epicKey}-{slug}/{storyKey}-{slug}/.gitkeep
+├── handoff.md
+├── 01-cart-validation-service/
+│   └── .gitkeep
+├── 02-realtime-cart-errors/
+│   └── .gitkeep
+└── 03-quantity-limit-rule/
+    └── .gitkeep
 ```
 
 ---
 
-### Step 16: Final Summary
+### Step 6: Check for GitHub Provider Config
 
-Present the complete publish result:
+Read `makato.config.yml` from the repository root (the directory containing the `specs/` folder):
 
+```bash
+cat makato.config.yml 2>/dev/null
 ```
-✓ Published to {project}
 
-Epic: {epicKey} — {epic.summary}
-  ↳ linked to {ITDB-key} (Parent-Child)
-  ↳ component: PI | {pi}
+If the file is absent or `provider` is not `github` → skip to Step 10 (final summary).
+If `provider: github` → continue to Step 7.
 
-Stories:
-  1. {storyKey} — {story.summary} ({SP} SP)
-     ↳ 4 subtasks created
-  2. ...
+---
 
-Dependency links: {N} created
-Confluence: {pageTitle} (page ID: {pageId})
-Folders: {epicKey}-{slug}/ with {N} story subfolders created
+### Step 7: Resolve GitHub Repo Target
 
-stories.json updated with all jiraKeys.
-Jira is now the source of truth for these stories.
+Read `github.repo` from `makato.config.yml`. If absent, ask:
+
+```text
+AskUserQuestion:
+  question: "Which GitHub repo should the Issues be created in?"
+  (free-form answer: owner/repo-name)
+```
+
+Store as `{owner}/{repo}` for all subsequent GitHub operations.
+
+---
+
+### Step 8: Confirm GitHub Creation Plan
+
+```text
+AskUserQuestion:
+  question: "Ready to create GitHub Issues in {owner}/{repo}. Confirm?"
+
+  Show:
+  - Epic label: epic:{slug}
+  - Issues ({N}):
+    1. {story.summary} ({story.storyPoints} SP) [CREATE]
+    2. ...
+
+  options:
+    - "Proceed"
+    - "Abort"
+```
+
+If aborted → skip to Step 10 (print local-only summary).
+
+---
+
+### Step 9: Create GitHub Epic Tracking Issue and Story Issues
+
+#### 9.1: Create Epic Label
+
+Create a label to group all stories under this epic:
+
+```text
+mcp: mcp__plugin_general_github-mcp__create_issue(
+  owner: {owner},
+  repo: {repo},
+  title: "[epic] {epic.summary}",
+  body: "**Objective:** {epic.objective}\n\nThis is the tracking issue for the `{slug}` epic. All story issues will be labelled `epic:{slug}`."
+)
+```
+
+Save the returned issue number as the epic tracking issue. All story issues will reference this via the `epic:{slug}` label.
+
+#### 9.2: Create One Issue per Story
+
+Load @references/github-issue-template.md for the issue body template.
+
+For each story in sequence order:
+
+If `story.githubIssue` already exists → skip (idempotency).
+
+Render the issue body from the template using the story fields, then:
+
+```text
+mcp: mcp__plugin_general_github-mcp__create_issue(
+  owner: {owner},
+  repo: {repo},
+  title: "[{story.phase}] {story.summary}",
+  body: {renderedBody},
+  labels: {story.labels combined with ["epic:{slug}"]}
+)
+```
+
+Save the returned issue number to `story.githubIssue` in `stories.json` immediately after each creation.
+
+---
+
+### Step 10: Final Summary
+
+Print the complete publish result:
+
+```text
+✓ Publish complete
+
+Spec folder: specs/{slug}/
+handoff.md: written
+Story folders: {N} created (01-{slug}/ … {N:02d}-{slug}/)
+
+{if GitHub provider was used:}
+GitHub: {owner}/{repo}
+  Epic tracking issue: #{epicIssueNumber} — {epic.summary}
+  Stories:
+    1. #{issueNumber} — {story.summary}
+    2. ...
+{end if}
+
+{if local-only:}
+GitHub Issues: skipped (no provider configured in makato.config.yml)
+To enable: add `provider: github` to makato.config.yml
+{end if}
 ```
 
 ---
 
 ## Error Handling
 
-- **Stop on error**: If any Jira/Confluence operation fails, stop immediately and report the error.
-- **Progress saved**: After each successful creation, the jiraKey is written to stories.json. A re-run will skip already-created items.
-- **No duplicates**: The create-or-update pattern ensures re-running publish is always safe.
-- **Rate limiting**: Add a brief pause between Jira API calls to avoid overwhelming the server.
+- **Stop on error**: if any GitHub operation fails, stop immediately and report the error.
+- **Progress saved**: after each successful issue creation, `githubIssue` is written to `stories.json`. A re-run will skip already-created items.
+- **Local handoff always succeeds**: Steps 4 and 5 (handoff.md and folders) never depend on GitHub — they always run regardless of provider config.
