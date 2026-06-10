@@ -1,31 +1,37 @@
 # Team-Repository Mapping
 
-## DCP Teams and Primary Repositories
+## Usage
+
+During decomposition, stories are assigned to teams based on which repositories
+they touch. This file holds the mapping for the current project.
+
+**This file is project-specific** — update it with the actual teams and repositories
+for the project you are working on. The entries below are examples only.
+
+## Example Mapping
 
 | Team | Repositories | Focus |
 |------|-------------|-------|
-| DCP Core One | commerce-ui-libs, storefront-core | Core storefront UI, shared components |
-| DCP Core Two | pstore-ui, express-checkout | Purchase store UI, checkout flows |
-| DCP Indirect Two | ps-lambda-cart-decorator, inno-services | Cart decoration, innovation services |
-| DCP Ext One | ps-lambda-cart-validation, ps-lambda-product-determination | Cart validation, product determination |
-
-## Usage Notes
-
-- This mapping is a starting point. Always confirm team assignment with the user during the interview.
-- A story may involve multiple teams (multi-select in Jira).
-- If a repository is not listed here, ask the user which team owns it.
-- The Jira field for teams is `customfield_16240` ("Team(s)") — a multi-select option field.
+| Platform | platform-core, shared-libs | Shared infrastructure and utilities |
+| Frontend | web-app, mobile-app | User-facing interfaces |
+| Backend | api-service, data-service | Business logic and data access |
 
 ## Mapping Logic
 
 1. Identify repositories from `repositories.yml`
-2. Match to teams using this table
+2. Match to teams using the table above
 3. Present proposed mapping to user for confirmation
-4. If story touches repos from multiple teams → assign all relevant teams
+4. If a story touches repos from multiple teams → assign all relevant teams
 5. If a story is pure integration (no single repo owns it) → assign the team closest to the user-facing outcome
 
 ## When Mapping Fails
 
 If the user identifies a repository or team not in this table:
+
 - Accept their input as authoritative
-- Note: this reference should be updated in a future PR to include new mappings
+- Note: this reference should be updated with new mappings for future sessions
+
+## teams Field in stories.json
+
+`stories[].teams` is a free-text string array. Enter team names exactly as your
+project uses them. There is no fixed allowlist.
