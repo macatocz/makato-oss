@@ -208,7 +208,7 @@ body {
 <!--
   TEMPLATE INSTRUCTIONS:
   Replace all <placeholder> values when generating the review.
-  - <feature-name>: ITDB key and feature title
+  - <feature-name>: feature slug and title
   - <total-stories>: Number of stories processed
   - <total-scenarios>: Total scenarios across all stories
   - <violations-fixed>: Anti-pattern violations caught and fixed
@@ -297,8 +297,8 @@ body {
       <h1 class="slide-title">Next Steps</h1>
       <ul style="font-size: 15px; line-height: 2;">
         <li>Click <strong>"Copy Feedback"</strong> to send comments back, or say <strong>"approved"</strong> to write to stories.json</li>
-        <li>After approval: run <code>/publish</code> to create Jira epic and stories with embedded acceptance tests</li>
-        <li>During implementation: QA creates DCPAT tickets from these scenarios</li>
+        <li>After approval: run <code>/publish</code> to create handoff and optionally GitHub Issues</li>
+        <li>During implementation: QA creates implementation tasks from these scenarios</li>
       </ul>
       <div class="feedback-area">
         <label>Final notes</label>

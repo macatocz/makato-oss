@@ -248,7 +248,7 @@ body {
 .story-card-teams { font-family: var(--font-mono); font-size: 10px; color: var(--muted); }
 .story-card-deps { font-family: var(--font-mono); font-size: 10px; color: var(--amber); margin-top: 6px; }
 
-/* Details metadata box (Jira-like) */
+/* Details metadata box */
 .details-box {
   background: var(--surface-2); border: 1px solid var(--border);
   border-radius: var(--radius-lg); margin-bottom: 20px; overflow: hidden;
@@ -309,54 +309,54 @@ body {
 }
 .desc-header::before { content: '\25BE'; color: var(--muted); font-size: 10px; }
 
-/* Jira-style colored panels */
-.jira-panel {
+/* Story-style colored panels */
+.story-panel {
   border-radius: var(--radius-md); margin-bottom: 16px; overflow: hidden;
 }
-.jira-panel-title {
+.story-panel-title {
   font-size: 13px; font-weight: 700; padding: 8px 14px;
 }
-.jira-panel-body { padding: 12px 14px; font-size: 13px; line-height: 1.7; }
-.jira-panel-body ul { padding-left: 1.4rem; margin: 4px 0; }
-.jira-panel-body li { margin: 4px 0; }
+.story-panel-body { padding: 12px 14px; font-size: 13px; line-height: 1.7; }
+.story-panel-body ul { padding-left: 1.4rem; margin: 4px 0; }
+.story-panel-body li { margin: 4px 0; }
 
-.jira-panel.background { background: #f0f9ff; border: 1px solid #e0f2fe; }
-.jira-panel.background .jira-panel-title { color: #0c4a6e; }
-.jira-panel.scope { background: #eff6ff; border: 1px solid #dbeafe; }
-.jira-panel.scope .jira-panel-title { color: #1e40af; }
-.jira-panel.toggle { background: #faf5ff; border: 1px solid #f3e8ff; }
-.jira-panel.toggle .jira-panel-title { color: #6b21a8; }
-.jira-panel.scenarios { background: #f0fdf4; border: 1px solid #dcfce7; }
-.jira-panel.scenarios .jira-panel-title { color: #166534; }
-.jira-panel.solution { background: #fefce8; border: 1px solid #fef9c3; }
-.jira-panel.solution .jira-panel-title { color: #854d0e; }
-.jira-panel.acceptance { background: #fff7ed; border: 1px solid #ffedd5; }
-.jira-panel.acceptance .jira-panel-title { color: #9a3412; }
-.jira-panel.wiki { background: #f8fafc; border: 1px solid #f1f5f9; }
-.jira-panel.wiki .jira-panel-title { color: #475569; }
-.jira-panel.oos { background: #fefefe; border: 1px solid #f5f5f5; }
-.jira-panel.oos .jira-panel-title { color: #374151; }
-.jira-panel.testing { background: #ecfeff; border: 1px solid #cffafe; }
-.jira-panel.testing .jira-panel-title { color: #155e75; }
+.story-panel.background { background: #f0f9ff; border: 1px solid #e0f2fe; }
+.story-panel.background .story-panel-title { color: #0c4a6e; }
+.story-panel.scope { background: #eff6ff; border: 1px solid #dbeafe; }
+.story-panel.scope .story-panel-title { color: #1e40af; }
+.story-panel.toggle { background: #faf5ff; border: 1px solid #f3e8ff; }
+.story-panel.toggle .story-panel-title { color: #6b21a8; }
+.story-panel.scenarios { background: #f0fdf4; border: 1px solid #dcfce7; }
+.story-panel.scenarios .story-panel-title { color: #166534; }
+.story-panel.solution { background: #fefce8; border: 1px solid #fef9c3; }
+.story-panel.solution .story-panel-title { color: #854d0e; }
+.story-panel.acceptance { background: #fff7ed; border: 1px solid #ffedd5; }
+.story-panel.acceptance .story-panel-title { color: #9a3412; }
+.story-panel.wiki { background: #f8fafc; border: 1px solid #f1f5f9; }
+.story-panel.wiki .story-panel-title { color: #475569; }
+.story-panel.oos { background: #fefefe; border: 1px solid #f5f5f5; }
+.story-panel.oos .story-panel-title { color: #374151; }
+.story-panel.testing { background: #ecfeff; border: 1px solid #cffafe; }
+.story-panel.testing .story-panel-title { color: #155e75; }
 
-[data-theme="dark"] .jira-panel.background { background: rgba(14,165,233,0.06); border-color: rgba(14,165,233,0.15); }
-[data-theme="dark"] .jira-panel.background .jira-panel-title { color: var(--cyan); }
-[data-theme="dark"] .jira-panel.scope { background: rgba(59,130,246,0.06); border-color: rgba(59,130,246,0.15); }
-[data-theme="dark"] .jira-panel.scope .jira-panel-title { color: var(--accent-light); }
-[data-theme="dark"] .jira-panel.toggle { background: rgba(167,139,250,0.06); border-color: rgba(167,139,250,0.15); }
-[data-theme="dark"] .jira-panel.toggle .jira-panel-title { color: var(--purple); }
-[data-theme="dark"] .jira-panel.scenarios { background: rgba(52,211,153,0.06); border-color: rgba(52,211,153,0.15); }
-[data-theme="dark"] .jira-panel.scenarios .jira-panel-title { color: var(--green); }
-[data-theme="dark"] .jira-panel.solution { background: rgba(251,191,36,0.06); border-color: rgba(251,191,36,0.15); }
-[data-theme="dark"] .jira-panel.solution .jira-panel-title { color: var(--amber); }
-[data-theme="dark"] .jira-panel.acceptance { background: rgba(251,146,60,0.06); border-color: rgba(251,146,60,0.12); }
-[data-theme="dark"] .jira-panel.acceptance .jira-panel-title { color: #fb923c; }
-[data-theme="dark"] .jira-panel.wiki { background: var(--surface-2); border-color: var(--border); }
-[data-theme="dark"] .jira-panel.wiki .jira-panel-title { color: var(--muted); }
-[data-theme="dark"] .jira-panel.oos { background: var(--surface-2); border-color: var(--border); }
-[data-theme="dark"] .jira-panel.oos .jira-panel-title { color: var(--muted); }
-[data-theme="dark"] .jira-panel.testing { background: rgba(34,211,238,0.06); border-color: rgba(34,211,238,0.12); }
-[data-theme="dark"] .jira-panel.testing .jira-panel-title { color: var(--cyan); }
+[data-theme="dark"] .story-panel.background { background: rgba(14,165,233,0.06); border-color: rgba(14,165,233,0.15); }
+[data-theme="dark"] .story-panel.background .story-panel-title { color: var(--cyan); }
+[data-theme="dark"] .story-panel.scope { background: rgba(59,130,246,0.06); border-color: rgba(59,130,246,0.15); }
+[data-theme="dark"] .story-panel.scope .story-panel-title { color: var(--accent-light); }
+[data-theme="dark"] .story-panel.toggle { background: rgba(167,139,250,0.06); border-color: rgba(167,139,250,0.15); }
+[data-theme="dark"] .story-panel.toggle .story-panel-title { color: var(--purple); }
+[data-theme="dark"] .story-panel.scenarios { background: rgba(52,211,153,0.06); border-color: rgba(52,211,153,0.15); }
+[data-theme="dark"] .story-panel.scenarios .story-panel-title { color: var(--green); }
+[data-theme="dark"] .story-panel.solution { background: rgba(251,191,36,0.06); border-color: rgba(251,191,36,0.15); }
+[data-theme="dark"] .story-panel.solution .story-panel-title { color: var(--amber); }
+[data-theme="dark"] .story-panel.acceptance { background: rgba(251,146,60,0.06); border-color: rgba(251,146,60,0.12); }
+[data-theme="dark"] .story-panel.acceptance .story-panel-title { color: #fb923c; }
+[data-theme="dark"] .story-panel.wiki { background: var(--surface-2); border-color: var(--border); }
+[data-theme="dark"] .story-panel.wiki .story-panel-title { color: var(--muted); }
+[data-theme="dark"] .story-panel.oos { background: var(--surface-2); border-color: var(--border); }
+[data-theme="dark"] .story-panel.oos .story-panel-title { color: var(--muted); }
+[data-theme="dark"] .story-panel.testing { background: rgba(34,211,238,0.06); border-color: rgba(34,211,238,0.12); }
+[data-theme="dark"] .story-panel.testing .story-panel-title { color: var(--cyan); }
 
 /* Gherkin block */
 .gherkin-block {
@@ -451,7 +451,7 @@ body {
     </div>
   </div>
 
-  <!-- Slides 2-N: One per story (Jira card style) -->
+  <!-- Slides 2-N: One per story -->
   {{STORY_SLIDES_HTML}}
 
   <!-- Final Slide: Dependency graph & summary -->

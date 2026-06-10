@@ -1,13 +1,13 @@
 {
   "version": "1.0",
-  "feature": "<ITDB-KEY>",
+  "slug": "<slug>",
   "created": "<YYYY-MM-DD>",
   "status": "draft",
   "epic": {
     "summary": "[Feature Tag] Epic title",
     "objective": "One-line objective statement",
     "pi": "<YY/MM>",
-    "labels": ["makato", "pi_planning"]
+    "labels": ["makato"]
   },
   "stories": [
     {
