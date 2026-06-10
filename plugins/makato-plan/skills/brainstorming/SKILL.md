@@ -1,17 +1,21 @@
 ---
 name: brainstorming
-description: Structured divergent-convergent ideation on a Jira ITDB feature — brainstorm, explore ideas, creative exploration. Use when starting a new feature that needs ideation before PRD.
-version: "1.1.6"
+description: >-
+  Structured divergent-convergent ideation on a feature — brainstorm, explore ideas, creative
+  exploration. Use when starting a new feature that needs ideation before PRD.
+version: "1.2.0"
 model: opus
 ---
 
 # Brainstorming Ideas Into Designs
 
-Structured exploration of a Jira ITDB feature through divergent ideation (62 techniques) followed by convergent selection (top 3-5 concepts with rationale). Produces documented decisions ready for grilling and PRD creation.
+Structured exploration of a feature through divergent ideation (62 techniques) followed by
+convergent selection (top 3-5 concepts with rationale). Produces documented decisions ready for
+grilling and PRD creation.
 
 ## When to Use
 
-- Starting work on a new ITDB feature that needs creative exploration
+- Starting work on a new feature that needs creative exploration
 - Need structured ideation before committing to an approach
 - Want to ensure all angles are explored before PRD
 - Comparing multiple approaches to a feature
@@ -21,48 +25,84 @@ Structured exploration of a Jira ITDB feature through divergent ideation (62 tec
 - Feature is already well-defined with clear requirements (go straight to PRD)
 - Quick bug fix or small change (no brainstorming needed)
 - Technical refinement of already-pland stories
-- No ITDB exists — this skill requires a Jira feature as input
 
 ---
 
 ## Workflow
 
-### Step 1: Load ITDB Feature
+### Step 1: Detect Feature Origin
 
-Ask the user for the Jira feature key (ITDB). **An ITDB is required** — this skill does not support brainstorming without a Jira feature. If the user has no ITDB, they need to create one first.
+When the user runs `/brainstorming [arg]`, detect the origin in this order:
 
-Use Jira MCP to fetch the issue:
+**1. GitHub Issue** — arg matches `https://github.com/owner/repo/issues/123` or short form
+`owner/repo#123`:
+
+Use the GitHub MCP to fetch the issue:
+
+```text
+mcp: mcp__plugin_general_github-mcp__get_issue(owner, repo, issue_number)
 ```
-mcp: get_issue(key: "{ITDB_KEY}")
+
+Extract: title, body. Slug is derived from the issue title (kebab-case, max 60 chars).
+Record `source: "github:{owner}/{repo}#{number}"` — this will be written to `stories.json` later.
+
+Offer to import attachments if any exist on the issue.
+
+**2. Existing slug** — `specs/{arg}/` directory exists on disk:
+
+```bash
+ls specs/{arg}/
 ```
 
-Extract: summary, description, acceptance criteria, linked epics.
+If found → resume prior session. Load existing `brainstorm.md` and `decisions.md`.
 
-Present a brief summary and confirm this is the feature to brainstorm.
+**3. Plain text** — any other non-empty arg:
 
-Determine the spec folder path: `specs/{ITDB-KEY}-{slug}/` where slug is a short kebab-case name derived from the feature summary (e.g., `specs/ITDB-12345-checkout-redesign/`).
+Use the arg as the feature description. Derive the slug from it:
+
+- Lowercase, replace spaces and special chars with hyphens
+- Truncate to 60 chars
+- Example: "Checkout cart redesign" → `checkout-cart-redesign`
+
+**4. No arg** — auto-detect most recently modified `specs/*/` folder:
+
+```bash
+ls -td specs/*/ | head -1
+```
+
+If a folder exists → offer to resume it. If no `specs/` folder or user declines → prompt:
+"Describe the feature in one line:" and derive slug from their answer.
 
 ---
 
-### Step 1.1: Import Attachments
+After detecting origin, determine the spec folder path: `specs/{slug}/`
+
+Present a brief summary and confirm this is the feature to brainstorm.
+
+---
+
+### Step 1.1: Import Attachments (GitHub Issue origin only)
+
+Skip this step if origin was plain text or existing slug with no new attachments.
 
 Check if reference files already exist:
-```
-ls specs/*{ITDB-KEY}*/reference/original/
+
+```bash
+ls specs/{slug}/reference/original/
 ```
 
-**If `reference/original/` exists and is non-empty**: prior import completed. Load converted markdown from `reference/*.md` and images from `reference/original/` as context. Inform the user:
+**If `reference/original/` exists and is non-empty**: prior import completed. Load converted
+markdown from `reference/*.md` and images from `reference/original/` as context. Inform the user:
+
 > "Found existing reference files — loading as context."
 
-**If no reference directory or empty**: Use Jira MCP to check for attachments:
-```
-mcp: list_attachments(key: "{ITDB_KEY}")
-```
+**If no reference directory or empty**: check for attachments on the GitHub Issue.
 
 If attachments exist, offer download:
-```
+
+```text
 AskUserQuestion:
-  question: "ITDB has {N} attachments. Import for brainstorming context?"
+  question: "Issue has {N} attachments. Import for brainstorming context?"
   options:
     - "Yes — download all (Recommended)"
     - "Images only"
@@ -70,68 +110,84 @@ AskUserQuestion:
 ```
 
 **If "Yes — download all" accepted:**
-1. Download **every** attachment — images included — to `specs/{ITDB-KEY}-{slug}/reference/original/`. The Jira MCP `download_attachment` tool returns base64; for images it also streams the bytes for visual inspection. **Visual inspection does not save the file.** You must still write the decoded bytes to disk for every attachment, including images. Skipping the write step for images because you "already saw them" is a bug.
-   ```
-   mcp: download_attachment(key: "{ITDB_KEY}", attachmentId: "{id}")
-   # then write base64-decoded bytes to specs/{ITDB-KEY}-{slug}/reference/original/{filename}
-   ```
+
+1. Download every attachment to `specs/{slug}/reference/original/`. Write base64-decoded bytes
+   to disk for every attachment — visual inspection is not a substitute for the write step.
+   Skipping the write step is a bug.
+
 2. Resolve the absolute path to the reference directory:
+
+   ```bash
+   realpath specs/{slug}/reference/original/
    ```
-   realpath specs/{ITDB-KEY}-{slug}/reference/original/
-   ```
+
 3. Convert non-image files to markdown using markitdown:
+
+   ```text
+   mcp: markitdown convert_to_markdown(uri: "file://{resolved_path}/{filename}")
    ```
-   mcp: markitdown convert_to_markdown(uri: "file://{resolved_absolute_path}/{filename}")
-   ```
-   Save output as `specs/{ITDB-KEY}-{slug}/reference/{filename}.md` (replacing the original extension with `.md`).
+
+   Save output as `specs/{slug}/reference/{filename}.md`.
+
 4. Verify every attachment landed on disk before continuing:
+
+   ```bash
+   ls specs/{slug}/reference/original/
    ```
-   ls specs/{ITDB-KEY}-{slug}/reference/original/
-   ```
-   The count and filenames must match `list_attachments`. If anything is missing, re-download it.
-5. Images remain in `reference/original/` — read them visually via the Read tool (multimodal) when needed during ideation.
+
+5. Images remain in `reference/original/` — read them visually via the Read tool (multimodal)
+   when needed during ideation.
 
 **If "Images only" accepted:**
-1. Download image attachments to `specs/{ITDB-KEY}-{slug}/reference/original/` by writing the base64-decoded bytes to disk for **each** image. Visual inspection in the tool result is not a substitute — the file must exist on disk.
-2. Verify with `ls specs/{ITDB-KEY}-{slug}/reference/original/` that every image is saved.
-3. No conversion step — images are read visually via the Read tool when needed.
+
+1. Download image attachments to `specs/{slug}/reference/original/`.
+2. Verify with `ls specs/{slug}/reference/original/` that every image is saved.
+3. No conversion step.
 
 **Directory layout:**
-```
+
+```text
 reference/
-├── INNO - PLT Discount.md      ← converted markdown (what skills consume as text)
+├── feature-brief.md      ← converted markdown (what skills consume as text)
 └── original/
-    ├── INNO - PLT Discount.pptx  ← source binary (provenance)
-    └── screenshot.png             ← images read directly via Read tool
+    ├── feature-brief.pptx  ← source binary (provenance)
+    └── screenshot.png       ← images read directly via Read tool
 ```
 
-Use the markdown files in `reference/` as text context during ideation. For images in `reference/original/`, describe them visually using the Read tool (multimodal). For unsupported formats, note that the file exists but content couldn't be extracted.
+Use markdown files in `reference/` as text context. For images in `reference/original/`,
+describe them visually using the Read tool (multimodal).
 
 ---
 
 ### Step 1.2: Scan Repository Context
 
-Spawn the `context-scout` agent with the ITDB summary and keywords. Include in the dispatch prompt: the feature summary, extracted keywords, and instruction to return synthesized insights (not file paths).
+Spawn the `context-scout` agent with the feature summary and keywords. Include in the dispatch
+prompt: the feature summary, extracted keywords, and instruction to return synthesized insights
+(not file paths).
 
-The agent scans `context/{REPO_NAME}/` directories and returns distilled findings — 2-3 sentences per relevant area covering constraints, existing patterns, and architectural decisions.
+The agent scans `context/{REPO_NAME}/` directories and returns distilled findings — 2-3 sentences
+per relevant area covering constraints, existing patterns, and architectural decisions.
 
 **If no `context/` directory exists**: skip this step silently. Note:
-> "No repository context found — proceeding with ITDB information only."
 
-Use the scout's synthesized findings directly as background context for ideation. Do not re-read the underlying files.
+> "No repository context found — proceeding with feature information only."
+
+Use the scout's synthesized findings directly as background context for ideation. Do not re-read
+the underlying files.
 
 ---
 
 ### Step 1.3: Open Questions Startup Check
 
 Check if a decisions file already exists for this feature:
-```
-ls specs/*{ITDB-KEY}*/decisions.md
+
+```bash
+ls specs/{slug}/decisions.md
 ```
 
 If found, read the Open Questions table. If questions exist:
 
-```
+```text
 AskUserQuestion:
   question: "Found {N} open questions from a prior session. Revisit any before starting?"
   options:
@@ -140,25 +196,31 @@ AskUserQuestion:
 ```
 
 If yes: present each open question and resolve or re-park.
+After all questions are resolved or re-parked, proceed to Step 2.
 
 ---
 
 ### Step 2: Session Setup
 
 Check for existing brainstorm:
-```
-ls specs/*{ITDB-KEY}*/brainstorm.md
+
+```bash
+ls specs/{slug}/brainstorm.md
 ```
 
 **If found**: offer to continue from where it left off or start fresh.
 
+- If continuing: skip to Step 3 (Technique Selection) — goals and constraints are already set.
+- If starting fresh: proceed through the Session Setup steps below.
+
 **If new session**:
-1. Confirm the brainstorming topic (derived from ITDB + context)
+
+1. Confirm the brainstorming topic (derived from feature description + context)
 2. Set goals: what does a successful brainstorm look like?
-3. Identify known constraints (from ITDB + context-scout + attachments)
+3. Identify known constraints (from feature description + context-scout + attachments)
 4. Ask time available:
 
-```
+```text
 AskUserQuestion:
   question: "How much time for this brainstorming session?"
   options:
@@ -174,19 +236,23 @@ AskUserQuestion:
 Load @references/techniques.md
 
 Present selection options:
-```
+
+```text
 AskUserQuestion:
   question: "How should we pick brainstorming techniques?"
   options:
-    - "AI-recommended based on the ITDB type (Recommended)"
+    - "AI-recommended based on the feature type (Recommended)"
     - "Browse by category and pick"
     - "Random selection"
     - "Quick start: 5 Whys + Mind Mapping"
 ```
 
-For AI-recommended: analyze the ITDB content and suggest 2-3 techniques from different categories that fit the problem type (e.g., deep analysis for ambiguous problems, creative for UX features).
+For AI-recommended: analyze the feature description and suggest 2-3 techniques from different
+categories that fit the problem type (e.g., deep analysis for ambiguous problems, creative for
+UX features).
 
-Require at least 2 techniques before proceeding (unless Quick 15-min session — 1 technique is fine).
+Require at least 2 techniques before proceeding (unless Quick 15-min session — 1 technique is
+fine).
 
 ---
 
@@ -195,6 +261,7 @@ Require at least 2 techniques before proceeding (unless Quick 15-min session —
 Load @references/facilitation-rules.md
 
 Apply selected techniques one at a time. For each technique:
+
 1. Explain it briefly to the user
 2. Facilitate: ask probing questions that pull ideas OUT of the user
 3. Track idea count visibly: "That's idea #23. Let's keep going!"
@@ -202,21 +269,28 @@ Apply selected techniques one at a time. For each technique:
 **Convergence gate (coverage-based, NOT number-based):**
 
 Before moving to Step 5, verify:
+
 - At least 2 techniques have been applied (1 for Quick mode)
-- At least 3 domain perspectives have been explored: User/UX, Business/Value, Process/Operations, Edge cases/Risks
+- At least 3 domain perspectives have been explored: User/UX, Business/Value,
+  Process/Operations, Edge cases/Risks
 
-Track idea count as a motivational metric but do not block on it. If the user feels they've covered enough ground, let them move on.
+Track idea count as a motivational metric but do not block on it. If the user feels they've
+covered enough ground, let them move on.
 
-**Anti-bias pivot** — every ~10 ideas or when the user gets repetitive, prompt a perspective shift:
+**Anti-bias pivot** — every ~10 ideas or when the user gets repetitive, prompt a perspective
+shift:
+
 - User/UX perspective → Business/Value perspective
 - Business/Value → Process/Operations
 - Process/Operations → Edge cases/Risks
 
 **Energy checkpoint** every 4-5 exchanges.
 
-**If the user is stuck**: offer a starting angle from the current technique rather than generating ideas for them.
+**If the user is stuck**: offer a starting angle from the current technique rather than generating
+ideas for them.
 
-**Parking questions**: If an unanswerable question surfaces during ideation, park it (note as Q# for later persistence to decisions.md). Load @references/open-questions.md for parking rules.
+**Parking questions**: If an unanswerable question surfaces during ideation, park it (note as Q#
+for later persistence to decisions.md). Load @references/open-questions.md for parking rules.
 
 ---
 
@@ -225,11 +299,13 @@ Track idea count as a motivational metric but do not block on it. If the user fe
 Review all generated ideas. Cluster into 5-8 themes.
 
 For each theme:
+
 - Give it a memorable name (e.g., "Speed Demons", "Safety Nets", "User Delight")
 - List which ideas belong to it
 - Extract insight: what does this cluster tell us?
 
-Present the themed clusters to the user. Ask if any ideas are miscategorized or if they see patterns the clustering missed.
+Present the themed clusters to the user. Ask if any ideas are miscategorized or if they see
+patterns the clustering missed.
 
 ---
 
@@ -238,12 +314,14 @@ Present the themed clusters to the user. Ask if any ideas are miscategorized or 
 For each theme, ask the user to rate 1-5 (or skip).
 
 Select top 3-5 ideas from highest-rated themes. For each finalist:
+
 - Problem it solves
 - High-level approach
 - Key risks
 - Why better than alternatives considered
 
-**Capture rejected options with rationale.** Future team members will re-propose them without understanding why they were dismissed.
+**Capture rejected options with rationale.** Future team members will re-propose them without
+understanding why they were dismissed.
 
 Rank final concepts by recommendation strength.
 
@@ -252,29 +330,44 @@ Rank final concepts by recommendation strength.
 ### Step 7: HTML Review & Approval Gate
 
 Dispatch the `doc-writer` agent to generate the HTML review. Include in the prompt:
+
 - **MODE**: html-review
 - **TEMPLATE_PATH**: the absolute path to this skill's `templates/brainstorm-review.html`
-- **OUTPUT_PATH**: `specs/{ITDB-KEY}-{slug}/reviews/brainstorm-review.html`
+- **OUTPUT_PATH**: `specs/{slug}/reviews/brainstorm-review.html`
 - **CONTENT**: structured brainstorming results including:
-  - feature_name (ITDB summary)
+  - feature_name (feature summary)
   - date (today)
-  - epic_key (ITDB key)
+  - slug (feature slug)
   - stats: idea_count, theme_count, top_count, decision_count
   - observations (context-scout synthesis)
   - key_decisions (convergence decisions, table rows)
-  - top_concepts (ranked top 3-5 with rationale) — doc-writer must expand `{{CONCEPT_SLIDES}}` into one full `<div class="slide">` per concept, each with its own per-concept feedback textarea (see template comments for exact structure)
+  - top_concepts (ranked top 3-5 with rationale) — doc-writer must expand `{{CONCEPT_SLIDES}}`
+    into one full `<div class="slide">` per concept, each with its own per-concept feedback
+    textarea (see template comments for exact structure)
   - rejected_ideas (rejected options with reasons)
   - open_questions (parked questions)
 
 Once the agent returns, open the HTML file in the browser (use the command for the user's OS):
+
+Detect the OS by running:
+
 ```bash
-open specs/{ITDB-KEY}-{slug}/reviews/brainstorm-review.html        # macOS
-xdg-open specs/{ITDB-KEY}-{slug}/reviews/brainstorm-review.html    # Linux
-start specs/{ITDB-KEY}-{slug}/reviews/brainstorm-review.html       # Windows
+uname -s 2>/dev/null || echo "Windows"
+```
+
+`Darwin` → macOS, `Linux` → Linux, anything else → Windows.
+
+```bash
+open specs/{slug}/reviews/brainstorm-review.html        # macOS
+xdg-open specs/{slug}/reviews/brainstorm-review.html    # Linux
+start specs/{slug}/reviews/brainstorm-review.html       # Windows
 ```
 
 Tell the user:
-> "I've opened the brainstorming summary in your browser. Review the observations, decisions, and top concepts. Let me know if anything needs revision, or approve to write the final artifacts."
+
+> "I've opened the brainstorming summary in your browser. Review the observations, decisions,
+> and top concepts. Let me know if anything needs revision, or approve to write the final
+> artifacts."
 
 **If revisions requested**: adjust content and re-dispatch doc-writer.
 **If approved**: proceed to Step 8.
@@ -284,20 +377,24 @@ Tell the user:
 ### Step 8: Write Artifacts
 
 Dispatch the `doc-writer` agent to write the canonical files. Include in the prompt:
+
 - **MODE**: write-artifacts
-- **TEMPLATE_PATHS**: absolute paths to this skill's `templates/brainstorm-template.md` and `templates/decisions-template.md`
-- **OUTPUT_PATH**: `specs/{ITDB-KEY}-{slug}/`
-- **CONTENT**: the full structured brainstorming results (same as Step 7, plus all ideas by theme)
+- **TEMPLATE_PATHS**: absolute paths to this skill's `templates/brainstorm-template.md` and
+  `templates/decisions-template.md`
+- **OUTPUT_PATH**: `specs/{slug}/`
+- **CONTENT**: the full structured brainstorming results (same as Step 7, plus all ideas by
+  theme)
 
 Files written:
-- `specs/{ITDB-KEY}-{slug}/brainstorm.md` — all ideas, themes, top concepts
-- `specs/{ITDB-KEY}-{slug}/decisions.md` — decisions + open questions with Q# IDs
+
+- `specs/{slug}/brainstorm.md` — all ideas, themes, top concepts
+- `specs/{slug}/decisions.md` — decisions + open questions with Q# IDs
 
 ---
 
 ### Step 9: Status Confirmation & Handoff
 
-```
+```text
 AskUserQuestion:
   question: "Brainstorm captured. Mark as Approved for grilling phase?"
   options:
@@ -307,9 +404,13 @@ AskUserQuestion:
 
 **If Approved**: update Status field in brainstorm.md from Draft to Approved.
 
+**If Draft**: the brainstorm.md remains with Status: Draft. Remind the user:
+
+> "Brainstorm saved as Draft in `specs/{slug}/brainstorm.md`. Run /brainstorming again when ready to approve."
+
 Display completion hook:
 
-```
+```text
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Brainstorm Complete! What's Next?
 
