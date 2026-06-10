@@ -1,24 +1,29 @@
 # stories.json Schema
 
-> Canonical schema for `stories.json`. The scenario object used inside `successScenarios[]` and `acceptanceTestCases[]` is defined in the shared scenario schema — read `shared/scenario-schema.md` (sibling of this skill's SKILL.md). Do not redefine the scenario plan here.
+> Canonical schema for `stories.json` (version 2.0). The scenario object used inside
+> `successScenarios[]` and `acceptanceTestCases[]` is defined in the shared scenario
+> schema — read `shared/scenario-schema.md` (sibling of this skill's SKILL.md).
+> Do not redefine the scenario plan here.
 
 ## Top-Level Structure
 
 ```json
 {
-  "version": "1.0",
-  "feature": "ITDB-1234",
+  "version": "2.0",
+  "slug": "checkout-redesign",
+  "source": "github:owner/repo#123",
   "created": "2026-05-14",
   "status": "draft",
   "epic": {
-    "summary": "[Feature Tag] Epic title",
+    "summary": "Epic title",
     "objective": "One-line objective statement",
-    "pi": "26/03",
-    "labels": ["makato", "pi_planning"]
+    "labels": ["makato"]
   },
-  "stories": [ ... ]
+  "stories": []
 }
 ```
+
+`source` is optional — omit when the feature originated from plain text, not a GitHub Issue.
 
 ## Story Object
 
@@ -26,10 +31,11 @@
 {
   "sequence": 1,
   "phase": "foundation",
-  "summary": "[Component] User outcome title",
+  "summary": "User outcome title",
   "storyPoints": 3,
-  "teams": ["DCP Core One"],
+  "teams": ["team-name"],
   "labels": ["makato"],
+  "githubIssue": null,
   "description": {
     "background": "Why this story exists, context...",
     "scope": "What to build — specific, bounded...",
@@ -37,7 +43,7 @@
       "alreadyInPlace": false,
       "newNeeded": true,
       "longTermUsage": false,
-      "name": "dcp-feature-name.enabled",
+      "name": "feature-name.enabled",
       "defaultState": "disabled"
     },
     "successScenarios": [
@@ -56,7 +62,6 @@
   },
   "definitionOfDone": [
     "User can do X without Y",
-    "Feature toggle Z controls the behavior independently",
     "Error code ABC returned when condition met"
   ],
   "dependencies": {
@@ -65,7 +70,7 @@
   },
   "externalDependencies": [
     {
-      "team": "Masterdata Team",
+      "team": "Platform Team",
       "description": "Need API X to be available",
       "status": "pending"
     }
@@ -77,46 +82,30 @@
 
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
-| `version` | string | Yes | Schema version for forwards-compat |
-| `feature` | string | Yes | ITDB key |
+| `version` | string | Yes | Always `"2.0"` |
+| `slug` | string | Yes | Kebab-case feature identifier — the spec folder name |
+| `source` | string | No | `"github:owner/repo#123"` if origin was a GitHub Issue |
 | `created` | string | Yes | ISO date |
-| `status` | string | Yes | "draft" or "approved" |
-| `epic.summary` | string | Yes | Epic title for Jira |
-| `epic.objective` | string | Yes | One-liner |
-| `epic.pi` | string | Yes | PI identifier — maps to Jira component |
-| `epic.labels` | string[] | Yes | Always includes "makato" |
+| `status` | string | Yes | `"draft"` or `"approved"` |
+| `epic.summary` | string | Yes | Epic title |
+| `epic.objective` | string | Yes | One-liner stakeholder-facing objective |
+| `epic.labels` | string[] | Yes | Always includes `"makato"` |
 | `stories[].sequence` | number | Yes | Order (1 = walking skeleton) |
-| `stories[].phase` | enum | Yes | "foundation" / "happy-path" / "edge-cases" |
-| `stories[].summary` | string | Yes | Story title for Jira |
+| `stories[].phase` | enum | Yes | `"foundation"` / `"happy-path"` / `"edge-cases"` |
+| `stories[].summary` | string | Yes | Story title |
 | `stories[].storyPoints` | number | Yes | Fibonacci (1,2,3,5,8,13) |
-| `stories[].teams` | string[] | Yes | Team(s) multi-select |
-| `stories[].labels` | string[] | Yes | Always includes "makato" |
+| `stories[].teams` | string[] | Yes | Free-text team names — user-defined |
+| `stories[].labels` | string[] | Yes | Always includes `"makato"` |
+| `stories[].githubIssue` | number | No | Set by `publish` when GitHub provider used |
 | `stories[].description.background` | string | Yes | Context/rationale |
 | `stories[].description.scope` | string | Yes | Bounded scope statement |
-| `stories[].description.featureToggle` | object | Yes | Always present (DCP convention) |
-| `stories[].description.successScenarios` | array | Yes | 1-3 high-level Gherkin (draft). Each scenario: `title`, `given`, `when`, `then`, optional `and[]` (continuation Then assertions, rendered as `And ...` lines) |
+| `stories[].description.featureToggle` | object | Yes | Toggle configuration |
+| `stories[].description.successScenarios` | array | Yes | 1-3 high-level Gherkin (draft) |
 | `stories[].description.solutionApproach` | string | No | Empty — filled during refinement |
-| `stories[].description.acceptanceTestCases` | array | No | Empty — filled by create-acceptance-tests skill (same scenario plan as successScenarios, including optional `and[]`) |
+| `stories[].description.acceptanceTestCases` | array | No | Empty — filled by create-acceptance-tests |
 | `stories[].description.wikiDocumentation` | string | No | Empty — filled post-implementation |
 | `stories[].description.outOfScope` | string[] | No | Explicit exclusions |
-| `stories[].definitionOfDone` | string[] | Yes | 3-5 story-specific product completion conditions |
+| `stories[].definitionOfDone` | string[] | Yes | 3-5 story-specific product conditions |
 | `stories[].dependencies.blockedBy` | number[] | No | Other story sequences |
 | `stories[].dependencies.blocks` | number[] | No | Other story sequences |
 | `stories[].externalDependencies` | array | No | External team dependencies |
-
-## Jira Field Mapping
-
-| stories.json field | Jira field | Jira field ID | Notes |
-|---|---|---|---|
-| `epic.summary` | Summary | summary | Epic issue type |
-| `epic.pi` | Component | components[] | e.g., "PI \| 26/03" |
-| `epic.labels` | Labels | labels | |
-| Epic → ITDB | Issue Link | "Parent-Child" (child-of) | Epic links to ITDB feature |
-| `story.summary` | Summary | summary | Story issue type |
-| `story.storyPoints` | Story Points | customfield_10013 | number |
-| `story.teams` | Team(s) | customfield_16240 | multi-select |
-| `story.labels` | Labels | labels | |
-| `story.description.*` | Description | description | Rendered to Jira wiki markup |
-| `story.definitionOfDone` | Checklist (DoD section) | checklist | Pre-populates DoD checklist items |
-| Story → Epic | Epic Link | epicLink field | Native Jira epic link |
-| Story → Story | Issue Link | "Dependency" (id: 10010) | "depends on" direction |
