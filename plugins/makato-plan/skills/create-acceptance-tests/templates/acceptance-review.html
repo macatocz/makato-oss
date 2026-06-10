@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Acceptance Test Review: <feature-name></title>
+<style>
+:root {
+  --accent: #0070F2;
+  --accent-light: #00B8F1;
+  --accent-glow: rgba(0,112,242,0.15);
+  --green: #34D399;
+  --green-dim: rgba(52,211,153,0.12);
+  --amber: #FBBF24;
+  --amber-dim: rgba(251,191,36,0.12);
+  --purple: #A78BFA;
+  --purple-dim: rgba(167,139,250,0.12);
+  --cyan: #22D3EE;
+  --red: #F87171;
+  --red-dim: rgba(248,113,113,0.12);
+
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'SF Mono', 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+}
+[data-theme="dark"] {
+  --bg: #0A0E14;
+  --surface: #111820;
+  --surface-2: #1A2230;
+  --surface-3: #222E3E;
+  --fg: #E8EDF5;
+  --muted: #7B8FA6;
+  --border: #1E2A3A;
+  --border-light: #2A3A4E;
+  --nav-bg: rgba(10,14,20,0.92);
+  --gherkin-keyword: #22D3EE;
+  --gherkin-step: #E8EDF5;
+}
+[data-theme="light"] {
+  --bg: #F8FAFC;
+  --surface: #FFFFFF;
+  --surface-2: #F1F5F9;
+  --surface-3: #E2E8F0;
+  --fg: #0F172A;
+  --muted: #64748B;
+  --border: #E2E8F0;
+  --border-light: #CBD5E1;
+  --nav-bg: rgba(248,250,252,0.92);
+  --gherkin-keyword: #0369A1;
+  --gherkin-step: #0F172A;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: var(--font); line-height: 1.6; color: var(--fg);
+  background: var(--bg); -webkit-font-smoothing: antialiased;
+  transition: background .3s, color .3s;
+}
+
+/* NAV */
+.nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  background: var(--nav-bg); backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
+  display: flex; flex-direction: column;
+}
+.nav-top {
+  height: 48px; display: flex; align-items: center; justify-content: space-between; padding: 0 32px;
+}
+.nav-left { display: flex; align-items: center; gap: 12px; }
+.nav-title { font-family: var(--font-mono); font-size: 13px; font-weight: 600; color: var(--accent); }
+.nav-title .prompt { color: var(--green); }
+.nav-right { display: flex; align-items: center; gap: 16px; }
+.theme-toggle {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+  padding: 5px 12px; cursor: pointer; font-family: var(--font-mono); font-size: 12px;
+  color: var(--muted); transition: all .2s;
+}
+.theme-toggle:hover { border-color: var(--accent); color: var(--accent); }
+
+.step-track {
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 32px 12px; gap: 0; overflow-x: auto;
+}
+.step-item { display: flex; align-items: center; gap: 0; cursor: pointer; }
+.step-num {
+  width: 26px; height: 26px; border-radius: 50%;
+  border: 2px solid var(--border-light); background: var(--surface);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  color: var(--muted); transition: all .25s; position: relative;
+}
+.step-item.current .step-num { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+.step-item.done .step-num { border-color: var(--green); background: var(--green); color: #000; }
+.step-item.has-comment .step-num::after {
+  content: ''; position: absolute; top: -2px; right: -2px;
+  width: 7px; height: 7px; border-radius: 50%; background: var(--green); border: 2px solid var(--bg);
+}
+.step-connector { width: 24px; height: 2px; background: var(--border-light); transition: background .25s; }
+.step-connector.done { background: var(--green); }
+
+/* SLIDES */
+.slides-container { position: fixed; top: 88px; left: 0; right: 0; bottom: 56px; overflow: hidden; }
+.slide {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  display: flex; opacity: 0; pointer-events: none; transition: opacity .3s; overflow-y: auto;
+}
+.slide.active { opacity: 1; pointer-events: all; }
+.slide-content {
+  width: 100%; max-width: 1200px; margin: 0 auto; padding: 32px 48px;
+  display: flex; flex-direction: column; gap: 24px;
+}
+
+.slide-label {
+  font-family: var(--font-mono); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.1em; color: var(--accent);
+  display: flex; align-items: center; gap: 6px;
+}
+.slide-label::before { content: '>'; color: var(--green); font-weight: 700; }
+.slide-title { font-size: 24px; font-weight: 800; letter-spacing: -0.02em; }
+
+/* Story card */
+.story-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 20px 24px; margin-bottom: 8px;
+}
+.story-header {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 16px;
+}
+.story-seq {
+  background: var(--accent); color: #fff; font-family: var(--font-mono);
+  font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: var(--radius-sm);
+}
+.story-title { font-size: 16px; font-weight: 600; }
+.story-meta {
+  font-family: var(--font-mono); font-size: 11px; color: var(--muted);
+  display: flex; gap: 16px; margin-bottom: 16px;
+}
+
+/* Gherkin rendering */
+.gherkin-block {
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: 16px 20px; margin-bottom: 12px;
+  font-family: var(--font-mono); font-size: 13px; line-height: 1.8;
+}
+.gherkin-title {
+  font-weight: 700; color: var(--fg); margin-bottom: 8px; font-size: 14px;
+}
+.gherkin-keyword { color: var(--gherkin-keyword); font-weight: 600; }
+.gherkin-step { color: var(--gherkin-step); }
+
+/* Feedback */
+.feedback-area { margin-top: 16px; }
+.feedback-area label {
+  font-family: var(--font-mono); font-size: 11px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.06em; display: block; margin-bottom: 6px;
+}
+.feedback-area textarea {
+  width: 100%; min-height: 60px; background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: 12px; font-family: var(--font);
+  font-size: 14px; color: var(--fg); resize: vertical; transition: border-color .2s;
+}
+.feedback-area textarea:focus { outline: none; border-color: var(--accent); }
+.feedback-area textarea.has-content { border-color: var(--green); }
+
+/* Stats */
+.stats-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px;
+}
+.stat-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: 16px; text-align: center;
+}
+.stat-value { font-size: 28px; font-weight: 800; color: var(--accent); font-family: var(--font-mono); }
+.stat-label { font-size: 12px; color: var(--muted); font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.04em; }
+
+/* Bottom bar */
+.bottom-bar {
+  position: fixed; bottom: 0; left: 0; right: 0; height: 56px;
+  background: var(--nav-bg); backdrop-filter: blur(20px);
+  border-top: 1px solid var(--border); display: flex; align-items: center;
+  justify-content: space-between; padding: 0 32px; z-index: 100;
+}
+.nav-btn {
+  font-family: var(--font-mono); font-size: 13px; padding: 8px 20px;
+  border-radius: var(--radius-md); cursor: pointer; transition: all .15s;
+  border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+}
+.nav-btn:hover { border-color: var(--accent); color: var(--accent); }
+.nav-btn.primary { background: linear-gradient(135deg, var(--accent), var(--accent-light)); color: #fff; border: none; }
+.nav-btn.primary:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,112,242,.25); }
+.nav-btn:disabled { opacity: 0.3; pointer-events: none; }
+.copy-btn {
+  background: linear-gradient(135deg, var(--accent), var(--accent-light));
+  color: #fff; border: none; padding: 8px 24px; font-size: 13px; font-weight: 600;
+  border-radius: var(--radius-md); cursor: pointer; font-family: var(--font-mono); transition: all .15s;
+}
+.copy-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,112,242,.25); }
+.copy-status { font-family: var(--font-mono); font-size: 12px; color: var(--green); display: none; margin-left: 8px; }
+.bottom-center { display: flex; align-items: center; gap: 12px; }
+</style>
+</head>
+<body>
+
+<!--
+  TEMPLATE INSTRUCTIONS:
+  Replace all <placeholder> values when generating the review.
+  - <feature-name>: ITDB key and feature title
+  - <total-stories>: Number of stories processed
+  - <total-scenarios>: Total scenarios across all stories
+  - <violations-fixed>: Anti-pattern violations caught and fixed
+  - For each story: render a story-card with gherkin-blocks inside
+  - The slide structure below shows the pattern for overview + per-story slides
+-->
+
+<nav class="nav">
+  <div class="nav-top">
+    <div class="nav-left">
+      <div class="nav-title"><span class="prompt">$</span> acceptance-test review</div>
+    </div>
+    <div class="nav-right">
+      <button class="theme-toggle" onclick="toggleTheme()">◐ Dark</button>
+    </div>
+  </div>
+  <div class="step-track" id="step-track"></div>
+</nav>
+
+<div class="slides-container">
+
+  <!-- SLIDE 1: Overview -->
+  <div class="slide active" data-slide="0">
+    <div class="slide-content">
+      <div class="slide-label">Overview</div>
+      <h1 class="slide-title">Acceptance Test Summary</h1>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-value"><total-stories></div>
+          <div class="stat-label">Stories</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value"><total-scenarios></div>
+          <div class="stat-label">Scenarios</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value"><violations-fixed></div>
+          <div class="stat-label">Fixes Applied</div>
+        </div>
+      </div>
+      <div class="feedback-area">
+        <label>Overall feedback</label>
+        <textarea data-section="Overview" placeholder="General comments on scope, coverage, or approach..."></textarea>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 2+: Per-story (repeat this pattern for each story) -->
+  <div class="slide" data-slide="1">
+    <div class="slide-content">
+      <div class="slide-label">Story <story-sequence></div>
+      <div class="story-card">
+        <div class="story-header">
+          <span class="story-seq">#<story-sequence></span>
+          <span class="story-title"><story-summary></span>
+        </div>
+        <div class="story-meta">
+          <span><story-points> SP</span>
+          <span><story-phase></span>
+          <span><scenario-count> scenarios</span>
+        </div>
+
+        <!-- Repeat this block for each scenario -->
+        <div class="gherkin-block">
+          <div class="gherkin-title"><scenario-title></div>
+          <span class="gherkin-keyword">Given </span><span class="gherkin-step"><scenario-given></span><br>
+          <span class="gherkin-keyword">When </span><span class="gherkin-step"><scenario-when></span><br>
+          <span class="gherkin-keyword">Then </span><span class="gherkin-step"><scenario-then></span><br>
+          <!-- Optional And steps -->
+          <span class="gherkin-keyword">And </span><span class="gherkin-step"><scenario-and></span><br>
+        </div>
+        <!-- End scenario block -->
+
+      </div>
+      <div class="feedback-area">
+        <label>Feedback for Story <story-sequence></label>
+        <textarea data-section="Story <story-sequence>" placeholder="Scenarios missing? Language too technical? Coverage gaps?"></textarea>
+      </div>
+    </div>
+  </div>
+
+  <!-- FINAL SLIDE: Next Steps -->
+  <div class="slide" data-slide="<last-slide-index>">
+    <div class="slide-content">
+      <div class="slide-label">Complete</div>
+      <h1 class="slide-title">Next Steps</h1>
+      <ul style="font-size: 15px; line-height: 2;">
+        <li>Click <strong>"Copy Feedback"</strong> to send comments back, or say <strong>"approved"</strong> to write to stories.json</li>
+        <li>After approval: run <code>/publish</code> to create Jira epic and stories with embedded acceptance tests</li>
+        <li>During implementation: QA creates DCPAT tickets from these scenarios</li>
+      </ul>
+      <div class="feedback-area">
+        <label>Final notes</label>
+        <textarea data-section="Final" placeholder="Anything else before writing to stories.json?"></textarea>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="bottom-bar">
+  <button class="nav-btn" id="prev-btn" disabled onclick="navigate(-1)">← Prev</button>
+  <div class="bottom-center">
+    <button class="copy-btn" onclick="copyFeedback()">Copy Feedback →</button>
+    <span class="copy-status" id="copy-status">✓ Copied</span>
+  </div>
+  <button class="nav-btn primary" id="next-btn" onclick="navigate(1)">Next →</button>
+</div>
+
+<script>
+let current = 0;
+const slides = document.querySelectorAll('.slide');
+const total = slides.length;
+
+function buildStepTrack() {
+  const track = document.getElementById('step-track');
+  for (let i = 0; i < total; i++) {
+    if (i > 0) {
+      const conn = document.createElement('div');
+      conn.className = 'step-connector';
+      conn.dataset.before = i;
+      track.appendChild(conn);
+    }
+    const item = document.createElement('div');
+    item.className = 'step-item' + (i === 0 ? ' current' : '');
+    item.onclick = () => goTo(i);
+    const label = i === 0 ? 'Overview' : i === total - 1 ? 'Done' : `Story ${i}`;
+    item.innerHTML = `<div class="step-num">${i + 1}</div>`;
+    item.dataset.index = i;
+    track.appendChild(item);
+  }
+}
+buildStepTrack();
+
+function goTo(index) {
+  if (index < 0 || index >= total) return;
+  slides[current].classList.remove('active');
+  current = index;
+  slides[current].classList.add('active');
+  document.getElementById('prev-btn').disabled = current === 0;
+  document.getElementById('next-btn').disabled = current === total - 1;
+  updateStepTrack();
+}
+function navigate(dir) { goTo(current + dir); }
+
+function updateStepTrack() {
+  const items = document.querySelectorAll('.step-item');
+  const connectors = document.querySelectorAll('.step-connector');
+  items.forEach((item, i) => {
+    item.classList.remove('current', 'done');
+    if (i === current) item.classList.add('current');
+    else if (i < current) item.classList.add('done');
+    const ta = slides[i].querySelector('textarea');
+    item.classList.toggle('has-comment', ta && ta.value.trim().length > 0);
+  });
+  connectors.forEach(c => { c.classList.toggle('done', parseInt(c.dataset.before) <= current); });
+}
+
+document.querySelectorAll('textarea').forEach(ta => {
+  ta.addEventListener('input', () => { ta.classList.toggle('has-content', ta.value.trim().length > 0); updateStepTrack(); });
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'TEXTAREA') return;
+  if (e.key === 'ArrowRight') navigate(1);
+  if (e.key === 'ArrowLeft') navigate(-1);
+});
+
+function copyFeedback() {
+  const textareas = document.querySelectorAll('textarea[data-section]');
+  let feedback = '# Acceptance Test Review Feedback\n\n';
+  let hasContent = false;
+  textareas.forEach(ta => {
+    if (ta.value.trim()) { hasContent = true; feedback += `## ${ta.dataset.section}\n${ta.value.trim()}\n\n`; }
+  });
+  if (!hasContent) feedback += '_No comments — approved as-is._\n';
+  navigator.clipboard.writeText(feedback).then(() => {
+    const status = document.getElementById('copy-status');
+    status.style.display = 'inline';
+    setTimeout(() => { status.style.display = 'none'; }, 2500);
+  });
+}
+
+function toggleTheme() {
+  const html = document.documentElement; const btn = document.querySelector('.theme-toggle');
+  if (html.dataset.theme === 'dark') { html.dataset.theme = 'light'; btn.textContent = '◐ Light'; }
+  else { html.dataset.theme = 'dark'; btn.textContent = '◐ Dark'; }
+}
+</script>
+
+</body>
+</html>

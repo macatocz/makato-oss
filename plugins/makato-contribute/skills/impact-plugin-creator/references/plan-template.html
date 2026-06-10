@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plugin Plan: {{PLUGIN_NAME}}</title>
+<style>
+:root {
+  --accent: #0070F2;
+  --accent-light: #00B8F1;
+  --accent-glow: rgba(0,112,242,0.15);
+  --green: #34D399;
+  --green-dim: rgba(52,211,153,0.12);
+  --amber: #FBBF24;
+  --amber-dim: rgba(251,191,36,0.12);
+  --purple: #A78BFA;
+  --purple-dim: rgba(167,139,250,0.12);
+  --cyan: #22D3EE;
+  --red: #F87171;
+  --red-dim: rgba(248,113,113,0.12);
+
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'SF Mono', 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+}
+[data-theme="dark"] {
+  --bg: #0A0E14;
+  --surface: #111820;
+  --surface-2: #1A2230;
+  --surface-3: #222E3E;
+  --fg: #E8EDF5;
+  --muted: #7B8FA6;
+  --border: #1E2A3A;
+  --border-light: #2A3A4E;
+  --nav-bg: rgba(10,14,20,0.92);
+  --grid-line: rgba(0,112,242,0.04);
+}
+[data-theme="light"] {
+  --bg: #F8FAFC;
+  --surface: #FFFFFF;
+  --surface-2: #F1F5F9;
+  --surface-3: #E2E8F0;
+  --fg: #0F172A;
+  --muted: #64748B;
+  --border: #E2E8F0;
+  --border-light: #CBD5E1;
+  --nav-bg: rgba(248,250,252,0.92);
+  --grid-line: rgba(0,112,242,0.03);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: var(--font);
+  line-height: 1.6;
+  color: var(--fg);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  transition: background .3s, color .3s;
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 80px 80px;
+}
+
+@keyframes shimmer { 0%{background-position:-200% 0;} 100%{background-position:200% 0;} }
+@keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+/* --- NAV --- */
+.nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  background: var(--nav-bg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
+  display: flex; flex-direction: column;
+}
+.nav-top {
+  height: 48px; display: flex; align-items: center; justify-content: space-between; padding: 0 32px;
+}
+.nav-left { display: flex; align-items: center; gap: 12px; }
+.nav-title { font-family: var(--font-mono); font-size: 13px; font-weight: 600; color: var(--accent); }
+.nav-title .prompt { color: var(--green); }
+.nav-right { display: flex; align-items: center; gap: 16px; }
+.theme-toggle {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+  padding: 5px 12px; cursor: pointer; font-family: var(--font-mono); font-size: 12px;
+  color: var(--muted); transition: all .2s;
+}
+.theme-toggle:hover { border-color: var(--accent); color: var(--accent); }
+
+/* Step track */
+.step-track {
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 32px 12px; gap: 0;
+}
+.step-item { display: flex; align-items: center; gap: 0; cursor: pointer; }
+.step-num {
+  width: 28px; height: 28px; border-radius: 50%;
+  border: 2px solid var(--border-light); background: var(--surface);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  color: var(--muted); transition: all .25s; position: relative;
+}
+.step-item.current .step-num { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+.step-item.done .step-num { border-color: var(--green); background: var(--green); color: #000; }
+.step-item.has-comment .step-num::after {
+  content: ''; position: absolute; top: -2px; right: -2px;
+  width: 8px; height: 8px; border-radius: 50%; background: var(--green); border: 2px solid var(--bg);
+}
+.step-label {
+  font-family: var(--font-mono); font-size: 10px; color: var(--muted);
+  margin-left: 6px; max-width: 0; overflow: hidden; white-space: nowrap;
+  transition: max-width .3s, margin .3s, color .2s;
+}
+.step-item.current .step-label { max-width: 120px; color: var(--accent); margin-left: 6px; }
+.step-connector { width: 28px; height: 2px; background: var(--border-light); transition: background .25s; }
+.step-connector.done { background: var(--green); }
+
+/* --- SLIDES --- */
+.slides-container { position: fixed; top: 92px; left: 0; right: 0; bottom: 120px; overflow: hidden; }
+.slide {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  display: flex; opacity: 0; pointer-events: none; transition: opacity .3s; overflow-y: auto;
+}
+.slide.active { opacity: 1; pointer-events: all; }
+.slide-content {
+  width: 100%; max-width: 1400px; margin: 0 auto; padding: 40px 48px;
+  display: grid; grid-template-columns: 1fr 340px; gap: 32px;
+  align-content: start; min-height: 100%;
+}
+.slide-main { display: flex; flex-direction: column; justify-content: center; }
+.slide-sidebar { display: flex; flex-direction: column; justify-content: center; }
+
+.slide-label {
+  font-family: var(--font-mono); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.1em; color: var(--accent); margin-bottom: 12px;
+  display: flex; align-items: center; gap: 6px;
+}
+.slide-label::before { content: '>'; color: var(--green); font-weight: 700; }
+.slide-title {
+  font-size: clamp(24px, 3vw, 32px); font-weight: 900;
+  letter-spacing: -0.02em; line-height: 1.2; margin-bottom: 20px;
+}
+.slide-body p { font-size: 15px; line-height: 1.7; margin-bottom: 12px; }
+.slide-body h3 { font-size: 16px; font-weight: 600; margin-top: 20px; margin-bottom: 8px; }
+
+/* Goal box */
+.goal-box {
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 20px 20px 20px 28px;
+  margin-bottom: 20px; position: relative;
+}
+.goal-box::before {
+  content: ''; position: absolute; top: 8px; left: 0; bottom: 8px; width: 3px;
+  background: linear-gradient(180deg, var(--accent), var(--cyan), transparent); border-radius: 2px;
+}
+.goal-box strong {
+  font-family: var(--font-mono); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--accent); display: block; margin-bottom: 4px;
+}
+
+/* Decision test */
+.decision-test {
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 16px 20px 16px 28px;
+  margin: 16px 0; font-size: 14px; line-height: 1.7; color: var(--fg);
+  position: relative; font-style: italic;
+}
+.decision-test::before {
+  content: ''; position: absolute; top: 8px; left: 0; width: 3px; bottom: 8px;
+  background: linear-gradient(180deg, var(--amber), transparent); border-radius: 2px;
+}
+
+/* Preview block */
+.preview-block {
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: 16px 20px;
+  font-size: 13px; font-family: var(--font-mono); line-height: 1.9;
+  margin: 12px 0; white-space: pre-wrap; color: var(--fg);
+  position: relative; max-height: 400px; overflow-y: auto;
+}
+.preview-block::before {
+  content: ''; position: absolute; top: 0; left: 0; width: 3px; height: 100%;
+  background: linear-gradient(180deg, var(--purple), transparent);
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+}
+
+pre {
+  background: var(--bg); color: var(--fg); padding: 16px 20px;
+  border-radius: var(--radius-md); border: 1px solid var(--border);
+  font-size: 13px; font-family: var(--font-mono); line-height: 1.9;
+  margin: 12px 0; overflow-x: auto;
+}
+code {
+  background: var(--surface-2); color: var(--accent); padding: 2px 6px;
+  border-radius: var(--radius-sm); font-size: 12.5px; font-family: var(--font-mono);
+  border: 1px solid var(--border);
+}
+pre code { background: none; padding: 0; color: inherit; border: none; }
+
+.file-tree {
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: 16px 20px;
+  font-family: var(--font-mono); font-size: 13px; white-space: pre;
+  line-height: 1.9; position: relative;
+}
+.file-tree::before {
+  content: ''; position: absolute; top: 0; left: 0; width: 3px; height: 100%;
+  background: linear-gradient(180deg, var(--accent), transparent);
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+}
+
+ul { padding-left: 1.5rem; margin: 0.5rem 0; }
+li { margin: 0.4rem 0; font-size: 14px; line-height: 1.6; }
+
+/* Feedback panel */
+.feedback-panel {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 24px; position: relative;
+  display: flex; flex-direction: column; gap: 16px;
+}
+.feedback-panel::before {
+  content: ''; position: absolute; top: 0; left: 24px; right: 24px; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+}
+.feedback-panel-label {
+  font-family: var(--font-mono); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--muted); display: flex; align-items: center; gap: 6px;
+}
+.feedback-panel-label::before { content: ''; width: 4px; height: 4px; border-radius: 50%; background: var(--muted); }
+.feedback-panel textarea {
+  width: 100%; flex: 1; min-height: 120px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: 14px; font-family: var(--font);
+  font-size: 14px; color: var(--fg); resize: none; transition: border-color .2s; line-height: 1.6;
+}
+.feedback-panel textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+.feedback-panel textarea::placeholder { color: var(--muted); opacity: 0.7; }
+.feedback-panel textarea.has-content { border-color: var(--green); }
+.feedback-hint { font-family: var(--font-mono); font-size: 11px; color: var(--muted); opacity: 0.6; }
+
+/* Full-width slide */
+.slide-content.full-width { grid-template-columns: 1fr; max-width: 1400px; }
+.slide-content.full-width .slide-main { width: 100%; }
+.slide-feedback-bottom {
+  margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border);
+}
+.slide-feedback-bottom textarea {
+  width: 100%; min-height: 60px; background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: 12px 14px; font-family: var(--font);
+  font-size: 14px; color: var(--fg); resize: vertical; transition: border-color .2s; line-height: 1.6;
+}
+.slide-feedback-bottom textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+.slide-feedback-bottom textarea::placeholder { color: var(--muted); opacity: 0.7; }
+.slide-feedback-bottom textarea.has-content { border-color: var(--green); }
+.slide-feedback-bottom label {
+  font-family: var(--font-mono); font-size: 11px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.06em; display: block; margin-bottom: 8px;
+}
+
+/* Comments strip */
+.comments-strip {
+  position: fixed; bottom: 56px; left: 0; right: 0; height: 64px; z-index: 99;
+  background: var(--surface); border-top: 1px solid var(--border);
+  display: flex; align-items: center; padding: 0 32px; gap: 8px;
+  overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+}
+.comments-strip::-webkit-scrollbar { height: 4px; }
+.comments-strip::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.comments-strip-empty {
+  font-family: var(--font-mono); font-size: 11px; color: var(--muted); opacity: 0.5; white-space: nowrap;
+}
+.comment-chip {
+  flex-shrink: 0; display: flex; align-items: center; gap: 8px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: 8px 14px; cursor: pointer;
+  transition: border-color .15s; max-width: 220px;
+}
+.comment-chip:hover { border-color: var(--accent); }
+.comment-chip-section {
+  font-family: var(--font-mono); font-size: 9px; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--accent); white-space: nowrap;
+}
+.comment-chip-text {
+  font-size: 12px; color: var(--fg); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+
+/* Bottom bar */
+.bottom-bar {
+  position: fixed; bottom: 0; left: 0; right: 0; height: 56px;
+  background: var(--nav-bg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  border-top: 1px solid var(--border); display: flex; align-items: center;
+  justify-content: space-between; padding: 0 32px; z-index: 100;
+}
+.nav-btn {
+  font-family: var(--font-mono); font-size: 13px; padding: 8px 20px;
+  border-radius: var(--radius-md); cursor: pointer; transition: all .15s;
+  border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+  display: flex; align-items: center; gap: 6px;
+}
+.nav-btn:hover { border-color: var(--accent); color: var(--accent); }
+.nav-btn.primary {
+  background: linear-gradient(135deg, var(--accent), var(--accent-light));
+  color: #fff; border: none;
+}
+.nav-btn.primary:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,112,242,.25); }
+.nav-btn:disabled { opacity: 0.3; pointer-events: none; }
+.copy-btn {
+  background: linear-gradient(135deg, var(--accent), var(--accent-light));
+  color: #fff; border: none; padding: 8px 24px; font-size: 13px; font-weight: 600;
+  border-radius: var(--radius-md); cursor: pointer; font-family: var(--font-mono);
+  transition: all .15s; position: relative; overflow: hidden;
+}
+.copy-btn::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.1), transparent);
+  background-size: 200% 100%; animation: shimmer 3s ease-in-out infinite;
+}
+.copy-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,112,242,.25); }
+.copy-status { font-family: var(--font-mono); font-size: 12px; color: var(--green); display: none; }
+.bottom-center { display: flex; align-items: center; gap: 12px; }
+.kbd {
+  font-family: var(--font-mono); font-size: 10px; background: var(--surface-2);
+  border: 1px solid var(--border); border-radius: 3px; padding: 2px 5px; color: var(--muted);
+}
+
+@media (max-width: 900px) {
+  .slide-content { grid-template-columns: 1fr; padding: 32px 20px; }
+  .nav-top { padding: 0 16px; }
+  .step-track { padding: 0 16px; overflow-x: auto; justify-content: flex-start; }
+  .step-label { display: none; }
+  .bottom-bar { padding: 0 16px; }
+  .comments-strip { padding: 0 16px; }
+}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-top">
+    <div class="nav-left">
+      <div class="nav-title"><span class="prompt">$</span> makato plugin-plan</div>
+    </div>
+    <div class="nav-right">
+      <button class="theme-toggle" onclick="toggleTheme()">◐ Dark</button>
+    </div>
+  </div>
+  <div class="step-track" id="step-track"></div>
+</nav>
+
+<div class="slides-container">
+
+  <!-- SLIDE 1: Plugin Identity -->
+  <div class="slide active" data-slide="0">
+    <div class="slide-content">
+      <div class="slide-main">
+        <div class="slide-label">Plugin Identity</div>
+        <h1 class="slide-title">{{PLUGIN_NAME}}</h1>
+        <div class="goal-box">
+          <strong>Goal</strong>
+          <span>{{PLUGIN_GOAL}}</span>
+        </div>
+        <div class="slide-body">
+          <p><strong>How:</strong> {{PLUGIN_HOW}}</p>
+          <p><strong>Why:</strong> {{PLUGIN_WHY}}</p>
+          <p><strong>Author:</strong> {{AUTHOR_NAME}}</p>
+        </div>
+      </div>
+      <div class="slide-sidebar">
+        <div class="feedback-panel">
+          <div class="feedback-panel-label">Your feedback</div>
+          <textarea data-section="Plugin Identity" placeholder="Goal clear? How/Why accurate? Name right?"></textarea>
+          <div class="feedback-hint">Leave empty to approve as-is</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 2: Governance -->
+  <div class="slide" data-slide="1">
+    <div class="slide-content full-width">
+      <div class="slide-main">
+        <div class="slide-label">Governance</div>
+        <h1 class="slide-title">Boundaries & Decision Test</h1>
+        <div class="slide-body">
+          <h3>What Belongs Here</h3>
+          <ul>{{BELONGS_LIST_HTML}}</ul>
+          <h3>What Does NOT Belong Here</h3>
+          <ul>{{NOT_BELONGS_LIST_HTML}}</ul>
+          <h3>Decision Test</h3>
+          <div class="decision-test">{{DECISION_TEST}}</div>
+        </div>
+        <div class="slide-feedback-bottom">
+          <label>Feedback on governance</label>
+          <textarea data-section="Governance" placeholder="Boundaries clear? Decision test sharp enough? Missing cases?"></textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 3: AGENTS.md Preview -->
+  <div class="slide" data-slide="2">
+    <div class="slide-content full-width">
+      <div class="slide-main">
+        <div class="slide-label">AGENTS.md</div>
+        <h1 class="slide-title">AGENTS.md Preview</h1>
+        <div class="preview-block">{{AGENTS_PREVIEW}}</div>
+        <div class="slide-feedback-bottom">
+          <label>Feedback on AGENTS.md</label>
+          <textarea data-section="AGENTS.md" placeholder="Content accurate? Sections complete? Under 200 lines?"></textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 4: README.md Preview -->
+  <div class="slide" data-slide="3">
+    <div class="slide-content full-width">
+      <div class="slide-main">
+        <div class="slide-label">README.md</div>
+        <h1 class="slide-title">README.md Preview</h1>
+        <div class="preview-block">{{README_PREVIEW}}</div>
+        <div class="slide-feedback-bottom">
+          <label>Feedback on README.md</label>
+          <textarea data-section="README.md" placeholder="Clear for new contributors? Sections complete?"></textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 5: plugin.json -->
+  <div class="slide" data-slide="4">
+    <div class="slide-content">
+      <div class="slide-main">
+        <div class="slide-label">Configuration</div>
+        <h1 class="slide-title">plugin.json</h1>
+        <pre><code>{{PLUGIN_JSON_PREVIEW}}</code></pre>
+      </div>
+      <div class="slide-sidebar">
+        <div class="feedback-panel">
+          <div class="feedback-panel-label">Your feedback</div>
+          <textarea data-section="plugin.json" placeholder="Fields correct? Description match goal?"></textarea>
+          <div class="feedback-hint">Leave empty to approve as-is</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 6: File Tree -->
+  <div class="slide" data-slide="5">
+    <div class="slide-content">
+      <div class="slide-main">
+        <div class="slide-label">Structure</div>
+        <h1 class="slide-title">File Tree</h1>
+        <div class="file-tree">{{FILE_TREE}}</div>
+      </div>
+      <div class="slide-sidebar">
+        <div class="feedback-panel">
+          <div class="feedback-panel-label">Your feedback</div>
+          <textarea data-section="File Tree" placeholder="Missing directories? Structure concerns?"></textarea>
+          <div class="feedback-hint">Leave empty to approve as-is</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 7: Validation -->
+  <div class="slide" data-slide="6">
+    <div class="slide-content">
+      <div class="slide-main">
+        <div class="slide-label">Validation</div>
+        <h1 class="slide-title">Validation Checks</h1>
+        <ul>
+          <li><code>check-plugin-structure.sh</code> — verifies required files present and plugin.json is valid</li>
+          <li><code>check-naming.sh</code> — validates plugin directory matches <code>makato-*</code> pattern</li>
+        </ul>
+      </div>
+      <div class="slide-sidebar">
+        <div class="feedback-panel">
+          <div class="feedback-panel-label">Your feedback</div>
+          <textarea data-section="Validation" placeholder="Additional checks needed?"></textarea>
+          <div class="feedback-hint">Leave empty to approve as-is</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Comments strip -->
+<div class="comments-strip" id="comments-strip">
+  <span class="comments-strip-empty">Comments will appear here as you provide feedback</span>
+</div>
+
+<div class="bottom-bar">
+  <button class="nav-btn" id="prev-btn" disabled onclick="navigate(-1)">← Prev <span class="kbd">←</span></button>
+  <div class="bottom-center">
+    <button class="copy-btn" onclick="copyFeedback()">Copy All Feedback →</button>
+    <span class="copy-status" id="copy-status">✓ Copied</span>
+  </div>
+  <button class="nav-btn primary" id="next-btn" onclick="navigate(1)">Next → <span class="kbd" style="background:rgba(255,255,255,0.15);border-color:rgba(255,255,255,0.2);color:#fff;">→</span></button>
+</div>
+
+<script>
+let current = 0;
+const slides = document.querySelectorAll('.slide');
+const total = slides.length;
+const sectionNames = ['Identity', 'Governance', 'AGENTS.md', 'README.md', 'plugin.json', 'File Tree', 'Validation'];
+
+function buildStepTrack() {
+  const track = document.getElementById('step-track');
+  for (let i = 0; i < total; i++) {
+    if (i > 0) {
+      const conn = document.createElement('div');
+      conn.className = 'step-connector';
+      conn.dataset.before = i;
+      track.appendChild(conn);
+    }
+    const item = document.createElement('div');
+    item.className = 'step-item' + (i === 0 ? ' current' : '');
+    item.onclick = () => goTo(i);
+    item.innerHTML = `<div class="step-num">${i + 1}</div><span class="step-label">${sectionNames[i]}</span>`;
+    item.dataset.index = i;
+    track.appendChild(item);
+  }
+}
+buildStepTrack();
+
+function goTo(index) {
+  if (index < 0 || index >= total) return;
+  slides[current].classList.remove('active');
+  current = index;
+  slides[current].classList.add('active');
+  document.getElementById('prev-btn').disabled = current === 0;
+  document.getElementById('next-btn').disabled = current === total - 1;
+  updateStepTrack();
+}
+function navigate(dir) { goTo(current + dir); }
+
+function updateStepTrack() {
+  const items = document.querySelectorAll('.step-item');
+  const connectors = document.querySelectorAll('.step-connector');
+  items.forEach((item, i) => {
+    item.classList.remove('current', 'done');
+    if (i === current) item.classList.add('current');
+    else if (i < current) item.classList.add('done');
+    const ta = slides[i].querySelector('textarea');
+    item.classList.toggle('has-comment', ta && ta.value.trim().length > 0);
+  });
+  connectors.forEach(c => {
+    c.classList.toggle('done', parseInt(c.dataset.before) <= current);
+  });
+  updateCommentsStrip();
+}
+
+function updateCommentsStrip() {
+  const strip = document.getElementById('comments-strip');
+  const textareas = document.querySelectorAll('textarea[data-section]');
+  let chips = '';
+  let count = 0;
+  textareas.forEach((ta, i) => {
+    if (ta.value.trim()) {
+      count++;
+      chips += `<div class="comment-chip" onclick="goTo(${i})">
+        <span class="comment-chip-section">${ta.dataset.section}</span>
+        <span class="comment-chip-text">${escapeHtml(ta.value.trim())}</span>
+      </div>`;
+    }
+  });
+  strip.innerHTML = count === 0
+    ? '<span class="comments-strip-empty">Comments will appear here as you provide feedback</span>'
+    : chips;
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+document.querySelectorAll('textarea').forEach(ta => {
+  ta.addEventListener('input', updateStepTrack);
+  ta.addEventListener('input', () => { ta.classList.toggle('has-content', ta.value.trim().length > 0); });
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'TEXTAREA') return;
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') navigate(1);
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') navigate(-1);
+});
+
+function copyFeedback() {
+  const textareas = document.querySelectorAll('textarea[data-section]');
+  let feedback = '# Plugin Plan Feedback: {{PLUGIN_NAME}}\n\n';
+  let hasContent = false;
+  textareas.forEach(ta => {
+    if (ta.value.trim()) { hasContent = true; feedback += `## ${ta.dataset.section}\n${ta.value.trim()}\n\n`; }
+  });
+  if (!hasContent) feedback += '_No comments — plan approved as-is._\n';
+  navigator.clipboard.writeText(feedback).then(() => {
+    const status = document.getElementById('copy-status');
+    status.style.display = 'inline';
+    setTimeout(() => { status.style.display = 'none'; }, 2500);
+  });
+}
+
+function toggleTheme() {
+  const html = document.documentElement; const btn = document.querySelector('.theme-toggle');
+  if (html.dataset.theme === 'dark') { html.dataset.theme = 'light'; btn.textContent = '◐ Light'; }
+  else { html.dataset.theme = 'dark'; btn.textContent = '◐ Dark'; }
+  localStorage.setItem('makato-plan-theme', html.dataset.theme);
+}
+const saved = localStorage.getItem('makato-plan-theme');
+if (saved) { document.documentElement.dataset.theme = saved; document.querySelector('.theme-toggle').textContent = saved === 'dark' ? '◐ Dark' : '◐ Light'; }
+</script>
+
+</body>
+</html>

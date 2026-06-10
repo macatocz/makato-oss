@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Skill Plan: decompose</title>
+<style>
+:root {
+  --accent: #0070F2;
+  --accent-light: #00B8F1;
+  --accent-glow: rgba(0,112,242,0.15);
+  --green: #34D399;
+  --green-dim: rgba(52,211,153,0.12);
+  --amber: #FBBF24;
+  --amber-dim: rgba(251,191,36,0.12);
+  --purple: #A78BFA;
+  --purple-dim: rgba(167,139,250,0.12);
+  --cyan: #22D3EE;
+  --red: #F87171;
+  --red-dim: rgba(248,113,113,0.12);
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'SF Mono', 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+}
+[data-theme="dark"] {
+  --bg: #0A0E14;
+  --surface: #111820;
+  --surface-2: #1A2230;
+  --surface-3: #222E3E;
+  --fg: #E8EDF5;
+  --muted: #7B8FA6;
+  --border: #1E2A3A;
+  --border-light: #2A3A4E;
+  --nav-bg: rgba(10,14,20,0.92);
+  --grid-line: rgba(0,112,242,0.04);
+}
+[data-theme="light"] {
+  --bg: #F8FAFC;
+  --surface: #FFFFFF;
+  --surface-2: #F1F5F9;
+  --surface-3: #E2E8F0;
+  --fg: #0F172A;
+  --muted: #64748B;
+  --border: #E2E8F0;
+  --border-light: #CBD5E1;
+  --nav-bg: rgba(248,250,252,0.92);
+  --grid-line: rgba(0,112,242,0.03);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: var(--font); line-height: 1.6; color: var(--fg); background: var(--bg);
+  -webkit-font-smoothing: antialiased; transition: background .3s, color .3s;
+  background-image: linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 80px 80px;
+}
+.nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  background: var(--nav-bg); backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border); display: flex; flex-direction: column;
+}
+.nav-top { height: 48px; display: flex; align-items: center; justify-content: space-between; padding: 0 32px; }
+.nav-left { display: flex; align-items: center; gap: 12px; }
+.nav-title { font-family: var(--font-mono); font-size: 13px; font-weight: 600; color: var(--accent); }
+.nav-title .prompt { color: var(--green); }
+.nav-right { display: flex; align-items: center; gap: 16px; }
+.theme-toggle {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+  padding: 5px 12px; cursor: pointer; font-family: var(--font-mono); font-size: 12px;
+  color: var(--muted); transition: all .2s;
+}
+.theme-toggle:hover { border-color: var(--accent); color: var(--accent); }
+
+.step-track { display: flex; align-items: center; justify-content: center; padding: 0 32px 12px; gap: 0; }
+.step-item { display: flex; align-items: center; gap: 0; cursor: pointer; }
+.step-num {
+  width: 28px; height: 28px; border-radius: 50%;
+  border: 2px solid var(--border-light); background: var(--surface);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  color: var(--muted); transition: all .25s;
+}
+.step-item.current .step-num { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+.step-item.done .step-num { border-color: var(--green); background: var(--green); color: #000; }
+.step-label {
+  font-family: var(--font-mono); font-size: 10px; color: var(--muted);
+  margin-left: 6px; max-width: 0; overflow: hidden; white-space: nowrap;
+  transition: max-width .3s, margin .3s, color .2s;
+}
+.step-item.current .step-label { max-width: 140px; color: var(--accent); margin-left: 6px; }
+.step-connector { width: 24px; height: 2px; background: var(--border-light); transition: background .25s; }
+.step-connector.done { background: var(--green); }
+
+.slides-container { position: fixed; top: 92px; left: 0; right: 0; bottom: 56px; overflow: hidden; }
+.slide {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  display: flex; opacity: 0; pointer-events: none; transition: opacity .3s; overflow-y: auto;
+}
+.slide.active { opacity: 1; pointer-events: all; }
+.slide-content {
+  width: 100%; max-width: 1200px; margin: 0 auto; padding: 40px 48px;
+  display: flex; flex-direction: column; gap: 24px;
+}
+.slide-label {
+  font-family: var(--font-mono); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.1em; color: var(--accent); display: flex; align-items: center; gap: 6px;
+}
+.slide-label::before { content: '>'; color: var(--green); font-weight: 700; }
+.slide-title { font-size: clamp(24px, 3vw, 32px); font-weight: 900; letter-spacing: -0.02em; line-height: 1.2; }
+.slide-body p { font-size: 15px; line-height: 1.7; margin-bottom: 12px; }
+.slide-body h3 { font-size: 16px; font-weight: 600; margin-top: 16px; margin-bottom: 8px; color: var(--accent); }
+.slide-body ul { padding-left: 1.5rem; margin: 0.5rem 0; }
+.slide-body li { margin: 0.4rem 0; font-size: 14px; line-height: 1.6; }
+
+.goal-box {
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 20px 20px 20px 28px; position: relative;
+}
+.goal-box::before {
+  content: ''; position: absolute; top: 8px; left: 0; bottom: 8px; width: 3px;
+  background: linear-gradient(180deg, var(--accent), var(--cyan), transparent); border-radius: 2px;
+}
+.goal-box strong {
+  font-family: var(--font-mono); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--accent); display: block; margin-bottom: 4px;
+}
+
+.decision-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px 0; }
+.decision-card {
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: 14px 16px;
+}
+.decision-card-num {
+  font-family: var(--font-mono); font-size: 10px; color: var(--accent);
+  text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px;
+}
+.decision-card-text { font-size: 13px; line-height: 1.5; }
+
+table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
+th { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); background: var(--surface-2); }
+
+.file-tree {
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: 16px 20px;
+  font-family: var(--font-mono); font-size: 13px; white-space: pre; line-height: 1.9;
+}
+
+.bottom-bar {
+  position: fixed; bottom: 0; left: 0; right: 0; height: 56px;
+  background: var(--nav-bg); backdrop-filter: blur(20px);
+  border-top: 1px solid var(--border); display: flex; align-items: center;
+  justify-content: space-between; padding: 0 32px; z-index: 100;
+}
+.nav-btn {
+  font-family: var(--font-mono); font-size: 13px; padding: 8px 20px;
+  border-radius: var(--radius-md); cursor: pointer; transition: all .15s;
+  border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+}
+.nav-btn:hover { border-color: var(--accent); color: var(--accent); }
+.nav-btn:disabled { opacity: 0.3; pointer-events: none; }
+kbd { background: var(--surface-2); border: 1px solid var(--border); border-radius: 3px; padding: 2px 6px; font-size: 10px; }
+.keyboard-hint { font-family: var(--font-mono); font-size: 10px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-top">
+    <div class="nav-left">
+      <span class="nav-title"><span class="prompt">></span> skill-plan</span>
+      <span style="font-family:var(--font-mono);font-size:11px;color:var(--muted)">decompose @ makato-plan</span>
+    </div>
+    <div class="nav-right">
+      <span style="font-family:var(--font-mono);font-size:11px;color:var(--muted)">2026-05-14</span>
+      <button class="theme-toggle" onclick="toggleTheme()">theme</button>
+    </div>
+  </div>
+  <div class="step-track" id="stepTrack"></div>
+</nav>
+
+<div class="slides-container" id="slidesContainer">
+
+  <!-- Slide 1: Goal Alignment -->
+  <div class="slide active" data-label="Goal">
+    <div class="slide-content">
+      <div class="slide-label">Goal Alignment</div>
+      <div class="slide-title">decompose</div>
+      <div class="goal-box">
+        <strong>Plugin Goal (makato-plan)</strong>
+        <p>Transforms raw Jira features into PI-sized epics with vertically-sliced stories through structured discovery, interviews, and architectural analysis.</p>
+      </div>
+      <div class="slide-body">
+        <p><strong>How this skill serves the goal:</strong> Takes the pland artifacts (PRD + architecture + prototype) and decomposes them into independently deliverable, vertically-sliced stories with acceptance criteria. This is Phase 5 of the pipeline — the final transformation before stories become Jira issues.</p>
+        <p><strong>Position in pipeline:</strong> brainstorming → create-prd → create-architecture → create-prototype → <strong>decompose</strong> → publish-*</p>
+        <h3>Skill Identity</h3>
+        <p><code>name: decompose</code><br>
+        <code>version: 1.0.0</code><br>
+        <code>model: opus</code><br>
+        <code>argument-hint: [ITDB-KEY]</code></p>
+        <p><strong>Trigger words in description:</strong> decompose, vertical slice, story slicing, break down feature, split into stories</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Slide 2: Core Decisions -->
+  <div class="slide" data-label="Decisions">
+    <div class="slide-content">
+      <div class="slide-label">Design Decisions</div>
+      <div class="slide-title">25 Resolved Decisions</div>
+      <div class="decision-grid">
+        <div class="decision-card"><div class="decision-card-num">D1</div><div class="decision-card-text">Three-amigos embedded in decompose (not standalone skill)</div></div>
+        <div class="decision-card"><div class="decision-card-num">D2</div><div class="decision-card-text">Acceptance criteria embedded in stories.json</div></div>
+        <div class="decision-card"><div class="decision-card-num">D3</div><div class="decision-card-text">stories.json is living document — seeded in PRD, enriched progressively</div></div>
+        <div class="decision-card"><div class="decision-card-num">D4</div><div class="decision-card-text">Output is JSON — human readability via HTML review</div></div>
+        <div class="decision-card"><div class="decision-card-num">D5</div><div class="decision-card-text">Three amigos run in PARALLEL (PO, Dev, QA agents simultaneously)</div></div>
+        <div class="decision-card"><div class="decision-card-num">D6</div><div class="decision-card-text">Max 2 three-amigos iterations or user says "good enough"</div></div>
+        <div class="decision-card"><div class="decision-card-num">D7</div><div class="decision-card-text">Phases: foundation / happy-path / edge-cases (NOT "waves")</div></div>
+        <div class="decision-card"><div class="decision-card-num">D8</div><div class="decision-card-text">No priority on stories — backlog rank is implicit from sequence</div></div>
+        <div class="decision-card"><div class="decision-card-num">D9</div><div class="decision-card-text">Story points: Fibonacci (1,2,3,5,8,13)</div></div>
+        <div class="decision-card"><div class="decision-card-num">D10</div><div class="decision-card-text">No components on stories — use Team(s) field (multi-select)</div></div>
+        <div class="decision-card"><div class="decision-card-num">D11</div><div class="decision-card-text">Always label "makato" on all issues</div></div>
+        <div class="decision-card"><div class="decision-card-num">D12</div><div class="decision-card-text">No subtasks — dev teams create those during refinement</div></div>
+        <div class="decision-card"><div class="decision-card-num">D13</div><div class="decision-card-text">Progressive detail decay — Story 1 detailed, later stories vaguer</div></div>
+        <div class="decision-card"><div class="decision-card-num">D14</div><div class="decision-card-text">External dependencies drive phase assignment — own code first</div></div>
+        <div class="decision-card"><div class="decision-card-num">D15</div><div class="decision-card-text">Issue type always "Story" (not Activity)</div></div>
+        <div class="decision-card"><div class="decision-card-num">D16</div><div class="decision-card-text">Solution approach left empty (filled during refinement)</div></div>
+        <div class="decision-card"><div class="decision-card-num">D17</div><div class="decision-card-text">Interview in terminal, HTML only for reviews</div></div>
+        <div class="decision-card"><div class="decision-card-num">D18</div><div class="decision-card-text">No fixed story count — scope determines it</div></div>
+        <div class="decision-card"><div class="decision-card-num">D19</div><div class="decision-card-text">Agents defined at plugin level (makato-plan/agents/)</div></div>
+        <div class="decision-card"><div class="decision-card-num">D20</div><div class="decision-card-text">Completeness validation is relaxed (mandatory fields only)</div></div>
+        <div class="decision-card"><div class="decision-card-num">D21</div><div class="decision-card-text">Success scenarios: 1-3 per story max (lightweight)</div></div>
+        <div class="decision-card"><div class="decision-card-num">D22</div><div class="decision-card-text">Gherkin from QA agent is draft — acceptance-tests skill refines later</div></div>
+        <div class="decision-card"><div class="decision-card-num">D23</div><div class="decision-card-text">Edge cases explicitly identified — assigned to later phases, never forgotten</div></div>
+        <div class="decision-card"><div class="decision-card-num">D24</div><div class="decision-card-text">No assignee/sprint — operational, not pland</div></div>
+        <div class="decision-card"><div class="decision-card-num">D25</div><div class="decision-card-text">Definition of Done per story — 3-5 product-level conditions for inter-story coherence</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Slide 3: Workflow -->
+  <div class="slide" data-label="Workflow">
+    <div class="slide-content">
+      <div class="slide-label">Workflow</div>
+      <div class="slide-title">11-Step Process</div>
+      <div class="slide-body">
+        <table>
+          <tr><th>#</th><th>Step</th><th>Description</th></tr>
+          <tr><td>1</td><td>Resolve & Load</td><td>Find spec folder, load prd.md + design.md + prototype.html + decisions.md + repositories.yml</td></tr>
+          <tr><td>2</td><td>Repo Research</td><td>Spawn context-scout per repo, map repos to teams</td></tr>
+          <tr><td>3</td><td>Story Sketch Analysis</td><td>Analyze PRD sketches against architecture, apply 9 splitting patterns, identify external deps</td></tr>
+          <tr><td>4</td><td>Decomposition Interview</td><td>Terminal interview (2 rounds): validate stories, then find gaps/edge cases</td></tr>
+          <tr><td>5</td><td>Three Amigos</td><td>Run po-reviewer + dev-reviewer + qa-reviewer agents IN PARALLEL</td></tr>
+          <tr><td>6</td><td>Amigos HTML Review</td><td>Interactive slide deck with color-coded feedback (PO=blue, Dev=green, QA=amber). Max 2 iterations.</td></tr>
+          <tr><td>7</td><td>Generate stories.json</td><td>Write machine-readable output with progressive detail decay + DoD per story</td></tr>
+          <tr><td>8</td><td>Completeness Validation</td><td>Relaxed check: mandatory fields only. Intentionally-empty fields not flagged.</td></tr>
+          <tr><td>9</td><td>Parked Questions</td><td>Persist unresolved questions to decisions.md</td></tr>
+          <tr><td>10</td><td>Final HTML Review</td><td>Stories as Jira cards, phase board, dependency graph. Loop until approved.</td></tr>
+          <tr><td>11</td><td>Status & Handoff</td><td>Mark approved, display next steps (acceptance-tests, publish-epic, publish-stories)</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Slide 4: Vertical Slicing -->
+  <div class="slide" data-label="Slicing">
+    <div class="slide-content">
+      <div class="slide-label">Core Philosophy</div>
+      <div class="slide-title">Vertical Slicing Rules</div>
+      <div class="slide-body">
+        <div class="goal-box">
+          <strong>Fundamental Test</strong>
+          <p>"Can a user do something new when this story is complete, without waiting for any other story?"</p>
+        </div>
+        <h3>Nine Splitting Patterns</h3>
+        <table>
+          <tr><th>#</th><th>Pattern</th><th>Example</th></tr>
+          <tr><td>1</td><td>Workflow Steps</td><td>Break multi-step flows into individual end-to-end steps</td></tr>
+          <tr><td>2</td><td>Operations (CRUD)</td><td>Split "Manage X" into Create, Read, Update, Delete</td></tr>
+          <tr><td>3</td><td>Business Rule Variations</td><td>Separate rules into distinct stories</td></tr>
+          <tr><td>4</td><td>Data Variations</td><td>Start with simplest data plan, expand later</td></tr>
+          <tr><td>5</td><td>Data Entry Methods</td><td>Simple input first, enhance later</td></tr>
+          <tr><td>6</td><td>Major Effort</td><td>"Support one type" then "support all types"</td></tr>
+          <tr><td>7</td><td>Simple/Complex</td><td>Extract happy-path, defer edge cases</td></tr>
+          <tr><td>8</td><td>Defer Performance</td><td>Make it work, then make it fast</td></tr>
+          <tr><td>9</td><td>Break Out a Spike</td><td>Time-box research when uncertainty is high</td></tr>
+        </table>
+        <h3>Phase Assignment Matrix</h3>
+        <table>
+          <tr><th></th><th>We own it</th><th>Depends on others</th></tr>
+          <tr><td><strong>Happy path</strong></td><td>Phase 1-2</td><td>Phase 2-3</td></tr>
+          <tr><td><strong>Edge case</strong></td><td>Phase 2-3</td><td>Phase 3</td></tr>
+        </table>
+        <p><strong>Rule:</strong> Phase 1 = zero external dependencies. First story = walking skeleton.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Slide 5: Schema -->
+  <div class="slide" data-label="Schema">
+    <div class="slide-content">
+      <div class="slide-label">Output Schema</div>
+      <div class="slide-title">stories.json</div>
+      <div class="slide-body">
+        <h3>Key Fields per Story</h3>
+        <table>
+          <tr><th>Field</th><th>Type</th><th>Notes</th></tr>
+          <tr><td>sequence</td><td>number</td><td>Order (1 = walking skeleton)</td></tr>
+          <tr><td>phase</td><td>enum</td><td>foundation / happy-path / edge-cases</td></tr>
+          <tr><td>summary</td><td>string</td><td>[Component] User outcome title</td></tr>
+          <tr><td>storyPoints</td><td>number</td><td>Fibonacci (1,2,3,5,8,13)</td></tr>
+          <tr><td>teams</td><td>string[]</td><td>Multi-select — maps to Jira Team(s) field</td></tr>
+          <tr><td>description.background</td><td>string</td><td>Why this story exists</td></tr>
+          <tr><td>description.scope</td><td>string</td><td>Bounded scope statement</td></tr>
+          <tr><td>description.featureToggle</td><td>object</td><td>Always present (DCP convention)</td></tr>
+          <tr><td>description.successScenarios</td><td>array</td><td>1-3 Gherkin (Given/When/Then)</td></tr>
+          <tr><td>definitionOfDone</td><td>string[]</td><td>3-5 product-level completion conditions</td></tr>
+          <tr><td>dependencies</td><td>object</td><td>blockedBy/blocks (story sequences)</td></tr>
+          <tr><td>externalDependencies</td><td>array</td><td>External team + description + status</td></tr>
+        </table>
+        <h3>Intentionally Empty (filled downstream)</h3>
+        <p>solutionApproach (team refinement) · acceptanceTestCases (QAs) · wikiDocumentation (post-impl)</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Slide 6: Agents -->
+  <div class="slide" data-label="Agents">
+    <div class="slide-content">
+      <div class="slide-label">Three Amigos</div>
+      <div class="slide-title">3 Parallel Agents</div>
+      <div class="slide-body">
+        <table>
+          <tr><th>Agent</th><th>Model</th><th>Focus</th><th>Output</th></tr>
+          <tr><td>po-reviewer</td><td>Sonnet</td><td>Value, scope, phase assignment, PRD alignment</td><td>Per-story verdicts + missing stories</td></tr>
+          <tr><td>dev-reviewer</td><td>Sonnet</td><td>Feasibility, dependencies, estimates, enablers</td><td>Per-story verdicts + SP adjustments</td></tr>
+          <tr><td>qa-reviewer</td><td>Sonnet</td><td>Testability, edge cases, regression risk</td><td>Per-story verdicts + draft Gherkin</td></tr>
+        </table>
+        <h3>Behavior Constraints</h3>
+        <ul>
+          <li>Max 3 findings per story — pragmatic, not perfectionistic</li>
+          <li>If a story is fine, say "No concerns"</li>
+          <li>Iteration 2: Focus only on whether previous concerns were addressed</li>
+          <li>Natural endpoint: max 2 iterations OR "good enough" OR no new high-severity findings</li>
+        </ul>
+        <h3>HTML Review</h3>
+        <p>Color-coded callout boxes: PO (blue), Dev (green), QA (amber). Each story rendered as a Jira card with agent feedback alongside. Per-slide comment textarea + "Copy Feedback" button.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Slide 7: File Structure -->
+  <div class="slide" data-label="Files">
+    <div class="slide-content">
+      <div class="slide-label">Structure</div>
+      <div class="slide-title">Files Created</div>
+      <div class="file-tree">plugins/makato-plan/
+├── skills/
+│   └── decompose/
+│       ├── SKILL.md
+│       ├── references/
+│       │   ├── vertical-slicing-rules.md
+│       │   ├── story-point-estimation-guide.md
+│       │   ├── stories-json-schema.md
+│       │   ├── dcp-story-template.md
+│       │   ├── team-repository-mapping.md
+│       │   ├── phase-assignment-rules.md
+│       │   └── skill-plan.html
+│       └── templates/
+│           ├── stories-review.html
+│           ├── stories-final-review.html
+│           └── stories-json-template.json
+├── agents/
+│   ├── po-reviewer.md
+│   ├── dev-reviewer.md
+│   └── qa-reviewer.md</div>
+      <div class="slide-body" style="margin-top:20px">
+        <h3>Jira Field Mapping</h3>
+        <table>
+          <tr><th>stories.json</th><th>Jira Field</th><th>Field ID</th></tr>
+          <tr><td>epic.pi</td><td>Component</td><td>components[]</td></tr>
+          <tr><td>story.storyPoints</td><td>Story Points</td><td>customfield_10013</td></tr>
+          <tr><td>story.teams</td><td>Team(s)</td><td>customfield_16240</td></tr>
+          <tr><td>story.definitionOfDone</td><td>Checklist (DoD)</td><td>checklist</td></tr>
+          <tr><td>Story → Epic</td><td>Epic Link</td><td>epicLink</td></tr>
+          <tr><td>Story → Story</td><td>Dependency</td><td>link type 10010</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Slide 8: Calibration -->
+  <div class="slide" data-label="Calibration">
+    <div class="slide-content">
+      <div class="slide-label">Real Examples</div>
+      <div class="slide-title">DCP Story Calibration</div>
+      <div class="slide-body">
+        <table>
+          <tr><th>Issue</th><th>SP</th><th>Pattern</th><th>Takeaway</th></tr>
+          <tr><td>DCP-54781</td><td>3</td><td>Single-service backend logic (new validation rule)</td><td>3 Gherkin scenarios, clear scope, one team</td></tr>
+          <tr><td>DCP-55955</td><td>3</td><td>Backend logic with UI trigger</td><td>7 scenarios (more detailed), has inter-story dependencies</td></tr>
+          <tr><td>DCP-54509</td><td>5</td><td>Multi-page UI (4 pages)</td><td>One coherent outcome across multiple surfaces</td></tr>
+          <tr><td>DCP-54388</td><td>Epic</td><td>PI-scoped epic</td><td>Component = "PI | 26/02", child-of ITDB, multi-team</td></tr>
+        </table>
+        <h3>Story Point Scale</h3>
+        <table>
+          <tr><th>SP</th><th>Complexity</th><th>Example</th></tr>
+          <tr><td>1</td><td>Trivial</td><td>Config change, toggle flip</td></tr>
+          <tr><td>2</td><td>Simple</td><td>Single UI tweak with tests</td></tr>
+          <tr><td>3</td><td>Moderate</td><td>Single-service logic, simple component</td></tr>
+          <tr><td>5</td><td>Significant</td><td>Multi-page UI, cross-service integration</td></tr>
+          <tr><td>8</td><td>Complex</td><td>New endpoint with full coverage, complex UI</td></tr>
+          <tr><td>13</td><td>Major</td><td>New service/lambda, major architectural addition</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="bottom-bar">
+  <div style="display:flex;align-items:center;gap:12px">
+    <button class="nav-btn" id="prevBtn" onclick="navigate(-1)" disabled>< Prev</button>
+    <button class="nav-btn" id="nextBtn" onclick="navigate(1)">Next ></button>
+    <span class="keyboard-hint"><kbd>←</kbd> <kbd>→</kbd></span>
+  </div>
+  <span style="font-family:var(--font-mono);font-size:11px;color:var(--muted)">Design rationale — read-only reference</span>
+</div>
+
+<script>
+const slides = document.querySelectorAll('.slide');
+let current = 0;
+
+function buildStepTrack() {
+  const track = document.getElementById('stepTrack');
+  track.innerHTML = '';
+  slides.forEach((s, i) => {
+    if (i > 0) {
+      const conn = document.createElement('div');
+      conn.className = 'step-connector' + (i <= current ? ' done' : '');
+      track.appendChild(conn);
+    }
+    const item = document.createElement('div');
+    item.className = 'step-item' + (i === current ? ' current' : '') + (i < current ? ' done' : '');
+    item.innerHTML = `<div class="step-num">${i + 1}</div><span class="step-label">${s.dataset.label || ''}</span>`;
+    item.onclick = () => goTo(i);
+    track.appendChild(item);
+  });
+}
+
+function goTo(idx) {
+  slides[current].classList.remove('active');
+  current = Math.max(0, Math.min(slides.length - 1, idx));
+  slides[current].classList.add('active');
+  buildStepTrack();
+  document.getElementById('prevBtn').disabled = current === 0;
+  document.getElementById('nextBtn').disabled = current === slides.length - 1;
+}
+
+function navigate(dir) { goTo(current + dir); }
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') navigate(1);
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') navigate(-1);
+});
+
+function toggleTheme() {
+  const html = document.documentElement;
+  html.dataset.theme = html.dataset.theme === 'dark' ? 'light' : 'dark';
+}
+
+buildStepTrack();
+</script>
+</body>
+</html>

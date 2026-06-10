@@ -1,0 +1,808 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Skill Plan: create-prd (v2)</title>
+<style>
+:root {
+  --accent: #0070F2;
+  --accent-light: #00B8F1;
+  --accent-glow: rgba(0,112,242,0.15);
+  --green: #34D399;
+  --green-dim: rgba(52,211,153,0.12);
+  --amber: #FBBF24;
+  --amber-dim: rgba(251,191,36,0.12);
+  --purple: #A78BFA;
+  --purple-dim: rgba(167,139,250,0.12);
+  --cyan: #22D3EE;
+  --red: #F87171;
+  --red-dim: rgba(248,113,113,0.12);
+
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'SF Mono', 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+}
+[data-theme="dark"] {
+  --bg: #0A0E14;
+  --surface: #111820;
+  --surface-2: #1A2230;
+  --surface-3: #222E3E;
+  --fg: #E8EDF5;
+  --muted: #7B8FA6;
+  --border: #1E2A3A;
+  --border-light: #2A3A4E;
+  --nav-bg: rgba(10,14,20,0.92);
+  --grid-line: rgba(0,112,242,0.04);
+}
+[data-theme="light"] {
+  --bg: #F8FAFC;
+  --surface: #FFFFFF;
+  --surface-2: #F1F5F9;
+  --surface-3: #E2E8F0;
+  --fg: #0F172A;
+  --muted: #64748B;
+  --border: #E2E8F0;
+  --border-light: #CBD5E1;
+  --nav-bg: rgba(248,250,252,0.92);
+  --grid-line: rgba(0,112,242,0.03);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: var(--font);
+  line-height: 1.6;
+  color: var(--fg);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  transition: background .3s, color .3s;
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 80px 80px;
+}
+
+@keyframes shimmer { 0%{background-position:-200% 0;} 100%{background-position:200% 0;} }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+.nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  background: var(--nav-bg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
+  display: flex; flex-direction: column;
+}
+.nav-top {
+  height: 48px; display: flex; align-items: center; justify-content: space-between; padding: 0 32px;
+}
+.nav-left { display: flex; align-items: center; gap: 12px; }
+.nav-title { font-family: var(--font-mono); font-size: 13px; font-weight: 600; color: var(--accent); }
+.nav-title .prompt { color: var(--green); }
+.nav-right { display: flex; align-items: center; gap: 16px; }
+.theme-toggle {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+  padding: 5px 12px; cursor: pointer; font-family: var(--font-mono); font-size: 12px;
+  color: var(--muted); transition: all .2s;
+}
+.theme-toggle:hover { border-color: var(--accent); color: var(--accent); }
+
+.step-track {
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 32px 12px; gap: 0;
+}
+.step-item { display: flex; align-items: center; gap: 0; cursor: pointer; }
+.step-num {
+  width: 28px; height: 28px; border-radius: 50%;
+  border: 2px solid var(--border-light); background: var(--surface);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  color: var(--muted); transition: all .25s; position: relative;
+}
+.step-item.current .step-num { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+.step-item.done .step-num { border-color: var(--green); background: var(--green); color: #000; }
+.step-item.has-comment .step-num::after {
+  content: ''; position: absolute; top: -2px; right: -2px;
+  width: 8px; height: 8px; border-radius: 50%; background: var(--green); border: 2px solid var(--bg);
+}
+.step-label {
+  font-family: var(--font-mono); font-size: 10px; color: var(--muted);
+  margin-left: 6px; max-width: 0; overflow: hidden; white-space: nowrap;
+  transition: max-width .3s, margin .3s, color .2s;
+}
+.step-item.current .step-label { max-width: 120px; color: var(--accent); margin-left: 6px; }
+.step-connector { width: 28px; height: 2px; background: var(--border-light); transition: background .25s; }
+.step-connector.done { background: var(--green); }
+
+.slides-container { position: fixed; top: 92px; left: 0; right: 0; bottom: 120px; overflow: hidden; }
+.slide {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  display: flex; opacity: 0; pointer-events: none; transition: opacity .3s; overflow-y: auto;
+}
+.slide.active { opacity: 1; pointer-events: all; }
+.slide-content {
+  width: 100%; max-width: 1400px; margin: 0 auto; padding: 40px 48px;
+  display: grid; grid-template-columns: 1fr 340px; gap: 32px;
+  align-content: start; min-height: 100%;
+}
+.slide-main { display: flex; flex-direction: column; justify-content: center; }
+.slide-sidebar { display: flex; flex-direction: column; justify-content: center; }
+
+.slide-label {
+  font-family: var(--font-mono); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.1em; color: var(--accent); margin-bottom: 12px;
+  display: flex; align-items: center; gap: 6px;
+}
+.slide-label::before { content: '>'; color: var(--green); font-weight: 700; }
+.slide-title {
+  font-size: clamp(24px, 3vw, 32px); font-weight: 900;
+  letter-spacing: -0.02em; line-height: 1.2; margin-bottom: 20px;
+}
+.slide-body p { font-size: 15px; line-height: 1.7; margin-bottom: 12px; }
+.slide-body h3 { font-size: 16px; font-weight: 600; margin-top: 20px; margin-bottom: 8px; }
+
+.goal-box {
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 20px 20px 20px 28px;
+  margin-bottom: 20px; position: relative;
+}
+.goal-box::before {
+  content: ''; position: absolute; top: 8px; left: 0; bottom: 8px; width: 3px;
+  background: linear-gradient(180deg, var(--accent), var(--cyan), transparent); border-radius: 2px;
+}
+.goal-box strong {
+  font-family: var(--font-mono); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--accent); display: block; margin-bottom: 4px;
+}
+
+.callout {
+  background: var(--amber-dim); border: 1px solid rgba(251,191,36,0.3);
+  border-left: 3px solid var(--amber); border-radius: var(--radius-md);
+  padding: 12px 16px; margin: 12px 0; font-size: 14px;
+}
+.callout-green {
+  background: var(--green-dim); border: 1px solid rgba(52,211,153,0.3);
+  border-left: 3px solid var(--green); border-radius: var(--radius-md);
+  padding: 12px 16px; margin: 12px 0; font-size: 14px;
+}
+
+pre {
+  background: var(--bg); color: var(--fg); padding: 16px 20px;
+  border-radius: var(--radius-md); border: 1px solid var(--border);
+  font-size: 13px; font-family: var(--font-mono); line-height: 1.9;
+  margin: 12px 0; overflow-x: auto;
+}
+code {
+  background: var(--surface-2); color: var(--accent); padding: 2px 6px;
+  border-radius: var(--radius-sm); font-size: 12.5px; font-family: var(--font-mono);
+  border: 1px solid var(--border);
+}
+pre code { background: none; padding: 0; color: inherit; border: none; }
+
+.file-tree {
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: 16px 20px;
+  font-family: var(--font-mono); font-size: 13px; white-space: pre;
+  line-height: 1.9; position: relative;
+}
+.file-tree::before {
+  content: ''; position: absolute; top: 0; left: 0; width: 3px; height: 100%;
+  background: linear-gradient(180deg, var(--accent), transparent);
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+}
+
+table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 14px; }
+th { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); background: var(--surface-2); }
+ul { padding-left: 1.5rem; margin: 0.5rem 0; }
+li { margin: 0.4rem 0; font-size: 14px; line-height: 1.6; }
+
+.feedback-panel {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 24px; position: relative;
+  display: flex; flex-direction: column; gap: 16px;
+}
+.feedback-panel::before {
+  content: ''; position: absolute; top: 0; left: 24px; right: 24px; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+}
+.feedback-panel-label {
+  font-family: var(--font-mono); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--muted); display: flex; align-items: center; gap: 6px;
+}
+.feedback-panel-label::before { content: ''; width: 4px; height: 4px; border-radius: 50%; background: var(--muted); }
+.feedback-panel textarea {
+  width: 100%; flex: 1; min-height: 120px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: 14px; font-family: var(--font);
+  font-size: 14px; color: var(--fg); resize: none; transition: border-color .2s; line-height: 1.6;
+}
+.feedback-panel textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+.feedback-panel textarea::placeholder { color: var(--muted); opacity: 0.7; }
+.feedback-panel textarea.has-content { border-color: var(--green); }
+.feedback-hint { font-family: var(--font-mono); font-size: 11px; color: var(--muted); opacity: 0.6; }
+
+.slide-content.full-width { grid-template-columns: 1fr; max-width: 1400px; }
+.slide-content.full-width .slide-main { width: 100%; }
+.slide-feedback-bottom {
+  margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border);
+}
+.slide-feedback-bottom textarea {
+  width: 100%; min-height: 60px; background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: 12px 14px; font-family: var(--font);
+  font-size: 14px; color: var(--fg); resize: vertical; transition: border-color .2s; line-height: 1.6;
+}
+.slide-feedback-bottom textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+.slide-feedback-bottom textarea::placeholder { color: var(--muted); opacity: 0.7; }
+.slide-feedback-bottom textarea.has-content { border-color: var(--green); }
+.slide-feedback-bottom label {
+  font-family: var(--font-mono); font-size: 11px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.06em; display: block; margin-bottom: 8px;
+}
+
+.comments-strip {
+  position: fixed; bottom: 56px; left: 0; right: 0; height: 64px; z-index: 99;
+  background: var(--surface); border-top: 1px solid var(--border);
+  display: flex; align-items: center; padding: 0 32px; gap: 8px;
+  overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+}
+.comments-strip::-webkit-scrollbar { height: 4px; }
+.comments-strip::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.comments-strip-empty {
+  font-family: var(--font-mono); font-size: 11px; color: var(--muted); opacity: 0.5; white-space: nowrap;
+}
+.comment-chip {
+  flex-shrink: 0; display: flex; align-items: center; gap: 8px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: 8px 14px; cursor: pointer;
+  transition: border-color .15s; max-width: 220px;
+}
+.comment-chip:hover { border-color: var(--accent); }
+.comment-chip-section {
+  font-family: var(--font-mono); font-size: 9px; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--accent); white-space: nowrap;
+}
+.comment-chip-text {
+  font-size: 12px; color: var(--fg); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+
+.bottom-bar {
+  position: fixed; bottom: 0; left: 0; right: 0; height: 56px;
+  background: var(--nav-bg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  border-top: 1px solid var(--border); display: flex; align-items: center;
+  justify-content: space-between; padding: 0 32px; z-index: 100;
+}
+.nav-btn {
+  font-family: var(--font-mono); font-size: 13px; padding: 8px 20px;
+  border-radius: var(--radius-md); cursor: pointer; transition: all .15s;
+  border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+  display: flex; align-items: center; gap: 6px;
+}
+.nav-btn:hover { border-color: var(--accent); color: var(--accent); }
+.nav-btn.primary {
+  background: linear-gradient(135deg, var(--accent), var(--accent-light));
+  color: #fff; border: none;
+}
+.nav-btn.primary:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,112,242,.25); }
+.nav-btn:disabled { opacity: 0.3; pointer-events: none; }
+.copy-btn {
+  background: linear-gradient(135deg, var(--accent), var(--accent-light));
+  color: #fff; border: none; padding: 8px 24px; font-size: 13px; font-weight: 600;
+  border-radius: var(--radius-md); cursor: pointer; font-family: var(--font-mono);
+  transition: all .15s; position: relative; overflow: hidden;
+}
+.copy-btn::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.1), transparent);
+  background-size: 200% 100%; animation: shimmer 3s ease-in-out infinite;
+}
+.copy-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,112,242,.25); }
+.copy-status { font-family: var(--font-mono); font-size: 12px; color: var(--green); display: none; }
+.bottom-center { display: flex; align-items: center; gap: 12px; }
+.kbd {
+  font-family: var(--font-mono); font-size: 10px; background: var(--surface-2);
+  border: 1px solid var(--border); border-radius: 3px; padding: 2px 5px; color: var(--muted);
+}
+
+@media (max-width: 900px) {
+  .slide-content { grid-template-columns: 1fr; padding: 32px 20px; }
+  .nav-top { padding: 0 16px; }
+  .step-track { padding: 0 16px; overflow-x: auto; justify-content: flex-start; }
+  .step-label { display: none; }
+  .bottom-bar { padding: 0 16px; }
+  .comments-strip { padding: 0 16px; }
+}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-top">
+    <div class="nav-left">
+      <div class="nav-title"><span class="prompt">$</span> makato skill-plan &mdash; create-prd (v2)</div>
+    </div>
+    <div class="nav-right">
+      <button class="theme-toggle" onclick="toggleTheme()">&#9684; Dark</button>
+    </div>
+  </div>
+  <div class="step-track" id="step-track"></div>
+</nav>
+
+<div class="slides-container">
+
+  <!-- SLIDE 1: Goal Alignment -->
+  <div class="slide active" data-slide="0">
+    <div class="slide-content">
+      <div class="slide-main">
+        <div class="slide-label">Goal Alignment</div>
+        <h1 class="slide-title">Does this skill serve the plugin's goal?</h1>
+        <div class="goal-box">
+          <strong>Plugin Goal (makato-plan)</strong>
+          <span>Transforms raw Jira features into PI-sized epics with vertically-sliced stories through structured discovery, interviews, and architectural analysis.</span>
+        </div>
+        <div class="slide-body">
+          <h3>How This Skill Serves the Goal</h3>
+          <p><code>create-prd</code> takes grilled brainstorming output (brainstorm.md + decisions.md) and transforms it into a formal PRD. The PRD captures the WHAT and WHY: problem statement, success metrics, scope boundaries, and <strong>rough vertical story ideas</strong> that give direction for architecture and decomposition downstream.</p>
+          <div class="callout">
+            <strong>Story fidelity:</strong> User stories in the PRD are <em>rough ideas</em> &mdash; directional sketches showing how work could be sliced vertically. They are NOT final artifacts. Detailed acceptance criteria and refined stories come later during spec/decomposition phases.
+          </div>
+          <h3>Position in Plugin Workflow</h3>
+          <p>Step 2 in the shaping pipeline. Receives brainstorming artifacts (already imported ITDB, already resolved key decisions), produces structured requirements that feed architecture and decomposition.</p>
+<pre><code>brainstorming &rarr; grill &rarr; <strong>create-prd</strong> &rarr; architecture &rarr; decomposition
+      &boxv;                &boxv;                  &boxv;                &boxv;
+      &boxur;&mdash; grill &larr;&mdash;&mdash;&mdash;&mdash;&boxur;&mdash; grill &larr;&mdash;&mdash;&mdash;&mdash;&mdash;&boxur;&mdash; grill &larr;&mdash;&mdash;&mdash;&mdash;&boxur;</code></pre>
+        </div>
+      </div>
+      <div class="slide-sidebar">
+        <div class="feedback-panel">
+          <div class="feedback-panel-label">Your feedback</div>
+          <textarea data-section="Goal Alignment" placeholder="Any concerns about fit? Should the framing change?"></textarea>
+          <div class="feedback-hint">Leave empty to approve as-is</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 2: Skill Identity -->
+  <div class="slide" data-slide="1">
+    <div class="slide-content">
+      <div class="slide-main">
+        <div class="slide-label">Skill Identity</div>
+        <h1 class="slide-title">Frontmatter &amp; Identity</h1>
+        <pre><code>---
+name: create-prd
+description: Create Product Requirements Documents from brainstorming output &mdash; PRD, requirements, product requirements, feature requirements, user stories, acceptance criteria. Use after brainstorming and grilling.
+version: "1.0.0"
+model: opus
+argument-hint: "[ITDB-KEY]"
+---</code></pre>
+        <div class="slide-body">
+          <h3>Design Decisions</h3>
+          <ul>
+            <li><strong>Pure document output</strong> &mdash; no Jira creation, no Confluence publishing (downstream skills)</li>
+            <li><strong>Opus model</strong> &mdash; consistent with brainstorming and grill (complex reasoning)</li>
+            <li><strong>Argument = ITDB key</strong> &mdash; used as spec folder identifier (<code>specs/{ITDB-KEY}/</code>), NOT to re-import the ticket. Brainstorming already did the import.</li>
+            <li><strong>Description: single line</strong> &mdash; no YAML multiline indicators</li>
+            <li><strong>Auto-detect mode</strong> &mdash; if <code>specs/{ITDB-KEY}/prd.md</code> already exists, enter update mode (refine/adjust existing PRD)</li>
+          </ul>
+        </div>
+      </div>
+      <div class="slide-sidebar">
+        <div class="feedback-panel">
+          <div class="feedback-panel-label">Your feedback</div>
+          <textarea data-section="Skill Identity" placeholder="Name OK? Description clear? Trigger words embedded well?"></textarea>
+          <div class="feedback-hint">Leave empty to approve as-is</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 3: Workflow -->
+  <div class="slide" data-slide="2">
+    <div class="slide-content full-width">
+      <div class="slide-main">
+        <div class="slide-label">Workflow</div>
+        <h1 class="slide-title">Execution Steps (Revised)</h1>
+        <div class="slide-body">
+          <h3>Step 1: Resolve Spec Folder &amp; Load Artifacts</h3>
+          <p><strong>1.1 Resolve spec folder</strong> &mdash; From argument (ITDB key) or auto-detect most recently modified <code>specs/{ITDB-KEY}/</code> folder. The folder already exists (created during brainstorming).</p>
+          <p><strong>1.2 Load brainstorming artifacts</strong> &mdash; Read <code>brainstorm.md</code> (selected approach, rejected alternatives, edge cases) and <code>decisions.md</code> (resolved decisions + open questions). These are the primary input &mdash; no ITDB re-import needed.</p>
+          <div class="callout-green">
+            <strong>Changed from v1:</strong> No ITDB fetch. Brainstorming already imported the ticket, attachments, and context. We trust those artifacts as our source of truth.
+          </div>
+          <p><strong>1.3 Open Questions startup check</strong> &mdash; If <code>decisions.md</code> has open questions (High/Medium priority), present them for resolution before proceeding. These may have been parked during brainstorming or a prior grill.</p>
+          <p><strong>1.4 Detect update mode</strong> &mdash; If <code>prd.md</code> already exists in the folder, ask: "PRD already exists. Refine it or start fresh?" If refine, load existing PRD and show current content summary.</p>
+
+          <h3>Step 2: Repository Identification &amp; Research</h3>
+          <p><strong>2.1 Identify repositories</strong> &mdash; Check if <code>specs/{folder}/repositories.yml</code> exists (may have been set in a prior phase). If not, ask user which repos are affected. Store result for PRD frontmatter and codebase research.</p>
+          <p><strong>2.2 Codebase research</strong> &mdash; Spawn <code>context-scout</code> agent to scan <code>context/{repo}/</code> directories for existing implementations, patterns, and constraints. Return synthesized findings.</p>
+
+          <h3>Step 3: Product Strategy Interview</h3>
+          <div class="callout">
+            <strong>Key change:</strong> This is NOT gap-filling. This is product strategy and goal-driven elicitation. Even with rich brainstorming artifacts, the PRD phase must sharpen: success metrics, priority, phased rollout approach, and non-goals. Don't assume the brainstorm covered everything &mdash; the brainstorm was about exploration, this is about commitment.
+          </div>
+          <p><strong>Interview areas</strong> (always covered, even if partially addressed in brainstorm):</p>
+          <ul>
+            <li><strong>Success criteria</strong> &mdash; 3-5 measurable KPIs (push back on vague: "What does 'fast' mean?")</li>
+            <li><strong>Scope boundaries</strong> &mdash; explicit In-Scope and Non-Goals (what are we NOT building?)</li>
+            <li><strong>User personas</strong> &mdash; who benefits and how (sharpen from brainstorm's broad categories)</li>
+            <li><strong>Constraints &amp; dependencies</strong> &mdash; timeline, tech stack mandates, compliance, budget</li>
+            <li><strong>Priority</strong> &mdash; critical/high/medium/low with rationale</li>
+            <li><strong>Phased rollout thinking</strong> &mdash; what's MVP vs. enrichment? (dependency-based, NOT time-based)</li>
+          </ul>
+          <p>Park unanswerable questions (load @references/open-questions.md for parking protocol).</p>
+
+          <h3>Step 4: Decision Stress-Test (Grill)</h3>
+          <p>Invoke <code>/grill</code> scoped to the current spec folder, targeting business/UX decisions. This catches gaps BEFORE committing them to a PRD document. Grill findings update <code>decisions.md</code> directly.</p>
+          <div class="callout-green">
+            <strong>Changed from v1:</strong> Grill is integrated INTO the PRD workflow (not optional). We grill before writing, not after. The user can skip if they explicitly confirm confidence.
+          </div>
+
+          <h3>Step 5: PRD Generation</h3>
+          <p><strong>5.1 Vertical story sketching</strong> &mdash; Based on interview + brainstorm + grill outcomes, sketch 3-5 rough vertical story ideas. Each story shows: user outcome, which layers it touches, and a brief acceptance sketch. Load @references/vertical-slicing.md for slicing rules.</p>
+          <p><strong>5.2 Write PRD</strong> &mdash; Dispatch <code>doc-writer</code> agent with: brainstorm findings, interview results, grill decisions, codebase research, and PRD template. PRD references decisions by ID ("Per D3: ..."), never duplicates. Output: <code>specs/{folder}/prd.md</code>.</p>
+          <p><strong>5.3 Delivery recommendations</strong> &mdash; Advisory section in the PRD: estimated scope (small/medium/large), suggested Epic count, story groupings, affected repositories. Purely advisory &mdash; no Jira creation.</p>
+          <div class="callout">
+            <strong>On scale detection:</strong> We don't count stories or estimate tasks at this point (stories are rough ideas). Instead, scope estimation is qualitative: based on cross-repo breadth, dependency complexity, compliance requirements, and the grill's risk assessment.
+          </div>
+
+          <h3>Step 6: Parked Questions Persistence</h3>
+          <p>Write ALL unresolved questions from this session to <code>decisions.md</code> Open Questions table. Zero silent loss guarantee. Priority: High = blocks next phase, Medium = should resolve in architecture, Low = can defer.</p>
+
+          <h3>Step 7: HTML Review &amp; Approval</h3>
+          <p>Dispatch <code>doc-writer</code> agent with the makato design system template (<code>templates/prd-review.html</code>) to generate an interactive slide-deck review. Sections: PRD summary, story sketches, delivery recommendations, decisions referenced, open questions. User provides feedback via textareas, copies all, pastes back.</p>
+          <p>Iterate until approved.</p>
+
+          <h3>Step 8: Status &amp; Handoff</h3>
+          <p>Mark PRD status (Draft &rarr; Approved). Show next steps based on qualitative scope assessment:</p>
+          <ul>
+            <li><strong>Small scope</strong> &mdash; skip design doc, proceed to spec</li>
+            <li><strong>Standard scope</strong> &mdash; proceed to architecture design</li>
+            <li><strong>Large/compliance scope</strong> &mdash; architecture + security review</li>
+          </ul>
+        </div>
+        <div class="slide-feedback-bottom">
+          <label>Feedback on workflow</label>
+          <textarea data-section="Workflow" placeholder="Missing steps? Wrong order? Grill integration right? Product strategy interview deep enough?"></textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 4: References -->
+  <div class="slide" data-slide="3">
+    <div class="slide-content">
+      <div class="slide-main">
+        <div class="slide-label">References</div>
+        <h1 class="slide-title">Reference Files</h1>
+        <table>
+          <thead><tr><th>File</th><th>Purpose</th></tr></thead>
+          <tbody>
+            <tr><td><code>vertical-slicing.md</code></td><td>Rules for slicing stories vertically. Walking skeleton approach, user-outcome focus, layer-crossing validation, anti-patterns (horizontal slices). Used in Step 5.1.</td></tr>
+            <tr><td><code>prd-quality.md</code></td><td>PRD quality standards: measurable criteria, no vague language, dependency-based phases, decision reference format ("Per D3: ..."), Non-Goals requirement. Used in Step 5.2.</td></tr>
+            <tr><td><code>open-questions.md</code></td><td>Parking protocol: when to park, how to assign IDs, priority rules, persistence guarantee. Used in Steps 3 and 6.</td></tr>
+          </tbody>
+        </table>
+        <div class="slide-body">
+          <h3>Decisions</h3>
+          <ul>
+            <li><strong>Kept vertical-slicing.md</strong> &mdash; essential domain knowledge, reused from source skill</li>
+            <li><strong>Kept prd-quality.md</strong> &mdash; PRD-specific standards (measurable criteria, no vague language)</li>
+            <li><strong>Kept open-questions.md</strong> &mdash; parking rules, copied from brainstorming skill (self-containment: each skill gets its own copy)</li>
+            <li><strong>Dropped scale-detection.md</strong> &mdash; replaced with qualitative assessment (can't count stories that don't exist yet as detailed artifacts)</li>
+            <li><strong>Dropped repo-identification.md</strong> &mdash; small enough to inline in Step 2.1</li>
+          </ul>
+        </div>
+      </div>
+      <div class="slide-sidebar">
+        <div class="feedback-panel">
+          <div class="feedback-panel-label">Your feedback</div>
+          <textarea data-section="References" placeholder="Missing knowledge? Want scale-detection back? Content concerns?"></textarea>
+          <div class="feedback-hint">Leave empty to approve as-is</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 5: Templates -->
+  <div class="slide" data-slide="4">
+    <div class="slide-content">
+      <div class="slide-main">
+        <div class="slide-label">Templates</div>
+        <h1 class="slide-title">Template Files</h1>
+        <table>
+          <thead><tr><th>File</th><th>Purpose</th><th>~Size</th></tr></thead>
+          <tbody>
+            <tr><td><code>prd-template.md</code></td><td>Structured PRD output format passed to doc-writer. Sections: frontmatter, executive summary, personas, story sketches, scope, success metrics, dependencies, risks, phased rollout, delivery recommendations.</td><td>~120 lines</td></tr>
+            <tr><td><code>prd-review.html</code></td><td>makato design system slide-deck template for browser approval gate. Interactive textareas per section, copy-all-feedback button, dark/light theme.</td><td>~400 lines</td></tr>
+          </tbody>
+        </table>
+        <div class="slide-body">
+          <h3>Template Adaptations</h3>
+          <ul>
+            <li><strong>PRD template</strong> &mdash; stories are "Story Sketches" (rough ideas, not detailed specs). No Jira keys column. Adds Delivery Recommendations section. References decisions.md by ID.</li>
+            <li><strong>HTML review</strong> &mdash; same design system as brainstorm-review.html and grill-review.html (makato slide-deck pattern). No external dependencies &mdash; CSS/JS fully inlined.</li>
+            <li><strong>No line-count limit on templates</strong> &mdash; HTML templates are naturally longer, that's fine.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="slide-sidebar">
+        <div class="feedback-panel">
+          <div class="feedback-panel-label">Your feedback</div>
+          <textarea data-section="Templates" placeholder="Template structure OK? Missing sections? Story sketch format right?"></textarea>
+          <div class="feedback-hint">Leave empty to approve as-is</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 6: File Tree -->
+  <div class="slide" data-slide="5">
+    <div class="slide-content">
+      <div class="slide-main">
+        <div class="slide-label">Structure</div>
+        <h1 class="slide-title">File Tree</h1>
+        <div class="file-tree">plugins/makato-plan/skills/create-prd/
+&#9500;&#9472;&#9472; SKILL.md
+&#9500;&#9472;&#9472; references/
+&#9474;   &#9500;&#9472;&#9472; vertical-slicing.md
+&#9474;   &#9500;&#9472;&#9472; prd-quality.md
+&#9474;   &#9492;&#9472;&#9472; open-questions.md
+&#9492;&#9472;&#9472; templates/
+    &#9500;&#9472;&#9472; prd-template.md
+    &#9492;&#9472;&#9472; prd-review.html</div>
+        <div class="slide-body" style="margin-top: 20px;">
+          <h3>Parent Files Updated</h3>
+          <ul>
+            <li><code>CHANGELOG.md</code> &mdash; add <code>create-prd</code> skill entry under [Unreleased]</li>
+            <li><code>README.md</code> &mdash; update workflow table (Step 2: create-prd) and skills table</li>
+          </ul>
+          <h3>Total: 6 files created, 2 files updated</h3>
+        </div>
+      </div>
+      <div class="slide-sidebar">
+        <div class="feedback-panel">
+          <div class="feedback-panel-label">Your feedback</div>
+          <textarea data-section="File Tree" placeholder="Missing directories? Rename suggestions?"></textarea>
+          <div class="feedback-hint">Leave empty to approve as-is</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 7: Key Decisions -->
+  <div class="slide" data-slide="6">
+    <div class="slide-content full-width">
+      <div class="slide-main">
+        <div class="slide-label">Key Decisions</div>
+        <h1 class="slide-title">Adaptation Decisions (Final)</h1>
+        <div class="slide-body">
+          <h3>What We Keep</h3>
+          <ul>
+            <li>Vertical slicing as core story requirement with validation rules</li>
+            <li>PRD quality standards (no vague criteria, dependency-based phases)</li>
+            <li>decisions.md reference by ID ("Per D3: ...") &mdash; never duplicate content</li>
+            <li>Delivery recommendations (advisory Epic sizing, story grouping)</li>
+            <li>Parked questions persistence to decisions.md (zero-loss guarantee)</li>
+            <li>Open questions startup check (revisit prior session's parked Qs)</li>
+            <li>Repository identification for PRD frontmatter + codebase research</li>
+            <li>HTML review approval gate with makato design system</li>
+            <li>Handoff routing based on scope assessment</li>
+          </ul>
+
+          <h3>What We Change</h3>
+          <ul>
+            <li><strong>No ITDB re-import</strong> &mdash; brainstorming did that; we trust brainstorm.md + decisions.md</li>
+            <li><strong>Folder already exists</strong> &mdash; named <code>specs/{ITDB-KEY}/</code> (created during brainstorming)</li>
+            <li><strong>Stories are "rough ideas"</strong> &mdash; directional sketches, not detailed artifacts. Called "Story Sketches" in template</li>
+            <li><strong>Grill is integrated</strong> &mdash; invoked BEFORE writing (not optional/after). User can skip with explicit confirmation.</li>
+            <li><strong>Scale detection is qualitative</strong> &mdash; no story counting (they don't exist as countable things yet). Assessment based on cross-repo breadth, dependency complexity, compliance flags.</li>
+            <li><strong>Interview is product strategy</strong> &mdash; not gap-filling. Always covers success metrics, scope boundaries, priority, phased rollout. Even rich brainstorms need these sharpened.</li>
+            <li><strong>Update mode auto-detected</strong> &mdash; if prd.md exists, ask to refine or start fresh. No separate <code>--update</code> flag needed.</li>
+          </ul>
+
+          <h3>What We Drop</h3>
+          <ul>
+            <li><strong>Jira Story creation (Phases 6.7, 6.8)</strong> &mdash; downstream skill responsibility</li>
+            <li><strong>Confluence publishing (Phase 7)</strong> &mdash; downstream skill</li>
+            <li><strong>Folder renaming with Feature key</strong> &mdash; folder is ITDB-named from start</li>
+            <li><strong>Jira attachment import</strong> &mdash; already done in brainstorming</li>
+            <li><strong>Cross-cutting preamble files</strong> &mdash; makato-plan uses local references</li>
+            <li><strong>Persona section in SKILL.md</strong> &mdash; interaction style inlined into workflow</li>
+            <li><strong>workflow-state.json</strong> &mdash; deferred discussion; for now, repos stored in PRD frontmatter</li>
+          </ul>
+
+          <h3>From Open PRs/Issues (Incorporated)</h3>
+          <ul>
+            <li><strong>PR #474</strong> &mdash; park questions during interview, startup revisit</li>
+            <li><strong>Issue #469</strong> &mdash; no Feature creation from ITDB (ITDB IS the feature)</li>
+            <li><strong>PR #470</strong> &mdash; pure document writer, no Jira/Confluence side-effects</li>
+          </ul>
+        </div>
+        <div class="slide-feedback-bottom">
+          <label>Feedback on decisions</label>
+          <textarea data-section="Key Decisions" placeholder="Disagree with any keeps/changes/drops? Anything missing?"></textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 8: Validation -->
+  <div class="slide" data-slide="7">
+    <div class="slide-content">
+      <div class="slide-main">
+        <div class="slide-label">Validation</div>
+        <h1 class="slide-title">Validation Checks</h1>
+        <ul>
+          <li><code>check-skill-frontmatter.sh</code> &mdash; verifies required frontmatter fields (name, description, version) and semver format</li>
+          <li><code>check-self-contained.sh</code> &mdash; scans for parent-directory path escapes (no <code>..&#47;</code> except shared/)</li>
+          <li><code>check-naming.sh</code> &mdash; validates kebab-case directory and file names</li>
+        </ul>
+        <div class="slide-body" style="margin-top: 20px;">
+          <h3>Post-Build Verification</h3>
+          <ul>
+            <li>Skill is self-contained (no external dependencies)</li>
+            <li>No external URL dependencies for critical content</li>
+            <li>Template placeholders use consistent <code>{{PLACEHOLDER}}</code> syntax</li>
+            <li>SKILL.md uses <code>@references/</code> loads at point of use (not front-loaded)</li>
+            <li>HTML template includes full makato design system inline (no shared CSS)</li>
+            <li>PR title: <code>feat(makato-plan): add create-prd skill</code></li>
+          </ul>
+        </div>
+      </div>
+      <div class="slide-sidebar">
+        <div class="feedback-panel">
+          <div class="feedback-panel-label">Your feedback</div>
+          <textarea data-section="Validation" placeholder="Additional checks needed?"></textarea>
+          <div class="feedback-hint">Leave empty to approve as-is</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Comments strip -->
+<div class="comments-strip" id="comments-strip">
+  <span class="comments-strip-empty">Comments will appear here as you provide feedback</span>
+</div>
+
+<div class="bottom-bar">
+  <button class="nav-btn" id="prev-btn" disabled onclick="navigate(-1)">&larr; Prev <span class="kbd">&larr;</span></button>
+  <div class="bottom-center">
+    <button class="copy-btn" onclick="copyFeedback()">Copy All Feedback &rarr;</button>
+    <span class="copy-status" id="copy-status">&checkmark; Copied</span>
+  </div>
+  <button class="nav-btn primary" id="next-btn" onclick="navigate(1)">Next &rarr; <span class="kbd" style="background:rgba(255,255,255,0.15);border-color:rgba(255,255,255,0.2);color:#fff;">&rarr;</span></button>
+</div>
+
+<script>
+let current = 0;
+const slides = document.querySelectorAll('.slide');
+const total = slides.length;
+const sectionNames = ['Goal Alignment', 'Skill Identity', 'Workflow', 'References', 'Templates', 'File Tree', 'Decisions', 'Validation'];
+
+function buildStepTrack() {
+  const track = document.getElementById('step-track');
+  for (let i = 0; i < total; i++) {
+    if (i > 0) {
+      const conn = document.createElement('div');
+      conn.className = 'step-connector';
+      conn.dataset.before = i;
+      track.appendChild(conn);
+    }
+    const item = document.createElement('div');
+    item.className = 'step-item' + (i === 0 ? ' current' : '');
+    item.onclick = () => goTo(i);
+    item.innerHTML = `<div class="step-num">${i + 1}</div><span class="step-label">${sectionNames[i]}</span>`;
+    item.dataset.index = i;
+    track.appendChild(item);
+  }
+}
+buildStepTrack();
+
+function goTo(index) {
+  if (index < 0 || index >= total) return;
+  slides[current].classList.remove('active');
+  current = index;
+  slides[current].classList.add('active');
+  document.getElementById('prev-btn').disabled = current === 0;
+  document.getElementById('next-btn').disabled = current === total - 1;
+  updateStepTrack();
+}
+function navigate(dir) { goTo(current + dir); }
+
+function updateStepTrack() {
+  const items = document.querySelectorAll('.step-item');
+  const connectors = document.querySelectorAll('.step-connector');
+  items.forEach((item, i) => {
+    item.classList.remove('current', 'done');
+    if (i === current) item.classList.add('current');
+    else if (i < current) item.classList.add('done');
+    const ta = slides[i].querySelector('textarea');
+    item.classList.toggle('has-comment', ta && ta.value.trim().length > 0);
+  });
+  connectors.forEach(c => {
+    c.classList.toggle('done', parseInt(c.dataset.before) <= current);
+  });
+  updateCommentsStrip();
+}
+
+function updateCommentsStrip() {
+  const strip = document.getElementById('comments-strip');
+  const textareas = document.querySelectorAll('textarea[data-section]');
+  let chips = '';
+  let count = 0;
+  textareas.forEach((ta, i) => {
+    if (ta.value.trim()) {
+      count++;
+  textareas.forEach((ta) => {
+    if (ta.value.trim()) {
+      count++;
+      const slideIndex = parseInt(ta.closest('.slide').dataset.slide);
+      chips += `<div class="comment-chip" onclick="goTo(${slideIndex})">
+        <span class="comment-chip-section">${ta.dataset.section}</span>
+        <span class="comment-chip-text">${escapeHtml(ta.value.trim())}</span>
+      </div>`;
+    }
+  });
+        <span class="comment-chip-section">${ta.dataset.section}</span>
+        <span class="comment-chip-text">${escapeHtml(ta.value.trim())}</span>
+      </div>`;
+    }
+  });
+  strip.innerHTML = count === 0
+    ? '<span class="comments-strip-empty">Comments will appear here as you provide feedback</span>'
+    : chips;
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+document.querySelectorAll('textarea').forEach(ta => {
+  ta.addEventListener('input', updateStepTrack);
+  ta.addEventListener('input', () => { ta.classList.toggle('has-content', ta.value.trim().length > 0); });
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'TEXTAREA') return;
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') navigate(1);
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') navigate(-1);
+});
+
+function copyFeedback() {
+  const textareas = document.querySelectorAll('textarea[data-section]');
+  let feedback = '# Skill Plan Feedback: create-prd (v2)\n\n';
+  let hasContent = false;
+  textareas.forEach(ta => {
+    if (ta.value.trim()) { hasContent = true; feedback += `## ${ta.dataset.section}\n${ta.value.trim()}\n\n`; }
+  });
+  if (!hasContent) feedback += '_No comments — plan approved as-is._\n';
+  navigator.clipboard.writeText(feedback).then(() => {
+    const status = document.getElementById('copy-status');
+    status.style.display = 'inline';
+    setTimeout(() => { status.style.display = 'none'; }, 2500);
+  });
+}
+
+function toggleTheme() {
+  const html = document.documentElement; const btn = document.querySelector('.theme-toggle');
+  if (html.dataset.theme === 'dark') { html.dataset.theme = 'light'; btn.textContent = '◐ Light'; }
+  else { html.dataset.theme = 'dark'; btn.textContent = '◐ Dark'; }
+  localStorage.setItem('makato-plan-theme', html.dataset.theme);
+}
+const saved = localStorage.getItem('makato-plan-theme');
+if (saved) { document.documentElement.dataset.theme = saved; document.querySelector('.theme-toggle').textContent = saved === 'dark' ? '◐ Dark' : '◐ Light'; }
+</script>
+
+</body>
+</html>

@@ -1,0 +1,7 @@
+{
+  "name": "makato-build",
+  "description": "Transforms decomposed, vertically-sliced stories into tested, reviewed, merged code.",
+  "author": {
+    "name": "makato Team"
+  }
+}

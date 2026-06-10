@@ -1,0 +1,55 @@
+{
+  "version": "1.0",
+  "feature": "<ITDB-KEY>",
+  "created": "<YYYY-MM-DD>",
+  "status": "draft",
+  "epic": {
+    "summary": "[Feature Tag] Epic title",
+    "objective": "One-line objective statement",
+    "pi": "<YY/MM>",
+    "labels": ["makato", "pi_planning"]
+  },
+  "stories": [
+    {
+      "sequence": 1,
+      "phase": "foundation",
+      "summary": "[Component] User outcome — walking skeleton",
+      "storyPoints": 3,
+      "teams": ["<Team Name>"],
+      "labels": ["makato"],
+      "description": {
+        "background": "<Why this story exists>",
+        "scope": "<What to build — specific, bounded>",
+        "featureToggle": {
+          "alreadyInPlace": false,
+          "newNeeded": true,
+          "longTermUsage": false,
+          "name": "<toggle-name.enabled>",
+          "defaultState": "disabled"
+        },
+        "successScenarios": [
+          {
+            "title": "Scenario 1: <Name>",
+            "given": "<precondition>",
+            "when": "<action>",
+            "then": "<outcome>"
+          }
+        ],
+        "solutionApproach": "",
+        "acceptanceTestCases": [],
+        "wikiDocumentation": "",
+        "outOfScope": ["<Explicit exclusion>"]
+      },
+      "definitionOfDone": [
+        "<Story-specific product completion condition 1>",
+        "<Story-specific product completion condition 2>",
+        "<Story-specific product completion condition 3>"
+      ],
+      "dependencies": {
+        "blockedBy": [],
+        "blocks": []
+      },
+      "externalDependencies": []
+    }
+  ]
+}

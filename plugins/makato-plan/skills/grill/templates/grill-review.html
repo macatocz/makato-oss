@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Grill Review: {{FEATURE_NAME}}</title>
+<style>
+:root {
+  --accent: #0070F2;
+  --accent-light: #00B8F1;
+  --accent-glow: rgba(0,112,242,0.15);
+  --green: #34D399;
+  --green-dim: rgba(52,211,153,0.12);
+  --amber: #FBBF24;
+  --amber-dim: rgba(251,191,36,0.12);
+  --purple: #A78BFA;
+  --purple-dim: rgba(167,139,250,0.12);
+  --cyan: #22D3EE;
+  --cyan-dim: rgba(34,211,238,0.12);
+  --red: #F87171;
+  --red-dim: rgba(248,113,113,0.12);
+
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'SF Mono', 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+}
+[data-theme="dark"] {
+  --bg: #0A0E14;
+  --surface: #111820;
+  --surface-2: #1A2230;
+  --surface-3: #222E3E;
+  --fg: #E8EDF5;
+  --muted: #7B8FA6;
+  --border: #1E2A3A;
+  --border-light: #2A3A4E;
+  --nav-bg: rgba(10,14,20,0.92);
+  --grid-line: rgba(0,112,242,0.04);
+}
+[data-theme="light"] {
+  --bg: #F8FAFC;
+  --surface: #FFFFFF;
+  --surface-2: #F1F5F9;
+  --surface-3: #E2E8F0;
+  --fg: #0F172A;
+  --muted: #64748B;
+  --border: #E2E8F0;
+  --border-light: #CBD5E1;
+  --nav-bg: rgba(248,250,252,0.92);
+  --grid-line: rgba(0,112,242,0.03);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: var(--font);
+  line-height: 1.6;
+  color: var(--fg);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  transition: background .3s, color .3s;
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 80px 80px;
+  min-height: 100vh;
+  padding: 0 0 40px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+.nav {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--nav-bg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
+  height: 48px; display: flex; align-items: center; justify-content: space-between; padding: 0 32px;
+}
+.nav-title { font-family: var(--font-mono); font-size: 13px; font-weight: 600; color: var(--accent); }
+.nav-title .prompt { color: var(--green); }
+.nav-right { display: flex; align-items: center; gap: 16px; }
+.nav-right .meta { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+.theme-toggle {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+  padding: 5px 12px; cursor: pointer; font-family: var(--font-mono); font-size: 12px;
+  color: var(--muted); transition: all .2s;
+}
+.theme-toggle:hover { border-color: var(--accent); color: var(--accent); }
+
+main { max-width: 1100px; margin: 0 auto; padding: 40px 32px 0; }
+
+.page-label {
+  font-family: var(--font-mono); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.1em; color: var(--accent); margin-bottom: 12px;
+  display: flex; align-items: center; gap: 6px;
+}
+.page-label::before { content: '>'; color: var(--green); font-weight: 700; }
+.page-title {
+  font-size: clamp(24px, 3vw, 32px); font-weight: 900;
+  letter-spacing: -0.02em; line-height: 1.2; margin-bottom: 8px;
+}
+.page-sub {
+  font-family: var(--font-mono); font-size: 12px; color: var(--muted); margin-bottom: 32px;
+}
+.page-sub strong { color: var(--fg); font-weight: 600; }
+
+.stats-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px; margin-bottom: 32px;
+}
+.stat-card {
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 16px 20px;
+}
+.stat-num {
+  font-size: 28px; font-weight: 800; color: var(--accent);
+  font-family: var(--font-mono); line-height: 1.1;
+}
+.stat-label {
+  font-family: var(--font-mono); font-size: 10px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.06em; margin-top: 6px;
+}
+
+section.block {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 24px 28px; margin-bottom: 20px;
+}
+section.block h2 {
+  font-size: 16px; font-weight: 700; margin-bottom: 16px;
+  display: flex; align-items: center; gap: 10px;
+}
+section.block h2::before {
+  content: ''; width: 4px; height: 16px; background: var(--accent);
+  border-radius: 2px;
+}
+section.block > p:first-of-type {
+  font-size: 13px; color: var(--muted); margin-bottom: 16px;
+}
+section.block code {
+  background: var(--surface-2); color: var(--accent); padding: 2px 6px;
+  border-radius: var(--radius-sm); font-size: 12px; font-family: var(--font-mono);
+  border: 1px solid var(--border);
+}
+
+/* Change cards (Added / Revised / Confirmed / Deferred) */
+.change-added, .change-revised, .change-confirmed, .change-deferred {
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: 14px 18px; margin: 10px 0;
+}
+.change-added { border-left: 3px solid var(--green); }
+.change-revised { border-left: 3px solid var(--amber); }
+.change-confirmed { border-left: 3px solid var(--muted); opacity: 0.85; }
+.change-deferred { border-left: 3px solid var(--cyan); }
+
+.change-added p, .change-revised p, .change-confirmed p, .change-deferred p {
+  font-size: 13px; line-height: 1.6; margin: 4px 0;
+}
+
+.change-label {
+  display: inline-block;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 2px 8px; border-radius: var(--radius-sm);
+  margin-bottom: 8px;
+}
+.label-added { background: var(--green-dim); color: var(--green); }
+.label-revised { background: var(--amber-dim); color: var(--amber); }
+.label-confirmed { background: var(--surface-3); color: var(--muted); }
+.label-deferred { background: var(--cyan-dim); color: var(--cyan); }
+
+.old-text {
+  text-decoration: line-through; color: var(--muted); margin-bottom: 4px;
+}
+.new-text { color: var(--fg); }
+.decision-id {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+  color: var(--accent);
+}
+
+.empty {
+  font-family: var(--font-mono); font-size: 12px; color: var(--muted);
+  font-style: italic; padding: 8px 0;
+}
+
+ul { padding-left: 1.2rem; margin: 0.5rem 0; }
+li { margin: 0.3rem 0; font-size: 13px; }
+
+table { width: 100%; border-collapse: collapse; margin: 8px 0; }
+th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
+th {
+  font-family: var(--font-mono); font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--muted); background: var(--surface-2);
+}
+
+@media (max-width: 768px) {
+  main { padding: 24px 16px 0; }
+  .nav { padding: 0 16px; }
+}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-title"><span class="prompt">$</span> Grill Review &mdash; {{FEATURE_NAME}}</div>
+  <div class="nav-right">
+    <span class="meta">{{DATE}} &middot; Target: {{GRILL_TARGET}}</span>
+    <button class="theme-toggle" onclick="toggleTheme()">◐ Dark</button>
+  </div>
+</nav>
+
+<main>
+
+  <div class="page-label">Grill Audit</div>
+  <h1 class="page-title">{{FEATURE_NAME}}</h1>
+  <p class="page-sub">Adversarial stress-test of <strong>{{GRILL_TARGET}}</strong>. Decisions confirmed, revised, or deferred.</p>
+
+  <!-- Stats -->
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-num">{{QUESTIONS_RESOLVED}}</div>
+      <div class="stat-label">Resolved</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num">{{QUESTIONS_DEFERRED}}</div>
+      <div class="stat-label">Deferred</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num">{{NEW_DECISIONS_COUNT}}</div>
+      <div class="stat-label">New Decisions</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num">{{REVISED_DECISIONS_COUNT}}</div>
+      <div class="stat-label">Revised</div>
+    </div>
+  </div>
+
+  <!-- New Decisions -->
+  <section class="block">
+    <h2>New Decisions</h2>
+    {{#NEW_DECISIONS}}
+    <div class="change-added">
+      <span class="change-label label-added">Added</span>
+      <p><span class="decision-id">{{DECISION_ID}}</span> &mdash; {{DECISION_SUMMARY}}</p>
+      <p class="new-text">{{DECISION_DETAIL}}</p>
+    </div>
+    {{/NEW_DECISIONS}}
+    {{#NO_NEW_DECISIONS}}
+    <p class="empty">No new decisions emerged from this grill session.</p>
+    {{/NO_NEW_DECISIONS}}
+  </section>
+
+  <!-- Revised Decisions -->
+  <section class="block">
+    <h2>Revised Decisions</h2>
+    {{#REVISED_DECISIONS}}
+    <div class="change-revised">
+      <span class="change-label label-revised">Revised</span>
+      <p><span class="decision-id">{{DECISION_ID}}</span> &mdash; {{DECISION_SUMMARY}}</p>
+      <p class="old-text">{{OLD_RESOLUTION}}</p>
+      <p class="new-text">{{NEW_RESOLUTION}}</p>
+    </div>
+    {{/REVISED_DECISIONS}}
+    {{#NO_REVISED_DECISIONS}}
+    <p class="empty">No decisions were overturned.</p>
+    {{/NO_REVISED_DECISIONS}}
+  </section>
+
+  <!-- Confirmed Assumptions -->
+  <section class="block">
+    <h2>Confirmed Assumptions</h2>
+    {{#CONFIRMED_ASSUMPTIONS}}
+    <div class="change-confirmed">
+      <span class="change-label label-confirmed">Confirmed</span>
+      <p>{{ASSUMPTION_TEXT}}</p>
+    </div>
+    {{/CONFIRMED_ASSUMPTIONS}}
+  </section>
+
+  <!-- Open Questions (Deferred) -->
+  <section class="block">
+    <h2>Open Questions</h2>
+    {{#OPEN_QUESTIONS}}
+    <div class="change-deferred">
+      <span class="change-label label-deferred">Deferred</span>
+      <p><strong>{{QUESTION_REF}}</strong>: {{QUESTION_SUMMARY}}</p>
+    </div>
+    {{/OPEN_QUESTIONS}}
+    {{#NO_OPEN_QUESTIONS}}
+    <p class="empty">All questions were resolved.</p>
+    {{/NO_OPEN_QUESTIONS}}
+  </section>
+
+  <!-- Changes to Target Artifact -->
+  <section class="block">
+    <h2>Changes to {{GRILL_TARGET}}</h2>
+    <p>Content appended as <code>## Grill Audit</code> section:</p>
+    {{#TARGET_CHANGES}}
+    <div class="change-added">
+      <span class="change-label label-added">Appended</span>
+      <p>{{CHANGE_TEXT}}</p>
+    </div>
+    {{/TARGET_CHANGES}}
+  </section>
+
+  <!-- Changes to decisions.md -->
+  <section class="block">
+    <h2>Changes to decisions.md</h2>
+    <p>Entries added or modified:</p>
+    {{#DECISIONS_CHANGES}}
+    <div class="change-{{CHANGE_TYPE}}">
+      <span class="change-label label-{{CHANGE_TYPE}}">{{CHANGE_TYPE_LABEL}}</span>
+      <p><span class="decision-id">{{DECISION_ID}}</span> &mdash; {{CHANGE_DESCRIPTION}}</p>
+    </div>
+    {{/DECISIONS_CHANGES}}
+    {{#NO_DECISIONS_CHANGES}}
+    <p class="empty">No decision entries were added or modified.</p>
+    {{/NO_DECISIONS_CHANGES}}
+  </section>
+
+  <!-- Changes to glossary.md -->
+  <section class="block">
+    <h2>Changes to glossary.md</h2>
+    <p>Feature vocabulary captured during this session:</p>
+    {{#GLOSSARY_CHANGES}}
+    <div class="change-{{CHANGE_TYPE}}">
+      <span class="change-label label-{{CHANGE_TYPE}}">{{CHANGE_TYPE_LABEL}}</span>
+      <p><strong>{{TERM}}</strong> &mdash; {{CHANGE_DESCRIPTION}}</p>
+    </div>
+    {{/GLOSSARY_CHANGES}}
+    {{#NO_GLOSSARY_CHANGES}}
+    <p class="empty">No new vocabulary was captured.</p>
+    {{/NO_GLOSSARY_CHANGES}}
+  </section>
+
+</main>
+
+<script>
+function toggleTheme() {
+  const html = document.documentElement; const btn = document.querySelector('.theme-toggle');
+  if (html.dataset.theme === 'dark') { html.dataset.theme = 'light'; btn.textContent = '◐ Light'; }
+  else { html.dataset.theme = 'dark'; btn.textContent = '◐ Dark'; }
+  localStorage.setItem('makato-plan-theme', html.dataset.theme);
+}
+const saved = localStorage.getItem('makato-plan-theme');
+if (saved) {
+  document.documentElement.dataset.theme = saved;
+  document.querySelector('.theme-toggle').textContent = saved === 'dark' ? '◐ Dark' : '◐ Light';
+}
+</script>
+
+</body>
+</html>

@@ -1,0 +1,7 @@
+{
+  "name": "makato-plan",
+  "description": "Transforms raw Jira features into PI-sized epics with vertically-sliced stories through structured discovery, interviews, and architectural analysis.",
+  "author": {
+    "name": "DCP makato Team"
+  }
+}

@@ -1,0 +1,584 @@
+
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>makato Design System — Reference</title>
+<style>
+:root {
+  --accent: #0070F2;
+  --accent-light: #00B8F1;
+  --accent-glow: rgba(0,112,242,0.15);
+  --green: #34D399;
+  --green-dim: rgba(52,211,153,0.12);
+  --amber: #FBBF24;
+  --amber-dim: rgba(251,191,36,0.12);
+  --purple: #A78BFA;
+  --purple-dim: rgba(167,139,250,0.12);
+  --cyan: #22D3EE;
+
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'SF Mono', 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+}
+[data-theme="dark"] {
+  --bg: #0A0E14;
+  --surface: #111820;
+  --surface-2: #1A2230;
+  --surface-3: #222E3E;
+  --fg: #E8EDF5;
+  --muted: #7B8FA6;
+  --border: #1E2A3A;
+  --border-light: #2A3A4E;
+  --nav-bg: rgba(10,14,20,0.92);
+}
+[data-theme="light"] {
+  --bg: #F8FAFC;
+  --surface: #FFFFFF;
+  --surface-2: #F1F5F9;
+  --surface-3: #E2E8F0;
+  --fg: #0F172A;
+  --muted: #64748B;
+  --border: #E2E8F0;
+  --border-light: #CBD5E1;
+  --nav-bg: rgba(248,250,252,0.92);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: var(--font); background: var(--bg); color: var(--fg); line-height: 1.6; -webkit-font-smoothing: antialiased; transition: background .3s, color .3s; }
+
+@keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
+@keyframes blink { 0%,100%{opacity:1;} 50%{opacity:0;} }
+@keyframes glow { 0%,100%{box-shadow:0 0 20px rgba(0,112,242,0.15);} 50%{box-shadow:0 0 40px rgba(0,112,242,0.3);} }
+@keyframes shimmer { 0%{background-position:-200% 0;} 100%{background-position:200% 0;} }
+
+.nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; background: var(--nav-bg); backdrop-filter: blur(20px); border-bottom: 1px solid var(--border); padding: 0 64px; height: 56px; display: flex; align-items: center; justify-content: space-between; }
+.nav-left { display: flex; align-items: center; gap: 16px; }
+.nav-title { font-family: var(--font-mono); font-size: 14px; font-weight: 600; color: var(--accent); }
+.nav-title .prompt { color: var(--green); margin-right: 6px; }
+.nav-right { display: flex; align-items: center; gap: 20px; }
+.nav-links { display: flex; gap: 24px; list-style: none; }
+.nav-links a { font-family: var(--font-mono); font-size: 12px; font-weight: 500; color: var(--muted); text-decoration: none; letter-spacing: .06em; text-transform: uppercase; transition: color .2s; }
+.nav-links a:hover, .nav-links a.active { color: var(--accent); }
+.theme-toggle { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 5px 10px; cursor: pointer; font-family: var(--font-mono); font-size: 12px; color: var(--muted); transition: all .2s; display: flex; align-items: center; gap: 5px; }
+.theme-toggle:hover { border-color: var(--accent); color: var(--accent); }
+
+.page { max-width: 1680px; margin: 0 auto; padding: 100px 64px 64px; }
+.section { margin-bottom: 96px; }
+.section-label { font-family: var(--font-mono); font-size: 12px; text-transform: uppercase; letter-spacing: .1em; color: var(--accent); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+.section-label::before { content: '>'; color: var(--green); }
+.section-title { font-size: clamp(24px, 3vw, 36px); font-weight: 900; letter-spacing: -.02em; margin-bottom: 10px; }
+.section-desc { font-size: 16px; color: var(--muted); max-width: 620px; line-height: 1.7; margin-bottom: 32px; }
+
+.swatch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1px; background: var(--border); border-radius: var(--radius-lg); overflow: hidden; border: 1px solid var(--border); }
+.swatch { background: var(--surface); padding: 20px; }
+.swatch-block { width: 100%; height: 48px; border-radius: var(--radius-md); margin-bottom: 12px; border: 1px solid var(--border); }
+.swatch-name { font-family: var(--font-mono); font-size: 12px; font-weight: 600; margin-bottom: 4px; }
+.swatch-value { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+
+.accent-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 1px; background: var(--border); border-radius: var(--radius-lg); overflow: hidden; border: 1px solid var(--border); margin-top: 24px; }
+.accent-swatch { background: var(--surface); padding: 16px; text-align: center; }
+.accent-dot { width: 32px; height: 32px; border-radius: 50%; margin: 0 auto 10px; }
+.accent-label { font-family: var(--font-mono); font-size: 11px; font-weight: 500; margin-bottom: 2px; }
+.accent-hex { font-family: var(--font-mono); font-size: 10px; color: var(--muted); }
+
+.type-specimen { margin-bottom: 32px; padding: 24px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+.type-meta { font-family: var(--font-mono); font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 8px; display: flex; gap: 16px; }
+.type-display { font-size: clamp(36px, 4vw, 56px); font-weight: 900; letter-spacing: -.03em; line-height: 1.1; }
+.type-h1 { font-size: clamp(24px, 3vw, 36px); font-weight: 900; letter-spacing: -.02em; line-height: 1.2; }
+.type-h2 { font-size: 20px; font-weight: 700; line-height: 1.3; }
+.type-h3 { font-size: 18px; font-weight: 700; line-height: 1.3; }
+.type-body { font-size: 16px; font-weight: 400; line-height: 1.6; }
+.type-sm { font-size: 14px; font-weight: 500; line-height: 1.5; }
+.type-mono { font-family: var(--font-mono); font-size: 12px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.type-code { font-family: var(--font-mono); font-size: 13px; line-height: 1.8; color: var(--green); }
+
+.component-row { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; margin-bottom: 24px; }
+.btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent-light)); color: #fff; padding: 14px 28px; border-radius: var(--radius-md); font-size: 14px; font-weight: 600; font-family: var(--font); border: none; cursor: pointer; position: relative; overflow: hidden; animation: glow 3s ease-in-out infinite; text-decoration: none; display: inline-block; }
+.btn-primary::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,.12), transparent); background-size: 200% 100%; animation: shimmer 3s ease-in-out infinite; }
+.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 6px 24px rgba(0,112,242,.25); }
+.btn-ghost { color: var(--muted); padding: 14px 28px; font-size: 14px; font-weight: 500; text-decoration: none; border: 1px solid var(--border-light); border-radius: var(--radius-md); font-family: var(--font); background: transparent; cursor: pointer; display: inline-block; transition: all .2s; }
+.btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+.btn-sm { padding: 8px 16px; font-size: 12px; }
+
+.status { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; padding: 3px 8px; border-radius: var(--radius-sm); display: inline-flex; align-items: center; gap: 5px; }
+.status::before { content: ''; width: 5px; height: 5px; border-radius: 50%; animation: pulse 2s infinite; }
+.status.live { color: var(--green); background: var(--green-dim); }
+.status.live::before { background: var(--green); }
+.status.pilot { color: var(--amber); background: var(--amber-dim); }
+.status.pilot::before { background: var(--amber); }
+.status.building { color: var(--purple); background: var(--purple-dim); }
+.status.building::before { background: var(--purple); }
+
+.card-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--border); border-radius: var(--radius-lg); overflow: hidden; border: 1px solid var(--border); }
+.card { background: var(--surface); padding: 28px; transition: background .15s; }
+.card:hover { background: var(--surface-2); }
+.card h4 { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+.card p { font-size: 14px; color: var(--muted); line-height: 1.6; }
+.card .status { margin-bottom: 12px; }
+
+.terminal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 18px 22px; font-family: var(--font-mono); font-size: 13px; line-height: 2; position: relative; overflow: hidden; }
+.terminal::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px; background: linear-gradient(90deg, transparent, var(--accent), transparent); }
+.terminal .cmd { color: var(--green); }
+.terminal .flag { color: var(--purple); }
+.terminal .val { color: var(--amber); }
+.terminal .out { color: var(--muted); }
+.cursor { display: inline-block; width: 2px; height: 1em; background: var(--accent); animation: blink 1s step-end infinite; vertical-align: middle; margin-left: 2px; }
+
+.nav-demo { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; height: 56px; display: flex; align-items: center; padding: 0 24px; justify-content: space-between; position: relative; }
+.nav-demo::before { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 1px; background: var(--border); }
+.nav-demo-links { display: flex; gap: 20px; }
+.nav-demo-links a { font-family: var(--font-mono); font-size: 12px; font-weight: 500; color: var(--muted); text-decoration: none; letter-spacing: .06em; text-transform: uppercase; padding: 4px 0; position: relative; }
+.nav-demo-links a.active { color: var(--accent); }
+.nav-demo-links a.active::after { content: ''; position: absolute; bottom: -2px; left: 0; right: 0; height: 2px; background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+
+.icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 1px; background: var(--border); border-radius: var(--radius-lg); overflow: hidden; border: 1px solid var(--border); }
+.icon-cell { background: var(--surface); padding: 20px; text-align: center; }
+.icon-symbol { font-family: var(--font-mono); font-size: 24px; margin-bottom: 8px; display: block; }
+.icon-name { font-family: var(--font-mono); font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+
+.motion-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--border); border-radius: var(--radius-lg); overflow: hidden; border: 1px solid var(--border); }
+.motion-cell { background: var(--surface); padding: 24px; text-align: center; }
+.motion-dot { width: 12px; height: 12px; border-radius: 50%; margin: 0 auto 12px; }
+.motion-dot.pulse-demo { background: var(--green); animation: pulse 2s infinite; }
+.motion-dot.blink-demo { background: var(--accent); animation: blink 1s step-end infinite; }
+.motion-dot.glow-demo { background: var(--accent); animation: glow 3s ease-in-out infinite; border-radius: var(--radius-md); width: 40px; height: 24px; }
+.motion-name { font-family: var(--font-mono); font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+
+.spacing-demo { display: flex; flex-direction: column; gap: 8px; }
+.spacing-row { display: flex; align-items: center; gap: 16px; }
+.spacing-bar { height: 12px; background: var(--accent-glow); border: 1px solid var(--accent); border-radius: 2px; }
+.spacing-label { font-family: var(--font-mono); font-size: 11px; color: var(--muted); min-width: 60px; }
+
+.radius-demo { display: flex; gap: 24px; flex-wrap: wrap; }
+.radius-box { width: 80px; height: 80px; background: var(--surface-2); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+
+.section-header-demo { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 32px; }
+
+.code-block { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px 20px; font-family: var(--font-mono); font-size: 12px; line-height: 1.8; overflow-x: auto; color: var(--muted); margin-top: 16px; }
+.code-block .key { color: var(--purple); }
+.code-block .str { color: var(--green); }
+.code-block .num { color: var(--amber); }
+.code-block .comment { color: var(--muted); opacity: 0.6; }
+
+.accent-line { position: relative; padding-top: 2px; }
+.accent-line::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px; background: linear-gradient(90deg, transparent, var(--accent), transparent); }
+
+.left-edge { position: relative; padding-left: 20px; }
+.left-edge::before { content: ''; position: absolute; top: 0; left: 0; width: 3px; height: 100%; background: linear-gradient(180deg, var(--accent), var(--cyan), transparent); }
+
+@media (max-width: 1024px) {
+  .card-grid { grid-template-columns: repeat(2, 1fr); }
+  .page { padding: 80px 32px 48px; }
+  .nav { padding: 0 32px; }
+}
+@media (max-width: 768px) {
+  .card-grid, .swatch-grid, .icon-grid, .motion-grid { grid-template-columns: 1fr; }
+  .page { padding: 72px 20px 32px; }
+  .nav { padding: 0 20px; }
+  .nav-links { display: none; }
+}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-left">
+    <div class="nav-title"><span class="prompt">$</span> makato design-system</div>
+  </div>
+  <div class="nav-right">
+    <ul class="nav-links">
+      <li><a href="#colors" class="active">Colors</a></li>
+      <li><a href="#typography">Type</a></li>
+      <li><a href="#components">Components</a></li>
+      <li><a href="#icons">Icons</a></li>
+      <li><a href="#motion">Motion</a></li>
+      <li><a href="#spacing">Spacing</a></li>
+    </ul>
+    <button class="theme-toggle" onclick="toggleTheme()">◐ Dark</button>
+  </div>
+</nav>
+
+<main class="page">
+
+  <section class="section" style="padding-top: 0;">
+    <div class="type-display" style="margin-bottom: 16px;">makato Design System</div>
+    <p class="section-desc" style="max-width: 720px;">A dark-first, tech-utility design system for the makato framework.
+      Terminal-inspired chrome, single saturated blue accent, no shadows — borders only.</p>
+  </section>
+
+  <section class="section" id="colors">
+    <div class="section-label">Color Tokens</div>
+    <h2 class="section-title">Palette</h2>
+    <p class="section-desc">Theme-aware semantic tokens. Dark is the primary mode; light is available via toggle.</p>
+
+    <h3 style="font-size: 14px; font-weight: 600; margin-bottom: 16px; color: var(--muted);">Surface & text</h3>
+    <div class="swatch-grid">
+      <div class="swatch">
+        <div class="swatch-block" style="background: var(--bg);"></div>
+        <div class="swatch-name">--bg</div>
+        <div class="swatch-value">Dark: #0A0E14 · Light: #F8FAFC</div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-block" style="background: var(--surface);"></div>
+        <div class="swatch-name">--surface</div>
+        <div class="swatch-value">Dark: #111820 · Light: #FFFFFF</div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-block" style="background: var(--surface-2);"></div>
+        <div class="swatch-name">--surface-2</div>
+        <div class="swatch-value">Dark: #1A2230 · Light: #F1F5F9</div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-block" style="background: var(--surface-3);"></div>
+        <div class="swatch-name">--surface-3</div>
+        <div class="swatch-value">Dark: #222E3E · Light: #E2E8F0</div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-block" style="background: var(--fg); border-color: var(--fg);"></div>
+        <div class="swatch-name">--fg</div>
+        <div class="swatch-value">Dark: #E8EDF5 · Light: #0F172A</div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-block" style="background: var(--muted);"></div>
+        <div class="swatch-name">--muted</div>
+        <div class="swatch-value">Dark: #7B8FA6 · Light: #64748B</div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-block" style="background: var(--border);"></div>
+        <div class="swatch-name">--border</div>
+        <div class="swatch-value">Dark: #1E2A3A · Light: #E2E8F0</div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-block" style="background: var(--border-light);"></div>
+        <div class="swatch-name">--border-light</div>
+        <div class="swatch-value">Dark: #2A3A4E · Light: #CBD5E1</div>
+      </div>
+    </div>
+
+    <h3 style="font-size: 14px; font-weight: 600; margin: 32px 0 16px; color: var(--muted);">Accent palette</h3>
+    <div class="accent-grid">
+      <div class="accent-swatch">
+        <div class="accent-dot" style="background: var(--accent);"></div>
+        <div class="accent-label">--accent</div>
+        <div class="accent-hex">#0070F2</div>
+      </div>
+      <div class="accent-swatch">
+        <div class="accent-dot" style="background: var(--accent-light);"></div>
+        <div class="accent-label">--accent-light</div>
+        <div class="accent-hex">#00B8F1</div>
+      </div>
+      <div class="accent-swatch">
+        <div class="accent-dot" style="background: var(--green);"></div>
+        <div class="accent-label">--green</div>
+        <div class="accent-hex">#34D399</div>
+      </div>
+      <div class="accent-swatch">
+        <div class="accent-dot" style="background: var(--amber);"></div>
+        <div class="accent-label">--amber</div>
+        <div class="accent-hex">#FBBF24</div>
+      </div>
+      <div class="accent-swatch">
+        <div class="accent-dot" style="background: var(--purple);"></div>
+        <div class="accent-label">--purple</div>
+        <div class="accent-hex">#A78BFA</div>
+      </div>
+      <div class="accent-swatch">
+        <div class="accent-dot" style="background: var(--cyan);"></div>
+        <div class="accent-label">--cyan</div>
+        <div class="accent-hex">#22D3EE</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="typography">
+    <div class="section-label">Typography</div>
+    <h2 class="section-title">Type Scale</h2>
+    <p class="section-desc">Single sans-serif family for display and body. Monospace for all chrome, labels, and code.</p>
+
+    <div class="type-specimen accent-line">
+      <div class="type-meta"><span>Display · 900 · -0.03em</span><span>clamp(36px, 4vw, 56px)</span></div>
+      <div class="type-display">Intelligence Hub</div>
+    </div>
+    <div class="type-specimen">
+      <div class="type-meta"><span>H1 / Section · 900 · -0.02em</span><span>clamp(24px, 3vw, 36px)</span></div>
+      <div class="type-h1">AI Transformation</div>
+    </div>
+    <div class="type-specimen">
+      <div class="type-meta"><span>H2 · 700</span><span>20px</span></div>
+      <div class="type-h2">Production Agents</div>
+    </div>
+    <div class="type-specimen">
+      <div class="type-meta"><span>H3 / Card title · 700</span><span>18px</span></div>
+      <div class="type-h3">Partner Intelligence Agent</div>
+    </div>
+    <div class="type-specimen">
+      <div class="type-meta"><span>Body · 400</span><span>16px</span></div>
+      <div class="type-body">makato is the frontrunner of AI transformation at SAP. We ship production AI today — not proofs
+        of concept, not slides.</div>
+    </div>
+    <div class="type-specimen">
+      <div class="type-meta"><span>Body-sm · 500</span><span>14px</span></div>
+      <div class="type-sm">Production agents serving real customers, a real framework other teams adopt.</div>
+    </div>
+    <div class="type-specimen">
+      <div class="type-meta"><span>Mono label · 500 · uppercase · 0.06em</span><span>12px</span></div>
+      <div class="type-mono">AI Transformation · PI Delivery · Resources</div>
+    </div>
+    <div class="type-specimen">
+      <div class="type-meta"><span>Code / terminal · 400</span><span>13px</span></div>
+      <div class="type-code">$ makato transform --mode=ai-first<span class="cursor"></span></div>
+    </div>
+  </section>
+
+  <section class="section" id="components">
+    <div class="section-label">Components</div>
+    <h2 class="section-title">UI Patterns</h2>
+    <p class="section-desc">Minimal component set. Borders over shadows. Hairline grid separators. Terminal-flavored chrome.</p>
+
+    <h3 style="font-size: 14px; font-weight: 600; margin-bottom: 16px; color: var(--muted);">Buttons</h3>
+    <div class="component-row">
+      <button class="btn-primary">AI Transformation →</button>
+      <button class="btn-ghost">PI 26/3 Backlog</button>
+      <button class="btn-ghost btn-sm">View Docs ↗</button>
+    </div>
+
+    <h3 style="font-size: 14px; font-weight: 600; margin: 32px 0 16px; color: var(--muted);">Status pills</h3>
+    <div class="component-row">
+      <span class="status live">Live</span>
+      <span class="status pilot">Pilot</span>
+      <span class="status building">Building</span>
+    </div>
+
+    <h3 style="font-size: 14px; font-weight: 600; margin: 32px 0 16px; color: var(--muted);">Cards (hairline grid)</h3>
+    <div class="card-grid">
+      <div class="card">
+        <span class="status live">Live</span>
+        <h4>Partner Intelligence Agent</h4>
+        <p>Autonomous partner analysis and scoring, serving 200+ queries/day across 3 commerce tenants.</p>
+      </div>
+      <div class="card">
+        <span class="status pilot">Pilot</span>
+        <h4>Quote Configuration Agent</h4>
+        <p>AI-driven quote configuration for complex B2B scenarios. Running with 2 pilot customers.</p>
+      </div>
+      <div class="card">
+        <span class="status building">Building</span>
+        <h4>Pricing Optimization</h4>
+        <p>ML-based dynamic pricing recommendations. In development for PI 26/4 delivery.</p>
+      </div>
+    </div>
+
+    <h3 style="font-size: 14px; font-weight: 600; margin: 32px 0 16px; color: var(--muted);">Terminal block</h3>
+    <div class="terminal">
+      <div><span class="cmd">$ makato</span> <span class="flag">--status</span></div>
+      <div><span class="out">✓ 9 teams · 50+ engineers · PI 26/3 active</span></div>
+      <div><span class="cmd">$ makato transform</span> <span class="flag">--mode=</span><span class="val">ai-first</span>
+      </div>
+      <div><span class="out">✓ Commerce Intelligence Hub online</span><span class="cursor"></span></div>
+    </div>
+
+    <h3 style="font-size: 14px; font-weight: 600; margin: 32px 0 16px; color: var(--muted);">Navigation</h3>
+    <div class="nav-demo">
+      <div style="font-family: var(--font-mono); font-size: 13px; color: var(--accent); font-weight: 600;"><span
+          style="color: var(--green);">$</span> makato hub</div>
+      <div class="nav-demo-links">
+        <a href="#" class="active">Home</a>
+        <a href="#">AI Transformation</a>
+        <a href="#">PI Delivery</a>
+        <a href="#">Blog</a>
+      </div>
+    </div>
+
+    <h3 style="font-size: 14px; font-weight: 600; margin: 32px 0 16px; color: var(--muted);">Section header</h3>
+    <div class="section-header-demo">
+      <div class="section-label">AI Agents</div>
+      <div class="section-title" style="font-size: 28px;">Production Intelligence</div>
+      <div class="section-desc" style="margin-bottom: 0;">Real agents serving real customers. Not proofs of concept.</div>
+    </div>
+
+    <h3 style="font-size: 14px; font-weight: 600; margin: 32px 0 16px; color: var(--muted);">Decorative accents</h3>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+      <div class="accent-line" style="background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px;">
+        <div style="font-family: var(--font-mono); font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 8px;">Top accent line</div>
+        <div style="font-size: 14px; color: var(--muted);">1px gradient: transparent → accent → transparent</div>
+      </div>
+      <div class="left-edge" style="background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px;">
+        <div style="font-family: var(--font-mono); font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 8px;">Left edge gradient</div>
+        <div style="font-size: 14px; color: var(--muted);">3px: accent → cyan → transparent</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="icons">
+    <div class="section-label">Iconography</div>
+    <h2 class="section-title">Terminal Symbols</h2>
+    <p class="section-desc">No icon library. Monospace text symbols serve as all visual indicators.</p>
+
+    <div class="icon-grid">
+      <div class="icon-cell">
+        <span class="icon-symbol" style="color: var(--green);">$</span>
+        <span class="icon-name">Prompt</span>
+      </div>
+      <div class="icon-cell">
+        <span class="icon-symbol" style="color: var(--green);">></span>
+        <span class="icon-name">Section</span>
+      </div>
+      <div class="icon-cell">
+        <span class="icon-symbol" style="color: var(--green);">✓</span>
+        <span class="icon-name">Success</span>
+      </div>
+      <div class="icon-cell">
+        <span class="icon-symbol" style="color: var(--accent);">→</span>
+        <span class="icon-name">Navigate</span>
+      </div>
+      <div class="icon-cell">
+        <span class="icon-symbol" style="color: var(--muted);">←</span>
+        <span class="icon-name">Back</span>
+      </div>
+      <div class="icon-cell">
+        <span class="icon-symbol" style="color: var(--accent);">↗</span>
+        <span class="icon-name">External</span>
+      </div>
+      <div class="icon-cell">
+        <span class="icon-symbol" style="color: var(--accent); width: 2px; height: 20px; display: inline-block; background: var(--accent); animation: blink 1s step-end infinite;"></span>
+        <span class="icon-name">Cursor</span>
+      </div>
+      <div class="icon-cell">
+        <span class="icon-symbol"><span style="width: 5px; height: 5px; border-radius: 50%; background: var(--green); display: inline-block; animation: pulse 2s infinite;"></span></span>
+        <span class="icon-name">Status dot</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="motion">
+    <div class="section-label">Motion</div>
+    <h2 class="section-title">Animation Tokens</h2>
+    <p class="section-desc">Purposeful motion. Status indicators pulse; CTAs glow; content slides up on reveal.</p>
+
+    <div class="motion-grid">
+      <div class="motion-cell">
+        <div class="motion-dot pulse-demo"></div>
+        <div class="motion-name">Pulse</div>
+      </div>
+      <div class="motion-cell">
+        <div class="motion-dot blink-demo"></div>
+        <div class="motion-name">Blink</div>
+      </div>
+      <div class="motion-cell">
+        <div class="motion-dot glow-demo"></div>
+        <div class="motion-name">Glow</div>
+      </div>
+      <div class="motion-cell">
+        <div style="width: 40px; height: 8px; background: linear-gradient(90deg, transparent, rgba(255,255,255,.15), transparent); background-size: 200% 100%; animation: shimmer 3s ease-in-out infinite; border-radius: 4px; margin: 0 auto 12px; border: 1px solid var(--border);"></div>
+        <div class="motion-name">Shimmer</div>
+      </div>
+    </div>
+
+    <div class="code-block" style="margin-top: 24px;">
+      <span class="comment">/* Timing functions */</span><br>
+      <span class="key">--ease-reveal</span>: cubic-bezier(.16, 1, .3, 1);<br>
+      <span class="key">--ease-standard</span>: ease;<br>
+      <span class="key">--duration-hover</span>: <span class="num">0.2s</span>;<br>
+      <span class="key">--duration-theme</span>: <span class="num">0.3s</span>;<br>
+      <span class="key">--duration-reveal</span>: <span class="num">0.4s</span>;<br>
+      <span class="key">--stagger</span>: <span class="num">0.4s</span>;
+    </div>
+  </section>
+
+  <section class="section" id="spacing">
+    <div class="section-label">Layout</div>
+    <h2 class="section-title">Spacing & Radius</h2>
+    <p class="section-desc">8px base unit. Generous section padding. Tight card internals.</p>
+
+    <h3 style="font-size: 14px; font-weight: 600; margin-bottom: 16px; color: var(--muted);">Spacing scale</h3>
+    <div class="spacing-demo">
+      <div class="spacing-row">
+        <div class="spacing-label">4px</div>
+        <div class="spacing-bar" style="width: 4px;"></div>
+      </div>
+      <div class="spacing-row">
+        <div class="spacing-label">8px</div>
+        <div class="spacing-bar" style="width: 8px;"></div>
+      </div>
+      <div class="spacing-row">
+        <div class="spacing-label">12px</div>
+        <div class="spacing-bar" style="width: 12px;"></div>
+      </div>
+      <div class="spacing-row">
+        <div class="spacing-label">16px</div>
+        <div class="spacing-bar" style="width: 16px;"></div>
+      </div>
+      <div class="spacing-row">
+        <div class="spacing-label">24px</div>
+        <div class="spacing-bar" style="width: 24px;"></div>
+      </div>
+      <div class="spacing-row">
+        <div class="spacing-label">32px</div>
+        <div class="spacing-bar" style="width: 32px;"></div>
+      </div>
+      <div class="spacing-row">
+        <div class="spacing-label">48px</div>
+        <div class="spacing-bar" style="width: 48px;"></div>
+      </div>
+      <div class="spacing-row">
+        <div class="spacing-label">64px</div>
+        <div class="spacing-bar" style="width: 64px;"></div>
+      </div>
+      <div class="spacing-row">
+        <div class="spacing-label">100px</div>
+        <div class="spacing-bar" style="width: 100px;"></div>
+      </div>
+    </div>
+
+    <h3 style="font-size: 14px; font-weight: 600; margin: 32px 0 16px; color: var(--muted);">Border radius</h3>
+    <div class="radius-demo">
+      <div class="radius-box" style="border-radius: var(--radius-sm);">3px</div>
+      <div class="radius-box" style="border-radius: var(--radius-md);">6px</div>
+      <div class="radius-box" style="border-radius: var(--radius-lg);">8px</div>
+      <div class="radius-box" style="border-radius: var(--radius-xl);">12px</div>
+    </div>
+
+    <h3 style="font-size: 14px; font-weight: 600; margin: 32px 0 16px; color: var(--muted);">Grid pattern</h3>
+    <div class="code-block">
+      <span class="comment">/* Hairline grid — gap becomes the separator */</span><br>
+      .card-grid {<br>
+      &nbsp;&nbsp;<span class="key">display</span>: grid;<br>
+      &nbsp;&nbsp;<span class="key">grid-template-columns</span>: repeat(<span class="num">3</span>, <span class="num">1</span>fr);<br>
+      &nbsp;&nbsp;<span class="key">gap</span>: <span class="num">1px</span>;<br>
+      &nbsp;&nbsp;<span class="key">background</span>: var(<span class="str">--border</span>);<br>
+      &nbsp;&nbsp;<span class="key">border-radius</span>: var(<span class="str">--radius-lg</span>);<br>
+      &nbsp;&nbsp;<span class="key">overflow</span>: hidden;<br>
+      &nbsp;&nbsp;<span class="key">border</span>: <span class="num">1px</span> solid var(<span class="str">--border</span>);<br>
+      }
+    </div>
+  </section>
+
+</main>
+
+<script>
+function toggleTheme() {
+  const html = document.documentElement;
+  const btn = document.querySelector('.theme-toggle');
+  if (html.dataset.theme === 'dark') {
+    html.dataset.theme = 'light';
+    btn.textContent = '◐ Light';
+  } else {
+    html.dataset.theme = 'dark';
+    btn.textContent = '◐ Dark';
+  }
+  localStorage.setItem('makato-ds-theme', html.dataset.theme);
+}
+
+    const saved = localStorage.getItem('makato-ds-theme');
+if (saved) {
+  document.documentElement.dataset.theme = saved;
+  document.querySelector('.theme-toggle').textContent = saved === 'dark' ? '◐ Dark' : '◐ Light';
+}
+</script>
+</body>
+</html>

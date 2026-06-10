@@ -1,0 +1,7 @@
+{
+  "name": "makato-core",
+  "description": "Provide the shared foundation that makes the suite work as a coherent system.",
+  "author": {
+    "name": "makato Team"
+  }
+}
