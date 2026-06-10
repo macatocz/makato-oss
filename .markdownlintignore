@@ -1,0 +1,12 @@
+# Agent files use a system-enforced format (YAML frontmatter + XML memory tags)
+# that is not compatible with standard markdown linting rules.
+.claude/agents/
+.claude/skills/
+
+# Plugin SKILL.md files have their own schema with YAML frontmatter and
+# domain-specific content that may not conform to standard markdown rules.
+plugins/
+
+# Generated prompt files (prompt-creator skill output)
+prompts/
+docs/superpowers

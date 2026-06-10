@@ -1,0 +1,29 @@
+{
+  "name": "makato-suite",
+  "owner": {
+    "name": "makato TEAM"
+  },
+  "description": "The makato plugin marketplace — a curated suite of Claude Code plugins for software engineering workflows.",
+  "plugins": [
+    {
+      "name": "makato-core",
+      "source": "./plugins/makato-core",
+      "description": "Shared foundation that makes the suite work as a coherent system."
+    },
+    {
+      "name": "makato-contribute",
+      "source": "./plugins/makato-contribute",
+      "description": "Helps contributors scaffold new plugins following suite standards."
+    },
+    {
+      "name": "makato-plan",
+      "source": "./plugins/makato-plan",
+      "description": "Transforms raw Jira features into PI-sized epics with vertically-sliced stories through structured discovery, interviews, and architectural analysis."
+    },
+    {
+      "name": "makato-build",
+      "source": "./plugins/makato-build",
+      "description": "Transforms decomposed, vertically-sliced stories into tested, reviewed, merged code."
+    }
+  ]
+}
