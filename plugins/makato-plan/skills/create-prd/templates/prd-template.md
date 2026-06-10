@@ -1,7 +1,7 @@
 # <Feature Name> — PRD
 
 **Status**: Draft
-**Feature**: <ITDB-KEY>
+**Feature**: <slug>
 **Created**: <YYYY-MM-DD>
 **Author**: <user>
 **UI Required**: <Yes/Minimal/No>
@@ -188,7 +188,7 @@
 
 **Affected repositories**: <from repositories.yml>
 
-> These are advisory only. Epic/Story creation in Jira happens downstream.
+> These are advisory only. Epic/Story creation in GitHub Issues happens downstream via /publish.
 
 ---
 

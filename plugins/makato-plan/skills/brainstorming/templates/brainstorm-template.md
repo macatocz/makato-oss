@@ -3,11 +3,11 @@
 **Status**: Draft
 **Date**: {YYYY-MM-DD}
 **Author**: {name}
-**Epic**: {EPIC-KEY}
+**Epic**: {epic-slug}
 
 ## Problem Statement
 
-{1-2 sentences describing the core problem or opportunity from the ITDB}
+{1-2 sentences describing the core problem or opportunity from the feature description}
 
 ## Discovery Summary
 

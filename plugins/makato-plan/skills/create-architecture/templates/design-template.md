@@ -1,7 +1,7 @@
 # <Feature Name> — Architecture Design
 
 **Status**: Draft
-**Feature**: <ITDB-KEY>
+**Feature**: <slug>
 **Created**: <YYYY-MM-DD>
 **Author**: <user>
 **PRD**: <link to prd.md or "specs/{folder}/prd.md">
