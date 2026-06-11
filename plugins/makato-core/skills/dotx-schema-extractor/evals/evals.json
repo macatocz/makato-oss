@@ -1,0 +1,26 @@
+{
+  "skill_name": "dotx-schema-extractor",
+  "evals": [
+    {
+      "id": 0,
+      "name": "cmai-aktualizovany-vzor-default-colors",
+      "prompt": "I have a Word template at \"/Users/I346175/Library/CloudStorage/OneDrive-SAPSE/AI/CMAI/Podklady CMS/Vzorové dokumenty CM/Casova_analyza/Aktualizace/Časová analýza_aktualizovaný vzor_VH + AP.dotx\". Extract the JSON schema that an LLM agent will use as its output contract before docxtpl renders the final document. The template uses content controls (some are dropdowns for objednatel/schvalovatel), date pickers, cyan-highlighted instruction text, and Word comments with reviewer guidance. Save the schema to /tmp/eval_0_schema.json and the markdown summary to /tmp/eval_0_summary.md, then tell me the field count broken down by source (sdt/highlight/comment/etc) and read out the warnings array.",
+      "expected_output": "schema.json + summary.md generated; field-count breakdown reported; sdt+highlight+comment sources all populated; warnings array verbalized.",
+      "files": ["/Users/I346175/Library/CloudStorage/OneDrive-SAPSE/AI/CMAI/Podklady CMS/Vzorové dokumenty CM/Casova_analyza/Aktualizace/Časová analýza_aktualizovaný vzor_VH + AP.dotx"]
+    },
+    {
+      "id": 1,
+      "name": "custom-highlight-colors",
+      "prompt": "Same template as before: \"/Users/I346175/Library/CloudStorage/OneDrive-SAPSE/AI/CMAI/Podklady CMS/Vzorové dokumenty CM/Casova_analyza/Aktualizace/Časová analýza_aktualizovaný vzor_VH + AP.dotx\". This time I want to ignore highlights AND ignore Word comments — give me ONLY the schema-relevant variable slots (content controls, mergefields, placeholders). Save to /tmp/eval_1_schema.json. Walk me through what is and isn't captured and explain why this option is useful.",
+      "expected_output": "schema.json with only sdt/mergefield/docproperty/placeholder sources; no highlight or comment fields; explanation of when --no-instructions and --no-comments are appropriate (e.g., when only structured slots matter).",
+      "files": ["/Users/I346175/Library/CloudStorage/OneDrive-SAPSE/AI/CMAI/Podklady CMS/Vzorové dokumenty CM/Casova_analyza/Aktualizace/Časová analýza_aktualizovaný vzor_VH + AP.dotx"]
+    },
+    {
+      "id": 2,
+      "name": "synthetic-all-six-sources",
+      "prompt": "Build me a JSON schema from the template at /tmp/dotx_evals/synthetic_mixed.docx. This template has been engineered to contain a mix of marker types — MERGEFIELD, jinja-style placeholder, BRACKET placeholder, yellow-highlighted instruction, and a 3-row table where every body row has the same content control structure. Save to /tmp/eval_2_schema.json. Confirm that all the marker types you found are detected and report the repeat group.",
+      "expected_output": "schema.json with at least 1 mergefield, 1 jinja placeholder, 1 bracket placeholder, 1 yellow highlight, 1 sdt; 1 repeat group from the table; clear walk-through of detected markers.",
+      "files": ["/tmp/dotx_evals/synthetic_mixed.docx"]
+    }
+  ]
+}
