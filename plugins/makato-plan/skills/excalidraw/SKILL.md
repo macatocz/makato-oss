@@ -1,6 +1,7 @@
 ---
 name: excalidraw
 description: "Generate Excalidraw diagrams from text with Obsidian, Standard, or Animated output. Use when: creating flowcharts, architecture diagrams, mind maps from text descriptions. Keywords: excalidraw, diagram, flowchart, mindmap, visualization, animate."
+version: "1.3.0"
 metadata:
   version: 1.3.0
 ---

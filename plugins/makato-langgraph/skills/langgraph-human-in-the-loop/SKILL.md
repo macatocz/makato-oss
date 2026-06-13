@@ -1,6 +1,7 @@
 ---
 name: langgraph-human-in-the-loop
 description: "INVOKE THIS SKILL when implementing human-in-the-loop patterns, pausing for approval, breakpoints, or state editing in LangGraph. Covers interrupt(), Command(resume=...), interrupt_before breakpoints, update_state, approval/validation workflows, and idempotency. Python-only"
+version: "1.0.0"
 ---
 <overview>
 LangGraph's human-in-the-loop patterns let you pause graph execution, surface data to users, and resume with their input:

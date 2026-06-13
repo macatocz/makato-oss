@@ -25,8 +25,11 @@ ALLOWED_FILES=(
   ".editorconfig"
   ".gitignore"
   "package.json"
-  .markdownlint.json
-  .markdownlintignore
+  ".markdownlint.json"
+  ".markdownlintignore"
+  "release-please-config.json"
+  ".release-please-manifest.json"
+  ".git"
 )
 
 ERRORS=0

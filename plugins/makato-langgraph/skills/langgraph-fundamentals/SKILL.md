@@ -1,6 +1,7 @@
 ---
 name: langgraph-fundamentals
 description: "INVOKE THIS SKILL when writing ANY LangGraph code. Covers StateGraph, state schemas (TypedDict/dataclass/Pydantic), reducers, nodes, edges, Command, Send, parallel execution, map-reduce, message trimming, invoke, streaming, and error handling. Python-only"
+version: "1.0.0"
 ---
 <overview>
 LangGraph models agent workflows as **directed graphs**:
