@@ -24,6 +24,11 @@
       "name": "makato-build",
       "source": "./plugins/makato-build",
       "description": "Transforms decomposed, vertically-sliced stories into tested, reviewed, merged code."
+    },
+    {
+      "name": "makato-change",
+      "source": "./plugins/makato-change",
+      "description": "Implement changes to existing functionality based on updated business requirements."
     }
   ]
 }
