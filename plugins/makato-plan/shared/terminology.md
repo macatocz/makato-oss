@@ -1,4 +1,4 @@
-# makatoctctctctct-planinology
+# makato-plan
 
 Canonical definitions for terms used across makatoctctctct-planls, references, and templates. This file is the **plugin-level terminology reference** — it documents the vocabulary contributors and consumers need to read the skills. It is distinct from the runtime, feature-scoped glossary that the `grill` skill writes per spec (see `specs/{ITDB-KEY}-{slug}/glossary.md` inside each spec folder).
 
@@ -304,10 +304,10 @@ The object on each story in `stories.json` that maps subtask name → Jira key a
 ## Related Schemas (not glossary entries — defined elsewhere)
 
 - `shared/repositories-yml-schema.md` — schema for `repositories.yml`
-- `shared/scenario-schema.md` — Gherkin scenario planven`/`when`/`then`/`and[]`)
+- `shared/scenario-schema.md` — Gherkin scenario planven `/`when `/`then `/`and[]`)
 - `shared/refinement-contract.md` — rules for "Refine" update mode
 - `decompose/references/stories-json-schema.md` — full `stories.json` schema
-- `create-acceptance-tests/references/acceptance-test-cases-schema.md` — scenario plan`acceptanceTestCases[]`
+- `create-acceptance-tests/references/acceptance-test-cases-schema.md` — scenario plan `acceptanceTestCases[]`
 - `decompose/references/phase-assignment-rules.md` — slicing phase decision matrix
 - `publish/references/jira-field-mapping.md` — Jira field IDs used by `publish`
 - `publish/references/dcp-story-panels.md` — story panel render template
