@@ -1,6 +1,7 @@
 ---
 name: dotx-schema-extractor
 description: Extract a JSON schema from a Word .dotx (or .docx) template by inventorying every variable field — content controls (SDT), MERGEFIELDs, DOCPROPERTY, plain-text placeholder patterns ({{var}}, [VAR], <VAR>), colored-highlighted human instructions, and Word comments. The schema becomes the output contract that an LLM agent fills before docxtpl renders the final document. Use this skill whenever the user asks to "extract schema from a template", "find variable fields in a .dotx", "build a JSON contract from a Word template", "convert template instructions into a schema", "what fields does this template need", or whenever a Word/.dotx/.docx file is involved AND the user wants a structured catalogue of its fillable slots — even if the word "schema" is not used.
+version: "1.0.0"
 ---
 ## What this skill does
 

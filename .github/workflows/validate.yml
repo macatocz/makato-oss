@@ -1,0 +1,73 @@
+name: Validate Plugins
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'plugins/**'
+      - 'scripts/**'
+      - '.github/workflows/validate.yml'
+      - 'AGENTS.md'
+      - 'CLAUDE.md'
+      - 'CONTRIBUTING.md'
+  push:
+    branches: [main]
+    paths:
+      - 'plugins/**'
+      - 'scripts/**'
+      - '.github/workflows/validate.yml'
+      - 'AGENTS.md'
+      - 'CLAUDE.md'
+      - 'CONTRIBUTING.md'
+
+jobs:
+  validate-structure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check root structure
+        run: ./scripts/check-root-structure.sh
+
+      - name: Check plugin structure
+        run: |
+          for plugin_dir in plugins/*/; do
+            ./scripts/check-plugin-structure.sh "$plugin_dir"
+          done
+
+      - name: Check skill frontmatter
+        run: |
+          for skill_dir in plugins/*/skills/*/; do
+            if [ -d "$skill_dir" ]; then
+              ./scripts/check-skill-frontmatter.sh "$skill_dir"
+            fi
+          done
+
+      - name: Check self-containment
+        run: |
+          for skill_dir in plugins/*/skills/*/; do
+            if [ -d "$skill_dir" ]; then
+              ./scripts/check-self-contained.sh "$skill_dir"
+            fi
+          done
+
+      - name: Check naming conventions
+        run: ./scripts/check-naming.sh
+
+      - name: Check ADRs
+        run: ./scripts/check-adrs.sh
+
+  pr-title:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check conventional commit title
+        run: |
+          TITLE="${{ github.event.pull_request.title }}"
+          if ! echo "$TITLE" | grep -qE '^(feat|fix|docs|refactor|test|chore|ci|build|perf|style|revert)\([a-z0-9-]+\): .+$'; then
+            echo "::error::PR title must follow conventional commits: type(scope): description"
+            echo "  Types: feat, fix, docs, refactor, test, chore, ci, build, perf, style, revert"
+            echo "  Scope: plugin name (e.g., makato-core, makato-plan) or area (docs, ci, repo)"
+            echo "  Got: $TITLE"
+            exit 1
+          fi

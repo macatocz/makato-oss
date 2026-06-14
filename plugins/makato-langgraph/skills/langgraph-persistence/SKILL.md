@@ -1,6 +1,7 @@
 ---
 name: langgraph-persistence
 description: "INVOKE THIS SKILL when your LangGraph needs to persist state, remember conversations, travel through history, use the in-memory or Postgres checkpointer, or compose subgraphs. Covers checkpointers, thread_id, time travel, Store, subgraph composition, and subgraph persistence modes. Python-only"
+version: "1.0.0"
 ---
 <overview>
 LangGraph's persistence layer enables durable execution by checkpointing graph state:

@@ -9,6 +9,8 @@ ERRORS=0
 
 REQUIRED_FILES=(
   ".claude-plugin/plugin.json"
+  "CLAUDE.md"
+  "AGENTS.md"
   "CHANGELOG.md"
   "README.md"
 )
@@ -33,6 +35,14 @@ if [ -f "$PLUGIN_DIR/.claude-plugin/plugin.json" ]; then
       ERRORS=$((ERRORS + 1))
     fi
   done
+fi
+
+if [ -f "$PLUGIN_DIR/AGENTS.md" ]; then
+  line_count=$(wc -l < "$PLUGIN_DIR/AGENTS.md")
+  if [ "$line_count" -gt 200 ]; then
+    echo "ERROR: [$PLUGIN_NAME] AGENTS.md exceeds 200 lines ($line_count lines)"
+    ERRORS=$((ERRORS + 1))
+  fi
 fi
 
 if [ $ERRORS -eq 0 ]; then

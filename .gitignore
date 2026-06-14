@@ -170,6 +170,8 @@ thinking/
 specs/
 docs-design/
 evaluation/
+# Design specs written by superpowers brainstorming are part of the repo
+!docs/superpowers/specs/
 # >>> claude-plugin:general:gitignore:start <<<
 # Managed by claude-plugin 'general' — do not edit manually
 
@@ -186,6 +188,10 @@ AGENTS.md
 
 # CLAUDE.md is a symlink → AGENTS.md; recreated by plugin on each install
 CLAUDE.md
+
+# Plugin-level AGENTS.md and CLAUDE.md are part of plugin distribution — track them
+!plugins/*/AGENTS.md
+!plugins/*/CLAUDE.md
 
 # .clinerules/00-shared.md is a symlink → ../AGENTS.md; recreated by plugin
 .clinerules/00-shared.md

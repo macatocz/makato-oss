@@ -1,6 +1,7 @@
 ---
 name: langgraph-reflexion
 description: "INVOKE THIS SKILL when building iterative self-improvement agents with human feedback and persistent lessons in LangGraph. Covers the reflexion loop (act-tools-feedback-reflect-finalize), custom lesson reducers, and Postgres-backed lesson persistence. Python-only"
+version: "1.0.0"
 ---
 <overview>
 Reflexion is an iterative improvement pattern where an agent acts, receives human feedback, reflects to create reusable lessons, and retries guided by those lessons. Lessons persist across runs via a checkpointer, enabling domain-specific competence bootstrapping.

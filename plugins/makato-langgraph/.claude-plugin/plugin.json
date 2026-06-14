@@ -1,0 +1,7 @@
+{
+  "name": "makato-langgraph",
+  "description": "Provide LangGraph-specific reference skills and patterns for building Python AI agents with the LangGraph framework.",
+  "author": {
+    "name": "makato Team"
+  }
+}

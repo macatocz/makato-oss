@@ -1,6 +1,7 @@
 ---
 name: langgraph-agent-patterns
 description: "INVOKE THIS SKILL when building LLM agents with tools in LangGraph. Covers ReAct loop (manual and prebuilt), multi-step planning, conditional branching, MessagesState, ToolNode, tools_condition, and MCP integration. Python-only"
+version: "1.0.0"
 ---
 
 <overview>
