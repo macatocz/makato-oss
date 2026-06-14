@@ -1,6 +1,6 @@
-# Change Request Analysis: <jira-key>
+# Change Request Analysis: <issue-key>
 
-**Issue**: <jira-key> — <issue-summary>  
+**Issue**: <issue-key> — <issue-summary>  
 **Type**: <Story|Task>  
 **Status**: <current-status>  
 **Analyzed**: <date>
@@ -15,13 +15,13 @@
 
 ## Requirements
 
-<Extract key requirements from the Jira issue. Quote directly when helpful. Break into logical sections if complex.>
+<Extract key requirements from the GitHub Issues issue. Quote directly when helpful. Break into logical sections if complex.>
 
 ### Summary
 <Brief restatement of what the issue requests>
 
 ### Acceptance Criteria
-<List acceptance criteria from Jira, or note if missing>
+<List acceptance criteria from GitHub Issues, or note if missing>
 
 ### Additional Context
 <Any relevant comments, attachments, or background from the issue>

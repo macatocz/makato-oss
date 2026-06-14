@@ -4,7 +4,7 @@ A PR Title must have the following.
 1. Semantic Message: [feat] | [refactor] | [ci] | [docs]
 2. add jira ticket as references
 
-EXAMPLE: feat: add a good pull request template for feature requests (DCP-XXXX)
+EXAMPLE: feat: add a good pull request template for feature requests (ISSUE-XXXX)
 -->
 
 
@@ -14,7 +14,7 @@ EXAMPLE: feat: add a good pull request template for feature requests (DCP-XXXX)
 
 
 ## Links
-* Jira: N/A <!-- DCP-XXXX --> <!-- Please add Jira Link here, if not available add N/A -->
+* GitHub Issues: N/A <!-- ISSUE-XXXX --> <!-- Please add GitHub Issues Link here, if not available add N/A -->
 <!-- * Confluence: -->
 
 ## How to Test

@@ -1,17 +1,17 @@
 ---
 name: execute
-description: Implement change request by modifying code, updating tests, running verification, and creating pull request with Jira link. Use for implementation, coding changes, test updates, PR creation.
+description: Implement change request by modifying code, updating tests, running verification, and creating pull request with GitHub issue link. Use for implementation, coding changes, test updates, PR creation.
 version: "1.0.1"
 argument-hint: "[ISSUE-KEY]"
 ---
 
 # Execute Change Request Implementation
 
-Implement the designed change request by modifying code, creating new components, updating tests, verifying the implementation, and creating a pull request linked to Jira.
+Implement the designed change request by modifying code, creating new components, updating tests, verifying the implementation, and creating a pull request linked to GitHub Issues.
 
 ## When to Use
 
-- Design is complete (design skill has run and produced `specs/<jira-key>/design.md`)
+- Design is complete (design skill has run and produced `specs/<issue-key>/design.md`)
 - Design has been approved by user
 - Ready to write code and implement the solution
 - Want to deliver a verified PR with working implementation
@@ -29,9 +29,9 @@ Implement the designed change request by modifying code, creating new components
 
 ### Step 1: Load Design Artifact
 
-Jira key is required (from argument or ask user).
+GitHub Issues key is required (from argument or ask user).
 
-Read the design artifact at `specs/<jira-key>/design.md`:
+Read the design artifact at `specs/<issue-key>/design.md`:
 - Validate artifact exists (if not, prompt user to run design skill first)
 - Extract: affected files, solution approach, implementation plan, test strategy, test scope, risks
 - Review implementation steps to understand the execution sequence
@@ -39,7 +39,7 @@ Read the design artifact at `specs/<jira-key>/design.md`:
 
 ### Step 1.5: Establish Repository Context
 
-Read `specs/<jira-key>/repositories.yml`.
+Read `specs/<issue-key>/repositories.yml`.
 
 **If repositories.yml does NOT exist:**
 - Error: "Repository metadata not found. Run analyze skill first to discover target repository."
@@ -60,7 +60,7 @@ SPECS_ROOT=$(cd "$(dirname "$SPECS_DIR")" && cd .. && pwd)
 
 Try multiple search strategies:
 
-1. **Sibling to dcp-specs**: `$SPECS_ROOT/../$REPO_NAME`
+1. **Sibling to specs-context**: `$SPECS_ROOT/../$REPO_NAME`
 2. **Same parent, one level deeper**: `$SPECS_ROOT/../*/$REPO_NAME`
 3. **Current working directory**: If `git rev-parse --show-toplevel` basename matches `$REPO_NAME`
 4. **specs/ parent itself**: If `$SPECS_ROOT` basename matches `$REPO_NAME`
@@ -88,11 +88,11 @@ test -d "$REPO_ROOT/.git"
 ### Step 1.6: Transition to In Progress
 
 **Transition to In Progress:**
-- Get current issue status using MCP tool `mcp__plugin_daff-core_jira__get_issue` (with fields: ["status"]) - do NOT use `gh issue view`
+- Get current issue status using MCP tool `gh issue view` (with fields: ["status"]) - do NOT use `gh issue view`
 - If status is "Open" or "New", transition to "In Progress":
-  - Get available transitions using `mcp__plugin_daff-core_jira__get_transitions`
+  - Get available transitions using `gh issue view --json state`
   - Find transition to "In Progress" status
-  - Execute transition using `mcp__plugin_daff-core_jira__transition_issue` (no comment needed for this straightforward transition)
+  - Execute transition using `gh issue edit --state` (no comment needed for this straightforward transition)
   - If transition fails (not available), continue without error (workflow may differ by project)
 
 ### Step 2: Implement Changes Following Design
@@ -248,8 +248,8 @@ This step runs code review first, then quality checks, forming a verification lo
 ```
 REPO_ROOT: <from Step 1.5: repositories.yml primary repo path>
 ISSUE_KEY: <issue-key>
-DESIGN_PATH: <specs/<jira-key>/design.md>
-ANALYSIS_PATH: <specs/<jira-key>/analysis.md>
+DESIGN_PATH: <specs/<issue-key>/design.md>
+ANALYSIS_PATH: <specs/<issue-key>/analysis.md>
 CHANGED_FILES: <list of modified/created files, relative to REPO_ROOT>
 DIFF: <output of: git -C <REPO_ROOT> diff>
 ```
@@ -276,7 +276,7 @@ DIFF: <output of: git -C <REPO_ROOT> diff>
 **Agent input:**
 ```
 REPO_ROOT: <from Step 1.5: repositories.yml primary repo path>
-DESIGN_PATH: <specs/<jira-key>/design.md>
+DESIGN_PATH: <specs/<issue-key>/design.md>
 TEST_SCOPE: <from design: module-only | full-suite>
 MODULE_PATH: <if module-only, the module/package path>
 CHANGED_FILES: <list of modified/created files, relative to REPO_ROOT>
@@ -323,7 +323,7 @@ git -C <REPO_ROOT> checkout -b feat/<ISSUE-KEY>-<short-description>
 
 If already on a feature branch, continue on that branch.
 
-**Why `-C` flag:** The skill may be invoked from dcp-specs or another location. The `-C <REPO_ROOT>` flag ensures git operations target the correct repository regardless of current working directory.
+**Why `-C` flag:** The skill may be invoked from specs-context or another location. The `-C <REPO_ROOT>` flag ensures git operations target the correct repository regardless of current working directory.
 
 ### Step 7: Commit Changes
 
@@ -370,8 +370,8 @@ EOF
 
 **Follow these rules:**
 - Use conventional commit format: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`
-- Reference the Jira key at the end of subject line in parentheses: `(ISSUE-KEY)`
-- Keep subject under 72 characters (including Jira key)
+- Reference the GitHub Issues key at the end of subject line in parentheses: `(ISSUE-KEY)`
+- Keep subject under 72 characters (including GitHub Issues key)
 - Body should summarize WHAT changed and WHY (the design has the HOW)
 - Link back to the design artifact for traceability
 
@@ -418,7 +418,7 @@ Read: plugins/makato-change/skills/execute/templates/pr-description-template.md
 1. Copy the ENTIRE template content from the Read result
 2. Replace placeholder text with actual implementation details:
    - **Description of Changes**: Brief overview (2-3 sentences) of what was implemented and why
-   - **Links**: Jira URL - `[DCP-XXXXX](https://github.com/browse/DCP-XXXXX)`
+   - **Links**: GitHub Issues URL - `[ISSUE-XXXXX](https://github.com/browse/ISSUE-XXXXX)`
    - **How to Test**: Concrete steps to verify changes (or note automated tests cover it)
    - **Breaking Changes**: Mark `[x]` on appropriate checkbox (usually No for change requests)
    - **Additional Notes**: Any relevant context, decisions, or trade-offs
@@ -441,26 +441,25 @@ EOF
 - Remove ALL HTML comments from the filled template
 - The filled template must have the same sections in the same order as the source template
 
-### Step 9: Update Jira Issue
+### Step 9: Update GitHub Issues Issue
 
-Link the PR to Jira using `mcp__plugin_daff-core_jira__create_remote_link`:
+Link the PR to GitHub Issues using `gh issue comment`:
 ```
 url: <PR URL>
 title: "Pull Request: <PR title>"
 ```
 
 **Error handling:**
-- If Jira update fails with 401/403/authentication error: Invoke `/daff:sap-auth` skill to re-authenticate, then retry
-- If link creation fails: Log the error but continue (user can manually link PR to Jira)
+- If link creation fails: Log the error but continue (user can manually link PR to GitHub Issues)
 
-Add label `cr-implemented` using `mcp__plugin_daff-core_jira__add_label`.
+Add label `cr-implemented` using `gh issue edit --add-label`.
 
 **Transition to Code Review:**
-- Get current issue status using `mcp__plugin_daff-core_jira__get_issue` (with fields: ["status"])
+- Get current issue status using `gh issue view` (with fields: ["status"])
 - If status is "In Progress", transition to "Code Review":
-  - Get available transitions using `mcp__plugin_daff-core_jira__get_transitions`
+  - Get available transitions using `gh issue view --json state`
   - Find transition to "Code Review" status
-  - Execute transition using `mcp__plugin_daff-core_jira__transition_issue` (no comment needed for this straightforward transition)
+  - Execute transition using `gh issue edit --state` (no comment needed for this straightforward transition)
   - If "Code Review" not available, try "In Review" as fallback
   - If transition fails (not available), continue without error (workflow may differ by project)
 

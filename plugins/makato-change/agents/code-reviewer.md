@@ -110,7 +110,7 @@ Read <file-path>
 
 #### 2e. Requirements Coverage
 - **All requirements implemented**: Check against analysis artifact
-- **Acceptance criteria met**: Each AC from Jira satisfied?
+- **Acceptance criteria met**: Each AC from GitHub Issues satisfied?
 - **Edge cases covered**: Analysis identified edge cases handled?
 
 #### 2f. Code Quality

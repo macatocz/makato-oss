@@ -1,3 +1,4 @@
+<!-- markdownlint-disable MD013 -->
 # makato Suite Overview
 
 ## What makato Is
@@ -17,7 +18,7 @@ The design principle: end-to-end coverage is a property of the system, not a req
 
 - Toolkits communicate via disk contracts (artifact schemas defined in makato-core)
 - No skill-to-skill invocation across plugins
-- Core defines artifact plans; toolkits produce and consume them
+- Core defines artifact shapes; toolkits produce and consume them
 - Contracts are design-time definitions, not runtime imports
 
 ### Key Principles

@@ -1,3 +1,4 @@
+<!-- markdownlint-disable MD013 MD033 -->
 # Changelog — makato-plan
 
 Changes are grouped by skill/agent/component. Within each group, latest version on top. Each version block lists one sub-bullet per logical change. Until per-PR version automation is in place, entries land here on merge to main; release-please will date and version them at the next release cut.
@@ -59,6 +60,12 @@ Changes are grouped by skill/agent/component. Within each group, latest version 
 
 ## `create-prototype` skill
 
+- **1.1.0**
+  - summarise artifacts before dispatch (Fix A): design tokens → flat JSON, mock data → typed record samples, decisions → resolved-only, all content wrapped in delimited blocks — prevents prompt injection and cuts dispatch payload by ≥ 30% on complex features
+  - enforce hard CONTEXT_SCOUT_TOKEN_BUDGET: 2000 ceiling on context-scout findings entering session context (Fix C) — defined as named constant, passed to every scout dispatch
+  - remove `references/skill-plan.html` (41 KB design artefact, ~10 k tokens wasted per invocation) (Fix D)
+  - HTML validation step now explicitly greps for `http://`, `https://`, `//cdn`, `data:` URIs — cannot be bypassed by malformed slide fragments (security)
+  - partial re-dispatch on slide failure targets only the failing surface fragment, not the full file (Fix B integration)
 - **1.0.2**
   - reference `shared/refinement-contract.md` (refine flow rules) and `shared/repositories-yml-schema.md`
 - **1.0.1**
@@ -77,7 +84,7 @@ Changes are grouped by skill/agent/component. Within each group, latest version 
 - **1.0.1**
   - inline constraints at point of use, remove end-of-file NEVER and Composes With sections
 - **1.0.0**
-  - Initial — decompose pland features into vertically-sliced stories with acceptance criteria, Three Amigos simulation, and interactive HTML review
+  - Initial — decompose shaped features into vertically-sliced stories with acceptance criteria, Three Amigos simulation, and interactive HTML review
 
 ## `grill` skill
 
@@ -102,7 +109,7 @@ Changes are grouped by skill/agent/component. Within each group, latest version 
   - add update-mode for existing `confluencePageId` (calls `update_page` instead of always creating)
   - drop "if available" hedge on `create_page` and the manual-fallback note
 - **1.0.0**
-  - Initial — publish pland stories.json to Jira (Epic + Stories + Subtasks + dependency links) and Confluence (stakeholder spec page), with pre-populated subtask templates, create-or-update idempotency, and two confirmation gates
+  - Initial — publish shaped stories.json to Jira (Epic + Stories + Subtasks + dependency links) and Confluence (stakeholder spec page), with pre-populated subtask templates, create-or-update idempotency, and two confirmation gates
 
 ## `create-acceptance-tests` skill
 
@@ -133,6 +140,12 @@ Changes are grouped by skill/agent/component. Within each group, latest version 
 
 ## `prototype-builder` agent
 
+- **1.1.0**
+  - surface-by-surface N+3 pass generation (Fix B): Pass 1 writes head+CSS+chrome, Passes 2…N+1 write one slide each, Pass N+2 writes JS+close, Pass N+3 assembles and validates — no single tool call output exceeds ~200 lines
+  - incremental write+append assembly (Fix E): each fragment appended to OUTPUT_PATH in order; assembly overhead is negligible vs. single-buffer write
+  - temp fragment naming convention: `prototype-head.tmp`, `prototype-slide-{n}.tmp`, `prototype-js.tmp` — all cleaned up on success and failure, no orphaned files
+  - failure recovery: re-dispatch targets only the failing slide fragment; surviving fragments are preserved and re-assembled
+  - validation is a single read + structural grep — not an LLM re-parse; checks `<!DOCTYPE>`, slide count, external refs, lorem ipsum, file size
 - **1.0.0**
   - Initial — creative Sonnet subagent for generating interactive HTML prototypes with target app design tokens
 
@@ -150,6 +163,11 @@ Changes are grouped by skill/agent/component. Within each group, latest version 
 
 - **1.0.0**
   - Initial — converts downloaded attachments (PPTX, PDF, DOCX) to markdown for content extraction
+
+## `arch-ux` skill
+
+- **1.0.0**
+  - Initial — create UX design documents with screen inventory, wireframes, interaction patterns, user testing plan, and accessibility notes for PRD UI surfaces
 
 ## Plugin-level
 

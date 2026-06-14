@@ -2,7 +2,7 @@
 
 Two independent ratings per comment.
 
-## Severity (makato if unfixed)
+## Severity (impact if unfixed)
 
 | Tier | Meaning | Examples |
 |------|---------|----------|
@@ -15,9 +15,9 @@ Two independent ratings per comment.
 
 | Rating | Meaning |
 |--------|---------|
-| 🌟 **Awesome** | Caught a real, high-makato issue with accurate reasoning. Apply as-is. |
+| 🌟 **Awesome** | Caught a real, high-impact issue with accurate reasoning. Apply as-is. |
 | ✅ **Helpful** | Caught a real issue, even if reasoning is partly off. Worth fixing. |
-| 🤷 **Neutral** | Conditional or low-makato; could go either way. Don't reward, don't punish. |
+| 🤷 **Neutral** | Conditional or low-impact; could go either way. Don't reward, don't punish. |
 | ❌ **Misleading** | Wrong claim or wrong reasoning. Reply with correction so the bot's training signal isn't reinforced. |
 
 ## How to Use

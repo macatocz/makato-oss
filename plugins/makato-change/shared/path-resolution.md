@@ -24,7 +24,7 @@ fi
 # Step 3: Try multiple search strategies
 RESOLVED_PATH=""
 
-# Strategy 1: Sibling to dcp-specs
+# Strategy 1: Sibling to specs-context
 CANDIDATE="$SPECS_ROOT/../$REPO_NAME"
 if [[ -d "$CANDIDATE/.git" ]]; then
   RESOLVED_PATH=$(cd "$CANDIDATE" && pwd)
@@ -61,14 +61,14 @@ if [[ -z "$RESOLVED_PATH" ]]; then
   echo "Error: Cannot locate repository \"$REPO_NAME\""
   echo ""
   echo "Searched locations:"
-  echo "  - $SPECS_ROOT/../$REPO_NAME (sibling to dcp-specs)"
+  echo "  - $SPECS_ROOT/../$REPO_NAME (sibling to specs-context)"
   echo "  - $SPECS_ROOT/../*/$REPO_NAME (same parent, one level deeper)"
   echo "  - Current directory: $(pwd)"
   echo "  - specs/ parent: $SPECS_ROOT"
   echo ""
   echo "Please ensure:"
   echo "  - Repository \"$REPO_NAME\" exists locally"
-  echo "  - It is in a standard location relative to dcp-specs"
+  echo "  - It is in a standard location relative to specs-context"
   echo "  - Or invoke from within the target repository itself"
   exit 1
 fi
@@ -95,23 +95,23 @@ Each consumer skill (design, execute, resolve-review) should:
 Error: Cannot locate repository "dcp-portal-ui"
 
 Searched locations:
-  - /Users/username/repos/dcp-portal-ui (sibling to dcp-specs)
+  - /Users/username/repos/dcp-portal-ui (sibling to specs-context)
   - /Users/username/repos/*/dcp-portal-ui (same parent, one level deeper)
   - Current directory: /Users/username/other-repo
   - specs/ parent: /Users/username/other-repo
 
 Please ensure:
   - Repository "dcp-portal-ui" exists locally
-  - It is in a standard location relative to dcp-specs
+  - It is in a standard location relative to specs-context
   - Or invoke from within the target repository itself
 
 Common layouts that work automatically:
   repos/
-  ├── dcp-specs/
+  ├── specs/
   └── dcp-portal-ui/
 
   repos/
-  ├── dcp-specs/
+  ├── specs/
   └── projects/
       └── dcp-portal-ui/
 ```
@@ -122,7 +122,7 @@ To test if a repository will resolve correctly:
 
 ```bash
 REPO_NAME="dcp-portal-ui"
-SPECS_ROOT="/Users/username/repos/dcp-specs"
+SPECS_ROOT="/Users/username/repos/specs-context"
 
 # Try sibling
 test -d "$SPECS_ROOT/../$REPO_NAME/.git" && echo "Found as sibling"

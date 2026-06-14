@@ -2,7 +2,7 @@
 
 Two labels apply to every issue: a **type label** and a **plugin label** (omit the plugin label for `repo-wide`).
 
-## Type Labels (already exist on DCP/makato)
+## Type Labels (already exist on zstary/makato)
 
 | Issue type    | Label           |
 |---------------|-----------------|

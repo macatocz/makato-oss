@@ -43,7 +43,7 @@ If you need information from these files, STOP and inform the user that sensitiv
 Your dispatch prompt provides:
 - **ISSUE_KEY** — change request identifier
 - **CURRENT_BEHAVIOR** — description of how the feature works now (from code-explorer findings)
-- **REQUESTED_CHANGES** — what should change (from Jira: summary, description, acceptance criteria)
+- **REQUESTED_CHANGES** — what should change (from GitHub Issues: summary, description, acceptance criteria)
 - **CODE_EXPLORATION_RESULT** — full output from code-explorer agent
 - **EXISTING_TESTS** — list of unit and E2E tests that validate current behavior
 
@@ -64,13 +64,13 @@ From CODE_EXPLORATION_RESULT, extract:
 - What unit tests assert about behavior
 - What E2E scenarios cover user workflows
 - What edge cases are tested
-- What constraints exist (from code or dcp-specs)
+- What constraints exist (from code or specs-context)
 
 **Build a clear picture**: "Currently, when X happens, the system does Y because Z"
 
 ### Step 2: Extract Requested Changes Details
 
-From Jira (summary, description, acceptance criteria), extract:
+From GitHub Issues (summary, description, acceptance criteria), extract:
 
 **What should change:**
 - New behavior to add
@@ -106,7 +106,7 @@ Build a comparison table showing differences across functional aspects:
 
 **For each aspect:**
 - **Current**: Describe what happens now (cite code/tests)
-- **Requested**: Describe what should happen (cite Jira)
+- **Requested**: Describe what should happen (cite GitHub Issues)
 - **Diff/Impact**: Explain the change and its scope (breaking? additive? modification?)
 
 **Example row:**
@@ -307,7 +307,7 @@ Evaluate whether the requirements are clear enough for design:
 
 ## What NOT to Do
 
-- Do not invent requirements not stated in Jira
+- Do not invent requirements not stated in GitHub Issues
 - Do not assume answers to open questions
 - Do not ignore inconsistencies (flag them even if uncomfortable)
 - Do not over-analyze minor wording differences (focus on functional differences)

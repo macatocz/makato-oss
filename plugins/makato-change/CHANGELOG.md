@@ -1,13 +1,14 @@
+<!-- markdownlint-disable MD012 MD013 -->
 # Changelog
 
 ## `code-explorer` agent
 
 - **1.0.1**
-  - Fix DCP-specs discovery: replace bash commands (`pwd`, `test -d`, `echo $VAR`) with Glob/Read equivalents so Step 1 works correctly when Bash is in disallowedTools
+  - Fix specs-context discovery: replace bash commands (`pwd`, `test -d`, `echo $VAR`) with Glob/Read equivalents so Step 1 works correctly when Bash is in disallowedTools
   - Fix file discovery: replace `find` commands with `glob()` calls in Step 2 for consistency with disallowedTools constraints
 - **1.0.0**
-  - Initial — Explore codebase to discover affected files, dependencies, patterns, and dcp-specs context for change requests
-  - Enhanced dcp-specs detection with multi-strategy approach (CWD, sibling directory, environment variable)
+  - Initial — Explore codebase to discover affected files, dependencies, patterns, and specs-context context for change requests
+  - Enhanced specs-context detection with multi-strategy approach (CWD, sibling directory, environment variable)
 
 ## `requirements-diff-analyzer` agent
 
@@ -41,7 +42,7 @@
 - **1.0.1**
   - Replace Step 5 (Run Tests) with Step 5 (Run Quality Gate) to dispatch quality-guard agent after addressing review feedback, ensuring test coverage and quality checks verify changes before pushing
 - **1.0.0**
-  - Initial — Resolve PR review feedback by addressing comments with code fixes or clarifying replies, update Jira status
+  - Initial — Resolve PR review feedback by addressing comments with code fixes or clarifying replies, update GitHub issue status
   - Add repository context loading from repositories.yml
   - Use `git -C <REPO_ROOT>` for all git operations to support cross-repo execution
   - Add automatic path resolution (searches standard locations, no configuration needed)
@@ -51,7 +52,7 @@
 - **1.0.1**
   - Restructure Step 5.5 and 5.6 into single "Review and Verify Implementation" loop that runs code-reviewer first, then quality-guard, ensuring changes from review process are covered by tests before committing
 - **1.0.0**
-  - Initial — Implement change requests by modifying code, updating tests, running verification, and creating PR with Jira link
+  - Initial — Implement change requests by modifying code, updating tests, running verification, and creating PR with GitHub Issues link
   - Add repository context loading from repositories.yml (Step 1.5)
   - Use absolute paths for all file operations (`<REPO_ROOT>/<relative-path>`)
   - Use `git -C <REPO_ROOT>` for all git operations to support cross-repo execution
@@ -61,7 +62,7 @@
 ## `design` skill
 
 - **1.0.0**
-  - Initial — Design technical approach for change requests with code discovery (guided or exploratory), solution planning, and Jira updates
+  - Initial — Design technical approach for change requests with code discovery (guided or exploratory), solution planning, and GitHub Issues updates
   - Add repository metadata loading from repositories.yml (Step 1.5)
   - Validate repository path exists before dispatching agents
   - Update agent dispatch to use repositories.yml for REPO_ROOT and REPO_NAME
@@ -70,9 +71,9 @@
 ## `analyze` skill
 
 - **1.0.0**
-  - Initial — Analyze change request requirements by comparing current vs. requested behavior, identify and address questions and inconsistencies, update Jira with refined requirements
+  - Initial — Analyze change request requirements by comparing current vs. requested behavior, identify and address questions and inconsistencies, update GitHub issue with refined requirements
   - Add repository discovery step (Step 2.5) that prompts for target repo and writes repositories.yml
-  - Support invocation from dcp-specs or target repo (auto-detects CWD or prompts for path)
+  - Support invocation from specs-context or target repo (auto-detects CWD or prompts for path)
   - Update agent dispatch to use repositories.yml for REPO_ROOT and REPO_NAME
   - Write repo name only to repositories.yml (automatic path resolution, no configuration needed)
 
@@ -83,7 +84,7 @@
   - Add cross-repository operation support via repositories.yml
   - Add shared repositories-yml-schema.md (independent from makato-plan)
   - Add shared path-resolution.md for automatic path resolution
-  - Enable invocation from dcp-specs or target repo
+  - Enable invocation from specs-context or target repo
   - Support automatic path resolution (searches standard locations, no configuration needed)
   - Document cross-repo usage patterns in README.md and AGENTS.md
 

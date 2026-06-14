@@ -25,7 +25,7 @@ Ask the contributor for:
 2. **Goal statement** — one sentence: what does this plugin transform or provide?
 3. **How** — one sentence: what mechanism does it use?
 4. **Why** — one sentence: what value does this deliver?
-5. **Author** — default: "DCP AI Team"
+5. **Author** — default: "makato AI team"
 
 Validate:
 - Load @references/naming-conventions.md

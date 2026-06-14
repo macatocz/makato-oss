@@ -44,7 +44,7 @@ If you need information from these files, STOP and inform the user that sensitiv
 Your dispatch prompt provides:
 - **REPO_ROOT** — absolute path to repository
 - **AFFECTED_FILES** — list of files being modified (from code-explorer)
-- **FEATURE_KEYWORDS** — key terms from Jira summary/description
+- **FEATURE_KEYWORDS** — key terms from GitHub Issues summary/description
 - **REQUESTED_CHANGES** — brief description of what's changing
 
 ## Workflow

@@ -1,6 +1,6 @@
 ---
 name: resolve-review
-description: Resolve PR review feedback for change request by addressing comments with code fixes or clarifying replies, update Jira status
+description: Resolve PR review feedback for change request by addressing comments with code fixes or clarifying replies, update GitHub issue status
 version: "1.0.2"
 ---
 
@@ -18,7 +18,7 @@ Use this skill after a PR has been created for a change request and reviewers ha
 - Review threads (groups of related comments)
 
 **Does NOT handle:**
-- Issue comments on the linked Jira ticket (use Jira MCP tools directly)
+- Issue comments on the linked GitHub Issues ticket (use GitHub Issues MCP tools directly)
 - Commit comments (use `gh` CLI directly)
 - GitHub issue comments (if PR is from a fork)
 
@@ -31,10 +31,10 @@ Use this skill after a PR has been created for a change request and reviewers ha
 
 ### Step 1: Identify the PR
 
-Ask the user for the PR identifier (either PR number or Jira key).
+Ask the user for the PR identifier (either PR number or GitHub Issues key).
 
-If Jira key is provided:
-- Use MCP tool `mcp__plugin_daff-core_jira__get_issue` to fetch the issue (do NOT use `gh issue view`)
+If GitHub Issues key is provided:
+- Use MCP tool `gh issue view` to fetch the issue (do NOT use `gh issue view`)
 - Extract PR link from `remote_links` field
 - Parse PR number from the link
 - If no PR link found: Inform user and exit (PR not yet created, use `execute` skill first)
@@ -84,7 +84,7 @@ SPECS_ROOT=$(cd "$(dirname "$SPECS_DIR")" && cd .. && pwd)
 
 Try multiple search strategies:
 
-1. **Sibling to dcp-specs**: `$SPECS_ROOT/../$REPO_NAME`
+1. **Sibling to specs-context**: `$SPECS_ROOT/../$REPO_NAME`
 2. **Same parent, one level deeper**: `$SPECS_ROOT/../*/$REPO_NAME`
 3. **Current working directory**: If `git rev-parse --show-toplevel` basename matches `$REPO_NAME`
 4. **specs/ parent itself**: If `$SPECS_ROOT` basename matches `$REPO_NAME`
@@ -134,7 +134,7 @@ For each comment, determine the appropriate action:
 
 **Acknowledgment:**
 - Reviewer suggests an improvement that will be addressed later
-- Action: Acknowledge and optionally create a follow-up Jira issue
+- Action: Acknowledge and optionally create a follow-up GitHub Issues issue
 
 After addressing each comment, ask the user: "How should we address this comment?" Present the options:
 1. Make the code change
@@ -153,7 +153,7 @@ After all code changes are made, dispatch the **quality-guard** agent to verify 
 **Agent input:**
 ```
 REPO_ROOT: <from Step 3: repositories.yml primary repo path>
-DESIGN_PATH: <specs/<jira-key>/design.md>
+DESIGN_PATH: <specs/<issue-key>/design.md>
 TEST_SCOPE: <from design: module-only | full-suite>
 MODULE_PATH: <if module-only, the module/package path>
 CHANGED_FILES: <list of modified/created files, relative to REPO_ROOT>
@@ -199,7 +199,7 @@ Push to the PR branch:
 git -C <REPO_ROOT> push
 ```
 
-**Why `-C <REPO_ROOT>`:** Ensures git operations target the correct repository when the skill is invoked from dcp-specs or another location.
+**Why `-C <REPO_ROOT>`:** Ensures git operations target the correct repository when the skill is invoked from specs-context or another location.
 
 ### Step 7: Reply to Comments
 

@@ -1,8 +1,8 @@
-# Jira Update Format
+# GitHub Issues Update Format
 
-Structure and tone for posting analysis results back to Jira as comments.
+Structure and tone for posting analysis results back to GitHub Issues as comments.
 
-**IMPORTANT**: Jira uses Wiki Markup format, not Markdown. Use the format specified in this guide exactly to avoid rendering issues.
+**IMPORTANT**: GitHub Issues uses Wiki Markup format, not Markdown. Use the format specified in this guide exactly to avoid rendering issues.
 
 ## Tone
 
@@ -17,7 +17,7 @@ Avoid:
 
 ## Comment Structure
 
-Use this template as a starting point. Note: This uses Jira Wiki Markup format:
+Use this template as a starting point. Note: This uses GitHub Issues Wiki Markup format:
 
 ```
 h2. Change Request Analysis
@@ -40,7 +40,7 @@ h3. Next Steps
 Full analysis: {{specs/<ISSUE-KEY>/analysis.md}}
 ```
 
-**Key Jira Wiki Markup syntax:**
+**Key GitHub Issues Wiki Markup syntax:**
 - Headers: `h2.`, `h3.`, `h4.` (NOT `##`, `###`)
 - Bold: `*text*` (NOT `**text**`)
 - Numbered lists: `#` at line start (NOT `1.`, `2.`)
@@ -205,7 +205,7 @@ Always end with the artifact path:
 Full analysis: {{specs/PROJ-1234/analysis.md}}
 {quote}
 
-This gives readers the option to go deeper without cluttering the Jira comment.
+This gives readers the option to go deeper without cluttering the GitHub Issues comment.
 
 ## Labeling
 
@@ -213,7 +213,7 @@ After posting the comment, add label `cr-analyzed` to the issue. This makes it e
 
 Use:
 ```
-mcp__plugin_daff-core_jira__add_label
+gh issue edit --add-label
 ```
 
 ## When to Tag People
@@ -230,7 +230,7 @@ mcp__plugin_daff-core_jira__add_label
 
 **How to tag:**
 
-In Jira comments, use `[~username]` (NOT `@username`). The username is typically the I-number (e.g., `[~I844709]`). If you're not sure of the username, check the issue's "Reporter" or "Watchers" fields.
+In GitHub Issues comments, use `[~username]` (NOT `@username`). The username is typically the I-number (e.g., `[~I844709]`). If you're not sure of the username, check the issue's "Reporter" or "Watchers" fields.
 
 ## Updating the Label
 

@@ -1,12 +1,13 @@
-# makato-plan
+<!-- markdownlint-disable MD013 MD040 -->
+# makato-plan Terminology
 
-Canonical definitions for terms used across makatoctctctct-planls, references, and templates. This file is the **plugin-level terminology reference** — it documents the vocabulary contributors and consumers need to read the skills. It is distinct from the runtime, feature-scoped glossary that the `grill` skill writes per spec (see `specs/{ITDB-KEY}-{slug}/glossary.md` inside each spec folder).
+Canonical definitions for terms used across makato-plan skills, references, and templates. This file is the **plugin-level terminology reference** — it documents the vocabulary contributors and consumers need to read the skills. It is distinct from the runtime, feature-scoped glossary that the `grill` skill writes per spec (see `specs/{ITDB-KEY}-{slug}/glossary.md` inside each spec folder).
 
 **For skill authors:** when you introduce a term that needs explanation, add it here and reference the entry from your skill at the point of use (`shared/terminology.md#anchor` — the `shared/` symlink lives in each skill that consumes it). Do not redefine terms inline.
 
 **For users:** if a skill prompts you with a term you do not recognize, search this file. Anchors are stable; deep-link with `#term-name`.
 
-**Entry plan
+**Entry shape:**
 
 ```
 ### term
@@ -23,9 +24,9 @@ The `See also` and `Not to be confused with` lines are optional and only present
 
 ## 1. Lifecycle & Boundary
 
-### plan
+### shape
 
-The overall act of transforming a raw Jira feature into PI-sized epics with vertically-sliced stories ready for development. The plugin name (`makatoctctctct-planfers to this activity.
+The overall act of transforming a raw Jira feature into PI-sized epics with vertically-sliced stories ready for development. The plugin name (`makato-plan`) refers to this activity.
 
 **See also:** [shaping boundary](#shaping-boundary)
 
@@ -35,7 +36,7 @@ The line between *what* a feature delivers (in scope) and *how* development team
 
 ### ITDB
 
-The Jira project that hosts raw, unplanture requests at SAP. An ITDB key (e.g., `ITDB-1234`) is the entry point for every shaping run — every spec folder is named after one.
+The Jira project that hosts raw, unshaped feature requests at SAP. An ITDB key (e.g., `ITDB-1234`) is the entry point for every shaping run — every spec folder is named after one.
 
 **See also:** [spec folder](#spec-folder), [PI](#pi)
 
@@ -47,7 +48,7 @@ The Jira project that hosts raw, unplanture requests at SAP. An ITDB key (e.g., 
 
 ### spec folder
 
-The working directory for one planture, located at `specs/{ITDB-KEY}-{slug}/`. Holds all artifacts produced during shaping (`brainstorm.md`, `prd.md`, `design.md`, `prototype.html`, `decisions.md`, `stories.json`, `repositories.yml`, `reviews/`, `reference/`). Created by `brainstorming` Step 1.1 and read by every downstream skill.
+The working directory for one shaped feature, located at `specs/{ITDB-KEY}-{slug}/`. Holds all artifacts produced during shaping (`brainstorm.md`, `prd.md`, `design.md`, `prototype.html`, `decisions.md`, `stories.json`, `repositories.yml`, `reviews/`, `reference/`). Created by `brainstorming` Step 1.1 and read by every downstream skill.
 
 ### reference folder
 
@@ -59,7 +60,7 @@ The `reference/` subfolder inside a spec folder. Holds technical inputs the user
 
 ### brainstorming
 
-The first makatoctctctct-planl — divergent-then-convergent ideation on an ITDB feature. Produces `brainstorm.md` and seeds `decisions.md`.
+The first makato-plan skill — divergent-then-convergent ideation on an ITDB feature. Produces `brainstorm.md` and seeds `decisions.md`.
 
 ### grill
 
@@ -109,7 +110,7 @@ The Lead Developer sub-agent in the Three Amigos simulation. Challenges technica
 
 ### context-scout
 
-A read-only sub-agent reused across makatoctctctct-planls to scan `context/{REPO_NAME}/` for files relevant to a feature. Returns paths and excerpts; does not modify files.
+A read-only sub-agent reused across makato-plan skills to scan `context/{REPO_NAME}/` for files relevant to a feature. Returns paths and excerpts; does not modify files.
 
 ### doc-writer
 
@@ -147,9 +148,9 @@ Output of `create-prototype`. Optional visual artifact validating UI surfaces be
 
 ### decisions.md
 
-Living document, updated across every skill. Two tables: **Decision Details** (what was decided, by whom, in which plancycle phase) and **Open Questions** (unresolved items parked during interviews).
+Living document, updated across every skill. Two tables: **Decision Details** (what was decided, by whom, in which shape lifecycle phase) and **Open Questions** (unresolved items parked during interviews).
 
-**See also:** [Open Questions](#open-questions), [Decision Details](#decision-details), [plancycle phase](#pppppplan-phase)
+**See also:** [Open Questions](#open-questions), [Decision Details](#decision-details), [shape lifecycle phase](#shape-lifecycle-phase)
 
 ### stories.json
 
@@ -169,7 +170,7 @@ Subdirectory of the spec folder holding HTML review documents generated by `doc-
 
 ### epic
 
-The Jira-level container for a planture. One epic per shaping run, sized to one PI, parented under the originating ITDB issue.
+The Jira-level container for a shaped feature. One epic per shaping run, sized to one PI, parented under the originating ITDB issue.
 
 **See also:** [story](#story), [subtask](#subtask)
 
@@ -203,7 +204,7 @@ The first story in any decomposition: the thinnest possible end-to-end vertical 
 
 The bucket a story is assigned to during decomposition: `foundation`, `happy-path`, or `edge-cases`. Equivalent to "Phase 1 / Phase 2 / Phase 3" in `phase-assignment-rules.md` — same concept, two notations. The `phase` field in `stories.json` always uses the name form.
 
-**Not to be confused with:** [plancycle phase](#pppppplan-phase) — that is when a *decision* was made (Discover / Plan / Execute), not which slice a *story* belongs to.
+**Not to be confused with:** [shape lifecycle phase](#shape-lifecycle-phase) — that is when a *decision* was made (Discover / Plan / Execute), not which slice a *story* belongs to.
 
 ### feature toggle
 
@@ -255,9 +256,9 @@ The unresolved-items table in `decisions.md`. Every skill appends to it when the
 
 ### Decision Details
 
-The resolved-decisions table in `decisions.md`. Every skill that records a major decision appends one row, including chosen option, category, [plancycle phase](#pppppplan-phase), and date.
+The resolved-decisions table in `decisions.md`. Every skill that records a major decision appends one row, including chosen option, category, [shape lifecycle phase](#shape-lifecycle-phase), and date.
 
-### plancycle phase
+### shape lifecycle phase
 
 The column in `decisions.md` that tracks when in the shaping lifecycle a decision was made: `Discover` (brainstorming, PRD), `Plan` (architecture, prototype, decompose), `Execute` (publish and beyond). Distinct from [slicing phase](#slicing-phase).
 
@@ -275,7 +276,7 @@ The Jira custom field on a story that points to its parent epic. Set by `publish
 
 ### Parent-Child link
 
-The Jira issue link type used between the originating ITDB issue (parent) and the planc (child). Direction: `sourceIssue` is the ITDB parent, `targetIssue` is the epic. Created by `publish` Step 7.
+The Jira issue link type used between the originating ITDB issue (parent) and the shaped epic (child). Direction: `sourceIssue` is the ITDB parent, `targetIssue` is the epic. Created by `publish` Step 7.
 
 ### Dependency link
 
@@ -289,11 +290,11 @@ A Jira component named `PI | YY/QQ` (e.g., `PI | 26/03`) that tags every issue b
 
 ### DCP
 
-The internal name of the platform makatoctctctct-planoriginally built for. The Confluence space `DCPL` and the parent page id `2134905309` are DCP defaults that publish hard-codes (tracked as backlog item L4).
+The internal name of the platform makato-plan was originally built for. The Confluence space `DCPL` and the parent page id `2134905309` are DCP defaults that publish hard-codes (tracked as backlog item L4).
 
 ### story panel
 
-The Confluence-style colored panel rendered into a Jira issue's description by `publish`. Each story gets multiple panels: Background, Scope, Dependencies, Feature Toggle, Success Scenario, Solution Approach. Template: `publish/references/dcp-story-panels.md`.
+Removed — the Jira/Confluence story panel concept no longer applies. The `publish` skill generates GitHub Issues and local handoff files instead.
 
 ### subtaskKeys
 
@@ -304,11 +305,9 @@ The object on each story in `stories.json` that maps subtask name → Jira key a
 ## Related Schemas (not glossary entries — defined elsewhere)
 
 - `shared/repositories-yml-schema.md` — schema for `repositories.yml`
-- `shared/scenario-schema.md` — Gherkin scenario planven `/`when `/`then `/`and[]`)
+- `shared/scenario-schema.md` — Gherkin scenario shape (`given`/`when`/`then`/`and[]`)
 - `shared/refinement-contract.md` — rules for "Refine" update mode
 - `decompose/references/stories-json-schema.md` — full `stories.json` schema
-- `create-acceptance-tests/references/acceptance-test-cases-schema.md` — scenario plan `acceptanceTestCases[]`
+- `create-acceptance-tests/references/acceptance-test-cases-schema.md` — scenario shape for `acceptanceTestCases[]`
 - `decompose/references/phase-assignment-rules.md` — slicing phase decision matrix
-- `publish/references/jira-field-mapping.md` — Jira field IDs used by `publish`
-- `publish/references/dcp-story-panels.md` — story panel render template
-- `publish/references/confluence-page-template.md` — Confluence spec page template
+- `publish/references/github-issue-template.md` — GitHub Issue body template used by `publish`

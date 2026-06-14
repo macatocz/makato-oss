@@ -1,11 +1,11 @@
 # `repositories.yml` Schema
 
-> Contract for the `repositories.yml` file written under `specs/{jira-key}/`. Created by the `analyze` skill and consumed by `design`, `execute`, and `resolve-review` skills for cross-repository operations.
+> Contract for the `repositories.yml` file written under `specs/{issue-key}/`. Created by the `analyze` skill and consumed by `design`, `execute`, and `resolve-review` skills for cross-repository operations.
 
 ## File Location
 
 ```
-specs/{jira-key}/repositories.yml
+specs/{issue-key}/repositories.yml
 ```
 
 ## Shape
@@ -46,11 +46,11 @@ path: dcp-portal-ui
 
 When loading `repositories.yml`, consumers apply these search strategies in order:
 
-**Strategy 1: Sibling to dcp-specs**
+**Strategy 1: Sibling to specs-context**
 ```
 repos/
-├── dcp-specs/          ← invoked from here
-│   └── specs/DCP-1234/repositories.yml
+├── specs/          ← invoked from here
+│   └── specs/ISSUE-1234/repositories.yml
 └── dcp-portal-ui/      ← found here
 ```
 Check: `<specs-parent>/../<repo-name>`
@@ -58,8 +58,8 @@ Check: `<specs-parent>/../<repo-name>`
 **Strategy 2: Same parent directory**
 ```
 repos/
-├── dcp-specs/
-│   └── specs/DCP-1234/repositories.yml
+├── specs/
+│   └── specs/ISSUE-1234/repositories.yml
 └── projects/
     └── dcp-portal-ui/  ← found here
 ```
@@ -68,14 +68,14 @@ Check: `<specs-parent>/../*/<repo-name>` (one level deeper)
 **Strategy 3: Current working directory**
 ```
 dcp-portal-ui/          ← invoked from here
-└── specs/DCP-1234/repositories.yml
+└── specs/ISSUE-1234/repositories.yml
 ```
 Check: `git rev-parse --show-toplevel` and verify basename matches `<repo-name>`
 
 **Strategy 4: Parent of specs directory**
 ```
 dcp-portal-ui/          ← found here
-└── specs/DCP-1234/repositories.yml
+└── specs/ISSUE-1234/repositories.yml
 ```
 Check: `<specs-parent>` and verify basename matches `<repo-name>`
 
@@ -91,14 +91,14 @@ If all strategies fail, show error:
 Error: Cannot locate repository "dcp-portal-ui"
 
 Searched locations:
-  - /Users/username/repos/dcp-portal-ui (sibling to dcp-specs)
+  - /Users/username/repos/dcp-portal-ui (sibling to specs-context)
   - /Users/username/repos/*/dcp-portal-ui (same parent, one level deeper)
   - Current directory: /Users/username/other-repo
   - specs/ parent: /Users/username/other-repo
 
 Please ensure:
   - Repository "dcp-portal-ui" exists locally
-  - It is in a standard location relative to dcp-specs
+  - It is in a standard location relative to specs-context
   - Or invoke from within the target repository itself
 ```
 

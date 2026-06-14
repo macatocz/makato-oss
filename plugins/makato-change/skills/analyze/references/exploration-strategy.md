@@ -2,17 +2,17 @@
 
 Systematic patterns for discovering how a feature currently works in the codebase.
 
-## Start with dcp-specs Context (if available)
+## Start with specs-context Context (if available)
 
-**Primary starting point when working in dcp-specs repository:**
+**Primary starting point when working in specs-context repository:**
 
-1. **Check if in dcp-specs:**
+1. **Check if in specs-context:**
    ```bash
-   pwd  # Check if path contains "dcp-specs"
+   pwd  # Check if path contains "specs-context"
    ```
 
-2. **If in dcp-specs, locate service context:**
-   - Identify target repository name from Jira issue
+2. **If in specs-context, locate service context:**
+   - Identify target repository name from GitHub Issues issue
    - Check `context/<repo-name>/` directory
    - Example: `context/dcp-platform/`, `context/dcp-api/`
 
@@ -28,11 +28,11 @@ Systematic patterns for discovering how a feature currently works in the codebas
    - Then drill into specific code areas for details
    - Reduces blind exploration and improves accuracy
 
-**If NOT in dcp-specs:**
+**If NOT in specs-context:**
 - Proceed with code-based exploration below
-- Consider suggesting: "dcp-specs contains service specifications at context/<repo-name>/"
+- Consider suggesting: "specs-context contains service specifications at context/<repo-name>/"
 
-## Start with the Jira Issue
+## Start with the GitHub Issues Issue
 
 Extract key terms from:
 - Issue summary and description

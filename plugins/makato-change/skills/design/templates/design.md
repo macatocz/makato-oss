@@ -1,7 +1,7 @@
-# Technical Design: <jira-key>
+# Technical Design: <issue-key>
 
-**Issue**: <jira-key> — <issue-summary>  
-**Analysis**: `specs/<jira-key>/analysis.md`  
+**Issue**: <issue-key> — <issue-summary>  
+**Analysis**: `specs/<issue-key>/analysis.md`  
 **Designed**: <date>
 
 ---

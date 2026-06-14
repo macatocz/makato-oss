@@ -1,3 +1,4 @@
+<!-- markdownlint-disable MD013 MD040 -->
 # makato-change — Request for change
 
 ## Goal
@@ -46,7 +47,7 @@ makato-change uses specialized sub-agents to delegate focused tasks during the C
 
 | Agent                                | Model  | Purpose                                                                                                                                   | Used By         |
 | ------------------------------------ | ------ | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
-| **code-explorer**              | haiku  | Explore codebase to discover affected files, dependencies, patterns, and dcp-specs context                                                | analyze, design |
+| **code-explorer**              | haiku  | Explore codebase to discover affected files, dependencies, patterns, and specs-context context                                                | analyze, design |
 | **requirements-diff-analyzer** | sonnet | Compare current vs requested behavior to produce structured requirements diff with gaps and inconsistencies                               | analyze         |
 | **test-analyzer**              | haiku  | Discover and analyze all tests (unit, integration, E2E) affected by change request, map to affected functionality, identify coverage gaps | analyze, design |
 | **quality-guard**              | haiku  | Run quality checks (lint, format, tests, coverage) after implementation with actionable feedback                                          | execute         |
@@ -102,7 +103,7 @@ The `path` field in `repositories.yml` contains just the repository name (e.g., 
 
 **Automatic resolution strategies** (tried in order):
 
-1. **Sibling to dcp-specs**: `../dcp-portal-ui`
+1. **Sibling to specs-context**: `../dcp-portal-ui`
 2. **Same parent, one level deeper**: `../projects/dcp-portal-ui`
 3. **Current working directory**: If basename matches repo name
 4. **specs/ parent directory**: If basename matches repo name
@@ -132,14 +133,14 @@ git -C <REPO_ROOT> checkout -b <branch>
 git -C <REPO_ROOT> commit -m "..."
 ```
 
-This enables running skills from dcp-specs while modifying code in target repo.
+This enables running skills from specs-context while modifying code in target repo.
 
-### DCP-Specs Context Discovery
+### specs-context Discovery
 
-The `code-explorer` agent uses multiple strategies to locate dcp-specs context:
+The `code-explorer` agent uses multiple strategies to locate specs-context context:
 
 1. **CWD check**: Look for `context/<REPO_NAME>/` in current directory
-2. **Sibling directory**: Check `<REPO_ROOT>/../dcp-specs/context/<REPO_NAME>/`
+2. **Sibling directory**: Check `<REPO_ROOT>/../specs/context/<REPO_NAME>/`
 3. **Environment variable**: Use `$DCP_SPECS_PATH/context/<REPO_NAME>/` if set
 
 This allows flexible deployment while maintaining access to pre-built service documentation.

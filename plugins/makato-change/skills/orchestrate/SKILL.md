@@ -23,9 +23,9 @@ Use this skill when:
 
 ## Workflow
 
-### Step 1: Get Jira Key
+### Step 1: Get GitHub Issues Key
 
-Ask the user: **"What is the Jira issue key for this change request?"**
+Ask the user: **"What is the GitHub Issues issue key for this change request?"**
 
 The key must be in format: `PROJECT-1234` (e.g., `PROJ-567`, `BDC-1234`)
 
@@ -90,7 +90,7 @@ Based on phase detection from Step 2, determine the recommended next phase:
 
 **Additional options** (show conditionally):
 - Skip to execute (only if analyze + design complete, warn about skipping)
-- Skip to resolve-review (only if PR exists in Jira, warn about skipping)
+- Skip to resolve-review (only if PR exists in GitHub Issues, warn about skipping)
 
 For each option, show:
 - What will happen
@@ -119,7 +119,7 @@ After the invoked skill completes:
 2. Check if the phase actually completed:
    - Analyze: `analysis.md` should exist
    - Design: `design.md` should exist
-   - Execute: PR link should exist in Jira
+   - Execute: PR link should exist in GitHub Issues
    - Resolve Review: verify comments were addressed
 
 If the phase did not complete (user exited early or error occurred):
@@ -131,7 +131,7 @@ If the phase did not complete (user exited early or error occurred):
 Check if all phases are complete:
 - Analyze artifact exists
 - Design artifact exists
-- Execute complete (PR link in Jira)
+- Execute complete (PR link in GitHub Issues)
 - Resolve Review complete (no unresolved comments, or user confirms done)
 
 **If all phases complete**: Auto-exit with final summary:
@@ -198,7 +198,7 @@ Next Steps:
 - If artifacts change unexpectedly, re-detect and show updated state
 - User can see what's been done and pick up where previous person left off
 
-**Jira issue type is not Story or Activity:**
+**GitHub Issues issue type is not Story or Activity:**
 - Warn the user
 - Offer to continue anyway (some orgs use custom types)
 - Phase skills will validate and may block if truly incompatible

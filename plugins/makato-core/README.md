@@ -4,7 +4,7 @@
 
 ## What Belongs Here
 
-- Contract schemas defining artifact plans for inter-toolkit data exchange
+- Contract schemas defining artifact shapes for inter-toolkit data exchange
 - Setup/initialization skills
 - Mandatory MCP server declarations
 - Guide/help skills for suite users
@@ -18,14 +18,7 @@
 
 ## Prerequisites / MCP Servers
 
-This plugin declares MCP servers via `.mcp.json` at the plugin root. They are automatically configured when the plugin is installed:
-
-| Server | Purpose | Environment |
-|--------|---------|-------------|
-| `jira` | Jira issue access (jira.tools.sap) | `JIRA_DOMAIN=jira.tools.sap` |
-| `dcp-mcp-wiki` | Confluence wiki access | `WIKI_BASE_URL=https://wiki.one.int.sap`, `WIKI_SPACES=DCPL` |
-
-See [MCP Server Convention](../../docs/contributing/MCP-SERVERS.md) for details on declaring MCP servers in plugins.
+makato-core does not declare any MCP servers. Skills use the `gh` CLI for GitHub operations.
 
 ## Skills
 

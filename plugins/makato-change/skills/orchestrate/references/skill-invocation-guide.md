@@ -27,10 +27,10 @@ Skill(skill="analyze")
 ```
 
 **What it does:**
-- Fetches Jira issue details
+- Fetches GitHub Issues issue details
 - Compares current behavior vs requested behavior
 - Identifies questions and inconsistencies
-- Updates Jira with refined requirements
+- Updates GitHub Issues with refined requirements
 - Produces `specs/<ISSUE_KEY>/analysis.md`
 
 **Prerequisites:** None (can run at any time)
@@ -53,7 +53,7 @@ Skill(skill="design")
 - Reads `analysis.md` for context
 - Discovers affected code (guided or exploratory)
 - Plans solution approach
-- Updates Jira with design summary
+- Updates GitHub Issues with design summary
 - Produces `specs/<ISSUE_KEY>/design.md`
 
 **Prerequisites:**
@@ -80,7 +80,7 @@ Skill(skill="execute")
 - Updates/adds tests
 - Runs verification (tests + dev server if needed)
 - Creates PR with structured description
-- Links PR back to Jira
+- Links PR back to GitHub Issues
 - Produces commits and PR
 
 **Prerequisites:**
@@ -102,13 +102,13 @@ Skill(skill="resolve-review")
 ```
 
 **What it does:**
-- Identifies PR from Jira or PR number
+- Identifies PR from GitHub Issues or PR number
 - Fetches review comments
 - Addresses each comment (code fix or reply)
 - Runs tests after changes
 - Commits and pushes fixes
 - Posts replies to reviewers
-- Updates Jira with summary
+- Updates GitHub Issues with summary
 
 **Prerequisites:**
 - PR must exist
@@ -141,7 +141,7 @@ Phase skills read artifacts from `specs/<ISSUE_KEY>/`:
 - Execute reads both, produces PR
 - Resolve Review reads both, updates PR
 
-You don't need to pass context explicitly — the skills know where to find artifacts based on the Jira key the user provided.
+You don't need to pass context explicitly — the skills know where to find artifacts based on the GitHub Issues key the user provided.
 
 ## Invocation Patterns
 
@@ -176,7 +176,7 @@ After invoking a skill, check that it completed successfully:
 
 - Analyze: `analysis.md` should exist
 - Design: `design.md` should exist
-- Execute: PR link should be in Jira remote links
+- Execute: PR link should be in GitHub Issues remote links
 - Resolve Review: PR should have replies or new commits
 
 If artifact doesn't appear, the skill may have exited early or failed. Ask user if they want to retry.

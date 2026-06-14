@@ -1,6 +1,6 @@
 ---
 name: analyze
-description: Analyze change request requirements by comparing current behavior against requested changes, identify and address open questions and inconsistencies, update Jira with refined requirements. Use for change requests, requirement analysis, behavior comparison, scope estimation.
+description: Analyze change request requirements by comparing current behavior against requested changes, identify and address open questions and inconsistencies, update GitHub issue with refined requirements. Use for change requests, requirement analysis, behavior comparison, scope estimation.
 version: "1.0.0"
 argument-hint: "[ISSUE-KEY]"
 ---
@@ -11,7 +11,7 @@ Analyze change request requirements by comparing current system behavior against
 
 ## When to Use
 
-- Starting work on a Jira Story or Activity that requests changes to existing functionality
+- Starting work on a GitHub Issues Story or Activity that requests changes to existing functionality
 - Need to understand the gap between current behavior and requested behavior
 - Need to identify ambiguities or missing information before design begins
 - Want to validate scope fits makato-change (small/medium changes) vs. makato-plan (large features)
@@ -21,23 +21,23 @@ Analyze change request requirements by comparing current system behavior against
 - Issue is a bug/defect (use makato-fix workflow when available)
 - Issue is a new feature with no existing functionality to change (use makato-plan)
 - Already have a complete analysis and ready to design the solution (use design skill)
-- Issue is not in Jira or lacks a Jira key
+- Issue is not in GitHub Issues or lacks a GitHub Issues key
 
 ---
 
 ## Workflow
 
-### Step 1: Fetch Requirements from Jira
+### Step 1: Fetch Requirements from GitHub Issues
 
-Jira issue key is required (passed as argument or asked from user).
+GitHub Issues issue key is required (passed as argument or asked from user).
 
-**IMPORTANT:** Use the Jira MCP tool only. Do NOT use `gh issue view` or attempt to fetch from GitHub.
+**IMPORTANT:** Use the GitHub Issues MCP tool only. Do NOT use `gh issue view` or attempt to fetch from GitHub.
 
-Call the MCP tool `mcp__plugin_daff-core_jira__get_issue` with the issue key:
+Call the MCP tool `gh issue view` with the issue key:
 
 ```json
 {
-  "issueKey": "<jira-key>"
+  "issueKey": "<issue-key>"
 }
 ```
 
@@ -51,7 +51,7 @@ Response handling:
 
 Create the artifact directory for this change request:
 ```
-specs/<jira-key>/
+specs/<issue-key>/
 ```
 
 This follows the makato-plan pattern of project-scoped work directories. All analysis artifacts for this change request will live here. The design and execute skills will load artifacts from this location.
@@ -60,7 +60,7 @@ This follows the makato-plan pattern of project-scoped work directories. All ana
 
 **Check for existing repository metadata:**
 
-Read `specs/<jira-key>/repositories.yml` if it exists.
+Read `specs/<issue-key>/repositories.yml` if it exists.
 
 **If repositories.yml exists:**
 
@@ -77,7 +77,7 @@ test -d <REPO_ROOT> && test -d <REPO_ROOT>/.git
 
 If validation fails:
 - Warn user: "Repository not found at <REPO_ROOT> or not a git repository"
-- Suggest: "Update `specs/<jira-key>/repositories.yml` with correct path or delete it to re-discover"
+- Suggest: "Update `specs/<issue-key>/repositories.yml` with correct path or delete it to re-discover"
 - Ask user if they want to continue with re-discovery or fix manually
 - If re-discovery chosen: proceed to prompt below
 - If manual fix: exit gracefully
@@ -118,7 +118,7 @@ Use AskUserQuestion to discover target repository:
 
 **Write repositories.yml:**
 
-Create `specs/<jira-key>/repositories.yml` with just the repository name:
+Create `specs/<issue-key>/repositories.yml` with just the repository name:
 
 ```yaml
 version: "1.0"
@@ -126,7 +126,7 @@ affected:
   - name: <REPO_NAME>
     role: primary
     path: <REPO_NAME>
-    description: "<Jira summary one-line>"
+    description: "<GitHub Issues summary one-line>"
 ```
 
 **Note**: The `path` field contains just the repo name (same as `name`). Consumer skills will automatically resolve this to the local path using standard search strategies. No configuration needed - works for everyone with standard directory layouts.
@@ -143,11 +143,11 @@ affected:
 ```
 REPO_ROOT: <from Step 2.5: repositories.yml primary repo path>
 REPO_NAME: <from Step 2.5: repositories.yml primary repo name>
-FEATURE_KEYWORDS: <extract from Jira summary/description>
-REQUESTED_CHANGES: <brief summary from Jira>
+FEATURE_KEYWORDS: <extract from GitHub Issues summary/description>
+REQUESTED_CHANGES: <brief summary from GitHub Issues>
 ```
 
-Extract FEATURE_KEYWORDS by identifying key terms from Jira summary and description:
+Extract FEATURE_KEYWORDS by identifying key terms from GitHub Issues summary and description:
 - Feature names (e.g., "user registration", "password validation")
 - Component names (e.g., "checkout", "order service")
 - Technical terms (e.g., "authentication", "payment processing")
@@ -156,14 +156,14 @@ Extract FEATURE_KEYWORDS by identifying key terms from Jira summary and descript
 - Primary affected files and their roles
 - Dependencies (inbound/outbound)
 - Code patterns and conventions
-- DCP-specs context (if available)
+- specs-context context (if available)
 
 **Store result** in working memory as CODE_EXPLORATION_RESULT.
 
 **Document current behavior** from agent findings:
 - What the system does now (from file analysis)
 - How it does it (key files, functions, data flow)
-- What constraints exist (from dcp-specs or code patterns)
+- What constraints exist (from specs-context or code patterns)
 
 ### Step 3.5: Analyze Test Coverage
 
@@ -174,7 +174,7 @@ Extract FEATURE_KEYWORDS by identifying key terms from Jira summary and descript
 REPO_ROOT: <from Step 2.5: repositories.yml primary repo path>
 AFFECTED_FILES: <from code-explorer results>
 FEATURE_KEYWORDS: <same as Step 3>
-REQUESTED_CHANGES: <brief summary from Jira>
+REQUESTED_CHANGES: <brief summary from GitHub Issues>
 ```
 
 **Agent will return:**
@@ -198,7 +198,7 @@ REQUESTED_CHANGES: <brief summary from Jira>
 ```
 ISSUE_KEY: <issue-key>
 CURRENT_BEHAVIOR: <synthesized from code-explorer results>
-REQUESTED_CHANGES: <from Jira: summary + description + ACs>
+REQUESTED_CHANGES: <from GitHub Issues: summary + description + ACs>
 CODE_EXPLORATION_RESULT: <full output from code-explorer>
 EXISTING_TESTS: <from test-analyzer: unit and E2E test list>
 ```
@@ -324,19 +324,19 @@ Options:
 
 Load @templates/analysis.md for structure.
 
-Write complete analysis to `specs/<jira-key>/analysis.md`:
+Write complete analysis to `specs/<issue-key>/analysis.md`:
 
 **Required sections:**
 
 **Pull data from agent results:**
 
-1. **Overview** — Jira key, summary, issue type, current status (from Step 1)
+1. **Overview** — GitHub Issues key, summary, issue type, current status (from Step 1)
 
-2. **Requirements** — What the issue requests (from Step 1: Jira summary + description + ACs)
+2. **Requirements** — What the issue requests (from Step 1: GitHub Issues summary + description + ACs)
 
 3. **Current Behavior** — How the feature works now (from CODE_EXPLORATION_RESULT: synthesis of file analysis, data flow, constraints)
 
-4. **Requested Changes** — What should change (from Step 1 Jira + REQUIREMENTS_DIFF_RESULT interpretation)
+4. **Requested Changes** — What should change (from Step 1 GitHub Issues + REQUIREMENTS_DIFF_RESULT interpretation)
 
 5. **Comparison** — Side-by-side table (from REQUIREMENTS_DIFF_RESULT: current vs requested comparison)
 
@@ -358,15 +358,15 @@ Write complete analysis to `specs/<jira-key>/analysis.md`:
    - If all questions resolved AND no inconsistencies AND scope = small/medium → "Ready to proceed to design skill"
    - If scope = large → "Escalate to makato-plan workflow"
 
-Make the artifact self-contained. The design skill will load this file without access to the Jira issue or conversation context.
+Make the artifact self-contained. The design skill will load this file without access to the GitHub Issues issue or conversation context.
 
-### Step 9: Update Jira Issue
+### Step 9: Update GitHub Issues Issue
 
 Load @references/jira-update-format.md for tone and structure.
 
-Post analysis summary as a Jira comment using `mcp__plugin_daff-core_jira__add_comment`.
+Post analysis summary as a GitHub issue comment using `gh issue comment`.
 
-**IMPORTANT**: Use Jira Wiki Markup format (NOT Markdown). Key syntax:
+**IMPORTANT**: Use GitHub Issues Wiki Markup format (NOT Markdown). Key syntax:
 - Headers: `h2.`, `h3.` (NOT `##`, `###`)
 - Bold: `*text*` (NOT `**text**`)
 - Numbered lists: `#` at line start (NOT `1.`, `2.`)
@@ -409,10 +409,10 @@ h3. Next Steps
  - If scope is large: "Escalate to makato-plan"]
 
 ----
-Full analysis: {{specs/<jira-key>/analysis.md}}
+Full analysis: {{specs/<issue-key>/analysis.md}}
 ```
 
-Add label `cr-analyzed` using `mcp__plugin_daff-core_jira__add_label`.
+Add label `cr-analyzed` using `gh issue edit --add-label`.
 
 ### Step 11: Present Summary to User
 
@@ -433,5 +433,5 @@ If analysis is complete and clear:
 
 Provide the path to the analysis artifact for detailed review:
 ```
-specs/<jira-key>/analysis.md
+specs/<issue-key>/analysis.md
 ```

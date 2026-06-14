@@ -147,7 +147,7 @@ Response (after discussion): "The design artifact specifies Context API to avoid
 **Response:**
 - Acknowledge the suggestion
 - Decide: implement now, or defer to follow-up
-- If defer: optionally create follow-up Jira issue
+- If defer: optionally create follow-up GitHub Issues issue
 - Reply: "Good idea. [Implemented now / Created follow-up issue PROJ-9999]."
 
 **Example:**

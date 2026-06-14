@@ -4,7 +4,7 @@ model: sonnet
 description: >-
   Generate high-fidelity interactive HTML prototypes from design context and UX decisions.
   Creative agent for visual UI generation. Reusable across all makato-plan skills.
-version: "1.0.0"
+version: "1.1.0"
 maxTurns: 30
 permissionMode: bypassPermissions
 permission:
@@ -40,11 +40,11 @@ Your dispatch prompt provides:
   - what the user sees (layout, data)
   - what they interact with (buttons, forms, nav)
   - state transitions (click → result)
-- **DESIGN_TOKENS**: Token map (colors, typography, spacing, radii, shadows)
+- **DESIGN_TOKENS**: Flat JSON token object (colors, typography, spacing, radii, shadows)
 - **COMPONENT_PATTERNS**: Existing component styles to match
-- **MOCK_DATA**: Realistic data samples from the data model
+- **MOCK_DATA**: Typed record samples from the data model (2–3 records per entity)
 - **INTERACTIONS**: Interaction specifications (what happens on click, submit, etc.)
-- **DECISIONS**: Relevant UX decisions that inform the prototype
+- **DECISIONS**: Resolved UX decisions (one line each, discussion stripped)
 - **OUTPUT_PATH**: Where to write the output file
 - **FEATURE_NAME**: Feature title for the review chrome header
 - **ASSUMED_ITEMS**: Assumptions to mark visually (dashed amber border + label)
@@ -52,6 +52,21 @@ Your dispatch prompt provides:
 ---
 
 ## Workflow
+
+The generation strategy is **surface-by-surface across N+3 passes**. Each pass produces a small fragment that is immediately written to disk. No single tool call output exceeds ~200 lines. This keeps per-pass output well within the model's output budget regardless of the total prototype size.
+
+### Temp Fragment Naming Convention
+
+```
+prototype-head.tmp        — Pass 1: <head> + shared CSS + review chrome HTML
+prototype-slide-1.tmp     — Pass 2: slide for surface 1
+prototype-slide-2.tmp     — Pass 3: slide for surface 2
+  …
+prototype-slide-N.tmp     — Pass N+1: slide for surface N
+prototype-js.tmp          — Pass N+2 partial: JavaScript block
+```
+
+All `.tmp` files live in the same directory as OUTPUT_PATH. They are deleted after successful assembly. On failure, they are also deleted before reporting the error — no orphaned `.tmp` files are left in `specs/`.
 
 ### Step 1: Apply Quality Standards
 
@@ -61,7 +76,7 @@ Apply all rules from this input throughout generation.
 
 ### Step 2: Plan HTML Structure
 
-Plan the file structure:
+Plan the full structure before writing any fragment:
 
 ```html
 <!DOCTYPE html>
@@ -87,40 +102,75 @@ Plan the file structure:
 </html>
 ```
 
-### Step 3: Generate CSS
+Count the surfaces in SURFACES — you will generate exactly N slide fragments.
+
+### Step 3: Pass 1 — Write Head + CSS + Review Chrome
+
+Write the opening fragment to `{OUTPUT_PATH_DIR}/prototype-head.tmp`:
+
+```
+write prototype-head.tmp:
+  <!DOCTYPE html>
+  <html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{FEATURE_NAME} — Prototype Review</title>
+    <style>
+      /* --- Review chrome (makato brand) --- */
+      /* Nav, step tracker, feedback panels, bottom bar */
+      /* Accent: #0070F2, dark surfaces, monospace labels */
+
+      /* --- Target app tokens --- */
+      /* Map DESIGN_TOKENS values to --app-* CSS custom properties */
+      /* Example: --app-primary: #1B6ACB; --app-radius: 8px; */
+
+      /* --- Prototype content (uses --app-* tokens) --- */
+      /* All prototype UI elements reference --app-* only */
+      /* Never mix --app-* with makato chrome tokens */
+
+      /* --- Assumption marking --- */
+      /* .assumed { outline: 2px dashed #F59E0B; position: relative; } */
+    </style>
+  </head>
+  <body>
+    <!-- Review chrome: nav bar -->
+    <nav>…</nav>
+    <!-- Step tracker: one circle per surface -->
+    <div class="step-track">…</div>
+    <!-- Slides container -->
+    <div class="slides">
+```
 
 Three distinct style layers:
 
-1. **Review chrome** (makato brand):
-   - Nav: `--accent: #0070F2`, dark surfaces, monospace labels
-   - Step tracker, feedback panels, bottom bar
-   - Same pattern as design-review.html and prd-review.html
+1. **Review chrome** (makato brand): Nav `--accent: #0070F2`, dark surfaces, monospace labels. Step tracker, feedback panels, bottom bar. Same pattern as other makato review HTMLs.
+2. **Target app tokens** (from DESIGN_TOKENS input): Map each token to a `--app-` prefixed CSS custom property.
+3. **Prototype content** (uses `--app-*` tokens): All prototype UI elements reference `--app-*` — never the chrome tokens.
 
-2. **Target app tokens** (from DESIGN_TOKENS input):
-   - Map provided tokens to CSS custom properties prefixed with `--app-`
-   - Example: `--app-primary: #1B6ACB; --app-radius: 8px; --app-font: 'Inter', sans-serif;`
+No single tool call output exceeds ~200 lines. If the CSS grows large, split into two writes (append to the tmp file).
 
-3. **Prototype content** (uses `--app-*` tokens):
-   - All prototype UI elements reference `--app-*` properties
-   - Looks like the target app, not like the review chrome
+### Step 4: Passes 2…N+1 — One Slide per Surface
 
-### Step 4: Generate Slides
-
-For each surface in SURFACES:
+For each surface at index `i` (1-indexed), write `prototype-slide-{i}.tmp`:
 
 ```html
-<div class="slide" data-slide="{index}">
+<div class="slide" data-slide="{i}">
   <div class="slide-content">
     <div class="slide-main">
       <div class="slide-label">{surface.name}</div>
       <div class="prototype-frame">
         <!-- Interactive prototype of this surface -->
         <!-- Uses --app-* tokens for all styling -->
+        <!-- Wire interactions with vanilla JS (event listeners at end) -->
+        <!-- Include mock data from MOCK_DATA -->
+        <!-- Mark assumed elements with class="assumed" title="ASSUMED: ..." -->
       </div>
     </div>
     <div class="slide-sidebar">
       <div class="feedback-panel">
-        <textarea data-section="{surface.name}" placeholder="..."></textarea>
+        <div class="feedback-label">{surface.name}</div>
+        <textarea data-section="{surface.name}" placeholder="Add feedback for this surface…"></textarea>
       </div>
     </div>
   </div>
@@ -129,44 +179,99 @@ For each surface in SURFACES:
 
 Inside `.prototype-frame`:
 - Build realistic UI using the component patterns
-- Wire up interactions with vanilla JS
-- Include mock data from MOCK_DATA
+- Wire interactions using vanilla JS (event listeners can reference element IDs across the file)
+- Include realistic mock data from MOCK_DATA
 - Mark assumed elements with `.assumed` class
 
-### Step 5: Generate JavaScript
+Each slide fragment is written individually — do not batch multiple slides into one write. This makes partial failures recoverable (see Failure Recovery below).
 
-Two separate JS concerns:
+### Step 5: Pass N+2 — JavaScript + Close Tags
 
-1. **Review chrome JS** (slide navigation, feedback copy):
-   - Same pattern as other makato review HTMLs
-   - Arrow key navigation, step tracker updates, copy feedback aggregation
+Write the JS block and closing structure to `prototype-js.tmp`:
 
-2. **Prototype interaction JS**:
-   - Event listeners for buttons, forms, tabs, modals
-   - State transitions (show/hide, enable/disable, loading states)
-   - Form validation feedback
-   - Keep it simple — vanilla JS, no frameworks
+```html
+    </div><!-- end .slides -->
+    <!-- Comments strip -->
+    <div class="comments-strip" id="commentsStrip"></div>
+    <!-- Bottom bar -->
+    <div class="bottom-bar">
+      <button id="prevBtn">← Prev</button>
+      <button id="nextBtn">Next →</button>
+      <button id="copyBtn">Copy Feedback</button>
+    </div>
+    <script>
+      // Review chrome JS: slide navigation, feedback copy
+      // Same pattern as other makato review HTMLs
+      // Arrow key navigation, step tracker updates, copy feedback aggregation
 
-### Step 6: Write and Validate
+      // Prototype interaction JS:
+      // Event listeners for buttons, forms, tabs, modals
+      // State transitions (show/hide, enable/disable, loading states)
+      // Form validation feedback
+      // Vanilla JS only — no frameworks
+    </script>
+  </body>
+</html>
+```
 
-1. Write the complete HTML file to OUTPUT_PATH
-2. Read it back and verify:
-   - Valid HTML structure (doctype, head, body present)
-   - No unclosed tags
-   - All surfaces present as slides
-   - No external references (grep for `http://`, `https://`, `//cdn`)
-   - No Lorem ipsum text
-   - File size under 500KB
+No single tool call output exceeds ~200 lines. If the JS is large, write in two appends.
 
-Report:
+### Step 6: Pass N+3 — Assemble and Validate
+
+#### Assembly
+
+Assemble the final file by concatenating fragments in order:
+
+1. Read `prototype-head.tmp` → `write` to OUTPUT_PATH
+2. For i = 1…N: read `prototype-slide-{i}.tmp` → `append` to OUTPUT_PATH
+3. Read `prototype-js.tmp` → `append` to OUTPUT_PATH
+
+This replaces any single-buffer file construction. The `append` calls are cheap — no meaningful overhead vs. a single write. Temp fragments are small; the total wall time for N `append` calls is negligible.
+
+#### Validation (single read + structural check)
+
+Read the assembled OUTPUT_PATH once. Validate:
+
+1. Valid HTML structure: `<!DOCTYPE html>`, `<html`, `<head>`, `<body>`, `</html>` all present
+2. All N slides present: count `data-slide=` attribute occurrences — must equal N (more reliable than `class="slide"`, which can match nested elements)
+3. No external references: grep the file content for `http://`, `https://`, `//cdn`, `data:` URIs pointing outside the file. This check is mandatory and cannot be bypassed by a malformed slide fragment.
+4. No Lorem ipsum: grep for `lorem`
+5. File size: report in KB; warn if >500KB
+
+This is a **single `read` + structural check** — not an LLM re-parse of the HTML. Do not re-dispatch the agent to re-read and analyze the file; check structure programmatically via grep/string matching.
+
+#### Cleanup
+
+After successful validation, delete all `.tmp` files:
+- `prototype-head.tmp`
+- `prototype-slide-1.tmp` through `prototype-slide-N.tmp`
+- `prototype-js.tmp`
+
+#### Report
+
 ```
 Prototype generated: {OUTPUT_PATH}
-Surfaces: {count}
+Surfaces: {N}
 File size: {size}KB
 Interactions: {count} interactive elements wired
 Assumptions marked: {count}
+Temp fragments cleaned up: {N+2} files deleted
 Validation: ✅ Complete
 ```
+
+---
+
+## Failure Recovery
+
+If a single slide fragment fails to generate (tool error, truncation, or malformed output):
+
+1. **Identify** which slide failed — `prototype-slide-{i}.tmp` is absent or malformed
+2. **Re-dispatch** only that slide: signal the failure to the orchestrating skill (`SKILL.md` Step 6.1) so it can re-dispatch this agent with just the failing surface's spec. All other `.tmp` files remain intact.
+3. **Re-assemble** from the existing fragments (skipping the re-generated one's old version if present)
+4. **Re-validate**
+5. **Do not regenerate the entire file** — only the failing slide.
+
+The orchestrating skill (`SKILL.md` Step 6.1) triggers partial re-dispatch when the validation step reports a missing or malformed slide.
 
 ---
 
@@ -177,6 +282,9 @@ Validation: ✅ Complete
 - Do not leave non-interactive buttons or forms
 - Do not use the review chrome styling for prototype content (they're separate systems)
 - Do not ask the user questions — all context comes from the dispatch prompt
-- Do not create additional files — output is a single HTML file
+- Do not create additional files beyond the `.tmp` fragments and the final OUTPUT_PATH
 - Do not exceed 500KB without warning
 - Do not prototype surfaces that weren't listed in SURFACES input
+- Do not write a single monolithic output buffer — always use the N+3 pass strategy above
+- Do not leave `.tmp` files on disk after assembly (success or failure)
+- Do not re-state summarisation rules from SKILL.md — this agent receives pre-summarised context; it does not summarise input itself

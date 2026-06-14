@@ -1,8 +1,8 @@
-# Jira Design Update Format
+# GitHub Issues Design Update Format
 
-Structure and tone for posting technical design/solution approach back to Jira as comments.
+Structure and tone for posting technical design/solution approach back to GitHub Issues as comments.
 
-**IMPORTANT**: Jira uses Wiki Markup format, not Markdown. Use the format specified in this guide exactly to avoid rendering issues.
+**IMPORTANT**: GitHub Issues uses Wiki Markup format, not Markdown. Use the format specified in this guide exactly to avoid rendering issues.
 
 ## Tone
 
@@ -17,7 +17,7 @@ Avoid:
 
 ## Comment Structure
 
-Use this template. Note: This uses Jira Wiki Markup format:
+Use this template. Note: This uses GitHub Issues Wiki Markup format:
 
 ```
 h2. Technical Design
@@ -46,7 +46,7 @@ h3. Risks
 Full design: {{specs/<ISSUE-KEY>/design.md}}
 ```
 
-**Key Jira Wiki Markup syntax:**
+**Key GitHub Issues Wiki Markup syntax:**
 - Headers: `h2.`, `h3.`, `h4.` (NOT `##`, `###`)
 - Bold: `*text*` (NOT `**text**`)
 - Numbered lists: `#` at line start (NOT `1.`, `2.`)
@@ -127,7 +127,7 @@ List the major phases (not exhaustive tasks). Match the implementation plan from
 ...
 {quote}
 
-Engineers can read the design artifact for detail. Jira comment should be scannable.
+Engineers can read the design artifact for detail. GitHub Issues comment should be scannable.
 
 ### Risks
 
@@ -159,7 +159,7 @@ After posting the comment, add label `cr-designed` to the issue. This signals:
 
 Use:
 ```
-mcp__plugin_daff-core_jira__add_label(key="PROJ-1234", label="cr-designed")
+gh issue edit --add-label(key="PROJ-1234", label="cr-designed")
 ```
 
 ## When to Tag People
@@ -175,7 +175,7 @@ mcp__plugin_daff-core_jira__add_label(key="PROJ-1234", label="cr-designed")
 - Product owner (unless design affects business logic decisions)
 
 **How to tag:**
-Use `[~username]` (NOT `@username`) in Jira comments. The username is typically the I-number (e.g., `[~I844709]`).
+Use `[~username]` (NOT `@username`) in GitHub Issues comments. The username is typically the I-number (e.g., `[~I844709]`).
 
 ## Link to Full Design
 
@@ -186,7 +186,7 @@ Always end with the artifact path:
 Full design: {{specs/PROJ-1234/design.md}}
 {quote}
 
-This gives engineers the full detail without cluttering the Jira comment.
+This gives engineers the full detail without cluttering the GitHub Issues comment.
 
 ## Example Full Comment
 
@@ -230,7 +230,7 @@ Full design: {{specs/PROJ-1234/design.md}}
 **Too much detail** (avoid):
 {quote}The {{DeleteAccountDialog}} component will be a functional React component using TypeScript. It will accept props: {{isOpen}}, {{onClose}}, and {{onConfirm}}. The dialog will use the {{Modal}} component from our UI library, styled with Tailwind classes: {{bg-white rounded-lg shadow-xl p-6}}. The title will be in {{text-xl font-bold}} and the body text in {{text-gray-600}}. The Cancel button will have class {{btn-secondary}} and the Delete button will have {{btn-danger}}.{quote}
 
-This is implementation detail that belongs in the design artifact, not the Jira comment.
+This is implementation detail that belongs in the design artifact, not the GitHub Issues comment.
 
 **Right amount** (do this):
 {quote}The solution adds a confirmation dialog before account deletion using a new {{DeleteAccountDialog}} component. The dialog displays a warning message and provides Cancel/Confirm buttons.{quote}
@@ -239,7 +239,7 @@ This tells stakeholders what's being built without drowning them in code.
 
 ## Updating an Existing Design Comment
 
-If the design changes based on feedback, edit the original comment (if Jira allows) or post a new comment:
+If the design changes based on feedback, edit the original comment (if GitHub Issues allows) or post a new comment:
 
 {quote}
 h2. Updated Technical Design
@@ -249,4 +249,4 @@ h2. Updated Technical Design
 [Rest of template]
 {quote}
 
-Jira preserves comment history, so edits are tracked. If you can't edit (permissions), post a new comment and note "Updated design" at the top.
+GitHub Issues preserves comment history, so edits are tracked. If you can't edit (permissions), post a new comment and note "Updated design" at the top.

@@ -1,6 +1,7 @@
+<!-- markdownlint-disable MD013 MD031 MD032 MD040 -->
 # makato-plan
 
-📖 [Read the docs →](https://pages.github.tools.sap/DCP/makato/plugins/plan)
+📖 [Read the docs →](https://github.com/zstary/makato/tree/main/plugins/makato-plan)
 
 **Goal**: Transforms raw Jira features into PI-sized epics with vertically-sliced stories through structured discovery, interviews, and architectural analysis.
 
@@ -21,7 +22,7 @@ After `publish`: a Jira epic with linked stories (+ subtasks), inter-story depen
 
 ## Shaping Boundary
 
-Stories produced by this plugin are **pland but not refined**:
+Stories produced by this plugin are **shaped but not refined**:
 - They have clear functional descriptions and acceptance criteria
 - They include architectural context
 - They do NOT include detailed implementation tasks or sprint-level estimation
@@ -29,9 +30,9 @@ Stories produced by this plugin are **pland but not refined**:
 
 ## Terminology
 
-This plugin uses domain-specific terms (e.g., *vertical slice*, *slicing phase*, *plan lifecycle phase*, *Three Amigos*, *Refine*). Canonical definitions live in [shared/terminology.md](shared/terminology.md). If a skill prompts you with a term you don't recognize, check there first.
+This plugin uses domain-specific terms (e.g., *vertical slice*, *slicing phase*, *shape lifecycle phase*, *Three Amigos*, *Refine*). Canonical definitions live in [shared/terminology.md](shared/terminology.md). If a skill prompts you with a term you don't recognize, check there first.
 
-For *feature-specific* vocabulary (the language unique to one Jira feature being pland), see the per-spec `glossary.md` written by the `grill` skill inside each `specs/{ITDB-KEY}-{slug}/` folder.
+For *feature-specific* vocabulary (the language unique to one Jira feature being shaped), see the per-spec `glossary.md` written by the `grill` skill inside each `specs/{ITDB-KEY}-{slug}/` folder.
 
 ## What Belongs Here
 
@@ -39,7 +40,7 @@ For *feature-specific* vocabulary (the language unique to one Jira feature being
 - Skills that produce PRDs, architecture documents, or design decisions from discovery output
 - Skills and agents that decompose features into PI-sized epics and vertically-sliced stories with acceptance criteria
 - Skills that gather and consolidate existing material (docs, context, prior art) about a feature
-- Skills, hooks, and MCP servers that create or update Jira epics and stories from pland output
+- Skills, hooks, and MCP servers that create or update Jira epics and stories from shaped output
 
 ## What Does NOT Belong Here
 
@@ -187,10 +188,11 @@ ITDB Feature
 | `grill` | Adversarial interview that stress-tests any phase artifact. Challenges decisions, assumptions, and rejected options depth-first. Captures resolved feature vocabulary into per-spec `glossary.md`. | 1.1.0 |
 | `create-prd` | Create PRD from brainstorming output. Product strategy interview, grill integration, vertical story sketches, HTML review. | 1.0.0 |
 | `create-architecture` | Create architecture design documents from PRD. Architect interview (3 rounds), grill integration, NFR implementation mapping, HTML review. | 1.0.0 |
+| `arch-ux` | Create UX design documents with screen inventory, wireframes, interaction patterns, user testing plan, and accessibility notes for PRD UI surfaces. | 1.0.0 |
 | `create-prototype` | Create interactive high-fidelity HTML prototypes of new UI surfaces. Design system research, adaptive UX interview, grill integration, integrated review. | 1.0.0 |
-| `decompose` | Decompose pland features into vertically-sliced stories. Three Amigos simulation (PO/Dev/QA agents in parallel), story point estimation, interactive HTML review. | 1.0.0 |
+| `decompose` | Decompose shaped features into vertically-sliced stories. Three Amigos simulation (PO/Dev/QA agents in parallel), story point estimation, interactive HTML review. | 1.0.0 |
 | `create-acceptance-tests` | Refine draft Gherkin scenarios into polished acceptance test cases (3-5 per story). Dispatches acceptance-writer agent per story, quality self-review, HTML review. | 1.0.0 |
-| `publish` | Publish pland stories.json to Jira (Epic + Stories + Subtasks + links) and Confluence (spec page). Two confirmation gates, create-or-update idempotency, pre-populated subtask templates. | 1.0.0 |
+| `publish` | Publish shaped stories.json to Jira (Epic + Stories + Subtasks + links) and Confluence (spec page). Two confirmation gates, create-or-update idempotency, pre-populated subtask templates. | 1.0.0 |
 
 ## Agents
 

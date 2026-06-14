@@ -89,7 +89,7 @@ Wait for user confirmation before proceeding to design.
 ### Step 1: Extract Search Terms
 
 From the analysis artifact, extract:
-- **Feature names**: exact names from Jira summary (e.g., "account deletion", "email notifications")
+- **Feature names**: exact names from GitHub Issues summary (e.g., "account deletion", "email notifications")
 - **Technical terms**: API endpoints, function names, database tables mentioned
 - **UI terms**: screen names, button labels, component names
 

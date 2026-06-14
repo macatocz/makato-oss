@@ -86,7 +86,7 @@ Return findings grouped by relevance tier. Each entry is a **synthesis** — not
 ```markdown
 # Context Findings for {FEATURE_SUMMARY}
 
-## Critical (Directly constrains or plans this feature)
+## Critical (Directly constrains or shapes this feature)
 
 **Product Direction**: The roadmap prioritizes {X} this quarter. This feature
 aligns with the {Y} initiative. Success metric is {Z}.
@@ -112,7 +112,7 @@ contexts. Integration point is {service/component}.
 
 | Priority | Criteria |
 |----------|----------|
-| **Critical** | Directly constrains or plans the feature (roadmap alignment, hard rules) |
+| **Critical** | Directly constrains or shapes the feature (roadmap alignment, hard rules) |
 | **High** | Significantly informs design choices (architecture, existing patterns) |
 | **Medium** | Useful background, may surface constraints later |
 

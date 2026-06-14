@@ -1,16 +1,17 @@
+<!-- markdownlint-disable MD013 MD032 MD040 -->
 # makato-build — Contributor Guide
 
 ## Goal
 
 Transforms decomposed, vertically-sliced stories into tested, reviewed, merged code.
 
-**How:** Provides a sequential skill pipeline (build-refine → build-implement → build-simplify → build-review → build-verify → build-push-to-git → build-create-pr) that takes shaped specs and produces production-ready pull requests in a single session.
+**How:** Provides a sequential skill pipeline (build-refine → build-implement → build-simplify → build-review → build-verify → build-push-to-git → build-create-pr) that takes planned specs and produces production-ready pull requests in a single session.
 
-**Why:** Closes the loop from ideation to merged code — shaped stories become shippable features without manual orchestration overhead.
+**Why:** Closes the loop from ideation to merged code — planned stories become shippable features without manual orchestration overhead.
 
 ## Build Boundary
 
-Stories entering this plugin are **shaped but not refined**:
+Stories entering this plugin are **planned but not refined**:
 - They have clear functional descriptions and acceptance criteria (from makato-plan)
 - They include architectural context and design decisions
 - They do NOT yet have implementation plans, file targets, or testing approaches
@@ -19,7 +20,7 @@ The /refine step bridges that gap — producing a plan small enough to execute a
 
 ## What Belongs Here
 
-- Skills that refine shaped stories into implementation plans
+- Skills that refine planned stories into implementation plans
 - Skills that implement code via TDD or goal-driven approaches
 - Skills that review, simplify, and verify implementations
 - Skills that commit, push, and create pull requests from implementations
@@ -31,11 +32,11 @@ The /refine step bridges that gap — producing a plan small enough to execute a
 - Shaping work (PRDs, architecture, prototypes, decomposition — that's makato-plan)
 - Plugin/skill scaffolding (that's makato-contribute)
 - CI/CD pipeline configuration or deployment automation
-- Project management or Jira state machine transitions
+- Project management or issue tracker state machine transitions
 
 ## Decision Test
 
-"Does this skill help transform a shaped, decomposed story into merged production code?"
+"Does this skill help transform a planned, decomposed story into merged production code?"
 - Yes → it belongs here
 - No → it belongs elsewhere
 
@@ -94,7 +95,7 @@ makato-build/
 
 ## PR Checklist
 
-- [ ] Serves the plugin goal: transforms shaped stories into merged code
+- [ ] Serves the plugin goal: transforms planned stories into merged code
 - [ ] Skills are self-contained
 - [ ] No resume/orchestration logic — single-session execution only
 - [ ] Skill emits JSONL log entries (session start, each step, session end)

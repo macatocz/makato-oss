@@ -24,7 +24,7 @@ grilling and PRD creation.
 
 - Feature is already well-defined with clear requirements (go straight to PRD)
 - Quick bug fix or small change (no brainstorming needed)
-- Technical refinement of already-pland stories
+- Technical refinement of already-shaped stories
 
 ---
 

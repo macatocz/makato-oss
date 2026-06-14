@@ -1,6 +1,6 @@
 # Phase Detection
 
-Logic for detecting which phase the change request workflow is currently in, based on artifact presence and Jira state.
+Logic for detecting which phase the change request workflow is currently in, based on artifact presence and GitHub Issues state.
 
 ## Detection Rules
 
@@ -33,13 +33,13 @@ Logic for detecting which phase the change request workflow is currently in, bas
 ### Phase 3: Execute (Implementation + PR)
 
 **Status: Complete** if:
-- Jira issue has a remote link with "pull" or "PR" in the URL
-- Check using: `mcp__plugin_daff-core_jira__get_remote_links`
+- GitHub Issues issue has a remote link with "pull" or "PR" in the URL
+- Check using: `gh issue view --json`
 - Link should point to GitHub PR (github.com)
 
 **Status: In Progress** if:
 - `design.md` exists (prerequisite met)
-- But no PR link found in Jira
+- But no PR link found in GitHub Issues
 
 **Status: Blocked** if:
 - `design.md` does not exist (prerequisite not met)
@@ -76,7 +76,7 @@ Logic for detecting which phase the change request workflow is currently in, bas
    → No: Design "Not Started", recommend Design
    → Yes: Design "Complete", continue
 
-4. Fetch Jira remote links
+4. Fetch GitHub Issues remote links
    → No PR link: Execute "Not Started", recommend Execute
    → PR link exists: Execute "Complete", continue
 
@@ -114,8 +114,8 @@ These are safety checks. Even if the file exists, if it's too small, treat as in
 - Explain to user what's missing
 - Let user choose whether to fix earlier phase or skip ahead
 
-**If artifacts exist but Jira state conflicts:**
-- Trust artifacts over Jira (they're the source of truth)
+**If artifacts exist but GitHub Issues state conflicts:**
+- Trust artifacts over GitHub Issues (they're the source of truth)
 - Example: If `design.md` exists but analysis.md is missing, recommend re-running analyze
 - Don't auto-delete artifacts — let user decide
 

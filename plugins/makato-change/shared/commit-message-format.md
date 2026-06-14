@@ -1,6 +1,6 @@
 # Commit Message Format
 
-Structure for git commit messages when implementing change requests. Follow conventional commits and link back to Jira.
+Structure for git commit messages when implementing change requests. Follow conventional commits and link back to GitHub Issues.
 
 ## Format
 
@@ -49,7 +49,7 @@ The subject line summarizes the change in one line (under 72 characters).
 - Start with lowercase
 - No period at the end
 - Use imperative mood ("add feature" not "added feature")
-- Reference the Jira key
+- Reference the GitHub Issues key
 
 ### Examples:
 
@@ -105,7 +105,7 @@ The commit message is not documentation. Don't list every file changed or every 
 **Don't:**
 - List every file changed
 - Describe implementation details
-- Copy/paste the entire Jira description
+- Copy/paste the entire GitHub Issues description
 
 ## Footer
 
@@ -121,7 +121,7 @@ This links the commit to the design artifact for traceability.
 
 ### Optional Additions:
 
-If the commit closes the Jira issue (it usually doesn't until after review and merge):
+If the commit closes the GitHub Issues issue (it usually doesn't until after review and merge):
 ```
 Closes: PROJ-1234
 ```
@@ -200,7 +200,7 @@ Before committing, verify:
 - [ ] Scope matches codebase organization
 - [ ] Subject line is under 72 characters
 - [ ] Subject uses imperative mood ("add" not "added")
-- [ ] Jira key is in subject line
+- [ ] GitHub Issues key is in subject line
 - [ ] Body explains what and why (not how)
 - [ ] Footer links to design artifact
 - [ ] Message is concise (under 200 words for body)

@@ -1,3 +1,4 @@
+<!-- markdownlint-disable MD013 MD032 MD040 -->
 # `repositories.yml` Schema
 
 > Shared contract for the `repositories.yml` file written under `specs/{ITDB-key}-{slug}/`. Created by `create-prd`, expanded by `create-architecture`, and consumed by `create-prototype` and `decompose` for codebase research and team mapping.
@@ -8,7 +9,7 @@
 specs/{ITDB-key}-{slug}/repositories.yml
 ```
 
-## plan
+## Shape
 
 ```yaml
 version: "1.0"
@@ -40,7 +41,7 @@ affected:
 When a downstream skill expands the file:
 
 - Preserve all existing entries unless the user explicitly requests removal.
-- Append new entries with the same plan
+- Append new entries with the same shape.
 - Never silently rewrite a `role` value — surface the proposed change to the user first.
 
 ## Missing-File Handling

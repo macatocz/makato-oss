@@ -1,3 +1,4 @@
+<!-- markdownlint-disable MD013 MD032 MD040 -->
 # makato-plan — Contributor Guide
 
 ## Goal

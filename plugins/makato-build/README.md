@@ -3,14 +3,14 @@
 **Goal**: Transforms decomposed, vertically-sliced stories into tested, reviewed, merged code.
 
 **How**: Provides a sequential skill pipeline (refine → implement → simplify → review → verify →
-push → PR) that takes pland specs and produces production-ready pull requests in a single session.
+push → PR) that takes planned specs and produces production-ready pull requests in a single session.
 
-**Why**: Closes the loop from ideation to merged code — pland stories become shippable features
+**Why**: Closes the loop from ideation to merged code — planned stories become shippable features
 without manual orchestration overhead.
 
 ## Build Boundary
 
-Stories entering this plugin are **pland but not refined**:
+Stories entering this plugin are **planned but not refined**:
 
 - They have clear functional descriptions and acceptance criteria (from makato-plan)
 - They include architectural context and design decisions
@@ -21,7 +21,7 @@ session.
 
 ## What Belongs Here
 
-- Skills that refine pland stories into implementation plans
+- Skills that refine planned stories into implementation plans
 - Skills that implement code via TDD or goal-driven approaches
 - Skills that review, simplify, and verify implementations
 - Skills that commit, push, and create pull requests from implementations
@@ -68,12 +68,9 @@ structural.
 
 ### Phases
 
-1. **Refine** — bridge from pland to implementable
+1. **Refine** — bridge from planned to implementable
    - [ ] `refine` (interactive)
    - Input: GitHub Issue or stories.json + full spec folder from makato-plan
-     (stories.json, prd.md, design.md, decisions.md)
-   - Output: Implementation plan (task list, file targets, testing approach, acceptance mapping)
-   - Note: This is where story meets codebase. Consumes all pland artifacts — the PRD for
      context, the architecture doc for technical approach, decisions for constraints. Reads the
      actual code, identifies files to change, determines test strategy. Plan must be small enough
      for single-session execution.
@@ -264,7 +261,7 @@ stories.json + spec/ artifacts (from makato-plan)
 | Skill | Description | Version |
 | --- | --- | --- |
 | `grill-with-docs` | Align implementation plan terminology to the codebase domain model — probes codebase for canonical names, adversarial alignment interview, enriches `spec/<key>/glossary.md` with `_Code_:` annotations for codebase conflicts, ADR routing via three-criteria test | 1.1.0 |
-| `refine` | Bridge a pland work item to an implementation plan — tasks, file targets, unit/integration test strategy, acceptance mapping; reads target repo AGENTS.md/CLAUDE.md as hard constraints | 1.1.0 |
+| `refine` | Bridge a planned work item to an implementation plan — tasks, file targets, unit/integration test strategy, acceptance mapping; reads target repo AGENTS.md/CLAUDE.md as hard constraints | 1.1.0 |
 | `implement-tdd` | Execute a refined plan using TDD — RED → GREEN → INTEGRATE → VERIFY per task, autonomous, tracer bullet phase for multi-layer stories, conditional coverage gate | 1.1.0 |
 | `implement-goal` | Execute goal-mode tasks from a refined plan — BUILD → VERIFY RUNTIME → TEST → VERIFY, autonomous, for UI/config/migration work | 1.0.0 |
 | `simplify` | Review implemented code for complexity that doesn't serve the ACs — interactive, presents findings for approval, checks against local repo patterns | 1.1.0 |

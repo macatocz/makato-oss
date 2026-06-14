@@ -1,6 +1,6 @@
 ---
 name: design
-description: Design technical approach for change request by discovering affected code, planning solution, and updating Jira with implementation strategy. Use for technical design, solution planning, code discovery, implementation approach.
+description: Design technical approach for change request by discovering affected code, planning solution, and updating GitHub issue with implementation strategy. Use for technical design, solution planning, code discovery, implementation approach.
 version: "1.0.0"
 argument-hint: "[ISSUE-KEY]"
 ---
@@ -11,7 +11,7 @@ Design the technical approach for implementing a change request. Discovers affec
 
 ## When to Use
 
-- Analysis is complete (analyze skill has run and produced `specs/<jira-key>/analysis.md`)
+- Analysis is complete (analyze skill has run and produced `specs/<issue-key>/analysis.md`)
 - Requirements are clear (critical open questions resolved)
 - Need to plan the technical implementation before coding
 - Want to identify affected files, design the solution approach, and get approval before executing
@@ -29,20 +29,20 @@ Design the technical approach for implementing a change request. Discovers affec
 
 ### Step 1: Load Analysis Artifact
 
-Jira key is required (from argument or ask user).
+GitHub Issues key is required (from argument or ask user).
 
-Read the analysis artifact at `specs/<jira-key>/analysis.md`:
+Read the analysis artifact at `specs/<issue-key>/analysis.md`:
 - Validate artifact exists (if not, prompt user to run analyze skill first)
 - Extract: requirements summary, current behavior, requested changes, scope estimate, open questions
 - Confirm scope is small/medium (not escalated to makato-plan)
 
-**Optional: Fetch latest from Jira** (if user wants to check for updates):
-- Use MCP tool `mcp__plugin_daff-core_jira__get_issue` to get current status (do NOT use `gh issue view`)
+**Optional: Fetch latest from GitHub Issues** (if user wants to check for updates):
+- Use MCP tool `gh issue view` to get current status (do NOT use `gh issue view`)
 - Compare with analysis artifact to detect any requirement changes
 
 ### Step 1.5: Load Repository Metadata
 
-Read `specs/<jira-key>/repositories.yml`.
+Read `specs/<issue-key>/repositories.yml`.
 
 **If repositories.yml does NOT exist:**
 - Error: "Repository metadata not found. Run analyze skill first to discover target repository."
@@ -71,7 +71,7 @@ SPECS_ROOT=$(cd "$(dirname "$SPECS_DIR")" && cd .. && pwd)
 
 Try multiple search strategies:
 
-1. **Sibling to dcp-specs**: `$SPECS_ROOT/../$REPO_NAME`
+1. **Sibling to specs-context**: `$SPECS_ROOT/../$REPO_NAME`
 2. **Same parent, one level deeper**: `$SPECS_ROOT/../*/$REPO_NAME`
 3. **Current working directory**: If `git rev-parse --show-toplevel` basename matches `$REPO_NAME`
 4. **specs/ parent itself**: If `$SPECS_ROOT` basename matches `$REPO_NAME`
@@ -90,7 +90,7 @@ If validation fails:
 
 **If validation fails:**
 - Inform user with specific failure: "Repository not found at <REPO_ROOT>" or "Invalid repositories.yml structure"
-- Suggest: "Update `specs/<jira-key>/repositories.yml` manually or re-run analyze skill"
+- Suggest: "Update `specs/<issue-key>/repositories.yml` manually or re-run analyze skill"
 - Exit gracefully
 
 **Store for subsequent steps:**
@@ -164,7 +164,7 @@ Extract FEATURE_KEYWORDS by identifying key terms from analysis artifact:
 - Primary affected files and their roles
 - Dependencies (inbound/outbound)
 - Code patterns and conventions
-- DCP-specs context (if available)
+- specs-context context (if available)
 
 **Store result** in working memory as CODE_EXPLORATION_RESULT.
 
@@ -284,7 +284,7 @@ Validate scope: if the design is revealing more complexity than expected, flag i
 
 Load @templates/design.md for structure.
 
-Write the complete design to `specs/<jira-key>/design.md`:
+Write the complete design to `specs/<issue-key>/design.md`:
 
 **Required sections:**
 1. **Overview** — Reference to analysis, summary of design approach
@@ -297,7 +297,7 @@ Write the complete design to `specs/<jira-key>/design.md`:
 8. **Supporting Components** — New UI elements, helpers, config changes
 
 Link back to the analysis artifact for traceability:
-> Analysis: `specs/<jira-key>/analysis.md`
+> Analysis: `specs/<issue-key>/analysis.md`
 
 Make the artifact self-contained so the execute skill can implement from this design without needing conversation context.
 
@@ -324,7 +324,7 @@ Show a summary of the design to the user:
 **Risks:**
 <list if any, or "None identified">
 
-**Full design:** `specs/<jira-key>/design.md`
+**Full design:** `specs/<issue-key>/design.md`
 ```
 
 Use `AskUserQuestion` to get approval:
@@ -332,8 +332,8 @@ Use `AskUserQuestion` to get approval:
 **Question:** "Does this design look good?"
 
 **Options:**
-1. **Approve and post to Jira** — Accept design and update Jira issue with design summary
-2. **Approve but don't post to Jira** — Accept design but skip Jira update (useful for drafts or offline work)
+1. **Approve and post to GitHub Issues** — Accept design and update GitHub Issues issue with design summary
+2. **Approve but don't post to GitHub Issues** — Accept design but skip GitHub Issues update (useful for drafts or offline work)
 3. **Request changes** — Provide feedback to revise the design
 
 If user requests changes:
@@ -343,15 +343,15 @@ If user requests changes:
 
 Store the user's choice: `POST_TO_JIRA` (boolean)
 
-### Step 11: Update Jira Issue (Conditional)
+### Step 11: Update GitHub Issues Issue (Conditional)
 
-**Only proceed if user selected "Approve and post to Jira" in Step 10.**
+**Only proceed if user selected "Approve and post to GitHub Issues" in Step 10.**
 
 Load @references/jira-design-update-format.md for comment structure.
 
-Post the solution approach as a Jira comment using `mcp__plugin_daff-core_jira__add_comment`:
+Post the solution approach as a GitHub issue comment using `gh issue comment`:
 
-**IMPORTANT**: Use Jira Wiki Markup format (NOT Markdown). Key syntax:
+**IMPORTANT**: Use GitHub Issues Wiki Markup format (NOT Markdown). Key syntax:
 - Headers: `h2.`, `h3.` (NOT `##`, `###`)
 - Bold: `*text*` (NOT `**text**`)
 - Numbered lists: `#` at line start (NOT `1.`, `2.`)
@@ -384,25 +384,25 @@ h3. Risks
 *Estimated time:* <minutes/hours>
 
 ----
-Full design: {{specs/<jira-key>/design.md}}
+Full design: {{specs/<issue-key>/design.md}}
 ```
 
-Add label `cr-designed` using `mcp__plugin_daff-core_jira__add_label`.
+Add label `cr-designed` using `gh issue edit --add-label`.
 
 **Transition status if needed:**
-- Get current issue status using `mcp__plugin_daff-core_jira__get_issue` (with fields: ["status"])
+- Get current issue status using `gh issue view` (with fields: ["status"])
 - If status is "New", transition to "Open":
-  - Get available transitions using `mcp__plugin_daff-core_jira__get_transitions`
+  - Get available transitions using `gh issue view --json state`
   - Find transition to "Open" status
-  - Execute transition using `mcp__plugin_daff-core_jira__transition_issue` (no comment needed for this straightforward transition)
+  - Execute transition using `gh issue edit --state` (no comment needed for this straightforward transition)
   - If transition fails (not available), continue without error (workflow may differ by project)
 
 ### Step 12: Present Summary to User
 
 Confirm completion:
-> "Design complete and posted to Jira.
+> "Design complete and posted to GitHub Issues.
 > 
-> **Design artifact:** `specs/<jira-key>/design.md`
+> **Design artifact:** `specs/<issue-key>/design.md`
 > 
 > **Next step:** Proceed to execute skill to implement the changes."
 

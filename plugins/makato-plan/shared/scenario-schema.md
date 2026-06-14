@@ -1,8 +1,9 @@
+<!-- markdownlint-disable MD013 -->
 # Gherkin Scenario Schema
 
-> Shared scenario plan inside `stories.json` for both `description.successScenarios[]` (drafted by `decompose`) and `description.acceptanceTestCases[]` (refined by `create-acceptance-tests`). Single source of truth for the scenario object.
+> Shared scenario shape used inside `stories.json` for both `description.successScenarios[]` (drafted by `decompose`) and `description.acceptanceTestCases[]` (refined by `create-acceptance-tests`). Single source of truth for the scenario object.
 
-## plan
+## Shape
 
 ```json
 {
@@ -29,13 +30,13 @@
 - `stories[].description.successScenarios[]` — draft scenarios produced by the `qa-reviewer` agent during `decompose` Step 5, copied into stories.json at Step 7.
 - `stories[].description.acceptanceTestCases[]` — refined scenarios produced by `create-acceptance-tests` (3-5 per story, polished against quality rules).
 
-Both use this exact plannot introduce divergent fields in either consumer.
+Both use this exact shape. Do not introduce divergent fields in either consumer.
 
 ## Rendering
 
-Jira wiki markup (consumed by `publish` Step 8 via `dcp-story-panels.md`):
+Gherkin format (used in `handoff.md` and GitHub Issue body by `publish`):
 
-```jira
+```gherkin
 *Scenario 1: {title}*
 Given {given}
 When {when}

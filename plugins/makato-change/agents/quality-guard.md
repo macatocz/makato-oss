@@ -73,7 +73,7 @@ Read DESIGN_PATH to extract:
 
 **Record**: Coverage threshold, test strategy, special requirements
 
-### Step 2: Discover Commands (Similar to daff-build gate-scout)
+### Step 2: Discover Commands (Similar to makato-build gate-scout)
 
 Scan project config files to find quality check commands:
 

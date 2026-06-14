@@ -1,7 +1,7 @@
 ---
 name: decompose
 description: >-
-  Decompose pland features into vertically-sliced stories with acceptance
+  Decompose shaped features into vertically-sliced stories with acceptance
   criteria — decompose, vertical slice, story slicing, break down feature,
   split into stories. Use after PRD and architecture are approved.
 version: "1.1.1"
@@ -11,7 +11,7 @@ argument-hint: "[slug]"
 
 # Decompose
 
-Decompose a pland feature into vertically-sliced stories with acceptance criteria.
+Decompose a shaped feature into vertically-sliced stories with acceptance criteria.
 Produces `stories.json` — a machine-readable schema of stories ready for downstream
 publish skills. Embeds a Three Amigos simulation (PO, Dev Lead, QA) for shared
 understanding.
@@ -352,7 +352,6 @@ Tell the user:
     those belong to sprint planning, not shaping
 
 Load @references/stories-json-schema.md during this step.
-Load @references/dcp-story-template.md for rendering guidance.
 
 ---
 
