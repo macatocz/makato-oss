@@ -34,6 +34,11 @@
       "name": "makato-ux",
       "source": "./plugins/makato-ux",
       "description": "Transform built code into a production UX platform."
+    },
+    {
+      "name": "makato-langgraph",
+      "source": "./plugins/makato-langgraph",
+      "description": "LangGraph-specific reference skills and patterns for building Python AI agents (StateGraph, ReAct, human-in-the-loop, persistence, reflexion)."
     }
   ]
 }
