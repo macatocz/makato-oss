@@ -1,7 +1,7 @@
 ---
 name: analyze
 description: Analyze change request requirements by comparing current behavior against requested changes, identify and address open questions and inconsistencies, update GitHub issue with refined requirements. Use for change requests, requirement analysis, behavior comparison, scope estimation.
-version: "1.0.0"
+version: "1.1.0"
 argument-hint: "[ISSUE-KEY]"
 ---
 
@@ -55,6 +55,10 @@ specs/<issue-key>/
 ```
 
 This follows the makato-plan pattern of project-scoped work directories. All analysis artifacts for this change request will live here. The design and execute skills will load artifacts from this location.
+
+### Step 2.2: Add Suite and Plugin Labels
+
+Add labels `makato` and `makato-change` using `gh issue edit --add-label` (two separate calls or combined). These identify issues managed by the makato suite and specifically by the makato-change plugin.
 
 ### Step 2.5: Discover Target Repository
 
@@ -412,7 +416,7 @@ h3. Next Steps
 Full analysis: {{specs/<issue-key>/analysis.md}}
 ```
 
-Add label `cr-analyzed` using `gh issue edit --add-label`.
+Add label `makato-change-analyzed` using `gh issue edit --add-label`.
 
 ### Step 11: Present Summary to User
 

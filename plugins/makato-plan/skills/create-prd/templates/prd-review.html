@@ -202,7 +202,7 @@ body {
   font-family: var(--font-mono); font-size: 10px; font-weight: 600;
   padding: 2px 8px; border-radius: 3px; letter-spacing: 0.03em;
 }
-.story-card-tag.skeleton { background: var(--green-dim); color: var(--green); }
+.story-card-tag.mvp { background: var(--green-dim); color: var(--green); }
 .story-card-tag.enrichment { background: var(--purple-dim); color: var(--purple); }
 .story-card-tag.layer { background: var(--surface-3); color: var(--muted); }
 .story-card-tag.phase { background: var(--amber-dim); color: var(--amber); }
@@ -214,6 +214,29 @@ body {
   font-family: var(--font-mono); font-size: 10px; color: var(--muted);
 }
 .story-card-depends { color: var(--amber); }
+
+/* Coverage matrix (repos × layers) */
+.coverage-matrix {
+  margin: 12px 0 4px 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.coverage-matrix-label {
+  font-family: var(--font-mono); font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--muted); padding: 8px 12px 4px;
+}
+.coverage-matrix table { margin: 0; }
+.coverage-matrix th, .coverage-matrix td {
+  text-align: center; padding: 6px 10px; font-size: 12px; border-bottom: 1px solid var(--border);
+}
+.coverage-matrix th:first-child, .coverage-matrix td:first-child {
+  text-align: left; font-family: var(--font-mono); color: var(--muted); font-size: 11px;
+}
+.coverage-cell-hit { color: var(--green); font-weight: 700; }
+.coverage-cell-miss { color: var(--surface-3); }
+.coverage-cell-na { color: var(--muted); opacity: 0.4; }
 
 /* Change highlighting (update mode) */
 .change-added {
@@ -531,11 +554,11 @@ th { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; 
         <div class="slide-label">Story Sketches</div>
         <h1 class="slide-title">Vertical Slices (Rough Ideas)</h1>
         <div class="slide-body">
-          <p style="color:var(--muted);font-style:italic;">These are directional sketches &mdash; detailed acceptance criteria come during spec/decomposition. Presented as story cards to preview how they'll appear in GitHub Issues.</p>
+          <p style="color:var(--muted);font-style:italic;">These are directional sketches &mdash; detailed acceptance criteria come during spec/decomposition. The first sketch is always the <strong>MVP</strong>: thinnest end-to-end vertical slice the persona can use on its own. Every sketch must hit every layer in the feature's declared scope &mdash; the coverage matrix shows gaps.</p>
 
           <!-- Story board with dependency lines -->
           <!-- doc-writer populates this from CONTENT.story_sketches array -->
-          <!-- Each story object: { key, title, outcome, layers[], acceptance[], depends_on, phase } -->
+          <!-- Each story object: { key, title, outcome, layers[], coverage{ repos[], layers[], cells[][] }, acceptance[], depends_on, phase, is_mvp } -->
           <div class="story-board">
             {{STORY_BOARD_HTML}}
           </div>
@@ -553,12 +576,12 @@ th { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; 
                   <span class="story-card-type">Story Sketch</span>
                 </div>
                 <div class="story-card-body">
-                  <div class="story-card-title">Walking Skeleton — User Outcome Title</div>
+                  <div class="story-card-title">MVP — User Outcome Title</div>
                   <div class="story-card-outcome">User can: do X after this ships</div>
                   <div class="story-card-meta">
-                    <span class="story-card-tag skeleton">Walking Skeleton</span>
+                    <span class="story-card-tag mvp">MVP</span>
                     <span class="story-card-tag layer">UI</span>
-                    <span class="story-card-tag layer">API</span>
+                    <span class="story-card-tag layer">Middle Tier</span>
                     <span class="story-card-tag layer">DB</span>
                     <span class="story-card-tag phase">Phase 1</span>
                   </div>
@@ -567,6 +590,18 @@ th { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; 
                     <li>High-level acceptance condition 2</li>
                     <li>High-level acceptance condition 3</li>
                   </ul>
+                  <div class="coverage-matrix">
+                    <div class="coverage-matrix-label">Coverage — repos × layers</div>
+                    <table>
+                      <thead>
+                        <tr><th></th><th>UI</th><th>Middle Tier</th><th>Security</th><th>DB</th></tr>
+                      </thead>
+                      <tbody>
+                        <tr><td>commerce-ui-libs</td><td class="coverage-cell-hit">●</td><td class="coverage-cell-na">—</td><td class="coverage-cell-na">—</td><td class="coverage-cell-na">—</td></tr>
+                        <tr><td>storefront-svc</td><td class="coverage-cell-na">—</td><td class="coverage-cell-hit">●</td><td class="coverage-cell-hit">●</td><td class="coverage-cell-hit">●</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
                 <div class="story-card-footer">
                   <span>Sketch — not yet published</span>
@@ -587,10 +622,18 @@ th { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; 
           </div>
           -->
 
+          <!--
+          Coverage matrix cell rules:
+            • coverage-cell-hit (●) — repo touches this layer in this slice
+            • coverage-cell-miss (○) — repo does NOT touch this layer in this slice (gap to highlight)
+            • coverage-cell-na (—) — layer not applicable to this repo per repositories.yml
+          The PO scans the matrix to spot horizontal-slicing gaps before approving.
+          -->
+
         </div>
         <div class="slide-feedback-bottom">
           <label>Feedback on stories</label>
-          <textarea data-section="Story Sketches" placeholder="Wrong slicing? Missing a key outcome? Stories too big or too small? Dependency order wrong?"></textarea>
+          <textarea data-section="Story Sketches" placeholder="MVP usable end-to-end? Coverage matrix shows gaps? Wrong slicing? Missing a key outcome? Stories too big or too small?"></textarea>
         </div>
       </div>
     </div>
@@ -821,19 +864,11 @@ function updateCommentsStrip() {
   const textareas = document.querySelectorAll('textarea[data-section]');
   let chips = '';
   let count = 0;
-  textareas.forEach((ta, i) => {
-    if (ta.value.trim()) {
-      count++;
   textareas.forEach((ta) => {
     if (ta.value.trim()) {
       count++;
       const slideIndex = parseInt(ta.closest('.slide').dataset.slide);
       chips += `<div class="comment-chip" onclick="goTo(${slideIndex})">
-        <span class="comment-chip-section">${ta.dataset.section}</span>
-        <span class="comment-chip-text">${escapeHtml(ta.value.trim())}</span>
-      </div>`;
-    }
-  });
         <span class="comment-chip-section">${ta.dataset.section}</span>
         <span class="comment-chip-text">${escapeHtml(ta.value.trim())}</span>
       </div>`;

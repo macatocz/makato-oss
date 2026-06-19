@@ -51,26 +51,33 @@
 ## Story Sketches
 
 > These are rough vertical slices showing direction. Detailed acceptance criteria
-> and refined stories come during spec/decomposition phases.
+> and refined stories come during spec/decomposition phases. Sketch as many slices
+> as the feature warrants — single-MVP PRDs are valid for tight features, and
+> there is no upper cap. Every slice must hit every layer in the feature's
+> declared scope.
 
-### Story Sketch 1: <Walking Skeleton — User Outcome Title>
+### Story Sketch 1 (MVP): <User Outcome Title>
 **User can**: <what they can do after this ships>
-**Layers**: <UI, API, DB, Config — which boundaries it crosses>
+**Layers**: <UI, Middle Tier, Security, DB, Config — every layer the feature's scope requires>
+**Coverage**: <repo × layer matrix; e.g., "ui-libs: UI; storefront: UI+Middle Tier; svc: Middle Tier+DB">
 **Acceptance sketch**:
 - <High-level condition 1>
 - <High-level condition 2>
 - <High-level condition 3>
 
-### Story Sketch 2: <Enrichment — User Outcome Title>
-**User can**: <incremental value on top of skeleton>
-**Layers**: <boundaries crossed>
+<!-- Optional enrichment sketches — include only when phased rollout defines multiple phases -->
+### Story Sketch 2 (Enrichment): <User Outcome Title>
+**User can**: <incremental value on top of MVP>
+**Layers**: <every layer the feature's scope requires>
+**Coverage**: <repo × layer matrix>
 **Acceptance sketch**:
 - <High-level condition 1>
 - <High-level condition 2>
 
-### Story Sketch 3: <Further Enrichment — User Outcome Title>
+### Story Sketch 3 (Enrichment): <User Outcome Title>
 **User can**: <additional value>
-**Layers**: <boundaries crossed>
+**Layers**: <every layer the feature's scope requires>
+**Coverage**: <repo × layer matrix>
 **Acceptance sketch**:
 - <High-level condition 1>
 - <High-level condition 2>
@@ -115,14 +122,14 @@
 
 ### Assumptions
 
-| # | Assumption | Validation Method | makato if Wrong |
+| # | Assumption | Validation Method | Impact if Wrong |
 |---|-----------|-------------------|-----------------|
 | A1 | <believed-true condition> | <how to verify> | <consequence if assumption fails> |
 | A2 | <believed-true condition> | <how to verify> | <consequence if assumption fails> |
 
 ### Constraints
 
-| Constraint | Type | makato on Scope |
+| Constraint | Type | Impact on Scope |
 |-----------|------|-----------------|
 | <hard limit> | <Regulatory/Resource/Platform/Timeline> | <how it bounds what we can build> |
 
@@ -149,7 +156,7 @@
 
 ## Risks & Mitigations
 
-| Risk | Likelihood | makato | Mitigation |
+| Risk | Likelihood | Impact | Mitigation |
 |------|------------|--------|------------|
 | <risk description> | <H/M/L> | <H/M/L> | <mitigation strategy> |
 
@@ -159,7 +166,7 @@
 
 | Phase | Scope | Exit Criteria |
 |-------|-------|---------------|
-| Phase 1 (MVP) | <Core functionality — walking skeleton> | <measurable exit criteria> |
+| Phase 1 (MVP) | <Core functionality — thinnest end-to-end vertical slice> | <measurable exit criteria> |
 | Phase 2 (Enrichment) | <Extended features> | <measurable exit criteria> |
 | Phase 3 (if needed) | <Scale/polish> | <measurable exit criteria> |
 

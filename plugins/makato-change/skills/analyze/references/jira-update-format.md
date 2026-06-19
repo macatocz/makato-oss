@@ -209,12 +209,14 @@ This gives readers the option to go deeper without cluttering the GitHub Issues 
 
 ## Labeling
 
-After posting the comment, add label `cr-analyzed` to the issue. This makes it easy to filter analyzed vs. un-analyzed change requests.
+After posting the comment, add label `makato-change-analyzed` to the issue. This makes it easy to filter analyzed vs. un-analyzed change requests.
 
 Use:
 ```
 gh issue edit --add-label
 ```
+
+**Note**: The `makato` and `makato-change` labels should already be present (added at the start of the analyze phase in Step 2.2).
 
 ## When to Tag People
 
@@ -234,7 +236,7 @@ In GitHub Issues comments, use `[~username]` (NOT `@username`). The username is 
 
 ## Updating the Label
 
-When you add `cr-analyzed` label, it signals:
+When you add `makato-change-analyzed` label, it signals:
 - Analysis is complete
 - Results are posted
 - Stakeholders can review and respond

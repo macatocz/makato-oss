@@ -4,7 +4,7 @@ description: >-
   Create Product Requirements Documents from brainstorming output — PRD,
   requirements, product requirements, feature requirements, user stories,
   acceptance criteria. Use after brainstorming and grilling.
-version: "1.0.5"
+version: "1.1.0"
 model: opus
 argument-hint: "[slug]"
 ---
@@ -205,7 +205,7 @@ The AI MUST NOT generate content for a section without explicit user input.
 
 **Assumptions**: "What are we believing to be true that we haven't verified?
 What happens if we're wrong?" Each assumption needs: the belief, how to validate it,
-and the makato if wrong.
+and the impact if wrong.
 
 **User Journeys** (UI features only): "Walk me through the main flow end-to-end.
 Where does the user start? What decisions do they make? Where do they end up?"
@@ -213,7 +213,7 @@ Where does the user start? What decisions do they make? Where do they end up?"
 
 **Non-Functional Requirements** (when triggered): "What quality targets must this
 feature meet? Accessibility standard? Performance from the user's perspective?
-Language support? Compliance mandates?" These are PRODUCT decisions that plan scope
+Language support? Compliance mandates?" These are PRODUCT decisions that shape scope
 and cost. The implementation approach goes in the architecture doc.
 
 **Definition of Done**: "What must be true for the ENTIRE feature to be considered
@@ -312,24 +312,68 @@ refinement runs through `shared/refinement-contract.md` rules instead.
 
 #### 5.1: Vertical Story Sketching
 
-Based on interview + brainstorm + grill outcomes, sketch 3-5 rough vertical story
-ideas. Every story must be a vertical slice crossing technical layers — never slice
-by layer or repository.
+Based on interview + brainstorm + grill outcomes, sketch as many rough vertical story
+ideas as the feature actually needs — and as few. There is no upper cap on story count,
+and no minimum beyond the MVP. Every story must be a vertical slice crossing every layer
+the feature's scope requires — never slice by layer or repository.
 
 Load @references/vertical-slicing.md
 
-Each story sketch includes:
+The mental model is the **burger metaphor**: a feature is a burger of stacked layers
+(UI, middle tier, security, data, integration, etc.). Each story is a vertical cut
+through the entire burger. Cutting horizontally (one layer per slice) means nothing is
+usable until the last slice — that is the failure mode this step exists to prevent.
+
+**Sliceability gate.** Before sketching, ask the PO whether the feature is large enough
+to justify multiple slices:
+
+```text
+AskUserQuestion:
+  question: "Sketching vertical slices works best for features that cross several layers
+    and serve multiple personas or phases. For this feature — based on the consolidated
+    scope, personas, and phased rollout — does it warrant multiple slices, or should the
+    PRD ship with a single MVP slice?"
+  options:
+    - "Multiple slices — feature is broad enough to enrich (Recommended for multi-phase or multi-persona features)"
+    - "Single MVP slice — feature is tight; one vertical slice covers it"
+```
+
+A single-MVP PRD is a valid outcome — do not pad.
+
+**Sketch the MVP first.** The first story is always the **MVP** — the thinnest
+end-to-end vertical slice that proves the feature works for the primary persona. Each
+sketch includes:
 
 - **User outcome** — what can the user do after this ships?
-- **Layers touched** — which technical boundaries it crosses (UI, API, DB, config, etc.)
+- **Layers touched** — every layer the feature's declared scope requires (UI, middle
+  tier, security, DB, config, integration — whatever set applies)
+- **Coverage** — which repos × layers this slice covers (matrix; visualized in HTML
+  review)
 - **Acceptance sketch** — 2-3 high-level conditions (NOT detailed criteria —
   those come during spec/decomposition)
 - **Derived from** — slot references from the Step 5.0 consolidation that justify
   this slice (e.g., "Personas, In-scope, Phased rollout Phase 1"). Observable trace
   that consolidation actually informed sketching.
 
-The first story is always the **walking skeleton** — thinnest end-to-end path.
-Subsequent stories enrich the skeleton.
+**End-to-end self-check (mandatory, applied to every slice).** After sketching each
+slice, answer:
+
+> **"Does this slice hit every layer in the feature's declared scope?"**
+
+- Yes → the slice is end-to-end. On the "Single MVP slice" path, stop here; otherwise
+  continue with enrichment.
+- No → **expand the slice** to cover the missing layer, or revisit the feature's scope.
+  Do NOT push the missing layer into a later story. The MVP additionally must stand alone
+  — the persona can use the feature end-to-end after only the MVP ships.
+
+**Enrichment slices (multi-slice path only).** Sketch additional slices on top of the
+MVP — no upper limit, sketch as many as the feature warrants. Force enrichment only when
+the **phased rollout explicitly defines multiple phases** or the feature genuinely needs
+further cuts. Each enrichment slice uses the same format as the MVP, runs through the
+same self-check, and follows the validation checklist in `references/vertical-slicing.md`
+— including the "covers all layers identified in scope" check tied to the feature's
+declared scope (repos in `repositories.yml` + the layer set the feature needs), not a
+generic "2+" threshold.
 
 These are rough ideas showing direction. They are NOT final artifacts — detailed
 acceptance criteria and refined stories come later.

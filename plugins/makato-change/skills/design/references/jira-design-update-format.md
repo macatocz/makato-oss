@@ -152,14 +152,14 @@ Don't sugarcoat, but do include mitigation plans if you have them.
 
 ## Labeling
 
-After posting the comment, add label `cr-designed` to the issue. This signals:
+After posting the comment, add label `makato-change-designed` to the issue. This signals:
 - Design is complete
 - Implementation can begin
 - Stakeholders can review the approach
 
 Use:
 ```
-gh issue edit --add-label(key="PROJ-1234", label="cr-designed")
+gh issue edit --add-label "makato-change-designed"
 ```
 
 ## When to Tag People

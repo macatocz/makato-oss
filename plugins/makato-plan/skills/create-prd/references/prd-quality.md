@@ -66,11 +66,11 @@ Every PRD must include:
 
 1. **Executive Summary** — Problem, Solution, 3-5 measurable success KPIs
 2. **User Personas** — who benefits, primary need per persona
-3. **Story Sketches** — rough vertical slices (walking skeleton first)
+3. **Story Sketches** — rough vertical slices (MVP first; enrich only when phased rollout defines multiple phases or the feature genuinely needs further cuts; no upper cap; every slice must hit every layer in the feature's declared scope)
 4. **Scope** — In-Scope AND Non-Goals (both required)
 5. **Success Metrics** — quantified with measurement method
 6. **Dependencies** — what this feature depends on
-7. **Risks & Mitigations** — identified risks with likelihood/makato/strategy
+7. **Risks & Mitigations** — identified risks with likelihood/impact/strategy
 8. **Phased Rollout** — dependency-based phases with exit criteria
 9. **Delivery Recommendations** — advisory scope/Epic sizing
 

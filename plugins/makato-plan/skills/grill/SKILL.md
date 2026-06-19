@@ -3,7 +3,7 @@ name: grill
 description: Adversarial interview that stress-tests phase artifacts — grill decisions,
   challenge assumptions, review critically. Use after any artifact is drafted and
   needs scrutiny before committing to the next phase.
-version: "1.1.0"
+version: "1.2.0"
 model: opus
 argument-hint: "[slug] [artifact]"
 ---
@@ -100,10 +100,24 @@ later") hide the hardest problems.
 
 ### Scope
 
-Questions concern business behavior, user experience, scope, and rules. Technical
-implementation is out of scope unless the target is a technical artifact
-(design.md, spec.md), in which case technical questions are valid at the
-architecture level, not code-line level.
+Questions concern business behavior, user experience, scope, and business rules. Match scope to the target artifact:
+
+- **`brainstorm.md` / `prd.md`** — technical implementation is **out of scope**. If a technical concern surfaces, park it as an open question for the architecture phase rather than asking it now. The PRD captures WHAT and WHY; HOW belongs to design/spec.
+- **`design.md` / `spec.md`** — technical questions are valid at the architecture level, not code-line level.
+
+**Business vs. technical — quick test.** When a question lands in a PRD/brainstorm grill, ask: "Would the answer change what the user experiences, or only how we build it?" If only the latter, defer.
+
+| Question | Verdict for PRD/brainstorm |
+|----------|---------------------------|
+| "Should the discount cap be 30% or 25%?" | Business — ask |
+| "Should cap math be additive or multiplicative?" | Business — ask (different totals → different UX) |
+| "Stack PLT + voucher, or best-of?" | Business — ask |
+| "One voucher slot or many?" | UX/scope — ask |
+| "Validate voucher per-keystroke or on submit?" | UX — ask |
+| "SSE vs. WebSocket vs. polling?" | Technical — defer to design.md |
+| "After how many SSE reconnects do we fall back to polling?" | Technical — defer |
+| "Big-bang cutover, parallel run, or permanent dual-path?" | Technical — defer |
+| "Fail-open vs. fail-closed on degradation?" | Technical — defer (ask the user-facing behavior instead: "What should the user see if discounts are unavailable at confirm?") |
 
 ### Sharpen feature vocabulary
 
@@ -129,12 +143,11 @@ has the full list.
 
 After all branches are resolved, update artifacts:
 
-- **Grill target**: Append `## Grill Audit` section — confirmed assumptions,
-  overturned assumptions, and items flagged for research
 - **decisions.md**: Add new decisions discovered during the grill (with next
   available ID). Mark any overturned decisions as `**Status**: Revised` with the
   new decision inline. Park "don't know" items in the Open Questions table.
 - **glossary.md**: See Step 3a.
+- **Do NOT** modify the grill target itself — decisions.md is the canonical record of outcomes; the HTML review (Step 4) is the per-session snapshot.
 - **Do NOT** duplicate decision content into other artifacts — reference by ID only
 
 ---
@@ -206,7 +219,7 @@ Include in the prompt:
 
 - **MODE**: html-review
 - **TEMPLATE_PATH**: the absolute path to this skill's `templates/grill-review.html`
-- **OUTPUT_PATH**: `specs/{slug}/reviews/grill-review.html`
+- **OUTPUT_PATH**: `specs/{slug}/reviews/grill-review-{YYYY-MM-DD}.html` (date-stamped so successive sessions don't overwrite each other)
 - **CONTENT**: structured grill results including:
   - feature_name (from spec folder)
   - date (today)
@@ -217,7 +230,6 @@ Include in the prompt:
   - revised_decisions (decisions overturned with old → new)
   - confirmed_assumptions (validated during grill)
   - open_questions (parked "don't know" items)
-  - changes_to_target (diff-style: what was added to the grill target)
   - changes_to_decisions (diff-style: what was added/revised in decisions.md)
   - changes_to_glossary (diff-style: terms added, revised, or flagged-as-ambiguous in glossary.md)
 
@@ -231,9 +243,9 @@ Once the agent returns, open the HTML file in the browser (use the command for t
 user's OS):
 
 ```bash
-open specs/{slug}/reviews/grill-review.html        # macOS
-xdg-open specs/{slug}/reviews/grill-review.html    # Linux
-start specs/{slug}/reviews/grill-review.html       # Windows
+open specs/{slug}/reviews/grill-review-{YYYY-MM-DD}.html        # macOS
+xdg-open specs/{slug}/reviews/grill-review-{YYYY-MM-DD}.html    # Linux
+start specs/{slug}/reviews/grill-review-{YYYY-MM-DD}.html       # Windows
 ```
 
 Tell the user:

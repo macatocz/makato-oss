@@ -1,7 +1,7 @@
 ---
 name: design
 description: Design technical approach for change request by discovering affected code, planning solution, and updating GitHub issue with implementation strategy. Use for technical design, solution planning, code discovery, implementation approach.
-version: "1.0.0"
+version: "1.1.0"
 argument-hint: "[ISSUE-KEY]"
 ---
 
@@ -173,7 +173,17 @@ Extract FEATURE_KEYWORDS by identifying key terms from analysis artifact:
 - Existing patterns to follow (naming, error handling, testing)
 - Dependencies to consider
 
-### Step 5: Analyze Test Coverage
+### Step 5: Load Test Analysis (Cached from Analyze Phase)
+
+**Read cached test analysis artifact:**
+
+Read `specs/<issue-key>/test-analysis.md` if it exists (written by analyze skill).
+
+**If file exists:**
+- Extract: existing E2E test scenarios, what test updates will be needed, coverage gaps
+- Store in working memory as TEST_ANALYSIS_RESULT
+
+**If file does NOT exist:**
 
 **Dispatch `test-analyzer` agent** to discover all affected tests.
 
@@ -197,6 +207,68 @@ REQUESTED_CHANGES: <brief summary from analysis artifact>
 - Existing E2E test scenarios (IDs and names)
 - What user workflows are currently validated
 - What test updates will be needed
+
+### Step 5.5: Document Gherkin Test Scenarios (If New Workflows or Updates Identified)
+
+**Check if E2E scenario work is needed:**
+
+From CODE_EXPLORATION_RESULT and TEST_ANALYSIS_RESULT, determine if:
+- New user-facing workflows are being added (not covered by existing E2E tests)
+- OR existing E2E scenarios need updates (from TEST_ANALYSIS_RESULT: scenarios with High/Medium impact)
+
+**If no new scenarios AND no updates needed:**
+- Skip to Step 6
+- Note in design: "No E2E test changes needed"
+
+**If new scenarios OR updates are needed:**
+
+Write `specs/<issue-key>/test-scenarios.md` documenting:
+
+```markdown
+# Test Scenarios: <issue-key>
+
+## Existing Scenarios to Update
+(from TEST_ANALYSIS_RESULT: scenarios with High/Medium impact)
+- Scenario: <name> — <what needs updating>
+- ...
+
+## New Scenarios to Add
+(for each new user-facing workflow)
+- Scenario: <title>
+  Given <precondition>
+  When <action>
+  Then <expected outcome>
+- ...
+```
+
+**Note:** The artifact is created even if only updates are needed (no new scenarios). Both update documentation and new scenario descriptions belong here.
+
+**Store result** in working memory as TEST_SCENARIOS_RESULT.
+
+### Step 5.6: Review New Scenario Classification
+
+**Only proceed if TEST_SCENARIOS_RESULT contains a non-empty "New Scenarios to Add" section** — skip to Step 6 if only existing scenario updates are documented.
+
+**Check artifact content:**
+- Read `specs/<issue-key>/test-scenarios.md`
+- If "New Scenarios to Add" section is empty or absent: skip to Step 6
+- If "New Scenarios to Add" has scenarios: classify each as `e2e` or `unit`
+
+**Present classification summary to user for confirmation:**
+
+Use AskUserQuestion:
+
+**Question:** "Review the new test scenario classifications below. Do these look correct?"
+
+**Header:** "Test Classification"
+
+Present each new scenario with its proposed implementation type.
+
+**Options:**
+1. **Approve classifications** — Proceed with design artifact
+2. **Request changes** — I'll provide feedback on specific scenarios
+
+If "Request changes": update test-scenarios.md with corrected implementation types.
 
 ### Step 6: Read and Understand Affected Code
 
@@ -387,7 +459,7 @@ h3. Risks
 Full design: {{specs/<issue-key>/design.md}}
 ```
 
-Add label `cr-designed` using `gh issue edit --add-label`.
+Add label `makato-change-designed` using `gh issue edit --add-label`.
 
 **Transition status if needed:**
 - Get current issue status using `gh issue view` (with fields: ["status"])

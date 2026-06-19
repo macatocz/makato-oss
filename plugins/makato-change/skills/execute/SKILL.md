@@ -1,7 +1,7 @@
 ---
 name: execute
 description: Implement change request by modifying code, updating tests, running verification, and creating pull request with GitHub issue link. Use for implementation, coding changes, test updates, PR creation.
-version: "1.0.1"
+version: "1.0.2"
 argument-hint: "[ISSUE-KEY]"
 ---
 
@@ -452,7 +452,7 @@ title: "Pull Request: <PR title>"
 **Error handling:**
 - If link creation fails: Log the error but continue (user can manually link PR to GitHub Issues)
 
-Add label `cr-implemented` using `gh issue edit --add-label`.
+Add label `makato-change-implemented` using `gh issue edit --add-label`.
 
 **Transition to Code Review:**
 - Get current issue status using `gh issue view` (with fields: ["status"])
