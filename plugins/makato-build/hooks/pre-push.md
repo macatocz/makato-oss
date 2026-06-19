@@ -74,3 +74,82 @@ This is advisory — the push has already happened. The hook's value is surfacin
 ## Scope
 
 Fires after every Claude turn. Exits silently unless a `push-to-git` session-end ok entry exists in the most recently modified `build.jsonl` and that push was not preceded by a valid verify pass.
+
+---
+
+# Pre-Push Blocking Gate (PreToolUse)
+
+> **Mission**: Block `git push` at the tool-call boundary unless the project's `pre-commit` pre-push hook stage passes. Complements the advisory `Stop`-event check above by enforcing the gate *before* the push reaches the remote, per PLAN §9.7.
+
+## Trigger
+
+Claude Code's `PreToolUse` event fires before a matched tool call executes. This hook matches `Bash(git push*)` and runs `pre-commit run --hook-stage pre-push --all-files`. A non-zero exit blocks the push; a zero exit allows it.
+
+## Settings.json Wiring (Blocking Gate)
+
+Add the following to `.claude/settings.json` in the target project alongside the `Stop` entry above:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash(git push*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pre-commit run --hook-stage pre-push --all-files",
+            "blocking": true,
+            "timeout": 120000
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Field semantics:
+
+- `matcher: "Bash(git push*)"` — runs only when Claude is about to invoke `git push` (any args) via the `Bash` tool. Other Bash commands and other tools are unaffected.
+- `blocking: true` — a non-zero exit from `pre-commit` aborts the tool call; Claude sees the failure and surfaces it to the user instead of pushing.
+- `timeout: 120000` — 120 s ceiling for the hook stage; long enough for typical lint/test bundles, short enough to fail fast on a stuck check.
+
+## Deny-List Addition (Bypass Prevention)
+
+The `--no-verify` flag bypasses `pre-commit` hooks at the git level, which would defeat this gate. The harness must reject that exact invocation. Add the following to `.claude/settings.json` in the target project:
+
+```json
+{
+  "permissions": {
+    "deny": [
+      "Bash(git push --no-verify *)"
+    ]
+  }
+}
+```
+
+Notes:
+
+- The deny entry must be present in `permissions.deny` for every consumer repo that opts into this gate. Without it, a `git push --no-verify` invocation skips both `pre-commit` and the PreToolUse hook trigger criteria for an enforced run.
+- Match the deny pattern verbatim — `Bash(git push --no-verify *)` — so the harness denies any args that follow `--no-verify`.
+- If your project also wants to block the short form, add `Bash(git push -n *)` as well; `-n` is an alias for `--no-verify` in modern git.
+
+## Prerequisites
+
+- `pre-commit` is installed and on `PATH` in the shell Claude Code runs in (`pip install pre-commit` or `brew install pre-commit`).
+- The repo has a `.pre-commit-config.yaml` with at least one hook configured under `stages: [pre-push]` (or a hook whose `default_stages` includes `pre-push`). With no pre-push-stage hooks configured, `pre-commit run --hook-stage pre-push` exits 0 and the gate is a no-op.
+
+## How It Works
+
+1. Claude prepares to invoke `Bash(git push ...)`.
+2. The `PreToolUse` matcher fires and runs `pre-commit run --hook-stage pre-push --all-files`.
+3. On exit 0: the push proceeds.
+4. On non-zero exit: `blocking: true` aborts the tool call before `git push` ever runs. The `pre-commit` stderr/stdout is surfaced to Claude, which reports the failing hook to the user.
+5. `Bash(git push --no-verify ...)` is rejected by the deny list before reaching either the hook or git.
+
+## Relationship to the Stop-Event Hook Above
+
+- The `Stop` hook is **advisory and post-hoc**: it warns *after* a push has already landed if no verify pass was recorded.
+- The `PreToolUse` hook is **enforcing and pre-flight**: it stops a bad push before it leaves the workstation.
+- Both can coexist; they read different signals (`build.jsonl` history vs. live `pre-commit` exit code) and target different failure modes.

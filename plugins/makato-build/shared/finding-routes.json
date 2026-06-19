@@ -1,0 +1,131 @@
+{
+  "version": "1.0",
+  "default_skill": "makato-build:build-simplify",
+  "routes": {
+    "ruff:E501": {
+      "action": "autofix",
+      "cmd": "ruff format",
+      "note": "Line too long — autofix via ruff format"
+    },
+    "ruff:F401": {
+      "action": "autofix",
+      "cmd": "ruff check --fix --select F401",
+      "note": "Unused imports — autofix"
+    },
+    "ruff:I001": {
+      "action": "autofix",
+      "cmd": "ruff check --fix --select I001",
+      "note": "Import sort order — autofix"
+    },
+    "ruff:UP*": {
+      "action": "skill",
+      "skill": "makato-build:build-simplify",
+      "note": "pyupgrade rules — route to build-simplify for modernization review"
+    },
+    "ruff:fastapi-*": {
+      "action": "skill",
+      "skill": "makato-build:build-simplify",
+      "note": "FastAPI-specific lint rules — route to build-simplify"
+    },
+    "pyright:reportGeneralTypeIssues": {
+      "action": "skill",
+      "skill": "makato-build:build-simplify",
+      "note": "Generic type errors — route to build-simplify"
+    },
+    "pyright:langgraph-reducer-mismatch": {
+      "action": "skill",
+      "skill": "makato-langgraph:langgraph-reflexion",
+      "note": "LangGraph reducer/state shape mismatch — needs reflexion"
+    },
+    "pyright:asyncpg-*": {
+      "action": "skill",
+      "skill": "makato-langgraph:langgraph-fundamentals",
+      "note": "asyncpg type issues — route to langgraph-fundamentals"
+    },
+    "pytest:langgraph-checkpoint-error": {
+      "action": "skill",
+      "skill": "makato-langgraph:langgraph-persistence",
+      "note": "Checkpoint persistence test failure"
+    },
+    "pytest:langgraph-state-corruption": {
+      "action": "skill",
+      "skill": "makato-langgraph:langgraph-reflexion",
+      "note": "State corruption — adversarial reflexion required"
+    },
+    "biome:lint/correctness/useExhaustiveDependencies": {
+      "action": "skill",
+      "skill": "makato-ux:frontend-design",
+      "note": "React hook dependency — route to frontend-design"
+    },
+    "biome:lint/style/*": {
+      "action": "autofix",
+      "cmd": "biome check --apply",
+      "note": "Style rules — biome autofix"
+    },
+    "biome:*": {
+      "action": "skill",
+      "skill": "makato-ux:frontend-design",
+      "note": "Catch-all for non-autofix biome findings"
+    },
+    "react:render-or-hook-generic": {
+      "action": "skill",
+      "skill": "makato-ux:webapp-testing",
+      "note": "Generic React render or hook failure"
+    },
+    "playwright:failure": {
+      "action": "skill",
+      "skill": "makato-ux:e2e-testing-patterns",
+      "note": "Playwright e2e test failure"
+    },
+    "markdownlint:MD0*": {
+      "action": "skill",
+      "skill": "makato-build:build-simplify",
+      "note": "Markdown lint MD0xx rules"
+    },
+    "sqlfluff:*": {
+      "action": "skill",
+      "skill": "makato-build:build-simplify",
+      "note": "v1 routes via build-simplify; replaces with fix-sql-postgres when shipped"
+    },
+    "bandit:B105": {
+      "action": "suppress-with-reason",
+      "note": "Hardcoded password string — frequent false positive; require reason in suppression"
+    },
+    "bandit:B107": {
+      "action": "suppress-with-reason",
+      "note": "Hardcoded password default arg — frequent false positive; require reason"
+    },
+    "bandit:*": {
+      "action": "skill",
+      "skill": "makato-build:build-simplify",
+      "note": "Catch-all bandit findings"
+    },
+    "gitleaks:*": {
+      "action": "redact-and-issue",
+      "note": "Secret leak — redact in working tree and file an issue for rotation"
+    },
+    "trivy:CRITICAL": {
+      "action": "upgrade-or-ignore",
+      "note": "Critical CVE — attempt dependency upgrade, otherwise document ignore reason"
+    },
+    "trivy:HIGH": {
+      "action": "upgrade-or-ignore",
+      "note": "High CVE — attempt dependency upgrade, otherwise document ignore reason"
+    },
+    "trivy:MEDIUM": {
+      "action": "skill",
+      "skill": "makato-build:build-simplify",
+      "note": "Medium CVE — route to build-simplify for triage"
+    },
+    "semgrep:*": {
+      "action": "skill",
+      "skill": "makato-build:build-simplify",
+      "note": "Semgrep findings — route to build-simplify"
+    },
+    "promptfoo:assertion-failed": {
+      "action": "skill",
+      "skill": "makato-langgraph:langgraph-reflexion",
+      "note": "Prompt eval assertion failure — adversarial reflexion"
+    }
+  }
+}

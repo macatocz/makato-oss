@@ -49,7 +49,17 @@ shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-verify","story":"<
 
 ---
 
-### Step 3 — Gate 1: BUILD
+### Step 3 — Gate 0: SENSORS
+
+Run: `/daff-build:build-sensors all`
+
+Expected: exit 0 after sensor-fixer loop completes (loops <= MAX_LOOPS=5).
+
+On residual: continue but log to specs/<key>/build.jsonl as `gate-0-residual` and add residual findings to the verify report. Do NOT block subsequent gates — sensor harness is autonomous, not blocking.
+
+---
+
+### Step 4 — Gate 1: BUILD
 
 Run the project's build command (compile / type-check).
 
@@ -72,7 +82,7 @@ Log:
 
 ---
 
-### Step 4 — Gate 2: LINT
+### Step 5 — Gate 2: LINT
 
 Run the project's lint command (static analysis / style enforcement).
 
@@ -92,7 +102,7 @@ Log:
 
 ---
 
-### Step 5 — Gate 3: UNIT TESTS
+### Step 6 — Gate 3: UNIT TESTS
 
 Run the unit test suite only — no integration tests.
 
@@ -117,7 +127,7 @@ Log:
 
 ---
 
-### Step 6 — Gate 4: INTEGRATION TESTS
+### Step 7 — Gate 4: INTEGRATION TESTS
 
 Run the integration test suite only.
 
@@ -144,7 +154,7 @@ Log:
 
 ---
 
-### Step 7 — Gate 5: COVERAGE
+### Step 8 — Gate 5: COVERAGE
 
 Run the coverage tool against the combined unit + integration results.
 
@@ -170,7 +180,7 @@ Log:
 
 ---
 
-### Step 8 — Present gate results and hand off
+### Step 9 — Present gate results and hand off
 
 Present the gate summary table:
 
