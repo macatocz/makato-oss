@@ -7,6 +7,8 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## `create-issue` skill
 
+- **1.1.0**
+  - Fully autonomous — repo and project name resolved from `.claude/config.json` (fallback: `sagibeast`); removed all human confirmation gates. `TARGET_REPO` derived from git remote; `PROJECT_NAME` read silently from `<REPO_ROOT>/.claude/config.json`.
 - **1.0.0**
   - Initial — file structured issues against the makato repo with `[plugin-name]` title prefix, body assembled from `.github/ISSUE_TEMPLATE/`, and auto-resolved type + plugin labels. AI-agent path so backlogs stay consistent without manual triage.
 

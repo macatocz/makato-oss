@@ -1,12 +1,12 @@
 ---
 name: create-issue
 description: File a structured issue against the makato repo with the correct template, [plugin-name] title prefix, and labels — file issue, report bug, feature request, AI agent issue, file bug, open issue
-version: "1.0.0"
+version: "1.1.0"
 ---
 
 # create-issue
 
-Files a structured issue against the makato repo. Enforces title prefix, body plan, and labels so the backlog stays self-organizing without manual triage.
+Files a structured issue against the makato repo. Enforces title prefix, body plan, and labels so the backlog stays self-organizing without manual triage. Fully autonomous — no confirmation prompts, no human gates.
 
 ## When to Use
 
@@ -20,42 +20,66 @@ Files a structured issue against the makato repo. Enforces title prefix, body pl
 
 ## Workflow
 
-### Step 1: Detect target repo
+### Step 1: Detect target repo and project name
 
-The makato repo lives on `github.com`. The target is `zstary/makato`. Confirm back to the user before proceeding.
+**1a. Locate the active repo root:**
+```bash
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+```
+If this fails (not a git repo), abort with an error log: "Cannot file issue — not inside a git repository." Do not prompt the user.
+
+**1b. Determine the GitHub remote:**
+```bash
+REMOTE_URL="$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null)"
+TARGET_REPO="$(echo "$REMOTE_URL" | sed -E 's|.*github\.com[:/]||; s|\.git$||')"
+```
+This resolves both HTTPS (`https://github.com/OWNER/REPO.git`) and SSH (`git@github.com:OWNER/REPO.git`) formats. Always set `GH_HOST=github.com` for all subsequent `gh` calls.
+
+**1c. Read project name from config — no prompt, apply default silently:**
+```bash
+CONFIG_FILE="$REPO_ROOT/.claude/config.json"
+PROJECT_NAME="$(python3 -c "
+import json, sys
+try:
+    d = json.load(open('$CONFIG_FILE'))
+    print(d.get('project', 'sagibeast'))
+except Exception:
+    print('sagibeast')
+" 2>/dev/null)"
+```
+Fallback is `"sagibeast"` — applied silently without asking the user.
 
 ### Step 2: Gather inputs
 
-Use `AskUserQuestion` for the fixed choices:
+If all inputs are provided by the calling agent, skip to Step 3 immediately.
 
+Required inputs:
 1. **Type** — `bug`, `feature`, `docs`
 2. **Plugin scope** — `makato-core`, `makato-plan`, `makato-contribute`, `repo-wide`
-
-Then collect free-form: **title subject** (short, imperative, no prefix) and **body details** for the template sections.
-
-If the calling agent already has all of this, skip the questions and assemble directly.
+3. **Title subject** — short, imperative, no prefix
+4. **Body details** — content for the issue template sections
 
 ### Step 3: Build the title
 
 Format: `[<plugin-scope>] <type-segment>: <subject>`
 
-Type segment maps from the user's type input: `bug` → `bug`, `feature` → `feat`, `docs` → `docs`.
+Type segment maps from the type input: `bug` → `bug`, `feature` → `feat`, `docs` → `docs`.
 
 Example: `[makato-plan] bug: grill crashes when glossary.md is empty`
 
 ### Step 4: Build the body
 
-Read `.github/ISSUE_TEMPLATE/issue.md`, strip the YAML frontmatter, and fill each `<!-- placeholder -->` with the user's content. Keep all section headings — empty sections are fine.
+Read `.github/ISSUE_TEMPLATE/issue.md`, strip the YAML frontmatter, and fill each `<!-- placeholder -->` with the provided content. Keep all section headings — empty sections are fine.
 
 ### Step 5: Resolve labels
 
 Load @references/label-conventions.md.
 
-Apply the matching type label (`bug`, `enhancement`, `documentation`) and plugin label (`plugin:<scope>`, omitted for `repo-wide`). Verify with `gh label list`; create missing `plugin:*` labels using the colors in the reference.
+Apply the matching type label (`bug`, `enhancement`, `documentation`) and plugin label (`plugin:<scope>`, omitted for `repo-wide`). Verify with `GH_HOST=github.com gh label list --repo "$TARGET_REPO"`; create missing `plugin:*` labels using the colors in the reference.
 
-### Step 6: Confirm before filing
+### Step 6: Log assembled issue (no confirmation required)
 
-Show the user the assembled title, body, and labels. Ask: *"File this issue? (yes / no / edit)"*. Do not call `gh issue create` until the user confirms.
+Log the assembled title, body, and labels to stdout for audit purposes, then proceed directly to Step 7. Do not wait for user input.
 
 ### Step 7: File the issue
 
@@ -67,8 +91,8 @@ cat > "$TMPFILE" << 'EOF'
 <assembled body>
 EOF
 
-gh issue create \
-  --repo zstary/makato \
+GH_HOST=github.com gh issue create \
+  --repo "$TARGET_REPO" \
   --title "<assembled title>" \
   --body-file "$TMPFILE" \
   --label "<type-label>" \

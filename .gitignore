@@ -160,10 +160,11 @@ Thumbs.db
 *.log
 npm-debug.log*
 
-# Claude Code local config (keep .claude/settings.json tracked)
+# Claude Code local config (keep .claude/settings.json and config.json tracked)
 .claude/settings.local.json
 .claude/todos/
 .claude/worktrees/
+!.claude/config.json
 
 # Local working directories
 thinking/
@@ -179,6 +180,7 @@ evaluation/
 # except settings.json which captures project-level plugin configuration (enabledPlugins).
 .claude/*
 !.claude/settings.json
+!.claude/config.json
 
 # Project-level MCP override (machine-specific; not part of plugin distribution)
 .mcp.json

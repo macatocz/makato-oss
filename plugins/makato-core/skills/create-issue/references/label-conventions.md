@@ -21,3 +21,15 @@ Do not auto-create type labels — if one is missing, surface to the user.
 | `makato-contribute` | `plugin:makato-contribute` | `0075CA`    |
 
 If a `plugin:*` label is missing, create it with the matching color and a description like `Affects <plugin> plugin`.
+
+## Project Name Resolution
+
+The GitHub project name is read from `<REPO_ROOT>/.claude/config.json`:
+
+```json
+{ "project": "<project-name>" }
+```
+
+Fallback: `"sagibeast"` when the file is absent or `"project"` key is missing.
+
+**Rule:** Resolution is always autonomous — no user prompt, no confirmation. Applied silently. This is the canonical source; do not hardcode project names in skills.
