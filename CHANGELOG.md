@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.0](https://github.com/zstary/makato/compare/v0.6.0...v0.7.0) (2026-06-21)
+
+
+### ✨ Features
+
+* **makato-core:** add 5 foundation skills aligned to suite standards ([#10](https://github.com/zstary/makato/issues/10)) ([6e86218](https://github.com/zstary/makato/commit/6e86218a1a45d243ece84dc74b8ccc868386d205))
+* **makato-database:** scaffold plugin with manage-postgres skill ([#8](https://github.com/zstary/makato/issues/8)) ([4addf08](https://github.com/zstary/makato/commit/4addf083980927b339b312d5b0a9d0fc291ffb66))
+
 ## [0.6.0](https://github.com/zstary/makato/compare/v0.5.0...v0.6.0) (2026-06-19)
 
 
