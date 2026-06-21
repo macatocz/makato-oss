@@ -1,0 +1,3 @@
+# makato-database
+
+@AGENTS.md

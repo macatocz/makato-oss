@@ -39,6 +39,11 @@
       "name": "makato-langgraph",
       "source": "./plugins/makato-langgraph",
       "description": "LangGraph-specific reference skills and patterns for building Python AI agents (StateGraph, ReAct, human-in-the-loop, persistence, reflexion)."
+    },
+    {
+      "name": "makato-database",
+      "source": "./plugins/makato-database",
+      "description": "Provide the set of technology skills for database creation, SQL creation, schema designs, database configuration, SQL queries, and SQL performance."
     }
   ]
 }
