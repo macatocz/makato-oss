@@ -15,17 +15,17 @@ tells the agent **what to produce**, not how the renderer enforces it.
 
 ## Why each marker matters
 
-The CMAI Časová analýza templates use five different mechanisms — sometimes
+The Documents templates use different mechanisms — sometimes
 in the same paragraph — to mark "fill me in":
 
-|Marker|Where it shows up|Schema field source|
-|---|---|---|
-|Content control (SDT) — plainText, comboBox, dropDownList, date|Modern Word forms; the dominant marker in the CMAI aktualizovaný vzor|`tag` if present, else `alias`, else slug from context|
-|MERGEFIELD|Classic mail-merge|Field name from `MERGEFIELD <name>`|
-|DOCPROPERTY|Document-property fields|Property name|
-|Placeholder text patterns — `{{var}}`, `[VAR]`, `<VAR>`|Plain text inserted into the body|The captured token|
-|Colored-highlighted runs|Human-facing instructions ("write X here"). Practical rule: if it tells a human "write X here", it becomes `{{ x }}` for the agent. Highlight colors are configurable via `--highlight-colors` (default: `cyan,yellow`).|A slug derived from the highlighted text|
-|Word comments|`commentRangeStart`/`commentRangeEnd` anchored spans paired with `<w:comment>` text in `word/comments.xml`. The comment is the human's instruction; the anchored span is the label.|A slug derived from the comment text|
+| Marker                                                           | Where it shows up                                                                                                                                                                                  | Schema field source                                        |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| Content control (SDT) — plainText, comboBox, dropDownList, date | Modern Word forms                                                                                                                                                                                  | `tag` if present, else `alias`, else slug from context |
+| MERGEFIELD                                                       | Classic mail-merge                                                                                                                                                                                 | Field name from `MERGEFIELD <name>`                      |
+| DOCPROPERTY                                                      | Document-property fields                                                                                                                                                                           | Property name                                              |
+| Placeholder text patterns —`{{var}}`, `[VAR]`, `<VAR>`    | Plain text inserted into the body                                                                                                                                                                  | The captured token                                         |
+| Colored-highlighted runs                                         | Human-facing instructions ("write X here"). Practical rule: if it tells a human "write X here", it becomes `{{ x }}` for the agent. Highlight colors are configurable via `--highlight-colors` | A slug derived from the highlighted text                   |
+| Word comments                                                    | `commentRangeStart`/`commentRangeEnd` anchored spans paired with `<w:comment>` text in `word/comments.xml`. The comment is the human's instruction; the anchored span is the label.        | A slug derived from the comment text                       |
 
 If the skill catches only one of these and ignores the others, the agent
 will silently miss fields. Detect all six.
@@ -40,8 +40,8 @@ will silently miss fields. Detect all six.
    DOCPROPERTY) inside <w:instrText>.
 5. Walk visible text from <w:t> and run    → emit one field per unique
    regexes for {{x}}, [VAR], <VAR>.          pattern hit.
-6. Walk every run with cyan or yellow      → emit one field per highlighted
-   highlight (w:highlight w:val="cyan").     span, slug from the text.
+6. Walk every run with colored      → emit one field per highlighted
+   highlight (w:highlight w:val="color").     span, slug from the text.
 7. Detect repeats:                          → group adjacent SDTs sharing
                                               tag/alias OR find table rows
                                               whose only variable content
@@ -68,7 +68,7 @@ python "${SKILL_DIR}/scripts/extract_schema.py" \
     [--no-instructions]                   # ignore highlighted runs
     [--include-comments]                  # Word comments as fields (default: on)
     [--no-comments]                       # ignore Word comments
-    [--highlight-colors cyan,yellow]      # comma-separated <w:highlight> values
+    [--highlight-colors color1,color2]      # comma-separated <w:highlight> values
     [--detect-repeats]                    # heuristic table merge (default: on)
     [--no-repeats]
     [--summary-md schema.md]              # human-readable summary alongside JSON
@@ -84,10 +84,7 @@ result.
 Word's `<w:highlight w:val>` allows: `black`, `blue`, `cyan`, `darkBlue`,
 `darkCyan`, `darkGray`, `darkGreen`, `darkMagenta`, `darkRed`,
 `darkYellow`, `green`, `lightGray`, `magenta`, `none`, `red`, `white`,
-`yellow`. The default `cyan,yellow` matches the CMAI Časová analýza
-templates. If a user's template uses a different convention (say, green
-for instructions), pass `--highlight-colors green` — or the union of
-several. Empty list is rejected.
+`yellow`. 
 
 ## Output schema (the schema OF the schema)
 
@@ -193,11 +190,9 @@ XML.
 
 ## Curation workflow
 
-The default extractor produces a raw inventory of every marker. For
-the CMAI Časová analýza family, that's ~147 fields where most are
-prose directives, not real slots. Curation is a two-phase workflow
-that turns the raw inventory into a hand-curated contract paired
-with an AI-ready .dotx:
+The default extractor produces a raw inventory of every marker.
+Curation is a two-phase workflow that turns the raw inventory into
+a hand-curated contract paired with an AI-ready .dotx:
 
 ### Phase 1 — chat walkthrough
 
@@ -205,8 +200,7 @@ Run inline in chat. The assistant reads `eval_0_schema.json`,
 pre-tosses the obvious junk buckets (placeholder dates, section
 numbers, single-token fillers like `XX` or `ANO/NE`), then presents
 each remaining field one at a time with a proposed verdict. The
-user replies with `yes | rename <key> | retype <kind> | enum <a,b,c>
-| prose | toss | skip`. Decisions accumulate in
+user replies with `yes | rename <key> | retype <kind> | enum <a,b,c> | prose | toss | skip`. Decisions accumulate in
 `<workspace>/iteration-2/decisions.json`.
 
 ### Phase 2 — batch apply
