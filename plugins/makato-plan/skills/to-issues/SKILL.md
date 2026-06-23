@@ -1,0 +1,261 @@
+---
+name: to-issues
+description: >-
+  Use when user wants to convert a plan into issues, create implementation tickets, or break
+  down a feature into GitHub issues. Generic across makato consumers — reads `.claude/config.json`
+  for project name, targets `github.com`, applies a 4-dimension label taxonomy
+  (type/tier/tech/module), maps stories to ADR folders by name pattern, and emits
+  `specs/{slug}/created-issues.json` for downstream plugins.
+license: MIT
+argument-hint: "[optional: feature slug] [--dry-run] [--interactive|--autonomous]"
+allowed-tools: Bash(gh *) Bash(git *) Bash(python3 *) Read Write Grep Glob
+hooks: ["convert to issues", "break into issues", "create github issues", "turn this into tickets", "issue breakdown", "create implementation tickets", "decompose into issues", "publish stories", "create issues from stories.json"]
+metadata:
+  Authors: makato contributors
+  version: "3.0.0"
+  last_updated: "2026-06-23"
+  mcp_server: none
+---
+
+# To Issues
+
+Create GitHub issues on **github.com** from a shaped `stories.json`. Each issue carries a 4-dimension label set (type / tier / tech / module), an architecture-mapped module annotation, and a body rendered from a versioned template. Writes `specs/{slug}/created-issues.json` as a machine-readable handoff for downstream skills (e.g. `build-create-pr`).
+
+**Breaking change vs. 2.x:** the skill no longer targets the 2.x enterprise GitHub host, no longer reads or writes `project-information.md`, and now requires a `.claude/config.json` at the repo root (silent fallback to `"sagibeast"` is provided).
+
+## Tools
+
+| Tool | Purpose |
+|------|---------|
+| `Bash(gh *)` | Create labels and issues on github.com |
+| `Bash(git *)` | Resolve repo root and remote URL |
+| `Bash(python3 *)` | Parse `.claude/config.json` and `stories.json`, validate `created-issues.json` against the schema |
+| `Read` | Load stories.json, references, and the legacy project-information.md (for migration warning) |
+| `Write` | Write `created-issues.json` |
+| `Grep`, `Glob` | Scan ADR folders for module-name matches |
+
+## Reference Files
+
+- **MANDATORY** — load `references/label-taxonomy.md` for the 4-dimension taxonomy, type-inference table, ADR-match algorithm, and config-extension contract.
+- **MANDATORY** — load `references/issue-template.md` for the body template (single edit point for issue body format).
+- **MANDATORY** — load `references/created-issues.schema.json` as the validation schema for the output artifact.
+- `references/slice-patterns.md` — only when a slice boundary is ambiguous or the caller asks about vertical-slicing strategy.
+
+## Process
+
+### Step 0 — Resolve repo, target, and project name
+
+```bash
+REPO_ROOT="$(git rev-parse --show-toplevel)" || { echo "Not a git repo — aborting" >&2; exit 1; }
+REMOTE_URL="$(git -C "$REPO_ROOT" remote get-url origin)"
+TARGET_REPO="$(echo "$REMOTE_URL" | sed -E 's|.*github\.com[:/]||; s|\.git$||')"
+
+PROJECT_NAME="$(python3 -c "
+import json
+try:
+    d = json.load(open('$REPO_ROOT/.claude/config.json'))
+    print(d.get('project', 'sagibeast'))
+except FileNotFoundError:
+    print('sagibeast')
+except json.JSONDecodeError as e:
+    import sys; print(f'malformed config.json: {e}', file=sys.stderr); sys.exit(2)
+")"
+
+echo "[to-issues] target_repo=$TARGET_REPO project=$PROJECT_NAME"
+```
+
+If `python3` exits 2 (malformed JSON), abort the entire skill — do not silently fall back.
+
+**Legacy-migration warning (D18):**
+
+```bash
+if [[ -f "$REPO_ROOT/.claude/rules/project-information.md" ]]; then
+  echo "[to-issues] WARNING: legacy .claude/rules/project-information.md detected." >&2
+  echo "[to-issues] to-issues v3 reads the project name from .claude/config.json instead." >&2
+  echo "[to-issues] Copy the project value into .claude/config.json and delete project-information.md." >&2
+fi
+```
+
+Continue execution — the warning is informational, not blocking.
+
+**Mode detection (D10):**
+
+The skill runs in `--interactive` mode by default. Switch to `--autonomous` when (a) the user passes `--autonomous` on the CLI, OR (b) the caller provides a context bundle with a `task_id` field, OR (c) `$AGENT_ID` is exported. In autonomous mode, all inference decisions are applied silently and logged to stdout with the `[to-issues:auto]` prefix; no confirmation prompts are issued.
+
+### Step 1 — Locate inputs
+
+- Primary input: `specs/<slug>/stories.json`. If the user passed a slug argument, use `specs/<slug>/stories.json`. Otherwise, glob `specs/*/stories.json` and pick the most recently modified.
+- Fallback inputs (only when stories.json is absent): `plan.md` in the same folder, or the conversation context — degrade gracefully by treating each plan task as a story with `phase: foundation`, `labels: []`, no scope, and an empty `outOfScope`.
+
+Read the resolved `stories.json` with `python3 -c "import json; json.load(open('...'))"` and abort with the parse error if invalid.
+
+### Step 2 — Discover ADR folders
+
+```bash
+ARCH_PATH="$(python3 -c "
+import json
+try:
+    d = json.load(open('$REPO_ROOT/.claude/config.json'))
+    print(d.get('architecture_path', 'specs/Architecture'))
+except FileNotFoundError:
+    print('specs/Architecture')
+")"
+
+if [[ -d "$REPO_ROOT/$ARCH_PATH" ]]; then
+  if [[ "$(uname)" == "Darwin" ]]; then
+    ADR_FOLDERS="$(find "$REPO_ROOT/$ARCH_PATH" -mindepth 1 -maxdepth 1 -type d | xargs -n1 basename | sed -E 's/[^A-Za-z0-9]+/-/g; s/^-+|-+$//g; s/.*/\L&/')"
+  else
+    ADR_FOLDERS="$(find "$REPO_ROOT/$ARCH_PATH" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sed -E 's/[^A-Za-z0-9]+/-/g; s/^-+|-+$//g; s/.*/\L&/')"
+  fi
+else
+  ADR_FOLDERS=""
+fi
+```
+
+Output is a newline-separated list of lowercase-hyphenated ADR slugs.
+
+### Step 3 — Infer labels per story
+
+For each story in `stories.json.stories[]`, apply the algorithm in `references/label-taxonomy.md`:
+
+1. **type**: regex match the story title + scope against the inference table, top-to-bottom; first match wins; default `type:feat`.
+2. **tier**: copy `stories[].phase` verbatim, prefixed `tier:`.
+3. **tech**: match story title + scope against the default tech keyword map AND any `labels.tech` patterns from `.claude/config.json`. Defaults evaluate first; config entries are appended (D14 union-with-defaults). Multiple matches → multiple `tech:` labels.
+4. **module**: tokenize the story (title + scope + background, lowercased, alphanumeric runs ≥3 chars). For each ADR folder slug, emit `module:<slug>` when at least one slug token appears in the story's token set. Emit ALL matching modules. If none match, log `[to-issues:auto] story <n>: no module match` and omit the dimension.
+
+In `--interactive` mode, after inference for each story, present the proposed label set and ask `confirm / edit / skip` before proceeding to creation. In `--autonomous` mode, log every inferred label to stdout (one line per story, prefixed `[to-issues:auto] story <n>:`).
+
+### Step 4 — Ensure required labels exist on the repo
+
+```bash
+EXISTING_LABELS="$(GH_HOST=github.com gh label list --repo "$TARGET_REPO" --limit 200 --json name --jq '.[].name')"
+```
+
+For each unique label across all stories, if it is not in `EXISTING_LABELS`, create it using the colors documented in `references/label-taxonomy.md`:
+
+```bash
+GH_HOST=github.com gh label create "<label>" --repo "$TARGET_REPO" --color "<hex>" --description "Auto-created by to-issues v3"
+```
+
+Skip silently when the label already exists; never overwrite color or description.
+
+### Step 5 — Create issues in dependency order
+
+Topologically sort `stories[]` by the `dependencies.blockedBy` graph. Process stories in topo-sorted order so that when a story refers to its blockers, those blockers already have real issue numbers.
+
+For each story:
+
+1. Render the body by substituting placeholders in `references/issue-template.md` (read fresh per skill invocation — never cache):
+   - `{{FEATURE_SLUG}}` → the spec slug.
+   - `{{STORY_SUMMARY}}` → `summary`.
+   - `{{STORY_BACKGROUND}}` → `description.background`.
+   - `{{STORY_SCOPE}}` → `description.scope`.
+   - `{{STORY_PHASE}}` → `phase`.
+   - `{{LABELS_LIST}}` → bulleted list, one label per line.
+   - `{{ARCH_MODULES_LIST}}` → bulleted list of matched module slugs (or the literal text `_no module match_`).
+   - `{{SUCCESS_SCENARIOS}}` → render each `successScenarios[]` entry as a Gherkin block (`*Scenario N: {title}*\nGiven {given}\nWhen {when}\nThen {then}\nAnd {and[i]}...`).
+   - `{{OUT_OF_SCOPE}}` → bulleted list of `description.outOfScope[]` (or `_none_` when empty).
+   - `{{DEFINITION_OF_DONE}}` → checkbox list `- [ ] <item>` for each `definitionOfDone[]` entry.
+   - `{{BLOCKED_BY_LINE}}` → `Blocked by: #<n1>, #<n2>` using real issue numbers from earlier in the batch (or `Blocked by: _none_`).
+   - `{{BLOCKS_LINE}}` → `Blocks: _set by upstream story_` (cannot resolve forward-references; downstream skills may patch later).
+   - `{{RELATED_LINE}}` → `Related: _none_`.
+2. Write the rendered body to a temp file:
+   ```bash
+   TMPFILE="$(mktemp /tmp/to-issues-XXXXXX.md)"
+   ```
+3. Call:
+   ```bash
+   ISSUE_URL="$(GH_HOST=github.com gh issue create \
+     --repo "$TARGET_REPO" \
+     --title "[$PROJECT_NAME] $STORY_TITLE" \
+     --body-file "$TMPFILE" \
+     $(printf -- '--label %q ' "${LABELS_ARRAY[@]}"))"
+   ISSUE_NUMBER="$(basename "$ISSUE_URL")"
+   ```
+4. Append the new entry to an in-memory list with `issue_number`, `url`, `title`, `labels`, `blocked_by`.
+
+**Partial-failure semantics (D13):** if any `gh issue create` call fails, stop the batch immediately. Persist the partial `created-issues.json` (Step 6) containing only the successfully-created entries. Print:
+
+```
+[to-issues] PARTIAL FAILURE — created N of M issues. Inspect specs/$SLUG/created-issues.json and re-run with the remaining stories, or delete the partial artifact to start over.
+```
+
+Exit with status 1. Do not attempt to delete the issues already created.
+
+**DRY_RUN mode (D12):** when `DRY_RUN=1` is set in the environment, skip every `gh ... create` call. Print the assembled command to stdout instead and assign synthetic sequential issue numbers starting at 1 in batch order. The artifact is still written and is byte-equivalent to a real run apart from `issue_number` (synthetic) and `url` (constructed as `https://github.com/$TARGET_REPO/issues/<n>` — the same shape, with the synthetic number). No network call is made.
+
+### Step 6 — Write the handoff artifact
+
+```bash
+ARTIFACT="$REPO_ROOT/specs/$SLUG/created-issues.json"
+python3 - <<EOF
+import json, jsonschema
+artifact = {
+    "schema_version": "1",
+    "slug": "$SLUG",
+    "issues": $ISSUES_JSON,
+}
+schema = json.load(open('$REPO_ROOT/plugins/makato-plan/skills/to-issues/references/created-issues.schema.json'))
+jsonschema.validate(artifact, schema)
+open('$ARTIFACT', 'w').write(json.dumps(artifact, indent=2) + '\n')
+print(f"[to-issues] wrote {len(artifact['issues'])} issues to $ARTIFACT")
+EOF
+```
+
+Validation failure on `created-issues.json` is a bug in this skill — abort the run with the validation error and DO NOT write the artifact.
+
+### Step 7 — Hand off
+
+Print the final summary:
+
+```
+[to-issues] Created N issues for slug '<slug>' on github.com/$TARGET_REPO.
+[to-issues] Artifact: specs/<slug>/created-issues.json
+[to-issues] Next: implement the work and run /makato-build:build-create-pr — it will auto-inject Closes #N for each issue when you create the PR.
+```
+
+## Autonomous Execution
+
+Autonomous mode activates when ANY of:
+- `--autonomous` is passed on the CLI.
+- A context bundle with a `task_id` field is provided.
+- `$AGENT_ID` is exported in the environment.
+
+In autonomous mode:
+- **Never prompt the user** — all inference decisions apply silently.
+- **Log every choice** to stdout, prefixed `[to-issues:auto]`. Format: `[to-issues:auto] story <n> title="<...>" type=<...> tier=<...> tech=[...] module=[...] body_bytes=<n>`.
+- Skip out-of-scope stories — never invent stories that aren't in stories.json. If `stories.json` is empty, exit 0 and write an empty artifact `{ "schema_version": "1", "slug": "<slug>", "issues": [] }`.
+
+### Return Format (R1, when called as a sub-skill)
+
+```json
+{
+  "status": "COMPLETED" | "PARTIAL" | "FAILED",
+  "summary": "Created N issues",
+  "artifact_path": "specs/<slug>/created-issues.json",
+  "issues_created": N,
+  "target_repo": "owner/repo",
+  "dry_run": true | false
+}
+```
+
+### HALT Codes
+
+| Code | Meaning |
+|------|---------|
+| `MISSING_INPUT` | No `stories.json` found and no fallback `plan.md` or context |
+| `MALFORMED_CONFIG` | `.claude/config.json` exists but is not valid JSON |
+| `GH_AUTH_FAILED` | `gh` CLI returns auth error — caller must run `gh auth login` |
+| `SCHEMA_VALIDATION_FAILED` | Generated `created-issues.json` failed schema validation (skill bug — file an issue) |
+| `PARTIAL_FAILURE` | `gh issue create` failed mid-batch; partial artifact persisted |
+
+## NEVER
+
+- **NEVER target the 2.x enterprise GitHub host or set `GH_HOST` to an enterprise endpoint** — v3 is github.com-only by D1. The 2.x enterprise-host / GH_ENTERPRISE_TOKEN / TLS bypass wiring is removed.
+- **NEVER write back to `.claude/rules/project-information.md`** — that file is obsolete; `config.json` is read-only canonical. Emit the migration warning when the legacy file is detected, but do not modify it.
+- **NEVER create issues out of dependency order** — `gh issue create` assigns sequential numbers, so a blocked issue must reference a real upstream number. Topo-sort first.
+- **NEVER auto-override a default label with a config-supplied one of the same name** — the default wins; log the conflict instead (D14).
+- **NEVER continue past a partial failure** — halt the batch, persist what was created, exit non-zero. Rollback of created GitHub issues is out of scope; the user resumes manually.
+- **NEVER skip schema validation of the artifact** — a malformed `created-issues.json` would silently break `build-create-pr` downstream.
+- **NEVER read ADR file contents** — folder names only (D5). Module matching is intentionally a folder-only signal.
+- **NEVER prompt the user in autonomous mode** — all decisions are silent + logged. Prompting blocks the calling pipeline.
