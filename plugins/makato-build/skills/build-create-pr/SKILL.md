@@ -18,7 +18,7 @@ Use after `/push-to-git` (branch is on remote) and before `/address-pr-comments`
 
 ### Step 1 — Ask for work item key and load context
 
-Ask: *"Which work item are we creating a PR for? (e.g. DCP-1234, or pass it directly: `/daff-build:build-create-pr DCP-1234`)"* — or use the passed argument. A work item key is optional; if none is provided, the PR can still be created without an issue link.
+Ask: *"Which work item are we creating a PR for? (e.g. DCP-1234, or pass it directly: `/makato-build:build-create-pr DCP-1234`)"* — or use the passed argument. A work item key is optional; if none is provided, the PR can still be created without an issue link.
 
 Verify the branch is pushed: run `git status -sb` and check that the upstream tracking branch exists and no local commits are ahead of it. If commits are ahead of remote, stop and tell the user:
 

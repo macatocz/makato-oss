@@ -103,9 +103,9 @@ except FileNotFoundError:
 
 if [[ -d "$REPO_ROOT/$ARCH_PATH" ]]; then
   if [[ "$(uname)" == "Darwin" ]]; then
-    ADR_FOLDERS="$(find "$REPO_ROOT/$ARCH_PATH" -mindepth 1 -maxdepth 1 -type d | xargs -n1 basename | sed -E 's/[^A-Za-z0-9]+/-/g; s/^-+|-+$//g; s/.*/\L&/')"
+    ADR_FOLDERS="$(find "$REPO_ROOT/$ARCH_PATH" -mindepth 1 -maxdepth 1 -type d | xargs -n1 basename | sed -E 's/[^A-Za-z0-9]+/-/g; s/^-+|-+$//g' | tr '[:upper:]' '[:lower:]')"
   else
-    ADR_FOLDERS="$(find "$REPO_ROOT/$ARCH_PATH" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sed -E 's/[^A-Za-z0-9]+/-/g; s/^-+|-+$//g; s/.*/\L&/')"
+    ADR_FOLDERS="$(find "$REPO_ROOT/$ARCH_PATH" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sed -E 's/[^A-Za-z0-9]+/-/g; s/^-+|-+$//g' | tr '[:upper:]' '[:lower:]')"
   fi
 else
   ADR_FOLDERS=""
