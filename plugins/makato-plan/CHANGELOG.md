@@ -118,6 +118,19 @@ Changes are grouped by skill/agent/component. Within each group, latest version 
 - **1.0.0**
   - Initial — refine draft Gherkin scenarios into polished acceptance test cases (3-5 per story), dispatches acceptance-writer agent, quality self-review, interactive HTML review
 
+## `to-issues` skill
+
+- **3.0.0** (BREAKING)
+  - Retarget `github.com` only — removed all `GH_HOST=github.concur.com`, `GH_ENTERPRISE_TOKEN`, and TLS-bypass references including the `compatibility:` frontmatter line
+  - Project name now read from `.claude/config.json` (`"project"` key, fallback `"sagibeast"`); legacy `.claude/rules/project-information.md` is detected and a migration warning is emitted, but the file is no longer written
+  - Added 4-dimension label taxonomy in new `references/label-taxonomy.md` — `type` inferred from story keywords (default `feat`), `tier` from `stories[].phase`, `tech` from extensible keyword map, `module` from ADR folder-name pattern match (no ADR content reads)
+  - Added `references/issue-template.md` — versioned `{{PLACEHOLDER}}` body template; single edit point for issue body format
+  - Added `references/created-issues.schema.json` — JSON Schema (draft-07) for the new `specs/<slug>/created-issues.json` artifact consumed by `makato-build/build-create-pr`
+  - Added `DRY_RUN=1` mode — prints assembled `gh` commands and writes a schema-valid artifact with synthetic issue numbers without touching the GitHub API
+  - Removed `references/project-info-format.md` (obsolete mechanism)
+  - Defined partial-failure semantics: halt batch on first `gh issue create` failure, persist partial artifact, exit non-zero (no rollback)
+  - Migration: copy your project name into `.claude/config.json` (`{ "project": "<name>" }`); delete `.claude/rules/project-information.md` if present
+
 ## `acceptance-writer` agent
 
 - **1.0.0**
