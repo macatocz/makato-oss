@@ -22,7 +22,7 @@ If no `plan.md` exists, derive from commit messages: one bullet per commit.
 ## Goal Alignment
 
 Three lines:
-1. Plugin name: `daff-<name>`
+1. Plugin name: `makato-<name>`
 2. Goal: quote the plugin's goal statement from `AGENTS.md`
 3. Alignment: one sentence explaining how this story advances that goal
 
@@ -71,7 +71,7 @@ If none found: check `No`. Do not write "None detected" — just check the box.
 
 ## AI-Assisted Checklist
 
-Always pre-check these three for daff-build sessions:
+Always pre-check these three for makato-build sessions:
 - [x] Code implementation
 - [x] Commit messages
 - [x] PR description
