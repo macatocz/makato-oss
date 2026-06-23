@@ -26,7 +26,7 @@ Use after `/refine` has produced `plan.md` in the spec folder and the plan conta
 
 ### Step 1 — Ask for work item key and load plan
 
-Ask: "Which work item are you implementing? (e.g. DCP-1234, or pass it directly: `/daff-build:build-implement-tdd DCP-1234`)" — or use the passed argument directly.
+Ask: "Which work item are you implementing? (e.g. #123, or pass it directly: `/makato-build:build-implement-tdd #123`)" — or use the passed argument directly.
 
 Load @references/tdd-cycle-rules.md. These rules govern all decisions in the TDD loop for this session.
 

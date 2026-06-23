@@ -1,10 +1,10 @@
 # Glossary Enrichment Format
 
-Rules for how `/grill-with-docs` annotates and extends `glossary.md` in the resolved spec folder (the feature vocabulary file written by `/daff-shape:grill`).
+Rules for how `/grill-with-docs` annotates and extends `glossary.md` in the resolved spec folder (the feature vocabulary file written by `/makato-plan:grill`).
 
 ## Entry Shape
 
-Existing entries from `/daff-shape:grill` follow this shape (do not rewrite them):
+Existing entries from `/makato-plan:grill` follow this shape (do not rewrite them):
 
 ```markdown
 **<Canonical term>**:

@@ -11,7 +11,7 @@ Run pre-commit sensors against the chosen file scope, parse findings, and dispat
 
 ## Trigger phrases
 
-- `/daff-build:build-sensors`
+- `/makato-build:build-sensors`
 - `run sensors`
 - `verify sensors`
 - `gate-0`

@@ -19,7 +19,7 @@ and improvements, not to confirm correctness.
 
 ### Step 1 — Ask for work item key and load context
 
-Ask: *"Which work item are we reviewing? (e.g. DCP-1234, or pass it directly: `/daff-build:build-review DCP-1234`)"* — or use the passed argument.
+Ask: *"Which work item are we reviewing? (e.g. #123, or pass it directly: `/makato-build:build-review #123`)"* — or use the passed argument.
 
 Read `plan.md` from the resolved spec folder (`specs/<key>-*/`) if it exists. Extract the acceptance criteria and task list —
 these are the correctness contract. Every AC must be demonstrably covered by the diff.

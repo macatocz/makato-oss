@@ -36,7 +36,7 @@ Content never flows from ADR back into decisions.md.
 Probe in this order in the target repo root:
 
 ```
-docs/governance/adr/    ← daff repo convention (hardcoded for daff repo)
+docs/governance/adr/    ← makato repo convention (hardcoded for makato repo)
 docs/adr/
 adr/
 .adr/

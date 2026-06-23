@@ -25,7 +25,7 @@ for goal-mode tasks and `/implement-tdd` for tdd-mode tasks, in the order the pl
 
 ### Step 1 — Ask for work item key and load plan
 
-Ask: *"Which work item are you implementing? (e.g. DCP-1234, or pass it directly: `/daff-build:build-implement-goal DCP-1234`)"* — or use the passed argument directly.
+Ask: *"Which work item are you implementing? (e.g. #123, or pass it directly: `/makato-build:build-implement-goal #123`)"* — or use the passed argument directly.
 
 Load `@references/goal-driven-rules.md`. These rules govern all decisions in the goal loop
 for this session.

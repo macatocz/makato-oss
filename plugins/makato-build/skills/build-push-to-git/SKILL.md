@@ -132,4 +132,4 @@ Then ask using `AskUserQuestion`:
 - Option B: **No, I'll do it later** — description: "Run `/build-create-pr <key>` manually when ready"
 
 If option A: invoke `/build-create-pr <key>` directly.
-If option B: tell the user: "Run `/daff-build:build-create-pr <key>` when ready."
+If option B: tell the user: "Run `/makato-build:build-create-pr <key>` when ready."

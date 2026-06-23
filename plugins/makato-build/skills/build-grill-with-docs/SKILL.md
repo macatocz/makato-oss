@@ -9,9 +9,9 @@ version: "1.3.1"
 model: opus
 argument-hint: "[work-item-key]"
 
-Use after `/refine` (plan.md exists) and before `/implement-tdd` or `/implement-goal`. The implementation plan is in place but may contain spec-language that doesn't match how the codebase actually names things. This skill probes those mismatches and enriches the feature `glossary.md` (produced by `/daff-shape:grill`) with codebase name annotations before any code is written.
+Use after `/refine` (plan.md exists) and before `/implement-tdd` or `/implement-goal`. The implementation plan is in place but may contain spec-language that doesn't match how the codebase actually names things. This skill probes those mismatches and enriches the feature `glossary.md` (produced by `/makato-plan:grill`) with codebase name annotations before any code is written.
 
-Do NOT use as a substitute for `/refine` (this skill does not produce an implementation plan) or as a substitute for `/daff-shape:grill` (that skill stress-tests spec artifacts and owns the canonical domain vocabulary; this one maps that vocabulary to live code symbols).
+Do NOT use as a substitute for `/refine` (this skill does not produce an implementation plan) or as a substitute for `/makato-plan:grill` (that skill stress-tests spec artifacts and owns the canonical domain vocabulary; this one maps that vocabulary to live code symbols).
 
 ---
 
@@ -27,7 +27,7 @@ Read `plan.md` from the resolved spec folder (`specs/<key>-*/`) (required). If m
 
 Read `prd.md`, `design.md`, `decisions.md` from the resolved spec folder if they exist.
 
-Load `glossary.md` from the resolved spec folder as baseline if present — this is the feature vocabulary written by `/daff-shape:grill`. Terms already there are established: do not re-ask their meaning unless a codebase probe reveals a conflict. If `glossary.md` does not exist it will be created in Step 6.
+Load `glossary.md` from the resolved spec folder as baseline if present — this is the feature vocabulary written by `/makato-plan:grill`. Terms already there are established: do not re-ask their meaning unless a codebase probe reveals a conflict. If `glossary.md` does not exist it will be created in Step 6.
 
 **ADR path lookup** — load `@references/adr-criteria.md` for the probe order. Scan the primary repo root and use the first match. If none found, ask:
 > "No ADR directory found in `<repo>`. Create `docs/governance/adr/`, or skip ADRs for this story and capture decisions in `decisions.md` only?"
@@ -86,7 +86,7 @@ Number every question (Q1, Q2…). For each conflict or ambiguity: state the con
 
 ### Step 6 — Enrich glossary.md
 
-Write to `glossary.md` in the resolved spec folder. Lazy-create the file with the daff-shape header format if it doesn't exist:
+Write to `glossary.md` in the resolved spec folder. Lazy-create the file with the makato-plan header format if it doesn't exist:
 
 ```markdown
 # {Feature name} — Glossary
@@ -100,7 +100,7 @@ Feature-scoped vocabulary for this story. Domain terms from shaping; codebase ma
 ## Flagged ambiguities
 ```
 
-For **existing entries** (from `/daff-shape:grill`): add a `_Code_: <symbol>` line when the codebase name differs from the canonical term. If the codebase matches the canonical term exactly, leave the entry unchanged.
+For **existing entries** (from `/makato-plan:grill`): add a `_Code_: <symbol>` line when the codebase name differs from the canonical term. If the codebase matches the canonical term exactly, leave the entry unchanged.
 
 For **new terms** not yet in `glossary.md`: append a full entry under `## Language` following the format from `@references/context-md-format.md`.
 

@@ -1,6 +1,6 @@
 # Spec Artifacts Schema
 
-Spec artifacts are produced by daff-shape and consumed by daff-build skills.
+Spec artifacts are produced by makato-plan and consumed by makato-build skills.
 All live in `specs/<work-item-key>-<slug>/` (resolve by prefix-matching `specs/<key>-*/`).
 
 ## stories.json

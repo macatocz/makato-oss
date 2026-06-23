@@ -76,8 +76,8 @@ Audience?
 - Limited design system support
 - No component variants
 
-### DAFF Integration
-Use `daff-arch-excalidraw` skill for embedded diagrams in spec documents.
+### Makato Integration
+Use `makato-plan:excalidraw` skill for embedded diagrams in spec documents.
 
 ---
 

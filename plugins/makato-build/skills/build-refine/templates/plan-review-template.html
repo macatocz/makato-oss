@@ -477,9 +477,9 @@ function toggleTheme() {
   const html = document.documentElement; const btn = document.querySelector('.theme-toggle');
   if (html.dataset.theme === 'dark') { html.dataset.theme = 'light'; btn.textContent = '◐ Light'; }
   else { html.dataset.theme = 'dark'; btn.textContent = '◐ Dark'; }
-  localStorage.setItem('daff-review-theme', html.dataset.theme);
+  localStorage.setItem('makato-review-theme', html.dataset.theme);
 }
-const saved = localStorage.getItem('daff-review-theme');
+const saved = localStorage.getItem('makato-review-theme');
 if (saved) { document.documentElement.dataset.theme = saved; document.querySelector('.theme-toggle').textContent = saved === 'dark' ? '◐ Dark' : '◐ Light'; }
 </script>
 

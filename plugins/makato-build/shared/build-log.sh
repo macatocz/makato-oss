@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Append a JSONL entry to the spec folder's build.jsonl.
-# Resolves the spec folder by prefix-matching specs/<key>-*/ (daff-shape naming convention).
+# Resolves the spec folder by prefix-matching specs/<key>-*/ (makato-plan naming convention).
 # Usage: build-log.sh <key> '<json-object>'
 set -euo pipefail
 

@@ -20,7 +20,7 @@ pass, coverage is met.
 
 ### Step 1 — Ask for work item key and load context
 
-Ask: *"Which work item are we verifying? (e.g. DCP-1234, or pass it directly: `/daff-build:build-verify DCP-1234`)"* — or use the passed argument.
+Ask: *"Which work item are we verifying? (e.g. #123, or pass it directly: `/makato-build:build-verify #123`)"* — or use the passed argument.
 
 Read `design.md` from the resolved spec folder (`specs/<key>-*/`) if it exists and look for a declared coverage threshold.
 If none is declared, the coverage gate is advisory — it reports figures but does not block.
@@ -51,7 +51,7 @@ shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-verify","story":"<
 
 ### Step 3 — Gate 0: SENSORS
 
-Run: `/daff-build:build-sensors all`
+Run: `/makato-build:build-sensors all`
 
 Expected: exit 0 after sensor-fixer loop completes (loops <= MAX_LOOPS=5).
 

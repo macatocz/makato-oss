@@ -4,7 +4,7 @@ description: >-
   Entry point for a full build session — validates git state, validates spec
   prerequisites, captures implementation mode, initializes the build log, and
   kicks off /build-refine. Use when starting a new story build, beginning the
-  daff-build workflow, running build-start on a work item, or starting local
+  makato-build workflow, running build-start on a work item, or starting local
   work without a ticket.
 version: "1.3.1"
 argument-hint: "[work-item-key]"
@@ -14,9 +14,9 @@ argument-hint: "[work-item-key]"
 
 ## When to Use
 
-Use at the beginning of every daff-build session, before `/build-refine`.
+Use at the beginning of every makato-build session, before `/build-refine`.
 
-For ticket-based work: spec artifacts must have been produced by daff-shape
+For ticket-based work: spec artifacts must have been produced by makato-plan
 (or equivalent) before this skill can run.
 
 For local work without a ticket: this skill creates a minimal `design.md` via
@@ -86,20 +86,20 @@ git checkout -b <branch-name>
 
 **Ticket path** (`local_work = false`):
 
-Locate the spec folder by prefix-matching: find `specs/<key>-*/` (e.g. `specs/DCP-1234-feature-name/`). Use the first match. This aligns with daff-shape's naming convention of `specs/{KEY}-{slug}/`.
+Locate the spec folder by prefix-matching: find `specs/<key>-*/` (e.g. `specs/DCP-1234-feature-name/`). Use the first match. This aligns with makato-plan's naming convention of `specs/{KEY}-{slug}/`.
 
 - If no `specs/<key>-*/` folder exists → stop: *"No spec folder found for `<key>`.
-  Run daff-shape first to produce shaped artifacts in `specs/<key>-<slug>/`."*
+  Run makato-plan first to produce shaped artifacts in `specs/<key>-<slug>/`."*
 - If `stories.json` is missing → check whether `prd.md` and `design.md`
   both exist in the spec folder. If they do — stop:
 
   > "No `stories.json` found for `<key>`, but `prd.md` and `design.md` are present.
-  > Run `/daff-shape:decompose <key>` to generate `stories.json`, then return to
+  > Run `/makato-plan:decompose <key>` to generate `stories.json`, then return to
   > `/build-start`."
 
   If `prd.md`/`design.md` are also absent — stop:
 
-  > "Folder `specs/<key>-*/` exists but is missing `stories.json`. Run the daff-shape
+  > "Folder `specs/<key>-*/` exists but is missing `stories.json`. Run the makato-plan
   > pipeline first to complete the spec."
 - If `plan.md` already exists in the spec folder → do NOT stop. Show the plan's title
   and task count, then offer:

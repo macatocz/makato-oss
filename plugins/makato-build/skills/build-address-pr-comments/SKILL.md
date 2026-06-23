@@ -20,7 +20,7 @@ Use after `/create-pr` when review comments have arrived on the PR. Handles all 
 
 ### Step 1 — Ask for work item key and PR URL
 
-Ask: *"Which work item and PR are we addressing? (e.g. DCP-1234, or pass it directly: `/daff-build:build-address-pr-comments DCP-1234`)"* — or use the passed argument.
+Ask: *"Which work item and PR are we addressing? (e.g. #123, or pass it directly: `/makato-build:build-address-pr-comments #123`)"* — or use the passed argument.
 
 If only a key is given, derive the PR URL:
 ```

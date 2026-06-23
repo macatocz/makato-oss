@@ -14,18 +14,18 @@ argument-hint: "[work-item-key]"
 
 ## When to Use
 
-Use at the start of every build session, after a story has been shaped by daff-shape (or an equivalent process). Spec artifacts must exist in `specs/<key>-*/` before this skill can run.
+Use at the start of every build session, after a story has been shaped by makato-plan (or an equivalent process). Spec artifacts must exist in `specs/<key>-*/` before this skill can run.
 
 **Do NOT use when:**
-- The story has not been shaped (no spec artifacts exist) — run daff-shape first
+- The story has not been shaped (no spec artifacts exist) — run makato-plan first
 - You want to continue an in-progress implementation — read `plan.md` in the spec folder directly
-- You are fixing a hotfix or ad-hoc defect — use daff-fix instead
+- You are fixing a hotfix or ad-hoc defect — use makato-fix instead
 
 ## Workflow
 
 ### Step 1 — Ask for the work item key
 
-If an argument was passed when invoking this skill, use it directly. Otherwise, use the `AskUserQuestion` tool to ask for the work item key, with example options: `DCP-1234`, `#123`, or a freeform key. Remind the user they can skip this prompt next time by passing the key directly: `/daff-build:build-refine DCP-1234`.
+If an argument was passed when invoking this skill, use it directly. Otherwise, use the `AskUserQuestion` tool to ask for the work item key, with example options: `DCP-1234`, `#123`, or a freeform key. Remind the user they can skip this prompt next time by passing the key directly: `/makato-build:build-refine #123`.
 
 Accept any identifier: Jira key (`DCP-1234`), GitHub issue (`#123` or `gh-123`), or freeform. Sanitize for use as a filesystem path component: replace `#` and spaces with `-`, lowercase.
 
@@ -33,7 +33,7 @@ Accept any identifier: Jira key (`DCP-1234`), GitHub issue (`#123` or `gh-123`),
 
 Check that a spec folder exists by prefix-matching `specs/<key>-*/`. If no match is found, stop immediately and tell the user:
 
-> "No spec found for `<key>`. This story has not been shaped yet — run `/daff-shape:decompose` (or the full daff-shape pipeline) first, then return to `/refine`."
+> "No spec found for `<key>`. This story has not been shaped yet — run `/makato-plan:decompose` (or the full makato-plan pipeline) first, then return to `/refine`."
 
 Do not proceed past this step until the directory exists.
 
@@ -65,7 +65,7 @@ create the design document.
 
 **Ticket path** (key does not start with `local-`): if `stories.json`, `prd.md`, or
 `design.md` is missing, report which files are absent and stop. Tell the user to run
-daff-shape first or confirm the correct spec path. Append an `"status":"error"` entry to
+makato-plan first or confirm the correct spec path. Append an `"status":"error"` entry to
 `build.jsonl` before stopping.
 
 ### Step 4 — Extract story details

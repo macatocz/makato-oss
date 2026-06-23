@@ -29,7 +29,7 @@ Note: `pre-commit` will exit `0` when nothing is staged, so this hook is a no-op
 
 - **Exit 0** — hook passes silently; the harness allows the `git commit` tool call to proceed unchanged.
 - **Exit != 0** — the harness **blocks** the `git commit` tool call. The commit object is never created, the working tree is left exactly as `pre-commit` left it (auto-fixers may have rewritten staged files in place, in which case the new contents sit unstaged), and the hook's stdout/stderr are surfaced to the agent as the tool result.
-- The agent is expected to react by re-dispatching `/daff-build:build-sensors staged` on its **next turn**. That command runs `sensor-fixer`, which re-stages auto-fixed files, addresses any remaining failures, and re-attempts the commit. The agent must not retry `git commit` directly without going through the fixer — doing so will simply re-trip the same hook.
+- The agent is expected to react by re-dispatching `/makato-build:build-sensors staged` on its **next turn**. That command runs `sensor-fixer`, which re-stages auto-fixed files, addresses any remaining failures, and re-attempts the commit. The agent must not retry `git commit` directly without going through the fixer — doing so will simply re-trip the same hook.
 
 ## 4. Configurable env: emergency bypass
 
