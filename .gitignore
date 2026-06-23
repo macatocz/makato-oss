@@ -173,6 +173,9 @@ docs-design/
 evaluation/
 # Design specs written by superpowers brainstorming are part of the repo
 !docs/superpowers/specs/
+
+# Subagent-Driven Development scratch (progress ledger, task briefs, review packages)
+.superpowers/
 # >>> claude-plugin:general:gitignore:start <<<
 # Managed by claude-plugin 'general' — do not edit manually
 

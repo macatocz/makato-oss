@@ -7,12 +7,12 @@ description: >-
   (type/tier/tech/module), maps stories to ADR folders by name pattern, and emits
   `specs/{slug}/created-issues.json` for downstream plugins.
 license: MIT
+version: "3.0.0"
 argument-hint: "[optional: feature slug] [--dry-run] [--interactive|--autonomous]"
 allowed-tools: Bash(gh *) Bash(git *) Bash(python3 *) Read Write Grep Glob
 hooks: ["convert to issues", "break into issues", "create github issues", "turn this into tickets", "issue breakdown", "create implementation tickets", "decompose into issues", "publish stories", "create issues from stories.json"]
 metadata:
   Authors: makato contributors
-  version: "3.0.0"
   last_updated: "2026-06-23"
   mcp_server: none
 ---
