@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.8.0](https://github.com/zstary/makato/compare/v0.7.0...v0.8.0) (2026-06-23)
+
+
+### ⚠ BREAKING CHANGES
+
+* **makato-plan:** to-issues now targets github.com only. The 2.x github.concur.com / GH_ENTERPRISE_TOKEN / project-information.md wiring is removed. The project name is read from .claude/config.json (fallback 'sagibeast'). All issues now carry a 4-dimension label set (type/tier/tech/module) inferred from the story text and ADR folder names. A specs/<slug>/created-issues.json artifact is written for downstream skills (build-create-pr) to consume. Set DRY_RUN=1 to exercise the skill without calling the GitHub API.
+
+### ✨ Features
+
+* **makato-build:** inject Closes #N from created-issues.json into PR body (v1.3.0) ([3fc8d6a](https://github.com/zstary/makato/commit/3fc8d6a34f04424d7d8745001bb94f2c612ae046))
+* **makato-plan:** add created-issues.json schema (to-issues v3 contract) ([a96683d](https://github.com/zstary/makato/commit/a96683da5fe6f690abfab389a165292912e1d73a))
+* **makato-plan:** add issue-template reference for to-issues v3 ([912f225](https://github.com/zstary/makato/commit/912f2259f3340df637b3f99e4ab8a9cbc6a24b00))
+* **makato-plan:** add label-taxonomy reference for to-issues v3 ([e26fa5f](https://github.com/zstary/makato/commit/e26fa5ff81591214e49e88239c010b2fb291645d))
+* **makato-plan:** rewrite to-issues as generic marketplace skill (v3.0.0) ([2678628](https://github.com/zstary/makato/commit/26786289ccbcb0612e46117eb1b26655dfa38933))
+* **makato-sagibeast:** add sagibeast-connect-testbox and sagibeast-create-testbox skills ([8b7432a](https://github.com/zstary/makato/commit/8b7432a7020148fcdf5861e1831c7bee5a456629))
+* **makato-sagibeast:** scaffold plugin with governance and marketplace registration ([d5bd829](https://github.com/zstary/makato/commit/d5bd829c44040b2352c981457fd16ecf34e0d700))
+
+
+### 🐛 Bug Fixes
+
+* **makato-build:** rename daff.config.json discovery hook to makato.config.json ([3c7d63d](https://github.com/zstary/makato/commit/3c7d63d305d05bd12dda250b4f363d7f032f1035))
+* **makato:** macOS sed portability and stale daff-* reference in build-create-pr ([3067fd4](https://github.com/zstary/makato/commit/3067fd46f3c7bcda65f99d6d6ef3799f584790d0))
+* **makato:** remove remaining daff-* references from new to-issues redesign ([b9633ee](https://github.com/zstary/makato/commit/b9633eeaff696d9feda24799ec0929bcd9d7e171))
+* **repo:** add top-level version, gitignore .superpowers/, scrub daff from issue templates, track design plans ([a197cc9](https://github.com/zstary/makato/commit/a197cc9b90936910810cb3436e8dd5b619bb74eb))
+
+
+### ♻️ Refactors
+
+* **makato-core:** move dotx-schema-extractor, manage-pdf, manage-microsoft-excel to makato-sagibeast ([8059fa5](https://github.com/zstary/makato/commit/8059fa5b56d70c536a3123c05b303f3cfd278428))
+
+
+### 🤖 CI
+
+* remove redundant plugin/skill checks from validate workflow ([cf9249a](https://github.com/zstary/makato/commit/cf9249aa53b19fbf6724292fecd8d0191539c060))
+
 ## [0.7.0](https://github.com/zstary/makato/compare/v0.6.0...v0.7.0) (2026-06-21)
 
 
