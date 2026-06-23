@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/zstary/makato/plugins/makato-plan/skills/to-issues/references/created-issues.schema.json",
+  "title": "created-issues.json",
+  "description": "Machine-readable handoff emitted by the to-issues skill. Consumed by build-create-pr to auto-inject Closes #N into PR bodies.",
+  "type": "object",
+  "required": ["schema_version", "slug", "issues"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1",
+      "description": "Schema version. Bump when the shape changes in a non-backwards-compatible way."
+    },
+    "slug": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The kebab-case feature slug — the spec folder name without the leading work-item key."
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["issue_number", "url", "title", "labels", "blocked_by"],
+        "additionalProperties": false,
+        "properties": {
+          "issue_number": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "GitHub issue number (real on a normal run; synthetic 1,2,3... in DRY_RUN=1 mode)."
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Canonical issue URL on github.com."
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "labels": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 },
+            "description": "Flat label list — entries follow the `dimension:value` convention (e.g. type:feat, tier:foundation, tech:python, module:to-issues)."
+          },
+          "blocked_by": {
+            "type": "array",
+            "items": { "type": "integer", "minimum": 1 },
+            "description": "Issue numbers (not story sequences) of upstream blockers — references real, already-created issues from earlier in the same batch."
+          }
+        }
+      }
+    }
+  }
+}
