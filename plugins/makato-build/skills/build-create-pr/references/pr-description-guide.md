@@ -62,11 +62,12 @@ If none found: check `No`. Do not write "None detected" — just check the box.
 
 ## Links Section
 
-| Situation | What to write |
-|-----------|---------------|
-| Jira key provided | `DCP-1234` (link added separately via MCP after PR is created) |
-| GitHub issue provided | `Closes #42` or `Fixes #42` (embed in PR body before creating) |
-| No reference | `N/A` |
+| Situation                                                  | What to write                                                                                                                |
+| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| GitHub issue reference provided (`GH#42`)                  | `Closes #42` or `Fixes #42` (embed in PR body before creating)                                                               |
+| `specs/<slug>/created-issues.json` present and schema-valid | One `Closes #N` per artifact entry in artifact order; dedupe against any user-supplied `GH#N` (artifact wins ties)            |
+| Artifact malformed or schema-invalid                       | Skip injection; log `[build-create-pr] WARNING: ... — continuing without Closes injection`; never block PR creation          |
+| No reference                                               | `N/A`                                                                                                                        |
 
 ## AI-Assisted Checklist
 
@@ -85,3 +86,7 @@ Check these if verifiably true:
 - [x] Tested on local environment — only check if the implementing agent actually ran the gates in `/verify`
 
 Leave unchecked if not verified. Do not pre-check items you cannot confirm.
+
+## Cross-Plugin Contract — `created-issues.json`
+
+The handoff artifact this skill reads is produced by `/makato-plan:to-issues` (v3.0.0+). Its shape is defined by `plugins/makato-plan/skills/to-issues/references/created-issues.schema.json` — when changing this skill's parsing logic, validate against that schema rather than duck-typing the file.

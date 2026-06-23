@@ -6,7 +6,7 @@ description: >-
   to How to Test, design decisions surface in the description, Jira
   story is linked. Presents draft for user approval before opening.
   Interactive. Use after push-to-git, before address-pr-comments.
-version: "1.2.0"
+version: "1.3.0"
 argument-hint: "[work-item-key]"
 ---
 
@@ -29,6 +29,29 @@ Read from the resolved spec folder (`specs/<key>-*/`):
 - `prd.md` — goals, scope, motivation (if exists)
 - `plan.md` — completed tasks, for "What changed" bullets (if exists)
 - `.github/PULL_REQUEST_TEMPLATE.md` — the project's required PR template
+
+- `created-issues.json` — handoff artifact emitted by `/makato-plan:to-issues` (optional)
+
+When `created-issues.json` exists in the spec folder, validate it against the schema at `plugins/makato-plan/skills/to-issues/references/created-issues.schema.json`:
+
+```bash
+python3 - <<PY
+import json, sys
+try:
+    import jsonschema
+except ImportError:
+    import subprocess; subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--quiet', 'jsonschema'])
+    import jsonschema
+SCHEMA = json.load(open('plugins/makato-plan/skills/to-issues/references/created-issues.schema.json'))
+ART = json.load(open('$SPEC_FOLDER/created-issues.json'))
+jsonschema.validate(ART, SCHEMA)
+print('[build-create-pr] artifact valid: %d issues' % len(ART['issues']))
+PY
+```
+
+If validation fails (invalid JSON or schema mismatch), log a single warning:
+`[build-create-pr] WARNING: specs/<slug>/created-issues.json is malformed (<error>) — continuing without Closes injection`
+…and proceed with the current v1.2.0 behavior. Never block PR creation on artifact problems (D21).
 
 Run `git log main..HEAD --oneline` to see the commits included in this PR.
 
@@ -56,7 +79,7 @@ Fill each template section as follows:
 
 **Goal Alignment**: plugin name, goal statement (read `AGENTS.md` in the target repo), one sentence connecting this story to the goal.
 
-**Links**: see Step 6 for issue tracker handling.
+**Links**: see Step 6 for issue tracker handling. When `created-issues.json` is present and valid, the Links section receives an auto-injected `Closes #N` line per artifact entry (in artifact order), deduped against any user-supplied `GH#N` reference — see Step 6 Case 4.
 
 **How to Test**: one numbered step per acceptance criterion from `stories.json` — make each concrete (name the command, the input, the expected output). If no `stories.json` exists, write steps derived from the commit messages and changed code.
 
@@ -122,6 +145,14 @@ Add `Closes #42` (or `Fixes #42`) to the PR body's Links section *before* callin
 **Case 3 — No issue reference provided:**
 Skip linking entirely. Do not ask the user to supply one. Log `"issue_linked": false` and proceed.
 
+**Case 4 — `created-issues.json` present and schema-valid:**
+
+For each entry in `issues[]`, add `Closes #<issue_number>` to the PR body's Links section in artifact order, before calling `gh pr create` in Step 5.
+
+**Dedupe rule (D20):** if Case 2 already added a `Closes #N` for the same issue number (because the user passed `GH#N`), do not duplicate — the artifact entry wins by being canonical; the user-supplied reference is dropped from the Links section to avoid two lines pointing at the same issue.
+
+**No artifact, malformed artifact, or schema-invalid artifact (D21):** skip injection entirely. Log a warning (as in Step 1) and create the PR with the current Step 6 Case 1–3 behavior. Never block PR creation on artifact problems.
+
 ---
 
 ### Step 7 — Log session end and hand off
@@ -129,7 +160,7 @@ Skip linking entirely. Do not ask the user to supply one. Log `"issue_linked": f
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-create-pr","story":"<key>","step":"session","status":"ok","data":{"pr_url":"<url>","issue_linked":true|false,"issue_type":"jira"|"github"|"none"}}'
+shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-create-pr","story":"<key>","step":"session","status":"ok","data":{"pr_url":"<url>","issue_linked":true|false,"issue_type":"jira"|"github"|"none","closes_injected":<N>,"artifact_status":"valid"|"missing"|"malformed"}}'
 ```
 
 Tell the user: *"PR open: `<URL>`. Next: wait for review, then use `/address-pr-comments` to handle feedback."*

@@ -195,6 +195,13 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## `build-create-pr` skill
 
+- **1.3.0**
+  - Auto-inject `Closes #N` into the PR body's Links section when `specs/<slug>/created-issues.json` is present and validates against the schema shipped by `to-issues` v3.0.0+ (path: `plugins/makato-plan/skills/to-issues/references/created-issues.schema.json`)
+  - Dedupe against user-supplied `GH#N` references — artifact wins ties (D20)
+  - Malformed or schema-invalid artifacts log a single warning and fall back to v1.2.0 behavior; PR creation is never blocked (D21)
+  - Step 7 log entry adds `closes_injected` (count) and `artifact_status` (`valid` / `missing` / `malformed`) fields under `data`
+  - Updated `references/pr-description-guide.md` Links Section table with the new artifact-driven row
+
 - **1.2.0**
   - Step 1: invocation hint added to interactive key prompt
 - **1.1.0**
