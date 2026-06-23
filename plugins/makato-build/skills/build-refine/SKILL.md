@@ -103,7 +103,7 @@ Before exploring the local `context/` directory, attempt to load knowledge from 
 
 Derive REPO_NAME from the last path segment of the target repo root. Extract 5–10 key terms from the story title and description (from `stories.json`) as KEYWORDS.
 
-Dispatch the `knowledge-scout` agent with REPO_ROOT, REPO_NAME, and KEYWORDS. The agent handles dcp-specs discovery internally (daff.config.json → sibling scan → skip).
+Dispatch the `knowledge-scout` agent with REPO_ROOT, REPO_NAME, and KEYWORDS. The agent handles dcp-specs discovery internally (makato.config.json → sibling scan → skip).
 
 Receive the Knowledge Scout Findings and:
 - Apply every item in `## Hard Constraints` as a mandatory rule in the implementation plan — note these in the plan header so the user sees them

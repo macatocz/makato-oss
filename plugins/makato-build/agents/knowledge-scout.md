@@ -42,9 +42,9 @@ Your dispatch prompt provides:
 
 Attempt discovery in this order. Stop at the first success.
 
-**1a. daff.config.json check:**
+**1a. makato.config.json check:**
 
-Read `<REPO_ROOT>/daff.config.json` if it exists. Look for any field containing a path to a specs repository: `specs`, `dcp-specs`, `specsPath`, `specsRoot`. If found and the path resolves to a directory containing `context/repository-registry.yml` — set DSPEC_ROOT to that path.
+Read `<REPO_ROOT>/makato.config.json` if it exists. Look for any field containing a path to a specs repository: `specs`, `dcp-specs`, `specsPath`, `specsRoot`. If found and the path resolves to a directory containing `context/repository-registry.yml` — set DSPEC_ROOT to that path.
 
 **1b. Sibling scan:**
 
