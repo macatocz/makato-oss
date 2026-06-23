@@ -9,8 +9,8 @@ Every issue created by `to-issues` carries exactly one label from each of these 
 
 | Dimension | Source | Examples |
 |-----------|--------|----------|
-| **type** | Inferred from story title/body keywords (see table below) | `type:feat`, `type:fix`, `type:docs`, `type:refactor`, `type:test`, `type:chore` |
-| **tier** | `stories[].phase` in `stories.json` | `tier:foundation`, `tier:happy-path`, `tier:edge-cases` |
+| **type** | Inferred from story title/body keywords (see table below) | `type:feat`, `type:fix`, `type:docs`, `type:refactor`, `type:test`, `type:chore`, `type:future-enhancement` |
+| **tier** | `stories[].phase` in `stories.json` (skipped entirely for `type:future-enhancement` — those issues are pre-phase) | `tier:foundation`, `tier:happy-path`, `tier:edge-cases` |
 | **tech** | Default keyword list, extensible via `config.json` `labels.tech` | `tech:python`, `tech:bash`, `tech:sql`, `tech:fastapi`, `tech:temporal`, `tech:langgraph`, `tech:pydantic-ai`, `tech:harness`, `tech:skill`, `tech:html`, `tech:react` |
 | **module** | ADR folder-name match (see algorithm), extensible via `config.json` `labels.modules` | `module:to-issues`, `module:auth-service`, `module:billing` |
 
@@ -25,9 +25,21 @@ Match the lowercased story title concatenated with the story scope text against 
 | `\b(refactor\|rename\|reorganize\|cleanup)\b` | `type:refactor` |
 | `\b(test\|spec\|coverage)\b` | `type:test` |
 | `\b(chore\|deps?\|bump\|ci\|build)\b` | `type:chore` |
+| `\b(future\|someday\|eventually\|parked\|deferred\|icebox\|backlog)\b` | `type:future-enhancement` |
+| `\b(wait[- ]until\|after[- ]we\|once[- ]we)\b` or `\bwhen\b.*\bthen\b` | `type:future-enhancement` |
+| `\bv[2-9]\b` or `\bvnext\b` or `\bmilestone[- ][2-9]\b` | `type:future-enhancement` |
 | (no match) | `type:feat` |
 
 Evaluation order is top-to-bottom; first match wins. In autonomous mode (per D10), apply the inferred label silently and log the decision to stdout prefixed `[to-issues:auto]`. In interactive mode, propose the inferred label and ask the user to confirm or override.
+
+### `type:future-enhancement` semantics
+
+A `type:future-enhancement` issue is **real work parked until a condition is met** — it is created so contributors can scan and promote it later, but it is not actionable now. Treatment rules:
+
+- **No `tier:` label.** Future-enhancement issues are pre-phase; phase classification (`foundation` / `happy-path` / `edge-cases`) only applies once an issue is promoted to actionable.
+- **`tech:` and `module:` labels still apply** so the issue surfaces in the right area filters.
+- **Trigger condition (optional).** If `stories[].description.trigger` is set in `stories.json` (free-form string), the issue body adds a `## Trigger Condition` section quoting it verbatim. If absent, no section is rendered — the keywords in the story text speak for themselves.
+- **Promotion path.** When a maintainer is ready to act on a future-enhancement, they edit the issue title to drop the trigger keyword, remove the `type:future-enhancement` label, and re-run `to-issues` on the updated story (which will then infer `type:feat` and apply the proper `tier:`). There is no automatic promotion — that is by design.
 
 ## Default `tech` Keyword Map
 
@@ -85,6 +97,7 @@ If no folder matches, the issue is created with no `module:` label and the auton
 | Prefix     | Color (hex) |
 |------------|-------------|
 | `type:`    | `1D76DB` (blue) |
+| `type:future-enhancement` | `D4C5F9` (lavender — distinguishes from active `type:` work at a glance) |
 | `tier:`    | `5319E7` (purple) |
 | `tech:`    | `0E8A16` (green) |
 | `module:`  | `BFD4F2` (light blue) |

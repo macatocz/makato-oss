@@ -120,6 +120,16 @@ Changes are grouped by skill/agent/component. Within each group, latest version 
 
 ## `to-issues` skill
 
+- **3.1.0**
+  - Added `type:future-enhancement` as a 7th value in the `type:` dimension — for real work parked until a trigger condition is met (e.g. "wait until Brain v2", "v3 milestone", "icebox")
+  - Trigger keywords: `future`, `someday`, `eventually`, `parked`, `deferred`, `icebox`, `backlog`, `wait until`, `after we`, `once we`, `when X then`, `v2`/`v3`/`vNext`, `milestone-2..9`
+  - Future-enhancement issues SKIP the `tier:` label entirely (pre-phase work); `tech:` and `module:` still apply for filter visibility
+  - New optional `stories[].description.trigger` field (free-form string) renders a `## Trigger Condition` section in the issue body when present; absent/empty → section omitted (zero visual noise for the common case)
+  - Phase rendering for future-enhancement issues becomes `_n/a — future enhancement_` instead of the literal phase value
+  - Label color added: `type:future-enhancement` → `D4C5F9` (lavender — distinguishes from active `type:` work at a glance)
+  - `issue-template.md` bumped v1 → v2 (added `{{TRIGGER_CONDITION_BLOCK}}` placeholder)
+  - Backward compatible: existing stories.json files infer correctly; new field is purely opt-in
+
 - **3.0.0** (BREAKING)
   - Retarget `github.com` only — removed all `GH_HOST=github.concur.com`, `GH_ENTERPRISE_TOKEN`, and TLS-bypass references including the `compatibility:` frontmatter line
   - Project name now read from `.claude/config.json` (`"project"` key, fallback `"sagibeast"`); legacy `.claude/rules/project-information.md` is detected and a migration warning is emitted, but the file is no longer written

@@ -7,7 +7,7 @@ description: >-
   (type/tier/tech/module), maps stories to ADR folders by name pattern, and emits
   `specs/{slug}/created-issues.json` for downstream plugins.
 license: MIT
-version: "3.0.0"
+version: "3.1.0"
 argument-hint: "[optional: feature slug] [--dry-run] [--interactive|--autonomous]"
 allowed-tools: Bash(gh *) Bash(git *) Bash(python3 *) Read Write Grep Glob
 hooks: ["convert to issues", "break into issues", "create github issues", "turn this into tickets", "issue breakdown", "create implementation tickets", "decompose into issues", "publish stories", "create issues from stories.json"]
@@ -119,7 +119,7 @@ Output is a newline-separated list of lowercase-hyphenated ADR slugs.
 For each story in `stories.json.stories[]`, apply the algorithm in `references/label-taxonomy.md`:
 
 1. **type**: regex match the story title + scope against the inference table, top-to-bottom; first match wins; default `type:feat`.
-2. **tier**: copy `stories[].phase` verbatim, prefixed `tier:`.
+2. **tier**: copy `stories[].phase` verbatim, prefixed `tier:`. **Skip this dimension entirely when `type:future-enhancement` was inferred** — future-enhancement issues are pre-phase and carry no `tier:` label. In autonomous mode log `[to-issues:auto] story <n>: tier skipped (type:future-enhancement)`.
 3. **tech**: match story title + scope against the default tech keyword map AND any `labels.tech` patterns from `.claude/config.json`. Defaults evaluate first; config entries are appended (D14 union-with-defaults). Multiple matches → multiple `tech:` labels.
 4. **module**: tokenize the story (title + scope + background, lowercased, alphanumeric runs ≥3 chars). For each ADR folder slug, emit `module:<slug>` when at least one slug token appears in the story's token set. Emit ALL matching modules. If none match, log `[to-issues:auto] story <n>: no module match` and omit the dimension.
 
@@ -150,7 +150,16 @@ For each story:
    - `{{STORY_SUMMARY}}` → `summary`.
    - `{{STORY_BACKGROUND}}` → `description.background`.
    - `{{STORY_SCOPE}}` → `description.scope`.
-   - `{{STORY_PHASE}}` → `phase`.
+   - `{{STORY_PHASE}}` → `phase`. For `type:future-enhancement` stories, render this as `_n/a — future enhancement_` instead of the phase value (pre-phase work).
+   - `{{TRIGGER_CONDITION_BLOCK}}` → when `description.trigger` is a non-empty string on the story, render:
+
+     ```
+     ## Trigger Condition
+
+     {{description.trigger}}
+     ```
+
+     When `description.trigger` is absent or empty, substitute the EMPTY STRING (no heading, no placeholder text). This keeps the body clean for the common case.
    - `{{LABELS_LIST}}` → bulleted list, one label per line.
    - `{{ARCH_MODULES_LIST}}` → bulleted list of matched module slugs (or the literal text `_no module match_`).
    - `{{SUCCESS_SCENARIOS}}` → render each `successScenarios[]` entry as a Gherkin block (`*Scenario N: {title}*\nGiven {given}\nWhen {when}\nThen {then}\nAnd {and[i]}...`).
