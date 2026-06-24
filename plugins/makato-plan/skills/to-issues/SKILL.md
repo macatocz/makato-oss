@@ -3,23 +3,23 @@ name: to-issues
 description: >-
   Use when user wants to convert a plan into issues, create implementation tickets, or break
   down a feature into GitHub issues. Generic across makato consumers — reads `.claude/config.json`
-  for project name, targets `github.com`, applies a 4-dimension label taxonomy
-  (type/tier/tech/module), maps stories to ADR folders by name pattern, and emits
+  for project name, targets `github.com`, applies a 5-dimension label taxonomy
+  (type/tier/tech/module/status), maps stories to ADR folders by name pattern, and emits
   `specs/{slug}/created-issues.json` for downstream plugins.
 license: MIT
-version: "3.1.0"
+version: "3.2.0"
 argument-hint: "[optional: feature slug] [--dry-run] [--interactive|--autonomous]"
 allowed-tools: Bash(gh *) Bash(git *) Bash(python3 *) Read Write Grep Glob
 hooks: ["convert to issues", "break into issues", "create github issues", "turn this into tickets", "issue breakdown", "create implementation tickets", "decompose into issues", "publish stories", "create issues from stories.json"]
 metadata:
   Authors: makato contributors
-  last_updated: "2026-06-23"
+  last_updated: "2026-06-24"
   mcp_server: none
 ---
 
 # To Issues
 
-Create GitHub issues on **github.com** from a shaped `stories.json`. Each issue carries a 4-dimension label set (type / tier / tech / module), an architecture-mapped module annotation, and a body rendered from a versioned template. Writes `specs/{slug}/created-issues.json` as a machine-readable handoff for downstream skills (e.g. `build-create-pr`).
+Create GitHub issues on **github.com** from a shaped `stories.json`. Each issue carries a 5-dimension label set (type / tier / tech / module / status — the last is sparse, emitted only when non-default), an architecture-mapped module annotation, and a body rendered from a versioned template. Writes `specs/{slug}/created-issues.json` as a machine-readable handoff for downstream skills (e.g. `build-create-pr`).
 
 **Breaking change vs. 2.x:** the skill no longer targets the 2.x enterprise GitHub host, no longer reads or writes `project-information.md`, and now requires a `.claude/config.json` at the repo root (silent fallback to `"sagibeast"` is provided).
 
@@ -36,7 +36,7 @@ Create GitHub issues on **github.com** from a shaped `stories.json`. Each issue 
 
 ## Reference Files
 
-- **MANDATORY** — load `references/label-taxonomy.md` for the 4-dimension taxonomy, type-inference table, ADR-match algorithm, and config-extension contract.
+- **MANDATORY** — load `references/label-taxonomy.md` for the 5-dimension taxonomy (`type:` / `tier:` / `tech:` / `module:` / `status:`), type-inference table, ADR-match algorithm, config-extension contract, and the sparse `status:` inference rules in `## Status Dimension`.
 - **MANDATORY** — load `references/issue-template.md` for the body template (single edit point for issue body format).
 - **MANDATORY** — load `references/created-issues.schema.json` as the validation schema for the output artifact.
 - `references/slice-patterns.md` — only when a slice boundary is ambiguous or the caller asks about vertical-slicing strategy.
@@ -122,6 +122,12 @@ For each story in `stories.json.stories[]`, apply the algorithm in `references/l
 2. **tier**: copy `stories[].phase` verbatim, prefixed `tier:`. **Skip this dimension entirely when `type:future-enhancement` was inferred** — future-enhancement issues are pre-phase and carry no `tier:` label. In autonomous mode log `[to-issues:auto] story <n>: tier skipped (type:future-enhancement)`.
 3. **tech**: match story title + scope against the default tech keyword map AND any `labels.tech` patterns from `.claude/config.json`. Defaults evaluate first; config entries are appended (D14 union-with-defaults). Multiple matches → multiple `tech:` labels.
 4. **module**: tokenize the story (title + scope + background, lowercased, alphanumeric runs ≥3 chars). For each ADR folder slug, emit `module:<slug>` when at least one slug token appears in the story's token set. Emit ALL matching modules. If none match, log `[to-issues:auto] story <n>: no module match` and omit the dimension.
+5. **status**: emit `status:blocked` when ANY of the following hold, otherwise omit the `status:` dimension entirely (sparse — see `references/label-taxonomy.md` `## Status Dimension`):
+   - The story's `dependencies.blockedBy` contains an integer ID that is unresolved at the point of issue creation. "Unresolved" means: (a) the upstream story has no corresponding GitHub issue yet AND (b) the upstream story was not created earlier in the current batch's topological order. Dangling references (ID not in batch at all) also emit `status:blocked` with a soft-warning log line.
+   - The story was inferred as `type:future-enhancement` in bullet 1 above (per v3.1.0).
+   - The story's `stories[].labels` array contains the literal string `status:blocked` (explicit operator override).
+   When an explicit `stories[].labels` value contradicts inference (e.g. the operator wrote `status:todo` on a story that would otherwise infer `status:blocked`), the explicit value wins; log `[to-issues:auto] story <n>: status inference (<inferred>) overridden by explicit label (<explicit>)`.
+   `status:in-progress` and `status:done` are taxonomy values but are **never** auto-emitted by this skill — lifecycle transitions belong to a future `manage-github-project` skill.
 
 In `--interactive` mode, after inference for each story, present the proposed label set and ask `confirm / edit / skip` before proceeding to creation. In `--autonomous` mode, log every inferred label to stdout (one line per story, prefixed `[to-issues:auto] story <n>:`).
 

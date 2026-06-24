@@ -120,6 +120,19 @@ Changes are grouped by skill/agent/component. Within each group, latest version 
 
 ## `to-issues` skill
 
+- **3.2.0**
+  - Rewrote `references/slice-patterns.md` for sagibeast topology — dropped `Context Boundary Detection` (k8s + AWS context labels that aren't in the v3.0.0 taxonomy and don't match sagibeast's stack) and dropped `Autonomous vs Needs Human Decision Tree` (governance signals belong on labels, not in a decision tree)
+  - Added four named tracer-bullet shapes covering ~80% of sagibeast's data-flow topologies: **Web/API** (FastAPI request/response), **Brain agent / LangGraph node** (agent reasoning), **Pipeline** (Docling/BGE-M3/pgvector/MinIO ingest+query), **Cross-cutting** (middleware / Langfuse instrumentation / sandbox policy wraps). Each shape has 5 layers + an anti-pattern callout. Config-only and lifecycle/governance work are explicitly NOT tracer-shaped and handled in prose
+  - Trimmed `Issue Body Quality Checklist` from 5 items to 4 (dropped the obsolete "Slice type — Autonomous or Needs Human" item)
+  - Added `status:` as the **5th label dimension** (sparse — emitted only when non-default). Four documented values match the sagibeast GitHub Project board's `Status` field: `status:todo` (green `0E8A16`), `status:in-progress` (yellow `FBCA04`), `status:done` (purple `5319E7`), `status:blocked` (red `B60205`)
+  - `to-issues` auto-emits **only** `status:blocked` on creation, when ANY of: (a) story has unresolved `dependencies.blockedBy`, (b) story was inferred as `type:future-enhancement`, (c) story's `stories[].labels` array contains the literal `status:blocked`
+  - `status:in-progress` and `status:done` are reserved in the taxonomy so labels exist on the repo, but lifecycle transitions are deferred to a future `manage-github-project` skill (out of scope for v3.2.0)
+  - Explicit operator override: any `status:*` value present in `stories[].labels` wins over inference; conflicts are logged in autonomous mode
+  - `label-taxonomy.md` opening updated from "4-dimension label set" → "5-dimension label set" with a note that `status:` is sparse; dimensions table extended with a 5th row; new `## Status Dimension` subsection added; GitHub-label-creation color table extended with the four `status:*` colors. **`tier:` migrated from `5319E7` (purple) to `8B5CF6` (violet)** to free `5319E7` for `status:done`'s exact project-board match. `gh label create` is no-op-on-existing, so existing `tier:*` labels keep their old color — to force-recolor, run `gh label edit "tier:foundation" --color 8B5CF6 ...` manually.
+  - `SKILL.md` Step 3 inference loop gains a 5th bullet (`status:`) that delegates to `references/label-taxonomy.md` `## Status Dimension` for rules. Reference-Files note updated to mention the 5th dimension. Description frontmatter updated from `(type/tier/tech/module)` → `(type/tier/tech/module/status)`
+  - Backward compatible: existing `stories.json` infer exactly as in v3.1.0; the `status:` dimension is purely additive and sparse. No schema changes to `created-issues.schema.json` (labels[] already accepts the new values); no body-template changes to `issue-template.md` (status is a label, not body content)
+  - Out of scope (deferred to future PRs): GitHub Project board column sync (PR-B `manage-github-project`); `needs-human-review` governance signal (would belong to a separate `review:` dimension if wanted later)
+
 - **3.1.0**
   - Added `type:future-enhancement` as a 7th value in the `type:` dimension — for real work parked until a trigger condition is met (e.g. "wait until Brain v2", "v3 milestone", "icebox")
   - Trigger keywords: `future`, `someday`, `eventually`, `parked`, `deferred`, `icebox`, `backlog`, `wait until`, `after we`, `once we`, `when X then`, `v2`/`v3`/`vNext`, `milestone-2..9`
