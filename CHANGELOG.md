@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.0](https://github.com/zstary/makato/compare/v0.8.0...v0.9.0) (2026-06-24)
+
+
+### ✨ Features
+
+* **makato-plan:** add type:future-enhancement to to-issues taxonomy (v3.1.0) ([#12](https://github.com/zstary/makato/issues/12)) ([2b1a1ff](https://github.com/zstary/makato/commit/2b1a1ffe7ce0d3ded7f33cfff8d158248d758643))
+* **makato-plan:** rewrite slice-patterns and add status: label dimension to to-issues (v3.2.0) ([#14](https://github.com/zstary/makato/issues/14)) ([6326513](https://github.com/zstary/makato/commit/632651309471c9e474c9fb22b93935b0f7378f7b))
+
 ## [0.8.0](https://github.com/zstary/makato/compare/v0.7.0...v0.8.0) (2026-06-23)
 
 
