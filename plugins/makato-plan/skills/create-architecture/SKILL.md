@@ -4,7 +4,7 @@ description: >-
   Create Architecture Design Documents from PRD output — architecture, technical
   design, system context, component design, API design, data model, security,
   deployment, test strategy. Use after PRD is approved.
-version: "1.0.3"
+version: "1.0.4"
 model: opus
 argument-hint: "[slug]"
 ---
@@ -25,7 +25,7 @@ technical decisions, and operational strategy. No external side-effects.
 ## When NOT to Use
 
 - No PRD exists yet (run create-prd first)
-- Feature is trivial (single-file change with no architectural makato)
+- Feature is trivial (single-file change with no architectural impact)
 - Already have a design.md and want to decompose into stories (use decompose skill)
 - Want to create implementation tasks or stories (that's the decompose skill)
 - Want to create GitHub Issues or publish externally (use /publish downstream)
@@ -178,7 +178,7 @@ needs topic design and consumer groups.
 
 #### Round 2 — Design Decisions & Data (always ask)
 
-- **Key technical decisions** — "What are the 3-5 most makatoful technical choices
+- **Key technical decisions** — "What are the 3-5 most impactful technical choices
   we need to make? For each: what options did you consider, what did you choose,
   why, and what trade-offs are we accepting?"
 - **Data model** — "What entities exist? Relationships? Storage technology

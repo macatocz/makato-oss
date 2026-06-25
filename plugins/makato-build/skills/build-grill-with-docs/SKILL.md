@@ -1,19 +1,16 @@
 ---
 name: build-grill-with-docs
-description: >-
-  Align implementation plan terminology to the codebase domain model —
-  grill plan, terminology conflicts, glossary.md enrichment, ADR decisions.
-  Use after /refine, before /implement-tdd or /implement-goal. Optional but
-  recommended for complex stories.
-version: "1.3.1"
+description: Align implementation plan terminology to the codebase domain model — grill plan, terminology conflicts, glossary.md enrichment, ADR decisions. Use after /refine, before /implement-tdd or /implement-goal. Optional but recommended for complex stories.
+version: "1.3.2"
 model: opus
 argument-hint: "[work-item-key]"
+---
+
+## When to Use
 
 Use after `/refine` (plan.md exists) and before `/implement-tdd` or `/implement-goal`. The implementation plan is in place but may contain spec-language that doesn't match how the codebase actually names things. This skill probes those mismatches and enriches the feature `glossary.md` (produced by `/makato-plan:grill`) with codebase name annotations before any code is written.
 
-Do NOT use as a substitute for `/refine` (this skill does not produce an implementation plan) or as a substitute for `/makato-plan:grill` (that skill stress-tests spec artifacts and owns the canonical domain vocabulary; this one maps that vocabulary to live code symbols).
-
----
+**Do NOT use** as a substitute for `/refine` (this skill does not produce an implementation plan) or as a substitute for `/makato-plan:grill` (that skill stress-tests spec artifacts and owns the canonical domain vocabulary; this one maps that vocabulary to live code symbols).
 
 ## Workflow
 

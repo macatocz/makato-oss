@@ -1,7 +1,7 @@
 ---
 name: langgraph-reflexion
 description: "INVOKE THIS SKILL when building iterative self-improvement agents with human feedback and persistent lessons in LangGraph. Covers the reflexion loop (act-tools-feedback-reflect-finalize), custom lesson reducers, and Postgres-backed lesson persistence. Python-only"
-version: "1.0.0"
+version: "1.1.0"
 ---
 <overview>
 Reflexion is an iterative improvement pattern where an agent acts, receives human feedback, reflects to create reusable lessons, and retries guided by those lessons. Lessons persist across runs via a checkpointer, enabling domain-specific competence bootstrapping.
@@ -57,15 +57,15 @@ Nodes:
 Reflexion state with message history, lessons (custom reducer), and attempt tracking.
 ```python
 import operator
-from typing import Any, Dict, List, TypedDict, Annotated
+from typing import Annotated, Any, TypedDict
 from langchain_core.messages import BaseMessage
 
-def unique_lessons_reducer(left: List[str] | None, right: List[str] | None) -> List[str]:
+def unique_lessons_reducer(left: list[str] | None, right: list[str] | None) -> list[str]:
     """Merge lessons uniquely, preserving order. Deduplicates by stripped text."""
     left_list = left or []
     right_list = right or []
     seen = set()
-    result: List[str] = []
+    result: list[str] = []
     for lesson in left_list + right_list:
         key = (lesson or "").strip()
         if key and key not in seen:
@@ -74,12 +74,12 @@ def unique_lessons_reducer(left: List[str] | None, right: List[str] | None) -> L
     return result
 
 class ReflexionState(TypedDict, total=False):
-    messages: Annotated[List[BaseMessage], operator.add]   # Chat history (accumulates)
+    messages: Annotated[list[BaseMessage], operator.add]   # Chat history (accumulates)
     attempt: int                                            # Current iteration
-    lessons: Annotated[List[str], unique_lessons_reducer]   # Persisted lessons (deduplicated)
+    lessons: Annotated[list[str], unique_lessons_reducer]   # Persisted lessons (deduplicated)
     feedback: str                                           # Human feedback text
     approved: bool                                          # Human approval flag
-    history: Annotated[List[Dict[str, Any]], operator.add]  # Audit trail
+    history: Annotated[list[dict[str, Any]], operator.add]  # Audit trail
     final: str                                              # Final synthesized answer
 
 ```
@@ -94,7 +94,7 @@ class ReflexionState(TypedDict, total=False):
 <python>
 Custom reducer that deduplicates lessons while preserving insertion order.
 ```python
-def unique_lessons_reducer(left: List[str] | None, right: List[str] | None) -> List[str]:
+def unique_lessons_reducer(left: list[str] | None, right: list[str] | None) -> list[str]:
     """Merge lessons uniquely, preserving order.
 
     - Keeps existing lessons from `left` in their original order
@@ -104,7 +104,7 @@ def unique_lessons_reducer(left: List[str] | None, right: List[str] | None) -> L
     left_list = left or []
     right_list = right or []
     seen = set()
-    result: List[str] = []
+    result: list[str] = []
     for lesson in left_list + right_list:
         key = (lesson or "").strip()
         if key and key not in seen:
@@ -323,4 +323,3 @@ except Exception:
 - Store verbose paragraphs as lessons — they waste context window and degrade quality
 - Expect reflexion to work without a checkpointer — lessons need persistence to be useful across runs
 </boundaries>
-```

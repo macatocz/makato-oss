@@ -1,9 +1,7 @@
 ---
 name: excalidraw
 description: "Generate Excalidraw diagrams from text with Obsidian, Standard, or Animated output. Use when: creating flowcharts, architecture diagrams, mind maps from text descriptions. Keywords: excalidraw, diagram, flowchart, mindmap, visualization, animate."
-version: "1.3.0"
-metadata:
-  version: 1.3.0
+version: "1.3.1"
 ---
 # Excalidraw Diagram Generator
 
@@ -23,6 +21,15 @@ Create Excalidraw diagrams from text content with multiple output formats.
 2. **Analyze content** - identify concepts, relationships, hierarchy
 3. **Choose diagram type** (see table below)
 4. **Generate JSON** using [references/excalidraw-schema.md](references/excalidraw-schema.md)
+   - `fontFamily` must be `5` (Excalifont only)
+   - Arrow/line elements require a `points` array — never omit it
+   - Use `startArrowhead`/`endArrowhead` (not `startArrowType`/`endArrowType`)
+   - Omit `frameId`, `index`, `versionNonce`, `rawText` fields
+   - Use `boundElements: null` (not `[]`)
+   - Text `fontSize` minimum 14px; avoid light gray text on white background
+   - Calculate text fit before placing; respect max chars/line from schema reference
+   - Phase boxes: max 4 lines — abbreviate content, do not expand the container
+   - Set text `height` ≥ `lineCount × fontSize × 1.25`
 5. **Save file** to current working directory
 6. **Report** file path and usage instructions
 
@@ -106,17 +113,3 @@ Key sections:
 - Color palette (text & background colors)
 - Layout guidelines (canvas, spacing, font sizes)
 - Animation properties (for Animated mode)
-
-## NEVER
-
-- NEVER use `fontFamily` other than `5` (Excalifont)
-- NEVER omit `points` array on arrow/line elements
-- NEVER use `startArrowType`/`endArrowType` (use `startArrowhead`/`endArrowhead`)
-- NEVER include `frameId`, `index`, `versionNonce`, `rawText` fields
-- NEVER use `boundElements: []` (must be `null`)
-- NEVER set text `fontSize` below 14px
-- NEVER use light gray text on white background
-- NEVER place text without calculating if it fits the container
-- NEVER exceed max characters per line (see Text Fitting in schema reference)
-- NEVER exceed 4 lines in a phase box - abbreviate content instead of expanding container
-- NEVER set text `height` smaller than `lineCount × fontSize × 1.25`

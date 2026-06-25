@@ -1,7 +1,7 @@
 ---
 name: makato-skill-creator
 description: Create a complete, working skill inside an existing makato plugin with full guardrails and validation — create skill, new skill, add skill to plugin, write a skill
-version: "1.1.1"
+version: "1.1.2"
 ---
 # makato-skill-creator
 
@@ -189,9 +189,18 @@ For each planned template:
    ```
 2. Update the skills table in `plugins/<plugin>/README.md` if one exists.
 
-**Do NOT modify**
+**Do NOT modify `plugin.json`** — skills are auto-loaded from the directory structure.
 
- fails:
+#### Step 13: Validate
+
+Run validation scripts:
+```bash
+./scripts/check-skill-frontmatter.sh plugins/<plugin>/skills/<skill-name>
+./scripts/check-self-contained.sh plugins/<plugin>/skills/<skill-name>
+./scripts/check-naming.sh
+```
+
+If any check fails:
 
 1. Report the specific error
 2. Fix the issue

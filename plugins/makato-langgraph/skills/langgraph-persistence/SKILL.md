@@ -1,7 +1,7 @@
 ---
 name: langgraph-persistence
 description: "INVOKE THIS SKILL when your LangGraph needs to persist state, remember conversations, travel through history, use the in-memory or Postgres checkpointer, or compose subgraphs. Covers checkpointers, thread_id, time travel, Store, subgraph composition, and subgraph persistence modes. Python-only"
-version: "1.0.0"
+version: "1.0.1"
 ---
 <overview>
 LangGraph's persistence layer enables durable execution by checkpointing graph state:
@@ -175,7 +175,7 @@ Key concepts:
 <python>
 Parent graph with parallel subgraphs using overlapping keys and output schemas.
 ```python
-from typing import List, Optional, Annotated
+from typing import Annotated
 from typing_extensions import TypedDict
 from operator import add
 from langgraph.graph import StateGraph, START, END
@@ -186,19 +186,19 @@ class Log(TypedDict):
     id: str
     question: str
     answer: str
-    grade: Optional[int]
+    grade: int | None
 
 # --- Subgraph 1: Failure Analysis ---
 
 class FailureAnalysisState(TypedDict):
-    cleaned_logs: List[Log]      # Input from parent (overlapping key)
-    failures: List[Log]          # Internal state
+    cleaned_logs: list[Log]      # Input from parent (overlapping key)
+    failures: list[Log]          # Internal state
     fa_summary: str              # Output
-    processed_logs: List[str]    # Output
+    processed_logs: list[str]    # Output
 
 class FailureAnalysisOutput(TypedDict):
     fa_summary: str              # Only these keys return to parent
-    processed_logs: List[str]
+    processed_logs: list[str]
 
 def build_failure_subgraph():
     def get_failures(state: FailureAnalysisState) -> dict:
@@ -225,13 +225,13 @@ def build_failure_subgraph():
 # --- Subgraph 2: Question Summarization ---
 
 class QuestionSummaryState(TypedDict):
-    cleaned_logs: List[Log]      # Input from parent (overlapping key)
+    cleaned_logs: list[Log]      # Input from parent (overlapping key)
     report: str                  # Output
-    processed_logs: List[str]    # Output
+    processed_logs: list[str]    # Output
 
 class QuestionSummaryOutput(TypedDict):
     report: str
-    processed_logs: List[str]
+    processed_logs: list[str]
 
 def build_summary_subgraph():
     def summarize(state: QuestionSummaryState) -> dict:
@@ -253,11 +253,11 @@ def build_summary_subgraph():
 # --- Parent Graph ---
 
 class ParentState(TypedDict):
-    raw_logs: List[Log]
-    cleaned_logs: List[Log]
+    raw_logs: list[Log]
+    cleaned_logs: list[Log]
     fa_summary: str
     report: str
-    processed_logs: Annotated[List[str], add]  # Reducer for parallel results
+    processed_logs: Annotated[list[str], add]  # Reducer for parallel results
 
 def clean_logs(state: ParentState) -> dict:
     return {"cleaned_logs": state["raw_logs"]}

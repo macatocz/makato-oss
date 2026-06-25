@@ -7,7 +7,7 @@ description: >-
   (type/tier/tech/module/status), maps stories to ADR folders by name pattern, and emits
   `specs/{slug}/created-issues.json` for downstream plugins.
 license: MIT
-version: "3.2.0"
+version: "3.2.1"
 argument-hint: "[optional: feature slug] [--dry-run] [--interactive|--autonomous]"
 allowed-tools: Bash(gh *) Bash(git *) Bash(python3 *) Read Write Grep Glob
 hooks: ["convert to issues", "break into issues", "create github issues", "turn this into tickets", "issue breakdown", "create implementation tickets", "decompose into issues", "publish stories", "create issues from stories.json"]
@@ -66,6 +66,8 @@ echo "[to-issues] target_repo=$TARGET_REPO project=$PROJECT_NAME"
 
 If `python3` exits 2 (malformed JSON), abort the entire skill — do not silently fall back.
 
+**Constraint:** `GH_HOST` MUST be set to `github.com` only. Do not target a 2.x enterprise GitHub host, set `GH_HOST` to an enterprise endpoint, use `GH_ENTERPRISE_TOKEN`, or apply any TLS bypass. That wiring was removed in v3.
+
 **Legacy-migration warning (D18):**
 
 ```bash
@@ -113,6 +115,8 @@ fi
 ```
 
 Output is a newline-separated list of lowercase-hyphenated ADR slugs.
+
+**Constraint:** read folder names only — do NOT read ADR file contents. Module matching is intentionally a folder-name-only signal (D5).
 
 ### Step 3 — Infer labels per story
 
@@ -263,14 +267,3 @@ In autonomous mode:
 | `GH_AUTH_FAILED` | `gh` CLI returns auth error — caller must run `gh auth login` |
 | `SCHEMA_VALIDATION_FAILED` | Generated `created-issues.json` failed schema validation (skill bug — file an issue) |
 | `PARTIAL_FAILURE` | `gh issue create` failed mid-batch; partial artifact persisted |
-
-## NEVER
-
-- **NEVER target the 2.x enterprise GitHub host or set `GH_HOST` to an enterprise endpoint** — v3 is github.com-only by D1. The 2.x enterprise-host / GH_ENTERPRISE_TOKEN / TLS bypass wiring is removed.
-- **NEVER write back to `.claude/rules/project-information.md`** — that file is obsolete; `config.json` is read-only canonical. Emit the migration warning when the legacy file is detected, but do not modify it.
-- **NEVER create issues out of dependency order** — `gh issue create` assigns sequential numbers, so a blocked issue must reference a real upstream number. Topo-sort first.
-- **NEVER auto-override a default label with a config-supplied one of the same name** — the default wins; log the conflict instead (D14).
-- **NEVER continue past a partial failure** — halt the batch, persist what was created, exit non-zero. Rollback of created GitHub issues is out of scope; the user resumes manually.
-- **NEVER skip schema validation of the artifact** — a malformed `created-issues.json` would silently break `build-create-pr` downstream.
-- **NEVER read ADR file contents** — folder names only (D5). Module matching is intentionally a folder-only signal.
-- **NEVER prompt the user in autonomous mode** — all decisions are silent + logged. Prompting blocks the calling pipeline.

@@ -70,6 +70,9 @@
 
 ## `analyze` skill
 
+- **1.1.1**
+  - sagibeast-alignment audit: remove duplicate `8. Inconsistencies` section heading in Step 9 artifact template
+  - renumber the second "Step 9" (GitHub Issues update) to "Step 10" so workflow step numbers are unique
 - **1.0.0**
   - Initial — Analyze change request requirements by comparing current vs. requested behavior, identify and address questions and inconsistencies, update GitHub issue with refined requirements
   - Add repository discovery step (Step 2.5) that prompts for target repo and writes repositories.yml

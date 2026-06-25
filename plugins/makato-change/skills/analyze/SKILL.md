@@ -1,7 +1,7 @@
 ---
 name: analyze
 description: Analyze change request requirements by comparing current behavior against requested changes, identify and address open questions and inconsistencies, update GitHub issue with refined requirements. Use for change requests, requirement analysis, behavior comparison, scope estimation.
-version: "1.1.0"
+version: "1.1.1"
 argument-hint: "[ISSUE-KEY]"
 ---
 
@@ -350,8 +350,6 @@ Write complete analysis to `specs/<issue-key>/analysis.md`:
 
 8. **Inconsistencies** — Conflicts and risks (from Step 6: consolidated from REQUIREMENTS_DIFF_RESULT + supplemental findings)
 
-8. **Inconsistencies** — Conflicts and risks (from Step 6: consolidated from REQUIREMENTS_DIFF_RESULT + supplemental findings)
-
 9. **E2E Test Impact** — Affected scenarios with IDs (from TEST_ANALYSIS_RESULT: E2E scenarios found + REQUIREMENTS_DIFF_RESULT: test update needs)
 
 10. **Scope Estimate** — Small/medium/large with justification (from Step 7: based on CODE_EXPLORATION_RESULT file count + TEST_ANALYSIS_RESULT test count + REQUIREMENTS_DIFF_RESULT complexity)
@@ -364,7 +362,7 @@ Write complete analysis to `specs/<issue-key>/analysis.md`:
 
 Make the artifact self-contained. The design skill will load this file without access to the GitHub Issues issue or conversation context.
 
-### Step 9: Update GitHub Issues Issue
+### Step 10: Update GitHub Issues Issue
 
 Load @references/jira-update-format.md for tone and structure.
 

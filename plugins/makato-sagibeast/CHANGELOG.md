@@ -6,6 +6,12 @@
 - `sagibeast-connect-testbox` skill — connect, port-forward, credential sync, k3d on existing testbox
 - `sagibeast-create-testbox` skill — provision Multipass/EC2/Hetzner testbox VM for E2E parity
 
+### Changed — sagibeast-alignment audit (2026-06-25)
+
+- `sagibeast-connect-testbox` — **1.0.0 → 1.0.1**
+  - replaced "Docker Compose locally (Track 1)" with "Docker Compose locally (L2 — ADR-0024)" to match ADR-0024 three-layer naming (L1/L2/L3)
+  - fixed port-forward caution: "two Brain-PG instances exist in staging" → "Brain-PG (Class A) and Body-PG (Class B) are separate instances" to accurately reflect ADR-0020 bilateral PG split
+
 ## [0.1.0] — 2026-06-22
 
 ### Added

@@ -1,7 +1,7 @@
 ---
 name: langgraph-agent-patterns
 description: "INVOKE THIS SKILL when building LLM agents with tools in LangGraph. Covers ReAct loop (manual and prebuilt), multi-step planning, conditional branching, MessagesState, ToolNode, tools_condition, and MCP integration. Python-only"
-version: "1.0.0"
+version: "1.0.1"
 ---
 
 <overview>
@@ -37,7 +37,7 @@ A single LLM call wrapped in a graph. Useful for structured JSON output without 
 <python>
 Single-node graph that enforces JSON output via system prompt.
 ```python
-from typing import Any, Dict, TypedDict
+from typing import Any, TypedDict
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.output_parsers import JsonOutputParser
 from langgraph.graph import StateGraph, END
@@ -45,12 +45,12 @@ from langchain_openai import ChatOpenAI
 
 class State(TypedDict, total=False):
     prompt: str
-    result: Dict[str, Any]
+    result: dict[str, Any]
 
 llm = ChatOpenAI(model="gpt-4.1", temperature=0.2)
 parser = JsonOutputParser()
 
-def call_model(state: Dict[str, Any]) -> Dict[str, Any]:
+def call_model(state: dict[str, Any]) -> dict[str, Any]:
     system = SystemMessage(content="Respond with STRICT JSON. No backticks.")
     user = HumanMessage(content=state.get("prompt", ""))
     response = llm.invoke([system, user])
@@ -77,7 +77,7 @@ Decompose complex tasks into a planning step followed by an execution step.
 <python>
 Two-node graph: plan decomposes the task, answer executes the plan.
 ```python
-from typing import Any, Dict, TypedDict
+from typing import Any, TypedDict
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.output_parsers import JsonOutputParser
 from langgraph.graph import StateGraph, END
@@ -85,19 +85,19 @@ from langchain_openai import ChatOpenAI
 
 class State(TypedDict, total=False):
     question: str
-    plan: Dict[str, Any]
-    final: Dict[str, Any]
+    plan: dict[str, Any]
+    final: dict[str, Any]
 
 llm = ChatOpenAI(model="gpt-4.1", temperature=0.2)
 parser = JsonOutputParser()
 
-def plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
+def plan_node(state: dict[str, Any]) -> dict[str, Any]:
     system = SystemMessage(content="Decompose the question into steps. Output STRICT JSON: {\"steps\": [...], \"assumptions\": [...]}")
     user = HumanMessage(content=f"Question: {state.get('question', '')}")
     response = llm.invoke([system, user])
     return {"plan": parser.parse(response.content)}
 
-def answer_node(state: Dict[str, Any]) -> Dict[str, Any]:
+def answer_node(state: dict[str, Any]) -> dict[str, Any]:
     system = SystemMessage(content="Execute the plan step by step. Output STRICT JSON: {\"answer\": string, \"used_steps\": [...]}")
     user = HumanMessage(content=f"Question: {state.get('question', '')}. Plan: {state.get('plan', {})}")
     response = llm.invoke([system, user])
@@ -124,7 +124,7 @@ Route execution to different nodes based on LLM classification.
 <python>
 Classify input intent, then route to specialized nodes.
 ```python
-from typing import Any, Dict, TypedDict
+from typing import Any, TypedDict
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.output_parsers import JsonOutputParser
 from langgraph.graph import StateGraph, END
@@ -133,28 +133,28 @@ from langchain_openai import ChatOpenAI
 class State(TypedDict, total=False):
     input: str
     intent: str
-    result: Dict[str, Any]
+    result: dict[str, Any]
 
 llm = ChatOpenAI(model="gpt-4.1", temperature=0.2)
 parser = JsonOutputParser()
 
-def classify(state: Dict[str, Any]) -> Dict[str, Any]:
+def classify(state: dict[str, Any]) -> dict[str, Any]:
     system = SystemMessage(content='Classify as "informational" or "creative". Output JSON: {"intent": <value>}')
     user = HumanMessage(content=state.get("input", ""))
     response = llm.invoke([system, user])
     return {"intent": parser.parse(response.content).get("intent")}
 
-def informational(state: Dict[str, Any]) -> Dict[str, Any]:
+def informational(state: dict[str, Any]) -> dict[str, Any]:
     system = SystemMessage(content='Provide factual info. Output JSON: {"answer": string, "style": "informational"}')
     user = HumanMessage(content=state.get("input", ""))
     return {"result": parser.parse(llm.invoke([system, user]).content)}
 
-def creative(state: Dict[str, Any]) -> Dict[str, Any]:
+def creative(state: dict[str, Any]) -> dict[str, Any]:
     system = SystemMessage(content='Respond creatively. Output JSON: {"answer": string, "style": "creative"}')
     user = HumanMessage(content=state.get("input", ""))
     return {"result": parser.parse(llm.invoke([system, user]).content)}
 
-def route(state: Dict[str, Any]):
+def route(state: dict[str, Any]) -> str:
     return "informational" if state.get("intent") == "informational" else "creative"
 
 graph = StateGraph(State)

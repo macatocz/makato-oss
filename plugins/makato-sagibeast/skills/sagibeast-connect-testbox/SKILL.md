@@ -1,7 +1,7 @@
 ---
 name: sagibeast-connect-testbox
 description: Connect to or resume a sagibeast testbox VM — SSH, port-forward, credential sync, k3d. Use for: connect to testbox, ssh to testbox, port forward, sync creds, resume testbox, k3d testbox.
-version: "1.0.0"
+version: "1.0.1"
 argument-hint: "port-forward <local>:<remote> | --sync-creds | --k3d | --step-ca | --ide vscode | --ide jetbrains | --tmux"
 allowed-tools: Bash Read Write
 ---
@@ -9,8 +9,8 @@ allowed-tools: Bash Read Write
 # Connect Testbox
 
 Connects to an existing sagibeast testbox VM. See `/sagibeast-create-testbox` to provision
-a new VM. The default sagibeast inner loop uses Docker Compose locally (Track 1); provision
-a testbox only when the scenario genuinely requires it.
+a new VM. The default sagibeast inner loop uses Docker Compose locally (L2 — ADR-0024);
+provision a testbox only when the scenario genuinely requires it.
 
 ## When to Use
 
@@ -169,7 +169,7 @@ To stop a background forward:
 ps aux | grep 'ssh -fNT' | awk '{print $2}' | xargs kill
 ```
 
-**Caution:** Before forwarding 5432, confirm the container name includes `dev` (`docker ps --filter name=brain`) — the bilateral PG split (ADR-0020) means two Brain-PG instances exist in staging; forwarding the wrong one silently exposes customer Class A/B data over an unencrypted local port.
+**Caution:** Before forwarding 5432, confirm the container name includes `dev` (`docker ps --filter name=brain`) — the bilateral PG split (ADR-0020) means Brain-PG (Class A) and Body-PG (Class B) are separate instances; forwarding the wrong one silently exposes customer data over an unencrypted local port.
 
 **Caution:** Always use `-fNT` together for background tunnels — without `-N`, SSH opens a shell alongside the tunnel; closing the shell does not close the tunnel, leaving leaked open ports on the testbox.
 

@@ -1,7 +1,7 @@
 ---
 name: langgraph-fundamentals
 description: "INVOKE THIS SKILL when writing ANY LangGraph code. Covers StateGraph, state schemas (TypedDict/dataclass/Pydantic), reducers, nodes, edges, Command, Send, parallel execution, map-reduce, message trimming, invoke, streaming, and error handling. Python-only"
-version: "1.0.0"
+version: "1.0.1"
 ---
 <overview>
 LangGraph models agent workflows as **directed graphs**:
@@ -13,7 +13,7 @@ LangGraph models agent workflows as **directed graphs**:
 - **State with Reducers**: Control how state updates are merged
 
 Graphs must be `compile()`d before execution.
-`</overview>`
+</overview>
 
 <design-methodology>
 
@@ -129,14 +129,14 @@ def my_node(state: State) -> dict:
 <python>
 TypedDict state — lightest, no runtime validation. Use `total=False` for optional fields.
 ```python
-from typing import Any, Dict, List, Literal, TypedDict
+from typing import Any, Literal, TypedDict
 
 class State(TypedDict, total=False):
     name: str
     age: int
     mood: Literal["happy", "sad", "excited"]
-    interests: List[str]
-    result: Dict[str, Any]
+    interests: list[str]
+    result: dict[str, Any]
 ```
 
 </python>
@@ -146,15 +146,15 @@ class State(TypedDict, total=False):
 <python>
 Pydantic state — validates at runtime with field validators.
 ```python
-from typing import Any, Dict, List, Literal
+from typing import Any, Literal
 from pydantic import BaseModel, field_validator
 
 class State(BaseModel):
     name: str = ""
     age: int = 0
     mood: Literal["happy", "sad", "excited"] = "happy"
-    interests: List[str] = []
-    result: Dict[str, Any] = {}
+    interests: list[str] = []
+    result: dict[str, Any] = {}
 
     @field_validator("age")
     @classmethod
@@ -175,7 +175,7 @@ from pydantic import ConfigDict
 
 class State(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    messages: List[BaseMessage]  # LangChain types need arbitrary_types_allowed
+    messages: list[BaseMessage]  # LangChain types need arbitrary_types_allowed
 ```
 
 </python>
@@ -189,9 +189,9 @@ class State(BaseModel):
 <python>
 Custom reducer that aggregates numeric metrics from parallel nodes.
 ```python
-from typing import Dict, Annotated
+from typing import Annotated
 
-def metrics_aggregator(left: Dict[str, int], right: Dict[str, int]) -> Dict[str, int]:
+def metrics_aggregator(left: dict[str, int], right: dict[str, int]) -> dict[str, int]:
     """Sum matching keys from parallel metric collectors."""
     result = (left or {}).copy()
     for key, value in (right or {}).items():
@@ -199,7 +199,7 @@ def metrics_aggregator(left: Dict[str, int], right: Dict[str, int]) -> Dict[str,
     return result
 
 class AnalysisState(TypedDict):
-    metrics: Annotated[Dict[str, int], metrics_aggregator]
+    metrics: Annotated[dict[str, int], metrics_aggregator]
     summary: str
 
 ```
@@ -591,17 +591,17 @@ Fan-out mappers analyze different aspects in parallel, then a single reducer com
 Four parallel analysis mappers + one reducer, using static edges.
 ```python
 import operator
-from typing import Any, Dict, List, Annotated, TypedDict
+from typing import Any, Annotated, TypedDict
 from langgraph.graph import StateGraph, START, END
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 
 class AnalysisState(TypedDict):
     code: str
-    security: Annotated[List[Dict[str, Any]], operator.add]
-    performance: Annotated[List[Dict[str, Any]], operator.add]
-    quality: Annotated[List[Dict[str, Any]], operator.add]
-    report: Dict[str, Any]
+    security: Annotated[list[dict[str, Any]], operator.add]
+    performance: Annotated[list[dict[str, Any]], operator.add]
+    quality: Annotated[list[dict[str, Any]], operator.add]
+    report: dict[str, Any]
 
 llm = ChatOpenAI(model="gpt-4.1", temperature=0.2)
 
@@ -829,4 +829,3 @@ return {"items": ["item"]}  # List for list reducer, not a string
 - Mix static edges with Command goto without understanding both will execute
 - Use parallel fan-out without reducers on fields receiving concurrent updates
 </boundaries>
-```

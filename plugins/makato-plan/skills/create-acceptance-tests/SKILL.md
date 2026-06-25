@@ -5,7 +5,7 @@ description: >-
   (3-5 per foundation/happy-path story, 1-3 per edge-case story). Use after
   decompose to create acceptance tests, generate Gherkin scenarios, or refine
   test cases.
-version: "1.0.1"
+version: "1.0.2"
 model: sonnet
 argument-hint: "[slug]"
 ---
@@ -211,7 +211,7 @@ On approval, for each story in `stories.json`:
 ]
 ```
 
-1. Write the updated `stories.json` back to disk (preserve all other fields
+2. Write the updated `stories.json` back to disk (preserve all other fields
    unchanged)
 
 Load @references/acceptance-test-cases-schema.md during this step to validate the

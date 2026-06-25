@@ -5,6 +5,12 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## `build-grill-with-docs` skill
+
+- **1.3.2**
+  - sagibeast-alignment audit: flatten `description: >-` multiline folded scalar to a single-line string per frontmatter-spec
+  - move two unkeyed prose paragraphs out of the YAML frontmatter block into a new `## When to Use` section in the body (the prose had no key binding and broke the YAML)
+
 ## Plugin-level
 
 - **0.5.0**

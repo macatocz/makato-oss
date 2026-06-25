@@ -5,6 +5,29 @@ Changes are grouped by skill/agent/component. Within each group, latest version 
 
 ---
 
+## `to-issues` skill
+
+- **3.2.1**
+  - sagibeast-alignment audit: removed trailing `## NEVER` section (makato-skill-creator rule: no NEVER sections at end of file — high context-compaction-drop risk). Inlined the two constraints that lived only there: enterprise-host prohibition moved to Step 0 (GH_ENTERPRISE_TOKEN / TLS-bypass guard) and ADR-file-contents prohibition moved to Step 2 (folder-names-only, cites D5).
+
+## `excalidraw` skill
+
+- **1.3.1**
+  - sagibeast-alignment audit: removed trailing `## NEVER` section and inlined all 9 constraints as sub-bullets under Workflow Step 4 where they apply
+  - removed extraneous `metadata.version` from frontmatter (not a recognized field per frontmatter-spec.md)
+
+## `create-architecture` skill
+
+- **1.0.4**
+  - sagibeast-alignment audit: fixed two corruption artifacts — "architectural makato" → "architectural impact" in When NOT to Use, and "most makatoful technical choices" → "most impactful technical choices" in Round 2 interview (PATCH wording fixes only)
+
+## `create-acceptance-tests` skill
+
+- **1.0.2**
+  - sagibeast-alignment audit: fixed duplicate `1.` numbering in Step 7 (second item changed to `2.`)
+
+---
+
 ## `brainstorming` skill
 
 - **1.1.6**

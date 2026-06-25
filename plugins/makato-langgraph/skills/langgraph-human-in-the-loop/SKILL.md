@@ -1,7 +1,7 @@
 ---
 name: langgraph-human-in-the-loop
 description: "INVOKE THIS SKILL when implementing human-in-the-loop patterns, pausing for approval, breakpoints, or state editing in LangGraph. Covers interrupt(), Command(resume=...), interrupt_before breakpoints, update_state, approval/validation workflows, and idempotency. Python-only"
-version: "1.0.0"
+version: "1.0.1"
 ---
 <overview>
 LangGraph's human-in-the-loop patterns let you pause graph execution, surface data to users, and resume with their input:
@@ -12,7 +12,7 @@ LangGraph's human-in-the-loop patterns let you pause graph execution, surface da
 - **`update_state`** — modify graph state between runs
 - **Checkpointer** — required to save state while paused
 - **Thread ID** — required to identify which paused execution to resume
-`</overview>`
+</overview>
 
 ---
 
@@ -264,8 +264,8 @@ result = graph.invoke(None, config)
 ```
 
 Note: `update_state` passes through reducers. Use `Overwrite()` to replace instead of merge — see the persistence skill.
-`</python>`
-`</ex-state-editing>`
+</python>
+</ex-state-editing>
 
 ---
 
@@ -437,15 +437,3 @@ graph.invoke(Command(resume="approve"), config)
 ```
 </python>
 </fix-resume-with-command>
-
-<boundaries>
-### What You Should NOT Do
-
-- Use interrupts without a checkpointer — will fail
-- Resume without the same thread_id — creates a new thread instead of resuming
-- Pass `Command(update=...)` as invoke input — graph appears stuck (use plain dict)
-- Perform non-idempotent side effects before `interrupt()` — creates duplicates on resume
-- Assume code before `interrupt()` only runs once — it re-runs every resume
-- Use `interrupt_before` without a checkpointer — breakpoints require state persistence
-</boundaries>
-```

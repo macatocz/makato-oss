@@ -20,6 +20,8 @@ Changes are grouped by skill/agent/component. Within each group, latest version 
 
 ## `makato-skill-creator` skill
 
+- **1.1.2**
+  - sagibeast-alignment audit (content-integrity restore): Step 12 was truncated mid-sentence and Step 13 (Validate) was missing — both restored from git history (commit fb09341). No behavioral change beyond the original Step 13 contract.
 - **1.1.1**
   - update `self-containment-rules.md` to document the `shared/` symlink pattern (symlinks resolving within the plugin are preserved by the plugin cache)
   - add "Constraint Placement" section to `skill-authoring-rules.md` reference (prohibits end-of-file NEVER sections, Composes With, and pipeline diagrams)
