@@ -201,6 +201,9 @@ Classify every issue in `input_by_url` and every orphan in `snapshot` into one o
 | `sync_gap` | URL in input but NOT in snapshot (not yet added to board) | `warn` | Yes (add it) | Yes (add it) |
 | `label_blocked_board_not` | Issue has `status:blocked` in input labels; board Status is not `Blocked` | `warn` | No | Yes (set Blocked) |
 | `board_blocked_label_not` | Board Status is `Blocked`; issue does NOT have `status:blocked` in input labels | `warn` | No | Yes (clear Blocked → Todo) |
+| `label_ready_board_not` | Issue has `status:ready` in input labels; board Status is not `Ready`; not externally pinned | `warn` | No | Yes (set Ready) |
+| `label_in_review_board_not` | Issue has `status:in-review` in input labels; board Status is not `In review`; not externally pinned | `warn` | No | Yes (set In review) |
+| `label_pr_drift` | Issue has `pr_label_name` label (default `"PR"`) but no open linked PR found; OR open linked PR exists but label is absent | `warn` | No | Yes (stamp label if PR open; WARN if PR absent) |
 | `pr_merged_not_done` (case 5) | Board Status not `Done` and a linked PR has merged (feature not yet shipped) | `error` → reported as `pending_future_feature` / `info` | No | No (D6) |
 | `field_disagrees` (case 6) | A tracked custom field on the board disagrees with a source signal (feature not yet shipped) | `error` → reported as `pending_future_feature` / `info` | No | No (D6) |
 
@@ -251,6 +254,10 @@ for url, issue in input_by_url.items():
 
     board_status = board_item["currentStatusName"]
     has_blocked_label = "status:blocked" in labels
+    has_ready_label   = "status:ready" in labels
+    has_in_review_label = "status:in-review" in labels
+    pr_label_name = gp.get("pr_label_name", "PR")
+    has_pr_label  = pr_label_name and (pr_label_name in labels)
 
     if has_blocked_label and board_status != "Blocked":
         drift_rows.append({
@@ -280,6 +287,60 @@ for url, issue in input_by_url.items():
         })
         print(f"[issue-to-project] WARN: drift detected: board_blocked_label_not on issue {url}")
 
+    elif has_ready_label and board_status != "Ready":
+        # label says Ready but board disagrees and is not externally pinned (v2.7)
+        drift_rows.append({
+            "case": "label_ready_board_not",
+            "severity": "warn",
+            "url": url,
+            "project_item_id": board_item["projectItemId"],
+            "board_status": board_status,
+            "input_labels": labels,
+            "note": f"labels say status:ready but board Status is {board_status!r}",
+            "repaired": False,
+            "repair_action": None,
+        })
+        print(f"[issue-to-project] WARN: drift detected: label_ready_board_not on issue {url}")
+
+    elif has_in_review_label and board_status != "In review":
+        # label says In review but board disagrees and is not externally pinned (v2.7)
+        drift_rows.append({
+            "case": "label_in_review_board_not",
+            "severity": "warn",
+            "url": url,
+            "project_item_id": board_item["projectItemId"],
+            "board_status": board_status,
+            "input_labels": labels,
+            "note": f"labels say status:in-review but board Status is {board_status!r}",
+            "repaired": False,
+            "repair_action": None,
+        })
+        print(f"[issue-to-project] WARN: drift detected: label_in_review_board_not on issue {url}")
+
+    elif pr_label_name and (
+        (has_pr_label and not issue.get("linked_pr_open"))
+        or (not has_pr_label and issue.get("linked_pr_open"))
+    ):
+        # PR label vs open linked PR mismatch (v2.7)
+        # has_pr_label: issue carries the PR marker but no open linked PR is found
+        # not has_pr_label: open linked PR exists but label is absent
+        drift_rows.append({
+            "case": "label_pr_drift",
+            "severity": "warn",
+            "url": url,
+            "project_item_id": board_item["projectItemId"],
+            "board_status": board_status,
+            "input_labels": labels,
+            "note": (
+                f"issue has '{pr_label_name}' label but no open linked PR found"
+                if has_pr_label
+                else f"open linked PR exists but '{pr_label_name}' label is absent"
+            ),
+            "repaired": False,
+            "repair_action": None,
+        })
+        print(f"[issue-to-project] WARN: drift detected: label_pr_drift on issue {url}")
+
     else:
         # Cases 5 and 6 detection (pending_future_feature placeholder)
         # When O1/O5 ship, replace this block with real classifiers.
@@ -295,6 +356,9 @@ by_case = {
     "sync_gap":                 sum(1 for r in drift_rows if r["case"] == "sync_gap"),
     "label_blocked_board_not":  sum(1 for r in drift_rows if r["case"] == "label_blocked_board_not"),
     "board_blocked_label_not":  sum(1 for r in drift_rows if r["case"] == "board_blocked_label_not"),
+    "label_ready_board_not":    sum(1 for r in drift_rows if r["case"] == "label_ready_board_not"),
+    "label_in_review_board_not":sum(1 for r in drift_rows if r["case"] == "label_in_review_board_not"),
+    "label_pr_drift":           sum(1 for r in drift_rows if r["case"] == "label_pr_drift"),
     "pr_merged_not_done":       sum(1 for r in drift_rows if r["case"] == "pr_merged_not_done"),
     "field_disagrees":          sum(1 for r in drift_rows if r["case"] == "field_disagrees"),
     "pending_future_feature":   sum(1 for r in drift_rows if r["case"] == "pending_future_feature"),
@@ -335,7 +399,7 @@ if repair_aggressive:
 | Mode | Cases repaired | Status logic |
 |---|---|---|
 | `--repair-additive` | `sync_gap` only | Calls `item-add` (and conditional `item-edit` for `status:blocked`) — identical to v1 normal-run step 4 logic for the affected issue |
-| `--repair-aggressive` | `sync_gap`, `label_blocked_board_not`, `board_blocked_label_not` | `sync_gap`: same as additive. `label_blocked_board_not`: call `item-edit` to set Status=Blocked. `board_blocked_label_not`: call `item-edit` to set Status=Todo (labels win, D4) |
+| `--repair-aggressive` | `sync_gap`, `label_blocked_board_not`, `board_blocked_label_not`, `label_ready_board_not`, `label_in_review_board_not`, `label_pr_drift` | `sync_gap`: same as additive. `label_blocked_board_not`: call `item-edit` to set Status=Blocked. `board_blocked_label_not`: call `item-edit` to set Status=Todo (labels win, D4). `label_ready_board_not`: call `item-edit` to set Status=Ready. `label_in_review_board_not`: call `item-edit` to set Status=In review. `label_pr_drift` (PR open but label absent): call `gh issue edit --add-label <pr_label_name>`; (label present but no open PR): WARN only — label is permanent historical marker (D9), no removal. |
 | Both modes | `orphan` | Never repaired (D3) |
 | Both modes | `pending_future_feature` | Never repaired (D6) |
 
@@ -427,6 +491,103 @@ for row in drift_rows:
         else:
             print(f"[issue-to-project] WARN: repair failed for {row['url']}: item-edit error")
             repair_skipped_count += 1
+
+    elif row["case"] == "label_ready_board_not" and repair_aggressive:
+        # v2.7: label says Ready, board disagrees — set Status=Ready
+        option_id = gp.get("options", {}).get("ready")
+        if not option_id:
+            print(f"[issue-to-project] WARN: cannot repair label_ready_board_not for {row['url']}: "
+                  f"options.ready absent from config — re-run --init to cache the Ready option ID")
+            repair_skipped_count += 1
+            continue
+        if DRY_RUN:
+            row["repair_action"] = (
+                f"GH_HOST=github.com gh project item-edit --id {row['project_item_id']} "
+                f"--project-id {gp['project_node_id']} --field-id {gp['status_field_id']} "
+                f"--single-select-option-id {option_id}"
+            )
+            repair_skipped_count += 1
+            continue
+        edit_ok = gh_project_item_edit(row["project_item_id"], gp["project_node_id"],
+                                       gp["status_field_id"], option_id)
+        if edit_ok:
+            row["repaired"] = True
+            row["repair_action"] = "item-edit (set Ready)"
+            print(f"[issue-to-project] INFO: --repair-aggressive: overriding board Status for "
+                  f"issue {row['url']} to Ready (label wins)")
+            repaired_count += 1
+            repair_all_failed = False
+        else:
+            print(f"[issue-to-project] WARN: repair failed for {row['url']}: item-edit error")
+            repair_skipped_count += 1
+
+    elif row["case"] == "label_in_review_board_not" and repair_aggressive:
+        # v2.7: label says In review, board disagrees — set Status=In review
+        option_id = gp.get("options", {}).get("in_review")
+        if not option_id:
+            print(f"[issue-to-project] WARN: cannot repair label_in_review_board_not for {row['url']}: "
+                  f"options.in_review absent from config — re-run --init to cache the In review option ID")
+            repair_skipped_count += 1
+            continue
+        if DRY_RUN:
+            row["repair_action"] = (
+                f"GH_HOST=github.com gh project item-edit --id {row['project_item_id']} "
+                f"--project-id {gp['project_node_id']} --field-id {gp['status_field_id']} "
+                f"--single-select-option-id {option_id}"
+            )
+            repair_skipped_count += 1
+            continue
+        edit_ok = gh_project_item_edit(row["project_item_id"], gp["project_node_id"],
+                                       gp["status_field_id"], option_id)
+        if edit_ok:
+            row["repaired"] = True
+            row["repair_action"] = "item-edit (set In review)"
+            print(f"[issue-to-project] INFO: --repair-aggressive: overriding board Status for "
+                  f"issue {row['url']} to In review (label wins)")
+            repaired_count += 1
+            repair_all_failed = False
+        else:
+            print(f"[issue-to-project] WARN: repair failed for {row['url']}: item-edit error")
+            repair_skipped_count += 1
+
+    elif row["case"] == "label_pr_drift" and repair_aggressive:
+        # v2.7: PR label vs open linked PR mismatch.
+        # Sub-case A: open linked PR found but PR label absent → stamp the label.
+        # Sub-case B: PR label present but no open linked PR → WARN only; D9 prohibits removal.
+        pr_label_name = gp.get("pr_label_name", "PR")
+        issue_url = row["url"]
+        issue_number = issue_url.rstrip("/").split("/")[-1]
+        has_pr_label = pr_label_name and (pr_label_name in (row.get("input_labels") or []))
+        if has_pr_label:
+            # Label present but no open PR — permanent marker (D9), never remove; WARN only.
+            print(f"[issue-to-project] WARN: label_pr_drift for {issue_url}: "
+                  f"'{pr_label_name}' label present but no open linked PR — label is a permanent "
+                  f"historical marker (D9) and is never removed by the skill. No repair action taken.")
+            row["repair_action"] = "warn_only (label is permanent; D9 prohibits removal)"
+            repair_skipped_count += 1
+        else:
+            # Open PR found but label absent → stamp it.
+            if DRY_RUN:
+                row["repair_action"] = (
+                    f"GH_HOST=github.com gh issue edit {issue_number} "
+                    f"--add-label {pr_label_name!r}"
+                )
+                repair_skipped_count += 1
+                continue
+            label_raw, label_rc = run_gh_capture(
+                f"GH_HOST=github.com gh issue edit {issue_number} --add-label {pr_label_name!r}"
+            )
+            if label_rc == 0:
+                row["repaired"] = True
+                row["repair_action"] = f"gh issue edit --add-label {pr_label_name!r}"
+                print(f"[issue-to-project] INFO: --repair-aggressive: stamped '{pr_label_name}' "
+                      f"label on issue {issue_url} (open linked PR detected)")
+                repaired_count += 1
+                repair_all_failed = False
+            else:
+                print(f"[issue-to-project] WARN: repair failed for {issue_url}: "
+                      f"gh issue edit --add-label error: {label_raw.splitlines()[0]}")
+                repair_skipped_count += 1
 
     else:
         repair_skipped_count += 1   # Drift case not repairable in this mode
@@ -523,15 +684,18 @@ After a successful write, print a human-readable summary:
 [issue-to-project] reconcile complete (mode: read_only, scope: my-feature)
   Board items inspected : 312
   Input issues          : 20
-  Clean                 : 17
-  Drift total           : 3
-    orphan              : 1
-    sync_gap            : 0
-    label_blocked_board_not : 1
-    board_blocked_label_not : 0
-    pending_future_feature  : 1
+  Clean                 : 14
+  Drift total           : 6
+    orphan                   : 1
+    sync_gap                 : 0
+    label_blocked_board_not  : 1
+    board_blocked_label_not  : 0
+    label_ready_board_not    : 1
+    label_in_review_board_not: 1
+    label_pr_drift           : 1
+    pending_future_feature   : 1
   Repaired              : 0
-  Repair skipped        : 3
+  Repair skipped        : 6
 
 Orphans for manual review (not in any created-issues.json):
   https://github.com/zstary/sagibeast/issues/55
@@ -557,6 +721,9 @@ result = {
     "sync_gap": by_case["sync_gap"],
     "label_blocked_board_not": by_case["label_blocked_board_not"],
     "board_blocked_label_not": by_case["board_blocked_label_not"],
+    "label_ready_board_not":   by_case["label_ready_board_not"],
+    "label_in_review_board_not": by_case["label_in_review_board_not"],
+    "label_pr_drift":          by_case["label_pr_drift"],
 }
 print(f"RESULT: {json.dumps(result, separators=(',', ':'))}")
 print(f"Next: review {artifact_out}; orphans listed in orphans_for_review[] require manual board action.")

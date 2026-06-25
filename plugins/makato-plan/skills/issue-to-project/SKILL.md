@@ -8,7 +8,7 @@ description: >-
   then adds each not-yet-on-board issue and conditionally sets Status=Blocked. Emits
   `specs/{slug}/project-sync.json` as a machine-readable audit. Run `issue-to-project --init` once
   per repo to set up project board sync. Use `issue-to-project sync-lifecycle [<slug>]` to
-  automatically advance board Status to `In Progress` or `Done` as linked PRs open or merge.
+  automatically advance board Status to `In Progress`, `In review`, or `Done` as linked PRs open or merge.
   Use `issue-to-project --from-webhook <event-json-path>` for push-mode lifecycle sync driven by
   GitHub Actions webhook events (issues.opened, issues.labeled, pull_request.opened/closed).
   Use `issue-to-project reconcile [<slug>]` to diff the live board snapshot against expected state
@@ -18,10 +18,10 @@ description: >-
   Use `issue-to-project --fields-only [<slug>]` to backfill non-Status field values (Priority,
   Iteration, Estimate, Date Target) for issues already on the board without re-adding them (v2.4.0+).
 license: MIT
-version: "2.6.0"
+version: "2.7.0"
 argument-hint: "[optional: feature slug] | --init | --retry-blocked-edits [<slug>] [--from <path>] | sync-lifecycle [<slug>] [--dry-run] | --from-webhook <event-json-path> | reconcile [<slug>] [--repair-additive | --repair-aggressive [--yes-i-know]] | --board-audit | --fields-only [<slug>] | --auto-reinit | --no-auto-reinit"
 allowed-tools: Bash(gh *) Bash(git *) Bash(python3 *) Bash(timeout *) Read Write Grep Glob
-hooks: ["sync issues to project", "land issues on board", "push issues to GitHub Projects", "update project board", "project board sync", "issue-to-project", "follow up to-issues with project sync", "set status on board", "init project board sync", "retry blocked edits", "recover blocked status", "route issues by status label"]
+hooks: ["sync issues to project", "land issues on board", "push issues to GitHub Projects", "update project board", "project board sync", "issue-to-project", "follow up to-issues with project sync", "set status on board", "init project board sync", "retry blocked edits", "recover blocked status", "route issues by status label", "route status:ready", "route status:in-review", "autonomous auto-promote"]
 metadata:
   Authors: makato contributors
   last_updated: "2026-06-26"
@@ -32,21 +32,25 @@ metadata:
 
 Sync GitHub issues to a GitHub Projects v2 board (github.com or a GitHub Enterprise Server instance, v2.6.0+). Strict consumer of `to-issues` v3.2.0's `created-issues.json` contract: reads `labels[]` to decide Status routing. Adds every new issue at the project default (`Todo`), then routes to the column matched by the issue's `status:*` label. Never removes items from the board. Never overwrites a Status that was changed externally after the board entry was created.
 
-**Status routing (v1.2.0):**
+**Status routing (v2.7.0):**
 
 | Label | Final Status | Notes |
 |---|---|---|
 | `status:todo` | `Todo` | Explicit no-op write (records `added_todo_explicit` outcome, distinct from `added_default`) |
+| `status:ready` | `Ready` | New in v2.7; requires `options.ready` in config — absent → `Todo` + loud `WARN` |
 | `status:in-progress` | `In Progress` | New in v1.2 |
+| `status:in-review` | `In review` | New in v2.7; requires `options.in_review` in config — absent → `Todo` + loud `WARN` |
 | `status:blocked` | `Blocked` | Unchanged from v1.0 |
 | `status:done` | `Done` | New in v1.2 |
-| _(none)_ | `Todo` (project default) | `added_default` outcome |
+| _(none)_ | `Todo` (project default) | `added_default` outcome; in `ready_queue_mode: "autonomous"` may be auto-promoted to `Ready` |
 | Unknown `status:*` (e.g. `status:wontfix`) | `Todo` (project default) | Loud `WARN`; falls through to default; never aborts |
-| Multi-label collision (e.g. `status:blocked` + `status:in-progress`) | Priority winner | `blocked > done > in-progress > todo`; loud `WARN` with the full collision set |
+| Multi-label collision (e.g. `status:blocked` + `status:in-progress`) | Priority winner | `blocked > done > in-review > in-progress > ready > todo`; loud `WARN` with the full collision set |
 
 Routing comes from `labels[]` in `created-issues.json` only — the skill never queries live GitHub labels. Re-runs do NOT re-route already-on-board items, even if labels changed since the original run (see Idempotency contract).
 
-**Upstream emission status:** `to-issues` v3.2.0 emits only `status:blocked` at issue-creation time. The other three label paths (`status:todo`, `status:in-progress`, `status:done`) are dormant — they activate when a future `to-issues` release adds emission (PR-lifecycle work) or when operators manually relabel issues between `to-issues` and `issue-to-project` runs. v1.2 is strictly additive: without the new labels, behavior is byte-for-byte identical to v1.0.0.
+**Upstream emission status:** `to-issues` v3.2.0 emits only `status:blocked` at issue-creation time. The other label paths (`status:todo`, `status:in-progress`, `status:done`, `status:ready`, `status:in-review`) are dormant for auto-emission — they activate when a future `to-issues` release adds emission or when operators manually relabel issues between `to-issues` and `issue-to-project` runs. v1.2 is strictly additive: without the new labels, behavior is byte-for-byte identical to v1.0.0.
+
+**PR label stamp (v2.7.0+):** when `sync-lifecycle` or `--from-webhook` detects a linked open PR for an issue, the skill calls `gh issue edit --add-label <pr_label_name>` on that issue. The label is a **permanent historical marker** — the skill NEVER removes it, even after the PR closes or merges. Default label name is `"PR"` (configurable via `pr_label_name` in config; empty string `""` disables all label calls). `--init` creates the label in the repo if absent (color `0E8A16`, description `"This issue has an open linked pull request."`). The add-label call is additive and idempotent at the GitHub API level; `pr_label_action` row field encodes `"added"` or `"failed"`; `pr_label_added` / `pr_label_failed` summary counters track totals per run.
 
 ## Tools
 
@@ -171,12 +175,12 @@ Emit a single-line stdout sentinel as the second-to-last line of stdout (the las
 **Normal-run shape:**
 
 ```
-RESULT: {"status":"ok","slug":"<slug>","artifact_path":"specs/<slug>/project-sync.json","issues_in_input":12,"already_on_board":3,"added":9,"set_todo":1,"set_in_progress":2,"set_blocked":2,"set_done":1,"left_default":3,"add_failed":0,"edit_failed":0,"skipped_after_total_failure":0,"dry_run":0,"field_writes_attempted":18,"field_writes_succeeded":17,"field_writes_failed":1}
+RESULT: {"status":"ok","slug":"<slug>","artifact_path":"specs/<slug>/project-sync.json","issues_in_input":12,"already_on_board":3,"added":9,"set_todo":1,"set_ready":1,"set_in_progress":2,"set_in_review":2,"set_blocked":2,"set_done":1,"auto_promoted_ready":0,"pr_label_added":0,"pr_label_failed":0,"left_default":0,"add_failed":0,"edit_failed":0,"skipped_after_total_failure":0,"dry_run":0,"ready_queue_mode":"manual"}
 ```
 
 `host` is an optional additive key emitted in the RESULT when the configured host is non-default (i.e. not `"github.com"`). Existing parsers that only read the v1 keys are unaffected.
 
-`field_writes_attempted`, `field_writes_succeeded`, and `field_writes_failed` are present in normal-run and `--fields-only` RESULT when the `fields` config block is present. They are `0` / absent when no `fields` block is configured (pure v1 config consumers are unaffected).
+`set_ready` and `set_in_review` slot into the existing `set_*` count series (v2.7.0+). `auto_promoted_ready`, `pr_label_added`, and `pr_label_failed` are new top-level counters that always appear with at least `0`. `ready_queue_mode` echoes the active config value (`"manual"` or `"autonomous"`). `field_writes_attempted`, `field_writes_succeeded`, and `field_writes_failed` are present when the `fields` config block is present; they are `0` / absent otherwise.
 
 **Normal-run shape with auto-reinit (v2.5.0+, when `--auto-reinit` fires):**
 
@@ -203,7 +207,7 @@ RESULT: {"status":"ok","slug":"<slug>","artifact_path":"specs/<slug>/project-syn
 **`sync-lifecycle` shape** (v2 keys added; all v1 normal-run keys retained for backward compatibility):
 
 ```
-RESULT: {"status":"ok","slug":"<slug>","artifact_path":"specs/<slug>/project-sync.json","issues_in_input":12,"already_on_board":12,"added":0,"set_blocked":0,"left_default":0,"add_failed":0,"edit_failed":0,"skipped_after_total_failure":0,"dry_run":0,"set_in_progress":3,"set_done":1,"lifecycle_lookup_failed":0,"lifecycle_skipped":4}
+RESULT: {"status":"ok","slug":"<slug>","artifact_path":"specs/<slug>/project-sync.json","issues_in_input":12,"already_on_board":12,"added":0,"set_blocked":0,"left_default":0,"add_failed":0,"edit_failed":0,"skipped_after_total_failure":0,"dry_run":0,"set_in_progress":1,"set_in_review":2,"set_done":1,"auto_promoted_ready":0,"pr_label_added":2,"pr_label_failed":0,"ready_queue_mode":"manual","lifecycle_lookup_failed":0,"lifecycle_skipped":4}
 ```
 
 `sync-lifecycle` sets `status: "partial"` when `lifecycle_lookup_failed > 0`.
@@ -295,7 +299,7 @@ Re-running the same command produces the same final board state:
 **v2.4.0 extension — non-Status field idempotency:** the step-3 snapshot is extended to capture current values for all configured fields (not just Status). A field write is skipped (`skipped_already_set`) when `signals[field_key] == snapshot[url][field_key]`. This extends the v1 hard guarantee "never overwrite a Status that was changed by a human" to all configured fields: `already_on_board` items are fully skipped (no field writes). `--fields-only` mode bypasses the add-guard; field writes still respect `skipped_already_set`.
 
 **Recovery procedure for `added_blocked_edit_failed`:** grep `project-sync.json` for `"needs_status_retry": true`, then pick one path:
-- **Preferred — `--retry-blocked-edits`** (since v1.1.0): `issue-to-project --retry-blocked-edits <slug>` replays `item-edit` for every `needs_status_retry: true` row without touching the snapshot or re-adding the item. Writes a forwarded artifact at the current `schema_version` floor (`"1.2"` from v1.2.0; previously `"1.1"`) with a populated `retry_source` block. Safe to re-run. Recovers every `*_edit_failed` outcome — `added_blocked_edit_failed` from v1.0.0+ and `added_in_progress_edit_failed` / `added_done_edit_failed` from v1.2.0+.
+- **Preferred — `--retry-blocked-edits`** (since v1.1.0): `issue-to-project --retry-blocked-edits <slug>` replays `item-edit` for every `needs_status_retry: true` row without touching the snapshot or re-adding the item. Writes a forwarded artifact at the current `schema_version` floor with a populated `retry_source` block. Safe to re-run. Recovers every `*_edit_failed` outcome — `added_blocked_edit_failed` from v1.0.0+, `added_in_progress_edit_failed` / `added_done_edit_failed` from v1.2.0+, and `added_ready_edit_failed` / `added_in_review_edit_failed` / `auto_promoted_ready_edit_failed` from v2.7.0+. The full set of outcomes accepted by `--retry-blocked-edits` is defined in `references/retry-process.md` (`RETRY_TARGET` map).
 - **Manual UI** — open the GitHub Project, set Status=Blocked on each affected card.
 - **CLI delete-and-re-add** — `gh project item-delete --id <project_item_id> --project-id <project_node_id>` (the skill never does this on its own), then re-run `issue-to-project`. The next normal-run sees the URL absent from the snapshot and re-attempts the `add` → `edit` pair. Useful only when `--retry-blocked-edits` itself has failed repeatedly for the same row.
 
@@ -313,7 +317,7 @@ Re-running the same command produces the same final board state:
 - **NEVER pass `--insecure` or set `GH_TLS_SKIP_VERIFY`.** Self-signed CA? Install it in the system trust store. The skill does not weaken TLS.
 - **NEVER log the configured `host` value in log lines that also contain issue content, project node IDs, or user data** — enterprise hostnames are internal infrastructure. The `[issue-to-project]` prefix lines may log `host` in isolation (e.g. pre-flight messages) but must not concatenate it with sensitive values.
 - **NEVER remove an item from the board.** v1 only adds or status-edits.
-- **NEVER overwrite a Status that was changed externally.** The re-run guard (step 3 snapshot) exempts already-on-board items from status writes entirely — even if `status:blocked` is still on the issue's labels.
+- **NEVER overwrite a Status that was changed externally.** The re-run guard (step 3 snapshot) exempts already-on-board items from status writes entirely — even if `status:blocked` is still on the issue's labels. **Amendment for `ready_queue_mode: "autonomous"` (v2.7.0):** in autonomous mode, items whose current board Status is `Todo` (or absent — new-add) may be promoted to `Ready` by `auto_promote_to_ready()`. This is the **only** narrowing of the v1 re-run guard: items at `Ready`, `In progress`, `Blocked`, `In review`, or `Done` are still never overwritten by the skill. Manual mode is entirely unchanged.
 - **NEVER call `gh project view` on every run to validate cached IDs** — that defeats the cache point. Trust the cache; the stale-`project_node_id` heuristic in step 4 handles drift. Exception: Pre-flight check 5 (verify-on-first-call) is explicitly designed to call `gh project view` once per normal-sync run as a board-ID freshness probe; it is a deliberate exception to this rule and is skippable via `ITP_SKIP_VERIFY=1`.
 - **NEVER query labels from the GitHub issue directly.** `labels[]` on `created-issues.json` is the only signal for status routing. Decouples this skill from human relabeling between `to-issues` and `issue-to-project`.
 - **NEVER overwrite an existing `project-sync.json` non-atomically.** Always write to `<path>.tmp` first, then `os.replace`. No half-written file is observable.
@@ -324,4 +328,5 @@ Re-running the same command produces the same final board state:
 - **NEVER retry `add_failed` rows via `--retry-blocked-edits`** — those rows have no `project_item_id` cached. A normal re-run handles them naturally (the item is absent from the next snapshot).
 - **NEVER write `schema_version: "1"` from this skill version** — v1.2 emits `"1.2"` for both normal-run and `--retry-blocked-edits`. The `"1"` and `"1.1"` enum values exist in the schema purely so the retry verb can ingest prior artifacts from older skill versions.
 - **NEVER loop auto-re-init more than once per run.** If the new IDs resolved by auto-re-init are themselves stale, halt immediately with `STALE_CONFIG_PERSISTENT`. Retrying in a loop risks an infinite cycle on a corrupted board state; manual `--init` is always the correct next step.
-- **NEVER use `[issue-to-project:auto]` as a log prefix in v2.5.** The `[issue-to-project:auto]` prefix is reserved for future inference-path decisions. Auto-re-init progress in v2.5 uses the plain `[issue-to-project]` prefix (it is not an autonomous inference step — it is a scripted recovery path).
+- **NEVER use `[issue-to-project:auto]` as a log prefix outside autonomous-mode inference paths.** The `[issue-to-project:auto]` prefix is reserved exclusively for inference decisions made by the skill without an explicit user-set signal — in v2.7.0, that means `ready_queue_mode: "autonomous"` auto-promotion decisions only. Auto-re-init progress and PR-label stamping use the plain `[issue-to-project]` prefix (they are scripted/event-driven paths, not inference). Manual-mode runs emit zero `:auto` lines.
+- **NEVER remove the `PR` repo label from an issue once stamped.** The label is a permanent historical record that a PR existed for the issue. `sync-lifecycle` and `--from-webhook` stamp it additively via `gh issue edit --add-label`; neither the skill nor any sub-path ever calls `--remove-label` for the PR label. Operators who want to remove it must do so manually.

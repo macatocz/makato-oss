@@ -82,6 +82,7 @@
       "Bash(git show *)",
       "Bash(git config *)",
       "Bash(git remote *)",
+      "Bash(git push *)",
       "Bash(gitcli *)",
       "Bash(gh *)",
       "Bash(python *)",
@@ -216,8 +217,7 @@
       "Bash(rmdir **/.github/**)",
       "Bash(git rm **/.github/**)",
       "Write(**/.github/**)",
-      "Edit(**/.github/**)",
-      "Bash(git push *)"
+      "Edit(**/.github/**)"
     ],
     "defaultMode": "bypassPermissions"
   },

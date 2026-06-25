@@ -349,15 +349,19 @@ On success, parse `{"id": "PVTI_..."}`. Then resolve the routing target from the
 
 ```python
 STATUS_MAP = {
-    "status:todo":        ("Todo",        None),                          # no edit needed
-    "status:in-progress": ("In Progress", "in_progress"),                 # options.in_progress
-    "status:blocked":     ("Blocked",     "blocked"),                     # options.blocked
-    "status:done":        ("Done",        "done"),                        # options.done
+    "status:todo":        ("Todo",        None),            # no edit needed
+    "status:ready":       ("Ready",       "ready"),         # NEW in v2.7
+    "status:in-progress": ("In Progress", "in_progress"),
+    "status:in-review":   ("In review",   "in_review"),     # NEW in v2.7
+    "status:blocked":     ("Blocked",     "blocked"),
+    "status:done":        ("Done",        "done"),
 }
-# Priority for multi-label collision (D2 in the v1.2 spec). Blocked is most operationally
-# urgent (must not be silently dropped); done > in-progress so a finished issue never
-# regresses on the board; todo loses to anything more specific.
-PRIORITY = ["status:blocked", "status:done", "status:in-progress", "status:todo"]
+# Priority for multi-label collision (D2 v2.7). Reading the column as a workflow:
+# blocked is most operationally urgent (must not be silently dropped); done > in-review >
+# in-progress > ready > todo keeps a finished/late-stage item from regressing to earlier
+# columns when a stale label survives a relabel.
+PRIORITY = ["status:blocked", "status:done", "status:in-review",
+            "status:in-progress", "status:ready", "status:todo"]
 KNOWN = set(STATUS_MAP.keys())
 
 def resolve_status_label(labels):
@@ -393,6 +397,72 @@ def resolve_status_label(labels):
 
 `resolve_status_label` is a pure function — no I/O, no live GitHub queries. The only routing signal is `created-issues.json`'s `labels[]` array (Hard Guarantee 3).
 
+### Ready-queue ownership mode (D10) — v2.7.0+
+
+`Ready` is the **handoff queue between user and orchestrator**. Issues land in `Ready` when they are scoped, triaged, and ready for an orchestrator to pick up. The skill supports two ownership modes via the optional config key `ready_queue_mode` (default: `"manual"`):
+
+| Mode | Who promotes Todo → Ready | When |
+|---|---|---|
+| `"manual"` (default) | The user, via UI or via setting `status:ready` in `created-issues.json` | The skill never auto-promotes a `Todo` item to `Ready`. The `Ready` column is strictly user-driven. |
+| `"autonomous"` | The skill itself, applying the auto-promotion rule | Items not currently `Blocked`, not `In progress`/`In review`/`Done`, not awaiting human decision (no `needs-human-review` label), and not carrying any explicit `status:*` label are promoted to `Ready` on every normal-run pass. |
+
+Auto-promotion rule (autonomous mode only):
+
+```python
+def auto_promote_to_ready(issue_labels: list[str], current_board_status: str | None) -> bool:
+    """Return True when an item should be auto-promoted Todo → Ready in autonomous mode."""
+    # Hard guards: never override an externally-set non-Todo Status (v1 hard guarantee, narrowed for autonomous mode).
+    # NOTE: this passes for current_board_status in (None, "Todo"). A human who manually
+    # drags a card from Ready → Todo will be re-promoted on the next autonomous run unless
+    # an explicit signal label is added. See the "Manual-demote escape hatch" note below.
+    if current_board_status not in (None, "Todo"):
+        return False
+    # Skip if the issue carries any explicit status:* label — that label is the user's intent.
+    if any(l.startswith("status:") for l in issue_labels):
+        return False
+    # Skip if the issue is flagged for human review.
+    if "needs-human-review" in issue_labels:
+        return False
+    # Skip if blocked by dependency labels (e.g. `blocked-by:#42`).
+    if any(l.startswith("blocked-by:") for l in issue_labels):
+        return False
+    # Skip if the operator has explicitly opted this issue out of auto-promotion.
+    if "hold-in-todo" in issue_labels:
+        return False
+    return True
+```
+
+**Manual-demote escape hatch.** Autonomous mode cannot distinguish between a never-touched `Todo` and a human-demoted `Todo` from board state alone. Operators who need to keep a specific item at `Todo` without auto-promotion must add one of these signal labels: `status:todo` (explicit user intent — wins over auto-promotion), `needs-human-review` (flag for human decision), `hold-in-todo` (v2.7-introduced opt-out marker recognized by `auto_promote_to_ready()`), or any `blocked-by:*` label.
+
+**`[issue-to-project:auto]` log prefix.** Autonomous-mode log lines use the `[issue-to-project:auto]` prefix to distinguish inference decisions from explicit user-driven routing:
+
+- Successful promotions: `[issue-to-project:auto] issue #N: auto-promoted Todo → Ready (autonomous mode; no human signals on issue)`
+- Skip lines (one per False return): `[issue-to-project:auto] issue #N: skip auto-promote — reason: <reason_code>`
+
+Skip reason codes: `status_label_present`, `needs_human_review`, `blocked_by_label_present`, `current_status_not_promotable`. The `:auto` prefix is gated entirely behind `ready_queue_mode == "autonomous"` — manual-mode operators see no `:auto` prefix lines.
+
+**Manual-mode invariant.** When `ready_queue_mode == "manual"`, the skill NEVER writes `Ready` autonomously. The only paths into `Ready` are:
+
+1. A `status:ready` label in `created-issues.json` (operator-set).
+2. A user moving the card on the UI.
+3. A `reconcile --repair-aggressive` run that brings the board in line with a `status:ready` label.
+
+This invariant gives manual-mode operators the same control over `Ready` as v1.2 gives over `Blocked`.
+
+**Idempotency contract amendment for autonomous mode.** When `ready_queue_mode == "autonomous"`, items in the step-3 snapshot whose `current_board_status == "Todo"` (or absent) are **not** exempted from the status-write path — `auto_promote_to_ready()` may write `Ready` over `Todo`. This is the **only** narrowing of the v1 re-run guard in v2.7. The hard guarantee that the skill never overwrites an **externally non-Todo** Status is preserved: items at `Ready`, `In progress`, `Blocked`, `In review`, or `Done` are still skipped. Manual mode is unchanged from v1.
+
+### Behavior changes vs v1.2.0
+
+| Input labels | v1.2.0 outcome | v2.7.0 outcome |
+|---|---|---|
+| `["status:ready"]` | `added_default` + WARN unknown | `added_ready` (when `options.ready` present) OR `added_default` + WARN (when absent) |
+| `["status:in-review"]` | `added_default` + WARN unknown | `added_in_review` (when `options.in_review` present) OR `added_default` + WARN |
+| `["status:ready", "status:blocked"]` | `added_blocked` + WARN collision | `added_blocked` + WARN collision (priority unchanged for blocked) |
+| `["status:in-review", "status:in-progress"]` | `added_in_progress` + WARN unknown for in-review | `added_in_review` + WARN collision (in-review wins over in-progress) |
+| `["status:done", "status:in-review"]` | `added_done` + WARN unknown | `added_done` + WARN collision (done wins) |
+
+The collision-priority change for the `in-review × in-progress` and `in-review × ready` cases is the **only behavioral regression** for v1.2.0 consumers that were already manually adding `status:in-review` labels and relying on the v1.2 silent-fallback-to-Todo behavior.
+
 ### Edit invocation
 
 When `resolve_status_label` returns an options key (i.e. target != Todo), issue exactly one `item-edit`:
@@ -406,7 +476,15 @@ EDIT_RAW="$(timeout "${ITP_GH_TIMEOUT_SECONDS:-30}" \
     --single-select-option-id "$TARGET_OPTION_ID" 2>&1)"
 ```
 
-`$TARGET_OPTION_ID` is `gp["options"][options_key]` for the resolved `options_key` (one of `in_progress`, `blocked`, `done` — the `status:todo` path returns `options_key=None` and skips this entire step).
+`$TARGET_OPTION_ID` is `gp["options"][options_key]` for the resolved `options_key` (one of `in_progress`, `blocked`, `done`, `ready`, `in_review` — the `status:todo` path returns `options_key=None` and skips this entire step).
+
+**Absent-option fallback (v2.7.0+).** When `resolve_status_label()` returns an `options_key` that is absent from `gp["options"]` (e.g. `options.ready` missing on a v1.0–v2.6 config), the skill emits a loud WARN and falls through to `added_default`:
+
+```text
+[issue-to-project] WARN: status label 'status:ready' resolved to option 'ready' but options.ready is absent from .claude/config.json — leaving at project default (Todo). Re-run 'issue-to-project --init' to cache the optional Status options.
+```
+
+The same message shape applies to `options.in_review` when `status:in-review` is resolved. This makes v2.7 strictly forward-compatible — operators upgrade the skill first, then re-run `--init` at their leisure to enable the new routes.
 
 **Outcome routing:**
 
@@ -421,6 +499,12 @@ EDIT_RAW="$(timeout "${ITP_GH_TIMEOUT_SECONDS:-30}" \
 | `item-add` ok, `status:blocked` resolved, `item-edit` failed | `added_blocked_edit_failed` | **true** | `"Todo"` |
 | `item-add` ok, `status:done` resolved, `item-edit` ok | `added_done` | false | `"Done"` |
 | `item-add` ok, `status:done` resolved, `item-edit` failed | `added_done_edit_failed` | **true** | `"Todo"` |
+| `item-add` ok, `status:ready` resolved, `item-edit` ok | `added_ready` | false | `"Ready"` |
+| `item-add` ok, `status:ready` resolved, `item-edit` failed | `added_ready_edit_failed` | **true** | `"Todo"` |
+| `item-add` ok, `status:in-review` resolved, `item-edit` ok | `added_in_review` | false | `"In review"` |
+| `item-add` ok, `status:in-review` resolved, `item-edit` failed | `added_in_review_edit_failed` | **true** | `"Todo"` |
+| `item-add` ok, autonomous mode, `auto_promote_to_ready()` True, `item-edit` ok | `auto_promoted_ready` | false | `"Ready"` |
+| `item-add` ok, autonomous mode, `auto_promote_to_ready()` True, `item-edit` failed | `auto_promoted_ready_edit_failed` | **true** | `"Todo"` |
 | `item-add` failed | `add_failed` | false | null |
 | Batch aborted by stale-`project_node_id` heuristic | `skipped_after_total_failure` | false | null |
 | `DRY_RUN=1`, would have added | `dry_run` | false | null |
@@ -493,7 +577,43 @@ On `AMBIGUOUS_REINIT`, log the mismatch detail at WARN level before the HALT lin
 [issue-to-project] WARN: multi-status collision <[lbl, ...]> → using '<winner>' (priority order)
 ```
 
-The "<Status Name>" placeholder above is one of `"In Progress"`, `"Blocked"`, `"Done"` — never `"Todo"` (the Todo path issues no `item-edit`).
+The "<Status Name>" placeholder above is one of `"In Progress"`, `"Blocked"`, `"Done"`, `"Ready"`, `"In review"` — never `"Todo"` (the Todo path issues no `item-edit`).
+
+### Call-site dispatch for autonomous mode (v2.7.0+)
+
+The auto-promotion check is dispatched **after** `resolve_status_label()` returns `(None, None, None)` for an issue with no status label, and **before** the item-edit branch:
+
+```python
+# Inside the step-4 loop, per-issue, after item-add ok:
+status_name, option_key = resolve_status_label(issue["labels"])[:2]
+if status_name is None and ready_queue_mode == "autonomous":
+    current = snapshot.get(issue["number"], {}).get("status")  # None if new-add, else cached value
+    if auto_promote_to_ready(issue["labels"], current):
+        status_name, option_key = ("Ready", "ready")
+        # Emit auto-promote log line and prepare auto_promoted_ready outcome.
+    else:
+        log_skip_reason(issue, current)  # emits [issue-to-project:auto] skip line with reason code
+# else: manual mode OR label-driven routing — proceed as v2.6.
+
+if status_name is None:
+    # No promotion, no label match → left at project default (Todo).
+    outcome = "added_default"
+    summary["left_default"] += 1
+else:
+    # Existing v1.0 item-edit path; outcome is one of added_*, added_*_edit_failed,
+    # auto_promoted_ready, auto_promoted_ready_edit_failed.
+    ...
+```
+
+Autonomous-mode evaluations that return False emit `outcome: "added_default"` (no behavioral change vs manual mode for skipped items) and increment `left_default`. Each False return also emits an `[issue-to-project:auto]` skip line so operators can grep for the rejection reason (reason codes: `status_label_present`, `needs_human_review`, `blocked_by_label_present`, `current_status_not_promotable`).
+
+When `auto_promote_to_ready()` returns True, the skill emits `outcome: "auto_promoted_ready"` (new in v2.7), writes the `Ready` Status, and adds a clear log line:
+
+```text
+[issue-to-project:auto] issue #N: auto-promoted Todo → Ready (autonomous mode; no human signals on issue)
+```
+
+Autonomous-mode promotions are surfaced in the new R1 sentinel key `auto_promoted_ready` (integer count). Operators can audit by grepping `project-sync.json` for `outcome: "auto_promoted_ready"`.
 
 **DRY_RUN=1 behavior:** step 3 (the snapshot) still runs (read-only). For each issue, classify as `already_on_board` if its URL is in the snapshot, otherwise `dry_run`. The `cli_command` field is populated with the literal command(s) that would have been issued — for issues routed to a non-default Status, this is the `item-add` followed by `&& ` and the `item-edit` (joined into one shell line) so a single copy-paste reproduces the intent. Step 5 still writes the artifact; exit 0.
 
@@ -626,6 +746,9 @@ ADDED_OUTCOMES = {
     "added_in_progress", "added_in_progress_edit_failed",
     "added_blocked", "added_blocked_edit_failed",
     "added_done", "added_done_edit_failed",
+    "added_ready", "added_ready_edit_failed",           # v2.7.0+
+    "added_in_review", "added_in_review_edit_failed",  # v2.7.0+
+    "auto_promoted_ready", "auto_promoted_ready_edit_failed",  # v2.7.0+ autonomous only
     "recovered_via_auto_reinit",  # v2.5.0+
 }
 LEFT_DEFAULT_OUTCOMES = {
@@ -635,11 +758,17 @@ LEFT_DEFAULT_OUTCOMES = {
     "added_in_progress_edit_failed",
     "added_blocked_edit_failed",
     "added_done_edit_failed",
+    "added_ready_edit_failed",           # v2.7.0+
+    "added_in_review_edit_failed",       # v2.7.0+
+    "auto_promoted_ready_edit_failed",   # v2.7.0+
 }
 EDIT_FAILED_OUTCOMES = {
     "added_in_progress_edit_failed",
     "added_blocked_edit_failed",
     "added_done_edit_failed",
+    "added_ready_edit_failed",           # v2.7.0+
+    "added_in_review_edit_failed",       # v2.7.0+
+    "auto_promoted_ready_edit_failed",   # v2.7.0+
 }
 
 def count(outcomes):
@@ -666,7 +795,7 @@ field_writes_failed = sum(
 )
 
 artifact = {
-    "schema_version": "2.4",  # v2.5.0+: bump to "2" when auto_reinit_log is present
+    "schema_version": "2.7",  # v2.7.0+: bumped for new outcomes, summary keys, per-row fields
     "slug": slug,
     "retry_source": None,
     "project": {
@@ -681,9 +810,12 @@ artifact = {
         "already_on_board":           count({"already_on_board"}),
         "added":                      count(ADDED_OUTCOMES),
         "set_todo":                   count({"added_todo_explicit"}),
+        "set_ready":                  count({"added_ready"}),               # v2.7.0+
         "set_in_progress":            count({"added_in_progress"}),
+        "set_in_review":              count({"added_in_review"}),            # v2.7.0+
         "set_blocked":                count({"added_blocked"}),
         "set_done":                   count({"added_done"}),
+        "auto_promoted_ready":        count({"auto_promoted_ready"}),        # v2.7.0+ autonomous only
         "left_default":               count(LEFT_DEFAULT_OUTCOMES),
         "add_failed":                 count({"add_failed"}),
         "edit_failed":                count(EDIT_FAILED_OUTCOMES),
@@ -800,9 +932,9 @@ except OSError as e:
 **Summary semantics:**
 
 - `set_todo` counts ONLY issues with an explicit `status:todo` label that received `added_todo_explicit`.
-- `left_default` counts issues that landed at Todo because they had no `status:*` label, had an unknown `status:*` label, OR had a known non-Todo label whose `item-edit` failed (the item is on the board at default Todo, awaiting retry).
+- `left_default` counts issues that landed at Todo because they had no `status:*` label, had an unknown `status:*` label, OR had a known non-Todo label whose `item-edit` failed (the item is on the board at default Todo, awaiting retry). In autonomous mode, False returns of `auto_promote_to_ready()` also increment `left_default` and each emits a `[issue-to-project:auto]` skip line with a reason code.
 - `set_todo + left_default` = total issues currently at Todo on the board after this run.
-- `edit_failed` is the **combined** count across all three edit-failed outcomes (blocked, in-progress, done). For per-target breakdown, scan `results[].outcome`.
+- `edit_failed` is the **combined** count across all edit-failed outcomes (blocked, in-progress, done, ready, in-review, auto-promoted-ready). For per-target breakdown, scan `results[].outcome`.
 - `retry_*` summary keys are present in all v1.2 artifacts but always `0` for normal-run artifacts; they're populated only by `--retry-blocked-edits` (see `references/retry-process.md`).
 - `retry_source` is `null` on normal-run artifacts; populated on `--retry-blocked-edits` artifacts.
 - `field_writes_attempted` counts writes issued for non-Status fields (excludes `no_signal`, `skipped_already_set`, `unsupported_type`, and `dry_run`). Zero when no `fields` config.
@@ -830,9 +962,12 @@ result = {
     "already_on_board":           summary["already_on_board"],
     "added":                      summary["added"],
     "set_todo":                   summary["set_todo"],
+    "set_ready":                  summary["set_ready"],            # v2.7.0+
     "set_in_progress":            summary["set_in_progress"],
+    "set_in_review":              summary["set_in_review"],         # v2.7.0+
     "set_blocked":                summary["set_blocked"],
     "set_done":                   summary["set_done"],
+    "auto_promoted_ready":        summary["auto_promoted_ready"],   # v2.7.0+
     "left_default":               summary["left_default"],
     "add_failed":                 summary["add_failed"],
     "edit_failed":                summary["edit_failed"],
@@ -842,6 +977,8 @@ result = {
     "field_writes_attempted":     summary["field_writes_attempted"],
     "field_writes_succeeded":     summary["field_writes_succeeded"],
     "field_writes_failed":        summary["field_writes_failed"],
+    # v2.7.0+: echo the active mode so orchestrators can branch without re-reading config
+    "ready_queue_mode":           ready_queue_mode,
 }
 # v2.3.0+: include cross_repo key in RESULT when known_repos is configured
 if known_repos:

@@ -34,21 +34,34 @@ if not input_path.exists():
 prior = json.loads(input_path.read_text())
 ```
 
-**Schema version validation:** `schema_version` must be one of `"1"`, `"1.1"`, `"1.2"`, or `"2"`. Any other value → exit 1, HALT `MALFORMED_INPUT`: `"issue-to-project sync-lifecycle: project-sync.json has unrecognized schema_version '<value>'. This reader supports versions 1, 1.1, 1.2, and 2."`.
+**Schema version validation:** `schema_version` must be a `1.x` or `2.x` value through `"2.7"`. Any other value → exit 1, HALT `MALFORMED_INPUT`: `"issue-to-project sync-lifecycle: project-sync.json has unrecognized schema_version '<value>'. This reader supports all 1.x and 2.x versions through 2.7."`.
 
 ```python
-SUPPORTED = {"1", "1.1", "1.2", "2"}
-if prior.get("schema_version") not in SUPPORTED:
+# Accept all 1.x and 2.x schema_version values through "2.7".
+# Rationale: strict set membership ("1", "1.1", ...) required a code change on every
+# minor bump and caused a regression in v2.1 (shipped SUPPORTED omitted "2.1"–"2.6").
+# A split-and-compare on the major version is forward-stable through the entire 2.x
+# series without further changes, and will refuse 3.x artifacts cleanly.
+def _supported_schema_version(v: str) -> bool:
+    if v in ("1", "1.1", "1.2"):   # legacy exact matches for the three pre-2.0 versions
+        return True
+    try:
+        major, minor = v.split(".", 1)
+        return major in ("1", "2") and float(v) <= 2.7
+    except (ValueError, AttributeError):
+        return False
+
+if not _supported_schema_version(prior.get("schema_version", "")):
     sys.exit(
         f"issue-to-project sync-lifecycle: project-sync.json has unrecognized "
         f"schema_version '{prior.get('schema_version')}'. "
-        f"This reader supports versions 1, 1.1, 1.2, and 2.\nHALT: MALFORMED_INPUT"
+        f"This reader supports all 1.x and 2.x versions through 2.7.\nHALT: MALFORMED_INPUT"
     )
 
 input_results = prior.get("results", [])
 ```
 
-Note: if `schema_version` is already `"2"` (the artifact was already upgraded by a prior `sync-lifecycle` run), proceed normally — no special handling needed.
+Note: if `schema_version` is already `"2"` or higher (the artifact was already upgraded by a prior `sync-lifecycle` run), proceed normally — no special handling needed.
 
 ## Step 3 — Snapshot the board
 
@@ -157,8 +170,13 @@ Parse `pr_nodes` from `.data.repository.issue.closingPullRequests.nodes`. If par
 ### 4.4 — Apply PR selection rule (D3)
 
 ```python
-def select_governing_pr(pr_nodes, include_draft_prs):
-    """Return (governing_pr, target_status) or (None, None) if no actionable PR."""
+def select_governing_pr(pr_nodes, include_draft_prs, gp):
+    """Return (governing_pr, target_status) or (None, None) if no actionable PR.
+
+    D8: when options.in_review is present in config, an open PR targets "In review".
+    When options.in_review is absent, fall back to "In Progress" (v2.0 behavior) and
+    emit a loud WARN so the operator knows to re-run --init.
+    """
     merged = [pr for pr in pr_nodes if pr["state"] == "MERGED"]
     if merged:
         # Pick most recently merged
@@ -172,7 +190,18 @@ def select_governing_pr(pr_nodes, include_draft_prs):
     if open_prs:
         # Pick most recently updated (use url as stable tiebreaker when mergedAt absent)
         governing = open_prs[0]   # gh returns in updated_at desc order by default
-        return governing, "In Progress"
+        # D8: prefer "In review" when options.in_review is configured; fall back to
+        # "In Progress" with a loud WARN for backward-compat with v2.0–v2.6 configs.
+        if gp.get("options", {}).get("in_review"):
+            return governing, "In review"
+        else:
+            print(
+                "[issue-to-project] WARN: pull_request.opened received but options.in_review "
+                "is absent — falling back to In Progress. Re-run --init to enable the "
+                "In review transition.",
+                file=sys.stderr,
+            )
+            return governing, "In Progress"
 
     # All are CLOSED (unmerged) or all are drafts with include_draft_prs=False
     closed = [pr for pr in pr_nodes if pr["state"] == "CLOSED"]
@@ -199,10 +228,49 @@ When more than one PR is returned, emit one line at `[issue-to-project:auto]` le
 |---|---|---|---|
 | No PRs returned (empty `pr_nodes`) | `pr_closed_no_change` | `"null"` (string) | No |
 | Governing PR is `MERGED` | `pr_merged_set_done` | `"merged"` | Yes, if `target_status ≠ current_board_status` |
-| Governing PR is `OPEN` (non-draft, or draft + `include_draft_prs: true`) | `pr_opened_set_in_progress` | `"open"` | Yes, if `target_status ≠ current_board_status` |
+| Governing PR is `OPEN` (non-draft, or draft + `include_draft_prs: true`); `options.in_review` present | `pr_opened_set_in_review` | `"open"` | Yes, if `target_status ≠ current_board_status` |
+| Governing PR is `OPEN`; `options.in_review` absent (v2.0 fallback) | `pr_opened_set_in_progress_fallback` | `"open"` | Yes, if `target_status ≠ current_board_status` |
 | All PRs `CLOSED` (unmerged) | `pr_closed_no_change` | `"closed"` | No |
 | Lookup failed | `lifecycle_lookup_failed` | `null` | No |
 | Externally set (precedence rule) | `lifecycle_skipped_externally_set` | _(from prior row if available, else null)_ | No |
+
+**PR-label stamp on open-PR detection (D9):**
+
+When the governing PR is `OPEN` (i.e. `target_status` is `"In review"` or the fallback `"In Progress"`), stamp the `pr_label_name` repo label onto the issue via `gh issue edit --add-label`. This call is made on **every** open-PR detection — no pre-call `gh issue view --json labels` (Hard Guarantee 3 prohibits label-read on the hot path). GitHub's add-label API is idempotent when the label is already present.
+
+Skip the label call entirely when `pr_label_name == ""` (the empty-string disable sentinel).
+
+```python
+pr_label_name = gp.get("pr_label_name", "PR")
+
+if target_status in ("In review", "In Progress") and pr_label_name != "":
+    label_cmd = (
+        f"GH_HOST=github.com gh issue edit {issue_number} "
+        f"--repo {gh_owner}/{gh_repo} --add-label \"{pr_label_name}\""
+    )
+    label_result = subprocess.run(
+        label_cmd, shell=True, capture_output=True, text=True,
+        timeout=int(os.environ.get("ITP_GH_TIMEOUT_SECONDS", 30)),
+    )
+    if label_result.returncode == 0:
+        row["pr_label_action"] = "added"
+        print(f"[issue-to-project] issue #{issue_number}: stamped label '{pr_label_name}' (add-label idempotent)")
+    else:
+        first_err_line = (label_result.stderr or "").splitlines()[0] if label_result.stderr else "unknown error"
+        row["pr_label_action"] = "failed"
+        row["pr_label_error"] = first_err_line
+        print(
+            f"[issue-to-project] WARN: issue #{issue_number}: could not stamp label "
+            f"'{pr_label_name}': {first_err_line}",
+            file=sys.stderr,
+        )
+        # Soft-warn: label failure does NOT block the Status flip.
+else:
+    row["pr_label_action"] = None
+    row["pr_label_error"] = None
+```
+
+The `PR` label is **never removed** — not on PR close, not on merge, not on issue close.
 
 **Write (item-edit):**
 
@@ -215,7 +283,7 @@ GH_HOST=github.com timeout "${ITP_GH_TIMEOUT_SECONDS:-30}" \
     --single-select-option-id "$TARGET_OPTION_ID" 2>&1
 ```
 
-`TARGET_OPTION_ID` is `gp["options"]["in_progress"]` for `In Progress` and `gp["options"]["done"]` for `Done`.
+`TARGET_OPTION_ID` is `gp["options"]["in_review"]` for `In review`, `gp["options"]["in_progress"]` for `In Progress` (v2.0 fallback), and `gp["options"]["done"]` for `Done`.
 
 If `item-edit` fails:
 - Log: `[issue-to-project] WARN: issue #<N>: lifecycle status edit to '<Status>' failed: <error>`
@@ -264,8 +332,15 @@ except OSError as e:
 ```python
 import datetime, jsonschema, json, os, pathlib
 
+# WRITTEN_BY_SKILL: Status values this skill writes autonomously. Used by the D5
+# precedence rule to identify externally-set Statuses. "In review" added in v2.7
+# so that the fallback-WARN path and the new pr_opened_set_in_review outcome are
+# both covered by the precedence check.
+WRITTEN_BY_SKILL = {"In Progress", "In review", "Done", "Blocked"}
+
 LIFECYCLE_OUTCOMES = {
-    "pr_opened_set_in_progress",
+    "pr_opened_set_in_review",
+    "pr_opened_set_in_progress_fallback",
     "pr_merged_set_done",
 }
 LOOKUP_FAILED_OUTCOMES = {"lifecycle_lookup_failed"}
@@ -275,10 +350,10 @@ def count_outcome(results, outcome_set):
     return sum(1 for r in results if r["outcome"] in outcome_set)
 
 artifact = {
-    "schema_version": "2",
+    "schema_version": "2.7",
     "slug": slug,
     "run_timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
-    "skill_version": "2.0.0",
+    "skill_version": "2.7.0",
     "retry_source": None,
     "project": {
         "owner": gp["owner"], "number": gp["number"], "url": gp["url"],
@@ -289,7 +364,7 @@ artifact = {
         "already_on_board":           len(input_results),   # all input rows are assumed on board
         "added":                      0,
         "set_todo":                   0,
-        "set_in_progress":            count_outcome(results, {"pr_opened_set_in_progress"}),
+        "set_in_progress":            count_outcome(results, {"pr_opened_set_in_progress_fallback"}),
         "set_blocked":                0,
         "set_done":                   count_outcome(results, {"pr_merged_set_done"}),
         "left_default":               0,
@@ -301,17 +376,22 @@ artifact = {
         "retry_succeeded":            0,
         "retry_failed":               0,
         "retry_item_gone":            0,
-        # v2 keys (new)
-        "set_in_progress":            count_outcome(results, {"pr_opened_set_in_progress"}),
+        # v2 keys
         "set_done":                   count_outcome(results, {"pr_merged_set_done"}),
         "lifecycle_lookup_failed":    count_outcome(results, LOOKUP_FAILED_OUTCOMES),
         "lifecycle_skipped":          count_outcome(results, SKIPPED_OUTCOMES),
+        # v2.7 keys
+        "set_in_review":              count_outcome(results, {"pr_opened_set_in_review"}),
+        "set_ready":                  0,
+        "auto_promoted_ready":        0,
+        "pr_label_added":             sum(1 for r in results if r.get("pr_label_action") == "added"),
+        "pr_label_failed":            sum(1 for r in results if r.get("pr_label_action") == "failed"),
     },
     "results": results,
 }
 ```
 
-Note: `set_in_progress` and `set_done` appear in both the v1 key block and the explicit v2 assignment above; the last assignment wins in Python dict literals — this is intentional to make both the v1 and v2 meanings clear for readers of this doc.
+Note: `set_in_progress` and `set_done` appear in both the v1 key block and the explicit v2 assignment above; the last assignment wins in Python dict literals — this is intentional to make both the v1 and v2 meanings clear for readers of this doc. In v2.7, `set_in_progress` counts only `pr_opened_set_in_progress_fallback` outcomes (v2.0-compat fallback); the primary PR-open outcome (`pr_opened_set_in_review`) is counted by `set_in_review`.
 
 Validate with `project-sync.schema.json` (same as `sync-process.md`). If validation fails: exit 1, HALT `AUDIT_SCHEMA_FAILED`.
 
@@ -352,7 +432,10 @@ result = {
     "skipped_after_total_failure":0,
     "dry_run":                    artifact["summary"]["dry_run"],
     "set_in_progress":            artifact["summary"]["set_in_progress"],
+    "set_in_review":              artifact["summary"]["set_in_review"],
     "set_done":                   artifact["summary"]["set_done"],
+    "pr_label_added":             artifact["summary"]["pr_label_added"],
+    "pr_label_failed":            artifact["summary"]["pr_label_failed"],
     "lifecycle_lookup_failed":    lifecycle_lookup_failed_count,
     "lifecycle_skipped":          artifact["summary"]["lifecycle_skipped"],
 }
@@ -367,7 +450,8 @@ If exiting non-zero, also print `HALT: <code>` as the final line (after the `Nex
 
 | Value | When |
 |---|---|
-| `pr_opened_set_in_progress` | Governing PR is open (or draft if `include_draft_prs: true`); Status flipped to `In Progress` this run |
+| `pr_opened_set_in_review` | Governing PR is open (or draft if `include_draft_prs: true`) and `options.in_review` is present; Status flipped to `In review` this run (v2.7+) |
+| `pr_opened_set_in_progress_fallback` | Governing PR is open and `options.in_review` is absent; Status flipped to `In Progress` with WARN (v2.0 backward-compat fallback) |
 | `pr_merged_set_done` | Governing PR is merged; Status flipped to `Done` this run |
 | `pr_closed_no_change` | Governing PR closed unmerged (or no PRs linked); Status unchanged (D4) |
 | `lifecycle_skipped_externally_set` | Current Status ≠ last-written Status → item was externally touched; no write (D5) |

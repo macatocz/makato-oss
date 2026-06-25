@@ -105,10 +105,14 @@ except jsonschema.ValidationError as e:
     sys.exit(f"issue-to-project: prior artifact {prior_path} failed schema validation: "
              f"{e.message}\nHALT: RETRY_SOURCE_MALFORMED")
 
-if prior["schema_version"] not in ("1", "1.1", "1.2"):
+if int(prior["schema_version"].split(".")[0]) < 1:
     sys.exit(f"issue-to-project: prior artifact schema_version "
              f"'{prior['schema_version']}' is not supported by this skill version.\n"
              f"HALT: RETRY_SOURCE_MALFORMED")
+# Accepts all 1.x and 2.x values through '2.7' (e.g. "1", "1.1", "1.2", "2", "2.1", …, "2.7").
+# The forward-stable major-version check above (`int(...split(".")[0]) >= 1`) avoids the
+# pre-existing v2.1 regression that the previous set-based gate caused by rejecting every
+# v2.0+ artifact.  Add new major versions (3.x, …) here if the contract ever breaks.
 
 # Resolve the slug for this retry run (re-use the prior's slug)
 slug = prior["slug"]
@@ -137,9 +141,17 @@ A `needs_status_retry: true` row in a v1.0/v1.1 prior artifact is always `added_
 
 ```python
 RETRY_TARGET = {
-    "added_blocked_edit_failed":     ("blocked",     "Blocked"),
-    "added_in_progress_edit_failed": ("in_progress", "In Progress"),
-    "added_done_edit_failed":        ("done",        "Done"),
+    # v1.2 outcomes
+    "added_blocked_edit_failed":          ("blocked",     "Blocked"),
+    "added_in_progress_edit_failed":      ("in_progress", "In Progress"),
+    "added_done_edit_failed":             ("done",        "Done"),
+    # v2.7 outcomes (new)
+    "added_ready_edit_failed":            ("ready",       "Ready"),
+    "added_in_review_edit_failed":        ("in_review",   "In review"),
+    "auto_promoted_ready_edit_failed":    ("ready",       "Ready"),
+    # NOTE: auto_promoted_ready_edit_failed maps to ("ready", "Ready") — the same target as
+    # label-driven Ready retry.  The autonomous-vs-manual distinction is lost on retry because
+    # retry replays only the cached (option_key, option_name), regardless of original cause.
 }
 
 def target_for(row):
@@ -153,7 +165,9 @@ def target_for(row):
     PRIORITY = [
         ("status:blocked",     "blocked",     "Blocked"),
         ("status:done",        "done",        "Done"),
+        ("status:in-review",   "in_review",   "In review"),
         ("status:in-progress", "in_progress", "In Progress"),
+        ("status:ready",       "ready",       "Ready"),
     ]
     for lbl, opt, name in PRIORITY:
         if lbl in row["labels"]:
@@ -199,7 +213,14 @@ EDIT_RC=$?
 [issue-to-project] WARN: issue #<N>: retry of status edit to '<Status Name>' timed out after <N>s → retry_failed
 ```
 
-`<Status Name>` is the resolved name from `target_for(row)` — `"Blocked"`, `"In Progress"`, or `"Done"`.
+`<Status Name>` is the resolved name from `target_for(row)` — `"Blocked"`, `"In Progress"`, `"Done"`,
+`"Ready"`, or `"In review"`.
+
+`--retry-blocked-edits` is the canonical recovery path for **all seven** edit-failed outcomes: the
+v1.2 set (`added_blocked_edit_failed`, `added_in_progress_edit_failed`, `added_done_edit_failed`)
+plus the v2.7 additions (`added_ready_edit_failed`, `added_in_review_edit_failed`,
+`auto_promoted_ready_edit_failed`), and the legacy `added_default_edit_failed` if present in older
+artifacts.
 
 The skill trusts `gh`'s 200 response — no read-back via `item-list` to verify the board state (matches v1.0.0's `added_blocked` convention).
 
@@ -259,14 +280,23 @@ def count_status(name): return sum(1 for r in results if r.get("final_status") =
 ADDED = {"added_default","added_todo_explicit",
          "added_in_progress","added_in_progress_edit_failed",
          "added_blocked","added_blocked_edit_failed",
-         "added_done","added_done_edit_failed"}
+         "added_done","added_done_edit_failed",
+         "added_ready","added_ready_edit_failed",
+         "added_in_review","added_in_review_edit_failed",
+         "auto_promoted_ready","auto_promoted_ready_edit_failed"}
 LEFT_DEFAULT = {"added_default",
                 "added_in_progress_edit_failed",
                 "added_blocked_edit_failed",
-                "added_done_edit_failed"}
+                "added_done_edit_failed",
+                "added_ready_edit_failed",
+                "added_in_review_edit_failed",
+                "auto_promoted_ready_edit_failed"}
 EDIT_FAILED  = {"added_in_progress_edit_failed",
                 "added_blocked_edit_failed",
-                "added_done_edit_failed"}
+                "added_done_edit_failed",
+                "added_ready_edit_failed",
+                "added_in_review_edit_failed",
+                "auto_promoted_ready_edit_failed"}
 
 summary = {
     "issues_in_input":            prior["summary"]["issues_in_input"],
@@ -276,6 +306,8 @@ summary = {
     "set_in_progress":            count({"added_in_progress"}) + count_status("In Progress"),
     "set_blocked":                count({"added_blocked"})     + count_status("Blocked"),
     "set_done":                   count({"added_done"})        + count_status("Done"),
+    "set_ready":                  count({"added_ready", "auto_promoted_ready"}) + count_status("Ready"),
+    "set_in_review":              count({"added_in_review"})   + count_status("In review"),
     # left_default subtracts retry_succeeded rows whose prior outcome was edit-failed
     # (those rows had been counted in left_default by the prior run and are no longer
     # at Todo on the board). The simplest correct expression: re-count from current
@@ -299,10 +331,10 @@ The summary recomputation honors three invariants:
 3. A `retry_item_gone` row is terminal — the item is off the board, so it counts in neither `set_*` nor `left_default` nor `edit_failed`. The summary's `retry_item_gone` is the only place it appears.
 
 artifact = {
-    "schema_version": "1.2",
+    "schema_version": "2.7",
     "slug": slug,
     "run_timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
-    "skill_version": "1.2.0",
+    "skill_version": "2.7.0",
     "retry_source": {
         "slug": prior["slug"],
         "run_timestamp": prior["run_timestamp"],
@@ -367,7 +399,7 @@ On non-zero exit, also print `HALT: <code>` as the final line (after `Next: …`
 
 ## Boundary cases
 
-- **Prior artifact is itself a retry artifact** (`schema_version: "1.1"`, `retry_source` not null). Fully supported — the new `retry_source` chain points one hop back; the prior's `retry_source` is not preserved in the new artifact (`retry_source` always reflects the immediate parent only). Operators wanting full provenance read the prior file directly.
+- **Prior artifact is itself a retry artifact** (`schema_version: "2.7"`, `retry_source` not null). Fully supported — the new `retry_source` chain points one hop back; the prior's `retry_source` is not preserved in the new artifact (`retry_source` always reflects the immediate parent only). Operators wanting full provenance read the prior file directly.
 - **A `needs_retry` row's `project_item_id` is null** in the prior artifact. Cannot happen given schema constraints (`added_blocked_edit_failed` ⇒ `project_item_id` is a `PVTI_…` string). If a malformed v1 artifact slips through, the row fails schema validation at Step 2 and the run aborts with `RETRY_SOURCE_MALFORMED`.
 - **The prior artifact has `add_failed` rows.** Those rows are forwarded verbatim — they have no `project_item_id` and are out of scope for this verb (see Spec O1). To retry them, run normal-run `issue-to-project <slug>`; the next snapshot won't contain them, and Step 4 will re-attempt the full add+edit pair.
 - **`option_id` mismatch on `item-edit`.** If `gh` rejects the option ID with a graphql error (rare — would mean the operator deleted the Blocked option since `--init`), the row gets `retry_failed` with the stderr as `error`. Operator action: re-run `--init` to refresh the cache, then re-run `--retry-blocked-edits`.

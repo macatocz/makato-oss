@@ -99,7 +99,10 @@
             "board_blocked_label_not",
             "pr_merged_not_done",
             "field_disagrees",
-            "pending_future_feature"
+            "pending_future_feature",
+            "label_ready_board_not",
+            "label_in_review_board_not",
+            "label_pr_drift"
           ],
           "additionalProperties": false,
           "properties": {
@@ -109,7 +112,10 @@
             "board_blocked_label_not": { "type": "integer", "minimum": 0 },
             "pr_merged_not_done":      { "type": "integer", "minimum": 0 },
             "field_disagrees":         { "type": "integer", "minimum": 0 },
-            "pending_future_feature":  { "type": "integer", "minimum": 0 }
+            "pending_future_feature":  { "type": "integer", "minimum": 0 },
+            "label_ready_board_not":   { "type": "integer", "minimum": 0, "description": "Label says Ready but board shows something else and the item is not externally pinned. (v2.7.0+)" },
+            "label_in_review_board_not": { "type": "integer", "minimum": 0, "description": "Label says In review but board shows something else and the item is not externally pinned. (v2.7.0+)" },
+            "label_pr_drift":          { "type": "integer", "minimum": 0, "description": "Issue has PR label but no open linked PR found, or vice-versa. (v2.7.0+)" }
           }
         },
         "repaired": {
@@ -151,7 +157,10 @@
               "board_blocked_label_not",
               "pr_merged_not_done",
               "field_disagrees",
-              "pending_future_feature"
+              "pending_future_feature",
+              "label_ready_board_not",
+              "label_in_review_board_not",
+              "label_pr_drift"
             ],
             "description": "The drift case classifier."
           },

@@ -72,7 +72,7 @@ Consult the lifecycle transition map. Any event/action combination not listed in
 |---|---|---|
 | `issues.opened` | always | `Todo` (project default — item-add only, no item-edit) |
 | `issues.labeled` | `payload["label"]["name"] == "status:blocked"` | `Blocked` |
-| `pull_request.opened` | linked issue found | `In Progress` |
+| `pull_request.opened` | linked issue found | `In review` (when `options.in_review` present) or `In Progress` (fallback with WARN) |
 | `pull_request.closed` | `payload["pull_request"]["merged"] == True`, linked issue found | `Done` |
 | `pull_request.closed` | `payload["pull_request"]["merged"] == False`, linked issue found | `Todo` (abandon) |
 
@@ -80,10 +80,26 @@ Consult the lifecycle transition map. Any event/action combination not listed in
 label_name = (payload.get("label") or {}).get("name", "")
 merged = (payload.get("pull_request") or {}).get("merged", None)
 
+# D8: pull_request.opened targets "In review" when options.in_review is present in
+# config, falling back to "In Progress" (v2.0 behavior) with a loud WARN when absent.
+if (event_type, action) == ("pull_request", "opened"):
+    if gp.get("options", {}).get("in_review"):
+        pr_opened_target = "In review"
+    else:
+        print(
+            "[issue-to-project] WARN: pull_request.opened received but options.in_review "
+            "is absent — falling back to In Progress. Re-run --init to enable the "
+            "In review transition.",
+            file=sys.stderr,
+        )
+        pr_opened_target = "In Progress"
+else:
+    pr_opened_target = None
+
 TRANSITION_MAP = {
     ("issues",       "opened"):  "Todo",
     ("issues",       "labeled"): "Blocked" if label_name == "status:blocked" else None,
-    ("pull_request", "opened"):  "In Progress",
+    ("pull_request", "opened"):  pr_opened_target,
     ("pull_request", "closed"):  "Done" if merged is True else ("Todo" if merged is False else None),
 }
 
@@ -269,10 +285,47 @@ else:
 
 | `lifecycle_transition` | `options` key |
 |---|---|
+| `In review` | `in_review` |
 | `In Progress` | `in_progress` |
 | `Done` | `done` |
 | `Blocked` | `blocked` |
 | `Todo` | _(no item-edit — default; or no-op if already Todo)_ |
+
+**PR-label stamp on open-PR detection (D9):**
+
+When `lifecycle_transition` is `"In review"` or `"In Progress"` (i.e. the PR is open), stamp the `pr_label_name` repo label onto the issue. Skip the call when `pr_label_name == ""` (empty-string disable sentinel). The call is made without a pre-read of existing labels — GitHub's add-label API is idempotent.
+
+```python
+pr_label_name = gp.get("pr_label_name", "PR")
+
+if lifecycle_transition in ("In review", "In Progress") and pr_label_name != "":
+    label_cmd = (
+        f"GH_HOST=github.com gh issue edit {issue_number} "
+        f"--repo {repo_owner}/{repo_name} --add-label \"{pr_label_name}\""
+    )
+    label_result = subprocess.run(
+        label_cmd, shell=True, capture_output=True, text=True,
+        timeout=int(os.environ.get("ITP_GH_TIMEOUT_SECONDS", 30)),
+    )
+    if label_result.returncode == 0:
+        row["pr_label_action"] = "added"
+        print(f"[issue-to-project] issue #{issue_number}: stamped label '{pr_label_name}' (add-label idempotent)")
+    else:
+        first_err_line = (label_result.stderr or "").splitlines()[0] if label_result.stderr else "unknown error"
+        row["pr_label_action"] = "failed"
+        row["pr_label_error"] = first_err_line
+        print(
+            f"[issue-to-project] WARN: issue #{issue_number}: could not stamp label "
+            f"'{pr_label_name}': {first_err_line}",
+            file=sys.stderr,
+        )
+        # Soft-warn: label failure does NOT block the Status flip.
+else:
+    row["pr_label_action"] = None
+    row["pr_label_error"] = None
+```
+
+The `PR` label is **never removed** — not on PR close, not on merge, not on issue close.
 
 **Soft-warn messages (exact text):**
 
@@ -309,14 +362,14 @@ artifact_path = artifact_dir / f"{delivery_id}.json"
 
 ### Artifact shape
 
-The per-delivery artifact mirrors `project-sync.json`'s schema with `schema_version: "2.1"`, `slug: "_webhook"`, and the `webhook` block populated:
+The per-delivery artifact mirrors `project-sync.json`'s schema with `schema_version: "2.7"`, `slug: "_webhook"`, and the `webhook` block populated:
 
 ```python
 artifact = {
-    "schema_version": "2.1",
+    "schema_version": "2.7",
     "slug": "_webhook",
     "run_timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
-    "skill_version": "2.1.0",
+    "skill_version": "2.7.0",
     "retry_source": None,
     "webhook": {
         "delivery_id":          delivery_id,
@@ -328,7 +381,9 @@ artifact = {
     "project": {
         "owner": gp["owner"], "number": gp["number"], "url": gp["url"],
     },
-    "summary": { ... },  # same keys as v1 normal-run summary
+    "summary": { ... },  # same keys as v1 normal-run summary, plus v2.7 keys:
+                         # set_in_review, set_ready, auto_promoted_ready,
+                         # pr_label_added, pr_label_failed
     "results": results,
 }
 ```
@@ -385,6 +440,9 @@ result = {
     "edit_failed":                summary["edit_failed"],
     "skipped_after_total_failure":0,
     "dry_run":                    summary["dry_run"],
+    "set_in_review":              summary.get("set_in_review", 0),
+    "pr_label_added":             summary.get("pr_label_added", 0),
+    "pr_label_failed":            summary.get("pr_label_failed", 0),
     "webhook_event":              f"{event_type}/{action}",
     "webhook_transition":         lifecycle_transition,
 }
@@ -420,7 +478,8 @@ Operators copy the following YAML into `.github/workflows/issue-to-project-lifec
 ```yaml
 # .github/workflows/issue-to-project-lifecycle.yml
 # Copy this file into your consuming repo and set ITP_GITHUB_TOKEN as a repo secret.
-# Required secret: ITP_GITHUB_TOKEN — fine-grained PAT with read:org + project scopes.
+# Required secret: ITP_GITHUB_TOKEN — fine-grained PAT with Issues: Read and write,
+#   Projects: Read and write, and Pull requests: Read scopes.
 
 name: Issue-to-Project Lifecycle Sync
 
@@ -459,18 +518,36 @@ The `if:` condition on the job filters `issues.labeled` events to only the `stat
 ## Token setup
 
 1. Go to https://github.com/settings/tokens?type=beta.
-2. Create a fine-grained PAT scoped to the consuming repo with permissions: `Issues: Read`, `Projects: Read and write`, `Pull requests: Read`.
+2. Create a fine-grained PAT scoped to the consuming repo with permissions: `Issues: Read and write`, `Projects: Read and write`, `Pull requests: Read`.
+   - `Issues: Read and write` is required in v2.7+ for the PR-label stamp (`gh issue edit --add-label`). Without it, every open-PR detection emits `pr_label_action: "failed"` (soft-warn; does not block the Status flip).
 3. Add it as a repo secret named `ITP_GITHUB_TOKEN` in **Settings > Secrets and variables > Actions**.
 4. The workflow uses `GH_TOKEN` (the env var `gh` reads by default) set to the secret value. `GITHUB_TOKEN` is not used for `gh project` calls because it does not carry the `project` scope by default.
 
-If the consumer is already using a PAT for manual `issue-to-project` runs (set via `gh auth login --with-token`), that PAT may already have `project` scope. Reuse it as `ITP_GITHUB_TOKEN` to avoid creating a second PAT.
+If the consumer is already using a PAT for manual `issue-to-project` runs (set via `gh auth login --with-token`), that PAT may already have `project` scope. Check whether it also has `issues:write` before reusing it as `ITP_GITHUB_TOKEN`; if not, extend it or create a second PAT.
+
+### Pre-flight token-scope check (`--init` Step 6c)
+
+When `pr_label_name` is non-empty, `--init` runs a soft advisory check to confirm the token has `issues:write` before the first live run:
+
+```bash
+# Inspect token scopes from the X-OAuth-Scopes response header.
+gh auth status --show-token 2>&1 | grep -i "Token scopes" | grep -q "repo\|issues"
+# Or via gh api headers:
+SCOPES="$(gh api user --include 2>/dev/null | grep -i '^X-OAuth-Scopes:' | cut -d: -f2-)"
+echo "$SCOPES" | grep -qiE '\brepo\b|\bissues\b'
+```
+
+- If the scope check passes: emit `[issue-to-project:init] INFO: token has issues/repo scope — PR-label stamp will work.`
+- If the scope check fails or is inconclusive: emit `[issue-to-project:init] WARN: token may lack issues:write scope. PR-label stamps will fail at runtime (pr_label_action: "failed") until the token is extended. Re-run --init after updating the token.`
+- The pre-flight check is advisory only — it does NOT HALT `--init`. The wizard continues regardless.
 
 ## Migration notes
 
-**v1.0.0 → v2.1.0 (consumers already running v1):**
+**v1.0.0 → v2.7.0 (consumers already running v1):**
 
-1. Run `issue-to-project --init` once to merge the two new config keys (`webhook_audit_dir`, `webhook_pr_link_patterns`) into `.claude/config.json`. No re-prompting; `--init` detects existing v1 config and merges defaults only.
+1. Run `issue-to-project --init` once to merge the new config keys (`webhook_audit_dir`, `webhook_pr_link_patterns`, `pr_label_name`, `ready_queue_mode`) into `.claude/config.json`. No re-prompting; `--init` detects existing v1 config and merges defaults only. Step 6c creates the `PR` repo label (color `0E8A16`) if absent.
 2. Copy `.github/workflows/issue-to-project-lifecycle.yml` (from the Workflow YAML template section above) into the consuming repo.
-3. Create `ITP_GITHUB_TOKEN` repo secret (see Token setup above).
+3. Create `ITP_GITHUB_TOKEN` repo secret with **`Issues: Read and write`** scope (see Token setup above). Existing PATs with only `Issues: Read` will cause `pr_label_action: "failed"` on every open-PR event — extend the PAT.
 4. Add `.issue-to-project/` to `.gitignore` if audit artifacts should not be committed, or `git add .issue-to-project/` if they should be versioned. No default either way — operator decision.
 5. Existing `specs/*/project-sync.json` artifacts from v1 runs are unaffected; the new webhook audit tree is separate.
+6. Webhook artifacts now emit `schema_version: "2.7"`. Downstream consumers parsing the per-delivery JSON files must accept the new value. The additive-only contract means all v2.1–v2.6 keys are present with the same types; the new keys (`set_in_review`, `pr_label_added`, `pr_label_failed`) can be ignored by v2.6 consumers.

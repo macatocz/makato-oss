@@ -208,6 +208,13 @@ Fields the operator unchecks are silently omitted from the `fields` dict; their 
 
 All four option keys must resolve: `todo`, `in_progress`, `done`, `blocked`. Name-match is case-insensitive (`"In Progress"` → `in_progress`). Missing any → exit 1 with HALT `INIT_FAILED`, name the missing options, print the project URL, and instruct: `"Open the URL, add the missing Status option(s), then re-run 'issue-to-project --init'."`
 
+**Note (v2.7.0+):** `ready` and `in_review` are NOT required for `--init` to succeed. When either optional option is absent from the discovered Status field, emit one INFO line per missing optional and continue:
+
+```text
+[issue-to-project] INFO: Status option 'Ready' not found on project — options.ready will not be cached. issues with status:ready will route to Todo with WARN until you re-run --init after adding the option.
+[issue-to-project] INFO: Status option 'In review' not found on project — options.in_review will not be cached. issues with status:in-review will route to Todo with WARN until you re-run --init after adding the option.
+```
+
 ## Step 4b — Auto-discover `known_repos` from live board (v2.3.0+)
 
 After resolving the Status field (Step 4), call `gh project item-list` once to collect `repository.nameWithOwner` from all existing board items. This auto-discovers which repos are already feeding the board.
@@ -264,6 +271,69 @@ Count draft PRs as In Progress? [Y/n]:
 
 Default `Y` (empty input → `true`). Explicit `n` or `N` → `false`. Any other input → re-prompt once, then default to `true`.
 
+## Step 6c — Create PR repo label (v2.7.0+)
+
+**Preserve-existing-on-reinit:** on a re-init run, read `config.get("github_project", {}).get("pr_label_name")` first. If the existing config already contains a `pr_label_name`, default this step to that value (pressing Enter keeps the current value). Only on a fresh init (no prior value) does the default fall back to `"PR"`.
+
+Prompt the operator:
+
+```text
+PR label name (stamped on an issue when a linked open PR is first detected) ["PR"]:
+```
+
+Empty input accepts the default (either the existing value from config or `"PR"`). Entering `""` (an empty string, typed explicitly) sets `pr_label_name = ""` which disables all label stamping (D9 sentinel).
+
+Validate the entered value against rule 15 in config-schema.md (whitespace-only → HALT `MALFORMED_CONFIG`; non-empty must match `^[A-Za-z0-9_:.-]+$`, 1–50 chars). On HALT, print the validation message and exit 1.
+
+When `pr_label_name` is non-empty, run a **pre-flight token-scope check** (advisory only — does NOT HALT):
+
+```bash
+gh auth status --show-token 2>&1 | grep -E "(repo|issues)" && \
+    echo "[issue-to-project] INFO: token scope check — issues:write (or repo) scope detected. PR label stamping should succeed." || \
+    echo "[issue-to-project] WARN: token scope check — issues:write scope not detected. Every PR label stamp will fail at sync-lifecycle time with pr_label_action: 'failed'. Grant the 'Issues: Read and write' (issues:write) scope and re-run --init."
+```
+
+Then create the label in the repo if `pr_label_name` is non-empty:
+
+```bash
+# Skip the step entirely when pr_label_name is the empty-string disable sentinel.
+if [ -z "$PR_LABEL_NAME" ]; then
+    echo "[issue-to-project] INFO: Step 6c skipped: pr_label_name is empty — PR-label feature disabled."
+else
+    gh label create "$PR_LABEL_NAME" \
+        --color "0E8A16" \
+        --description "This issue has an open linked pull request." 2>&1 || {
+        # Treat "already exists" as success; soft-warn on any other non-zero exit.
+        LABEL_ERR="$?"
+        echo "[issue-to-project] WARN: could not create repo label '$PR_LABEL_NAME': exit $LABEL_ERR."
+        echo "  The skill will still attempt to stamp the label at sync-lifecycle time; if the"
+        echo "  label does not exist there, the per-row pr_label_action will be 'failed'."
+        echo "  Most common cause: the GitHub token lacks 'issues:write' (Issues: Read and write) scope."
+    }
+fi
+```
+
+Note: `gh label create` returns exit 0 when the label already exists (idempotent). A non-zero exit code is treated as a soft-warn — the wizard continues. The skill will attempt label stamping at runtime regardless; if the label does not exist, each attempt will be recorded as `pr_label_action: "failed"`.
+
+## Step 6d — Prompt `ready_queue_mode` (v2.7.0+)
+
+**Preserve-existing-on-reinit:** on a re-init run, read `config.get("github_project", {}).get("ready_queue_mode")` first. If the existing config already contains a `ready_queue_mode`, default the prompt to that value (pressing Enter keeps the current mode). Only on a fresh init (no prior value) does the default fall back to `"manual"`.
+
+Prompt the operator:
+
+```text
+Ready-queue ownership: who promotes Todo → Ready?
+  [m] manual     — the user moves items via UI or sets status:ready in to-issues. (default)
+  [a] autonomous — the orchestrator auto-promotes items with no status/blocked/review labels.
+Choice [m]:
+```
+
+- **Empty or `m`** → `ready_queue_mode = "manual"`.
+- **`a`** → `ready_queue_mode = "autonomous"`.
+- **Any other input** → re-prompt once, then default to `"manual"`.
+
+When re-init and the prior value is `"autonomous"`, the prompt shows `Choice [a]:` and Enter keeps `"autonomous"`.
+
 ```python
 import json, os, datetime, pathlib
 config_path = pathlib.Path(".claude/config.json")
@@ -286,6 +356,9 @@ fields_dict = {
             "in_progress": options["in_progress"],
             "done":        options["done"],
             "blocked":     options["blocked"],
+            # Optional v2.7.0+ options — only written when found on the board.
+            **({} if "ready" not in options else {"ready": options["ready"]}),
+            **({} if "in_review" not in options else {"in_review": options["in_review"]}),
         },
     },
 }
@@ -331,13 +404,16 @@ config["github_project"] = {
     "project_node_id": PROJECT_NODE_ID,
     "fields": fields_dict,
     "init_timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
-    "init_skill_version": "2.6.0",
+    "init_skill_version": "2.7.0",
     "include_draft_prs": INCLUDE_DRAFT_PRS,
     "webhook_audit_dir": config.get("github_project", {}).get("webhook_audit_dir", ".issue-to-project/lifecycle"),
     "webhook_pr_link_patterns": config.get("github_project", {}).get("webhook_pr_link_patterns", ["Closes", "Fixes", "Resolves"]),
     # v2.3.0+: cross-repo fields (always written; empty list = no-op, v1 behaviour)
     "known_repos": KNOWN_REPOS,
     "reconcile_scope": RECONCILE_SCOPE,
+    # v2.7.0+: PR label and ready-queue mode
+    "pr_label_name": PR_LABEL_NAME,
+    "ready_queue_mode": READY_QUEUE_MODE,
 }
 
 tmp = config_path.with_suffix(".json.tmp")
