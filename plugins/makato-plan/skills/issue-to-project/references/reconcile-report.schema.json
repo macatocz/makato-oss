@@ -1,0 +1,234 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/zstary/makato/plugins/makato-plan/skills/issue-to-project/references/reconcile-report.schema.json",
+  "title": "reconcile-report.json",
+  "description": "Machine-readable audit artifact emitted by 'issue-to-project reconcile'. Written to specs/{slug}/reconcile-report.json (slug-scoped runs) or specs/.reconcile-report.json (union/slug-less runs). schema_version '1' = v2.2.0 initial reconcile artifact. project-sync.json is a separate artifact and is never touched by the reconcile path.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "reconcile_timestamp",
+    "skill_version",
+    "mode",
+    "slug_scope",
+    "project",
+    "summary",
+    "drift",
+    "orphans_for_review"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": ["1"],
+      "description": "Schema version of this reconcile-report artifact. '1' = v2.2.0."
+    },
+    "reconcile_timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC timestamp of when reconcile ran."
+    },
+    "skill_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "The issue-to-project skill version that produced this artifact."
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["read_only", "repair_additive", "repair_aggressive"],
+      "description": "The reconcile mode: read_only (no mutations), repair_additive (sync_gap only), or repair_aggressive (all repairable drift; labels win)."
+    },
+    "slug_scope": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The feature slug this run was scoped to, or '*' for a union (slug-less) run."
+    },
+    "project": {
+      "type": "object",
+      "required": ["owner", "number", "url", "total_board_items"],
+      "additionalProperties": false,
+      "properties": {
+        "owner": { "type": "string", "minLength": 1 },
+        "number": { "type": "integer", "minimum": 1 },
+        "url": { "type": "string", "format": "uri" },
+        "total_board_items": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of items in the board snapshot after the paged loop completed."
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "issues_in_input",
+        "board_items_inspected",
+        "clean",
+        "drift_total",
+        "by_case",
+        "repaired",
+        "repair_skipped"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "issues_in_input": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of issues from created-issues.json (deduplicated) in this run's scope."
+        },
+        "board_items_inspected": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total board items from the paged snapshot."
+        },
+        "clean": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Issues in input that are on the board with no detectable drift."
+        },
+        "drift_total": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of drift rows (sum of all by_case values)."
+        },
+        "by_case": {
+          "type": "object",
+          "required": [
+            "orphan",
+            "sync_gap",
+            "label_blocked_board_not",
+            "board_blocked_label_not",
+            "pr_merged_not_done",
+            "field_disagrees",
+            "pending_future_feature"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "orphan":                  { "type": "integer", "minimum": 0 },
+            "sync_gap":                { "type": "integer", "minimum": 0 },
+            "label_blocked_board_not": { "type": "integer", "minimum": 0 },
+            "board_blocked_label_not": { "type": "integer", "minimum": 0 },
+            "pr_merged_not_done":      { "type": "integer", "minimum": 0 },
+            "field_disagrees":         { "type": "integer", "minimum": 0 },
+            "pending_future_feature":  { "type": "integer", "minimum": 0 }
+          }
+        },
+        "repaired": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of drift rows where a repair mutation succeeded."
+        },
+        "repair_skipped": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of drift rows where repair was not attempted (orphan, pending_future_feature, or drift case not repairable in the active mode)."
+        }
+      }
+    },
+    "drift": {
+      "type": "array",
+      "description": "Per-issue drift rows. Empty array when no drift is detected.",
+      "items": {
+        "type": "object",
+        "required": [
+          "case",
+          "severity",
+          "url",
+          "project_item_id",
+          "board_status",
+          "input_labels",
+          "note",
+          "repaired",
+          "repair_action"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "case": {
+            "type": "string",
+            "enum": [
+              "orphan",
+              "sync_gap",
+              "label_blocked_board_not",
+              "board_blocked_label_not",
+              "pr_merged_not_done",
+              "field_disagrees",
+              "pending_future_feature"
+            ],
+            "description": "The drift case classifier."
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["info", "warn", "error"],
+            "description": "Default severity: orphan/sync_gap/label_blocked_board_not/board_blocked_label_not = warn; pr_merged_not_done/field_disagrees = error (reported as pending_future_feature/info until those features ship); pending_future_feature = info."
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "GitHub issue URL."
+          },
+          "project_item_id": {
+            "type": ["string", "null"],
+            "description": "GitHub Projects v2 item ID (PVTI_...) if the item is on the board; null for sync_gap rows."
+          },
+          "board_status": {
+            "type": ["string", "null"],
+            "description": "Current board Status option name (e.g. 'Todo', 'In Progress', 'Blocked', 'Done'); null for sync_gap rows."
+          },
+          "input_labels": {
+            "type": ["array", "null"],
+            "items": { "type": "string", "minLength": 1 },
+            "description": "Labels from created-issues.json for this issue; null for orphan rows (not in any input file)."
+          },
+          "note": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Human-readable explanation of the drift case."
+          },
+          "repaired": {
+            "type": "boolean",
+            "description": "True if a repair mutation succeeded for this row in this run."
+          },
+          "repair_action": {
+            "type": ["string", "null"],
+            "description": "The repair action taken or that would have been taken (DRY_RUN=1): literal gh command or short label. Null if not repairable or not in a repair mode."
+          }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "case": { "const": "sync_gap" } } },
+            "then": {
+              "properties": {
+                "project_item_id": { "type": "null" },
+                "board_status": { "type": "null" }
+              }
+            }
+          },
+          {
+            "if": { "properties": { "case": { "const": "orphan" } } },
+            "then": {
+              "properties": {
+                "input_labels": { "type": "null" },
+                "repaired": { "const": false },
+                "repair_action": { "type": "null" }
+              }
+            }
+          },
+          {
+            "if": { "properties": { "case": { "const": "pending_future_feature" } } },
+            "then": {
+              "properties": {
+                "severity": { "const": "info" },
+                "repaired": { "const": false },
+                "repair_action": { "type": "null" }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "orphans_for_review": {
+      "type": "array",
+      "items": { "type": "string", "format": "uri" },
+      "description": "URLs of board items not found in any created-issues.json for this scope. These require manual review — the skill never auto-deletes board items."
+    }
+  }
+}

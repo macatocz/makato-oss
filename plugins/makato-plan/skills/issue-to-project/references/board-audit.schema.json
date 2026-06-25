@@ -1,0 +1,56 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/zstary/makato/plugins/makato-plan/skills/issue-to-project/references/board-audit.schema.json",
+  "title": "board-audit.json",
+  "description": "Read-only board-wide audit artifact emitted by 'issue-to-project --board-audit' (v2.3.0+). Re-derives the current state of a shared GitHub Projects v2 board from gh project item-list; groups items by repository.nameWithOwner into known-repo and unknown-repo buckets. schema_version '1' = v2.3.0. No mutations; always idempotent.",
+  "type": "object",
+  "required": ["schema_version", "generated_at", "skill_version", "project", "known_repos", "by_repo", "unknown_repos", "draft_items_skipped"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "enum": ["1"] },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "skill_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "project": {
+      "type": "object",
+      "required": ["owner", "number", "url", "total_items"],
+      "additionalProperties": false,
+      "properties": {
+        "owner": { "type": "string", "minLength": 1 },
+        "number": { "type": "integer", "minimum": 1 },
+        "url": { "type": "string", "format": "uri" },
+        "total_items": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "known_repos": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "by_repo": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["count"],
+        "additionalProperties": false,
+        "properties": {
+          "count":       { "type": "integer", "minimum": 0 },
+          "blocked":     { "type": "integer", "minimum": 0 },
+          "todo":        { "type": "integer", "minimum": 0 },
+          "in_progress": { "type": "integer", "minimum": 0 },
+          "done":        { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "unknown_repos": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["count"],
+        "additionalProperties": false,
+        "properties": {
+          "count": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "draft_items_skipped": { "type": "integer", "minimum": 0 }
+  }
+}

@@ -103,6 +103,18 @@ Skills follow a sequential shaping pipeline. Each phase produces a disk artifact
    - Output: Jira epic (linked to ITDB via Parent-Child) + stories (epicLink, inter-story Dependency links, 4 subtasks each) + Confluence spec page (stakeholder overview in DCPL) + jiraKeys written back to stories.json
    - Note: Single atomic skill. Creates in deterministic order: epic → stories → subtasks → dependency links → Confluence. Two confirmation gates (before Jira, before Confluence). Create-or-update idempotency — re-run safely skips existing items. Subtask content is pre-populated at publish time (QA gets acceptance criteria, Documentation gets artifact links, Automate gets Gherkin); the makato-build `refine` skill may enrich further. Creates epic and story subfolders inside the spec folder after publish.
 
+7. **Publish (GitHub)** — emit GitHub issues from shaped stories
+   - [x] `to-issues` — create GitHub issues on github.com with 5-dimension label taxonomy
+   - Input: `specs/<slug>/stories.json` + `.claude/config.json`
+   - Output: GitHub issues created on github.com + `specs/<slug>/created-issues.json` (machine-readable handoff containing issue numbers, URLs, labels, blockers)
+   - Note: Generic github.com publisher — parallel to Phase 6's Jira `publish`. Applies type / tier / tech / module / status labels; maps stories to ADR folders for `module:` annotation; emits `status:blocked` on dependency or `type:future-enhancement` inference. Topologically sorts by `dependencies.blockedBy`. `DRY_RUN=1` supported.
+
+8. **Project board sync** — land created issues on a GitHub Projects v2 board
+   - [x] `issue-to-project` — sync `created-issues.json` entries to a github.com Projects v2 board
+   - Input: `specs/<slug>/created-issues.json` (from `to-issues`) + `.claude/config.json` → `github_project` block (one-time setup via `issue-to-project --init`)
+   - Output: each new issue added to the project board + `specs/<slug>/project-sync.json` (audit artifact). Status defaults to `Todo`; flipped to `Blocked` only when `status:blocked` is in the issue's `labels[]`
+   - Note: Strict consumer of `to-issues`'s contract. Never removes items; never overwrites externally-changed Status. `--init` is a one-time wizard per consuming repo. Pre-flight checks for `gh` presence / auth / version / scope. R1 sentinel + HALT codes for orchestrator parsing. Out of v1 scope: PR-open/merge lifecycle (deferred to v2).
+
 ### Cross-cutting
 
 - [x] `grill` — adversarial stress-test of any phase artifact

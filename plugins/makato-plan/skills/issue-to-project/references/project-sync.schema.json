@@ -1,0 +1,360 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/zstary/makato/plugins/makato-plan/skills/issue-to-project/references/project-sync.schema.json",
+  "title": "project-sync.json",
+  "description": "Machine-readable audit artifact emitted by the issue-to-project skill. One file per spec slug (normal/retry/lifecycle runs) or one file per delivery under <webhook_audit_dir>/<YYYY-MM-DD>/<delivery-id>.json (webhook runs). schema_version '1' = v1.0.0 normal-run; '1.1' = v1.1.0 (retry verb additions); '1.2' = v1.2.0 (broader status routing additions); '2' = v2.0.0 (PR-lifecycle sync-lifecycle additions); '2.1' = v2.1.0 (webhook-mode additions); '2.2' = v2.2.0 (reconcile additions); '2.3' = v2.3.0 (cross-repo additions, verify-on-first-call, cross_repo block); '2.4' = v2.4.0 (non-Status field sync: fields[] on result rows, field_writes_* summary keys, not_on_board_skipped outcome); '2.5' = v2.5.0 (auto-reinit: auto_reinit_log array, recovered_via_auto_reinit outcome, recovered summary key); '2.6' = v2.6.0 (enterprise host support: project.host required, rate-limit/TLS guards, three new HALT codes). All additive — no removals, no renames. R1 RESULT sentinel keys for --from-webhook runs add webhook_event (string, format '<type>/<action>') and webhook_transition (string, Status written or 'none'); both are null in non-webhook runs. v2.3.0+ normal-run artifacts include an optional cross_repo block when known_repos is configured; omitted when absent so v1 consumers see no unexpected keys. v2.4.0+ result rows include a fields[] array (one entry per configured non-default field); empty array when no fields config or for already_on_board/add_failed rows. The v1 final_status key is kept in v2.4 as a deprecated alias; it will be removed in v2.5. v2.5.0+ artifacts include an optional auto_reinit_log array (present only when auto-reinit fired) and an optional recovered integer in summary. v2.6.0+ artifacts include project.host (required; 'github.com' for cloud consumers — existing v1 artifacts without project.host will fail v2.6 schema validation; treat missing host as 'github.com' or regenerate via a fresh issue-to-project run).",
+  "type": "object",
+  "required": ["schema_version", "slug", "run_timestamp", "skill_version", "project", "summary", "results"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "enum": ["1", "1.1", "1.2", "2", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6"] },
+    "slug": { "type": "string", "minLength": 1 },
+    "run_timestamp": { "type": "string", "format": "date-time" },
+    "skill_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "retry_source": {
+      "type": ["object", "null"],
+      "description": "Null on normal-run artifacts; populated on --retry-blocked-edits artifacts with provenance of the prior artifact that fed this retry run.",
+      "required": ["slug", "run_timestamp", "skill_version", "prior_artifact_path"],
+      "additionalProperties": false,
+      "properties": {
+        "slug": { "type": "string", "minLength": 1 },
+        "run_timestamp": { "type": "string", "format": "date-time" },
+        "skill_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "prior_artifact_path": { "type": "string", "minLength": 1 }
+      }
+    },
+    "webhook": {
+      "type": ["object", "null"],
+      "description": "Null on normal-run, retry, and sync-lifecycle artifacts. Populated on --from-webhook artifacts with the delivery metadata and lifecycle transition that was applied.",
+      "required": ["delivery_id", "event_type", "action", "lifecycle_transition"],
+      "additionalProperties": false,
+      "properties": {
+        "delivery_id": { "type": "string", "minLength": 1 },
+        "event_type": { "type": "string", "minLength": 1 },
+        "action": { "type": "string", "minLength": 1 },
+        "merged": { "type": ["boolean", "null"] },
+        "lifecycle_transition": { "type": "string", "minLength": 1 }
+      }
+    },
+    "cross_repo": {
+      "type": ["object", "null"],
+      "description": "Optional — present only when known_repos is configured in .claude/config.json github_project block (v2.3.0+). Null when known_repos is absent so v1 consumers reading a v2.3.0 artifact with no cross-repo config see no unexpected required keys.",
+      "required": ["known_repos", "reconcile_scope", "verify_on_first_call"],
+      "additionalProperties": false,
+      "properties": {
+        "known_repos": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "reconcile_scope": {
+          "type": "string",
+          "enum": ["this-repo-only", "all-known-repos"]
+        },
+        "verify_on_first_call": {
+          "type": "object",
+          "required": ["ran", "passed", "cached_project_node_id_valid", "cached_status_field_id_valid"],
+          "additionalProperties": false,
+          "properties": {
+            "ran":                          { "type": "boolean" },
+            "passed":                       { "type": "boolean" },
+            "cached_project_node_id_valid": { "type": "boolean" },
+            "cached_status_field_id_valid": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "auto_reinit_log": {
+      "type": ["array", "null"],
+      "description": "Optional — present only when auto-re-init fired during this run (v2.5.0+). Array (not a scalar) to accommodate future multi-phase logging; in v2.5 contains at most one entry per run. Absent (not null) when auto-reinit did not fire.",
+      "items": {
+        "type": "object",
+        "required": ["timestamp", "old_project_node_id", "new_project_node_id", "trigger_reason"],
+        "additionalProperties": false,
+        "properties": {
+          "timestamp": { "type": "string", "format": "date-time" },
+          "old_project_node_id": { "type": "string", "minLength": 1 },
+          "new_project_node_id": { "type": "string", "minLength": 1 },
+          "trigger_reason": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "project": {
+      "type": "object",
+      "required": ["owner", "number", "url", "host"],
+      "additionalProperties": false,
+      "properties": {
+        "owner": { "type": "string", "minLength": 1 },
+        "number": { "type": "integer", "minimum": 1 },
+        "url": { "type": "string", "format": "uri" },
+        "host": { "type": "string", "minLength": 1, "description": "Bare hostname of the GitHub instance targeted by this sync run. 'github.com' for cloud consumers. Redundant with the scheme+host in url but makes artifacts grep-friendly for operators auditing which instance a sync targeted. (v2.6.0+)" }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["issues_in_input", "already_on_board", "added", "set_blocked", "left_default", "add_failed", "edit_failed", "dry_run", "skipped_after_total_failure"],
+      "additionalProperties": false,
+      "properties": {
+        "issues_in_input": { "type": "integer", "minimum": 0 },
+        "already_on_board": { "type": "integer", "minimum": 0 },
+        "added": { "type": "integer", "minimum": 0 },
+        "set_todo": { "type": "integer", "minimum": 0 },
+        "set_in_progress": { "type": "integer", "minimum": 0 },
+        "set_blocked": { "type": "integer", "minimum": 0 },
+        "set_done": { "type": "integer", "minimum": 0 },
+        "left_default": { "type": "integer", "minimum": 0 },
+        "add_failed": { "type": "integer", "minimum": 0 },
+        "edit_failed": { "type": "integer", "minimum": 0 },
+        "dry_run": { "type": "integer", "minimum": 0 },
+        "skipped_after_total_failure": { "type": "integer", "minimum": 0 },
+        "retry_attempted": { "type": "integer", "minimum": 0 },
+        "retry_succeeded": { "type": "integer", "minimum": 0 },
+        "retry_failed": { "type": "integer", "minimum": 0 },
+        "retry_item_gone": { "type": "integer", "minimum": 0 },
+        "lifecycle_lookup_failed": { "type": "integer", "minimum": 0 },
+        "lifecycle_skipped": { "type": "integer", "minimum": 0 },
+        "field_writes_attempted": { "type": "integer", "minimum": 0 },
+        "field_writes_succeeded": { "type": "integer", "minimum": 0 },
+        "field_writes_failed": { "type": "integer", "minimum": 0 },
+        "recovered": { "type": "integer", "minimum": 0, "description": "Count of issues that landed on the board via auto-re-init recovery (outcome: recovered_via_auto_reinit). Zero when auto-reinit did not fire or recovered zero issues. (v2.5.0+)" }
+      }
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["issue_number", "url", "labels", "outcome", "project_item_id", "final_status", "needs_status_retry", "cli_command", "error"],
+        "additionalProperties": false,
+        "properties": {
+          "issue_number": { "type": "integer", "minimum": 1 },
+          "url": { "type": "string", "format": "uri" },
+          "labels": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "already_on_board",
+              "added_default",
+              "added_todo_explicit",
+              "added_in_progress",
+              "added_in_progress_edit_failed",
+              "added_blocked",
+              "added_blocked_edit_failed",
+              "added_done",
+              "added_done_edit_failed",
+              "add_failed",
+              "skipped_after_total_failure",
+              "dry_run",
+              "retry_succeeded",
+              "retry_failed",
+              "retry_item_gone",
+              "pr_opened_set_in_progress",
+              "pr_merged_set_done",
+              "pr_closed_no_change",
+              "lifecycle_skipped_externally_set",
+              "lifecycle_lookup_failed",
+              "webhook_status_updated",
+              "not_on_board_skipped",
+              "recovered_via_auto_reinit"
+            ]
+          },
+          "project_item_id": { "type": ["string", "null"] },
+          "final_status": { "type": ["string", "null"] },
+          "needs_status_retry": { "type": "boolean" },
+          "cli_command": { "type": ["string", "null"] },
+          "error": { "type": ["string", "null"] },
+          "linked_pr_url": { "type": ["string", "null"] },
+          "linked_pr_state": { "type": ["string", "null"] },
+          "fields": {
+            "type": "array",
+            "description": "Per-field outcome array (v2.4.0+). One entry per configured non-default field. Empty array when no fields config, or for already_on_board/add_failed/not_on_board_skipped rows.",
+            "items": {
+              "type": "object",
+              "required": ["name", "intended_value", "current_value", "outcome", "error"],
+              "additionalProperties": false,
+              "properties": {
+                "name": { "type": "string", "minLength": 1, "description": "Human-readable field name from config (e.g. 'Priority', 'Estimate')" },
+                "intended_value": {
+                  "description": "The target value the skill intended to write (resolved from signals). Null when outcome is no_signal or dry_run.",
+                  "type": ["string", "number", "null"]
+                },
+                "current_value": {
+                  "description": "The confirmed value on the board after the write. Null when write was not attempted or when snapshot did not return a current value.",
+                  "type": ["string", "number", "null"]
+                },
+                "outcome": {
+                  "type": "string",
+                  "enum": [
+                    "set",
+                    "skipped_already_set",
+                    "no_signal",
+                    "write_failed",
+                    "unsupported_type",
+                    "dry_run"
+                  ]
+                },
+                "error": { "type": ["string", "null"], "description": "Error text when outcome is write_failed; null otherwise." }
+              },
+              "allOf": [
+                {
+                  "if": { "properties": { "outcome": { "const": "write_failed" } } },
+                  "then": {
+                    "properties": {
+                      "error": { "type": "string", "minLength": 1 }
+                    }
+                  }
+                },
+                {
+                  "if": { "properties": { "outcome": { "const": "set" } } },
+                  "then": {
+                    "properties": {
+                      "error": { "type": "null" }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "outcome": { "const": "dry_run" } } },
+            "then": {
+              "properties": {
+                "cli_command": { "type": "string", "minLength": 1 }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "outcome": {
+                  "enum": [
+                    "added_blocked_edit_failed",
+                    "added_in_progress_edit_failed",
+                    "added_done_edit_failed"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "needs_status_retry": { "const": true },
+                "project_item_id": { "type": "string", "pattern": "^PVTI_" },
+                "error": { "type": "string", "minLength": 1 }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "outcome": {
+                  "enum": [
+                    "added_default",
+                    "added_todo_explicit",
+                    "added_in_progress",
+                    "added_blocked",
+                    "added_done"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "project_item_id": { "type": "string", "pattern": "^PVTI_" },
+                "error": { "type": "null" }
+              }
+            }
+          },
+          {
+            "if": { "properties": { "outcome": { "const": "add_failed" } } },
+            "then": {
+              "properties": {
+                "project_item_id": { "type": "null" },
+                "error": { "type": "string", "minLength": 1 }
+              }
+            }
+          },
+          {
+            "if": { "properties": { "outcome": { "const": "retry_succeeded" } } },
+            "then": {
+              "properties": {
+                "needs_status_retry": { "const": false },
+                "project_item_id": { "type": "string", "pattern": "^PVTI_" },
+                "error": { "type": "null" }
+              }
+            }
+          },
+          {
+            "if": { "properties": { "outcome": { "const": "retry_failed" } } },
+            "then": {
+              "properties": {
+                "needs_status_retry": { "const": true },
+                "project_item_id": { "type": "string", "pattern": "^PVTI_" },
+                "error": { "type": "string", "minLength": 1 }
+              }
+            }
+          },
+          {
+            "if": { "properties": { "outcome": { "const": "retry_item_gone" } } },
+            "then": {
+              "properties": {
+                "needs_status_retry": { "const": false },
+                "project_item_id": { "type": "string", "pattern": "^PVTI_" }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "outcome": {
+                  "enum": [
+                    "pr_opened_set_in_progress",
+                    "pr_merged_set_done",
+                    "pr_closed_no_change",
+                    "lifecycle_skipped_externally_set"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "needs_status_retry": { "const": false }
+              }
+            }
+          },
+          {
+            "if": { "properties": { "outcome": { "const": "lifecycle_lookup_failed" } } },
+            "then": {
+              "properties": {
+                "needs_status_retry": { "const": false },
+                "error": { "type": "string", "minLength": 1 }
+              }
+            }
+          },
+          {
+            "if": { "properties": { "outcome": { "const": "not_on_board_skipped" } } },
+            "then": {
+              "properties": {
+                "needs_status_retry": { "const": false },
+                "project_item_id": { "type": "null" },
+                "error": { "type": "null" }
+              }
+            }
+          },
+          {
+            "if": { "properties": { "outcome": { "const": "recovered_via_auto_reinit" } } },
+            "then": {
+              "properties": {
+                "needs_status_retry": { "const": false },
+                "project_item_id": { "type": "string", "pattern": "^PVTI_" },
+                "error": { "type": "null" }
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}
