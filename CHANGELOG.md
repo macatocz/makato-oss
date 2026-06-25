@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/zstary/makato/compare/v0.10.0...v0.11.0) (2026-06-25)
+
+
+### ✨ Features
+
+* **makato-plan:** issue-to-project v2.7.0 implementation ([#19](https://github.com/zstary/makato/issues/19)) ([6ac3407](https://github.com/zstary/makato/commit/6ac3407a52f1d7cf0395c6d947804bbbb797443a))
+
 ## [0.10.0](https://github.com/zstary/makato/compare/v0.9.0...v0.10.0) (2026-06-25)
 
 
