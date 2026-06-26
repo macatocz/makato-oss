@@ -1,7 +1,7 @@
 ---
 name: analyze
 description: Analyze change request requirements by comparing current behavior against requested changes, identify and address open questions and inconsistencies, update GitHub issue with refined requirements. Use for change requests, requirement analysis, behavior comparison, scope estimation.
-version: "1.1.1"
+version: "1.1.2"
 argument-hint: "[ISSUE-KEY]"
 ---
 
@@ -160,14 +160,14 @@ Extract FEATURE_KEYWORDS by identifying key terms from GitHub Issues summary and
 - Primary affected files and their roles
 - Dependencies (inbound/outbound)
 - Code patterns and conventions
-- specs-context context (if available)
+- Project specs context (if available)
 
 **Store result** in working memory as CODE_EXPLORATION_RESULT.
 
 **Document current behavior** from agent findings:
 - What the system does now (from file analysis)
 - How it does it (key files, functions, data flow)
-- What constraints exist (from specs-context or code patterns)
+- What constraints exist (from project specs or code patterns)
 
 ### Step 3.5: Analyze Test Coverage
 

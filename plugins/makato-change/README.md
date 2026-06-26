@@ -40,7 +40,7 @@ This plugin uses specialized sub-agents for focused tasks:
 
 | Agent | Model | Purpose | Used By |
 |-------|-------|---------|---------|
-| `code-explorer` | haiku | Explore codebase to discover affected files, dependencies, patterns, and specs-context context | analyze, design |
+| `code-explorer` | haiku | Explore codebase to discover affected files, dependencies, patterns, and project specs context | analyze, design |
 | `requirements-diff-analyzer` | sonnet | Compare current vs requested behavior to produce structured requirements diff with gaps and inconsistencies | analyze |
 | `test-analyzer` | haiku | Discover and analyze all tests (unit, integration, E2E) affected by change request, map to affected functionality | analyze, design |
 | `quality-guard` | haiku | Run quality checks (lint, format, tests, coverage) after implementation with actionable feedback | execute |
@@ -54,44 +54,43 @@ The `gh` CLI is required for GitHub operations (available system-wide, no MCP se
 
 makato-change can be invoked from **two locations**:
 
-### Option A: From specs-context (Recommended)
+### Option A: From a separate specs working directory
+
+One layout option is to maintain a dedicated specs directory separate from the target repo. This is optional — not required.
 
 **Advantages:**
-- Centralized artifact storage (`specs/specs/<issue-key>/`)
-- Access to pre-built context files (`context/<repo-name>/`)
-- Clean separation: specs in specs-context, code changes in target repo
+- Centralized artifact storage (`specs/<issue-key>/`)
+- Clean separation: specs separate from the code being changed
 
 **How it works:**
 1. On first invocation (analyze skill), you'll be asked for target repository path
 2. Path is stored in `specs/<issue-key>/repositories.yml`
 3. All code discovery and modifications target that repository
-4. Artifacts remain in specs-context for review and reuse
+4. Artifacts remain in the specs directory for review and reuse
 
 **Example:**
 ```bash
-cd ~/repos/specs-context
+cd ~/repos/my-specs-dir
 
 # Invoke analyze skill
 /makato-change:analyze ISSUE-1234
 # → Prompts: "Which repository does this change affect?"
-# → You answer: /Users/username/repos/dcp-portal-ui
-# → Creates: specs/specs/ISSUE-1234/repositories.yml
-# → Discovers code in dcp-portal-ui
-# → Stores analysis in specs/specs/ISSUE-1234/analysis.md
+# → You answer: /Users/username/repos/my-service
+# → Creates: specs/ISSUE-1234/repositories.yml
+# → Discovers code in my-service
+# → Stores analysis in specs/ISSUE-1234/analysis.md
 
 # Invoke execute skill
 /makato-change:execute ISSUE-1234
-# → Reads: specs/specs/ISSUE-1234/repositories.yml
-# → Modifies files in: /Users/username/repos/dcp-portal-ui
-# → Creates branch in: dcp-portal-ui repo
-# → Creates PR from: dcp-portal-ui repo
+# → Reads: specs/ISSUE-1234/repositories.yml
+# → Modifies files in: /Users/username/repos/my-service
+# → Creates branch in: my-service repo
+# → Creates PR from: my-service repo
 ```
 
-### Option B: From target repository
+### Option B: From the target repository (Recommended)
 
-**Advantages:**
-- Quick for one-off changes
-- No need to navigate to specs-context
+The recommended pattern. Artifacts live inside the target repo under `specs/`.
 
 **How it works:**
 1. CWD is automatically detected as target repository
@@ -99,13 +98,13 @@ cd ~/repos/specs-context
 
 **Example:**
 ```bash
-cd ~/repos/dcp-portal-ui
+cd ~/repos/my-service
 
 # Invoke analyze skill
 /makato-change:analyze ISSUE-1234
 # → Auto-detects: current directory is target repo
-# → Creates: dcp-portal-ui/specs/ISSUE-1234/repositories.yml
-# → Stores analysis in: dcp-portal-ui/specs/ISSUE-1234/analysis.md
+# → Creates: my-service/specs/ISSUE-1234/repositories.yml
+# → Stores analysis in: my-service/specs/ISSUE-1234/analysis.md
 ```
 
 ### Repository Metadata File
@@ -116,29 +115,29 @@ All skills use `specs/<issue-key>/repositories.yml` to track target repository.
 ```yaml
 version: "1.0"
 affected:
-  - name: dcp-portal-ui
+  - name: my-service
     role: primary
-    path: dcp-portal-ui
+    path: my-service
     description: "Frontend application requiring validation rule updates"
 ```
 
 The `path` field contains just the repository name. Skills automatically resolve this to the local repository path using standard search strategies:
 
-1. Sibling to specs-context: `../dcp-portal-ui`
-2. Same parent, one level deeper: `../projects/dcp-portal-ui`
+1. Sibling of CWD: `../my-service`
+2. Same parent, one level deeper: `../projects/my-service`
 3. Current working directory (if basename matches)
-4. specs/ parent directory itself
+4. `specs/` parent directory itself
 
 **Works automatically with standard layouts:**
 ```
 repos/
 ├── specs/          ← specs committed here
-└── dcp-portal-ui/      ← automatically found
+└── my-service/         ← automatically found
 
 repos/
 ├── specs/
 └── projects/
-    └── dcp-portal-ui/  ← automatically found
+    └── my-service/     ← automatically found
 ```
 
 **When to edit manually:**

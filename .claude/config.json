@@ -1,3 +1,63 @@
 {
-  "project": "sagibeast"
+  "project": "sagibeast",
+  "github_project": {
+    "host": "github.com",
+    "host_type": "cloud",
+    "min_ghes_version": "3.10",
+    "owner": "macatocz",
+    "owner_type": "organization",
+    "number": 4,
+    "url": "https://github.com/orgs/macatocz/projects/4",
+    "project_node_id": "PVT_kwDOEZFnDM4Bbvsp",
+    "fields": {
+      "status": {
+        "id": "PVTSSF_lADOEZFnDM4BbvspzhWeA8w",
+        "name": "Status",
+        "type": "single-select",
+        "options": {
+          "todo": "f75ad846",
+          "in_progress": "47fc9ee4",
+          "done": "98236657",
+          "blocked": "51fc4188",
+          "ready": "61e4505c",
+          "in_review": "df73e18b"
+        }
+      },
+      "priority": {
+        "id": "PVTSSF_lADOEZFnDM4BbvspzhWeA9w",
+        "name": "Priority",
+        "type": "single-select",
+        "options": {
+          "p0": "ad87078a",
+          "p1": "12ea14c3",
+          "p2": "b5648e44",
+          "p3": "faec7633"
+        }
+      }
+    },
+    "init_timestamp": "2026-06-26T13:49:32Z",
+    "init_skill_version": "2.7.0",
+    "include_draft_prs": true,
+    "webhook_audit_dir": ".issue-to-project/lifecycle",
+    "webhook_pr_link_patterns": [
+      "Closes",
+      "Fixes",
+      "Resolves"
+    ],
+    "known_repos": [],
+    "reconcile_scope": "this-repo-only",
+    "pr_label_name": "PR",
+    "ready_queue_mode": "manual",
+    "status_field_id": "PVTSSF_lADOEZFnDM4BbvspzhWeA8w",
+    "status_field_name": "Status",
+    "options": {
+      "todo": "f75ad846",
+      "in_progress": "47fc9ee4",
+      "done": "98236657",
+      "blocked": "51fc4188",
+      "ready": "61e4505c",
+      "in_review": "df73e18b"
+    },
+    "title": "makato"
+  }
 }

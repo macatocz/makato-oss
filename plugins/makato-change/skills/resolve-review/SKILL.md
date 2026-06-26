@@ -1,7 +1,7 @@
 ---
 name: resolve-review
 description: Resolve PR review feedback for change request by addressing comments with code fixes or clarifying replies, update GitHub issue status
-version: "1.0.2"
+version: "1.0.3"
 ---
 
 # resolve-review
@@ -84,7 +84,7 @@ SPECS_ROOT=$(cd "$(dirname "$SPECS_DIR")" && cd .. && pwd)
 
 Try multiple search strategies:
 
-1. **Sibling to specs-context**: `$SPECS_ROOT/../$REPO_NAME`
+1. **Sibling of CWD**: `$SPECS_ROOT/../$REPO_NAME`
 2. **Same parent, one level deeper**: `$SPECS_ROOT/../*/$REPO_NAME`
 3. **Current working directory**: If `git rev-parse --show-toplevel` basename matches `$REPO_NAME`
 4. **specs/ parent itself**: If `$SPECS_ROOT` basename matches `$REPO_NAME`
@@ -199,7 +199,7 @@ Push to the PR branch:
 git -C <REPO_ROOT> push
 ```
 
-**Why `-C <REPO_ROOT>`:** Ensures git operations target the correct repository when the skill is invoked from specs-context or another location.
+**Why `-C <REPO_ROOT>`:** Ensures git operations target the correct repository when the skill is invoked from a separate specs directory or another location.
 
 ### Step 7: Reply to Comments
 

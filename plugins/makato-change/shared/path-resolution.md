@@ -4,7 +4,7 @@
 
 ## Purpose
 
-When loading `repositories.yml`, the `path` field contains a repository name (e.g., `dcp-portal-ui`). This document defines the automatic resolution algorithm to locate the repository on the local filesystem.
+When loading `repositories.yml`, the `path` field contains a repository name (e.g., `my-service`). This document defines the automatic resolution algorithm to locate the repository on the local filesystem.
 
 ## Resolution Algorithm
 
@@ -24,13 +24,13 @@ fi
 # Step 3: Try multiple search strategies
 RESOLVED_PATH=""
 
-# Strategy 1: Sibling to specs-context
+# Strategy 1: Sibling of CWD
 CANDIDATE="$SPECS_ROOT/../$REPO_NAME"
 if [[ -d "$CANDIDATE/.git" ]]; then
   RESOLVED_PATH=$(cd "$CANDIDATE" && pwd)
 fi
 
-# Strategy 2: Same parent, one level deeper (repos/projects/dcp-portal-ui)
+# Strategy 2: Same parent, one level deeper (repos/projects/my-service)
 if [[ -z "$RESOLVED_PATH" ]]; then
   for dir in "$SPECS_ROOT"/../*/; do
     CANDIDATE="${dir}${REPO_NAME}"
@@ -61,14 +61,14 @@ if [[ -z "$RESOLVED_PATH" ]]; then
   echo "Error: Cannot locate repository \"$REPO_NAME\""
   echo ""
   echo "Searched locations:"
-  echo "  - $SPECS_ROOT/../$REPO_NAME (sibling to specs-context)"
+  echo "  - $SPECS_ROOT/../$REPO_NAME (sibling of CWD)"
   echo "  - $SPECS_ROOT/../*/$REPO_NAME (same parent, one level deeper)"
   echo "  - Current directory: $(pwd)"
   echo "  - specs/ parent: $SPECS_ROOT"
   echo ""
   echo "Please ensure:"
   echo "  - Repository \"$REPO_NAME\" exists locally"
-  echo "  - It is in a standard location relative to specs-context"
+  echo "  - It is in a standard location relative to the current directory"
   echo "  - Or invoke from within the target repository itself"
   exit 1
 fi
@@ -92,28 +92,28 @@ Each consumer skill (design, execute, resolve-review) should:
 
 ### Repository not found
 ```
-Error: Cannot locate repository "dcp-portal-ui"
+Error: Cannot locate repository "my-service"
 
 Searched locations:
-  - /Users/username/repos/dcp-portal-ui (sibling to specs-context)
-  - /Users/username/repos/*/dcp-portal-ui (same parent, one level deeper)
+  - /Users/username/repos/my-service (sibling of CWD)
+  - /Users/username/repos/*/my-service (same parent, one level deeper)
   - Current directory: /Users/username/other-repo
   - specs/ parent: /Users/username/other-repo
 
 Please ensure:
-  - Repository "dcp-portal-ui" exists locally
-  - It is in a standard location relative to specs-context
+  - Repository "my-service" exists locally
+  - It is in a standard location relative to the current directory
   - Or invoke from within the target repository itself
 
 Common layouts that work automatically:
   repos/
   ├── specs/
-  └── dcp-portal-ui/
+  └── my-service/
 
   repos/
   ├── specs/
   └── projects/
-      └── dcp-portal-ui/
+      └── my-service/
 ```
 
 ## Testing Path Resolution
@@ -121,8 +121,8 @@ Common layouts that work automatically:
 To test if a repository will resolve correctly:
 
 ```bash
-REPO_NAME="dcp-portal-ui"
-SPECS_ROOT="/Users/username/repos/specs-context"
+REPO_NAME="my-service"
+SPECS_ROOT="/Users/username/repos/my-specs"
 
 # Try sibling
 test -d "$SPECS_ROOT/../$REPO_NAME/.git" && echo "Found as sibling"

@@ -1,7 +1,7 @@
 ---
 name: execute
 description: Implement change request by modifying code, updating tests, running verification, and creating pull request with GitHub issue link. Use for implementation, coding changes, test updates, PR creation.
-version: "1.0.2"
+version: "1.0.3"
 argument-hint: "[ISSUE-KEY]"
 ---
 
@@ -60,7 +60,7 @@ SPECS_ROOT=$(cd "$(dirname "$SPECS_DIR")" && cd .. && pwd)
 
 Try multiple search strategies:
 
-1. **Sibling to specs-context**: `$SPECS_ROOT/../$REPO_NAME`
+1. **Sibling of CWD**: `$SPECS_ROOT/../$REPO_NAME`
 2. **Same parent, one level deeper**: `$SPECS_ROOT/../*/$REPO_NAME`
 3. **Current working directory**: If `git rev-parse --show-toplevel` basename matches `$REPO_NAME`
 4. **specs/ parent itself**: If `$SPECS_ROOT` basename matches `$REPO_NAME`
@@ -323,7 +323,7 @@ git -C <REPO_ROOT> checkout -b feat/<ISSUE-KEY>-<short-description>
 
 If already on a feature branch, continue on that branch.
 
-**Why `-C` flag:** The skill may be invoked from specs-context or another location. The `-C <REPO_ROOT>` flag ensures git operations target the correct repository regardless of current working directory.
+**Why `-C` flag:** The skill may be invoked from a separate specs directory or another location. The `-C <REPO_ROOT>` flag ensures git operations target the correct repository regardless of current working directory.
 
 ### Step 7: Commit Changes
 

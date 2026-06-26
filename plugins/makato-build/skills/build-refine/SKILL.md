@@ -5,7 +5,7 @@ description: >-
   implementation plan — tasks, file targets, unit/integration test
   strategy, acceptance mapping. Use to start a build session before
   implement-tdd or implement-goal.
-version: "1.5.2"
+version: "1.5.3"
 model: opus
 argument-hint: "[work-item-key]"
 ---
@@ -103,7 +103,7 @@ Before exploring the local `context/` directory, attempt to load knowledge from 
 
 Derive REPO_NAME from the last path segment of the target repo root. Extract 5–10 key terms from the story title and description (from `stories.json`) as KEYWORDS.
 
-Dispatch the `knowledge-scout` agent with REPO_ROOT, REPO_NAME, and KEYWORDS. The agent handles dcp-specs discovery internally (makato.config.json → sibling scan → skip).
+Dispatch the `knowledge-scout` agent with REPO_ROOT, REPO_NAME, and KEYWORDS. The agent handles project specs discovery internally (makato.config.json → in-repo `specs/` → skip).
 
 Receive the Knowledge Scout Findings and:
 - Apply every item in `## Hard Constraints` as a mandatory rule in the implementation plan — note these in the plan header so the user sees them
@@ -115,7 +115,7 @@ Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-refine","story":"<
 If the agent returns `loaded: false`: log and continue to Step 6 without change.
 
 When constraints are found, include a summary line in the plan header presented to the user:
-> "Knowledge graph: {N} hard constraints loaded from dcp-specs ({source}). Applied to all tasks."
+> "Knowledge graph: {N} hard constraints loaded from project specs ({source}). Applied to all tasks."
 
 ### Step 6 — Explore the codebase
 

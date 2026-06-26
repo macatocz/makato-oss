@@ -58,6 +58,10 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## `build-refine` skill
 
+- **1.5.3**
+  - Step 5.5 narration: drop `dcp-specs` term — knowledge graph is sourced from "project specs" (in-repo `<REPO_ROOT>/specs/` or `makato.config.json.specsRoot`); user-facing log line now reads "Knowledge graph: {N} hard constraints loaded from project specs ({source})"
+  - Reflects knowledge-scout 1.1.0 contract: no sibling-directory fallback, no `dcp-specs` naming
+
 - **1.5.2**
   - Step 8: add file target path validation — all `files` entries in each task must be relative paths within the repo root; skill stops and reports any path beginning with `/` or containing `..` before writing `plan.md`
   - Frontmatter: add `model: opus` hint
@@ -233,6 +237,12 @@ Changes are grouped by skill/component. Within each group, latest version on top
 ---
 
 ## `knowledge-scout` agent
+
+- **1.1.0**
+  - Strip `dcp-specs` naming and remove sibling-repo fallback entirely — discovery is now strictly (1) `<REPO_ROOT>/makato.config.json` `specsRoot` field, (2) in-repo `<REPO_ROOT>/specs/index.yml`. No more `DSPEC_ROOT` variable, no `context/repository-registry.yml` lookup, no glob-scanning sibling directories
+  - 4-step process collapsed to 3 steps: locate SPECS_ROOT → read index → synthesize. The former Step 2 (registry lookup) is removed; in-repo specs need no registry
+  - Step 3 scoring is scope-agnostic: keyword overlap on index entries; entries whose `file` path contains `golden-rules`, `anti-patterns`, `harness`, `architecture`, `structure`, or `standards` are still preferred but not required
+  - Description and mission text updated: "dcp-specs knowledge graph" → "project specs knowledge graph"
 
 - **1.0.2**
   - Fix misleading description: "3-step discovery" → "4-step process" — the agent always performs 4 steps (discover specs root, locate repo in registry, read index, synthesize); the "3-step" phrasing referred only to the DSPEC_ROOT sub-steps and confused callers

@@ -5,7 +5,7 @@ description: >-
   Compare current behavior against requested changes to produce a structured
   requirements diff with side-by-side comparison, identified gaps, open
   questions, and inconsistencies. Dispatched by analyze skill.
-version: "1.0.0"
+version: "1.0.1"
 disallowedTools: Write, Edit, Bash, NotebookEdit, WebSearch
 maxTurns: 30
 permissionMode: bypassPermissions
@@ -64,7 +64,7 @@ From CODE_EXPLORATION_RESULT, extract:
 - What unit tests assert about behavior
 - What E2E scenarios cover user workflows
 - What edge cases are tested
-- What constraints exist (from code or specs-context)
+- What constraints exist (from code or project specs)
 
 **Build a clear picture**: "Currently, when X happens, the system does Y because Z"
 

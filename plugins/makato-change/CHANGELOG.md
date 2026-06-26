@@ -1,7 +1,18 @@
 <!-- markdownlint-disable MD012 MD013 -->
 # Changelog
 
+## Plugin-level
+
+- **0.2.0**
+  - Strip `dcp-specs` / `specs-context` / `$DCP_SPECS_PATH` / `dcp-portal-ui` terminology suite-wide. Project specs are now discovered exclusively via (1) `<REPO_ROOT>/makato.config.json` `specsRoot` field or (2) in-repo `<REPO_ROOT>/specs/index.yml`. The "Sibling to specs-context" path-resolution strategy is removed and replaced with "Sibling of CWD"; `$DCP_SPECS_PATH` environment-variable fallback is removed entirely
+  - README Option A relabeled "From a separate specs working directory"; Option B (in-repo `specs/`) is now the recommended default
+  - `analyze/references/exploration-strategy.md` rewritten: no more `pwd`-based CWD-in-specs-context detection; replaced with the two-strategy discovery matching AGENTS.md
+  - AGENTS.md "Project Specs Discovery" section rewritten; example repo name `dcp-portal-ui` replaced with `my-service` across docs and shared/
+
 ## `code-explorer` agent
+
+- **1.1.0**
+  - Strip `dcp-specs` / `specs-context` naming and remove sibling-repo + environment-variable discovery. Two strategies only: (1) `<REPO_ROOT>/makato.config.json` `specsRoot` field, (2) `<REPO_ROOT>/specs/index.yml`. No `DCP_SPECS_PATH` variable. Output field renamed `dcp_specs_available` → `specs_available`; output section renamed "specs-context" → "Project Specs"
 
 - **1.0.1**
   - Fix specs-context discovery: replace bash commands (`pwd`, `test -d`, `echo $VAR`) with Glob/Read equivalents so Step 1 works correctly when Bash is in disallowedTools
@@ -11,6 +22,9 @@
   - Enhanced specs-context detection with multi-strategy approach (CWD, sibling directory, environment variable)
 
 ## `requirements-diff-analyzer` agent
+
+- **1.0.1**
+  - Strip `specs-context` term: input source list now says "from code or project specs"
 
 - **1.0.0**
   - Initial — Compare current vs requested behavior to produce structured requirements diff with gaps, inconsistencies, and completeness assessment
@@ -37,6 +51,9 @@
 
 ## `resolve-review` skill
 
+- **1.0.3**
+  - Strip `specs-context` term: path-resolution Strategy 1 relabeled "Sibling of CWD"; `-C` flag rationale comment reworded to "may be invoked from any working directory"
+
 - **1.0.2**
   - GitHub API endpoint for replying to line-specific PR comments corrected by adding missing pull_number parameter (was `repos/:owner/:repo/pulls/comments/<COMMENT_ID>/replies`, now `repos/:owner/:repo/pulls/<PR_NUMBER>/comments/<COMMENT_ID>/replies`)
 - **1.0.1**
@@ -48,6 +65,9 @@
   - Add automatic path resolution (searches standard locations, no configuration needed)
 
 ## `execute` skill
+
+- **1.0.3**
+  - Strip `specs-context` term: path-resolution Strategy 1 relabeled "Sibling of CWD"; `-C` flag rationale comment reworded to "may be invoked from any working directory"
 
 - **1.0.1**
   - Restructure Step 5.5 and 5.6 into single "Review and Verify Implementation" loop that runs code-reviewer first, then quality-guard, ensuring changes from review process are covered by tests before committing
@@ -61,6 +81,9 @@
 
 ## `design` skill
 
+- **1.1.1**
+  - Strip `specs-context` term: path-resolution Strategy 1 relabeled "Sibling of CWD"; "specs-context context" wording replaced with "Project specs context"
+
 - **1.0.0**
   - Initial — Design technical approach for change requests with code discovery (guided or exploratory), solution planning, and GitHub Issues updates
   - Add repository metadata loading from repositories.yml (Step 1.5)
@@ -69,6 +92,9 @@
   - Add automatic path resolution (searches standard locations, no configuration needed)
 
 ## `analyze` skill
+
+- **1.1.2**
+  - Strip `specs-context` term: "specs-context context" and "specs-context or code patterns" replaced with project-agnostic wording; exploration-strategy.md reference rewritten to the two-strategy project-specs discovery
 
 - **1.1.1**
   - sagibeast-alignment audit: remove duplicate `8. Inconsistencies` section heading in Step 9 artifact template

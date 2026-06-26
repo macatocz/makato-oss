@@ -2,35 +2,27 @@
 
 Systematic patterns for discovering how a feature currently works in the codebase.
 
-## Start with specs-context Context (if available)
+## Start with Project Specs (if available)
 
-**Primary starting point when working in specs-context repository:**
+**Check for project specs using two strategies:**
 
-1. **Check if in specs-context:**
-   ```bash
-   pwd  # Check if path contains "specs-context"
-   ```
+1. **`makato.config.json`**: Read `<REPO_ROOT>/makato.config.json` and check for a `specsRoot` field (or `specs` / `specsPath`). If present, use that directory as the project specs root.
 
-2. **If in specs-context, locate service context:**
-   - Identify target repository name from GitHub Issues issue
-   - Check `context/<repo-name>/` directory
-   - Example: `context/dcp-platform/`, `context/dcp-api/`
+2. **In-repo `specs/` directory**: Look for `<REPO_ROOT>/specs/index.yml`. If present, the project specs root is `<REPO_ROOT>/specs/`.
 
-3. **Read context files to understand:**
-   - Service architecture and responsibilities
-   - Key components and their interactions
-   - Existing patterns and conventions
-   - Related documentation and references
-   - Technology stack and frameworks used
+**If project specs are available**, locate relevant context files:
+- Identify target repository name from GitHub Issues issue
+- Check for service architecture files, component documentation, and references
+- Read context files to understand:
+  - Service architecture and responsibilities
+  - Key components and their interactions
+  - Existing patterns and conventions
+  - Related documentation and references
+  - Technology stack and frameworks used
+- Use as foundation: start with high-level understanding, then drill into specific code areas
 
-4. **Use as foundation:**
-   - Start with high-level understanding from context
-   - Then drill into specific code areas for details
-   - Reduces blind exploration and improves accuracy
-
-**If NOT in specs-context:**
+**If project specs are not available:**
 - Proceed with code-based exploration below
-- Consider suggesting: "specs-context contains service specifications at context/<repo-name>/"
 
 ## Start with the GitHub Issues Issue
 

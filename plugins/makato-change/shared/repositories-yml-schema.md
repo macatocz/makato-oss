@@ -25,7 +25,7 @@ affected:
 |-------|------|----------|-------|
 | `version` | string | Yes | Schema version. Current: `"1.0"`. |
 | `affected` | array | Yes | At least one entry. Repos this change request touches. |
-| `affected[].name` | string | Yes | Repository identifier (e.g., "dcp-portal-ui", "dcp-backend-services"). Used as `path` value for automatic resolution. |
+| `affected[].name` | string | Yes | Repository identifier (e.g., "my-service", "backend-api"). Used as `path` value for automatic resolution. |
 | `affected[].role` | enum | Yes | `primary` = direct change target. `supporting` = adjacent repo for context (not currently used by makato-change, reserved for future multi-repo support). |
 | `affected[].path` | string | Yes | Repository name (same as `name` field). Will be automatically resolved to local path. |
 | `affected[].description` | string | No | Free text explaining why the repo is affected. Helpful for future reference. |
@@ -37,7 +37,7 @@ The `path` field should contain only the **repository name** (matching the `name
 ### Standard Value
 
 ```yaml
-path: dcp-portal-ui
+path: my-service
 ```
 
 **Resolution**: Skills search for the repository in standard locations automatically. No configuration needed.
@@ -46,12 +46,12 @@ path: dcp-portal-ui
 
 When loading `repositories.yml`, consumers apply these search strategies in order:
 
-**Strategy 1: Sibling to specs-context**
+**Strategy 1: Sibling of CWD**
 ```
 repos/
 ├── specs/          ← invoked from here
 │   └── specs/ISSUE-1234/repositories.yml
-└── dcp-portal-ui/      ← found here
+└── my-service/         ← found here
 ```
 Check: `<specs-parent>/../<repo-name>`
 
@@ -61,20 +61,20 @@ repos/
 ├── specs/
 │   └── specs/ISSUE-1234/repositories.yml
 └── projects/
-    └── dcp-portal-ui/  ← found here
+    └── my-service/     ← found here
 ```
 Check: `<specs-parent>/../*/<repo-name>` (one level deeper)
 
 **Strategy 3: Current working directory**
 ```
-dcp-portal-ui/          ← invoked from here
+my-service/             ← invoked from here
 └── specs/ISSUE-1234/repositories.yml
 ```
 Check: `git rev-parse --show-toplevel` and verify basename matches `<repo-name>`
 
 **Strategy 4: Parent of specs directory**
 ```
-dcp-portal-ui/          ← found here
+my-service/             ← found here
 └── specs/ISSUE-1234/repositories.yml
 ```
 Check: `<specs-parent>` and verify basename matches `<repo-name>`
@@ -88,17 +88,17 @@ test -d <RESOLVED_PATH> && test -d <RESOLVED_PATH>/.git
 
 If all strategies fail, show error:
 ```
-Error: Cannot locate repository "dcp-portal-ui"
+Error: Cannot locate repository "my-service"
 
 Searched locations:
-  - /Users/username/repos/dcp-portal-ui (sibling to specs-context)
-  - /Users/username/repos/*/dcp-portal-ui (same parent, one level deeper)
+  - /Users/username/repos/my-service (sibling of CWD)
+  - /Users/username/repos/*/my-service (same parent, one level deeper)
   - Current directory: /Users/username/other-repo
   - specs/ parent: /Users/username/other-repo
 
 Please ensure:
-  - Repository "dcp-portal-ui" exists locally
-  - It is in a standard location relative to specs-context
+  - Repository "my-service" exists locally
+  - It is in a standard location relative to the current directory
   - Or invoke from within the target repository itself
 ```
 
@@ -140,9 +140,9 @@ On invalid input, the consumer should warn the user with specific validation fai
 ```yaml
 version: "1.0"
 affected:
-  - name: dcp-portal-ui
+  - name: my-service
     role: primary
-    path: dcp-portal-ui
+    path: my-service
     description: "Frontend application requiring validation rule updates"
 ```
 

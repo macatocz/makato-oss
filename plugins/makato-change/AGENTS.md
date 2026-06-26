@@ -47,7 +47,7 @@ makato-change uses specialized sub-agents to delegate focused tasks during the C
 
 | Agent                                | Model  | Purpose                                                                                                                                   | Used By         |
 | ------------------------------------ | ------ | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
-| **code-explorer**              | haiku  | Explore codebase to discover affected files, dependencies, patterns, and specs-context context                                                | analyze, design |
+| **code-explorer**              | haiku  | Explore codebase to discover affected files, dependencies, patterns, and project specs context                                            | analyze, design |
 | **requirements-diff-analyzer** | sonnet | Compare current vs requested behavior to produce structured requirements diff with gaps and inconsistencies                               | analyze         |
 | **test-analyzer**              | haiku  | Discover and analyze all tests (unit, integration, E2E) affected by change request, map to affected functionality, identify coverage gaps | analyze, design |
 | **quality-guard**              | haiku  | Run quality checks (lint, format, tests, coverage) after implementation with actionable feedback                                          | execute         |
@@ -99,14 +99,14 @@ makato-change/
 
 ### Path Resolution
 
-The `path` field in `repositories.yml` contains just the repository name (e.g., `dcp-portal-ui`).
+The `path` field in `repositories.yml` contains just the repository name (e.g., `my-service`).
 
 **Automatic resolution strategies** (tried in order):
 
-1. **Sibling to specs-context**: `../dcp-portal-ui`
-2. **Same parent, one level deeper**: `../projects/dcp-portal-ui`
+1. **Sibling of CWD**: `../my-service`
+2. **Same parent, one level deeper**: `../projects/my-service`
 3. **Current working directory**: If basename matches repo name
-4. **specs/ parent directory**: If basename matches repo name
+4. **`specs/` parent directory**: If basename matches repo name
 
 No configuration needed - works automatically with standard directory layouts.
 
@@ -133,17 +133,16 @@ git -C <REPO_ROOT> checkout -b <branch>
 git -C <REPO_ROOT> commit -m "..."
 ```
 
-This enables running skills from specs-context while modifying code in target repo.
+This enables running skills from any working directory while modifying code in the target repo.
 
-### specs-context Discovery
+### Project Specs Discovery
 
-The `code-explorer` agent uses multiple strategies to locate specs-context context:
+The `code-explorer` agent locates the project specs root using two strategies:
 
-1. **CWD check**: Look for `context/<REPO_NAME>/` in current directory
-2. **Sibling directory**: Check `<REPO_ROOT>/../specs/context/<REPO_NAME>/`
-3. **Environment variable**: Use `$DCP_SPECS_PATH/context/<REPO_NAME>/` if set
+1. **`makato.config.json`**: Read `<REPO_ROOT>/makato.config.json` and use the `specsRoot` field (or `specs` / `specsPath`)
+2. **In-repo `specs/` directory**: Look for `<REPO_ROOT>/specs/index.yml`
 
-This allows flexible deployment while maintaining access to pre-built service documentation.
+The agent never scans sibling directories and never reads from environment variables. If neither strategy succeeds, the agent proceeds without project-spec context.
 
 ## Versioning
 

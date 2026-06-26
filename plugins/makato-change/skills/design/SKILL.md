@@ -1,7 +1,7 @@
 ---
 name: design
 description: Design technical approach for change request by discovering affected code, planning solution, and updating GitHub issue with implementation strategy. Use for technical design, solution planning, code discovery, implementation approach.
-version: "1.1.0"
+version: "1.1.1"
 argument-hint: "[ISSUE-KEY]"
 ---
 
@@ -71,7 +71,7 @@ SPECS_ROOT=$(cd "$(dirname "$SPECS_DIR")" && cd .. && pwd)
 
 Try multiple search strategies:
 
-1. **Sibling to specs-context**: `$SPECS_ROOT/../$REPO_NAME`
+1. **Sibling of CWD**: `$SPECS_ROOT/../$REPO_NAME`
 2. **Same parent, one level deeper**: `$SPECS_ROOT/../*/$REPO_NAME`
 3. **Current working directory**: If `git rev-parse --show-toplevel` basename matches `$REPO_NAME`
 4. **specs/ parent itself**: If `$SPECS_ROOT` basename matches `$REPO_NAME`
@@ -164,7 +164,7 @@ Extract FEATURE_KEYWORDS by identifying key terms from analysis artifact:
 - Primary affected files and their roles
 - Dependencies (inbound/outbound)
 - Code patterns and conventions
-- specs-context context (if available)
+- Project specs context (if available)
 
 **Store result** in working memory as CODE_EXPLORATION_RESULT.
 
