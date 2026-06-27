@@ -1,0 +1,217 @@
+# R1 Return Contract — makato-build sub-agents
+
+> **Status**: Authoritative. Every agent in `plugins/makato-build/agents/` MUST emit an R1 JSON block as the final element of its output. Callers MUST parse the last fenced ` ```json ` block in the agent message — no prose parsing.
+
+## Why this exists
+
+The build-* skills today read sub-agent output as prose ("Status: complete | blocked", "Findings: ..."). A future autonomous PO-agent (GAP-006 / #32) must `JSON.parse()` agent results to:
+
+- update workflow-state without ambiguity
+- gate retries on `status` rather than substring searches
+- attribute token cost via `tool_calls_used`
+- summarize a run by streaming `errors` arrays into a single triage list
+
+The R1 envelope is the smallest schema that supports all of those use cases. Agents may still emit a human-readable prose summary before the R1 block — but the R1 block is the machine contract.
+
+## R1 envelope schema
+
+```json
+{
+  "schema": "r1",
+  "agent": "<agent-name>",
+  "status": "success | partial | failure",
+  "summary": "<one-line synthesis, ≤ 240 chars>",
+  "files_changed": ["<repo-relative path>", "..."],
+  "tests_written": ["<repo-relative path>", "..."],
+  "errors": ["<short error description>", "..."],
+  "tool_calls_used": <integer ≥ 0>,
+  "data": { /* agent-specific structured payload — see per-agent rules below */ }
+}
+```
+
+### Field semantics
+
+| Field | Required | Rule |
+|---|---|---|
+| `schema` | yes | Literal string `"r1"`. Versioning lever for future contract changes. |
+| `agent` | yes | The agent's own `name:` from frontmatter (e.g. `"coder"`, `"diff-reviewer"`). |
+| `status` | yes | One of three values. `success` = the agent's mission completed as specified. `partial` = the mission ran but a subset of the work could not be completed and is described in `errors` and `data`. `failure` = the mission could not be completed (structural blocker, missing input, escalation required). |
+| `summary` | yes | One-line natural-language synthesis. Same content callers would otherwise scrape from the prose. |
+| `files_changed` | yes | List of repo-relative file paths the agent modified or created. Empty list (`[]`) for read-only agents. Never `null`. |
+| `tests_written` | yes | List of repo-relative test file paths the agent created or extended in this run. Empty list for non-coder agents. Never `null`. |
+| `errors` | yes | List of short error/finding/blocker descriptions. Empty list (`[]`) when `status: "success"`. Each entry ≤ 240 chars. |
+| `tool_calls_used` | yes | Integer ≥ 0. Best-effort count of tool invocations the agent made this run — used by the PO-agent's budget ceiling logic. If unknown, emit `0` (never omit the field). |
+| `data` | yes | Agent-specific structured payload. Always an object (never `null`). See per-agent rules. |
+
+### Emission rules
+
+- The R1 block MUST be the **last** ` ```json ` fenced block in the agent's final message.
+- The R1 block MUST be valid JSON parseable by `JSON.parse()` — no comments, no trailing commas, no JS expressions.
+- Agents MAY emit additional ` ```json ` blocks earlier in the message (e.g. JSONL audit-log lines for human inspection). The contract is the **last** block.
+- Agents MUST NOT emit prose after the R1 block.
+
+### Caller parsing rule
+
+```python
+# Pseudocode for the canonical parse
+last_json_block = re.findall(r"```json\n(.*?)\n```", agent_message, re.DOTALL)[-1]
+r1 = json.loads(last_json_block)
+assert r1["schema"] == "r1"
+```
+
+If `schema != "r1"` or the JSON does not parse: the caller MUST treat the dispatch as `status: "failure"` with `errors: ["R1 contract violation: <reason>"]`.
+
+## Per-agent rules
+
+### `coder.md` (model: sonnet, mutates files)
+
+- `status: "success"` — RED, GREEN, INTEGRATE, VERIFY all completed; new failures vs `BASELINE_FAILURES` = 0.
+- `status: "partial"` — agent reached at least GREEN but did not complete VERIFY cleanly (some new failures remain). Caller should re-dispatch or escalate.
+- `status: "failure"` — structural blocker hit; agent escalates to `/refine`.
+- `files_changed` — every production-code path the coder edited or created.
+- `tests_written` — every new or extended test file path.
+- `errors` — structural escalation reason if `status: "failure"`; otherwise `[]`.
+- `data` keys: `{ "phase_reached": "red|green|integrate|verify", "unit_tests": N, "integration_tests": N, "new_failures": N, "escalation": "none|refine", "task_index": N }`.
+
+### `diff-reviewer.md` (model: sonnet, read-only)
+
+- `status: "success"` — review completed, zero CRITICAL findings.
+- `status: "failure"` — review completed but CRITICAL findings remain (the calling `/review` skill must apply fixes).
+- `status: "partial"` — review could not cover all CHANGED_FILES (e.g. a file could not be read).
+- `files_changed: []`, `tests_written: []` (agent is read-only).
+- `errors` — every CRITICAL finding as `"<file>:<line> — <description>"`. Empty when `status: "success"`.
+- `data` keys: `{ "pass_number": N, "critical_count": N, "suggestion_count": N, "nitpick_count": N, "files_reviewed": N }`.
+
+### `sensor-fixer.md` (model: sonnet)
+
+- `status: "success"` — `residual == 0` after the loop finishes.
+- `status: "partial"` — `residual > 0` but a draft-PR carry-over was emitted (the harness did not block the developer).
+- `status: "failure"` — the harness could not run at all (e.g. missing inputs).
+- `files_changed` — union of files touched by inner `build-resolve-finding` dispatches.
+- `tests_written: []` (sensor-fixer does not write tests).
+- `errors` — fingerprints (or `rule_id:file:line` strings) of unresolved findings.
+- `data` keys: `{ "loops": N, "resolved": N, "escalated": N, "residual": N, "skills_used": [...] }`.
+
+### `knowledge-scout.md` (model: haiku, read-only)
+
+- `status: "success"` — synthesis returned (whether or not specs were found; `loaded: false` is a valid success).
+- `status: "failure"` — agent could not run (missing REPO_ROOT, KEYWORDS, etc.).
+- `files_changed: []`, `tests_written: []`.
+- `errors: []` on `status: "success"`.
+- `data` keys: `{ "loaded": true|false, "source": "local|none", "constraints_found": N, "standards_found": N }`.
+
+### `plan-analyst.md` (model: haiku, read-only)
+
+- `status: "success"` — Plan Analysis emitted; the prose block above the R1 envelope IS the synthesized output.
+- `status: "failure"` — PLAN_PATH not found or unreadable.
+- `files_changed: []`, `tests_written: []`.
+- `errors` — `[]` on success; on failure: `["PLAN_PATH not readable: <path>"]` or similar.
+- `data` keys: `{ "tdd_tasks": N, "goal_tasks": N, "layers_detected": [...], "tracer_required": true|false, "glossary_loaded": true|false, "knowledge_context_loaded": true|false }`.
+
+### `gate-scout.md` (model: haiku, read-only)
+
+- `status: "success"` — at least one gate command discovered.
+- `status: "partial"` — config files read but no executable command extractable (project type unrecognized).
+- `status: "failure"` — REPO_ROOT not readable.
+- `files_changed: []`, `tests_written: []`.
+- `errors: []` on success; on partial/failure: short reason strings.
+- `data` keys: `{ "project_type": "...", "config_files_read": N, "build": "...", "lint": "...", "unit": "...", "integration": "...", "coverage": "...", "java_version_required": "...", "lint_ci_divergence": true|false }`.
+
+## Examples
+
+### Example — `coder` success
+
+```json
+{
+  "schema": "r1",
+  "agent": "coder",
+  "status": "success",
+  "summary": "Implemented OrderRepository.findByCustomer with unit + integration coverage; 0 new failures.",
+  "files_changed": [
+    "src/main/java/com/example/order/OrderRepository.java",
+    "src/main/java/com/example/order/OrderRepositoryImpl.java"
+  ],
+  "tests_written": [
+    "src/test/java/com/example/order/OrderRepositoryTest.java",
+    "src/test/java/com/example/order/OrderRepositoryIntegrationTest.java"
+  ],
+  "errors": [],
+  "tool_calls_used": 31,
+  "data": {
+    "phase_reached": "verify",
+    "unit_tests": 4,
+    "integration_tests": 2,
+    "new_failures": 0,
+    "escalation": "none",
+    "task_index": 3
+  }
+}
+```
+
+### Example — `diff-reviewer` failure (CRITICAL findings remain)
+
+```json
+{
+  "schema": "r1",
+  "agent": "diff-reviewer",
+  "status": "failure",
+  "summary": "2 CRITICAL findings: missing null-check on user input; SQL string concat.",
+  "files_changed": [],
+  "tests_written": [],
+  "errors": [
+    "src/api/UserController.java:42 — [security] raw user-supplied id concatenated into JPQL query",
+    "src/api/UserController.java:67 — [correctness] missing null-check before .toLowerCase()"
+  ],
+  "tool_calls_used": 14,
+  "data": {
+    "pass_number": 1,
+    "critical_count": 2,
+    "suggestion_count": 4,
+    "nitpick_count": 1,
+    "files_reviewed": 3
+  }
+}
+```
+
+### Example — `knowledge-scout` no-specs success
+
+```json
+{
+  "schema": "r1",
+  "agent": "knowledge-scout",
+  "status": "success",
+  "summary": "No specs root discovered for repo 'sandbox'; returning empty constraint set.",
+  "files_changed": [],
+  "tests_written": [],
+  "errors": [],
+  "tool_calls_used": 3,
+  "data": {
+    "loaded": false,
+    "source": "none",
+    "constraints_found": 0,
+    "standards_found": 0
+  }
+}
+```
+
+## Audit-log integration
+
+After emitting the R1 block, the agent (or, where the agent does not have Bash, the dispatching skill) MUST also append the envelope as a single JSONL line to `specs/<key>-*/build.jsonl` via `shared/build-log.sh`, with `step: "r1"`:
+
+```bash
+shared/build-log.sh "<key>" '{"ts":"<ISO>","skill":"<dispatching-skill>","story":"<key>","step":"r1","status":"<r1.status>","data":<entire-r1-envelope>}'
+```
+
+This keeps the existing JSONL audit shape (`ts`/`skill`/`story`/`step`/`status`/`data`) while preserving the full R1 envelope verbatim under `data`. Downstream tooling that already reads `build.jsonl` does not need to be re-taught the line format.
+
+## Versioning
+
+- The `schema` field exists so that a future R2 contract can coexist with R1 during migration.
+- Any breaking change MUST bump `schema` to `"r2"` (or higher) and document the new schema in this file.
+- Backwards-compatible additions (new optional keys under `data`) do not bump the schema.
+
+## What this contract does NOT cover
+
+- `makato-plan` agents — tracked separately in GAP-013 (#29).
+- Agent dispatch envelope (the prompt the caller sends in). That is per-agent, defined in each agent's `## Input` section.
+- Token budget enforcement — `tool_calls_used` is the input signal; the ceiling logic lives in the PO-agent (GAP-006 / #32) and the kill-switch (GAP-004 / #30).

@@ -5,7 +5,7 @@ description: >-
   Discover build, lint, unit test, integration test, and coverage commands
   by scanning project config files. Returns a structured command map for
   the verify skill. Read-only.
-version: "1.2.0"
+version: "1.3.0"
 maxTurns: 10
 permissionMode: bypassPermissions
 disallowedTools: Write, Edit, Bash, NotebookEdit
@@ -139,6 +139,49 @@ If COVERAGE_HINT is provided, include it in the coverage line. Otherwise default
 **integration**: `<exact command>` | not found
 **coverage**: `<exact command>` — threshold: <X>% | not found
 ```
+
+## Output Contract (R1)
+
+The final element of your message MUST be a fenced ` ```json ` block containing the R1 envelope defined in `plugins/makato-build/agents/RETURN-CONTRACT.md`. Callers parse the last `json`-fenced block via `JSON.parse()` — no prose parsing.
+
+Map your run state into R1 as follows:
+
+- `status: "success"` — at least one executable gate command (build/lint/unit/integration) was discovered.
+- `status: "partial"` — config files were read but no executable command could be extracted (project type unrecognized or scripts missing).
+- `status: "failure"` — `REPO_ROOT` not readable.
+- `files_changed: []` and `tests_written: []` — this agent is read-only.
+- `errors: []` on `status: "success"`; on partial/failure, short reason strings.
+- `tool_calls_used` — best-effort count of tool invocations you made this run.
+- `data` — `{ "project_type": "...", "config_files_read": N, "build": "...", "lint": "...", "unit": "...", "integration": "...", "coverage": "...", "java_version_required": "...", "lint_ci_divergence": true|false, "lint_ci_command": "..." }`. Use the string `"not found"` for any command not discovered (mirroring the prose Output Format above).
+
+Example (success):
+
+```json
+{
+  "schema": "r1",
+  "agent": "gate-scout",
+  "status": "success",
+  "summary": "node project: build/lint/unit/coverage all discovered; integration not configured.",
+  "files_changed": [],
+  "tests_written": [],
+  "errors": [],
+  "tool_calls_used": 4,
+  "data": {
+    "project_type": "node",
+    "config_files_read": 1,
+    "build": "npm run build",
+    "lint": "npm run lint",
+    "unit": "npm test",
+    "integration": "not found",
+    "coverage": "npm run test:coverage — threshold: 80%",
+    "java_version_required": "not applicable",
+    "lint_ci_divergence": false,
+    "lint_ci_command": "not found"
+  }
+}
+```
+
+Do not emit prose after the R1 block.
 
 ## What NOT to Do
 

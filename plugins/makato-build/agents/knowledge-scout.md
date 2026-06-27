@@ -7,7 +7,7 @@ description: >-
   testing conventions). Implements a 3-step process: locate SPECS_ROOT →
   read index → synthesize constraints. Read-only. Dispatched by plan-analyst,
   refine, and grill-with-docs.
-version: "1.1.0"
+version: "1.2.0"
 maxTurns: 15
 permissionMode: bypassPermissions
 disallowedTools: Write, Edit, NotebookEdit
@@ -100,6 +100,42 @@ Distill each finding into one actionable sentence. Do not paraphrase rules — c
 ```
 
 If `loaded: false`, emit only the metadata lines and omit all sections.
+
+## Output Contract (R1)
+
+The final element of your message MUST be a fenced ` ```json ` block containing the R1 envelope defined in `plugins/makato-build/agents/RETURN-CONTRACT.md`. Callers parse the last `json`-fenced block via `JSON.parse()` — no prose parsing.
+
+Map your run state into R1 as follows:
+
+- `status: "success"` — synthesis emitted, whether or not specs were found (`loaded: false` IS a valid success: graceful fall-through is the contract).
+- `status: "failure"` — required dispatch input missing (`REPO_ROOT`, `KEYWORDS`) or the synthesized prose could not be emitted.
+- `files_changed: []` and `tests_written: []` — this agent is read-only.
+- `errors: []` on `status: "success"`; on failure, a short reason string.
+- `tool_calls_used` — best-effort count of tool invocations you made this run.
+- `data` — `{ "loaded": true|false, "source": "local|none", "constraints_found": N, "standards_found": N }`.
+
+Example (no specs found):
+
+```json
+{
+  "schema": "r1",
+  "agent": "knowledge-scout",
+  "status": "success",
+  "summary": "No specs root discovered for repo; returning empty constraint set.",
+  "files_changed": [],
+  "tests_written": [],
+  "errors": [],
+  "tool_calls_used": 3,
+  "data": {
+    "loaded": false,
+    "source": "none",
+    "constraints_found": 0,
+    "standards_found": 0
+  }
+}
+```
+
+Do not emit prose after the R1 block.
 
 ## What NOT to Do
 

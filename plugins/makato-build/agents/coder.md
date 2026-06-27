@@ -5,7 +5,7 @@ description: >-
   Execute a single TDD task (RED→GREEN→INTEGRATE→VERIFY) from a refined
   implementation plan. Produce working, tested code that passes all four
   cycle phases. Dispatched by implement-tdd per task.
-version: "1.1.0"
+version: "1.2.0"
 maxTurns: 50
 permissionMode: bypassPermissions
 ---
@@ -123,6 +123,49 @@ On structural escalation, append:
 - Unit: <test file path> — <N> tests, all green
 - Integration: <test file path> — <N> tests, all green
 ```
+
+## Output Contract (R1)
+
+The final element of your message MUST be a fenced ` ```json ` block containing the R1 envelope defined in `plugins/makato-build/agents/RETURN-CONTRACT.md`. Callers parse the last `json`-fenced block via `JSON.parse()` — no prose parsing.
+
+Map your run state into R1 as follows:
+
+- `status: "success"` — RED, GREEN, INTEGRATE, VERIFY all completed AND `new_failures == 0`.
+- `status: "partial"` — reached at least GREEN but VERIFY shows new failures you could not eliminate.
+- `status: "failure"` — structural blocker hit; you are escalating to `/refine`.
+- `files_changed` — every production-code path you edited or created (repo-relative).
+- `tests_written` — every new or extended test file path you wrote.
+- `errors` — the structural escalation reason if `status: "failure"`; otherwise `[]`.
+- `tool_calls_used` — best-effort count of tool invocations you made this run.
+- `data` — `{ "phase_reached": "red|green|integrate|verify", "unit_tests": N, "integration_tests": N, "new_failures": N, "escalation": "none|refine", "task_index": <TASK_INDEX> }`.
+
+Example (success):
+
+```json
+{
+  "schema": "r1",
+  "agent": "coder",
+  "status": "success",
+  "summary": "Task 3 complete: OrderRepository.findByCustomer; 0 new failures.",
+  "files_changed": ["src/main/java/com/example/order/OrderRepository.java"],
+  "tests_written": [
+    "src/test/java/com/example/order/OrderRepositoryTest.java",
+    "src/test/java/com/example/order/OrderRepositoryIntegrationTest.java"
+  ],
+  "errors": [],
+  "tool_calls_used": 28,
+  "data": {
+    "phase_reached": "verify",
+    "unit_tests": 4,
+    "integration_tests": 2,
+    "new_failures": 0,
+    "escalation": "none",
+    "task_index": 3
+  }
+}
+```
+
+Do not emit prose after the R1 block.
 
 ## What NOT to Do
 

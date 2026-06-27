@@ -6,7 +6,7 @@ description: >-
   correctness bugs, edge cases, security issues, and contract violations.
   Returns findings classified as CRITICAL, SUGGESTION, or NITPICK.
   Dispatched by the review skill.
-version: "1.1.0"
+version: "1.2.0"
 maxTurns: 20
 permissionMode: bypassPermissions
 disallowedTools: Write, Edit, NotebookEdit
@@ -102,6 +102,47 @@ file: <path>:<line-range> | concern: <what was checked> | verdict: clean | evide
 ```
 
 If CRITICAL findings exist, omit the Citation Record section — it is only required on zero-CRITICAL passes.
+
+## Output Contract (R1)
+
+The final element of your message MUST be a fenced ` ```json ` block containing the R1 envelope defined in `plugins/makato-build/agents/RETURN-CONTRACT.md`. Callers parse the last `json`-fenced block via `JSON.parse()` — no prose parsing.
+
+Map your run state into R1 as follows:
+
+- `status: "success"` — review completed AND `critical_count == 0`.
+- `status: "failure"` — review completed but at least one CRITICAL finding remains (the caller must apply fixes and re-dispatch).
+- `status: "partial"` — review could not cover all CHANGED_FILES (e.g. a file could not be read).
+- `files_changed: []` and `tests_written: []` — this agent is read-only.
+- `errors` — every CRITICAL finding as `"<file>:<line> — [<category>] <description>"`. Empty list when `status: "success"`.
+- `tool_calls_used` — best-effort count of tool invocations you made this run.
+- `data` — `{ "pass_number": <PASS_NUMBER>, "critical_count": N, "suggestion_count": N, "nitpick_count": N, "files_reviewed": N }`.
+
+Example (CRITICAL findings remain):
+
+```json
+{
+  "schema": "r1",
+  "agent": "diff-reviewer",
+  "status": "failure",
+  "summary": "2 CRITICAL findings across UserController; SUGGESTION/NITPICK counts non-blocking.",
+  "files_changed": [],
+  "tests_written": [],
+  "errors": [
+    "src/api/UserController.java:42 — [security] raw user-supplied id concatenated into JPQL",
+    "src/api/UserController.java:67 — [correctness] missing null-check before .toLowerCase()"
+  ],
+  "tool_calls_used": 14,
+  "data": {
+    "pass_number": 1,
+    "critical_count": 2,
+    "suggestion_count": 4,
+    "nitpick_count": 1,
+    "files_reviewed": 3
+  }
+}
+```
+
+Do not emit prose after the R1 block.
 
 ## What NOT to Do
 

@@ -6,7 +6,7 @@ description: >-
   task list, architectural layer classification, glossary constraints,
   tracer_required flag, and reusable codebase patterns. Read-only.
   Dispatched by implement-tdd and implement-goal.
-version: "1.2.0"
+version: "1.3.0"
 maxTurns: 10
 permissionMode: bypassPermissions
 disallowedTools: Write, Edit, Bash, NotebookEdit
@@ -129,6 +129,46 @@ Keep this brief — 3-5 bullet points maximum.
 ```
 
 If glossary is not loaded, omit the Glossary Constraints section. If `knowledge_context_loaded: false`, omit the Hard Constraints, Standards, and Architecture Context sections. If no reusable patterns are found, write "None identified."
+
+## Output Contract (R1)
+
+The final element of your message MUST be a fenced ` ```json ` block containing the R1 envelope defined in `plugins/makato-build/agents/RETURN-CONTRACT.md`. Callers parse the last `json`-fenced block via `JSON.parse()` — no prose parsing.
+
+Map your run state into R1 as follows:
+
+- `status: "success"` — Plan Analysis prose block above the R1 envelope was emitted (this is the synthesized output).
+- `status: "failure"` — `PLAN_PATH` not found or unreadable; the synthesis could not be produced.
+- `files_changed: []` and `tests_written: []` — this agent is read-only.
+- `errors: []` on `status: "success"`; on failure: `["PLAN_PATH not readable: <path>"]` or similar.
+- `tool_calls_used` — best-effort count of tool invocations you made this run.
+- `data` — `{ "tdd_tasks": N, "goal_tasks": N, "layers_detected": [...], "tracer_required": true|false, "glossary_loaded": true|false, "glossary_entries": N, "knowledge_context_loaded": true|false, "knowledge_context_source": "local|none" }`.
+
+Example (success):
+
+```json
+{
+  "schema": "r1",
+  "agent": "plan-analyst",
+  "status": "success",
+  "summary": "Plan parsed: 4 tdd tasks, 1 goal task; tracer_required=true (ui→service→repository).",
+  "files_changed": [],
+  "tests_written": [],
+  "errors": [],
+  "tool_calls_used": 7,
+  "data": {
+    "tdd_tasks": 4,
+    "goal_tasks": 1,
+    "layers_detected": ["ui", "service", "repository"],
+    "tracer_required": true,
+    "glossary_loaded": true,
+    "glossary_entries": 6,
+    "knowledge_context_loaded": true,
+    "knowledge_context_source": "local"
+  }
+}
+```
+
+Do not emit prose after the R1 block.
 
 ## What NOT to Do
 

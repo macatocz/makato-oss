@@ -117,6 +117,48 @@ The agent returns a single JSON object describing the run:
 | `residual` | integer | Count of findings still unresolved after the final loop (these are routed to the draft PR). |
 | `skills_used` | list[string] | De-duplicated list of inner skills the harness invoked across the run. |
 
+## 4a. Output Contract (R1)
+
+In addition to the run-summary block in §4 (kept for human inspection), the **last** fenced ` ```json ` block in your final message MUST be the R1 envelope defined in `plugins/makato-build/agents/RETURN-CONTRACT.md`. Callers parse the last `json`-fenced block via `JSON.parse()` — no prose parsing.
+
+Map your run state into R1 as follows:
+
+- `status: "success"` — `residual == 0` after the loop finishes (every finding resolved or cleanly carried over to draft PR with zero remaining).
+- `status: "partial"` — `residual > 0` AND a draft-PR carry-over was emitted; the harness did not block the developer's local commit.
+- `status: "failure"` — the harness could not run at all (e.g. missing `FINDINGS`, `REPO_ROOT` not writable).
+- `files_changed` — union of files touched by all inner `build-resolve-finding` dispatches in this run.
+- `tests_written: []` — the harness itself does not write tests; any test changes belong to the inner dispatch's own R1.
+- `errors` — list of fingerprints (or `rule_id:file:line` strings) of unresolved findings; `[]` on success.
+- `tool_calls_used` — best-effort count of tool invocations made by this outer loop (not counting inner agent dispatches, which carry their own counts).
+- `data` — `{ "loops": N, "resolved": N, "escalated": N, "residual": N, "skills_used": [...] }`.
+
+Example (clean run):
+
+```json
+{
+  "schema": "r1",
+  "agent": "sensor-fixer",
+  "status": "success",
+  "summary": "Resolved 4 sensor findings across 2 loops; 1 tier-escalated; 0 residual.",
+  "files_changed": [
+    "src/api/UserController.java",
+    "src/api/UserService.java"
+  ],
+  "tests_written": [],
+  "errors": [],
+  "tool_calls_used": 6,
+  "data": {
+    "loops": 2,
+    "resolved": 4,
+    "escalated": 1,
+    "residual": 0,
+    "skills_used": ["build-resolve-finding", "build-refine"]
+  }
+}
+```
+
+Do not emit prose after the R1 block.
+
 ## 5. Audit Log
 
 - Path: `${REPO_ROOT}/specs/${SPEC_KEY}/build.jsonl`

@@ -5,6 +5,19 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## R1 return contract (cross-cutting, GAP-002 / #24)
+
+- **agents/RETURN-CONTRACT.md** — new authoritative schema doc defining the R1 envelope (`schema`/`agent`/`status`/`summary`/`files_changed`/`tests_written`/`errors`/`tool_calls_used`/`data`). Per-agent rules, parsing pseudocode, and audit-log integration documented. Versioned via the `schema` field so future R2 can coexist during migration.
+- **agents/coder.md** → 1.2.0 — added `## Output Contract (R1)` section with success/partial/failure mapping and the per-agent `data` keys (`phase_reached`, `unit_tests`, `integration_tests`, `new_failures`, `escalation`, `task_index`).
+- **agents/diff-reviewer.md** → 1.2.0 — added R1 section; `status: "failure"` when CRITICAL findings remain; `errors[]` carries the CRITICAL finding text.
+- **agents/sensor-fixer.md** — added R1 section (§4a) alongside the existing run-summary block; `status: "partial"` on residual carry-over; `errors[]` carries unresolved-finding fingerprints.
+- **agents/knowledge-scout.md** → 1.2.0 — added R1 section; `loaded: false` graceful fall-through is a valid `status: "success"`.
+- **agents/plan-analyst.md** → 1.3.0 — added R1 section; `data` mirrors the existing prose Plan Analysis metadata fields.
+- **agents/gate-scout.md** → 1.3.0 — added R1 section; `data` mirrors the existing Gate Commands fields including `lint_ci_divergence` and `java_version_required`.
+- **skills/build-implement-tdd/SKILL.md** → 1.5.0 — coder dispatch now parses the R1 envelope from the last `json`-fenced block via `JSON.parse()` instead of scraping prose. R1 envelope mirrored into `build.jsonl` under `step: "r1"` for full machine-contract preservation in the audit trail. Backward-compatible `task-escalate` warn entry preserved on `status: "failure"`.
+
+---
+
 ## `build-grill-with-docs` skill
 
 - **1.3.2**
