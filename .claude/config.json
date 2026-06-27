@@ -33,6 +33,11 @@
           "p2": "b5648e44",
           "p3": "faec7633"
         }
+      },
+      "estimate": {
+        "id": "PVTF_lADOEZFnDM4BbvspzhWeA9k",
+        "name": "Estimate",
+        "type": "number"
       }
     },
     "init_timestamp": "2026-06-26T13:49:32Z",

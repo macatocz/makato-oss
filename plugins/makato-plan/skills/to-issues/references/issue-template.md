@@ -18,6 +18,8 @@
 
 `{{STORY_PHASE}}`
 
+{{METADATA_BLOCK}}
+
 {{TRIGGER_CONDITION_BLOCK}}
 
 ## Labels

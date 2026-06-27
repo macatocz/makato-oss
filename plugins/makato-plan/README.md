@@ -104,10 +104,10 @@ Skills follow a sequential shaping pipeline. Each phase produces a disk artifact
    - Note: Single atomic skill. Creates in deterministic order: epic → stories → subtasks → dependency links → Confluence. Two confirmation gates (before Jira, before Confluence). Create-or-update idempotency — re-run safely skips existing items. Subtask content is pre-populated at publish time (QA gets acceptance criteria, Documentation gets artifact links, Automate gets Gherkin); the makato-build `refine` skill may enrich further. Creates epic and story subfolders inside the spec folder after publish.
 
 7. **Publish (GitHub)** — emit GitHub issues from shaped stories
-   - [x] `to-issues` — create GitHub issues on github.com with 5-dimension label taxonomy
+   - [x] `to-issues` — create GitHub issues on github.com with 9-dimension label taxonomy
    - Input: `specs/<slug>/stories.json` + `.claude/config.json`
    - Output: GitHub issues created on github.com + `specs/<slug>/created-issues.json` (machine-readable handoff containing issue numbers, URLs, labels, blockers)
-   - Note: Generic github.com publisher — parallel to Phase 6's Jira `publish`. Applies type / tier / tech / module / status labels; maps stories to ADR folders for `module:` annotation; emits `status:blocked` on dependency or `type:future-enhancement` inference. Topologically sorts by `dependencies.blockedBy`. `DRY_RUN=1` supported.
+   - Note: Generic github.com publisher — parallel to Phase 6's Jira `publish`. Applies type / tier / tech / module / severity / phase / effort / priority / status labels; maps stories to ADR folders for `module:` annotation; severity/phase/effort/priority source from `stories[].metadata` (priority auto-derives from severity when absent); emits `status:blocked` on dependency or `type:future-enhancement` inference. Topologically sorts by `dependencies.blockedBy`. `DRY_RUN=1` supported.
 
 8. **Project board sync** — land created issues on a GitHub Projects v2 board
    - [x] `issue-to-project` — sync `created-issues.json` entries to a github.com Projects v2 board

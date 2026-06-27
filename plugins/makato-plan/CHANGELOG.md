@@ -7,6 +7,23 @@ Changes are grouped by skill/agent/component. Within each group, latest version 
 
 ## `to-issues` skill
 
+- **3.4.0**
+  - new `points:*` label dimension (10th total): `metadata.points` if explicit (positive integer), else derived from `metadata.effort` via SIZE_MAP (`s→1, m→3, l→8, xl→13`). Symmetric design to the v3.3.0 `severity→priority` derivation
+  - **closes the Estimate field gap** in the to-issues → issue-to-project chain: `issue-to-project` v2.4+ already has the number-field resolver for `points:N` but no upstream label source — now `to-issues` emits them so the GitHub Project board's Estimate column populates automatically without manual `gh project item-edit --number` calls
+  - METADATA_BLOCK in the issue body now renders `**Points:** N *(derived from effort)*` alongside the existing Severity/Phase/Effort/Priority lines
+  - 7 new label colors documented in `label-taxonomy.md` (`points:1..21`, grey gradient — small to large)
+  - Strictly additive: stories.json without `metadata.points` AND without `metadata.effort` produces no `points:*` label (existing v3.3.x behavior unchanged)
+- **3.3.1**
+  - **collision fix:** `phase:*` enum changed from `p1..p5` to bare `1..5`. The `p` prefix is now reserved exclusively for `priority:*` so a reader scanning issue bodies or board chips can never mistake a Phase value for a Priority value. The body's `**Phase:**` line now renders `1` instead of `P1`.
+  - Backward-compat: stories.json files written for v3.3.0 with `metadata.phase: "p1"` are still accepted on input — auto-normalized to `"1"` before label emission with a soft-warn. New stories.json files should write bare digits.
+  - Color palette for `phase:1..5` is unchanged (same blue gradient applies to the renamed labels). Existing repos that already created `phase:p1..p5` need to either rename the labels manually (`gh label edit phase:p1 --name phase:1`) or have `to-issues` Step 4 create the new bare-digit labels alongside (the old ones can be deleted by hand once unused).
+- **3.3.0**
+  - extend the label taxonomy from 5 dimensions to 9 — adds `severity:*` (critical/high/medium/low), `phase:*` (p1–p5, distinct from `tier:`), `effort:*` (s/m/l/xl), and `priority:*` (p0–p3) — all sourced from a new optional `stories[].metadata` block in `stories.json`
+  - `priority:*` two-stage resolution: explicit `metadata.priority` wins; otherwise derived from `metadata.severity` via `critical→p0`, `high→p1`, `medium→p2`, `low→p3` — keeps severity (intrinsic) and priority (board-display) as separable axes so an operator can re-prioritize without touching the severity label
+  - `priority:*` is consumed verbatim by `issue-to-project` v2.4+ via its `signal_prefix: "priority"` resolver — the chain `to-issues` → `created-issues.json` → `issue-to-project --fields-only` now writes the GitHub Project board's Priority column without any manual `gh project item-edit` calls
+  - issue body gains an optional `{{METADATA_BLOCK}}` placeholder that renders `Severity / Phase / Effort / Priority` as human-readable lines inside the existing `## Details` section — when `metadata` is absent the block collapses to the empty string (no change for existing stories.json files)
+  - all four new dimensions are sparse-by-default: stories.json without a `metadata` block produces the byte-identical labels to v3.2.1
+  - colors documented in `label-taxonomy.md`: severity uses red→green gradient matching urgency; phase uses dark→light blue gradient matching earliest→latest; effort uses light→dark purple gradient matching small→large; priority mirrors severity colors so the board priority column and the severity label visually agree
 - **3.2.1**
   - sagibeast-alignment audit: removed trailing `## NEVER` section (makato-skill-creator rule: no NEVER sections at end of file — high context-compaction-drop risk). Inlined the two constraints that lived only there: enterprise-host prohibition moved to Step 0 (GH_ENTERPRISE_TOKEN / TLS-bypass guard) and ADR-file-contents prohibition moved to Step 2 (folder-names-only, cites D5).
 
