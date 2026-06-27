@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/macatocz/makato/compare/v0.11.1...v0.12.0) (2026-06-27)
+
+
+### ✨ Features
+
+* **makato-plan:** to-issues v3.4.0 — severity/phase/effort/priority/points dimensions ([#41](https://github.com/macatocz/makato/issues/41)) ([f26cf61](https://github.com/macatocz/makato/commit/f26cf61f0fd5c76f18583962ab9a0f58e0f0392e))
+
 ## [0.11.1](https://github.com/macatocz/makato/compare/v0.11.0...v0.11.1) (2026-06-26)
 
 
