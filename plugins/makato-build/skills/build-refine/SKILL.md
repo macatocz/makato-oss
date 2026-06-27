@@ -19,7 +19,7 @@ Use at the start of every build session, after a story has been shaped by makato
 **Do NOT use when:**
 - The story has not been shaped (no spec artifacts exist) — run makato-plan first
 - You want to continue an in-progress implementation — read `plan.md` in the spec folder directly
-- You are fixing a hotfix or ad-hoc defect — use makato-fix instead
+- You are implementing changes to existing functionality from updated business requirements — use `makato-change` instead
 
 ## Workflow
 

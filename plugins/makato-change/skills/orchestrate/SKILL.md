@@ -19,7 +19,7 @@ Use this skill when:
 
 **Do NOT use this skill if:**
 - You already know exactly which phase skill to invoke (use that skill directly)
-- You're working on something other than a change request (use makato-plan for features, makato-fix for bugs)
+- You're working on something other than a change request (use makato-plan for new features; for bugs, route through makato-plan if shaping is needed or makato-build if the fix is well-scoped)
 
 ## Workflow
 

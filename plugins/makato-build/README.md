@@ -2,8 +2,11 @@
 
 **Goal**: Transforms decomposed, vertically-sliced stories into tested, reviewed, merged code.
 
-**How**: Provides a sequential skill pipeline (refine → implement → simplify → review → verify →
-push → PR) that takes planned specs and produces production-ready pull requests in a single session.
+**How**: Provides a sequential skill pipeline anchored by `start` as the entry point, then
+`refine` → (optional `grill-with-docs`) → `implement-tdd` *or* `implement-goal` → `simplify` →
+`review` → `verify` → `sensors` (with per-finding repair via `resolve-finding`) → `push-to-git` →
+`create-pr` → `address-pr-comments`. Takes planned specs and produces production-ready pull
+requests in a single session.
 
 **Why**: Closes the loop from ideation to merged code — planned stories become shippable features
 without manual orchestration overhead.
@@ -29,7 +32,7 @@ session.
 
 ## What Does NOT Belong Here
 
-- Hotfixes, small defects, or ad-hoc code changes (that's makato-fix)
+- Hotfixes, small defects, or ad-hoc code changes (out of scope — no dedicated plugin yet)
 - Shaping work (PRDs, architecture, prototypes, decomposition — that's makato-plan)
 - Plugin/skill scaffolding (that's makato-contribute)
 - CI/CD pipeline configuration or deployment automation
@@ -67,6 +70,15 @@ Quality gates (/simplify, /review, /verify) can loop back to earlier phases when
 structural.
 
 ### Phases
+
+0. **Start** — entry point, validate prerequisites
+   - [x] `start` (interactive) — validates git state, validates spec prerequisites, captures
+     implementation mode (TDD vs goal), initializes `build.jsonl`, and kicks off `refine`
+   - Input: work item key (GitHub Issue number or spec slug)
+   - Output: validated session state — clean git, spec folder exists with required artifacts,
+     implementation mode recorded
+   - Note: Required entry point for any full build session. Use `refine` directly only when
+     resuming a session whose prerequisites were already validated.
 
 1. **Refine** — bridge from planned to implementable
    - [ ] `refine` (interactive)
@@ -131,7 +143,20 @@ structural.
      attributable. If gates fail with fixable issues → fix and re-run /verify. If gates fail with
      structural issues (unfixable without changing approach) → back to /refine to re-plan.
 
-7. **Ship** — get code into review
+7. **Sensors** — pre-commit findings repair loop
+   - [x] `sensors` (autonomous) — runs pre-commit sensors against staged/all/changed files,
+     parses findings, dispatches `sensor-fixer` agent until clean or `MAX_LOOPS=5`
+   - [x] `resolve-finding` (per-finding) — decision tree resolving one sensor finding via 4
+     branches: autofix, tech-skill route, safe-automated action (redact/upgrade/suppress), or
+     carry-over to draft PR
+   - Input: Sensors triggered by pre-commit hook (or an autonomous fixer re-running them after
+     edits)
+   - Output: Clean pre-commit run, or a draft PR carrying the residual findings forward with
+     audit log entries
+   - Note: This is gate-0 for `push-to-git`. The loop is bounded by `MAX_LOOPS` and per-finding
+     repair branches keep retries focused — a single unfixable finding doesn't block the others.
+
+8. **Ship** — get code into review
    - [ ] `push-to-git` (autonomous) — atomic conventional commits, push to remote
    - [ ] `create-pr` (interactive) — PR with template, issue links, acceptance mapping
    - Input: Verified working tree (all gates passed)
@@ -139,7 +164,7 @@ structural.
    - Note: Each commit is one logical change, individually bisectable. PR description generated
      from spec + acceptance criteria mapping.
 
-8. **Respond** — handle review feedback
+9. **Respond** — handle review feedback
    - [ ] `address-pr-comments` (interactive) — classify and resolve PR review feedback
    - Input: PR with review comments
    - Output: Fixes committed, pushed, reply comments posted
@@ -260,6 +285,7 @@ stories.json + spec/ artifacts (from makato-plan)
 
 | Skill | Description | Version |
 | --- | --- | --- |
+| `start` | Entry point for a full build session — validates git state, validates spec prerequisites, captures implementation mode, initializes the build log, and kicks off `refine` | 1.0.0 |
 | `grill-with-docs` | Align implementation plan terminology to the codebase domain model — probes codebase for canonical names, adversarial alignment interview, enriches `spec/<key>/glossary.md` with `_Code_:` annotations for codebase conflicts, ADR routing via three-criteria test | 1.1.0 |
 | `refine` | Bridge a planned work item to an implementation plan — tasks, file targets, unit/integration test strategy, acceptance mapping; reads target repo AGENTS.md/CLAUDE.md as hard constraints | 1.1.0 |
 | `implement-tdd` | Execute a refined plan using TDD — RED → GREEN → INTEGRATE → VERIFY per task, autonomous, tracer bullet phase for multi-layer stories, conditional coverage gate | 1.1.0 |
@@ -267,6 +293,8 @@ stories.json + spec/ artifacts (from makato-plan)
 | `simplify` | Review implemented code for complexity that doesn't serve the ACs — interactive, presents findings for approval, checks against local repo patterns | 1.1.0 |
 | `review` | Adversarial quality review — auto-fixes mechanical issues, loops on CRITICAL findings until clean, zero-findings recheck requires source citations | 1.0.0 |
 | `verify` | Sequential gate pipeline: build → lint → unit → integration → conditional coverage; re-runs from failed gate; structural failures escalate to /refine | 1.0.0 |
+| `sensors` | Run pre-commit sensors against staged/all/changed files, parse findings, dispatch `sensor-fixer` agent until clean or MAX_LOOPS=5 | 1.0.0 |
+| `resolve-finding` | Per-finding decision tree resolving a single sensor finding via 4 branches — autofix, tech-skill route, safe-automated action (redact/upgrade/suppress), or carry-over to draft PR | 1.0.0 |
 | `push-to-git` | Atomic conventional commits from plan task structure; one commit per task with tests bundled; interactive push confirmation before affecting remote | 1.0.0 |
 | `create-pr` | Draft PR description from spec artifacts (ACs → How to Test, tasks → What changed); optional GitHub issue linking; interactive draft review before opening | 1.0.0 |
 | `address-pr-comments` | Classify and resolve all PR comments (human and bot); four-tier classification (MUST-FIX/SHOULD-FIX/CONSIDER/OUT-OF-SCOPE); structural feedback escalates to /refine | 1.0.0 |
@@ -316,7 +344,7 @@ makato-build/
 - **Produces**: enriched `spec/<story-key>/glossary.md` (codebase `_Code_:` annotations via
   `grill-with-docs`), ADRs (hard-to-reverse decisions),
   `spec/<story-key>/build.jsonl` (structured build audit log)
-- **Does NOT depend on**: makato-fix, makato-contribute (independent plugin, no runtime coupling)
+- **Does NOT depend on**: makato-contribute (independent plugin, no runtime coupling)
 - **Does NOT invoke**: makato-plan skills at runtime (consumes artifacts only, no cross-plugin
   calls)
 

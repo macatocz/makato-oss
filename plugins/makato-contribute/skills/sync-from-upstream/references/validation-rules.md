@@ -59,7 +59,7 @@ After migration, all cross-plugin skill invocations must use the correct makato 
 | `/daff-shape:decompose` | `/makato-plan:decompose` |
 | `/daff-build:build-start` | `/makato-build:build-start` |
 | `use daff-shape for features` | `use makato-plan for features` |
-| `use daff-fix for bugs` | `use makato-fix for bugs` (or remove if skill doesn't exist yet) |
+| `use daff-fix for bugs` | (remove — no makato-fix plugin exists; route bug work through `makato-plan` if shaping is needed or `makato-build` if the fix is well-scoped) |
 
 ## 7. Agent Files
 

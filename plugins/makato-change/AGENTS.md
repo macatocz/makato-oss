@@ -7,7 +7,7 @@ Implement changes to existing functionality based on updated business requiremen
 
 **How:** Refine requirements against current behavior, identify affected code sections, design a technical approach, implement modifications (including small supporting components when needed), verify changes, create PR, and resolve review feedback.
 
-**Why:** The suite has new feature development (makato-plan → makato-build) and bug fixing (makato-fix planned), but lacks a dedicated workflow for implementing adjustments to existing functionality based on changed business requirements.
+**Why:** The suite has new feature development (makato-plan → makato-build) but no dedicated workflow for implementing targeted adjustments to existing functionality. makato-change fills that gap with a smaller, lower-overhead pipeline than full plan-then-build for changes that don't need fresh shaping.
 
 ## What Belongs Here
 
@@ -25,7 +25,7 @@ Implement changes to existing functionality based on updated business requiremen
 ## What Does NOT Belong Here
 
 - Large-scale changes requiring thorough discovery and preparation (those belong in makato-plan and makato-build)
-- Bug fixes and defect resolution (those belong in makato-fix)
+- Bug fixes and defect resolution (out of scope — no dedicated plugin yet; for now, route bug reports through `makato-plan` if shaping is needed, or `makato-build` if the fix is well-scoped)
 
 ## Decision Test
 

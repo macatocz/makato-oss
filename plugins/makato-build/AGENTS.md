@@ -5,7 +5,7 @@
 
 Transforms decomposed, vertically-sliced stories into tested, reviewed, merged code.
 
-**How:** Provides a sequential skill pipeline (build-refine → build-implement → build-simplify → build-review → build-verify → build-push-to-git → build-create-pr) that takes planned specs and produces production-ready pull requests in a single session.
+**How:** Provides a sequential skill pipeline anchored by `build-start` as the entry point, then `build-refine` → (optional `build-grill-with-docs`) → `build-implement-tdd` *or* `build-implement-goal` → `build-simplify` → `build-review` → `build-verify` → `build-sensors` (with per-finding repair via `build-resolve-finding`) → `build-push-to-git` → `build-create-pr` → `build-address-pr-comments`. Takes planned specs and produces production-ready pull requests in a single session.
 
 **Why:** Closes the loop from ideation to merged code — planned stories become shippable features without manual orchestration overhead.
 
@@ -28,7 +28,7 @@ The /refine step bridges that gap — producing a plan small enough to execute a
 
 ## What Does NOT Belong Here
 
-- Hotfixes, small defects, or ad-hoc code changes (that's makato-fix)
+- Hotfixes, small defects, or ad-hoc code changes (out of scope — no dedicated plugin yet)
 - Shaping work (PRDs, architecture, prototypes, decomposition — that's makato-plan)
 - Plugin/skill scaffolding (that's makato-contribute)
 - CI/CD pipeline configuration or deployment automation

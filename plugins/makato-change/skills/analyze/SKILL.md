@@ -18,7 +18,7 @@ Analyze change request requirements by comparing current system behavior against
 
 ## When NOT to Use
 
-- Issue is a bug/defect (use makato-fix workflow when available)
+- Issue is a bug/defect with no business-requirement change (route through `makato-plan` if shaping is needed, or `makato-build` if the fix is well-scoped)
 - Issue is a new feature with no existing functionality to change (use makato-plan)
 - Already have a complete analysis and ready to design the solution (use design skill)
 - Issue is not in GitHub Issues or lacks a GitHub Issues key
