@@ -3,9 +3,9 @@
 
 ## Goal
 
-Transforms raw features into PI-sized epics with vertically-sliced stories through structured discovery, interviews, and architectural analysis.
+Transforms raw feature requests into vertically-sliced GitHub issues through structured discovery, interviews, architectural analysis, and UX design — producing acceptance-tested stories ready for development.
 
-**How:** Guides users through progressive interviews and grilling sessions that brainstorm, analyze, produce a PRD, define architecture, and decompose work into sized epics and sliced stories.
+**How:** Guides users through progressive interviews and grilling sessions that brainstorm, analyze, produce a PRD, define architecture, design UX, decompose work into sliced stories, write acceptance tests, and publish those stories as GitHub issues wired to a GitHub Projects v2 board.
 
 **Why:** Ensures features are thoroughly understood, architecturally sound, and broken into actionable work before development begins, reducing rework and misalignment.
 
@@ -29,7 +29,7 @@ Development teams own that next step.
 - Skills that produce PRDs, architecture documents, or design decisions from discovery output
 - Skills and agents that decompose features into PI-sized epics and vertically-sliced stories with acceptance criteria
 - Skills that gather and consolidate existing material (docs, context, prior art) about a feature
-- Skills, hooks, and MCP servers that create or update Jira epics and stories from shaped output
+- Skills, hooks, and MCP servers that create or update GitHub issues and project-board items from shaped output
 
 ## What Does NOT Belong Here
 

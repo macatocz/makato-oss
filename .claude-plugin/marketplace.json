@@ -8,17 +8,17 @@
     {
       "name": "makato-core",
       "source": "./plugins/makato-core",
-      "description": "Shared foundation that makes the suite work as a coherent system."
+      "description": "Shared developer utilities and suite infrastructure for makato — codebase navigation, documentation authoring, GitHub issue filing, and library reference lookup."
     },
     {
       "name": "makato-contribute",
       "source": "./plugins/makato-contribute",
-      "description": "Helps contributors scaffold new plugins following suite standards."
+      "description": "Contributor tools for the makato suite — scaffold plugins and skills, resolve PR review feedback, and sync content from upstream repos, all validated against suite conventions."
     },
     {
       "name": "makato-plan",
       "source": "./plugins/makato-plan",
-      "description": "Transforms raw Jira features into PI-sized epics with vertically-sliced stories through structured discovery, interviews, and architectural analysis."
+      "description": "Transforms raw feature requests into vertically-sliced GitHub issues through structured brainstorming, PRD, architecture, UX design, and decomposition with acceptance criteria."
     },
     {
       "name": "makato-build",
@@ -28,7 +28,7 @@
     {
       "name": "makato-orchestrate",
       "source": "./plugins/makato-orchestrate",
-      "description": "Autonomous control plane — drives a GitHub Issue from ready-for-dev through to a merged PR unattended, coordinating makato-plan and makato-build skills with workflow-state, kill-switch, and HALT-code dispatch."
+      "description": "Autonomous control plane (scaffold — not yet shipped) for driving GitHub Issues to merged PRs unattended, coordinating makato-plan and makato-build with workflow-state, kill-switch, and HALT-code dispatch."
     },
     {
       "name": "makato-change",
@@ -48,12 +48,12 @@
     {
       "name": "makato-database",
       "source": "./plugins/makato-database",
-      "description": "Provide the set of technology skills for database creation, SQL creation, schema designs, database configuration, SQL queries, and SQL performance."
+      "description": "Postgres performance optimization, query writing, schema design, and database administration best practices."
     },
     {
       "name": "makato-sagibeast",
       "source": "./plugins/makato-sagibeast",
-      "description": "Provide contract management skills for the Sagibeast (CMAI) platform."
+      "description": "Sagibeast (CMAI) platform skills — Word template schema extraction, PDF and Excel processing, testbox VM provisioning, and CMAI environment connectivity."
     }
   ]
 }

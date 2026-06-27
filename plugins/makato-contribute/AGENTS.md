@@ -2,9 +2,9 @@
 
 ## Goal
 
-Help contributors participate in makato suite development while keeping all content within the framework's guardrails.
+Help contributors participate in makato suite development — scaffolding new plugins and skills to convention, resolving PR review feedback, and syncing content from upstream repos — all pre-validated against the framework's guardrails.
 
-**How:** Provide skills and agents (shipped as a plugin) that create new plugins, skills, agents, and hooks — all pre-validated against suite conventions.
+**How:** Provide skills and agents (shipped as a plugin) that create new plugins, skills, agents, and hooks, triage post-PR review comments, and migrate content from upstream sources — all pre-validated against suite conventions.
 
 **Why:** Active participation in the framework should be easy and encouraged, but every contribution must fit together coherently. These tools encode the guardrails so contributors don't have to memorize them.
 

@@ -2,10 +2,9 @@
 
 ## Goal
 
-Provide the set of technology skills for database creation, SQL creation, schema
-designs, database configuration, SQL queries, and SQL performance.
+Provide Postgres-focused skills for performance optimization, query writing, schema design, and database administration — with scope to expand to additional database technologies.
 
-**How:** It uses the best practices from the database field.
+**How:** It uses the best practices from the Postgres ecosystem today, with room for sibling skills (`manage-mysql`, `manage-sqlite`, …) to be added per the plugin's "What Belongs Here" inclusions.
 
 **Why:** Users will have developed and managed database-related technologies and
 languages to the best standards.

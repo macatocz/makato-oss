@@ -2,7 +2,7 @@
 
 ## Goal
 
-Provide the shared foundation that makes the suite work as a coherent system.
+Provide the shared developer utilities and suite infrastructure every makato plugin depends on — codebase navigation, documentation authoring, GitHub issue filing, and library reference lookup.
 
 ## What Belongs Here
 

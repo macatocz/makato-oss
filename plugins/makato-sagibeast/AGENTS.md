@@ -2,9 +2,9 @@
 
 ## Goal
 
-Provide contract management skills for the Sagibeast (CMAI) platform.
+Provide skills for the Sagibeast (CMAI) platform covering contract document processing (Word/PDF/Excel), testbox environment provisioning and connection, and integration with the CMAI contract management system.
 
-**How:** Through structured prompts and workflows that guide contract creation, document sorting, reviewing contracts, lifecycle management, time evaluation, and financial claims evaluation within the CMAI platform.
+**How:** Through structured prompts and workflows that guide contract creation, document extraction and sorting, review and lifecycle management, time and financial-claims evaluation — plus the testbox-provisioning and connection skills that give CMAI agents the development environments they run those contract workflows in.
 
 **Why:** Reduces manual effort and errors in contract workflows by giving CMAI agents the skills to handle contracts end-to-end.
 
@@ -22,7 +22,7 @@ Provide contract management skills for the Sagibeast (CMAI) platform.
 ## What Does NOT Belong Here
 
 - General-purpose UX creation or visual design skills
-- Database schema definition or infrastructure provisioning
+- Database schema definition (general-purpose; CMAI-related schemas may live here)
 - Generic document editing tools with no contract-management context
 - Skills that produce outputs not usable within a contract management workflow
 - Skills already covered by other makato plugins (build, plan, change)

@@ -3,9 +3,9 @@
 
 ## Goal
 
-Autonomous control plane that drives a GitHub Issue from ready-for-dev through to a merged PR unattended.
+Autonomous control plane (in development) — will drive a GitHub Issue from ready-for-dev through to a merged PR unattended.
 
-**How:** Hosts the PO-agent and supporting infrastructure (workflow-state, kill-switch, session-status, loop) that coordinate `makato-plan` decomposition output and `makato-build` `--autonomous` skills into a single outer loop with retry, HALT, and audit semantics.
+**How:** Will host the PO-agent and supporting infrastructure (workflow-state, kill-switch, session-status, loop) that coordinate `makato-plan` decomposition output and `makato-build` `--autonomous` skills into a single outer loop with retry, HALT, and audit semantics. **Current status:** scaffold only — the skills and agents listed above land per the follow-up issues referenced in README.md.
 
 **Why:** Closes the orchestration gap identified in the AgenticSystem PRD (GAP-001 → GAP-015). `makato-build` lands tested code per story; `makato-plan` shapes stories. Without an outer driver, every transition between them requires a human. The PO-agent is that driver.
 

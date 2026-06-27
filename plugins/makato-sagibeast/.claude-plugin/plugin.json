@@ -1,6 +1,6 @@
 {
   "name": "makato-sagibeast",
-  "description": "Provide contract management skills for the Sagibeast (CMAI) platform.",
+  "description": "Sagibeast (CMAI) platform skills — Word template schema extraction, PDF and Excel processing, testbox VM provisioning, and CMAI environment connectivity.",
   "author": {
     "name": "makato AI team"
   }
