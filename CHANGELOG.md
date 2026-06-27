@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.1](https://github.com/macatocz/makato/compare/v0.11.0...v0.11.1) (2026-06-26)
+
+
+### ♻️ Refactors
+
+* **plugins:** decouple scouts from dcp-specs; wire makato project board ([#39](https://github.com/macatocz/makato/issues/39)) ([02ccdf3](https://github.com/macatocz/makato/commit/02ccdf380a35baa20309551c27a94c57e0033ba9))
+
 ## [0.11.0](https://github.com/zstary/makato/compare/v0.10.0...v0.11.0) (2026-06-25)
 
 
