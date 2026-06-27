@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.0](https://github.com/macatocz/makato/compare/v0.12.0...v0.13.0) (2026-06-27)
+
+
+### ✨ Features
+
+* **makato-build:** autonomous-mode for build-* approval gates ([#27](https://github.com/macatocz/makato/issues/27)) ([#47](https://github.com/macatocz/makato/issues/47)) ([efe0432](https://github.com/macatocz/makato/commit/efe0432ffdad4c98e9b2d64593caea83360caa2b))
+* **makato-orchestrate:** scaffold plugin for autonomous control plane (GAP-001) ([#49](https://github.com/macatocz/makato/issues/49)) ([eeb4250](https://github.com/macatocz/makato/commit/eeb42502649e36eb588121a3715a33851d4cd277)), closes [#23](https://github.com/macatocz/makato/issues/23)
+
 ## [0.12.0](https://github.com/macatocz/makato/compare/v0.11.1...v0.12.0) (2026-06-27)
 
 
