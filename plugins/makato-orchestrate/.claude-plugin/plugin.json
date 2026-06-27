@@ -1,0 +1,7 @@
+{
+  "name": "makato-orchestrate",
+  "description": "Autonomous control plane — drives a GitHub Issue from ready-for-dev through to a merged PR unattended, coordinating makato-plan and makato-build skills with workflow-state, kill-switch, and HALT-code dispatch.",
+  "author": {
+    "name": "makato Team"
+  }
+}

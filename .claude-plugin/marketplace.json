@@ -26,6 +26,11 @@
       "description": "Transforms decomposed, vertically-sliced stories into tested, reviewed, merged code."
     },
     {
+      "name": "makato-orchestrate",
+      "source": "./plugins/makato-orchestrate",
+      "description": "Autonomous control plane — drives a GitHub Issue from ready-for-dev through to a merged PR unattended, coordinating makato-plan and makato-build skills with workflow-state, kill-switch, and HALT-code dispatch."
+    },
+    {
       "name": "makato-change",
       "source": "./plugins/makato-change",
       "description": "Implement changes to existing functionality based on updated business requirements."
