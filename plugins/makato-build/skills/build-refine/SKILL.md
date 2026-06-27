@@ -5,9 +5,9 @@ description: >-
   implementation plan — tasks, file targets, unit/integration test
   strategy, acceptance mapping. Use to start a build session before
   implement-tdd or implement-goal.
-version: "1.5.3"
+version: "1.6.0"
 model: opus
-argument-hint: "[work-item-key]"
+argument-hint: "[work-item-key] [--autonomous]"
 ---
 
 # refine
@@ -28,6 +28,22 @@ Use at the start of every build session, after a story has been shaped by makato
 If an argument was passed when invoking this skill, use it directly. Otherwise, use the `AskUserQuestion` tool to ask for the work item key, with example options: `DCP-1234`, `#123`, or a freeform key. Remind the user they can skip this prompt next time by passing the key directly: `/makato-build:build-refine #123`.
 
 Accept any identifier: Jira key (`DCP-1234`), GitHub issue (`#123` or `gh-123`), or freeform. Sanitize for use as a filesystem path component: replace `#` and spaces with `-`, lowercase.
+
+### Step 1a — Mode detection
+
+Load `@../../AUTONOMOUS-MODE.md` for the activation contract and the per-gate default table.
+
+The skill runs in `--interactive` mode by default. Switch to `--autonomous` when ANY of:
+
+- `--autonomous` is passed on the CLI, OR
+- The caller provides a context bundle with a `task_id` field, OR
+- `$AGENT_ID` is exported in the environment.
+
+In autonomous mode, the work-item-key `AskUserQuestion` above is replaced by:
+- If an argument was passed: use it.
+- If no argument: HALT with `MISSING_INPUT: build-refine in --autonomous mode requires a work-item-key argument`. Write `build.jsonl` entry `{step:"session", status:"error", data:{halt_code:"MISSING_INPUT"}}` and return an R1 `status:"failure"` envelope. The PO-agent's responsibility is to supply the key from workflow-state — this skill does not prompt.
+
+Log the bypass via `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-refine","story":"<key>","step":"decision","status":"decision","data":{"event":"autonomous_bypass","gate":"work-item-key","bypassed":true,"default_taken":"use-arg","trigger":"<agent_id|cli_flag|task_id_bundle>"}}'` when bypassed.
 
 ### Step 2 — Log session start and prepare workspace
 
@@ -192,7 +208,9 @@ Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-refine","story":"<
 
 ### Step 11 — Present plan and iterate
 
-Use the `AskUserQuestion` tool to ask: "The plan is ready. How would you like to review it before implementation starts?" with two options:
+In **autonomous mode**, skip this step entirely: write `plan.md` (already done in Step 10), log the bypass via `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-refine","story":"<key>","step":"decision","status":"decision","data":{"event":"autonomous_bypass","gate":"plan-review","bypassed":true,"default_taken":"approve","trigger":"<agent_id|cli_flag|task_id_bundle>"}}'`, and proceed to Step 12.
+
+In **interactive mode**, use the `AskUserQuestion` tool to ask: "The plan is ready. How would you like to review it before implementation starts?" with two options:
 - **In chat** — description: "Show the plan as markdown in this conversation. You can reply with feedback or edits."
 - **In browser** — description: "Generate an interactive HTML page with per-task feedback fields and open it in your browser. Copy your feedback and paste it back here when done."
 
@@ -227,3 +245,50 @@ Tell the user: "Plan written to `plan.md` in the spec folder. Next: run `/grill-
 - The plan touches domain-specific field names (entity fields, API paths, enum values — not generic names like `service` or `handler`)
 
 Skip `/build-grill-with-docs` for infra/config-only changes (no domain-model files touched). State the recommendation inline.
+
+## Autonomous Execution
+
+Autonomous mode activates when ANY of:
+
+- `--autonomous` is passed on the CLI.
+- The caller provides a context bundle with a `task_id` field.
+- `$AGENT_ID` is exported in the environment.
+
+In autonomous mode:
+
+- **Never prompt the user** — the Step 1 work-item-key gate and the Step 11 plan-review gate are bypassed per the rules above.
+- **Log every bypass** to `build.jsonl` via `shared/build-log.sh` with the `autonomous_bypass` event schema documented in `@../../AUTONOMOUS-MODE.md`.
+- **Emit an R1 envelope** as the final `json`-fenced block of the skill's output (schema: `plugins/makato-build/agents/RETURN-CONTRACT.md`).
+
+### Return Format (R1, when called as a sub-skill)
+
+```json
+{
+  "schema": "r1",
+  "agent": "build-refine",
+  "status": "success" | "partial" | "failure",
+  "summary": "Refined plan with N tasks (mode: tdd|goal|mixed)",
+  "files_changed": ["specs/<key>-<slug>/plan.md"],
+  "tests_written": [],
+  "errors": [],
+  "tool_calls_used": 0,
+  "data": {
+    "plan_path": "specs/<key>-<slug>/plan.md",
+    "tasks": <N>,
+    "mode": "tdd" | "goal" | "mixed",
+    "knowledge_graph_loaded": <true|false>,
+    "hard_constraints": <N>,
+    "ac_coverage_complete": <true|false>
+  }
+}
+```
+
+### HALT Codes
+
+| Code | Meaning |
+|------|---------|
+| `MISSING_INPUT` | `--autonomous` invoked without a work-item-key argument |
+| `SPEC_NOT_FOUND` | No `specs/<key>-*/` folder exists for the supplied key |
+| `MISSING_ARTIFACTS` | Required ticket-path artifacts (`stories.json` / `prd.md` / `design.md`) absent |
+| `INVALID_FILE_TARGET` | A planned task references a path outside the repository root |
+| `UNCOVERED_AC` | Step 9 found an acceptance criterion with no covering task |

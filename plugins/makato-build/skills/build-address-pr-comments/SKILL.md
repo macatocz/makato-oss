@@ -8,8 +8,8 @@ description: >-
   grouped by file, commits and pushes, replies to each resolved comment.
   Structural feedback escalates to refine.
   Interactive. Use after create-pr when review comments arrive.
-version: "1.2.1"
-argument-hint: "[work-item-key]"
+version: "1.3.0"
+argument-hint: "[work-item-key] [--autonomous]"
 ---
 
 ## When to Use
@@ -28,6 +28,22 @@ gh pr list --head $(git branch --show-current) --json url -q '.[0].url'
 ```
 
 Run `git branch --show-current` to confirm we are on the story branch. If on `main` or `master`, stop — fixes must go on the feature branch.
+
+### Step 1a — Mode detection
+
+Load `@../../AUTONOMOUS-MODE.md` for the activation contract and the per-gate default table.
+
+The skill runs in `--interactive` mode by default. Switch to `--autonomous` when ANY of:
+
+- `--autonomous` is passed on the CLI, OR
+- The caller provides a context bundle with a `task_id` field, OR
+- `$AGENT_ID` is exported in the environment.
+
+In autonomous mode, the Step 1 work-item-key prompt is replaced by:
+- If an argument was passed: use it.
+- If no argument: HALT with `MISSING_INPUT: build-address-pr-comments in --autonomous mode requires a work-item-key argument`, write `{step:"session", status:"error", data:{halt_code:"MISSING_INPUT"}}`, and return R1 `status:"failure"`.
+
+Log the bypass via `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-address-pr-comments","story":"<key>","step":"decision","status":"decision","data":{"event":"autonomous_bypass","gate":"work-item-key","bypassed":true,"default_taken":"use-arg","trigger":"<agent_id|cli_flag|task_id_bundle>"}}'` when bypassed.
 
 ---
 
@@ -68,7 +84,7 @@ For any MUST-FIX: check whether it requires changing the fundamental implementat
 
 ### Step 5 — Present classification for approval
 
-Present the full classification table to the user:
+In **interactive mode**, present the full classification table to the user:
 
 ```
 [MUST-FIX]     src/Invoice.java:42      — "status field must be non-null"
@@ -89,6 +105,18 @@ If any STRUCTURAL comment was found, present it clearly and define the flow:
 Wait for the user to choose. If (A): continue implementing non-structural comments in this session; after the commit-and-push step, prompt the user: "Structural item outstanding — ready to open `/build-refine` for re-planning?" If (B): stop here. If (C): proceed as a regular MUST-FIX.
 
 Wait for the user to confirm or adjust classifications. User can: promote/demote tiers, mark a SHOULD-FIX as skip with a reason, or override the STRUCTURAL call.
+
+In **autonomous mode**, skip the interactive prompts and apply this fixed policy:
+
+- **MUST-FIX (non-STRUCTURAL)** — auto-apply in Step 6.
+- **SHOULD-FIX** — auto-apply in Step 6.
+- **CONSIDER** — skip (do not implement).
+- **OUT-OF-SCOPE** — skip (do not implement).
+- **MUST-FIX flagged STRUCTURAL** — do NOT auto-apply. The skill HALTs immediately with R1 `status:"failure"` and an error entry `STRUCTURAL_BLOCKER: <comment summary>`. The PO-agent reads the R1 envelope and escalates (typically by opening a fresh `/build-refine` session or surfacing to the human operator). Re-planning is a judgment call this skill does NOT attempt headlessly.
+
+Log the bypass via `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-address-pr-comments","story":"<key>","step":"decision","status":"decision","data":{"event":"autonomous_bypass","gate":"comment-classification","bypassed":true,"default_taken":"auto-apply","trigger":"<agent_id|cli_flag|task_id_bundle>","counts":{"must_fix":<N>,"should_fix":<N>,"consider":<N>,"out_of_scope":<N>,"structural":<N>}}}'`.
+
+When a STRUCTURAL item is encountered, log a separate decision entry: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-address-pr-comments","story":"<key>","step":"decision","status":"decision","data":{"event":"autonomous_bypass","gate":"structural-must-fix","bypassed":true,"default_taken":"halt","trigger":"<agent_id|cli_flag|task_id_bundle>","comment_id":"<id>"}}'` before returning failure.
 
 ---
 
@@ -130,9 +158,9 @@ fix(<scope>): address PR review feedback for <key>
 
 If fixes span multiple logical themes (e.g. a CI build fix plus several readability fixes), use multiple commits — one per group.
 
-Show the user the staged diff and ask: *"Ready to push `<N>` fix commits to `origin/<branch>`?"*
+In **interactive mode**, show the user the staged diff and ask: *"Ready to push `<N>` fix commits to `origin/<branch>`?"* Wait for confirmation before pushing. Run `git push` on approval.
 
-Wait for confirmation before pushing. Run `git push` on approval.
+In **autonomous mode**, skip the prompt: run `git push` immediately (pre-push hook still fires per the cross-skill propagation rule in `@../../AUTONOMOUS-MODE.md`). Log `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-address-pr-comments","story":"<key>","step":"decision","status":"decision","data":{"event":"autonomous_bypass","gate":"push-fix-confirm","bypassed":true,"default_taken":"push","trigger":"<agent_id|cli_flag|task_id_bundle>"}}'`.
 
 ---
 
@@ -168,3 +196,53 @@ shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-address-pr-comment
 ```
 
 Tell the user: *"`<N>` comments addressed, `<N>` commits pushed. PR is ready for re-review."*
+
+## Autonomous Execution
+
+Autonomous mode activates when ANY of:
+
+- `--autonomous` is passed on the CLI.
+- The caller provides a context bundle with a `task_id` field.
+- `$AGENT_ID` is exported in the environment.
+
+In autonomous mode:
+
+- **Never prompt the user** — work-item-key, classification-approval, and push-fix-confirm gates are bypassed per the rules above.
+- **Auto-apply policy**: MUST-FIX (non-STRUCTURAL) ✓, SHOULD-FIX ✓, CONSIDER ✗, OUT-OF-SCOPE ✗.
+- **STRUCTURAL MUST-FIX halts** with R1 `status:"failure"` + `errors: ["STRUCTURAL_BLOCKER: <summary>"]`. The PO-agent must escalate to re-planning.
+- **Log every bypass** to `build.jsonl` via `shared/build-log.sh` with the `autonomous_bypass` event schema documented in `@../../AUTONOMOUS-MODE.md`.
+- **Emit an R1 envelope** as the final `json`-fenced block of the skill's output.
+
+### Return Format (R1, when called as a sub-skill)
+
+```json
+{
+  "schema": "r1",
+  "agent": "build-address-pr-comments",
+  "status": "success" | "partial" | "failure",
+  "summary": "Addressed N comments across <M> commits",
+  "files_changed": ["<path>", "..."],
+  "tests_written": [],
+  "errors": [],
+  "tool_calls_used": 0,
+  "data": {
+    "must_fix_applied": <N>,
+    "should_fix_applied": <N>,
+    "consider_skipped": <N>,
+    "out_of_scope_skipped": <N>,
+    "structural_blockers": <N>,
+    "commits": <N>,
+    "replies_posted": <N>
+  }
+}
+```
+
+### HALT Codes
+
+| Code | Meaning |
+|------|---------|
+| `MISSING_INPUT` | `--autonomous` invoked without a work-item-key argument |
+| `PROTECTED_BRANCH` | Step 1 found the branch is `main` / `master` |
+| `STRUCTURAL_BLOCKER` | Step 5 found a STRUCTURAL MUST-FIX; auto-fix is refused — caller must re-plan |
+| `BUILD_FAILED` | Step 7 — applying fixes broke the build or unit tests beyond what fix-vs-escalate can recover |
+| `PUSH_REJECTED` | Step 8 — `git push` rejected (pre-push hook failure, diverged remote, auth) |

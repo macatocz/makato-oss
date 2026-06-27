@@ -5,8 +5,8 @@ description: >-
   and push the feature branch to remote. One commit per logical task,
   individually bisectable. Confirms push before affecting remote.
   Use after verify, before create-pr.
-version: "1.2.0"
-argument-hint: "[work-item-key]"
+version: "1.3.0"
+argument-hint: "[work-item-key] [--autonomous]"
 ---
 
 ## When to Use
@@ -24,6 +24,22 @@ Read `plan.md` from the resolved spec folder (`specs/<key>-*/`). Extract the tas
 Run `git status` and `git branch --show-current`. Verify the current branch is NOT `main` or `master`. If on a protected branch, stop and tell the user:
 
 > "Cannot commit directly to `<branch>`. Create a feature branch first."
+
+### Step 1a — Mode detection
+
+Load `@../../AUTONOMOUS-MODE.md` for the activation contract and the per-gate default table.
+
+The skill runs in `--interactive` mode by default. Switch to `--autonomous` when ANY of:
+
+- `--autonomous` is passed on the CLI, OR
+- The caller provides a context bundle with a `task_id` field, OR
+- `$AGENT_ID` is exported in the environment.
+
+In autonomous mode, the Step 1 work-item-key prompt is replaced by:
+- If an argument was passed: use it.
+- If no argument: HALT with `MISSING_INPUT: build-push-to-git in --autonomous mode requires a work-item-key argument`, write `{step:"session", status:"error", data:{halt_code:"MISSING_INPUT"}}`, and return R1 `status:"failure"`.
+
+Log the bypass via `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-push-to-git","story":"<key>","step":"decision","status":"decision","data":{"event":"autonomous_bypass","gate":"work-item-key","bypassed":true,"default_taken":"use-arg","trigger":"<agent_id|cli_flag|task_id_bundle>"}}'` when bypassed.
 
 ---
 
@@ -68,7 +84,9 @@ Commit 2: feat(invoice): add InvoiceStatusService with transition logic
           src/InvoiceStatusService.java, src/InvoiceStatusServiceTest.java
 ```
 
-Wait for the user to confirm or adjust the grouping and commit messages before proceeding to Step 5.
+In **interactive mode**, wait for the user to confirm or adjust the grouping and commit messages before proceeding to Step 5.
+
+In **autonomous mode**, skip the confirmation: use each task's `commitMessage` field from `plan.md` verbatim, apply the grouping rules above, log `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-push-to-git","story":"<key>","step":"decision","status":"decision","data":{"event":"autonomous_bypass","gate":"commit-grouping","bypassed":true,"default_taken":"plan-as-drafted","trigger":"<agent_id|cli_flag|task_id_bundle>"}}'`, and proceed to Step 5.
 
 ---
 
@@ -95,9 +113,9 @@ Show the user the commits that will be pushed:
 git log main..HEAD --oneline
 ```
 
-Ask: *"Ready to push `<N>` commits to `origin/<branch>`? This will trigger CI and be visible to the team."*
+In **interactive mode**, ask: *"Ready to push `<N>` commits to `origin/<branch>`? This will trigger CI and be visible to the team."* Wait for explicit confirmation. If the user declines, the commits are local — they can push manually when ready. Stop here without error.
 
-Wait for explicit confirmation. If the user declines, the commits are local — they can push manually when ready. Stop here without error.
+In **autonomous mode**, skip the prompt: proceed directly to Step 7 (the pre-push hook still fires — autonomous mode does not bypass git hooks). Log `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-push-to-git","story":"<key>","step":"decision","status":"decision","data":{"event":"autonomous_bypass","gate":"push-confirm","bypassed":true,"default_taken":"push","trigger":"<agent_id|cli_flag|task_id_bundle>"}}'`.
 
 ---
 
@@ -126,10 +144,60 @@ shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-push-to-git","stor
 
 Tell the user: *"`<N>` commits pushed to `<branch>`."*
 
-Then ask using `AskUserQuestion`:
+In **interactive mode**, then ask using `AskUserQuestion`:
 - Question: "Branch is on remote. Create the pull request now?"
 - Option A: **Yes, create PR now** — description: "Draft and open the PR using `/build-create-pr` — generates description from spec artifacts"
 - Option B: **No, I'll do it later** — description: "Run `/build-create-pr <key>` manually when ready"
 
 If option A: invoke `/build-create-pr <key>` directly.
 If option B: tell the user: "Run `/makato-build:build-create-pr <key>` when ready."
+
+In **autonomous mode**, skip the prompt: invoke `/build-create-pr <key> --autonomous` directly (the `--autonomous` flag MUST be forwarded explicitly per the cross-skill propagation rule in `@../../AUTONOMOUS-MODE.md`). Log `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-push-to-git","story":"<key>","step":"decision","status":"decision","data":{"event":"autonomous_bypass","gate":"create-pr-handoff","bypassed":true,"default_taken":"invoke-create-pr","trigger":"<agent_id|cli_flag|task_id_bundle>"}}'`.
+
+## Autonomous Execution
+
+Autonomous mode activates when ANY of:
+
+- `--autonomous` is passed on the CLI.
+- The caller provides a context bundle with a `task_id` field.
+- `$AGENT_ID` is exported in the environment.
+
+In autonomous mode:
+
+- **Never prompt the user** — work-item-key, commit-grouping, push-confirm, and create-pr-handoff gates are bypassed per the rules above.
+- **Pre-push hook still fires** — autonomous mode bypasses *user* approval, not *infrastructure* checks. If the pre-push hook rejects, return R1 `status:"failure"` with the hook output in `errors[]`.
+- **Log every bypass** to `build.jsonl` via `shared/build-log.sh` with the `autonomous_bypass` event schema documented in `@../../AUTONOMOUS-MODE.md`.
+- **Forward `--autonomous` explicitly** when invoking `/build-create-pr` at hand-off.
+- **Emit an R1 envelope** as the final `json`-fenced block of the skill's output.
+
+### Return Format (R1, when called as a sub-skill)
+
+```json
+{
+  "schema": "r1",
+  "agent": "build-push-to-git",
+  "status": "success" | "partial" | "failure",
+  "summary": "Pushed N commits to origin/<branch>",
+  "files_changed": [],
+  "tests_written": [],
+  "errors": [],
+  "tool_calls_used": 0,
+  "data": {
+    "branch": "<name>",
+    "commits": <N>,
+    "remote_branch": "origin/<name>",
+    "pre_push_hook_fired": <true|false>,
+    "next_skill_invoked": "build-create-pr" | null
+  }
+}
+```
+
+### HALT Codes
+
+| Code | Meaning |
+|------|---------|
+| `MISSING_INPUT` | `--autonomous` invoked without a work-item-key argument |
+| `PROTECTED_BRANCH` | Step 1 found the branch is `main` / `master` |
+| `NOTHING_TO_COMMIT` | Step 3 found the working tree clean |
+| `COMMIT_FAILED` | Step 5 — a git commit returned non-zero |
+| `PUSH_REJECTED` | Step 7 — `git push` rejected (diverged remote, pre-push hook failure, auth) |
