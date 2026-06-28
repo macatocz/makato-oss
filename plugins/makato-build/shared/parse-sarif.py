@@ -160,6 +160,34 @@ def _norm_pyright_severity(sev: str | None) -> str:
 # SARIF 2.1.0
 # ---------------------------------------------------------------------------
 
+_SEMGREP_SECURITY_TAGS = {"security", "cwe", "owasp", "injection", "xss", "sqli"}
+_SEMGREP_SECURITY_SEGMENTS = {"security", "secrets", "audit", "injection"}
+
+
+def _semgrep_category(rule_id: str, result: dict, rule_def: dict) -> str:
+    """Return 'security' or 'style' for a semgrep rule.
+
+    Resolution order:
+    1. result.properties.category (semgrep sets this in SARIF output)
+    2. rule_def.properties.tags (any tag matching security keywords)
+    3. rule_id segment heuristic (segment containing 'security' or related words)
+    """
+    cat = (result.get("properties") or {}).get("category") or ""
+    if not cat:
+        cat = (rule_def.get("properties") or {}).get("category") or ""
+    if cat:
+        return "security" if "security" in cat.lower() else "style"
+
+    tags = (rule_def.get("properties") or {}).get("tags") or []
+    if any(_SEMGREP_SECURITY_TAGS & {str(t).lower() for t in tags}):
+        return "security"
+
+    segments = {s.lower() for s in rule_id.split(".")}
+    if segments & _SEMGREP_SECURITY_SEGMENTS:
+        return "security"
+
+    return "style"
+
 
 def parse_sarif(file_or_dict: Any) -> list[Finding]:
     """Parse a SARIF 2.1.0 log into normalised findings.
@@ -181,6 +209,8 @@ def parse_sarif(file_or_dict: Any) -> list[Finding]:
             rid = rule.get("id")
             if rid:
                 rule_index[rid] = rule
+
+        is_semgrep = tool_name.lower().startswith("semgrep")
 
         for result in run.get("results", []) or []:
             rule_id = result.get("ruleId") or result.get("rule", {}).get("id") or ""
@@ -208,10 +238,17 @@ def parse_sarif(file_or_dict: Any) -> list[Finding]:
             # SARIF result has explicit fixes[] array → autofixable.
             autofix = bool(result.get("fixes")) or _is_autofixable(tool_name, rule_id)
 
+            # Semgrep: prefix rule_id with category so finding-routes.json can
+            # distinguish "semgrep:security.*" from "semgrep:style.*".
+            # Resolution order: result.properties.category → rule tags → rule_id heuristic.
+            routed_rule = rule_id
+            if is_semgrep and rule_id:
+                routed_rule = _semgrep_category(rule_id, result, rule_def) + "." + rule_id
+
             findings.append(
                 Finding(
                     tool=tool_name,
-                    rule=rule_id,
+                    rule=routed_rule,
                     path=path,
                     line=line,
                     column=column,
@@ -1023,6 +1060,91 @@ foo.py:42:3 - warning: Type partially unknown (reportUnknownMemberType)
         _check(
             pyright[1].severity == "warning",
             f"pyright[1].severity (got {pyright[1].severity!r})",
+        )
+
+    # --- Fixture 7: semgrep SARIF category routing --------------------------
+    semgrep_fixture = {
+        "version": "2.1.0",
+        "runs": [
+            {
+                "tool": {
+                    "driver": {
+                        "name": "Semgrep OSS",
+                        "rules": [
+                            {
+                                "id": "python.lang.security.deserialization.use-of-pickle",
+                                "properties": {"category": "security", "tags": ["CWE-502"]},
+                            },
+                            {
+                                "id": "python.lang.correctness.useless-return",
+                                "properties": {"category": "best-practice"},
+                            },
+                            {
+                                "id": "python.flask.security.xss.audit.direct-use-of-jinja2",
+                                "properties": {"tags": ["security"]},
+                            },
+                        ],
+                    }
+                },
+                "results": [
+                    {
+                        "ruleId": "python.lang.security.deserialization.use-of-pickle",
+                        "properties": {"category": "security"},
+                        "message": {"text": "avoid pickle"},
+                        "locations": [
+                            {
+                                "physicalLocation": {
+                                    "artifactLocation": {"uri": "app/io.py"},
+                                    "region": {"startLine": 5},
+                                }
+                            }
+                        ],
+                    },
+                    {
+                        "ruleId": "python.lang.correctness.useless-return",
+                        "message": {"text": "useless return"},
+                        "locations": [
+                            {
+                                "physicalLocation": {
+                                    "artifactLocation": {"uri": "app/util.py"},
+                                    "region": {"startLine": 12},
+                                }
+                            }
+                        ],
+                    },
+                    {
+                        "ruleId": "python.flask.security.xss.audit.direct-use-of-jinja2",
+                        "message": {"text": "XSS risk"},
+                        "locations": [
+                            {
+                                "physicalLocation": {
+                                    "artifactLocation": {"uri": "app/views.py"},
+                                    "region": {"startLine": 99},
+                                }
+                            }
+                        ],
+                    },
+                ],
+            }
+        ],
+    }
+    sg_findings = parse_sarif(semgrep_fixture)
+    _check(
+        len(sg_findings) == 3,
+        f"semgrep fixture: expected 3 findings, got {len(sg_findings)}",
+    )
+    if len(sg_findings) == 3:
+        _check(
+            sg_findings[0].rule == "security.python.lang.security.deserialization.use-of-pickle",
+            f"semgrep[0].rule should have 'security.' prefix (got {sg_findings[0].rule!r})",
+        )
+        _check(
+            sg_findings[1].rule == "style.python.lang.correctness.useless-return",
+            f"semgrep[1].rule should have 'style.' prefix (got {sg_findings[1].rule!r})",
+        )
+        _check(
+            sg_findings[2].rule.startswith("security."),
+            f"semgrep[2] xss rule (tag-based) should be 'security.*' (got {sg_findings[2].rule!r})",
         )
 
     if failures:

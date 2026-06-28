@@ -196,11 +196,17 @@
       "action": "upgrade-or-ignore",
       "note": "Medium CVE — match CRITICAL/HIGH route: attempt dependency upgrade, otherwise document ignore reason"
     },
-    "semgrep:*": {
+    "semgrep:security.*": {
+      "action": "autofix-then-skill",
+      "cmd": "semgrep --autofix",
+      "fallback_skill": "makato-build:build-fix-security",
+      "note": "Security-category semgrep rules — autofix where available; residuals go to build-fix-security per-CWE playbook"
+    },
+    "semgrep:style.*": {
       "action": "autofix-then-skill",
       "cmd": "semgrep --autofix",
       "fallback_skill": "makato-build:build-simplify",
-      "note": "Rules with `fix:`/`fix-regex:` apply automatically; rules without fall through to build-simplify"
+      "note": "Style/correctness semgrep rules — autofix where available; residuals go to build-simplify"
     },
     "promptfoo:assertion-failed": {
       "action": "skill",

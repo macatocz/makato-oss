@@ -5,6 +5,13 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## Semgrep route split: security vs style (#73)
+
+- **shared/parse-sarif.py** — added `_semgrep_category()` helper and category-prefix logic in `parse_sarif()`. For any run whose `tool.driver.name` starts with `semgrep`, each finding's `rule` field is now emitted as `{category}.{original_rule_id}` (e.g. `security.python.lang.security.deserialization.use-of-pickle`). Category is resolved from (1) `result.properties.category`, (2) `rule_def.properties.tags`, (3) rule-id segment heuristic — first match wins, fallback is `style`. New Fixture 7 in `--selftest` covers all three resolution paths.
+- **shared/finding-routes.json** — replaced single `semgrep:*` catch-all with two explicit routes: `semgrep:security.*` (fallback `build-fix-security`) and `semgrep:style.*` (fallback `build-simplify`). Removes incorrect routing of security findings to `build-simplify`.
+
+---
+
 ## Definition-of-Done shared skill (GAP-009 / #28)
 
 - **skills/definition-of-done/SKILL.md** → 1.0.0 — new canonical, versioned, machine-checkable Definition of Done shared across the makato-build pipeline and the makato-orchestrate PO-agent. **Automated tier (12 items)**: tests pass, conditional coverage ≥ threshold, lint clean, type-check clean, zero CRITICAL sensor findings, conventional commits, branch rebased on `origin/main`, no `TODO`/`FIXME` without tracking issue, no hard-coded credentials, `build.jsonl` entry per skill step, R1 JSON block in every agent return, PR description contains `Closes #N`. **Manual tier (6 items)**: all decomposed sub-tasks `status: success`, no unresolved `MUST-FIX` PR comments, `outer_iterations < 3` (HALT-008), `human_review_cycles < MAX` (HALT-010), no `needs-human-review` label, PR approved (or `skip-review` flag set). The skill is a checklist, not an enforcer — each item names the consumer skill/agent that enforces it. Item count is contract: adding, removing, renumbering, or merging items is a major bump (`1.0.0` → `2.0.0`) plus coordinated update to every consumer in § Cross-references.
