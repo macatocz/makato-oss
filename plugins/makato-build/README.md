@@ -291,6 +291,7 @@ stories.json + spec/ artifacts (from makato-plan)
 | `implement-tdd` | Execute a refined plan using TDD — RED → GREEN → INTEGRATE → VERIFY per task, autonomous, tracer bullet phase for multi-layer stories, conditional coverage gate | 1.1.0 |
 | `implement-goal` | Execute goal-mode tasks from a refined plan — BUILD → VERIFY RUNTIME → TEST → VERIFY, autonomous, for UI/config/migration work | 1.0.0 |
 | `simplify` | Review implemented code for complexity that doesn't serve the ACs — interactive, presents findings for approval, checks against local repo patterns | 1.1.0 |
+| `build-fix-types` | Per-finding type-error repair dispatched by `build-resolve-finding` for `pyright:*` / `mypy:*` findings — 6-branch decision tree (Narrow → Annotate → TypeVar/Generic → Protocol → cast → type: ignore with reason). Hard rule: branch 6 only when no rule pattern matches branches 1–5; bare `# type: ignore` forbidden | 1.0.0 |
 | `review` | Adversarial quality review — auto-fixes mechanical issues, loops on CRITICAL findings until clean, zero-findings recheck requires source citations | 1.0.0 |
 | `verify` | Sequential gate pipeline: build → lint → unit → integration → conditional coverage; re-runs from failed gate; structural failures escalate to /refine | 1.0.0 |
 | `sensors` | Run pre-commit sensors against staged/all/changed files, parse findings, dispatch `sensor-fixer` agent until clean or MAX_LOOPS=5 | 1.0.0 |

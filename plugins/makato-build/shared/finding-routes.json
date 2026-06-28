@@ -28,10 +28,75 @@
       "cmd": "ruff check --fix --select FAST",
       "note": "FastAPI rules FAST001/002/003 all support automatic fixes"
     },
+    "pyright:reportArgumentType": {
+      "action": "skill",
+      "skill": "makato-build:build-fix-types",
+      "note": "Argument type mismatch — often a polymorphic fn needing TypeVar (Branch 3)"
+    },
+    "pyright:reportReturnType": {
+      "action": "skill",
+      "skill": "makato-build:build-fix-types",
+      "note": "Return type mismatch — Branch 2 (Annotate) or Branch 1 (Narrow)"
+    },
+    "pyright:reportOperatorIssue": {
+      "action": "skill",
+      "skill": "makato-build:build-fix-types",
+      "note": "Operator not defined for type — Branch 1 (Narrow) or Branch 4 (Protocol)"
+    },
+    "pyright:reportIndexIssue": {
+      "action": "skill",
+      "skill": "makato-build:build-fix-types",
+      "note": "Subscript/index type error — Branch 1 (Narrow) or Branch 3 (TypeVar)"
+    },
     "pyright:reportGeneralTypeIssues": {
       "action": "skill",
-      "skill": "makato-build:build-simplify",
-      "note": "Generic type errors — pyright has no autofix; route to build-simplify"
+      "skill": "makato-build:build-fix-types",
+      "note": "Generic type errors — route to build-fix-types (6-branch decision tree)"
+    },
+    "pyright:reportOptionalMemberAccess": {
+      "action": "skill",
+      "skill": "makato-build:build-fix-types",
+      "note": "Member access on Optional — Branch 1 (Narrow)"
+    },
+    "pyright:reportOptionalSubscript": {
+      "action": "skill",
+      "skill": "makato-build:build-fix-types",
+      "note": "Subscript on Optional — Branch 1 (Narrow)"
+    },
+    "pyright:reportPossiblyUnbound": {
+      "action": "skill",
+      "skill": "makato-build:build-fix-types",
+      "note": "Variable possibly unbound — Branch 1 (Narrow)"
+    },
+    "pyright:reportMissingReturnType": {
+      "action": "skill",
+      "skill": "makato-build:build-fix-types",
+      "note": "Missing return annotation — Branch 2 (Annotate)"
+    },
+    "pyright:reportMissingParameterType": {
+      "action": "skill",
+      "skill": "makato-build:build-fix-types",
+      "note": "Missing parameter annotation — Branch 2 (Annotate)"
+    },
+    "pyright:reportInvalidTypeVarUse": {
+      "action": "skill",
+      "skill": "makato-build:build-fix-types",
+      "note": "Invalid TypeVar use — Branch 3 (TypeVar/Generic)"
+    },
+    "pyright:reportIncompatibleMethodOverride": {
+      "action": "skill",
+      "skill": "makato-build:build-fix-types",
+      "note": "Override signature mismatch — Branch 4 (Protocol)"
+    },
+    "pyright:reportUnknownMemberType": {
+      "action": "skill",
+      "skill": "makato-build:build-fix-types",
+      "note": "Missing/wrong stubs — Branch 6 (type: ignore with reason)"
+    },
+    "mypy:*": {
+      "action": "skill",
+      "skill": "makato-build:build-fix-types",
+      "note": "All mypy findings — route to build-fix-types; per-code dispatch in SKILL.md classification table"
     },
     "pyright:langgraph-reducer-mismatch": {
       "action": "skill",
