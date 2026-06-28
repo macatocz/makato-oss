@@ -64,10 +64,24 @@ are restricted to:
 - `.claude/state/resume-{KEY}.sh` (via `context-handoff.sh`)
 - `.claude/state/daily-budget-{YYYY-MM-DD}.json` (via `kill-switch`)
 
-**Enforcement**: PO-agent frontmatter must set `disallowedTools` to deny `Edit` and `Write`
-on any path outside the allow-list above.
-**HALT code**: N/A — this is a frontmatter contract, not a runtime check. A PR that loosens
-the disallowedTools list violates the AGENTS.md security model and must be rejected.
+**Enforcement**: `disallowedTools` in agent frontmatter is currently all-or-nothing — it
+denies a tool entirely or not at all; there is no path-scoped denial. Because the PO-agent
+legitimately needs `Write`/`Edit` to mutate the four allow-listed files above, those tools
+CANNOT be in `disallowedTools`. The boundary is enforced instead by:
+
+1. **Behavioural rule** — the agent's `po-agent.md` Permission Boundary section documents
+   the allow-list verbatim, and the agent SHOULD NOT write outside it.
+2. **Code review** — a PR that adds a `Write` or `Edit` against a target-repo source path
+   from this agent's process must be rejected here, in `AGENTS.md`'s Security Model, and
+   in `po-agent.md`'s Permission Boundary — all three locations explicitly forbid it.
+3. **Frontmatter does still set** `disallowedTools: NotebookEdit` (notebook edits are not
+   a legitimate orchestrator concern, and the explicit denial doubles as a regression
+   marker — if this list ever grows, reviewers know to check the new entry against the
+   allow-list).
+
+**HALT code**: N/A — this is a contract enforced at PR review time, not at runtime. A PR
+that adds source-path writes to the PO-agent violates the AGENTS.md security model and
+must be rejected.
 
 ---
 

@@ -56,7 +56,7 @@ The PO-agent runs with `permissionMode: bypassPermissions` and `maxTurns: 100`. 
 
 **Safeguards:**
 
-- PO-agent's `disallowedTools` explicitly bans `Edit` and `Write` against target-repo source files. State-file writes are scoped to `specs/<key>-<slug>/workflow-state.json`. Sub-agents write source files; PO-agent never does.
+- PO-agent's source-edit boundary is enforced by a **behavioural allow-list**, not by frontmatter denial. `disallowedTools` is currently all-or-nothing in Claude's agent frontmatter — there is no path-scoped denial — so `Write` and `Edit` cannot appear there (the agent legitimately needs them to mutate `workflow-state.json`, `orchestrate.jsonl`, and the resume / daily-budget state files). The allow-list lives in `po-agent.md` § *Permission Boundary*, in `never-patterns.md` NEVER 4, and in this section. A PR adding source-file writes to PO-agent must be rejected at code review (NEVER 4 enforcement clause). `disallowedTools: NotebookEdit` is set in frontmatter — that denial doubles as a regression marker (a growing `disallowedTools` list tells reviewers to re-check the allow-list).
 - HALT-file poll fires at every outer-loop boundary. A user dropping a file at `~/.claude/HALT` stops the next iteration cleanly.
 - GitHub kill-switch label (`autonomous:halt`) is polled on the same boundary.
 - Token-budget ceiling and outer-iteration counter (HALT-008 at `outer_iterations >= 3`) cap blast radius even without external intervention.
@@ -70,11 +70,11 @@ makato-orchestrate hosts the top-level orchestrator and supporting read-only sco
 
 | Agent | Model | Permission Mode | Purpose | Used By |
 |-------|-------|-----------------|---------|---------|
-| **po-agent** | sonnet | bypassPermissions | Outer loop driver — reads a GitHub Issue, builds sub-task list, dispatches `coder` per task, patches workflow-state, terminates on PR-merged or HALT | `loop` |
+| **po-agent** | sonnet | bypassPermissions | Plan-level outer-loop driver — reads a GitHub Issue, resolves the spec folder, dispatches `build-implement-tdd` / `build-implement-goal` once per outer iteration, decides advance-vs-replan from the skill's R1, patches workflow-state, terminates on PR-merged or HALT | `loop` |
 | **context-summariser** | haiku | read-only | ≤ 500-token session summary for HALT-007B handoff. Input: `workflow-state.json` + current task description ONLY. Source files explicitly out of scope. | `scripts/context-handoff.sh` (via po-agent) |
 | **scout** | haiku | read-only | (planned) Read-only discovery agent for issue context (linked PRs, dependent issues, prior session state) | `po-agent` |
 
-*po-agent and scout remain scaffold-only stubs until GAP-006 (#32) and follow-up issues land their definitions. context-summariser is shipped (GAP-004 / #30).*
+*po-agent and context-summariser are shipped (GAP-006 / #32 and GAP-004 / #30). scout remains a scaffold-only stub until its follow-up issue lands.*
 
 ## Skill Authoring
 
@@ -92,7 +92,7 @@ makato-orchestrate/
 ├── .claude-plugin/plugin.json
 ├── agents/
 │   ├── context-summariser.md             (GAP-004 / #30 — shipped)
-│   ├── po-agent.md                       (GAP-006 / #32 — stub until then)
+│   ├── po-agent.md                       (GAP-006 / #32 — shipped)
 │   └── scout.md                          (follow-up — stub)
 ├── hooks/
 │   ├── check-halt.sh                     (GAP-004 / #30 — shipped)

@@ -18,7 +18,7 @@ every transition between them requires a human. The PO-agent is that driver.
 >
 > - GAP-003 (#26) — `skills/workflow-state/` ✓ **shipped**
 > - GAP-004 (#30) — `skills/kill-switch/`, `scripts/context-handoff.sh`, `hooks/check-halt.sh`, `agents/context-summariser.md`, `halt-conditions.md`, `never-patterns.md` ✓ **shipped**
-> - GAP-006 (#32) — `agents/po-agent.md` (the consumer of all the above)
+> - GAP-006 (#32) — `agents/po-agent.md` ✓ **shipped**
 > - GAP-007 (and onward) — `hooks/session-status.sh`, `skills/loop/`, `skills/session-status/`
 >
 > Tracking issue: [GAP-001 (#23)](https://github.com/macatocz/makato/issues/23).
@@ -85,7 +85,7 @@ Sub-agents inherit the flag via the dispatch context bundle; they do not re-pars
 | Agent | Model | Permission Mode | Purpose | Tracking issue |
 |-------|-------|-----------------|---------|----------------|
 | `context-summariser` | haiku | read-only (Read-only) | Produces ≤ 500-token session summary for HALT-007B handoff — input is workflow-state.json + current task description only, never source files | **Shipped** — GAP-004 (#30). Dispatched by PO-agent in GAP-006 (#32). |
-| `po-agent` | sonnet | bypassPermissions | Outer-loop driver — reads Issue, builds sub-task list, dispatches `coder`, patches state, terminates on PR-merged or HALT | GAP-006 (#32) |
+| `po-agent` | sonnet | bypassPermissions | Outer-loop driver — reads Issue, builds sub-task list, dispatches `build-implement-tdd` / `build-implement-goal` per task, patches state, terminates on PR-merged or HALT | **Shipped** — GAP-006 (#32). Consumed by `loop` in a follow-up. |
 | `scout` | haiku | read-only | (planned) Read-only context discovery — linked PRs, dependent issues, prior state | follow-up |
 
 ## Hooks *(partial — additional hooks not yet shipping)*
@@ -151,15 +151,20 @@ GitHub Issue (status:ready-for-dev)
 └──────────┬────────────────┘
            │
    ┌───────┴───────────────────────────────────┐
-   │ outer loop                                │
-   │   for each sub-task:                      │
+   │ outer loop (plan-level retry counter)     │
+   │   per iteration:                          │
    │     - kill-switch.poll()  ───┐            │
-   │     - dispatch coder         │ HALT?      │
-   │     - parse R1 envelope      │   ▼        │
-   │     - patch workflow-state   │ apply      │
-   │     - retry on partial       │ needs-     │
-   │   when all tasks success:    │ human-     │
-   │     - dispatch build-create-pr│ review    │
+   │     - kill-switch.handoff()  │ HALT?      │
+   │     - validate plan graph    │   ▼        │
+   │     - dispatch build-impl-tdd│ apply      │
+   │       (it walks all tasks)   │ needs-     │
+   │     - parse skill R1         │ human-     │
+   │     - re-plan via build-     │ review     │
+   │       refine on partial      │            │
+   │   when r1.status==success:   │            │
+   │     - build-verify           │            │
+   │     - build-push-to-git      │            │
+   │       (auto: build-create-pr)│            │
    │     - exit                   │            │
    └──────────────────────────────┘
 ```
@@ -171,7 +176,8 @@ makato-orchestrate/
 ├── .claude-plugin/plugin.json
 ├── agents/
 │   ├── context-summariser.md             (GAP-004 / #30 — shipped)
-│   └── (po-agent, scout — added per GAP-006 / follow-ups)
+│   ├── po-agent.md                       (GAP-006 / #32 — shipped)
+│   └── (scout — added per follow-up)
 ├── hooks/
 │   ├── check-halt.sh                     (GAP-004 / #30 — shipped)
 │   └── (session-status — added per follow-up)
