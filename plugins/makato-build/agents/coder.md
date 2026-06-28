@@ -5,7 +5,7 @@ description: >-
   Execute a single TDD task (RED→GREEN→INTEGRATE→VERIFY) from a refined
   implementation plan. Produce working, tested code that passes all four
   cycle phases. Dispatched by implement-tdd per task.
-version: "1.2.0"
+version: "1.3.0"
 maxTurns: 50
 permissionMode: bypassPermissions
 ---
@@ -50,6 +50,7 @@ For each TDD cycle:
 - Do not modify test files after RED is established unless INTEGRATE reveals the unit-level design is wrong (then fix both the implementation and the unit tests, and re-run GREEN before INTEGRATE)
 - Apply the fix-vs-escalate threshold: "Can this be fixed without changing the implementation approach?" If yes — fix in place. If no — escalate (report BLOCKED with a structural reason)
 - If TRACER_TEST_NAME is provided, that test must continue to pass after GREEN and INTEGRATE in every task
+- Respect every Automated-tier item in `plugins/makato-build/skills/definition-of-done/SKILL.md`. Within this agent's run, item 1 (tests pass) is verified in Phase 4 VERIFY; item 10 (`build.jsonl`) is enforced at every phase boundary; item 11 (R1 envelope) is emitted as the agent's final message. Items 2–9 and 12 are enforced downstream by `build-verify`, `build-sensors`, `build-push-to-git`, and `build-create-pr` — do not preempt those gates here.
 
 ## Process
 
@@ -93,6 +94,8 @@ Append to JSONL_PATH:
 Run the full test suite (unit + integration + all pre-existing tests).
 
 Count new failures: current failures minus `BASELINE_FAILURES`. Zero new failures is the gate. If any new failures appear: diagnose and fix before reporting status.
+
+The complete VERIFY checklist is the **Automated tier** of `plugins/makato-build/skills/definition-of-done/SKILL.md` (12 items). Within this agent's run, item 1 (tests pass, zero new failures) is verified in this phase; item 10 (`build.jsonl` entry written) is enforced at every phase boundary (RED, GREEN, INTEGRATE, VERIFY); item 11 (R1 envelope emitted) is enforced at the agent's final message. Items 2–9 and 12 are enforced downstream by `build-verify`, `build-sensors`, `build-push-to-git`, and `build-create-pr` — do not preempt their gates, but do not declare this phase complete unless item 1 is satisfied and items 10, 11 will be honored at their respective points.
 
 Append to JSONL_PATH:
 ```

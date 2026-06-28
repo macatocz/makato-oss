@@ -6,7 +6,7 @@ description: >-
   separately so failures are attributable. Fixable failures are
   fixed and gates re-run; structural failures escalate to refine.
   Autonomous. Use after review, before push-to-git.
-version: "1.3.1"
+version: "1.4.0"
 argument-hint: "[work-item-key]"
 ---
 
@@ -17,6 +17,34 @@ This step answers: *"Does it actually work?"* — build succeeds, lint passes, a
 pass, coverage is met.
 
 ## Workflow
+
+### Definition-of-Done — Automated Tier Mapping
+
+The gates below collectively enforce the **Automated tier (12 items)** of
+`plugins/makato-build/skills/definition-of-done/SKILL.md`. Each row maps a DoD item to
+the gate that enforces it and the HALT code that fires when the item is unmet in
+autonomous mode and the failure is structural.
+
+| # | DoD item | Enforced by | HALT on unmet (autonomous mode) |
+|---|----------|-------------|---------------------------------|
+| 1 | All tests pass | Gate 3 (Unit) + Gate 4 (Integration) | structural → `/build-refine`; coverage-related → HALT-002 |
+| 2 | Coverage ≥ threshold | Gate 5 (Coverage) | HALT-002 |
+| 3 | Lint clean | Gate 2 (Lint) | fix-then-retry; structural lint debt → operator escalation |
+| 4 | Type-check clean | Gate 1 (Build) | fix-then-retry; structural → `/build-refine` |
+| 5 | No CRITICAL sensor findings | Gate 0 (Sensors) | HALT-001 (sensor-fixer exhausted) / HALT-004 (same finding 5×) |
+| 6 | Conventional commits | `build-push-to-git` (per-commit drafting) | denied push → HALT-005 |
+| 7 | Rebased on `origin/main` | `build-push-to-git` push deny-list | denied push → HALT-005 |
+| 8 | No `TODO`/`FIXME` without tracking issue | sensor `todo-check` | HALT-001 family |
+| 9 | No hard-coded credentials | sensors `gitleaks` / `detect-secrets` | HALT-001 family |
+| 10 | `build.jsonl` entry per skill step | every skill via `shared/build-log.sh` | contract — caller treats omission as agent failure |
+| 11 | R1 JSON block as last fenced ` ```json ` in agent return | `plugins/makato-build/agents/RETURN-CONTRACT.md` | caller treats missing/invalid R1 as `status: "failure"` |
+| 12 | PR description contains `Closes #N` | `build-create-pr` description draft | interactive review catches omission before PR is opened |
+
+A failure to satisfy any item in this table **MUST** trigger the corresponding HALT code
+at the gate that enforces it; the autonomous loop does not proceed past an unmet item.
+When this skill runs, gates 0–5 cover items 1–5; items 6–9 and 12 are enforced by
+sibling skills called later in the pipeline; items 10 and 11 are enforced at every
+skill / agent boundary in the session, including by this skill on itself.
 
 ### Step 1 — Ask for work item key and load context
 
@@ -181,6 +209,13 @@ Log:
 ---
 
 ### Step 9 — Present gate results and hand off
+
+Every Automated-tier DoD item (1–12) above must be satisfied before this step prints
+PASS. Items 1–5 are this skill's direct responsibility (Gates 0–5); items 6–9 and 12
+will be enforced by `build-push-to-git` and `build-create-pr` further down the pipeline;
+items 10 and 11 are session-wide contracts already in effect. If any item is unmet and
+not fixable in-session, escalate to the appropriate HALT code per the table at the top
+of this workflow.
 
 Present the gate summary table:
 

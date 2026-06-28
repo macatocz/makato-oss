@@ -286,6 +286,7 @@ stories.json + spec/ artifacts (from makato-plan)
 | Skill | Description | Version |
 | --- | --- | --- |
 | `start` | Entry point for a full build session — validates git state, validates spec prerequisites, captures implementation mode, initializes the build log, and kicks off `refine` | 1.0.0 |
+| `definition-of-done` | Canonical, versioned, machine-checkable Definition of Done — 12 automated + 6 manual items shared by `coder` (VERIFY), `build-verify` (gate mapping), and PO-agent (manual-tier assertion) | 1.0.0 |
 | `grill-with-docs` | Align implementation plan terminology to the codebase domain model — probes codebase for canonical names, adversarial alignment interview, enriches `spec/<key>/glossary.md` with `_Code_:` annotations for codebase conflicts, ADR routing via three-criteria test | 1.1.0 |
 | `refine` | Bridge a planned work item to an implementation plan — tasks, file targets, unit/integration test strategy, acceptance mapping; reads target repo AGENTS.md/CLAUDE.md as hard constraints | 1.1.0 |
 | `implement-tdd` | Execute a refined plan using TDD — RED → GREEN → INTEGRATE → VERIFY per task, autonomous, tracer bullet phase for multi-layer stories, conditional coverage gate | 1.1.0 |
@@ -294,7 +295,7 @@ stories.json + spec/ artifacts (from makato-plan)
 | `build-fix-security` | Per-finding security repair dispatched by `build-resolve-finding` for `bandit:*` / `safety:*` / `pip-audit:*` findings — 4-branch decision tree (Autofix: mechanical safe-function swap → Refactor: structural fix → Suppress: deterministic FP with specific reason → Carry-over: human review). CWE-keyed classification table covering B101–B610 and CVE findings. Hard rule: no bare `# nosec` — every suppression must include `# nosec B<id>: <specific reason>` | 1.0.0 |
 | `build-fix-types` | Per-finding type-error repair dispatched by `build-resolve-finding` for `pyright:*` / `mypy:*` findings — 6-branch decision tree (Narrow → Annotate → TypeVar/Generic → Protocol → cast → type: ignore with reason). Hard rule: branch 6 only when no rule pattern matches branches 1–5; bare `# type: ignore` forbidden | 1.0.0 |
 | `review` | Adversarial quality review — auto-fixes mechanical issues, loops on CRITICAL findings until clean, zero-findings recheck requires source citations | 1.0.0 |
-| `verify` | Sequential gate pipeline: build → lint → unit → integration → conditional coverage; re-runs from failed gate; structural failures escalate to /refine | 1.0.0 |
+| `verify` | Sequential gate pipeline: build → lint → unit → integration → conditional coverage; re-runs from failed gate; structural failures escalate to /refine; enumerates DoD Automated-tier mapping with HALT codes | 1.4.0 |
 | `sensors` | Run pre-commit sensors against staged/all/changed files, parse findings, dispatch `sensor-fixer` agent until clean or MAX_LOOPS=5 | 1.0.0 |
 | `resolve-finding` | Per-finding decision tree resolving a single sensor finding via 4 branches — autofix, tech-skill route, safe-automated action (redact/upgrade/suppress), or carry-over to draft PR | 1.0.0 |
 | `push-to-git` | Atomic conventional commits from plan task structure; one commit per task with tests bundled; interactive push confirmation before affecting remote | 1.0.0 |
