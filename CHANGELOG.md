@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.19.0](https://github.com/macatocz/makato/compare/v0.18.0...v0.19.0) (2026-06-28)
+
+
+### ✨ Features
+
+* **makato-build:** build-fix-types skill — pyright/mypy type-error repair ([#71](https://github.com/macatocz/makato/issues/71)) ([#75](https://github.com/macatocz/makato/issues/75)) ([320b938](https://github.com/macatocz/makato/commit/320b938323f15c7a12f673a41638d0c2a859a499))
+* **makato-orchestrate:** /loop skill — autonomous polling driver (GAP-007 / [#33](https://github.com/macatocz/makato/issues/33)) ([#70](https://github.com/macatocz/makato/issues/70)) ([8258776](https://github.com/macatocz/makato/commit/8258776abb40603e545bf3e2fe7caf082b3cb610))
+
 ## [0.18.0](https://github.com/macatocz/makato/compare/v0.17.0...v0.18.0) (2026-06-28)
 
 
