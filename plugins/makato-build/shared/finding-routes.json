@@ -1,5 +1,5 @@
 {
-  "version": "1.0",
+  "version": "1.1",
   "default_skill": "makato-build:build-simplify",
   "routes": {
     "ruff:E501": {
@@ -18,19 +18,20 @@
       "note": "Import sort order — autofix"
     },
     "ruff:UP*": {
-      "action": "skill",
-      "skill": "makato-build:build-simplify",
-      "note": "pyupgrade rules — route to build-simplify for modernization review"
+      "action": "autofix-then-skill",
+      "cmd": "ruff check --fix --select UP",
+      "fallback_skill": "makato-build:build-simplify",
+      "note": "pyupgrade — safe fixes apply automatically; unsafe fixes (--unsafe-fixes) and residual structural rewrites fall through to build-simplify"
     },
     "ruff:fastapi-*": {
-      "action": "skill",
-      "skill": "makato-build:build-simplify",
-      "note": "FastAPI-specific lint rules — route to build-simplify"
+      "action": "autofix",
+      "cmd": "ruff check --fix --select FAST",
+      "note": "FastAPI rules FAST001/002/003 all support automatic fixes"
     },
     "pyright:reportGeneralTypeIssues": {
       "action": "skill",
       "skill": "makato-build:build-simplify",
-      "note": "Generic type errors — route to build-simplify"
+      "note": "Generic type errors — pyright has no autofix; route to build-simplify"
     },
     "pyright:langgraph-reducer-mismatch": {
       "action": "skill",
@@ -78,14 +79,16 @@
       "note": "Playwright e2e test failure"
     },
     "markdownlint:MD0*": {
-      "action": "skill",
-      "skill": "makato-build:build-simplify",
-      "note": "Markdown lint MD0xx rules"
+      "action": "autofix-then-skill",
+      "cmd": "markdownlint --fix",
+      "fallback_skill": "makato-core:markdown",
+      "note": "markdownlint --fix handles most MD0xx rules; structural rules (MD001/024/025/033/043/052/…) fall through to makato-core:markdown — the domain skill for markdown structure, not build-simplify"
     },
     "sqlfluff:*": {
-      "action": "skill",
-      "skill": "makato-build:build-simplify",
-      "note": "v1 routes via build-simplify; replaces with fix-sql-postgres when shipped"
+      "action": "autofix-then-skill",
+      "cmd": "sqlfluff fix",
+      "fallback_skill": "makato-database:manage-postgres",
+      "note": "sqlfluff fix handles formatting/layout rules; residual structural violations fall through to manage-postgres for Postgres-standards review"
     },
     "bandit:B105": {
       "action": "suppress-with-reason",
@@ -98,7 +101,7 @@
     "bandit:*": {
       "action": "skill",
       "skill": "makato-build:build-simplify",
-      "note": "Catch-all bandit findings"
+      "note": "Catch-all bandit findings — bandit has no autofix; route to build-simplify for reasoning"
     },
     "gitleaks:*": {
       "action": "redact-and-issue",
@@ -113,14 +116,14 @@
       "note": "High CVE — attempt dependency upgrade, otherwise document ignore reason"
     },
     "trivy:MEDIUM": {
-      "action": "skill",
-      "skill": "makato-build:build-simplify",
-      "note": "Medium CVE — route to build-simplify for triage"
+      "action": "upgrade-or-ignore",
+      "note": "Medium CVE — match CRITICAL/HIGH route: attempt dependency upgrade, otherwise document ignore reason"
     },
     "semgrep:*": {
-      "action": "skill",
-      "skill": "makato-build:build-simplify",
-      "note": "Semgrep findings — route to build-simplify"
+      "action": "autofix-then-skill",
+      "cmd": "semgrep --autofix",
+      "fallback_skill": "makato-build:build-simplify",
+      "note": "Rules with `fix:`/`fix-regex:` apply automatically; rules without fall through to build-simplify"
     },
     "promptfoo:assertion-failed": {
       "action": "skill",
