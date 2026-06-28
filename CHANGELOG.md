@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.20.0](https://github.com/macatocz/makato/compare/v0.19.0...v0.20.0) (2026-06-28)
+
+
+### ✨ Features
+
+* **makato-build:** build-fix-security skill — bandit/safety per-CWE 4-branch playbook ([#72](https://github.com/macatocz/makato/issues/72)) ([#77](https://github.com/macatocz/makato/issues/77)) ([6bbc377](https://github.com/macatocz/makato/commit/6bbc3770b0eed06ff1a25e8e7834285268024329))
+* **makato-build:** definition-of-done shared skill (GAP-009, [#28](https://github.com/macatocz/makato/issues/28)) ([#76](https://github.com/macatocz/makato/issues/76)) ([84ffbef](https://github.com/macatocz/makato/commit/84ffbeffd99a67bc71c54de12adb765ec7136cca))
+
 ## [0.19.0](https://github.com/macatocz/makato/compare/v0.18.0...v0.19.0) (2026-06-28)
 
 
