@@ -15,7 +15,7 @@ every transition between them requires a human. The PO-agent is that driver.
 > **Scaffold only.** This plugin currently contains directory structure, governance docs, and stubs.
 > The skills, agents, and hooks listed below land in follow-up issues:
 >
-> - GAP-003 (#26) — `skills/workflow-state/`
+> - GAP-003 (#26) — `skills/workflow-state/` ✓ **shipped**
 > - GAP-004 (#30) — `skills/kill-switch/`
 > - GAP-006 (#32) — `agents/po-agent.md`
 > - GAP-007 (and onward) — `hooks/session-status.sh`, `skills/loop/`, `skills/session-status/`
@@ -74,7 +74,7 @@ Sub-agents inherit the flag via the dispatch context bundle; they do not re-pars
 
 | Skill | Description | Tracking issue |
 |-------|-------------|----------------|
-| `workflow-state` | Read / patch `specs/<key>-<slug>/workflow-state.json` — PO-agent is the sole writer | GAP-003 (#26) |
+| `workflow-state` | Read / patch `specs/<key>-<slug>/workflow-state.json` — PO-agent is the sole writer | **Shipped** — GAP-003 (#26). Consumed by PO-agent in GAP-006 (#32). |
 | `kill-switch` | HALT file poll, GitHub label poll, token-budget ceiling | GAP-004 (#30) |
 | `loop` | User-facing autonomous entry point — `loop --autonomous <issue-number>` | follow-up |
 | `session-status` | Restartable session resumption — restores state on session start | follow-up |
@@ -157,8 +157,14 @@ makato-orchestrate/
 ├── hooks/
 │   └── (session-status — added per follow-up)
 ├── skills/
-│   └── (workflow-state, kill-switch, loop, session-status — added per GAP-003, GAP-004, follow-ups)
+│   ├── workflow-state/
+│   │   ├── SKILL.md
+│   │   └── references/
+│   │       ├── workflow-state.schema.json
+│   │       └── smoke-tests.sh
+│   └── (kill-switch, loop, session-status — added per GAP-004, follow-ups)
 ├── shared/
+│   └── workflow-state.sh                 (GAP-003 / #26)
 ├── CLAUDE.md
 ├── AGENTS.md
 ├── CHANGELOG.md

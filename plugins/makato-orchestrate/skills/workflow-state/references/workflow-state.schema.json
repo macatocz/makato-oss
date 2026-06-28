@@ -1,0 +1,173 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/macatocz/makato/plugins/makato-orchestrate/skills/workflow-state/references/workflow-state.schema.json",
+  "title": "workflow-state.json",
+  "description": "PO-agent resumable session state — written by workflow-state.sh, read by po-agent and the session-status hook. One file per spec folder at specs/<key>-<slug>/workflow-state.json. The PO-agent (GAP-006 / #32) is the sole writer in production; build-implement-tdd performs a narrow guarded patch on task completion.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "repo",
+    "branch",
+    "worktree_path",
+    "issue_number",
+    "sub_tasks",
+    "current_phase",
+    "resume_point",
+    "budget_consumed_tokens",
+    "budget_limit_tokens",
+    "outer_iteration",
+    "halt_audit",
+    "human_review_cycles",
+    "github_pr_number",
+    "lessons_learned",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "repo": {
+      "type": "string",
+      "minLength": 1,
+      "description": "GitHub repository in owner/name form, e.g. 'macatocz/my-app'."
+    },
+    "branch": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Active feature branch name at session start."
+    },
+    "worktree_path": {
+      "type": ["string", "null"],
+      "description": "Absolute path to the git worktree for this run, or null when working in the main checkout."
+    },
+    "issue_number": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "GitHub Issue number this run is driving."
+    },
+    "sub_tasks": {
+      "type": "array",
+      "description": "Ordered list of implementation sub-tasks derived from plan.md. PO-agent is the sole writer.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "description", "status", "phase", "agent_result"],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "1-based task index matching TASK_INDEX in build-implement-tdd."
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Human-readable task title from plan.md."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "in_progress", "complete", "failed", "skipped"],
+            "description": "Lifecycle state of this sub-task."
+          },
+          "phase": {
+            "type": ["string", "null"],
+            "enum": ["tdd", "goal", null],
+            "description": "Implementation mode for this task, or null before plan analysis."
+          },
+          "agent_result": {
+            "type": ["object", "null"],
+            "description": "The R1 envelope object returned by the coder agent for this task, or null before dispatch."
+          }
+        }
+      }
+    },
+    "current_phase": {
+      "type": ["string", "null"],
+      "description": "High-level pipeline phase the run is currently in (e.g. 'refine', 'implement', 'verify', 'pr', 'done'). Null before first dispatch.",
+      "examples": ["refine", "implement", "verify", "pr", "done"]
+    },
+    "resume_point": {
+      "type": ["string", "null"],
+      "description": "Opaque hint for the session-status hook — identifies where to resume (e.g. 'task:3', 'build-verify', 'pr-comments'). Null when not resumable."
+    },
+    "budget_consumed_tokens": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Cumulative token count consumed by this run, updated after each sub-agent dispatch."
+    },
+    "budget_limit_tokens": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Hard token ceiling for this run. When budget_consumed_tokens >= budget_limit_tokens the kill-switch fires HALT-007B."
+    },
+    "outer_iteration": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "How many outer-loop iterations have completed. HALT-008 fires when this reaches 3."
+    },
+    "halt_audit": {
+      "type": "array",
+      "description": "Immutable append-only log of HALT events. Each entry is written when a HALT code fires.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "ts", "data"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "description": "HALT code string (e.g. 'HALT-007B', 'HALT-008', 'HALT-STRUCTURAL')."
+          },
+          "ts": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO-8601 timestamp with millisecond precision when the HALT fired."
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "HALT-code-specific context payload. Shape varies per code — consumers must tolerate unknown keys."
+          }
+        }
+      }
+    },
+    "human_review_cycles": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Count of times the issue was labelled needs-human-review during this run."
+    },
+    "github_pr_number": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "GitHub PR number opened by this run, or null before build-create-pr succeeds."
+    },
+    "lessons_learned": {
+      "type": "array",
+      "description": "Append-only log of free-text observations collected during the run. Written by the append-lesson subcommand.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ts", "text"],
+        "properties": {
+          "ts": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO-8601 timestamp with millisecond precision when the lesson was appended."
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Free-text lesson or observation."
+          }
+        }
+      }
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when the file was first created via the init subcommand."
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp of the most recent write. Automatically updated by write/patch/append-lesson."
+    }
+  }
+}

@@ -5,6 +5,12 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## Cross-plugin workflow-state hook (GAP-003 / #26)
+
+- **skills/build-implement-tdd/SKILL.md** → 1.6.0 — added a guarded `workflow-state patch` call after the existing R1-mirror block on the `r1.status == "success"` branch. Cross-plugin path resolved via `git rev-parse --show-toplevel`; `-x` test on `plugins/makato-orchestrate/shared/workflow-state.sh` skips the block silently in consumer repos where the orchestrate plugin is absent. The call is unconditional on autonomous mode (this skill always runs autonomously per AUTONOMOUS-MODE.md) and conditional only on R1 success — `partial`/`failure` paths defer state mutation to the PO-agent (GAP-006 / #32), which reads from `build.jsonl`.
+
+---
+
 ## Autonomous mode (cross-cutting, GAP-005 / #27)
 
 - **AUTONOMOUS-MODE.md** — new convention doc at the plugin root: activation triggers (CLI `--autonomous`, context-bundle `task_id`, `$AGENT_ID` env var), per-gate default-taking rules, `autonomous_bypass` log-event schema, per-skill applicability matrix, cross-skill flag propagation rule, and the explicit list of skills NOT in scope (`build-sensors`, `build-verify`, the implement loops, the review/simplify skills, `build-resolve-finding`, `build-start`). Mirrors `plugins/makato-plan/skills/to-issues/SKILL.md` v3.4.0 mode-detection pattern verbatim so a contributor reading either plugin sees the same shape.

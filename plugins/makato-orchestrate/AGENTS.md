@@ -95,11 +95,16 @@ makato-orchestrate/
 ├── hooks/
 │   └── session-status.sh                 (GAP-007 follow-up — stub)
 ├── skills/
-│   ├── workflow-state/SKILL.md           (GAP-003 / #26)
+│   ├── workflow-state/                   (GAP-003 / #26 — shipped)
+│   │   ├── SKILL.md
+│   │   └── references/
+│   │       ├── workflow-state.schema.json
+│   │       └── smoke-tests.sh
 │   ├── kill-switch/SKILL.md              (GAP-004 / #30)
 │   ├── loop/SKILL.md                     (autonomous entry point)
 │   └── session-status/SKILL.md           (GAP-007 follow-up)
 ├── shared/
+│   └── workflow-state.sh                 (GAP-003 / #26)
 ├── CLAUDE.md
 ├── AGENTS.md
 ├── CHANGELOG.md

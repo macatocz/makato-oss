@@ -6,7 +6,7 @@ description: >-
   Tracer bullet phase for multi-layer stories. Autonomous loop. Use
   after refine to implement-tdd a story plan, implement tdd tasks, or
   run the core build loop.
-version: "1.5.0"
+version: "1.6.0"
 model: sonnet
 argument-hint: "[work-item-key]"
 ---
@@ -130,6 +130,18 @@ After every coder dispatch (success or otherwise), mirror the R1 envelope into `
 ```bash
 shared/build-log.sh "<key>" '{"ts":"<ISO-8601-ms>","skill":"build-implement-tdd","story":"<key>","step":"r1","status":"<r1.status>","task":<TASK_INDEX>,"data":<entire-r1-envelope-object>}'
 ```
+
+When `r1.status == "success"`, also patch workflow-state so the PO-agent (GAP-006) can resume from accurate task state without re-parsing `build.jsonl`. The call is guarded — it skips silently when running in a consumer repo without the `makato-orchestrate` plugin present:
+
+```bash
+MAKATO_ROOT="$(git rev-parse --show-toplevel)/plugins/makato-orchestrate"
+if [[ -x "$MAKATO_ROOT/shared/workflow-state.sh" ]]; then
+  "$MAKATO_ROOT/shared/workflow-state.sh" patch "<key>" ".sub_tasks[$((TASK_INDEX-1))].status" '"complete"'
+  "$MAKATO_ROOT/shared/workflow-state.sh" patch "<key>" ".sub_tasks[$((TASK_INDEX-1))].agent_result" '<r1-envelope-as-json-literal>'
+fi
+```
+
+**Note:** unconditional on autonomous mode (per `AUTONOMOUS-MODE.md` § Skills NOT in scope this skill always runs autonomously); conditional only on `r1.status == "success"`. On `partial` or `failure` the PO-agent reads the R1 envelope from `build.jsonl` and applies its own state mutation — that path lands in GAP-006 (#32).
 
 For backward compatibility, also emit the existing step-specific log entry on escalation:
 - `r1.status == "failure"` — `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"task-escalate","status":"warn","data":{"task":<N>,"reason":"<r1.errors[0] or r1.summary>"}}'`
