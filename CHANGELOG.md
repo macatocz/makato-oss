@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.16.0](https://github.com/macatocz/makato/compare/v0.15.0...v0.16.0) (2026-06-28)
+
+
+### ✨ Features
+
+* **makato-build:** sensor-fixer Phase 0 batched autofix + autofix-then-skill action ([#60](https://github.com/macatocz/makato/issues/60)) ([#61](https://github.com/macatocz/makato/issues/61)) ([bdba866](https://github.com/macatocz/makato/commit/bdba8666982e148ffb3a0e8a13add9f94e85045f))
+* **repo:** pre-commit-config scoped to makato's actual file types ([#65](https://github.com/macatocz/makato/issues/65)) ([6c74600](https://github.com/macatocz/makato/commit/6c746004117c08a100159b70e31eaed150f7ef3d))
+
 ## [0.15.0](https://github.com/macatocz/makato/compare/v0.14.0...v0.15.0) (2026-06-28)
 
 
