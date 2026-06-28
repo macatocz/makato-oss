@@ -34,12 +34,22 @@ If none of those hold the skill runs in **interactive mode**, exactly as it did 
 | `build-create-pr` | Step 4 — draft approval | Asks "Does this PR description look correct?" | Open PR as drafted. PR body is rendered from spec artifacts and workflow-state (no human authoring). |
 | `build-address-pr-comments` | Step 5 — classification approval | Asks user to confirm/adjust classification + handles STRUCTURAL flow | Auto-apply MUST-FIX (non-STRUCTURAL) and SHOULD-FIX. Skip CONSIDER. Skip OUT-OF-SCOPE. STRUCTURAL MUST-FIX: HALT (see below). |
 | `build-address-pr-comments` | Step 8 — push-fix confirmation | Asks before push | Push immediately. |
+| `build-simplify` | Step 5 — per-finding approval | Asks user to approve/reject each SIMPLIFY finding | Auto-approve every `SIMPLIFY` finding (apply in Step 6). KEEP findings remain KEEP (no action). ESCALATE findings are not auto-applied — they are logged and surfaced in the R1 envelope so the PO-agent can decide whether to open a `/build-refine` session for the structural piece. |
+| `build-simplify` | Step 5 — zero-findings confirmation | Asks user to confirm zero findings | Proceed without confirmation. Log `step: "review"` with `data.zero_findings: true`. |
 
 ### STRUCTURAL MUST-FIX is deliberately not auto-handled
 
 `build-address-pr-comments` classifies a MUST-FIX as **STRUCTURAL** when it requires changing the fundamental implementation approach (data model redesign, API contract reversal, algorithm replacement). In autonomous mode the skill does NOT attempt to auto-fix structural items — it halts with R1 `status: "failure"` and an error string `STRUCTURAL_BLOCKER: <comment summary>`. The PO-agent reads the R1 envelope and escalates (e.g. opens a fresh `/build-refine` session or surfaces to the human operator).
 
 This is a deliberate gap, not an oversight. Re-planning is a judgment call the build pipeline does not attempt headlessly.
+
+### ESCALATE findings in `build-simplify` are deliberately not auto-applied
+
+`build-simplify` Step 4 classifies a finding as **ESCALATE** when the complexity is structural — it cannot be resolved without changing the implementation approach — OR when the simplification would remove a security guard (input validation, auth check, CSRF token, rate limiter). In autonomous mode these findings are NOT auto-applied; they are logged with `step: "escalate", status: "warn"` and surfaced in the R1 envelope's `data.escalated` array so the PO-agent can decide whether to open a `/build-refine` session for the structural piece.
+
+This mirrors `build-address-pr-comments` STRUCTURAL-MUST-FIX handling: deterministic-and-safe is auto-applied; judgment-required is surfaced upward, never silently skipped.
+
+A `build-simplify` session that produced zero SIMPLIFY findings AND any ESCALATE findings returns R1 `status: "partial"` (work remains for the PO-agent). A session with zero ESCALATE findings (any SIMPLIFY count, including zero) returns `status: "success"`.
 
 ## Cross-skill propagation
 
@@ -104,9 +114,11 @@ These pipeline skills are explicitly excluded from autonomous-mode wiring:
 - `build-sensors` — already halts on non-zero pre-commit exit; no human gate to bypass. Sensor-fixer escalates via tier-up to opus; no `AskUserQuestion` site.
 - `build-verify` — already halts on gate failure; no human gate to bypass.
 - `build-implement-tdd` / `build-implement-goal` — the inner per-task loop already runs autonomously; there is no approval gate between RED/GREEN/INTEGRATE/VERIFY phases.
-- `build-grill-with-docs`, `build-simplify`, `build-review` — these run review-style queries against the diff; their interactivity is the work itself, not a gate. Autonomous orchestration calls them or skips them; it doesn't bypass parts of them.
+- `build-grill-with-docs`, `build-review` — these run review-style queries against the diff; their interactivity is the work itself, not a gate. Autonomous orchestration calls them or skips them; it doesn't bypass parts of them.
 - `build-resolve-finding` — driven by sensor-fixer with deterministic branches already.
 - `build-start` — the entry skill; it must remain interactive because it captures the implementation mode and confirms branch state. The PO-agent does not invoke `build-start` — it invokes the post-start skills directly with workflow-state already populated.
+
+> `build-simplify` was previously listed here on the grounds that "its interactivity is the work itself." That reasoning pre-dated `finding-routes.json` routing sensor findings into the skill via `sensor-fixer` → `build-resolve-finding` (#59 / #60). Once the skill is dispatched headlessly the per-finding approval prompt becomes a real gate, and v1.3+ honors autonomous mode per the table above.
 
 Shaping skills in `makato-plan/` are also out of scope: they require human judgment by design (brainstorming, PRD authoring, architecture decisions, story slicing). The PO-agent operates on stories that have already been shaped.
 
