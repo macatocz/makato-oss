@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0](https://github.com/macatocz/makato/compare/v0.14.0...v0.15.0) (2026-06-28)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** po-agent — top-level autonomous orchestrator (GAP-006, [#32](https://github.com/macatocz/makato/issues/32)) ([#56](https://github.com/macatocz/makato/issues/56)) ([1ae56ac](https://github.com/macatocz/makato/commit/1ae56acf7e620c6fe4681041b8ef5265eb6cd67c))
+
 ## [0.14.0](https://github.com/macatocz/makato/compare/v0.13.0...v0.14.0) (2026-06-28)
 
 
