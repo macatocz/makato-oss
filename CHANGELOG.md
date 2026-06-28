@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.14.0](https://github.com/macatocz/makato/compare/v0.13.0...v0.14.0) (2026-06-28)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** kill-switch + context-handoff (GAP-004, [#30](https://github.com/macatocz/makato/issues/30)) ([#55](https://github.com/macatocz/makato/issues/55)) ([f6f55a6](https://github.com/macatocz/makato/commit/f6f55a6fc76560bcc1a8c82fd84e007f73213abc))
+* **makato-orchestrate:** workflow-state schema + skill (GAP-003, [#26](https://github.com/macatocz/makato/issues/26)) ([#53](https://github.com/macatocz/makato/issues/53)) ([94a001e](https://github.com/macatocz/makato/commit/94a001ea82adde141514a11e7164bfcfdbb9b379))
+
 ## [0.13.0](https://github.com/macatocz/makato/compare/v0.12.0...v0.13.0) (2026-06-27)
 
 
