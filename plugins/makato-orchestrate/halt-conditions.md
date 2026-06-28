@@ -1,0 +1,94 @@
+# HALT Conditions — makato-orchestrate
+
+> **Authoritative reference.** Every autonomous exit path in this plugin maps to a HALT code
+> below. PO-agent and supporting skills MUST emit one of these codes (never a free-text status)
+> when terminating outside the success path.
+
+The PO-agent's only acceptable exits are:
+
+1. **A merged PR** (`current_phase: "done"`, `github_pr_number` populated).
+2. **A HALT code** from the table below, persisted to `workflow-state.json` via the
+   `halt_audit[]` array and audited to `specs/<key>-<slug>/orchestrate.jsonl`.
+
+Silent termination is a contract violation.
+
+## HALT taxonomy
+
+There are two HALT categories. The distinction is **load-bearing** and drives whether the issue
+gets the `needs-human-review` label:
+
+| Category | Meaning | Issue labelled `needs-human-review`? | Next operator action |
+|----------|---------|--------------------------------------|----------------------|
+| **Hard stop** | Mission cannot continue without human judgement. Cost ceilings, structural blockers, kill-switches. | **Yes** | Investigate; re-invoke `loop --autonomous` manually after fix. |
+| **Soft handoff** (HALT-007B only) | Mission CAN continue — the current Claude session just can't carry it any further. Quality control, not cost control. | **No** | None. A fresh subprocess restarts automatically via `resume-{KEY}.sh`. |
+
+## Code table
+
+| Code | Trigger | Action | Recovery |
+|------|---------|--------|----------|
+| **HALT-000** | `~/.claude/HALT` file exists at session start OR detected by `hooks/check-halt.sh` PreToolUse poll. | PO-agent exits immediately. Writes `halt_audit` entry with `code: "HALT-000"`. No `needs-human-review` label (operator-initiated). | Operator removes `~/.claude/HALT`, then re-invokes `loop --autonomous <issue>`. |
+| **HALT-001** | `pre-commit` fast-lane gate failed and `sensor-fixer` could not repair within MAX_LOOPS=5. | PO-agent terminates with `needs-human-review`; `build.jsonl` already carries forensics. | Operator inspects failed sensor output, fixes manually, restarts the loop. |
+| **HALT-002** | `build-verify` reports test coverage below configured floor and re-plan via `build-refine` failed to recover. | `needs-human-review`; `build.jsonl` records the gap. | Operator either raises coverage manually or relaxes the floor in the consumer repo's `makato.config.json`. |
+| **HALT-003** | `diff-reviewer` returned `status: "failure"` with CRITICAL findings the `coder` could not address in the allowed retry budget. | `needs-human-review`; CRITICAL findings persisted to `workflow-state.json` under the most recent sub-task's `agent_result.errors`. | Operator reviews findings, decides per-finding whether to fix manually, suppress with rationale, or revert the change. |
+| **HALT-004** | `sensor-fixer` outer loop hit its bounded retry counter (MAX_LOOPS=5) on the same finding. | `needs-human-review`; sensor finding ID and last 5 attempts logged. | Operator manually resolves the finding; sensor harness then accepts a clean commit. |
+| **HALT-005** | `git push` was denied by the pre-push deny-list (force-push to main, push of a `needs-human-review`-tagged branch, etc.). | `needs-human-review`; deny reason logged. | Operator reviews intent — if push is legitimate, removes the deny condition (e.g. rebases away from main) and restarts. |
+| **HALT-006** | The dispatch context bundle (`specs/<key>-<slug>/`) is missing, malformed, or refers to artifacts that don't exist on disk. | `needs-human-review`; missing-path list logged. | Operator re-runs `makato-plan`'s `decompose` to regenerate the spec folder. |
+| **HALT-007** | `budget_consumed_tokens >= budget_limit_tokens` (per-task ceiling) OR daily ceiling (`MAKATO_DAILY_TOKEN_BUDGET`) tracked in `.claude/state/daily-budget-{YYYY-MM-DD}.json` exceeded. **Cost control.** Also fires as the **fallback** when HALT-007B's self-restart subprocess could not be spawned (`restart_failed: true`), and when `session_count >= MAKATO_MAX_HANDOFFS` (default 5). | `needs-human-review`; current budget snapshot and ceiling source (per-task vs daily vs handoff-cap vs restart-failure) logged. | Operator decides: raise budget, split issue, or write off the work. Then restarts `loop --autonomous`. |
+| **HALT-007B** | `budget_consumed_tokens >= context_warn_tokens` at an outer-loop boundary. **Quality control**, not cost control — fires before the context window degrades around 170 k. | **No `needs-human-review`.** PO-agent runs `scripts/context-handoff.sh`: checkpoints `resume_point`, dispatches `context-summariser` for a ≤ 500-token session summary, emits `.claude/state/resume-{KEY}.sh`, executes that script detached, exits the current session with status `HANDOFF`. `handoff_reason: "context_ceiling"` set; `session_count` incremented. | **None — automatic.** A fresh `claude --session loop --autonomous {ISSUE} --resume {KEY}` subprocess takes over without operator action. The `session-status.sh` SessionStart hook (GAP-007 follow-up) prints a `↻ context handoff in progress — resumed from task {N} (session N+1)` banner. |
+| **HALT-008** | `outer_iteration >= 3`. Re-plan-and-retry loop exceeded its budget — the issue's plan cannot be executed cleanly. | `needs-human-review`; iteration audit logged. | Operator reads the lessons_learned trail, decides whether to rewrite the plan, split the story, or escalate. |
+| **HALT-009** | GitHub `claude-halt` label detected on the target issue by the `kill-switch` poll (~60 s interval). | PO-agent terminates cleanly at the next outer-loop boundary; `needs-human-review` applied; the `claude-halt` label is preserved as the operator's intent marker. | Operator removes `claude-halt`, removes `needs-human-review`, restarts. |
+| **HALT-010** | `human_review_cycles >= MAX` (default 3) — the issue has cycled through `needs-human-review` more times than the operator-configured ceiling allows. | `needs-human-review`; cycle count logged; operator-escalation hook fires (if configured). | Operator considers whether the story should be cancelled, split, or re-shaped by `makato-plan`. |
+| **HALT-STRUCTURAL** | A dispatched sub-agent returned R1 with `status: "failure"` and `data.escalation: "refine"`. | PO-agent re-dispatches `build-refine` once. If that also fails, escalates to HALT-008. | Same as HALT-008. |
+
+## Why HALT-007 and HALT-007B are different codes
+
+The original kill-switch design (issue #30, original AC list) coupled context-window degradation
+and budget exhaustion under a single code. The proactive-handoff extension (2026-06-27) split
+them because they require **different responses**:
+
+- **HALT-007** (cost) — the operator must decide whether the work is worth more tokens. No
+  amount of clever restart logic helps; only a human can answer.
+- **HALT-007B** (quality) — the operator's input is irrelevant. The agent simply needs to start
+  a fresh subprocess before its working memory degrades. Operators on unattended multi-hour
+  runs should not be paged for what is, essentially, garbage collection.
+
+The PO-agent applies the `needs-human-review` label only on HALT-007, never on HALT-007B.
+Confusing these is a contract violation.
+
+## Audit shape
+
+Every HALT writes to `workflow-state.json` via `workflow-state.sh patch`:
+
+```json
+{
+  "halt_audit": [
+    {
+      "code": "HALT-007B",
+      "ts": "2026-06-28T14:23:01.456Z",
+      "data": {
+        "budget_consumed_tokens": 152340,
+        "context_warn_tokens": 150000,
+        "resume_point": "task:7",
+        "session_count": 2,
+        "session_summary_chars": 1847
+      }
+    }
+  ]
+}
+```
+
+The same event is appended to `specs/<key>-<slug>/orchestrate.jsonl`:
+
+```json
+{"ts":"2026-06-28T14:23:01.456Z","skill":"kill-switch","issue":30,"step":"halt","status":"warn","data":{"halt_code":"HALT-007B","session_count":2},"error":"context_warn_tokens reached — handoff initiated"}
+```
+
+The dual write is intentional: `workflow-state.json` is the live state the next session reads;
+`orchestrate.jsonl` is the immutable audit trail across sessions.
+
+## See also
+
+- `plugins/makato-orchestrate/never-patterns.md` — the 9 universal NEVER rules.
+- `plugins/makato-orchestrate/skills/kill-switch/SKILL.md` — implementation of HALT-000, HALT-007, HALT-007B, HALT-009.
+- `plugins/makato-orchestrate/skills/workflow-state/references/workflow-state.schema.json` — schema for `halt_audit[]`.
+- `plugins/makato-build/skills/build-resolve-finding/SKILL.md` — HALT-adjacent per-finding repair logic.

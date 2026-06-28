@@ -71,5 +71,35 @@ if "$WS" write "$KEY" '{"broken":true}' 2>/dev/null; then
 fi
 echo "  ✓ schema validation halted invalid write"
 
+echo "=== T10: GAP-004 fields populated at init with safe defaults ==="
+"$WS" read "$KEY" | jq -e '.session_count == 0' > /dev/null
+"$WS" read "$KEY" | jq -e '.session_summary == null' > /dev/null
+"$WS" read "$KEY" | jq -e '.handoff_reason == null' > /dev/null
+"$WS" read "$KEY" | jq -e '.restart_failed == false' > /dev/null
+"$WS" read "$KEY" | jq -e '.context_warn_tokens >= 1' > /dev/null
+echo "  ✓ session_count / session_summary / handoff_reason / restart_failed / context_warn_tokens"
+
+echo "=== T11: handoff_reason rejects values outside the enum ==="
+if "$WS" patch "$KEY" .handoff_reason '"not_a_real_reason"' 2>/dev/null; then
+  echo "  ✗ FAIL: expected non-zero exit"
+  exit 1
+fi
+echo "  ✓ enum violation halted"
+
+echo "=== T12: handoff_reason accepts the canonical value ==="
+"$WS" patch "$KEY" .handoff_reason '"context_ceiling"'
+"$WS" read "$KEY" | jq -e '.handoff_reason == "context_ceiling"' > /dev/null
+echo "  ✓ context_ceiling persisted"
+
+echo "=== T13: MAKATO_CONTEXT_WARN_TOKENS env override at init ==="
+KEY2="gap-003-smoke-test-ctx"
+SANDBOX2="$REPO_ROOT/specs/${KEY2}"
+rm -rf "$SANDBOX2"
+mkdir -p "$SANDBOX2"
+MAKATO_CONTEXT_WARN_TOKENS=180000 "$WS" init "$KEY2" macatocz/test feat/gap-003 26
+"$WS" read "$KEY2" | jq -e '.context_warn_tokens == 180000' > /dev/null
+rm -rf "$SANDBOX2"
+echo "  ✓ env override honored"
+
 echo
-echo "All 9 smoke tests passed."
+echo "All 13 smoke tests passed."

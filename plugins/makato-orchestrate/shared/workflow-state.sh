@@ -116,10 +116,16 @@ case "$SUBCMD" in
     NOW="$(_now)"
     mkdir -p "$SPEC_FOLDER"
 
+    # Context-ceiling default — env var override, else 150000 (safe below the
+    # observed 170 k degradation threshold for 200 k context models). See
+    # GAP-004 / #30 extension and the field doc in workflow-state.schema.json.
+    CTX_WARN="${MAKATO_CONTEXT_WARN_TOKENS:-150000}"
+
     INITIAL_JSON="$(jq -n \
       --arg repo "$REPO" \
       --arg branch "$BRANCH" \
       --argjson issue "$ISSUE_NUMBER" \
+      --argjson ctx_warn "$CTX_WARN" \
       --arg now "$NOW" \
       '{
         repo: $repo,
@@ -131,11 +137,16 @@ case "$SUBCMD" in
         resume_point: null,
         budget_consumed_tokens: 0,
         budget_limit_tokens: 500000,
+        context_warn_tokens: $ctx_warn,
         outer_iteration: 0,
         halt_audit: [],
         human_review_cycles: 0,
         github_pr_number: null,
         lessons_learned: [],
+        session_summary: null,
+        session_count: 0,
+        handoff_reason: null,
+        restart_failed: false,
         created_at: $now,
         updated_at: $now
       }')"

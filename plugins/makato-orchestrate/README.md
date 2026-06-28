@@ -12,12 +12,13 @@ every transition between them requires a human. The PO-agent is that driver.
 
 ## Status
 
-> **Scaffold only.** This plugin currently contains directory structure, governance docs, and stubs.
-> The skills, agents, and hooks listed below land in follow-up issues:
+> **Scaffold + partial.** This plugin currently contains directory structure, governance docs,
+> the workflow-state foundation, and the kill-switch / context-handoff surface from GAP-004.
+> The remaining skills, agents, and hooks listed below land in follow-up issues:
 >
 > - GAP-003 (#26) — `skills/workflow-state/` ✓ **shipped**
-> - GAP-004 (#30) — `skills/kill-switch/`
-> - GAP-006 (#32) — `agents/po-agent.md`
+> - GAP-004 (#30) — `skills/kill-switch/`, `scripts/context-handoff.sh`, `hooks/check-halt.sh`, `agents/context-summariser.md`, `halt-conditions.md`, `never-patterns.md` ✓ **shipped**
+> - GAP-006 (#32) — `agents/po-agent.md` (the consumer of all the above)
 > - GAP-007 (and onward) — `hooks/session-status.sh`, `skills/loop/`, `skills/session-status/`
 >
 > Tracking issue: [GAP-001 (#23)](https://github.com/macatocz/makato/issues/23).
@@ -70,27 +71,43 @@ and exits on either a merged PR or a HALT condition.
 
 Sub-agents inherit the flag via the dispatch context bundle; they do not re-parse argv.
 
-## Skills *(scaffold — not yet shipping)*
+## Skills *(scaffold — additional skills not yet shipping)*
 
 | Skill | Description | Tracking issue |
 |-------|-------------|----------------|
 | `workflow-state` | Read / patch `specs/<key>-<slug>/workflow-state.json` — PO-agent is the sole writer | **Shipped** — GAP-003 (#26). Consumed by PO-agent in GAP-006 (#32). |
-| `kill-switch` | HALT file poll, GitHub label poll, token-budget ceiling | GAP-004 (#30) |
+| `kill-switch` | HALT-file poll, GitHub `claude-halt` label poll, per-task budget, daily token ceiling, proactive context handoff shim | **Shipped** — GAP-004 (#30). Consumed by PO-agent in GAP-006 (#32). |
 | `loop` | User-facing autonomous entry point — `loop --autonomous <issue-number>` | follow-up |
 | `session-status` | Restartable session resumption — restores state on session start | follow-up |
 
-## Agents *(scaffold — not yet shipping)*
+## Agents *(partial — additional agents not yet shipping)*
 
 | Agent | Model | Permission Mode | Purpose | Tracking issue |
 |-------|-------|-----------------|---------|----------------|
+| `context-summariser` | haiku | read-only (Read-only) | Produces ≤ 500-token session summary for HALT-007B handoff — input is workflow-state.json + current task description only, never source files | **Shipped** — GAP-004 (#30). Dispatched by PO-agent in GAP-006 (#32). |
 | `po-agent` | sonnet | bypassPermissions | Outer-loop driver — reads Issue, builds sub-task list, dispatches `coder`, patches state, terminates on PR-merged or HALT | GAP-006 (#32) |
 | `scout` | haiku | read-only | (planned) Read-only context discovery — linked PRs, dependent issues, prior state | follow-up |
 
-## Hooks *(scaffold — not yet shipping)*
+## Hooks *(partial — additional hooks not yet shipping)*
 
 | Hook | Trigger | Purpose | Tracking issue |
 |------|---------|---------|----------------|
+| `check-halt.sh` | PreToolUse(Bash) | Block tool call when `~/.claude/HALT` exists — universal kill-switch | **Shipped** — GAP-004 (#30) |
 | `session-status.sh` | SessionStart | Read `workflow-state.json` and print a one-line banner if a run is in progress | follow-up |
+
+## Kill-switch and HALT codes
+
+GAP-004 (#30) introduces three operator-facing kill-switches and the HALT-007B proactive
+context-handoff path. See:
+
+- `halt-conditions.md` — full table of HALT codes (HALT-000 through HALT-010 plus HALT-007B
+  and HALT-STRUCTURAL), with trigger / action / recovery per code.
+- `never-patterns.md` — nine universal NEVER rules every skill and agent in this plugin must
+  honour.
+- `scripts/context-handoff.sh` — implementation of the HALT-007B lifecycle (checkpoint →
+  summarise → emit resume script → detached self-restart).
+- `skills/kill-switch/SKILL.md` — operator levers (HALT file, `claude-halt` label, env-var
+  budgets, handoff cap) and the four-env-var matrix.
 
 ## Logging
 
@@ -153,18 +170,29 @@ GitHub Issue (status:ready-for-dev)
 makato-orchestrate/
 ├── .claude-plugin/plugin.json
 ├── agents/
+│   ├── context-summariser.md             (GAP-004 / #30 — shipped)
 │   └── (po-agent, scout — added per GAP-006 / follow-ups)
 ├── hooks/
+│   ├── check-halt.sh                     (GAP-004 / #30 — shipped)
 │   └── (session-status — added per follow-up)
+├── scripts/
+│   ├── context-handoff.sh                (GAP-004 / #30 — shipped)
+│   └── context-handoff-smoke-tests.sh    (GAP-004 / #30 — shipped)
 ├── skills/
-│   ├── workflow-state/
+│   ├── workflow-state/                   (GAP-003 / #26 — shipped)
 │   │   ├── SKILL.md
 │   │   └── references/
 │   │       ├── workflow-state.schema.json
 │   │       └── smoke-tests.sh
-│   └── (kill-switch, loop, session-status — added per GAP-004, follow-ups)
+│   ├── kill-switch/                      (GAP-004 / #30 — shipped)
+│   │   ├── SKILL.md
+│   │   └── references/
+│   │       └── daily-budget.schema.json
+│   └── (loop, session-status — added per follow-ups)
 ├── shared/
-│   └── workflow-state.sh                 (GAP-003 / #26)
+│   └── workflow-state.sh                 (GAP-003 / #26 — shipped)
+├── halt-conditions.md                    (GAP-004 / #30 — shipped)
+├── never-patterns.md                     (GAP-004 / #30 — shipped)
 ├── CLAUDE.md
 ├── AGENTS.md
 ├── CHANGELOG.md

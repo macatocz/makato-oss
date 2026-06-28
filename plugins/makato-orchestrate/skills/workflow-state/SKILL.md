@@ -8,7 +8,7 @@ description: >-
   sole writer in production. Use when you need a resumable overlay over
   `build.jsonl` — the audit log captures forensics, this skill captures live
   loop state (sub-task graph, current phase, budget, HALT audit, lessons).
-version: "1.0.0"
+version: "1.1.0"
 argument-hint: "<subcommand> <key> [args…]"
 ---
 
@@ -40,12 +40,17 @@ The full contract lives at @references/workflow-state.schema.json (draft-07, `ad
 | `current_phase` | string \| null | `refine` \| `implement` \| `verify` \| `pr` \| `done` |
 | `resume_point` | string \| null | opaque hint for session-status hook |
 | `budget_consumed_tokens` | integer ≥ 0 | cumulative; updated after each dispatch |
-| `budget_limit_tokens` | integer ≥ 1 | HALT-007B fires at ceiling |
+| `budget_limit_tokens` | integer ≥ 1 | HALT-007 fires at ceiling (cost control) |
+| `context_warn_tokens` | integer ≥ 1 | HALT-007B fires at threshold (quality control; default 150000) |
 | `outer_iteration` | integer ≥ 0 | HALT-008 fires at 3 |
 | `halt_audit` | array | append-only; see *halt_audit shape* |
 | `human_review_cycles` | integer ≥ 0 | count of `needs-human-review` labellings |
 | `github_pr_number` | integer \| null | set after `build-create-pr` succeeds |
 | `lessons_learned` | array | append-only; see *lessons_learned shape* |
+| `session_summary` | string \| null | ≤ 500-token handoff payload from context-summariser (GAP-004 / #30) |
+| `session_count` | integer ≥ 0 | handoff-cycle counter; HALT-007 fires at `MAKATO_MAX_HANDOFFS` (default 5) |
+| `handoff_reason` | string \| null | `"context_ceiling"` during a HALT-007B handoff; null otherwise |
+| `restart_failed` | boolean | set true when context-handoff self-restart fails — triggers HALT-007 fallback |
 | `created_at` | date-time | ISO-8601 ms, set once at init |
 | `updated_at` | date-time | ISO-8601 ms, auto-set on every write |
 
@@ -61,7 +66,7 @@ All five subcommands resolve the spec folder by prefix-matching `specs/<key>-*/`
 
 ### `init <KEY> <REPO> <BRANCH> <ISSUE_NUMBER>`
 
-Create `workflow-state.json` with valid defaults: empty arrays, zero counters, `budget_limit_tokens: 500000`, `created_at == updated_at == now`. Errors if the file already exists.
+Create `workflow-state.json` with valid defaults: empty arrays, zero counters, `budget_limit_tokens: 500000`, `context_warn_tokens` from `MAKATO_CONTEXT_WARN_TOKENS` env (default 150000), `session_count: 0`, `restart_failed: false`, nullable fields (`session_summary`, `handoff_reason`, `github_pr_number`, `current_phase`, `resume_point`, `worktree_path`) set to `null`, `created_at == updated_at == now`. Errors if the file already exists.
 
 ```bash
 shared/workflow-state.sh init gap-003 macatocz/my-app feat/gap-003 26
@@ -140,8 +145,10 @@ The helper itself emits two:
 
 The schema's `halt_audit[]` array **accommodates** future codes that downstream skills emit and persist into state:
 
-- `HALT-007B` — context-ceiling reached (GAP-004 / #30 extension; documented at the issue level).
+- `HALT-007` — per-task or daily token budget exceeded (GAP-004 / #30 — cost control, applies `needs-human-review`).
+- `HALT-007B` — context-ceiling reached (GAP-004 / #30 — quality control, triggers proactive handoff via `scripts/context-handoff.sh`; sets `handoff_reason: "context_ceiling"` and increments `session_count`).
 - `HALT-008` — `outer_iteration >= 3` (AGENTS.md § Security Model).
+- `HALT-009` — GitHub `claude-halt` label detected (GAP-004 / #30).
 - `HALT-STRUCTURAL` — coder returned `r1.status == "failure"`.
 
 The schema does not enforce a code enum — new HALT codes can be added without a schema change.

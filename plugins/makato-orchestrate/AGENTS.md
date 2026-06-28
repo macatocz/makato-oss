@@ -71,9 +71,10 @@ makato-orchestrate hosts the top-level orchestrator and supporting read-only sco
 | Agent | Model | Permission Mode | Purpose | Used By |
 |-------|-------|-----------------|---------|---------|
 | **po-agent** | sonnet | bypassPermissions | Outer loop driver — reads a GitHub Issue, builds sub-task list, dispatches `coder` per task, patches workflow-state, terminates on PR-merged or HALT | `loop` |
+| **context-summariser** | haiku | read-only | ≤ 500-token session summary for HALT-007B handoff. Input: `workflow-state.json` + current task description ONLY. Source files explicitly out of scope. | `scripts/context-handoff.sh` (via po-agent) |
 | **scout** | haiku | read-only | (planned) Read-only discovery agent for issue context (linked PRs, dependent issues, prior session state) | `po-agent` |
 
-*Both rows are scaffold-only stubs until GAP-006 (#32) and follow-up issues land their definitions.*
+*po-agent and scout remain scaffold-only stubs until GAP-006 (#32) and follow-up issues land their definitions. context-summariser is shipped (GAP-004 / #30).*
 
 ## Skill Authoring
 
@@ -90,28 +91,39 @@ makato-orchestrate hosts the top-level orchestrator and supporting read-only sco
 makato-orchestrate/
 ├── .claude-plugin/plugin.json
 ├── agents/
+│   ├── context-summariser.md             (GAP-004 / #30 — shipped)
 │   ├── po-agent.md                       (GAP-006 / #32 — stub until then)
 │   └── scout.md                          (follow-up — stub)
 ├── hooks/
+│   ├── check-halt.sh                     (GAP-004 / #30 — shipped)
 │   └── session-status.sh                 (GAP-007 follow-up — stub)
+├── scripts/
+│   ├── context-handoff.sh                (GAP-004 / #30 — shipped)
+│   └── context-handoff-smoke-tests.sh    (GAP-004 / #30 — shipped)
 ├── skills/
 │   ├── workflow-state/                   (GAP-003 / #26 — shipped)
 │   │   ├── SKILL.md
 │   │   └── references/
 │   │       ├── workflow-state.schema.json
 │   │       └── smoke-tests.sh
-│   ├── kill-switch/SKILL.md              (GAP-004 / #30)
-│   ├── loop/SKILL.md                     (autonomous entry point)
+│   ├── kill-switch/                      (GAP-004 / #30 — shipped)
+│   │   ├── SKILL.md
+│   │   └── references/
+│   │       └── daily-budget.schema.json
+│   ├── loop/SKILL.md                     (autonomous entry point — follow-up)
 │   └── session-status/SKILL.md           (GAP-007 follow-up)
 ├── shared/
 │   └── workflow-state.sh                 (GAP-003 / #26)
+├── halt-conditions.md                    (GAP-004 / #30 — shipped)
+├── never-patterns.md                     (GAP-004 / #30 — shipped)
 ├── CLAUDE.md
 ├── AGENTS.md
 ├── CHANGELOG.md
 └── README.md
 ```
 
-The `skills/`, `agents/`, `hooks/`, and `shared/` directories exist at scaffold time but are empty (or contain only `.gitkeep`) until their owning issues land.
+The `skills/`, `agents/`, and `hooks/` directories contain a mix of shipped files and
+`.gitkeep` placeholders for stubs that land per their tracking issues.
 
 ## --autonomous Invocation Contract
 

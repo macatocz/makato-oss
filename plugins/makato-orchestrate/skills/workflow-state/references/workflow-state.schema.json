@@ -15,11 +15,16 @@
     "resume_point",
     "budget_consumed_tokens",
     "budget_limit_tokens",
+    "context_warn_tokens",
     "outer_iteration",
     "halt_audit",
     "human_review_cycles",
     "github_pr_number",
     "lessons_learned",
+    "session_summary",
+    "session_count",
+    "handoff_reason",
+    "restart_failed",
     "created_at",
     "updated_at"
   ],
@@ -95,7 +100,12 @@
     "budget_limit_tokens": {
       "type": "integer",
       "minimum": 1,
-      "description": "Hard token ceiling for this run. When budget_consumed_tokens >= budget_limit_tokens the kill-switch fires HALT-007B."
+      "description": "Hard token ceiling for this run. When budget_consumed_tokens >= budget_limit_tokens the kill-switch fires HALT-007 (cost control — applies needs-human-review)."
+    },
+    "context_warn_tokens": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Soft context-window threshold (GAP-004 / #30 extension). When budget_consumed_tokens >= context_warn_tokens at an outer-loop boundary, the proactive handoff path fires HALT-007B — checkpoint, summarise, self-restart. Distinct from budget_limit_tokens: this is a quality control (avoid context-window degradation around 170 k), not a cost control. Default 150000; operators on 200 k models may raise to 180000."
     },
     "outer_iteration": {
       "type": "integer",
@@ -158,6 +168,25 @@
           }
         }
       }
+    },
+    "session_summary": {
+      "type": ["string", "null"],
+      "maxLength": 4000,
+      "description": "≤ 500-token handoff summary produced by the context-summariser sub-agent (GAP-004 / #30 extension). Injected as the first user message in the fresh session after a context-ceiling handoff. Null before the first handoff. The 4000-char cap is a defensive upper bound — the agent's system prompt enforces the 500-token budget; this just rejects pathological inputs."
+    },
+    "session_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "How many context-ceiling handoffs this run has performed (GAP-004 / #30 extension). Incremented by context-handoff.sh after each successful self-restart. When session_count >= MAKATO_MAX_HANDOFFS (default 5) the proactive handoff path is disabled and HALT-007 fires instead — prevents infinite restart loops."
+    },
+    "handoff_reason": {
+      "type": ["string", "null"],
+      "enum": ["context_ceiling", null],
+      "description": "Why the previous session ended (GAP-004 / #30 extension). 'context_ceiling' marks a clean handoff initiated by HALT-007B; the fresh session injects session_summary and resumes from resume_point. Null when no handoff is in flight. The session-status hook (GAP-007 follow-up) reads this field to decide whether to print the '↻ context handoff in progress' banner."
+    },
+    "restart_failed": {
+      "type": "boolean",
+      "description": "Set true by context-handoff.sh when the self-restart subprocess could not be spawned (e.g. 'claude' binary not on PATH). Triggers the HALT-007 fallback path — the issue is labelled needs-human-review and the run terminates. False in steady state."
     },
     "created_at": {
       "type": "string",
