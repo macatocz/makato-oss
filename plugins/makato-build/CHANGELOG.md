@@ -5,6 +5,19 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## `build-fix-security` skill (new, #72)
+
+- **1.0.0**
+  - **New skill** at `skills/build-fix-security/SKILL.md` — per-finding security repair engine dispatched by `build-resolve-finding` for `bandit:*`, `safety:*`, and `pip-audit:*` findings.
+  - 4-branch decision tree: Autofix (mechanical safe-function swap) → Refactor (structural fix required) → Suppress (deterministic false-positive pattern with specific reason) → Carry-over (structural, human review required).
+  - CWE-keyed classification table covers bandit B-codes organized by family: CWE-327/326 (weak crypto: B303, B304, B305, B324), CWE-330 (insecure random: B311), CWE-78 (OS command injection: B602, B603, B604, B605, B606, B607), CWE-89 (SQL injection: B608), CWE-95/78 (code injection: B102, B307 — always carry-over), CWE-617 (assert: B101 — FP in tests, autofix in prod), CWE-798 (hardcoded credentials: B105, B106, B107), CWE-502 (deserialization: B301, B302, B403, B506), CWE-611 (XXE: B405–B410), CWE-295/326 (TLS/cert: B501–B505), CWE-605 (wildcard bind: B104). safety/pip-audit findings use an upgrade-or-ignore sub-flow extending `build-resolve-finding` Branch 3b.
+  - **Hard rules:** no bare `# nosec` — always `# nosec B<id>: <specific reason>`; generic reasons rejected; branch 3 (suppress) always logs `status: "warn"`; unrecognized `(tool, rule)` returns `status: "error"` — never silently suppressed.
+  - Structured output contract `{status, branch, file, line, fix_applied, fix_description}` consistent with `build-fix-types` and the sensor-fixer skill family.
+  - **`shared/finding-routes.json`** — `bandit:B105` and `bandit:B107` re-routed from `suppress-with-reason` to `build-fix-security` (FP detection now handled internally); catch-all `bandit:*` re-routed from `build-simplify` to `build-fix-security`; `safety:*` and `pip-audit:*` added as new routes to `build-fix-security`.
+  - Test fixtures (`skills/build-fix-security/test-fixtures/`) — `bandit-sample.py` violates one rule per documented branch (B303 Branch 1, B602 Branch 2, B101 Branch 3, B301+B307 Branch 4) and `README.md` documents the manual bandit + jq recipe to verify the route map.
+
+---
+
 ## Autofix-then-skill execution path (#60)
 
 - **agents/sensor-fixer.md** → 1.1.0 — added Phase 0 batched-autofix pre-pass before the per-finding loop. The agent now groups findings by the autofix `cmd` declared in `finding-routes.json` for routes whose `action` is `autofix` or `autofix-then-skill`, runs each distinct cmd **once** on the union of touched files, re-parses, and drops resolved findings before Phase 1 dispatch begins. This collapses N redundant per-finding CLI invocations into one batched call and clears deterministic findings without any LLM round-trip. New `loop: 0` / `action: "autofix-batched"` audit-row shape documented in §5. R1 envelope §4a extended with `phase0_resolved` and `phase0_cmds_run` counters; `"autofix-batched"` joins `skills_used` when Phase 0 fires. New §3.1 Helper Functions block defines the contracts for `finding_route_key`, `lookup_route` (exact-then-glob, first-match-wins — required for glob keys like `ruff:UP*` / `markdownlint:MD0*` / `semgrep:*` to actually match real findings), `reparse_after_autofix`, and `append_jsonl`. Pseudocode rewritten with quoted expansions and `read -ra cmd_argv` so multi-word route cmds (`"ruff check --fix --select UP"`) and file paths containing spaces are handled safely. Four new hard rules: NEVER skip Phase 0 when routes declare autofix; NEVER treat a Phase 0 cmd failure as fatal; NEVER put shell metacharacters in a route `cmd`; NEVER rely on literal `jq '.routes[$key]'` lookup (use `lookup_route`).

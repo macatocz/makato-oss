@@ -156,17 +156,29 @@
       "note": "sqlfluff fix handles formatting/layout rules; residual structural violations fall through to manage-postgres for Postgres-standards review"
     },
     "bandit:B105": {
-      "action": "suppress-with-reason",
-      "note": "Hardcoded password string — frequent false positive; require reason in suppression"
+      "action": "skill",
+      "skill": "makato-build:build-fix-security",
+      "note": "Hardcoded password string — FP detection and suppress/carry-over handled in build-fix-security (CWE-798)"
     },
     "bandit:B107": {
-      "action": "suppress-with-reason",
-      "note": "Hardcoded password default arg — frequent false positive; require reason"
+      "action": "skill",
+      "skill": "makato-build:build-fix-security",
+      "note": "Hardcoded password default arg — FP detection handled in build-fix-security (CWE-798)"
     },
     "bandit:*": {
       "action": "skill",
-      "skill": "makato-build:build-simplify",
-      "note": "Catch-all bandit findings — bandit has no autofix; route to build-simplify for reasoning"
+      "skill": "makato-build:build-fix-security",
+      "note": "Catch-all bandit findings — per-CWE 4-branch playbook in build-fix-security"
+    },
+    "safety:*": {
+      "action": "skill",
+      "skill": "makato-build:build-fix-security",
+      "note": "Vulnerable dependency (safety) — upgrade-or-ignore flow in build-fix-security"
+    },
+    "pip-audit:*": {
+      "action": "skill",
+      "skill": "makato-build:build-fix-security",
+      "note": "Vulnerable dependency (pip-audit) — upgrade-or-ignore flow in build-fix-security"
     },
     "gitleaks:*": {
       "action": "redact-and-issue",
