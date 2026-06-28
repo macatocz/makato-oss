@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.0](https://github.com/macatocz/makato/compare/v0.17.0...v0.18.0) (2026-06-28)
+
+
+### ✨ Features
+
+* **makato-build:** finding-routes autofix audit; residual MD0xx→makato-core:markdown ([#59](https://github.com/macatocz/makato/issues/59)) ([#62](https://github.com/macatocz/makato/issues/62)) ([9239c4f](https://github.com/macatocz/makato/commit/9239c4fdf5a82863873fc99850333fe4df221e1e))
+
 ## [0.17.0](https://github.com/macatocz/makato/compare/v0.16.0...v0.17.0) (2026-06-28)
 
 
