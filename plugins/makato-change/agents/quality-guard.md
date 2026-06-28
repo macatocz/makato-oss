@@ -412,7 +412,7 @@ FAIL src/user.service.spec.ts
 **Overall**: FAIL (1 of 2 changed files below threshold)
 
 **Fix**: Add tests for files below threshold:
-- `user.service.ts`: 
+- `user.service.ts`:
   - Lines 89-95 (error handling path not tested - improves statements)
   - Branch at line 42 (null check missing test - improves branches)
 

@@ -25,7 +25,6 @@ WS="$REPO_ROOT/plugins/makato-orchestrate/shared/workflow-state.sh"
 HANDOFF="$REPO_ROOT/plugins/makato-orchestrate/scripts/context-handoff.sh"
 KEY="gap-004-handoff-smoke"
 SANDBOX="$REPO_ROOT/specs/${KEY}"
-STATE_FILE="$SANDBOX/workflow-state.json"
 RESUME_SCRIPT="$REPO_ROOT/.claude/state/resume-${KEY}.sh"
 
 # Stub claude binary used in tests that should NOT find a real claude
@@ -130,7 +129,7 @@ echo "  ✓ resume script executable, contains dispatch + idempotency guard"
 echo "=== T6: resume script no-ops when current_phase == done ==="
 "$WS" patch "$KEY" '.current_phase' '"done"'
 set +e
-MAKATO_CLAUDE_BIN="$STUB_CLAUDE" bash "$RESUME_SCRIPT" 2>&1 >/dev/null
+MAKATO_CLAUDE_BIN="$STUB_CLAUDE" bash "$RESUME_SCRIPT" >/dev/null 2>&1
 RC=$?
 set -e
 [[ $RC -eq 0 ]]                                                            || { echo "  ✗ FAIL: resume script returned $RC instead of 0"; exit 1; }

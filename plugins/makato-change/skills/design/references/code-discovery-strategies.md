@@ -79,7 +79,7 @@ List back what you've gathered:
 > - `src/components/UserProfile.tsx` — User profile UI component
 > - `src/api/userService.ts` — User API service layer
 > - `tests/UserProfile.test.tsx` — Component tests
-> 
+>
 > Is that complete, or are there other files involved?"
 
 Wait for user confirmation before proceeding to design.
@@ -141,17 +141,17 @@ Categorize by role:
 
 Present the discovered files to the user:
 > "I discovered these affected files:
-> 
+>
 > **Primary:**
 > - `src/components/AccountSettings.tsx` — settings UI
 > - `src/services/accountService.ts` — account operations
-> 
+>
 > **Tests:**
 > - `tests/accountService.test.ts`
-> 
+>
 > **Dependencies:**
 > - `src/api/client.ts` — used by accountService
-> 
+>
 > Does this look complete? Any files I missed?"
 
 Allow the user to add or remove files before proceeding.

@@ -454,12 +454,12 @@ No automated tests found in repository.
 
 **Locations checked**:
 - Unit tests: common patterns in `test/`, `src/**/*.spec.ts` — none found
-- Integration tests: `test/integration/`, `*IT.java` — none found  
+- Integration tests: `test/integration/`, `*IT.java` — none found
 - E2E tests: `e2e/`, `cypress/`, `playwright/` — none found
 
 **Risk Assessment**: High — changes have no automated test coverage
 
-**Recommendation**: 
+**Recommendation**:
 - Consider adding test coverage starting with critical user flows
 - At minimum, add unit tests for core business logic affected by this CR
 ```

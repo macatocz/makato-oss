@@ -312,7 +312,7 @@ try:
     print(d.get('project', 'sagibeast'))
 except Exception:
     print('sagibeast')
-" 
+"
 ```
 
 Expected: `sagibeast`

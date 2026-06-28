@@ -1,0 +1,194 @@
+---
+# .pre-commit-config.yaml — makato monorepo
+#
+# Scope rationale (file-type inventory at time of authoring):
+#   .md   344    plugins (excluded via .markdownlintignore), root README/CHANGELOG/AGENTS, docs/
+#   .json  29    contracts, configs (.markdownlint.json, marketplace.json, finding-routes.json, ...)
+#   .py    16    parse-sarif.py + makato-sagibeast/dotx-schema-extractor scripts & tests
+#   .sh    13    scripts/*.sh, plugin shared/*.sh, plugin hooks/*.sh
+#   .yml   3     this file + 2 GH Actions workflows
+#   .sql   0     dropped sqlfluff
+#   .toml  0     dropped check-toml
+#   .js/.ts 0    dropped biome (no tracked JS/TS in the repo)
+#   dependency lockfiles 0   dropped trivy fs (nothing to scan for CVEs yet)
+#
+# Lane discipline (from plugins/makato-build/hooks/pre-commit-sensors.md):
+#   pre-commit (fast lane, < 5 s): linters, formatters, hygiene, secret scans
+#   pre-push   (slow lane):        type checks, security SAST, test suites
+#
+# Greenfield-friendly: pytest hooks are guarded to no-op until #64 Part B
+# scaffolds the tests/ tree.
+
+default_language_version:
+  python: python3.14
+
+default_stages: [pre-commit]
+
+repos:
+  # -----------------------------------------------------------------------
+  # Universal filesystem hygiene (cheap, applies to every file type)
+  # -----------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-yaml
+      - id: check-merge-conflict
+      # check-toml dropped: no .toml files tracked in the repo.
+      # check-json runs only on .json files — useful for the 29 JSON contracts.
+      - id: check-json
+        # marketplace.json and skill manifest variants use JSONC in places,
+        # so this is a strict-JSON only check on canonical contracts.
+        exclude: |
+          (?x)^(
+            \.claude/settings\.local\.json|
+            plugins/.*/skills/.*/fixtures/.*\.json
+          )$
+
+  # -----------------------------------------------------------------------
+  # Python — fast lane (lint + format only; type-check is slow lane)
+  # 16 .py files in repo: parse-sarif.py + makato-sagibeast extractor.
+  # -----------------------------------------------------------------------
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.4
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+
+  # -----------------------------------------------------------------------
+  # Markdown — fast lane (matches makato-core:markdown skill expectations)
+  # .markdownlintignore already excludes plugins/, prompts/, docs/superpowers,
+  # and .claude/{agents,skills}/ — so this lints only root .md and tracked
+  # docs that don't carry skill frontmatter.
+  # -----------------------------------------------------------------------
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.49.0
+    hooks:
+      - id: markdownlint
+
+  # -----------------------------------------------------------------------
+  # Shell scripts — fast lane (shellcheck on the 13 .sh files)
+  # makato-build/shared/build-log.sh, makato-orchestrate/{shared,scripts,hooks},
+  # repo-level scripts/*.sh — all currently un-linted in the inherited config.
+  #
+  # Shells out to the brew-installed shellcheck binary rather than the
+  # koalaman/shellcheck-precommit hook (which requires Docker). Install:
+  # `brew install shellcheck`.
+  - repo: local
+    hooks:
+      - id: shellcheck
+        name: shellcheck (.sh files)
+        entry: shellcheck --severity=warning
+        language: system
+        types: [shell]
+        # bash -c hook bodies (e.g. pytest-fast below) get inlined into this
+        # config, not into a .sh file — types: [shell] won't match them.
+
+  # -----------------------------------------------------------------------
+  # GitHub Actions — fast lane (lints .github/workflows/*.yml syntax & best
+  # practices). 2 workflow files: release.yml, validate.yml.
+  # -----------------------------------------------------------------------
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.7
+    hooks:
+      - id: actionlint
+
+  # -----------------------------------------------------------------------
+  # Secret scanning — fast lane (every commit)
+  # -----------------------------------------------------------------------
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+
+  # -----------------------------------------------------------------------
+  # Python type checking — slow lane (pre-push only)
+  # Only meaningful for the 16 .py files. Greenfield-tolerant: pyright will
+  # report 0 errors when no .py files are touched by the push.
+  # -----------------------------------------------------------------------
+  - repo: https://github.com/RobertCraigie/pyright-python
+    rev: v1.1.389
+    hooks:
+      - id: pyright
+        stages: [pre-push]
+
+  # -----------------------------------------------------------------------
+  # Python security — slow lane (pre-push only)
+  # Default config (no -c pyproject.toml) since the makato repo root has no
+  # pyproject.toml yet (will land via #64 Part B). When that lands, switch
+  # to `args: [-c, pyproject.toml]` and `additional_dependencies: ["bandit[toml]"]`.
+  # -----------------------------------------------------------------------
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.8.0
+    hooks:
+      - id: bandit
+        stages: [pre-push]
+
+  # -----------------------------------------------------------------------
+  # Cross-language SAST — slow lane (pre-push only)
+  # Useful coverage for .py + .sh + .yml even without explicit deps.
+  # Shells out to pipx-installed semgrep because pre-commit's hook-env install
+  # of semgrep 1.97 fails on py3.14 (protobuf metaclass) and py3.13
+  # (pkg_resources removed). Install: `pipx install semgrep`.
+  # -----------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: semgrep
+        name: semgrep (cross-language SAST)
+        entry: semgrep --config auto --error
+        language: system
+        pass_filenames: true
+        stages: [pre-push, manual]
+
+  # -----------------------------------------------------------------------
+  # DROPPED HOOKS (intentional, with rationale)
+  # -----------------------------------------------------------------------
+  # biome-check     — zero tracked .js/.ts/.jsx/.tsx files in the repo.
+  # sqlfluff        — zero .sql files anywhere in the repo.
+  # trivy fs        — zero dependency lockfiles (no pyproject.toml,
+  #                   package.json, go.mod, Cargo.toml). Re-add when #64
+  #                   Part B introduces a pyproject.toml with real deps.
+  # check-toml      — zero .toml files. Re-add alongside trivy when
+  #                   pyproject.toml lands.
+  #
+  # Note on plugins/makato-build/shared/finding-routes.json — that file
+  # still lists `biome:*`, `sqlfluff:*`, `trivy:CRITICAL|HIGH|MEDIUM`
+  # routes. Those routes are PLUGIN-PORTABLE — they exist so consumer
+  # repos with .js/.ts/.sql code or dependency lockfiles can use the
+  # makato-build sensor harness. The orphaned routes are intentional;
+  # do not prune them from finding-routes.json just because this repo
+  # doesn't wire those tools.
+  #
+  # If you reintroduce any of the dropped hooks because new file types
+  # arrive, also update the rationale block at the top of this file so
+  # future contributors see the trade-offs that justified each hook's
+  # presence.
+
+  # -----------------------------------------------------------------------
+  # Pytest fast lane (pre-commit, guarded no-op for greenfield)
+  # context/standards/testing.md:154-159
+  # Becomes meaningful when #64 Part B scaffolds tests/unit/.
+  # -----------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: pytest-fast
+        name: pytest fast lane (unit only)
+        entry: bash -c 'if [ -d tests/unit ] && find tests/unit -name "test_*.py" -print -quit | grep -q .; then pytest tests/unit -q --no-header; fi'
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+  # -----------------------------------------------------------------------
+  # Pytest slow lane (pre-push, guarded no-op for greenfield)
+  # context/standards/testing.md:160-164
+  # -----------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: pytest-slow
+        name: pytest slow lane (unit + property + integration)
+        entry: bash -c 'if [ -d tests ] && find tests -name "test_*.py" -print -quit | grep -q .; then pytest tests/unit tests/property tests/integration -q --no-header; fi'
+        language: system
+        pass_filenames: false
+        stages: [pre-push]

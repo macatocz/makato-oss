@@ -171,7 +171,7 @@ Requirements are clear. Proceeding to technical design phase. I'll update this t
 
 This change is too large for a single story. Recommend escalating to makato-plan workflow for proper discovery and decomposition into multiple stories. Reason: introduces new subsystem (async job processing) that affects multiple teams and requires architectural design.
 {quote}
-> 
+>
 > None identified — change aligns with existing system behavior.
 
 ### Next Steps
@@ -181,19 +181,19 @@ Be explicit about what should happen next. Don't leave readers guessing.
 **If questions block progress:**
 
 > **Next Steps**
-> 
+>
 > Waiting on answers to questions 1-3 above before proceeding to design. Please respond in this ticket or tag me in Slack.
 
 **If clear to proceed:**
 
 > **Next Steps**
-> 
+>
 > Requirements are clear. Proceeding to technical design phase. I'll update this ticket when the design is ready for review.
 
 **If scope is too large:**
 
 > **Next Steps**
-> 
+>
 > This change is too large for a single story. Recommend escalating to makato-plan workflow for proper discovery and decomposition into multiple stories. Reason: introduces new subsystem (async job processing) that affects multiple teams and requires architectural design.
 
 ## Link to Full Analysis

@@ -84,7 +84,7 @@ result.
 Word's `<w:highlight w:val>` allows: `black`, `blue`, `cyan`, `darkBlue`,
 `darkCyan`, `darkGray`, `darkGreen`, `darkMagenta`, `darkRed`,
 `darkYellow`, `green`, `lightGray`, `magenta`, `none`, `red`, `white`,
-`yellow`. 
+`yellow`.
 
 ## Output schema (the schema OF the schema)
 

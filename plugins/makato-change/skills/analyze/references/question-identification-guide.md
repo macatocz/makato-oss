@@ -20,7 +20,7 @@ Watch for vague words that mean different things to different people:
 
 **Example:**
 > Request: "Make the form validation more user-friendly."
-> 
+>
 > Question: What specifically makes validation "more user-friendly"?
 > - Show inline error messages as user types (real-time)?
 > - Show all errors at once instead of one at a time?
@@ -45,7 +45,7 @@ The happy path is described, but edge cases are not:
 
 **Example:**
 > Request: "Add bulk delete button that deletes all selected items."
-> 
+>
 > Questions:
 > - What if user selects 10,000 items? (Performance / timeout concerns)
 > - What if some items are locked by another user? (Partial failure)
@@ -68,7 +68,7 @@ The request describes behavior but not what happens when it fails:
 
 **Example:**
 > Request: "Send email notification when account is deleted."
-> 
+>
 > Questions:
 > - What if email send fails? (Retry? Block deletion? Proceed anyway?)
 > - Should failure be visible to the user or silent?
@@ -89,7 +89,7 @@ The request describes a change but doesn't define "done":
 
 **Example:**
 > Request: "Improve search performance."
-> 
+>
 > Questions:
 > - What's the performance target? (Response time under 200ms? Handle 1000 QPS?)
 > - Which search scenarios should improve? (All? Just common queries?)
@@ -109,7 +109,7 @@ The request implies multiple behaviors that might conflict:
 
 **Example:**
 > Request: "Allow users to edit their submitted forms after submission."
-> 
+>
 > Question: This conflicts with the audit trail requirement that says "all submissions are immutable for compliance." Should we:
 > - Create a new submission version (preserving the original)?
 > - Allow edits but log every change?
@@ -131,7 +131,7 @@ The request describes functionality but not how the user interacts with it:
 
 **Example:**
 > Request: "Let users export their data."
-> 
+>
 > Questions:
 > - Where is the export button/link? (Profile page? Settings? Account menu?)
 > - What format? (CSV? JSON? PDF?)
@@ -153,7 +153,7 @@ The request is open-ended without clear limits:
 
 **Example:**
 > Request: "Add filtering by date range."
-> 
+>
 > Questions:
 > - Which screens get this filter? (Just the main list? Also reports? Search results?)
 > - Should it filter data created in range, or modified in range, or both?
@@ -176,7 +176,7 @@ The request describes a change without addressing compatibility with existing be
 
 **Example:**
 > Request: "Change user profile response to include new 'preferences' field as an object instead of flat fields."
-> 
+>
 > Questions:
 > - Should we maintain the old flat fields for backward compatibility (e.g., v1 vs v2 API)?
 > - Do existing clients expect the current format? Will they break?
@@ -196,15 +196,15 @@ The request describes a change without addressing compatibility with existing be
 ### Example
 
 > **Context:** The request says "notify relevant users when status changes."
-> 
+>
 > **Problem:** "Relevant users" is not defined.
-> 
+>
 > **Options:**
 > - All users who have viewed this item?
 > - Users assigned to this item?
 > - Users subscribed to notifications for this item?
 > - Admins only?
-> 
+>
 > **Impact:** Determines how we query users (performance) and whether we need a new subscription system.
 
 ## Prioritizing Questions

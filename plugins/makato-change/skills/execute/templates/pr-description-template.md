@@ -1,4 +1,4 @@
-<!-- 
+<!--
 [TIP] PR Title
 A PR Title must have the following.
 1. Semantic Message: [feat] | [refactor] | [ci] | [docs]
@@ -21,13 +21,13 @@ EXAMPLE: feat: add a good pull request template for feature requests (ISSUE-XXXX
 <!-- If manual testing, is needed, you can give some advice of the steps or instructions for testing the changes made in this pull request. Provide any specific test scenarios or configurations that should be considered. -->
 
 <!-- remove the comment to add a collapsable in the following paragraph -->
-<!-- 
+<!--
 <details>
 <summary>Postman Collection</summary>
 this is the postman collection that can be used
 
 ```
-// add code here (postman) / (curl) 
+// add code here (postman) / (curl)
 ```
 </details>
 -->

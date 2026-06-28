@@ -263,7 +263,7 @@ If any item fails, revise the plan.
 **Risk:** Need to verify API permissions allow users to delete their own accounts. Test early in this step.
 
 ### Step 4: Add Tests
-**What:** 
+**What:**
 - Unit: `DeleteAccountDialog` interaction tests
 - Unit: `userService.deleteAccount()` validation tests
 - Integration: Full delete flow (API + DB)

@@ -1,7 +1,7 @@
 # Technical Design: <issue-key>
 
-**Issue**: <issue-key> — <issue-summary>  
-**Analysis**: `specs/<issue-key>/analysis.md`  
+**Issue**: <issue-key> — <issue-summary>
+**Analysis**: `specs/<issue-key>/analysis.md`
 **Designed**: <date>
 
 ---
@@ -22,33 +22,33 @@
 
 ### Source Files (Modified)
 
-- **`<file-path>`**  
-  **Role:** <what this file does>  
+- **`<file-path>`**
+  **Role:** <what this file does>
   **Changes:** <what will be modified>
 
-- **`<file-path>`**  
-  **Role:** <what this file does>  
+- **`<file-path>`**
+  **Role:** <what this file does>
   **Changes:** <what will be modified>
 
 ### Source Files (New)
 
-- **`<file-path>`**  
-  **Purpose:** <why this new file is needed>  
+- **`<file-path>`**
+  **Purpose:** <why this new file is needed>
   **Contents:** <what it will contain>
 
 ### Test Files (Modified)
 
-- **`<file-path>`**  
+- **`<file-path>`**
   **Changes:** <what test updates are needed>
 
 ### Test Files (New)
 
-- **`<file-path>`**  
+- **`<file-path>`**
   **Purpose:** <what this will test>
 
 ### Configuration / Schema
 
-- **`<file-path>`**  
+- **`<file-path>`**
   **Changes:** <config or schema updates>
 
 ---
@@ -148,32 +148,32 @@
 
 ### Step 1: <Phase Name>
 
-**What:** <what gets done in this step>  
-**Output:** <what exists after this step>  
-**Depends on:** <previous step, or "None">  
+**What:** <what gets done in this step>
+**Output:** <what exists after this step>
+**Depends on:** <previous step, or "None">
 **Risk:** <risks, or "None">
 
 ### Step 2: <Phase Name>
 
-**What:** <what gets done>  
-**Output:** <deliverable>  
-**Depends on:** <dependency>  
+**What:** <what gets done>
+**Output:** <deliverable>
+**Depends on:** <dependency>
 **Risk:** <risks, or "None">
 
 ### Step 3: <Phase Name>
 
-**What:** <what gets done>  
-**Output:** <deliverable>  
-**Depends on:** <dependency>  
+**What:** <what gets done>
+**Output:** <deliverable>
+**Depends on:** <dependency>
 **Risk:** <risks, or "None">
 
 ---
 
 ### Step N: Verify End-to-End
 
-**What:** Manual testing in local environment  
-**Output:** Confirmed working implementation  
-**Depends on:** All above steps  
+**What:** Manual testing in local environment
+**Output:** Confirmed working implementation
+**Depends on:** All above steps
 **Risk:** None
 
 ---
@@ -184,20 +184,20 @@
 
 ### Update Existing Tests
 
-**Test file:** `<path>`  
-**Test case:** "<name>"  
-**Change needed:** <what assertion or behavior changes>  
+**Test file:** `<path>`
+**Test case:** "<name>"
+**Change needed:** <what assertion or behavior changes>
 **Why:** <reason>
 
 ### Add New Tests
 
-**Test file:** `<path>` (new)  
+**Test file:** `<path>` (new)
 **Test cases:**
 - "<test case 1>" — <what it verifies>
 - "<test case 2>" — <what it verifies>
 - "<test case 3>" — <what it verifies>
 
-**Test file:** `<path>`  
+**Test file:** `<path>`
 **New test cases:**
 - "<test case>" — <what it verifies>
 
@@ -212,7 +212,7 @@
 
 <If integration tests exist, what to add>
 
-**Integration test:** "<name>"  
+**Integration test:** "<name>"
 **Steps:**
 1. <step 1>
 2. <step 2>
@@ -230,14 +230,14 @@
 
 ### Risk: <description>
 
-**Impact:** <what happens if this risk materializes>  
-**Likelihood:** <High/Medium/Low>  
+**Impact:** <what happens if this risk materializes>
+**Likelihood:** <High/Medium/Low>
 **Mitigation:** <how to reduce or handle>
 
 ### Risk: <description>
 
-**Impact:** <what happens>  
-**Likelihood:** <High/Medium/Low>  
+**Impact:** <what happens>
+**Likelihood:** <High/Medium/Low>
 **Mitigation:** <mitigation plan>
 
 ---
@@ -264,20 +264,20 @@
 
 ### Design Decisions
 
-**Decision:** <what was decided>  
-**Rationale:** <why>  
+**Decision:** <what was decided>
+**Rationale:** <why>
 **Alternatives considered:** <what else was considered, why rejected>
 
 ### Open Questions (If Any)
 
-**Question:** <what's still unclear>  
-**Impact:** <how this affects implementation>  
+**Question:** <what's still unclear>
+**Impact:** <how this affects implementation>
 **Who can answer:** <stakeholder>
 
 ---
 
 ## Approval
 
-**User approved:** <Yes/No/Pending>  
-**Approval date:** <date, if approved>  
+**User approved:** <Yes/No/Pending>
+**Approval date:** <date, if approved>
 **Changes requested:** <if any>

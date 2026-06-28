@@ -110,7 +110,7 @@ Good suggestion. This is outside the scope of this CR, but worth considering for
 When comment is unclear:
 
 ```
-Can you clarify what you mean by [X]? 
+Can you clarify what you mean by [X]?
 
 I want to make sure I address this correctly.
 ```
@@ -132,7 +132,7 @@ Keeps threads organized without repeating explanations.
 When you disagree with reviewer's suggestion (after discussion with user):
 
 ```
-I see your point about [X]. However, [reasoning for current approach]. 
+I see your point about [X]. However, [reasoning for current approach].
 
 The current approach [benefit 1] and [benefit 2], which aligns with the requirements in [reference].
 

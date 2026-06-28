@@ -19,7 +19,9 @@ W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 def _paragraphs():
     data = build_synthetic_dotx()
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        return list(defused_etree.fromstring(zf.read("word/document.xml")).iter(f"{{{W}}}p"))
+        return list(
+            defused_etree.fromstring(zf.read("word/document.xml")).iter(f"{{{W}}}p")
+        )
 
 
 def _para_text(p):

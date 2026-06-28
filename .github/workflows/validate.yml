@@ -42,12 +42,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check conventional commit title
+        env:
+          # Pass through env var so the title cannot inject shell.
+          # See actionlint expression security warning.
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
-          TITLE="${{ github.event.pull_request.title }}"
-          if ! echo "$TITLE" | grep -qE '^(feat|fix|docs|refactor|test|chore|ci|build|perf|style|revert)\([a-z0-9-]+\): .+$'; then
+          if ! printf '%s\n' "$PR_TITLE" | grep -qE '^(feat|fix|docs|refactor|test|chore|ci|build|perf|style|revert)\([a-z0-9-]+\): .+$'; then
             echo "::error::PR title must follow conventional commits: type(scope): description"
             echo "  Types: feat, fix, docs, refactor, test, chore, ci, build, perf, style, revert"
             echo "  Scope: area (docs, src, repo)"
-            echo "  Got: $TITLE"
+            echo "  Got: $PR_TITLE"
             exit 1
           fi

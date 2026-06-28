@@ -10,7 +10,7 @@ Accepted
 
 ## Context
 
-Plugins need to produce artifacts that other plugins can consume (e.g., one plugin produces a spec, another consumes it for code generation). 
+Plugins need to produce artifacts that other plugins can consume (e.g., one plugin produces a spec, another consumes it for code generation).
 
 Options:
 

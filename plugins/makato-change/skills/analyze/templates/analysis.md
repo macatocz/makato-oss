@@ -1,8 +1,8 @@
 # Change Request Analysis: <issue-key>
 
-**Issue**: <issue-key> — <issue-summary>  
-**Type**: <Story|Task>  
-**Status**: <current-status>  
+**Issue**: <issue-key> — <issue-summary>
+**Type**: <Story|Task>
+**Status**: <current-status>
 **Analyzed**: <date>
 
 ---
@@ -223,7 +223,7 @@ Or: "No E2E scenarios needed — no E2E test infrastructure exists"
 
 ### If Scope is Large
 > This change is too large for makato-change. **Next step**: Escalate to makato-plan workflow for discovery and decomposition.
-> 
+>
 > **Reason**: <why this needs architecture/discovery — new subsystem, multiple teams, significant unknowns, etc.>
 
 ---

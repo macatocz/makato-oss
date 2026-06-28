@@ -38,10 +38,10 @@ describe('deleteAccount', () => {
     // Arrange
     const mockUser = { id: '123', role: 'user' };
     jest.spyOn(userService, 'getUser').mockResolvedValue(mockUser);
-    
+
     // Act
     await deleteAccount('123');
-    
+
     // Assert
     expect(db.users.delete).toHaveBeenCalledWith('123');
   });
@@ -50,7 +50,7 @@ describe('deleteAccount', () => {
     const mockUser = { id: '123', role: 'admin' };
     jest.spyOn(userService, 'getUser').mockResolvedValue(mockUser);
     jest.spyOn(userService, 'countAdmins').mockResolvedValue(1);
-    
+
     await expect(deleteAccount('123')).rejects.toThrow(ValidationError);
   });
 });
@@ -61,10 +61,10 @@ describe('deleteAccount', () => {
 def test_delete_account_succeeds_for_non_admin():
     # Arrange
     user = User(id=123, role='user')
-    
+
     # Act
     result = delete_account(user.id)
-    
+
     # Assert
     assert result.success == True
     assert User.query.get(123) is None
@@ -73,7 +73,7 @@ def test_delete_account_fails_for_last_admin():
     # Arrange
     user = User(id=123, role='admin')
     # Assume no other admins in test DB
-    
+
     # Act & Assert
     with pytest.raises(ValidationError) as excinfo:
         delete_account(user.id)
@@ -122,12 +122,12 @@ describe('DELETE /api/users/:id', () => {
   it('should delete user and return 200', async () => {
     // Create test user
     const user = await createTestUser({ role: 'user' });
-    
+
     // Make API call
     const response = await request(app)
       .delete(`/api/users/${user.id}`)
       .set('Authorization', `Bearer ${user.token}`);
-    
+
     // Assert
     expect(response.status).toBe(200);
     expect(await User.findById(user.id)).toBeNull();
@@ -136,11 +136,11 @@ describe('DELETE /api/users/:id', () => {
   it('should return 403 when deleting last admin', async () => {
     const admin = await createTestUser({ role: 'admin' });
     // Ensure no other admins exist
-    
+
     const response = await request(app)
       .delete(`/api/users/${admin.id}`)
       .set('Authorization', `Bearer ${admin.token}`);
-    
+
     expect(response.status).toBe(403);
     expect(response.body.error).toContain('last admin');
   });
@@ -160,7 +160,7 @@ import { DeleteAccountDialog } from './DeleteAccountDialog';
 describe('DeleteAccountDialog', () => {
   it('should render dialog with correct text', () => {
     render(<DeleteAccountDialog isOpen={true} onClose={() => {}} onConfirm={() => {}} />);
-    
+
     expect(screen.getByText('Delete your account?')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Delete Account' })).toBeInTheDocument();
@@ -169,18 +169,18 @@ describe('DeleteAccountDialog', () => {
   it('should call onClose when Cancel is clicked', () => {
     const onClose = jest.fn();
     render(<DeleteAccountDialog isOpen={true} onClose={onClose} onConfirm={() => {}} />);
-    
+
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    
+
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it('should call onConfirm when Delete Account is clicked', () => {
     const onConfirm = jest.fn();
     render(<DeleteAccountDialog isOpen={true} onClose={() => {}} onConfirm={onConfirm} />);
-    
+
     fireEvent.click(screen.getByRole('button', { name: 'Delete Account' }));
-    
+
     expect(onConfirm).toHaveBeenCalledTimes(1);
   });
 });
@@ -205,7 +205,7 @@ If a test fails after your changes:
    ```typescript
    // Old assertion (before adding confirmation dialog)
    expect(deleteAccount).toHaveBeenCalledImmediately();
-   
+
    // New assertion (after adding confirmation dialog)
    expect(deleteAccount).not.toHaveBeenCalled();
    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
@@ -216,7 +216,7 @@ If a test fails after your changes:
    ```typescript
    // Old test name
    it('should delete account immediately on button click')
-   
+
    // New test name
    it('should show confirmation dialog on button click')
    ```
@@ -229,7 +229,7 @@ If the function still exists but has new behavior, add test cases to the existin
 describe('deleteAccount', () => {
   // Existing tests...
   it('should delete account for regular user', async () => { ... });
-  
+
   // New test case added
   it('should throw ValidationError when user is last admin', async () => {
     // New behavior being tested
@@ -270,7 +270,7 @@ If existing tests use test doubles (fake implementations):
 class FakeUserRepository:
     def __init__(self):
         self.users = []
-    
+
     def delete(self, user_id):
         self.users = [u for u in self.users if u.id != user_id]
 ```

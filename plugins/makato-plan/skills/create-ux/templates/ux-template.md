@@ -174,7 +174,7 @@
 - Initial appearance when component loads
 - [wireframe]
 
-### Loading State  
+### Loading State
 - Skeleton/spinner while data fetches
 - [wireframe]
 
@@ -224,7 +224,7 @@
 - [ ] Text alternatives for images
 - [ ] Captions for media
 
-### Operable  
+### Operable
 - [ ] Keyboard navigable (Tab order)
 - [ ] Focus indicators visible
 - [ ] No keyboard traps

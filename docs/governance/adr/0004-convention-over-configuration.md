@@ -25,7 +25,7 @@ No configuration file in the plugin repository. Plugins rely on conventions:
 - Configuration values does not define structure. It define secrets values (used by MCP, packages),
   enabling/disabling features and their configuration,
 
-Configuration is set per user not per project, not in the plugin source. 
+Configuration is set per user not per project, not in the plugin source.
 
 ## Consequences
 

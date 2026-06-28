@@ -288,14 +288,14 @@ Determine if the change fits makato-change (small/medium) or needs makato-plan (
 Open questions include both blocking questions (must answer before design) and clarifying questions (improve design quality). All are worth asking since the user often knows answers even if they're not in the written requirements.
 
 1. **Present questions to user one at a time:**
-   
+
    For each question, use AskUserQuestion with:
    - **Question text**: The question from Step 5
    - **Header**: Brief context (e.g., "Edge Case", "Validation Rule", "Error Handling")
    - **Options**:
      - "I can answer this" (description: "Provide the answer")
      - "Needs clarification" (description: "Requires stakeholder input")
-   
+
    Include in the question: why this matters (impact on design/implementation from Step 5)
 
 2. **Capture user responses:**

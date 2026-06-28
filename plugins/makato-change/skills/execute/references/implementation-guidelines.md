@@ -111,14 +111,14 @@ The design should specify how to handle edge cases identified in the analysis. I
 ```typescript
 async function deleteAccount(userId: string): Promise<void> {
   const user = await getUser(userId);
-  
+
   if (user.role === 'admin') {
     const adminCount = await countAdmins();
     if (adminCount === 1) {
       throw new ValidationError('Cannot delete last admin');
     }
   }
-  
+
   await db.users.delete(userId);
 }
 ```

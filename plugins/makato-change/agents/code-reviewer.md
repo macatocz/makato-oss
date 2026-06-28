@@ -203,7 +203,7 @@ Note what was done well (builds confidence, reinforces good practices):
 
 ### Step 7: Determine Status
 
-**approved**: No CRITICAL or MAJOR issues; implementation is ready for PR  
+**approved**: No CRITICAL or MAJOR issues; implementation is ready for PR
 **changes_required**: At least one CRITICAL or MAJOR issue found
 
 **Status determination:**

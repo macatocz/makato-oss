@@ -299,7 +299,9 @@ def _flush_highlight(
             label=truncate(span, MAX_LABEL_CHARS),
             kind="instruction",
             source="highlight",
-            description=(f"{current_color} highlight: " f"{truncate(span, MAX_DESCRIPTION_CHARS)}"),
+            description=(
+                f"{current_color} highlight: {truncate(span, MAX_DESCRIPTION_CHARS)}"
+            ),
             first_paragraph_text=truncate(para_text),
         )
     )
@@ -351,7 +353,9 @@ def _load_comments_map(zf: zipfile.ZipFile) -> dict[str, str]:
     return out
 
 
-def _anchored_text(para: ET.Element, start: ET.Element, ranges: dict[str, ET.Element]) -> str:
+def _anchored_text(
+    para: ET.Element, start: ET.Element, ranges: dict[str, ET.Element]
+) -> str:
     """Concatenate text between commentRangeStart and matching End in para."""
     cid = start.get(f"{{{W}}}id")
     end = ranges.get(cid or "")
@@ -381,7 +385,9 @@ def extract_comments(root: ET.Element, comments_map: dict[str, str]) -> list[Fie
         starts = list(para.iter(f"{{{W}}}commentRangeStart"))
         if not starts:
             continue
-        ends_by_id = {e.get(f"{{{W}}}id") or "": e for e in para.iter(f"{{{W}}}commentRangeEnd")}
+        ends_by_id = {
+            e.get(f"{{{W}}}id") or "": e for e in para.iter(f"{{{W}}}commentRangeEnd")
+        }
         for start in starts:
             cid = start.get(f"{{{W}}}id") or ""
             if cid not in comments_map:
@@ -409,7 +415,8 @@ def extract_comments(root: ET.Element, comments_map: dict[str, str]) -> list[Fie
 def _row_signature(row: ET.Element) -> tuple[bool, ...]:
     """Tuple capturing the SDT shape of a table row."""
     return tuple(
-        sdt.find(f"{{{W}}}sdtPr/{{{W}}}tag") is not None for sdt in row.iter(f"{{{W}}}sdt")
+        sdt.find(f"{{{W}}}sdtPr/{{{W}}}tag") is not None
+        for sdt in row.iter(f"{{{W}}}sdt")
     )
 
 
@@ -541,13 +548,16 @@ def write_summary_md(schema: dict[str, Any], path: Path) -> None:
         "|---|---|---|---|",
     ]
     for f in schema["fields"]:
-        lines.append(f"|`{f['key']}`|{f['kind']}|{f['source']}|" f"{truncate(f['label'], 60)}|")
+        lines.append(
+            f"|`{f['key']}`|{f['kind']}|{f['source']}|{truncate(f['label'], 60)}|"
+        )
     lines.append("")
     if schema["repeats"]:
         lines += [f"## Repeats ({len(schema['repeats'])})", ""]
         for r in schema["repeats"]:
             lines.append(
-                f"- `{r['key']}` — {len(r['row_template'])} fields per row " f"({r['evidence']})"
+                f"- `{r['key']}` — {len(r['row_template'])} fields per row "
+                f"({r['evidence']})"
             )
         lines.append("")
     if schema["warnings"]:
@@ -568,7 +578,9 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=True,
     )
-    parser.add_argument("--no-instructions", dest="include_instructions", action="store_false")
+    parser.add_argument(
+        "--no-instructions", dest="include_instructions", action="store_false"
+    )
     parser.add_argument(
         "--detect-repeats",
         dest="detect_repeats",

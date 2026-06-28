@@ -473,9 +473,9 @@ Add label `makato-change-designed` using `gh issue edit --add-label`.
 
 Confirm completion:
 > "Design complete and posted to GitHub Issues.
-> 
+>
 > **Design artifact:** `specs/<issue-key>/design.md`
-> 
+>
 > **Next step:** Proceed to execute skill to implement the changes."
 
 Provide the path to the design artifact for reference.

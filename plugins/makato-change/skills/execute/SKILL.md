@@ -435,7 +435,7 @@ EOF
 
 **Why `cd <REPO_ROOT>` first:** The `gh` CLI determines the target repository from the current directory. Change to the target repository before creating the PR to ensure it's created in the correct repo.
 
-**CRITICAL**: 
+**CRITICAL**:
 - Use the EXACT section headers from whichever template was read
 - Do NOT improvise custom sections like "Summary", "Changes", or "Testing"
 - Remove ALL HTML comments from the filled template

@@ -21,6 +21,7 @@ CLI:
 Self-test:
     parse-sarif.py --selftest
 """
+
 from __future__ import annotations
 
 import json
@@ -44,24 +45,24 @@ except ImportError:
 # (case-insensitive) matched against the rule id.
 AUTOFIXABLE_RULES: dict[str, tuple[str, ...]] = {
     "ruff": (
-        r"^F401$",          # unused-import
-        r"^I001$",          # unsorted-imports
-        r"^I002$",          # missing-required-import
-        r"^W291$",          # trailing-whitespace
-        r"^W292$",          # missing-newline-at-end-of-file
-        r"^W293$",          # blank-line-with-whitespace
-        r"^E501$",          # line-too-long (when --fix-only enabled)
-        r"^UP\d+$",         # pyupgrade rules
-        r"^Q\d+$",          # flake8-quotes
-        r"^COM\d+$",        # flake8-commas
-        r"^ISC\d+$",        # implicit-str-concat
+        r"^F401$",  # unused-import
+        r"^I001$",  # unsorted-imports
+        r"^I002$",  # missing-required-import
+        r"^W291$",  # trailing-whitespace
+        r"^W292$",  # missing-newline-at-end-of-file
+        r"^W293$",  # blank-line-with-whitespace
+        r"^E501$",  # line-too-long (when --fix-only enabled)
+        r"^UP\d+$",  # pyupgrade rules
+        r"^Q\d+$",  # flake8-quotes
+        r"^COM\d+$",  # flake8-commas
+        r"^ISC\d+$",  # implicit-str-concat
     ),
     "biome": (
         r"^lint/style/.*$",
         r"^lint/correctness/noUnusedImports$",
         r"^lint/correctness/noUnusedVariables$",
         r"^lint/suspicious/noDoubleEquals$",
-        r"^assist/.*$",      # organize-imports etc.
+        r"^assist/.*$",  # organize-imports etc.
         r"^format$",
     ),
     "eslint": (
@@ -185,7 +186,9 @@ def parse_sarif(file_or_dict: Any) -> list[Finding]:
             rule_id = result.get("ruleId") or result.get("rule", {}).get("id") or ""
             rule_def = rule_index.get(rule_id, {})
 
-            level = result.get("level") or rule_def.get("defaultConfiguration", {}).get("level")
+            level = result.get("level") or rule_def.get("defaultConfiguration", {}).get(
+                "level"
+            )
             severity = _norm_sarif_severity(level, result.get("kind"))
 
             msg_obj = result.get("message") or {}
@@ -195,7 +198,7 @@ def parse_sarif(file_or_dict: Any) -> list[Finding]:
             path, line, column = "", 0, 0
             locs = result.get("locations") or []
             if locs:
-                phys = (locs[0].get("physicalLocation") or {})
+                phys = locs[0].get("physicalLocation") or {}
                 art = phys.get("artifactLocation") or {}
                 path = art.get("uri") or ""
                 region = phys.get("region") or {}
@@ -372,9 +375,7 @@ _PRECOMMIT_PYRIGHT_LINE_RE = re.compile(
     r"(?:\s*\((?P<rule>[A-Za-z][A-Za-z0-9_]*)\))?\s*$"
 )
 # Standalone rule continuation: "    ... (reportArgumentType)"
-_PRECOMMIT_PYRIGHT_RULE_RE = re.compile(
-    r"\((?P<rule>report[A-Z][A-Za-z]+)\)\s*$"
-)
+_PRECOMMIT_PYRIGHT_RULE_RE = re.compile(r"\((?P<rule>report[A-Z][A-Za-z]+)\)\s*$")
 
 # ANSI escape sequence stripper for tools that color their text output (pyright,
 # semgrep, ruff). Applied before regex matching when active_hook is in a known
@@ -418,7 +419,15 @@ def _parse_gitleaks_block(block_text: str) -> Finding | None:
         if not m:
             continue
         key = m.group("key").lower()
-        if key in ("finding", "secret", "ruleid", "entropy", "file", "line", "fingerprint"):
+        if key in (
+            "finding",
+            "secret",
+            "ruleid",
+            "entropy",
+            "file",
+            "line",
+            "fingerprint",
+        ):
             fields[key] = m.group("val")
 
     # A valid block must at minimum carry File + Line + RuleID.
@@ -600,7 +609,12 @@ def parse_pre_commit_output(text: str) -> list[Finding]:
             # Continuation rule line: backfill the most recent pyright finding
             # if we haven't picked up a rule yet.
             rule_m = _PRECOMMIT_PYRIGHT_RULE_RE.search(stripped_line)
-            if rule_m and findings and findings[-1].tool == "pyright" and not findings[-1].rule:
+            if (
+                rule_m
+                and findings
+                and findings[-1].tool == "pyright"
+                and not findings[-1].rule
+            ):
                 findings[-1].rule = rule_m.group("rule")
                 continue
 
@@ -684,10 +698,16 @@ def main(argv: list[str] | None = None) -> int:
         i += 1
 
     if tool is None:
-        print(f"error: --tool is required (one of: {', '.join(_PARSERS)})", file=sys.stderr)
+        print(
+            f"error: --tool is required (one of: {', '.join(_PARSERS)})",
+            file=sys.stderr,
+        )
         return 2
     if tool not in _PARSERS:
-        print(f"error: unknown tool {tool!r}; expected one of {list(_PARSERS)}", file=sys.stderr)
+        print(
+            f"error: unknown tool {tool!r}; expected one of {list(_PARSERS)}",
+            file=sys.stderr,
+        )
         return 2
 
     parser = _PARSERS[tool]
@@ -772,14 +792,22 @@ def _selftest() -> int:
         ],
     }
     sarif_findings = parse_sarif(sarif_fixture)
-    _check(len(sarif_findings) == 2, f"SARIF: expected 2 findings, got {len(sarif_findings)}")
+    _check(
+        len(sarif_findings) == 2,
+        f"SARIF: expected 2 findings, got {len(sarif_findings)}",
+    )
     f0 = sarif_findings[0]
     _check(f0.tool == "ruff", f"SARIF[0].tool == 'ruff' (got {f0.tool!r})")
     _check(f0.rule == "F401", f"SARIF[0].rule == 'F401' (got {f0.rule!r})")
     _check(f0.path == "src/app.py", f"SARIF[0].path (got {f0.path!r})")
-    _check(f0.line == 3 and f0.column == 1, f"SARIF[0] line/col (got {f0.line}/{f0.column})")
+    _check(
+        f0.line == 3 and f0.column == 1,
+        f"SARIF[0] line/col (got {f0.line}/{f0.column})",
+    )
     _check(f0.severity == "warning", f"SARIF[0].severity (got {f0.severity!r})")
-    _check(f0.autofix_available is True, "SARIF[0] has fixes[] → autofix_available=True")
+    _check(
+        f0.autofix_available is True, "SARIF[0] has fixes[] → autofix_available=True"
+    )
     f1 = sarif_findings[1]
     _check(f1.severity == "error", f"SARIF[1].severity (got {f1.severity!r})")
     _check(
@@ -833,17 +861,28 @@ def _selftest() -> int:
     _check(len(py) == 3, f"pyright: expected 3 findings, got {len(py)}")
     _check(py[0].tool == "pyright", "pyright[0].tool == 'pyright'")
     _check(py[0].severity == "error", f"pyright[0].severity (got {py[0].severity!r})")
-    _check(py[0].line == 10 and py[0].column == 5, f"pyright 1-based line/col (got {py[0].line}/{py[0].column})")
+    _check(
+        py[0].line == 10 and py[0].column == 5,
+        f"pyright 1-based line/col (got {py[0].line}/{py[0].column})",
+    )
     _check(py[0].rule == "reportGeneralTypeIssues", "pyright rule preserved")
     _check(py[1].severity == "warning", f"pyright[1].severity (got {py[1].severity!r})")
-    _check(py[2].severity == "note", f"pyright information→note (got {py[2].severity!r})")
+    _check(
+        py[2].severity == "note", f"pyright information→note (got {py[2].severity!r})"
+    )
     _check(all(f.autofix_available is False for f in py), "pyright never autofixable")
 
     # --- Bonus: autofix allowlist sanity-check -----------------------------
     _check(_is_autofixable("ruff", "F401") is True, "ruff F401 autofixable")
     _check(_is_autofixable("ruff", "PLR0915") is False, "ruff PLR0915 not autofixable")
-    _check(_is_autofixable("biome", "lint/style/useConst") is True, "biome lint/style/* autofixable")
-    _check(_is_autofixable("biome", "lint/correctness/noUndeclaredVariables") is False, "biome non-listed not autofixable")
+    _check(
+        _is_autofixable("biome", "lint/style/useConst") is True,
+        "biome lint/style/* autofixable",
+    )
+    _check(
+        _is_autofixable("biome", "lint/correctness/noUndeclaredVariables") is False,
+        "biome non-listed not autofixable",
+    )
 
     # --- Fixture 3: pre-commit markdownlint output -------------------------
     md_fixture = (
@@ -851,7 +890,7 @@ def _selftest() -> int:
         "- hook id: markdownlint\n"
         "- exit code: 1\n"
         "\n"
-        "docs/foo.md:1 MD036/no-emphasis-as-heading Emphasis used [Context: \"Bold\"]\n"
+        'docs/foo.md:1 MD036/no-emphasis-as-heading Emphasis used [Context: "Bold"]\n'
         "docs/bar.md:5:151 MD013/line-length Line length [Expected: 150; Actual: 200]\n"
     )
     md_findings = parse_pre_commit_output(md_fixture)

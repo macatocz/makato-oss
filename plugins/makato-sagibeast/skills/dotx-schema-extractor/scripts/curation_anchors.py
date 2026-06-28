@@ -25,7 +25,9 @@ def _run_highlight(run: ET.Element) -> str | None:
     return hi.get(f"{{{W}}}val")
 
 
-def find_highlight_span(paragraph: ET.Element, label: str, color: str) -> list[int] | None:
+def find_highlight_span(
+    paragraph: ET.Element, label: str, color: str
+) -> list[int] | None:
     """Locate contiguous run indices whose joined text equals ``label``.
 
     All matched runs must carry ``<w:highlight w:val=color>``. Returns
@@ -68,11 +70,20 @@ def find_comment_triplet(
     """
     start = end = ref = None
     for child in paragraph.iter():
-        if child.tag == f"{{{W}}}commentRangeStart" and child.get(f"{{{W}}}id") == comment_id:
+        if (
+            child.tag == f"{{{W}}}commentRangeStart"
+            and child.get(f"{{{W}}}id") == comment_id
+        ):
             start = child
-        elif child.tag == f"{{{W}}}commentRangeEnd" and child.get(f"{{{W}}}id") == comment_id:
+        elif (
+            child.tag == f"{{{W}}}commentRangeEnd"
+            and child.get(f"{{{W}}}id") == comment_id
+        ):
             end = child
-        elif child.tag == f"{{{W}}}commentReference" and child.get(f"{{{W}}}id") == comment_id:
+        elif (
+            child.tag == f"{{{W}}}commentReference"
+            and child.get(f"{{{W}}}id") == comment_id
+        ):
             ref = child
     if start is None or end is None or ref is None:
         return None

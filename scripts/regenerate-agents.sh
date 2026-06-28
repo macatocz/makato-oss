@@ -115,6 +115,7 @@ scoped, or omitted for repo-wide changes.
 ## Project specs convention
 
 Plugins discover project specs via (in order):
+
 1. `<REPO_ROOT>/makato.config.json` → `specsRoot` field
 2. `<REPO_ROOT>/specs/index.yml`
 
@@ -122,7 +123,12 @@ No environment-variable fallback, no sibling-directory autodetect.
 FOOTER
 
 # CLAUDE.md is a one-line import so Claude Code's auto-load picks up AGENTS.md verbatim.
-printf '@AGENTS.md\n' > "$OUT_CLAUDE"
+# The MD041 disable lets markdownlint accept a file whose first non-comment line is an
+# include directive rather than an H1 heading.
+{
+  printf '<!-- markdownlint-disable MD041 -->\n'
+  printf '@AGENTS.md\n'
+} > "$OUT_CLAUDE"
 
 echo "regenerated: $OUT_AGENTS  ($(wc -l < "$OUT_AGENTS") lines)"
 echo "regenerated: $OUT_CLAUDE"

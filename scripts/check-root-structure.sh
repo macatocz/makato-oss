@@ -30,6 +30,7 @@ ALLOWED_FILES=(
   "release-please-config.json"
   ".release-please-manifest.json"
   ".git"
+  ".pre-commit-config.yaml"
 )
 
 ERRORS=0

@@ -116,4 +116,3 @@
   - Enable invocation from specs-context or target repo
   - Support automatic path resolution (searches standard locations, no configuration needed)
   - Document cross-repo usage patterns in README.md and AGENTS.md
-

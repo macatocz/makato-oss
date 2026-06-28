@@ -6,7 +6,7 @@
 
 [One-line description of what this service does]
 
-**Team**: [Team name or slack channel]  
+**Team**: [Team name or slack channel]
 **On-call**: [Rotation or contact info]
 
 ## Overview
@@ -88,8 +88,8 @@
 
 ### [Common Problem 1]
 
-**Symptom**: [What you see]  
-**Cause**: [Why it happens]  
+**Symptom**: [What you see]
+**Cause**: [Why it happens]
 **Fix**: [How to resolve]
 
 ## Contributing

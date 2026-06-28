@@ -1,3 +1,4 @@
+<!-- markdownlint-disable MD041 -->
 <!--
 PR Title format: type(scope): description
   Types: feat | fix | refactor | docs | test | chore | ci | build | perf | style | revert
@@ -15,7 +16,7 @@ PR Title format: type(scope): description
 ## Goal Alignment
 
 **Plugin**: `makato-<name>`
-**Goal**: "<paste goal statement from plugin.json here>"
+**Goal**: `<paste goal statement from plugin.json here>`
 **Alignment**: <!-- one sentence connecting this change to the plugin goal -->
 
 ## Links
@@ -43,6 +44,7 @@ N/A
 - [ ] Version bumped in `plugin.json` if skill behavior changed
 
 **AI-assisted:**
+
 - [ ] Code implementation
 - [ ] Commit messages
 - [ ] PR description
