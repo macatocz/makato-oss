@@ -19,7 +19,8 @@ every transition between them requires a human. The PO-agent is that driver.
 > - GAP-003 (#26) — `skills/workflow-state/` ✓ **shipped**
 > - GAP-004 (#30) — `skills/kill-switch/`, `scripts/context-handoff.sh`, `hooks/check-halt.sh`, `agents/context-summariser.md`, `halt-conditions.md`, `never-patterns.md` ✓ **shipped**
 > - GAP-006 (#32) — `agents/po-agent.md` ✓ **shipped**
-> - GAP-007 (and onward) — `hooks/session-status.sh`, `skills/loop/`, `skills/session-status/`
+> - GAP-007 (#33) — `skills/loop/`, `scripts/loop.sh`, `scripts/loop-smoke-tests.sh` ✓ **shipped**
+> - GAP-007 follow-ups — `hooks/session-status.sh`, `skills/session-status/`
 >
 > Tracking issue: [GAP-001 (#23)](https://github.com/macatocz/makato/issues/23).
 
@@ -77,7 +78,7 @@ Sub-agents inherit the flag via the dispatch context bundle; they do not re-pars
 |-------|-------------|----------------|
 | `workflow-state` | Read / patch `specs/<key>-<slug>/workflow-state.json` — PO-agent is the sole writer | **Shipped** — GAP-003 (#26). Consumed by PO-agent in GAP-006 (#32). |
 | `kill-switch` | HALT-file poll, GitHub `claude-halt` label poll, per-task budget, daily token ceiling, proactive context handoff shim | **Shipped** — GAP-004 (#30). Consumed by PO-agent in GAP-006 (#32). |
-| `loop` | User-facing autonomous entry point — `loop --autonomous <issue-number>` | follow-up |
+| `loop` | User-facing autonomous entry point — polls the GitHub Projects v2 board for items at `Status=Ready` and dispatches the PO-agent serially | **Shipped** — GAP-007 (#33). Reads board state populated by `issue-to-project --init`. |
 | `session-status` | Restartable session resumption — restores state on session start | follow-up |
 
 ## Agents *(partial — additional agents not yet shipping)*
@@ -85,7 +86,7 @@ Sub-agents inherit the flag via the dispatch context bundle; they do not re-pars
 | Agent | Model | Permission Mode | Purpose | Tracking issue |
 |-------|-------|-----------------|---------|----------------|
 | `context-summariser` | haiku | read-only (Read-only) | Produces ≤ 500-token session summary for HALT-007B handoff — input is workflow-state.json + current task description only, never source files | **Shipped** — GAP-004 (#30). Dispatched by PO-agent in GAP-006 (#32). |
-| `po-agent` | sonnet | bypassPermissions | Outer-loop driver — reads Issue, builds sub-task list, dispatches `build-implement-tdd` / `build-implement-goal` per task, patches state, terminates on PR-merged or HALT | **Shipped** — GAP-006 (#32). Consumed by `loop` in a follow-up. |
+| `po-agent` | sonnet | bypassPermissions | Outer-loop driver — reads Issue, builds sub-task list, dispatches `build-implement-tdd` / `build-implement-goal` per task, patches state, terminates on PR-merged or HALT | **Shipped** — GAP-006 (#32). Consumed by `loop` (GAP-007 / #33). |
 | `scout` | haiku | read-only | (planned) Read-only context discovery — linked PRs, dependent issues, prior state | follow-up |
 
 ## Hooks *(partial — additional hooks not yet shipping)*

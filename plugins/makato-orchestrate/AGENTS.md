@@ -99,7 +99,9 @@ makato-orchestrate/
 │   └── session-status.sh                 (GAP-007 follow-up — stub)
 ├── scripts/
 │   ├── context-handoff.sh                (GAP-004 / #30 — shipped)
-│   └── context-handoff-smoke-tests.sh    (GAP-004 / #30 — shipped)
+│   ├── context-handoff-smoke-tests.sh    (GAP-004 / #30 — shipped)
+│   ├── loop.sh                           (GAP-007 / #33 — shipped)
+│   └── loop-smoke-tests.sh               (GAP-007 / #33 — shipped)
 ├── skills/
 │   ├── workflow-state/                   (GAP-003 / #26 — shipped)
 │   │   ├── SKILL.md
@@ -110,7 +112,7 @@ makato-orchestrate/
 │   │   ├── SKILL.md
 │   │   └── references/
 │   │       └── daily-budget.schema.json
-│   ├── loop/SKILL.md                     (autonomous entry point — follow-up)
+│   ├── loop/SKILL.md                     (GAP-007 / #33 — shipped)
 │   └── session-status/SKILL.md           (GAP-007 follow-up)
 ├── shared/
 │   └── workflow-state.sh                 (GAP-003 / #26)
