@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.0](https://github.com/macatocz/makato/compare/v0.16.0...v0.17.0) (2026-06-28)
+
+
+### ✨ Features
+
+* **makato-build:** build-simplify joins autonomous mode ([#57](https://github.com/macatocz/makato/issues/57)) ([#63](https://github.com/macatocz/makato/issues/63)) ([6bfada2](https://github.com/macatocz/makato/commit/6bfada23c6ec0087f0b8dc91b01383dae2883bfd))
+
 ## [0.16.0](https://github.com/macatocz/makato/compare/v0.15.0...v0.16.0) (2026-06-28)
 
 
