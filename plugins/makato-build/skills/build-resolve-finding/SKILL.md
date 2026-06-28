@@ -1,7 +1,7 @@
 ---
 name: build-resolve-finding
-description: Per-finding decision tree that resolves a single sensor finding via 4 branches — autofix, tech-skill route, safe-automated action (redact/upgrade/suppress), or carry-over to draft PR. Use when sensor-fixer dispatches a finding for repair.
-version: "1.0.0"
+description: Per-finding decision tree that resolves a single sensor finding via 4 branches — autofix, tech-skill route (action `skill` or `autofix-then-skill` fallback), safe-automated action (redact/upgrade/suppress), or carry-over to draft PR. Use when sensor-fixer dispatches a finding for repair.
+version: "1.1.0"
 tools: All tools
 ---
 
@@ -19,6 +19,15 @@ The four branches are:
 4. **Carry-over** — the finding is structural and cannot be auto-resolved. Record it in the draft PR description; leave the hook red in CI; let a human address it.
 
 **Knowledge of *how* to fix a class of finding lives here**, in this skill — not in `sensor-fixer`. The orchestrator only dispatches; this skill decides and acts.
+
+### Relationship to `sensor-fixer` Phase 0
+
+`sensor-fixer` v1.1.0+ runs a batched-autofix **Phase 0** before dispatching this skill. Phase 0 collects every finding whose route action is `autofix` or `autofix-then-skill`, groups by `cmd`, runs each distinct cmd once on the union of files, then re-parses and drops resolved findings.
+
+This skill is only invoked for findings that **survived** Phase 0. The consequence:
+
+- A finding with route `action: "autofix"` that reaches this skill is **already-attempted-and-failed-by-the-CLI**. Branch 1 still re-runs the autofix on this single file (the targeted retry may succeed where the batched call did not), but if it still fails, the finding falls through to Branch 4 carry-over.
+- A finding with route `action: "autofix-then-skill"` that reaches this skill goes directly to Branch 2 using `route.fallback_skill` — the batched autofix has already had its shot.
 
 ## 2. Inputs (Finding shape)
 
@@ -46,6 +55,8 @@ The caller passes a single finding object:
 ```
                         ┌─────────────────────────────┐
                         │  Finding arrives            │
+                        │  (post-Phase-0 in sensor-   │
+                        │   fixer v1.1.0+)            │
                         └──────────────┬──────────────┘
                                        │
                           autofix_available == true?
@@ -55,20 +66,33 @@ The caller passes a single finding object:
         ┌─────────▼─────────┐               ┌───────────▼──────────┐
         │  BRANCH 1         │               │  Look up route in     │
         │  Autofix          │               │  finding-routes.json  │
-        └─────────┬─────────┘               │  by "<tool>:<rule>"   │
-                  │                         └───────────┬──────────┘
+        │  (targeted retry) │               │  by "<tool>:<rule>"   │
+        └─────────┬─────────┘               └───────────┬──────────┘
                   │                                     │
-                  │                       ┌─────────────┼──────────────┐
-                  │                       │             │              │
-                  │                action=skill   action=safe-auto  no route /
-                  │                       │             │           structural
-                  │                       │             │              │
-                  │             ┌─────────▼─────┐ ┌─────▼─────┐  ┌─────▼─────┐
-                  │             │  BRANCH 2     │ │ BRANCH 3  │  │ BRANCH 4  │
-                  │             │  Tech-skill   │ │ Safe-auto │  │ Carry-over│
-                  │             └─────────┬─────┘ └─────┬─────┘  └─────┬─────┘
-                  │                       │             │              │
-                  └───────────────────────┴─────────────┴──────────────┘
+                  │                  ┌──────────────────┼──────────────────┐
+                  │                  │                  │                  │
+                  │             action=skill   action=autofix-       action=safe-auto-*
+                  │                  │         then-skill                   │
+                  │                  │                  │                  │
+                  │                  │         (Phase 0 already ran)       │
+                  │                  │                  │                  │
+                  │                  ▼                  ▼                  ▼
+                  │             ┌─────────────────────────┐         ┌───────────┐
+                  │             │  BRANCH 2 — Tech-skill  │         │ BRANCH 3  │
+                  │             │  route.skill           │         │ Safe-auto │
+                  │             │   OR                   │         └─────┬─────┘
+                  │             │  route.fallback_skill  │               │
+                  │             └─────────┬──────────────┘               │
+                  │                       │                              │
+                  │                       │      no route /              │
+                  │                       │      structural              │
+                  │                       │           │                  │
+                  │                       │     ┌─────▼─────┐            │
+                  │                       │     │ BRANCH 4  │            │
+                  │                       │     │ Carry-over│            │
+                  │                       │     └─────┬─────┘            │
+                  │                       │           │                  │
+                  └───────────────────────┴───────────┴──────────────────┘
                                        │
                               Re-run hook on file
                                        │
@@ -93,6 +117,8 @@ The caller passes a single finding object:
         outcome = "failed"   # caller may retry or escalate tier
 ```
 
+**Targeted retry rationale.** `sensor-fixer` Phase 0 already ran this cmd on the union of all autofix-eligible files in a batch. If the finding reached this skill, the batched call did not clear it — but a single-file invocation can still succeed when, for instance, the batched call had a non-fatal failure on an unrelated file that aborted before reaching this one. Re-run targeted, then fall through to carry-over if it still fails.
+
 Default fix commands when no route is configured:
 
 | tool     | default cmd                      |
@@ -104,18 +130,26 @@ Default fix commands when no route is configured:
 | black    | `black <path>`                   |
 | isort    | `isort <path>`                   |
 
-### Branch 2 — Tech-skill route (`action == "skill"`)
+### Branch 2 — Tech-skill route (`action == "skill"` or `action == "autofix-then-skill"`)
 
 ```
 1. route = finding-routes.json["<tool>:<rule>"]
-2. Load skill: route.skill   (e.g. "typing-fixer", "react-hook-deps-fixer")
-3. Pass {finding, repo_root} to that skill.
-4. Skill applies pattern in-place. ONE fix attempt only.
-5. Re-run originating hook on <path>.
-6. Report outcome ∈ {resolved, failed}, set skill_used = route.skill.
+2. Pick the skill name:
+        action == "skill"              → skill_name = route.skill
+        action == "autofix-then-skill" → skill_name = route.fallback_skill
+                                         (Phase 0 already ran route.cmd and
+                                          did not clear this finding)
+3. Load skill: skill_name (e.g. "makato-core:markdown", "typing-fixer",
+   "react-hook-deps-fixer", "makato-build:build-simplify").
+4. Pass {finding, repo_root} to that skill.
+5. Skill applies pattern in-place. ONE fix attempt only.
+6. Re-run originating hook on <path>.
+7. Report outcome ∈ {resolved, failed}, set skill_used = skill_name.
 ```
 
 The called skill is responsible for its own internal logic; this skill does not retry it.
+
+**Why two action values dispatch to the same branch.** `skill` means "this rule class needs reasoning — there is no CLI autofix worth attempting." `autofix-then-skill` means "this rule class is split — most members of the class have a CLI autofix, but a structural subset does not." Phase 0 in `sensor-fixer` already attempted the autofix on the full batch; whatever reaches this branch is the structural subset, and the route's `fallback_skill` is the domain expert for that subset (e.g. `makato-core:markdown` for residual MD0xx after `markdownlint --fix`).
 
 ### Branch 3 — Safe-automated actions
 
@@ -208,7 +242,7 @@ Steps:
 
 ```json
 {
-  "action": "autofix | skill | redact-and-issue | upgrade-or-ignore | suppress-with-reason | carry-over",
+  "action": "autofix | skill | autofix-then-skill | redact-and-issue | upgrade-or-ignore | suppress-with-reason | carry-over",
   "outcome": "resolved | failed | carry-over",
   "skill_used": "<skill name or null>",
   "retried": false,
@@ -225,7 +259,7 @@ Steps:
 }
 ```
 
-`jsonl_entry` is appended by the caller to the run log; this skill produces it but does not write it.
+`action` in the output is the route's declared action value verbatim (`"autofix-then-skill"` resolves to Branch 2 with `route.fallback_skill`; the action string is preserved for audit). `jsonl_entry` is appended by the caller to the run log; this skill produces it but does not write it.
 
 ## 5. References — autonomy table (PLAN §7)
 
