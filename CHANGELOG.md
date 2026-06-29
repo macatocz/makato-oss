@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.25.0](https://github.com/macatocz/makato/compare/v0.24.0...v0.25.0) (2026-06-29)
+
+
+### ✨ Features
+
+* **makato-build:** headless PR-comment handling in autonomous mode (GAP-011, [#36](https://github.com/macatocz/makato/issues/36)) ([#96](https://github.com/macatocz/makato/issues/96)) ([36205cd](https://github.com/macatocz/makato/commit/36205cdaed985723a22b6b45b6c9168287f64933))
+* **makato-orchestrate:** CI-failure and review-decision outer fix loops in po-agent (GAP-010, [#34](https://github.com/macatocz/makato/issues/34)) ([#94](https://github.com/macatocz/makato/issues/94)) ([6c1dc42](https://github.com/macatocz/makato/commit/6c1dc427d9dcf0a6bce3b866d3594c9879ee19ed))
+
 ## [0.24.0](https://github.com/macatocz/makato/compare/v0.23.1...v0.24.0) (2026-06-29)
 
 
