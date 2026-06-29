@@ -1,0 +1,61 @@
+[project]
+# This is the makato monorepo's own pytest harness — scoped narrowly to skill
+# smoke tests and per-skill unit tests that already live inside individual
+# plugin folders. It is NOT a "makato is a Python package" declaration.
+#
+# Rationale: each Claude Code plugin in plugins/ is the unit of distribution,
+# not a Python wheel. The makato repo as a whole does not publish, install, or
+# import as a single package. The harness exists so:
+#
+#   1. plugins/makato-build/shared/test_inject_context.py (resolver unit tests)
+#      is collectable by pytest in one command.
+#   2. tests/test_smoke_build_simplify.py (#64 Part B) exercises the
+#      build-simplify 7-step JSONL contract against a synthetic fixture so the
+#      Part A behavior (no-test-runner = degraded-confidence path, not HALT)
+#      regresses on every PR.
+#   3. plugins/makato-sagibeast/skills/dotx-schema-extractor/tests/* becomes
+#      collectable from the repo root.
+#
+# Adding a test runner to plugins that don't already have one is explicitly
+# OUT OF SCOPE — see #64 § *Out of scope*.
+name = "makato-smoke-tests"
+version = "0.0.0"
+description = "Internal pytest harness for makato skill smoke tests. Not published."
+requires-python = ">=3.10"
+
+[dependency-groups]
+dev = [
+  "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+# Discover tests in the top-level tests/ folder (Part B smoke tests) AND in any
+# plugins/**/tests/ or plugins/**/shared/test_*.py site that ships with its
+# own pytest-collectable tests. The dotx-schema-extractor case (sagibeast) and
+# the inject_context resolver case (makato-build/shared) are both covered by
+# the patterns below; new test sites under plugins/ are picked up automatically.
+testpaths = [
+  "tests",
+  "plugins/makato-build/shared",
+  "plugins/makato-sagibeast/skills/dotx-schema-extractor/tests",
+]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+# Quiet collection of stale worktree copies — `.claude/worktrees/**` carries
+# in-flight branches whose test files would otherwise be double-collected.
+norecursedirs = [
+  ".git",
+  ".claude",
+  "node_modules",
+  "__pycache__",
+  ".pytest_cache",
+]
+# Make assertion introspection useful for the build-simplify smoke test, which
+# asserts the full JSONL arc shape.
+addopts = [
+  "-ra",
+  "--strict-markers",
+  "--strict-config",
+]

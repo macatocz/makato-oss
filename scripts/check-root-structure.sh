@@ -13,6 +13,7 @@ ALLOWED=(
   "packages"
   "docs"
   "scripts"
+  "tests"
 )
 
 ALLOWED_FILES=(
@@ -31,6 +32,7 @@ ALLOWED_FILES=(
   ".release-please-manifest.json"
   ".git"
   ".pre-commit-config.yaml"
+  "pyproject.toml"
 )
 
 ERRORS=0

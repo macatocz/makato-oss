@@ -33,3 +33,28 @@ on other contributors):
   }
 }
 ```
+
+## Smoke tests
+
+The repo ships a small **pytest harness** scoped narrowly to skill smoke tests
+and existing per-plugin unit tests. It is NOT a declaration that "makato is a
+Python package" — plugin distribution remains via Claude Code's plugin
+marketplace. The harness exists so contract-critical skills (`build-simplify`'s
+no-test-runner handling, `inject_context.resolve_bundles`, the
+`dotx-schema-extractor` curation pipeline) regress on every change.
+
+Run from the repo root:
+
+```bash
+python3 -m pytest
+```
+
+The harness discovers tests in three locations declared in `pyproject.toml` →
+`[tool.pytest.ini_options].testpaths`:
+
+- `tests/` — repo-level smoke tests (e.g. `test_smoke_build_simplify.py`)
+- `plugins/makato-build/shared/` — context-bundle resolver unit tests
+- `plugins/makato-sagibeast/skills/dotx-schema-extractor/tests/` — curation tests
+
+Adding a test runner to plugins that don't already have one is explicitly
+out of scope — the harness only covers existing pytest-collectable code.
