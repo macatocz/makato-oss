@@ -22,7 +22,7 @@ every transition between them requires a human. The PO-agent is that driver.
 > - GAP-007 (#33) — `skills/loop/`, `scripts/loop.sh`, `scripts/loop-smoke-tests.sh` ✓ **shipped**
 > - GAP-013 (#29) — `agents/scout.md` ✓ **shipped**
 > - GAP-017 (#46) — `shared/worktree.sh`, `shared/worktree-smoke-tests.sh`, schema fields `worktree_retained` / `worktree_retain_reason`, `agents/po-agent.md` § *Worktree Lifecycle* ✓ **shipped**
-> - GAP-007 follow-ups — `hooks/session-status.sh`, `skills/session-status/`
+> - GAP-014 (#31) — `hooks/session-status.sh`, `hooks/session-status-smoke-tests.sh`, `skills/session-status/SKILL.md` ✓ **shipped**
 >
 > Tracking issue: [GAP-001 (#23)](https://github.com/macatocz/makato/issues/23).
 
@@ -81,7 +81,7 @@ Sub-agents inherit the flag via the dispatch context bundle; they do not re-pars
 | `workflow-state` | Read / patch `specs/<key>-<slug>/workflow-state.json` — PO-agent is the sole writer | **Shipped** — GAP-003 (#26). Consumed by PO-agent in GAP-006 (#32). |
 | `kill-switch` | HALT-file poll, GitHub `claude-halt` label poll, per-task budget, daily token ceiling, proactive context handoff shim | **Shipped** — GAP-004 (#30). Consumed by PO-agent in GAP-006 (#32). |
 | `loop` | User-facing autonomous entry point — polls the GitHub Projects v2 board for items at `Status=Ready` and dispatches the PO-agent serially | **Shipped** — GAP-007 (#33). Reads board state populated by `issue-to-project --init`. |
-| `session-status` | Restartable session resumption — restores state on session start | follow-up |
+| `session-status` | SessionStart banner reference — documents `hooks/session-status.sh` (read-only). Lists active workflows with phase, budget %, HALT status, and stale-resume hint at session open | **Shipped** — GAP-014 (#31) |
 
 ## Agents *(partial — additional agents not yet shipping)*
 
@@ -97,7 +97,27 @@ Sub-agents inherit the flag via the dispatch context bundle; they do not re-pars
 | Hook | Trigger | Purpose | Tracking issue |
 |------|---------|---------|----------------|
 | `check-halt.sh` | PreToolUse(Bash) | Block tool call when `~/.claude/HALT` exists — universal kill-switch | **Shipped** — GAP-004 (#30) |
-| `session-status.sh` | SessionStart | Read `workflow-state.json` and print a one-line banner if a run is in progress | follow-up |
+| `session-status.sh` | SessionStart | Scan `specs/*/workflow-state.json` and print a banner per active workflow (issue, phase, budget %, HALT status, stale marker). Also prints `HALT ACTIVE` if `~/.claude/HALT` exists. Read-only. | **Shipped** — GAP-014 (#31) |
+
+### session-status.sh wiring
+
+Copy into the consumer repo's `.claude/settings.json` under `hooks.SessionStart`:
+
+```json
+{
+  "matcher": "SessionStart",
+  "hooks": [{
+    "type": "command",
+    "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-status.sh",
+    "timeout": 10000
+  }]
+}
+```
+
+Environment overrides: `MAKATO_HALT_FILE`, `MAKATO_DISABLE_SESSION_STATUS=1` (silent
+short-circuit), `MAKATO_SPECS_ROOT`, `MAKATO_STALE_HOURS` (defaults to 24). Full
+reference: `skills/session-status/SKILL.md`. Smoke tests:
+`hooks/session-status-smoke-tests.sh`.
 
 ## Kill-switch and HALT codes
 
@@ -222,7 +242,8 @@ makato-orchestrate/
 │   └── scout.md                          (GAP-013 / #29 — shipped)
 ├── hooks/
 │   ├── check-halt.sh                     (GAP-004 / #30 — shipped)
-│   └── (session-status — added per follow-up)
+│   ├── session-status.sh                 (GAP-014 / #31 — shipped)
+│   └── session-status-smoke-tests.sh     (GAP-014 / #31 — shipped)
 ├── scripts/
 │   ├── context-handoff.sh                (GAP-004 / #30 — shipped)
 │   └── context-handoff-smoke-tests.sh    (GAP-004 / #30 — shipped)
@@ -236,7 +257,10 @@ makato-orchestrate/
 │   │   ├── SKILL.md
 │   │   └── references/
 │   │       └── daily-budget.schema.json
-│   └── (loop, session-status — added per follow-ups)
+│   ├── loop/                             (GAP-007 / #33 — shipped)
+│   │   └── SKILL.md
+│   └── session-status/                   (GAP-014 / #31 — shipped)
+│       └── SKILL.md
 ├── shared/
 │   ├── workflow-state.sh                 (GAP-003 / #26 — shipped)
 │   ├── worktree.sh                       (GAP-017 / #46 — shipped)

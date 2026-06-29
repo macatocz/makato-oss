@@ -98,7 +98,8 @@ makato-orchestrate/
 │   └── scout.md                          (GAP-013 / #29 — shipped)
 ├── hooks/
 │   ├── check-halt.sh                     (GAP-004 / #30 — shipped)
-│   └── session-status.sh                 (GAP-007 follow-up — stub)
+│   ├── session-status.sh                 (GAP-014 / #31 — shipped)
+│   └── session-status-smoke-tests.sh     (GAP-014 / #31 — shipped)
 ├── scripts/
 │   ├── context-handoff.sh                (GAP-004 / #30 — shipped)
 │   ├── context-handoff-smoke-tests.sh    (GAP-004 / #30 — shipped)
@@ -115,7 +116,7 @@ makato-orchestrate/
 │   │   └── references/
 │   │       └── daily-budget.schema.json
 │   ├── loop/SKILL.md                     (GAP-007 / #33 — shipped)
-│   └── session-status/SKILL.md           (GAP-007 follow-up)
+│   └── session-status/SKILL.md           (GAP-014 / #31 — shipped)
 ├── shared/
 │   ├── workflow-state.sh                 (GAP-003 / #26)
 │   ├── worktree.sh                       (GAP-017 / #46 — shipped)
