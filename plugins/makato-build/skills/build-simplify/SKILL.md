@@ -287,4 +287,3 @@ Status mapping:
 | `MISSING_PLAN` | No `plan.md` in `specs/<key>-*/` AND the dispatch did not pass acceptance criteria inline. (Soft — Step 1 says "proceed without one" so this is only HALT when autonomous AND the dispatch contract demanded ACs.) |
 | `BASELINE_BROKEN` | Step 3 baseline could not be established (test runner errors out before producing pass/fail counts). |
 | `VERIFY_FAILED` | Step 7 detected new failures introduced by applied simplifications and revert did not restore green. |
-

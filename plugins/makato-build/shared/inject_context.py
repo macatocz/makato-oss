@@ -124,10 +124,7 @@ def _glob_specificity(glob: str) -> int:
       `src/main.py`      -> 2 literal segments (`src`, `main.py`)
     """
     segments = glob.split("/")
-    return sum(
-        1 for seg in segments
-        if seg and "*" not in seg and "?" not in seg
-    )
+    return sum(1 for seg in segments if seg and "*" not in seg and "?" not in seg)
 
 
 def _bundle_matches_file(bundle: dict, file_path: str) -> tuple[bool, int]:

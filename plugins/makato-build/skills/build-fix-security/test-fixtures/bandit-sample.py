@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import hashlib
 import pickle
-import random
 import ssl
 import subprocess
 import yaml
@@ -23,6 +22,7 @@ import yaml
 # ---------------------------------------------------------------------------
 # Branch 1 — Autofix: mechanical safe-function swap
 # ---------------------------------------------------------------------------
+
 
 def crypto_weak_hash(data: bytes) -> str:
     """Expected route: bandit:B303 → Branch 1 (Autofix, CWE-327).
@@ -53,6 +53,7 @@ def ssl_legacy_protocol() -> ssl.SSLContext:
 # Branch 2 — Refactor: structural fix required
 # ---------------------------------------------------------------------------
 
+
 def shell_injection(message: str) -> None:
     """Expected route: bandit:B602 → Branch 2 (Refactor, CWE-78).
 
@@ -65,6 +66,7 @@ def shell_injection(message: str) -> None:
 # ---------------------------------------------------------------------------
 # Branch 3 — Suppress: deterministic false-positive pattern
 # ---------------------------------------------------------------------------
+
 
 def test_assert_fp(value: int) -> None:
     """Expected route: bandit:B101 in test context → Branch 3 (Suppress).
@@ -80,6 +82,7 @@ def test_assert_fp(value: int) -> None:
 # ---------------------------------------------------------------------------
 # Branch 4 — Carry-over: cannot safely auto-fix
 # ---------------------------------------------------------------------------
+
 
 def deserialize_untrusted(path: str) -> object:
     """Expected route: bandit:B301 → Branch 4 (Carry-over, CWE-502).

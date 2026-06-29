@@ -243,7 +243,9 @@ def parse_sarif(file_or_dict: Any) -> list[Finding]:
             # Resolution order: result.properties.category → rule tags → rule_id heuristic.
             routed_rule = rule_id
             if is_semgrep and rule_id:
-                routed_rule = _semgrep_category(rule_id, result, rule_def) + "." + rule_id
+                routed_rule = (
+                    _semgrep_category(rule_id, result, rule_def) + "." + rule_id
+                )
 
             findings.append(
                 Finding(
@@ -1073,7 +1075,10 @@ foo.py:42:3 - warning: Type partially unknown (reportUnknownMemberType)
                         "rules": [
                             {
                                 "id": "python.lang.security.deserialization.use-of-pickle",
-                                "properties": {"category": "security", "tags": ["CWE-502"]},
+                                "properties": {
+                                    "category": "security",
+                                    "tags": ["CWE-502"],
+                                },
                             },
                             {
                                 "id": "python.lang.correctness.useless-return",
@@ -1135,7 +1140,8 @@ foo.py:42:3 - warning: Type partially unknown (reportUnknownMemberType)
     )
     if len(sg_findings) == 3:
         _check(
-            sg_findings[0].rule == "security.python.lang.security.deserialization.use-of-pickle",
+            sg_findings[0].rule
+            == "security.python.lang.security.deserialization.use-of-pickle",
             f"semgrep[0].rule should have 'security.' prefix (got {sg_findings[0].rule!r})",
         )
         _check(

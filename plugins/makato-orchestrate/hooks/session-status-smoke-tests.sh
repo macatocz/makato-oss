@@ -170,5 +170,33 @@ out="$(_run_hook)"
 [[ "$out" == *"(?%)"* ]] || { echo "  ✗ FAIL: expected ?% for non-numeric budget"; exit 1; }
 echo "  ✓ non-numeric budget shown as ?% without crash"
 
+# ---------------------------------------------------------------------------
+# T10 — po-agent Step 6a contains gh pr checks polling
+# ---------------------------------------------------------------------------
+echo "=== T10: po-agent Step 6a contains gh pr checks polling ==="
+grep -q 'gh pr checks' plugins/makato-orchestrate/agents/po-agent.md   || { echo "  ✗ FAIL: Step 6a CI polling command missing"; exit 1; }
+echo "  ✓ Step 6a CI polling command present"
+
+# ---------------------------------------------------------------------------
+# T11 — po-agent Step 6a contains gh run view --log-failed
+# ---------------------------------------------------------------------------
+echo "=== T11: po-agent Step 6a contains gh run view --log-failed ==="
+grep -q 'gh run view --log-failed' plugins/makato-orchestrate/agents/po-agent.md   || { echo "  ✗ FAIL: Step 6a CI log fetch command missing"; exit 1; }
+echo "  ✓ Step 6a CI log fetch command present"
+
+# ---------------------------------------------------------------------------
+# T12 — po-agent Step 6b contains gh pr view --json reviewDecision
+# ---------------------------------------------------------------------------
+echo "=== T12: po-agent Step 6b contains gh pr view --json reviewDecision ==="
+grep -q 'reviewDecision' plugins/makato-orchestrate/agents/po-agent.md   || { echo "  ✗ FAIL: Step 6b review-decision polling missing"; exit 1; }
+echo "  ✓ Step 6b review-decision polling present"
+
+# ---------------------------------------------------------------------------
+# T13 — po-agent label matrix contains HALT-010
+# ---------------------------------------------------------------------------
+echo "=== T13: po-agent label matrix contains HALT-010 ==="
+grep -q 'HALT-010' plugins/makato-orchestrate/agents/po-agent.md   || { echo "  ✗ FAIL: HALT-010 missing from po-agent"; exit 1; }
+echo "  ✓ HALT-010 present in label matrix"
+
 echo ""
-echo "All 9 session-status smoke tests passed."
+echo "All 13 session-status smoke tests passed."

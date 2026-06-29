@@ -2,17 +2,14 @@
 name: po-agent
 model: sonnet
 description: >-
-  Top-level autonomous orchestrator (GAP-006 / #32). Drives a single
-  ready-for-dev GitHub Issue from a decomposed spec folder to a merged
-  PR without human intervention. Runs a plan-level outer loop: polls
-  kill-switch at every boundary, dispatches a `makato-build` autonomous
-  implementation skill, parses the R1 envelope, decides advance-vs-replan,
-  emits its own R1 at termination. Sole writer of `workflow-state.json`.
-  Owns the per-run git worktree lifecycle (GAP-017 / #46): creates the
-  worktree on session start, propagates its path to every sub-agent,
-  removes it on `done`, retains it on HALT. Never edits target-repo
-  source files — orchestrates only.
-version: "1.2.0"
+  Drives a single ready-for-dev GitHub Issue from spec folder to merged PR.
+  Outer loop: kill-switch at every boundary, dispatches makato-build autonomous
+  skill, polls CI checks and review decisions for fix loops, emits R1 at
+  termination. Sole writer of `workflow-state.json`. Owns the per-run git
+  worktree lifecycle (GAP-017 / #46): creates the worktree on session start,
+  propagates its path to every sub-agent, removes it on `done`, retains it on
+  HALT. Never edits target-repo source files — orchestrates only.
+version: "1.3.0"
 maxTurns: 100
 permissionMode: bypassPermissions
 disallowedTools: NotebookEdit
@@ -430,14 +427,109 @@ skill (all `sub_tasks[].status == "complete"`), advance the pipeline:
    last entry). If both routes yield null, emit HALT-005 — the PR push
    reported success but no PR number is recoverable. Patch
    `.github_pr_number` on workflow-state.
-5. Optional: dispatch `/makato-build:build-address-pr-comments <KEY>
+
+5. (Step 6a) Poll CI status: after a 30-second initial delay, run:
+
+   ```bash
+   gh pr checks <PR> --json name,state,conclusion
+   ```
+
+   Inspect the `conclusion` field for each check. Poll every 60 seconds, up to 10 polls
+   total (≈ 10 minutes). While at least one check has `conclusion == null` (still running),
+   keep polling. Once all checks resolve:
+
+   - **All `conclusion == "success"`** — CI passed. Advance to sub-step 6 (optional
+     address-pr-comments check).
+   - **Any `conclusion == "failure"`** — CI failed. CI-failure fix loop:
+
+     1. Run `kill-switch poll <KEY>` — HALT-008 fires here if `outer_iteration >= 3`.
+        On HALT-008: apply `needs-human-review`, run `shared/worktree.sh retain <KEY>
+        HALT-008`, emit session-end JSONL (Step 7), return R1 `failure`.
+     2. Fetch the failed-job log:
+        ```bash
+        gh run view --log-failed
+        ```
+        Capture the output (truncate to ≤ 4000 chars from the tail to stay within
+        context). Append a `lessons_learned` entry:
+        ```bash
+        shared/workflow-state.sh append-lesson <KEY> "CI failure on PR <PR>: <truncated-log>"
+        ```
+     3. Patch `outer_iteration += 1`:
+        ```bash
+        NEW_ITER=$(( $(shared/workflow-state.sh read <KEY> | jq '.outer_iteration') + 1 ))
+        shared/workflow-state.sh patch <KEY> .outer_iteration "$NEW_ITER"
+        ```
+     4. Dispatch `/makato-build:coder --autonomous` with the CI failure log appended to
+        the context bundle as `ci_failure_log`. The dispatch follows the same bundle
+        structure as Step 4d (WORKTREE_PATH, KEY, REPO, etc.) with the additional field.
+     5. After coder returns R1 `success`: dispatch `/makato-build:build-push-to-git
+        <KEY> --autonomous` to re-push the fixed commit, then re-poll CI from the top
+        of this sub-step (reset poll counter).
+     6. On coder R1 `failure`: treat as HALT-STRUCTURAL — run `shared/worktree.sh retain
+        <KEY> HALT-STRUCTURAL`, emit session-end JSONL, return R1 `failure`.
+
+   - **All `conclusion == "skipped"` or mixed `success/skipped`** — treat as passing CI.
+     Advance to sub-step 6.
+   - **10-poll timeout reached with no resolution** — append a `lessons_learned` entry
+     (`"CI checks still pending after 10 polls — treating as CI failure"`), then enter
+     the CI-failure fix loop above.
+
+   Emit JSONL after each poll round:
+   ```json
+   {"ts":"<ISO-8601-ms>","skill":"po-agent","issue":<N>,"step":"ci-poll","status":"<ok|warn>","data":{"poll_round":<I>,"pr":<PR>,"all_passing":<bool>}}
+   ```
+
+6. Optional: dispatch `/makato-build:build-address-pr-comments <KEY>
    --autonomous` IF and only IF `gh pr view <PR> --json comments,reviews`
    reports unresolved reviewer feedback at PR-creation time (e.g. from a
    previously-open draft this run is re-using). On a fresh PR the check
-   returns no comments and this step is skipped. Subsequent reviewer
-   rounds are out of scope — operator re-invokes `loop --autonomous` for
-   another cycle.
-6. Patch `current_phase: "done"`. Run `shared/worktree.sh cleanup <KEY>`
+   returns no comments and this step is skipped.
+
+7. (Step 6b) Poll review decision: while the PR is open, run every 300 seconds
+   (configurable via `MAKATO_REVIEW_POLL_INTERVAL`, default 300):
+
+   ```bash
+   gh pr view <PR> --json reviewDecision,state
+   ```
+
+   - **`state != "OPEN"`** — PR was merged, closed, or otherwise resolved. Exit the
+     polling loop and advance to sub-step 8 (worktree cleanup).
+   - **`reviewDecision == "APPROVED"`** — PR approved. Exit loop, advance to sub-step 8.
+   - **`reviewDecision == "CHANGES_REQUESTED"`** — Reviewer requested changes. Human-review
+     fix loop:
+
+     1. Increment `human_review_cycles`:
+        ```bash
+        NEW_CYCLES=$(( $(shared/workflow-state.sh read <KEY> | jq '.human_review_cycles') + 1 ))
+        shared/workflow-state.sh patch <KEY> .human_review_cycles "$NEW_CYCLES"
+        ```
+     2. Check HALT-010: if `human_review_cycles >= MAX_HUMAN_REVIEW_CYCLES` (env var,
+        default 3, matching `halt-conditions.md`):
+        - Apply `needs-human-review` label:
+          ```bash
+          gh issue edit <ISSUE_NUMBER> --add-label needs-human-review
+          ```
+        - Append halt audit entry with code `"HALT-010"` and `data.human_review_cycles`.
+        - Run `shared/worktree.sh retain <KEY> HALT-010`.
+        - Emit session-end JSONL (Step 7) and return R1 `failure`.
+     3. Below the cap: dispatch `/makato-build:build-address-pr-comments <KEY>
+        --autonomous`. Parse R1; on `failure` → HALT-002 (apply `needs-human-review`,
+        retain worktree, return R1 `failure`).
+     4. After `build-address-pr-comments` returns `success`: dispatch
+        `/makato-build:build-push-to-git <KEY> --autonomous` to push the addressed
+        comments. Then re-poll from the top of this sub-step.
+   - **`reviewDecision == null` / `"REVIEW_REQUIRED"`** — still awaiting review. Continue
+     polling.
+
+   This loop is bounded by HALT-010 (human_review_cycles cap). The loop exits only on
+   PR merge/close, APPROVED, or HALT-010.
+
+   Emit JSONL on each cycle exit or HALT:
+   ```json
+   {"ts":"<ISO-8601-ms>","skill":"po-agent","issue":<N>,"step":"review-poll","status":"<ok|warn>","data":{"pr":<PR>,"review_decision":"<decision>","human_review_cycles":<N>}}
+   ```
+
+8. Patch `current_phase: "done"`. Run `shared/worktree.sh cleanup <KEY>`
    (GAP-017 / #46) — this `git worktree remove --force`s the per-run
    worktree and patches `.worktree_path` back to null. The helper emits
    `worktree_removed` on stdout; the PO-agent appends the matching JSONL
@@ -447,7 +539,7 @@ skill (all `sub_tasks[].status == "complete"`), advance the pipeline:
    {"ts":"<ISO-8601-ms>","skill":"po-agent","issue":<ISSUE_NUMBER>,"step":"worktree","status":"ok","data":{"event":"worktree_removed","path":"<absolute>"}}
    ```
 
-   Cleanup runs ONLY on the success path (this Step 6 #6). HALT exits go
+   Cleanup runs ONLY on the success path (this Step 6 #8). HALT exits go
    through § *Worktree Lifecycle* § *Retention on HALT* instead — they
    keep the worktree on disk for human inspection.
 
@@ -613,7 +705,7 @@ HALT-000 is a terminal HALT for this session.
 | Create | Step 2b on fresh run | `create` (no existing) | `worktree_path = <abs>`, dir on disk |
 | Resume | Step 2b on session resume | `create` (existing) | `worktree_path = <abs>`, dir untouched |
 | Inherit | Each sub-agent dispatch | `path` (read-only) | unchanged |
-| Cleanup | Step 6 #6 on success | `cleanup` | `worktree_path = null`, dir removed |
+| Cleanup | Step 6 #8 on success | `cleanup` | `worktree_path = null`, dir removed |
 | Retain | Every terminal HALT (except HALT-007B) | `retain <CODE>` | `worktree_retained = true`, dir untouched |
 
 ### Failure modes
@@ -734,6 +826,7 @@ remove labelling on a code path:
 | HALT-007B | `kill-switch handoff` (context ceiling) | Nobody — quality control, no label (NEVER 9) |
 | HALT-008 | `kill-switch poll` (`outer_iteration >= 3`) | `kill-switch poll` |
 | HALT-009 | `kill-switch poll` (`claude-halt` label on issue) | `kill-switch poll` |
+| HALT-010 | CI/review polling loop (`human_review_cycles >= MAX`) | **PO-agent** |
 | HALT-STRUCTURAL | `build-refine` re-plan failed (Step 4f) | **PO-agent** |
 
 Idempotency: `gh issue edit --add-label` is idempotent — re-applying an
@@ -756,6 +849,7 @@ session to resume.
 | `plan.md` graph has a dependency cycle (Step 4c) | HALT-006; R1 `failure`; **PO-agent** applies `needs-human-review` |
 | `workflow-state.json` malformed | Treat as fresh state, re-init; if init refuses (duplicate), HALT-006 |
 | Sub-agent R1 not parseable | NEVER 6; treat as `failure`; route to Step 4f (`build-refine` re-plan). Second failure on the same outer attempt → HALT-STRUCTURAL. |
+| `human_review_cycles >= MAX` (HALT-010) | HALT-010; R1 `failure`; **PO-agent** applies `needs-human-review` |
 | `build-refine` (Step 4f) itself returned `failure` | HALT-STRUCTURAL; R1 `failure`; **PO-agent** applies `needs-human-review` |
 | `gh` CLI not authenticated | HALT-006 (issue cannot be read); R1 `failure` |
 | `kill-switch` skill missing | The plugin is partially installed. HALT-006. |
@@ -773,12 +867,7 @@ session to resume.
   precondition — `plan.md` must exist before the PO-agent is invoked.
 - **Post-merge documentation, changelog generation, deploy.** GAP-012
   (#35) and later land those.
-- **PR-comment review loops indefinitely.** One pass of
-  `build-address-pr-comments` is in scope; subsequent reviewer rounds are
-  out of scope for this dispatch (operator re-invokes `loop --autonomous`
-  to enter another cycle).
-
-## Why this agent is in `makato-orchestrate`, not `makato-build`
+##  Why this agent is in `makato-orchestrate`, not `makato-build`
 
 `makato-build` skills land code per story — they own the inner loop. This
 agent owns the outer loop: the iteration counter, the HALT taxonomy, the

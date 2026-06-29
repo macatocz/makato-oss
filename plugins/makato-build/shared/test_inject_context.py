@@ -76,7 +76,9 @@ class SingleMatchTests(unittest.TestCase):
 class MultiMatchAndDedupTests(unittest.TestCase):
     """Case 2 — Multi-match → declaration/specificity order + dedup-first."""
 
-    def test_python_and_typescript_both_appear_default_last_and_no_duplicates(self) -> None:
+    def test_python_and_typescript_both_appear_default_last_and_no_duplicates(
+        self,
+    ) -> None:
         rules, warning = resolve_bundles(["src/foo.ts", "src/bar.py"], _CONFIG)
 
         # Order is governed by specificity (descending), then by declaration
@@ -169,7 +171,9 @@ class NoMatchWarningTests(unittest.TestCase):
 class MissingDefaultTests(unittest.TestCase):
     """Case 6 — Config has no `default` bundle → HALT-006."""
 
-    def test_missing_default_raises_bundle_resolution_error_with_halt_code(self) -> None:
+    def test_missing_default_raises_bundle_resolution_error_with_halt_code(
+        self,
+    ) -> None:
         config_no_default = {
             "version": "1.0",
             "bundles": [
@@ -266,9 +270,7 @@ class IntegrationTests(unittest.TestCase):
             "context-bundles.yml",
         )
         if not os.path.exists(cls.config_path):
-            raise unittest.SkipTest(
-                f"production config not found at {cls.config_path}"
-            )
+            raise unittest.SkipTest(f"production config not found at {cls.config_path}")
 
     def _load(self) -> dict:
         import yaml
@@ -320,9 +322,7 @@ class IntegrationTests(unittest.TestCase):
         # default-bundle rule paths from the parsed config rather than hard-
         # coding substrings — keeps this assertion robust when the production
         # config renames or reorders default rules.
-        default_bundle = next(
-            b for b in config["bundles"] if b["name"] == "default"
-        )
+        default_bundle = next(b for b in config["bundles"] if b["name"] == "default")
         default_rule_set = set(default_bundle["rules"])
         # Every default rule that survived dedup must appear in the output.
         default_indices = [i for i, r in enumerate(rules) if r in default_rule_set]
