@@ -147,7 +147,7 @@ The autonomous-mode pipeline has two cohorts of consumers. Both honour the falsy
 - `build-push-to-git` — `git commit` / `git push` operate against the worktree's branch. Plan reads via `REPO_ROOT`. Forwards `WORKTREE_PATH` to `build-create-pr` when auto-dispatching at Step 8.
 - `build-create-pr` — `gh pr create` resolves the right branch from the worktree's `.git`. Spec artefact reads (`stories.json`, `prd.md`, `plan.md`, `.github/PULL_REQUEST_TEMPLATE.md`, `created-issues.json`) via `REPO_ROOT`.
 - `build-refine` — produces `plan.md`; reads spec folder via `REPO_ROOT`. Honours the falsy-check when dispatched by the PO-agent on a re-plan cycle (Step 4f of `po-agent`).
-- `build-simplify` — runs `git diff main...HEAD` and applies fixes in `WORKTREE_PATH`. Plan reads via `REPO_ROOT`.
+- `build-simplify` — runs `git diff "$(shared/default-branch.sh)...HEAD"` (resolves `origin/<default-branch>` to avoid stale-main pull-in — #98) and applies fixes in `WORKTREE_PATH`. Plan reads via `REPO_ROOT`.
 - `build-address-pr-comments` — `gh pr` calls + per-comment fix-apply operate from `WORKTREE_PATH`. Spec artefact reads via `REPO_ROOT`.
 - `coder` agent — receives `WORKTREE_PATH` in its input bundle; `cd`s before RED→GREEN→INTEGRATE→VERIFY. In autonomous mode, the agent MUST HALT R1 `failure` with `MISSING_INPUT: WORKTREE_PATH required in autonomous mode` when the field is empty — silently falling back to the main checkout defeats Layer 1 isolation. Detection: any of `$AGENT_ID`, an `AUTONOMOUS_MODE` field in the dispatch bundle, or the absence of an interactive prompt context.
 

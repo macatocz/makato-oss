@@ -8,7 +8,7 @@ description: >-
   auto-approves SIMPLIFY findings and surfaces ESCALATE findings via R1.
   Use after implement-tdd or implement-goal, before review; also invoked
   by sensor-fixer / build-resolve-finding for code-complexity findings.
-version: "1.4.0"
+version: "1.4.1"
 argument-hint: "[work-item-key] [--autonomous]"
 ---
 
@@ -50,7 +50,7 @@ Ask: *"Which work item are we simplifying? (e.g. DCP-1234)"* — or use the pass
 Read `plan.md` from the resolved spec folder under `$REPO_ROOT` (`$REPO_ROOT/specs/<key>-*/plan.md`) if it exists. Extract the acceptance criteria for each task —
 these define "complexity that serves the ACs." If no plan exists, proceed without one.
 
-Run `git diff main...HEAD --name-only` to identify all changed files in this branch.
+Resolve the integration target with `DEFAULT_REF="$(shared/default-branch.sh)"` (returns e.g. `origin/main`). Fetch the remote first — `git fetch origin --quiet` — so the diff is taken against the latest integration tip; if `origin` is unreachable in this environment, fall back to the local default branch and continue. Then run `git diff "$DEFAULT_REF...HEAD" --name-only` to identify all changed files in this branch. Never diff against the bare local `main` — when local `main` lags `origin/main` the diff pulls in commits from already-merged PRs and this skill would "simplify" code it did not author (#98).
 
 ---
 
@@ -104,7 +104,7 @@ The Step 7 verify gate honors this flag and short-circuits; the R1 envelope surf
 
 Load `@references/simplification-patterns.md`.
 
-For each changed file, read the full diff (`git diff main...HEAD -- <file>`) and scan for
+For each changed file, read the full diff (`git diff "$DEFAULT_REF...HEAD" -- <file>`, with `DEFAULT_REF` from Step 1) and scan for
 patterns. For each candidate, cross-reference against the plan's ACs:
 "Does this complexity serve an acceptance criterion?"
 - Yes → verdict: **KEEP**

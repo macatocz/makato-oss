@@ -6,7 +6,7 @@ description: >-
   correctness bugs, edge cases, security issues, and contract violations.
   Returns findings classified as CRITICAL, SUGGESTION, or NITPICK.
   Dispatched by the review skill.
-version: "1.2.0"
+version: "1.2.1"
 maxTurns: 20
 permissionMode: bypassPermissions
 disallowedTools: Write, Edit, NotebookEdit
@@ -45,7 +45,7 @@ For each changed file, apply all seven review categories:
 
 ## Behavior Rules
 
-- Read the full diff using `git diff main...HEAD -- <file>` plus enough surrounding context to understand behavior — never review a diff in isolation
+- Read the full diff using `git diff "$DEFAULT_REF...HEAD" -- <file>` (with `DEFAULT_REF` resolved by `shared/default-branch.sh`, e.g. `origin/main`) plus enough surrounding context to understand behavior — never diff against the bare local `main` (#98), and never review a diff in isolation
 - Assume the author made mistakes — look for what could go wrong, not for what is correct
 - Classify findings strictly using this 3-tier rubric:
   - **CRITICAL** — correctness bug, security issue, or AC gap that must be fixed before `/verify`. A finding is CRITICAL if it would produce wrong output, expose sensitive data, violate the acceptance criteria contract, or cause a runtime failure in production.
@@ -61,7 +61,7 @@ For each changed file, apply all seven review categories:
 
 ### Step 1 — Read changed files
 
-For each file in CHANGED_FILES: read the full diff via `git diff main...HEAD -- <file>` and enough surrounding context to understand callers and callees.
+For each file in CHANGED_FILES: read the full diff via `git diff "$DEFAULT_REF...HEAD" -- <file>` (`DEFAULT_REF` from `shared/default-branch.sh`) and enough surrounding context to understand callers and callees.
 
 ### Step 2 — Apply adversarial lens
 

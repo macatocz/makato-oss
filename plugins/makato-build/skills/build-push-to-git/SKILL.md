@@ -5,7 +5,7 @@ description: >-
   and push the feature branch to remote. One commit per logical task,
   individually bisectable. Confirms push before affecting remote.
   Use after verify, before create-pr.
-version: "1.4.0"
+version: "1.4.1"
 argument-hint: "[work-item-key] [--autonomous]"
 ---
 
@@ -130,9 +130,11 @@ Log each commit:
 
 ### Step 6 — Confirm push to remote
 
-Show the user the commits that will be pushed:
+Show the user the commits that will be pushed (resolve the integration target via `shared/default-branch.sh` so a stale local `main` does not include commits from already-merged PRs — #98):
 ```
-git log main..HEAD --oneline
+DEFAULT_REF="$(shared/default-branch.sh)"
+git fetch origin --quiet
+git log "$DEFAULT_REF..HEAD" --oneline
 ```
 
 In **interactive mode**, ask: *"Ready to push `<N>` commits to `origin/<branch>`? This will trigger CI and be visible to the team."* Wait for explicit confirmation. If the user declines, the commits are local — they can push manually when ready. Stop here without error.

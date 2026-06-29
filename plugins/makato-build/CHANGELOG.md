@@ -5,6 +5,23 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## Diff against `origin/<default-branch>`, never bare `main` (#98)
+
+Fixes the silent stale-main pull-in surfaced during the #58 smoke test: every `build-*` skill that diffs the feature branch resolved the integration target to the local literal `main`, but on a stale checkout `main` lags `origin/main` between operator pulls. The triple-dot diff then pulled in commits from already-merged PRs, so `build-simplify` would "simplify" code it did not author and `build-review` would adversarially review code that already shipped. The reproducer in the issue body produces 3 files-changed instead of 1 — the new smoke test pins that exact failure mode.
+
+- **plugins/makato-build/shared/default-branch.sh** → new — resolves `origin/<default-branch>` via `git symbolic-ref refs/remotes/origin/HEAD`, with explicit fallbacks to `origin/main` / `origin/master` and a final degraded-mode fallback to the local default branch that warns to stderr. Callers `git fetch origin --quiet` first if they need absolute freshness; this script only resolves the ref name. Executable.
+- **plugins/makato-build/shared/default-branch-smoke-tests.sh** → new — three sections: (1) runtime behaviour of the helper in an isolated sandbox repo, (2) bug reproduction proving `git diff main...HEAD --name-only` lists already-merged files on a stale local `main` and `git diff "$(default-branch.sh)...HEAD" --name-only` lists only the branch's own change, (3) static grep contract proving every build-* skill / agent references the helper and contains no bare `git diff main...HEAD` literal. 15 checks, all green.
+- **plugins/makato-build/skills/build-simplify/SKILL.md** (1.4.0 → 1.4.1) — Step 1 and Step 4 resolve `DEFAULT_REF="$(shared/default-branch.sh)"` and run `git diff "$DEFAULT_REF...HEAD"`. Documents the stale-main failure mode inline so operators understand why the indirection exists.
+- **plugins/makato-build/skills/build-review/SKILL.md** (1.3.2 → 1.3.3) — Step 1, Step 4 (`CHANGED_FILES`), and Step 5 (LOC gate) all switched to `$DEFAULT_REF`.
+- **plugins/makato-build/skills/build-create-pr/SKILL.md** (1.5.0 → 1.5.1) — Step 1 commit-listing switched to `git log "$DEFAULT_REF..HEAD" --oneline`.
+- **plugins/makato-build/skills/build-push-to-git/SKILL.md** (1.4.0 → 1.4.1) — Step 6 pre-push commit display switched to `$DEFAULT_REF` with the `git fetch origin --quiet` prelude.
+- **plugins/makato-build/agents/diff-reviewer.md** (1.2.0 → 1.2.1) — Behavior Rules and Process Step 1 reference the helper. The diff-reviewer is dispatched by build-review and was reading the bare-main diff transitively.
+- **plugins/makato-build/AUTONOMOUS-MODE.md** — `build-simplify` row in the WORKTREE_PATH section updated to reflect the new diff command.
+
+`build-start/SKILL.md` was audited — it uses `upstream/main` for fork-distance detection, which is a different upstream/origin axis and is left alone. `build-sensors/SKILL.md` already used `origin/main` and is unchanged. CHANGELOG.md entries describing the historical commands are left intact as audit trail.
+
+---
+
 ## `build.jsonl` audit trail ships in-repo (#99)
 
 Fixes the cross-contributor reproducibility hole surfaced while reviewing #58: every `build-*` skill appends JSONL evidence to `specs/<key>/build.jsonl` via `shared/build-log.sh`, but `specs/` was unconditionally gitignored — so the audit trail referenced from issue bodies and PR descriptions was only ever visible in the original author's checkout. AC #2 of #58 ("reproducer commands work for any reviewer") was structurally unsatisfiable.

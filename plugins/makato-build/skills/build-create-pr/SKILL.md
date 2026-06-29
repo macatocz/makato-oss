@@ -6,7 +6,7 @@ description: >-
   to How to Test, design decisions surface in the description, Jira
   story is linked. Presents draft for user approval before opening.
   Interactive. Use after push-to-git, before address-pr-comments.
-version: "1.5.0"
+version: "1.5.1"
 argument-hint: "[work-item-key] [--autonomous]"
 ---
 
@@ -92,7 +92,7 @@ If validation fails (invalid JSON or schema mismatch), log a single warning:
 `[build-create-pr] WARNING: specs/<slug>/created-issues.json is malformed (<error>) — continuing without Closes injection`
 …and proceed with the current v1.2.0 behavior. Never block PR creation on artifact problems (D21).
 
-Run `git log main..HEAD --oneline` to see the commits included in this PR.
+Resolve the integration target with `DEFAULT_REF="$(shared/default-branch.sh)"` (returns e.g. `origin/main`); run `git fetch origin --quiet` first so the comparison reflects the latest integration tip. Then run `git log "$DEFAULT_REF..HEAD" --oneline` to see the commits included in this PR. Never compare against the bare local `main` — a stale local `main` reports commits from already-merged PRs (#98).
 
 ---
 

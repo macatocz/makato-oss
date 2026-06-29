@@ -5,7 +5,7 @@ description: >-
   are fixed and the review loops until clean. Auto-fixes mechanical
   issues (formatting, imports). Reports SUGGESTION and NITPICK
   findings. Autonomous. Use after simplify, before verify.
-version: "1.3.2"
+version: "1.3.3"
 model: opus
 argument-hint: "[work-item-key]"
 
@@ -24,7 +24,7 @@ Ask: *"Which work item are we reviewing? (e.g. #123, or pass it directly: `/maka
 Read `plan.md` from the resolved spec folder (`specs/<key>-*/`) if it exists. Extract the acceptance criteria and task list —
 these are the correctness contract. Every AC must be demonstrably covered by the diff.
 
-Run `git diff main...HEAD --name-only` to get the list of changed files.
+Resolve the integration target with `DEFAULT_REF="$(shared/default-branch.sh)"` (returns e.g. `origin/main`). Fetch the remote first — `git fetch origin --quiet` — so the diff reflects the latest integration tip; if `origin` is unreachable, fall back to the local default branch and continue. Then run `git diff "$DEFAULT_REF...HEAD" --name-only` to get the list of changed files. Never diff against the bare local `main` — when local `main` lags `origin/main` the diff pulls in commits from already-merged PRs (#98).
 
 ---
 
@@ -59,7 +59,7 @@ Log:
 Dispatch the `diff-reviewer` agent with:
 - `STORY_KEY`: the work item key
 - `PASS_NUMBER`: current pass number (starts at 1; increment on each re-dispatch after CRITICAL fixes)
-- `CHANGED_FILES`: list of changed file paths from `git diff main...HEAD --name-only`
+- `CHANGED_FILES`: list of changed file paths from `git diff "$DEFAULT_REF...HEAD" --name-only` (with `DEFAULT_REF` from Step 1)
 - `PLAN_CONTEXT`: acceptance criteria and task list extracted from `plan.md` in the resolved spec folder in Step 1
 - `REPO_ROOT`: absolute path to the target repository root
 
@@ -91,7 +91,7 @@ Log each fix:
 Return to Step 4. Increment the pass counter.
 
 **If zero CRITICAL findings on the first pass:**
-Treat zero findings as suspicious when the changed LOC count (from `git diff main...HEAD --stat`) exceeds 50. For diffs ≤ 50 LOC, a clean first pass is plausible and the citation record still applies. For diffs > 50 LOC, perform a source-anchored recheck:
+Treat zero findings as suspicious when the changed LOC count (from `git diff "$DEFAULT_REF...HEAD" --stat`) exceeds 50. For diffs ≤ 50 LOC, a clean first pass is plausible and the citation record still applies. For diffs > 50 LOC, perform a source-anchored recheck:
 for every changed file, produce a citation record confirming it is clean:
 
 ```
