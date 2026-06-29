@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.28.0](https://github.com/macatocz/makato/compare/v0.27.0...v0.28.0) (2026-06-29)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** merge-conflict detection and rebase resolution in po-agent (GAP-016, [#45](https://github.com/macatocz/makato/issues/45)) ([#106](https://github.com/macatocz/makato/issues/106)) ([8aac61a](https://github.com/macatocz/makato/commit/8aac61ab0da5c799044c6f61542b96d120ca5793))
+
+
+### 🐛 Bug Fixes
+
+* **makato-build:** ship specs/**/build.jsonl in-repo so audit trail is reproducible ([#99](https://github.com/macatocz/makato/issues/99)) ([#108](https://github.com/macatocz/makato/issues/108)) ([7971053](https://github.com/macatocz/makato/commit/79710530b370b7798a9f90a8763a4a7f5e557a63))
+
 ## [0.27.0](https://github.com/macatocz/makato/compare/v0.26.0...v0.27.0) (2026-06-29)
 
 
