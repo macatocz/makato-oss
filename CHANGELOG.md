@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.28.1](https://github.com/macatocz/makato/compare/v0.28.0...v0.28.1) (2026-06-29)
+
+
+### 🐛 Bug Fixes
+
+* **makato-build:** diff against origin/&lt;default-branch&gt;, never bare local main ([#98](https://github.com/macatocz/makato/issues/98)) ([#109](https://github.com/macatocz/makato/issues/109)) ([1ed87df](https://github.com/macatocz/makato/commit/1ed87dffc96abd94b23117f5665055272a0f400f))
+
 ## [0.28.0](https://github.com/macatocz/makato/compare/v0.27.0...v0.28.0) (2026-06-29)
 
 
