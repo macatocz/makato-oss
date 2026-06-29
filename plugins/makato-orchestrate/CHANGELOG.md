@@ -5,6 +5,11 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## HALT-003 extended for STRUCTURAL PR comments (GAP-011 / #36 follow-on)
+
+- **halt-conditions.md** — HALT-003 trigger list extended to include `build-address-pr-comments` autonomous-mode STRUCTURAL detection (alongside the original `diff-reviewer` CRITICAL-findings trigger). The recovery prose now also documents the structural-comment path: re-shape via `makato-plan` or override and re-run interactively.
+- **agents/po-agent.md** § *Label application* — new row `HALT-003 (variant)` calls out that `build-address-pr-comments` applies `needs-human-review` itself on AC3, and that the PO-agent's subsequent `gh issue edit --add-label` is an idempotent no-op. Avoids the appearance of a duplicate-writer contract violation against Design Principle 1.
+
 ## session-status SessionStart hook (GAP-014 / #31)
 
 - **1.0.0** — Operator-facing SessionStart banner so every new Claude Code session opens with a one-line summary per active workflow.

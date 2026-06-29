@@ -301,7 +301,7 @@ stories.json + spec/ artifacts (from makato-plan)
 | `resolve-finding` | Per-finding decision tree resolving a single sensor finding via 4 branches — autofix, tech-skill route, safe-automated action (redact/upgrade/suppress), or carry-over to draft PR | 1.0.0 |
 | `push-to-git` | Atomic conventional commits from plan task structure; one commit per task with tests bundled; interactive push confirmation before affecting remote | 1.0.0 |
 | `create-pr` | Draft PR description from spec artifacts (ACs → How to Test, tasks → What changed); optional GitHub issue linking; interactive draft review before opening | 1.0.0 |
-| `address-pr-comments` | Classify and resolve all PR comments (human and bot); four-tier classification (MUST-FIX/SHOULD-FIX/CONSIDER/OUT-OF-SCOPE); structural feedback escalates to /refine | 1.0.0 |
+| `address-pr-comments` | Classify and resolve all PR comments (human and bot); four-tier classification (MUST-FIX/SHOULD-FIX/CONSIDER/OUT-OF-SCOPE); structural feedback escalates to /refine. Headless-safe under `--autonomous` — scope-guards SHOULD-FIX against the task diff, opens `makato-carry-over` follow-up issues for OUT-OF-SCOPE comments, posts a single `[STRUCTURAL]` summary reply + applies `needs-human-review` + exits HALT-003 on STRUCTURAL MUST-FIX. Reply text rendered from `templates/pr-comment-replies.md` | 1.4.0 |
 
 ## Planned Agents *(speculative — not yet in plugin.json)*
 

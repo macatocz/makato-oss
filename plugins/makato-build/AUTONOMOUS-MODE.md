@@ -32,16 +32,26 @@ If none of those hold the skill runs in **interactive mode**, exactly as it did 
 | `build-push-to-git` | Step 8 — hand-off to create-pr | Asks A/B | Auto-invoke `/build-create-pr <key> --autonomous`. |
 | `build-create-pr` | Step 1 — work-item-key prompt | Asks for key (optional) | Use arg if passed; otherwise read `issue_number`/`branch` from most-recent `build.jsonl` session in the spec folder. HALT `MISSING_INPUT` only if neither yields a value. |
 | `build-create-pr` | Step 4 — draft approval | Asks "Does this PR description look correct?" | Open PR as drafted. PR body is rendered from spec artifacts and workflow-state (no human authoring). |
-| `build-address-pr-comments` | Step 5 — classification approval | Asks user to confirm/adjust classification + handles STRUCTURAL flow | Auto-apply MUST-FIX (non-STRUCTURAL) and SHOULD-FIX. Skip CONSIDER. Skip OUT-OF-SCOPE. STRUCTURAL MUST-FIX: HALT (see below). |
+| `build-address-pr-comments` | Step 5 — classification approval | Asks user to confirm/adjust classification + handles STRUCTURAL flow | Auto-apply MUST-FIX (non-STRUCTURAL). SHOULD-FIX is **scope-guarded** (apply only if all touched files are inside the task diff; otherwise mark DEFERRED with a `[DEFERRED]` reply). Skip CONSIDER. OUT-OF-SCOPE: open a follow-up issue via `gh issue create` with the `makato-carry-over` label and reply with the new issue URL. STRUCTURAL MUST-FIX: HALT (see below). |
+| `build-address-pr-comments` | Step 5a — STRUCTURAL handling | Asks user A/B/C and waits | Post a single summary reply on the PR (template § *STRUCTURAL MUST-FIX*), apply `needs-human-review` to PR + linked issue, log per-comment + summary `autonomous_bypass`, return R1 `failure` with `data.halt_code: "HALT-003"`. The skill applies the label itself — see *Label-application exception* below. |
 | `build-address-pr-comments` | Step 8 — push-fix confirmation | Asks before push | Push immediately. |
 | `build-simplify` | Step 5 — per-finding approval | Asks user to approve/reject each SIMPLIFY finding | Auto-approve every `SIMPLIFY` finding (apply in Step 6). KEEP findings remain KEEP (no action). ESCALATE findings are not auto-applied — they are logged and surfaced in the R1 envelope so the PO-agent can decide whether to open a `/build-refine` session for the structural piece. |
 | `build-simplify` | Step 5 — zero-findings confirmation | Asks user to confirm zero findings | Proceed without confirmation. Log `step: "review"` with `data.zero_findings: true`. |
 
 ### STRUCTURAL MUST-FIX is deliberately not auto-handled
 
-`build-address-pr-comments` classifies a MUST-FIX as **STRUCTURAL** when it requires changing the fundamental implementation approach (data model redesign, API contract reversal, algorithm replacement). In autonomous mode the skill does NOT attempt to auto-fix structural items — it halts with R1 `status: "failure"` and an error string `STRUCTURAL_BLOCKER: <comment summary>`. The PO-agent reads the R1 envelope and escalates (e.g. opens a fresh `/build-refine` session or surfaces to the human operator).
+`build-address-pr-comments` classifies a MUST-FIX as **STRUCTURAL** when it requires changing the fundamental implementation approach (data model redesign, API contract reversal, algorithm replacement). In autonomous mode the skill does NOT attempt to auto-fix structural items — it posts a single summary reply on the PR (template `templates/pr-comment-replies.md` § *STRUCTURAL MUST-FIX (autonomous HALT — AC3)*), applies the `needs-human-review` label, and halts with R1 `status: "failure"`, `errors: ["STRUCTURAL_BLOCKER: <first comment summary>"]`, and `data.halt_code: "HALT-003"`. The PO-agent reads the R1 envelope and escalates (e.g. opens a fresh `/build-refine` session or surfaces to the human operator).
 
 This is a deliberate gap, not an oversight. Re-planning is a judgment call the build pipeline does not attempt headlessly.
+
+### Label-application exception — STRUCTURAL HALT-003
+
+The general rule in `plugins/makato-orchestrate/agents/po-agent.md` § *Label application* assigns `needs-human-review` labelling to the PO-agent. `build-address-pr-comments` is a deliberate exception in two ways:
+
+1. **Sub-skill side applies the label.** AC3 of GAP-011 (#36) requires the skill itself to apply `needs-human-review` to the PR at the moment of STRUCTURAL detection. This is so the PR's reviewer sees the label even on runs where the PO-agent crashes between the sub-skill's exit and its own HALT-audit write (a small but non-zero window). The skill also labels the linked issue for redundancy.
+2. **PO-agent's later `gh issue edit` is a no-op.** Per `gh issue edit --add-label` semantics, adding an already-present label is idempotent. The PO-agent's HALT-003 path therefore safely runs its own labelling step without conflict — the contract (single source of truth = the label set, not the number of writers) is preserved.
+
+Operators reading `orchestrate.jsonl` will see the label write attributed to both the skill (`source: "build-address-pr-comments"` in the `gh` event log if captured) and the PO-agent (`halt_audit[].code: "HALT-003"` entry). Both records are expected; neither is duplicate work.
 
 ### ESCALATE findings in `build-simplify` are deliberately not auto-applied
 
@@ -133,6 +143,12 @@ The autonomous-mode pipeline has two cohorts of consumers. Both honour the falsy
 - `coder` agent — receives `WORKTREE_PATH` in its input bundle; `cd`s before RED→GREEN→INTEGRATE→VERIFY. In autonomous mode, the agent MUST HALT R1 `failure` with `MISSING_INPUT: WORKTREE_PATH required in autonomous mode` when the field is empty — silently falling back to the main checkout defeats Layer 1 isolation. Detection: any of `$AGENT_ID`, an `AUTONOMOUS_MODE` field in the dispatch bundle, or the absence of an interactive prompt context.
 
 The PO-agent's Step 2b creates the worktree and Step 6 #6 cleans it up; see `plugins/makato-orchestrate/agents/po-agent.md` § *Worktree Lifecycle* for the full lifecycle.
+
+## Shared reply templates — `templates/pr-comment-replies.md`
+
+`build-address-pr-comments` renders every PR reply from the shared template file at `plugins/makato-build/templates/pr-comment-replies.md`. The template file defines one section per classification tier plus three autonomous-only sections (DEFERRED, OUT-OF-SCOPE autonomous, STRUCTURAL). Placeholders are filled at render time; hard-coded prose in the skill body is a contract violation.
+
+This is the first cross-skill template directory in the plugin. The exception to AGENTS.md § *Skill Authoring* ("Self-contained: all references/templates inside the skill directory") is intentional and pinned by AC5 of GAP-011 (#36) — putting reply text under a plugin-level `templates/` dir keeps the reply vocabulary in one place when future skills (e.g. a follow-up `build-resolve-review`) need to mirror the same marker conventions.
 
 ## Logging contract
 

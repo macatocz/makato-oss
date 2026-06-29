@@ -819,6 +819,7 @@ remove labelling on a code path:
 | HALT-001 | `sensor-fixer` (in `makato-build`) | `sensor-fixer` (already labelled) |
 | HALT-002 | `build-verify` returned `failure` (Step 6 #2) | **PO-agent** |
 | HALT-003 | `build-implement-tdd` returned `failure` (Step 4e) | **PO-agent** |
+| HALT-003 (variant) | `build-address-pr-comments` autonomous mode returned `failure` with `data.halt_code: "HALT-003"` after STRUCTURAL MUST-FIX detection | **Sub-skill applies first** (`build-address-pr-comments` per AC3 of GAP-011 / #36); PO-agent's subsequent `gh issue edit --add-label needs-human-review` is an idempotent no-op |
 | HALT-004 | (legacy — sensor-fixer retry exhaustion) | `sensor-fixer` |
 | HALT-005 | `build-push-to-git` returned `failure` (Step 6 #3) | **PO-agent** |
 | HALT-006 | Malformed plan / spec folder / dispatch bundle (Step 1, 4c) | **PO-agent** |
