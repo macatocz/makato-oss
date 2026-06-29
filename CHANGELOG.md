@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.0](https://github.com/macatocz/makato/compare/v0.25.0...v0.26.0) (2026-06-29)
+
+
+### ✨ Features
+
+* **makato-build:** build-simplify no-test-runner handling (GAP-064 / [#64](https://github.com/macatocz/makato/issues/64) — Part A) ([#100](https://github.com/macatocz/makato/issues/100)) ([39fb4b8](https://github.com/macatocz/makato/commit/39fb4b8934896476a48887c96f08ec8aa8a112c9))
+
 ## [0.25.0](https://github.com/macatocz/makato/compare/v0.24.0...v0.25.0) (2026-06-29)
 
 
