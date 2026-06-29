@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.23.0](https://github.com/macatocz/makato/compare/v0.22.0...v0.23.0) (2026-06-29)
+
+
+### ✨ Features
+
+* **makato-build:** propagate WORKTREE_PATH into build-* skills and coder ([#85](https://github.com/macatocz/makato/issues/85)) ([#87](https://github.com/macatocz/makato/issues/87)) ([5f92355](https://github.com/macatocz/makato/commit/5f923552ef05cb7258e4554c3fefe6a5d88069fb))
+* **makato-orchestrate:** add documentation-agent for post-merge docs (GAP-012, [#35](https://github.com/macatocz/makato/issues/35)) ([#89](https://github.com/macatocz/makato/issues/89)) ([3c64090](https://github.com/macatocz/makato/commit/3c64090225bdbd2a833a35520e038ca13b08297a))
+
 ## [0.22.0](https://github.com/macatocz/makato/compare/v0.21.0...v0.22.0) (2026-06-29)
 
 
