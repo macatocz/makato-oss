@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.0](https://github.com/macatocz/makato/compare/v0.21.0...v0.22.0) (2026-06-29)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** worktree lifecycle management in po-agent (GAP-017, [#46](https://github.com/macatocz/makato/issues/46)) ([#84](https://github.com/macatocz/makato/issues/84)) ([e021e2e](https://github.com/macatocz/makato/commit/e021e2ef16c07f6d3f0354fb73124066c3de6034))
+
 ## [0.21.0](https://github.com/macatocz/makato/compare/v0.20.1...v0.21.0) (2026-06-29)
 
 
