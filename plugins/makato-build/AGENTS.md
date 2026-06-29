@@ -67,6 +67,7 @@ The `coder` agent runs with `permissionMode: bypassPermissions`. This is the onl
   - Every skill MUST append JSONL log entries to `specs/<story-key>-<slug>/build.jsonl` via `shared/build-log.sh` — minimum: session start, each major step, session end. See the Logging section in README.md for the schema.
   - Log every agent decision that deviates from the happy path using `status: "decision"` or `status: "warn"` — classification choices (fixable vs structural), escalations, gate retries, workarounds, and baseline-gate user choices. A future session reading `build.jsonl` must be able to reconstruct what went wrong and why.
   - Call `shared/build-log.sh` as a bare relative path — Claude resolves it from the plugin root context. Do not use `../shared/build-log.sh` or an absolute path.
+  - **`build.jsonl` is the only file under `specs/` that ships in-repo** (#99). The repo-root `.gitignore` excludes `specs/**/*` but re-includes `specs/**/build.jsonl` so the audit trail of every skill run is reviewable from a fresh checkout. Plan, stories, project-sync, fixtures, and every other artefact under `specs/<key>/` stay local. Treat `build.jsonl` as a committed evidence file: do not log secrets, credentials, file paths outside the repo, or any content you would not paste into a public PR.
 
 ## File Structure
 

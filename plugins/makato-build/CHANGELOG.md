@@ -5,6 +5,17 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## `build.jsonl` audit trail ships in-repo (#99)
+
+Fixes the cross-contributor reproducibility hole surfaced while reviewing #58: every `build-*` skill appends JSONL evidence to `specs/<key>/build.jsonl` via `shared/build-log.sh`, but `specs/` was unconditionally gitignored — so the audit trail referenced from issue bodies and PR descriptions was only ever visible in the original author's checkout. AC #2 of #58 ("reproducer commands work for any reviewer") was structurally unsatisfiable.
+
+- **`.gitignore`** — replaces the blanket `specs/` exclusion with a file-level rule: `specs/**/*` ignored, then `!specs/**/build.jsonl` re-includes only the audit trail. The `!specs/**/` directory negation alongside it lets git descend into the intermediate dirs (git can't re-include a file inside an excluded directory). Plan, stories, project-sync, fixtures, and every other artefact under `specs/<key>/` continues to stay local — only `build.jsonl` ships.
+- **plugins/makato-build/AGENTS.md** § Skill Authoring — new bullet documenting the convention, plus an explicit safety reminder: treat `build.jsonl` as a committed evidence file, do not log secrets / credentials / out-of-repo paths / anything you would not paste into a public PR.
+- **plugins/makato-build/README.md** § Logging — Repo policy paragraph added below the minimum log events list, mirroring the AGENTS.md wording so contributors reading either entry-point see the same rule.
+- **specs/ISSUE-58-smoke/build.jsonl** + **specs/agentic-orchestration/build.jsonl** — the two evidence files cited in #58 and #99 ship as historical proof that the negation pattern works end-to-end from a fresh checkout. Both pre-date this PR; copying them in is a one-time backfill, not new evidence generation.
+
+---
+
 ## Dogfood pytest harness for `build-simplify` (GAP-064 / #64 — Part B, also closes #58)
 
 Lands the makato monorepo's own pytest harness scoped narrowly to skill smoke tests, plus the `build-simplify` regression test that proves Part A's no-test-runner contract keeps working. With Part A's SKILL.md contract and Part B's regression test merged, **#58** also closes — its Sub-issue B target ("smoke-test `build-simplify` against a downstream consumer repo") was rerouted by #64 to "dogfood inside the makato repo" once `dcp-specs` went away.

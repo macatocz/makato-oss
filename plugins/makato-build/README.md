@@ -214,6 +214,14 @@ diffable, and parseable for post-session debugging.
 - Every error with full context in `error` field
 - Session end with summary (status: `ok` or `error`, step: `session`)
 
+**Repo policy (#99):** `build.jsonl` is the **only** file under `specs/` that ships
+in-repo. The repo-root `.gitignore` excludes `specs/**/*` but re-includes
+`specs/**/build.jsonl` so any reviewer can replay a past skill run from a fresh
+checkout without re-executing it locally. Plan, stories, fixtures, and every
+other artefact under `specs/<key>/` stay personal. Treat the JSONL as a committed
+evidence file — do not log secrets, credentials, paths outside the repo, or any
+content you would not paste into a public PR.
+
 ### Flow Diagram
 
 ```text

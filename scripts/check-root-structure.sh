@@ -13,6 +13,7 @@ ALLOWED=(
   "packages"
   "docs"
   "scripts"
+  "specs"
   "tests"
 )
 
