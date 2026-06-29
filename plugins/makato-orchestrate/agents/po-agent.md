@@ -285,6 +285,19 @@ falling through to Step 4e.
 The PO-agent does NOT dispatch `coder` directly — `build-implement-tdd`
 owns the per-task RED/GREEN/INTEGRATE/VERIFY loop.
 
+**Per-task scout pre-read (GAP-013 / #29).** `build-implement-tdd`
+internally dispatches the per-task `scout` agent
+(`plugins/makato-orchestrate/agents/scout.md`) before each `coder`
+invocation — once per task. The PO-agent does NOT dispatch the scout
+itself: that would require a round-trip after every task and duplicate
+the bundle-resolution work that `inject-context` does inside the
+implementation skill. The scout is **advisory** — a scout failure
+degrades to a `coder` dispatch without `SCOUT_SUMMARY`, never a HALT.
+See `plugins/makato-build/skills/build-implement-tdd/SKILL.md` § *Pre-flight
+scout dispatch* for the contract; the scout's R1 is mirrored to
+`build.jsonl` so it appears in the audit trail the PO-agent inspects
+when parsing the implementation skill's R1.
+
 #### Step 4e — Apply the skill's R1 to state
 
 Parse the last fenced ```json block in the skill output via `JSON.parse`.

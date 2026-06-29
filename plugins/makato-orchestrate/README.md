@@ -20,6 +20,7 @@ every transition between them requires a human. The PO-agent is that driver.
 > - GAP-004 (#30) — `skills/kill-switch/`, `scripts/context-handoff.sh`, `hooks/check-halt.sh`, `agents/context-summariser.md`, `halt-conditions.md`, `never-patterns.md` ✓ **shipped**
 > - GAP-006 (#32) — `agents/po-agent.md` ✓ **shipped**
 > - GAP-007 (#33) — `skills/loop/`, `scripts/loop.sh`, `scripts/loop-smoke-tests.sh` ✓ **shipped**
+> - GAP-013 (#29) — `agents/scout.md` ✓ **shipped**
 > - GAP-007 follow-ups — `hooks/session-status.sh`, `skills/session-status/`
 >
 > Tracking issue: [GAP-001 (#23)](https://github.com/macatocz/makato/issues/23).
@@ -87,7 +88,7 @@ Sub-agents inherit the flag via the dispatch context bundle; they do not re-pars
 |-------|-------|-----------------|---------|----------------|
 | `context-summariser` | haiku | read-only (Read-only) | Produces ≤ 500-token session summary for HALT-007B handoff — input is workflow-state.json + current task description only, never source files | **Shipped** — GAP-004 (#30). Dispatched by PO-agent in GAP-006 (#32). |
 | `po-agent` | sonnet | bypassPermissions | Outer-loop driver — reads Issue, builds sub-task list, dispatches `build-implement-tdd` / `build-implement-goal` per task, patches state, terminates on PR-merged or HALT | **Shipped** — GAP-006 (#32). Consumed by `loop` (GAP-007 / #33). |
-| `scout` | haiku | read-only | (planned) Read-only context discovery — linked PRs, dependent issues, prior state | follow-up |
+| `scout` | haiku | read-only | Per-task pre-read of the exact files a sub-task will touch + the bundle rules from `inject-context`; returns a ~500-token structured summary (`key_patterns`, `naming_conventions`, `test_file_paths`, `existing_exports`, `warnings`) injected into the coder's `SCOUT_SUMMARY` input. Advisory — a scout failure degrades to a `coder` dispatch without the summary, never a HALT. | **Shipped** — GAP-013 (#29). Dispatched by `build-implement-tdd` Step 6 once per task. |
 
 ## Hooks *(partial — additional hooks not yet shipping)*
 
@@ -178,7 +179,7 @@ makato-orchestrate/
 ├── agents/
 │   ├── context-summariser.md             (GAP-004 / #30 — shipped)
 │   ├── po-agent.md                       (GAP-006 / #32 — shipped)
-│   └── (scout — added per follow-up)
+│   └── scout.md                          (GAP-013 / #29 — shipped)
 ├── hooks/
 │   ├── check-halt.sh                     (GAP-004 / #30 — shipped)
 │   └── (session-status — added per follow-up)

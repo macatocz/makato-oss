@@ -6,7 +6,7 @@ description: >-
   Tracer bullet phase for multi-layer stories. Autonomous loop. Use
   after refine to implement-tdd a story plan, implement tdd tasks, or
   run the core build loop.
-version: "1.6.0"
+version: "1.7.0"
 model: sonnet
 argument-hint: "[work-item-key]"
 ---
@@ -100,17 +100,73 @@ Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","st
 
 Only proceed once the dependency graph is confirmed acyclic.
 
-For each `mode: tdd` task in topological order, dispatch the `coder` agent with:
+For each `mode: tdd` task in topological order, dispatch the per-task `scout` agent first (GAP-013 / #29) — see § *Pre-flight scout dispatch* below — then dispatch the `coder` agent with:
 - `TASK`: the task object (title, files, unit test spec, integration test spec, AC links, mode, blockedBy, commitMessage)
 - `TASK_INDEX`: 1-based index of the task within the plan
 - `STORY_KEY`: the work item key (e.g. DCP-1234)
 - `JSONL_PATH`: absolute path to `build.jsonl` in the resolved spec folder
 - `PLAN_CONTEXT`: the full Plan Analysis output from Step 4 (glossary constraints, layer classification, tracer_required flag, reusable patterns)
+- `SCOUT_SUMMARY`: the `data` payload from the per-task scout dispatch (see § *Pre-flight scout dispatch*). Omit entirely when the scout returned `status: "failure"` — the fallback contract makes scout output advisory, not gating.
 - `TRACER_TEST_NAME`: name of the tracer integration test if `tracer_required = true` and it was written in Step 5; otherwise omit
 - `BASELINE_FAILURES`: pre-existing failure count from Step 3
 - `REPO_ROOT`: absolute path to the target repository root
 
 **blockedBy enforcement**: before dispatching a task, check its `blockedBy` list. Do not dispatch a task concurrently with any task whose index appears in its `blockedBy` list. A task blocked by Task N must wait until Task N's coder agent returns `status: complete` before being dispatched.
+
+#### Pre-flight scout dispatch (GAP-013 / #29)
+
+Before each `coder` dispatch, resolve the task's bundle rules via the
+`inject-context` skill (`plugins/makato-build/skills/inject-context/SKILL.md`)
+and dispatch the per-task `scout` agent (`plugins/makato-orchestrate/agents/scout.md`).
+The scout is **advisory**, not a gate — a scout failure must never block
+the coder dispatch.
+
+1. **Resolve bundles.** Call the `inject-context` Python helper:
+   `from inject_context import resolve_bundles; rules, warning = resolve_bundles(task['files'], yaml.safe_load(open('plugins/makato-build/config/context-bundles.yml')))`.
+   On `BundleResolutionError` with `halt_code == "HALT-006"`: skip the
+   scout entirely, log a `warn` JSONL entry (`step: "scout-skipped"`,
+   `reason: "halt-006-bundle-config"`), and dispatch `coder` without
+   `SCOUT_SUMMARY`. The HALT-006 propagates to the PO-agent through
+   `knowledge-scout`'s pre-existing Step 0 path; this skill does not
+   re-emit it.
+2. **Dispatch scout** with: `TASK_DESCRIPTION` (the task's title +
+   one-line elaboration verbatim from `plan.md`), `CHANGED_FILES` (the
+   task's `**Files:**` list), `BUNDLE_RULES` (the `rules` list from step 1,
+   with `{repo}` substituted), `REPO_ROOT`.
+3. **Parse the scout R1 envelope** per `RETURN-CONTRACT.md` § Caller
+   parsing rule (last fenced ` ```json ` block, `JSON.parse()`, assert
+   `schema == "r1"`).
+4. **Map scout R1 to coder input:**
+   - `r1.status == "success"` — forward `r1.data` to coder as
+     `SCOUT_SUMMARY`. Mirror the scout R1 to `build.jsonl` with
+     `step: "r1"`, `data.scout_agent: "scout"`.
+   - `r1.status == "partial"` — forward `r1.data` to coder, AND log a
+     `warn` JSONL entry: `{"…","skill":"build-implement-tdd","story":"<key>","step":"scout-partial","status":"warn","data":{"task":<N>,"errors":<r1.errors>}}`.
+   - `r1.status == "failure"` — do NOT forward `SCOUT_SUMMARY`. Log a
+     `warn` JSONL entry: `{"…","skill":"build-implement-tdd","story":"<key>","step":"scout-skipped","status":"warn","data":{"task":<N>,"reason":<r1.errors[0]>}}`.
+     The coder dispatch proceeds without scout context — this matches
+     the GAP-013 fallback contract (`plugins/makato-orchestrate/agents/scout.md`
+     § *Caller fallback contract*).
+   - **R1 contract violation** (missing block, parse failure,
+     `schema != "r1"`) — treat as `failure` per the table above. Per
+     NEVER 6, do not retry the scout dispatch.
+
+The scout dispatch is conditional on the `makato-orchestrate` plugin
+being installed (the scout agent lives there). Detect via:
+
+```bash
+MAKATO_ORCH="$(git rev-parse --show-toplevel)/plugins/makato-orchestrate"
+if [[ ! -f "$MAKATO_ORCH/agents/scout.md" ]]; then
+  scout_dispatched=false  # consumer repo without makato-orchestrate; skip scout silently
+fi
+```
+
+When the scout file is absent (the build pipeline is running standalone
+without the orchestrator), skip Step 6's scout dispatch entirely and
+proceed straight to the coder dispatch without `SCOUT_SUMMARY`. No
+warning is logged — the build pipeline must remain operable in a
+developer's hands without the orchestrate plugin present (mirrors the
+guarded `workflow-state.sh patch` pattern at § Step 6 end of this skill).
 
 The coder agent runs the full RED→GREEN→INTEGRATE→VERIFY cycle for the task and appends JSONL entries directly to JSONL_PATH.
 

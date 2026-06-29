@@ -72,9 +72,9 @@ makato-orchestrate hosts the top-level orchestrator and supporting read-only sco
 |-------|-------|-----------------|---------|---------|
 | **po-agent** | sonnet | bypassPermissions | Plan-level outer-loop driver — reads a GitHub Issue, resolves the spec folder, dispatches `build-implement-tdd` / `build-implement-goal` once per outer iteration, decides advance-vs-replan from the skill's R1, patches workflow-state, terminates on PR-merged or HALT | `loop` |
 | **context-summariser** | haiku | read-only | ≤ 500-token session summary for HALT-007B handoff. Input: `workflow-state.json` + current task description ONLY. Source files explicitly out of scope. | `scripts/context-handoff.sh` (via po-agent) |
-| **scout** | haiku | read-only | (planned) Read-only discovery agent for issue context (linked PRs, dependent issues, prior session state) | `po-agent` |
+| **scout** | haiku | read-only | Per-task pre-read agent — given a task's `CHANGED_FILES` plus the bundle rules resolved by `inject-context`, opens ≤ 8 files and returns a ~500-token structured summary (`key_patterns`, `naming_conventions`, `test_file_paths`, `existing_exports`, `warnings`) injected into the coder's `SCOUT_SUMMARY` input. Disjoint from `makato-build/knowledge-scout` (repo-wide, plan-time). | `build-implement-tdd` Step 6 (per coder dispatch) |
 
-*po-agent and context-summariser are shipped (GAP-006 / #32 and GAP-004 / #30). scout remains a scaffold-only stub until its follow-up issue lands.*
+*po-agent, context-summariser, and scout are shipped (GAP-006 / #32, GAP-004 / #30, GAP-013 / #29).*
 
 ## Skill Authoring
 
@@ -93,7 +93,7 @@ makato-orchestrate/
 ├── agents/
 │   ├── context-summariser.md             (GAP-004 / #30 — shipped)
 │   ├── po-agent.md                       (GAP-006 / #32 — shipped)
-│   └── scout.md                          (follow-up — stub)
+│   └── scout.md                          (GAP-013 / #29 — shipped)
 ├── hooks/
 │   ├── check-halt.sh                     (GAP-004 / #30 — shipped)
 │   └── session-status.sh                 (GAP-007 follow-up — stub)

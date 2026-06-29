@@ -5,7 +5,7 @@ description: >-
   Execute a single TDD task (RED→GREEN→INTEGRATE→VERIFY) from a refined
   implementation plan. Produce working, tested code that passes all four
   cycle phases. Dispatched by implement-tdd per task.
-version: "1.3.0"
+version: "1.4.0"
 maxTurns: 50
 permissionMode: bypassPermissions
 ---
@@ -28,6 +28,21 @@ Your dispatch prompt provides:
   - `## Architecture Context` — structural facts about the codebase relevant to this plan
   - `## Reusable Patterns` — existing utilities and base classes to reuse
   - Metadata fields (`knowledge_context_loaded`, `knowledge_context_source`, etc.) — informational; coder does not need to act on them
+- **SCOUT_SUMMARY** *(optional, GAP-013 / #29)* — the per-task scout's `data` payload (see `plugins/makato-orchestrate/agents/scout.md`). When present, supplies five concrete file facts about the exact files this task will touch:
+  - `key_patterns` — dominant existing patterns to mirror
+  - `naming_conventions` — observed name shapes per category (`class`, `method`, `test_class`, `test_method`, …)
+  - `test_file_paths` — where the test files for `TASK.files` already live (or will live, by project convention)
+  - `existing_exports` — symbols already exported from the target modules — do NOT duplicate or shadow them
+  - `warnings` — observed anomalies (file size, naming inconsistency, language mismatch)
+
+  The dispatching skill (`build-implement-tdd` Step 6) resolves bundles
+  via `inject-context` and dispatches the scout once per task before
+  invoking this agent. When `SCOUT_SUMMARY` is **absent** (scout
+  returned `failure`, the `makato-orchestrate` plugin is not installed,
+  or the scout dispatch was skipped for any reason), proceed without it
+  — `PLAN_CONTEXT` remains the binding context. Scout output is
+  **advisory**: it never overrides `PLAN_CONTEXT.Hard Constraints` or
+  `PLAN_CONTEXT.Standards`.
 - **TRACER_TEST_NAME** — name of the tracer integration test (if tracer_required=true and it was written); must continue to pass after GREEN and INTEGRATE
 - **BASELINE_FAILURES** — pre-existing failure count recorded before this session started
 - **REPO_ROOT** — absolute path to the repository root
@@ -46,6 +61,7 @@ For each TDD cycle:
 - Use `_Code_:` entries from the glossary when naming classes, methods, and variables — do not use spec terminology where the codebase has a different canonical term
 - Respect every item in `## Hard Constraints` of PLAN_CONTEXT — these come from the project's golden rules and override general best practices; do not infer exceptions
 - Apply `## Standards` from PLAN_CONTEXT when naming classes, methods, endpoints, and tests
+- When `SCOUT_SUMMARY` is provided: apply `naming_conventions` for the exact files in `TASK.files` (these reflect the file's neighbours and override the broader `PLAN_CONTEXT.Standards` only when the two conflict for the specific file); write test files to the `test_file_paths` the scout returned; do NOT duplicate or shadow any symbol listed in `existing_exports`. Treat `key_patterns` as the closest existing example to mirror in the RED test file before writing fresh patterns. Surface any `warnings` entry in your phase-end JSONL `data` so the audit trail records that you saw it.
 - Reuse existing library dependencies and internal utilities — do not introduce new dependencies unless the task explicitly requires them
 - Do not modify test files after RED is established unless INTEGRATE reveals the unit-level design is wrong (then fix both the implementation and the unit tests, and re-run GREEN before INTEGRATE)
 - Apply the fix-vs-escalate threshold: "Can this be fixed without changing the implementation approach?" If yes — fix in place. If no — escalate (report BLOCKED with a structural reason)
