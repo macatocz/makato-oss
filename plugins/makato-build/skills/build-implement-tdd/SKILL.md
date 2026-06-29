@@ -6,7 +6,7 @@ description: >-
   Tracer bullet phase for multi-layer stories. Autonomous loop. Use
   after refine to implement-tdd a story plan, implement tdd tasks, or
   run the core build loop.
-version: "1.7.0"
+version: "1.8.0"
 model: sonnet
 argument-hint: "[work-item-key]"
 ---
@@ -21,6 +21,20 @@ Use after `/refine` has produced `plan.md` in the spec folder and the plan conta
 - No plan exists — run `/refine` first
 - All tasks in the plan are `mode: goal` — run `/implement-goal` instead
 - You are mid-implementation and need to resume — read the plan and the last `build.jsonl` entry to orient, then continue from the next incomplete task
+
+## Input
+
+When dispatched by the PO-agent (`--autonomous` mode), this skill receives a context bundle containing at minimum:
+
+- `<work-item-key>` — positional argument (e.g. `#123`, `GAP-085`).
+- `WORKTREE_PATH` — absolute filesystem path to the per-run git worktree the PO-agent owns. **Mandatory in autonomous mode** (see `plugins/makato-build/AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract*). The skill MUST `cd "$WORKTREE_PATH"` before any `git`, `pytest`, or file-edit operation, and forward this value to every nested `coder` dispatch in Step 6.
+- `--autonomous` — activation flag (also activated by `$AGENT_ID` or `task_id` bundle).
+
+When invoked by a developer at the prompt (interactive mode), `WORKTREE_PATH` is optional. If unset, the skill falls back to `git rev-parse --show-toplevel` of the current `$PWD` — the original developer-driven behaviour, unchanged.
+
+### Workspace-isolation entry guard
+
+At skill entry (immediately after Step 1 loads the plan), apply the falsy-check pattern from `AUTONOMOUS-MODE.md` § *Falsy-check pattern*: in autonomous mode an empty `WORKTREE_PATH` is a HALT (R1 `status: "failure"`, `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`). In interactive mode, resolve `WORKTREE_PATH="$(git rev-parse --show-toplevel)"` and continue. After resolution, `cd "$WORKTREE_PATH"` so every subsequent `git`/`pytest`/file-edit lands in the correct working tree.
 
 ## Workflow
 
@@ -110,6 +124,7 @@ For each `mode: tdd` task in topological order, dispatch the per-task `scout` ag
 - `TRACER_TEST_NAME`: name of the tracer integration test if `tracer_required = true` and it was written in Step 5; otherwise omit
 - `BASELINE_FAILURES`: pre-existing failure count from Step 3
 - `REPO_ROOT`: absolute path to the target repository root
+- `WORKTREE_PATH`: absolute filesystem path to the per-run git worktree (forwarded verbatim from this skill's input — see § *Input* and `AUTONOMOUS-MODE.md` § *WORKTREE_PATH*). The `coder` agent `cd`s into this path before its RED→GREEN→INTEGRATE→VERIFY cycle. In interactive mode without an enclosing PO-agent, forward the resolved `$(git rev-parse --show-toplevel)` so the agent's contract is identical in both modes.
 
 **blockedBy enforcement**: before dispatching a task, check its `blockedBy` list. Do not dispatch a task concurrently with any task whose index appears in its `blockedBy` list. A task blocked by Task N must wait until Task N's coder agent returns `status: complete` before being dispatched.
 
@@ -132,7 +147,9 @@ the coder dispatch.
 2. **Dispatch scout** with: `TASK_DESCRIPTION` (the task's title +
    one-line elaboration verbatim from `plan.md`), `CHANGED_FILES` (the
    task's `**Files:**` list), `BUNDLE_RULES` (the `rules` list from step 1,
-   with `{repo}` substituted), `REPO_ROOT`.
+   with `{repo}` substituted), `REPO_ROOT`, `WORKTREE_PATH` (forwarded
+   verbatim — the scout is read-only but resolves `CHANGED_FILES` relative
+   to the worktree).
 3. **Parse the scout R1 envelope** per `RETURN-CONTRACT.md` § Caller
    parsing rule (last fenced ` ```json ` block, `JSON.parse()`, assert
    `schema == "r1"`).

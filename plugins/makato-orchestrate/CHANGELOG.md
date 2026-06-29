@@ -5,6 +5,12 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## WORKTREE_PATH propagation (GAP-017 / #46 follow-up, #85)
+
+- **agents/po-agent.md** → 1.2.0 — § *Worktree Lifecycle* § *Inheritance* gets a new closing paragraph cross-referencing `plugins/makato-build/AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract*. The PO-agent owns the **producer** half (create at Step 2b, propagate via dispatch bundle, cleanup at Step 6 #6, retain on HALT); each consumer skill / agent enforces the **consumer** half (HALT on empty in autonomous mode, fall back to `git rev-parse --show-toplevel` in interactive mode, forward to its own sub-agent dispatches). The Layer 1 workspace-isolation guarantee documented in `plugins/makato-orchestrate/code-conflict-prevention.md` is now active end-to-end — was previously documented in the caller but unimplemented in the callees.
+
+---
+
 ## worktree lifecycle (GAP-017 / #46)
 
 - **1.0.0** — Worktree lifecycle management in the PO-agent

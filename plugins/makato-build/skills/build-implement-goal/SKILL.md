@@ -5,7 +5,7 @@ description: >-
   runtime, write tests after. Autonomous. Use after refine for UI,
   config, or migration work, or when implement-goal tasks remain
   from a mixed plan.
-version: "1.3.1"
+version: "1.4.0"
 model: opus
 argument-hint: "[work-item-key]"
 ---
@@ -20,6 +20,20 @@ Use when the refined plan contains tasks with `mode: goal`. This covers:
 
 For TDD-mode tasks, use `/implement-tdd` instead. Plans are often mixed — use this skill
 for goal-mode tasks and `/implement-tdd` for tdd-mode tasks, in the order the plan specifies.
+
+## Input
+
+When dispatched by the PO-agent (`--autonomous` mode), this skill receives a context bundle containing at minimum:
+
+- `<work-item-key>` — positional argument.
+- `WORKTREE_PATH` — absolute filesystem path to the per-run git worktree the PO-agent owns. **Mandatory in autonomous mode** (see `plugins/makato-build/AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract*). The skill MUST `cd "$WORKTREE_PATH"` before any file edit, build, or test command.
+- `--autonomous` — activation flag.
+
+When invoked by a developer interactively, `WORKTREE_PATH` is optional. If unset, the skill falls back to `git rev-parse --show-toplevel` of the current `$PWD`.
+
+### Workspace-isolation entry guard
+
+At skill entry (immediately after Step 1 loads the plan), apply the falsy-check pattern from `AUTONOMOUS-MODE.md`: in autonomous mode an empty `WORKTREE_PATH` is a HALT (R1 `status: "failure"`, `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`). In interactive mode, resolve `WORKTREE_PATH="$(git rev-parse --show-toplevel)"` and continue. After resolution, `cd "$WORKTREE_PATH"` so every BUILD / VERIFY RUNTIME / TEST / VERIFY command runs in the correct worktree.
 
 ## Workflow
 

@@ -57,6 +57,47 @@ When an autonomous-mode skill auto-invokes the next skill in the pipeline, it MU
 
 `$AGENT_ID`-driven activation does propagate implicitly (env vars cross sub-process boundaries), but downstream skills SHOULD still read the CLI flag for symmetry with the documented contract.
 
+## WORKTREE_PATH — workspace-isolation contract (GAP-017 / #46, follow-up #85)
+
+Every autonomous-mode dispatch from the PO-agent carries a `WORKTREE_PATH` field in the dispatch context bundle. This is the absolute filesystem path to the per-run git worktree the PO-agent owns (see `plugins/makato-orchestrate/agents/po-agent.md` § *Worktree Lifecycle* § *Inheritance*). Sub-agents MUST `cd "$WORKTREE_PATH"` (or pass `-C "$WORKTREE_PATH"` to git) before any file edit, `git`, test, or build command, so the work lands in the worktree's branch and never on the main checkout.
+
+**Contract:**
+
+- `WORKTREE_PATH` is **mandatory** in every `--autonomous` invocation initiated by the PO-agent. If autonomous mode is active and `WORKTREE_PATH` is empty, the skill MUST HALT with R1 `status: "failure"` and `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]` — silently falling back to the main checkout defeats Layer 1 workspace isolation.
+- `WORKTREE_PATH` is **optional** for non-autonomous (developer-hands) callers. When unset in interactive mode, skills fall through to `git rev-parse --show-toplevel` of the current `$PWD` — the original developer-driven behaviour, unchanged.
+- Skills that auto-dispatch other skills MUST forward `WORKTREE_PATH` in the downstream context bundle, exactly as they forward `--autonomous`. Implicit env propagation is not relied on — the field stays explicit in every hand-off.
+- Skills that dispatch agents (e.g. `build-implement-tdd` → `coder`) MUST inject `WORKTREE_PATH` into the agent's input bundle. The agent then `cd`s into that path before its inner cycle.
+
+**Falsy-check pattern:**
+
+```bash
+if [[ -z "${WORKTREE_PATH:-}" ]]; then
+  # Autonomous mode without WORKTREE_PATH is a contract violation — HALT.
+  # In interactive mode, fall back to the current checkout.
+  if [[ -n "${AGENT_ID:-}" ]] || [[ "${AUTONOMOUS:-false}" == "true" ]]; then
+    # emit R1 failure with MISSING_INPUT and stop
+    exit 1
+  fi
+  WORKTREE_PATH="$(git rev-parse --show-toplevel)"
+fi
+cd "$WORKTREE_PATH"
+```
+
+**Why `git -C` over `cd`:** for one-shot git invocations, `git -C "$WORKTREE_PATH" <cmd>` is preferred — it does not mutate the surrounding shell's CWD and avoids leaking the worktree path into pwd-relative downstream commands. For test runners and longer subprocess sequences (pytest, npm, build commands that read relative config), `cd "$WORKTREE_PATH"` once at skill entry is fine.
+
+**Concurrency rationale:** two concurrent PO-agent runs each get their own worktree (different branches, different HEADs). Without `WORKTREE_PATH` propagation both runs would serialise on the main checkout's HEAD — a silent race that defeats the per-run isolation guarantee.
+
+**Skills that consume this contract:**
+
+- `build-implement-tdd` — Step 6 dispatches `coder` per task; forwards `WORKTREE_PATH` in the coder bundle.
+- `build-implement-goal` — same pattern; goal-mode build steps `cd` before file edits and verification.
+- `build-verify` — gate runner; lint/test/coverage commands run from `WORKTREE_PATH`.
+- `build-push-to-git` — `git commit` / `git push` operate against the worktree's branch.
+- `build-create-pr` — `gh pr create` resolves the right branch from the worktree's `.git`.
+- `coder` agent — receives `WORKTREE_PATH` in its input bundle; `cd`s before RED→GREEN→INTEGRATE→VERIFY.
+
+The PO-agent's Step 2b creates the worktree and Step 6 #6 cleans it up; see `plugins/makato-orchestrate/agents/po-agent.md` § *Worktree Lifecycle* for the full lifecycle.
+
 ## Logging contract
 
 Every gate that the skill bypasses in autonomous mode MUST emit a `build.jsonl` entry via `shared/build-log.sh` with this shape:

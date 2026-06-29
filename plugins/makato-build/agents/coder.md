@@ -5,7 +5,7 @@ description: >-
   Execute a single TDD task (RED→GREEN→INTEGRATE→VERIFY) from a refined
   implementation plan. Produce working, tested code that passes all four
   cycle phases. Dispatched by implement-tdd per task.
-version: "1.4.0"
+version: "1.5.0"
 maxTurns: 50
 permissionMode: bypassPermissions
 ---
@@ -46,6 +46,7 @@ Your dispatch prompt provides:
 - **TRACER_TEST_NAME** — name of the tracer integration test (if tracer_required=true and it was written); must continue to pass after GREEN and INTEGRATE
 - **BASELINE_FAILURES** — pre-existing failure count recorded before this session started
 - **REPO_ROOT** — absolute path to the repository root
+- **WORKTREE_PATH** *(optional, GAP-017 / #46 follow-up #85)* — absolute filesystem path to the per-run git worktree owned by the PO-agent. When present (every PO-agent dispatch sets it; see `plugins/makato-build/AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract*), `cd "$WORKTREE_PATH"` BEFORE Phase 1 RED and every subsequent phase, so all file edits, `git`, and test invocations land in the worktree's branch instead of the main checkout. When absent (developer-hands invocation outside the orchestrator), fall back to `$(git rev-parse --show-toplevel)` of the current `$PWD` — the original behaviour, unchanged. Two concurrent PO-agent runs each pass a distinct `WORKTREE_PATH`; honouring it is what keeps their HEADs from racing.
 
 ## Focus Areas
 
@@ -69,6 +70,20 @@ For each TDD cycle:
 - Respect every Automated-tier item in `plugins/makato-build/skills/definition-of-done/SKILL.md`. Within this agent's run, item 1 (tests pass) is verified in Phase 4 VERIFY; item 10 (`build.jsonl`) is enforced at every phase boundary; item 11 (R1 envelope) is emitted as the agent's final message. Items 2–9 and 12 are enforced downstream by `build-verify`, `build-sensors`, `build-push-to-git`, and `build-create-pr` — do not preempt those gates here.
 
 ## Process
+
+### Phase 0 — Workspace isolation
+
+Before Phase 1 RED, resolve and switch into the working tree:
+
+```bash
+if [[ -n "${WORKTREE_PATH:-}" ]]; then
+  cd "$WORKTREE_PATH"
+else
+  cd "$(git rev-parse --show-toplevel)"
+fi
+```
+
+This single `cd` covers every subsequent file edit, `git` invocation, and test command in Phases 1–4. The PO-agent guarantees `WORKTREE_PATH` exists and points to a valid `git worktree` (see `plugins/makato-orchestrate/agents/po-agent.md` § *Worktree Lifecycle*); developer-hands invocations land on the main checkout via the fallback.
 
 ### Phase 1 — RED
 

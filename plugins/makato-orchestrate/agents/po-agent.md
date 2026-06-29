@@ -12,7 +12,7 @@ description: >-
   worktree on session start, propagates its path to every sub-agent,
   removes it on `done`, retains it on HALT. Never edits target-repo
   source files — orchestrates only.
-version: "1.1.0"
+version: "1.2.0"
 maxTurns: 100
 permissionMode: bypassPermissions
 disallowedTools: NotebookEdit
@@ -527,6 +527,17 @@ The inner `coder` dispatch inherits the same path via
 `.worktree_path` directly, and no sub-agent operates on the main
 checkout. This is the single inheritance contract; it is the reason
 the PO-agent dispatches a fresh `worktree create` only once per run.
+
+The consumer-side contract — the falsy-check pattern, the
+mandatory-in-autonomous / optional-in-interactive split, the
+HALT-on-missing-input rule, and the canonical guard snippet — lives in
+[`plugins/makato-build/AUTONOMOUS-MODE.md`](../../makato-build/AUTONOMOUS-MODE.md)
+§ *WORKTREE_PATH — workspace-isolation contract* (GAP-017 / #46
+follow-up #85). The PO-agent enforces only the **producer** half here
+(create at Step 2b, propagate via dispatch bundle, cleanup at Step 6
+#6, retain on HALT); each consumer skill enforces the **consumer**
+half (HALT on empty in autonomous mode, fall back to current checkout
+in interactive mode, forward to its own sub-agent dispatches).
 
 ### Cleanup on success
 
