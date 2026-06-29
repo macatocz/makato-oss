@@ -9,6 +9,8 @@
     "repo",
     "branch",
     "worktree_path",
+    "worktree_retained",
+    "worktree_retain_reason",
     "issue_number",
     "sub_tasks",
     "current_phase",
@@ -41,7 +43,15 @@
     },
     "worktree_path": {
       "type": ["string", "null"],
-      "description": "Absolute path to the git worktree for this run, or null when working in the main checkout."
+      "description": "Absolute path to the git worktree for this run, or null when working in the main checkout. Set by the PO-agent worktree-lifecycle helper (GAP-017 / #46) at session start before any sub-agent dispatch; cleared back to null when the worktree is removed on successful completion."
+    },
+    "worktree_retained": {
+      "type": "boolean",
+      "description": "True when the worktree has been deliberately retained on disk after a HALT (GAP-017 / #46). The PO-agent does NOT remove a retained worktree on cleanup; a human operator (or GAP-016 / #45 rebase logic) inspects it. Steady-state value is false."
+    },
+    "worktree_retain_reason": {
+      "type": ["string", "null"],
+      "description": "Short reason string explaining why the worktree was retained (e.g. a HALT code such as 'HALT-003' or a free-form marker like 'merge_conflict' set by resolve-pr-conflict). Paired with worktree_retained=true. Null when worktree_retained is false."
     },
     "issue_number": {
       "type": "integer",

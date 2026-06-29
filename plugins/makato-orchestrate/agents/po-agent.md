@@ -8,8 +8,11 @@ description: >-
   kill-switch at every boundary, dispatches a `makato-build` autonomous
   implementation skill, parses the R1 envelope, decides advance-vs-replan,
   emits its own R1 at termination. Sole writer of `workflow-state.json`.
-  Never edits target-repo source files — orchestrates only.
-version: "1.0.0"
+  Owns the per-run git worktree lifecycle (GAP-017 / #46): creates the
+  worktree on session start, propagates its path to every sub-agent,
+  removes it on `done`, retains it on HALT. Never edits target-repo
+  source files — orchestrates only.
+version: "1.1.0"
 maxTurns: 100
 permissionMode: bypassPermissions
 disallowedTools: NotebookEdit
@@ -61,6 +64,11 @@ constrain that elevated permission:
    - `.claude/state/resume-{KEY}.sh` (via `scripts/context-handoff.sh`)
    - `.claude/state/daily-budget-{YYYY-MM-DD}.json` (via `kill-switch`
      `record-budget`)
+
+   The `git worktree` commands run by `shared/worktree.sh` (GAP-017 / #46)
+   are NOT `Write`/`Edit` tool calls — they mutate the filesystem under
+   `.claude/worktrees/` via `Bash(git worktree …)` and are governed by
+   § *Worktree Lifecycle* below, not this allow-list.
 3. **Kill-switch poll at every outer-loop boundary** — `kill-switch poll <KEY>`
    runs before each sub-task dispatch. Any non-zero exit terminates the loop.
 4. **HALT-008 outer-iteration cap** — `outer_iteration >= 3` fires
@@ -155,9 +163,41 @@ On resume, check three flags before continuing:
 
 | Flag | Action |
 |------|--------|
-| `current_phase == "done"` and `github_pr_number != null` | Run terminated successfully on a prior session. Return R1 `success` with `data.github_pr_number` populated. Do NOT re-dispatch any tasks. |
+| `current_phase == "done"` and `github_pr_number != null` | Run terminated successfully on a prior session. Return R1 `success` with `data.github_pr_number` populated. Do NOT re-dispatch any tasks. Do NOT re-create the worktree — `done` means cleanup has already run. |
 | `handoff_reason == "context_ceiling"` | Previous session HALT-007B'd. Read `session_summary` (≤ 500 tokens) for context; clear `handoff_reason` via `workflow-state.sh patch <KEY> .handoff_reason 'null'`. Continue from `resume_point`. |
 | `restart_failed == true` | Previous handoff attempt failed to spawn. HALT-007 was already applied. Return R1 `failure` with `errors: ["restart_failed=true on prior session"]`. |
+
+### Step 2b — Create or resume the worktree (GAP-017 / #46)
+
+Immediately after Step 2 — and BEFORE any sub-agent dispatch — run:
+
+```bash
+shared/worktree.sh create <KEY> <REPO> <BRANCH> <ISSUE_NUMBER>
+```
+
+The helper writes the canonical event marker (`worktree_created` or
+`worktree_resumed`) on line 1 of stdout and the absolute worktree path on
+line 2. It also patches `.worktree_path` in workflow-state, so subsequent
+sub-agent dispatches resolve the path via `shared/worktree.sh path <KEY>`
+without re-running the create logic.
+
+Emit one of the two markers to `orchestrate.jsonl`:
+
+```json
+{"ts":"<ISO-8601-ms>","skill":"po-agent","issue":<ISSUE_NUMBER>,"step":"worktree","status":"ok","data":{"event":"<worktree_created|worktree_resumed>","path":"<absolute>"}}
+```
+
+Skip this step entirely **only** when Step 2 already returned to caller
+via the `current_phase == "done"` AND `github_pr_number != null` early-
+return path — both conditions must hold. That is the only state in which
+cleanup has demonstrably already run on a prior session. A bare
+`current_phase == "done"` without a PR number means Step 6 patched the
+phase before #4 recorded the PR number and then crashed; in that case
+Step 2 proceeds, so Step 2b proceeds too (and `worktree.sh create`
+returns `worktree_resumed` because the worktree was retained when the
+prior session crashed).
+
+See § *Worktree Lifecycle* below for the full lifecycle contract.
 
 ### Step 3 — Build the sub-task list (fresh run only)
 
@@ -285,6 +325,16 @@ falling through to Step 4e.
 The PO-agent does NOT dispatch `coder` directly — `build-implement-tdd`
 owns the per-task RED/GREEN/INTEGRATE/VERIFY loop.
 
+**Worktree path propagation (GAP-017 / #46).** Every implementation-skill
+dispatch carries the resolved worktree path so sub-agents `cd` into the
+worktree before any file operation. Resolve via `shared/worktree.sh path
+<KEY>` (which reads `.worktree_path` from workflow-state — set by Step 2b)
+and inject it into the dispatch context bundle under the documented field
+name. `build-implement-tdd`'s context bundle accepts `WORKTREE_PATH` as
+the canonical key; `coder` reads it from there. Sub-agents never invoke
+`git worktree` themselves and never operate on the main checkout. See §
+*Worktree Lifecycle* for the inheritance contract.
+
 **Per-task scout pre-read (GAP-013 / #29).** `build-implement-tdd`
 internally dispatches the per-task `scout` agent
 (`plugins/makato-orchestrate/agents/scout.md`) before each `coder`
@@ -387,8 +437,22 @@ skill (all `sub_tasks[].status == "complete"`), advance the pipeline:
    returns no comments and this step is skipped. Subsequent reviewer
    rounds are out of scope — operator re-invokes `loop --autonomous` for
    another cycle.
-6. Patch `current_phase: "done"`. Emit session-end JSONL (Step 7) and
-   return R1 `success` with `data.github_pr_number` populated.
+6. Patch `current_phase: "done"`. Run `shared/worktree.sh cleanup <KEY>`
+   (GAP-017 / #46) — this `git worktree remove --force`s the per-run
+   worktree and patches `.worktree_path` back to null. The helper emits
+   `worktree_removed` on stdout; the PO-agent appends the matching JSONL
+   audit entry:
+
+   ```json
+   {"ts":"<ISO-8601-ms>","skill":"po-agent","issue":<ISSUE_NUMBER>,"step":"worktree","status":"ok","data":{"event":"worktree_removed","path":"<absolute>"}}
+   ```
+
+   Cleanup runs ONLY on the success path (this Step 6 #6). HALT exits go
+   through § *Worktree Lifecycle* § *Retention on HALT* instead — they
+   keep the worktree on disk for human inspection.
+
+   Emit session-end JSONL (Step 7) and return R1 `success` with
+   `data.github_pr_number` populated.
 
 ### Step 7 — Session-end JSONL and return R1
 
@@ -406,7 +470,150 @@ JSONL `status` matches R1 `status` mapping: `success` → `ok`, `partial`
 Then emit the standard R1 envelope as the **last** fenced ```json block
 of the agent's message. See § *R1 return envelope* below for the shape.
 
-## R1 return envelope
+## Worktree Lifecycle
+
+The PO-agent owns the per-run git worktree end-to-end (GAP-017 / #46).
+This is the Layer 1 (workspace isolation) guarantee from
+`code-conflict-prevention.md`: every concurrent PO-agent run operates in
+its own checkout under `.claude/worktrees/`, so cross-ticket builds
+never collide on the main checkout. `shared/worktree.sh` is the only
+authorised entry point; sub-agents never invoke `git worktree` directly.
+
+### Creation
+
+At Step 2b (after `workflow-state.sh init`, before any sub-agent
+dispatch) the PO-agent runs:
+
+```bash
+shared/worktree.sh create <KEY> <REPO> <BRANCH> <ISSUE_NUMBER>
+```
+
+The helper:
+
+1. Computes the target path: `.claude/worktrees/<sanitised-repo>-<issue-number>`
+   where `<sanitised-repo>` replaces `/` with `-` (so
+   `macatocz/my-app` → `macatocz-my-app`). This matches the path
+   convention the Claude Code `EnterWorktree` tool uses for its own
+   scratch worktrees and stays inside `.claude/worktrees/` regardless
+   of owner depth.
+2. Checks `git worktree list --porcelain` (after realpath
+   normalisation, because macOS canonicalises `/var/folders` to
+   `/private/var/folders`). If the target path is already registered,
+   the case is **resume**: the helper reuses the existing worktree
+   without `git worktree add` and emits `worktree_resumed`. Otherwise
+   it runs `git worktree add <path> <branch>` (no `-b`, because the
+   branch must already exist — `build-start` creates it) and emits
+   `worktree_created`.
+3. Patches `.worktree_path` in workflow-state to the absolute path.
+   The stdout contract is event marker on line 1, absolute path on
+   line 2 — the PO-agent reads both via `head -1` / `tail -1`.
+
+The PO-agent appends a single `step: "worktree"` JSONL entry to
+`orchestrate.jsonl` per create call, with `data.event` set to
+`worktree_created` or `worktree_resumed`.
+
+### Inheritance
+
+Every sub-agent dispatch carries the resolved worktree path. The
+PO-agent reads it via `shared/worktree.sh path <KEY>` (which echoes
+`.worktree_path` from workflow-state) and injects it into the dispatch
+context bundle under the canonical key `WORKTREE_PATH`.
+
+`build-implement-tdd`, `build-implement-goal`, `build-verify`,
+`build-push-to-git`, and `build-create-pr` all receive
+`WORKTREE_PATH` and `cd "$WORKTREE_PATH"` before any file operation.
+The inner `coder` dispatch inherits the same path via
+`build-implement-tdd`'s context bundle — no sub-agent reads
+`.worktree_path` directly, and no sub-agent operates on the main
+checkout. This is the single inheritance contract; it is the reason
+the PO-agent dispatches a fresh `worktree create` only once per run.
+
+### Cleanup on success
+
+At Step 6 #6 (after `current_phase` is patched to `"done"` and the
+PR has been opened), the PO-agent runs:
+
+```bash
+shared/worktree.sh cleanup <KEY>
+```
+
+The helper runs `git worktree remove --force "$WORKTREE_PATH"` and
+patches `.worktree_path` back to `null`. `--force` is required
+because the worktree may have uncommitted scratch files (`coder`'s
+pre-RED experiments, `build-verify`'s intermediate outputs) —
+`build-push-to-git` only commits the conventional-commit set, so
+everything else is safe to discard at this point. The helper falls
+back to `git worktree prune` if `remove` refuses (e.g. the directory
+was already deleted manually), and always patches state so the
+invariant `worktree_path != null ⇔ worktree on disk` holds even after
+manual interference.
+
+The PO-agent appends a single `step: "worktree"` JSONL entry with
+`data.event: "worktree_removed"`.
+
+### Retention on HALT
+
+EVERY terminal HALT path keeps the worktree on disk. Before emitting
+session-end JSONL on any HALT-* code (HALT-000 through HALT-010 PLUS
+HALT-STRUCTURAL — HALT-007B is the only documented exception, see
+below), the PO-agent runs:
+
+```bash
+shared/worktree.sh retain <KEY> <HALT_CODE>
+```
+
+The helper patches `.worktree_retained = true` and
+`.worktree_retain_reason = "<HALT_CODE>"`. It does NOT run `git
+worktree remove`. The worktree stays on disk so:
+
+- A human operator can inspect the partial change set from the failed
+  run (`cd <worktree_path> && git status`).
+- GAP-016 (#45) merge-conflict resolution runs inside the retained
+  worktree — `resolve-pr-conflict` reads `.worktree_path` from
+  workflow-state, `cd`s into it, and rebases or merges in place.
+- The next outer-iteration session (after operator fix) finds the
+  worktree via `worktree_resumed` rather than creating a fresh one.
+
+JSONL audit per HALT retention:
+
+```json
+{"ts":"<ISO-8601-ms>","skill":"po-agent","issue":<ISSUE_NUMBER>,"step":"worktree","status":"warn","data":{"event":"worktree_retained","reason":"<HALT_CODE>","path":"<absolute>"}}
+```
+
+**Exception — HALT-007B (context-ceiling handoff).** The proactive
+handoff is not a failure; the fresh session resumes from the same
+spec folder. The PO-agent does NOT call `worktree.sh retain` on
+HALT-007B because the worktree is still in active use — the resume
+script re-enters the same path via `worktree_resumed` on Step 2b. The
+`worktree_retained` flag is reserved for retention on **terminal**
+HALT codes (where the run is over and the worktree is for human or
+GAP-016 inspection).
+
+**Exception — HALT-000 (operator-initiated).** The operator dropping
+`~/.claude/HALT` does retain the worktree (so the operator can
+inspect the current state of the run after their interruption). The
+flag's `reason` is `"HALT-000"`. This matches the general rule —
+HALT-000 is a terminal HALT for this session.
+
+### Lifecycle summary
+
+| Lifecycle phase | Trigger | Helper subcommand | State after |
+|-----------------|---------|-------------------|-------------|
+| Create | Step 2b on fresh run | `create` (no existing) | `worktree_path = <abs>`, dir on disk |
+| Resume | Step 2b on session resume | `create` (existing) | `worktree_path = <abs>`, dir untouched |
+| Inherit | Each sub-agent dispatch | `path` (read-only) | unchanged |
+| Cleanup | Step 6 #6 on success | `cleanup` | `worktree_path = null`, dir removed |
+| Retain | Every terminal HALT (except HALT-007B) | `retain <CODE>` | `worktree_retained = true`, dir untouched |
+
+### Failure modes
+
+| Condition | Helper behaviour | PO-agent response |
+|-----------|------------------|-------------------|
+| Branch does not exist | `git worktree add` exits non-zero; helper echoes the actual git stderr plus the verify-branch hint, then exits 1 with no event marker on stdout | HALT-006 (malformed dispatch bundle) — `build-start` is supposed to create the branch |
+| Target path exists but is not a registered worktree | `git worktree add` refuses; helper echoes git's stderr | HALT-006 — the operator has manually placed a directory at the canonical path and the run cannot continue safely |
+| `git worktree remove` refuses, path still registered after prune (locked / NFS / perms) | Helper emits `worktree_remove_failed` on stdout and **leaves** `.worktree_path` set so the schema invariant `path != null ⟺ worktree on disk` holds | Continue is unsafe — escalate as HALT-005 (push/cleanup deny-list adjacent) and apply `needs-human-review`. The retain path is not appropriate here; the worktree exists but cleanup couldn't complete |
+| `cleanup` called while `.worktree_retained == true` | Helper emits `worktree_cleanup_refused` on stdout, exits 0 without touching disk or state | This is a contract guard — see § *Retention on HALT*. Cleanup is success-path-only; calling it on a retained worktree is a caller logic error. The PO-agent logs the refused event as `status: error` and HALTs with HALT-006 |
+| Helper itself crashes mid-create | Worktree may be left half-registered | Next session's Step 2b runs `worktree_resumed` and continues |
 
 The PO-agent emits R1 like every other agent in the suite. Three terminal
 states:
@@ -525,6 +732,13 @@ current label set before applying.
 
 ## Error modes
 
+Every terminal HALT path below MUST call `shared/worktree.sh retain
+<KEY> <HALT_CODE>` before emitting session-end JSONL and the failure-R1
+envelope — see § *Worktree Lifecycle* § *Retention on HALT*. The
+exception is HALT-007B (context-ceiling handoff) which exits via R1
+`partial` and leaves the worktree on disk untouched for the fresh
+session to resume.
+
 | Condition | Response |
 |-----------|----------|
 | Spec folder missing | HALT-006; R1 `failure`; **PO-agent** applies `needs-human-review` |
@@ -583,6 +797,10 @@ two plugins co-exist: every build-* skill takes a documented default when
   every dispatch parses and this agent emits.
 - `plugins/makato-build/AUTONOMOUS-MODE.md` — the `--autonomous` bypass
   contract every dispatched skill honours.
+- `plugins/makato-orchestrate/shared/workflow-state.sh` — sole-writer
+  helper for state mutations.
+- `plugins/makato-orchestrate/shared/worktree.sh` — worktree lifecycle
+  helper (GAP-017 / #46) — create, path, cleanup, retain subcommands.
 - `plugins/makato-change/skills/orchestrate/SKILL.md` — the interactive
   phase-detection analogue this agent's outer loop is patterned on (this
   agent makes the same decisions, autonomously, with kill-switches).

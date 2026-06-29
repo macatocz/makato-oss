@@ -115,7 +115,9 @@ makato-orchestrate/
 │   ├── loop/SKILL.md                     (GAP-007 / #33 — shipped)
 │   └── session-status/SKILL.md           (GAP-007 follow-up)
 ├── shared/
-│   └── workflow-state.sh                 (GAP-003 / #26)
+│   ├── workflow-state.sh                 (GAP-003 / #26)
+│   ├── worktree.sh                       (GAP-017 / #46 — shipped)
+│   └── worktree-smoke-tests.sh           (GAP-017 / #46 — shipped)
 ├── halt-conditions.md                    (GAP-004 / #30 — shipped)
 ├── never-patterns.md                     (GAP-004 / #30 — shipped)
 ├── CLAUDE.md

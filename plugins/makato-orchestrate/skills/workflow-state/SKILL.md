@@ -8,7 +8,7 @@ description: >-
   sole writer in production. Use when you need a resumable overlay over
   `build.jsonl` — the audit log captures forensics, this skill captures live
   loop state (sub-task graph, current phase, budget, HALT audit, lessons).
-version: "1.1.0"
+version: "1.2.0"
 argument-hint: "<subcommand> <key> [args…]"
 ---
 
@@ -34,7 +34,9 @@ The full contract lives at @references/workflow-state.schema.json (draft-07, `ad
 |-------|------|-------|
 | `repo` | string | `owner/name` form |
 | `branch` | string | feature branch name |
-| `worktree_path` | string \| null | absolute path to worktree, null if main checkout |
+| `worktree_path` | string \| null | absolute path to worktree, null if main checkout (managed by `shared/worktree.sh` per GAP-017 / #46) |
+| `worktree_retained` | boolean | true when the worktree was retained after a HALT (GAP-017 / #46); set by `worktree.sh retain` |
+| `worktree_retain_reason` | string \| null | reason marker paired with `worktree_retained` — typically a HALT code (e.g. `HALT-003`) or a free-form marker (`merge_conflict`) |
 | `issue_number` | integer ≥ 1 | GitHub Issue number |
 | `sub_tasks` | array | ordered; see *sub_tasks shape* |
 | `current_phase` | string \| null | `refine` \| `implement` \| `verify` \| `pr` \| `done` |
@@ -66,7 +68,7 @@ All five subcommands resolve the spec folder by prefix-matching `specs/<key>-*/`
 
 ### `init <KEY> <REPO> <BRANCH> <ISSUE_NUMBER>`
 
-Create `workflow-state.json` with valid defaults: empty arrays, zero counters, `budget_limit_tokens: 500000`, `context_warn_tokens` from `MAKATO_CONTEXT_WARN_TOKENS` env (default 150000), `session_count: 0`, `restart_failed: false`, nullable fields (`session_summary`, `handoff_reason`, `github_pr_number`, `current_phase`, `resume_point`, `worktree_path`) set to `null`, `created_at == updated_at == now`. Errors if the file already exists.
+Create `workflow-state.json` with valid defaults: empty arrays, zero counters, `budget_limit_tokens: 500000`, `context_warn_tokens` from `MAKATO_CONTEXT_WARN_TOKENS` env (default 150000), `session_count: 0`, `restart_failed: false`, `worktree_retained: false`, nullable fields (`session_summary`, `handoff_reason`, `github_pr_number`, `current_phase`, `resume_point`, `worktree_path`, `worktree_retain_reason`) set to `null`, `created_at == updated_at == now`. Errors if the file already exists.
 
 ```bash
 shared/workflow-state.sh init gap-003 macatocz/my-app feat/gap-003 26

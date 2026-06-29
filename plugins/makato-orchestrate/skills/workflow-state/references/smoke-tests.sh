@@ -101,5 +101,18 @@ MAKATO_CONTEXT_WARN_TOKENS=180000 "$WS" init "$KEY2" macatocz/test feat/gap-003 
 rm -rf "$SANDBOX2"
 echo "  ✓ env override honored"
 
+echo "=== T14: GAP-017 worktree fields seeded at init ==="
+"$WS" read "$KEY" | jq -e '.worktree_path == null' > /dev/null
+"$WS" read "$KEY" | jq -e '.worktree_retained == false' > /dev/null
+"$WS" read "$KEY" | jq -e '.worktree_retain_reason == null' > /dev/null
+echo "  ✓ worktree_path / worktree_retained / worktree_retain_reason"
+
+echo "=== T15: worktree_retained rejects non-boolean values ==="
+if "$WS" patch "$KEY" .worktree_retained '"yes"' 2>/dev/null; then
+  echo "  ✗ FAIL: expected non-zero exit"
+  exit 1
+fi
+echo "  ✓ schema rejects non-boolean"
+
 echo
-echo "All 13 smoke tests passed."
+echo "All 15 smoke tests passed."

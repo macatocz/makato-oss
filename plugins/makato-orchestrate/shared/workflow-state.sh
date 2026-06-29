@@ -131,6 +131,8 @@ case "$SUBCMD" in
         repo: $repo,
         branch: $branch,
         worktree_path: null,
+        worktree_retained: false,
+        worktree_retain_reason: null,
         issue_number: $issue,
         sub_tasks: [],
         current_phase: null,

@@ -21,6 +21,7 @@ every transition between them requires a human. The PO-agent is that driver.
 > - GAP-006 (#32) — `agents/po-agent.md` ✓ **shipped**
 > - GAP-007 (#33) — `skills/loop/`, `scripts/loop.sh`, `scripts/loop-smoke-tests.sh` ✓ **shipped**
 > - GAP-013 (#29) — `agents/scout.md` ✓ **shipped**
+> - GAP-017 (#46) — `shared/worktree.sh`, `shared/worktree-smoke-tests.sh`, schema fields `worktree_retained` / `worktree_retain_reason`, `agents/po-agent.md` § *Worktree Lifecycle* ✓ **shipped**
 > - GAP-007 follow-ups — `hooks/session-status.sh`, `skills/session-status/`
 >
 > Tracking issue: [GAP-001 (#23)](https://github.com/macatocz/makato/issues/23).
@@ -198,7 +199,9 @@ makato-orchestrate/
 │   │       └── daily-budget.schema.json
 │   └── (loop, session-status — added per follow-ups)
 ├── shared/
-│   └── workflow-state.sh                 (GAP-003 / #26 — shipped)
+│   ├── workflow-state.sh                 (GAP-003 / #26 — shipped)
+│   ├── worktree.sh                       (GAP-017 / #46 — shipped)
+│   └── worktree-smoke-tests.sh           (GAP-017 / #46 — shipped)
 ├── halt-conditions.md                    (GAP-004 / #30 — shipped)
 ├── never-patterns.md                     (GAP-004 / #30 — shipped)
 ├── CLAUDE.md
