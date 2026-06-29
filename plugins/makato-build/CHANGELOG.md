@@ -5,6 +5,15 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## `build-simplify` no-test-runner handling (GAP-064 / #64 — Part A)
+
+Closes the latent failure mode where `build-simplify` would crash mid-session when dispatched against a project with no runnable test suite (docs-only repo, config-only repo, freshly scaffolded project). Surfaced while trying to execute #58's smoke test against the makato repo itself. Part B (dogfood pytest harness) ships in a follow-up PR.
+
+- **skills/build-simplify/SKILL.md** → 1.4.0 — Step 3 now branches on the gate-scout outcome. Outcome (a) — test runner discovered — captures the baseline as before; outcome (b) — no runner — sets `test_suite_present: false`, skips baseline-capture, and logs a `status: "skip"` row with `reason: "no test runner discovered"`. Step 7 short-circuits when `test_suite_present == false`, skipping the test-run entirely and emitting a verify-skip log with `degraded_confidence: true`. New § *Step 7a — Unverified-change gate (no test runner)* fires only when `test_suite_present == false` AND ≥1 applied simplification touched a file outside `**/*.{md,yaml,yml,json,toml}`: interactive mode prompts y/n before hand-off (n → revert + `UNVERIFIED_HALT`), autonomous mode skips the prompt and emits a per-AUTONOMOUS-MODE.md `autonomous_bypass` JSONL entry plus the upward `data.degraded_confidence: true` signal. Step 8 hand-off message extended with a no-runner note in interactive mode. R1 envelope `data` adds `test_suite_present: bool` and `degraded_confidence: bool`; status mapping documents the autonomous-mode `partial` returned when code files were touched without a verify gate. HALT codes table extends with `UNVERIFIED_HALT` and clarifies `BASELINE_BROKEN` is distinct from the no-runner skip path.
+- **AUTONOMOUS-MODE.md** — per-gate table grows a third `build-simplify` row for Step 7a (prompt skipped, `degraded_confidence: true` flows upward). New § *No-test-runner handling in `build-simplify` is a degraded-confidence path, not a HALT* explains the design: `gate-scout` returning no runner is a deterministic environmental condition, not an error; the skill proceeds and surfaces the signal in R1 rather than halting. Names the doc/config glob (`**/*.{md,yaml,yml,json,toml}`) that suppresses the Step 7a gate as a no-op. Names the contrast with `BASELINE_BROKEN` (test runner exists but crashes — still a HALT).
+
+---
+
 ## Headless PR-comment handling in autonomous mode (GAP-011 / #36)
 
 Wires `build-address-pr-comments` for safe headless operation under `--autonomous`. The skill already classified MUST-FIX / SHOULD-FIX / CONSIDER / OUT-OF-SCOPE and skipped the user-approval gate; this entry covers the four edge cases that need extra care without a human at the prompt — SHOULD-FIX scope creep, STRUCTURAL HALT, OUT-OF-SCOPE carry-over, and reply-text externalization.

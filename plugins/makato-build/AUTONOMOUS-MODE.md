@@ -37,6 +37,7 @@ If none of those hold the skill runs in **interactive mode**, exactly as it did 
 | `build-address-pr-comments` | Step 8 — push-fix confirmation | Asks before push | Push immediately. |
 | `build-simplify` | Step 5 — per-finding approval | Asks user to approve/reject each SIMPLIFY finding | Auto-approve every `SIMPLIFY` finding (apply in Step 6). KEEP findings remain KEEP (no action). ESCALATE findings are not auto-applied — they are logged and surfaced in the R1 envelope so the PO-agent can decide whether to open a `/build-refine` session for the structural piece. |
 | `build-simplify` | Step 5 — zero-findings confirmation | Asks user to confirm zero findings | Proceed without confirmation. Log `step: "review"` with `data.zero_findings: true`. |
+| `build-simplify` | Step 7a — unverified-code-changes prompt (no test runner discovered AND ≥1 code-file change applied) | Prompts y/n before hand-off | Skip prompt entirely; emit R1 with `data.test_suite_present: false` + `data.degraded_confidence: true` so the PO-agent routes the run for elevated scrutiny. See § *No-test-runner handling in `build-simplify` is a degraded-confidence path, not a HALT*. |
 
 ### STRUCTURAL MUST-FIX is deliberately not auto-handled
 
@@ -60,6 +61,14 @@ Operators reading `orchestrate.jsonl` will see the label write attributed to bot
 This mirrors `build-address-pr-comments` STRUCTURAL-MUST-FIX handling: deterministic-and-safe is auto-applied; judgment-required is surfaced upward, never silently skipped.
 
 A `build-simplify` session that produced zero SIMPLIFY findings AND any ESCALATE findings returns R1 `status: "partial"` (work remains for the PO-agent). A session with zero ESCALATE findings (any SIMPLIFY count, including zero) returns `status: "success"`.
+
+### No-test-runner handling in `build-simplify` is a degraded-confidence path, not a HALT
+
+When `build-simplify` Step 3 dispatches `gate-scout` against a project with no runnable test command — a docs-only repo, a config-only repo, or a freshly scaffolded project where tests haven't been written yet — the skill does NOT HALT. The session proceeds with `test_suite_present: false` and skips both the Step 3 baseline-capture and the Step 7 verify gate. The R1 envelope's `data.degraded_confidence: true` is the upward signal the PO-agent reads to route the run for elevated scrutiny — accept-as-is for a low-risk docs-only diff, open `/build-refine` to add a test runner, or surface to the human operator.
+
+The non-autonomous prompt (Step 7a y/n before hand-off when code files were touched) is replaced in autonomous mode by the `degraded_confidence` signal. This mirrors the ESCALATE pattern: judgment-required decisions are surfaced upward via the R1 envelope, never silently dropped. The `BASELINE_BROKEN` HALT code remains for the **distinct** case where a test runner exists but crashes before producing pass/fail counts — that is an error, the no-runner case is not.
+
+Step 7a is a no-op when the only files touched are doc/config (`**/*.{md,yaml,yml,json,toml}`); the diff is auditable from the file list itself and no scrutiny gate is needed. `status` remains `"success"` with `degraded_confidence: true`. Any code-file touch in autonomous mode bumps the envelope to `status: "partial"` so the PO-agent treats the run as "completed, needs review."
 
 ## Cross-skill propagation
 

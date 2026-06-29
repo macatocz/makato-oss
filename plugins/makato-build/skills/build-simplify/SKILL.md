@@ -8,7 +8,7 @@ description: >-
   auto-approves SIMPLIFY findings and surfaces ESCALATE findings via R1.
   Use after implement-tdd or implement-goal, before review; also invoked
   by sensor-fixer / build-resolve-finding for code-complexity findings.
-version: "1.3.0"
+version: "1.4.0"
 argument-hint: "[work-item-key] [--autonomous]"
 ---
 
@@ -78,14 +78,25 @@ shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-simplify","story":
 
 ### Step 3 — Establish test baseline
 
-Load @shared/baseline-guide.md. Run the full test suite and record the **pre-simplification baseline** (passing and failing counts).
+Dispatch the `gate-scout` agent (or follow `@shared/baseline-guide.md` discovery) to obtain the project's unit-test command. Two outcomes:
+
+**(a) Test runner discovered.** Run the full test suite and record the **pre-simplification baseline** (passing and failing counts). Set `test_suite_present = true` in the session context.
 
 Pre-existing failures do not gate this session — Step 7 only blocks on *new* failures introduced during simplification.
 
 Log:
 ```
-{"ts":"<ISO8601>","skill":"build-simplify","story":"<key>","step":"baseline","status":"ok","data":{"passing":<N>,"failing":<N>}}
+{"ts":"<ISO8601>","skill":"build-simplify","story":"<key>","step":"baseline","status":"ok","data":{"passing":<N>,"failing":<N>,"test_suite_present":true}}
 ```
+
+**(b) No test runner discovered** (gate-scout returns empty / no `pyproject.toml`, `package.json`, `Makefile`, `go.mod`, `pom.xml`, `Cargo.toml`, `build.gradle*` produces a runnable test command). This is a **degraded-confidence** path, not an error — proceed without a baseline. Set `test_suite_present = false` in the session context and **skip baseline capture entirely**. Do NOT attempt to run any test command.
+
+Log:
+```
+{"ts":"<ISO8601>","skill":"build-simplify","story":"<key>","step":"baseline","status":"skip","data":{"test_suite_present":false,"reason":"no test runner discovered"}}
+```
+
+The Step 7 verify gate honors this flag and short-circuits; the R1 envelope surfaces `data.test_suite_present` and `data.degraded_confidence` so the PO-agent can route the run for elevated scrutiny.
 
 ---
 
@@ -186,7 +197,14 @@ For each finding classified ESCALATE (not applied), log:
 
 ### Step 7 — Verify: run full test suite
 
-Run the full test suite. Compare against the baseline from Step 3.
+**Short-circuit when no test runner is present.** If `test_suite_present == false` from Step 3, do NOT attempt to run any test command. The session proceeds with **reduced confidence** in behavior-neutrality; the R1 envelope's `data.degraded_confidence: true` flag is the contract the PO-agent reads to route this run for elevated scrutiny.
+
+Log and proceed to Step 7a:
+```
+{"ts":"<ISO8601>","skill":"build-simplify","story":"<key>","step":"verify","status":"skip","data":{"test_suite_present":false,"degraded_confidence":true,"new_failures":0,"lines_removed_total":<N>}}
+```
+
+**Otherwise** (`test_suite_present == true`), run the full test suite. Compare against the baseline from Step 3.
 
 Zero new failures is the gate. If any test broke, the simplification was not
 behavior-neutral. Revert the failing change, re-run to confirm recovery, and remove that
@@ -194,8 +212,39 @@ finding from the applied list.
 
 Log:
 ```
-{"ts":"<ISO8601>","skill":"build-simplify","story":"<key>","step":"verify","status":"ok","data":{"new_failures":0,"lines_removed_total":<N>}}
+{"ts":"<ISO8601>","skill":"build-simplify","story":"<key>","step":"verify","status":"ok","data":{"test_suite_present":true,"degraded_confidence":false,"new_failures":0,"lines_removed_total":<N>}}
 ```
+
+---
+
+### Step 7a — Unverified-change gate (no test runner)
+
+This step only fires when `test_suite_present == false` AND at least one applied simplification touched a file outside `**/*.{md,yaml,yml,json,toml}` (i.e. a code file whose behavior is not trivially auditable from the diff).
+
+**Interactive mode** — prompt the user once before Step 8:
+
+> *"No test runner found — `<N>` applied change(s) touched code files and are unverified.  
+> Proceed with hand-off to `/build-review`? (y/n)"*
+
+If the user answers `n`, revert the applied changes (`git reset --hard <baseline-sha>` or per-finding revert) and exit the session with `status: "failure"` and `errors: ["UNVERIFIED_HALT: user rejected unverified code changes"]`.
+
+If the user answers `y`, continue to Step 8. Log the decision:
+```
+{"ts":"<ISO8601>","skill":"build-simplify","story":"<key>","step":"unverified-gate","status":"decision","data":{"test_suite_present":false,"code_files_touched":<N>,"user_choice":"continue|halt"}}
+```
+
+**Autonomous mode** — skip the prompt entirely. The R1 envelope's `data.degraded_confidence: true` AND `data.test_suite_present: false` is the upward signal; the PO-agent decides whether to:
+
+1. Accept the change (low-risk diff, docs-only repo).
+2. Open `/build-refine` to add a test runner before re-running simplification.
+3. Surface to the human operator.
+
+Emit a bypass entry per AUTONOMOUS-MODE.md § Logging contract:
+```json
+{"ts":"<ISO8601>","skill":"build-simplify","story":"<key>","step":"decision","status":"decision","data":{"event":"autonomous_bypass","gate":"unverified-code-changes","bypassed":true,"default_taken":"proceed-with-degraded-confidence","trigger":"agent_id|cli_flag|task_id_bundle"}}
+```
+
+If `test_suite_present == false` AND **only** doc/config files were touched, Step 7a is a no-op in both modes — the changes are auditable from the diff and the user gate is unnecessary.
 
 ---
 
@@ -204,7 +253,7 @@ Log:
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-simplify","story":"<key>","step":"session","status":"ok","data":{"findings_applied":<N>,"escalated":<N>,"lines_removed":<N>}}'
+shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-simplify","story":"<key>","step":"session","status":"ok","data":{"findings_applied":<N>,"escalated":<N>,"lines_removed":<N>,"test_suite_present":<bool>,"degraded_confidence":<bool>}}'
 ```
 
 **Interactive mode** — tell the user:
@@ -215,6 +264,10 @@ shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-simplify","story":
 If any ESCALATE findings were flagged:
 *"Note: \<N\> structural finding(s) require re-planning. Run `/build-refine` to address them
 before proceeding to `/build-review`."*
+
+If `test_suite_present == false`:
+*"Note: no test runner discovered — applied changes were NOT verified for behavior-neutrality.
+Audit the diff manually before proceeding, or add a test runner and re-run this skill."*
 
 **Autonomous mode** — emit the R1 envelope as the final `json`-fenced block of the response. See Autonomous Execution below for the shape.
 
@@ -241,6 +294,7 @@ Interactive mode is the default. The OR-equivalent activation rule means a singl
 | Step 1 work-item-key prompt | Asks for key | Use arg if passed; otherwise read it from the dispatching context bundle's `story` / `task_id` field. HALT `MISSING_INPUT` only if neither yields a value. |
 | Step 5 per-finding approval | Asks per SIMPLIFY finding | Auto-approve every SIMPLIFY finding. ESCALATE findings are logged + surfaced in R1, never auto-applied. |
 | Step 5 zero-findings confirmation | Asks user to confirm | Proceed without confirmation. |
+| Step 7a unverified-code-changes gate | Prompts y/n when no test runner AND code files touched | Skip prompt; proceed with `data.degraded_confidence: true` in R1 so the PO-agent decides upstream. |
 
 Every bypassed gate emits an `autonomous_bypass` JSONL entry per AUTONOMOUS-MODE.md § Logging contract.
 
@@ -266,16 +320,20 @@ The final `json`-fenced block of the response MUST be the R1 envelope:
     "escalated": [],
     "lines_removed": 0,
     "zero_findings": false,
-    "new_test_failures": 0
+    "new_test_failures": 0,
+    "test_suite_present": true,
+    "degraded_confidence": false
   }
 }
 ```
 
 Status mapping:
 
-- `status: "success"` — session completed cleanly: zero ESCALATE findings AND Step 7 verify gate green (no new test failures). The SIMPLIFY count may be zero.
-- `status: "partial"` — session completed BUT one or more ESCALATE findings remain unresolved (they were logged for the PO-agent). The caller decides whether to open `/build-refine` for re-planning.
-- `status: "failure"` — Step 7 verify gate failed (new test failures introduced) AND could not be cleanly reverted, OR a Hard prerequisite (no plan, no diff) blocked the session entirely.
+- `status: "success"` — session completed cleanly: zero ESCALATE findings AND Step 7 verify gate green (no new test failures). The SIMPLIFY count may be zero. `degraded_confidence` MAY be `true` if `test_suite_present == false` and only doc/config files were touched (Step 7a no-op) — the verify gate was skipped but no manual scrutiny is needed.
+- `status: "partial"` — session completed BUT one or more ESCALATE findings remain unresolved (they were logged for the PO-agent). Also returned when `test_suite_present == false` AND code files were touched in autonomous mode — `data.degraded_confidence: true` signals the PO-agent to route for elevated scrutiny. The caller decides whether to open `/build-refine` for re-planning.
+- `status: "failure"` — Step 7 verify gate failed (new test failures introduced) AND could not be cleanly reverted, OR a Hard prerequisite (no plan, no diff) blocked the session entirely, OR Step 7a interactive prompt was answered `n` (`UNVERIFIED_HALT`).
+
+`data.test_suite_present` is the boolean from Step 3 (`true` when gate-scout discovered a runnable test command; `false` when no runner was found). `data.degraded_confidence` is `true` whenever the verify gate was skipped — i.e. whenever `test_suite_present == false`. The two flags are tightly coupled today, but kept separate in the envelope because future Step 7 short-circuits (e.g. test runner present but crash-on-startup) will need to set `degraded_confidence: true` while `test_suite_present: true`.
 
 `data.escalated` is the array of ESCALATE finding descriptors (file:line + reason) so the PO-agent can dispatch each one to `/build-refine` independently.
 
@@ -285,5 +343,6 @@ Status mapping:
 |---|---|
 | `MISSING_INPUT` | No work-item key resolvable from args, context bundle, or `$AGENT_ID` source. |
 | `MISSING_PLAN` | No `plan.md` in `specs/<key>-*/` AND the dispatch did not pass acceptance criteria inline. (Soft — Step 1 says "proceed without one" so this is only HALT when autonomous AND the dispatch contract demanded ACs.) |
-| `BASELINE_BROKEN` | Step 3 baseline could not be established (test runner errors out before producing pass/fail counts). |
+| `BASELINE_BROKEN` | Step 3 test runner was discovered but crashed before producing pass/fail counts. Distinct from the no-runner skip path (Step 3 outcome (b)) which is **not** a HALT — that path sets `test_suite_present: false` and proceeds with `degraded_confidence`. |
 | `VERIFY_FAILED` | Step 7 detected new failures introduced by applied simplifications and revert did not restore green. |
+| `UNVERIFIED_HALT` | Step 7a interactive prompt answered `n` — user rejected hand-off of unverified code-file changes. Applied diffs are reverted before exit. |
