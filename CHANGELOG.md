@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.1](https://github.com/macatocz/makato/compare/v0.20.0...v0.20.1) (2026-06-28)
+
+
+### 🐛 Bug Fixes
+
+* **makato-build:** split semgrep:* route into security vs style ([#73](https://github.com/macatocz/makato/issues/73)) ([#79](https://github.com/macatocz/makato/issues/79)) ([444327e](https://github.com/macatocz/makato/commit/444327e0c86b4227e2ede0d1e95e833595e5d767))
+
 ## [0.20.0](https://github.com/macatocz/makato/compare/v0.19.0...v0.20.0) (2026-06-28)
 
 
