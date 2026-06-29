@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.27.0](https://github.com/macatocz/makato/compare/v0.26.0...v0.27.0) (2026-06-29)
+
+
+### ✨ Features
+
+* **makato-build:** re-merge dogfood pytest harness onto main (GAP-064 Part B; closes [#64](https://github.com/macatocz/makato/issues/64), [#58](https://github.com/macatocz/makato/issues/58)) ([#104](https://github.com/macatocz/makato/issues/104)) ([7abf138](https://github.com/macatocz/makato/commit/7abf138791fc100023f70c0280d34fdc49c44f11))
+
 ## [0.26.0](https://github.com/macatocz/makato/compare/v0.25.0...v0.26.0) (2026-06-29)
 
 
