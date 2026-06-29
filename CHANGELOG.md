@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.1](https://github.com/macatocz/makato/compare/v0.23.0...v0.23.1) (2026-06-29)
+
+
+### 🐛 Bug Fixes
+
+* **makato-build:** pre-merge hardening pass for WORKTREE_PATH propagation ([#85](https://github.com/macatocz/makato/issues/85)) ([#90](https://github.com/macatocz/makato/issues/90)) ([4f8f9f1](https://github.com/macatocz/makato/commit/4f8f9f1368120822358bbffc0e974e28ab000e77))
+
 ## [0.23.0](https://github.com/macatocz/makato/compare/v0.22.0...v0.23.0) (2026-06-29)
 
 
