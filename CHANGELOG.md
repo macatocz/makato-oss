@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.24.0](https://github.com/macatocz/makato/compare/v0.23.1...v0.24.0) (2026-06-29)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** session-status SessionStart hook (GAP-014, [#31](https://github.com/macatocz/makato/issues/31)) ([#92](https://github.com/macatocz/makato/issues/92)) ([3cebbb1](https://github.com/macatocz/makato/commit/3cebbb1622122464875191b8a9cfb9dba08d947d))
+
 ## [0.23.1](https://github.com/macatocz/makato/compare/v0.23.0...v0.23.1) (2026-06-29)
 
 
