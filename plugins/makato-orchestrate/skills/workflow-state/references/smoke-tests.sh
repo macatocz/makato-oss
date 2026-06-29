@@ -204,5 +204,21 @@ COUNT=$(find "$SANDBOX" -name "lessons-*.md" | wc -l | tr -d ' ')
 [[ "$COUNT" == "1" ]] || { echo "  ✗ FAIL: expected 1 lessons-*.md file, got $COUNT"; exit 1; }
 echo "  ✓ one lessons-YYYYMMDD.md after re-run"
 
+echo "=== T26: GAP-016 merge_conflict_cycles seeded at init with default 0 ==="
+"$WS" read "$KEY" | jq -e '.merge_conflict_cycles == 0' > /dev/null
+echo "  ✓ merge_conflict_cycles default 0"
+
+echo "=== T27: merge_conflict_cycles accepts non-negative integer patch ==="
+"$WS" patch "$KEY" .merge_conflict_cycles '2'
+"$WS" read "$KEY" | jq -e '.merge_conflict_cycles == 2' > /dev/null
+echo "  ✓ patch persists merge_conflict_cycles = 2"
+
+echo "=== T28: merge_conflict_cycles rejects negative values (schema minimum 0) ==="
+if "$WS" patch "$KEY" .merge_conflict_cycles '-1' 2>/dev/null; then
+  echo "  ✗ FAIL: expected non-zero exit"
+  exit 1
+fi
+echo "  ✓ schema rejects negative integer"
+
 echo
-echo "All 25 smoke tests passed."
+echo "All 28 smoke tests passed."

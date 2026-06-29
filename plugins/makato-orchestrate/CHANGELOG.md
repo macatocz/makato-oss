@@ -5,6 +5,42 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## Merge-conflict detection and rebase resolution in PO-agent outer loop (GAP-016 / #45)
+
+- **workflow-state schema** — New required field `merge_conflict_cycles` (integer, minimum 0, default 0). Distinct from `outer_iteration` so a single run can exhaust both the re-plan-loop ceiling (`outer_iteration >= 3`, enforced by `kill-switch poll`) AND the conflict-resolution ceiling (`merge_conflict_cycles >= MAKATO_MAX_MERGE_CONFLICT_CYCLES`, enforced at the PO-agent's pre-dispatch check in Step 6 #3 and at the `resolve-pr-conflict` Step 6 terminal HALT). Both ceilings fire HALT-008 — the `data` payload distinguishes them.
+- **shared/workflow-state.sh** — `init` seeds `merge_conflict_cycles: 0` alongside the other defaults. `patch` and `read` work against the new field without schema changes (jsonschema rejects non-integer or negative values via the existing validation pipeline).
+- **smoke-tests.sh** — 25 → 28 tests. T26: `merge_conflict_cycles` seeded at init with default 0. T27: `patch` persists a non-negative integer value. T28: schema rejects negative integer (`-1`) via the existing `_validate` heredoc.
+- **halt-conditions.md** — HALT-008 row rewritten to document TWO origins: (a) `outer_iteration >= 3` (re-plan exhaustion, `kill-switch poll` path); (b) `merge_conflict_cycles >= MAKATO_MAX_MERGE_CONFLICT_CYCLES` (conflict-resolution exhaustion, `resolve-pr-conflict` path). The counters are independent. See-also section adds a link to `skills/resolve-pr-conflict/SKILL.md` and the `merge_conflict_cycles` schema field.
+- **skills/resolve-pr-conflict/SKILL.md** → 1.1.0 — Four changes:
+  - **Auto-detected rebase target** — new Step 2 picks `development` when `origin/development` exists, otherwise `main`. Detection uses `git ls-remote --exit-code --heads origin <branch>` against the remote (not local HEAD) so a stale local-only `development` ref never produces a false positive. `git fetch origin --prune` precedes the check so the remote view is current. The resolved target is logged via `step: "target-resolved"`. The skill no longer hard-codes `origin/main` in Steps 3-5; `$TARGET_BRANCH` is threaded through the rebase, the `merge -X ours` fallback, and every log row. AC: works for both PRD-style (`development`) and makato-style (`main`) consumer repos without per-consumer configuration.
+  - **Canonical event names (AC9)** — Step 1 now emits `merge_conflict_detected` alongside the session-start row. Step 5 emits `rebase_resolved` alongside `push-resolved`. Step 6 emits `rebase_failed` alongside the session-end HALT row. The dual-row pattern is intentional — `step:` names matching the body convention stay (existing audit consumers continue to work), and the AC-mandated names are surfaced on their own rows so a downstream reader can count merge-conflict outcomes without joining `session` rows.
+  - **Typed state mutation (AC5)** — Step 6 now invokes `shared/workflow-state.sh patch <KEY> .merge_conflict_cycles <N>` and `shared/worktree.sh retain <KEY> merge_conflict` instead of hand-rolled jq. The schema field is now real; the helpers carry the sole-writer contract and schema validation.
+  - **Worktree path resolution** — Step 1 now reads `.worktree_path` from workflow-state via `shared/workflow-state.sh read` (which resolves the `specs/<key>-*/` prefix-match path) instead of hand-constructing `.claude/state/workflow-${KEY}.json` (which never existed — the schema lives under `specs/`).
+  - **HALT Codes table** — `HALT-008` row extended to document the cap origin alongside the unresolvable-tree origin; `NETWORK_ERROR` row extended to cover the "neither development nor main on origin" path.
+  - **New Environment section** — documents `MAKATO_MAX_MERGE_CONFLICT_CYCLES` (default 3).
+- **agents/po-agent.md** → 1.5.0 — Three changes:
+  - **Step 6 #3 (push pipeline) merge-conflict routing (AC1, AC3, AC4)** — `build-push-to-git` R1 `failure` is now classified before HALTing. When `errors[]` contains a case-insensitive substring match for `conflict`, `cannot be rebased automatically`, or `non-fast-forward`, the PO-agent enters the conflict-resolution sub-loop: read `merge_conflict_cycles` (HALT-008 immediately if already at cap), dispatch `/makato-orchestrate:resolve-pr-conflict <KEY> --autonomous`, parse its R1, and on `success` re-dispatch `build-push-to-git` (AC3 — re-run PR creation through the same pipeline step on clean rebase). On the skill's own HALT-008 R1, propagate the `halt_code` through po-agent's R1. Other resolution-skill failures (`SAFETY_BOUNDARY`, `NETWORK_ERROR`, `PUSH_REJECTED`) escalate to HALT-005.
+  - **Step 6a (CI checks) rebase-check classification (AC1)** — when `gh pr checks` reports any check name matching `(?i)(rebase|merge.?conflict)` with `conclusion: "failure"`, the PO-agent routes through the same conflict-resolution sub-loop instead of dispatching the coder. This is the distinct second detection signal (failed merge-detector job in CI) from the first (push itself rejected). After clean rebase, CI is re-polled from the top of sub-step 6a (counter reset).
+  - **Label application matrix** — `HALT-008` row now lists BOTH writers: `kill-switch poll` for the outer-iteration origin, `resolve-pr-conflict` for the merge-conflict origin. PO-agent's subsequent `gh issue edit --add-label` (when it re-fires HALT-008 on the pre-cap pre-dispatch check in Step 6 #3) is documented as idempotent no-op.
+  - **Error modes** — new row covering the cap path: when `merge_conflict_cycles >= MAKATO_MAX_MERGE_CONFLICT_CYCLES`, the skill applies `needs-human-review` itself and the worktree is retained for human inspection.
+  - **Frontmatter description** — updated to call out the merge-conflict detection + rebase-resolution capability.
+  - **See also** — new entries for GAP-016 / #45 and the resolve-pr-conflict skill.
+- **AC10 cross-references** — `halt-conditions.md` HALT-008 row, `agents/po-agent.md` Step 6 #3 and Step 6a, and `skills/resolve-pr-conflict/SKILL.md` HALT Codes table all reference each other so the merge-conflict origin is documented from three angles (the HALT taxonomy, the caller dispatch path, the callee skill contract).
+
+### Out of scope (deferred per issue § Out of Scope)
+
+- File-claim labels (`files:<glob>`) — redundant with worktree isolation + single-threaded `/loop`.
+- Import-graph dependency analysis at assignment time — covered by `scout` (GAP-013 / #29).
+- `PreToolUse` hook blocking Write/Edit on collision — fights the TDD inner loop.
+- Auto-merging the PR after conflict resolution — human or GHA merge remains the final step.
+- Concurrent ticket execution (`LOOP_MAX_CONCURRENT > 1`) — single-threaded loop in v1.
+
+### Note on rebase target
+
+The skill now **auto-detects** the target branch at Step 2 via `git ls-remote --exit-code --heads origin <branch>`: `development` wins when it exists on `origin`, otherwise `main`. Detection runs against remote refs (not local HEAD) so renames or stale local-only branches do not confuse the choice. The AgenticSystem PRD `code-conflict-prevention.md` convention (`development`) and the makato repo's actual default (`main`) are both honoured without per-consumer configuration. When neither branch exists on `origin`, the skill HALTs with `NETWORK_ERROR` and reason `"target branch not found on origin"` — the consumer repo has a non-standard default and human resolution is required.
+
+---
+
 ## Structured lessons learned + inter-session carry-forward (GAP-015 / #37)
 
 - **workflow-state schema** — `lessons_learned[]` item shape extended from `{ts, text}` to `{ts, cycle, trigger, description, files_affected}`. `trigger` is a closed enum: `ci_failure | halt | review_comment | sensor | merge_conflict` (the `merge_conflict` value covers the `resolve-pr-conflict` call site that GAP-016 / #45 prepared). `description` is capped at 200 chars (`maxLength: 200`) per the issue's technical notes — keep lessons structured, not narrative. `files_affected` is an array of repo-relative paths (may be empty); the `ts` and `cycle` mirror `updated_at` and `outer_iteration` so a lesson is timestamped and locatable in the run timeline without joining other fields.

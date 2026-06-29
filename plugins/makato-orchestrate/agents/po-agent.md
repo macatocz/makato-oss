@@ -11,8 +11,11 @@ description: >-
   HALT. Captures structured lessons after every outer-loop cycle event (CI
   failure, review-comment fix, HALT, sensor) and warm-starts a fresh run with
   the top-3 most-recent lessons from prior workflows on the same repo
-  (GAP-015 / #37). Never edits target-repo source files — orchestrates only.
-version: "1.4.0"
+  (GAP-015 / #37). Distinguishes merge-conflict push failures from CI test
+  failures and routes them through `resolve-pr-conflict` for autonomous rebase
+  resolution, capped at `MAKATO_MAX_MERGE_CONFLICT_CYCLES` (GAP-016 / #45).
+  Never edits target-repo source files — orchestrates only.
+version: "1.5.0"
 maxTurns: 100
 permissionMode: bypassPermissions
 disallowedTools: NotebookEdit
@@ -513,8 +516,59 @@ skill (all `sub_tasks[].status == "complete"`), advance the pipeline:
 3. Patch `current_phase: "pr"`. Dispatch
    `/makato-build:build-push-to-git <KEY> --autonomous` (it auto-invokes
    `/makato-build:build-create-pr <KEY> --autonomous` per
-   `AUTONOMOUS-MODE.md` § *Cross-skill propagation*). Parse R1; on
-   `failure` with deny-list reason → HALT-005 (apply `needs-human-review`).
+   `AUTONOMOUS-MODE.md` § *Cross-skill propagation*). Parse R1; classify
+   the failure mode before HALTing:
+
+   - **Merge-conflict failure (GAP-016 / #45 AC1).** When `r1.status ==
+     "failure"` AND `r1.errors[]` contains any of the substrings
+     `"conflict"`, `"cannot be rebased automatically"`, or
+     `"non-fast-forward"` (case-insensitive), route through the
+     conflict-resolution loop **before** declaring a HALT. The two
+     `gh pr create` failure modes — merge conflict vs. CI test failure —
+     have disjoint detection signals and disjoint resolution actions; the
+     CI-failure path lives in sub-step 6a (after a PR is open and the
+     check suite reports `failure`), the merge-conflict path lives here
+     (the push or PR creation itself was rejected because the branch is
+     out of date or has conflicting hunks against `main`).
+
+     Conflict-resolution sub-loop:
+
+     1. Read the current `merge_conflict_cycles` from workflow-state. If
+        the value already `>= MAKATO_MAX_MERGE_CONFLICT_CYCLES` (default
+        3) — i.e. a prior session exhausted the budget — fire HALT-008
+        immediately without retry. Apply `needs-human-review`, run
+        `shared/worktree.sh retain <KEY> HALT-008`, emit session-end
+        JSONL, return R1 `failure` with `data.halt_code: "HALT-008"`.
+     2. Dispatch `/makato-orchestrate:resolve-pr-conflict <KEY>
+        --autonomous`. The skill `cd`s into `.worktree_path`, attempts
+        `git rebase origin/main`, falls back to `git merge -X ours`, and
+        on a clean tree force-pushes via `--force-with-lease`. It writes
+        `merge_conflict_detected` / `rebase_resolved` / `rebase_failed`
+        events to `build.jsonl` itself (AC9) and patches
+        `.merge_conflict_cycles` on the HALT path.
+     3. Parse the skill's R1:
+        - `success` — branch is up to date and pushed. Re-dispatch
+          `/makato-build:build-push-to-git <KEY> --autonomous` (AC3 — on
+          clean rebase, re-run the PR creation through the same pipeline
+          step). Re-enter Step 6 #3 from the top with the fresh R1.
+        - `failure` with `data.halt_code: "HALT-008"` — the skill already
+          incremented `merge_conflict_cycles`, applied
+          `needs-human-review`, retained the worktree, and appended a
+          `trigger: merge_conflict` lesson. The PO-agent emits its
+          session-end JSONL (Step 7) and returns R1 `failure` propagating
+          the skill's `halt_code` payload.
+        - `failure` with any other reason (`SAFETY_BOUNDARY`,
+          `NETWORK_ERROR`, `PUSH_REJECTED`) — escalate as HALT-005 (push
+          deny-list adjacent), apply `needs-human-review`, retain
+          worktree, return R1 `failure`.
+
+     Emit JSONL on dispatch and on every routing decision:
+     ```json
+     {"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"merge_conflict_detected","status":"warn","data":{"pr_push_errors":[...],"merge_conflict_cycles_before":<N>}}
+     ```
+
+   - **Deny-list failure.** On `r1.status == "failure"` with deny-list
+     reason → HALT-005 (apply `needs-human-review`).
 4. Read `github_pr_number`. `build-push-to-git --autonomous`'s R1 envelope
    propagates `data.github_pr_number` from the nested `build-create-pr`
    dispatch — that is the AUTONOMOUS-MODE contract. If the field is
@@ -537,7 +591,24 @@ skill (all `sub_tasks[].status == "complete"`), advance the pipeline:
 
    - **All `conclusion == "success"`** — CI passed. Advance to sub-step 6 (optional
      address-pr-comments check).
-   - **Any `conclusion == "failure"`** — CI failed. CI-failure fix loop:
+   - **Any `conclusion == "failure"`** — CI failed. Classify the failure
+     before entering the fix loop (GAP-016 / #45 AC1 — merge-conflict vs.
+     CI-test failure routing):
+
+     1. Inspect the failing check names. When ANY failed check matches the
+        regex `(?i)(rebase|merge.?conflict)` (e.g. a `Rebase check`,
+        `Mergeability`, or `merge-conflict-detector` job), the failure is
+        a merge-conflict signal at CI time — route through the
+        conflict-resolution sub-loop documented in sub-step 3 (push)
+        above. Read `merge_conflict_cycles`; if already at the cap fire
+        HALT-008; otherwise dispatch `resolve-pr-conflict` and re-poll CI
+        from the top of this sub-step on a clean rebase. The CI-failure
+        fix loop below is SKIPPED for rebase-check failures — the
+        resolution is to rebase, not to dispatch the coder.
+     2. Otherwise (no rebase-check name match), the failure is a
+        CI-test failure — enter the CI-failure fix loop below.
+
+     CI-failure fix loop (test failure path only):
 
      1. Run `kill-switch poll <KEY>` — HALT-008 fires here if `outer_iteration >= 3`.
         On HALT-008: apply `needs-human-review`, run `shared/worktree.sh retain <KEY>
@@ -963,7 +1034,7 @@ remove labelling on a code path:
 | HALT-006 | Malformed plan / spec folder / dispatch bundle (Step 1, 4c) | **PO-agent** |
 | HALT-007 | `kill-switch poll` (budget) | `kill-switch poll` |
 | HALT-007B | `kill-switch handoff` (context ceiling) | Nobody — quality control, no label (NEVER 9) |
-| HALT-008 | `kill-switch poll` (`outer_iteration >= 3`) | `kill-switch poll` |
+| HALT-008 | `kill-switch poll` (`outer_iteration >= 3`) OR `resolve-pr-conflict` (`merge_conflict_cycles >= MAX_MERGE_CONFLICT_CYCLES`, GAP-016 / #45) | `kill-switch poll` for the outer-iteration path; `resolve-pr-conflict` for the merge-conflict path — both writers apply the label. PO-agent's subsequent `gh issue edit --add-label` (when it re-fires HALT-008 in Step 6 #3 on a pre-cap state) is an idempotent no-op |
 | HALT-009 | `kill-switch poll` (`claude-halt` label on issue) | `kill-switch poll` |
 | HALT-010 | CI/review polling loop (`human_review_cycles >= MAX`) | **PO-agent** |
 | HALT-STRUCTURAL | `build-refine` re-plan failed (Step 4f) | **PO-agent** |
@@ -1013,6 +1084,7 @@ off.
 | `workflow-state.json` malformed | Treat as fresh state, re-init; if init refuses (duplicate), HALT-006 |
 | Sub-agent R1 not parseable | NEVER 6; treat as `failure`; route to Step 4f (`build-refine` re-plan). Second failure on the same outer attempt → HALT-STRUCTURAL. |
 | `human_review_cycles >= MAX` (HALT-010) | HALT-010; R1 `failure`; **PO-agent** applies `needs-human-review` |
+| `merge_conflict_cycles >= MAKATO_MAX_MERGE_CONFLICT_CYCLES` (HALT-008 merge-conflict origin, GAP-016 / #45) | HALT-008; R1 `failure`; **`resolve-pr-conflict`** applies `needs-human-review` (PO-agent's subsequent label call is idempotent no-op). Worktree retained for human inspection. |
 | `build-refine` (Step 4f) itself returned `failure` | HALT-STRUCTURAL; R1 `failure`; **PO-agent** applies `needs-human-review` |
 | `gh` CLI not authenticated | HALT-006 (issue cannot be read); R1 `failure` |
 | `kill-switch` skill missing | The plugin is partially installed. HALT-006. |
@@ -1067,6 +1139,12 @@ two plugins co-exist: every build-* skill takes a documented default when
 - GAP-015 / #37 — structured `lessons_learned[]` and the carry-forward
   contract (Step 2c + Step 4d `PRIOR_LESSONS` propagation, terminal
   `summarise-lessons` markdown).
+- GAP-016 / #45 — merge-conflict detection (Step 6 #3 routing,
+  Step 6a rebase-check classification), `resolve-pr-conflict` skill
+  dispatch, `merge_conflict_cycles` cap, HALT-008 dual-origin.
+- `plugins/makato-orchestrate/skills/resolve-pr-conflict/SKILL.md` —
+  the conflict-resolution subroutine dispatched on push and rebase-check
+  failures.
 - `plugins/makato-change/skills/orchestrate/SKILL.md` — the interactive
   phase-detection analogue this agent's outer loop is patterned on (this
   agent makes the same decisions, autonomously, with kill-switches).

@@ -19,6 +19,7 @@
     "budget_limit_tokens",
     "context_warn_tokens",
     "outer_iteration",
+    "merge_conflict_cycles",
     "halt_audit",
     "human_review_cycles",
     "github_pr_number",
@@ -121,6 +122,11 @@
       "type": "integer",
       "minimum": 0,
       "description": "How many outer-loop iterations have completed. HALT-008 fires when this reaches 3."
+    },
+    "merge_conflict_cycles": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Count of merge-conflict resolution attempts within this run (GAP-016 / #45). Incremented by resolve-pr-conflict on every irreconcilable conflict (Step 6 HALT path). HALT-008 fires when this reaches MAKATO_MAX_MERGE_CONFLICT_CYCLES (default 3) — separate ceiling from the outer_iteration counter so a single run can exhaust re-plan budget AND conflict-resolution budget independently."
     },
     "halt_audit": {
       "type": "array",

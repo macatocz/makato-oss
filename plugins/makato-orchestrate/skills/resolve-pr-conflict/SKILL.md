@@ -1,7 +1,7 @@
 ---
 name: resolve-pr-conflict
 description: Detect and resolve a merge conflict on an open PR branch inside the PO-agent worktree — rebase-first, merge -X ours fallback, HALT-008 when irreconcilable. Invoked by the PO-agent outer loop after a conflict signal or CI rebase-check failure. Returns R1 envelope.
-version: "1.0.0"
+version: "1.1.0"
 argument-hint: "[work-item-key] [--autonomous]"
 allowed-tools: Bash(git *) Bash(gh *) Bash(jq *) Bash(python3 *) Read
 ---
@@ -34,10 +34,17 @@ Runs before any other step on every invocation.
 **Detect mode:** autonomous when `$AGENT_ID` is set OR `--autonomous` is passed
 OR the caller context bundle contains `task_id`. Interactive otherwise.
 
-**Resolve worktree path:** in autonomous mode read from workflow-state:
+**Resolve worktree path:** in autonomous mode read from workflow-state via
+the canonical helper (it resolves `specs/<key>-*/workflow-state.json` for
+the given KEY — never hand-construct the path; the spec folder uses a
+`<key>-<slug>` suffix that the helper resolves via prefix match):
 
 ```bash
-jq -r '.worktree_path' ".claude/state/workflow-${KEY}.json"
+WORKTREE_PATH=$(shared/workflow-state.sh read "$KEY" | jq -r '.worktree_path // empty')
+if [[ -z "$WORKTREE_PATH" ]]; then
+  echo "ERROR: workflow-state has no worktree_path for KEY=$KEY" >&2
+  exit 1
+fi
 ```
 
 In interactive mode use `git rev-parse --show-toplevel`.
@@ -54,28 +61,69 @@ fi
 
 Constraint: if the branch is protected → HALT `SAFETY_BOUNDARY`. Never attempt
 resolution on a protected branch — those branches have CI-enforced protection and
-force-pushing them rewrites shared history.
+force-pushing them rewrites shared history. The deny-list intentionally covers
+all three common default-branch names (`main`, `master`, `development`)
+regardless of which one Step 2 selects as the rebase target, so the safety net
+holds for every consumer repo convention.
 
 In autonomous mode all decisions follow the strategy table in Steps 3–4. Do not
 call `AskUserQuestion` — every branch is taken without user input.
 
-Log session start:
+Log session start AND the canonical `merge_conflict_detected` event (GAP-016
+/ #45 AC9 — the entry signals to downstream audit that the PO-agent's outer
+loop dispatched conflict resolution, distinct from a CI-failure dispatch):
 
 ```bash
 shared/build-log.sh "$KEY" \
   '{"ts":"<ISO>","skill":"resolve-pr-conflict","story":"<KEY>","step":"session","status":"start","data":{"branch":"<BRANCH>","worktree_path":"<PATH>"}}'
+
+shared/build-log.sh "$KEY" \
+  '{"ts":"<ISO>","skill":"resolve-pr-conflict","story":"<KEY>","step":"merge_conflict_detected","status":"warn","data":{"branch":"<BRANCH>","worktree_path":"<PATH>"}}'
 ```
 
 ---
 
-### Step 2 — Fetch latest main
+### Step 2 — Resolve target branch and fetch latest
+
+The skill rebases against `development` when the consumer repo uses it as
+its default branch (AgenticSystem PRD `code-conflict-prevention.md` convention),
+otherwise against `main`. Detection runs against the remote refs in the
+worktree's `origin` so the choice always reflects the actual remote state,
+not local `HEAD` (which can drift if a contributor renamed branches).
 
 ```bash
 cd "$WORKTREE_PATH"
-git fetch origin main
+git fetch origin --prune
+
+# Pick development if it exists on origin, otherwise main. The two-step
+# check avoids the false positive of a stale local-only `development`
+# ref that no longer matches the remote.
+if git ls-remote --exit-code --heads origin development >/dev/null 2>&1; then
+  TARGET_BRANCH="development"
+elif git ls-remote --exit-code --heads origin main >/dev/null 2>&1; then
+  TARGET_BRANCH="main"
+else
+  echo "ERROR: neither origin/development nor origin/main exists" >&2
+  exit 1
+fi
+
+# Fetch the resolved target ref so origin/<TARGET_BRANCH> is current.
+git fetch origin "$TARGET_BRANCH"
 ```
 
-If `git fetch` fails → log warn, HALT `NETWORK_ERROR`.
+If `git fetch` fails → log warn, HALT `NETWORK_ERROR`. If neither
+`development` nor `main` exists on origin → HALT `NETWORK_ERROR` with
+reason `"target branch not found on origin"` (the consumer repo has a
+non-standard default; rebase resolution is not applicable and the human
+operator must take over).
+
+Log the resolved target so a downstream reader can see which branch was
+used (helpful when a repo switches its default branch mid-project):
+
+```bash
+shared/build-log.sh "$KEY" \
+  '{"ts":"<ISO>","skill":"resolve-pr-conflict","story":"<KEY>","step":"target-resolved","status":"ok","data":{"target_branch":"<TARGET_BRANCH>"}}'
+```
 
 ---
 
@@ -83,7 +131,7 @@ If `git fetch` fails → log warn, HALT `NETWORK_ERROR`.
 
 ```bash
 cd "$WORKTREE_PATH"
-git rebase origin/main
+git rebase "origin/$TARGET_BRANCH"
 REBASE_EXIT=$?
 ```
 
@@ -116,15 +164,16 @@ subsequent git operations fail with "rebase in progress" errors.
 ```bash
 cd "$WORKTREE_PATH"
 git rebase --abort 2>/dev/null || true
-git merge origin/main -X ours --no-edit \
+git merge "origin/$TARGET_BRANCH" -X ours --no-edit \
   -m "fix: resolve conflicts on $(git branch --show-current) (merge -X ours)"
 MERGE_EXIT=$?
 ```
 
 Constraint: always use `-X ours` (feature branch wins on conflict) for the
-feature → main direction. `-X theirs` would silently prefer main's version and
-discard the PR's own changes. `-X ours` does NOT discard main's non-conflicting
-changes — only conflicting hunks are resolved in favour of the feature branch.
+feature → `$TARGET_BRANCH` direction. `-X theirs` would silently prefer the
+target branch's version and discard the PR's own changes. `-X ours` does
+NOT discard the target's non-conflicting changes — only conflicting hunks
+are resolved in favour of the feature branch.
 
 **If `MERGE_EXIT == 0`:**
 
@@ -173,7 +222,15 @@ Log:
 ```bash
 shared/build-log.sh "$KEY" \
   '{"ts":"<ISO>","skill":"resolve-pr-conflict","story":"<KEY>","step":"push-resolved","status":"ok","data":{"strategy":"<rebase|merge-X-ours>","branch":"<BRANCH>"}}'
+
+shared/build-log.sh "$KEY" \
+  '{"ts":"<ISO>","skill":"resolve-pr-conflict","story":"<KEY>","step":"rebase_resolved","status":"ok","data":{"strategy":"<rebase|merge-X-ours>","branch":"<BRANCH>"}}'
 ```
+
+The dual log entry is intentional: `push-resolved` is the step-named audit
+matching the body convention used in Steps 3–4; `rebase_resolved` is the
+canonical GAP-016 / #45 AC9 event name surfaced to the PO-agent's outer-loop
+audit reader. Both rows are loud successes — never written on the HALT path.
 
 Return R1 success envelope:
 
@@ -199,17 +256,27 @@ Return R1 success envelope:
 
 Both strategies failed. The conflict requires human judgment.
 
-1. Increment `merge_conflict_cycles` in workflow-state (GAP-017 / #46 field).
-   In autonomous mode: if `merge_conflict_cycles >= MAKATO_MAX_MERGE_CONFLICT_CYCLES`
-   (default 3, env-configurable) fire HALT-008 immediately without retry.
+1. Increment `merge_conflict_cycles` in workflow-state (schema field added
+   per GAP-016 / #45 AC5). Use `workflow-state.sh patch` (typed, schema-
+   validated) rather than ad-hoc jq — the PO-agent is the sole writer
+   contract still holds because resolve-pr-conflict runs *inside* the
+   PO-agent's outer loop and inherits its allow-list. The cap check is
+   performed by the **caller** (PO-agent Step 6 #3) before dispatching
+   this skill; reaching Step 6 here means rebase + `merge -X ours` both
+   failed at the git level, and HALT-008 fires unconditionally regardless
+   of the counter value. The increment exists so subsequent dispatches in
+   the same run honour the cap on the PO-agent side.
 
    ```bash
-   STATE_FILE=".claude/state/workflow-${KEY}.json"
-   CYCLES=$(jq '.merge_conflict_cycles // 0' "$STATE_FILE")
+   CYCLES=$(shared/workflow-state.sh read "$KEY" | jq '.merge_conflict_cycles // 0')
    NEW_CYCLES=$((CYCLES + 1))
-   jq ".merge_conflict_cycles = $NEW_CYCLES | .worktree_retained = true | .worktree_retain_reason = \"merge_conflict\"" \
-     "$STATE_FILE" > "${STATE_FILE}.tmp" && mv "${STATE_FILE}.tmp" "$STATE_FILE"
+   shared/workflow-state.sh patch "$KEY" .merge_conflict_cycles "$NEW_CYCLES"
+   shared/worktree.sh retain "$KEY" merge_conflict
    ```
+
+   The `worktree.sh retain` call flips `.worktree_retained = true` and
+   `.worktree_retain_reason = "merge_conflict"` — AC7 mandates the worktree
+   survives the HALT so a human can inspect the conflict state.
 
 2. Apply `needs-human-review` label:
 
@@ -230,9 +297,17 @@ Both strategies failed. The conflict requires human judgment.
      "${CONFLICT_FILES[@]}"
    ```
 
-4. Log HALT:
+4. Log the canonical `rebase_failed` event (GAP-016 / #45 AC9) AND the
+   session-end HALT row. The two rows are distinct: `rebase_failed`
+   surfaces the conflict outcome on its own audit step so a downstream
+   reader can count merge-conflict halts without joining `session` rows;
+   `session` carries the terminal-state envelope for orchestrate.jsonl
+   parity:
 
    ```bash
+   shared/build-log.sh "$KEY" \
+     '{"ts":"<ISO>","skill":"resolve-pr-conflict","story":"<KEY>","step":"rebase_failed","status":"error","data":{"halt_code":"HALT-008","reason":"irreconcilable_conflict","merge_conflict_cycles":<N>,"branch":"<BRANCH>"}}'
+
    shared/build-log.sh "$KEY" \
      '{"ts":"<ISO>","skill":"resolve-pr-conflict","story":"<KEY>","step":"session","status":"error","data":{"halt_code":"HALT-008","reason":"irreconcilable_conflict","merge_conflict_cycles":<N>,"worktree_retained":true}}'
    ```
@@ -261,7 +336,13 @@ Both strategies failed. The conflict requires human judgment.
 
 | Code | Trigger | Recovery |
 |---|---|---|
-| `HALT-008` | Both rebase and merge-X-ours leave unresolved files | Human resolves conflict in retained worktree, re-pushes, re-triggers PO-agent loop |
+| `HALT-008` | Both rebase and merge-X-ours leave unresolved files, OR `merge_conflict_cycles >= MAKATO_MAX_MERGE_CONFLICT_CYCLES` (default 3) — see `halt-conditions.md` HALT-008 for the dual-origin documentation | Human resolves conflict in retained worktree, re-pushes, re-triggers PO-agent loop |
 | `SAFETY_BOUNDARY` | Branch is `main`, `master`, or `development` | Check out a feature branch first |
-| `NETWORK_ERROR` | `git fetch origin main` fails | Verify network / GitHub access, retry |
+| `NETWORK_ERROR` | `git fetch origin <target>` fails OR neither `origin/development` nor `origin/main` exists | Verify network / GitHub access, confirm the consumer repo's default branch is `development` or `main`, retry |
 | `PUSH_REJECTED` | `--force-with-lease` refused | Fetch and inspect remote changes; re-run skill |
+
+## Environment
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MAKATO_MAX_MERGE_CONFLICT_CYCLES` | `3` | Hard ceiling on irreconcilable-conflict retries within a single run. When the post-increment `merge_conflict_cycles` reaches this value, Step 6 fires HALT-008 unconditionally. Distinct from `MAX_OUTER_ITERATIONS` (the re-plan-loop ceiling enforced by `kill-switch poll`) — a run can exhaust BOTH ceilings independently. |
