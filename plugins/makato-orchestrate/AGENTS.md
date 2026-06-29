@@ -73,8 +73,9 @@ makato-orchestrate hosts the top-level orchestrator and supporting read-only sco
 | **po-agent** | sonnet | bypassPermissions | Plan-level outer-loop driver — reads a GitHub Issue, resolves the spec folder, dispatches `build-implement-tdd` / `build-implement-goal` once per outer iteration, decides advance-vs-replan from the skill's R1, patches workflow-state, terminates on PR-merged or HALT | `loop` |
 | **context-summariser** | haiku | read-only | ≤ 500-token session summary for HALT-007B handoff. Input: `workflow-state.json` + current task description ONLY. Source files explicitly out of scope. | `scripts/context-handoff.sh` (via po-agent) |
 | **scout** | haiku | read-only | Per-task pre-read agent — given a task's `CHANGED_FILES` plus the bundle rules resolved by `inject-context`, opens ≤ 8 files and returns a ~500-token structured summary (`key_patterns`, `naming_conventions`, `test_file_paths`, `existing_exports`, `warnings`) injected into the coder's `SCOUT_SUMMARY` input. Disjoint from `makato-build/knowledge-scout` (repo-wide, plan-time). | `build-implement-tdd` Step 6 (per coder dispatch) |
+| **documentation-agent** | sonnet | bypassPermissions | Post-merge documentation pass — reads merged PR diff and commits, appends a CHANGELOG entry (Keep a Changelog format), conditionally updates README on public-API change, closes parent and child Issues via `gh issue close`, advances the Projects v2 board to Done via `issue-to-project sync-lifecycle`, and emits a `docs_coverage_warning` when `src/` diff lines outpace `docs/` diff lines by 2×. Frontmatter denies `Edit`/`Write` on `src/`, `lib/`, `app/`. | `workflows/post-merge.yml` (GHA) |
 
-*po-agent, context-summariser, and scout are shipped (GAP-006 / #32, GAP-004 / #30, GAP-013 / #29).*
+*po-agent, context-summariser, scout, and documentation-agent are shipped (GAP-006 / #32, GAP-004 / #30, GAP-013 / #29, GAP-012 / #35).*
 
 ## Skill Authoring
 
@@ -92,6 +93,7 @@ makato-orchestrate/
 ├── .claude-plugin/plugin.json
 ├── agents/
 │   ├── context-summariser.md             (GAP-004 / #30 — shipped)
+│   ├── documentation-agent.md            (GAP-012 / #35 — shipped)
 │   ├── po-agent.md                       (GAP-006 / #32 — shipped)
 │   └── scout.md                          (GAP-013 / #29 — shipped)
 ├── hooks/
@@ -118,6 +120,8 @@ makato-orchestrate/
 │   ├── workflow-state.sh                 (GAP-003 / #26)
 │   ├── worktree.sh                       (GAP-017 / #46 — shipped)
 │   └── worktree-smoke-tests.sh           (GAP-017 / #46 — shipped)
+├── workflows/
+│   └── post-merge.yml                    (GAP-012 / #35 — shipped)
 ├── halt-conditions.md                    (GAP-004 / #30 — shipped)
 ├── never-patterns.md                     (GAP-004 / #30 — shipped)
 ├── CLAUDE.md

@@ -90,6 +90,7 @@ Sub-agents inherit the flag via the dispatch context bundle; they do not re-pars
 | `context-summariser` | haiku | read-only (Read-only) | Produces ≤ 500-token session summary for HALT-007B handoff — input is workflow-state.json + current task description only, never source files | **Shipped** — GAP-004 (#30). Dispatched by PO-agent in GAP-006 (#32). |
 | `po-agent` | sonnet | bypassPermissions | Outer-loop driver — reads Issue, builds sub-task list, dispatches `build-implement-tdd` / `build-implement-goal` per task, patches state, terminates on PR-merged or HALT | **Shipped** — GAP-006 (#32). Consumed by `loop` (GAP-007 / #33). |
 | `scout` | haiku | read-only | Per-task pre-read of the exact files a sub-task will touch + the bundle rules from `inject-context`; returns a ~500-token structured summary (`key_patterns`, `naming_conventions`, `test_file_paths`, `existing_exports`, `warnings`) injected into the coder's `SCOUT_SUMMARY` input. Advisory — a scout failure degrades to a `coder` dispatch without the summary, never a HALT. | **Shipped** — GAP-013 (#29). Dispatched by `build-implement-tdd` Step 6 once per task. |
+| `documentation-agent` | sonnet | bypassPermissions (frontmatter denies `Edit`/`Write` on `src/**`, `lib/**`, `app/**`) | Post-merge documentation pass — appends a Keep a Changelog entry, conditionally updates README on public-API change, closes parent + child Issues via `gh issue close`, advances the Projects v2 board to Done via `issue-to-project sync-lifecycle`, and emits a `docs_coverage_warning` when `src/` diff lines exceed `2× docs/` diff lines. Read-only consumer of workflow-state. Best-effort, never HALTs the parent run. | **Shipped** — GAP-012 (#35). Dispatched by `workflows/post-merge.yml` (GHA) once per merged PR against the default branch. |
 
 ## Hooks *(partial — additional hooks not yet shipping)*
 
@@ -172,6 +173,43 @@ GitHub Issue (status:ready-for-dev)
    └──────────────────────────────┘
 ```
 
+### Post-merge documentation (GAP-012 / #35)
+
+Once the PR opened by the loop above merges to the default branch, the
+`workflows/post-merge.yml` GHA workflow (consumers copy it to
+`.github/workflows/`) dispatches the `documentation-agent` for the merged PR
+number. The agent runs **outside** the autonomous loop — it is triggered by
+GitHub, not the PO-agent — and produces the post-merge housekeeping
+artefacts in a single pass:
+
+```text
+PR merged to default branch
+        │
+        ▼
+┌──────────────────────────────────┐
+│  workflows/post-merge.yml (GHA)  │  on: pull_request.closed + merged=true
+└──────────┬───────────────────────┘
+           ▼
+┌──────────────────────────────────┐
+│      documentation-agent         │  sonnet, maxTurns=30
+│  frontmatter denies src/lib/app  │
+└──────────┬───────────────────────┘
+           ▼
+  1. Locate workflow-state.json by github_pr_number (read-only)
+  2. gh pr diff <PR> + gh pr view <PR> --json commits
+  3. Append CHANGELOG.md (Keep a Changelog)
+  4. README.md update (public-API heuristic)
+  5. Close parent + child Issues (gh issue close)
+  6. issue-to-project sync-lifecycle  →  board to Done
+  7. Retrospective docs-coverage warning → build.jsonl
+```
+
+Every step is best-effort: missing workflow-state, missing README API
+section, absent `issue-to-project` skill, or a single failing
+`gh issue close` degrade the run to R1 `status: "partial"` rather than
+HALT. The agent never writes `workflow-state.json` — the PO-agent
+remains the sole writer per NEVER 4.
+
 ## File Structure
 
 ```text
@@ -179,6 +217,7 @@ makato-orchestrate/
 ├── .claude-plugin/plugin.json
 ├── agents/
 │   ├── context-summariser.md             (GAP-004 / #30 — shipped)
+│   ├── documentation-agent.md            (GAP-012 / #35 — shipped)
 │   ├── po-agent.md                       (GAP-006 / #32 — shipped)
 │   └── scout.md                          (GAP-013 / #29 — shipped)
 ├── hooks/
@@ -202,6 +241,8 @@ makato-orchestrate/
 │   ├── workflow-state.sh                 (GAP-003 / #26 — shipped)
 │   ├── worktree.sh                       (GAP-017 / #46 — shipped)
 │   └── worktree-smoke-tests.sh           (GAP-017 / #46 — shipped)
+├── workflows/
+│   └── post-merge.yml                    (GAP-012 / #35 — shipped)
 ├── halt-conditions.md                    (GAP-004 / #30 — shipped)
 ├── never-patterns.md                     (GAP-004 / #30 — shipped)
 ├── CLAUDE.md

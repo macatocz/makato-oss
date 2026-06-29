@@ -146,7 +146,7 @@ echo "=== T10: retain writes BOTH retention fields atomically (C16 — single wr
 # Verify that after the call, BOTH fields reflect the new value with the same
 # updated_at — a single workflow-state.sh write rather than two patches.
 "$WT_LOCAL" retain "$KEY" "HALT-005" > /dev/null
-UPDATED="$("$WS_LOCAL" read "$KEY" | jq -r '.updated_at')"
+"$WS_LOCAL" read "$KEY" | jq -r '.updated_at' > /dev/null
 "$WS_LOCAL" read "$KEY" | jq -e '.worktree_retained == true' > /dev/null
 "$WS_LOCAL" read "$KEY" | jq -e '.worktree_retain_reason == "HALT-005"' > /dev/null
 # Belt-and-braces: every other field's value must still pass the schema —
