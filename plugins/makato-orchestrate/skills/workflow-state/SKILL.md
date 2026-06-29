@@ -2,14 +2,15 @@
 name: workflow-state
 description: >-
   Read and write PO-agent resumable session state at
-  `specs/<key>-<slug>/workflow-state.json`. Provides five subcommands
-  (init / read / write / patch / append-lesson) via `shared/workflow-state.sh`,
-  backed by a JSON Schema draft-07 contract. PO-agent (GAP-006 / #32) is the
-  sole writer in production. Use when you need a resumable overlay over
-  `build.jsonl` — the audit log captures forensics, this skill captures live
-  loop state (sub-task graph, current phase, budget, HALT audit, lessons).
-version: "1.2.0"
-argument-hint: "<subcommand> <key> [args…]"
+  `specs/<key>-<slug>/workflow-state.json`. Provides seven subcommands
+  (init / read / write / patch / append-lesson / recall-lessons /
+  summarise-lessons) via `shared/workflow-state.sh`, backed by a JSON Schema
+  draft-07 contract. PO-agent (GAP-006 / #32) is the sole writer in production.
+  Use when you need a resumable overlay over `build.jsonl` — the audit log
+  captures forensics, this skill captures live loop state (sub-task graph,
+  current phase, budget, HALT audit, structured lessons learned).
+version: "1.3.0"
+argument-hint: "<subcommand> <key|repo> [args…]"
 ---
 
 <!-- markdownlint-disable MD013 -->
@@ -60,11 +61,11 @@ The full contract lives at @references/workflow-state.schema.json (draft-07, `ad
 
 **halt_audit[] item:** `code` (e.g. `HALT-007B`, `HALT-008`), `ts` (ISO-8601 ms), `data` (object, schema varies per code — consumers tolerate unknown keys).
 
-**lessons_learned[] item:** `ts` (ISO-8601 ms), `text` (non-empty).
+**lessons_learned[] item:** `ts` (ISO-8601 ms, helper-injected), `cycle` (integer ≥ 0, mirrors `outer_iteration`), `trigger` (`ci_failure` | `halt` | `review_comment` | `sensor` | `merge_conflict`), `description` (non-empty, ≤ 200 chars — helper truncates with `…` suffix), `files_affected` (array of repo-relative paths, may be empty). The structured shape lands per GAP-015 / #37. The schema is strict (`additionalProperties: false` at the item level): a legacy `{ts, text}` entry in a pre-existing `workflow-state.json` will halt the next mutating call with `HALT: INVALID_STATE`. There is no automatic migration — operators upgrading mid-flight must either re-`init` the spec folder (losing in-flight state) or hand-edit `workflow-state.json` to drop the legacy entries before resuming. This is a one-time hazard: every fresh run from `init` writes the new shape from the start.
 
 ## Operations
 
-All five subcommands resolve the spec folder by prefix-matching `specs/<key>-*/` (same convention as `build-log.sh`).
+All seven subcommands resolve the spec folder by prefix-matching `specs/<key>-*/` (same convention as `build-log.sh`). The exception is `recall-lessons`, which takes `<REPO>` instead of `<KEY>` and scans every `specs/*/workflow-state.json` to aggregate across prior runs.
 
 ### `init <KEY> <REPO> <BRANCH> <ISSUE_NUMBER>`
 
@@ -101,13 +102,36 @@ shared/workflow-state.sh patch gap-003 .outer_iteration '2'
 shared/workflow-state.sh patch gap-003 .github_pr_number '42'
 ```
 
-### `append-lesson <KEY> "<TEXT>"`
+### `append-lesson <KEY> <CYCLE> <TRIGGER> <DESCRIPTION> [FILE…]`
 
-Append `{ts, text}` to `lessons_learned[]`. `updated_at` is updated automatically.
+Append a structured lesson to `lessons_learned[]` (GAP-015 / #37). `ts` is helper-injected. `CYCLE` mirrors the current `outer_iteration`. `TRIGGER` must match the schema enum: `ci_failure`, `halt`, `review_comment`, `sensor`, `merge_conflict`. `DESCRIPTION` is auto-truncated at 200 chars with a `…` suffix. Remaining positional args become `files_affected[]` (variadic; may be zero).
 
 ```bash
-shared/workflow-state.sh append-lesson gap-003 "tracer bullet essential for multi-layer stories"
+shared/workflow-state.sh append-lesson gap-003 1 ci_failure \
+  "ruff F401 unused import in tracer test" \
+  tests/test_tracer.py src/tracer/__init__.py
 ```
+
+### `recall-lessons <REPO> [N]`
+
+Aggregate `lessons_learned[]` across every `specs/*/workflow-state.json` whose `.repo` matches `<REPO>`. Returns the top-`N` (default 3) most recent lessons as a JSON array, sorted `(cycle DESC, ts DESC)`. Used by the PO-agent at session start (GAP-015 / #37 AC3) to warm-start the dispatch bundle with prior lessons from the same repository.
+
+```bash
+shared/workflow-state.sh recall-lessons macatocz/my-app 3 | jq '.[].description'
+```
+
+Returns `[]` when no matching repo is found or `specs/` does not exist.
+
+### `summarise-lessons <KEY>`
+
+Render `lessons_learned[]` as `specs/<key>-<slug>/lessons-YYYYMMDD.md` (GAP-015 / #37 AC4). Idempotent: a same-day re-run overwrites in place. Writes a minimal stub file when `lessons_learned[]` is empty so the audit trail records that no lessons were captured. Prints the absolute output path to stdout.
+
+```bash
+shared/workflow-state.sh summarise-lessons gap-003
+# → /…/specs/gap-003-foo/lessons-20260629.md
+```
+
+The PO-agent calls this once on every terminal state (success at Step 6 #8, every HALT path in § *Error modes*) so each run leaves a human-readable lesson summary alongside `workflow-state.json` and `build.jsonl`.
 
 ## Cross-plugin caller (`build-implement-tdd`)
 
@@ -128,12 +152,18 @@ UPDATED_EPOCH=$(date -j -f "%Y-%m-%dT%H:%M:%S" \
 
 ## JSONL Audit Requirement
 
-Every mutating call (`init` / `write` / `patch` / `append-lesson`) **must** be followed by an `orchestrate.jsonl` entry from the calling skill. The helper does not write its own log — separation of concerns mirrors `build-log.sh` (which writes the log, not the data).
+Every mutating call (`init` / `write` / `patch` / `append-lesson` / `summarise-lessons`) **must** be followed by an `orchestrate.jsonl` entry from the calling skill. `recall-lessons` is read-only and does not require an audit entry. The helper does not write its own log — separation of concerns mirrors `build-log.sh` (which writes the log, not the data).
 
 Required audit shape:
 
 ```json
 {"ts":"<ISO-8601-ms>","skill":"po-agent","issue":<N>,"step":"workflow-state","status":"ok","data":{"op":"patch","path":".current_phase","value":"implement"}}
+```
+
+For `summarise-lessons`, use a dedicated `step: "summarise-lessons"` entry that records the rendered path and the terminal state:
+
+```json
+{"ts":"<ISO-8601-ms>","skill":"po-agent","issue":<N>,"step":"summarise-lessons","status":"ok","data":{"path":"<absolute path printed by the helper>","terminal_state":"<success|failure>"}}
 ```
 
 Append via the orchestrate log helper (TBD: `shared/orchestrate-log.sh`) — until that ships, callers can append directly to `specs/<key>-<slug>/orchestrate.jsonl`.
@@ -165,4 +195,4 @@ All four are present on the repo's CI image and on standard developer machines.
 
 ## Verification
 
-Smoke tests live in @references/smoke-tests.sh — run from repo root after any change to `workflow-state.sh` or the schema. The script covers init/read/write/patch/append-lesson, duplicate-init refusal, missing-file `{}` response, indexed-path patches, and invalid-write halts.
+Smoke tests live in @references/smoke-tests.sh — run from repo root after any change to `workflow-state.sh` or the schema. The script covers init/read/write/patch/append-lesson/recall-lessons/summarise-lessons, duplicate-init refusal, missing-file `{}` response, indexed-path patches, invalid-write halts, the GAP-015 / #37 lessons schema (enum violation, cycle integer guard, 200-char truncation, files_affected variadic, merge_conflict trigger, patch-preserves-lessons, recall filter by repo, summarise idempotency).

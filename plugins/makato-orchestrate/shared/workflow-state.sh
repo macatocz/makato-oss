@@ -11,8 +11,21 @@
 #   patch <KEY> <JQ-PATH> <VALUE>
 #       Apply a jq-style field update. JQ-PATH like .current_phase or .sub_tasks[0].status.
 #       VALUE is a JSON literal: '"implement"', '3', 'true', '{...}'.
-#   append-lesson <KEY> "<TEXT>"
-#       Append {ts, text} to lessons_learned[].
+#   append-lesson <KEY> <CYCLE> <TRIGGER> <DESCRIPTION> [FILE…]
+#       Append {ts, cycle, trigger, description, files_affected} to lessons_learned[].
+#       CYCLE: outer_iteration integer ≥ 0.
+#       TRIGGER: ci_failure|halt|review_comment|sensor|merge_conflict (schema enum).
+#       DESCRIPTION: ≤ 200 chars (auto-truncated with '…').
+#       FILE…: zero or more repo-relative paths (variadic).
+#   recall-lessons <REPO> [N]
+#       Print the top-N most recent lessons across every specs/*/workflow-state.json
+#       whose .repo == REPO (default N=3). Output is a JSON array of lesson items,
+#       newest first. Used by the PO-agent at session start (GAP-015 / #37 AC3) to
+#       inject prior lessons into the coder dispatch bundle.
+#   summarise-lessons <KEY>
+#       Write specs/<key>-<slug>/lessons-YYYYMMDD.md from lessons_learned[]. Used by
+#       the PO-agent at terminal states (success and HALT) per GAP-015 / #37 AC4.
+#       Idempotent: re-running on the same day overwrites the file in place.
 #
 # Spec-folder resolution mirrors plugins/makato-build/shared/build-log.sh:13-22
 # (duplicated, not sourced — build-log.sh is a standalone script with no exported
@@ -23,8 +36,11 @@
 # precedent.
 set -euo pipefail
 
-SUBCMD="${1:?subcommand required: init|read|write|patch|append-lesson}"
-KEY="${2:?key required}"
+SUBCMD="${1:?subcommand required: init|read|write|patch|append-lesson|recall-lessons|summarise-lessons}"
+# recall-lessons takes REPO as positional #2 (not KEY) — every other subcommand
+# takes KEY. Resolve generically and have each subcommand re-bind the variable.
+ARG2="${2:?second arg required (KEY for most subcommands, REPO for recall-lessons)}"
+KEY="$ARG2"
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 SPECS_DIR="$REPO_ROOT/specs"
@@ -207,10 +223,19 @@ case "$SUBCMD" in
     ;;
 
   # -------------------------------------------------------------------------
-  # append-lesson <KEY> "<TEXT>"
+  # append-lesson <KEY> <CYCLE> <TRIGGER> <DESCRIPTION> [FILE…]
+  #
+  # Schema (GAP-015 / #37): {ts, cycle, trigger, description, files_affected}.
+  # The helper:
+  #   - injects ts automatically (caller never supplies it)
+  #   - truncates description at 200 chars with '…' suffix (schema cap)
+  #   - accepts zero or more files_affected as variadic positional args
   # -------------------------------------------------------------------------
   append-lesson)
-    TEXT="${3:?text required}"
+    CYCLE="${3:?cycle required (integer ≥ 0)}"
+    TRIGGER="${4:?trigger required (ci_failure|halt|review_comment|sensor|merge_conflict)}"
+    DESCRIPTION="${5:?description required (≤ 200 chars)}"
+    shift 5 || true
     NOW="$(_now)"
 
     if [[ ! -f "$STATE_FILE" ]]; then
@@ -218,18 +243,140 @@ case "$SUBCMD" in
       exit 1
     fi
 
+    # Cycle must be a non-negative integer literal — refuse jq-injection via
+    # a regex gate so we can pass it as a numeric argjson.
+    if [[ ! "$CYCLE" =~ ^[0-9]+$ ]]; then
+      echo "workflow-state: cycle must be a non-negative integer (got '$CYCLE')" >&2
+      exit 1
+    fi
+
+    # Trigger enum must match the schema. Validate at the shell level too so
+    # the guard holds even when jsonschema is not installed (validation is
+    # fail-open in that case — see _validate).
+    if [[ ! "$TRIGGER" =~ ^(ci_failure|halt|review_comment|sensor|merge_conflict)$ ]]; then
+      echo "workflow-state: trigger must be one of ci_failure|halt|review_comment|sensor|merge_conflict (got '$TRIGGER')" >&2
+      exit 1
+    fi
+
+    # Truncate at 200 chars (the schema's maxLength). Append a '…' suffix when
+    # the input exceeds the cap so the audit trail shows truncation occurred.
+    if (( ${#DESCRIPTION} > 200 )); then
+      DESCRIPTION="${DESCRIPTION:0:199}…"
+    fi
+
+    # Build files_affected JSON array from the remaining variadic args.
+    FILES_JSON='[]'
+    if (( $# > 0 )); then
+      FILES_JSON="$(printf '%s\n' "$@" | jq -R . | jq -s .)"
+    fi
+
     PATCHED="$(jq \
       --arg ts "$NOW" \
-      --arg text "$TEXT" \
-      '.lessons_learned += [{ts: $ts, text: $text}] | .updated_at = $ts' \
+      --argjson cycle "$CYCLE" \
+      --arg trigger "$TRIGGER" \
+      --arg description "$DESCRIPTION" \
+      --argjson files "$FILES_JSON" \
+      '.lessons_learned += [{
+         ts: $ts,
+         cycle: $cycle,
+         trigger: $trigger,
+         description: $description,
+         files_affected: $files
+       }] | .updated_at = $ts' \
       "$STATE_FILE")"
 
     _validate "$PATCHED"
     _atomic_write "$PATCHED"
     ;;
 
+  # -------------------------------------------------------------------------
+  # recall-lessons <REPO> [N]
+  #
+  # Aggregate lessons across every specs/*/workflow-state.json whose .repo
+  # matches REPO. Print the top-N (default 3) most recent lessons as a JSON
+  # array, sorted by (cycle DESC, ts DESC). Used by the PO-agent at session
+  # start (GAP-015 / #37 AC3) to inject warm-start context.
+  #
+  # ARG2 was bound to KEY at the top of the script — for this subcommand it
+  # holds REPO. We do not touch SPEC_FOLDER / STATE_FILE here.
+  # -------------------------------------------------------------------------
+  recall-lessons)
+    REPO="$ARG2"
+    LIMIT="${3:-3}"
+
+    if [[ ! "$LIMIT" =~ ^[0-9]+$ ]] || (( LIMIT < 1 )); then
+      echo "workflow-state: recall-lessons N must be a positive integer (got '$LIMIT')" >&2
+      exit 1
+    fi
+
+    if [[ ! -d "$SPECS_DIR" ]]; then
+      echo '[]'
+      exit 0
+    fi
+
+    # Find every workflow-state.json under specs/, filter by .repo == REPO,
+    # flatten .lessons_learned[] across the matching states, sort newest first.
+    # `find -print0` + `xargs -0` survives spaces; `jq -s` slurps the per-file
+    # arrays into a single concatenated stream that we then sort+limit.
+    find "$SPECS_DIR" -mindepth 2 -maxdepth 2 -type f -name workflow-state.json -print0 2>/dev/null |
+      xargs -0 -I{} jq --arg repo "$REPO" \
+        'if .repo == $repo then (.lessons_learned // []) else [] end' {} 2>/dev/null |
+      jq -s --argjson n "$LIMIT" \
+        'add // [] | sort_by([.cycle, .ts]) | reverse | .[0:$n]'
+    ;;
+
+  # -------------------------------------------------------------------------
+  # summarise-lessons <KEY>
+  #
+  # Render lessons_learned[] as specs/<key>-<slug>/lessons-YYYYMMDD.md per
+  # GAP-015 / #37 AC4. Idempotent: a second call on the same day overwrites.
+  # No-op (and zero-row file with a stub header) when lessons_learned is empty
+  # — the file's existence is the audit signal.
+  # -------------------------------------------------------------------------
+  summarise-lessons)
+    if [[ ! -f "$STATE_FILE" ]]; then
+      echo "workflow-state: $STATE_FILE not found — nothing to summarise" >&2
+      exit 1
+    fi
+
+    DATE_STAMP="$(date -u +%Y%m%d)"
+    LESSONS_FILE="$SPEC_FOLDER/lessons-${DATE_STAMP}.md"
+    REPO="$(jq -r '.repo' "$STATE_FILE")"
+    ISSUE="$(jq -r '.issue_number' "$STATE_FILE")"
+    BRANCH="$(jq -r '.branch' "$STATE_FILE")"
+
+    {
+      echo "# Lessons learned — ${KEY} (${DATE_STAMP})"
+      echo
+      echo "- **Repo**: \`${REPO}\`"
+      echo "- **Issue**: #${ISSUE}"
+      echo "- **Branch**: \`${BRANCH}\`"
+      echo "- **Source**: \`specs/${SPEC_FOLDER##*/}/workflow-state.json\`"
+      echo
+      LESSON_COUNT="$(jq '.lessons_learned | length' "$STATE_FILE")"
+      if (( LESSON_COUNT == 0 )); then
+        echo "_No lessons recorded for this run._"
+      else
+        echo "## Lessons (${LESSON_COUNT}, newest first)"
+        echo
+        jq -r '
+          .lessons_learned
+          | sort_by([.cycle, .ts])
+          | reverse
+          | .[]
+          | "### Cycle \(.cycle) — \(.trigger) — \(.ts)\n\n\(.description)\n" +
+            (if (.files_affected | length) > 0
+               then "\n**Files**: " + (.files_affected | map("`" + . + "`") | join(", ")) + "\n"
+               else "" end)
+        ' "$STATE_FILE"
+      fi
+    } > "$LESSONS_FILE"
+
+    echo "$LESSONS_FILE"
+    ;;
+
   *)
-    echo "workflow-state: unknown subcommand '$SUBCMD'. Valid: init|read|write|patch|append-lesson" >&2
+    echo "workflow-state: unknown subcommand '$SUBCMD'. Valid: init|read|write|patch|append-lesson|recall-lessons|summarise-lessons" >&2
     exit 1
     ;;
 esac

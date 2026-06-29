@@ -217,15 +217,17 @@ Both strategies failed. The conflict requires human judgment.
    gh issue edit "$ISSUE_NUMBER" --add-label "needs-human-review" --repo "$REPO"
    ```
 
-3. Append lesson (GAP-015 / #37 schema):
+3. Append lesson (GAP-015 / #37 schema — typed `append-lesson`
+   subcommand). The helper injects `ts`, truncates `description` at
+   200 chars, and accepts the conflicted file list as variadic
+   positional args. `mapfile` is used (not `$(…)` word-splitting) so
+   paths containing spaces survive intact:
 
    ```bash
-   LESSON=$(jq -n \
-     --argjson cycle "$NEW_CYCLES" \
-     --arg desc "irreconcilable conflict on $BRANCH after rebase + merge -X ours" \
-     --argjson files "$(git diff --name-only --diff-filter=U | jq -R . | jq -s .)" \
-     '{"cycle":$cycle,"trigger":"merge_conflict","description":$desc,"files_affected":$files}')
-   # append via workflow-state append-lesson (GAP-003 / #26)
+   mapfile -t CONFLICT_FILES < <(git diff --name-only --diff-filter=U)
+   shared/workflow-state.sh append-lesson "$KEY" "$NEW_CYCLES" merge_conflict \
+     "irreconcilable conflict on $BRANCH after rebase + merge -X ours" \
+     "${CONFLICT_FILES[@]}"
    ```
 
 4. Log HALT:

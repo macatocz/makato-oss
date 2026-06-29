@@ -78,7 +78,11 @@ Read `STATE_PATH`. Extract:
 - `sub_tasks[]` — for each, note `id`, `description`, `status`,
   `agent_result.summary` when present
 - `current_phase`
-- `lessons_learned[]` text (most recent 3 only)
+- `lessons_learned[].description` (most recent 3 only — see GAP-015 / #37
+  for the typed schema. The schema is strict: a legacy `{ts, text}`
+  entry will have already halted the prior session with
+  `HALT: INVALID_STATE` before reaching the summariser; if the state
+  file reaches here, every entry already matches the new shape.)
 - `session_count`
 
 Do not re-read the schema; the fields above are stable.
@@ -99,7 +103,9 @@ IN PROGRESS / NEXT:
 - <id of current task>: <description verbatim, ≤ 1 line>
 
 KEY DECISIONS THIS SESSION:
-- <most recent ≤ 3 lessons_learned text lines, verbatim>
+- <most recent ≤ 3 lessons_learned[].description lines, verbatim>
+  (prefix each with "[<trigger>] " when the trigger adds context, e.g.
+  "[ci_failure] ruff F401 unused import in tracer test")
 
 RESUME ACTION:
 The fresh session should dispatch <suggested build-* skill based on current_phase>

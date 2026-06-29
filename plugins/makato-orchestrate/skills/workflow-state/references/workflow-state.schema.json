@@ -160,21 +160,40 @@
     },
     "lessons_learned": {
       "type": "array",
-      "description": "Append-only log of free-text observations collected during the run. Written by the append-lesson subcommand.",
+      "description": "Append-only log of structured observations collected during the run (GAP-015 / #37). PO-agent appends after every outer-loop cycle event — CI fix, CHANGES_REQUESTED address, HALT trigger, or sensor fix resolution. The recall-lessons subcommand reads these across prior workflows for the same repo and injects the top-3 most-recent into the dispatch bundle of a fresh PO-agent session, so the next run starts warm.",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["ts", "text"],
+        "required": ["ts", "cycle", "trigger", "description", "files_affected"],
         "properties": {
           "ts": {
             "type": "string",
             "format": "date-time",
             "description": "ISO-8601 timestamp with millisecond precision when the lesson was appended."
           },
-          "text": {
+          "cycle": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Outer-loop iteration count at the moment the lesson was recorded (mirrors workflow-state.outer_iteration). 0 is valid for lessons recorded before the first re-plan."
+          },
+          "trigger": {
+            "type": "string",
+            "enum": ["ci_failure", "halt", "review_comment", "sensor", "merge_conflict"],
+            "description": "What kind of event the lesson captures. ci_failure: PR CI checks turned RED; halt: a HALT-* code fired (including HALT-STRUCTURAL); review_comment: reviewer applied CHANGES_REQUESTED; sensor: a sensor finding (lint/typecheck/security) prompted a fix; merge_conflict: resolve-pr-conflict gave up after rebase + merge -X ours (GAP-016 / #45)."
+          },
+          "description": {
             "type": "string",
             "minLength": 1,
-            "description": "Free-text lesson or observation."
+            "maxLength": 200,
+            "description": "Structured one-line summary of what happened. Per AC technical notes, keep under 200 chars — structured, not narrative. Helper truncates with a '…' suffix if the caller exceeds the cap rather than rejecting."
+          },
+          "files_affected": {
+            "type": "array",
+            "description": "Repo-relative paths the cycle touched (e.g. coder fix targets, sensor finding paths, conflict paths). Empty array when not applicable.",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
           }
         }
       }

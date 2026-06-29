@@ -8,8 +8,11 @@ description: >-
   termination. Sole writer of `workflow-state.json`. Owns the per-run git
   worktree lifecycle (GAP-017 / #46): creates the worktree on session start,
   propagates its path to every sub-agent, removes it on `done`, retains it on
-  HALT. Never edits target-repo source files — orchestrates only.
-version: "1.3.0"
+  HALT. Captures structured lessons after every outer-loop cycle event (CI
+  failure, review-comment fix, HALT, sensor) and warm-starts a fresh run with
+  the top-3 most-recent lessons from prior workflows on the same repo
+  (GAP-015 / #37). Never edits target-repo source files — orchestrates only.
+version: "1.4.0"
 maxTurns: 100
 permissionMode: bypassPermissions
 disallowedTools: NotebookEdit
@@ -196,6 +199,35 @@ prior session crashed).
 
 See § *Worktree Lifecycle* below for the full lifecycle contract.
 
+### Step 2c — Recall prior lessons (GAP-015 / #37)
+
+After Step 2b (worktree resolved) and BEFORE Step 3 (sub-task list build),
+run:
+
+```bash
+shared/workflow-state.sh recall-lessons <REPO> 3
+```
+
+The helper aggregates `lessons_learned[]` across every
+`specs/*/workflow-state.json` whose `.repo` matches `<REPO>`, returns the
+top-3 most recent lessons (sorted `cycle DESC, ts DESC`) as a JSON array.
+Cache the array in a shell variable — it will be injected into the dispatch
+context bundle in Step 4d under the canonical key `PRIOR_LESSONS`.
+
+Empty result (`[]`) is normal on the first run for a given repo — the
+PO-agent does NOT HALT, the dispatch bundle simply omits `PRIOR_LESSONS`
+(or sets it to an empty array; the consumer skill treats both shapes
+identically).
+
+Emit one JSONL audit entry:
+
+```json
+{"ts":"<ISO-8601-ms>","skill":"po-agent","issue":<ISSUE_NUMBER>,"step":"recall-lessons","status":"ok","data":{"repo":"<REPO>","count":<N>}}
+```
+
+`recall-lessons` is read-only, so no `workflow-state.json` write happens
+here — the audit entry is the only side-effect from the PO-agent.
+
 ### Step 3 — Build the sub-task list (fresh run only)
 
 Skip this step on resume — the state file already has `sub_tasks[]`.
@@ -332,6 +364,16 @@ the canonical key; `coder` reads it from there. Sub-agents never invoke
 `git worktree` themselves and never operate on the main checkout. See §
 *Worktree Lifecycle* for the inheritance contract.
 
+**Prior-lessons carry-forward (GAP-015 / #37).** The top-3 lessons
+recalled in Step 2c are propagated into the same dispatch context bundle
+under the canonical key `PRIOR_LESSONS` (JSON array, may be empty).
+`build-implement-tdd` forwards it to the per-task `coder` dispatch as
+advisory context — the coder reads it to avoid repeating naming/edge-case
+mistakes from prior sessions on the same repo. An empty array is the
+no-op case; consumers MUST tolerate both `[]` and a missing key
+identically. Lessons are advisory, not authoritative — they never trigger
+a HALT and never override the per-task `description` from `plan.md`.
+
 **Per-task scout pre-read (GAP-013 / #29).** `build-implement-tdd`
 internally dispatches the per-task `scout` agent
 (`plugins/makato-orchestrate/agents/scout.md`) before each `coder`
@@ -371,6 +413,61 @@ JSONL audit per skill dispatch (status field varies by `r1.status`):
 
 Where `r1.status` → JSONL `status`: `success` → `ok`, `partial` → `warn`,
 `failure` → `error`.
+
+**Sensor-fix lesson capture (GAP-015 / #37 AC2).** After parsing the
+skill's R1 — regardless of `r1.status` — scan the spec folder's
+`build.jsonl` for fresh sensor-fixer entries logged since the last
+dispatch and append one `trigger: sensor` lesson per *resolved* sensor
+finding. Sensor activity is owned by `sensor-fixer` inside `makato-build`
+(via `build-resolve-finding`); the PO-agent does not run the sensors
+itself, but AC2 requires that every sensor-fix resolution lands in
+`lessons_learned[]`. The audit-only read pattern keeps the PO-agent as
+the sole writer of state.
+
+The filter must match both shapes that `sensor-fixer` writes to
+`build.jsonl` (see `plugins/makato-build/agents/sensor-fixer.md` §
+*Output to `build.jsonl`*):
+
+- Phase 0 (batched autofix): `{ts, loop:0, action:"autofix-batched", cmd, files:[...]}`
+- Phase 1 (per-finding patch): `{ts, loop:N, action:"patched", finding:{rule_id, file, line, ...}, skill:"build-resolve-finding"}`
+
+Both shapes are loud successes — sensor-fixer never writes either row
+for an unresolved finding. The jq filter below extracts a normalised
+`{desc, files}` projection from each and the PO-agent appends one
+`trigger: sensor` lesson per row:
+
+```bash
+SINCE_TS=$(shared/workflow-state.sh read <KEY> | jq -r '.updated_at')
+CURRENT_CYCLE=$(shared/workflow-state.sh read <KEY> | jq '.outer_iteration')
+JSONL="$REPO_ROOT/specs/<key>-<slug>/build.jsonl"
+if [[ -f "$JSONL" ]]; then
+  jq -rc \
+    --arg since "$SINCE_TS" \
+    'select(.ts > $since) |
+     if .action == "patched" and .skill == "build-resolve-finding" then
+       {desc: ("[" + (.finding.rule_id // "sensor") + "] patched " + (.finding.file // "")),
+        files: ([.finding.file] | map(select(. != null)))}
+     elif .action == "autofix-batched" then
+       {desc: ("[autofix] " + (.cmd // "batched fix")),
+        files: (.files // [])}
+     else empty end' \
+    "$JSONL" 2>/dev/null | while IFS= read -r entry; do
+      DESC=$(jq -r '.desc' <<<"$entry")
+      mapfile -t FILES < <(jq -r '.files[]?' <<<"$entry")
+      shared/workflow-state.sh append-lesson <KEY> "$CURRENT_CYCLE" sensor \
+        "$DESC" "${FILES[@]}"
+  done
+fi
+```
+
+When `build.jsonl` is absent (fresh run), the `if` is skipped. When the
+file exists but contains no fresh `patched`/`autofix-batched` rows
+(no sensor activity in this dispatch), the `jq` filter emits no lines
+and the `while` loop is a no-op. `jq 2>/dev/null` swallows malformed
+JSONL lines rather than aborting the run under `set -euo pipefail`.
+AC2 only requires one lesson **per** resolved finding, not a mandatory
+append; the `SINCE_TS` cutoff prevents re-appending entries from prior
+dispatches in the same run.
 
 #### Step 4f — Re-plan via `build-refine`
 
@@ -450,10 +547,16 @@ skill (all `sub_tasks[].status == "complete"`), advance the pipeline:
         gh run view --log-failed
         ```
         Capture the output (truncate to ≤ 4000 chars from the tail to stay within
-        context). Append a `lessons_learned` entry:
+        context). Append a typed `lessons_learned` entry (GAP-015 / #37):
         ```bash
-        shared/workflow-state.sh append-lesson <KEY> "CI failure on PR <PR>: <truncated-log>"
+        CURRENT_CYCLE=$(shared/workflow-state.sh read <KEY> | jq '.outer_iteration')
+        shared/workflow-state.sh append-lesson <KEY> "$CURRENT_CYCLE" ci_failure \
+          "CI failure on PR <PR>: <tail-of-log truncated to 200 chars>"
         ```
+        The helper truncates the description at 200 chars; the full job log
+        stays in `gh run view` history and the JSONL audit. `files_affected`
+        is empty here — CI failures don't correspond to a finite file set
+        until coder runs.
      3. Patch `outer_iteration += 1`:
         ```bash
         NEW_ITER=$(( $(shared/workflow-state.sh read <KEY> | jq '.outer_iteration') + 1 ))
@@ -470,9 +573,14 @@ skill (all `sub_tasks[].status == "complete"`), advance the pipeline:
 
    - **All `conclusion == "skipped"` or mixed `success/skipped`** — treat as passing CI.
      Advance to sub-step 6.
-   - **10-poll timeout reached with no resolution** — append a `lessons_learned` entry
-     (`"CI checks still pending after 10 polls — treating as CI failure"`), then enter
-     the CI-failure fix loop above.
+   - **10-poll timeout reached with no resolution** — append a typed
+     `lessons_learned` entry (GAP-015 / #37):
+     ```bash
+     CURRENT_CYCLE=$(shared/workflow-state.sh read <KEY> | jq '.outer_iteration')
+     shared/workflow-state.sh append-lesson <KEY> "$CURRENT_CYCLE" ci_failure \
+       "CI checks still pending after 10 polls — treating as CI failure"
+     ```
+     then enter the CI-failure fix loop above.
 
    Emit JSONL after each poll round:
    ```json
@@ -512,9 +620,22 @@ skill (all `sub_tasks[].status == "complete"`), advance the pipeline:
         - Append halt audit entry with code `"HALT-010"` and `data.human_review_cycles`.
         - Run `shared/worktree.sh retain <KEY> HALT-010`.
         - Emit session-end JSONL (Step 7) and return R1 `failure`.
-     3. Below the cap: dispatch `/makato-build:build-address-pr-comments <KEY>
-        --autonomous`. Parse R1; on `failure` → HALT-002 (apply `needs-human-review`,
-        retain worktree, return R1 `failure`).
+     3. Below the cap: append a typed `lessons_learned` entry (GAP-015 /
+        #37) capturing the reviewer feedback before dispatching the fix.
+        `mapfile` (not `$( )` word-splitting) preserves paths containing
+        spaces; the `select(. != null)` filter drops `null` paths from
+        top-level PR comments that aren't file-anchored:
+        ```bash
+        mapfile -t REVIEW_FILES < <(gh pr view <PR> --json reviews \
+          --jq '[.reviews[].comments[]?.path | select(. != null)] | unique | .[]')
+        CURRENT_CYCLE=$(shared/workflow-state.sh read <KEY> | jq '.outer_iteration')
+        shared/workflow-state.sh append-lesson <KEY> "$CURRENT_CYCLE" review_comment \
+          "CHANGES_REQUESTED on PR <PR> — cycle <NEW_CYCLES>" \
+          "${REVIEW_FILES[@]}"
+        ```
+        Then dispatch `/makato-build:build-address-pr-comments <KEY>
+        --autonomous`. Parse R1; on `failure` → HALT-002 (apply
+        `needs-human-review`, retain worktree, return R1 `failure`).
      4. After `build-address-pr-comments` returns `success`: dispatch
         `/makato-build:build-push-to-git <KEY> --autonomous` to push the addressed
         comments. Then re-poll from the top of this sub-step.
@@ -542,6 +663,23 @@ skill (all `sub_tasks[].status == "complete"`), advance the pipeline:
    Cleanup runs ONLY on the success path (this Step 6 #8). HALT exits go
    through § *Worktree Lifecycle* § *Retention on HALT* instead — they
    keep the worktree on disk for human inspection.
+
+   Then write the human-readable lessons summary (GAP-015 / #37 AC4):
+
+   ```bash
+   shared/workflow-state.sh summarise-lessons <KEY>
+   ```
+
+   The helper writes `specs/<key>-<slug>/lessons-YYYYMMDD.md` and prints
+   the absolute path; emit the matching JSONL audit entry:
+
+   ```json
+   {"ts":"<ISO-8601-ms>","skill":"po-agent","issue":<ISSUE_NUMBER>,"step":"summarise-lessons","status":"ok","data":{"path":"<absolute>","terminal_state":"success"}}
+   ```
+
+   `summarise-lessons` is idempotent — re-running on the same day
+   overwrites in place. Empty `lessons_learned[]` yields a stub file with
+   no lesson rows; the file's existence is the audit signal.
 
    Emit session-end JSONL (Step 7) and return R1 `success` with
    `data.github_pr_number` populated.
@@ -837,12 +975,36 @@ current label set before applying.
 
 ## Error modes
 
-Every terminal HALT path below MUST call `shared/worktree.sh retain
-<KEY> <HALT_CODE>` before emitting session-end JSONL and the failure-R1
-envelope — see § *Worktree Lifecycle* § *Retention on HALT*. The
-exception is HALT-007B (context-ceiling handoff) which exits via R1
-`partial` and leaves the worktree on disk untouched for the fresh
-session to resume.
+Every terminal HALT path below MUST do three things, in order, before
+emitting session-end JSONL and the failure-R1 envelope:
+
+1. Append a typed `lessons_learned` entry capturing the HALT (GAP-015 /
+   #37 AC2). Use `trigger: halt` and put the HALT code in the description
+   so a future warm-start session sees what stopped the prior run:
+   ```bash
+   CURRENT_CYCLE=$(shared/workflow-state.sh read <KEY> | jq '.outer_iteration')
+   shared/workflow-state.sh append-lesson <KEY> "$CURRENT_CYCLE" halt \
+     "<HALT_CODE>: <one-line reason>"
+   ```
+   **Bootstrap exception.** When the HALT fires *before* Step 2 has
+   created `workflow-state.json` (HALT-006 on missing spec folder is the
+   canonical case), `append-lesson` exits non-zero because there is no
+   state file to mutate. In that narrow window, skip steps 1 and 3 and
+   emit a `step: "halt-pre-init"` JSONL audit entry instead — there is
+   nothing to retain or summarise either. All other HALT paths
+   (post-Step-2) MUST follow the three-step contract.
+2. Call `shared/worktree.sh retain <KEY> <HALT_CODE>` — see § *Worktree
+   Lifecycle* § *Retention on HALT*.
+3. Call `shared/workflow-state.sh summarise-lessons <KEY>` so the
+   retained worktree carries a human-readable lessons summary alongside
+   the partial commit set. Emit the matching `step: "summarise-lessons"`
+   JSONL audit entry with `data.terminal_state: "failure"`.
+
+The exception to all three is HALT-007B (context-ceiling handoff) which
+exits via R1 `partial`, leaves the worktree on disk untouched, and does
+NOT emit a `halt` lesson — the handoff is not a failure and the fresh
+session continues accumulating lessons from where the prior session left
+off.
 
 | Condition | Response |
 |-----------|----------|
@@ -902,6 +1064,9 @@ two plugins co-exist: every build-* skill takes a documented default when
   helper for state mutations.
 - `plugins/makato-orchestrate/shared/worktree.sh` — worktree lifecycle
   helper (GAP-017 / #46) — create, path, cleanup, retain subcommands.
+- GAP-015 / #37 — structured `lessons_learned[]` and the carry-forward
+  contract (Step 2c + Step 4d `PRIOR_LESSONS` propagation, terminal
+  `summarise-lessons` markdown).
 - `plugins/makato-change/skills/orchestrate/SKILL.md` — the interactive
   phase-detection analogue this agent's outer loop is patterned on (this
   agent makes the same decisions, autonomously, with kill-switches).
