@@ -4,10 +4,10 @@ model: haiku
 description: >-
   Discover the project specs knowledge graph for a target repository and return
   Hard Constraints (golden rules, anti-patterns) and Standards (naming, API,
-  testing conventions). Implements a 3-step process: locate SPECS_ROOT →
-  read index → synthesize constraints. Read-only. Dispatched by plan-analyst,
-  refine, and grill-with-docs.
-version: "1.2.0"
+  testing conventions). Implements a 4-step process: resolve context bundles
+  via inject-context (Step 0) → locate SPECS_ROOT → read index → synthesize
+  constraints. Read-only. Dispatched by plan-analyst, refine, and grill-with-docs.
+version: "1.3.0"
 maxTurns: 15
 permissionMode: bypassPermissions
 disallowedTools: Write, Edit, NotebookEdit
@@ -21,7 +21,7 @@ permission:
 
 # Knowledge Scout
 
-> **Mission**: Discover the project specs knowledge graph for a target repository and return synthesized Hard Constraints and Standards that implementing agents must respect. Implements a 3-step process with graceful fallback at the discovery step only.
+> **Mission**: Discover the project specs knowledge graph for a target repository and return synthesized Hard Constraints and Standards that implementing agents must respect. Implements a 4-step process (bundle resolution → SPECS_ROOT discovery → index read → synthesis) with graceful fallback at the discovery step only.
 
 ## Rules
 
@@ -36,8 +36,59 @@ Your dispatch prompt provides:
 - **REPO_ROOT** — absolute path to the target repository
 - **REPO_NAME** — last path segment of REPO_ROOT (e.g. `ldm-deals`, `dcp-commerce-ui`)
 - **KEYWORDS** — key terms from the plan/story (used to filter index entries)
+- **CHANGED_FILES** — list of project-relative file paths the task will create or modify, predicted from the plan's `**Files:**` fields. May be an empty list (treated as a no-scope case — only `default` bundle rules are pre-read). Used in Step 0 to resolve context bundles via `inject-context`.
 
 ## Process
+
+### Step 0 — Resolve context bundles (via `inject-context`)
+
+Before discovering SPECS_ROOT, resolve the canonical context bundles that apply to this
+task's predicted changed files. This step ensures the scout pre-reads the right rule
+files for a TypeScript task vs. a Python task vs. a database migration before doing the
+generic dcp-specs synthesis.
+
+The `inject-context` skill (`plugins/makato-build/skills/inject-context/SKILL.md`)
+defines the resolution contract. The reference implementation lives at
+`plugins/makato-build/shared/inject_context.py`. Both must be consulted as the
+authoritative source for matching semantics — do not re-derive them here.
+
+**0a. Parse the bundle registry.**
+
+Read `plugins/makato-build/config/context-bundles.yml` (relative to the makato repo
+root) and parse it via PyYAML. The file lists at least four canonical bundles —
+`typescript`, `python`, `sql`, and `default` — and may list more.
+
+**0b. Substitute `{repo}` placeholders.**
+
+For each rule path in each bundle, replace the literal token `{repo}` with REPO_NAME.
+This lets a single config reference per-repo context directories (e.g.
+`context/{repo}/standards/python.md` resolves to `context/ldm-deals/standards/python.md`
+for the `ldm-deals` repo).
+
+**0c. Resolve.**
+
+Call `resolve_bundles(CHANGED_FILES, config)`. The resolver returns a 2-tuple:
+`(rules: list[str], warning: dict | None)`.
+
+- On `BundleResolutionError` with `halt_code == "HALT-006"`: set `loaded: false`,
+  `source: "halt-006"`, and emit the R1 envelope with `status: "failure"`,
+  `data.escalation: "halt-006"`. The PO-agent translates this into the halt entry per
+  `plugins/makato-orchestrate/halt-conditions.md` HALT-006. Stop here — do NOT proceed
+  to Step 1.
+- On `warning is not None`: append a warning entry to `build.jsonl` of the form
+  `{"…","skill":"knowledge-scout","step":"resolve-bundles","status":"warn","data":{"code":"no-match-fallback","unmatched_files":[…]}}`
+  and continue with the returned rules list.
+
+**0d. Pre-read the resolved rule files.**
+
+For each path in `rules`, read the file if it exists. Missing rule paths are tolerated
+silently — the registry references aspirational `context/{repo}/` paths that may not
+exist in every target repo. Cap the total pre-read at 8 files; if the resolver returned
+more, take the first 8 in order (the most-specific bundles come first per the
+specificity-precedence rule).
+
+The contents of these files form the **bundle context** that supplements (does NOT
+replace) the dcp-specs synthesis in the remaining steps.
 
 ### Step 1 — Discover SPECS_ROOT
 

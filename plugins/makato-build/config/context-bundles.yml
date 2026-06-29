@@ -1,0 +1,71 @@
+# Context Bundles — makato-build
+#
+# Maps changed-file path globs to ordered lists of rule files that
+# knowledge-scout pre-reads before its dcp-specs discovery process. The
+# inject-context skill (plugins/makato-build/skills/inject-context/SKILL.md)
+# resolves a list of changed files against this registry and returns a
+# deduplicated, ordered list of rule paths.
+#
+# Schema (per bundle):
+#   name:  unique identifier (lowercase, kebab-case)
+#   globs: list of fnmatch-style patterns matched against changed-file paths
+#          (`**/*.ts` matches at any depth; `*.ts` matches a single segment)
+#   rules: ordered list of rule-file paths. May reference `context/{repo}/`
+#          patterns — the literal token `{repo}` is substituted by the caller
+#          (knowledge-scout) at resolution time with the target repo name.
+#
+# Resolution contract (enforced by shared/inject_context.py):
+#   1. For each changed file, every bundle whose globs match is selected.
+#   2. Bundles are applied in order of decreasing specificity (literal-segment
+#      count in the glob). The `default` bundle is always appended last.
+#   3. Rule paths are deduplicated preserving the first occurrence.
+#   4. If no bundle matches a file, the `default` bundle is used and a warning
+#      is emitted (caller logs to build.jsonl).
+#   5. If the `default` bundle itself is missing, BundleResolutionError is
+#      raised with code HALT-006.
+#
+# Wording-only edits or adding rule files to an existing bundle is a minor
+# revision. Renaming a bundle, removing the `default` bundle, or changing the
+# specificity-comparison semantics is a breaking change and must be coordinated
+# with every consumer in plugins/makato-build/agents/knowledge-scout.md and
+# plugins/makato-build/skills/inject-context/SKILL.md.
+
+version: "1.0"
+
+bundles:
+  - name: typescript
+    globs:
+      - "**/*.ts"
+      - "**/*.tsx"
+      - "**/*.mts"
+      - "**/*.cts"
+    rules:
+      - "context/{repo}/standards/typescript.md"
+      - "context/{repo}/standards/naming.md"
+      - "context/{repo}/codebase/patterns.md"
+
+  - name: python
+    globs:
+      - "**/*.py"
+      - "**/*.pyi"
+    rules:
+      - "context/{repo}/standards/python.md"
+      - "context/{repo}/standards/naming.md"
+      - "context/{repo}/codebase/patterns.md"
+
+  - name: sql
+    globs:
+      - "**/*.sql"
+      - "**/migrations/**"
+      - "**/schema/**"
+    rules:
+      - "context/{repo}/standards/sql.md"
+      - "context/{repo}/standards/database-migrations.md"
+      - "context/{repo}/codebase/data-model.md"
+
+  - name: default
+    globs:
+      - "**/*"
+    rules:
+      - "context/{repo}/harness/golden-rules.md"
+      - "context/{repo}/codebase/architecture.md"
