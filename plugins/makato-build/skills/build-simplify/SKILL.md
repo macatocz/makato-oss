@@ -21,13 +21,33 @@ satisfying the acceptance criteria?
 Scoped to the build pipeline — only code changed in this branch. It is distinct from the
 suite-level `simplify` skill, which is a general-purpose code review tool.
 
+## Input
+
+When dispatched by the PO-agent or `sensor-fixer` (`--autonomous` mode):
+
+- `<work-item-key>` — positional argument.
+- `WORKTREE_PATH` — absolute filesystem path to the per-run git worktree. **Mandatory in autonomous mode** (see `plugins/makato-build/AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract*). `git diff` and any per-finding fix applies operate on the worktree's branch.
+- `--autonomous` — activation flag.
+
+Interactive mode: `WORKTREE_PATH` is optional; fall back to `git rev-parse --show-toplevel` of the current `$PWD`.
+
+### Workspace-isolation entry guard
+
+**Apply this guard BEFORE Step 1.** In autonomous mode (`--autonomous`, `task_id` bundle field, or `$AGENT_ID` exported) an empty `WORKTREE_PATH` is a HALT (R1 `status: "failure"`, `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`). In interactive mode, resolve `WORKTREE_PATH="$(git rev-parse --show-toplevel)"` and `cd "$WORKTREE_PATH"`. Every `git diff` and fix-apply below runs from this CWD.
+
+Spec-artefact reads use `$REPO_ROOT/specs/<key>-*/`:
+
+```bash
+REPO_ROOT="$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)"
+```
+
 ## Workflow
 
 ### Step 1 — Ask for work item key and load context
 
 Ask: *"Which work item are we simplifying? (e.g. DCP-1234)"* — or use the passed argument.
 
-Read `plan.md` from the resolved spec folder (`specs/<key>-*/`) if it exists. Extract the acceptance criteria for each task —
+Read `plan.md` from the resolved spec folder under `$REPO_ROOT` (`$REPO_ROOT/specs/<key>-*/plan.md`) if it exists. Extract the acceptance criteria for each task —
 these define "complexity that serves the ACs." If no plan exists, proceed without one.
 
 Run `git diff main...HEAD --name-only` to identify all changed files in this branch.

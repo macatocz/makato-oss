@@ -27,13 +27,21 @@ Interactive mode: `WORKTREE_PATH` is optional; fall back to `git rev-parse --sho
 
 At skill entry (before Step 1's `git status`), apply the falsy-check pattern from `AUTONOMOUS-MODE.md`: in autonomous mode an empty `WORKTREE_PATH` is a HALT (R1 `status: "failure"`, `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`). In interactive mode, resolve `WORKTREE_PATH="$(git rev-parse --show-toplevel)"` and `cd "$WORKTREE_PATH"`. Every `git`/`gh` command below runs from this CWD.
 
+**Spec-artefact reads use `REPO_ROOT`, not `WORKTREE_PATH`.** `specs/<key>-*/` is gitignored at the repo root and exists only on the main checkout — a fresh `git worktree add` produces a worktree with NO `specs/` content. Resolve `REPO_ROOT` once at entry alongside the worktree:
+
+```bash
+REPO_ROOT="$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)"
+```
+
+Reading `plan.md` in Step 1 below means `$REPO_ROOT/specs/<key>-*/plan.md`, never `$WORKTREE_PATH/specs/...`. See `AUTONOMOUS-MODE.md` § *Two roots, one contract* for the full rationale.
+
 ## Workflow
 
 ### Step 1 — Ask for work item key and load context
 
 Ask: *"Which work item are we pushing? (e.g. DCP-1234, or pass it directly: `/daff-build:build-push-to-git DCP-1234`)"* — or use the passed argument.
 
-Read `plan.md` from the resolved spec folder (`specs/<key>-*/`). Extract the task list — task titles and their file targets. This defines the commit grouping.
+Read `plan.md` from the resolved spec folder under `$REPO_ROOT` (`$REPO_ROOT/specs/<key>-*/plan.md`, NOT under `$WORKTREE_PATH`). Extract the task list — task titles and their file targets. This defines the commit grouping.
 
 Run `git status` and `git branch --show-current`. Verify the current branch is NOT `main` or `master`. If on a protected branch, stop and tell the user:
 
@@ -166,7 +174,7 @@ In **interactive mode**, then ask using `AskUserQuestion`:
 If option A: invoke `/build-create-pr <key>` directly.
 If option B: tell the user: "Run `/makato-build:build-create-pr <key>` when ready."
 
-In **autonomous mode**, skip the prompt: invoke `/build-create-pr <key> --autonomous` directly (the `--autonomous` flag MUST be forwarded explicitly per the cross-skill propagation rule in `@../../AUTONOMOUS-MODE.md`). Log `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-push-to-git","story":"<key>","step":"decision","status":"decision","data":{"event":"autonomous_bypass","gate":"create-pr-handoff","bypassed":true,"default_taken":"invoke-create-pr","trigger":"<agent_id|cli_flag|task_id_bundle>"}}'`.
+In **autonomous mode**, skip the prompt: invoke `/build-create-pr <key> --autonomous` directly (the `--autonomous` flag MUST be forwarded explicitly per the cross-skill propagation rule in `@../../AUTONOMOUS-MODE.md`). The downstream context bundle MUST also carry the `WORKTREE_PATH` field verbatim from this skill's input — `build-create-pr` runs its own entry-guard falsy-check and HALTs `MISSING_INPUT` if the field is absent in autonomous mode. The hand-off prompt that dispatches `/build-create-pr` therefore includes both `--autonomous` and `WORKTREE_PATH=<absolute path>` so the bundle and the CLI half of the activation contract stay aligned. Log `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-push-to-git","story":"<key>","step":"decision","status":"decision","data":{"event":"autonomous_bypass","gate":"create-pr-handoff","bypassed":true,"default_taken":"invoke-create-pr","trigger":"<agent_id|cli_flag|task_id_bundle>","forwarded":["--autonomous","WORKTREE_PATH"]}}'`.
 
 ## Autonomous Execution
 

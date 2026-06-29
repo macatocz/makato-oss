@@ -28,6 +28,14 @@ Interactive mode: `WORKTREE_PATH` is optional; fall back to `git rev-parse --sho
 
 At skill entry (before Step 1's `git status -sb`), apply the falsy-check pattern from `AUTONOMOUS-MODE.md`: in autonomous mode an empty `WORKTREE_PATH` is a HALT (R1 `status: "failure"`, `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`). In interactive mode, resolve `WORKTREE_PATH="$(git rev-parse --show-toplevel)"` and `cd "$WORKTREE_PATH"`. Every `git`/`gh pr create` command below runs from this CWD.
 
+**Spec-artefact reads use `REPO_ROOT`, not `WORKTREE_PATH`.** `specs/<key>-*/` is gitignored at the repo root; a fresh `git worktree add` produces a worktree with NO `specs/` content. Resolve `REPO_ROOT` once at entry alongside the worktree:
+
+```bash
+REPO_ROOT="$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)"
+```
+
+Every spec-artefact path resolved in Step 1 below (`stories.json`, `prd.md`, `plan.md`, `created-issues.json`) is `$REPO_ROOT/specs/<key>-*/<file>`. `.github/PULL_REQUEST_TEMPLATE.md` lives in the tracked `.github/` directory and resolves correctly under either root, but for consistency the prose below references `$REPO_ROOT/.github/PULL_REQUEST_TEMPLATE.md`. See `AUTONOMOUS-MODE.md` § *Two roots, one contract*.
+
 ## Workflow
 
 ### Step 1 — Ask for work item key and load context
@@ -55,15 +63,15 @@ In autonomous mode, the Step 1 work-item-key prompt is replaced by:
 
 Log the bypass via `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-create-pr","story":"<key>","step":"decision","status":"decision","data":{"event":"autonomous_bypass","gate":"work-item-key","bypassed":true,"default_taken":"<use-arg|read-build-jsonl>","trigger":"<agent_id|cli_flag|task_id_bundle>"}}'` when bypassed.
 
-Read from the resolved spec folder (`specs/<key>-*/`):
+Read from the resolved spec folder under `$REPO_ROOT` (NOT under `$WORKTREE_PATH` — see the entry guard above): `$REPO_ROOT/specs/<key>-*/`:
 - `stories.json` — acceptance criteria for this work item (if key was provided and file exists)
 - `prd.md` — goals, scope, motivation (if exists)
 - `plan.md` — completed tasks, for "What changed" bullets (if exists)
-- `.github/PULL_REQUEST_TEMPLATE.md` — the project's required PR template
+- `$REPO_ROOT/.github/PULL_REQUEST_TEMPLATE.md` — the project's required PR template
 
 - `created-issues.json` — handoff artifact emitted by `/makato-plan:to-issues` (optional)
 
-When `created-issues.json` exists in the spec folder, validate it against the schema at `plugins/makato-plan/skills/to-issues/references/created-issues.schema.json`:
+When `created-issues.json` exists in the spec folder, validate it against the schema at `$REPO_ROOT/plugins/makato-plan/skills/to-issues/references/created-issues.schema.json`:
 
 ```bash
 python3 - <<PY

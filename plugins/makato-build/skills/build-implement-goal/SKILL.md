@@ -33,7 +33,17 @@ When invoked by a developer interactively, `WORKTREE_PATH` is optional. If unset
 
 ### Workspace-isolation entry guard
 
-At skill entry (immediately after Step 1 loads the plan), apply the falsy-check pattern from `AUTONOMOUS-MODE.md`: in autonomous mode an empty `WORKTREE_PATH` is a HALT (R1 `status: "failure"`, `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`). In interactive mode, resolve `WORKTREE_PATH="$(git rev-parse --show-toplevel)"` and continue. After resolution, `cd "$WORKTREE_PATH"` so every BUILD / VERIFY RUNTIME / TEST / VERIFY command runs in the correct worktree.
+**Apply this guard BEFORE Step 1.** Step 1 in interactive mode calls `AskUserQuestion` for the work-item-key prompt; in autonomous mode that prompt is bypassed. The falsy-check must therefore run at skill entry so an autonomous dispatch with empty `WORKTREE_PATH` HALTs before any prompt is issued (which would deadlock the dispatcher).
+
+Apply the falsy-check pattern from `AUTONOMOUS-MODE.md`: in autonomous mode an empty `WORKTREE_PATH` is a HALT (R1 `status: "failure"`, `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`). In interactive mode, resolve `WORKTREE_PATH="$(git rev-parse --show-toplevel)"` and continue. After resolution, `cd "$WORKTREE_PATH"` so every BUILD / VERIFY RUNTIME / TEST / VERIFY command runs in the correct worktree.
+
+Spec-folder reads (`plan.md`, `prototype.html`, `design.md`) operate on the MAIN checkout, not the worktree (`specs/` is gitignored). Resolve `REPO_ROOT` once at entry:
+
+```bash
+REPO_ROOT="$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)"
+```
+
+Spec-artefact paths below resolve to `$REPO_ROOT/specs/<key>-*/...`.
 
 ## Workflow
 

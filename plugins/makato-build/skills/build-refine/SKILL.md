@@ -21,6 +21,26 @@ Use at the start of every build session, after a story has been shaped by makato
 - You want to continue an in-progress implementation — read `plan.md` in the spec folder directly
 - You are implementing changes to existing functionality from updated business requirements — use `makato-change` instead
 
+## Input
+
+When dispatched by the PO-agent on a re-plan cycle (`--autonomous` mode):
+
+- `<work-item-key>` — positional argument.
+- `WORKTREE_PATH` — absolute filesystem path to the per-run git worktree. **Mandatory in autonomous mode** (see `plugins/makato-build/AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract*). Plan-file writes target `$REPO_ROOT/specs/<key>-*/plan.md` (main checkout — `specs/` is gitignored in worktrees); the worktree path is captured so the falsy-check is symmetric across the pipeline.
+- `--autonomous` — activation flag.
+
+Interactive mode: `WORKTREE_PATH` is optional; fall back to `git rev-parse --show-toplevel` of the current `$PWD`.
+
+### Workspace-isolation entry guard
+
+**Apply this guard BEFORE Step 1.** In autonomous mode an empty `WORKTREE_PATH` is a HALT (R1 `status: "failure"`, `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`). In interactive mode, resolve `WORKTREE_PATH="$(git rev-parse --show-toplevel)"`.
+
+Spec-artefact reads + plan writes go to `$REPO_ROOT/specs/<key>-*/`:
+
+```bash
+REPO_ROOT="$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)"
+```
+
 ## Workflow
 
 ### Step 1 — Ask for the work item key

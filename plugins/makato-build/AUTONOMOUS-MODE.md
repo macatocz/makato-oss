@@ -68,13 +68,15 @@ Every autonomous-mode dispatch from the PO-agent carries a `WORKTREE_PATH` field
 - Skills that auto-dispatch other skills MUST forward `WORKTREE_PATH` in the downstream context bundle, exactly as they forward `--autonomous`. Implicit env propagation is not relied on — the field stays explicit in every hand-off.
 - Skills that dispatch agents (e.g. `build-implement-tdd` → `coder`) MUST inject `WORKTREE_PATH` into the agent's input bundle. The agent then `cd`s into that path before its inner cycle.
 
+**Autonomous-mode detection in the falsy-check:** the canonical signal is the same as elsewhere in this doc — `$AGENT_ID` exported in the env (set by makato agent dispatch infrastructure) OR the caller's CLI carries `--autonomous` OR the context bundle has a `task_id` field. There is no separately-set `$AUTONOMOUS` env var; the snippet below tests `$AGENT_ID` only because it is the single signal the bash level can observe (CLI flags are arguments the skill has already parsed; bundle fields live in the prompt). Earlier drafts of this section referenced `${AUTONOMOUS:-false}` — that branch never fires in practice; do not rely on it in new code.
+
 **Falsy-check pattern:**
 
 ```bash
 if [[ -z "${WORKTREE_PATH:-}" ]]; then
   # Autonomous mode without WORKTREE_PATH is a contract violation — HALT.
   # In interactive mode, fall back to the current checkout.
-  if [[ -n "${AGENT_ID:-}" ]] || [[ "${AUTONOMOUS:-false}" == "true" ]]; then
+  if [[ -n "${AGENT_ID:-}" ]]; then
     # emit R1 failure with MISSING_INPUT and stop
     exit 1
   fi
@@ -83,18 +85,52 @@ fi
 cd "$WORKTREE_PATH"
 ```
 
+The skill-level guard is the more important enforcement point: a skill running in `--autonomous` mode (from CLI flag or `task_id` bundle) MUST treat empty `WORKTREE_PATH` as `MISSING_INPUT` regardless of whether `$AGENT_ID` was exported. The bash snippet covers the agent-dispatched case; the SKILL.md prose covers the full `--autonomous` activation set.
+
 **Why `git -C` over `cd`:** for one-shot git invocations, `git -C "$WORKTREE_PATH" <cmd>` is preferred — it does not mutate the surrounding shell's CWD and avoids leaking the worktree path into pwd-relative downstream commands. For test runners and longer subprocess sequences (pytest, npm, build commands that read relative config), `cd "$WORKTREE_PATH"` once at skill entry is fine.
 
 **Concurrency rationale:** two concurrent PO-agent runs each get their own worktree (different branches, different HEADs). Without `WORKTREE_PATH` propagation both runs would serialise on the main checkout's HEAD — a silent race that defeats the per-run isolation guarantee.
 
+### Two roots, one contract — `WORKTREE_PATH` vs `REPO_ROOT`
+
+Worktree isolation has a non-obvious consequence: not every read or write belongs in the worktree. `specs/<key>-*/` is `.gitignore`d at the repo root (see the repo-level `.gitignore`), so a fresh `git worktree add` produces a worktree with NO `specs/` content. Two artefacts therefore have distinct correct homes:
+
+| Artefact | Lives in | Why |
+|----------|----------|-----|
+| Source-tree edits, `git commit`, `git push`, test runs | `WORKTREE_PATH` | The branch HEAD only moves in the worktree; commits to the main checkout would target the wrong branch. |
+| `specs/<key>-*/plan.md`, `stories.json`, `prd.md`, `.github/PULL_REQUEST_TEMPLATE.md`, `created-issues.json` | Main checkout (`REPO_ROOT`) | `specs/` is gitignored and exists only on the main checkout. A worktree-relative read returns nothing or an error. |
+| `specs/<key>-*/build.jsonl`, `orchestrate.jsonl` | Main checkout (`REPO_ROOT`) | The audit trail is single-writer across all worktrees of a run; `shared/build-log.sh` resolves `REPO_ROOT` from `git rev-parse --git-common-dir` so logs land in one place. |
+| `.github/PULL_REQUEST_TEMPLATE.md` | Whichever checkout has it tracked — both, in this repo's setup | Tracked file; `git -C "$WORKTREE_PATH"` reads it fine. The point is that *reading the spec artefact next to it (`plan.md`)* still requires `REPO_ROOT`. |
+
+**Resolving the two roots:**
+
+```bash
+# Worktree path — workspace isolation (file edits, git ops, test runs).
+if [[ -z "${WORKTREE_PATH:-}" ]]; then
+  if [[ -n "${AGENT_ID:-}" ]]; then exit 1; fi
+  WORKTREE_PATH="$(git rev-parse --show-toplevel)"
+fi
+# Repo root — spec/audit-trail reads (plan.md, stories.json, build.jsonl).
+# `--git-common-dir` echoes the main repo's .git from inside a worktree;
+# its parent is the main checkout. From the main checkout it echoes `.git`.
+REPO_ROOT="$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)"
+```
+
+`shared/build-log.sh` already encapsulates the `REPO_ROOT` derivation and is the single point that resolves `specs/<key>-*/build.jsonl` correctly from either checkout. Skills that read spec artefacts directly (e.g. `build-push-to-git` and `build-create-pr` reading `plan.md` in Step 1) MUST resolve `REPO_ROOT` via the snippet above and read `$REPO_ROOT/specs/<key>-*/...` — never via `$WORKTREE_PATH/specs/...`.
+
 **Skills that consume this contract:**
 
-- `build-implement-tdd` — Step 6 dispatches `coder` per task; forwards `WORKTREE_PATH` in the coder bundle.
-- `build-implement-goal` — same pattern; goal-mode build steps `cd` before file edits and verification.
+The autonomous-mode pipeline has two cohorts of consumers. Both honour the falsy-check / fallback. The second cohort also reads spec artefacts and therefore resolves `REPO_ROOT` separately.
+
+- `build-implement-tdd` — Step 6 dispatches `coder` per task; forwards `WORKTREE_PATH` in the coder bundle. Plan reads via `REPO_ROOT`.
+- `build-implement-goal` — same pattern; goal-mode build steps `cd` before file edits and verification. Plan reads via `REPO_ROOT`.
 - `build-verify` — gate runner; lint/test/coverage commands run from `WORKTREE_PATH`.
-- `build-push-to-git` — `git commit` / `git push` operate against the worktree's branch.
-- `build-create-pr` — `gh pr create` resolves the right branch from the worktree's `.git`.
-- `coder` agent — receives `WORKTREE_PATH` in its input bundle; `cd`s before RED→GREEN→INTEGRATE→VERIFY.
+- `build-push-to-git` — `git commit` / `git push` operate against the worktree's branch. Plan reads via `REPO_ROOT`. Forwards `WORKTREE_PATH` to `build-create-pr` when auto-dispatching at Step 8.
+- `build-create-pr` — `gh pr create` resolves the right branch from the worktree's `.git`. Spec artefact reads (`stories.json`, `prd.md`, `plan.md`, `.github/PULL_REQUEST_TEMPLATE.md`, `created-issues.json`) via `REPO_ROOT`.
+- `build-refine` — produces `plan.md`; reads spec folder via `REPO_ROOT`. Honours the falsy-check when dispatched by the PO-agent on a re-plan cycle (Step 4f of `po-agent`).
+- `build-simplify` — runs `git diff main...HEAD` and applies fixes in `WORKTREE_PATH`. Plan reads via `REPO_ROOT`.
+- `build-address-pr-comments` — `gh pr` calls + per-comment fix-apply operate from `WORKTREE_PATH`. Spec artefact reads via `REPO_ROOT`.
+- `coder` agent — receives `WORKTREE_PATH` in its input bundle; `cd`s before RED→GREEN→INTEGRATE→VERIFY. In autonomous mode, the agent MUST HALT R1 `failure` with `MISSING_INPUT: WORKTREE_PATH required in autonomous mode` when the field is empty — silently falling back to the main checkout defeats Layer 1 isolation. Detection: any of `$AGENT_ID`, an `AUTONOMOUS_MODE` field in the dispatch bundle, or the absence of an interactive prompt context.
 
 The PO-agent's Step 2b creates the worktree and Step 6 #6 cleans it up; see `plugins/makato-orchestrate/agents/po-agent.md` § *Worktree Lifecycle* for the full lifecycle.
 

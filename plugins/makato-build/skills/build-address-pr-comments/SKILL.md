@@ -16,6 +16,26 @@ argument-hint: "[work-item-key] [--autonomous]"
 
 Use after `/create-pr` when review comments have arrived on the PR. Handles all unresolved comments — human reviewer feedback, CI bot failures, security scanner findings, lint bots, and automated review tools. May run multiple times across review rounds.
 
+## Input
+
+When dispatched by the PO-agent (`--autonomous` mode):
+
+- `<work-item-key>` — positional argument.
+- `WORKTREE_PATH` — absolute filesystem path to the per-run git worktree. **Mandatory in autonomous mode** (see `plugins/makato-build/AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract*). `gh pr` calls and per-comment fix applies operate from `WORKTREE_PATH` so commits land on the right branch.
+- `--autonomous` — activation flag.
+
+Interactive mode: `WORKTREE_PATH` is optional; fall back to `git rev-parse --show-toplevel` of the current `$PWD`.
+
+### Workspace-isolation entry guard
+
+**Apply this guard BEFORE Step 1.** In autonomous mode an empty `WORKTREE_PATH` is a HALT (R1 `status: "failure"`, `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`). In interactive mode, resolve `WORKTREE_PATH="$(git rev-parse --show-toplevel)"` and `cd "$WORKTREE_PATH"`.
+
+Spec-artefact reads use `$REPO_ROOT/specs/<key>-*/`:
+
+```bash
+REPO_ROOT="$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)"
+```
+
 ## Workflow
 
 ### Step 1 — Ask for work item key and PR URL

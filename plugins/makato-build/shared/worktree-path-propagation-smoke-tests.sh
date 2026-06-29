@@ -52,7 +52,7 @@ assert_grep 'git rev-parse --show-toplevel' \
   'AUTONOMOUS-MODE.md documents the interactive-mode fallback'
 
 printf '\n=== Contract: each consumer skill declares WORKTREE_PATH input ===\n'
-for skill in build-implement-tdd build-implement-goal build-verify build-push-to-git build-create-pr; do
+for skill in build-implement-tdd build-implement-goal build-verify build-push-to-git build-create-pr build-refine build-simplify build-address-pr-comments; do
   assert_grep 'WORKTREE_PATH' \
     "plugins/makato-build/skills/$skill/SKILL.md" \
     "$skill mentions WORKTREE_PATH"
@@ -66,6 +66,79 @@ for skill in build-implement-tdd build-implement-goal build-verify build-push-to
     "plugins/makato-build/skills/$skill/SKILL.md" \
     "$skill documents the interactive-mode fallback"
 done
+
+printf '\n=== Contract: entry-guard runs BEFORE Step 1 for skills with prompts ===\n'
+# Skills whose Step 1 calls AskUserQuestion must guard before the prompt, not
+# after — otherwise an autonomous dispatch with empty WORKTREE_PATH deadlocks
+# at the prompt instead of HALTing cleanly. Each of these skill files must
+# carry the explicit "BEFORE Step 1" phrasing in the entry-guard section.
+for skill in build-implement-tdd build-implement-goal build-simplify build-address-pr-comments build-refine; do
+  assert_grep 'BEFORE Step 1' \
+    "plugins/makato-build/skills/$skill/SKILL.md" \
+    "$skill entry-guard runs BEFORE Step 1 (no deadlock on AskUserQuestion)"
+done
+
+printf '\n=== Contract: spec-artefact reads use REPO_ROOT, not WORKTREE_PATH ===\n'
+# Skills that read plan.md / stories.json / prd.md must resolve REPO_ROOT from
+# the git common-dir so specs/ (gitignored) is found on the main checkout
+# rather than the empty specs/ slot inside the worktree.
+for skill in build-implement-tdd build-implement-goal build-push-to-git build-create-pr build-refine build-simplify build-address-pr-comments; do
+  assert_grep 'REPO_ROOT' \
+    "plugins/makato-build/skills/$skill/SKILL.md" \
+    "$skill resolves REPO_ROOT for spec-artefact reads"
+  assert_grep 'git-common-dir' \
+    "plugins/makato-build/skills/$skill/SKILL.md" \
+    "$skill derives REPO_ROOT via git-common-dir"
+done
+
+printf '\n=== Contract: build-log.sh is worktree-aware ===\n'
+assert_grep 'git rev-parse --git-common-dir' \
+  plugins/makato-build/shared/build-log.sh \
+  'build-log.sh derives REPO_ROOT from git common-dir (worktree-safe)'
+# Make sure the legacy --show-toplevel anchor was actually replaced (the
+# fallback uses it but the primary resolver must not).
+if grep -E '^REPO_ROOT="\$\(git rev-parse --show-toplevel\)"$' \
+    "$REPO_ROOT/plugins/makato-build/shared/build-log.sh" >/dev/null; then
+  FAIL=$((FAIL + 1))
+  FAILURES+=('build-log.sh still uses bare --show-toplevel as the primary resolver')
+  printf '  ✗ build-log.sh primary resolver does NOT use bare --show-toplevel\n'
+else
+  PASS=$((PASS + 1))
+  printf '  ✓ build-log.sh primary resolver does NOT use bare --show-toplevel\n'
+fi
+
+printf '\n=== Contract: build-push-to-git Step 8 forwards WORKTREE_PATH to build-create-pr ===\n'
+assert_grep 'WORKTREE_PATH.*forwarded|forwarded.*WORKTREE_PATH|--autonomous.*WORKTREE_PATH|WORKTREE_PATH.*--autonomous' \
+  plugins/makato-build/skills/build-push-to-git/SKILL.md \
+  'build-push-to-git Step 8 hand-off forwards WORKTREE_PATH alongside --autonomous'
+
+printf '\n=== Contract: coder agent HALTs on empty WORKTREE_PATH in autonomous mode ===\n'
+assert_grep 'MISSING_INPUT: WORKTREE_PATH required in autonomous mode' \
+  plugins/makato-build/agents/coder.md \
+  'coder.md Phase 0 declares MISSING_INPUT on empty WORKTREE_PATH'
+assert_grep 'AGENT_ID' \
+  plugins/makato-build/agents/coder.md \
+  'coder.md Phase 0 detects autonomous mode via AGENT_ID'
+
+printf '\n=== Contract: AUTONOMOUS-MODE.md documents the REPO_ROOT split ===\n'
+assert_grep 'Two roots, one contract' \
+  plugins/makato-build/AUTONOMOUS-MODE.md \
+  'AUTONOMOUS-MODE.md has the WORKTREE_PATH vs REPO_ROOT explanation'
+assert_grep 'specs/' \
+  plugins/makato-build/AUTONOMOUS-MODE.md \
+  'AUTONOMOUS-MODE.md notes specs/ is gitignored'
+# The phantom $AUTONOMOUS env var check was removed; make sure it does not
+# regress (an inline `${AUTONOMOUS:-…}` reference is fine as a doc cite, but
+# the canonical falsy-check snippet must not include it).
+if grep -E '"\$\{AUTONOMOUS:-false\}" == "true"' \
+    "$REPO_ROOT/plugins/makato-build/AUTONOMOUS-MODE.md" >/dev/null; then
+  FAIL=$((FAIL + 1))
+  FAILURES+=('AUTONOMOUS-MODE.md still references phantom ${AUTONOMOUS:-false} env var')
+  printf '  ✗ AUTONOMOUS-MODE.md does NOT carry the phantom AUTONOMOUS env-var check\n'
+else
+  PASS=$((PASS + 1))
+  printf '  ✓ AUTONOMOUS-MODE.md does NOT carry the phantom AUTONOMOUS env-var check\n'
+fi
 
 printf '\n=== Contract: coder agent receives and honours WORKTREE_PATH ===\n'
 assert_grep 'WORKTREE_PATH' \

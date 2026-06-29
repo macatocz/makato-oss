@@ -73,17 +73,36 @@ For each TDD cycle:
 
 ### Phase 0 — Workspace isolation
 
-Before Phase 1 RED, resolve and switch into the working tree:
+Before Phase 1 RED, resolve and switch into the working tree. The dispatching skill (`build-implement-tdd` Step 6) MUST pass `WORKTREE_PATH` in the input bundle whenever the parent is autonomous; missing it is a contract violation that this agent does NOT paper over.
+
+**Detection — autonomous-mode signal at the agent level:** any of the following holds:
+- `$AGENT_ID` is exported in the environment (set by makato agent dispatch infrastructure).
+- The dispatch input bundle carries an `AUTONOMOUS_MODE` field (`true`), a `task_id` field, or any value other than empty in those slots.
+
+When the agent runs autonomously (per the detection above) and `WORKTREE_PATH` is empty, this is `MISSING_INPUT`: append a JSONL audit entry and emit R1 `failure`. Silently falling back to the main checkout would defeat Layer 1 isolation — the agent could land commits or scratch files on the wrong branch, racing with concurrent PO-agent runs.
 
 ```bash
-if [[ -n "${WORKTREE_PATH:-}" ]]; then
-  cd "$WORKTREE_PATH"
-else
-  cd "$(git rev-parse --show-toplevel)"
+if [[ -z "${WORKTREE_PATH:-}" ]]; then
+  if [[ -n "${AGENT_ID:-}" ]] || [[ -n "${AUTONOMOUS_MODE:-}" ]] || [[ -n "${TASK_ID:-}" ]]; then
+    # Autonomous dispatch with missing WORKTREE_PATH — contract violation.
+    # Append the audit entry, emit R1 failure, do NOT run RED.
+    exit 1   # the R1 envelope below carries the MISSING_INPUT error
+  fi
+  # Developer-hands invocation outside any orchestrator — fall back to current checkout.
+  WORKTREE_PATH="$(git rev-parse --show-toplevel)"
 fi
+cd "$WORKTREE_PATH"
 ```
 
-This single `cd` covers every subsequent file edit, `git` invocation, and test command in Phases 1–4. The PO-agent guarantees `WORKTREE_PATH` exists and points to a valid `git worktree` (see `plugins/makato-orchestrate/agents/po-agent.md` § *Worktree Lifecycle*); developer-hands invocations land on the main checkout via the fallback.
+When the HALT branch fires, append BEFORE returning the R1 envelope:
+
+```
+{"ts":"<ISO-8601-ms>","skill":"coder","story":"<STORY_KEY>","step":"phase0","task":<TASK_INDEX>,"status":"error","error":"MISSING_INPUT: WORKTREE_PATH required in autonomous mode"}
+```
+
+…and emit the R1 envelope at the agent's final message with `status: "failure"`, `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`, `data.phase_reached: "phase0"`. The dispatching skill propagates the failure upward (`build-implement-tdd` Step 6 maps it to `task-escalate` / `r1.status == "failure"`).
+
+In the happy path (`WORKTREE_PATH` present, or interactive-mode fallback resolved), the single `cd "$WORKTREE_PATH"` covers every subsequent file edit, `git` invocation, and test command in Phases 1–4. The PO-agent guarantees `WORKTREE_PATH` exists and points to a valid `git worktree` (see `plugins/makato-orchestrate/agents/po-agent.md` § *Worktree Lifecycle*); developer-hands invocations land on the main checkout via the interactive fallback.
 
 ### Phase 1 — RED
 
