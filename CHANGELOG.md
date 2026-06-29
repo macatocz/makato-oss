@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.21.0](https://github.com/macatocz/makato/compare/v0.20.1...v0.21.0) (2026-06-29)
+
+
+### ✨ Features
+
+* **makato-build:** inject-context bundle resolver (GAP-008, [#25](https://github.com/macatocz/makato/issues/25)) ([#81](https://github.com/macatocz/makato/issues/81)) ([ef00d3d](https://github.com/macatocz/makato/commit/ef00d3d9349e93b59671d49606d5c0c0e47f4cad))
+* **makato-orchestrate:** per-task scout agent for file pre-reading (GAP-013, [#29](https://github.com/macatocz/makato/issues/29)) ([#83](https://github.com/macatocz/makato/issues/83)) ([a1355d0](https://github.com/macatocz/makato/commit/a1355d0f0d9930fd195f9027ed6513d614869688))
+
 ## [0.20.1](https://github.com/macatocz/makato/compare/v0.20.0...v0.20.1) (2026-06-28)
 
 
