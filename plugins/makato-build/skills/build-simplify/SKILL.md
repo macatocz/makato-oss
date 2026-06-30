@@ -8,7 +8,7 @@ description: >-
   auto-approves SIMPLIFY findings and surfaces ESCALATE findings via R1.
   Use after implement-tdd or implement-goal, before review; also invoked
   by sensor-fixer / build-resolve-finding for code-complexity findings.
-version: "1.5.0"
+version: "1.5.1"
 argument-hint: "[work-item-key] [--autonomous]"
 ---
 
@@ -148,16 +148,16 @@ For each ESCALATE finding, present separately and recommend `/refine`.
 - Every `ESCALATE` finding is **NOT auto-applied**. The finding is preserved for the R1 envelope (`data.escalated`) so the PO-agent can surface it for re-planning. ESCALATE includes both structural over-complexity AND security-guard removals from Step 4.
 - Zero SIMPLIFY findings is acceptable — proceed without confirmation. Zero findings AND any ESCALATE findings means the session returns R1 `status: "partial"` (work remains for the PO-agent); zero ESCALATE means `status: "success"`.
 
-Emit one `autonomous_bypass` log row per bypassed gate (per AUTONOMOUS-MODE.md § Logging contract):
+Emit one `autonomous_bypass` log row per bypassed gate via `shared/log-bypass.sh` (per AUTONOMOUS-MODE.md § Logging contract):
 
-```json
-{"ts":"<ISO8601>","skill":"build-simplify","story":"<key>","step":"decision","status":"decision","data":{"event":"autonomous_bypass","gate":"per-finding-approval","bypassed":true,"default_taken":"auto-approve-simplify","trigger":"agent_id|cli_flag|task_id_bundle"}}
+```bash
+shared/log-bypass.sh build-simplify "<key>" per-finding-approval auto-approve-simplify "<agent_id|cli_flag|task_id_bundle>"
 ```
 
 If zero SIMPLIFY findings:
 
-```json
-{"ts":"<ISO8601>","skill":"build-simplify","story":"<key>","step":"decision","status":"decision","data":{"event":"autonomous_bypass","gate":"zero-findings-confirm","bypassed":true,"default_taken":"proceed","trigger":"..."}}
+```bash
+shared/log-bypass.sh build-simplify "<key>" zero-findings-confirm proceed "<agent_id|cli_flag|task_id_bundle>"
 ```
 
 Then emit the standard review log:
@@ -234,8 +234,8 @@ If the user answers `y`, continue to Step 8. Log the decision:
 3. Surface to the human operator.
 
 Emit a bypass entry per AUTONOMOUS-MODE.md § Logging contract:
-```json
-{"ts":"<ISO8601>","skill":"build-simplify","story":"<key>","step":"decision","status":"decision","data":{"event":"autonomous_bypass","gate":"unverified-code-changes","bypassed":true,"default_taken":"proceed-with-degraded-confidence","trigger":"agent_id|cli_flag|task_id_bundle"}}
+```bash
+shared/log-bypass.sh build-simplify "<key>" unverified-code-changes proceed-with-degraded-confidence "<agent_id|cli_flag|task_id_bundle>"
 ```
 
 If `test_suite_present == false` AND **only** doc/config files were touched, Step 7a is a no-op in both modes — the changes are auditable from the diff and the user gate is unnecessary.

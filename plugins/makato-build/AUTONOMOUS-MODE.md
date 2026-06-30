@@ -161,11 +161,19 @@ This is the first cross-skill template directory in the plugin. The exception to
 
 ## Logging contract
 
-Every gate that the skill bypasses in autonomous mode MUST emit a `build.jsonl` entry via `shared/build-log.sh` with this shape:
+Every gate that the skill bypasses in autonomous mode MUST emit a `build.jsonl` entry by invoking `shared/log-bypass.sh` (which assembles the canonical 5-field shape and delegates the actual file append to `shared/build-log.sh`). The helper is the single source of truth for the schema; inline JSON literals are a contract violation.
+
+```bash
+shared/log-bypass.sh <skill> <key> <gate> <default_taken> <trigger> [extra-json-object]
+```
+
+Run `shared/log-bypass.sh --help` for the full signature.
+
+The emitted entry has this shape (which audit consumers should grep for):
 
 ```json
 {
-  "ts": "<ISO-8601>",
+  "ts": "<ISO-8601-ms>",
   "skill": "<skill-name>",
   "story": "<key>",
   "step": "decision",
@@ -186,6 +194,21 @@ Notes on the shape:
 - `gate` matches the short name from the per-gate table (e.g. `"plan-review"`, `"commit-grouping"`, `"push-confirm"`, `"pr-draft-approval"`, `"comment-classification"`).
 - `default_taken` is the actual value applied — e.g. `"approve"`, `"plan-as-drafted"`, `"push"`, `"open-pr-as-drafted"`, `"auto-apply"`, `"halt"`.
 - `trigger` records which activation source fired. Useful when a session was driven by a misconfigured CI step (`cli_flag` when expected was `agent_id`).
+
+### Skill-specific context (`extra`)
+
+When a bypassed gate carries skill-specific context that a downstream auditor needs to interpret correctly (counts, comment IDs, follow-up issue URLs, file-set diffs), pass an `extra` JSON object as the 6th positional argument to `log-bypass.sh`. It is merged into `data` alongside the canonical 5 fields.
+
+```bash
+shared/log-bypass.sh build-address-pr-comments "$KEY" out-of-scope-carry-over open-followup-issue cli_flag \
+  '{"comment_id":"42","follow_up_issue":"https://github.com/o/r/issues/99"}'
+```
+
+Contract:
+
+- `extra` MUST be a JSON object (not array, not string, not number). The helper rejects malformed values with exit 3.
+- `extra` keys are merged into `data`; canonical keys (`event`, `gate`, `bypassed`, `default_taken`, `trigger`) cannot be overridden — they always win.
+- `extra` is purely additive — there is no documented enum of valid keys. A skill is free to add fields it considers useful for its own audit. The convention is to keep keys lowercase-snake-case and to surface concrete identifiers (IDs, URLs, file paths) rather than free-form prose.
 
 A session that visited N autonomous gates MUST produce N `autonomous_bypass` entries. A future reader running `jq 'select(.data.event=="autonomous_bypass")' build.jsonl` reconstructs every decision the pipeline took without a human.
 

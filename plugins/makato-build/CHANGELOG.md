@@ -31,6 +31,20 @@ Canonical sources unchanged: `AUTONOMOUS-MODE.md` § *Activation triggers* (Bloc
 
 ---
 
+## `log-bypass.sh` helper replaces inline `autonomous_bypass` JSON literals (#116)
+
+The `autonomous_bypass` JSONL row was previously constructed as an inline JSON literal at every bypassed gate — 17 call sites across 5 skill files in this plugin. Schema drift was already visible (`build-address-pr-comments` added `counts`, `comment_id`, `summary`, `out_of_scope_files`, `follow_up_issue`; `build-push-to-git` added `forwarded`) and none of these extensions appeared in `AUTONOMOUS-MODE.md`. Renaming `bypassed` → `bypass_applied` (or adding the next required field) would have required grepping all 17 sites individually.
+
+This commit lands a single helper that owns the canonical schema and an explicit `extra` extension point.
+
+- **`shared/log-bypass.sh`** → new, executable. Signature: `log-bypass.sh <skill> <key> <gate> <default_taken> <trigger> [extra-json-object]`. Assembles the canonical 5-field shape (`event: "autonomous_bypass"`, `gate`, `bypassed: true`, `default_taken`, `trigger`), merges the optional `extra` JSON object — extras cannot override canonical keys — and delegates the file append to `shared/build-log.sh` so REPO_ROOT / worktree resolution stays in one place. Validates `trigger` against the documented enum (`agent_id` / `cli_flag` / `task_id_bundle`, plus the `<agent_id|cli_flag|task_id_bundle>` placeholder form), exits 2 on missing args or bad trigger, exits 3 on a non-object `extra` payload.
+- **`shared/log-bypass-smoke-tests.sh`** → new, 28 assertions across 10 test cases: canonical 5-field shape; extras merged into data; extras cannot override canonical fields; every documented trigger accepted; missing required arg → exit 2; invalid trigger → exit 2; non-object extras → exit 3; non-JSON extras → exit 3; ISO-8601-ms timestamp matches the audit-consumer regex; entry lands in `$REPO_ROOT/specs/<key>-*/build.jsonl`.
+- **All 17 inline call sites replaced.** Touched skills (versions, composed on top of #114): build-refine 1.7.0 → 1.7.1; build-simplify 1.5.0 → 1.5.1; build-push-to-git 1.5.0 → 1.5.1; build-create-pr 1.6.0 → 1.6.1; build-address-pr-comments 1.5.0 → 1.5.1. The skill-specific context that previously drifted (counts, comment_id, follow_up_issue, out_of_scope_files, forwarded) is now passed through the documented `extra` parameter and surfaces unambiguously in `data`.
+- **`AUTONOMOUS-MODE.md § Logging contract`** → rewritten to reference `log-bypass.sh` as the single source of truth, with a new sub-section *Skill-specific context (`extra`)* documenting how skills extend the schema without drift. The inline JSON example is retained as the audit-grep target; the imperative changes from "emit via `build-log.sh`" to "invoke `log-bypass.sh`".
+- **`shared/pr-comments-smoke-tests.sh`** → updated assertions to expect helper calls rather than inline `"gate":"…"` JSON literals (5 assertions retargeted); the version-bump assertion now accepts any `1.4.x+` so future patches don't pin against the exact tuple. 45/45 tests pass.
+
+---
+
 ## Dogfood pytest harness for `build-simplify` (GAP-064 / #64 — Part B, also closes #58)
 
 Lands the makato monorepo's own pytest harness scoped narrowly to skill smoke tests, plus the `build-simplify` regression test that proves Part A's no-test-runner contract keeps working. With Part A's SKILL.md contract and Part B's regression test merged, **#58** also closes — its Sub-issue B target ("smoke-test `build-simplify` against a downstream consumer repo") was rerouted by #64 to "dogfood inside the makato repo" once `dcp-specs` went away.

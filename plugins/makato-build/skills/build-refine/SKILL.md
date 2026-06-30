@@ -5,7 +5,7 @@ description: >-
   implementation plan — tasks, file targets, unit/integration test
   strategy, acceptance mapping. Use to start a build session before
   implement-tdd or implement-goal.
-version: "1.7.0"
+version: "1.7.1"
 model: opus
 argument-hint: "[work-item-key] [--autonomous]"
 ---
@@ -59,7 +59,7 @@ In autonomous mode, the work-item-key `AskUserQuestion` above is replaced by:
 - If an argument was passed: use it.
 - If no argument: HALT with `MISSING_INPUT: build-refine in --autonomous mode requires a work-item-key argument`. Write `build.jsonl` entry `{step:"session", status:"error", data:{halt_code:"MISSING_INPUT"}}` and return an R1 `status:"failure"` envelope. The PO-agent's responsibility is to supply the key from workflow-state — this skill does not prompt.
 
-Log the bypass via `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-refine","story":"<key>","step":"decision","status":"decision","data":{"event":"autonomous_bypass","gate":"work-item-key","bypassed":true,"default_taken":"use-arg","trigger":"<agent_id|cli_flag|task_id_bundle>"}}'` when bypassed.
+Log the bypass via `shared/log-bypass.sh build-refine "<key>" work-item-key use-arg "<agent_id|cli_flag|task_id_bundle>"` when bypassed.
 
 ### Step 2 — Log session start and prepare workspace
 
@@ -224,7 +224,7 @@ Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-refine","story":"<
 
 ### Step 11 — Present plan and iterate
 
-In **autonomous mode**, skip this step entirely: write `plan.md` (already done in Step 10), log the bypass via `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-refine","story":"<key>","step":"decision","status":"decision","data":{"event":"autonomous_bypass","gate":"plan-review","bypassed":true,"default_taken":"approve","trigger":"<agent_id|cli_flag|task_id_bundle>"}}'`, and proceed to Step 12.
+In **autonomous mode**, skip this step entirely: write `plan.md` (already done in Step 10), log the bypass via `shared/log-bypass.sh build-refine "<key>" plan-review approve "<agent_id|cli_flag|task_id_bundle>"`, and proceed to Step 12.
 
 In **interactive mode**, use the `AskUserQuestion` tool to ask: "The plan is ready. How would you like to review it before implementation starts?" with two options:
 - **In chat** — description: "Show the plan as markdown in this conversation. You can reply with feedback or edits."

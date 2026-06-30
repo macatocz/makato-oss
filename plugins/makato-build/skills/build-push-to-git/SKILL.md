@@ -5,7 +5,7 @@ description: >-
   and push the feature branch to remote. One commit per logical task,
   individually bisectable. Confirms push before affecting remote.
   Use after verify, before create-pr.
-version: "1.5.0"
+version: "1.5.1"
 argument-hint: "[work-item-key] [--autonomous]"
 ---
 
@@ -55,7 +55,7 @@ In autonomous mode, the Step 1 work-item-key prompt is replaced by:
 - If an argument was passed: use it.
 - If no argument: HALT with `MISSING_INPUT: build-push-to-git in --autonomous mode requires a work-item-key argument`, write `{step:"session", status:"error", data:{halt_code:"MISSING_INPUT"}}`, and return R1 `status:"failure"`.
 
-Log the bypass via `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-push-to-git","story":"<key>","step":"decision","status":"decision","data":{"event":"autonomous_bypass","gate":"work-item-key","bypassed":true,"default_taken":"use-arg","trigger":"<agent_id|cli_flag|task_id_bundle>"}}'` when bypassed.
+Log the bypass via `shared/log-bypass.sh build-push-to-git "<key>" work-item-key use-arg "<agent_id|cli_flag|task_id_bundle>"` when bypassed.
 
 ---
 
@@ -102,7 +102,7 @@ Commit 2: feat(invoice): add InvoiceStatusService with transition logic
 
 In **interactive mode**, wait for the user to confirm or adjust the grouping and commit messages before proceeding to Step 5.
 
-In **autonomous mode**, skip the confirmation: use each task's `commitMessage` field from `plan.md` verbatim, apply the grouping rules above, log `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-push-to-git","story":"<key>","step":"decision","status":"decision","data":{"event":"autonomous_bypass","gate":"commit-grouping","bypassed":true,"default_taken":"plan-as-drafted","trigger":"<agent_id|cli_flag|task_id_bundle>"}}'`, and proceed to Step 5.
+In **autonomous mode**, skip the confirmation: use each task's `commitMessage` field from `plan.md` verbatim, apply the grouping rules above, log `shared/log-bypass.sh build-push-to-git "<key>" commit-grouping plan-as-drafted "<agent_id|cli_flag|task_id_bundle>"`, and proceed to Step 5.
 
 ---
 
@@ -133,7 +133,7 @@ git log "$DEFAULT_REF..HEAD" --oneline
 
 In **interactive mode**, ask: *"Ready to push `<N>` commits to `origin/<branch>`? This will trigger CI and be visible to the team."* Wait for explicit confirmation. If the user declines, the commits are local — they can push manually when ready. Stop here without error.
 
-In **autonomous mode**, skip the prompt: proceed directly to Step 7 (the pre-push hook still fires — autonomous mode does not bypass git hooks). Log `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-push-to-git","story":"<key>","step":"decision","status":"decision","data":{"event":"autonomous_bypass","gate":"push-confirm","bypassed":true,"default_taken":"push","trigger":"<agent_id|cli_flag|task_id_bundle>"}}'`.
+In **autonomous mode**, skip the prompt: proceed directly to Step 7 (the pre-push hook still fires — autonomous mode does not bypass git hooks). Log `shared/log-bypass.sh build-push-to-git "<key>" push-confirm push "<agent_id|cli_flag|task_id_bundle>"`.
 
 ---
 
@@ -170,7 +170,7 @@ In **interactive mode**, then ask using `AskUserQuestion`:
 If option A: invoke `/build-create-pr <key>` directly.
 If option B: tell the user: "Run `/makato-build:build-create-pr <key>` when ready."
 
-In **autonomous mode**, skip the prompt: invoke `/build-create-pr <key> --autonomous` directly (the `--autonomous` flag MUST be forwarded explicitly per the cross-skill propagation rule in `@../../AUTONOMOUS-MODE.md`). The downstream context bundle MUST also carry the `WORKTREE_PATH` field verbatim from this skill's input — `build-create-pr` runs its own entry-guard falsy-check and HALTs `MISSING_INPUT` if the field is absent in autonomous mode. The hand-off prompt that dispatches `/build-create-pr` therefore includes both `--autonomous` and `WORKTREE_PATH=<absolute path>` so the bundle and the CLI half of the activation contract stay aligned. Log `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-push-to-git","story":"<key>","step":"decision","status":"decision","data":{"event":"autonomous_bypass","gate":"create-pr-handoff","bypassed":true,"default_taken":"invoke-create-pr","trigger":"<agent_id|cli_flag|task_id_bundle>","forwarded":["--autonomous","WORKTREE_PATH"]}}'`.
+In **autonomous mode**, skip the prompt: invoke `/build-create-pr <key> --autonomous` directly (the `--autonomous` flag MUST be forwarded explicitly per the cross-skill propagation rule in `@../../AUTONOMOUS-MODE.md`). The downstream context bundle MUST also carry the `WORKTREE_PATH` field verbatim from this skill's input — `build-create-pr` runs its own entry-guard falsy-check and HALTs `MISSING_INPUT` if the field is absent in autonomous mode. The hand-off prompt that dispatches `/build-create-pr` therefore includes both `--autonomous` and `WORKTREE_PATH=<absolute path>` so the bundle and the CLI half of the activation contract stay aligned. Log `shared/log-bypass.sh build-push-to-git "<key>" create-pr-handoff invoke-create-pr "<agent_id|cli_flag|task_id_bundle>" '{"forwarded":["--autonomous","WORKTREE_PATH"]}'`.
 
 ## Autonomous Execution
 

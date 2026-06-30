@@ -69,7 +69,7 @@ assert "po-agent.md present"                      file_exists "$PO_AGENT_MD"
 
 # --- B. SKILL.md frontmatter + structure -----------------------------------
 
-assert "SKILL.md version bumped to 1.4.0"         contains "$SKILL_MD" '^version: "1\.4\.0"$'
+assert "SKILL.md version bumped to at least 1.4.0"         contains "$SKILL_MD" '^version: "1\.[4-9]\.'
 assert "SKILL.md description mentions --autonomous safety"   contains_F "$SKILL_MD" "Headless-safe under --autonomous"
 
 # --- C. AC2 — SHOULD-FIX scope guard ---------------------------------------
@@ -128,13 +128,16 @@ done
 # --- H. AC1 — autonomous_bypass logging schema ----------------------------
 
 # Every per-gate bypass must emit an autonomous_bypass entry. Spot-check the
-# four GAP-011 gates land in SKILL.md alongside the canonical event field.
-assert "SKILL.md logs comment-classification bypass"     contains_F "$SKILL_MD" '"gate":"comment-classification"'
-assert "SKILL.md logs should-fix-scope-guard bypass"     contains_F "$SKILL_MD" '"gate":"should-fix-scope-guard"'
-assert "SKILL.md logs out-of-scope-carry-over bypass"    contains_F "$SKILL_MD" '"gate":"out-of-scope-carry-over"'
-assert "SKILL.md logs structural-must-fix bypass"        contains_F "$SKILL_MD" '"gate":"structural-must-fix"'
-assert "SKILL.md logs structural-halt-summary bypass"    contains_F "$SKILL_MD" '"gate":"structural-halt-summary"'
-assert "SKILL.md uses canonical autonomous_bypass event" contains_F "$SKILL_MD" '"event":"autonomous_bypass"'
+# four GAP-011 gates land in SKILL.md alongside the canonical helper call.
+# Post-#116: gates are passed as positional args to log-bypass.sh, not as
+# inline JSON `"gate":"<name>"` literals.
+assert "SKILL.md logs comment-classification bypass"     contains_F "$SKILL_MD" 'log-bypass.sh build-address-pr-comments "<key>" comment-classification'
+assert "SKILL.md logs should-fix-scope-guard bypass"     contains_F "$SKILL_MD" 'log-bypass.sh build-address-pr-comments "<key>" should-fix-scope-guard'
+assert "SKILL.md logs out-of-scope-carry-over bypass"    contains_F "$SKILL_MD" 'log-bypass.sh build-address-pr-comments "<key>" out-of-scope-carry-over'
+assert "SKILL.md logs structural-must-fix bypass"        contains_F "$SKILL_MD" 'log-bypass.sh build-address-pr-comments "<key>" structural-must-fix'
+assert "SKILL.md logs structural-halt-summary bypass"    contains_F "$SKILL_MD" 'log-bypass.sh build-address-pr-comments "<key>" structural-halt-summary'
+assert "SKILL.md routes autonomous_bypass through log-bypass.sh helper" \
+  contains_F "$SKILL_MD" 'log-bypass.sh build-address-pr-comments'
 
 # --- I. AUTONOMOUS-MODE.md per-gate table currency -------------------------
 

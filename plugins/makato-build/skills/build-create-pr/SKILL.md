@@ -6,7 +6,7 @@ description: >-
   to How to Test, design decisions surface in the description, Jira
   story is linked. Presents draft for user approval before opening.
   Interactive. Use after push-to-git, before address-pr-comments.
-version: "1.6.0"
+version: "1.6.1"
 argument-hint: "[work-item-key] [--autonomous]"
 ---
 
@@ -55,7 +55,7 @@ In autonomous mode, the Step 1 work-item-key prompt is replaced by:
 2. Otherwise, read the most-recent `build.jsonl` session entry in the resolved spec folder (`specs/*/build.jsonl`, last entry where `step:"session"` and `status:"start"`) and extract `data.issue` or `data.story` as the key, and `data.branch` as the branch.
 3. If neither step yields a key: HALT with `MISSING_INPUT: build-create-pr in --autonomous mode requires a work-item-key argument or a populated build.jsonl session entry`, write `{step:"session", status:"error", data:{halt_code:"MISSING_INPUT"}}`, and return R1 `status:"failure"`.
 
-Log the bypass via `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-create-pr","story":"<key>","step":"decision","status":"decision","data":{"event":"autonomous_bypass","gate":"work-item-key","bypassed":true,"default_taken":"<use-arg|read-build-jsonl>","trigger":"<agent_id|cli_flag|task_id_bundle>"}}'` when bypassed.
+Log the bypass via `shared/log-bypass.sh build-create-pr "<key>" work-item-key "<use-arg|read-build-jsonl>" "<agent_id|cli_flag|task_id_bundle>"` when bypassed.
 
 Read from the resolved spec folder under `$REPO_ROOT` (NOT under `$WORKTREE_PATH` — see the entry guard above): `$REPO_ROOT/specs/<key>-*/`:
 - `stories.json` — acceptance criteria for this work item (if key was provided and file exists)
@@ -134,7 +134,7 @@ Ask: *"Does this PR description look correct? Reply with any edits, or 'approved
 
 Apply any edits the user requests. Re-present if edits are substantial. Do not open the PR until the user gives explicit approval.
 
-In **autonomous mode**, skip the prompt: proceed directly to Step 5 with the draft as-rendered. Log `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-create-pr","story":"<key>","step":"decision","status":"decision","data":{"event":"autonomous_bypass","gate":"pr-draft-approval","bypassed":true,"default_taken":"open-pr-as-drafted","trigger":"<agent_id|cli_flag|task_id_bundle>"}}'`. The PR body is populated entirely from spec artifacts (`stories.json`, `prd.md`, `plan.md`) and workflow-state (`build.jsonl`) — no human authoring is required and the `created-issues.json` auto-`Closes` injection in Step 6 Case 4 is the canonical issue-link source.
+In **autonomous mode**, skip the prompt: proceed directly to Step 5 with the draft as-rendered. Log `shared/log-bypass.sh build-create-pr "<key>" pr-draft-approval open-pr-as-drafted "<agent_id|cli_flag|task_id_bundle>"`. The PR body is populated entirely from spec artifacts (`stories.json`, `prd.md`, `plan.md`) and workflow-state (`build.jsonl`) — no human authoring is required and the `created-issues.json` auto-`Closes` injection in Step 6 Case 4 is the canonical issue-link source.
 
 ---
 
