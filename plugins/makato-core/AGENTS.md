@@ -44,7 +44,14 @@ Contracts define artifact shapes. They are design-time definitions, not runtime 
 makato-core/
 ├── .claude-plugin/plugin.json
 ├── contracts/          # Shared schemas
-├── skills/             # Foundation skills
+├── skills/
+│   ├── context7/                      # Library documentation lookup via Context7 MCP
+│   ├── crafting-effective-readmes/    # README authoring guide
+│   ├── create-issue/                  # File a structured issue against the makato repo
+│   ├── makato-guide/                  # Discover installed plugins and their skills
+│   ├── markdown/                      # Markdown authoring + linting
+│   ├── writing-clearly-and-concisely/ # Strunk-style prose editing
+│   └── zoom-out/                      # Map dependencies / higher-level codebase view
 ├── shared/             # Cross-skill references (optional)
 ├── CLAUDE.md
 ├── AGENTS.md

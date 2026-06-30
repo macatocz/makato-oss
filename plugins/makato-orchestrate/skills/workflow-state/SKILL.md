@@ -166,7 +166,7 @@ For `summarise-lessons`, use a dedicated `step: "summarise-lessons"` entry that 
 {"ts":"<ISO-8601-ms>","skill":"po-agent","issue":<N>,"step":"summarise-lessons","status":"ok","data":{"path":"<absolute path printed by the helper>","terminal_state":"<success|failure>"}}
 ```
 
-Append via the orchestrate log helper (TBD: `shared/orchestrate-log.sh`) — until that ships, callers can append directly to `specs/<key>-<slug>/orchestrate.jsonl`.
+Append via `plugins/makato-build/shared/build-log.sh` (the same helper used by makato-build; see AGENTS.md § *Skill Authoring*) targeting `specs/<key>-<slug>/orchestrate.jsonl`.
 
 ## HALT Codes
 

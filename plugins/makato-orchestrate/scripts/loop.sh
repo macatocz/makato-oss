@@ -219,15 +219,14 @@ cmd_poll() {
 # ---------------------------------------------------------------------------
 in_flight_issues() {
   [[ -d "$SPECS_DIR" ]] || return 0
+  # One jq invocation per file but only one (not two): extract both fields
+  # in a single pass and filter in jq rather than running two greps' worth
+  # of forks per file. Per-file error handling preserved — malformed JSON
+  # in one workflow-state.json must not crash the whole poll.
   find "$SPECS_DIR" -maxdepth 2 -name 'workflow-state.json' -print0 2>/dev/null |
     while IFS= read -r -d '' f; do
-      local issue phase
-      issue="$(jq -r '.issue_number // empty' "$f" 2>/dev/null || true)"
-      phase="$(jq -r '.current_phase // "null"' "$f" 2>/dev/null || echo null)"
-      [[ -z "$issue" ]] && continue
-      if [[ "$phase" != "done" ]]; then
-        echo "$issue"
-      fi
+      jq -r 'select(.current_phase != "done") | (.issue_number // empty)' \
+        "$f" 2>/dev/null || true
     done | sort -u
 }
 
@@ -332,9 +331,16 @@ cmd_run() {
     local queue queue_depth
     queue="$(cmd_poll "$status_name" || echo '[]')"
     queue_depth="$(jq 'length' <<<"$queue")"
-    _patch_status '.last_poll' "\"$(_now)\""
-    _patch_status '.queue_depth' "$queue_depth"
-    _patch_status '.queue' "$(jq '[.[].issue]' <<<"$queue")"
+    # Batch the three poll-result fields into a single status write — saves
+    # three `_patch_status` invocations (each reads + jq-merges + mktemp + mv).
+    local now
+    now="$(_now)"
+    _write_status "$(jq \
+      --arg ts "$now" \
+      --argjson depth "$queue_depth" \
+      --argjson q "$(jq '[.[].issue]' <<<"$queue")" \
+      '. + {last_poll: $ts, queue_depth: $depth, queue: $q}' \
+      <<<"$(_read_status)")"
 
     local in_flight
     in_flight="$(in_flight_issues)"

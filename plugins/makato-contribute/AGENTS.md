@@ -39,10 +39,16 @@ Help contributors participate in makato suite development — scaffolding new pl
 makato-contribute/
 ├── .claude-plugin/plugin.json
 ├── skills/
-│   ├── makato-plugin-creator/
+│   ├── makato-plugin-creator/    # Scaffold a new plugin from interview
 │   │   ├── SKILL.md
 │   │   └── references/
-│   └── makato-skill-creator/
+│   ├── makato-skill-creator/     # Scaffold a new skill inside an existing plugin
+│   │   ├── SKILL.md
+│   │   └── references/
+│   ├── manage-pr/                # Triage PR review-bot comments and apply fixes
+│   │   ├── SKILL.md
+│   │   └── references/
+│   └── sync-from-upstream/       # Migrate content from an upstream impact-market repo into makato
 │       ├── SKILL.md
 │       └── references/
 ├── shared/             # Cross-skill references (optional)

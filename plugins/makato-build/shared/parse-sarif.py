@@ -755,11 +755,8 @@ def main(argv: list[str] | None = None) -> int:
     else:
         payload = sys.stdin.read()
 
-    if tool == "pre-commit":
-        findings = parser(payload)  # text in
-    else:
-        # All JSON parsers accept a JSON string via _load.
-        findings = parser(payload)
+    # All parsers accept either raw text (pre-commit) or a JSON string (_load handles both).
+    findings = parser(payload)
 
     sys.stdout.write(_serialise(findings))
     sys.stdout.write("\n")

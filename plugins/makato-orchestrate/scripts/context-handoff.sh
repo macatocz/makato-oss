@@ -89,22 +89,28 @@ _state_field() {
 # Append a halt_audit entry with the canonical shape. Args:
 #   $1 — HALT code (e.g. "HALT-007B")
 #   $2 — JSON object (data payload)
+#   $3 — pre-read state JSON (optional — saves a `workflow-state.sh read` call
+#        when the caller already has it in hand)
 # ---------------------------------------------------------------------------
 _append_halt_audit() {
   local code="$1"
   local data="$2"
+  local state_json="${3:-}"
   local now
   now="$(_now)"
   local current
-  current="$("$WS" read "$KEY" | jq '.halt_audit')"
-  local entry
-  entry="$(jq -n \
+  if [[ -n "$state_json" ]]; then
+    current="$(jq '.halt_audit' <<<"$state_json")"
+  else
+    current="$("$WS" read "$KEY" | jq '.halt_audit')"
+  fi
+  local merged
+  merged="$(jq \
     --arg code "$code" \
     --arg ts "$now" \
     --argjson data "$data" \
-    '{code: $code, ts: $ts, data: $data}')"
-  local merged
-  merged="$(jq --argjson entry "$entry" '. += [$entry]' <<<"$current")"
+    '. + [{code: $code, ts: $ts, data: $data}]' \
+    <<<"$current")"
   "$WS" patch "$KEY" '.halt_audit' "$merged"
 }
 
@@ -171,10 +177,16 @@ HALT
 #   2 — handoff initiated cleanly (status HANDOFF)
 # ---------------------------------------------------------------------------
 _check() {
-  local consumed warn count
-  consumed="$(_state_field '.budget_consumed_tokens')"
-  warn="$(_state_field '.context_warn_tokens')"
-  count="$(_state_field '.session_count')"
+  # Single state read; extract all five fields from the same payload to avoid
+  # five separate `workflow-state.sh read` subprocess chains per check.
+  local state
+  state="$("$WS" read "$KEY")"
+  local consumed warn count summary resume_point
+  consumed="$(jq -r '.budget_consumed_tokens'   <<<"$state")"
+  warn="$(jq    -r '.context_warn_tokens'       <<<"$state")"
+  count="$(jq   -r '.session_count'             <<<"$state")"
+  summary="$(jq -r '.session_summary // ""'     <<<"$state")"
+  resume_point="$(jq -r '.resume_point // ""'   <<<"$state")"
 
   # Below threshold — nothing to do.
   if (( consumed < warn )); then
@@ -194,18 +206,18 @@ _check() {
   # Confirm session_summary is present — the PO-agent should have
   # populated it before invoking this script. NEVER 6 says we don't
   # paper over contract violations.
-  local summary
-  summary="$(_state_field '.session_summary // ""')"
   if [[ -z "$summary" || "$summary" == "null" ]]; then
     _halt_007_fallback "session_summary not populated — PO-agent contract violation"
   fi
 
-  # Bump session_count, set handoff_reason, write the audit entry.
-  "$WS" patch "$KEY" '.session_count' "$((count + 1))"
-  "$WS" patch "$KEY" '.handoff_reason' '"context_ceiling"'
+  # Bump session_count and set handoff_reason in a single state mutation so
+  # the file is never observable with one bumped and the other unset.
+  local merged
+  merged="$(jq --argjson c "$((count + 1))" \
+    '. + {session_count: $c, handoff_reason: "context_ceiling"}' \
+    <<<"$state")"
+  "$WS" write "$KEY" "$merged"
 
-  local resume_point
-  resume_point="$(_state_field '.resume_point // ""')"
   if [[ -z "$resume_point" || "$resume_point" == "null" ]]; then
     resume_point="unknown"
   fi

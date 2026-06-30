@@ -56,11 +56,12 @@ backend code and a shippable user-facing product.
 plugins/makato-ux/
 ├── .claude-plugin/
 │   └── plugin.json
-├── .mcp.json
-├── shared/
-│   └── (shared references — design tokens, test patterns)
+├── .mcp.json               # Playwright MCP — enables browser-driven testing
+├── shared/                 # empty — add shared references (design tokens, test patterns) here when needed
 ├── skills/
-│   └── (skills added via makato-skill-creator)
+│   ├── e2e-testing-patterns/   # Playwright end-to-end patterns
+│   ├── frontend-design/        # Visual design guidance + production UI patterns
+│   └── webapp-testing/         # Browser-based functional + visual regression
 ├── AGENTS.md
 ├── CHANGELOG.md
 ├── CLAUDE.md

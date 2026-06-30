@@ -55,7 +55,7 @@ makato-change uses specialized sub-agents to delegate focused tasks during the C
 
 ### Agent Design Principles
 
-- **Read-only agents** (code-explorer, test-impact-analyzer): Use `permissionMode: bypassPermissions` with `disallowedTools: Write, Edit, Bash, NotebookEdit`
+- **Read-only agents** (code-explorer, test-analyzer): Use `permissionMode: bypassPermissions` with `disallowedTools: Write, Edit, Bash, NotebookEdit`
 - **Model selection**: Haiku for discovery/scanning, Sonnet for analysis/review
 - **Structured output**: All agents return markdown with predictable sections and metadata fields
 - **Synthesized findings**: Agents distill insights so calling skills never re-read sources
@@ -74,11 +74,11 @@ makato-change/
 │   ├── quality-guard.md
 │   └── code-reviewer.md
 ├── skills/
-│   └── <skill-name>/
-│       ├── SKILL.md
-│       ├── references/
-│       ├── templates/
-│       └── shared -> ../../shared  (symlink, if used)
+│   ├── analyze/             # Refine requirements vs current behavior
+│   ├── design/              # Plan technical approach + affected code
+│   ├── execute/             # Implement, verify, open PR
+│   ├── orchestrate/         # Entry-point wrapper that walks analyze → design → execute → resolve-review
+│   └── resolve-review/      # Address PR review feedback
 ├── shared/                  (plugin-level shared resources)
 │   ├── repositories-yml-schema.md
 │   └── path-resolution.md

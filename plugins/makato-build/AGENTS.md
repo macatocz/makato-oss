@@ -55,6 +55,7 @@ The `coder` agent runs with `permissionMode: bypassPermissions`. This is the onl
 - `coder` is dispatched only by `build-implement-tdd`, never invoked directly by the user
 - File targets it writes to are relative paths validated by `build-refine` before plan approval
 - All other agents (`diff-reviewer`, `gate-scout`, `knowledge-scout`, `plan-analyst`) use read-only permission modes
+- `sensor-fixer` is dispatched only by the `build-sensors` skill after pre-commit returns non-zero; it reads parsed sensor findings and routes each one through `build-resolve-finding` (which in turn calls the deterministic autofix pre-pass or per-tech repair skills like `build-fix-types` / `build-fix-security`). It has Edit/Write permissions for repair but never edits files outside the changed-files set captured at dispatch time.
 
 **Contributor rule:** Do not add `bypassPermissions` to any other agent. If a new agent requires elevated permissions, document the reason in this section and in README.md before shipping.
 
@@ -75,14 +76,42 @@ The `coder` agent runs with `permissionMode: bypassPermissions`. This is the onl
 makato-build/
 ├── .claude-plugin/plugin.json
 ├── agents/
-│   └── (agents added via makato-skill-creator)
+│   ├── coder.md                # TDD inner-loop implementer (bypassPermissions)
+│   ├── diff-reviewer.md        # Adversarial review of branch diff vs acceptance criteria
+│   ├── gate-scout.md           # Discover build/lint/unit/integration/coverage commands
+│   ├── knowledge-scout.md      # Surface project Hard Constraints + Standards via inject-context
+│   ├── plan-analyst.md         # Read refined plan → task list, tracer flag, glossary constraints
+│   ├── RETURN-CONTRACT.md      # R1 envelope spec shared by all build agents
+│   └── sensor-fixer.md         # Outer loop that dispatches build-resolve-finding per sensor finding
 ├── hooks/
 │   └── (hooks for pre-commit, testing, etc.)
 ├── skills/
-│   └── (skills added via makato-skill-creator)
+│   ├── build-start/                # Entry point
+│   ├── build-refine/               # Story → implementation plan
+│   ├── build-grill-with-docs/      # Align plan vocabulary to codebase
+│   ├── build-implement-tdd/        # TDD inner loop
+│   ├── build-implement-goal/       # Goal-driven inner loop for UI/config
+│   ├── build-simplify/             # Trim incidental complexity
+│   ├── build-verify/               # Full quality-gate pipeline
+│   ├── build-sensors/              # Pre-commit findings loop
+│   ├── build-resolve-finding/      # Per-finding decision tree (autofix / skill / safe-auto / carry-over)
+│   ├── build-fix-types/            # Per-finding pyright/mypy repair
+│   ├── build-fix-security/         # Per-finding bandit/safety/pip-audit repair
+│   ├── build-push-to-git/          # Atomic commits + push
+│   ├── build-create-pr/            # PR open + description
+│   ├── build-address-pr-comments/  # Triage + fix review comments
+│   ├── definition-of-done/         # Versioned DoD shared across the pipeline
+│   └── inject-context/             # Resolve changed files → context-bundle rule files
 ├── shared/
+│   ├── build-log.sh                # JSONL audit-log helper (used suite-wide)
+│   ├── context-bundles.yml         # Bundle registry consumed by inject-context
+│   ├── finding-routes.json         # Sensor finding → action routing
+│   ├── inject_context.py / test_inject_context.py
+│   ├── parse-sarif.py
+│   └── (smoke-test scripts for PR comments, worktree path propagation)
 ├── CLAUDE.md
 ├── AGENTS.md
+├── AUTONOMOUS-MODE.md              # Conventions for --autonomous propagation
 ├── CHANGELOG.md
 └── README.md
 ```

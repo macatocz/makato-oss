@@ -231,15 +231,18 @@ case "$SUBCMD" in
     # worktree. The PO-agent's prose contract says cleanup runs only on the
     # success path; this is the code-level enforcement so a misordered or
     # future caller cannot silently destroy a retention artefact.
-    RETAINED="$(_state_worktree_retained)"
+    # Single state read; extract both fields so we don't fork
+    # workflow-state.sh twice for one cleanup call.
+    CLEANUP_STATE="$("$WS" read "$KEY")"
+    RETAINED="$(jq -r '.worktree_retained // false' <<<"$CLEANUP_STATE")"
+    WT_PATH="$(jq -r '.worktree_path // ""' <<<"$CLEANUP_STATE")"
+
     if [[ "$RETAINED" == "true" ]]; then
       echo "worktree_cleanup_refused" >&1
       echo "worktree: refusing to remove retained worktree (worktree_retained=true)" >&2
       echo "worktree: clear .worktree_retained first if removal is genuinely intended" >&2
       exit 0
     fi
-
-    WT_PATH="$(_state_worktree_path)"
 
     if [[ -z "$WT_PATH" ]]; then
       echo "worktree_noop"

@@ -52,7 +52,7 @@ Development teams own that next step.
 - No `../` paths in skill files. Cross-skill content is exposed via a `shared/` symlink at the skill root that targets `../../shared` (the plugin-level `shared/` directory).
 - References loaded at point of use, not front-loaded
 - Frontmatter required: name, description, version
-- **Model selection:** long-form skills that drive multi-round interviews, run sub-agents in parallel, or make judgment-heavy slicing/architecture decisions declare `model: opus` (currently: brainstorming, grill, create-prd, create-architecture, create-prototype, decompose). Short, structure-bound skills (publish, create-acceptance-tests) inherit the session default. Don't change a skill's model without an explicit quality experiment — interview quality is the dominant cost, not token spend.
+- **Model selection:** long-form skills that drive multi-round interviews, run sub-agents in parallel, or make judgment-heavy slicing/architecture decisions declare `model: opus` (currently: brainstorming, grill, create-prd, create-architecture, create-prototype, create-ux, decompose). Short, structure-bound skills (to-issues, issue-to-project, create-acceptance-tests, excalidraw) inherit the session default. Don't change a skill's model without an explicit quality experiment — interview quality is the dominant cost, not token spend.
 - **Cross-skill resources** live in `shared/` at the plugin root. Each consuming skill carries a symlink `skills/<name>/shared` → `../../shared`, so skill files reference resources as plain `shared/<file>.md` (no `../`). Claude Code's plugin cache preserves symlinks that resolve within the plugin's own directory ([docs](https://code.claude.com/docs/en/plugins-reference#share-files-within-a-marketplace-with-symlinks)) — no env-var dance needed. To add a new consumer: `cd plugins/makato-plan/skills/<name> && ln -s ../../shared shared`.
   - **Windows contributors:** ensure `git config --global core.symlinks true` (default on modern installs). To create the symlink without git, use `mklink /D shared ..\..\shared` from an elevated Command Prompt, or enable Developer Mode for unprivileged symlink creation.
   - Current contracts:
@@ -63,14 +63,57 @@ Development teams own that next step.
 - The plugin-level terminology reference is for human readers (consumers and contributors). Skills do **not** reference it at runtime — `@`-mentions in SKILL.md don't auto-load file content, and forcing a Read on every skill run wastes context. When introducing a term that needs explanation in a skill, add it to `shared/terminology.md` first; the runtime path for making this content available to agents is tracked separately (see GitHub issues).
 - Distinct from the per-spec glossary written by `grill`: that file (`specs/{KEY}-{slug}/glossary.md`) is a runtime, feature-scoped artifact populated during interviews and read by other plan skills on entry. See the `grill` skill for its format and write-back rules.
 
+## Agents
+
+makato-plan dispatches read-only specialists for context discovery, multi-perspective story review, and artifact authoring:
+
+| Agent                  | Model  | Purpose                                                                                                              | Used By                                  |
+| ---------------------- | ------ | -------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| **context-scout**      | haiku  | Scan `context/{REPO_NAME}/` for files relevant to the current feature; returns a structured manifest                 | most plan skills                         |
+| **acceptance-writer**  | sonnet | Refine draft Gherkin scenarios from decompose into polished, manually-testable acceptance test cases                 | create-acceptance-tests                  |
+| **dev-reviewer**       | sonnet | Lead-developer perspective for Three Amigos review — challenges feasibility, dependencies, estimates                 | grill (story review)                     |
+| **po-reviewer**        | sonnet | Product-owner perspective — challenges value delivery, scope boundaries, user outcomes, phase assignment             | grill (story review)                     |
+| **qa-reviewer**        | sonnet | QA perspective — challenges testability, identifies edge cases, produces draft Gherkin scenarios                     | grill (story review), decompose          |
+| **prototype-builder**  | opus   | Generate high-fidelity interactive HTML prototypes from design context and UX decisions                              | create-prototype, create-ux              |
+| **doc-writer**         | sonnet | Generate styled HTML review documents and write canonical markdown artifacts from structured input                   | most plan skills                         |
+
+### Agent Design Principles
+
+- Read-only by default. Skills that mutate artifacts (PRD, ADRs, GitHub issues) own those writes; agents return content for the calling skill to commit.
+- Model selection: haiku for discovery/scanning, sonnet for review/synthesis, opus only for prototype-builder (creative generation).
+- Agent versioning: bump `version` in agent frontmatter per feature PR.
+
 ## File Structure
 
 ```
 makato-plan/
 ├── .claude-plugin/
 │   └── plugin.json
+├── agents/
+│   ├── acceptance-writer.md
+│   ├── context-scout.md
+│   ├── dev-reviewer.md
+│   ├── doc-writer.md
+│   ├── po-reviewer.md
+│   ├── prototype-builder.md
+│   └── qa-reviewer.md
 ├── skills/
+│   ├── brainstorming/
+│   ├── create-acceptance-tests/
+│   ├── create-architecture/
+│   ├── create-prd/
+│   ├── create-prototype/
+│   ├── create-ux/
+│   ├── decompose/
+│   ├── excalidraw/
+│   ├── grill/
+│   ├── issue-to-project/
+│   └── to-issues/
 ├── shared/
+│   ├── refinement-contract.md
+│   ├── repositories-yml-schema.md
+│   ├── scenario-schema.md
+│   └── terminology.md
 ├── CLAUDE.md
 ├── AGENTS.md
 ├── CHANGELOG.md

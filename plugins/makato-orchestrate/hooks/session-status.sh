@@ -93,20 +93,27 @@ print(int((datetime.now(timezone.utc) - timedelta(hours=int(sys.argv[1]))).times
 
 echo "Active workflows:"
 for state_file in "${state_files[@]}"; do
-  # Parse fields. jq -e exits non-zero on null/missing; we swallow that with `|| true`
-  # and fall back to readable placeholders rather than aborting.
+  # Parse fields. Validate JSON shape with one `jq -c '.'` round-trip; on
+  # failure fall back to a readable placeholder rather than aborting.
   if ! payload="$(jq -c '.' "$state_file" 2>/dev/null)"; then
     echo "  ⚠ malformed: $state_file" >&2
     continue
   fi
 
-  issue="$(jq -r '.issue_number // "?"' <<<"$payload")"
-  phase="$(jq -r '.current_phase // "?"' <<<"$payload")"
-  consumed="$(jq -r '.budget_consumed_tokens // 0' <<<"$payload")"
-  limit="$(jq -r '.budget_limit_tokens // 0' <<<"$payload")"
-  updated_at="$(jq -r '.updated_at // ""' <<<"$payload")"
-  halt_count="$(jq -r '.halt_audit | length' <<<"$payload")"
-  last_halt_code="$(jq -r 'if (.halt_audit | length) > 0 then .halt_audit[-1].code else "" end' <<<"$payload")"
+  # Extract all six fields in one jq invocation (tab-separated) instead of
+  # six separate forks per workflow. SessionStart is in the hot path —
+  # operators with N active workflows previously paid 6N+ subprocess starts.
+  IFS=$'\t' read -r issue phase consumed limit updated_at halt_count last_halt_code <<<"$(jq -r '
+    [
+      (.issue_number // "?"),
+      (.current_phase // "?"),
+      (.budget_consumed_tokens // 0),
+      (.budget_limit_tokens // 0),
+      (.updated_at // ""),
+      (.halt_audit | length),
+      (if (.halt_audit | length) > 0 then .halt_audit[-1].code else "" end)
+    ] | @tsv
+  ' <<<"$payload")"
 
   # Budget percentage — guard against zero limit and non-numeric values.
   if [[ "$limit" =~ ^[0-9]+$ ]] && [[ "$consumed" =~ ^[0-9]+$ ]] && (( limit > 0 )); then
@@ -115,19 +122,20 @@ for state_file in "${state_files[@]}"; do
     pct="?%"
   fi
 
-  # Stale detection — convert updated_at to epoch, compare with cutoff.
+  # Stale detection — convert updated_at to epoch using GNU `date -d`
+  # (linux) or BSD `date -j -f` (macos). Falls back to 0 (= not stale) if
+  # neither parses the timestamp, avoiding the per-workflow python3 fork.
   stale_marker=""
   if [[ -n "$updated_at" ]]; then
-    updated_epoch="$(python3 -c "
-import sys
-from datetime import datetime
-try:
-    s = sys.argv[1].replace('Z', '+00:00')
-    print(int(datetime.fromisoformat(s).timestamp()))
-except Exception:
-    print(0)
-" "$updated_at")"
-    if [[ "$updated_epoch" -gt 0 ]] && [[ "$updated_epoch" -lt "$cutoff_epoch" ]]; then
+    if updated_epoch="$(date -d "$updated_at" +%s 2>/dev/null)"; then
+      :
+    elif updated_epoch="$(date -j -f '%Y-%m-%dT%H:%M:%S' \
+        "${updated_at%%.*}" +%s 2>/dev/null)"; then
+      :
+    else
+      updated_epoch=0
+    fi
+    if (( updated_epoch > 0 && updated_epoch < cutoff_epoch )); then
       stale_marker=" ⚠ STALE — resume: /loop --autonomous $issue"
     fi
   fi

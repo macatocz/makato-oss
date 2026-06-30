@@ -3,9 +3,9 @@
 
 ## Goal
 
-Autonomous control plane (in development) — will drive a GitHub Issue from ready-for-dev through to a merged PR unattended.
+Autonomous control plane that drives a GitHub Issue from ready-for-dev through to a merged PR unattended.
 
-**How:** Will host the PO-agent and supporting infrastructure (workflow-state, kill-switch, session-status, loop) that coordinate `makato-plan` decomposition output and `makato-build` `--autonomous` skills into a single outer loop with retry, HALT, and audit semantics. **Current status:** scaffold only — the skills and agents listed above land per the follow-up issues referenced in README.md.
+**How:** Hosts the PO-agent and supporting infrastructure (workflow-state, kill-switch, session-status, loop, resolve-pr-conflict) that coordinate `makato-plan` decomposition output and `makato-build` `--autonomous` skills into a single outer loop with retry, HALT, and audit semantics. **Current status:** all four agents (po-agent, context-summariser, scout, documentation-agent) and all five skills (workflow-state, kill-switch, loop, session-status, resolve-pr-conflict) are shipped. Open GAPs tracked in README.md cover follow-on enhancements, not core functionality.
 
 **Why:** Closes the orchestration gap identified in the AgenticSystem PRD (GAP-001 → GAP-015). `makato-build` lands tested code per story; `makato-plan` shapes stories. Without an outer driver, every transition between them requires a human. The PO-agent is that driver.
 
@@ -84,7 +84,7 @@ makato-orchestrate hosts the top-level orchestrator and supporting read-only sco
 - References loaded at point of use, not front-loaded
 - Frontmatter required: `name`, `description`, `version`
 - Every skill that mutates workflow-state MUST emit a JSONL audit entry per write — schema mirrors `makato-build`'s `build.jsonl` convention. See README.md for the schema.
-- The orchestrate equivalent log is `specs/<key>-<slug>/orchestrate.jsonl`. Skills append via a shared helper (TBD: `shared/orchestrate-log.sh`).
+- The orchestrate equivalent log is `specs/<key>-<slug>/orchestrate.jsonl`. Skills append via `plugins/makato-build/shared/build-log.sh` (the same helper used by makato-build) — there is no separate orchestrate-log.sh. When orchestrate-specific log fields diverge enough to justify a dedicated helper, file an issue and add `shared/orchestrate-log.sh` then.
 
 ## File Structure
 
@@ -116,9 +116,10 @@ makato-orchestrate/
 │   │   └── references/
 │   │       └── daily-budget.schema.json
 │   ├── loop/SKILL.md                     (GAP-007 / #33 — shipped)
+│   ├── resolve-pr-conflict/SKILL.md      (GAP-016 / #45 — shipped)
 │   └── session-status/SKILL.md           (GAP-014 / #31 — shipped)
 ├── shared/
-│   ├── workflow-state.sh                 (GAP-003 / #26)
+│   ├── workflow-state.sh                 (GAP-003 / #26 — shipped)
 │   ├── worktree.sh                       (GAP-017 / #46 — shipped)
 │   └── worktree-smoke-tests.sh           (GAP-017 / #46 — shipped)
 ├── workflows/
@@ -141,6 +142,7 @@ Skills and agents inside this plugin treat `--autonomous` as their default execu
 - `loop --autonomous <issue-number>` is the user-facing entry point
 - `loop` dispatches `po-agent` with the autonomous bundle (issue number, spec path, max-iterations override, budget ceiling)
 - `po-agent` invokes `makato-build` skills (`build-refine`, `build-implement-tdd`, `build-create-pr`, `build-address-pr-comments`, `build-push-to-git`) with `--autonomous` per the conventions in `plugins/makato-build/AUTONOMOUS-MODE.md`
+- `resolve-pr-conflict` runs inside the worktree when the outer loop detects a push rejection or CI rebase-check failure (GAP-016 / #45)
 - Sub-agents inherit the flag via the dispatch context bundle; they do not re-parse argv
 
 ## Versioning

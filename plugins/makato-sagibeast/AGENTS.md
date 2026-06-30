@@ -48,9 +48,13 @@ plugins/makato-sagibeast/
 ├── .claude-plugin/
 │   └── plugin.json
 ├── .mcp.json               ← placeholder for CMAI external system connections
-├── shared/                 ← shared document utilities (OCR, PDF, Office)
+├── shared/                 ← empty — add shared document utilities (OCR, PDF, Office) here when needed
 ├── skills/
-│   └── (add skills here)
+│   ├── dotx-schema-extractor/      # Extract structured schema from Word (.dotx) templates
+│   ├── manage-microsoft-excel/     # Excel document processing for contract data
+│   ├── manage-pdf/                 # PDF processing (OCR, extraction, redaction) for contracts
+│   ├── sagibeast-connect-testbox/  # Connect to an existing CMAI testbox VM
+│   └── sagibeast-create-testbox/   # Provision a new CMAI testbox VM
 ├── AGENTS.md
 ├── CHANGELOG.md
 ├── CLAUDE.md

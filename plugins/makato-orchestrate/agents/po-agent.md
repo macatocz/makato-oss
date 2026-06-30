@@ -62,8 +62,9 @@ constrain that elevated permission:
    mutation.
 2. **Allow-list for `Write`/`Edit` targets** — only these four paths:
    - `specs/<key>-<slug>/workflow-state.json` (via `shared/workflow-state.sh`)
-   - `specs/<key>-<slug>/orchestrate.jsonl` (via `shared/orchestrate-log.sh`
-     when shipped, or direct append)
+   - `specs/<key>-<slug>/orchestrate.jsonl` (via
+     `plugins/makato-build/shared/build-log.sh` — the same helper used by
+     makato-build, per AGENTS.md § *Skill Authoring*)
    - `.claude/state/resume-{KEY}.sh` (via `scripts/context-handoff.sh`)
    - `.claude/state/daily-budget-{YYYY-MM-DD}.json` (via `kill-switch`
      `record-budget`)

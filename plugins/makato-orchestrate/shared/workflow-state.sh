@@ -317,13 +317,13 @@ case "$SUBCMD" in
 
     # Find every workflow-state.json under specs/, filter by .repo == REPO,
     # flatten .lessons_learned[] across the matching states, sort newest first.
-    # `find -print0` + `xargs -0` survives spaces; `jq -s` slurps the per-file
-    # arrays into a single concatenated stream that we then sort+limit.
+    # Pass all paths to a single `jq -s` invocation (slurps the parsed payloads
+    # into one array) — O(1) jq forks instead of O(N) under xargs -I{}.
     find "$SPECS_DIR" -mindepth 2 -maxdepth 2 -type f -name workflow-state.json -print0 2>/dev/null |
-      xargs -0 -I{} jq --arg repo "$REPO" \
-        'if .repo == $repo then (.lessons_learned // []) else [] end' {} 2>/dev/null |
-      jq -s --argjson n "$LIMIT" \
-        'add // [] | sort_by([.cycle, .ts]) | reverse | .[0:$n]'
+      xargs -0 jq -s --arg repo "$REPO" --argjson n "$LIMIT" \
+        '[.[] | select(.repo == $repo) | (.lessons_learned // [])[]]
+         | sort_by([.cycle, .ts]) | reverse | .[0:$n]' \
+        2>/dev/null
     ;;
 
   # -------------------------------------------------------------------------

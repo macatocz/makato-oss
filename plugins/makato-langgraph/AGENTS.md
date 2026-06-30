@@ -52,3 +52,17 @@ plugins/makato-langgraph/
 ├── README.md
 └── CHANGELOG.md
 ```
+
+## Versioning
+
+- No `version` in plugin.json (repo versioned via release-please + git tags)
+- Skill versions: bumped in SKILL.md frontmatter per feature PR
+- CHANGELOG.md: updated with each PR
+
+## PR Checklist
+
+- [ ] Serves the plugin goal: helps a developer write correct LangGraph code
+- [ ] Skill is LangGraph-specific (would not apply to other AI frameworks)
+- [ ] Skills are self-contained (no `../` paths)
+- [ ] CHANGELOG updated
+- [ ] Conventional commit title: `type(makato-langgraph): description`
