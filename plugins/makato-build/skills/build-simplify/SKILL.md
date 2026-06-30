@@ -8,7 +8,7 @@ description: >-
   auto-approves SIMPLIFY findings and surfaces ESCALATE findings via R1.
   Use after implement-tdd or implement-goal, before review; also invoked
   by sensor-fixer / build-resolve-finding for code-complexity findings.
-version: "1.4.1"
+version: "1.5.0"
 argument-hint: "[work-item-key] [--autonomous]"
 ---
 
@@ -33,7 +33,7 @@ Interactive mode: `WORKTREE_PATH` is optional; fall back to `git rev-parse --sho
 
 ### Workspace-isolation entry guard
 
-**Apply this guard BEFORE Step 1.** In autonomous mode (`--autonomous`, `task_id` bundle field, or `$AGENT_ID` exported) an empty `WORKTREE_PATH` is a HALT (R1 `status: "failure"`, `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`). In interactive mode, resolve `WORKTREE_PATH="$(git rev-parse --show-toplevel)"` and `cd "$WORKTREE_PATH"`. Every `git diff` and fix-apply below runs from this CWD.
+Apply the workspace-isolation entry guard from `@../../AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract* and § *Falsy-check pattern* before Step 1. In autonomous mode an empty `WORKTREE_PATH` is a HALT with `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`; in interactive mode the guard falls back to `git rev-parse --show-toplevel`. After resolution, `cd "$WORKTREE_PATH"` — every `git diff` and fix-apply below runs from this CWD.
 
 Spec-artefact reads use `$REPO_ROOT/specs/<key>-*/`:
 
@@ -56,13 +56,7 @@ Resolve the integration target with `DEFAULT_REF="$(shared/default-branch.sh)"` 
 
 ### Step 1a — Mode detection
 
-This skill follows `plugins/makato-build/AUTONOMOUS-MODE.md`. Autonomous mode activates when ANY of:
-
-1. `--autonomous` is passed as a CLI flag.
-2. The caller provides a context bundle whose payload includes a `task_id` field (set by `sensor-fixer` / `build-resolve-finding` when dispatching this skill).
-3. `$AGENT_ID` is exported in the environment.
-
-If none of those hold, the skill runs in interactive mode (the default — exactly the behavior prior to v1.3.0). Autonomous mode opts in per dispatch; the rest of this SKILL.md describes both behaviors inline at each gate.
+This skill follows `plugins/makato-build/AUTONOMOUS-MODE.md` § *Activation triggers* for the activation contract. The skill runs in interactive mode by default (exactly the behavior prior to v1.3.0); autonomous mode opts in per dispatch and the rest of this SKILL.md describes both behaviors inline at each gate.
 
 ---
 
@@ -275,17 +269,7 @@ Audit the diff manually before proceeding, or add a test runner and re-run this 
 
 ## Autonomous Execution
 
-This skill supports dual-mode execution per `plugins/makato-build/AUTONOMOUS-MODE.md`.
-
-### Mode Detection
-
-Autonomous mode activates when ANY of:
-
-- `--autonomous` CLI flag is passed
-- Caller passes context bundle with a `task_id` field (set by `sensor-fixer` / `build-resolve-finding` when dispatching this skill on a code-complexity sensor finding routed via `finding-routes.json`)
-- `$AGENT_ID` is exported in the environment
-
-Interactive mode is the default. The OR-equivalent activation rule means a single trigger is enough.
+This skill supports dual-mode execution per `plugins/makato-build/AUTONOMOUS-MODE.md` — see § *Activation triggers* for the canonical activation contract (a single matching trigger activates autonomous mode; interactive is the default).
 
 ### Autonomous Behavior Summary
 
@@ -300,18 +284,10 @@ Every bypassed gate emits an `autonomous_bypass` JSONL entry per AUTONOMOUS-MODE
 
 ### R1 Return Format
 
-The final `json`-fenced block of the response MUST be the R1 envelope:
+Top-level R1 envelope fields follow `plugins/makato-build/agents/RETURN-CONTRACT.md` § *R1 envelope schema*. The skill-specific `data` payload is:
 
 ```json
 {
-  "schema": "r1",
-  "agent": "build-simplify",
-  "status": "success | partial | failure",
-  "summary": "<one-line synthesis>",
-  "files_changed": ["..."],
-  "tests_written": [],
-  "errors": [],
-  "tool_calls_used": 0,
   "data": {
     "findings_simplify": 0,
     "findings_keep": 0,
@@ -327,7 +303,7 @@ The final `json`-fenced block of the response MUST be the R1 envelope:
 }
 ```
 
-Status mapping:
+`agent` is `"build-simplify"`. Status mapping:
 
 - `status: "success"` — session completed cleanly: zero ESCALATE findings AND Step 7 verify gate green (no new test failures). The SIMPLIFY count may be zero. `degraded_confidence` MAY be `true` if `test_suite_present == false` and only doc/config files were touched (Step 7a no-op) — the verify gate was skipped but no manual scrutiny is needed.
 - `status: "partial"` — session completed BUT one or more ESCALATE findings remain unresolved (they were logged for the PO-agent). Also returned when `test_suite_present == false` AND code files were touched in autonomous mode — `data.degraded_confidence: true` signals the PO-agent to route for elevated scrutiny. The caller decides whether to open `/build-refine` for re-planning.

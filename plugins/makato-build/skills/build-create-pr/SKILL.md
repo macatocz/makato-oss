@@ -6,7 +6,7 @@ description: >-
   to How to Test, design decisions surface in the description, Jira
   story is linked. Presents draft for user approval before opening.
   Interactive. Use after push-to-git, before address-pr-comments.
-version: "1.5.1"
+version: "1.6.0"
 argument-hint: "[work-item-key] [--autonomous]"
 ---
 
@@ -26,7 +26,7 @@ Interactive mode: `WORKTREE_PATH` is optional; fall back to `git rev-parse --sho
 
 ### Workspace-isolation entry guard
 
-At skill entry (before Step 1's `git status -sb`), apply the falsy-check pattern from `AUTONOMOUS-MODE.md`: in autonomous mode an empty `WORKTREE_PATH` is a HALT (R1 `status: "failure"`, `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`). In interactive mode, resolve `WORKTREE_PATH="$(git rev-parse --show-toplevel)"` and `cd "$WORKTREE_PATH"`. Every `git`/`gh pr create` command below runs from this CWD.
+Apply the workspace-isolation entry guard from `@../../AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract* and § *Falsy-check pattern* before Step 1's `git status -sb`. In autonomous mode an empty `WORKTREE_PATH` is a HALT with `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`; in interactive mode the guard falls back to `git rev-parse --show-toplevel`. After resolution, `cd "$WORKTREE_PATH"` — every `git`/`gh pr create` command below runs from this CWD.
 
 **Spec-artefact reads use `REPO_ROOT`, not `WORKTREE_PATH`.** `specs/<key>-*/` is gitignored at the repo root; a fresh `git worktree add` produces a worktree with NO `specs/` content. Resolve `REPO_ROOT` once at entry alongside the worktree:
 
@@ -48,13 +48,7 @@ Verify the branch is pushed: run `git status -sb` and check that the upstream tr
 
 ### Step 1a — Mode detection
 
-Load `@../../AUTONOMOUS-MODE.md` for the activation contract and the per-gate default table.
-
-The skill runs in `--interactive` mode by default. Switch to `--autonomous` when ANY of:
-
-- `--autonomous` is passed on the CLI, OR
-- The caller provides a context bundle with a `task_id` field, OR
-- `$AGENT_ID` is exported in the environment.
+Load `@../../AUTONOMOUS-MODE.md` for the activation contract (§ *Activation triggers*) and the per-gate default table. The skill runs in `--interactive` mode by default; autonomous mode opts in per dispatch.
 
 In autonomous mode, the Step 1 work-item-key prompt is replaced by:
 1. If an argument was passed: use it.
@@ -208,11 +202,7 @@ Tell the user: *"PR open: `<URL>`. Next: wait for review, then use `/address-pr-
 
 ## Autonomous Execution
 
-Autonomous mode activates when ANY of:
-
-- `--autonomous` is passed on the CLI.
-- The caller provides a context bundle with a `task_id` field.
-- `$AGENT_ID` is exported in the environment.
+Autonomous mode is activated per `@../../AUTONOMOUS-MODE.md` § *Activation triggers*.
 
 In autonomous mode:
 
@@ -225,16 +215,10 @@ In autonomous mode:
 
 ### Return Format (R1, when called as a sub-skill)
 
+Top-level R1 envelope fields follow `plugins/makato-build/agents/RETURN-CONTRACT.md` § *R1 envelope schema*. The skill-specific `data` payload is:
+
 ```json
 {
-  "schema": "r1",
-  "agent": "build-create-pr",
-  "status": "success" | "partial" | "failure",
-  "summary": "Opened PR <url>",
-  "files_changed": [],
-  "tests_written": [],
-  "errors": [],
-  "tool_calls_used": 0,
   "data": {
     "pr_url": "<url>",
     "pr_number": <N>,
@@ -246,6 +230,8 @@ In autonomous mode:
   }
 }
 ```
+
+`agent` is `"build-create-pr"`. `summary` is `"Opened PR <url>"` on success.
 
 ### HALT Codes
 

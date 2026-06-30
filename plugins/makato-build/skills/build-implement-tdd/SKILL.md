@@ -6,7 +6,7 @@ description: >-
   Tracer bullet phase for multi-layer stories. Autonomous loop. Use
   after refine to implement-tdd a story plan, implement tdd tasks, or
   run the core build loop.
-version: "1.9.0"
+version: "1.9.1"
 model: sonnet
 argument-hint: "[work-item-key]"
 ---
@@ -53,9 +53,7 @@ All other contracts (workspace-isolation guard, baseline gate, blockedBy graph c
 
 ### Workspace-isolation entry guard
 
-**Apply this guard BEFORE Step 1.** Step 1 in interactive mode calls `AskUserQuestion` for the work-item-key prompt; in autonomous mode that prompt is bypassed. The falsy-check must therefore run at skill entry — before either branch of Step 1 begins — so an autonomous dispatch with empty `WORKTREE_PATH` HALTs before any prompt is issued (which would deadlock the dispatcher).
-
-Apply the falsy-check pattern from `AUTONOMOUS-MODE.md` § *Falsy-check pattern*: in autonomous mode an empty `WORKTREE_PATH` is a HALT (R1 `status: "failure"`, `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`). In interactive mode, resolve `WORKTREE_PATH="$(git rev-parse --show-toplevel)"` and continue. After resolution, `cd "$WORKTREE_PATH"` so every subsequent `git`/`pytest`/file-edit lands in the correct working tree.
+Apply the workspace-isolation entry guard from `@../../AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract* and § *Falsy-check pattern* before Step 1 — Step 1 in interactive mode calls `AskUserQuestion` for the work-item-key prompt and in autonomous mode that prompt is bypassed, so the falsy-check must run at skill entry (before either branch of Step 1 begins) to prevent a deadlock against a prompt that can never resolve. In autonomous mode an empty `WORKTREE_PATH` is a HALT with `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`; in interactive mode the guard falls back to `git rev-parse --show-toplevel`. After resolution, `cd "$WORKTREE_PATH"` so every subsequent `git`/`pytest`/file-edit lands in the correct working tree.
 
 Spec-folder reads (`plan.md`, `build.jsonl` audit appends) operate on the MAIN checkout, not the worktree (`specs/` is gitignored). Resolve `REPO_ROOT` once at entry:
 

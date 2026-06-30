@@ -5,14 +5,29 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
-## CI-failure recovery mode in `build-implement-tdd` (#119)
+## Extract shared mode-detection, entry-guard, and R1-envelope references (#114)
 
-Extends `build-implement-tdd` to be the single implementation entry point for the PO-agent's CI-failure fix loop as well as the first-pass implementation walk. The previous design had the PO-agent dispatch `coder` directly on CI failure, bypassing the tracer guard, scout pre-flight, blockedBy graph check, and baseline-failure gate. Now `build-implement-tdd` accepts an optional `CI_FAILURE_LOG` bundle field, identifies failing tasks from the log, skips the tracer-bullet step (irrelevant for incremental fixes), and runs its normal scout + RED/GREEN/INTEGRATE/VERIFY cycle on the affected subset.
+Deduplicates three blocks that were copied verbatim across the build skills, replacing each inline copy with a one-sentence forward reference to the canonical source. Drift was already visible (build-verify omitted the REPO_ROOT snippet; build-address-pr-comments had an abbreviated guard); a single edit to add the next mode-detection trigger would have required touching 8 SKILL.md files.
 
-- **skills/build-implement-tdd/SKILL.md** → 1.9.0 — Three additions:
-  - **§ *Input* — new optional fields** documenting `CI_FAILURE_LOG` and `PRIOR_LESSONS` (the latter promoted from "documented elsewhere" to "named in the input contract"). `CI_FAILURE_LOG` is absent on a normal first-pass dispatch and present only when the PO-agent's Step 6a re-enters the skill on a CI failure.
-  - **§ *CI-failure recovery mode*** — new sub-section after § *Input* documenting the four-step recovery contract: parse failing tests → restrict Step 6 walk to matching tasks (fall through to full walk on ambiguous match) → skip Step 5 tracer-bullet with a `warn` JSONL entry → log a `decision` JSONL entry recording the recovery dispatch. All other invariants (workspace-isolation guard, baseline gate, blockedBy check, scout pre-flight, R1 envelope, workflow-state carve-out) are explicitly unchanged.
-  - **§ *Step 6* — coder input list** — adds `CI_FAILURE_LOG` as a forwarded-when-present field so the coder reads it as advisory diagnostic context alongside `PLAN_CONTEXT`, `SCOUT_SUMMARY`, and `PRIOR_LESSONS`.
+**Grep audit:**
+
+- Block A (mode-detection trigger list): **12 inline copies → 0** across the 6 skills that carried both a Step 1a list and a trailing "Autonomous Execution" copy (build-refine, build-simplify, build-push-to-git, build-create-pr, build-address-pr-comments). The per-skill behaviour table that documents what each gate defaults to in autonomous mode is retained — that is genuinely skill-specific.
+- Block B (workspace-isolation entry guard): the `if [[ -z "${WORKTREE_PATH}" ]]` bash snippet from AUTONOMOUS-MODE.md is no longer inlined in any skill (**0 copies**). Each skill keeps a single forward-ref sentence naming the HALT semantics and the canonical §; the skill-specific REPO_ROOT derivation (when present) stays where it materially affects spec-artefact reads.
+- Block C (R1 envelope top-level shape): `tool_calls_used` and the top-level field boilerplate appears **only in RETURN-CONTRACT.md** (7 references, all canonical); the 5 skills that previously reproduced the JSON shape (build-refine, build-simplify, build-push-to-git, build-create-pr, build-address-pr-comments) now show only the `data.*` payload + a one-line forward-ref.
+
+**Touched files (version bumps):**
+
+- `skills/build-refine/SKILL.md` → 1.7.0 — Block A (Step 1a + Autonomous Execution), Block B, Block C
+- `skills/build-implement-tdd/SKILL.md` → 1.9.1 — Block B only (no A/C present); composed on top of #119's CI-failure recovery mode at 1.9.0
+- `skills/build-implement-goal/SKILL.md` → 1.5.0 — Block B only (no A/C present)
+- `skills/build-simplify/SKILL.md` → 1.5.0 — Block A (Step 1a + Autonomous Execution Mode Detection), Block B, Block C
+- `skills/build-verify/SKILL.md` → 1.6.0 — Block B only (the inline-prose variant; no A/C present)
+- `skills/build-push-to-git/SKILL.md` → 1.5.0 — Block A (Step 1a + Autonomous Execution), Block B, Block C
+- `skills/build-create-pr/SKILL.md` → 1.6.0 — Block A (Step 1a + Autonomous Execution), Block B, Block C
+- `skills/build-address-pr-comments/SKILL.md` → 1.5.0 — Block A (Step 1a + Autonomous Execution), Block B, Block C
+- `build-review/SKILL.md` — untouched (no autonomous wiring, no duplication)
+
+Canonical sources unchanged: `AUTONOMOUS-MODE.md` § *Activation triggers* (Block A), § *WORKTREE_PATH — workspace-isolation contract* / § *Falsy-check pattern* (Block B), `agents/RETURN-CONTRACT.md` § *R1 envelope schema* (Block C).
 
 ---
 

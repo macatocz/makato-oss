@@ -10,7 +10,7 @@ description: >-
   (MUST-FIX auto-apply, SHOULD-FIX scope-guarded, STRUCTURAL HALT-003,
   OUT-OF-SCOPE carry-over issue).
   Interactive by default. Use after create-pr when review comments arrive.
-version: "1.4.0"
+version: "1.5.0"
 argument-hint: "[work-item-key] [--autonomous]"
 ---
 
@@ -30,7 +30,7 @@ Interactive mode: `WORKTREE_PATH` is optional; fall back to `git rev-parse --sho
 
 ### Workspace-isolation entry guard
 
-**Apply this guard BEFORE Step 1.** In autonomous mode an empty `WORKTREE_PATH` is a HALT (R1 `status: "failure"`, `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`). In interactive mode, resolve `WORKTREE_PATH="$(git rev-parse --show-toplevel)"` and `cd "$WORKTREE_PATH"`.
+Apply the workspace-isolation entry guard from `@../../AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract* and § *Falsy-check pattern* before Step 1. In autonomous mode an empty `WORKTREE_PATH` is a HALT with `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`; in interactive mode the guard falls back to `git rev-parse --show-toplevel`. After resolution, `cd "$WORKTREE_PATH"`.
 
 Spec-artefact reads use `$REPO_ROOT/specs/<key>-*/`:
 
@@ -53,13 +53,7 @@ Run `git branch --show-current` to confirm we are on the story branch. If on `ma
 
 ### Step 1a — Mode detection
 
-Load `@../../AUTONOMOUS-MODE.md` for the activation contract and the per-gate default table.
-
-The skill runs in `--interactive` mode by default. Switch to `--autonomous` when ANY of:
-
-- `--autonomous` is passed on the CLI, OR
-- The caller provides a context bundle with a `task_id` field, OR
-- `$AGENT_ID` is exported in the environment.
+Load `@../../AUTONOMOUS-MODE.md` for the activation contract (§ *Activation triggers*) and the per-gate default table. The skill runs in `--interactive` mode by default; autonomous mode opts in per dispatch.
 
 In autonomous mode, the Step 1 work-item-key prompt is replaced by:
 - If an argument was passed: use it.
@@ -288,11 +282,7 @@ Tell the user: *"`<N>` comments addressed, `<N>` commits pushed. PR is ready for
 
 ## Autonomous Execution
 
-Autonomous mode activates when ANY of:
-
-- `--autonomous` is passed on the CLI.
-- The caller provides a context bundle with a `task_id` field.
-- `$AGENT_ID` is exported in the environment.
+Autonomous mode is activated per `@../../AUTONOMOUS-MODE.md` § *Activation triggers*.
 
 In autonomous mode:
 
@@ -307,16 +297,10 @@ In autonomous mode:
 
 ### Return Format (R1, when called as a sub-skill)
 
+Top-level R1 envelope fields follow `plugins/makato-build/agents/RETURN-CONTRACT.md` § *R1 envelope schema*. The skill-specific `data` payload is:
+
 ```json
 {
-  "schema": "r1",
-  "agent": "build-address-pr-comments",
-  "status": "success" | "partial" | "failure",
-  "summary": "Addressed N comments across <M> commits",
-  "files_changed": ["<path>", "..."],
-  "tests_written": [],
-  "errors": [],
-  "tool_calls_used": 0,
   "data": {
     "must_fix_applied": <N>,
     "should_fix_applied": <N>,
@@ -331,6 +315,8 @@ In autonomous mode:
   }
 }
 ```
+
+`agent` is `"build-address-pr-comments"`. `summary` is `"Addressed N comments across <M> commits"` on success.
 
 `status` selection (autonomous mode):
 

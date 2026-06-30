@@ -5,7 +5,7 @@ description: >-
   implementation plan — tasks, file targets, unit/integration test
   strategy, acceptance mapping. Use to start a build session before
   implement-tdd or implement-goal.
-version: "1.6.0"
+version: "1.7.0"
 model: opus
 argument-hint: "[work-item-key] [--autonomous]"
 ---
@@ -33,7 +33,7 @@ Interactive mode: `WORKTREE_PATH` is optional; fall back to `git rev-parse --sho
 
 ### Workspace-isolation entry guard
 
-**Apply this guard BEFORE Step 1.** In autonomous mode an empty `WORKTREE_PATH` is a HALT (R1 `status: "failure"`, `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`). In interactive mode, resolve `WORKTREE_PATH="$(git rev-parse --show-toplevel)"`.
+Apply the workspace-isolation entry guard from `@../../AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract* and § *Falsy-check pattern* before Step 1. In autonomous mode an empty `WORKTREE_PATH` is a HALT with `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`; in interactive mode the guard falls back to `git rev-parse --show-toplevel`.
 
 Spec-artefact reads + plan writes go to `$REPO_ROOT/specs/<key>-*/`:
 
@@ -51,13 +51,9 @@ Accept any identifier: Jira key (`DCP-1234`), GitHub issue (`#123` or `gh-123`),
 
 ### Step 1a — Mode detection
 
-Load `@../../AUTONOMOUS-MODE.md` for the activation contract and the per-gate default table.
+Load `@../../AUTONOMOUS-MODE.md` for the activation contract (§ *Activation triggers*) and the per-gate default table.
 
-The skill runs in `--interactive` mode by default. Switch to `--autonomous` when ANY of:
-
-- `--autonomous` is passed on the CLI, OR
-- The caller provides a context bundle with a `task_id` field, OR
-- `$AGENT_ID` is exported in the environment.
+The skill runs in `--interactive` mode by default; the canonical activation triggers for `--autonomous` mode are listed in `@../../AUTONOMOUS-MODE.md` § *Activation triggers*.
 
 In autonomous mode, the work-item-key `AskUserQuestion` above is replaced by:
 - If an argument was passed: use it.
@@ -268,11 +264,7 @@ Skip `/build-grill-with-docs` for infra/config-only changes (no domain-model fil
 
 ## Autonomous Execution
 
-Autonomous mode activates when ANY of:
-
-- `--autonomous` is passed on the CLI.
-- The caller provides a context bundle with a `task_id` field.
-- `$AGENT_ID` is exported in the environment.
+Autonomous mode is activated per `@../../AUTONOMOUS-MODE.md` § *Activation triggers*.
 
 In autonomous mode:
 
@@ -282,16 +274,10 @@ In autonomous mode:
 
 ### Return Format (R1, when called as a sub-skill)
 
+Top-level R1 envelope fields follow `plugins/makato-build/agents/RETURN-CONTRACT.md` § *R1 envelope schema*. The skill-specific `data` payload is:
+
 ```json
 {
-  "schema": "r1",
-  "agent": "build-refine",
-  "status": "success" | "partial" | "failure",
-  "summary": "Refined plan with N tasks (mode: tdd|goal|mixed)",
-  "files_changed": ["specs/<key>-<slug>/plan.md"],
-  "tests_written": [],
-  "errors": [],
-  "tool_calls_used": 0,
   "data": {
     "plan_path": "specs/<key>-<slug>/plan.md",
     "tasks": <N>,
@@ -302,6 +288,8 @@ In autonomous mode:
   }
 }
 ```
+
+`agent` is `"build-refine"`. `summary` is `"Refined plan with N tasks (mode: tdd|goal|mixed)"`. `files_changed` is `["specs/<key>-<slug>/plan.md"]` on success.
 
 ### HALT Codes
 
