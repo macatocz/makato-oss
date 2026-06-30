@@ -5,6 +5,19 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## Consolidate HALT-code registry across orchestrate + build skills (#115)
+
+The HALT codes emitted by build-* skills (`MISSING_INPUT`, `BASELINE_BROKEN`, `PUSH_REJECTED`, …) lived in 5 separate `## HALT Codes` tables, one per skill, with no central reference. The PO-agent error-mode table in `po-agent.md` covered numeric `HALT-NNN` codes but had no documented routing for the 17+ string tokens — when a skill emitted `errors: ["BASELINE_BROKEN: ..."]`, the PO-agent fell back to a generic `operator-escalation` for every one of them.
+
+This commit lands a single registry that maps every skill-level token to (origin skills, recovery route, description), shortens each per-skill HALT-Codes section to a forward reference, and adds a smoke test that fails if a new token escapes registration.
+
+- **`plugins/makato-build/halt-codes.md`** → new. 20 tokens registered (the 17 listed in #115 plus the 3 `CARRY_OVER_FAILED` / `RENDER_FAILED` / `STRUCTURAL_BLOCKER` variants discovered during the lift). Three documented PO-agent recovery routes: `refine`, `operator-escalation`, `structural`. Includes a `## Scope and relationship to halt-conditions.md` section that pins the two registries' disjoint domains (numeric `HALT-NNN` lives in orchestrate; uppercase-underscore tokens live here) and a `## Caller contract` documenting that `data.halt_code` is the preferred surface and `errors[]` is the human-readable explanation.
+- **`plugins/makato-build/shared/halt-codes-smoke-tests.sh`** → new. Six test groups: registry exists; every expected token is registered with a `\`CODE\`` row; every row carries enough columns (origin + route + description); every SKILL.md HALT-Codes section forwards to the registry; no SKILL.md retains the old multi-row table; numeric orchestrate-level codes are NOT in this registry (HALT-001 … HALT-010, HALT-STRUCTURAL).
+- **5 SKILL.md sections collapsed** to a forward-ref + skill-unique behavioural notes (the registry's prose can't carry per-skill narrative like "MISSING_PLAN is soft in build-simplify — proceeds without one"). Touched: `build-refine` 1.7.1 → 1.7.2, `build-simplify` 1.5.1 → 1.5.2, `build-push-to-git` 1.5.1 → 1.5.2, `build-create-pr` 1.6.1 → 1.6.2, `build-address-pr-comments` 1.5.1 → 1.5.2.
+- **`plugins/makato-orchestrate/agents/po-agent.md`** → 1.6.1 — error-mode table now has a row pointing at `halt-codes.md` for build-skill tokens. The PO-agent's parsing rule (read `data.halt_code` first; fall back to parsing `[A-Z_]+:` from `errors[0]`) is documented in both files for symmetry.
+
+---
+
 ## Extract shared mode-detection, entry-guard, and R1-envelope references (#114)
 
 Deduplicates three blocks that were copied verbatim across the build skills, replacing each inline copy with a one-sentence forward reference to the canonical source. Drift was already visible (build-verify omitted the REPO_ROOT snippet; build-address-pr-comments had an abbreviated guard); a single edit to add the next mode-detection trigger would have required touching 8 SKILL.md files.

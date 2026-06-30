@@ -5,7 +5,7 @@ description: >-
   implementation plan — tasks, file targets, unit/integration test
   strategy, acceptance mapping. Use to start a build session before
   implement-tdd or implement-goal.
-version: "1.7.1"
+version: "1.7.2"
 model: opus
 argument-hint: "[work-item-key] [--autonomous]"
 ---
@@ -293,10 +293,4 @@ Top-level R1 envelope fields follow `plugins/makato-build/agents/RETURN-CONTRACT
 
 ### HALT Codes
 
-| Code | Meaning |
-|------|---------|
-| `MISSING_INPUT` | `--autonomous` invoked without a work-item-key argument |
-| `SPEC_NOT_FOUND` | No `specs/<key>-*/` folder exists for the supplied key |
-| `MISSING_ARTIFACTS` | Required ticket-path artifacts (`stories.json` / `prd.md` / `design.md`) absent |
-| `INVALID_FILE_TARGET` | A planned task references a path outside the repository root |
-| `UNCOVERED_AC` | Step 9 found an acceptance criterion with no covering task |
+The HALT codes emitted by this skill (`MISSING_INPUT`, `SPEC_NOT_FOUND`, `MISSING_ARTIFACTS`, `INVALID_FILE_TARGET`, `UNCOVERED_AC`) are registered with their PO-agent recovery routes in `plugins/makato-build/halt-codes.md`.

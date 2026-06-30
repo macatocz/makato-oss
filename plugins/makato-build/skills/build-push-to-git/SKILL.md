@@ -5,7 +5,7 @@ description: >-
   and push the feature branch to remote. One commit per logical task,
   individually bisectable. Confirms push before affecting remote.
   Use after verify, before create-pr.
-version: "1.5.1"
+version: "1.5.2"
 argument-hint: "[work-item-key] [--autonomous]"
 ---
 
@@ -204,10 +204,4 @@ Top-level R1 envelope fields follow `plugins/makato-build/agents/RETURN-CONTRACT
 
 ### HALT Codes
 
-| Code | Meaning |
-|------|---------|
-| `MISSING_INPUT` | `--autonomous` invoked without a work-item-key argument |
-| `PROTECTED_BRANCH` | Step 1 found the branch is `main` / `master` |
-| `NOTHING_TO_COMMIT` | Step 3 found the working tree clean |
-| `COMMIT_FAILED` | Step 5 — a git commit returned non-zero |
-| `PUSH_REJECTED` | Step 7 — `git push` rejected (diverged remote, pre-push hook failure, auth) |
+The HALT codes emitted by this skill (`MISSING_INPUT`, `PROTECTED_BRANCH`, `NOTHING_TO_COMMIT`, `COMMIT_FAILED`, `PUSH_REJECTED`) are registered with their PO-agent recovery routes in `plugins/makato-build/halt-codes.md`.

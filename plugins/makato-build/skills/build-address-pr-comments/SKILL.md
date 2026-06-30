@@ -10,7 +10,7 @@ description: >-
   (MUST-FIX auto-apply, SHOULD-FIX scope-guarded, STRUCTURAL HALT-003,
   OUT-OF-SCOPE carry-over issue).
   Interactive by default. Use after create-pr when review comments arrive.
-version: "1.5.1"
+version: "1.5.2"
 argument-hint: "[work-item-key] [--autonomous]"
 ---
 
@@ -330,12 +330,6 @@ Top-level R1 envelope fields follow `plugins/makato-build/agents/RETURN-CONTRACT
 
 ### HALT Codes
 
-| Code | Meaning |
-|------|---------|
-| `MISSING_INPUT` | `--autonomous` invoked without a work-item-key argument |
-| `PROTECTED_BRANCH` | Step 1 found the branch is `main` / `master` |
-| `HALT-003` (`STRUCTURAL_BLOCKER`) | Step 5a — STRUCTURAL MUST-FIX in autonomous mode; summary reply posted, `needs-human-review` applied, caller must re-plan |
-| `BUILD_FAILED` | Step 7 — applying fixes broke the build or unit tests beyond what fix-vs-escalate can recover |
-| `PUSH_REJECTED` (`HALT-005`) | Step 8 — `git push` rejected (pre-push hook failure, diverged remote, auth) |
-| `HALT-005` (`CARRY_OVER_FAILED: <id>`) | Step 6 — `gh issue create` for OUT-OF-SCOPE carry-over failed; reply suppressed |
-| `HALT-005` (`RENDER_FAILED: <id>`) | Step 9 — template placeholder could not be filled; reply suppressed |
+The HALT codes emitted by this skill are registered with their PO-agent recovery routes in `plugins/makato-build/halt-codes.md`. Skill-level tokens: `MISSING_INPUT`, `PROTECTED_BRANCH`, `STRUCTURAL_BLOCKER`, `BUILD_FAILED`, `PUSH_REJECTED`, `CARRY_OVER_FAILED: <id>`, `RENDER_FAILED: <id>`.
+
+Skill-specific cross-references the registry's prose cannot carry: `STRUCTURAL_BLOCKER` (Step 5a) is paired with `data.halt_code: "HALT-003"` — the PO-agent reads the numeric HALT and routes per `plugins/makato-orchestrate/halt-conditions.md`; the string token is forensic context. `PUSH_REJECTED`, `CARRY_OVER_FAILED`, and `RENDER_FAILED` all surface as `HALT-005` at the PO-agent boundary.

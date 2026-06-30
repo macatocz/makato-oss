@@ -6,7 +6,7 @@ description: >-
   to How to Test, design decisions surface in the description, Jira
   story is linked. Presents draft for user approval before opening.
   Interactive. Use after push-to-git, before address-pr-comments.
-version: "1.6.1"
+version: "1.6.2"
 argument-hint: "[work-item-key] [--autonomous]"
 ---
 
@@ -235,9 +235,6 @@ Top-level R1 envelope fields follow `plugins/makato-build/agents/RETURN-CONTRACT
 
 ### HALT Codes
 
-| Code | Meaning |
-|------|---------|
-| `MISSING_INPUT` | `--autonomous` invoked without a work-item-key argument AND no recoverable `build.jsonl` session entry |
-| `UNPUSHED_COMMITS` | Step 1 found local commits ahead of the upstream |
-| `GH_AUTH_FAILED` | `gh pr create` returned auth error — caller must run `gh auth login` |
-| `PR_CREATE_FAILED` | Step 5 — `gh pr create` returned non-zero for a reason other than auth |
+The HALT codes emitted by this skill (`MISSING_INPUT`, `UNPUSHED_COMMITS`, `GH_AUTH_FAILED`, `PR_CREATE_FAILED`) are registered with their PO-agent recovery routes in `plugins/makato-build/halt-codes.md`.
+
+Skill-specific behavioural note: `MISSING_INPUT` here fires only when neither the positional argument NOR a recoverable `build.jsonl` session entry yields a work-item-key — see Step 1a for the two-step resolution order.

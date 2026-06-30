@@ -8,7 +8,7 @@ description: >-
   auto-approves SIMPLIFY findings and surfaces ESCALATE findings via R1.
   Use after implement-tdd or implement-goal, before review; also invoked
   by sensor-fixer / build-resolve-finding for code-complexity findings.
-version: "1.5.1"
+version: "1.5.2"
 argument-hint: "[work-item-key] [--autonomous]"
 ---
 
@@ -315,10 +315,6 @@ Top-level R1 envelope fields follow `plugins/makato-build/agents/RETURN-CONTRACT
 
 ### HALT Codes
 
-| Code | Meaning |
-|---|---|
-| `MISSING_INPUT` | No work-item key resolvable from args, context bundle, or `$AGENT_ID` source. |
-| `MISSING_PLAN` | No `plan.md` in `specs/<key>-*/` AND the dispatch did not pass acceptance criteria inline. (Soft — Step 1 says "proceed without one" so this is only HALT when autonomous AND the dispatch contract demanded ACs.) |
-| `BASELINE_BROKEN` | Step 3 test runner was discovered but crashed before producing pass/fail counts. Distinct from the no-runner skip path (Step 3 outcome (b)) which is **not** a HALT — that path sets `test_suite_present: false` and proceeds with `degraded_confidence`. |
-| `VERIFY_FAILED` | Step 7 detected new failures introduced by applied simplifications and revert did not restore green. |
-| `UNVERIFIED_HALT` | Step 7a interactive prompt answered `n` — user rejected hand-off of unverified code-file changes. Applied diffs are reverted before exit. |
+The HALT codes emitted by this skill (`MISSING_INPUT`, `MISSING_PLAN`, `BASELINE_BROKEN`, `VERIFY_FAILED`, `UNVERIFIED_HALT`) are registered with their PO-agent recovery routes in `plugins/makato-build/halt-codes.md`.
+
+Skill-specific behavioural notes the registry's prose cannot carry: `MISSING_PLAN` is soft in this skill — Step 1 proceeds without a plan when one is absent; it only HALTs when autonomous mode AND the dispatch contract demanded inline acceptance criteria. `BASELINE_BROKEN` is the test-runner-crash path; the test-runner-absent path is NOT a HALT — that sets `test_suite_present: false` and surfaces `degraded_confidence: true` in R1 per § *Step 7a*. `UNVERIFIED_HALT` is interactive-only; autonomous mode emits `degraded_confidence: true` instead.

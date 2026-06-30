@@ -5,6 +5,16 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## PO-agent error-mode table references build halt-codes registry (#115)
+
+The PO-agent error-mode table previously had no documented routing for skill-level string HALT codes (`MISSING_INPUT`, `BASELINE_BROKEN`, `PUSH_REJECTED`, etc.). It covered the numeric `HALT-NNN` codes documented in `halt-conditions.md`, but the 17+ uppercase-underscore tokens emitted by build-* skills fell through to a generic `operator-escalation`.
+
+- **agents/po-agent.md** → 1.6.1 — new error-mode row pointing at `plugins/makato-build/halt-codes.md`, which now owns the build-skill-token registry with (origin skills, recovery route, description) columns. The PO-agent's parsing rule (read `data.halt_code` first; fall back to parsing `[A-Z_]+:` from `errors[0]`) is documented in both files so a future reader sees the same contract from either end.
+
+The two HALT registries stay deliberately disjoint: numeric `HALT-NNN` continues to live in `halt-conditions.md` (this plugin); the new build-skill-token registry lives in `makato-build`. A sub-agent R1 that surfaces BOTH (e.g. `build-address-pr-comments` setting `data.halt_code: "HALT-003"` AND `errors: ["STRUCTURAL_BLOCKER: …"]`) is still parsed numeric-first by the PO-agent; the string token is forensic context.
+
+---
+
 ## Fix PO-agent Step 6a coder-bypass contradiction (#119)
 
 Closes the self-contradictory contract in `po-agent.md` where two invariant statements (lines ~272 and ~358) said "PO-agent does NOT dispatch `coder` directly" but Step 6a (CI-failure fix loop) dispatched `/makato-build:coder --autonomous` itself. The bypass skipped the tracer-bullet guard, per-task scout pre-flight, `blockedBy` topological check, workflow-state task-status patch, baseline-failure gate, and the per-task `REPO_ROOT` / `WORKTREE_PATH` forwarding rules — every guarantee `build-implement-tdd` is documented as the single owner of. Surfaced independently by the simplification and altitude reviewers on PR #113.

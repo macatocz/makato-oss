@@ -15,7 +15,7 @@ description: >-
   failures and routes them through `resolve-pr-conflict` for autonomous rebase
   resolution, capped at `MAKATO_MAX_MERGE_CONFLICT_CYCLES` (GAP-016 / #45).
   Never edits target-repo source files — orchestrates only.
-version: "1.6.0"
+version: "1.6.1"
 maxTurns: 100
 permissionMode: bypassPermissions
 disallowedTools: NotebookEdit
@@ -1111,6 +1111,7 @@ off.
 | `gh` CLI not authenticated | HALT-006 (issue cannot be read); R1 `failure` |
 | `kill-switch` skill missing | The plugin is partially installed. HALT-006. |
 | Issue lacks `status:ready-for-dev` | R1 `failure`; `errors: ["issue not ready-for-dev"]`; no HALT (this is a dispatch error, not a runtime failure) |
+| Sub-agent R1 `failure` carrying a build-skill code (`MISSING_INPUT`, `BASELINE_BROKEN`, `PUSH_REJECTED`, etc.) | Recovery route is the `Route` column in `plugins/makato-build/halt-codes.md` (`refine` / `operator-escalation` / `structural`). The PO-agent reads `data.halt_code` first, then falls back to parsing the leading `[A-Z_]+:` prefix from `errors[0]`. |
 
 ## What this agent does NOT do
 
