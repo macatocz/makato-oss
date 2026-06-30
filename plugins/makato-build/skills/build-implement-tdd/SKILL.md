@@ -6,7 +6,7 @@ description: >-
   Tracer bullet phase for multi-layer stories. Autonomous loop. Use
   after refine to implement-tdd a story plan, implement tdd tasks, or
   run the core build loop.
-version: "1.8.0"
+version: "1.9.0"
 model: sonnet
 argument-hint: "[work-item-key]"
 ---
@@ -30,7 +30,26 @@ When dispatched by the PO-agent (`--autonomous` mode), this skill receives a con
 - `WORKTREE_PATH` — absolute filesystem path to the per-run git worktree the PO-agent owns. **Mandatory in autonomous mode** (see `plugins/makato-build/AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract*). The skill MUST `cd "$WORKTREE_PATH"` before any `git`, `pytest`, or file-edit operation, and forward this value to every nested `coder` dispatch in Step 6.
 - `--autonomous` — activation flag (also activated by `$AGENT_ID` or `task_id` bundle).
 
-When invoked by a developer at the prompt (interactive mode), `WORKTREE_PATH` is optional. If unset, the skill falls back to `git rev-parse --show-toplevel` of the current `$PWD` — the original developer-driven behaviour, unchanged.
+Optional fields (autonomous mode):
+
+- `CI_FAILURE_LOG` — tail of `gh run view --log-failed` (≤ 4000 chars), forwarded by the PO-agent's CI-failure fix loop (Step 6a of `plugins/makato-orchestrate/agents/po-agent.md`). When present, activates *CI-failure recovery mode* — see § *CI-failure recovery mode* below. Absent on a normal first-pass dispatch.
+- `PRIOR_LESSONS` — JSON array of top-3 lessons recalled by the PO-agent (GAP-015 / #37). May be empty; consumers MUST tolerate `[]` and a missing key identically. Forwarded verbatim to each per-task `coder` dispatch in Step 6 as advisory context.
+
+When invoked by a developer at the prompt (interactive mode), `WORKTREE_PATH` is optional. If unset, the skill falls back to `git rev-parse --show-toplevel` of the current `$PWD` — the original developer-driven behaviour, unchanged. `CI_FAILURE_LOG` is never set in interactive mode.
+
+### CI-failure recovery mode
+
+When `CI_FAILURE_LOG` is present in the input bundle, the skill is being re-entered to fix a CI failure on a PR that was already pushed by a prior dispatch. The skill MUST:
+
+1. Parse the failing test name(s) from `CI_FAILURE_LOG` (typical pytest/unittest patterns: `FAILED <path>::<test>`, `AssertionError`, `Traceback`). When the failing test maps to a known `mode: tdd` task in `plan.md` (match by `**Tests:**` or `**Files:**` paths), restrict Step 6 to that task plus any task it blocks (transitively). When the log is ambiguous or matches no task, fall through to the full task walk — the baseline-failure gate in Step 3 will still bound work to actual failures.
+2. Skip Step 5 (tracer bullet) entirely — the tracer is a multi-layer scaffold for greenfield stories, not for incremental CI fixes. A `warn` JSONL entry is logged: `{"…","skill":"build-implement-tdd","story":"<key>","step":"tracer-skipped","status":"warn","data":{"reason":"ci-failure-recovery"}}`.
+3. Forward `CI_FAILURE_LOG` to each selected coder dispatch as an additional input field of the same name. The coder reads it as advisory diagnostic context — it does not override the per-task `description` or test specs from `plan.md`.
+4. Log a `decision` JSONL entry on entry so the audit trail records that this dispatch is a recovery rather than a fresh implementation walk:
+   ```bash
+   shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"ci-failure-recovery","status":"decision","data":{"log_tail_chars":<N>,"tasks_selected":[<indices>]}}'
+   ```
+
+All other contracts (workspace-isolation guard, baseline gate, blockedBy graph check, scout pre-flight, R1 envelope, workflow-state carve-out) are unchanged. The recovery mode is a subset of the normal walk, not a parallel path.
 
 ### Workspace-isolation entry guard
 
@@ -135,6 +154,7 @@ For each `mode: tdd` task in topological order, dispatch the per-task `scout` ag
 - `BASELINE_FAILURES`: pre-existing failure count from Step 3
 - `REPO_ROOT`: absolute path to the target repository root
 - `WORKTREE_PATH`: absolute filesystem path to the per-run git worktree (forwarded verbatim from this skill's input — see § *Input* and `AUTONOMOUS-MODE.md` § *WORKTREE_PATH*). The `coder` agent `cd`s into this path before its RED→GREEN→INTEGRATE→VERIFY cycle. In interactive mode without an enclosing PO-agent, forward the resolved `$(git rev-parse --show-toplevel)` so the agent's contract is identical in both modes.
+- `CI_FAILURE_LOG`: forwarded verbatim when present in this skill's input bundle (see § *CI-failure recovery mode*). Omit when absent — the coder treats it as optional advisory diagnostic context, not a gate.
 
 **blockedBy enforcement**: before dispatching a task, check its `blockedBy` list. Do not dispatch a task concurrently with any task whose index appears in its `blockedBy` list. A task blocked by Task N must wait until Task N's coder agent returns `status: complete` before being dispatched.
 

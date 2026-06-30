@@ -5,6 +5,15 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## Fix PO-agent Step 6a coder-bypass contradiction (#119)
+
+Closes the self-contradictory contract in `po-agent.md` where two invariant statements (lines ~272 and ~358) said "PO-agent does NOT dispatch `coder` directly" but Step 6a (CI-failure fix loop) dispatched `/makato-build:coder --autonomous` itself. The bypass skipped the tracer-bullet guard, per-task scout pre-flight, `blockedBy` topological check, workflow-state task-status patch, baseline-failure gate, and the per-task `REPO_ROOT` / `WORKTREE_PATH` forwarding rules — every guarantee `build-implement-tdd` is documented as the single owner of. Surfaced independently by the simplification and altitude reviewers on PR #113.
+
+- **agents/po-agent.md** → 1.6.0 — Step 6a CI-failure fix loop now dispatches `/makato-build:build-implement-tdd <KEY> --autonomous` with the CI failure log appended as a `CI_FAILURE_LOG` bundle field, replacing the direct `coder` dispatch. The skill identifies the failing task(s) from the log and runs its own scout + RED/GREEN/INTEGRATE/VERIFY cycle on the affected task(s), patching `sub_tasks[N].status` through the same workflow-state carve-out as Step 4d. The two invariant statements (Step 4 outer-loop bullet, Step 4d closing paragraph) now explicitly call out that the rule holds for the CI-failure fix loop too — a single implementation entry point with no documented exceptions.
+- **agents/po-agent.md** → CI-failure recovery success/failure sub-steps now reference the skill's R1, not coder R1, so the propagation chain matches reality.
+
+---
+
 ## Merge-conflict detection and rebase resolution in PO-agent outer loop (GAP-016 / #45)
 
 - **workflow-state schema** — New required field `merge_conflict_cycles` (integer, minimum 0, default 0). Distinct from `outer_iteration` so a single run can exhaust both the re-plan-loop ceiling (`outer_iteration >= 3`, enforced by `kill-switch poll`) AND the conflict-resolution ceiling (`merge_conflict_cycles >= MAKATO_MAX_MERGE_CONFLICT_CYCLES`, enforced at the PO-agent's pre-dispatch check in Step 6 #3 and at the `resolve-pr-conflict` Step 6 terminal HALT). Both ceilings fire HALT-008 — the `data` payload distinguishes them.

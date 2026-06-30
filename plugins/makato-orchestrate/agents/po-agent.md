@@ -15,7 +15,7 @@ description: >-
   failures and routes them through `resolve-pr-conflict` for autonomous rebase
   resolution, capped at `MAKATO_MAX_MERGE_CONFLICT_CYCLES` (GAP-016 / #45).
   Never edits target-repo source files — orchestrates only.
-version: "1.5.0"
+version: "1.6.0"
 maxTurns: 100
 permissionMode: bypassPermissions
 disallowedTools: NotebookEdit
@@ -271,7 +271,10 @@ loop. Each iteration of Step 4 represents one full attempt at the plan:
   `agent_result` per coder dispatch via the carve-out in
   `skills/workflow-state/SKILL.md` § *Cross-plugin caller*. The PO-agent
   does NOT dispatch `coder` directly and does NOT patch task-level state
-  during the inner walk — that is the skill's job.
+  during the inner walk — that is the skill's job. This invariant holds
+  for **every** code-mutating path the PO-agent owns, including the
+  CI-failure fix loop in Step 6a (which dispatches `build-implement-tdd`
+  with a `CI_FAILURE_LOG` bundle field, never `coder` itself).
 - On the skill's terminal R1 envelope, the PO-agent inspects which tasks
   did and did not complete, decides whether to re-plan via `build-refine`,
   or advances to the verify → pr pipeline (Step 6).
@@ -356,7 +359,11 @@ then dispatch `build-implement-goal` in the same outer iteration before
 falling through to Step 4e.
 
 The PO-agent does NOT dispatch `coder` directly — `build-implement-tdd`
-owns the per-task RED/GREEN/INTEGRATE/VERIFY loop.
+owns the per-task RED/GREEN/INTEGRATE/VERIFY loop. This rule is global:
+the CI-failure fix loop (Step 6a) also dispatches `build-implement-tdd`
+(with a `CI_FAILURE_LOG` bundle field), never `coder` itself, so the
+tracer guard, scout pre-flight, blockedBy check, baseline-failure gate,
+and worktree/repo-root propagation always run through one entry point.
 
 **Worktree path propagation (GAP-017 / #46).** Every implementation-skill
 dispatch carries the resolved worktree path so sub-agents `cd` into the
@@ -628,20 +635,34 @@ skill (all `sub_tasks[].status == "complete"`), advance the pipeline:
         The helper truncates the description at 200 chars; the full job log
         stays in `gh run view` history and the JSONL audit. `files_affected`
         is empty here — CI failures don't correspond to a finite file set
-        until coder runs.
+        until `build-implement-tdd` selects the affected tasks.
      3. Patch `outer_iteration += 1`:
         ```bash
         NEW_ITER=$(( $(shared/workflow-state.sh read <KEY> | jq '.outer_iteration') + 1 ))
         shared/workflow-state.sh patch <KEY> .outer_iteration "$NEW_ITER"
         ```
-     4. Dispatch `/makato-build:coder --autonomous` with the CI failure log appended to
-        the context bundle as `ci_failure_log`. The dispatch follows the same bundle
-        structure as Step 4d (WORKTREE_PATH, KEY, REPO, etc.) with the additional field.
-     5. After coder returns R1 `success`: dispatch `/makato-build:build-push-to-git
-        <KEY> --autonomous` to re-push the fixed commit, then re-poll CI from the top
-        of this sub-step (reset poll counter).
-     6. On coder R1 `failure`: treat as HALT-STRUCTURAL — run `shared/worktree.sh retain
-        <KEY> HALT-STRUCTURAL`, emit session-end JSONL, return R1 `failure`.
+     4. Dispatch `/makato-build:build-implement-tdd <KEY> --autonomous` with the
+        CI failure log appended to the context bundle as `CI_FAILURE_LOG` (see
+        `plugins/makato-build/skills/build-implement-tdd/SKILL.md` § *Input* and
+        § *CI-failure recovery mode*). The dispatch follows the same bundle
+        structure as Step 4d (WORKTREE_PATH, KEY, REPO_ROOT, PRIOR_LESSONS,
+        etc.) with the additional `CI_FAILURE_LOG` field. The skill identifies
+        the failing task(s) from the log, skips the tracer-bullet step
+        (incremental fix, not greenfield), runs its per-task scout +
+        RED/GREEN/INTEGRATE/VERIFY cycle on the affected task(s), patches
+        `sub_tasks[N].status` through the same workflow-state carve-out as
+        Step 4d, and returns its terminal R1. Routing CI fixes through
+        `build-implement-tdd` (instead of `coder` directly) keeps the single
+        implementation entry point intact (see Step 4d closing paragraph) —
+        the scout pre-flight, blockedBy check, baseline-failure gate, and
+        worktree/repo-root forwarding stay in one place.
+     5. After the skill returns R1 `success`: dispatch
+        `/makato-build:build-push-to-git <KEY> --autonomous` to re-push the
+        fixed commit, then re-poll CI from the top of this sub-step (reset
+        poll counter).
+     6. On the skill's R1 `failure`: treat as HALT-STRUCTURAL — run
+        `shared/worktree.sh retain <KEY> HALT-STRUCTURAL`, emit session-end
+        JSONL, return R1 `failure`.
 
    - **All `conclusion == "skipped"` or mixed `success/skipped`** — treat as passing CI.
      Advance to sub-step 6.

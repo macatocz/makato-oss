@@ -5,6 +5,17 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## CI-failure recovery mode in `build-implement-tdd` (#119)
+
+Extends `build-implement-tdd` to be the single implementation entry point for the PO-agent's CI-failure fix loop as well as the first-pass implementation walk. The previous design had the PO-agent dispatch `coder` directly on CI failure, bypassing the tracer guard, scout pre-flight, blockedBy graph check, and baseline-failure gate. Now `build-implement-tdd` accepts an optional `CI_FAILURE_LOG` bundle field, identifies failing tasks from the log, skips the tracer-bullet step (irrelevant for incremental fixes), and runs its normal scout + RED/GREEN/INTEGRATE/VERIFY cycle on the affected subset.
+
+- **skills/build-implement-tdd/SKILL.md** → 1.9.0 — Three additions:
+  - **§ *Input* — new optional fields** documenting `CI_FAILURE_LOG` and `PRIOR_LESSONS` (the latter promoted from "documented elsewhere" to "named in the input contract"). `CI_FAILURE_LOG` is absent on a normal first-pass dispatch and present only when the PO-agent's Step 6a re-enters the skill on a CI failure.
+  - **§ *CI-failure recovery mode*** — new sub-section after § *Input* documenting the four-step recovery contract: parse failing tests → restrict Step 6 walk to matching tasks (fall through to full walk on ambiguous match) → skip Step 5 tracer-bullet with a `warn` JSONL entry → log a `decision` JSONL entry recording the recovery dispatch. All other invariants (workspace-isolation guard, baseline gate, blockedBy check, scout pre-flight, R1 envelope, workflow-state carve-out) are explicitly unchanged.
+  - **§ *Step 6* — coder input list** — adds `CI_FAILURE_LOG` as a forwarded-when-present field so the coder reads it as advisory diagnostic context alongside `PLAN_CONTEXT`, `SCOUT_SUMMARY`, and `PRIOR_LESSONS`.
+
+---
+
 ## Dogfood pytest harness for `build-simplify` (GAP-064 / #64 — Part B, also closes #58)
 
 Lands the makato monorepo's own pytest harness scoped narrowly to skill smoke tests, plus the `build-simplify` regression test that proves Part A's no-test-runner contract keeps working. With Part A's SKILL.md contract and Part B's regression test merged, **#58** also closes — its Sub-issue B target ("smoke-test `build-simplify` against a downstream consumer repo") was rerouted by #64 to "dogfood inside the makato repo" once `dcp-specs` went away.
