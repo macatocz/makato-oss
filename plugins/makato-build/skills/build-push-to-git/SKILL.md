@@ -5,7 +5,7 @@ description: >-
   and push the feature branch to remote. One commit per logical task,
   individually bisectable. Confirms push before affecting remote.
   Use after verify, before create-pr.
-version: "1.5.2"
+version: "1.6.0"
 argument-hint: "[work-item-key] [--autonomous]"
 ---
 
@@ -170,7 +170,7 @@ In **interactive mode**, then ask using `AskUserQuestion`:
 If option A: invoke `/build-create-pr <key>` directly.
 If option B: tell the user: "Run `/makato-build:build-create-pr <key>` when ready."
 
-In **autonomous mode**, skip the prompt: invoke `/build-create-pr <key> --autonomous` directly (the `--autonomous` flag MUST be forwarded explicitly per the cross-skill propagation rule in `@../../AUTONOMOUS-MODE.md`). The downstream context bundle MUST also carry the `WORKTREE_PATH` field verbatim from this skill's input — `build-create-pr` runs its own entry-guard falsy-check and HALTs `MISSING_INPUT` if the field is absent in autonomous mode. The hand-off prompt that dispatches `/build-create-pr` therefore includes both `--autonomous` and `WORKTREE_PATH=<absolute path>` so the bundle and the CLI half of the activation contract stay aligned. Log `shared/log-bypass.sh build-push-to-git "<key>" create-pr-handoff invoke-create-pr "<agent_id|cli_flag|task_id_bundle>" '{"forwarded":["--autonomous","WORKTREE_PATH"]}'`.
+In **autonomous mode**, skip the prompt: invoke `/build-create-pr <key>` directly. Autonomous mode signals through the inherited `$AGENT_ID` env var (see `@../../AUTONOMOUS-MODE.md` § *Cross-skill propagation*); the `--autonomous` CLI flag is NOT forwarded on cross-skill dispatch. The downstream context bundle MUST still carry the `WORKTREE_PATH` field verbatim from this skill's input — `build-create-pr` runs its own entry-guard falsy-check and HALTs `MISSING_INPUT` if the field is absent in autonomous mode. The hand-off prompt that dispatches `/build-create-pr` therefore includes `WORKTREE_PATH=<absolute path>` and any other documented bundle fields. Log `shared/log-bypass.sh build-push-to-git "<key>" create-pr-handoff invoke-create-pr "<agent_id|cli_flag|task_id_bundle>" '{"forwarded":["WORKTREE_PATH"]}'`.
 
 ## Autonomous Execution
 
@@ -181,7 +181,7 @@ In autonomous mode:
 - **Never prompt the user** — work-item-key, commit-grouping, push-confirm, and create-pr-handoff gates are bypassed per the rules above.
 - **Pre-push hook still fires** — autonomous mode bypasses *user* approval, not *infrastructure* checks. If the pre-push hook rejects, return R1 `status:"failure"` with the hook output in `errors[]`.
 - **Log every bypass** to `build.jsonl` via `shared/build-log.sh` with the `autonomous_bypass` event schema documented in `@../../AUTONOMOUS-MODE.md`.
-- **Forward `--autonomous` explicitly** when invoking `/build-create-pr` at hand-off.
+- **Do NOT forward `--autonomous`** when invoking `/build-create-pr` at hand-off — `$AGENT_ID` carries the signal across the dispatch boundary (see `@../../AUTONOMOUS-MODE.md` § *Cross-skill propagation*). `WORKTREE_PATH` is still forwarded in the context bundle.
 - **Emit an R1 envelope** as the final `json`-fenced block of the skill's output.
 
 ### Return Format (R1, when called as a sub-skill)

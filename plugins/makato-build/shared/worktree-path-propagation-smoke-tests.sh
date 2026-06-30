@@ -67,15 +67,18 @@ for skill in build-implement-tdd build-implement-goal build-verify build-push-to
     "$skill documents the interactive-mode fallback"
 done
 
-printf '\n=== Contract: entry-guard runs BEFORE Step 1 for skills with prompts ===\n'
+printf '\n=== Contract: entry-guard runs before Step 1 for skills with prompts ===\n'
 # Skills whose Step 1 calls AskUserQuestion must guard before the prompt, not
 # after — otherwise an autonomous dispatch with empty WORKTREE_PATH deadlocks
 # at the prompt instead of HALTing cleanly. Each of these skill files must
-# carry the explicit "BEFORE Step 1" phrasing in the entry-guard section.
+# explicitly reference "before Step 1" in their entry-guard section.
+# (Issue #114 collapsed the bold "BEFORE Step 1" marker to lowercase prose
+#  "before Step 1" inside a forward-ref to AUTONOMOUS-MODE.md; the contract
+#  is unchanged — the guard still runs before any AskUserQuestion site.)
 for skill in build-implement-tdd build-implement-goal build-simplify build-address-pr-comments build-refine; do
-  assert_grep 'BEFORE Step 1' \
+  assert_grep '[Bb]efore Step 1' \
     "plugins/makato-build/skills/$skill/SKILL.md" \
-    "$skill entry-guard runs BEFORE Step 1 (no deadlock on AskUserQuestion)"
+    "$skill entry-guard runs before Step 1 (no deadlock on AskUserQuestion)"
 done
 
 printf '\n=== Contract: spec-artefact reads use REPO_ROOT, not WORKTREE_PATH ===\n'
@@ -108,9 +111,9 @@ else
 fi
 
 printf '\n=== Contract: build-push-to-git Step 8 forwards WORKTREE_PATH to build-create-pr ===\n'
-assert_grep 'WORKTREE_PATH.*forwarded|forwarded.*WORKTREE_PATH|--autonomous.*WORKTREE_PATH|WORKTREE_PATH.*--autonomous' \
+assert_grep 'WORKTREE_PATH.*forwarded|forwarded.*WORKTREE_PATH' \
   plugins/makato-build/skills/build-push-to-git/SKILL.md \
-  'build-push-to-git Step 8 hand-off forwards WORKTREE_PATH alongside --autonomous'
+  'build-push-to-git Step 8 hand-off forwards WORKTREE_PATH in the context bundle'
 
 printf '\n=== Contract: coder agent HALTs on empty WORKTREE_PATH in autonomous mode ===\n'
 assert_grep 'MISSING_INPUT: WORKTREE_PATH required in autonomous mode' \

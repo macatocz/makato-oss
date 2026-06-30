@@ -5,6 +5,20 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## Stop forwarding `--autonomous` across cross-skill dispatch (#117)
+
+> **BREAKING (internal contract).** Skills dispatching other skills no longer add `--autonomous` to the downstream invocation. The CLI flag is preserved for developer-driven entry points (a human at the prompt can still run `/makato-build:build-refine GAP-005 --autonomous`); only the skill-initiated dispatch path drops the flag. `$AGENT_ID` already crosses subprocess boundaries via env inheritance and is now designated the canonical bash-level autonomous-mode signal.
+
+The earlier contract required every cross-skill hand-off to forward `--autonomous` explicitly "for symmetry with the CLI surface." In practice this produced redundant plumbing — `$AGENT_ID` was already setting the activation flag in every dispatched skill's falsy-check via Trigger #3, and a missed forwarding caused silent interactive fallback (the loop hangs on the first prompt the PO-agent can't reach). Tests did not assert the forwarding boundary; today they do.
+
+- **`plugins/makato-build/AUTONOMOUS-MODE.md` § *Cross-skill propagation*** → rewritten. The "MUST forward" rule is replaced by "Skills MUST NOT forward `--autonomous` on cross-skill dispatch." The CLI flag stays in place for developer use; downstream skills detect autonomous mode via inherited `$AGENT_ID` (which the PO-agent exports once at session start). Context-bundle fields (`WORKTREE_PATH`, `PRIOR_LESSONS`, `CI_FAILURE_LOG`) are NOT affected by this rule — they continue to be forwarded explicitly because the env cannot carry them.
+- **`plugins/makato-build/AUTONOMOUS-MODE.md` § *Default-taking rules per gate*** → the `build-push-to-git` Step 8 row no longer names `--autonomous` in the dispatched invocation; it forwards `$AGENT_ID` implicitly.
+- **`skills/build-push-to-git/SKILL.md`** → 1.6.0 — Step 8 hand-off prose no longer claims the flag MUST be forwarded; the "Autonomous Execution" bullet that read "Forward `--autonomous` explicitly" now reads "Do NOT forward `--autonomous`". `WORKTREE_PATH` forwarding stays. The `log-bypass.sh` extras blob updated to `'{"forwarded":["WORKTREE_PATH"]}'` (no longer `["--autonomous","WORKTREE_PATH"]`).
+- **`shared/autonomous-propagation-smoke-tests.sh`** → new. 5 test groups (16 assertions): AUTONOMOUS-MODE.md documents the new rule and names `$AGENT_ID` as the canonical signal; no skill prose dispatches another skill with `--autonomous`; every autonomous-capable skill still references `--autonomous` somewhere (preserving the CLI surface); `$AGENT_ID` is still a documented trigger; a subprocess repro of the falsy-check pattern confirms `AGENT_ID`-only env propagation activates autonomous mode.
+- **`shared/worktree-path-propagation-smoke-tests.sh`** → updated. The "build-push-to-git Step 8 forwards WORKTREE_PATH alongside --autonomous" assertion is now "forwards WORKTREE_PATH in the context bundle" (no `--autonomous` alongside). The "BEFORE Step 1" entry-guard assertion now matches `[Bb]efore Step 1` (case-insensitive) because #114's collapse turned the bold marker into lowercase prose; the contract is unchanged. 70/70 contract checks pass.
+
+---
+
 ## Consolidate HALT-code registry across orchestrate + build skills (#115)
 
 The HALT codes emitted by build-* skills (`MISSING_INPUT`, `BASELINE_BROKEN`, `PUSH_REJECTED`, …) lived in 5 separate `## HALT Codes` tables, one per skill, with no central reference. The PO-agent error-mode table in `po-agent.md` covered numeric `HALT-NNN` codes but had no documented routing for the 17+ string tokens — when a skill emitted `errors: ["BASELINE_BROKEN: ..."]`, the PO-agent fell back to a generic `operator-escalation` for every one of them.

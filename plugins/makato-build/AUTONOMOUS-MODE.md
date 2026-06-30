@@ -29,7 +29,7 @@ If none of those hold the skill runs in **interactive mode**, exactly as it did 
 | `build-refine` | Step 11 — plan-review (in-chat vs in-browser) | Asks how to review | Write `plan.md`, skip review entirely, proceed to hand-off. |
 | `build-push-to-git` | Step 4 — commit-grouping confirmation | Asks user to confirm grouping & messages | Use plan task `commitMessage` fields verbatim; no confirmation. |
 | `build-push-to-git` | Step 6 — push confirmation | Asks "Ready to push N commits?" | Push immediately. Pre-push hook still fires. |
-| `build-push-to-git` | Step 8 — hand-off to create-pr | Asks A/B | Auto-invoke `/build-create-pr <key> --autonomous`. |
+| `build-push-to-git` | Step 8 — hand-off to create-pr | Asks A/B | Auto-invoke `/build-create-pr <key>`; autonomous mode is signalled via `$AGENT_ID` (the env propagates implicitly across the dispatch — no explicit `--autonomous` flag forwarding, per § *Cross-skill propagation*). |
 | `build-create-pr` | Step 1 — work-item-key prompt | Asks for key (optional) | Use arg if passed; otherwise read `issue_number`/`branch` from most-recent `build.jsonl` session in the spec folder. HALT `MISSING_INPUT` only if neither yields a value. |
 | `build-create-pr` | Step 4 — draft approval | Asks "Does this PR description look correct?" | Open PR as drafted. PR body is rendered from spec artifacts and workflow-state (no human authoring). |
 | `build-address-pr-comments` | Step 5 — classification approval | Asks user to confirm/adjust classification + handles STRUCTURAL flow | Auto-apply MUST-FIX (non-STRUCTURAL). SHOULD-FIX is **scope-guarded** (apply only if all touched files are inside the task diff; otherwise mark DEFERRED with a `[DEFERRED]` reply). Skip CONSIDER. OUT-OF-SCOPE: open a follow-up issue via `gh issue create` with the `makato-carry-over` label and reply with the new issue URL. STRUCTURAL MUST-FIX: HALT (see below). |
@@ -72,9 +72,13 @@ Step 7a is a no-op when the only files touched are doc/config (`**/*.{md,yaml,ym
 
 ## Cross-skill propagation
 
-When an autonomous-mode skill auto-invokes the next skill in the pipeline, it MUST forward the `--autonomous` flag explicitly. For example, `build-push-to-git` in autonomous mode invokes `/build-create-pr <key> --autonomous` — not `/build-create-pr <key>`. This keeps the activation contract explicit at every hand-off and avoids autonomous-mode "leaking" implicitly through process state.
+When an autonomous-mode skill auto-invokes the next skill in the pipeline, the canonical bash-level autonomous-mode signal is **`$AGENT_ID`** — the PO-agent exports it once at session start and it crosses every subprocess boundary the dispatch chain creates. Each skill's Step 1a falsy-check reads it via the documented enum (Trigger #3 in § *Activation triggers*).
 
-`$AGENT_ID`-driven activation does propagate implicitly (env vars cross sub-process boundaries), but downstream skills SHOULD still read the CLI flag for symmetry with the documented contract.
+**Skills MUST NOT forward `--autonomous` on cross-skill dispatch.** Earlier drafts required explicit forwarding "for symmetry"; in practice that produced redundant plumbing and silent fallback when a forwarding site was missed. With `$AGENT_ID` propagating implicitly, the explicit flag adds nothing — and a `--autonomous` argument on the CLI of an internally-dispatched skill is a contract smell (it duplicates state the env already carries).
+
+The CLI flag stays in place for **developer-driven** invocations: a human at the prompt can still run `/makato-build:build-refine GAP-005 --autonomous` to opt into autonomous mode without setting `$AGENT_ID`. The skill MUST continue to recognise the flag at that boundary. The rule only applies to skill-initiated dispatches.
+
+**Context bundle fields are different from the CLI flag.** `WORKTREE_PATH` and `PRIOR_LESSONS` (etc.) MUST still be forwarded explicitly in the downstream context bundle — they carry state the env cannot, and the falsy-check in each downstream skill HALTs on a missing required field. See § *WORKTREE_PATH — workspace-isolation contract* for the rationale.
 
 ## WORKTREE_PATH — workspace-isolation contract (GAP-017 / #46, follow-up #85)
 
@@ -84,7 +88,7 @@ Every autonomous-mode dispatch from the PO-agent carries a `WORKTREE_PATH` field
 
 - `WORKTREE_PATH` is **mandatory** in every `--autonomous` invocation initiated by the PO-agent. If autonomous mode is active and `WORKTREE_PATH` is empty, the skill MUST HALT with R1 `status: "failure"` and `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]` — silently falling back to the main checkout defeats Layer 1 workspace isolation.
 - `WORKTREE_PATH` is **optional** for non-autonomous (developer-hands) callers. When unset in interactive mode, skills fall through to `git rev-parse --show-toplevel` of the current `$PWD` — the original developer-driven behaviour, unchanged.
-- Skills that auto-dispatch other skills MUST forward `WORKTREE_PATH` in the downstream context bundle, exactly as they forward `--autonomous`. Implicit env propagation is not relied on — the field stays explicit in every hand-off.
+- Skills that auto-dispatch other skills MUST forward `WORKTREE_PATH` in the downstream context bundle. Implicit env propagation is not relied on for context-bundle fields — they stay explicit in every hand-off. (The `--autonomous` CLI flag itself is NOT forwarded; `$AGENT_ID` propagation in the env handles activation. See § *Cross-skill propagation*.)
 - Skills that dispatch agents (e.g. `build-implement-tdd` → `coder`) MUST inject `WORKTREE_PATH` into the agent's input bundle. The agent then `cd`s into that path before its inner cycle.
 
 **Autonomous-mode detection in the falsy-check:** the canonical signal is the same as elsewhere in this doc — `$AGENT_ID` exported in the env (set by makato agent dispatch infrastructure) OR the caller's CLI carries `--autonomous` OR the context bundle has a `task_id` field. There is no separately-set `$AUTONOMOUS` env var; the snippet below tests `$AGENT_ID` only because it is the single signal the bash level can observe (CLI flags are arguments the skill has already parsed; bundle fields live in the prompt). Earlier drafts of this section referenced `${AUTONOMOUS:-false}` — that branch never fires in practice; do not rely on it in new code.
