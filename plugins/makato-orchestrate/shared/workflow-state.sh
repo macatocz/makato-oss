@@ -36,7 +36,7 @@
 # precedent.
 set -euo pipefail
 
-SUBCMD="${1:?subcommand required: init|read|write|patch|append-lesson|recall-lessons|summarise-lessons}"
+SUBCMD="${1:?subcommand required: init|read|write|patch|append-lesson|append-halt|recall-lessons|summarise-lessons}"
 # recall-lessons takes REPO as positional #2 (not KEY) — every other subcommand
 # takes KEY. Resolve generically and have each subcommand re-bind the variable.
 ARG2="${2:?second arg required (KEY for most subcommands, REPO for recall-lessons)}"
@@ -291,7 +291,60 @@ case "$SUBCMD" in
     ;;
 
   # -------------------------------------------------------------------------
-  # recall-lessons <REPO> [N]
+  # append-halt <KEY> <CODE> <JSON-DATA>
+  #
+  # Schema: {code, ts, data}. The helper:
+  #   - injects ts automatically (caller never supplies it)
+  #   - validates CODE matches the documented HALT code shape (HALT-NNN,
+  #     HALT-NNN[A-Z], HALT-STRUCTURAL, or HALT-000)
+  #   - validates JSON-DATA is a JSON object (refuses arrays, scalars, malformed)
+  #   - merges via `+ [new]` to preserve immutable append-only semantics
+  #
+  # Replaces the open-coded `_append_halt_audit()` pattern in
+  # context-handoff.sh and the inline patch sites in po-agent.md.
+  # -------------------------------------------------------------------------
+  append-halt)
+    CODE="${3:?halt code required (e.g. HALT-007, HALT-007B, HALT-STRUCTURAL)}"
+    if [[ $# -lt 4 ]]; then
+      echo "workflow-state: halt data required (JSON object; use '{}' for an empty payload)" >&2
+      exit 1
+    fi
+    DATA="$4"
+    NOW="$(_now)"
+
+    if [[ ! -f "$STATE_FILE" ]]; then
+      echo "workflow-state: $STATE_FILE not found — run 'init' first" >&2
+      exit 1
+    fi
+
+    # Validate CODE shape: HALT-NNN, HALT-NNN[A-Z] (e.g. HALT-007B),
+    # HALT-STRUCTURAL, or HALT-000. The shape is documented in
+    # plugins/makato-orchestrate/halt-conditions.md.
+    if [[ ! "$CODE" =~ ^HALT-([0-9]{3}[A-Z]?|STRUCTURAL)$ ]]; then
+      echo "workflow-state: halt code must match HALT-NNN, HALT-NNN[A-Z], or HALT-STRUCTURAL (got '$CODE')" >&2
+      exit 1
+    fi
+
+    # Validate DATA is a JSON object. Refuse arrays, scalars, malformed.
+    if ! jq -e 'type == "object"' >/dev/null 2>&1 <<<"$DATA"; then
+      echo "workflow-state: halt data must be a JSON object (got: $DATA)" >&2
+      exit 1
+    fi
+
+    PATCHED="$(jq \
+      --arg code "$CODE" \
+      --arg ts "$NOW" \
+      --argjson data "$DATA" \
+      '.halt_audit += [{
+         code: $code,
+         ts: $ts,
+         data: $data
+       }] | .updated_at = $ts' \
+      "$STATE_FILE")"
+
+    _validate "$PATCHED"
+    _atomic_write "$PATCHED"
+    ;;
   #
   # Aggregate lessons across every specs/*/workflow-state.json whose .repo
   # matches REPO. Print the top-N (default 3) most recent lessons as a JSON
@@ -377,7 +430,7 @@ case "$SUBCMD" in
     ;;
 
   *)
-    echo "workflow-state: unknown subcommand '$SUBCMD'. Valid: init|read|write|patch|append-lesson|recall-lessons|summarise-lessons" >&2
+    echo "workflow-state: unknown subcommand '$SUBCMD'. Valid: init|read|write|patch|append-lesson|append-halt|recall-lessons|summarise-lessons" >&2
     exit 1
     ;;
 esac

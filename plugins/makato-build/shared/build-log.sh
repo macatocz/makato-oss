@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
-# Append a JSONL entry to the spec folder's build.jsonl.
+# Append a JSONL entry (or batch of entries) to the spec folder's build.jsonl.
 # Resolves the spec folder by prefix-matching specs/<key>-*/ (makato-plan naming convention).
-# Usage: build-log.sh <key> '<json-object>'
+#
+# Usage:
+#   build-log.sh <key> '<json-object>'        # single entry (legacy)
+#   build-log.sh <key> --batch < entries.ndjson  # batch mode (#118): NDJSON on stdin
+#
+# Batch mode reads newline-delimited JSON entries from stdin and appends all of
+# them in one shell invocation. Skills that emit 3-5 log rows per step can flush
+# in one fork-exec instead of one per row — material at scale: a 10-task
+# autonomous run across 12 skills was 50-150 fork-execs pre-#118.
 #
 # Worktree-awareness (#85): the JSONL audit trail lives in the MAIN checkout's
 # specs/ directory, NOT in a per-run git worktree. specs/ is gitignored, so a
@@ -17,7 +25,7 @@
 set -euo pipefail
 
 KEY="${1:?key required}"
-ENTRY="${2:?json entry required}"
+ENTRY_OR_FLAG="${2:?json entry or --batch flag required}"
 
 # Resolve to the MAIN checkout's repo root. From a worktree,
 # `git rev-parse --git-common-dir` echoes the main repo's `.git`; its parent is
@@ -52,4 +60,25 @@ fi
 
 LOG_FILE="$SPEC_FOLDER/build.jsonl"
 mkdir -p "$(dirname "$LOG_FILE")"
-printf '%s\n' "$ENTRY" >> "$LOG_FILE"
+
+# Batch mode: read NDJSON entries from stdin, append them all. Lines that are
+# blank or do not parse as JSON are skipped silently (the audit trail must not
+# fail because a caller emitted a stray newline). This preserves the "logging
+# never crashes" invariant the legacy single-entry mode also guarantees.
+if [[ "$ENTRY_OR_FLAG" == "--batch" ]]; then
+  while IFS= read -r line; do
+    # Skip blank lines.
+    [[ -z "$line" ]] && continue
+    # Skip lines that don't parse as JSON objects. `jq -e .` exits non-zero on
+    # parse failure; redirect stderr so a malformed line doesn't pollute the
+    # caller's stderr.
+    if ! jq -e . >/dev/null 2>&1 <<<"$line"; then
+      continue
+    fi
+    printf '%s\n' "$line" >> "$LOG_FILE"
+  done
+  exit 0
+fi
+
+# Single-entry mode (legacy, unchanged).
+printf '%s\n' "$ENTRY_OR_FLAG" >> "$LOG_FILE"

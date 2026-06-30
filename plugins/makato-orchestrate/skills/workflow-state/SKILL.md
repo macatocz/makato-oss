@@ -2,14 +2,15 @@
 name: workflow-state
 description: >-
   Read and write PO-agent resumable session state at
-  `specs/<key>-<slug>/workflow-state.json`. Provides seven subcommands
-  (init / read / write / patch / append-lesson / recall-lessons /
-  summarise-lessons) via `shared/workflow-state.sh`, backed by a JSON Schema
-  draft-07 contract. PO-agent (GAP-006 / #32) is the sole writer in production.
-  Use when you need a resumable overlay over `build.jsonl` — the audit log
-  captures forensics, this skill captures live loop state (sub-task graph,
-  current phase, budget, HALT audit, structured lessons learned).
-version: "1.3.0"
+  `specs/<key>-<slug>/workflow-state.json`. Provides eight subcommands
+  (init / read / write / patch / append-lesson / append-halt /
+  recall-lessons / summarise-lessons) via `shared/workflow-state.sh`,
+  backed by a JSON Schema draft-07 contract. PO-agent (GAP-006 / #32) is
+  the sole writer in production. Use when you need a resumable overlay
+  over `build.jsonl` — the audit log captures forensics, this skill
+  captures live loop state (sub-task graph, current phase, budget, HALT
+  audit, structured lessons learned).
+version: "1.4.0"
 argument-hint: "<subcommand> <key|repo> [args…]"
 ---
 
@@ -111,6 +112,17 @@ shared/workflow-state.sh append-lesson gap-003 1 ci_failure \
   "ruff F401 unused import in tracer test" \
   tests/test_tracer.py src/tracer/__init__.py
 ```
+
+### `append-halt <KEY> <CODE> <JSON-DATA>`
+
+Append a structured HALT entry to `halt_audit[]` (#118). `ts` is helper-injected. `CODE` must match `HALT-NNN`, `HALT-NNN[A-Z]` (e.g. `HALT-007B`), or `HALT-STRUCTURAL` per `plugins/makato-orchestrate/halt-conditions.md`. `JSON-DATA` must be a JSON **object** — arrays, scalars, and malformed JSON are rejected before the patch lands. The helper merges via `+ [new]` so the audit log preserves immutable append-only semantics, and the entry is schema-validated like every other write.
+
+```bash
+shared/workflow-state.sh append-halt gap-003 HALT-007B \
+  '{"budget_consumed_tokens":180000,"warn_threshold":170000,"session":2}'
+```
+
+This subcommand replaces the open-coded read-merge-write pattern that previously lived in `scripts/context-handoff.sh` (`_append_halt_audit()`) and at every inline HALT-fire site in `agents/po-agent.md`. Callers MUST use `append-halt` rather than `patch .halt_audit ...` so the canonical entry shape and code-format validation stay in one place.
 
 ### `recall-lessons <REPO> [N]`
 

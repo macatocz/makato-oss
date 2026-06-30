@@ -6,7 +6,7 @@ description: >-
   Tracer bullet phase for multi-layer stories. Autonomous loop. Use
   after refine to implement-tdd a story plan, implement tdd tasks, or
   run the core build loop.
-version: "1.9.1"
+version: "1.9.2"
 model: sonnet
 argument-hint: "[work-item-key]"
 ---
@@ -132,6 +132,8 @@ Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","st
 Run the full suite. Zero new failures allowed vs. the baseline from Step 3.
 
 Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"tracer-verify","status":"ok","data":{"new_failures":0}}'`
+
+**Optional batched flush** (#118 / `AUTONOMOUS-MODE.md` § *Batched logging*): the three Step 5 rows (`tracer-stub` → `tracer-test` → `tracer-verify`) emit in tight succession at the end of the tracer phase. Skills MAY accumulate them into a heredoc and flush once via `shared/build-log.sh "<key>" --batch` instead of three separate single-entry calls — that swaps three `bash` + `git rev-parse` + `find specs/` chains for one. The cross-step batching rule applies: do NOT carry rows past the next step boundary; a Step 5 failure before the flush would lose the audit trail.
 
 ### Step 6 — Execute RED → GREEN → INTEGRATE → VERIFY for each tdd task (via coder agent)
 

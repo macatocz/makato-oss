@@ -86,32 +86,19 @@ _state_field() {
 }
 
 # ---------------------------------------------------------------------------
-# Append a halt_audit entry with the canonical shape. Args:
+# Append a halt_audit entry via the canonical workflow-state.sh subcommand.
+# Args:
 #   $1 — HALT code (e.g. "HALT-007B")
 #   $2 — JSON object (data payload)
-#   $3 — pre-read state JSON (optional — saves a `workflow-state.sh read` call
-#        when the caller already has it in hand)
+# Note: the optional pre-read state JSON parameter was removed when this
+# function delegated to `workflow-state.sh append-halt` — the subcommand
+# reads + patches in a single shelled-out call (with schema validation),
+# making the caller's pre-read optimisation unnecessary.
 # ---------------------------------------------------------------------------
 _append_halt_audit() {
   local code="$1"
   local data="$2"
-  local state_json="${3:-}"
-  local now
-  now="$(_now)"
-  local current
-  if [[ -n "$state_json" ]]; then
-    current="$(jq '.halt_audit' <<<"$state_json")"
-  else
-    current="$("$WS" read "$KEY" | jq '.halt_audit')"
-  fi
-  local merged
-  merged="$(jq \
-    --arg code "$code" \
-    --arg ts "$now" \
-    --argjson data "$data" \
-    '. + [{code: $code, ts: $ts, data: $data}]' \
-    <<<"$current")"
-  "$WS" patch "$KEY" '.halt_audit' "$merged"
+  "$WS" append-halt "$KEY" "$code" "$data"
 }
 
 # ---------------------------------------------------------------------------

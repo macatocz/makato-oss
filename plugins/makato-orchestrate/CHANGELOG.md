@@ -5,6 +5,18 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## `workflow-state.sh append-halt` subcommand + four-step HALT contract (#118 Part A)
+
+Replaces the open-coded read-merge-write pattern (`_append_halt_audit()` in `scripts/context-handoff.sh`, plus several inline `patch .halt_audit '...'` call sites in `agents/po-agent.md`) with a single typed subcommand that owns the canonical entry shape, code-format validation, and JSON-object data validation.
+
+- **`shared/workflow-state.sh`** → 1.4.0 — new `append-halt <KEY> <CODE> <JSON-DATA>` subcommand. Mirrors the `append-lesson` shape: `ts` helper-injected; `CODE` validated against `HALT-NNN`, `HALT-NNN[A-Z]`, or `HALT-STRUCTURAL`; `JSON-DATA` rejected unless it's a JSON object (arrays, scalars, malformed JSON exit 1); merges via `+ [new]` to preserve immutable append-only semantics; the result is schema-validated like every other write. The synopsis line and unknown-subcommand help message list the new subcommand.
+- **`skills/workflow-state/SKILL.md`** → 1.4.0 — new `## append-halt` section documenting the signature, validation rules, and the rule that callers MUST use this subcommand rather than `patch .halt_audit`. Description bumped from "seven subcommands" to "eight subcommands".
+- **`skills/workflow-state/references/smoke-tests.sh`** → 28 → 34 tests. T29: append one entry; T30: canonical {code, ts, data} shape; T31: HALT-007B accepted; T32: HALT-STRUCTURAL accepted; T33: malformed code (BAD-CODE) rejected; T34: non-object data (string, array, malformed JSON) rejected.
+- **`scripts/context-handoff.sh`** → `_append_halt_audit()` collapses to a single call to `"$WS" append-halt`. The optional pre-read-state parameter was removed — the helper does its own atomic read+patch with validation, making the caller's optimisation unnecessary. Both call sites (HALT-007 fallback at L145, HALT-007B handoff at L212) are unchanged at the source level; only the helper's body was rewritten.
+- **`agents/po-agent.md`** → 1.6.1 → 1.7.0 — Step 1 (spec-folder missing → HALT-006) and § *Error modes* updated to dispatch through `append-halt` instead of `patch .halt_audit`. The "three-step contract" is now a "four-step contract": (1) `append-halt`, (2) `append-lesson`, (3) `worktree retain`, (4) `summarise-lessons`. The bootstrap-exception clause extends to cover `append-halt` as well — pre-`init` HALT paths skip step 1 alongside the existing skips of 2 and 4 and emit a `halt-pre-init` JSONL audit entry instead. HALT-007B retains its R1-`partial` exit and still emits the `append-halt` entry (a HALT code that fired must be audited).
+
+---
+
 ## PO-agent error-mode table references build halt-codes registry (#115)
 
 The PO-agent error-mode table previously had no documented routing for skill-level string HALT codes (`MISSING_INPUT`, `BASELINE_BROKEN`, `PUSH_REJECTED`, etc.). It covered the numeric `HALT-NNN` codes documented in `halt-conditions.md`, but the 17+ uppercase-underscore tokens emitted by build-* skills fell through to a generic `operator-escalation`.

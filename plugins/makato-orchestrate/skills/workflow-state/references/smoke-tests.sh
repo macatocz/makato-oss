@@ -220,5 +220,53 @@ if "$WS" patch "$KEY" .merge_conflict_cycles '-1' 2>/dev/null; then
 fi
 echo "  ✓ schema rejects negative integer"
 
+# -- T29..T34: append-halt subcommand (#118) ------------------------------
+
+echo "=== T29: append-halt with valid code + object data appends one entry ==="
+BEFORE_LEN=$("$WS" read "$KEY" | jq '.halt_audit | length')
+"$WS" append-halt "$KEY" HALT-007 '{"reason":"test","budget":100000}'
+AFTER_LEN=$("$WS" read "$KEY" | jq '.halt_audit | length')
+if [[ "$AFTER_LEN" -ne $((BEFORE_LEN + 1)) ]]; then
+  echo "  ✗ expected length $((BEFORE_LEN + 1)), got $AFTER_LEN" >&2
+  exit 1
+fi
+echo "  ✓ append-halt appended one entry"
+
+echo "=== T30: append-halt entry has canonical {code, ts, data} shape ==="
+"$WS" read "$KEY" | jq -e '.halt_audit[-1] | (.code == "HALT-007") and (.ts | type == "string") and (.data | type == "object") and (.data.reason == "test") and (.data.budget == 100000)' > /dev/null
+echo "  ✓ entry shape verified"
+
+echo "=== T31: append-halt accepts HALT-007B (suffixed variant) ==="
+"$WS" append-halt "$KEY" HALT-007B '{"session":2}'
+"$WS" read "$KEY" | jq -e '.halt_audit[-1].code == "HALT-007B"' > /dev/null
+echo "  ✓ HALT-007B accepted"
+
+echo "=== T32: append-halt accepts HALT-STRUCTURAL ==="
+"$WS" append-halt "$KEY" HALT-STRUCTURAL '{}'
+"$WS" read "$KEY" | jq -e '.halt_audit[-1].code == "HALT-STRUCTURAL"' > /dev/null
+echo "  ✓ HALT-STRUCTURAL accepted"
+
+echo "=== T33: append-halt rejects malformed code (BAD-CODE) ==="
+if "$WS" append-halt "$KEY" BAD-CODE '{}' 2>/dev/null; then
+  echo "  ✗ malformed code was accepted (should have rejected)" >&2
+  exit 1
+fi
+echo "  ✓ malformed code rejected"
+
+echo "=== T34: append-halt rejects non-object data (string, array, garbage) ==="
+if "$WS" append-halt "$KEY" HALT-007 '"a-string"' 2>/dev/null; then
+  echo "  ✗ string data accepted (should have rejected)" >&2
+  exit 1
+fi
+if "$WS" append-halt "$KEY" HALT-007 '[1,2]' 2>/dev/null; then
+  echo "  ✗ array data accepted (should have rejected)" >&2
+  exit 1
+fi
+if "$WS" append-halt "$KEY" HALT-007 'malformed' 2>/dev/null; then
+  echo "  ✗ malformed json accepted (should have rejected)" >&2
+  exit 1
+fi
+echo "  ✓ non-object data rejected"
+
 echo
-echo "All 28 smoke tests passed."
+echo "All 34 smoke tests passed."

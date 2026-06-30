@@ -15,7 +15,7 @@ description: >-
   failures and routes them through `resolve-pr-conflict` for autonomous rebase
   resolution, capped at `MAKATO_MAX_MERGE_CONFLICT_CYCLES` (GAP-016 / #45).
   Never edits target-repo source files — orchestrates only.
-version: "1.6.1"
+version: "1.7.0"
 maxTurns: 100
 permissionMode: bypassPermissions
 disallowedTools: NotebookEdit
@@ -131,8 +131,8 @@ has already appended the audit entry and (where applicable) the
 ### Step 1 — Resolve the spec folder
 
 Prefix-match `specs/<KEY>-*/`. If no match exists, the dispatch bundle is
-malformed — emit HALT-006 audit via `workflow-state.sh patch <KEY>
-.halt_audit '... HALT-006 entry ...'`, apply `needs-human-review` via
+malformed — emit HALT-006 audit via `workflow-state.sh append-halt <KEY>
+HALT-006 '<json-data-object>'`, apply `needs-human-review` via
 `gh issue edit <ISSUE_NUMBER> --add-label needs-human-review` (PO-agent
 applies the label directly — see § *Label application*), emit session-end
 JSONL, and return R1 `status: "failure"` with `errors: ["spec folder not
@@ -1068,10 +1068,18 @@ current label set before applying.
 
 ## Error modes
 
-Every terminal HALT path below MUST do three things, in order, before
+Every terminal HALT path below MUST do four things, in order, before
 emitting session-end JSONL and the failure-R1 envelope:
 
-1. Append a typed `lessons_learned` entry capturing the HALT (GAP-015 /
+1. Append the HALT entry to `halt_audit[]` via the canonical helper:
+   ```bash
+   shared/workflow-state.sh append-halt <KEY> <HALT_CODE> '<json-data-object>'
+   ```
+   The helper injects `ts`, validates the code shape (`HALT-NNN`,
+   `HALT-NNN[A-Z]`, or `HALT-STRUCTURAL`), validates the `data` payload
+   is a JSON object, and schema-validates the resulting state. Open-coded
+   `patch .halt_audit` is a contract violation (#118).
+2. Append a typed `lessons_learned` entry capturing the HALT (GAP-015 /
    #37 AC2). Use `trigger: halt` and put the HALT code in the description
    so a future warm-start session sees what stopped the prior run:
    ```bash
@@ -1081,23 +1089,24 @@ emitting session-end JSONL and the failure-R1 envelope:
    ```
    **Bootstrap exception.** When the HALT fires *before* Step 2 has
    created `workflow-state.json` (HALT-006 on missing spec folder is the
-   canonical case), `append-lesson` exits non-zero because there is no
-   state file to mutate. In that narrow window, skip steps 1 and 3 and
-   emit a `step: "halt-pre-init"` JSONL audit entry instead — there is
-   nothing to retain or summarise either. All other HALT paths
-   (post-Step-2) MUST follow the three-step contract.
-2. Call `shared/worktree.sh retain <KEY> <HALT_CODE>` — see § *Worktree
+   canonical case), `append-halt` and `append-lesson` both exit non-zero
+   because there is no state file to mutate. In that narrow window, skip
+   steps 1, 2, and 4 and emit a `step: "halt-pre-init"` JSONL audit entry
+   instead — there is nothing to retain or summarise either. All other
+   HALT paths (post-Step-2) MUST follow the four-step contract.
+3. Call `shared/worktree.sh retain <KEY> <HALT_CODE>` — see § *Worktree
    Lifecycle* § *Retention on HALT*.
-3. Call `shared/workflow-state.sh summarise-lessons <KEY>` so the
+4. Call `shared/workflow-state.sh summarise-lessons <KEY>` so the
    retained worktree carries a human-readable lessons summary alongside
    the partial commit set. Emit the matching `step: "summarise-lessons"`
    JSONL audit entry with `data.terminal_state: "failure"`.
 
-The exception to all three is HALT-007B (context-ceiling handoff) which
+The exception to all four is HALT-007B (context-ceiling handoff) which
 exits via R1 `partial`, leaves the worktree on disk untouched, and does
 NOT emit a `halt` lesson — the handoff is not a failure and the fresh
 session continues accumulating lessons from where the prior session left
-off.
+off. (HALT-007B still emits the `append-halt` entry — it is a code that
+fired, and the audit log must record it.)
 
 | Condition | Response |
 |-----------|----------|

@@ -216,6 +216,37 @@ Contract:
 
 A session that visited N autonomous gates MUST produce N `autonomous_bypass` entries. A future reader running `jq 'select(.data.event=="autonomous_bypass")' build.jsonl` reconstructs every decision the pipeline took without a human.
 
+### Batched logging — `build-log.sh --batch` (#118)
+
+A skill step that emits multiple log rows (e.g. session-start + intermediate decisions + session-end) MAY flush them in a single subprocess invocation rather than forking once per row. Each `build-log.sh` call costs a `bash` startup + `git rev-parse --git-common-dir` + `find specs/` resolution; an autonomous run across 12 skills with 3–5 rows per step is 50–150 fork-execs of pure overhead.
+
+```bash
+{
+  shared/build-log.sh "<KEY>" '{"ts":"…","step":"a","status":"ok"}'
+  shared/build-log.sh "<KEY>" '{"ts":"…","step":"b","status":"ok"}'
+  shared/build-log.sh "<KEY>" '{"ts":"…","step":"c","status":"ok"}'
+}
+```
+
+becomes
+
+```bash
+cat <<NDJSON | shared/build-log.sh "<KEY>" --batch
+{"ts":"…","step":"a","status":"ok"}
+{"ts":"…","step":"b","status":"ok"}
+{"ts":"…","step":"c","status":"ok"}
+NDJSON
+```
+
+Contract:
+
+- `--batch` reads newline-delimited JSON from stdin and appends each parsed entry to `build.jsonl`.
+- Blank lines are skipped. Lines that don't parse as JSON are silently dropped — the audit-log "never crashes" invariant is preserved. Audit consumers do not see corrupted rows.
+- Batch output is **byte-for-byte identical** to per-row single-entry output for the same set of entries (verified by `shared/build-log-batch-smoke-tests.sh` T3).
+- The single-entry form (legacy: `build-log.sh <key> '<json>'`) is unchanged — skills migrate opportunistically; no flag day.
+
+Recommended migration pattern: accumulate log rows in a bash array (or heredoc) for the duration of a single step (e.g. Step 3 baseline capture, Step 6 coder dispatch, Step 7 verify gates), then flush once at the step boundary. Cross-step batching is NOT recommended — a long-running step that fails before the flush would lose its audit trail. Per-step batching is the sweet spot.
+
 ## Reference R1 return envelope
 
 In autonomous mode every modified skill returns R1-shaped output (GAP-002 / #24). The shape is documented in `plugins/makato-build/agents/RETURN-CONTRACT.md` and applies verbatim to skills as well as agents. The minimum fields a build-* skill emits at session end:

@@ -5,6 +5,19 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## `build-log.sh --batch` mode + AUTONOMOUS-MODE.md batched-logging convention (#118 Part B)
+
+Each invocation of `build-log.sh` costs a `bash` startup + `git rev-parse --git-common-dir` + `find specs/` resolution. An autonomous run across 12 skills with 3-5 rows per step is 50-150 fork-execs of pure overhead — material once the test/lint suites are no longer the wall-clock bottleneck.
+
+This commit adds an opt-in batch mode that reads NDJSON from stdin and appends every parsed entry in one shell invocation. Output is byte-for-byte identical to per-row single-entry mode for the same set of entries (verified by smoke test T3).
+
+- **`shared/build-log.sh`** → new `--batch` mode. Signature: `shared/build-log.sh <key> --batch < entries.ndjson`. Reads NDJSON from stdin; skips blank lines and lines that don't parse as JSON (preserves the "logging never crashes" invariant); appends each parsed entry to `<spec>/build.jsonl`. Single-entry mode (`build-log.sh <key> '<json>'`) is unchanged — skills migrate opportunistically with no flag day.
+- **`shared/build-log-batch-smoke-tests.sh`** → new. 6 test groups covering: single-entry mode appends one row; batch mode reads NDJSON and appends each row; batch output matches single-entry output byte-for-byte; batch skips blank lines; batch skips malformed JSON lines; batch is idempotent on empty stdin.
+- **`AUTONOMOUS-MODE.md` § Batched logging** → new sub-section under § *Logging contract*. Documents the migration pattern (accumulate in a heredoc, flush at step boundary), the cross-step batching warning (don't carry rows past a step boundary or a failure loses the audit trail), and the byte-for-byte equivalence with single-entry output.
+- **`skills/build-implement-tdd/SKILL.md`** → 1.9.1 → 1.9.2 — Step 5 (tracer) prose gains an "Optional batched flush" note documenting the three-row flush opportunity (`tracer-stub` → `tracer-test` → `tracer-verify`) at the end of the tracer phase.
+
+---
+
 ## Stop forwarding `--autonomous` across cross-skill dispatch (#117)
 
 > **BREAKING (internal contract).** Skills dispatching other skills no longer add `--autonomous` to the downstream invocation. The CLI flag is preserved for developer-driven entry points (a human at the prompt can still run `/makato-build:build-refine GAP-005 --autonomous`); only the skill-initiated dispatch path drops the flag. `$AGENT_ID` already crosses subprocess boundaries via env inheritance and is now designated the canonical bash-level autonomous-mode signal.
