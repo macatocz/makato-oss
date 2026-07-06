@@ -1,6 +1,6 @@
 {
   "name": "makato-orchestrate",
-  "description": "Autonomous control plane (scaffold — not yet shipped) for driving GitHub Issues to merged PRs unattended, coordinating makato-plan and makato-build with workflow-state, kill-switch, and HALT-code dispatch.",
+  "description": "Autonomous control plane for driving GitHub Issues to merged PRs unattended, coordinating makato-plan and makato-build with workflow-state, kill-switch, HALT-code dispatch, and merge-conflict resolution.",
   "author": {
     "name": "makato Team"
   }

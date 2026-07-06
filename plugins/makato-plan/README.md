@@ -1,241 +1,171 @@
 <!-- markdownlint-disable MD013 MD031 MD032 MD040 -->
 # makato-plan
 
-📖 [Read the docs →](https://github.com/zstary/makato/tree/main/plugins/makato-plan)
+**Goal**: Transforms raw feature requests into vertically-sliced GitHub issues through structured
+discovery, interviews, architectural analysis, and UX design — producing acceptance-tested stories
+ready for development.
 
-**Goal**: Transforms raw feature requests into vertically-sliced GitHub issues through structured discovery, interviews, architectural analysis, and UX design — producing acceptance-tested stories ready for development.
+**How**: Guides users through a sequential shaping pipeline: divergent-convergent brainstorming,
+product requirements definition, architecture design, optional UX design and interactive HTML
+prototype, story decomposition with a Three Amigos simulation (PO, Dev Lead, and QA agents running
+in parallel), acceptance test refinement, and GitHub issue publication to a Projects v2 board. The
+`grill` skill is cross-cutting and can be invoked after any phase to stress-test decisions before
+proceeding.
 
-**How**: Guides users through progressive interviews and grilling sessions that brainstorm, analyze, produce a PRD, define architecture, design UX, decompose work into sliced stories, write acceptance tests, and publish those stories as GitHub issues wired to a GitHub Projects v2 board.
-
-**Why**: Ensures features are thoroughly understood, architecturally sound, and broken into actionable work before development begins, reducing rework and misalignment.
-
-**Output**: A `specs/<slug>/` folder containing:
-- `brainstorm.md` — clustered ideas and top concepts from divergent-convergent ideation
-- `decisions.md` — living decision log, updated by grill sessions throughout all phases
-- `glossary.md` — feature-scoped vocabulary captured by `grill` (canonical terms, banned aliases, relationships); read by downstream skills on entry
-- `prd.md` — functional product requirements (goals, scope, metrics, vertical story sketches)
-- `design.md` — architecture and technical approach (components, APIs, data model, NFRs)
-- `ux.md` — UX design (screen inventory, wireframes, interaction patterns, accessibility) — optional, only when UI surfaces are non-trivial
-- `prototype.html` — interactive high-fidelity prototype of new UI surfaces — optional
-- `stories.json` — machine-readable vertically-sliced stories with acceptance criteria and Gherkin test cases
-
-After `to-issues` + `issue-to-project`: shaped stories exist as GitHub issues on a GitHub Projects v2 board, and `stories.json`'s downstream sibling `created-issues.json` carries the GitHub issue numbers and URLs for makato-build / makato-orchestrate to consume.
-
-## Shaping Boundary
-
-Stories produced by this plugin are **shaped but not refined**:
-- They have clear functional descriptions and acceptance criteria
-- They include architectural context
-- They do NOT include detailed implementation tasks or estimation
-- Development teams own the refinement step
-
-## Terminology
-
-This plugin uses domain-specific terms (e.g., *vertical slice*, *slicing phase*, *shape lifecycle phase*, *Three Amigos*, *Refine*). Canonical definitions live in [shared/terminology.md](shared/terminology.md). If a skill prompts you with a term you don't recognize, check there first.
-
-For *feature-specific* vocabulary (the language unique to one feature being shaped), see the per-spec `glossary.md` written by the `grill` skill inside each `specs/<slug>/` folder.
+**Why**: Features shaped through this pipeline are thoroughly understood, architecturally grounded,
+and broken into independently deliverable work before development begins — reducing rework and
+misalignment. Stories exiting this plugin are shaped but not refined: they carry acceptance criteria
+and architectural context, but no detailed implementation tasks or estimates.
 
 ## What Belongs Here
 
-- Skills, agents, hooks, and MCP servers that conduct structured interviews/grilling sessions to extract and clarify feature requirements
-- Skills that produce PRDs, architecture documents, UX design documents, or design decisions from discovery output
-- Skills and agents that decompose features into vertically-sliced stories with acceptance criteria
+- Skills, agents, hooks, and MCP servers that conduct structured interviews and grilling sessions
+  to extract and clarify feature requirements
+- Skills that produce PRDs, architecture documents, UX design documents, or design decisions from
+  discovery output
+- Skills and agents that decompose features into PI-sized epics and vertically-sliced stories with
+  acceptance criteria
 - Skills that gather and consolidate existing material (docs, context, prior art) about a feature
-- Skills, hooks, and MCP servers that create or update GitHub issues and project-board items from shaped output
+- Skills, hooks, and MCP servers that create or update GitHub issues and project-board items from
+  shaped output
 
 ## What Does NOT Belong Here
 
-- Implementation/coding skills (those belong in development-phase plugins)
+- Implementation or coding skills (belong in development-phase plugins)
 - Detailed implementation task breakdowns or technical refinement beyond architectural guidance
 - Skills that validate or review already-written code or PRs
-- Iteration management or backlog grooming during development
-- Skills that create makato plugins or skills (those belong in makato-contribute)
+- Sprint or iteration management or backlog grooming during development
+- Skills that create makato plugins or skills (belong in makato-contribute)
 - Generic brainstorming or ideation not tied to a specific feature
 
 ## Workflow
 
-Skills follow a sequential shaping pipeline. Each phase produces a disk artifact that feeds the next. The `grill` skill is cross-cutting — invoke it after any phase to stress-test decisions before proceeding.
-
-### Phases
-
-0. **Initialize** — set up workspace and gather existing material
-   - [ ] `init-spec` — (planned, future feature) create spec folder, pull context and reference material
-   - Input: feature description or work item reference
-   - Output: `specs/<slug>/` folder with any gathered context
-   - Note: Planned standalone skill. Not yet implemented — `brainstorming` currently performs spec-folder setup in its Step 1.1. When `init-spec` ships, that work will move here and run once per feature before brainstorming begins.
-
-1. **Discover** — understand the problem space
-   - [x] `brainstorming` — divergent-convergent ideation
-   - Input: feature description (creates the spec folder if it doesn't exist; will defer to `init-spec` once that ships)
-   - Output: `brainstorm.md` + `decisions.md` (top 3-5 concepts, clustered ideas, initial decisions)
-
-2. **Define** — produce a functional PRD
-   - [x] `create-prd` — functional product requirements document
-   - Input: `brainstorm.md` + `decisions.md`
-   - Output: `prd.md` — goals, scope, success metrics, rough vertical story sketches, delivery recommendations
-   - Note: Pure document output. Integrates grill before writing. Answers "what" and "why". No external side-effects.
-
-3. **Design** — architecture and technical approach
-   - [x] `create-architecture` — architecture/design document
-   - Input: `prd.md` + `decisions.md` + `repositories.yml` + `reference/` (technical docs)
-   - Output: `design.md` — system context, component design, technical decisions, data model, API, security, deployment, test strategy
-   - Note: Answers "how we build it". Comprehensive architect interview (3 rounds), optional grill integration, interactive HTML review gate. Pure document output — no external side-effects.
-
-4. **UX** — user experience design (optional, when UI surfaces are non-trivial)
-   - [x] `create-ux` — UX design document with screen inventory, wireframes, interaction patterns, accessibility notes
-   - Input: `prd.md` + `design.md` + `decisions.md`
-   - Output: `ux.md` — screen inventory, user flows, screen states, information architecture, accessibility, developer handoff notes
-   - Note: Skipped when PRD has `UI Required: No`. Complements `create-prototype` — UX defines the design, prototype demonstrates it.
-
-5. **Prototype** — visual/UX validation (optional)
-   - [x] `create-prototype` — interactive HTML prototype of new UI surfaces
-   - Input: `prd.md` + `design.md` + `ux.md` (optional) + `decisions.md` + `repositories.yml` + app design system context (tokens, components)
-   - Output: `prototype.html` — interactive single-file HTML prototype with integrated review (slide-deck pattern, feedback per surface)
-   - Note: Scope = only the new/changed UI surfaces (not the full app). High-fidelity — uses real design tokens from target app's design system. Includes adaptive UX interview (skips if well-specified), optional grill before generation. Uses dedicated `prototype-builder` agent.
-
-6. **Decompose** — slice into deliverable stories
-   - [x] `decompose` — vertical story slicing with embedded Three Amigos
-   - Input: `prd.md` + `design.md` + `ux.md` (optional) + `prototype.html` (optional) + `decisions.md` + `repositories.yml`
-   - Output: `stories.json` — machine-readable schema of vertically-sliced stories with acceptance criteria
-   - Note: Stories are functional slices, not technical tasks. Each story is independently deliverable and testable. Embeds Three Amigos simulation (PO, Dev Lead, QA agents in parallel) for shared understanding. Produces interactive HTML reviews for both three-amigos feedback and final story approval.
-
-   - [x] `create-acceptance-tests` — Gherkin acceptance test cases per story
-   - Input: `stories.json` + `prd.md` + `design.md` (optional)
-   - Output: Refined Gherkin scenarios (3-5 per story) written back into `stories.json` → `acceptanceTestCases`
-   - Note: Refines draft Gherkin from decompose's QA agent into polished, high-level, manually testable scenarios. Dispatches `acceptance-writer` agent per story, runs quality self-review against 6 anti-patterns, presents interactive HTML review for approval.
-
-7. **Publish** — emit GitHub issues from shaped stories
-   - [x] `to-issues` — create GitHub issues on github.com with 10-dimension label taxonomy
-   - Input: `specs/<slug>/stories.json` + `.claude/config.json`
-   - Output: GitHub issues created on github.com + `specs/<slug>/created-issues.json` (machine-readable handoff containing issue numbers, URLs, labels, blockers)
-   - Note: Generic github.com publisher. Applies type / tier / tech / module / severity / phase / effort / priority / points / status labels; maps stories to ADR folders for `module:` annotation; severity/phase/effort/priority source from `stories[].metadata` (priority auto-derives from severity when absent); emits `status:blocked` on dependency or `type:future-enhancement` inference. Topologically sorts by `dependencies.blockedBy`. `DRY_RUN=1` supported.
-
-8. **Project board sync** — land created issues on a GitHub Projects v2 board
-   - [x] `issue-to-project` — sync `created-issues.json` entries to a github.com Projects v2 board
-   - Input: `specs/<slug>/created-issues.json` (from `to-issues`) + `.claude/config.json` → `github_project` block (one-time setup via `issue-to-project --init`)
-   - Output: each new issue added to the project board + `specs/<slug>/project-sync.json` (audit artifact). Status defaults to `Todo`; flipped to `Blocked` only when `status:blocked` is in the issue's `labels[]`
-   - Note: Strict consumer of `to-issues`'s contract. Never removes items; never overwrites externally-changed Status. `--init` is a one-time wizard per consuming repo. Pre-flight checks for `gh` presence / auth / version / scope. R1 sentinel + HALT codes for orchestrator parsing. Includes `sync-lifecycle`, `reconcile`, `--from-webhook`, `--board-audit`, and `--fields-only` modes (v2.3.0+).
-
-### Cross-cutting
-
-- [x] `grill` — adversarial stress-test of any phase artifact
-- Input: Any phase artifact + `decisions.md` (+ existing `glossary.md` if present)
-- Output: Grill Audit appended to target artifact + updated `decisions.md` + updated `glossary.md` (canonical terms, banned aliases, relationships, flagged ambiguities)
-- When: After any phase, before proceeding to next. Optional but recommended.
-
-- [x] `excalidraw` — generate Excalidraw diagrams from text descriptions
-- Input: text description of the diagram (flowchart, architecture, mind map)
-- Output: Excalidraw JSON in Obsidian, Standard, or Animated output format
-- When: Inside any phase that benefits from a visual — typically `create-architecture` for system context or `create-ux` for user flows.
-
-### Artifact Structure
-
-All artifacts live under `specs/<slug>/` during shaping. The spec folder stays unchanged after the publish phase — `to-issues` and `issue-to-project` emit handoff JSON beside the existing artifacts rather than mutating them.
+Skills follow a sequential shaping pipeline. Each phase produces a disk artifact that feeds the
+next. `grill` is cross-cutting — invoke it after any phase to stress-test decisions before
+proceeding. `excalidraw` is a utility that can be used inside any phase that benefits from a visual.
 
 ```
-specs/
-└── checkout-redesign/                  ← stable spec folder (never renamed)
-    ├── brainstorm.md
-    ├── prd.md
-    ├── design.md
-    ├── decisions.md
-    ├── glossary.md                     (feature-scoped vocabulary, written by grill)
-    ├── ux.md                           (optional)
-    ├── prototype.html                  (optional)
-    ├── stories.json                    (shaped stories with acceptance criteria)
-    ├── created-issues.json             (GitHub issue numbers and URLs, emitted by to-issues)
-    └── project-sync.json               (board-sync audit, emitted by issue-to-project)
+Feature request / work item description
+         │
+         ▼
+┌─────────────────┐
+│  brainstorming  │  Input:  feature description or GitHub issue URL
+└────────┬────────┘  Output: brainstorm.md + decisions.md
+         │
+         │  ◀── grill (optional cross-cutting stress-test after any phase)
+         ▼
+┌─────────────────┐
+│   create-prd    │  Input:  brainstorm.md + decisions.md
+└────────┬────────┘  Output: prd.md
+         │
+         ▼
+┌───────────────────────┐
+│  create-architecture  │  Input:  prd.md + decisions.md + repositories.yml
+└────────┬──────────────┘  Output: design.md
+         │
+         ▼
+┌─────────────────┐  (optional — skip when UI Required: No)
+│   create-ux     │  Input:  prd.md + design.md + decisions.md
+└────────┬────────┘  Output: ux.md
+         │
+         ▼
+┌──────────────────────┐  (optional — skip when no new UI surfaces)
+│  create-prototype    │  Input:  prd.md + design.md + ux.md + decisions.md
+└────────┬─────────────┘  Output: prototype.html
+         │
+         ▼
+┌─────────────────┐
+│    decompose    │  Input:  prd.md + design.md + ux.md + prototype.html
+└────────┬────────┘  Output: stories.json (with draft Gherkin)
+         │
+         ▼
+┌──────────────────────────┐
+│  create-acceptance-tests │  Input:  stories.json + prd.md + design.md
+└────────┬─────────────────┘  Output: stories.json (refined acceptanceTestCases)
+         │
+         ▼
+┌──────────────┐
+│  to-issues   │  Input:  stories.json + .claude/config.json
+└────────┬─────┘  Output: GitHub issues + created-issues.json
+         │
+         ▼
+┌──────────────────────┐
+│  issue-to-project    │  Input:  created-issues.json + .claude/config.json
+└────────┬─────────────┘  Output: issues on GitHub Projects v2 board
+         ▼
+  GitHub Projects v2 board — ready for makato-build / makato-orchestrate
 ```
-
-### Artifact Schema Contract
-
-`stories.json` is the handoff schema — machine-readable, not prose. It must contain enough structure for `to-issues` (or a downstream plugin) to create GitHub issues without human reformatting. Schema definition lives in the `decompose` skill.
-
-### Flow Diagram
-
-```
-Feature / Work Item
-     │
-     ▼
-┌───────────┐
-│ init-spec │  (planned — future feature; brainstorming sets up the workspace today)
-└──────┬────┘
-       ▼
-┌───────────────┐    ┌───────┐
-│ brainstorming │───▶│ grill │ (optional)
-└──────┬────────┘    └───────┘
-       ▼
-┌──────────────┐     ┌───────┐
-│  create-prd  │────▶│ grill │ (optional)
-└──────┬───────┘     └───────┘
-       ▼
-┌───────────────────┐ ┌───────┐
-│create-architecture│▶│ grill │ (optional)
-└──────┬────────────┘ └───────┘
-       ▼
-┌───────────┐        ┌───────┐
-│ create-ux │───────▶│ grill │ (optional, only when UI is non-trivial)
-└──────┬────┘        └───────┘
-       ▼
-┌──────────────────┐ ┌───────┐
-│ create-prototype │▶│ grill │ (integrated before generation, optional)
-└──────┬───────────┘ └───────┘
-       ▼
-┌───────────┐        ┌───────┐
-│ decompose │───────▶│ grill │ (optional)
-└──────┬────┘        └───────┘
-       ▼
-┌─────────────────────────────┐
-│ create-acceptance-tests     │  (refine draft Gherkin from decompose)
-└──────┬──────────────────────┘
-       ▼
-┌────────────┐
-│ to-issues  │  (create GitHub issues from stories.json)
-└──────┬─────┘
-       ▼
-┌───────────────────┐
-│ issue-to-project  │  (add to GitHub Projects v2 board)
-└──────┬────────────┘
-       ▼
-  GitHub Issues on Project Board
-```
-
-**Important:** Every PR that adds or modifies a skill MUST update this workflow section.
 
 ## Skills
 
-| Skill | Description | Version |
-|-------|-------------|---------|
-| `brainstorming` | Structured divergent-convergent ideation using 62 techniques. Targets 50+ ideas, converges to top 3-5 concepts. | 1.1.0 |
-| `grill` | Adversarial interview that stress-tests any phase artifact. Challenges decisions, assumptions, and rejected options depth-first. Captures resolved feature vocabulary into per-spec `glossary.md`. | 1.1.0 |
-| `create-prd` | Create PRD from brainstorming output. Product strategy interview, grill integration, vertical story sketches, HTML review. | 1.0.0 |
-| `create-architecture` | Create architecture design documents from PRD. Architect interview (3 rounds), grill integration, NFR implementation mapping, HTML review. | 1.0.0 |
-| `create-ux` | Create UX design documents with screen inventory, wireframes, interaction patterns, user testing plan, and accessibility notes for PRD UI surfaces. | 1.0.0 |
-| `create-prototype` | Create interactive high-fidelity HTML prototypes of new UI surfaces. Design system research, adaptive UX interview, grill integration, integrated review. | 1.0.0 |
-| `decompose` | Decompose shaped features into vertically-sliced stories. Three Amigos simulation (PO/Dev/QA agents in parallel), relative sizing, interactive HTML review. | 1.0.0 |
-| `create-acceptance-tests` | Refine draft Gherkin scenarios into polished acceptance test cases (3-5 per story). Dispatches acceptance-writer agent per story, quality self-review, HTML review. | 1.0.0 |
-| `to-issues` | Create GitHub issues from `stories.json` with 10-dimension label taxonomy (type/tier/tech/module/severity/phase/effort/priority/points/status). Topologically sorts by `dependencies.blockedBy`. Emits `created-issues.json` for downstream consumers. | 3.4.0 |
-| `issue-to-project` | Sync `created-issues.json` entries to a GitHub Projects v2 board. Includes lifecycle sync (Status transitions from PR events), reconciliation, board-wide audit, and fields-only backfill modes. | 2.7.0 |
-| `excalidraw` | Generate Excalidraw diagrams from text descriptions in Obsidian, Standard, or Animated output formats. | 1.3.1 |
+| Skill | Description | Input | Output | Version |
+|-------|-------------|-------|--------|---------|
+| [brainstorming](skills/brainstorming/SKILL.md) | Structured divergent-convergent ideation on a feature using 62 techniques, targeting 50+ ideas, converging to top 3-5 concepts with rationale. Creates the spec folder if it does not exist. (interactive) | Feature description, GitHub issue URL, or existing spec slug; optionally imports attachments from the GitHub issue | `specs/{slug}/brainstorm.md` (clustered ideas, top concepts) and `specs/{slug}/decisions.md` (initial decisions) | 1.2.0 |
+| [grill](skills/grill/SKILL.md) | Adversarial interview that stress-tests any phase artifact — challenges decisions, assumptions, and rejected options depth-first. Cross-cutting skill invokable after any phase. Captures resolved feature vocabulary into per-spec `glossary.md`. (interactive) | Any phase artifact (brainstorm.md, prd.md, design.md, etc.) + decisions.md + glossary.md (if present) | Grill Audit section appended to target artifact + updated decisions.md + updated/created glossary.md | 1.2.0 |
+| [create-prd](skills/create-prd/SKILL.md) | Creates a Product Requirements Document from brainstorming output via a product strategy interview, grill integration, vertical story sketches, and HTML review gate. Pure document output — no external side-effects. (interactive) | `specs/{slug}/brainstorm.md` + decisions.md | `specs/{slug}/prd.md` (goals, scope, success metrics, rough vertical story sketches, delivery recommendations) | 1.1.0 |
+| [create-architecture](skills/create-architecture/SKILL.md) | Creates an Architecture Design Document from PRD artifacts via a 3-round architect interview, grill integration, NFR implementation mapping, and interactive HTML review gate. Pure document output — no external side-effects. (interactive) | `specs/{slug}/prd.md` + decisions.md + repositories.yml (if present) + reference/ folder (technical docs, PPTX/PDF converted via markitdown MCP) | `specs/{slug}/design.md` (system context, component design, technical decisions, data model, API, security, deployment, test strategy) | 1.0.4 |
+| [create-ux](skills/create-ux/SKILL.md) | Creates a UX design document with screen inventory, wireframes, interaction patterns, user testing plan, and accessibility notes for PRD UI surfaces. Optional phase — skipped when PRD has UI Required: No. (interactive) | `specs/{slug}/prd.md` (required, UI Required: Yes/Minimal) + design.md (optional) + decisions.md | `specs/{slug}/ux.md` (screen inventory, user flows, screen states, information architecture, accessibility, developer handoff notes) | 1.0.0 |
+| [create-prototype](skills/create-prototype/SKILL.md) | Creates an interactive, high-fidelity single-file HTML prototype of new UI surfaces using the target app's design system tokens. Optional phase for UI-bearing features. Dispatches prototype-builder agent. Pure visual/UX validation — no external side-effects. (interactive) | `specs/{slug}/prd.md` + design.md + ux.md (optional) + decisions.md + repositories.yml (for design system research) | `specs/{slug}/prototype.html` (interactive single-file HTML prototype with integrated review chrome) | 1.0.2 |
+| [decompose](skills/decompose/SKILL.md) | Decomposes shaped features into independently deliverable, vertically-sliced stories with acceptance criteria. Embeds a Three Amigos simulation (PO, Dev Lead, QA agents in parallel) for shared understanding. Produces interactive HTML reviews for three-amigos feedback and final story approval. (interactive) | `specs/{slug}/prd.md` + design.md + ux.md (optional) + prototype.html (optional) + decisions.md + repositories.yml | `specs/{slug}/stories.json` (machine-readable vertically-sliced stories with acceptance criteria and draft Gherkin scenarios) | 1.1.1 |
+| [create-acceptance-tests](skills/create-acceptance-tests/SKILL.md) | Refines draft Gherkin scenarios from decompose's QA agent into polished, high-level, manually testable acceptance test cases (3-5 per foundation/happy-path story, 1-3 per edge-case story). Dispatches acceptance-writer agent per story, runs quality self-review against 6 anti-patterns, presents interactive HTML review. (interactive) | `specs/{slug}/stories.json` (with draft successScenarios) + prd.md + design.md (optional) | Refined Gherkin scenarios written back into stories.json acceptanceTestCases field | 1.0.2 |
+| [to-issues](skills/to-issues/SKILL.md) | Creates GitHub issues on github.com from stories.json with a 10-dimension label taxonomy (type/tier/tech/module/severity/phase/effort/priority/points/status). Topologically sorts by dependencies.blockedBy. DRY_RUN=1 supported. (interactive) | `specs/{slug}/stories.json` + `.claude/config.json` (for project name and ADR folder path) | GitHub issues created on github.com + `specs/{slug}/created-issues.json` (machine-readable handoff with issue numbers, URLs, labels, blockers) | 3.4.0 |
+| [issue-to-project](skills/issue-to-project/SKILL.md) | Syncs created-issues.json entries to a GitHub Projects v2 board. Includes lifecycle sync (sync-lifecycle), reconciliation, board-wide audit (--board-audit), webhook-mode sync (--from-webhook), and fields-only backfill modes. Never removes items; never overwrites externally-changed Status. (interactive) | `specs/{slug}/created-issues.json` (from to-issues) + `.claude/config.json` github_project block (one-time setup via --init) | Each issue added to the GitHub Projects v2 board + `specs/{slug}/project-sync.json` (audit artifact) | 2.7.0 |
+| [excalidraw](skills/excalidraw/SKILL.md) | Generates Excalidraw diagrams from text descriptions in Obsidian (.md), Standard (.excalidraw), or Animated (.excalidraw) output formats. Supports flowcharts, mind maps, hierarchy, relationship, comparison, timeline, matrix, and freeform diagrams. | Text description of the diagram (flowchart, architecture, mind map, etc.) | Diagram file in the current working directory: `[topic].[type].md` (Obsidian) or `[topic].[type].excalidraw` (Standard/Animated) | 1.3.1 |
 
 ## Agents
 
-| Agent | Model | Purpose |
-|-------|-------|---------|
-| `acceptance-writer` | Sonnet | Refines draft Gherkin into 3-5 polished, manually testable scenarios per story |
-| `context-scout` | Haiku | Read-only scan of `context/{repo}/` for relevant files |
-| `doc-writer` | Sonnet | Generates HTML reviews and writes markdown artifacts |
-| `prototype-builder` | Sonnet | Generates high-fidelity interactive HTML prototypes from design context |
-| `po-reviewer` | Sonnet | Product Owner perspective for Three Amigos story review |
-| `dev-reviewer` | Sonnet | Lead Developer perspective for Three Amigos story review |
-| `qa-reviewer` | Sonnet | QA Engineer perspective for Three Amigos story review |
+| Agent | Model | Permission | Purpose | Dispatched by |
+|-------|-------|------------|---------|---------------|
+| context-scout | haiku | bypassPermissions (read/grep/glob allowed; write/edit/bash denied) | Read-only scan of `context/{REPO_NAME}/` directories for files relevant to a given feature. Returns synthesized insights (not raw paths) for the calling skill. | Most plan skills |
+| acceptance-writer | sonnet | bypassPermissions | Refines draft Gherkin scenarios from decompose's QA agent into 3-5 polished, high-level, manually testable acceptance test cases per story written in business language. | create-acceptance-tests (once per story in stories.json) |
+| dev-reviewer | sonnet | bypassPermissions | Lead Developer perspective for Three Amigos story review — challenges technical feasibility, dependencies, estimates, and implementation risk. | decompose (Three Amigos simulation) |
+| po-reviewer | sonnet | bypassPermissions | Product Owner perspective for Three Amigos story review — challenges value delivery, scope boundaries, user outcomes, and phase assignment. | decompose (Three Amigos simulation) |
+| qa-reviewer | sonnet | bypassPermissions | QA Engineer perspective for Three Amigos story review — challenges testability, identifies edge cases, and produces 1-3 draft Gherkin scenarios per story. | decompose (Three Amigos simulation), grill (story review) |
+| prototype-builder | sonnet | bypassPermissions (read/edit/bash/grep/glob allowed) | Generates high-fidelity interactive single-file HTML prototypes from design context and UX decisions, using the target app's design system tokens. Creative agent — never calls AskUserQuestion. | create-prototype, create-ux |
+| doc-writer | sonnet | bypassPermissions (read/edit/bash/grep/glob allowed) | Generates styled HTML review documents and writes canonical markdown artifacts from structured input. Template-driven — never invents structure or content. | Most plan skills (brainstorming, create-prd, create-architecture, decompose, etc.) |
 
-## Prerequisites
+## Shared Resources
 
-This plugin declares its own MCP server (via `.mcp.json`):
-- **markitdown** — converts downloaded files (PPTX, PDF, DOCX, images) to markdown for content extraction
+| File | Purpose |
+|------|---------|
+| `shared/terminology.md` | Plugin-level definitions for domain terms used in skill prose (vertical slice, slicing phase, shape lifecycle phase, Three Amigos, Refine). Audience: contributors and consumers reading the skills — not loaded at runtime. |
+| `shared/repositories-yml-schema.md` | Schema contract for the repositories.yml file; consumed by create-prd, create-architecture, create-prototype, and decompose to understand affected repositories and team mappings. |
+| `shared/scenario-schema.md` | Gherkin scenario shape contract; used by decompose's `successScenarios[]` and create-acceptance-tests' `acceptanceTestCases[]` fields. |
+| `shared/refinement-contract.md` | Rules for the Refine update mode; consumed by create-prd, create-architecture, create-prototype, and decompose when an artifact already exists and the user chooses to update rather than replace it. |
 
-GitHub interaction is performed via the `gh` CLI (no MCP dependency); `to-issues` and `issue-to-project` invoke it directly.
+## Notable Governance Files
+
+| File | Purpose |
+|------|---------|
+| `plugins/makato-plan/AGENTS.md` | Primary contributor guide: goal, shaping boundary, what belongs/does not belong, skill authoring rules, agent table, shared/ contract, versioning policy, and PR checklist. |
+| `plugins/makato-plan/.claude-plugin/plugin.json` | Plugin marketplace metadata: name, description, author. No version field (repo versioned via release-please + git tags). |
+| `plugins/makato-plan/skills/to-issues/references/label-taxonomy.md` | 10-dimension label taxonomy for GitHub issue creation (type/tier/tech/module/severity/phase/effort/priority/points/status) — mandatory load for every to-issues run. |
+| `plugins/makato-plan/skills/issue-to-project/references/config-schema.md` | github_project block contract and validation rules for .claude/config.json — mandatory load for every issue-to-project run. |
+
+## Plugin Connections
+
+| Direction | Plugin | What flows |
+|-----------|--------|-----------|
+| Consumes from | makato-core | Prerequisite: gh CLI (authenticated) is required for GitHub interactions in to-issues and issue-to-project. makato-core provides shared developer utilities and suite infrastructure. |
+| Produces for | makato-build | Emits `created-issues.json` (from to-issues) containing GitHub issue numbers and URLs that makato-build consumes as work item inputs for the build pipeline (build-start, build-refine). |
+| Produces for | makato-orchestrate | Emits `created-issues.json` that makato-orchestrate's autonomous control plane consumes to drive GitHub Issues to merged PRs unattended via the PO-agent loop. |
+| Complements | makato-contribute | makato-contribute's makato-skill-creator and makato-plugin-creator skills scaffold new skills and plugins within the suite; makato-plan does not perform this — it defers to makato-contribute. |
+| Complements | makato-change | makato-change's analyze and design phases may re-invoke makato-plan skills (e.g. grill, create-prd, decompose) when a change request requires full reshaping rather than targeted code modification. |
+
+## Prerequisites / MCP Servers
+
+| Server | Purpose | Required |
+|--------|---------|----------|
+| markitdown | Converts downloaded files (PPTX, PDF, DOCX, images) to markdown for content extraction. Used by create-architecture when reference/original/ contains unconverted technical documents. | No |
+
+External prerequisites:
+
+- `gh` CLI authenticated to github.com (required by to-issues and issue-to-project for all GitHub
+  interactions)
+- Python 3 (used by to-issues and issue-to-project to parse JSON artifacts and validate schemas)
+- `git` (used by to-issues and issue-to-project to resolve repo root and remote URL)
+- markitdown MCP server (used by create-architecture to convert PPTX/PDF/DOCX reference files to
+  markdown)
 
 ## Installation
 
@@ -243,26 +173,6 @@ GitHub interaction is performed via the `gh` CLI (no MCP dependency); `to-issues
 claude --plugin-dir ./plugins/makato-plan
 ```
 
-## Try It
-
-1. Identify the feature or GitHub issue you want to plan — note a short slug (e.g., `checkout-redesign`).
-2. Make sure `makato-core` is installed and `gh` is authenticated.
-3. Run the pipeline phase by phase from the spec folder root:
-   ```
-   /makato-plan:brainstorming checkout-redesign
-   /makato-plan:create-prd
-   /makato-plan:create-architecture
-   /makato-plan:create-ux              # optional, only if UI surfaces are non-trivial
-   /makato-plan:create-prototype       # optional, only if UI surfaces are non-trivial
-   /makato-plan:decompose
-   /makato-plan:create-acceptance-tests
-   /makato-plan:to-issues              # creates real GitHub issues — DRY_RUN=1 to preview
-   /makato-plan:issue-to-project       # adds them to the GitHub Projects v2 board
-   ```
-4. Inspect the generated `specs/checkout-redesign/` folder between phases. Re-run any skill in "Refine" mode if you want to iterate on an artifact.
-
-`to-issues` supports `DRY_RUN=1` to preview the GitHub issues that would be created without making any changes.
-
 ## Version
 
-0.1.0
+Managed by release-please at repo level; per-skill versions live in SKILL.md frontmatter.

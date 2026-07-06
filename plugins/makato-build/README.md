@@ -1,26 +1,17 @@
 # makato-build
 
-**Goal**: Transforms decomposed, vertically-sliced stories into tested, reviewed, merged code.
+**Goal.** Take a decomposed, vertically-sliced story shaped by makato-plan and produce a merged
+pull request — tested, reviewed, and ready to ship — within a single session.
 
-**How**: Provides a sequential skill pipeline anchored by `start` as the entry point, then
-`refine` → (optional `grill-with-docs`) → `implement-tdd` *or* `implement-goal` → `simplify` →
-`review` → `verify` → `sensors` (with per-finding repair via `resolve-finding`) → `push-to-git` →
-`create-pr` → `address-pr-comments`. Takes planned specs and produces production-ready pull
-requests in a single session.
+**How.** A sequential skill pipeline anchored at `build-start` walks through refinement,
+implementation (TDD or goal-driven), simplification, review, gate verification, sensor repair,
+commit, push, PR creation, and comment resolution. Stories arrive planned but unrefined;
+`build-refine` bridges that gap into a plan small enough for autonomous, single-session execution.
+Sub-agents handle specialised read-only tasks (gate discovery, context loading, adversarial review)
+while the `coder` agent — the only agent with elevated write permissions — executes each TDD task.
 
-**Why**: Closes the loop from ideation to merged code — planned stories become shippable features
-without manual orchestration overhead.
-
-## Build Boundary
-
-Stories entering this plugin are **planned but not refined**:
-
-- They have clear functional descriptions and acceptance criteria (from makato-plan)
-- They include architectural context and design decisions
-- They do NOT yet have implementation plans, file targets, or testing approaches
-
-The /refine step bridges that gap — producing a plan small enough to execute autonomously in one
-session.
+**Why.** Planned stories become shippable features without manual orchestration overhead.
+makato-build closes the loop from ideation to merged code.
 
 ## What Belongs Here
 
@@ -32,344 +23,198 @@ session.
 
 ## What Does NOT Belong Here
 
-- Hotfixes, small defects, or ad-hoc code changes (out of scope — no dedicated plugin yet)
-- Shaping work (PRDs, architecture, prototypes, decomposition — that's makato-plan)
-- Plugin/skill scaffolding (that's makato-contribute)
+- Hotfixes, small defects, or ad-hoc code changes (no dedicated plugin yet)
+- Shaping work — PRDs, architecture, prototypes, decomposition (that is makato-plan)
+- Plugin/skill scaffolding (that is makato-contribute)
 - CI/CD pipeline configuration or deployment automation
 - Project management or issue tracker state machine transitions
 
-## Design Principles
-
-1. **Single-session execution.** Unlike human workflows that need "resume" capabilities, AI agents
-   execute a full story implementation in one session. There is no /resume skill — each story is
-   implemented end-to-end in a single invocation. The /refine step produces a plan small enough to
-   complete autonomously.
-
-2. **Fail-forward with re-plan.** Quality gates have different loop behaviors: /review loops on
-   itself (fix findings → re-review until clean). /verify and /simplify escalate structural
-   failures back to /refine — update the plan and re-implement on clean foundations rather than
-   accumulating fixes. The threshold: "Can I fix this without changing the implementation
-   approach?" If yes, fix in place. If no, re-plan.
-
-3. **Two implementation modes.** TDD (RED → GREEN → INTEGRATE → VERIFY) is the default for
-   logic-heavy work where behavior can be encoded as tests upfront. Goal-driven (/implement-goal)
-   is for UI-heavy work, configuration changes, or tasks where TDD adds friction without value.
-   The choice is per-story, not per-plugin.
-
-4. **Structured logging at every step.** Every skill appends JSONL entries to
-   `spec/<story-key>/build.jsonl` — one event per line, append-only. This makes every session
-   replayable and debuggable after the fact. Required fields: `ts` (ISO 8601), `skill`, `story`,
-   `step`, `status` (`start` | `ok` | `warn` | `error`). Optional: `task`, `data`
-   (step-specific payload), `error` (message when status is `error`). Skills must log at minimum:
-   session start, each major step start/completion, and any error with full context.
-
 ## Workflow
 
-Skills follow a sequential build pipeline. Each phase produces output that feeds the next.
-Quality gates (/simplify, /review, /verify) can loop back to earlier phases when issues are
-structural.
-
-### Phases
-
-0. **Start** — entry point, validate prerequisites
-   - [x] `start` (interactive) — validates git state, validates spec prerequisites, captures
-     implementation mode (TDD vs goal), initializes `build.jsonl`, and kicks off `refine`
-   - Input: work item key (GitHub Issue number or spec slug)
-   - Output: validated session state — clean git, spec folder exists with required artifacts,
-     implementation mode recorded
-   - Note: Required entry point for any full build session. Use `refine` directly only when
-     resuming a session whose prerequisites were already validated.
-
-1. **Refine** — bridge from planned to implementable
-   - [ ] `refine` (interactive)
-   - Input: GitHub Issue or stories.json + full spec folder from makato-plan
-     context, the architecture doc for technical approach, decisions for constraints. Reads the
-     actual code, identifies files to change, determines test strategy. Plan must be small enough
-     for single-session execution.
-
-2. **Align** — reconcile spec language with codebase language
-   *(optional, recommended for complex stories)*
-   - [x] `grill-with-docs` (interactive)
-   - Input: Implementation plan + spec artifacts + target codebase
-   - Output: enriched `spec/<key>/glossary.md` (codebase `_Code_:` annotations on conflicting
-     terms, new terms appended) + ADRs for hard-to-reverse decisions
-   - Note: Challenges the refinement plan against the actual domain model and code. Flags
-     terminology conflicts ("your spec says 'cancellation' but the codebase calls this
-     'revocation'"). Enriches the feature `glossary.md` (written by `/makato-plan:grill`) with
-     `_Code_:` annotations — one file, one truth. Creates ADRs only when decisions are hard to
-     reverse, surprising without context, and involve genuine trade-offs. Inspired by
-     [Matt Pocock's grill-with-docs](https://github.com/mattpocock/skills/blob/main/skills/engineering/grill-with-docs/SKILL.md).
-
-3. **Implement** — write the code (choose one mode per story)
-   - [ ] `implement-tdd` (autonomous) — RED → GREEN → INTEGRATE → VERIFY cycle per task
-   - [ ] `implement-goal` (autonomous) — goal-driven execution for UI/config work
-   - Input: Implementation plan from /refine
-   - Output: Working code with unit tests + integration tests (TDD) or working code with tests
-     written after (goal)
-   - Note: TDD is default for backend/logic. Goal-driven for frontend/config. Both produce tested
-     code — they differ in sequencing.
-   - TDD cycle per task:
-     - **RED**: Write failing unit tests (isolated, dependencies mocked) AND failing integration
-       tests (real dependencies, cross-component boundary)
-     - **GREEN**: Implement until unit tests pass
-     - **INTEGRATE**: Make integration tests pass against real dependencies
-     - **VERIFY**: Full suite (unit + integration + pre-existing) passes before moving to next task
-
-4. **Simplify** — fight complexity creep
-   - [ ] `simplify` (interactive)
-   - Input: Implemented code from /implement-*
-   - Output: Simplified code — removed unnecessary abstractions, reduced indirection, cleaner
-     interfaces
-   - Note: AI-generated code tends toward over-engineering. This step explicitly counters that.
-     Reviews for: premature generalization, unnecessary wrappers, dead code, complexity that
-     doesn't serve acceptance criteria. *Scoped to the build pipeline (post-implement, pre-review);
-     distinct from the suite-level `simplify` skill which is a general-purpose code review tool.*
-
-5. **Review** — adversarial quality check
-   - [ ] `review` (autonomous)
-   - Input: Current branch diff vs. main
-   - Output: Review report (CRITICAL / SUGGESTION / NITPICK findings)
-   - Note: Cynical, skeptical review. 0 findings = suspicious (re-review). Auto-fixes mechanical
-     issues (formatting, imports). CRITICAL findings are fixed, then /review re-runs until clean.
-     The review loop is self-contained — it does not proceed to /verify until all findings are
-     resolved.
-
-6. **Verify** — quality gates
-   - [ ] `verify` (autonomous)
-   - Input: Current working tree
-   - Output: Gate results (PASS/FAIL per gate, coverage report)
-   - Note: Runs build → lint → unit tests → integration tests → coverage check. The "does it
-     actually work?" gate. Unit and integration suites are run separately so failures are
-     attributable. If gates fail with fixable issues → fix and re-run /verify. If gates fail with
-     structural issues (unfixable without changing approach) → back to /refine to re-plan.
-
-7. **Sensors** — pre-commit findings repair loop
-   - [x] `sensors` (autonomous) — runs pre-commit sensors against staged/all/changed files,
-     parses findings, dispatches `sensor-fixer` agent until clean or `MAX_LOOPS=5`
-   - [x] `resolve-finding` (per-finding) — decision tree resolving one sensor finding via 4
-     branches: autofix, tech-skill route, safe-automated action (redact/upgrade/suppress), or
-     carry-over to draft PR
-   - Input: Sensors triggered by pre-commit hook (or an autonomous fixer re-running them after
-     edits)
-   - Output: Clean pre-commit run, or a draft PR carrying the residual findings forward with
-     audit log entries
-   - Note: This is gate-0 for `push-to-git`. The loop is bounded by `MAX_LOOPS` and per-finding
-     repair branches keep retries focused — a single unfixable finding doesn't block the others.
-
-8. **Ship** — get code into review
-   - [ ] `push-to-git` (autonomous) — atomic conventional commits, push to remote
-   - [ ] `create-pr` (interactive) — PR with template, issue links, acceptance mapping
-   - Input: Verified working tree (all gates passed)
-   - Output: GitHub PR URL ready for human review
-   - Note: Each commit is one logical change, individually bisectable. PR description generated
-     from spec + acceptance criteria mapping.
-
-9. **Respond** — handle review feedback
-   - [ ] `address-pr-comments` (interactive) — classify and resolve PR review feedback
-   - Input: PR with review comments
-   - Output: Fixes committed, pushed, reply comments posted
-   - Note: Handles all PR comments — human reviewers and automated bots (CI failures, security
-     scanners, lint bots, Hyperspace). Classifies each (MUST-FIX / SHOULD-FIX / CONSIDER /
-     OUT-OF-SCOPE). Presents classification for approval. Implements fixes grouped by file/theme.
-     If feedback is structural → recommend re-plan.
-
-### Quality Gate Decision Logic
-
-At each quality gate (/simplify, /review, /verify, /address-pr-comments), issues are classified:
-
-- **/simplify** — issues too large to simplify in place → back to /refine (re-plan)
-- **/review** — CRITICAL findings → fix them, re-run /review (loop until clean)
-- **/verify** — gates fail, fixable → fix, re-run /verify. Gates fail, structural → back to
-  /refine (re-plan)
-- **/address-pr-comments** — feedback is structural → back to /refine (re-plan)
-
-The threshold for re-plan: "Can I fix this without changing the implementation approach?"
-If yes, fix it. If no, re-plan.
-
-### Logging
-
-Every skill appends structured events to `spec/<story-key>/build.jsonl` (append-only, one JSON
-object per line). This file is the audit trail for the entire build session — replayable,
-diffable, and parseable for post-session debugging.
-
-**Schema:**
-
-```json
-{"ts": "2026-05-22T10:30:00.123Z", "skill": "implement-tdd", "story": "STORY-1", "step": "red-phase", "task": 1, "status": "start", "data": {}}
-{"ts": "2026-05-22T10:30:05.456Z", "skill": "implement-tdd", "story": "STORY-1", "step": "red-phase", "task": 1, "status": "ok", "data": {"unit_tests": 3, "integration_tests": 2}}
-{"ts": "2026-05-22T10:31:00.789Z", "skill": "implement-tdd", "story": "STORY-1", "step": "green-phase", "task": 1, "status": "error", "data": {}, "error": "Compilation failed: cannot find symbol 'OrderStatus'"}
+```
+  GitHub Issue / spec slug
+          │
+          ▼
+  ┌───────────────┐   validates git, spec, mode
+  │  build-start  │ ──────────────────────────────────────────────┐
+  └───────────────┘                                               │
+                                                                  ▼
+                                                       ┌───────────────────┐
+                                                       │   build-refine    │
+                                                       └─────────┬─────────┘
+                                                                 │ plan.md
+                                                                 ▼
+                                                    ┌────────────────────────┐
+                                                    │  build-grill-with-docs │ (optional)
+                                                    └────────────┬───────────┘
+                                                                 │ enriched glossary + ADRs
+                                                   ┌─────────────┘
+                                                   │
+                               ┌───────────────────┴───────────────────┐
+                               │                                       │
+                               ▼                                       ▼
+               ┌────────────────────────┐             ┌────────────────────────┐
+               │  build-implement-tdd   │             │  build-implement-goal  │
+               │    (TDD mode tasks)    │             │   (goal mode tasks)    │
+               └────────────┬───────────┘             └────────────┬───────────┘
+                            └─────────────────┬─────────────────────┘
+                                              │ working code + tests
+                                              ▼
+                                   ┌────────────────────┐
+                                   │   build-simplify   │
+                                   └──────────┬─────────┘
+                                              │ simplified working tree
+                                              ▼
+                                    ┌─────────────────┐
+                                    │   build-review  │
+                                    └────────┬────────┘
+                                             │ CRITICAL findings fixed
+                                             ▼
+                                    ┌─────────────────┐
+                                    │   build-verify  │
+                                    └────────┬────────┘
+                                             │ gates PASS
+                                             ▼
+                                   ┌──────────────────┐   sensor-fixer +
+                                   │  build-sensors   │◄─ build-resolve-finding
+                                   └────────┬─────────┘   (per-finding repair)
+                                            │ clean pre-commit
+                                            ▼
+                                 ┌──────────────────────┐
+                                 │  build-push-to-git   │
+                                 └──────────┬───────────┘
+                                            │ branch pushed
+                                            ▼
+                                 ┌──────────────────────┐
+                                 │   build-create-pr    │
+                                 └──────────┬───────────┘
+                                            │ PR URL
+                                            ▼
+                          ┌─────────────────────────────────┐
+                          │  build-address-pr-comments      │
+                          └─────────────────────────────────┘
+                                            │ fixes pushed, comments replied
+                                            ▼
+                                        merged PR
 ```
 
-**Required fields:** `ts` (ISO 8601 with milliseconds), `skill`, `story`, `step`, `status`
-
-**Optional fields:** `task` (task index within plan), `data` (step-specific structured payload),
-`error` (verbatim error message when status is `error`)
-
-**Status values:** `start` | `ok` | `warn` | `error`
-
-**Minimum log events per skill run:**
-
-- Session start (status: `start`, step: `session`)
-- Each major step start and completion
-- Every error with full context in `error` field
-- Session end with summary (status: `ok` or `error`, step: `session`)
-
-**Repo policy (#99):** `build.jsonl` is the **only** file under `specs/` that ships
-in-repo. The repo-root `.gitignore` excludes `specs/**/*` but re-includes
-`specs/**/build.jsonl` so any reviewer can replay a past skill run from a fresh
-checkout without re-executing it locally. Plan, stories, fixtures, and every
-other artefact under `specs/<key>/` stay personal. Treat the JSONL as a committed
-evidence file — do not log secrets, credentials, paths outside the repo, or any
-content you would not paste into a public PR.
-
-### Flow Diagram
-
-```text
-stories.json + spec/ artifacts (from makato-plan)
-         │
-         ▼
-┌─────────────────┐
-│     /refine     │◄───────────────────────────────────────┐
-│  (interactive)  │                                        │
-└────────┬────────┘                                        │
-         │ implementation plan                             │
-         ▼                                                 │
-┌─────────────────┐                                        │
-│/grill-with-docs │ (optional)                             │
-│  (interactive)  │                                        │
-└────────┬────────┘                                        │
-         │ plan + glossary.md + ADRs                       │
-         ▼                                                 │
-┌─────────────────┐                                        │
-│  /implement-tdd │  ← OR →  /implement-goal               │
-│  (autonomous)   │          (autonomous)                  │
-└────────┬────────┘                                        │
-         │ working code                                    │
-         ▼                                                 │
-┌─────────────────┐         ┌──────────────┐               │
-│    /simplify    │────────▶│ issues too   │── yes ────────┘
-│  (interactive)  │         │   large?     │
-└────────┬────────┘         └──────────────┘
-         │ simplified              │ no
-         ▼                         ▼
-┌─────────────────┐◄──────── (fix findings)
-│    /review      │
-│  (autonomous)   │─── CRITICAL findings? ── yes ──┐
-└────────┬────────┘                                │
-         │ clean (no criticals)                    │
-         │                              ┌──────────┘
-         │                              │ fix, then
-         │                              └─▶ re-run /review
-         ▼
-┌─────────────────┐
-│    /verify      │─── gates fail? ─┐
-│  (autonomous)   │                 │
-└────────┬────────┘                 ├── fixable → fix, re-run /verify
-         │ all gates pass           │
-         │                          └── structural → back to /refine ──┐
-         ▼                                                             │
-┌─────────────────┐                                                    │
-│  /push-to-git   │                                              (re-plan)
-│  (autonomous)   │
-└────────┬────────┘
-         │ remote branch
-         ▼
-┌─────────────────┐
-│   /create-pr    │
-│  (interactive)  │
-└────────┬────────┘
-         │ PR URL
-         ▼
-┌─────────────────┐
-│/address-pr-     │─── feedback structural? ── yes → back to /refine
-│  comments       │
-│  (interactive)  │─── no → fix, push, done
-└─────────────────┘
-```
-
-**Important:** Every PR that adds or modifies a skill MUST update this workflow section.
+| Phase | Input | Output |
+|-------|-------|--------|
+| build-start | Work item key or local design.md | Validated session state; hands off to build-refine |
+| build-refine | GitHub Issue + spec folder (prd.md, design.md, decisions.md) | plan.md with tasks, file targets, test strategy |
+| build-grill-with-docs (optional) | plan.md + spec folder + codebase | Enriched glossary.md; ADRs for hard-to-reverse decisions |
+| build-implement-tdd / build-implement-goal | plan.md with tasks | Working code + tests; build.jsonl entries |
+| build-simplify | Branch diff vs main + plan.md | Simplified working tree |
+| build-review | Branch diff vs origin/main + plan.md | CRITICAL findings fixed; SUGGESTION/NITPICK report |
+| build-verify | Working tree + gate commands | PASS/FAIL per gate; coverage report |
+| build-sensors | staged/all/changed files | Clean pre-commit run; residual findings carried over |
+| build-push-to-git | Verified working tree + plan.md | Feature branch on remote; commits map to plan tasks |
+| build-create-pr | Pushed branch + spec artifacts | GitHub PR URL with spec-derived description |
+| build-address-pr-comments | PR with unresolved review comments | Fixes committed; reply comments posted; carry-over issues logged |
 
 ## Skills
 
-| Skill | Description | Version |
-| --- | --- | --- |
-| `start` | Entry point for a full build session — validates git state, validates spec prerequisites, captures implementation mode, initializes the build log, and kicks off `refine` | 1.0.0 |
-| `definition-of-done` | Canonical, versioned, machine-checkable Definition of Done — 12 automated + 6 manual items shared by `coder` (VERIFY), `build-verify` (gate mapping), and PO-agent (manual-tier assertion) | 1.0.0 |
-| `inject-context` | Resolve a task's predicted changed-file list against `config/context-bundles.yml` and return a deterministic, deduplicated, ordered list of rule-file paths for `knowledge-scout` Step 0 to pre-read. Glob-specificity-first ordering, `default` bundle always last, no-match-fallback warning surfaced to caller, missing-`default` raises `BundleResolutionError` with `halt_code="HALT-006"` | 1.0.0 |
-| `grill-with-docs` | Align implementation plan terminology to the codebase domain model — probes codebase for canonical names, adversarial alignment interview, enriches `spec/<key>/glossary.md` with `_Code_:` annotations for codebase conflicts, ADR routing via three-criteria test | 1.1.0 |
-| `refine` | Bridge a planned work item to an implementation plan — tasks, file targets, unit/integration test strategy, acceptance mapping; reads target repo AGENTS.md/CLAUDE.md as hard constraints | 1.1.0 |
-| `implement-tdd` | Execute a refined plan using TDD — RED → GREEN → INTEGRATE → VERIFY per task, autonomous, tracer bullet phase for multi-layer stories, conditional coverage gate | 1.1.0 |
-| `implement-goal` | Execute goal-mode tasks from a refined plan — BUILD → VERIFY RUNTIME → TEST → VERIFY, autonomous, for UI/config/migration work | 1.0.0 |
-| `simplify` | Review implemented code for complexity that doesn't serve the ACs — interactive, presents findings for approval, checks against local repo patterns | 1.1.0 |
-| `build-fix-security` | Per-finding security repair dispatched by `build-resolve-finding` for `bandit:*` / `safety:*` / `pip-audit:*` findings — 4-branch decision tree (Autofix: mechanical safe-function swap → Refactor: structural fix → Suppress: deterministic FP with specific reason → Carry-over: human review). CWE-keyed classification table covering B101–B610 and CVE findings. Hard rule: no bare `# nosec` — every suppression must include `# nosec B<id>: <specific reason>` | 1.0.0 |
-| `build-fix-types` | Per-finding type-error repair dispatched by `build-resolve-finding` for `pyright:*` / `mypy:*` findings — 6-branch decision tree (Narrow → Annotate → TypeVar/Generic → Protocol → cast → type: ignore with reason). Hard rule: branch 6 only when no rule pattern matches branches 1–5; bare `# type: ignore` forbidden | 1.0.0 |
-| `review` | Adversarial quality review — auto-fixes mechanical issues, loops on CRITICAL findings until clean, zero-findings recheck requires source citations | 1.0.0 |
-| `verify` | Sequential gate pipeline: build → lint → unit → integration → conditional coverage; re-runs from failed gate; structural failures escalate to /refine; enumerates DoD Automated-tier mapping with HALT codes | 1.4.0 |
-| `sensors` | Run pre-commit sensors against staged/all/changed files, parse findings, dispatch `sensor-fixer` agent until clean or MAX_LOOPS=5 | 1.0.0 |
-| `resolve-finding` | Per-finding decision tree resolving a single sensor finding via 4 branches — autofix, tech-skill route, safe-automated action (redact/upgrade/suppress), or carry-over to draft PR | 1.0.0 |
-| `push-to-git` | Atomic conventional commits from plan task structure; one commit per task with tests bundled; interactive push confirmation before affecting remote | 1.0.0 |
-| `create-pr` | Draft PR description from spec artifacts (ACs → How to Test, tasks → What changed); optional GitHub issue linking; interactive draft review before opening | 1.0.0 |
-| `address-pr-comments` | Classify and resolve all PR comments (human and bot); four-tier classification (MUST-FIX/SHOULD-FIX/CONSIDER/OUT-OF-SCOPE); structural feedback escalates to /refine. Headless-safe under `--autonomous` — scope-guards SHOULD-FIX against the task diff, opens `makato-carry-over` follow-up issues for OUT-OF-SCOPE comments, posts a single `[STRUCTURAL]` summary reply + applies `needs-human-review` + exits HALT-003 on STRUCTURAL MUST-FIX. Reply text rendered from `templates/pr-comment-replies.md` | 1.4.0 |
+| Skill | Description | Input | Output | Version |
+|-------|-------------|-------|--------|---------|
+| [build-start](skills/build-start/SKILL.md) | Entry point for a full build session — validates git state, validates spec prerequisites, captures implementation mode (TDD vs goal), initializes the build log, and kicks off build-refine. (interactive) | Work item key (GitHub Issue number or spec slug); optional: local design.md created via interview when no ticket exists. | Validated session state — clean git, spec folder confirmed, implementation mode recorded; hands off to build-refine. | 1.3.1 |
+| [build-refine](skills/build-refine/SKILL.md) | Bridge a planned work item to an implementation plan — tasks, file targets, unit/integration test strategy, acceptance mapping. Reads target repo AGENTS.md/CLAUDE.md as hard constraints. (interactive) | GitHub Issue or stories.json + full spec folder from makato-plan (prd.md, design.md, decisions.md); optional --autonomous flag and WORKTREE_PATH. | plan.md written to specs/\<key\>-\*/ with task list, file targets, test strategy, and acceptance mapping. | 1.7.2 |
+| [build-grill-with-docs](skills/build-grill-with-docs/SKILL.md) | Align implementation plan terminology to the codebase domain model — probes codebase for canonical names, adversarial alignment interview, enriches glossary.md with _Code_: annotations, routes ADRs via three-criteria test. (interactive) | plan.md from specs/\<key\>-\*/; optional prd.md, design.md, decisions.md, glossary.md from spec folder; codebase to probe. | Enriched specs/\<key\>-\*/glossary.md with _Code_: annotations for codebase conflicts; ADRs created for hard-to-reverse decisions. | 1.3.2 |
+| [build-implement-tdd](skills/build-implement-tdd/SKILL.md) | Execute a refined plan using TDD — RED failing tests, GREEN unit passing, INTEGRATE real dependencies, VERIFY full suite per task. Tracer bullet phase for multi-layer stories. Autonomous loop. (autonomous) | plan.md with tdd-mode tasks in specs/\<key\>-\*/; optional --autonomous flag and WORKTREE_PATH. | Working code with unit and integration tests passing; JSONL entries appended to build.jsonl. | 1.9.2 |
+| [build-implement-goal](skills/build-implement-goal/SKILL.md) | Execute goal-mode tasks from a refined plan — BUILD → VERIFY RUNTIME → TEST → VERIFY. For UI, config, or migration work where implementation must exist before tests can be written. (autonomous) | plan.md with goal-mode tasks in specs/\<key\>-\*/; optional --autonomous flag and WORKTREE_PATH. | Working code with tests written after runtime verification; JSONL entries appended to build.jsonl. | 1.5.0 |
+| [build-simplify](skills/build-simplify/SKILL.md) | Review implemented code for complexity that does not serve the acceptance criteria — premature abstractions, unnecessary wrappers, dead code, over-indirection. Interactive by default; auto-approves SIMPLIFY findings under --autonomous. (interactive) | Current branch diff vs main; plan.md for acceptance criteria reference; optional --autonomous flag and WORKTREE_PATH. | Simplified code in working tree; SIMPLIFY findings applied or ESCALATE findings surfaced via R1. | 1.4.2 |
+| [build-review](skills/build-review/SKILL.md) | Adversarial quality review of the branch diff — CRITICAL findings are fixed and the review loops until clean. Auto-fixes mechanical issues (formatting, imports). Reports SUGGESTION and NITPICK findings. (autonomous) | Current branch diff vs origin/main (resolved via default-branch.sh); plan.md acceptance criteria. | Clean working tree with CRITICAL findings fixed; SUGGESTION/NITPICK report; does not commit. | 1.3.3 |
+| [build-verify](skills/build-verify/SKILL.md) | Sequential gate pipeline: build → lint → unit → integration → conditional coverage. Each gate runs separately so failures are attributable. Fixable failures fixed and re-run; structural failures escalate to refine. (autonomous) | Current working tree; optional --autonomous flag and WORKTREE_PATH; gate commands discovered by gate-scout. | Gate results (PASS/FAIL per gate, coverage report); JSONL entries appended to build.jsonl. | 1.6.0 |
+| [build-sensors](skills/build-sensors/SKILL.md) | Run pre-commit sensors against staged/all/changed files, parse findings, dispatch sensor-fixer agent until clean or MAX_LOOPS=5. Implements gate-0 of the build pipeline. (autonomous) | scope (staged\|all\|changed-vs-main), spec_key for build.jsonl path; pre-commit config in target project. | Clean pre-commit run; residual findings carried over to draft PR; JSONL audit entries. | 1.0.0 |
+| [build-resolve-finding](skills/build-resolve-finding/SKILL.md) | Per-finding decision tree resolving a single sensor finding via 4 branches — autofix, tech-skill route (action skill or autofix-then-skill fallback), safe-automated action (redact/upgrade/suppress), or carry-over to draft PR. (autonomous) | Single normalized sensor finding from sensor-fixer; finding-routes.json for routing; target file path. | Structured outcome: branch taken, fix applied or carry-over recorded; JSONL entry appended. | 1.1.0 |
+| [build-fix-security](skills/build-fix-security/SKILL.md) | Per-finding security repair engine dispatched by build-resolve-finding for bandit:\*, safety:\*, and pip-audit:\* findings. CWE-keyed 4-branch decision tree (autofix / refactor / suppress / carry-over). Never invoked directly by the user. (autonomous) | Single normalized bandit/safety/pip-audit finding dispatched by build-resolve-finding. | In-place code edit or suppression comment or carry-over record; structured outcome returned to caller. | 1.0.0 |
+| [build-fix-types](skills/build-fix-types/SKILL.md) | Per-finding type-error repair dispatched by build-resolve-finding for pyright:\* or mypy:\* findings — 6-branch decision tree (narrow / annotate / TypeVar/Generic / Protocol / cast / type:ignore-with-justification). Never invoked directly by the user. (autonomous) | Single normalized pyright/mypy finding dispatched by build-resolve-finding. | In-place type annotation or guard edit; structured outcome returned to caller. | 1.0.0 |
+| [build-push-to-git](skills/build-push-to-git/SKILL.md) | Create atomic conventional commits from the plan's task structure and push the feature branch to remote. One commit per logical task, individually bisectable. Confirms push before affecting remote. (interactive) | Verified working tree; plan.md for task-to-commit mapping; optional --autonomous flag and WORKTREE_PATH. | Feature branch pushed to remote; commit history maps to plan tasks. | 1.6.0 |
+| [build-create-pr](skills/build-create-pr/SKILL.md) | Generate a pull request from the pushed feature branch. Drafts PR description from spec artifacts — acceptance criteria map to How to Test, design decisions surface in the description. Presents draft for approval before opening. (interactive) | Pushed feature branch; spec artifacts (prd.md, decisions.md, stories.json); optional work-item-key and --autonomous flag. | GitHub PR URL opened with spec-derived description and issue links. | 1.6.2 |
+| [build-address-pr-comments](skills/build-address-pr-comments/SKILL.md) | Classify and resolve all PR comments — human reviewer feedback and automated bot findings. Four-tier classification (MUST-FIX/SHOULD-FIX/CONSIDER/OUT-OF-SCOPE). Structural feedback escalates to refine. Headless-safe under --autonomous. (interactive) | PR with unresolved review comments; optional work-item-key, --autonomous flag, and WORKTREE_PATH. | Fixes committed and pushed; reply comments posted via gh CLI; OUT-OF-SCOPE items logged as carry-over issues. | 1.5.2 |
+| [definition-of-done](skills/definition-of-done/SKILL.md) | Canonical, versioned, machine-checkable Definition of Done — 12 automated items enforced by build-verify/build-sensors/build-push-to-git/coder agent; 6 manual items asserted by the PO-agent. Single source of truth referenced across the pipeline. | No runtime input — reference document consumed by coder VERIFY phase, build-verify gate mapping, and PO-agent task-completion logic. | Authoritative DoD checklist (18 items total) returned as structured reference. | 1.0.0 |
+| [inject-context](skills/inject-context/SKILL.md) | Resolve a list of changed file paths against config/context-bundles.yml and return a deterministic, deduplicated, ordered list of rule-file paths for knowledge-scout to pre-read. Glob-specificity-first ordering; raises HALT-006 when default bundle is absent. (autonomous) | List of predicted changed file paths from the current task; config/context-bundles.yml registry. | Ordered list of rule-file paths for knowledge-scout to pre-read; no-match warning surfaced when applicable. | 1.0.0 |
 
-## Planned Agents *(speculative — not yet in plugin.json)*
+## Agents
 
-| Agent | Model | Purpose |
-| --- | --- | --- |
-| coder | TBD | Executes implementation tasks (TDD cycles, file changes) |
-| tester | TBD | Writes tests, verifies coverage, runs gate checks |
-| reviewer | TBD | Adversarial code review with minimum-findings enforcement |
+| Agent | Model | Permission | Purpose | Dispatched by |
+|-------|-------|------------|---------|---------------|
+| coder | claude-sonnet-latest | bypassPermissions | Execute a single TDD task (RED→GREEN→INTEGRATE→VERIFY) from a refined implementation plan. The only agent with elevated permissions. | build-implement-tdd |
+| diff-reviewer | claude-sonnet-latest | bypassPermissions (disallowedTools: Write, Edit, NotebookEdit — effectively read-only) | Adversarially review the branch diff against acceptance criteria — finds correctness bugs, edge cases, security issues, and contract violations. Returns CRITICAL / SUGGESTION / NITPICK findings. Does not apply fixes. | build-review |
+| gate-scout | claude-haiku-latest | bypassPermissions (disallowedTools: Write, Edit, Bash, NotebookEdit — read-only) | Discover build, lint, unit test, integration test, and coverage commands by scanning project config files. Returns a structured command map for build-verify. | build-verify |
+| knowledge-scout | claude-haiku-latest | bypassPermissions (disallowedTools: Write, Edit, NotebookEdit — read-only) | Discover project Hard Constraints and Standards from the specs knowledge graph via inject-context (Step 0) → locate SPECS_ROOT → read index → synthesize constraints. | build-refine, build-grill-with-docs |
+| plan-analyst | claude-haiku-latest | bypassPermissions (disallowedTools: Write, Edit, Bash, NotebookEdit — read-only) | Read a refined implementation plan and return a structured context object — task list, architectural layer classification, glossary constraints, tracer_required flag, and reusable codebase patterns. | build-implement-tdd, build-implement-goal |
+| sensor-fixer | claude-sonnet-latest | Edit/Write restricted to changed-files set captured at dispatch time | Outer loop reading parsed sensor findings, running batched deterministic-autofix Phase 0, then dispatching build-resolve-finding per residual finding. Tier-escalates sonnet→opus on second failure for the same finding. | build-sensors |
 
-## Planned Hooks *(speculative — not yet in plugin.json)*
+## Hooks
 
 | Hook | Trigger | Purpose |
-| --- | --- | --- |
-| pre-commit | Before commit | Run tests, lint, type-check to catch issues before they enter history |
-| post-implement | After /implement-* | Auto-run /simplify to prevent complexity from accumulating |
+|------|---------|---------|
+| pre-commit-sensors | PreToolUse on Bash(git commit\*) — blocks the tool call on non-zero exit | Fast-lane gate: runs pre-commit on staged files before any git commit; blocks the commit and hands off to sensor-fixer on non-zero exit. Restricted to cheap deterministic checks (linters, formatters, secret-regex, filesystem hygiene) with a 30s hard timeout. |
+| pre-push | Stop event after Claude turn (advisory, not blocking) | After a git push is detected in the session, warns if the verify gate has not been run since the last implementation. Advisory — does not block the push but surfaces the gap. |
+| post-implement | Stop event after Claude turn — checks build.jsonl for completed implement session | After a successful build-implement-tdd or build-implement-goal session, automatically injects a message causing Claude to continue with /build-simplify without waiting for the user. |
 
-## File Structure
+## Scripts
 
-```text
-makato-build/
-├── .claude-plugin/plugin.json
-├── agents/
-│   └── (coder, tester, reviewer)
-├── hooks/
-│   └── (pre-commit, post-implement, etc.)
-├── skills/
-│   └── (refine, implement-tdd, implement-goal, etc.)
-├── shared/
-├── CLAUDE.md
-├── AGENTS.md
-├── CHANGELOG.md
-└── README.md
-```
+- `shared/build-log.sh` — Append a JSONL entry (or batch of entries via --batch stdin mode) to specs/\<key\>-\*/build.jsonl. Worktree-aware: derives REPO_ROOT from the common git directory so entries always land on the main checkout.
+- `shared/default-branch.sh` — Resolve the remote-tracking ref of the repository's default branch (e.g. origin/main). Used by build-review and build-simplify to diff against the correct integration target, avoiding stale local branch issues.
+- `shared/log-bypass.sh` — Append a canonical autonomous_bypass JSONL entry to build.jsonl when a skill takes an autonomous default instead of prompting the user.
+- `shared/inject_context.py` — Python implementation of the inject-context bundle resolver — given changed file paths and context-bundles.yml, returns ordered rule-file paths for knowledge-scout.
+- `shared/test_inject_context.py` — Unit tests for inject_context.py.
+- `shared/parse-sarif.py` — Normalise diagnostic output from various linters/checkers (including SARIF format) into a unified Finding stream for sensor-fixer.
+- `shared/autonomous-propagation-smoke-tests.sh` — Smoke tests verifying that --autonomous flag propagates correctly across cross-skill dispatches.
+- `shared/build-log-batch-smoke-tests.sh` — Smoke tests for build-log.sh --batch mode.
+- `shared/default-branch-smoke-tests.sh` — Smoke tests for default-branch.sh resolution logic.
+- `shared/halt-codes-smoke-tests.sh` — Smoke tests verifying HALT code emission from build skills.
+- `shared/log-bypass-smoke-tests.sh` — Smoke tests for log-bypass.sh.
+- `shared/pr-comments-smoke-tests.sh` — Smoke tests for PR comment classification and reply logic in build-address-pr-comments.
+- `shared/worktree-path-propagation-smoke-tests.sh` — Smoke tests verifying WORKTREE_PATH is propagated and used correctly across autonomous skill dispatch.
 
-## Integration Points
+## Shared Resources
 
-- **Consumes from makato-plan** (via disk artifacts in `spec/<key>/`):
-  - `stories.json` — vertically-sliced stories with acceptance criteria
-  - `prd.md` — functional requirements, goals, scope, success metrics
-  - `design.md` — architecture, component design, technical decisions
-  - `decisions.md` — trade-offs and rejected alternatives
-  - `prototype.html` — (if exists) UI reference for frontend stories
-- **Integrates with**: GitHub CLI (PRs), Git
-- **Produces**: enriched `spec/<story-key>/glossary.md` (codebase `_Code_:` annotations via
-  `grill-with-docs`), ADRs (hard-to-reverse decisions),
-  `spec/<story-key>/build.jsonl` (structured build audit log)
-- **Does NOT depend on**: makato-contribute (independent plugin, no runtime coupling)
-- **Does NOT invoke**: makato-plan skills at runtime (consumes artifacts only, no cross-plugin
-  calls)
+- `shared/finding-routes.json` — Sensor finding → action routing table (version 1.1). Maps tool:rule_id to action (autofix/skill/autofix-then-skill), cmd, and fallback_skill. Consumed by sensor-fixer Phase 0 and build-resolve-finding.
+- `shared/baseline-guide.md` — Reference guide for establishing a test baseline before code changes — distinguishes pre-existing failures from session-introduced ones. Consumed by build-implement-tdd, build-implement-goal, build-simplify, build-verify.
+- `config/context-bundles.yml` — Bundle registry consumed by inject-context — maps file glob patterns to rule-file paths that knowledge-scout should pre-read.
+- `agents/RETURN-CONTRACT.md` — R1 envelope spec shared by all build agents — defines the required JSON block shape (status, errors, tool_calls_used, data) that every sub-agent must emit as its final output.
+- `AUTONOMOUS-MODE.md` — Authoritative reference for --autonomous flag propagation across build-\* skills — documents activation triggers, per-gate default-taking rules, WORKTREE_PATH workspace-isolation contract, and logging requirements.
+- `halt-codes.md` — Registry of skill-level HALT codes (uppercase-underscore tokens like MISSING_INPUT, BASELINE_BROKEN, PUSH_REJECTED) emitted by build-\* skills in R1 envelopes. Distinct from orchestrate-level numeric HALT-NNN codes.
+
+## Notable Governance Files
+
+- `plugins/makato-build/AGENTS.md` — Contributor routing guide — Goal, Build Boundary, What Belongs/Does Not Belong, Design Principles, Security Model, Skill Authoring conventions, File Structure, Versioning, and PR Checklist.
+- `plugins/makato-build/AUTONOMOUS-MODE.md` — Authoritative spec for autonomous mode operation — activation triggers, per-gate default-taking rules, WORKTREE_PATH workspace-isolation contract, and falsy-check pattern.
+- `plugins/makato-build/halt-codes.md` — Skill-level HALT code registry for all build-\* skills — uppercase-underscore tokens, their recovery routes, and relationship to orchestrate-level HALT-NNN codes.
+- `plugins/makato-build/agents/RETURN-CONTRACT.md` — R1 envelope schema spec shared by all agents — machine-parseable JSON contract for autonomous PO-agent integration.
+- `plugins/makato-build/.claude-plugin/plugin.json` — Plugin manifest with name, description, and author (no version field — versioned via release-please + git tags).
+- `plugins/makato-build/shared/finding-routes.json` — Routing table mapping sensor tool:rule_id pairs to autofix commands or skill routes — the dispatch table for the entire sensor repair pipeline.
+- `plugins/makato-build/config/context-bundles.yml` — Bundle registry mapping file globs to rule-file paths consumed by inject-context to feed knowledge-scout.
+- `plugins/makato-build/templates/pr-comment-replies.md` — Reply text templates used by build-address-pr-comments to render per-classification replies on resolved PR comments.
+
+## Plugin Connections
+
+| Direction | Plugin | What flows |
+|-----------|--------|-----------|
+| Consumes from | makato-plan | stories.json, prd.md, design.md, decisions.md, prototype.html — read from specs/\<key\>-\*/ at session start by build-refine and build-start |
+| Dispatched by | makato-orchestrate | PO-agent dispatches build-refine → build-implement-tdd/build-implement-goal → build-verify → build-push-to-git → build-create-pr → build-address-pr-comments with --autonomous; receives R1 envelopes and HALT codes to drive recovery routes |
+| Complements | makato-orchestrate | Shares shared/build-log.sh for JSONL audit entries; provides inject-context to makato-orchestrate scout agent per task |
+
+## Prerequisites / MCP Servers
+
+No MCP servers required.
+
+External prerequisites:
+
+- `pre-commit` installed in target project (required by build-sensors and pre-commit-sensors hook)
+- `gh` CLI installed for PR creation and comment resolution (build-create-pr, build-address-pr-comments)
+- Python 3 for `shared/inject_context.py` and `shared/parse-sarif.py`
+- Git remote (`origin`) accessible for build-push-to-git and build-create-pr
+- `specs/<key>-*/` folder with makato-plan artifacts before build-start/build-refine can run
 
 ## Installation
-
-### For makato-suite contributors (local development)
 
 ```bash
 claude --plugin-dir ./plugins/makato-build
 ```
 
-### For external users (install into your project)
+## Version
 
-```bash
-claude plugin add makato-build --source https://github.com/zstary/makato/tree/main/plugins/makato-build
-```
+Managed by release-please at repo level; per-skill versions live in SKILL.md frontmatter.

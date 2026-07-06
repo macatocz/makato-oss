@@ -1,291 +1,186 @@
 # makato-orchestrate
 
-**Goal**: Autonomous control plane — drives a GitHub Issue from ready-for-dev through to a merged PR unattended.
+**Goal:** Drive a GitHub Issue from ready-for-dev through to a merged PR without human intervention.
 
-**How**: Hosts the PO-agent and supporting infrastructure (workflow-state, kill-switch, session-status,
-loop) that coordinate `makato-plan` decomposition output and `makato-build` `--autonomous` skills into
-a single outer loop with retry, HALT, and audit semantics.
+**How:** The plugin hosts the PO-agent and the supporting infrastructure that bridges makato-plan
+output to makato-build execution — workflow-state for resumable session state, kill-switch for
+operator and budget controls, a polling loop as the unattended entry point, a session-status hook
+for restart resumability, and resolve-pr-conflict for autonomous merge-conflict handling. Four
+agents (po-agent, context-summariser, scout, documentation-agent) and five skills cover the full
+lifecycle from issue pickup through post-merge housekeeping.
 
-**Why**: Closes the orchestration gap identified in the AgenticSystem PRD (GAP-001 → GAP-015).
-`makato-build` lands tested code per story; `makato-plan` shapes stories. Without an outer driver,
-every transition between them requires a human. The PO-agent is that driver.
+**Why:** Without an outer driver, every transition between planning and build requires a human.
+`makato-plan` shapes and decomposes GitHub Issues into acceptance-tested stories; `makato-build`
+takes a single story and produces a tested, reviewed PR. This plugin is the control plane that
+connects them, managing retry, HALT, and audit semantics so the entire pipeline can run
+unattended.
 
-## Status
+## What Belongs Here
 
-> **Scaffold + partial.** This plugin currently contains directory structure, governance docs,
-> the workflow-state foundation, and the kill-switch / context-handoff surface from GAP-004.
-> The remaining skills, agents, and hooks listed below land in follow-up issues:
->
-> - GAP-003 (#26) — `skills/workflow-state/` ✓ **shipped**
-> - GAP-004 (#30) — `skills/kill-switch/`, `scripts/context-handoff.sh`, `hooks/check-halt.sh`, `agents/context-summariser.md`, `halt-conditions.md`, `never-patterns.md` ✓ **shipped**
-> - GAP-006 (#32) — `agents/po-agent.md` ✓ **shipped**
-> - GAP-007 (#33) — `skills/loop/`, `scripts/loop.sh`, `scripts/loop-smoke-tests.sh` ✓ **shipped**
-> - GAP-013 (#29) — `agents/scout.md` ✓ **shipped**
-> - GAP-017 (#46) — `shared/worktree.sh`, `shared/worktree-smoke-tests.sh`, schema fields `worktree_retained` / `worktree_retain_reason`, `agents/po-agent.md` § *Worktree Lifecycle* ✓ **shipped**
-> - GAP-014 (#31) — `hooks/session-status.sh`, `hooks/session-status-smoke-tests.sh`, `skills/session-status/SKILL.md` ✓ **shipped**
->
-> Tracking issue: [GAP-001 (#23)](https://github.com/macatocz/makato/issues/23).
+- The PO-agent definition and its dispatch loop
+- Workflow-state schema and read/write skill (sole writer of state)
+- Kill-switch infrastructure: HALT file poll, GitHub label poll, token-budget ceiling
+- Session-status hook for restart resumability
+- The autonomous loop skill (entry point for unattended runs)
+- HALT-code dispatch tables and needs-human-review labelling logic
+- resolve-pr-conflict skill for autonomous merge-conflict resolution
+- context-summariser and scout agents supporting the PO-agent loop
+- documentation-agent for post-merge housekeeping
+- worktree lifecycle helper (shared/worktree.sh)
 
-## Orchestrate Boundary
+## What Does NOT Belong Here
 
-Issues entering this plugin are **decomposed and shaped**:
-
-- A single GitHub Issue tagged `status:ready-for-dev`
-- A corresponding `specs/<key>-<slug>/` spec folder exists with at minimum `plan.md` or the
-  upstream artifacts that `makato-plan/decompose` emits
-- Acceptance criteria are machine-readable (Gherkin or AC checklist)
-
-PO-agent reads that input, builds a sub-task list, drives `makato-build` skills one task at a time,
-and exits on either a merged PR or a HALT condition.
-
-## Integration Points
-
-### Upstream — makato-plan
-
-- Consumes `specs/<key>-<slug>/stories.json` and `specs/<key>-<slug>/plan.md`
-- Reads `created-issues.json` for the GitHub Issue ↔ story mapping (canonical `Closes #<n>` source)
-- Does **not** invoke `makato-plan` skills — planning must complete before PO-agent dispatch
-
-### Downstream — makato-build
-
-- Dispatches in order: `build-refine` → `build-implement-tdd` (or `build-implement-goal`) →
-  `build-verify` → `build-push-to-git` → `build-create-pr` → `build-address-pr-comments`
-- Every dispatch carries `--autonomous`; sub-skills bypass approval gates per
-  `plugins/makato-build/AUTONOMOUS-MODE.md`
-- Parses each sub-agent's R1 envelope per `plugins/makato-build/agents/RETURN-CONTRACT.md`
-
-### Sibling — makato-plan/issue-to-project
-
-- PO-agent surfaces lifecycle transitions; `issue-to-project sync-lifecycle` reflects them on the
-  GitHub Projects v2 board (board status: `In Progress` → `In review` → `Done`)
-- On HALT, PO-agent applies the `needs-human-review` label; `issue-to-project` keeps the board in
-  sync via its webhook entry point
-
-## --autonomous Invocation Contract
-
-`--autonomous` is propagated, not toggled per skill:
-
-| Layer | Trigger | Default |
-|-------|---------|---------|
-| User | `loop --autonomous <issue-number>` | Required for unattended runs |
-| `loop` skill | Builds the dispatch bundle (issue, spec path, max-iters, budget) | Implicit when invoked with `--autonomous` |
-| `po-agent` | Reads bundle; passes flag to each `build-*` dispatch | Implicit when bundle is autonomous |
-| `build-*` skills | Bypass approval gates per AUTONOMOUS-MODE.md | Per-gate behavior is documented in that file |
-
-Sub-agents inherit the flag via the dispatch context bundle; they do not re-parse argv.
-
-## Skills *(scaffold — additional skills not yet shipping)*
-
-| Skill | Description | Tracking issue |
-|-------|-------------|----------------|
-| `workflow-state` | Read / patch `specs/<key>-<slug>/workflow-state.json` — PO-agent is the sole writer | **Shipped** — GAP-003 (#26). Consumed by PO-agent in GAP-006 (#32). |
-| `kill-switch` | HALT-file poll, GitHub `claude-halt` label poll, per-task budget, daily token ceiling, proactive context handoff shim | **Shipped** — GAP-004 (#30). Consumed by PO-agent in GAP-006 (#32). |
-| `loop` | User-facing autonomous entry point — polls the GitHub Projects v2 board for items at `Status=Ready` and dispatches the PO-agent serially | **Shipped** — GAP-007 (#33). Reads board state populated by `issue-to-project --init`. |
-| `session-status` | SessionStart banner reference — documents `hooks/session-status.sh` (read-only). Lists active workflows with phase, budget %, HALT status, and stale-resume hint at session open | **Shipped** — GAP-014 (#31) |
-
-## Agents *(partial — additional agents not yet shipping)*
-
-| Agent | Model | Permission Mode | Purpose | Tracking issue |
-|-------|-------|-----------------|---------|----------------|
-| `context-summariser` | haiku | read-only (Read-only) | Produces ≤ 500-token session summary for HALT-007B handoff — input is workflow-state.json + current task description only, never source files | **Shipped** — GAP-004 (#30). Dispatched by PO-agent in GAP-006 (#32). |
-| `po-agent` | sonnet | bypassPermissions | Outer-loop driver — reads Issue, builds sub-task list, dispatches `build-implement-tdd` / `build-implement-goal` per task, patches state, terminates on PR-merged or HALT | **Shipped** — GAP-006 (#32). Consumed by `loop` (GAP-007 / #33). |
-| `scout` | haiku | read-only | Per-task pre-read of the exact files a sub-task will touch + the bundle rules from `inject-context`; returns a ~500-token structured summary (`key_patterns`, `naming_conventions`, `test_file_paths`, `existing_exports`, `warnings`) injected into the coder's `SCOUT_SUMMARY` input. Advisory — a scout failure degrades to a `coder` dispatch without the summary, never a HALT. | **Shipped** — GAP-013 (#29). Dispatched by `build-implement-tdd` Step 6 once per task. |
-| `documentation-agent` | sonnet | bypassPermissions (frontmatter denies `Edit`/`Write` on `src/**`, `lib/**`, `app/**`) | Post-merge documentation pass — appends a Keep a Changelog entry, conditionally updates README on public-API change, closes parent + child Issues via `gh issue close`, advances the Projects v2 board to Done via `issue-to-project sync-lifecycle`, and emits a `docs_coverage_warning` when `src/` diff lines exceed `2× docs/` diff lines. Read-only consumer of workflow-state. Best-effort, never HALTs the parent run. | **Shipped** — GAP-012 (#35). Dispatched by `workflows/post-merge.yml` (GHA) once per merged PR against the default branch. |
-
-## Hooks *(partial — additional hooks not yet shipping)*
-
-| Hook | Trigger | Purpose | Tracking issue |
-|------|---------|---------|----------------|
-| `check-halt.sh` | PreToolUse(Bash) | Block tool call when `~/.claude/HALT` exists — universal kill-switch | **Shipped** — GAP-004 (#30) |
-| `session-status.sh` | SessionStart | Scan `specs/*/workflow-state.json` and print a banner per active workflow (issue, phase, budget %, HALT status, stale marker). Also prints `HALT ACTIVE` if `~/.claude/HALT` exists. Read-only. | **Shipped** — GAP-014 (#31) |
-
-### session-status.sh wiring
-
-Copy into the consumer repo's `.claude/settings.json` under `hooks.SessionStart`:
-
-```json
-{
-  "matcher": "SessionStart",
-  "hooks": [{
-    "type": "command",
-    "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-status.sh",
-    "timeout": 10000
-  }]
-}
-```
-
-Environment overrides: `MAKATO_HALT_FILE`, `MAKATO_DISABLE_SESSION_STATUS=1` (silent
-short-circuit), `MAKATO_SPECS_ROOT`, `MAKATO_STALE_HOURS` (defaults to 24). Full
-reference: `skills/session-status/SKILL.md`. Smoke tests:
-`hooks/session-status-smoke-tests.sh`.
-
-## Kill-switch and HALT codes
-
-GAP-004 (#30) introduces three operator-facing kill-switches and the HALT-007B proactive
-context-handoff path. See:
-
-- `halt-conditions.md` — full table of HALT codes (HALT-000 through HALT-010 plus HALT-007B
-  and HALT-STRUCTURAL), with trigger / action / recovery per code.
-- `never-patterns.md` — nine universal NEVER rules every skill and agent in this plugin must
-  honour.
-- `scripts/context-handoff.sh` — implementation of the HALT-007B lifecycle (checkpoint →
-  summarise → emit resume script → detached self-restart).
-- `skills/kill-switch/SKILL.md` — operator levers (HALT file, `claude-halt` label, env-var
-  budgets, handoff cap) and the four-env-var matrix.
-
-## Logging
-
-Every skill appends structured events to `specs/<key>-<slug>/orchestrate.jsonl` (append-only, one
-JSON object per line — same shape as `makato-build`'s `build.jsonl`).
-
-**Schema:**
-
-```json
-{"ts": "2026-06-27T11:00:00.123Z", "skill": "loop", "issue": 32, "step": "dispatch", "status": "start", "data": {"iteration": 1}}
-{"ts": "2026-06-27T11:00:00.456Z", "skill": "po-agent", "issue": 32, "step": "task", "status": "ok", "data": {"task_index": 0, "r1_status": "success"}}
-{"ts": "2026-06-27T11:00:00.789Z", "skill": "kill-switch", "issue": 32, "step": "halt", "status": "warn", "data": {"halt_code": "HALT-008"}, "error": "outer_iterations >= 3"}
-```
-
-**Required fields:** `ts` (ISO 8601 with milliseconds), `skill`, `issue`, `step`, `status`.
-
-**Optional fields:** `task_index`, `data` (step-specific payload), `error` (verbatim message when
-status is `error` / `warn` with a HALT).
-
-**Status values:** `start` | `ok` | `warn` | `error`.
+- Any source-code edits to the target repository (PO-agent orchestrates, never implements)
+- Planning and shaping skills — PRD, architecture, decomposition (those live in makato-plan)
+- Quality-gate skills — review, simplify, verify (those live in makato-build)
+- Hotfixes or ad-hoc changes (those belong in makato-change)
+- CI/CD pipeline configuration
 
 ## Workflow
 
-> *Diagram and per-skill input/output details land alongside each follow-up issue.*
+The outer loop is entered via the `loop` skill and exits on a merged PR or a documented HALT:
 
-The high-level loop, paraphrased from GAP-006 acceptance criteria:
-
-```text
-GitHub Issue (status:ready-for-dev)
+```
+GitHub Issue (Status: Ready on Projects v2 board)
         │
         ▼
 ┌───────────────────────────┐
-│        loop               │  ← user entry: loop --autonomous <issue>
-│      (autonomous)         │
+│           loop            │  Entry: loop --autonomous
+│        (autonomous)       │  Output: .claude/state/loop-status.json
 └──────────┬────────────────┘
-           │
+           │ dispatches PO-agent serially per untracked issue
            ▼
 ┌───────────────────────────┐
-│      po-agent             │
-│  (sonnet, maxTurns=100)   │
+│         po-agent          │  Input:  GitHub Issue + specs/<key>-<slug>/
+│    (sonnet, maxTurns=100) │  Output: merged PR or documented HALT code
 └──────────┬────────────────┘
            │
-   ┌───────┴───────────────────────────────────┐
-   │ outer loop (plan-level retry counter)     │
-   │   per iteration:                          │
-   │     - kill-switch.poll()  ───┐            │
-   │     - kill-switch.handoff()  │ HALT?      │
-   │     - validate plan graph    │   ▼        │
-   │     - dispatch build-impl-tdd│ apply      │
-   │       (it walks all tasks)   │ needs-     │
-   │     - parse skill R1         │ human-     │
-   │     - re-plan via build-     │ review     │
-   │       refine on partial      │            │
-   │   when r1.status==success:   │            │
-   │     - build-verify           │            │
-   │     - build-push-to-git      │            │
-   │       (auto: build-create-pr)│            │
-   │     - exit                   │            │
-   └──────────────────────────────┘
-```
-
-### Post-merge documentation (GAP-012 / #35)
-
-Once the PR opened by the loop above merges to the default branch, the
-`workflows/post-merge.yml` GHA workflow (consumers copy it to
-`.github/workflows/`) dispatches the `documentation-agent` for the merged PR
-number. The agent runs **outside** the autonomous loop — it is triggered by
-GitHub, not the PO-agent — and produces the post-merge housekeeping
-artefacts in a single pass:
-
-```text
-PR merged to default branch
-        │
-        ▼
-┌──────────────────────────────────┐
-│  workflows/post-merge.yml (GHA)  │  on: pull_request.closed + merged=true
-└──────────┬───────────────────────┘
+   ┌───────┴──────────────────────────────────────┐
+   │  outer loop (bounded by outer_iterations)    │
+   │    kill-switch.poll()      → HALT if fired   │
+   │    context-handoff check   → HALT-007B       │
+   │    build-refine            → task plan       │
+   │    scout (per task)        → SCOUT_SUMMARY   │
+   │    build-implement-tdd /                     │
+   │      build-implement-goal  → R1 envelope     │
+   │    resolve-pr-conflict     → on push reject  │
+   │    build-verify                              │
+   │    build-push-to-git                         │
+   │    build-create-pr         → PR number       │
+   │    build-address-pr-comments → merged or     │
+   │      re-loop                  needs-human    │
+   └──────────────────────────────────────────────┘
+           │ on PR merged
            ▼
-┌──────────────────────────────────┐
-│      documentation-agent         │  sonnet, maxTurns=30
-│  frontmatter denies src/lib/app  │
-└──────────┬───────────────────────┘
+┌───────────────────────────┐
+│  workflows/post-merge.yml │  Trigger: pull_request.closed + merged=true
+│       (GitHub Actions)    │  Output: CHANGELOG, README, Issue closure,
+└──────────┬────────────────┘          Projects v2 board → Done
+           │ dispatches
            ▼
-  1. Locate workflow-state.json by github_pr_number (read-only)
-  2. gh pr diff <PR> + gh pr view <PR> --json commits
-  3. Append CHANGELOG.md (Keep a Changelog)
-  4. README.md update (public-API heuristic)
-  5. Close parent + child Issues (gh issue close)
-  6. issue-to-project sync-lifecycle  →  board to Done
-  7. Retrospective docs-coverage warning → build.jsonl
+┌───────────────────────────┐
+│    documentation-agent    │  Input:  merged PR number
+│  (sonnet, maxTurns=30)    │  Output: CHANGELOG entry, README patch,
+└───────────────────────────┘          closed Issues, board advanced
 ```
 
-Every step is best-effort: missing workflow-state, missing README API
-section, absent `issue-to-project` skill, or a single failing
-`gh issue close` degrade the run to R1 `status: "partial"` rather than
-HALT. The agent never writes `workflow-state.json` — the PO-agent
-remains the sole writer per NEVER 4.
+Per-phase input/output summary:
 
-## File Structure
+| Phase | Input | Output |
+|-------|-------|--------|
+| loop | .claude/config.json github_project block; GitHub Projects v2 board | Dispatched PO-agent sessions; .claude/state/loop-status.json |
+| po-agent | GitHub Issue + specs folder | Patched workflow-state.json; merged PR or HALT audit entry |
+| kill-switch | workflow-state.json; .claude/state/daily-budget-{date}.json | Exit 0 (continue) or HALT code appended to halt_audit[] |
+| build-* dispatch | R1 envelope from each build skill | Patch to workflow-state.json sub_tasks[]; orchestrate.jsonl entry |
+| resolve-pr-conflict | workflow-state.json worktree_path; PR branch | Rebased/force-pushed branch or HALT-008 + needs-human-review label |
+| documentation-agent | Merged PR diff + commit history | CHANGELOG entry; README patch; closed Issues; board advanced to Done |
 
-```text
-makato-orchestrate/
-├── .claude-plugin/plugin.json
-├── agents/
-│   ├── context-summariser.md             (GAP-004 / #30 — shipped)
-│   ├── documentation-agent.md            (GAP-012 / #35 — shipped)
-│   ├── po-agent.md                       (GAP-006 / #32 — shipped)
-│   └── scout.md                          (GAP-013 / #29 — shipped)
-├── hooks/
-│   ├── check-halt.sh                     (GAP-004 / #30 — shipped)
-│   ├── session-status.sh                 (GAP-014 / #31 — shipped)
-│   └── session-status-smoke-tests.sh     (GAP-014 / #31 — shipped)
-├── scripts/
-│   ├── context-handoff.sh                (GAP-004 / #30 — shipped)
-│   └── context-handoff-smoke-tests.sh    (GAP-004 / #30 — shipped)
-├── skills/
-│   ├── workflow-state/                   (GAP-003 / #26 — shipped)
-│   │   ├── SKILL.md
-│   │   └── references/
-│   │       ├── workflow-state.schema.json
-│   │       └── smoke-tests.sh
-│   ├── kill-switch/                      (GAP-004 / #30 — shipped)
-│   │   ├── SKILL.md
-│   │   └── references/
-│   │       └── daily-budget.schema.json
-│   ├── loop/                             (GAP-007 / #33 — shipped)
-│   │   └── SKILL.md
-│   └── session-status/                   (GAP-014 / #31 — shipped)
-│       └── SKILL.md
-├── shared/
-│   ├── workflow-state.sh                 (GAP-003 / #26 — shipped)
-│   ├── worktree.sh                       (GAP-017 / #46 — shipped)
-│   └── worktree-smoke-tests.sh           (GAP-017 / #46 — shipped)
-├── workflows/
-│   └── post-merge.yml                    (GAP-012 / #35 — shipped)
-├── halt-conditions.md                    (GAP-004 / #30 — shipped)
-├── never-patterns.md                     (GAP-004 / #30 — shipped)
-├── CLAUDE.md
-├── AGENTS.md
-├── CHANGELOG.md
-└── README.md
+## Skills
+
+| Skill | Description | Input | Output | Version |
+|-------|-------------|-------|--------|---------|
+| [workflow-state](skills/workflow-state/SKILL.md) | Read and write PO-agent resumable session state at specs/\<key\>-\<slug\>/workflow-state.json. Provides eight subcommands (init / read / write / patch / append-lesson / append-halt / recall-lessons / summarise-lessons) via shared/workflow-state.sh, backed by a JSON Schema draft-07 contract. (autonomous) | Subcommand name, spec key (or repo for recall-lessons), and subcommand-specific args (branch, issue number, JSON payload, jq path, lesson fields). State file must exist for all subcommands except init. | Mutating subcommands atomically overwrite specs/\<key\>-\<slug\>/workflow-state.json; read/recall-lessons print JSON to stdout; summarise-lessons writes specs/\<key\>-\<slug\>/lessons-YYYYMMDD.md and prints its path. | 1.4.0 |
+| [kill-switch](skills/kill-switch/SKILL.md) | Operator and budget kill-switches for the autonomous PO-agent. Composes four checks at every outer-loop boundary: HALT-file presence, GitHub claude-halt label, per-task token budget, and daily token-budget ceiling. Also coordinates HALT-007B proactive context handoff via scripts/context-handoff.sh. (autonomous) | Subcommand (poll / handoff / record-budget / reset-daily-budget) and spec key; for record-budget also a delta-tokens integer. Reads workflow-state.json and .claude/state/daily-budget-{date}.json. | poll exits 0 (continue) or non-zero with HALT code appended to halt_audit[] and needs-human-review label applied; record-budget increments budget_consumed_tokens and daily ledger; handoff delegates to context-handoff.sh. | 1.0.0 |
+| [loop](skills/loop/SKILL.md) | Autonomous polling driver for the PO-agent. Polls a GitHub Projects v2 board for items at Status=Ready and dispatches the PO-agent serially. Single-threaded: next item is only picked up after current workflow-state.json reaches current_phase: done or a HALT fires. (autonomous) | .claude/config.json with github_project block populated; optional --status \<NAME\>, --interval \<S\>, --dry-run, --once flags. Reads board via gh project item-list and specs/\*/workflow-state.json for in-flight detection. | Serially dispatches po-agent per untracked Ready issue; writes .claude/state/loop-status.json as operator-facing audit after each cycle. | 1.1.0 |
+| [session-status](skills/session-status/SKILL.md) | Read-only SessionStart hook reference. Documents hooks/session-status.sh, which scans specs/\*/workflow-state.json and prints a one-line banner per active workflow at session open — phase, budget %, HALT status, stale marker. (autonomous) | No direct invocation — fires automatically via SessionStart hook wired in .claude/settings.json. Reads specs/\*/workflow-state.json and ~/.claude/HALT. | Prints per-workflow banner to stdout at session start; no file mutations. | 1.0.0 |
+| [resolve-pr-conflict](skills/resolve-pr-conflict/SKILL.md) | Detect and resolve a merge conflict on an open PR branch inside the PO-agent worktree — rebase-first, merge -X ours fallback, HALT-008 when irreconcilable. Invoked by the PO-agent after a conflict signal or CI rebase-check failure. Returns R1 envelope. (autonomous) | Work item key (spec folder prefix) and optionally --autonomous flag. Reads worktree_path from workflow-state.json; requires gh CLI authenticated and git fetch access. | R1 envelope (success or failure); on success the feature branch is rebased/merged and force-pushed; on HALT the worktree is retained, needs-human-review label applied, lesson appended to workflow-state. | 1.1.0 |
+
+## Agents
+
+| Agent | Model | Permission | Purpose | Dispatched by |
+|-------|-------|------------|---------|---------------|
+| [po-agent](agents/po-agent.md) | claude-sonnet | bypassPermissions | Outer-loop driver — reads a GitHub Issue, resolves the spec folder, builds sub-task list, dispatches build-implement-tdd / build-implement-goal per task, polls CI and review decisions for fix loops, patches workflow-state, manages git worktree lifecycle, captures structured lessons, routes merge-conflict pushes through resolve-pr-conflict. Sole writer of workflow-state.json. Terminates on merged PR or documented HALT code. | loop skill (scripts/loop.sh) |
+| [context-summariser](agents/context-summariser.md) | claude-haiku | read-only (bypassPermissions with Write/Edit/Bash/NotebookEdit/Task disallowed) | Produces a <=500-token session summary for HALT-007B context-ceiling handoff. Input is workflow-state.json plus the current task description only — never source files. Output is the session_summary string injected into the fresh Claude session. | scripts/context-handoff.sh (via po-agent) |
+| [scout](agents/scout.md) | claude-haiku | read-only (bypassPermissions with Write/Edit/Bash/NotebookEdit disallowed) | Per-task pre-read agent — given a sub-task's predicted changed files and bundle-resolved rule paths from inject-context, reads up to 8 files and returns a ~500-token structured summary (key_patterns, naming_conventions, test_file_paths, existing_exports, warnings) injected into the coder's SCOUT_SUMMARY. Distinct from makato-build/knowledge-scout. | build-implement-tdd Step 6 (per coder dispatch) |
+| [documentation-agent](agents/documentation-agent.md) | claude-sonnet | bypassPermissions (Edit/Write on src/, lib/, app/ blocked at frontmatter level via disallowedTools path patterns) | Post-merge documentation pass — reads merged PR diff and commit history, appends CHANGELOG entry (Keep a Changelog format), conditionally updates README on public-API change, closes parent and child Issues via gh issue close, advances Projects v2 board to Done via issue-to-project sync-lifecycle, emits docs_coverage_warning when src/ diff outpaces docs/ diff by 2x. Never writes workflow-state.json. | workflows/post-merge.yml (GitHub Actions, on pull_request.closed + merged=true) |
+
+## Hooks
+
+| Hook | Trigger | Purpose |
+|------|---------|---------|
+| [check-halt.sh](hooks/check-halt.sh) | PreToolUse(Bash) | Block any Bash tool call when ~/.claude/HALT (or $MAKATO_HALT_FILE) exists — universal operator kill-switch (HALT-000). Exits non-zero to block the tool call so the PO-agent observes the HALT at the next outer-loop boundary. |
+| [session-status.sh](hooks/session-status.sh) | SessionStart | Scan specs/\*/workflow-state.json and print a one-line banner per active workflow (issue, phase, budget %, HALT count, updated_at, stale marker). Prints HALT ACTIVE first if ~/.claude/HALT exists. Read-only — never mutates state. |
+| [session-status-smoke-tests.sh](hooks/session-status-smoke-tests.sh) | Smoke test | Validates session-status.sh output shape on synthetic workflow-state.json fixtures. |
+
+## Scripts
+
+- **scripts/context-handoff.sh** — HALT-007B proactive context-ceiling handoff lifecycle: check budget vs context_warn_tokens, enforce handoff cap (MAKATO_MAX_HANDOFFS), checkpoint workflow-state, dispatch context-summariser, emit .claude/state/resume-{KEY}.sh, and detached self-restart. Falls back to HALT-007 when restart fails or cap is exceeded.
+- **scripts/context-handoff-smoke-tests.sh** — Smoke tests for context-handoff.sh covering the check/cap/checkpoint/emit/restart lifecycle paths.
+- **scripts/loop.sh** — Implementation of the loop skill — polls GitHub Projects v2 board for Ready items, applies in-flight filter against specs/\*/workflow-state.json, dispatches PO-agent serially via claude --session, writes .claude/state/loop-status.json. Exposes run/poll/next/status/dispatch/check-halt subcommands.
+- **scripts/loop-smoke-tests.sh** — Smoke tests for loop.sh — covers 11 scenarios including HALT-file detection, dry-run dispatch, in-flight filtering, board Status filtering, and non-Issue exclusion. Uses MAKATO_LOOP_GH_OVERRIDE for offline fixture injection.
+
+## GitHub Actions Workflows
+
+| Workflow | Purpose |
+|----------|---------|
+| [workflows/post-merge.yml](workflows/post-merge.yml) | Triggered on pull_request.closed where merged=true targeting the default branch. Dispatches documentation-agent with the merged PR number to produce post-merge artefacts: CHANGELOG entry, README update, Issue closure, Projects v2 board advance to Done, docs-coverage retrospective. Consumers copy this file to .github/workflows/. |
+
+## Shared Resources
+
+- **shared/workflow-state.sh** — Canonical shell helper implementing all eight workflow-state subcommands (init/read/write/patch/append-lesson/append-halt/recall-lessons/summarise-lessons) with jq mutations, python3+jsonschema validation, and atomic file writes.
+- **shared/worktree.sh** — Git worktree lifecycle helper for the PO-agent — implements create/resume/cleanup-on-success/retain-on-HALT subcommands. Patches workflow-state.json:.worktree_path and sets worktree_retained/worktree_retain_reason fields.
+- **shared/worktree-smoke-tests.sh** — Smoke tests for worktree.sh covering create, resume, path resolution, cleanup, and retain lifecycle paths.
+- **skills/workflow-state/references/workflow-state.schema.json** — JSON Schema draft-07 contract for workflow-state.json — additionalProperties: false, defines all top-level fields including worktree lifecycle fields, sub_tasks[], halt_audit[], lessons_learned[], and budget/handoff counters.
+- **skills/workflow-state/references/smoke-tests.sh** — Smoke tests for workflow-state.sh covering all eight subcommands, duplicate-init refusal, invalid-write halts, lessons schema validation, and recall/summarise operations.
+- **skills/kill-switch/references/daily-budget.schema.json** — JSON Schema for the per-day token ledger at .claude/state/daily-budget-{YYYY-MM-DD}.json — tracks consumed_tokens, runs[], ceiling_tokens, and updated_at.
+
+## Notable Governance Files
+
+| File | Purpose |
+|------|---------|
+| [halt-conditions.md](halt-conditions.md) | Authoritative HALT code table (HALT-000 through HALT-010, HALT-007B, HALT-STRUCTURAL) — trigger, action, recovery, and whether needs-human-review label is applied for each code. |
+| [never-patterns.md](never-patterns.md) | Nine universal NEVER rules (e.g. never bypass pre-commit, never force-push default branch, never write target-repo source files, never run more than MAX_OUTER_ITERATIONS) that every skill and agent in this plugin must honour in autonomous mode, each with an associated HALT code. |
+| [AGENTS.md](AGENTS.md) | Contributor routing guide — defines goal/how/why, boundary, what belongs/does not belong, design principles, security model, agent table, skill authoring conventions, file structure, autonomous invocation contract, versioning, and PR checklist. |
+| [.claude-plugin/plugin.json](.claude-plugin/plugin.json) | Plugin metadata file — name, description, author. No version field (repo versioned via release-please + git tags). |
+
+## Plugin Connections
+
+| Direction | Plugin | What flows |
+|-----------|--------|-----------|
+| Consumes from | makato-plan | specs/\<key\>/stories.json, created-issues.json, and plan.md — must exist before PO-agent dispatch. Does not invoke makato-plan skills; planning must complete before orchestration begins. |
+| Dispatches to | makato-build | build-refine -> build-implement-tdd (or build-implement-goal) -> build-verify -> build-push-to-git -> build-create-pr -> build-address-pr-comments, all with --autonomous. Uses inject-context (via scout) and build-log.sh shared helper for orchestrate.jsonl entries. |
+| Complements | makato-plan | Syncs GitHub Projects v2 board lifecycle transitions (In Progress -> In review -> Done) via issue-to-project sync-lifecycle when the PO-agent's lifecycle milestones fire. On HALT, PO-agent applies needs-human-review label; issue-to-project keeps the board in sync. |
+
+## Prerequisites / MCP Servers
+
+No MCP servers required — the plugin operates via gh CLI and the Claude Code sub-agent dispatch mechanism.
+
+External prerequisites:
+
+- gh CLI authenticated with project OAuth scope against the target repo
+- .claude/config.json with github_project block (owner, number, host) populated via makato-plan:issue-to-project --init
+- GitHub Projects v2 board with a Status single-select field containing a Ready option
+- specs/\<key\>-\<slug\>/ folder with plan.md or decompose artifacts and machine-readable acceptance criteria
+- bash, jq, python3 + jsonschema available on the execution host
+- claude binary available as $MAKATO_CLAUDE_BIN (default: claude)
+- Consumer repo .claude/settings.json wired with check-halt.sh (PreToolUse) and session-status.sh (SessionStart) hooks
+
+## Installation
+
+```bash
+claude --plugin-dir ./plugins/makato-orchestrate
 ```
 
-## Versioning
+## Version
 
-- No `version` in `plugin.json` (repo versioned via release-please + git tags)
-- Skill versions: bumped in `SKILL.md` frontmatter per feature PR
-- Agent versions: bumped in agent frontmatter per feature PR
-- CHANGELOG.md: updated with each PR
-
-## See Also
-
-- AgenticSystem PRD gap analysis: `.remember/agentic-gaps-issues.md` (on the
-  `chore/sagibeast-alignment-sweep` branch)
-- R1 return contract: `plugins/makato-build/agents/RETURN-CONTRACT.md`
-- Autonomous-mode conventions: `plugins/makato-build/AUTONOMOUS-MODE.md`
-- Lifecycle board sync: `plugins/makato-plan/skills/issue-to-project/SKILL.md`
+Managed by release-please at repo level; per-skill versions live in SKILL.md frontmatter.

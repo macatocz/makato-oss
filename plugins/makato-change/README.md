@@ -3,148 +3,123 @@
 
 **Goal**: Implement changes to existing functionality based on updated business requirements.
 
-**How**: Refine requirements against current behavior, identify affected code sections, design a technical approach, implement modifications (including small supporting components when needed), verify changes, create PR, and resolve review feedback.
+**How**: Refine requirements against current behavior, identify affected code sections via
+specialized agents, design a technical approach, implement modifications (including small
+supporting components), verify changes with automated quality and code-review agents, create a
+PR, and resolve review feedback. All phases produce artifact files under `specs/<issue-key>/`
+that chain into each other.
 
-**Why**: The suite has new feature development (makato-plan → makato-build) but no dedicated workflow for implementing targeted adjustments to existing functionality. makato-change fills that gap with a smaller, lower-overhead pipeline than full plan-then-build for changes that don't need fresh shaping.
+**Why**: The suite covers new feature development through `makato-plan` and `makato-build`, but
+has no dedicated lower-overhead workflow for targeted adjustments to existing functionality
+(1–15 files, shallow cross-cutting changes). `makato-change` fills that gap without requiring
+full shaping or a TDD pipeline.
 
 ## What Belongs Here
 
-- Requirement refinement comparing current behavior vs updated requirements to identify diff that needs to be addressed
+- Requirement refinement comparing current behavior vs updated requirements to identify the diff
+  that needs to be addressed
 - Identification of affected code sections and technical approach design
-- Implementation of modifications to existing functionality
+- Implementation of modifications to existing functionality (small: 1–5 files; medium: 6–15 files)
+- New supporting components when needed (helpers, utils) — medium scope
 - Verification, PR creation, and resolution of review feedback
-
-**Scope boundaries:**
-- **Small** (ideal for makato-change): 1-5 files modified, isolated changes, existing test updates only
-- **Medium** (fits makato-change): 6-15 files modified, cross-cutting shallow changes, new supporting components (helpers, utils), new + updated tests
-- **Large** (escalate to makato-plan): 16+ files, new subsystems/modules, multi-team coordination, significant architectural impact
+- New and updated tests for the changed behavior
 
 ## What Does NOT Belong Here
 
-- Large-scale changes requiring thorough discovery and preparation (those belong in makato-plan and makato-build)
-- Bug fixes and defect resolution (out of scope — no dedicated plugin yet; route through `makato-plan` if shaping is needed, or `makato-build` if the fix is well-scoped)
+- Large-scale changes requiring thorough discovery and preparation (16+ files, new subsystems,
+  multi-team coordination — escalate to `makato-plan` + `makato-build`)
+- Bug fixes and defect resolution — no dedicated plugin yet; route through `makato-plan` if
+  shaping is needed or `makato-build` if the fix is well-scoped
+- New features with no existing functionality to change (use `makato-plan`)
+
+## Workflow
+
+```
+GitHub Issue (change request)
+          │
+          ▼
+┌─────────────────────┐
+│     orchestrate     │  guides phases in sequence
+│    (interactive)    │  Input:  GitHub issue key
+│                     │  Output: coordinated CR workflow, phase tracking
+└──────────┬──────────┘
+           │  or invoke each phase directly:
+           ▼
+┌─────────────────────┐  agents: code-explorer, requirements-diff-analyzer,
+│       analyze       │          test-analyzer
+│    (interactive)    │  Input:  GitHub issue key + codebase
+│                     │  Output: analysis.md, repositories.yml,
+│                     │          updated GitHub issue
+└──────────┬──────────┘
+           ▼
+┌─────────────────────┐  agents: code-explorer, test-analyzer
+│       design        │  Input:  analysis.md + codebase
+│    (interactive)    │  Output: design.md, test-scenarios.md,
+│                     │          updated GitHub issue
+└──────────┬──────────┘
+           ▼
+┌─────────────────────┐  agents: quality-guard, code-reviewer
+│       execute       │  Input:  design.md + repositories.yml
+│    (autonomous)     │  Output: modified code, feature branch, PR opened
+└──────────┬──────────┘
+           │  PR review comments arrive
+           ▼
+┌─────────────────────┐
+│   resolve-review    │  Input:  PR number or issue key
+│    (interactive)    │  Output: fixes committed, replies posted,
+│                     │          GitHub issue status updated
+└─────────────────────┘
+```
 
 ## Skills
 
-| Skill | Description | Version |
-|-------|-------------|---------|
-| `orchestrate` | Guide users through change request workflow (analyze, design, execute, resolve-review), track progress, coordinate phases | 1.0.0 |
-| `analyze` | Analyze change request requirements by comparing current vs. requested behavior, identify and address questions and inconsistencies, update GitHub issue with refined requirements | 1.0.0 |
-| `design` | Design technical approach for change request by discovering affected code, planning solution, and updating GitHub issue with implementation strategy | 1.0.0 |
-| `execute` | Implement change request by modifying code, updating tests, running verification, and creating pull request with GitHub issue link | 1.0.0 |
-| `resolve-review` | Resolve PR review feedback by addressing comments with code fixes or clarifying replies, update GitHub issue status | 1.0.0 |
+| Skill | Description | Input | Output | Version |
+|-------|-------------|-------|--------|---------|
+| [`analyze`](skills/analyze/SKILL.md) | Analyze change request requirements by comparing current behavior against requested changes, identify open questions and inconsistencies, update GitHub issue with refined requirements. (interactive) | GitHub issue key; current codebase accessible at REPO_ROOT | `specs/<issue-key>/analysis.md`, `repositories.yml`, `test-analysis.md` (cached); GitHub issue updated with analysis comment and label `makato-change-analyzed` | 1.1.2 |
+| [`design`](skills/design/SKILL.md) | Design technical approach for change request by discovering affected code, planning solution, and updating GitHub issue with implementation strategy. (interactive) | `specs/<issue-key>/analysis.md`, `repositories.yml`; codebase at REPO_ROOT | `specs/<issue-key>/design.md`, `test-scenarios.md` (if E2E work needed); GitHub issue updated with design comment and label `makato-change-designed` (conditional on user approval) | 1.1.1 |
+| [`execute`](skills/execute/SKILL.md) | Implement change request by modifying code, updating tests, running verification (quality-guard + code-reviewer loop), and creating a PR linked to the GitHub issue. (autonomous) | `specs/<issue-key>/design.md`, `repositories.yml`; approved design from design skill | Modified source and test files in target repo, feature branch created, PR opened; GitHub issue labeled `makato-change-implemented` and transitioned to Code Review | 1.0.3 |
+| [`orchestrate`](skills/orchestrate/SKILL.md) | Guide users through the full change request workflow (analyze → design → execute → resolve-review) with phase tracking and recommendations. (interactive) | GitHub issue key; `specs/<issue-key>/` directory (read for phase detection) | Coordinated CR workflow: invokes phase skills in sequence, tracks completion via artifact existence, loops until all phases complete or user exits | 1.0.0 |
+| [`resolve-review`](skills/resolve-review/SKILL.md) | Resolve PR review feedback for change request by addressing comments with code fixes or clarifying replies, then updating GitHub issue status. (interactive) | PR number or GitHub issue key (to look up PR); `specs/<issue-key>/analysis.md`, `design.md`, `repositories.yml` for context | Code fixes committed and pushed to PR branch, review replies posted to comment threads, quality-guard run after code changes; GitHub issue status updated | 1.0.3 |
 
 ## Agents
 
-This plugin uses specialized sub-agents for focused tasks:
+| Agent | Model | Permission | Purpose | Dispatched by |
+|-------|-------|------------|---------|---------------|
+| `code-explorer` | claude-haiku | `bypassPermissions` (read-only: disallowedTools Write, Edit, Bash, NotebookEdit, WebSearch) | Explore codebase to discover affected files, dependencies, code patterns, test coverage, and project specs context. Returns synthesized findings so calling skills never re-read sources. | analyze (Step 3), design (Step 4 Option B) |
+| `requirements-diff-analyzer` | claude-sonnet | `bypassPermissions` (read-only: disallowedTools Write, Edit, Bash, NotebookEdit, WebSearch) | Compare current system behavior against requested changes to produce a structured side-by-side diff, identify gaps, open questions (blocking vs clarifying), and inconsistencies. | analyze (Step 4) |
+| `test-analyzer` | claude-haiku | `bypassPermissions` (read-only: disallowedTools Write, Edit, Bash, NotebookEdit, WebSearch) | Discover and analyze all tests (unit, integration, E2E, contract, performance) affected by the change request; map tests to affected functionality; classify impact severity; identify coverage gaps. | analyze (Step 3.5), design (Step 5 when test-analysis.md cache absent) |
+| `quality-guard` | claude-haiku | `bypassPermissions` (bash allowed; disallowedTools Write, Edit, NotebookEdit, WebSearch) | Run quality checks (lint, format, type-check, unit tests, coverage) after implementation. Discovers commands from project config, executes them, and reports pass/fail with actionable feedback. Never auto-fixes. | execute (Step 5.5.2), resolve-review (Step 5) |
+| `code-reviewer` | claude-sonnet | `bypassPermissions` (read-only: disallowedTools Write, Edit, Bash, NotebookEdit, WebSearch) | Review implementation changes for bugs, security issues, design alignment, and requirements coverage before PR creation. Classifies findings as CRITICAL / MAJOR / MINOR and returns approved or changes_required. | execute (Step 5.5.1) |
 
-| Agent | Model | Purpose | Used By |
-|-------|-------|---------|---------|
-| `code-explorer` | haiku | Explore codebase to discover affected files, dependencies, patterns, and project specs context | analyze, design |
-| `requirements-diff-analyzer` | sonnet | Compare current vs requested behavior to produce structured requirements diff with gaps and inconsistencies | analyze |
-| `test-analyzer` | haiku | Discover and analyze all tests (unit, integration, E2E) affected by change request, map to affected functionality | analyze, design |
-| `quality-guard` | haiku | Run quality checks (lint, format, tests, coverage) after implementation with actionable feedback | execute |
-| `code-reviewer` | sonnet | Review implementation changes before PR creation for bugs, security issues, design alignment | execute |
+## Shared Resources
 
-## Prerequisites
+- `shared/repositories-yml-schema.md` — YAML schema contract for `specs/<issue-key>/repositories.yml`: field reference, path resolution algorithm, validation rules, and lifecycle (analyze writes; design, execute, resolve-review read).
+- `shared/path-resolution.md` — Shell algorithm for resolving a repository name from `repositories.yml` to an absolute local path using four ordered strategies (sibling of CWD, same parent one level deeper, CWD basename match, specs parent basename match).
+- `shared/commit-message-format.md` — Conventional commit format rules for change request implementation commits: type/scope/subject structure, heredoc usage, body/footer guidance, multi-commit pattern.
 
-The `gh` CLI is required for GitHub operations (available system-wide, no MCP server required).
+## Notable Governance Files
 
-## Cross-Repository Operations
+- `plugins/makato-change/AGENTS.md` — Primary governance document: goal, scope boundaries (small/medium/large decision table), agent design principles, file structure, cross-repository patterns, path resolution overview, versioning policy, and PR checklist.
+- `plugins/makato-change/README.md` — Plugin overview with workflow ASCII diagram, skills table, agents table, plugin connections, prerequisites, and version claim.
+- `plugins/makato-change/.claude-plugin/plugin.json` — Plugin registry metadata: name, description, author (no version field — repo uses release-please).
+- `plugins/makato-change/CHANGELOG.md` — Per-PR change history for the plugin.
 
-makato-change can be invoked from **two locations**:
+## Plugin Connections
 
-### Option A: From a separate specs working directory
+| Direction | Plugin | What flows |
+|-----------|--------|------------|
+| Escalates to | `makato-plan` | Large changes (16+ files, new subsystems, significant architectural impact) are escalated here for proper shaping before implementation |
+| Escalates to | `makato-build` | Well-scoped changes that need the full TDD pipeline are escalated here instead of using `makato-change` |
+| Complements | `makato-core` | Uses the `create-issue` skill for filing carry-over tracking issues when review feedback is deferred |
 
-One layout option is to maintain a dedicated specs directory separate from the target repo. This is optional — not required.
+## Prerequisites / MCP Servers
 
-**Advantages:**
-- Centralized artifact storage (`specs/<issue-key>/`)
-- Clean separation: specs separate from the code being changed
+No MCP servers required.
 
-**How it works:**
-1. On first invocation (analyze skill), you'll be asked for target repository path
-2. Path is stored in `specs/<issue-key>/repositories.yml`
-3. All code discovery and modifications target that repository
-4. Artifacts remain in the specs directory for review and reuse
+**External prerequisites:**
 
-**Example:**
-```bash
-cd ~/repos/my-specs-dir
-
-# Invoke analyze skill
-/makato-change:analyze ISSUE-1234
-# → Prompts: "Which repository does this change affect?"
-# → You answer: /Users/username/repos/my-service
-# → Creates: specs/ISSUE-1234/repositories.yml
-# → Discovers code in my-service
-# → Stores analysis in specs/ISSUE-1234/analysis.md
-
-# Invoke execute skill
-/makato-change:execute ISSUE-1234
-# → Reads: specs/ISSUE-1234/repositories.yml
-# → Modifies files in: /Users/username/repos/my-service
-# → Creates branch in: my-service repo
-# → Creates PR from: my-service repo
-```
-
-### Option B: From the target repository (Recommended)
-
-The recommended pattern. Artifacts live inside the target repo under `specs/`.
-
-**How it works:**
-1. CWD is automatically detected as target repository
-2. Artifacts stored in `<target-repo>/specs/<issue-key>/`
-
-**Example:**
-```bash
-cd ~/repos/my-service
-
-# Invoke analyze skill
-/makato-change:analyze ISSUE-1234
-# → Auto-detects: current directory is target repo
-# → Creates: my-service/specs/ISSUE-1234/repositories.yml
-# → Stores analysis in: my-service/specs/ISSUE-1234/analysis.md
-```
-
-### Repository Metadata File
-
-All skills use `specs/<issue-key>/repositories.yml` to track target repository.
-
-**Standard format (automatically portable across team members):**
-```yaml
-version: "1.0"
-affected:
-  - name: my-service
-    role: primary
-    path: my-service
-    description: "Frontend application requiring validation rule updates"
-```
-
-The `path` field contains just the repository name. Skills automatically resolve this to the local repository path using standard search strategies:
-
-1. Sibling of CWD: `../my-service`
-2. Same parent, one level deeper: `../projects/my-service`
-3. Current working directory (if basename matches)
-4. `specs/` parent directory itself
-
-**Works automatically with standard layouts:**
-```
-repos/
-├── specs/          ← specs committed here
-└── my-service/         ← automatically found
-
-repos/
-├── specs/
-└── projects/
-    └── my-service/     ← automatically found
-```
-
-**When to edit manually:**
-- Repository was renamed (update `name` and `path` to new name)
-- Different repository needed for same GitHub issue
-
-**Schema**: See `shared/repositories-yml-schema.md` for full path resolution details.
+- `gh` CLI — required for GitHub issue operations (view, comment, label, edit state) and PR
+  operations (create, view, comment on reviews).
 
 ## Installation
 
