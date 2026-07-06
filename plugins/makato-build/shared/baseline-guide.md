@@ -1,5 +1,16 @@
 # Test Baseline Guide
 
+## Scope
+
+This guide is about **what to do once the test command is known** — record
+pre-existing failure counts, decide whether the baseline is broken, and how to
+log the decision. It is intentionally **not** a discovery algorithm: discovering
+the project's unit-test command is `gate-scout`'s job (`agents/gate-scout.md`),
+dispatched by every consuming skill (`build-simplify`, `build-implement-tdd`,
+`build-implement-goal`, `build-verify`). If you arrived here looking for "how
+do I find the test command on this repo", see `gate-scout.md` Step 1–2 — this
+file does not duplicate that map (#97).
+
 ## Purpose
 
 Establishing a test baseline before any code changes ensures this session's failures are

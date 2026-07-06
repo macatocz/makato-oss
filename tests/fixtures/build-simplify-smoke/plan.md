@@ -2,11 +2,12 @@
 
 This fixture is the **synthetic implementation plan** consumed by
 `tests/test_smoke_build_simplify.py` (#64 Part B). It is NOT a real spec and
-does NOT live under `specs/` directly (that directory is gitignored — see
-`.gitignore`). The test materializes a temporary `specs/BSS-001-build-simplify-smoke/`
-at runtime, copies this `plan.md` and the synthetic diff fixture into it, and
-exercises the 7-step JSONL contract documented in
-`plugins/makato-build/skills/build-simplify/SKILL.md` § Workflow.
+does NOT live under `specs/` directly — `specs/**/*` is gitignored except for
+`build.jsonl` (see `.gitignore` and #99), so a `plan.md` checked into `specs/`
+would never reach the repo. The test materializes a temporary
+`specs/BSS-001-build-simplify-smoke/` at runtime, copies this `plan.md` and the
+synthetic diff fixture into it, and exercises the 7-step JSONL contract
+documented in `plugins/makato-build/skills/build-simplify/SKILL.md` § Workflow.
 
 ## Story
 

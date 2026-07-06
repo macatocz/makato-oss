@@ -8,7 +8,7 @@ description: >-
   auto-approves SIMPLIFY findings and surfaces ESCALATE findings via R1.
   Use after implement-tdd or implement-goal, before review; also invoked
   by sensor-fixer / build-resolve-finding for code-complexity findings.
-version: "1.5.2"
+version: "1.4.2"
 argument-hint: "[work-item-key] [--autonomous]"
 ---
 
@@ -72,18 +72,25 @@ shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-simplify","story":
 
 ### Step 3 — Establish test baseline
 
-Dispatch the `gate-scout` agent (or follow `@shared/baseline-guide.md` discovery) to obtain the project's unit-test command. Two outcomes:
+Dispatch the `gate-scout` agent (`agents/gate-scout.md`) with the same dispatch contract `build-verify` uses — this is the **single canonical source** of the project's unit-test command. Do not infer the test command independently, do not pick one manually, and do not consult `baseline-guide.md` for discovery (that guide only documents the broken-baseline gate; runner discovery is `gate-scout`'s job — #97). The dispatch prompt passes:
 
-**(a) Test runner discovered.** Run the full test suite and record the **pre-simplification baseline** (passing and failing counts). Set `test_suite_present = true` in the session context.
+- `REPO_ROOT` — absolute path to the target repository root (`"$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)"`).
+- `COVERAGE_HINT` — empty string (coverage is `build-verify`'s concern, not this skill's).
+
+The agent returns the structured Gate Commands map — `data.unit` is the unit-test command. Two outcomes:
+
+**(a) Test runner discovered** (`data.unit != "not found"`). Run the **exact** `data.unit` command verbatim — do not paraphrase, do not substitute alternatives. Record the **pre-simplification baseline** (passing and failing counts). Set `test_suite_present = true` and `baseline_cmd = data.unit` in the session context.
 
 Pre-existing failures do not gate this session — Step 7 only blocks on *new* failures introduced during simplification.
 
 Log:
 ```
-{"ts":"<ISO8601>","skill":"build-simplify","story":"<key>","step":"baseline","status":"ok","data":{"passing":<N>,"failing":<N>,"test_suite_present":true}}
+{"ts":"<ISO8601>","skill":"build-simplify","story":"<key>","step":"baseline","status":"ok","data":{"passing":<N>,"failing":<N>,"test_suite_present":true,"cmd":"<data.unit verbatim>"}}
 ```
 
-**(b) No test runner discovered** (gate-scout returns empty / no `pyproject.toml`, `package.json`, `Makefile`, `go.mod`, `pom.xml`, `Cargo.toml`, `build.gradle*` produces a runnable test command). This is a **degraded-confidence** path, not an error — proceed without a baseline. Set `test_suite_present = false` in the session context and **skip baseline capture entirely**. Do NOT attempt to run any test command.
+The `data.cmd` field is the audit-trail anchor: a reviewer reading `build.jsonl` from a fresh checkout can reproduce the baseline run without re-deriving the command (#97 AC#1).
+
+**(b) No test runner discovered** (`data.unit == "not found"`, e.g. docs-only repo, freshly scaffolded project, monorepo with no root-level config). This is a **degraded-confidence** path, not an error — proceed without a baseline. Set `test_suite_present = false` in the session context and **skip baseline capture entirely**. Do NOT attempt to run any test command.
 
 Log:
 ```
@@ -198,7 +205,7 @@ Log and proceed to Step 7a:
 {"ts":"<ISO8601>","skill":"build-simplify","story":"<key>","step":"verify","status":"skip","data":{"test_suite_present":false,"degraded_confidence":true,"new_failures":0,"lines_removed_total":<N>}}
 ```
 
-**Otherwise** (`test_suite_present == true`), run the full test suite. Compare against the baseline from Step 3.
+**Otherwise** (`test_suite_present == true`), re-run the **same** `baseline_cmd` captured in Step 3 — not a reinterpretation, the same string verbatim. Compare against the baseline pass/fail counts from Step 3.
 
 Zero new failures is the gate. If any test broke, the simplification was not
 behavior-neutral. Revert the failing change, re-run to confirm recovery, and remove that

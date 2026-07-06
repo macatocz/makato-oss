@@ -381,6 +381,143 @@ def test_full_arc_doc_only_touch_is_status_success(temp_repo: pathlib.Path) -> N
     assert r1["data"]["degraded_confidence"] is True
 
 
+def test_full_arc_runner_discovered_emits_baseline_cmd(temp_repo: pathlib.Path) -> None:
+    """Outcome (a) regression — gate-scout returns a runner; baseline row carries data.cmd.
+
+    Covers AC#1 of #97: with a test runner discovered, Step 3 emits a
+    deterministic ``baseline:ok`` row whose ``data.cmd`` field is populated
+    with the exact ``data.unit`` string returned by ``gate-scout``. A future
+    reviewer reading ``build.jsonl`` from a fresh checkout must be able to
+    reproduce the baseline run without re-deriving the command — that is the
+    audit-trail contract this test pins.
+
+    The arc differs from the no-runner case in three places: Step 3 status is
+    ``"ok"`` (not ``"skip"``), the data row includes ``passing``/``failing``/
+    ``cmd``, Step 7 logs a real verify with ``test_suite_present:true`` and no
+    degraded_confidence flag set. There is no Step 7a row — that gate only
+    fires when the verify gate was skipped.
+    """
+    spec_folder = temp_repo / "specs" / SPEC_SLUG
+    jsonl_path = spec_folder / "build.jsonl"
+    ts = "2026-06-30T01:00:00Z"
+    # Verbatim from gate-scout's `data.unit` for a Python repo — this is the
+    # exact string a downstream reviewer would expect to re-run.
+    BASELINE_CMD = "pytest"
+
+    for entry in [
+        {"step": "session", "status": "start", "data": {"files_changed": 1}},
+        {
+            "step": "baseline",
+            "status": "ok",
+            "data": {
+                "passing": 42,
+                "failing": 0,
+                "test_suite_present": True,
+                "cmd": BASELINE_CMD,
+            },
+        },
+        {"step": "analyze", "status": "ok", "data": {"simplify": 1, "keep": 0, "escalate": 0}},
+        {
+            "step": "decision",
+            "status": "decision",
+            "data": {
+                "event": "autonomous_bypass",
+                "gate": "per-finding-approval",
+                "bypassed": True,
+                "default_taken": "auto-approve-simplify",
+                "trigger": "task_id_bundle",
+            },
+        },
+        {
+            "step": "review",
+            "status": "ok",
+            "data": {
+                "approved": 1, "rejected": 0, "escalated": 0,
+                "pattern_divergences": 0, "zero_findings": False,
+            },
+        },
+        {"step": "apply", "data": {"finding": "wrapper-for-wrappers-sake-1", "lines_removed": 12}},
+        {
+            "step": "verify",
+            "status": "ok",
+            "data": {
+                "test_suite_present": True,
+                "degraded_confidence": False,
+                "new_failures": 0,
+                "lines_removed_total": 12,
+            },
+        },
+        {
+            "step": "session",
+            "status": "ok",
+            "data": {
+                "findings_applied": 1, "escalated": 0, "lines_removed": 12,
+                "test_suite_present": True, "degraded_confidence": False,
+            },
+        },
+    ]:
+        entry.update({"ts": ts, "skill": "build-simplify", "story": STORY_KEY})
+        _log(temp_repo, STORY_KEY, entry)
+
+    rows = _read_jsonl(jsonl_path)
+
+    # AC#1 — baseline:ok row carries data.cmd populated with the exact unit
+    # command returned by gate-scout. Reading the row alone is enough to
+    # reproduce the run.
+    baseline = next(r for r in rows if r["step"] == "baseline")
+    assert baseline["status"] == "ok"
+    assert baseline["data"]["test_suite_present"] is True
+    assert baseline["data"]["cmd"] == BASELINE_CMD, (
+        "Step 3 baseline:ok row MUST carry data.cmd populated verbatim from "
+        "gate-scout's data.unit per SKILL.md § Step 3 (#97 AC#1)"
+    )
+    assert "passing" in baseline["data"] and "failing" in baseline["data"]
+
+    # AC#2 (proxy) — Step 7 verify gate ran against the same baseline_cmd:
+    # status:"ok", test_suite_present:true, no degraded_confidence.
+    verify = next(r for r in rows if r["step"] == "verify")
+    assert verify["status"] == "ok"
+    assert verify["data"]["test_suite_present"] is True
+    assert verify["data"]["degraded_confidence"] is False
+
+    # Step 7a no-op — autonomous bypass for unverified code changes never
+    # fires when the verify gate ran.
+    unverified_bypass = [
+        r for r in rows
+        if r["step"] == "decision" and r["data"].get("gate") == "unverified-code-changes"
+    ]
+    assert unverified_bypass == [], (
+        "Step 7a is a no-op when test_suite_present:true — verify gate ran"
+    )
+
+    # R1 envelope for the runner-discovered case: status:"success", both
+    # flags telling the PO-agent no scrutiny route is needed.
+    r1 = {
+        "schema": "r1",
+        "agent": "build-simplify",
+        "status": "success",
+        "summary": f"1 simplification applied; verified against {BASELINE_CMD}",
+        "files_changed": ["synthetic/user_service_wrapper.ts"],
+        "tests_written": [],
+        "errors": [],
+        "tool_calls_used": 9,
+        "data": {
+            "findings_simplify": 1,
+            "findings_keep": 0,
+            "findings_escalate": 0,
+            "applied": 1,
+            "escalated": [],
+            "lines_removed": 12,
+            "zero_findings": False,
+            "new_test_failures": 0,
+            "test_suite_present": True,
+            "degraded_confidence": False,
+        },
+    }
+    _assert_r1_schema(r1)
+    assert r1["status"] == "success"
+
+
 # ---------------------------------------------------------------------------
 # R1 envelope schema helpers
 # ---------------------------------------------------------------------------
