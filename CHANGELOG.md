@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.29.0](https://github.com/macatocz/makato/compare/v0.28.2...v0.29.0) (2026-07-06)
+
+
+### ✨ Features
+
+* **makato-observability:** initial plugin with governance ([#128](https://github.com/macatocz/makato/issues/128)) ([77704a0](https://github.com/macatocz/makato/commit/77704a0331ce02fec235d7dc7ba7c7c6121da578))
+
+
+### 🐛 Bug Fixes
+
+* **makato-build:** build-simplify Step 3 dispatches gate-scout authoritatively, baseline row carries data.cmd ([#97](https://github.com/macatocz/makato/issues/97)) ([#112](https://github.com/macatocz/makato/issues/112)) ([e6cf64b](https://github.com/macatocz/makato/commit/e6cf64bef2c2a2a91a2987b56114ddde7ac331cb))
+
 ## [0.28.2](https://github.com/macatocz/makato/compare/v0.28.1...v0.28.2) (2026-06-30)
 
 
