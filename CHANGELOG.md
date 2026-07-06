@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.28.2](https://github.com/macatocz/makato/compare/v0.28.1...v0.28.2) (2026-06-30)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** route Step 6a CI-failure fix through build-implement-tdd ([#119](https://github.com/macatocz/makato/issues/119)) ([#120](https://github.com/macatocz/makato/issues/120)) ([8848ba7](https://github.com/macatocz/makato/commit/8848ba7f876c510f9b65df99933d09a4ae4350e7))
+
+
+### ♻️ Refactors
+
+* **makato-build:** add log-bypass.sh helper to replace inline autonomous_bypass JSON literals ([#116](https://github.com/macatocz/makato/issues/116)) ([#122](https://github.com/macatocz/makato/issues/122)) ([ae90a5c](https://github.com/macatocz/makato/commit/ae90a5c5e8c75c4d9cc934b05544c7dd0eda302b))
+* **makato-build:** consolidate HALT-code registry across orchestrate + build skills ([#115](https://github.com/macatocz/makato/issues/115)) ([#124](https://github.com/macatocz/makato/issues/124)) ([87a7961](https://github.com/macatocz/makato/commit/87a7961780e908463cd6671c7c129f2d105f7dff))
+* **makato-build:** extract shared mode-detection, entry-guard, and R1-envelope references ([#114](https://github.com/macatocz/makato/issues/114)) ([#121](https://github.com/macatocz/makato/issues/121)) ([14d3b14](https://github.com/macatocz/makato/commit/14d3b14a08e170cd6f6b08f370391d238ee4d377))
+* **makato-build:** stop forwarding --autonomous across cross-skill dispatch ([#117](https://github.com/macatocz/makato/issues/117)) ([#125](https://github.com/macatocz/makato/issues/125)) ([1759ae5](https://github.com/macatocz/makato/commit/1759ae583d203129251da2f56f57df4afd00bb4b))
+* **makato-orchestrate:** add workflow-state.sh append-halt + build-log.sh --batch ([#118](https://github.com/macatocz/makato/issues/118)) ([#126](https://github.com/macatocz/makato/issues/126)) ([d528ef3](https://github.com/macatocz/makato/commit/d528ef330c25e0126ba50e28377d7c20c0c677b9))
+
 ## [0.28.1](https://github.com/macatocz/makato/compare/v0.28.0...v0.28.1) (2026-06-29)
 
 
