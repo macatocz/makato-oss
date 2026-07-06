@@ -54,6 +54,11 @@
       "name": "makato-sagibeast",
       "source": "./plugins/makato-sagibeast",
       "description": "Sagibeast (CMAI) platform skills — Word template schema extraction, PDF and Excel processing, testbox VM provisioning, and CMAI environment connectivity."
+    },
+    {
+      "name": "makato-observability",
+      "source": "./plugins/makato-observability",
+      "description": "LLM-observability skills for tracing, monitoring, and debugging LangGraph-based AI agents — Langfuse-first via OpenTelemetry SDK + OTLP HTTP export. Vendor-neutral: no hosting-provider names in prose or templates."
     }
   ]
 }

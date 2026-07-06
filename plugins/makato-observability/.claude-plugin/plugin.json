@@ -1,0 +1,7 @@
+{
+  "name": "makato-observability",
+  "description": "Provide LLM-observability skills for tracing, monitoring, and debugging LangGraph-based AI agents — Langfuse-first via OpenTelemetry SDK + OTLP HTTP export. Vendor-neutral: no hosting-provider names in prose or templates.",
+  "author": {
+    "name": "makato AI team"
+  }
+}
