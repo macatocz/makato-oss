@@ -10,7 +10,7 @@ description: >-
   exits on a HALT. Honors `~/.claude/HALT` before every dispatch
   (NEVER 3) and emits `.claude/state/loop-status.json` as the
   operator-facing live audit.
-version: "1.1.0"
+version: "1.2.0"
 argument-hint: "[--status <NAME>] [--interval <S>] [--dry-run] [--once]"
 ---
 
@@ -134,6 +134,10 @@ Each outer iteration of `run` performs the following steps in order:
      Step 1b headless guard (see `plugins/makato-build/AUTONOMOUS-MODE.md`
      § "Defensive-headless guard") HALTs with `MISSING_INPUT` instead of
      hanging on `AskUserQuestion` — see #163.
+     The child's combined stdout+stderr is captured to
+     `.claude/state/dispatch-<issue>.log`; a background watchdog
+     (see §*Liveness watchdog*) polls the log's mtime and escalates to
+     WARN / SIGTERM if the PO-agent goes silent — see #164.
      The call blocks for the PO-agent's lifetime; on return,
      `.active_workflow` is cleared regardless of exit code.
    - Returns the PO-agent's exit code unchanged. The loop discards it
@@ -193,10 +197,14 @@ every write.
   "queue": [101, 102, 103],
   "active_workflow": {
     "issue": 101,
-    "started_at": "2026-06-28T18:23:15.001Z"
+    "started_at": "2026-06-28T18:23:15.001Z",
+    "stalled": false,
+    "stalled_since": null,
+    "killed_by_watchdog": false
   },
   "last_halt_at": null,
   "last_dispatch_issue": 101,
+  "last_watchdog_kill": null,
   "updated_at": "2026-06-28T18:23:15.001Z"
 }
 ```
@@ -211,14 +219,57 @@ Field semantics:
 | `last_poll` | ISO-8601 ms \| null | Timestamp of the most recent `gh` poll. |
 | `queue_depth` | integer ≥ 0 | Count of board Issue items at the requested Status at last poll. |
 | `queue` | array<int> | Issue numbers from last poll (untracked-vs-in-flight not filtered — call `next` for that). |
-| `active_workflow` | object \| null | `{issue, started_at}` while a dispatch is in flight; `null` between iterations. |
+| `active_workflow` | object \| null | `{issue, started_at, stalled, stalled_since, killed_by_watchdog}` while a dispatch is in flight; `null` between iterations. |
+| `active_workflow.stalled` | boolean | Set by the watchdog when the PO-agent has been silent ≥ `MAKATO_LOOP_STALL_WARN` seconds. Warn-only; no signal is sent. |
+| `active_workflow.stalled_since` | ISO-8601 ms \| null | Timestamp `stalled` was first flipped to `true`. |
+| `active_workflow.killed_by_watchdog` | boolean | Set to `true` just before the watchdog SIGTERMs the PO-agent. Cleared with `active_workflow` when `cmd_dispatch` returns; the audit is preserved on `last_watchdog_kill`. |
 | `last_halt_at` | ISO-8601 ms \| null | Timestamp the loop last exited on HALT. |
 | `last_dispatch_issue` | integer \| null | Issue number of the most recent dispatch (set by the `MAKATO_LOOP_DRY_DISPATCH` test hook and overwritten by real runs). |
+| `last_watchdog_kill` | object \| null | `{issue, killed_at, idle_seconds, stall_kill_seconds}` — surviving audit of the most recent watchdog reap. `null` if the watchdog has never fired. |
 | `updated_at` | ISO-8601 ms | Auto-stamped on every write. |
 
 Operators can `tail -f .claude/state/loop-status.json | jq` (or
 `watch -n 5 plugins/makato-orchestrate/scripts/loop.sh status`) to follow
 the loop unattended.
+
+## Liveness watchdog
+
+Every real dispatch (i.e. not `--dry-run`, not `MAKATO_LOOP_DRY_DISPATCH`)
+runs a background watchdog against the forked PO-agent subprocess. The
+watchdog is defensive net-of-last-resort for the class of deadlock that
+motivated #160 — it does not replace the PO-agent's own kill-switches
+(HALT-file poll, GitHub label poll, token-budget); those fire at outer-
+loop boundaries **inside** the PO-agent's session and cannot help when
+the PO-agent itself never reaches its next boundary.
+
+**Design:** output-mtime polling. `cmd_dispatch` redirects the child's
+combined stdout+stderr to `.claude/state/dispatch-<issue>.log` and spawns
+`_watchdog_poll` in the background. Every `MAKATO_LOOP_STALL_POLL` seconds
+(default 60) the watchdog `stat`s the log file:
+
+- **WARN** (`idle ≥ MAKATO_LOOP_STALL_WARN`, default 900 s = 15 min):
+  stamp `active_workflow.stalled = true` and `active_workflow.stalled_since
+  = <iso>` in `loop-status.json`. Operator visibility only — no signal is
+  sent to the child. A single-shot latch: warning is stamped at most once
+  per dispatch.
+- **KILL** (`idle ≥ MAKATO_LOOP_STALL_KILL`, default 3600 s = 60 min):
+  snapshot the audit to `last_watchdog_kill` (survives the
+  `active_workflow=null` clear that `cmd_dispatch` does on return), stamp
+  `active_workflow.killed_by_watchdog = true`, then `kill -TERM` the
+  child. If the child is still alive after `MAKATO_LOOP_STALL_TERM_GRACE`
+  seconds (default 30), `kill -KILL`. `cmd_dispatch`'s `wait "$child_pid"`
+  then unblocks and the outer loop resumes on the next tick.
+
+**Non-goals.** The watchdog is a coarse liveness proxy, not a semantic
+progress meter — a busy-loop that prints a heartbeat every 10 seconds
+will keep the log mtime fresh and pass the watchdog forever. Semantic
+progress is the PO-agent's kill-switch's job. See #164 for the design
+rationale and non-goals.
+
+**Escape hatch:** `MAKATO_LOOP_STALL_DISABLE=1` skips log capture and
+never spawns the watchdog. Use only for debug sessions where an operator
+is attached and long silences are expected. Production runs should keep
+it enabled.
 
 ## Kill-switches
 
@@ -248,10 +299,16 @@ The intentional design split:
 | `MAKATO_LOOP_STATE_DIR` | `<repo>/.claude/state` | Override status-file directory (tests only). |
 | `MAKATO_LOOP_DRY_DISPATCH` | unset | Test-only: skip the real `claude` exec and record `last_dispatch_issue` instead. |
 | `MAKATO_LOOP_GH_OVERRIDE` | unset | Test-only: read the canned `gh project item-list` JSON from this path instead of invoking `gh`. |
+| `MAKATO_LOOP_STALL_WARN` | `900` | Seconds of no output before the watchdog stamps `active_workflow.stalled = true`. |
+| `MAKATO_LOOP_STALL_KILL` | `3600` | Seconds of no output before the watchdog `SIGTERM`s the PO-agent. |
+| `MAKATO_LOOP_STALL_POLL` | `60` | Watchdog poll cadence in seconds (small values used in smoke tests). |
+| `MAKATO_LOOP_STALL_TERM_GRACE` | `30` | Seconds between `SIGTERM` and the follow-up `SIGKILL` if the child hasn't exited. |
+| `MAKATO_LOOP_STALL_DISABLE` | unset | Set to `1` to disable the watchdog entirely (no log capture, no background poller, no status stamps). |
+| `MAKATO_LOOP_STALL_TEST_CMD` | unset | Test-only: run this command in place of `claude` (e.g. `sleep 30`) so the watchdog has a real stall to reap. |
 
 ## Smoke tests
 
-`scripts/loop-smoke-tests.sh` covers eleven scenarios:
+`scripts/loop-smoke-tests.sh` covers fourteen scenarios:
 
 1. `check-halt` exits 0 with no HALT file.
 2. `check-halt` exits 1 with a HALT file.
@@ -266,6 +323,13 @@ The intentional design split:
    untracked issue and records `last_dispatch_issue`.
 10. `poll <STATUS>` filters by board Status (items at other Statuses excluded).
 11. `poll` excludes non-Issue content (DraftIssue, PullRequest).
+12. Watchdog stamps `active_workflow.stalled = true` after
+    `MAKATO_LOOP_STALL_WARN` seconds of silence (#164).
+13. Watchdog SIGTERMs the child after `MAKATO_LOOP_STALL_KILL` seconds and
+    the `last_watchdog_kill` snapshot survives the `active_workflow=null`
+    clear (#164).
+14. `MAKATO_LOOP_STALL_DISABLE=1` opts out of the watchdog entirely —
+    no log file, no status stamps (#164).
 
 Run them directly:
 

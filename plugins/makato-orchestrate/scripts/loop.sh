@@ -66,6 +66,26 @@
 #                              result. When set, `cmd_poll` reads this
 #                              file instead of invoking `gh`. Keeps
 #                              smoke tests fully offline.
+#   MAKATO_LOOP_STALL_WARN     Seconds of no PO-agent stdout/stderr
+#                              before the liveness watchdog stamps
+#                              `active_workflow.stalled = true` in
+#                              loop-status.json (default 900 = 15 min).
+#                              Warn-only; no signal to the child. See
+#                              #164 for the design.
+#   MAKATO_LOOP_STALL_KILL     Seconds of no output before the watchdog
+#                              SIGTERMs the PO-agent (and SIGKILLs 30 s
+#                              later if still alive). Stamps
+#                              `killed_by_watchdog: true` on the
+#                              preserved `last_watchdog_kill` snapshot
+#                              (default 3600 = 60 min).
+#   MAKATO_LOOP_STALL_DISABLE  Set to `1` to skip the watchdog entirely
+#                              (debug-session escape hatch). No log
+#                              capture, no background poller, no status
+#                              stamps.
+#   MAKATO_LOOP_STALL_POLL     Watchdog poll cadence in seconds
+#                              (default 60). Tests set a small value to
+#                              exercise WARN/KILL in seconds instead of
+#                              minutes.
 #
 # Conventions: matches scripts/context-handoff.sh (POSIX-ish bash, `set
 # -euo pipefail`, python3 for ISO-8601 millisecond timestamps, jq for
@@ -81,6 +101,18 @@ CLAUDE_BIN="${MAKATO_CLAUDE_BIN:-claude}"
 CONFIG_FILE="${MAKATO_LOOP_CONFIG:-$REPO_ROOT/.claude/config.json}"
 DEFAULT_INTERVAL="${MAKATO_LOOP_INTERVAL:-300}"
 DEFAULT_STATUS="${MAKATO_LOOP_STATUS:-Ready}"
+
+# Watchdog defaults — see #164. Values are seconds of no-output on the
+# combined stdout+stderr log before the watchdog escalates. Operators can
+# override via env; tests use small values (STALL_POLL=1) to exercise
+# state transitions in seconds.
+STALL_WARN_SECS="${MAKATO_LOOP_STALL_WARN:-900}"
+STALL_KILL_SECS="${MAKATO_LOOP_STALL_KILL:-3600}"
+STALL_POLL_SECS="${MAKATO_LOOP_STALL_POLL:-60}"
+# Grace period between SIGTERM and SIGKILL. Exposed for tests so the
+# smoke suite doesn't have to wait 30 real seconds to observe the kill
+# path close out.
+STALL_TERM_GRACE_SECS="${MAKATO_LOOP_STALL_TERM_GRACE:-30}"
 
 mkdir -p "$STATE_DIR"
 
@@ -262,6 +294,98 @@ cmd_status() {
 }
 
 # ---------------------------------------------------------------------------
+# _watchdog_poll — background helper spawned by cmd_dispatch. Polls the
+# dispatch log's mtime every $STALL_POLL_SECS seconds. When mtime has not
+# advanced for STALL_WARN_SECS, stamps active_workflow.stalled=true and
+# active_workflow.stalled_since. When it has not advanced for
+# STALL_KILL_SECS, SIGTERM's the tracked child, waits STALL_TERM_GRACE_SECS,
+# then SIGKILL's if it's still alive. Stamps last_watchdog_kill (a preserved
+# snapshot survives the active_workflow=null clear that cmd_dispatch does
+# on return) and exits.
+#
+# Terminates when its own parent (cmd_dispatch) exits, or when the tracked
+# PID no longer exists — no signalling from the parent is required.
+#
+# Args: <log-file> <child-pid> <issue-number>
+# ---------------------------------------------------------------------------
+_watchdog_poll() {
+  local log_file="$1"
+  local child_pid="$2"
+  local issue="$3"
+
+  local warn_stamped=0
+  local killed=0
+
+  # `stat -c` on Linux, `stat -f` on macOS. Detect once.
+  local stat_cmd
+  if stat -c '%Y' "$log_file" >/dev/null 2>&1; then
+    stat_cmd='stat -c %Y'
+  else
+    stat_cmd='stat -f %m'
+  fi
+
+  while :; do
+    # If the tracked PID is gone, cmd_dispatch has already reaped it —
+    # nothing left to guard. Exit quietly so we don't stamp a stale
+    # active_workflow that the parent is about to clear.
+    if ! kill -0 "$child_pid" 2>/dev/null; then
+      return 0
+    fi
+
+    # If the log has been removed (parent cleanup) bail out defensively.
+    if [[ ! -e "$log_file" ]]; then
+      return 0
+    fi
+
+    local mtime now_epoch idle
+    mtime="$($stat_cmd "$log_file" 2>/dev/null || echo 0)"
+    now_epoch="$(date +%s)"
+    idle=$((now_epoch - mtime))
+
+    if [[ $killed -eq 0 && $idle -ge $STALL_KILL_SECS ]]; then
+      # Snapshot the kill audit BEFORE signalling — active_workflow will
+      # be nulled by cmd_dispatch shortly, but last_watchdog_kill is a
+      # sibling field that survives.
+      local kill_stamp
+      kill_stamp="$(_now)"
+      local audit
+      audit="$(jq -n --argjson issue "$issue" \
+        --arg stamped_at "$kill_stamp" \
+        --argjson idle "$idle" \
+        --argjson kill_secs "$STALL_KILL_SECS" \
+        '{issue: $issue, killed_at: $stamped_at, idle_seconds: $idle, stall_kill_seconds: $kill_secs}')"
+      _patch_status '.last_watchdog_kill' "$audit"
+      _patch_status '.active_workflow.killed_by_watchdog' 'true'
+      echo "loop: watchdog SIGTERM'ing PO-agent pid=$child_pid (issue #$issue, idle=${idle}s ≥ ${STALL_KILL_SECS}s)" >&2
+      kill -TERM "$child_pid" 2>/dev/null || true
+      # Grace period, then hard-kill if the child hasn't exited.
+      local waited=0
+      while [[ $waited -lt $STALL_TERM_GRACE_SECS ]] && kill -0 "$child_pid" 2>/dev/null; do
+        sleep 1
+        waited=$((waited + 1))
+      done
+      if kill -0 "$child_pid" 2>/dev/null; then
+        echo "loop: watchdog SIGKILL'ing PO-agent pid=$child_pid (still alive after ${STALL_TERM_GRACE_SECS}s)" >&2
+        kill -KILL "$child_pid" 2>/dev/null || true
+      fi
+      killed=1
+      return 0
+    fi
+
+    if [[ $warn_stamped -eq 0 && $idle -ge $STALL_WARN_SECS ]]; then
+      local warn_stamp
+      warn_stamp="$(_now)"
+      _patch_status '.active_workflow.stalled' 'true'
+      _patch_status '.active_workflow.stalled_since' "\"$warn_stamp\""
+      echo "loop: watchdog WARN — PO-agent idle for ${idle}s ≥ ${STALL_WARN_SECS}s (issue #$issue)" >&2
+      warn_stamped=1
+    fi
+
+    sleep "$STALL_POLL_SECS"
+  done
+}
+
+# ---------------------------------------------------------------------------
 # dispatch <ISSUE_NUMBER> [--dry-run]
 # ---------------------------------------------------------------------------
 cmd_dispatch() {
@@ -280,7 +404,7 @@ cmd_dispatch() {
   now="$(_now)"
   local active_obj
   active_obj="$(jq -n --argjson issue "$issue" --arg ts "$now" \
-    '{issue: $issue, started_at: $ts}')"
+    '{issue: $issue, started_at: $ts, stalled: false, stalled_since: null, killed_by_watchdog: false}')"
   _patch_status '.active_workflow' "$active_obj"
 
   if [[ "$dry_run" == "--dry-run" ]]; then
@@ -296,7 +420,22 @@ cmd_dispatch() {
     return 0
   fi
 
+  # Test hook — spawn a genuinely-hung subprocess so the watchdog has
+  # something to reap. Value is the command to exec (usually a `sleep`).
+  # Used exclusively by loop-smoke-tests.sh scenarios T12–T14.
+  local child_cmd=""
+  if [[ -n "${MAKATO_LOOP_STALL_TEST_CMD:-}" ]]; then
+    child_cmd="${MAKATO_LOOP_STALL_TEST_CMD}"
+  fi
+
   local rc=0
+  # Prepare log capture + watchdog UNLESS the operator opted out
+  # (MAKATO_LOOP_STALL_DISABLE=1). See #164 for the design.
+  local log_file="" watchdog_pid=""
+  if [[ "${MAKATO_LOOP_STALL_DISABLE:-0}" != "1" ]]; then
+    log_file="$STATE_DIR/dispatch-${issue}.log"
+    : >"$log_file"
+  fi
   # Single-threaded by construction: this call blocks until the PO-agent
   # subprocess exits. The next outer iteration polls fresh.
   #
@@ -319,7 +458,46 @@ cmd_dispatch() {
   # prompt) remains the primary defence.
   local dispatch_prompt
   dispatch_prompt="Use the Task tool to dispatch the makato-orchestrate:po-agent subagent to drive GitHub issue #${issue} to a merged PR. Pass the issue number as the sole argument. The po-agent owns the outer loop, workflow-state, and all makato-build --autonomous dispatch; do not invoke makato-build or makato-plan skills directly from this session. Return the po-agent's final R1 envelope verbatim."
-  MAKATO_HEADLESS=1 "$CLAUDE_BIN" --dangerously-skip-permissions -p "$dispatch_prompt" || rc=$?
+
+  if [[ -n "$log_file" ]]; then
+    # Redirect both stdout+stderr to the log file so the watchdog gets
+    # mtime updates on any child output. Operators can `tail -f` the log
+    # (or the loop-status.json watchdog fields) — mixing `tee` in-band
+    # would require capturing the source PID out of a pipeline, which
+    # bash makes awkward and non-portable.
+    if [[ -n "$child_cmd" ]]; then
+      # Test path: spawn the stall stand-in directly.
+      # shellcheck disable=SC2086
+      $child_cmd >"$log_file" 2>&1 &
+      local child_pid=$!
+    else
+      # Production path: real claude invocation.
+      MAKATO_HEADLESS=1 "$CLAUDE_BIN" --dangerously-skip-permissions \
+        -p "$dispatch_prompt" >"$log_file" 2>&1 &
+      local child_pid=$!
+    fi
+    # Spawn watchdog against the child's PID.
+    _watchdog_poll "$log_file" "$child_pid" "$issue" &
+    watchdog_pid=$!
+    # Block on child. `wait` returns the child's exit status if we name it.
+    wait "$child_pid" || rc=$?
+    # Reap watchdog — it either exited already (kill path or child-exit)
+    # or is between polls; killing is a no-op in the former case.
+    if [[ -n "$watchdog_pid" ]] && kill -0 "$watchdog_pid" 2>/dev/null; then
+      kill -TERM "$watchdog_pid" 2>/dev/null || true
+      wait "$watchdog_pid" 2>/dev/null || true
+    fi
+  else
+    # Opt-out path (MAKATO_LOOP_STALL_DISABLE=1) — legacy behaviour, no
+    # log capture, no watchdog.
+    if [[ -n "$child_cmd" ]]; then
+      # shellcheck disable=SC2086
+      $child_cmd || rc=$?
+    else
+      MAKATO_HEADLESS=1 "$CLAUDE_BIN" --dangerously-skip-permissions \
+        -p "$dispatch_prompt" || rc=$?
+    fi
+  fi
   _patch_status '.active_workflow' 'null'
   return $rc
 }

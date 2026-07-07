@@ -17,6 +17,9 @@
 #   T9: run --once dispatches the first untracked issue via MAKATO_LOOP_DRY_DISPATCH
 #   T10: poll filters by Status — items at "Todo" / "In progress" are excluded
 #   T11: poll filters out non-Issue content (DraftIssue, PullRequest)
+#   T12: watchdog stamps active_workflow.stalled=true after STALL_WARN
+#   T13: watchdog SIGTERMs the child after STALL_KILL and stamps last_watchdog_kill
+#   T14: MAKATO_LOOP_STALL_DISABLE=1 disables the watchdog entirely
 #
 # A fixture file is injected via MAKATO_LOOP_GH_OVERRIDE so `gh` is not
 # invoked. Test isolation uses MAKATO_LOOP_STATE_DIR + ephemeral spec
@@ -197,6 +200,86 @@ if jq -e '[.[] | select(.issue == null)] | length > 0' <<<"$queue" >/dev/null; t
   fail "DraftIssue leaked into the queue"
 fi
 echo "  ✓ DraftIssue excluded (Issue-only)"
+
+# ---------------------------------------------------------------------------
+# Watchdog scenarios (#164). We spawn a genuinely-hung child via
+# MAKATO_LOOP_STALL_TEST_CMD="sleep <big>" and squeeze STALL_WARN/KILL to
+# small values so the tests run in single-digit seconds instead of minutes.
+# ---------------------------------------------------------------------------
+
+echo "=== T12: watchdog WARNs after STALL_WARN ==="
+rm -f "$STATE_DIR/loop-status.json"
+# STALL_KILL big enough that we observe stalled=true first without racing
+# the kill path.
+(
+  export MAKATO_LOOP_STALL_TEST_CMD="sleep 30"
+  export MAKATO_LOOP_STALL_WARN=1
+  export MAKATO_LOOP_STALL_KILL=15
+  export MAKATO_LOOP_STALL_POLL=1
+  export MAKATO_LOOP_STALL_TERM_GRACE=1
+  # Run dispatch in background so we can poll status while the child sleeps.
+  "$LOOP" dispatch 12001 >/dev/null 2>&1 &
+  dispatch_pid=$!
+  # Wait for WARN stamp (up to 6 s — generous for CI). Once stamped, we
+  # SIGTERM the dispatch so the test doesn't hang on the sleep.
+  observed_warn=0
+  for _ in 1 2 3 4 5 6; do
+    sleep 1
+    if [[ -f "$STATE_DIR/loop-status.json" ]] && \
+       jq -e '.active_workflow.stalled == true' "$STATE_DIR/loop-status.json" >/dev/null 2>&1; then
+      observed_warn=1
+      break
+    fi
+  done
+  # Kill the dispatch (and its child) cleanly so the test suite doesn't wait.
+  kill -TERM "$dispatch_pid" 2>/dev/null || true
+  wait "$dispatch_pid" 2>/dev/null || true
+  [[ $observed_warn -eq 1 ]] || fail "watchdog did not stamp active_workflow.stalled=true"
+)
+echo "  ✓ active_workflow.stalled=true observed"
+
+# ---------------------------------------------------------------------------
+echo "=== T13: watchdog SIGKILLs child after STALL_KILL and audits it ==="
+rm -f "$STATE_DIR/loop-status.json"
+# The dispatch call MUST return on its own once the watchdog reaps the
+# child — so this test simply waits for cmd_dispatch to exit and asserts
+# the last_watchdog_kill snapshot survives the active_workflow=null clear.
+MAKATO_LOOP_STALL_TEST_CMD="sleep 30" \
+MAKATO_LOOP_STALL_WARN=1 \
+MAKATO_LOOP_STALL_KILL=2 \
+MAKATO_LOOP_STALL_POLL=1 \
+MAKATO_LOOP_STALL_TERM_GRACE=1 \
+  "$LOOP" dispatch 13001 >/dev/null 2>&1 || true
+jq -e '.last_watchdog_kill.issue == 13001' "$STATE_DIR/loop-status.json" >/dev/null \
+  || fail "last_watchdog_kill.issue should be 13001"
+jq -e '.last_watchdog_kill.killed_at != null' "$STATE_DIR/loop-status.json" >/dev/null \
+  || fail "last_watchdog_kill.killed_at should be stamped"
+jq -e '.active_workflow == null' "$STATE_DIR/loop-status.json" >/dev/null \
+  || fail "active_workflow should be cleared post-dispatch"
+echo "  ✓ last_watchdog_kill audit persisted; active_workflow cleared"
+
+# ---------------------------------------------------------------------------
+echo "=== T14: MAKATO_LOOP_STALL_DISABLE=1 disables the watchdog ==="
+rm -f "$STATE_DIR/loop-status.json"
+rm -f "$STATE_DIR/dispatch-14001.log"
+# With the watchdog disabled, the sleep must run to completion (short
+# sleep so the test finishes quickly) with NO log file created and no
+# stalled / killed_by_watchdog fields anywhere.
+MAKATO_LOOP_STALL_DISABLE=1 \
+MAKATO_LOOP_STALL_TEST_CMD="sleep 1" \
+MAKATO_LOOP_STALL_WARN=1 \
+MAKATO_LOOP_STALL_KILL=2 \
+MAKATO_LOOP_STALL_POLL=1 \
+  "$LOOP" dispatch 14001 >/dev/null 2>&1
+if [[ -e "$STATE_DIR/dispatch-14001.log" ]]; then
+  fail "dispatch log should not exist when watchdog disabled"
+fi
+if jq -e '.last_watchdog_kill != null' "$STATE_DIR/loop-status.json" >/dev/null 2>&1; then
+  fail "last_watchdog_kill should not be stamped when watchdog disabled"
+fi
+jq -e '.active_workflow == null' "$STATE_DIR/loop-status.json" >/dev/null \
+  || fail "active_workflow should still be cleared post-dispatch"
+echo "  ✓ watchdog skipped, dispatch completes normally"
 
 echo
 echo "=== ALL TESTS PASSED ==="

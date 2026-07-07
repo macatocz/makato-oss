@@ -5,6 +5,18 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## Add liveness watchdog to `loop.sh` dispatch (#164)
+
+Third and last of the three coupled contract holes surfaced by the #160 incident. #160 fixed the root cause (dispatch prompt now delegates to po-agent), #163 wired the caller-side `MAKATO_HEADLESS=1` defence; #164 adds the last-resort net so a future novel deadlock class doesn't wedge the loop indefinitely.
+
+- **`scripts/loop.sh`** — `cmd_dispatch`: when the watchdog is enabled (default), the PO-agent's combined stdout+stderr is redirected to `.claude/state/dispatch-<issue>.log`, and a background `_watchdog_poll` helper polls the log's mtime every `MAKATO_LOOP_STALL_POLL` seconds. Two escalation levels: **WARN** (`idle ≥ MAKATO_LOOP_STALL_WARN`, default 900 s) stamps `active_workflow.stalled = true` / `stalled_since = <iso>` — visibility only, no signal to the child. **KILL** (`idle ≥ MAKATO_LOOP_STALL_KILL`, default 3600 s) snapshots `last_watchdog_kill = {issue, killed_at, idle_seconds, stall_kill_seconds}` (surviving the `active_workflow=null` clear on dispatch return), stamps `active_workflow.killed_by_watchdog = true`, sends `SIGTERM`, and follows up with `SIGKILL` after `MAKATO_LOOP_STALL_TERM_GRACE` seconds (default 30) if the child hasn't exited.
+- **`scripts/loop.sh`** — `active_workflow` now initializes with the watchdog fields (`stalled: false, stalled_since: null, killed_by_watchdog: false`) so the JSON shape is stable across dispatch runs regardless of whether the watchdog fires.
+- **`scripts/loop.sh`** — `MAKATO_LOOP_STALL_DISABLE=1` skips log capture and never spawns the watchdog (debug-session escape hatch). `MAKATO_LOOP_STALL_TEST_CMD` is a test-only hook that runs the given command (e.g. `sleep 30`) in place of `claude` so the smoke suite has a real stall to reap without invoking the model.
+- **`scripts/loop-smoke-tests.sh`** — three new scenarios: T12 (WARN stamps `stalled=true`), T13 (KILL SIGTERMs child and `last_watchdog_kill` audit survives), T14 (`MAKATO_LOOP_STALL_DISABLE=1` fully opts out — no log file, no status stamps). All 14 scenarios pass locally in ~10 s.
+- **`skills/loop/SKILL.md`** — bumped to `1.2.0`. New "Liveness watchdog" section documents the WARN/KILL escalation, non-goals (not a semantic-progress meter), and the escape hatch. `loop-status.json` schema table gains rows for the four new fields. Environment-variable table gains rows for `MAKATO_LOOP_STALL_{WARN,KILL,POLL,TERM_GRACE,DISABLE,TEST_CMD}`. Smoke-test index extended from 11 to 14.
+
+---
+
 ## Export MAKATO_HEADLESS=1 on `claude -p` dispatch (#163)
 
 Belt-and-braces defence against the #160 deadlock class. #160 fixed the root cause (dispatch prompt now delegates to po-agent, which threads `--autonomous`). #163 adds the skill-side defensive guard in `makato-build` (`build-refine` Step 1b); this PR wires the caller-side signal.
