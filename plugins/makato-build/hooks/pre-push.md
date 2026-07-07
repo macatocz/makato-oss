@@ -4,7 +4,6 @@ trigger: Stop
 action: inject
 version: "1.1.1"
 ---
-
 # Pre-Push Hook
 
 > **Mission**: After a git push is detected in the session, warn if the verify gate has not been run since the last implementation. Advisory — does not block the push but surfaces the gap so the user can act.
@@ -20,6 +19,7 @@ A verify pass is considered valid only if it appears **after** the most recent `
 ## Action
 
 The hook command:
+
 1. Scans `specs/*/build.jsonl` for the most recently modified file.
 2. Reads all entries in order.
 3. Finds the last `skill: build-push-to-git, step: session, status: ok` entry (push detected).
@@ -65,6 +65,7 @@ This is advisory — the push has already happened. The hook's value is surfacin
 **Prerequisites:** Node.js must be available on `PATH` in the shell Claude Code runs in. If Node.js is missing, the hook exits silently and the verify warning will not fire.
 
 **Silent-exit cases** (hook produces no output, all normal):
+
 - `specs/` directory does not exist
 - No `build.jsonl` files found under `specs/`
 - No `build-push-to-git` session-end entry found in the most recent log

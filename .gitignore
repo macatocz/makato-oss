@@ -303,6 +303,9 @@ Thumbs.db
 .env.development.local
 .env.test.local
 .env.production.local
+
+# makato runtime state (session data, orchestrator caches) — machine-local
+.local/
 thycotic-secrets.json
 
 # Testing

@@ -217,4 +217,10 @@ claude --plugin-dir ./plugins/makato-build
 
 ## Version
 
-Managed by release-please at repo level; per-skill versions live in SKILL.md frontmatter.
+```bash
+claude plugin add makato-build --source https://github.com/zstary/makato/tree/main/plugins/makato-build
+
+claude plugin marketplace add https://github.com/zstary/makato/tree/main/plugins/makato-build#stable
+claude plugin install makato-build@makato-suite
+```
+Or interactively via /plugin marketplace add then /plugin install makato-build@makato-suite.
