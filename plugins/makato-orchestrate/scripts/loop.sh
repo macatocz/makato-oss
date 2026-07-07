@@ -193,10 +193,17 @@ cmd_poll() {
     owner="$(jq -r '.owner' <<<"$cfg")"
     number="$(jq -r '.number' <<<"$cfg")"
     host="$(jq -r '.host' <<<"$cfg")"
+    # `gh project item-list` has no host flag — the `gh` CLI resolves the
+    # host via `GH_HOST` (auth context) and `--owner`. A bare
+    # `gh --hostname …` at this subcommand position fails with
+    # `unknown flag: --hostname` and previously left the queue silently
+    # empty (issue #156). Route host through the env var instead, and let
+    # gh's stderr surface real failures so callers see them (the outer
+    # `run` loop retries next tick regardless — the loss was diagnostics).
     # `--limit 9999` mirrors plugins/makato-plan/.../board-audit.md — same
     # ceiling, same WARN-on-truncation contract.
-    raw="$(gh --hostname "$host" project item-list "$number" \
-      --owner "$owner" --format json --limit 9999 2>/dev/null || echo '{"items":[]}')"
+    raw="$(GH_HOST="$host" gh project item-list "$number" \
+      --owner "$owner" --format json --limit 9999 || echo '{"items":[]}')"
   fi
   jq --arg status "$status_name" \
     '[.items[]

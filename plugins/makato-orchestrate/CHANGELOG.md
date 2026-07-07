@@ -5,6 +5,14 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## Fix loop.sh `gh --hostname` flag silently returning empty queue (#156)
+
+`scripts/loop.sh`'s `cmd_poll` called `gh --hostname "$host" project item-list …`, but `gh project item-list` has never accepted a `--hostname` flag. The subprocess exited with `unknown flag: --hostname`, stderr was swallowed by `2>/dev/null`, and the `|| echo '{"items":[]}'` fallback made the loop see an empty queue on every poll — even when Ready items existed on the board. Verified live: pre-fix `poll Ready` → `[]`; post-fix → issue #143.
+
+- **`scripts/loop.sh`** — `cmd_poll`: replaced `gh --hostname "$host" project item-list …` with `GH_HOST="$host" gh project item-list …`. Removed the `2>/dev/null` swallow so real `gh` failures surface (the caller still degrades to an empty queue via the fallback, but with diagnostics). Comment expanded to record the incident and the routing rule. All 11 loop smoke tests pass; live verification against `macatocz/projects/4` returns the Ready queue correctly.
+
+---
+
 ## Fix loop.sh dispatch using non-existent `claude --session/--autonomous` flags (#152)
 
 `loop.sh`'s `cmd_dispatch` called `claude --session loop --autonomous <issue>`, but these flags have never existed in the released Claude Code CLI binary. The same phantom invocation appeared in the context-handoff resume script. Both dispatch paths failed immediately with `error: unknown option '--session'`.
