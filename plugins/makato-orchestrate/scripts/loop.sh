@@ -309,9 +309,17 @@ cmd_dispatch() {
   # "drive the issue" and invokes it in default interactive mode — which
   # in a headless `claude -p` subprocess deadlocks on the first
   # AskUserQuestion prompt (see #160).
+  #
+  # `MAKATO_HEADLESS=1` is exported as a defensive belt: if the top-level
+  # session or any downstream skill ignores the delegation prompt above
+  # and falls back to interactive mode, the makato-build Step 1b guard
+  # (see plugins/makato-build/AUTONOMOUS-MODE.md § "Defensive-headless
+  # guard") HALTs with MISSING_INPUT instead of hanging on
+  # AskUserQuestion. This is the #163 fix; the #160 fix (delegation
+  # prompt) remains the primary defence.
   local dispatch_prompt
   dispatch_prompt="Use the Task tool to dispatch the makato-orchestrate:po-agent subagent to drive GitHub issue #${issue} to a merged PR. Pass the issue number as the sole argument. The po-agent owns the outer loop, workflow-state, and all makato-build --autonomous dispatch; do not invoke makato-build or makato-plan skills directly from this session. Return the po-agent's final R1 envelope verbatim."
-  "$CLAUDE_BIN" --dangerously-skip-permissions -p "$dispatch_prompt" || rc=$?
+  MAKATO_HEADLESS=1 "$CLAUDE_BIN" --dangerously-skip-permissions -p "$dispatch_prompt" || rc=$?
   _patch_status '.active_workflow' 'null'
   return $rc
 }

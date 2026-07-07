@@ -5,6 +5,17 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## Export MAKATO_HEADLESS=1 on `claude -p` dispatch (#163)
+
+Belt-and-braces defence against the #160 deadlock class. #160 fixed the root cause (dispatch prompt now delegates to po-agent, which threads `--autonomous`). #163 adds the skill-side defensive guard in `makato-build` (`build-refine` Step 1b); this PR wires the caller-side signal.
+
+- **`scripts/loop.sh`** — `cmd_dispatch`: prefix the `$CLAUDE_BIN` exec with `MAKATO_HEADLESS=1`. If the po-agent delegation prompt is somehow ignored and a `build-*` skill fires interactively, its Step 1b guard HALTs with `MISSING_INPUT` instead of hanging on `AskUserQuestion`.
+- **`scripts/context-handoff.sh`** — `_emit_resume`: the emitted HALT-007B resume script's `exec` line becomes `exec env MAKATO_HEADLESS=1 "$CLAUDE_BIN" …` so the same defensive property carries across a context handoff. The existing T5 smoke-test regex (`claude ... --dangerously-skip-permissions ... --resume`) continues to match; a new dedicated smoke test in makato-build asserts the `env MAKATO_HEADLESS=1` prefix.
+- **`skills/loop/SKILL.md`** — Step 5 dispatch description updated to note the env-var prefix and cross-reference the `AUTONOMOUS-MODE.md` § *Defensive-headless guard* contract.
+- All 11 loop smoke tests and 7 context-handoff smoke tests continue to pass.
+
+---
+
 ## Fix loop.sh dispatch prompt not delegating to po-agent (#160)
 
 `loop.sh`'s `cmd_dispatch` was calling `claude -p "Drive issue #<n> to merged PR"`, which is under-specified: the headless top-level Claude session did not delegate to the `makato-orchestrate:po-agent` subagent and instead invoked `makato-build` skills directly (e.g. `build-refine`). Those skills default to interactive mode and fire `AskUserQuestion` on the plan; the headless `claude -p` subprocess has no stdin, so the loop deadlocked on the first dispatch. Observed live on 2026-07-07 against issue #143 (PID hung ~14 min at 0.4% CPU before manual kill). The same under-specified prompt appeared in the HALT-007B resume script — same failure mode after every context handoff.

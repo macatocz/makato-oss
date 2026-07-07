@@ -5,6 +5,17 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## `build-refine` headless-context defensive guard, Step 1b (#163)
+
+Prevents the deadlock class first observed in #160 — a headless `claude -p …` session forgetting to thread any of the three autonomous triggers (`--autonomous`, `$AGENT_ID`, `task_id`) into a `build-*` skill and then hanging silently when Step 1 or Step 11 fires `AskUserQuestion`. The #160 root-cause fix landed on the caller side (loop.sh now delegates to po-agent); this PR adds the skill-side defence so any future headless caller that skips the delegation is refused loudly instead of hanging.
+
+- **`AUTONOMOUS-MODE.md`** — new § *Defensive-headless guard*. Documents `MAKATO_HEADLESS=1` as a caller-side "no human at the prompt" assertion, NOT a fourth autonomous trigger. Precedence rules: autonomous trigger + `MAKATO_HEADLESS` → autonomous wins; `MAKATO_HEADLESS` alone → HALT `MISSING_INPUT: headless-without-autonomous` before the first `AskUserQuestion`; `MAKATO_HEADLESS` unset → interactive path unchanged. Explains why tty auto-detection (`[[ ! -t 0 ]]`) is unsafe inside a Claude Code Bash tool. Names the two makato-orchestrate callers responsible for exporting the variable.
+- **`skills/build-refine/SKILL.md`** — new *Step 1b — Headless-context defensive guard* between Step 1a and Step 2. HALTs with `build.jsonl` `session/error` entry and R1 `status:"failure"` envelope when `MAKATO_HEADLESS=1` AND no autonomous trigger fired. Cross-references #160 and #163.
+- **`shared/headless-guard-smoke-tests.sh`** — new grep-based smoke test asserting the guard's prose contract (Step 1b heading, HALT payload, precedence documentation, ordering between Step 1a and Step 2) and the two caller-side wiring properties in the makato-orchestrate scripts. 5/5 pass.
+- Existing `autonomous-propagation-smoke-tests.sh` continues to pass (guard is complementary, not conflicting).
+
+---
+
 ## `build-simplify` Step 3 dispatches `gate-scout` authoritatively, baseline row carries `data.cmd` (#97)
 
 Fixes the test-command-discovery hole surfaced during the #58 smoke test: Step 3 said *"Dispatch the `gate-scout` agent (or follow `@shared/baseline-guide.md` discovery)"*, but `baseline-guide.md` documented only the broken-baseline gate — it had no discovery algorithm to fall through to. The makato monorepo has no `pyproject.toml`/`Makefile`/`pytest.ini` at the repo root (the harness `pyproject.toml` lives there only since #64, and even then the unit-test command isn't pinned anywhere a generic skill could find without `gate-scout`). An autonomous `build-simplify` run would HALT here, and the #58 operator had to manually pick `python3 -m pytest plugins/makato-build/shared/test_inject_context.py` and log it as a `baseline-discovery: decision` event — the explicit failure mode this PR closes.

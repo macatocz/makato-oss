@@ -21,6 +21,27 @@ If none of those hold the skill runs in **interactive mode**, exactly as it did 
 
 **Precedence:** the three triggers are OR-equivalent. Once any one is true the skill is autonomous; further checks are unnecessary.
 
+## Defensive-headless guard (`MAKATO_HEADLESS`)
+
+`MAKATO_HEADLESS=1` is **not a fourth autonomous trigger** — it is the opposite. It is a caller-side assertion of "no human is at the prompt" that lets a skill refuse to hang when the caller has forgotten to set any of the three autonomous triggers above.
+
+Semantics:
+
+- If `MAKATO_HEADLESS=1` is set AND at least one autonomous trigger fired → run autonomous (autonomous wins; the env var is redundant but harmless).
+- If `MAKATO_HEADLESS=1` is set AND no autonomous trigger fired → HALT with `MISSING_INPUT: headless-without-autonomous` before the first `AskUserQuestion`. Write a `build.jsonl` `session/error` entry with `halt_code: "MISSING_INPUT"` and return an R1 `status:"failure"` envelope. Do NOT auto-fall-back to autonomous mode — the caller violated the contract and must be told, not papered over.
+- If `MAKATO_HEADLESS` is unset → normal interactive path, no guard fires.
+
+**Why an explicit env var and not tty auto-detection:** inside a Claude Code Bash tool `stdin`/`stdout` are always pipes, even in a fully interactive human-driven session. A `[[ ! -t 0 ]]` auto-detector would false-positive and kill legitimate interactive runs. `MAKATO_HEADLESS=1` is the caller's declaration; the skill trusts it.
+
+**Callers that MUST export `MAKATO_HEADLESS=1`:** any script that spawns `claude --dangerously-skip-permissions -p …`. Currently:
+
+- `plugins/makato-orchestrate/scripts/loop.sh` — `cmd_dispatch`
+- `plugins/makato-orchestrate/scripts/context-handoff.sh` — `_emit_resume`
+
+Both call sites belong to the makato-orchestrate plugin and are the only headless entry points into build-* skills today. Any new headless caller must export the variable on its side of the boundary.
+
+Skill-side detection lives in the `build-*` skill's Step 1b (see `build-refine/SKILL.md` § *Step 1b — Headless-context defensive guard* for the canonical shape). Other `build-*` skills that fire `AskUserQuestion` in Step 1 or later gates SHOULD add an equivalent Step 1b when they are dispatched by a headless caller — track via the skill's own PR when the need arises.
+
 ## Default-taking rules per gate
 
 | Skill | Gate (line ref to the `AskUserQuestion` site) | Interactive behavior | Autonomous default |

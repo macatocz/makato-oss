@@ -61,6 +61,22 @@ In autonomous mode, the work-item-key `AskUserQuestion` above is replaced by:
 
 Log the bypass via `shared/log-bypass.sh build-refine "<key>" work-item-key use-arg "<agent_id|cli_flag|task_id_bundle>"` when bypassed.
 
+### Step 1b — Headless-context defensive guard
+
+The three autonomous triggers in Step 1a are opt-in signals from the caller. But a caller can *forget* to set any of them — for example, a headless `claude -p …` invocation whose prompt does not name the po-agent subagent or thread `--autonomous`. In that case Step 1 and Step 11 would fire `AskUserQuestion`, the headless subprocess has no stdin, and the skill would deadlock silently. This is the class of failure originally hit in #160 and defended against here per #163.
+
+**Guard:** if the caller has explicitly declared the invocation is headless via the env var `MAKATO_HEADLESS=1` AND none of the three autonomous triggers fired (no `--autonomous` on the CLI, no `$AGENT_ID` in the env, no `task_id` in the context bundle), the skill MUST HALT before the first `AskUserQuestion`. Do NOT prompt; do NOT auto-fall-back to autonomous mode. The correct upward signal is:
+
+- Write `build.jsonl` entry: `{step:"session", status:"error", data:{halt_code:"MISSING_INPUT", message:"build-refine invoked in a headless context (MAKATO_HEADLESS=1) without any autonomous trigger — Step 1 or Step 11 would deadlock on AskUserQuestion. Set --autonomous on the CLI, export $AGENT_ID, or supply a context bundle with task_id."}}`.
+- Return an R1 envelope with `status: "failure"`, `errors: ["MISSING_INPUT: headless-without-autonomous"]`, and `data.halt_code: "MISSING_INPUT"`.
+- Do not proceed to Step 2.
+
+**Why an explicit env var and not tty auto-detection:** inside a Claude Code Bash tool `stdin`/`stdout` are always pipes, even in a fully interactive human-driven session. A `[[ ! -t 0 ]]` auto-detector would false-positive and kill legitimate interactive runs. `MAKATO_HEADLESS=1` is a caller-side assertion: "I am `claude -p`, no human is at the prompt, refuse to hang."
+
+**Interaction with the three autonomous triggers:** the guard is a strict AND with "no autonomous trigger fired." `MAKATO_HEADLESS=1` + `--autonomous` proceeds under autonomous mode (autonomous wins). `MAKATO_HEADLESS=1` + `$AGENT_ID` proceeds under autonomous mode. `MAKATO_HEADLESS` unset lets the interactive path run as before. The guard fires only when the caller says "I'm headless" AND provides no autonomous signal — a contract violation, not a normal path.
+
+**Callers responsible for exporting `MAKATO_HEADLESS=1`:** `plugins/makato-orchestrate/scripts/loop.sh` (`cmd_dispatch`) and `plugins/makato-orchestrate/scripts/context-handoff.sh` (`_emit_resume`). Any new headless caller of `build-refine` (or any other `build-*` skill inheriting this contract) must export the variable on their side of the boundary.
+
 ### Step 2 — Log session start and prepare workspace
 
 Check that a spec folder exists by prefix-matching `specs/<key>-*/`. If no match is found, stop immediately and tell the user:
@@ -271,6 +287,8 @@ In autonomous mode:
 - **Never prompt the user** — the Step 1 work-item-key gate and the Step 11 plan-review gate are bypassed per the rules above.
 - **Log every bypass** to `build.jsonl` via `shared/build-log.sh` with the `autonomous_bypass` event schema documented in `@../../AUTONOMOUS-MODE.md`.
 - **Emit an R1 envelope** as the final `json`-fenced block of the skill's output (schema: `plugins/makato-build/agents/RETURN-CONTRACT.md`).
+
+**Defensive-headless guard (#163):** if `MAKATO_HEADLESS=1` is set AND no autonomous trigger fired, the skill HALTs before Step 2 per Step 1b rather than proceeding interactively — the headless subprocess would otherwise deadlock on `AskUserQuestion`. See Step 1b for the full contract.
 
 ### Return Format (R1, when called as a sub-skill)
 

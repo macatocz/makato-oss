@@ -124,11 +124,16 @@ Each outer iteration of `run` performs the following steps in order:
    <issue>` which:
    - Writes `.active_workflow = {issue, started_at}` to
      `loop-status.json` before forking.
-   - `exec`s `$MAKATO_CLAUDE_BIN --dangerously-skip-permissions -p "<prompt that dispatches makato-orchestrate:po-agent via the Task tool for issue #<issue>>"`.
+   - `exec`s `MAKATO_HEADLESS=1 $MAKATO_CLAUDE_BIN --dangerously-skip-permissions -p "<prompt that dispatches makato-orchestrate:po-agent via the Task tool for issue #<issue>>"`.
      The prompt explicitly names the po-agent subagent so the top-level
      Claude session delegates instead of running `makato-build` skills
      directly (which would default to interactive mode and deadlock a
      headless `claude -p` on the first `AskUserQuestion` — see #160).
+     `MAKATO_HEADLESS=1` is the defensive belt: if the delegation prompt
+     is somehow ignored and a `build-*` skill fires interactively, its
+     Step 1b headless guard (see `plugins/makato-build/AUTONOMOUS-MODE.md`
+     § "Defensive-headless guard") HALTs with `MISSING_INPUT` instead of
+     hanging on `AskUserQuestion` — see #163.
      The call blocks for the PO-agent's lifetime; on return,
      `.active_workflow` is cleared regardless of exit code.
    - Returns the PO-agent's exit code unchanged. The loop discards it
