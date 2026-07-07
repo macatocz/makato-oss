@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.30.0](https://github.com/macatocz/makato/compare/v0.29.1...v0.30.0) (2026-07-07)
+
+
+### ✨ Features
+
+* **makato-build:** skill_routing opt-out parser ([#142](https://github.com/macatocz/makato/issues/142)) ([#157](https://github.com/macatocz/makato/issues/157)) ([d1c530f](https://github.com/macatocz/makato/commit/d1c530fca43f05b65e579d412184b847eaba224c))
+
 ## [0.29.1](https://github.com/macatocz/makato/compare/v0.29.0...v0.29.1) (2026-07-07)
 
 
