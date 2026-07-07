@@ -64,6 +64,13 @@ The PO-agent runs with `permissionMode: bypassPermissions` and `maxTurns: 100`. 
 
 **Contributor rule:** Do not add `bypassPermissions` to any other agent in this plugin. Sub-agents this plugin dispatches live in `makato-build` and inherit that plugin's permission matrix.
 
+## Skill routing opt-out
+
+`documentation-agent` and `context-summariser` carry `skill_routing: disabled` in their
+frontmatter. This exempts them from the F4 telemetry log and from skill-recommendation
+injection — both are non-technical agents that must not appear in the KPI1 adoption baseline.
+See root `AGENTS.md` § *Skill routing opt-out* for the full contract and parser location.
+
 ## Agents
 
 makato-orchestrate hosts the top-level orchestrator and supporting read-only scouts:

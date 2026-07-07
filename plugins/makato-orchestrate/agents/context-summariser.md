@@ -10,6 +10,7 @@ description: >-
 maxTurns: 5
 permissionMode: bypassPermissions
 disallowedTools: Write, Edit, Bash, NotebookEdit, Task
+skill_routing: disabled
 ---
 
 <!-- markdownlint-disable MD013 -->

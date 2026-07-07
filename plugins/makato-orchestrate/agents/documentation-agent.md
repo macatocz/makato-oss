@@ -12,6 +12,7 @@ description: >-
 maxTurns: 30
 permissionMode: bypassPermissions
 disallowedTools: NotebookEdit
+skill_routing: disabled
 ---
 
 <!-- markdownlint-disable MD013 -->

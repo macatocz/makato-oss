@@ -120,6 +120,30 @@ Plugins discover project specs via (in order):
 2. `<REPO_ROOT>/specs/index.yml`
 
 No environment-variable fallback, no sibling-directory autodetect.
+
+## Skill routing opt-out
+
+By default every agent is **skill-routed** — `inject-skills` prepends `recommended_skills[]`
+into its system prompt and the F4 telemetry log records its Skill tool calls (D21 default-on
+semantics). Non-technical agents that must not appear in the telemetry baseline opt out by
+adding a single frontmatter field:
+
+```yaml
+skill_routing: disabled
+```
+
+Agents with this field receive no skill recommendations and generate no F4 log lines.
+Agents without the field are treated as opted-in (default-on). The value `enabled` is also
+accepted as an explicit opt-in marker, but omitting the field is equivalent.
+
+**Currently opted-out agents:**
+
+- `makato-orchestrate/agents/documentation-agent` — post-merge doc pass; non-technical
+- `makato-orchestrate/agents/context-summariser` — context-ceiling handoff; non-technical
+
+The parser lives in `plugins/makato-build/shared/skill_routing.py` (stdlib only).
+Tests: `plugins/makato-build/shared/test_skill_routing.py`.
+Per-plugin notes: see `plugins/makato-orchestrate/AGENTS.md` § *Skill routing opt-out*.
 FOOTER
 
 # CLAUDE.md is a one-line import so Claude Code's auto-load picks up AGENTS.md verbatim.
