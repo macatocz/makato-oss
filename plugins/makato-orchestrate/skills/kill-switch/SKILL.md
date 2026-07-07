@@ -52,7 +52,7 @@ The `hooks/check-halt.sh` PreToolUse hook fires on every `Bash` tool call. A non
 `HALT` file blocks the next tool call entirely. PO-agent sees the failed tool result, runs
 `kill-switch poll` at the next loop boundary, writes HALT-000 to `halt_audit`, exits.
 
-**Resumption**: `rm ~/.claude/HALT && claude --dangerously-skip-permissions -p "Drive issue #<issue> to merged PR"`.
+**Resumption**: `rm ~/.claude/HALT && plugins/makato-orchestrate/scripts/loop.sh run` — invoke the loop entry point (which threads the po-agent delegation prompt); do not invoke `claude -p` directly with an ad-hoc prompt (see #160).
 
 ### Lever 2 — Apply the `claude-halt` GitHub label
 

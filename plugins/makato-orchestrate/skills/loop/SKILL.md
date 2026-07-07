@@ -124,7 +124,11 @@ Each outer iteration of `run` performs the following steps in order:
    <issue>` which:
    - Writes `.active_workflow = {issue, started_at}` to
      `loop-status.json` before forking.
-   - `exec`s `$MAKATO_CLAUDE_BIN --dangerously-skip-permissions -p "Drive issue #<issue> to merged PR"`.
+   - `exec`s `$MAKATO_CLAUDE_BIN --dangerously-skip-permissions -p "<prompt that dispatches makato-orchestrate:po-agent via the Task tool for issue #<issue>>"`.
+     The prompt explicitly names the po-agent subagent so the top-level
+     Claude session delegates instead of running `makato-build` skills
+     directly (which would default to interactive mode and deadlock a
+     headless `claude -p` on the first `AskUserQuestion` — see #160).
      The call blocks for the PO-agent's lifetime; on return,
      `.active_workflow` is cleared regardless of exit code.
    - Returns the PO-agent's exit code unchanged. The loop discards it
@@ -225,7 +229,7 @@ The intentional design split:
 |---------|----------------|-----|
 | Queue HALT (stop picking up new issues) | `loop` (this skill) | The loop is the outermost frame; one HALT-file check per cycle is sufficient. |
 | Per-issue HALT (cancel the active run) | `kill-switch poll` inside PO-agent | The PO-agent already polls every outer-iteration boundary; duplicating from `loop` would race the active subprocess. |
-| Per-issue context handoff (HALT-007B) | `scripts/context-handoff.sh` inside PO-agent | The handoff respawns a fresh `claude --dangerously-skip-permissions --resume <KEY> -p "Drive issue #<issue> to merged PR"` directly — the loop's role is only to start the first session, not to manage handoffs. |
+| Per-issue context handoff (HALT-007B) | `scripts/context-handoff.sh` inside PO-agent | The handoff respawns a fresh `claude --dangerously-skip-permissions --resume <KEY> -p "<po-agent delegation prompt>"` directly — the loop's role is only to start the first session, not to manage handoffs. The delegation prompt names the po-agent subagent for the same reason as the initial dispatch (see #160). |
 
 ## Environment variables
 

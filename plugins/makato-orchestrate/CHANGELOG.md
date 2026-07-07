@@ -5,7 +5,18 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
-## Fix loop.sh `gh --hostname` flag silently returning empty queue (#156)
+## Fix loop.sh dispatch prompt not delegating to po-agent (#160)
+
+`loop.sh`'s `cmd_dispatch` was calling `claude -p "Drive issue #<n> to merged PR"`, which is under-specified: the headless top-level Claude session did not delegate to the `makato-orchestrate:po-agent` subagent and instead invoked `makato-build` skills directly (e.g. `build-refine`). Those skills default to interactive mode and fire `AskUserQuestion` on the plan; the headless `claude -p` subprocess has no stdin, so the loop deadlocked on the first dispatch. Observed live on 2026-07-07 against issue #143 (PID hung ~14 min at 0.4% CPU before manual kill). The same under-specified prompt appeared in the HALT-007B resume script — same failure mode after every context handoff.
+
+- **`scripts/loop.sh`** — `cmd_dispatch`: replaced the bare prompt with an explicit delegation: `"Use the Task tool to dispatch the makato-orchestrate:po-agent subagent to drive GitHub issue #<n> to a merged PR. […] do not invoke makato-build or makato-plan skills directly from this session. Return the po-agent's final R1 envelope verbatim."`. Header comment updated. Dry-run echo updated to describe the delegation rather than quote the whole prompt.
+- **`scripts/context-handoff.sh`** — `_emit_resume`: the HALT-007B resume script now uses the same delegation prompt so the resumed session also delegates via the po-agent subagent instead of running `makato-build` skills directly.
+- **`skills/loop/SKILL.md`** — Step 5 dispatch description and HALT-007B row updated to describe the delegation prompt and reference #160.
+- **`skills/kill-switch/SKILL.md`** — HALT-000 resumption example points at `loop.sh run` (the loop entry point) instead of an ad-hoc `claude -p` invocation.
+- **`halt-conditions.md`** — HALT-007B recovery description updated to describe the delegation prompt.
+- All 11 loop smoke tests and all 7 context-handoff smoke tests pass.
+
+
 
 `scripts/loop.sh`'s `cmd_poll` called `gh --hostname "$host" project item-list …`, but `gh project item-list` has never accepted a `--hostname` flag. The subprocess exited with `unknown flag: --hostname`, stderr was swallowed by `2>/dev/null`, and the `|| echo '{"items":[]}'` fallback made the loop see an empty queue on every poll — even when Ready items existed on the board. Verified live: pre-fix `poll Ready` → `[]`; post-fix → issue #143.
 
