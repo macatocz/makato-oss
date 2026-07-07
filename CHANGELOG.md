@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.29.1](https://github.com/macatocz/makato/compare/v0.29.0...v0.29.1) (2026-07-07)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** replace non-existent claude --session/--autonomous flags ([#152](https://github.com/macatocz/makato/issues/152)) ([#154](https://github.com/macatocz/makato/issues/154)) ([d8ddec9](https://github.com/macatocz/makato/commit/d8ddec9c055ab743293822ec404e2c5478369e6a))
+
 ## [0.29.0](https://github.com/macatocz/makato/compare/v0.28.2...v0.29.0) (2026-07-06)
 
 
