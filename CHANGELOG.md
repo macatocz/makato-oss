@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.30.1](https://github.com/macatocz/makato/compare/v0.30.0...v0.30.1) (2026-07-07)
+
+
+### 🐛 Bug Fixes
+
+* build-refine headless-context defensive guard ([#163](https://github.com/macatocz/makato/issues/163)) ([#165](https://github.com/macatocz/makato/issues/165)) ([919c325](https://github.com/macatocz/makato/commit/919c3253f3cc19a2626e93d719290696bccb3d05))
+* **makato-orchestrate:** dispatch po-agent explicitly instead of bare prompt ([#160](https://github.com/macatocz/makato/issues/160)) ([#161](https://github.com/macatocz/makato/issues/161)) ([ca8b02a](https://github.com/macatocz/makato/commit/ca8b02a2807fa1be67ead753d8957f5c1d8f2fa3))
+* **makato-orchestrate:** route gh project item-list host via GH_HOST ([#156](https://github.com/macatocz/makato/issues/156)) ([#159](https://github.com/macatocz/makato/issues/159)) ([fbcb965](https://github.com/macatocz/makato/commit/fbcb96529d36bd4e742829c628d62359dc81bf7d))
+
 ## [0.30.0](https://github.com/macatocz/makato/compare/v0.29.1...v0.30.0) (2026-07-07)
 
 
