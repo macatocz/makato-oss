@@ -129,7 +129,7 @@ if [[ "\$STATE_PHASE" == "done" ]]; then
   exit 0
 fi
 
-exec "$CLAUDE_BIN" --session loop --autonomous "\$ISSUE" --resume "\$KEY"
+exec "$CLAUDE_BIN" --dangerously-skip-permissions --resume "\$KEY" -p "Drive issue #\$ISSUE to merged PR"
 EOF
   chmod +x "$RESUME_SCRIPT"
 }

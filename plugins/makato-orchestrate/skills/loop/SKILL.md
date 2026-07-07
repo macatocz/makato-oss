@@ -124,7 +124,7 @@ Each outer iteration of `run` performs the following steps in order:
    <issue>` which:
    - Writes `.active_workflow = {issue, started_at}` to
      `loop-status.json` before forking.
-   - `exec`s `$MAKATO_CLAUDE_BIN --session loop --autonomous <issue>`.
+   - `exec`s `$MAKATO_CLAUDE_BIN --dangerously-skip-permissions -p "Drive issue #<issue> to merged PR"`.
      The call blocks for the PO-agent's lifetime; on return,
      `.active_workflow` is cleared regardless of exit code.
    - Returns the PO-agent's exit code unchanged. The loop discards it
@@ -225,7 +225,7 @@ The intentional design split:
 |---------|----------------|-----|
 | Queue HALT (stop picking up new issues) | `loop` (this skill) | The loop is the outermost frame; one HALT-file check per cycle is sufficient. |
 | Per-issue HALT (cancel the active run) | `kill-switch poll` inside PO-agent | The PO-agent already polls every outer-iteration boundary; duplicating from `loop` would race the active subprocess. |
-| Per-issue context handoff (HALT-007B) | `scripts/context-handoff.sh` inside PO-agent | The handoff respawns a fresh `claude --session loop --autonomous <issue>` directly — the loop's role is only to start the first session, not to manage handoffs. |
+| Per-issue context handoff (HALT-007B) | `scripts/context-handoff.sh` inside PO-agent | The handoff respawns a fresh `claude --dangerously-skip-permissions --resume <KEY> -p "Drive issue #<issue> to merged PR"` directly — the loop's role is only to start the first session, not to manage handoffs. |
 
 ## Environment variables
 

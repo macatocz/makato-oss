@@ -5,6 +5,20 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## Fix loop.sh dispatch using non-existent `claude --session/--autonomous` flags (#152)
+
+`loop.sh`'s `cmd_dispatch` called `claude --session loop --autonomous <issue>`, but these flags have never existed in the released Claude Code CLI binary. The same phantom invocation appeared in the context-handoff resume script. Both dispatch paths failed immediately with `error: unknown option '--session'`.
+
+- **`scripts/loop.sh`** — `cmd_dispatch`: replaced `"$CLAUDE_BIN" --session loop --autonomous "$issue"` with `"$CLAUDE_BIN" --dangerously-skip-permissions -p "Drive issue #${issue} to merged PR"`. Dry-run echo updated to match. Header comment updated (`--session` reference removed). All 11 smoke tests pass.
+- **`scripts/context-handoff.sh`** — `_emit_resume`: replaced `exec "$CLAUDE_BIN" --session loop --autonomous "\$ISSUE" --resume "\$KEY"` with `exec "$CLAUDE_BIN" --dangerously-skip-permissions --resume "\$KEY" -p "Drive issue #\$ISSUE to merged PR"`. All 7 context-handoff smoke tests pass.
+- **`scripts/context-handoff-smoke-tests.sh`** — T5 grep pattern updated from `--session loop --autonomous` to `--dangerously-skip-permissions.*--resume` to match the new invocation.
+- **`skills/loop/SKILL.md`** — Step 5 dispatch description and kill-switch table updated to use the correct flags.
+- **`skills/kill-switch/SKILL.md`** — HALT-000 resumption example updated.
+- **`halt-conditions.md`** — HALT-007B recovery description updated.
+- **`README.md`** — scripts section updated.
+
+---
+
 ## `workflow-state.sh append-halt` subcommand + four-step HALT contract (#118 Part A)
 
 Replaces the open-coded read-merge-write pattern (`_append_halt_audit()` in `scripts/context-handoff.sh`, plus several inline `patch .halt_audit '...'` call sites in `agents/po-agent.md`) with a single typed subcommand that owns the canonical entry shape, code-format validation, and JSON-object data validation.

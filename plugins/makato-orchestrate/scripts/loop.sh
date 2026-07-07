@@ -36,7 +36,7 @@
 #
 #   dispatch <ISSUE_NUMBER> [--dry-run]
 #       Dispatch one issue. Writes loop-status.json with active_workflow,
-#       execs `$MAKATO_CLAUDE_BIN --session loop --autonomous <issue>`
+#       execs `$MAKATO_CLAUDE_BIN --dangerously-skip-permissions -p "Drive issue #<issue> to merged PR"`
 #       (or echoes the planned command under --dry-run), clears
 #       active_workflow on return.
 #
@@ -277,7 +277,7 @@ cmd_dispatch() {
   _patch_status '.active_workflow' "$active_obj"
 
   if [[ "$dry_run" == "--dry-run" ]]; then
-    echo "loop: --dry-run — would exec: $CLAUDE_BIN --session loop --autonomous $issue" >&2
+    echo "loop: --dry-run — would exec: $CLAUDE_BIN --dangerously-skip-permissions -p \"Drive issue #${issue} to merged PR\"" >&2
     _patch_status '.active_workflow' 'null'
     return 0
   fi
@@ -292,7 +292,7 @@ cmd_dispatch() {
   local rc=0
   # Single-threaded by construction: this call blocks until the PO-agent
   # subprocess exits. The next outer iteration polls fresh.
-  "$CLAUDE_BIN" --session loop --autonomous "$issue" || rc=$?
+  "$CLAUDE_BIN" --dangerously-skip-permissions -p "Drive issue #${issue} to merged PR" || rc=$?
   _patch_status '.active_workflow' 'null'
   return $rc
 }

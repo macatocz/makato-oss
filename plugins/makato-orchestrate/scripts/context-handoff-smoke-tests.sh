@@ -122,7 +122,7 @@ echo "=== T5: emit-resume produces idempotent executable script ==="
 _init_state 160000 0 yes
 "$HANDOFF" emit-resume "$KEY"
 [[ -x "$RESUME_SCRIPT" ]]                                                  || { echo "  ✗ FAIL: resume script not executable"; exit 1; }
-grep -qE 'claude["[:space:]]+.*--session loop --autonomous'    "$RESUME_SCRIPT"   || { echo "  ✗ FAIL: resume script missing dispatch command"; exit 1; }
+grep -qE 'claude["[:space:]]+.*--dangerously-skip-permissions.*--resume'    "$RESUME_SCRIPT"   || { echo "  ✗ FAIL: resume script missing dispatch command"; exit 1; }
 grep -qE 'current_phase[[:space:]]*=.*done'                    "$RESUME_SCRIPT"   || { echo "  ✗ FAIL: resume script missing idempotency guard"; exit 1; }
 echo "  ✓ resume script executable, contains dispatch + idempotency guard"
 

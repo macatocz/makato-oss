@@ -126,7 +126,7 @@ Per-phase input/output summary:
 
 - **scripts/context-handoff.sh** — HALT-007B proactive context-ceiling handoff lifecycle: check budget vs context_warn_tokens, enforce handoff cap (MAKATO_MAX_HANDOFFS), checkpoint workflow-state, dispatch context-summariser, emit .claude/state/resume-{KEY}.sh, and detached self-restart. Falls back to HALT-007 when restart fails or cap is exceeded.
 - **scripts/context-handoff-smoke-tests.sh** — Smoke tests for context-handoff.sh covering the check/cap/checkpoint/emit/restart lifecycle paths.
-- **scripts/loop.sh** — Implementation of the loop skill — polls GitHub Projects v2 board for Ready items, applies in-flight filter against specs/\*/workflow-state.json, dispatches PO-agent serially via claude --session, writes .claude/state/loop-status.json. Exposes run/poll/next/status/dispatch/check-halt subcommands.
+- **scripts/loop.sh** — Implementation of the loop skill — polls GitHub Projects v2 board for Ready items, applies in-flight filter against specs/\*/workflow-state.json, dispatches PO-agent serially via `claude --dangerously-skip-permissions -p`, writes .claude/state/loop-status.json. Exposes run/poll/next/status/dispatch/check-halt subcommands.
 - **scripts/loop-smoke-tests.sh** — Smoke tests for loop.sh — covers 11 scenarios including HALT-file detection, dry-run dispatch, in-flight filtering, board Status filtering, and non-Issue exclusion. Uses MAKATO_LOOP_GH_OVERRIDE for offline fixture injection.
 
 ## GitHub Actions Workflows
