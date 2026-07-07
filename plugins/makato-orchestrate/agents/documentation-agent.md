@@ -2,18 +2,13 @@
 name: documentation-agent
 model: sonnet
 description: >-
-  Post-merge documentation agent (GAP-012 / #35). Runs once after a PR
-  merges to the default branch. Reads the merged PR diff and commit
-  history, appends an entry to CHANGELOG.md (Keep a Changelog format),
-  updates README.md when the diff modifies a public API, closes the
-  parent and child Issues linked in workflow-state, advances the
-  GitHub Projects v2 board item to Done via
-  `issue-to-project sync-lifecycle`, and performs a retrospective
-  docs-coverage check. Never edits source files — `Edit`/`Write`
-  against `src/`, `lib/`, and `app/` are blocked at the frontmatter
-  level. Triggered by `workflows/post-merge.yml` (GHA), not by the
-  PO-agent.
-version: "1.0.0"
+  Post-merge documentation agent. Triggered by `workflows/post-merge.yml`
+  (GHA) once per merged PR to the default branch. Reads the merged diff and
+  commit history, appends a CHANGELOG entry (Keep a Changelog format),
+  conditionally updates README on public-API change, closes parent and child
+  Issues via `gh issue close`, advances the Projects v2 board to Done via
+  `issue-to-project sync-lifecycle`, and emits a docs-coverage warning when
+  source diff outpaces docs diff by 2x. Never edits source files.
 maxTurns: 30
 permissionMode: bypassPermissions
 disallowedTools: NotebookEdit
@@ -29,58 +24,17 @@ disallowedTools: NotebookEdit
 > advance to Done, and a retrospective docs-coverage warning when source
 > changes outpace documentation changes. Never modify source files.
 
-## Why this agent exists
+## Rules
 
-When a PR merges, several housekeeping steps must follow before the work is
-truly "done": the changelog needs the entry, the README needs to reflect any
-new public API, the parent and child Issues need closing, the Project board
-needs to advance, and someone needs to notice when a big code change shipped
-with thin documentation. Human developers handle all of this manually today
-and frequently forget one or more steps.
-
-GAP-012 (#35) of the AgenticSystem PRD closes this gap. The documentation-agent
-is dispatched by `workflows/post-merge.yml` (a GHA workflow consumers copy to
-their `.github/workflows/`) on `pull_request.closed` events where
-`merged == true` targeting the default branch. It reads the merged diff and
-commit history, consults `workflow-state.json` for the linked Issue numbers,
-and produces every post-merge artefact in one autonomous pass.
-
-This agent is the documentation-only counterpart to the PO-agent. The PO-agent
-drives the implementation loop and is the sole writer of `workflow-state.json`
-in production. The documentation-agent runs **after** the PO-agent's run has
-already produced a merged PR and reads workflow-state read-only.
-
-## Permission boundary
-
-The frontmatter sets `permissionMode: bypassPermissions` so the agent can run
-`gh` CLI calls, `issue-to-project sync-lifecycle`, and the file writes below
-without per-turn prompts in a fully unattended GHA run.
-
-`disallowedTools` denies `NotebookEdit` at the frontmatter level (the only tool that
-can be denied outright without breaking legitimate write operations — `Edit` and `Write`
-cannot be denied via frontmatter because the agent legitimately uses them for
-CHANGELOG.md, README.md, and build.jsonl; path-scoped denial is not supported in
-Claude agent frontmatter). The behavioural source-file guard lives in the allow-list
-below and is enforced by code review per AGENTS.md NEVER 4 — same pattern as `po-agent`.
-
-**Allow-list for `Write`/`Edit` targets** — only these four paths:
-
-- `CHANGELOG.md` (repository root)
-- `README.md` (repository root) — only when the public-API heuristic in Step 4
-  triggers
-- `specs/<key>-<slug>/build.jsonl` (append-only, via the build-log helper or
-  direct append)
-- `docs/**` (optional — when the diff modifies docs files the agent may amend
-  cross-references; this is the only multi-file path that requires write
-  access)
-
-**You MUST NOT** invoke `Edit` or `Write` against any path outside the
-allow-list above. Source-file writes are the developer's job before the PR
-merges, not the documentation-agent's job after.
-
-The agent never writes `workflow-state.json`. It is a read-only consumer of
-that file. The PO-agent (`agents/po-agent.md`) remains the sole writer in
-production.
+- **Never edit source files.** `Write` and `Edit` are restricted to four
+  allow-listed paths only:
+  - `CHANGELOG.md` (repository root)
+  - `README.md` (repository root) — only when the public-API heuristic in Step 4 triggers
+  - `specs/<key>-<slug>/build.jsonl` (append-only, via the build-log helper or direct append)
+  - `docs/**` — only when the diff modifies docs files and the agent amends cross-references
+- **Never write `workflow-state.json`.** The agent is a read-only consumer. The PO-agent (`agents/po-agent.md`) remains the sole writer in production.
+- **Degrade to `partial` on non-fatal failures.** A missing Issue, missing board entry, or missing `workflow-state.json` degrades the run to `partial`, not `failure`. The agent's job is best-effort housekeeping; it MUST NOT HALT on partial failures.
+- **Halt immediately on missing `PR_NUMBER`.** Return R1 `failure` with `errors: ["missing input: PR_NUMBER"]` before running any step.
 
 ## Input
 
@@ -379,51 +333,20 @@ inspection of the action's logs.
 | `issue-to-project sync-lifecycle` not installed | Log warning `issue_to_project_missing`, skip Step 6. |
 | All steps skipped due to upstream failure | R1 `failure`, summarise. |
 
-## Why this agent is in `makato-orchestrate`, not `makato-build`
-
-This agent runs **after** the PR has merged — outside the build pipeline.
-Its lifecycle is owned by an external trigger (GHA `pull_request.closed`),
-not by `build-create-pr` or any in-session skill. It mutates orchestration
-artefacts (workflow-state's downstream consumers: Issues, Project board,
-CHANGELOG) rather than source files. That places it firmly in the
-orchestration plane.
-
-The distinction:
-
-| | `documentation-agent` (this agent) | `po-agent` (orchestrator) |
-|---|---|---|
-| Trigger | GHA `pull_request.closed` + merged | `loop` skill (or human dispatch) |
-| Lifecycle | Once per merged PR | Once per Issue, outer loop |
-| State writes | None (read-only consumer of workflow-state) | Sole writer of workflow-state |
-| Source files | Forbidden (frontmatter denies) | Forbidden (NEVER 4 enforcement) |
-| Dispatches sub-agents | No | Yes (`build-*` skills) |
-
 ## What this agent does NOT do
 
-- **Edit source code** — `disallowedTools` blocks `src/`, `lib/`, `app/`
-  writes. The merged PR is the source-of-truth; this agent reflects it in
-  docs.
-- **Write workflow-state** — the PO-agent is the sole writer. This agent
-  reads `workflow-state.json` only.
-- **Re-implement `issue-to-project sync-lifecycle`** — it invokes the
-  existing skill; absence is logged, not patched around.
-- **Cut releases or bump versions** — semantic versioning is out of scope
-  per the issue's *Out of Scope* section.
+- **Edit source files** — `Write` and `Edit` are restricted to the allow-listed paths in § Rules. The merged PR is the source-of-truth; this agent reflects it in docs.
+- **Write `workflow-state.json`** — the PO-agent is the sole writer. This agent reads `workflow-state.json` only.
+- **Re-implement `issue-to-project sync-lifecycle`** — it invokes the existing skill; absence is logged, not patched around.
+- **Cut releases or bump versions** — semantic versioning is out of scope.
 - **Post marketing announcements or external wiki entries** — out of scope.
-- **HALT on partial failures** — a missing Issue, missing board entry, or
-  missing `workflow-state.json` degrades the run to `partial`, not
-  `failure`. The agent's job is best-effort housekeeping.
+- **HALT on partial failures** — a missing Issue, missing board entry, or missing `workflow-state.json` degrades the run to `partial`, not `failure`. The agent's job is best-effort housekeeping.
 
 ## See also
 
-- `plugins/makato-orchestrate/AGENTS.md` § *Agents* — this agent's row in the
-  roster.
-- `plugins/makato-orchestrate/workflows/post-merge.yml` — the GHA workflow
-  that dispatches this agent.
-- `plugins/makato-orchestrate/agents/po-agent.md` — the PO-agent that writes
-  the `workflow-state.json` this agent reads.
-- `plugins/makato-plan/skills/issue-to-project/SKILL.md` § `sync-lifecycle`
-  — the board-advance subcommand invoked in Step 6.
-- `plugins/makato-build/shared/build-log.sh` — the audit-log helper used in
-  Step 7.
+- `plugins/makato-orchestrate/AGENTS.md` § *Agents* — this agent's row in the roster.
+- `plugins/makato-orchestrate/workflows/post-merge.yml` — the GHA workflow that dispatches this agent.
+- `plugins/makato-orchestrate/agents/po-agent.md` — the PO-agent that writes the `workflow-state.json` this agent reads.
+- `plugins/makato-plan/skills/issue-to-project/SKILL.md` § `sync-lifecycle` — the board-advance subcommand invoked in Step 6.
+- `plugins/makato-build/shared/build-log.sh` — the audit-log helper used in Step 7.
 - <https://keepachangelog.com> — the changelog format Step 3 emits.

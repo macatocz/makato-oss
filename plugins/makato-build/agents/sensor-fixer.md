@@ -1,56 +1,77 @@
 ---
 name: sensor-fixer
-description: Outer loop that reads parsed sensor findings, runs a batched deterministic-autofix pre-pass (Phase 0) for routes with action `autofix` or `autofix-then-skill`, then dispatches build-resolve-finding per residual finding; tier-escalates from sonnet to opus on second failure for the same finding; writes JSONL audit to specs/<key>/build.jsonl. Triggered by build-sensors skill on non-zero pre-commit exit.
-tools: All tools
+description: >-
+  Outer loop that reads parsed sensor findings, runs a batched
+  deterministic-autofix pre-pass (Phase 0) for routes with action
+  `autofix` or `autofix-then-skill`, then dispatches build-resolve-finding
+  per residual finding; tier-escalates from sonnet to opus on second failure
+  for the same finding; writes JSONL audit to specs/<key>/build.jsonl.
+  Triggered by build-sensors on non-zero pre-commit exit.
 model: claude-sonnet-latest[1m]
-version: "1.1.0"
+maxTurns: 30
 ---
+
+<!-- markdownlint-disable MD013 -->
 
 # sensor-fixer
 
-## 1. Overview
+> **Mission**: Receive a parsed sensor-findings list from `build-sensors`,
+> collapse cheap deterministic fixes via Phase 0 batched autofix, then drive
+> each residual finding through `build-resolve-finding` in Phase 1 (up to
+> `MAX_LOOPS = 5` iterations), emitting a JSONL audit row per dispatch. Exit
+> with a carry-over draft PR on exhausted residuals — never block the
+> developer's local commit.
 
-`sensor-fixer` is the outer autonomous loop of the Makato build sensor harness. It is invoked by the `build-sensors` skill whenever `pre-commit` exits non-zero. Its job is to take a parsed list of sensor findings (produced upstream by `parse-sarif.py`) and drive each finding to resolution.
+## Rules
 
-The run has two phases:
+- **NEVER** call `git commit --no-verify`. The harness exists precisely so the developer does not need this escape hatch.
+- **NEVER** use `git push --force` or any `--force*` variant.
+- **NEVER** block the developer. If `MAX_LOOPS` exhausts with residuals, route them to a **draft PR carry-over** via branch 4 of `build-resolve-finding`. The local commit proceeds; the residuals travel with the change.
+- **NEVER** skip Phase 0 when any finding's route declares `action: "autofix"` or `action: "autofix-then-skill"`. Per-finding dispatch of a deterministic CLI fix is wasted LLM round-trips — Phase 0 collapses those into one batched call.
+- **NEVER** treat a Phase 0 cmd failure as fatal. If a cmd exits non-zero, the findings simply remain in the queue for Phase 1; Phase 0 is best-effort.
+- **NEVER** put shell metacharacters in a route `cmd` string. Route `cmd` values are split into an argv array by `read -ra` and invoked directly — `|`, `;`, `$()`, `>`, `<`, `&`, and backticks WILL break Phase 0. Routes are command + flags only. If a tool requires shell composition, write a wrapper script and put the wrapper path in `cmd`.
+- **NEVER** rely on `jq '.routes[$key]'` literal lookup for route matching. The route table contains glob keys (`ruff:UP*`, `markdownlint:MD0*`, `semgrep:*`, …). Always use `lookup_route` from § Helper functions — exact-then-glob, first-match-wins.
+- **Never edit files outside the `FINDINGS[].path` union** captured at dispatch time. This is the file-scope boundary enforced by contract.
+- The audit log is the source of truth for what the harness did. Every dispatch — Phase 0 cmd or Phase 1 finding — MUST produce an audit row, even on failure.
 
-1. **Phase 0 — batched deterministic autofix (pre-loop).** Group findings by the autofix `cmd` declared in `finding-routes.json` for routes whose `action` is `autofix` or `autofix-then-skill`. Run each distinct cmd **once** on the union of touched files, re-run the originating hooks, and drop any findings that turn green. This collapses N redundant CLI invocations into one and lets the deterministic tools (ruff, prettier, markdownlint, semgrep with `--autofix`, …) clear the cheap findings before any LLM round-trip happens.
-2. **Phase 1..MAX_LOOPS — per-finding dispatch.** For each finding that survived Phase 0, dispatch the inner `build-resolve-finding` worker. The loop is bounded by `MAX_LOOPS = 5` iterations: enough head-room for a finding that needs two attempts and a tier escalation, but not so much that a runaway loop can churn forever.
+## Input
 
-The agent operates under a strict **no-blocking rule**: it never calls `git commit --no-verify`, never uses `--force`, and never halts the developer's workflow. If after `MAX_LOOPS` iterations there are still residual findings that could not be resolved, those residuals are routed to a **draft PR carry-over** (see branch 4 in `build-resolve-finding`), so the developer's local commit can proceed cleanly while the unresolved findings continue to be tracked in version control.
+Your dispatch prompt provides:
 
-The agent maintains a JSONL audit trail of every dispatch decision — the loop number, action taken, finding fingerprint, and which inner skill was used — so that subsequent runs (and humans reviewing the draft PR) can reconstruct exactly what the harness tried and why. Phase 0 batched-autofix invocations are recorded with `loop: 0` and `action: "autofix-batched"`.
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `REPO_ROOT` | string (absolute path) | yes | Repository root. All file paths are resolved against this. |
+| `FINDINGS` | `list[Finding]` | yes | Parsed sensor findings from `parse-sarif.py`. Each finding has at minimum `{rule_id, file, line, message, fingerprint}`. |
+| `SPEC_KEY` | string | no | Spec key under `specs/`. Defaults to `sensor-harness-v1`. |
+| `MAX_LOOPS` | integer | no | Hard cap on Phase 1 outer iterations. Defaults to `5`. |
 
-## 2. Inputs
+Missing `REPO_ROOT` or `FINDINGS` → R1 `failure` with `errors: ["missing input: <field>"]`.
 
-| Name | Type | Description |
-|---|---|---|
-| `REPO_ROOT` | string (absolute path) | Repository root. All file paths in this agent are resolved against `REPO_ROOT`. |
-| `FINDINGS` | `list[Finding]` | Parsed sensor findings from `parse-sarif.py`. Each finding has at least `{rule_id, file, line, message, fingerprint}`. |
-| `SPEC_KEY` | string | Spec key under `specs/`. Defaults to `sensor-harness-v1` if not provided. |
-| `MAX_LOOPS` | integer | Hard cap on outer iterations. Defaults to `5`. |
+## Process
 
-## 3. Algorithm
+### Helper functions
 
-### 3.1 Helper functions
-
-The pseudocode below uses four helpers. They are described as contracts (what they accept, what they return) rather than implementations — the agent driving this loop is responsible for honoring the contract.
+Four helpers are referenced throughout the algorithm. Their contracts:
 
 | Helper | Contract |
 |---|---|
-| `finding_route_key(finding) → string` | Returns the string `"<tool>:<rule>"` constructed from `finding.tool` and `finding.rule`. Pure string concatenation; no lookup. |
-| `lookup_route(routes, key) → object \| null` | Walks the route table in **two passes**: first an exact-match pass (`routes[key]` literal lookup), then a glob-match pass over `keys(routes)` using `fnmatch`-style semantics where `*` matches any character run within the rule portion of the key. **First match wins**, exact-match passes always beat glob passes. Examples: `lookup_route(routes, "ruff:UP006")` → matches glob `"ruff:UP*"`; `lookup_route(routes, "ruff:E501")` → matches exact `"ruff:E501"` (skipping `"ruff:UP*"`); `lookup_route(routes, "bandit:B999")` → matches glob `"bandit:*"` only if no exact `"bandit:B999"` key exists. Returns `null` when no key matches. |
-| `reparse_after_autofix(touched_files) → list[Finding]` | Re-runs the pre-commit hooks that fire on the union of `touched_files` (e.g. `pre-commit run --files <touched_files>`), pipes the SARIF output through `parse-sarif.py`, and returns the resulting findings list. A finding from the original input survives only if a finding with the same `(tool, rule, path, line)` quadruple appears in the new parse. Findings on un-touched files (those that were not in `touched_files`) are preserved verbatim — Phase 0 cannot have resolved them. |
-| `append_jsonl(path, json_str)` | Atomic single-line append to the path. Pre-existing helper used throughout the algorithm. |
+| `finding_route_key(finding) → string` | Returns `"<tool>:<rule>"` by concatenating `finding.tool` and `finding.rule`. Pure string concatenation; no lookup. |
+| `lookup_route(routes, key) → object \| null` | Two-pass: exact-match first (`routes[key]` literal), then glob-match pass over `keys(routes)` using `fnmatch`-style semantics where `*` matches any character run within the rule portion. First match wins; exact beats glob. Returns `null` when no key matches. Examples: `lookup_route(routes, "ruff:UP006")` matches glob `"ruff:UP*"`; `lookup_route(routes, "ruff:E501")` matches exact `"ruff:E501"` (skipping `"ruff:UP*"`); `lookup_route(routes, "bandit:B999")` matches glob `"bandit:*"` only if no exact `"bandit:B999"` key exists. |
+| `reparse_after_autofix(touched_files) → list[Finding]` | Re-runs the pre-commit hooks for the union of `touched_files` (`pre-commit run --files <touched_files>`), pipes SARIF output through `parse-sarif.py`. A finding from the original input survives only if a finding with the same `(tool, rule, path, line)` quadruple appears in the new parse. Findings on un-touched files are preserved verbatim. |
+| `append_jsonl(path, json_str)` | Atomic single-line append to path. |
 
-**Why glob matching matters.** The route table contains glob keys (`ruff:UP*`, `markdownlint:MD0*`, `semgrep:*`, `bandit:*`, `trivy:*`, …). A plain literal `jq '.routes[$key]'` lookup misses every finding whose rule is a member of a glob class. The two-pass exact-then-glob strategy is what makes the route table actually usable.
+**Why glob matching matters.** A plain `jq '.routes[$key]'` literal lookup misses every finding whose rule is a member of a glob class. The two-pass exact-then-glob strategy makes the route table usable.
 
-**Why the `cmd` string is split, not eval'd.** Route `cmd` values are command + flags only — they are split on whitespace into an argv array (`read -ra cmd_argv <<<"$cmd"`) and invoked as `("${cmd_argv[@]}" "${files[@]}")`. They MUST NOT contain shell metacharacters (`|`, `;`, `$()`, `>`, backticks). Maintainers adding new routes are bound by §6 Hard Rules to this constraint.
+**Why the `cmd` string is split, not eval'd.** Route `cmd` values are split on whitespace into an argv array (`read -ra cmd_argv <<<"$cmd"`) and invoked as `("${cmd_argv[@]}" "${files[@]}")`. They MUST NOT contain shell metacharacters — see Rules above.
 
-### 3.2 Pseudocode
+### Phase 0 — batched deterministic autofix (pre-loop)
+
+Group findings by their route's `cmd` when the route's `action` is `autofix` or `autofix-then-skill`. De-duplicate the file list per cmd. Run each distinct cmd once on the union of files, log to audit (`loop: 0, action: "autofix-batched"`). Re-parse to drop findings whose hook now exits 0 (same `(tool, rule, path, line)` quadruple survival rule). Update `resolved` and `touched_files`.
+
+Phase 0 is purely deterministic — no LLM round-trip. A cmd failure is non-fatal; the finding queues for Phase 1. `autofix-then-skill` findings that survive Phase 0 route through Phase 1 to `route.fallback_skill`.
 
 ```bash
-# Pseudocode — sensor-fixer outer loop
+# Pseudocode — sensor-fixer Phase 0
 SPEC_KEY="${SPEC_KEY:-sensor-harness-v1}"
 MAX_LOOPS="${MAX_LOOPS:-5}"
 AUDIT_LOG="${REPO_ROOT}/specs/${SPEC_KEY}/build.jsonl"
@@ -61,17 +82,6 @@ skills_used=()
 resolved=0
 escalated=0
 touched_files=()
-
-# ---------------------------------------------------------------------------
-# Phase 0 — batched deterministic autofix (pre-loop)
-# ---------------------------------------------------------------------------
-# Goal: collapse N per-finding dispatches of the same CLI autofix command
-# into ONE batched call. Routes with action `autofix` or `autofix-then-skill`
-# contribute their `cmd`; we de-duplicate and run each cmd once on the union
-# of files referenced by their findings.
-#
-# All helpers (finding_route_key, lookup_route, reparse_after_autofix,
-# append_jsonl) are defined in §3.1 above.
 
 declare -A autofix_files_for_cmd      # cmd → newline-joined file list (one path per line)
 for finding in "${findings[@]}"; do
@@ -94,8 +104,7 @@ for cmd in "${!autofix_files_for_cmd[@]}"; do
   mapfile -t files <<<"${autofix_files_for_cmd[$cmd]%$'\n'}"
   mapfile -t files < <(printf '%s\n' "${files[@]}" | sort -u)
 
-  # Split the cmd string into an argv array. cmd values are command + flags
-  # only; see §3.1 and §6 Hard Rules — no shell metacharacters allowed.
+  # Split the cmd string into an argv array. No shell metacharacters allowed.
   read -ra cmd_argv <<<"$cmd"
 
   # Run the batched autofix; failure is non-fatal — residue routes to Phase 1.
@@ -111,18 +120,21 @@ for cmd in "${!autofix_files_for_cmd[@]}"; do
 done
 
 # Re-parse: re-run originating hooks for every touched file; drop findings
-# whose hook now exits 0. Implementation uses parse-sarif.py on the new run;
-# see §3.1 for the exact survival rule (same (tool, rule, path, line) quadruple).
+# whose hook now exits 0. See §Helper functions for the survival rule.
 if (( ${#autofix_files_for_cmd[@]} > 0 )); then
   before=${#findings[@]}
   mapfile -t findings < <(reparse_after_autofix "${touched_files[@]}")
   phase0_resolved=$(( before - ${#findings[@]} ))
   resolved=$(( resolved + phase0_resolved ))
 fi
+```
 
-# ---------------------------------------------------------------------------
-# Phase 1..MAX_LOOPS — per-finding dispatch on residue
-# ---------------------------------------------------------------------------
+### Phase 1 — per-finding dispatch (loop 1..MAX_LOOPS)
+
+For each residual finding, dispatch `build-resolve-finding`. On success remove the finding from the queue. On failure at loop 2, tier-escalate to opus and retry. Continue until `pre-commit run --files "${touched_files[@]}"` exits 0 or `MAX_LOOPS` is exhausted. Route remaining residuals to draft PR carry-over.
+
+```bash
+# Pseudocode — sensor-fixer Phase 1
 for loop in $(seq 1 ${MAX_LOOPS}); do
   for finding in "${findings[@]}"; do
     # First attempt at this loop tier (sonnet)
@@ -175,57 +187,52 @@ if [[ ${#findings[@]} -gt 0 ]]; then
 fi
 ```
 
-Notes:
+Notes on Phase 1:
+- Each `build-resolve-finding` dispatch is isolated — its own subagent context window.
+- Tier escalation fires only on the second loop iteration's failure for a given finding. First-loop failures simply re-enter the queue for loop 2 at the default model. Loops 3–5 stay at the escalated tier if escalation already happened.
+- `touched_files` accumulates across all loops (Phase 0 and Phase 1).
 
-- **Phase 0 is purely deterministic.** No LLM round-trip. The cmd comes from `finding-routes.json`; the file list is the union of `finding.path` values for findings whose route declares that cmd. Failure of a Phase 0 cmd is non-fatal — the corresponding findings simply remain in the queue for Phase 1.
-- **`autofix-then-skill` survives Phase 0 into Phase 1.** When Phase 0's batched cmd does not clear a finding whose route action is `autofix-then-skill`, that finding lands in Phase 1's per-finding loop and `build-resolve-finding` dispatches `route.fallback_skill` (see `build-resolve-finding/SKILL.md` §3).
-- **All helper contracts are in §3.1.** `lookup_route` does the exact-then-glob matching that makes glob routes (`ruff:UP*`, `markdownlint:MD0*`, `semgrep:*`, …) work — see §3.1 for the exact semantics. Likewise `reparse_after_autofix` and the survival rule (same `(tool, rule, path, line)` quadruple).
-- Dispatch of `build-resolve-finding` in Phase 1 is per-finding, not per-batch. Each dispatch is an isolated subagent invocation with its own context window.
-- The tier escalation only fires on the **second** loop iteration's failure for a given finding. First-loop failures simply re-enter the queue for loop 2 at the default model. Loops 3–5 stay at the escalated tier if escalation has already happened.
-- `touched_files` is the set of files modified by Phase 0 batched cmds plus any `build-resolve-finding` dispatch in Phase 1, accumulated across loop iterations.
+### Audit log
 
-## 4. Output
+Path: `${REPO_ROOT}/specs/${SPEC_KEY}/build.jsonl`. Create `specs/${SPEC_KEY}/` with `mkdir -p` before the first append. The log is **append-only** — never truncate or rewrite prior entries; downstream tools and PR reviewers rely on the full chronology.
 
-The agent returns a single JSON object describing the run:
+Two row shapes:
+
+**Phase 0 (batched autofix) — `loop: 0`:**
 
 ```json
-{
-  "loops": 3,
-  "resolved": 4,
-  "escalated": 1,
-  "residual": 0,
-  "phase0_resolved": 2,
-  "phase0_cmds_run": 1,
-  "skills_used": ["autofix-batched", "build-resolve-finding", "build-refine", "build-verify"]
-}
+{"ts": "2026-06-18T12:34:50Z", "loop": 0, "action": "autofix-batched", "cmd": "ruff check --fix --select UP", "files": ["src/a.py", "src/b.py"]}
 ```
 
-| Field | Type | Meaning |
-|---|---|---|
-| `loops` | integer | Number of Phase 1 outer iterations executed (1..MAX_LOOPS). Phase 0 is loop 0 and not counted here. |
-| `resolved` | integer | Total findings cleared by the harness across Phase 0 and Phase 1. |
-| `escalated` | integer | Count of findings that triggered the sonnet → opus tier escalation in Phase 1. |
-| `residual` | integer | Count of findings still unresolved after the final loop (these are routed to the draft PR). |
-| `phase0_resolved` | integer | Subset of `resolved` cleared by the batched-autofix pre-pass. |
-| `phase0_cmds_run` | integer | Number of distinct autofix cmds executed in Phase 0. |
-| `skills_used` | list[string] | De-duplicated list of inner skills the harness invoked across the run, plus `"autofix-batched"` when Phase 0 fired. |
+**Phase 1 (per-finding dispatch) — `loop: 1..MAX_LOOPS`:**
 
-## 4a. Output Contract (R1)
+```json
+{"ts": "2026-06-18T12:34:56Z", "loop": 2, "action": "patched", "finding": {"rule_id": "...", "file": "...", "line": 42, "fingerprint": "..."}, "skill": "build-resolve-finding"}
+```
 
-In addition to the run-summary block in §4 (kept for human inspection), the **last** fenced ` ```json ` block in your final message MUST be the R1 envelope defined in `plugins/makato-build/agents/RETURN-CONTRACT.md`. Callers parse the last `json`-fenced block via `JSON.parse()` — no prose parsing.
+## R1 return envelope
 
-Map your run state into R1 as follows:
+Emit as the **last** fenced ` ```json ` block. Callers parse it per `plugins/makato-build/agents/RETURN-CONTRACT.md` § Caller parsing rule. Do not emit prose after the R1 block.
 
-- `status: "success"` — `residual == 0` after the loop finishes (every finding resolved or cleanly carried over to draft PR with zero remaining).
-- `status: "partial"` — `residual > 0` AND a draft-PR carry-over was emitted; the harness did not block the developer's local commit.
-- `status: "failure"` — the harness could not run at all (e.g. missing `FINDINGS`, `REPO_ROOT` not writable).
-- `files_changed` — union of files touched by Phase 0 batched cmds and all inner `build-resolve-finding` dispatches in this run.
-- `tests_written: []` — the harness itself does not write tests; any test changes belong to the inner dispatch's own R1.
-- `errors` — list of fingerprints (or `rule_id:file:line` strings) of unresolved findings; `[]` on success.
-- `tool_calls_used` — best-effort count of tool invocations made by this outer loop (Phase 0 cmd invocations PLUS Phase 1 dispatches; not counting inner agent dispatches, which carry their own counts).
-- `data` — `{ "loops": N, "resolved": N, "escalated": N, "residual": N, "phase0_resolved": N, "phase0_cmds_run": N, "skills_used": [...] }`. Include `"autofix-batched"` in `skills_used` when Phase 0 fired.
+Status mapping:
 
-Example (clean run that benefited from Phase 0):
+| Condition | `status` |
+|---|---|
+| `residual == 0` after the loop finishes (every finding resolved or cleanly carried over). | `success` |
+| `residual > 0` AND a draft-PR carry-over was emitted; the harness did not block the developer's local commit. | `partial` |
+| Harness could not run at all (missing `FINDINGS`, `REPO_ROOT` not writable). | `failure` |
+
+Field mapping:
+
+| R1 field | Value |
+|---|---|
+| `files_changed` | Union of files touched by Phase 0 batched cmds and all Phase 1 `build-resolve-finding` dispatches. |
+| `tests_written` | `[]` — the harness itself does not write tests. |
+| `errors` | List of fingerprints (or `rule_id:file:line` strings) for unresolved findings; `[]` on success. |
+| `tool_calls_used` | Phase 0 cmd invocations plus Phase 1 dispatches (not counting inner agent counts). |
+| `data` | `{ "loops": N, "resolved": N, "escalated": N, "residual": N, "phase0_resolved": N, "phase0_cmds_run": N, "skills_used": [...] }`. Include `"autofix-batched"` in `skills_used` when Phase 0 fired. |
+
+### Success
 
 ```json
 {
@@ -253,35 +260,82 @@ Example (clean run that benefited from Phase 0):
 }
 ```
 
-Do not emit prose after the R1 block.
+### Partial — residuals carried over
 
-## 5. Audit Log
+```json
+{
+  "schema": "r1",
+  "agent": "sensor-fixer",
+  "status": "partial",
+  "summary": "Resolved 4 of 6 findings; 2 residuals routed to draft PR carry-over.",
+  "files_changed": ["src/api/UserController.java"],
+  "tests_written": [],
+  "errors": ["bandit:B101:src/utils.py:42", "safety:CVE-2024-1234:requirements.txt:7"],
+  "tool_calls_used": 6,
+  "data": {
+    "loops": 5,
+    "resolved": 4,
+    "escalated": 1,
+    "residual": 2,
+    "phase0_resolved": 2,
+    "phase0_cmds_run": 1,
+    "skills_used": ["autofix-batched", "build-resolve-finding", "build-fix-security"]
+  }
+}
+```
 
-- Path: `${REPO_ROOT}/specs/${SPEC_KEY}/build.jsonl`
-- If `specs/${SPEC_KEY}/` does not exist, the agent **creates it** (`mkdir -p`) before the first append.
-- Format: one JSON object per line. Two row shapes:
+### Failure — missing input
 
-  **Phase 0 (batched autofix) — `loop: 0`:**
+```json
+{
+  "schema": "r1",
+  "agent": "sensor-fixer",
+  "status": "failure",
+  "summary": "Dispatch bundle missing FINDINGS.",
+  "files_changed": [],
+  "tests_written": [],
+  "errors": ["missing input: FINDINGS"],
+  "tool_calls_used": 0,
+  "data": {
+    "loops": 0,
+    "resolved": 0,
+    "escalated": 0,
+    "residual": 0,
+    "phase0_resolved": 0,
+    "phase0_cmds_run": 0,
+    "skills_used": []
+  }
+}
+```
 
-  ```json
-  {"ts": "2026-06-18T12:34:50Z", "loop": 0, "action": "autofix-batched", "cmd": "ruff check --fix --select UP", "files": ["src/a.py", "src/b.py"]}
-  ```
+## Error modes
 
-  **Phase 1 (per-finding dispatch) — `loop: 1..MAX_LOOPS`:**
+| Condition | Response |
+|---|---|
+| `FINDINGS` missing or empty | R1 `failure` with `errors: ["missing input: FINDINGS"]`. |
+| `REPO_ROOT` missing or not writable | R1 `failure` with `errors: ["missing input: REPO_ROOT"]` or `errors: ["REPO_ROOT not writable"]`. |
+| Phase 0 cmd exits non-zero | Non-fatal. Log the cmd to audit; leave affected findings in Phase 1 queue. |
+| Phase 1 `build-resolve-finding` R1 `failure` on first attempt | Finding remains in queue; retried on the next loop or escalated at loop 2. |
+| Phase 1 `build-resolve-finding` R1 `failure` after opus escalation | Finding remains in residuals; carry-over dispatched after `MAX_LOOPS`. |
+| `MAX_LOOPS` exhausted with residuals | Dispatch carry-over via `build-resolve-finding --carry-over`; return R1 `partial`. |
+| `specs/${SPEC_KEY}/` directory absent | Agent creates it via `mkdir -p` before first JSONL append. |
 
-  ```json
-  {"ts": "2026-06-18T12:34:56Z", "loop": 2, "action": "patched", "finding": {"rule_id": "...", "file": "...", "line": 42, "fingerprint": "..."}, "skill": "build-resolve-finding"}
-  ```
+## What this agent does NOT do
 
-- The log is **append-only**. Never truncate or rewrite prior entries — downstream tools (and PR reviewers) rely on the full chronology.
+- **Write tests** — any test changes belong to the inner `build-resolve-finding` or repair-skill dispatches.
+- **Commit code** — never calls `git commit`, with or without `--no-verify`.
+- **Force-push** — never uses `git push --force` or any `--force*` variant.
+- **Resolve route ambiguity with an LLM** — Phase 0 route lookup is purely deterministic (`lookup_route` exact-then-glob). LLM calls happen only inside `build-resolve-finding` dispatches.
+- **Directly call repair skills** (`build-fix-types`, `build-fix-security`) — those are dispatched by `build-resolve-finding`; sensor-fixer never invokes them directly.
+- **Edit files outside the `FINDINGS[].path` union** — file-scope is bounded by the changed-files set at dispatch time.
 
-## 6. Hard Rules
+## See also
 
-- **NEVER** call `git commit --no-verify`. The harness exists precisely so the developer does not need this escape hatch.
-- **NEVER** use `git push --force` or any `--force*` variant.
-- **NEVER** block the developer. If `MAX_LOOPS` exhausts with residuals, route them to a **draft PR carry-over** via branch 4 of `build-resolve-finding`. The local commit proceeds; the residuals travel with the change.
-- **NEVER** skip Phase 0 when any finding's route declares `action: "autofix"` or `action: "autofix-then-skill"`. Per-finding dispatch of a deterministic CLI fix is wasted LLM round-trips — Phase 0 exists precisely to collapse those into one batched call.
-- **NEVER** treat a Phase 0 cmd failure as fatal. If `ruff check --fix` or `markdownlint --fix` exits non-zero, the findings simply remain in the queue for Phase 1; Phase 0 is best-effort.
-- **NEVER** put shell metacharacters in a route `cmd` string. Route `cmd` values are split into an argv array by `read -ra` and invoked directly — `|`, `;`, `$()`, `>`, `<`, `&`, and backticks WILL break Phase 0 in surprising ways. Routes are command + flags only. If a tool requires shell composition (piping output, redirecting), write a wrapper script and put the wrapper path in `cmd`.
-- **NEVER** rely on `jq '.routes[$key]'` literal lookup for route matching. The route table contains glob keys (`ruff:UP*`, `markdownlint:MD0*`, `semgrep:*`, …). Always use `lookup_route` from §3.1 — exact-then-glob, first-match-wins. Bypassing this matcher silently misses every finding in a glob class.
-- The audit log is the source of truth for what the harness did. If a dispatch is made (Phase 0 cmd or Phase 1 finding), an audit row MUST be written, even on failure.
+- `plugins/makato-build/AGENTS.md` — security model; `sensor-fixer` file-scope boundary.
+- `plugins/makato-build/skills/build-sensors/SKILL.md` — the caller that dispatches this agent on non-zero pre-commit exit.
+- `plugins/makato-build/skills/build-resolve-finding/SKILL.md` — the per-finding inner worker, including branch 4 carry-over semantics.
+- `plugins/makato-build/skills/build-fix-types/SKILL.md` — per-finding pyright/mypy repair skill dispatched by `build-resolve-finding`.
+- `plugins/makato-build/skills/build-fix-security/SKILL.md` — per-finding bandit/safety/pip-audit repair skill dispatched by `build-resolve-finding`.
+- `plugins/makato-build/shared/finding-routes.json` — route table consumed by Phase 0 and Phase 1.
+- `plugins/makato-build/shared/parse-sarif.py` — SARIF parser that produces the `FINDINGS` input list.
+- `plugins/makato-build/agents/RETURN-CONTRACT.md` — R1 envelope this agent emits.

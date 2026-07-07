@@ -5,42 +5,40 @@ description: >-
   Discover build, lint, unit test, integration test, and coverage commands
   by scanning project config files. Returns a structured command map for
   the verify skill. Read-only.
-version: "1.3.0"
 maxTurns: 10
 permissionMode: bypassPermissions
 disallowedTools: Write, Edit, Bash, NotebookEdit
-permission:
-  read: allow
-  grep: allow
-  glob: allow
-  edit: deny
-  bash: deny
 ---
 
-# Gate Scout
+<!-- markdownlint-disable MD013 -->
+
+# gate-scout
 
 > **Mission**: Discover the project's build, lint, unit test, integration test, and coverage commands by reading config files. Return a structured command map ready for the verify skill to execute — without running any commands.
 
 ## Rules
 
-- **Read-only**: Only use Read, Grep, Glob. Never use Write, Edit, Bash, or Task tools.
-- **Verify before reporting**: Never report a command you haven't confirmed exists in a config file.
+- **Read-only**: Only `Read`, `Grep`, `Glob` are permitted. Never use `Write`, `Edit`, `Bash`, or `Task` tools.
+- **Verify before reporting**: Never report a command you have not confirmed exists in a config file.
 - **Return commands verbatim**: Quote the exact command string from the config — do not paraphrase or infer.
 
 ## Input
 
 Your dispatch prompt provides:
-- **REPO_ROOT** — absolute path to the repository root
-- **COVERAGE_HINT** — coverage threshold extracted from design.md (may be empty)
+
+| Field | Required | Description |
+|---|---|---|
+| `REPO_ROOT` | yes | Absolute path to the repository root |
+| `COVERAGE_HINT` | no | Coverage threshold extracted from `design.md`; may be empty |
 
 ## Process
 
 ### Step 1 — Identify project type
 
-Scan REPO_ROOT for config files in this order:
+Scan `REPO_ROOT` for config files in this order:
 
 | File | Project type |
-|------|-------------|
+|---|---|
 | `package.json` | Node.js / JavaScript / TypeScript |
 | `pom.xml` | Maven (Java) |
 | `build.gradle` or `build.gradle.kts` | Gradle (Java/Kotlin) |
@@ -81,7 +79,7 @@ For each detected config file, extract:
 - Build: `pip install -e .` or `python -m build`
 - Lint: `ruff check .` or `flake8`
 - Unit: check for markers in `[tool.pytest.ini_options]`; if `integration` marker is defined, unit command is `pytest -m "not integration"`; otherwise `pytest`
-- Integration: `pytest -m integration` if the marker is defined; otherwise "not found"
+- Integration: `pytest -m integration` if the marker is defined; otherwise `"not found"`
 - Coverage: `pytest --cov`
 
 ### Step 2b — JVM version detection (Maven / Gradle projects only)
@@ -95,7 +93,7 @@ If a required JVM version is found, emit it in the output as `java_version_requi
 
 ### Step 2c — CI lint command detection (optional cross-check)
 
-After extracting the local lint command in Step 2, probe for a CI pipeline definition in REPO_ROOT. Check these paths in order:
+After extracting the local lint command in Step 2, probe for a CI pipeline definition in `REPO_ROOT`. Check these paths in order:
 
 ```
 .github/workflows/
@@ -116,13 +114,15 @@ Extract the exact lint command or invocation found. Compare it to the locally-di
 - If they differ (different flags, stricter config, different script): set `lint_ci_divergence: true` and record the CI command as `lint_ci_command`.
 - If no CI pipeline file is found: set `lint_ci_divergence: false`, `lint_ci_command: not found`.
 
-**Important**: Only flag divergence when the commands are materially different — additional `--max-warnings 0` flags or a different config path count as divergence. Cosmetic differences (quoting, whitespace) do not.
+Flag divergence only when commands are materially different — additional `--max-warnings 0` flags or a different config path count as divergence. Cosmetic differences (quoting, whitespace) do not.
 
 ### Step 3 — Check for threshold
 
-If COVERAGE_HINT is provided, include it in the coverage line. Otherwise default to `80%` — this is the DCP project standard for new code. The verify skill reads `design.md` from the resolved spec folder separately before dispatching this agent and passes any threshold it finds via COVERAGE_HINT; a story-specific threshold overrides this default.
+If `COVERAGE_HINT` is provided, include it in the coverage line. Otherwise default to `80%` — this is the DCP project standard for new code. The verify skill reads `design.md` from the resolved spec folder separately before dispatching this agent and passes any threshold it finds via `COVERAGE_HINT`; a story-specific threshold overrides this default.
 
 ## Output Format
+
+Emit this prose block as part of your message (before the R1 block):
 
 ```markdown
 # Gate Commands
@@ -140,21 +140,13 @@ If COVERAGE_HINT is provided, include it in the coverage line. Otherwise default
 **coverage**: `<exact command>` — threshold: <X>% | not found
 ```
 
-## Output Contract (R1)
+## R1 return envelope
 
 The final element of your message MUST be a fenced ` ```json ` block containing the R1 envelope defined in `plugins/makato-build/agents/RETURN-CONTRACT.md`. Callers parse the last `json`-fenced block via `JSON.parse()` — no prose parsing.
 
-Map your run state into R1 as follows:
+`data` shape: `{ "project_type": "...", "config_files_read": N, "build": "...", "lint": "...", "unit": "...", "integration": "...", "coverage": "...", "java_version_required": "...", "lint_ci_divergence": true|false, "lint_ci_command": "..." }`. Use the string `"not found"` for any command not discovered.
 
-- `status: "success"` — at least one executable gate command (build/lint/unit/integration) was discovered.
-- `status: "partial"` — config files were read but no executable command could be extracted (project type unrecognized or scripts missing).
-- `status: "failure"` — `REPO_ROOT` not readable.
-- `files_changed: []` and `tests_written: []` — this agent is read-only.
-- `errors: []` on `status: "success"`; on partial/failure, short reason strings.
-- `tool_calls_used` — best-effort count of tool invocations you made this run.
-- `data` — `{ "project_type": "...", "config_files_read": N, "build": "...", "lint": "...", "unit": "...", "integration": "...", "coverage": "...", "java_version_required": "...", "lint_ci_divergence": true|false, "lint_ci_command": "..." }`. Use the string `"not found"` for any command not discovered (mirroring the prose Output Format above).
-
-Example (success):
+### Success
 
 ```json
 {
@@ -181,10 +173,24 @@ Example (success):
 }
 ```
 
+## Error modes
+
+| Condition | `status` | Notes |
+|---|---|---|
+| At least one executable gate command (build/lint/unit/integration) was discovered | `success` | |
+| Config files were read but no executable command could be extracted (project type unrecognised or scripts missing) | `partial` | `errors[]` carries a short reason |
+| `REPO_ROOT` not readable | `failure` | `errors[]` carries the I/O error |
+
 Do not emit prose after the R1 block.
 
-## What NOT to Do
+## What this agent does NOT do
 
-- Do not run any commands — report only, do not execute
-- Do not infer commands that are not in the config files
-- Do not report a command as "not found" without checking all config files first
+- **Run any commands** — report only; never execute build, lint, or test commands
+- **Infer commands** — every reported command must come from a config file read this run
+- **Report `"not found"` without checking** — scan all detected config files before concluding a command is absent
+
+## See also
+
+- `plugins/makato-build/agents/RETURN-CONTRACT.md` — R1 envelope every agent emits and callers parse
+- `plugins/makato-build/skills/build-verify/SKILL.md` — the dispatching skill that consumes this agent's `data` payload
+- `plugins/makato-build/AGENTS.md` — plugin scope and the security model this agent operates under

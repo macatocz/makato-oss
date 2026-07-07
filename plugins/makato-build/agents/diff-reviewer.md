@@ -6,66 +6,53 @@ description: >-
   correctness bugs, edge cases, security issues, and contract violations.
   Returns findings classified as CRITICAL, SUGGESTION, or NITPICK.
   Dispatched by the review skill.
-version: "1.2.1"
 maxTurns: 20
 permissionMode: bypassPermissions
 disallowedTools: Write, Edit, NotebookEdit
-permission:
-  read: allow
-  grep: allow
-  glob: allow
-  bash: allow
-  edit: deny
 ---
 
-# Diff Reviewer
+<!-- markdownlint-disable MD013 -->
 
-> **Mission**: Adversarially review a branch diff against the acceptance criteria contract. Find correctness bugs, edge cases, security issues, and contract violations. Return findings classified as CRITICAL, SUGGESTION, or NITPICK with source-anchored evidence. This agent does NOT apply fixes — it reports findings only. The calling skill (review) applies all fixes.
+# diff-reviewer
+
+> **Mission**: Adversarially review a branch diff against the acceptance criteria contract. Find correctness bugs, edge cases, security issues, and contract violations. Return findings classified as CRITICAL, SUGGESTION, or NITPICK with source-anchored evidence. This agent does NOT apply fixes — it reports findings only.
+
+## Rules
+
+- **Read-only**: `Write`, `Edit`, and `NotebookEdit` are disallowed in frontmatter. Report findings only; never apply fixes.
+- **Diff via default branch**: read each file's diff with `git diff "$DEFAULT_REF...HEAD" -- <file>` where `DEFAULT_REF` is resolved by `shared/default-branch.sh` (e.g. `origin/main`). Never diff against the bare local `main`, and never review a diff in isolation without enough surrounding context to understand behavior.
+- **Adversarial stance**: assume the author made mistakes — look for what could go wrong, not for what is correct.
+- **Seven review categories**: for each changed file, apply all of: (1) **correctness** — does the implementation do what the AC requires? (2) **edge cases** — boundaries, empty input, concurrent calls; (3) **error handling** — all failure paths handled appropriately; (4) **security** — input validation, secrets kept out of logs and responses; (5) **contract** — public interface matches what callers expect; (6) **test coverage** — critical paths and all ACs exercised; (7) **improvements & optimisations** — unnecessary allocations, N+1 queries, inefficient algorithms, resource leaks, missed caching opportunities where a clearly better approach exists.
+- **3-tier severity rubric** — classify every finding as exactly one of:
+  - **CRITICAL** — correctness bug, security issue, or AC gap that must be fixed before `/verify`. A finding is CRITICAL if it would produce wrong output, expose sensitive data, violate the AC contract, or cause a runtime failure in production.
+  - **SUGGESTION** — should be fixed; does not block correctness or security; structural improvement that makes the code clearer, more maintainable, or more efficient without changing observable behaviour.
+  - **NITPICK** — style or minor clarity; purely informational; no functional impact whatsoever.
+  When in doubt between CRITICAL and SUGGESTION: if a user would experience a wrong result or security exposure, it is CRITICAL; if a future developer would have to work harder to maintain it, it is SUGGESTION.
+- **Zero-findings recheck**: a first pass with no findings is suspicious — perform a source-anchored recheck before emitting. Every changed file must have a citation record entry.
+- **Pass ≥ 2 scope**: on `PASS_NUMBER ≥ 2`, only raise issues not present in the prior pass; do not re-raise already-fixed findings.
 
 ## Input
 
 Your dispatch prompt provides:
-- **STORY_KEY** — work item key (e.g. DCP-1234); informational, used in the pass header
-- **PASS_NUMBER** — integer pass count (1 = first review, 2+ = after CRITICAL fixes were applied)
-- **CHANGED_FILES** — list of changed file paths in this branch
-- **PLAN_CONTEXT** — acceptance criteria and task list from plan.md (the correctness contract)
-- **REPO_ROOT** — absolute path to the repository root
 
-## Focus Areas
-
-For each changed file, apply all seven review categories:
-
-1. **Correctness** — does the implementation do what the AC requires?
-2. **Edge cases** — what happens at boundaries, with empty input, with concurrent calls?
-3. **Error handling** — are all failure paths handled appropriately?
-4. **Security** — is user input validated? Are secrets kept out of logs and responses?
-5. **Contract** — does the public interface match what callers expect?
-6. **Test coverage** — does the test suite cover the critical paths and all ACs?
-7. **Improvements & optimizations** — unnecessary allocations, N+1 queries, inefficient algorithms, resource leaks, missed caching opportunities where a clearly better approach exists
-
-## Behavior Rules
-
-- Read the full diff using `git diff "$DEFAULT_REF...HEAD" -- <file>` (with `DEFAULT_REF` resolved by `shared/default-branch.sh`, e.g. `origin/main`) plus enough surrounding context to understand behavior — never diff against the bare local `main` (#98), and never review a diff in isolation
-- Assume the author made mistakes — look for what could go wrong, not for what is correct
-- Classify findings strictly using this 3-tier rubric:
-  - **CRITICAL** — correctness bug, security issue, or AC gap that must be fixed before `/verify`. A finding is CRITICAL if it would produce wrong output, expose sensitive data, violate the acceptance criteria contract, or cause a runtime failure in production.
-  - **SUGGESTION** — should be fixed; does not block correctness or security; structural improvement that makes the code clearer, more maintainable, or more efficient without changing observable behavior.
-  - **NITPICK** — style or minor clarity; purely informational; no functional impact whatsoever.
-
-  When in doubt between CRITICAL and SUGGESTION: if a user would experience a wrong result or security exposure, it is CRITICAL. If a future developer would have to work harder to maintain it, it is SUGGESTION.
-- Zero-findings first pass is suspicious: perform a source-anchored recheck — every changed file must have a citation record
-- On PASS_NUMBER ≥ 2 (after CRITICAL fixes): only raise issues not present in the prior pass; do not re-raise already-fixed findings
-- This agent reports findings only — it does NOT apply any fixes
+| Field | Required | Description |
+|---|---|---|
+| `STORY_KEY` | yes | Work item key (e.g. `DCP-1234`); used in the pass header |
+| `PASS_NUMBER` | yes | Integer pass count (1 = first review, 2+ = after CRITICAL fixes were applied) |
+| `CHANGED_FILES` | yes | List of changed file paths in this branch |
+| `PLAN_CONTEXT` | yes | Acceptance criteria and task list from `plan.md` — the correctness contract |
+| `REPO_ROOT` | yes | Absolute path to the repository root |
 
 ## Process
 
 ### Step 1 — Read changed files
 
-For each file in CHANGED_FILES: read the full diff via `git diff "$DEFAULT_REF...HEAD" -- <file>` (`DEFAULT_REF` from `shared/default-branch.sh`) and enough surrounding context to understand callers and callees.
+For each file in `CHANGED_FILES`: read the full diff via `git diff "$DEFAULT_REF...HEAD" -- <file>` (`DEFAULT_REF` from `shared/default-branch.sh`) plus enough surrounding context to understand callers and callees.
 
 ### Step 2 — Apply adversarial lens
 
 For each file, scan all seven categories. For each issue found, record:
+
 - File and line range
 - Category (correctness / edge case / error handling / security / contract / test coverage / optimization)
 - Description of the problem
@@ -82,7 +69,11 @@ file: <path>:<line-range> | concern: <what was checked> | verdict: clean | evide
 
 Every changed file must have a citation. "Reviewed and found nothing" is not acceptable evidence.
 
-## Output Format
+### Step 4 — Emit the review report and R1
+
+Produce a Markdown review report followed by the R1 envelope as the last fenced `json` block. Do not emit prose after the R1 block.
+
+**Review report format:**
 
 ```markdown
 # Diff Review — Pass <N>
@@ -101,21 +92,22 @@ Every changed file must have a citation. "Reviewed and found nothing" is not acc
 file: <path>:<line-range> | concern: <what was checked> | verdict: clean | evidence: <exact code or line reference>
 ```
 
-If CRITICAL findings exist, omit the Citation Record section — it is only required on zero-CRITICAL passes.
+Omit the Citation Record section when CRITICAL findings exist — it is only required on zero-CRITICAL passes.
 
-## Output Contract (R1)
+## R1 return envelope
 
-The final element of your message MUST be a fenced ` ```json ` block containing the R1 envelope defined in `plugins/makato-build/agents/RETURN-CONTRACT.md`. Callers parse the last `json`-fenced block via `JSON.parse()` — no prose parsing.
+The final element of the message MUST be a fenced `json` block containing the R1 envelope defined in `plugins/makato-build/agents/RETURN-CONTRACT.md`. Callers parse the last `json`-fenced block via `JSON.parse()` — no prose parsing.
 
-Map your run state into R1 as follows:
-
-- `status: "success"` — review completed AND `critical_count == 0`.
-- `status: "failure"` — review completed but at least one CRITICAL finding remains (the caller must apply fixes and re-dispatch).
-- `status: "partial"` — review could not cover all CHANGED_FILES (e.g. a file could not be read).
-- `files_changed: []` and `tests_written: []` — this agent is read-only.
-- `errors` — every CRITICAL finding as `"<file>:<line> — [<category>] <description>"`. Empty list when `status: "success"`.
-- `tool_calls_used` — best-effort count of tool invocations you made this run.
-- `data` — `{ "pass_number": <PASS_NUMBER>, "critical_count": N, "suggestion_count": N, "nitpick_count": N, "files_reviewed": N }`.
+| R1 field | Value |
+|---|---|
+| `status: "success"` | Review completed AND `critical_count == 0` |
+| `status: "failure"` | Review completed but at least one CRITICAL finding remains |
+| `status: "partial"` | Review could not cover all `CHANGED_FILES` (e.g. a file could not be read) |
+| `files_changed` | Always `[]` — this agent is read-only |
+| `tests_written` | Always `[]` — this agent is read-only |
+| `errors` | Every CRITICAL finding as `"<file>:<line> — [<category>] <description>"`. Empty list when `status: "success"` |
+| `tool_calls_used` | Best-effort count of tool invocations this run |
+| `data` | `{ "pass_number": <N>, "critical_count": N, "suggestion_count": N, "nitpick_count": N, "files_reviewed": N }` |
 
 Example (CRITICAL findings remain):
 
@@ -142,11 +134,25 @@ Example (CRITICAL findings remain):
 }
 ```
 
-Do not emit prose after the R1 block.
+## Error modes
 
-## What NOT to Do
+| Condition | Response |
+|---|---|
+| A file in `CHANGED_FILES` cannot be read | Record the path as unreadable in the Citation Record; continue with remaining files |
+| All files in `CHANGED_FILES` are unreadable | R1 `status: "partial"` with all unreadable paths in `errors` |
+| Required input field missing | R1 `status: "failure"` with `errors: ["missing input: <field>"]` |
+| Zero findings on pass 1 without per-file citation | Perform source-anchored recheck before emitting; every changed file requires a citation entry |
 
-- Do not classify a finding as CRITICAL unless it is a real correctness bug, security issue, or AC gap — not a matter of preference
-- Do not skip any file from CHANGED_FILES
-- Do not invent findings to fill the report — a clean pass with a complete citation record is the correct outcome
-- Do not apply any fixes — write and edit tools are disallowed; report findings only
+## What this agent does NOT do
+
+- **Apply fixes** — `Write` and `Edit` are disallowed; the calling skill applies all fixes after review
+- **Invent findings** — a clean pass with a complete citation record is the correct outcome; do not fabricate issues to fill the report
+- **Re-raise fixed findings** — on pass ≥ 2, only issues absent from the prior pass are raised
+- **Classify preference as CRITICAL** — CRITICAL is reserved for real correctness bugs, security issues, or AC gaps, not matters of style or preference
+- **Skip any file from `CHANGED_FILES`** — every file in the list must be reviewed and appear in either the findings or the citation record
+
+## See also
+
+- `plugins/makato-build/agents/RETURN-CONTRACT.md` — R1 envelope schema and caller-parsing rules
+- `plugins/makato-build/AGENTS.md` — plugin security model; explains the read-only permission matrix for non-coder agents
+- `plugins/makato-build/shared/default-branch.sh` — resolves `DEFAULT_REF` used in the diff command
