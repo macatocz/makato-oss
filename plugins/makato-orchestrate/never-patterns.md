@@ -178,6 +178,41 @@ a HALT-007B event.
 
 ---
 
+## NEVER 10 — Never create branches from the PO-agent process
+
+The PO-agent must never run `git checkout -b`, `git branch <name>`, or any other command
+that materialises a feature branch. Branch creation is delegated exclusively to
+`plugins/makato-orchestrate/shared/worktree.sh create --new-branch`, which uses
+`git worktree add -b <BRANCH> <path> origin/<default>` to create the branch and its
+worktree atomically **without** touching the main-repo working tree.
+
+The historical failure mode this rule closes is documented in #170: when `loop.sh` dispatched
+the PO-agent for a fresh issue whose branch did not yet exist, the agent's model
+self-repaired by running `git checkout -b feat/<N>-<slug>` in the main repo, then
+`git worktree add` failed with `branch already used by worktree at <REPO_ROOT>`, and the
+agent bypassed the failure by patching `.worktree_path` to the main-repo root. The main
+repo was left on a feature branch, worktree isolation was destroyed, and the audit log
+carried a fabricated `worktree_created` event pointing at the main checkout.
+
+The rule has three layers of enforcement:
+
+1. **Behavioural** — the PO-agent's Rules section forbids inline branch creation. Step 2b
+   probes the remote via `git ls-remote origin $BRANCH` and dispatches
+   `worktree.sh create --new-branch` when the branch is missing.
+2. **Helper** — `worktree.sh create --new-branch` runs the atomic worktree/branch add, so
+   even a caller that misunderstands the contract cannot corrupt the main checkout.
+3. **State** — `workflow-state.sh patch` refuses `.worktree_path` writes to any path that
+   is not a registered git worktree of this repo (bypass:
+   `MAKATO_WORKTREE_PATCH_ALLOW_UNREGISTERED=1`, tests only). The layer-3 guard blocks the
+   deceptive-audit failure mode even if a future caller ignores layers 1 and 2.
+
+**Enforcement**: layered as above.
+**HALT code**: HALT-006 when `worktree.sh create --new-branch` itself fails (e.g. remote
+base ref missing). Inline branch creation from within the PO-agent process is a contract
+violation with no runtime HALT — it is caught at PR review time (like NEVER 4).
+
+---
+
 ## See also
 
 - `plugins/makato-orchestrate/halt-conditions.md` — the full HALT-code table.

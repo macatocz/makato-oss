@@ -8,13 +8,26 @@
 # commands themselves.
 #
 # Subcommands:
-#   create <KEY> <REPO> <BRANCH> <ISSUE_NUMBER>
+#   create [--new-branch] <KEY> <REPO> <BRANCH> <ISSUE_NUMBER>
 #       Create a worktree at .claude/worktrees/<sanitised-repo>-<issue> on
 #       <BRANCH>. Reuses an existing worktree at the target path (resume case)
 #       and prints the canonical event marker (worktree_resumed vs
 #       worktree_created) on the first line of stdout; the absolute worktree
 #       path on the second line. Patches workflow-state.json:.worktree_path to
 #       the absolute path.
+#
+#       Default mode assumes <BRANCH> already exists on the remote (upstream
+#       `build-start` created it); `git worktree add <path> <branch>` checks
+#       out the existing branch. If the branch does not exist the call fails
+#       loudly.
+#
+#       `--new-branch` mode (#170 fix): the branch is created atomically as
+#       part of the worktree add via `git worktree add -b <BRANCH> <path>
+#       origin/main`, then the new branch is pushed with `-u` from inside
+#       the fresh worktree — so the main repo working tree is NEVER
+#       touched. This is the callable path for a fresh autonomous issue
+#       where no upstream step created the branch. On failure state is not
+#       mutated and the caller sees the git diagnostic verbatim.
 #
 #   path <KEY>
 #       Print the .worktree_path field from workflow-state.json, or empty
@@ -62,7 +75,18 @@
 set -euo pipefail
 
 SUBCMD="${1:?subcommand required: create|path|cleanup|retain}"
-KEY="${2:?key required}"
+shift
+
+# --new-branch is a create-only modifier consumed at entry so the positional
+# parsing below stays uniform across subcommands. See #170 rationale.
+NEW_BRANCH_MODE=0
+if [[ "$SUBCMD" == "create" && "${1:-}" == "--new-branch" ]]; then
+  NEW_BRANCH_MODE=1
+  shift
+fi
+
+KEY="${1:?key required}"
+shift || true
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 WS="$REPO_ROOT/plugins/makato-orchestrate/shared/workflow-state.sh"
@@ -165,12 +189,12 @@ _is_registered_worktree() {
 case "$SUBCMD" in
 
   # -------------------------------------------------------------------------
-  # create <KEY> <REPO> <BRANCH> <ISSUE_NUMBER>
+  # create [--new-branch] <KEY> <REPO> <BRANCH> <ISSUE_NUMBER>
   # -------------------------------------------------------------------------
   create)
-    REPO="${3:?repo required (owner/name form)}"
-    BRANCH="${4:?branch required}"
-    ISSUE_NUMBER="${5:?issue_number required}"
+    REPO="${1:?repo required (owner/name form)}"
+    BRANCH="${2:?branch required}"
+    ISSUE_NUMBER="${3:?issue_number required}"
 
     SAFE_REPO="$(_sanitise_repo "$REPO")"
     WT_PATH="$WORKTREE_ROOT/${SAFE_REPO}-${ISSUE_NUMBER}"
@@ -180,15 +204,71 @@ case "$SUBCMD" in
       # We do NOT touch its HEAD; the PO-agent's caller is responsible for
       # checking out the right branch if needed. In practice the worktree's
       # branch is already <BRANCH> from the original create call.
+      # --new-branch on an already-registered path is a no-op resume, not
+      # an error — resume must be idempotent regardless of the caller's
+      # branch-existence knowledge.
       EVENT="worktree_resumed"
+    elif (( NEW_BRANCH_MODE == 1 )); then
+      # New-branch mode (#170 fix). The branch does NOT yet exist —
+      # atomically create it as part of `git worktree add -b` off
+      # origin/main. This keeps the main-repo working tree ON `main`;
+      # no `git checkout -b` is ever executed against the main checkout.
+      # After the atomic create, push the new branch with -u from INSIDE
+      # the worktree so upstream tracking is established without ever
+      # `cd`-ing to the main repo.
+      local_stderr="$(mktemp)"
+
+      # Refresh remote refs so `origin/main` is current. Silent on success;
+      # a fetch failure is not fatal here because git worktree add will
+      # surface it with a clearer diagnostic. `|| true` prevents set -e
+      # from aborting the create on transient network issues that the
+      # subsequent worktree add can still recover from.
+      git -C "$REPO_ROOT" fetch origin --quiet 2>/dev/null || true
+
+      # Resolve the default remote base. The bare literal `origin/main` is
+      # correct for macatocz/makato but not universal (some target repos
+      # use master/develop). Read HEAD off the remote to stay generic.
+      REMOTE_HEAD_REF="$(git -C "$REPO_ROOT" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null || echo 'refs/remotes/origin/main')"
+      REMOTE_HEAD="${REMOTE_HEAD_REF#refs/remotes/}"  # e.g. origin/main
+
+      if ! git -C "$REPO_ROOT" worktree add -b "$BRANCH" "$WT_PATH" "$REMOTE_HEAD" >/dev/null 2>"$local_stderr"; then
+        {
+          echo "worktree: failed to create $WT_PATH on new branch $BRANCH (base $REMOTE_HEAD)"
+          echo "worktree: git stderr follows ---"
+          cat "$local_stderr"
+          echo "worktree: --- end git stderr"
+          echo "worktree: hint — if the branch already exists locally or on the remote, drop --new-branch"
+        } >&2
+        rm -f "$local_stderr"
+        exit 1
+      fi
+
+      # Push the new branch upstream from inside the worktree. If the push
+      # fails we still keep the local worktree — a retry with `git push`
+      # from inside the worktree is straightforward. Push failure is NOT
+      # a state-corrupting condition and does NOT roll back the worktree
+      # create.
+      if ! git -C "$WT_PATH" push -u origin "$BRANCH" >/dev/null 2>"$local_stderr"; then
+        {
+          echo "worktree: warning — push -u origin $BRANCH failed after worktree create"
+          echo "worktree: git stderr follows ---"
+          cat "$local_stderr"
+          echo "worktree: --- end git stderr"
+          echo "worktree: worktree is on disk; retry the push from inside $WT_PATH"
+        } >&2
+        # Fall through — state patch below records the local worktree so
+        # a caller can resume; the upstream is missing but recoverable.
+      fi
+      rm -f "$local_stderr"
+      EVENT="worktree_created"
     else
-      # Fresh case. The branch must already exist locally or on the remote
-      # — build-start creates it per po-agent.md § *Input*. `git worktree
-      # add <path> <branch>` checks out an existing branch (does NOT pass
-      # -b, which would attempt to create a new one and conflict on resume
-      # of a half-failed earlier run). Capture git's stderr to a tmp file
-      # so the failure path can echo the actual git diagnostic, not a
-      # generic hint (C23 fix).
+      # Existing-branch mode. `<BRANCH>` must already exist locally or on
+      # the remote — build-start creates it per po-agent.md § *Input*.
+      # `git worktree add <path> <branch>` checks out an existing branch
+      # (does NOT pass -b, which would attempt to create a new one and
+      # conflict on resume of a half-failed earlier run). Capture git's
+      # stderr to a tmp file so the failure path can echo the actual git
+      # diagnostic, not a generic hint (C23 fix).
       local_stderr="$(mktemp)"
       if ! git -C "$REPO_ROOT" worktree add "$WT_PATH" "$BRANCH" >/dev/null 2>"$local_stderr"; then
         {
@@ -196,7 +276,7 @@ case "$SUBCMD" in
           echo "worktree: git stderr follows ---"
           cat "$local_stderr"
           echo "worktree: --- end git stderr"
-          echo "worktree: hint — verify the branch exists ('git rev-parse --verify $BRANCH')"
+          echo "worktree: hint — verify the branch exists ('git rev-parse --verify $BRANCH'); if the branch does not exist yet pass --new-branch (#170)"
         } >&2
         rm -f "$local_stderr"
         exit 1
@@ -208,6 +288,8 @@ case "$SUBCMD" in
     # Patch workflow-state with the absolute path. The state file must already
     # exist (workflow-state.sh init runs before this helper per po-agent Step 2).
     # JSON-encode the path so embedded quotes/backslashes survive (C2 fix).
+    # The workflow-state patch validator (#170 Fix 3) checks that the path
+    # is a registered git worktree — which it verifiably is at this point.
     "$WS" patch "$KEY" '.worktree_path' "$(_json_encode "$WT_PATH")"
 
     # Stdout contract: event on line 1, path on line 2. Callers can read both
@@ -273,6 +355,9 @@ case "$SUBCMD" in
 
     # Reached only when the worktree is verifiably gone from git's registry.
     # Patch state to null so the schema invariant holds.
+    # The .worktree_path validator (#170 Fix 3) exempts explicit null
+    # writes because the invariant permits `worktree_path == null` when
+    # no worktree is on disk.
     "$WS" patch "$KEY" '.worktree_path' 'null'
 
     echo "worktree_removed"
@@ -282,7 +367,7 @@ case "$SUBCMD" in
   # retain <KEY> <HALT_CODE>
   # -------------------------------------------------------------------------
   retain)
-    HALT_CODE="${3:?halt_code required (e.g. HALT-003 or merge_conflict)}"
+    HALT_CODE="${1:?halt_code required (e.g. HALT-003 or merge_conflict)}"
 
     # No git operations — the worktree stays on disk exactly as the failed
     # run left it. Patch BOTH retention fields in a single workflow-state

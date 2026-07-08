@@ -59,6 +59,15 @@ posture is constrained by four safeguards — see `AGENTS.md` §
   `WORKTREE_PATH` propagation stay in one entry point.
 - **Never cache kill-switch results.** Poll fresh at every outer-loop
   boundary.
+- **Never run `git checkout -b`, `git branch <name>`, or any other
+  branch-creation command directly** (#170). Branch creation is
+  delegated exclusively to `shared/worktree.sh create --new-branch`,
+  which uses `git worktree add -b` to create the branch and worktree
+  atomically without touching the main-repo working tree. Any inline
+  branch-mutation from the PO-agent's session is a contract violation
+  — the historical failure mode is documented in #170 § *Impact*
+  (main-repo checkout left on a feature branch, worktree isolation
+  destroyed, deceptive `worktree_created` audit event).
 - **Never request additional inputs.** The dispatch bundle is closed;
   missing/invalid input → immediate R1 `failure` (dispatch error, not
   runtime HALT).
@@ -76,7 +85,7 @@ Your dispatch prompt provides:
 | `ISSUE_NUMBER` | yes | GitHub Issue number ≥ 1; must carry `status:ready-for-dev` |
 | `KEY` | yes | Short slug (e.g. `gap-006`); resolves the spec folder via `specs/<KEY>-*/` prefix-match |
 | `REPO` | yes | `owner/name` form |
-| `BRANCH` | yes | Feature branch — created upstream by `build-start`, must exist locally and on remote |
+| `BRANCH` | yes | Feature branch. May not yet exist — Step 2b probes `git ls-remote origin <BRANCH>` and dispatches `shared/worktree.sh create --new-branch` when missing (see #170). When it exists (interactively kicked off via `build-start`), the standard `create` path checks it out. Either way the main-repo working tree is NEVER touched. |
 | `REPO_ROOT` | yes | Absolute path to the target repository root |
 | `BUDGET_LIMIT_TOKENS` | no | Per-task ceiling; default `500000` (HALT-007 fires here) |
 | `MAX_OUTER_ITERATIONS` | no | Default `3` (HALT-008 fires here) |
@@ -127,14 +136,32 @@ On resume, check three flags before continuing:
 
 ### Step 2b — Worktree create or resume
 
-Run `shared/worktree.sh create <KEY> <REPO> <BRANCH> <ISSUE_NUMBER>`.
+Probe the remote for the feature branch **without any local git-branch
+mutation** (#170 hard ban — see § *Rules*):
+
+```bash
+if git ls-remote --exit-code origin "$BRANCH" >/dev/null 2>&1; then
+  # Branch already exists on the remote (build-start interactive path).
+  shared/worktree.sh create "$KEY" "$REPO" "$BRANCH" "$ISSUE_NUMBER"
+else
+  # Branch does not exist. Do NOT `git checkout -b` or `git branch`
+  # against the main repo — that destroys workspace isolation (#170).
+  # Delegate to the atomic --new-branch mode, which runs
+  # `git worktree add -b $BRANCH <path> origin/main` and pushes -u
+  # from inside the fresh worktree.
+  shared/worktree.sh create --new-branch "$KEY" "$REPO" "$BRANCH" "$ISSUE_NUMBER"
+fi
+```
+
 The helper emits the event marker (`worktree_created` |
 `worktree_resumed`) on line 1 and the absolute worktree path on line 2,
-and patches `.worktree_path` in state.
+and patches `.worktree_path` in state. The `--new-branch` variant also
+pushes the new branch with `-u` from inside the worktree so no
+subsequent step ever needs to `cd` into the main repo.
 
 Emit one JSONL entry:
 ```json
-{"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"worktree","status":"ok","data":{"event":"<worktree_created|worktree_resumed>","path":"<abs>"}}
+{"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"worktree","status":"ok","data":{"event":"<worktree_created|worktree_resumed>","path":"<abs>","new_branch":<bool>}}
 ```
 
 Skip Step 2b ONLY when Step 2's success early-return fired (both `done`
@@ -589,10 +616,12 @@ Failure modes:
 
 | Condition | Response |
 |---|---|
-| Branch does not exist | HALT-006 (`build-start` was supposed to create it) |
+| Branch does not exist locally OR on remote | Delegate to `worktree.sh create --new-branch` (Step 2b). This is the autonomous-loop path — no HALT (#170 Fix 2). |
+| `git worktree add -b` fails (e.g. remote base ref missing) | HALT-006. Do NOT self-create the branch inline; the helper's failure diagnostic identifies the underlying cause. |
 | Target path exists but is not a registered worktree | HALT-006 (manual placement — cannot continue safely) |
 | `git worktree remove` refuses after prune | HALT-005 (cleanup incomplete; worktree still on disk) |
 | `cleanup` called on a retained worktree | HALT-006 (caller logic error) |
+| Attempt to patch `.worktree_path` to an unregistered path | Refused at the `workflow-state.sh patch` layer (#170 Fix 3) — see § *Rules* hard ban. The patch call errors out; PO-agent surfaces the failure and does NOT retry. |
 | HALT-000 (operator-initiated) | Retain the worktree with `reason: "HALT-000"` so the operator can inspect the state |
 
 HALT-007B is the only documented exception: the worktree stays on disk

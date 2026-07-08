@@ -122,9 +122,12 @@ echo "=== T8: cleanup tolerates a missing on-disk worktree but registered in sta
 # Recreate so we can simulate an orphaned state pointer.
 "$WT_LOCAL" create "$KEY" "$REPO_NAME" "$BRANCH" "$ISSUE" > /dev/null
 WT_PATH3="$("$WT_LOCAL" path "$KEY")"
-# Force-remove via git, leaving state pointing at it.
+# Force-remove via git, leaving state pointing at it. The #170 Fix 3
+# validator on `patch` refuses re-writing an unregistered path back —
+# the bypass env var is documented for this smoke-test class exactly.
 git -C "$SANDBOX/repo" worktree remove --force "$WT_PATH3" > /dev/null 2>&1
-"$WS_LOCAL" patch "$KEY" '.worktree_path' "\"$WT_PATH3\""
+MAKATO_WORKTREE_PATCH_ALLOW_UNREGISTERED=1 \
+  "$WS_LOCAL" patch "$KEY" '.worktree_path' "\"$WT_PATH3\""
 EVENT5="$("$WT_LOCAL" cleanup "$KEY")"
 [[ "$EVENT5" == "worktree_removed" ]] || { echo "  ✗ expected worktree_removed, got: $EVENT5"; exit 1; }
 "$WS_LOCAL" read "$KEY" | jq -e '.worktree_path == null' > /dev/null
@@ -211,5 +214,151 @@ EVENT_T13="$(MAKATO_WORKTREE_ROOT="$SPACE_ROOT" "$WT_LOCAL" create "$KEY_T13" "$
 [[ "$EVENT_T13" == "worktree_resumed" ]] || { echo "  ✗ resume failed for space path, got: $EVENT_T13"; exit 1; }
 echo "  ✓ space-bearing worktree path created and resumed correctly"
 
+# ----------------------------------------------------------------------------
+# #170 Fix 2 — worktree.sh create --new-branch creates the branch atomically
+# as part of `git worktree add -b` and never mutates the main-repo working
+# tree. The T14–T15 pair exercises the happy path and the crucial invariant
+# ("main repo HEAD stays put"). T16 asserts that dropping --new-branch on a
+# non-existent branch fails loudly (regression bar for the old silent-repair
+# class).
+# ----------------------------------------------------------------------------
+echo "=== T14: create --new-branch creates the branch atomically and does NOT touch main ==="
+KEY_T14="gap-170-newbranch"
+BRANCH_T14="feat/170-atomic-new"
+ISSUE_T14=170
+mkdir -p "$SANDBOX/repo/specs/$KEY_T14"
+"$WS_LOCAL" init "$KEY_T14" "$REPO_NAME" "$BRANCH_T14" "$ISSUE_T14"
+
+# Capture the main-repo HEAD before the create so we can assert it did not
+# move. The main repo is currently on `main` (the seed commit); the fresh
+# --new-branch call must leave it on `main` and NOT switch to $BRANCH_T14.
+MAIN_HEAD_BEFORE="$(git -C "$SANDBOX/repo" rev-parse --abbrev-ref HEAD)"
+[[ "$MAIN_HEAD_BEFORE" == "main" ]] || { echo "  ✗ pre-condition: main repo not on 'main' (got: $MAIN_HEAD_BEFORE)"; exit 1; }
+
+# The sandbox has no remote; skip the git ls-remote / fetch by asserting
+# the branch does not exist locally either. Then invoke --new-branch.
+# For the sandbox, `origin/main` does not exist, so the helper falls back
+# to plain `main` via its symbolic-ref probe (see worktree.sh REMOTE_HEAD_REF
+# fallback). We pre-set the fallback ref by ensuring symbolic-ref points
+# somewhere sensible; if not, git worktree add will default to the branch
+# base and the smoke test still exercises the -b path.
+git -C "$SANDBOX/repo" rev-parse --verify "$BRANCH_T14" 2>/dev/null \
+  && { echo "  ✗ pre-condition: $BRANCH_T14 already exists"; exit 1; }
+
+# Sandbox has no `origin` remote — set one up pointing at a bare mirror so
+# the helper's fetch / symbolic-ref / push -u paths all have somewhere to
+# resolve. Without this the helper's `git worktree add -b <path> origin/main`
+# base ref would not resolve and the create would fail for the wrong reason.
+BARE="$SANDBOX/bare-mirror.git"
+git init --bare -q "$BARE"
+git -C "$SANDBOX/repo" remote add origin "$BARE" 2>/dev/null || true
+git -C "$SANDBOX/repo" push -q origin main
+git -C "$SANDBOX/repo" fetch origin --quiet
+# Register origin/HEAD -> refs/remotes/origin/main so the helper's
+# symbolic-ref probe returns cleanly.
+git -C "$SANDBOX/repo" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+
+OUT_T14="$("$WT_LOCAL" create --new-branch "$KEY_T14" "$REPO_NAME" "$BRANCH_T14" "$ISSUE_T14")"
+EVENT_T14="$(echo "$OUT_T14" | head -1)"
+WT_T14="$(echo "$OUT_T14" | tail -1)"
+[[ "$EVENT_T14" == "worktree_created" ]] || { echo "  ✗ expected worktree_created, got: $EVENT_T14"; exit 1; }
+test -d "$WT_T14" || { echo "  ✗ worktree dir not created at $WT_T14"; exit 1; }
+
+# Main repo HEAD MUST still be on main. This is the #170 core invariant.
+MAIN_HEAD_AFTER="$(git -C "$SANDBOX/repo" rev-parse --abbrev-ref HEAD)"
+[[ "$MAIN_HEAD_AFTER" == "main" ]] || { echo "  ✗ main repo drifted to $MAIN_HEAD_AFTER (expected 'main') — #170 regression"; exit 1; }
+
+# Worktree HEAD IS on the new branch.
+WT_HEAD_T14="$(git -C "$WT_T14" rev-parse --abbrev-ref HEAD)"
+[[ "$WT_HEAD_T14" == "$BRANCH_T14" ]] || { echo "  ✗ worktree HEAD not on new branch (got: $WT_HEAD_T14)"; exit 1; }
+
+# Branch pushed upstream (`git ls-remote origin $BRANCH` non-empty).
+git -C "$SANDBOX/repo" ls-remote --exit-code origin "$BRANCH_T14" >/dev/null 2>&1 \
+  || { echo "  ✗ new branch $BRANCH_T14 not present on origin (push -u must have run)"; exit 1; }
+
+echo "  ✓ new branch created atomically, main HEAD unmoved, worktree on branch, upstream tracking set"
+
+echo "=== T15: create --new-branch on an already-registered worktree is an idempotent resume ==="
+OUT_T15="$("$WT_LOCAL" create --new-branch "$KEY_T14" "$REPO_NAME" "$BRANCH_T14" "$ISSUE_T14")"
+EVENT_T15="$(echo "$OUT_T15" | head -1)"
+[[ "$EVENT_T15" == "worktree_resumed" ]] || { echo "  ✗ second --new-branch call should have resumed, got: $EVENT_T15"; exit 1; }
+echo "  ✓ second call is a resume (--new-branch is idempotent when the worktree already exists)"
+
+echo "=== T16: create (without --new-branch) on a non-existent branch fails loudly ==="
+KEY_T16="gap-170-no-new"
+BRANCH_T16="feat/170-does-not-exist"
+ISSUE_T16=171
+mkdir -p "$SANDBOX/repo/specs/$KEY_T16"
+"$WS_LOCAL" init "$KEY_T16" "$REPO_NAME" "$BRANCH_T16" "$ISSUE_T16"
+
+set +e
+"$WT_LOCAL" create "$KEY_T16" "$REPO_NAME" "$BRANCH_T16" "$ISSUE_T16" >/dev/null 2>"$SANDBOX/t16.stderr"
+RC_T16=$?
+set -e
+[[ $RC_T16 -ne 0 ]] || { echo "  ✗ create on non-existent branch should have failed (rc=$RC_T16)"; exit 1; }
+grep -q "$BRANCH_T16" "$SANDBOX/t16.stderr" \
+  || { echo "  ✗ error message missing branch name"; cat "$SANDBOX/t16.stderr"; exit 1; }
+# State must NOT have been patched — the invariant is that a failed create
+# leaves state clean, no fabricated .worktree_path.
+"$WS_LOCAL" read "$KEY_T16" | jq -e '.worktree_path == null' >/dev/null \
+  || { echo "  ✗ .worktree_path was patched despite create failure"; exit 1; }
+echo "  ✓ create failed with clear diagnostic, state left null"
+
+# ----------------------------------------------------------------------------
+# #170 Fix 3 — workflow-state.sh patch refuses .worktree_path writes to any
+# path that is not a registered git worktree of this repo. The T17 pair
+# exercises both directions of the invariant.
+# ----------------------------------------------------------------------------
+echo "=== T17: patch .worktree_path to an unregistered path is refused (Fix 3) ==="
+KEY_T17="gap-170-patch-guard"
+mkdir -p "$SANDBOX/repo/specs/$KEY_T17"
+"$WS_LOCAL" init "$KEY_T17" "$REPO_NAME" "$BRANCH_T14" "$ISSUE_T14"
+
+# Attempt: patch to the main-repo root. This is the exact incident from
+# #170 § *Repro*.
+set +e
+"$WS_LOCAL" patch "$KEY_T17" '.worktree_path' "\"$SANDBOX/repo\"" >/dev/null 2>"$SANDBOX/t17.stderr"
+RC_T17=$?
+set -e
+[[ $RC_T17 -ne 0 ]] || { echo "  ✗ patch to main-repo root should have been refused"; exit 1; }
+# Diagnostic must reference either the main-repo root guard OR the
+# not-registered guard (a call pointing at REPO_ROOT hits the first;
+# any other unregistered path hits the second).
+grep -qE "(resolves to the main-repo root|not a registered git worktree)" "$SANDBOX/t17.stderr" \
+  || { echo "  ✗ diagnostic missing worktree-guard phrase"; cat "$SANDBOX/t17.stderr"; exit 1; }
+grep -q "#170" "$SANDBOX/t17.stderr" \
+  || { echo "  ✗ diagnostic missing #170 rationale link"; cat "$SANDBOX/t17.stderr"; exit 1; }
+"$WS_LOCAL" read "$KEY_T17" | jq -e '.worktree_path == null' >/dev/null \
+  || { echo "  ✗ .worktree_path mutated despite refusal"; exit 1; }
+echo "  ✓ unregistered patch refused with clear diagnostic, state untouched"
+
+# Attempt: patch to a made-up path that does not exist on disk.
+set +e
+"$WS_LOCAL" patch "$KEY_T17" '.worktree_path' "\"$SANDBOX/never-existed-anywhere\"" >/dev/null 2>"$SANDBOX/t17b.stderr"
+RC_T17B=$?
+set -e
+[[ $RC_T17B -ne 0 ]] || { echo "  ✗ patch to non-existent path should have been refused"; exit 1; }
+echo "  ✓ non-existent path also refused"
+
+# Explicit null is always allowed (cleanup path).
+"$WS_LOCAL" patch "$KEY_T17" '.worktree_path' 'null' >/dev/null
+echo "  ✓ explicit null write still permitted (cleanup contract preserved)"
+
+# Bypass env var (documented for smoke-test contexts only) permits the write.
+MAKATO_WORKTREE_PATCH_ALLOW_UNREGISTERED=1 \
+  "$WS_LOCAL" patch "$KEY_T17" '.worktree_path' "\"$SANDBOX/repo\"" >/dev/null
+"$WS_LOCAL" read "$KEY_T17" | jq -e --arg p "$SANDBOX/repo" '.worktree_path == $p' >/dev/null \
+  || { echo "  ✗ bypass env var did not permit the write"; exit 1; }
+echo "  ✓ bypass env var permits the write (test-only path)"
+
+echo "=== T18: patching an unrelated field is never guarded by the .worktree_path validator ==="
+# Sanity: fields other than .worktree_path pass through the validator
+# without any git-worktree check. Prevents overly-broad guard from breaking
+# every other patch call.
+"$WS_LOCAL" patch "$KEY_T17" '.current_phase' '"implement"' >/dev/null
+"$WS_LOCAL" read "$KEY_T17" | jq -e '.current_phase == "implement"' >/dev/null \
+  || { echo "  ✗ unrelated .current_phase patch was refused"; exit 1; }
+echo "  ✓ unrelated field passes through unchanged"
+
 echo
-echo "All 13 worktree-lifecycle smoke tests passed."
+echo "All 18 worktree-lifecycle smoke tests passed."

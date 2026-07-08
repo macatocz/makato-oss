@@ -114,6 +114,108 @@ _atomic_write() {
   mv "$tmp" "$STATE_FILE"
 }
 
+# ---------------------------------------------------------------------------
+# .worktree_path patch validator (#170 Fix 3).
+#
+# The invariant is: `worktree_path != null ⟺ a worktree at that path is
+# registered with this repo's git`. Historically the `patch` subcommand
+# accepted any JSON literal for any field, so a caller (or a PO-agent whose
+# model tried to self-repair a failed `git worktree add`) could patch
+# `.worktree_path` to the main repo root and destroy workspace isolation.
+# See #170 § *Impact* for the concrete incident.
+#
+# This validator refuses `.worktree_path` writes that do not satisfy the
+# invariant. Explicit-null writes are always allowed (the invariant permits
+# a null path when no worktree is on disk — `worktree.sh cleanup` uses
+# this). Non-null writes must resolve to a path that appears in
+# `git worktree list --porcelain` of the current repo. The path comparison
+# uses realpath canonicalisation so a caller passing an unresolved symlink
+# still matches the git-registered canonical form (matches worktree.sh's
+# own `_is_registered_worktree` helper).
+#
+# Bypass: MAKATO_WORKTREE_PATCH_ALLOW_UNREGISTERED=1 is honoured for
+# smoke-test scenarios that exercise the invariant itself. Production
+# callers must NOT set this.
+# ---------------------------------------------------------------------------
+_validate_worktree_path_write() {
+  local jq_path="$1" value="$2"
+
+  # Only guard .worktree_path — every other field falls through untouched.
+  [[ "$jq_path" == ".worktree_path" ]] || return 0
+
+  # Explicit null is always permitted. jq -e -n `<value> == null` yields
+  # exit 0 on null literal and non-zero otherwise; using it here means
+  # we accept `null`, `"null"` treated as a string is not accepted, and
+  # any other malformed literal falls through to git's registration check
+  # below (which will fail loudly).
+  if jq -e -n --argjson v "$value" '$v == null' >/dev/null 2>&1; then
+    return 0
+  fi
+
+  # Test-scenario bypass. Documented above; not a production knob.
+  if [[ "${MAKATO_WORKTREE_PATCH_ALLOW_UNREGISTERED:-0}" == "1" ]]; then
+    return 0
+  fi
+
+  # Extract the string value. jq -r on a JSON string yields the raw path;
+  # on a non-string it yields e.g. "true"/"3" which will not match any
+  # registered worktree — that failure surfaces below with a clear message.
+  local candidate
+  candidate="$(jq -r <<<"$value")"
+  if [[ -z "$candidate" || "$candidate" == "null" ]]; then
+    # Empty string or literal-null-as-string — reject with a specific
+    # diagnostic so callers know the expected shape.
+    echo "workflow-state: refusing .worktree_path write — value must be JSON null or a registered worktree path (got: $value)" >&2
+    exit 1
+  fi
+
+  # Canonicalise so /var vs /private/var on macOS matches git's own
+  # canonicalisation. Delegate to python3 for realpath — matches the
+  # exact primitive worktree.sh uses.
+  local candidate_real
+  candidate_real="$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$candidate" 2>/dev/null || echo "$candidate")"
+
+  # Extra guard (#170 exact incident): the main repo root IS registered
+  # as a worktree in git's own list — it is the primary worktree. Refuse
+  # writes that point at it. The isolation invariant is "PO-agent operates
+  # in a worktree UNDER .claude/worktrees/, never in the main checkout".
+  local repo_root_real
+  repo_root_real="$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$REPO_ROOT" 2>/dev/null || echo "$REPO_ROOT")"
+  if [[ "$candidate_real" == "$repo_root_real" ]]; then
+    {
+      echo "workflow-state: refusing .worktree_path write — $candidate resolves to the main-repo root"
+      echo "workflow-state: PO-agent must operate in a per-run worktree under .claude/worktrees/, not the main checkout (#170)"
+      echo "workflow-state: (tests may bypass with MAKATO_WORKTREE_PATCH_ALLOW_UNREGISTERED=1)"
+    } >&2
+    exit 1
+  fi
+
+  # Scan `git worktree list --porcelain` and compare canonicalised paths.
+  # Same parser shape as worktree.sh (`_is_registered_worktree`) so both
+  # helpers agree on what "registered" means. Uses `git -C "$REPO_ROOT"`
+  # so it works when this helper is invoked from anywhere in the tree.
+  local porcelain line wt resolved
+  porcelain="$(git -C "$REPO_ROOT" worktree list --porcelain 2>/dev/null || true)"
+  while IFS= read -r line; do
+    [[ "$line" == worktree\ * ]] || continue
+    wt="${line#worktree }"
+    resolved="$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$wt" 2>/dev/null || echo "$wt")"
+    if [[ "$resolved" == "$candidate_real" ]]; then
+      return 0
+    fi
+  done <<<"$porcelain"
+
+  # Not registered — refuse. This is the guard that blocks the #170
+  # incident (PO-agent patching .worktree_path to the main-repo root
+  # after a failed self-recovery).
+  {
+    echo "workflow-state: refusing .worktree_path write — $candidate is not a registered git worktree of $REPO_ROOT"
+    echo "workflow-state: use plugins/makato-orchestrate/shared/worktree.sh create to establish a worktree, then let it patch state"
+    echo "workflow-state: (see #170 for rationale; tests may bypass with MAKATO_WORKTREE_PATCH_ALLOW_UNREGISTERED=1)"
+  } >&2
+  exit 1
+}
+
 case "$SUBCMD" in
 
   # -------------------------------------------------------------------------
@@ -212,6 +314,11 @@ case "$SUBCMD" in
       echo "workflow-state: $STATE_FILE not found — run 'init' first" >&2
       exit 1
     fi
+
+    # #170 Fix 3 — refuse .worktree_path writes to unregistered paths so
+    # a caller cannot fabricate the isolation invariant. See helper for
+    # the full contract, bypass, and rationale.
+    _validate_worktree_path_write "$JQ_PATH" "$VALUE"
 
     PATCHED="$(jq \
       --argjson v "$VALUE" \
