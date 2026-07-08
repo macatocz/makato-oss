@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.31.2](https://github.com/macatocz/makato/compare/v0.31.1...v0.31.2) (2026-07-08)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** per-issue workflow-state file layout ([#173](https://github.com/macatocz/makato/issues/173)) ([#179](https://github.com/macatocz/makato/issues/179)) ([7fc7722](https://github.com/macatocz/makato/commit/7fc7722d4d5b0e0bc6cee94be5d0f9bf3bfbdcd8))
+
 ## [0.31.1](https://github.com/macatocz/makato/compare/v0.31.0...v0.31.1) (2026-07-08)
 
 
