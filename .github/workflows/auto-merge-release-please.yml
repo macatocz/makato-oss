@@ -208,14 +208,20 @@ jobs:
           echo "::error::Timed out waiting for checks after $MAX_ATTEMPTS attempts."
           exit 1
 
-      - name: Squash-merge under RELEASE_PLEASE_PAT
+      - name: Squash-merge (RELEASE_PLEASE_PAT, fallback to GITHUB_TOKEN)
         env:
-          # PAT is used ONLY for the merge call. A merge commit authored
-          # by the PAT owner (not github-actions[bot]) is what allows a
-          # downstream `release: published` event to reach tag-moving
-          # jobs — GITHUB_TOKEN merges are silently suppressed by GH's
-          # anti-loop protection (see workflow header comment).
-          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_PAT }}
+          # PAT is preferred when set — a merge authored by the PAT
+          # owner (not `github-actions[bot]`) allows a downstream
+          # `release: published` event to reach any tag-moving jobs
+          # (GITHUB_TOKEN merges are silently suppressed by GHA's
+          # anti-loop protection). Fallback to GITHUB_TOKEN matches
+          # release.yml's `secrets.RELEASE_PLEASE_PAT || secrets.GITHUB_TOKEN`
+          # pattern — the PAT is opt-in per that workflow's comment, and
+          # this repo currently ships without one. GITHUB_TOKEN gets the
+          # merge across the line; there's no downstream tag-moving job
+          # in this repo to worry about, so the anti-loop suppression is
+          # a non-issue here.
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_PAT || secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           echo "Squash-merging PR #$PR_NUMBER..."
