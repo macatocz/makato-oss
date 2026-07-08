@@ -5,6 +5,17 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## `build-create-pr` mandatory audit contract around `gh pr create` (#169)
+
+Fixes the silent-exit class first observed in #143: while driving that issue through the PO-agent under `--autonomous`, `build-create-pr` recorded `pr-draft-approval bypassed` at 00:15:44 UTC and then produced **no further audit events**. `workflow-state.json` remained at `current_phase: "pr"`, the PO-agent claude subprocess terminated ~29 s later, and no PR was opened for the pushed branch. The commit had been pushed cleanly — the failure was scoped to the `gh pr create` step.
+
+Investigation ruled out the #160-style AskUserQuestion mid-skill hypothesis (there is no such prompt between Step 4 bypass and Step 5 invocation). The real gap was in the SKILL.md contract itself: Step 5 said only *"On failure: report the exact `gh` error verbatim … Do not retry silently"* and offered no mandatory logging schedule for either branch. When `gh pr create` errored (or the surrounding turn drifted / hit context ceiling), the last line in `build.jsonl` was the `pr-draft-approval` bypass and the PO-agent had no `halt_code` to route on — the loop's autonomy guarantee was quietly broken.
+
+- **`skills/build-create-pr/SKILL.md`** (1.6.2 → 1.7.0) — Step 5 split into three mandatory sub-steps: (5a) pre-call `pr_created status:"start"` log so a silent process death is attributable to this step; (5b) `gh pr create` invocation capturing exit code and stderr to a tempfile; (5c) branch-specific post-processing. On success: `pr_created status:"ok"` with `pr_url` + `pr_number`. On failure: classify `halt_code` (`GH_AUTH_FAILED` on auth-related stderr, `PR_CREATE_FAILED` otherwise), emit `pr_created status:"error"` with verbatim stderr, emit the terminal `session status:"error"` line, emit R1 `status:"failure"` envelope, and do NOT retry or fall through. Return Format section now documents both success and failure envelope shapes with the failure envelope enumerating `"GH_AUTH_FAILED" | "PR_CREATE_FAILED"` for `data.halt_code`. New § *Audit invariant* declares that the skill emits exactly one terminal `step:"session"` line per invocation (either `status:"ok"` or `status:"error"`, never neither) and anchors the contract to #169.
+- **`shared/audit-contract-smoke-tests.sh`** — new grep-based smoke test asserting the mandatory audit contract in SKILL.md: version ≥ 1.7.0, `pr_created` events on both branches (`start`, `ok`, `error`), terminal `session` events on both branches, both HALT codes present, failure R1 envelope shape, "Audit invariant" section anchored to #169, and the failure envelope enumerating both HALT codes. 10/10 pass. Regression-detection verified by deleting the terminal `session status:"error"` line — T5 fails as expected.
+
+---
+
 ## `build-refine` headless-context defensive guard, Step 1b (#163)
 
 Prevents the deadlock class first observed in #160 — a headless `claude -p …` session forgetting to thread any of the three autonomous triggers (`--autonomous`, `$AGENT_ID`, `task_id`) into a `build-*` skill and then hanging silently when Step 1 or Step 11 fires `AskUserQuestion`. The #160 root-cause fix landed on the caller side (loop.sh now delegates to po-agent); this PR adds the skill-side defence so any future headless caller that skips the delegation is refused loudly instead of hanging.

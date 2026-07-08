@@ -6,7 +6,7 @@ description: >-
   to How to Test, design decisions surface in the description, Jira
   story is linked. Presents draft for user approval before opening.
   Interactive. Use after push-to-git, before address-pr-comments.
-version: "1.6.2"
+version: "1.7.0"
 argument-hint: "[work-item-key] [--autonomous]"
 ---
 
@@ -146,6 +146,18 @@ git remote get-url origin
 ```
 Extract the hostname from the URL (e.g. `github.tools.sap` from `https://github.tools.sap/org/repo.git`). If the hostname differs from `github.com`, prefix all subsequent `gh` commands with `GH_HOST=<hostname>`. Emit an informational note: "Using `GH_HOST=<hostname>` — remote is not github.com."
 
+#### Step 5a — Mandatory pre-call audit event
+
+**Before** invoking `gh pr create`, append a `pr_created status:"start"` line so a subsequent silent process death is attributable to this step:
+
+```bash
+shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-create-pr","story":"<key>","step":"pr_created","status":"start","data":{"branch":"<name>","gh_host":"<hostname>","title_len":<N>}}'
+```
+
+This event is required in **every** mode (interactive AND autonomous). Skipping it violates the SKILL.md audit contract — see § *Audit invariant* below.
+
+#### Step 5b — Invoke `gh pr create`
+
 Run:
 ```
 gh pr create --title "<title>" --body "$(cat <<'EOF'
@@ -154,11 +166,42 @@ EOF
 )"
 ```
 
-Base branch: `main`. If the project uses a different default base (e.g. `develop`), check `gh repo view --json defaultBranchRef` or ask the user before creating.
+Base branch: `main`. If the project uses a different default base (e.g. `develop`), check `gh repo view --json defaultBranchRef` or ask the user before creating. Capture both the exit code and stderr:
 
-On failure: report the exact `gh` error verbatim. Common causes: not authenticated (`gh auth login`), no remote set, title too long. Do not retry silently.
+```bash
+GH_STDERR="$(mktemp)"
+gh pr create --title "$TITLE" --body "$BODY" 2>"$GH_STDERR"
+GH_RC=$?
+```
 
-On success: capture the PR URL from the output.
+#### Step 5c — Handle result (mandatory branches)
+
+**On success (`GH_RC == 0`):** capture the PR URL from stdout, then append:
+
+```bash
+shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-create-pr","story":"<key>","step":"pr_created","status":"ok","data":{"pr_url":"<url>","pr_number":<N>}}'
+```
+
+Proceed to Step 6.
+
+**On failure (`GH_RC != 0`):** the skill MUST NOT exit silently. Classify and log:
+
+1. Determine `halt_code`:
+   - `GH_AUTH_FAILED` — stderr contains `authentication`, `not logged in`, `token`, or `401`.
+   - `PR_CREATE_FAILED` — every other non-zero exit (template missing, branch-protection reject, API outage, title too long, unpushed commits detected post-hoc, etc.).
+2. Append the finding line **verbatim** (do not paraphrase the `gh` error):
+
+   ```bash
+   shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-create-pr","story":"<key>","step":"pr_created","status":"error","data":{"halt_code":"<code>","exit_code":<GH_RC>,"stderr":"<first 500 chars, JSON-escaped>"}}'
+   ```
+
+3. Append the **terminal session-error** event (see § *Audit invariant* — this is the "either ok or error, never neither" guarantee):
+
+   ```bash
+   shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-create-pr","story":"<key>","step":"session","status":"error","data":{"halt_code":"<code>","branch":"<name>"}}'
+   ```
+
+4. Emit the R1 failure envelope (see § *Return Format*) as the final `json`-fenced block and return. Do NOT retry `gh pr create` silently, and do NOT fall through to Step 6.
 
 ---
 
@@ -217,6 +260,8 @@ In autonomous mode:
 
 Top-level R1 envelope fields follow `plugins/makato-build/agents/RETURN-CONTRACT.md` § *R1 envelope schema*. The skill-specific `data` payload is:
 
+**On success:**
+
 ```json
 {
   "data": {
@@ -232,6 +277,31 @@ Top-level R1 envelope fields follow `plugins/makato-build/agents/RETURN-CONTRACT
 ```
 
 `agent` is `"build-create-pr"`. `summary` is `"Opened PR <url>"` on success.
+
+**On failure (`gh pr create` non-zero exit — Step 5c error branch):**
+
+```json
+{
+  "status": "failure",
+  "agent": "build-create-pr",
+  "summary": "gh pr create failed: <first line of stderr>",
+  "errors": ["<halt_code>: <gh stderr, first 500 chars>"],
+  "data": {
+    "halt_code": "GH_AUTH_FAILED" | "PR_CREATE_FAILED",
+    "exit_code": <GH_RC>,
+    "branch": "<name>",
+    "gh_host": "<hostname>"
+  }
+}
+```
+
+The PO-agent reads `data.halt_code` and routes per `plugins/makato-build/halt-codes.md` (`GH_AUTH_FAILED` → operator-escalation; `PR_CREATE_FAILED` → operator-escalation).
+
+### Audit invariant
+
+`build-create-pr` MUST emit **exactly one** terminal `step:"session"` line per invocation — either `status:"ok"` (Step 7 happy path) or `status:"error"` (Step 5c failure branch). Any other exit — silent process death, uncaught exception, model-turn drift, context ceiling mid-skill — is a contract violation and appears in `build.jsonl` as an unclosed session (last event is not `step:"session"` with terminal status).
+
+Fixed by v1.7.0 (#169): earlier versions had no mandatory error-branch logging, so an autonomous session that failed inside `gh pr create` left the audit trail ending on `pr-draft-approval bypass` and the PO-agent had no `halt_code` to route on. See `plugins/makato-build/shared/audit-contract-smoke-tests.sh` — the smoke test scans this file for the mandatory audit events (`pr_created status:"start"`, per-branch `status:"ok"` and `status:"error"`, terminal `session` closes) and CI fails when any regress out.
 
 ### HALT Codes
 
