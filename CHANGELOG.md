@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.31.1](https://github.com/macatocz/makato/compare/v0.31.0...v0.31.1) (2026-07-08)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** loop.sh run-mutex pidfile guard ([#172](https://github.com/macatocz/makato/issues/172)) ([#178](https://github.com/macatocz/makato/issues/178)) ([f0c19fb](https://github.com/macatocz/makato/commit/f0c19fb7148a30002dbbc5459bc36cf591e57a2b))
+* **makato-orchestrate:** three-layer PO-agent worktree-isolation defence ([#170](https://github.com/macatocz/makato/issues/170)) ([#176](https://github.com/macatocz/makato/issues/176)) ([4cada7d](https://github.com/macatocz/makato/commit/4cada7d5aac892df818f147ba5a56b7fc84aad46))
+
 ## [0.31.0](https://github.com/macatocz/makato/compare/v0.30.1...v0.31.0) (2026-07-08)
 
 
