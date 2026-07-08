@@ -1,0 +1,9 @@
+{
+  "total_count": 4,
+  "check_runs": [
+    { "name": "validate-structure", "status": "completed", "conclusion": "success" },
+    { "name": "docs-check",         "status": "completed", "conclusion": "skipped" },
+    { "name": "spec-check",         "status": "completed", "conclusion": "neutral" },
+    { "name": "pr-title",           "status": "completed", "conclusion": "success" }
+  ]
+}

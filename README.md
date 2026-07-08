@@ -130,6 +130,30 @@ impose on other contributors):
 }
 ```
 
+### Release automation
+
+Releases are cut by [release-please](https://github.com/googleapis/release-please) on every
+push to `main`. It opens a "chore: release vX.Y.Z" PR aggregating unreleased
+conventional-commit history; the PR is auto-merged by
+`.github/workflows/auto-merge-release-please.yml` once required checks pass (or after a
+~5-minute cap on the zero-checks case that arises because `validate.yml` has `paths:` filters
+that release-please PRs do not match).
+
+The auto-merge pattern is adapted from `macatocz/sagibeast`. Two makato-specific
+constraints, both duplicated in the workflow header comment:
+
+- **Single-branch**: makato has only `main` as an integration branch. NEVER add per-branch
+  conditions to the auto-merge workflow — the label filter (`autorelease: pending`) is the
+  only gate we need.
+- **Split-token pattern preserved**: `GITHUB_TOKEN` reads check-runs; `RELEASE_PLEASE_PAT`
+  performs the merge so downstream `release: published` events propagate. Do not consolidate
+  to a single token — GitHub's anti-loop protection silently suppresses PAT-less merges.
+
+The workflow's decision logic lives in `scripts/auto-merge-decide.sh` with fixture-based
+smoke tests at `scripts/auto-merge-decide-smoke-tests.sh` so the classification
+(merge / abort / wait / zero-checks-detected) has a unit-test surface separate from the
+GitHub Actions runtime.
+
 ### Smoke tests
 
 The repo ships a small **pytest harness** scoped narrowly to skill smoke tests and existing

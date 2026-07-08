@@ -47,10 +47,19 @@ jobs:
           # See actionlint expression security warning.
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
-          if ! printf '%s\n' "$PR_TITLE" | grep -qE '^(feat|fix|docs|refactor|test|chore|ci|build|perf|style|revert)\([a-z0-9-]+\): .+$'; then
-            echo "::error::PR title must follow conventional commits: type(scope): description"
+          # Conventional commit — `type(scope): description` with scope
+          # OPTIONAL. AGENTS.md § *Cross-cutting changes* explicitly says
+          # the scope is omitted for repo-wide changes (`.github/`,
+          # `CHANGELOG.md`, root `README.md`, `scripts/`); release-please
+          # also emits `chore: release vX.Y.Z` without a scope. Making
+          # scope mandatory would fail those PRs even though they follow
+          # the documented contract. See also the `/build-create-pr`
+          # skill which drops the scope when the change is not
+          # plugin-scoped.
+          if ! printf '%s\n' "$PR_TITLE" | grep -qE '^(feat|fix|docs|refactor|test|chore|ci|build|perf|style|revert)(\([a-z0-9-]+\))?: .+$'; then
+            echo "::error::PR title must follow conventional commits: type(scope): description  OR  type: description"
             echo "  Types: feat, fix, docs, refactor, test, chore, ci, build, perf, style, revert"
-            echo "  Scope: area (docs, src, repo)"
+            echo "  Scope: plugin name for plugin-scoped changes; omitted for repo-wide changes (AGENTS.md § Cross-cutting changes)"
             echo "  Got: $PR_TITLE"
             exit 1
           fi

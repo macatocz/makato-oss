@@ -1,0 +1,8 @@
+{
+  "total_count": 3,
+  "check_runs": [
+    { "name": "validate-structure", "status": "completed", "conclusion": "success" },
+    { "name": "pr-title",           "status": "in_progress", "conclusion": null },
+    { "name": "release-please",     "status": "queued",      "conclusion": null }
+  ]
+}

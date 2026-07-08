@@ -1,0 +1,7 @@
+{
+  "total_count": 2,
+  "check_runs": [
+    { "name": "validate-structure", "status": "completed", "conclusion": "success" },
+    { "name": "pr-title",           "status": "completed", "conclusion": "failure" }
+  ]
+}

@@ -1,0 +1,225 @@
+name: auto-merge-release-please
+
+# Auto-merge release-please PRs once all required CI checks pass.
+#
+# Native GitHub auto-merge (`gh pr merge --auto`) is unavailable on this repo:
+# macatocz org is on the free plan, which does not expose the repo-level
+# `allow_auto_merge=true` flag. This workflow reproduces the same behaviour
+# via REST check-runs polling + `gh pr merge --squash --delete-branch`.
+#
+# Scope: only fires on PRs carrying the `autorelease: pending` label, which
+# release-please guarantees on every release PR it opens. Any other PR is
+# ignored at the job-level `if:` gate — a maintainer editing a normal PR
+# title to look like a release will NOT accidentally trigger a merge.
+#
+# ═══════════════════════════════════════════════════════════════════════════
+# makato-specific delta vs the sagibeast reference (`macatocz/sagibeast`
+# `.github/workflows/auto-merge-release-please.yml`) — DO NOT COPY WITHOUT
+# READING THIS COMMENT (#181):
+#
+# 1. Single-branch: makato has ONLY `main` as an integration branch.
+#    sagibeast has both `development` and `main` with different required-check
+#    sets per branch, but its workflow does not encode that — branch protection
+#    does. NEVER add `if: base.ref == main` here — the label filter is the
+#    only gate we need, and adding a per-branch condition would silently
+#    break if this workflow ever runs against a hypothetical future branch.
+#
+# 2. Zero-checks case: makato's `validate.yml` has `paths:` filters that
+#    exclude the `CHANGELOG.md` / `.release-please-manifest.json` set a
+#    release-please PR touches. So the total non-self check-runs count is
+#    ZERO on a normal release PR. sagibeast's poll loop treats zero as
+#    "wait longer" (infinite spin until MAX_ATTEMPTS times out), which
+#    would leave every release PR unmerged. This workflow caps the
+#    zero-checks countdown at ~5 minutes (45 s initial sleep + 17 × 15 s
+#    ticks = 300 s total). If a check registers during those 17 ticks the
+#    workflow falls back to sagibeast's unbounded wait — the switch is
+#    ONE-WAY per pull_request run.
+#
+# Split-token pattern (preserved verbatim from sagibeast):
+#   - GITHUB_TOKEN (built-in) reads the check-runs list. Free-plan
+#     fine-grained PATs may not expose the `Checks: read` permission, so
+#     we can't rely on RELEASE_PLEASE_PAT for reads.
+#   - RELEASE_PLEASE_PAT performs the final `gh pr merge` so the merge
+#     commit is authored by the PAT owner. That is the only way to make
+#     the downstream `release: published` event propagate to any
+#     tag-moving jobs — GITHUB_TOKEN merges are silently suppressed by
+#     GitHub's anti-loop protection.
+# ═══════════════════════════════════════════════════════════════════════════
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, ready_for_review]
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+  statuses: read
+
+# One watch-and-merge in flight per PR. `cancel-in-progress: false` so a
+# late `synchronize` event queues rather than racing the outgoing merge.
+concurrency:
+  group: auto-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  automerge:
+    if: >-
+      github.event.pull_request.draft == false &&
+      contains(github.event.pull_request.labels.*.name, 'autorelease: pending')
+    runs-on: ubuntu-latest
+    # Cap total wall time. Sagibeast uses 60 min; makato inherits that so
+    # a stalled required check has the same failure signature across repos.
+    timeout-minutes: 60
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      REPO: ${{ github.repository }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      # Job name of THIS workflow — must be excluded from the required-set
+      # or the poll would wait on itself forever (self-reference deadlock).
+      SELF_JOB_NAME: automerge
+    steps:
+      - name: Checkout (for scripts/auto-merge-decide.sh)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Poll check-runs and decide
+        env:
+          # GITHUB_TOKEN has `checks: read` from the `permissions:` block
+          # above. It works on every plan and needs no external secret.
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # Give other workflows time to register their check runs before
+          # the first poll. Matches sagibeast's initial pause.
+          echo "Sleeping 45 s to let other workflows register check runs..."
+          sleep 45
+
+          # Zero-checks countdown budget (makato delta vs sagibeast):
+          # 17 × 15 s ticks = 255 s ≈ ~4.25 min beyond the initial 45 s
+          # sleep. Total wall time before we accept "no checks registered"
+          # and proceed to merge = ~5 min. Set generously to accommodate
+          # slow GHA runner assignment during peak hours.
+          ZERO_CHECKS_BUDGET=17
+
+          # One-way switch: once we've observed at least one non-self
+          # check-run in the response, we drop into sagibeast's normal
+          # semantics (wait unbounded until it completes) and never
+          # revert to the zero-checks countdown for this run.
+          SEEN_A_CHECK=false
+
+          # Overall poll ceiling — matches sagibeast (50 min, comfortably
+          # below the job's 60-min timeout).
+          MAX_ATTEMPTS=200
+          attempt=0
+
+          while [ $attempt -lt $MAX_ATTEMPTS ]; do
+            attempt=$((attempt + 1))
+
+            # Refresh the check-runs snapshot. Persist to a tmp file so
+            # the helper can be smoke-tested locally against captured
+            # JSON without going through gh. Wrap in `set +e` so a
+            # transient API failure (5xx / rate-limit) does not kill the
+            # whole poll loop — we retry on the next tick.
+            cr_json="$RUNNER_TEMP/check-runs.json"
+            set +e
+            gh api --paginate \
+              "repos/$REPO/commits/$HEAD_SHA/check-runs" \
+              > "$cr_json"
+            api_rc=$?
+            set -e
+            if [ $api_rc -ne 0 ]; then
+              echo "attempt $attempt: gh api transient failure (rc=$api_rc) — retrying in 15s"
+              sleep 15
+              continue
+            fi
+
+            # Delegate the decision to the extracted helper. Capture
+            # stdout (the decision word) and stderr (failing check names
+            # on abort) into SEPARATE tmp files. The fd-juggling variant
+            # (`$(cmd 2>&1 1>&3) 3>&1 > file`) requires fd 3 to be
+            # pre-opened by the parent shell — GHA's bash-under-set-e
+            # environment does NOT pre-open fd 3, so `3>&1` yields
+            # `Bad file descriptor` and both streams end up empty.
+            # Verified in a fresh `bash -c` subshell.
+            stdout_file="$RUNNER_TEMP/decide.out"
+            stderr_file="$RUNNER_TEMP/decide.err"
+            set +e
+            bash scripts/auto-merge-decide.sh "$cr_json" "$SELF_JOB_NAME" \
+              > "$stdout_file" 2> "$stderr_file"
+            rc=$?
+            set -e
+
+            decision_stdout="$(cat "$stdout_file")"
+            decision_stderr="$(cat "$stderr_file")"
+
+            echo "attempt $attempt: decision=$decision_stdout (rc=$rc) seen_a_check=$SEEN_A_CHECK budget_left=$ZERO_CHECKS_BUDGET"
+
+            case "$decision_stdout" in
+              merge)
+                echo "All non-self checks are green — proceeding to merge step."
+                exit 0
+                ;;
+              abort)
+                echo "::error::One or more required checks failed. Not merging."
+                # The helper wrote failing check names to stderr; surface
+                # them in the GHA log summary so the operator sees the
+                # concrete failure without hunting the raw job log.
+                echo "$decision_stderr" | while IFS= read -r line; do
+                  [ -z "$line" ] && continue
+                  echo "::error::$line"
+                done
+                exit 1
+                ;;
+              wait)
+                # A check IS present — sagibeast semantics. No budget
+                # decrement; just keep polling until it completes or
+                # MAX_ATTEMPTS trips.
+                SEEN_A_CHECK=true
+                sleep 15
+                continue
+                ;;
+              zero-checks-detected)
+                if [ "$SEEN_A_CHECK" = "true" ]; then
+                  # Defensive: a check that was present has disappeared
+                  # from the snapshot. Treat as a transient — do NOT
+                  # relapse into the zero-checks countdown.
+                  echo "  warning: previously observed a check but current snapshot shows none — treating as wait"
+                  sleep 15
+                  continue
+                fi
+                if [ "$ZERO_CHECKS_BUDGET" -le 0 ]; then
+                  echo "Zero-checks countdown exhausted (~5 min elapsed) — no required checks will register. Proceeding to merge."
+                  exit 0
+                fi
+                ZERO_CHECKS_BUDGET=$((ZERO_CHECKS_BUDGET - 1))
+                sleep 15
+                continue
+                ;;
+              *)
+                echo "::error::auto-merge-decide.sh returned an unrecognised decision: '$decision_stdout' (rc=$rc)"
+                exit 1
+                ;;
+            esac
+          done
+
+          echo "::error::Timed out waiting for checks after $MAX_ATTEMPTS attempts."
+          exit 1
+
+      - name: Squash-merge under RELEASE_PLEASE_PAT
+        env:
+          # PAT is used ONLY for the merge call. A merge commit authored
+          # by the PAT owner (not github-actions[bot]) is what allows a
+          # downstream `release: published` event to reach tag-moving
+          # jobs — GITHUB_TOKEN merges are silently suppressed by GH's
+          # anti-loop protection (see workflow header comment).
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_PAT }}
+        run: |
+          set -euo pipefail
+          echo "Squash-merging PR #$PR_NUMBER..."
+          gh pr merge "$PR_NUMBER" \
+            --repo "$REPO" \
+            --squash \
+            --delete-branch

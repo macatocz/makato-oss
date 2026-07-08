@@ -1,0 +1,9 @@
+{
+  "total_count": 4,
+  "check_runs": [
+    { "name": "automerge",          "status": "in_progress", "conclusion": null },
+    { "name": "validate-structure", "status": "completed",   "conclusion": "success" },
+    { "name": "pr-title",           "status": "completed",   "conclusion": "success" },
+    { "name": "release-please",     "status": "completed",   "conclusion": "success" }
+  ]
+}
