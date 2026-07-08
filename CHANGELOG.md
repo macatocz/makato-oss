@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.31.0](https://github.com/macatocz/makato/compare/v0.30.1...v0.31.0) (2026-07-08)
+
+
+### ✨ Features
+
+* **makato-build:** add skill-bundles.yml with empty default bundle (D29) ([#168](https://github.com/macatocz/makato/issues/168)) ([5747402](https://github.com/macatocz/makato/commit/5747402d50e09c2337e225442a721a9978e468fc))
+* **makato-orchestrate:** loop.sh liveness watchdog for stalled PO-agent ([#164](https://github.com/macatocz/makato/issues/164)) ([#166](https://github.com/macatocz/makato/issues/166)) ([f8c7ca7](https://github.com/macatocz/makato/commit/f8c7ca77bd982c1268cc8a1c3b414ecc880b3ffb))
+
+
+### 🐛 Bug Fixes
+
+* **makato-build:** mandatory audit contract around gh pr create ([#169](https://github.com/macatocz/makato/issues/169)) ([#174](https://github.com/macatocz/makato/issues/174)) ([f1c974e](https://github.com/macatocz/makato/commit/f1c974e2e069aaf20c1b8d56147a24a53bf98279))
+
 ## [0.30.1](https://github.com/macatocz/makato/compare/v0.30.0...v0.30.1) (2026-07-07)
 
 
