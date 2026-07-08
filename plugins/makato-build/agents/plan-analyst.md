@@ -232,6 +232,10 @@ The `data` payload:
 - **Re-resolve context bundles** — `inject-context` is the caller's responsibility; this agent does not invoke it.
 - **Write or modify any file** — read-only.
 
+## F4 Telemetry Note
+
+This agent has `disallowedTools: Bash` and cannot emit F4 invocation telemetry. F4 log entries for skills invoked via plan-analyst dispatch originate from the dispatching agent (e.g. `build-implement-tdd`).
+
 ## See also
 
 - `plugins/makato-build/agents/RETURN-CONTRACT.md` — R1 envelope contract this agent emits.

@@ -186,6 +186,28 @@ Do not emit prose after the R1 block.
 - Re-resolve bundles already computed — if called with pre-resolved rules, accept them as-is
 - Perform per-task file pre-reading — that is `makato-orchestrate/agents/scout.md`'s responsibility
 
+## F4 Telemetry — Skill Invocation Log
+
+Before each Skill tool call, append one JSONL line to `.claude/skill-invocations.log` (create the file if absent):
+
+```bash
+echo "{\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"session_id\":\"${CLAUDE_SESSION_ID:-}\",\"agent_id\":\"${AGENT_ID:-}\",\"agent_name\":\"knowledge-scout\",\"parent_agent_id\":\"${PARENT_AGENT_ID:-}\",\"task_id\":\"${TASK_ID:-}\",\"skill\":\"<skill-name>\",\"plugin\":\"<plugin-name>\",\"event\":\"invoke\"}" >> .claude/skill-invocations.log
+```
+
+Fields:
+
+- `ts`: ISO-8601 UTC timestamp
+- `session_id`: current Claude session identifier (may be empty)
+- `agent_id`: this agent's identifier (may be empty)
+- `agent_name`: `"knowledge-scout"` (literal)
+- `parent_agent_id`: calling agent's identifier, nullable — use empty string if unknown
+- `task_id`: current task identifier, nullable — use empty string if unknown
+- `skill`: the skill name being invoked (e.g. `"inject-context"`)
+- `plugin`: the plugin name (e.g. `"makato-build"`)
+- `event`: always `"invoke"`
+
+This instruction applies only when `skill_routing` is not disabled in this agent's frontmatter. This is a voluntary best-effort emit — do not fail or halt if the append fails.
+
 ## See also
 
 - `plugins/makato-build/agents/RETURN-CONTRACT.md` — R1 envelope this agent emits.

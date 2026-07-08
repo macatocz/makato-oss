@@ -1,0 +1,37 @@
+# Skill Bundles — makato-build
+#
+# Maps changed-file path globs to ordered lists of recommended skills that
+# inject-skills prepends into an agent's system prompt before dispatch. The
+# inject-skills skill (D29) resolves a list of changed files against this
+# registry and returns a deduplicated, ordered list of skill names.
+#
+# Schema (per bundle):
+#   name:   unique identifier (lowercase, kebab-case)
+#   globs:  list of fnmatch-style patterns matched against changed-file paths
+#           (`**/*.ts` matches at any depth; `*.ts` matches a single segment)
+#   skills: ordered list of skill identifiers to recommend.
+#           Empty list ([]) means no skills are injected for this bundle.
+#
+# Resolution contract (enforced by shared/inject_skills.py):
+#   1. For each changed file, every bundle whose globs match is selected.
+#   2. Bundles are applied in order of decreasing specificity (literal-segment
+#      count in the glob). The `default` bundle is always appended last.
+#   3. Skill identifiers are deduplicated preserving the first occurrence.
+#   4. If no bundle matches a file, the `default` bundle is used and a warning
+#      is emitted (caller logs to build.jsonl).
+#   5. If the `default` bundle itself is missing, BundleResolutionError is
+#      raised with code HALT-006.
+#
+# Wording-only edits or adding skills to an existing bundle is a minor
+# revision. Renaming a bundle, removing the `default` bundle, or changing the
+# specificity-comparison semantics is a breaking change and must be coordinated
+# with every consumer in plugins/makato-build/agents/ and
+# plugins/makato-build/skills/inject-skills/SKILL.md.
+
+version: "1.0"
+
+bundles:
+  - name: default
+    globs:
+      - "**/*"
+    skills: []

@@ -224,7 +224,7 @@ This step only fires when `test_suite_present == false` AND at least one applied
 
 **Interactive mode** — prompt the user once before Step 8:
 
-> *"No test runner found — `<N>` applied change(s) touched code files and are unverified.  
+> *"No test runner found — `<N>` applied change(s) touched code files and are unverified.
 > Proceed with hand-off to `/build-review`? (y/n)"*
 
 If the user answers `n`, revert the applied changes (`git reset --hard <baseline-sha>` or per-finding revert) and exit the session with `status: "failure"` and `errors: ["UNVERIFIED_HALT: user rejected unverified code changes"]`.
