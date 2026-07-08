@@ -86,6 +86,15 @@
 #                              (default 60). Tests set a small value to
 #                              exercise WARN/KILL in seconds instead of
 #                              minutes.
+#   MAKATO_LOOP_PIDFILE        Override path to the run-mutex pidfile
+#                              (default $STATE_DIR/loop.pid). See #172 —
+#                              guards against a second loop.sh instance
+#                              starting concurrently against the same
+#                              state directory (e.g. plugin-cache copy
+#                              vs. working-tree copy).
+#   MAKATO_LOOP_FORCE_GRACE    Seconds between SIGTERM and SIGKILL when
+#                              `run --force` reclaims a live instance
+#                              (default 10).
 #
 # Conventions: matches scripts/context-handoff.sh (POSIX-ish bash, `set
 # -euo pipefail`, python3 for ISO-8601 millisecond timestamps, jq for
@@ -113,6 +122,17 @@ STALL_POLL_SECS="${MAKATO_LOOP_STALL_POLL:-60}"
 # smoke suite doesn't have to wait 30 real seconds to observe the kill
 # path close out.
 STALL_TERM_GRACE_SECS="${MAKATO_LOOP_STALL_TERM_GRACE:-30}"
+
+# Run-mutex pidfile — the layer-1 defence against #172 (a second
+# loop.sh instance running unnoticed in parallel against the same
+# state dir). Default lives alongside loop-status.json so the pidfile
+# and the audit surface share a lifecycle; tests can point it
+# elsewhere via MAKATO_LOOP_PIDFILE.
+PIDFILE="${MAKATO_LOOP_PIDFILE:-$STATE_DIR/loop.pid}"
+# Grace between SIGTERM and SIGKILL when `run --force` reclaims a
+# live pidfile. Small enough that operators aren't left staring at
+# the shell, large enough that the target's EXIT trap gets to clean up.
+FORCE_GRACE_SECS="${MAKATO_LOOP_FORCE_GRACE:-10}"
 
 mkdir -p "$STATE_DIR"
 
@@ -503,6 +523,105 @@ cmd_dispatch() {
 }
 
 # ---------------------------------------------------------------------------
+# _acquire_run_mutex — layer-1 defence against concurrent loop.sh
+# instances (#172). Writes $$ to $PIDFILE and installs an EXIT trap to
+# remove it. Refuses to start when the pidfile names a live PID unless
+# `--force` is passed; a stale pidfile (PID gone) is reclaimed silently.
+#
+# The check-and-write is not atomic across processes — two operators
+# starting a run in the same millisecond can both pass the kill -0
+# probe. This is acceptable: the actual damage from #172 came from
+# accidentally-parallel installs (plugin-cache vs. working-tree), not
+# from a simultaneous double-invoke race. `flock` is not available on
+# stock macOS and shims add a dependency for a vanishingly rare case;
+# operators who want stricter guarantees run one instance under
+# `tmux` / `nohup` and rely on that shell's job control.
+#
+# Args: <force-flag>  (non-empty = --force was passed)
+# Exit codes:
+#   0  — pidfile acquired, EXIT trap installed
+#   3  — refused, another live instance already owns the pidfile
+# ---------------------------------------------------------------------------
+_acquire_run_mutex() {
+  local force="$1"
+  if [[ -f "$PIDFILE" ]]; then
+    local existing_pid
+    existing_pid="$(cat "$PIDFILE" 2>/dev/null || echo "")"
+    if [[ -n "$existing_pid" ]] && kill -0 "$existing_pid" 2>/dev/null; then
+      if [[ -z "$force" ]]; then
+        echo "loop: another instance is running (PID $existing_pid, pidfile $PIDFILE)" >&2
+        echo "loop: pass --force to reclaim, or stop the incumbent (kill -TERM $existing_pid)" >&2
+        return 3
+      fi
+      echo "loop: --force reclaiming PID $existing_pid (SIGTERM, ${FORCE_GRACE_SECS}s grace, then SIGKILL)" >&2
+      kill -TERM "$existing_pid" 2>/dev/null || true
+      local waited=0
+      while [[ $waited -lt $FORCE_GRACE_SECS ]] && kill -0 "$existing_pid" 2>/dev/null; do
+        sleep 1
+        waited=$((waited + 1))
+      done
+      if kill -0 "$existing_pid" 2>/dev/null; then
+        echo "loop: --force SIGKILL'ing PID $existing_pid (still alive after ${FORCE_GRACE_SECS}s)" >&2
+        kill -KILL "$existing_pid" 2>/dev/null || true
+      fi
+    else
+      # Stale pidfile — reclaim silently. Common after crash or kill -9.
+      if [[ -n "$existing_pid" ]]; then
+        echo "loop: stale pidfile (PID $existing_pid gone); reclaiming $PIDFILE" >&2
+      fi
+    fi
+  fi
+  echo "$$" >"$PIDFILE"
+  # Preserve any existing EXIT trap (tests may compose) by chaining.
+  trap 'rm -f "$PIDFILE"' EXIT
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# _stamp_startup_audit — layer-2 defence (#172). Records this
+# instance's identity into loop-status.json so an operator seeing
+# multiple loop processes in `ps` can tell which one owns the state
+# dir. Distinct from the run-metadata fields (status_name, interval)
+# which describe the poll cadence; startup_audit describes the
+# process.
+#
+# Args: <status-name> <interval> <dry-run-flag>
+# ---------------------------------------------------------------------------
+_stamp_startup_audit() {
+  local status_name="$1"
+  local interval="$2"
+  local dry_run="$3"
+  local now script_path ppid
+  now="$(_now)"
+  # $0 is the script as invoked; canonicalise so a symlinked plugin-
+  # cache path resolves to its real disk location. macOS `readlink`
+  # lacks `-f`; the python fallback matches worktree.sh's convention.
+  script_path="$(python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$0" 2>/dev/null || echo "$0")"
+  ppid="$(ps -o ppid= -p "$$" 2>/dev/null | tr -d ' ' || echo "")"
+  local audit
+  audit="$(jq -n \
+    --arg started_at "$now" \
+    --arg script_path "$script_path" \
+    --argjson pid "$$" \
+    --arg ppid "$ppid" \
+    --arg pidfile "$PIDFILE" \
+    --arg status_name "$status_name" \
+    --argjson interval "$interval" \
+    --arg dry_run "$dry_run" \
+    '{
+       started_at: $started_at,
+       script_path: $script_path,
+       pid: $pid,
+       ppid: (if $ppid == "" then null else ($ppid|tonumber) end),
+       pidfile: $pidfile,
+       status_name: $status_name,
+       interval_seconds: $interval,
+       dry_run: ($dry_run != "")
+     }')"
+  _patch_status '.startup_audit' "$audit"
+}
+
+# ---------------------------------------------------------------------------
 # run — long-running poll loop. CLI flags override env defaults.
 # ---------------------------------------------------------------------------
 cmd_run() {
@@ -510,6 +629,7 @@ cmd_run() {
   local interval="$DEFAULT_INTERVAL"
   local dry_run=""
   local once=""
+  local force=""
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -517,9 +637,29 @@ cmd_run() {
       --interval) interval="${2:?--interval requires a value}"; shift 2 ;;
       --dry-run)  dry_run="--dry-run"; shift ;;
       --once)     once="1"; shift ;;
+      --force)    force="1"; shift ;;
       *) echo "loop: unknown flag: $1" >&2; return 64 ;;
     esac
   done
+
+  # Layer 1 — run-mutex pidfile (see #172). Refuses to start a second
+  # instance sharing this state dir. Two loops writing to the same
+  # loop-status.json race on active_workflow / queue / last_poll and
+  # can dispatch two PO-agents against the same repo working tree,
+  # which is what the #172 incident report describes.
+  #
+  # `--force` reclaims a live pidfile by SIGTERM'ing the incumbent
+  # (SIGKILL after $FORCE_GRACE_SECS) and taking over. Stale pidfiles
+  # (PID dead) are reclaimed silently — this is the normal case after
+  # `kill -9` or a crash left the file behind.
+  _acquire_run_mutex "$force" || return $?
+
+  # Startup audit — layer 2 defence. Stamps this instance's script
+  # path, PID, PPID, and CLI args into loop-status.json so an operator
+  # seeing two live loops in `ps` can tell which one owns the state
+  # dir (the #172 incident had a plugin-cache instance and a
+  # working-tree instance running side-by-side against the same repo).
+  _stamp_startup_audit "$status_name" "$interval" "$dry_run"
 
   # Seed/refresh status with the run-level metadata before any poll. This
   # makes `loop status` informative even if the first poll is mid-flight.

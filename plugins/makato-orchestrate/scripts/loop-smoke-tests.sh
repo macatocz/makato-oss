@@ -20,6 +20,10 @@
 #   T12: watchdog stamps active_workflow.stalled=true after STALL_WARN
 #   T13: watchdog SIGTERMs the child after STALL_KILL and stamps last_watchdog_kill
 #   T14: MAKATO_LOOP_STALL_DISABLE=1 disables the watchdog entirely
+#   T15: run refuses to start when a live loop.pid exists (exit 3)
+#   T16: run reclaims a stale pidfile silently (dead PID)
+#   T17: startup_audit records script_path/pid/ppid/pidfile
+#   T18: run --force reclaims a live pidfile by SIGTERM'ing the incumbent
 #
 # A fixture file is injected via MAKATO_LOOP_GH_OVERRIDE so `gh` is not
 # invoked. Test isolation uses MAKATO_LOOP_STATE_DIR + ephemeral spec
@@ -280,6 +284,94 @@ fi
 jq -e '.active_workflow == null' "$STATE_DIR/loop-status.json" >/dev/null \
   || fail "active_workflow should still be cleared post-dispatch"
 echo "  ✓ watchdog skipped, dispatch completes normally"
+
+# ---------------------------------------------------------------------------
+# Mutex scenarios (#172). Guard against two loop.sh instances writing
+# to the same loop-status.json in parallel. Uses MAKATO_LOOP_PIDFILE
+# to isolate from anything else on the box.
+# ---------------------------------------------------------------------------
+
+echo "=== T15: run refuses when a live pidfile exists (exit 3) ==="
+rm -f "$STATE_DIR/loop-status.json"
+PIDFILE_T15="$STATE_DIR/t15-loop.pid"
+# Point pidfile at a real live process (this shell) so kill -0 succeeds.
+echo "$$" >"$PIDFILE_T15"
+rc=0
+MAKATO_LOOP_PIDFILE="$PIDFILE_T15" \
+  "$LOOP" run --status Ready --once --dry-run 2>/dev/null || rc=$?
+if [[ $rc -ne 3 ]]; then
+  fail "expected exit 3 when live pidfile exists; got $rc"
+fi
+# Pidfile must NOT be clobbered — the refusing instance never took ownership.
+[[ "$(cat "$PIDFILE_T15")" == "$$" ]] \
+  || fail "pidfile clobbered by refusing instance"
+rm -f "$PIDFILE_T15"
+echo "  ✓ refused with exit 3, pidfile preserved"
+
+# ---------------------------------------------------------------------------
+echo "=== T16: run reclaims a stale pidfile silently ==="
+rm -f "$STATE_DIR/loop-status.json"
+PIDFILE_T16="$STATE_DIR/t16-loop.pid"
+# 999999 is virtually guaranteed to be a dead PID on any macOS/Linux box.
+echo "999999" >"$PIDFILE_T16"
+MAKATO_LOOP_PIDFILE="$PIDFILE_T16" \
+  "$LOOP" run --status Ready --once --dry-run >/dev/null 2>&1
+# After successful run, the EXIT trap should have removed the pidfile.
+if [[ -e "$PIDFILE_T16" ]]; then
+  fail "pidfile should be removed by EXIT trap after clean shutdown"
+fi
+echo "  ✓ stale pidfile reclaimed and cleaned up on exit"
+
+# ---------------------------------------------------------------------------
+echo "=== T17: startup_audit records script_path/pid/ppid/pidfile ==="
+rm -f "$STATE_DIR/loop-status.json"
+PIDFILE_T17="$STATE_DIR/t17-loop.pid"
+MAKATO_LOOP_PIDFILE="$PIDFILE_T17" \
+  "$LOOP" run --status Ready --once --dry-run >/dev/null 2>&1
+jq -e '.startup_audit.script_path | test("loop.sh$")' \
+  "$STATE_DIR/loop-status.json" >/dev/null \
+  || fail "startup_audit.script_path should end in loop.sh"
+jq -e '.startup_audit.pid | type == "number"' \
+  "$STATE_DIR/loop-status.json" >/dev/null \
+  || fail "startup_audit.pid should be a number"
+jq -e ".startup_audit.pidfile == \"$PIDFILE_T17\"" \
+  "$STATE_DIR/loop-status.json" >/dev/null \
+  || fail "startup_audit.pidfile should match \$MAKATO_LOOP_PIDFILE"
+jq -e '.startup_audit.status_name == "Ready"' \
+  "$STATE_DIR/loop-status.json" >/dev/null \
+  || fail "startup_audit.status_name should be Ready"
+jq -e '.startup_audit.dry_run == true' \
+  "$STATE_DIR/loop-status.json" >/dev/null \
+  || fail "startup_audit.dry_run should be true"
+echo "  ✓ startup_audit populated"
+
+# ---------------------------------------------------------------------------
+echo "=== T18: run --force reclaims a live pidfile ==="
+rm -f "$STATE_DIR/loop-status.json"
+PIDFILE_T18="$STATE_DIR/t18-loop.pid"
+# Spawn a real, killable sleep and pin the pidfile at its PID.
+sleep 60 &
+sleep_pid=$!
+echo "$sleep_pid" >"$PIDFILE_T18"
+# --force must SIGTERM the sleep and take over.
+MAKATO_LOOP_PIDFILE="$PIDFILE_T18" \
+MAKATO_LOOP_FORCE_GRACE=2 \
+  "$LOOP" run --status Ready --once --dry-run --force >/dev/null 2>&1
+# The pre-existing sleep must be dead (or reaping soon).
+if kill -0 "$sleep_pid" 2>/dev/null; then
+  # Give the OS a beat to reap, then check once more.
+  sleep 1
+  if kill -0 "$sleep_pid" 2>/dev/null; then
+    kill -KILL "$sleep_pid" 2>/dev/null || true
+    fail "--force did not SIGTERM the incumbent PID $sleep_pid"
+  fi
+fi
+wait "$sleep_pid" 2>/dev/null || true
+# Pidfile removed on clean exit.
+if [[ -e "$PIDFILE_T18" ]]; then
+  fail "pidfile should be removed on exit after --force takeover"
+fi
+echo "  ✓ --force killed incumbent and took over"
 
 echo
 echo "=== ALL TESTS PASSED ==="

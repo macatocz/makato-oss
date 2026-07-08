@@ -213,6 +213,57 @@ violation with no runtime HALT — it is caught at PR review time (like NEVER 4)
 
 ---
 
+## NEVER 11 — Never start `loop.sh run` without acquiring the pidfile mutex
+
+**Rule**: `loop.sh run` must not write to `.claude/state/loop-status.json` before
+acquiring `.claude/state/loop.pid` (or the `MAKATO_LOOP_PIDFILE` override). A live
+pidfile — PID responds to `kill -0` — refuses the second invocation with exit code 3
+and leaves the file untouched. Stale pidfiles are reclaimed silently; `--force`
+`SIGTERM`s (then `SIGKILL`s after `MAKATO_LOOP_FORCE_GRACE`) the incumbent before
+taking over.
+
+**Why**: Traced to #172. On 2026-07-08 an operator started
+`plugins/makato-orchestrate/scripts/loop.sh run --status Ready --interval 600` at
+01:50 CEST. Six hours later a second instance was discovered running from the
+plugin cache
+(`~/.claude/plugins/cache/makato-suite/makato-orchestrate/ca8b02a2807f/scripts/loop.sh`)
+with default arguments. Both wrote to the same `loop-status.json`, both consumed the
+same `specs/` tree for in-flight filtering, and both had dispatched PO-agents against
+the shared repo working tree. The 35× repeated `dispatching #145` in the operator's
+log had a mirror in the plugin-cache log at the same cadence — six hours of network
+and token spend on a run whose audit trail could not be trusted.
+
+**Consequences of a second concurrent instance**:
+
+- Race on `active_workflow` — either loop can flip it, and the loser's PO-agent
+  dispatch runs with no state ownership.
+- Race on `queue` / `queue_depth` / `last_poll` — either loop overwrites the other's
+  poll snapshot atomically, so the audit becomes non-deterministic.
+- Two PO-agents in the same repo working tree — NEVER 10 already forbids the inline
+  branch creation that #170 relied on, but shared-tree contention across
+  `workflow-state.json` in `specs/` remains a design failure.
+
+**Layered defence**:
+
+1. **Mutex** — `cmd_run` writes `$$` to `$PIDFILE` after checking that any existing
+   entry names a dead PID; an `EXIT` trap removes the file on clean shutdown.
+2. **Audit** — the same startup path stamps `startup_audit` into `loop-status.json`
+   (`script_path` canonicalised, `pid`, `ppid`, `pidfile`, CLI args) so a `ps`
+   sighting of multiple `loop.sh` processes can be cross-referenced to the state file.
+3. **Escape hatch** — `--force` for operators who confirm the incumbent is stuck;
+   cooperative `kill -TERM <pid>` is still preferred because the incumbent's own
+   `EXIT` trap gets to clean up its pidfile.
+
+**Enforcement**: layered as above. Bypassable only by pointing two invocations at
+different `MAKATO_LOOP_PIDFILE` paths, which is the correct behaviour when the
+operator genuinely wants two loops against two state dirs.
+
+**HALT code**: none — the failure mode is refuse-to-start with exit 3, not a
+mid-run HALT. Configuration mismatch (plugin-cache script vs. working-tree script)
+is caught at operator-observation time via the exit code and `startup_audit` fields.
+
+---
+
 ## See also
 
 - `plugins/makato-orchestrate/halt-conditions.md` — the full HALT-code table.

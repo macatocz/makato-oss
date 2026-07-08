@@ -10,8 +10,8 @@ description: >-
   exits on a HALT. Honors `~/.claude/HALT` before every dispatch
   (NEVER 3) and emits `.claude/state/loop-status.json` as the
   operator-facing live audit.
-version: "1.2.0"
-argument-hint: "[--status <NAME>] [--interval <S>] [--dry-run] [--once]"
+version: "1.3.0"
+argument-hint: "[--status <NAME>] [--interval <S>] [--dry-run] [--once] [--force]"
 ---
 
 <!-- markdownlint-disable MD013 -->
@@ -152,8 +152,13 @@ behaves identically (useful in CI smoke tests).
 
 ## Single-thread guarantee
 
-The loop is intentionally serial. Three layers enforce this:
+The loop is intentionally serial. Four layers enforce this:
 
+- The **run-mutex pidfile** at `.claude/state/loop.pid` refuses a
+  second `run` invocation while a live one owns the state dir
+  (see §*Run mutex* below). This is the layer that would have caught
+  the #172 incident (plugin-cache `loop.sh` running alongside
+  working-tree `loop.sh` for six hours).
 - The in-flight filter in step 4 excludes issues whose
   `workflow-state.json` is anything other than `current_phase: "done"`.
 - `dispatch` refuses (exit code 2) if `.active_workflow.issue` is set to
@@ -202,6 +207,16 @@ every write.
     "stalled_since": null,
     "killed_by_watchdog": false
   },
+  "startup_audit": {
+    "started_at": "2026-06-28T18:23:14.500Z",
+    "script_path": "/Users/op/GITHUB/makato/plugins/makato-orchestrate/scripts/loop.sh",
+    "pid": 12345,
+    "ppid": 12344,
+    "pidfile": "/Users/op/GITHUB/makato/.claude/state/loop.pid",
+    "status_name": "Ready",
+    "interval_seconds": 300,
+    "dry_run": false
+  },
   "last_halt_at": null,
   "last_dispatch_issue": 101,
   "last_watchdog_kill": null,
@@ -223,6 +238,7 @@ Field semantics:
 | `active_workflow.stalled` | boolean | Set by the watchdog when the PO-agent has been silent ≥ `MAKATO_LOOP_STALL_WARN` seconds. Warn-only; no signal is sent. |
 | `active_workflow.stalled_since` | ISO-8601 ms \| null | Timestamp `stalled` was first flipped to `true`. |
 | `active_workflow.killed_by_watchdog` | boolean | Set to `true` just before the watchdog SIGTERMs the PO-agent. Cleared with `active_workflow` when `cmd_dispatch` returns; the audit is preserved on `last_watchdog_kill`. |
+| `startup_audit` | object \| null | `{started_at, script_path, pid, ppid, pidfile, status_name, interval_seconds, dry_run}` — identity of the process holding the run mutex (see §*Run mutex*). Stamped once at `run` startup; not updated per iteration. |
 | `last_halt_at` | ISO-8601 ms \| null | Timestamp the loop last exited on HALT. |
 | `last_dispatch_issue` | integer \| null | Issue number of the most recent dispatch (set by the `MAKATO_LOOP_DRY_DISPATCH` test hook and overwritten by real runs). |
 | `last_watchdog_kill` | object \| null | `{issue, killed_at, idle_seconds, stall_kill_seconds}` — surviving audit of the most recent watchdog reap. `null` if the watchdog has never fired. |
@@ -231,6 +247,50 @@ Field semantics:
 Operators can `tail -f .claude/state/loop-status.json | jq` (or
 `watch -n 5 plugins/makato-orchestrate/scripts/loop.sh status`) to follow
 the loop unattended.
+
+## Run mutex
+
+Every `run` invocation acquires a pidfile at
+`.claude/state/loop.pid` (override via `MAKATO_LOOP_PIDFILE`). This is
+the layer-1 defence against #172 — two `loop.sh` installations
+polling the same repo in parallel, each writing to
+`loop-status.json` and each dispatching PO-agents into the same
+`specs/` tree.
+
+**Contract:**
+
+- Startup writes `$$` to the pidfile after checking that any
+  existing entry names a dead PID. An EXIT trap removes the file on
+  clean shutdown (crashes and `kill -9` leave a stale entry, which
+  the next start reclaims silently).
+- A live pidfile (PID responds to `kill -0`) causes the second
+  invocation to exit `3` with an operator-facing message pointing at
+  the incumbent PID and pidfile. `active_workflow`, `queue`, and
+  `last_poll` in `loop-status.json` are untouched — the refusing
+  instance never took ownership.
+- `--force` reclaims a live pidfile by `SIGTERM`ing the incumbent
+  (grace period `MAKATO_LOOP_FORCE_GRACE`, default 10 s, then
+  `SIGKILL`). Use only when the incumbent is verifiably stuck; a
+  cooperative `kill -TERM <pid>` from the operator's terminal is
+  cleaner because it gives the incumbent's EXIT trap time to run.
+
+**Startup audit.** On successful acquire, `loop-status.json` gets a
+new `startup_audit` object identifying the process — script path
+(canonicalised through `os.path.realpath`, so a symlinked plugin-
+cache path resolves to its real disk location), PID, PPID, pidfile
+path, and the CLI arguments the process was started with. Operators
+who see two `loop.sh` processes in `ps` can cross-reference the audit
+to tell which one owns the state dir. The audit is stamped once at
+startup and not updated per iteration; the `updated_at` field on the
+outer object tracks the last state write.
+
+**Non-goals.** The mutex is process-scoped, not host-scoped or
+cluster-scoped. Two operators running two loops against two different
+state dirs (via `MAKATO_LOOP_STATE_DIR`) is supported by design — the
+pidfile lives next to the state file, so it isolates naturally. A
+`flock`-based cross-clone lock is out of scope; the #172 damage came
+from *accidentally* parallel installs, not from a race between two
+operators who both hit start in the same second.
 
 ## Liveness watchdog
 
@@ -305,10 +365,12 @@ The intentional design split:
 | `MAKATO_LOOP_STALL_TERM_GRACE` | `30` | Seconds between `SIGTERM` and the follow-up `SIGKILL` if the child hasn't exited. |
 | `MAKATO_LOOP_STALL_DISABLE` | unset | Set to `1` to disable the watchdog entirely (no log capture, no background poller, no status stamps). |
 | `MAKATO_LOOP_STALL_TEST_CMD` | unset | Test-only: run this command in place of `claude` (e.g. `sleep 30`) so the watchdog has a real stall to reap. |
+| `MAKATO_LOOP_PIDFILE` | `<state-dir>/loop.pid` | Override the run-mutex pidfile path (#172). Tests use this to isolate the mutex from any concurrent operator loop on the same box. |
+| `MAKATO_LOOP_FORCE_GRACE` | `10` | Seconds between `SIGTERM` and `SIGKILL` when `run --force` reclaims a live pidfile. |
 
 ## Smoke tests
 
-`scripts/loop-smoke-tests.sh` covers fourteen scenarios:
+`scripts/loop-smoke-tests.sh` covers eighteen scenarios:
 
 1. `check-halt` exits 0 with no HALT file.
 2. `check-halt` exits 1 with a HALT file.
@@ -330,6 +392,13 @@ The intentional design split:
     clear (#164).
 14. `MAKATO_LOOP_STALL_DISABLE=1` opts out of the watchdog entirely —
     no log file, no status stamps (#164).
+15. `run` refuses with exit 3 when a live pidfile exists — the refusing
+    instance does not clobber the pidfile (#172).
+16. `run` reclaims a stale pidfile silently (PID gone) and its EXIT
+    trap cleans up on shutdown (#172).
+17. `startup_audit` records `script_path`, `pid`, `ppid`, `pidfile`, and
+    the CLI arguments (#172).
+18. `run --force` SIGTERMs a live incumbent and takes over the pidfile (#172).
 
 Run them directly:
 

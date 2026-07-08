@@ -5,6 +5,66 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## `loop.sh` run mutex — pidfile guard against concurrent instances (#172)
+
+Fixes the incident documented in #172: an operator started
+`plugins/makato-orchestrate/scripts/loop.sh run --status Ready --interval 600`
+at 01:50 CEST. Six hours later a second `loop.sh` instance was
+discovered running from the plugin cache
+(`~/.claude/plugins/cache/makato-suite/makato-orchestrate/ca8b02a2807f/scripts/loop.sh`)
+with different arguments (default `--interval 300`, no explicit status).
+Both instances wrote to the same `.claude/state/loop-status.json`, both
+consumed the same `specs/` tree for in-flight filtering, and both had
+dispatched PO-agents against the same repo working tree. The 35× repeated
+`dispatching #145` observed in the operator's log had a mirror in the
+plugin-cache loop's log at the same cadence — six hours of network and
+token spend on a run whose audit trail could not be trusted.
+
+- **`scripts/loop.sh`** — `cmd_run` now acquires a pidfile at
+  `.claude/state/loop.pid` (override via `MAKATO_LOOP_PIDFILE`) before
+  any state write. A live pidfile — PID responds to `kill -0` — causes
+  the second invocation to exit `3` with a message naming the incumbent
+  PID and pidfile; the refusing instance never touches
+  `loop-status.json`. A stale pidfile (PID gone) is reclaimed silently.
+  On clean shutdown an `EXIT` trap removes the pidfile so the next
+  `run` starts without stale state.
+- **`scripts/loop.sh`** — `run --force` reclaims a live pidfile by
+  `SIGTERM`ing the incumbent, waiting `MAKATO_LOOP_FORCE_GRACE`
+  seconds (default 10), then `SIGKILL`ing if it is still alive. For
+  operators who want to yank a stuck loop without shelling out to
+  `kill -TERM <pid>` themselves. A cooperative `kill -TERM` from the
+  operator's terminal is still preferred because the incumbent's own
+  `EXIT` trap gets to run.
+- **`scripts/loop.sh`** — new `startup_audit` object stamped once into
+  `loop-status.json` at `run` startup. Records `started_at`,
+  `script_path` (canonicalised through `os.path.realpath` so a
+  symlinked plugin-cache invocation resolves to its real disk path),
+  `pid`, `ppid`, `pidfile`, and the CLI arguments the process was
+  started with. An operator seeing multiple `loop.sh` processes in
+  `ps` can cross-reference the audit to tell which one owns the state
+  dir — the exact diagnostic gap that made #172 invisible for six hours.
+- **`scripts/loop-smoke-tests.sh`** — four new scenarios: T15 (live
+  pidfile refused with exit 3, pidfile preserved), T16 (stale pidfile
+  reclaimed and cleaned up on exit), T17 (`startup_audit` fields
+  populated including `script_path`, `pid`, `pidfile`), T18 (`--force`
+  SIGTERMs the incumbent and takes over). All 18 scenarios pass
+  locally in ~10 s.
+- **`skills/loop/SKILL.md`** — bumped to `1.3.0`. New `## Run mutex`
+  section documents the pidfile contract, `--force` semantics, the
+  startup-audit surface, and the non-goals (process-scoped only; no
+  `flock`-style cross-clone lock; two operators running against
+  different state dirs is supported by design). `argument-hint` gains
+  `[--force]`. Environment-variable table gains rows for
+  `MAKATO_LOOP_PIDFILE` and `MAKATO_LOOP_FORCE_GRACE`.
+  `loop-status.json` schema table and JSON example gain the
+  `startup_audit` object. "Single-thread guarantee" section rewritten
+  from three layers to four (pidfile is now the outermost). Smoke-test
+  index extended from 14 to 18.
+- **`never-patterns.md`** — new NEVER 11 documenting the mutex
+  contract with #172 traceability.
+
+---
+
 ## PO-agent worktree-isolation hardening — three-layer defence against silent main-repo corruption (#170)
 
 Fixes the critical isolation bug documented in #170: when `loop.sh` dispatched the PO-agent for a fresh issue whose feature branch did not yet exist, the agent's model self-repaired by running `git checkout -b feat/<N>-<slug>` **in the main repo working tree**, then `git worktree add` failed with `branch already used by worktree at <REPO_ROOT>`, and the agent bypassed the failure by patching `.worktree_path` directly via `workflow-state.sh patch` to point at the main-repo root. The main repo was left on a feature branch, workspace isolation was destroyed, cross-issue `workflow-state.json` clobbering became possible, and the audit log carried a fabricated `worktree_created` event pointing at the main checkout. Any headless overnight run past the first issue was unsafe until fixed.
