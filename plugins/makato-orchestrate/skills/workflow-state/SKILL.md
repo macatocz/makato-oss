@@ -2,7 +2,9 @@
 name: workflow-state
 description: >-
   Read and write PO-agent resumable session state at
-  `specs/<key>-<slug>/workflow-state.json`. Provides eight subcommands
+  `specs/<key>-<slug>/workflow-state-<issue>.json`. Per-issue file layout
+  (#173) — multiple GitHub issues can share a story-level spec folder without
+  clobbering each other's audit trails. Provides eight subcommands
   (init / read / write / patch / append-lesson / append-halt /
   recall-lessons / summarise-lessons) via `shared/workflow-state.sh`,
   backed by a JSON Schema draft-07 contract. PO-agent (GAP-006 / #32) is
@@ -10,8 +12,8 @@ description: >-
   over `build.jsonl` — the audit log captures forensics, this skill
   captures live loop state (sub-task graph, current phase, budget, HALT
   audit, structured lessons learned).
-version: "1.4.0"
-argument-hint: "<subcommand> <key|repo> [args…]"
+version: "1.5.0"
+argument-hint: "<subcommand> <key|repo> [<issue>] [args…]"
 ---
 
 <!-- markdownlint-disable MD013 -->
@@ -66,59 +68,74 @@ The full contract lives at @references/workflow-state.schema.json (draft-07, `ad
 
 ## Operations
 
-All seven subcommands resolve the spec folder by prefix-matching `specs/<key>-*/` (same convention as `build-log.sh`). The exception is `recall-lessons`, which takes `<REPO>` instead of `<KEY>` and scans every `specs/*/workflow-state.json` to aggregate across prior runs.
+Seven subcommands operate on per-issue state files at
+`specs/<key>-<slug>/workflow-state-<ISSUE_NUMBER>.json` (#173) — spec-folder
+resolution still prefix-matches `specs/<key>-*/` (same convention as
+`build-log.sh`), then routes to the per-issue file. Every mutating and reading
+subcommand except `recall-lessons` takes `<KEY>` **and** `<ISSUE_NUMBER>` as
+positional arguments.
+
+**Backward-compat migration**: on first `read`/`write`/`patch`/`append-*`/
+`summarise-lessons` for a given `<KEY>`, any legacy
+`specs/<key>-<slug>/workflow-state.json` is promoted in-place to
+`workflow-state-<its own .issue_number>.json` (content-driven rename). The
+promotion is atomic and idempotent — a second reader that arrives after the
+rename falls through cleanly.
+
+The exception is `recall-lessons`, which takes `<REPO>` instead of `<KEY>` and
+scans every `specs/*/workflow-state-*.json` to aggregate across prior runs.
 
 ### `init <KEY> <REPO> <BRANCH> <ISSUE_NUMBER>`
 
-Create `workflow-state.json` with valid defaults: empty arrays, zero counters, `budget_limit_tokens: 500000`, `context_warn_tokens` from `MAKATO_CONTEXT_WARN_TOKENS` env (default 150000), `session_count: 0`, `restart_failed: false`, `worktree_retained: false`, nullable fields (`session_summary`, `handoff_reason`, `github_pr_number`, `current_phase`, `resume_point`, `worktree_path`, `worktree_retain_reason`) set to `null`, `created_at == updated_at == now`. Errors if the file already exists.
+Create `workflow-state-<ISSUE_NUMBER>.json` with valid defaults: empty arrays, zero counters, `budget_limit_tokens: 500000`, `context_warn_tokens` from `MAKATO_CONTEXT_WARN_TOKENS` env (default 150000), `session_count: 0`, `restart_failed: false`, `worktree_retained: false`, nullable fields (`session_summary`, `handoff_reason`, `github_pr_number`, `current_phase`, `resume_point`, `worktree_path`, `worktree_retain_reason`) set to `null`, `created_at == updated_at == now`. Errors if the file already exists.
 
 ```bash
 shared/workflow-state.sh init gap-003 macatocz/my-app feat/gap-003 26
 ```
 
-### `read <KEY>`
+### `read <KEY> <ISSUE_NUMBER>`
 
 Print the full JSON to stdout, or `{}` if the file is missing. Never creates the spec folder. Safe to pipe to `jq`.
 
 ```bash
-shared/workflow-state.sh read gap-003 | jq '.current_phase'
+shared/workflow-state.sh read gap-003 26 | jq '.current_phase'
 ```
 
-### `write <KEY> '<JSON>'`
+### `write <KEY> <ISSUE_NUMBER> '<JSON>'`
 
 Validate against the schema then atomically overwrite the file. `updated_at` is injected automatically (any value the caller supplies is replaced). Use for bulk state replacement (e.g. resuming from a checkpoint).
 
 ```bash
-shared/workflow-state.sh write gap-003 "$(cat /tmp/new-state.json)"
+shared/workflow-state.sh write gap-003 26 "$(cat /tmp/new-state.json)"
 ```
 
-### `patch <KEY> <JQ-PATH> <VALUE>`
+### `patch <KEY> <ISSUE_NUMBER> <JQ-PATH> <VALUE>`
 
 Read → apply a single jq-style mutation → validate → atomically overwrite. `VALUE` is a JSON literal (caller quotes strings as `'"value"'`). Supports nested and indexed paths.
 
 ```bash
-shared/workflow-state.sh patch gap-003 .current_phase '"implement"'
-shared/workflow-state.sh patch gap-003 '.sub_tasks[0].status' '"complete"'
-shared/workflow-state.sh patch gap-003 .outer_iteration '2'
-shared/workflow-state.sh patch gap-003 .github_pr_number '42'
+shared/workflow-state.sh patch gap-003 26 .current_phase '"implement"'
+shared/workflow-state.sh patch gap-003 26 '.sub_tasks[0].status' '"complete"'
+shared/workflow-state.sh patch gap-003 26 .outer_iteration '2'
+shared/workflow-state.sh patch gap-003 26 .github_pr_number '42'
 ```
 
-### `append-lesson <KEY> <CYCLE> <TRIGGER> <DESCRIPTION> [FILE…]`
+### `append-lesson <KEY> <ISSUE_NUMBER> <CYCLE> <TRIGGER> <DESCRIPTION> [FILE…]`
 
 Append a structured lesson to `lessons_learned[]` (GAP-015 / #37). `ts` is helper-injected. `CYCLE` mirrors the current `outer_iteration`. `TRIGGER` must match the schema enum: `ci_failure`, `halt`, `review_comment`, `sensor`, `merge_conflict`. `DESCRIPTION` is auto-truncated at 200 chars with a `…` suffix. Remaining positional args become `files_affected[]` (variadic; may be zero).
 
 ```bash
-shared/workflow-state.sh append-lesson gap-003 1 ci_failure \
+shared/workflow-state.sh append-lesson gap-003 26 1 ci_failure \
   "ruff F401 unused import in tracer test" \
   tests/test_tracer.py src/tracer/__init__.py
 ```
 
-### `append-halt <KEY> <CODE> <JSON-DATA>`
+### `append-halt <KEY> <ISSUE_NUMBER> <CODE> <JSON-DATA>`
 
 Append a structured HALT entry to `halt_audit[]` (#118). `ts` is helper-injected. `CODE` must match `HALT-NNN`, `HALT-NNN[A-Z]` (e.g. `HALT-007B`), or `HALT-STRUCTURAL` per `plugins/makato-orchestrate/halt-conditions.md`. `JSON-DATA` must be a JSON **object** — arrays, scalars, and malformed JSON are rejected before the patch lands. The helper merges via `+ [new]` so the audit log preserves immutable append-only semantics, and the entry is schema-validated like every other write.
 
 ```bash
-shared/workflow-state.sh append-halt gap-003 HALT-007B \
+shared/workflow-state.sh append-halt gap-003 26 HALT-007B \
   '{"budget_consumed_tokens":180000,"warn_threshold":170000,"session":2}'
 ```
 
@@ -126,7 +143,7 @@ This subcommand replaces the open-coded read-merge-write pattern that previously
 
 ### `recall-lessons <REPO> [N]`
 
-Aggregate `lessons_learned[]` across every `specs/*/workflow-state.json` whose `.repo` matches `<REPO>`. Returns the top-`N` (default 3) most recent lessons as a JSON array, sorted `(cycle DESC, ts DESC)`. Used by the PO-agent at session start (GAP-015 / #37 AC3) to warm-start the dispatch bundle with prior lessons from the same repository.
+Aggregate `lessons_learned[]` across every `specs/*/workflow-state-*.json` whose `.repo` matches `<REPO>`. Returns the top-`N` (default 3) most recent lessons as a JSON array, sorted `(cycle DESC, ts DESC)`. Used by the PO-agent at session start (GAP-015 / #37 AC3) to warm-start the dispatch bundle with prior lessons from the same repository. The glob widened from `workflow-state.json` to `workflow-state-*.json` in #173 — legacy pre-migration files are picked up by their next read/mutate and thereafter appear in the aggregate view.
 
 ```bash
 shared/workflow-state.sh recall-lessons macatocz/my-app 3 | jq '.[].description'
@@ -134,20 +151,20 @@ shared/workflow-state.sh recall-lessons macatocz/my-app 3 | jq '.[].description'
 
 Returns `[]` when no matching repo is found or `specs/` does not exist.
 
-### `summarise-lessons <KEY>`
+### `summarise-lessons <KEY> <ISSUE_NUMBER>`
 
-Render `lessons_learned[]` as `specs/<key>-<slug>/lessons-YYYYMMDD.md` (GAP-015 / #37 AC4). Idempotent: a same-day re-run overwrites in place. Writes a minimal stub file when `lessons_learned[]` is empty so the audit trail records that no lessons were captured. Prints the absolute output path to stdout.
+Render `lessons_learned[]` for the given issue as `specs/<key>-<slug>/lessons-YYYYMMDD-issue-<ISSUE_NUMBER>.md` (GAP-015 / #37 AC4). Idempotent: a same-day re-run overwrites in place. Writes a minimal stub file when `lessons_learned[]` is empty so the audit trail records that no lessons were captured. Prints the absolute output path to stdout. The filename now carries the issue number so multiple issues sharing a spec folder do not overwrite each other's summaries (#173).
 
 ```bash
-shared/workflow-state.sh summarise-lessons gap-003
-# → /…/specs/gap-003-foo/lessons-20260629.md
+shared/workflow-state.sh summarise-lessons gap-003 26
+# → /…/specs/gap-003-foo/lessons-20260629-issue-26.md
 ```
 
-The PO-agent calls this once on every terminal state (success at Step 6 #8, every HALT path in § *Error modes*) so each run leaves a human-readable lesson summary alongside `workflow-state.json` and `build.jsonl`.
+The PO-agent calls this once on every terminal state (success at Step 6 #8, every HALT path in § *Error modes*) so each run leaves a human-readable lesson summary alongside `workflow-state-<issue>.json` and `build.jsonl`.
 
 ## Cross-plugin caller (`build-implement-tdd`)
 
-`plugins/makato-build/skills/build-implement-tdd/SKILL.md` invokes `patch` after each successful coder dispatch. Because it lives in a sibling plugin, it resolves the helper via `git rev-parse --show-toplevel` and gates execution on an `-x` test so consumer-repo runs (where the orchestrate plugin is absent) skip silently. This is the only sub-skill that writes state directly — every other dispatch path mutates state via the PO-agent.
+`plugins/makato-build/skills/build-implement-tdd/SKILL.md` invokes `patch` after each successful coder dispatch. Because it lives in a sibling plugin, it resolves the helper via `git rev-parse --show-toplevel` and gates execution on an `-x` test so consumer-repo runs (where the orchestrate plugin is absent) skip silently. It threads the PO-agent's `ISSUE_NUMBER` into the new positional #3 (#173). This is the only sub-skill that writes state directly — every other dispatch path mutates state via the PO-agent.
 
 ## Staleness Rule
 
@@ -158,7 +175,7 @@ Detection formula (for downstream skills):
 ```bash
 NOW_EPOCH=$(date +%s)
 UPDATED_EPOCH=$(date -j -f "%Y-%m-%dT%H:%M:%S" \
-  "$(shared/workflow-state.sh read "$KEY" | jq -r '.updated_at' | cut -c1-19)" +%s)
+  "$(shared/workflow-state.sh read "$KEY" "$ISSUE" | jq -r '.updated_at' | cut -c1-19)" +%s)
 [[ $((NOW_EPOCH - UPDATED_EPOCH)) -gt 86400 ]] && echo "stale"
 ```
 

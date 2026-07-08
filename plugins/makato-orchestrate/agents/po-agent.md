@@ -99,7 +99,7 @@ with `errors: ["missing input: <field>"]`. Issue without
 
 ### Step 0 — Pre-flight
 
-1. Read state via `shared/workflow-state.sh read <KEY>` and capture
+1. Read state via `shared/workflow-state.sh read <KEY> <ISSUE_NUMBER>` and capture
    whether `workflow-state.json` already existed (used for the
    `resumed` flag).
 2. Append the session-start entry to `orchestrate.jsonl`:
@@ -131,7 +131,7 @@ On resume, check three flags before continuing:
 | Flag | Action |
 |---|---|
 | `current_phase == "done"` AND `github_pr_number != null` | Return R1 `success` with `data.github_pr_number` populated. Skip Steps 2b–7 — cleanup already ran on the prior session. |
-| `handoff_reason == "context_ceiling"` | Read `session_summary` (≤ 500 tokens). Clear the flag via `workflow-state.sh patch <KEY> .handoff_reason 'null'`. Continue from `resume_point`. |
+| `handoff_reason == "context_ceiling"` | Read `session_summary` (≤ 500 tokens). Clear the flag via `workflow-state.sh patch <KEY> <ISSUE_NUMBER> .handoff_reason 'null'`. Continue from `resume_point`. |
 | `restart_failed == true` | Return R1 `failure` with `errors: ["restart_failed=true on prior session"]`. |
 
 ### Step 2b — Worktree create or resume
@@ -190,7 +190,7 @@ Skip on resume. Read `plan.md` and extract every task under `## Tasks`:
 - `phase` — `tdd` (default) or `goal` per the task's `mode:` field
 - `status: "pending"`, `agent_result: null`
 
-Persist via `workflow-state.sh patch <KEY> .sub_tasks '<array-json>'`.
+Persist via `workflow-state.sh patch <KEY> <ISSUE_NUMBER> .sub_tasks '<array-json>'`.
 Patch `current_phase: "implement"`.
 
 ### Step 4 — Outer loop (plan-level retry)
@@ -243,7 +243,7 @@ loop.
 1. **In-progress recovery.** Walk `sub_tasks[]`; downgrade any
    `in_progress` row whose `agent_result` is still `null` to `pending`
    (patch via
-   `workflow-state.sh patch <KEY> '.sub_tasks[<idx>].status' '"pending"'`).
+   `workflow-state.sh patch <KEY> <ISSUE_NUMBER> '.sub_tasks[<idx>].status' '"pending"'`).
 2. **Dependency sanity.** Topologically sort `sub_tasks[]` by
    `blockedBy`. Cycle → HALT-006, apply `needs-human-review`, R1
    `failure`.
@@ -380,7 +380,7 @@ Triggered when all `sub_tasks[].status == "complete"`.
 7. Patch `current_phase: "done"`. Run `shared/worktree.sh cleanup <KEY>`
    (`git worktree remove --force` + patch `.worktree_path` to `null`;
    emit `worktree_removed` JSONL). Then run
-   `shared/workflow-state.sh summarise-lessons <KEY>` — writes
+   `shared/workflow-state.sh summarise-lessons <KEY> <ISSUE_NUMBER>` — writes
    `specs/<key>-<slug>/lessons-YYYYMMDD.md`, idempotent. Emit
    `summarise-lessons` JSONL with `data.terminal_state: "success"`.
    Emit session-end JSONL (Step 7). Return R1 `success` with
@@ -535,15 +535,15 @@ Sub-agent totals are captured in each sub-task's
 Every terminal HALT path (except HALT-007B) MUST run in order before
 session-end JSONL and R1 `failure`:
 
-1. `shared/workflow-state.sh append-halt <KEY> <HALT_CODE> '<json-data>'`
+1. `shared/workflow-state.sh append-halt <KEY> <ISSUE_NUMBER> <HALT_CODE> '<json-data>'`
    — canonical helper; injects `ts`, validates code shape
    (`HALT-NNN`, `HALT-NNN[A-Z]`, or `HALT-STRUCTURAL`), validates the
    `data` payload.
-2. `shared/workflow-state.sh append-lesson <KEY> <cycle> halt "<HALT_CODE>: <reason>"`.
+2. `shared/workflow-state.sh append-lesson <KEY> <ISSUE_NUMBER> <cycle> halt "<HALT_CODE>: <reason>"`.
 3. `shared/worktree.sh retain <KEY> <HALT_CODE>` — patches
    `.worktree_retained = true` and `.worktree_retain_reason`. Does NOT
    `git worktree remove`.
-4. `shared/workflow-state.sh summarise-lessons <KEY>` — writes the
+4. `shared/workflow-state.sh summarise-lessons <KEY> <ISSUE_NUMBER>` — writes the
    lessons markdown alongside the retained worktree. Emit the matching
    `summarise-lessons` JSONL with `data.terminal_state: "failure"`.
 

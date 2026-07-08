@@ -69,27 +69,27 @@ export MAKATO_WORKTREE_ROOT="$SANDBOX/repo/.claude/worktrees"
 
 echo "=== T1: init seeds the GAP-017 worktree fields ==="
 "$WS_LOCAL" init "$KEY" "$REPO_NAME" "$BRANCH" "$ISSUE"
-"$WS_LOCAL" read "$KEY" | jq -e '.worktree_path == null' > /dev/null
-"$WS_LOCAL" read "$KEY" | jq -e '.worktree_retained == false' > /dev/null
-"$WS_LOCAL" read "$KEY" | jq -e '.worktree_retain_reason == null' > /dev/null
+"$WS_LOCAL" read "$KEY" "$ISSUE" | jq -e '.worktree_path == null' > /dev/null
+"$WS_LOCAL" read "$KEY" "$ISSUE" | jq -e '.worktree_retained == false' > /dev/null
+"$WS_LOCAL" read "$KEY" "$ISSUE" | jq -e '.worktree_retain_reason == null' > /dev/null
 echo "  ✓ worktree_path / worktree_retained / worktree_retain_reason seeded"
 
 echo "=== T2: create emits worktree_created and patches state ==="
-OUT="$("$WT_LOCAL" create "$KEY" "$REPO_NAME" "$BRANCH" "$ISSUE")"
+OUT="$("$WT_LOCAL" create "$KEY" "$ISSUE" "$REPO_NAME" "$BRANCH")"
 EVENT="$(echo "$OUT" | head -1)"
 WT_PATH="$(echo "$OUT" | tail -1)"
 [[ "$EVENT" == "worktree_created" ]] || { echo "  ✗ expected worktree_created, got: $EVENT"; exit 1; }
 test -d "$WT_PATH" || { echo "  ✗ worktree dir not created: $WT_PATH"; exit 1; }
-"$WS_LOCAL" read "$KEY" | jq -e --arg p "$WT_PATH" '.worktree_path == $p' > /dev/null
+"$WS_LOCAL" read "$KEY" "$ISSUE" | jq -e --arg p "$WT_PATH" '.worktree_path == $p' > /dev/null
 echo "  ✓ event=worktree_created, dir exists, state patched"
 
 echo "=== T3: path subcommand returns the absolute worktree path ==="
-ECHOED="$("$WT_LOCAL" path "$KEY")"
+ECHOED="$("$WT_LOCAL" path "$KEY" "$ISSUE")"
 [[ "$ECHOED" == "$WT_PATH" ]] || { echo "  ✗ expected $WT_PATH, got: $ECHOED"; exit 1; }
 echo "  ✓ path matches"
 
 echo "=== T4: re-running create on an existing worktree emits worktree_resumed ==="
-OUT2="$("$WT_LOCAL" create "$KEY" "$REPO_NAME" "$BRANCH" "$ISSUE")"
+OUT2="$("$WT_LOCAL" create "$KEY" "$ISSUE" "$REPO_NAME" "$BRANCH")"
 EVENT2="$(echo "$OUT2" | head -1)"
 WT_PATH2="$(echo "$OUT2" | tail -1)"
 [[ "$EVENT2" == "worktree_resumed" ]] || { echo "  ✗ expected worktree_resumed, got: $EVENT2"; exit 1; }
@@ -97,82 +97,82 @@ WT_PATH2="$(echo "$OUT2" | tail -1)"
 echo "  ✓ resume detected via git worktree list"
 
 echo "=== T5: retain flips both state flags without removing the worktree ==="
-"$WT_LOCAL" retain "$KEY" "HALT-003" > /dev/null
-"$WS_LOCAL" read "$KEY" | jq -e '.worktree_retained == true' > /dev/null
-"$WS_LOCAL" read "$KEY" | jq -e '.worktree_retain_reason == "HALT-003"' > /dev/null
+"$WT_LOCAL" retain "$KEY" "$ISSUE" "HALT-003" > /dev/null
+"$WS_LOCAL" read "$KEY" "$ISSUE" | jq -e '.worktree_retained == true' > /dev/null
+"$WS_LOCAL" read "$KEY" "$ISSUE" | jq -e '.worktree_retain_reason == "HALT-003"' > /dev/null
 test -d "$WT_PATH" || { echo "  ✗ retain unexpectedly removed the worktree"; exit 1; }
 echo "  ✓ flags set, worktree still on disk"
 
 echo "=== T6: cleanup removes the worktree and clears worktree_path ==="
 # Reset retain state so cleanup runs from a fresh slate.
-"$WS_LOCAL" patch "$KEY" '.worktree_retained' 'false'
-"$WS_LOCAL" patch "$KEY" '.worktree_retain_reason' 'null'
-EVENT3="$("$WT_LOCAL" cleanup "$KEY")"
+"$WS_LOCAL" patch "$KEY" "$ISSUE" '.worktree_retained' 'false'
+"$WS_LOCAL" patch "$KEY" "$ISSUE" '.worktree_retain_reason' 'null'
+EVENT3="$("$WT_LOCAL" cleanup "$KEY" "$ISSUE")"
 [[ "$EVENT3" == "worktree_removed" ]] || { echo "  ✗ expected worktree_removed, got: $EVENT3"; exit 1; }
-"$WS_LOCAL" read "$KEY" | jq -e '.worktree_path == null' > /dev/null
+"$WS_LOCAL" read "$KEY" "$ISSUE" | jq -e '.worktree_path == null' > /dev/null
 test ! -d "$WT_PATH" || { echo "  ✗ worktree dir still exists after cleanup: $WT_PATH"; exit 1; }
 echo "  ✓ event=worktree_removed, dir gone, state cleared"
 
 echo "=== T7: cleanup on cleared state is a no-op ==="
-EVENT4="$("$WT_LOCAL" cleanup "$KEY")"
+EVENT4="$("$WT_LOCAL" cleanup "$KEY" "$ISSUE")"
 [[ "$EVENT4" == "worktree_noop" ]] || { echo "  ✗ expected worktree_noop, got: $EVENT4"; exit 1; }
 echo "  ✓ idempotent cleanup"
 
 echo "=== T8: cleanup tolerates a missing on-disk worktree but registered in state ==="
 # Recreate so we can simulate an orphaned state pointer.
-"$WT_LOCAL" create "$KEY" "$REPO_NAME" "$BRANCH" "$ISSUE" > /dev/null
-WT_PATH3="$("$WT_LOCAL" path "$KEY")"
+"$WT_LOCAL" create "$KEY" "$ISSUE" "$REPO_NAME" "$BRANCH" > /dev/null
+WT_PATH3="$("$WT_LOCAL" path "$KEY" "$ISSUE")"
 # Force-remove via git, leaving state pointing at it. The #170 Fix 3
 # validator on `patch` refuses re-writing an unregistered path back —
 # the bypass env var is documented for this smoke-test class exactly.
 git -C "$SANDBOX/repo" worktree remove --force "$WT_PATH3" > /dev/null 2>&1
 MAKATO_WORKTREE_PATCH_ALLOW_UNREGISTERED=1 \
-  "$WS_LOCAL" patch "$KEY" '.worktree_path' "\"$WT_PATH3\""
-EVENT5="$("$WT_LOCAL" cleanup "$KEY")"
+  "$WS_LOCAL" patch "$KEY" "$ISSUE" '.worktree_path' "\"$WT_PATH3\""
+EVENT5="$("$WT_LOCAL" cleanup "$KEY" "$ISSUE")"
 [[ "$EVENT5" == "worktree_removed" ]] || { echo "  ✗ expected worktree_removed, got: $EVENT5"; exit 1; }
-"$WS_LOCAL" read "$KEY" | jq -e '.worktree_path == null' > /dev/null
+"$WS_LOCAL" read "$KEY" "$ISSUE" | jq -e '.worktree_path == null' > /dev/null
 echo "  ✓ stale path tolerated, state cleared"
 
 echo "=== T9: cleanup refuses to remove a retained worktree (C15 guard) ==="
 # Re-create then retain to set worktree_retained=true.
-"$WT_LOCAL" create "$KEY" "$REPO_NAME" "$BRANCH" "$ISSUE" > /dev/null
-WT_PATH4="$("$WT_LOCAL" path "$KEY")"
-"$WT_LOCAL" retain "$KEY" "HALT-003" > /dev/null
-EVENT6="$("$WT_LOCAL" cleanup "$KEY")"
+"$WT_LOCAL" create "$KEY" "$ISSUE" "$REPO_NAME" "$BRANCH" > /dev/null
+WT_PATH4="$("$WT_LOCAL" path "$KEY" "$ISSUE")"
+"$WT_LOCAL" retain "$KEY" "$ISSUE" "HALT-003" > /dev/null
+EVENT6="$("$WT_LOCAL" cleanup "$KEY" "$ISSUE")"
 [[ "$EVENT6" == "worktree_cleanup_refused" ]] || { echo "  ✗ expected worktree_cleanup_refused, got: $EVENT6"; exit 1; }
 test -d "$WT_PATH4" || { echo "  ✗ cleanup removed worktree despite retain guard"; exit 1; }
-"$WS_LOCAL" read "$KEY" | jq -e --arg p "$WT_PATH4" '.worktree_path == $p' > /dev/null
+"$WS_LOCAL" read "$KEY" "$ISSUE" | jq -e --arg p "$WT_PATH4" '.worktree_path == $p' > /dev/null
 echo "  ✓ retain blocks cleanup, dir untouched, state preserved"
 
 echo "=== T10: retain writes BOTH retention fields atomically (C16 — single write) ==="
 # Retain with a different code to verify the write replaces the previous value.
 # Verify that after the call, BOTH fields reflect the new value with the same
 # updated_at — a single workflow-state.sh write rather than two patches.
-"$WT_LOCAL" retain "$KEY" "HALT-005" > /dev/null
-"$WS_LOCAL" read "$KEY" | jq -r '.updated_at' > /dev/null
-"$WS_LOCAL" read "$KEY" | jq -e '.worktree_retained == true' > /dev/null
-"$WS_LOCAL" read "$KEY" | jq -e '.worktree_retain_reason == "HALT-005"' > /dev/null
+"$WT_LOCAL" retain "$KEY" "$ISSUE" "HALT-005" > /dev/null
+"$WS_LOCAL" read "$KEY" "$ISSUE" | jq -r '.updated_at' > /dev/null
+"$WS_LOCAL" read "$KEY" "$ISSUE" | jq -e '.worktree_retained == true' > /dev/null
+"$WS_LOCAL" read "$KEY" "$ISSUE" | jq -e '.worktree_retain_reason == "HALT-005"' > /dev/null
 # Belt-and-braces: every other field's value must still pass the schema —
 # proves the bulk write went through workflow-state.sh write (which validates)
 # and not a raw jq pipe (which doesn't).
-"$WS_LOCAL" read "$KEY" | jq -e '.repo == "macatocz/test-repo"' > /dev/null
+"$WS_LOCAL" read "$KEY" "$ISSUE" | jq -e '.repo == "macatocz/test-repo"' > /dev/null
 echo "  ✓ both retention fields updated in one validated write"
 
 echo "=== T11: cleanup leaves state intact when git worktree remove genuinely fails (C4 fix) ==="
 # Clear retained flag so cleanup is allowed to attempt removal.
-"$WS_LOCAL" patch "$KEY" '.worktree_retained' 'false'
-"$WS_LOCAL" patch "$KEY" '.worktree_retain_reason' 'null'
+"$WS_LOCAL" patch "$KEY" "$ISSUE" '.worktree_retained' 'false'
+"$WS_LOCAL" patch "$KEY" "$ISSUE" '.worktree_retain_reason' 'null'
 # Lock the worktree so `git worktree remove --force` refuses; this is the
 # canonical "genuine failure" path (locked worktrees stay registered after
 # prune too). The lock is git-level, not a kernel filesystem lock.
 git -C "$SANDBOX/repo" worktree lock "$WT_PATH4" > /dev/null 2>&1
 set +e
-OUT_T11="$("$WT_LOCAL" cleanup "$KEY" 2>/dev/null)"
+OUT_T11="$("$WT_LOCAL" cleanup "$KEY" "$ISSUE" 2>/dev/null)"
 RC_T11=$?
 set -e
 [[ $RC_T11 -eq 1 ]] || { echo "  ✗ expected exit 1 on genuine remove failure, got $RC_T11"; exit 1; }
 [[ "$OUT_T11" == "worktree_remove_failed" ]] || { echo "  ✗ expected worktree_remove_failed, got: $OUT_T11"; exit 1; }
-"$WS_LOCAL" read "$KEY" | jq -e --arg p "$WT_PATH4" '.worktree_path == $p' > /dev/null
+"$WS_LOCAL" read "$KEY" "$ISSUE" | jq -e --arg p "$WT_PATH4" '.worktree_path == $p' > /dev/null
 echo "  ✓ remove_failed event, state NOT cleared, invariant preserved"
 # Unlock so the EXIT trap can clean up.
 git -C "$SANDBOX/repo" worktree unlock "$WT_PATH4" > /dev/null 2>&1 || true
@@ -181,12 +181,12 @@ git -C "$SANDBOX/repo" worktree remove --force "$WT_PATH4" > /dev/null 2>&1 || t
 echo "=== T12: HALT_CODE with embedded double-quote survives via _json_encode (C2 fix) ==="
 # Re-init a fresh state because T11's locked worktree may have left things
 # in a weird in-between state.
-"$WS_LOCAL" patch "$KEY" '.worktree_path' 'null'
-"$WS_LOCAL" patch "$KEY" '.worktree_retained' 'false'
-"$WS_LOCAL" patch "$KEY" '.worktree_retain_reason' 'null'
+"$WS_LOCAL" patch "$KEY" "$ISSUE" '.worktree_path' 'null'
+"$WS_LOCAL" patch "$KEY" "$ISSUE" '.worktree_retained' 'false'
+"$WS_LOCAL" patch "$KEY" "$ISSUE" '.worktree_retain_reason' 'null'
 EXOTIC_CODE='HALT-003 "operator-quoted reason"'
-"$WT_LOCAL" retain "$KEY" "$EXOTIC_CODE" > /dev/null
-"$WS_LOCAL" read "$KEY" | jq -e --arg c "$EXOTIC_CODE" '.worktree_retain_reason == $c' > /dev/null
+"$WT_LOCAL" retain "$KEY" "$ISSUE" "$EXOTIC_CODE" > /dev/null
+"$WS_LOCAL" read "$KEY" "$ISSUE" | jq -e --arg c "$EXOTIC_CODE" '.worktree_retain_reason == $c' > /dev/null
 echo "  ✓ embedded double-quote in HALT_CODE preserved verbatim"
 
 echo "=== T13: worktree path with embedded space survives the awk-free porcelain parser (C1 fix) ==="
@@ -198,19 +198,19 @@ mkdir -p "$SPACE_ROOT"
 KEY_T13="gap-017-smoke-space"
 SANDBOX_T13="$SANDBOX/repo/specs/$KEY_T13"
 mkdir -p "$SANDBOX_T13"
-"$WS_LOCAL" init "$KEY_T13" "$REPO_NAME" "$BRANCH" "$ISSUE"
+ISSUE_T13=99
+"$WS_LOCAL" init "$KEY_T13" "$REPO_NAME" "$BRANCH" "$ISSUE_T13"
 # git worktree add cannot reuse the same branch already checked out by T2-T9
 # (HEAD conflict), so create a dedicated branch for T13.
 git -C "$SANDBOX/repo" branch -q auto/test-repo-space-46 main 2>/dev/null || true
-ISSUE_T13=99
 MAKATO_WORKTREE_ROOT="$SPACE_ROOT" \
-  "$WT_LOCAL" create "$KEY_T13" "$REPO_NAME" auto/test-repo-space-46 "$ISSUE_T13" > /dev/null
-WT_T13="$(MAKATO_WORKTREE_ROOT="$SPACE_ROOT" "$WT_LOCAL" path "$KEY_T13")"
+  "$WT_LOCAL" create "$KEY_T13" "$ISSUE_T13" "$REPO_NAME" auto/test-repo-space-46 > /dev/null
+WT_T13="$(MAKATO_WORKTREE_ROOT="$SPACE_ROOT" "$WT_LOCAL" path "$KEY_T13" "$ISSUE_T13")"
 # The stored path must contain the space.
 [[ "$WT_T13" == *"space dir"* ]] || { echo "  ✗ space dropped from stored path: $WT_T13"; exit 1; }
 # Resume detection must succeed for the spaced path (verifies the porcelain
 # parser handles it).
-EVENT_T13="$(MAKATO_WORKTREE_ROOT="$SPACE_ROOT" "$WT_LOCAL" create "$KEY_T13" "$REPO_NAME" auto/test-repo-space-46 "$ISSUE_T13" | head -1)"
+EVENT_T13="$(MAKATO_WORKTREE_ROOT="$SPACE_ROOT" "$WT_LOCAL" create "$KEY_T13" "$ISSUE_T13" "$REPO_NAME" auto/test-repo-space-46 | head -1)"
 [[ "$EVENT_T13" == "worktree_resumed" ]] || { echo "  ✗ resume failed for space path, got: $EVENT_T13"; exit 1; }
 echo "  ✓ space-bearing worktree path created and resumed correctly"
 
@@ -258,7 +258,7 @@ git -C "$SANDBOX/repo" fetch origin --quiet
 # symbolic-ref probe returns cleanly.
 git -C "$SANDBOX/repo" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
 
-OUT_T14="$("$WT_LOCAL" create --new-branch "$KEY_T14" "$REPO_NAME" "$BRANCH_T14" "$ISSUE_T14")"
+OUT_T14="$("$WT_LOCAL" create --new-branch "$KEY_T14" "$ISSUE_T14" "$REPO_NAME" "$BRANCH_T14")"
 EVENT_T14="$(echo "$OUT_T14" | head -1)"
 WT_T14="$(echo "$OUT_T14" | tail -1)"
 [[ "$EVENT_T14" == "worktree_created" ]] || { echo "  ✗ expected worktree_created, got: $EVENT_T14"; exit 1; }
@@ -279,7 +279,7 @@ git -C "$SANDBOX/repo" ls-remote --exit-code origin "$BRANCH_T14" >/dev/null 2>&
 echo "  ✓ new branch created atomically, main HEAD unmoved, worktree on branch, upstream tracking set"
 
 echo "=== T15: create --new-branch on an already-registered worktree is an idempotent resume ==="
-OUT_T15="$("$WT_LOCAL" create --new-branch "$KEY_T14" "$REPO_NAME" "$BRANCH_T14" "$ISSUE_T14")"
+OUT_T15="$("$WT_LOCAL" create --new-branch "$KEY_T14" "$ISSUE_T14" "$REPO_NAME" "$BRANCH_T14")"
 EVENT_T15="$(echo "$OUT_T15" | head -1)"
 [[ "$EVENT_T15" == "worktree_resumed" ]] || { echo "  ✗ second --new-branch call should have resumed, got: $EVENT_T15"; exit 1; }
 echo "  ✓ second call is a resume (--new-branch is idempotent when the worktree already exists)"
@@ -292,7 +292,7 @@ mkdir -p "$SANDBOX/repo/specs/$KEY_T16"
 "$WS_LOCAL" init "$KEY_T16" "$REPO_NAME" "$BRANCH_T16" "$ISSUE_T16"
 
 set +e
-"$WT_LOCAL" create "$KEY_T16" "$REPO_NAME" "$BRANCH_T16" "$ISSUE_T16" >/dev/null 2>"$SANDBOX/t16.stderr"
+"$WT_LOCAL" create "$KEY_T16" "$ISSUE_T16" "$REPO_NAME" "$BRANCH_T16" >/dev/null 2>"$SANDBOX/t16.stderr"
 RC_T16=$?
 set -e
 [[ $RC_T16 -ne 0 ]] || { echo "  ✗ create on non-existent branch should have failed (rc=$RC_T16)"; exit 1; }
@@ -300,7 +300,7 @@ grep -q "$BRANCH_T16" "$SANDBOX/t16.stderr" \
   || { echo "  ✗ error message missing branch name"; cat "$SANDBOX/t16.stderr"; exit 1; }
 # State must NOT have been patched — the invariant is that a failed create
 # leaves state clean, no fabricated .worktree_path.
-"$WS_LOCAL" read "$KEY_T16" | jq -e '.worktree_path == null' >/dev/null \
+"$WS_LOCAL" read "$KEY_T16" "$ISSUE_T16" | jq -e '.worktree_path == null' >/dev/null \
   || { echo "  ✗ .worktree_path was patched despite create failure"; exit 1; }
 echo "  ✓ create failed with clear diagnostic, state left null"
 
@@ -317,7 +317,7 @@ mkdir -p "$SANDBOX/repo/specs/$KEY_T17"
 # Attempt: patch to the main-repo root. This is the exact incident from
 # #170 § *Repro*.
 set +e
-"$WS_LOCAL" patch "$KEY_T17" '.worktree_path' "\"$SANDBOX/repo\"" >/dev/null 2>"$SANDBOX/t17.stderr"
+"$WS_LOCAL" patch "$KEY_T17" "$ISSUE_T14" '.worktree_path' "\"$SANDBOX/repo\"" >/dev/null 2>"$SANDBOX/t17.stderr"
 RC_T17=$?
 set -e
 [[ $RC_T17 -ne 0 ]] || { echo "  ✗ patch to main-repo root should have been refused"; exit 1; }
@@ -328,26 +328,26 @@ grep -qE "(resolves to the main-repo root|not a registered git worktree)" "$SAND
   || { echo "  ✗ diagnostic missing worktree-guard phrase"; cat "$SANDBOX/t17.stderr"; exit 1; }
 grep -q "#170" "$SANDBOX/t17.stderr" \
   || { echo "  ✗ diagnostic missing #170 rationale link"; cat "$SANDBOX/t17.stderr"; exit 1; }
-"$WS_LOCAL" read "$KEY_T17" | jq -e '.worktree_path == null' >/dev/null \
+"$WS_LOCAL" read "$KEY_T17" "$ISSUE_T14" | jq -e '.worktree_path == null' >/dev/null \
   || { echo "  ✗ .worktree_path mutated despite refusal"; exit 1; }
 echo "  ✓ unregistered patch refused with clear diagnostic, state untouched"
 
 # Attempt: patch to a made-up path that does not exist on disk.
 set +e
-"$WS_LOCAL" patch "$KEY_T17" '.worktree_path' "\"$SANDBOX/never-existed-anywhere\"" >/dev/null 2>"$SANDBOX/t17b.stderr"
+"$WS_LOCAL" patch "$KEY_T17" "$ISSUE_T14" '.worktree_path' "\"$SANDBOX/never-existed-anywhere\"" >/dev/null 2>"$SANDBOX/t17b.stderr"
 RC_T17B=$?
 set -e
 [[ $RC_T17B -ne 0 ]] || { echo "  ✗ patch to non-existent path should have been refused"; exit 1; }
 echo "  ✓ non-existent path also refused"
 
 # Explicit null is always allowed (cleanup path).
-"$WS_LOCAL" patch "$KEY_T17" '.worktree_path' 'null' >/dev/null
+"$WS_LOCAL" patch "$KEY_T17" "$ISSUE_T14" '.worktree_path' 'null' >/dev/null
 echo "  ✓ explicit null write still permitted (cleanup contract preserved)"
 
 # Bypass env var (documented for smoke-test contexts only) permits the write.
 MAKATO_WORKTREE_PATCH_ALLOW_UNREGISTERED=1 \
-  "$WS_LOCAL" patch "$KEY_T17" '.worktree_path' "\"$SANDBOX/repo\"" >/dev/null
-"$WS_LOCAL" read "$KEY_T17" | jq -e --arg p "$SANDBOX/repo" '.worktree_path == $p' >/dev/null \
+  "$WS_LOCAL" patch "$KEY_T17" "$ISSUE_T14" '.worktree_path' "\"$SANDBOX/repo\"" >/dev/null
+"$WS_LOCAL" read "$KEY_T17" "$ISSUE_T14" | jq -e --arg p "$SANDBOX/repo" '.worktree_path == $p' >/dev/null \
   || { echo "  ✗ bypass env var did not permit the write"; exit 1; }
 echo "  ✓ bypass env var permits the write (test-only path)"
 
@@ -355,8 +355,8 @@ echo "=== T18: patching an unrelated field is never guarded by the .worktree_pat
 # Sanity: fields other than .worktree_path pass through the validator
 # without any git-worktree check. Prevents overly-broad guard from breaking
 # every other patch call.
-"$WS_LOCAL" patch "$KEY_T17" '.current_phase' '"implement"' >/dev/null
-"$WS_LOCAL" read "$KEY_T17" | jq -e '.current_phase == "implement"' >/dev/null \
+"$WS_LOCAL" patch "$KEY_T17" "$ISSUE_T14" '.current_phase' '"implement"' >/dev/null
+"$WS_LOCAL" read "$KEY_T17" "$ISSUE_T14" | jq -e '.current_phase == "implement"' >/dev/null \
   || { echo "  ✗ unrelated .current_phase patch was refused"; exit 1; }
 echo "  ✓ unrelated field passes through unchanged"
 

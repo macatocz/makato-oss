@@ -124,7 +124,7 @@ rm -f "$STATE_DIR/loop-status.json"
 # ---------------------------------------------------------------------------
 echo "=== T5: in_flight skips workflow-state with phase=done ==="
 mkdir -p "${SANDBOX_SPECS[0]}"
-cat >"${SANDBOX_SPECS[0]}/workflow-state.json" <<EOF
+cat >"${SANDBOX_SPECS[0]}/workflow-state-101.json" <<EOF
 {"issue_number": 101, "current_phase": "done"}
 EOF
 "$LOOP" run --status Ready --once --dry-run >/dev/null 2>&1 || true
@@ -136,7 +136,7 @@ echo "  ✓ done-phase spec not treated as in-flight"
 echo "=== T6: in_flight includes workflow-state with phase=implement ==="
 rm -rf "${SANDBOX_SPECS[0]}" "${SANDBOX_SPECS[1]}"
 mkdir -p "${SANDBOX_SPECS[1]}"
-cat >"${SANDBOX_SPECS[1]}/workflow-state.json" <<EOF
+cat >"${SANDBOX_SPECS[1]}/workflow-state-101.json" <<EOF
 {"issue_number": 101, "current_phase": "implement"}
 EOF
 next="$("$LOOP" next "Ready" || echo "")"

@@ -5,6 +5,24 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## Cross-plugin caller update for per-issue workflow-state (#173)
+
+Companion to `makato-orchestrate`'s per-issue workflow-state layout change.
+`build-implement-tdd`'s Step 6 workflow-state patch calls now thread the
+PO-agent's `ISSUE_NUMBER` into the new positional #3 required by
+`plugins/makato-orchestrate/shared/workflow-state.sh`. The guard on the
+caller path (`[[ -x "$MAKATO_ROOT/shared/workflow-state.sh" ]]`) is
+preserved unchanged — consumer repos without the orchestrate plugin see
+no behaviour change; the patch block is skipped silently as before.
+
+- **`skills/build-implement-tdd/SKILL.md`** — Step 6 § *R1 mirror + state
+  patch* code block updated. Both `patch` calls now take
+  `"<key>" "<issue>"` before the jq path. Prose clarifies that the issue
+  number is threaded from the PO-agent's context bundle
+  (`ISSUE_NUMBER` / `WORKTREE_PATH` inputs in § *Input*).
+
+---
+
 ## `build-create-pr` mandatory audit contract around `gh pr create` (#169)
 
 Fixes the silent-exit class first observed in #143: while driving that issue through the PO-agent under `--autonomous`, `build-create-pr` recorded `pr-draft-approval bypassed` at 00:15:44 UTC and then produced **no further audit events**. `workflow-state.json` remained at `current_phase: "pr"`, the PO-agent claude subprocess terminated ~29 s later, and no PR was opened for the pushed branch. The commit had been pushed cleanly — the failure was scoped to the `gh pr create` step.

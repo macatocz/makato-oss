@@ -1,31 +1,47 @@
 #!/usr/bin/env bash
-# Manage specs/<key>-<slug>/workflow-state.json for the PO-agent outer loop.
+# Manage specs/<key>-<slug>/workflow-state-<issue>.json for the PO-agent outer loop.
+#
+# Per-issue file layout — see #173. Multiple GitHub issues can share a single
+# story-level spec folder (e.g. `specs/agent-skill-routing/` covers #143–#147).
+# Each issue owns its own `workflow-state-<issue>.json`; `init` on a second
+# issue no longer clobbers a prior issue's audit trail.
 #
 # Subcommands:
 #   init <KEY> <REPO> <BRANCH> <ISSUE_NUMBER>
-#       Create workflow-state.json with valid defaults. Errors if the file exists.
-#   read <KEY>
+#       Create workflow-state-<ISSUE_NUMBER>.json with valid defaults. Errors if it exists.
+#   read <KEY> <ISSUE_NUMBER>
 #       Print the full JSON object to stdout, or "{}" if missing.
-#   write <KEY> '<JSON>'
+#   write <KEY> <ISSUE_NUMBER> '<JSON>'
 #       Validate then overwrite the file. updated_at is injected automatically.
-#   patch <KEY> <JQ-PATH> <VALUE>
+#   patch <KEY> <ISSUE_NUMBER> <JQ-PATH> <VALUE>
 #       Apply a jq-style field update. JQ-PATH like .current_phase or .sub_tasks[0].status.
 #       VALUE is a JSON literal: '"implement"', '3', 'true', '{...}'.
-#   append-lesson <KEY> <CYCLE> <TRIGGER> <DESCRIPTION> [FILE…]
+#   append-lesson <KEY> <ISSUE_NUMBER> <CYCLE> <TRIGGER> <DESCRIPTION> [FILE…]
 #       Append {ts, cycle, trigger, description, files_affected} to lessons_learned[].
 #       CYCLE: outer_iteration integer ≥ 0.
 #       TRIGGER: ci_failure|halt|review_comment|sensor|merge_conflict (schema enum).
 #       DESCRIPTION: ≤ 200 chars (auto-truncated with '…').
 #       FILE…: zero or more repo-relative paths (variadic).
+#   append-halt <KEY> <ISSUE_NUMBER> <CODE> <JSON-DATA>
+#       Append {code, ts, data} to halt_audit[].
 #   recall-lessons <REPO> [N]
-#       Print the top-N most recent lessons across every specs/*/workflow-state.json
-#       whose .repo == REPO (default N=3). Output is a JSON array of lesson items,
-#       newest first. Used by the PO-agent at session start (GAP-015 / #37 AC3) to
-#       inject prior lessons into the coder dispatch bundle.
-#   summarise-lessons <KEY>
+#       Print the top-N most recent lessons across every
+#       specs/*/workflow-state-*.json whose .repo == REPO (default N=3). Output is
+#       a JSON array of lesson items, newest first. Used by the PO-agent at
+#       session start (GAP-015 / #37 AC3) to inject prior lessons into the coder
+#       dispatch bundle. Signature unchanged — the aggregator glob widened.
+#   summarise-lessons <KEY> <ISSUE_NUMBER>
 #       Write specs/<key>-<slug>/lessons-YYYYMMDD.md from lessons_learned[]. Used by
 #       the PO-agent at terminal states (success and HALT) per GAP-015 / #37 AC4.
 #       Idempotent: re-running on the same day overwrites the file in place.
+#
+# Backward compatibility: on the first read/mutate for a given (KEY, ISSUE_NUMBER),
+# if a legacy specs/<KEY>/workflow-state.json exists and the per-issue file does
+# not, it is promoted in place via `mv` to workflow-state-<its own .issue_number>.json.
+# The promotion is atomic and idempotent — a second reader that arrives after the
+# rename falls through to the renamed file cleanly. Issue mismatch (caller-supplied
+# ISSUE_NUMBER != legacy file's own field) still migrates the legacy file to its
+# correct name and the caller receives the {} / on-disk read as appropriate.
 #
 # Spec-folder resolution mirrors plugins/makato-build/shared/build-log.sh:13-22
 # (duplicated, not sourced — build-log.sh is a standalone script with no exported
@@ -62,7 +78,10 @@ if [[ -z "$SPEC_FOLDER" ]]; then
   SPEC_FOLDER="$SPECS_DIR/$KEY"
 fi
 
-STATE_FILE="$SPEC_FOLDER/workflow-state.json"
+# STATE_FILE is now issue-scoped and populated per-subcommand once ISSUE_NUMBER
+# is validated. Recall-lessons never sets it — it iterates over every match in
+# SPECS_DIR directly.
+STATE_FILE=""
 
 # ---------------------------------------------------------------------------
 # ISO-8601 timestamp with milliseconds (UTC). Python over `date +%N` because
@@ -72,6 +91,101 @@ _now() {
   python3 -c "from datetime import datetime, timezone
 n = datetime.now(timezone.utc)
 print(n.strftime('%Y-%m-%dT%H:%M:%S.') + f'{n.microsecond // 1000:03d}Z')"
+}
+
+# ---------------------------------------------------------------------------
+# ISSUE_NUMBER validation — schema says integer ≥ 1. Reject anything else at
+# the shell layer so we get a clear diagnostic before touching the filesystem.
+# The bash-level check doubles the jsonschema check because validation is
+# fail-open when jsonschema is not installed.
+# ---------------------------------------------------------------------------
+_validate_issue_number() {
+  local candidate="$1"
+  if [[ ! "$candidate" =~ ^[1-9][0-9]*$ ]]; then
+    echo "workflow-state: ISSUE_NUMBER must be a positive integer (got '$candidate')" >&2
+    exit 1
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Given a validated ISSUE_NUMBER, resolve $SPEC_FOLDER/workflow-state-<issue>.json.
+# Called by every subcommand except recall-lessons after ISSUE_NUMBER is validated.
+# ---------------------------------------------------------------------------
+_resolve_state_file() {
+  local issue="$1"
+  STATE_FILE="$SPEC_FOLDER/workflow-state-${issue}.json"
+}
+
+# ---------------------------------------------------------------------------
+# Prepare STATE_FILE for a mutating/reading subcommand: validate ISSUE_NUMBER,
+# migrate any legacy `workflow-state.json` in this spec folder to its per-issue
+# name, then resolve STATE_FILE to the target per-issue path.
+#
+# Called by every subcommand except `init` (which deliberately skips migration —
+# it creates a fresh per-issue file and must not silently absorb a legacy file
+# that may belong to a different issue) and `recall-lessons` (which glob-scans
+# every spec folder directly).
+# ---------------------------------------------------------------------------
+_prepare_state_file() {
+  local issue="$1"
+  _validate_issue_number "$issue"
+  _migrate_legacy_state
+  _resolve_state_file "$issue"
+}
+
+# ---------------------------------------------------------------------------
+# Backward-compat migration (#173).
+#
+# If a legacy specs/<KEY>/workflow-state.json exists AND the per-issue file
+# does not, read the legacy file's own `.issue_number` field, compute the
+# per-issue path from it, and `mv` atomically. Idempotent when the per-issue
+# path already exists (silent no-op). The rename is content-driven — the
+# caller-supplied ISSUE_NUMBER is not used to name the promoted file, so a
+# caller reading with a mismatched ISSUE_NUMBER sees `{}` after promotion,
+# which is the correct behaviour (the legacy file belongs to a different
+# issue and the caller can now `init` its own).
+#
+# Called before any subcommand body that references STATE_FILE. Not called by
+# recall-lessons — the glob widening in that subcommand covers already-migrated
+# files, and any not-yet-migrated legacy file simply won't be picked up until
+# something else touches it (an acceptable degradation for the aggregate view).
+# ---------------------------------------------------------------------------
+_migrate_legacy_state() {
+  local legacy="$SPEC_FOLDER/workflow-state.json"
+  [[ -f "$legacy" ]] || return 0
+
+  local legacy_issue
+  legacy_issue="$(jq -r '.issue_number // empty' "$legacy" 2>/dev/null || true)"
+  if [[ -z "$legacy_issue" ]] || [[ ! "$legacy_issue" =~ ^[1-9][0-9]*$ ]]; then
+    # Legacy file is malformed (no valid issue_number) — leave it for a human
+    # to inspect. Do not silently delete or rename to a bogus target.
+    echo "workflow-state: legacy $legacy has no valid .issue_number field — skipping migration" >&2
+    return 0
+  fi
+
+  local target="$SPEC_FOLDER/workflow-state-${legacy_issue}.json"
+  if [[ -f "$target" ]]; then
+    # Two-writer race: the per-issue file was created after the legacy file.
+    # The per-issue file wins — the legacy is stale by definition and would
+    # only cause confusion. Move it aside so audit trails preserve evidence.
+    # `mv || true` because a concurrent second reader may already have won
+    # the race and renamed the legacy file out from under us. `[[ ! -f
+    # "$legacy" ]]` after the mv confirms the file is gone regardless of
+    # which caller performed the rename.
+    mv "$legacy" "${legacy}.superseded-by-${legacy_issue}" 2>/dev/null || true
+    [[ ! -f "$legacy" ]] || return 0
+    echo "workflow-state: legacy $legacy preserved as ${legacy##*/}.superseded-by-${legacy_issue} (target existed)" >&2
+    return 0
+  fi
+
+  # Primary migration path. `mv || true` because a concurrent caller may
+  # have won the race and already migrated the legacy file. If the target
+  # exists after the mv attempt, migration succeeded (either by us or by
+  # the other caller) — return cleanly.
+  mv "$legacy" "$target" 2>/dev/null || true
+  if [[ -f "$target" ]]; then
+    echo "workflow-state: migrated legacy $legacy → ${target##*/}" >&2
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -225,6 +339,12 @@ case "$SUBCMD" in
     REPO="${3:?repo required (owner/name form)}"
     BRANCH="${4:?branch required}"
     ISSUE_NUMBER="${5:?issue_number required}"
+    _validate_issue_number "$ISSUE_NUMBER"
+    # NB: init deliberately skips _migrate_legacy_state (unlike the shared
+    # `_prepare_state_file` helper below). A fresh init creates a brand-new
+    # per-issue file; silently absorbing a legacy `workflow-state.json` here
+    # could conflate two different issues' state under the wrong file name.
+    _resolve_state_file "$ISSUE_NUMBER"
 
     if [[ -f "$STATE_FILE" ]]; then
       echo "workflow-state: $STATE_FILE already exists — use 'write' to overwrite" >&2
@@ -278,9 +398,11 @@ case "$SUBCMD" in
     ;;
 
   # -------------------------------------------------------------------------
-  # read <KEY>
+  # read <KEY> <ISSUE_NUMBER>
   # -------------------------------------------------------------------------
   read)
+    ISSUE_NUMBER="${3:?issue_number required}"
+    _prepare_state_file "$ISSUE_NUMBER"
     if [[ -f "$STATE_FILE" ]]; then
       cat "$STATE_FILE"
     else
@@ -289,10 +411,12 @@ case "$SUBCMD" in
     ;;
 
   # -------------------------------------------------------------------------
-  # write <KEY> '<JSON>'
+  # write <KEY> <ISSUE_NUMBER> '<JSON>'
   # -------------------------------------------------------------------------
   write)
-    JSON_INPUT="${3:?json required}"
+    ISSUE_NUMBER="${3:?issue_number required}"
+    JSON_INPUT="${4:?json required}"
+    _prepare_state_file "$ISSUE_NUMBER"
     NOW="$(_now)"
 
     PATCHED="$(jq --arg now "$NOW" '.updated_at = $now' <<<"$JSON_INPUT")"
@@ -303,11 +427,13 @@ case "$SUBCMD" in
     ;;
 
   # -------------------------------------------------------------------------
-  # patch <KEY> <JQ-PATH> <VALUE>
+  # patch <KEY> <ISSUE_NUMBER> <JQ-PATH> <VALUE>
   # -------------------------------------------------------------------------
   patch)
-    JQ_PATH="${3:?jq-path required (e.g. .current_phase)}"
-    VALUE="${4:?value required (JSON literal, e.g. '\"implement\"')}"
+    ISSUE_NUMBER="${3:?issue_number required}"
+    JQ_PATH="${4:?jq-path required (e.g. .current_phase)}"
+    VALUE="${5:?value required (JSON literal, e.g. '\"implement\"')}"
+    _prepare_state_file "$ISSUE_NUMBER"
     NOW="$(_now)"
 
     if [[ ! -f "$STATE_FILE" ]]; then
@@ -331,7 +457,7 @@ case "$SUBCMD" in
     ;;
 
   # -------------------------------------------------------------------------
-  # append-lesson <KEY> <CYCLE> <TRIGGER> <DESCRIPTION> [FILE…]
+  # append-lesson <KEY> <ISSUE_NUMBER> <CYCLE> <TRIGGER> <DESCRIPTION> [FILE…]
   #
   # Schema (GAP-015 / #37): {ts, cycle, trigger, description, files_affected}.
   # The helper:
@@ -340,10 +466,12 @@ case "$SUBCMD" in
   #   - accepts zero or more files_affected as variadic positional args
   # -------------------------------------------------------------------------
   append-lesson)
-    CYCLE="${3:?cycle required (integer ≥ 0)}"
-    TRIGGER="${4:?trigger required (ci_failure|halt|review_comment|sensor|merge_conflict)}"
-    DESCRIPTION="${5:?description required (≤ 200 chars)}"
-    shift 5 || true
+    ISSUE_NUMBER="${3:?issue_number required}"
+    CYCLE="${4:?cycle required (integer ≥ 0)}"
+    TRIGGER="${5:?trigger required (ci_failure|halt|review_comment|sensor|merge_conflict)}"
+    DESCRIPTION="${6:?description required (≤ 200 chars)}"
+    shift 6 || true
+    _prepare_state_file "$ISSUE_NUMBER"
     NOW="$(_now)"
 
     if [[ ! -f "$STATE_FILE" ]]; then
@@ -398,7 +526,7 @@ case "$SUBCMD" in
     ;;
 
   # -------------------------------------------------------------------------
-  # append-halt <KEY> <CODE> <JSON-DATA>
+  # append-halt <KEY> <ISSUE_NUMBER> <CODE> <JSON-DATA>
   #
   # Schema: {code, ts, data}. The helper:
   #   - injects ts automatically (caller never supplies it)
@@ -411,12 +539,14 @@ case "$SUBCMD" in
   # context-handoff.sh and the inline patch sites in po-agent.md.
   # -------------------------------------------------------------------------
   append-halt)
-    CODE="${3:?halt code required (e.g. HALT-007, HALT-007B, HALT-STRUCTURAL)}"
-    if [[ $# -lt 4 ]]; then
+    ISSUE_NUMBER="${3:?issue_number required}"
+    CODE="${4:?halt code required (e.g. HALT-007, HALT-007B, HALT-STRUCTURAL)}"
+    if [[ $# -lt 5 ]]; then
       echo "workflow-state: halt data required (JSON object; use '{}' for an empty payload)" >&2
       exit 1
     fi
-    DATA="$4"
+    DATA="$5"
+    _prepare_state_file "$ISSUE_NUMBER"
     NOW="$(_now)"
 
     if [[ ! -f "$STATE_FILE" ]]; then
@@ -453,7 +583,7 @@ case "$SUBCMD" in
     _atomic_write "$PATCHED"
     ;;
   #
-  # Aggregate lessons across every specs/*/workflow-state.json whose .repo
+  # Aggregate lessons across every specs/*/workflow-state-*.json whose .repo
   # matches REPO. Print the top-N (default 3) most recent lessons as a JSON
   # array, sorted by (cycle DESC, ts DESC). Used by the PO-agent at session
   # start (GAP-015 / #37 AC3) to inject warm-start context.
@@ -475,11 +605,15 @@ case "$SUBCMD" in
       exit 0
     fi
 
-    # Find every workflow-state.json under specs/, filter by .repo == REPO,
+    # Find every workflow-state-*.json under specs/, filter by .repo == REPO,
     # flatten .lessons_learned[] across the matching states, sort newest first.
     # Pass all paths to a single `jq -s` invocation (slurps the parsed payloads
     # into one array) — O(1) jq forks instead of O(N) under xargs -I{}.
-    find "$SPECS_DIR" -mindepth 2 -maxdepth 2 -type f -name workflow-state.json -print0 2>/dev/null |
+    #
+    # Glob widened from workflow-state.json to workflow-state-*.json (#173).
+    # Any legacy pre-migration files are picked up by their next read/mutate;
+    # this aggregate view intentionally ignores them until then.
+    find "$SPECS_DIR" -mindepth 2 -maxdepth 2 -type f -name 'workflow-state-*.json' -print0 2>/dev/null |
       xargs -0 jq -s --arg repo "$REPO" --argjson n "$LIMIT" \
         '[.[] | select(.repo == $repo) | (.lessons_learned // [])[]]
          | sort_by([.cycle, .ts]) | reverse | .[0:$n]' \
@@ -487,7 +621,7 @@ case "$SUBCMD" in
     ;;
 
   # -------------------------------------------------------------------------
-  # summarise-lessons <KEY>
+  # summarise-lessons <KEY> <ISSUE_NUMBER>
   #
   # Render lessons_learned[] as specs/<key>-<slug>/lessons-YYYYMMDD.md per
   # GAP-015 / #37 AC4. Idempotent: a second call on the same day overwrites.
@@ -495,24 +629,27 @@ case "$SUBCMD" in
   # — the file's existence is the audit signal.
   # -------------------------------------------------------------------------
   summarise-lessons)
+    ISSUE_NUMBER="${3:?issue_number required}"
+    _prepare_state_file "$ISSUE_NUMBER"
+
     if [[ ! -f "$STATE_FILE" ]]; then
       echo "workflow-state: $STATE_FILE not found — nothing to summarise" >&2
       exit 1
     fi
 
     DATE_STAMP="$(date -u +%Y%m%d)"
-    LESSONS_FILE="$SPEC_FOLDER/lessons-${DATE_STAMP}.md"
+    LESSONS_FILE="$SPEC_FOLDER/lessons-${DATE_STAMP}-issue-${ISSUE_NUMBER}.md"
     REPO="$(jq -r '.repo' "$STATE_FILE")"
     ISSUE="$(jq -r '.issue_number' "$STATE_FILE")"
     BRANCH="$(jq -r '.branch' "$STATE_FILE")"
 
     {
-      echo "# Lessons learned — ${KEY} (${DATE_STAMP})"
+      echo "# Lessons learned — ${KEY} #${ISSUE} (${DATE_STAMP})"
       echo
       echo "- **Repo**: \`${REPO}\`"
       echo "- **Issue**: #${ISSUE}"
       echo "- **Branch**: \`${BRANCH}\`"
-      echo "- **Source**: \`specs/${SPEC_FOLDER##*/}/workflow-state.json\`"
+      echo "- **Source**: \`specs/${SPEC_FOLDER##*/}/workflow-state-${ISSUE}.json\`"
       echo
       LESSON_COUNT="$(jq '.lessons_learned | length' "$STATE_FILE")"
       if (( LESSON_COUNT == 0 )); then

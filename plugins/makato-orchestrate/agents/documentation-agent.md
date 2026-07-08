@@ -62,8 +62,9 @@ The agent then derives the rest from the repo:
 Validate that `PR_NUMBER` is present and non-empty. If absent, return R1
 `failure` with `errors: ["missing input: PR_NUMBER"]` immediately.
 
-Locate `specs/*-*/workflow-state.json` whose `github_pr_number` equals
-`PR_NUMBER`:
+Locate `specs/*-*/workflow-state-*.json` whose `github_pr_number` equals
+`PR_NUMBER` (per-issue file layout, #173 — walk every issue's state under
+every spec folder):
 
 ```bash
 if [[ -z "${PR_NUMBER:-}" ]]; then
@@ -71,7 +72,8 @@ if [[ -z "${PR_NUMBER:-}" ]]; then
   exit 1
 fi
 WORKFLOW_STATE=""
-for state in specs/*/workflow-state.json; do
+# Per-issue files first, then legacy pre-migration files as a fallback.
+for state in specs/*/workflow-state-*.json specs/*/workflow-state.json; do
   if [[ -f "$state" ]] && [[ "$(jq -r .github_pr_number "$state" 2>/dev/null)" == "$PR_NUMBER" ]]; then
     WORKFLOW_STATE="$state"
     break

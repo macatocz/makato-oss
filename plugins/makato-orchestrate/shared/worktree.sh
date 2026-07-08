@@ -7,13 +7,14 @@
 # resolved path via the dispatch context bundle and never run `git worktree`
 # commands themselves.
 #
-# Subcommands:
-#   create [--new-branch] <KEY> <REPO> <BRANCH> <ISSUE_NUMBER>
+# Subcommands (all take <KEY> AND <ISSUE_NUMBER> positional args because
+# workflow-state is per-issue since #173):
+#   create [--new-branch] <KEY> <ISSUE_NUMBER> <REPO> <BRANCH>
 #       Create a worktree at .claude/worktrees/<sanitised-repo>-<issue> on
 #       <BRANCH>. Reuses an existing worktree at the target path (resume case)
 #       and prints the canonical event marker (worktree_resumed vs
 #       worktree_created) on the first line of stdout; the absolute worktree
-#       path on the second line. Patches workflow-state.json:.worktree_path to
+#       path on the second line. Patches workflow-state-<ISSUE>.json:.worktree_path to
 #       the absolute path.
 #
 #       Default mode assumes <BRANCH> already exists on the remote (upstream
@@ -29,11 +30,11 @@
 #       where no upstream step created the branch. On failure state is not
 #       mutated and the caller sees the git diagnostic verbatim.
 #
-#   path <KEY>
-#       Print the .worktree_path field from workflow-state.json, or empty
-#       string if unset. Stable contract for sub-agent dispatch bundles.
+#   path <KEY> <ISSUE_NUMBER>
+#       Print the .worktree_path field from workflow-state-<ISSUE>.json, or
+#       empty string if unset. Stable contract for sub-agent dispatch bundles.
 #
-#   cleanup <KEY>
+#   cleanup <KEY> <ISSUE_NUMBER>
 #       Run `git worktree remove --force` on the path in workflow-state, then
 #       patch .worktree_path back to null. Used on workflow `status:
 #       completed`. Refuses to run when .worktree_retained is true (emits
@@ -42,7 +43,7 @@
 #       emits worktree_remove_failed and LEAVES .worktree_path untouched so
 #       the schema invariant `path != null ⟺ worktree on disk` holds.
 #
-#   retain <KEY> <HALT_CODE>
+#   retain <KEY> <ISSUE_NUMBER> <HALT_CODE>
 #       Mark the worktree as deliberately retained — atomically patch BOTH
 #       .worktree_retained=true and .worktree_retain_reason=<HALT_CODE> in a
 #       single write so no concurrent reader observes the half-written state.
@@ -86,6 +87,11 @@ if [[ "$SUBCMD" == "create" && "${1:-}" == "--new-branch" ]]; then
 fi
 
 KEY="${1:?key required}"
+shift || true
+# ISSUE_NUMBER positional #3 across all subcommands so per-issue workflow-state
+# (#173) is routed correctly. `create` already had ISSUE_NUMBER as an internal
+# positional; the change here promotes it from create-only to shared.
+ISSUE_NUMBER="${1:?issue_number required (per-issue workflow-state, #173)}"
 shift || true
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
@@ -139,7 +145,7 @@ _json_encode() {
 # secondary null-string guard is needed (C14 fix removed that dead code).
 # ---------------------------------------------------------------------------
 _state_worktree_path() {
-  "$WS" read "$KEY" | jq -r '.worktree_path // ""'
+  "$WS" read "$KEY" "$ISSUE_NUMBER" | jq -r '.worktree_path // ""'
 }
 
 # ---------------------------------------------------------------------------
@@ -147,7 +153,7 @@ _state_worktree_path() {
 # false on missing/null. Used by cleanup's retain-guard (C15 fix).
 # ---------------------------------------------------------------------------
 _state_worktree_retained() {
-  "$WS" read "$KEY" | jq -r '.worktree_retained // false'
+  "$WS" read "$KEY" "$ISSUE_NUMBER" | jq -r '.worktree_retained // false'
 }
 
 # ---------------------------------------------------------------------------
@@ -194,7 +200,9 @@ case "$SUBCMD" in
   create)
     REPO="${1:?repo required (owner/name form)}"
     BRANCH="${2:?branch required}"
-    ISSUE_NUMBER="${3:?issue_number required}"
+    # ISSUE_NUMBER was already required at the top of the script for every
+    # subcommand (per-issue workflow-state, #173); no additional positional
+    # consumed here. Preserve the local for path composition below.
 
     SAFE_REPO="$(_sanitise_repo "$REPO")"
     WT_PATH="$WORKTREE_ROOT/${SAFE_REPO}-${ISSUE_NUMBER}"
@@ -290,7 +298,7 @@ case "$SUBCMD" in
     # JSON-encode the path so embedded quotes/backslashes survive (C2 fix).
     # The workflow-state patch validator (#170 Fix 3) checks that the path
     # is a registered git worktree — which it verifiably is at this point.
-    "$WS" patch "$KEY" '.worktree_path' "$(_json_encode "$WT_PATH")"
+    "$WS" patch "$KEY" "$ISSUE_NUMBER" '.worktree_path' "$(_json_encode "$WT_PATH")"
 
     # Stdout contract: event on line 1, path on line 2. Callers can read both
     # via head -1 / tail -1 without parsing JSON.
@@ -315,7 +323,7 @@ case "$SUBCMD" in
     # future caller cannot silently destroy a retention artefact.
     # Single state read; extract both fields so we don't fork
     # workflow-state.sh twice for one cleanup call.
-    CLEANUP_STATE="$("$WS" read "$KEY")"
+    CLEANUP_STATE="$("$WS" read "$KEY" "$ISSUE_NUMBER")"
     RETAINED="$(jq -r '.worktree_retained // false' <<<"$CLEANUP_STATE")"
     WT_PATH="$(jq -r '.worktree_path // ""' <<<"$CLEANUP_STATE")"
 
@@ -358,7 +366,7 @@ case "$SUBCMD" in
     # The .worktree_path validator (#170 Fix 3) exempts explicit null
     # writes because the invariant permits `worktree_path == null` when
     # no worktree is on disk.
-    "$WS" patch "$KEY" '.worktree_path' 'null'
+    "$WS" patch "$KEY" "$ISSUE_NUMBER" '.worktree_path' 'null'
 
     echo "worktree_removed"
     ;;
@@ -376,9 +384,9 @@ case "$SUBCMD" in
     # then write back atomically via workflow-state.sh write (which itself
     # uses mktemp + mv).
     JSON_RETAIN_REASON="$(_json_encode "$HALT_CODE")"
-    NEW_STATE="$("$WS" read "$KEY" \
+    NEW_STATE="$("$WS" read "$KEY" "$ISSUE_NUMBER" \
       | jq --argjson r "$JSON_RETAIN_REASON" '.worktree_retained = true | .worktree_retain_reason = $r')"
-    "$WS" write "$KEY" "$NEW_STATE"
+    "$WS" write "$KEY" "$ISSUE_NUMBER" "$NEW_STATE"
 
     echo "worktree_retained"
     ;;

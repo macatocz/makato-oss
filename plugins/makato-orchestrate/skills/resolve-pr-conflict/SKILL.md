@@ -35,17 +35,21 @@ Runs before any other step on every invocation.
 OR the caller context bundle contains `task_id`. Interactive otherwise.
 
 **Resolve worktree path:** in autonomous mode read from workflow-state via
-the canonical helper (it resolves `specs/<key>-*/workflow-state.json` for
-the given KEY — never hand-construct the path; the spec folder uses a
-`<key>-<slug>` suffix that the helper resolves via prefix match):
+the canonical helper (it resolves `specs/<key>-*/workflow-state-<issue>.json`
+for the given KEY / ISSUE — per-issue file layout, #173 — never hand-construct
+the path; the spec folder uses a `<key>-<slug>` suffix that the helper resolves
+via prefix match):
 
 ```bash
-WORKTREE_PATH=$(shared/workflow-state.sh read "$KEY" | jq -r '.worktree_path // empty')
+WORKTREE_PATH=$(shared/workflow-state.sh read "$KEY" "$ISSUE" | jq -r '.worktree_path // empty')
 if [[ -z "$WORKTREE_PATH" ]]; then
-  echo "ERROR: workflow-state has no worktree_path for KEY=$KEY" >&2
+  echo "ERROR: workflow-state has no worktree_path for KEY=$KEY ISSUE=$ISSUE" >&2
   exit 1
 fi
 ```
+
+The PO-agent's dispatch bundle carries `ISSUE_NUMBER` alongside `KEY` — this
+skill must be dispatched with both arguments in autonomous mode.
 
 In interactive mode use `git rev-parse --show-toplevel`.
 

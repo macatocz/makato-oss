@@ -5,6 +5,85 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## `workflow-state` per-issue file layout (#173)
+
+Fixes the incident documented in #173: the `agent-skill-routing` story spans
+issues #143–#147, all sharing `specs/agent-skill-routing/` and therefore the
+same `workflow-state.json`. When `loop.sh` dispatched #144 at 02:34 CEST on
+2026-07-08 (after #143 completed at 01:53), the second `init` call overwrote
+the state file — #143's `sub_tasks[]`, `halt_audit[]`, and `lessons_learned[]`
+were permanently lost. Every multi-issue story with a shared spec folder was
+one dispatch away from the same data loss, and two concurrent PO-agents
+racing on the same file would corrupt state without any lock.
+
+- **`shared/workflow-state.sh`** — state file layout changed from
+  `specs/<KEY>/workflow-state.json` to
+  `specs/<KEY>/workflow-state-<ISSUE_NUMBER>.json`. Every subcommand that
+  historically took only `<KEY>` (`read`, `write`, `patch`, `append-lesson`,
+  `append-halt`, `summarise-lessons`) now takes an additional
+  `<ISSUE_NUMBER>` positional in slot #3. `init` was already issue-scoped;
+  `recall-lessons` (repo-scoped by design) is unchanged in signature — its
+  aggregator glob widened from `-name workflow-state.json` to
+  `-name workflow-state-*.json`. Three new helpers land inside the script:
+  `_validate_issue_number` (`^[1-9][0-9]*$` at the shell layer, doubling
+  the fail-open jsonschema check), `_resolve_state_file` (path composer),
+  and `_migrate_legacy_state` (read-time promotion of any legacy
+  `workflow-state.json` to `workflow-state-<its own .issue_number>.json` —
+  content-driven, atomic `mv`, idempotent, and preserves a legacy file
+  under `.superseded-by-<issue>` when the target already exists). Atomic
+  write, schema validation, and the #170 `.worktree_path` guard all flow
+  unchanged through the new path — the guard is now enforced on every
+  per-issue file individually.
+- **`skills/workflow-state/SKILL.md`** — 1.4.0 → 1.5.0. Every subcommand
+  example carries the new `<ISSUE_NUMBER>` positional. Description
+  updated to name the per-issue layout as the on-disk contract. Cross-
+  plugin caller note explicitly states that `build-implement-tdd` threads
+  the issue number.
+- **`skills/workflow-state/references/smoke-tests.sh`** — 34 existing
+  tests updated for the new arg shape; eight new tests (T35–T42) cover
+  per-issue init isolation, subcommand routing per ISSUE, per-issue
+  `summarise-lessons`, aggregate `recall-lessons` across per-issue files,
+  legacy-file read-time migration, ISSUE_NUMBER validation, `.worktree_path`
+  guard regression under the new layout, and cross-repo filter. 42/42
+  pass.
+- **`scripts/context-handoff.sh`** — `check` and `emit-resume` grow a
+  required `<ISSUE_NUMBER>` positional in slot #3. The resume script name
+  is now `resume-<KEY>-<ISSUE>.sh` so multiple issues sharing a spec
+  folder cannot clobber each other's resume scripts. Its idempotency
+  guard reads state via `WS read "$KEY" "$ISSUE"`.
+- **`scripts/loop.sh`** — `in_flight_issues` glob widened to
+  `\( -name workflow-state-*.json -o -name workflow-state.json \)` so
+  per-issue files are picked up and any not-yet-migrated legacy files
+  remain visible until their next mutation triggers promotion.
+- **`hooks/session-status.sh`** — banner scan widened to
+  `"$SPECS_ROOT"/*/workflow-state-*.json` (with legacy
+  `"$SPECS_ROOT"/*/workflow-state.json` fallback). One banner line per
+  per-issue state file. Malformed-file skip preserved.
+- **`scripts/loop-smoke-tests.sh`, `scripts/context-handoff-smoke-tests.sh`,
+  `hooks/session-status-smoke-tests.sh`** — fixture paths follow the
+  new layout; every mutating `WS` invocation threads the issue number.
+  All 18 + 7 + 13 tests pass.
+- **`agents/po-agent.md`, `agents/documentation-agent.md`, `README.md`,
+  `skills/loop/SKILL.md`, `skills/resolve-pr-conflict/SKILL.md`,
+  `skills/session-status/SKILL.md`** — doc-only. Every embedded
+  `workflow-state.sh` shell example now carries `<ISSUE_NUMBER>`; every
+  glob / walk reference names the per-issue layout with a legacy fallback.
+  `resolve-pr-conflict` explicitly requires the PO-agent's dispatch
+  bundle to carry `ISSUE_NUMBER` alongside `KEY`.
+
+**Backward compatibility.** The one-shot read-time migration means
+consumer repos with existing `specs/<KEY>/workflow-state.json` files
+promote them on next read without operator action. The promotion path
+is content-driven (issue read from the file's own `.issue_number`), so a
+caller reading with a wrong `ISSUE_NUMBER` sees `{}` after promotion —
+correct behaviour because the legacy file belonged to a different issue
+and the caller can now `init` its own file.
+
+**Schema unchanged.** `workflow-state.schema.json` is agnostic to the
+on-disk filename; only the file layout and caller signatures changed.
+
+---
+
 ## `loop.sh` run mutex — pidfile guard against concurrent instances (#172)
 
 Fixes the incident documented in #172: an operator started

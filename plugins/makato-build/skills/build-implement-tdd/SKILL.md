@@ -239,10 +239,14 @@ When `r1.status == "success"`, also patch workflow-state so the PO-agent (GAP-00
 ```bash
 MAKATO_ROOT="$(git rev-parse --show-toplevel)/plugins/makato-orchestrate"
 if [[ -x "$MAKATO_ROOT/shared/workflow-state.sh" ]]; then
-  "$MAKATO_ROOT/shared/workflow-state.sh" patch "<key>" ".sub_tasks[$((TASK_INDEX-1))].status" '"complete"'
-  "$MAKATO_ROOT/shared/workflow-state.sh" patch "<key>" ".sub_tasks[$((TASK_INDEX-1))].agent_result" '<r1-envelope-as-json-literal>'
+  "$MAKATO_ROOT/shared/workflow-state.sh" patch "<key>" "<issue>" ".sub_tasks[$((TASK_INDEX-1))].status" '"complete"'
+  "$MAKATO_ROOT/shared/workflow-state.sh" patch "<key>" "<issue>" ".sub_tasks[$((TASK_INDEX-1))].agent_result" '<r1-envelope-as-json-literal>'
 fi
 ```
+
+`<issue>` is threaded from the PO-agent context bundle (see `WORKTREE_PATH` /
+`ISSUE_NUMBER` inputs in § *Input*) — post-#173 the state file is per-issue
+(`workflow-state-<issue>.json`) so every mutating call must supply it.
 
 **Note:** unconditional on autonomous mode (per `AUTONOMOUS-MODE.md` § Skills NOT in scope this skill always runs autonomously); conditional only on `r1.status == "success"`. On `partial` or `failure` the PO-agent reads the R1 envelope from `build.jsonl` and applies its own state mutation — that path lands in GAP-006 (#32).
 

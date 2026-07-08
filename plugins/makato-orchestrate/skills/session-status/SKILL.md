@@ -28,7 +28,7 @@ Do **not** call this script from skills, agents, or scripts. The runtime trigger
 When an operator opens a new Claude Code session in a repo that hosts autonomous PO-agent runs, there is no native signal telling them whether a workflow is already in progress, whether it's stalled, or whether a HALT fired. The banner prints:
 
 - A global **HALT ACTIVE** warning when `~/.claude/HALT` exists — printed first, before any per-workflow line.
-- One line per `specs/<key>-<slug>/workflow-state.json` found, showing: issue number, current phase, budget consumed vs. limit (with percentage), HALT count, last `updated_at` timestamp, and the last HALT code if any.
+- One line per `specs/<key>-<slug>/workflow-state-<issue>.json` found (per-issue layout, #173 — legacy `workflow-state.json` files still on disk are also picked up until they are migrated on next mutation), showing: issue number, current phase, budget consumed vs. limit (with percentage), HALT count, last `updated_at` timestamp, and the last HALT code if any.
 - A `⚠ STALE — resume: /loop --autonomous <issue>` marker on any workflow whose `updated_at` is more than 24 hours ago.
 - `No active workflows` and exit 0 when no state files exist.
 
@@ -74,7 +74,7 @@ No active workflows
 |----------------------------------|-----------------------|---------|
 | `MAKATO_HALT_FILE`               | `$HOME/.claude/HALT`  | Override the kill-switch file path. Shared with `check-halt.sh` so a single override covers both hooks during tests. |
 | `MAKATO_DISABLE_SESSION_STATUS`  | unset                 | Set to `1` to short-circuit the hook and exit 0 silently. Reserved for emergencies (broken `jq`, corrupted `specs/`, hostile state file) and CI runs where a banner is noise. |
-| `MAKATO_SPECS_ROOT`              | `<repo-root>/specs`   | Override the directory scanned for `*/workflow-state.json`. Used by smoke tests; not used in production. |
+| `MAKATO_SPECS_ROOT`              | `<repo-root>/specs`   | Override the directory scanned for `*/workflow-state-*.json` (and legacy `*/workflow-state.json`). Used by smoke tests; not used in production. |
 | `MAKATO_STALE_HOURS`             | `24`                  | Hours after which `updated_at` is considered stale. Mostly a knob for tests. |
 
 ## Failure semantics

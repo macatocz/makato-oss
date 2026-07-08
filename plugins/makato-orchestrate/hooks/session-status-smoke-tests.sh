@@ -59,7 +59,7 @@ _make_state() {
     restart_failed: false,
     created_at: $ts,
     updated_at: $ts
-  } | '"$overrides" > "$dir/workflow-state.json"
+  } | '"$overrides" > "$dir/workflow-state-${issue}.json"
 }
 
 # Run the hook with the sandbox specs root. Halt file path is parameter $1.

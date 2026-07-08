@@ -71,10 +71,15 @@ if [[ -e "$HALT_FILE" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Scan specs/*/workflow-state.json. Use nullglob so a missing match is empty.
+# Scan specs/*/workflow-state-*.json (per-issue layout — #173) with a fallback
+# to any legacy specs/*/workflow-state.json that has not been migrated yet.
+# Use nullglob so a missing match is empty.
 # ---------------------------------------------------------------------------
 shopt -s nullglob
-state_files=("$SPECS_ROOT"/*/workflow-state.json)
+state_files=(
+  "$SPECS_ROOT"/*/workflow-state-*.json
+  "$SPECS_ROOT"/*/workflow-state.json
+)
 shopt -u nullglob
 
 if [[ ${#state_files[@]} -eq 0 ]]; then

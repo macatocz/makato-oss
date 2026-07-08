@@ -282,7 +282,12 @@ in_flight_issues() {
   # in a single pass and filter in jq rather than running two greps' worth
   # of forks per file. Per-file error handling preserved — malformed JSON
   # in one workflow-state.json must not crash the whole poll.
-  find "$SPECS_DIR" -maxdepth 2 -name 'workflow-state.json' -print0 2>/dev/null |
+  # Glob widened to workflow-state-*.json (#173) so per-issue files under a
+  # shared spec folder are all picked up. Legacy workflow-state.json files
+  # are read by the -o clause below until their next write triggers migration.
+  find "$SPECS_DIR" -maxdepth 2 \
+    \( -name 'workflow-state-*.json' -o -name 'workflow-state.json' \) \
+    -print0 2>/dev/null |
     while IFS= read -r -d '' f; do
       jq -r 'select(.current_phase != "done") | (.issue_number // empty)' \
         "$f" 2>/dev/null || true

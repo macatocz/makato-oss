@@ -21,12 +21,12 @@
 #                 restart_failed: true and fall through to HALT-007.
 #
 # Usage:
-#   context-handoff.sh check <KEY>
+#   context-handoff.sh check <KEY> <ISSUE_NUMBER>
 #     Evaluate threshold. Exit 0 = no handoff needed.
 #                          Exit 2 = handoff initiated (HANDOFF status).
 #                          Exit 1 = handoff failed (HALT-007 fallback).
 #
-#   context-handoff.sh emit-resume <KEY>
+#   context-handoff.sh emit-resume <KEY> <ISSUE_NUMBER>
 #     (Internal) Write .claude/state/resume-{KEY}.sh. Idempotent.
 #
 # Environment variables:
@@ -58,11 +58,12 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 SUBCMD="${1:?subcommand required: check|emit-resume}"
 KEY="${2:?key required}"
+ISSUE_NUMBER="${3:?issue_number required (per-issue state file, #173)}"
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 WS="$REPO_ROOT/plugins/makato-orchestrate/shared/workflow-state.sh"
 STATE_DIR="$REPO_ROOT/.claude/state"
-RESUME_SCRIPT="$STATE_DIR/resume-${KEY}.sh"
+RESUME_SCRIPT="$STATE_DIR/resume-${KEY}-${ISSUE_NUMBER}.sh"
 MAX_HANDOFFS="${MAKATO_MAX_HANDOFFS:-5}"
 CLAUDE_BIN="${MAKATO_CLAUDE_BIN:-claude}"
 
@@ -82,7 +83,7 @@ print(n.strftime('%Y-%m-%dT%H:%M:%S.') + f'{n.microsecond // 1000:03d}Z')"
 # Args: <jq-path>
 # ---------------------------------------------------------------------------
 _state_field() {
-  "$WS" read "$KEY" | jq -r "$1"
+  "$WS" read "$KEY" "$ISSUE_NUMBER" | jq -r "$1"
 }
 
 # ---------------------------------------------------------------------------
@@ -98,7 +99,7 @@ _state_field() {
 _append_halt_audit() {
   local code="$1"
   local data="$2"
-  "$WS" append-halt "$KEY" "$code" "$data"
+  "$WS" append-halt "$KEY" "$ISSUE_NUMBER" "$code" "$data"
 }
 
 # ---------------------------------------------------------------------------
@@ -123,9 +124,9 @@ ISSUE="$issue"
 
 # Idempotency guard — reading state via the helper handles missing-file
 # (returns {}); jq treats that as null which compares cleanly.
-STATE_PHASE="\$( "$WS" read "\$KEY" 2>/dev/null | jq -r '.current_phase // "null"')"
+STATE_PHASE="\$( "$WS" read "\$KEY" "\$ISSUE" 2>/dev/null | jq -r '.current_phase // "null"')"
 if [[ "\$STATE_PHASE" == "done" ]]; then
-  echo "resume-\$KEY: run already complete (current_phase=done) — no-op" >&2
+  echo "resume-\$KEY-\$ISSUE: run already complete (current_phase=done) — no-op" >&2
   exit 0
 fi
 
@@ -141,7 +142,7 @@ EOF
 # ---------------------------------------------------------------------------
 _halt_007_fallback() {
   local reason="$1"
-  "$WS" patch "$KEY" '.restart_failed' 'true'
+  "$WS" patch "$KEY" "$ISSUE_NUMBER" '.restart_failed' 'true'
   _append_halt_audit "HALT-007" "$(jq -n \
     --arg reason "$reason" \
     '{trigger: "context-handoff-fallback", reason: $reason}')"
@@ -167,7 +168,7 @@ _check() {
   # Single state read; extract all five fields from the same payload to avoid
   # five separate `workflow-state.sh read` subprocess chains per check.
   local state
-  state="$("$WS" read "$KEY")"
+  state="$("$WS" read "$KEY" "$ISSUE_NUMBER")"
   local consumed warn count summary resume_point
   consumed="$(jq -r '.budget_consumed_tokens'   <<<"$state")"
   warn="$(jq    -r '.context_warn_tokens'       <<<"$state")"
@@ -203,7 +204,7 @@ _check() {
   merged="$(jq --argjson c "$((count + 1))" \
     '. + {session_count: $c, handoff_reason: "context_ceiling"}' \
     <<<"$state")"
-  "$WS" write "$KEY" "$merged"
+  "$WS" write "$KEY" "$ISSUE_NUMBER" "$merged"
 
   if [[ -z "$resume_point" || "$resume_point" == "null" ]]; then
     resume_point="unknown"

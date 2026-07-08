@@ -115,7 +115,9 @@ Each outer iteration of `run` performs the following steps in order:
    `last_poll`, `queue_depth`, the issue-number list under `queue`, and
    the operator-supplied `status_name` / `interval_seconds` /
    `dry_run` flags.
-4. **In-flight filter.** Every `specs/*/workflow-state.json` is scanned
+4. **In-flight filter.** Every `specs/*/workflow-state-*.json` (per-issue
+   layout, #173; legacy `specs/*/workflow-state.json` files also parsed as
+   a fallback until they migrate on next mutation) is scanned
    for `issue_number` + `current_phase`. Any issue whose state file
    exists and is NOT `current_phase: "done"` is considered in-flight
    and skipped — this guarantees single-threaded execution across
