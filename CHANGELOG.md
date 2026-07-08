@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.31.3](https://github.com/macatocz/makato/compare/v0.31.2...v0.31.3) (2026-07-08)
+
+
+### 🐛 Bug Fixes
+
+* **ci:** fall back to GITHUB_TOKEN when RELEASE_PLEASE_PAT is unset ([#184](https://github.com/macatocz/makato/issues/184)) ([75ae631](https://github.com/macatocz/makato/commit/75ae63143b6e40d1b6ca1eb4facf370109c48528))
+
+
+### 🤖 CI
+
+* auto-merge release-please PRs (single-branch main flow) ([#181](https://github.com/macatocz/makato/issues/181)) ([#182](https://github.com/macatocz/makato/issues/182)) ([84ebc85](https://github.com/macatocz/makato/commit/84ebc85bbbdf206e2dd969aa9bd0c8f391bc0c90))
+
 ## [0.31.2](https://github.com/macatocz/makato/compare/v0.31.1...v0.31.2) (2026-07-08)
 
 
