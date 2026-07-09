@@ -1,12 +1,12 @@
 ---
 name: penpot-uiux-design
 description: 'Comprehensive guide for creating professional UI/UX designs in Penpot using MCP tools. Use this skill when: (1) Creating new UI/UX designs for web, mobile, or desktop applications, (2) Building design systems with components and tokens, (3) Designing dashboards, forms, navigation, or landing pages, (4) Applying accessibility standards and best practices, (5) Following platform guidelines (iOS, Android, Material Design), (6) Reviewing or improving existing Penpot designs for usability. Triggers: "design a UI", "create interface", "build layout", "design dashboard", "create form", "design landing page", "make it accessible", "design system", "component library".'
-version: "1.0.0"
+version: 1.1.0
 ---
 
 # Penpot UI/UX Design Guide
 
-Create professional, user-centered designs in Penpot using the `penpot/penpot-mcp` MCP server and proven UI/UX principles.
+Create professional, user-centered designs in Penpot using the Penpot MCP server and proven UI/UX principles.
 
 ## Available MCP Tools
 
@@ -14,66 +14,60 @@ Create professional, user-centered designs in Penpot using the `penpot/penpot-mc
 | ---- | ------- |
 | `mcp__penpot__execute_code` | Run JavaScript in Penpot plugin context to create/modify designs |
 | `mcp__penpot__export_shape` | Export shapes as PNG/SVG for visual inspection |
-| `mcp__penpot__import_image` | Import images (icons, photos, logos) into designs |
-| `mcp__penpot__penpot_api_info` | Retrieve Penpot API documentation |
+| `mcp__penpot__high_level_overview` | Read Penpot API overview — call once before first execute_code |
+| `mcp__penpot__penpot_api_info` | Retrieve detailed Penpot API docs for a specific type or member |
+
+> **No `mcp__penpot__import_image`** — not available in the cloud Penpot MCP. Use image fills via
+> `shape.fills = [{ fillOpacity: 1, fillImage: { ... } }]` if image import is needed, or skip images
+> and use color fills / SVG shapes instead.
 
 ## MCP Server Setup
 
-The Penpot MCP tools require the `penpot/penpot-mcp` server running locally. For detailed installation and troubleshooting, see [setup-troubleshooting.md](references/setup-troubleshooting.md).
-
-### Before Setup: Check If Already Running
+### Check First — Server May Already Be Connected
 
 **Always check if the MCP server is already available before attempting setup:**
 
-1. **Try calling a tool first**: Attempt `mcp__penpot__penpot_api_info` - if it succeeds, the server is running and connected. No setup needed.
+1. Try calling `mcp__penpot__high_level_overview` — if it succeeds, the server is connected. No setup needed.
+2. If the tool fails, ask the user whether the Penpot MCP is configured in their `.mcp.json`.
 
-2. **If the tool fails**, ask the user:
-   > "The Penpot MCP server doesn't appear to be connected. Is the server already installed and running? If so, I can help troubleshoot. If not, I can guide you through the setup."
+### Cloud Penpot MCP (Preferred)
 
-3. **Only proceed with setup instructions if the user confirms the server is not installed.**
+The cloud Penpot MCP connects directly to `https://design.penpot.app` — no local servers or Node.js required.
 
-### Quick Start (Only If Not Installed)
+Add to `.mcp.json` in the project root:
 
-```bash
-# Clone and install
-git clone https://github.com/penpot/penpot-mcp.git
-cd penpot-mcp
-npm install
-
-# Build and start servers
-npm run bootstrap
-```
-
-Then in Penpot:
-1. Open a design file
-2. Go to **Plugins** → **Load plugin from URL**
-3. Enter: `http://localhost:4400/manifest.json`
-4. Click **"Connect to MCP server"** in the plugin UI
-
-### VS Code Configuration
-
-Add to `settings.json`:
 ```json
 {
-  "mcp": {
-    "servers": {
-      "penpot": {
-        "url": "http://localhost:4401/sse"
-      }
+  "mcpServers": {
+    "penpot": {
+      "type": "http",
+      "url": "https://design.penpot.app/mcp/stream?userToken=<YOUR_TOKEN>"
     }
   }
 }
 ```
 
-### Troubleshooting (If Server Is Installed But Not Working)
+To get a `userToken`:
+
+1. Log in to [design.penpot.app](https://design.penpot.app)
+2. Go to **Profile → Access Tokens**
+3. Generate a new token and paste it into the URL
+
+**The Penpot browser tab must be open and a design file must be active** for `execute_code` to work.
+The cloud MCP does not use WebSockets or local ports.
+
+### Local Penpot MCP (Alternative)
+
+For self-hosted Penpot or offline work, see [setup-troubleshooting.md](references/setup-troubleshooting.md).
+
+### Troubleshooting
 
 | Issue | Solution |
 | ----- | -------- |
-| Plugin won't connect | Check servers are running (`npm run start:all` in penpot-mcp dir) |
-| Browser blocks localhost | Allow local network access prompt, or disable Brave Shield, or try Firefox |
-| Tools not appearing in client | Restart VS Code/Claude completely after config changes |
-| Tool execution fails/times out | Ensure Penpot plugin UI is open and shows "Connected" |
-| "WebSocket connection failed" | Check firewall allows ports 4400, 4401, 4402 |
+| `execute_code` times out | Open Penpot in the browser and open a design file |
+| Token auth error | Regenerate token in Penpot → Profile → Access Tokens |
+| Tools not appearing | Reload plugins in Claude Code: `/reload-plugins` |
+| Empty result from `execute_code` | Ensure a file is open — not just the Penpot dashboard |
 
 ## Quick Reference
 
@@ -104,12 +98,13 @@ Add to `settings.json`:
 
 ## Design Workflow
 
-1. **Check for design system first**: Ask user if they have existing tokens/specs, or discover from current Penpot file
-2. **Understand the page**: Call `mcp__penpot__execute_code` with `penpotUtils.shapeStructure()` to see hierarchy
-3. **Find elements**: Use `penpotUtils.findShapes()` to locate elements by type or name
-4. **Create/modify**: Use `penpot.createBoard()`, `penpot.createRectangle()`, `penpot.createText()` etc.
-5. **Apply layout**: Use `addFlexLayout()` for responsive containers
-6. **Validate**: Call `mcp__penpot__export_shape` to visually check your work
+1. **Read the API overview first**: Call `mcp__penpot__high_level_overview` before the first `execute_code` call (it is deferred — call it once per session)
+2. **Check for design system**: Ask user if they have existing tokens/specs, or discover from current Penpot file
+3. **Understand the page**: Call `mcp__penpot__execute_code` with `penpotUtils.shapeStructure()` to see hierarchy
+4. **Find elements**: Use `penpotUtils.findShapes()` to locate elements by type or name
+5. **Create/modify**: Use `penpot.createBoard()`, `penpot.createRectangle()`, `penpot.createText()` etc.
+6. **Apply layout**: Use `addFlexLayout()` for responsive containers
+7. **Validate**: Call `mcp__penpot__export_shape` to visually check your work
 
 ## Design System Handling
 
@@ -158,6 +153,8 @@ return { colors: [...colors], textStyles, componentCount: components.length };
 - Use `insertChild(index, shape)` for z-ordering (not `appendChild`)
 - Flex children array order is REVERSED for `dir="column"` or `dir="row"`
 - After `text.resize()`, reset `growType` to `"auto-width"` or `"auto-height"`
+- `execute_code` return value must be explicitly `return`-ed — the last expression is NOT auto-returned
+- `mcp__penpot__high_level_overview` must be called before accessing advanced API — it loads deferred type definitions
 
 ## Positioning New Boards
 
