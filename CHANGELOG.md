@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.34.0](https://github.com/macatocz/makato/compare/v0.33.0...v0.34.0) (2026-07-09)
+
+
+### ✨ Features
+
+* board Ready → In progress via assign-on-dispatch + project-board-sync workflow ([#33](https://github.com/macatocz/makato/issues/33)) ([#191](https://github.com/macatocz/makato/issues/191)) ([0b9f341](https://github.com/macatocz/makato/commit/0b9f341bdff08ae38c2bf0925b44e51912cc0f1e))
+
 ## [0.33.0](https://github.com/macatocz/makato/compare/v0.32.0...v0.33.0) (2026-07-09)
 
 
