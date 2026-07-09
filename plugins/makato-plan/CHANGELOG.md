@@ -5,6 +5,20 @@ Changes are grouped by skill/agent/component. Within each group, latest version 
 
 ---
 
+## `issue-to-project` skill
+
+- **webhook-lifecycle `issues.assigned → In progress` (#33)**
+  - documented the new `issues.assigned → In progress` lifecycle transition
+    in `references/webhook-lifecycle.md`: a forward-only promotion (from
+    `Ready`/`Todo`/unset, never rolling back from `In review`/`Done`/`Blocked`)
+    fired when the autonomous `loop.sh` dispatcher assigns an issue just
+    before spawning the PO-agent
+  - implemented natively in the consumer repo's
+    `.github/workflows/project-board-sync.yml` (ported from the sagibeast
+    `post-merge.yml` reference); the Claude-driven `--from-webhook` path
+    treats `issues.assigned` as non-actionable until a future release wires
+    it into `TRANSITION_MAP`. Doc carries a keep-in-sync note between the two.
+
 ## `to-issues` skill
 
 - **3.4.0**

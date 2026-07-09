@@ -145,6 +145,21 @@ CONFIG_FILE="${MAKATO_LOOP_CONFIG:-$REPO_ROOT/.claude/config.json}"
 DEFAULT_INTERVAL="${MAKATO_LOOP_INTERVAL:-300}"
 DEFAULT_STATUS="${MAKATO_LOOP_STATUS:-Ready}"
 
+# Assign-on-dispatch (#33 board-lifecycle-sync). Just before spawning the
+# PO-agent, the loop assigns the issue to an actor via `gh issue edit
+# --add-assignee`. That fires the `issues.assigned` webhook, which the
+# `project-board-sync.yml` GHA moves Ready → In progress on the board. The
+# loop itself stays strictly read-only against the *board* (issue-to-project
+# owns Status writes) — assigning an issue is a repo mutation, not a board
+# mutation, and the assign is the trigger the board sync listens for.
+#   - MAKATO_LOOP_ASSIGN_ON_DISPATCH=0 disables it entirely (default on).
+#   - MAKATO_LOOP_ASSIGNEE overrides the assignee login (default "@me",
+#     i.e. the authenticated `gh` user driving the loop).
+# A failed assign is logged but never blocks dispatch — the board sync is
+# best-effort telemetry, not a gate on getting work done.
+ASSIGN_ON_DISPATCH="${MAKATO_LOOP_ASSIGN_ON_DISPATCH:-1}"
+ASSIGNEE="${MAKATO_LOOP_ASSIGNEE:-@me}"
+
 # Watchdog defaults — see #164. Values are seconds of no-output on the
 # combined stdout+stderr log before the watchdog escalates. Operators can
 # override via env; tests use small values (STALL_POLL=1) to exercise
@@ -615,6 +630,39 @@ _within_dispatch_guard() {
 }
 
 # ---------------------------------------------------------------------------
+# _assign_issue <ISSUE_NUMBER> — assign the issue to the dispatch actor via
+# `gh issue edit --add-assignee`, firing the `issues.assigned` webhook that
+# `project-board-sync.yml` translates into a Ready → In progress board move
+# (#33). Best-effort: a non-zero `gh` exit is logged and swallowed so a
+# GitHub outage or a missing `issues:write` scope never blocks real work.
+# Repo is taken from MAKATO_LOOP_DISPATCH_REPO (set by cmd_run from the poll
+# result); when absent, `gh` falls back to the ambient repo context.
+# ---------------------------------------------------------------------------
+_assign_issue() {
+  local issue="$1"
+  [[ "$ASSIGN_ON_DISPATCH" == "1" ]] || return 0
+
+  # Test hook: record the intended assign instead of hitting the network.
+  # loop-smoke-tests.sh sets MAKATO_LOOP_ASSIGN_TEST_FILE to a path and
+  # asserts on its contents.
+  if [[ -n "${MAKATO_LOOP_ASSIGN_TEST_FILE:-}" ]]; then
+    echo "assign #${issue} assignee=${ASSIGNEE} repo=${MAKATO_LOOP_DISPATCH_REPO:-<ambient>}" \
+      >>"${MAKATO_LOOP_ASSIGN_TEST_FILE}"
+    return 0
+  fi
+
+  local -a repo_flag=()
+  [[ -n "${MAKATO_LOOP_DISPATCH_REPO:-}" ]] && repo_flag=(--repo "${MAKATO_LOOP_DISPATCH_REPO}")
+
+  if gh issue edit "$issue" "${repo_flag[@]}" --add-assignee "$ASSIGNEE" >/dev/null 2>&1; then
+    echo "loop: assigned #$issue to $ASSIGNEE (board → In progress via project-board-sync.yml)" >&2
+  else
+    echo "loop: WARN — failed to assign #$issue to $ASSIGNEE (dispatch continues; board Status unchanged)" >&2
+  fi
+  return 0
+}
+
+# ---------------------------------------------------------------------------
 # dispatch <ISSUE_NUMBER> [--dry-run]
 # ---------------------------------------------------------------------------
 cmd_dispatch() {
@@ -656,9 +704,17 @@ cmd_dispatch() {
 
   if [[ "$dry_run" == "--dry-run" ]]; then
     echo "loop: --dry-run — would exec: $CLAUDE_BIN --dangerously-skip-permissions -p \"<dispatch makato-orchestrate:po-agent for issue #${issue}>\"" >&2
+    echo "loop: --dry-run — would assign #${issue} to ${ASSIGNEE} (board → In progress)" >&2
     _patch_status '.active_workflow' 'null'
     return 0
   fi
+
+  # Assign the issue to the dispatch actor → fires issues.assigned →
+  # project-board-sync.yml moves the board Ready → In progress (#33). Done
+  # for BOTH the DRY_DISPATCH test path and the real fork so the smoke
+  # suite can assert on it; skipped only under --dry-run above (inspection
+  # mode never mutates GitHub). Best-effort — never blocks dispatch.
+  _assign_issue "$issue"
 
   # Test hook — exercise the full state-machine without forking a subprocess.
   # .last_dispatch_issue is already stamped by the unconditional block
@@ -926,11 +982,19 @@ cmd_run() {
 
     if [[ -n "$next_issue" ]]; then
       echo "loop: dispatching issue #$next_issue (status=$status_name, queue_depth=$queue_depth)" >&2
+      # Resolve the owning repository for this issue from the poll result
+      # (the board is cross-repo — every item carries its own repository).
+      # Passed to cmd_dispatch via env so the public `dispatch <ISSUE>`
+      # signature is unchanged; the assign-on-dispatch step needs it for
+      # `gh issue edit --repo`.
+      local next_repo
+      next_repo="$(jq -r --argjson n "$next_issue" \
+        'map(select(.issue == $n)) | .[0].repository // empty' <<<"$queue")"
       # `cmd_dispatch` already clears active_workflow on return; we ignore
       # the PO-agent's exit code — it writes its own HALT audit to
       # workflow-state.json; the loop's job is to surface the next issue,
       # not to second-guess the orchestrator's terminal state.
-      cmd_dispatch "$next_issue" "$dry_run" || true
+      MAKATO_LOOP_DISPATCH_REPO="$next_repo" cmd_dispatch "$next_issue" "$dry_run" || true
     else
       echo "loop: queue empty or fully in-flight (depth=$queue_depth) — idle" >&2
     fi

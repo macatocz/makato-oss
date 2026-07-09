@@ -24,6 +24,8 @@
 #   T16: run reclaims a stale pidfile silently (dead PID)
 #   T17: startup_audit records script_path/pid/ppid/pidfile
 #   T18: run --force reclaims a live pidfile by SIGTERM'ing the incumbent
+#   T23: dispatch assigns the issue on the real-fork path; --dry-run does not (#33)
+#   T24: MAKATO_LOOP_ASSIGN_ON_DISPATCH=0 disables the assign (#33)
 #
 # A fixture file is injected via MAKATO_LOOP_GH_OVERRIDE so `gh` is not
 # invoked. Test isolation uses MAKATO_LOOP_STATE_DIR + ephemeral spec
@@ -499,6 +501,48 @@ fi
 MAKATO_LOOP_TEST_HOOK=1 "$LOOP" _test-guarded-sleep 0 >/dev/null 2>&1 \
   || fail "expected exit 0 when _test-* invoked with MAKATO_LOOP_TEST_HOOK=1"
 echo "  ✓ test hooks gated behind MAKATO_LOOP_TEST_HOOK=1"
+
+# ---------------------------------------------------------------------------
+echo "=== T23: dispatch assigns the issue on the real-fork path (#33) ==="
+# The assign fires issues.assigned → project-board-sync.yml moves the board
+# Ready → In progress. We route the assign through MAKATO_LOOP_ASSIGN_TEST_FILE
+# so no `gh` call is made, and pair it with MAKATO_LOOP_DRY_DISPATCH=1 so the
+# state machine runs the assign step (which is AFTER the --dry-run early-return
+# but BEFORE the fork) without spawning a subprocess.
+rm -f "$STATE_DIR/loop-status.json"
+assign_log="$STATE_DIR/assign-audit.txt"
+rm -f "$assign_log"
+MAKATO_LOOP_DRY_DISPATCH=1 \
+  MAKATO_LOOP_ASSIGN_TEST_FILE="$assign_log" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  "$LOOP" dispatch 12345 >/dev/null 2>&1 \
+  || fail "dispatch should exit 0 on DRY_DISPATCH path"
+[[ -f "$assign_log" ]] || fail "assign audit file not written — assign step skipped"
+grep -q "assign #12345 assignee=@me repo=macatocz/makato" "$assign_log" \
+  || fail "assign audit missing expected line; got: $(cat "$assign_log" 2>/dev/null)"
+echo "  ✓ issue assigned on dispatch (assignee=@me, repo threaded through)"
+
+# Sub-assertion — --dry-run (inspection mode) must NOT assign.
+rm -f "$STATE_DIR/loop-status.json" "$assign_log"
+MAKATO_LOOP_ASSIGN_TEST_FILE="$assign_log" \
+  "$LOOP" dispatch 12345 --dry-run >/dev/null 2>&1 \
+  || fail "dispatch --dry-run should exit 0"
+[[ ! -f "$assign_log" ]] \
+  || fail "--dry-run assigned the issue (inspection mode must not mutate GitHub)"
+echo "  ✓ --dry-run does not assign (inspection-only)"
+
+# ---------------------------------------------------------------------------
+echo "=== T24: MAKATO_LOOP_ASSIGN_ON_DISPATCH=0 disables assign (#33) ==="
+rm -f "$STATE_DIR/loop-status.json" "$assign_log"
+MAKATO_LOOP_DRY_DISPATCH=1 \
+  MAKATO_LOOP_ASSIGN_ON_DISPATCH=0 \
+  MAKATO_LOOP_ASSIGN_TEST_FILE="$assign_log" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  "$LOOP" dispatch 12345 >/dev/null 2>&1 \
+  || fail "dispatch should exit 0 with assign disabled"
+[[ ! -f "$assign_log" ]] \
+  || fail "assign fired even though MAKATO_LOOP_ASSIGN_ON_DISPATCH=0"
+echo "  ✓ assign opt-out honored"
 
 echo
 echo "=== ALL TESTS PASSED ==="

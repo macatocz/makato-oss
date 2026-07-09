@@ -188,6 +188,25 @@ to prevent double-dispatch. Two reasons we don't:
    racing the lifecycle webhook handler. `loop` leaves the board to
    `issue-to-project` — it only reads it.
 
+### The one exception: assign-on-dispatch (#33)
+
+`loop` stays strictly read-only against the **board** (the Status field),
+but it *does* make one **repo** mutation at dispatch: it assigns the issue
+to the dispatch actor via `gh issue edit --add-assignee` (default `@me`)
+just before spawning the PO-agent. This is not a board write — it is the
+`issues.assigned` webhook *trigger* that the `project-board-sync.yml` GHA
+listens for and translates into a `Ready → In progress` Status move. The
+split of responsibilities is preserved: `loop` never touches
+`updateProjectV2ItemFieldValue`; the board sync workflow (the native
+equivalent of `issue-to-project --from-webhook`) owns every Status write.
+
+The assign is **best-effort** — a failed `gh` call is logged and swallowed,
+never blocking dispatch. It is idempotent (GitHub's add-assignee API is a
+no-op when already assigned) and the board sync is forward-only (a late
+re-assign never rolls a card back from `In review`/`Done`). Disable the
+whole behaviour with `MAKATO_LOOP_ASSIGN_ON_DISPATCH=0`; override the
+assignee login with `MAKATO_LOOP_ASSIGNEE`.
+
 ## `loop-status.json` contract
 
 `.claude/state/loop-status.json` is the operator-facing audit. It is
@@ -369,10 +388,13 @@ The intentional design split:
 | `MAKATO_LOOP_STALL_TEST_CMD` | unset | Test-only: run this command in place of `claude` (e.g. `sleep 30`) so the watchdog has a real stall to reap. |
 | `MAKATO_LOOP_PIDFILE` | `<state-dir>/loop.pid` | Override the run-mutex pidfile path (#172). Tests use this to isolate the mutex from any concurrent operator loop on the same box. |
 | `MAKATO_LOOP_FORCE_GRACE` | `10` | Seconds between `SIGTERM` and `SIGKILL` when `run --force` reclaims a live pidfile. |
+| `MAKATO_LOOP_ASSIGN_ON_DISPATCH` | `1` | Set to `0` to skip the assign-on-dispatch step (no `issues.assigned` webhook → board stays at `Ready`). See §*The one exception: assign-on-dispatch*. |
+| `MAKATO_LOOP_ASSIGNEE` | `@me` | Assignee login passed to `gh issue edit --add-assignee` at dispatch. `@me` = the authenticated `gh` user driving the loop. |
+| `MAKATO_LOOP_ASSIGN_TEST_FILE` | unset | Test-only: append the intended assign (`assign #<n> assignee=<x> repo=<y>`) to this file instead of calling `gh`. |
 
 ## Smoke tests
 
-`scripts/loop-smoke-tests.sh` covers eighteen scenarios:
+`scripts/loop-smoke-tests.sh` covers twenty scenarios:
 
 1. `check-halt` exits 0 with no HALT file.
 2. `check-halt` exits 1 with a HALT file.
@@ -401,6 +423,9 @@ The intentional design split:
 17. `startup_audit` records `script_path`, `pid`, `ppid`, `pidfile`, and
     the CLI arguments (#172).
 18. `run --force` SIGTERMs a live incumbent and takes over the pidfile (#172).
+19. `dispatch` assigns the issue on the real-fork path (assignee + repo
+    threaded through); `--dry-run` does not assign (#33).
+20. `MAKATO_LOOP_ASSIGN_ON_DISPATCH=0` disables the assign step (#33).
 
 Run them directly:
 

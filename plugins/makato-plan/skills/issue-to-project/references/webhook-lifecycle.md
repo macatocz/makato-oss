@@ -72,9 +72,18 @@ Consult the lifecycle transition map. Any event/action combination not listed in
 |---|---|---|
 | `issues.opened` | always | `Todo` (project default — item-add only, no item-edit) |
 | `issues.labeled` | `payload["label"]["name"] == "status:blocked"` | `Blocked` |
+| `issues.assigned` | linked issue found on board | `In progress` (forward-only — promotes from `Ready`/`Todo`/unset, never rolls back from `In review`/`Done`/`Blocked`) |
 | `pull_request.opened` | linked issue found | `In review` (when `options.in_review` present) or `In Progress` (fallback with WARN) |
 | `pull_request.closed` | `payload["pull_request"]["merged"] == True`, linked issue found | `Done` |
 | `pull_request.closed` | `payload["pull_request"]["merged"] == False`, linked issue found | `Todo` (abandon) |
+
+> **`issues.assigned` (makato delta, #33).** The autonomous `loop.sh`
+> dispatcher assigns an issue to the actor driving it just before spawning
+> the PO-agent, so "someone is actively working this" maps to `In progress`.
+> This is implemented natively in `.github/workflows/post-merge.yml`; the
+> Claude-driven `--from-webhook` path treats `issues.assigned` as
+> non-actionable (falls through `TRANSITION_MAP.get` → `None`) unless a
+> future release wires it in. Keep the two in sync when either changes.
 
 ```python
 label_name = (payload.get("label") or {}).get("name", "")

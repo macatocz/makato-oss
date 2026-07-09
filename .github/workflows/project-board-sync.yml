@@ -1,0 +1,347 @@
+name: project-board-sync
+
+# Push-mode Projects v2 lifecycle sync — advances the board `Status` column
+# for any Issue linked to a merged/closed/opened PR (or a newly `status:blocked`
+# labeled Issue). Native implementation of the transitions specified in
+# makato-plan/issue-to-project `--from-webhook` mode; no Claude CLI required.
+#
+# Trigger matrix (matches lifecycle-transition-map in webhook-lifecycle.md):
+#   pull_request.opened            → linked issues → `In review` (or In progress fallback)
+#   pull_request.closed(merged)    → linked issues → `Done`
+#   pull_request.closed(abandoned) → linked issues → `Todo`
+#   issues.labeled(status:blocked) → the issue    → `Blocked`
+#   issues.assigned                → the issue    → `In progress`
+#
+# The `issues.assigned` transition is the makato-specific delta vs the sagibeast
+# reference (#33): the autonomous `loop.sh` dispatcher assigns an issue to the
+# actor driving it just before spawning the PO-agent, so "someone is actively
+# working this" maps cleanly to a board `In progress`. The transition is
+# idempotent and never overrides a human-pinned Status (see the skip-guards in
+# the Apply step).
+#
+# Project IDs are read from `.claude/config.json` (single source of truth —
+# same file consumed by the makato-plan skill locally). Linked issues are
+# discovered via GraphQL `closingIssuesReferences` on the PR (robust to body
+# formatting; picks up "Closes #N", "Fixes #N", etc.).
+#
+# Idempotency: the run reads the current single-select value for each item and
+# only writes when it differs from the target. Repeat deliveries produce zero
+# mutations. Externally-pinned Statuses are NOT overridden — see
+# `Skip if externally set` step.
+
+on:
+  pull_request:
+    types:
+      - opened
+      - closed
+  issues:
+    types:
+      - labeled
+      - assigned
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+  repository-projects: write
+
+# One sync in flight per triggering entity — prevents a rapid open→close
+# sequence from racing the graph mutations.
+concurrency:
+  group: project-board-sync-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  sync-status:
+    # Only actionable events reach the mutation logic:
+    #   - PR opened (any state — target = In review)
+    #   - PR closed AND merged (target = Done)
+    #   - PR closed AND NOT merged (target = Todo)
+    #   - issue labeled with exactly `status:blocked` (target = Blocked)
+    #   - issue assigned (target = In progress)
+    # Everything else (issue labeled with a different label, PR events on non-default
+    # branches, etc.) exits the workflow as a no-op via this gate.
+    if: >-
+      ${{ (github.event_name == 'pull_request' && (github.event.action == 'opened' ||
+           (github.event.action == 'closed' && github.event.pull_request.base.ref == github.event.repository.default_branch))) ||
+          (github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'status:blocked') ||
+          (github.event_name == 'issues' && github.event.action == 'assigned') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ secrets.RELEASE_PLEASE_PAT || github.token }}
+      REPO_OWNER: ${{ github.repository_owner }}
+      REPO_NAME: ${{ github.event.repository.name }}
+      EVENT_NAME: ${{ github.event_name }}
+      EVENT_ACTION: ${{ github.event.action }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_MERGED: ${{ github.event.pull_request.merged }}
+      ISSUE_NUMBER: ${{ github.event.issue.number }}
+
+    steps:
+      - name: Checkout (config only)
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          # We only need .claude/config.json. `sparse-checkout` keeps the
+          # runner slim and avoids pulling the full history on every PR event.
+          sparse-checkout: |
+            .claude/config.json
+          sparse-checkout-cone-mode: false
+
+      - name: Resolve target Status and linked issues
+        id: plan
+        run: |
+          set -euo pipefail
+
+          CONFIG=.claude/config.json
+          if [ ! -f "$CONFIG" ]; then
+            echo "::warning::$CONFIG not found — cannot sync board. Exiting no-op."
+            echo "actionable=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          PROJECT_ID=$(jq -r '.github_project.project_node_id // empty' "$CONFIG")
+          STATUS_FIELD_ID=$(jq -r '.github_project.status_field_id // empty' "$CONFIG")
+          OPT_TODO=$(jq -r '.github_project.options.todo // empty' "$CONFIG")
+          OPT_IN_PROGRESS=$(jq -r '.github_project.options.in_progress // empty' "$CONFIG")
+          OPT_IN_REVIEW=$(jq -r '.github_project.options.in_review // empty' "$CONFIG")
+          OPT_DONE=$(jq -r '.github_project.options.done // empty' "$CONFIG")
+          OPT_BLOCKED=$(jq -r '.github_project.options.blocked // empty' "$CONFIG")
+
+          if [ -z "$PROJECT_ID" ] || [ -z "$STATUS_FIELD_ID" ]; then
+            echo "::warning::project_node_id or status_field_id missing in $CONFIG — cannot sync. Exiting no-op."
+            echo "actionable=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # ---- Determine target Status ID and target-issue list -------------
+          TARGET_OPT=""
+          TARGET_LABEL=""
+          ISSUE_NUMBERS=()
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            if [ "$EVENT_ACTION" = "opened" ]; then
+              # pull_request.opened → In review, fallback In progress with WARN
+              if [ -n "$OPT_IN_REVIEW" ]; then
+                TARGET_OPT="$OPT_IN_REVIEW"; TARGET_LABEL="In review"
+              elif [ -n "$OPT_IN_PROGRESS" ]; then
+                echo "::warning::options.in_review absent — falling back to In progress. Re-run issue-to-project --init to enable the In review transition."
+                TARGET_OPT="$OPT_IN_PROGRESS"; TARGET_LABEL="In progress"
+              else
+                echo "::warning::Neither options.in_review nor options.in_progress present — exiting no-op."
+                echo "actionable=false" >> "$GITHUB_OUTPUT"; exit 0
+              fi
+            elif [ "$EVENT_ACTION" = "closed" ]; then
+              if [ "$PR_MERGED" = "true" ]; then
+                if [ -z "$OPT_DONE" ]; then
+                  echo "::warning::options.done absent — exiting no-op."
+                  echo "actionable=false" >> "$GITHUB_OUTPUT"; exit 0
+                fi
+                TARGET_OPT="$OPT_DONE"; TARGET_LABEL="Done"
+              else
+                # PR closed without merging → treat as abandoned; roll back to Todo
+                if [ -z "$OPT_TODO" ]; then
+                  echo "::warning::options.todo absent — exiting no-op."
+                  echo "actionable=false" >> "$GITHUB_OUTPUT"; exit 0
+                fi
+                TARGET_OPT="$OPT_TODO"; TARGET_LABEL="Todo"
+              fi
+            fi
+
+            # ---- Discover linked Issues via closingIssuesReferences ---------
+            # Server-side GraphQL variables ($owner, $name, $pr) are passed with
+            # -f / -F flags; the query body lives in a heredoc so shellcheck
+            # doesn't try to expand them.
+            read -r -d '' LINKED_QUERY <<'GQL' || true
+          query($owner:String!,$name:String!,$pr:Int!) {
+            repository(owner:$owner, name:$name) {
+              pullRequest(number:$pr) {
+                closingIssuesReferences(first: 20) { nodes { number } }
+              }
+            }
+          }
+          GQL
+            linked_json=$(gh api graphql \
+              -f owner="$REPO_OWNER" \
+              -f name="$REPO_NAME" \
+              -F pr="$PR_NUMBER" \
+              -f query="$LINKED_QUERY" \
+              --jq '.data.repository.pullRequest.closingIssuesReferences.nodes[].number')
+
+            if [ -z "$linked_json" ]; then
+              echo "::notice::PR #$PR_NUMBER has no linked closing issues — no lifecycle transition to make."
+              echo "actionable=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            while read -r num; do
+              [ -n "$num" ] && ISSUE_NUMBERS+=("$num")
+            done <<< "$linked_json"
+
+          else
+            # issues.* — branch on the action (labeled vs assigned).
+            if [ "$EVENT_ACTION" = "assigned" ]; then
+              # issues.assigned → In progress. Fired by loop.sh assigning the
+              # issue to the dispatch actor just before spawning the PO-agent.
+              if [ -z "$OPT_IN_PROGRESS" ]; then
+                echo "::warning::options.in_progress absent — exiting no-op."
+                echo "actionable=false" >> "$GITHUB_OUTPUT"; exit 0
+              fi
+              TARGET_OPT="$OPT_IN_PROGRESS"
+              TARGET_LABEL="In progress"
+            else
+              # issues.labeled(status:blocked)
+              if [ -z "$OPT_BLOCKED" ]; then
+                echo "::warning::options.blocked absent — exiting no-op."
+                echo "actionable=false" >> "$GITHUB_OUTPUT"; exit 0
+              fi
+              TARGET_OPT="$OPT_BLOCKED"
+              TARGET_LABEL="Blocked"
+            fi
+            ISSUE_NUMBERS+=("$ISSUE_NUMBER")
+          fi
+
+          # ---- Emit plan --------------------------------------------------
+          {
+            echo "actionable=true"
+            echo "project_id=$PROJECT_ID"
+            echo "status_field_id=$STATUS_FIELD_ID"
+            echo "target_opt=$TARGET_OPT"
+            echo "target_label=$TARGET_LABEL"
+            echo "linked_count=${#ISSUE_NUMBERS[@]}"
+          } >> "$GITHUB_OUTPUT"
+          printf '%s\n' "${ISSUE_NUMBERS[@]}" > /tmp/linked-issues.txt
+
+          echo "→ target: $TARGET_LABEL ($TARGET_OPT)"
+          echo "→ issues:"
+          printf '   #%s\n' "${ISSUE_NUMBERS[@]}"
+
+      - name: Apply Status transitions
+        if: steps.plan.outputs.actionable == 'true'
+        env:
+          PROJECT_ID: ${{ steps.plan.outputs.project_id }}
+          STATUS_FIELD_ID: ${{ steps.plan.outputs.status_field_id }}
+          TARGET_OPT: ${{ steps.plan.outputs.target_opt }}
+          TARGET_LABEL: ${{ steps.plan.outputs.target_label }}
+        run: |
+          set -euo pipefail
+
+          # GraphQL queries live in heredocs — server-side variables ($project_id,
+          # $item_id, ...) are supplied through `gh api graphql -f` and are NOT
+          # shell expansions.
+          read -r -d '' ITEM_LOOKUP_QUERY <<'GQL' || true
+          query($owner:String!,$name:String!,$issue:Int!) {
+            repository(owner:$owner, name:$name) {
+              issue(number:$issue) {
+                projectItems(first: 50) {
+                  nodes {
+                    id
+                    project { id }
+                    fieldValueByName(name: "Status") {
+                      ... on ProjectV2ItemFieldSingleSelectValue { optionId name }
+                    }
+                  }
+                }
+              }
+            }
+          }
+          GQL
+
+          read -r -d '' UPDATE_MUTATION <<'GQL' || true
+          mutation($project_id:ID!, $item_id:ID!, $field_id:ID!, $opt:String!) {
+            updateProjectV2ItemFieldValue(input: {
+              projectId: $project_id
+              itemId: $item_id
+              fieldId: $field_id
+              value: { singleSelectOptionId: $opt }
+            }) { projectV2Item { id } }
+          }
+          GQL
+
+          exit_code=0
+          summary="| Issue | Current | Target | Outcome |"
+          summary="${summary}"$'\n'"|---|---|---|---|"
+
+          while read -r ISSUE_NUM; do
+            [ -z "$ISSUE_NUM" ] && continue
+
+            # Resolve the ProjectV2Item for this issue on the target project.
+            # An issue can appear on multiple projects; scope to $PROJECT_ID.
+            # Filter is done post-fetch (jq env.PROJECT_ID) — small N (usually 1–3
+            # projects per issue), and it keeps the query simple.
+            item_row=$(gh api graphql \
+              -f owner="$REPO_OWNER" \
+              -f name="$REPO_NAME" \
+              -F issue="$ISSUE_NUM" \
+              -f query="$ITEM_LOOKUP_QUERY" \
+              --jq '[.data.repository.issue.projectItems.nodes[] | select(.project.id == env.PROJECT_ID)][0]' \
+              || echo '')
+
+            if [ -z "$item_row" ] || [ "$item_row" = "null" ]; then
+              echo "::notice::Issue #$ISSUE_NUM is not on the target board — skipping."
+              summary="${summary}"$'\n'"| #${ISSUE_NUM} | (not on board) | ${TARGET_LABEL} | skipped |"
+              continue
+            fi
+
+            ITEM_ID=$(echo "$item_row" | jq -r '.id')
+            CURRENT_OPT=$(echo "$item_row" | jq -r '.fieldValueByName.optionId // ""')
+            CURRENT_NAME=$(echo "$item_row" | jq -r '.fieldValueByName.name // "(unset)"')
+
+            if [ "$CURRENT_OPT" = "$TARGET_OPT" ]; then
+              echo "→ #$ISSUE_NUM already $CURRENT_NAME — no-op."
+              summary="${summary}"$'\n'"| #${ISSUE_NUM} | ${CURRENT_NAME} | ${TARGET_LABEL} | already_at_target |"
+              continue
+            fi
+
+            # Skip-if-externally-set safeguard: when transitioning to `Done` we
+            # only overwrite `In progress` or `In review`. If a human has parked
+            # the item at any other Status (Blocked, Todo, custom), respect
+            # that pin and log for the operator.
+            if [ "$TARGET_LABEL" = "Done" ] && [ "$CURRENT_NAME" != "In progress" ] && [ "$CURRENT_NAME" != "In review" ]; then
+              echo "::notice::#$ISSUE_NUM parked at '$CURRENT_NAME' — not overwriting with Done."
+              summary="${summary}"$'\n'"| #${ISSUE_NUM} | ${CURRENT_NAME} | ${TARGET_LABEL} | skipped_externally_set |"
+              continue
+            fi
+
+            # Forward-only safeguard for `In progress`: an issue.assigned event
+            # must never roll a card *backwards*. It only promotes from the
+            # pre-work Statuses (Ready, Todo, or unset). If the card has already
+            # advanced to In review / Done, or a human pinned it to Blocked, a
+            # late re-assign is a no-op. This makes re-assigning an in-flight or
+            # finished issue harmless.
+            if [ "$TARGET_LABEL" = "In progress" ] \
+               && [ "$CURRENT_NAME" != "Ready" ] \
+               && [ "$CURRENT_NAME" != "Todo" ] \
+               && [ "$CURRENT_NAME" != "(unset)" ]; then
+              echo "::notice::#$ISSUE_NUM at '$CURRENT_NAME' — not rolling back to In progress on assign."
+              summary="${summary}"$'\n'"| #${ISSUE_NUM} | ${CURRENT_NAME} | ${TARGET_LABEL} | skipped_no_backward |"
+              continue
+            fi
+
+            echo "→ #$ISSUE_NUM: $CURRENT_NAME → $TARGET_LABEL"
+            if gh api graphql \
+              -f project_id="$PROJECT_ID" \
+              -f item_id="$ITEM_ID" \
+              -f field_id="$STATUS_FIELD_ID" \
+              -f opt="$TARGET_OPT" \
+              -f query="$UPDATE_MUTATION" \
+              >/dev/null 2>&1; then
+              summary="${summary}"$'\n'"| #${ISSUE_NUM} | ${CURRENT_NAME} | ${TARGET_LABEL} | updated |"
+            else
+              echo "::error::Failed to update #$ISSUE_NUM"
+              summary="${summary}"$'\n'"| #${ISSUE_NUM} | ${CURRENT_NAME} | ${TARGET_LABEL} | **failed** |"
+              exit_code=1
+            fi
+          done < /tmp/linked-issues.txt
+
+          {
+            echo "## post-merge board sync"
+            echo ""
+            echo "$summary"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $exit_code
+
+      - name: No-op notice
+        if: steps.plan.outputs.actionable != 'true'
+        run: |
+          echo "Event ${EVENT_NAME}/${EVENT_ACTION} produced no actionable lifecycle transition — exiting 0."
