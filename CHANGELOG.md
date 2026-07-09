@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.37.0](https://github.com/macatocz/makato/compare/v0.36.1...v0.37.0) (2026-07-09)
+
+
+### ✨ Features
+
+* **makato-orchestrate,makato-change:** hand-filed issue support + routing + AUTONOMOUS-MODE ([0ccf02d](https://github.com/macatocz/makato/commit/0ccf02dcbae26d4c8af268abf387cd1e01302682))
+* **makato-orchestrate,makato-change:** hand-filed issue support + routing + AUTONOMOUS-MODE ([#144](https://github.com/macatocz/makato/issues/144)) ([d2fd759](https://github.com/macatocz/makato/commit/d2fd759ad7541ccbdcd43567fc928fa79279c7c2))
+* **makato-plan:** autonomous status:ready-for-dev label stamp in issue-to-project (v2.8.0) ([8699d45](https://github.com/macatocz/makato/commit/8699d458b03f13d268e75e5204db4d2f4eaa40e6))
+* **makato-plan:** autonomous status:ready-for-dev label stamp in issue-to-project (v2.8.0) ([97a94fd](https://github.com/macatocz/makato/commit/97a94fd67f3879c14b094688f6ae0b9be00725e2))
+* **makato:** add skill-bundles.yml for remaining plugins ([#145](https://github.com/macatocz/makato/issues/145)) ([cdbf2d2](https://github.com/macatocz/makato/commit/cdbf2d27f949049e68474490f8353b5fdbcd2a30))
+* **makato:** rollout skill-bundles.yml to all plugins + aggregate test ([#145](https://github.com/macatocz/makato/issues/145)) ([ebd0a86](https://github.com/macatocz/makato/commit/ebd0a864866a495072114b31756e1bc9c598c041))
+
+
+### 🐛 Bug Fixes
+
+* **makato-plan:** replace dangling /publish refs with /to-issues ([#203](https://github.com/macatocz/makato/issues/203)) ([00443a2](https://github.com/macatocz/makato/commit/00443a2b75cd8fc707c2b502c6b7b3c442782b43))
+* **makato-plan:** replace dangling /publish refs with /to-issues ([#203](https://github.com/macatocz/makato/issues/203)) ([24f0fe2](https://github.com/macatocz/makato/commit/24f0fe2e4c65446fee00f79a39899fb29e94c0f7))
+
 ## [0.36.1](https://github.com/macatocz/makato/compare/v0.36.0...v0.36.1) (2026-07-09)
 
 
