@@ -26,7 +26,7 @@ No external side-effects.
 - No brainstorming done yet (run brainstorming first)
 - Feature is purely technical with no user-facing outcome (use a technical spec instead)
 - Already have a PRD and want to decompose into stories (use decomposition skill)
-- Want to create GitHub Issues or publish externally (use /publish downstream)
+- Want to create GitHub Issues or publish externally (use /to-issues downstream)
 
 ---
 

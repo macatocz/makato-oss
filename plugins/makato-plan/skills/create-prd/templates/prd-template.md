@@ -195,7 +195,7 @@
 
 **Affected repositories**: <from repositories.yml>
 
-> These are advisory only. Epic/Story creation in GitHub Issues happens downstream via /publish.
+> These are advisory only. Epic/Story creation in GitHub Issues happens downstream via /to-issues.
 
 ---
 

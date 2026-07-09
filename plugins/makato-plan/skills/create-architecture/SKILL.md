@@ -28,7 +28,7 @@ technical decisions, and operational strategy. No external side-effects.
 - Feature is trivial (single-file change with no architectural impact)
 - Already have a design.md and want to decompose into stories (use decompose skill)
 - Want to create implementation tasks or stories (that's the decompose skill)
-- Want to create GitHub Issues or publish externally (use /publish downstream)
+- Want to create GitHub Issues or publish externally (use /to-issues downstream)
 
 ---
 
