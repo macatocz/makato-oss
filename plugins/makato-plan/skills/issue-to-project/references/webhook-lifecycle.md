@@ -371,14 +371,14 @@ artifact_path = artifact_dir / f"{delivery_id}.json"
 
 ### Artifact shape
 
-The per-delivery artifact mirrors `project-sync.json`'s schema with `schema_version: "2.7"`, `slug: "_webhook"`, and the `webhook` block populated:
+The per-delivery artifact mirrors `project-sync.json`'s schema with `schema_version: "2.8"`, `slug: "_webhook"`, and the `webhook` block populated:
 
 ```python
 artifact = {
-    "schema_version": "2.7",
+    "schema_version": "2.8",
     "slug": "_webhook",
     "run_timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
-    "skill_version": "2.7.0",
+    "skill_version": "2.8.0",
     "retry_source": None,
     "webhook": {
         "delivery_id":          delivery_id,

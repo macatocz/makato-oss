@@ -18,13 +18,13 @@ description: >-
   Use `issue-to-project --fields-only [<slug>]` to backfill non-Status field values (Priority,
   Iteration, Estimate, Date Target) for issues already on the board without re-adding them (v2.4.0+).
 license: MIT
-version: "2.7.0"
+version: "2.8.0"
 argument-hint: "[optional: feature slug] | --init | --retry-blocked-edits [<slug>] [--from <path>] | sync-lifecycle [<slug>] [--dry-run] | --from-webhook <event-json-path> | reconcile [<slug>] [--repair-additive | --repair-aggressive [--yes-i-know]] | --board-audit | --fields-only [<slug>] | --auto-reinit | --no-auto-reinit"
 allowed-tools: Bash(gh *) Bash(git *) Bash(python3 *) Bash(timeout *) Read Write Grep Glob
 hooks: ["sync issues to project", "land issues on board", "push issues to GitHub Projects", "update project board", "project board sync", "issue-to-project", "follow up to-issues with project sync", "set status on board", "init project board sync", "retry blocked edits", "recover blocked status", "route issues by status label", "route status:ready", "route status:in-review", "autonomous auto-promote"]
 metadata:
   Authors: makato contributors
-  last_updated: "2026-06-26"
+  last_updated: "2026-07-09"
   mcp_server: none
 ---
 
@@ -51,6 +51,8 @@ Routing comes from `labels[]` in `created-issues.json` only — the skill never 
 **Upstream emission status:** `to-issues` v3.2.0 emits only `status:blocked` at issue-creation time. The other label paths (`status:todo`, `status:in-progress`, `status:done`, `status:ready`, `status:in-review`) are dormant for auto-emission — they activate when a future `to-issues` release adds emission or when operators manually relabel issues between `to-issues` and `issue-to-project` runs. v1.2 is strictly additive: without the new labels, behavior is byte-for-byte identical to v1.0.0.
 
 **PR label stamp (v2.7.0+):** when `sync-lifecycle` or `--from-webhook` detects a linked open PR for an issue, the skill calls `gh issue edit --add-label <pr_label_name>` on that issue. The label is a **permanent historical marker** — the skill NEVER removes it, even after the PR closes or merges. Default label name is `"PR"` (configurable via `pr_label_name` in config; empty string `""` disables all label calls). `--init` creates the label in the repo if absent (color `0E8A16`, description `"This issue has an open linked pull request."`). The add-label call is additive and idempotent at the GitHub API level; `pr_label_action` row field encodes `"added"` or `"failed"`; `pr_label_added` / `pr_label_failed` summary counters track totals per run.
+
+**Ready-for-dev label stamp (v2.8.0+):** when autonomous mode (`ready_queue_mode: "autonomous"`) auto-promotes a `Todo` item to `Ready`, the skill calls `gh issue edit --add-label <ready_label_name>` on that issue — a passive handoff marker the downstream orchestrator (`makato-orchestrate` po-agent / loop) can grep without reading the board. Like the PR label, it is a **permanent historical marker** the skill NEVER removes. Default label name is `"status:ready-for-dev"` (configurable via `ready_label_name` in config; empty string `""` disables the stamp). `--init` v2.8.0+ creates the label in the repo if absent (color `0075CA`, blue). The `ready_label_action` row field encodes `"added"` or `"failed"`; `ready_label_stamped` / `ready_label_failed` summary counters track totals per run. Fired **only** on the `auto_promoted_ready` outcome in autonomous mode — never by `sync-lifecycle` or `--from-webhook`. Note: `status:ready-for-dev` is exempted from the `auto_promote_to_ready()` `status:*` block guard (it is stamped by the skill itself, not an operator routing signal), so it never suppresses promotion; operators wanting to block a `Todo` item use `status:todo`, `needs-human-review`, `hold-in-todo`, or a `blocked-by:*` label.
 
 ## Tools
 
@@ -175,12 +177,12 @@ Emit a single-line stdout sentinel as the second-to-last line of stdout (the las
 **Normal-run shape:**
 
 ```
-RESULT: {"status":"ok","slug":"<slug>","artifact_path":"specs/<slug>/project-sync.json","issues_in_input":12,"already_on_board":3,"added":9,"set_todo":1,"set_ready":1,"set_in_progress":2,"set_in_review":2,"set_blocked":2,"set_done":1,"auto_promoted_ready":0,"pr_label_added":0,"pr_label_failed":0,"left_default":0,"add_failed":0,"edit_failed":0,"skipped_after_total_failure":0,"dry_run":0,"ready_queue_mode":"manual"}
+RESULT: {"status":"ok","slug":"<slug>","artifact_path":"specs/<slug>/project-sync.json","issues_in_input":12,"already_on_board":3,"added":9,"set_todo":1,"set_ready":1,"set_in_progress":2,"set_in_review":2,"set_blocked":2,"set_done":1,"auto_promoted_ready":0,"ready_label_stamped":0,"ready_label_failed":0,"left_default":0,"add_failed":0,"edit_failed":0,"skipped_after_total_failure":0,"dry_run":0,"ready_queue_mode":"manual"}
 ```
 
 `host` is an optional additive key emitted in the RESULT when the configured host is non-default (i.e. not `"github.com"`). Existing parsers that only read the v1 keys are unaffected.
 
-`set_ready` and `set_in_review` slot into the existing `set_*` count series (v2.7.0+). `auto_promoted_ready`, `pr_label_added`, and `pr_label_failed` are new top-level counters that always appear with at least `0`. `ready_queue_mode` echoes the active config value (`"manual"` or `"autonomous"`). `field_writes_attempted`, `field_writes_succeeded`, and `field_writes_failed` are present when the `fields` config block is present; they are `0` / absent otherwise.
+`set_ready` and `set_in_review` slot into the existing `set_*` count series (v2.7.0+). `auto_promoted_ready` is a new top-level counter that always appears with at least `0`. `ready_label_stamped` / `ready_label_failed` (v2.8.0+) count the ready-for-dev label stamps applied during autonomous promotion; both always appear with at least `0` and are always `0` in manual mode. `ready_queue_mode` echoes the active config value (`"manual"` or `"autonomous"`). `field_writes_attempted`, `field_writes_succeeded`, and `field_writes_failed` are present when the `fields` config block is present; they are `0` / absent otherwise. (`pr_label_added` / `pr_label_failed` appear only in `sync-lifecycle` RESULT output, not normal-run — PR labels are stamped on PR-lifecycle transitions, never during issue sync.)
 
 **Normal-run shape with auto-reinit (v2.5.0+, when `--auto-reinit` fires):**
 
