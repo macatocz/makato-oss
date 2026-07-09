@@ -273,6 +273,48 @@ degrades to a coder dispatch without `SCOUT_SUMMARY` — never a HALT.
 After R1 returns, run
 `kill-switch record-budget <KEY> <r1-token-estimate>`.
 
+#### Step 4d.1 — Post-dispatch audit-tail guard (#175)
+
+Immediately after any `build-*` dispatch returns — including
+`build-verify`, `build-push-to-git`, `build-create-pr`, and
+`build-address-pr-comments` invoked from Step 6 — cross-check the tail
+of `specs/<key>-*/build.jsonl` via
+`shared/check-session-tail.sh <KEY> <dispatched-skill>`. The helper
+returns a single JSON object with `verdict ∈ {ok, error, silent, no-log}`.
+
+The guard closes the outer-loop half of the audit-contract gap fixed on
+the sub-skill side by #169 / PR #174: a torn R1 envelope after a
+terminal `session status:"error"` line in `build.jsonl` no longer
+leaves the PO-agent with `failure` and no `halt_code`.
+
+| verdict | Origin | Response |
+|---|---|---|
+| `ok` | Sub-skill wrote `step:"session" status:"ok"`. | Proceed to Step 4e unchanged (happy-path additive guard). |
+| `error` | Sub-skill wrote `step:"session" status:"error"` with `data.halt_code`. | If R1 already carried the same `halt_code`, no-op — Step 4e routes it. If R1 was `failure` without `halt_code`, adopt `data.halt_code` from the tail: patch state, log the tail-recovered code, then route per `plugins/makato-build/halt-codes.md`. |
+| `silent` | Session-start seen, no terminal `session` line — the exact silent-exit class #143 / #169 reproduced. | HALT-011: append `halt_audit[]` with `code:"HALT-011"`, `data.skill`, `data.last_step`, `data.last_status`; apply `needs-human-review` on the linked issue; retain the worktree; return R1 `failure` with `data.halt_code:"HALT-011"`. |
+| `no-log` | Empty `build.jsonl` or no entries for the dispatched skill (skill invoked outside the standard logging contract). | Fall back to R1 as authority. No HALT, no state mutation. |
+
+JSONL per guard invocation (regardless of verdict, for forensics):
+
+```json
+{"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"session-tail-audit","status":"<ok|warn|error>","data":{"skill":"<dispatched>","verdict":"<ok|error|silent|no-log>","halt_code":"<CODE-or-null>"}}
+```
+
+JSONL `status` maps verdict: `ok`→`ok`, `no-log`→`ok`, `error`→`warn`
+(when it did not raise beyond R1's already-known state), `silent`→`error`.
+
+**Design invariants.**
+
+- The guard is additive. On `verdict:"ok"` it does not touch state,
+  does not re-parse R1, does not change dispatch flow.
+- The guard is idempotent per dispatch — running it twice on the same
+  tail produces identical output. Safe to invoke defensively.
+- The guard never blocks on network I/O and never invokes another
+  sub-skill; it is a local tail-read only.
+- The tail-recovery branch (`verdict:"error"` when R1 lacked
+  `halt_code`) MUST update `halt_code` in state so Step 4e's route
+  table sees the recovered code; without this the code would be lost.
+
 #### Step 4e — Apply R1 to state
 
 Parse the last fenced ` ```json ` block via `JSON.parse`. `schema != "r1"`
@@ -573,6 +615,7 @@ fires — the audit log records every HALT code.
 | HALT-008 (merge-conflict) | `merge_conflict_cycles >= MAX` (`resolve-pr-conflict`) | `resolve-pr-conflict` |
 | HALT-009 | `claude-halt` label on issue | `kill-switch poll` |
 | HALT-010 | `human_review_cycles >= MAX` | **PO-agent** |
+| HALT-011 | `check-session-tail.sh` verdict `silent` — sub-skill exited without a terminal `step:"session"` line (#175) | **PO-agent** |
 | HALT-STRUCTURAL | `build-refine` failed | **PO-agent** |
 
 `gh issue edit --add-label` is idempotent; the PO-agent applies the

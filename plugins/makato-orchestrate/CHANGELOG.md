@@ -5,6 +5,64 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## PO-agent post-dispatch audit-tail guard + `HALT-011` (#175)
+
+Closes the outer-loop half of the audit-contract gap fixed on the sub-skill
+side by #169 / PR #174. Before this PR a `build-*` sub-skill that emitted a
+terminal `step:"session" status:"error"` line to `build.jsonl` but then
+died mid-R1 left the PO-agent with `failure` and no `halt_code` — the
+route table in `plugins/makato-build/halt-codes.md` had nothing to key
+against. The autonomy guarantee reproduced by #143 quietly broke.
+
+- **`shared/check-session-tail.sh`** — new read-only helper. Given a
+  work-item key and a sub-skill name, reads the last N lines of the
+  resolved `specs/<key>-*/build.jsonl` and emits a single JSON object
+  with `verdict ∈ {ok, error, silent, no-log}` plus `halt_code`,
+  `last_step`, `last_status`, and `session_start_present`. Resolution
+  logic mirrors `build-log.sh` so the guard never disagrees with the
+  writer about the target file. `MAKATO_BUILD_JSONL_OVERRIDE` is a test
+  hook that pins the file path so fixtures live outside `specs/`.
+
+- **`shared/check-session-tail-smoke-tests.sh`** — 10 fixture-driven
+  tests covering the four verdicts, an idempotency guarantee, tail
+  isolation across interleaved skills, `data.halt_code`-absent belt-and-
+  braces, and a malformed-line survival test (regression against a
+  fragile `-c -s` pipeline). All green:
+  - **T1** `session:ok` → `verdict:ok` (AC3 happy path).
+  - **T2** `session:error` with `data.halt_code` → `verdict:error`
+    surfacing the code (AC1).
+  - **T3** `session:start` but no terminal — the #143 repro shape →
+    `verdict:silent` (AC2).
+  - **T4/T5/T10** empty file / wrong skill / missing file → `no-log`.
+  - **T6** `session:error` without `data.halt_code` → `verdict:error`
+    with `halt_code:null` — PO-agent falls back to R1 `errors[]` parse.
+  - **T7** multi-skill interleaving — a silent `build-create-pr` is
+    correctly attributed even after `build-verify` and
+    `build-push-to-git` both cleanly closed.
+  - **T8** idempotent — repeated invocations produce identical output.
+  - **T9** malformed line in tail is skipped (uses `inputs | fromjson?`
+    on `-R` stream — no `-s` slurp that would crash on any non-JSON byte).
+
+- **`agents/po-agent.md`** — new § *Step 4d.1 — Post-dispatch audit-tail
+  guard (#175)* between Step 4d and Step 4e. Documents the verdict →
+  response table, the four design invariants (additive, idempotent,
+  no network I/O, `halt_code` tail-recovery updates state), and the
+  JSONL audit-line schema. HALT / label matrix gains a `HALT-011` row.
+
+- **`halt-conditions.md`** — new `HALT-011` row in the code table.
+  Trigger: `check-session-tail.sh verdict:"silent"` on a `build-*`
+  dispatch. Action: `needs-human-review`, `halt_audit[]` gets
+  `{skill, last_step, last_status}`, worktree retained. Recovery: read
+  the truncated `build.jsonl` for forensics, decide sub-skill contract
+  fix vs re-run. Chosen over the issue-body-suggested `HALT-007B` label
+  because that code is already allocated (context-ceiling handoff, no
+  label, self-restart) with opposite semantics — sharing the code would
+  break the label-vs-no-label invariant documented in the § *Why
+  HALT-007 and HALT-007B are different codes* section of
+  `halt-conditions.md`.
+
+---
+
 ## `loop.sh` sleep-wake dispatch guard (#171)
 
 Fixes the incident documented in #171: after a macOS host sleep of ~6.5 h
