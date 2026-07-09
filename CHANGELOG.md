@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.35.0](https://github.com/macatocz/makato/compare/v0.34.0...v0.35.0) (2026-07-09)
+
+
+### ✨ Features
+
+* **makato-orchestrate/makato-core:** archive-spec skill + hooks/ + GHA workflow ([#194](https://github.com/macatocz/makato/issues/194)) ([836f5fa](https://github.com/macatocz/makato/commit/836f5faa96dd51f9f0e9287c3b65416b9c3f0f93))
+
 ## [0.34.0](https://github.com/macatocz/makato/compare/v0.33.0...v0.34.0) (2026-07-09)
 
 
