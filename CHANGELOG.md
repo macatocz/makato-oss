@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.36.0](https://github.com/macatocz/makato/compare/v0.35.0...v0.36.0) (2026-07-09)
+
+
+### ✨ Features
+
+* **makato-build:** real inject-skills resolver + validator ([#144](https://github.com/macatocz/makato/issues/144)) ([#196](https://github.com/macatocz/makato/issues/196)) ([1803f84](https://github.com/macatocz/makato/commit/1803f845fb54d180097b5a3e1386628b278b0b05))
+
 ## [0.35.0](https://github.com/macatocz/makato/compare/v0.34.0...v0.35.0) (2026-07-09)
 
 
