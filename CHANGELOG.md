@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.32.0](https://github.com/macatocz/makato/compare/v0.31.3...v0.32.0) (2026-07-09)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** PO-agent HALT-011 audit-tail guard ([#175](https://github.com/macatocz/makato/issues/175)) ([#189](https://github.com/macatocz/makato/issues/189)) ([2bcd607](https://github.com/macatocz/makato/commit/2bcd607f1dd09762fcbf38e40495d9f7ecb5ee5b))
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** loop.sh sleep-wake dispatch guard ([#171](https://github.com/macatocz/makato/issues/171)) ([#186](https://github.com/macatocz/makato/issues/186)) ([c1218db](https://github.com/macatocz/makato/commit/c1218db61b9adcb217e822e9effa7a163330e6f6))
+* **makato-ux:** update penpot-uiux-design skill for cloud MCP ([#188](https://github.com/macatocz/makato/issues/188)) ([0a2a454](https://github.com/macatocz/makato/commit/0a2a4542cc4b8ac36360a92e606d1f37200737d9))
+
 ## [0.31.3](https://github.com/macatocz/makato/compare/v0.31.2...v0.31.3) (2026-07-08)
 
 
