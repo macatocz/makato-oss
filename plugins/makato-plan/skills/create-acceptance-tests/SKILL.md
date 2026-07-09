@@ -21,7 +21,7 @@ field.
 
 - After decompose has produced `stories.json` with draft `successScenarios`
 - Want to refine rough QA drafts into polished, manually testable acceptance tests
-- Need acceptance criteria formalized before running /publish
+- Need acceptance criteria formalized before running /to-issues
 
 ## When NOT to Use
 
@@ -228,5 +228,5 @@ Acceptance tests written to stories.json
   Scenarios: {total} scenarios across all stories
   Quality:  {violations_fixed} anti-pattern violations fixed
 
-  Next: /publish to create stories with embedded acceptance tests
+  Next: /to-issues to create stories with embedded acceptance tests
 ```

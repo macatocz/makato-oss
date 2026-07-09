@@ -5,6 +5,15 @@ Changes are grouped by skill/agent/component. Within each group, latest version 
 
 ---
 
+## Plugin-level
+
+- **Fixed** dangling `/publish` references (#203) — 9 occurrences across `create-prd`, `create-architecture`, `create-prototype`, `create-acceptance-tests`, and `decompose` now correctly point to `/to-issues`, the skill that creates GitHub Issues from shaped stories.
+
+
+- **Added** `config/skill-bundles.yml` (#145) — bundles `plan-skills`, `plan-prd`, `plan-decompose`, `plan-issues` route PRD/architecture spec files, plan.md/stories.md, created-issues.json, and plan skill files to the appropriate planning skills (brainstorming, create-prd, grill, decompose, to-issues, issue-to-project, etc.).
+
+---
+
 ## `archive-spec` skill — removed (wrong plugin)
 
 - Skill moved to `makato-orchestrate/skills/archive-spec`; `makato-plan` does pre-dev shaping,
@@ -166,6 +175,14 @@ Changes are grouped by skill/agent/component. Within each group, latest version 
   - Initial — refine draft Gherkin scenarios into polished acceptance test cases (3-5 per story), dispatches acceptance-writer agent, quality self-review, interactive HTML review
 
 ## `issue-to-project` skill
+
+- **2.8.0**
+  - Ready-for-dev label auto-stamp (D11): when `ready_queue_mode: "autonomous"` auto-promotes a `Todo` item to `Ready`, the skill now calls `gh issue edit --add-label <ready_label_name>` on that issue — a passive handoff marker the `makato-orchestrate` po-agent/loop can consume without reading the board. Permanent historical marker, never removed. Fired only on the `auto_promoted_ready` outcome; never by `sync-lifecycle`/`--from-webhook`
+  - `ready_label_name` config key (default `"status:ready-for-dev"`, empty-string disable sentinel, validation rule 17); `--init` v2.8.0 Step 6e creates the repo label (color `0075CA`) when autonomous mode is chosen, with a collision warning when it equals `pr_label_name`
+  - `auto_promote_to_ready()` guard fix: the `status:*` block guard now **exempts** `status:ready-for-dev` (the orchestrator-handoff marker the skill stamps itself), so an issue carrying that label is still promotable; every other `status:*` label still blocks. Idempotency on re-run is preserved by the board-state guard (an already-`Ready` item is skipped before the label guard is reached)
+  - **Fixed** pre-existing latent bug in the autonomous call-site: the snapshot lookup used `snapshot.get(issue["number"], {}).get("status")`, but the step-3 snapshot is keyed by issue **URL** and stores `currentStatusName` — the integer-key lookup always returned `{}`, so guard 1 of `auto_promote_to_ready()` never fired for already-on-board items. Corrected to `snapshot.get(issue["url"], {}).get("currentStatusName")`. Latent because no autonomous call-site had exercised it before this release
+  - New counters: `ready_label_stamped` / `ready_label_failed` summary keys and `ready_label_action` / `ready_label_error` per-row fields; `schema_version` enum gains `"2.8"`; `lifecycle-process.md` schema-version ceiling raised to `2.8`. All additive — pre-v2.8 artifacts re-validate unchanged
+  - Docs: `status:ready-for-dev` documented as a stamp marker (not a block signal) in the Manual-demote escape hatch; SKILL.md normal-run RESULT example corrected to drop `pr_label_*` counters (those are `sync-lifecycle`-only) and add the two new `ready_label_*` counters
 
 - **2.7.0**
   - `Ready` and `In review` routing: `STATUS_MAP` and `PRIORITY` extended to surface all six GitHub Projects v2 Status options from `labels[]` — adds `status:ready` → `Ready` and `status:in-review` → `In review`; collision priority is `blocked > done > in-review > in-progress > ready > todo`. Both new `options.*` keys are optional; absent options fall through to `Todo` with a loud WARN
@@ -372,6 +389,9 @@ Changes are grouped by skill/agent/component. Within each group, latest version 
   - Initial — create UX design documents with screen inventory, wireframes, interaction patterns, user testing plan, and accessibility notes for PRD UI surfaces
 
 ## Plugin-level
+
+- **Fixed** dangling `/publish` references (#203) — 9 occurrences across `create-prd`, `create-architecture`, `create-prototype`, `create-acceptance-tests`, and `decompose` now correctly point to `/to-issues`, the skill that creates GitHub Issues from shaped stories.
+
 
 - **0.2.0**
   - rename `shared/glossary.md` → `shared/terminology.md` to free the word *glossary* for the new per-spec, runtime-written glossary produced by the `grill` skill. The plugin-level file remains a contributor-maintained terminology reference; the per-spec `glossary.md` is the feature-scoped, agent-read vocabulary

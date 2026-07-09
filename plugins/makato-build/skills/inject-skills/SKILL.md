@@ -115,6 +115,32 @@ example (the first F1 bundle). Key rules for authors:
   installed in the target repo is silently skipped at runtime (D18), so the
   pre-commit validator is the strict authoring-time gate.
 
+## Phase 1 exit gate (S3 / #145 — passed)
+
+All installed plugins now publish `config/skill-bundles.yml`. The aggregate integration
+test (`tests/integration/skill-bundles-aggregate.sh`) runs green across the merged
+registry. This marks the exit condition for Phase 1 of the skill-injection epic and
+**unblocks S4 (#146 — decompose upgrade)**.
+
+Plugins that ship bundles as of this gate:
+
+| Plugin | Config path |
+|--------|-------------|
+| `makato-build` | `plugins/makato-build/config/skill-bundles.yml` (owns `default`) |
+| `makato-langgraph` | `plugins/makato-langgraph/config/skill-bundles.yml` |
+| `makato-change` | `plugins/makato-change/config/skill-bundles.yml` |
+| `makato-contribute` | `plugins/makato-contribute/config/skill-bundles.yml` |
+| `makato-core` | `plugins/makato-core/config/skill-bundles.yml` |
+| `makato-database` | `plugins/makato-database/config/skill-bundles.yml` |
+| `makato-observability` | `plugins/makato-observability/config/skill-bundles.yml` |
+| `makato-orchestrate` | `plugins/makato-orchestrate/config/skill-bundles.yml` |
+| `makato-plan` | `plugins/makato-plan/config/skill-bundles.yml` |
+| `makato-sagibeast` | `plugins/makato-sagibeast/config/skill-bundles.yml` |
+| `makato-ux` | `plugins/makato-ux/config/skill-bundles.yml` |
+
+The pre-commit gate (`plugins/makato-langgraph/pre-commit/validate-skill-bundles.sh`)
+enforces the wide-glob-without-contains rule across all future bundle authoring.
+
 ## See also
 
 - `plugins/makato-build/shared/inject_skills.py` — reference implementation.
@@ -123,3 +149,4 @@ example (the first F1 bundle). Key rules for authors:
 - `plugins/makato-build/agents/knowledge-scout.md` — Step 0 caller.
 - `plugins/makato-langgraph/config/skill-bundles.yml` — canonical bundle example.
 - `plugins/makato-langgraph/pre-commit/validate-skill-bundles.sh` — authoring gate.
+- `tests/integration/skill-bundles-aggregate.sh` — cross-plugin aggregate test.

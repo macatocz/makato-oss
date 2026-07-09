@@ -96,7 +96,7 @@
 | `stories[].storyPoints` | number | Yes | Fibonacci (1,2,3,5,8,13) |
 | `stories[].teams` | string[] | Yes | Free-text team names — user-defined |
 | `stories[].labels` | string[] | Yes | Always includes `"makato"` |
-| `stories[].githubIssue` | number | No | Set by `publish` when GitHub provider used |
+| `stories[].githubIssue` | number | No | Set by `to-issues` when GitHub issues are created |
 | `stories[].description.background` | string | Yes | Context/rationale |
 | `stories[].description.scope` | string | Yes | Bounded scope statement |
 | `stories[].description.featureToggle` | object | Yes | Toggle configuration |

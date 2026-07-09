@@ -1,5 +1,11 @@
 # Changelog — makato-ux
 
+## [0.4.0] — 2026-07-09
+
+### Added
+
+- `config/skill-bundles.yml` (#145) — bundles `ux-skills`, `ux-frontend`, `ux-styles`, `ux-e2e`, `ux-design-spec` route React/TSX files, CSS/SCSS stylesheets, Playwright spec files, design spec markdown, and UX skill files to the appropriate UX skills.
+
 ## [0.3.0] — 2026-07-09
 
 ### Changed

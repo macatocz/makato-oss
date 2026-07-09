@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.36.1](https://github.com/macatocz/makato/compare/v0.36.0...v0.36.1) (2026-07-09)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** thread po-agent input bundle into loop dispatch ([#144](https://github.com/macatocz/makato/issues/144)) ([#198](https://github.com/macatocz/makato/issues/198)) ([b55f2c6](https://github.com/macatocz/makato/commit/b55f2c6f43f3cbd812d9c01441d351cbe4590d95))
+
 ## [0.36.0](https://github.com/macatocz/makato/compare/v0.35.0...v0.36.0) (2026-07-09)
 
 

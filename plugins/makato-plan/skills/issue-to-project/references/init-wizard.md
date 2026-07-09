@@ -334,6 +334,42 @@ Choice [m]:
 
 When re-init and the prior value is `"autonomous"`, the prompt shows `Choice [a]:` and Enter keeps `"autonomous"`.
 
+## Step 6e — Create ready-for-dev repo label (v2.8.0+)
+
+**Runs only when `READY_QUEUE_MODE == "autonomous"`.** When the operator chose `"manual"` in Step 6d, skip this step entirely, set `READY_LABEL_NAME = ""` silently (manual mode never auto-promotes, so the label is never stamped), and continue to the config-write snippet.
+
+**Preserve-existing-on-reinit:** on a re-init run, read `config.get("github_project", {}).get("ready_label_name")` first. If already set, default this step to that value (Enter keeps it). Only on a fresh init (no prior value) does the default fall back to `"status:ready-for-dev"`.
+
+Prompt the operator:
+
+```text
+Ready-for-dev label name (stamped on an issue when the skill auto-promotes it to Ready) ["status:ready-for-dev"]:
+```
+
+Empty input accepts the default (either the existing value from config or `"status:ready-for-dev"`). Entering `""` (an empty string, typed explicitly) sets `READY_LABEL_NAME = ""`, which disables the ready-for-dev stamp (same D9 sentinel as `pr_label_name`). Validate the value against rule 17 in `config-schema.md`: a whitespace-only value → HALT `MALFORMED_CONFIG`.
+
+Then create the label in the repo when `READY_LABEL_NAME` is non-empty:
+
+```bash
+# Skip the step entirely when ready_label_name is the empty-string disable sentinel.
+if [ -z "$READY_LABEL_NAME" ]; then
+    echo "[issue-to-project] INFO: Step 6e skipped: ready_label_name is empty — ready-for-dev label feature disabled."
+else
+    gh label create "$READY_LABEL_NAME" \
+        --color "0075CA" \
+        --description "This issue is ready for development pickup by the orchestrator." 2>&1 || {
+        LABEL_ERR="$?"
+        echo "[issue-to-project] WARN: could not create repo label '$READY_LABEL_NAME': exit $LABEL_ERR."
+        echo "  The skill will still attempt to stamp the label on autonomous promotion; if the"
+        echo "  label does not exist, the per-row ready_label_action will be 'failed'."
+    }
+fi
+```
+
+Color `0075CA` (GitHub blue) distinguishes it from the PR label's green (`0E8A16`). Note: `gh label create` returns exit 0 when the label already exists (idempotent); a non-zero exit is a soft-warn and the wizard continues.
+
+**Collision warning.** If `READY_LABEL_NAME` is non-empty and equals `PR_LABEL_NAME`, print: `"[issue-to-project] WARN: ready_label_name equals pr_label_name — both features will stamp the same label at different lifecycle moments. Consider using distinct names."`
+
 ```python
 import json, os, datetime, pathlib
 config_path = pathlib.Path(".claude/config.json")
@@ -404,7 +440,7 @@ config["github_project"] = {
     "project_node_id": PROJECT_NODE_ID,
     "fields": fields_dict,
     "init_timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
-    "init_skill_version": "2.7.0",
+    "init_skill_version": "2.8.0",
     "include_draft_prs": INCLUDE_DRAFT_PRS,
     "webhook_audit_dir": config.get("github_project", {}).get("webhook_audit_dir", ".issue-to-project/lifecycle"),
     "webhook_pr_link_patterns": config.get("github_project", {}).get("webhook_pr_link_patterns", ["Closes", "Fixes", "Resolves"]),
@@ -414,6 +450,8 @@ config["github_project"] = {
     # v2.7.0+: PR label and ready-queue mode
     "pr_label_name": PR_LABEL_NAME,
     "ready_queue_mode": READY_QUEUE_MODE,
+    # v2.8.0+: ready-for-dev label stamped on autonomous promotion (empty string when manual mode or disabled)
+    "ready_label_name": READY_LABEL_NAME,
 }
 
 tmp = config_path.with_suffix(".json.tmp")

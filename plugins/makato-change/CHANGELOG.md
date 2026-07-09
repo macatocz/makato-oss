@@ -3,6 +3,10 @@
 
 ## Plugin-level
 
+- **0.3.0** (#145)
+  - Added `config/skill-bundles.yml` — plugin-prefixed bundles (`change-skills`, `change-spec`)
+    for routing change-request spec files and plugin skill files to the orchestrate/analyze/design/execute/resolve-review skills via the inject-skills resolver.
+
 - **0.2.0**
   - Strip `dcp-specs` / `specs-context` / `$DCP_SPECS_PATH` / `dcp-portal-ui` terminology suite-wide. Project specs are now discovered exclusively via (1) `<REPO_ROOT>/makato.config.json` `specsRoot` field or (2) in-repo `<REPO_ROOT>/specs/index.yml`. The "Sibling to specs-context" path-resolution strategy is removed and replaced with "Sibling of CWD"; `$DCP_SPECS_PATH` environment-variable fallback is removed entirely
   - README Option A relabeled "From a separate specs working directory"; Option B (in-repo `specs/`) is now the recommended default

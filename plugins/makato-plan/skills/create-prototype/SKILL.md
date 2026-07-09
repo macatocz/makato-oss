@@ -28,7 +28,7 @@ Pure visual/UX validation — no external side-effects.
 - Feature has no UI surfaces (skip to decompose)
 - Feature is trivial UI (single button, config toggle — decompose directly)
 - Want to validate technical architecture (that's the architecture skill or grill)
-- Want to create GitHub Issues or publish externally (use /publish downstream)
+- Want to create GitHub Issues or publish externally (use /to-issues downstream)
 
 ---
 

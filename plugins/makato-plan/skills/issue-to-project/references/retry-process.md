@@ -109,7 +109,7 @@ if int(prior["schema_version"].split(".")[0]) < 1:
     sys.exit(f"issue-to-project: prior artifact schema_version "
              f"'{prior['schema_version']}' is not supported by this skill version.\n"
              f"HALT: RETRY_SOURCE_MALFORMED")
-# Accepts all 1.x and 2.x values through '2.7' (e.g. "1", "1.1", "1.2", "2", "2.1", …, "2.7").
+# Accepts all 1.x and 2.x values through '2.8' (e.g. "1", "1.1", "1.2", "2", "2.1", …, "2.8").
 # The forward-stable major-version check above (`int(...split(".")[0]) >= 1`) avoids the
 # pre-existing v2.1 regression that the previous set-based gate caused by rejecting every
 # v2.0+ artifact.  Add new major versions (3.x, …) here if the contract ever breaks.
@@ -331,10 +331,10 @@ The summary recomputation honors three invariants:
 3. A `retry_item_gone` row is terminal — the item is off the board, so it counts in neither `set_*` nor `left_default` nor `edit_failed`. The summary's `retry_item_gone` is the only place it appears.
 
 artifact = {
-    "schema_version": "2.7",
+    "schema_version": "2.8",
     "slug": slug,
     "run_timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
-    "skill_version": "2.7.0",
+    "skill_version": "2.8.0",
     "retry_source": {
         "slug": prior["slug"],
         "run_timestamp": prior["run_timestamp"],

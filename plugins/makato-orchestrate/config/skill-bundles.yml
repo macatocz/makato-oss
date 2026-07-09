@@ -1,0 +1,51 @@
+# Skill Bundles — makato-orchestrate
+#
+# Maps changed-file path globs (plus optional content-hint predicates) to an
+# ordered list of recommended skills that inject-skills prepends into an
+# agent's system prompt before dispatch.
+#
+# Bundle names are plugin-prefixed to avoid cross-plugin collisions in the
+# merged registry. No `default` bundle here — makato-build owns that.
+
+version: "1.0"
+
+bundles:
+  # Triggered when working on the makato-orchestrate plugin's own skill files.
+  # Literal segments: plugins/makato-orchestrate/skills → specificity ≥ 3.
+  - name: orchestrate-skills
+    globs:
+      - "plugins/makato-orchestrate/skills/**/*.md"
+    skills:
+      - kill-switch
+      - workflow-state
+      - loop
+      - session-status
+      - resolve-pr-conflict
+      - archive-spec
+
+  # Triggered when working on workflow-state files in any spec folder.
+  # Literal segment: specs → specificity = 1; contains scopes to orchestrate state.
+  - name: orchestrate-workflow-state
+    globs:
+      - "specs/*/workflow-state*.json"
+      - "specs/**/*.jsonl"
+    contains:
+      - "current_phase"
+      - "sub_tasks"
+      - "halt_audit"
+      - "outer_iteration"
+    skills:
+      - workflow-state
+      - kill-switch
+      - session-status
+
+  # Triggered when working on orchestrate shared scripts (bash helpers).
+  # Literal segments: plugins/makato-orchestrate/shared → specificity = 3.
+  - name: orchestrate-shared
+    globs:
+      - "plugins/makato-orchestrate/shared/*.sh"
+      - "plugins/makato-orchestrate/scripts/*.sh"
+      - "plugins/makato-orchestrate/hooks/*.sh"
+    skills:
+      - workflow-state
+      - kill-switch

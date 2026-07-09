@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- `config/skill-bundles.yml` (#145) — bundles `sagibeast-skills`, `sagibeast-word-templates`, `sagibeast-excel`, `sagibeast-pdf`, `sagibeast-testbox` route Word/PDF/Excel/YAML/SH files to the appropriate Sagibeast skills via the inject-skills resolver.
 - `sagibeast-connect-testbox` skill — connect, port-forward, credential sync, k3d on existing testbox
 - `sagibeast-create-testbox` skill — provision Multipass/EC2/Hetzner testbox VM for E2E parity
 

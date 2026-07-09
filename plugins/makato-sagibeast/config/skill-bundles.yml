@@ -1,0 +1,72 @@
+# Skill Bundles — makato-sagibeast
+#
+# Maps changed-file path globs (plus optional content-hint predicates) to an
+# ordered list of recommended skills that inject-skills prepends into an
+# agent's system prompt before dispatch.
+#
+# Bundle names are plugin-prefixed to avoid cross-plugin collisions in the
+# merged registry. No `default` bundle here — makato-build owns that.
+
+version: "1.0"
+
+bundles:
+  # Triggered when working on the makato-sagibeast plugin's own skill files.
+  # Literal segments: plugins/makato-sagibeast/skills → specificity ≥ 3.
+  - name: sagibeast-skills
+    globs:
+      - "plugins/makato-sagibeast/skills/**/*.md"
+    skills:
+      - dotx-schema-extractor
+      - manage-microsoft-excel
+      - manage-pdf
+      - sagibeast-create-testbox
+      - sagibeast-connect-testbox
+
+  # Triggered when working on Word template files (.dotx, .docx).
+  # Wide glob — requires contains predicate.
+  - name: sagibeast-word-templates
+    globs:
+      - "**/*.dotx"
+      - "**/*.docx"
+    contains:
+      - "template"
+      - "MERGEFIELD"
+      - "ContentControl"
+    skills:
+      - dotx-schema-extractor
+      - manage-pdf
+
+  # Triggered when working on Excel / CSV spreadsheet files.
+  # Wide glob — requires contains predicate.
+  - name: sagibeast-excel
+    globs:
+      - "**/*.xlsx"
+      - "**/*.xlsm"
+      - "**/*.csv"
+    contains:
+      - ","
+      - "sheet"
+      - "column"
+    skills:
+      - manage-microsoft-excel
+
+  # Triggered when working on PDF files.
+  # Wide glob — requires contains predicate.
+  - name: sagibeast-pdf
+    globs:
+      - "**/*.pdf"
+    contains:
+      - "%PDF"
+      - "pdf"
+    skills:
+      - manage-pdf
+
+  # Triggered when working on sagibeast VM or testbox configuration files.
+  # Literal segments: sagibeast → specificity ≥ 1.
+  - name: sagibeast-testbox
+    globs:
+      - "plugins/makato-sagibeast/**/*.sh"
+      - "plugins/makato-sagibeast/**/*.yml"
+    skills:
+      - sagibeast-create-testbox
+      - sagibeast-connect-testbox

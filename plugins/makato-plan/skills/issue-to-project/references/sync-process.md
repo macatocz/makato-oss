@@ -409,6 +409,12 @@ def resolve_status_label(labels):
 Auto-promotion rule (autonomous mode only):
 
 ```python
+# The orchestrator-handoff marker stamped by THIS skill after a successful
+# auto-promotion (v2.8.0+, see "Ready-label stamp on autonomous promotion (D11)"
+# below). It is NOT a board-routing instruction and must NOT block auto-promotion,
+# unlike every other status:* label (which encode operator/upstream intent).
+READY_FOR_DEV_LABEL = "status:ready-for-dev"
+
 def auto_promote_to_ready(issue_labels: list[str], current_board_status: str | None) -> bool:
     """Return True when an item should be auto-promoted Todo → Ready in autonomous mode."""
     # Hard guards: never override an externally-set non-Todo Status (v1 hard guarantee, narrowed for autonomous mode).
@@ -417,8 +423,15 @@ def auto_promote_to_ready(issue_labels: list[str], current_board_status: str | N
     # an explicit signal label is added. See the "Manual-demote escape hatch" note below.
     if current_board_status not in (None, "Todo"):
         return False
-    # Skip if the issue carries any explicit status:* label — that label is the user's intent.
-    if any(l.startswith("status:") for l in issue_labels):
+    # Skip if the issue carries any explicit status:* label OTHER THAN the
+    # orchestrator-handoff marker status:ready-for-dev — that label is the user's intent.
+    # Idempotency for re-runs is guaranteed by the board-state guard above: once an item
+    # is promoted, its currentStatusName is "Ready", so `current_board_status not in
+    # (None, "Todo")` returns False before we reach here. Exempting the handoff marker
+    # therefore does NOT re-promote already-Ready items; it only lets an issue that
+    # carries the marker (e.g. seeded ahead of the run) still reach Ready. Every other
+    # status:* label (status:todo, status:blocked, …) still blocks — that is operator intent.
+    if any(l.startswith("status:") and l != READY_FOR_DEV_LABEL for l in issue_labels):
         return False
     # Skip if the issue is flagged for human review.
     if "needs-human-review" in issue_labels:
@@ -432,7 +445,7 @@ def auto_promote_to_ready(issue_labels: list[str], current_board_status: str | N
     return True
 ```
 
-**Manual-demote escape hatch.** Autonomous mode cannot distinguish between a never-touched `Todo` and a human-demoted `Todo` from board state alone. Operators who need to keep a specific item at `Todo` without auto-promotion must add one of these signal labels: `status:todo` (explicit user intent — wins over auto-promotion), `needs-human-review` (flag for human decision), `hold-in-todo` (v2.7-introduced opt-out marker recognized by `auto_promote_to_ready()`), or any `blocked-by:*` label.
+**Manual-demote escape hatch.** Autonomous mode cannot distinguish between a never-touched `Todo` and a human-demoted `Todo` from board state alone. Operators who need to keep a specific item at `Todo` without auto-promotion must add one of these signal labels: `status:todo` (explicit user intent — wins over auto-promotion), `needs-human-review` (flag for human decision), `hold-in-todo` (v2.7-introduced opt-out marker recognized by `auto_promote_to_ready()`), or any `blocked-by:*` label. **Note (v2.8.0+):** `status:ready-for-dev` does **not** suppress auto-promotion — it is the orchestrator-handoff marker this skill stamps *after* promoting, and is explicitly exempted from the `status:*` block guard. Operators who want to block a `Todo` item must use one of the four signals above, never `status:ready-for-dev`.
 
 **`[issue-to-project:auto]` log prefix.** Autonomous-mode log lines use the `[issue-to-project:auto]` prefix to distinguish inference decisions from explicit user-driven routing:
 
@@ -587,7 +600,17 @@ The auto-promotion check is dispatched **after** `resolve_status_label()` return
 # Inside the step-4 loop, per-issue, after item-add ok:
 status_name, option_key = resolve_status_label(issue["labels"])[:2]
 if status_name is None and ready_queue_mode == "autonomous":
-    current = snapshot.get(issue["number"], {}).get("status")  # None if new-add, else cached value
+    # NOTE (v2.8.0): the step-3 snapshot is keyed by issue URL string
+    # (item["content"]["url"]) and stores the human-readable Status under
+    # "currentStatusName" (see step 3). Look it up by URL, not by the integer
+    # issue number, and read "currentStatusName", not "status". The pre-v2.8
+    # `snapshot.get(issue["number"], {}).get("status")` always returned None
+    # (int key never matches a URL-string key), so guard 1 of
+    # auto_promote_to_ready() never fired for already-on-board items — latent
+    # because autonomous mode had no exercised call-site until the D11 stamp
+    # below. With the correct key an item already at Ready/In progress/… is
+    # correctly skipped instead of being re-promoted over its live Status.
+    current = snapshot.get(issue["url"], {}).get("currentStatusName")  # None if new-add, else live board Status
     if auto_promote_to_ready(issue["labels"], current):
         status_name, option_key = ("Ready", "ready")
         # Emit auto-promote log line and prepare auto_promoted_ready outcome.
@@ -614,6 +637,58 @@ When `auto_promote_to_ready()` returns True, the skill emits `outcome: "auto_pro
 ```
 
 Autonomous-mode promotions are surfaced in the new R1 sentinel key `auto_promoted_ready` (integer count). Operators can audit by grepping `project-sync.json` for `outcome: "auto_promoted_ready"`.
+
+### Ready-label stamp on autonomous promotion (D11) — v2.8.0+
+
+When autonomous mode auto-promotes a `Todo` item to `Ready`, the skill stamps a repo label (`ready_label_name`, default `status:ready-for-dev`) on the issue so the downstream orchestrator (`makato-orchestrate` po-agent / loop) has a passive, greppable marker that this issue was handed off for development. This mirrors the **PR-label stamp** contract (see `lifecycle-process.md` Step 4.5): additive, idempotent at the GitHub API level, and **never removed** by the skill.
+
+The stamp fires **only** on the `auto_promoted_ready` outcome, **only** in `ready_queue_mode == "autonomous"`, and **only** when `ready_label_name` is non-empty. It is never emitted by `sync-lifecycle` or `--from-webhook` (those cover PR-driven transitions via `pr_label_name`). Insert this block immediately after the item-edit that writes `Ready` succeeds and `outcome = "auto_promoted_ready"` is set:
+
+```python
+# D11 (v2.8.0+): stamp the ready-for-dev handoff marker after a successful auto-promotion.
+ready_label_name = gp.get("ready_label_name", "status:ready-for-dev")
+
+if outcome == "auto_promoted_ready" and ready_label_name != "":
+    # Derive issue number + owner/repo from the issue URL for the `gh issue edit` call.
+    # sync-process.md's board mutations use `gh project item-edit` (project-scoped, --owner
+    # $OWNER / --id $PROJECT_ITEM_ID), so no gh_owner/gh_repo/issue_number are in scope here —
+    # unlike lifecycle-process.md. Parse them from issue["url"] the same way lifecycle Step 2 does:
+    # "https://github.com/<owner>/<repo>/issues/<number>".
+    _url_parts = issue["url"].rstrip("/").split("/")
+    gh_owner, gh_repo, issue_number = _url_parts[-4], _url_parts[-3], _url_parts[-1]
+    label_cmd = (
+        f"GH_HOST={RESOLVED_HOST} gh issue edit {issue_number} "
+        f"--repo {gh_owner}/{gh_repo} --add-label \"{ready_label_name}\""
+    )
+    label_result = subprocess.run(
+        label_cmd, shell=True, capture_output=True, text=True,
+        timeout=int(os.environ.get("ITP_GH_TIMEOUT_SECONDS", 30)),
+    )
+    if label_result.returncode == 0:
+        row["ready_label_action"] = "added"
+        print(f"[issue-to-project:auto] issue #{issue_number}: stamped label '{ready_label_name}' (ready-for-dev handoff marker)")
+    else:
+        first_err_line = (label_result.stderr or "").splitlines()[0] if label_result.stderr else "unknown error"
+        row["ready_label_action"] = "failed"
+        row["ready_label_error"] = first_err_line
+        print(
+            f"[issue-to-project] WARN: issue #{issue_number}: could not stamp label "
+            f"'{ready_label_name}': {first_err_line}",
+            file=sys.stderr,
+        )
+        # Soft-warn: label failure does NOT block or roll back the Status flip.
+else:
+    row["ready_label_action"] = None
+    row["ready_label_error"] = None
+```
+
+Notes:
+
+- **Empty-string sentinel.** `ready_label_name == ""` disables the stamp entirely (same D9 pattern as `pr_label_name`); `ready_label_action` is then `None` for every row.
+- **Guard interaction.** Because `auto_promote_to_ready()` exempts `status:ready-for-dev` from its `status:*` block (see the D10 guard above), an issue that already carries the marker is still eligible for promotion — but on a re-run the board-state guard (`current_board_status not in (None, "Todo")`) fires first once the item is at `Ready`, so no spurious re-stamp occurs. Re-stamping an already-labeled issue would in any case be an idempotent no-op at the GitHub API.
+- **Collision with `pr_label_name`.** If an operator sets `ready_label_name` equal to `pr_label_name`, both features stamp the same label at different lifecycle moments — harmless but ambiguous for auditing. `--init` warns on this collision (see `init-wizard.md` Step 6e).
+
+Autonomous ready-label stamps are surfaced in two new summary counters: `ready_label_stamped` (successful `--add-label` calls) and `ready_label_failed` (soft-warn failures). Both are always present with at least `0`; in manual mode they are always `0` because the D11 block is gated behind `ready_queue_mode == "autonomous"`.
 
 **DRY_RUN=1 behavior:** step 3 (the snapshot) still runs (read-only). For each issue, classify as `already_on_board` if its URL is in the snapshot, otherwise `dry_run`. The `cli_command` field is populated with the literal command(s) that would have been issued — for issues routed to a non-default Status, this is the `item-add` followed by `&& ` and the `item-edit` (joined into one shell line) so a single copy-paste reproduces the intent. Step 5 still writes the artifact; exit 0.
 
@@ -795,7 +870,7 @@ field_writes_failed = sum(
 )
 
 artifact = {
-    "schema_version": "2.7",  # v2.7.0+: bumped for new outcomes, summary keys, per-row fields
+    "schema_version": "2.8",  # v2.8.0+: ready-for-dev label stamp (ready_label_* fields + summary keys); v2.7.0+ added autonomous outcomes/summary keys/per-row fields
     "slug": slug,
     "retry_source": None,
     "project": {
@@ -816,6 +891,10 @@ artifact = {
         "set_blocked":                count({"added_blocked"}),
         "set_done":                   count({"added_done"}),
         "auto_promoted_ready":        count({"auto_promoted_ready"}),        # v2.7.0+ autonomous only
+        # v2.8.0+ ready-for-dev label stamp counters (keyed on per-row ready_label_action, like pr_label_*).
+        # Always present with at least 0; always 0 in manual mode (D11 block is autonomous-gated).
+        "ready_label_stamped":        sum(1 for r in results if r.get("ready_label_action") == "added"),
+        "ready_label_failed":         sum(1 for r in results if r.get("ready_label_action") == "failed"),
         "left_default":               count(LEFT_DEFAULT_OUTCOMES),
         "add_failed":                 count({"add_failed"}),
         "edit_failed":                count(EDIT_FAILED_OUTCOMES),
@@ -968,6 +1047,8 @@ result = {
     "set_blocked":                summary["set_blocked"],
     "set_done":                   summary["set_done"],
     "auto_promoted_ready":        summary["auto_promoted_ready"],   # v2.7.0+
+    "ready_label_stamped":        summary["ready_label_stamped"],   # v2.8.0+
+    "ready_label_failed":         summary["ready_label_failed"],    # v2.8.0+
     "left_default":               summary["left_default"],
     "add_failed":                 summary["add_failed"],
     "edit_failed":                summary["edit_failed"],
