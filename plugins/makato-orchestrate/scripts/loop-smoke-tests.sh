@@ -611,4 +611,39 @@ grep -q "KEY= " <<<"$dry_run_warn" \
 echo "  ✓ KEY derivation failure emits WARN and dispatches with empty KEY (po-agent fails input validation)"
 
 echo
+echo "=== T26: type:change issues route to makato-change:orchestrate, others to po-agent ==="
+# Use MAKATO_LOOP_ISSUE_TYPE_OVERRIDE to bypass gh network call (keeps test offline).
+# Use the same body-override fixture from T25 (primary footer path) for KEY derivation.
+
+change_route="$(
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$issue_body_file" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="type:change" \
+    "$LOOP" dispatch 501 --dry-run 2>&1 >/dev/null
+)" || fail "T26: type:change dispatch --dry-run should exit 0; got: $change_route"
+grep -q "makato-change:orchestrate" <<<"$change_route" \
+  || fail "T26: type:change should route to makato-change:orchestrate; got: $change_route"
+echo "  ✓ type:change routes to makato-change:orchestrate --autonomous"
+
+poagent_route="$(
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$issue_body_file" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="type:feature" \
+    "$LOOP" dispatch 502 --dry-run 2>&1 >/dev/null
+)" || fail "T26: type:feature dispatch --dry-run should exit 0; got: $poagent_route"
+grep -q "po-agent" <<<"$poagent_route" \
+  || fail "T26: type:feature should route to po-agent; got: $poagent_route"
+echo "  ✓ type:feature (and other types) route to po-agent"
+
+no_type_route="$(
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$issue_body_file" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="" \
+    "$LOOP" dispatch 503 --dry-run 2>&1 >/dev/null
+)" || fail "T26: no-type dispatch --dry-run should exit 0; got: $no_type_route"
+grep -q "po-agent" <<<"$no_type_route" \
+  || fail "T26: missing type: label should fall back to po-agent; got: $no_type_route"
+echo "  ✓ missing type: label falls back to po-agent"
+
+echo
 echo "=== ALL TESTS PASSED ==="

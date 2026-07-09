@@ -689,6 +689,31 @@ _derive_key_for_issue() {
 
   [[ -n "$slug" ]] || return 1
 
+  # Disambiguation: when a slug matches multiple specs/ folders (epic
+  # collision — e.g. two issues sharing a slug like "agent-skill-routing"),
+  # pick the folder whose created-issues.json or plan.md references this
+  # issue number. Without this, _derive_key_for_issue would return the same
+  # slug for both issues; the po-agent prefix-match would then resolve to
+  # whichever folder sorts first, dispatching the wrong plan.
+  local spec_root="${REPO_ROOT:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel 2>/dev/null)}/specs"
+  if [[ -d "$spec_root" ]]; then
+    local -a candidates=()
+    while IFS= read -r -d '' dir; do
+      candidates+=("$dir")
+    done < <(find "$spec_root" -maxdepth 1 -type d -name "${slug}-*" -print0 2>/dev/null)
+    if [[ "${#candidates[@]}" -gt 1 ]]; then
+      local disambig=""
+      for candidate in "${candidates[@]}"; do
+        if grep -qsE '"issue_number"[[:space:]]*:[[:space:]]*'"$issue"'[^0-9]' \
+              "$candidate/created-issues.json" "$candidate/plan.md" 2>/dev/null; then
+          disambig="$(basename "$candidate")"
+          break
+        fi
+      done
+      [[ -n "$disambig" ]] && slug="$disambig"
+    fi
+  fi
+
   # Sanitise defensively: any character outside [A-Za-z0-9._-] becomes a
   # dash, so the derived BRANCH (feat/<issue>-<slug>) is always a valid ref.
   # to-issues slugs are already lowercase-hyphenated, so this is a no-op in
@@ -788,8 +813,26 @@ cmd_dispatch() {
     echo "loop: WARN — could not derive KEY for issue #${issue} (no to-issues provenance in body); po-agent will fail input validation" >&2
   fi
 
+  # Routing: issues labelled type:change are dispatched through the
+  # makato-change:orchestrate --autonomous path; everything else goes to
+  # the po-agent (makato-build pipeline).
+  # Test hook: MAKATO_LOOP_ISSUE_TYPE_OVERRIDE — when set, its value is used
+  # as issue_type directly (keeps routing smoke tests offline).
+  local issue_type=""
+  if [[ -n "${MAKATO_LOOP_ISSUE_TYPE_OVERRIDE:-}" ]]; then
+    issue_type="$MAKATO_LOOP_ISSUE_TYPE_OVERRIDE"
+  else
+    issue_type="$(gh issue view "$issue" --repo "${MAKATO_LOOP_DISPATCH_REPO:-}" \
+      --json labels \
+      --jq '[.labels[].name | select(startswith("type:"))] | first // ""' 2>/dev/null || true)"
+  fi
+
   if [[ "$dry_run" == "--dry-run" ]]; then
-    echo "loop: --dry-run — would exec: $CLAUDE_BIN --dangerously-skip-permissions -p \"<dispatch makato-orchestrate:po-agent for issue #${issue} KEY=${key} REPO=${MAKATO_LOOP_DISPATCH_REPO:-} BRANCH=${branch} REPO_ROOT=${REPO_ROOT}>\"" >&2
+    if [[ "$issue_type" == "type:change" ]]; then
+      echo "loop: --dry-run — would exec: $CLAUDE_BIN --dangerously-skip-permissions -p \"<dispatch makato-change:orchestrate --autonomous for issue #${issue} KEY=${key} REPO=${MAKATO_LOOP_DISPATCH_REPO:-} REPO_ROOT=${REPO_ROOT}>\"" >&2
+    else
+      echo "loop: --dry-run — would exec: $CLAUDE_BIN --dangerously-skip-permissions -p \"<dispatch makato-orchestrate:po-agent for issue #${issue} KEY=${key} REPO=${MAKATO_LOOP_DISPATCH_REPO:-} BRANCH=${branch} REPO_ROOT=${REPO_ROOT}>\"" >&2
+    fi
     echo "loop: --dry-run — would assign #${issue} to ${ASSIGNEE} (board → In progress)" >&2
     _patch_status '.active_workflow' 'null'
     return 0
@@ -847,7 +890,13 @@ cmd_dispatch() {
   # AskUserQuestion. This is the #163 fix; the #160 fix (delegation
   # prompt) remains the primary defence.
   local dispatch_prompt
-  dispatch_prompt="Use the Task tool to dispatch the makato-orchestrate:po-agent subagent to drive GitHub issue #${issue} to a merged PR. Pass the po-agent's required inputs verbatim: ISSUE_NUMBER=${issue} KEY=${key} REPO=${MAKATO_LOOP_DISPATCH_REPO:-} BRANCH=${branch} REPO_ROOT=${REPO_ROOT}. The po-agent owns the outer loop, workflow-state, and all makato-build --autonomous dispatch; do not invoke makato-build or makato-plan skills directly from this session. Return the po-agent's final R1 envelope verbatim."
+  if [[ "$issue_type" == "type:change" ]]; then
+    # Route to makato-change:orchestrate --autonomous. No plan.md required —
+    # the change pipeline owns its own spec-folder lifecycle.
+    dispatch_prompt="Use the Skill tool to invoke the makato-change:orchestrate skill with args '${key} --autonomous'. Required env: ISSUE_NUMBER=${issue} ISSUE_KEY=${key} REPO=${MAKATO_LOOP_DISPATCH_REPO:-} REPO_ROOT=${REPO_ROOT}. MAKATO_HEADLESS=1 is already exported. The skill owns the analyze→design→execute→resolve-review loop and writes change-state-${issue}.json + a workflow-state-${issue}.json loop-compat stub. Return R1 envelope verbatim."
+  else
+    dispatch_prompt="Use the Task tool to dispatch the makato-orchestrate:po-agent subagent to drive GitHub issue #${issue} to a merged PR. Pass the po-agent's required inputs verbatim: ISSUE_NUMBER=${issue} KEY=${key} REPO=${MAKATO_LOOP_DISPATCH_REPO:-} BRANCH=${branch} REPO_ROOT=${REPO_ROOT}. The po-agent owns the outer loop, workflow-state, and all makato-build --autonomous dispatch; do not invoke makato-build or makato-plan skills directly from this session. Return the po-agent's final R1 envelope verbatim."
+  fi
 
   if [[ -n "$log_file" ]]; then
     # Redirect both stdout+stderr to the log file so the watchdog gets

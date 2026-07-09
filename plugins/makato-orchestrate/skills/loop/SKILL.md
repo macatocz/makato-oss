@@ -144,6 +144,10 @@ Each outer iteration of `run` performs the following steps in order:
      issue), `KEY` degrades to empty and a `WARN` is logged; the po-agent
      then surfaces the input-validation failure with a clear audit rather
      than dispatching blind.
+     **NOTE:** hand-filed issues that bypass `to-issues` will never carry
+     the provenance footer and will always degrade to an empty KEY. Run
+     `/makato-orchestrate:seed-issue <ISSUE_NUMBER>` to stamp the footer
+     and move the board card to `Ready` before the loop picks up the issue.
      `MAKATO_HEADLESS=1` is the defensive belt: if the delegation prompt
      is somehow ignored and a `build-*` skill fires interactively, its
      Step 1b headless guard (see `plugins/makato-build/AUTONOMOUS-MODE.md`
@@ -192,9 +196,12 @@ mutex around `loop-status.json` plus per-issue workflow-state isolation.
 The issue #33 brief suggested removing `status:ready-for-dev` at dispatch
 to prevent double-dispatch. Two reasons we don't:
 
-1. There is no `status:ready-for-dev` label in the repo (or any
-   `status:*` label except via `to-issues`); the board's `Status` field
-   is the source of truth.
+1. `status:ready-for-dev` now exists in the repo as a **passive stamp**
+   written by `issue-to-project` v2.8+ during autonomous auto-promotion
+   (`ready_queue_mode: "autonomous"`). It is a historical marker — the
+   downstream orchestrator can grep it without reading the board — but it
+   is **not the dispatch signal**. The board's `Status` field remains the
+   source of truth; `loop` reads `Status`, not the label.
 2. The in-flight filter already prevents double-dispatch and works
    across restarts. Label or Status mutation from `loop` would
    duplicate `issue-to-project sync-lifecycle`'s contract and risk

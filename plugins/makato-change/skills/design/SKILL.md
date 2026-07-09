@@ -1,7 +1,7 @@
 ---
 name: design
 description: Design technical approach for change request by discovering affected code, planning solution, and updating GitHub issue with implementation strategy. Use for technical design, solution planning, code discovery, implementation approach.
-version: "1.1.1"
+version: "1.2.0"
 argument-hint: "[ISSUE-KEY]"
 ---
 
@@ -109,6 +109,16 @@ If questions are resolved or there were none, proceed.
 ### Step 3: Ask User for Code Discovery Preference
 
 Load @references/code-discovery-strategies.md to understand the two approaches.
+
+**Headless branch (MAKATO_HEADLESS=1):**
+
+Auto-select **Guided mode** (Option A). Log an `autonomous_bypass` entry:
+```bash
+shared/log-bypass.sh makato-change:design "<ISSUE_KEY>" discovery-preference guided cli_flag
+```
+Proceed to Step 4 Option A. Since no user has provided file paths, derive affected files from the analysis artifact's "Affected Files" section and CODE_EXPLORATION_RESULT. If neither source yields a list, dispatch the code-explorer agent (Option B) without prompting.
+
+**Interactive branch (default):**
 
 Present options to the user using AskUserQuestion:
 
@@ -254,6 +264,16 @@ Write `specs/<issue-key>/test-scenarios.md` documenting:
 - If "New Scenarios to Add" section is empty or absent: skip to Step 6
 - If "New Scenarios to Add" has scenarios: classify each as `e2e` or `unit`
 
+**Headless branch (MAKATO_HEADLESS=1):**
+
+Auto-approve the classifications. Log an `autonomous_bypass` entry:
+```bash
+shared/log-bypass.sh makato-change:design "<ISSUE_KEY>" scenario-classification approve cli_flag
+```
+Proceed directly to Step 6.
+
+**Interactive branch (default):**
+
 **Present classification summary to user for confirmation:**
 
 Use AskUserQuestion:
@@ -398,6 +418,18 @@ Show a summary of the design to the user:
 
 **Full design:** `specs/<issue-key>/design.md`
 ```
+
+**Headless branch (MAKATO_HEADLESS=1):**
+
+Auto-approve the design. Log HALT-CH-003 audit entry:
+```bash
+shared/log-bypass.sh makato-change:design "<ISSUE_KEY>" design-approval approve cli_flag \
+  '{"halt_code":"HALT-CH-003","note":"auto-approved in autonomous mode"}'
+```
+
+Set `POST_TO_JIRA = (MAKATO_CHANGE_POST_DESIGN == "1")`. Proceed to Step 11 conditionally.
+
+**Interactive branch (default):**
 
 Use `AskUserQuestion` to get approval:
 

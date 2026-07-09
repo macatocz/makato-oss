@@ -1,6 +1,38 @@
 <!-- markdownlint-disable MD012 MD013 -->
 # Changelog
 
+## Autonomous path — orchestrate + headless phase branches (#144)
+
+Adds full autonomous execution support to the `makato-change` pipeline so the `loop` skill can
+dispatch change-request issues unattended in the same way it dispatches PO-agent work items.
+
+- **`AUTONOMOUS-MODE.md` 1.0.0** — new document: canonical reference for headless execution in
+  `makato-change`. Defines the `--autonomous` contract (no interactive prompts, R1 envelope on
+  every exit, HALT-CH-* codes on non-success paths), the three guarded actions that require
+  explicit operator opt-in (`needs-human-review` labelling, PR merge, scope-ceiling override),
+  and the `change-state.json` audit obligations that mirror `workflow-state.json` in
+  `makato-orchestrate`.
+- **`orchestrate` skill — `--autonomous` flag** — the `orchestrate` skill now accepts
+  `--autonomous` as an invocation flag. When set: interactive confirmation prompts are suppressed;
+  each phase (analyze, design, execute, resolve-review) emits an R1 envelope on completion;
+  failures in any phase produce the appropriate HALT-CH-* code and write to `change-state.json`
+  before returning R1 `status: "failure"`. Interactive (default) behavior is unchanged.
+- **`analyze` skill — headless branch** — when invoked with `--autonomous`, `analyze` skips the
+  "confirm requirements diff" interactive checkpoint and instead writes the diff to
+  `change-state.json` under `requirements_diff`; if the `requirements-diff-analyzer` agent
+  returns unresolvable conflicts the skill fires HALT-CH-001 and returns R1 failure without
+  waiting for operator input.
+- **`design` skill — headless branch** — when invoked with `--autonomous`, `design` skips the
+  "approve technical approach" checkpoint; if the `code-explorer` agent cannot locate a primary
+  affected file or the scope exceeds the medium-change ceiling the skill fires HALT-CH-002 and
+  returns R1 failure.
+- **`execute` skill — headless branch** — when invoked with `--autonomous`, `execute` suppresses
+  the pre-commit and pre-PR interactive confirmations; suppressed `quality-guard` findings below
+  the error threshold are recorded as HALT-CH-003 (informational) in `change-state.json` and do
+  not block the PR from being opened.
+
+---
+
 ## Plugin-level
 
 - **0.3.0** (#145)

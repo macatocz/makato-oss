@@ -1,7 +1,7 @@
 ---
 name: analyze
 description: Analyze change request requirements by comparing current behavior against requested changes, identify and address open questions and inconsistencies, update GitHub issue with refined requirements. Use for change requests, requirement analysis, behavior comparison, scope estimation.
-version: "1.1.2"
+version: "1.2.0"
 argument-hint: "[ISSUE-KEY]"
 ---
 
@@ -87,6 +87,35 @@ If validation fails:
 - If manual fix: exit gracefully
 
 **If repositories.yml does NOT exist:**
+
+**Headless branch (MAKATO_HEADLESS=1):**
+
+Check if `REPO_ROOT` is present in the dispatch context bundle:
+
+- `REPO_ROOT` present → auto-write `repositories.yml` using that path:
+  ```yaml
+  version: "1.0"
+  affected:
+    - name: <basename of REPO_ROOT>
+      role: primary
+      path: <basename of REPO_ROOT>
+      description: "<GitHub Issues summary one-line>"
+  ```
+  Set `REPO_ROOT` and `REPO_NAME` from the bundle value. Continue to Step 3.
+
+- `REPO_ROOT` absent → HALT-CH-001. Write to `specs/<issue-key>/deferred-questions.md`:
+  ```
+  ## HALT-CH-001: Repository not discovered
+
+  The `repositories.yml` file does not exist and `REPO_ROOT` was not provided
+  in the dispatch context bundle.
+
+  To resume: re-dispatch with `REPO_ROOT=/absolute/path/to/repo` in the bundle,
+  or create `specs/<issue-key>/repositories.yml` manually before re-running.
+  ```
+  Return R1 `status:"failure"`, `errors:["HALT-CH-001: REPO_ROOT required in headless mode"]`.
+
+**Interactive branch (default):**
 
 Use AskUserQuestion to discover target repository:
 
@@ -284,6 +313,15 @@ Determine if the change fits makato-change (small/medium) or needs makato-plan (
 - Skip to Step 9 (Generate Analysis Artifact)
 
 **If open questions exist:**
+
+**Headless branch (MAKATO_HEADLESS=1):**
+
+Classify each question using the `requirements-diff-analyzer`'s `blocking` flag:
+
+- **Non-critical questions** (`blocking: false`): Write them to `specs/<issue-key>/deferred-questions.md` under a `## Deferred Questions` heading with the question text and why it matters. Do NOT ask. Continue to Step 9.
+- **Critical blocking questions** (`blocking: true`): HALT-CH-002. Append each critical question to `specs/<issue-key>/deferred-questions.md` under `## Critical Blocking Questions (HALT-CH-002)`. Return R1 `status:"failure"`, `errors:["HALT-CH-002: Critical questions require human input before design"]`, with `data.blocking_questions` listing the question texts.
+
+**Interactive branch (default):**
 
 Open questions include both blocking questions (must answer before design) and clarifying questions (improve design quality). All are worth asking since the user often knows answers even if they're not in the written requirements.
 
