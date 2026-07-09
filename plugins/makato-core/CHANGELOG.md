@@ -5,6 +5,12 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## Plugin-level
+
+- **Added** `config/skill-bundles.yml` (#145) — bundles `core-skills`, `core-readme`, `core-markdown`, `core-governance` route README files, markdown files with lint markers, AGENTS/CLAUDE governance files, and core skill files to the documentation and navigation skills.
+
+---
+
 ## `hooks/` directory — shared Claude Code hooks
 
 - **Added** `hooks/pre-commit-sensors.md` — PreToolUse gate blocking `git commit` on sensor failure

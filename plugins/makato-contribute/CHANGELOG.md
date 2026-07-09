@@ -4,6 +4,12 @@ Changes are grouped by skill/agent/component. Within each group, latest version 
 
 ---
 
+## Plugin-level
+
+- **Added** `config/skill-bundles.yml` (#145) — bundles `contribute-skills`, `contribute-plugin-creation`, `contribute-pr` route plugin.json/marketplace files and CHANGELOG files to the makato-plugin-creator/makato-skill-creator/manage-pr skills.
+
+---
+
 ## `manage-pr` skill
 
 - **1.1.0**

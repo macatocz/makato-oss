@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- `config/skill-bundles.yml` (#145) — bundles `database-skills`, `database-migrations`, `database-orm`, `database-django-orm` route SQL migration files, SQLAlchemy/ORM model files, Django models, and the skill file itself to the `manage-postgres` skill.
+
 ## [0.1.0] - 2026-06-19
 
 ### Added

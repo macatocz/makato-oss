@@ -5,6 +5,12 @@ Changes are grouped by skill/agent/component. Within each group, latest version 
 
 ---
 
+## Plugin-level
+
+- **Added** `config/skill-bundles.yml` (#145) — bundles `plan-skills`, `plan-prd`, `plan-decompose`, `plan-issues` route PRD/architecture spec files, plan.md/stories.md, created-issues.json, and plan skill files to the appropriate planning skills (brainstorming, create-prd, grill, decompose, to-issues, issue-to-project, etc.).
+
+---
+
 ## `archive-spec` skill — removed (wrong plugin)
 
 - Skill moved to `makato-orchestrate/skills/archive-spec`; `makato-plan` does pre-dev shaping,

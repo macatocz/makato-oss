@@ -6,6 +6,7 @@
 
 ### Added
 
+- `config/skill-bundles.yml` (#145) — bundles `observability-skills`, `observability-otel` route Python files with OpenTelemetry/Langfuse imports and observability skill files to the `langfuse-instrument` skill.
 - `langfuse-instrument` skill — wires OpenTelemetry SDK to a Langfuse OTLP HTTP endpoint for LangGraph-based agents (see the skill's SKILL.md for the 7-step workflow)
 - 6 references under `skills/langfuse-instrument/references/`: `deployment-paths.md`, `langgraph-otel-integration.md`, `otel-setup.md`, `span-attribute-conventions.md`, `inprocess-exporter.md`, `troubleshooting.md`
 - 3 templates under `skills/langfuse-instrument/templates/`: `otel-setup.py`, `otel-inprocess-exporter.py`, `env-local.example`
