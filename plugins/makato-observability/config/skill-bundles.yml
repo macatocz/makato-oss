@@ -1,0 +1,33 @@
+# Skill Bundles — makato-observability
+#
+# Maps changed-file path globs (plus optional content-hint predicates) to an
+# ordered list of recommended skills that inject-skills prepends into an
+# agent's system prompt before dispatch.
+#
+# Bundle names are plugin-prefixed to avoid cross-plugin collisions in the
+# merged registry. No `default` bundle here — makato-build owns that.
+
+version: "1.0"
+
+bundles:
+  # Triggered when working on the makato-observability plugin's own skill files.
+  # Literal segments: plugins/makato-observability/skills → specificity ≥ 3.
+  - name: observability-skills
+    globs:
+      - "plugins/makato-observability/skills/**/*.md"
+    skills:
+      - langfuse-instrument
+
+  # Triggered when working on Python files that set up OpenTelemetry / Langfuse.
+  # Wide globs — requires contains predicate.
+  - name: observability-otel
+    globs:
+      - "**/*.py"
+    contains:
+      - "from opentelemetry"
+      - "import opentelemetry"
+      - "langfuse"
+      - "TracerProvider"
+      - "OTLPSpanExporter"
+    skills:
+      - langfuse-instrument

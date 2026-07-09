@@ -1,0 +1,65 @@
+# Skill Bundles — makato-plan
+#
+# Maps changed-file path globs (plus optional content-hint predicates) to an
+# ordered list of recommended skills that inject-skills prepends into an
+# agent's system prompt before dispatch.
+#
+# Bundle names are plugin-prefixed to avoid cross-plugin collisions in the
+# merged registry. No `default` bundle here — makato-build owns that.
+
+version: "1.0"
+
+bundles:
+  # Triggered when working on the makato-plan plugin's own skill files.
+  # Literal segments: plugins/makato-plan/skills → specificity ≥ 3.
+  - name: plan-skills
+    globs:
+      - "plugins/makato-plan/skills/**/*.md"
+    skills:
+      - brainstorming
+      - create-prd
+      - create-architecture
+      - grill
+      - decompose
+      - create-acceptance-tests
+      - to-issues
+      - issue-to-project
+      - create-ux
+      - create-prototype
+      - excalidraw
+
+  # Triggered when working on PRD or architecture documents in specs.
+  # Literal segment: specs → specificity = 1; contains scopes to planning artifacts.
+  - name: plan-prd
+    globs:
+      - "specs/**/*.md"
+    contains:
+      - "## Problem"
+      - "## Goals"
+      - "User Stories"
+      - "Acceptance Criteria"
+      - "## Architecture"
+    skills:
+      - grill
+      - create-prd
+      - create-acceptance-tests
+
+  # Triggered when working on decomposition plan files.
+  # Literal segment: specs → specificity = 1; contains scopes to plan/story artifacts.
+  - name: plan-decompose
+    globs:
+      - "specs/**/plan.md"
+      - "specs/**/stories.md"
+    skills:
+      - decompose
+      - create-acceptance-tests
+      - to-issues
+
+  # Triggered when working on GitHub issue JSON output from to-issues.
+  # Literal segments: specs → specificity = 1; contains scopes to issue artifacts.
+  - name: plan-issues
+    globs:
+      - "specs/**/created-issues.json"
+    skills:
+      - issue-to-project
+      - to-issues

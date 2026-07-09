@@ -1,0 +1,37 @@
+# Skill Bundles — makato-change
+#
+# Maps changed-file path globs (plus optional content-hint predicates) to an
+# ordered list of recommended skills that inject-skills prepends into an
+# agent's system prompt before dispatch.
+#
+# Bundle names are plugin-prefixed to avoid cross-plugin collisions in the
+# merged registry. No `default` bundle here — makato-build owns that.
+
+version: "1.0"
+
+bundles:
+  # Triggered when working on the makato-change plugin's own skill files.
+  # Literal segments: plugins/makato-change/skills → specificity ≥ 3.
+  - name: change-skills
+    globs:
+      - "plugins/makato-change/skills/**/*.md"
+    skills:
+      - orchestrate
+      - analyze
+      - design
+      - execute
+      - resolve-review
+
+  # Triggered when working on change-request spec or plan artifacts.
+  # Literal segment: specs → specificity = 1.
+  - name: change-spec
+    globs:
+      - "specs/**/*.md"
+    contains:
+      - "change request"
+      - "requested change"
+      - "current behavior"
+    skills:
+      - analyze
+      - design
+      - execute

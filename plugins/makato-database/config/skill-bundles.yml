@@ -1,0 +1,59 @@
+# Skill Bundles — makato-database
+#
+# Maps changed-file path globs (plus optional content-hint predicates) to an
+# ordered list of recommended skills that inject-skills prepends into an
+# agent's system prompt before dispatch.
+#
+# Bundle names are plugin-prefixed to avoid cross-plugin collisions in the
+# merged registry. No `default` bundle here — makato-build owns that.
+
+version: "1.0"
+
+bundles:
+  # Triggered when working on the makato-database plugin's own skill files.
+  # Literal segments: plugins/makato-database/skills → specificity ≥ 3.
+  - name: database-skills
+    globs:
+      - "plugins/makato-database/skills/**/*.md"
+    skills:
+      - manage-postgres
+
+  # Triggered when working on SQL migration files in any project.
+  # Literal segment: migrations/ → specificity = 1; contains scopes to Postgres DDL.
+  - name: database-migrations
+    globs:
+      - "migrations/**/*.sql"
+      - "db/migrate/**/*.sql"
+      - "alembic/versions/**/*.py"
+    contains:
+      - "CREATE TABLE"
+      - "ALTER TABLE"
+      - "CREATE INDEX"
+      - "DROP TABLE"
+    skills:
+      - manage-postgres
+
+  # Triggered when working on SQLAlchemy / ORM model files.
+  # Wide globs require contains predicate — all three are wide (**/*.py patterns).
+  - name: database-orm
+    globs:
+      - "**/*model*.py"
+      - "**/*schema*.py"
+    contains:
+      - "from sqlalchemy"
+      - "import sqlalchemy"
+      - "DeclarativeBase"
+      - "Base = declarative"
+    skills:
+      - manage-postgres
+
+  # Triggered when working on Django ORM files (models.py anywhere).
+  # Wide globs — contains predicate required.
+  - name: database-django-orm
+    globs:
+      - "**/models.py"
+    contains:
+      - "from django.db"
+      - "models.Model"
+    skills:
+      - manage-postgres

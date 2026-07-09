@@ -1,0 +1,44 @@
+# Skill Bundles — makato-contribute
+#
+# Maps changed-file path globs (plus optional content-hint predicates) to an
+# ordered list of recommended skills that inject-skills prepends into an
+# agent's system prompt before dispatch.
+#
+# Bundle names are plugin-prefixed to avoid cross-plugin collisions in the
+# merged registry. No `default` bundle here — makato-build owns that.
+
+version: "1.0"
+
+bundles:
+  # Triggered when working on the makato-contribute plugin's own skill files.
+  # Literal segments: plugins/makato-contribute/skills → specificity ≥ 3.
+  - name: contribute-skills
+    globs:
+      - "plugins/makato-contribute/skills/**/*.md"
+    skills:
+      - makato-plugin-creator
+      - makato-skill-creator
+      - manage-pr
+      - sync-from-upstream
+
+  # Triggered when working on plugin scaffold files that suggest contributor tooling.
+  # Literal segments: plugins/ → specificity = 1; contains filter keeps it precise.
+  - name: contribute-plugin-creation
+    globs:
+      - "plugins/**/*.json"
+    contains:
+      - "plugin.json"
+      - "marketplace.json"
+      - ".claude-plugin"
+    skills:
+      - makato-plugin-creator
+      - makato-skill-creator
+
+  # Triggered when working on pull-request or changelog files.
+  # Literal segment: CHANGELOG → specificity = 1 (root CHANGELOG.md).
+  - name: contribute-pr
+    globs:
+      - "CHANGELOG.md"
+      - "plugins/*/CHANGELOG.md"
+    skills:
+      - manage-pr

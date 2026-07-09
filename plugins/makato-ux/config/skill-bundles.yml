@@ -1,0 +1,84 @@
+# Skill Bundles — makato-ux
+#
+# Maps changed-file path globs (plus optional content-hint predicates) to an
+# ordered list of recommended skills that inject-skills prepends into an
+# agent's system prompt before dispatch.
+#
+# Bundle names are plugin-prefixed to avoid cross-plugin collisions in the
+# merged registry. No `default` bundle here — makato-build owns that.
+
+version: "1.0"
+
+bundles:
+  # Triggered when working on the makato-ux plugin's own skill files.
+  # Literal segments: plugins/makato-ux/skills → specificity ≥ 3.
+  - name: ux-skills
+    globs:
+      - "plugins/makato-ux/skills/**/*.md"
+    skills:
+      - frontend-design
+      - e2e-testing-patterns
+      - webapp-testing
+      - penpot-uiux-design
+
+  # Triggered when working on React/TypeScript UI component files.
+  # Wide globs — requires contains predicate.
+  - name: ux-frontend
+    globs:
+      - "**/*.tsx"
+      - "**/*.jsx"
+    contains:
+      - "import React"
+      - "from 'react'"
+      - "from \"react\""
+      - "React.FC"
+      - "useState"
+      - "useEffect"
+    skills:
+      - frontend-design
+      - webapp-testing
+
+  # Triggered when working on CSS / styling files.
+  # Wide globs — requires contains predicate.
+  - name: ux-styles
+    globs:
+      - "**/*.css"
+      - "**/*.scss"
+      - "**/*.module.css"
+    contains:
+      - "display:"
+      - "flex"
+      - "grid"
+      - "color:"
+      - "margin:"
+      - "padding:"
+    skills:
+      - frontend-design
+
+  # Triggered when working on Playwright E2E test files.
+  # Wide globs — requires contains predicate.
+  - name: ux-e2e
+    globs:
+      - "**/*.spec.ts"
+      - "**/*.spec.js"
+      - "**/*.e2e.ts"
+      - "**/e2e/**/*.ts"
+    contains:
+      - "playwright"
+      - "from '@playwright"
+      - "import { test"
+      - "page.goto"
+      - "page.click"
+    skills:
+      - e2e-testing-patterns
+      - webapp-testing
+
+  # Triggered when working on Penpot design spec files.
+  # Literal segment: specs → specificity = 1; contains scopes to UX artifacts.
+  - name: ux-design-spec
+    globs:
+      - "specs/**/design.md"
+      - "specs/**/ux*.md"
+    skills:
+      - penpot-uiux-design
+      - frontend-design
