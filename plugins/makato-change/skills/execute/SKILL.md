@@ -1,7 +1,7 @@
 ---
 name: execute
 description: Implement change request by modifying code, updating tests, running verification, and creating pull request with GitHub issue link. Use for implementation, coding changes, test updates, PR creation.
-version: "1.0.3"
+version: "1.1.0"
 argument-hint: "[ISSUE-KEY]"
 ---
 
@@ -139,6 +139,25 @@ Load @references/test-generation-guide.md for testing patterns.
 3. Look for test configuration files (`jest.config.js`, `pytest.ini`, `*_test.go`, etc.)
 
 **If no test infrastructure found:**
+
+**Headless branch (MAKATO_HEADLESS=1):**
+
+Do NOT halt and do NOT prompt. Set an in-memory flag `no_test_infrastructure:true` and continue to Step 5. The R1 envelope at session end MUST include:
+```json
+"data": {
+  "no_test_infrastructure": true,
+  "degraded_confidence": true
+}
+```
+This signals HALT-CH-004 (degraded confidence, not a failure). Note in the PR description that automated tests are not included due to missing infrastructure.
+
+Log an `autonomous_bypass` entry:
+```bash
+shared/log-bypass.sh makato-change:execute "<ISSUE_KEY>" no-test-infrastructure continue-degraded cli_flag \
+  '{"halt_code":"HALT-CH-004"}'
+```
+
+**Interactive branch (default):**
 
 Use `AskUserQuestion` to confirm approach:
 
@@ -311,6 +330,21 @@ git -C <REPO_ROOT> branch --show-current
 ```
 
 If on `main` or `master` branch, create and checkout a feature branch:
+
+**Headless branch (MAKATO_HEADLESS=1):**
+
+Use `worktree.sh` to create the branch inside a dedicated worktree (provides branch isolation). Resolve the script path from `MAKATO_ORCHESTRATE_SHARED`:
+
+```bash
+"${MAKATO_ORCHESTRATE_SHARED}/worktree.sh" create --new-branch <KEY> <ISSUE_NUMBER> <REPO_NAME> feat/<ISSUE-KEY>-<short-description>
+```
+
+Store the returned worktree path as `WORKTREE_PATH`. All subsequent file edits and git operations in this step and Steps 7–8 MUST use `WORKTREE_PATH` instead of `REPO_ROOT` for git ops.
+
+If `MAKATO_ORCHESTRATE_SHARED` is unset, fall back to the standard `git -C` approach below (no worktree isolation — branch is created in the main checkout).
+
+**Interactive branch (default):**
+
 ```bash
 git -C <REPO_ROOT> checkout -b feat/<ISSUE-KEY>-<short-description>
 ```

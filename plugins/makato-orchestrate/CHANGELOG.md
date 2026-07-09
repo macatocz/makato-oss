@@ -11,6 +11,32 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+
+## makato-change autonomous path integration (#144)
+
+Wires the `makato-change` autonomous pipeline into the loop/po-agent dispatch surface and
+documents the corresponding halt conditions.
+
+- **`seed-issue` skill 1.0.0** — new skill: given a GitHub Issue tagged `status:ready-for-dev`
+  whose body identifies it as a change request (label `type:change` or `change-request` in the
+  title prefix), the skill resolves the target repository, seeds an initial `change-state.json`,
+  and returns the `KEY`/`REPO`/`REPO_ROOT` bundle consumed by the `orchestrate --autonomous`
+  dispatch path. Replaces the ad-hoc body-parsing that `loop.sh` was doing for change-type
+  issues.
+- **`loop.sh` disambiguation + routing** — `_classify_issue_type` helper added; issues whose
+  body contains `<!-- change-request -->` or carry the `type:change` label are routed to
+  `makato-change:orchestrate --autonomous` instead of the PO-agent. PO-agent path unchanged.
+  New test hook `MAKATO_LOOP_ISSUE_TYPE_OVERRIDE` keeps the routing smoke test offline.
+- **`loop` skill 1.5.0** — bump from 1.4.0; dispatch-prompt template gains a `ROUTE` field
+  (`"po-agent"` or `"change-orchestrate"`) derived by `_classify_issue_type`; skill docs updated
+  to explain the two dispatch paths.
+- **`halt-conditions.md`** — HALT-CH-001 through HALT-CH-004 added for the `makato-change`
+  autonomous path (analyze blocked, design blocked, execute with suppressed findings
+  [informational], resolve-review budget exhausted). HALT-CH-001 and HALT-CH-002 apply
+  `needs-human-review` and return R1 failure; HALT-CH-003 is informational only.
+
+---
+
 ## `loop.sh` po-agent dispatch bundle — KEY/BRANCH derivation (#144)
 
 Closes the contract gap that crashed the autonomous dispatch of #144. The

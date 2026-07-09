@@ -1,8 +1,8 @@
 ---
 name: orchestrate
 description: Guide users through change request workflow (analyze, design, execute, resolve-review), track progress, coordinate phases
-version: "1.0.0"
-argument-hint: "[ISSUE-KEY]"
+version: "1.1.0"
+argument-hint: "[ISSUE-KEY] [--autonomous]"
 ---
 
 # orchestrate
@@ -21,13 +21,50 @@ Use this skill when:
 - You already know exactly which phase skill to invoke (use that skill directly)
 - You're working on something other than a change request (use makato-plan for new features; for bugs, route through makato-plan if shaping is needed or makato-build if the fix is well-scoped)
 
+## Autonomous mode
+
+Load @../../AUTONOMOUS-MODE.md before Step 0.5. This skill supports headless operation — see that document for activation triggers, HALT codes, and the logging contract.
+
 ## Workflow
+
+### Step 0.5: Autonomous initialization (only when --autonomous)
+
+**Only execute this step when autonomous mode is active (see AUTONOMOUS-MODE.md § *Activation triggers*).**
+
+1. **Read ISSUE_KEY from CLI arg** — if the first argument is present, use it as `ISSUE_KEY`. If absent, HALT with R1 `status:"failure"` and `errors:["MISSING_INPUT: ISSUE_KEY required in autonomous mode"]`.
+
+2. **Write workflow-state stub** — create `specs/<ISSUE_KEY>/workflow-state-<N>.json` (where `<N>` = GitHub issue number extracted from `ISSUE_KEY` or fetched via `gh issue view`):
+
+   ```json
+   {
+     "schema": "workflow-state",
+     "version": "1.0",
+     "issue_key": "<ISSUE_KEY>",
+     "issue_number": <N>,
+     "current_phase": "in_progress",
+     "plugin": "makato-change",
+     "started_at": "<ISO-8601-ms>",
+     "updated_at": "<ISO-8601-ms>"
+   }
+   ```
+
+3. **Write change-state file** — create `specs/<ISSUE_KEY>/change-state-<N>.json` with initial schema (see AUTONOMOUS-MODE.md § *Phase state file*). Set `current_phase:"analyze"`, `started_at` and `updated_at` to now.
+
+4. **Init worktree** (if `MAKATO_ORCHESTRATE_SHARED` is set):
+
+   ```bash
+   "${MAKATO_ORCHESTRATE_SHARED}/worktree.sh" create --new-branch <KEY> <N> <REPO_NAME> feat/<KEY>-change
+   ```
+
+   Store the returned path in `change-state-<N>.json:.worktree_path`. If `MAKATO_ORCHESTRATE_SHARED` is unset, log a warning and continue without worktree isolation.
 
 ### Step 1: Get GitHub Issues Key
 
-Ask the user: **"What is the GitHub Issues issue key for this change request?"**
+**In interactive mode:** Ask the user: **"What is the GitHub Issues issue key for this change request?"**
 
 The key must be in format: `PROJECT-1234` (e.g., `PROJ-567`, `BDC-1234`)
+
+**In autonomous mode:** Use the CLI argument passed to this skill. HALT with `MISSING_INPUT` if no argument was provided (handled in Step 0.5).
 
 Store: `ISSUE_KEY`
 
@@ -99,15 +136,25 @@ For each option, show:
 
 ### Step 5: Invoke Selected Skill
 
-Based on user selection, invoke the appropriate phase skill:
+Based on user selection (or autonomous phase recommendation), invoke the appropriate phase skill:
 
 Load @references/skill-invocation-guide.md for invocation patterns.
 
-Use the `Skill` tool to invoke:
-- Analyze → `Skill(skill="analyze")`
-- Design → `Skill(skill="design")`
-- Execute → `Skill(skill="execute")`
-- Resolve Review → `Skill(skill="resolve-review")`
+**In interactive mode**, use the `Skill` tool to invoke:
+- Analyze → `Skill(skill="makato-change:analyze", args="<ISSUE_KEY>")`
+- Design → `Skill(skill="makato-change:design", args="<ISSUE_KEY>")`
+- Execute → `Skill(skill="makato-change:execute", args="<ISSUE_KEY>")`
+- Resolve Review → `Skill(skill="makato-change:resolve-review", args="<ISSUE_KEY>")`
+
+**In autonomous mode**, append `--autonomous` and include `WORKTREE_PATH` in the context bundle when a worktree was created:
+- Analyze → `Skill(skill="makato-change:analyze", args="<ISSUE_KEY> --autonomous")`
+- Design → `Skill(skill="makato-change:design", args="<ISSUE_KEY> --autonomous")`
+- Execute → `Skill(skill="makato-change:execute", args="<ISSUE_KEY> --autonomous")`
+- `resolve-review` is NOT invoked in autonomous mode (see AUTONOMOUS-MODE.md § *Skills NOT in scope*)
+
+**In autonomous mode**, update `change-state-<N>.json` before dispatch:
+- Set `current_phase` to the phase being dispatched
+- Set `updated_at` to now
 
 Wait for the skill to complete before continuing.
 
@@ -146,6 +193,18 @@ Next:
 - Monitor PR for approval
 - Merge when approved
 ```
+
+**In autonomous mode**, on all-phases-complete terminal state:
+1. Patch `change-state-<N>.json:.current_phase` to `"done"` and set `updated_at`.
+2. Patch `workflow-state-<N>.json:.current_phase` to `"done"` and set `updated_at`.
+3. Run `${MAKATO_ORCHESTRATE_SHARED}/worktree.sh cleanup <KEY> <N>` if worktree was created.
+4. Return R1 `status:"success"` envelope with `data.current_phase:"done"`.
+
+**On HALT in autonomous mode:**
+1. Patch `change-state-<N>.json:.current_phase` to `"halted"` and set `halt_code`.
+2. Patch `workflow-state-<N>.json:.current_phase` to `"halted"` and set `updated_at`.
+3. Run `${MAKATO_ORCHESTRATE_SHARED}/worktree.sh retain <KEY> <N> <HALT_CODE>` if worktree was created.
+4. Return R1 `status:"failure"` envelope.
 
 **If phases remain**: Re-detect current state (Step 2) and present recommendation:
 

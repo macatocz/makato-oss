@@ -94,3 +94,50 @@ The dual write is intentional: `workflow-state.json` is the live state the next 
 - `plugins/makato-orchestrate/skills/resolve-pr-conflict/SKILL.md` — implementation of the HALT-008 merge-conflict origin (GAP-016 / #45).
 - `plugins/makato-orchestrate/skills/workflow-state/references/workflow-state.schema.json` — schema for `halt_audit[]` and the `merge_conflict_cycles` counter.
 - `plugins/makato-build/skills/build-resolve-finding/SKILL.md` — HALT-adjacent per-finding repair logic.
+
+---
+
+## makato-change autonomous path — HALT-CH-* codes
+
+The `makato-change` plugin runs a four-phase pipeline: **analyze → design → execute → resolve-review**.
+When invoked with `--autonomous`, the `orchestrate` skill drives these phases headlessly.  HALT-CH
+codes enumerate every exit path that is not a successfully merged PR.
+
+The same category distinction as the PO-agent table applies:
+
+| Category | Meaning | `change-state` `halt_audit` written? | Issue labelled `needs-human-review`? |
+|----------|---------|--------------------------------------|--------------------------------------|
+| **Hard stop** | Phase cannot advance without human input. | **Yes** | **Yes** |
+| **Informational** | Phase completed with a notable condition; run continues. | **Yes** | **No** |
+
+### Code table
+
+| Code | Name | Trigger | Recovery action |
+|------|------|---------|-----------------|
+| **HALT-CH-001** | Analyze phase blocked | The `requirements-diff-analyzer` agent returned an R1 `status: "failure"` whose `errors[]` contains an unresolvable conflict (contradictory requirements, missing baseline, or a gap that requires stakeholder sign-off). The `orchestrate` skill cannot safely advance to design without a resolved requirements diff. | Apply `needs-human-review` label to the GitHub issue; write a `halt_audit` entry (`code: "HALT-CH-001"`, `phase: "analyze"`, `errors: [...]`) to `change-state.json`; return R1 `status: "failure"` with `data.halt_code: "HALT-CH-001"` to the caller. Operator resolves the requirements conflict (updates the issue body or linked spec) and re-invokes `orchestrate --autonomous`. |
+| **HALT-CH-002** | Design phase blocked | The `design` skill could not produce a viable technical approach: either the `code-explorer` agent failed to locate a primary affected file, the scope estimate exceeded the medium-change ceiling (> 15 files), or the design R1 returned `status: "failure"` with `data.escalation: "refine"` indicating the change requires full plan-then-build shaping. | Apply `needs-human-review` label; write a `halt_audit` entry (`code: "HALT-CH-002"`, `phase: "design"`, `reason: <escalation-reason>`) to `change-state.json`; return R1 `status: "failure"` with `data.halt_code: "HALT-CH-002"`. Operator either reduces scope, routes the work through `makato-plan`, or overrides the scope ceiling and re-invokes `orchestrate --autonomous`. |
+| **HALT-CH-003** | Execute completed with suppressed quality findings | The `execute` phase finished and a PR was opened, but the `quality-guard` agent reported one or more findings that were suppressed (not resolved) before merge — typically test-coverage gaps or lint warnings below the error threshold. This code is **informational only**; the run proceeds and the PR is opened normally. | Write a `halt_audit` entry (`code: "HALT-CH-003"`, `phase: "execute"`, `suppressed_findings: [...]`) to `change-state.json`. No `needs-human-review` label. No R1 failure. The entry serves as an audit trail; the operator reviews suppressed findings at their discretion after merge. |
+| **HALT-CH-004** | Resolve-review retry budget exhausted | The `resolve-review` skill processed PR review comments but exhausted its retry budget (`review_cycles >= MAKATO_CHANGE_MAX_REVIEW_CYCLES`, default 3) without achieving reviewer approval. Remaining unresolved comments are persisted to `change-state.json`. | Apply `needs-human-review` label; write a `halt_audit` entry (`code: "HALT-CH-004"`, `phase: "resolve-review"`, `review_cycles: N`, `unresolved_comments: [...]`) to `change-state.json`; return R1 `status: "failure"` with `data.halt_code: "HALT-CH-004"`. Operator addresses the remaining reviewer comments manually, then re-invokes `orchestrate --autonomous` or closes the PR. |
+
+### Audit shape
+
+Every HALT-CH-* code writes to `change-state.json` (the `makato-change` analogue of
+`workflow-state.json`) via the shared state helper:
+
+```json
+{
+  "halt_audit": [
+    {
+      "code": "HALT-CH-001",
+      "ts": "2026-07-09T10:00:00.000Z",
+      "phase": "analyze",
+      "data": {
+        "errors": ["contradictory requirements: AC-3 conflicts with AC-7"]
+      }
+    }
+  ]
+}
+```
+
+HALT-CH-003 entries are written to `halt_audit[]` with `informational: true` to distinguish them
+from hard stops when the operator scans the audit trail.
