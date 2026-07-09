@@ -3,6 +3,7 @@
 ## Table of Contents
 - [Fidelity Decision Tree](#fidelity-decision-tree)
 - [Tool Selection](#tool-selection)
+- [Penpot Details](#penpot-details)
 - [Figma Details](#figma-details)
 - [Excalidraw Details](#excalidraw-details)
 - [User Testing](#user-testing)
@@ -15,8 +16,8 @@
 ```
 Need to validate?
 ├─ Concept/layout → Low-fi (30min-2hr, paper/Balsamiq)
-├─ User flow/navigation → Medium-fi (2-8hr, Figma)
-└─ Final design/handoff → High-fi (8hr+, Figma+code)
+├─ User flow/navigation → Medium-fi (2-8hr, Penpot/Figma)
+└─ Final design/handoff → High-fi (8hr+, Penpot/Figma+code)
 
 Audience?
 ├─ Brainstorming → Whiteboard/paper
@@ -34,9 +35,44 @@ Audience?
 | ASCII (in specs) | Quick alignment, documentation | Not interactive |
 | Excalidraw | Architecture sketches, whiteboard style | No prototyping |
 | Balsamiq | Intentionally rough, early concepts | Limited interactivity |
+| Penpot | Full design system, dev handoff, MCP-driven generation | Requires open browser tab + MCP setup |
 | Figma | Full design system, dev handoff | Learning curve |
 | Whimsical | Flowcharts + wireframes combined | Limited design system |
 | Sketch (macOS) | High-fidelity with plugins | macOS only |
+
+---
+
+## Penpot Details
+
+Penpot is the makato-native, MCP-drivable design tool. The `makato-ux:penpot-uiux-design`
+skill owns all Penpot MCP interaction — `create-ux` delegates rendering to it (see SKILL.md
+Steps 4-5). Reach for Penpot over Figma when you want the agent to generate and export the
+design programmatically rather than hand-drawing it.
+
+### When to Use
+- Medium/high-fi wireframes the agent renders via `mcp__penpot__execute_code`
+- Design-system work (components, tokens) that should round-trip into `ux.md`
+- Developer handoff needing exported CSS (`penpot.generateStyle`) or PNG/SVG previews
+
+### Division of Labour with create-ux
+- `create-ux` owns the screen inventory, state matrix, and the `ux.md` document
+- `penpot-uiux-design` owns MCP setup, board layout, component creation, and export
+- Disagreements (a missing state surfaced by rendering) are resolved in the inventory first,
+  then re-rendered
+
+### Key Gotchas (full list in the penpot skill)
+| Issue | Problem | Solution |
+|-------|---------|----------|
+| `execute_code` times out | Penpot tab not open / no file active | Open design.penpot.app with a design file active |
+| `width`/`height` no-op | Both are read-only | Use `shape.resize(w, h)` |
+| Board overlap | New boards default to origin | Compute rightmost edge + gap before placing |
+| Return value empty | Last expression is not auto-returned | Explicitly `return` from `execute_code` |
+| Advanced API missing | Deferred type defs not loaded | Call `mcp__penpot__high_level_overview` once per session first |
+
+### Handoff Features
+- Export previews per screen/state via `mcp__penpot__export_shape` (PNG/SVG) — embed in `ux.md`
+- Export CSS/tokens via `penpot.generateStyle(selection, { type: 'css', includeChildren: true })`
+- Reference the live Penpot file/board rather than pasting static screenshots
 
 ---
 
@@ -158,4 +194,5 @@ Before transitioning to `spec.md`:
 - [ ] Responsive breakpoints defined
 - [ ] Interactive prototype tested with 3+ external users
 - [ ] Components linked to design system
-- [ ] Embed Figma links (not screenshots)
+- [ ] Embed live design links — Penpot boards or Figma frames (not static screenshots)
+- [ ] Exported CSS/tokens attached for high-fi handoff (Penpot `generateStyle` / Figma inspect)
