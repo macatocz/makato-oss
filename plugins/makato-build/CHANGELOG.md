@@ -5,6 +5,36 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## First-plugin skill bundle + real inject-skills resolver (#144)
+
+F1 of agent-skill-routing. Replaces the `inject-skills` S1 stub with a real
+resolver and wires it into `knowledge-scout` Step 0.
+
+- **`shared/inject_skills.py`** (new) — cross-plugin skill-bundle resolver.
+  `resolve_skills` is a stdlib-only pure core sharing `inject_context`'s
+  glob-specificity ordering (D9); it adds OR-substring content hints (D19), a
+  target-repo installed-skill subset filter (D10), and graceful missing-skill
+  skip (D18 — dropped skills surface as a `missing-skills` warning, never an
+  exception). Orchestration helpers `aggregate_bundles`,
+  `discover_installed_skills`, and `resolve_skills_for_repo` merge every
+  `plugins/*/config/skill-bundles.yml` and read file text for content hints.
+  Raises `BundleResolutionError` (HALT-006) on a missing/duplicate/absent
+  `default` bundle.
+- **`shared/test_inject_skills.py`** (new) — 18 unit + integration cases
+  covering the four #144 acceptance scenarios (name+content match, content
+  miss, missing-skill graceful skip, cross-plugin aggregation) plus dedup,
+  ordering, empty-scope, and HALT-006 validation.
+- **`skills/inject-skills/SKILL.md`** — **0.1.0 → 1.0.0.** Rewritten from the
+  S1 stub to document real resolution behaviour, the authoring rules, and the
+  content-hint / subset-filter / cross-plugin-aggregation contract.
+- **`agents/knowledge-scout.md`** — Step 0 gains sub-step **0e** calling
+  `inject-skills` for the same `CHANGED_FILES`. The R1 `data` block is extended
+  **additively** with `recommended_skills` (defaults to `[]`); existing readers
+  of `constraints_found` / `standards_found` / `rule_paths` are unaffected.
+  HALT-006 from the skill resolver is handled identically to the context path.
+
+---
+
 ## Cross-plugin caller update for per-issue workflow-state (#173)
 
 Companion to `makato-orchestrate`'s per-issue workflow-state layout change.

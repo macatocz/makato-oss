@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+### Added — first-plugin skill bundle (#144)
+
+F1 of agent-skill-routing. makato-langgraph is the first plugin to ship a
+skill-routing bundle, proving the mechanism end-to-end.
+
+- `config/skill-bundles.yml` (new) — routes `**/*graph*.py` files containing
+  `from langgraph` or `import langgraph` (D19 OR-substring content hint) to
+  `langgraph-fundamentals` + `langgraph-persistence`. Aggregated by
+  makato-build's inject-skills resolver alongside every other plugin's bundles.
+  Doubles as the authoring reference for the other plugins' bundles landing in
+  S3.
+- `pre-commit/validate-skill-bundles.sh` (new) — authoring gate that rejects a
+  wide glob (zero literal path segments) recommending skills without a
+  `contains:` content filter; exits non-zero with an actionable message. Reuses
+  makato-build's `inject_skills._glob_specificity` as the single source of truth
+  for what "wide" means.
+
 ### Changed — sagibeast-alignment audit (2026-06-25)
 
 All five skills audited against sagibeast golden-rule H.1 (PEP 604/585 type hints; no `typing.Dict` / `typing.List` / `typing.Optional`). Code examples were corrected so generated code follows the canon.

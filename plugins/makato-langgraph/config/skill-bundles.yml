@@ -1,0 +1,69 @@
+# Skill Bundles — makato-langgraph
+#
+# Maps changed-file path globs (plus an optional content-hint predicate) to an
+# ordered list of recommended skills that inject-skills prepends into an
+# agent's system prompt before dispatch. The inject-skills resolver
+# (plugins/makato-build/shared/inject_skills.py) aggregates every plugin's
+# skill-bundles.yml into one registry, so the bundles declared here are merged
+# with makato-build's `default` bundle and any other plugin's bundles.
+#
+# This file is the FIRST real F1 bundle (#144) and doubles as the authoring
+# reference for the other plugins that will add their own bundles in S3. Copy
+# this shape; keep the schema notes below in sync with the resolver contract.
+#
+# ---------------------------------------------------------------------------
+# Schema (per bundle):
+#   name:     unique identifier (lowercase, kebab-case). MUST be unique across
+#             the *merged* registry — pick a plugin-prefixed name to avoid
+#             cross-plugin collisions (a duplicate name raises HALT-006).
+#   globs:    list of fnmatch-style patterns matched against changed-file paths.
+#             `**/*.py` matches at any depth; `*.py` matches a single segment.
+#   contains: OPTIONAL list of substrings (D19 content-hint). When present, the
+#             bundle matches a file only if its glob matches AND at least one
+#             substring appears in that file's text (OR-semantics). A bundle
+#             with no `contains` is glob-only.
+#   skills:   ordered list of skill identifiers to recommend. Each identifier is
+#             a `plugins/*/skills/<id>/` directory name. An empty list ([]) means
+#             the bundle contributes no skills (used only by `default`).
+#
+# ---------------------------------------------------------------------------
+# Resolution contract (enforced by shared/inject_skills.py):
+#   1. For each changed file, every bundle whose glob matches AND whose
+#      content-hint predicate is satisfied is selected.
+#   2. Bundles are applied in order of decreasing glob specificity (literal-
+#      segment count). Ties break by declaration order, then by config-file
+#      path. The `default` bundle is always appended last.
+#   3. Skill identifiers are deduplicated preserving the first occurrence.
+#   4. Resolved skills are filtered to those installed in the target repo (D10);
+#      referenced-but-missing skills are skipped with a warning (D18), never an
+#      error at resolution time.
+#   5. If no plugin ships a `default` bundle, BundleResolutionError (HALT-006)
+#      is raised — makato-build owns the canonical `default`.
+#
+# ---------------------------------------------------------------------------
+# Authoring rule (enforced by pre-commit/validate-skill-bundles.sh):
+#   A "wide" glob — one with zero literal path segments, e.g. `**/*` or
+#   `**/*.py` — MUST be paired with a `contains:` predicate when the bundle
+#   recommends any skills. Broad file coverage without a content filter would
+#   spray suggestions across an entire language's files; the content hint keeps
+#   routing precise. The `langgraph` bundle below satisfies this: its
+#   `**/*graph*.py` globs are wide (0 literal segments) but it declares
+#   `contains:`.
+#
+# Wording-only edits or adding skills to an existing bundle is a minor
+# revision. Renaming a bundle or changing its globs/contains semantics is a
+# breaking change and must be coordinated with the inject-skills resolver and
+# knowledge-scout Step 0.
+
+version: "1.0"
+
+bundles:
+  - name: langgraph
+    globs:
+      - "**/*graph*.py"
+    contains:
+      - "from langgraph"
+      - "import langgraph"
+    skills:
+      - langgraph-fundamentals
+      - langgraph-persistence

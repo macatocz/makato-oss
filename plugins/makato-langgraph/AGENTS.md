@@ -41,6 +41,10 @@ Provide LangGraph-specific reference skills and patterns for building Python AI 
 plugins/makato-langgraph/
 ├── .claude-plugin/
 │   └── plugin.json
+├── config/
+│   └── skill-bundles.yml       # Skill-routing bundles consumed by makato-build inject-skills (#144)
+├── pre-commit/
+│   └── validate-skill-bundles.sh  # Authoring gate: rejects wide globs without a contains: filter
 ├── skills/
 │   ├── langgraph-fundamentals/
 │   ├── langgraph-agent-patterns/

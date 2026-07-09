@@ -88,12 +88,15 @@ previous one is understood.
 | `plugins/makato-langgraph/CHANGELOG.md` | Per-PR changelog tracking skill version bumps and feature additions |
 | `plugins/makato-langgraph/CLAUDE.md` | Delegates to AGENTS.md via @AGENTS.md include for in-session routing |
 | `plugins/makato-langgraph/.claude-plugin/plugin.json` | Plugin manifest declaring name, description, and author; no version field (versioned via release-please git tags) |
+| `plugins/makato-langgraph/config/skill-bundles.yml` | Skill-routing bundle registry (#144). Routes `**/*graph*.py` files that import LangGraph to `langgraph-fundamentals` + `langgraph-persistence`; aggregated by `makato-build`'s inject-skills resolver. First real F1 bundle — also the authoring reference for other plugins. |
+| `plugins/makato-langgraph/pre-commit/validate-skill-bundles.sh` | Pre-commit authoring gate that blocks any wide glob (zero literal path segments) recommending skills without a `contains:` content filter. |
 
 ## Plugin Connections
 
 | Direction | Plugin | What flows |
 |-----------|--------|-----------|
 | Complements | `makato-build` | LangGraph skills are used alongside build-refine and build-implement-tdd when the story involves building LangGraph agents |
+| Feeds | `makato-build` | `config/skill-bundles.yml` is aggregated by makato-build's inject-skills resolver, so knowledge-scout recommends LangGraph skills when a changed file matches the bundle (#144) |
 | Complements | `makato-observability` | LangGraph graphs authored with these skills are instrumented using the langfuse-instrument skill from makato-observability |
 
 ## Prerequisites / MCP Servers

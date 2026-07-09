@@ -35,7 +35,7 @@ Your dispatch prompt provides:
 | `REPO_ROOT` | yes | Absolute path to the target repository |
 | `REPO_NAME` | yes | Last path segment of REPO_ROOT (e.g. `ldm-deals`, `dcp-commerce-ui`) |
 | `KEYWORDS` | yes | Key terms from the plan/story (used to filter index entries) |
-| `CHANGED_FILES` | no | List of project-relative file paths the task will create or modify, predicted from the plan's `**Files:**` fields. Empty list treated as no-scope — only `default` bundle rules are pre-read. Used in Step 0 to resolve context bundles via `inject-context`. |
+| `CHANGED_FILES` | no | List of project-relative file paths the task will create or modify, predicted from the plan's `**Files:**` fields. Empty list treated as no-scope — only `default` bundle rules are pre-read. Used in Step 0 to resolve context bundles via `inject-context` (0a–0d) and recommended skills via `inject-skills` (0e). |
 
 ## Process
 
@@ -65,6 +65,15 @@ Call `resolve_bundles(CHANGED_FILES, config)`. The resolver returns a 2-tuple: `
 For each path in `rules`, read the file if it exists. Missing rule paths are tolerated silently — the registry references aspirational `context/{repo}/` paths that may not exist in every target repo. Cap the total pre-read at 8 files; if the resolver returned more, take the first 8 in order (the most-specific bundles come first per the specificity-precedence rule).
 
 The contents of these files form the **bundle context** that supplements (does NOT replace) the specs synthesis in the remaining steps.
+
+**0e. Resolve recommended skills (via `inject-skills`).**
+
+After resolving context rules, resolve the recommended skills for the same CHANGED_FILES via the `inject-skills` skill (`plugins/makato-build/skills/inject-skills/SKILL.md`; reference implementation `plugins/makato-build/shared/inject_skills.py`). Call `resolve_skills_for_repo(CHANGED_FILES, REPO_ROOT)`, which aggregates every plugin's `config/skill-bundles.yml`, evaluates D19 content hints against each changed file's text, and applies the D10 installed-skill subset filter.
+
+- The call returns `(recommended_skills: list[str], warnings: list[dict])`.
+- On `BundleResolutionError` with `halt_code == "HALT-006"` (no plugin ships a `default` skill bundle): treat identically to the Step 0c context HALT-006 — set `loaded: false`, `source: "halt-006"`, emit R1 `status: "failure"`, `data.escalation: "halt-006"`, and stop. Do NOT proceed to Step 1.
+- For each returned warning, append a `build.jsonl` entry of the form `{"…","skill":"knowledge-scout","step":"resolve-skills","status":"warn","data":<warning>}` and continue. A `missing-skills` warning (a bundle named a skill not installed here) is expected and non-fatal.
+- Carry `recommended_skills` through to the R1 envelope's `data` block (see below). This is **additive** — it does not affect the constraint/standard synthesis or the `rule_paths` from Step 0c.
 
 ### Step 1 — Discover SPECS_ROOT
 
@@ -139,7 +148,7 @@ Map your run state into R1 as follows:
 - `files_changed: []` and `tests_written: []` — this agent is read-only.
 - `errors: []` on `status: "success"`; on failure, a short reason string.
 - `tool_calls_used` — best-effort count of tool invocations you made this run.
-- `data` — `{ "loaded": true|false, "source": "local|none", "constraints_found": N, "standards_found": N }`.
+- `data` — `{ "loaded": true|false, "source": "local|none", "constraints_found": N, "standards_found": N, "recommended_skills": [<skill-id>...] }`. The `recommended_skills` field (F1 / #144) carries the inject-skills Step 0e result — an ordered, deduplicated, installed-only skill list. It is **additive**: existing consumers that read only `constraints_found` / `standards_found` are unaffected, and the field defaults to `[]` when Step 0e resolves nothing.
 
 Example (no specs found):
 
@@ -157,7 +166,8 @@ Example (no specs found):
     "loaded": false,
     "source": "none",
     "constraints_found": 0,
-    "standards_found": 0
+    "standards_found": 0,
+    "recommended_skills": []
   }
 }
 ```
@@ -211,8 +221,10 @@ This instruction applies only when `skill_routing` is not disabled in this agent
 ## See also
 
 - `plugins/makato-build/agents/RETURN-CONTRACT.md` — R1 envelope this agent emits.
-- `plugins/makato-build/skills/inject-context/SKILL.md` — the bundle resolution contract governing Step 0.
+- `plugins/makato-build/skills/inject-context/SKILL.md` — the bundle resolution contract governing Step 0 (0a–0d).
 - `plugins/makato-build/shared/inject_context.py` — reference implementation for `resolve_bundles`.
 - `plugins/makato-build/config/context-bundles.yml` — the bundle registry read in Step 0a.
+- `plugins/makato-build/skills/inject-skills/SKILL.md` — the skill-bundle resolution contract governing Step 0e.
+- `plugins/makato-build/shared/inject_skills.py` — reference implementation for `resolve_skills` / `resolve_skills_for_repo`.
 - `plugins/makato-orchestrate/agents/scout.md` — the per-task file scout; disjoint from this agent (task-file-specific vs. repo-wide).
 - `plugins/makato-build/AGENTS.md` — plugin security model and agent roster.

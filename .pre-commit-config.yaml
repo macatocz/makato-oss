@@ -96,6 +96,22 @@ repos:
       - id: actionlint
 
   # -----------------------------------------------------------------------
+  # Skill-bundles authoring gate — fast lane (#144)
+  # Rejects any skill-bundles.yml bundle that pairs a wide glob (zero literal
+  # path segments) with skill recommendations but omits a `contains:` content
+  # filter. Runs only on staged skill-bundles.yml files. Requires python3 +
+  # PyYAML (already assumed by the inject_context/inject_skills resolvers).
+  # -----------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: validate-skill-bundles
+        name: validate skill-bundles.yml (wide-glob content-filter gate)
+        entry: plugins/makato-langgraph/pre-commit/validate-skill-bundles.sh
+        language: system
+        files: (^|/)skill-bundles\.yml$
+        pass_filenames: true
+
+  # -----------------------------------------------------------------------
   # Secret scanning — fast lane (every commit)
   # -----------------------------------------------------------------------
   - repo: https://github.com/gitleaks/gitleaks
