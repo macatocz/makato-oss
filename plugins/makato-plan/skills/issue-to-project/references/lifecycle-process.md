@@ -34,10 +34,10 @@ if not input_path.exists():
 prior = json.loads(input_path.read_text())
 ```
 
-**Schema version validation:** `schema_version` must be a `1.x` or `2.x` value through `"2.7"`. Any other value → exit 1, HALT `MALFORMED_INPUT`: `"issue-to-project sync-lifecycle: project-sync.json has unrecognized schema_version '<value>'. This reader supports all 1.x and 2.x versions through 2.7."`.
+**Schema version validation:** `schema_version` must be a `1.x` or `2.x` value through `"2.8"`. Any other value → exit 1, HALT `MALFORMED_INPUT`: `"issue-to-project sync-lifecycle: project-sync.json has unrecognized schema_version '<value>'. This reader supports all 1.x and 2.x versions through 2.8."`.
 
 ```python
-# Accept all 1.x and 2.x schema_version values through "2.7".
+# Accept all 1.x and 2.x schema_version values through "2.8".
 # Rationale: strict set membership ("1", "1.1", ...) required a code change on every
 # minor bump and caused a regression in v2.1 (shipped SUPPORTED omitted "2.1"–"2.6").
 # A split-and-compare on the major version is forward-stable through the entire 2.x
@@ -47,7 +47,7 @@ def _supported_schema_version(v: str) -> bool:
         return True
     try:
         major, minor = v.split(".", 1)
-        return major in ("1", "2") and float(v) <= 2.7
+        return major in ("1", "2") and float(v) <= 2.8
     except (ValueError, AttributeError):
         return False
 
@@ -55,7 +55,7 @@ if not _supported_schema_version(prior.get("schema_version", "")):
     sys.exit(
         f"issue-to-project sync-lifecycle: project-sync.json has unrecognized "
         f"schema_version '{prior.get('schema_version')}'. "
-        f"This reader supports all 1.x and 2.x versions through 2.7.\nHALT: MALFORMED_INPUT"
+        f"This reader supports all 1.x and 2.x versions through 2.8.\nHALT: MALFORMED_INPUT"
     )
 
 input_results = prior.get("results", [])
@@ -350,10 +350,10 @@ def count_outcome(results, outcome_set):
     return sum(1 for r in results if r["outcome"] in outcome_set)
 
 artifact = {
-    "schema_version": "2.7",
+    "schema_version": "2.8",
     "slug": slug,
     "run_timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
-    "skill_version": "2.7.0",
+    "skill_version": "2.8.0",
     "retry_source": None,
     "project": {
         "owner": gp["owner"], "number": gp["number"], "url": gp["url"],
@@ -386,6 +386,12 @@ artifact = {
         "auto_promoted_ready":        0,
         "pr_label_added":             sum(1 for r in results if r.get("pr_label_action") == "added"),
         "pr_label_failed":            sum(1 for r in results if r.get("pr_label_action") == "failed"),
+        # v2.8 keys — always 0 in sync-lifecycle (the ready-for-dev stamp fires only on the
+        # normal-run autonomous auto_promoted_ready path, never on PR-driven lifecycle transitions).
+        # Present so a schema_version "2.8" lifecycle artifact carries the same summary shape as a
+        # normal-run artifact.
+        "ready_label_stamped":        0,
+        "ready_label_failed":         0,
     },
     "results": results,
 }
