@@ -5,6 +5,12 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## Plugin-level
+
+- **Added** `config/skill-bundles.yml` (#145) — bundles `orchestrate-skills`, `orchestrate-workflow-state`, `orchestrate-shared` route workflow-state JSON/JSONL files and orchestrate bash helpers to the workflow-state/kill-switch/session-status skills.
+
+---
+
 ## `loop.sh` po-agent dispatch bundle — KEY/BRANCH derivation (#144)
 
 Closes the contract gap that crashed the autonomous dispatch of #144. The
