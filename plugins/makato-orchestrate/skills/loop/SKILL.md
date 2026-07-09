@@ -10,7 +10,7 @@ description: >-
   exits on a HALT. Honors `~/.claude/HALT` before every dispatch
   (NEVER 3) and emits `.claude/state/loop-status.json` as the
   operator-facing live audit.
-version: "1.3.0"
+version: "1.4.0"
 argument-hint: "[--status <NAME>] [--interval <S>] [--dry-run] [--once] [--force]"
 ---
 
@@ -131,6 +131,19 @@ Each outer iteration of `run` performs the following steps in order:
      Claude session delegates instead of running `makato-build` skills
      directly (which would default to interactive mode and deadlock a
      headless `claude -p` on the first `AskUserQuestion` — see #160).
+     The prompt carries the po-agent's four required inputs
+     (`ISSUE_NUMBER`, `KEY`, `REPO`, `BRANCH`, `REPO_ROOT`): `KEY` is the
+     feature slug derived from the issue body's `to-issues` provenance
+     (footer `*Feature slug: …*`, or the top-of-body
+     `specs/<slug>/stories.json` line as fallback); `REPO` comes from the
+     board poll's `repository` field; `BRANCH` is `feat/<issue>-<KEY>`
+     (the po-agent creates it via `worktree.sh --new-branch` when absent);
+     `REPO_ROOT` is the local repo root. Without these the po-agent fails
+     input validation with `missing input: KEY` and never starts — the
+     #144 crash. When the body has no provenance (a non-`to-issues`
+     issue), `KEY` degrades to empty and a `WARN` is logged; the po-agent
+     then surfaces the input-validation failure with a clear audit rather
+     than dispatching blind.
      `MAKATO_HEADLESS=1` is the defensive belt: if the delegation prompt
      is somehow ignored and a `build-*` skill fires interactively, its
      Step 1b headless guard (see `plugins/makato-build/AUTONOMOUS-MODE.md`
@@ -380,6 +393,7 @@ The intentional design split:
 | `MAKATO_LOOP_STATE_DIR` | `<repo>/.claude/state` | Override status-file directory (tests only). |
 | `MAKATO_LOOP_DRY_DISPATCH` | unset | Test-only: skip the real `claude` exec and record `last_dispatch_issue` instead. |
 | `MAKATO_LOOP_GH_OVERRIDE` | unset | Test-only: read the canned `gh project item-list` JSON from this path instead of invoking `gh`. |
+| `MAKATO_LOOP_ISSUE_BODY_OVERRIDE` | unset | Test-only: read the issue body from this path instead of invoking `gh issue view` in `_derive_key_for_issue`. Keeps the T25 KEY-derivation test offline. |
 | `MAKATO_LOOP_STALL_WARN` | `900` | Seconds of no output before the watchdog stamps `active_workflow.stalled = true`. |
 | `MAKATO_LOOP_STALL_KILL` | `3600` | Seconds of no output before the watchdog `SIGTERM`s the PO-agent. |
 | `MAKATO_LOOP_STALL_POLL` | `60` | Watchdog poll cadence in seconds (small values used in smoke tests). |
@@ -394,7 +408,7 @@ The intentional design split:
 
 ## Smoke tests
 
-`scripts/loop-smoke-tests.sh` covers twenty scenarios:
+`scripts/loop-smoke-tests.sh` covers twenty-one scenarios:
 
 1. `check-halt` exits 0 with no HALT file.
 2. `check-halt` exits 1 with a HALT file.
@@ -426,6 +440,11 @@ The intentional design split:
 19. `dispatch` assigns the issue on the real-fork path (assignee + repo
     threaded through); `--dry-run` does not assign (#33).
 20. `MAKATO_LOOP_ASSIGN_ON_DISPATCH=0` disables the assign step (#33).
+21. `dispatch` derives `KEY`/`BRANCH` from the issue body's `to-issues`
+    provenance and threads the full po-agent input bundle
+    (`ISSUE_NUMBER`/`KEY`/`REPO`/`BRANCH`/`REPO_ROOT`) into the dispatch
+    prompt; falls back to the `specs/<slug>/stories.json` line; degrades
+    to a `WARN` with empty `KEY` when the body has no provenance (#144).
 
 Run them directly:
 
