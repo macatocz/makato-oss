@@ -5,6 +5,32 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## `loop.sh` po-agent dispatch bundle — KEY/BRANCH derivation (#144)
+
+Closes the contract gap that crashed the autonomous dispatch of #144. The
+loop's `cmd_dispatch` passed only the issue number to the po-agent, but
+`agents/po-agent.md` requires `KEY`, `REPO`, `BRANCH`, `REPO_ROOT` and
+refuses to request missing inputs — so every autonomous dispatch failed
+immediately with `missing input: KEY`, never reaching real work.
+
+- **`loop` skill 1.4.0** — the dispatch prompt now carries the full
+  po-agent input bundle (`ISSUE_NUMBER`/`KEY`/`REPO`/`BRANCH`/`REPO_ROOT`).
+- **`scripts/loop.sh`** — new `_derive_key_for_issue` helper reads the
+  issue body and extracts the feature slug from the `to-issues` provenance
+  (footer `*Feature slug: …*`, falling back to the top-of-body
+  `specs/<slug>/stories.json` line); `BRANCH` is derived as
+  `feat/<issue>-<KEY>`; `REPO`/`REPO_ROOT` are threaded from the existing
+  poll result and script global. Derivation failure degrades to a `WARN`
+  with empty `KEY` (the po-agent then surfaces the input-validation
+  failure with a clear audit) rather than dispatching blind. New test hook
+  `MAKATO_LOOP_ISSUE_BODY_OVERRIDE` keeps the KEY-derivation smoke test
+  offline.
+- **`scripts/loop-smoke-tests.sh`** — new **T25** (three sub-assertions:
+  primary footer derivation, `stories.json` fallback, WARN-on-missing
+  degradation). Full suite (25 scenarios) passes.
+
+---
+
 ## `archive-spec` skill + GHA workflow — post-merge spec lifecycle
 
 - **1.0.0** — new skill: archive completed features (master spec merge + `gh issue close`) and

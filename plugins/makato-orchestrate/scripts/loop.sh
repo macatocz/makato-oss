@@ -66,6 +66,12 @@
 #                              result. When set, `cmd_poll` reads this
 #                              file instead of invoking `gh`. Keeps
 #                              smoke tests fully offline.
+#   MAKATO_LOOP_ISSUE_BODY_OVERRIDE
+#                              Tests only: path to a file whose content is
+#                              used as the issue body by
+#                              `_derive_key_for_issue` instead of invoking
+#                              `gh issue view`. Keeps the T25 KEY-derivation
+#                              smoke test offline.
 #   MAKATO_LOOP_STALL_WARN     Seconds of no PO-agent stdout/stderr
 #                              before the liveness watchdog stamps
 #                              `active_workflow.stalled = true` in
@@ -630,6 +636,69 @@ _within_dispatch_guard() {
 }
 
 # ---------------------------------------------------------------------------
+# _derive_key_for_issue <ISSUE_NUMBER> [<REPO>]
+#
+# Derives the spec KEY (feature slug) for an issue by reading its body and
+# extracting the provenance the `to-issues` skill writes into every
+# generated issue. Two sources, both from the issue-template:
+#   1. Footer:   *Feature slug: `<slug>` — produced by to-issues v3.x.*
+#   2. Fallback: the top-of-body line `specs/<slug>/stories.json`
+#
+# The slug becomes KEY in the po-agent dispatch bundle; the po-agent
+# resolves the spec folder via `specs/<KEY>-*/` prefix-match. When the
+# spec folder does not exist locally the po-agent HALTs with HALT-006 —
+# the correct documented failure path, not a regression (before this the
+# dispatch failed one step earlier at `missing input: KEY`).
+#
+# On success: prints the sanitised slug to stdout, returns 0.
+# On failure (gh error / no provenance match): prints nothing, returns 1 —
+# the caller logs a WARN and dispatches with an empty KEY so the po-agent
+# surfaces the input-validation failure with a clear audit.
+#
+# Test hook: MAKATO_LOOP_ISSUE_BODY_OVERRIDE — path to a file whose content
+# is used as the issue body instead of invoking `gh issue view`. Keeps the
+# T25 smoke test fully offline (mirrors MAKATO_LOOP_GH_OVERRIDE for polls).
+# ---------------------------------------------------------------------------
+_derive_key_for_issue() {
+  local issue="$1"
+  local repo="${2:-${MAKATO_LOOP_DISPATCH_REPO:-}}"
+
+  local body
+  if [[ -n "${MAKATO_LOOP_ISSUE_BODY_OVERRIDE:-}" ]]; then
+    body="$(cat "$MAKATO_LOOP_ISSUE_BODY_OVERRIDE" 2>/dev/null)" || return 1
+  else
+    local -a repo_flag=()
+    [[ -n "$repo" ]] && repo_flag=(--repo "$repo")
+    body="$(gh issue view "$issue" "${repo_flag[@]}" --json body --jq '.body' 2>/dev/null)" || return 1
+  fi
+  [[ -n "$body" ]] || return 1
+
+  # Primary: footer line  *Feature slug: `<slug>` — produced by to-issues …*
+  # BSD/macOS `sed` compatible (no -E, no PCRE lookarounds).
+  local slug
+  slug="$(printf '%s\n' "$body" \
+    | sed -n "s/.*Feature slug: \`\([^\`]*\)\` — produced by to-issues.*/\1/p" \
+    | head -1)"
+
+  # Fallback: top-of-body provenance  specs/<slug>/stories.json
+  if [[ -z "$slug" ]]; then
+    slug="$(printf '%s\n' "$body" \
+      | sed -n 's|.*specs/\([^/]*\)/stories\.json.*|\1|p' \
+      | head -1)"
+  fi
+
+  [[ -n "$slug" ]] || return 1
+
+  # Sanitise defensively: any character outside [A-Za-z0-9._-] becomes a
+  # dash, so the derived BRANCH (feat/<issue>-<slug>) is always a valid ref.
+  # to-issues slugs are already lowercase-hyphenated, so this is a no-op in
+  # practice — but it guards against a hand-edited body.
+  slug="${slug//[^a-zA-Z0-9._-]/-}"
+
+  printf '%s\n' "$slug"
+}
+
+# ---------------------------------------------------------------------------
 # _assign_issue <ISSUE_NUMBER> — assign the issue to the dispatch actor via
 # `gh issue edit --add-assignee`, firing the `issues.assigned` webhook that
 # `project-board-sync.yml` translates into a Ready → In progress board move
@@ -702,8 +771,25 @@ cmd_dispatch() {
   _patch_status '.last_dispatch_at' "\"$now\""
   _patch_status '.last_dispatch_issue' "$issue"
 
+  # Derive the po-agent dispatch bundle's KEY and BRANCH from the issue.
+  # KEY is the feature slug from the issue body's to-issues provenance;
+  # BRANCH is derived deterministically as feat/<issue>-<key> (the po-agent
+  # creates the branch via worktree.sh --new-branch when it is absent on
+  # the remote, so a deterministic name with no pre-existing ref is the
+  # autonomous happy-path). On derivation failure, log a WARN and continue
+  # with empty KEY/BRANCH — the po-agent then returns R1 failure with a
+  # clear `missing input: KEY`, which is strictly better than the prior
+  # state where ALL four required inputs were silently absent.
+  local key="" branch=""
+  if key="$(_derive_key_for_issue "$issue" "${MAKATO_LOOP_DISPATCH_REPO:-}")"; then
+    branch="feat/${issue}-${key}"
+  else
+    key=""
+    echo "loop: WARN — could not derive KEY for issue #${issue} (no to-issues provenance in body); po-agent will fail input validation" >&2
+  fi
+
   if [[ "$dry_run" == "--dry-run" ]]; then
-    echo "loop: --dry-run — would exec: $CLAUDE_BIN --dangerously-skip-permissions -p \"<dispatch makato-orchestrate:po-agent for issue #${issue}>\"" >&2
+    echo "loop: --dry-run — would exec: $CLAUDE_BIN --dangerously-skip-permissions -p \"<dispatch makato-orchestrate:po-agent for issue #${issue} KEY=${key} REPO=${MAKATO_LOOP_DISPATCH_REPO:-} BRANCH=${branch} REPO_ROOT=${REPO_ROOT}>\"" >&2
     echo "loop: --dry-run — would assign #${issue} to ${ASSIGNEE} (board → In progress)" >&2
     _patch_status '.active_workflow' 'null'
     return 0
@@ -761,7 +847,7 @@ cmd_dispatch() {
   # AskUserQuestion. This is the #163 fix; the #160 fix (delegation
   # prompt) remains the primary defence.
   local dispatch_prompt
-  dispatch_prompt="Use the Task tool to dispatch the makato-orchestrate:po-agent subagent to drive GitHub issue #${issue} to a merged PR. Pass the issue number as the sole argument. The po-agent owns the outer loop, workflow-state, and all makato-build --autonomous dispatch; do not invoke makato-build or makato-plan skills directly from this session. Return the po-agent's final R1 envelope verbatim."
+  dispatch_prompt="Use the Task tool to dispatch the makato-orchestrate:po-agent subagent to drive GitHub issue #${issue} to a merged PR. Pass the po-agent's required inputs verbatim: ISSUE_NUMBER=${issue} KEY=${key} REPO=${MAKATO_LOOP_DISPATCH_REPO:-} BRANCH=${branch} REPO_ROOT=${REPO_ROOT}. The po-agent owns the outer loop, workflow-state, and all makato-build --autonomous dispatch; do not invoke makato-build or makato-plan skills directly from this session. Return the po-agent's final R1 envelope verbatim."
 
   if [[ -n "$log_file" ]]; then
     # Redirect both stdout+stderr to the log file so the watchdog gets
