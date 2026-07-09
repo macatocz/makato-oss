@@ -7,6 +7,9 @@ Changes are grouped by skill/agent/component. Within each group, latest version 
 
 ## Plugin-level
 
+- **Fixed** dangling `/publish` references (#203) — 9 occurrences across `create-prd`, `create-architecture`, `create-prototype`, `create-acceptance-tests`, and `decompose` now correctly point to `/to-issues`, the skill that creates GitHub Issues from shaped stories.
+
+
 - **Added** `config/skill-bundles.yml` (#145) — bundles `plan-skills`, `plan-prd`, `plan-decompose`, `plan-issues` route PRD/architecture spec files, plan.md/stories.md, created-issues.json, and plan skill files to the appropriate planning skills (brainstorming, create-prd, grill, decompose, to-issues, issue-to-project, etc.).
 
 ---
@@ -378,6 +381,9 @@ Changes are grouped by skill/agent/component. Within each group, latest version 
   - Initial — create UX design documents with screen inventory, wireframes, interaction patterns, user testing plan, and accessibility notes for PRD UI surfaces
 
 ## Plugin-level
+
+- **Fixed** dangling `/publish` references (#203) — 9 occurrences across `create-prd`, `create-architecture`, `create-prototype`, `create-acceptance-tests`, and `decompose` now correctly point to `/to-issues`, the skill that creates GitHub Issues from shaped stories.
+
 
 - **0.2.0**
   - rename `shared/glossary.md` → `shared/terminology.md` to free the word *glossary* for the new per-spec, runtime-written glossary produced by the `grill` skill. The plugin-level file remains a contributor-maintained terminology reference; the per-spec `glossary.md` is the feature-scoped, agent-read vocabulary

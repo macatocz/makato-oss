@@ -457,6 +457,6 @@ Dependencies: {N} inter-story, {N} external
 
 Next steps:
   - /create-acceptance-tests — refine Gherkin scenarios into polished test cases
-  - /publish — create handoff.md, story folders, and optionally GitHub Issues
+  - /to-issues — create GitHub Issues from the shaped stories
   - /grill — stress-test the decomposition independently
 ```
