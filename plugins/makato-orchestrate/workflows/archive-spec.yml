@@ -1,0 +1,76 @@
+# Post-merge spec archive workflow
+#
+# Copy this file to .github/workflows/archive-spec.yml in your consumer repo.
+# It archives completed feature specs after a pull request merges to the default
+# branch: extracts the closed issue number from the PR body, then runs the
+# archive-spec skill via the Claude CLI to merge requirements into the master spec,
+# move the spec folder to specs/archive/, and close the linked GitHub Issue.
+#
+# Prerequisites in the consumer repo:
+#   - Claude CLI available on the runner (set up via your org's standard action).
+#   - The `gh` CLI is preinstalled on ubuntu-latest images.
+#   - A `GITHUB_TOKEN` with `contents: write` and `issues: write` scopes
+#     (the default GITHUB_TOKEN suffices for issue closure).
+#   - Spec folders follow the specs/<key>-<slug>/ convention.
+#
+# Mirrors: plugins/makato-orchestrate/workflows/post-merge.yml (documentation-agent)
+# Reference: plugins/makato-orchestrate/skills/archive-spec/references/archive-spec-workflow.md
+name: Post-merge spec archive
+
+on:
+  pull_request:
+    types:
+      - closed
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: read
+
+jobs:
+  archive:
+    # Only run when the PR actually merged (not just closed) and only against
+    # the repository's default branch.
+    if: >-
+      ${{ github.event.pull_request.merged == true &&
+          github.event.pull_request.base.ref == github.event.repository.default_branch }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout merged commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Claude CLI
+        # Replace this placeholder with your org's Claude CLI setup action.
+        # See https://docs.anthropic.com/claude-code for current guidance.
+        run: |
+          echo "::notice::Replace this step with the official Claude CLI setup action."
+
+      - name: Extract closing issue number
+        id: issue
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          # Matches: Closes #N, Fixes #N, Resolves #N (case-insensitive, first match)
+          issue=$(echo "$PR_BODY" \
+            | grep -ioP '(?:closes|fixes|resolves)\s+#\K\d+' \
+            | head -1)
+          if [ -z "$issue" ]; then
+            echo "::notice::No closing issue found in PR body — skipping archive."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "issue_number=$issue" >> "$GITHUB_OUTPUT"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run archive-spec
+        if: steps.issue.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ steps.issue.outputs.issue_number }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          claude --dangerously-skip-permissions \
+            --print "Post-merge: run /makato-orchestrate:archive-spec for issue #${ISSUE_NUMBER} (merged via PR #${PR_NUMBER})" \
+            --allowedTools "Bash,Read,Write,Edit"

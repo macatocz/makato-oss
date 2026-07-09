@@ -11,6 +11,7 @@ Provide the shared developer utilities and suite infrastructure every makato plu
 - Mandatory MCP server declarations
 - Guide/help skills for suite users
 - Diagnostics and validation utilities
+- Hooks shared across consumer repos (pre-commit gate, pre-push gate, post-implement continuation)
 
 ## What Does NOT Belong Here
 
@@ -44,6 +45,10 @@ Contracts define artifact shapes. They are design-time definitions, not runtime 
 makato-core/
 ├── .claude-plugin/plugin.json
 ├── contracts/          # Shared schemas
+├── hooks/
+│   ├── pre-commit-sensors.md  # PreToolUse: block git commit on sensor failure
+│   ├── pre-push.md            # PreToolUse: block git push on pre-push gate; Stop: warn on missing verify
+│   └── post-implement.md      # Stop: auto-continue to /build-simplify after implement session
 ├── skills/
 │   ├── context7/                      # Library documentation lookup via Context7 MCP
 │   ├── crafting-effective-readmes/    # README authoring guide

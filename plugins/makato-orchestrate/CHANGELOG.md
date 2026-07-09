@@ -5,36 +5,16 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
-## `loop` assign-on-dispatch → board `In progress` (#33)
+## `archive-spec` skill + GHA workflow — post-merge spec lifecycle
 
-Closes the missing `Ready → In progress` board transition. The board never
-advanced to `In progress` because nothing triggered it: `loop` is read-only
-against the board by design, and no GHA translated repo/PR events into Status
-writes. Cards jumped `Ready → In review → Done`, leaving `In progress` a dead
-column.
+- **1.0.0** — new skill: archive completed features (master spec merge + `gh issue close`) and
+  mark obsolete specs; migrated from `makato-plan` (wrong plugin); removes all `.daff/` and
+  `mcp__dcp-jira__*` tooling; uses `gh` CLI only
+- **`workflows/archive-spec.yml`** — GHA consumer template; fires on `pull_request.closed`,
+  extracts `Closes/Fixes/Resolves #N`, runs skill headless via `claude --print`
+- **`.github/workflows/archive-spec.yml`** — same workflow wired into this repo
 
-- **`scripts/loop.sh`** — `cmd_dispatch` now assigns the issue to the
-  dispatch actor (`gh issue edit --add-assignee`, default `@me`) just before
-  spawning the PO-agent. That fires the `issues.assigned` webhook the new
-  `project-board-sync.yml` GHA moves `Ready → In progress` on. This is a
-  *repo* mutation (the assign), not a *board* mutation — `loop` still never
-  calls `updateProjectV2ItemFieldValue`; the board sync owns every Status
-  write. Best-effort: a failed `gh` call is logged and swallowed, never
-  blocking dispatch. `cmd_run` threads the owning repository (from the poll
-  result — the board is cross-repo) into `cmd_dispatch` via
-  `MAKATO_LOOP_DISPATCH_REPO` so the public `dispatch <ISSUE>` signature is
-  unchanged.
-  - New env vars: `MAKATO_LOOP_ASSIGN_ON_DISPATCH` (default `1`; `0` disables),
-    `MAKATO_LOOP_ASSIGNEE` (default `@me`), `MAKATO_LOOP_ASSIGN_TEST_FILE`
-    (test hook).
-- **`scripts/loop-smoke-tests.sh`** — two new scenarios (T23/T24): assign
-  fires on the real-fork path with the assignee+repo threaded through,
-  `--dry-run` never assigns (inspection-only), and
-  `MAKATO_LOOP_ASSIGN_ON_DISPATCH=0` opts out. 24 scenarios total, all pass
-  offline.
-- **`skills/loop/SKILL.md`** — new §*The one exception: assign-on-dispatch*
-  under the board-mutation-policy section, env-var table rows, and scenario
-  list bumped to twenty.
+---
 
 ## PO-agent post-dispatch audit-tail guard + `HALT-011` (#175)
 

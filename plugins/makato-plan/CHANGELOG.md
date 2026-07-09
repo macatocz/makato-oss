@@ -5,19 +5,12 @@ Changes are grouped by skill/agent/component. Within each group, latest version 
 
 ---
 
-## `issue-to-project` skill
+## `archive-spec` skill — removed (wrong plugin)
 
-- **webhook-lifecycle `issues.assigned → In progress` (#33)**
-  - documented the new `issues.assigned → In progress` lifecycle transition
-    in `references/webhook-lifecycle.md`: a forward-only promotion (from
-    `Ready`/`Todo`/unset, never rolling back from `In review`/`Done`/`Blocked`)
-    fired when the autonomous `loop.sh` dispatcher assigns an issue just
-    before spawning the PO-agent
-  - implemented natively in the consumer repo's
-    `.github/workflows/project-board-sync.yml` (ported from the sagibeast
-    `post-merge.yml` reference); the Claude-driven `--from-webhook` path
-    treats `issues.assigned` as non-actionable until a future release wires
-    it into `TRANSITION_MAP`. Doc carries a keep-in-sync note between the two.
+- Skill moved to `makato-orchestrate/skills/archive-spec`; `makato-plan` does pre-dev shaping,
+  not post-merge lifecycle management
+
+---
 
 ## `to-issues` skill
 

@@ -5,6 +5,15 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## `hooks/` directory — shared Claude Code hooks
+
+- **Added** `hooks/pre-commit-sensors.md` — PreToolUse gate blocking `git commit` on sensor failure
+- **Added** `hooks/pre-push.md` — PreToolUse blocking gate for `git push` + Stop advisory
+- **Added** `hooks/post-implement.md` — Stop hook auto-continuing to `/build-simplify`
+- AGENTS.md updated: `hooks/` added to What Belongs Here and File Structure
+
+---
+
 ## `create-issue` skill
 
 - **1.1.0**
