@@ -190,7 +190,9 @@
       "Bash(aws * promote-*)",
       "Bash(aws s3 rm *)",
       "Bash(aws s3 rb *)",
-      "Bash(aws s3 mv *)"
+      "Bash(aws s3 mv *)",
+      "Bash(git push --no-verify *)",
+      "Bash(git push -n *)"
     ],
     "ask": [
       "Bash(rm *)",
@@ -265,5 +267,45 @@
   "autoDreamEnabled": true,
   "gitAttribution": false,
   "effortLevel": "xhigh",
-  "skipDangerousModePermissionPrompt": true
+  "skipDangerousModePermissionPrompt": true,
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash(git commit*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pre-commit run --hook-stage pre-commit --from-ref HEAD --to-ref HEAD --files $(git diff --cached --name-only | tr '\\n' ' ')",
+            "blocking": true,
+            "timeout": 30000
+          }
+        ]
+      },
+      {
+        "matcher": "Bash(git push*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pre-commit run --hook-stage pre-push --all-files",
+            "blocking": true,
+            "timeout": 120000
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"const fs=require('fs');const specDir='specs';if(!fs.existsSync(specDir))process.exit(0);const files=fs.readdirSync(specDir).map(d=>({d,f:specDir+'/'+d+'/build.jsonl'})).filter(x=>fs.existsSync(x.f)).sort((a,b)=>fs.statSync(b.f).mtimeMs-fs.statSync(a.f).mtimeMs);if(!files.length)process.exit(0);const{d,f}=files[0];const lines=fs.readFileSync(f,'utf8').trim().split('\\\\n').filter(Boolean);let last;try{last=JSON.parse(lines[lines.length-1])}catch{process.exit(0)}if(last&&['build-implement-tdd','build-implement-goal'].includes(last.skill)&&last.step==='session'&&last.status==='ok')console.log('implement session for '+d+' completed successfully. Continue the build pipeline by running /build-simplify '+d+' now.')\""
+          },
+          {
+            "type": "command",
+            "command": "node -e \"const fs=require('fs');const specDir='specs';if(!fs.existsSync(specDir))process.exit(0);const files=fs.readdirSync(specDir).map(d=>({d,f:specDir+'/'+d+'/build.jsonl'})).filter(x=>fs.existsSync(x.f)).sort((a,b)=>fs.statSync(b.f).mtimeMs-fs.statSync(a.f).mtimeMs);if(!files.length)process.exit(0);const{d,f}=files[0];const raw=fs.readFileSync(f,'utf8').trim().split('\\\\n').filter(Boolean);const lines=raw.map(l=>{try{return JSON.parse(l)}catch{return null}}).filter(Boolean);const implSkills=['build-implement-tdd','build-implement-goal','build-simplify','build-review'];let lastPushIdx=-1,lastVerifyIdx=-1,lastImplIdx=-1;lines.forEach((l,i)=>{if(l.skill==='build-push-to-git'&&l.step==='session'&&l.status==='ok')lastPushIdx=i;if(l.skill==='build-verify'&&l.step==='session'&&l.status==='ok')lastVerifyIdx=i;if(implSkills.includes(l.skill)&&l.step==='session'&&l.status==='ok')lastImplIdx=i;});if(lastPushIdx<0)process.exit(0);if(lastImplIdx>=0&&lastVerifyIdx>=0&&lastVerifyIdx>lastImplIdx)process.exit(0);console.log('Push detected for '+d+' without a verify pass after the last implementation session. Consider running /verify and pushing again if gates have not been checked.');\""
+          }
+        ]
+      }
+    ]
+  }
 }
