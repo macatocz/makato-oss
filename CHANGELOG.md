@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.33.0](https://github.com/macatocz/makato/compare/v0.32.0...v0.33.0) (2026-07-09)
+
+
+### ✨ Features
+
+* **create-ux:** delegate medium/high-fi wireframes to penpot-uiux-design ([#190](https://github.com/macatocz/makato/issues/190)) ([7d5fc66](https://github.com/macatocz/makato/commit/7d5fc66ac80ea129df3e4f29e4f579534309d352))
+
 ## [0.32.0](https://github.com/macatocz/makato/compare/v0.31.3...v0.32.0) (2026-07-09)
 
 
