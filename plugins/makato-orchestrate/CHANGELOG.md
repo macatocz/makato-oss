@@ -5,6 +5,67 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## `loop.sh` sleep-wake dispatch guard (#171)
+
+Fixes the incident documented in #171: after a macOS host sleep of ~6.5 h
+mid-run, `loop.sh` woke and emitted 35× `dispatching issue #145` log lines
+in the same second, forking that many `exec claude -p` subprocesses against
+the same issue. Root cause: naive `sleep "$interval"` in `cmd_run` can
+return early when the kernel timer collapses across suspend/resume, and
+`cmd_dispatch` had no idempotence check — every re-entry re-stamped
+`active_workflow` and forked another PO-agent. Token cost inflation,
+telemetry pollution, and `workflow-state.json` write races followed.
+
+- **`scripts/loop.sh`** — two layered guards land:
+  1. **`_guarded_sleep`** replaces the bare `sleep "$interval"` at the end
+     of `cmd_run`'s poll loop. It re-enters raw sleep in ≤
+     `MAKATO_LOOP_SLEEP_MAX_STEP`-second chunks (default 30 s) until
+     `$(date +%s)` has advanced by the requested total — a wall-clock
+     guarantee that survives early-return sleeps. `MAKATO_LOOP_SLEEP_CMD`
+     is a test hook that substitutes the inner `sleep` command so smoke
+     tests can simulate the macOS behaviour in ~1 s wall-clock.
+  2. **Idempotent-dispatch guard in `cmd_dispatch`.** New helper
+     `_within_dispatch_guard` composes two predicates:
+     - **A** — `active_workflow.issue == target` AND
+       `_seconds_since(active_workflow.started_at) < MIN_DISPATCH_GAP_SECS`
+       (default 30). Covers the "same issue still in flight from a prior
+       cmd_dispatch that has not yet returned" case — the exact 35×
+       burst scenario.
+     - **B** — `.last_dispatch_issue == target` AND
+       `_seconds_since(.last_dispatch_at) < LAST_DISPATCH_GAP_SECS`
+       (default 30). Covers the "same issue just dispatched, PO-agent's
+       state write races with next poll" case. `last_dispatch_at` is
+       now stamped on every real dispatch attempt, not only in
+       `MAKATO_LOOP_DRY_DISPATCH` mode.
+
+     Both predicates use *time since a timestamp*, never a boolean, so
+     a crashed dispatch that left `active_workflow` populated reclaims
+     after the guard window elapses. Guard-refuse exits **0** with a
+     single stderr line explaining the skip — distinct from the
+     pre-existing exit-2 "different issue in flight" branch, which
+     stays intact. The outer `cmd_run` treats the exit-0 as a normal
+     completion and sleeps the full interval before the next poll.
+  3. Header env-var comment block gains a `# --- Sleep-wake guard
+     (#171) ---` section documenting `MAKATO_LOOP_SLEEP_MAX_STEP`,
+     `MAKATO_LOOP_MIN_DISPATCH_GAP`, `MAKATO_LOOP_LAST_DISPATCH_GAP`,
+     and the `MAKATO_LOOP_SLEEP_CMD` test hook.
+
+- **`scripts/loop-smoke-tests.sh`** — three new scenarios (T19–T21)
+  raise the smoke count to 21. T19 asserts `_guarded_sleep 2` burns
+  ≥ 2 s wall-clock even when the inner sleep is replaced by a
+  ~instant `sleep 0.1`. T20 asserts the in-flight guard preserves
+  `active_workflow.started_at` byte-for-byte and skips the dispatch
+  body. T21 covers both the release (stale `.last_dispatch_at`) and
+  fire (fresh same-issue `.last_dispatch_at`) branches of predicate B.
+  Whole suite runs in ~15 s wall-clock.
+
+- **Explicit non-goals.** Fix 3 from the issue (`pmset`-based suspend
+  detection) is deferred — if T19–T21 leave residual dispatch bursts
+  under a real macOS sleep-wake, file a follow-up. `_watchdog_poll`
+  (#164) and `_acquire_run_mutex` (#172) are untouched.
+
+---
+
 ## `workflow-state` per-issue file layout (#173)
 
 Fixes the incident documented in #173: the `agent-skill-routing` story spans

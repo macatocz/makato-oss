@@ -373,5 +373,132 @@ if [[ -e "$PIDFILE_T18" ]]; then
 fi
 echo "  ✓ --force killed incumbent and took over"
 
+# ---------------------------------------------------------------------------
+# Sleep-wake guard scenarios (#171). After a macOS host sleep-wake,
+# `sleep $interval` in bash can return early — a poorly-behaved caller
+# then tight-loops through cmd_dispatch and forks N zombie subprocesses
+# against the same issue in one wall-clock second. Two guards defend:
+#   1. `_guarded_sleep` — wall-clock-guaranteed sleep loop that keeps
+#      re-entering `sleep` until $(date +%s) has advanced far enough.
+#   2. Idempotent-dispatch guard — refuses same-issue re-dispatch while
+#      `active_workflow.issue` still names the target (age gated by
+#      MAKATO_LOOP_MIN_DISPATCH_GAP), and refuses same-issue re-dispatch
+#      within MAKATO_LOOP_LAST_DISPATCH_GAP seconds of `.last_dispatch_at`.
+# ---------------------------------------------------------------------------
+
+echo "=== T19: _guarded_sleep waits full wall-clock even when raw sleep returns early ==="
+# MAKATO_LOOP_SLEEP_CMD is a test hook: it replaces the raw `sleep <step>`
+# call inside _guarded_sleep with a shell command. Setting it to `sleep 0.1`
+# simulates a sleep that returns almost-instantly (mimicking macOS wake
+# behaviour). _guarded_sleep MUST still burn ≥ requested seconds of
+# wall-clock via its outer while-date+%s loop.
+t19_start=$(date +%s)
+MAKATO_LOOP_TEST_HOOK=1 MAKATO_LOOP_SLEEP_CMD="sleep 0.1" MAKATO_LOOP_SLEEP_MAX_STEP=1 \
+  "$LOOP" _test-guarded-sleep 2 >/dev/null 2>&1 \
+  || fail "_test-guarded-sleep 2 exited non-zero"
+t19_elapsed=$(( $(date +%s) - t19_start ))
+if [[ $t19_elapsed -lt 2 ]]; then
+  fail "_guarded_sleep 2 returned in ${t19_elapsed}s (expected ≥ 2s under early-return simulation)"
+fi
+echo "  ✓ _guarded_sleep 2 slept ${t19_elapsed}s despite instant sleep replacement"
+
+# ---------------------------------------------------------------------------
+echo "=== T20: idempotent-dispatch guard refuses same-issue re-dispatch (in-flight) ==="
+rm -f "$STATE_DIR/loop-status.json"
+# Seed active_workflow with the same issue we're about to dispatch, with a
+# fresh started_at (1s ago). The guard MUST refuse (exit 0, silent, no
+# re-stamp of started_at) — this is the sleep-wake burst scenario where
+# cmd_run re-enters within seconds against an already-in-flight issue.
+fresh_started_at="$(python3 -c "import datetime; d=datetime.datetime.now(datetime.timezone.utc)-datetime.timedelta(seconds=1); print(d.strftime('%Y-%m-%dT%H:%M:%S.')+f'{d.microsecond//1000:03d}Z')")"
+jq -n --arg ts "$fresh_started_at" \
+  '{active_workflow: {issue: 200, started_at: $ts, stalled: false, stalled_since: null, killed_by_watchdog: false}}' \
+  >"$STATE_DIR/loop-status.json"
+rc=0
+MAKATO_LOOP_MIN_DISPATCH_GAP=30 MAKATO_LOOP_DRY_DISPATCH=1 \
+  "$LOOP" dispatch 200 2>/dev/null || rc=$?
+if [[ $rc -ne 0 ]]; then
+  fail "expected exit 0 when guard refuses same-issue re-dispatch; got $rc"
+fi
+observed_ts="$(jq -r '.active_workflow.started_at' "$STATE_DIR/loop-status.json")"
+if [[ "$observed_ts" != "$fresh_started_at" ]]; then
+  fail "active_workflow.started_at was clobbered ($observed_ts != $fresh_started_at) — guard did not fire"
+fi
+# .last_dispatch_issue must NOT be stamped (DRY_DISPATCH side-effect must be skipped)
+if jq -e '.last_dispatch_issue != null' "$STATE_DIR/loop-status.json" >/dev/null 2>&1; then
+  fail ".last_dispatch_issue was stamped despite guard refusing — dispatch body executed"
+fi
+echo "  ✓ same-issue re-dispatch refused; started_at preserved; body skipped"
+
+# Sub-assertion 2 — predicate A RELEASE branch (#171 crashed-dispatch reclaim).
+# When active_workflow.issue matches the target AND started_at is
+# OLDER than MIN_DISPATCH_GAP_SECS, the guard MUST release — a prior
+# dispatch that never cleared active_workflow (crashed or SIGKILL'd)
+# must not permanently block re-dispatch. The reclaim is the design
+# doc's explicit "no permanent-refuse state" guarantee.
+rm -f "$STATE_DIR/loop-status.json"
+# 60s ago; guard=30s → age > gap → RELEASE.
+stale_active_started_at="$(python3 -c "import datetime; d=datetime.datetime.now(datetime.timezone.utc)-datetime.timedelta(seconds=60); print(d.strftime('%Y-%m-%dT%H:%M:%S.')+f'{d.microsecond//1000:03d}Z')")"
+jq -n --arg ts "$stale_active_started_at" \
+  '{active_workflow: {issue: 200, started_at: $ts, stalled: false, stalled_since: null, killed_by_watchdog: false}}' \
+  >"$STATE_DIR/loop-status.json"
+MAKATO_LOOP_MIN_DISPATCH_GAP=30 MAKATO_LOOP_LAST_DISPATCH_GAP=1 MAKATO_LOOP_DRY_DISPATCH=1 \
+  "$LOOP" dispatch 200 >/dev/null 2>&1 \
+  || fail "expected exit 0 when guard releases on stale active_workflow.started_at"
+# .last_dispatch_issue must be stamped by the real dispatch path (not the guard-skip path)
+if [[ "$(jq -r '.last_dispatch_issue' "$STATE_DIR/loop-status.json")" != "200" ]]; then
+  fail "expected .last_dispatch_issue == 200 after crashed-dispatch reclaim; got $(jq -r '.last_dispatch_issue' "$STATE_DIR/loop-status.json")"
+fi
+echo "  ✓ stale started_at released the guard; dispatch fired (crashed-dispatch reclaim)"
+
+# ---------------------------------------------------------------------------
+echo "=== T21: last-dispatch guard fires on fresh timestamp, releases on stale ==="
+rm -f "$STATE_DIR/loop-status.json"
+# Sub-assertion 1 — GAP=1s, stamp 2s ago → stale → guard RELEASES → dispatch fires.
+stale_ts_2s_ago="$(python3 -c "import datetime; d=datetime.datetime.now(datetime.timezone.utc)-datetime.timedelta(seconds=2); print(d.strftime('%Y-%m-%dT%H:%M:%S.')+f'{d.microsecond//1000:03d}Z')")"
+jq -n --arg ts "$stale_ts_2s_ago" \
+  '{last_dispatch_at: $ts, last_dispatch_issue: 999}' \
+  >"$STATE_DIR/loop-status.json"
+MAKATO_LOOP_LAST_DISPATCH_GAP=1 MAKATO_LOOP_DRY_DISPATCH=1 \
+  "$LOOP" dispatch 200 >/dev/null 2>&1 \
+  || fail "expected exit 0 when guard releases on stale .last_dispatch_at"
+if [[ "$(jq -r '.last_dispatch_issue' "$STATE_DIR/loop-status.json")" != "200" ]]; then
+  fail "expected .last_dispatch_issue == 200 after stale-timestamp release; got $(jq -r '.last_dispatch_issue' "$STATE_DIR/loop-status.json")"
+fi
+echo "  ✓ stale timestamp released the guard; dispatch fired"
+
+# Sub-assertion 2 — GAP=60s, same-issue stamp 2s ago → fresh → guard FIRES → dispatch refused.
+rm -f "$STATE_DIR/loop-status.json"
+stale_ts_2s_ago="$(python3 -c "import datetime; d=datetime.datetime.now(datetime.timezone.utc)-datetime.timedelta(seconds=2); print(d.strftime('%Y-%m-%dT%H:%M:%S.')+f'{d.microsecond//1000:03d}Z')")"
+jq -n --arg ts "$stale_ts_2s_ago" \
+  '{last_dispatch_at: $ts, last_dispatch_issue: 200}' \
+  >"$STATE_DIR/loop-status.json"
+# Snapshot the timestamp BEFORE the dispatch so we can prove the guard
+# refused (last_dispatch_at must not have been re-stamped to a fresh
+# "now").
+observed_ts_before="$(jq -r '.last_dispatch_at' "$STATE_DIR/loop-status.json")"
+MAKATO_LOOP_LAST_DISPATCH_GAP=60 MAKATO_LOOP_DRY_DISPATCH=1 \
+  "$LOOP" dispatch 200 >/dev/null 2>&1 \
+  || fail "expected exit 0 when guard refuses (silent no-op)"
+observed_ts_after="$(jq -r '.last_dispatch_at' "$STATE_DIR/loop-status.json")"
+if [[ "$observed_ts_before" != "$observed_ts_after" ]]; then
+  fail "expected .last_dispatch_at unchanged when guard fires; before=$observed_ts_before after=$observed_ts_after"
+fi
+echo "  ✓ fresh same-issue timestamp fired the guard; dispatch refused; body skipped"
+
+# ---------------------------------------------------------------------------
+echo "=== T22: _test-* hooks refuse to run without MAKATO_LOOP_TEST_HOOK=1 ==="
+# Operator running `loop.sh _test-guarded-sleep 3600` at the prompt
+# would get a 1-hour sleep with no indication it is a test hook.
+# The refusal path is the usability guard.
+rc=0
+"$LOOP" _test-guarded-sleep 1 2>/dev/null || rc=$?
+if [[ $rc -ne 64 ]]; then
+  fail "expected exit 64 when _test-* invoked without MAKATO_LOOP_TEST_HOOK=1; got $rc"
+fi
+# And with the opt-in, it must still work.
+MAKATO_LOOP_TEST_HOOK=1 "$LOOP" _test-guarded-sleep 0 >/dev/null 2>&1 \
+  || fail "expected exit 0 when _test-* invoked with MAKATO_LOOP_TEST_HOOK=1"
+echo "  ✓ test hooks gated behind MAKATO_LOOP_TEST_HOOK=1"
+
 echo
 echo "=== ALL TESTS PASSED ==="

@@ -96,6 +96,40 @@
 #                              `run --force` reclaims a live instance
 #                              (default 10).
 #
+# --- Sleep-wake guard (#171) ---
+#   MAKATO_LOOP_SLEEP_MAX_STEP Max seconds per raw `sleep` call inside
+#                              `_guarded_sleep` (default 30). The outer
+#                              cmd_run loop calls `_guarded_sleep
+#                              "$interval"` instead of `sleep "$interval"`
+#                              so a macOS suspend/resume that makes the
+#                              raw sleep return early cannot bypass the
+#                              full polling interval. Tests set a small
+#                              value to exercise the re-entry path.
+#   MAKATO_LOOP_MIN_DISPATCH_GAP
+#                              Seconds since `active_workflow.started_at`
+#                              during which a re-dispatch of the SAME
+#                              issue is refused as a silent no-op
+#                              (default 30). Predicate A of the
+#                              idempotent-dispatch guard — see the
+#                              `_within_dispatch_guard` docstring.
+#   MAKATO_LOOP_LAST_DISPATCH_GAP
+#                              Seconds since `.last_dispatch_at` during
+#                              which a re-dispatch of the SAME issue is
+#                              refused as a silent no-op (default 30).
+#                              Predicate B of the guard. Distinct from
+#                              MIN_DISPATCH_GAP because active_workflow
+#                              is cleared once cmd_dispatch returns;
+#                              this covers the "just cleared, don't
+#                              immediately re-fire" case where the
+#                              PO-agent's state write races with the
+#                              next poll.
+#   MAKATO_LOOP_SLEEP_CMD      Tests only: override the raw sleep
+#                              command inside `_guarded_sleep`. Setting
+#                              to `sleep 0.1` simulates the macOS
+#                              early-return behaviour so smoke tests can
+#                              verify the wall-clock guarantee in
+#                              seconds instead of the full interval.
+#
 # Conventions: matches scripts/context-handoff.sh (POSIX-ish bash, `set
 # -euo pipefail`, python3 for ISO-8601 millisecond timestamps, jq for
 # JSON work).
@@ -134,6 +168,41 @@ PIDFILE="${MAKATO_LOOP_PIDFILE:-$STATE_DIR/loop.pid}"
 # the shell, large enough that the target's EXIT trap gets to clean up.
 FORCE_GRACE_SECS="${MAKATO_LOOP_FORCE_GRACE:-10}"
 
+# --- Sleep-wake guard (#171) --------------------------------------------
+# After a macOS host suspend/resume, `sleep $interval` in the outer
+# `cmd_run` loop can return early — the parent shell then tight-loops
+# through poll+dispatch and forks N zombie subprocesses against the same
+# in-flight issue in one wall-clock second (issue #171 observed 35× in a
+# single second). Two independent guards below defend the loop:
+#
+#   1. _guarded_sleep — wall-clock-guaranteed sleep. Re-enters raw
+#      `sleep` in <= SLEEP_MAX_STEP chunks until `$(date +%s)` has
+#      advanced far enough. Prevents Fix 2 from design.md.
+#
+#   2. Idempotent-dispatch guard in cmd_dispatch — refuses re-dispatch
+#      of the same issue while it is still in flight (active_workflow
+#      pointing at it, age < MIN_DISPATCH_GAP) OR was JUST dispatched
+#      (last_dispatch_at within LAST_DISPATCH_GAP seconds). Prevents
+#      Fix 1 from design.md.
+#
+# Both guards use *time since a stamped timestamp*, never a boolean,
+# so a crashed dispatch (that never cleared active_workflow) reclaims
+# after the guard window elapses — no permanent-refuse state.
+SLEEP_MAX_STEP_SECS="${MAKATO_LOOP_SLEEP_MAX_STEP:-30}"
+MIN_DISPATCH_GAP_SECS="${MAKATO_LOOP_MIN_DISPATCH_GAP:-30}"
+LAST_DISPATCH_GAP_SECS="${MAKATO_LOOP_LAST_DISPATCH_GAP:-30}"
+# Floor SLEEP_MAX_STEP_SECS at 1. Values ≤ 0 (whether accidentally
+# unset-then-defaulted, or explicitly overridden by an operator) would
+# make _guarded_sleep's inner cap `step=$SLEEP_MAX_STEP_SECS` deliver
+# `sleep 0` (or `sleep -N`, which errors on GNU coreutils and is
+# swallowed by `|| true`) every iteration — the outer while loop would
+# then spin at 100% CPU for the full interval, defeating the sleep
+# entirely. `-lt 1` also catches non-numeric values (bash arithmetic
+# treats them as 0).
+if [[ ! "$SLEEP_MAX_STEP_SECS" =~ ^[0-9]+$ ]] || [[ "$SLEEP_MAX_STEP_SECS" -lt 1 ]]; then
+  SLEEP_MAX_STEP_SECS=1
+fi
+
 mkdir -p "$STATE_DIR"
 
 # ---------------------------------------------------------------------------
@@ -143,6 +212,52 @@ _now() {
   python3 -c "from datetime import datetime, timezone
 n = datetime.now(timezone.utc)
 print(n.strftime('%Y-%m-%dT%H:%M:%S.') + f'{n.microsecond // 1000:03d}Z')"
+}
+
+# ---------------------------------------------------------------------------
+# _guarded_sleep <seconds> — wall-clock-guaranteed sleep against early wake.
+#
+# `sleep N` can return before N wall-clock seconds have elapsed after a
+# macOS host suspend/resume (issue #171): the process is resumed with the
+# alarm signal already fired or the kernel timer collapsed. Naive
+# `sleep $interval` in the outer poll loop then re-enters immediately and
+# the outer `cmd_run` bursts N dispatches in seconds.
+#
+# This wrapper is bounded above by SLEEP_MAX_STEP_SECS per raw `sleep`
+# call and re-enters until `$(date +%s)` has advanced by the requested
+# total. The inner `sleep` command can be overridden via
+# MAKATO_LOOP_SLEEP_CMD (test hook) to simulate the early-return
+# behaviour deterministically.
+#
+# Args: integer seconds to burn. cmd_run passes an integer $interval;
+# non-integer input trips the bash arithmetic in the deadline calc,
+# which is fine — this helper is not a general-purpose API. Zero and
+# negative inputs fall through the first iteration of the while loop
+# (`remaining <= 0`) and return immediately.
+# ---------------------------------------------------------------------------
+_guarded_sleep() {
+  local target="${1:?_guarded_sleep: target seconds required}"
+  local deadline
+  deadline=$(( $(date +%s) + target ))
+  # Cap each raw-sleep step at SLEEP_MAX_STEP_SECS so a wake event never
+  # loses more than one step's worth of wall-clock time (raw sleep of
+  # 300 s that returns instantly is still guarded, but polls are
+  # bounded — safer than trusting a single long sleep).
+  local sleep_cmd="${MAKATO_LOOP_SLEEP_CMD:-sleep}"
+  while :; do
+    local now_epoch remaining step
+    now_epoch=$(date +%s)
+    remaining=$(( deadline - now_epoch ))
+    if [[ $remaining -le 0 ]]; then
+      return 0
+    fi
+    step=$remaining
+    if [[ $step -gt $SLEEP_MAX_STEP_SECS ]]; then
+      step=$SLEEP_MAX_STEP_SECS
+    fi
+    # shellcheck disable=SC2086
+    $sleep_cmd $step 2>/dev/null || true
+  done
 }
 
 # ---------------------------------------------------------------------------
@@ -411,11 +526,111 @@ _watchdog_poll() {
 }
 
 # ---------------------------------------------------------------------------
+# _seconds_since <iso8601-timestamp>
+#
+# Emits seconds elapsed between the argument and now, or a large number
+# (999999) if the argument is empty / unparseable. Used by the #171
+# guard checks to reason about the age of active_workflow.started_at
+# and .last_dispatch_at. The "999999 on unparseable" convention makes
+# the guard predicate "younger than GAP" naturally false on missing
+# data, so the caller does not need to special-case null timestamps.
+# ---------------------------------------------------------------------------
+_seconds_since() {
+  local ts="${1:-}"
+  if [[ -z "$ts" || "$ts" == "null" ]]; then
+    echo 999999
+    return 0
+  fi
+  # python3 is already a hard dependency (`_now`); reuse it for parsing
+  # so the calendar arithmetic handles month/year boundaries correctly.
+  python3 -c "
+import sys, datetime
+try:
+    ts = sys.argv[1].replace('Z', '+00:00')
+    then = datetime.datetime.fromisoformat(ts)
+    if then.tzinfo is None:
+        then = then.replace(tzinfo=datetime.timezone.utc)
+    delta = datetime.datetime.now(datetime.timezone.utc) - then
+    print(int(delta.total_seconds()))
+except Exception:
+    print(999999)
+" "$ts" 2>/dev/null || echo 999999
+}
+
+# ---------------------------------------------------------------------------
+# _within_dispatch_guard <issue-number>
+#
+# The #171 idempotent-dispatch guard. Returns 0 (guard fires — refuse
+# dispatch, truthy under `if _within_dispatch_guard`) or 1 (guard
+# clear — proceed). Two independent predicates, either firing refuses:
+#
+#   A) active_workflow.issue == <issue> AND age of started_at <
+#      MIN_DISPATCH_GAP_SECS — the same issue is still in flight from
+#      a prior dispatch. This is the exact 35× sleep-wake burst
+#      scenario from #171 where cmd_run re-enters within seconds of
+#      the prior cmd_dispatch and finds active_workflow still
+#      pointing at #145 because the prior dispatch is still winding
+#      down. Unparseable / missing started_at yields _seconds_since
+#      == 999999, which fails-open — the crashed-dispatch reclaim
+#      guarantee below.
+#
+#   B) .last_dispatch_issue == <issue> AND age of .last_dispatch_at
+#      < LAST_DISPATCH_GAP_SECS — the same issue was JUST dispatched
+#      (active_workflow may have been cleared, but the completion was
+#      moments ago). Prevents cmd_run from immediately re-picking the
+#      same issue if the PO-agent's workflow-state.json write races
+#      with the next poll.
+#
+# Both predicates fail-open when the timestamp is stale enough — no
+# permanent refuse state. A crashed dispatch that never cleared
+# active_workflow reclaims after MIN_DISPATCH_GAP elapses.
+# ---------------------------------------------------------------------------
+_within_dispatch_guard() {
+  local issue="$1"
+  local status
+  status="$(_read_status)"
+  # Predicate A — same-issue still in flight, fresh started_at.
+  local active_issue active_started_at
+  active_issue="$(jq -r '.active_workflow.issue // empty' <<<"$status")"
+  active_started_at="$(jq -r '.active_workflow.started_at // empty' <<<"$status")"
+  if [[ "$active_issue" == "$issue" ]]; then
+    local age_a
+    age_a="$(_seconds_since "$active_started_at")"
+    if [[ "$age_a" -lt "$MIN_DISPATCH_GAP_SECS" ]]; then
+      return 0
+    fi
+  fi
+  # Predicate B — same-issue just-dispatched, fresh last_dispatch_at.
+  local last_issue last_ts
+  last_issue="$(jq -r '.last_dispatch_issue // empty' <<<"$status")"
+  last_ts="$(jq -r '.last_dispatch_at // empty' <<<"$status")"
+  if [[ "$last_issue" == "$issue" ]]; then
+    local age_b
+    age_b="$(_seconds_since "$last_ts")"
+    if [[ "$age_b" -lt "$LAST_DISPATCH_GAP_SECS" ]]; then
+      return 0
+    fi
+  fi
+  return 1
+}
+
+# ---------------------------------------------------------------------------
 # dispatch <ISSUE_NUMBER> [--dry-run]
 # ---------------------------------------------------------------------------
 cmd_dispatch() {
   local issue="${1:?issue number required}"
   local dry_run="${2:-}"
+
+  # #171 idempotent-dispatch guard — silent no-op (exit 0) when the same
+  # issue is already in flight or was just dispatched within the guard
+  # window. Distinct from the "different issue in flight" exit-2 branch
+  # below: same-issue is a bug on the caller's side (a sleep-wake burst
+  # or a race with the PO-agent's state write), not an operator error,
+  # so the outer cmd_run should NOT log-and-retry noisily.
+  if _within_dispatch_guard "$issue"; then
+    echo "loop: dispatch #$issue skipped by guard (recent same-issue dispatch within window)" >&2
+    return 0
+  fi
 
   # Refuse to dispatch when a workflow is already active in this loop session.
   local active
@@ -431,6 +646,13 @@ cmd_dispatch() {
   active_obj="$(jq -n --argjson issue "$issue" --arg ts "$now" \
     '{issue: $issue, started_at: $ts, stalled: false, stalled_since: null, killed_by_watchdog: false}')"
   _patch_status '.active_workflow' "$active_obj"
+  # Stamp .last_dispatch_at / .last_dispatch_issue on EVERY real dispatch
+  # attempt (not just DRY_DISPATCH — that legacy stamp is preserved
+  # below but no longer the only path that writes these fields). Guard
+  # predicate B needs this to detect same-issue re-dispatch during the
+  # sleep-wake burst after active_workflow has been cleared.
+  _patch_status '.last_dispatch_at' "\"$now\""
+  _patch_status '.last_dispatch_issue' "$issue"
 
   if [[ "$dry_run" == "--dry-run" ]]; then
     echo "loop: --dry-run — would exec: $CLAUDE_BIN --dangerously-skip-permissions -p \"<dispatch makato-orchestrate:po-agent for issue #${issue}>\"" >&2
@@ -439,8 +661,9 @@ cmd_dispatch() {
   fi
 
   # Test hook — exercise the full state-machine without forking a subprocess.
+  # .last_dispatch_issue is already stamped by the unconditional block
+  # above (#171); this branch only needs to clear active_workflow.
   if [[ "${MAKATO_LOOP_DRY_DISPATCH:-0}" == "1" ]]; then
-    _patch_status '.last_dispatch_issue' "$issue"
     _patch_status '.active_workflow' 'null'
     return 0
   fi
@@ -716,7 +939,10 @@ cmd_run() {
       return 0
     fi
 
-    sleep "$interval"
+    # #171 — wall-clock-guaranteed sleep. Naive `sleep "$interval"` can
+    # return early after a macOS host suspend/resume; _guarded_sleep
+    # re-enters raw sleep until the requested wall-clock has elapsed.
+    _guarded_sleep "$interval"
   done
 }
 
@@ -725,6 +951,31 @@ cmd_run() {
 # ---------------------------------------------------------------------------
 SUBCMD="${1:?subcommand required: run|poll|next|status|dispatch|check-halt}"
 shift || true
+
+# ---------------------------------------------------------------------------
+# Test-hook dispatch — subcommands prefixed with `_test-` are exposed
+# EXCLUSIVELY for the smoke-test suite (`loop-smoke-tests.sh`) and are
+# NOT part of the public subcommand contract. They are segregated from
+# the main dispatcher below so `--help`-style tab completion or an
+# operator scanning the case block does not treat them as usable.
+# Anyone invoking one gets an explicit error explaining the intent.
+# ---------------------------------------------------------------------------
+if [[ "$SUBCMD" == _test-* ]]; then
+  # In-band signal: allow the smoke tests through, refuse everyone else.
+  # `MAKATO_LOOP_TEST_HOOK=1` is the caller-side opt-in; loop-smoke-tests.sh
+  # sets it before invoking, an operator running `loop.sh _test-…` at the
+  # prompt gets the refusal message.
+  if [[ "${MAKATO_LOOP_TEST_HOOK:-0}" != "1" ]]; then
+    echo "loop: '$SUBCMD' is an internal test hook (smoke-tests only)." >&2
+    echo "loop: run via loop-smoke-tests.sh; do not invoke directly." >&2
+    exit 64
+  fi
+  case "$SUBCMD" in
+    _test-guarded-sleep) _guarded_sleep "$@" ;;
+    *) echo "loop: unknown test hook: $SUBCMD" >&2; exit 64 ;;
+  esac
+  exit 0
+fi
 
 case "$SUBCMD" in
   run)        cmd_run "$@" ;;
