@@ -6,7 +6,7 @@ description: >-
   to How to Test, design decisions surface in the description, Jira
   story is linked. Presents draft for user approval before opening.
   Interactive. Use after push-to-git, before address-pr-comments.
-version: "1.7.0"
+version: "1.8.0"
 argument-hint: "[work-item-key] [--autonomous]"
 ---
 
@@ -59,8 +59,9 @@ Log the bypass via `shared/log-bypass.sh build-create-pr "<key>" work-item-key "
 
 Read from the resolved spec folder under `$REPO_ROOT` (NOT under `$WORKTREE_PATH` — see the entry guard above): `$REPO_ROOT/specs/<key>-*/`:
 - `stories.json` — acceptance criteria for this work item (if key was provided and file exists)
+- `seed-manifest.json` — optional; when `.spec_tier == "plan-only"` and no `stories.json`, `plan.md` `## Acceptance criteria` is the How-to-Test source (see Step 3)
 - `prd.md` — goals, scope, motivation (if exists)
-- `plan.md` — completed tasks, for "What changed" bullets (if exists)
+- `plan.md` — completed tasks, for "What changed" bullets; also the plan-only How-to-Test source (if exists)
 - `$REPO_ROOT/.github/PULL_REQUEST_TEMPLATE.md` — the project's required PR template
 
 - `created-issues.json` — handoff artifact emitted by `/makato-plan:to-issues` (optional)
@@ -114,7 +115,17 @@ Fill each template section as follows:
 
 **Links**: see Step 6 for issue tracker handling. When `created-issues.json` is present and valid, the Links section receives an auto-injected `Closes #N` line per artifact entry (in artifact order), deduped against any user-supplied `GH#N` reference — see Step 6 Case 4.
 
-**How to Test**: one numbered step per acceptance criterion from `stories.json` — make each concrete (name the command, the input, the expected output). If no `stories.json` exists, write steps derived from the commit messages and changed code.
+**How to Test**: one numbered step per acceptance criterion, in this precedence order:
+1. **`stories.json` present** → one step per acceptance criterion from `stories.json`.
+2. **No `stories.json`, but `spec_tier:plan-only`** (D11 enabler) → read `seed-manifest.json`
+   `.spec_tier`; when it is `"plan-only"`, source the steps from `plan.md`
+   `## Acceptance criteria` — one numbered step per non-empty acceptance item. This is the
+   authoritative test source for the lightweight planning lane; do NOT fall through to the
+   commit-message derivation below when a populated `## Acceptance criteria` section exists.
+3. **Neither of the above** → write steps derived from the commit messages and changed code
+   (existing fallback, unchanged).
+
+Make each step concrete (name the command, the input, the expected output).
 
 **Breaking Changes**: check the diff for changes to public APIs, database schemas, or shared contracts. Check `Yes` if any are found and describe the migration path.
 
