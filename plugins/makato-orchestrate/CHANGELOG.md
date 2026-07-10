@@ -7,7 +7,7 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## Plugin-level
 
-- **Fixed** `scripts/loop.sh` dispatch — add `--output-format text` to both `claude --dangerously-skip-permissions -p` invocations so PO-agent output reaches the log file and the liveness watchdog gets mtime updates. Without this flag `claude -p` defaulted to a non-text format that produced no flushed output, causing the watchdog to stall-kill every dispatch after 60 min (#146 regression).
+- **Fixed** `scripts/loop.sh` dispatch — long unattended builds were killed mid-run (#146 regression). Two coupled causes: (1) the dispatch prompt delegates to the po-agent via the Task tool, which in claude >= 2.1.x runs the subagent as a *background* task, and the top-level `-p` session terminated it after the default 600 s `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS` ceiling — killing a full build cycle 10 min in; (2) the plain `--output-format text` format flushes nothing until session end, so the log mtime stayed frozen and the liveness watchdog stall-killed the po-agent after 60 min. Fix: set `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0` (wait indefinitely; watchdog + HALT poll remain the bounding mechanisms) and switch the watched production path to `--output-format stream-json --verbose` for a live per-event mtime signal. The `MAKATO_LOOP_STALL_DISABLE=1` opt-out path keeps `text` (operator watches the terminal) but also gets the ceiling override.
 - **Added** `config/skill-bundles.yml` (#145) — bundles `orchestrate-skills`, `orchestrate-workflow-state`, `orchestrate-shared` route workflow-state JSON/JSONL files and orchestrate bash helpers to the workflow-state/kill-switch/session-status skills.
 
 ---

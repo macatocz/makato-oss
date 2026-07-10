@@ -28,6 +28,7 @@ When dispatched by the PO-agent (`--autonomous` mode), this skill receives a con
 - `<work-item-key>` — positional argument.
 - `WORKTREE_PATH` — absolute filesystem path to the per-run git worktree the PO-agent owns. **Mandatory in autonomous mode** (see `plugins/makato-build/AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract*). The skill MUST `cd "$WORKTREE_PATH"` before any file edit, build, or test command.
 - `--autonomous` — activation flag.
+- `RECOMMENDED_SKILLS` *(optional)* — JSON array of `"plugin:skill-id"` strings. When present at skill entry, apply the **skill consultation prepend** rule: before the BUILD phase of the *first* goal task, invoke each listed skill sequentially and apply any hard constraints or conventions surfaced. This field is also available per-task via the task's `recommended_skills[]` field in `plan.md` — per-task values override the skill-level bundle. Per-task rule: before the BUILD phase of each goal task, check the task's `recommended_skills` field from `plan.md`; if present and non-empty, invoke those skills before BUILD (agent-skill-routing #146). If absent on the task — proceed to BUILD directly.
 
 When invoked by a developer interactively, `WORKTREE_PATH` is optional. If unset, the skill falls back to `git rev-parse --show-toplevel` of the current `$PWD`.
 
