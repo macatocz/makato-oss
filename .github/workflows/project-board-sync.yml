@@ -9,6 +9,7 @@ name: project-board-sync
 #   pull_request.opened            → linked issues → `In review` (or In progress fallback)
 #   pull_request.closed(merged)    → linked issues → `Done`
 #   pull_request.closed(abandoned) → linked issues → `Todo`
+#   issues.opened                  → the issue    → onboard to board at `Todo` + classify plan-tier (#211)
 #   issues.labeled(status:blocked) → the issue    → `Blocked`
 #   issues.assigned                → the issue    → `In progress`
 #
@@ -18,6 +19,12 @@ name: project-board-sync
 # working this" maps cleanly to a board `In progress`. The transition is
 # idempotent and never overrides a human-pinned Status (see the skip-guards in
 # the Apply step).
+#
+# The `issues.opened` transition (#211) is the lightweight-planning-lane entry
+# point: every newly-filed issue is auto-added to the board at `Todo` and
+# stamped with exactly one deterministic `plan-tier:{light|full|change}` label
+# (per D5/D8 — bash/jq classifier, no LLM, no new secret). Promotion to `Ready`
+# is a later gate owned by seed-issue (#212), NOT this workflow.
 #
 # Project IDs are read from `.claude/config.json` (single source of truth —
 # same file consumed by the makato-plan skill locally). Linked issues are
@@ -36,6 +43,7 @@ on:
       - closed
   issues:
     types:
+      - opened
       - labeled
       - assigned
 
@@ -57,6 +65,7 @@ jobs:
     #   - PR opened (any state — target = In review)
     #   - PR closed AND merged (target = Done)
     #   - PR closed AND NOT merged (target = Todo)
+    #   - issue opened (onboard to board at Todo + classify plan-tier — #211)
     #   - issue labeled with exactly `status:blocked` (target = Blocked)
     #   - issue assigned (target = In progress)
     # Everything else (issue labeled with a different label, PR events on non-default
@@ -64,6 +73,7 @@ jobs:
     if: >-
       ${{ (github.event_name == 'pull_request' && (github.event.action == 'opened' ||
            (github.event.action == 'closed' && github.event.pull_request.base.ref == github.event.repository.default_branch))) ||
+          (github.event_name == 'issues' && github.event.action == 'opened') ||
           (github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'status:blocked') ||
           (github.event_name == 'issues' && github.event.action == 'assigned') }}
     runs-on: ubuntu-latest
@@ -77,19 +87,165 @@ jobs:
       PR_NUMBER: ${{ github.event.pull_request.number }}
       PR_MERGED: ${{ github.event.pull_request.merged }}
       ISSUE_NUMBER: ${{ github.event.issue.number }}
+      ISSUE_NODE_ID: ${{ github.event.issue.node_id }}
+      # issues.opened classifier inputs (#211). Surfaced from the event payload
+      # into env so the deterministic bash/jq classifier never touches the
+      # GitHub API for data it was already handed. Only exposed here — the
+      # status-transition path (labeled/assigned/PR) does not read them.
+      ISSUE_TITLE: ${{ github.event.issue.title }}
+      ISSUE_BODY: ${{ github.event.issue.body }}
+      ISSUE_LABELS: ${{ toJSON(github.event.issue.labels.*.name) }}
 
     steps:
-      - name: Checkout (config only)
+      - name: Checkout (config + scripts)
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
-          # We only need .claude/config.json. `sparse-checkout` keeps the
-          # runner slim and avoids pulling the full history on every PR event.
+          # We need .claude/config.json (project IDs) and, for the issues.opened
+          # onboarding path (#211), the deterministic plan-tier classifier under
+          # .github/scripts/. `sparse-checkout` keeps the runner slim.
           sparse-checkout: |
             .claude/config.json
+            .github/scripts
           sparse-checkout-cone-mode: false
+
+      - name: Onboard opened issue + classify plan-tier
+        # issues.opened path (#211) only. This branch is disjoint from the
+        # status-transition logic below: it adds the issue to the board at
+        # Todo (the FIRST item-add in this workflow — everything else does
+        # item-edit on already-present items) and stamps exactly one
+        # deterministic plan-tier:* label. No LLM, no new secret (D5/SC-4).
+        if: ${{ github.event_name == 'issues' && github.event.action == 'opened' }}
+        run: |
+          set -euo pipefail
+
+          CONFIG=.claude/config.json
+          if [ ! -f "$CONFIG" ]; then
+            echo "::warning::$CONFIG not found — cannot onboard issue. Exiting no-op."
+            exit 0
+          fi
+
+          PROJECT_ID=$(jq -r '.github_project.project_node_id // empty' "$CONFIG")
+          STATUS_FIELD_ID=$(jq -r '.github_project.status_field_id // empty' "$CONFIG")
+          OPT_TODO=$(jq -r '.github_project.options.todo // empty' "$CONFIG")
+
+          if [ -z "$PROJECT_ID" ] || [ -z "$STATUS_FIELD_ID" ] || [ -z "$OPT_TODO" ]; then
+            echo "::warning::project_node_id / status_field_id / options.todo missing in $CONFIG — cannot onboard #$ISSUE_NUMBER. Exiting no-op."
+            exit 0
+          fi
+
+          # ---- Classify plan-tier (deterministic bash/jq — D5/D8) ----------
+          # ISSUE_LABELS arrives as a JSON array (toJSON of label names); the
+          # classifier wants newline-separated names. body_full is measured by
+          # the classifier itself for the length signal.
+          LABELS="$(printf '%s' "$ISSUE_LABELS" | jq -r '.[]?' 2>/dev/null || true)"
+          decision="$(TITLE="$ISSUE_TITLE" BODY="$ISSUE_BODY" LABELS="$LABELS" \
+            .github/scripts/classify-plan-tier.sh)"
+          TIER="${decision%% *}"       # light | full | change
+          SOURCE="${decision##* }"     # override | classified
+          echo "→ #$ISSUE_NUMBER plan-tier classification: $TIER (source=$SOURCE)"
+
+          # ---- Stamp plan-tier label (skip on human override — D8 rule 1) --
+          # When source=override an existing plan-tier:* label is authoritative
+          # and we touch nothing. When source=classified the classifier already
+          # guaranteed NO plan-tier:* label was present (rule 1 would have fired
+          # otherwise), so a plain --add-label leaves exactly one.
+          if [ "$SOURCE" = "override" ]; then
+            echo "::notice::#$ISSUE_NUMBER already carries plan-tier:$TIER — human override preserved, no label change."
+          else
+            LABEL="plan-tier:$TIER"
+            # Idempotent create: only create-if-absent (a bare `gh label create`
+            # errors if it exists; --force would rewrite color/description).
+            if ! gh label list --repo "$REPO_OWNER/$REPO_NAME" --search "$LABEL" --json name \
+                 --jq '.[].name' | grep -qxF "$LABEL"; then
+              gh label create "$LABEL" \
+                --repo "$REPO_OWNER/$REPO_NAME" \
+                --color BFD4F2 \
+                --description "Planning lane tier — auto-classified by project-board-sync (#211)" \
+                2>/dev/null || true
+            fi
+            gh issue edit "$ISSUE_NUMBER" --repo "$REPO_OWNER/$REPO_NAME" --add-label "$LABEL"
+            echo "→ #$ISSUE_NUMBER stamped $LABEL"
+          fi
+
+          # ---- Add to board at Todo (add-then-edit — reused from seed-issue Step 7)
+          # GraphQL add-then-edit: addProjectV2ItemById returns the item id even
+          # when the issue is already on the board (idempotent), then we set
+          # Status=Todo. Only promote to Todo from an unset Status — never roll a
+          # human-advanced card backwards (mirrors the forward-only guards below).
+          read -r -d '' ADD_ITEM_MUTATION <<'GQL' || true
+          mutation($project_id:ID!, $content_id:ID!) {
+            addProjectV2ItemById(input: { projectId: $project_id, contentId: $content_id }) {
+              item { id }
+            }
+          }
+          GQL
+
+          ITEM_ID=$(gh api graphql \
+            -f project_id="$PROJECT_ID" \
+            -f content_id="$ISSUE_NODE_ID" \
+            -f query="$ADD_ITEM_MUTATION" \
+            --jq '.data.addProjectV2ItemById.item.id' 2>/dev/null || echo '')
+
+          if [ -z "$ITEM_ID" ] || [ "$ITEM_ID" = "null" ]; then
+            echo "::warning::could not add #$ISSUE_NUMBER to board — skipping Status=Todo write (label stamp already applied)."
+            exit 0
+          fi
+
+          # Read current Status so we don't stomp a card a human/automation has
+          # already advanced (a re-delivered issues.opened, or an issue that was
+          # on the board before the workflow existed).
+          read -r -d '' CURRENT_STATUS_QUERY <<'GQL' || true
+          query($owner:String!,$name:String!,$issue:Int!) {
+            repository(owner:$owner, name:$name) {
+              issue(number:$issue) {
+                projectItems(first: 50) {
+                  nodes {
+                    project { id }
+                    fieldValueByName(name: "Status") {
+                      ... on ProjectV2ItemFieldSingleSelectValue { name }
+                    }
+                  }
+                }
+              }
+            }
+          }
+          GQL
+          CURRENT_NAME=$(gh api graphql \
+            -f owner="$REPO_OWNER" -f name="$REPO_NAME" -F issue="$ISSUE_NUMBER" \
+            -f query="$CURRENT_STATUS_QUERY" \
+            --jq "[.data.repository.issue.projectItems.nodes[] | select(.project.id == \"$PROJECT_ID\")][0].fieldValueByName.name // \"\"" \
+            2>/dev/null || echo '')
+
+          if [ -n "$CURRENT_NAME" ]; then
+            echo "::notice::#$ISSUE_NUMBER already at Status='$CURRENT_NAME' on board — not resetting to Todo."
+            exit 0
+          fi
+
+          read -r -d '' SET_STATUS_MUTATION <<'GQL' || true
+          mutation($project_id:ID!, $item_id:ID!, $field_id:ID!, $opt:String!) {
+            updateProjectV2ItemFieldValue(input: {
+              projectId: $project_id, itemId: $item_id, fieldId: $field_id,
+              value: { singleSelectOptionId: $opt }
+            }) { projectV2Item { id } }
+          }
+          GQL
+          if gh api graphql \
+            -f project_id="$PROJECT_ID" \
+            -f item_id="$ITEM_ID" \
+            -f field_id="$STATUS_FIELD_ID" \
+            -f opt="$OPT_TODO" \
+            -f query="$SET_STATUS_MUTATION" >/dev/null 2>&1; then
+            echo "→ #$ISSUE_NUMBER added to board at Status=Todo"
+          else
+            echo "::warning::could not set Status=Todo on #$ISSUE_NUMBER (item added; label stamped)."
+          fi
 
       - name: Resolve target Status and linked issues
         id: plan
+        # Status-transition path — PR events + issues.labeled/assigned. The
+        # issues.opened onboarding above is a separate branch; skip this step
+        # for it so the two paths never interleave.
+        if: ${{ !(github.event_name == 'issues' && github.event.action == 'opened') }}
         run: |
           set -euo pipefail
 
@@ -342,6 +498,9 @@ jobs:
           exit $exit_code
 
       - name: No-op notice
-        if: steps.plan.outputs.actionable != 'true'
+        # Fires only for the status-transition path when it found nothing to do.
+        # The issues.opened path runs its own onboarding step and never sets
+        # `actionable`, so exclude it here to avoid a misleading no-op log.
+        if: ${{ steps.plan.outputs.actionable != 'true' && !(github.event_name == 'issues' && github.event.action == 'opened') }}
         run: |
           echo "Event ${EVENT_NAME}/${EVENT_ACTION} produced no actionable lifecycle transition — exiting 0."

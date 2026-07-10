@@ -6,7 +6,9 @@ on:
     paths:
       - 'plugins/**'
       - 'scripts/**'
+      - '.github/scripts/**'
       - '.github/workflows/validate.yml'
+      - '.github/workflows/project-board-sync.yml'
       - 'AGENTS.md'
       - 'CLAUDE.md'
       - 'CONTRIBUTING.md'
@@ -15,7 +17,9 @@ on:
     paths:
       - 'plugins/**'
       - 'scripts/**'
+      - '.github/scripts/**'
       - '.github/workflows/validate.yml'
+      - '.github/workflows/project-board-sync.yml'
       - 'AGENTS.md'
       - 'CLAUDE.md'
       - 'CONTRIBUTING.md'
@@ -36,6 +40,9 @@ jobs:
               ./scripts/check-skill-frontmatter.sh "$skill_dir"
             fi
           done
+
+      - name: plan-tier classifier smoke tests (#211)
+        run: ./.github/scripts/classify-plan-tier-smoke-tests.sh
 
   pr-title:
     if: github.event_name == 'pull_request'
