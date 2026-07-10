@@ -6,7 +6,9 @@ on:
     paths:
       - 'plugins/**'
       - 'scripts/**'
+      - '.github/scripts/**'
       - '.github/workflows/validate.yml'
+      - '.github/workflows/project-board-sync.yml'
       - 'AGENTS.md'
       - 'CLAUDE.md'
       - 'CONTRIBUTING.md'
@@ -15,7 +17,9 @@ on:
     paths:
       - 'plugins/**'
       - 'scripts/**'
+      - '.github/scripts/**'
       - '.github/workflows/validate.yml'
+      - '.github/workflows/project-board-sync.yml'
       - 'AGENTS.md'
       - 'CLAUDE.md'
       - 'CONTRIBUTING.md'
@@ -36,6 +40,15 @@ jobs:
               ./scripts/check-skill-frontmatter.sh "$skill_dir"
             fi
           done
+
+      - name: plan-tier classifier smoke tests (#211)
+        run: ./.github/scripts/classify-plan-tier-smoke-tests.sh
+
+      - name: plan-body promotion guard smoke tests (#212)
+        run: ./plugins/makato-orchestrate/scripts/validate-plan-body-smoke-tests.sh
+
+      - name: seed-issue lightweight-lane smoke tests (#212)
+        run: ./plugins/makato-orchestrate/skills/seed-issue/references/lightweight-lane-smoke-tests.sh
 
   pr-title:
     if: github.event_name == 'pull_request'

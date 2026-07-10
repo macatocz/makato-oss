@@ -7,7 +7,7 @@ description: >-
   asserted by the PO-agent from workflow-state. Use as the single source
   of truth that answers "is this task done?" — referenced from coder VERIFY,
   build-verify gate mapping, and PO-agent task-completion logic.
-version: "1.0.0"
+version: "2.0.0"
 ---
 
 # Definition of Done
@@ -23,7 +23,7 @@ each time. This skill is the **single source of truth** those consumers referenc
 
 The list is split into two tiers:
 
-- **Automated tier (12 items)** — each item is enforced by a named skill or agent in the
+- **Automated tier (13 items)** — each item is enforced by a named skill or agent in the
   pipeline. The verification-agent described in the AgenticSystem PRD is a future
   consolidation; today `build-verify` + `build-sensors` + `build-push-to-git` + the
   `coder` agent collectively cover the tier.
@@ -36,7 +36,7 @@ When a build session is autonomous, the PO-agent treats the union of both tiers 
 authoritative checklist: only when every item is satisfied is the task marked
 `status: success` in workflow-state and the issue eligible for `Done` on the board.
 
-## Automated Tier (12 items)
+## Automated Tier (13 items)
 
 Each item lists the consumer skill/agent that enforces it. An item is "satisfied" when
 its enforcer reports success in its R1 envelope (`status: "success"`) or the equivalent
@@ -102,6 +102,17 @@ gate log entry in `specs/<key>-<slug>/build.jsonl`.
     `makato-plan:issue-to-project sync-lifecycle`.
     _Enforced by:_ `skills/build-create-pr/SKILL.md` description draft (interactive
     review catches omission before PR is opened).
+
+13. **Skill-provenance recorded and complete.** A `skill-passport.json` for the run
+    exists (or a "skill usage tracking skipped" note was emitted when no passport is
+    available), and every skill in `skills_expected` (resolved from the final git diff
+    via `skill-bundles.yml`) is present in `skills_invoked_transitively` (computed by
+    `compute_rollup` in `skill_passport.py`). When a skill is missing, one advisory
+    warning per skill is emitted to `build.jsonl`; **the gate is advisory only and
+    never fails the build** (NFR-R2). A detected concurrent-write race emits a warning
+    and skips the diff — no passport corruption.
+    _Enforced by:_ `skills/build-verify/SKILL.md` Step 9 (skill-provenance advisory
+    gate).
 
 ## Manual Tier (6 items)
 
@@ -169,7 +180,7 @@ and requires a coordinated update.
 ## Versioning
 
 The Automated and Manual tiers each have a **fixed item count** that is part of this
-skill's contract: 12 automated, 6 manual. Adding, removing, renumbering, or merging
+skill's contract: 13 automated, 6 manual. Adding, removing, renumbering, or merging
 items is a **breaking contract change** for every consumer in § Cross-references and
 **must** bump this skill's `version` major (e.g. `1.0.0` → `2.0.0`) plus a coordinated
 update to each consumer in the same PR.

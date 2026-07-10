@@ -5,7 +5,39 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
-## First-plugin skill bundle + real inject-skills resolver (#144)
+## Lightweight planning lane — `spec_tier:plan-only` gate (#210)
+
+Foundation slice of the Lightweight Planning Lane epic. Small features can enter
+the autonomous pipeline with a hand-authored `plan.md` instead of the full
+`stories.json` + `prd.md` + `design.md` set.
+
+- **`build-refine` → 1.8.0** — Step 3 NEW-READs `seed-manifest.json` (build-refine
+  read no manifest before) and parses the optional `spec_tier` field. When
+  `spec_tier == "plan-only"`, the work item enters the **same** lightweight branch
+  as the legacy `local-` KEY prefix (numeric-slug KEYs like `123-add-feature`
+  never match `local-*`, which is why the manifest read is required). The
+  plan-only path **bypasses the `design.md`-missing stop guard** and sources
+  acceptance criteria from `plan.md` `## Acceptance criteria` — **not** the
+  synthetic AC-1 the legacy local path emits. A missing entirely `plan.md` HALTs
+  `MISSING_PLAN`; an absent-or-empty `## Acceptance criteria` section (placeholder
+  / whitespace treated identically to missing) HALTs the new `MISSING_ACCEPTANCE`
+  code. An absent/unparseable manifest or absent field is "no tier" — never a
+  HALT, legacy behavior byte-for-byte.
+- **`build-create-pr` → 1.8.0** — How-to-Test gains a plan-only branch (D11
+  enabler): with no `stories.json` but `spec_tier:plan-only`, test steps are
+  sourced from `plan.md` `## Acceptance criteria` instead of falling through to
+  the commit-message derivation.
+- **`halt-codes.md`** — registers `MISSING_ACCEPTANCE` (build-refine Step 4,
+  route `refine`) and extends `MISSING_PLAN` to build-refine's plan-only path.
+- **`references/spec-artifacts-schema.md`** — documents the optional
+  `seed-manifest.json` `spec_tier` field and the `plan.md` `## Acceptance
+  criteria` plan-only source.
+- **`shared/plan-only-tier-smoke-tests.sh`** (new) — 11 prose-level assertions
+  covering the manifest read, shared lightweight branch, design.md-guard bypass,
+  plan.md AC sourcing, `MISSING_ACCEPTANCE` on absent/empty, the create-pr D11
+  branch, and legacy/ticket-path regression guards.
+
+---
 
 F1 of agent-skill-routing. Replaces the `inject-skills` S1 stub with a real
 resolver and wires it into `knowledge-scout` Step 0.

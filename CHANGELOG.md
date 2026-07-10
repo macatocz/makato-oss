@@ -1,5 +1,45 @@
 # Changelog
 
+## [0.39.0](https://github.com/macatocz/makato/compare/v0.38.0...v0.39.0) (2026-07-10)
+
+
+### ✨ Features
+
+* issues.opened auto-onboarding + deterministic plan-tier classifier ([#211](https://github.com/macatocz/makato/issues/211)) ([98b6bff](https://github.com/macatocz/makato/commit/98b6bff26657f4e6a2be0759ed7519e8d96c6f13))
+* issues.opened auto-onboarding + deterministic plan-tier classifier ([#211](https://github.com/macatocz/makato/issues/211)) ([1321724](https://github.com/macatocz/makato/commit/1321724e9003b8ee7dae2ff1015cad39b737b96f))
+* lightweight planning lane — light-planner + plan-gated promotion ([#212](https://github.com/macatocz/makato/issues/212)) ([ec02484](https://github.com/macatocz/makato/commit/ec024846a8030c92ba8ea8e78bf2322333a4b042))
+* **makato-build:** build-verify skill-provenance advisory gate (never fails build) ([#147](https://github.com/macatocz/makato/issues/147)) ([090a66c](https://github.com/macatocz/makato/commit/090a66c83052c0837cdcb6fa974380b4826a4c83))
+* **makato-build:** DoD skill-provenance item + passport concurrent-write audit ([#147](https://github.com/macatocz/makato/issues/147)) ([ca8a750](https://github.com/macatocz/makato/commit/ca8a7508f314226a08afa629f4de89b3c0d56695))
+* **makato-build:** skill passport + build-verify advisory gate + concurrent-write guard ([#147](https://github.com/macatocz/makato/issues/147)) ([25ccece](https://github.com/macatocz/makato/commit/25ccecef5218e0c26848447e89bf4fb6e2579319))
+* **makato-build:** skill passport + build-verify advisory gate + concurrent-write guard ([#147](https://github.com/macatocz/makato/issues/147)) ([25ccece](https://github.com/macatocz/makato/commit/25ccecef5218e0c26848447e89bf4fb6e2579319))
+* **makato-build:** skill_passport hierarchical writer + transitive rollup + concurrent-write guard ([#147](https://github.com/macatocz/makato/issues/147)) ([c4ca1a7](https://github.com/macatocz/makato/commit/c4ca1a767ce079a5f2772f9e6ecd9455fe972378))
+* **makato-orchestrate:** light-planner agent + plan-gated seed-issue promotion ([#212](https://github.com/macatocz/makato/issues/212)) ([9fd92fb](https://github.com/macatocz/makato/commit/9fd92fb4d26a61beb237510972c16f0b85b681f3))
+* **makato-orchestrate:** light-planner agent + plan-gated seed-issue promotion ([#212](https://github.com/macatocz/makato/issues/212)) ([d4b7f07](https://github.com/macatocz/makato/commit/d4b7f073d9b5a898d24cd9896c01235ef2a8f5ad))
+
+## [Unreleased]
+
+### ✨ Features
+
+* **makato-build:** agent skill routing F3 — skill-passport writer + advisory provenance gate ([#147](https://github.com/macatocz/makato/issues/147)): skill-routed agents write `skill-passport.json` nodes (gated by `should_emit_f4_log`); `build-verify` Step 9 compares `skills_invoked_transitively` (via `compute_rollup`) against `skills_expected` (resolved from git diff via `skill-bundles.yml`) and emits advisory warnings per missing skill — gate never fails the build (NFR-R2); `definition-of-done` v2.0.0 adds item 13 (skill-provenance recorded and complete).
+
+## [0.38.0](https://github.com/macatocz/makato/compare/v0.37.0...v0.38.0) (2026-07-10)
+
+
+### ✨ Features
+
+* **makato-build:** spec_tier:plan-only gate in build-refine ([#210](https://github.com/macatocz/makato/issues/210)) ([cad24ed](https://github.com/macatocz/makato/commit/cad24ed527c1c528a06d93bb2a319cb3adbffef1))
+* **makato-build:** spec_tier:plan-only gate in build-refine ([#210](https://github.com/macatocz/makato/issues/210)) ([d5336f6](https://github.com/macatocz/makato/commit/d5336f6ca2ba16b69192fb0fd94cd5fd6d01d2dd))
+* **makato-plan:** bootstrap task-skill-map.json with 200+ archetype→skills entries ([#146](https://github.com/macatocz/makato/issues/146)) ([5307218](https://github.com/macatocz/makato/commit/53072189e74619fd8b570eedfbabee771140e872))
+* **makato:** agent skill routing F2 — skill propagation chain ([#146](https://github.com/macatocz/makato/issues/146)) ([3fd1958](https://github.com/macatocz/makato/commit/3fd1958aa77396deb815b947150735d7a35833b0))
+* **makato:** agent skill routing F2 — skill propagation chain ([#146](https://github.com/macatocz/makato/issues/146)) ([3fd1958](https://github.com/macatocz/makato/commit/3fd1958aa77396deb815b947150735d7a35833b0))
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** add --output-format text to loop.sh dispatch ([8cba7b0](https://github.com/macatocz/makato/commit/8cba7b0f03f63724892c67351ae9ece3a8e83785))
+* **makato-orchestrate:** add --output-format text to loop.sh dispatch ([62d9bfa](https://github.com/macatocz/makato/commit/62d9bfa3ee57f4ebac7ee585796abed8fd3d2acd))
+* **makato-orchestrate:** keep background po-agent alive past 600s ceiling ([#209](https://github.com/macatocz/makato/issues/209)) ([5143464](https://github.com/macatocz/makato/commit/51434643188611af1473a606e5105f48064f5ed9))
+
 ## [0.37.0](https://github.com/macatocz/makato/compare/v0.36.1...v0.37.0) (2026-07-09)
 
 

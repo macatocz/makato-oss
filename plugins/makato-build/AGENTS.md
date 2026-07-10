@@ -16,6 +16,17 @@ Stories entering this plugin are **planned but not refined**:
 - They include architectural context and design decisions
 - They do NOT yet have implementation plans, file targets, or testing approaches
 
+**Lightweight planning lane (`spec_tier:plan-only`).** Small features may enter with a
+single `plan.md` instead of the full `stories.json` + `prd.md` + `design.md` set.
+`build-refine` Step 3 NEW-READs `seed-manifest.json`; when `spec_tier == "plan-only"` it
+takes the same lightweight branch as the legacy `local-` prefix, bypasses the
+`design.md`-missing guard, and sources acceptance criteria from `plan.md`
+`## Acceptance criteria` (not a synthetic AC-1). A missing or empty section HALTs with
+`MISSING_ACCEPTANCE`. `build-create-pr` mirrors this: with no `stories.json` but
+`spec_tier:plan-only`, How-to-Test is sourced from `plan.md` `## Acceptance criteria`
+(D11). An absent `spec_tier` field preserves legacy behavior byte-for-byte. Contract
+covered by `shared/plan-only-tier-smoke-tests.sh`.
+
 The /refine step bridges that gap — producing a plan small enough to execute autonomously in one session.
 
 ## What Belongs Here
@@ -122,6 +133,62 @@ makato-build/
 - Skill versions: bumped in SKILL.md frontmatter per feature PR
 - Agent versions: bumped in agent frontmatter per feature PR
 - CHANGELOG.md: updated with each PR
+
+## Skill Routing — recommended_skills[] propagation chain (agent-skill-routing #146)
+
+`build-refine`, `build-implement-tdd`, `build-implement-goal`, `sensor-fixer`, and `coder`
+implement the downstream half of the agent-skill-routing propagation chain:
+
+### build-refine pass-through
+
+When reading a `stories.json` produced by `decompose` v1.2.0+, `build-refine` checks each
+sub-task for a `recommended_skills` field. If present and non-empty, it copies the value
+verbatim into the corresponding plan task as `recommended_skills`. The field is then
+available to `build-implement-tdd` and `build-implement-goal` when they dispatch the coder.
+**Omit when absent** — do NOT write an empty array.
+
+### build-implement-tdd / build-implement-goal coder dispatch
+
+Both implementation skills check the task's `recommended_skills` field from `plan.md` before
+each coder dispatch. If present and non-empty, `RECOMMENDED_SKILLS` is included in the coder
+dispatch bundle. If absent — the field is omitted entirely from the bundle.
+
+### coder skill consultation prepend (§ *Skill consultation prepend*)
+
+When `RECOMMENDED_SKILLS` is present and non-empty in the coder dispatch bundle:
+
+1. Invoke each listed skill **sequentially** before Phase 1 RED (TDD) or Phase BUILD (goal).
+2. Treat each skill's output as advisory context — weight equivalent to `SCOUT_SUMMARY`.
+3. A recommended skill never overrides `PLAN_CONTEXT.Hard Constraints`.
+4. If a skill path does not exist: log a warning and skip — do NOT HALT.
+
+When `RECOMMENDED_SKILLS` is absent or empty: skip this section and proceed directly.
+
+### sensor-fixer pass-through
+
+`sensor-fixer` also accepts `RECOMMENDED_SKILLS` from its dispatch bundle and forwards it
+to each `build-resolve-finding` call so repair skills can benefit from the same domain context.
+
+### Skill-passport writer + advisory gate (agent-skill-routing F3 / #147)
+
+Skill-routed agents write a **passport node** to `specs/<key>-*/skill-passport.json` when they
+complete a skill invocation, gated by `should_emit_f4_log` in
+`plugins/makato-build/shared/skill_passport.py`. Each passport node records the skill ID,
+invocation timestamp, and parent agent, forming a tree that `compute_rollup` flattens into
+the set `skills_invoked_transitively`.
+
+After all quality gates pass, `build-verify` Step 9 reads the passport and compares
+`skills_invoked_transitively` against `skills_expected` (resolved from the final git diff via
+`skill-bundles.yml` / `inject-skills`). When a required skill was not invoked, Step 9 emits
+one advisory warning per missing skill to `build.jsonl`. **The gate is advisory only — it
+never fails the build (NFR-R2).**
+
+Absent passport (session predates F3 or agent opted out of F4 telemetry) → "skill usage
+tracking skipped" note to `build.jsonl`, build proceeds.
+
+Detected concurrent-write race (malformed JSON, missing `schema_version`, or last-modified
+collision) → warning to `build.jsonl`, diff skipped — no passport corruption (v1
+single-session fallback).
 
 ## PR Checklist
 

@@ -13,6 +13,48 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## seed-issue — 1.2.0 · light-planner agent + plan-gated promotion (#212)
+
+- **Added** `agents/light-planner.md` (net-new, sonnet) — the lightweight planning
+  lane's plan producer. Given a `plan-tier:light` issue body + bounded target-repo
+  context, it generates a full `plan.md` (non-empty `## Tasks` + `## Acceptance
+  criteria`, not the HALT-006 stub) that `build-refine`'s plan-only path (#210)
+  consumes as its sole acceptance source. Runs locally under the operator's Claude
+  at seed time (D3 — free, reviewable in git before dispatch). Carries a
+  minimum-viable-body guard: a too-thin body yields NO plan.md and a
+  `data.thin_body:true` R1 so seed-issue re-tiers to full.
+- **Added** `scripts/validate-plan-body.sh` + `scripts/validate-plan-body-smoke-tests.sh`
+  (13 asserts) — deterministic promotion guard. Emits `valid ok` only when both
+  `## Tasks` and `## Acceptance criteria` carry non-placeholder content; the seed
+  stub, empty sections, HTML comments, template tokens, and the `_To be filled in…_`
+  placeholder all return `invalid`. This is the machine-checkable half of the lane —
+  it, not the agent's R1, is the source of truth for "promotable".
+- **`seed-issue` → 1.2.0** — restructured board promotion for the lightweight lane.
+  New **Step 2.5** detects the `plan-tier:*` label; new **Step 8.5** dispatches
+  light-planner, validates the written plan with `validate-plan-body.sh`, and only
+  then (guard `valid`) writes `spec_tier:plan-only` into `seed-manifest.json` and
+  promotes the card to `Ready`. **Step 7 promotion is now deferred** for
+  `plan-tier:light` new-work (it previously promoted ALL new-work unconditionally
+  before any plan existed — the window that let the po-agent dispatch a stub and fire
+  HALT-006). Thin-body / hollow-plan fallback: no plan.md, no `spec_tier`, card stays
+  at `Todo`, issue re-tiered to `plan-tier:full`, `status:ready-for-dev` removed,
+  clear message, exit 0. Partial-write recovery (plan valid but board move failed) is
+  a safe `seed-issue` re-run. The standard path (`plan-tier:full|change|none`) is
+  unchanged byte-for-byte. Soft dep on #211: absent `plan-tier:light` label → standard
+  path; operators may apply the label by hand before #211 ships.
+
+
+
+- **`seed-issue` → 1.1.0** — `seed-manifest.json` `schema_version` bumped `"1" → "2"`.
+  v2 adds the single **optional** `spec_tier` field (`"plan-only"` marks the lightweight
+  planning lane; consumed by `build-refine` to source acceptance criteria from `plan.md`).
+  The change is fully backwards-compatible: a v1 manifest and a v2 manifest with `spec_tier`
+  absent are treated identically by every consumer. The default `new-work` path leaves the
+  field unset; only the `plan-tier:light` path (light-planner integration, tracked
+  separately) writes it. Documented the full manifest schema table in `SKILL.md` Step 8.
+
+---
+
 
 ## makato-change autonomous path integration (#144)
 
