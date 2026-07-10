@@ -34,7 +34,7 @@ Apply the workspace-isolation entry guard from `@../../AUTONOMOUS-MODE.md` § *W
 
 ### Definition-of-Done — Automated Tier Mapping
 
-The gates below collectively enforce the **Automated tier (12 items)** of
+The gates below collectively enforce the **Automated tier (13 items)** of
 `plugins/makato-build/skills/definition-of-done/SKILL.md`. Each row maps a DoD item to
 the gate that enforces it and the HALT code that fires when the item is unmet in
 autonomous mode and the failure is structural.
@@ -53,6 +53,7 @@ autonomous mode and the failure is structural.
 | 10 | `build.jsonl` entry per skill step | every skill via `shared/build-log.sh` | contract — caller treats omission as agent failure |
 | 11 | R1 JSON block as last fenced ` ```json ` in agent return | `plugins/makato-build/agents/RETURN-CONTRACT.md` | caller treats missing/invalid R1 as `status: "failure"` |
 | 12 | PR description contains `Closes #N` | `build-create-pr` description draft | interactive review catches omission before PR is opened |
+| 13 | Skill-provenance recorded and complete | Step 9 (skill-provenance advisory gate) in this skill | advisory only — never fails the build (NFR-R2) |
 
 A failure to satisfy any item in this table **MUST** trigger the corresponding HALT code
 at the gate that enforces it; the autonomous loop does not proceed past an unmet item.
@@ -222,11 +223,75 @@ Log:
 
 ---
 
-### Step 9 — Present gate results and hand off
+### Step 9 — Skill-provenance advisory gate
 
-Every Automated-tier DoD item (1–12) above must be satisfied before this step prints
-PASS. Items 1–5 are this skill's direct responsibility (Gates 0–5); items 6–9 and 12
-will be enforced by `build-push-to-git` and `build-create-pr` further down the pipeline;
+After all quality gates pass (Gates 0–5), compute the skill-provenance diff for the run.
+This gate is **advisory only** — it never fails the build (NFR-R2).
+
+#### 9a — Compute `skills_expected`
+
+Resolve the final git diff using `skill-bundles.yml` / `inject-skills`:
+
+```bash
+# collect changed files on the branch
+git diff --name-only origin/main...HEAD > /tmp/changed_files.txt
+# resolve expected skills via inject-skills
+python3 plugins/makato-build/shared/inject_skills.py --files /tmp/changed_files.txt
+```
+
+The result is `skills_expected`: the ordered, deduplicated list of skills the changed
+files should have triggered.
+
+#### 9b — Read the skill passport and compute `skills_invoked_transitively`
+
+Read `specs/<key>-*/skill-passport.json` for the current run. Call `compute_rollup` from
+`plugins/makato-build/shared/skill_passport.py` to compute `skills_invoked_transitively`
+— the flat union of all skill nodes in the passport tree.
+
+**When no passport exists** (the session predates F3, or the agent opted out of F4
+telemetry): emit a "skill usage tracking skipped" note to `build.jsonl` and proceed:
+
+```
+{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"skill-provenance","status":"warn","data":{"reason":"no passport found","action":"skipped"}}
+```
+
+**When a concurrent-write race is detected** (the passport file exists but its
+`schema_version` field is absent, the JSON is malformed, or it was last-modified within
+the same second as another write): skip the diff and emit a warning to `build.jsonl`
+rather than risk reading a partially-written file — no passport corruption (v1
+single-session fallback):
+
+```
+{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"skill-provenance","status":"warn","data":{"reason":"concurrent-write race detected","action":"skipped"}}
+```
+
+#### 9c — Diff expected vs invoked; emit advisory warnings
+
+For each skill in `skills_expected` that is **not** present in
+`skills_invoked_transitively`, emit one advisory warning line to `build.jsonl`:
+
+```
+{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"skill-provenance","status":"warn","data":{"advisory":"skill not invoked","skill":"<skill-id>","expected_from":"<bundle-or-glob>"}}
+```
+
+When all expected skills are covered (or no skills are expected): emit a single `"ok"`
+entry:
+
+```
+{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"skill-provenance","status":"ok","data":{"skills_expected":<N>,"skills_invoked_transitively":<M>}}
+```
+
+**This gate never fails the build.** Advisory warnings are surfaced in the gate summary
+table (Step 10) but do not block the pipeline.
+
+---
+
+### Step 10 — Present gate results and hand off
+
+Every Automated-tier DoD item (1–13) above must be satisfied before this step prints
+PASS. Items 1–5 are this skill's direct responsibility (Gates 0–5); item 13
+(skill-provenance) is advisory and is reported but never blocks; items 6–9 and 12 will
+be enforced by `build-push-to-git` and `build-create-pr` further down the pipeline;
 items 10 and 11 are session-wide contracts already in effect. If any item is unmet and
 not fixable in-session, escalate to the appropriate HALT code per the table at the top
 of this workflow.
@@ -234,11 +299,12 @@ of this workflow.
 Present the gate summary table:
 
 ```
-Gate 1  BUILD        ✓ PASS   0 errors, N warnings
-Gate 2  LINT         ✓ PASS   0 errors
-Gate 3  UNIT         ✓ PASS   N passed, 0 failed
-Gate 4  INTEGRATION  ✓ PASS   N passed, 0 failed
-Gate 5  COVERAGE     ✓ PASS   N% conditional (threshold: N%)
+Gate 1  BUILD             ✓ PASS   0 errors, N warnings
+Gate 2  LINT              ✓ PASS   0 errors
+Gate 3  UNIT              ✓ PASS   N passed, 0 failed
+Gate 4  INTEGRATION       ✓ PASS   N passed, 0 failed
+Gate 5  COVERAGE          ✓ PASS   N% conditional (threshold: N%)
+Advisory  SKILL-PROVENANCE  ⚠ WARN   N skills expected, M invoked (advisory only, never blocks)
 ```
 
 Run:

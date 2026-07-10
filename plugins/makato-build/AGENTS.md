@@ -169,6 +169,27 @@ When `RECOMMENDED_SKILLS` is absent or empty: skip this section and proceed dire
 `sensor-fixer` also accepts `RECOMMENDED_SKILLS` from its dispatch bundle and forwards it
 to each `build-resolve-finding` call so repair skills can benefit from the same domain context.
 
+### Skill-passport writer + advisory gate (agent-skill-routing F3 / #147)
+
+Skill-routed agents write a **passport node** to `specs/<key>-*/skill-passport.json` when they
+complete a skill invocation, gated by `should_emit_f4_log` in
+`plugins/makato-build/shared/skill_passport.py`. Each passport node records the skill ID,
+invocation timestamp, and parent agent, forming a tree that `compute_rollup` flattens into
+the set `skills_invoked_transitively`.
+
+After all quality gates pass, `build-verify` Step 9 reads the passport and compares
+`skills_invoked_transitively` against `skills_expected` (resolved from the final git diff via
+`skill-bundles.yml` / `inject-skills`). When a required skill was not invoked, Step 9 emits
+one advisory warning per missing skill to `build.jsonl`. **The gate is advisory only — it
+never fails the build (NFR-R2).**
+
+Absent passport (session predates F3 or agent opted out of F4 telemetry) → "skill usage
+tracking skipped" note to `build.jsonl`, build proceeds.
+
+Detected concurrent-write race (malformed JSON, missing `schema_version`, or last-modified
+collision) → warning to `build.jsonl`, diff skipped — no passport corruption (v1
+single-session fallback).
+
 ## PR Checklist
 
 - [ ] Serves the plugin goal: transforms planned stories into merged code
