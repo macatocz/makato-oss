@@ -127,6 +127,24 @@ makato-plan/
 - Agent versions: bumped in agent frontmatter per feature PR
 - CHANGELOG.md: updated with each PR
 
+## Skill Routing — recommended_skills[] emission (agent-skill-routing #146)
+
+`decompose` emits an optional `recommended_skills[]` array per sub-task in `stories.json`
+when the sub-task title or description matches an archetype key in
+`plugins/makato-plan/config/task-skill-map.json` (Step 7.11 of the decompose SKILL.md).
+
+**Contract rules:**
+
+- Match is case-insensitive substring against archetype keys.
+- If matched: the sub-task carries `"recommended_skills": ["plugin:skill-id", ...]`.
+- If no match: the field is **omitted entirely** — callers check `if "recommended_skills" in sub_task` (presence, not truthiness); an empty array is never written.
+- **Backward-compatible**: when `task-skill-map.json` is absent or unreadable, decompose silently skips the lookup and produces `stories.json` without `recommended_skills` on any sub-task.
+- Downstream consumers (`build-refine` → `build-implement-tdd` / `build-implement-goal` → `coder`) treat `recommended_skills` as an optional pass-through field. They never HALT on its absence.
+
+`plugins/makato-plan/config/task-skill-map.json` is the authoritative source. It contains
+≥ 200 archetype entries covering all 11 plugin domains, maintained manually; auto-generation
+from F1 aggregate data is out of scope (see #146).
+
 ## PR Checklist
 
 - [ ] Serves the plugin goal: shapes features into functionally-clear stories

@@ -44,6 +44,7 @@ Your dispatch prompt provides:
 | `FINDINGS` | `list[Finding]` | yes | Parsed sensor findings from `parse-sarif.py`. Each finding has at minimum `{rule_id, file, line, message, fingerprint}`. |
 | `SPEC_KEY` | string | no | Spec key under `specs/`. Defaults to `sensor-harness-v1`. |
 | `MAX_LOOPS` | integer | no | Hard cap on Phase 1 outer iterations. Defaults to `5`. |
+| `RECOMMENDED_SKILLS` | `list[string]` | no | Array of `"plugin:skill-id"` strings forwarded from the parent task's `recommended_skills[]` field (agent-skill-routing #146). When present and non-empty, invoke each skill before Phase 0 to surface domain conventions relevant to the finding set. Forward to each `build-resolve-finding` dispatch as an additional input field so repair skills can benefit from the same context. Omit when absent — do NOT forward an empty array. |
 
 Missing `REPO_ROOT` or `FINDINGS` → R1 `failure` with `errors: ["missing input: <field>"]`.
 

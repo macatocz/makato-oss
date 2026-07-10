@@ -7,6 +7,8 @@ Changes are grouped by skill/agent/component. Within each group, latest version 
 
 ## Plugin-level
 
+- **Added** `config/task-skill-map.json` (#146) — 259-entry archetype-to-skills map covering all 11 plugin domains; used by `decompose` Step 7.11 to emit optional `recommended_skills[]` per sub-task.
+
 - **Fixed** dangling `/publish` references (#203) — 9 occurrences across `create-prd`, `create-architecture`, `create-prototype`, `create-acceptance-tests`, and `decompose` now correctly point to `/to-issues`, the skill that creates GitHub Issues from shaped stories.
 
 
@@ -131,6 +133,8 @@ Changes are grouped by skill/agent/component. Within each group, latest version 
 
 ## `decompose` skill
 
+- **1.2.0**
+  - Step 7.11 — `recommended_skills[]` emission: after generating each sub-task, loads `plugins/makato-plan/config/task-skill-map.json` and does a case-insensitive substring match on archetype keys; if matched, adds `recommended_skills: [...]` to the sub-task object. If no match, omits the field (no empty array). Backward-compatible: when `task-skill-map.json` is absent, proceeds silently with no `recommended_skills` on any sub-task (#146).
 - **1.1.1**
   - cross-platform browser-open commands: list `open` (macOS), `xdg-open` (Linux), and `start` (Windows) for review-HTML launch instead of macOS-only `open` (closes #25)
 - **1.1.0**
