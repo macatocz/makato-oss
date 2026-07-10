@@ -26,22 +26,6 @@ disallowedTools: NotebookEdit
 > or, when the issue body is too thin to plan honestly, refuse to write a plan
 > and say so, so the issue falls back to the full planning cycle.
 
-## Why this agent exists
-
-The lightweight planning lane (#210, #211) lets a small feature enter the
-autonomous pipeline with `plan.md` as the *only* spec artifact — no
-`stories.json`, `prd.md`, or `design.md`. `build-refine` already knows how to
-source acceptance criteria from a plan-only `plan.md` (#210), and the CI
-classifier already labels small issues `plan-tier:light` (#211). What was
-missing is the component that *produces* that `plan.md`: seed-issue's Step 8
-only writes the HALT-006 stub. This agent is that producer.
-
-It runs **locally** at seed time, under the operator's own Claude session —
-not in GitHub Actions. That is deliberate (D3): the LLM cost is free to the
-operator, and the generated plan lands in git where a human can read and edit
-it *before* dispatch. The deterministic classifier stays in CI (no secret, no
-egress); the generative step stays local.
-
 ## The contract this agent must honour
 
 `build-refine`'s plan-only path (see
