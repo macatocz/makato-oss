@@ -5,6 +5,33 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## Skill routing propagation chain — F2 (#146)
+
+F2 of agent-skill-routing. Wires the `recommended_skills[]` field emitted by
+`decompose` (makato-plan #146) through `build-refine` → `build-implement-tdd` /
+`build-implement-goal` → `coder` and `sensor-fixer`.
+
+- **`skills/build-refine/SKILL.md`** — **RECOMMENDED_SKILLS pass-through rule**: when
+  building a plan from a `stories.json` produced by `decompose` v1.2.0+, copies
+  `recommended_skills` from each sub-task verbatim into the plan task. Omits the field
+  when absent — never writes an empty array.
+- **`skills/build-implement-tdd/SKILL.md`** — coder dispatch now includes
+  `RECOMMENDED_SKILLS` when the task's `plan.md` entry carries a `recommended_skills`
+  field. Per-task check: before each coder dispatch, if `recommended_skills` is present
+  and non-empty, include it in the bundle. Omit when absent.
+- **`skills/build-implement-goal/SKILL.md`** — same per-task `RECOMMENDED_SKILLS`
+  pass-through as `build-implement-tdd`. Also supports a skill-level override when the
+  skill dispatch bundle carries `RECOMMENDED_SKILLS` directly (applied before the first
+  goal task's BUILD phase).
+- **`agents/coder.md`** — new optional `RECOMMENDED_SKILLS` input field; new
+  § *Skill consultation prepend*: when non-empty, invoke each listed skill sequentially
+  before Phase 1 RED (TDD) / BUILD (goal). Output is advisory — weight equivalent to
+  `SCOUT_SUMMARY`. Missing skill paths log a warning and are skipped, never HALT.
+- **`agents/sensor-fixer.md`** — new optional `RECOMMENDED_SKILLS` input; forwarded to
+  each `build-resolve-finding` dispatch so repair skills receive the same domain context.
+
+---
+
 ## First-plugin skill bundle + real inject-skills resolver (#144)
 
 F1 of agent-skill-routing. Replaces the `inject-skills` S1 stub with a real

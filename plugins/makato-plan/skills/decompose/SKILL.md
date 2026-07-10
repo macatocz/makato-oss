@@ -4,7 +4,7 @@ description: >-
   Decompose shaped features into vertically-sliced stories with acceptance
   criteria — decompose, vertical slice, story slicing, break down feature,
   split into stories. Use after PRD and architecture are approved.
-version: "1.1.1"
+version: "1.2.0"
 model: opus
 argument-hint: "[slug]"
 ---
@@ -350,6 +350,35 @@ Tell the user:
 9. Map teams from repository research + user confirmation
 10. Omit operational fields (assignee, sprint, status) —
     those belong to sprint planning, not shaping
+11. **Emit `recommended_skills[]` per sub-task** (backward-compatible — see below)
+
+#### Step 7.11 — recommended_skills[] emission (agent-skill-routing #146)
+
+After writing all sub-tasks for a story, enrich each sub-task with skill recommendations
+from `plugins/makato-plan/config/task-skill-map.json`:
+
+```
+task_skill_map = load("plugins/makato-plan/config/task-skill-map.json")
+
+for each sub_task in story.sub_tasks:
+    matched_skills = []
+    for archetype, skills in task_skill_map.items():
+        if archetype starts with "_":        # skip comment keys
+            continue
+        if archetype.lower() is a case-insensitive substring of
+           (sub_task.title + " " + sub_task.description).lower():
+            matched_skills.extend(skills)
+    deduplicate matched_skills (preserve first-occurrence order)
+    if matched_skills is non-empty:
+        sub_task["recommended_skills"] = deduplicated list
+    # if no match: omit the field entirely — do NOT add an empty array.
+    # Callers check `if "recommended_skills" in sub_task` (presence check, not truthiness).
+```
+
+**Backward-compatibility guarantee**: when `task-skill-map.json` is absent or cannot be
+read, skip the lookup silently — produce `stories.json` without `recommended_skills` fields
+and do NOT raise an error. Downstream consumers (`build-refine`, `coder`) treat
+`recommended_skills` as optional.
 
 Load @references/stories-json-schema.md during this step.
 

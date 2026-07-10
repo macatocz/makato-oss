@@ -123,6 +123,41 @@ makato-build/
 - Agent versions: bumped in agent frontmatter per feature PR
 - CHANGELOG.md: updated with each PR
 
+## Skill Routing — recommended_skills[] propagation chain (agent-skill-routing #146)
+
+`build-refine`, `build-implement-tdd`, `build-implement-goal`, `sensor-fixer`, and `coder`
+implement the downstream half of the agent-skill-routing propagation chain:
+
+### build-refine pass-through
+
+When reading a `stories.json` produced by `decompose` v1.2.0+, `build-refine` checks each
+sub-task for a `recommended_skills` field. If present and non-empty, it copies the value
+verbatim into the corresponding plan task as `recommended_skills`. The field is then
+available to `build-implement-tdd` and `build-implement-goal` when they dispatch the coder.
+**Omit when absent** — do NOT write an empty array.
+
+### build-implement-tdd / build-implement-goal coder dispatch
+
+Both implementation skills check the task's `recommended_skills` field from `plan.md` before
+each coder dispatch. If present and non-empty, `RECOMMENDED_SKILLS` is included in the coder
+dispatch bundle. If absent — the field is omitted entirely from the bundle.
+
+### coder skill consultation prepend (§ *Skill consultation prepend*)
+
+When `RECOMMENDED_SKILLS` is present and non-empty in the coder dispatch bundle:
+
+1. Invoke each listed skill **sequentially** before Phase 1 RED (TDD) or Phase BUILD (goal).
+2. Treat each skill's output as advisory context — weight equivalent to `SCOUT_SUMMARY`.
+3. A recommended skill never overrides `PLAN_CONTEXT.Hard Constraints`.
+4. If a skill path does not exist: log a warning and skip — do NOT HALT.
+
+When `RECOMMENDED_SKILLS` is absent or empty: skip this section and proceed directly.
+
+### sensor-fixer pass-through
+
+`sensor-fixer` also accepts `RECOMMENDED_SKILLS` from its dispatch bundle and forwards it
+to each `build-resolve-finding` call so repair skills can benefit from the same domain context.
+
 ## PR Checklist
 
 - [ ] Serves the plugin goal: transforms planned stories into merged code
