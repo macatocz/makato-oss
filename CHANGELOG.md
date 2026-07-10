@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.39.1](https://github.com/macatocz/makato/compare/v0.39.0...v0.39.1) (2026-07-10)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** deterministic bash port of archive-spec workflow ([#221](https://github.com/macatocz/makato/issues/221)) ([8fe24fb](https://github.com/macatocz/makato/commit/8fe24fb1f4b2b2e9d4eb0dd81176aa7624681ab7))
+* **makato-orchestrate:** deterministic bash port of archive-spec workflow ([#221](https://github.com/macatocz/makato/issues/221)) ([2274c10](https://github.com/macatocz/makato/commit/2274c10c3d637de4c0b0ffc88a24fe9854d6794a))
+
 ## [0.39.0](https://github.com/macatocz/makato/compare/v0.38.0...v0.39.0) (2026-07-10)
 
 
