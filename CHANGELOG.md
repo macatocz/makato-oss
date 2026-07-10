@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.40.0](https://github.com/macatocz/makato/compare/v0.39.1...v0.40.0) (2026-07-10)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** auto-materialize spec on HALT-006 for plan-tier:light issues ([#200](https://github.com/macatocz/makato/issues/200)) ([5f28cff](https://github.com/macatocz/makato/commit/5f28cff570bb9335200cc05b8c80df7d01cf05f5))
+
 ## [0.39.1](https://github.com/macatocz/makato/compare/v0.39.0...v0.39.1) (2026-07-10)
 
 
