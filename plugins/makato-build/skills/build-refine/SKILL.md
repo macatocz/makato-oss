@@ -5,7 +5,7 @@ description: >-
   implementation plan — tasks, file targets, unit/integration test
   strategy, acceptance mapping. Use to start a build session before
   implement-tdd or implement-goal.
-version: "1.7.2"
+version: "1.8.0"
 model: opus
 argument-hint: "[work-item-key] [--autonomous]"
 ---
@@ -96,25 +96,54 @@ shared/build-log.sh "<key>" '{"ts":"<ISO-8601-ms>","skill":"build-refine","story
 Load @references/spec-artifacts-schema.md to know what fields to extract from each file.
 
 Read from the resolved spec folder (`specs/<key>-*/`):
-- `stories.json` — required for ticket-based work; absent for local work (see below)
-- `prd.md` — required for ticket-based work; optional for local work
-- `design.md` — required for local work; optional for ticket-based work
+- `seed-manifest.json` — optional; carries the `spec_tier` routing flag (see below)
+- `stories.json` — required for ticket-based work; absent for lightweight work (see below)
+- `prd.md` — required for ticket-based work; optional for lightweight work
+- `design.md` — required for `local-` prefix work; optional otherwise
+- `plan.md` — required for `spec_tier:plan-only` work (sole acceptance source); optional otherwise
 - `decisions.md` — optional
 - `prototype.html` — optional; if present, flag the story as having a UI reference
 
-**Local-work path** (key starts with `local-`): `stories.json` will not exist.
-If `design.md` is present, read it as the sole input artifact. Derive the goal from the
-`## Goal` section and treat each sentence in `## Constraints` as a fixed decision. There
-are no acceptance criteria from a stories.json — `/build-refine` will produce tasks whose
-done-condition is the goal statement itself. Continue without stopping.
+**Detect the lightweight tier first.** Read `seed-manifest.json` if it exists and parse
+its optional `spec_tier` field. This is a NEW read for build-refine — earlier versions of
+this skill read no manifest. Treat an absent file, an absent field, or an unparseable
+manifest as "no tier" (legacy behavior — never HALT on manifest read):
 
-If `design.md` is also missing → stop: tell the user to run `/build-start` first to
-create the design document.
+```bash
+MANIFEST="$(ls specs/<key>-*/seed-manifest.json 2>/dev/null | head -1)"
+SPEC_TIER="$(jq -r '.spec_tier // ""' "$MANIFEST" 2>/dev/null || echo "")"
+```
 
-**Ticket path** (key does not start with `local-`): if `stories.json`, `prd.md`, or
+A work item enters the **lightweight path** when EITHER of these is true:
+- the KEY starts with `local-` (legacy local-work trigger), OR
+- `spec_tier == "plan-only"` (numeric-slug KEYs like `123-add-feature` that never match
+  `local-*` — this is exactly why the manifest read is required).
+
+Both triggers resolve to the **same single lightweight branch** — a manifest carrying both
+a `local-` prefix and `spec_tier:plan-only` is not a conflict; it takes the lightweight
+path once. `stories.json` and `prd.md` are NOT required on this path; do not read or
+reference them.
+
+**Lightweight path — acceptance-source sub-rules:**
+
+- **`spec_tier:plan-only`** (the new trigger): `plan.md` is the sole acceptance source.
+  Read its `## Acceptance criteria` section (see Step 4). This path **bypasses the
+  `design.md`-missing guard below** — `design.md` is optional and its absence is never a
+  stop condition. If `plan.md` is missing entirely, HALT with `MISSING_PLAN` (guide the
+  caller to run the light-planner / seed-issue that materializes the plan).
+
+- **`local-` prefix without `spec_tier:plan-only`** (legacy): if `design.md` is present,
+  read it as the sole input artifact. Derive the goal from the `## Goal` section and treat
+  each sentence in `## Constraints` as a fixed decision. Acceptance handling is unchanged
+  (synthetic AC — see Step 4). Continue without stopping. If `design.md` is also missing →
+  stop: tell the user to run `/build-start` first to create the design document.
+
+**Ticket path** (not lightweight): if `stories.json`, `prd.md`, or
 `design.md` is missing, report which files are absent and stop. Tell the user to run
 makato-plan first or confirm the correct spec path. Append an `"status":"error"` entry to
 `build.jsonl` before stopping.
+
+Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-refine","story":"<key>","step":"load-artifacts","status":"ok","data":{"path":"<ticket|lightweight>","spec_tier":"<plan-only|none>","trigger":"<local-prefix|plan-only|both|none>"}}'` — the `data.path` and `data.spec_tier` fields make the plan-only branch entry auditable in `build.jsonl` (design.md Observability § *build-refine plan-only entries*).
 
 ### Step 4 — Extract story details
 
@@ -128,10 +157,32 @@ If the key is not found in stories.json: report it and ask the user to confirm t
 
 `stories.json` is the authoritative source for story content. If the content diverges from the Jira ticket, prefer `stories.json` — it captures the shaped and refined version of the story.
 
-**Local-work path**: no stories.json. The goal from `design.md` serves as the story
-description. Generate one synthetic acceptance criterion: *"AC-1: <goal statement> is
-implemented and all tests pass."* Note in the plan that this story has no formal ACs and
-the done-condition is self-evident from the goal.
+**Local-work path** (`local-` prefix, no `spec_tier:plan-only`): no stories.json. The goal
+from `design.md` serves as the story description. Generate one synthetic acceptance
+criterion: *"AC-1: <goal statement> is implemented and all tests pass."* Note in the plan
+that this story has no formal ACs and the done-condition is self-evident from the goal.
+
+**Plan-only path** (`spec_tier:plan-only`): `plan.md` is the authoritative source. Do NOT
+generate a synthetic AC-1 — real acceptance criteria exist in the plan. Read the
+`## Acceptance criteria` section of `plan.md` and extract each non-empty list item (or line)
+as AC-1, AC-2, … by order. The plan-only path and the "AC from plan.md, not synthetic"
+behavior land together — one without the other is incorrect.
+
+**Empty-or-missing guard (plan-only only):** if `plan.md` has no `## Acceptance criteria`
+heading, OR the section exists but contains no non-empty acceptance items (whitespace,
+placeholder stub text such as the seed-issue `_To be filled in…_` line, or only comments),
+treat both cases **identically** and HALT with `MISSING_ACCEPTANCE`:
+
+> "HALT MISSING_ACCEPTANCE: `plan.md` for `<key>` is `spec_tier:plan-only` but its
+> `## Acceptance criteria` section is absent or empty. A plan-only work item must carry at
+> least one concrete acceptance criterion. Add criteria to
+> `specs/<key>-*/plan.md` under `## Acceptance criteria` (one bullet per testable outcome)
+> and re-dispatch `/makato-build:build-refine <key> --autonomous`."
+
+Append `{"ts":"…","skill":"build-refine","story":"<key>","step":"extract-story","status":"error","data":{"halt_code":"MISSING_ACCEPTANCE"}}`
+to `build.jsonl` and return an R1 `status:"failure"` envelope with
+`data.halt_code:"MISSING_ACCEPTANCE"`. Never proceed to Step 5 with zero ACs on the
+plan-only path — a silent zero-AC plan is the failure this guard prevents.
 
 Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-refine","story":"<key>","step":"extract-story","status":"ok","data":{"ac_count":<N>}}'`
 
@@ -311,4 +362,4 @@ Top-level R1 envelope fields follow `plugins/makato-build/agents/RETURN-CONTRACT
 
 ### HALT Codes
 
-The HALT codes emitted by this skill (`MISSING_INPUT`, `SPEC_NOT_FOUND`, `MISSING_ARTIFACTS`, `INVALID_FILE_TARGET`, `UNCOVERED_AC`) are registered with their PO-agent recovery routes in `plugins/makato-build/halt-codes.md`.
+The HALT codes emitted by this skill (`MISSING_INPUT`, `SPEC_NOT_FOUND`, `MISSING_ARTIFACTS`, `MISSING_PLAN`, `MISSING_ACCEPTANCE`, `INVALID_FILE_TARGET`, `UNCOVERED_AC`) are registered with their PO-agent recovery routes in `plugins/makato-build/halt-codes.md`.

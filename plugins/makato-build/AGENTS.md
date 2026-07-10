@@ -16,6 +16,17 @@ Stories entering this plugin are **planned but not refined**:
 - They include architectural context and design decisions
 - They do NOT yet have implementation plans, file targets, or testing approaches
 
+**Lightweight planning lane (`spec_tier:plan-only`).** Small features may enter with a
+single `plan.md` instead of the full `stories.json` + `prd.md` + `design.md` set.
+`build-refine` Step 3 NEW-READs `seed-manifest.json`; when `spec_tier == "plan-only"` it
+takes the same lightweight branch as the legacy `local-` prefix, bypasses the
+`design.md`-missing guard, and sources acceptance criteria from `plan.md`
+`## Acceptance criteria` (not a synthetic AC-1). A missing or empty section HALTs with
+`MISSING_ACCEPTANCE`. `build-create-pr` mirrors this: with no `stories.json` but
+`spec_tier:plan-only`, How-to-Test is sourced from `plan.md` `## Acceptance criteria`
+(D11). An absent `spec_tier` field preserves legacy behavior byte-for-byte. Contract
+covered by `shared/plan-only-tier-smoke-tests.sh`.
+
 The /refine step bridges that gap — producing a plan small enough to execute autonomously in one session.
 
 ## What Belongs Here

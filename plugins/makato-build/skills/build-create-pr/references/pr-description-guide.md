@@ -46,7 +46,11 @@ One numbered step per acceptance criterion from `stories.json`. Each step must b
 2. Verify status transitions work
 ```
 
-If no `stories.json` exists, derive steps from the changed code's public interface and the commit messages.
+If no `stories.json` exists but `seed-manifest.json` has `spec_tier == "plan-only"`, source
+one numbered step per non-empty acceptance item from `plan.md` `## Acceptance criteria` (the
+lightweight planning lane's authoritative test source). Only when neither a `stories.json`
+nor a populated plan-only `## Acceptance criteria` section exists, derive steps from the
+changed code's public interface and the commit messages.
 
 ## Breaking Changes
 

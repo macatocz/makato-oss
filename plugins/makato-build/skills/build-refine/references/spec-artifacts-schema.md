@@ -66,3 +66,29 @@ Treat every entry as a fixed constraint. Do not re-open or revise decisions here
 
 Interactive HTML prototype of the UI. If present, flag the story as having a UI
 reference and note its path. The `implement-goal` skill uses this as a visual target.
+
+## seed-manifest.json (optional)
+
+Machine-readable seed record written by `makato-orchestrate/seed-issue`. Absent for
+work items shaped through the full `makato-plan` pipeline. build-refine reads it in
+Step 3 to detect the lightweight planning tier.
+
+**Fields build-refine consumes:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `schema_version` | string | `"1"` (legacy, no `spec_tier`) or `"2"` (adds optional `spec_tier`) |
+| `spec_tier` | string (optional) | `"plan-only"` routes the item into the lightweight branch with `plan.md` as the sole acceptance source. Absent → legacy behavior (KEY-prefix routing only). |
+
+An absent file, an absent `spec_tier` field, or an unparseable manifest is treated as
+"no tier" — never a HALT. `spec_tier` is the single source of truth for the lightweight
+routing decision; the seed-issue schema owns the field definition.
+
+## plan.md `## Acceptance criteria` (plan-only source)
+
+On the `spec_tier:plan-only` path `plan.md` replaces `stories.json` as the acceptance
+source. Extract each non-empty list item (or line) under the `## Acceptance criteria`
+heading as AC-1, AC-2, … by order. A missing heading, or a section that contains only
+whitespace / placeholder stub text (e.g. the seed-issue `_To be filled in…_` line), is
+treated identically to an empty section and HALTs with `MISSING_ACCEPTANCE` — never a
+silent zero-AC plan.

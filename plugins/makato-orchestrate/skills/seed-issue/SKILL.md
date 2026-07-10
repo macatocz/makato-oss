@@ -8,7 +8,7 @@ description: >-
   (for new-work issues) creates a minimal specs/<N>-<slug>/ folder.
   Use for any issue that was filed manually — bypassing to-issues — and
   needs to enter the autonomous loop queue.
-version: "1.0.0"
+version: "1.1.0"
 argument-hint: "<ISSUE_NUMBER> [--repo <owner/name>] [--type new-work|change]"
 hooks:
   - "seed issue"
@@ -211,7 +211,7 @@ and skip the body write.
 **If absent**, append the provenance footer to the issue body:
 
 ```bash
-NEW_BODY="$(printf '%s\n\n---\n\n*Feature slug: `%s` — produced by to-issues v3.x (seeded by seed-issue v1.0.0).*' \
+NEW_BODY="$(printf '%s\n\n---\n\n*Feature slug: `%s` — produced by to-issues v3.x (seeded by seed-issue v1.1.0).*' \
   "$ISSUE_BODY" "$SLUG")"
 
 gh issue edit "$ISSUE_NUMBER" \
@@ -313,7 +313,7 @@ Create `specs/$SLUG/` with two files:
 ```markdown
 # Plan: <ISSUE_TITLE>
 
-> Auto-seeded by seed-issue v1.0.0 on <ISO_DATE>. Replace this stub with a
+> Auto-seeded by seed-issue v1.1.0 on <ISO_DATE>. Replace this stub with a
 > full plan before the PO-agent starts.
 
 ## Issue
@@ -330,10 +330,10 @@ this file contains only the stub text above._
 
 ```json
 {
-  "schema_version": "1",
+  "schema_version": "2",
   "seeded_at": "<ISO_DATETIME>",
   "seeded_by": "seed-issue",
-  "skill_version": "1.0.0",
+  "skill_version": "1.1.0",
   "issue_number": <ISSUE_NUMBER>,
   "issue_title": "<ISSUE_TITLE>",
   "slug": "<SLUG>",
@@ -342,7 +342,29 @@ this file contains only the stub text above._
 }
 ```
 
-Log: `[seed-issue] created specs/$SLUG/ with plan.md stub and seed-manifest.json`.
+**`seed-manifest.json` schema (v2):**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `schema_version` | string | yes | `"2"` for manifests written by seed-issue v1.1.0+; `"1"` for legacy manifests without `spec_tier` |
+| `seeded_at` | string (ISO-8601) | yes | Timestamp the manifest was written |
+| `seeded_by` | string | yes | Always `"seed-issue"` |
+| `skill_version` | string | yes | seed-issue version that wrote the manifest |
+| `issue_number` | integer | yes | GitHub issue number |
+| `issue_title` | string | yes | Issue title at seed time |
+| `slug` | string | yes | `<ISSUE_NUMBER>-<normalized-title>` |
+| `repo` | string | yes | `owner/name` of the target repo |
+| `type` | string | yes | `"new-work"` or `"change"` |
+| `spec_tier` | string | **optional** | `"plan-only"` marks the item for the lightweight planning lane — `build-refine` sources acceptance criteria from `plan.md` `## Acceptance criteria` instead of `stories.json`. **Absent → legacy behavior, byte-for-byte** (build-refine routes by KEY prefix only). Written only by the `plan-tier:light` path (light-planner integration, tracked separately); the default `new-work` path in this step leaves it absent. |
+
+**Schema evolution — v1 → v2:** v2 adds the single optional `spec_tier` field. The change
+is fully backwards-compatible: a v1 manifest (no `spec_tier`) and a v2 manifest with
+`spec_tier` absent are treated identically by every consumer (`build-refine` reads
+`.spec_tier // ""` and falls back to legacy KEY-prefix routing). Bump `schema_version` to
+`"2"` whenever the manifest is written by a version of seed-issue that understands the
+`spec_tier` field, regardless of whether the field is actually set.
+
+Log: `[seed-issue] created specs/$SLUG/ with plan.md stub and seed-manifest.json (schema_version 2)`.
 
 If `specs/$SLUG/` already exists, skip creation and log:
 `[seed-issue] specs/$SLUG/ already exists — skipping folder creation`.

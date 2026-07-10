@@ -12,6 +12,18 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## seed-issue — 1.1.0 · `seed-manifest.json` schema v2 (#210)
+
+- **`seed-issue` → 1.1.0** — `seed-manifest.json` `schema_version` bumped `"1" → "2"`.
+  v2 adds the single **optional** `spec_tier` field (`"plan-only"` marks the lightweight
+  planning lane; consumed by `build-refine` to source acceptance criteria from `plan.md`).
+  The change is fully backwards-compatible: a v1 manifest and a v2 manifest with `spec_tier`
+  absent are treated identically by every consumer. The default `new-work` path leaves the
+  field unset; only the `plan-tier:light` path (light-planner integration, tracked
+  separately) writes it. Documented the full manifest schema table in `SKILL.md` Step 8.
+
+---
+
 
 ## makato-change autonomous path integration (#144)
 
