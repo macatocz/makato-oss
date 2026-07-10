@@ -1,7 +1,7 @@
 ---
 name: archive-spec
 description: 'Archive completed or obsolete specs after a PR is merged. Extracts requirements into the master spec, moves the spec folder to specs/archive/ or specs/obsolete/, and closes the linked GitHub Issue. Use when: PR merged, feature complete, spec superseded, or spec abandoned. Triggers: "archive spec", "archive feature", "spec done", "close feature", "mark obsolete", "merge to master spec".'
-version: 1.0.0
+version: 1.1.0
 ---
 
 # archive-spec
@@ -164,9 +164,19 @@ Append a row:
 
 ## Automation
 
-`archive-spec` is triggered automatically via GitHub Actions on every PR merge to the default
-branch. Copy `workflows/archive-spec.yml` from this plugin into `.github/workflows/` in your
-consumer repo — no code changes required.
+`archive-spec` runs automatically via GitHub Actions on every PR merge to the default
+branch — but the runner path is a **deterministic bash port**, not this LLM skill.
+`scripts/archive-spec.sh` performs the mechanical ARCHIVE steps (derive slug → move
+folder → append an Evolution Log row → close the issue) with no Claude CLI on the
+runner, consistent with the D5 "no LLM in the runner" constraint (#221). Copy
+`workflows/archive-spec.yml` from this plugin into `.github/workflows/` in your consumer
+repo and vendor `scripts/archive-spec.sh` alongside it — no API-key secret required.
+
+This SKILL remains the source of truth for the **interactive / model-driven** path:
+the full retrospective spec check, semantic requirement extraction (ADDED / MODIFIED /
+REMOVED), the OBSOLETE path, and conflict handling — judgement the bash port
+intentionally does not attempt. Invoke it directly (`/makato-orchestrate:archive-spec`)
+when you want that richer merge into the master spec, or for obsolete specs.
 
 See @references/archive-spec-workflow.md for the full workflow file and wiring notes.
 
