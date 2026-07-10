@@ -1,5 +1,18 @@
 # Changelog — makato-ux
 
+## [Unreleased]
+
+### Changed
+
+- `frontend-design` skill updated to v1.1.0 — merged studio-lead framing and anti-default
+  design guidance into the existing production-UI workflow. Added subject-grounding (name
+  the concrete subject when the brief leaves it open), a named catalogue of the three AI
+  design defaults to avoid, a brainstorm-then-critique planning pass (color/type/layout/
+  signature token system) before implementation, a signature-element concept, a copy/writing
+  step, motion restraint, and a self-critique closing the validation step. Preserved the
+  routing boundaries, design-system discovery, WCAG/responsive/no-CDN validation, and
+  framework specifics.
+
 ## [0.4.0] — 2026-07-09
 
 ### Added
