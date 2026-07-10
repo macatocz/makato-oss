@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### ✨ Features
+
+* **makato-build:** agent skill routing F3 — skill-passport writer + advisory provenance gate ([#147](https://github.com/macatocz/makato/issues/147)): skill-routed agents write `skill-passport.json` nodes (gated by `should_emit_f4_log`); `build-verify` Step 9 compares `skills_invoked_transitively` (via `compute_rollup`) against `skills_expected` (resolved from git diff via `skill-bundles.yml`) and emits advisory warnings per missing skill — gate never fails the build (NFR-R2); `definition-of-done` v2.0.0 adds item 13 (skill-provenance recorded and complete).
+
 ## [0.38.0](https://github.com/macatocz/makato/compare/v0.37.0...v0.38.0) (2026-07-10)
 
 
