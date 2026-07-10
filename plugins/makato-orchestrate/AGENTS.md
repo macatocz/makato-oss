@@ -56,7 +56,7 @@ The PO-agent runs with `permissionMode: bypassPermissions` and `maxTurns: 100`. 
 
 **Safeguards:**
 
-- PO-agent's source-edit boundary is enforced by a **behavioural allow-list**, not by frontmatter denial. `disallowedTools` is currently all-or-nothing in Claude's agent frontmatter — there is no path-scoped denial — so `Write` and `Edit` cannot appear there (the agent legitimately needs them to mutate `workflow-state.json`, `orchestrate.jsonl`, and the resume / daily-budget state files). The allow-list lives in `po-agent.md` § *Permission Boundary*, in `never-patterns.md` NEVER 4, and in this section. A PR adding source-file writes to PO-agent must be rejected at code review (NEVER 4 enforcement clause). `disallowedTools: NotebookEdit` is set in frontmatter — that denial doubles as a regression marker (a growing `disallowedTools` list tells reviewers to re-check the allow-list).
+- PO-agent's source-edit boundary is enforced by a **behavioural allow-list**, not by frontmatter denial. `disallowedTools` is currently all-or-nothing in Claude's agent frontmatter — there is no path-scoped denial — so `Write` and `Edit` cannot appear there (the agent legitimately needs them to mutate `workflow-state.json`, `orchestrate.jsonl`, the Step 1a HALT-006 seed stub `plan.md` + `seed-manifest.json` under gitignored `specs/` (#200), and the resume / daily-budget state files). The allow-list lives in `po-agent.md` § *Permission Boundary*, in `never-patterns.md` NEVER 4, and in this section. A PR adding source-file writes to PO-agent must be rejected at code review (NEVER 4 enforcement clause). `disallowedTools: NotebookEdit` is set in frontmatter — that denial doubles as a regression marker (a growing `disallowedTools` list tells reviewers to re-check the allow-list).
 - HALT-file poll fires at every outer-loop boundary. A user dropping a file at `~/.claude/HALT` stops the next iteration cleanly.
 - GitHub kill-switch label (`autonomous:halt`) is polled on the same boundary.
 - Token-budget ceiling and outer-iteration counter (HALT-008 at `outer_iterations >= 3`) cap blast radius even without external intervention.
@@ -114,6 +114,8 @@ makato-orchestrate/
 │   ├── context-handoff-smoke-tests.sh    (GAP-004 / #30 — shipped)
 │   ├── loop.sh                           (GAP-007 / #33 — shipped)
 │   ├── loop-smoke-tests.sh               (GAP-007 / #33 — shipped)
+│   ├── should-materialize-spec.sh        (#200 — HALT-006 auto-materialize gate)
+│   ├── should-materialize-spec-smoke-tests.sh (#200 — 12 asserts)
 │   ├── validate-plan-body.sh             (#212 — promotion guard)
 │   └── validate-plan-body-smoke-tests.sh (#212 — 13 asserts)
 ├── skills/

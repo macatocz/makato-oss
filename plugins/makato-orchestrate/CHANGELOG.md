@@ -12,6 +12,36 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## po-agent — HALT-006 auto-materialize on fresh clone (#200)
+
+- **Added** `scripts/should-materialize-spec.sh` + `scripts/should-materialize-spec-smoke-tests.sh`
+  (12 asserts) — deterministic gate that decides whether the PO-agent's Step 1 should
+  auto-materialize a missing `plan.md` or fall through to HALT-006. Emits `materialize`
+  (missing/stub plan AND `plan-tier:light`), `proceed` (plan already valid — not a HALT-006
+  case), or `halt` (missing/stub plan without `plan-tier:light`). Classifies the HALT-006
+  sub-cause by delegating to `validate-plan-body.sh` (the same guard the lightweight lane
+  uses), so the two never disagree about "stub"/"empty". Pure bash, offline.
+- **Changed** `agents/po-agent.md` Step 1 — before firing HALT-006 on a missing spec folder
+  or stub `plan.md`, the PO-agent now runs Step 1a: for a `plan-tier:light` issue it writes
+  a seed stub (mirroring seed-issue Step 8), dispatches the `light-planner` agent to
+  synthesize a real `plan.md` from the issue body, re-validates with `validate-plan-body.sh`,
+  and on a valid plan sets `spec_tier:plan-only` and retries Step 1 **once**. A thin-body /
+  hollow-plan result, a non-`plan-tier:light` issue, or a second Step 1a entry falls through
+  to the existing HALT-006 → `needs-human-review` path. Each attempt emits a
+  `step:"materialize-spec"` `orchestrate.jsonl` entry (issue #200 point 5 — never silently
+  masks a planning gap). Fixes the fresh-clone dead-end: `specs/` is gitignored scratch, so
+  the plan.md seed-issue wrote locally never travels with a clone, and every autonomous
+  small-fix run previously hit HALT-006 at Step 1. Reconciles #200's original
+  `build-refine`/`type:fix` proposal to the taxonomy that shipped after it (lightweight lane
+  #210–#212): `light-planner` is the plan synthesizer (build-refine cannot materialize from a
+  raw issue), and `plan-tier:light` is the eligibility signal (`type:fix`/`type:bug` labels
+  do not exist).
+- **Extended** the PO-agent Write/Edit allow-list from four to five paths — Step 1a writes the
+  seed stub `plan.md` + `seed-manifest.json` under gitignored `specs/`. Documented in
+  `po-agent.md` § *Rules*, `never-patterns.md` NEVER 4, and `AGENTS.md` § *Security Model*.
+
+---
+
 ## seed-issue — 1.2.0 · light-planner agent + plan-gated promotion (#212)
 
 - **Added** `agents/light-planner.md` (net-new, sonnet) — the lightweight planning
