@@ -911,8 +911,32 @@ cmd_dispatch() {
       local child_pid=$!
     else
       # Production path: real claude invocation.
-      MAKATO_HEADLESS=1 "$CLAUDE_BIN" --dangerously-skip-permissions \
-        --output-format text \
+      #
+      # Two flags work together to keep a long unattended build alive:
+      #
+      #   --output-format stream-json --verbose
+      #     The dispatch prompt delegates to the po-agent via the Task
+      #     tool, which in claude >= 2.1.x runs the subagent as a
+      #     BACKGROUND task. The plain `text` format flushes nothing until
+      #     the whole session ends, so the log mtime stays frozen for the
+      #     entire run and the liveness watchdog stall-kills the po-agent
+      #     mid-build (the #146 regression). `stream-json --verbose` emits
+      #     a JSON event line per tool call / thinking step, giving the
+      #     watchdog a live mtime signal. (`stream-json` requires
+      #     `--verbose` under `--print`.) The trade-off: the log holds
+      #     structured JSON, not prose — the final R1 envelope is the
+      #     `result` field of the terminal `{"type":"result",...}` line.
+      #
+      #   CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0
+      #     Without this, the top-level `-p` session (which only dispatches,
+      #     then waits on the background po-agent) terminates the po-agent
+      #     after the default 600 s background-wait ceiling — killing a
+      #     full build cycle (5 tasks, TDD, PR) 10 min in. `0` = wait
+      #     indefinitely; the loop's own watchdog + HALT poll remain the
+      #     bounding mechanisms.
+      CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 \
+        MAKATO_HEADLESS=1 "$CLAUDE_BIN" --dangerously-skip-permissions \
+        --output-format stream-json --verbose \
         -p "$dispatch_prompt" >"$log_file" 2>&1 &
       local child_pid=$!
     fi
@@ -929,12 +953,17 @@ cmd_dispatch() {
     fi
   else
     # Opt-out path (MAKATO_LOOP_STALL_DISABLE=1) — legacy behaviour, no
-    # log capture, no watchdog.
+    # log capture, no watchdog. No streaming needed (nothing reads the
+    # log), but the background-wait ceiling still applies: without
+    # CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 the top-level session kills
+    # the background po-agent after 600 s. `text` format is fine here
+    # since the operator watches the terminal directly.
     if [[ -n "$child_cmd" ]]; then
       # shellcheck disable=SC2086
       $child_cmd || rc=$?
     else
-      MAKATO_HEADLESS=1 "$CLAUDE_BIN" --dangerously-skip-permissions \
+      CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 \
+        MAKATO_HEADLESS=1 "$CLAUDE_BIN" --dangerously-skip-permissions \
         --output-format text \
         -p "$dispatch_prompt" || rc=$?
     fi
