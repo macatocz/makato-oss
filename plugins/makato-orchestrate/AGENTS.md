@@ -81,8 +81,9 @@ makato-orchestrate hosts the top-level orchestrator and supporting read-only sco
 | **context-summariser** | haiku | read-only | ≤ 500-token session summary for HALT-007B handoff. Input: `workflow-state.json` + current task description ONLY. Source files explicitly out of scope. | `scripts/context-handoff.sh` (via po-agent) |
 | **scout** | haiku | read-only | Per-task pre-read agent — given a task's `CHANGED_FILES` plus the bundle rules resolved by `inject-context`, opens ≤ 8 files and returns a ~500-token structured summary (`key_patterns`, `naming_conventions`, `test_file_paths`, `existing_exports`, `warnings`) injected into the coder's `SCOUT_SUMMARY` input. Disjoint from `makato-build/knowledge-scout` (repo-wide, plan-time). | `build-implement-tdd` Step 6 (per coder dispatch) |
 | **documentation-agent** | sonnet | bypassPermissions | Post-merge documentation pass — reads merged PR diff and commits, appends a CHANGELOG entry (Keep a Changelog format), conditionally updates README on public-API change, closes parent and child Issues via `gh issue close`, advances the Projects v2 board to Done via `issue-to-project sync-lifecycle`, and emits a `docs_coverage_warning` when `src/` diff lines outpace `docs/` diff lines by 2×. Frontmatter denies `Edit`/`Write` on `src/`, `lib/`, `app/`. | `workflows/post-merge.yml` (GHA) |
+| **light-planner** | sonnet | bypassPermissions | Lightweight planning-lane plan producer (#212) — given a `plan-tier:light` issue body + bounded repo context, writes a full `plan.md` (non-empty `## Tasks` + `## Acceptance criteria`) that `build-refine`'s plan-only path consumes, or returns a `thin_body` R1 so seed-issue re-tiers to full. Writes exactly one file (`plan.md`); never touches source, labels, manifest, or the board — seed-issue owns those and gates promotion on `scripts/validate-plan-body.sh`. Runs locally at seed time. | `seed-issue` (Step 8.5) |
 
-*po-agent, context-summariser, scout, and documentation-agent are shipped (GAP-006 / #32, GAP-004 / #30, GAP-013 / #29, GAP-012 / #35).*
+*po-agent, context-summariser, scout, and documentation-agent are shipped (GAP-006 / #32, GAP-004 / #30, GAP-013 / #29, GAP-012 / #35). light-planner ships with #212.*
 
 ## Skill Authoring
 
@@ -101,6 +102,7 @@ makato-orchestrate/
 ├── agents/
 │   ├── context-summariser.md             (GAP-004 / #30 — shipped)
 │   ├── documentation-agent.md            (GAP-012 / #35 — shipped)
+│   ├── light-planner.md                  (#212 — lightweight planning lane)
 │   ├── po-agent.md                       (GAP-006 / #32 — shipped)
 │   └── scout.md                          (GAP-013 / #29 — shipped)
 ├── hooks/
@@ -111,7 +113,9 @@ makato-orchestrate/
 │   ├── context-handoff.sh                (GAP-004 / #30 — shipped)
 │   ├── context-handoff-smoke-tests.sh    (GAP-004 / #30 — shipped)
 │   ├── loop.sh                           (GAP-007 / #33 — shipped)
-│   └── loop-smoke-tests.sh               (GAP-007 / #33 — shipped)
+│   ├── loop-smoke-tests.sh               (GAP-007 / #33 — shipped)
+│   ├── validate-plan-body.sh             (#212 — promotion guard)
+│   └── validate-plan-body-smoke-tests.sh (#212 — 13 asserts)
 ├── skills/
 │   ├── workflow-state/                   (GAP-003 / #26 — shipped)
 │   │   ├── SKILL.md
