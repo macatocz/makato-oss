@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.38.0](https://github.com/macatocz/makato/compare/v0.37.0...v0.38.0) (2026-07-10)
+
+
+### ✨ Features
+
+* **makato-build:** spec_tier:plan-only gate in build-refine ([#210](https://github.com/macatocz/makato/issues/210)) ([cad24ed](https://github.com/macatocz/makato/commit/cad24ed527c1c528a06d93bb2a319cb3adbffef1))
+* **makato-build:** spec_tier:plan-only gate in build-refine ([#210](https://github.com/macatocz/makato/issues/210)) ([d5336f6](https://github.com/macatocz/makato/commit/d5336f6ca2ba16b69192fb0fd94cd5fd6d01d2dd))
+* **makato-plan:** bootstrap task-skill-map.json with 200+ archetype→skills entries ([#146](https://github.com/macatocz/makato/issues/146)) ([5307218](https://github.com/macatocz/makato/commit/53072189e74619fd8b570eedfbabee771140e872))
+* **makato:** agent skill routing F2 — skill propagation chain ([#146](https://github.com/macatocz/makato/issues/146)) ([3fd1958](https://github.com/macatocz/makato/commit/3fd1958aa77396deb815b947150735d7a35833b0))
+* **makato:** agent skill routing F2 — skill propagation chain ([#146](https://github.com/macatocz/makato/issues/146)) ([3fd1958](https://github.com/macatocz/makato/commit/3fd1958aa77396deb815b947150735d7a35833b0))
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** add --output-format text to loop.sh dispatch ([8cba7b0](https://github.com/macatocz/makato/commit/8cba7b0f03f63724892c67351ae9ece3a8e83785))
+* **makato-orchestrate:** add --output-format text to loop.sh dispatch ([62d9bfa](https://github.com/macatocz/makato/commit/62d9bfa3ee57f4ebac7ee585796abed8fd3d2acd))
+* **makato-orchestrate:** keep background po-agent alive past 600s ceiling ([#209](https://github.com/macatocz/makato/issues/209)) ([5143464](https://github.com/macatocz/makato/commit/51434643188611af1473a606e5105f48064f5ed9))
+
 ## [0.37.0](https://github.com/macatocz/makato/compare/v0.36.1...v0.37.0) (2026-07-09)
 
 
