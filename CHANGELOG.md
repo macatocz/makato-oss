@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.39.0](https://github.com/macatocz/makato/compare/v0.38.0...v0.39.0) (2026-07-10)
+
+
+### ✨ Features
+
+* issues.opened auto-onboarding + deterministic plan-tier classifier ([#211](https://github.com/macatocz/makato/issues/211)) ([98b6bff](https://github.com/macatocz/makato/commit/98b6bff26657f4e6a2be0759ed7519e8d96c6f13))
+* issues.opened auto-onboarding + deterministic plan-tier classifier ([#211](https://github.com/macatocz/makato/issues/211)) ([1321724](https://github.com/macatocz/makato/commit/1321724e9003b8ee7dae2ff1015cad39b737b96f))
+* **makato-build:** build-verify skill-provenance advisory gate (never fails build) ([#147](https://github.com/macatocz/makato/issues/147)) ([090a66c](https://github.com/macatocz/makato/commit/090a66c83052c0837cdcb6fa974380b4826a4c83))
+* **makato-build:** DoD skill-provenance item + passport concurrent-write audit ([#147](https://github.com/macatocz/makato/issues/147)) ([ca8a750](https://github.com/macatocz/makato/commit/ca8a7508f314226a08afa629f4de89b3c0d56695))
+* **makato-build:** skill passport + build-verify advisory gate + concurrent-write guard ([#147](https://github.com/macatocz/makato/issues/147)) ([25ccece](https://github.com/macatocz/makato/commit/25ccecef5218e0c26848447e89bf4fb6e2579319))
+* **makato-build:** skill passport + build-verify advisory gate + concurrent-write guard ([#147](https://github.com/macatocz/makato/issues/147)) ([25ccece](https://github.com/macatocz/makato/commit/25ccecef5218e0c26848447e89bf4fb6e2579319))
+* **makato-build:** skill_passport hierarchical writer + transitive rollup + concurrent-write guard ([#147](https://github.com/macatocz/makato/issues/147)) ([c4ca1a7](https://github.com/macatocz/makato/commit/c4ca1a767ce079a5f2772f9e6ecd9455fe972378))
+
 ## [Unreleased]
 
 ### ✨ Features
