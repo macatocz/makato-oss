@@ -4,13 +4,19 @@ Copy this file to `.github/workflows/archive-spec.yml` in your consumer repo.
 
 Fires automatically after every PR merges to the default branch. Extracts the closed
 issue number from the PR body (`Closes #N` / `Fixes #N` / `Resolves #N`), then runs
-the `archive-spec` skill headless via the Claude CLI.
+the deterministic `archive-spec.sh` script — **no Claude CLI on the runner**.
+
+The archival is purely mechanical (derive slug → move folder → append Evolution Log
+row → close issue), so it needs no model. Running it as plain bash keeps GitHub
+Actions Claude-free — consistent with the **D5 "no LLM in the runner"** constraint —
+and avoids a per-merge cloud-LLM cost plus a new API-key secret (#221).
 
 Prerequisites in the consumer repo:
-- Claude CLI available on the runner (wire via your org's standard Claude setup action)
 - `gh` CLI (preinstalled on `ubuntu-latest`)
 - `GITHUB_TOKEN` with `contents: write`, `issues: write` scopes (default token suffices)
-- `specs/<key>-<slug>/` folder convention for spec folders
+- `specs/<key>-<slug>/` (or `specs/<slug>/`) folder convention for spec folders
+- `plugins/makato-orchestrate/scripts/archive-spec.sh` present in the repo (vendor it
+  or adjust the invocation path)
 
 ---
 
@@ -19,8 +25,8 @@ Prerequisites in the consumer repo:
 ```yaml
 # .github/workflows/archive-spec.yml
 #
-# Post-merge spec lifecycle — archive completed feature specs.
-# Copy of the template at:
+# Post-merge spec lifecycle — archive completed feature specs (deterministic
+# bash port, no Claude CLI). Copy of the template at:
 #   plugins/makato-orchestrate/skills/archive-spec/references/archive-spec-workflow.md
 #
 # Mirrors post-merge.yml (documentation-agent) in this plugin.
@@ -49,12 +55,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Claude CLI
-        # Replace with your org's standard Claude CLI setup action.
-        # See https://docs.anthropic.com/claude-code for current guidance.
-        run: |
-          echo "::notice::Replace this step with your Claude CLI setup action."
-
       - name: Extract closing issue number
         id: issue
         env:
@@ -79,21 +79,25 @@ jobs:
           ISSUE_NUMBER: ${{ steps.issue.outputs.issue_number }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          claude --dangerously-skip-permissions \
-            --print "Post-merge: run /makato-orchestrate:archive-spec for issue #${ISSUE_NUMBER} (merged via PR #${PR_NUMBER})" \
-            --allowedTools "Bash,Read,Write,Edit"
+          bash plugins/makato-orchestrate/scripts/archive-spec.sh \
+            --issue "${ISSUE_NUMBER}" \
+            --pr "${PR_NUMBER}"
 ```
 
 ---
 
 ## How issue resolution works
 
-The skill receives `issue #N` in the prompt and does the rest:
+The script receives `--issue N` and does the rest deterministically:
 
-1. Reads `gh issue view N` to get the spec folder key from the issue title or labels
-2. Prefix-matches `specs/<key>-*/` to find the folder
-3. Detects the domain from `plan.md` frontmatter
-4. Runs the archive or obsolete path depending on whether the PR merged code
+1. Reads `gh issue view N --json body` and derives the spec slug from the `to-issues`
+   provenance in the body — the `*Feature slug: \`<slug>\`*` footer, falling back to the
+   top-of-body `specs/<slug>/stories.json` line (same logic as `loop.sh`).
+2. Resolves the folder by matching `specs/<slug>/` (exact) or `specs/<slug>-*/` (prefix),
+   disambiguating epic collisions by the issue number in `created-issues.json` / `plan.md`.
+3. Detects the domain from `plan.md` / `spec.md` frontmatter (default `general`).
+4. Appends an Evolution Log row to `specs/master/<domain>.md`, moves the folder to
+   `specs/archive/<date>-<folder>/`, appends the archive-index row, then closes the issue.
 
 ## Wiring notes
 
@@ -101,8 +105,16 @@ The skill receives `issue #N` in the prompt and does the rest:
 |----------|-----------|
 | PR body has no `Closes #N` | `skip=true` — workflow exits cleanly, no archive runs |
 | PR closes multiple issues | Only the **first** match is archived; add a second `run` step for multiple |
-| Spec folder missing | Skill logs a warning and exits 0 — issue is closed but no spec to archive |
-| Claude CLI not installed | Workflow fails the `Run archive-spec` step; PR merge is unaffected (job is not blocking) |
+| No `to-issues` provenance in body | Script logs a warning, closes the issue, moves no folder (exit 0) |
+| Spec folder missing / gitignored | Script logs a warning, closes the issue, moves no folder (exit 0) |
+| Issue already closed (e.g. via PR `Closes #N`) | Close step is an idempotent skip; folder move still runs |
+| `gh issue close` genuinely fails | Script exits 3 so the (non-blocking) job surfaces the failure |
+
+**Note on gitignored specs.** In the makato repo `specs/**` is a gitignored scratch dir,
+so on the runner the spec folder is absent after checkout — the move is a local no-op and
+the durable effect is the issue closure. In a consumer repo where specs are tracked, the
+move + commit + push persists (the script commits with `[skip ci]` and pushes when the
+move produced staged changes). Either way the job never fails on an absent folder.
 
 ## Relationship to post-merge.yml
 

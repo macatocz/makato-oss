@@ -2,12 +2,20 @@
 #
 # Fires automatically after every PR merges to the default branch.
 # Extracts the closed issue number from the PR body (Closes/Fixes/Resolves #N),
-# then runs the archive-spec skill headless via the Claude CLI to:
-#   - Merge requirements into specs/master/{domain}.md
+# then runs the deterministic archive-spec.sh port (NO Claude CLI on the runner)
+# to:
+#   - Append an Evolution Log row to specs/master/{domain}.md
 #   - Move specs/<key>-<slug>/ to specs/archive/{date}-<key>-<slug>/
-#   - Close the linked GitHub Issue
+#   - Close the linked GitHub Issue idempotently
+#
+# The archival is purely mechanical, so it needs no model — this keeps GitHub
+# Actions Claude-free, consistent with the D5 "no LLM in the runner" constraint.
+# Note: in this repo `specs/**` is gitignored (scratch dir), so the folder move
+# is a local no-op on the runner and the durable effect is the issue closure;
+# the script tolerates the absent folder and never fails on it.
 #
 # Reference:
+#   plugins/makato-orchestrate/scripts/archive-spec.sh
 #   plugins/makato-orchestrate/skills/archive-spec/
 #   plugins/makato-orchestrate/workflows/archive-spec.yml (consumer template)
 name: Post-merge spec archive
@@ -34,10 +42,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Claude CLI
-        run: |
-          echo "::notice::Replace this step with the official Claude CLI setup action."
-
       - name: Extract closing issue number
         id: issue
         env:
@@ -61,6 +65,6 @@ jobs:
           ISSUE_NUMBER: ${{ steps.issue.outputs.issue_number }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          claude --dangerously-skip-permissions \
-            --print "Post-merge: run /makato-orchestrate:archive-spec for issue #${ISSUE_NUMBER} (merged via PR #${PR_NUMBER})" \
-            --allowedTools "Bash,Read,Write,Edit"
+          bash plugins/makato-orchestrate/scripts/archive-spec.sh \
+            --issue "${ISSUE_NUMBER}" \
+            --pr "${PR_NUMBER}"
