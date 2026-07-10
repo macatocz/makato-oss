@@ -267,6 +267,9 @@ Produce an ordered task list. Each task must specify:
 - **Mode**: tdd or goal
 - **blockedBy**: list of task indices (1-based) whose production code output this task's files depend on at compile time. Empty list `[]` means no hard dependency. This field must be populated for any task whose files cannot compile without a prior task's output (e.g. a test stub that references a class created by a prior task).
 - **commitMessage**: a conventional commit message draft for this task (e.g. `feat(invoice): add OrderStatus enum`). Pre-populated by refine; confirmed and may be adjusted in `/build-push-to-git`.
+- **recommended_skills** *(optional)*: array of `"plugin:skill-id"` strings inherited from `stories.json` sub-task `recommended_skills[]` when present (agent-skill-routing #146). When this field appears in `plan.md`, downstream implementation skills (`build-implement-tdd`, `build-implement-goal`) MUST include it as `RECOMMENDED_SKILLS` in the coder dispatch bundle. Omit this field entirely when the stories.json sub-task carries no `recommended_skills`.
+
+**RECOMMENDED_SKILLS pass-through rule**: when building the plan from a `stories.json` that was produced by the `decompose` skill (v1.2.0+), check each sub-task for a `recommended_skills` field. If present and non-empty, copy it verbatim into the corresponding plan task under `recommended_skills`. The downstream coder then prepends skill consultation instructions before implementing the task. If absent — do NOT add an empty array; omit the field.
 
 The full task list must be completable in a single autonomous session (target 2–6 tasks). If more tasks are needed than fit in one session, flag it before proceeding — ask the user to confirm scope or split the story.
 
