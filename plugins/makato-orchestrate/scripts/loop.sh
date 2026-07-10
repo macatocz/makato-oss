@@ -912,6 +912,7 @@ cmd_dispatch() {
     else
       # Production path: real claude invocation.
       MAKATO_HEADLESS=1 "$CLAUDE_BIN" --dangerously-skip-permissions \
+        --output-format text \
         -p "$dispatch_prompt" >"$log_file" 2>&1 &
       local child_pid=$!
     fi
@@ -934,6 +935,7 @@ cmd_dispatch() {
       $child_cmd || rc=$?
     else
       MAKATO_HEADLESS=1 "$CLAUDE_BIN" --dangerously-skip-permissions \
+        --output-format text \
         -p "$dispatch_prompt" || rc=$?
     fi
   fi

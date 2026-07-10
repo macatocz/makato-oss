@@ -7,6 +7,7 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## Plugin-level
 
+- **Fixed** `scripts/loop.sh` dispatch — add `--output-format text` to both `claude --dangerously-skip-permissions -p` invocations so PO-agent output reaches the log file and the liveness watchdog gets mtime updates. Without this flag `claude -p` defaulted to a non-text format that produced no flushed output, causing the watchdog to stall-kill every dispatch after 60 min (#146 regression).
 - **Added** `config/skill-bundles.yml` (#145) — bundles `orchestrate-skills`, `orchestrate-workflow-state`, `orchestrate-shared` route workflow-state JSON/JSONL files and orchestrate bash helpers to the workflow-state/kill-switch/session-status skills.
 
 ---
