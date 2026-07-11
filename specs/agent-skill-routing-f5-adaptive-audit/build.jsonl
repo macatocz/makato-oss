@@ -1,0 +1,17 @@
+{"ts":"2026-07-11T17:58:53Z","skill":"build-start","story":"agent-skill-routing-f5-adaptive-audit","step":"session-start","status":"start","data":{"mode":"tdd","local_work":false,"issue":149,"spec_artifacts":["plan.md"]}}
+{"ts":"2026-07-11T17:59:20Z","skill":"build-start","story":"agent-skill-routing-f5-adaptive-audit","step":"session-start","status":"start","data":{"mode":"tdd","local_work":false,"issue":149,"spec_artifacts":["plan.md"]}}
+{"ts":"2026-07-11T17:59:27Z","skill":"build-start","story":"agent-skill-routing-f5-adaptive-audit","step":"session-end","status":"ok","data":{"next":"build-refine"}}
+{"ts":"2026-07-11T18:02:08Z","skill":"build-refine","story":"agent-skill-routing-f5-adaptive-audit","step":"write-plan","status":"ok","data":{"tasks":4,"plan_file":"specs/agent-skill-routing-f5-adaptive-audit/plan.md"}}
+{"ts":"2026-07-11T18:02:08Z","skill":"build-refine","story":"agent-skill-routing-f5-adaptive-audit","step":"session","status":"ok","data":{"tasks":4,"mode":"tdd","plan":"specs/agent-skill-routing-f5-adaptive-audit/plan.md"}}
+{"ts":"2026-07-11T18:03:13Z","skill":"build-implement-tdd","story":"agent-skill-routing-f5-adaptive-audit","step":"session","status":"start","data":{"tdd_tasks":4,"goal_tasks_skipped":0}}
+{"ts":"2026-07-11T18:03:13Z","skill":"build-implement-tdd","story":"agent-skill-routing-f5-adaptive-audit","step":"baseline","status":"ok","data":{"pre_existing_failures":0,"baseline_mode":"proceed"}}
+{"ts":"2026-07-11T18:08:00Z","skill":"build-implement-tdd","story":"agent-skill-routing-f5-adaptive-audit","step":"r1","status":"success","task":1,"data":{"task":1,"status":"success"}}
+{"ts":"2026-07-11T18:08:00Z","skill":"build-implement-tdd","story":"agent-skill-routing-f5-adaptive-audit","step":"r1","status":"success","task":2,"data":{"task":2,"status":"success"}}
+{"ts":"2026-07-11T18:08:00Z","skill":"build-implement-tdd","story":"agent-skill-routing-f5-adaptive-audit","step":"r1","status":"success","task":3,"data":{"task":3,"status":"success"}}
+{"ts":"2026-07-11T18:08:00Z","skill":"build-implement-tdd","story":"agent-skill-routing-f5-adaptive-audit","step":"r1","status":"success","task":4,"data":{"task":4,"status":"success"}}
+{"ts":"2026-07-11T18:08:00Z","skill":"build-implement-tdd","story":"agent-skill-routing-f5-adaptive-audit","step":"final-verify","status":"ok","data":{"tdd_tasks_complete":4,"tests_passing":24}}
+{"ts":"2026-07-11T18:08:00Z","skill":"build-implement-tdd","story":"agent-skill-routing-f5-adaptive-audit","step":"session","status":"ok","data":{"tdd_tasks":4,"goal_tasks_pending":0}}
+{"ts":"2026-07-11T18:51:44Z","skill":"build-simplify","story":"agent-skill-routing-f5-adaptive-audit","step":"analyze","status":"ok","data":{"simplify":1,"keep":5,"escalate":0}}
+{"ts":"2026-07-11T18:51:44Z","skill":"build-simplify","story":"agent-skill-routing-f5-adaptive-audit","step":"apply","data":{"finding":"test-leak-into-real-docs","lines_removed":0,"note":"added tmp anomaly_path to test_adaptive_not_run_when_flag_false; removed leaked docs/skill-audit-notes.md"}}
+{"ts":"2026-07-11T18:51:44Z","skill":"build-simplify","story":"agent-skill-routing-f5-adaptive-audit","step":"session","status":"ok","data":{"findings_applied":1,"escalated":0,"lines_removed":0,"test_suite_present":true,"degraded_confidence":false}}
+{"ts":"2026-07-11T18:53:06Z","skill":"build-verify","story":"agent-skill-routing-f5-adaptive-audit","step":"session","status":"ok","data":{"all_gates_passed":true,"unit":24,"regression":97}}

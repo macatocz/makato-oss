@@ -1,0 +1,93 @@
+{"ts":"2026-07-09T17:14:11.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"session","status":"start","data":{"goal_tasks":3,"tdd_tasks_skipped":0}}
+{"ts":"2026-07-09T17:14:45.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"baseline","status":"ok","data":{"pre_existing_failures":0,"baseline_mode":"proceed"}}
+{"ts":"2026-07-09T17:16:10.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"load-context","status":"ok","data":{"prototype":false,"grill_context":false}}
+{"ts":"2026-07-09T17:19:21.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"build","task":1,"status":"ok","data":{"files_written":9}}
+{"ts":"2026-07-09T17:19:34.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"verify-runtime","task":1,"status":"ok","data":{"runtime_errors":0}}
+{"ts":"2026-07-09T17:22:24.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"build","task":2,"status":"ok","data":{"files_written":1}}
+{"ts":"2026-07-09T17:22:24.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"verify-runtime","task":2,"status":"ok","data":{"runtime_errors":0}}
+{"ts":"2026-07-09T17:22:24.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"test","task":2,"status":"ok","data":{"tests_written":17}}
+{"ts":"2026-07-09T17:22:24.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"verify-task","task":2,"status":"ok","data":{"new_failures":0}}
+{"ts":"2026-07-09T17:25:28.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"build","task":3,"status":"ok","data":{"files_written":11}}
+{"ts":"2026-07-09T17:25:28.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"verify-runtime","task":3,"status":"ok","data":{"runtime_errors":0}}
+{"ts":"2026-07-09T17:25:28.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"test","task":3,"status":"ok","data":{"tests_written":0}}
+{"ts":"2026-07-09T17:25:28.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"verify-task","task":3,"status":"ok","data":{"new_failures":0}}
+{"ts":"2026-07-09T17:25:28.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"final-verify","status":"ok","data":{"goal_tasks_complete":3,"conditional_coverage":"N/A","threshold_met":true}}
+{"ts":"2026-07-09T17:25:45.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"session","status":"ok","data":{"goal_tasks":3,"tdd_tasks_pending":0}}
+{"ts":"2026-07-09T17:27:06.000Z","skill":"build-verify","story":"agent-skill-routing","step":"session","status":"start","data":{"coverage_threshold":"none"}}
+{"ts":"2026-07-09T17:29:25.000Z","skill":"build-verify","story":"agent-skill-routing","step":"gate-build","status":"ok","data":{"warnings":0}}
+{"ts":"2026-07-09T17:29:25.000Z","skill":"build-verify","story":"agent-skill-routing","step":"gate-lint","status":"ok","data":{"errors":0,"warnings":0,"ci_divergence":false,"ci_lint_run":false}}
+{"ts":"2026-07-09T17:29:25.000Z","skill":"build-verify","story":"agent-skill-routing","step":"gate-unit","status":"ok","data":{"total":77,"passed":77,"failed":0,"skipped":0}}
+{"ts":"2026-07-09T17:29:25.000Z","skill":"build-verify","story":"agent-skill-routing","step":"gate-integration","status":"ok","data":{"total":17,"passed":17,"failed":0,"skipped":0}}
+{"ts":"2026-07-09T17:29:25.000Z","skill":"build-verify","story":"agent-skill-routing","step":"gate-coverage","status":"ok","data":{"conditional_coverage":"N/A","threshold":"none","threshold_met":true}}
+{"ts":"2026-07-09T17:29:25.000Z","skill":"build-verify","story":"agent-skill-routing","step":"session","status":"ok","data":{"all_gates_passed":true,"conditional_coverage":"N/A"}}
+{"ts":"2026-07-09T17:30:13.000Z","skill":"build-push-to-git","story":"agent-skill-routing","step":"session","status":"start","data":{"branch":"feat/145-agent-skill-routing","tasks":3}}
+{"ts":"2026-07-09T17:30:32.000Z","skill":"build-push-to-git","story":"agent-skill-routing","step":"commit","status":"ok","data":{"sha":"cdbf2d2","message":"feat(makato): add skill-bundles.yml for remaining plugins (#145)","files":9}}
+{"ts":"2026-07-09T17:30:40.000Z","skill":"build-push-to-git","story":"agent-skill-routing","step":"commit","status":"ok","data":{"sha":"0ba7229","message":"test(makato-build): cross-plugin skill-bundles aggregate integration test (#145)","files":1}}
+{"ts":"2026-07-09T17:30:46.000Z","skill":"build-push-to-git","story":"agent-skill-routing","step":"commit","status":"ok","data":{"sha":"97aae06","message":"docs(makato-build): document Phase-1 exit gate for skill-injection (#145)","files":10}}
+{"ts":"2026-07-09T17:31:06.000Z","skill":"build-push-to-git","story":"agent-skill-routing","step":"push","status":"ok","data":{"remote_branch":"origin/feat/145-agent-skill-routing"}}
+{"ts":"2026-07-09T17:31:06.000Z","skill":"build-push-to-git","story":"agent-skill-routing","step":"session","status":"ok","data":{"commits":3,"branch":"feat/145-agent-skill-routing"}}
+{"ts":"2026-07-09T17:31:39.000Z","skill":"build-create-pr","story":"agent-skill-routing","step":"session","status":"start","data":{"branch":"feat/145-agent-skill-routing","commits":3}}
+{"ts":"2026-07-09T17:32:13.000Z","skill":"build-create-pr","story":"agent-skill-routing","step":"pr_created","status":"start","data":{"branch":"feat/145-agent-skill-routing","gh_host":"github.com","title_len":65}}
+{"ts":"2026-07-09T17:32:51.000Z","skill":"build-create-pr","story":"agent-skill-routing","step":"pr_created","status":"ok","data":{"pr_url":"https://github.com/macatocz/makato/pull/201","pr_number":201}}
+{"ts":"2026-07-09T17:32:51.000Z","skill":"build-create-pr","story":"agent-skill-routing","step":"session","status":"ok","data":{"pr_url":"https://github.com/macatocz/makato/pull/201","issue_linked":true,"issue_type":"github","closes_injected":1,"artifact_status":"missing","gh_host":"github.com"}}
+{"ts":"2026-07-10T05:08:09.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"session","status":"start","data":{"goal_tasks":5,"tdd_tasks_skipped":0}}
+{"ts":"2026-07-10T05:08:35.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"baseline","status":"ok","data":{"pre_existing_failures":0,"baseline_mode":"proceed"}}
+{"ts":"2026-07-10T05:09:01.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"load-context","status":"ok","data":{"prototype":false,"grill_context":false}}
+{"ts":"2026-07-10T05:11:03.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"build","task":1,"status":"ok","data":{"files_written":1}}
+{"ts":"2026-07-10T05:11:03.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"verify-runtime","task":1,"status":"ok","data":{"runtime_errors":0}}
+{"ts":"2026-07-10T05:11:03.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"test","task":1,"status":"ok","data":{"tests_written":0}}
+{"ts":"2026-07-10T05:11:03.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"verify-task","task":1,"status":"ok","data":{"new_failures":0}}
+{"ts":"2026-07-10T05:11:50.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"build","task":2,"status":"ok","data":{"files_written":1}}
+{"ts":"2026-07-10T05:11:50.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"verify-runtime","task":2,"status":"ok","data":{"runtime_errors":0}}
+{"ts":"2026-07-10T05:11:50.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"test","task":2,"status":"ok","data":{"tests_written":0}}
+{"ts":"2026-07-10T05:11:50.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"verify-task","task":2,"status":"ok","data":{"new_failures":0}}
+{"ts":"2026-07-10T05:12:53.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"build","task":3,"status":"ok","data":{"files_written":1}}
+{"ts":"2026-07-10T05:12:53.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"verify-runtime","task":3,"status":"ok","data":{"runtime_errors":0}}
+{"ts":"2026-07-10T05:12:53.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"test","task":3,"status":"ok","data":{"tests_written":0}}
+{"ts":"2026-07-10T05:12:53.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"verify-task","task":3,"status":"ok","data":{"new_failures":0}}
+{"ts":"2026-07-10T05:16:26.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"session","status":"start","data":{"goal_tasks":5,"tdd_tasks_skipped":0}}
+{"ts":"2026-07-10T05:16:44.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"baseline","status":"ok","data":{"pre_existing_failures":0,"baseline_mode":"proceed"}}
+{"ts":"2026-07-10T10:04:16.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"session","status":"start","data":{"goal_tasks":5,"tdd_tasks_skipped":0}}
+{"ts":"2026-07-10T10:04:40.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"baseline","status":"ok","data":{"pre_existing_failures":0,"baseline_mode":"proceed"}}
+{"ts":"2026-07-10T10:05:23.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"build","task":1,"status":"ok","data":{"files_written":1}}
+{"ts":"2026-07-10T10:05:23.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"verify-runtime","task":1,"status":"ok","data":{"runtime_errors":0}}
+{"ts":"2026-07-10T10:05:23.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"test","task":1,"status":"ok","data":{"tests_written":0}}
+{"ts":"2026-07-10T10:05:23.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"verify-task","task":1,"status":"ok","data":{"new_failures":0}}
+{"ts":"2026-07-10T10:05:23.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"build","task":2,"status":"ok","data":{"files_written":1}}
+{"ts":"2026-07-10T10:05:23.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"verify-runtime","task":2,"status":"ok","data":{"runtime_errors":0}}
+{"ts":"2026-07-10T10:05:23.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"test","task":2,"status":"ok","data":{"tests_written":0}}
+{"ts":"2026-07-10T10:05:23.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"verify-task","task":2,"status":"ok","data":{"new_failures":0}}
+{"ts":"2026-07-10T10:05:23.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"build","task":3,"status":"ok","data":{"files_written":1}}
+{"ts":"2026-07-10T10:05:23.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"verify-runtime","task":3,"status":"ok","data":{"runtime_errors":0}}
+{"ts":"2026-07-10T10:05:23.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"test","task":3,"status":"ok","data":{"tests_written":0}}
+{"ts":"2026-07-10T10:05:23.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"verify-task","task":3,"status":"ok","data":{"new_failures":0}}
+{"ts":"2026-07-10T10:05:23.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"build","task":4,"status":"ok","data":{"files_written":1}}
+{"ts":"2026-07-10T10:05:23.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"verify-runtime","task":4,"status":"ok","data":{"runtime_errors":0}}
+{"ts":"2026-07-10T10:05:23.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"test","task":4,"status":"ok","data":{"tests_written":0}}
+{"ts":"2026-07-10T10:05:24.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"verify-task","task":4,"status":"ok","data":{"new_failures":0}}
+{"ts":"2026-07-10T10:07:32.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"build","task":5,"status":"ok","data":{"files_written":4}}
+{"ts":"2026-07-10T10:07:32.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"verify-runtime","task":5,"status":"ok","data":{"runtime_errors":0}}
+{"ts":"2026-07-10T10:07:32.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"test","task":5,"status":"ok","data":{"tests_written":0}}
+{"ts":"2026-07-10T10:07:44.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"verify-task","task":5,"status":"ok","data":{"new_failures":0}}
+{"ts":"2026-07-10T10:07:58.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"final-verify","status":"ok","data":{"goal_tasks_complete":5,"conditional_coverage":"N/A","threshold_met":true}}
+{"ts":"2026-07-10T10:07:58.000Z","skill":"build-implement-goal","story":"agent-skill-routing","step":"session","status":"ok","data":{"goal_tasks":5,"tdd_tasks_pending":0}}
+{"ts":"2026-07-10T10:11:28.000Z","skill":"build-verify","story":"agent-skill-routing","step":"session","status":"start","data":{"coverage_threshold":"none"}}
+{"ts":"2026-07-10T10:15:11.000Z","skill":"build-verify","story":"agent-skill-routing","step":"gate-build","status":"ok","data":{"warnings":0,"note":"python project - no build/type-check command configured"}}
+{"ts":"2026-07-10T10:15:11.000Z","skill":"build-verify","story":"agent-skill-routing","step":"gate-lint","status":"ok","data":{"errors":0,"warnings":0,"ci_divergence":false,"ci_lint_run":false,"note":"plugins/ excluded by .markdownlintignore; all pre-existing lint issues; CI structural scripts pass"}}
+{"ts":"2026-07-10T10:15:11.000Z","skill":"build-verify","story":"agent-skill-routing","step":"gate-unit","status":"ok","data":{"total":54,"passed":54,"failed":0,"skipped":0}}
+{"ts":"2026-07-10T10:15:11.000Z","skill":"build-verify","story":"agent-skill-routing","step":"gate-integration","status":"ok","data":{"total":0,"passed":0,"failed":0,"skipped":0,"note":"no integration tests configured"}}
+{"ts":"2026-07-10T10:15:11.000Z","skill":"build-verify","story":"agent-skill-routing","step":"gate-coverage","status":"ok","data":{"conditional_coverage":"N/A","threshold":"none","threshold_met":true}}
+{"ts":"2026-07-10T10:15:11.000Z","skill":"build-verify","story":"agent-skill-routing","step":"session","status":"ok","data":{"all_gates_passed":true,"conditional_coverage":"N/A"}}
+{"ts":"2026-07-10T10:15:59.000Z","skill":"build-push-to-git","story":"agent-skill-routing","step":"session","status":"start","data":{"branch":"feat/146-agent-skill-routing","tasks":5}}
+{"ts":"2026-07-10T10:16:36.000Z","skill":"build-push-to-git","story":"agent-skill-routing","step":"commit","status":"ok","data":{"sha":"5307218","message":"feat(makato-plan): bootstrap task-skill-map.json with 200+ archetype→skills entries (#146)","files":11,"note":"all 5 tasks committed atomically — files were staged as a unit"}}
+{"ts":"2026-07-10T10:16:36.000Z","skill":"build-push-to-git","story":"agent-skill-routing","step":"autonomous-bypass","status":"ok","data":{"gate":"commit-grouping","reason":"plan-as-drafted"}}
+{"ts":"2026-07-10T10:16:36.000Z","skill":"build-push-to-git","story":"agent-skill-routing","step":"autonomous-bypass","status":"ok","data":{"gate":"push-confirm","reason":"autonomous mode"}}
+{"ts":"2026-07-10T10:17:02.000Z","skill":"build-push-to-git","story":"agent-skill-routing","step":"push","status":"ok","data":{"remote_branch":"origin/feat/146-agent-skill-routing"}}
+{"ts":"2026-07-10T10:17:02.000Z","skill":"build-push-to-git","story":"agent-skill-routing","step":"session","status":"ok","data":{"commits":1,"branch":"feat/146-agent-skill-routing"}}
+{"ts":"2026-07-10T10:22:01.000Z","skill":"build-create-pr","story":"agent-skill-routing","step":"session","status":"start","data":{"branch":"feat/146-agent-skill-routing","commits":1}}
+{"ts":"2026-07-10T10:22:25.000Z","skill":"build-create-pr","story":"agent-skill-routing","step":"autonomous-bypass","status":"ok","data":{"gate":"pr-draft-approval","reason":"open-pr-as-drafted"}}
+{"ts":"2026-07-10T10:22:25.000Z","skill":"build-create-pr","story":"agent-skill-routing","step":"pr_created","status":"start","data":{"branch":"feat/146-agent-skill-routing","gh_host":"github.com","title_len":67}}
+{"ts":"2026-07-10T10:23:03.000Z","skill":"build-create-pr","story":"agent-skill-routing","step":"pr_created","status":"ok","data":{"pr_url":"https://github.com/macatocz/makato/pull/213","pr_number":213}}
+{"ts":"2026-07-10T10:23:04.000Z","skill":"build-create-pr","story":"agent-skill-routing","step":"session","status":"ok","data":{"pr_url":"https://github.com/macatocz/makato/pull/213","issue_linked":true,"issue_type":"github","closes_injected":1,"artifact_status":"missing","gh_host":"github.com"}}
+{"ts":"2026-07-10T18:44:51.003Z","skill":"build-implement-tdd","story":"agent-skill-routing","step":"session","status":"start","data":{"tdd_tasks":2,"goal_tasks_skipped":2}}
+{"ts":"2026-07-10T18:45:04.052Z","skill":"build-implement-tdd","story":"agent-skill-routing","step":"baseline","status":"ok","data":{"pre_existing_failures":0,"baseline_mode":"proceed"}}
