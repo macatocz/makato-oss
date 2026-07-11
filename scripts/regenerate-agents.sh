@@ -121,6 +121,18 @@ Plugins discover project specs via (in order):
 
 No environment-variable fallback, no sibling-directory autodetect.
 
+## Skill adoption audit
+
+The `agent-skill-routing` epic runs a signal-triggered skill-adoption audit: an
+analyzer flags domains with low skill adoption, and a rotating human auditor
+(D14) triages a sample of merged PRs to drive F1 bundle refinements.
+
+**Auditors: follow [`docs/skill-audit-runbook.md`](docs/skill-audit-runbook.md).**
+It is the step-by-step onboarding procedure — interpret a D15 flag, select the
+D16 sample, record per-PR verdicts, file a `type:audit-refinement` PR, and
+advance the sample-size state machine — with a worked example covering both the
+scale-down and escalate-to-R&D outcomes.
+
 ## Skill routing opt-out
 
 By default every agent is **skill-routed** — `inject-skills` prepends `recommended_skills[]`
