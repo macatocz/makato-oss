@@ -45,7 +45,7 @@ skill decides and acts.
 ## 2. Inputs
 
 The caller passes a single finding object (same shape used everywhere else in the
-sensor-fixer pipeline):
+sensor-fixer pipeline — the canonical Finding contract is [`shared/finding-schema.md`](../../shared/finding-schema.md)):
 
 ```json
 {

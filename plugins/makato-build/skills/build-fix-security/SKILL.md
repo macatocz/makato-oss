@@ -17,7 +17,7 @@ whenever a bandit, safety, or pip-audit finding is routed here through
 `plugins/makato-build/shared/finding-routes.json`.
 
 It receives a single normalized finding, classifies it into one of four branches by
-matching the `(tool, rule_id)` pair against the CWE classification table (Section 3),
+matching the `(tool, rule)` pair against the CWE classification table (Section 3),
 applies the corresponding fix in place, and returns a structured outcome to the caller.
 
 The four branches, ordered from least invasive to most invasive:
@@ -48,7 +48,7 @@ If a `semgrep:*` finding arrives here, return `status: "error"` with
 ## 2. Inputs
 
 The caller passes a single finding object (same shape used everywhere else in the
-sensor-fixer pipeline):
+sensor-fixer pipeline — the canonical Finding contract is [`shared/finding-schema.md`](../../shared/finding-schema.md)):
 
 ```json
 {

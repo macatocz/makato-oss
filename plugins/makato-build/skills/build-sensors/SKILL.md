@@ -1,7 +1,7 @@
 ---
 name: build-sensors
 description: Run pre-commit sensors against staged/all/changed files, parse findings, dispatch sensor-fixer agent until clean or MAX_LOOPS=5. Use when pre-commit hook fails, when verifying gate-0 on a build, or when an autonomous fixer needs to re-run sensors after edits.
-version: "1.0.0"
+version: "1.1.0"
 tools: Bash, Read, Edit, Write, Agent
 ---
 
@@ -58,7 +58,7 @@ Run pre-commit sensors against the chosen file scope, parse findings, and dispat
    ```
    Return `{ok: true, loops: <n>, resolved: [], residual: [], jsonl_path: "specs/<spec_key>/build.jsonl"}`.
 
-5. **Otherwise, collect findings.** Gather every SARIF artefact written under `.pre-commit-trash/` plus tool stdout for hooks that don't emit SARIF. Pipe each artefact through the shared `parse-sarif.py` helper (located at `<plugin-root>/shared/parse-sarif.py`; resolve at runtime via `git rev-parse --show-toplevel` + plugin lookup). The shared parser normalises everything to `list[Finding]` with `{tool, rule_id, file, line, severity, message, fixable}`.
+5. **Otherwise, collect findings.** Gather every SARIF artefact written under `.pre-commit-trash/` plus tool stdout for hooks that don't emit SARIF. Pipe each artefact through the shared `parse-sarif.py` helper (located at `<plugin-root>/shared/parse-sarif.py`; resolve at runtime via `git rev-parse --show-toplevel` + plugin lookup). The shared parser normalises everything to `list[Finding]` with the canonical shape `{tool, rule, path, line, column, message, severity, autofix_available, raw}` — see [`shared/finding-schema.md`](../../shared/finding-schema.md) for the field-by-field contract. This shape is fixed at the emitter and read unchanged by `sensor-fixer` and every downstream fixer.
 
 6. **Dispatch the `sensor-fixer` agent** with the payload:
    ```json

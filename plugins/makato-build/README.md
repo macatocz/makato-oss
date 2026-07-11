@@ -163,7 +163,9 @@ makato-build closes the loop from ideation to merged code.
 - `shared/test_inject_context.py` — Unit tests for inject_context.py.
 - `shared/inject_skills.py` — Python implementation of the inject-skills bundle resolver — aggregates every plugin's skill-bundles.yml, applies glob-specificity ordering (D9), content-hint predicates (D19), and the installed-skill subset filter (D10), and returns ordered recommended skills for the dispatching agent.
 - `shared/test_inject_skills.py` — Unit + integration tests for inject_skills.py.
-- `shared/parse-sarif.py` — Normalise diagnostic output from various linters/checkers (including SARIF format) into a unified Finding stream for sensor-fixer.
+- `shared/parse-sarif.py` — Normalise diagnostic output from various linters/checkers (including SARIF format) into a unified Finding stream for sensor-fixer. Emits the canonical Finding shape documented in `shared/finding-schema.md`.
+- `shared/finding-schema.md` — Single source of truth for the normalised Finding shape flowing through the sensor loop (build-sensors → sensor-fixer → build-resolve-finding → fixers). Linked from all four loop artefacts.
+- `shared/finding-schema-smoke-test.sh` — Contract test guarding the Finding schema: asserts parse-sarif.py's emitted keys equal the documented canonical set, the loop docs carry no forbidden field names (rule_id/fixable/Finding-level file), and the reference doc is linked from every artefact. Wired into validate.yml (#230).
 - `shared/autonomous-propagation-smoke-tests.sh` — Smoke tests verifying that --autonomous flag propagates correctly across cross-skill dispatches.
 - `shared/build-log-batch-smoke-tests.sh` — Smoke tests for build-log.sh --batch mode.
 - `shared/default-branch-smoke-tests.sh` — Smoke tests for default-branch.sh resolution logic.
@@ -174,7 +176,7 @@ makato-build closes the loop from ideation to merged code.
 
 ## Shared Resources
 
-- `shared/finding-routes.json` — Sensor finding → action routing table (version 1.1). Maps tool:rule_id to action (autofix/skill/autofix-then-skill), cmd, and fallback_skill. Consumed by sensor-fixer Phase 0 and build-resolve-finding.
+- `shared/finding-routes.json` — Sensor finding → action routing table (version 1.1). Maps `tool:rule` (see `shared/finding-schema.md`) to action (autofix/skill/autofix-then-skill), cmd, and fallback_skill. Consumed by sensor-fixer Phase 0 and build-resolve-finding.
 - `shared/baseline-guide.md` — Reference guide for establishing a test baseline before code changes — distinguishes pre-existing failures from session-introduced ones. Consumed by build-implement-tdd, build-implement-goal, build-simplify, build-verify.
 - `config/context-bundles.yml` — Bundle registry consumed by inject-context — maps file glob patterns to rule-file paths that knowledge-scout should pre-read.
 - `agents/RETURN-CONTRACT.md` — R1 envelope spec shared by all build agents — defines the required JSON block shape (status, errors, tool_calls_used, data) that every sub-agent must emit as its final output.

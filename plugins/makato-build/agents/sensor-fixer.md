@@ -41,7 +41,7 @@ Your dispatch prompt provides:
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `REPO_ROOT` | string (absolute path) | yes | Repository root. All file paths are resolved against this. |
-| `FINDINGS` | `list[Finding]` | yes | Parsed sensor findings from `parse-sarif.py`. Each finding has at minimum `{rule_id, file, line, message, fingerprint}`. |
+| `FINDINGS` | `list[Finding]` | yes | Parsed sensor findings from `parse-sarif.py`. Each finding carries the canonical shape `{tool, rule, path, line, column, message, severity, autofix_available, raw}` — see [`../shared/finding-schema.md`](../shared/finding-schema.md) for the full contract. `fingerprint` is NOT a field on an incoming finding — the agent *derives* it per finding for deduplication (see below). |
 | `SPEC_KEY` | string | no | Spec key under `specs/`. Defaults to `sensor-harness-v1`. |
 | `MAX_LOOPS` | integer | no | Hard cap on Phase 1 outer iterations. Defaults to `5`. |
 | `RECOMMENDED_SKILLS` | `list[string]` | no | Array of `"plugin:skill-id"` strings forwarded from the parent task's `recommended_skills[]` field (agent-skill-routing #146). When present and non-empty, invoke each skill before Phase 0 to surface domain conventions relevant to the finding set. Forward to each `build-resolve-finding` dispatch as an additional input field so repair skills can benefit from the same context. Omit when absent — do NOT forward an empty array. |
@@ -208,7 +208,7 @@ Two row shapes:
 **Phase 1 (per-finding dispatch) — `loop: 1..MAX_LOOPS`:**
 
 ```json
-{"ts": "2026-06-18T12:34:56Z", "loop": 2, "action": "patched", "finding": {"rule_id": "...", "file": "...", "line": 42, "fingerprint": "..."}, "skill": "build-resolve-finding"}
+{"ts": "2026-06-18T12:34:56Z", "loop": 2, "action": "patched", "finding": {"tool": "...", "rule": "...", "path": "...", "line": 42, "fingerprint": "..."}, "skill": "build-resolve-finding"}
 ```
 
 ## R1 return envelope
@@ -229,7 +229,7 @@ Field mapping:
 |---|---|
 | `files_changed` | Union of files touched by Phase 0 batched cmds and all Phase 1 `build-resolve-finding` dispatches. |
 | `tests_written` | `[]` — the harness itself does not write tests. |
-| `errors` | List of fingerprints (or `rule_id:file:line` strings) for unresolved findings; `[]` on success. |
+| `errors` | List of fingerprints (or `tool:rule:path:line` strings) for unresolved findings; `[]` on success. |
 | `tool_calls_used` | Phase 0 cmd invocations plus Phase 1 dispatches (not counting inner agent counts). |
 | `data` | `{ "loops": N, "resolved": N, "escalated": N, "residual": N, "phase0_resolved": N, "phase0_cmds_run": N, "skills_used": [...] }`. Include `"autofix-batched"` in `skills_used` when Phase 0 fired. |
 
