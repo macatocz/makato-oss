@@ -14,6 +14,7 @@ import json
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 _HERE = Path(__file__).parent.resolve()
@@ -168,6 +169,7 @@ class TestAuditSkillAdoption(unittest.TestCase):
         output_path = self.tmp / "skill-adoption.md"
 
         import io
+
         stderr_capture = io.StringIO()
         result = _mod.generate_dashboard(
             log_path=log_path,
@@ -199,6 +201,7 @@ class TestAuditSkillAdoption(unittest.TestCase):
         output_path = self.tmp / "skill-adoption.md"
 
         import io
+
         stdout_capture = io.StringIO()
         _mod.generate_dashboard(
             log_path=log_path,
@@ -261,6 +264,500 @@ class TestAuditSkillAdoption(unittest.TestCase):
 
         dashboard = output_path.read_text()
         self.assertIn("malformed", dashboard.lower())
+
+
+# ---------------------------------------------------------------------------
+# Task 1 — D16 state sidecar: load/init + atomic save
+# ---------------------------------------------------------------------------
+
+
+class TestD16StateSidecar(unittest.TestCase):
+    """Tests for the .claude/state/audit-state.json sidecar (D16)."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+
+    def test_load_missing_returns_empty(self):
+        """Absent state file → empty dict, never raises."""
+        state = _mod._load_state(self.tmp / "nonexistent.json")
+        self.assertEqual(state, {})
+
+    def test_load_unparseable_returns_empty(self):
+        """Corrupt/unparseable state file → empty dict, never raises."""
+        p = self.tmp / "audit-state.json"
+        p.write_text("{not json")
+        self.assertEqual(_mod._load_state(p), {})
+
+    def test_save_then_load_round_trips(self):
+        """State saved is state loaded back, byte-for-value identical."""
+        p = self.tmp / "state" / "audit-state.json"  # nested dir must be created
+        state = {
+            "makato-build:build-refine": {
+                "consecutive_clean": 2,
+                "consecutive_dirty": 0,
+                "current_sample_size": 10,
+                "last_window_end": "2026-07-11T00:00:00Z",
+            }
+        }
+        _mod._save_state(state, p)
+        self.assertTrue(p.exists())
+        self.assertEqual(_mod._load_state(p), state)
+
+    def test_save_is_atomic_no_partial_temp_left(self):
+        """After save, only the target file exists — no stray tempfiles."""
+        p = self.tmp / "audit-state.json"
+        _mod._save_state({"x": {"consecutive_clean": 1}}, p)
+        siblings = list(self.tmp.iterdir())
+        self.assertEqual([s.name for s in siblings], ["audit-state.json"])
+
+
+# ---------------------------------------------------------------------------
+# Task 2 — adaptive sample sizing + clean/dirty counters
+# ---------------------------------------------------------------------------
+
+
+class TestAdaptiveWindows(unittest.TestCase):
+    """Tests for _evaluate_windows (D16 stateful adaptive sizing)."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.now = datetime(2026, 7, 11, 12, 0, 0, tzinfo=timezone.utc)
+
+    def _entries(self, skill, n_recent, n_old=0):
+        """Build valid entries: n_recent within 7d, n_old outside 7d."""
+        out = []
+        recent_ts = (self.now - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        old_ts = (self.now - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        for i in range(n_recent):
+            out.append(
+                {
+                    "ts": recent_ts,
+                    "session_id": f"r-{skill}-{i}",
+                    "agent_id": "a",
+                    "agent_name": "coder",
+                    "parent_agent_id": "p",
+                    "task_id": "t",
+                    "skill": skill,
+                    "plugin": "makato-build",
+                    "event": "invoked",
+                }
+            )
+        for i in range(n_old):
+            out.append(
+                {
+                    "ts": old_ts,
+                    "session_id": f"o-{skill}-{i}",
+                    "agent_id": "a",
+                    "agent_name": "coder",
+                    "parent_agent_id": "p",
+                    "task_id": "t",
+                    "skill": skill,
+                    "plugin": "makato-build",
+                    "event": "invoked",
+                }
+            )
+        return out
+
+    def test_dirty_window_increments_dirty_and_grows_sample(self):
+        """>=5 recent sessions, rate<50% → dirty; dirty counter +1, sample +5."""
+        # 2 recent of 10 total → 7-day rate 20% < 50%, sessions_7d=2 ... need >=5 recent
+        # Use 6 recent + 4 old = rate 60%? No — rate is recent/total. Want rate<0.5 AND recent>=5.
+        # 5 recent + 6 old = total 11, rate 5/11 ≈ 45% < 50%, recent(sessions_7d)=5 >= floor.
+        valid = self._entries("s", n_recent=5, n_old=6)
+        prior = {}
+        new_state, results = _mod._evaluate_windows(valid, prior, now=self.now)
+        r = results["s"]
+        self.assertEqual(r["classification"], "dirty")
+        self.assertEqual(new_state["s"]["consecutive_dirty"], 1)
+        self.assertEqual(new_state["s"]["consecutive_clean"], 0)
+        # sample grows from init 10 to 15 on first dirty
+        self.assertEqual(new_state["s"]["current_sample_size"], 15)
+
+    def test_sample_size_caps_at_30(self):
+        """Repeated dirty windows cap current_sample_size at 30."""
+        valid = self._entries("s", n_recent=5, n_old=6)
+        prior = {
+            "s": {
+                "consecutive_dirty": 4,
+                "consecutive_clean": 0,
+                "current_sample_size": 30,
+                "last_window_end": "",
+            }
+        }
+        new_state, _ = _mod._evaluate_windows(valid, prior, now=self.now)
+        self.assertEqual(new_state["s"]["current_sample_size"], 30)
+        self.assertEqual(new_state["s"]["consecutive_dirty"], 5)
+
+    def test_clean_window_resets_dirty(self):
+        """Healthy rate → clean; clean counter +1, dirty reset to 0."""
+        # 9 recent of 10 total → rate 90% >= 50% → clean
+        valid = self._entries("s", n_recent=9, n_old=1)
+        prior = {
+            "s": {
+                "consecutive_dirty": 2,
+                "consecutive_clean": 0,
+                "current_sample_size": 20,
+                "last_window_end": "",
+            }
+        }
+        new_state, results = _mod._evaluate_windows(valid, prior, now=self.now)
+        self.assertEqual(results["s"]["classification"], "clean")
+        self.assertEqual(new_state["s"]["consecutive_dirty"], 0)
+        self.assertEqual(new_state["s"]["consecutive_clean"], 1)
+
+    def test_insufficient_sessions_no_action(self):
+        """<5 recent sessions → insufficient; counters unchanged, no signal (AC-2)."""
+        valid = self._entries("s", n_recent=3, n_old=0)
+        prior = {
+            "s": {
+                "consecutive_dirty": 1,
+                "consecutive_clean": 0,
+                "current_sample_size": 15,
+                "last_window_end": "",
+            }
+        }
+        new_state, results = _mod._evaluate_windows(valid, prior, now=self.now)
+        self.assertEqual(results["s"]["classification"], "insufficient")
+        # counters preserved (no-op)
+        self.assertEqual(new_state["s"]["consecutive_dirty"], 1)
+        self.assertEqual(new_state["s"]["consecutive_clean"], 0)
+
+    def test_three_dirty_flags_escalation(self):
+        """Third consecutive dirty window sets escalate=True."""
+        valid = self._entries("s", n_recent=5, n_old=6)
+        prior = {
+            "s": {
+                "consecutive_dirty": 2,
+                "consecutive_clean": 0,
+                "current_sample_size": 20,
+                "last_window_end": "",
+            }
+        }
+        _, results = _mod._evaluate_windows(valid, prior, now=self.now)
+        self.assertTrue(results["s"]["escalate"])
+        self.assertEqual(results["s"]["consecutive_dirty"], 3)
+
+    def test_three_clean_relaxes_threshold(self):
+        """Third consecutive clean window relaxes/suspends (relaxed flag set)."""
+        valid = self._entries("s", n_recent=9, n_old=1)
+        prior = {
+            "s": {
+                "consecutive_dirty": 0,
+                "consecutive_clean": 2,
+                "current_sample_size": 10,
+                "last_window_end": "",
+            }
+        }
+        _, results = _mod._evaluate_windows(valid, prior, now=self.now)
+        self.assertTrue(results["s"].get("relaxed"))
+
+
+# ---------------------------------------------------------------------------
+# Task 3 — D14 3-dirty escalation: auto-open issue + tracker-unreachable
+# ---------------------------------------------------------------------------
+
+
+class TestRefinementEscalation(unittest.TestCase):
+    """Tests for _open_refinement_issue and tracker-unreachable handling."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+
+    def test_escalation_invokes_runner_with_label(self):
+        """On escalation, issue runner called with type:audit-refinement label."""
+        calls = []
+
+        def runner(cmd):
+            calls.append(cmd)
+
+            class R:  # noqa: N801
+                returncode = 0
+                stdout = "https://github.com/x/y/issues/1"
+                stderr = ""
+
+            return R()
+
+        ok = _mod._open_refinement_issue("makato-build:foo", 0.2, issue_runner=runner)
+        self.assertTrue(ok)
+        self.assertEqual(len(calls), 1)
+        flat = " ".join(calls[0])
+        self.assertIn("type:audit-refinement", flat)
+        self.assertIn("makato-build:foo", flat)
+
+    def test_runner_failure_returns_false_not_raise(self):
+        """Runner raising (tracker unreachable) → returns False, no exception."""
+
+        def runner(cmd):
+            raise OSError("gh not reachable")
+
+        ok = _mod._open_refinement_issue("s", 0.1, issue_runner=runner)
+        self.assertFalse(ok)
+
+    def test_process_writes_note_even_when_tracker_unreachable(self):
+        """AC-4: escalation with failing runner still writes audit note + warns."""
+        import io
+
+        state_path = self.tmp / "audit-state.json"
+        anomaly_path = self.tmp / "skill-audit-notes.md"
+        # prior: 2 dirty so this window (dirty) escalates
+        state_path.write_text(
+            json.dumps(
+                {
+                    "s": {
+                        "consecutive_dirty": 2,
+                        "consecutive_clean": 0,
+                        "current_sample_size": 20,
+                        "last_window_end": "",
+                    }
+                }
+            )
+        )
+        valid = _AdaptiveHelper_entries("s", n_recent=5, n_old=6)
+
+        def failing_runner(cmd):
+            raise OSError("unreachable")
+
+        stderr = io.StringIO()
+        _mod.run_adaptive_audit(
+            valid=valid,
+            state_path=state_path,
+            anomaly_path=anomaly_path,
+            dry_run=False,
+            issue_runner=failing_runner,
+            stderr=stderr,
+            now=datetime(2026, 7, 11, 12, 0, 0, tzinfo=timezone.utc),
+        )
+        # note recorded despite tracker failure
+        self.assertTrue(anomaly_path.exists())
+        self.assertIn(
+            "makato-build".split(":")[0] if False else "s", anomaly_path.read_text()
+        )
+        # operator warned
+        self.assertIn("warn", stderr.getvalue().lower())
+
+    def test_below_three_dirty_does_not_invoke_runner(self):
+        """< 3 dirty windows → runner NOT invoked."""
+        state_path = self.tmp / "audit-state.json"
+        anomaly_path = self.tmp / "skill-audit-notes.md"
+        state_path.write_text(
+            json.dumps(
+                {
+                    "s": {
+                        "consecutive_dirty": 0,
+                        "consecutive_clean": 0,
+                        "current_sample_size": 10,
+                        "last_window_end": "",
+                    }
+                }
+            )
+        )
+        valid = _AdaptiveHelper_entries("s", n_recent=5, n_old=6)
+        calls = []
+
+        def runner(cmd):
+            calls.append(cmd)
+
+            class R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+
+            return R()
+
+        _mod.run_adaptive_audit(
+            valid=valid,
+            state_path=state_path,
+            anomaly_path=anomaly_path,
+            dry_run=False,
+            issue_runner=runner,
+            now=datetime(2026, 7, 11, 12, 0, 0, tzinfo=timezone.utc),
+        )
+        self.assertEqual(calls, [])
+
+
+# ---------------------------------------------------------------------------
+# Task 4 — --dry-run suppresses state writes and gh calls
+# ---------------------------------------------------------------------------
+
+
+class TestDryRunSuppression(unittest.TestCase):
+    """AC-3: dry-run reports signal but performs no writes and no gh calls."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+
+    def test_dry_run_no_state_no_issue_no_note(self):
+        import io
+
+        state_path = self.tmp / "audit-state.json"
+        anomaly_path = self.tmp / "skill-audit-notes.md"
+        state_path.write_text(
+            json.dumps(
+                {
+                    "s": {
+                        "consecutive_dirty": 2,
+                        "consecutive_clean": 0,
+                        "current_sample_size": 20,
+                        "last_window_end": "",
+                    }
+                }
+            )
+        )
+        state_before = state_path.read_text()
+        valid = _AdaptiveHelper_entries("s", n_recent=5, n_old=6)
+        calls = []
+
+        def runner(cmd):
+            calls.append(cmd)
+
+            class R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+
+            return R()
+
+        stdout = io.StringIO()
+        _mod.run_adaptive_audit(
+            valid=valid,
+            state_path=state_path,
+            anomaly_path=anomaly_path,
+            dry_run=True,
+            issue_runner=runner,
+            stdout=stdout,
+            now=datetime(2026, 7, 11, 12, 0, 0, tzinfo=timezone.utc),
+        )
+        # no gh call
+        self.assertEqual(calls, [])
+        # state file unchanged
+        self.assertEqual(state_path.read_text(), state_before)
+        # no note written
+        self.assertFalse(anomaly_path.exists())
+        # signal reported to stdout
+        self.assertIn("s", stdout.getvalue())
+
+
+# ---------------------------------------------------------------------------
+# INTEGRATE — generate_dashboard(run_adaptive=True) end-to-end
+# ---------------------------------------------------------------------------
+
+
+class TestGenerateDashboardAdaptiveIntegration(unittest.TestCase):
+    """INTEGRATE: adaptive pass wired through the public dashboard entry point."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+
+    def test_adaptive_pass_runs_from_generate_dashboard(self):
+        """run_adaptive=True escalates on 3-dirty and writes note + state via the
+        public dashboard entry point (real log file on disk, injected runner)."""
+        log_path = self.tmp / "skill-invocations.log"
+        lines = [json.dumps(e) for e in _AdaptiveHelper_entries("s", 5, 6)]
+        log_path.write_text("\n".join(lines))
+        output_path = self.tmp / "skill-adoption.md"
+        state_path = self.tmp / "audit-state.json"
+        anomaly_path = self.tmp / "skill-audit-notes.md"
+        # seed 2 prior dirty so this window is the 3rd → escalation
+        state_path.write_text(
+            json.dumps(
+                {
+                    "s": {
+                        "consecutive_dirty": 2,
+                        "consecutive_clean": 0,
+                        "current_sample_size": 20,
+                        "last_window_end": "",
+                    }
+                }
+            )
+        )
+        calls = []
+
+        def runner(cmd):
+            calls.append(cmd)
+
+            class R:
+                returncode = 0
+                stdout = "https://github.com/x/y/issues/9"
+                stderr = ""
+
+            return R()
+
+        result = _mod.generate_dashboard(
+            log_path=log_path,
+            output_path=output_path,
+            dry_run=False,
+            anomaly_path=anomaly_path,
+            run_adaptive=True,
+            state_path=state_path,
+            issue_runner=runner,
+        )
+
+        self.assertTrue(output_path.exists())
+        self.assertIsNotNone(result["adaptive"])
+        self.assertIn("s", result["adaptive"]["escalated"])
+        self.assertEqual(result["adaptive"]["issues_opened"], 1)
+        self.assertEqual(len(calls), 1)
+        self.assertIn("type:audit-refinement", " ".join(calls[0]))
+        self.assertTrue(anomaly_path.exists())
+        self.assertEqual(_mod._load_state(state_path)["s"]["consecutive_dirty"], 3)
+
+    def test_adaptive_not_run_when_flag_false(self):
+        """Default run_adaptive=False → adaptive summary is None, no state written."""
+        log_path = self.tmp / "skill-invocations.log"
+        lines = [json.dumps(e) for e in _AdaptiveHelper_entries("s", 5, 6)]
+        log_path.write_text("\n".join(lines))
+        output_path = self.tmp / "skill-adoption.md"
+        state_path = self.tmp / "audit-state.json"
+        anomaly_path = (
+            self.tmp / "skill-audit-notes.md"
+        )  # keep base D15 write inside tmp
+
+        result = _mod.generate_dashboard(
+            log_path=log_path,
+            output_path=output_path,
+            dry_run=False,
+            anomaly_path=anomaly_path,
+            state_path=state_path,
+        )
+        self.assertIsNone(result["adaptive"])
+        self.assertFalse(state_path.exists())
+
+
+def _AdaptiveHelper_entries(skill, n_recent, n_old=0):
+    """Module-level twin of TestAdaptiveWindows._entries for cross-class reuse."""
+    now = datetime(2026, 7, 11, 12, 0, 0, tzinfo=timezone.utc)
+    out = []
+    recent_ts = (now - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    old_ts = (now - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    for i in range(n_recent):
+        out.append(
+            {
+                "ts": recent_ts,
+                "session_id": f"r-{skill}-{i}",
+                "agent_id": "a",
+                "agent_name": "coder",
+                "parent_agent_id": "p",
+                "task_id": "t",
+                "skill": skill,
+                "plugin": "makato-build",
+                "event": "invoked",
+            }
+        )
+    for i in range(n_old):
+        out.append(
+            {
+                "ts": old_ts,
+                "session_id": f"o-{skill}-{i}",
+                "agent_id": "a",
+                "agent_name": "coder",
+                "parent_agent_id": "p",
+                "task_id": "t",
+                "skill": skill,
+                "plugin": "makato-build",
+                "event": "invoked",
+            }
+        )
+    return out
 
 
 if __name__ == "__main__":
