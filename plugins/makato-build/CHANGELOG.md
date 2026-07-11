@@ -5,7 +5,18 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
-## Lightweight planning lane — `spec_tier:plan-only` gate (#210)
+## build-verify Gate-0 threads `spec_key` into build-sensors (#229)
+
+- **`build-verify` → 1.6.1** — Step 3 (Gate 0: SENSORS) now invokes
+  `/makato-build:build-sensors all <key>`, threading the resolved work-item key as
+  the `spec_key` positional argument. Previously the invocation passed only the
+  `all` scope; `build-sensors` marks `spec_key` **required** and uses it to locate
+  `specs/<key>-<slug>/build.jsonl`, so the Gate-0 sensors run could not append to
+  the same audit log as the rest of the session — and in autonomous mode the DoD
+  Gate-0 record (item 5) was lost. The threaded key is the identical `<key>` used
+  by every `build-log.sh "<key>"` call in the skill.
+
+---
 
 Foundation slice of the Lightweight Planning Lane epic. Small features can enter
 the autonomous pipeline with a hand-authored `plan.md` instead of the full
