@@ -100,7 +100,7 @@ Each outer iteration of `run` performs the following steps in order:
    `$MAKATO_HALT_FILE`) is present — the loop exits cleanly (NEVER 3,
    HALT-000). The exit is recorded by stamping `.last_halt_at` in
    `loop-status.json`.
-2. **Board poll.** `gh --hostname <host> project item-list <number>
+2. **Board poll.** `GH_HOST=<host> gh project item-list <number>
    --owner <owner> --format json --limit 9999` runs and is filtered in
    two steps via `jq`:
    - Drop everything where `content.type != "Issue"` (DraftIssue and

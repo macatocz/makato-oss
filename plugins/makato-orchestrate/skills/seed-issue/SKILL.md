@@ -303,7 +303,7 @@ and skip to Step 8.
 1. Find the board item ID for this issue:
 
    ```bash
-   ITEM_ID="$(gh --hostname "$HOST" project item-list "$PROJECT_NUMBER" \
+   ITEM_ID="$(GH_HOST="$HOST" gh project item-list "$PROJECT_NUMBER" \
      --owner "$OWNER" \
      --format json \
      --limit 9999 \
@@ -315,7 +315,7 @@ and skip to Step 8.
 
    ```bash
    ISSUE_URL="$(gh issue view "$ISSUE_NUMBER" --repo "$REPO" --json url --jq '.url')"
-   ITEM_ID="$(gh --hostname "$HOST" project item-add "$PROJECT_NUMBER" \
+   ITEM_ID="$(GH_HOST="$HOST" gh project item-add "$PROJECT_NUMBER" \
      --owner "$OWNER" \
      --url "$ISSUE_URL" \
      --format json \
@@ -333,7 +333,7 @@ and skip to Step 8.
    Step 8.5 can reuse, but do not write the Status field here. Otherwise:
 
    ```bash
-   gh --hostname "$HOST" project item-edit \
+   GH_HOST="$HOST" gh project item-edit \
      --project-id "$PROJECT_NODE_ID" \
      --id "$ITEM_ID" \
      --field-id "$STATUS_FIELD_ID" \
@@ -480,7 +480,7 @@ and any hollow plan return `invalid`.
    Step 7 and run the `item-edit` call that Step 7 deferred:
 
    ```bash
-   gh --hostname "$HOST" project item-edit \
+   GH_HOST="$HOST" gh project item-edit \
      --project-id "$PROJECT_NODE_ID" --id "$ITEM_ID" \
      --field-id "$STATUS_FIELD_ID" --single-select-option-id "$READY_OPTION_ID"
    ```

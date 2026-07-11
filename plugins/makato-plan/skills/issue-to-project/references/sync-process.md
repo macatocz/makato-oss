@@ -14,7 +14,7 @@ After checks 1–4 pass and after Step 1 config validation completes (so `PROJEC
 
 ```bash
 VERIFY_RAW="$(timeout "${ITP_GH_TIMEOUT_SECONDS:-30}" \
-  gh --hostname "${RESOLVED_HOST:-github.com}" project view "$NUMBER" --owner "$OWNER" --format json 2>&1)" || {
+  GH_HOST="${RESOLVED_HOST:-github.com}" gh project view "$NUMBER" --owner "$OWNER" --format json 2>&1)" || {
     echo "issue-to-project: board ID verify probe failed: $VERIFY_RAW. Check network/auth and retry, or re-run '--init'."
     echo "HALT: CROSS_REPO_VERIFY_FAILED"
     exit 1
@@ -205,7 +205,7 @@ for key in skip_fields:
 
 ```bash
 SNAPSHOT_RAW="$(timeout "${ITP_GH_TIMEOUT_SECONDS:-30}" \
-  gh --hostname "${RESOLVED_HOST:-github.com}" project item-list "$NUMBER" --owner "$OWNER" --format json --limit 9999 2>&1)" || {
+  GH_HOST="${RESOLVED_HOST:-github.com}" gh project item-list "$NUMBER" --owner "$OWNER" --format json --limit 9999 2>&1)" || {
     echo "issue-to-project: item-list failed/timed-out: $SNAPSHOT_RAW" >&2
     echo "HALT: SNAPSHOT_FAILED"
     exit 1
@@ -340,7 +340,7 @@ For each issue NOT in `snapshot`:
 
 ```bash
 ADD_RAW="$(timeout "${ITP_GH_TIMEOUT_SECONDS:-30}" \
-  gh --hostname "${RESOLVED_HOST:-github.com}" project item-add "$NUMBER" --owner "$OWNER" --url "$ISSUE_URL" --format json 2>&1)"
+  GH_HOST="${RESOLVED_HOST:-github.com}" gh project item-add "$NUMBER" --owner "$OWNER" --url "$ISSUE_URL" --format json 2>&1)"
 ```
 
 On success, parse `{"id": "PVTI_..."}`. Then resolve the routing target from the issue's `labels[]` using the pure function below — if it returns a non-default target, follow up with an `item-edit` against the matching `options.*` ID from the config.
@@ -482,7 +482,7 @@ When `resolve_status_label` returns an options key (i.e. target != Todo), issue 
 
 ```bash
 EDIT_RAW="$(timeout "${ITP_GH_TIMEOUT_SECONDS:-30}" \
-  gh --hostname "${RESOLVED_HOST:-github.com}" project item-edit \
+  GH_HOST="${RESOLVED_HOST:-github.com}" gh project item-edit \
     --id "$PROJECT_ITEM_ID" \
     --project-id "$PROJECT_NODE_ID" \
     --field-id "$STATUS_FIELD_ID" \
@@ -538,18 +538,18 @@ Load `references/auto-reinit-process.md` for the full sub-path procedure. High-l
 ```
 Auto-reinit sub-path (entered when --auto-reinit is active and stale trigger fires):
   1. Check title migration: if github_project.title absent, run
-       gh --hostname "${RESOLVED_HOST:-github.com}" project view <number> --owner <owner> --format json
+       GH_HOST="${RESOLVED_HOST:-github.com}" gh project view <number> --owner <owner> --format json
      to fetch and cache the title. On timeout/failure: log WARN, skip auto-reinit,
      fall through to HALT STALE_CONFIG with note "auto-reinit skipped: title not cached".
 
-  2. Run: gh --hostname "${RESOLVED_HOST:-github.com}" project list --owner <owner> --format json --limit ${PROJECT_LIST_LIMIT:-50}
+  2. Run: GH_HOST="${RESOLVED_HOST:-github.com}" gh project list --owner <owner> --format json --limit ${PROJECT_LIST_LIMIT:-50}
      Filter: entry.number == cached.number AND entry.title ~= cached.title (case-insensitive).
      - Zero matches       → HALT AMBIGUOUS_REINIT (project not found)
      - Title mismatch     → HALT AMBIGUOUS_REINIT (title changed)
      - 2+ matches         → HALT AMBIGUOUS_REINIT (API invariant violated)
      - Owner type changed → HALT AMBIGUOUS_REINIT (structural change)
 
-  3. Run: gh --hostname "${RESOLVED_HOST:-github.com}" project field-list <number> --owner <owner> --format json
+  3. Run: GH_HOST="${RESOLVED_HOST:-github.com}" gh project field-list <number> --owner <owner> --format json
      Validate: Status field present, same name, same 4 option names (case-insensitive: Todo, In Progress, Done, Blocked).
      Mismatch → HALT AMBIGUOUS_REINIT (field structure drift).
 
@@ -769,7 +769,7 @@ def run_field_write_loop(issue_url, project_item_id, signals, snapshot_entry, fi
         # Issue the item-edit call
         edit_cmd = (
             f"timeout {os.environ.get('ITP_GH_TIMEOUT_SECONDS', '30')} "
-            f"gh --hostname {os.environ.get('RESOLVED_HOST', 'github.com')} project item-edit "
+            f"GH_HOST={os.environ.get('RESOLVED_HOST', 'github.com')} gh project item-edit "
             f"--id {project_item_id} "
             f"--project-id {gp['project_node_id']} "
             f"--field-id {field_id} "
