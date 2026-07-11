@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.41.0](https://github.com/macatocz/makato/compare/v0.40.1...v0.41.0) (2026-07-11)
+
+
+### ✨ Features
+
+* **makato-build:** TEST_ORACLE — acceptanceTestCases[] drives coder RED tests ([#235](https://github.com/macatocz/makato/issues/235)) ([c343b62](https://github.com/macatocz/makato/commit/c343b62cf89002a224dbefee8ad8806f88190503))
+* **makato-build:** TEST_ORACLE — acceptanceTestCases[] drives coder RED tests ([#235](https://github.com/macatocz/makato/issues/235)) ([442baff](https://github.com/macatocz/makato/commit/442baff048fe0cc33e0f3bb31e1b4006ab23ebf1))
+
+
+### 🐛 Bug Fixes
+
+* **plugins:** GH_HOST= prefix on gh project subcommands (completes [#38](https://github.com/macatocz/makato/issues/38)) ([9cae691](https://github.com/macatocz/makato/commit/9cae6917999a9a3e2d08a9da102ca2bb01cadbf6))
+* **plugins:** use GH_HOST= prefix instead of --hostname on gh project subcommands ([082d82b](https://github.com/macatocz/makato/commit/082d82b531a5de541fadf57ca9b54e8963988dd7))
+
+
+### 🤖 CI
+
+* **project-board-sync:** use MAKATO_TOKEN for operational board sync ([57ca623](https://github.com/macatocz/makato/commit/57ca6231ef7f5d9a5710b1bf5e96407c8247f8bc))
+* **project-board-sync:** use MAKATO_TOKEN for operational board sync ([3688473](https://github.com/macatocz/makato/commit/368847377c7f282be7511090c881036d8ae3ec98))
+
 ## [0.40.1](https://github.com/macatocz/makato/compare/v0.40.0...v0.40.1) (2026-07-11)
 
 
