@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.42.0](https://github.com/macatocz/makato/compare/v0.41.0...v0.42.0) (2026-07-11)
+
+
+### ✨ Features
+
+* **audit:** adaptive audit workflow — D16 state, sample sizing, D14 escalation ([#149](https://github.com/macatocz/makato/issues/149)) ([#242](https://github.com/macatocz/makato/issues/242)) ([c3cd09c](https://github.com/macatocz/makato/commit/c3cd09cf58b0204c9a1dfd853e12bdaf4571e35a))
+
 ## [0.41.0](https://github.com/macatocz/makato/compare/v0.40.1...v0.41.0) (2026-07-11)
 
 
