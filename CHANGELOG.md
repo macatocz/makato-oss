@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.40.1](https://github.com/macatocz/makato/compare/v0.40.0...v0.40.1) (2026-07-11)
+
+
+### 🐛 Bug Fixes
+
+* **makato-build:** build-verify threads spec_key into Gate-0 sensors ([#229](https://github.com/macatocz/makato/issues/229)) ([6dffc84](https://github.com/macatocz/makato/commit/6dffc84f8c92a29ae1f977224143a5aec0f83f2b))
+* **makato-build:** build-verify threads spec_key into Gate-0 sensors ([#229](https://github.com/macatocz/makato/issues/229)) ([db0dbeb](https://github.com/macatocz/makato/commit/db0dbebc9b62ce9790d2a24acb7efafa7bbcc598))
+* **makato-plan:** to-issues reads stories.json v2.0 schema ([#228](https://github.com/macatocz/makato/issues/228)) ([f5ffcdb](https://github.com/macatocz/makato/commit/f5ffcdb691f0ecdfe77ac0c02b406cca22c6240b))
+* **makato-plan:** to-issues reads stories.json v2.0 schema ([#228](https://github.com/macatocz/makato/issues/228)) ([79eed75](https://github.com/macatocz/makato/commit/79eed754f653652ac0cc89c55215ff25d4304fd6))
+
 ## [0.40.0](https://github.com/macatocz/makato/compare/v0.39.1...v0.40.0) (2026-07-10)
 
 
