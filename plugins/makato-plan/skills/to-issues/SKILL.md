@@ -7,19 +7,19 @@ description: >-
   (type/tier/tech/module/severity/phase/effort/priority/points/status), maps stories to ADR folders by
   name pattern, and emits `specs/{slug}/created-issues.json` for downstream plugins.
 license: MIT
-version: "3.4.0"
+version: "3.5.0"
 argument-hint: "[optional: feature slug] [--dry-run] [--interactive|--autonomous]"
 allowed-tools: Bash(gh *) Bash(git *) Bash(python3 *) Read Write Grep Glob
 hooks: ["convert to issues", "break into issues", "create github issues", "turn this into tickets", "issue breakdown", "create implementation tickets", "decompose into issues", "publish stories", "create issues from stories.json"]
 metadata:
   Authors: makato contributors
-  last_updated: "2026-06-27"
+  last_updated: "2026-07-11"
   mcp_server: none
 ---
 
 # To Issues
 
-Create GitHub issues on **github.com** from a shaped `stories.json`. Each issue carries a 9-dimension label set — type / tier / tech / module / severity / phase / effort / priority / status (the last is sparse, emitted only when non-default; the four prioritization dimensions are sparse-by-default too — emitted only when `stories[].metadata` is present) — an architecture-mapped module annotation, and a body rendered from a versioned template. Writes `specs/{slug}/created-issues.json` as a machine-readable handoff for downstream skills (e.g. `build-create-pr`, `issue-to-project`).
+Create GitHub issues on **github.com** from a shaped `stories.json`. Each issue carries a 10-dimension label set — type / tier / tech / module / severity / phase / effort / priority / points / status (the last is sparse, emitted only when non-default; the five prioritization dimensions are sparse-by-default too — emitted only when they can be resolved from `stories[].labels[]`, `stories[].storyPoints`, or a legacy `metadata` block) — an architecture-mapped module annotation, and a body rendered from a versioned template. Writes `specs/{slug}/created-issues.json` as a machine-readable handoff for downstream skills (e.g. `build-create-pr`, `issue-to-project`).
 
 **Breaking change vs. 2.x:** the skill no longer targets the 2.x enterprise GitHub host, no longer reads or writes `project-information.md`, and now requires a `.claude/config.json` at the repo root (silent fallback to `"sagibeast"` is provided).
 
@@ -36,7 +36,7 @@ Create GitHub issues on **github.com** from a shaped `stories.json`. Each issue 
 
 ## Reference Files
 
-- **MANDATORY** — load `references/label-taxonomy.md` for the 9-dimension taxonomy (`type:` / `tier:` / `tech:` / `module:` / `severity:` / `phase:` / `effort:` / `priority:` / `status:`), type-inference table, ADR-match algorithm, config-extension contract, and the sparse `status:` inference rules in `## Status Dimension`.
+- **MANDATORY** — load `references/label-taxonomy.md` for the 10-dimension taxonomy (`type:` / `tier:` / `tech:` / `module:` / `severity:` / `phase:` / `effort:` / `priority:` / `points:` / `status:`), type-inference table, ADR-match algorithm, config-extension contract, and the sparse `status:` inference rules in `## Status Dimension`.
 - **MANDATORY** — load `references/issue-template.md` for the body template (single edit point for issue body format).
 - **MANDATORY** — load `references/created-issues.schema.json` as the validation schema for the output artifact.
 - `references/slice-patterns.md` — only when a slice boundary is ambiguous or the caller asks about vertical-slicing strategy.
@@ -122,18 +122,18 @@ Output is a newline-separated list of lowercase-hyphenated ADR slugs.
 
 For each story in `stories.json.stories[]`, apply the algorithm in `references/label-taxonomy.md`:
 
-1. **type**: regex match the story title + scope against the inference table, top-to-bottom; first match wins; default `type:feat`.
+1. **type**: regex match the **inference text** — `summary` + `description.scope` + `description.background` (v2.0 field paths; there is no top-level `title` or flat `scope`) — against the inference table, top-to-bottom; first match wins; default `type:feat`.
 2. **tier**: copy `stories[].phase` verbatim, prefixed `tier:`. **Skip this dimension entirely when `type:future-enhancement` was inferred** — future-enhancement issues are pre-phase and carry no `tier:` label. In autonomous mode log `[to-issues:auto] story <n>: tier skipped (type:future-enhancement)`.
-3. **tech**: match story title + scope against the default tech keyword map AND any `labels.tech` patterns from `.claude/config.json`. Defaults evaluate first; config entries are appended (D14 union-with-defaults). Multiple matches → multiple `tech:` labels.
-4. **module**: tokenize the story (title + scope + background, lowercased, alphanumeric runs ≥3 chars). For each ADR folder slug, emit `module:<slug>` when at least one slug token appears in the story's token set. Emit ALL matching modules. If none match, log `[to-issues:auto] story <n>: no module match` and omit the dimension.
-5. **severity / phase / effort / priority / points** *(v3.3.0+, all optional)*: read `stories[].metadata.{severity, phase, effort, priority, points}` and emit one label per resolved value:
-   - `metadata.severity` ∈ {`critical`, `high`, `medium`, `low`} → `severity:<value>` verbatim.
-   - `metadata.phase` ∈ {`1`, `2`, `3`, `4`, `5`} → `phase:<value>` verbatim. **Bare digits only — no `p` prefix** (reserved for `priority:*`). For backward compatibility, `"p1"` through `"p5"` are auto-normalized to `"1"` through `"5"` with a soft-warn `[to-issues:auto] story <n>: metadata.phase="p1" auto-normalized to "1" (the "p" prefix is reserved for priority:*)`.
-   - `metadata.effort` ∈ {`s`, `m`, `l`, `xl`} → `effort:<value>` verbatim.
-   - `metadata.priority` ∈ {`p0`, `p1`, `p2`, `p3`} → `priority:<value>` verbatim. **If `metadata.priority` is absent AND `metadata.severity` is present, derive via the severity→priority map** (`critical→p0`, `high→p1`, `medium→p2`, `low→p3`) and log `[to-issues:auto] story <n>: priority:<derived> derived from severity:<value>`.
-   - `metadata.points` *(v3.4.0+)* — if present, must be a positive integer → `points:<value>` verbatim. **If `metadata.points` is absent AND `metadata.effort` is present, derive via the SIZE_MAP** (`s→1`, `m→3`, `l→8`, `xl→13`) and log `[to-issues:auto] story <n>: points:<derived> derived from effort:<value>`. Non-positive or non-integer values log `[to-issues:auto] story <n>: metadata.points=<value> not a positive integer — skipped` and are omitted.
-   - Any other value outside the documented enum logs `[to-issues:auto] story <n>: <field>=<value> not in enum — skipped` and is omitted (the issue is still created).
-   - When `stories[].metadata` is absent entirely, all five labels are omitted silently (no warning — these dimensions are sparse-by-default).
+3. **tech**: match the same **inference text** (`summary` + `description.scope` + `description.background`) against the default tech keyword map AND any `labels.tech` patterns from `.claude/config.json`. Defaults evaluate first; config entries are appended (D14 union-with-defaults). Multiple matches → multiple `tech:` labels.
+4. **module**: tokenize the **inference text** (`summary` + `description.scope` + `description.background`, lowercased, alphanumeric runs ≥3 chars), then apply the **informative-token filter** per `references/label-taxonomy.md` (`## ADR Folder-Match Algorithm`) — a language-neutral document-frequency filter that drops tokens appearing in more than half the batch (`df > N/2` and `df ≥ 2`), so batch-universal connectives (`and`, `und`, `a`, …) cannot drive a match in any language. For each ADR folder slug, emit `module:<slug>` when at least one **informative** slug token appears in the story's token set. Emit ALL matching modules. If none match, log `[to-issues:auto] story <n>: no module match` and omit the dimension.
+5. **severity / phase / effort / priority / points** *(v3.5.0+, all optional)*: resolve each dimension from the story's v2.0 fields, with a legacy `stories[].metadata.*` fallback for backward compatibility. **Resolution precedence per dimension: (a) explicit `stories[].labels[]` entry → (b) legacy `stories[].metadata.<field>` → (c) derivation from another v2.0 field → (d) omit.** The v2.0 schema (`decompose/references/stories-json-schema.md`) has **no `metadata` object** — it carries `storyPoints`, `phase`, and a free-form `labels[]`; the five dimensions below are therefore *derived*, not read from a `metadata` block that no longer exists. See `references/label-taxonomy.md` `## Prioritization Dimensions` for the full resolution table.
+   - **severity**: if `stories[].labels[]` contains a `severity:<value>` string with `<value>` ∈ {`critical`, `high`, `medium`, `low`}, emit it verbatim; else if legacy `metadata.severity` is present and in-enum, emit `severity:<value>`; else omit.
+   - **phase**: if `stories[].labels[]` contains a `phase:<n>` string with `<n>` ∈ {`1`–`5`}, emit it verbatim; else if legacy `metadata.phase` is present, emit `phase:<value>` (**bare digits only — no `p` prefix**, which is reserved for `priority:*`; legacy `"p1"`–`"p5"` auto-normalize to `"1"`–`"5"` with a soft-warn `[to-issues:auto] story <n>: metadata.phase="p1" auto-normalized to "1" (the "p" prefix is reserved for priority:*)`); else omit. **Do not derive `phase:` from `stories[].phase`** — that field is the vertical-slice tier (foundation/happy-path/edge-cases) and already drives `tier:`, not the numeric cross-plan `phase:`.
+   - **effort**: if `stories[].labels[]` contains an `effort:<value>` string with `<value>` ∈ {`s`, `m`, `l`, `xl`}, emit it verbatim; else if legacy `metadata.effort` is present and in-enum, emit `effort:<value>`; else omit.
+   - **priority**: if `stories[].labels[]` contains a `priority:<value>` string with `<value>` ∈ {`p0`–`p3`}, emit it verbatim; else if legacy `metadata.priority` is present and in-enum, emit it; else if a `severity` was resolved above, **derive** via the severity→priority map (`critical→p0`, `high→p1`, `medium→p2`, `low→p3`) and log `[to-issues:auto] story <n>: priority:<derived> derived from severity:<value>`; else omit.
+   - **points**: if `stories[].labels[]` contains a `points:<n>` string with a positive-integer `<n>`, emit it verbatim; else if legacy `metadata.points` is a positive integer, emit `points:<value>`; else if `stories[].storyPoints` is a positive integer, **derive** `points:<storyPoints>` verbatim and log `[to-issues:auto] story <n>: points:<value> derived from storyPoints`; else if a resolved `effort` exists, derive via the SIZE_MAP (`s→1`, `m→3`, `l→8`, `xl→13`) and log `[to-issues:auto] story <n>: points:<derived> derived from effort:<value>`; else omit. Non-positive or non-integer inputs log `[to-issues:auto] story <n>: points source <value> not a positive integer — skipped` and are omitted.
+   - Any label-array or legacy-metadata value outside the documented enum logs `[to-issues:auto] story <n>: <field>=<value> not in enum — skipped` and is omitted (the issue is still created).
+   - When none of the five dimensions resolve for a story, all five labels are omitted silently (no warning — these dimensions are sparse-by-default).
 6. **status**: emit `status:blocked` when ANY of the following hold, otherwise omit the `status:` dimension entirely (sparse — see `references/label-taxonomy.md` `## Status Dimension`):
    - The story's `dependencies.blockedBy` contains an integer ID that is unresolved at the point of issue creation. "Unresolved" means: (a) the upstream story has no corresponding GitHub issue yet AND (b) the upstream story was not created earlier in the current batch's topological order. Dangling references (ID not in batch at all) also emit `status:blocked` with a soft-warning log line.
    - The story was inferred as `type:future-enhancement` in bullet 1 above (per v3.1.0).
@@ -169,17 +169,17 @@ For each story:
    - `{{STORY_BACKGROUND}}` → `description.background`.
    - `{{STORY_SCOPE}}` → `description.scope`.
    - `{{STORY_PHASE}}` → `phase`. For `type:future-enhancement` stories, render this as `_n/a — future enhancement_` instead of the phase value (pre-phase work).
-   - `{{METADATA_BLOCK}}` *(v3.3.0+)* → human-readable rendering of `stories[].metadata`. When the metadata dict has any of `severity`, `phase`, `effort`, `priority`, `points`, render one bold line per present key:
+   - `{{METADATA_BLOCK}}` *(v3.3.0+)* → human-readable rendering of the **five prioritization dimensions resolved in Step 3 bullet 5** (severity / phase / effort / priority / points — resolved from `stories[].labels[]`, `stories[].storyPoints`, and any legacy `metadata.*`, NOT from a `metadata` object). When any of the five resolved, render one bold line per resolved dimension:
 
      ```
      **Severity:** CRITICAL
      **Phase:** 1
      **Effort:** M
-     **Points:** 3 *(derived from effort)*
+     **Points:** 3 *(derived from storyPoints)*
      **Priority:** p0 *(derived from severity)*
      ```
 
-     Values render uppercase for `severity` (`critical → CRITICAL`), **bare digits** for `phase` (`1`–`5`; if the input was the deprecated `p1` form, render `1`), uppercase for `effort` (`m → M`), bare integer for `points`, and lowercase for `priority` (`p0`). **Phase never carries the `p` prefix in the rendered body, the label, or the metadata block — the `p` prefix is reserved for priority so a reader scanning the body cannot mistake `Phase: P0` for `Priority: P0`.** When `priority` was derived (not explicit), append the `*(derived from severity)*` suffix; when `points` was derived, append `*(derived from effort)*`. When `metadata` is absent or all five fields are absent, substitute the EMPTY STRING (no heading). This block lives **inside the existing `## Details` section** of the issue template — no new section heading is emitted.
+     Values render uppercase for `severity` (`critical → CRITICAL`), **bare digits** for `phase` (`1`–`5`; if the input was the deprecated `p1` form, render `1`), uppercase for `effort` (`m → M`), bare integer for `points`, and lowercase for `priority` (`p0`). **Phase never carries the `p` prefix in the rendered body, the label, or the metadata block — the `p` prefix is reserved for priority so a reader scanning the body cannot mistake `Phase: P0` for `Priority: P0`.** When `priority` was derived (not explicit), append the `*(derived from severity)*` suffix; when `points` was derived, append `*(derived from storyPoints)*` or `*(derived from effort)*` per the source Step 3 bullet 5 used. When none of the five dimensions resolved, substitute the EMPTY STRING (no heading). This block lives **inside the existing `## Details` section** of the issue template — no new section heading is emitted.
    - `{{TRIGGER_CONDITION_BLOCK}}` → when `description.trigger` is a non-empty string on the story, render:
 
      ```
@@ -205,7 +205,7 @@ For each story:
    ```bash
    ISSUE_URL="$(GH_HOST=github.com gh issue create \
      --repo "$TARGET_REPO" \
-     --title "[$PROJECT_NAME] $STORY_TITLE" \
+     --title "[$PROJECT_NAME] $STORY_SUMMARY" \
      --body-file "$TMPFILE" \
      $(printf -- '--label %q ' "${LABELS_ARRAY[@]}"))"
    ISSUE_NUMBER="$(basename "$ISSUE_URL")"

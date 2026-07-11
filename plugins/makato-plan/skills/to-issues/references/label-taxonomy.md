@@ -9,20 +9,20 @@ Every issue created by `to-issues` carries one label from each applicable dimens
 
 | Dimension | Source | Examples |
 |-----------|--------|----------|
-| **type** | Inferred from story title/body keywords (see table below) | `type:feat`, `type:fix`, `type:docs`, `type:refactor`, `type:test`, `type:chore`, `type:future-enhancement` |
+| **type** | Inferred from story `summary` + `description.scope` + `description.background` keywords (see table below) | `type:feat`, `type:fix`, `type:docs`, `type:refactor`, `type:test`, `type:chore`, `type:future-enhancement` |
 | **tier** | `stories[].phase` in `stories.json` (skipped entirely for `type:future-enhancement` — those issues are pre-phase) | `tier:foundation`, `tier:happy-path`, `tier:edge-cases` |
 | **tech** | Default keyword list, extensible via `config.json` `labels.tech` | `tech:python`, `tech:bash`, `tech:sql`, `tech:fastapi`, `tech:temporal`, `tech:langgraph`, `tech:pydantic-ai`, `tech:harness`, `tech:skill`, `tech:html`, `tech:react` |
 | **module** | ADR folder-name match (see algorithm), extensible via `config.json` `labels.modules` | `module:to-issues`, `module:auth-service`, `module:billing` |
-| **severity** *(v3.3.0+)* | `stories[].metadata.severity` (enum: `critical` / `high` / `medium` / `low`) | `severity:critical`, `severity:high`, `severity:medium`, `severity:low` |
-| **phase** *(v3.3.0+)* | `stories[].metadata.phase` (enum: `1`–`5`) — distinct from `tier:`, this is execution-order classification not vertical-slice classification. Bare digits — **not** P-prefixed (the `p` prefix is reserved for `priority:*` to keep board chips visually distinguishable). | `phase:1`, `phase:2`, `phase:3`, `phase:4`, `phase:5` |
-| **effort** *(v3.3.0+)* | `stories[].metadata.effort` (enum: `s` / `m` / `l` / `xl`) — t-shirt sizing | `effort:s`, `effort:m`, `effort:l`, `effort:xl` |
-| **points** *(v3.4.0+)* | `stories[].metadata.points` if explicit (integer), else derived from `effort` via SIZE_MAP — consumed by `issue-to-project` to write the Project board's Estimate number field | `points:1`, `points:3`, `points:8`, `points:13` |
-| **priority** *(v3.3.0+)* | `stories[].metadata.priority` if explicit, else derived from `severity` via the severity→priority map below | `priority:p0`, `priority:p1`, `priority:p2`, `priority:p3` |
+| **severity** *(v3.3.0+)* | `stories[].labels[]` `severity:*` → legacy `metadata.severity` (enum: `critical` / `high` / `medium` / `low`) | `severity:critical`, `severity:high`, `severity:medium`, `severity:low` |
+| **phase** *(v3.3.0+)* | `stories[].labels[]` `phase:*` → legacy `metadata.phase` (enum: `1`–`5`) — distinct from `tier:`, this is execution-order classification not vertical-slice classification; never derived from `stories[].phase`. Bare digits — **not** P-prefixed (the `p` prefix is reserved for `priority:*`). | `phase:1`, `phase:2`, `phase:3`, `phase:4`, `phase:5` |
+| **effort** *(v3.3.0+)* | `stories[].labels[]` `effort:*` → legacy `metadata.effort` (enum: `s` / `m` / `l` / `xl`) — t-shirt sizing | `effort:s`, `effort:m`, `effort:l`, `effort:xl` |
+| **points** *(v3.4.0+)* | `stories[].labels[]` `points:*` → legacy `metadata.points` → derived from `stories[].storyPoints` → derived from `effort` via SIZE_MAP — consumed by `issue-to-project` for the Estimate number field | `points:1`, `points:3`, `points:8`, `points:13` |
+| **priority** *(v3.3.0+)* | `stories[].labels[]` `priority:*` → legacy `metadata.priority` → derived from `severity` via the severity→priority map below | `priority:p0`, `priority:p1`, `priority:p2`, `priority:p3` |
 | **status** *(sparse)* | Inferred from `dependencies.blockedBy` + `type:future-enhancement` + explicit `stories[].labels` (see `Status Dimension` below) | `status:blocked` *(auto)*, `status:todo` / `status:in-progress` / `status:done` *(reserved for future `manage-github-project` skill — not auto-emitted)* |
 
 ## Type Inference Table
 
-Match the lowercased story title concatenated with the story scope text against the **first** matching regex. Default is `type:feat`.
+Match the lowercased **inference text** — the story `summary` concatenated with `description.scope` and `description.background` (v2.0 field paths — there is no top-level `title` or flat `scope`) — against the **first** matching regex. Default is `type:feat`.
 
 | Pattern (case-insensitive, word-boundary) | Label |
 |-------------------------------------------|-------|
@@ -49,7 +49,7 @@ A `type:future-enhancement` issue is **real work parked until a condition is met
 
 ## Default `tech` Keyword Map
 
-Match each pattern against the lowercased story title + scope. Multiple matches → multiple `tech:` labels on the same issue.
+Match each pattern against the lowercased **inference text** (story `summary` + `description.scope` + `description.background`). Multiple matches → multiple `tech:` labels on the same issue.
 
 | Pattern (case-insensitive, word-boundary) | Label |
 |-------------------------------------------|-------|
@@ -70,54 +70,83 @@ Match each pattern against the lowercased story title + scope. Multiple matches 
 
 The `architecture_path` is read from `.claude/config.json` `"architecture_path"` (fallback: `specs/Architecture/`). For each direct child folder of that path, derive a **slug** by lowercasing and replacing non-alphanumerics with hyphens (e.g. `06-Brain-Body-Contract` → `06-brain-body-contract`).
 
-For each story, derive a **token set** by lowercasing the title + scope + background fields, splitting on non-alphanumerics, and discarding tokens shorter than 3 characters. A folder matches when **at least one of its slug tokens appears in the story's token set**. All matching folders emit a `module:<slug>` label.
+For each story, derive a **token set** by lowercasing the **inference text** — `summary` + `description.scope` + `description.background` (v2.0 field paths; there is no top-level `title` or flat `scope`/`background`) — splitting on non-alphanumerics and discarding tokens shorter than 3 characters. A folder matches when **at least one of its *informative* slug tokens appears in the story's token set** (informativeness defined below). All matching folders emit a `module:<slug>` label.
+
+### Informative-token filter (document frequency)
+
+A slug token only counts as a match when it actually **distinguishes** one module from another. A token that appears in almost every story carries no signal — it cannot tell modules apart — so it must not drive a match. The classic example is the connective `and`: it survives the "≥3 chars" filter and, because it occurs in nearly every story, it would otherwise match any ADR slug that contains it (observed live: `module:11-data-privacy-and-confidentiality` on all 10 platform-core issues, matched purely on `and`).
+
+The filter is **language-neutral** — it never enumerates stopwords, so it works identically for English, Czech, German, or any other language. Instead it measures how common a token is across the batch being processed:
+
+1. Let `N` = the number of stories in the current `to-issues` batch.
+2. For each token, compute `df(token)` = the number of stories whose inference text contains it (document frequency).
+3. A token is **uninformative** — and is dropped from *both* the story token set and every ADR slug's token set before matching — when it appears in **more than half of the stories** in the batch **and in at least two** (`df(token) > N/2` **and** `df(token) ≥ 2`). Connectives (`and`, `und`, `a`, `pro`, …) are near-universal, so they cross this threshold in any language; distinctive domain terms (`privacy`, `brain`, `contract`) sit in only a handful of stories and survive.
+
+Worked example on a 2-story batch where both stories contain `and` but only one mentions `privacy`:
+
+- `df("and") = 2`, `N = 2` → `2 > 1` and `2 ≥ 2` → **uninformative, dropped**. No story matches the `and`-bearing slug on `and`.
+- `df("privacy") = 1` → `1 > 1` is false → **informative, kept**. The story that mentions privacy still matches `11-data-privacy-and-confidentiality` on `privacy` / `confidentiality` / `data`.
+- `df("brain") = 1` → kept → the skeleton story matches `06-brain-body-contract` on `brain` / `body`.
+
+**Known trade-off — frequency is a proxy for distinctiveness, not distinctiveness itself.** The filter drops a token purely on how *common* it is in the batch; it never measures whether the token is *meaningful*. That proxy holds when the batch is topically diverse (connectives are everywhere, domain terms are rare) but inverts on a **small, single-topic batch**: if a genuinely distinctive term appears in more than half the stories it crosses the same `df > N/2` threshold and is dropped — a silent **false negative** on the correct module. Concretely, a 2-story batch both about billing (`"Billing invoice generation"` + `"Billing refund handling"`) gives `df("billing") = 2 > 1` → `billing` is dropped → neither story matches `12-billing-service`. This is the opposite failure from the `and` case (a miss, not a false hit), and it is the unavoidable cost of a word-list-free, language-neutral heuristic. When it bites, fall back to the two reliable paths: an explicit `module:<slug>` in `stories[].labels[]`, a `labels.modules` regex in `.claude/config.json`, or — if the whole batch shares a term you still want matched — add nothing to `module_stopwords` and instead label the module explicitly. Module-match is best-effort by design (see below); it is not the source of truth.
+
+**Small-batch degeneracy (`N = 1`).** With a single story, `df` of every token is 1, so `df ≥ 2` is never satisfied and nothing is filtered — the frequency signal is undefined for one document. In that case matching falls back to the plain ≥3-char token overlap, so a lone story could match an `and`-bearing slug on `and`. The blast radius is one issue (not a whole batch), and it self-corrects the moment the batch has ≥2 topically-varied stories. This is an accepted limitation of a best-effort convenience signal (see below).
+
+**Optional deterministic override.** Teams that want per-story determinism regardless of batch size may set `.claude/config.json` `labels.module_stopwords` (a string array, default empty). Any token listed there is dropped before matching, in addition to the frequency filter. This is purely opt-in — the default behavior enumerates no words and assumes no language.
+
+### Why module-match is best-effort
+
+`module:<slug>` is a **convenience signal**, intentionally shallow: it reads ADR folder *names* only, never their contents (D5). The reliable ways to bind a module are (a) an explicit `module:<slug>` in `stories[].labels[]`, or (b) a regex pattern in `.claude/config.json` `labels.modules`. The frequency-filtered folder-name match is the cheap layer on top — good enough to auto-surface issues in the right area filter, not a source of truth. When it is wrong or absent, the two explicit paths override it.
 
 If no folder matches, the issue is created with no `module:` label and the autonomous-mode log records `no module match`. No ADR file content is read — folder names only (D5).
 
 ## Prioritization Dimensions (v3.3.0+)
 
-Four new dimensions are sourced from `stories[].metadata` in `stories.json` — each is optional, each emits at most one label per issue. Values come from a free-form metadata block in stories.json so authors can hand-edit without juggling label strings:
+These five dimensions are **resolved**, not read from a single `metadata` object. The `stories.json` **v2.0 schema** (`decompose/references/stories-json-schema.md`) carries no `metadata` block — it carries `storyPoints`, `phase` (the vertical-slice tier), and a free-form `stories[].labels[]`. Each dimension is optional and emits at most one label per issue, resolved by the following **precedence** (first hit wins):
 
-```json
-{
-  "stories": [
-    {
-      "id": "GAP-002",
-      "summary": "Add R1 structured-JSON return contract to all sub-agents",
-      "metadata": {
-        "severity": "critical",
-        "phase":    "p1",
-        "effort":   "m",
-        "priority": "p0"
-      },
-      "dependencies": { "blockedBy": [] }
-    }
-  ]
-}
-```
+1. **Explicit `stories[].labels[]` entry** — the operator wrote e.g. `"severity:high"` or `"points:5"` directly into the story's `labels` array.
+2. **Legacy `stories[].metadata.<field>`** — for backward compatibility with v1-era hand-authored stories.json that still carries a `metadata` block. New v2.0 files should not add one.
+3. **Derivation** from another v2.0 field (see per-dimension rules below).
+4. **Omit** — no label for that dimension.
 
-All four fields are optional. Any value outside the documented enum below logs a soft-warn (`[to-issues:auto] story <n>: <field>=<value> not in enum — skipped`) and is omitted from the label set without aborting.
+> **Legacy example (v1-era `metadata` block — still honored via precedence step 2, but not produced by v2.0 `decompose`):**
+>
+> ```json
+> {
+>   "stories": [
+>     {
+>       "summary": "Add R1 structured-JSON return contract to all sub-agents",
+>       "metadata": { "severity": "critical", "phase": "1", "effort": "m" },
+>       "dependencies": { "blockedBy": [] }
+>     }
+>   ]
+> }
+> ```
+
+Any label-array or legacy-metadata value outside the documented enum below logs a soft-warn (`[to-issues:auto] story <n>: <field>=<value> not in enum — skipped`) and is omitted from the label set without aborting.
 
 ### `severity:*` — operational urgency
 
-Pure pass-through from `stories[].metadata.severity`. Enum: `critical` / `high` / `medium` / `low`. The label `severity:<value>` is emitted verbatim. Use to filter "what must we fix" lists.
+Resolution: explicit `labels[]` `severity:<value>` → legacy `metadata.severity` → omit (no derivation source). Enum: `critical` / `high` / `medium` / `low`. The label `severity:<value>` is emitted verbatim. Use to filter "what must we fix" lists.
 
 ### `phase:*` — execution order across the plan
 
-Pure pass-through from `stories[].metadata.phase`. Enum: `1` / `2` / `3` / `4` / `5` (**bare digits, no `p` prefix** — the `p` prefix is reserved for `priority:*` so the two cannot be visually confused on board chips, in labels, or in issue bodies). Lower numbers run earlier. This is **distinct from `tier:`**: `tier:` classifies a story's vertical-slice position (foundation/happy-path/edge-cases — copied from `stories[].phase`, which is `to-issues`-internal terminology), while `phase:` classifies cross-story execution order in the larger plan. Both can coexist on the same issue.
+Resolution: explicit `labels[]` `phase:<n>` → legacy `metadata.phase` → omit. Enum: `1` / `2` / `3` / `4` / `5` (**bare digits, no `p` prefix** — the `p` prefix is reserved for `priority:*` so the two cannot be visually confused on board chips, in labels, or in issue bodies). Lower numbers run earlier. This is **distinct from `tier:`**: `tier:` classifies a story's vertical-slice position (foundation/happy-path/edge-cases — copied from `stories[].phase`), while `phase:` classifies cross-story execution order in the larger plan. Both can coexist on the same issue. **`phase:` is never derived from `stories[].phase`** — that field is the vertical-slice tier and already drives `tier:`.
 
-For backward compatibility, `metadata.phase` values `"p1"` through `"p5"` are accepted on input and normalized to `"1"` through `"5"` before label emission, with a soft-warn: `[to-issues:auto] story <n>: metadata.phase="p1" auto-normalized to "1" (the "p" prefix is reserved for priority:*)`. New stories.json files should write bare digits.
+For backward compatibility, legacy `metadata.phase` values `"p1"` through `"p5"` are accepted on input and normalized to `"1"` through `"5"` before label emission, with a soft-warn: `[to-issues:auto] story <n>: metadata.phase="p1" auto-normalized to "1" (the "p" prefix is reserved for priority:*)`. New stories.json files should write bare digits in `labels[]`.
 
 ### `effort:*` — t-shirt sizing
 
-Pure pass-through from `stories[].metadata.effort`. Enum: `s` (< 1 day) / `m` (1–3 days) / `l` (3–5 days) / `xl` (> 1 week). Use for capacity planning and to flag stories that should be re-decomposed before pickup.
+Resolution: explicit `labels[]` `effort:<value>` → legacy `metadata.effort` → omit (no derivation source). Enum: `s` (< 1 day) / `m` (1–3 days) / `l` (3–5 days) / `xl` (> 1 week). Use for capacity planning and to flag stories that should be re-decomposed before pickup.
 
 ### `priority:*` — board-display priority (consumed by `issue-to-project`)
 
-Two-stage resolution:
+Resolution:
 
-1. **Explicit value** — if `stories[].metadata.priority` is one of `p0` / `p1` / `p2` / `p3`, emit `priority:<value>` verbatim.
-2. **Derived from severity** — if `metadata.priority` is absent BUT `metadata.severity` is present, derive via the map below.
+1. **Explicit `labels[]`** — if `stories[].labels[]` contains `priority:<value>` with `<value>` ∈ {`p0`, `p1`, `p2`, `p3`}, emit it verbatim.
+2. **Legacy `metadata.priority`** — same enum, emitted verbatim.
+3. **Derived from severity** — if no explicit/legacy priority BUT a `severity` was resolved, derive via the map below.
+4. **Omit** otherwise.
 
 | `severity:*` | derived `priority:*` |
 |---|---|
@@ -132,10 +161,13 @@ When derivation fires, the autonomous-mode log records `[to-issues:auto] story <
 
 ### `points:*` — story-point estimate (consumed by `issue-to-project` for the Estimate field) *(v3.4.0+)*
 
-Two-stage resolution, symmetric to `priority:*`:
+Resolution:
 
-1. **Explicit value** — if `stories[].metadata.points` is a positive integer, emit `points:<value>` verbatim.
-2. **Derived from effort** — if `metadata.points` is absent BUT `metadata.effort` is present, derive via the SIZE_MAP below.
+1. **Explicit `labels[]`** — if `stories[].labels[]` contains `points:<n>` with a positive-integer `<n>`, emit it verbatim.
+2. **Legacy `metadata.points`** — a positive integer, emitted verbatim.
+3. **Derived from `storyPoints`** *(v3.5.0+)* — if no explicit/legacy points BUT `stories[].storyPoints` is a positive integer (a required v2.0 field), derive `points:<storyPoints>` verbatim and log `[to-issues:auto] story <n>: points:<value> derived from storyPoints`. This is the **primary path for v2.0 stories.json**, which always carries `storyPoints`.
+4. **Derived from effort** — if none of the above BUT a resolved `effort` exists, derive via the SIZE_MAP below.
+5. **Omit** otherwise.
 
 | `effort:*` | derived `points:*` |
 |---|---|
@@ -144,7 +176,7 @@ Two-stage resolution, symmetric to `priority:*`:
 | `effort:l`  | `points:8` |
 | `effort:xl` | `points:13` |
 
-When derivation fires, the autonomous-mode log records `[to-issues:auto] story <n>: points:<value> derived from effort:<value>`. When the explicit value contradicts the would-be derived value (e.g. `effort:m` + `points:5`), the explicit value wins silently — operator intent is the source of truth.
+When derivation fires, the autonomous-mode log records `[to-issues:auto] story <n>: points:<value> derived from storyPoints` (or `derived from effort:<value>` when the effort path was used). When the explicit value contradicts a would-be derived value, the explicit value wins silently — operator intent is the source of truth.
 
 **Why points and effort both exist:** `effort:*` is for humans (t-shirt sizes scan well in the issue list and on board chips); `points:*` is for the Project board's Estimate **number** field, which expects an integer it can sum across cards. `issue-to-project` v2.4+ reads `points:*` via its number-field resolver (the `SIZE_MAP` constant in `references/field-type-routing.md` is the same map, kept in sync). Keeping the two axes separate means an operator can re-estimate a story (override `points:`) without changing the human-readable t-shirt size, the same way priority can be re-prioritized without changing severity.
 
@@ -163,12 +195,15 @@ When derivation fires, the autonomous-mode log records `[to-issues:auto] story <
     ],
     "modules": [
       { "pattern": "\\bauth(entication)?\\b", "label": "module:auth-service" }
-    ]
+    ],
+    "module_stopwords": ["pro", "nebo", "und"]
   }
 }
 ```
 
 **Merge policy:** union-with-defaults. Config additions are appended to the default list and evaluated after defaults. If a config entry produces a `label` that collides with a default-produced label for the same dimension, the default wins and the autonomous-mode log emits `[to-issues:auto] label conflict ignored: <label> from config`. There is no override path — to remove a default, edit this file.
+
+`labels.module_stopwords` (string array, default empty) is the **opt-in** companion to the language-neutral document-frequency filter in `## ADR Folder-Match Algorithm`: its tokens are dropped from module matching in addition to the frequency-filtered ones. Use it only when you need per-story determinism independent of batch size (e.g. small batches where the `df ≥ 2` guard never fires) — the default matcher enumerates no words and assumes no language.
 
 ## Status Dimension
 
