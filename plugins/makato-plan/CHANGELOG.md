@@ -5,6 +5,19 @@ Changes are grouped by skill/agent/component. Within each group, latest version 
 
 ---
 
+---
+
+## `create-acceptance-tests` skill
+
+- **Changed** → 1.1.0 (#235) — `acceptanceTestCases[]` now has a downstream consumer. The
+  skill's output feeds the build pipeline via `build-refine`'s `## Acceptance Test Oracle`
+  (`TEST_ORACLE`), which the `coder` agent implements as its RED tests in TDD mode. Corrected
+  the misleading downstream note and completion "Next" hint — `to-issues` renders
+  `successScenarios[]`, while `acceptanceTestCases[]` flows separately into the build. See
+  `makato-build` CHANGELOG for the full TEST_ORACLE chain.
+
+---
+
 ## Plugin-level
 
 - **Added** `config/task-skill-map.json` (#146) — 259-entry archetype-to-skills map covering all 11 plugin domains; used by `decompose` Step 7.11 to emit optional `recommended_skills[]` per sub-task.

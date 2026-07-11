@@ -5,7 +5,7 @@ description: >-
   (3-5 per foundation/happy-path story, 1-3 per edge-case story). Use after
   decompose to create acceptance tests, generate Gherkin scenarios, or refine
   test cases.
-version: "1.0.2"
+version: "1.1.0"
 model: sonnet
 argument-hint: "[slug]"
 ---
@@ -18,9 +18,12 @@ edge-case story). Writes results back into `stories.json` → `acceptanceTestCas
 field.
 
 > **Downstream note:** `to-issues` does NOT render `acceptanceTestCases[]` into the
-> GitHub issue body — it renders `successScenarios[]` only. `acceptanceTestCases[]`
-> is a QA artifact stored in `stories.json` for use by downstream tooling (test
-> frameworks, audit scripts). Run this skill before implementation, not before `to-issues`.
+> GitHub issue body — it renders `successScenarios[]` only. Instead, `acceptanceTestCases[]`
+> feeds the build pipeline: `build-refine` copies it into the plan's `## Acceptance Test
+> Oracle` section (`TEST_ORACLE`), and the `coder` agent implements those exact scenarios as
+> its RED tests in TDD mode. This is what makes running this skill improve build quality —
+> the QA scenarios become the coder's test specification instead of tests the coder derives
+> on its own. Run this skill before implementation; it is independent of `to-issues`.
 
 ## When to Use
 
@@ -233,5 +236,7 @@ Acceptance tests written to stories.json
   Scenarios: {total} scenarios across all stories
   Quality:  {violations_fixed} anti-pattern violations fixed
 
-  Next: /to-issues to create stories with embedded acceptance tests
+  Next: /to-issues to create GitHub issues (renders successScenarios[]).
+        acceptanceTestCases[] flows separately into the build pipeline via
+        build-refine → TEST_ORACLE → coder RED tests.
 ```

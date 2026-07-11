@@ -5,7 +5,7 @@ description: >-
   implementation plan — tasks, file targets, unit/integration test
   strategy, acceptance mapping. Use to start a build session before
   implement-tdd or implement-goal.
-version: "1.8.0"
+version: "1.9.0"
 model: opus
 argument-hint: "[work-item-key] [--autonomous]"
 ---
@@ -149,7 +149,8 @@ Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-refine","story":"<
 
 **Ticket path**: find the entry in `stories.json` whose key matches `<key>`. Extract:
 - Title and functional description
-- Acceptance criteria — full list, numbered AC-1, AC-2, … by index
+- Acceptance criteria — from `description.successScenarios[]`, numbered AC-1, AC-2, … by index. These are the PO/decompose-authored scenarios that drive task decomposition and the AC coverage table.
+- **Acceptance Test Oracle** — from `description.acceptanceTestCases[]` when that array is non-empty. These are the QA-refined scenarios from the `create-acceptance-tests` skill; they do NOT create new AC numbers — they are copied into the plan's `## Acceptance Test Oracle` section (Step 10) so the coder implements them as exact RED tests. When `acceptanceTestCases[]` is absent or empty, no oracle section is written — byte-for-byte legacy behavior.
 - Phase assignment and story type
 - Dependencies (work item keys that must be merged before this one)
 
@@ -184,7 +185,7 @@ to `build.jsonl` and return an R1 `status:"failure"` envelope with
 `data.halt_code:"MISSING_ACCEPTANCE"`. Never proceed to Step 5 with zero ACs on the
 plan-only path — a silent zero-AC plan is the failure this guard prevents.
 
-Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-refine","story":"<key>","step":"extract-story","status":"ok","data":{"ac_count":<N>}}'`
+Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-refine","story":"<key>","step":"extract-story","status":"ok","data":{"ac_count":<N>,"oracle_scenarios":<M>}}'`
 
 ### Step 5 — Read domain and architecture context
 
@@ -290,7 +291,9 @@ Read `templates/plan-template.md` and use it as the base for the output.
 
 Write `plan.md` in the resolved spec folder with all fields populated from the template.
 
-Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-refine","story":"<key>","step":"write-plan","status":"ok","data":{"tasks":<N>,"plan_file":"<resolved-spec-folder>/plan.md"}}'`
+**Acceptance Test Oracle pass-through rule**: when the story from `stories.json` carries a non-empty `description.acceptanceTestCases[]` (Step 4), write a `## Acceptance Test Oracle` section into `plan.md` per `@references/plan-schema.md` § *Acceptance Test Oracle Schema*. Copy each scenario verbatim (Gherkin `given`/`when`/`then`/`and` shape) and annotate it `(maps to AC-N)` by aligning it to the AC coverage table from Step 9 — match on the scenario's outcome, or use `AC-*` when it applies story-wide. When `acceptanceTestCases[]` is absent or empty, do NOT emit the section — omit it entirely (legacy default). The oracle never introduces new AC numbers; it only supplies exact RED-test scenarios the coder implements downstream.
+
+Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-refine","story":"<key>","step":"write-plan","status":"ok","data":{"tasks":<N>,"oracle_scenarios":<M>,"plan_file":"<resolved-spec-folder>/plan.md"}}'`
 
 ### Step 11 — Present plan and iterate
 
