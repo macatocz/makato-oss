@@ -147,7 +147,7 @@ After checks 1–4 pass and config is read (step 1), run a cheap `gh project vie
 
 | # | Check | Command | Failure message |
 |---|---|---|---|
-| 5 | Board ID verify (verify-on-first-call) | `gh --hostname <resolved_host> project view <number> --owner <owner> --format json` piped to Python assertion | `"issue-to-project: cached project_node_id or status_field_id does not match live board. Re-run 'issue-to-project --init'."` → HALT `CROSS_REPO_VERIFY_FAILED` |
+| 5 | Board ID verify (verify-on-first-call) | `GH_HOST=<resolved_host> gh project view <number> --owner <owner> --format json` piped to Python assertion | `"issue-to-project: cached project_node_id or status_field_id does not match live board. Re-run 'issue-to-project --init'."` → HALT `CROSS_REPO_VERIFY_FAILED` |
 
 **Pre-flight check 6 — GHES version gate (v2.6.0+, enterprise only)**
 

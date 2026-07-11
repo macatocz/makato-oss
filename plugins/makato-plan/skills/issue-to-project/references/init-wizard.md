@@ -63,7 +63,7 @@ Prompt the operator: `"Project owner (user login or organization name) [$OWNER_D
 
 ```bash
 LIMIT="${PROJECT_LIST_LIMIT:-50}"
-PROJECT_LIST_JSON="$(gh --hostname "${HOST:-github.com}" project list --owner "$OWNER" --format json --limit "$LIMIT" 2>&1)"
+PROJECT_LIST_JSON="$(GH_HOST="${HOST:-github.com}" gh project list --owner "$OWNER" --format json --limit "$LIMIT" 2>&1)"
 PROJECT_COUNT="$(echo "$PROJECT_LIST_JSON" | python3 -c "import json,sys; print(len(json.load(sys.stdin).get('projects', [])))")"
 ```
 
@@ -86,7 +86,7 @@ Prompt: `"Pick a project [1-N], or 'c' to create a new one, or empty to cancel:"
 - **`c`** → prompt for title; run:
 
   ```bash
-  gh --hostname "${HOST:-github.com}" project create --owner "$OWNER" --title "$TITLE" --format json
+  GH_HOST="${HOST:-github.com}" gh project create --owner "$OWNER" --title "$TITLE" --format json
   ```
 
   Then halt with an instructional message — fresh projects ship with Todo/In Progress/Done but NOT Blocked:
@@ -103,7 +103,7 @@ Prompt: `"Pick a project [1-N], or 'c' to create a new one, or empty to cancel:"
 ## Step 4 — Discover Status field + options
 
 ```bash
-FIELD_JSON="$(gh --hostname "${HOST:-github.com}" project field-list "$PROJECT_NUMBER" --owner "$OWNER" --format json)"
+FIELD_JSON="$(GH_HOST="${HOST:-github.com}" gh project field-list "$PROJECT_NUMBER" --owner "$OWNER" --format json)"
 ```
 
 Use Python (or `jq`) to find the field where `name == "Status"` AND `type == "ProjectV2SingleSelectField"`. **Both keys matter** — the filter discriminator is `type` (not `dataType`) and the value is the full GraphQL `__typename` `"ProjectV2SingleSelectField"` (not `"SINGLE_SELECT"`).
@@ -126,7 +126,7 @@ options = {o["name"].lower().replace(" ", "_"): o["id"] for o in status_field["o
 > **Note:** `gh project field-list` does not expose the parent project's node ID on each field row. Read it separately:
 >
 > ```bash
-> PROJECT_NODE_ID="$(gh --hostname "${HOST:-github.com}" project view "$PROJECT_NUMBER" --owner "$OWNER" --format json | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")"
+> PROJECT_NODE_ID="$(GH_HOST="${HOST:-github.com}" gh project view "$PROJECT_NUMBER" --owner "$OWNER" --format json | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")"
 > ```
 
 ## Step 4a — Discover non-Status fields for v2.4.0 config (v2.4.0+)
@@ -221,7 +221,7 @@ After resolving the Status field (Step 4), call `gh project item-list` once to c
 
 ```bash
 ITEM_LIST_RAW="$(timeout "${ITP_GH_TIMEOUT_SECONDS:-30}" \
-  gh --hostname "${HOST:-github.com}" project item-list "$PROJECT_NUMBER" --owner "$OWNER" --format json --limit 9999 2>&1)"
+  GH_HOST="${HOST:-github.com}" gh project item-list "$PROJECT_NUMBER" --owner "$OWNER" --format json --limit 9999 2>&1)"
 ```
 
 ```python
