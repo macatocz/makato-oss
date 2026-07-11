@@ -6,7 +6,7 @@ description: >-
   separately so failures are attributable. Fixable failures are
   fixed and gates re-run; structural failures escalate to refine.
   Autonomous. Use after review, before push-to-git.
-version: "1.6.0"
+version: "1.6.1"
 argument-hint: "[work-item-key]"
 ---
 
@@ -94,7 +94,14 @@ shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-verify","story":"<
 
 ### Step 3 — Gate 0: SENSORS
 
-Run: `/makato-build:build-sensors all`
+Run: `/makato-build:build-sensors all <key>`
+
+Thread the resolved `<key>` (the work-item key from Step 1) as the `spec_key` positional
+argument — `build-sensors` marks it **required** and uses it to locate
+`specs/<key>-<slug>/build.jsonl`. Omitting it breaks the Gate-0 audit write (#229): the
+sensors run cannot append to the same `build.jsonl` as the rest of this session, and in
+autonomous mode the DoD Gate-0 record (item 5) is lost. The `<key>` here MUST be the
+identical key threaded into every `build-log.sh "<key>"` call elsewhere in this skill.
 
 Expected: exit 0 after sensor-fixer loop completes (loops <= MAX_LOOPS=5).
 

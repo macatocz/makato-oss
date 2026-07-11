@@ -47,8 +47,14 @@ jobs:
       - name: plan-body promotion guard smoke tests (#212)
         run: ./plugins/makato-orchestrate/scripts/validate-plan-body-smoke-tests.sh
 
+      - name: HALT-006 auto-materialize gate smoke tests (#200)
+        run: ./plugins/makato-orchestrate/scripts/should-materialize-spec-smoke-tests.sh
+
       - name: seed-issue lightweight-lane smoke tests (#212)
         run: ./plugins/makato-orchestrate/skills/seed-issue/references/lightweight-lane-smoke-tests.sh
+
+      - name: to-issues v2.0-schema smoke tests (#228)
+        run: ./plugins/makato-plan/skills/to-issues/references/fixtures/v2-schema-smoke-tests.sh
 
   pr-title:
     if: github.event_name == 'pull_request'

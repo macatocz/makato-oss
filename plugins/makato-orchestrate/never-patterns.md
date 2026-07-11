@@ -61,12 +61,16 @@ are restricted to:
 
 - `specs/<key>-<slug>/workflow-state.json` (via `workflow-state.sh`)
 - `specs/<key>-<slug>/orchestrate.jsonl` (via `orchestrate-log.sh`)
+- `specs/<key>-<slug>/plan.md` + `seed-manifest.json` — **Step 1a HALT-006 auto-materialize
+  only** (#200): the seed stub written before dispatching `light-planner`, and the
+  `spec_tier:plan-only` stamp on a guard-valid plan. Both under gitignored `specs/`; the
+  plan body is written by the `light-planner` agent, not the PO-agent.
 - `.claude/state/resume-{KEY}.sh` (via `context-handoff.sh`)
 - `.claude/state/daily-budget-{YYYY-MM-DD}.json` (via `kill-switch`)
 
 **Enforcement**: `disallowedTools` in agent frontmatter is currently all-or-nothing — it
 denies a tool entirely or not at all; there is no path-scoped denial. Because the PO-agent
-legitimately needs `Write`/`Edit` to mutate the four allow-listed files above, those tools
+legitimately needs `Write`/`Edit` to mutate the five allow-listed files above, those tools
 CANNOT be in `disallowedTools`. The boundary is enforced instead by:
 
 1. **Behavioural rule** — the agent's `po-agent.md` Permission Boundary section documents

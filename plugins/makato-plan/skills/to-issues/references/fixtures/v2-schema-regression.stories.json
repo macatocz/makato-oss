@@ -1,0 +1,96 @@
+{
+  "version": "2.0",
+  "slug": "v2-schema-regression",
+  "created": "2026-07-11",
+  "status": "draft",
+  "epic": {
+    "summary": "Regression fixture for to-issues #228 — v2.0 stories.json shape",
+    "objective": "Guard that to-issues reads the v2.0 schema (summary / description.* / storyPoints / labels[]) and applies the language-neutral informative-token module filter.",
+    "labels": ["makato"]
+  },
+  "stories": [
+    {
+      "sequence": 1,
+      "phase": "foundation",
+      "summary": "Wire the tenant probe endpoint and its harness",
+      "storyPoints": 8,
+      "teams": ["platform"],
+      "labels": ["makato", "severity:high"],
+      "githubIssue": null,
+      "description": {
+        "background": "Operators need a single-tenant probe so we can validate the Brain-to-Body request path early and often. This story stands up the skeleton and nothing more.",
+        "scope": "Build a FastAPI endpoint guarded by a harness hook; use python for the handler and bash for the smoke wrapper. Keep it bounded to one tenant.",
+        "featureToggle": {
+          "alreadyInPlace": false,
+          "newNeeded": true,
+          "longTermUsage": false,
+          "name": "tenant-probe.enabled",
+          "defaultState": "disabled"
+        },
+        "successScenarios": [
+          {
+            "title": "Scenario 1: Probe answers",
+            "given": "a running probe endpoint",
+            "when": "an authenticated caller hits it",
+            "then": "a 200 is returned with the tenant id",
+            "and": ["the harness hook recorded the call"]
+          }
+        ],
+        "solutionApproach": "",
+        "acceptanceTestCases": [],
+        "wikiDocumentation": "",
+        "outOfScope": ["Multi-tenant fan-out", "Rate limiting"]
+      },
+      "definitionOfDone": [
+        "Probe returns 200 for an authenticated single-tenant request",
+        "Harness hook logs each probe call"
+      ],
+      "dependencies": {
+        "blockedBy": [],
+        "blocks": [2]
+      },
+      "externalDependencies": []
+    },
+    {
+      "sequence": 2,
+      "phase": "happy-path",
+      "summary": "Persist probe results and expose a read model",
+      "storyPoints": 5,
+      "teams": ["platform"],
+      "labels": ["makato"],
+      "githubIssue": null,
+      "description": {
+        "background": "Once the probe answers, results should be stored so operators can query history. This is a bounded read-and-write slice for privacy and confidentiality of stored records.",
+        "scope": "Add a sql table for probe results and a read endpoint. Redact caller identity before write so the store holds no personal data.",
+        "featureToggle": {
+          "alreadyInPlace": false,
+          "newNeeded": true,
+          "longTermUsage": true,
+          "name": "probe-history.enabled",
+          "defaultState": "disabled"
+        },
+        "successScenarios": [
+          {
+            "title": "Scenario 1: History persists",
+            "given": "a completed probe",
+            "when": "the result is written",
+            "then": "a redacted row appears in the read model"
+          }
+        ],
+        "solutionApproach": "",
+        "acceptanceTestCases": [],
+        "wikiDocumentation": "",
+        "outOfScope": ["Cross-tenant aggregation"]
+      },
+      "definitionOfDone": [
+        "Probe results persist with caller identity redacted",
+        "Read endpoint returns stored results for the tenant"
+      ],
+      "dependencies": {
+        "blockedBy": [1],
+        "blocks": []
+      },
+      "externalDependencies": []
+    }
+  ]
+}

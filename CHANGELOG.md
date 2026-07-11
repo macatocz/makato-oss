@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.40.1](https://github.com/macatocz/makato/compare/v0.40.0...v0.40.1) (2026-07-11)
+
+
+### 🐛 Bug Fixes
+
+* **makato-build:** build-verify threads spec_key into Gate-0 sensors ([#229](https://github.com/macatocz/makato/issues/229)) ([6dffc84](https://github.com/macatocz/makato/commit/6dffc84f8c92a29ae1f977224143a5aec0f83f2b))
+* **makato-build:** build-verify threads spec_key into Gate-0 sensors ([#229](https://github.com/macatocz/makato/issues/229)) ([db0dbeb](https://github.com/macatocz/makato/commit/db0dbebc9b62ce9790d2a24acb7efafa7bbcc598))
+* **makato-plan:** to-issues reads stories.json v2.0 schema ([#228](https://github.com/macatocz/makato/issues/228)) ([f5ffcdb](https://github.com/macatocz/makato/commit/f5ffcdb691f0ecdfe77ac0c02b406cca22c6240b))
+* **makato-plan:** to-issues reads stories.json v2.0 schema ([#228](https://github.com/macatocz/makato/issues/228)) ([79eed75](https://github.com/macatocz/makato/commit/79eed754f653652ac0cc89c55215ff25d4304fd6))
+
+## [0.40.0](https://github.com/macatocz/makato/compare/v0.39.1...v0.40.0) (2026-07-10)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** auto-materialize spec on HALT-006 for plan-tier:light issues ([#200](https://github.com/macatocz/makato/issues/200)) ([5f28cff](https://github.com/macatocz/makato/commit/5f28cff570bb9335200cc05b8c80df7d01cf05f5))
+
+## [0.39.1](https://github.com/macatocz/makato/compare/v0.39.0...v0.39.1) (2026-07-10)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** deterministic bash port of archive-spec workflow ([#221](https://github.com/macatocz/makato/issues/221)) ([8fe24fb](https://github.com/macatocz/makato/commit/8fe24fb1f4b2b2e9d4eb0dd81176aa7624681ab7))
+* **makato-orchestrate:** deterministic bash port of archive-spec workflow ([#221](https://github.com/macatocz/makato/issues/221)) ([2274c10](https://github.com/macatocz/makato/commit/2274c10c3d637de4c0b0ffc88a24fe9854d6794a))
+
 ## [0.39.0](https://github.com/macatocz/makato/compare/v0.38.0...v0.39.0) (2026-07-10)
 
 

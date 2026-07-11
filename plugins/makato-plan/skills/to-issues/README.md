@@ -3,7 +3,7 @@
 Convert a shaped `stories.json` into real GitHub issues on github.com — apply a 10-dimension label taxonomy, render bodies from a versioned template, sort topologically by `blockedBy`, and emit `specs/{slug}/created-issues.json` as a machine-readable handoff for `issue-to-project` and `build-create-pr`.
 
 **Owner:** makato-plan plugin
-**Status:** stable (v3.4.0)
+**Status:** stable (v3.5.0)
 **Authoritative spec:** [`SKILL.md`](./SKILL.md) — read first when changing the skill.
 
 ## What this is for
@@ -62,31 +62,34 @@ Every issue carries one label from each applicable dimension. Five are always-re
 
 | Dimension | Source | Examples | Short meaning |
 | --- | --- | --- | --- |
-| `type:*` | Regex-match story title + scope against the inference table | `type:feat`, `type:fix`, `type:docs`, `type:refactor`, `type:test`, `type:chore`, `type:future-enhancement` | What kind of work — drives filtering and changelog grouping |
+| `type:*` | Regex-match story `summary` + `description.scope` + `description.background` against the inference table | `type:feat`, `type:fix`, `type:docs`, `type:refactor`, `type:test`, `type:chore`, `type:future-enhancement` | What kind of work — drives filtering and changelog grouping |
 | `tier:*` | `stories[].phase` verbatim (skipped for `type:future-enhancement`) | `tier:foundation`, `tier:happy-path`, `tier:edge-cases` | Vertical-slice position in this feature |
 | `tech:*` | Default keyword map + `.claude/config.json` `labels.tech` extensions | `tech:python`, `tech:bash`, `tech:skill`, `tech:harness` | What stack the work touches (multi-valued) |
-| `module:*` | ADR folder-name match against story tokens | `module:to-issues`, `module:billing` | Which architecture module the work lands in |
+| `module:*` | ADR folder-name match against story tokens (language-neutral document-frequency filter drops batch-universal connectives) | `module:to-issues`, `module:billing` | Which architecture module the work lands in |
 
-### Prioritization (sourced from `stories[].metadata`, v3.3.0+)
+### Prioritization (resolved from `stories[].labels[]` → `storyPoints` → legacy `metadata`, v3.3.0+)
 
-| Dimension | Source | Examples | Short meaning |
+| Dimension | Source (precedence: explicit `labels[]` → legacy `metadata` → derivation) | Examples | Short meaning |
 | --- | --- | --- | --- |
-| `severity:*` | `metadata.severity` | `severity:critical`, `severity:high`, `severity:medium`, `severity:low` | Operational urgency, intrinsic to the issue |
-| `phase:*` | `metadata.phase` (bare digits, **never** `p<n>` — that prefix is reserved for priority) | `phase:1`, `phase:2`, ..., `phase:5` | Execution order across the plan (lower = earlier) |
-| `effort:*` | `metadata.effort` | `effort:s`, `effort:m`, `effort:l`, `effort:xl` | T-shirt sizing (S = <1 day, XL = >1 week) |
-| `priority:*` | `metadata.priority` if explicit, else derived from severity | `priority:p0`, `priority:p1`, `priority:p2`, `priority:p3` | Board-display priority — consumed by `issue-to-project` for the Priority single-select field |
-| `points:*` *(v3.4.0+)* | `metadata.points` if explicit, else derived from effort | `points:1`, `points:3`, `points:8`, `points:13` | Story-point estimate — consumed by `issue-to-project` for the Estimate number field |
+| `severity:*` | `labels[]` `severity:*` → `metadata.severity` | `severity:critical`, `severity:high`, `severity:medium`, `severity:low` | Operational urgency, intrinsic to the issue |
+| `phase:*` | `labels[]` `phase:*` → `metadata.phase` (bare digits, **never** `p<n>` — that prefix is reserved for priority; never derived from `stories[].phase`) | `phase:1`, `phase:2`, ..., `phase:5` | Execution order across the plan (lower = earlier) |
+| `effort:*` | `labels[]` `effort:*` → `metadata.effort` | `effort:s`, `effort:m`, `effort:l`, `effort:xl` | T-shirt sizing (S = <1 day, XL = >1 week) |
+| `priority:*` | `labels[]` `priority:*` → `metadata.priority` → derived from severity | `priority:p0`, `priority:p1`, `priority:p2`, `priority:p3` | Board-display priority — consumed by `issue-to-project` for the Priority single-select field |
+| `points:*` *(v3.4.0+)* | `labels[]` `points:*` → `metadata.points` → derived from `storyPoints` → derived from effort | `points:1`, `points:3`, `points:8`, `points:13` | Story-point estimate — consumed by `issue-to-project` for the Estimate number field |
 
-### Derivation chains (when explicit value absent)
+### Derivation chains (when no explicit `labels[]`/legacy value)
 
 ```
-metadata.severity → priority:*
+severity → priority:*
   critical  → priority:p0
   high      → priority:p1
   medium    → priority:p2
   low       → priority:p3
 
-metadata.effort → points:* (SIZE_MAP)
+storyPoints → points:*   (v3.5.0+, primary path for v2.0 stories.json)
+  points:<storyPoints>   (verbatim positive integer)
+
+effort → points:* (SIZE_MAP, fallback when storyPoints absent)
   s   → points:1
   m   → points:3
   l   → points:8
