@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.43.0](https://github.com/macatocz/makato/compare/v0.42.1...v0.43.0) (2026-07-11)
+
+
+### ✨ Features
+
+* **d22:** D22 system-done gate + maintenance handoff report ([#150](https://github.com/macatocz/makato/issues/150)) ([#250](https://github.com/macatocz/makato/issues/250)) ([88368a8](https://github.com/macatocz/makato/commit/88368a812ae5bcb4a62ae5a50f25cd3d403d25b9))
+
 ## [0.42.1](https://github.com/macatocz/makato/compare/v0.42.0...v0.42.1) (2026-07-11)
 
 
