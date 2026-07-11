@@ -1,0 +1,22 @@
+name: D22 Compliance Gate
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  d22-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4
+
+      - name: Run D22 compliance report
+        run: python3 scripts/d22_compliance_report.py
+
+      - name: Upload compliance report
+        uses: actions/upload-artifact@v4
+        with:
+          name: d22-compliance-report
+          path: docs/d22-compliance-report.md
