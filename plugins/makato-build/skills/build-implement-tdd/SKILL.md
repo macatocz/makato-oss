@@ -6,7 +6,7 @@ description: >-
   Tracer bullet phase for multi-layer stories. Autonomous loop. Use
   after refine to implement-tdd a story plan, implement tdd tasks, or
   run the core build loop.
-version: "1.9.2"
+version: "1.10.0"
 model: sonnet
 argument-hint: "[work-item-key]"
 ---
@@ -156,6 +156,7 @@ For each `mode: tdd` task in topological order, dispatch the per-task `scout` ag
 - `WORKTREE_PATH`: absolute filesystem path to the per-run git worktree (forwarded verbatim from this skill's input — see § *Input* and `AUTONOMOUS-MODE.md` § *WORKTREE_PATH*). The `coder` agent `cd`s into this path before its RED→GREEN→INTEGRATE→VERIFY cycle. In interactive mode without an enclosing PO-agent, forward the resolved `$(git rev-parse --show-toplevel)` so the agent's contract is identical in both modes.
 - `CI_FAILURE_LOG`: forwarded verbatim when present in this skill's input bundle (see § *CI-failure recovery mode*). Omit when absent — the coder treats it as optional advisory diagnostic context, not a gate.
 - `RECOMMENDED_SKILLS`: forwarded verbatim when the task object from `plan.md` carries a `recommended_skills[]` field (agent-skill-routing #146). When present and non-empty, the coder agent invokes each skill before Phase 1 RED (see `coder.md` § *Skill consultation prepend*). Omit this field from the dispatch bundle when the task's `recommended_skills` is absent — do NOT pass an empty array.
+- `TEST_ORACLE`: forwarded verbatim when the Plan Analysis (from `plan-analyst`, Step 4) carries a non-empty `## Acceptance Test Oracle` section. Pass the whole section (all scenarios with their `(maps to AC-N)` annotations); the coder filters it to the task's own `**Satisfies:**` AC links and implements the matching scenarios as its RED tests (see `coder.md` § *Test oracle*). Omit this field from the dispatch bundle when the plan has no Acceptance Test Oracle section — do NOT pass an empty value. Source is the Plan Analysis output, never a re-read of `plan.md` or `stories.json`.
 
 **blockedBy enforcement**: before dispatching a task, check its `blockedBy` list. Do not dispatch a task concurrently with any task whose index appears in its `blockedBy` list. A task blocked by Task N must wait until Task N's coder agent returns `status: complete` before being dispatched.
 

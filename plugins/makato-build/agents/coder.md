@@ -53,6 +53,7 @@ Your dispatch prompt provides:
 | `SCOUT_SUMMARY` | no | Per-task scout's `data` payload (see below) |
 | `WORKTREE_PATH` | no | Absolute filesystem path to the per-run git worktree owned by the PO-agent |
 | `RECOMMENDED_SKILLS` | no | Array of `"plugin:skill-id"` strings from `plan.md` task's `recommended_skills[]` field (agent-skill-routing #146). When present and non-empty, invoke these skills BEFORE Phase 1 RED — see § *Skill consultation prepend* below. |
+| `TEST_ORACLE` | no | Acceptance-test scenarios (Gherkin `given`/`when`/`then`/`and`) from the plan's `## Acceptance Test Oracle` section, each annotated `(maps to AC-N)`. When present, filter to this task's `**Satisfies:**` AC links and implement the matching scenarios as RED tests — see § *Test oracle* below. |
 
 `PLAN_CONTEXT` may include:
 
@@ -75,6 +76,8 @@ The dispatching skill (`build-implement-tdd` Step 6) resolves bundles via `injec
 
 `WORKTREE_PATH` *(optional)* — absolute filesystem path to the per-run git worktree owned by the PO-agent. When present (every PO-agent dispatch sets it; see `plugins/makato-build/AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract*), `cd "$WORKTREE_PATH"` BEFORE Phase 1 RED and every subsequent phase, so all file edits, `git`, and test invocations land in the worktree's branch instead of the main checkout. When absent (developer-hands invocation outside the orchestrator), fall back to `$(git rev-parse --show-toplevel)` of the current `$PWD`. Two concurrent PO-agent runs each pass a distinct `WORKTREE_PATH`; honouring it is what keeps their HEADs from racing.
 
+`TEST_ORACLE` *(optional)* — the plan's `## Acceptance Test Oracle` section: QA-refined acceptance scenarios (`create-acceptance-tests` output, sourced from the story's `acceptanceTestCases[]`), each a Gherkin block annotated `(maps to AC-N)`. When present, it defines the exact tests this task's RED phase must produce — see § *Test oracle*. When absent, derive RED tests as usual from `TASK`'s unit/integration test specs, AC links, and `SCOUT_SUMMARY`. Like `SCOUT_SUMMARY`, the oracle is **advisory**: it never overrides `PLAN_CONTEXT.Hard Constraints` or `PLAN_CONTEXT.Standards`.
+
 ## Skill consultation prepend (agent-skill-routing #146)
 
 When `RECOMMENDED_SKILLS` is present and non-empty in the dispatch bundle, invoke each skill
@@ -95,6 +98,31 @@ Rules:
 - After all skills run (or are skipped), proceed to Phase 0 workspace isolation as normal.
 - When `RECOMMENDED_SKILLS` is absent or empty: skip this section entirely — proceed
   directly to Phase 0.
+
+## Test oracle (acceptanceTestCases → RED)
+
+When `TEST_ORACLE` is present in the dispatch bundle, it carries the plan's
+`## Acceptance Test Oracle` — QA-refined acceptance scenarios, each a Gherkin block annotated
+`(maps to AC-N)`. In **Phase 1 RED**, use it as the authoritative source for what to assert:
+
+1. **Filter by AC link.** Select only the oracle scenarios whose `(maps to AC-N)` annotation
+   matches one of this task's `**Satisfies:**` AC links. Scenarios annotated `(maps to AC-*)`
+   (story-wide) apply to every task. Ignore scenarios for other tasks' ACs.
+2. **Implement each matching scenario as a test.** Translate `given` → arrange/fixtures,
+   `when` → the act under test, `then` + each `and` → assertions. One test per scenario,
+   named after the scenario title (adapted to the suite's naming convention).
+3. **Cover the rest.** After the oracle scenarios, add any additional tests the task's unit
+   and integration test specs call for that the oracle did not cover — the oracle is a floor
+   on coverage, not a ceiling.
+
+Rules:
+
+- Treat the oracle as advisory context, equivalent in weight to `SCOUT_SUMMARY`. It never
+  overrides `PLAN_CONTEXT.Hard Constraints` or `PLAN_CONTEXT.Standards`.
+- If no oracle scenario maps to this task's ACs: proceed with normal RED derivation — do NOT
+  invent scenarios, and do NOT block.
+- When `TEST_ORACLE` is absent: skip this section — derive RED tests from the task's test
+  specs, AC links, and `SCOUT_SUMMARY` as before (legacy behavior).
 
 ## Process
 
@@ -135,6 +163,8 @@ In the happy path (`WORKTREE_PATH` present, or interactive-mode fallback resolve
 ### Phase 1 — RED
 
 Write the unit test file and integration test file for the task. Follow naming conventions from the existing test suite — read one test file to confirm the pattern before writing new ones.
+
+**Test source**: when `TEST_ORACLE` is present, it is the authoritative source for *what* to assert — see § *Test oracle* below. When it is absent, derive the tests from the task's unit/integration test specs, its AC links, and `SCOUT_SUMMARY.key_patterns`.
 
 Run only the new tests. Confirm they fail (compilation failure counts as failure — tests must at minimum compile before proceeding to GREEN). If a test passes vacuously: rewrite it until it fails for the expected reason.
 

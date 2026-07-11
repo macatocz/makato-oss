@@ -190,6 +190,44 @@ Detected concurrent-write race (malformed JSON, missing `schema_version`, or las
 collision) → warning to `build.jsonl`, diff skipped — no passport corruption (v1
 single-session fallback).
 
+## TEST_ORACLE propagation chain (acceptanceTestCases → coder RED)
+
+`build-refine`, `plan-analyst`, `build-implement-tdd`, and `coder` implement a second
+optional propagation chain that gives the makato-plan `acceptanceTestCases[]` field a
+downstream consumer. It is structurally parallel to the `recommended_skills[]` chain above.
+
+The two acceptance fields on a `stories.json` story play distinct roles:
+
+- `description.successScenarios[]` (PO/decompose-authored) → **what to build** → `build-refine`
+  numbers them AC-1, AC-2, … and drives task decomposition + the AC coverage table.
+- `description.acceptanceTestCases[]` (QA-refined by `create-acceptance-tests`) → **how to
+  verify** → the `TEST_ORACLE`.
+
+Chain:
+
+1. **build-refine** (Step 4 / Step 10): when the story carries a non-empty
+   `acceptanceTestCases[]`, copy the scenarios verbatim into a `## Acceptance Test Oracle`
+   section of `plan.md`, each annotated `(maps to AC-N)`. Omit the section entirely when the
+   field is absent or empty. Does NOT create new AC numbers.
+2. **plan-analyst**: reads the `## Acceptance Test Oracle` section from `plan.md` and returns
+   it verbatim in the Plan Analysis prose block. It is the sole reader of `plan.md` —
+   `build-implement-tdd` never re-reads the file.
+3. **build-implement-tdd** (Step 6 coder dispatch): forwards the section verbatim as
+   `TEST_ORACLE` in the coder dispatch bundle when present; omits it when absent — never an
+   empty value. Sourced from the Plan Analysis, not a re-read.
+4. **coder** (§ *Test oracle*, Phase 1 RED): filters the oracle by the task's `**Satisfies:**`
+   AC links and implements the matching scenarios as its RED tests (given → arrange, when →
+   act, then/and → assert). The oracle is a coverage floor, not a ceiling.
+
+**Contract rules:**
+
+- Optional end-to-end: absent/empty `acceptanceTestCases[]` → no oracle section → every stage
+  behaves byte-for-byte as before. All existing `stories.json` (empty `[]`) are unaffected.
+- Advisory: `TEST_ORACLE` never overrides `PLAN_CONTEXT.Hard Constraints` or `Standards` —
+  same weight as `SCOUT_SUMMARY`.
+- **TDD-only**: this chain touches only `build-implement-tdd` and the `coder` RED phase.
+  `build-implement-goal` is intentionally not part of it (goal-mode writes tests after build).
+
 ## PR Checklist
 
 - [ ] Serves the plugin goal: transforms planned stories into merged code

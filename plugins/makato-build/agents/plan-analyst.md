@@ -62,6 +62,7 @@ Read `PLAN_PATH` in full. Extract:
 
 - All tasks: title, mode (`tdd` | `goal`), file targets from `**Files:**` fields, AC links
 - Story key from the plan header
+- **Acceptance Test Oracle** — if a `## Acceptance Test Oracle` section is present, extract each scenario verbatim (title, `given`/`when`/`then`/`and`, and its `(maps to AC-N)` annotation). When the section is absent, record none — it is optional (present only when the source story carried `acceptanceTestCases[]`).
 
 ### Step 2 — Classify architectural layers
 
@@ -135,9 +136,16 @@ Emit this prose block **before** the R1 envelope:
 ## Reusable Patterns
 - <pattern 1>: `<path>` — <one sentence on what it provides>
 - <pattern 2>: `<path>` — <one sentence>
+
+## Acceptance Test Oracle
+### Scenario 1: <title>   (maps to AC-1)
+Given <given>
+When <when>
+Then <then>
+And <and[i]>
 ```
 
-If glossary is not loaded, omit the Glossary Constraints section. If `knowledge_context_loaded: false`, omit the Hard Constraints, Standards, and Architecture Context sections. If no reusable patterns are found, write "None identified."
+If glossary is not loaded, omit the Glossary Constraints section. If `knowledge_context_loaded: false`, omit the Hard Constraints, Standards, and Architecture Context sections. If no reusable patterns are found, write "None identified." **If the plan has no `## Acceptance Test Oracle` section, omit the Acceptance Test Oracle section from this output entirely** — do not invent scenarios. When present, copy each scenario verbatim, including its `(maps to AC-N)` annotation; the `coder` filters these by its task's AC links.
 
 ## R1 return envelope
 

@@ -5,7 +5,34 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
-## Lightweight planning lane — `spec_tier:plan-only` gate (#210)
+## TEST_ORACLE — `acceptanceTestCases[]` drives coder RED tests (#235)
+
+Gives the makato-plan `acceptanceTestCases[]` field (written by `create-acceptance-tests`)
+a real downstream consumer. Previously it was an orphan — no build stage read it, so running
+`create-acceptance-tests` had zero effect on build quality. Now the QA-refined acceptance
+scenarios flow into the TDD build as the coder's test specification. Fully optional and
+backward-compatible: a story with empty/absent `acceptanceTestCases[]` produces no oracle
+section and every stage behaves byte-for-byte as before.
+
+- **`build-refine` → 1.9.0** — Step 4 now distinguishes two acceptance sources:
+  `successScenarios[]` → numbered AC-1, AC-2… (task decomposition, unchanged), and
+  `description.acceptanceTestCases[]` (when non-empty) → a new `## Acceptance Test Oracle`
+  section written into `plan.md` (Step 10), each scenario annotated `(maps to AC-N)`. New
+  `oracle_scenarios` count in the extract-story and write-plan JSONL. Schema documented in
+  `references/plan-schema.md` (optional section) and `templates/plan-template.md`.
+- **`plan-analyst`** — reads the `## Acceptance Test Oracle` section and returns it verbatim
+  in the Plan Analysis prose block, so `build-implement-tdd` gets it without re-reading
+  `plan.md`.
+- **`build-implement-tdd` → 1.10.0** — forwards the oracle as a new optional `TEST_ORACLE`
+  field in the coder dispatch bundle when present; omitted when absent (never an empty
+  value). CI-failure recovery matching (`**Tests:**`) untouched.
+- **`coder`** — new § *Test oracle*: in Phase 1 RED, when `TEST_ORACLE` is present, filter
+  scenarios by the task's `**Satisfies:**` AC links and implement the matching ones as RED
+  tests (given → arrange, when → act, then/and → assert). Advisory — never overrides Hard
+  Constraints; a coverage floor, not a ceiling. TDD-only; `build-implement-goal` unchanged.
+- **`AGENTS.md`** — documents the full "TEST_ORACLE propagation chain".
+
+
 
 Foundation slice of the Lightweight Planning Lane epic. Small features can enter
 the autonomous pipeline with a hand-authored `plan.md` instead of the full

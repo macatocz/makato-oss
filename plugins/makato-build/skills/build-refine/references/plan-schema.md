@@ -27,6 +27,9 @@ All fields are required unless marked optional.
 ## Acceptance Criteria Coverage
 <coverage table — see Coverage Table Schema below>
 
+## Acceptance Test Oracle   (optional)
+<QA-authored acceptance-test scenarios — see Acceptance Test Oracle Schema below. Omitted entirely when the source story carries no acceptanceTestCases.>
+
 ## Scope Flags
 <optional warnings about task count, ambiguity, or split recommendations>
 ```
@@ -66,6 +69,39 @@ Each task uses this structure:
 
 Every AC row must name at least one task in the "Covered By" column.
 
+## Acceptance Test Oracle Schema
+
+Optional section. Written **only** when the source story carries a non-empty
+`description.acceptanceTestCases[]` (QA-refined scenarios from the `create-acceptance-tests`
+skill). When the story has no `acceptanceTestCases`, this section is **omitted entirely** —
+its absence is the legacy default and changes nothing downstream.
+
+Each scenario is a Gherkin block annotated with the AC it verifies:
+
+```
+## Acceptance Test Oracle
+
+### Scenario 1: <outcome-focused title>   (maps to AC-1)
+Given <precondition>
+When <triggering action>
+Then <observable outcome>
+And <optional additional assertion>
+
+### Scenario 2: <outcome-focused title>   (maps to AC-2)
+Given <precondition>
+When <triggering action>
+Then <observable outcome>
+```
+
+- Scenarios are copied verbatim from `acceptanceTestCases[]` (same Gherkin shape as
+  `successScenarios[]`; see `scenario-schema.md` in makato-plan).
+- Each `(maps to AC-N)` annotation links the scenario to a numbered AC from the coverage
+  table. When a scenario maps to no specific AC, annotate `(maps to AC-*)` (applies to the
+  whole story).
+- The `coder` agent filters this section by each task's `**Satisfies:**` AC links and
+  implements the matching scenarios as its RED tests (see `coder.md` § *Test oracle*). The
+  oracle is **advisory** — it never overrides `PLAN_CONTEXT.Hard Constraints`.
+
 ## Validation Rules
 
 - Every AC from stories.json must appear in the coverage table
@@ -76,3 +112,4 @@ Every AC row must name at least one task in the "Covered By" column.
 - `blockedBy` must be populated (as `[]` or a non-empty list) for every task — never omitted
 - `commitMessage` must be populated for every task — never omitted
 - `runOrder` must be present when top-level mode is `mixed`; omit or set to `N/A` for single-mode plans
+- `## Acceptance Test Oracle` is optional — present only when the source story has a non-empty `acceptanceTestCases[]`; every scenario in it must carry a `(maps to AC-N)` annotation referencing an AC from the coverage table (or `AC-*` for story-wide scenarios)
