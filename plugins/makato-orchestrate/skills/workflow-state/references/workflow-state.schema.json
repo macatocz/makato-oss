@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/macatocz/makato/plugins/makato-orchestrate/skills/workflow-state/references/workflow-state.schema.json",
   "title": "workflow-state.json",
-  "description": "PO-agent resumable session state — written by workflow-state.sh, read by po-agent and the session-status hook. One file per spec folder at specs/<key>-<slug>/workflow-state.json. The PO-agent (GAP-006 / #32) is the sole writer in production; build-implement-tdd performs a narrow guarded patch on task completion.",
+  "description": "PO-agent resumable session state — written by workflow-state.sh, read by po-agent and the session-status hook. One file per GitHub issue at specs/<key>-<slug>/workflow-state-<issue>.json (per-issue isolation, #173). The PO-agent (GAP-006 / #32) is the sole writer in production; build-implement-tdd performs a narrow guarded patch on task completion.",
   "type": "object",
   "additionalProperties": false,
   "required": [

@@ -104,6 +104,7 @@
 | `stories[].description.solutionApproach` | string | No | Empty — filled during refinement |
 | `stories[].description.acceptanceTestCases` | array | No | Empty — filled by create-acceptance-tests |
 | `stories[].description.wikiDocumentation` | string | No | Empty — filled post-implementation |
+| `stories[].description.trigger` | string | No | Event/condition that triggers the story — rendered by `to-issues` as a `## Trigger Condition` section when non-empty |
 | `stories[].description.outOfScope` | string[] | No | Explicit exclusions |
 | `stories[].definitionOfDone` | string[] | Yes | 3-5 story-specific product conditions |
 | `stories[].dependencies.blockedBy` | number[] | No | Other story sequences |

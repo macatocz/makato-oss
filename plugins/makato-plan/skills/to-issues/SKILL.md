@@ -191,7 +191,7 @@ For each story:
      When `description.trigger` is absent or empty, substitute the EMPTY STRING (no heading, no placeholder text). This keeps the body clean for the common case.
    - `{{LABELS_LIST}}` → bulleted list, one label per line.
    - `{{ARCH_MODULES_LIST}}` → bulleted list of matched module slugs (or the literal text `_no module match_`).
-   - `{{SUCCESS_SCENARIOS}}` → render each `successScenarios[]` entry as a Gherkin block (`*Scenario N: {title}*\nGiven {given}\nWhen {when}\nThen {then}\nAnd {and[i]}...`).
+   - `{{SUCCESS_SCENARIOS}}` → render each `successScenarios[]` entry as a Gherkin block (`*Scenario N: {title}*\nGiven {given}\nWhen {when}\nThen {then}\nAnd {and[i]}...`). Note: `acceptanceTestCases[]` (written by `create-acceptance-tests`) is NOT rendered here — it is a QA artifact stored in `stories.json` for downstream tooling, not for the GitHub issue body.
    - `{{OUT_OF_SCOPE}}` → bulleted list of `description.outOfScope[]` (or `_none_` when empty).
    - `{{DEFINITION_OF_DONE}}` → checkbox list `- [ ] <item>` for each `definitionOfDone[]` entry.
    - `{{BLOCKED_BY_LINE}}` → `Blocked by: #<n1>, #<n2>` using real issue numbers from earlier in the batch (or `Blocked by: _none_`).

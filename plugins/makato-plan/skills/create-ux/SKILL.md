@@ -152,6 +152,10 @@ Include accessibility from the start — retrofitting after implementation is 5�
 
 Write the complete UX doc to `specs/{folder}/ux.md` using `@templates/ux-template.md` as the structure.
 
+> **Consumer note:** `ux.md` is a handoff artifact for developers and designers — it is
+> NOT read by `decompose` or any automated downstream skill. Share it with the
+> implementation team alongside `design.md`.
+
 The document must contain:
 
 - Screen inventory with navigation map

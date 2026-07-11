@@ -49,6 +49,7 @@ The full contract lives at @references/workflow-state.schema.json (draft-07, `ad
 | `budget_limit_tokens` | integer ≥ 1 | HALT-007 fires at ceiling (cost control) |
 | `context_warn_tokens` | integer ≥ 1 | HALT-007B fires at threshold (quality control; default 150000) |
 | `outer_iteration` | integer ≥ 0 | HALT-008 fires at 3 |
+| `merge_conflict_cycles` | integer ≥ 0 | count of merge-conflict resolution attempts; HALT-008 fires independently at `MAKATO_MAX_MERGE_CONFLICT_CYCLES` (default 3) |
 | `halt_audit` | array | append-only; see *halt_audit shape* |
 | `human_review_cycles` | integer ≥ 0 | count of `needs-human-review` labellings |
 | `github_pr_number` | integer \| null | set after `build-create-pr` succeeds |

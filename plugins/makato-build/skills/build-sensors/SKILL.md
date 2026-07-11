@@ -45,7 +45,8 @@ Run pre-commit sensors against the chosen file scope, parse findings, and dispat
      ```
    - `changed-vs-main` →
      ```bash
-     FILES="$(git diff origin/main --name-only)"
+     DEFAULT_BRANCH="$(shared/default-branch.sh 2>/dev/null || echo main)"
+     FILES="$(git diff "origin/${DEFAULT_BRANCH}" --name-only)"
      pre-commit run --hook-stage pre-push --files $FILES
      ```
 
