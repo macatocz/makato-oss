@@ -1,0 +1,8 @@
+{"ts":"2026-07-11T20:41:44Z","skill":"build-start","story":"150","step":"session-start","status":"start","data":{"mode":"tdd","local_work":false,"spec_artifacts":["plan.md"]}}
+{"ts":"2026-07-11T20:41:44Z","skill":"build-start","story":"150","step":"session-end","status":"ok","data":{"next":"build-refine"}}
+{"ts":"2026-07-11T20:42:33Z","skill":"build-refine","story":"150","step":"session","status":"start","data":{}}
+{"ts":"2026-07-11T20:44:26Z","skill":"build-refine","story":"150","step":"load-artifacts","status":"ok","data":{"path":"plan-only","spec_tier":"plan-only","trigger":"plan-only"}}
+{"ts":"2026-07-11T20:47:58Z","skill":"build-refine","story":"150","step":"write-plan","status":"ok","data":{"tasks":6,"oracle_scenarios":0,"plan_file":"specs/agent-skill-routing-d22-system-done-gate/plan.md"}}
+{"ts":"2026-07-11T20:47:58Z","skill":"build-refine","story":"150","step":"session","status":"ok","data":{"tasks":6,"mode":"tdd","plan":"specs/agent-skill-routing-d22-system-done-gate/plan.md"}}
+{"ts":"2026-07-11T20:50:20Z","skill":"build-implement-tdd","story":"150","step":"session","status":"start","data":{"tdd_tasks":6,"goal_tasks_skipped":0}}
+{"ts":"2026-07-11T20:50:20Z","skill":"build-implement-tdd","story":"150","step":"baseline","status":"ok","data":{"pre_existing_failures":0,"baseline_mode":"proceed"}}
