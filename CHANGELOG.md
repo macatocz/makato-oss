@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.42.1](https://github.com/macatocz/makato/compare/v0.42.0...v0.42.1) (2026-07-11)
+
+
+### 🐛 Bug Fixes
+
+* **makato-build:** unify Finding schema across sensor loop ([#230](https://github.com/macatocz/makato/issues/230)) ([#248](https://github.com/macatocz/makato/issues/248)) ([43bdc8e](https://github.com/macatocz/makato/commit/43bdc8eb134f928c0730519edf0efaa61c94933f))
+
 ## [0.42.0](https://github.com/macatocz/makato/compare/v0.41.0...v0.42.0) (2026-07-11)
 
 
