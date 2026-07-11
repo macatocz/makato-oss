@@ -46,7 +46,7 @@ Checklist:
 - [ ] `prd.md` exists and reflects actual scope (not the original idea)
 - [ ] `design.md` or `architecture.md` captures decisions made during implementation
 - [ ] `plan.md` tasks match the commits that landed (not the original task list)
-- [ ] `domain` is set in `spec.md` or `plan.md` frontmatter for master spec routing
+- [ ] `domain` is set in `spec.md` or `plan.md` frontmatter for master spec routing (the makato-plan pipeline does not write this field — add it manually before archiving; omitting it routes the spec to the `general` master spec, which is a safe fallback but loses topic-specific grouping)
 
 If artifacts are missing or badly stale, update them now. Archive is the last moment
 to capture this knowledge before the feature context is lost.

@@ -1,12 +1,11 @@
 {
-  "version": "1.0",
+  "version": "2.0",
   "slug": "<slug>",
   "created": "<YYYY-MM-DD>",
   "status": "draft",
   "epic": {
     "summary": "[Feature Tag] Epic title",
     "objective": "One-line objective statement",
-    "pi": "<YY/MM>",
     "labels": ["makato"]
   },
   "stories": [

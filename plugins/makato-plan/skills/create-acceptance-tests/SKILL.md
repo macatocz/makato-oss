@@ -17,6 +17,11 @@ high-level acceptance test cases (3-5 per foundation/happy-path story, 1-3 per
 edge-case story). Writes results back into `stories.json` → `acceptanceTestCases`
 field.
 
+> **Downstream note:** `to-issues` does NOT render `acceptanceTestCases[]` into the
+> GitHub issue body — it renders `successScenarios[]` only. `acceptanceTestCases[]`
+> is a QA artifact stored in `stories.json` for use by downstream tooling (test
+> frameworks, audit scripts). Run this skill before implementation, not before `to-issues`.
+
 ## When to Use
 
 - After decompose has produced `stories.json` with draft `successScenarios`

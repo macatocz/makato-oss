@@ -27,7 +27,7 @@ understanding.
 - No PRD exists yet (run create-prd first)
 - No architecture design exists (run create-architecture first)
 - Feature is trivial (single story, no slicing needed)
-- Want to create GitHub Issues (that's the publish skill downstream)
+- Want to create GitHub Issues (that's the `to-issues` skill downstream)
 - Want detailed implementation tasks (that's dev team refinement — shaping boundary)
 
 ---
@@ -235,10 +235,9 @@ Capture `epic.objective` for stories.json. Try in order:
    - If user wants to refine → take the edited version.
 2. **Ask fresh** (only if PRD has no clear one-liner objective):
    > "What's the one-line objective for this epic?
-   > (Stakeholder-facing — appears in handoff.md and optionally as the GitHub epic
-   > tracking issue title.)"
+   > (Stakeholder-facing — optionally becomes the GitHub epic tracking issue title.)"
 
-The objective is mandatory — `publish` validates its presence and the template renders it.
+The objective is mandatory — `to-issues` validates its presence and the template renders it.
 Do not let the user skip this round.
 
 **Parking unanswerable questions**: When the user says "I don't know" or
@@ -434,7 +433,7 @@ For EACH parked question:
 
 - Append row with next sequential Q# ID
 - Set "Raised In" to `decompose`
-- Assign priority: High = blocks publish, Medium = resolve before implementation,
+- Assign priority: High = blocks `to-issues`, Medium = resolve before implementation,
   Low = dev team decides
 - Include notes: why the question was asked and what answering it unblocks
 

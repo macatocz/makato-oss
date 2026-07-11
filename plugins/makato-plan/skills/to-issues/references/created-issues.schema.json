@@ -47,6 +47,14 @@
             "type": "array",
             "items": { "type": "integer", "minimum": 1 },
             "description": "Issue numbers (not story sequences) of upstream blockers — references real, already-created issues from earlier in the same batch."
+          },
+          "milestone": {
+            "type": ["object", "null"],
+            "description": "GitHub milestone attached to the issue — read by issue-to-project extract_signals for Iteration and Date Target fields. Shape mirrors the GitHub Issues API: {title: string, due_on: string|null, ...}. May be absent when no milestone is set.",
+            "properties": {
+              "title": { "type": "string" },
+              "due_on": { "type": ["string", "null"] }
+            }
           }
         }
       }
