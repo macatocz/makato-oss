@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.44.1](https://github.com/macatocz/makato/compare/v0.44.0...v0.44.1) (2026-07-12)
+
+
+### 🐛 Bug Fixes
+
+* two-step spec-folder resolution across build/orchestrate/change ([#233](https://github.com/macatocz/makato/issues/233)) ([#255](https://github.com/macatocz/makato/issues/255)) ([ffd30c3](https://github.com/macatocz/makato/commit/ffd30c3ebfa8887ee2d9035298b02c5d420b1b2c))
+
 ## [0.44.0](https://github.com/macatocz/makato/compare/v0.43.1...v0.44.0) (2026-07-12)
 
 
