@@ -171,15 +171,8 @@ thinking/
 docs-design/
 evaluation/
 # Design specs written by superpowers brainstorming are part of the repo
-!docs/superpowers/specs/
-# specs/ is a personal scratch dir EXCEPT for build.jsonl audit trails, which
-# ship in-repo (#99) so any reviewer can reproduce a past makato-build skill
-# run without rerunning it locally. We exclude the contents file-by-file rather
-# than excluding `specs/` itself — git's gitignore matching can't descend into
-# an excluded directory to re-include a file inside it.
+docs/superpowers/specs/
 specs/**/*
-!specs/**/build.jsonl
-!specs/**/
 
 # Subagent-Driven Development scratch (progress ledger, task briefs, review packages)
 .superpowers/
