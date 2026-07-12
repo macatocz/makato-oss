@@ -272,9 +272,9 @@ Both strategies failed. The conflict requires human judgment.
    the same run honour the cap on the PO-agent side.
 
    ```bash
-   CYCLES=$(shared/workflow-state.sh read "$KEY" | jq '.merge_conflict_cycles // 0')
+   CYCLES=$(shared/workflow-state.sh read "$KEY" "$ISSUE_NUMBER" | jq '.merge_conflict_cycles // 0')
    NEW_CYCLES=$((CYCLES + 1))
-   shared/workflow-state.sh patch "$KEY" .merge_conflict_cycles "$NEW_CYCLES"
+   shared/workflow-state.sh patch "$KEY" "$ISSUE_NUMBER" .merge_conflict_cycles "$NEW_CYCLES"
    shared/worktree.sh retain "$KEY" merge_conflict
    ```
 
@@ -296,7 +296,7 @@ Both strategies failed. The conflict requires human judgment.
 
    ```bash
    mapfile -t CONFLICT_FILES < <(git diff --name-only --diff-filter=U)
-   shared/workflow-state.sh append-lesson "$KEY" "$NEW_CYCLES" merge_conflict \
+   shared/workflow-state.sh append-lesson "$KEY" "$ISSUE_NUMBER" "$NEW_CYCLES" merge_conflict \
      "irreconcilable conflict on $BRANCH after rebase + merge -X ours" \
      "${CONFLICT_FILES[@]}"
    ```

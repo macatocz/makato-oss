@@ -109,9 +109,9 @@ If all five checks pass, exit 0.
 /makato-orchestrate:kill-switch poll gap-004
 ```
 
-### `handoff <KEY>`
+### `handoff <KEY> <ISSUE_NUMBER>`
 
-Delegates to `scripts/context-handoff.sh check <KEY>`. Single-line shim — exists so the
+Delegates to `scripts/context-handoff.sh check <KEY> <ISSUE_NUMBER>`. Single-line shim — exists so the
 PO-agent's loop reads as four parallel kill-switch concerns rather than three plus a
 shell-script call. Exit codes pass through unchanged:
 
@@ -122,10 +122,10 @@ shell-script call. Exit codes pass through unchanged:
 | 1    | HALT-007 fallback fired (cap exceeded, summariser missed, or restart-binary missing). |
 
 ```bash
-/makato-orchestrate:kill-switch handoff gap-004
+/makato-orchestrate:kill-switch handoff gap-004 42
 ```
 
-### `record-budget <KEY> <DELTA_TOKENS>`
+### `record-budget <KEY> <ISSUE_NUMBER> <DELTA_TOKENS>`
 
 Increment `budget_consumed_tokens` by `DELTA_TOKENS` AND increment the daily ledger by the
 same amount. Used by the PO-agent after every sub-agent dispatch (it reads `tool_calls_used`
@@ -135,7 +135,7 @@ this skill).
 The daily ledger schema lives at @references/daily-budget.schema.json.
 
 ```bash
-/makato-orchestrate:kill-switch record-budget gap-004 12500
+/makato-orchestrate:kill-switch record-budget gap-004 42 12500
 ```
 
 ### `reset-daily-budget`

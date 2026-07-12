@@ -62,6 +62,12 @@ specs/<issue-key>/
 
 This follows the makato-plan pattern of project-scoped work directories. All analysis artifacts for this change request will live here. The design and execute skills will load artifacts from this location.
 
+**Spec folder shapes:** When the issue was seeded via `seed-issue` (new-work path), the folder may instead be `specs/<N>-<slug>/` where `<N>` is the issue number and `<slug>` is the normalized title (e.g. `specs/233-fix-auth-bug/`). Both shapes are valid:
+- `specs/<issue-key>/` — direct creation by analyze (this step)
+- `specs/<issue-number>-<normalized-title>/` — canonical shape produced by `seed-issue`
+
+When loading artifacts in later steps, check both shapes and use whichever exists.
+
 ### Step 2.2: Add Suite and Plugin Labels
 
 Add labels `makato` and `makato-change` using `gh issue edit --add-label` (two separate calls or combined). These identify issues managed by the makato suite and specifically by the makato-change plugin.

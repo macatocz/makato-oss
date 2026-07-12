@@ -70,7 +70,9 @@ Store: `ISSUE_KEY`
 
 ### Step 2: Detect Current Phase
 
-Check `specs/<ISSUE_KEY>/` directory to determine workflow state:
+Check `specs/<ISSUE_KEY>/` directory to determine workflow state.
+
+**Spec folder shapes:** When the issue was seeded via `seed-issue` (new-work path), the folder may instead be `specs/<N>-<slug>/` where `<N>` is the issue number and `<slug>` is the normalized title (e.g. `specs/233-fix-auth-bug/`). Both shapes are valid. Check both locations when locating the spec folder — use whichever exists.
 
 > **Spec folder shapes:** `specs/<ISSUE_KEY>/` is the legacy/change path. Issues seeded via
 > `seed-issue` may use `specs/<N>-<slug>/` instead. Apply two-step resolution: prefix-match
@@ -172,6 +174,20 @@ After the invoked skill completes:
    - Design: `design.md` should exist
    - Execute: PR link should exist in GitHub Issues
    - Resolve Review: verify comments were addressed
+
+3. **In autonomous mode**, after each phase completes, append the phase name to `phases_complete[]` in `change-state-<N>.json` and set `updated_at`. After the execute phase completes and a PR was created, also write the PR URL to `pr_url` in `change-state-<N>.json`:
+
+   ```bash
+   # After each phase completes (e.g., "analyze"):
+   PHASE_DONE="analyze"
+   jq --arg p "$PHASE_DONE" '.phases_complete += [$p] | .updated_at = (now | todate)' \
+     change-state-<N>.json > tmp.json && mv tmp.json change-state-<N>.json
+
+   # After execute phase, also capture the PR URL:
+   PR_URL="$(gh pr list --head "$BRANCH" --repo "$REPO" --json url --jq '.[0].url' 2>/dev/null || true)"
+   [ -n "$PR_URL" ] && jq --arg url "$PR_URL" '.pr_url = $url | .updated_at = (now | todate)' \
+     change-state-<N>.json > tmp.json && mv tmp.json change-state-<N>.json
+   ```
 
 If the phase did not complete (user exited early or error occurred):
 - Show current state

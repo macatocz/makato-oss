@@ -52,7 +52,7 @@ Load `@../../AUTONOMOUS-MODE.md` for the activation contract (§ *Activation tri
 
 In autonomous mode, the Step 1 work-item-key prompt is replaced by:
 1. If an argument was passed: use it.
-2. Otherwise, read the most-recent `build.jsonl` session entry in the resolved spec folder (`specs/*/build.jsonl`, last entry where `step:"session"` and `status:"start"`) and extract `data.issue` or `data.story` as the key, and `data.branch` as the branch.
+2. Otherwise, read the most-recent `build.jsonl` session entry in the resolved spec folder (`specs/*/build.jsonl`, last entry where `step:"session"` and `status:"start"`) and extract the top-level `story` field as the key. Do NOT use `data.issue` or `data.story` (those fields do not exist in the build.jsonl schema) and do NOT rely on `data.branch` for key recovery — that field is only written by push-to-git and may be absent at this point.
 3. If neither step yields a key: HALT with `MISSING_INPUT: build-create-pr in --autonomous mode requires a work-item-key argument or a populated build.jsonl session entry`, write `{step:"session", status:"error", data:{halt_code:"MISSING_INPUT"}}`, and return R1 `status:"failure"`.
 
 Log the bypass via `shared/log-bypass.sh build-create-pr "<key>" work-item-key "<use-arg|read-build-jsonl>" "<agent_id|cli_flag|task_id_bundle>"` when bypassed.

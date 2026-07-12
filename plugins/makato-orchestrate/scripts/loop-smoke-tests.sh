@@ -24,11 +24,14 @@
 #   T16: run reclaims a stale pidfile silently (dead PID)
 #   T17: startup_audit records script_path/pid/ppid/pidfile
 #   T18: run --force reclaims a live pidfile by SIGTERM'ing the incumbent
-#   T23: dispatch assigns the issue on the real-fork path; --dry-run does not (#33)
-#   T24: MAKATO_LOOP_ASSIGN_ON_DISPATCH=0 disables the assign (#33)
-#   T25: dispatch derives KEY/BRANCH from the issue body and threads the
+#   T22: spec-folder resolution accepts all three naming shapes (#233)
+#   T23: _test-* hooks refuse to run without MAKATO_LOOP_TEST_HOOK=1
+#   T24: dispatch assigns the issue on the real-fork path; --dry-run does not (#33)
+#   T25: MAKATO_LOOP_ASSIGN_ON_DISPATCH=0 disables the assign (#33)
+#   T26: dispatch derives KEY/BRANCH from the issue body and threads the
 #        full po-agent input bundle (ISSUE_NUMBER/KEY/REPO/BRANCH/REPO_ROOT);
 #        falls back to specs/<slug>/stories.json; degrades to WARN when absent
+#   T27: type:change issues route to makato-change:orchestrate, others to po-agent
 #
 # A fixture file is injected via MAKATO_LOOP_GH_OVERRIDE so `gh` is not
 # invoked. Test isolation uses MAKATO_LOOP_STATE_DIR + ephemeral spec
@@ -491,7 +494,63 @@ fi
 echo "  ✓ fresh same-issue timestamp fired the guard; dispatch refused; body skipped"
 
 # ---------------------------------------------------------------------------
-echo "=== T22: _test-* hooks refuse to run without MAKATO_LOOP_TEST_HOOK=1 ==="
+echo "=== T22: spec-folder resolution accepts all three naming shapes (#233) ==="
+# Verifies the two-step resolver extracted from po-agent.md Step 1:
+#   1. prefix-match specs/<KEY>-*/
+#   2. exact-match fallback specs/<KEY>/
+# Each of the three naming conventions used by makato-plan/build/change must
+# resolve without HALT-006.
+t22_tmpdir="$(mktemp -d)"
+mkdir -p \
+  "$t22_tmpdir/specs/test-bare-slug" \
+  "$t22_tmpdir/specs/42-test-foo" \
+  "$t22_tmpdir/specs/ISSUE-42"
+
+resolve_spec_folder() {
+  local key="$1"
+  local specs_dir="$2"
+  # Step 1: prefix-match
+  local match
+  match="$(ls -d "$specs_dir/${key}"-*/ 2>/dev/null | head -1)"
+  [[ -n "$match" ]] && { echo "$match"; return 0; }
+  # Step 2: exact-match fallback
+  [[ -d "$specs_dir/${key}/" ]] && { echo "$specs_dir/${key}/"; return 0; }
+  return 1
+}
+
+# Assertion 1 — bare slug (makato-plan:decompose style): exact-match fallback.
+r1="$(resolve_spec_folder "test-bare-slug" "$t22_tmpdir/specs")"
+[[ -n "$r1" ]] || fail "T22: bare slug 'test-bare-slug' did not resolve"
+[[ "$r1" == *"test-bare-slug"* ]] \
+  || fail "T22: bare slug resolved to wrong path: $r1"
+echo "  ✓ bare slug (makato-plan style) resolves via exact-match fallback"
+
+# Assertion 2 — <N>-<slug> (seed-issue / to-issues style): prefix-match.
+r2="$(resolve_spec_folder "42" "$t22_tmpdir/specs")"
+[[ -n "$r2" ]] || fail "T22: issue-number prefix '42' did not resolve"
+[[ "$r2" == *"42-test-foo"* ]] \
+  || fail "T22: prefix-match resolved to wrong path: $r2"
+echo "  ✓ <N>-<slug> (seed-issue / to-issues style) resolves via prefix-match"
+
+# Assertion 3 — ISSUE-42 (makato-change style): exact-match fallback.
+r3="$(resolve_spec_folder "ISSUE-42" "$t22_tmpdir/specs")"
+[[ -n "$r3" ]] || fail "T22: ISSUE key 'ISSUE-42' did not resolve"
+[[ "$r3" == *"ISSUE-42"* ]] \
+  || fail "T22: ISSUE key resolved to wrong path: $r3"
+echo "  ✓ ISSUE-<N> (makato-change style) resolves via exact-match fallback"
+
+# Assertion 4 — nonexistent key returns 1.
+rc=0
+resolve_spec_folder "nonexistent" "$t22_tmpdir/specs" >/dev/null 2>&1 || rc=$?
+[[ $rc -ne 0 ]] \
+  || fail "T22: expected non-zero exit for nonexistent key; got $rc"
+echo "  ✓ nonexistent key returns non-zero (no false match)"
+
+rm -rf "$t22_tmpdir"
+echo "  ✓ T22 complete: all three spec-folder naming shapes resolve correctly"
+
+# ---------------------------------------------------------------------------
+echo "=== T23: _test-* hooks refuse to run without MAKATO_LOOP_TEST_HOOK=1 ==="
 # Operator running `loop.sh _test-guarded-sleep 3600` at the prompt
 # would get a 1-hour sleep with no indication it is a test hook.
 # The refusal path is the usability guard.
@@ -506,7 +565,7 @@ MAKATO_LOOP_TEST_HOOK=1 "$LOOP" _test-guarded-sleep 0 >/dev/null 2>&1 \
 echo "  ✓ test hooks gated behind MAKATO_LOOP_TEST_HOOK=1"
 
 # ---------------------------------------------------------------------------
-echo "=== T23: dispatch assigns the issue on the real-fork path (#33) ==="
+echo "=== T24: dispatch assigns the issue on the real-fork path (#33) ==="
 # The assign fires issues.assigned → project-board-sync.yml moves the board
 # Ready → In progress. We route the assign through MAKATO_LOOP_ASSIGN_TEST_FILE
 # so no `gh` call is made, and pair it with MAKATO_LOOP_DRY_DISPATCH=1 so the
@@ -535,7 +594,7 @@ MAKATO_LOOP_ASSIGN_TEST_FILE="$assign_log" \
 echo "  ✓ --dry-run does not assign (inspection-only)"
 
 # ---------------------------------------------------------------------------
-echo "=== T24: MAKATO_LOOP_ASSIGN_ON_DISPATCH=0 disables assign (#33) ==="
+echo "=== T25: MAKATO_LOOP_ASSIGN_ON_DISPATCH=0 disables assign (#33) ==="
 rm -f "$STATE_DIR/loop-status.json" "$assign_log"
 MAKATO_LOOP_DRY_DISPATCH=1 \
   MAKATO_LOOP_ASSIGN_ON_DISPATCH=0 \
@@ -548,7 +607,7 @@ MAKATO_LOOP_DRY_DISPATCH=1 \
 echo "  ✓ assign opt-out honored"
 
 # ---------------------------------------------------------------------------
-echo "=== T25: dispatch derives KEY/BRANCH and threads the po-agent bundle (#33) ==="
+echo "=== T26: dispatch derives KEY/BRANCH and threads the po-agent bundle (#33) ==="
 # The dispatch prompt must carry all four required po-agent inputs
 # (ISSUE_NUMBER/KEY/REPO/BRANCH/REPO_ROOT), else the po-agent fails input
 # validation immediately (the #144 crash). KEY is derived from the issue
@@ -570,16 +629,16 @@ dry_run_output="$(
   MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$issue_body_file" \
   MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
     "$LOOP" dispatch 500 --dry-run 2>&1 >/dev/null
-)" || fail "T25: dispatch --dry-run should exit 0; got: $dry_run_output"
+)" || fail "T26: dispatch --dry-run should exit 0; got: $dry_run_output"
 
 grep -q "KEY=test-feature" <<<"$dry_run_output" \
-  || fail "T25: KEY not threaded into dispatch prompt; got: $dry_run_output"
+  || fail "T26: KEY not threaded into dispatch prompt; got: $dry_run_output"
 grep -q "REPO=macatocz/makato" <<<"$dry_run_output" \
-  || fail "T25: REPO not threaded; got: $dry_run_output"
+  || fail "T26: REPO not threaded; got: $dry_run_output"
 grep -q "BRANCH=feat/500-test-feature" <<<"$dry_run_output" \
-  || fail "T25: BRANCH not threaded; got: $dry_run_output"
+  || fail "T26: BRANCH not threaded; got: $dry_run_output"
 grep -q "REPO_ROOT=" <<<"$dry_run_output" \
-  || fail "T25: REPO_ROOT not present; got: $dry_run_output"
+  || fail "T26: REPO_ROOT not present; got: $dry_run_output"
 echo "  ✓ KEY/REPO/BRANCH/REPO_ROOT all threaded into the dispatch prompt"
 
 # Sub-assertion — fallback source: body with only the specs/<slug>/stories.json line.
@@ -590,9 +649,9 @@ dry_run_fallback="$(
   MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$fallback_body_file" \
   MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
     "$LOOP" dispatch 501 --dry-run 2>&1 >/dev/null
-)" || fail "T25: fallback dispatch --dry-run should exit 0; got: $dry_run_fallback"
+)" || fail "T26: fallback dispatch --dry-run should exit 0; got: $dry_run_fallback"
 grep -q "KEY=fallback-slug" <<<"$dry_run_fallback" \
-  || fail "T25: fallback (stories.json) KEY derivation failed; got: $dry_run_fallback"
+  || fail "T26: fallback (stories.json) KEY derivation failed; got: $dry_run_fallback"
 echo "  ✓ KEY falls back to the specs/<slug>/stories.json provenance line"
 
 # Sub-assertion — derivation failure degrades to a WARN, dispatch still exits 0.
@@ -603,26 +662,26 @@ dry_run_warn="$(
   MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$empty_body_file" \
   MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
     "$LOOP" dispatch 502 --dry-run 2>&1 >/dev/null
-)" || fail "T25: degraded dispatch --dry-run should still exit 0; got: $dry_run_warn"
+)" || fail "T26: degraded dispatch --dry-run should still exit 0; got: $dry_run_warn"
 grep -qi "could not derive KEY" <<<"$dry_run_warn" \
-  || fail "T25: expected WARN when body has no provenance; got: $dry_run_warn"
+  || fail "T26: expected WARN when body has no provenance; got: $dry_run_warn"
 grep -q "KEY= " <<<"$dry_run_warn" \
-  || fail "T25: expected empty KEY in the degraded dispatch prompt; got: $dry_run_warn"
+  || fail "T26: expected empty KEY in the degraded dispatch prompt; got: $dry_run_warn"
 echo "  ✓ KEY derivation failure emits WARN and dispatches with empty KEY (po-agent fails input validation)"
 
 echo
-echo "=== T26: type:change issues route to makato-change:orchestrate, others to po-agent ==="
+echo "=== T27: type:change issues route to makato-change:orchestrate, others to po-agent ==="
 # Use MAKATO_LOOP_ISSUE_TYPE_OVERRIDE to bypass gh network call (keeps test offline).
-# Use the same body-override fixture from T25 (primary footer path) for KEY derivation.
+# Use the same body-override fixture from T26 (primary footer path) for KEY derivation.
 
 change_route="$(
   MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$issue_body_file" \
   MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
   MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="type:change" \
     "$LOOP" dispatch 501 --dry-run 2>&1 >/dev/null
-)" || fail "T26: type:change dispatch --dry-run should exit 0; got: $change_route"
+)" || fail "T27: type:change dispatch --dry-run should exit 0; got: $change_route"
 grep -q "makato-change:orchestrate" <<<"$change_route" \
-  || fail "T26: type:change should route to makato-change:orchestrate; got: $change_route"
+  || fail "T27: type:change should route to makato-change:orchestrate; got: $change_route"
 echo "  ✓ type:change routes to makato-change:orchestrate --autonomous"
 
 poagent_route="$(
@@ -630,9 +689,9 @@ poagent_route="$(
   MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
   MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="type:feature" \
     "$LOOP" dispatch 502 --dry-run 2>&1 >/dev/null
-)" || fail "T26: type:feature dispatch --dry-run should exit 0; got: $poagent_route"
+)" || fail "T27: type:feature dispatch --dry-run should exit 0; got: $poagent_route"
 grep -q "po-agent" <<<"$poagent_route" \
-  || fail "T26: type:feature should route to po-agent; got: $poagent_route"
+  || fail "T27: type:feature should route to po-agent; got: $poagent_route"
 echo "  ✓ type:feature (and other types) route to po-agent"
 
 no_type_route="$(
@@ -640,9 +699,9 @@ no_type_route="$(
   MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
   MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="" \
     "$LOOP" dispatch 503 --dry-run 2>&1 >/dev/null
-)" || fail "T26: no-type dispatch --dry-run should exit 0; got: $no_type_route"
+)" || fail "T27: no-type dispatch --dry-run should exit 0; got: $no_type_route"
 grep -q "po-agent" <<<"$no_type_route" \
-  || fail "T26: missing type: label should fall back to po-agent; got: $no_type_route"
+  || fail "T27: missing type: label should fall back to po-agent; got: $no_type_route"
 echo "  ✓ missing type: label falls back to po-agent"
 
 # ---------------------------------------------------------------------------

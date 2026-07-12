@@ -1,0 +1,12 @@
+{"ts":"2026-07-11T20:52:27.000Z","skill":"coder","story":"150","step":"red","task":1,"status":"ok","data":{"unit_tests":8,"integration_tests":0}}
+{"ts":"2026-07-11T20:52:54.000Z","skill":"coder","story":"150","step":"green","task":1,"status":"ok","data":{"unit_passing":8}}
+{"ts":"2026-07-11T20:53:24.000Z","skill":"coder","story":"150","step":"integrate","task":1,"status":"ok","data":{"integration_passing":8}}
+{"ts":"2026-07-11T20:53:29.000Z","skill":"coder","story":"150","step":"verify-task","task":1,"status":"ok","data":{"new_failures":0}}
+{"ts":"2026-07-11T20:56:02.000Z","skill":"coder","story":"150","step":"red","task":2,"status":"ok","data":{"unit_tests":10,"integration_tests":0}}
+{"ts":"2026-07-11T20:56:41.000Z","skill":"coder","story":"150","step":"green","task":2,"status":"ok","data":{"unit_passing":10}}
+{"ts":"2026-07-11T20:57:33.000Z","skill":"coder","story":"150","step":"integrate","task":2,"status":"ok","data":{"integration_passing":10}}
+{"ts":"2026-07-11T20:57:52.000Z","skill":"coder","story":"150","step":"verify-task","task":2,"status":"ok","data":{"new_failures":0}}
+{"ts":"2026-07-11T21:03:41.000Z","skill":"coder","story":"150","step":"red","task":3,"status":"ok","data":{"unit_tests":5,"integration_tests":0}}
+{"ts":"2026-07-11T21:03:52.000Z","skill":"coder","story":"150","step":"green","task":3,"status":"ok","data":{"unit_passing":5}}
+{"ts":"2026-07-11T21:04:03.000Z","skill":"coder","story":"150","step":"integrate","task":3,"status":"ok","data":{"integration_passing":5}}
+{"ts":"2026-07-11T21:04:14.000Z","skill":"coder","story":"150","step":"verify-task","task":3,"status":"ok","data":{"new_failures":0}}

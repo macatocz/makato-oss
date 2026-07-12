@@ -86,12 +86,12 @@ git checkout -b <branch-name>
 
 **Ticket path** (`local_work = false`):
 
-Locate the spec folder using a two-step resolution order:
+Locate the spec folder using a two-step resolution:
 
-1. **Prefix-match** (canonical): `ls specs/<key>-*/ 2>/dev/null | head -1` — matches `specs/<N>-<slug>/` from `seed-issue` and `to-issues`.
-2. **Exact-match fallback**: `[[ -d specs/<key>/ ]]` — matches bare `specs/<slug>/` from `makato-plan:decompose` and `specs/<issue-key>/` from `makato-change`.
+1. **Prefix-match**: find `specs/<key>-*/` (e.g. `specs/DCP-1234-feature-name/`). Use the first match. This aligns with makato-plan's naming convention of `specs/{KEY}-{slug}/`.
+2. **Exact-match fallback**: if no prefix-match exists, check for `specs/<key>/` (exact folder name). This covers issues seeded directly without a slug suffix.
 
-Use the first match found. This two-step resolver handles all three spec-folder naming conventions across plugins.
+Resolution order: (1) `specs/<key>-*/` prefix-match; (2) `specs/<key>/` exact-match fallback.
 
 - If no `specs/<key>-*/` folder exists → stop: *"No spec folder found for `<key>`.
   Run makato-plan first to produce shaped artifacts in `specs/<key>-<slug>/`."*
