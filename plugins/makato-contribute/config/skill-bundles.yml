@@ -18,8 +18,6 @@ bundles:
     skills:
       - makato-plugin-creator
       - makato-skill-creator
-      - manage-pr
-      - sync-from-upstream
 
   # Triggered when working on plugin scaffold files that suggest contributor tooling.
   # Literal segments: plugins/ → specificity = 1; contains filter keeps it precise.
