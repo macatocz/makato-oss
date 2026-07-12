@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.44.2](https://github.com/macatocz/makato/compare/v0.44.1...v0.44.2) (2026-07-12)
+
+
+### 🐛 Bug Fixes
+
+* **repo-wide:** reconcile spec-folder conventions + P1 contract drifts ([#233](https://github.com/macatocz/makato/issues/233), [#234](https://github.com/macatocz/makato/issues/234)) ([#258](https://github.com/macatocz/makato/issues/258)) ([7de3c96](https://github.com/macatocz/makato/commit/7de3c9630900ae0a65e5ecddeca15b6afa1fa47c))
+
 ## [0.44.1](https://github.com/macatocz/makato/compare/v0.44.0...v0.44.1) (2026-07-12)
 
 
