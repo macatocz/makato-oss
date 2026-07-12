@@ -59,6 +59,11 @@
       "name": "makato-observability",
       "source": "./plugins/makato-observability",
       "description": "LLM-observability skills for tracing, monitoring, and debugging LangGraph-based AI agents — Langfuse-first via OpenTelemetry SDK + OTLP HTTP export. Vendor-neutral: no hosting-provider names in prose or templates."
+    },
+    {
+      "name": "makato-temporal",
+      "source": "./plugins/makato-temporal",
+      "description": "Provide Temporal durable-execution reference skills for building, debugging, and operating workflows, activities, and workers across Python, TypeScript, Java, and Rust SDKs."
     }
   ]
 }
