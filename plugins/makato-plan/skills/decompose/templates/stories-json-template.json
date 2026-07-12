@@ -15,7 +15,7 @@
       "summary": "[Component] User outcome — walking skeleton",
       "storyPoints": 3,
       "teams": ["<Team Name>"],
-      "labels": ["makato"],
+      "labels": ["makato", "type:feat"],
       "description": {
         "background": "<Why this story exists>",
         "scope": "<What to build — specific, bounded>",

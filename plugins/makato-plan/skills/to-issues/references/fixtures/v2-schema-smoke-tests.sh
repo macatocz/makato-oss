@@ -295,5 +295,87 @@ check "known trade-off: distinctive term in small single-topic batch is dropped 
   "_none_" "$(lget billing_fn)"
 
 echo ""
+echo "== type: resolution — explicit labels[] wins over text heuristic (#272) =="
+
+# to-issues resolves `type:` with precedence: (1) an explicit in-enum
+# `type:<value>` in stories[].labels[] wins; (2) otherwise the text-heuristic
+# regex table (label-taxonomy.md "Type Inference Table") is the fallback. This
+# mirrors the "explicit label > inference" pattern the skill already applies to
+# status: and the five prioritization dimensions — #272 extends it to type:.
+#
+# These assertions use their own micro-stories (NOT the shared regression
+# fixture): adding a third story there would change the module-match batch
+# (N=2 -> 3), perturb the df > N/2 informative-token filter, and break the
+# module asserts above. `type:` is a pure per-story resolution with no batch
+# dependency, so it is tested in isolation here. If SKILL.md / label-taxonomy.md
+# changes the type-resolution algorithm, update this block in lockstep.
+TYPE="$(python3 <<'PY'
+import re
+
+# Type Inference Table (label-taxonomy.md), first-match-wins, default feat.
+# Ordered exactly as the prose table: fix -> docs -> refactor -> test -> chore
+# -> future-enhancement -> default. `type_resolve` prepends the explicit-label
+# precedence #272 adds on top of this heuristic.
+TYPE_ENUM = {"feat", "fix", "docs", "refactor", "test", "chore", "future-enhancement"}
+HEURISTIC = [
+    (r"\b(fix|bug|broken|regression|hotfix|patch)\b", "fix"),
+    (r"\b(docs?|readme|changelog|comment)\b", "docs"),
+    (r"\b(refactor|rename|reorganize|cleanup)\b", "refactor"),
+    (r"\b(test|spec|coverage)\b", "test"),
+    (r"\b(chore|deps?|bump|ci|build)\b", "chore"),
+    (r"\b(future|someday|eventually|parked|deferred|icebox|backlog)\b", "future-enhancement"),
+]
+
+
+def _heuristic(inference_text):
+    text = inference_text.lower()
+    for pattern, label in HEURISTIC:
+        if re.search(pattern, text):
+            return label
+    return "feat"
+
+
+def type_resolve(labels, inference_text):
+    """#272 precedence: (1) explicit in-enum type:<v> in labels[] wins;
+    (2) otherwise the text heuristic. An out-of-enum explicit type: is ignored
+    and falls through to the heuristic (never aborts) — same tolerance the five
+    prioritization dimensions apply to out-of-enum values."""
+    for lab in labels:
+        if lab.startswith("type:"):
+            value = lab.split(":", 1)[1]
+            if value in TYPE_ENUM:
+                return value  # explicit in-enum wins
+            # out-of-enum -> ignore, fall through to heuristic
+    return _heuristic(inference_text)
+
+
+# Golden (AC-4): scope says "test", but explicit type:feat wins.
+print("golden=" + type_resolve(
+    ["makato", "type:feat"],
+    "Walking skeleton probe E2E test harness",
+))
+# Backward-compat (AC-5): no type: prefix, scope says "test" -> heuristic -> test.
+print("legacy=" + type_resolve(
+    ["makato"],
+    "Walking skeleton probe E2E test harness",
+))
+# No type:, no keyword -> default feat.
+print("default=" + type_resolve(["makato"], "Provision tenant workspaces"))
+# Out-of-enum explicit type: -> ignored, falls to heuristic (here: fix).
+print("bogus=" + type_resolve(["makato", "type:bogus"], "Fix the broken login"))
+# Explicit type: on a fix-keyword story still wins (explicit > inference).
+print("explicit_over_fix=" + type_resolve(["makato", "type:chore"], "Fix the broken login"))
+PY
+)"
+
+tget() { echo "$TYPE" | grep -F "$1=" | cut -d= -f2-; }
+
+check "golden (AC-4): explicit type:feat beats 'test' keyword" "feat" "$(tget golden)"
+check "backward-compat (AC-5): no prefix -> heuristic infers 'test'" "test" "$(tget legacy)"
+check "no prefix, no keyword -> default feat" "feat" "$(tget default)"
+check "out-of-enum type:bogus -> falls through to heuristic (fix)" "fix" "$(tget bogus)"
+check "explicit type:chore wins over 'fix' keyword (explicit > inference)" "chore" "$(tget explicit_over_fix)"
+
+echo ""
 echo "to-issues v2.0-schema smoke: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

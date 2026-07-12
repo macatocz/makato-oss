@@ -9,7 +9,7 @@ Every issue created by `to-issues` carries one label from each applicable dimens
 
 | Dimension | Source | Examples |
 |-----------|--------|----------|
-| **type** | Inferred from story `summary` + `description.scope` + `description.background` keywords (see table below) | `type:feat`, `type:fix`, `type:docs`, `type:refactor`, `type:test`, `type:chore`, `type:future-enhancement` |
+| **type** | **(v3.6.0+)** Explicit `stories[].labels[]` `type:*` (in-enum) → text-heuristic inference over `summary` + `description.scope` + `description.background` (see resolution rule + table below) | `type:feat`, `type:fix`, `type:docs`, `type:refactor`, `type:test`, `type:chore`, `type:future-enhancement` |
 | **tier** | `stories[].phase` in `stories.json` (skipped entirely for `type:future-enhancement` — those issues are pre-phase) | `tier:foundation`, `tier:happy-path`, `tier:edge-cases` |
 | **tech** | Default keyword list, extensible via `config.json` `labels.tech` | `tech:python`, `tech:bash`, `tech:sql`, `tech:fastapi`, `tech:temporal`, `tech:langgraph`, `tech:pydantic-ai`, `tech:harness`, `tech:skill`, `tech:html`, `tech:react` |
 | **module** | ADR folder-name match (see algorithm), extensible via `config.json` `labels.modules` | `module:to-issues`, `module:auth-service`, `module:billing` |
@@ -21,6 +21,13 @@ Every issue created by `to-issues` carries one label from each applicable dimens
 | **status** *(sparse)* | Inferred from `dependencies.blockedBy` + `type:future-enhancement` + explicit `stories[].labels` (see `Status Dimension` below) | `status:blocked` *(auto)*, `status:todo` / `status:in-progress` / `status:done` *(reserved for future `manage-github-project` skill — not auto-emitted)* |
 
 ## Type Inference Table
+
+**Resolution precedence (v3.6.0+, #272).** `type:` resolves in two ordered steps:
+
+1. **Explicit label wins.** If `stories[].labels[]` carries a `type:<value>` string whose `<value>` is in the enum {`feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `future-enhancement`}, emit it verbatim and **skip the heuristic**. This is the authoritative path when the upstream `decompose` skill (v1.3.0+) emits `type:` from the story's intent — it knows the story's scope, so it beats a text guess. In autonomous mode log `[to-issues:auto] story <n>: type:<value> from labels[] (explicit)`. An out-of-enum `type:<value>` is **ignored** (not an abort) and falls through to step 2, with a soft-warn `[to-issues:auto] story <n>: type=<value> not in enum — falling back to heuristic` — the same out-of-enum tolerance the five prioritization dimensions apply.
+2. **Heuristic fallback.** When no explicit in-enum `type:` label is present (e.g. a legacy `stories.json` predating #272), match the lowercased **inference text** against the table below. This preserves byte-for-byte backward compatibility.
+
+This mirrors the **explicit label > inference** pattern already used for `status:` (`## Status Dimension`) and the five prioritization dimensions (`## Prioritization Dimensions`).
 
 Match the lowercased **inference text** — the story `summary` concatenated with `description.scope` and `description.background` (v2.0 field paths — there is no top-level `title` or flat `scope`) — against the **first** matching regex. Default is `type:feat`.
 

@@ -38,7 +38,12 @@ Changes are grouped by skill/agent/component. Within each group, latest version 
 
 ## `to-issues` skill
 
-- **3.5.0**
+- **3.6.0 (#272)**
+  - **`type:` now resolves explicit `stories[].labels[]` over the text heuristic.** Resolution precedence is now **(a) explicit in-enum `type:<value>` in `stories[].labels[]` wins → (b) text-heuristic inference table** (the prior sole path, now the fallback). This mirrors the "explicit label > inference" pattern the skill already applies to `status:` and the five prioritization dimensions, extended to `type:`. It lets the upstream `decompose` skill (v1.3.0+) carry authoritative `type:` from a story's intent instead of `to-issues` guessing from dense engineering prose — the guess misfired on 7/10 stories on `platform-core-phase-1` (e.g. "Walking skeleton probe E2E" → `type:test` on the word "test"; should be `feat`).
+  - **Out-of-enum tolerance:** an explicit `type:<value>` outside the enum {`feat`,`fix`,`docs`,`refactor`,`test`,`chore`,`future-enhancement`} is ignored (soft-warn) and falls through to the heuristic — never aborts. **Backward-compatible:** a `stories.json` with no `type:` prefix resolves exactly as before.
+  - Golden + backward-compat + out-of-enum assertions added to `references/fixtures/v2-schema-smoke-tests.sh` (the executable spec), proving `type:feat` in `labels[]` beats a "test"-keyword scope and that the no-prefix heuristic path is untouched. Updated `references/label-taxonomy.md` (`## Type Inference Table` precedence rule + the `type` dimension row) and SKILL.md Step 3 bullet 1.
+
+
   - **Fixed (#228): `to-issues` now reads the `stories.json` v2.0 schema.** `decompose` has emitted schema v2.0 since `85b83da` (`summary` instead of `title`; `scope`/`background` nested under `description.*`; no `metadata` object), but `to-issues` still read the v1 shape, so four things silently degraded on real v2.0 input:
     - **Title** is now bound from `summary` (was `$STORY_TITLE` — a variable that never existed, producing an empty/broken title that could fail `created-issues.schema.json`'s `title minLength:1`).
     - **type/tech/module inference** now tokenizes `summary` + `description.scope` + `description.background` (v2.0 paths) instead of a flat `title` + `scope` that resolved to near-empty text and defaulted every dimension.
@@ -153,6 +158,9 @@ Changes are grouped by skill/agent/component. Within each group, latest version 
 
 ## `decompose` skill
 
+- **1.3.0 (#272)**
+  - Step 7.12 — **taxonomic label emission**: `decompose` now writes `type:<feat|fix|test|chore|docs>` into every story's `stories[].labels[]` from the story's intent (which `decompose` authors and therefore knows reliably), and `severity:`/`priority:`/`effort:` **only when the Step 5 Three Amigos simulation produces them** (no invented values). The downstream `to-issues` (v3.6.0+) honors an explicit in-enum `type:` over its text heuristic. Deliberately does **not** emit `tier:`/`points:`/`module:`/`tech:`/`status:` — those are carried by typed fields (`phase`, `storyPoints`) or derived by `to-issues` (drift avoidance).
+  - Step 8 completeness validation now warns (does not block) when a story has no `type:` label. Updated `references/stories-json-schema.md` (`labels[]` may carry taxonomy prefixes, with example) and `templates/stories-json-template.json` (`"labels": ["makato", "type:feat"]`).
 - **1.2.0**
   - Step 7.11 — `recommended_skills[]` emission: after generating each sub-task, loads `plugins/makato-plan/config/task-skill-map.json` and does a case-insensitive substring match on archetype keys; if matched, adds `recommended_skills: [...]` to the sub-task object. If no match, omits the field (no empty array). Backward-compatible: when `task-skill-map.json` is absent, proceeds silently with no `recommended_skills` on any sub-task (#146).
 - **1.1.1**

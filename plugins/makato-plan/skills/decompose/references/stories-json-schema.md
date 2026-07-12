@@ -34,7 +34,7 @@
   "summary": "User outcome title",
   "storyPoints": 3,
   "teams": ["team-name"],
-  "labels": ["makato"],
+  "labels": ["makato", "type:feat"],
   "githubIssue": null,
   "description": {
     "background": "Why this story exists, context...",
@@ -95,7 +95,7 @@
 | `stories[].summary` | string | Yes | Story title |
 | `stories[].storyPoints` | number | Yes | Fibonacci (1,2,3,5,8,13) |
 | `stories[].teams` | string[] | Yes | Free-text team names — user-defined |
-| `stories[].labels` | string[] | Yes | Always includes `"makato"` |
+| `stories[].labels` | string[] | Yes | Always includes `"makato"`. **May carry taxonomy prefixes** (#272): `decompose` emits `type:<feat\|fix\|test\|chore\|docs>` per story (Step 7.12), plus `severity:`/`priority:`/`effort:` when the Three Amigos produce them. `to-issues` (v3.6.0+) honors an explicit in-enum `type:` here over its text heuristic. Example: `["makato", "type:feat"]`. Does NOT carry `tier:`/`points:`/`module:`/`tech:`/`status:` (those are derived by `to-issues`). |
 | `stories[].githubIssue` | number | No | Set by `to-issues` when GitHub issues are created |
 | `stories[].description.background` | string | Yes | Context/rationale |
 | `stories[].description.scope` | string | Yes | Bounded scope statement |

@@ -4,7 +4,7 @@ description: >-
   Decompose shaped features into vertically-sliced stories with acceptance
   criteria — decompose, vertical slice, story slicing, break down feature,
   split into stories. Use after PRD and architecture are approved.
-version: "1.2.0"
+version: "1.3.0"
 model: opus
 argument-hint: "[slug]"
 ---
@@ -350,6 +350,8 @@ Tell the user:
 10. Omit operational fields (assignee, sprint, status) —
     those belong to sprint planning, not shaping
 11. **Emit `recommended_skills[]` per sub-task** (backward-compatible — see below)
+12. **Emit taxonomic labels into `stories[].labels[]`** where `decompose` has an
+    authoritative source of truth (see Step 7.12 below)
 
 #### Step 7.11 — recommended_skills[] emission (agent-skill-routing #146)
 
@@ -379,6 +381,48 @@ read, skip the lookup silently — produce `stories.json` without `recommended_s
 and do NOT raise an error. Downstream consumers (`build-refine`, `coder`) treat
 `recommended_skills` as optional.
 
+#### Step 7.12 — taxonomic label emission (#272)
+
+`decompose` writes taxonomy-prefixed labels into each story's `labels[]` **only where it
+holds an authoritative source of truth** — so the downstream `to-issues` consumer
+(v3.6.0+) can honor them directly instead of guessing from story text. `to-issues` resolves
+`type:` (and the prioritization dimensions) with an **explicit-label-wins** precedence; the
+prefixes emitted here are that explicit source. Without this emission, `to-issues` falls back
+to a text heuristic that misfires on dense engineering prose (the #272 motivation).
+
+Emit, per story, into `stories[].labels[]` (always alongside the mandatory `"makato"`):
+
+1. **`type:<feat|fix|test|chore|docs>` — always.** `decompose` authors each story's scope and
+   intent, so it knows the type reliably (the heuristic does not). Choose the value from the
+   story's intent:
+   - `type:feat` — new capability / user-facing outcome (the default for a normal slice).
+   - `type:fix` — the story corrects a defect or regression.
+   - `type:test` — the story's deliverable is test coverage / a test harness itself.
+   - `type:chore` — build/CI/deps/tooling with no user-facing behavior change.
+   - `type:docs` — documentation is the deliverable.
+   The value MUST be in the `type:` enum documented in
+   `../to-issues/references/label-taxonomy.md` (`## Type Inference Table`). This is the main win.
+2. **`severity:` / `priority:` — only when the Three Amigos simulation (Step 5, Dev Lead risk
+   challenge) actually produced them.** Do NOT invent values: for a routine feature story,
+   severity/priority are typically N/A — omit them. Emit only the concrete value the review
+   assigned (enum per `label-taxonomy.md` `## Prioritization Dimensions`).
+3. **`effort:` — optional**, only when the Three Amigos assigned a t-shirt size (`s`/`m`/`l`/`xl`).
+   Omit otherwise.
+
+**Deliberately NOT emitted** (to avoid drift / because another field or the consumer owns them):
+
+- `tier:` — already carried by the typed `phase` field; `to-issues` copies `tier:` from there.
+- `points:` — already carried by `storyPoints`; `to-issues` derives `points:` from it.
+- `module:` — a repo-specific ADR folder-name match; `decompose` is generic and does not know
+  the target repo's ADR structure. Left to `to-issues`.
+- `tech:` — `decompose` does not reliably know the target stack; left to the `to-issues` text-match.
+- `status:` — computed by `to-issues` from the dependency topo-sort / `future-enhancement`.
+
+**Backward-compatibility**: emitting these prefixes is additive — a story's `labels[]` still
+begins with `"makato"` and may still carry free-form tags. A `to-issues` version predating
+#272 simply ignores an unrecognized `type:` label (it read `type:` from text only), so old and
+new consumers both work.
+
 Load @references/stories-json-schema.md during this step.
 
 ---
@@ -407,6 +451,9 @@ Not strict — some fields are intentionally rough at this stage.
 - At least 1 successScenario (high-level, not exhaustive —
   populated from qa-reviewer drafts in Step 7.4; warn if a story has none)
 - definitionOfDone (at least 2 product-level conditions)
+- A `type:` label in `stories[].labels[]` (#272) — Step 7.12 emits one per story; warn (do
+  NOT block) if a story is missing it, since `to-issues` can still fall back to its text
+  heuristic. Warning: `story <n> has no type: label — to-issues will infer type from text`.
 
 **Intentionally empty** (don't flag):
 
