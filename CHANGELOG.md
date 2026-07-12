@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.46.1](https://github.com/macatocz/makato/compare/v0.46.0...v0.46.1) (2026-07-12)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** reaper landed-detection — ancestry + tracked-only dirty + nested-child ([#265](https://github.com/macatocz/makato/issues/265)) ([#269](https://github.com/macatocz/makato/issues/269)) ([bbd0aa5](https://github.com/macatocz/makato/commit/bbd0aa51a2384a69828e231d8ca9b1b228cbf22e))
+
 ## [0.46.0](https://github.com/macatocz/makato/compare/v0.45.0...v0.46.0) (2026-07-12)
 
 
