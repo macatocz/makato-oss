@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.43.1](https://github.com/macatocz/makato/compare/v0.43.0...v0.43.1) (2026-07-12)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** let non-to-issues issues enter the loop unattended ([#231](https://github.com/macatocz/makato/issues/231), [#232](https://github.com/macatocz/makato/issues/232)) ([#252](https://github.com/macatocz/makato/issues/252)) ([7dfb7dc](https://github.com/macatocz/makato/commit/7dfb7dc3fe79ffc385420095e5976700021a088a))
+
 ## [0.43.0](https://github.com/macatocz/makato/compare/v0.42.1...v0.43.0) (2026-07-11)
 
 
