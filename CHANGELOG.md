@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.44.0](https://github.com/macatocz/makato/compare/v0.43.1...v0.44.0) (2026-07-12)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** narrate autonomous run into a live issue comment ([#254](https://github.com/macatocz/makato/issues/254)) ([6ebe8e1](https://github.com/macatocz/makato/commit/6ebe8e1e2ed70683934070c47a777b01ccb9556e))
+
 ## [0.43.1](https://github.com/macatocz/makato/compare/v0.43.0...v0.43.1) (2026-07-12)
 
 
