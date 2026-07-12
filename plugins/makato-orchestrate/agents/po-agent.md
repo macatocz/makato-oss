@@ -80,6 +80,15 @@ posture is constrained by four safeguards — see `AGENTS.md` §
   `build-implement-tdd` (or `build-implement-goal`) dispatch per outer
   iteration; the skill walks the full task list in topological order
   itself.
+- **Narrate progress into the issue, best-effort.** At each skill
+  dispatch boundary, mirror a plain-English, human-readable line into a
+  single "live" GitHub issue comment via
+  `shared/progress-comment.sh` (see § *Progress comment*). This is a
+  convenience layer that persists only `.progress_comment_id`, and does so
+  **through** `shared/workflow-state.sh` — so the PO-agent stays the sole
+  writer of `workflow-state.json`. It is **best-effort and NEVER fatal**:
+  any `gh` failure logs a WARN and the run continues. It NEVER triggers a
+  HALT and NEVER blocks a dispatch.
 
 ## Input
 
@@ -265,6 +274,14 @@ On resume, check three flags before continuing:
 | `handoff_reason == "context_ceiling"` | Read `session_summary` (≤ 500 tokens). Clear the flag via `workflow-state.sh patch <KEY> <ISSUE_NUMBER> .handoff_reason 'null'`. Continue from `resume_point`. |
 | `restart_failed == true` | Return R1 `failure` with `errors: ["restart_failed=true on prior session"]`. |
 
+On a fresh run (not a resume), open the live issue comment with a
+first note (best-effort — see § *Progress comment*):
+
+```bash
+shared/progress-comment.sh note <KEY> <ISSUE_NUMBER> <REPO> \
+  --text "Autonomous run started for issue #<N> — the agent will now walk the plan step by step and log what it does here."
+```
+
 ### Step 2b — Worktree create or resume
 
 Probe the remote for the feature branch **without any local git-branch
@@ -401,6 +418,18 @@ The implementation skill dispatches per-task scout + coder internally.
 The PO-agent does NOT dispatch either directly. A scout failure
 degrades to a coder dispatch without `SCOUT_SUMMARY` — never a HALT.
 
+**Before dispatch**, narrate the START into the live issue comment
+(best-effort — see § *Progress comment*):
+
+```bash
+shared/progress-comment.sh start <KEY> <ISSUE_NUMBER> <REPO> \
+  --skill "build-implement-tdd" --agent "coder" \
+  --input "task plan (plan.md), working copy on branch <BRANCH>" \
+  --goal "write and test the code per the plan (test-driven)"
+```
+
+Use the row for the dispatched skill from § *Progress comment*.
+
 After R1 returns, run
 `kill-switch record-budget <KEY> <r1-token-estimate>`.
 
@@ -469,6 +498,18 @@ JSONL per dispatch (JSONL `status` maps R1 status: `success`→`ok`,
 {"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"dispatch","status":"<ok|warn|error>","data":{"skill":"<dispatched>","r1_status":"<r1.status>","outer_iteration":<I>}}
 ```
 
+**After applying R1**, narrate the DONE into the live issue comment
+(best-effort — see § *Progress comment*). Derive `--result` from
+`r1.status` plus the count of completed `sub_tasks`, and `--summary`
+from `r1.summary`:
+
+```bash
+shared/progress-comment.sh done <KEY> <ISSUE_NUMBER> <REPO> \
+  --skill "build-implement-tdd" \
+  --result "<K>/<N> tasks complete" \
+  --summary "<r1.summary in plain English>"
+```
+
 **Sensor-fix lesson capture.** After parsing R1 — regardless of
 `r1.status` — scan `build.jsonl` since `updated_at` and append one
 `trigger: sensor` lesson per resolved sensor finding. Match both shapes
@@ -478,10 +519,12 @@ is read-only; PO-agent remains sole writer of state.
 
 #### Step 4f — Re-plan via `build-refine`
 
-On `partial` or `failure(escalation: refine)`, dispatch
+On `partial` or `failure(escalation: refine)`, first narrate the START
+(`progress-comment.sh start … --skill "build-refine" --agent "planning
+agent" --goal "re-plan the task list after a failure"`), then dispatch
 `/makato-build:build-refine <KEY> --autonomous`. Parse R1. `failure` →
 HALT-STRUCTURAL (apply `needs-human-review`, R1 `failure`). `success` →
-increment `outer_iteration` (Step 5), re-enter Step 4.
+narrate DONE, increment `outer_iteration` (Step 5), re-enter Step 4.
 
 ### Step 5 — Outer-iteration bookkeeping
 
@@ -499,14 +542,26 @@ re-plan attempts:
 
 Triggered when all `sub_tasks[].status == "complete"`.
 
-1. Patch `current_phase: "verify"`. Dispatch
-   `/makato-build:build-verify <KEY> --autonomous`. `failure` →
+Each skill dispatch in this pipeline is bracketed by a
+`progress-comment.sh start` before and `progress-comment.sh done` after
+(best-effort — see § *Progress comment* for the per-skill agent/GOAL
+row). The `gh`-only polls (CI, review) are narrated with a single
+`progress-comment.sh note` on their outcome, not per poll round.
+
+1. Patch `current_phase: "verify"`. Narrate START
+   (`--skill "build-verify" --agent "review agent" --goal "run all
+   quality checks and tests"`), dispatch
+   `/makato-build:build-verify <KEY> --autonomous`, then narrate DONE.
+   `failure` →
    HALT-002 (apply `needs-human-review`). `partial` → route through
    Step 4f (`build-refine` + increment `outer_iteration`), re-enter
    Step 4.
-2. Patch `current_phase: "pr"`. Dispatch
+2. Patch `current_phase: "pr"`. Narrate START
+   (`--skill "build-push-to-git" --goal "save the finished changes, push
+   to the remote and open a pull request"`), dispatch
    `/makato-build:build-push-to-git <KEY> --autonomous` (auto-invokes
-   `build-create-pr` per AUTONOMOUS-MODE cross-skill propagation). On
+   `build-create-pr` per AUTONOMOUS-MODE cross-skill propagation), then
+   narrate DONE. On
    R1 `failure`, classify BEFORE HALTing:
    - **Merge-conflict signals** in `r1.errors[]` (case-insensitive
      substring match on `conflict`, `cannot be rebased automatically`,
@@ -556,6 +611,9 @@ Triggered when all `sub_tasks[].status == "complete"`.
    `shared/workflow-state.sh summarise-lessons <KEY> <ISSUE_NUMBER>` — writes
    `specs/<key>-<slug>/lessons-YYYYMMDD.md`, idempotent. Emit
    `summarise-lessons` JSONL with `data.terminal_state: "success"`.
+   Narrate the closing note (best-effort — see § *Progress comment*):
+   `progress-comment.sh note <KEY> <ISSUE_NUMBER> <REPO> --text "Done —
+   opened pull request #<M>. The autonomous run finished successfully."`.
    Emit session-end JSONL (Step 7). Return R1 `success` with
    `data.github_pr_number`.
 
@@ -719,6 +777,11 @@ session-end JSONL and R1 `failure`:
 4. `shared/workflow-state.sh summarise-lessons <KEY> <ISSUE_NUMBER>` — writes the
    lessons markdown alongside the retained worktree. Emit the matching
    `summarise-lessons` JSONL with `data.terminal_state: "failure"`.
+5. Narrate the halt into the live issue comment (best-effort — see
+   § *Progress comment*; skip in the bootstrap exception below, where no
+   state and possibly no comment id exist yet):
+   `progress-comment.sh note <KEY> <ISSUE_NUMBER> <REPO> --text
+   "Run halted (<HALT_CODE>): <reason in plain English>. Needs a human."`.
 
 **Bootstrap exception.** When a HALT fires before Step 2 initialised
 state (HALT-006 on missing spec folder is canonical), the four helpers
@@ -762,6 +825,58 @@ label directly without checking the current label set.
 | `kill-switch` skill missing | HALT-006 (plugin partially installed); R1 `failure` |
 | Sub-agent R1 unparseable | Treat as `failure`; route to Step 4f. Second failure on same outer attempt → HALT-STRUCTURAL. |
 | Sub-agent R1 `failure` with build-skill code (`MISSING_INPUT`, `BASELINE_BROKEN`, `PUSH_REJECTED`, …) | Read `data.halt_code` first, then fall back to parsing the `[A-Z_]+:` prefix from `errors[0]`. Recovery route per `plugins/makato-build/halt-codes.md`. |
+
+## Progress comment
+
+A human-readable narration layer over the machine `orchestrate.jsonl` /
+`build.jsonl` audit. Those logs live under gitignored `specs/` — invisible
+to anyone watching the issue on GitHub. This layer mirrors the START / DONE
+of every skill the PO-agent dispatches into **one** continuously-edited
+issue comment, in plain English, so a non-expert can follow the run. Every
+entry begins with a timestamp.
+
+`shared/progress-comment.sh` is the only entry point. Three subcommands:
+
+```bash
+progress-comment.sh start <KEY> <ISSUE_NUMBER> <REPO> \
+  --skill <s> --agent <a> --input <i> --goal <g>
+progress-comment.sh done  <KEY> <ISSUE_NUMBER> <REPO> \
+  --skill <s> --result <r> --summary <sum>
+progress-comment.sh note  <KEY> <ISSUE_NUMBER> <REPO> --text <t>
+```
+
+`ISSUE_NUMBER` and `REPO` are the required Input-table fields, available
+throughout the run. The helper creates the live comment on first call,
+appends on every later call, persists only `.progress_comment_id` (via
+`shared/workflow-state.sh patch`, so the PO-agent stays the sole writer of
+state), and rolls over to a fresh comment near GitHub's 65 536-char limit.
+
+**Contract invariants.**
+
+- **Best-effort, never fatal.** Any `gh` / state failure logs a WARN, emits
+  a `step:"progress-comment"` JSONL row with `status:"warn"`, and exits 0.
+  This layer NEVER triggers a HALT and NEVER blocks or gates a dispatch.
+- **Not the machine audit.** The JSONL trail remains authoritative for
+  orchestration decisions; this comment is narration only. Never parse it
+  back.
+- **Opt-out.** `MAKATO_PROGRESS_COMMENT_DISABLE=1` makes every call a silent
+  no-op (no `gh`, no state write) — for local dry-runs.
+
+**Per-skill narration rows** (agent + one-line GOAL, plain English):
+
+| Dispatch | `--skill` | `--agent` | `--goal` |
+|---|---|---|---|
+| Step 4d (tdd) | `build-implement-tdd` | `coder` | write and test the code per the plan (test-driven) |
+| Step 4d (goal) | `build-implement-goal` | `coder` | build the code per the plan and verify it runs |
+| Step 4f | `build-refine` | `planning agent` | re-plan the task list after a failure |
+| Step 6 #1 | `build-verify` | `review agent` | run all quality checks and tests |
+| Step 6 #2 | `build-push-to-git` | *(no sub-agent)* | save the finished changes, push to the remote and open a pull request |
+| Step 6 #5 / 6b | `build-address-pr-comments` | `fix agent` | resolve the review comments on the pull request |
+| Conflict sub-loop | `resolve-pr-conflict` | *(no sub-agent)* | resolve the merge conflict between branches |
+
+For CI-failure and human-review fix loops, reuse the row for the
+re-dispatched skill; add a `note` describing why the loop was entered
+(e.g. "CI tests failed — the agent will try to fix the problem.").
 
 ## Worktree lifecycle
 

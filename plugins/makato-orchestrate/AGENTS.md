@@ -133,6 +133,8 @@ makato-orchestrate/
 │   └── session-status/SKILL.md           (GAP-014 / #31 — shipped)
 ├── shared/
 │   ├── workflow-state.sh                 (GAP-003 / #26 — shipped)
+│   ├── progress-comment.sh               (live issue-comment run narration)
+│   ├── progress-comment-smoke-tests.sh   (9 scenarios / 24 asserts)
 │   ├── worktree.sh                       (GAP-017 / #46 — shipped)
 │   └── worktree-smoke-tests.sh           (GAP-017 / #46 — shipped)
 ├── workflows/

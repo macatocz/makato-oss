@@ -95,6 +95,30 @@ Per-phase input/output summary:
 | resolve-pr-conflict | workflow-state.json worktree_path; PR branch | Rebased/force-pushed branch or HALT-008 + needs-human-review label |
 | documentation-agent | Merged PR diff + commit history | CHANGELOG entry; README patch; closed Issues; board advanced to Done |
 
+### Live progress comment on the issue
+
+The PO-agent's machine audit trail (`orchestrate.jsonl` / `build.jsonl`) lives
+under gitignored `specs/`, so anyone watching the issue on GitHub sees nothing
+about the autonomous run. To close that gap, the PO-agent mirrors the START and
+DONE of every skill it dispatches into a **single, continuously-edited GitHub
+issue comment**, written in plain English so a non-expert can follow along. Every
+entry begins with a timestamp; a START entry names the skill, its input, the
+sub-agent used, and a one-line goal; a DONE entry gives the result and a short
+summary.
+
+- **One entry point:** `shared/progress-comment.sh` (`start` / `done` / `note`).
+  It creates the comment on first call, appends on later calls, persists only
+  `.progress_comment_id` in workflow-state (via `workflow-state.sh`, so the
+  PO-agent stays the sole writer of state), and rolls over to a fresh comment
+  near GitHub's 65 536-char limit.
+- **Best-effort, never fatal:** any `gh`/state failure logs a WARN, emits a
+  `step:"progress-comment"` JSONL row, and exits 0. It never triggers a HALT and
+  never blocks a dispatch.
+- **Opt-out:** set `MAKATO_PROGRESS_COMMENT_DISABLE=1` to make every call a
+  silent no-op (local dry-runs).
+
+See `agents/po-agent.md` § *Progress comment* for the per-skill agent/goal map.
+
 ## Skills
 
 | Skill | Description | Input | Output | Version |
@@ -139,6 +163,8 @@ Per-phase input/output summary:
 ## Shared Resources
 
 - **shared/workflow-state.sh** — Canonical shell helper implementing all eight workflow-state subcommands (init/read/write/patch/append-lesson/append-halt/recall-lessons/summarise-lessons) with jq mutations, python3+jsonschema validation, and atomic file writes.
+- **shared/progress-comment.sh** — Best-effort helper (start/done/note) that maintains a single live, human-readable GitHub issue comment narrating each dispatched skill (plain English, timestamped). Persists only `.progress_comment_id` via workflow-state.sh; any `gh`/state failure is a WARN, never a HALT. Opt-out via `MAKATO_PROGRESS_COMMENT_DISABLE=1`.
+- **shared/progress-comment-smoke-tests.sh** — Offline smoke tests (gh stubbed via `MAKATO_PC_GH_STUB`) covering comment creation, in-place edit, START/DONE/note formatting, best-effort gh-failure, refetch fallback, size rollover, opt-out, and unknown-subcommand handling.
 - **shared/worktree.sh** — Git worktree lifecycle helper for the PO-agent — implements create/resume/cleanup-on-success/retain-on-HALT subcommands. Patches workflow-state.json:.worktree_path and sets worktree_retained/worktree_retain_reason fields.
 - **shared/worktree-smoke-tests.sh** — Smoke tests for worktree.sh covering create, resume, path resolution, cleanup, and retain lifecycle paths.
 - **skills/workflow-state/references/workflow-state.schema.json** — JSON Schema draft-07 contract for workflow-state.json — additionalProperties: false, defines all top-level fields including worktree lifecycle fields, sub_tasks[], halt_audit[], lessons_learned[], and budget/handoff counters.

@@ -23,6 +23,7 @@
     "halt_audit",
     "human_review_cycles",
     "github_pr_number",
+    "progress_comment_id",
     "lessons_learned",
     "session_summary",
     "session_count",
@@ -163,6 +164,11 @@
       "type": ["integer", "null"],
       "minimum": 1,
       "description": "GitHub PR number opened by this run, or null before build-create-pr succeeds."
+    },
+    "progress_comment_id": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "GitHub issue-comment ID of the single 'live' progress comment the PO-agent maintains on the driven issue (human-readable run narration, best-effort). Null before the first progress-comment.sh call creates it. Written only via shared/progress-comment.sh through the workflow-state.sh patch layer, so the PO-agent remains the sole writer of state. Losing or resetting it (e.g. GitHub outage) only starts a fresh follow-up comment — never blocks the run or fires a HALT."
     },
     "lessons_learned": {
       "type": "array",

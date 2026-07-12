@@ -383,6 +383,7 @@ case "$SUBCMD" in
         halt_audit: [],
         human_review_cycles: 0,
         github_pr_number: null,
+        progress_comment_id: null,
         lessons_learned: [],
         session_summary: null,
         session_count: 0,

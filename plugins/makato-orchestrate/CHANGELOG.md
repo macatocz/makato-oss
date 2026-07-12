@@ -5,6 +5,34 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## po-agent — live progress comment on the driven issue
+
+Adds a human-readable narration layer over the machine `orchestrate.jsonl` /
+`build.jsonl` audit, which lives under gitignored `specs/` and is invisible to
+anyone watching the issue on GitHub. The PO-agent now mirrors the START and DONE
+of every skill it dispatches into a single, continuously-edited GitHub issue
+comment, written in plain English and timestamped per entry.
+
+- **New `shared/progress-comment.sh`** with three subcommands (`start` / `done` /
+  `note`). It creates the live comment on first call, appends on later calls, and
+  rolls over to a fresh comment near GitHub's 65 536-char limit. START entries
+  name the skill, its input, the sub-agent used, and a one-line goal; DONE entries
+  carry the result and a short summary. Fully offline-testable via a `gh` stub.
+- **Best-effort, never fatal.** Any `gh` or state failure logs a WARN, emits a
+  `step:"progress-comment"` JSONL row, and exits 0 — it never triggers a HALT and
+  never blocks a dispatch. Opt-out with `MAKATO_PROGRESS_COMMENT_DISABLE=1`.
+- **State surface.** One new field `progress_comment_id` (integer or null) added
+  to `workflow-state.schema.json` and the `init` default. It is written only
+  through `shared/workflow-state.sh`, so the PO-agent remains the sole writer of
+  `workflow-state.json`.
+- **po-agent.md** wires `start`/`done`/`note` into the existing dispatch anchors
+  (Steps 2, 4d, 4e, 4f, 6, Error modes) and documents the per-skill agent/goal map
+  in a new § *Progress comment* section.
+- **Tests.** New `shared/progress-comment-smoke-tests.sh` — 9 scenarios / 24
+  asserts, fully offline (`MAKATO_PC_GH_STUB`).
+
+---
+
 ## loop — non-to-issues issues enter the loop unattended (#231, #232)
 
 Closes the two sibling gaps that kept a hand-filed or auto-filed (testbox/CI) issue off
