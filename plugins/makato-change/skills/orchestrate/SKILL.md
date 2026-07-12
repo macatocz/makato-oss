@@ -72,6 +72,10 @@ Store: `ISSUE_KEY`
 
 Check `specs/<ISSUE_KEY>/` directory to determine workflow state:
 
+> **Spec folder shapes:** `specs/<ISSUE_KEY>/` is the legacy/change path. Issues seeded via
+> `seed-issue` may use `specs/<N>-<slug>/` instead. Apply two-step resolution: prefix-match
+> `specs/<ISSUE_KEY>-*/` first, then exact-match fallback `specs/<ISSUE_KEY>/`.
+
 Load @references/phase-detection.md for detection logic.
 
 Determine:

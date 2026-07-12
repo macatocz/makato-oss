@@ -734,3 +734,38 @@ echo "  ✓ only the non-excluded ready issue is promoted; blocked/triage/experi
 
 echo
 echo "=== ALL TESTS PASSED ==="
+
+echo "=== T29: spec-folder resolution accepts all three naming shapes (#233) ==="
+t29_tmp="$(mktemp -d)"
+mkdir -p "$t29_tmp/specs/test-bare-slug"
+mkdir -p "$t29_tmp/specs/42-test-foo"
+mkdir -p "$t29_tmp/specs/ISSUE-42"
+
+resolve_spec_folder() {
+  local key="$1" specs_dir="$2" match
+  match="$(ls -d "${specs_dir}/${key}"-*/ 2>/dev/null | head -1)"
+  [[ -n "$match" ]] && { echo "$match"; return 0; }
+  [[ -d "${specs_dir}/${key}/" ]] && { echo "${specs_dir}/${key}/"; return 0; }
+  return 1
+}
+
+r1="$(resolve_spec_folder "test-bare-slug" "$t29_tmp/specs")" \
+  && [[ "$r1" == *"test-bare-slug"* ]] \
+  || fail "T29: bare-slug folder not resolved; got: $r1"
+echo "  ✓ bare slug specs/test-bare-slug/ resolved via exact-match fallback"
+
+r2="$(resolve_spec_folder "42" "$t29_tmp/specs")" \
+  && [[ "$r2" == *"42-test-foo"* ]] \
+  || fail "T29: prefix-match N-slug folder not resolved; got: $r2"
+echo "  ✓ canonical specs/42-test-foo/ resolved via prefix-match"
+
+r3="$(resolve_spec_folder "ISSUE-42" "$t29_tmp/specs")" \
+  && [[ "$r3" == *"ISSUE-42"* ]] \
+  || fail "T29: issue-key folder not resolved; got: $r3"
+echo "  ✓ issue-key specs/ISSUE-42/ resolved via exact-match fallback"
+
+resolve_spec_folder "nonexistent" "$t29_tmp/specs" 2>/dev/null \
+  && fail "T29: nonexistent key should return 1" || true
+echo "  ✓ nonexistent key correctly returns no match"
+
+rm -rf "$t29_tmp"

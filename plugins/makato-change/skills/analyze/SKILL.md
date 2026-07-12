@@ -52,6 +52,12 @@ Response handling:
 Create the artifact directory for this change request:
 ```
 specs/<issue-key>/
+
+> **Spec folder shapes:** When the issue was seeded via `seed-issue` (new-work path), the
+> folder may be `specs/<N>-<slug>/` instead of `specs/<issue-key>/`. Both shapes are valid.
+> The canonical shape from `seed-issue` is `specs/<issue-number>-<normalized-title>/`.
+> Consumers should apply the two-step resolution: prefix-match `specs/<key>-*/` first,
+> then exact-match fallback `specs/<key>/`.
 ```
 
 This follows the makato-plan pattern of project-scoped work directories. All analysis artifacts for this change request will live here. The design and execute skills will load artifacts from this location.

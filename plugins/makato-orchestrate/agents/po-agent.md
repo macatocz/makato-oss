@@ -12,7 +12,6 @@ maxTurns: 100
 permissionMode: bypassPermissions
 disallowedTools: NotebookEdit
 ---
-
 <!-- markdownlint-disable MD013 -->
 
 # po-agent
@@ -94,15 +93,15 @@ posture is constrained by four safeguards — see `AGENTS.md` §
 
 Your dispatch prompt provides:
 
-| Field | Required | Description |
-|---|---|---|
-| `ISSUE_NUMBER` | yes | GitHub Issue number ≥ 1; must carry `status:ready-for-dev` |
-| `KEY` | yes | Short slug (e.g. `gap-006`); resolves the spec folder via `specs/<KEY>-*/` prefix-match |
-| `REPO` | yes | `owner/name` form |
-| `BRANCH` | yes | Feature branch. May not yet exist — Step 2b probes `git ls-remote origin <BRANCH>` and dispatches `shared/worktree.sh create --new-branch` when missing (see #170). When it exists (interactively kicked off via `build-start`), the standard `create` path checks it out. Either way the main-repo working tree is NEVER touched. |
-| `REPO_ROOT` | yes | Absolute path to the target repository root |
-| `BUDGET_LIMIT_TOKENS` | no | Per-task ceiling; default `500000` (HALT-007 fires here) |
-| `MAX_OUTER_ITERATIONS` | no | Default `3` (HALT-008 fires here) |
+| Field                    | Required | Description                                                                                                                                                                                                                                                                                                                                                                            |
+| ------------------------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ISSUE_NUMBER`         | yes      | GitHub Issue number ≥ 1; must carry`status:ready-for-dev`                                                                                                                                                                                                                                                                                                                           |
+| `KEY`                  | yes      | Short slug (e.g.`gap-006`); resolves the spec folder via a two-step order: `specs/<KEY>-*/` prefix-match first (canonical — seed-issue new-work, to-issues output), then `specs/<KEY>/` exact-match fallback (makato-plan bare slug, makato-change issue-key, seed-issue bare). All three folder shapes resolve correctly — see § *Spec folder resolution order* in Step 1. |
+| `REPO`                 | yes      | `owner/name` form                                                                                                                                                                                                                                                                                                                                                                    |
+| `BRANCH`               | yes      | Feature branch. May not yet exist — Step 2b probes`git ls-remote origin <BRANCH>` and dispatches `shared/worktree.sh create --new-branch` when missing (see #170). When it exists (interactively kicked off via `build-start`), the standard `create` path checks it out. Either way the main-repo working tree is NEVER touched.                                             |
+| `REPO_ROOT`            | yes      | Absolute path to the target repository root                                                                                                                                                                                                                                                                                                                                            |
+| `BUDGET_LIMIT_TOKENS`  | no       | Per-task ceiling; default`500000` (HALT-007 fires here)                                                                                                                                                                                                                                                                                                                              |
+| `MAX_OUTER_ITERATIONS` | no       | Default`3` (HALT-008 fires here)                                                                                                                                                                                                                                                                                                                                                     |
 
 You MUST NOT request additional inputs. Missing field → R1 `failure`
 with `errors: ["missing input: <field>"]`. Issue without
@@ -134,6 +133,25 @@ Step 1a auto-materialize gate below. `created-issues.json` and
 `acceptance-criteria.md` are enforced by downstream skills — do NOT
 pre-validate them here.
 
+#### Spec folder resolution order
+
+The resolver tries two patterns in order and stops at the first match:
+
+| Step          | Pattern                                | When it matches                                                                                                                              |
+| ------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 — primary  | `specs/<KEY>-*/` (prefix-match glob) | Canonical folders created by`seed-issue` (new-work path) and `to-issues` output — e.g. `specs/gap-006-improve-retry-logic/`           |
+| 2 — fallback | `specs/<KEY>/` (exact-match)         | Bare slug folders created by`makato-plan`, `makato-change` (issue-key form), or `seed-issue` bare-slug mode — e.g. `specs/gap-006/` |
+
+The bash code in Step 1a reflects this order:
+
+```bash
+PLAN_PATH="$(ls specs/<KEY>-*/plan.md 2>/dev/null | head -1)"
+# Fallback: exact-match bare slug (makato-plan, makato-change, seed-issue bare).
+[ -z "$PLAN_PATH" ] && PLAN_PATH="specs/<KEY>/plan.md"
+```
+
+All three folder shapes (`specs/<KEY>-<slug>/`, `specs/<KEY>-*/` multi-match, `specs/<KEY>/`) resolve correctly. Only a folder that matches neither pattern triggers HALT-006.
+
 The materializable sub-cause is narrow (issue #200 point 4): only a
 **missing spec folder** or a **stub / hollow `plan.md`** (the seed-issue
 skeleton whose `## Acceptance criteria` is still `_To be filled in…_`,
@@ -155,8 +173,9 @@ the deterministic gate:
 
 ```bash
 PLAN_PATH="$(ls specs/<KEY>-*/plan.md 2>/dev/null | head -1)"
-# When the folder itself is missing, PLAN_PATH is empty — pass the
-# conventional path so the gate reports `missing-file`.
+# Fallback (step 2 of the two-step resolution order): exact-match bare slug.
+# When the prefix-match finds nothing, PLAN_PATH is empty — fall back to the
+# conventional bare-slug path so the gate reports `missing-file` accurately.
 [ -z "$PLAN_PATH" ] && PLAN_PATH="specs/<KEY>/plan.md"
 mapfile -t LABELS < <(gh issue view <ISSUE_NUMBER> --repo <REPO> \
   --json labels --jq '.labels[].name' 2>/dev/null || true)
@@ -170,11 +189,11 @@ delegating to `scripts/validate-plan-body.sh` (the SAME guard the
 lightweight lane uses — the two never disagree about "empty" / "stub")
 and gates eligibility on the `plan-tier:light` label:
 
-| `GATE_VERDICT` | Meaning | Action |
-|---|---|---|
-| `proceed` | `plan.md` is already VALID — not a HALT-006 case. | Continue to Step 2 unchanged. |
-| `materialize` | Missing / stub plan AND `plan-tier:light`. | Run the materialize-and-retry sub-flow below. |
-| `halt` | Missing / stub plan AND NOT `plan-tier:light`. | Existing HALT-006 path (see below). |
+| `GATE_VERDICT` | Meaning                                              | Action                                        |
+| ---------------- | ---------------------------------------------------- | --------------------------------------------- |
+| `proceed`      | `plan.md` is already VALID — not a HALT-006 case. | Continue to Step 2 unchanged.                 |
+| `materialize`  | Missing / stub plan AND`plan-tier:light`.          | Run the materialize-and-retry sub-flow below. |
+| `halt`         | Missing / stub plan AND NOT`plan-tier:light`.      | Existing HALT-006 path (see below).           |
 
 **Why `plan-tier:light`, not `type:fix`/`type:bug` (issue #200 point 1
 reconciled to the shipped taxonomy):** there is no `type:fix` / `type:bug`
@@ -211,16 +230,16 @@ their plans warrant human shaping.
    `agents/light-planner.md`) via the Task tool with the bundle it
    documents:
 
-   | Field | Value |
-   |---|---|
-   | `ISSUE_NUMBER` | `<ISSUE_NUMBER>` |
-   | `ISSUE_TITLE` | from `gh issue view` |
-   | `ISSUE_BODY` | full body from `gh issue view` |
-   | `ISSUE_LABELS` | `LABELS[]` |
-   | `REPO` | `<REPO>` |
-   | `REPO_ROOT` | `<REPO_ROOT>` (plan writes target the main checkout — `specs/` is gitignored in worktrees) |
-   | `SLUG` | basename of `SPEC_DIR` (the spec-folder name) |
-   | `PLAN_PATH` | `<REPO_ROOT>/$SPEC_DIR/plan.md` (= the gate's `PLAN_PATH`) |
+   | Field            | Value                                                                                           |
+   | ---------------- | ----------------------------------------------------------------------------------------------- |
+   | `ISSUE_NUMBER` | `<ISSUE_NUMBER>`                                                                              |
+   | `ISSUE_TITLE`  | from`gh issue view`                                                                           |
+   | `ISSUE_BODY`   | full body from`gh issue view`                                                                 |
+   | `ISSUE_LABELS` | `LABELS[]`                                                                                    |
+   | `REPO`         | `<REPO>`                                                                                      |
+   | `REPO_ROOT`    | `<REPO_ROOT>` (plan writes target the main checkout — `specs/` is gitignored in worktrees) |
+   | `SLUG`         | basename of`SPEC_DIR` (the spec-folder name)                                                  |
+   | `PLAN_PATH`    | `<REPO_ROOT>/$SPEC_DIR/plan.md` (= the gate's `PLAN_PATH`)                                  |
 
    The light-planner writes exactly one file (`plan.md`) or, on a body too
    thin to plan honestly, leaves the stub and returns `data.thin_body:true`.
@@ -268,11 +287,11 @@ entry), and return R1 `failure` with `data.halt_code:"HALT-006"`.
 
 On resume, check three flags before continuing:
 
-| Flag | Action |
-|---|---|
-| `current_phase == "done"` AND `github_pr_number != null` | Return R1 `success` with `data.github_pr_number` populated. Skip Steps 2b–7 — cleanup already ran on the prior session. |
-| `handoff_reason == "context_ceiling"` | Read `session_summary` (≤ 500 tokens). Clear the flag via `workflow-state.sh patch <KEY> <ISSUE_NUMBER> .handoff_reason 'null'`. Continue from `resume_point`. |
-| `restart_failed == true` | Return R1 `failure` with `errors: ["restart_failed=true on prior session"]`. |
+| Flag                                                         | Action                                                                                                                                                               |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `current_phase == "done"` AND `github_pr_number != null` | Return R1`success` with `data.github_pr_number` populated. Skip Steps 2b–7 — cleanup already ran on the prior session.                                         |
+| `handoff_reason == "context_ceiling"`                      | Read`session_summary` (≤ 500 tokens). Clear the flag via `workflow-state.sh patch <KEY> <ISSUE_NUMBER> .handoff_reason 'null'`. Continue from `resume_point`. |
+| `restart_failed == true`                                   | Return R1`failure` with `errors: ["restart_failed=true on prior session"]`.                                                                                      |
 
 On a fresh run (not a resume), open the live issue comment with a
 first note (best-effort — see § *Progress comment*):
@@ -304,10 +323,11 @@ fi
 The helper emits the event marker (`worktree_created` |
 `worktree_resumed`) on line 1 and the absolute worktree path on line 2,
 and patches `.worktree_path` in state. The `--new-branch` variant also
-pushes the new branch with `-u` from inside the worktree so no
+pushes the ndew branch with `-u` from inside the worktree so no
 subsequent step ever needs to `cd` into the main repo.
 
 Emit one JSONL entry:
+
 ```json
 {"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"worktree","status":"ok","data":{"event":"<worktree_created|worktree_resumed>","path":"<abs>","new_branch":<bool>}}
 ```
@@ -325,6 +345,7 @@ under the canonical context-bundle key `PRIOR_LESSONS`. An empty result
 `[]` is normal on first run — do NOT HALT.
 
 Emit:
+
 ```json
 {"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"recall-lessons","status":"ok","data":{"repo":"<REPO>","count":<N>}}
 ```
@@ -400,11 +421,11 @@ loop.
 
 Read `plan.md` once. Skill selection:
 
-| Task modes present | Dispatch |
-|---|---|
-| any `mode: tdd` | `/makato-build:build-implement-tdd <KEY> --autonomous` |
-| pure `mode: goal` | `/makato-build:build-implement-goal <KEY> --autonomous` |
-| mixed | `build-implement-tdd` (skips `goal` tasks) THEN `build-implement-goal`, same outer iteration |
+| Task modes present | Dispatch                                                                                           |
+| ------------------ | -------------------------------------------------------------------------------------------------- |
+| any`mode: tdd`   | `/makato-build:build-implement-tdd <KEY> --autonomous`                                           |
+| pure`mode: goal` | `/makato-build:build-implement-goal <KEY> --autonomous`                                          |
+| mixed              | `build-implement-tdd` (skips `goal` tasks) THEN `build-implement-goal`, same outer iteration |
 
 Every dispatch context bundle carries:
 
@@ -447,12 +468,12 @@ the sub-skill side by #169 / PR #174: a torn R1 envelope after a
 terminal `session status:"error"` line in `build.jsonl` no longer
 leaves the PO-agent with `failure` and no `halt_code`.
 
-| verdict | Origin | Response |
-|---|---|---|
-| `ok` | Sub-skill wrote `step:"session" status:"ok"`. | Proceed to Step 4e unchanged (happy-path additive guard). |
-| `error` | Sub-skill wrote `step:"session" status:"error"` with `data.halt_code`. | If R1 already carried the same `halt_code`, no-op — Step 4e routes it. If R1 was `failure` without `halt_code`, adopt `data.halt_code` from the tail: patch state, log the tail-recovered code, then route per `plugins/makato-build/halt-codes.md`. |
-| `silent` | Session-start seen, no terminal `session` line — the exact silent-exit class #143 / #169 reproduced. | HALT-011: append `halt_audit[]` with `code:"HALT-011"`, `data.skill`, `data.last_step`, `data.last_status`; apply `needs-human-review` on the linked issue; retain the worktree; return R1 `failure` with `data.halt_code:"HALT-011"`. |
-| `no-log` | Empty `build.jsonl` or no entries for the dispatched skill (skill invoked outside the standard logging contract). | Fall back to R1 as authority. No HALT, no state mutation. |
+| verdict    | Origin                                                                                                             | Response                                                                                                                                                                                                                                                       |
+| ---------- | ------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ok`     | Sub-skill wrote`step:"session" status:"ok"`.                                                                     | Proceed to Step 4e unchanged (happy-path additive guard).                                                                                                                                                                                                      |
+| `error`  | Sub-skill wrote`step:"session" status:"error"` with `data.halt_code`.                                          | If R1 already carried the same`halt_code`, no-op — Step 4e routes it. If R1 was `failure` without `halt_code`, adopt `data.halt_code` from the tail: patch state, log the tail-recovered code, then route per `plugins/makato-build/halt-codes.md`. |
+| `silent` | Session-start seen, no terminal`session` line — the exact silent-exit class #143 / #169 reproduced.             | HALT-011: append`halt_audit[]` with `code:"HALT-011"`, `data.skill`, `data.last_step`, `data.last_status`; apply `needs-human-review` on the linked issue; retain the worktree; return R1 `failure` with `data.halt_code:"HALT-011"`.          |
+| `no-log` | Empty`build.jsonl` or no entries for the dispatched skill (skill invoked outside the standard logging contract). | Fall back to R1 as authority. No HALT, no state mutation.                                                                                                                                                                                                      |
 
 JSONL per guard invocation (regardless of verdict, for forensics):
 
@@ -485,15 +506,16 @@ HALT-STRUCTURAL on the next `kill-switch poll`.
 The skill has already patched `sub_tasks[N].status` for every task it
 completed (the carve-out). Aggregate handling:
 
-| `r1.status` | Action |
-|---|---|
-| `success` | All tasks complete. Advance to Step 6. |
-| `partial` | At least one task incomplete. Go to Step 4f (Step 4c handles stuck `in_progress` on next iteration). |
-| `failure` with `data.escalation == "refine"` | Go to Step 4f. |
-| `failure` (other) | HALT-003, apply `needs-human-review`, R1 `failure`. |
+| `r1.status`                                    | Action                                                                                                |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| `success`                                      | All tasks complete. Advance to Step 6.                                                                |
+| `partial`                                      | At least one task incomplete. Go to Step 4f (Step 4c handles stuck`in_progress` on next iteration). |
+| `failure` with `data.escalation == "refine"` | Go to Step 4f.                                                                                        |
+| `failure` (other)                              | HALT-003, apply`needs-human-review`, R1 `failure`.                                                |
 
 JSONL per dispatch (JSONL `status` maps R1 status: `success`→`ok`,
 `partial`→`warn`, `failure`→`error`):
+
 ```json
 {"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"dispatch","status":"<ok|warn|error>","data":{"skill":"<dispatched>","r1_status":"<r1.status>","outer_iteration":<I>}}
 ```
@@ -531,12 +553,12 @@ narrate DONE, increment `outer_iteration` (Step 5), re-enter Step 4.
 Conditional increment ensures `outer_iteration >= 3` counts only genuine
 re-plan attempts:
 
-| Exit branch | Increment? |
-|---|---|
-| Success (all tasks complete) | No. Proceed to Step 6. |
-| Re-plan succeeded (Step 4f) | +1. Re-enter Step 4. |
-| HALT path | No. Terminates the run. |
-| HANDOFF (Step 4b exit 2) | No. Fresh session resumes at same iteration. |
+| Exit branch                  | Increment?                                   |
+| ---------------------------- | -------------------------------------------- |
+| Success (all tasks complete) | No. Proceed to Step 6.                       |
+| Re-plan succeeded (Step 4f)  | +1. Re-enter Step 4.                         |
+| HALT path                    | No. Terminates the run.                      |
+| HANDOFF (Step 4b exit 2)     | No. Fresh session resumes at same iteration. |
 
 ### Step 6 — PR pipeline
 
@@ -563,6 +585,7 @@ row). The `gh`-only polls (CI, review) are narrated with a single
    `build-create-pr` per AUTONOMOUS-MODE cross-skill propagation), then
    narrate DONE. On
    R1 `failure`, classify BEFORE HALTing:
+
    - **Merge-conflict signals** in `r1.errors[]` (case-insensitive
      substring match on `conflict`, `cannot be rebased automatically`,
      `non-fast-forward`) → enter conflict sub-loop (below).
@@ -574,6 +597,7 @@ row). The `gh`-only polls (CI, review) are narrated with a single
 4. **Step 6a — CI poll.** Wait 30 s, then run
    `gh pr checks <PR> --json name,state,conclusion` every 60 s for up
    to 10 rounds (~10 minutes).
+
    - All `conclusion == "success"` (or mixed success/skipped) →
      advance to sub-step 5.
    - Any `conclusion == "failure"` → classify:
@@ -585,6 +609,7 @@ row). The `gh`-only polls (CI, review) are narrated with a single
      CI-failure fix loop.
 
    Emit JSONL after each poll:
+
    ```json
    {"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"ci-poll","status":"<ok|warn>","data":{"poll_round":<I>,"pr":<PR>,"all_passing":<bool>}}
    ```
@@ -595,6 +620,7 @@ row). The `gh`-only polls (CI, review) are narrated with a single
 6. **Step 6b — Review poll.** Every `MAKATO_REVIEW_POLL_INTERVAL`
    seconds (default 300) run
    `gh pr view <PR> --json reviewDecision,state`:
+
    - `state != "OPEN"` → PR resolved (merged/closed). Exit → sub-step 7.
    - `reviewDecision == "APPROVED"` → exit → sub-step 7.
    - `reviewDecision == "CHANGES_REQUESTED"` → human-review fix loop
@@ -602,6 +628,7 @@ row). The `gh`-only polls (CI, review) are narrated with a single
    - `null` / `"REVIEW_REQUIRED"` → continue polling.
 
    Emit JSONL on each cycle exit or HALT:
+
    ```json
    {"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"review-poll","status":"<ok|warn>","data":{"pr":<PR>,"review_decision":"<decision>","human_review_cycles":<N>}}
    ```
@@ -630,6 +657,7 @@ row). The `gh`-only polls (CI, review) are narrated with a single
    writes its own `build.jsonl` events, and patches
    `.merge_conflict_cycles` on the HALT path.
 3. Parse the skill's R1:
+
    - `success` → re-dispatch `build-push-to-git`, re-enter Step 6 #3.
    - `failure` with `data.halt_code: "HALT-008"` → skill has already
      labelled, retained, and appended the lesson. Emit session-end
@@ -639,6 +667,7 @@ row). The `gh`-only polls (CI, review) are narrated with a single
      R1 `failure`.
 
    Emit JSONL on entry:
+
    ```json
    {"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"merge_conflict_detected","status":"warn","data":{"pr_push_errors":[...],"merge_conflict_cycles_before":<N>}}
    ```
@@ -684,6 +713,7 @@ APPROVED, or HALT-010.
 
 Append session-end to `orchestrate.jsonl` (JSONL `status` maps R1
 status: `success`→`ok`, `partial`→`warn`, `failure`→`error`):
+
 ```json
 {"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"session","status":"<ok|warn|error>","data":{"terminal_state":"<success|partial|failure>","outer_iterations":<I>,"sub_tasks_complete":<K>,"github_pr_number":<M-or-null>,"halt_code":"<HALT-XXX-or-null>"}}
 ```
@@ -795,36 +825,36 @@ fires — the audit log records every HALT code.
 
 ### HALT / label matrix
 
-| HALT | Origin | `needs-human-review` applied by |
-|---|---|---|
-| HALT-000 | operator HALT file (`kill-switch poll`) | nobody — operator-initiated |
-| HALT-001 | `sensor-fixer` retry exhaustion | `sensor-fixer` |
-| HALT-002 | `build-verify` R1 `failure` | **PO-agent** |
-| HALT-003 | `build-implement-tdd` R1 `failure`, or `build-address-pr-comments` STRUCTURAL | sub-skill applies first (idempotent) or **PO-agent** |
-| HALT-005 | `build-push-to-git` deny-list, cleanup failure, missing PR number | **PO-agent** |
-| HALT-006 | malformed plan / spec folder / dispatch bundle. **Note:** for a *missing spec folder or stub plan* on a `plan-tier:light` issue, Step 1a first attempts to auto-materialize `plan.md` via the `light-planner` agent and retry once (#200) — HALT-006 fires only if that single attempt does not yield a guard-valid plan. | **PO-agent** |
-| HALT-007 | budget (`kill-switch poll`) | `kill-switch poll` |
-| HALT-007B | context ceiling (`kill-switch handoff`) | nobody — R1 `partial`, no label |
-| HALT-008 (outer-iter) | `outer_iteration >= 3` (`kill-switch poll`) | `kill-switch poll` |
-| HALT-008 (merge-conflict) | `merge_conflict_cycles >= MAX` (`resolve-pr-conflict`) | `resolve-pr-conflict` |
-| HALT-009 | `claude-halt` label on issue | `kill-switch poll` |
-| HALT-010 | `human_review_cycles >= MAX` | **PO-agent** |
-| HALT-011 | `check-session-tail.sh` verdict `silent` — sub-skill exited without a terminal `step:"session"` line (#175) | **PO-agent** |
-| HALT-STRUCTURAL | `build-refine` failed | **PO-agent** |
+| HALT                      | Origin                                                                                                                                                                                                                                                                                                                                  | `needs-human-review` applied by                         |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| HALT-000                  | operator HALT file (`kill-switch poll`)                                                                                                                                                                                                                                                                                               | nobody — operator-initiated                              |
+| HALT-001                  | `sensor-fixer` retry exhaustion                                                                                                                                                                                                                                                                                                       | `sensor-fixer`                                          |
+| HALT-002                  | `build-verify` R1 `failure`                                                                                                                                                                                                                                                                                                         | **PO-agent**                                        |
+| HALT-003                  | `build-implement-tdd` R1 `failure`, or `build-address-pr-comments` STRUCTURAL                                                                                                                                                                                                                                                     | sub-skill applies first (idempotent) or**PO-agent** |
+| HALT-005                  | `build-push-to-git` deny-list, cleanup failure, missing PR number                                                                                                                                                                                                                                                                     | **PO-agent**                                        |
+| HALT-006                  | malformed plan / spec folder / dispatch bundle.**Note:** for a *missing spec folder or stub plan* on a `plan-tier:light` issue, Step 1a first attempts to auto-materialize `plan.md` via the `light-planner` agent and retry once (#200) — HALT-006 fires only if that single attempt does not yield a guard-valid plan. | **PO-agent**                                        |
+| HALT-007                  | budget (`kill-switch poll`)                                                                                                                                                                                                                                                                                                           | `kill-switch poll`                                      |
+| HALT-007B                 | context ceiling (`kill-switch handoff`)                                                                                                                                                                                                                                                                                               | nobody — R1`partial`, no label                         |
+| HALT-008 (outer-iter)     | `outer_iteration >= 3` (`kill-switch poll`)                                                                                                                                                                                                                                                                                         | `kill-switch poll`                                      |
+| HALT-008 (merge-conflict) | `merge_conflict_cycles >= MAX` (`resolve-pr-conflict`)                                                                                                                                                                                                                                                                              | `resolve-pr-conflict`                                   |
+| HALT-009                  | `claude-halt` label on issue                                                                                                                                                                                                                                                                                                          | `kill-switch poll`                                      |
+| HALT-010                  | `human_review_cycles >= MAX`                                                                                                                                                                                                                                                                                                          | **PO-agent**                                        |
+| HALT-011                  | `check-session-tail.sh` verdict `silent` — sub-skill exited without a terminal `step:"session"` line (#175)                                                                                                                                                                                                                      | **PO-agent**                                        |
+| HALT-STRUCTURAL           | `build-refine` failed                                                                                                                                                                                                                                                                                                                 | **PO-agent**                                        |
 
 `gh issue edit --add-label` is idempotent; the PO-agent applies the
 label directly without checking the current label set.
 
 ### Dispatch-time errors (no HALT)
 
-| Condition | Response |
-|---|---|
-| Issue lacks `status:ready-for-dev` | R1 `failure` with `errors: ["issue not ready-for-dev"]`; no HALT |
-| Required input field missing | R1 `failure` with `errors: ["missing input: <field>"]`; no HALT |
-| `gh` CLI not authenticated | HALT-006 (issue cannot be read); R1 `failure` |
-| `kill-switch` skill missing | HALT-006 (plugin partially installed); R1 `failure` |
-| Sub-agent R1 unparseable | Treat as `failure`; route to Step 4f. Second failure on same outer attempt → HALT-STRUCTURAL. |
-| Sub-agent R1 `failure` with build-skill code (`MISSING_INPUT`, `BASELINE_BROKEN`, `PUSH_REJECTED`, …) | Read `data.halt_code` first, then fall back to parsing the `[A-Z_]+:` prefix from `errors[0]`. Recovery route per `plugins/makato-build/halt-codes.md`. |
+| Condition                                                                                                     | Response                                                                                                                                                       |
+| ------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Issue lacks`status:ready-for-dev`                                                                           | R1`failure` with `errors: ["issue not ready-for-dev"]`; no HALT                                                                                            |
+| Required input field missing                                                                                  | R1`failure` with `errors: ["missing input: <field>"]`; no HALT                                                                                             |
+| `gh` CLI not authenticated                                                                                  | HALT-006 (issue cannot be read); R1`failure`                                                                                                                 |
+| `kill-switch` skill missing                                                                                 | HALT-006 (plugin partially installed); R1`failure`                                                                                                           |
+| Sub-agent R1 unparseable                                                                                      | Treat as`failure`; route to Step 4f. Second failure on same outer attempt → HALT-STRUCTURAL.                                                                |
+| Sub-agent R1`failure` with build-skill code (`MISSING_INPUT`, `BASELINE_BROKEN`, `PUSH_REJECTED`, …) | Read`data.halt_code` first, then fall back to parsing the `[A-Z_]+:` prefix from `errors[0]`. Recovery route per `plugins/makato-build/halt-codes.md`. |
 
 ## Progress comment
 
@@ -884,13 +914,13 @@ Layer 1 workspace isolation. `shared/worktree.sh` is the only
 authorised entry point; sub-agents never invoke `git worktree`
 directly.
 
-| Phase | Trigger | Subcommand | State after |
-|---|---|---|---|
-| Create | Step 2b, fresh run | `create` (no existing) | `worktree_path = <abs>`, dir on disk |
-| Resume | Step 2b, session resume | `create` (existing) | `worktree_path = <abs>`, dir untouched |
-| Inherit | each sub-agent dispatch | `path` (read-only) | unchanged |
-| Cleanup | Step 6 #7, success | `cleanup` | `worktree_path = null`, dir removed |
-| Retain | every terminal HALT (except HALT-007B) | `retain <CODE>` | `worktree_retained = true`, dir untouched |
+| Phase   | Trigger                                | Subcommand               | State after                                 |
+| ------- | -------------------------------------- | ------------------------ | ------------------------------------------- |
+| Create  | Step 2b, fresh run                     | `create` (no existing) | `worktree_path = <abs>`, dir on disk      |
+| Resume  | Step 2b, session resume                | `create` (existing)    | `worktree_path = <abs>`, dir untouched    |
+| Inherit | each sub-agent dispatch                | `path` (read-only)     | unchanged                                   |
+| Cleanup | Step 6#7, success                      | `cleanup`              | `worktree_path = null`, dir removed       |
+| Retain  | every terminal HALT (except HALT-007B) | `retain <CODE>`        | `worktree_retained = true`, dir untouched |
 
 Path convention: `.claude/worktrees/<sanitised-repo>-<issue-number>`
 where `<sanitised-repo>` replaces `/` with `-`. Sub-agents
@@ -903,15 +933,15 @@ interactive split, canonical guard snippet).
 
 Failure modes:
 
-| Condition | Response |
-|---|---|
-| Branch does not exist locally OR on remote | Delegate to `worktree.sh create --new-branch` (Step 2b). This is the autonomous-loop path — no HALT (#170 Fix 2). |
-| `git worktree add -b` fails (e.g. remote base ref missing) | HALT-006. Do NOT self-create the branch inline; the helper's failure diagnostic identifies the underlying cause. |
-| Target path exists but is not a registered worktree | HALT-006 (manual placement — cannot continue safely) |
-| `git worktree remove` refuses after prune | HALT-005 (cleanup incomplete; worktree still on disk) |
-| `cleanup` called on a retained worktree | HALT-006 (caller logic error) |
-| Attempt to patch `.worktree_path` to an unregistered path | Refused at the `workflow-state.sh patch` layer (#170 Fix 3) — see § *Rules* hard ban. The patch call errors out; PO-agent surfaces the failure and does NOT retry. |
-| HALT-000 (operator-initiated) | Retain the worktree with `reason: "HALT-000"` so the operator can inspect the state |
+| Condition                                                    | Response                                                                                                                                                                |
+| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Branch does not exist locally OR on remote                   | Delegate to`worktree.sh create --new-branch` (Step 2b). This is the autonomous-loop path — no HALT (#170 Fix 2).                                                     |
+| `git worktree add -b` fails (e.g. remote base ref missing) | HALT-006. Do NOT self-create the branch inline; the helper's failure diagnostic identifies the underlying cause.                                                        |
+| Target path exists but is not a registered worktree          | HALT-006 (manual placement — cannot continue safely)                                                                                                                   |
+| `git worktree remove` refuses after prune                  | HALT-005 (cleanup incomplete; worktree still on disk)                                                                                                                   |
+| `cleanup` called on a retained worktree                    | HALT-006 (caller logic error)                                                                                                                                           |
+| Attempt to patch`.worktree_path` to an unregistered path   | Refused at the`workflow-state.sh patch` layer (#170 Fix 3) — see § *Rules* hard ban. The patch call errors out; PO-agent surfaces the failure and does NOT retry. |
+| HALT-000 (operator-initiated)                                | Retain the worktree with`reason: "HALT-000"` so the operator can inspect the state                                                                                    |
 
 HALT-007B is the only documented exception: the worktree stays on disk
 untouched because the fresh session resumes into the same path via

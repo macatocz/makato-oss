@@ -79,7 +79,12 @@ The three autonomous triggers in Step 1a are opt-in signals from the caller. But
 
 ### Step 2 — Log session start and prepare workspace
 
-Check that a spec folder exists by prefix-matching `specs/<key>-*/`. If no match is found, stop immediately and tell the user:
+Check that a spec folder exists using a two-step resolution order:
+
+1. **Prefix-match** (canonical): `ls specs/<key>-*/ 2>/dev/null | head -1` — matches `specs/<N>-<slug>/` produced by `seed-issue` and `to-issues`.
+2. **Exact-match fallback**: `[[ -d specs/<key>/ ]]` — matches bare `specs/<slug>/` from `makato-plan:decompose` and `specs/<issue-key>/` from `makato-change`.
+
+If neither resolves → stop immediately and tell the user:
 
 > "No spec found for `<key>`. This story has not been shaped yet — run `/makato-plan:decompose` (or the full makato-plan pipeline) first, then return to `/refine`."
 
