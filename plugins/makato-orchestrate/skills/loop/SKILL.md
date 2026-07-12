@@ -10,7 +10,7 @@ description: >-
   exits on a HALT. Honors `~/.claude/HALT` before every dispatch
   (NEVER 3) and emits `.claude/state/loop-status.json` as the
   operator-facing live audit.
-version: "1.4.0"
+version: "1.5.0"
 argument-hint: "[--status <NAME>] [--interval <S>] [--dry-run] [--once] [--force]"
 ---
 
@@ -38,6 +38,25 @@ field directly puts `loop` on the same source of truth as the sibling
 `issue-to-project sync-lifecycle` flow, so the operator's intent
 (`status:ready` → board `Ready` via `issue-to-project`, or manual board
 edit) cascades straight into the queue.
+
+### Pre-poll label→board bridge (#231)
+
+The board is still the queue source — but an issue that never came through
+`to-issues` (a hand-filed issue, or an auto-filed testbox/CI bug) has no
+`created-issues.json`, so `issue-to-project`'s autonomous promotion never sees
+it and it stays off the board's `Ready` column even when the operator has
+stamped it `status:ready-for-dev`. Before #231 the only fix was a manual
+`seed-issue` run.
+
+`run` now performs a **pre-poll promotion pass** (Process step 2 below): every
+tick, before the board poll, it lists open `status:ready-for-dev` issues and
+sets any that are off-`Ready` to `Status=Ready` via `gh project item-edit` (the
+same mutation `seed-issue` performs). This keeps the board the single source of
+truth — every dispatched issue still has a real `Ready` card — while giving the
+label a one-way on-ramp onto it. The pass is **guarded** (issues carrying
+`triage`, `experimental`, `status:blocked`, or `autonomous:halt` are skipped)
+and **best-effort** (any `gh` failure logs a WARN and never blocks the tick).
+It runs only when polling the default `Ready` status.
 
 ## When to Use
 
@@ -100,7 +119,16 @@ Each outer iteration of `run` performs the following steps in order:
    `$MAKATO_HALT_FILE`) is present — the loop exits cleanly (NEVER 3,
    HALT-000). The exit is recorded by stamping `.last_halt_at` in
    `loop-status.json`.
-2. **Board poll.** `GH_HOST=<host> gh project item-list <number>
+2. **Pre-poll promotion (#231).** When polling the default `Ready` status,
+   `_promote_labelled_ready` lists open `status:ready-for-dev` issues and
+   promotes those that are off-`Ready` and not carrying an exclusion label
+   (`triage`, `experimental`, `status:blocked`, `autonomous:halt`) to
+   `Status=Ready`. This bridges labelled non-`to-issues` issues onto the board
+   queue (see *Pre-poll label→board bridge* above). Best-effort: a `gh` failure
+   or missing config logs a WARN and the tick continues. Skipped under
+   `--dry-run` and for custom `--status` runs. Also available standalone as
+   `loop promote-ready`.
+3. **Board poll.** `GH_HOST=<host> gh project item-list <number>
    --owner <owner> --format json --limit 9999` runs and is filtered in
    two steps via `jq`:
    - Drop everything where `content.type != "Issue"` (DraftIssue and
@@ -111,18 +139,18 @@ Each outer iteration of `run` performs the following steps in order:
    labels}` per item. Network or `gh` errors degrade to an empty queue
    (the next poll retries); the loop does not fail hard on transient
    `gh` outages.
-3. **Status checkpoint.** `loop-status.json` is patched with
+4. **Status checkpoint.** `loop-status.json` is patched with
    `last_poll`, `queue_depth`, the issue-number list under `queue`, and
    the operator-supplied `status_name` / `interval_seconds` /
    `dry_run` flags.
-4. **In-flight filter.** Every `specs/*/workflow-state-*.json` (per-issue
+5. **In-flight filter.** Every `specs/*/workflow-state-*.json` (per-issue
    layout, #173; legacy `specs/*/workflow-state.json` files also parsed as
    a fallback until they migrate on next mutation) is scanned
    for `issue_number` + `current_phase`. Any issue whose state file
    exists and is NOT `current_phase: "done"` is considered in-flight
    and skipped — this guarantees single-threaded execution across
    restarts as well as within one session.
-5. **Dispatch.** The first untracked issue is handed to `dispatch
+6. **Dispatch.** The first untracked issue is handed to `dispatch
    <issue>` which:
    - Writes `.active_workflow = {issue, started_at}` to
      `loop-status.json` before forking.
@@ -138,16 +166,16 @@ Each outer iteration of `run` performs the following steps in order:
      `specs/<slug>/stories.json` line as fallback); `REPO` comes from the
      board poll's `repository` field; `BRANCH` is `feat/<issue>-<KEY>`
      (the po-agent creates it via `worktree.sh --new-branch` when absent);
-     `REPO_ROOT` is the local repo root. Without these the po-agent fails
-     input validation with `missing input: KEY` and never starts — the
-     #144 crash. When the body has no provenance (a non-`to-issues`
-     issue), `KEY` degrades to empty and a `WARN` is logged; the po-agent
-     then surfaces the input-validation failure with a clear audit rather
-     than dispatching blind.
-     **NOTE:** hand-filed issues that bypass `to-issues` will never carry
-     the provenance footer and will always degrade to an empty KEY. Run
-     `/makato-orchestrate:seed-issue <ISSUE_NUMBER>` to stamp the footer
-     and move the board card to `Ready` before the loop picks up the issue.
+     `REPO_ROOT` is the local repo root.
+     When the body has NO `to-issues` provenance (a hand-filed or auto-filed
+     issue), `_derive_key_for_issue` falls back to
+     `<issue-number>-<normalized-title>` — the exact `seed-issue` SLUG
+     convention (#232) — so the loop dispatches a valid KEY without a manual
+     `seed-issue` run. Combined with the pre-poll promotion pass (step 2),
+     a labelled hand-filed issue now enters the loop end-to-end unattended.
+     KEY still degrades to empty (with a `WARN`, and the po-agent then
+     surfaces `missing input: KEY`) only when neither provenance NOR a title
+     can be read — e.g. a `gh` outage that returns an empty body and title.
      `MAKATO_HEADLESS=1` is the defensive belt: if the delegation prompt
      is somehow ignored and a `build-*` skill fires interactively, its
      Step 1b headless guard (see `plugins/makato-build/AUTONOMOUS-MODE.md`
@@ -163,7 +191,7 @@ Each outer iteration of `run` performs the following steps in order:
      deliberately — terminal state belongs to `workflow-state.json`,
      and the next poll re-derives ground truth instead of trusting an
      exit code.
-6. **Sleep.** `sleep $interval_seconds`. The cycle repeats from step 1.
+7. **Sleep.** `sleep $interval_seconds`. The cycle repeats from step 1.
 
 `--once` short-circuits step 6 and exits after one cycle. `--dry-run`
 replaces the `exec` in step 5 with a stderr line; everything else
@@ -401,6 +429,9 @@ The intentional design split:
 | `MAKATO_LOOP_DRY_DISPATCH` | unset | Test-only: skip the real `claude` exec and record `last_dispatch_issue` instead. |
 | `MAKATO_LOOP_GH_OVERRIDE` | unset | Test-only: read the canned `gh project item-list` JSON from this path instead of invoking `gh`. |
 | `MAKATO_LOOP_ISSUE_BODY_OVERRIDE` | unset | Test-only: read the issue body from this path instead of invoking `gh issue view` in `_derive_key_for_issue`. Keeps the T25 KEY-derivation test offline. |
+| `MAKATO_LOOP_ISSUE_TITLE_OVERRIDE` | unset | Test-only: use this string as the issue title instead of `gh issue view --json title` in the `_derive_key_for_issue` third fallback (#232). Keeps the T27 no-provenance KEY test offline. |
+| `MAKATO_LOOP_PROMOTE_OVERRIDE` | unset | Test-only: read the candidate list (`gh issue list --json number,labels` shape) from this path instead of invoking `gh` in `_promote_labelled_ready` (#231). Keeps the T28 promotion test offline. |
+| `MAKATO_LOOP_PROMOTE_DRYRUN` | unset | Test-only: set to `1` so `_promote_labelled_ready` logs `would promote #N → Ready` instead of calling `gh project item-edit`. Asserted by T28. |
 | `MAKATO_LOOP_STALL_WARN` | `900` | Seconds of no output before the watchdog stamps `active_workflow.stalled = true`. |
 | `MAKATO_LOOP_STALL_KILL` | `3600` | Seconds of no output before the watchdog `SIGTERM`s the PO-agent. |
 | `MAKATO_LOOP_STALL_POLL` | `60` | Watchdog poll cadence in seconds (small values used in smoke tests). |

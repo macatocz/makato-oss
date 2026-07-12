@@ -5,7 +5,34 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
-## Plugin-level
+## loop — non-to-issues issues enter the loop unattended (#231, #232)
+
+Closes the two sibling gaps that kept a hand-filed or auto-filed (testbox/CI) issue off
+the autonomous loop unless an operator ran `seed-issue` by hand. Both fixes land in
+`scripts/loop.sh` + `loop-smoke-tests.sh`; the loop smoke suite is now wired into CI.
+
+- **`loop` 1.4.0 → 1.5.0**
+  - **#232 — KEY provenance fallback.** `_derive_key_for_issue` gains a third fallback:
+    when the issue body carries neither the `to-issues` footer nor a
+    `specs/<slug>/stories.json` line, it derives `<issue-number>-<normalized-title>` (the
+    exact `seed-issue` SLUG convention) from the issue title, so the po-agent dispatch
+    bundle no longer carries an empty KEY. Reached only when both provenance patterns miss
+    — to-issues issues are unchanged. New `MAKATO_LOOP_ISSUE_TITLE_OVERRIDE` test hook.
+  - **#231 — pre-poll label→board bridge.** `run` now runs `_promote_labelled_ready`
+    before each poll (default `Ready` status only): open `status:ready-for-dev` issues that
+    are off-`Ready` and not carrying an exclusion label (`triage`, `experimental`,
+    `status:blocked`, `autonomous:halt`) are promoted to `Status=Ready` via
+    `gh project item-edit` — the same mutation `seed-issue` uses — so a labelled non-to-issues
+    issue enters the queue without a manual `seed-issue` run. Best-effort: a `gh` failure or
+    missing config logs a WARN and never blocks the tick. Also exposed standalone as
+    `loop promote-ready`. New `MAKATO_LOOP_PROMOTE_OVERRIDE` / `MAKATO_LOOP_PROMOTE_DRYRUN`
+    test hooks.
+  - **Tests + CI.** `loop-smoke-tests.sh` gains T27 (KEY fallback + regression + title
+    normalization) and T28 (promotion pass + exclusion guard), both offline via the new
+    override hooks. The full suite (T1–T28) is now run in `.github/workflows/validate.yml`
+    — previously the loop smoke tests had no CI gate.
+
+
 
 - **Fixed** `Post-merge spec archive` GitHub Actions workflow failed on every feature-branch merge with `claude: command not found` (exit 127) — the `Setup Claude CLI` step was a placeholder that installed nothing, so the `claude --print …` archive invocation had no binary on `PATH` (#221). Replaced the LLM-driven runner path with a deterministic bash port, `scripts/archive-spec.sh` (+ `archive-spec-smoke-tests.sh`, 9 offline scenarios): it derives the spec slug from the issue body's `to-issues` provenance (same logic as `loop.sh`), resolves `specs/<slug>/` or `specs/<slug>-*/`, appends an Evolution Log row to the master spec, moves the folder to `specs/archive/<date>-<folder>/`, and closes the issue idempotently. No Claude CLI, no `ANTHROPIC_API_KEY` secret, no per-merge LLM cost — consistent with the D5 "no LLM in the runner" constraint. Tolerates the gitignored-`specs/` case (folder absent on the runner → issue-close is the durable effect, exit 0). The `archive-spec` SKILL remains the source of truth for the interactive/model-driven path (semantic requirement extraction, OBSOLETE path, conflict handling). `archive-spec` SKILL 1.0.0 → 1.1.0; `.github/workflows/archive-spec.yml` + `workflows/archive-spec.yml` template + `references/archive-spec-workflow.md` updated.
 - **Fixed** `scripts/loop.sh` dispatch — long unattended builds were killed mid-run (#146 regression). Two coupled causes: (1) the dispatch prompt delegates to the po-agent via the Task tool, which in claude >= 2.1.x runs the subagent as a *background* task, and the top-level `-p` session terminated it after the default 600 s `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS` ceiling — killing a full build cycle 10 min in; (2) the plain `--output-format text` format flushes nothing until session end, so the log mtime stayed frozen and the liveness watchdog stall-killed the po-agent after 60 min. Fix: set `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0` (wait indefinitely; watchdog + HALT poll remain the bounding mechanisms) and switch the watched production path to `--output-format stream-json --verbose` for a live per-event mtime signal. The `MAKATO_LOOP_STALL_DISABLE=1` opt-out path keeps `text` (operator watches the terminal) but also gets the ceiling override.

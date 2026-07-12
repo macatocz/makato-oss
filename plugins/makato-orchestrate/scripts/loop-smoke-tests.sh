@@ -645,5 +645,92 @@ grep -q "po-agent" <<<"$no_type_route" \
   || fail "T26: missing type: label should fall back to po-agent; got: $no_type_route"
 echo "  ✓ missing type: label falls back to po-agent"
 
+# ---------------------------------------------------------------------------
+echo
+echo "=== T27: KEY falls back to <issue>-<title-slug> when no to-issues provenance (#232) ==="
+# A hand-filed / auto-filed issue carries neither the to-issues footer nor a
+# specs/<slug>/stories.json line. _derive_key_for_issue must then derive
+# <issue-number>-<normalized-title> (the seed-issue SLUG convention) instead of
+# returning empty. Title is injected via MAKATO_LOOP_ISSUE_TITLE_OVERRIDE so no
+# `gh issue view` call is made (offline, mirrors the body override).
+rm -f "$STATE_DIR/loop-status.json"
+noprov_body_file="$STATE_DIR/t27-noprov-body.txt"
+cat >"$noprov_body_file" <<'ISSUEBODY'
+## Problem
+A hand-filed issue with no to-issues provenance whatsoever.
+
+## Proposed fix
+Derive the KEY from the issue title.
+ISSUEBODY
+
+dry_run_t27="$(
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$noprov_body_file" \
+  MAKATO_LOOP_ISSUE_TITLE_OVERRIDE="Fix: loop dispatch fails on empty KEY" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+    "$LOOP" dispatch 503 --dry-run 2>&1 >/dev/null
+)" || fail "T27: no-provenance dispatch --dry-run should exit 0; got: $dry_run_t27"
+grep -q "KEY=503-fix-loop-dispatch-fails-on-empty" <<<"$dry_run_t27" \
+  || fail "T27: KEY not derived from title; got: $dry_run_t27"
+grep -q "BRANCH=feat/503-503-fix-loop-dispatch-fails-on-empty" <<<"$dry_run_t27" \
+  || fail "T27: BRANCH not derived from title-based KEY; got: $dry_run_t27"
+echo "  ✓ no-provenance issue derives KEY=<issue>-<title-slug>"
+
+# Sub-assertion — regression: a provenance body still wins over the title.
+rm -f "$STATE_DIR/loop-status.json"
+dry_run_t27_regr="$(
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$issue_body_file" \
+  MAKATO_LOOP_ISSUE_TITLE_OVERRIDE="This Title Must Be Ignored" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+    "$LOOP" dispatch 504 --dry-run 2>&1 >/dev/null
+)" || fail "T27: provenance dispatch --dry-run should exit 0; got: $dry_run_t27_regr"
+grep -q "KEY=test-feature" <<<"$dry_run_t27_regr" \
+  || fail "T27: provenance footer must win over title; got: $dry_run_t27_regr"
+echo "  ✓ to-issues provenance still wins over the title fallback (regression)"
+
+# Sub-assertion — punctuation/uppercase/long titles normalize (collapse, strip, ≤40).
+rm -f "$STATE_DIR/loop-status.json"
+dry_run_t27_norm="$(
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$noprov_body_file" \
+  MAKATO_LOOP_ISSUE_TITLE_OVERRIDE="  [makato-build]  Weird!! Title -- with   JUNK  " \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+    "$LOOP" dispatch 505 --dry-run 2>&1 >/dev/null
+)" || fail "T27: normalize dispatch --dry-run should exit 0; got: $dry_run_t27_norm"
+grep -q "KEY=505-makato-build-weird-title-with-junk" <<<"$dry_run_t27_norm" \
+  || fail "T27: title normalization wrong; got: $dry_run_t27_norm"
+echo "  ✓ title normalization collapses runs, strips punctuation, lowercases"
+
+# ---------------------------------------------------------------------------
+echo
+echo "=== T28: pre-poll promotion moves labelled-ready issues to board Ready (#231) ==="
+# _promote_labelled_ready lists open status:ready-for-dev issues and promotes
+# those that are off-Ready and not excluded. Fed an offline fixture via
+# MAKATO_LOOP_PROMOTE_OVERRIDE and run under MAKATO_LOOP_PROMOTE_DRYRUN=1 so it
+# logs intended promotions instead of calling `gh project item-edit`.
+rm -f "$STATE_DIR/loop-status.json"
+promote_fixture="$STATE_DIR/t28-promote.json"
+cat >"$promote_fixture" <<'PROMOTEJSON'
+[
+  {"number": 601, "labels": [{"name": "status:ready-for-dev"}, {"name": "bug"}]},
+  {"number": 602, "labels": [{"name": "status:ready-for-dev"}, {"name": "status:blocked"}]},
+  {"number": 603, "labels": [{"name": "status:ready-for-dev"}, {"name": "triage"}]},
+  {"number": 604, "labels": [{"name": "status:ready-for-dev"}, {"name": "experimental"}]},
+  {"number": 605, "labels": [{"name": "status:ready-for-dev"}, {"name": "autonomous:halt"}]}
+]
+PROMOTEJSON
+
+promote_out="$(
+  MAKATO_LOOP_PROMOTE_OVERRIDE="$promote_fixture" \
+  MAKATO_LOOP_PROMOTE_DRYRUN=1 \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+    "$LOOP" promote-ready 2>&1
+)" || fail "T28: promote-ready should exit 0; got: $promote_out"
+grep -q "would promote #601" <<<"$promote_out" \
+  || fail "T28: plain ready issue #601 should be promoted; got: $promote_out"
+for skip in 602 603 604 605; do
+  grep -q "would promote #${skip}" <<<"$promote_out" \
+    && fail "T28: excluded issue #${skip} must NOT be promoted; got: $promote_out"
+done
+echo "  ✓ only the non-excluded ready issue is promoted; blocked/triage/experimental/halt skipped"
+
 echo
 echo "=== ALL TESTS PASSED ==="
