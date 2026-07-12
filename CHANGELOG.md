@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.43.1](https://github.com/macatocz/makato/compare/v0.43.0...v0.43.1) (2026-07-12)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** let non-to-issues issues enter the loop unattended ([#231](https://github.com/macatocz/makato/issues/231), [#232](https://github.com/macatocz/makato/issues/232)) ([#252](https://github.com/macatocz/makato/issues/252)) ([7dfb7dc](https://github.com/macatocz/makato/commit/7dfb7dc3fe79ffc385420095e5976700021a088a))
+
+## [0.43.0](https://github.com/macatocz/makato/compare/v0.42.1...v0.43.0) (2026-07-11)
+
+
+### ✨ Features
+
+* **d22:** D22 system-done gate + maintenance handoff report ([#150](https://github.com/macatocz/makato/issues/150)) ([#250](https://github.com/macatocz/makato/issues/250)) ([88368a8](https://github.com/macatocz/makato/commit/88368a812ae5bcb4a62ae5a50f25cd3d403d25b9))
+
+## [0.42.1](https://github.com/macatocz/makato/compare/v0.42.0...v0.42.1) (2026-07-11)
+
+
+### 🐛 Bug Fixes
+
+* **makato-build:** unify Finding schema across sensor loop ([#230](https://github.com/macatocz/makato/issues/230)) ([#248](https://github.com/macatocz/makato/issues/248)) ([43bdc8e](https://github.com/macatocz/makato/commit/43bdc8eb134f928c0730519edf0efaa61c94933f))
+
 ## [0.42.0](https://github.com/macatocz/makato/compare/v0.41.0...v0.42.0) (2026-07-11)
 
 

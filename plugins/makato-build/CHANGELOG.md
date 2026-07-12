@@ -5,6 +5,33 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## Finding schema unified across the sensor loop (#230)
+
+Fixed field-name drift in the sensor loop's Finding contract. `shared/parse-sarif.py`
+(`class Finding`) has long emitted the canonical shape
+`{tool, rule, path, line, column, message, severity, autofix_available, raw}`, and the
+three fixer consumers (`build-resolve-finding`, `build-fix-types`, `build-fix-security`)
+already read it — but `build-sensors/SKILL.md` and `agents/sensor-fixer.md` documented a
+stale shape (`rule_id` / `file` / `fixable`) that matched neither. The contract was
+documented three ways with only the code correct, risking a reintroduced `rule_id → rule`
+remap bug. This converges the docs onto the code (no runtime change), adds a single source
+of truth, and guards it with a CI contract test.
+
+- **New `shared/finding-schema.md`** — canonical field table, emitter→consumer contract,
+  the `fingerprint` note (sensor-fixer-*derived*, not a `parse-sarif.py` output), the
+  severity-vocabulary divergence note (flagged out-of-scope), and the forbidden-field list.
+  All four loop artefacts now link here instead of re-describing the shape inline.
+- **`build-sensors` → 1.1.0** — Step 5 Finding-shape description rewritten to the canonical
+  set with a link to `shared/finding-schema.md`.
+- **`sensor-fixer` agent** — `FINDINGS` input, log-line example, and error-string format
+  reconciled to the canonical shape; `fingerprint` documented as agent-derived, not received.
+- **`build-fix-security`** — stale `(tool, rule_id)` prose corrected to `(tool, rule)`.
+- **New `shared/finding-schema-smoke-test.sh`** — asserts the emitter's serialised keys
+  equal the documented canonical set, the two rewritten artefacts carry no forbidden field
+  names, the three consumers stay canonical, the reference doc is linked from all four
+  artefacts, and `parse-sarif.py --selftest` still exits 0. Wired into
+  `.github/workflows/validate.yml`.
+
 ## TEST_ORACLE — `acceptanceTestCases[]` drives coder RED tests (#235)
 
 Gives the makato-plan `acceptanceTestCases[]` field (written by `create-acceptance-tests`)

@@ -643,6 +643,12 @@ _within_dispatch_guard() {
 # generated issue. Two sources, both from the issue-template:
 #   1. Footer:   *Feature slug: `<slug>` — produced by to-issues v3.x.*
 #   2. Fallback: the top-of-body line `specs/<slug>/stories.json`
+#   3. Third fallback (#232): when NEITHER provenance marker is present (a
+#      hand-filed or auto-filed testbox/CI issue), derive
+#      `<issue-number>-<normalized-title>` — the exact seed-issue SLUG
+#      convention — so the loop no longer needs a manual seed-issue run to
+#      produce a dispatchable KEY. Reached only when 1 and 2 both miss, so
+#      to-issues-provenance issues are unchanged.
 #
 # The slug becomes KEY in the po-agent dispatch bundle; the po-agent
 # resolves the spec folder via `specs/<KEY>-*/` prefix-match. When the
@@ -651,24 +657,29 @@ _within_dispatch_guard() {
 # dispatch failed one step earlier at `missing input: KEY`).
 #
 # On success: prints the sanitised slug to stdout, returns 0.
-# On failure (gh error / no provenance match): prints nothing, returns 1 —
-# the caller logs a WARN and dispatches with an empty KEY so the po-agent
-# surfaces the input-validation failure with a clear audit.
+# On failure (gh error / empty body AND empty title): prints nothing,
+# returns 1 — the caller logs a WARN and dispatches with an empty KEY so the
+# po-agent surfaces the input-validation failure with a clear audit.
 #
-# Test hook: MAKATO_LOOP_ISSUE_BODY_OVERRIDE — path to a file whose content
-# is used as the issue body instead of invoking `gh issue view`. Keeps the
-# T25 smoke test fully offline (mirrors MAKATO_LOOP_GH_OVERRIDE for polls).
+# Test hooks (keep the T25/T27 smoke tests fully offline):
+#   MAKATO_LOOP_ISSUE_BODY_OVERRIDE  — file used as the issue body instead of
+#                                      invoking `gh issue view --json body`.
+#   MAKATO_LOOP_ISSUE_TITLE_OVERRIDE — string used as the issue title instead
+#                                      of `gh issue view --json title` (#232).
 # ---------------------------------------------------------------------------
 _derive_key_for_issue() {
   local issue="$1"
   local repo="${2:-${MAKATO_LOOP_DISPATCH_REPO:-}}"
 
+  # Declare the repo flag once — both the body fetch and the title fetch
+  # (#232 third fallback below) reuse it.
+  local -a repo_flag=()
+  [[ -n "$repo" ]] && repo_flag=(--repo "$repo")
+
   local body
   if [[ -n "${MAKATO_LOOP_ISSUE_BODY_OVERRIDE:-}" ]]; then
     body="$(cat "$MAKATO_LOOP_ISSUE_BODY_OVERRIDE" 2>/dev/null)" || return 1
   else
-    local -a repo_flag=()
-    [[ -n "$repo" ]] && repo_flag=(--repo "$repo")
     body="$(gh issue view "$issue" "${repo_flag[@]}" --json body --jq '.body' 2>/dev/null)" || return 1
   fi
   [[ -n "$body" ]] || return 1
@@ -685,6 +696,35 @@ _derive_key_for_issue() {
     slug="$(printf '%s\n' "$body" \
       | sed -n 's|.*specs/\([^/]*\)/stories\.json.*|\1|p' \
       | head -1)"
+  fi
+
+  # Third fallback (#232): the issue carries NO to-issues provenance at all —
+  # a hand-filed or auto-filed (testbox/CI) issue. Derive
+  # <issue-number>-<normalized-title>, matching seed-issue's SLUG convention
+  # exactly (SKILL.md Step 4), so the loop no longer needs a manual seed-issue
+  # run to produce a dispatchable KEY, and so a spec folder created by either
+  # on-ramp resolves to the same slug. Reached ONLY when both provenance
+  # patterns above missed, so provenance issues are unchanged.
+  # Test hook: MAKATO_LOOP_ISSUE_TITLE_OVERRIDE mirrors the body override.
+  if [[ -z "$slug" ]]; then
+    local title
+    if [[ -n "${MAKATO_LOOP_ISSUE_TITLE_OVERRIDE:-}" ]]; then
+      title="$MAKATO_LOOP_ISSUE_TITLE_OVERRIDE"
+    else
+      title="$(gh issue view "$issue" "${repo_flag[@]}" --json title --jq '.title' 2>/dev/null)" || true
+    fi
+    if [[ -n "$title" ]]; then
+      # seed-issue normalization: lowercase, non-alnum → '-', collapse runs,
+      # strip leading/trailing '-', truncate to 40 chars, strip a trailing '-'
+      # left by truncation. sed -E with basic classes only (macOS + GNU safe).
+      local norm
+      norm="$(printf '%s' "$title" \
+        | tr '[:upper:]' '[:lower:]' \
+        | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' \
+        | cut -c1-40 \
+        | sed -E 's/-+$//')"
+      [[ -n "$norm" ]] && slug="${issue}-${norm}"
+    fi
   fi
 
   [[ -n "$slug" ]] || return 1
@@ -754,6 +794,143 @@ _assign_issue() {
     echo "loop: WARN — failed to assign #$issue to $ASSIGNEE (dispatch continues; board Status unchanged)" >&2
   fi
   return 0
+}
+
+# ---------------------------------------------------------------------------
+# _promote_labelled_ready — bridge label → board for non-to-issues issues
+# (#231). loop's queue is the board Status=Ready set (cmd_poll); nothing moves
+# a card TO Ready except seed-issue (manual) or issue-to-project autonomous
+# mode (a strict created-issues.json consumer). So a hand-filed / auto-filed
+# issue carrying status:ready-for-dev sits off-queue forever. This pass lists
+# open status:ready-for-dev issues and promotes those that are (a) not already
+# at board Status=Ready and (b) not carrying an exclusion label, using the same
+# `gh project item-edit` seed-issue uses.
+#
+# Best-effort: any gh failure logs a WARN and is swallowed — a GitHub hiccup
+# must never block a tick (mirrors _assign_issue's contract).
+#
+# Test hooks (offline):
+#   MAKATO_LOOP_PROMOTE_OVERRIDE — path to a JSON file mimicking
+#       `gh issue list --json number,labels` output.
+#   MAKATO_LOOP_PROMOTE_DRYRUN=1 — log "would promote #N → Ready" instead of
+#       calling `gh project item-edit` (asserted by T28).
+# ---------------------------------------------------------------------------
+# Labels that veto promotion even when status:ready-for-dev is present.
+_PROMOTE_EXCLUSION_LABELS="triage experimental status:blocked autonomous:halt"
+_PROMOTE_READY_LABEL="status:ready-for-dev"
+
+_promote_labelled_ready() {
+  local dryrun="${MAKATO_LOOP_PROMOTE_DRYRUN:-}"
+
+  # Candidate list: open issues carrying the ready label.
+  local candidates
+  if [[ -n "${MAKATO_LOOP_PROMOTE_OVERRIDE:-}" ]]; then
+    candidates="$(cat "$MAKATO_LOOP_PROMOTE_OVERRIDE" 2>/dev/null || echo '[]')"
+  else
+    local -a repo_flag=()
+    [[ -n "${MAKATO_LOOP_DISPATCH_REPO:-}" ]] && repo_flag=(--repo "${MAKATO_LOOP_DISPATCH_REPO}")
+    candidates="$(gh issue list "${repo_flag[@]}" \
+      --label "$_PROMOTE_READY_LABEL" --state open \
+      --json number,labels --limit 200 2>/dev/null || echo '[]')"
+  fi
+  [[ -n "$candidates" ]] || candidates='[]'
+
+  local count
+  count="$(jq 'length' <<<"$candidates" 2>/dev/null || echo 0)"
+  [[ "$count" -gt 0 ]] || return 0
+
+  # Board mutation needs the status field id + Ready option id from config.
+  # Resolve them once; if absent we cannot write the board — WARN and skip the
+  # whole pass (degrade to pre-#231 behavior, never fail the tick). Skipped
+  # under DRYRUN so the offline smoke test does not need a full config.
+  local status_field_id ready_option_id host owner number
+  if [[ -z "$dryrun" ]]; then
+    if [[ ! -f "$CONFIG_FILE" ]]; then
+      echo "loop: WARN — promote-ready skipped: .claude/config.json not found" >&2
+      return 0
+    fi
+    status_field_id="$(jq -r '.github_project.fields.status.id // empty' "$CONFIG_FILE")"
+    ready_option_id="$(jq -r '.github_project.fields.status.options.ready // empty' "$CONFIG_FILE")"
+    host="$(jq -r '.github_project.host // "github.com"' "$CONFIG_FILE")"
+    owner="$(jq -r '.github_project.owner // empty' "$CONFIG_FILE")"
+    number="$(jq -r '.github_project.number // empty' "$CONFIG_FILE")"
+    if [[ -z "$status_field_id" || -z "$ready_option_id" || -z "$owner" || -z "$number" ]]; then
+      echo "loop: WARN — promote-ready skipped: status field / ready option / project missing in config" >&2
+      return 0
+    fi
+  fi
+
+  # Snapshot the current Ready set so we skip already-Ready issues (idempotent,
+  # avoids a redundant item-edit). Best-effort — an empty snapshot just means
+  # we may attempt a promote that the board no-ops.
+  local ready_now=""
+  if [[ -z "$dryrun" ]]; then
+    ready_now="$(cmd_poll Ready 2>/dev/null | jq -r '.[].issue' 2>/dev/null || true)"
+  fi
+
+  local n labels excluded lbl
+  while IFS= read -r n; do
+    [[ -n "$n" ]] || continue
+    labels="$(jq -r --argjson i "$n" \
+      '.[] | select(.number == $i) | [.labels[].name] | join(" ")' \
+      <<<"$candidates" 2>/dev/null || echo "")"
+
+    # Exclusion guard: any excluded label vetoes promotion.
+    excluded=""
+    for lbl in $_PROMOTE_EXCLUSION_LABELS; do
+      if [[ " $labels " == *" $lbl "* ]]; then excluded="$lbl"; break; fi
+    done
+    if [[ -n "$excluded" ]]; then
+      echo "loop: promote-ready — skip #$n (carries exclusion label '$excluded')" >&2
+      continue
+    fi
+
+    # Skip issues already at Ready.
+    if [[ -n "$ready_now" ]] && grep -qx "$n" <<<"$ready_now"; then
+      echo "loop: promote-ready — skip #$n (already at Status=Ready)" >&2
+      continue
+    fi
+
+    if [[ -n "$dryrun" ]]; then
+      echo "loop: would promote #$n → Ready" >&2
+      continue
+    fi
+
+    # Add to board if absent, then set Status=Ready. Both best-effort.
+    local item_id=""
+    item_id="$(GH_HOST="$host" gh project item-add "$number" --owner "$owner" \
+      --url "https://github.com/${MAKATO_LOOP_DISPATCH_REPO:-}/issues/$n" \
+      --format json 2>/dev/null | jq -r '.id // empty' 2>/dev/null || true)"
+    if [[ -z "$item_id" ]]; then
+      # Already on the board — find its item id from the board listing.
+      item_id="$(GH_HOST="$host" gh project item-list "$number" --owner "$owner" \
+        --format json --limit 9999 2>/dev/null \
+        | jq -r --argjson i "$n" '.items[] | select(.content.number == $i) | .id' 2>/dev/null \
+        | head -1 || true)"
+    fi
+    if [[ -z "$item_id" ]]; then
+      echo "loop: WARN — promote-ready could not resolve board item for #$n; skipping" >&2
+      continue
+    fi
+    if GH_HOST="$host" gh project item-edit --id "$item_id" \
+        --project-id "$(jq -r '.github_project.project_node_id // empty' "$CONFIG_FILE")" \
+        --field-id "$status_field_id" \
+        --single-select-option-id "$ready_option_id" >/dev/null 2>&1; then
+      echo "loop: promote-ready — set #$n → Status=Ready" >&2
+    else
+      echo "loop: WARN — promote-ready failed to set #$n → Ready (tick continues)" >&2
+    fi
+  done < <(jq -r '.[].number' <<<"$candidates" 2>/dev/null)
+
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# promote-ready — standalone entry point for the label→board promotion pass
+# (#231). Also called by cmd_run before each poll when Status=Ready.
+# ---------------------------------------------------------------------------
+cmd_promote_ready() {
+  _promote_labelled_ready
 }
 
 # ---------------------------------------------------------------------------
@@ -1123,6 +1300,15 @@ cmd_run() {
       return 0
     fi
 
+    # Pre-poll bridge (#231): promote any status:ready-for-dev issue that is
+    # off-board-Ready onto Ready, so hand-filed / auto-filed issues (no
+    # to-issues provenance, no created-issues.json) enter the queue the same
+    # tick. Only meaningful when polling the Ready status; a custom-status run
+    # must not force-promote to Ready. Best-effort — never blocks the tick.
+    if [[ "$status_name" == "Ready" && -z "$dry_run" ]]; then
+      _promote_labelled_ready || true
+    fi
+
     local queue queue_depth
     queue="$(cmd_poll "$status_name" || echo '[]')"
     queue_depth="$(jq 'length' <<<"$queue")"
@@ -1213,6 +1399,7 @@ case "$SUBCMD" in
   next)       cmd_next "$@" ;;
   status)     cmd_status ;;
   dispatch)   cmd_dispatch "$@" ;;
+  promote-ready) cmd_promote_ready ;;
   check-halt) cmd_check_halt ;;
   *) echo "loop: unknown subcommand: $SUBCMD" >&2; exit 64 ;;
 esac

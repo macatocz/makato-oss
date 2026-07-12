@@ -56,6 +56,12 @@ jobs:
       - name: to-issues v2.0-schema smoke tests (#228)
         run: ./plugins/makato-plan/skills/to-issues/references/fixtures/v2-schema-smoke-tests.sh
 
+      - name: Finding-schema contract smoke test (#230)
+        run: ./plugins/makato-build/shared/finding-schema-smoke-test.sh
+
+      - name: loop smoke tests (#231/#232)
+        run: ./plugins/makato-orchestrate/scripts/loop-smoke-tests.sh
+
   pr-title:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest

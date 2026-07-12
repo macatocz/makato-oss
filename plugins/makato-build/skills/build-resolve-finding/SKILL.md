@@ -31,7 +31,8 @@ This skill is only invoked for findings that **survived** Phase 0. The consequen
 
 ## 2. Inputs (Finding shape)
 
-The caller passes a single finding object:
+The caller passes a single finding object — the canonical Finding contract is
+[`shared/finding-schema.md`](../../shared/finding-schema.md):
 
 ```json
 {
