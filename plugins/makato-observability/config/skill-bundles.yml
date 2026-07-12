@@ -20,6 +20,8 @@ bundles:
 
   # Triggered when working on Python files that set up OpenTelemetry / Langfuse.
   # Wide globs — requires contains predicate.
+  # task_contains enables routing when the task description mentions observability
+  # work even if no OpenTelemetry files are in the diff.
   - name: observability-otel
     globs:
       - "**/*.py"
@@ -29,5 +31,13 @@ bundles:
       - "langfuse"
       - "TracerProvider"
       - "OTLPSpanExporter"
+    task_contains:
+      - "distributed tracing"
+      - "opentelemetry"
+      - "span exporter"
+      - "instrument the agent"
+      - "langfuse"
+      - "TracerProvider"
+      - "OTLP"
     skills:
       - langfuse-instrument

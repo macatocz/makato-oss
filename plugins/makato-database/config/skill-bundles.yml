@@ -20,6 +20,8 @@ bundles:
 
   # Triggered when working on SQL migration files in any project.
   # Literal segment: migrations/ → specificity = 1; contains scopes to Postgres DDL.
+  # task_contains enables routing when the task description mentions database work
+  # even if no migration files are in the diff.
   - name: database-migrations
     globs:
       - "migrations/**/*.sql"
@@ -30,6 +32,14 @@ bundles:
       - "ALTER TABLE"
       - "CREATE INDEX"
       - "DROP TABLE"
+    task_contains:
+      - "postgres query"
+      - "slow index"
+      - "query plan"
+      - "schema design"
+      - "database migration"
+      - "alembic migration"
+      - "SQL migration"
     skills:
       - manage-postgres
 

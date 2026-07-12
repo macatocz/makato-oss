@@ -2,21 +2,24 @@
 # validate-skill-bundles.sh — pre-commit gate for skill-bundles.yml (D18 authoring-time)
 #
 # Rejects any bundle that pairs a WIDE glob with a skill recommendation but
-# omits the `contains:` content-hint predicate. A wide glob is one with ZERO
-# literal path segments (every segment contains `*` or `?`) — e.g. `**/*`,
-# `**/*.py`, `**/*graph*.py`. Without a content filter, such a glob would spray
-# skill suggestions across an entire language's files; the resolver (D19) uses
-# `contains:` to keep routing precise, and this gate enforces that authors
-# supply it.
+# omits BOTH the `contains:` file-content predicate AND the `task_contains:`
+# task-text predicate. A wide glob is one with ZERO literal path segments
+# (every segment contains `*` or `?`) — e.g. `**/*`, `**/*.py`, `**/*graph*.py`.
+# Without either content filter, such a glob would spray skill suggestions
+# across an entire language's files. The resolver (D19) uses `contains:` for
+# file-routing precision; `task_contains:` (F5) is the equivalent precision
+# filter for task-text routing. Either one satisfies the gate.
 #
 # Exemptions:
 #   * The `default` bundle (its `**/*` glob is the deliberate catch-all).
 #   * Any bundle whose `skills:` list is empty ([]) — it recommends nothing, so
 #     breadth is harmless.
+#   * A bundle with a non-empty `task_contains:` list — task-text is itself
+#     the precision filter, so no file `contains:` is required.
 #
 # Exit codes:
 #   0  all staged skill-bundles.yml files pass (or none are staged)
-#   1  at least one wide-glob-without-contains violation (message on stderr)
+#   1  at least one wide-glob-without-precision-filter violation (message on stderr)
 #   2  a staged skill-bundles.yml could not be parsed
 #
 # Invocation:
@@ -89,7 +92,10 @@ for target in targets:
             continue  # recommends nothing → breadth is harmless
         has_contains = bool(bundle.get("contains"))
         if has_contains:
-            continue  # content-filtered → precise regardless of glob width
+            continue  # file content-filtered → precise regardless of glob width
+        has_task_contains = bool(bundle.get("task_contains"))
+        if has_task_contains:
+            continue  # task-text filtered → task_contains is the precision filter (F5)
         for glob in bundle.get("globs", []) or []:
             if _glob_specificity(glob) == 0:
                 violations.append((target, name, glob))
@@ -101,20 +107,21 @@ if parse_errors:
 
 if violations:
     print(
-        "validate-skill-bundles: wide glob without a `contains:` content filter.\n"
+        "validate-skill-bundles: wide glob without a precision content filter.\n"
         "\n"
         "A glob with no literal path segments (e.g. `**/*`, `**/*.py`, "
         "`**/*graph*.py`) matches an entire language's files. When such a bundle "
-        "recommends skills it MUST declare a `contains:` predicate so suggestions "
-        "are scoped to files that actually import the relevant library.\n",
+        "recommends skills it MUST declare either a `contains:` predicate (file "
+        "content filter) or a `task_contains:` predicate (task-text filter) so "
+        "suggestions are scoped to the relevant context.\n",
         file=sys.stderr,
     )
     for target, name, glob in violations:
-        print(f"  {target}: bundle '{name}' glob '{glob}' is wide but has no contains:", file=sys.stderr)
+        print(f"  {target}: bundle '{name}' glob '{glob}' is wide but has no contains: or task_contains:", file=sys.stderr)
     print(
-        "\nFix: add a `contains:` list to the bundle (recommended), narrow the "
-        "glob to include a literal directory segment, or move the skills into a "
-        "content-filtered bundle.",
+        "\nFix: add a `contains:` list (for file-routing) or a `task_contains:` list "
+        "(for task-text routing) to the bundle, narrow the glob to include a literal "
+        "directory segment, or move the skills into a content-filtered bundle.",
         file=sys.stderr,
     )
     sys.exit(1)

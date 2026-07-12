@@ -5,6 +5,44 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## F5 task-text routing — `task_contains` bundle key (#131)
+
+Adds a task-text dimension to the inject-skills resolver alongside the existing
+file-path dimension. A bundle that declares `task_contains` is now selected when
+at least one substring appears in the caller-supplied task description (issue
+body + `plan.md`), independent of which files are in the diff. This enables
+skill routing for green-field tasks where the relevant library files do not yet
+exist. The change is purely additive: when no `task_text` is supplied, resolution
+is byte-for-byte identical to the pre-F5 behaviour.
+
+- **`shared/inject_skills.py`** — `_task_hint_ok(bundle, task_text) -> bool` helper
+  added (D19-sibling for task text); `resolve_skills` extended with keyword-only
+  `task_text=None` parameter; `resolve_skills_for_repo` extended with matching
+  `task_text=None` forwarding parameter. Module docstring updated to document both.
+- **`skills/inject-skills/SKILL.md` → 1.1.0** — Input table gains optional `task_text`
+  field; Behavior section adds Step 3 (task-text routing), updates Step 4 (ordering
+  with specificity-0 task matches), and adds authoring guidance for `task_contains`.
+- **`agents/knowledge-scout.md`** — Step 0e documents the `task_text` opt-in: callers
+  with access to the issue body / `plan.md` may pass it to enable F5 routing; absent
+  it, routing degrades to today's file-only behaviour.
+- **`plugins/makato-langgraph/config/skill-bundles.yml`** — `langgraph` bundle gains
+  `task_contains` with 8 keywords (`langgraph`, `LangGraph`, `agent loop`, `state
+  machine`, `state transitions`, `graph node`, `workflow orchestration`, `StateGraph`).
+  Schema comment block updated to document `task_contains` and the new resolution
+  contract.
+- **`plugins/makato-database/config/skill-bundles.yml`** — `database-migrations`
+  bundle gains `task_contains` for postgres/schema/migration keywords.
+- **`plugins/makato-observability/config/skill-bundles.yml`** — `observability-otel`
+  bundle gains `task_contains` for OpenTelemetry/Langfuse/tracing keywords.
+- **`plugins/makato-langgraph/pre-commit/validate-skill-bundles.sh`** — wide-glob rule
+  extended: a bundle with a non-empty `task_contains` (and no file `contains`) now
+  passes (task text is itself the precision filter). A wide glob with neither still
+  fails. Error message updated to mention `task_contains` as a fix option.
+- **`shared/test_inject_skills.py`** — 19 new tests across `TaskTextMatchTests`
+  (AC-1, AC-2, AC-3), `TaskTextForRepoTests` (end-to-end forwarding, AC-3),
+  `FileAndTaskCombinationTests` (AC-6), `ValidatorTaskContainsTests` (AC-5), and
+  `TaskContainsBundleDataTests` (AC-4). All 37 tests pass.
+
 ## Finding schema unified across the sensor loop (#230)
 
 Fixed field-name drift in the sensor loop's Finding contract. `shared/parse-sarif.py`

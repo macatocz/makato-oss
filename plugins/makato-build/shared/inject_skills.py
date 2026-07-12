@@ -5,13 +5,23 @@ a deterministic, deduplicated, ordered list of recommended skill identifiers to
 prepend into an agent's system prompt before dispatch.
 
 This is the skill-routing sibling of ``inject_context.py``. It shares the same
-glob-specificity ordering (D9) but adds three concerns unique to skill routing:
+glob-specificity ordering (D9) but adds four concerns unique to skill routing:
 
   * D19 — content-hint predicate. A bundle MAY declare a ``contains`` list of
     substrings. The bundle matches a changed file only when its glob matches
     AND at least one ``contains`` substring is found in that file's text
     (OR-semantics). A bundle with no ``contains`` list is glob-only, exactly
     like a context bundle.
+  * D19 (task-sibling) — task-hint predicate. A bundle MAY declare a
+    ``task_contains`` list of substrings. When the caller passes a non-empty
+    ``task_text`` string to ``resolve_skills``, the bundle is selected if at
+    least one ``task_contains`` substring is found in ``task_text``
+    (OR-semantics). A task-only selection contributes specificity score 0 and
+    does NOT add the changed files to the matched-files set (the
+    ``no-match-fallback`` warning is file-scoped, not task-scoped). When
+    ``task_text`` is ``None`` or empty, the task-hint predicate is never
+    satisfied — ``_task_hint_ok`` always returns ``False`` — preserving the
+    pre-existing behaviour of callers that omit the parameter.
   * D10 — target-repo subset filter. The resolved skill identifiers are
     filtered to those actually installed in the target repo. A rule may name a
     skill that a given repo has not installed; those names are dropped from the
@@ -25,17 +35,20 @@ Resolution contract (mirrors plugins/makato-*/config/skill-bundles.yml):
 
   1. For each changed file, every bundle whose glob matches AND whose
      content-hint predicate is satisfied is selected.
+  1b. Additionally, every bundle whose ``task_contains`` predicate is satisfied
+     by ``task_text`` is selected, regardless of changed files.
   2. Bundles are applied in order of decreasing specificity, where specificity
      is the count of literal path segments in the matching glob (segments with
      no ``*`` or ``?``). A bundle's rank for the whole changeset is the MAX
-     score it achieved on any file. Ties break by config-declaration order,
-     then by aggregation order across plugin config files (sorted by path).
+     score it achieved on any file. Task-only selections contribute score 0.
+     Ties break by config-declaration order, then by aggregation order across
+     plugin config files (sorted by path).
   3. The bundle named ``default`` is always appended last, regardless of its
      specificity score.
   4. Skill identifiers are deduplicated preserving the FIRST occurrence.
   5. If ``changed_files`` is empty, only the ``default`` bundle's skills are
-     returned, with no no-match warning (an empty work-set is a valid no-scope
-     case).
+     returned (plus any task-hint matched bundles), with no no-match warning
+     (an empty work-set is a valid no-scope case).
   6. If a changed file matches NO non-default bundle (and default's own globs
      don't match it either), the resolver still falls back to ``default`` and
      records the file in a ``no-match-fallback`` warning.
@@ -159,6 +172,35 @@ def _content_hint_ok(bundle: dict, file_text: str | None) -> bool:
     return any(substr in file_text for substr in contains)
 
 
+def _task_hint_ok(bundle: dict, task_text: str | None) -> bool:
+    """Return True when the bundle's ``task_contains`` predicate is satisfied.
+
+    This is the D19-sibling for task descriptions: a bundle MAY declare a
+    ``task_contains`` list of substrings. When ``task_text`` is non-empty and
+    at least one ``task_contains`` substring is found in it (OR-semantics),
+    the bundle is selected — regardless of whether any changed file matched.
+
+    When ``task_contains`` is absent or empty the predicate is never satisfied
+    (returns False). This ensures a task-only check never selects a file-only
+    bundle and that omitting ``task_text`` (passing None or '') preserves the
+    current selection behaviour exactly.
+
+    Args:
+        bundle: a parsed bundle dict from skill-bundles.yml.
+        task_text: the caller-provided task description string, or None/empty.
+
+    Returns:
+        True iff ``task_contains`` is non-empty AND at least one substring
+        is present in ``task_text``.
+    """
+    task_contains = bundle.get("task_contains") or []
+    if not task_contains:
+        return False
+    if not task_text:
+        return False
+    return any(substr in task_text for substr in task_contains)
+
+
 def _bundle_matches_file(
     bundle: dict, file_path: str, file_text: str | None
 ) -> tuple[bool, int]:
@@ -225,6 +267,7 @@ def resolve_skills(
     *,
     file_texts: dict[str, str] | None = None,
     installed_skills: Iterable[str] | None = None,
+    task_text: str | None = None,
 ) -> tuple[list[str], list[dict]]:
     """Resolve changed files to an ordered, deduplicated list of skill names.
 
@@ -241,6 +284,14 @@ def resolve_skills(
             the target repo (D10). When None, no subset filtering is applied —
             every resolved skill is returned. When provided, resolved skills not
             in the set are dropped and reported via a ``missing-skills`` warning.
+        task_text: optional task description string for D19 task-hint matching.
+            When non-empty, bundles declaring a ``task_contains`` list are
+            selected if at least one substring is found in ``task_text``.
+            A task-only selection contributes specificity score 0 and does NOT
+            add files to the matched-files set used by the no-match-fallback
+            warning (that warning is file-scoped). When None or empty, the
+            task-hint predicate is never satisfied — behaviour is identical to
+            callers that omit the parameter.
 
     Returns:
         (skills, warnings) — see module docstring for warning shapes.
@@ -252,8 +303,10 @@ def resolve_skills(
     files = list(changed_files)
 
     # Step 1: collect (declaration_index, specificity, name) for each non-default
-    # bundle matching at least one changed file. Track which files were matched
-    # by anything non-default so we can surface no-match warnings.
+    # bundle matching at least one changed file OR matching via task_contains.
+    # Track which files were matched by anything non-default so we can surface
+    # no-match warnings. Task-only matches do NOT contribute to matched_files
+    # (the no-match-fallback warning is file-scoped, not task-scoped).
     matched_bundles: list[tuple[int, int, str]] = []
     matched_files: set[str] = set()
 
@@ -267,6 +320,10 @@ def resolve_skills(
                 matched_files.add(file_path)
                 if score > best_for_this_bundle:
                     best_for_this_bundle = score
+        # Task-hint check: selects the bundle with specificity 0 when no file
+        # matched but task_text satisfies the bundle's task_contains predicate.
+        if best_for_this_bundle < 0 and _task_hint_ok(bundle, task_text):
+            best_for_this_bundle = 0
         if best_for_this_bundle >= 0:
             matched_bundles.append((idx, best_for_this_bundle, bundle["name"]))
 
@@ -395,6 +452,7 @@ def resolve_skills_for_repo(
     makato_root: Path | str,
     *,
     apply_subset_filter: bool = True,
+    task_text: str | None = None,
 ) -> tuple[list[str], list[dict]]:
     """End-to-end resolution against a makato checkout.
 
@@ -402,6 +460,18 @@ def resolve_skills_for_repo(
     text of each changed file that exists for D19 content hints, discovers the
     installed skill set for the D10 subset filter, and delegates to the pure
     ``resolve_skills``. This is the entry point knowledge-scout's Step 0 calls.
+
+    Args:
+        changed_files: paths the target agent will read or write.
+        makato_root: absolute path to the makato checkout root.
+        apply_subset_filter: when True (default), resolved skills are filtered
+            to those installed under ``plugins/*/skills/*/SKILL.md`` (D10).
+        task_text: optional task description / issue body for F5 task-hint
+            matching. Forwarded verbatim to ``resolve_skills`` as ``task_text``.
+            When None or empty (the default), task-hint routing is inactive and
+            resolution is byte-for-byte identical to the pre-F5 behaviour.
+            The caller (PO-agent, build-implement-tdd) assembles the string from
+            the issue body + plan.md; no filesystem reads happen here.
     """
     root = Path(makato_root)
     config = aggregate_bundles(root)
@@ -420,7 +490,8 @@ def resolve_skills_for_repo(
 
     installed = discover_installed_skills(root) if apply_subset_filter else None
     return resolve_skills(
-        files, config, file_texts=file_texts, installed_skills=installed
+        files, config, file_texts=file_texts, installed_skills=installed,
+        task_text=task_text,
     )
 
 
