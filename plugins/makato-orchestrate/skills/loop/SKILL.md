@@ -10,7 +10,7 @@ description: >-
   exits on a HALT. Honors `~/.claude/HALT` before every dispatch
   (NEVER 3) and emits `.claude/state/loop-status.json` as the
   operator-facing live audit.
-version: "1.7.0"
+version: "1.8.0"
 argument-hint: "[--status <NAME>] [--interval <S>] [--dry-run] [--once] [--force]"
 ---
 
@@ -71,28 +71,39 @@ registered worktrees, the sampled majority from long-merged PRs.
 `run` now performs a **pre-poll reap pass** (Process step 3 below): every tick
 (throttled to at most once per `MAKATO_LOOP_REAP_INTERVAL`, default 1 h) it walks
 `git worktree list --porcelain`, and for each worktree removes it via
-`git worktree remove --force` **only** when its branch has a **merged** PR. This
-runs locally because that is where the worktrees physically live — a cloud
-GitHub Action on `ubuntu-latest` cannot reach the operator's disk.
+`git worktree remove --force` **only** when its work has already **landed** on
+the base branch. This runs locally because that is where the worktrees
+physically live — a cloud GitHub Action on `ubuntu-latest` cannot reach the
+operator's disk.
 
 The removal is gated by an 8-layer guard stack; a worktree is reaped only when
 it passes **all** of:
 
 1. not the main checkout,
 2. lives under `.claude/worktrees/`,
-3. not the parent of a nested worktree,
+3. no nested-worktree relationship — neither the **parent** of another
+   registered worktree nor a **child** living inside another worktree's
+   `.claude/worktrees/` (the main checkout owning `.claude/worktrees/` is the
+   normal layout, not nesting),
 4. not `locked`,
-5. not a detached HEAD (no branch → no PR to check),
-6. a **clean** working tree (`git status --porcelain` empty),
+5. not a detached HEAD (no branch → cannot correlate to landed work),
+6. no **tracked** uncommitted changes — untracked `??` scratch (build
+   artefacts, generated files) does **not** pin a worktree; only staged or
+   modified tracked paths do,
 7. not `worktree_retained` (when a `workflow-state` maps to it), and
-8. its branch has a **merged** PR (`gh pr list --state merged`).
+8. its work has **landed** on the base branch — either a **merged PR**
+   (`gh pr list --state merged`, any merge style) **or** its `HEAD` is a strict
+   **ancestor** of the base ref (`git merge-base --is-ancestor`). The union
+   catches squash/rebase merges *and* branches whose PR head was renamed so the
+   `--head` lookup misses them. A worktree sitting exactly on the base tip (a
+   freshly branched, not-yet-committed workspace) is **not** treated as landed.
 
 The pass is **best-effort** — any `gh`/`git` failure logs a WARN and never
-blocks the tick — and **forward-only** in spirit: it never touches a worktree
-with uncommitted work. Disable it with `MAKATO_LOOP_REAP_ON_POLL=0`.
+blocks the tick — and never touches a worktree with uncommitted **tracked**
+work. Disable it with `MAKATO_LOOP_REAP_ON_POLL=0`.
 
 > **To pin a worktree indefinitely, use `git worktree lock`** — guard 4 always
-> honours it, regardless of PR state. The `worktree_retained` flag (guard 7)
+> honours it, regardless of landed state. The `worktree_retained` flag (guard 7)
 > only vetoes when a `workflow-state` file maps to the worktree; most
 > hand-created worktrees have none, so `lock` is the reliable operator pin. The
 > clean-tree guard (6) is the independent backstop for everything else.
@@ -169,12 +180,13 @@ Each outer iteration of `run` performs the following steps in order:
    `--dry-run` and for custom `--status` runs. Also available standalone as
    `loop promote-ready`.
 3. **Pre-poll worktree reap (#265).** `_reap_merged_worktrees` walks
-   `git worktree list --porcelain` and removes worktrees whose branch has a
-   merged PR, subject to the 8-layer guard stack (see *Pre-poll merged-worktree
-   reap* above). Throttled to at most once per `MAKATO_LOOP_REAP_INTERVAL`
-   (default 1 h) via the `last_reap` stamp, so it is a sub-millisecond no-op on
-   most ticks. Runs for all `--status` values (it operates on local disk, not
-   the board). Best-effort: any `gh`/`git` failure logs a WARN and the tick
+   `git worktree list --porcelain` and removes worktrees whose work has landed
+   on the base branch (merged PR or ancestor of the base ref), subject to the
+   8-layer guard stack (see *Pre-poll merged-worktree reap* above). Throttled
+   to at most once per `MAKATO_LOOP_REAP_INTERVAL` (default 1 h) via the
+   `last_reap` stamp, so it is a sub-millisecond no-op on most ticks. Runs for
+   all `--status` values (it operates on local disk, not the board).
+   Best-effort: any `gh`/`git` failure logs a WARN and the tick
    continues. Skipped under `--dry-run` and when `MAKATO_LOOP_REAP_ON_POLL=0`.
    Also available standalone as `loop remove-worktrees`.
 4. **Board poll.** `GH_HOST=<host> gh project item-list <number>
@@ -440,7 +452,7 @@ Field semantics:
 | `last_watchdog_kill` | object \| null | `{issue, killed_at, idle_seconds, stall_kill_seconds}` — surviving audit of the most recent watchdog reap. `null` if the watchdog has never fired. |
 | `last_reap` | ISO-8601 ms \| null | Timestamp of the most recent merged-worktree reap pass (#265). Drives the reap throttle. `null` until the first pass runs. |
 | `last_reap_count` | integer \| null | Number of worktrees removed in the last reap pass (`0` when the pass ran but removed nothing). |
-| `reaped` | array \| null | `[{path, branch, pr}, …]` from the last pass that removed at least one worktree; not rewritten on a zero-removal pass. |
+| `reaped` | array \| null | `[{path, branch, landed}, …]` from the last pass that removed at least one worktree (`landed` is the reason string, e.g. `merged PR #206` or `ancestor of origin/main`); not rewritten on a zero-removal pass. |
 | `updated_at` | ISO-8601 ms | Auto-stamped on every write. |
 
 Operators can `tail -f .claude/state/loop-status.json | jq` (or
@@ -581,11 +593,12 @@ The intentional design split:
 | `MAKATO_LOOP_REAP_DRYRUN` | unset | Set to `1` to log intended removals (`reap would remove …`) without running `git worktree remove`. |
 | `MAKATO_LOOP_REAP_REPO` | unset | Override the owner/repo used for `gh pr list` (default: `MAKATO_LOOP_DISPATCH_REPO`, else parsed from `git remote get-url origin`). |
 | `MAKATO_LOOP_REAP_GH_OVERRIDE` | unset | Test-only: path to a JSON map `{"<branch>": "<pr#>"}` read instead of calling `gh pr list`. Keeps the reap smoke tests offline. |
+| `MAKATO_LOOP_REAP_BASE_REF` | unset | Override the base ref used for the ancestry landed-check (default: `origin/HEAD`, else `origin/main`). Tests point it at a local `main` so ancestry works in a throwaway repo with no remote. |
 | `MAKATO_LOOP_REAP_WT_OVERRIDE` | unset | Test-only: path to a file with canned `git worktree list --porcelain` output, read instead of invoking git. |
 
 ## Smoke tests
 
-`scripts/loop-smoke-tests.sh` covers twenty-seven scenarios:
+`scripts/loop-smoke-tests.sh` covers thirty scenarios:
 
 1. `check-halt` exits 0 with no HALT file.
 2. `check-halt` exits 1 with a HALT file.
@@ -629,17 +642,25 @@ The intentional design split:
     `WARN`-proceeds when the Status is unreadable, and records no claim
     decision when `MAKATO_LOOP_CLAIM_ON_DISPATCH=0`.
 23. **Reaper decision set (#265, T31).** `remove-worktrees --dry-run` flags a
-    merged+clean worktree for removal and skips dirty, locked, no-merged-PR,
-    and the main checkout.
-24. **Reaper live removal (#265, T32).** A merged, clean worktree is actually
-    removed; dirty/locked/open-PR worktrees survive; `last_reap`,
-    `last_reap_count`, and `reaped[].pr` are stamped in `loop-status.json`.
+    landed (merged-PR) clean worktree for removal and skips tracked-dirty,
+    locked, not-landed, and the main checkout.
+24. **Reaper live removal (#265, T32).** A landed, clean worktree is actually
+    removed; tracked-dirty/locked/not-landed worktrees survive; `last_reap`,
+    `last_reap_count`, and `reaped[].landed` are stamped in `loop-status.json`.
 25. **Reaper retained guard (#265, T33).** A worktree whose `workflow-state`
     has `worktree_retained: true` is skipped even when its PR is merged.
 26. **Reaper opt-out (#265, T34).** `MAKATO_LOOP_REAP_ON_POLL=0` short-circuits
     the whole pass — no worktrees are walked.
 27. **Reaper throttle (#265, T35).** A second `remove-worktrees` call within
     `MAKATO_LOOP_REAP_INTERVAL` is a no-op (the `last_reap` stamp gates it).
+28. **Reaper ancestry landed-check (#265, T36).** A branch whose `HEAD` is an
+    ancestor of the base ref is reaped even with **no** merged PR (renamed-head
+    / squash-merge safe); a worktree sitting exactly on the base tip survives.
+29. **Reaper untracked-scratch (#265, T37).** A landed worktree carrying only
+    untracked files is still reaped — untracked scratch does not pin.
+30. **Reaper nested-worktree guard (#265, T38).** Both a worktree that is the
+    parent of a nested worktree and one nested inside another worktree are
+    skipped.
 
 Run them directly:
 

@@ -35,6 +35,10 @@
 #   T30: synchronous board claim CAS prevents cross-worktree double-dispatch —
 #        proceeds when card still Ready, skips when already claimed off-Ready,
 #        warn-proceeds on unreadable Status, honors CLAIM_ON_DISPATCH=0 (#259)
+#   T31–T38: merged-worktree reaper (#265) — remove landed+clean, skip
+#        tracked-dirty/locked/not-landed/retained/main; ancestry-of-base reaps
+#        a renamed-head branch with no PR; untracked scratch does not pin;
+#        nested parent and nested child both skipped; disable + throttle
 #
 # A fixture file is injected via MAKATO_LOOP_GH_OVERRIDE so `gh` is not
 # invoked. Test isolation uses MAKATO_LOOP_STATE_DIR + ephemeral spec
@@ -915,15 +919,17 @@ grep -q "assign #101" "$assign_file" \
 echo "  ✓ MAKATO_LOOP_CLAIM_ON_DISPATCH=0 disables the claim; async assign path used"
 
 # ---------------------------------------------------------------------------
-# T31–T36: merged-worktree reaper (#265)
+# T31–T38: merged-worktree reaper (#265)
 #
 # The reaper walks `git worktree list --porcelain` for REPO_ROOT and removes
-# worktrees whose branch has a MERGED PR, skipping main/dirty/locked/retained/
-# detached/nested. These tests build a DISPOSABLE temp git repo (never the real
-# makato checkout) with real worktrees, and drive the standalone
+# worktrees whose work has LANDED on the base branch (merged PR OR HEAD is an
+# ancestor of the base ref), skipping main / tracked-dirty / locked / retained
+# / detached / nested. These tests build a DISPOSABLE temp git repo (never the
+# real makato checkout) with real worktrees and drive the standalone
 # `remove-worktrees` subcommand from inside it (so loop.sh's REPO_ROOT resolves
 # to the temp repo). Merged-PR lookups are stubbed offline via
-# MAKATO_LOOP_REAP_GH_OVERRIDE; the throttle is bypassed with
+# MAKATO_LOOP_REAP_GH_OVERRIDE; ancestry uses the temp repo's real `main` via
+# MAKATO_LOOP_REAP_BASE_REF; the throttle is bypassed with
 # MAKATO_LOOP_REAP_INTERVAL=0.
 # ---------------------------------------------------------------------------
 echo
@@ -936,14 +942,18 @@ mkdir -p "$REAP_ROOT" "$REAP_STATE"
   git init -q -b main
   git config user.email t@t.t; git config user.name t
   git commit -q --allow-empty -m init
-  git worktree add -q -b feat/merged-clean "$REAP_ROOT/.claude/worktrees/merged-clean" 2>/dev/null
-  git worktree add -q -b feat/dirty "$REAP_ROOT/.claude/worktrees/dirty-wt" 2>/dev/null
-  git worktree add -q -b feat/locked "$REAP_ROOT/.claude/worktrees/locked-wt" 2>/dev/null
-  git worktree add -q -b feat/open-pr "$REAP_ROOT/.claude/worktrees/open-pr" 2>/dev/null
-  echo "uncommitted" >"$REAP_ROOT/.claude/worktrees/dirty-wt/scratch.txt"
-  git worktree lock "$REAP_ROOT/.claude/worktrees/locked-wt" 2>/dev/null
+  # Each worktree gets its OWN commit on top of main, so none is an ancestor of
+  # main — this isolates the merged-PR signal (guard 8a) from ancestry (8b),
+  # which T36 exercises separately.
+  for b in merged-clean dirty locked open-pr; do
+    git worktree add -q -b "feat/$b" "$REAP_ROOT/.claude/worktrees/$b" 2>/dev/null
+    git -C "$REAP_ROOT/.claude/worktrees/$b" commit -q --allow-empty -m "$b work"
+  done
+  echo "uncommitted" >"$REAP_ROOT/.claude/worktrees/dirty/tracked.txt"
+  git -C "$REAP_ROOT/.claude/worktrees/dirty" add tracked.txt   # staged tracked change
+  git worktree lock "$REAP_ROOT/.claude/worktrees/locked" 2>/dev/null
 )
-# Merged-PR fixture: only the four "merged" branches map to a PR number.
+# Merged-PR fixture: merged-clean/dirty/locked have merged PRs; open-pr does not.
 REAP_GH="$REAP_STATE/reap-gh.json"
 cat >"$REAP_GH" <<'REAPJSON'
 {
@@ -952,7 +962,6 @@ cat >"$REAP_GH" <<'REAPJSON'
   "feat/locked": "703"
 }
 REAPJSON
-# open-pr branch intentionally absent → no merged PR.
 
 # Dry-run first: assert the decision set without mutating anything.
 reap_dry="$(
@@ -961,20 +970,21 @@ reap_dry="$(
   MAKATO_LOOP_REAP_INTERVAL=0 \
   MAKATO_LOOP_REAP_DRYRUN=1 \
   MAKATO_LOOP_REAP_GH_OVERRIDE="$REAP_GH" \
+  MAKATO_LOOP_REAP_BASE_REF="main" \
   MAKATO_LOOP_REAP_REPO="macatocz/makato" \
     "$LOOP" remove-worktrees 2>&1
 )" || fail "T31: remove-worktrees (dry-run) should exit 0; got: $reap_dry"
-grep -q "would remove .*merged-clean" <<<"$reap_dry" \
+grep -q "would remove .*/merged-clean (merged PR #701" <<<"$reap_dry" \
   || fail "T31: merged+clean should be a removal candidate; got: $reap_dry"
-grep -q "reap skip .*dirty-wt (dirty" <<<"$reap_dry" \
-  || fail "T31: dirty worktree must be skipped; got: $reap_dry"
-grep -q "reap skip .*locked-wt (locked" <<<"$reap_dry" \
+grep -q "reap skip .*/dirty (dirty working tree — tracked" <<<"$reap_dry" \
+  || fail "T31: tracked-dirty worktree must be skipped; got: $reap_dry"
+grep -q "reap skip .*/locked (locked" <<<"$reap_dry" \
   || fail "T31: locked worktree must be skipped; got: $reap_dry"
-grep -q "reap skip .*open-pr (no merged PR" <<<"$reap_dry" \
-  || fail "T31: open-PR worktree must be skipped; got: $reap_dry"
+grep -q "reap skip .*/open-pr (branch feat/open-pr not landed" <<<"$reap_dry" \
+  || fail "T31: not-landed worktree must be skipped; got: $reap_dry"
 grep -q "would remove $REAP_ROOT " <<<"$reap_dry" \
   && fail "T31: main checkout must never be a removal candidate; got: $reap_dry"
-echo "  ✓ dry-run: merged+clean → remove; dirty/locked/no-PR/main → skip"
+echo "  ✓ dry-run: merged+clean → remove; tracked-dirty/locked/not-landed/main → skip"
 
 echo
 echo "=== T32: reaper actually removes the merged worktree (live) ==="
@@ -983,29 +993,30 @@ reap_live="$(
   MAKATO_LOOP_STATE_DIR="$REAP_STATE" \
   MAKATO_LOOP_REAP_INTERVAL=0 \
   MAKATO_LOOP_REAP_GH_OVERRIDE="$REAP_GH" \
+  MAKATO_LOOP_REAP_BASE_REF="main" \
   MAKATO_LOOP_REAP_REPO="macatocz/makato" \
     "$LOOP" remove-worktrees 2>&1
 )" || fail "T32: remove-worktrees (live) should exit 0; got: $reap_live"
 # merged-clean must be gone from the worktree registry; the others must remain.
 reap_list="$(cd "$REAP_ROOT" && git worktree list --porcelain)"
-grep -q "merged-clean" <<<"$reap_list" \
+grep -q "/merged-clean$" <<<"$reap_list" \
   && fail "T32: merged-clean should have been removed; still registered"
-grep -q "dirty-wt" <<<"$reap_list" \
-  || fail "T32: dirty worktree must survive; got removed"
-grep -q "locked-wt" <<<"$reap_list" \
+grep -q "/dirty$" <<<"$reap_list" \
+  || fail "T32: tracked-dirty worktree must survive; got removed"
+grep -q "/locked$" <<<"$reap_list" \
   || fail "T32: locked worktree must survive; got removed"
-grep -q "open-pr" <<<"$reap_list" \
-  || fail "T32: open-PR worktree must survive; got removed"
-# Status audit: last_reap stamped, count == 1, reaped[0].pr == "701".
+grep -q "/open-pr$" <<<"$reap_list" \
+  || fail "T32: not-landed worktree must survive; got removed"
+# Status audit: last_reap stamped, count == 1, reaped[0].landed mentions PR 701.
 jq -e '.last_reap != null' "$REAP_STATE/loop-status.json" >/dev/null \
   || fail "T32: last_reap must be stamped"
 jq -e '.last_reap_count == 1' "$REAP_STATE/loop-status.json" >/dev/null \
   || fail "T32: last_reap_count should be 1; got $(jq -r .last_reap_count "$REAP_STATE/loop-status.json")"
-jq -e '.reaped[0].pr == "701"' "$REAP_STATE/loop-status.json" >/dev/null \
-  || fail "T32: reaped[0].pr should be 701; got $(jq -c .reaped "$REAP_STATE/loop-status.json")"
-echo "  ✓ merged-clean removed; dirty/locked/open-pr survive; status audit correct"
+jq -e '.reaped[0].landed | test("701")' "$REAP_STATE/loop-status.json" >/dev/null \
+  || fail "T32: reaped[0].landed should mention PR 701; got $(jq -c .reaped "$REAP_STATE/loop-status.json")"
+echo "  ✓ merged-clean removed; tracked-dirty/locked/not-landed survive; status audit correct"
 # Unlock so the EXIT trap can tear the sandbox worktrees down cleanly.
-(cd "$REAP_ROOT" && git worktree unlock "$REAP_ROOT/.claude/worktrees/locked-wt" 2>/dev/null || true)
+(cd "$REAP_ROOT" && git worktree unlock "$REAP_ROOT/.claude/worktrees/locked" 2>/dev/null || true)
 
 echo
 echo "=== T33: retained worktree (workflow-state) is skipped ==="
@@ -1018,6 +1029,7 @@ mkdir -p "$REAP2_ROOT" "$REAP2_STATE"
   git config user.email t@t.t; git config user.name t
   git commit -q --allow-empty -m init
   git worktree add -q -b feat/retained "$REAP2_ROOT/.claude/worktrees/retained-wt" 2>/dev/null
+  git -C "$REAP2_ROOT/.claude/worktrees/retained-wt" commit -q --allow-empty -m "retained work"
 )
 # Real realpath of the worktree, as the reaper canonicalises before comparing.
 RETAINED_RP="$(cd "$REAP2_ROOT/.claude/worktrees/retained-wt" && pwd -P)"
@@ -1033,6 +1045,7 @@ reap2_out="$(
   MAKATO_LOOP_REAP_INTERVAL=0 \
   MAKATO_LOOP_REAP_DRYRUN=1 \
   MAKATO_LOOP_REAP_GH_OVERRIDE="$REAP2_GH" \
+  MAKATO_LOOP_REAP_BASE_REF="main" \
   MAKATO_LOOP_REAP_REPO="macatocz/makato" \
     "$LOOP" remove-worktrees 2>&1
 )" || fail "T33: remove-worktrees should exit 0; got: $reap2_out"
@@ -1068,6 +1081,7 @@ mkdir -p "$REAP3_STATE"
   MAKATO_LOOP_REAP_INTERVAL=3600 \
   MAKATO_LOOP_REAP_DRYRUN=1 \
   MAKATO_LOOP_REAP_GH_OVERRIDE="$REAP2_GH" \
+  MAKATO_LOOP_REAP_BASE_REF="main" \
   MAKATO_LOOP_REAP_REPO="macatocz/makato" \
     "$LOOP" remove-worktrees >/dev/null 2>&1
 ) || fail "T35: first reap pass should exit 0"
@@ -1080,6 +1094,7 @@ reap_throttled="$(
   MAKATO_LOOP_REAP_INTERVAL=3600 \
   MAKATO_LOOP_REAP_DRYRUN=1 \
   MAKATO_LOOP_REAP_GH_OVERRIDE="$REAP2_GH" \
+  MAKATO_LOOP_REAP_BASE_REF="main" \
   MAKATO_LOOP_REAP_REPO="macatocz/makato" \
     "$LOOP" remove-worktrees 2>&1
 )" || fail "T35: throttled reap pass should exit 0"
@@ -1088,4 +1103,118 @@ reap_throttled="$(
 echo "  ✓ second call within REAP_INTERVAL no-ops (throttle honoured)"
 
 echo
-echo "=== ALL TESTS PASSED (incl. T31–T35 merged-worktree reaper, #265) ==="
+echo "=== T36: ancestry — a landed branch with NO merged PR (renamed head) is reaped ==="
+# The worktree's HEAD is an ancestor of main (its work was merged, e.g. via a
+# PR whose head branch was renamed so the gh --head lookup misses it). With an
+# EMPTY merged-PR fixture, only guard 8b (ancestor of base) can authorise it.
+REAP4_ROOT="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/reap4-repo"
+REAP4_STATE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/reap4-state"
+mkdir -p "$REAP4_ROOT" "$REAP4_STATE"
+(
+  cd "$REAP4_ROOT"
+  git init -q -b main
+  git config user.email t@t.t; git config user.name t
+  git commit -q --allow-empty -m init
+  # landed-wt: branch off main with no extra commits → HEAD == main tip's
+  # ancestor set. Advance main past it so the branch tip is a STRICT ancestor.
+  git worktree add -q -b feat/landed "$REAP4_ROOT/.claude/worktrees/landed-wt" 2>/dev/null
+  git commit -q --allow-empty -m "main moves on"   # main now ahead of feat/landed
+  # fresh-wt: sits exactly on the (new) main tip with no commits of its own —
+  # HEAD == base tip, which must NOT be treated as landed (guard 8b equality
+  # exclusion), and no merged PR → must survive.
+  git worktree add -q -b feat/fresh "$REAP4_ROOT/.claude/worktrees/fresh-wt" main 2>/dev/null
+)
+REAP4_GH="$REAP4_STATE/reap4-gh.json"
+echo '{}' >"$REAP4_GH"   # no merged PRs at all
+reap4_out="$(
+  cd "$REAP4_ROOT" &&
+  MAKATO_LOOP_STATE_DIR="$REAP4_STATE" \
+  MAKATO_LOOP_REAP_INTERVAL=0 \
+  MAKATO_LOOP_REAP_DRYRUN=1 \
+  MAKATO_LOOP_REAP_GH_OVERRIDE="$REAP4_GH" \
+  MAKATO_LOOP_REAP_BASE_REF="main" \
+  MAKATO_LOOP_REAP_REPO="macatocz/makato" \
+    "$LOOP" remove-worktrees 2>&1
+)" || fail "T36: remove-worktrees should exit 0; got: $reap4_out"
+grep -q "would remove .*landed-wt (ancestor of main" <<<"$reap4_out" \
+  || fail "T36: ancestor-of-main branch (no PR) must be reaped via guard 8b; got: $reap4_out"
+grep -q "reap skip .*fresh-wt (branch feat/fresh not landed" <<<"$reap4_out" \
+  || fail "T36: fresh worktree sitting on base tip must survive (no work landed); got: $reap4_out"
+echo "  ✓ ancestor-of-base branch reaped even without a merged PR; fresh-on-tip survives"
+
+echo
+echo "=== T37: untracked-only scratch does NOT pin a landed worktree ==="
+# A landed (merged-PR) worktree carrying only UNTRACKED files (build artefacts,
+# generated HTML) must still be reaped — untracked scratch is not work.
+REAP5_ROOT="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/reap5-repo"
+REAP5_STATE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/reap5-state"
+mkdir -p "$REAP5_ROOT" "$REAP5_STATE"
+(
+  cd "$REAP5_ROOT"
+  git init -q -b main
+  git config user.email t@t.t; git config user.name t
+  git commit -q --allow-empty -m init
+  git worktree add -q -b feat/scratch "$REAP5_ROOT/.claude/worktrees/scratch-wt" 2>/dev/null
+  git -C "$REAP5_ROOT/.claude/worktrees/scratch-wt" commit -q --allow-empty -m "scratch work"
+  echo "generated" >"$REAP5_ROOT/.claude/worktrees/scratch-wt/artifact.html"   # UNTRACKED only
+)
+REAP5_GH="$REAP5_STATE/reap5-gh.json"
+echo '{"feat/scratch":"901"}' >"$REAP5_GH"
+reap5_out="$(
+  cd "$REAP5_ROOT" &&
+  MAKATO_LOOP_STATE_DIR="$REAP5_STATE" \
+  MAKATO_LOOP_REAP_INTERVAL=0 \
+  MAKATO_LOOP_REAP_DRYRUN=1 \
+  MAKATO_LOOP_REAP_GH_OVERRIDE="$REAP5_GH" \
+  MAKATO_LOOP_REAP_BASE_REF="main" \
+  MAKATO_LOOP_REAP_REPO="macatocz/makato" \
+    "$LOOP" remove-worktrees 2>&1
+)" || fail "T37: remove-worktrees should exit 0; got: $reap5_out"
+grep -q "would remove .*scratch-wt" <<<"$reap5_out" \
+  || fail "T37: untracked-only scratch must not pin a landed worktree; got: $reap5_out"
+echo "  ✓ untracked-only working tree is reaped (only tracked changes pin)"
+
+echo
+echo "=== T38: a worktree nested inside another worktree is skipped ==="
+# A worktree registered inside ANOTHER worktree's .claude/worktrees/ must be
+# skipped (removing it there corrupts the parent). The parent's OWN
+# .claude/worktrees/ living under the main checkout is NOT nesting.
+REAP6_ROOT="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/reap6-repo"
+REAP6_STATE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/reap6-state"
+mkdir -p "$REAP6_ROOT" "$REAP6_STATE"
+(
+  cd "$REAP6_ROOT"
+  git init -q -b main
+  git config user.email t@t.t; git config user.name t
+  git commit -q --allow-empty -m init
+  # parent-wt directly under the main checkout (normal layout).
+  git worktree add -q -b feat/parent "$REAP6_ROOT/.claude/worktrees/parent-wt" 2>/dev/null
+  git -C "$REAP6_ROOT/.claude/worktrees/parent-wt" commit -q --allow-empty -m "parent work"
+  # child-wt registered INSIDE parent-wt's own .claude/worktrees/ (true nesting).
+  git -C "$REAP6_ROOT/.claude/worktrees/parent-wt" worktree add -q -b feat/child \
+    "$REAP6_ROOT/.claude/worktrees/parent-wt/.claude/worktrees/child-wt" 2>/dev/null
+  git -C "$REAP6_ROOT/.claude/worktrees/parent-wt/.claude/worktrees/child-wt" \
+    commit -q --allow-empty -m "child work"
+)
+REAP6_GH="$REAP6_STATE/reap6-gh.json"
+echo '{"feat/parent":"911","feat/child":"912"}' >"$REAP6_GH"
+reap6_out="$(
+  cd "$REAP6_ROOT" &&
+  MAKATO_LOOP_STATE_DIR="$REAP6_STATE" \
+  MAKATO_LOOP_REAP_INTERVAL=0 \
+  MAKATO_LOOP_REAP_DRYRUN=1 \
+  MAKATO_LOOP_REAP_GH_OVERRIDE="$REAP6_GH" \
+  MAKATO_LOOP_REAP_BASE_REF="main" \
+  MAKATO_LOOP_REAP_REPO="macatocz/makato" \
+    "$LOOP" remove-worktrees 2>&1
+)" || fail "T38: remove-worktrees should exit 0; got: $reap6_out"
+grep -q "reap skip .*/parent-wt (parent of nested worktree" <<<"$reap6_out" \
+  || fail "T38: parent of a nested worktree must be skipped; got: $reap6_out"
+grep -q "reap skip .*/child-wt (nested inside worktree .*parent-wt" <<<"$reap6_out" \
+  || fail "T38: child nested inside another worktree must be skipped; got: $reap6_out"
+grep -q "would remove .*child-wt" <<<"$reap6_out" \
+  && fail "T38: nested child must NOT be a removal candidate; got: $reap6_out"
+echo "  ✓ both the nesting parent and the nested child are skipped"
+
+echo
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265) ==="

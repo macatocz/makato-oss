@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.47.0](https://github.com/macatocz/makato/compare/v0.46.1...v0.47.0) (2026-07-12)
+
+
+### ✨ Features
+
+* **makato-temporal:** new plugin housing temporal-development skill ([#273](https://github.com/macatocz/makato/issues/273)) ([5b28bfb](https://github.com/macatocz/makato/commit/5b28bfb09d4dc86725bdc3879afb4f1955f08ea9))
+
+## [0.46.1](https://github.com/macatocz/makato/compare/v0.46.0...v0.46.1) (2026-07-12)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** reaper landed-detection — ancestry + tracked-only dirty + nested-child ([#265](https://github.com/macatocz/makato/issues/265)) ([#269](https://github.com/macatocz/makato/issues/269)) ([bbd0aa5](https://github.com/macatocz/makato/commit/bbd0aa51a2384a69828e231d8ca9b1b228cbf22e))
+
 ## [0.46.0](https://github.com/macatocz/makato/compare/v0.45.0...v0.46.0) (2026-07-12)
 
 

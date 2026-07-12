@@ -1,0 +1,7 @@
+{
+  "name": "makato-temporal",
+  "description": "Provide Temporal durable-execution reference skills for building, debugging, and operating workflows, activities, and workers across Python, TypeScript, Java, and Rust SDKs.",
+  "author": {
+    "name": "makato AI team"
+  }
+}
