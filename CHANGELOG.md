@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.48.0](https://github.com/macatocz/makato/compare/v0.47.0...v0.48.0) (2026-07-12)
+
+
+### ✨ Features
+
+* **skill-bundles:** remove unnecessary skills from contribute-skills bundle ([a0aed04](https://github.com/macatocz/makato/commit/a0aed04e055cbf2fb875a11a423a92ec741adbb6))
+
 ## [0.47.0](https://github.com/macatocz/makato/compare/v0.46.1...v0.47.0) (2026-07-12)
 
 
