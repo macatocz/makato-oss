@@ -5,6 +5,43 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## loop 1.8.0 — reaper landed-detection fix: ancestry + tracked-only dirty + nested-child (#265)
+
+The 1.7.0 reaper left worktrees un-reaped that should have been removed. A live
+run over 32 real worktrees surfaced two false negatives and one latent hazard:
+
+- **Renamed-head / squash-merged branches were missed.** The merged-PR check
+  keyed solely on `gh pr list --head <branch>`, so a branch whose PR head was
+  renamed (or whose local branch name never matched the PR) looked un-merged
+  even though its commits were long in `main`. **Fix:** guard 8 now treats a
+  worktree as *landed* on either signal — a merged PR **or** `HEAD` being a
+  strict ancestor of the base ref (`git merge-base --is-ancestor`). A worktree
+  sitting exactly on the base tip (freshly branched, no commits) is explicitly
+  *not* landed, so a new empty workspace still survives. New
+  `MAKATO_LOOP_REAP_BASE_REF` override (default `origin/HEAD` → `origin/main`).
+- **Untracked scratch pinned worktrees forever.** Guard 6 skipped on any
+  `git status --porcelain` output, so a single generated file (e.g. a built
+  `*.html`) kept a fully-merged worktree alive indefinitely. **Fix:** guard 6
+  now ignores untracked `??` entries and vetoes only on uncommitted **tracked**
+  changes — real work still pins, scratch does not.
+- **Nested-child worktrees could be removed inside a live parent.** Guard 3
+  only skipped the *parent* of a nested worktree; the ancestry fix newly made
+  the *children* (worktrees registered under another worktree's
+  `.claude/worktrees/`) removal candidates, and deleting one there corrupts the
+  parent. **Fix:** guard 3 now skips both directions — parent-of-nested and
+  child-nested-inside-another-worktree — while correctly treating the main
+  checkout owning `.claude/worktrees/` as the normal (non-nested) layout.
+- **Audit field** `reaped[].pr` → `reaped[].landed` (a reason string, e.g.
+  `merged PR #206` or `ancestor of origin/main`).
+- **New smoke tests T36–T38** (ancestry-landed with no PR + fresh-on-tip
+  survives; untracked-only scratch reaped; nested parent & child both skipped).
+  T31/T32 updated for the tracked-only-dirty and landed semantics.
+- **SKILL.md 1.7.0 → 1.8.0**: guard stack (3/6/8) rewritten,
+  `MAKATO_LOOP_REAP_BASE_REF` documented, `reaped[].landed` field, three new
+  smoke-test entries.
+
+---
+
 ## loop 1.7.0 — auto-reap merged worktrees (#265)
 
 Git worktrees under `.claude/worktrees/` accumulate on the operator's local disk

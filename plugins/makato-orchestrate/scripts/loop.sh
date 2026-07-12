@@ -1190,6 +1190,54 @@ _reap_pr_merged() {
 }
 
 # ---------------------------------------------------------------------------
+# _reap_base_ref — the ref a landed branch's work should already be contained
+# in (the default branch). Resolves origin/HEAD (→ origin/main) with an
+# origin/main fallback. Override with MAKATO_LOOP_REAP_BASE_REF (tests point it
+# at a local `main` so ancestry works in a throwaway repo with no remote).
+# ---------------------------------------------------------------------------
+_reap_base_ref() {
+  if [[ -n "${MAKATO_LOOP_REAP_BASE_REF:-}" ]]; then
+    printf '%s\n' "$MAKATO_LOOP_REAP_BASE_REF"; return 0
+  fi
+  local ref
+  ref="$(git -C "$REPO_ROOT" symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null \
+    | sed 's@^refs/remotes/@@')"
+  [[ -n "$ref" ]] && { printf '%s\n' "$ref"; return 0; }
+  printf 'origin/main\n'
+}
+
+# ---------------------------------------------------------------------------
+# _reap_branch_landed <head-sha> <branch> <repo> <base-ref> — echo a short
+# reason when the worktree's work has already LANDED on the base branch, empty
+# otherwise. Two independent signals, unioned so both merge styles are covered:
+#
+#   (a) merged PR for the head branch — catches squash/rebase merges where the
+#       commits are rewritten so the SHA is no longer an ancestor of base.
+#   (b) HEAD is a strict ancestor of the base ref — catches branches whose PR
+#       head was renamed (the `gh --head` lookup misses them) but whose commits
+#       are demonstrably already in base.
+#
+# HEAD == base tip is deliberately NOT treated as landed: a freshly created
+# worktree sits exactly on the base tip with no work of its own, so equality is
+# ambiguous and only a merged PR (signal a) counts there. This is the guard
+# that keeps a just-branched, not-yet-committed worktree alive.
+# ---------------------------------------------------------------------------
+_reap_branch_landed() {
+  local head="$1" branch="$2" repo="$3" base_ref="$4"
+  local pr
+  pr="$(_reap_pr_merged "$repo" "$branch")"
+  if [[ -n "$pr" ]]; then printf 'merged PR #%s\n' "$pr"; return 0; fi
+  local base_tip
+  base_tip="$(git -C "$REPO_ROOT" rev-parse -q --verify "$base_ref" 2>/dev/null || true)"
+  if [[ -n "$base_tip" && -n "$head" && "$head" != "$base_tip" ]]; then
+    if git -C "$REPO_ROOT" merge-base --is-ancestor "$head" "$base_ref" 2>/dev/null; then
+      printf 'ancestor of %s\n' "$base_ref"; return 0
+    fi
+  fi
+  return 0
+}
+
+# ---------------------------------------------------------------------------
 # _reap_is_retained <realpath-of-worktree> — return 0 (retained → skip) when
 # ANY specs/*/workflow-state-*.json has .worktree_retained==true AND a
 # .worktree_path that realpath-matches the candidate; else return 1. Mirrors
@@ -1225,22 +1273,26 @@ _realpath() {
 
 # ---------------------------------------------------------------------------
 # _reap_merged_worktrees — name-agnostic sweep that removes local worktrees
-# whose branch has a MERGED PR (#265). See the config block near the top of
-# this file for the rationale. Best-effort: never fails the tick.
+# whose work has already LANDED on the base branch (#265). See the config block
+# near the top of this file for the rationale. Best-effort: never fails the tick.
 #
 # Guard stack — a worktree is removed ONLY when it passes ALL of:
 #   1. not the main checkout (realpath != realpath(REPO_ROOT))
 #   2. lives under .claude/worktrees/ (out-of-band worktrees are left alone)
-#   3. not a prefix of another registered worktree (parent of nested worktrees)
+#   3. no nested-worktree relationship — neither the parent of another
+#      registered worktree nor a child living inside one
 #   4. not locked (`git worktree lock` is the operator's always-honoured pin)
-#   5. not detached HEAD (no branch → no PR to check)
-#   6. clean working tree (`git -C <wt> status --porcelain` empty)
+#   5. not detached HEAD (no branch → cannot correlate to landed work)
+#   6. no TRACKED uncommitted changes (untracked `??` scratch does NOT pin)
 #   7. not retained (workflow-state .worktree_retained==true, when a state maps)
-#   8. branch has a MERGED PR
+#   8. branch has LANDED on the base branch — merged PR OR HEAD is an ancestor
+#      of the base ref (renamed-head / squash-merge safe; see
+#      _reap_branch_landed)
 #
 # Throttle: no-ops when the last pass ran within REAP_INTERVAL_SECS. Offline
 # test hooks: MAKATO_LOOP_REAP_WT_OVERRIDE (fake porcelain), _REAP_GH_OVERRIDE
-# (merged-PR map), MAKATO_LOOP_REAP_DRYRUN=1 (log intent, do not remove).
+# (merged-PR map), MAKATO_LOOP_REAP_BASE_REF (base ref for ancestry),
+# MAKATO_LOOP_REAP_DRYRUN=1 (log intent, do not remove).
 # ---------------------------------------------------------------------------
 _reap_merged_worktrees() {
   [[ "$REAP_ON_POLL" == "1" ]] || return 0
@@ -1259,8 +1311,9 @@ _reap_merged_worktrees() {
   fi
 
   local dryrun="${MAKATO_LOOP_REAP_DRYRUN:-}"
-  local repo self_path wt_base porcelain
+  local repo self_path wt_base porcelain base_ref
   repo="$(_derive_reap_repo)"
+  base_ref="$(_reap_base_ref)"
   self_path="$(_realpath "$REPO_ROOT")"
   wt_base="$(_realpath "$REPO_ROOT/.claude/worktrees")"
 
@@ -1284,7 +1337,7 @@ _reap_merged_worktrees() {
   # Second pass: parse stanzas and apply the guard stack.
   local reaped_json="[]"
   local reaped_count=0
-  local cur_path="" cur_branch="" cur_locked="" cur_detached=""
+  local cur_path="" cur_branch="" cur_locked="" cur_detached="" cur_head=""
 
   _reap_process_stanza() {
     [[ -n "$cur_path" ]] || return 0
@@ -1298,11 +1351,26 @@ _reap_merged_worktrees() {
     if [[ "$rp" != "$wt_base/"* ]]; then
       echo "loop: reap skip $rp (outside .claude/worktrees)" >&2; return 0
     fi
-    # Guard 3: parent of a nested worktree.
+    # Guard 3: nested-worktree relationship. Two distinct hazards:
+    #   (a) PARENT — the candidate contains another registered worktree in its
+    #       subtree; removing it would blow away the nested one.
+    #   (b) CHILD-OF-ANOTHER-WORKTREE — the candidate lives inside ANOTHER
+    #       worktree's own .claude/worktrees/ dir (a worktree nested under a
+    #       worktree). Removing it there corrupts the parent; the parent's own
+    #       guards govern that subtree.
+    # Note the main checkout is itself a registered worktree and every managed
+    # worktree lives under its .claude/worktrees/ — that is the NORMAL layout,
+    # not nesting. So (b) must key off `other != self_path`, and equivalently a
+    # genuinely nested worktree is one whose path contains `.claude/worktrees/`
+    # more than once. We check the registered-ancestor form directly.
     local other
     for other in "${all_paths[@]}"; do
-      if [[ "$other" != "$rp" && "$other" == "$rp/"* ]]; then
+      [[ "$other" == "$rp" ]] && continue
+      if [[ "$other" == "$rp/"* ]]; then
         echo "loop: reap skip $rp (parent of nested worktree)" >&2; return 0
+      fi
+      if [[ "$other" != "$self_path" && "$rp" == "$other/"* ]]; then
+        echo "loop: reap skip $rp (nested inside worktree $other)" >&2; return 0
       fi
     done
     # Guard 4: locked.
@@ -1313,29 +1381,36 @@ _reap_merged_worktrees() {
     if [[ -n "$cur_detached" || -z "$branch" ]]; then
       echo "loop: reap skip $rp (detached HEAD / no branch)" >&2; return 0
     fi
-    # Guard 6: dirty working tree.
-    if [[ -n "$(git -C "$rp" status --porcelain 2>/dev/null)" ]]; then
-      echo "loop: reap skip $rp (dirty working tree)" >&2; return 0
+    # Guard 6: dirty working tree — TRACKED changes only. Untracked scratch
+    # files (build artefacts, generated HTML, editor droppings) are not work
+    # worth preserving and must not pin a worktree forever, so `--porcelain`
+    # `??` lines are filtered out. Staged/modified/deleted TRACKED paths still
+    # veto removal (that is real uncommitted work).
+    if [[ -n "$(git -C "$rp" status --porcelain 2>/dev/null | grep -v '^??')" ]]; then
+      echo "loop: reap skip $rp (dirty working tree — tracked changes)" >&2; return 0
     fi
     # Guard 7: retained via workflow-state.
     if _reap_is_retained "$rp"; then
       echo "loop: reap skip $rp (worktree_retained=true)" >&2; return 0
     fi
-    # Guard 8: branch must have a MERGED PR.
-    local pr
-    pr="$(_reap_pr_merged "$repo" "$branch")"
-    if [[ -z "$pr" ]]; then
-      echo "loop: reap skip $rp (no merged PR for branch $branch)" >&2; return 0
+    # Guard 8: the branch's work must have LANDED on the base branch — either a
+    # merged PR (any merge style) OR the HEAD is already an ancestor of the
+    # base ref (catches renamed-head branches the PR lookup misses). A worktree
+    # whose work is not yet in base is live and must survive.
+    local landed
+    landed="$(_reap_branch_landed "$cur_head" "$branch" "$repo" "$base_ref")"
+    if [[ -z "$landed" ]]; then
+      echo "loop: reap skip $rp (branch $branch not landed on $base_ref)" >&2; return 0
     fi
 
     if [[ -n "$dryrun" ]]; then
-      echo "loop: reap would remove $rp (merged PR #$pr, branch $branch)" >&2
+      echo "loop: reap would remove $rp ($landed, branch $branch)" >&2
       return 0
     fi
-    echo "loop: reap removing $rp (merged PR #$pr, branch $branch)" >&2
+    echo "loop: reap removing $rp ($landed, branch $branch)" >&2
     if git -C "$REPO_ROOT" worktree remove --force "$rp" >/dev/null 2>&1; then
-      reaped_json="$(jq -c --arg p "$rp" --arg b "$branch" --arg pr "$pr" \
-        '. + [{path:$p, branch:$b, pr:$pr}]' <<<"$reaped_json")"
+      reaped_json="$(jq -c --arg p "$rp" --arg b "$branch" --arg r "$landed" \
+        '. + [{path:$p, branch:$b, landed:$r}]' <<<"$reaped_json")"
       reaped_count=$((reaped_count + 1))
     else
       echo "loop: WARN — reap remove failed for $rp (tick continues)" >&2
@@ -1347,8 +1422,9 @@ _reap_merged_worktrees() {
       "worktree "*)
         _reap_process_stanza
         cur_path="$(_realpath "${line#worktree }")"
-        cur_branch=""; cur_locked=""; cur_detached=""
+        cur_branch=""; cur_locked=""; cur_detached=""; cur_head=""
         ;;
+      "HEAD "*)              cur_head="${line#HEAD }" ;;
       "branch refs/heads/"*) cur_branch="${line#branch refs/heads/}" ;;
       "detached")            cur_detached=1 ;;
       "locked"*)             cur_locked=1 ;;
