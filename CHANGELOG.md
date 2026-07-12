@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.50.0](https://github.com/macatocz/makato/compare/v0.49.0...v0.50.0) (2026-07-12)
+
+
+### ✨ Features
+
+* **makato-contribute:** register technical skills in skill-bundles.yml ([#278](https://github.com/macatocz/makato/issues/278)) ([8810e6b](https://github.com/macatocz/makato/commit/8810e6b4495c19907d7edd2ee198c13d8ba5b06b))
+
 ## [0.49.0](https://github.com/macatocz/makato/compare/v0.48.0...v0.49.0) (2026-07-12)
 
 
