@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.46.0](https://github.com/macatocz/makato/compare/v0.45.0...v0.46.0) (2026-07-12)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** loop auto-reaps local worktrees whose PR is merged ([#265](https://github.com/macatocz/makato/issues/265)) ([#266](https://github.com/macatocz/makato/issues/266)) ([c5db519](https://github.com/macatocz/makato/commit/c5db519a126c12efe7dafd61437624313ddd35e1))
+
 ## [0.45.0](https://github.com/macatocz/makato/compare/v0.44.3...v0.45.0) (2026-07-12)
 
 
