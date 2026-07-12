@@ -26,6 +26,8 @@ Changes are grouped by skill/agent/component. Within each group, latest version 
 
 ## `makato-skill-creator` skill
 
+- **1.2.0**
+  - Build phase now conditionally registers the new skill in the plugin's `config/skill-bundles.yml` (new Step 12) — **only for technical/routable skills** (a skill a programmatically-dispatched agent can act on headless), applying a one-minute decision gate; interactive/meta skills (interview, scaffolding, orchestration, PR-triage) are intentionally skipped. Registration appends to the `<prefix>-skills` bundle or creates the registry from a template when absent. Adds `references/skill-bundles-rules.md` (schema + technical-vs-interactive criterion), `templates/skill-bundles.yml`, a Present-phase "Skill-Bundle Registration" section, and a `validate-skill-bundles.sh` validation step. Downstream steps renumbered (Validate → 14, Persist → 15, Summary → 16).
 - **1.1.2**
   - sagibeast-alignment audit (content-integrity restore): Step 12 was truncated mid-sentence and Step 13 (Validate) was missing — both restored from git history (commit fb09341). No behavioral change beyond the original Step 13 contract.
 - **1.1.1**

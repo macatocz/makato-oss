@@ -1,7 +1,7 @@
 ---
 name: makato-skill-creator
 description: Create a complete, working skill inside an existing makato plugin with full guardrails and validation — create skill, new skill, add skill to plugin, write a skill
-version: "1.1.2"
+version: "1.2.0"
 ---
 # makato-skill-creator
 
@@ -115,9 +115,16 @@ Use @references/plan-template.html as the structural template. Fill in the follo
 6. **File Tree**:
 
    - Visual directory structure of what will be created
-7. **Validation Checks**:
+7. **Skill-Bundle Registration**:
 
-   - List of scripts that will run
+   - Whether the skill is **technical/routable** (register) or **interactive/meta**
+     (skip) — state the verdict and the one-minute-test reasoning
+   - If registering: which `config/skill-bundles.yml` is created or updated, and
+     which bundle (`<prefix>-skills`) gains the new skill name
+   - If skipping: say so explicitly, so the reviewer knows it was a decision
+8. **Validation Checks**:
+
+   - List of scripts that will run (including `validate-skill-bundles.sh`)
    - What each checks for
 
 Each section includes a comment textarea for the user to annotate.
@@ -179,7 +186,67 @@ For each planned template:
 - Write the file to `plugins/<plugin>/skills/<skill-name>/templates/<filename>`
 - Use `<placeholder-name>` syntax for variable parts
 
-#### Step 12: Update Parent Plugin Files
+#### Step 12: Register the Skill in `skill-bundles.yml` (technical skills only)
+
+`skill-bundles.yml` is a routing registry: its only consumer is `inject-skills`,
+which prepends a skill into a **programmatically-dispatched sub-agent's** system
+prompt when that agent touches files matching a glob (or a task matches
+`task_contains`). It has nothing to do with the `decompose → to-issues` planning
+lane or `task-skill-map.json` — do not conflate them. Therefore only a
+**technical / routable** skill belongs in the registry. An **interactive / meta**
+skill (one a human invokes directly) must NOT be registered — injecting it into a
+headless agent is pure noise.
+
+Load @references/skill-bundles-rules.md for the schema, naming convention, the
+wide-glob precision-filter gate, and the full technical-vs-interactive criterion.
+
+**Decision gate — apply the one-minute test first:**
+
+1. **Could a headless coder agent, already mid-task, act on this skill's content
+   with no human present?** If NO → the skill is interactive/meta. **Skip
+   registration entirely** (do not create or modify `skill-bundles.yml`); note in
+   the Step 16 summary that the skill was intentionally not registered, and why.
+2. **Can you write a glob or `task_contains` predicate that fires only when this
+   skill's domain is actually in play?** If NO → do not register (a skill that
+   would only match a wide `**/*`-style glob with no precision filter is rejected
+   by the pre-commit gate anyway).
+
+Register **only if both answers are YES**. Quick signals:
+
+- **Technical (register):** dispatched/invoked by another skill or agent; documents
+  library/framework/SDK construction patterns; fixes/verifies/optimizes a concrete
+  artifact; runs in AUTONOMOUS-MODE / headless-safe; value scales with a file-type
+  match. Examples: `langgraph-*`, `manage-postgres`, `build-fix-types`, `build-verify`.
+- **Interactive (skip):** first step is an interview/question; presents for approval
+  or waits for human sign-off; is an entry-point/orchestrator/phase coordinator;
+  produces a planning artifact for human review; manages GitHub issues/PRs/boards as
+  its primary action. Examples: `brainstorming`, `grill`, `makato-skill-creator`,
+  `manage-pr`, `to-issues`, `loop`.
+
+**If the skill is technical, perform the registration:**
+
+3. **Check for an existing registry** at `plugins/<plugin>/config/skill-bundles.yml`.
+
+4. **If the file exists** — find the plugin's own self-referential bundle (named
+   `<prefix>-skills`, where `<prefix>` is the plugin name without the `makato-`
+   prefix; its glob is `plugins/<plugin>/skills/**/*.md`) and append `<skill-name>`
+   to that bundle's `skills:` list. If for some reason no such bundle exists, add it
+   using the template below. Do not touch other bundles.
+
+5. **If the file does NOT exist** — create it from @templates/skill-bundles.yml,
+   substituting `<plugin>`, `<prefix>`, and seeding the `<prefix>-skills` bundle's
+   `skills:` list with the technical skills already in `plugins/<plugin>/skills/`
+   plus the new `<skill-name>`. (Do not blanket-seed interactive skills; apply the
+   same decision gate to each existing skill you add.)
+
+6. **Never add a `default` bundle** — `makato-build` owns the single suite-wide
+   `default`. A per-plugin registry contains only that plugin's non-default bundles.
+
+7. **Bundle names are globally unique** across the merged registry — a collision
+   raises HALT-006. The `<prefix>-skills` name is safe because `<prefix>` is the
+   plugin name; any additional bundle you add must also carry the `<prefix>-` prefix.
+
+#### Step 13: Update Parent Plugin Files
 
 1. Add entry to `plugins/<plugin>/CHANGELOG.md`:
 
@@ -191,13 +258,19 @@ For each planned template:
 
 **Do NOT modify `plugin.json`** — skills are auto-loaded from the directory structure.
 
-#### Step 13: Validate
+#### Step 14: Validate
 
 Run validation scripts:
 ```bash
 ./scripts/check-skill-frontmatter.sh plugins/<plugin>/skills/<skill-name>
 ./scripts/check-self-contained.sh plugins/<plugin>/skills/<skill-name>
 ./scripts/check-naming.sh
+```
+
+Then validate the bundle registry you touched in Step 12 (the pre-commit gate that
+also runs at commit time):
+```bash
+./plugins/makato-langgraph/pre-commit/validate-skill-bundles.sh plugins/<plugin>/config/skill-bundles.yml
 ```
 
 If any check fails:
@@ -207,7 +280,7 @@ If any check fails:
 3. Re-run the failing check
 4. Repeat until all pass
 
-#### Step 14: Persist Skill Plan
+#### Step 15: Persist Skill Plan
 
 Copy the final approved HTML plan into the new skill's references:
 
@@ -217,12 +290,15 @@ cp /tmp/makato-skill-plan-<skill-name>.html plugins/<plugin>/skills/<skill-name>
 
 This preserves the design rationale, workflow decisions, and feedback iterations for future reference when modifying the skill.
 
-#### Step 15: Summary
+#### Step 16: Summary
 
 Present to the user:
 
 1. **Files created** — full list with paths (including `references/skill-plan.html`)
-2. **Parent files updated** — CHANGELOG, README
-3. **Validation result** — all checks passed
+2. **Parent files updated** — CHANGELOG, README, and (for a technical skill)
+   `config/skill-bundles.yml` (bundle registered). For an interactive/meta skill,
+   state explicitly that registration was intentionally skipped and why.
+3. **Validation result** — all checks passed (including `validate-skill-bundles.sh`
+   when the registry was touched)
 4. **Test command**: `claude --plugin-dir ./plugins/<plugin-name>`
 5. **PR title suggestion**: `feat(<plugin-name>): add <skill-name> skill`

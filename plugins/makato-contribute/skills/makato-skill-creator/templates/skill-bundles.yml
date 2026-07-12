@@ -1,0 +1,19 @@
+# Skill Bundles — makato-<plugin>
+#
+# Maps changed-file path globs (plus optional content-hint predicates) to an
+# ordered list of recommended skills that inject-skills prepends into an
+# agent's system prompt before dispatch.
+#
+# Bundle names are plugin-prefixed to avoid cross-plugin collisions in the
+# merged registry. No `default` bundle here — makato-build owns that.
+
+version: "1.0"
+
+bundles:
+  # Triggered when working on the makato-<plugin> plugin's own skill files.
+  # Literal segments: plugins/makato-<plugin>/skills → specificity ≥ 3 (narrow glob).
+  - name: <prefix>-skills
+    globs:
+      - "plugins/makato-<plugin>/skills/**/*.md"
+    skills:
+      - <skill-name>
