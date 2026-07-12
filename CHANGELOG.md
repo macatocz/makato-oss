@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.47.0](https://github.com/macatocz/makato/compare/v0.46.1...v0.47.0) (2026-07-12)
+
+
+### ✨ Features
+
+* **makato-temporal:** new plugin housing temporal-development skill ([#273](https://github.com/macatocz/makato/issues/273)) ([5b28bfb](https://github.com/macatocz/makato/commit/5b28bfb09d4dc86725bdc3879afb4f1955f08ea9))
+
 ## [0.46.1](https://github.com/macatocz/makato/compare/v0.46.0...v0.46.1) (2026-07-12)
 
 
