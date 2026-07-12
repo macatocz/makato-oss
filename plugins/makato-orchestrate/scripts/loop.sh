@@ -166,6 +166,42 @@ DEFAULT_STATUS="${MAKATO_LOOP_STATUS:-Ready}"
 ASSIGN_ON_DISPATCH="${MAKATO_LOOP_ASSIGN_ON_DISPATCH:-1}"
 ASSIGNEE="${MAKATO_LOOP_ASSIGNEE:-@me}"
 
+# Synchronous board claim (#259 — cross-worktree double-dispatch). All three
+# single-thread guarantees are worktree-local: the run-mutex pidfile is
+# $STATE_DIR-scoped, the in-flight filter is specs/-scoped, and the only
+# cross-session signal — the board Status — is moved Ready→In progress by the
+# ASYNCHRONOUS assign→`project-board-sync.yml` webhook path. Between session
+# A's assign and the webhook landing, session B (a second `loop run` in a
+# different worktree on the same host) polls, still sees Ready, and dispatches
+# a SECOND PO-agent against the same issue. That async gap IS the race window.
+#
+# The claim closes it by making the loop write the board itself, synchronously,
+# immediately before spawn (compare-and-set):
+#   1. Re-poll the target issue's board Status (close the TOCTOU window as far
+#      as the API allows).
+#   2. Only if it is still "Ready", `gh project item-edit` it to "In progress"
+#      (the same mutation seed-issue / issue-to-project use; field + option IDs
+#      cached in .claude/config.json).
+#   3. If the re-poll shows Status != Ready, another session already claimed
+#      the card — treat the issue as in-flight and SKIP it (cmd_dispatch
+#      returns 0 without spawning).
+# This makes the board the shared *lock*, not just the shared *queue*, and
+# intentionally revises the prior "loop is strictly read-only against the
+# board" invariant. Ownership split with issue-to-project sync-lifecycle is
+# preserved: the loop now owns the Ready→In progress claim; sync-lifecycle
+# still owns In review / Done. The claim is forward-only (it only ever writes
+# FROM Ready, so it can never roll a card back from In review / Done) and
+# best-effort (a `gh` outage or missing config logs a WARN and DISPATCHES
+# anyway — degrading to the pre-#259 assign-only behaviour is strictly safer
+# than blocking real work; the residual race is exactly today's).
+#   - MAKATO_LOOP_CLAIM_ON_DISPATCH=0 disables the claim (default on). With it
+#     off, the async assign→webhook path is the only board move and the
+#     cross-worktree race re-opens — leave enabled in multi-worktree setups.
+#   - MAKATO_LOOP_CLAIM_TEST_FILE (test-only) records the intended claim/skip
+#     decision to a file instead of calling `gh`; the fixture Status is read
+#     from MAKATO_LOOP_CLAIM_STATUS_OVERRIDE.
+CLAIM_ON_DISPATCH="${MAKATO_LOOP_CLAIM_ON_DISPATCH:-1}"
+
 # Watchdog defaults — see #164. Values are seconds of no-output on the
 # combined stdout+stderr log before the watchdog escalates. Operators can
 # override via env; tests use small values (STALL_POLL=1) to exercise
@@ -797,6 +833,124 @@ _assign_issue() {
 }
 
 # ---------------------------------------------------------------------------
+# _claim_board_card <ISSUE_NUMBER> — synchronous compare-and-set board claim
+# (#259). Re-polls the issue's board Status and, only if it is still the
+# dispatch Status ("Ready" by default), sets it to "In progress" via
+# `gh project item-edit` — making the board the cross-session LOCK, not just
+# the queue. See the CLAIM_ON_DISPATCH block at the top of this file for the
+# race rationale (async assign→webhook gap between two worktree-local loops).
+#
+# Exit contract (consumed by cmd_dispatch):
+#   0  — claimed (or claim disabled / best-effort fallback): PROCEED to spawn.
+#   1  — the card is NOT at the dispatch Status any more (another session
+#        already claimed it): SKIP this issue, do NOT spawn.
+#
+# Best-effort forward-only: any inability to READ the current Status (gh
+# outage, missing config, empty board result) logs a WARN and returns 0 —
+# degrading to the pre-#259 assign-only path is strictly safer than blocking
+# dispatch, and the residual race is exactly today's. A failed WRITE (the
+# item-edit itself) also returns 0: we have already observed Ready, so
+# proceeding is correct; the async webhook remains the backstop.
+#
+# Args (via env, mirroring _assign_issue):
+#   MAKATO_LOOP_DISPATCH_REPO — owning repo (for the issue URL match).
+# Test hooks (offline):
+#   MAKATO_LOOP_CLAIM_TEST_FILE       — append "claim #N status=<s> → <verb>"
+#       instead of calling `gh`; <verb> ∈ {claimed, skip, warn-proceed}.
+#   MAKATO_LOOP_CLAIM_STATUS_OVERRIDE — the fixture current Status the test
+#       wants the re-poll to observe (e.g. "Ready", "In progress", "").
+# ---------------------------------------------------------------------------
+_claim_board_card() {
+  local issue="$1"
+  local dispatch_status="${MAKATO_LOOP_DISPATCH_STATUS:-$DEFAULT_STATUS}"
+
+  # Disabled → fall straight through to the async assign→webhook path.
+  [[ "$CLAIM_ON_DISPATCH" == "1" ]] || return 0
+
+  # Test hook: decide from an injected fixture Status, never touch the network.
+  if [[ -n "${MAKATO_LOOP_CLAIM_TEST_FILE:-}" ]]; then
+    local cur="${MAKATO_LOOP_CLAIM_STATUS_OVERRIDE-__UNSET__}"
+    if [[ "$cur" == "__UNSET__" || -z "$cur" ]]; then
+      echo "claim #${issue} status=<unknown> → warn-proceed" >>"$MAKATO_LOOP_CLAIM_TEST_FILE"
+      echo "loop: WARN — claim #$issue could not read board Status; proceeding (assign→webhook backstop)" >&2
+      return 0
+    fi
+    if [[ "$cur" == "$dispatch_status" ]]; then
+      echo "claim #${issue} status=${cur} → claimed" >>"$MAKATO_LOOP_CLAIM_TEST_FILE"
+      echo "loop: claimed #$issue (board $dispatch_status → In progress)" >&2
+      return 0
+    fi
+    echo "claim #${issue} status=${cur} → skip" >>"$MAKATO_LOOP_CLAIM_TEST_FILE"
+    echo "loop: skip #$issue — board Status is '$cur', not '$dispatch_status' (claimed by another session)" >&2
+    return 1
+  fi
+
+  # Resolve project coordinates + the In progress option id. Missing config →
+  # cannot claim; WARN and proceed (best-effort read-fallback).
+  if [[ ! -f "$CONFIG_FILE" ]]; then
+    echo "loop: WARN — claim #$issue skipped: .claude/config.json not found; proceeding (assign→webhook backstop)" >&2
+    return 0
+  fi
+  local status_field_id in_progress_option_id project_node_id host owner number
+  status_field_id="$(jq -r '.github_project.fields.status.id // empty' "$CONFIG_FILE")"
+  in_progress_option_id="$(jq -r '.github_project.fields.status.options.in_progress // empty' "$CONFIG_FILE")"
+  project_node_id="$(jq -r '.github_project.project_node_id // empty' "$CONFIG_FILE")"
+  host="$(jq -r '.github_project.host // "github.com"' "$CONFIG_FILE")"
+  owner="$(jq -r '.github_project.owner // empty' "$CONFIG_FILE")"
+  number="$(jq -r '.github_project.number // empty' "$CONFIG_FILE")"
+  if [[ -z "$status_field_id" || -z "$in_progress_option_id" || -z "$project_node_id" || -z "$owner" || -z "$number" ]]; then
+    echo "loop: WARN — claim #$issue skipped: status field / in_progress option / project missing in config; proceeding" >&2
+    return 0
+  fi
+
+  # Re-poll: fetch the board item for this issue (current Status + item id).
+  # A single item-list call gives us both, closing the TOCTOU window as far as
+  # the API allows. `.content.number` matches the issue; `.status` is the live
+  # Status name; `.id` is the project item id item-edit needs. When an offline
+  # fixture is injected (MAKATO_LOOP_GH_OVERRIDE, same signal cmd_poll uses),
+  # read it instead of calling `gh` — this keeps the DRY_DISPATCH smoke path
+  # (T9) offline: it sees the fixture Status and proceeds without a network hit.
+  local board item_line cur_status item_id
+  if [[ -n "${MAKATO_LOOP_GH_OVERRIDE:-}" ]]; then
+    board="$(cat "$MAKATO_LOOP_GH_OVERRIDE" 2>/dev/null || echo '{"items":[]}')"
+  else
+    board="$(GH_HOST="$host" gh project item-list "$number" --owner "$owner" \
+      --format json --limit 9999 2>/dev/null || echo '{"items":[]}')"
+  fi
+  item_line="$(jq -c --argjson i "$issue" \
+    'first(.items[] | select(.content.type == "Issue" and .content.number == $i))' \
+    <<<"$board" 2>/dev/null || echo "")"
+  if [[ -z "$item_line" || "$item_line" == "null" ]]; then
+    echo "loop: WARN — claim #$issue could not locate board item on re-poll; proceeding (assign→webhook backstop)" >&2
+    return 0
+  fi
+  cur_status="$(jq -r '.status // empty' <<<"$item_line")"
+  item_id="$(jq -r '.id // empty' <<<"$item_line")"
+
+  # CAS: only claim when the card is still at the dispatch Status.
+  if [[ "$cur_status" != "$dispatch_status" ]]; then
+    echo "loop: skip #$issue — board Status is '${cur_status:-<none>}', not '$dispatch_status' (claimed by another session)" >&2
+    return 1
+  fi
+  if [[ -z "$item_id" ]]; then
+    echo "loop: WARN — claim #$issue: board item id unresolved; proceeding (assign→webhook backstop)" >&2
+    return 0
+  fi
+
+  # Forward-only write: Ready → In progress. A failed write still proceeds —
+  # we already observed Ready, and the async webhook is the backstop.
+  if GH_HOST="$host" gh project item-edit --id "$item_id" \
+      --project-id "$project_node_id" \
+      --field-id "$status_field_id" \
+      --single-select-option-id "$in_progress_option_id" >/dev/null 2>&1; then
+    echo "loop: claimed #$issue (board $dispatch_status → In progress)" >&2
+  else
+    echo "loop: WARN — claim #$issue: item-edit failed after observing $dispatch_status; proceeding (assign→webhook backstop)" >&2
+  fi
+  return 0
+}
+
+# ---------------------------------------------------------------------------
 # _promote_labelled_ready — bridge label → board for non-to-issues issues
 # (#231). loop's queue is the board Status=Ready set (cmd_poll); nothing moves
 # a card TO Ready except seed-issue (manual) or issue-to-project autonomous
@@ -1010,7 +1164,20 @@ cmd_dispatch() {
     else
       echo "loop: --dry-run — would exec: $CLAUDE_BIN --dangerously-skip-permissions -p \"<dispatch makato-orchestrate:po-agent for issue #${issue} KEY=${key} REPO=${MAKATO_LOOP_DISPATCH_REPO:-} BRANCH=${branch} REPO_ROOT=${REPO_ROOT}>\"" >&2
     fi
+    echo "loop: --dry-run — would claim #${issue} (board Ready → In progress, CAS)" >&2
     echo "loop: --dry-run — would assign #${issue} to ${ASSIGNEE} (board → In progress)" >&2
+    _patch_status '.active_workflow' 'null'
+    return 0
+  fi
+
+  # Synchronous board claim (#259) — the compare-and-set that makes the board
+  # the cross-worktree LOCK. Runs BEFORE the async assign so a lost CAS costs
+  # nothing: if _claim_board_card returns 1 the card is no longer at the
+  # dispatch Status (a second loop session already claimed it), so we clear
+  # active_workflow and return 0 (a clean skip, NOT an error — the outer
+  # cmd_run treats it like an empty pick and moves on next tick). Skipped
+  # under --dry-run above (inspection mode never mutates the board).
+  if ! _claim_board_card "$issue"; then
     _patch_status '.active_workflow' 'null'
     return 0
   fi
@@ -1020,6 +1187,9 @@ cmd_dispatch() {
   # for BOTH the DRY_DISPATCH test path and the real fork so the smoke
   # suite can assert on it; skipped only under --dry-run above (inspection
   # mode never mutates GitHub). Best-effort — never blocks dispatch.
+  # With the #259 claim above already writing In progress, the assign is now
+  # a belt-and-braces trigger (idempotent add-assignee; board sync is
+  # forward-only, so a late webhook never rolls the claimed card back).
   _assign_issue "$issue"
 
   # Test hook — exercise the full state-machine without forking a subprocess.

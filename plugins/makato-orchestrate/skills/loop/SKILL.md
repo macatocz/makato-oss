@@ -10,7 +10,7 @@ description: >-
   exits on a HALT. Honors `~/.claude/HALT` before every dispatch
   (NEVER 3) and emits `.claude/state/loop-status.json` as the
   operator-facing live audit.
-version: "1.5.0"
+version: "1.6.0"
 argument-hint: "[--status <NAME>] [--interval <S>] [--dry-run] [--once] [--force]"
 ---
 
@@ -154,6 +154,14 @@ Each outer iteration of `run` performs the following steps in order:
    <issue>` which:
    - Writes `.active_workflow = {issue, started_at}` to
      `loop-status.json` before forking.
+   - **Board claim (#259).** Re-polls the issue's board `Status` and
+     compare-and-sets it `Ready → In progress` via `gh project item-edit`
+     (see §*Board writes at dispatch: the synchronous claim*). If the
+     re-poll shows the card is no longer at `Ready` — another `loop`
+     session in a different worktree already claimed it — `dispatch`
+     clears `active_workflow` and returns 0 without forking (a clean
+     skip). Best-effort: an unreadable Status logs a `WARN` and proceeds.
+     Disabled with `MAKATO_LOOP_CLAIM_ON_DISPATCH=0`.
    - `exec`s `MAKATO_HEADLESS=1 $MAKATO_CLAUDE_BIN --dangerously-skip-permissions -p "<prompt that dispatches makato-orchestrate:po-agent via the Task tool for issue #<issue>>"`.
      The prompt explicitly names the po-agent subagent so the top-level
      Claude session delegates instead of running `makato-build` skills
@@ -199,54 +207,124 @@ behaves identically (useful in CI smoke tests).
 
 ## Single-thread guarantee
 
-The loop is intentionally serial. Four layers enforce this:
+The loop is intentionally serial. Five layers enforce this — the first
+four are **worktree-local** (they defend a single `run` session and its
+restarts), and the fifth is **cross-session** (it defends against a
+second `run` in a *different* worktree on the same host):
 
 - The **run-mutex pidfile** at `.claude/state/loop.pid` refuses a
   second `run` invocation while a live one owns the state dir
   (see §*Run mutex* below). This is the layer that would have caught
   the #172 incident (plugin-cache `loop.sh` running alongside
-  working-tree `loop.sh` for six hours).
+  working-tree `loop.sh` for six hours). *Worktree-local:* the pidfile
+  lives under `$STATE_DIR`, so a second worktree has its own.
 - The in-flight filter in step 4 excludes issues whose
   `workflow-state.json` is anything other than `current_phase: "done"`.
+  *Worktree-local:* it scans this worktree's `specs/`.
 - `dispatch` refuses (exit code 2) if `.active_workflow.issue` is set to
   a different issue — defensive guard for operators who manually
   invoke `dispatch` while `run` is mid-cycle.
 - `run` runs the PO-agent **inline** via `$CLAUDE_BIN`. The next poll
   cannot start until the subprocess exits.
+- **Cross-session (#259):** the **synchronous board CAS claim** at
+  dispatch (§*Board writes at dispatch: the synchronous claim*) makes the
+  board the shared *lock*. Because all four layers above are
+  worktree-local, they are blind across parallel sessions in different
+  worktrees; the claim is the only layer that closes that gap.
 
 This is the deliberate v1 design (see issue #33 Out of Scope: "Priority
 ordering of issues in the queue (FIFO only in v1)"). Parallel dispatch
 across multiple PO-agents is not supported and would require a separate
 mutex around `loop-status.json` plus per-issue workflow-state isolation.
 
-## Why we don't mutate the board / labels at dispatch
+## Board writes at dispatch: the synchronous claim (#259)
+
+> **Invariant change (#259).** Earlier versions of `loop` were *strictly
+> read-only against the board* and relied on the asynchronous
+> assign→webhook path to move `Ready → In progress`. That left a race:
+> two `loop run` sessions in different worktrees on the same host each
+> have their own `.claude/state/` (pidfile) and `specs/` (in-flight
+> filter), so neither sees the other's in-flight issue, and the only
+> cross-session signal — the board `Status` — is not moved to
+> `In progress` until the webhook lands. Between session A's assign and
+> the webhook, session B polls, still sees `Ready`, and dispatches a
+> **second** PO-agent against the same issue. As of #259 the loop
+> **claims the board card itself, synchronously, immediately before
+> spawn** — making the board the shared *lock*, not just the shared
+> *queue*.
+
+At dispatch, `_claim_board_card` performs a compare-and-set:
+
+1. **Re-poll** the target issue's board `Status` (a fresh
+   `gh project item-list`, closing the TOCTOU window as far as the API
+   allows).
+2. **CAS:** only if `Status` is still the dispatch status (`Ready`), call
+   `gh project item-edit` to set `Status=In progress` — the same mutation
+   `seed-issue` / `issue-to-project` use (field id + `in_progress` option
+   id are cached in `.claude/config.json` → `github_project.fields.status`).
+3. If the re-poll shows `Status != Ready`, **another session already
+   claimed the card** — the issue is treated as in-flight and **skipped**
+   (`cmd_dispatch` clears `active_workflow` and returns 0, a clean skip,
+   not an error).
+4. Only after a successful claim does the loop assign the issue and spawn
+   the PO-agent.
+
+**Ownership split with `issue-to-project sync-lifecycle`.** The claim
+intentionally revises the old read-only invariant, but the split of Status
+writes is still clean and forward-only:
+
+| Status transition | Owner |
+|-------------------|-------|
+| `Ready → In progress` | **`loop`** (this claim, #259) — and, redundantly, the `issues.assigned` webhook that the assign-on-dispatch step still fires. |
+| `In progress → In review` | `issue-to-project sync-lifecycle` (on `pull_request.opened`). |
+| `In review → Done` | `issue-to-project sync-lifecycle` (on `pull_request.closed`+merged). |
+
+Because the claim only ever writes **from** `Ready`, it is forward-only —
+it can never roll a card back from `In review`/`Done`, so it never races
+`sync-lifecycle` for a later transition. The redundant assign→webhook path
+is preserved as a belt-and-braces trigger and is likewise forward-only.
+
+**Best-effort, never blocks dispatch.** Any inability to *read* the current
+Status (a `gh` outage, missing `github_project` config, an empty board
+result) logs a `WARN` and **proceeds** — degrading to the pre-#259
+assign-only path is strictly safer than blocking real work, and the
+residual race in that degraded case is exactly the old behaviour. A failed
+*write* (the `item-edit` itself, after Ready was already observed) also
+proceeds, because the async webhook remains the backstop.
+
+**Opt-out.** `MAKATO_LOOP_CLAIM_ON_DISPATCH=0` disables the claim entirely;
+the loop then relies solely on the async assign→webhook path and the
+cross-worktree double-dispatch race re-opens. Leave the claim **enabled**
+in any multi-worktree setup.
+
+## Why we still don't mutate labels at dispatch
 
 The issue #33 brief suggested removing `status:ready-for-dev` at dispatch
-to prevent double-dispatch. Two reasons we don't:
+to prevent double-dispatch. We don't touch the label:
 
-1. `status:ready-for-dev` now exists in the repo as a **passive stamp**
+1. `status:ready-for-dev` exists in the repo as a **passive stamp**
    written by `issue-to-project` v2.8+ during autonomous auto-promotion
    (`ready_queue_mode: "autonomous"`). It is a historical marker — the
    downstream orchestrator can grep it without reading the board — but it
    is **not the dispatch signal**. The board's `Status` field remains the
-   source of truth; `loop` reads `Status`, not the label.
-2. The in-flight filter already prevents double-dispatch and works
-   across restarts. Label or Status mutation from `loop` would
-   duplicate `issue-to-project sync-lifecycle`'s contract and risk
-   racing the lifecycle webhook handler. `loop` leaves the board to
-   `issue-to-project` — it only reads it.
+   source of truth; `loop` reads (and, since #259, claims) `Status`, not
+   the label.
+2. The double-dispatch defence is now the board CAS claim above (plus the
+   worktree-local in-flight filter for same-session restarts). Mutating
+   the *label* from `loop` would duplicate `issue-to-project
+   sync-lifecycle`'s contract for no additional protection.
 
-### The one exception: assign-on-dispatch (#33)
+### assign-on-dispatch (#33) — now a belt-and-braces trigger
 
-`loop` stays strictly read-only against the **board** (the Status field),
-but it *does* make one **repo** mutation at dispatch: it assigns the issue
-to the dispatch actor via `gh issue edit --add-assignee` (default `@me`)
-just before spawning the PO-agent. This is not a board write — it is the
-`issues.assigned` webhook *trigger* that the `project-board-sync.yml` GHA
-listens for and translates into a `Ready → In progress` Status move. The
-split of responsibilities is preserved: `loop` never touches
-`updateProjectV2ItemFieldValue`; the board sync workflow (the native
-equivalent of `issue-to-project --from-webhook`) owns every Status write.
+Independently of the #259 board claim, `loop` still makes one **repo**
+mutation at dispatch: it assigns the issue to the dispatch actor via
+`gh issue edit --add-assignee` (default `@me`) just before spawning the
+PO-agent. This fires the `issues.assigned` webhook that the
+`project-board-sync.yml` GHA translates into a `Ready → In progress`
+Status move. Since #259 already writes `In progress` synchronously, the
+assign is now redundant for the board move but retained as a
+belt-and-braces trigger and for its own sake (the issue *should* be
+assigned to whoever is driving it).
 
 The assign is **best-effort** — a failed `gh` call is logged and swallowed,
 never blocking dispatch. It is idempotent (GitHub's add-assignee API is a
@@ -440,13 +518,16 @@ The intentional design split:
 | `MAKATO_LOOP_STALL_TEST_CMD` | unset | Test-only: run this command in place of `claude` (e.g. `sleep 30`) so the watchdog has a real stall to reap. |
 | `MAKATO_LOOP_PIDFILE` | `<state-dir>/loop.pid` | Override the run-mutex pidfile path (#172). Tests use this to isolate the mutex from any concurrent operator loop on the same box. |
 | `MAKATO_LOOP_FORCE_GRACE` | `10` | Seconds between `SIGTERM` and `SIGKILL` when `run --force` reclaims a live pidfile. |
-| `MAKATO_LOOP_ASSIGN_ON_DISPATCH` | `1` | Set to `0` to skip the assign-on-dispatch step (no `issues.assigned` webhook → board stays at `Ready`). See §*The one exception: assign-on-dispatch*. |
+| `MAKATO_LOOP_ASSIGN_ON_DISPATCH` | `1` | Set to `0` to skip the assign-on-dispatch step (no `issues.assigned` webhook → board stays at `Ready`). See §*assign-on-dispatch (#33) — now a belt-and-braces trigger*. |
 | `MAKATO_LOOP_ASSIGNEE` | `@me` | Assignee login passed to `gh issue edit --add-assignee` at dispatch. `@me` = the authenticated `gh` user driving the loop. |
 | `MAKATO_LOOP_ASSIGN_TEST_FILE` | unset | Test-only: append the intended assign (`assign #<n> assignee=<x> repo=<y>`) to this file instead of calling `gh`. |
+| `MAKATO_LOOP_CLAIM_ON_DISPATCH` | `1` | Set to `0` to disable the synchronous board CAS claim (#259). With it off, the loop relies solely on the async assign→webhook path and the cross-worktree double-dispatch race re-opens — leave enabled in multi-worktree setups. See §*Board writes at dispatch: the synchronous claim*. |
+| `MAKATO_LOOP_CLAIM_TEST_FILE` | unset | Test-only: append the claim decision (`claim #<n> status=<s> → {claimed\|skip\|warn-proceed}`) to this file instead of calling `gh`. |
+| `MAKATO_LOOP_CLAIM_STATUS_OVERRIDE` | unset | Test-only: the fixture current board Status the re-poll should observe (`Ready`, `In progress`, or empty for the unreadable-Status fallback). Consumed only alongside `MAKATO_LOOP_CLAIM_TEST_FILE`. |
 
 ## Smoke tests
 
-`scripts/loop-smoke-tests.sh` covers twenty-one scenarios:
+`scripts/loop-smoke-tests.sh` covers twenty-two scenarios:
 
 1. `check-halt` exits 0 with no HALT file.
 2. `check-halt` exits 1 with a HALT file.
@@ -483,6 +564,12 @@ The intentional design split:
     (`ISSUE_NUMBER`/`KEY`/`REPO`/`BRANCH`/`REPO_ROOT`) into the dispatch
     prompt; falls back to the `specs/<slug>/stories.json` line; degrades
     to a `WARN` with empty `KEY` when the body has no provenance (#144).
+22. **Board CAS claim (#259, T30).** `dispatch` claims the card when its
+    board Status is still `Ready`, **skips** (exit 0, no spawn, no
+    assign, `active_workflow` cleared) when the Status has moved off
+    `Ready` (a second worktree session already claimed it),
+    `WARN`-proceeds when the Status is unreadable, and records no claim
+    decision when `MAKATO_LOOP_CLAIM_ON_DISPATCH=0`.
 
 Run them directly:
 
@@ -512,11 +599,13 @@ Documented limits of the v1 implementation (per issue #33):
   (`issues.labeled` → spin up a runner), use
   `plugins/makato-plan/skills/issue-to-project --from-webhook`. The
   polling and webhook paths are complementary, not alternatives.
-- **Board mutation at dispatch.** `loop` is strictly read-only against
-  the board. Moving an issue's Status from `Ready` to `In progress`
-  is done by `issue-to-project sync-lifecycle` when the PO-agent's
-  first commit lands on the feature branch (the lifecycle webhook
-  fires on `pull_request.opened`).
+- **Board mutation beyond the claim.** As of #259 `loop` makes exactly
+  one board write — the synchronous `Ready → In progress` compare-and-set
+  claim at dispatch (see §*Board writes at dispatch: the synchronous
+  claim*). It writes no other Status transitions: `In progress → In
+  review → Done` remain owned by `issue-to-project sync-lifecycle`
+  (driven by `pull_request.opened` / `pull_request.closed`+merged
+  webhooks).
 
 ## Tracking issue
 

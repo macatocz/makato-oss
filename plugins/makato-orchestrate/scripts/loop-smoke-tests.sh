@@ -32,6 +32,9 @@
 #        full po-agent input bundle (ISSUE_NUMBER/KEY/REPO/BRANCH/REPO_ROOT);
 #        falls back to specs/<slug>/stories.json; degrades to WARN when absent
 #   T27: type:change issues route to makato-change:orchestrate, others to po-agent
+#   T30: synchronous board claim CAS prevents cross-worktree double-dispatch —
+#        proceeds when card still Ready, skips when already claimed off-Ready,
+#        warn-proceeds on unreadable Status, honors CLAIM_ON_DISPATCH=0 (#259)
 #
 # A fixture file is injected via MAKATO_LOOP_GH_OVERRIDE so `gh` is not
 # invoked. Test isolation uses MAKATO_LOOP_STATE_DIR + ephemeral spec
@@ -828,3 +831,88 @@ resolve_spec_folder "nonexistent" "$t29_tmp/specs" 2>/dev/null \
 echo "  ✓ nonexistent key correctly returns no match"
 
 rm -rf "$t29_tmp"
+
+# ---------------------------------------------------------------------------
+echo
+echo "=== T30: synchronous board claim CAS prevents cross-worktree double-dispatch (#259) ==="
+# _claim_board_card re-polls the target issue's board Status and only proceeds
+# (returns 0) when it is still the dispatch Status; if a second worktree-local
+# loop session already claimed the card (Status moved off Ready), it returns 1
+# and cmd_dispatch skips the issue without spawning. Exercised offline via
+# MAKATO_LOOP_CLAIM_TEST_FILE + MAKATO_LOOP_CLAIM_STATUS_OVERRIDE so no `gh`
+# call is made. Threaded through the public `dispatch` subcommand end-to-end.
+claim_file="$STATE_DIR/t30-claim.txt"
+assign_file="$STATE_DIR/t30-assign.txt"
+
+# Sub-assertion 1 — card still Ready → CLAIM, dispatch proceeds (and assigns).
+rm -f "$STATE_DIR/loop-status.json"
+: >"$claim_file"; : >"$assign_file"
+MAKATO_LOOP_DRY_DISPATCH=1 \
+MAKATO_LOOP_CLAIM_TEST_FILE="$claim_file" \
+MAKATO_LOOP_CLAIM_STATUS_OVERRIDE="Ready" \
+MAKATO_LOOP_ASSIGN_TEST_FILE="$assign_file" \
+MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  "$LOOP" dispatch 101 >/dev/null 2>&1 || fail "T30: dispatch should exit 0 on a successful claim"
+grep -q "claim #101 status=Ready → claimed" "$claim_file" \
+  || fail "T30: card still Ready should CLAIM; got: $(cat "$claim_file")"
+grep -q "assign #101" "$assign_file" \
+  || fail "T30: a claimed dispatch must still assign; got: $(cat "$assign_file")"
+jq -e '.active_workflow == null' "$STATE_DIR/loop-status.json" >/dev/null \
+  || fail "T30: active_workflow must be cleared after a claimed dispatch"
+echo "  ✓ card still Ready → claimed, dispatch proceeds and assigns"
+
+# Sub-assertion 2 — card already In progress (a second session claimed it
+# first) → SKIP: no spawn, no assign, active_workflow cleared, clean exit 0.
+rm -f "$STATE_DIR/loop-status.json"
+: >"$claim_file"; : >"$assign_file"
+rc=0
+MAKATO_LOOP_DRY_DISPATCH=1 \
+MAKATO_LOOP_CLAIM_TEST_FILE="$claim_file" \
+MAKATO_LOOP_CLAIM_STATUS_OVERRIDE="In progress" \
+MAKATO_LOOP_ASSIGN_TEST_FILE="$assign_file" \
+MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  "$LOOP" dispatch 101 >/dev/null 2>&1 || rc=$?
+[[ $rc -eq 0 ]] || fail "T30: a lost CAS must be a clean skip (exit 0), got $rc"
+grep -q "claim #101 status=In progress → skip" "$claim_file" \
+  || fail "T30: card off-Ready should SKIP; got: $(cat "$claim_file")"
+[[ ! -s "$assign_file" ]] \
+  || fail "T30: a skipped dispatch must NOT assign; got: $(cat "$assign_file")"
+jq -e '.active_workflow == null' "$STATE_DIR/loop-status.json" >/dev/null \
+  || fail "T30: active_workflow must be cleared after a skipped claim"
+echo "  ✓ card claimed by another session → skip, no spawn, no assign, active_workflow cleared"
+
+# Sub-assertion 3 — claim cannot read Status (gh outage / empty) → WARN and
+# PROCEED (best-effort fallback: degrade to pre-#259 assign-only, never block).
+rm -f "$STATE_DIR/loop-status.json"
+: >"$claim_file"; : >"$assign_file"
+MAKATO_LOOP_DRY_DISPATCH=1 \
+MAKATO_LOOP_CLAIM_TEST_FILE="$claim_file" \
+MAKATO_LOOP_CLAIM_STATUS_OVERRIDE="" \
+MAKATO_LOOP_ASSIGN_TEST_FILE="$assign_file" \
+MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  "$LOOP" dispatch 101 >/dev/null 2>&1 || fail "T30: an unreadable Status must not block dispatch"
+grep -q "claim #101 status=<unknown> → warn-proceed" "$claim_file" \
+  || fail "T30: unreadable Status should warn-proceed; got: $(cat "$claim_file")"
+grep -q "assign #101" "$assign_file" \
+  || fail "T30: a warn-proceed dispatch must still assign; got: $(cat "$assign_file")"
+echo "  ✓ unreadable Status → WARN + proceed (best-effort fallback, dispatch not blocked)"
+
+# Sub-assertion 4 — MAKATO_LOOP_CLAIM_ON_DISPATCH=0 disables the claim entirely
+# (no claim decision recorded; dispatch falls back to the async assign path).
+rm -f "$STATE_DIR/loop-status.json"
+: >"$claim_file"; : >"$assign_file"
+MAKATO_LOOP_DRY_DISPATCH=1 \
+MAKATO_LOOP_CLAIM_ON_DISPATCH=0 \
+MAKATO_LOOP_CLAIM_TEST_FILE="$claim_file" \
+MAKATO_LOOP_CLAIM_STATUS_OVERRIDE="In progress" \
+MAKATO_LOOP_ASSIGN_TEST_FILE="$assign_file" \
+MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  "$LOOP" dispatch 101 >/dev/null 2>&1 || fail "T30: claim-disabled dispatch should exit 0"
+[[ ! -s "$claim_file" ]] \
+  || fail "T30: CLAIM_ON_DISPATCH=0 must record no claim decision; got: $(cat "$claim_file")"
+grep -q "assign #101" "$assign_file" \
+  || fail "T30: claim-disabled dispatch must still assign (async fallback)"
+echo "  ✓ MAKATO_LOOP_CLAIM_ON_DISPATCH=0 disables the claim; async assign path used"
+
+echo
+echo "=== ALL TESTS PASSED (incl. T30 board-claim CAS, #259) ==="

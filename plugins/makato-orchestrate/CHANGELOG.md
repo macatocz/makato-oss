@@ -5,6 +5,41 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## loop 1.6.0 — synchronous board claim closes cross-worktree double-dispatch (#259)
+
+Two concurrent `loop run` sessions in different worktrees on the same host could
+both dispatch the same `Ready` issue: the run-mutex pidfile is `$STATE_DIR`-scoped,
+the in-flight filter is `specs/`-scoped, and the only cross-session signal — the
+board `Status` — was moved `Ready → In progress` only asynchronously by the
+`issues.assigned` → `project-board-sync.yml` webhook. That async gap was the race
+window. The loop now claims the board card itself, synchronously, before spawn.
+
+- **New `_claim_board_card` compare-and-set.** Just before dispatch, the loop
+  re-polls the issue's board `Status` and, only if it is still `Ready`, sets it to
+  `In progress` via `gh project item-edit` (field + `in_progress` option ids from
+  `.claude/config.json`). If the re-poll shows the card is no longer `Ready`, a
+  second session already claimed it → the issue is skipped (exit 0, no spawn, no
+  assign, `active_workflow` cleared). This makes the board the shared **lock**, not
+  just the shared **queue**.
+- **Forward-only + best-effort.** The claim only ever writes *from* `Ready`, so it
+  can never roll a card back from `In review`/`Done` and never races
+  `issue-to-project sync-lifecycle` (which still owns `In review`/`Done`). Any
+  inability to read the current Status (`gh` outage, missing config, empty board)
+  logs a `WARN` and **proceeds** — degrading to the pre-#259 assign-only behaviour
+  rather than blocking dispatch.
+- **Invariant revised.** The previous "loop is strictly read-only against the
+  board" invariant is replaced: the loop now owns the `Ready → In progress` claim.
+  The assign-on-dispatch step (#33) is retained as a redundant belt-and-braces
+  webhook trigger.
+- **Opt-out** `MAKATO_LOOP_CLAIM_ON_DISPATCH=0` disables the claim (the
+  cross-worktree race re-opens; leave enabled in multi-worktree setups).
+- **New smoke test T30** (four sub-assertions: claim / skip / warn-proceed /
+  disabled), fully offline via `MAKATO_LOOP_CLAIM_TEST_FILE` +
+  `MAKATO_LOOP_CLAIM_STATUS_OVERRIDE`. SKILL.md updated (§*Board writes at
+  dispatch: the synchronous claim*, Single-thread guarantee now five layers).
+
+---
+
 ## po-agent — live progress comment on the driven issue
 
 Adds a human-readable narration layer over the machine `orchestrate.jsonl` /
