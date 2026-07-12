@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.49.0](https://github.com/macatocz/makato/compare/v0.48.0...v0.49.0) (2026-07-12)
+
+
+### ✨ Features
+
+* **makato-plan:** decompose emits taxonomic type: label; to-issues honors it ([#272](https://github.com/macatocz/makato/issues/272)) ([#275](https://github.com/macatocz/makato/issues/275)) ([7bde925](https://github.com/macatocz/makato/commit/7bde9256c3d4a31a0dffdec07871bc060c149169))
+
 ## [0.48.0](https://github.com/macatocz/makato/compare/v0.47.0...v0.48.0) (2026-07-12)
 
 
