@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.45.0](https://github.com/macatocz/makato/compare/v0.44.3...v0.45.0) (2026-07-12)
+
+
+### ✨ Features
+
+* **inject-skills:** F5 task-text routing via task_contains bundle key ([#131](https://github.com/macatocz/makato/issues/131)) ([#263](https://github.com/macatocz/makato/issues/263)) ([bf4a7c8](https://github.com/macatocz/makato/commit/bf4a7c8dc09ef355a492e6f67b7e613e5078d313))
+
 ## [0.44.3](https://github.com/macatocz/makato/compare/v0.44.2...v0.44.3) (2026-07-12)
 
 
