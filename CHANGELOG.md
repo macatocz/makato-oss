@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.44.3](https://github.com/macatocz/makato/compare/v0.44.2...v0.44.3) (2026-07-12)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** loop claims board card synchronously to stop cross-worktree double-dispatch ([#259](https://github.com/macatocz/makato/issues/259)) ([#261](https://github.com/macatocz/makato/issues/261)) ([eae10a1](https://github.com/macatocz/makato/commit/eae10a175d7e3daa0e9795a3222543af7f70cf95))
+
 ## [0.44.2](https://github.com/macatocz/makato/compare/v0.44.1...v0.44.2) (2026-07-12)
 
 
