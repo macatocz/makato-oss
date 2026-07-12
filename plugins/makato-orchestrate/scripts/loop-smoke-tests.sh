@@ -914,5 +914,178 @@ grep -q "assign #101" "$assign_file" \
   || fail "T30: claim-disabled dispatch must still assign (async fallback)"
 echo "  ✓ MAKATO_LOOP_CLAIM_ON_DISPATCH=0 disables the claim; async assign path used"
 
+# ---------------------------------------------------------------------------
+# T31–T36: merged-worktree reaper (#265)
+#
+# The reaper walks `git worktree list --porcelain` for REPO_ROOT and removes
+# worktrees whose branch has a MERGED PR, skipping main/dirty/locked/retained/
+# detached/nested. These tests build a DISPOSABLE temp git repo (never the real
+# makato checkout) with real worktrees, and drive the standalone
+# `remove-worktrees` subcommand from inside it (so loop.sh's REPO_ROOT resolves
+# to the temp repo). Merged-PR lookups are stubbed offline via
+# MAKATO_LOOP_REAP_GH_OVERRIDE; the throttle is bypassed with
+# MAKATO_LOOP_REAP_INTERVAL=0.
+# ---------------------------------------------------------------------------
 echo
-echo "=== ALL TESTS PASSED (incl. T30 board-claim CAS, #259) ==="
+echo "=== T31: reaper removes a merged, clean worktree; skips others ==="
+REAP_ROOT="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/reap-repo"
+REAP_STATE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/reap-state"
+mkdir -p "$REAP_ROOT" "$REAP_STATE"
+(
+  cd "$REAP_ROOT"
+  git init -q -b main
+  git config user.email t@t.t; git config user.name t
+  git commit -q --allow-empty -m init
+  git worktree add -q -b feat/merged-clean "$REAP_ROOT/.claude/worktrees/merged-clean" 2>/dev/null
+  git worktree add -q -b feat/dirty "$REAP_ROOT/.claude/worktrees/dirty-wt" 2>/dev/null
+  git worktree add -q -b feat/locked "$REAP_ROOT/.claude/worktrees/locked-wt" 2>/dev/null
+  git worktree add -q -b feat/open-pr "$REAP_ROOT/.claude/worktrees/open-pr" 2>/dev/null
+  echo "uncommitted" >"$REAP_ROOT/.claude/worktrees/dirty-wt/scratch.txt"
+  git worktree lock "$REAP_ROOT/.claude/worktrees/locked-wt" 2>/dev/null
+)
+# Merged-PR fixture: only the four "merged" branches map to a PR number.
+REAP_GH="$REAP_STATE/reap-gh.json"
+cat >"$REAP_GH" <<'REAPJSON'
+{
+  "feat/merged-clean": "701",
+  "feat/dirty": "702",
+  "feat/locked": "703"
+}
+REAPJSON
+# open-pr branch intentionally absent → no merged PR.
+
+# Dry-run first: assert the decision set without mutating anything.
+reap_dry="$(
+  cd "$REAP_ROOT" &&
+  MAKATO_LOOP_STATE_DIR="$REAP_STATE" \
+  MAKATO_LOOP_REAP_INTERVAL=0 \
+  MAKATO_LOOP_REAP_DRYRUN=1 \
+  MAKATO_LOOP_REAP_GH_OVERRIDE="$REAP_GH" \
+  MAKATO_LOOP_REAP_REPO="macatocz/makato" \
+    "$LOOP" remove-worktrees 2>&1
+)" || fail "T31: remove-worktrees (dry-run) should exit 0; got: $reap_dry"
+grep -q "would remove .*merged-clean" <<<"$reap_dry" \
+  || fail "T31: merged+clean should be a removal candidate; got: $reap_dry"
+grep -q "reap skip .*dirty-wt (dirty" <<<"$reap_dry" \
+  || fail "T31: dirty worktree must be skipped; got: $reap_dry"
+grep -q "reap skip .*locked-wt (locked" <<<"$reap_dry" \
+  || fail "T31: locked worktree must be skipped; got: $reap_dry"
+grep -q "reap skip .*open-pr (no merged PR" <<<"$reap_dry" \
+  || fail "T31: open-PR worktree must be skipped; got: $reap_dry"
+grep -q "would remove $REAP_ROOT " <<<"$reap_dry" \
+  && fail "T31: main checkout must never be a removal candidate; got: $reap_dry"
+echo "  ✓ dry-run: merged+clean → remove; dirty/locked/no-PR/main → skip"
+
+echo
+echo "=== T32: reaper actually removes the merged worktree (live) ==="
+reap_live="$(
+  cd "$REAP_ROOT" &&
+  MAKATO_LOOP_STATE_DIR="$REAP_STATE" \
+  MAKATO_LOOP_REAP_INTERVAL=0 \
+  MAKATO_LOOP_REAP_GH_OVERRIDE="$REAP_GH" \
+  MAKATO_LOOP_REAP_REPO="macatocz/makato" \
+    "$LOOP" remove-worktrees 2>&1
+)" || fail "T32: remove-worktrees (live) should exit 0; got: $reap_live"
+# merged-clean must be gone from the worktree registry; the others must remain.
+reap_list="$(cd "$REAP_ROOT" && git worktree list --porcelain)"
+grep -q "merged-clean" <<<"$reap_list" \
+  && fail "T32: merged-clean should have been removed; still registered"
+grep -q "dirty-wt" <<<"$reap_list" \
+  || fail "T32: dirty worktree must survive; got removed"
+grep -q "locked-wt" <<<"$reap_list" \
+  || fail "T32: locked worktree must survive; got removed"
+grep -q "open-pr" <<<"$reap_list" \
+  || fail "T32: open-PR worktree must survive; got removed"
+# Status audit: last_reap stamped, count == 1, reaped[0].pr == "701".
+jq -e '.last_reap != null' "$REAP_STATE/loop-status.json" >/dev/null \
+  || fail "T32: last_reap must be stamped"
+jq -e '.last_reap_count == 1' "$REAP_STATE/loop-status.json" >/dev/null \
+  || fail "T32: last_reap_count should be 1; got $(jq -r .last_reap_count "$REAP_STATE/loop-status.json")"
+jq -e '.reaped[0].pr == "701"' "$REAP_STATE/loop-status.json" >/dev/null \
+  || fail "T32: reaped[0].pr should be 701; got $(jq -c .reaped "$REAP_STATE/loop-status.json")"
+echo "  ✓ merged-clean removed; dirty/locked/open-pr survive; status audit correct"
+# Unlock so the EXIT trap can tear the sandbox worktrees down cleanly.
+(cd "$REAP_ROOT" && git worktree unlock "$REAP_ROOT/.claude/worktrees/locked-wt" 2>/dev/null || true)
+
+echo
+echo "=== T33: retained worktree (workflow-state) is skipped ==="
+REAP2_ROOT="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/reap2-repo"
+REAP2_STATE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/reap2-state"
+mkdir -p "$REAP2_ROOT" "$REAP2_STATE"
+(
+  cd "$REAP2_ROOT"
+  git init -q -b main
+  git config user.email t@t.t; git config user.name t
+  git commit -q --allow-empty -m init
+  git worktree add -q -b feat/retained "$REAP2_ROOT/.claude/worktrees/retained-wt" 2>/dev/null
+)
+# Real realpath of the worktree, as the reaper canonicalises before comparing.
+RETAINED_RP="$(cd "$REAP2_ROOT/.claude/worktrees/retained-wt" && pwd -P)"
+mkdir -p "$REAP2_ROOT/specs/test-key"
+jq -n --arg p "$RETAINED_RP" \
+  '{issue_number:46, current_phase:"implement", worktree_path:$p, worktree_retained:true, worktree_retain_reason:"HALT-008"}' \
+  >"$REAP2_ROOT/specs/test-key/workflow-state-46.json"
+REAP2_GH="$REAP2_STATE/reap2-gh.json"
+echo '{"feat/retained":"801"}' >"$REAP2_GH"
+reap2_out="$(
+  cd "$REAP2_ROOT" &&
+  MAKATO_LOOP_STATE_DIR="$REAP2_STATE" \
+  MAKATO_LOOP_REAP_INTERVAL=0 \
+  MAKATO_LOOP_REAP_DRYRUN=1 \
+  MAKATO_LOOP_REAP_GH_OVERRIDE="$REAP2_GH" \
+  MAKATO_LOOP_REAP_REPO="macatocz/makato" \
+    "$LOOP" remove-worktrees 2>&1
+)" || fail "T33: remove-worktrees should exit 0; got: $reap2_out"
+grep -q "reap skip .*retained-wt (worktree_retained=true" <<<"$reap2_out" \
+  || fail "T33: retained worktree must be skipped; got: $reap2_out"
+grep -q "would remove .*retained-wt" <<<"$reap2_out" \
+  && fail "T33: retained worktree must NOT be a removal candidate; got: $reap2_out"
+echo "  ✓ worktree_retained=true (via workflow-state) vetoes reap even for a merged PR"
+
+echo
+echo "=== T34: MAKATO_LOOP_REAP_ON_POLL=0 disables the reaper entirely ==="
+reap_off="$(
+  cd "$REAP2_ROOT" &&
+  MAKATO_LOOP_STATE_DIR="$REAP2_STATE" \
+  MAKATO_LOOP_REAP_ON_POLL=0 \
+  MAKATO_LOOP_REAP_INTERVAL=0 \
+  MAKATO_LOOP_REAP_GH_OVERRIDE="$REAP2_GH" \
+  MAKATO_LOOP_REAP_REPO="macatocz/makato" \
+    "$LOOP" remove-worktrees 2>&1
+)" || fail "T34: remove-worktrees should exit 0 when disabled; got: $reap_off"
+[[ -z "$(grep -E 'reap (skip|would remove|removing)' <<<"$reap_off")" ]] \
+  || fail "T34: REAP_ON_POLL=0 must produce no reap activity; got: $reap_off"
+echo "  ✓ REAP_ON_POLL=0 short-circuits the whole pass (no candidates walked)"
+
+echo
+echo "=== T35: throttle — a second call within REAP_INTERVAL is a no-op ==="
+REAP3_STATE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/reap3-state"
+mkdir -p "$REAP3_STATE"
+# First pass with a large interval stamps last_reap.
+(
+  cd "$REAP2_ROOT" &&
+  MAKATO_LOOP_STATE_DIR="$REAP3_STATE" \
+  MAKATO_LOOP_REAP_INTERVAL=3600 \
+  MAKATO_LOOP_REAP_DRYRUN=1 \
+  MAKATO_LOOP_REAP_GH_OVERRIDE="$REAP2_GH" \
+  MAKATO_LOOP_REAP_REPO="macatocz/makato" \
+    "$LOOP" remove-worktrees >/dev/null 2>&1
+) || fail "T35: first reap pass should exit 0"
+jq -e '.last_reap != null' "$REAP3_STATE/loop-status.json" >/dev/null \
+  || fail "T35: first pass must stamp last_reap"
+# Second pass immediately after: throttle should short-circuit → no reap lines.
+reap_throttled="$(
+  cd "$REAP2_ROOT" &&
+  MAKATO_LOOP_STATE_DIR="$REAP3_STATE" \
+  MAKATO_LOOP_REAP_INTERVAL=3600 \
+  MAKATO_LOOP_REAP_DRYRUN=1 \
+  MAKATO_LOOP_REAP_GH_OVERRIDE="$REAP2_GH" \
+  MAKATO_LOOP_REAP_REPO="macatocz/makato" \
+    "$LOOP" remove-worktrees 2>&1
+)" || fail "T35: throttled reap pass should exit 0"
+[[ -z "$(grep -E 'reap (skip|would remove|removing)' <<<"$reap_throttled")" ]] \
+  || fail "T35: throttle must short-circuit within the interval; got: $reap_throttled"
+echo "  ✓ second call within REAP_INTERVAL no-ops (throttle honoured)"
+
+echo
+echo "=== ALL TESTS PASSED (incl. T31–T35 merged-worktree reaper, #265) ==="

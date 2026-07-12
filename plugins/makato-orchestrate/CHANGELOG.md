@@ -5,6 +5,43 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## loop 1.7.0 — auto-reap merged worktrees (#265)
+
+Git worktrees under `.claude/worktrees/` accumulate on the operator's local disk
+(a live audit found 31 registered, the sampled majority from long-merged PRs).
+The PO-agent's `worktree.sh cleanup` only fires for a fully autonomous run that
+reaches merge in its own session; hand-created (`EnterWorktree`) or session-
+orphaned worktrees carry no `workflow-state` and were never removed.
+
+- **New `_reap_merged_worktrees` pre-poll pass in `loop.sh`.** Walks
+  `git worktree list --porcelain` and removes worktrees whose branch has a
+  **merged** PR (`gh pr list --state merged`). Runs locally — a cloud GitHub
+  Action cannot reach the operator's disk. Wired into `cmd_run` after the #231
+  promotion pass and before the board poll; also exposed as the standalone
+  `remove-worktrees` subcommand.
+- **8-layer guard stack.** A worktree is removed only when it is not the main
+  checkout, lives under `.claude/worktrees/`, is not the parent of a nested
+  worktree, is not `locked`, is not a detached HEAD, has a **clean** working
+  tree, is not `worktree_retained`, and its branch has a merged PR. The
+  clean-tree and `git worktree lock` guards are the reliable operator pins;
+  `worktree_retained` vetoes only when a `workflow-state` maps to the worktree.
+- **Throttled + best-effort.** Self-throttled to at most once per
+  `MAKATO_LOOP_REAP_INTERVAL` (default 3600 s) via the `last_reap` stamp, so it
+  is a no-op on most ticks. Any `gh`/`git` failure logs a WARN and never blocks
+  the tick.
+- **Opt-out** `MAKATO_LOOP_REAP_ON_POLL=0`. **Offline test hooks**
+  `MAKATO_LOOP_REAP_GH_OVERRIDE` (merged-PR map), `MAKATO_LOOP_REAP_WT_OVERRIDE`
+  (canned porcelain), `MAKATO_LOOP_REAP_DRYRUN`, `MAKATO_LOOP_REAP_REPO`.
+- **New status fields** `last_reap`, `last_reap_count`, `reaped[]` in
+  `loop-status.json`.
+- **New smoke tests T31–T35** (dry-run decision set, live removal + audit,
+  retained guard, opt-out, throttle) — fully offline via a disposable temp repo.
+- **SKILL.md 1.6.0 → 1.7.0**: new §*Pre-poll merged-worktree reap*, Process
+  step 3, `remove-worktrees` subcommand, six env vars, three status fields, and
+  the T31–T35 smoke-test entries.
+
+---
+
 ## loop 1.6.0 — synchronous board claim closes cross-worktree double-dispatch (#259)
 
 Two concurrent `loop run` sessions in different worktrees on the same host could

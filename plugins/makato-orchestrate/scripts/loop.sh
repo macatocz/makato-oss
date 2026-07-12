@@ -44,6 +44,13 @@
 #       Exit 0 if `~/.claude/HALT` (or `$MAKATO_HALT_FILE`) is absent,
 #       exit 1 otherwise. Mirrors hooks/check-halt.sh's contract.
 #
+#   remove-worktrees
+#       Remove local worktrees under .claude/worktrees/ whose branch has a
+#       MERGED PR (#265). Skips the main checkout, dirty, locked, retained,
+#       detached, and nested worktrees. Also run as a pre-poll pass inside
+#       `run`. One-shot cleanup: MAKATO_LOOP_REAP_INTERVAL=0 loop.sh
+#       remove-worktrees (add MAKATO_LOOP_REAP_DRYRUN=1 to inspect first).
+#
 # Environment variables:
 #   MAKATO_LOOP_INTERVAL       Poll interval in seconds (default 300).
 #   MAKATO_LOOP_STATUS         Default Status name override
@@ -101,6 +108,31 @@
 #   MAKATO_LOOP_FORCE_GRACE    Seconds between SIGTERM and SIGKILL when
 #                              `run --force` reclaims a live instance
 #                              (default 10).
+#
+# --- Merged-worktree reaper (#265) ---
+#   MAKATO_LOOP_REAP_ON_POLL   Set to `0` to disable the reaper entirely
+#                              (default 1). When on, `run` reaps merged
+#                              worktrees before each poll.
+#   MAKATO_LOOP_REAP_INTERVAL  Minimum seconds between reap passes
+#                              (default 3600). The pass is invoked every
+#                              tick but no-ops until the window elapses.
+#                              Set 0 to run every call (one-shot cleanup /
+#                              tests).
+#   MAKATO_LOOP_REAP_DRYRUN    Set to `1` to log intended removals
+#                              (`reap would remove …`) without running
+#                              `git worktree remove`.
+#   MAKATO_LOOP_REAP_REPO      Override owner/repo for `gh pr list`
+#                              (default: MAKATO_LOOP_DISPATCH_REPO, else
+#                              parsed from `git remote get-url origin`).
+#   MAKATO_LOOP_REAP_GH_OVERRIDE
+#                              Tests only: path to a JSON map
+#                              {"<branch>": "<pr#>"} read instead of
+#                              calling `gh pr list`. Keeps the reap smoke
+#                              tests offline.
+#   MAKATO_LOOP_REAP_WT_OVERRIDE
+#                              Tests only: path to a file with canned
+#                              `git worktree list --porcelain` output,
+#                              read instead of invoking git.
 #
 # --- Sleep-wake guard (#171) ---
 #   MAKATO_LOOP_SLEEP_MAX_STEP Max seconds per raw `sleep` call inside
@@ -224,6 +256,25 @@ PIDFILE="${MAKATO_LOOP_PIDFILE:-$STATE_DIR/loop.pid}"
 # live pidfile. Small enough that operators aren't left staring at
 # the shell, large enough that the target's EXIT trap gets to clean up.
 FORCE_GRACE_SECS="${MAKATO_LOOP_FORCE_GRACE:-10}"
+
+# Merged-worktree reaper (#265). Worktrees under .claude/worktrees/ pile up on
+# the operator's local disk: the per-issue `worktree.sh cleanup` only fires for
+# a fully-autonomous run that reaches merge inside its own session, but most
+# worktrees are hand-created (EnterWorktree) or orphaned by a dead session and
+# carry no workflow-state, so nothing ever removes them. The reaper is a
+# name-agnostic pre-poll sweep: it walks `git worktree list --porcelain` and
+# removes worktrees whose branch has a MERGED PR, skipping any that are dirty,
+# locked, retained, detached, nested, or the main checkout (see the guard stack
+# in _reap_merged_worktrees). It runs on the operator's machine because that is
+# where the worktrees physically live — a cloud GitHub Action cannot reach the
+# local disk. Best-effort: any `gh`/`git` failure logs a WARN and never blocks
+# the tick.
+#   - MAKATO_LOOP_REAP_ON_POLL=0 disables the reaper entirely (default on).
+#   - MAKATO_LOOP_REAP_INTERVAL throttles the pass to at most once per N seconds
+#     (default 3600 = 1h); the function is called every tick but no-ops until
+#     the window elapses. Set 0 to run every call (tests / one-shot cleanup).
+REAP_ON_POLL="${MAKATO_LOOP_REAP_ON_POLL:-1}"
+REAP_INTERVAL_SECS="${MAKATO_LOOP_REAP_INTERVAL:-3600}"
 
 # --- Sleep-wake guard (#171) --------------------------------------------
 # After a macOS host suspend/resume, `sleep $interval` in the outer
@@ -1088,6 +1139,256 @@ cmd_promote_ready() {
 }
 
 # ---------------------------------------------------------------------------
+# _reap_epoch_of_iso <iso-8601-ms> — convert an ISO-8601 ms timestamp (the
+# shape _now emits) to a Unix epoch integer, or empty on parse failure. Used
+# by the reap throttle to compare last_reap against wall-clock now. python3
+# for portability (macOS `date` lacks GNU -d; matches _now's convention).
+# ---------------------------------------------------------------------------
+_reap_epoch_of_iso() {
+  local iso="$1"
+  [[ -n "$iso" && "$iso" != "null" ]] || return 0
+  python3 -c "import sys,datetime
+try:
+    s=sys.argv[1].replace('Z','+00:00')
+    print(int(datetime.datetime.fromisoformat(s).timestamp()))
+except Exception:
+    pass" "$iso" 2>/dev/null || true
+}
+
+# ---------------------------------------------------------------------------
+# _derive_reap_repo — resolve owner/repo for `gh pr list`. Prefers the explicit
+# MAKATO_LOOP_REAP_REPO override, then MAKATO_LOOP_DISPATCH_REPO (set by cmd_run
+# from the poll result), then parses `git remote get-url origin`. Prints the
+# owner/repo slug, or empty when none can be resolved.
+# ---------------------------------------------------------------------------
+_derive_reap_repo() {
+  if [[ -n "${MAKATO_LOOP_REAP_REPO:-}" ]]; then
+    printf '%s\n' "$MAKATO_LOOP_REAP_REPO"; return 0
+  fi
+  if [[ -n "${MAKATO_LOOP_DISPATCH_REPO:-}" ]]; then
+    printf '%s\n' "$MAKATO_LOOP_DISPATCH_REPO"; return 0
+  fi
+  git -C "$REPO_ROOT" remote get-url origin 2>/dev/null \
+    | sed -E 's|.*github\.com[:/]||; s|\.git$||' || true
+}
+
+# ---------------------------------------------------------------------------
+# _reap_pr_merged <repo> <branch> — echo the merged PR number for a branch, or
+# empty if none. Offline test hook: MAKATO_LOOP_REAP_GH_OVERRIDE points at a
+# JSON map {"<branch>": "<pr#>"} read instead of calling `gh`.
+# ---------------------------------------------------------------------------
+_reap_pr_merged() {
+  local repo="$1" branch="$2"
+  if [[ -n "${MAKATO_LOOP_REAP_GH_OVERRIDE:-}" ]]; then
+    jq -r --arg b "$branch" '.[$b] // empty' \
+      "$MAKATO_LOOP_REAP_GH_OVERRIDE" 2>/dev/null || true
+    return 0
+  fi
+  [[ -n "$repo" ]] || return 0
+  gh pr list --repo "$repo" --head "$branch" --state merged \
+    --json number --jq '.[0].number // empty' 2>/dev/null || true
+}
+
+# ---------------------------------------------------------------------------
+# _reap_is_retained <realpath-of-worktree> — return 0 (retained → skip) when
+# ANY specs/*/workflow-state-*.json has .worktree_retained==true AND a
+# .worktree_path that realpath-matches the candidate; else return 1. Mirrors
+# in_flight_issues' scan. Most worktrees have no state file, in which case the
+# flag simply cannot veto — the dirty/lock guards are the backstop for those.
+# ---------------------------------------------------------------------------
+_reap_is_retained() {
+  local target="$1"
+  [[ -d "$SPECS_DIR" ]] || return 1
+  local match
+  match="$(find "$SPECS_DIR" -maxdepth 2 \
+      \( -name 'workflow-state-*.json' -o -name 'workflow-state.json' \) \
+      -print0 2>/dev/null |
+    while IFS= read -r -d '' f; do
+      local wp retained rp
+      retained="$(jq -r '.worktree_retained // false' "$f" 2>/dev/null || echo false)"
+      [[ "$retained" == "true" ]] || continue
+      wp="$(jq -r '.worktree_path // empty' "$f" 2>/dev/null || true)"
+      [[ -n "$wp" ]] || continue
+      rp="$(_realpath "$wp")"
+      if [[ "$rp" == "$target" ]]; then echo "match"; break; fi
+    done)"
+  [[ -n "$match" ]]
+}
+
+# ---------------------------------------------------------------------------
+# _realpath <path> — canonicalise (resolves macOS /var → /private/var symlink
+# aliasing so path comparisons are stable). Matches worktree.sh's helper.
+# ---------------------------------------------------------------------------
+_realpath() {
+  python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$1" 2>/dev/null || printf '%s\n' "$1"
+}
+
+# ---------------------------------------------------------------------------
+# _reap_merged_worktrees — name-agnostic sweep that removes local worktrees
+# whose branch has a MERGED PR (#265). See the config block near the top of
+# this file for the rationale. Best-effort: never fails the tick.
+#
+# Guard stack — a worktree is removed ONLY when it passes ALL of:
+#   1. not the main checkout (realpath != realpath(REPO_ROOT))
+#   2. lives under .claude/worktrees/ (out-of-band worktrees are left alone)
+#   3. not a prefix of another registered worktree (parent of nested worktrees)
+#   4. not locked (`git worktree lock` is the operator's always-honoured pin)
+#   5. not detached HEAD (no branch → no PR to check)
+#   6. clean working tree (`git -C <wt> status --porcelain` empty)
+#   7. not retained (workflow-state .worktree_retained==true, when a state maps)
+#   8. branch has a MERGED PR
+#
+# Throttle: no-ops when the last pass ran within REAP_INTERVAL_SECS. Offline
+# test hooks: MAKATO_LOOP_REAP_WT_OVERRIDE (fake porcelain), _REAP_GH_OVERRIDE
+# (merged-PR map), MAKATO_LOOP_REAP_DRYRUN=1 (log intent, do not remove).
+# ---------------------------------------------------------------------------
+_reap_merged_worktrees() {
+  [[ "$REAP_ON_POLL" == "1" ]] || return 0
+
+  # Throttle — skip when a pass ran within the interval window.
+  if [[ "${REAP_INTERVAL_SECS:-3600}" -gt 0 ]]; then
+    local last_reap last_epoch now_epoch
+    last_reap="$(_read_status | jq -r '.last_reap // empty' 2>/dev/null || true)"
+    last_epoch="$(_reap_epoch_of_iso "$last_reap")"
+    if [[ -n "$last_epoch" ]]; then
+      now_epoch="$(date +%s)"
+      if (( now_epoch - last_epoch < REAP_INTERVAL_SECS )); then
+        return 0
+      fi
+    fi
+  fi
+
+  local dryrun="${MAKATO_LOOP_REAP_DRYRUN:-}"
+  local repo self_path wt_base porcelain
+  repo="$(_derive_reap_repo)"
+  self_path="$(_realpath "$REPO_ROOT")"
+  wt_base="$(_realpath "$REPO_ROOT/.claude/worktrees")"
+
+  if [[ -n "${MAKATO_LOOP_REAP_WT_OVERRIDE:-}" ]]; then
+    porcelain="$(cat "$MAKATO_LOOP_REAP_WT_OVERRIDE" 2>/dev/null || true)"
+  else
+    porcelain="$(git -C "$REPO_ROOT" worktree list --porcelain 2>/dev/null || true)"
+  fi
+  [[ -n "$porcelain" ]] || { _reap_stamp 0 ""; return 0; }
+
+  # First pass: collect all worktree paths (realpath) so guard 3 can detect a
+  # candidate that is the parent of a nested worktree.
+  local all_paths=()
+  local line p
+  while IFS= read -r line; do
+    case "$line" in
+      "worktree "*) p="${line#worktree }"; all_paths+=("$(_realpath "$p")") ;;
+    esac
+  done <<<"$porcelain"
+
+  # Second pass: parse stanzas and apply the guard stack.
+  local reaped_json="[]"
+  local reaped_count=0
+  local cur_path="" cur_branch="" cur_locked="" cur_detached=""
+
+  _reap_process_stanza() {
+    [[ -n "$cur_path" ]] || return 0
+    local rp="$cur_path" branch="$cur_branch"
+
+    # Guard 1: main checkout.
+    if [[ "$rp" == "$self_path" ]]; then
+      echo "loop: reap skip $rp (main checkout)" >&2; return 0
+    fi
+    # Guard 2: under .claude/worktrees/.
+    if [[ "$rp" != "$wt_base/"* ]]; then
+      echo "loop: reap skip $rp (outside .claude/worktrees)" >&2; return 0
+    fi
+    # Guard 3: parent of a nested worktree.
+    local other
+    for other in "${all_paths[@]}"; do
+      if [[ "$other" != "$rp" && "$other" == "$rp/"* ]]; then
+        echo "loop: reap skip $rp (parent of nested worktree)" >&2; return 0
+      fi
+    done
+    # Guard 4: locked.
+    if [[ -n "$cur_locked" ]]; then
+      echo "loop: reap skip $rp (locked)" >&2; return 0
+    fi
+    # Guard 5: detached HEAD.
+    if [[ -n "$cur_detached" || -z "$branch" ]]; then
+      echo "loop: reap skip $rp (detached HEAD / no branch)" >&2; return 0
+    fi
+    # Guard 6: dirty working tree.
+    if [[ -n "$(git -C "$rp" status --porcelain 2>/dev/null)" ]]; then
+      echo "loop: reap skip $rp (dirty working tree)" >&2; return 0
+    fi
+    # Guard 7: retained via workflow-state.
+    if _reap_is_retained "$rp"; then
+      echo "loop: reap skip $rp (worktree_retained=true)" >&2; return 0
+    fi
+    # Guard 8: branch must have a MERGED PR.
+    local pr
+    pr="$(_reap_pr_merged "$repo" "$branch")"
+    if [[ -z "$pr" ]]; then
+      echo "loop: reap skip $rp (no merged PR for branch $branch)" >&2; return 0
+    fi
+
+    if [[ -n "$dryrun" ]]; then
+      echo "loop: reap would remove $rp (merged PR #$pr, branch $branch)" >&2
+      return 0
+    fi
+    echo "loop: reap removing $rp (merged PR #$pr, branch $branch)" >&2
+    if git -C "$REPO_ROOT" worktree remove --force "$rp" >/dev/null 2>&1; then
+      reaped_json="$(jq -c --arg p "$rp" --arg b "$branch" --arg pr "$pr" \
+        '. + [{path:$p, branch:$b, pr:$pr}]' <<<"$reaped_json")"
+      reaped_count=$((reaped_count + 1))
+    else
+      echo "loop: WARN — reap remove failed for $rp (tick continues)" >&2
+    fi
+  }
+
+  while IFS= read -r line; do
+    case "$line" in
+      "worktree "*)
+        _reap_process_stanza
+        cur_path="$(_realpath "${line#worktree }")"
+        cur_branch=""; cur_locked=""; cur_detached=""
+        ;;
+      "branch refs/heads/"*) cur_branch="${line#branch refs/heads/}" ;;
+      "detached")            cur_detached=1 ;;
+      "locked"*)             cur_locked=1 ;;
+    esac
+  done <<<"$porcelain"
+  _reap_process_stanza   # flush the final stanza (no trailing blank guaranteed)
+
+  # Prune stale registrations left by removals (best-effort).
+  if [[ -z "$dryrun" && "$reaped_count" -gt 0 ]]; then
+    git -C "$REPO_ROOT" worktree prune >/dev/null 2>&1 || true
+  fi
+
+  _reap_stamp "$reaped_count" "$reaped_json"
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# _reap_stamp <count> <reaped-json> — record the reap-pass audit into
+# loop-status.json. `reaped` is written only when the pass removed something
+# (keeps the status file from growing an empty array every hour).
+# ---------------------------------------------------------------------------
+_reap_stamp() {
+  local count="$1" reaped_json="${2:-}"
+  _patch_status '.last_reap' "\"$(_now)\""
+  _patch_status '.last_reap_count' "${count:-0}"
+  if [[ "${count:-0}" -gt 0 && -n "$reaped_json" ]]; then
+    _patch_status '.reaped' "$reaped_json"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# remove-worktrees — standalone entry point for the merged-worktree reaper
+# (#265). Also called by cmd_run before each poll. Bypass the throttle with
+# MAKATO_LOOP_REAP_INTERVAL=0; inspect safely with MAKATO_LOOP_REAP_DRYRUN=1.
+# ---------------------------------------------------------------------------
+cmd_remove_worktrees() {
+  _reap_merged_worktrees
+}
+
+# ---------------------------------------------------------------------------
 # dispatch <ISSUE_NUMBER> [--dry-run]
 # ---------------------------------------------------------------------------
 cmd_dispatch() {
@@ -1479,6 +1780,16 @@ cmd_run() {
       _promote_labelled_ready || true
     fi
 
+    # Pre-poll merged-worktree reap (#265): remove local worktrees whose PR is
+    # merged so the operator's .claude/worktrees/ does not pile up. Runs for
+    # all --status values (it operates on local disk, not the board) but is
+    # self-throttled to at most once per REAP_INTERVAL_SECS. Skipped under
+    # --dry-run (inspection mode never mutates disk). Best-effort — never
+    # blocks the tick.
+    if [[ "$REAP_ON_POLL" == "1" && -z "$dry_run" ]]; then
+      _reap_merged_worktrees || true
+    fi
+
     local queue queue_depth
     queue="$(cmd_poll "$status_name" || echo '[]')"
     queue_depth="$(jq 'length' <<<"$queue")"
@@ -1570,6 +1881,7 @@ case "$SUBCMD" in
   status)     cmd_status ;;
   dispatch)   cmd_dispatch "$@" ;;
   promote-ready) cmd_promote_ready ;;
+  remove-worktrees) cmd_remove_worktrees ;;
   check-halt) cmd_check_halt ;;
   *) echo "loop: unknown subcommand: $SUBCMD" >&2; exit 64 ;;
 esac
