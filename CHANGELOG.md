@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.54.1](https://github.com/macatocz/makato/compare/v0.54.0...v0.54.1) (2026-07-13)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** emit loud degraded warning when jsonschema missing ([#317](https://github.com/macatocz/makato/issues/317)) ([#337](https://github.com/macatocz/makato/issues/337)) ([2ac2b80](https://github.com/macatocz/makato/commit/2ac2b80e125fc327b95622aaf4d877934515dd2e))
+* **makato-orchestrate:** make _write_status atomic via same-dir mktemp ([#316](https://github.com/macatocz/makato/issues/316)) ([#336](https://github.com/macatocz/makato/issues/336)) ([3b1e0d3](https://github.com/macatocz/makato/commit/3b1e0d3cb7d3292a297f2a35c39726552b43d5ae))
+
 ## [0.54.0](https://github.com/macatocz/makato/compare/v0.53.1...v0.54.0) (2026-07-13)
 
 
