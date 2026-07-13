@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.52.3](https://github.com/macatocz/makato/compare/v0.52.2...v0.52.3) (2026-07-13)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** exclude needs-human-review from Ready re-promotion ([#286](https://github.com/macatocz/makato/issues/286)) ([#303](https://github.com/macatocz/makato/issues/303)) ([62f6afa](https://github.com/macatocz/makato/commit/62f6afaff5cc546803b1212ab91313becaa98d78))
+
 ## [0.52.2](https://github.com/macatocz/makato/compare/v0.52.1...v0.52.2) (2026-07-13)
 
 
