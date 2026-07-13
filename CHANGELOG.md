@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.52.6](https://github.com/macatocz/makato/compare/v0.52.5...v0.52.6) (2026-07-13)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** give CI-failure loop its own budget counter ([#288](https://github.com/macatocz/makato/issues/288)) ([#309](https://github.com/macatocz/makato/issues/309)) ([781c2a1](https://github.com/macatocz/makato/commit/781c2a148eb9ad8bde4a4bb96f4a7a55b2257bfb))
+
 ## [0.52.5](https://github.com/macatocz/makato/compare/v0.52.4...v0.52.5) (2026-07-13)
 
 
