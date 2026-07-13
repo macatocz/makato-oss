@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.52.9](https://github.com/macatocz/makato/compare/v0.52.8...v0.52.9) (2026-07-13)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** guard watchdog writes by ownership + flake-probe CI failures ([#312](https://github.com/macatocz/makato/issues/312)) ([#328](https://github.com/macatocz/makato/issues/328)) ([02c6ff0](https://github.com/macatocz/makato/commit/02c6ff0e11f16a58f4fce2f707486cdcbb8b9141))
+
 ## [0.52.8](https://github.com/macatocz/makato/compare/v0.52.7...v0.52.8) (2026-07-13)
 
 
