@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.52.0](https://github.com/macatocz/makato/compare/v0.51.1...v0.52.0) (2026-07-13)
+
+
+### ✨ Features
+
+* **makato-temporal:** add config/skill-bundles.yml ([#297](https://github.com/macatocz/makato/issues/297)) ([0a749e1](https://github.com/macatocz/makato/commit/0a749e13059313fceecd2b3f46d97e26976f258c))
+
 ## [0.51.1](https://github.com/macatocz/makato/compare/v0.51.0...v0.51.1) (2026-07-13)
 
 
