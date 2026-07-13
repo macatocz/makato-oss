@@ -34,6 +34,7 @@ ALLOWED_FILES=(
   ".git"
   ".pre-commit-config.yaml"
   "pyproject.toml"
+  "renovate.json"
 )
 
 ERRORS=0
