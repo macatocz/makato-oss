@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.53.0](https://github.com/macatocz/makato/compare/v0.52.9...v0.53.0) (2026-07-13)
+
+
+### ✨ Features
+
+* **makato-build:** add pre-commit gate for context-bundles.yml ([#324](https://github.com/macatocz/makato/issues/324)) ([#332](https://github.com/macatocz/makato/issues/332)) ([e5ecd39](https://github.com/macatocz/makato/commit/e5ecd395a2ea351c08da03ca1c68973ea1e66d85))
+
+
+### 🐛 Bug Fixes
+
+* **.gitignore:** re-include specs/**/build.jsonl audit trail ([#321](https://github.com/macatocz/makato/issues/321)) ([#329](https://github.com/macatocz/makato/issues/329)) ([6dd7b37](https://github.com/macatocz/makato/commit/6dd7b373e72e89db54154878831656b67d8d696e))
+
 ## [0.52.9](https://github.com/macatocz/makato/compare/v0.52.8...v0.52.9) (2026-07-13)
 
 
