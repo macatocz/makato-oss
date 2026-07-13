@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.52.5](https://github.com/macatocz/makato/compare/v0.52.4...v0.52.5) (2026-07-13)
+
+
+### 🐛 Bug Fixes
+
+* **makato-build:** reconcile documented-but-unwired mechanisms ([#287](https://github.com/macatocz/makato/issues/287)) ([#307](https://github.com/macatocz/makato/issues/307)) ([6cd6809](https://github.com/macatocz/makato/commit/6cd6809ffcf94abb62b9cf5786c1a4820e5973b3))
+
 ## [0.52.4](https://github.com/macatocz/makato/compare/v0.52.3...v0.52.4) (2026-07-13)
 
 
