@@ -112,6 +112,21 @@ repos:
         pass_filenames: true
 
   # -----------------------------------------------------------------------
+  # Context-bundles authoring gate — fast lane (#324)
+  # Rejects any context-bundles.yml missing the required `default` bundle
+  # (or with duplicate bundle names / missing name fields). Surfaces HALT-006
+  # conditions at commit time rather than at runtime.
+  # -----------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: validate-context-bundles
+        name: validate context-bundles.yml (default-bundle gate)
+        entry: plugins/makato-build/pre-commit/validate-context-bundles.sh
+        language: system
+        files: (^|/)context-bundles\.yml$
+        pass_filenames: true
+
+  # -----------------------------------------------------------------------
   # Secret scanning — fast lane (every commit)
   # -----------------------------------------------------------------------
   - repo: https://github.com/gitleaks/gitleaks
