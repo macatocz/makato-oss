@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.56.0](https://github.com/macatocz/makato/compare/v0.55.0...v0.56.0) (2026-07-13)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** serialize structural-failure evidence into reshape context packet ([#349](https://github.com/macatocz/makato/issues/349)) ([9efd51b](https://github.com/macatocz/makato/commit/9efd51ba485f17ea77b92902414b3e0bf21d8a5e))
+
 ## [0.55.0](https://github.com/macatocz/makato/compare/v0.54.3...v0.55.0) (2026-07-13)
 
 
