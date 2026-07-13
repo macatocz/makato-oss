@@ -10,7 +10,7 @@ description: >-
   exits on a HALT. Honors `~/.claude/HALT` before every dispatch
   (NEVER 3) and emits `.claude/state/loop-status.json` as the
   operator-facing live audit.
-version: "1.8.0"
+version: "1.9.0"
 argument-hint: "[--status <NAME>] [--interval <S>] [--dry-run] [--once] [--force]"
 ---
 

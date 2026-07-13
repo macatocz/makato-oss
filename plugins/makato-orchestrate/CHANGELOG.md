@@ -5,43 +5,29 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
-## `context-handoff.sh` — HALT-007B restart liveness watchdog (#284)
+## `loop.sh` — board-poll rate-limit is no longer an unmitigated SPOF (#289)
 
-Fixes a HIGH-severity silent-failure bug. The HALT-007B self-restart forked a detached
-`claude --resume` subprocess with `nohup … & disown` and recorded no PID. A pre-fork
-`command -v` check caught a missing binary, but if the subprocess died **after** the fork
-(crash on startup, corrupt resume session, resume-script bug), nothing detected it: the
-issue was silently abandoned mid-run with `handoff_reason: context_ceiling`, no PR, and no
-`needs-human-review`. This adds PID tracking + a liveness handshake so an abandoned handoff
-is caught and escalated.
+Fixes a MEDIUM-severity availability bug. The board poll (`gh project item-list`) is the loop's
+single point of contact with the GitHub API, and every caller degraded a `gh` non-zero exit to
+`echo '{"items":[]}'`. A 429 (rate-limit) or transient 5xx therefore read downstream as an
+**empty queue**: a rate-limited loop logged "queue empty" and idled the full interval while
+Ready work sat undispatched, with the audit showing a healthy idle loop and masking the outage.
+On the `_claim_board_card` re-poll the same idiom additionally warn-proceeded on an unreadable
+board, re-opening the pre-#259 double-dispatch race.
 
-- **`skills/workflow-state/references/workflow-state.schema.json`** — two optional fields
-  (`properties` only, not `required`, matching the `session_baseline_tokens` backward-compat
-  precedent): `spawned_pid` (`integer>=1 | null`) and `resume_ack` (`string | null`,
-  `date-time`). Absent in pre-#284 state files; readers treat absent as null.
-- **`shared/workflow-state.sh`** — `init` emits `spawned_pid: null` and `resume_ack: null`.
-- **`scripts/context-handoff.sh`** — the fork one-liner is split so `$!` is captured into
-  `spawned_pid` and persisted **before** `disown`. New `check-pid <KEY> <ISSUE>` subcommand
-  supervises a pending handoff: it clears the pid on a healthy resume (a `resume_ack` fresher
-  than the latest HALT-007B audit entry), keeps waiting while the subprocess boots inside
-  `MAKATO_HANDOFF_ACK_TIMEOUT` (default 120 s), or fires the HALT-007 fallback
-  (`restart_failed: true`, `needs-human-review` applied directly, HALT-007 audited) when the
-  pid is dead or no ack arrives. The fallback clears `spawned_pid` so it is idempotent across
-  loop ticks. Liveness failure routes to **HALT-007, not HALT-007B** — NEVER 9 is preserved.
-- **`agents/po-agent.md`** — the Step 2 resume path writes `resume_ack` (current timestamp)
-  as its first action, **before** clearing `handoff_reason`, so the watchdog can distinguish a
-  booting subprocess from a crashed one.
-- **`scripts/loop.sh`** — new `_check_pending_handoffs` pre-poll pass calls `check-pid` for
-  every state file with a pending handoff. Runs for all `--status` values, skipped under
-  `--dry-run`, best-effort (never blocks a tick).
-- **`skills/loop/SKILL.md`** — Process step 3.5 documents the sweep; `MAKATO_HANDOFF_ACK_TIMEOUT`
-  added to the env-var table.
-- **`halt-conditions.md`** — HALT-007 trigger list extended with the liveness-timeout origin.
-- **Tests** — `context-handoff-smoke-tests.sh` T11–T15 (live-fork PID recording, healthy-ack
-  clear, ack-timeout fallback, dead-pid fast path, fallback idempotency);
-  `skills/workflow-state/references/smoke-tests.sh` T44–T45 (schema contract for the two new
-  fields). Full context-handoff (15), workflow-state (45), loop (38), session-status (13)
-  suites pass.
+- **`scripts/loop.sh`** — new `_gh_project_item_list` wrapper adds bounded exponential-backoff
+  retry (`MAKATO_LOOP_POLL_RETRIES`, default 3; `MAKATO_LOOP_POLL_BACKOFF_BASE`, default 2s) and,
+  crucially, distinguishes "poll failed" from "queue empty": on exhaustion it returns non-zero
+  and prints nothing rather than a fabricated empty payload. `cmd_poll` propagates that as rc 75
+  (`EX_TEMPFAIL`); `cmd_run` stamps a distinct transient-error state (`poll_healthy:false`,
+  `last_poll_error`) into `loop-status.json`, skips dispatch that tick, and re-polls after a short
+  `MAKATO_LOOP_POLL_ERROR_BACKOFF` (default: `--interval`) instead of the full idle interval.
+  `_claim_board_card` now SKIPs the claim (returns 1) on a failed re-poll rather than warn-
+  proceeding, so a transient read failure can never re-open the double-dispatch race.
+- **`scripts/loop-smoke-tests.sh`** — T39–T42 added: retry rides out a transient blip; exhaustion
+  returns non-zero with empty stdout; `cmd_poll` surfaces rc 75; `run --once` records the
+  transient-error state and never logs a false "queue empty". Fully offline via
+  `MAKATO_LOOP_POLL_TEST_CMD` + `MAKATO_LOOP_SLEEP_CMD=true`.
 
 ---
 

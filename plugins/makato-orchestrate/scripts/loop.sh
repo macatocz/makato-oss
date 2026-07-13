@@ -198,6 +198,25 @@ DEFAULT_STATUS="${MAKATO_LOOP_STATUS:-Ready}"
 ASSIGN_ON_DISPATCH="${MAKATO_LOOP_ASSIGN_ON_DISPATCH:-1}"
 ASSIGNEE="${MAKATO_LOOP_ASSIGNEE:-@me}"
 
+# --- Board-poll resilience (#289) ---
+# The board poll (`gh project item-list`) is the loop's single point of contact
+# with the GitHub API. A 429 (rate-limit) or transient 5xx returns non-zero;
+# before #289 every caller degraded that to `echo '{"items":[]}'`, which the
+# queue filter then read as an EMPTY QUEUE — so a rate-limited loop logged
+# "queue empty" and idled while Ready work sat undispatched. `_gh_project_item_list`
+# retries with exponential backoff and distinguishes "poll failed" from "queue
+# empty" so a read failure can never silently masquerade as no-work-to-do.
+#   MAKATO_LOOP_POLL_RETRIES       Total poll attempts before giving up
+#                                  (default 3).
+#   MAKATO_LOOP_POLL_BACKOFF_BASE  Base seconds for exponential backoff between
+#                                  attempts (default 2 → waits 2s, 4s, …). Reuses
+#                                  MAKATO_LOOP_SLEEP_CMD so tests stay offline.
+#   MAKATO_LOOP_POLL_ERROR_BACKOFF Seconds cmd_run sleeps after a failed poll
+#                                  before the next tick (default: --interval).
+#   MAKATO_LOOP_POLL_TEST_CMD      Tests only: command string eval'd in place of
+#                                  the real `gh` call, so smoke tests can simulate
+#                                  N failures then a success without a network hit.
+
 # Synchronous board claim (#259 — cross-worktree double-dispatch). All three
 # single-thread guarantees are worktree-local: the run-mutex pidfile is
 # $STATE_DIR-scoped, the in-flight filter is specs/-scoped, and the only
@@ -299,6 +318,17 @@ REAP_INTERVAL_SECS="${MAKATO_LOOP_REAP_INTERVAL:-3600}"
 SLEEP_MAX_STEP_SECS="${MAKATO_LOOP_SLEEP_MAX_STEP:-30}"
 MIN_DISPATCH_GAP_SECS="${MAKATO_LOOP_MIN_DISPATCH_GAP:-30}"
 LAST_DISPATCH_GAP_SECS="${MAKATO_LOOP_LAST_DISPATCH_GAP:-30}"
+# Board-poll resilience (#289) — see the doc block near ASSIGNEE above.
+POLL_RETRIES="${MAKATO_LOOP_POLL_RETRIES:-3}"
+POLL_BACKOFF_BASE_SECS="${MAKATO_LOOP_POLL_BACKOFF_BASE:-2}"
+# Guard against non-numeric / non-positive overrides that would make the
+# retry loop misbehave (mirrors the SLEEP_MAX_STEP_SECS floor below).
+if [[ ! "$POLL_RETRIES" =~ ^[0-9]+$ ]] || [[ "$POLL_RETRIES" -lt 1 ]]; then
+  POLL_RETRIES=1
+fi
+if [[ ! "$POLL_BACKOFF_BASE_SECS" =~ ^[0-9]+$ ]]; then
+  POLL_BACKOFF_BASE_SECS=2
+fi
 # Floor SLEEP_MAX_STEP_SECS at 1. Values ≤ 0 (whether accidentally
 # unset-then-defaulted, or explicitly overridden by an operator) would
 # make _guarded_sleep's inner cap `step=$SLEEP_MAX_STEP_SECS` deliver
@@ -395,6 +425,60 @@ _read_project_config() {
 }
 
 # ---------------------------------------------------------------------------
+# _gh_project_item_list <host> <number> <owner> (#289) — bounded-retry wrapper
+# around the ONE `gh` API call the loop depends on. Prints the raw JSON board
+# payload to stdout on success and returns 0. On failure of every attempt it
+# prints NOTHING to stdout and returns non-zero — the caller MUST distinguish
+# this from a successful poll that happened to yield an empty item set.
+#
+# Why this exists (#289): a 429 rate-limit or transient 5xx makes `gh` exit
+# non-zero. The previous `gh … || echo '{"items":[]}'` idiom turned that into
+# an empty-looking payload, which the queue filter read as "no work to do" —
+# a rate-limited loop then logged "queue empty" and idled while Ready issues
+# sat undispatched, with the audit showing a healthy idle loop. Retrying with
+# exponential backoff rides out a transient blip; propagating the failure (not
+# masking it as `{"items":[]}`) lets callers surface a distinct transient-error
+# state instead of a false empty queue.
+#
+# Retry budget: POLL_RETRIES attempts (default 3), backoff POLL_BACKOFF_BASE_SECS
+# * 2^(attempt-1) seconds between them (2s, 4s, …), using the same overridable
+# sleep command as _guarded_sleep so smoke tests stay offline and fast. Test
+# hook MAKATO_LOOP_POLL_TEST_CMD replaces the real `gh` invocation with an
+# eval'd command string so failure/success sequences can be simulated.
+# ---------------------------------------------------------------------------
+_gh_project_item_list() {
+  local host="$1" number="$2" owner="$3"
+  local sleep_cmd="${MAKATO_LOOP_SLEEP_CMD:-sleep}"
+  local attempt=1 out rc
+  while (( attempt <= POLL_RETRIES )); do
+    # Guard the command-substitution assignment with `|| rc=$?`: under
+    # `set -e` a bare `out="$(failing-cmd)"` would abort the function on the
+    # first non-zero exit, defeating the retry loop entirely. The `||` keeps
+    # the failure local so we can inspect rc and back off.
+    rc=0
+    if [[ -n "${MAKATO_LOOP_POLL_TEST_CMD:-}" ]]; then
+      out="$(MAKATO_LOOP_POLL_ATTEMPT="$attempt" eval "$MAKATO_LOOP_POLL_TEST_CMD" 2>/dev/null)" || rc=$?
+    else
+      out="$(GH_HOST="$host" gh project item-list "$number" \
+        --owner "$owner" --format json --limit 9999 2>/dev/null)" || rc=$?
+    fi
+    if [[ $rc -eq 0 ]]; then
+      printf '%s' "$out"
+      return 0
+    fi
+    if (( attempt < POLL_RETRIES )); then
+      local wait=$(( POLL_BACKOFF_BASE_SECS * (1 << (attempt - 1)) ))
+      echo "loop: WARN — board poll attempt $attempt/$POLL_RETRIES failed (gh exit $rc); retrying in ${wait}s (#289)" >&2
+      $sleep_cmd "$wait" 2>/dev/null || true
+    else
+      echo "loop: ERROR — board poll failed after $POLL_RETRIES attempts (gh exit $rc); NOT treating as empty queue (#289)" >&2
+    fi
+    attempt=$(( attempt + 1 ))
+  done
+  return 1
+}
+
+# ---------------------------------------------------------------------------
 # Read the loop-status file, or echo `{}` if missing.
 # ---------------------------------------------------------------------------
 _read_status() {
@@ -472,13 +556,17 @@ cmd_poll() {
     # host via `GH_HOST` (auth context) and `--owner`. A bare
     # `gh --hostname …` at this subcommand position fails with
     # `unknown flag: --hostname` and previously left the queue silently
-    # empty (issue #156). Route host through the env var instead, and let
-    # gh's stderr surface real failures so callers see them (the outer
-    # `run` loop retries next tick regardless — the loss was diagnostics).
+    # empty (issue #156). Route host through the env var instead.
     # `--limit 9999` mirrors plugins/makato-plan/.../board-audit.md — same
     # ceiling, same WARN-on-truncation contract.
-    raw="$(GH_HOST="$host" gh project item-list "$number" \
-      --owner "$owner" --format json --limit 9999 || echo '{"items":[]}')"
+    #
+    # #289: the poll now goes through _gh_project_item_list, which retries on
+    # rate-limit / transient failure and returns non-zero on exhaustion. We
+    # PROPAGATE that failure (return 75, EX_TEMPFAIL) rather than substituting
+    # `{"items":[]}` — a failed poll must NOT read as an empty queue downstream.
+    if ! raw="$(_gh_project_item_list "$host" "$number" "$owner")"; then
+      return 75
+    fi
   fi
   jq --arg status "$status_name" \
     '[.items[]
@@ -1004,8 +1092,16 @@ _claim_board_card() {
   if [[ -n "${MAKATO_LOOP_GH_OVERRIDE:-}" ]]; then
     board="$(cat "$MAKATO_LOOP_GH_OVERRIDE" 2>/dev/null || echo '{"items":[]}')"
   else
-    board="$(GH_HOST="$host" gh project item-list "$number" --owner "$owner" \
-      --format json --limit 9999 2>/dev/null || echo '{"items":[]}')"
+    # #289: the CAS re-poll goes through the retrying wrapper. If it fails after
+    # all retries we must NOT warn-proceed — proceeding on an unreadable board
+    # re-opens the pre-#259 double-dispatch race (two sessions each unable to
+    # read the card, each falling through to spawn). A failed read is treated as
+    # "cannot safely claim → SKIP this tick" (return 1); the issue stays on the
+    # queue and a later tick re-attempts the claim once the API recovers.
+    if ! board="$(_gh_project_item_list "$host" "$number" "$owner")"; then
+      echo "loop: skip #$issue — board re-poll failed (rate-limit/transient); NOT claiming to avoid double-dispatch (#289)" >&2
+      return 1
+    fi
   fi
   item_line="$(jq -c --argjson i "$issue" \
     'first(.items[] | select(.content.type == "Issue" and .content.number == $i))' \
@@ -1910,29 +2006,45 @@ cmd_run() {
       _reap_merged_worktrees || true
     fi
 
-    # Pre-poll HALT-007B liveness check (#284): detect in-flight issues whose
-    # detached resume subprocess failed to write resume_ack within the timeout
-    # window (or died outright after fork). check-pid fires the HALT-007
-    # fallback for those, so a silently-abandoned handoff gets needs-human-review
-    # instead of stalling forever. Runs for all --status values (it reads local
-    # state, not the board). Skipped under --dry-run (inspection never mutates).
-    # Best-effort — never blocks the tick.
-    if [[ -z "$dry_run" ]]; then
-      _check_pending_handoffs || true
+    local queue queue_depth poll_rc
+    # #289: capture cmd_poll's exit code. A non-zero rc means the board poll
+    # FAILED (rate-limit / transient API error after all retries) — this is
+    # categorically different from a successful poll that returned an empty
+    # item set. We must not let a failed read masquerade as an empty queue and
+    # trigger an "idle" tick, hiding an ongoing API outage behind a healthy-
+    # looking loop.
+    poll_rc=0
+    queue="$(cmd_poll "$status_name")" || poll_rc=$?
+    if [[ $poll_rc -ne 0 ]]; then
+      # Distinct transient-error state: stamp the failure into loop-status.json
+      # (so the audit shows an outage, not an idle loop), skip dispatch this
+      # tick, and re-poll after a short backoff rather than the full interval —
+      # Ready work must resume promptly once the API recovers.
+      local now err_backoff
+      now="$(_now)"
+      err_backoff="${MAKATO_LOOP_POLL_ERROR_BACKOFF:-$interval}"
+      echo "loop: board poll FAILED (transient/rate-limit) — skipping dispatch this tick, re-polling in ${err_backoff}s (#289)" >&2
+      _write_status "$(jq \
+        --arg ts "$now" \
+        '. + {last_poll_error: $ts, poll_healthy: false}' \
+        <<<"$(_read_status)")"
+      if [[ -n "$once" ]]; then
+        return 0
+      fi
+      _guarded_sleep "$err_backoff"
+      continue
     fi
-
-    local queue queue_depth
-    queue="$(cmd_poll "$status_name" || echo '[]')"
     queue_depth="$(jq 'length' <<<"$queue")"
-    # Batch the three poll-result fields into a single status write — saves
+    # Batch the poll-result fields into a single status write — saves
     # three `_patch_status` invocations (each reads + jq-merges + mktemp + mv).
+    # `poll_healthy:true` clears any prior transient-error flag (#289).
     local now
     now="$(_now)"
     _write_status "$(jq \
       --arg ts "$now" \
       --argjson depth "$queue_depth" \
       --argjson q "$(jq '[.[].issue]' <<<"$queue")" \
-      '. + {last_poll: $ts, queue_depth: $depth, queue: $q}' \
+      '. + {last_poll: $ts, queue_depth: $depth, queue: $q, poll_healthy: true}' \
       <<<"$(_read_status)")"
 
     local in_flight
@@ -2000,6 +2112,7 @@ if [[ "$SUBCMD" == _test-* ]]; then
   fi
   case "$SUBCMD" in
     _test-guarded-sleep) _guarded_sleep "$@" ;;
+    _test-gh-item-list) _gh_project_item_list "$@" ;;
     *) echo "loop: unknown test hook: $SUBCMD" >&2; exit 64 ;;
   esac
   exit 0

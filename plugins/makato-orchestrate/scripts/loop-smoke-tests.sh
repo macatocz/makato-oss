@@ -39,6 +39,10 @@
 #        tracked-dirty/locked/not-landed/retained/main; ancestry-of-base reaps
 #        a renamed-head branch with no PR; untracked scratch does not pin;
 #        nested parent and nested child both skipped; disable + throttle
+#   T39–T42: board-poll rate-limit resilience (#289) — retry rides out a
+#        transient blip; exhaustion returns non-zero + empty stdout; cmd_poll
+#        propagates failure as rc 75; run --once stamps a transient-error state
+#        (poll_healthy=false, last_poll_error) instead of a false "queue empty"
 #
 # A fixture file is injected via MAKATO_LOOP_GH_OVERRIDE so `gh` is not
 # invoked. Test isolation uses MAKATO_LOOP_STATE_DIR + ephemeral spec
@@ -219,6 +223,69 @@ if jq -e '[.[] | select(.issue == null)] | length > 0' <<<"$queue" >/dev/null; t
   fail "DraftIssue leaked into the queue"
 fi
 echo "  ✓ DraftIssue excluded (Issue-only)"
+
+# ---------------------------------------------------------------------------
+# #289 — board-poll rate-limit / transient-failure resilience. The poll must
+# retry with backoff and distinguish "poll failed" from "queue empty" so a
+# 429'd loop never masquerades as idle. Fully offline via MAKATO_LOOP_POLL_TEST_CMD
+# (replaces the real `gh` call) + MAKATO_LOOP_SLEEP_CMD=true (skip backoff waits).
+# ---------------------------------------------------------------------------
+echo "=== T39: _gh_project_item_list retries then succeeds (transient blip) ==="
+# Fail attempts 1-2, succeed on attempt 3. With POLL_RETRIES default 3 the
+# wrapper must ride out the blip and return the payload with rc 0.
+t39_cmd='if [ "$MAKATO_LOOP_POLL_ATTEMPT" -lt 3 ]; then exit 22; else echo "{\"items\":[{\"content\":{\"type\":\"Issue\",\"number\":777}}]}"; fi'
+t39_out="$(MAKATO_LOOP_TEST_HOOK=1 MAKATO_LOOP_SLEEP_CMD=true MAKATO_LOOP_POLL_TEST_CMD="$t39_cmd" \
+  "$LOOP" _test-gh-item-list github.com 4 macatocz 2>/dev/null)" \
+  || fail "T39: wrapper should return 0 when a later retry succeeds"
+jq -e '.items[0].content.number == 777' <<<"$t39_out" >/dev/null \
+  || fail "T39: wrapper must emit the successful attempt's payload; got: $t39_out"
+echo "  ✓ retried past 2 failures and returned the payload"
+
+echo "=== T40: _gh_project_item_list exhausts retries → non-zero, empty stdout ==="
+t40_rc=0
+t40_out="$(MAKATO_LOOP_TEST_HOOK=1 MAKATO_LOOP_SLEEP_CMD=true MAKATO_LOOP_POLL_TEST_CMD='exit 22' \
+  "$LOOP" _test-gh-item-list github.com 4 macatocz 2>/dev/null)" || t40_rc=$?
+[[ $t40_rc -ne 0 ]] || fail "T40: wrapper must return non-zero when every attempt fails"
+[[ -z "$t40_out" ]] || fail "T40: wrapper must emit NOTHING on stdout on exhaustion (no fake empty payload); got: $t40_out"
+echo "  ✓ exhaustion returns non-zero with empty stdout (no empty-queue masking)"
+
+echo "=== T41: cmd_poll propagates poll failure as rc 75 (not empty queue) ==="
+T41_CFG="$STATE_DIR/t41-config.json"
+jq -n '{github_project:{owner:"macatocz",number:4,host:"github.com"}}' >"$T41_CFG"
+t41_rc=0
+# Unset MAKATO_LOOP_GH_OVERRIDE (exported globally above) so cmd_poll takes the
+# real gh path — routed here through MAKATO_LOOP_POLL_TEST_CMD — instead of the
+# offline fixture, which would succeed and mask the failure branch under test.
+t41_out="$(MAKATO_LOOP_GH_OVERRIDE= MAKATO_LOOP_CONFIG="$T41_CFG" MAKATO_LOOP_SLEEP_CMD=true \
+  MAKATO_LOOP_POLL_TEST_CMD='exit 22' \
+  "$LOOP" poll Ready 2>/dev/null)" || t41_rc=$?
+[[ $t41_rc -eq 75 ]] || fail "T41: cmd_poll must exit 75 (EX_TEMPFAIL) on poll failure; got rc=$t41_rc"
+[[ -z "$t41_out" ]] || fail "T41: cmd_poll must not print a fabricated empty array on failure; got: $t41_out"
+echo "  ✓ failed poll surfaces rc 75, does not print an empty queue"
+
+echo "=== T42: run --once on failed poll stamps transient-error state, no idle-dispatch ==="
+T42_STATE="$STATE_DIR/t42"; mkdir -p "$T42_STATE"
+T42_CFG="$STATE_DIR/t42-config.json"
+jq -n '{github_project:{owner:"macatocz",number:4,host:"github.com"}}' >"$T42_CFG"
+rm -f "$HALT_FILE"
+# MAKATO_LOOP_GH_OVERRIDE unset here too — the run's poll must hit the failing
+# MAKATO_LOOP_POLL_TEST_CMD, not the offline fixture.
+t42_out="$(MAKATO_LOOP_GH_OVERRIDE= MAKATO_LOOP_STATE_DIR="$T42_STATE" MAKATO_LOOP_CONFIG="$T42_CFG" \
+  MAKATO_HALT_FILE="$HALT_FILE" MAKATO_LOOP_SLEEP_CMD=true \
+  MAKATO_LOOP_POLL_TEST_CMD='exit 22' MAKATO_LOOP_REAP_ON_POLL=0 \
+  MAKATO_LOOP_POLL_ERROR_BACKOFF=0 \
+  "$LOOP" run --once --status Ready 2>&1)" \
+  || fail "T42: run --once should exit 0 even when the poll fails; out: $t42_out"
+grep -q "board poll FAILED" <<<"$t42_out" \
+  || fail "T42: a failed poll must log 'board poll FAILED'; got: $t42_out"
+grep -q "queue empty" <<<"$t42_out" \
+  && fail "T42: a failed poll must NOT log 'queue empty' (that is the #289 bug); got: $t42_out"
+jq -e '.poll_healthy == false' "$T42_STATE/loop-status.json" >/dev/null \
+  || fail "T42: loop-status.json must record poll_healthy=false after a failed poll"
+jq -e '.last_poll_error != null' "$T42_STATE/loop-status.json" >/dev/null \
+  || fail "T42: loop-status.json must stamp last_poll_error after a failed poll"
+echo "  ✓ transient-error state recorded; no false 'queue empty' idle"
+
 
 # ---------------------------------------------------------------------------
 # Watchdog scenarios (#164). We spawn a genuinely-hung child via
