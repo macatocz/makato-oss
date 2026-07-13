@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.52.2](https://github.com/macatocz/makato/compare/v0.52.1...v0.52.2) (2026-07-13)
+
+
+### 🐛 Bug Fixes
+
+* **makato-build:** add cross-task regression sweep to TDD outer loop ([#285](https://github.com/macatocz/makato/issues/285)) ([#301](https://github.com/macatocz/makato/issues/301)) ([fcff000](https://github.com/macatocz/makato/commit/fcff000dd01cf13d5f1c340607d6de916e8c8f12))
+
 ## [0.52.1](https://github.com/macatocz/makato/compare/v0.52.0...v0.52.1) (2026-07-13)
 
 
