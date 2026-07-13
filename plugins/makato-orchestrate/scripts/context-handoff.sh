@@ -32,10 +32,26 @@
 #   context-handoff.sh emit-resume <KEY> <ISSUE_NUMBER>
 #     (Internal) Write .claude/state/resume-{KEY}.sh. Idempotent.
 #
+#   context-handoff.sh check-pid <KEY> <ISSUE_NUMBER>
+#     Liveness watchdog for a HALT-007B handoff (#284). No-op unless the state
+#     shows an in-flight handoff (handoff_reason == "context_ceiling" AND
+#     spawned_pid set). If the resumed session has acknowledged startup
+#     (resume_ack fresher than the latest HALT-007B audit entry) the PID is
+#     cleared and the check passes. Otherwise, if the PID is dead OR
+#     MAKATO_HANDOFF_ACK_TIMEOUT seconds have elapsed since the handoff with no
+#     ack, the HALT-007 fallback fires (restart_failed=true, needs-human-review
+#     applied directly — the kill-switch poller died with the old session).
+#     Exit 0 = healthy / still waiting / nothing pending. Exit 1 = fallback fired.
+#
 # Environment variables:
 #   MAKATO_MAX_HANDOFFS         — cap on session_count (default 5).
 #   MAKATO_CLAUDE_BIN           — path to the claude binary (default: `claude`
 #                                 on PATH). Tests set this to a stub script.
+#   MAKATO_HANDOFF_ACK_TIMEOUT  — seconds check-pid waits for the resumed
+#                                 session to write resume_ack before firing the
+#                                 HALT-007 fallback (default 120). A dead PID
+#                                 short-circuits this wait — the fallback fires
+#                                 immediately regardless of the timeout.
 #   MAKATO_HANDOFF_DISABLE=1    — short-circuit: never initiate handoff.
 #                                 Threshold checks still print, but no
 #                                 restart is attempted. Reserved for tests
@@ -59,7 +75,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # Argument parsing.
 # ---------------------------------------------------------------------------
-SUBCMD="${1:?subcommand required: check|emit-resume}"
+SUBCMD="${1:?subcommand required: check|emit-resume|check-pid}"
 KEY="${2:?key required}"
 ISSUE_NUMBER="${3:?issue_number required (per-issue state file, #173)}"
 
@@ -69,6 +85,7 @@ STATE_DIR="$REPO_ROOT/.claude/state"
 RESUME_SCRIPT="$STATE_DIR/resume-${KEY}-${ISSUE_NUMBER}.sh"
 MAX_HANDOFFS="${MAKATO_MAX_HANDOFFS:-5}"
 CLAUDE_BIN="${MAKATO_CLAUDE_BIN:-claude}"
+ACK_TIMEOUT="${MAKATO_HANDOFF_ACK_TIMEOUT:-120}"
 
 mkdir -p "$STATE_DIR"
 
@@ -79,6 +96,24 @@ _now() {
   python3 -c "from datetime import datetime, timezone
 n = datetime.now(timezone.utc)
 print(n.strftime('%Y-%m-%dT%H:%M:%S.') + f'{n.microsecond // 1000:03d}Z')"
+}
+
+# ---------------------------------------------------------------------------
+# Convert an ISO-8601 (millisecond, UTC) timestamp to a Unix epoch integer,
+# or print nothing on parse failure. Mirrors loop.sh:_reap_epoch_of_iso — a
+# handful of state timestamps must be compared as epochs (handoff age, ack
+# freshness) and macOS `date` lacks GNU `-d`, so python3 is the portable path.
+# Args: <iso-8601-string>
+# ---------------------------------------------------------------------------
+_epoch_of_iso() {
+  local iso="$1"
+  [[ -n "$iso" && "$iso" != "null" ]] || return 0
+  python3 -c "import sys,datetime
+try:
+    s=sys.argv[1].replace('Z','+00:00')
+    print(int(datetime.datetime.fromisoformat(s).timestamp()))
+except Exception:
+    pass" "$iso" 2>/dev/null || true
 }
 
 # ---------------------------------------------------------------------------
@@ -266,18 +301,142 @@ _check() {
   # Detached restart. nohup + & + redirect stdio so this process can exit
   # cleanly. The fresh subprocess inherits the resume command from the
   # emitted script, not from this script's env.
+  #
+  # #284: capture $! into spawned_pid and persist it to workflow-state BEFORE
+  # disown, so the check-pid liveness watchdog can probe the subprocess with
+  # `kill -0`. The compound `... & disown $!` one-liner discarded the PID —
+  # a post-fork crash then vanished silently with no way to detect it. The
+  # split keeps disown (SIGHUP protection) but records the PID first; the
+  # window between fork and disown is a few shell ops and never sends SIGHUP.
   nohup bash "$RESUME_SCRIPT" >/dev/null 2>&1 &
-  disown $! 2>/dev/null || true
+  local spawned_pid=$!
+  "$WS" patch "$KEY" "$ISSUE_NUMBER" '.spawned_pid' "$spawned_pid"
+  disown "$spawned_pid" 2>/dev/null || true
 
-  echo "context-handoff: HANDOFF (session_count=$((count + 1)), resume script: $RESUME_SCRIPT)" >&2
+  echo "context-handoff: HANDOFF (session_count=$((count + 1)), spawned_pid=$spawned_pid, resume script: $RESUME_SCRIPT)" >&2
   exit 2
+}
+
+# ---------------------------------------------------------------------------
+# check-pid — liveness watchdog for an in-flight HALT-007B handoff (#284).
+#
+# The HALT-007B self-restart forks a detached subprocess and exits the old
+# session. Nothing supervised that subprocess: if it died after the fork
+# (corrupt --resume session, resume-script bug, early crash), the issue was
+# abandoned silently — handoff_reason stayed "context_ceiling", no PR, no
+# label, no page. This watchdog closes that gap. The loop calls it once per
+# poll tick for every state file with a pending handoff.
+#
+# Decision tree (mirrors the design in specs/284-…/design.md):
+#   1. No pending handoff (handoff_reason != context_ceiling OR spawned_pid
+#      null/absent) → exit 0. Nothing to supervise.
+#   2. resume_ack present AND fresher than the latest HALT-007B audit entry →
+#      the resumed session reached its resume path. Clear spawned_pid (so we
+#      don't re-probe a long-dead PID on later ticks) → exit 0.
+#      A stale ack (older than the handoff) is ignored — it belongs to a prior
+#      handoff cycle.
+#   3. PID is dead (`kill -0` fails) AND no fresh ack → the subprocess died
+#      after fork. Fire the HALT-007 fallback immediately (no timeout wait).
+#   4. PID alive, no fresh ack, handoff age < ACK_TIMEOUT → still booting.
+#      exit 0 (the next tick re-checks).
+#   5. PID alive, no fresh ack, handoff age >= ACK_TIMEOUT → the subprocess is
+#      running but never reached the po-agent resume path. Fire the fallback.
+#
+# Exit codes: 0 = healthy / waiting / nothing pending; 1 = HALT-007 fallback.
+# ---------------------------------------------------------------------------
+_check_pid() {
+  local state
+  state="$("$WS" read "$KEY" "$ISSUE_NUMBER")"
+
+  local handoff_reason spawned_pid resume_ack
+  handoff_reason="$(jq -r '.handoff_reason // "null"' <<<"$state")"
+  spawned_pid="$(jq   -r '.spawned_pid // "null"'    <<<"$state")"
+  resume_ack="$(jq    -r '.resume_ack // "null"'     <<<"$state")"
+
+  # (1) No pending handoff to supervise.
+  if [[ "$handoff_reason" != "context_ceiling" || "$spawned_pid" == "null" || -z "$spawned_pid" ]]; then
+    exit 0
+  fi
+
+  # Timestamp of the most recent HALT-007B audit entry — the moment the
+  # handoff fired. Both the ack-freshness test and the age test key off it.
+  local halt_ts halt_epoch
+  halt_ts="$(jq -r '[.halt_audit[] | select(.code == "HALT-007B")] | last | .ts // ""' <<<"$state")"
+  halt_epoch="$(_epoch_of_iso "$halt_ts")"
+
+  # (2) Fresh ack → proof of life. Clear spawned_pid and pass.
+  if [[ "$resume_ack" != "null" && -n "$resume_ack" ]]; then
+    local ack_epoch
+    ack_epoch="$(_epoch_of_iso "$resume_ack")"
+    # Fresh when we can't compare (no halt_ts) OR ack is at/after the handoff.
+    if [[ -z "$halt_epoch" || -z "$ack_epoch" ]] || (( ack_epoch >= halt_epoch )); then
+      "$WS" patch "$KEY" "$ISSUE_NUMBER" '.spawned_pid' 'null'
+      echo "context-handoff: check-pid #$ISSUE_NUMBER healthy (resume_ack=$resume_ack, pid $spawned_pid cleared)" >&2
+      exit 0
+    fi
+    # else: stale ack from a prior cycle — fall through to liveness checks.
+  fi
+
+  # (3) Dead PID with no fresh ack → subprocess died after fork. Immediate fail.
+  if ! kill -0 "$spawned_pid" 2>/dev/null; then
+    _check_pid_fallback "resume subprocess pid $spawned_pid is dead and no resume_ack was written — HALT-007B restart died after fork"
+  fi
+
+  # (4)/(5) PID alive, no fresh ack — gate on handoff age vs ACK_TIMEOUT.
+  local now_epoch age
+  now_epoch="$(_epoch_of_iso "$(_now)")"
+  if [[ -n "$halt_epoch" && -n "$now_epoch" ]]; then
+    age=$(( now_epoch - halt_epoch ))
+    (( age < 0 )) && age=0
+    if (( age < ACK_TIMEOUT )); then
+      echo "context-handoff: check-pid #$ISSUE_NUMBER waiting (pid $spawned_pid alive, ${age}s < ${ACK_TIMEOUT}s ack timeout)" >&2
+      exit 0
+    fi
+    _check_pid_fallback "resume subprocess pid $spawned_pid alive but no resume_ack within ${ACK_TIMEOUT}s (handoff age ${age}s) — resumed session never reached the po-agent resume path"
+  fi
+
+  # No parseable handoff timestamp — cannot compute age. Be conservative:
+  # the PID is alive, so assume it is still booting rather than false-firing.
+  echo "context-handoff: check-pid #$ISSUE_NUMBER waiting (pid $spawned_pid alive, no parseable HALT-007B timestamp)" >&2
+  exit 0
+}
+
+# ---------------------------------------------------------------------------
+# check-pid fallback — the liveness watchdog's HALT-007 exit. Distinct from
+# _halt_007_fallback (the in-session cost fallback) because the kill-switch
+# poller that normally applies needs-human-review died with the old session:
+# check-pid must apply the label itself. Routes to HALT-007, NOT HALT-007B —
+# the subprocess did not survive, so automatic recovery failed and human
+# intervention is needed (NEVER 9 is not violated — see halt-conditions.md).
+# ---------------------------------------------------------------------------
+_check_pid_fallback() {
+  local reason="$1"
+  local repo
+  repo="$("$WS" read "$KEY" "$ISSUE_NUMBER" | jq -r '.repo // empty')"
+  # Clear spawned_pid FIRST so subsequent check-pid calls short-circuit at
+  # guard (1) (spawned_pid == null → nothing to supervise → exit 0) instead of
+  # re-firing this fallback on every loop tick. Without this, each poll re-reads
+  # handoff_reason=context_ceiling + a still-set spawned_pid, re-enters the
+  # dead/timeout branch, and appends a duplicate HALT-007 audit entry + a
+  # redundant gh label call — indefinitely, until an operator clears the state.
+  # handoff_reason stays set (only the resumed po-agent clears it) — that is
+  # correct; the pid is the re-entry key, not the reason.
+  "$WS" patch "$KEY" "$ISSUE_NUMBER" '.spawned_pid' 'null'
+  # MAKATO_HANDOFF_SKIP_LABEL=1 suppresses the gh call — used by the smoke
+  # tests so the fallback path stays fully offline. Production leaves it unset.
+  if [[ -n "$repo" && "${MAKATO_HANDOFF_SKIP_LABEL:-0}" != "1" ]]; then
+    gh issue edit "$ISSUE_NUMBER" --repo "$repo" --add-label "needs-human-review" >/dev/null 2>&1 \
+      || echo "context-handoff: WARN — could not apply needs-human-review to #$ISSUE_NUMBER (fallback continues)" >&2
+  fi
+  _halt_007_fallback "$reason"
 }
 
 case "$SUBCMD" in
   check)        _check ;;
+  check-pid)    _check_pid ;;
   emit-resume)  _emit_resume ;;
   *)
-    echo "context-handoff: unknown subcommand '$SUBCMD'. Valid: check|emit-resume" >&2
+    echo "context-handoff: unknown subcommand '$SUBCMD'. Valid: check|check-pid|emit-resume" >&2
     exit 1
     ;;
 esac

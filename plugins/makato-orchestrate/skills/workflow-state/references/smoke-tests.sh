@@ -84,6 +84,8 @@ echo "=== T10: GAP-004 fields populated at init with safe defaults ==="
 "$WS" read "$KEY" "$ISSUE" | jq -e '.session_summary == null' > /dev/null
 "$WS" read "$KEY" "$ISSUE" | jq -e '.handoff_reason == null' > /dev/null
 "$WS" read "$KEY" "$ISSUE" | jq -e '.restart_failed == false' > /dev/null
+"$WS" read "$KEY" "$ISSUE" | jq -e '.spawned_pid == null' > /dev/null
+"$WS" read "$KEY" "$ISSUE" | jq -e '.resume_ack == null' > /dev/null
 "$WS" read "$KEY" "$ISSUE" | jq -e '.context_warn_tokens >= 1' > /dev/null
 echo "  ✓ session_count / session_summary / handoff_reason / restart_failed / context_warn_tokens"
 
@@ -444,5 +446,47 @@ jq -e '.issue_number == 400' "$SANDBOX_RACE/reader-b.out" > /dev/null || { echo 
 echo "  ✓ two concurrent readers both succeeded, race handled cleanly"
 rm -rf "$SANDBOX_RACE"
 
+echo "=== T44: #284 — spawned_pid schema contract (integer>=1 | null) ==="
+KEY_284="issue-284-fields"
+SANDBOX_284="$REPO_ROOT/specs/${KEY_284}"
+rm -rf "$SANDBOX_284"; mkdir -p "$SANDBOX_284"
+"$WS" init "$KEY_284" macatocz/test feat/284 284 >/dev/null 2>&1
+# Accepts a positive integer.
+"$WS" patch "$KEY_284" 284 '.spawned_pid' '12345' >/dev/null 2>&1 || { echo "  ✗ FAIL: positive integer rejected"; exit 1; }
+[[ "$("$WS" read "$KEY_284" 284 | jq -r '.spawned_pid')" == "12345" ]] || { echo "  ✗ FAIL: spawned_pid not persisted"; exit 1; }
+# Accepts null (cleared by check-pid on healthy resume).
+"$WS" patch "$KEY_284" 284 '.spawned_pid' 'null' >/dev/null 2>&1 || { echo "  ✗ FAIL: null rejected"; exit 1; }
+# Rejects a non-integer type.
+if "$WS" patch "$KEY_284" 284 '.spawned_pid' '"text"' >/dev/null 2>&1; then
+  echo "  ✗ FAIL: non-integer spawned_pid accepted"; exit 1
+fi
+# Rejects 0 (minimum: 1 — PIDs are >= 1).
+if "$WS" patch "$KEY_284" 284 '.spawned_pid' '0' >/dev/null 2>&1; then
+  echo "  ✗ FAIL: spawned_pid=0 accepted (minimum:1 not enforced)"; exit 1
+fi
+echo "  ✓ spawned_pid: integer>=1 and null accepted; string and 0 rejected"
+
+echo "=== T45: #284 — resume_ack schema contract (string | null) ==="
+# Accepts an ISO-8601 timestamp string.
+"$WS" patch "$KEY_284" 284 '.resume_ack' '"2026-07-13T10:00:00.000Z"' >/dev/null 2>&1 || { echo "  ✗ FAIL: ISO string rejected"; exit 1; }
+[[ "$("$WS" read "$KEY_284" 284 | jq -r '.resume_ack')" == "2026-07-13T10:00:00.000Z" ]] || { echo "  ✗ FAIL: resume_ack not persisted"; exit 1; }
+# Accepts null (init default / between handoffs).
+"$WS" patch "$KEY_284" 284 '.resume_ack' 'null' >/dev/null 2>&1 || { echo "  ✗ FAIL: null rejected"; exit 1; }
+# Rejects a non-string type (integer).
+if "$WS" patch "$KEY_284" 284 '.resume_ack' '123' >/dev/null 2>&1; then
+  echo "  ✗ FAIL: non-string resume_ack accepted"; exit 1
+fi
+# NB: the schema declares "format": "date-time", but Python's jsonschema treats
+# format as advisory unless a FormatChecker is wired in — which the validator
+# here is not. So a malformed string like "not-a-date" IS accepted at the schema
+# layer; the type contract (string|null) is what is actually enforced. The
+# ISO-8601 shape is guaranteed by the writers (po-agent uses `date -u`,
+# check-pid compares via _epoch_of_iso which tolerates unparseable input), not
+# by schema validation. This assertion documents the accepted-string reality so
+# a future reader does not mistake the format keyword for an enforced constraint.
+"$WS" patch "$KEY_284" 284 '.resume_ack' '"not-a-date"' >/dev/null 2>&1 || { echo "  ✗ FAIL: string value unexpectedly rejected (format is advisory, not enforced)"; exit 1; }
+echo "  ✓ resume_ack: ISO string and null accepted; integer rejected (format advisory, not enforced)"
+rm -rf "$SANDBOX_284"
+
 echo
-echo "All 43 smoke tests passed."
+echo "All 45 smoke tests passed."

@@ -408,6 +408,8 @@ case "$SUBCMD" in
         session_count: 0,
         handoff_reason: null,
         restart_failed: false,
+        spawned_pid: null,
+        resume_ack: null,
         created_at: $now,
         updated_at: $now
       }')"

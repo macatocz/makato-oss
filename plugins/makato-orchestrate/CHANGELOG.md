@@ -5,64 +5,43 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
-## `po-agent.md` — CI-failure retries no longer drain the re-plan budget (#288)
+## `context-handoff.sh` — HALT-007B restart liveness watchdog (#284)
 
-Fixes a MEDIUM-severity counter-conflation bug. The CI-failure fix loop (Step 6a
-test-failure path) incremented `outer_iteration` — the **same** counter Step 5
-reserves for genuine re-plan attempts — and gated its ceiling through
-`kill-switch poll`, which fires HALT-008 at `outer_iteration >= 3`. A run that had
-already re-planned twice therefore hit HALT-008 on its **first** CI-failure retry,
-conflating "re-planned too many times" with "CI flaked once" and burning the
-operator's re-plan budget on transient CI noise.
+Fixes a HIGH-severity silent-failure bug. The HALT-007B self-restart forked a detached
+`claude --resume` subprocess with `nohup … & disown` and recorded no PID. A pre-fork
+`command -v` check caught a missing binary, but if the subprocess died **after** the fork
+(crash on startup, corrupt resume session, resume-script bug), nothing detected it: the
+issue was silently abandoned mid-run with `handoff_reason: context_ceiling`, no PR, and no
+`needs-human-review`. This adds PID tracking + a liveness handshake so an abandoned handoff
+is caught and escalated.
 
-- **`agents/po-agent.md`** — The CI-failure fix loop now owns an independent counter
-  `ci_failure_cycles` with its own ceiling `MAKATO_MAX_CI_FAILURE_CYCLES` (default 3),
-  enforced by a **direct pre-dispatch check** (mirroring the merge-conflict sub-loop's
-  `merge_conflict_cycles` pattern), NOT via `kill-switch poll`. `outer_iteration` is now
-  reserved exclusively for re-plan attempts. HALT-008 on this path appends a
-  `halt_audit[]` entry with `data.origin: "ci_failure"`. Step 5 bookkeeping documents
-  the three independent counters.
-- **`skills/workflow-state/references/workflow-state.schema.json`** — New required field
-  `ci_failure_cycles` (integer, minimum 0, default 0), independent of both
-  `outer_iteration` and `merge_conflict_cycles`.
-- **`shared/workflow-state.sh`** — `init` seeds `ci_failure_cycles: 0`.
-- **`skills/workflow-state/SKILL.md`** — Field table documents `ci_failure_cycles`.
-- **`skills/workflow-state/references/smoke-tests.sh`** — New tests T28a/T28b/T28c mirror
-  the merge_conflict_cycles default/patch/negative-rejection coverage.
-- **`halt-conditions.md`** — HALT-008 row rewritten to document THREE independent origins:
-  (a) `outer_iteration >= 3`; (b) `merge_conflict_cycles >= MAKATO_MAX_MERGE_CONFLICT_CYCLES`;
-  (c) `ci_failure_cycles >= MAKATO_MAX_CI_FAILURE_CYCLES`. `data.origin` distinguishes them.
-  See-also section links the po-agent CI-failure loop and the new schema field.
-- **`skills/kill-switch/SKILL.md`** — HALT-008 poll clarified to enforce **only**
-  `outer_iteration`; the two other origins are enforced by direct PO-agent checks.
-
----
-
-## `po-agent.md` — Step 6b review poll now bounded (#283)
-
-Fixes a HIGH-severity unbounded-stall bug. The Step 6b review poll waited for a PR review
-decision with **no wall-clock timeout and no poll-round limit** whenever `reviewDecision` was
-`REVIEW_REQUIRED` or `null` (no reviewer yet). The kill-switch (Step 4a) and context-handoff
-(Step 4b) checks ran only in the outer task-dispatch loop — never inside this wait — and
-`loop.sh`'s liveness watchdog (`STALL_KILL_SECS`) only trips on *no output*, which an
-actively-polling wait never triggers. A PR with no assigned reviewer therefore held the single
-loop slot indefinitely, stalling the whole queue until an operator noticed.
-
-- **`agents/po-agent.md`** — Step 6b rewritten to a bounded loop. New `MAKATO_REVIEW_WAIT_SECS`
-  env var (default `3600`, coherent with `loop.sh`'s `STALL_KILL_SECS`; set `0` to restore the
-  legacy unbounded wait) caps the first-review wait by wall-clock. `kill-switch poll` and
-  `kill-switch handoff` now run inside each poll round (same exit-code contracts as Step 4a/4b),
-  so an operator HALT or context-ceiling handoff releases/hands off the slot mid-wait. On expiry
-  the poll emits the new **HALT-012 (REVIEW-TIMEOUT)** — a hard stop that applies
-  `needs-human-review`, retains the worktree, and returns R1 `failure`, releasing the slot. The
-  decision branches (`APPROVED` / `CHANGES_REQUESTED`) are evaluated before the timeout check so a
-  late verdict wins over the ceiling. `resume_point: "review-poll"` is patched on handoff so the
-  fresh session re-enters the poll rather than restarting the PR pipeline. The per-cycle JSONL
-  gains a `waited_secs` field.
-- **`halt-conditions.md`** — new HALT-012 row added to the code table (hard-stop category,
-  external-actor timeout, distinct from HALT-008's internal retry-budget exhaustion).
-- **`README.md`** — HALT code-table description updated to "HALT-000 through HALT-012" (also
-  backfills the already-shipped HALT-011).
+- **`skills/workflow-state/references/workflow-state.schema.json`** — two optional fields
+  (`properties` only, not `required`, matching the `session_baseline_tokens` backward-compat
+  precedent): `spawned_pid` (`integer>=1 | null`) and `resume_ack` (`string | null`,
+  `date-time`). Absent in pre-#284 state files; readers treat absent as null.
+- **`shared/workflow-state.sh`** — `init` emits `spawned_pid: null` and `resume_ack: null`.
+- **`scripts/context-handoff.sh`** — the fork one-liner is split so `$!` is captured into
+  `spawned_pid` and persisted **before** `disown`. New `check-pid <KEY> <ISSUE>` subcommand
+  supervises a pending handoff: it clears the pid on a healthy resume (a `resume_ack` fresher
+  than the latest HALT-007B audit entry), keeps waiting while the subprocess boots inside
+  `MAKATO_HANDOFF_ACK_TIMEOUT` (default 120 s), or fires the HALT-007 fallback
+  (`restart_failed: true`, `needs-human-review` applied directly, HALT-007 audited) when the
+  pid is dead or no ack arrives. The fallback clears `spawned_pid` so it is idempotent across
+  loop ticks. Liveness failure routes to **HALT-007, not HALT-007B** — NEVER 9 is preserved.
+- **`agents/po-agent.md`** — the Step 2 resume path writes `resume_ack` (current timestamp)
+  as its first action, **before** clearing `handoff_reason`, so the watchdog can distinguish a
+  booting subprocess from a crashed one.
+- **`scripts/loop.sh`** — new `_check_pending_handoffs` pre-poll pass calls `check-pid` for
+  every state file with a pending handoff. Runs for all `--status` values, skipped under
+  `--dry-run`, best-effort (never blocks a tick).
+- **`skills/loop/SKILL.md`** — Process step 3.5 documents the sweep; `MAKATO_HANDOFF_ACK_TIMEOUT`
+  added to the env-var table.
+- **`halt-conditions.md`** — HALT-007 trigger list extended with the liveness-timeout origin.
+- **Tests** — `context-handoff-smoke-tests.sh` T11–T15 (live-fork PID recording, healthy-ack
+  clear, ack-timeout fallback, dead-pid fast path, fallback idempotency);
+  `skills/workflow-state/references/smoke-tests.sh` T44–T45 (schema contract for the two new
+  fields). Full context-handoff (15), workflow-state (45), loop (38), session-status (13)
+  suites pass.
 
 ---
 

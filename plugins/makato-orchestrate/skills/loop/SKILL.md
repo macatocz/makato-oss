@@ -189,6 +189,21 @@ Each outer iteration of `run` performs the following steps in order:
    Best-effort: any `gh`/`git` failure logs a WARN and the tick
    continues. Skipped under `--dry-run` and when `MAKATO_LOOP_REAP_ON_POLL=0`.
    Also available standalone as `loop remove-worktrees`.
+3.5. **Pre-poll HALT-007B liveness check (#284).** `_check_pending_handoffs`
+   walks every `specs/*/workflow-state-*.json` and calls
+   `context-handoff.sh check-pid` for each issue with a pending handoff
+   (`handoff_reason == "context_ceiling"` AND `spawned_pid` set). `check-pid`
+   clears the recorded PID when the resumed session confirms startup (a
+   `resume_ack` fresher than the latest HALT-007B audit entry), keeps waiting
+   while the subprocess is still booting inside `MAKATO_HANDOFF_ACK_TIMEOUT`
+   (default 120 s), or — when the PID is dead or no ack arrives within the
+   window — fires the HALT-007 fallback: `restart_failed=true`, a HALT-007
+   `halt_audit` entry, and `needs-human-review` applied directly (the
+   kill-switch poller that normally labels died with the abandoned session).
+   This closes the silent-abandonment gap where a resume subprocess that
+   crashed after fork left the issue stranded with no PR and no page. Runs for
+   all `--status` values (reads local state, not the board). Skipped under
+   `--dry-run`. Best-effort — any failure logs a WARN and never blocks the tick.
 4. **Board poll.** `GH_HOST=<host> gh project item-list <number>
    --owner <owner> --format json --limit 9999` runs and is filtered in
    two steps via `jq`:
@@ -595,6 +610,7 @@ The intentional design split:
 | `MAKATO_LOOP_REAP_GH_OVERRIDE` | unset | Test-only: path to a JSON map `{"<branch>": "<pr#>"}` read instead of calling `gh pr list`. Keeps the reap smoke tests offline. |
 | `MAKATO_LOOP_REAP_BASE_REF` | unset | Override the base ref used for the ancestry landed-check (default: `origin/HEAD`, else `origin/main`). Tests point it at a local `main` so ancestry works in a throwaway repo with no remote. |
 | `MAKATO_LOOP_REAP_WT_OVERRIDE` | unset | Test-only: path to a file with canned `git worktree list --porcelain` output, read instead of invoking git. |
+| `MAKATO_HANDOFF_ACK_TIMEOUT` | `120` | Seconds the pre-poll HALT-007B liveness check (#284) waits for a resumed subprocess to write `resume_ack` before firing the HALT-007 fallback. A dead PID short-circuits the wait. Read by `context-handoff.sh check-pid`; lower it in tests to force the timeout path. |
 
 ## Smoke tests
 

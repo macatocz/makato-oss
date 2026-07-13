@@ -518,6 +518,45 @@ in_flight_issues() {
 }
 
 # ---------------------------------------------------------------------------
+# _check_pending_handoffs — HALT-007B liveness watchdog sweep (#284).
+#
+# The HALT-007B self-restart (scripts/context-handoff.sh) forks a detached
+# `claude --resume` subprocess and exits the old session. If that subprocess
+# dies after the fork, nothing detects it: the state is stranded with
+# handoff_reason="context_ceiling" and no PR. This pre-poll pass walks every
+# per-issue state file and, for any with a pending handoff (handoff_reason ==
+# context_ceiling AND spawned_pid set), calls `context-handoff.sh check-pid`.
+# check-pid clears the pid on a healthy resume (fresh resume_ack), keeps
+# waiting while the subprocess is booting inside the ack timeout, or fires the
+# HALT-007 fallback (restart_failed=true, needs-human-review applied) when the
+# pid is dead or the ack never arrived.
+#
+# Best-effort: any error is swallowed so a single bad state file never blocks
+# the tick. Mirrors in_flight_issues' scan (glob + per-file jq tolerance).
+# ---------------------------------------------------------------------------
+_check_pending_handoffs() {
+  [[ -d "$SPECS_DIR" ]] || return 0
+  local handoff_script="$REPO_ROOT/plugins/makato-orchestrate/scripts/context-handoff.sh"
+  [[ -x "$handoff_script" ]] || return 0
+  find "$SPECS_DIR" -maxdepth 2 \
+    \( -name 'workflow-state-*.json' -o -name 'workflow-state.json' \) \
+    -print0 2>/dev/null |
+    while IFS= read -r -d '' f; do
+      local handoff_reason spawned_pid issue key
+      handoff_reason="$(jq -r '.handoff_reason // "null"' "$f" 2>/dev/null || echo null)"
+      spawned_pid="$(jq -r '.spawned_pid // "null"' "$f" 2>/dev/null || echo null)"
+      [[ "$handoff_reason" == "context_ceiling" && "$spawned_pid" != "null" ]] || continue
+      issue="$(jq -r '.issue_number // empty' "$f" 2>/dev/null || true)"
+      [[ -n "$issue" ]] || continue
+      # KEY is the spec-folder basename (workflow-state.sh resolves it to this
+      # exact dir); e.g. specs/284-halt-007b-silent-fork/workflow-state-284.json.
+      key="$(basename "$(dirname "$f")")"
+      echo "loop: check-pid #$issue (HALT-007B handoff pending, spawned_pid=$spawned_pid)" >&2
+      "$handoff_script" check-pid "$key" "$issue" 2>&1 | sed 's/^/loop:   /' >&2 || true
+    done
+}
+
+# ---------------------------------------------------------------------------
 # next [STATUS_NAME] — first untracked open issue at the requested Status,
 # or empty.
 # ---------------------------------------------------------------------------
@@ -1869,6 +1908,17 @@ cmd_run() {
     # blocks the tick.
     if [[ "$REAP_ON_POLL" == "1" && -z "$dry_run" ]]; then
       _reap_merged_worktrees || true
+    fi
+
+    # Pre-poll HALT-007B liveness check (#284): detect in-flight issues whose
+    # detached resume subprocess failed to write resume_ack within the timeout
+    # window (or died outright after fork). check-pid fires the HALT-007
+    # fallback for those, so a silently-abandoned handoff gets needs-human-review
+    # instead of stalling forever. Runs for all --status values (it reads local
+    # state, not the board). Skipped under --dry-run (inspection never mutates).
+    # Best-effort — never blocks the tick.
+    if [[ -z "$dry_run" ]]; then
+      _check_pending_handoffs || true
     fi
 
     local queue queue_depth
