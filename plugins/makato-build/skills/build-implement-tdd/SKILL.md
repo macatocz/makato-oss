@@ -6,7 +6,7 @@ description: >-
   Tracer bullet phase for multi-layer stories. Autonomous loop. Use
   after refine to implement-tdd a story plan, implement tdd tasks, or
   run the core build loop.
-version: "1.10.0"
+version: "1.11.0"
 model: sonnet
 argument-hint: "[work-item-key]"
 ---
@@ -311,7 +311,21 @@ After all tdd tasks complete, run the full suite one final time.
 
 If `design.md` specifies a coverage threshold: check **conditional coverage** (branch/condition coverage) — not line coverage. Conditional coverage verifies that every branch of every condition has been exercised, which is the meaningful signal for logic-heavy TDD work. Line coverage alone can be satisfied without testing all branches of conditional logic.
 
-If conditional coverage is below threshold: identify uncovered branches and add targeted tests for those paths. Do not proceed until coverage is met or the gap is explicitly acknowledged and logged as a known risk.
+If conditional coverage is below threshold, first attempt to close the gap: identify uncovered branches and add targeted tests for those paths, then re-run. If coverage still falls short after that attempt, behaviour is **mode-dependent** — there is no silent-proceed path:
+
+- **Autonomous mode** (`--autonomous`, `task_id` in the dispatch bundle, or `$AGENT_ID` exported — see `plugins/makato-build/AUTONOMOUS-MODE.md` § *Activation triggers*): a coverage miss CANNOT be "acknowledged" — no human is at the prompt to own the risk. Do NOT invent an acknowledgement. Log the miss with `threshold_met:false` (below) and hand off; the terminal coverage gate is **Gate 5** in `build-verify`, which enforces `HALT-002` on `threshold_met:false` before `build-push-to-git`. Step 7 defers to Gate 5 authoritatively — it neither blocks the intra-build flow itself nor waves the miss through. To make the deferral explicit rather than implied, also emit the audit marker:
+
+  ```bash
+  shared/log-bypass.sh build-implement-tdd "<key>" coverage-floor defer-to-gate5 "$TRIGGER"
+  ```
+
+- **Interactive mode**: the gap may proceed only as an **explicitly acknowledged risk**, recorded as a structured entry — not a free-form "logged as known risk" note. Capture who acknowledged it and why, so the acknowledgement is auditable:
+
+  ```bash
+  shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"coverage-acknowledged","status":"decision","data":{"conditional_coverage":"<X>%","threshold":"<Y>%","acknowledged_by":"<user>","reason":"<one-line justification>"}}'
+  ```
+
+  An interactive acknowledgement is local to this build session; Gate 5 in `build-verify` still re-checks coverage independently and will HALT-002 if the miss is real.
 
 Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"final-verify","status":"ok","data":{"tdd_tasks_complete":<N>,"conditional_coverage":"<X>%","threshold_met":<true|false>}}'`
 

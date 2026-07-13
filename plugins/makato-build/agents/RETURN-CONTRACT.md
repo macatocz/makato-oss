@@ -75,12 +75,12 @@ If `schema != "r1"` or the JSON does not parse: the caller MUST treat the dispat
 
 ### `diff-reviewer.md` (model: sonnet, read-only)
 
-- `status: "success"` — review completed, zero CRITICAL findings.
-- `status: "failure"` — review completed but CRITICAL findings remain (the calling `/review` skill must apply fixes).
+- `status: "success"` — review completed, zero CRITICAL and zero MAJOR findings.
+- `status: "failure"` — review completed but CRITICAL or MAJOR findings remain (the calling `/build-review` skill applies fixes: CRITICAL always; MAJOR in autonomous mode).
 - `status: "partial"` — review could not cover all CHANGED_FILES (e.g. a file could not be read).
 - `files_changed: []`, `tests_written: []` (agent is read-only).
-- `errors` — every CRITICAL finding as `"<file>:<line> — <description>"`. Empty when `status: "success"`.
-- `data` keys: `{ "pass_number": N, "critical_count": N, "suggestion_count": N, "nitpick_count": N, "files_reviewed": N }`.
+- `errors` — every CRITICAL and MAJOR finding as `"<file>:<line> — [<severity>][<category>] <description>"` (severity prefix lets the caller route CRITICAL vs MAJOR). Empty when `status: "success"`.
+- `data` keys: `{ "pass_number": N, "critical_count": N, "major_count": N, "suggestion_count": N, "nitpick_count": N, "files_reviewed": N }`.
 
 ### `sensor-fixer.md` (model: sonnet)
 
@@ -169,24 +169,25 @@ If `schema != "r1"` or the JSON does not parse: the caller MUST treat the dispat
 }
 ```
 
-### Example — `diff-reviewer` failure (CRITICAL findings remain)
+### Example — `diff-reviewer` failure (CRITICAL + MAJOR findings remain)
 
 ```json
 {
   "schema": "r1",
   "agent": "diff-reviewer",
   "status": "failure",
-  "summary": "2 CRITICAL findings: missing null-check on user input; SQL string concat.",
+  "summary": "1 CRITICAL, 1 MAJOR: SQL string concat; unguarded null-deref on rare path.",
   "files_changed": [],
   "tests_written": [],
   "errors": [
-    "src/api/UserController.java:42 — [security] raw user-supplied id concatenated into JPQL query",
-    "src/api/UserController.java:67 — [correctness] missing null-check before .toLowerCase()"
+    "src/api/UserController.java:42 — [CRITICAL][security] raw user-supplied id concatenated into JPQL query",
+    "src/api/UserController.java:67 — [MAJOR][correctness] missing null-check before .toLowerCase() reachable when header absent"
   ],
   "tool_calls_used": 14,
   "data": {
     "pass_number": 1,
-    "critical_count": 2,
+    "critical_count": 1,
+    "major_count": 1,
     "suggestion_count": 4,
     "nitpick_count": 1,
     "files_reviewed": 3

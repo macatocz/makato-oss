@@ -5,7 +5,25 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
-## `build-implement-tdd` + `coder` — wire PRIOR_LESSONS to the coder dispatch (#287)
+## `diff-reviewer` + `build-review` + `build-implement-tdd` — close advisory-gate escapes (#290)
+
+Two advisory quality gates let non-blocking-but-real problems reach the PR unblocked. Both are now gated in autonomous mode without changing interactive ergonomics.
+
+**(1) Advisory `diff-reviewer` — new MAJOR tier.** The old 3-tier rubric (CRITICAL / SUGGESTION / NITPICK) meant a correctness bug misclassified as SUGGESTION reached the PR with no gate — only CRITICAL blocked. Added a 4th tier, **MAJOR**, for correctness-adjacent defects below the CRITICAL bar (lower-likelihood bugs, missing guards masked by a caller, degrading edge cases, untested failure paths).
+
+- **`agents/diff-reviewer.md`** — rubric expanded to CRITICAL / MAJOR / SUGGESTION / NITPICK with an explicit decision order; R1 `status:"failure"` now fires while `critical_count > 0` OR `major_count > 0`; `data.major_count` added; `errors[]` entries carry a `[<severity>]` prefix; zero-findings recheck and citation-omission rules now key off "zero CRITICAL and zero MAJOR"; "does NOT do" list forbids downgrading a correctness concern to SUGGESTION.
+- **`skills/build-review/SKILL.md`** (1.3.3 → 1.4.0) — Step 5 renamed to a mode-aware blocking-findings loop: CRITICAL always blocks; MAJOR re-triggers the fix loop **in autonomous mode only** (advisory in interactive, reported in Step 6). First MAJOR auto-fix per pass emits an `autonomous_bypass` audit entry. Log keys gained `major`, `majors_fixed`, `majors_open`.
+- **`skills/build-review/references/review-criteria.md`** — classification table + per-category CRITICAL/MAJOR/SUGGESTION guidance updated; reserves SUGGESTION for pure maintainability.
+
+**(2) Coverage-floor acknowledgement.** `build-implement-tdd` Step 7's "acknowledged and logged as a known risk" wording read as a silent-proceed escape hatch and was undefined for autonomous mode.
+
+- **`skills/build-implement-tdd/SKILL.md`** (1.10.0 → 1.11.0) — Step 7 rewritten: interactive mode requires a **structured** `coverage-acknowledged` entry (`acknowledged_by`, `reason`) — no free-form note; autonomous mode CANNOT acknowledge (no human owns the risk) and defers authoritatively to `build-verify` **Gate 5** (`HALT-002`), emitting a `coverage-floor defer-to-gate5` bypass marker. No new HALT code — terminal enforcement stays at Gate 5.
+
+- **`agents/RETURN-CONTRACT.md`** — diff-reviewer R1 contract + example updated for the MAJOR tier and `major_count`.
+- **`AUTONOMOUS-MODE.md`** — two default-taking rows added (build-review MAJOR loop; build-implement-tdd coverage-floor) plus two explanatory sections.
+- **`README.md`** — build-review row/version and diff-reviewer tier list updated.
+
+
 
 `build-implement-tdd/SKILL.md:36` documented that `PRIOR_LESSONS` (GAP-015 / #37 lesson-recall)
 is "forwarded verbatim to each per-task coder dispatch in Step 6", but the Step 6 dispatch-bundle
