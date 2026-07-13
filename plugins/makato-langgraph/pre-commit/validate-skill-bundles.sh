@@ -10,6 +10,9 @@
 # file-routing precision; `task_contains:` (F5) is the equivalent precision
 # filter for task-text routing. Either one satisfies the gate.
 #
+# Also rejects any bundle name that collides with a bundle name already defined
+# in another plugin (F2: cross-plugin name collision gate).
+#
 # Exemptions:
 #   * The `default` bundle (its `**/*` glob is the deliberate catch-all).
 #   * Any bundle whose `skills:` list is empty ([]) — it recommends nothing, so
@@ -20,7 +23,8 @@
 # Exit codes:
 #   0  all staged skill-bundles.yml files pass (or none are staged)
 #   1  at least one wide-glob-without-precision-filter violation (message on stderr)
-#   2  a staged skill-bundles.yml could not be parsed
+#      OR a cross-plugin bundle-name collision (message on stderr)
+#   2  a staged skill-bundles.yml could not be parsed, or repo/shared-dir absent
 #
 # Invocation:
 #   pre-commit `language: system` hook with `files: config/skill-bundles\.yml$`,
@@ -47,21 +51,37 @@ if [ "${#files[@]}" -eq 0 ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# F3: Resolve paths robustly — no hardcoded relative literals.
+# Use `git rev-parse --show-toplevel` from SCRIPT_DIR so this works in any
+# checkout or worktree without depending on CWD.
+# ---------------------------------------------------------------------------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)" || {
+  echo "validate-skill-bundles: could not determine repository root (git rev-parse --show-toplevel failed)" >&2
+  exit 2
+}
+
+# shared/ lives at <repo>/plugins/makato-build/shared/
+SHARED_DIR="$REPO_ROOT/plugins/makato-build/shared"
+if [ ! -d "$SHARED_DIR" ]; then
+  echo "validate-skill-bundles: makato-build/shared not found at expected path: $SHARED_DIR" >&2
+  exit 2
+fi
+
+# ---------------------------------------------------------------------------
 # The validation logic lives in Python so it can reuse the resolver's
 # `_glob_specificity` definition of "literal segment" — the single source of
 # truth for what "wide" means. Keeping the definition in one place stops the
 # gate and the resolver from drifting.
 # ---------------------------------------------------------------------------
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shared/ is a sibling-of-a-sibling: <repo>/plugins/makato-build/shared/
-SHARED_DIR="$(cd "$SCRIPT_DIR/../../makato-build/shared" && pwd)"
-
-python3 - "$SHARED_DIR" "${files[@]}" <<'PY'
+python3 - "$SHARED_DIR" "$REPO_ROOT" "${files[@]}" <<'PY'
 import sys
 from pathlib import Path
+from collections import defaultdict
 
 shared_dir = sys.argv[1]
-targets = sys.argv[2:]
+repo_root = Path(sys.argv[2])
+targets = sys.argv[3:]
 sys.path.insert(0, shared_dir)
 
 try:
@@ -122,6 +142,44 @@ if violations:
         "\nFix: add a `contains:` list (for file-routing) or a `task_contains:` list "
         "(for task-text routing) to the bundle, narrow the glob to include a literal "
         "directory segment, or move the skills into a content-filtered bundle.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+# ---------------------------------------------------------------------------
+# F2: Cross-plugin bundle-name collision gate.
+# Collect names from ALL skill-bundles.yml files across all plugins and
+# report any name that appears in more than one file.
+# ---------------------------------------------------------------------------
+name_to_files = defaultdict(list)
+all_bundle_files = sorted(repo_root.glob("plugins/*/config/skill-bundles.yml"))
+
+for bf in all_bundle_files:
+    try:
+        bdata = yaml.safe_load(bf.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        continue  # silently skip unreadable files — per-file validation covers them
+    for bundle in bdata.get("bundles", []) or []:
+        bname = bundle.get("name", "")
+        if bname and bname != "default":
+            name_to_files[bname].append(str(bf))
+
+collisions = {name: files for name, files in name_to_files.items() if len(files) > 1}
+
+if collisions:
+    print(
+        "validate-skill-bundles: cross-plugin bundle-name collision detected.\n"
+        "\n"
+        "Bundle names must be unique across all plugins. Duplicate names cause "
+        "silent routing bugs when inject_skills aggregates bundles at runtime.\n",
+        file=sys.stderr,
+    )
+    for name, files in sorted(collisions.items()):
+        print(f"  bundle '{name}' is defined in:", file=sys.stderr)
+        for f in files:
+            print(f"    {f}", file=sys.stderr)
+    print(
+        "\nFix: rename one of the colliding bundles to a unique name.",
         file=sys.stderr,
     )
     sys.exit(1)
