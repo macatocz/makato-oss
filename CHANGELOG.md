@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.52.8](https://github.com/macatocz/makato/compare/v0.52.7...v0.52.8) (2026-07-13)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** retry board poll, stop treating 429 as empty queue ([#289](https://github.com/macatocz/makato/issues/289)) ([#313](https://github.com/macatocz/makato/issues/313)) ([6b17096](https://github.com/macatocz/makato/commit/6b170961a4e3e62ae2f10b5528f61c3323339ec3))
+
 ## [0.52.7](https://github.com/macatocz/makato/compare/v0.52.6...v0.52.7) (2026-07-13)
 
 
