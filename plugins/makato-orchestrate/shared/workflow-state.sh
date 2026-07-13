@@ -217,7 +217,10 @@ schema_path = sys.argv[2]
 try:
     import jsonschema
 except ImportError:
-    sys.stderr.write("workflow-state: jsonschema not installed — skipping validation\n")
+    sys.stderr.write(
+        "workflow-state: WARN — jsonschema not installed; "
+        "degraded: schema-unvalidated (install jsonschema to enable full validation)\n"
+    )
     sys.exit(0)
 try:
     data = json.loads(data_str)

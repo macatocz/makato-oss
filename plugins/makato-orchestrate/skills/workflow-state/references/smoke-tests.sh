@@ -488,5 +488,32 @@ fi
 echo "  ✓ resume_ack: ISO string and null accepted; integer rejected (format advisory, not enforced)"
 rm -rf "$SANDBOX_284"
 
+echo "=== T46: #317 — missing jsonschema emits loud degraded warning (not silent) ==="
+KEY_317="issue-317-schema-warn"
+SANDBOX_317="$REPO_ROOT/specs/${KEY_317}"
+rm -rf "$SANDBOX_317"; mkdir -p "$SANDBOX_317"
+"$WS" init "$KEY_317" macatocz/test feat/317 317 >/dev/null 2>&1
+
+# Simulate missing jsonschema by prepending a stub that raises ImportError.
+STUB_DIR="$(mktemp -d)"
+cat > "$STUB_DIR/jsonschema.py" <<'PYSTUB'
+raise ImportError("stubbed out for T46")
+PYSTUB
+
+# Capture stderr while patching; the patch must still succeed (fail-open).
+WARN_OUT=$(PYTHONPATH="$STUB_DIR${PYTHONPATH:+:$PYTHONPATH}" "$WS" patch "$KEY_317" 317 .current_phase '"pr"' 2>&1 >/dev/null || true)
+rm -rf "$STUB_DIR"
+
+# The run must not have hard-failed (field should be written).
+"$WS" read "$KEY_317" 317 | jq -e '.current_phase == "pr"' > /dev/null ||   { echo "  ✗ FAIL: fail-open violated — patch did not persist under missing jsonschema"; exit 1; }
+
+# The warning must be present and contain 'degraded: schema-unvalidated'.
+echo "$WARN_OUT" | grep -q "degraded: schema-unvalidated" ||   { echo "  ✗ FAIL: degraded warning not emitted (got: $WARN_OUT)"; exit 1; }
+
+echo "$WARN_OUT" | grep -q "WARN" ||   { echo "  ✗ FAIL: WARN tag not in warning message (got: $WARN_OUT)"; exit 1; }
+
+rm -rf "$SANDBOX_317"
+echo "  ✓ missing jsonschema emits degraded warning; run still succeeds"
+
 echo
-echo "All 45 smoke tests passed."
+echo "All 46 smoke tests passed."
