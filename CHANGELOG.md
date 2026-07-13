@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.52.7](https://github.com/macatocz/makato/compare/v0.52.6...v0.52.7) (2026-07-13)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** supervise HALT-007B restart subprocess liveness ([#284](https://github.com/macatocz/makato/issues/284)) ([#311](https://github.com/macatocz/makato/issues/311)) ([38b6200](https://github.com/macatocz/makato/commit/38b62004e1e456981462a804e60589f6aed644ca))
+
 ## [0.52.6](https://github.com/macatocz/makato/compare/v0.52.5...v0.52.6) (2026-07-13)
 
 
