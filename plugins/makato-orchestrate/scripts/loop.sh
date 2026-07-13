@@ -491,6 +491,9 @@ _read_status() {
 
 # ---------------------------------------------------------------------------
 # Atomic write to STATUS_FILE. Stamps updated_at automatically.
+# Uses a same-directory mktemp so mv is a same-filesystem rename(2) — each
+# write is all-or-nothing with no torn-read window. Matches the
+# _atomic_write pattern in shared/workflow-state.sh.
 # Args: JSON object string
 # ---------------------------------------------------------------------------
 _write_status() {
@@ -500,7 +503,7 @@ _write_status() {
   local stamped
   stamped="$(jq --arg ts "$now" '. + {updated_at: $ts}' <<<"$payload")"
   local tmp
-  tmp="$(mktemp)"
+  tmp="$(mktemp "${STATUS_FILE}.XXXXXX")"
   printf '%s\n' "$stamped" >"$tmp"
   mv "$tmp" "$STATUS_FILE"
 }
