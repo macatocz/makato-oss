@@ -5,20 +5,52 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
-## `loop.sh` + `po-agent.md` — kill the T30 loop-smoke flake at its root and stop flaky CI red-checks from draining the fix budget (#312)
+## `promote-ready` 1.0.0 — dependency-aware Ready promotion (#268)
 
-Two related changes: a test-reliability fix in the loop watchdog, and an autonomous-pipeline hardening so a content-independent flaky CI failure no longer wastes fix cycles.
+New skill + shared script closing the "FIFO only in v1" gap left by `loop` (#33). The
+autonomous loop dispatches board `Ready` items strictly FIFO and single-threaded and ignores
+cross-issue `blocked_by` dependencies; no makato component read the dependency graph back at
+promotion time. `promote-ready` is the missing dependency-aware layer — an operator tool, run
+deliberately wave-by-wave, that decides which issues may enter the loop's `Ready` queue.
 
-**Root cause of the T30 flake.** `_watchdog_poll` is spawned as a background grandchild of `cmd_dispatch`. When a dispatch shell is TERM'd/KILL'd mid-`wait "$child_pid"` (exactly what `loop-smoke-tests.sh` T12 does — it kills only the dispatch PID), the watchdog is reparented to init and keeps polling. On its stall/kill boundary it called `_patch_status '.active_workflow.killed_by_watchdog' 'true'` against the **shared** `loop-status.json`. Because `_patch_status` is a `jq`-based read-modify-write, that write on a `{active_workflow: null}` document autovivifies the key back into an object — resurrecting an `active_workflow` that a later test (T30) had just cleared to `null`. T30's `jq -e '.active_workflow == null'` then failed. It reproduced only under Linux-CI scheduling (local macOS reaped the orphan in time), so the failure was a platform-timing flake, not a content regression — it landed red on PRs that never touched makato-orchestrate (e.g. #314).
-
-- **`scripts/loop.sh`** — added `_wd_owns_active <issue>`, a file-scope ownership CAS: every watchdog write to `active_workflow.*` (both the WARN `stalled` stamp and the kill-path `killed_by_watchdog` stamp) is now gated on the live `active_workflow.issue` still equalling the watchdog's own issue. A stale/orphaned watchdog is therefore a no-op regardless of reap timing — it can never resurrect a cleared slot. The child kill (a runaway process *should* die) is unconditional; only the state write is guarded. Also added a `TERM`/`INT` trap around the `wait "$child_pid"` block that reaps the watchdog before the dispatch shell exits under signal (defence-in-depth for real operator kills).
-- **`scripts/loop.sh`** — new `_test-wd-guarded-write <issue>` test hook (gated behind `MAKATO_LOOP_TEST_HOOK=1`) exposes the guarded write deterministically.
-- **`scripts/loop-smoke-tests.sh`** — new **T43** drives the guard via that hook in both directions (foreign/null slot → write skipped, slot stays null; owned slot → write lands). Deterministic — no process-timing dependence, so the regression test is not itself flaky. Verified it fails when the guard is neutralised.
-
-**Autonomous hardening — flake probe before consuming a `ci_failure_cycle` (#312).** Independently of the test fix, the PO-agent's Step 6a treated any red check as a real regression and fed it into the CI-failure fix loop, which `build-implement-tdd` cannot fix for a test outside the PR diff — burning cycles until HALT-008 paged a human for a non-issue.
-
-- **`agents/po-agent.md`** — Step 6a now runs a one-shot flake probe on the first non-conflict CI failure: re-run only the failed jobs (`gh run rerun <run_id> --failed`), re-poll, and **only** enter the fix loop (consuming a cycle) if the failure reproduces. A green re-run is treated as a pass. Gated by the new `flake_rerun_pending` state flag; disable with `MAKATO_LOOP_CI_FLAKE_PROBE=0`. No new HALT code — the #288 ceiling design is unchanged; the probe only defers cycle consumption until a failure is known reproducible.
-- **`skills/workflow-state/references/workflow-state.schema.json`** — added optional `flake_rerun_pending` boolean (absent ⇒ false; backward-compatible with pre-#312 state files).
+- **`scripts/promote-ready.sh`** — loads the cross-issue dependency graph from
+  `specs/<slug>/created-issues.json` (`issues[].blocked_by[]`, real issue numbers); falls back to
+  `stories.json` (`stories[].dependencies.blockedBy`, story sequences translated to issue numbers
+  via `sequence → githubIssue`, warning on stories with no `githubIssue`). Reads each issue's live
+  board Status via `GH_HOST=<host> gh project item-list` (no `--hostname`; `gh project` has no host
+  flag). Computes right-now-unblocked issues (board Status ∈ {Todo, Blocked, off-board} AND every
+  `blocked_by` predecessor is `Done`), arranges topological waves, and prints a recommendation
+  (waves / promote-now / collision-deferred / still-blocked / already-progressing). On approval
+  (interactive, or `--yes`), promotes selected issues to `Status=Ready` via `gh project item-edit`
+  — **idempotent, forward-only** (never rolls a card back from Ready/In progress/In review/Done, so
+  it never races the loop claim or `issue-to-project sync-lifecycle`, #259), **warn-not-fail**.
+  `--dry-run` / the `plan` subcommand mutates nothing. Reads all ids from `.claude/config.json` →
+  `github_project` (no hardcoded IDs).
+- **plan.md collision guard (#173)** — issues sharing one `specs/<KEY>-<slug>/` folder share a
+  single `plan.md` in the main checkout (#173 isolated `workflow-state-<n>.json` but not
+  `plan.md`). The tool never recommends two same-folder issues in one pass: it keeps the lowest
+  issue number per folder and defers the rest, to be promoted after the sibling's PR merges.
+- **`scripts/promote-ready-smoke-tests.sh`** — thirteen offline scenarios (T1–T13): graph load,
+  unblocked/wave computation, non-Done blocker stays blocked, collision guard defers a same-folder
+  sibling, `--dry-run` makes no mutation (isolated via `--yes` so the dry-run gate — not the
+  non-TTY guard — is the tested gate), forward-only skip, live promote of exactly the recommended
+  set, the `stories.json` sequence→githubIssue fallback, off-board promotability, an **unfiled**
+  `stories.json` blocker keeping the dependent issue blocked, dependency-cycle termination, the
+  empty-graph `(no issues in graph)` message, and a clean no-such-slug run on bash 3.2. Fully
+  offline via `MAKATO_PROMOTE_GH_OVERRIDE` + `MAKATO_PROMOTE_EDIT_TEST_FILE` — `gh` is never
+  invoked. Wired into `.github/workflows/validate.yml`.
+- **Hardened against nine adversarially-verified defects** (independent review + verify pass):
+  a CRITICAL where an unfiled `stories.json` `blockedBy` sequence was silently dropped (dependent
+  issue wrongly appeared unblocked — now kept blocked as an unresolved predecessor); a TOCTOU where
+  `_promote_one` wrote `Ready` unconditionally and could roll a concurrently-claimed `In progress`
+  card backward (now a re-poll compare-and-set skips a card that moved off `Todo`/`Blocked` since
+  the snapshot); a topological-level miscount for cyclic graphs (cycle sentinel is now memoized so
+  parent frames don't overwrite it); the `--dry-run` test being vacuous (the non-TTY guard, not the
+  dry-run gate, was holding it — now bypassed via `--yes`, with a meta-test confirming it catches a
+  dry-run-gate regression); a bash 3.2 empty-array crash under `set -u` in `_collect_graph_files`;
+  a malformed synthesized fallback URL that silently failed `item-add` for off-board `stories.json`
+  issues (now `item-add` only with a real URL, else an actionable WARN); an inflated `issue_count`
+  in the report; and the dead empty-graph message branch.
 
 ## `loop.sh` — board-poll rate-limit is no longer an unmitigated SPOF (#289)
 
