@@ -5,6 +5,25 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## `loop.sh` — halted issue excluded from Ready re-promotion (#286)
+
+Fixes a MEDIUM-severity dual-source-of-truth bug. Every HALT path applies `needs-human-review`
+but never strips `status:ready-for-dev`, and the pre-poll promotion pass
+`_promote_labelled_ready` did not treat `needs-human-review` as a promotion veto. So a halted
+issue kept getting dragged back onto Status=Ready, where the in-flight guard
+(`workflow-state-<N>.json` non-done) then refused to dispatch it — leaving the card stuck on
+Ready every tick, wasting polls and obscuring the real queue until an operator intervened.
+
+- **`scripts/loop.sh`** — `needs-human-review` added to `_PROMOTE_EXCLUSION_LABELS` (the veto
+  filter that already excludes `triage experimental status:blocked autonomous:halt`). A halted,
+  human-review-pending issue is now skipped by the promotion pass until a human clears the label;
+  the recovery path (clear label → issue promotes to Ready normally) is intact.
+- **`scripts/loop-smoke-tests.sh`** — T28 extended with fixture `#606`
+  (`status:ready-for-dev` + `needs-human-review`) asserting it is NOT promoted, alongside the
+  existing four exclusion-label cases. Full loop suite passes.
+
+---
+
 ## `workflow-state.sh` — worktree-safe `specs/` resolution (#282)
 
 Fixes a HIGH-severity split-tree bug. `workflow-state.sh` resolved `REPO_ROOT` with a bare

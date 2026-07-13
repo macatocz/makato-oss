@@ -780,7 +780,8 @@ cat >"$promote_fixture" <<'PROMOTEJSON'
   {"number": 602, "labels": [{"name": "status:ready-for-dev"}, {"name": "status:blocked"}]},
   {"number": 603, "labels": [{"name": "status:ready-for-dev"}, {"name": "triage"}]},
   {"number": 604, "labels": [{"name": "status:ready-for-dev"}, {"name": "experimental"}]},
-  {"number": 605, "labels": [{"name": "status:ready-for-dev"}, {"name": "autonomous:halt"}]}
+  {"number": 605, "labels": [{"name": "status:ready-for-dev"}, {"name": "autonomous:halt"}]},
+  {"number": 606, "labels": [{"name": "status:ready-for-dev"}, {"name": "needs-human-review"}]}
 ]
 PROMOTEJSON
 
@@ -792,11 +793,11 @@ promote_out="$(
 )" || fail "T28: promote-ready should exit 0; got: $promote_out"
 grep -q "would promote #601" <<<"$promote_out" \
   || fail "T28: plain ready issue #601 should be promoted; got: $promote_out"
-for skip in 602 603 604 605; do
+for skip in 602 603 604 605 606; do
   grep -q "would promote #${skip}" <<<"$promote_out" \
     && fail "T28: excluded issue #${skip} must NOT be promoted; got: $promote_out"
 done
-echo "  ✓ only the non-excluded ready issue is promoted; blocked/triage/experimental/halt skipped"
+echo "  ✓ only the non-excluded ready issue is promoted; blocked/triage/experimental/halt/needs-human-review skipped"
 
 echo
 echo "=== ALL TESTS PASSED ==="

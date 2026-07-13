@@ -1021,7 +1021,12 @@ _claim_board_card() {
 #       calling `gh project item-edit` (asserted by T28).
 # ---------------------------------------------------------------------------
 # Labels that veto promotion even when status:ready-for-dev is present.
-_PROMOTE_EXCLUSION_LABELS="triage experimental status:blocked autonomous:halt"
+# `needs-human-review` is applied on every HALT path but `status:ready-for-dev`
+# is never stripped there — without this veto the promotion pass would drag a
+# halted card back onto Ready every tick, where the in-flight guard then blocks
+# dispatch, leaving the issue stuck. Excluding it keeps a halted issue off Ready
+# until a human clears the label (#286).
+_PROMOTE_EXCLUSION_LABELS="triage experimental status:blocked autonomous:halt needs-human-review"
 _PROMOTE_READY_LABEL="status:ready-for-dev"
 
 _promote_labelled_ready() {
