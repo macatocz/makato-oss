@@ -80,7 +80,7 @@ jobs:
       SELF_JOB_NAME: automerge
     steps:
       - name: Checkout (for scripts/auto-merge-decide.sh)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 1
 
