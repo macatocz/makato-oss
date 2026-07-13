@@ -181,6 +181,43 @@ class TestStructuralMetricsTask2(unittest.TestCase):
         self.assertIn("makato-missing", bc["missing"])
         self.assertEqual(bc["verdict"], "FAIL")
 
+    def test_bundle_total_is_dynamic(self):
+        """total = covered + len(missing) — NOT a hard-coded 12.
+
+        Regression for the hard-coded plugin count: after a 13th plugin
+        (makato-temporal) was added without a bundle, the report showed a
+        nonsensical '12/12 plugins | FAIL'. total must reflect the real
+        plugin count so the denominator reads 12/13.
+        """
+        result = _mod.compute_structural_metrics(
+            bundle_result=(12, ["makato-temporal"]),
+            passport_result=(100, 105),
+            notes_path=self.tmp / "nonexistent.md",
+        )
+        bc = result["bundle_coverage"]
+        self.assertEqual(bc["covered"], 12)
+        self.assertEqual(bc["total"], 13)
+        self.assertEqual(bc["missing"], ["makato-temporal"])
+        self.assertEqual(bc["verdict"], "FAIL")
+
+    def test_bundle_thirteen_all_covered_passes(self):
+        """13 covered, none missing → PASS (no cap at 12).
+
+        The old `covered == 12` guard would wrongly FAIL a fully-covered
+        13-plugin repo. Verdict must key off 'no missing bundles', not a
+        magic count.
+        """
+        result = _mod.compute_structural_metrics(
+            bundle_result=(13, []),
+            passport_result=(100, 105),
+            notes_path=self.tmp / "nonexistent.md",
+        )
+        bc = result["bundle_coverage"]
+        self.assertEqual(bc["covered"], 13)
+        self.assertEqual(bc["total"], 13)
+        self.assertEqual(bc["missing"], [])
+        self.assertEqual(bc["verdict"], "PASS")
+
     # ------------------------------------------------------------------
     # passport_rate sub-criterion
     # ------------------------------------------------------------------
@@ -432,9 +469,9 @@ class TestGenerateReportTask4(unittest.TestCase):
     # Helper builders matching the shapes from Tasks 2 and 3
     # ------------------------------------------------------------------
 
-    def _make_structural(self, overall="PASS", missing=None):
+    def _make_structural(self, overall="PASS", missing=None, covered=12, total=12):
         return {
-            "bundle_coverage": {"covered": 12, "missing": missing or [], "verdict": overall},
+            "bundle_coverage": {"covered": covered, "total": total, "missing": missing or [], "verdict": overall},
             "passport_rate": {"rate": 0.97, "verdict": overall},
             "audit_active": {"active": True, "last_entry_date": "2026-07-10", "verdict": overall},
             "overall": overall,
@@ -520,6 +557,28 @@ class TestGenerateReportTask4(unittest.TestCase):
         # Output file still written.
         self.assertTrue(self.output_path.exists())
 
+    def test_bundle_denominator_is_dynamic(self):
+        """Report renders the real plugin total, not a hard-coded 12.
+
+        Regression: with 12 covered of 13 total (makato-temporal missing),
+        the bundle row must read '12/13 plugins', never '12/12 plugins'.
+        """
+        structural = self._make_structural(
+            "FAIL", missing=["makato-temporal"], covered=12, total=13
+        )
+        adoption = self._make_adoption("INSUFFICIENT-DATA", days_remaining=28)
+
+        md = _mod.generate_report(
+            structural=structural,
+            adoption=adoption,
+            output_path=self.output_path,
+            notes_path=self.notes_path,
+        )
+
+        self.assertIn("12/13 plugins", md)
+        self.assertNotIn("12/12 plugins", md)
+        self.assertIn("makato-temporal", md)
+
     # ------------------------------------------------------------------
     # test_existing_notes_preserved
     # ------------------------------------------------------------------
@@ -603,6 +662,27 @@ class TestCLITask5(unittest.TestCase):
         # main() should create the output file at the specified path.
         _mod.main(["--output-path", str(out_file)])
         self.assertTrue(out_file.exists(), f"Expected output file at {out_file}")
+
+    def test_dry_run_prints_report_writes_nothing(self):
+        """main(["--dry-run"]) prints the report to stdout and writes no file.
+
+        Regression: main() previously discarded generate_report()'s return
+        value, so --dry-run (documented as 'print report to stdout') produced
+        no output at all.
+        """
+        import io
+        import os
+        from contextlib import redirect_stdout
+
+        os.chdir(self.tmp)
+        out_file = self.tmp / "docs" / "d22-compliance-report.md"
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            _mod.main(["--dry-run", "--output-path", str(out_file)])
+        printed = buf.getvalue()
+        self.assertIn("# D22 Compliance Report", printed)
+        # Nothing written to disk in dry-run mode.
+        self.assertFalse(out_file.exists())
 
 
 class TestScenario1AllPass(unittest.TestCase):

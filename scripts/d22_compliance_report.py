@@ -118,7 +118,6 @@ def read_bundle_coverage(plugins_root: Path) -> tuple[int, list[str]]:
 
 _DATE_HEADING_RE = re.compile(r"^## (\d{4}-\d{2}-\d{2})")
 _AUDIT_WINDOW_DAYS = 90
-_BUNDLE_REQUIRED_COUNT = 12
 _PASSPORT_RATE_THRESHOLD = 0.95
 
 
@@ -138,20 +137,24 @@ def compute_structural_metrics(
 
     Returns:
         A dict with keys ``bundle_coverage``, ``passport_rate``,
-        ``audit_active``, and ``overall``.  See module docstring for the
-        full schema.
+        ``audit_active``, and ``overall``.  ``bundle_coverage`` carries
+        ``covered``, ``total`` (= covered + missing, the live plugin count),
+        ``missing``, and ``verdict`` (PASS iff no plugin is missing a bundle).
+        See module docstring for the full schema.
     """
     covered_count, missing_plugin_names = bundle_result
     passports_found, builds_observed = passport_result
 
     # ── bundle_coverage ──────────────────────────────────────────────────────
-    bundle_verdict = (
-        "PASS"
-        if covered_count == _BUNDLE_REQUIRED_COUNT and not missing_plugin_names
-        else "FAIL"
-    )
+    # Coverage is complete when NO plugin is missing its bundle — the total is
+    # derived from the actual plugin count (covered + missing), never a fixed
+    # number. A hard-coded expected count silently breaks the moment a plugin
+    # is added or removed.
+    bundle_total = covered_count + len(missing_plugin_names)
+    bundle_verdict = "PASS" if not missing_plugin_names else "FAIL"
     bundle_coverage = {
         "covered": covered_count,
+        "total": bundle_total,
         "missing": list(missing_plugin_names),
         "verdict": bundle_verdict,
     }
@@ -410,7 +413,7 @@ def generate_report(
     pr = structural["passport_rate"]
     aa = structural["audit_active"]
 
-    bundle_value = f"{bc['covered']}/12 plugins"
+    bundle_value = f"{bc['covered']}/{bc.get('total', bc['covered'])} plugins"
     bundle_verdict = bc["verdict"]
 
     passport_value = f"{pr['rate'] * 100:.0f}%"
@@ -561,7 +564,10 @@ def main(argv=None):
     bundle_result = read_bundle_coverage(Path(args.plugins_root))
     structural = compute_structural_metrics(bundle_result, passport_result, Path(args.notes_path))
     adoption = compute_adoption_metrics(log_entries)
-    generate_report(structural, adoption, Path(args.output_path), Path(args.notes_path), dry_run=args.dry_run)
+    md = generate_report(structural, adoption, Path(args.output_path), Path(args.notes_path), dry_run=args.dry_run)
+    if args.dry_run:
+        # Honour the documented contract: print report to stdout, write no files.
+        print(md)
 
 
 if __name__ == "__main__":
