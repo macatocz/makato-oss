@@ -1,6 +1,6 @@
-# R1 Return Contract — makato-build sub-agents
+# R1 Return Contract — makato suite agents
 
-> **Status**: Authoritative. Every agent in `plugins/makato-build/agents/` MUST emit an R1 JSON block as the final element of its output. Callers MUST parse the last fenced ` ```json ` block in the agent message — no prose parsing.
+> **Status**: Authoritative. Every agent in the makato suite that emits structured output MUST emit an R1 JSON block as the final element of its output. Callers MUST parse the last fenced ` ```json ` block in the agent message — no prose parsing.
 
 ## Why this exists
 
@@ -116,6 +116,27 @@ If `schema != "r1"` or the JSON does not parse: the caller MUST treat the dispat
 - `files_changed: []`, `tests_written: []`.
 - `errors: []` on success; on partial/failure: short reason strings.
 - `data` keys: `{ "project_type": "...", "config_files_read": N, "build": "...", "lint": "...", "unit": "...", "integration": "...", "coverage": "...", "java_version_required": "...", "lint_ci_divergence": true|false }`.
+
+### `scout.md` (plugin: `makato-orchestrate`, model: haiku, read-only)
+
+- `status: "success"` — at least one file was read and the summary is non-empty.
+- `status: "partial"` — some pre-read files could not be read AND the resulting summary covers fewer than half of `CHANGED_FILES`.
+- `status: "failure"` — dispatch bundle missing a required field, OR every pre-read attempt failed (zero readable files).
+- `files_changed: []`, `tests_written: []` (agent is read-only).
+- `errors: []` on `status: "success"`; on `status: "partial"`: names of unreadable files; on `status: "failure"`: `["missing input: <field>"]` or `["no readable files"]`.
+- `data` keys:
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `key_patterns` | `string[]` | ≤ 3 short sentences describing dominant existing patterns in the production files the coder should mirror. Empty array when `CHANGED_FILES` is empty or no files were readable. |
+| `naming_conventions` | `object` | Observed naming convention categories (`class`, `method`, `test_class`, `test_method`, etc.) → 1-line description. Empty object when nothing observable. |
+| `test_file_paths` | `string[]` | Project-relative paths of test files the coder should write to (one per production file in `CHANGED_FILES`). Includes predicted paths for not-yet-existing test files. |
+| `existing_exports` | `string[]` | `"<file>::<symbol>"` strings listing top-level exported symbols from each production file read. Capped at 20 entries. |
+| `warnings` | `string[]` | Anomalies: truncation, inconsistent naming, oversize files (>1500 lines), unexpected language mix. |
+| `files_read` | `integer` | Count of files actually read this run (0 on failure). |
+| `truncated` | `boolean` | `true` when `CHANGED_FILES` entries were dropped to stay within the 8-file cap. |
+
+**Caller fallback contract**: callers MUST tolerate `status: "failure"` without halting. On failure: log a `warn` entry to `build.jsonl` (`step: "scout-skipped"`) and dispatch coder without `SCOUT_SUMMARY`. On `status: "partial"`: forward the partial `data` payload and log a `warn` entry naming unreadable files. The scout is advisory — a scout failure must never block a sub-task that `knowledge-scout` already greenlit at plan time.
 
 ## Examples
 
