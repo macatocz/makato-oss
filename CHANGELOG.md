@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.54.3](https://github.com/macatocz/makato/compare/v0.54.2...v0.54.3) (2026-07-13)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** add stale-worktree reaping for crashed runs ([#320](https://github.com/macatocz/makato/issues/320)) ([#338](https://github.com/macatocz/makato/issues/338)) ([959ea7c](https://github.com/macatocz/makato/commit/959ea7c1f068a2cd90cb9ef922878ba18feff1b6))
+
 ## [0.54.2](https://github.com/macatocz/makato/compare/v0.54.1...v0.54.2) (2026-07-13)
 
 
