@@ -560,6 +560,14 @@ re-plan attempts:
 | HALT path                    | No. Terminates the run.                      |
 | HANDOFF (Step 4b exit 2)     | No. Fresh session resumes at same iteration. |
 
+`outer_iteration` counts **re-plan attempts only**. The CI-failure fix
+loop (Step 6a) and the merge-conflict sub-loop (Step 6) each own an
+independent counter — `ci_failure_cycles` (#288) and
+`merge_conflict_cycles` (GAP-016 / #45) respectively — so a transient CI
+failure or an irreconcilable merge conflict never consumes the re-plan
+budget. All three fire HALT-008 at their own ceiling; the `halt_audit[]`
+`data.origin` field distinguishes them.
+
 ### Step 6 — PR pipeline
 
 Triggered when all `sub_tasks[].status == "complete"`.
@@ -704,13 +712,20 @@ row). The `gh`-only polls (CI, review) are narrated with a single
 
 #### CI-failure fix loop (Step 6a test-failure path)
 
-1. `kill-switch poll <KEY>` — HALT-008 fires if `outer_iteration >= 3`.
-   Apply `needs-human-review`, `worktree.sh retain <KEY> HALT-008`,
-   session-end JSONL, R1 `failure`.
+1. Read `ci_failure_cycles`. Already `>= MAKATO_MAX_CI_FAILURE_CYCLES`
+   (default 3) → HALT-008 immediately: apply `needs-human-review`,
+   append `halt_audit[]` (`code: "HALT-008"`,
+   `data: {origin: "ci_failure", ci_failure_cycles}`),
+   `worktree.sh retain <KEY> HALT-008`, session-end JSONL, R1 `failure`
+   with `data.halt_code: "HALT-008"`. This ceiling is checked directly
+   here — NOT via `kill-switch poll`, which enforces only the
+   `outer_iteration` re-plan budget. `ci_failure_cycles` is independent
+   of `outer_iteration` (#288) so a transient CI failure never consumes
+   the re-plan budget.
 2. Fetch the failed job log: `gh run view --log-failed` (truncate to
    ≤ 4000 chars from tail). Append `trigger: ci_failure` lesson
    (description truncated at 200 chars). `files_affected: []`.
-3. `outer_iteration += 1`.
+3. `ci_failure_cycles += 1`.
 4. Dispatch `/makato-build:build-implement-tdd <KEY> --autonomous` with
    `CI_FAILURE_LOG` added to the context bundle (alongside normal
    fields). The skill identifies failing task(s) from the log, skips

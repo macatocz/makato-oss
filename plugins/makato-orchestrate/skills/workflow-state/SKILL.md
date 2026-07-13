@@ -51,6 +51,7 @@ The full contract lives at @references/workflow-state.schema.json (draft-07, `ad
 | `context_warn_tokens` | integer ≥ 1 | HALT-007B fires when the session delta reaches this threshold (quality control; default 150000) |
 | `outer_iteration` | integer ≥ 0 | HALT-008 fires at 3 |
 | `merge_conflict_cycles` | integer ≥ 0 | count of merge-conflict resolution attempts; HALT-008 fires independently at `MAKATO_MAX_MERGE_CONFLICT_CYCLES` (default 3) |
+| `ci_failure_cycles` | integer ≥ 0 | count of CI-failure fix attempts (#288); HALT-008 fires independently at `MAKATO_MAX_CI_FAILURE_CYCLES` (default 3) — kept separate from `outer_iteration` so transient CI noise does not consume the re-plan budget |
 | `halt_audit` | array | append-only; see *halt_audit shape* |
 | `human_review_cycles` | integer ≥ 0 | count of `needs-human-review` labellings |
 | `github_pr_number` | integer \| null | set after `build-create-pr` succeeds |

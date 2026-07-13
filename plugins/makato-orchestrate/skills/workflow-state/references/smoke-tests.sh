@@ -224,6 +224,22 @@ if "$WS" patch "$KEY" "$ISSUE" .merge_conflict_cycles '-1' 2>/dev/null; then
 fi
 echo "  ✓ schema rejects negative integer"
 
+echo "=== T28a: #288 ci_failure_cycles seeded at init with default 0 ==="
+"$WS" read "$KEY" "$ISSUE" | jq -e '.ci_failure_cycles == 0' > /dev/null
+echo "  ✓ ci_failure_cycles default 0"
+
+echo "=== T28b: ci_failure_cycles accepts non-negative integer patch ==="
+"$WS" patch "$KEY" "$ISSUE" .ci_failure_cycles '2'
+"$WS" read "$KEY" "$ISSUE" | jq -e '.ci_failure_cycles == 2' > /dev/null
+echo "  ✓ patch persists ci_failure_cycles = 2"
+
+echo "=== T28c: ci_failure_cycles rejects negative values (schema minimum 0) ==="
+if "$WS" patch "$KEY" "$ISSUE" .ci_failure_cycles '-1' 2>/dev/null; then
+  echo "  ✗ FAIL: expected non-zero exit"
+  exit 1
+fi
+echo "  ✓ schema rejects negative integer"
+
 # -- T29..T34: append-halt subcommand (#118) ------------------------------
 
 echo "=== T29: append-halt with valid code + object data appends one entry ==="

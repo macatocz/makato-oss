@@ -398,6 +398,7 @@ case "$SUBCMD" in
         context_warn_tokens: $ctx_warn,
         outer_iteration: 0,
         merge_conflict_cycles: 0,
+        ci_failure_cycles: 0,
         halt_audit: [],
         human_review_cycles: 0,
         github_pr_number: null,

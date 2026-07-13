@@ -20,6 +20,7 @@
     "context_warn_tokens",
     "outer_iteration",
     "merge_conflict_cycles",
+    "ci_failure_cycles",
     "halt_audit",
     "human_review_cycles",
     "github_pr_number",
@@ -133,6 +134,11 @@
       "type": "integer",
       "minimum": 0,
       "description": "Count of merge-conflict resolution attempts within this run (GAP-016 / #45). Incremented by resolve-pr-conflict on every irreconcilable conflict (Step 6 HALT path). HALT-008 fires when this reaches MAKATO_MAX_MERGE_CONFLICT_CYCLES (default 3) — separate ceiling from the outer_iteration counter so a single run can exhaust re-plan budget AND conflict-resolution budget independently."
+    },
+    "ci_failure_cycles": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Count of CI-failure fix attempts within this run (#288). Incremented by the PO-agent's CI-failure fix loop (Step 6a test-failure path) on every RED CI check that triggers a re-dispatch of build-implement-tdd. HALT-008 fires when this reaches MAKATO_MAX_CI_FAILURE_CYCLES (default 3) — a ceiling independent of both outer_iteration (re-plan budget) and merge_conflict_cycles (conflict-resolution budget), so transient CI noise no longer burns the operator's re-plan budget. All three counters are independent; a single run can exhaust each."
     },
     "halt_audit": {
       "type": "array",

@@ -5,6 +5,39 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## `po-agent.md` — CI-failure retries no longer drain the re-plan budget (#288)
+
+Fixes a MEDIUM-severity counter-conflation bug. The CI-failure fix loop (Step 6a
+test-failure path) incremented `outer_iteration` — the **same** counter Step 5
+reserves for genuine re-plan attempts — and gated its ceiling through
+`kill-switch poll`, which fires HALT-008 at `outer_iteration >= 3`. A run that had
+already re-planned twice therefore hit HALT-008 on its **first** CI-failure retry,
+conflating "re-planned too many times" with "CI flaked once" and burning the
+operator's re-plan budget on transient CI noise.
+
+- **`agents/po-agent.md`** — The CI-failure fix loop now owns an independent counter
+  `ci_failure_cycles` with its own ceiling `MAKATO_MAX_CI_FAILURE_CYCLES` (default 3),
+  enforced by a **direct pre-dispatch check** (mirroring the merge-conflict sub-loop's
+  `merge_conflict_cycles` pattern), NOT via `kill-switch poll`. `outer_iteration` is now
+  reserved exclusively for re-plan attempts. HALT-008 on this path appends a
+  `halt_audit[]` entry with `data.origin: "ci_failure"`. Step 5 bookkeeping documents
+  the three independent counters.
+- **`skills/workflow-state/references/workflow-state.schema.json`** — New required field
+  `ci_failure_cycles` (integer, minimum 0, default 0), independent of both
+  `outer_iteration` and `merge_conflict_cycles`.
+- **`shared/workflow-state.sh`** — `init` seeds `ci_failure_cycles: 0`.
+- **`skills/workflow-state/SKILL.md`** — Field table documents `ci_failure_cycles`.
+- **`skills/workflow-state/references/smoke-tests.sh`** — New tests T28a/T28b/T28c mirror
+  the merge_conflict_cycles default/patch/negative-rejection coverage.
+- **`halt-conditions.md`** — HALT-008 row rewritten to document THREE independent origins:
+  (a) `outer_iteration >= 3`; (b) `merge_conflict_cycles >= MAKATO_MAX_MERGE_CONFLICT_CYCLES`;
+  (c) `ci_failure_cycles >= MAKATO_MAX_CI_FAILURE_CYCLES`. `data.origin` distinguishes them.
+  See-also section links the po-agent CI-failure loop and the new schema field.
+- **`skills/kill-switch/SKILL.md`** — HALT-008 poll clarified to enforce **only**
+  `outer_iteration`; the two other origins are enforced by direct PO-agent checks.
+
+---
+
 ## `po-agent.md` — Step 6b review poll now bounded (#283)
 
 Fixes a HIGH-severity unbounded-stall bug. The Step 6b review poll waited for a PR review
