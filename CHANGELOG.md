@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.55.0](https://github.com/macatocz/makato/compare/v0.54.3...v0.55.0) (2026-07-13)
+
+
+### ✨ Features
+
+* add renovate.json to allowed files in root structure check ([302a58f](https://github.com/macatocz/makato/commit/302a58f7e8af266889d86dff7735071b00aaaa6b))
+
 ## [0.54.3](https://github.com/macatocz/makato/compare/v0.54.2...v0.54.3) (2026-07-13)
 
 
