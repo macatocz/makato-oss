@@ -4,7 +4,6 @@ description: Guide users through change request workflow (analyze, design, execu
 version: "1.1.0"
 argument-hint: "[ISSUE-KEY] [--autonomous]"
 ---
-
 # orchestrate
 
 Guide users through the complete change request workflow by coordinating the four phases: analyze requirements, design technical approach, execute implementation, and resolve review feedback.
@@ -12,12 +11,14 @@ Guide users through the complete change request workflow by coordinating the fou
 ## When to Use
 
 Use this skill when:
+
 - Starting a new change request implementation
 - Resuming work on an existing change request
 - Unsure which phase to run next
 - Want a guided workflow instead of invoking individual phase skills
 
 **Do NOT use this skill if:**
+
 - You already know exactly which phase skill to invoke (use that skill directly)
 - You're working on something other than a change request (use makato-plan for new features; for bugs, route through makato-plan if shaping is needed or makato-build if the fix is well-scoped)
 
@@ -32,7 +33,6 @@ Load @../../AUTONOMOUS-MODE.md before Step 0.5. This skill supports headless ope
 **Only execute this step when autonomous mode is active (see AUTONOMOUS-MODE.md § *Activation triggers*).**
 
 1. **Read ISSUE_KEY from CLI arg** — if the first argument is present, use it as `ISSUE_KEY`. If absent, HALT with R1 `status:"failure"` and `errors:["MISSING_INPUT: ISSUE_KEY required in autonomous mode"]`.
-
 2. **Write workflow-state stub** — create `specs/<ISSUE_KEY>/workflow-state-<N>.json` (where `<N>` = GitHub issue number extracted from `ISSUE_KEY` or fetched via `gh issue view`):
 
    ```json
@@ -47,9 +47,7 @@ Load @../../AUTONOMOUS-MODE.md before Step 0.5. This skill supports headless ope
      "updated_at": "<ISO-8601-ms>"
    }
    ```
-
 3. **Write change-state file** — create `specs/<ISSUE_KEY>/change-state-<N>.json` with initial schema (see AUTONOMOUS-MODE.md § *Phase state file*). Set `current_phase:"analyze"`, `started_at` and `updated_at` to now.
-
 4. **Init worktree** (if `MAKATO_ORCHESTRATE_SHARED` is set):
 
    ```bash
@@ -81,6 +79,7 @@ Check `specs/<ISSUE_KEY>/` directory to determine workflow state.
 Load @references/phase-detection.md for detection logic.
 
 Determine:
+
 - Which phases are complete (artifacts exist)
 - What the recommended next phase is
 - Whether prerequisites are met for later phases
@@ -101,6 +100,7 @@ Change Request Workflow: <ISSUE_KEY>
 ```
 
 Use:
+
 - ✓ for completed phases
 - ● for current/recommended phase
 - ○ for not-yet-started phases
@@ -110,6 +110,7 @@ Use:
 **First, state the recommendation clearly:**
 
 Based on phase detection from Step 2, determine the recommended next phase:
+
 - No artifacts → **Recommend: Start with Analyze**
 - Analyze complete → **Recommend: Continue to Design**
 - Design complete → **Recommend: Continue to Execute**
@@ -127,15 +128,18 @@ Based on phase detection from Step 2, determine the recommended next phase:
 **Then offer options using `AskUserQuestion`:**
 
 **Primary options** (always show):
-1. **[RECOMMENDED] Continue to <next phase>** (if prerequisites met)
+
+1. **[RECOMMENDED] Continue to <next phase></next>** (if prerequisites met)
 2. Re-run a completed phase (specify which)
 3. Exit workflow
 
 **Additional options** (show conditionally):
+
 - Skip to execute (only if analyze + design complete, warn about skipping)
 - Skip to resolve-review (only if PR exists in GitHub Issues, warn about skipping)
 
 For each option, show:
+
 - What will happen
 - Whether prerequisites are met
 - Warning if action might overwrite existing work
@@ -147,18 +151,21 @@ Based on user selection (or autonomous phase recommendation), invoke the appropr
 Load @references/skill-invocation-guide.md for invocation patterns.
 
 **In interactive mode**, use the `Skill` tool to invoke:
+
 - Analyze → `Skill(skill="makato-change:analyze", args="<ISSUE_KEY>")`
 - Design → `Skill(skill="makato-change:design", args="<ISSUE_KEY>")`
 - Execute → `Skill(skill="makato-change:execute", args="<ISSUE_KEY>")`
 - Resolve Review → `Skill(skill="makato-change:resolve-review", args="<ISSUE_KEY>")`
 
 **In autonomous mode**, append `--autonomous` and include `WORKTREE_PATH` in the context bundle when a worktree was created:
+
 - Analyze → `Skill(skill="makato-change:analyze", args="<ISSUE_KEY> --autonomous")`
 - Design → `Skill(skill="makato-change:design", args="<ISSUE_KEY> --autonomous")`
 - Execute → `Skill(skill="makato-change:execute", args="<ISSUE_KEY> --autonomous")`
 - `resolve-review` is NOT invoked in autonomous mode (see AUTONOMOUS-MODE.md § *Skills NOT in scope*)
 
 **In autonomous mode**, update `change-state-<N>.json` before dispatch:
+
 - Set `current_phase` to the phase being dispatched
 - Set `updated_at` to now
 
@@ -170,11 +177,11 @@ After the invoked skill completes:
 
 1. Re-run phase detection (Step 2) to update progress
 2. Check if the phase actually completed:
+
    - Analyze: `analysis.md` should exist
    - Design: `design.md` should exist
    - Execute: PR link should exist in GitHub Issues
    - Resolve Review: verify comments were addressed
-
 3. **In autonomous mode**, after each phase completes, append the phase name to `phases_complete[]` in `change-state-<N>.json` and set `updated_at`. After the execute phase completes and a PR was created, also write the PR URL to `pr_url` in `change-state-<N>.json`:
 
    ```bash
@@ -190,12 +197,14 @@ After the invoked skill completes:
    ```
 
 If the phase did not complete (user exited early or error occurred):
+
 - Show current state
 - Ask if user wants to retry or move to a different phase
 
 ### Step 7: Loop or Exit
 
 Check if all phases are complete:
+
 - Analyze artifact exists
 - Design artifact exists
 - Execute complete (PR link in GitHub Issues)
@@ -215,12 +224,14 @@ Next:
 ```
 
 **In autonomous mode**, on all-phases-complete terminal state:
+
 1. Patch `change-state-<N>.json:.current_phase` to `"done"` and set `updated_at`.
 2. Patch `workflow-state-<N>.json:.current_phase` to `"done"` and set `updated_at`.
 3. Run `${MAKATO_ORCHESTRATE_SHARED}/worktree.sh cleanup <KEY> <N>` if worktree was created.
 4. Return R1 `status:"success"` envelope with `data.current_phase:"done"`.
 
 **On HALT in autonomous mode:**
+
 1. Patch `change-state-<N>.json:.current_phase` to `"halted"` and set `halt_code`.
 2. Patch `workflow-state-<N>.json:.current_phase` to `"halted"` and set `updated_at`.
 3. Run `${MAKATO_ORCHESTRATE_SHARED}/worktree.sh retain <KEY> <N> <HALT_CODE>` if worktree was created.
@@ -237,7 +248,8 @@ Next:
 Then ask the user: **"What would you like to do next?"**
 
 Options:
-1. **[RECOMMENDED] Continue to <next phase>** (show which phase is next)
+
+1. **[RECOMMENDED] Continue to <next phase></next>** (show which phase is next)
 2. **Re-run a phase** (specify which)
 3. **Exit workflow**
 
@@ -262,22 +274,26 @@ Next Steps:
 ## Edge Cases
 
 **User wants to skip phases:**
+
 - Warn that artifacts from skipped phases won't exist
 - Explain what information will be missing
 - Offer to run the prerequisite phase first
 - Only allow skip if user explicitly confirms
 
 **Artifacts exist but are incomplete/corrupt:**
+
 - Detect by checking file size or key sections
 - Offer to re-run that phase
 - Don't auto-delete — let user decide
 
 **Multiple people working on same change request:**
+
 - The orchestrator doesn't lock — assumes one person at a time
 - If artifacts change unexpectedly, re-detect and show updated state
 - User can see what's been done and pick up where previous person left off
 
 **GitHub Issues issue type is not Story or Activity:**
+
 - Warn the user
 - Offer to continue anyway (some orgs use custom types)
 - Phase skills will validate and may block if truly incompatible

@@ -5,17 +5,16 @@ version: "1.4.0"
 argument-hint: "[optional: module or file name]"
 allowed-tools: Read Bash Grep Glob
 ---
-
 # Zoom Out
 
 ## Tools
 
-| Tool | Purpose |
-| ---- | ------- |
-| `LSP` | Go-to-definition, find-references, call hierarchy |
-| `Grep` | Pattern search for symbols, imports, usage |
-| `Read` | Inspect file content and understand context |
-| `Glob` | List files to map project structure |
+| Tool     | Purpose                                           |
+| -------- | ------------------------------------------------- |
+| `LSP`  | Go-to-definition, find-references, call hierarchy |
+| `Grep` | Pattern search for symbols, imports, usage        |
+| `Read` | Inspect file content and understand context       |
+| `Glob` | List files to map project structure               |
 
 ## Workflow
 
@@ -118,11 +117,11 @@ when the call structure is already clear from the first grep.
 
 ## When to Use
 
-| When to use | When NOT to use |
-| ----------- | --------------- |
-| Deep in a feature, lost orientation across modules | Clear plan exists — orientation not needed |
-| Need to understand data flow across 3+ files | Only need a single file — read it directly |
-| Want to know callers/callees and why something exists | Want code review — use `/self-review` or `/pr-review` |
+| When to use                                           | When NOT to use                                           |
+| ----------------------------------------------------- | --------------------------------------------------------- |
+| Deep in a feature, lost orientation across modules    | Clear plan exists — orientation not needed               |
+| Need to understand data flow across 3+ files          | Only need a single file — read it directly               |
+| Want to know callers/callees and why something exists | Want code review — use`/self-review` or `/pr-review` |
 
 **Entry:** Run when answering "where does this data come from and go?" requires traversing ≥3 files.
 
