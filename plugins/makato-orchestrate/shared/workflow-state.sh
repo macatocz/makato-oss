@@ -376,6 +376,7 @@ case "$SUBCMD" in
         current_phase: null,
         resume_point: null,
         budget_consumed_tokens: 0,
+        session_baseline_tokens: 0,
         budget_limit_tokens: 500000,
         context_warn_tokens: $ctx_warn,
         outer_iteration: 0,

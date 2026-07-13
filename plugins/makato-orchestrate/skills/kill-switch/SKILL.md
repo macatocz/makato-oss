@@ -117,7 +117,7 @@ shell-script call. Exit codes pass through unchanged:
 
 | Exit | Meaning |
 |------|---------|
-| 0    | Below `context_warn_tokens` — no-op. |
+| 0    | Per-session context delta (`budget_consumed_tokens - session_baseline_tokens`) below `context_warn_tokens` — no-op. |
 | 2    | HANDOFF initiated. The current session must exit cleanly; the resume script has been emitted. |
 | 1    | HALT-007 fallback fired (cap exceeded, summariser missed, or restart-binary missing). |
 
@@ -181,7 +181,7 @@ rather than from the day's start.
 | HALT-007 (per_task) | `budget_consumed_tokens >= budget_limit_tokens` | Append audit, apply label, exit 1. |
 | HALT-007 (daily) | Daily ledger ≥ `MAKATO_DAILY_TOKEN_BUDGET` | Append audit, apply label, exit 1. |
 | HALT-007 (handoff fallback) | Via `context-handoff.sh` — restart_failed or cap exceeded | Append audit, apply label, exit 1. |
-| HALT-007B | Via `context-handoff.sh` — context_warn_tokens reached | Append audit, no label, exit 2. |
+| HALT-007B | Via `context-handoff.sh` — per-session delta (`consumed - session_baseline_tokens`) reached `context_warn_tokens` (#281) | Append audit, no label, exit 2. |
 | HALT-008 | `outer_iteration >= 3` | Append audit, apply label, exit 1. |
 | HALT-009 | `claude-halt` label on GitHub issue | Append audit, apply label, exit 1. Preserve `claude-halt`. |
 

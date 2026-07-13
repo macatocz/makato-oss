@@ -290,7 +290,7 @@ On resume, check three flags before continuing:
 | Flag                                                         | Action                                                                                                                                                               |
 | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `current_phase == "done"` AND `github_pr_number != null` | Return R1`success` with `data.github_pr_number` populated. Skip Steps 2b–7 — cleanup already ran on the prior session.                                         |
-| `handoff_reason == "context_ceiling"`                      | Read`session_summary` (≤ 500 tokens). Clear the flag via `workflow-state.sh patch <KEY> <ISSUE_NUMBER> .handoff_reason 'null'`. Continue from `resume_point`. |
+| `handoff_reason == "context_ceiling"`                      | Read`session_summary` (≤ 500 tokens). Clear the flag via `workflow-state.sh patch <KEY> <ISSUE_NUMBER> .handoff_reason 'null'`. Continue from `resume_point`. Do NOT touch `budget_consumed_tokens` or `session_baseline_tokens` — `context-handoff.sh` already advanced the baseline to the cumulative total, so HALT-007B now measures this session's delta from 0 (#281). Resetting the cumulative counter here would silently disable the HALT-007 cost ceilings. |
 | `restart_failed == true`                                   | Return R1`failure` with `errors: ["restart_failed=true on prior session"]`.                                                                                      |
 
 On a fresh run (not a resume), open the live issue comment with a

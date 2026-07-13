@@ -45,9 +45,10 @@ The full contract lives at @references/workflow-state.schema.json (draft-07, `ad
 | `sub_tasks` | array | ordered; see *sub_tasks shape* |
 | `current_phase` | string \| null | `refine` \| `implement` \| `verify` \| `pr` \| `done` |
 | `resume_point` | string \| null | opaque hint for session-status hook |
-| `budget_consumed_tokens` | integer ≥ 0 | cumulative; updated after each dispatch |
+| `budget_consumed_tokens` | integer ≥ 0 | cumulative; updated after each dispatch; never reset (HALT-007 cost ceilings evaluate this total) |
+| `session_baseline_tokens` | integer ≥ 0 | `budget_consumed_tokens` at the current session's start (#281); HALT-007B evaluates the delta `consumed - baseline` and sets this to `consumed` on each handoff so a resumed session's context budget restarts at 0. Optional for pre-#281 in-flight state (readers default 0) |
 | `budget_limit_tokens` | integer ≥ 1 | HALT-007 fires at ceiling (cost control) |
-| `context_warn_tokens` | integer ≥ 1 | HALT-007B fires at threshold (quality control; default 150000) |
+| `context_warn_tokens` | integer ≥ 1 | HALT-007B fires when the session delta reaches this threshold (quality control; default 150000) |
 | `outer_iteration` | integer ≥ 0 | HALT-008 fires at 3 |
 | `merge_conflict_cycles` | integer ≥ 0 | count of merge-conflict resolution attempts; HALT-008 fires independently at `MAKATO_MAX_MERGE_CONFLICT_CYCLES` (default 3) |
 | `halt_audit` | array | append-only; see *halt_audit shape* |

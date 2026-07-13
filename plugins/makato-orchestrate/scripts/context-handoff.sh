@@ -3,8 +3,11 @@
 # HALT-007B proactive-handoff path (GAP-004 / #30).
 #
 # Lifecycle:
-#   1. CHECK    — read workflow-state.json, compare budget_consumed_tokens
-#                 against context_warn_tokens. No-op if below threshold.
+#   1. CHECK    — read workflow-state.json, compare the per-session context
+#                 delta (budget_consumed_tokens - session_baseline_tokens)
+#                 against context_warn_tokens. No-op if below threshold. The
+#                 delta (not the cumulative total) is what gates HALT-007B so a
+#                 resumed session starts its context budget fresh (#281).
 #   2. CAP      — if session_count >= MAKATO_MAX_HANDOFFS (default 5), fall
 #                 through to HALT-007 fallback (NEVER 8).
 #   3. CHECKPOINT — patch workflow-state.json with resume_point,
@@ -165,19 +168,33 @@ HALT
 #   2 — handoff initiated cleanly (status HANDOFF)
 # ---------------------------------------------------------------------------
 _check() {
-  # Single state read; extract all five fields from the same payload to avoid
-  # five separate `workflow-state.sh read` subprocess chains per check.
+  # Single state read; extract all fields from the same payload to avoid
+  # separate `workflow-state.sh read` subprocess chains per check.
   local state
   state="$("$WS" read "$KEY" "$ISSUE_NUMBER")"
-  local consumed warn count summary resume_point
-  consumed="$(jq -r '.budget_consumed_tokens'   <<<"$state")"
-  warn="$(jq    -r '.context_warn_tokens'       <<<"$state")"
-  count="$(jq   -r '.session_count'             <<<"$state")"
-  summary="$(jq -r '.session_summary // ""'     <<<"$state")"
-  resume_point="$(jq -r '.resume_point // ""'   <<<"$state")"
+  local consumed baseline warn count summary resume_point
+  consumed="$(jq -r '.budget_consumed_tokens'          <<<"$state")"
+  # session_baseline_tokens is optional for in-flight state files predating
+  # #281 — default to 0 so those runs evaluate against the cumulative total
+  # exactly as before (no worse than pre-fix behaviour).
+  baseline="$(jq -r '.session_baseline_tokens // 0'    <<<"$state")"
+  warn="$(jq    -r '.context_warn_tokens'              <<<"$state")"
+  count="$(jq   -r '.session_count'                    <<<"$state")"
+  summary="$(jq -r '.session_summary // ""'            <<<"$state")"
+  resume_point="$(jq -r '.resume_point // ""'          <<<"$state")"
+
+  # HALT-007B is a per-SESSION context-window gate, not a cumulative-cost gate
+  # (#281). Evaluate the context pressure accumulated since this session began
+  # — the delta consumed-since-baseline — rather than the lifetime cumulative
+  # total. Without this, a resumed session inherits a budget_consumed_tokens
+  # already past the threshold and re-hands-off on its first boundary, storming
+  # through MAKATO_MAX_HANDOFFS. The cumulative counter stays untouched so the
+  # HALT-007 daily/per-task COST ceilings keep evaluating the true total.
+  local session_delta=$(( consumed - baseline ))
+  (( session_delta < 0 )) && session_delta=0
 
   # Below threshold — nothing to do.
-  if (( consumed < warn )); then
+  if (( session_delta < warn )); then
     exit 0
   fi
 
@@ -198,11 +215,16 @@ _check() {
     _halt_007_fallback "session_summary not populated — PO-agent contract violation"
   fi
 
-  # Bump session_count and set handoff_reason in a single state mutation so
-  # the file is never observable with one bumped and the other unset.
+  # Bump session_count, set handoff_reason, and advance session_baseline_tokens
+  # to the current cumulative consumption in a single state mutation so the file
+  # is never observable with one field bumped and another unset. Advancing the
+  # baseline is the #281 fix: the resumed session then measures its own context
+  # pressure from zero (delta = consumed - baseline), instead of inheriting a
+  # delta already past the threshold and re-handing-off immediately.
   local merged
   merged="$(jq --argjson c "$((count + 1))" \
-    '. + {session_count: $c, handoff_reason: "context_ceiling"}' \
+    --argjson b "$consumed" \
+    '. + {session_count: $c, handoff_reason: "context_ceiling", session_baseline_tokens: $b}' \
     <<<"$state")"
   "$WS" write "$KEY" "$ISSUE_NUMBER" "$merged"
 
@@ -212,11 +234,15 @@ _check() {
 
   _append_halt_audit "HALT-007B" "$(jq -n \
     --argjson consumed "$consumed" \
+    --argjson baseline "$consumed" \
+    --argjson delta "$session_delta" \
     --argjson warn "$warn" \
     --argjson session "$((count + 1))" \
     --arg resume "$resume_point" \
     '{
       budget_consumed_tokens: $consumed,
+      session_baseline_tokens: $baseline,
+      session_delta_tokens: $delta,
       context_warn_tokens: $warn,
       session_count: $session,
       resume_point: $resume

@@ -18,6 +18,12 @@
 #   T5: emit-resume produces an idempotent, executable resume script
 #   T6: emit-resume's idempotency guard fires when current_phase == done
 #   T7: missing session_summary triggers HALT-007 fallback (NEVER 6)
+#
+# Plus three #281 delta-baseline tests (HALT-007B evaluates the per-session
+# delta, not the cumulative total, so a resumed session does not restart-storm):
+#   T8:  resumed session below the delta threshold → no-op (storm prevented)
+#   T9:  delta above threshold still hands off; baseline advances to consumed
+#   T10: absent session_baseline_tokens (pre-#281 state) defaults to 0
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
@@ -55,10 +61,12 @@ _init_state() {
   local consumed="${1:-0}"
   local count="${2:-0}"
   local with_summary="${3:-yes}"
+  local baseline="${4:-0}"
   rm -rf "$SANDBOX"
   mkdir -p "$SANDBOX"
   MAKATO_CONTEXT_WARN_TOKENS=150000 "$WS" init "$KEY" macatocz/test feat/gap-004 "$ISSUE" >/dev/null 2>&1
   "$WS" patch "$KEY" "$ISSUE" '.budget_consumed_tokens' "$consumed"
+  "$WS" patch "$KEY" "$ISSUE" '.session_baseline_tokens' "$baseline"
   "$WS" patch "$KEY" "$ISSUE" '.session_count' "$count"
   "$WS" patch "$KEY" "$ISSUE" '.resume_point' '"task:7"'
   if [[ "$with_summary" == "yes" ]]; then
@@ -92,7 +100,10 @@ set -e
 [[ -x "$RESUME_SCRIPT" ]]                                                          || { echo "  ✗ FAIL: resume script not emitted/executable"; exit 1; }
 # Audit must NOT include needs-human-review signal — NEVER 9.
 [[ "$("$WS" read "$KEY" "$ISSUE" | jq -r '.human_review_cycles')" == "0" ]]                 || { echo "  ✗ FAIL: human_review_cycles incremented on handoff (NEVER 9)"; exit 1; }
-echo "  ✓ exit 2, session_count→1, handoff_reason=context_ceiling, HALT-007B audited, no review cycle"
+# #281: baseline advanced to the cumulative total at handoff so the resumed
+# session's context delta restarts at zero.
+[[ "$("$WS" read "$KEY" "$ISSUE" | jq -r '.session_baseline_tokens')" == "160000" ]]        || { echo "  ✗ FAIL: session_baseline_tokens not advanced to consumed (#281)"; exit 1; }
+echo "  ✓ exit 2, session_count→1, handoff_reason=context_ceiling, baseline→160000, HALT-007B audited, no review cycle"
 
 echo "=== T3: threshold crossed, claude binary missing → HALT-007 ==="
 _init_state 160000 0 yes
@@ -149,5 +160,55 @@ set -e
 [[ "$("$WS" read "$KEY" "$ISSUE" | jq -r '.restart_failed')" == "true" ]]             || { echo "  ✗ FAIL: restart_failed not set"; exit 1; }
 echo "  ✓ exit 1, restart_failed=true, HALT-007 audited"
 
+echo "=== T8: #281 — resumed session below the delta threshold does NOT re-hand-off ==="
+# Simulate the resumed session after one handoff: cumulative consumption is far
+# past context_warn_tokens (as it would be post-handoff), but the baseline was
+# advanced to that same value, so the per-session delta is 0. Pre-#281 this
+# re-fired HALT-007B on the first boundary → restart storm.
+_init_state 320000 1 yes 300000   # consumed=320k, baseline=300k → delta=20k < 150k
+rm -f "$RESUME_SCRIPT"             # clear any script emitted by earlier tests
+set +e
+MAKATO_CLAUDE_BIN="$STUB_CLAUDE" MAKATO_HANDOFF_DRY_RUN=1 \
+  "$HANDOFF" check "$KEY" "$ISSUE"
+RC=$?
+set -e
+[[ $RC -eq 0 ]]                                                              || { echo "  ✗ FAIL: expected exit 0 (no-op), got $RC — storm not prevented"; exit 1; }
+[[ "$("$WS" read "$KEY" "$ISSUE" | jq -r '.session_count')" == "1" ]]                 || { echo "  ✗ FAIL: session_count mutated on a below-delta check"; exit 1; }
+[[ "$("$WS" read "$KEY" "$ISSUE" | jq -r '.session_baseline_tokens')" == "300000" ]]  || { echo "  ✗ FAIL: baseline mutated on a below-delta check"; exit 1; }
+[[ ! -f "$RESUME_SCRIPT" ]]                                                  || { echo "  ✗ FAIL: resume script emitted on a below-delta check"; exit 1; }
+echo "  ✓ delta 20k < 150k → no-op; no second handoff, baseline/session_count untouched"
+
+echo "=== T9: #281 — delta above threshold still hands off (baseline honoured) ==="
+# consumed=480k, baseline=300k → delta=180k >= 150k: this session genuinely
+# accrued enough context pressure, so a handoff is correct.
+_init_state 480000 1 yes 300000
+set +e
+MAKATO_CLAUDE_BIN="$STUB_CLAUDE" MAKATO_HANDOFF_DRY_RUN=1 \
+  "$HANDOFF" check "$KEY" "$ISSUE"
+RC=$?
+set -e
+[[ $RC -eq 2 ]]                                                              || { echo "  ✗ FAIL: expected exit 2 (HANDOFF), got $RC"; exit 1; }
+[[ "$("$WS" read "$KEY" "$ISSUE" | jq -r '.session_count')" == "2" ]]                 || { echo "  ✗ FAIL: session_count not incremented"; exit 1; }
+[[ "$("$WS" read "$KEY" "$ISSUE" | jq -r '.session_baseline_tokens')" == "480000" ]]  || { echo "  ✗ FAIL: baseline not advanced to new consumed"; exit 1; }
+[[ "$("$WS" read "$KEY" "$ISSUE" | jq -r '.halt_audit[-1].data.session_delta_tokens')" == "180000" ]] || { echo "  ✗ FAIL: session_delta_tokens not audited"; exit 1; }
+echo "  ✓ delta 180k >= 150k → HANDOFF, baseline→480000, delta audited"
+
+echo "=== T10: #281 — absent session_baseline_tokens (pre-fix state) defaults to 0 ==="
+# In-flight state files created before #281 have no session_baseline_tokens.
+# The reader must default it to 0 → delta == cumulative, i.e. identical to the
+# original behaviour (no regression for legacy runs).
+_init_state 160000 0 yes 0
+LEGACY_STATE="$("$WS" read "$KEY" "$ISSUE" | jq 'del(.session_baseline_tokens)')"
+"$WS" write "$KEY" "$ISSUE" "$LEGACY_STATE"
+[[ "$("$WS" read "$KEY" "$ISSUE" | jq 'has("session_baseline_tokens")')" == "false" ]] || { echo "  ✗ FAIL: could not strip session_baseline_tokens for the legacy fixture"; exit 1; }
+set +e
+MAKATO_CLAUDE_BIN="$STUB_CLAUDE" MAKATO_HANDOFF_DRY_RUN=1 \
+  "$HANDOFF" check "$KEY" "$ISSUE"
+RC=$?
+set -e
+[[ $RC -eq 2 ]]                                                              || { echo "  ✗ FAIL: expected exit 2 (HANDOFF on cumulative fallback), got $RC"; exit 1; }
+[[ "$("$WS" read "$KEY" "$ISSUE" | jq -r '.session_baseline_tokens')" == "160000" ]]  || { echo "  ✗ FAIL: baseline not written on handoff from legacy state"; exit 1; }
+echo "  ✓ absent baseline → treated as 0, handoff fires, baseline written for next session"
+
 echo
-echo "All 7 context-handoff smoke tests passed."
+echo "All 10 context-handoff smoke tests passed."

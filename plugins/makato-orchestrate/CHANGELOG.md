@@ -5,7 +5,32 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
-## `halt-conditions.md` — HALT-CH-* taxonomy corrected to match ground truth
+## `context-handoff.sh` / `workflow-state` — HALT-007B evaluates per-session delta (#281)
+
+Fixes a CRITICAL restart-storm: after a HALT-007B context handoff, `budget_consumed_tokens`
+was never reset, so the resumed session re-evaluated the ceiling on its first outer-loop
+boundary, handed off again, and burned through `MAKATO_MAX_HANDOFFS` (default 5) back-to-back
+spawns before firing HALT-007 — the soft-handoff mechanism never delivered its purpose.
+
+- **`shared/workflow-state.sh`** — `init` now seeds a new `session_baseline_tokens: 0` field.
+- **`skills/workflow-state/references/workflow-state.schema.json`** — added the
+  `session_baseline_tokens` property (integer ≥ 0). Left OUT of `required` so in-flight state
+  files predating #281 still validate; readers default it to 0.
+- **`scripts/context-handoff.sh`** — `check` now compares the **per-session delta**
+  (`budget_consumed_tokens - session_baseline_tokens`) against `context_warn_tokens` instead of
+  the cumulative total. On handoff it advances `session_baseline_tokens` to the current
+  `budget_consumed_tokens`, so the resumed session's delta restarts at 0. The cumulative
+  `budget_consumed_tokens` is left untouched — the HALT-007 per-task and daily **cost** ceilings
+  keep evaluating the true lifetime total (resetting it, the naive fix, would have silently
+  disabled cost control). Audit entries gain `session_baseline_tokens` and `session_delta_tokens`.
+- **`scripts/context-handoff-smoke-tests.sh`** — added T8 (resumed session below the delta
+  threshold → no-op, storm prevented), T9 (delta above threshold still hands off; baseline
+  advances), T10 (absent `session_baseline_tokens` on pre-#281 state defaults to 0). 10 tests.
+- Docs: `halt-conditions.md`, `skills/kill-switch/SKILL.md`, `skills/workflow-state/SKILL.md`,
+  and `agents/po-agent.md` updated to describe the delta semantics and the cumulative-vs-session
+  split.
+
+---
 
 The HALT-CH-001 … HALT-CH-004 table added in #144 (see the *makato-change autonomous
 path integration* block below) documented triggers and severities that **never matched**
