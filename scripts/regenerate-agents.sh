@@ -112,6 +112,24 @@ the changes are governed by the repo's release-please + conventional-commits con
 Title format: `type(scope): description` where `scope` is the plugin name when the change is
 scoped, or omitted for repo-wide changes.
 
+## Documentation skills
+
+The **`makato-doc`** plugin owns four documentation skills that are **cross-cutting
+obligations**, not opt-in conveniences. They apply across every plugin's agents:
+
+- **`context7`** — MANDATORY for every code-creating agent. Before writing or editing code that
+  touches a library, framework, SDK, or API, look up current documentation via Context7 instead of
+  relying on training data. (`makato-build` coder + `makato-change` execute agents especially.)
+- **`crafting-effective-readmes`** — use whenever a `README.md` is created or updated.
+- **`markdown`** — use whenever any `.md` file is authored or edited (structure, fences, lint).
+- **`writing-clearly-and-concisely`** — use whenever prose is written or edited in any `.md`
+  (also commit and error messages).
+
+`makato-doc/config/skill-bundles.yml` encodes the machine-routable subset (source files →
+`context7`; README files → README skills; lint-bearing markdown → `markdown`). Coverage that a
+`contains:`-guarded glob cannot express precisely is carried by these rules — they are authoritative.
+See `plugins/makato-doc/AGENTS.md` § *Documentation-skill obligations*.
+
 ## Project specs convention
 
 Plugins discover project specs via (in order):

@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>makato — Autonomous AI Development Suite · Data Flow</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --panel-2: #1c2128; --border: #30363d;
+    --text: #e6edf3; --muted: #8b949e; --accent: #58a6ff; --flow: #f7c948;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; font-size: 14px; overflow: hidden; }
+  #app { display: flex; height: 100vh; width: 100vw; }
+
+  #controls { width: 282px; min-width: 282px; height: 100%; background: var(--panel);
+    border-right: 1px solid var(--border); overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+  #controls h1 { font-size: 16px; margin: 0 0 2px; }
+  #controls .sub { color: var(--muted); font-size: 11px; margin-bottom: 2px; }
+  .group { border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: var(--panel-2); }
+  .group h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 0 0 10px; }
+  .row { display: flex; align-items: center; gap: 8px; margin: 7px 0; }
+  .row label { flex: 1; cursor: pointer; user-select: none; }
+  button { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 6px;
+    padding: 7px 10px; cursor: pointer; font-size: 13px; font-family: inherit; transition: background .12s, border-color .12s; }
+  button:hover { background: #262c36; border-color: var(--accent); }
+  button.primary { background: var(--accent); color: #041427; border-color: var(--accent); font-weight: 600; }
+  button.primary:hover { filter: brightness(1.1); }
+  button.active { border-color: var(--accent); color: var(--accent); }
+  .btn-row { display: flex; gap: 6px; flex-wrap: wrap; }
+  .btn-row button { flex: 1; min-width: 0; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  .swatch { width: 12px; height: 12px; border-radius: 3px; flex: 0 0 auto; }
+  .legend-item { display: flex; align-items: center; gap: 8px; margin: 5px 0; font-size: 12px; }
+  .pill { display:inline-block; font-size:10px; padding:1px 6px; border-radius:10px; background:#21262d; color:var(--muted); border:1px solid var(--border); }
+  .seg { display: flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .seg button { border: none; border-radius: 0; border-right: 1px solid var(--border); }
+  .seg button:last-child { border-right: none; }
+  select { font-family: inherit; }
+
+  #canvas-wrap { flex: 1; position: relative; overflow: hidden; cursor: grab;
+    background: radial-gradient(circle at 20% 8%, #12181f 0%, var(--bg) 62%); }
+  #canvas-wrap.grabbing { cursor: grabbing; }
+  svg { width: 100%; height: 100%; display: block; }
+  #zoom-controls { position: absolute; top: 12px; right: 12px; display: flex; flex-direction: column; gap: 6px; z-index: 6; }
+  #zoom-controls button { width: 34px; height: 34px; padding: 0; font-size: 18px; line-height: 1;
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); }
+  #zoom-controls button:hover { border-color: var(--accent); color: var(--accent); }
+  .canvas-hint { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); font-size: 11px;
+    color: var(--muted); background: rgba(22,27,34,.72); padding: 4px 12px; border-radius: 12px; border: 1px solid var(--border); pointer-events: none; z-index: 5; }
+  .flow-status { position:absolute; top:12px; left:50%; transform:translateX(-50%); background:var(--panel-2);
+    border:1px solid var(--border); border-radius:20px; padding:6px 16px; font-size:12px; color:var(--text);
+    display:none; align-items:center; gap:8px; z-index:5; max-width:62%; }
+  .flow-status.show { display:flex; }
+  .flow-status .dot { width:8px; height:8px; border-radius:50%; background:var(--flow); animation:pulse 1s infinite; flex:0 0 auto; }
+  @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.3;} }
+
+  .node-box { cursor: pointer; }
+  .node-box rect.body { transition: filter .15s, opacity .2s; }
+  .node-box:hover rect.body { filter: brightness(1.3); }
+  .node-box.dim { opacity: .13; }
+  .node-label { font-weight: 600; pointer-events: none; }
+  .lane-label { font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; }
+  .kind-tag { font-size: 8px; font-weight: 700; letter-spacing: .5px; pointer-events: none; }
+  .edge { fill: none; transition: opacity .2s, stroke-width .12s; }
+  .edge.dim { opacity: .07; }
+  .edge-arrow { transition: opacity .2s; }
+  .edge-arrow.dim { opacity: .07; }
+  .node-box.flow-current rect.body { stroke: var(--flow) !important; stroke-width: 4px; filter: drop-shadow(0 0 12px rgba(247,201,72,.7)); }
+  .edge.flow-active { opacity: 1 !important; }
+
+  #info { width: 350px; min-width: 350px; height: 100%; background: var(--panel); border-left: 1px solid var(--border); padding: 18px; overflow-y: auto; }
+  #info .kicker { font-size: 10.5px; text-transform: uppercase; letter-spacing: .8px; color: var(--accent); margin-bottom: 6px; }
+  #info h2 { font-size: 15px; margin: 0 0 8px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  #info .tag { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 5px; text-transform: uppercase; letter-spacing:.5px; }
+  #info .desc { color: var(--text); line-height: 1.55; font-size: 13px; }
+  #info .io { margin-top: 14px; display:flex; flex-direction:column; gap:8px; }
+  #info .io .box { border:1px solid var(--border); border-radius:7px; padding:8px 10px; background:var(--panel-2); }
+  #info .io .box .lbl { font-size:10px; text-transform:uppercase; letter-spacing:.7px; color:var(--muted); margin-bottom:3px; }
+  #info .io .box .val { font-size:12.5px; line-height:1.45; }
+  #info .meta { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); line-height: 1.6; }
+  #info code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-size: 11.5px; color: #ffa657; }
+  .hint { font-size: 11px; color: var(--muted); margin-top:4px; line-height:1.4; }
+</style>
+</head>
+<body>
+<div id="app">
+  <aside id="controls">
+    <div>
+      <h1>makato <span class="pill">AI suite</span></h1>
+      <div class="sub">Autonomous issue → merged-PR pipeline. Data flow over time.</div>
+    </div>
+    <div class="group">
+      <h2>Run the flow</h2>
+      <div class="btn-row"><button id="btn-play" class="primary">▶ Play full loop</button></div>
+      <div class="btn-row" style="margin-top:6px;">
+        <button id="btn-step">⏭ Step</button>
+        <button id="btn-pause">⏸ Pause</button>
+        <button id="btn-reset">↺ Reset</button>
+      </div>
+      <div class="row" style="margin-top:12px;"><label for="speed">Speed</label></div>
+      <input type="range" id="speed" min="0.25" max="3" step="0.25" value="1">
+      <div class="hint" id="speed-label">1× — 1.6 s per hop</div>
+      <div class="row" style="margin-top:10px;"><label for="scope">Run scope</label></div>
+      <select id="scope" style="width:100%;background:var(--panel-2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px;">
+        <option value="full">Full autonomous loop</option>
+        <option value="plan">Plan phase only</option>
+        <option value="build">Build phase only</option>
+        <option value="change">Change request only</option>
+      </select>
+    </div>
+    <div class="group">
+      <h2>Detail level</h2>
+      <div class="seg" id="detail-seg">
+        <button data-detail="main" class="active">Main</button>
+        <button data-detail="all">All detail</button>
+      </div>
+      <div class="hint">Main shows skills &amp; the flow. All detail adds every agent, hook &amp; injection helper.</div>
+    </div>
+    <div class="group">
+      <h2>Plugins &amp; layers</h2>
+      <div id="plugin-toggles"></div>
+      <div class="btn-row" style="margin-top:8px;">
+        <button id="toggle-all-on">All on</button>
+        <button id="toggle-all-off">All off</button>
+      </div>
+    </div>
+    <div class="group">
+      <h2>Legend</h2>
+      <div id="legend"></div>
+    </div>
+  </aside>
+
+  <main id="canvas-wrap">
+    <div class="flow-status" id="flow-status"><span class="dot"></span><span id="flow-status-text"></span></div>
+    <div id="zoom-controls">
+      <button id="zoom-in" title="Zoom in">＋</button>
+      <button id="zoom-out" title="Zoom out">－</button>
+      <button id="zoom-fit" title="Fit to screen">⤢</button>
+    </div>
+    <svg id="svg" xmlns="http://www.w3.org/2000/svg"></svg>
+    <div class="canvas-hint">Scroll to zoom · drag to pan · hover a box for details</div>
+  </main>
+
+  <aside id="info">
+    <div class="kicker" id="info-kicker">Overview</div>
+    <h2 id="info-title">makato AI suite</h2>
+    <div class="desc" id="info-desc">
+      Boxes with a <b>filled</b> colour are <b>agents</b> (sub-processes with their own context window);
+      <b>outlined</b> boxes are <b>skills</b>. Hover any box for details — skills show their INPUT/OUTPUT,
+      agents show the context they run in. Press <b>▶ Play full loop</b> to watch a GitHub issue travel
+      from the board queue to a merged PR; the view follows the live position.
+    </div>
+    <div class="io" id="info-io"></div>
+    <div class="meta" id="info-meta"></div>
+  </aside>
+</div>
+<script id="graph-data" type="application/json">
+{"lanes": [{"id": "operator", "label": "Operator & entry", "color": "#7d8590"}, {"id": "orchestrate", "label": "makato-orchestrate", "color": "#e3a008"}, {"id": "build", "label": "makato-build", "color": "#3fb950"}, {"id": "plan", "label": "makato-plan", "color": "#a371f7"}, {"id": "change", "label": "makato-change", "color": "#f0883e"}, {"id": "technology", "label": "Technology plugins", "color": "#58a6ff"}, {"id": "infra", "label": "Hooks & GitHub Actions", "color": "#9198a1"}], "edgeKinds": {"flow": {"label": "Main flow", "color": "#f7c948"}, "dispatch": {"label": "Dispatch (agent/skill)", "color": "#6cb6ff"}, "data": {"label": "Reads / writes data", "color": "#4ac26b"}, "hook": {"label": "Hook fires", "color": "#ff9159"}, "ci": {"label": "CI / GitHub Action", "color": "#c297ff"}}, "nodes": [{"id": "operator", "label": "Operator", "lane": "operator", "col": 0, "subrow": 0, "kind": "external", "detail": "main", "kicker": "Entry point", "desc": "A human operator starts an unattended run from their terminal. Everything downstream is dispatched by the loop — never the other way around.", "inp": "", "out": "", "ctx": "", "meta": "Run <code>loop.sh run</code>, or inspect with <code>--once --dry-run</code>.", "cluster": "", "color": ""}, {"id": "board", "label": "GitHub Projects v2", "lane": "operator", "col": 1, "subrow": 0, "kind": "external", "detail": "main", "kicker": "Queue source", "desc": "The board is the single source of truth for what to work on next. <code>loop</code> polls items whose <b>Status = Ready</b> — there is no status:ready label; the board field is authoritative.", "inp": "", "out": "", "ctx": "", "meta": "Set up once with <code>issue-to-project --init</code>.", "cluster": "", "color": ""}, {"id": "seed", "label": "seed-issue", "lane": "orchestrate", "col": 1, "subrow": 0, "kind": "skill", "detail": "main", "kicker": "makato-orchestrate · skill", "desc": "Prepares a hand-filed issue for the loop: stamps the to-issues provenance footer so the KEY can be derived, adds status:ready-for-dev, moves the board card to Ready, and for new work creates a minimal specs/&lt;N&gt;-&lt;slug&gt;/ folder.", "inp": "A hand-filed GitHub issue number", "out": "Labelled + board-promoted issue; seed specs/ folder; for plan-tier:light dispatches light-planner", "ctx": "", "meta": "Bypasses to-issues for manually filed work.", "cluster": "", "color": ""}, {"id": "lightplanner", "label": "light-planner", "lane": "orchestrate", "col": 1, "subrow": 1, "kind": "agent", "detail": "all", "kicker": "makato-orchestrate · agent", "desc": "For a thin plan-tier:light issue, writes a full plan.md (non-empty Tasks + Acceptance criteria). If the body is too thin it writes no plan and returns a thin-body signal to re-tier.", "inp": "plan-tier:light issue body + target-repo context", "out": "plan.md, or a thin-body R1 signal", "ctx": "Runs locally under the operator's Claude at seed time — reviewable in git before dispatch.", "meta": "", "cluster": "", "color": ""}, {"id": "loop", "label": "loop", "lane": "orchestrate", "col": 2, "subrow": 0, "kind": "skill", "detail": "main", "kicker": "makato-orchestrate · skill", "desc": "Single-threaded polling driver. Each iteration: checks ~/.claude/HALT (HALT-000), polls the board for Ready issues, skips any already in flight, then classifies &amp; dispatches the next one — <b>type:change → makato-change:orchestrate</b>, everything else → the PO-agent.", "inp": "GitHub Projects v2 board (Status=Ready)", "out": "Serial dispatches (PO-agent or change:orchestrate); .claude/state/loop-status.json", "ctx": "", "meta": "Picks up the next item only when workflow-state reaches current_phase: done.", "cluster": "", "color": ""}, {"id": "sessionstatus", "label": "session-status", "lane": "orchestrate", "col": 2, "subrow": 1, "kind": "skill", "detail": "all", "kicker": "makato-orchestrate · skill", "desc": "On session open, prints one banner line per active workflow (issue, phase, budget %, HALT count) and a global HALT-ACTIVE line if the HALT file exists.", "inp": "specs/*/workflow-state-*.json", "out": "Operator banner text", "ctx": "", "meta": "Wired as a SessionStart hook in consumer repos.", "cluster": "", "color": ""}, {"id": "poagent", "label": "po-agent", "lane": "orchestrate", "col": 3, "subrow": 0, "kind": "agent", "detail": "main", "kicker": "makato-orchestrate · agent", "desc": "Autonomous outer-loop driver for a single issue. Dispatches makato-build skills in order, polls CI and reviews, routes merge conflicts, and terminates only on a merged PR or a documented HALT. Sole writer of workflow-state.json.", "inp": "One Ready issue (KEY, ISSUE, REPO, BRANCH) from loop", "out": "A merged PR, or a HALT code + needs-human-review", "ctx": "Its own headless Claude session (claude -p, MAKATO_HEADLESS=1) per issue, inside a dedicated git worktree. Never edits target source — orchestrates only.", "meta": "", "cluster": "", "color": ""}, {"id": "killswitch", "label": "kill-switch", "lane": "orchestrate", "col": 3, "subrow": 1, "kind": "skill", "detail": "all", "kicker": "makato-orchestrate · skill", "desc": "Composed at every outer-loop boundary: HALT file (HALT-000), claude-halt label (HALT-009), per-task &amp; daily token budgets (HALT-007), context ceiling (HALT-007B → handoff), outer_iteration >= 3 (HALT-008).", "inp": "workflow-state.json + HALT file + issue labels", "out": "Continue, or a HALT code that stops the run", "ctx": "", "meta": "HALT-007B forks a fresh resumed session via context-handoff.sh.", "cluster": "", "color": ""}, {"id": "state", "label": "workflow-state.json", "lane": "orchestrate", "col": 4, "subrow": 0, "kind": "data", "detail": "main", "kicker": "makato-orchestrate · data", "desc": "Per-issue state file the PO-agent solely writes. Tracks current_phase, sub_tasks[], token budgets, outer_iteration, halt_audit[], PR number, worktree path, lessons_learned[].", "inp": "Writes from po-agent at every phase transition", "out": "current_phase read by loop's in-flight filter", "ctx": "", "meta": "specs/&lt;KEY&gt;-&lt;slug&gt;/workflow-state-&lt;issue&gt;.json", "cluster": "", "color": ""}, {"id": "contextsum", "label": "context-summariser", "lane": "orchestrate", "col": 4, "subrow": 1, "kind": "agent", "detail": "all", "kicker": "makato-orchestrate · agent", "desc": "Produces a <=500-token session summary for a HALT-007B context-ceiling handoff — the first user message the fresh Claude session injects.", "inp": "workflow-state.json + current task description", "out": "session_summary string", "ctx": "Non-technical handoff agent. skill_routing: disabled — no skill injection, no F4 telemetry.", "meta": "", "cluster": "", "color": ""}, {"id": "scout_o", "label": "scout", "lane": "orchestrate", "col": 6, "subrow": 1, "kind": "agent", "detail": "all", "kicker": "makato-orchestrate · agent", "desc": "Per-task read-only file scout. Pre-reads up to 8 predicted files plus bundle-resolved rule files and returns a ~500-token summary injected into the coder's context.", "inp": "A sub-task's predicted files + rule files", "out": "key_patterns, naming_conventions, test_file_paths, existing_exports, warnings", "ctx": "Read-only, task-file-specific. Distinct from build's repo-wide knowledge-scout.", "meta": "", "cluster": "", "color": ""}, {"id": "ci_poll", "label": "CI poll & review", "lane": "orchestrate", "col": 11, "subrow": 0, "kind": "skill", "detail": "main", "kicker": "makato-orchestrate · po-agent Step 6", "desc": "The PO-agent polls CI checks and the review decision. CI failure -> fix loop; a rebase/merge-conflict check routes through resolve-pr-conflict. CHANGES_REQUESTED -> human-review fix loop (HALT-010 after MAX cycles).", "inp": "Open PR + CI check runs + review state", "out": "Advance to merge, dispatch a fix, or HALT", "ctx": "", "meta": "Merge-conflict cycles >= 3 -> HALT-008.", "cluster": "", "color": ""}, {"id": "resolveconf", "label": "resolve-pr-conflict", "lane": "orchestrate", "col": 11, "subrow": 1, "kind": "skill", "detail": "all", "kicker": "makato-orchestrate · skill", "desc": "Rebases the branch, falls back to git merge -X ours, and force-pushes on a clean tree. Bounded by merge_conflict_cycles; exhaustion -> HALT-008 with the worktree retained.", "inp": "Conflicted PR branch", "out": "Rebased branch, or HALT-008", "ctx": "", "meta": "", "cluster": "", "color": ""}, {"id": "docsagent", "label": "documentation-agent", "lane": "orchestrate", "col": 13, "subrow": 0, "kind": "agent", "detail": "all", "kicker": "makato-orchestrate · agent", "desc": "Post-merge doc pass triggered by GHA once per merged PR: appends a CHANGELOG entry, conditionally updates the README on public-API change, closes issues, advances the board to Done. Never edits source.", "inp": "Merged PR diff + commit history", "out": "CHANGELOG/README edits, closed issues, board=Done", "ctx": "Post-merge, non-technical. skill_routing: disabled.", "meta": "", "cluster": "", "color": ""}, {"id": "build_start", "label": "build-start", "lane": "build", "col": 4, "subrow": 0, "kind": "skill", "detail": "all", "kicker": "makato-build · skill", "desc": "Entry point for an interactive build session: validates git state and spec prerequisites, captures implementation mode, initializes the build log, kicks off build-refine.", "inp": "A story KEY + clean git state", "out": "Initialised build.jsonl; hands off to build-refine", "ctx": "", "meta": "Autonomous runs skip this — the PO-agent starts at build-refine.", "cluster": "", "color": ""}, {"id": "build_refine", "label": "build-refine", "lane": "build", "col": 5, "subrow": 0, "kind": "skill", "detail": "main", "kicker": "makato-build · skill", "desc": "Bridges a story/issue into an implementation plan: tasks, file targets, unit/integration test strategy, acceptance mapping.", "inp": "A shaped story + repo constraints (via knowledge-scout)", "out": "plan.md with a task graph", "ctx": "", "meta": "R1 failure -> HALT-STRUCTURAL.", "cluster": "", "color": ""}, {"id": "build_grill", "label": "build-grill-with-docs", "lane": "build", "col": 5, "subrow": 1, "kind": "skill", "detail": "all", "kicker": "makato-build · skill", "desc": "Aligns implementation-plan terminology to the codebase domain model — enriches glossary.md, records ADR decisions.", "inp": "Draft plan.md + domain glossary", "out": "Terminology-aligned plan + glossary/ADR updates", "ctx": "", "meta": "", "cluster": "", "color": ""}, {"id": "knowscout", "label": "knowledge-scout", "lane": "build", "col": 6, "subrow": 0, "kind": "agent", "detail": "all", "kicker": "makato-build · agent", "desc": "Repo-wide, plan-time discovery agent. Calls inject-context + inject-skills at Step 0, locates SPECS_ROOT, reads the index, synthesizes Hard Constraints and Standards.", "inp": "Target repo + changed-file predictions", "out": "Hard Constraints (golden rules, anti-patterns) + Standards", "ctx": "Read-only, plan-time. Feeds plan-analyst -> build-refine.", "meta": "", "cluster": "", "color": ""}, {"id": "inject_ctx", "label": "inject-context", "lane": "build", "col": 6, "subrow": 1, "kind": "skill", "detail": "all", "kicker": "makato-build · skill", "desc": "Resolves changed file paths against context-bundles.yml and returns an ordered, deduplicated list of rule files. Glob-specificity first, default bundle last.", "inp": "CHANGED_FILES + context-bundles.yml", "out": "Ordered rule-file paths for knowledge-scout to pre-read", "ctx": "", "meta": "Missing default bundle -> HALT-006.", "cluster": "", "color": ""}, {"id": "inject_skills", "label": "inject-skills", "lane": "build", "col": 7, "subrow": 1, "kind": "skill", "detail": "all", "kicker": "makato-build · skill", "desc": "Resolves changed files against the merged skill-bundles.yml registry and returns an ordered recommended_skills[] list prepended into an agent's system prompt. Glob-specificity (D9), content hints (D19), installed-skill filter (D10).", "inp": "CHANGED_FILES + merged skill-bundles.yml + target repo", "out": "recommended_skills[] (ordered, deduped)", "ctx": "", "meta": "Default-on (D21). Opt out with skill_routing: disabled.", "cluster": "", "color": ""}, {"id": "plan_analyst", "label": "plan-analyst", "lane": "build", "col": 7, "subrow": 0, "kind": "agent", "detail": "all", "kicker": "makato-build · agent", "desc": "Reads an implementation plan and returns a structured context object — task list, architectural layer, glossary constraints, tracer_required flag, reusable patterns.", "inp": "plan.md", "out": "Structured plan context object", "ctx": "Read-only. Dispatched by build-implement-tdd/goal.", "meta": "", "cluster": "", "color": ""}, {"id": "build_impl", "label": "build-implement-tdd / goal", "lane": "build", "col": 8, "subrow": 0, "kind": "skill", "detail": "main", "kicker": "makato-build · skill", "desc": "The core build loop. TDD: RED failing tests -> GREEN unit pass -> INTEGRATE real deps -> VERIFY per task. Goal: build first, test after. Mixed plans run TDD then goal in one outer iteration.", "inp": "Refined plan.md + per-task scout summary", "out": "Working, tested code committed per task", "ctx": "", "meta": "Dispatches scout + coder per task. R1 failure -> HALT-003.", "cluster": "", "color": ""}, {"id": "coder", "label": "coder", "lane": "build", "col": 8, "subrow": 1, "kind": "agent", "detail": "all", "kicker": "makato-build · agent", "desc": "Executes a single TDD task through all four cycle phases and produces working, tested code.", "inp": "One task + scout summary + injected recommended_skills[]", "out": "Code + tests passing all four phases", "ctx": "Runs with recommended_skills[] prepended into its system prompt and the scout file summary in context. Never dispatched directly by the PO-agent.", "meta": "", "cluster": "", "color": ""}, {"id": "build_simplify", "label": "build-simplify", "lane": "build", "col": 9, "subrow": 0, "kind": "skill", "detail": "main", "kicker": "makato-build · skill", "desc": "Reviews implemented code for complexity that does not serve the acceptance criteria — premature abstractions, dead code, over-indirection. Auto-approves in autonomous mode.", "inp": "Implemented diff + acceptance criteria", "out": "Simplified code, or ESCALATE findings", "ctx": "", "meta": "Often auto-triggered by the post-implement Stop hook.", "cluster": "", "color": ""}, {"id": "build_review", "label": "build-review", "lane": "build", "col": 9, "subrow": 1, "kind": "skill", "detail": "main", "kicker": "makato-build · skill", "desc": "Adversarial diff review against acceptance criteria via the diff-reviewer agent; loops until clean.", "inp": "Branch diff + acceptance criteria", "out": "Findings: CRITICAL / SUGGESTION / NITPICK", "ctx": "", "meta": "", "cluster": "", "color": ""}, {"id": "diffreviewer", "label": "diff-reviewer", "lane": "build", "col": 9, "subrow": 2, "kind": "agent", "detail": "all", "kicker": "makato-build · agent", "desc": "Adversarially reviews a branch diff against acceptance criteria — correctness bugs, edge cases, security, contract violations.", "inp": "Branch diff + acceptance criteria", "out": "Classified findings", "ctx": "Read-only reviewer. Dispatched by build-review.", "meta": "", "cluster": "", "color": ""}, {"id": "build_verify", "label": "build-verify", "lane": "build", "col": 10, "subrow": 0, "kind": "skill", "detail": "main", "kicker": "makato-build · skill", "desc": "Full quality-gate pipeline: build, lint, unit tests, integration tests, conditional coverage. Each gate runs separately so failures are attributable.", "inp": "Feature branch + Definition of Done", "out": "Pass, fix-and-rerun, or escalate to refine", "ctx": "", "meta": "R1 failure -> HALT-002. Step 9 compares invoked vs expected skills (F4 passport) — advisory only.", "cluster": "", "color": ""}, {"id": "gatescout", "label": "gate-scout", "lane": "build", "col": 10, "subrow": 2, "kind": "agent", "detail": "all", "kicker": "makato-build · agent", "desc": "Discovers build, lint, test and coverage commands by scanning project config files.", "inp": "Project config files", "out": "Structured command map", "ctx": "Read-only. Dispatched by build-verify.", "meta": "", "cluster": "", "color": ""}, {"id": "build_sensors", "label": "build-sensors", "lane": "build", "col": 10, "subrow": 1, "kind": "skill", "detail": "all", "kicker": "makato-build · skill", "desc": "Runs pre-commit sensors, parses findings, dispatches sensor-fixer until clean or MAX_LOOPS=5.", "inp": "Staged/changed files", "out": "Clean commit, or HALT-001 / HALT-004", "ctx": "", "meta": "", "cluster": "", "color": ""}, {"id": "sensorfixer", "label": "sensor-fixer", "lane": "build", "col": 10, "subrow": 3, "kind": "agent", "detail": "all", "kicker": "makato-build · agent", "desc": "Reads parsed sensor findings, runs a deterministic-autofix pre-pass, then dispatches build-resolve-finding per residual finding; escalates sonnet->opus on repeat failure.", "inp": "Parsed sensor findings", "out": "Fixed files + specs/&lt;key&gt;/build.jsonl audit", "ctx": "Outer fixer loop. Tier-escalates model on the second failure for the same finding.", "meta": "", "cluster": "", "color": ""}, {"id": "resolvefinding", "label": "build-resolve-finding", "lane": "build", "col": 11, "subrow": 1, "kind": "skill", "detail": "all", "kicker": "makato-build · skill", "desc": "Per-finding decision tree: autofix / tech-skill route / safe-automated action / carry-over to draft PR.", "inp": "One sensor finding", "out": "Resolved finding, or carry-over issue", "ctx": "", "meta": "", "cluster": "", "color": ""}, {"id": "fixtypes", "label": "build-fix-types", "lane": "build", "col": 11, "subrow": 2, "kind": "skill", "detail": "all", "kicker": "makato-build · skill", "desc": "Per-finding decision tree for Python type errors (pyright/mypy): narrow, annotate, generic, protocol, cast, or justified ignore.", "inp": "A pyright:* / mypy:* finding", "out": "Type-corrected code", "ctx": "", "meta": "", "cluster": "", "color": ""}, {"id": "fixsec", "label": "build-fix-security", "lane": "build", "col": 11, "subrow": 3, "kind": "skill", "detail": "all", "kicker": "makato-build · skill", "desc": "Per-finding security repair for bandit/safety/pip-audit findings via a CWE-keyed table (autofix / refactor / suppress / carry-over).", "inp": "A bandit:* / safety:* / pip-audit:* finding", "out": "Security-repaired code", "ctx": "", "meta": "", "cluster": "", "color": ""}, {"id": "dod", "label": "definition-of-done", "lane": "build", "col": 8, "subrow": 2, "kind": "data", "detail": "all", "kicker": "makato-build · reference", "desc": "The canonical, versioned Definition of Done shared across the pipeline — 12 automated items + 6 manual items.", "inp": "Referenced by build-verify, sensors, push, coder", "out": "The done/not-done contract", "ctx": "", "meta": "", "cluster": "", "color": ""}, {"id": "build_push", "label": "build-push-to-git", "lane": "build", "col": 12, "subrow": 0, "kind": "skill", "detail": "main", "kicker": "makato-build · skill", "desc": "Creates atomic conventional commits (one per logical task) and pushes the feature branch. Auto-invokes build-create-pr in autonomous mode.", "inp": "Verified working tree + task structure", "out": "Pushed branch (one commit per task)", "ctx": "", "meta": "Deny-list block -> HALT-005.", "cluster": "", "color": ""}, {"id": "build_pr", "label": "build-create-pr", "lane": "build", "col": 13, "subrow": 0, "kind": "skill", "detail": "main", "kicker": "makato-build · skill", "desc": "Generates the PR from spec artifacts — acceptance criteria map to How-to-Test, design decisions surface in the description, the issue is linked.", "inp": "Pushed branch + spec artifacts", "out": "Opened pull request", "ctx": "", "meta": "", "cluster": "", "color": ""}, {"id": "build_addr", "label": "build-address-pr-comments", "lane": "build", "col": 13, "subrow": 1, "kind": "skill", "detail": "main", "kicker": "makato-build · skill", "desc": "Classifies every PR comment (human + bots/CI) as MUST-FIX / SHOULD-FIX / CONSIDER / OUT-OF-SCOPE, applies fixes, commits, replies.", "inp": "PR review comments + bot findings", "out": "Fix commits + threaded replies; structural -> HALT-003", "ctx": "", "meta": "", "cluster": "", "color": ""}, {"id": "plan_brainstorm", "label": "brainstorming", "lane": "plan", "col": 1, "subrow": 0, "kind": "skill", "detail": "all", "kicker": "makato-plan · skill", "desc": "Structured divergent-convergent ideation to shape a raw feature request before a PRD exists.", "inp": "A raw feature request", "out": "A shaped feature concept", "ctx": "", "meta": "", "cluster": "", "color": ""}, {"id": "plan_prd", "label": "create-prd", "lane": "plan", "col": 2, "subrow": 0, "kind": "skill", "detail": "all", "kicker": "makato-plan · skill", "desc": "Turns brainstorming output into a PRD — user stories, acceptance criteria, UI-required flag.", "inp": "Shaped concept (+ grill)", "out": "PRD document", "ctx": "", "meta": "", "cluster": "", "color": ""}, {"id": "plan_arch", "label": "create-architecture", "lane": "plan", "col": 3, "subrow": 0, "kind": "skill", "detail": "all", "kicker": "makato-plan · skill", "desc": "Architecture Design Document from the PRD: system context, component &amp; API design, data model, security, test strategy.", "inp": "Approved PRD", "out": "Architecture Design Document", "ctx": "", "meta": "", "cluster": "", "color": ""}, {"id": "plan_ux", "label": "create-ux", "lane": "plan", "col": 4, "subrow": 0, "kind": "skill", "detail": "all", "kicker": "makato-plan · skill", "desc": "UX design doc — wireframes, screen states, interaction patterns, user-testing plan — when the PRD flags a UI.", "inp": "PRD with UI Required: Yes", "out": "UX design doc + developer handoff", "ctx": "", "meta": "", "cluster": "", "color": ""}, {"id": "plan_proto", "label": "create-prototype", "lane": "plan", "col": 4, "subrow": 1, "kind": "skill", "detail": "all", "kicker": "makato-plan · skill", "desc": "Interactive HTML prototype of new UI surfaces from PRD + architecture.", "inp": "PRD + architecture", "out": "High-fidelity HTML prototype", "ctx": "", "meta": "", "cluster": "", "color": ""}, {"id": "plan_decompose", "label": "decompose", "lane": "plan", "col": 5, "subrow": 0, "kind": "skill", "detail": "main", "kicker": "makato-plan · skill", "desc": "Slices the shaped feature into vertically-sliced stories with acceptance criteria and draft Gherkin. Emits recommended_skills[] per sub-task.", "inp": "PRD + architecture (+ UX)", "out": "Vertically-sliced stories + draft Gherkin + recommended_skills[]", "ctx": "", "meta": "", "cluster": "", "color": ""}, {"id": "plan_acc", "label": "create-acceptance-tests", "lane": "plan", "col": 6, "subrow": 0, "kind": "skill", "detail": "all", "kicker": "makato-plan · skill", "desc": "Refines draft Gherkin into 3-5 polished, manually testable acceptance scenarios per story.", "inp": "Decomposed stories + draft scenarios", "out": "Polished acceptance test cases", "ctx": "", "meta": "", "cluster": "", "color": ""}, {"id": "plan_grill", "label": "grill", "lane": "plan", "col": 2, "subrow": 1, "kind": "skill", "detail": "all", "kicker": "makato-plan · skill", "desc": "Adversarial interview that stress-tests a phase artifact before committing to the next phase.", "inp": "Any draft artifact", "out": "Challenged assumptions + revisions", "ctx": "", "meta": "", "cluster": "", "color": ""}, {"id": "plan_toissues", "label": "to-issues", "lane": "plan", "col": 7, "subrow": 0, "kind": "skill", "detail": "main", "kicker": "makato-plan · skill", "desc": "Publishes stories as GitHub Issues with a 10-dimension label taxonomy and emits created-issues.json. issue-to-project then adds them to the board.", "inp": "Decomposed stories + acceptance tests", "out": "GitHub Issues + specs/{slug}/created-issues.json", "ctx": "", "meta": "", "cluster": "", "color": ""}, {"id": "plan_i2p", "label": "issue-to-project", "lane": "plan", "col": 8, "subrow": 0, "kind": "skill", "detail": "main", "kicker": "makato-plan · skill", "desc": "Adds issues to the Projects v2 board and syncs lifecycle Status (Ready / In progress / In review / Done) as PRs open and merge.", "inp": "created-issues.json + board config", "out": "Board items with synced Status", "ctx": "", "meta": "", "cluster": "", "color": ""}, {"id": "ctxscout", "label": "context-scout", "lane": "plan", "col": 3, "subrow": 1, "kind": "agent", "detail": "all", "kicker": "makato-plan · agent", "desc": "Scans context/{REPO}/ directories for files relevant to a feature.", "inp": "A feature + context directories", "out": "Relevant context file list", "ctx": "Read-only, reusable across plan skills.", "meta": "", "cluster": "", "color": ""}, {"id": "docwriter", "label": "doc-writer", "lane": "plan", "col": 6, "subrow": 1, "kind": "agent", "detail": "all", "kicker": "makato-plan · agent", "desc": "Generates styled HTML review documents and writes canonical markdown artifacts.", "inp": "Structured phase input", "out": "HTML review doc + markdown artifact", "ctx": "Reusable across all makato-plan skills.", "meta": "", "cluster": "", "color": ""}, {"id": "protobuilder", "label": "prototype-builder", "lane": "plan", "col": 4, "subrow": 2, "kind": "agent", "detail": "all", "kicker": "makato-plan · agent", "desc": "Generates high-fidelity interactive HTML prototypes from design context and UX decisions.", "inp": "Design context + UX decisions", "out": "Interactive HTML prototype", "ctx": "Creative agent for visual UI generation.", "meta": "", "cluster": "", "color": ""}, {"id": "poreviewer", "label": "po-reviewer", "lane": "plan", "col": 5, "subrow": 1, "kind": "agent", "detail": "all", "kicker": "makato-plan · agent", "desc": "Product-Owner perspective for Three-Amigos story review — value, scope, phase.", "inp": "Draft story", "out": "PO review challenges", "ctx": "One of three Three-Amigos reviewer agents.", "meta": "", "cluster": "", "color": ""}, {"id": "devreviewer", "label": "dev-reviewer", "lane": "plan", "col": 5, "subrow": 2, "kind": "agent", "detail": "all", "kicker": "makato-plan · agent", "desc": "Lead-Developer perspective — feasibility, dependencies, estimates, implementation risk.", "inp": "Draft story", "out": "Dev review challenges", "ctx": "Three-Amigos reviewer agent.", "meta": "", "cluster": "", "color": ""}, {"id": "qareviewer", "label": "qa-reviewer", "lane": "plan", "col": 5, "subrow": 3, "kind": "agent", "detail": "all", "kicker": "makato-plan · agent", "desc": "QA-Engineer perspective — testability, edge cases; produces draft Gherkin.", "inp": "Draft story", "out": "QA challenges + draft Gherkin", "ctx": "Three-Amigos reviewer agent.", "meta": "", "cluster": "", "color": ""}, {"id": "accwriter", "label": "acceptance-writer", "lane": "plan", "col": 6, "subrow": 2, "kind": "agent", "detail": "all", "kicker": "makato-plan · agent", "desc": "Refines draft Gherkin scenarios into polished acceptance test cases.", "inp": "Draft Gherkin", "out": "3-5 polished scenarios per story", "ctx": "Dispatched by create-acceptance-tests.", "meta": "", "cluster": "", "color": ""}, {"id": "change_orch", "label": "orchestrate", "lane": "change", "col": 1, "subrow": 0, "kind": "skill", "detail": "main", "kicker": "makato-change · skill", "desc": "Autonomous entry for change requests. The <b>loop</b> classifies each Ready issue (loop.sh _classify_issue_type): <code>type:change</code> issues are dispatched here as <code>makato-change:orchestrate --autonomous</code> — everything else goes to the PO-agent. Owns the analyze→design→execute→resolve-review loop; no plan.md required.", "inp": "A type:change issue dispatched by loop", "out": "A guided change workflow → PR", "ctx": "", "meta": "Writes change-state-&lt;N&gt;.json + a workflow-state loop-compat stub. HALT-CH-001…004 on blocks.", "cluster": "", "color": ""}, {"id": "change_analyze", "label": "analyze", "lane": "change", "col": 2, "subrow": 0, "kind": "skill", "detail": "main", "kicker": "makato-change · skill", "desc": "Compares current behaviour against requested changes, resolves open questions, updates the issue with refined requirements.", "inp": "Change request + current behaviour", "out": "Refined requirements + requirements diff", "ctx": "", "meta": "", "cluster": "", "color": ""}, {"id": "change_design", "label": "design", "lane": "change", "col": 3, "subrow": 0, "kind": "skill", "detail": "main", "kicker": "makato-change · skill", "desc": "Discovers affected code and plans the implementation approach, updating the issue with the strategy.", "inp": "Refined requirements", "out": "Technical design + affected-code map", "ctx": "", "meta": "", "cluster": "", "color": ""}, {"id": "change_exec", "label": "execute", "lane": "change", "col": 4, "subrow": 0, "kind": "skill", "detail": "main", "kicker": "makato-change · skill", "desc": "Implements the change, updates tests, runs verification, creates a PR linked to the issue.", "inp": "Technical design", "out": "Code + tests + a linked PR", "ctx": "", "meta": "", "cluster": "", "color": ""}, {"id": "change_resolve", "label": "resolve-review", "lane": "change", "col": 5, "subrow": 0, "kind": "skill", "detail": "all", "kicker": "makato-change · skill", "desc": "Resolves PR review feedback with code fixes or clarifying replies; updates issue status.", "inp": "PR review feedback", "out": "Fix commits + replies", "ctx": "", "meta": "", "cluster": "", "color": ""}, {"id": "code_explorer", "label": "code-explorer", "lane": "change", "col": 2, "subrow": 1, "kind": "agent", "detail": "all", "kicker": "makato-change · agent", "desc": "Read-only codebase discovery for change requests — affected files, dependencies, conventions, specs context.", "inp": "REPO_ROOT + keywords + requested changes", "out": "Synthesised discovery findings", "ctx": "Read-only.", "meta": "", "cluster": "", "color": ""}, {"id": "reqdiff", "label": "requirements-diff-analyzer", "lane": "change", "col": 2, "subrow": 2, "kind": "agent", "detail": "all", "kicker": "makato-change · agent", "desc": "Produces a structured requirements diff — side-by-side comparison, gaps, open questions.", "inp": "Current behaviour vs requested", "out": "Requirements diff", "ctx": "Dispatched by analyze.", "meta": "", "cluster": "", "color": ""}, {"id": "testanalyzer", "label": "test-analyzer", "lane": "change", "col": 3, "subrow": 1, "kind": "agent", "detail": "all", "kicker": "makato-change · agent", "desc": "Discovers and analyzes all tests affected by a change; maps tests to functionality, classifies impact.", "inp": "Change request + test suite", "out": "Test impact map + coverage gaps", "ctx": "Read-only.", "meta": "", "cluster": "", "color": ""}, {"id": "codereviewer_c", "label": "code-reviewer", "lane": "change", "col": 4, "subrow": 1, "kind": "agent", "detail": "all", "kicker": "makato-change · agent", "desc": "Reviews implementation changes before PR — alignment with design, bugs, security, quality; severity-classified.", "inp": "Change diff + design", "out": "Classified review findings", "ctx": "Advisory quality gate.", "meta": "", "cluster": "", "color": ""}, {"id": "qualityguard", "label": "quality-guard", "lane": "change", "col": 4, "subrow": 2, "kind": "agent", "detail": "all", "kicker": "makato-change · agent", "desc": "Runs quality checks (lint, format, tests, coverage) after implementation and reports pass/fail.", "inp": "Implemented change", "out": "Pass/fail with actionable feedback", "ctx": "Mechanical gate before code review.", "meta": "", "cluster": "", "color": ""}, {"id": "core_zoomout", "label": "zoom-out", "lane": "technology", "col": 1, "subrow": 0, "kind": "skill", "detail": "main", "kicker": "makato-core · skill", "desc": "Map an unfamiliar area of a codebase — callers, dependencies, layers.", "inp": "A code area / question", "out": "Higher-level dependency & architecture map", "ctx": "", "meta": "", "cluster": "makato-core", "color": "#58a6ff"}, {"id": "core_issue", "label": "create-issue", "lane": "technology", "col": 1, "subrow": 1, "kind": "skill", "detail": "main", "kicker": "makato-core · skill", "desc": "File a structured issue against the makato repo with the right template + labels.", "inp": "A bug / feature idea", "out": "A filed GitHub issue", "ctx": "", "meta": "", "cluster": "makato-core", "color": "#58a6ff"}, {"id": "core_guide", "label": "makato-guide", "lane": "technology", "col": 1, "subrow": 2, "kind": "skill", "detail": "main", "kicker": "makato-core · skill", "desc": "Discover installed plugins & skills and find the right tool for a task.", "inp": "A task question", "out": "A pointer to the right skill", "ctx": "", "meta": "", "cluster": "makato-core", "color": "#58a6ff"}, {"id": "doc_context7", "label": "context7", "lane": "technology", "col": 2, "subrow": 0, "kind": "skill", "detail": "main", "kicker": "makato-doc · skill", "desc": "Retrieve up-to-date library/framework documentation via Context7. MANDATORY for every code-creating agent before writing code.", "inp": "A library + question", "out": "Current API docs & examples", "ctx": "", "meta": "", "cluster": "makato-doc", "color": "#3fb6b0"}, {"id": "doc_readme", "label": "crafting-effective-readmes", "lane": "technology", "col": 2, "subrow": 1, "kind": "skill", "detail": "main", "kicker": "makato-doc · skill", "desc": "Create, update, or review project README/getting-started docs.", "inp": "A README", "out": "A clear README", "ctx": "", "meta": "", "cluster": "makato-doc", "color": "#3fb6b0"}, {"id": "doc_markdown", "label": "markdown", "lane": "technology", "col": 2, "subrow": 2, "kind": "skill", "detail": "main", "kicker": "makato-doc · skill", "desc": "Author/fix markdown, lint errors, code fences, tables.", "inp": "A .md file", "out": "Valid, linted markdown", "ctx": "", "meta": "", "cluster": "makato-doc", "color": "#3fb6b0"}, {"id": "doc_writing", "label": "writing-clearly-and-concisely", "lane": "technology", "col": 2, "subrow": 3, "kind": "skill", "detail": "main", "kicker": "makato-doc · skill", "desc": "Edit prose for clarity — Strunk's rules, avoids AI tells.", "inp": "Draft prose", "out": "Tightened prose", "ctx": "", "meta": "", "cluster": "makato-doc", "color": "#3fb6b0"}, {"id": "ux_frontend", "label": "frontend-design", "lane": "technology", "col": 3, "subrow": 0, "kind": "skill", "detail": "main", "kicker": "makato-ux · skill", "desc": "Distinctive, production-grade frontend interfaces — HTML/CSS, React, components, pages.", "inp": "A UI brief", "out": "Production frontend code", "ctx": "", "meta": "", "cluster": "makato-ux", "color": "#f06595"}, {"id": "ux_e2e", "label": "e2e-testing-patterns", "lane": "technology", "col": 3, "subrow": 1, "kind": "skill", "detail": "main", "kicker": "makato-ux · skill", "desc": "Reliable E2E suites with Playwright — POM, fixtures, waiting, network mocking.", "inp": "A production UI", "out": "Reliable E2E test suite", "ctx": "", "meta": "", "cluster": "makato-ux", "color": "#f06595"}, {"id": "ux_webapp", "label": "webapp-testing", "lane": "technology", "col": 3, "subrow": 2, "kind": "skill", "detail": "main", "kicker": "makato-ux · skill", "desc": "Verify local web apps via the Playwright MCP browser — screenshots, DOM, console.", "inp": "A running local web app", "out": "Verified behaviour / regressions", "ctx": "", "meta": "", "cluster": "makato-ux", "color": "#f06595"}, {"id": "ux_penpot", "label": "penpot-uiux-design", "lane": "technology", "col": 3, "subrow": 3, "kind": "skill", "detail": "main", "kicker": "makato-ux · skill", "desc": "Professional UI/UX design in Penpot — design systems, components, tokens, a11y.", "inp": "A design brief", "out": "Penpot UI/UX design", "ctx": "", "meta": "", "cluster": "makato-ux", "color": "#f06595"}, {"id": "lg_fund", "label": "langgraph-fundamentals", "lane": "technology", "col": 4, "subrow": 0, "kind": "skill", "detail": "main", "kicker": "makato-langgraph · skill", "desc": "StateGraph, nodes, edges, reducers — the LangGraph core model.", "inp": "LangGraph/*.py", "out": "Framework patterns", "ctx": "", "meta": "", "cluster": "makato-langgraph", "color": "#56d4dd"}, {"id": "lg_agent", "label": "langgraph-agent-patterns", "lane": "technology", "col": 4, "subrow": 1, "kind": "skill", "detail": "main", "kicker": "makato-langgraph · skill", "desc": "Agent architectures on LangGraph.", "inp": "Agent design", "out": "Pattern guidance", "ctx": "", "meta": "", "cluster": "makato-langgraph", "color": "#56d4dd"}, {"id": "lg_hitl", "label": "langgraph-human-in-the-loop", "lane": "technology", "col": 4, "subrow": 2, "kind": "skill", "detail": "main", "kicker": "makato-langgraph · skill", "desc": "Interrupts & human-in-the-loop control.", "inp": "A graph", "out": "HITL patterns", "ctx": "", "meta": "", "cluster": "makato-langgraph", "color": "#56d4dd"}, {"id": "lg_persist", "label": "langgraph-persistence", "lane": "technology", "col": 4, "subrow": 3, "kind": "skill", "detail": "main", "kicker": "makato-langgraph · skill", "desc": "Checkpointers & durable state.", "inp": "A graph", "out": "Persistence patterns", "ctx": "", "meta": "", "cluster": "makato-langgraph", "color": "#56d4dd"}, {"id": "lg_reflex", "label": "langgraph-reflexion", "lane": "technology", "col": 4, "subrow": 4, "kind": "skill", "detail": "main", "kicker": "makato-langgraph · skill", "desc": "Reflexion / self-critique loops.", "inp": "A graph", "out": "Reflexion patterns", "ctx": "", "meta": "", "cluster": "makato-langgraph", "color": "#56d4dd"}, {"id": "db_pg", "label": "manage-postgres", "lane": "technology", "col": 5, "subrow": 0, "kind": "skill", "detail": "main", "kicker": "makato-database · skill", "desc": "Postgres performance, query writing, schema design, administration.", "inp": "*.sql / migrations", "out": "Query & schema guidance", "ctx": "", "meta": "", "cluster": "makato-database", "color": "#e3a86b"}, {"id": "sb_dotx", "label": "dotx-schema-extractor", "lane": "technology", "col": 6, "subrow": 0, "kind": "skill", "detail": "main", "kicker": "makato-sagibeast · skill", "desc": "Extract the schema from a Word .dotx template.", "inp": "A .dotx template", "out": "Extracted schema", "ctx": "", "meta": "", "cluster": "makato-sagibeast", "color": "#d2a8ff"}, {"id": "sb_excel", "label": "manage-microsoft-excel", "lane": "technology", "col": 6, "subrow": 1, "kind": "skill", "detail": "main", "kicker": "makato-sagibeast · skill", "desc": "Read/write and process Excel workbooks.", "inp": "An .xlsx file", "out": "Processed workbook", "ctx": "", "meta": "", "cluster": "makato-sagibeast", "color": "#d2a8ff"}, {"id": "sb_pdf", "label": "manage-pdf", "lane": "technology", "col": 6, "subrow": 2, "kind": "skill", "detail": "main", "kicker": "makato-sagibeast · skill", "desc": "Process and extract from PDF documents.", "inp": "A PDF", "out": "Extracted content", "ctx": "", "meta": "", "cluster": "makato-sagibeast", "color": "#d2a8ff"}, {"id": "sb_connect", "label": "sagibeast-connect-testbox", "lane": "technology", "col": 6, "subrow": 3, "kind": "skill", "detail": "main", "kicker": "makato-sagibeast · skill", "desc": "Connect to a sagibeast (CMAI) testbox environment.", "inp": "Testbox creds", "out": "A live connection", "ctx": "", "meta": "", "cluster": "makato-sagibeast", "color": "#d2a8ff"}, {"id": "sb_create", "label": "sagibeast-create-testbox", "lane": "technology", "col": 6, "subrow": 4, "kind": "skill", "detail": "main", "kicker": "makato-sagibeast · skill", "desc": "Provision a sagibeast testbox VM (Multipass / EC2 / Hetzner).", "inp": "A VM request", "out": "A provisioned testbox", "ctx": "", "meta": "", "cluster": "makato-sagibeast", "color": "#d2a8ff"}, {"id": "obs_lf", "label": "langfuse-instrument", "lane": "technology", "col": 7, "subrow": 0, "kind": "skill", "detail": "main", "kicker": "makato-observability · skill", "desc": "Trace/monitor LangGraph agents — Langfuse via OpenTelemetry OTLP.", "inp": "Agent runtime", "out": "Traces & spans", "ctx": "", "meta": "", "cluster": "makato-observability", "color": "#7ee787"}, {"id": "cb_plugin", "label": "makato-plugin-creator", "lane": "technology", "col": 8, "subrow": 0, "kind": "skill", "detail": "main", "kicker": "makato-contribute · skill", "desc": "Scaffold a complete new makato plugin from an interview.", "inp": "A plugin idea", "out": "A working plugin skeleton", "ctx": "", "meta": "", "cluster": "makato-contribute", "color": "#79c0ff"}, {"id": "cb_skill", "label": "makato-skill-creator", "lane": "technology", "col": 8, "subrow": 1, "kind": "skill", "detail": "main", "kicker": "makato-contribute · skill", "desc": "Scaffold a complete skill inside an existing plugin.", "inp": "A skill idea", "out": "A working skill", "ctx": "", "meta": "", "cluster": "makato-contribute", "color": "#79c0ff"}, {"id": "cb_pr", "label": "manage-pr", "lane": "technology", "col": 8, "subrow": 2, "kind": "skill", "detail": "main", "kicker": "makato-contribute · skill", "desc": "Triage & resolve PR review-bot comments after opening a PR.", "inp": "PR bot findings", "out": "Resolved review threads", "ctx": "", "meta": "", "cluster": "makato-contribute", "color": "#79c0ff"}, {"id": "cb_sync", "label": "sync-from-upstream", "lane": "technology", "col": 8, "subrow": 3, "kind": "skill", "detail": "main", "kicker": "makato-contribute · skill", "desc": "Sync content from an upstream repo into makato with naming remaps.", "inp": "Upstream content", "out": "Migrated, validated files", "ctx": "", "meta": "", "cluster": "makato-contribute", "color": "#79c0ff"}, {"id": "hook_commit", "label": "pre-commit hook", "lane": "infra", "col": 9, "subrow": 0, "kind": "hook", "detail": "all", "kicker": "PreToolUse hook (blocking)", "desc": "Fires before every commit: runs pre-commit fast-lane sensors on staged files. Non-zero blocks the commit so sensor-fixer can repair.", "inp": "Bash(git commit*) + staged files", "out": "Pass, or a blocked commit", "ctx": "", "meta": "Timeout 30 s.", "cluster": "", "color": ""}, {"id": "hook_push", "label": "pre-push hook", "lane": "infra", "col": 12, "subrow": 0, "kind": "hook", "detail": "all", "kicker": "PreToolUse hook (blocking)", "desc": "Fires before every push: runs the pre-push slow-lane (type checks, tests) on all files.", "inp": "Bash(git push*)", "out": "Pass, or a blocked push", "ctx": "", "meta": "Timeout 120 s.", "cluster": "", "color": ""}, {"id": "hook_stop", "label": "post-implement hook", "lane": "infra", "col": 9, "subrow": 1, "kind": "hook", "detail": "all", "kicker": "Stop hook (advisory)", "desc": "After a completed implement session it scans build.jsonl and injects a message telling Claude to run /build-simplify next.", "inp": "Stop event + build.jsonl", "out": "Injected next-step message", "ctx": "", "meta": "", "cluster": "", "color": ""}, {"id": "hook_session", "label": "session-status hook", "lane": "infra", "col": 2, "subrow": 0, "kind": "hook", "detail": "all", "kicker": "SessionStart hook", "desc": "On session open, prints one banner line per active workflow and a global HALT line.", "inp": "SessionStart event", "out": "Operator banner", "ctx": "", "meta": "", "cluster": "", "color": ""}, {"id": "gha_validate", "label": "validate.yml", "lane": "infra", "col": 13, "subrow": 0, "kind": "gha", "detail": "main", "kicker": "GitHub Action", "desc": "Runs on every PR to main: validates plugin structure, skill frontmatter, naming, self-containedness, ADR compliance, conventional-commit titles.", "inp": "pull_request -> main", "out": "CI pass/fail check", "ctx": "", "meta": "", "cluster": "", "color": ""}, {"id": "gha_board", "label": "project-board-sync.yml", "lane": "infra", "col": 13, "subrow": 2, "kind": "gha", "detail": "all", "kicker": "GitHub Action", "desc": "Push-mode Projects v2 lifecycle sync — advances board Status on PR/issue events.", "inp": "pull_request / issues events", "out": "Board Status transitions", "ctx": "", "meta": "", "cluster": "", "color": ""}, {"id": "merge", "label": "Merged PR", "lane": "infra", "col": 14, "subrow": 0, "kind": "external", "detail": "main", "kicker": "Terminal success", "desc": "The PO-agent exits only on a merged (or closed) PR. auto-merge-release-please.yml merges release PRs once required checks pass.", "inp": "Approved PR + green CI", "out": "Commit on main; workflow-state -> done", "ctx": "", "meta": "", "cluster": "", "color": ""}, {"id": "gha_archive", "label": "archive-spec.yml", "lane": "infra", "col": 14, "subrow": 1, "kind": "gha", "detail": "main", "kicker": "GitHub Action", "desc": "On PR merge: appends an Evolution Log row to specs/master/&lt;domain&gt;.md, moves the spec folder to specs/archive/, closes the linked issue.", "inp": "pull_request.closed (merged)", "out": "Archived spec + closed issue", "ctx": "", "meta": "", "cluster": "", "color": ""}, {"id": "gha_release", "label": "release.yml", "lane": "infra", "col": 14, "subrow": 2, "kind": "gha", "detail": "all", "kicker": "GitHub Action", "desc": "Runs release-please on push to main to create/update a release PR and publish releases on merge.", "inp": "push -> main", "out": "Release PR / published release", "ctx": "", "meta": "", "cluster": "", "color": ""}], "edges": [{"from": "operator", "to": "loop", "kind": "flow"}, {"from": "board", "to": "loop", "kind": "data"}, {"from": "operator", "to": "seed", "kind": "flow"}, {"from": "seed", "to": "lightplanner", "kind": "dispatch"}, {"from": "seed", "to": "board", "kind": "data"}, {"from": "loop", "to": "poagent", "kind": "flow"}, {"from": "poagent", "to": "state", "kind": "data"}, {"from": "poagent", "to": "killswitch", "kind": "dispatch"}, {"from": "loop", "to": "change_orch", "kind": "flow"}, {"from": "killswitch", "to": "contextsum", "kind": "dispatch"}, {"from": "poagent", "to": "build_refine", "kind": "dispatch"}, {"from": "build_start", "to": "build_refine", "kind": "flow"}, {"from": "build_refine", "to": "knowscout", "kind": "dispatch"}, {"from": "knowscout", "to": "inject_ctx", "kind": "dispatch"}, {"from": "knowscout", "to": "inject_skills", "kind": "dispatch"}, {"from": "build_refine", "to": "build_grill", "kind": "dispatch"}, {"from": "build_refine", "to": "build_impl", "kind": "flow"}, {"from": "build_impl", "to": "plan_analyst", "kind": "dispatch"}, {"from": "build_impl", "to": "scout_o", "kind": "dispatch"}, {"from": "build_impl", "to": "coder", "kind": "dispatch"}, {"from": "inject_skills", "to": "coder", "kind": "data"}, {"from": "scout_o", "to": "coder", "kind": "data"}, {"from": "dod", "to": "coder", "kind": "data"}, {"from": "build_impl", "to": "build_simplify", "kind": "flow"}, {"from": "build_simplify", "to": "build_review", "kind": "flow"}, {"from": "build_review", "to": "diffreviewer", "kind": "dispatch"}, {"from": "build_review", "to": "build_verify", "kind": "flow"}, {"from": "build_verify", "to": "gatescout", "kind": "dispatch"}, {"from": "build_verify", "to": "build_sensors", "kind": "dispatch"}, {"from": "build_sensors", "to": "sensorfixer", "kind": "dispatch"}, {"from": "sensorfixer", "to": "resolvefinding", "kind": "dispatch"}, {"from": "resolvefinding", "to": "fixtypes", "kind": "dispatch"}, {"from": "resolvefinding", "to": "fixsec", "kind": "dispatch"}, {"from": "build_verify", "to": "build_push", "kind": "flow"}, {"from": "build_sensors", "to": "build_push", "kind": "flow"}, {"from": "build_push", "to": "build_pr", "kind": "flow"}, {"from": "build_pr", "to": "ci_poll", "kind": "flow"}, {"from": "ci_poll", "to": "gha_validate", "kind": "ci"}, {"from": "ci_poll", "to": "build_addr", "kind": "dispatch"}, {"from": "build_addr", "to": "build_push", "kind": "flow"}, {"from": "ci_poll", "to": "resolveconf", "kind": "dispatch"}, {"from": "resolveconf", "to": "build_push", "kind": "flow"}, {"from": "ci_poll", "to": "merge", "kind": "flow"}, {"from": "merge", "to": "gha_archive", "kind": "ci"}, {"from": "merge", "to": "gha_board", "kind": "ci"}, {"from": "merge", "to": "gha_release", "kind": "ci"}, {"from": "merge", "to": "docsagent", "kind": "ci"}, {"from": "gha_archive", "to": "state", "kind": "data"}, {"from": "hook_commit", "to": "build_sensors", "kind": "hook"}, {"from": "hook_push", "to": "build_push", "kind": "hook"}, {"from": "hook_stop", "to": "build_simplify", "kind": "hook"}, {"from": "hook_session", "to": "loop", "kind": "hook"}, {"from": "plan_brainstorm", "to": "plan_prd", "kind": "flow"}, {"from": "plan_prd", "to": "plan_grill", "kind": "dispatch"}, {"from": "plan_prd", "to": "plan_arch", "kind": "flow"}, {"from": "plan_arch", "to": "ctxscout", "kind": "dispatch"}, {"from": "plan_arch", "to": "plan_ux", "kind": "flow"}, {"from": "plan_ux", "to": "plan_proto", "kind": "dispatch"}, {"from": "plan_proto", "to": "protobuilder", "kind": "dispatch"}, {"from": "plan_ux", "to": "plan_decompose", "kind": "flow"}, {"from": "plan_arch", "to": "plan_decompose", "kind": "flow"}, {"from": "plan_decompose", "to": "poreviewer", "kind": "dispatch"}, {"from": "plan_decompose", "to": "devreviewer", "kind": "dispatch"}, {"from": "plan_decompose", "to": "qareviewer", "kind": "dispatch"}, {"from": "plan_decompose", "to": "plan_acc", "kind": "flow"}, {"from": "plan_acc", "to": "accwriter", "kind": "dispatch"}, {"from": "plan_acc", "to": "docwriter", "kind": "dispatch"}, {"from": "plan_acc", "to": "plan_toissues", "kind": "flow"}, {"from": "plan_toissues", "to": "plan_i2p", "kind": "flow"}, {"from": "plan_i2p", "to": "board", "kind": "data"}, {"from": "change_orch", "to": "change_analyze", "kind": "flow"}, {"from": "change_analyze", "to": "code_explorer", "kind": "dispatch"}, {"from": "change_analyze", "to": "reqdiff", "kind": "dispatch"}, {"from": "change_analyze", "to": "change_design", "kind": "flow"}, {"from": "change_design", "to": "testanalyzer", "kind": "dispatch"}, {"from": "change_design", "to": "change_exec", "kind": "flow"}, {"from": "change_exec", "to": "codereviewer_c", "kind": "dispatch"}, {"from": "change_exec", "to": "qualityguard", "kind": "dispatch"}, {"from": "change_exec", "to": "build_push", "kind": "flow"}, {"from": "change_exec", "to": "change_resolve", "kind": "flow"}, {"from": "core_zoomout", "to": "inject_skills", "kind": "data"}, {"from": "doc_context7", "to": "inject_skills", "kind": "data"}, {"from": "ux_webapp", "to": "inject_skills", "kind": "data"}, {"from": "lg_fund", "to": "inject_skills", "kind": "data"}, {"from": "db_pg", "to": "inject_skills", "kind": "data"}, {"from": "sb_dotx", "to": "inject_skills", "kind": "data"}, {"from": "obs_lf", "to": "inject_skills", "kind": "data"}, {"from": "cb_skill", "to": "inject_skills", "kind": "data"}], "flows": {"full": {"label": "Full autonomous loop", "seq": ["operator", "board", "loop", "poagent", "state", "build_refine", "knowscout", "inject_ctx", "inject_skills", "build_impl", "coder", "build_simplify", "build_review", "build_verify", "build_sensors", "build_push", "build_pr", "ci_poll", "gha_validate", "merge", "gha_archive", "docsagent"]}, "plan": {"label": "Plan phase only", "seq": ["plan_brainstorm", "plan_prd", "plan_arch", "plan_ux", "plan_decompose", "plan_acc", "plan_toissues", "plan_i2p", "board"]}, "build": {"label": "Build phase only", "seq": ["build_start", "build_refine", "knowscout", "inject_ctx", "inject_skills", "build_impl", "coder", "build_simplify", "build_review", "build_verify", "build_sensors", "build_push", "build_pr"]}, "change": {"label": "Change request only", "seq": ["change_orch", "change_analyze", "change_design", "change_exec", "build_push", "build_pr", "merge"]}}, "statusText": {"operator": "Operator starts the run from the terminal", "board": "loop reads the Projects v2 board (Status = Ready)", "seed": "makato-orchestrate: seed-issue", "lightplanner": "makato-orchestrate: light-planner", "loop": "loop checks HALT, polls the board, picks the next issue", "sessionstatus": "makato-orchestrate: session-status", "poagent": "PO-agent takes ownership of one issue", "killswitch": "makato-orchestrate: kill-switch", "state": "workflow-state.json initialised (phase: refine)", "contextsum": "makato-orchestrate: context-summariser", "scout_o": "makato-orchestrate: scout", "ci_poll": "PO-agent polls CI and the review decision", "resolveconf": "makato-orchestrate: resolve-pr-conflict", "docsagent": "documentation-agent updates CHANGELOG & board", "build_start": "makato-build: build-start", "build_refine": "build-refine bridges the issue to plan.md", "build_grill": "makato-build: build-grill-with-docs", "knowscout": "knowledge-scout gathers repo constraints", "inject_ctx": "inject-context resolves rule bundles", "inject_skills": "inject-skills builds recommended_skills[]", "plan_analyst": "makato-build: plan-analyst", "build_impl": "implement loop: RED -> GREEN -> INTEGRATE -> VERIFY", "coder": "coder writes tested code for each task", "build_simplify": "build-simplify strips needless complexity", "build_review": "build-review adversarially checks the diff", "diffreviewer": "makato-build: diff-reviewer", "build_verify": "build-verify runs the full quality gate", "gatescout": "makato-build: gate-scout", "build_sensors": "pre-commit sensors run and auto-fix", "sensorfixer": "makato-build: sensor-fixer", "resolvefinding": "makato-build: build-resolve-finding", "fixtypes": "makato-build: build-fix-types", "fixsec": "makato-build: build-fix-security", "dod": "makato-build: definition-of-done", "build_push": "atomic commits pushed to the feature branch", "build_pr": "draft PR opened from spec artifacts", "build_addr": "makato-build: build-address-pr-comments", "plan_brainstorm": "makato-plan: brainstorming", "plan_prd": "makato-plan: create-prd", "plan_arch": "makato-plan: create-architecture", "plan_ux": "makato-plan: create-ux", "plan_proto": "makato-plan: create-prototype", "plan_decompose": "makato-plan: decompose", "plan_acc": "makato-plan: create-acceptance-tests", "plan_grill": "makato-plan: grill", "plan_toissues": "makato-plan: to-issues", "plan_i2p": "makato-plan: issue-to-project", "ctxscout": "makato-plan: context-scout", "docwriter": "makato-plan: doc-writer", "protobuilder": "makato-plan: prototype-builder", "poreviewer": "makato-plan: po-reviewer", "devreviewer": "makato-plan: dev-reviewer", "qareviewer": "makato-plan: qa-reviewer", "accwriter": "makato-plan: acceptance-writer", "change_orch": "makato-change: orchestrate", "change_analyze": "makato-change: analyze", "change_design": "makato-change: design", "change_exec": "makato-change: execute", "change_resolve": "makato-change: resolve-review", "code_explorer": "makato-change: code-explorer", "reqdiff": "makato-change: requirements-diff-analyzer", "testanalyzer": "makato-change: test-analyzer", "codereviewer_c": "makato-change: code-reviewer", "qualityguard": "makato-change: quality-guard", "core_zoomout": "makato-core: zoom-out", "core_issue": "makato-core: create-issue", "core_guide": "makato-core: makato-guide", "doc_context7": "makato-doc: context7", "doc_readme": "makato-doc: crafting-effective-readmes", "doc_markdown": "makato-doc: markdown", "doc_writing": "makato-doc: writing-clearly-and-concisely", "ux_frontend": "makato-ux: frontend-design", "ux_e2e": "makato-ux: e2e-testing-patterns", "ux_webapp": "makato-ux: webapp-testing", "ux_penpot": "makato-ux: penpot-uiux-design", "lg_fund": "makato-langgraph: langgraph-fundamentals", "lg_agent": "makato-langgraph: langgraph-agent-patterns", "lg_hitl": "makato-langgraph: langgraph-human-in-the-loop", "lg_persist": "makato-langgraph: langgraph-persistence", "lg_reflex": "makato-langgraph: langgraph-reflexion", "db_pg": "makato-database: manage-postgres", "sb_dotx": "makato-sagibeast: dotx-schema-extractor", "sb_excel": "makato-sagibeast: manage-microsoft-excel", "sb_pdf": "makato-sagibeast: manage-pdf", "sb_connect": "makato-sagibeast: sagibeast-connect-testbox", "sb_create": "makato-sagibeast: sagibeast-create-testbox", "obs_lf": "makato-observability: langfuse-instrument", "cb_plugin": "makato-contribute: makato-plugin-creator", "cb_skill": "makato-contribute: makato-skill-creator", "cb_pr": "makato-contribute: manage-pr", "cb_sync": "makato-contribute: sync-from-upstream", "hook_commit": "PreToolUse hook (blocking): pre-commit hook", "hook_push": "PreToolUse hook (blocking): pre-push hook", "hook_stop": "Stop hook (advisory): post-implement hook", "hook_session": "SessionStart hook: session-status hook", "gha_validate": "validate.yml runs the PR CI gate", "gha_board": "GitHub Action: project-board-sync.yml", "merge": "PR merged to main — phase: done", "gha_archive": "archive-spec.yml archives the spec, closes the issue", "gha_release": "GitHub Action: release.yml"}}
+</script>
+<script>
+"use strict";
+const DATA = JSON.parse(document.getElementById("graph-data").textContent);
+const svg = document.getElementById("svg");
+const SVGNS = "http://www.w3.org/2000/svg";
+
+/* ---------- layout constants ---------- */
+const COL_W = 236, BOX_W = 168, BOX_H = 60;
+const SUB_H = 92;              // vertical step between sub-rows within a lane
+const LANE_PAD_TOP = 32, LANE_PAD_BOT = 22, LANE_GAP = 20;
+const PAD_X = 60, PAD_Y = 22;
+const GRID = 12;               // A* routing grid cell
+
+const LANES = DATA.lanes;
+const LANE_COLOR = {}; LANES.forEach(l => LANE_COLOR[l.id] = l.color);
+const NODES = {}; DATA.nodes.forEach(n => NODES[n.id] = n);
+
+const state = {
+  detail: "main",
+  enabled: {},
+  playing: false, flowSeq: null, flowIdx: -1, flowTimer: null,
+  speed: 1, scope: "full", pinnedByFlow: false, hovered: null
+};
+LANES.forEach(l => state.enabled[l.id] = true);
+
+/* ---------- visibility ---------- */
+function nodeVisible(n) {
+  if (!state.enabled[n.lane]) return false;
+  if (state.detail === "main" && n.detail === "all") return false;
+  return true;
+}
+
+/* ---------- layout: swimlanes ---------- */
+let LAYOUT = { colX: {}, laneY: {}, laneH: {}, width: 800, height: 600, cols: [] };
+function computeLayout() {
+  const colsSet = new Set();
+  DATA.nodes.forEach(n => { if (nodeVisible(n)) colsSet.add(n.col); });
+  const cols = [...colsSet].sort((a, b) => a - b);
+  const colX = {}; cols.forEach((c, i) => colX[c] = PAD_X + i * COL_W);
+  const width = PAD_X * 2 + Math.max(0, cols.length - 1) * COL_W + BOX_W;
+
+  const laneY = {}, laneH = {};
+  let y = PAD_Y;
+  LANES.forEach(l => {
+    const ns = DATA.nodes.filter(n => n.lane === l.id && nodeVisible(n));
+    if (!ns.length) { laneY[l.id] = null; return; }
+    let maxSub = 0; ns.forEach(n => maxSub = Math.max(maxSub, n.subrow));
+    const h = LANE_PAD_TOP + maxSub * SUB_H + BOX_H + LANE_PAD_BOT;
+    laneY[l.id] = y; laneH[l.id] = h;
+    y += h + LANE_GAP;
+  });
+  LAYOUT = { colX, laneY, laneH, width, height: y + PAD_Y, cols };
+}
+function nodeXY(n) {
+  const x = LAYOUT.colX[n.col];
+  const y = LAYOUT.laneY[n.lane] + LANE_PAD_TOP + n.subrow * SUB_H;
+  return { x, y, w: BOX_W, h: BOX_H, cx: x + BOX_W / 2, cy: y + BOX_H / 2 };
+}
+
+/* ============================================================
+   A* orthogonal router over a coarse grid.
+   Cells covered by (inflated) boxes are blocked; a shared
+   usage map spreads parallel edges so they don't merge into
+   one line. Guarantees 90° turns and never crosses a box.
+   ============================================================ */
+let GRIDMAP = null; // {cols, rows, blocked:Uint8, usage:Float32, x0,y0}
+let nodeRects = {}; // id -> {x,y,w,h} for visible nodes (for strict crossing test)
+function buildGrid() {
+  nodeRects = {};
+  DATA.nodes.forEach(n => { if (nodeVisible(n)) { const p = nodeXY(n); nodeRects[n.id] = { x: p.x, y: p.y, w: p.w, h: p.h }; } });
+  const w = LAYOUT.width, h = LAYOUT.height;
+  const cols = Math.ceil(w / GRID) + 2, rows = Math.ceil(h / GRID) + 2;
+  const blocked = new Uint8Array(cols * rows);
+  const usage = new Float32Array(cols * rows);
+  const gx = x => Math.round(x / GRID), gy = y => Math.round(y / GRID);
+  DATA.nodes.forEach(n => {
+    if (!nodeVisible(n)) return;
+    const p = nodeXY(n);
+    const x0 = gx(p.x - 7), x1 = gx(p.x + p.w + 7);
+    const y0 = gy(p.y - 7), y1 = gy(p.y + p.h + 7);
+    for (let cx = x0; cx <= x1; cx++) for (let cy = y0; cy <= y1; cy++)
+      if (cx >= 0 && cx < cols && cy >= 0 && cy < rows) blocked[cy * cols + cx] = 1;
+  });
+  GRIDMAP = { cols, rows, blocked, usage, gx, gy };
+}
+function astar(sx, sy, sdir, tx, ty) {
+  const g = GRIDMAP;
+  const S = { x: g.gx(sx), y: g.gy(sy) }, T = { x: g.gx(tx), y: g.gy(ty) };
+  const cols = g.cols, rows = g.rows;
+  // bound the search to a padded bbox around the two endpoints — keeps A* fast
+  // and reliable even on the dense all-detail grid, so it always finds a detour.
+  const padCells = 26;
+  const bx0 = Math.max(0, Math.min(S.x, T.x) - padCells), bx1 = Math.min(cols - 1, Math.max(S.x, T.x) + padCells);
+  const by0 = Math.max(0, Math.min(S.y, T.y) - padCells), by1 = Math.min(rows - 1, Math.max(S.y, T.y) + padCells);
+  const key = (x, y, d) => (y * cols + x) * 4 + d;
+  const DIRS = [[1,0],[-1,0],[0,1],[0,-1]];
+  const startDir = { R:0, L:1, D:2, U:3 }[sdir] ?? 0;
+  const h = (x, y) => (Math.abs(x - T.x) + Math.abs(y - T.y)) * GRID;
+  // binary-heap priority queue keyed on f
+  const heap = [];
+  const hpush = node => { heap.push(node); let i = heap.length - 1;
+    while (i > 0) { const p = (i - 1) >> 1; if (heap[p].f <= heap[i].f) break; [heap[p], heap[i]] = [heap[i], heap[p]]; i = p; } };
+  const hpop = () => { const top = heap[0], last = heap.pop();
+    if (heap.length) { heap[0] = last; let i = 0; for (;;) { let l = 2*i+1, r = 2*i+2, m = i;
+      if (l < heap.length && heap[l].f < heap[m].f) m = l; if (r < heap.length && heap[r].f < heap[m].f) m = r;
+      if (m === i) break; [heap[m], heap[i]] = [heap[i], heap[m]]; i = m; } } return top; };
+  hpush({ x: S.x, y: S.y, d: startDir, g: 0, f: h(S.x, S.y), prev: null });
+  const seen = new Map();
+  let best = null, iter = 0;
+  while (heap.length && iter < 120000) {
+    iter++;
+    const cur = hpop();
+    if (cur.x === T.x && cur.y === T.y) { best = cur; break; }
+    const k = key(cur.x, cur.y, cur.d);
+    if (seen.has(k) && seen.get(k) <= cur.g) continue;
+    seen.set(k, cur.g);
+    for (let di = 0; di < 4; di++) {
+      const nx = cur.x + DIRS[di][0], ny = cur.y + DIRS[di][1];
+      if (nx < bx0 || nx > bx1 || ny < by0 || ny > by1) continue;
+      const isTarget = (nx === T.x && ny === T.y);
+      const isStart = (nx === S.x && ny === S.y);
+      if (g.blocked[ny * cols + nx] && !isTarget && !isStart) continue;
+      const turn = (di !== cur.d) ? 1 : 0;
+      const use = g.usage[ny * cols + nx];
+      const step = GRID + turn * GRID * 3 + use * GRID * 2.2;
+      const ng = cur.g + step;
+      const nk = key(nx, ny, di);
+      if (seen.has(nk) && seen.get(nk) <= ng) continue;
+      hpush({ x: nx, y: ny, d: di, g: ng, f: ng + h(nx, ny), prev: cur });
+    }
+  }
+  if (!best) return null;
+  const cells = [];
+  for (let c = best; c; c = c.prev) cells.unshift(c);
+  cells.forEach(c => { g.usage[c.y * cols + c.x] += 1; });
+  const pts = cells.map(c => ({ x: c.x * GRID, y: c.y * GRID }));
+  const simp = [pts[0]];
+  for (let i = 1; i < pts.length - 1; i++) {
+    const a = simp[simp.length - 1], b = pts[i], c = pts[i + 1];
+    const col1 = Math.abs(a.x - b.x) < 0.5 && Math.abs(b.x - c.x) < 0.5;
+    const row1 = Math.abs(a.y - b.y) < 0.5 && Math.abs(b.y - c.y) < 0.5;
+    if (col1 || row1) continue;
+    simp.push(b);
+  }
+  simp.push(pts[pts.length - 1]);
+  return simp;
+}
+
+/* per-node port allocation so multiple edges on one side fan out */
+function computePorts() {
+  const sideList = {}, rec = [];
+  DATA.edges.forEach((edge, i) => {
+    const a = NODES[edge.from], b = NODES[edge.to];
+    if (!a || !b || !nodeVisible(a) || !nodeVisible(b)) { rec.push(null); return; }
+    const pa = nodeXY(a), pb = nodeXY(b);
+    const dx = pb.cx - pa.cx, dy = pb.cy - pa.cy;
+    let sSide, eSide;
+    if (Math.abs(dx) >= Math.abs(dy)) { sSide = dx >= 0 ? "R" : "L"; eSide = dx >= 0 ? "L" : "R"; }
+    else { sSide = dy >= 0 ? "D" : "U"; eSide = dy >= 0 ? "U" : "D"; }
+    rec.push({ i, a, b, sSide, eSide });
+    (sideList[a.id + "|" + sSide] = sideList[a.id + "|" + sSide] || []).push({ i, end: "s" });
+    (sideList[b.id + "|" + eSide] = sideList[b.id + "|" + eSide] || []).push({ i, end: "e" });
+  });
+  const port = {};
+  Object.keys(sideList).forEach(key => {
+    const arr = sideList[key];
+    const [nodeId, side] = key.split("|");
+    const p = nodeXY(NODES[nodeId]);
+    const n = arr.length;
+    arr.forEach((item, idx) => {
+      const frac = (idx + 1) / (n + 1);
+      let x, y;
+      if (side === "L" || side === "R") {
+        x = side === "L" ? p.x : p.x + p.w;
+        // snap the tangential (y) coord to the routing grid so stubs stay orthogonal,
+        // clamped to stay on the box edge
+        y = Math.min(p.y + p.h - 6, Math.max(p.y + 6, snapG(p.y + p.h * frac)));
+      } else {
+        y = side === "U" ? p.y : p.y + p.h;
+        x = Math.min(p.x + p.w - 6, Math.max(p.x + 6, snapG(p.x + p.w * frac)));
+      }
+      port[item.i + "|" + item.end] = { x, y, side };
+    });
+  });
+  return { rec, port };
+}
+
+function snapG(v) { return Math.round(v / GRID) * GRID; }
+// test whether an axis-aligned segment passes through any blocked grid cell
+function segBlocked(ax, ay, bx, by) {
+  const g = GRIDMAP; if (!g) return false;
+  const steps = Math.max(1, Math.round((Math.abs(bx - ax) + Math.abs(by - ay)) / GRID));
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps, x = ax + (bx - ax) * t, y = ay + (by - ay) * t;
+    const cx = Math.round(x / GRID), cy = Math.round(y / GRID);
+    if (cx >= 0 && cx < g.cols && cy >= 0 && cy < g.rows && g.blocked[cy * g.cols + cx]) return true;
+  }
+  return false;
+}
+// orthogonalize with box-aware corner choice per diagonal gap
+function orthogonalize(pts) {
+  const out = [pts[0]];
+  for (let i = 1; i < pts.length; i++) {
+    const a = out[out.length - 1], b = pts[i];
+    const dx = Math.abs(a.x - b.x), dy = Math.abs(a.y - b.y);
+    if (dx > 0.5 && dy > 0.5) {
+      const cH = { x: b.x, y: a.y };   // horizontal-first
+      const cV = { x: a.x, y: b.y };   // vertical-first
+      const hBad = segBlocked(a.x, a.y, cH.x, cH.y) || segBlocked(cH.x, cH.y, b.x, b.y);
+      const vBad = segBlocked(a.x, a.y, cV.x, cV.y) || segBlocked(cV.x, cV.y, b.x, b.y);
+      // prefer the corner that hits no box; tie → horizontal-first
+      out.push(hBad && !vBad ? cV : cH);
+    }
+    out.push(b);
+  }
+  const cleaned = [out[0]];
+  for (let i = 1; i < out.length; i++) {
+    const p = out[i], q = cleaned[cleaned.length - 1];
+    if (Math.abs(p.x - q.x) < 0.5 && Math.abs(p.y - q.y) < 0.5) continue;
+    cleaned.push(p);
+  }
+  const simp = [cleaned[0]];
+  for (let i = 1; i < cleaned.length - 1; i++) {
+    const a = simp[simp.length - 1], b = cleaned[i], c = cleaned[i + 1];
+    const coll = (Math.abs(a.x - b.x) < 0.5 && Math.abs(b.x - c.x) < 0.5) ||
+                 (Math.abs(a.y - b.y) < 0.5 && Math.abs(b.y - c.y) < 0.5);
+    if (coll) continue;
+    simp.push(b);
+  }
+  simp.push(cleaned[cleaned.length - 1]);
+  return simp;
+}
+
+function routeEdge(r, port, idx) {
+  const s = port[idx + "|s"], e = port[idx + "|e"];
+  if (!s || !e) return null;
+  const off = GRID;
+  const s2 = {
+    x: s.side === "R" ? s.x + off : s.side === "L" ? s.x - off : s.x,
+    y: s.side === "D" ? s.y + off : s.side === "U" ? s.y - off : s.y
+  };
+  const e2 = {
+    x: e.side === "R" ? e.x + off : e.side === "L" ? e.x - off : e.x,
+    y: e.side === "D" ? e.y + off : e.side === "U" ? e.y - off : e.y
+  };
+  // helper: does a fully-orthogonal point list clear every box?
+  function clean(pts) {
+    for (let i = 1; i < pts.length; i++)
+      if (segBlockedStrict(pts[i-1].x, pts[i-1].y, pts[i].x, pts[i].y, r.a.id, r.b.id)) return false;
+    return true;
+  }
+  // 1) try A*
+  const path = astar(snapG(s2.x), snapG(s2.y), s.side, snapG(e2.x), snapG(e2.y));
+  if (path) {
+    const pts = orthogonalize([s, s2, ...path, e2, e]);
+    if (clean(pts)) return { pts, endSide: e.side, endPt: e };
+  }
+  // 2) gutter detours — vertical channel in the column gaps, then horizontal channels
+  const cands = [];
+  const colXs = LAYOUT.cols.map(c => LAYOUT.colX[c]);
+  const gutters = [];
+  colXs.forEach(cx => { gutters.push(cx - (COL_W - BOX_W) / 2); gutters.push(cx + BOX_W + (COL_W - BOX_W) / 2); });
+  gutters.push(s2.x, e2.x);
+  gutters.sort((a, b) => Math.abs(a - (s2.x+e2.x)/2) - Math.abs(b - (s2.x+e2.x)/2));
+  for (const chX of gutters) {
+    cands.push([s, s2, { x: chX, y: s2.y }, { x: chX, y: e2.y }, e2, e]);
+  }
+  // horizontal channel variants (route via a y-band above/below)
+  const bands = [Math.min(s2.y, e2.y) - SUB_H * 0.5, Math.max(s2.y, e2.y) + SUB_H * 0.5,
+                 (s2.y + e2.y) / 2];
+  for (const chY of bands) {
+    cands.push([s, s2, { x: s2.x, y: chY }, { x: e2.x, y: chY }, e2, e]);
+  }
+  for (const c of cands) {
+    const pts = orthogonalize(c);
+    if (clean(pts)) return { pts, endSide: e.side, endPt: e };
+  }
+  // 3) last resort: simple L (may clip, but rare) — pick the less-bad corner
+  const l1 = orthogonalize([s, s2, { x: e2.x, y: s2.y }, e2, e]);
+  return { pts: l1, endSide: e.side, endPt: e };
+}
+// strict box test that ignores the edge's own endpoints
+function segBlockedStrict(ax, ay, bx, by, fromId, toId) {
+  const steps = Math.max(1, Math.round((Math.abs(bx - ax) + Math.abs(by - ay)) / 4));
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps, x = ax + (bx - ax) * t, y = ay + (by - ay) * t;
+    for (const id in nodeRects) {
+      if (id === fromId || id === toId) continue;
+      const rr = nodeRects[id];
+      if (x > rr.x + 2 && x < rr.x + rr.w - 2 && y > rr.y + 2 && y < rr.y + rr.h - 2) return true;
+    }
+  }
+  return false;
+}
+function pathD(pts) { return pts.map((p, i) => (i === 0 ? "M" : "L") + p.x + " " + p.y).join(" "); }
+
+/* ---------- text wrapping (breaks long hyphenated tokens too) ---------- */
+function wrapText(textEl, str, maxWidth, x, startY, lineH) {
+  const cls = textEl.getAttribute("class") || "";
+  const probe = document.createElementNS(SVGNS, "text");
+  probe.setAttribute("class", cls);
+  probe.setAttribute("font-size", textEl.getAttribute("font-size") || "12");
+  probe.style.visibility = "hidden";
+  svg.appendChild(probe);
+  const width = s => { probe.textContent = s; return probe.getComputedTextLength(); };
+  // tokenise, but keep hyphens as breakable points by splitting into token+"-" chunks
+  const rawWords = str.split(/\s+/);
+  const words = [];
+  rawWords.forEach(w => {
+    if (width(w) <= maxWidth) { words.push(w); return; }
+    // break on hyphens/slashes
+    const parts = w.split(/(?<=[-/])/);
+    let acc = "";
+    parts.forEach(pt => {
+      if (width(acc + pt) > maxWidth && acc) { words.push(acc); acc = pt; }
+      else acc += pt;
+    });
+    if (acc) words.push(acc);
+  });
+  let line = "", lines = [];
+  for (const w of words) {
+    const test = line ? (line.endsWith("-") || line.endsWith("/") ? line + w : line + " " + w) : w;
+    if (width(test) > maxWidth && line) { lines.push(line); line = w; } else line = test;
+  }
+  if (line) lines.push(line);
+  svg.removeChild(probe);
+  const maxLines = 3;
+  lines = lines.slice(0, maxLines);
+  lines.forEach((ln, i) => {
+    const t = document.createElementNS(SVGNS, "tspan");
+    t.setAttribute("x", x); t.setAttribute("y", startY + i * lineH);
+    t.textContent = ln;
+    textEl.appendChild(t);
+  });
+  return lines.length;
+}
+
+/* ---------- rendering ---------- */
+let edgeEls = [], nodeEls = {}, VIEWPORT_EL = null;
+const view = { scale: 1, tx: 0, ty: 0 };
+function applyView() { if (VIEWPORT_EL) VIEWPORT_EL.setAttribute("transform", `translate(${view.tx},${view.ty}) scale(${view.scale})`); }
+function fitView() { view.scale = 1; view.tx = 0; view.ty = 0; applyView(); }
+function zoomBy(f, cx, cy) {
+  const b = { w: LAYOUT.width, h: LAYOUT.height };
+  cx = cx ?? b.w / 2; cy = cy ?? b.h / 2;
+  const ns = Math.min(4, Math.max(0.35, view.scale * f));
+  view.tx = cx - (cx - view.tx) * (ns / view.scale);
+  view.ty = cy - (cy - view.ty) * (ns / view.scale);
+  view.scale = ns; applyView();
+}
+function centerOnNode(id, targetScale) {
+  const n = NODES[id]; if (!n || !nodeEls[id]) return;
+  const p = nodeXY(n), b = { w: LAYOUT.width, h: LAYOUT.height };
+  const s = targetScale ?? Math.max(view.scale, 1.4);
+  view.scale = s; view.tx = b.w / 2 - p.cx * s; view.ty = b.h / 2 - p.cy * s; applyView();
+}
+function el(tag, attrs, parent) {
+  const e = document.createElementNS(SVGNS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function hexA(hex, a) {
+  const m = hex.replace('#','').match(/.{2}/g).map(h => parseInt(h,16));
+  return `rgba(${m[0]},${m[1]},${m[2]},${a})`;
+}
+
+function render() {
+  svg.innerHTML = "";
+  edgeEls = []; nodeEls = {};
+  computeLayout();
+  buildGrid();
+  const b = { w: LAYOUT.width, h: LAYOUT.height };
+  svg.setAttribute("viewBox", `0 0 ${b.w} ${b.h}`);
+  svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+  const viewport = el("g", { id: "viewport" }, svg);
+  VIEWPORT_EL = viewport;
+  const laneLayer = el("g", {}, viewport);
+  const edgeLayer = el("g", {}, viewport);
+  const nodeLayer = el("g", {}, viewport);
+  const labelLayer = el("g", {}, viewport);
+
+  // ---- swimlane bands ----
+  LANES.forEach(l => {
+    if (LAYOUT.laneY[l.id] == null) return;
+    const y = LAYOUT.laneY[l.id], h = LAYOUT.laneH[l.id], col = l.color;
+    el("rect", { x: 8, y, width: b.w - 16, height: h, rx: 12,
+      fill: hexA(col, 0.06), stroke: hexA(col, 0.32), "stroke-width": 1.2 }, laneLayer);
+    // label chip at left — measure the real rendered text so the box always fits it
+    const txt = el("text", { x: 22, y: y + 20, class: "lane-label", fill: col }, laneLayer);
+    txt.textContent = l.label;
+    const tw = txt.getComputedTextLength();
+    const padL = 8, padR = 8;
+    const chip = el("rect", { x: 14, y: y + 8, width: tw + padL + padR, height: 17, rx: 5,
+      fill: "#0d1117", "fill-opacity": 0.9, stroke: hexA(col, 0.6) }, laneLayer);
+    // chip was appended after the text, so re-append the text on top
+    laneLayer.appendChild(txt);
+  });
+
+  // ---- technology-plugin clusters: dashed sub-box per plugin, labelled ----
+  const clusters = {};
+  DATA.nodes.forEach(n => {
+    if (!nodeVisible(n) || !n.cluster) return;
+    (clusters[n.cluster] = clusters[n.cluster] || { nodes: [], color: n.color }).nodes.push(n);
+  });
+  Object.keys(clusters).forEach(cname => {
+    const c = clusters[cname];
+    let minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+    c.nodes.forEach(n => { const p = nodeXY(n); minX = Math.min(minX, p.x); minY = Math.min(minY, p.y); maxX = Math.max(maxX, p.x + p.w); maxY = Math.max(maxY, p.y + p.h); });
+    const padX = 12, padTop = 24, padBot = 12;
+    const x = minX - padX, y = minY - padTop, w = (maxX - minX) + padX * 2, h = (maxY - minY) + padTop + padBot;
+    el("rect", { x, y, width: w, height: h, rx: 9, fill: hexA(c.color, 0.05),
+      stroke: hexA(c.color, 0.55), "stroke-width": 1.2, "stroke-dasharray": "5 4" }, laneLayer);
+    const txt = el("text", { x: x + 9, y: y + 15, class: "lane-label", fill: c.color, style: "font-size:10px;" }, laneLayer);
+    txt.textContent = cname;
+    const tw = txt.getComputedTextLength();
+    const chip = el("rect", { x: x + 5, y: y + 4, width: tw + 8, height: 15, rx: 4,
+      fill: "#0d1117", "fill-opacity": 0.92, stroke: hexA(c.color, 0.6) }, laneLayer);
+    laneLayer.appendChild(txt);
+  });
+
+
+  const { rec, port } = computePorts();
+  DATA.edges.forEach((edge, i) => {
+    const r = rec[i]; if (!r) return;
+    const kind = DATA.edgeKinds[edge.kind] || { color: "#888" };
+    const route = routeEdge(r, port, i);
+    if (!route) return;
+    const dashed = edge.kind === "data" || edge.kind === "hook";
+    const p = el("path", { d: pathD(route.pts), class: "edge", stroke: kind.color,
+      "stroke-width": 2.4, "stroke-opacity": 0.9, "stroke-linejoin": "round" }, edgeLayer);
+    if (dashed) p.setAttribute("stroke-dasharray", "6 4");
+    const arrow = arrowFor(route.endPt, route.endSide, kind.color);
+    edgeLayer.appendChild(arrow);
+    edgeEls.push({ edge, pathEl: p, arrowEl: arrow, from: edge.from, to: edge.to });
+  });
+
+  // ---- nodes ----
+  DATA.nodes.forEach(n => {
+    if (!nodeVisible(n)) return;
+    const p = nodeXY(n), col = n.color || LANE_COLOR[n.lane];
+    const g = el("g", { class: "node-box", transform: `translate(${p.x},${p.y})` }, nodeLayer);
+    g.dataset.id = n.id;
+    const isAgent = n.kind === "agent";
+    const isData = n.kind === "data";
+    const isHookGha = n.kind === "hook" || n.kind === "gha";
+    const isExt = n.kind === "external";
+    // body: agents = filled in lane colour; others = dark with coloured border
+    let fill, stroke, textColor, subColor;
+    if (isAgent) { fill = col; stroke = col; textColor = "#08131f"; subColor = "rgba(8,19,31,.7)"; }
+    else if (isData) { fill = "#0f151c"; stroke = col; textColor = col; subColor = hexA(col,.7); }
+    else { fill = "#0f151c"; stroke = col; textColor = "#e6edf3"; subColor = "rgba(230,237,243,.6)"; }
+    el("rect", { class: "body", width: p.w, height: p.h, rx: isData ? 4 : 9,
+      fill, stroke, "stroke-width": isAgent ? 2 : 2,
+      "stroke-dasharray": isData ? "5 3" : (isExt ? "2 3" : "none") }, g);
+    // kind tag (top-right)
+    const tagText = isAgent ? "AGENT" : (n.kind === "skill" ? "SKILL" : (isData ? "DATA" : (n.kind === "hook" ? "HOOK" : (n.kind === "gha" ? "ACTION" : ""))));
+    if (tagText) {
+      const tg = el("text", { class: "kind-tag", x: p.w - 8, y: 13, "text-anchor": "end",
+        fill: isAgent ? "rgba(8,19,31,.65)" : hexA(col, .8) }, g);
+      tg.textContent = tagText;
+    }
+    // label (wrapped, vertically centred by line count)
+    const lbl = el("text", { class: "node-label", fill: textColor, "font-size": "11.5" }, g);
+    // measure lines first with a temp to know count → center
+    const tmp = el("text", { class: "node-label", "font-size": "11.5", visibility: "hidden" }, g);
+    const nLines = wrapText(tmp, n.label, p.w - 18, 12, 0, 13);
+    g.removeChild(tmp);
+    const startY = p.h / 2 - ((nLines - 1) * 13) / 2 + 4;
+    wrapText(lbl, n.label, p.w - 18, 12, startY, 13);
+    lbl.querySelectorAll("tspan").forEach(t => t.setAttribute("fill", textColor));
+    g.addEventListener("mouseenter", () => { if (!state.pinnedByFlow) showInfo(n.id); highlightNode(n.id); });
+    g.addEventListener("mouseleave", () => { if (!state.pinnedByFlow) clearHighlight(); });
+    g.addEventListener("click", () => showInfo(n.id));
+    nodeEls[n.id] = g;
+  });
+
+  applyView();
+}
+
+function arrowFor(pt, side, color) {
+  const s = 7; let pts;
+  if (side === "L") pts = `${pt.x},${pt.y} ${pt.x-s},${pt.y-s} ${pt.x-s},${pt.y+s}`;
+  else if (side === "R") pts = `${pt.x},${pt.y} ${pt.x+s},${pt.y-s} ${pt.x+s},${pt.y+s}`;
+  else if (side === "U") pts = `${pt.x},${pt.y} ${pt.x-s},${pt.y-s} ${pt.x+s},${pt.y-s}`;
+  else pts = `${pt.x},${pt.y} ${pt.x-s},${pt.y+s} ${pt.x+s},${pt.y+s}`;
+  return el("polygon", { points: pts, class: "edge-arrow", fill: color });
+}
+
+/* ---------- highlight ---------- */
+function highlightNode(id) {
+  state.hovered = id;
+  edgeEls.forEach(e => {
+    const on = e.from === id || e.to === id;
+    e.pathEl.classList.toggle("dim", !on);
+    e.arrowEl.classList.toggle("dim", !on);
+    e.pathEl.setAttribute("stroke-width", on ? "3.4" : "2.4");
+  });
+  Object.keys(nodeEls).forEach(nid => {
+    const connected = nid === id || edgeEls.some(e => (e.from === id && e.to === nid) || (e.to === id && e.from === nid));
+    nodeEls[nid].classList.toggle("dim", !connected);
+  });
+}
+function clearHighlight() {
+  state.hovered = null;
+  edgeEls.forEach(e => { e.pathEl.classList.remove("dim"); e.arrowEl.classList.remove("dim"); e.pathEl.setAttribute("stroke-width", "2.4"); });
+  Object.keys(nodeEls).forEach(nid => nodeEls[nid].classList.remove("dim"));
+}
+
+/* ---------- info panel ---------- */
+const $ = id => document.getElementById(id);
+function showInfo(id) {
+  const n = NODES[id]; if (!n) return;
+  $("info-kicker").textContent = n.kicker || "";
+  const tagMap = { agent:["AGENT","#e3a008"], skill:["SKILL","#3fb950"], data:["DATA","#6cb6ff"], hook:["HOOK","#ff9159"], gha:["ACTION","#c297ff"], external:["",""] };
+  const tag = tagMap[n.kind] || ["",""];
+  const title = $("info-title");
+  title.innerHTML = "";
+  const span = document.createElement("span"); span.textContent = n.label; title.appendChild(span);
+  if (tag[0]) { const t = document.createElement("span"); t.className = "tag"; t.textContent = tag[0];
+    t.style.background = hexA(tag[1], .18); t.style.color = tag[1]; t.style.border = "1px solid " + hexA(tag[1], .5); title.appendChild(t); }
+  $("info-desc").innerHTML = n.desc || "";
+  // IO / context block
+  const io = $("info-io"); io.innerHTML = "";
+  function ioBox(lbl, val) {
+    if (!val) return;
+    const box = document.createElement("div"); box.className = "box";
+    box.innerHTML = `<div class="lbl">${lbl}</div><div class="val">${val}</div>`;
+    io.appendChild(box);
+  }
+  if (n.kind === "agent") {
+    ioBox("Runs in context", n.ctx);
+    ioBox("Input", n.inp);
+    ioBox("Output", n.out);
+  } else if (n.kind === "skill" || n.kind === "data") {
+    ioBox("Input", n.inp);
+    ioBox("Output", n.out);
+    if (n.ctx) ioBox("Context", n.ctx);
+  } else {
+    ioBox("Trigger", n.inp);
+    ioBox("Effect", n.out);
+  }
+  $("info-meta").innerHTML = n.meta || "";
+}
+
+/* ---------- flow playback ---------- */
+function baseInterval() { return 1600 / state.speed; }
+function ensureScopeVisible() {
+  const f = DATA.flows[state.scope]; if (!f) return;
+  const need = new Set(f.seq.map(id => NODES[id] && NODES[id].lane).filter(Boolean));
+  let changed = false;
+  need.forEach(l => { if (!state.enabled[l]) { state.enabled[l] = true; changed = true; } });
+  if (changed) { buildToggles(); render(); }
+}
+function beginFlow() {
+  ensureScopeVisible();
+  const f = DATA.flows[state.scope]; if (!f) return;
+  state.flowSeq = f.seq.filter(id => nodeEls[id]);
+  state.flowIdx = -1; state.playing = true; state.pinnedByFlow = true;
+  $("flow-status").classList.add("show"); $("btn-play").textContent = "⏸ Pause";
+  advanceFlow();
+}
+function advanceFlow() {
+  if (!state.flowSeq) return;
+  if (state.flowIdx >= 0) { const prev = state.flowSeq[state.flowIdx]; if (nodeEls[prev]) nodeEls[prev].classList.remove("flow-current"); }
+  state.flowIdx++;
+  if (state.flowIdx >= state.flowSeq.length) { endFlow(true); return; }
+  const id = state.flowSeq[state.flowIdx];
+  lightFlowEdges();
+  if (nodeEls[id]) nodeEls[id].classList.add("flow-current");
+  centerOnNode(id, Math.max(view.scale, 1.5));
+  showInfo(id);
+  $("flow-status-text").textContent = (state.flowIdx + 1) + "/" + state.flowSeq.length + " · " + (DATA.statusText[id] || NODES[id].label);
+  if (state.playing) state.flowTimer = setTimeout(advanceFlow, baseInterval());
+}
+function lightFlowEdges() {
+  const visited = state.flowSeq.slice(0, state.flowIdx + 1);
+  edgeEls.forEach(e => {
+    let active = false;
+    for (let i = 1; i < visited.length; i++) if (e.from === visited[i-1] && e.to === visited[i]) { active = true; break; }
+    e.pathEl.classList.toggle("flow-active", active);
+    e.pathEl.setAttribute("stroke-width", active ? "3.8" : "2.4");
+    if (active) e.pathEl.setAttribute("stroke", "#f7c948");
+    else e.pathEl.setAttribute("stroke", (DATA.edgeKinds[e.edge.kind]||{}).color || "#888");
+    e.arrowEl.setAttribute("fill", active ? "#f7c948" : ((DATA.edgeKinds[e.edge.kind]||{}).color || "#888"));
+  });
+}
+function pauseFlow() { state.playing = false; clearTimeout(state.flowTimer); $("btn-play").textContent = "▶ Resume"; }
+function stepFlow() {
+  if (!state.flowSeq) { ensureScopeVisible(); state.flowSeq = DATA.flows[state.scope].seq.filter(id => nodeEls[id]); state.flowIdx = -1; state.pinnedByFlow = true; $("flow-status").classList.add("show"); }
+  state.playing = false; clearTimeout(state.flowTimer); advanceFlow(); $("btn-play").textContent = "▶ Resume";
+}
+function endFlow(complete) { state.playing = false; clearTimeout(state.flowTimer); $("btn-play").textContent = "▶ Play full loop";
+  if (complete) $("flow-status-text").textContent = "Flow complete — issue reached merged PR ✓"; }
+function resetFlow() {
+  state.playing = false; clearTimeout(state.flowTimer);
+  state.flowSeq = null; state.flowIdx = -1; state.pinnedByFlow = false;
+  $("flow-status").classList.remove("show"); $("btn-play").textContent = "▶ Play full loop";
+  edgeEls.forEach(e => { e.pathEl.classList.remove("flow-active"); });
+  Object.values(nodeEls).forEach(g => g.classList.remove("flow-current"));
+  render(); clearHighlight(); fitView();
+}
+
+/* ---------- controls ---------- */
+function buildToggles() {
+  const wrap = $("plugin-toggles"); wrap.innerHTML = "";
+  LANES.forEach(l => {
+    const row = document.createElement("div"); row.className = "row";
+    const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = state.enabled[l.id]; cb.id = "tg-" + l.id;
+    const sw = document.createElement("span"); sw.className = "swatch"; sw.style.background = l.color;
+    const lb = document.createElement("label"); lb.htmlFor = "tg-" + l.id; lb.textContent = l.label;
+    cb.addEventListener("change", () => { state.enabled[l.id] = cb.checked; render(); });
+    row.appendChild(cb); row.appendChild(sw); row.appendChild(lb); wrap.appendChild(row);
+  });
+}
+function buildLegend() {
+  const wrap = $("legend"); wrap.innerHTML = "";
+  // node kinds
+  const kinds = [["Agent (filled box, own context)","#e3a008","fill"],["Skill (outlined box)","#3fb950","line"],["Data / artifact","#6cb6ff","data"]];
+  kinds.forEach(k => {
+    const it = document.createElement("div"); it.className = "legend-item";
+    const sw = document.createElement("span"); sw.style.cssText = `width:16px;height:12px;border-radius:3px;display:inline-block;`;
+    if (k[2]==="fill") sw.style.background = k[1];
+    else if (k[2]==="data") { sw.style.border = `2px dashed ${k[1]}`; }
+    else { sw.style.border = `2px solid ${k[1]}`; sw.style.background="#0f151c"; }
+    it.appendChild(sw); const t = document.createElement("span"); t.textContent = k[0]; it.appendChild(t); wrap.appendChild(it);
+  });
+  const hr = document.createElement("div"); hr.style.cssText="height:1px;background:var(--border);margin:8px 0;"; wrap.appendChild(hr);
+  Object.keys(DATA.edgeKinds).forEach(kk => {
+    const kd = DATA.edgeKinds[kk];
+    const it = document.createElement("div"); it.className = "legend-item";
+    const line = document.createElement("span");
+    line.style.cssText = `width:24px;height:0;border-top:3px ${(kk==='data'||kk==='hook')?'dashed':'solid'} ${kd.color};display:inline-block;`;
+    it.appendChild(line); const t = document.createElement("span"); t.textContent = kd.label; it.appendChild(t); wrap.appendChild(it);
+  });
+  const note = document.createElement("div"); note.className = "hint"; note.style.marginTop = "8px";
+  note.textContent = "Hover a box to isolate its connections.";
+  wrap.appendChild(note);
+}
+
+$("btn-play").addEventListener("click", () => {
+  if (state.playing) { pauseFlow(); return; }
+  if (state.flowSeq && state.flowIdx >= 0 && state.flowIdx < state.flowSeq.length - 1) { state.playing = true; $("btn-play").textContent = "⏸ Pause"; advanceFlow(); }
+  else { resetFlow(); beginFlow(); }
+});
+$("btn-step").addEventListener("click", stepFlow);
+$("btn-pause").addEventListener("click", pauseFlow);
+$("btn-reset").addEventListener("click", resetFlow);
+$("speed").addEventListener("input", e => { state.speed = parseFloat(e.target.value);
+  $("speed-label").textContent = state.speed + "× — " + (baseInterval()/1000).toFixed(1) + " s per hop"; });
+$("scope").addEventListener("change", e => { state.scope = e.target.value; resetFlow(); });
+document.querySelectorAll("#detail-seg button").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("#detail-seg button").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active"); state.detail = btn.dataset.detail;
+    const pinned = state.pinnedByFlow, idx = state.flowIdx, seq = state.flowSeq;
+    render();
+    if (pinned && seq) { state.flowSeq = seq; state.flowIdx = idx; lightFlowEdges(); const c = seq[idx]; if (nodeEls[c]) nodeEls[c].classList.add("flow-current"); }
+  });
+});
+$("toggle-all-on").addEventListener("click", () => { LANES.forEach(l => state.enabled[l.id] = true); buildToggles(); render(); });
+$("toggle-all-off").addEventListener("click", () => { LANES.forEach(l => state.enabled[l.id] = false); state.enabled.orchestrate = true; state.enabled.operator = true; buildToggles(); render(); });
+
+/* ---------- zoom & pan ---------- */
+function svgPoint(evt) {
+  const rect = svg.getBoundingClientRect(), vb = svg.viewBox.baseVal;
+  const scale = Math.min(rect.width / vb.width, rect.height / vb.height);
+  const offX = (rect.width - vb.width * scale) / 2, offY = (rect.height - vb.height * scale) / 2;
+  return { x: (evt.clientX - rect.left - offX) / scale, y: (evt.clientY - rect.top - offY) / scale };
+}
+const wrap = $("canvas-wrap");
+wrap.addEventListener("wheel", e => { e.preventDefault(); const p = svgPoint(e); zoomBy(e.deltaY < 0 ? 1.12 : 1/1.12, p.x, p.y); }, { passive: false });
+let panning = false, panStart = null;
+wrap.addEventListener("pointerdown", e => {
+  if (e.target.closest(".node-box") || e.target.closest("#zoom-controls")) return;
+  panning = true; panStart = { x: e.clientX, y: e.clientY, tx: view.tx, ty: view.ty };
+  wrap.classList.add("grabbing"); wrap.setPointerCapture(e.pointerId);
+});
+wrap.addEventListener("pointermove", e => {
+  if (!panning) return;
+  const rect = svg.getBoundingClientRect(), vb = svg.viewBox.baseVal;
+  const scale = Math.min(rect.width / vb.width, rect.height / vb.height);
+  view.tx = panStart.tx + (e.clientX - panStart.x) / scale;
+  view.ty = panStart.ty + (e.clientY - panStart.y) / scale; applyView();
+});
+wrap.addEventListener("pointerup", () => { panning = false; wrap.classList.remove("grabbing"); });
+wrap.addEventListener("pointerleave", () => { panning = false; wrap.classList.remove("grabbing"); });
+$("zoom-in").addEventListener("click", () => zoomBy(1.25));
+$("zoom-out").addEventListener("click", () => zoomBy(1/1.25));
+$("zoom-fit").addEventListener("click", fitView);
+
+/* ---------- init ---------- */
+buildToggles(); buildLegend(); render();
+
+</script>
+</body>
+</html>

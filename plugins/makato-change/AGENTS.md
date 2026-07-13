@@ -41,7 +41,13 @@ Implement changes to existing functionality based on updated business requiremen
 - References loaded at point of use, not front-loaded
 - Frontmatter required: name, description, version
 
-## Agents
+## Documentation-skill obligations (suite-wide)
+
+The `makato-doc` skills are mandatory during change execution: the **execute** phase (and its
+`code-reviewer`/`quality-guard` agents) MUST use `context7` to look up current API docs before
+writing or reviewing code, and any `.md`/README touched by a change MUST use `markdown` /
+`crafting-effective-readmes` / `writing-clearly-and-concisely`. See the repo-root `AGENTS.md`
+§ *Documentation skills* and `plugins/makato-doc/AGENTS.md`.
 
 makato-change uses specialized sub-agents to delegate focused tasks during the CR workflow:
 

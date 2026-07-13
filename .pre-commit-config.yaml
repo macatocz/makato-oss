@@ -58,7 +58,7 @@ repos:
       - id: ruff-format
 
   # -----------------------------------------------------------------------
-  # Markdown — fast lane (matches makato-core:markdown skill expectations)
+  # Markdown — fast lane (matches makato-doc:markdown skill expectations)
   # .markdownlintignore already excludes plugins/, prompts/, docs/superpowers,
   # and .claude/{agents,skills}/ — so this lints only root .md and tracked
   # docs that don't carry skill frontmatter.

@@ -118,7 +118,7 @@ def read_bundle_coverage(plugins_root: Path) -> tuple[int, list[str]]:
 
 _DATE_HEADING_RE = re.compile(r"^## (\d{4}-\d{2}-\d{2})")
 _AUDIT_WINDOW_DAYS = 90
-_BUNDLE_REQUIRED_COUNT = 11
+_BUNDLE_REQUIRED_COUNT = 12
 _PASSPORT_RATE_THRESHOLD = 0.95
 
 
@@ -410,7 +410,7 @@ def generate_report(
     pr = structural["passport_rate"]
     aa = structural["audit_active"]
 
-    bundle_value = f"{bc['covered']}/11 plugins"
+    bundle_value = f"{bc['covered']}/12 plugins"
     bundle_verdict = bc["verdict"]
 
     passport_value = f"{pr['rate'] * 100:.0f}%"

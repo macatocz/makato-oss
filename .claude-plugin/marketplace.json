@@ -8,7 +8,12 @@
     {
       "name": "makato-core",
       "source": "./plugins/makato-core",
-      "description": "Shared developer utilities and suite infrastructure for makato — codebase navigation, documentation authoring, GitHub issue filing, and library reference lookup."
+      "description": "Shared developer utilities and suite infrastructure for makato — codebase navigation, GitHub issue filing, and plugin discovery."
+    },
+    {
+      "name": "makato-doc",
+      "source": "./plugins/makato-doc",
+      "description": "Documentation-authoring skills for the makato suite — library reference lookup (Context7), README crafting, markdown authoring/linting, and Strunk-style prose editing. Cross-cutting obligations for every code- and doc-producing agent."
     },
     {
       "name": "makato-contribute",

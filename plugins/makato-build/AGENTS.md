@@ -136,6 +136,10 @@ makato-build/
 
 ## Skill Routing — recommended_skills[] propagation chain (agent-skill-routing #146)
 
+> **Documentation-skill obligations (suite-wide):** the **coder** MUST use `makato-doc`'s
+> `context7` to check current API docs before writing code; `.md`/README work MUST use `markdown` /
+> `crafting-effective-readmes` / `writing-clearly-and-concisely`. See repo-root `AGENTS.md` § *Documentation skills*.
+
 `build-refine`, `build-implement-tdd`, `build-implement-goal`, `sensor-fixer`, and `coder`
 implement the downstream half of the agent-skill-routing propagation chain:
 

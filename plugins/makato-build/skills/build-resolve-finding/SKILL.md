@@ -140,7 +140,7 @@ Default fix commands when no route is configured:
         action == "autofix-then-skill" → skill_name = route.fallback_skill
                                          (Phase 0 already ran route.cmd and
                                           did not clear this finding)
-3. Load skill: skill_name (e.g. "makato-core:markdown", "typing-fixer",
+3. Load skill: skill_name (e.g. "makato-doc:markdown", "typing-fixer",
    "react-hook-deps-fixer", "makato-build:build-simplify").
 4. Pass {finding, repo_root} to that skill.
 5. Skill applies pattern in-place. ONE fix attempt only.
@@ -150,7 +150,7 @@ Default fix commands when no route is configured:
 
 The called skill is responsible for its own internal logic; this skill does not retry it.
 
-**Why two action values dispatch to the same branch.** `skill` means "this rule class needs reasoning — there is no CLI autofix worth attempting." `autofix-then-skill` means "this rule class is split — most members of the class have a CLI autofix, but a structural subset does not." Phase 0 in `sensor-fixer` already attempted the autofix on the full batch; whatever reaches this branch is the structural subset, and the route's `fallback_skill` is the domain expert for that subset (e.g. `makato-core:markdown` for residual MD0xx after `markdownlint --fix`).
+**Why two action values dispatch to the same branch.** `skill` means "this rule class needs reasoning — there is no CLI autofix worth attempting." `autofix-then-skill` means "this rule class is split — most members of the class have a CLI autofix, but a structural subset does not." Phase 0 in `sensor-fixer` already attempted the autofix on the full batch; whatever reaches this branch is the structural subset, and the route's `fallback_skill` is the domain expert for that subset (e.g. `makato-doc:markdown` for residual MD0xx after `markdownlint --fix`).
 
 ### Branch 3 — Safe-automated actions
 

@@ -1,19 +1,19 @@
 # Skill Adoption Audit Report
 
-Generated: 2026-07-12T06:14:10+00:00
+Generated: 2026-07-13T10:45:06+00:00
 Overall Status: FAIL
 
 ## Structural Criteria
 
 | Criterion | Value | Verdict |
 |---|---|---|
-| Bundle coverage | 11/11 plugins | PASS |
+| Bundle coverage | 12/12 plugins | FAIL |
 | Passport emission rate | 0% | FAIL |
 | Audit active | No (last entry: none) | FAIL |
 
 ### Missing bundle definitions
 
-— none —
+makato-temporal
 
 ## Adoption Criterion
 

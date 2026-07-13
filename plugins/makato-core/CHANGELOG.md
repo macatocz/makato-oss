@@ -7,6 +7,7 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## Plugin-level
 
+- **Changed** extracted the documentation-authoring skills (`context7`, `crafting-effective-readmes`, `markdown`, `writing-clearly-and-concisely`) into the new sibling `makato-doc` plugin via `git mv`. makato-core now scopes to suite infrastructure (`create-issue`, `makato-guide`, `zoom-out`). `config/skill-bundles.yml` trimmed: `core-skills` keeps only the three retained skills; `core-readme` and `core-markdown` removed (relocated to makato-doc as `doc-readme` / `doc-markdown`). plugin.json description, AGENTS.md, and README.md updated.
 - **Added** `config/skill-bundles.yml` (#145) — bundles `core-skills`, `core-readme`, `core-markdown`, `core-governance` route README files, markdown files with lint markers, AGENTS/CLAUDE governance files, and core skill files to the documentation and navigation skills.
 
 ---

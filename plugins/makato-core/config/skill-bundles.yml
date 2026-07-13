@@ -12,39 +12,15 @@ version: "1.0"
 bundles:
   # Triggered when working on the makato-core plugin's own skill files.
   # Literal segments: plugins/makato-core/skills → specificity ≥ 3.
+  # (Documentation skills context7 / crafting-effective-readmes / markdown /
+  # writing-clearly-and-concisely moved to makato-doc — see its skill-bundles.yml.)
   - name: core-skills
     globs:
       - "plugins/makato-core/skills/**/*.md"
     skills:
-      - context7
-      - crafting-effective-readmes
       - create-issue
       - makato-guide
-      - markdown
-      - writing-clearly-and-concisely
       - zoom-out
-
-  # Triggered when working on any README file — core authoring skill applies.
-  # Literal segment: README.md → specificity = 1 (root level).
-  - name: core-readme
-    globs:
-      - "README.md"
-      - "plugins/*/README.md"
-    skills:
-      - crafting-effective-readmes
-      - writing-clearly-and-concisely
-
-  # Triggered when editing any markdown file — markdown skill applies.
-  # Contains filter avoids spraying across all md files in the repo.
-  - name: core-markdown
-    globs:
-      - "plugins/**/*.md"
-    contains:
-      - "markdownlint"
-      - "MD013"
-      - "MD040"
-    skills:
-      - markdown
 
   # Triggered when working on AGENTS.md or CLAUDE.md governance files,
   # where zoom-out and makato-guide apply.

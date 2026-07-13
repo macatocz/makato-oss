@@ -158,14 +158,14 @@ class TestStructuralMetricsTask2(unittest.TestCase):
     # ------------------------------------------------------------------
 
     def test_bundle_all_covered(self):
-        """11 covered, no missing → bundle verdict PASS."""
+        """12 covered, no missing → bundle verdict PASS."""
         result = _mod.compute_structural_metrics(
-            bundle_result=(11, []),
+            bundle_result=(12, []),
             passport_result=(100, 105),
             notes_path=self.tmp / "nonexistent.md",
         )
         bc = result["bundle_coverage"]
-        self.assertEqual(bc["covered"], 11)
+        self.assertEqual(bc["covered"], 12)
         self.assertEqual(bc["missing"], [])
         self.assertEqual(bc["verdict"], "PASS")
 
@@ -190,7 +190,7 @@ class TestStructuralMetricsTask2(unittest.TestCase):
         notes = self.tmp / "notes.md"
         notes.write_text("## 2026-07-10\n\nSome notes.\n", encoding="utf-8")
         result = _mod.compute_structural_metrics(
-            bundle_result=(11, []),
+            bundle_result=(12, []),
             passport_result=(0, 0),
             notes_path=notes,
         )
@@ -203,7 +203,7 @@ class TestStructuralMetricsTask2(unittest.TestCase):
         notes = self.tmp / "notes.md"
         notes.write_text("## 2026-07-10\n\nSome notes.\n", encoding="utf-8")
         result = _mod.compute_structural_metrics(
-            bundle_result=(11, []),
+            bundle_result=(12, []),
             passport_result=(100, 105),
             notes_path=notes,
         )
@@ -216,7 +216,7 @@ class TestStructuralMetricsTask2(unittest.TestCase):
         notes = self.tmp / "notes.md"
         notes.write_text("## 2026-07-10\n\nSome notes.\n", encoding="utf-8")
         result = _mod.compute_structural_metrics(
-            bundle_result=(11, []),
+            bundle_result=(12, []),
             passport_result=(94, 100),
             notes_path=notes,
         )
@@ -231,7 +231,7 @@ class TestStructuralMetricsTask2(unittest.TestCase):
     def test_audit_notes_absent(self):
         """notes_path does not exist → active=False, verdict FAIL."""
         result = _mod.compute_structural_metrics(
-            bundle_result=(11, []),
+            bundle_result=(12, []),
             passport_result=(100, 105),
             notes_path=self.tmp / "nonexistent.md",
         )
@@ -245,7 +245,7 @@ class TestStructuralMetricsTask2(unittest.TestCase):
         notes = self.tmp / "audit-notes.md"
         notes.write_text("## 2026-07-10\n\nRecent audit entry.\n", encoding="utf-8")
         result = _mod.compute_structural_metrics(
-            bundle_result=(11, []),
+            bundle_result=(12, []),
             passport_result=(100, 105),
             notes_path=notes,
         )
@@ -259,7 +259,7 @@ class TestStructuralMetricsTask2(unittest.TestCase):
         notes = self.tmp / "audit-notes.md"
         notes.write_text("## 2020-01-01\n\nOld audit entry.\n", encoding="utf-8")
         result = _mod.compute_structural_metrics(
-            bundle_result=(11, []),
+            bundle_result=(12, []),
             passport_result=(100, 105),
             notes_path=notes,
         )
@@ -277,7 +277,7 @@ class TestStructuralMetricsTask2(unittest.TestCase):
         notes = self.tmp / "notes.md"
         notes.write_text("## 2026-07-10\n\nEntry.\n", encoding="utf-8")
         result = _mod.compute_structural_metrics(
-            bundle_result=(11, []),
+            bundle_result=(12, []),
             passport_result=(100, 105),
             notes_path=notes,
         )
@@ -434,7 +434,7 @@ class TestGenerateReportTask4(unittest.TestCase):
 
     def _make_structural(self, overall="PASS", missing=None):
         return {
-            "bundle_coverage": {"covered": 11, "missing": missing or [], "verdict": overall},
+            "bundle_coverage": {"covered": 12, "missing": missing or [], "verdict": overall},
             "passport_rate": {"rate": 0.97, "verdict": overall},
             "audit_active": {"active": True, "last_entry_date": "2026-07-10", "verdict": overall},
             "overall": overall,
@@ -615,9 +615,9 @@ class TestScenario1AllPass(unittest.TestCase):
         self.tmpdir = Path(tempfile.mkdtemp())
         self.now = datetime(2026, 7, 11, 12, 0, 0, tzinfo=timezone.utc)
 
-        # -- plugins: 11 subdirs each with non-empty config/skill-bundles.yml --
+        # -- plugins: 12 subdirs each with non-empty config/skill-bundles.yml --
         plugins_root = self.tmpdir / "plugins"
-        for i in range(11):
+        for i in range(12):
             plugin_dir = plugins_root / f"makato-plugin-{i}"
             (plugin_dir / "config").mkdir(parents=True)
             (plugin_dir / "config" / "skill-bundles.yml").write_text(
@@ -708,9 +708,9 @@ class TestScenario2AdoptionShortfall(unittest.TestCase):
         self.tmpdir = Path(tempfile.mkdtemp())
         self.now = datetime(2026, 7, 11, 12, 0, 0, tzinfo=timezone.utc)
 
-        # -- plugins: 11 subdirs each with non-empty config/skill-bundles.yml --
+        # -- plugins: 12 subdirs each with non-empty config/skill-bundles.yml --
         plugins_root = self.tmpdir / "plugins"
-        for i in range(11):
+        for i in range(12):
             plugin_dir = plugins_root / f"makato-plugin-{i}"
             (plugin_dir / "config").mkdir(parents=True)
             (plugin_dir / "config" / "skill-bundles.yml").write_text(
@@ -787,7 +787,7 @@ class TestScenario2AdoptionShortfall(unittest.TestCase):
         _ = original_content  # suppress lint
 
     def test_scenario2_structural_passes(self):
-        """Structural criteria (11 plugins + passports + recent notes) → structural['overall'] == 'PASS'."""
+        """Structural criteria (12 plugins + passports + recent notes) → structural['overall'] == 'PASS'."""
         structural, _, _ = self._run_pipeline()
         self.assertEqual(structural["overall"], "PASS")
 
@@ -868,7 +868,7 @@ class TestScenario3StructuralGap(unittest.TestCase):
         return structural, adoption, markdown
 
     def test_scenario3_structural_fail(self):
-        """10/11 plugins covered → structural verdict == 'FAIL'."""
+        """10/12 plugins covered → structural verdict == 'FAIL'."""
         structural, _, _ = self._run_pipeline()
         self.assertEqual(structural["overall"], "FAIL")
 

@@ -2,7 +2,9 @@
 
 ## Goal
 
-Provide the shared developer utilities and suite infrastructure every makato plugin depends on — codebase navigation, documentation authoring, GitHub issue filing, and library reference lookup.
+Provide the shared developer utilities and suite infrastructure every makato plugin depends on — codebase navigation, GitHub issue filing, and plugin discovery.
+
+> **Documentation authoring** (library reference lookup, README crafting, markdown, prose editing) lives in the sibling **`makato-doc`** plugin — see `plugins/makato-doc/AGENTS.md`.
 
 ## What Belongs Here
 
@@ -50,12 +52,8 @@ makato-core/
 │   ├── pre-push.md            # PreToolUse: block git push on pre-push gate; Stop: warn on missing verify
 │   └── post-implement.md      # Stop: auto-continue to /build-simplify after implement session
 ├── skills/
-│   ├── context7/                      # Library documentation lookup via Context7 MCP
-│   ├── crafting-effective-readmes/    # README authoring guide
 │   ├── create-issue/                  # File a structured issue against the makato repo
 │   ├── makato-guide/                  # Discover installed plugins and their skills
-│   ├── markdown/                      # Markdown authoring + linting
-│   ├── writing-clearly-and-concisely/ # Strunk-style prose editing
 │   └── zoom-out/                      # Map dependencies / higher-level codebase view
 ├── shared/             # Cross-skill references (optional)
 ├── CLAUDE.md

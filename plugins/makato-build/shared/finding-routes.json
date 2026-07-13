@@ -146,8 +146,8 @@
     "markdownlint:MD0*": {
       "action": "autofix-then-skill",
       "cmd": "markdownlint --fix",
-      "fallback_skill": "makato-core:markdown",
-      "note": "markdownlint --fix handles most MD0xx rules; structural rules (MD001/024/025/033/043/052/…) fall through to makato-core:markdown — the domain skill for markdown structure, not build-simplify"
+      "fallback_skill": "makato-doc:markdown",
+      "note": "markdownlint --fix handles most MD0xx rules; structural rules (MD001/024/025/033/043/052/…) fall through to makato-doc:markdown — the domain skill for markdown structure, not build-simplify"
     },
     "sqlfluff:*": {
       "action": "autofix-then-skill",

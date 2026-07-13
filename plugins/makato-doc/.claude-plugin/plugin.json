@@ -1,0 +1,7 @@
+{
+  "name": "makato-doc",
+  "description": "Documentation authoring skills for the makato suite — library reference lookup (Context7), README crafting, markdown authoring/linting, and Strunk-style prose editing. These skills are cross-cutting obligations for every code- and doc-producing agent (see AGENTS.md).",
+  "author": {
+    "name": "makato Team"
+  }
+}

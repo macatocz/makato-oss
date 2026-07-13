@@ -1,0 +1,67 @@
+# Skill Bundles — makato-doc
+#
+# Maps changed-file path globs (plus optional content-hint predicates) to an
+# ordered list of recommended skills that inject-skills prepends into an
+# agent's system prompt before dispatch.
+#
+# Bundle names are plugin-prefixed to avoid cross-plugin collisions in the
+# merged registry. No `default` bundle here — makato-build owns that.
+#
+# Authoring rule (enforced by validate-skill-bundles): a "wide" glob — one with
+# zero literal path segments, e.g. `**/*` or `**/*.py` — MUST be paired with a
+# `contains:` predicate when the bundle recommends skills. The doc-markdown and
+# doc-code-docs bundles below satisfy this: their wide globs declare `contains:`.
+
+version: "1.0"
+
+bundles:
+  # Triggered when working on the makato-doc plugin's own skill files.
+  # Literal segments: plugins/makato-doc/skills → specificity >= 3.
+  - name: doc-skills
+    globs:
+      - "plugins/makato-doc/skills/**/*.md"
+    skills:
+      - context7
+      - crafting-effective-readmes
+      - markdown
+      - writing-clearly-and-concisely
+
+  # Triggered when working on any README file — README authoring + prose skills apply.
+  # Literal segment: README.md → specificity = 1 (root level).
+  - name: doc-readme
+    globs:
+      - "README.md"
+      - "plugins/*/README.md"
+    skills:
+      - crafting-effective-readmes
+      - writing-clearly-and-concisely
+
+  # Triggered when editing any markdown file that shows lint intent.
+  # Wide glob (`plugins/**/*.md`) legalised by the `contains:` predicate so the
+  # markdown skill is not sprayed across every doc in the repo.
+  - name: doc-markdown
+    globs:
+      - "plugins/**/*.md"
+    contains:
+      - "markdownlint"
+      - "MD013"
+      - "MD040"
+    skills:
+      - markdown
+
+  # Triggered when writing code — look up real API docs before writing, not from
+  # training data. Wide globs (`**/*.py` etc.) legalised by the `contains:`
+  # predicate, which keys on the presence of import/require statements so the
+  # bundle fires on genuine source files rather than every text file.
+  - name: doc-code-docs
+    globs:
+      - "**/*.py"
+      - "**/*.ts"
+      - "**/*.tsx"
+      - "**/*.js"
+    contains:
+      - "import "
+      - "require("
+      - "from "
+    skills:
+      - context7

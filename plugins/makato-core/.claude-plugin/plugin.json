@@ -1,6 +1,6 @@
 {
   "name": "makato-core",
-  "description": "Shared developer utilities and suite infrastructure for makato — codebase navigation, documentation authoring, GitHub issue filing, and library reference lookup.",
+  "description": "Shared developer utilities and suite infrastructure for makato — codebase navigation, GitHub issue filing, and plugin discovery. (Documentation-authoring skills live in the sibling makato-doc plugin.)",
   "author": {
     "name": "makato Team"
   }
