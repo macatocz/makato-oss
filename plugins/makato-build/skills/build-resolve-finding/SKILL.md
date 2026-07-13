@@ -49,7 +49,7 @@ The caller passes a single finding object — the canonical Finding contract is
 }
 ```
 
-`attempt` increments on retry. `model_override` is set by the caller if a tier escalation is in effect (see §5).
+`attempt` increments on retry. `model_override` is set by the caller if a tier escalation is in effect (see §5). **Reserved/inert (#287):** no runtime consumes `model_override` yet — this skill is invoked via the Skill tool, which has no `model` parameter, so the field is documented for a future Agent-tool-based dispatch but currently has no effect.
 
 ## 3. Decision tree
 
@@ -266,7 +266,7 @@ Steps:
 
 - **Secrets (gitleaks):** ALWAYS quarantine + redact + open rotation issue. Never bypass; never commit the literal even temporarily.
 - **CVEs (trivy):** ALWAYS upgrade-first. Only fall back to `.trivyignore` with a 30-day expiry and a tracking issue.
-- **Same finding seen twice within a run:** the *caller* (`sensor-fixer`) is responsible for tier-escalating the model on retry. This skill simply honors `finding.model_override` if set; it does not decide escalation.
+- **Same finding seen twice within a run:** the *caller* (`sensor-fixer`) is responsible for tier-escalating the model on retry. This skill simply honors `finding.model_override` if set; it does not decide escalation. **⚠ Not yet wired (#287):** no runtime currently consumes `model_override` — this skill runs under the Skill tool, which cannot switch models mid-invocation. The field and the escalation policy are documented intent; they take effect only once a future Agent-tool-based dispatch reads the override.
 
 ## 6. Hard rules
 

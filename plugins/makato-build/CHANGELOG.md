@@ -5,7 +5,40 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
-## `build-implement-tdd` — worktree-safe orchestrate-root resolution (#282)
+## `build-implement-tdd` + `coder` — wire PRIOR_LESSONS to the coder dispatch (#287)
+
+`build-implement-tdd/SKILL.md:36` documented that `PRIOR_LESSONS` (GAP-015 / #37 lesson-recall)
+is "forwarded verbatim to each per-task coder dispatch in Step 6", but the Step 6 dispatch-bundle
+enumeration and `coder.md`'s Input table both omitted it — so an LLM following the spec never
+sent it and GAP-015 was silently ineffective.
+
+- **`skills/build-implement-tdd/SKILL.md`** — added `PRIOR_LESSONS` to the Step 6 coder
+  dispatch-bundle list, mirroring the optional-advisory contract of `RECOMMENDED_SKILLS` /
+  `TEST_ORACLE` (forward verbatim when present; omit when absent or `[]`; advisory weight equal
+  to `SCOUT_SUMMARY`; never overrides `PLAN_CONTEXT.Hard Constraints`).
+- **`agents/coder.md`** — added a `PRIOR_LESSONS` (optional) row to the Input table and a new
+  `## Prior lessons (GAP-015)` section describing how the coder consumes it before Phase 1 RED.
+- **`shared/autonomous-propagation-smoke-tests.sh`** — new `T-PRIOR-LESSONS` block asserting the
+  field appears in both the Step 6 dispatch bundle and coder.md's Input table (grep-based contract
+  check, verified to fail without the wiring).
+
+## `sensor-fixer` + repair skills — mark opus escalation / `model_override` as not-yet-wired (#287)
+
+The HALT-004 sonnet→opus tier escalation was documented as live behaviour, but
+`build-resolve-finding` (and the `build-fix-*` repair skills) run under the **Skill tool**, which
+has no `model` parameter — so the `--model "opus"` retry and the `finding.model_override` field
+have no runtime that consumes them. The escalation was a no-op. Docs now match reality; no code
+behaviour changed.
+
+- **`agents/sensor-fixer.md`** — frontmatter description, Phase-1 prose, and the escalation note
+  reworded to flag the escalation as *intended but not yet wired*, with an explicit note that
+  wiring it requires converting the per-finding dispatch to an Agent-tool sub-agent.
+- **`skills/build-resolve-finding/SKILL.md`**, **`skills/build-fix-security/SKILL.md`**,
+  **`skills/build-fix-types/SKILL.md`** — `model_override` annotated as reserved/inert at each
+  Finding-shape definition. The field is retained (removing it would orphan the escalation
+  narrative) but caveated as having no current effect.
+
+
 
 Two `MAKATO_ORCH` / `MAKATO_ROOT` derivations in `build-implement-tdd/SKILL.md` (the scout-dispatch
 guard and the post-coder `workflow-state.sh patch`) used a bare `git rev-parse --show-toplevel`

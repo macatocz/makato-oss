@@ -66,7 +66,9 @@ sensor-fixer pipeline — the canonical Finding contract is [`shared/finding-sch
 ```
 
 `attempt` increments on retry by the caller. `model_override` is set by the caller if a
-tier escalation is in effect.
+tier escalation is in effect. **Reserved/inert (#287):** no runtime consumes `model_override`
+yet — repair skills run under the Skill tool (no `model` parameter), so the field is documented
+for a future Agent-tool-based dispatch but currently has no effect.
 
 ## 3. Classification Table
 
