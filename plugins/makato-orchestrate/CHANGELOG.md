@@ -5,6 +5,30 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## `halt-conditions.md` — HALT-CH-* taxonomy corrected to match ground truth
+
+The HALT-CH-001 … HALT-CH-004 table added in #144 (see the *makato-change autonomous
+path integration* block below) documented triggers and severities that **never matched**
+the skills that actually emit these codes. The orchestrate-side table has been rewritten
+to mirror `plugins/makato-change/AUTONOMOUS-MODE.md` and the ground-truth skill sources
+(`analyze/SKILL.md`, `design/SKILL.md`, `execute/SKILL.md`):
+
+- **HALT-CH-001** — was "analyze blocked by requirements conflict"; is **headless repo
+  discovery failure** (`REPO_ROOT` absent AND no `repositories.yml`). `failure`.
+- **HALT-CH-002** — was "design blocked, scope > 15 files"; is **critical blocking question
+  in analyze Step 8**. `failure`.
+- **HALT-CH-003** — was "execute with suppressed quality findings"; is **design
+  auto-approved in autonomous mode** (audit marker, run continues). `audit`.
+- **HALT-CH-004** — was "resolve-review retry budget exhausted" (a code that could never
+  fire — `resolve-review` is excluded from autonomous mode); is **no test infrastructure
+  in headless execute** (degraded confidence, run continues). `degraded`.
+- Added a *single source of truth* note pointing at `AUTONOMOUS-MODE.md`, split the two-row
+  category table into the three severities the pipeline actually emits (`failure` / `audit`
+  / `degraded`), corrected the audit-shape example, and added AUTONOMOUS-MODE.md to *See also*.
+- No skill or script behaviour changed — this is a documentation-accuracy fix only.
+
+---
+
 ## loop 1.8.0 — reaper landed-detection fix: ancestry + tracked-only dirty + nested-child (#265)
 
 The 1.7.0 reaper left worktrees un-reaped that should have been removed. A live
@@ -269,9 +293,9 @@ documents the corresponding halt conditions.
   (`"po-agent"` or `"change-orchestrate"`) derived by `_classify_issue_type`; skill docs updated
   to explain the two dispatch paths.
 - **`halt-conditions.md`** — HALT-CH-001 through HALT-CH-004 added for the `makato-change`
-  autonomous path (analyze blocked, design blocked, execute with suppressed findings
-  [informational], resolve-review budget exhausted). HALT-CH-001 and HALT-CH-002 apply
-  `needs-human-review` and return R1 failure; HALT-CH-003 is informational only.
+  autonomous path. **Note:** the triggers described in this historical entry were later found
+  to be inaccurate and were corrected — see the *HALT-CH-* taxonomy corrected* entry at the top
+  of this changelog for the authoritative definitions.
 
 ---
 
