@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.54.2](https://github.com/macatocz/makato/compare/v0.54.1...v0.54.2) (2026-07-13)
+
+
+### 🐛 Bug Fixes
+
+* **makato-langgraph:** cross-plugin collision gate + robust shared path resolution ([#335](https://github.com/macatocz/makato/issues/335)) ([21887ed](https://github.com/macatocz/makato/commit/21887edf1948c4ab68d2c91479ba5e3a9015c9df))
+
 ## [0.54.1](https://github.com/macatocz/makato/compare/v0.54.0...v0.54.1) (2026-07-13)
 
 
