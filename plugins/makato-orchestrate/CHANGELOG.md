@@ -5,6 +5,21 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## `loop.sh` + `po-agent.md` — kill the T30 loop-smoke flake at its root and stop flaky CI red-checks from draining the fix budget (#312)
+
+Two related changes: a test-reliability fix in the loop watchdog, and an autonomous-pipeline hardening so a content-independent flaky CI failure no longer wastes fix cycles.
+
+**Root cause of the T30 flake.** `_watchdog_poll` is spawned as a background grandchild of `cmd_dispatch`. When a dispatch shell is TERM'd/KILL'd mid-`wait "$child_pid"` (exactly what `loop-smoke-tests.sh` T12 does — it kills only the dispatch PID), the watchdog is reparented to init and keeps polling. On its stall/kill boundary it called `_patch_status '.active_workflow.killed_by_watchdog' 'true'` against the **shared** `loop-status.json`. Because `_patch_status` is a `jq`-based read-modify-write, that write on a `{active_workflow: null}` document autovivifies the key back into an object — resurrecting an `active_workflow` that a later test (T30) had just cleared to `null`. T30's `jq -e '.active_workflow == null'` then failed. It reproduced only under Linux-CI scheduling (local macOS reaped the orphan in time), so the failure was a platform-timing flake, not a content regression — it landed red on PRs that never touched makato-orchestrate (e.g. #314).
+
+- **`scripts/loop.sh`** — added `_wd_owns_active <issue>`, a file-scope ownership CAS: every watchdog write to `active_workflow.*` (both the WARN `stalled` stamp and the kill-path `killed_by_watchdog` stamp) is now gated on the live `active_workflow.issue` still equalling the watchdog's own issue. A stale/orphaned watchdog is therefore a no-op regardless of reap timing — it can never resurrect a cleared slot. The child kill (a runaway process *should* die) is unconditional; only the state write is guarded. Also added a `TERM`/`INT` trap around the `wait "$child_pid"` block that reaps the watchdog before the dispatch shell exits under signal (defence-in-depth for real operator kills).
+- **`scripts/loop.sh`** — new `_test-wd-guarded-write <issue>` test hook (gated behind `MAKATO_LOOP_TEST_HOOK=1`) exposes the guarded write deterministically.
+- **`scripts/loop-smoke-tests.sh`** — new **T43** drives the guard via that hook in both directions (foreign/null slot → write skipped, slot stays null; owned slot → write lands). Deterministic — no process-timing dependence, so the regression test is not itself flaky. Verified it fails when the guard is neutralised.
+
+**Autonomous hardening — flake probe before consuming a `ci_failure_cycle` (#312).** Independently of the test fix, the PO-agent's Step 6a treated any red check as a real regression and fed it into the CI-failure fix loop, which `build-implement-tdd` cannot fix for a test outside the PR diff — burning cycles until HALT-008 paged a human for a non-issue.
+
+- **`agents/po-agent.md`** — Step 6a now runs a one-shot flake probe on the first non-conflict CI failure: re-run only the failed jobs (`gh run rerun <run_id> --failed`), re-poll, and **only** enter the fix loop (consuming a cycle) if the failure reproduces. A green re-run is treated as a pass. Gated by the new `flake_rerun_pending` state flag; disable with `MAKATO_LOOP_CI_FLAKE_PROBE=0`. No new HALT code — the #288 ceiling design is unchanged; the probe only defers cycle consumption until a failure is known reproducible.
+- **`skills/workflow-state/references/workflow-state.schema.json`** — added optional `flake_rerun_pending` boolean (absent ⇒ false; backward-compatible with pre-#312 state files).
+
 ## `loop.sh` — board-poll rate-limit is no longer an unmitigated SPOF (#289)
 
 Fixes a MEDIUM-severity availability bug. The board poll (`gh project item-list`) is the loop's

@@ -612,9 +612,44 @@ row). The `gh`-only polls (CI, review) are narrated with a single
      - Failed check name matches `(?i)(rebase|merge.?conflict)` →
        route through the conflict sub-loop (below); the CI-failure fix
        loop is SKIPPED.
-     - Otherwise → enter the CI-failure fix loop (below).
+     - Otherwise → **flake probe first** (see below), then, only if the
+       failure reproduces, enter the CI-failure fix loop.
    - 10-poll timeout → append `trigger: ci_failure` lesson, enter the
      CI-failure fix loop.
+
+   **Flake probe (#312) — run BEFORE consuming a `ci_failure_cycle`.**
+   A red check is not proof of a real regression: a content-independent
+   flaky test (a background-process race, a timing-sensitive assertion)
+   fails once and passes on re-run. Feeding such a failure into the
+   CI-failure fix loop wastes cycles — `build-implement-tdd` cannot fix a
+   test the PR never touched and that passes locally — and eventually
+   HALT-008s a human for a non-issue. So, on the FIRST non-conflict failure
+   only (guarded by `flake_rerun_pending`):
+
+   1. Read `flake_rerun_pending` from state (default `false`). If already
+      `true`, the probe has run once this PR — skip it and enter the
+      CI-failure fix loop directly (a failure that survived one re-run is
+      treated as real).
+   2. Otherwise set `flake_rerun_pending = true`, capture the failed run id
+      (`gh pr checks <PR> --json name,state,conclusion,link` → the run id
+      of the first `failure`), and re-run only the failed jobs:
+      `gh run rerun <run_id> --failed`. Emit a JSONL `ci-flake-probe`
+      entry (`data.run_id`, `data.checks_failed`). Do **not** increment
+      `ci_failure_cycles`. Return to the top of the Step 6a poll loop
+      (reset the poll-round counter).
+   3. On re-poll: **all green** → clear `flake_rerun_pending`, log the
+      probe outcome as `flake_confirmed: true`, advance to sub-step 5 as a
+      normal pass. The flake cost one extra CI wait and zero fix cycles.
+   4. On re-poll: **still failing** → clear `flake_rerun_pending`, log
+      `flake_confirmed: false` (reproducible), and enter the CI-failure
+      fix loop, which now legitimately consumes a `ci_failure_cycle`.
+
+   `flake_rerun_pending` lives in `workflow-state.json` alongside
+   `ci_failure_cycles`; it is a per-PR one-shot, reset on both probe
+   outcomes and on PR merge. No new HALT code — the ceiling design (#288)
+   is unchanged; the probe only defers cycle consumption until a failure is
+   known to be reproducible. Disable with
+   `MAKATO_LOOP_CI_FLAKE_PROBE=0` (legacy straight-to-fix-loop behaviour).
 
    Emit JSONL after each poll:
 

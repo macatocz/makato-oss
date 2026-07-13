@@ -1285,4 +1285,43 @@ grep -q "would remove .*child-wt" <<<"$reap6_out" \
 echo "  ✓ both the nesting parent and the nested child are skipped"
 
 echo
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265) ==="
+echo "=== T43: watchdog ownership guard prevents orphaned-writer state resurrection (#312) ==="
+# Regression for the T30 loop-smoke flake. An orphaned _watchdog_poll (its
+# parent cmd_dispatch was TERM'd mid-`wait`, reparenting the poll to init)
+# used to keep calling _patch_status against a loop-status.json that a LATER
+# dispatch had already cleared to active_workflow=null. jq's null-path
+# autovivification (`.active_workflow.killed_by_watchdog = true` on a null
+# node → {active_workflow:{killed_by_watchdog:true}}) resurrected the key,
+# so T30's `jq -e '.active_workflow == null'` intermittently failed on CI
+# while passing locally (platform-timing-dependent). The fix gates every
+# watchdog active_workflow write behind a CAS on active_workflow.issue
+# (_wd_owns_active). This test drives that predicate DETERMINISTICALLY via
+# the _test-wd-guarded-write hook — no process timing, so the regression
+# test is not itself flaky (the exact anti-pattern under repair).
+T43_STATE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/t39-state"
+mkdir -p "$T43_STATE"
+
+# Case A — foreign slot (a later dispatch cleared it to null): the guard must
+# BLOCK the write; active_workflow stays null (no resurrection).
+printf '%s\n' '{"active_workflow":null}' >"$T43_STATE/loop-status.json"
+t43_out="$(MAKATO_LOOP_STATE_DIR="$T43_STATE" MAKATO_LOOP_TEST_HOOK=1 \
+  "$LOOP" _test-wd-guarded-write 39001 2>/dev/null)"
+[[ "$t43_out" == "skipped (foreign)" ]] \
+  || fail "T43A: guard should skip a foreign-slot write; got: '$t43_out'"
+jq -e '.active_workflow == null' "$T43_STATE/loop-status.json" >/dev/null \
+  || fail "T43A: orphaned watchdog resurrected active_workflow; slot: $(cat "$T43_STATE/loop-status.json")"
+echo "  ✓ orphaned watchdog (foreign/null slot) did not resurrect active_workflow"
+
+# Case B — the slot is still owned by this issue: the guard is a no-op and the
+# legitimate watchdog write proceeds (no regression to the stall/kill audit).
+printf '%s\n' '{"active_workflow":{"issue":39002}}' >"$T43_STATE/loop-status.json"
+t43_out="$(MAKATO_LOOP_STATE_DIR="$T43_STATE" MAKATO_LOOP_TEST_HOOK=1 \
+  "$LOOP" _test-wd-guarded-write 39002 2>/dev/null)"
+[[ "$t43_out" == "wrote (owns)" ]] \
+  || fail "T43B: guard should permit an owned write; got: '$t43_out'"
+jq -e '.active_workflow.killed_by_watchdog == true' "$T43_STATE/loop-status.json" >/dev/null \
+  || fail "T43B: owned write did not land; slot: $(cat "$T43_STATE/loop-status.json")"
+echo "  ✓ ownership guard permits writes when the slot is still owned"
+
+echo
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T43 watchdog ownership guard, #312) ==="

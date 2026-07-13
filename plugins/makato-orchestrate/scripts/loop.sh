@@ -669,6 +669,25 @@ cmd_status() {
 }
 
 # ---------------------------------------------------------------------------
+# _wd_owns_active <issue> — watchdog ownership CAS (#312). Returns 0 iff the
+# live status file still names <issue> as the active workflow. Every watchdog
+# write to active_workflow.* is gated on this so an ORPHANED watchdog (its
+# parent cmd_dispatch was TERM'd mid-`wait`, reparenting the poll to init)
+# cannot write against a loop-status.json that a LATER dispatch already
+# cleared to active_workflow=null. Without the guard, jq's null-path
+# autovivification (`.active_workflow.killed_by_watchdog = true` on a null
+# node → {active_workflow:{killed_by_watchdog:true}}) resurrects the key —
+# the T30 loop-smoke flake. File-scope (not nested in _watchdog_poll) so the
+# smoke suite can exercise it deterministically via the _test-wd-owns hook.
+# ---------------------------------------------------------------------------
+_wd_owns_active() {
+  local issue="$1"
+  local cur
+  cur="$(_read_status | jq -r '.active_workflow.issue // empty' 2>/dev/null || echo "")"
+  [[ "$cur" == "$issue" ]]
+}
+
+# ---------------------------------------------------------------------------
 # _watchdog_poll — background helper spawned by cmd_dispatch. Polls the
 # dispatch log's mtime every $STALL_POLL_SECS seconds. When mtime has not
 # advanced for STALL_WARN_SECS, stamps active_workflow.stalled=true and
@@ -690,6 +709,11 @@ _watchdog_poll() {
 
   local warn_stamped=0
   local killed=0
+
+  # Ownership guard (#312): only stamp active_workflow.* when the live status
+  # file still shows THIS issue as the active workflow. See _wd_owns_active
+  # (file-scope) for the full rationale — this makes a stale/orphaned watchdog
+  # a no-op regardless of whether it was reaped in time.
 
   # `stat -c` on Linux, `stat -f` on macOS. Detect once.
   local stat_cmd
@@ -718,6 +742,12 @@ _watchdog_poll() {
     idle=$((now_epoch - mtime))
 
     if [[ $killed -eq 0 && $idle -ge $STALL_KILL_SECS ]]; then
+      # Orphan guard: a stale watchdog must not resurrect a cleared
+      # active_workflow. If we no longer own the active slot, still kill the
+      # tracked child (that is always safe and correct — a runaway process
+      # should die) but do NOT write active_workflow.* against foreign state.
+      local own_kill=1
+      _wd_owns_active "$issue" || own_kill=0
       # Snapshot the kill audit BEFORE signalling — active_workflow will
       # be nulled by cmd_dispatch shortly, but last_watchdog_kill is a
       # sibling field that survives.
@@ -729,8 +759,10 @@ _watchdog_poll() {
         --argjson idle "$idle" \
         --argjson kill_secs "$STALL_KILL_SECS" \
         '{issue: $issue, killed_at: $stamped_at, idle_seconds: $idle, stall_kill_seconds: $kill_secs}')"
-      _patch_status '.last_watchdog_kill' "$audit"
-      _patch_status '.active_workflow.killed_by_watchdog' 'true'
+      if [[ $own_kill -eq 1 ]]; then
+        _patch_status '.last_watchdog_kill' "$audit"
+        _patch_status '.active_workflow.killed_by_watchdog' 'true'
+      fi
       echo "loop: watchdog SIGTERM'ing PO-agent pid=$child_pid (issue #$issue, idle=${idle}s ≥ ${STALL_KILL_SECS}s)" >&2
       kill -TERM "$child_pid" 2>/dev/null || true
       # Grace period, then hard-kill if the child hasn't exited.
@@ -748,12 +780,16 @@ _watchdog_poll() {
     fi
 
     if [[ $warn_stamped -eq 0 && $idle -ge $STALL_WARN_SECS ]]; then
-      local warn_stamp
-      warn_stamp="$(_now)"
-      _patch_status '.active_workflow.stalled' 'true'
-      _patch_status '.active_workflow.stalled_since' "\"$warn_stamp\""
-      echo "loop: watchdog WARN — PO-agent idle for ${idle}s ≥ ${STALL_WARN_SECS}s (issue #$issue)" >&2
-      warn_stamped=1
+      # Same orphan guard as the kill path: never stamp stalled against a
+      # loop-status.json we no longer own (would resurrect a cleared key).
+      if _wd_owns_active "$issue"; then
+        local warn_stamp
+        warn_stamp="$(_now)"
+        _patch_status '.active_workflow.stalled' 'true'
+        _patch_status '.active_workflow.stalled_since' "\"$warn_stamp\""
+        echo "loop: watchdog WARN — PO-agent idle for ${idle}s ≥ ${STALL_WARN_SECS}s (issue #$issue)" >&2
+        warn_stamped=1
+      fi
     fi
 
     sleep "$STALL_POLL_SECS"
@@ -1807,6 +1843,17 @@ cmd_dispatch() {
     # Spawn watchdog against the child's PID.
     _watchdog_poll "$log_file" "$child_pid" "$issue" &
     watchdog_pid=$!
+    # Signal-safe reap: if this dispatch shell is TERM'd/INT'd while blocked
+    # on `wait "$child_pid"` below, bash runs the default signal action and
+    # exits BEFORE the reap block — orphaning the watchdog grandchild, which
+    # is reparented to init and keeps calling _patch_status against the shared
+    # loop-status.json (resurrecting a just-cleared active_workflow via jq's
+    # null-path autovivification). That leaked writer corrupts a later
+    # dispatch's state — the source of the T30 loop-smoke-test flake (#312).
+    # Trapping TERM/INT reaps both children in-scope (dynamic scoping makes
+    # the locals visible here) before exiting, so a kill of the dispatch PID
+    # cascades to the watchdog instead of orphaning it.
+    trap 'kill -TERM "$watchdog_pid" "$child_pid" 2>/dev/null || true; wait "$watchdog_pid" "$child_pid" 2>/dev/null || true; exit 143' TERM INT
     # Block on child. `wait` returns the child's exit status if we name it.
     wait "$child_pid" || rc=$?
     # Reap watchdog — it either exited already (kill path or child-exit)
@@ -1815,6 +1862,9 @@ cmd_dispatch() {
       kill -TERM "$watchdog_pid" 2>/dev/null || true
       wait "$watchdog_pid" 2>/dev/null || true
     fi
+    # Normal completion — drop the signal trap so it cannot fire against
+    # stale PIDs during the rest of the function.
+    trap - TERM INT
   else
     # Opt-out path (MAKATO_LOOP_STALL_DISABLE=1) — legacy behaviour, no
     # log capture, no watchdog. No streaming needed (nothing reads the
@@ -2113,6 +2163,21 @@ if [[ "$SUBCMD" == _test-* ]]; then
   case "$SUBCMD" in
     _test-guarded-sleep) _guarded_sleep "$@" ;;
     _test-gh-item-list) _gh_project_item_list "$@" ;;
+    # _test-wd-guarded-write <issue> — exercise the watchdog ownership guard
+    # (#312) deterministically, without the process-timing flakiness of a real
+    # orphaned poll. Runs the exact guarded write the kill path performs:
+    # writes active_workflow.killed_by_watchdog=true ONLY when _wd_owns_active
+    # <issue> holds. The smoke suite seeds loop-status.json, invokes this, and
+    # asserts the slot is resurrected iff ownership matched.
+    _test-wd-guarded-write)
+      _test_issue="${1:?issue required}"
+      if _wd_owns_active "$_test_issue"; then
+        _patch_status '.active_workflow.killed_by_watchdog' 'true'
+        echo "wrote (owns)"
+      else
+        echo "skipped (foreign)"
+      fi
+      ;;
     *) echo "loop: unknown test hook: $SUBCMD" >&2; exit 64 ;;
   esac
   exit 0

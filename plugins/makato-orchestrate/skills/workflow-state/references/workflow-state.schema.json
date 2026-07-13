@@ -140,6 +140,10 @@
       "minimum": 0,
       "description": "Count of CI-failure fix attempts within this run (#288). Incremented by the PO-agent's CI-failure fix loop (Step 6a test-failure path) on every RED CI check that triggers a re-dispatch of build-implement-tdd. HALT-008 fires when this reaches MAKATO_MAX_CI_FAILURE_CYCLES (default 3) — a ceiling independent of both outer_iteration (re-plan budget) and merge_conflict_cycles (conflict-resolution budget), so transient CI noise no longer burns the operator's re-plan budget. All three counters are independent; a single run can exhaust each."
     },
+    "flake_rerun_pending": {
+      "type": "boolean",
+      "description": "Per-PR one-shot flag for the Step 6a flake probe (#312). Set true when the PO-agent re-runs a failed CI job (gh run rerun --failed) to distinguish a content-independent flaky failure from a reproducible regression BEFORE consuming a ci_failure_cycle. Reset to false on both probe outcomes (green re-run = flake, still-failing = reproducible) and on PR merge. Optional field: absent is treated as false, preserving backward compatibility with pre-#312 state files. Disabled entirely by MAKATO_LOOP_CI_FLAKE_PROBE=0."
+    },
     "halt_audit": {
       "type": "array",
       "description": "Immutable append-only log of HALT events. Each entry is written when a HALT code fires.",
