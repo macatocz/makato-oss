@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.52.1](https://github.com/macatocz/makato/compare/v0.52.0...v0.52.1) (2026-07-13)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** resolve specs/ from main checkout in worktree runs ([#282](https://github.com/macatocz/makato/issues/282)) ([#298](https://github.com/macatocz/makato/issues/298)) ([ffa974b](https://github.com/macatocz/makato/commit/ffa974b5e8c9c2f675d35037fd652317ce7006fa))
+
 ## [0.52.0](https://github.com/macatocz/makato/compare/v0.51.1...v0.52.0) (2026-07-13)
 
 
