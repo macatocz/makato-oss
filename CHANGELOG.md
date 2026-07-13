@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.51.1](https://github.com/macatocz/makato/compare/v0.51.0...v0.51.1) (2026-07-13)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** HALT-007B evaluates per-session token delta ([#281](https://github.com/macatocz/makato/issues/281)) ([#294](https://github.com/macatocz/makato/issues/294)) ([e789b7c](https://github.com/macatocz/makato/commit/e789b7cc17b5837a2bbea497d2b84061ef8d8ddc))
+* **scripts:** derive D22 bundle-coverage denominator from live plugin count ([#293](https://github.com/macatocz/makato/issues/293)) ([87d6e40](https://github.com/macatocz/makato/commit/87d6e402b5c39624db9cb7e7deb0a6010e157ddd))
+
 ## [0.51.0](https://github.com/macatocz/makato/compare/v0.50.0...v0.51.0) (2026-07-13)
 
 
