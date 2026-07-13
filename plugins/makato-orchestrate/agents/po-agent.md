@@ -617,20 +617,50 @@ row). The `gh`-only polls (CI, review) are narrated with a single
    `/makato-build:build-address-pr-comments <KEY> --autonomous` IFF
    `gh pr view <PR> --json comments,reviews` reports pre-existing
    unresolved feedback (e.g. re-used draft PR). Skipped on fresh PR.
-6. **Step 6b — Review poll.** Every `MAKATO_REVIEW_POLL_INTERVAL`
-   seconds (default 300) run
-   `gh pr view <PR> --json reviewDecision,state`:
+6. **Step 6b — Review poll.** Record the wait start time and set
+   `REVIEW_WAIT_SECS = ${MAKATO_REVIEW_WAIT_SECS:-3600}` — the wall-clock
+   ceiling on the first-review wait (external-actor timeout; default 60 min,
+   coherent with `loop.sh`'s `MAKATO_LOOP_STALL_KILL` / `STALL_KILL_SECS`).
+   Set `REVIEW_WAIT_SECS=0` to disable the ceiling (legacy unbounded
+   behaviour). Then loop every `MAKATO_REVIEW_POLL_INTERVAL` seconds
+   (default 300).
+
+   Each round, **before** the `gh pr view` call, run the kill-switch and
+   context-handoff gates (identical exit-code contracts to Step 4a/4b), so
+   an operator HALT or a context-ceiling handoff can release the loop slot
+   mid-wait rather than only at the never-reached outer boundary:
+
+   - `kill-switch poll <KEY>` — non-zero exit means a HALT fired
+     (HALT-000/009 etc.); the skill has already written `halt_audit[]` and
+     applied `needs-human-review` where applicable. Retain the worktree,
+     emit session-end JSONL, return R1 `failure` with that `data.halt_code`.
+   - `kill-switch handoff <KEY>` — exit `2` → HANDOFF: patch
+     `resume_point: "review-poll"` (so the fresh session re-enters this poll,
+     not the top of the PR pipeline — `github_pr_number` is already on state),
+     emit the handoff JSONL, return R1 `partial` with `data.handoff: true`
+     (NO `needs-human-review`). Exit `1` → HALT-007 fallback, R1 `failure`.
+
+   Then run `gh pr view <PR> --json reviewDecision,state`:
 
    - `state != "OPEN"` → PR resolved (merged/closed). Exit → sub-step 7.
    - `reviewDecision == "APPROVED"` → exit → sub-step 7.
    - `reviewDecision == "CHANGES_REQUESTED"` → human-review fix loop
      (below).
-   - `null` / `"REVIEW_REQUIRED"` → continue polling.
+   - `null` / `"REVIEW_REQUIRED"` → check the elapsed wall-clock **after**
+     the decision branches above (a late APPROVED / CHANGES_REQUESTED on the
+     same round wins over the ceiling):
+     - `REVIEW_WAIT_SECS > 0` AND `elapsed >= REVIEW_WAIT_SECS` → **HALT-012**
+       (REVIEW-TIMEOUT): apply `needs-human-review`, append `halt_audit[]`
+       (`code: "HALT-012"`, `data: {pr, review_decision, waited_secs,
+       review_wait_secs}`), `worktree.sh retain <KEY> HALT-012`, emit
+       session-end JSONL, return R1 `failure` with
+       `data.halt_code: "HALT-012"` — releasing the slot and paging the operator.
+     - else → sleep `MAKATO_REVIEW_POLL_INTERVAL` and continue polling.
 
    Emit JSONL on each cycle exit or HALT:
 
    ```json
-   {"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"review-poll","status":"<ok|warn>","data":{"pr":<PR>,"review_decision":"<decision>","human_review_cycles":<N>}}
+   {"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"review-poll","status":"<ok|warn>","data":{"pr":<PR>,"review_decision":"<decision>","human_review_cycles":<N>,"waited_secs":<S>}}
    ```
 7. Patch `current_phase: "done"`. Run `shared/worktree.sh cleanup <KEY>`
    (`git worktree remove --force` + patch `.worktree_path` to `null`;

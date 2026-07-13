@@ -5,6 +5,34 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## `po-agent.md` — Step 6b review poll now bounded (#283)
+
+Fixes a HIGH-severity unbounded-stall bug. The Step 6b review poll waited for a PR review
+decision with **no wall-clock timeout and no poll-round limit** whenever `reviewDecision` was
+`REVIEW_REQUIRED` or `null` (no reviewer yet). The kill-switch (Step 4a) and context-handoff
+(Step 4b) checks ran only in the outer task-dispatch loop — never inside this wait — and
+`loop.sh`'s liveness watchdog (`STALL_KILL_SECS`) only trips on *no output*, which an
+actively-polling wait never triggers. A PR with no assigned reviewer therefore held the single
+loop slot indefinitely, stalling the whole queue until an operator noticed.
+
+- **`agents/po-agent.md`** — Step 6b rewritten to a bounded loop. New `MAKATO_REVIEW_WAIT_SECS`
+  env var (default `3600`, coherent with `loop.sh`'s `STALL_KILL_SECS`; set `0` to restore the
+  legacy unbounded wait) caps the first-review wait by wall-clock. `kill-switch poll` and
+  `kill-switch handoff` now run inside each poll round (same exit-code contracts as Step 4a/4b),
+  so an operator HALT or context-ceiling handoff releases/hands off the slot mid-wait. On expiry
+  the poll emits the new **HALT-012 (REVIEW-TIMEOUT)** — a hard stop that applies
+  `needs-human-review`, retains the worktree, and returns R1 `failure`, releasing the slot. The
+  decision branches (`APPROVED` / `CHANGES_REQUESTED`) are evaluated before the timeout check so a
+  late verdict wins over the ceiling. `resume_point: "review-poll"` is patched on handoff so the
+  fresh session re-enters the poll rather than restarting the PR pipeline. The per-cycle JSONL
+  gains a `waited_secs` field.
+- **`halt-conditions.md`** — new HALT-012 row added to the code table (hard-stop category,
+  external-actor timeout, distinct from HALT-008's internal retry-budget exhaustion).
+- **`README.md`** — HALT code-table description updated to "HALT-000 through HALT-012" (also
+  backfills the already-shipped HALT-011).
+
+---
+
 ## `loop.sh` — halted issue excluded from Ready re-promotion (#286)
 
 Fixes a MEDIUM-severity dual-source-of-truth bug. Every HALT path applies `needs-human-review`
