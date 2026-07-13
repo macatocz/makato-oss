@@ -791,11 +791,54 @@ APPROVED, or HALT-010.
 
 ### Step 7 — Session-end JSONL and R1
 
+**Structural-HALT recurrence counter (#347, epic #319).** Before emitting
+the session-end entry, if this run is terminating on a HALT (`data.halt_code`
+is set on the failure R1), call:
+
+```bash
+plugins/makato-orchestrate/shared/workflow-state.sh \
+  bump-structural-halt <KEY> <ISSUE_NUMBER> <HALT_CODE> [<ORIGIN>]
+```
+
+The helper increments the durable `structural_halt_cycles` counter **exactly
+once per run**, and **only** when `<HALT_CODE>` (with `<ORIGIN>` for HALT-008)
+is a structural HALT — the authoritative set is HALT-003, HALT-STRUCTURAL,
+HALT-010, and HALT-008 with origin `outer_iteration`. For HALT-008 pass the
+same `data.origin` string the `halt_audit[]` entry recorded
+(`outer_iteration` | `merge_conflict` | `ci_failure`). Non-structural codes
+are a documented no-op, so it is safe to call unconditionally on any HALT
+termination. **Do NOT call it on a HALT-007B context handoff** — that path
+exits with `partial`/HANDOFF (the run has not terminated), and the resumed
+session must read the same counter value the current session persisted (the
+helper classifies HALT-007B as non-structural, so an accidental call is still
+a no-op — but the handoff path in Step 4b returns before Step 7 regardless).
+This is the sole writer of the counter; it drives the Needs Planning signal in
+sibling story #348.
+
+**Reshape-request emission (#349, epic #319).** After `bump-structural-halt`
+and before the session-end JSONL append, call:
+
+```bash
+scripts/emit-reshape-request.sh <KEY> <ISSUE_NUMBER>
+```
+
+This applies to all structural HALT exits: HALT-003, HALT-STRUCTURAL,
+HALT-010, and HALT-008 with `data.origin == "outer_iteration"`.
+
+If the script exits non-zero, log a warn to `orchestrate.jsonl`:
+
+```json
+{"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"emit-reshape-request","status":"warn","error":"<stderr-line>"}
+```
+
+**Do NOT block termination** — the HALT path must always terminate cleanly
+regardless of whether `emit-reshape-request.sh` succeeds.
+
 Append session-end to `orchestrate.jsonl` (JSONL `status` maps R1
 status: `success`→`ok`, `partial`→`warn`, `failure`→`error`):
 
 ```json
-{"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"session","status":"<ok|warn|error>","data":{"terminal_state":"<success|partial|failure>","outer_iterations":<I>,"sub_tasks_complete":<K>,"github_pr_number":<M-or-null>,"halt_code":"<HALT-XXX-or-null>"}}
+{"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"session","status":"<ok|warn|error>","data":{"terminal_state":"<success|partial|failure>","outer_iterations":<I>,"sub_tasks_complete":<K>,"github_pr_number":<M-or-null>,"halt_code":"<HALT-XXX-or-null>","structural_halt_cycles":<C-or-null>}}
 ```
 
 Emit the R1 envelope as the **last** fenced ` ```json ` block of the
@@ -887,6 +930,18 @@ session-end JSONL and R1 `failure`:
 4. `shared/workflow-state.sh summarise-lessons <KEY> <ISSUE_NUMBER>` — writes the
    lessons markdown alongside the retained worktree. Emit the matching
    `summarise-lessons` JSONL with `data.terminal_state: "failure"`.
+4a. **Structural HALTs only** (HALT-003, HALT-STRUCTURAL, HALT-010, HALT-008 with
+   `data.origin == "outer_iteration"`): call
+   `scripts/emit-reshape-request.sh <KEY> <ISSUE_NUMBER>`. This writes
+   `specs/<key>-<slug>/reshape-request.json` — the sole orchestrate→plan data
+   contract serializing the failure evidence (structural halt_audit entries,
+   structural-trigger lessons_learned trail, last CRITICAL coder errors) for
+   `makato-plan` to reshape the story. If the script exits non-zero, log a warn
+   to `orchestrate.jsonl` (`step: "emit-reshape-request"`, `status: "warn"`,
+   `error: <stderr-line>`) but do **NOT** block termination — the HALT path must
+   always terminate cleanly. Skip for non-structural HALTs (HALT-007, HALT-007B,
+   HALT-000, HALT-009, HALT-002, HALT-005, HALT-006, HALT-011, and HALT-008 with
+   any origin other than `outer_iteration`).
 5. Narrate the halt into the live issue comment (best-effort — see
    § *Progress comment*; skip in the bootstrap exception below, where no
    state and possibly no comment id exist yet):

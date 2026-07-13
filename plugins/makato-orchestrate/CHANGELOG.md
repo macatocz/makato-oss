@@ -5,6 +5,28 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## po-agent — emit reshape-request on structural HALT (#349, epic #319)
+
+Third story of epic #319 (HALT → planning feedback loop). Wires
+`scripts/emit-reshape-request.sh` into the po-agent structural-HALT
+termination path so every structural HALT produces a durable
+`reshape-request.json` artifact that the `Needs Planning` signal (sibling
+story #348) can read.
+
+- **`agents/po-agent.md` Step 7** — added `emit-reshape-request.sh` call
+  after `bump-structural-halt` (from #347) and before the session-end JSONL
+  append. Applies to all structural HALT exits: HALT-003, HALT-STRUCTURAL,
+  HALT-010, and HALT-008 with `data.origin == "outer_iteration"`. If the
+  script exits non-zero, a `step:"emit-reshape-request" status:"warn"` entry
+  is logged to `orchestrate.jsonl` but termination is never blocked — the
+  HALT path always terminates cleanly.
+- Also incorporates the `bump-structural-halt` prose from #347 (the
+  `structural_halt_cycles` counter call and the updated session-end JSONL
+  line that now includes `structural_halt_cycles`), which ships together with
+  this PR.
+
+---
+
 ## `promote-ready` 1.0.0 — dependency-aware Ready promotion (#268)
 
 New skill + shared script closing the "FIFO only in v1" gap left by `loop` (#33). The

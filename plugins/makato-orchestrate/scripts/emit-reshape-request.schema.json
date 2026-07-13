@@ -1,0 +1,131 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/macatocz/makato/plugins/makato-orchestrate/scripts/emit-reshape-request.schema.json",
+  "title": "reshape-request.json v1",
+  "description": "The sole orchestrate→plan data contract: makato-plan reads only this file (plus board Status and label) to re-shape a story after repeated structural failures. Written by scripts/emit-reshape-request.sh after a structural HALT fires. One file per issue at specs/<key>-<slug>/reshape-request.json. The PO-agent is the sole writer.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "issue_key",
+    "issue_number",
+    "issue_slug",
+    "structural_halt_cycles",
+    "reshape_cycles",
+    "halt_history",
+    "lessons_trail",
+    "emitted_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "v1",
+      "description": "Schema version for forward-compatibility detection. Always 'v1' for this schema version."
+    },
+    "issue_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Composite key for the issue in the form '<number>-<slug>' (e.g. '349-makato-orchestrate-serialize-structural'). Matches the specs folder name suffix and is the canonical identifier used across build.jsonl and orchestrate.jsonl log entries."
+    },
+    "issue_number": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "GitHub Issue number this reshape request was generated for."
+    },
+    "issue_slug": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable slug component of the issue key (e.g. 'makato-orchestrate-serialize-structural'). Derived from the issue title by to-issues and stored in the specs folder name."
+    },
+    "structural_halt_cycles": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Count of structural HALT events that have fired for this issue in the current PO-agent run. Structural HALTs are: HALT-003 (CRITICAL diff-reviewer findings or STRUCTURAL PR comments), HALT-STRUCTURAL (coder returned failure with data.escalation='refine'), HALT-010 (human_review_cycles ceiling), and HALT-008 with data.origin == 'outer_iteration' (re-plan budget exhausted). Other HALT-008 origins (merge_conflict, ci_failure) are NOT structural — they are transient operational failures, not story-shape failures."
+    },
+    "reshape_cycles": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Count of times makato-plan's reshape path has been invoked for this issue (i.e. how many prior reshape-request.json files have been emitted and acted upon). 0 on the first reshape. Allows makato-plan to detect runaway reshaping loops."
+    },
+    "halt_history": {
+      "type": "array",
+      "description": "Filtered subset of workflow-state.json halt_audit[] — only structural HALT entries. Structural HALTs are those with code in: 'HALT-003', 'HALT-STRUCTURAL', 'HALT-010', or 'HALT-008' where data.origin == 'outer_iteration'. Non-structural HALTs (HALT-007, HALT-007B, HALT-000, HALT-009, etc.) are excluded. Each entry is a verbatim copy of the halt_audit shape from workflow-state.schema.json.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "ts", "data"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Structural HALT code string. One of: 'HALT-003', 'HALT-STRUCTURAL', 'HALT-010', or 'HALT-008' (only when data.origin == 'outer_iteration')."
+          },
+          "ts": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO-8601 timestamp with millisecond precision when the structural HALT fired."
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "HALT-code-specific context payload. Shape varies per code — consumers must tolerate unknown keys. For HALT-008 entries, data.origin must equal 'outer_iteration' to qualify as structural."
+          }
+        }
+      }
+    },
+    "lessons_trail": {
+      "type": "array",
+      "description": "Filtered subset of workflow-state.json lessons_learned[] — only entries where trigger == 'halt'. These are structural-trigger lessons: observations recorded when a HALT-* code fired (including HALT-STRUCTURAL). Lessons with other triggers (ci_failure, review_comment, sensor, merge_conflict) are excluded because they capture transient operational failures, not story-shape problems that makato-plan can address. Each entry is a verbatim copy of the lessons_learned item shape from workflow-state.schema.json.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ts", "cycle", "trigger", "description", "files_affected"],
+        "properties": {
+          "ts": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO-8601 timestamp with millisecond precision when the lesson was appended."
+          },
+          "cycle": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Outer-loop iteration count at the moment the lesson was recorded (mirrors workflow-state.outer_iteration). 0 is valid for lessons recorded before the first re-plan."
+          },
+          "trigger": {
+            "type": "string",
+            "const": "halt",
+            "description": "Always 'halt' for lessons in this array — the filter criterion. A 'halt' lesson is recorded whenever a HALT-* code fires, including HALT-STRUCTURAL."
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Structured one-line summary of what happened when the HALT fired. Under 200 chars — structured, not narrative."
+          },
+          "files_affected": {
+            "type": "array",
+            "description": "Repo-relative paths the cycle touched at the time the HALT fired. Empty array when not applicable.",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "last_critical_errors": {
+      "type": "array",
+      "description": "OPTIONAL. Absent when the most recent sub-task has no CRITICAL errors. When present, contains the string items from agent_result.errors of the most recent completed sub-task where the errors are classified as CRITICAL (e.g. 'STRUCTURAL_BLOCKER: ...' or 'MISSING_INPUT: ...'). Sourced from workflow-state.json sub_tasks[-1].agent_result.errors filtered to CRITICAL-severity strings. Provides makato-plan with the exact coder error messages to inform the reshape strategy.",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "description": "A single CRITICAL error string from the most recent sub-task's agent_result.errors array."
+      }
+    },
+    "emitted_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when this reshape-request.json was written by emit-reshape-request.sh. Records the exact moment the PO-agent decided a structural reshape was required."
+    }
+  }
+}

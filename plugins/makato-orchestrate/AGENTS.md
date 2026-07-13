@@ -119,7 +119,10 @@ makato-orchestrate/
 │   ├── should-materialize-spec.sh        (#200 — HALT-006 auto-materialize gate)
 │   ├── should-materialize-spec-smoke-tests.sh (#200 — 12 asserts)
 │   ├── validate-plan-body.sh             (#212 — promotion guard)
-│   └── validate-plan-body-smoke-tests.sh (#212 — 13 asserts)
+│   ├── validate-plan-body-smoke-tests.sh (#212 — 13 asserts)
+│   ├── emit-reshape-request.sh           (#349 — serialize structural-failure evidence into reshape context packet)
+│   ├── emit-reshape-request-smoke-tests.sh (#349 — 12 scenarios T1–T12)
+│   └── emit-reshape-request.schema.json  (#349 — reshape-request.json v1 schema; orchestrate→plan data contract)
 ├── skills/
 │   ├── workflow-state/                   (GAP-003 / #26 — shipped)
 │   │   ├── SKILL.md
