@@ -28,6 +28,7 @@ When dispatched by the PO-agent (`--autonomous` mode), this skill receives a con
 
 - `<work-item-key>` — positional argument (e.g. `#123`, `GAP-085`).
 - `WORKTREE_PATH` — absolute filesystem path to the per-run git worktree the PO-agent owns. **Mandatory in autonomous mode** (see `plugins/makato-build/AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract*). The skill MUST `cd "$WORKTREE_PATH"` before any `git`, `pytest`, or file-edit operation, and forward this value to every nested `coder` dispatch in Step 6.
+- `ISSUE_NUMBER` — GitHub issue number (integer, no leading zeros). Used by the workflow-state patch call at the end of Step 6 (`workflow-state-<issue>.json`). **Mandatory in autonomous mode** when `makato-orchestrate` is present; ignored in interactive mode.
 - `--autonomous` — activation flag (also activated by `$AGENT_ID` or `task_id` bundle).
 
 Optional fields (autonomous mode):
