@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.51.0](https://github.com/macatocz/makato/compare/v0.50.0...v0.51.0) (2026-07-13)
+
+
+### ✨ Features
+
+* interactive suite data-flow diagram + split makato-doc out of makato-core ([#271](https://github.com/macatocz/makato/issues/271)) ([ef8122b](https://github.com/macatocz/makato/commit/ef8122b2cc08c88b39e40d273ce3fcd89b3a7f58))
+
 ## [0.50.0](https://github.com/macatocz/makato/compare/v0.49.0...v0.50.0) (2026-07-12)
 
 
