@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.54.0](https://github.com/macatocz/makato/compare/v0.53.1...v0.54.0) (2026-07-13)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** dependency-aware Ready promotion ([#268](https://github.com/macatocz/makato/issues/268)) ([#327](https://github.com/macatocz/makato/issues/327)) ([daa0ef4](https://github.com/macatocz/makato/commit/daa0ef49d7f8a19c49a4aa1efdeed76153fe9d46))
+
 ## [0.53.1](https://github.com/macatocz/makato/compare/v0.53.0...v0.53.1) (2026-07-13)
 
 
