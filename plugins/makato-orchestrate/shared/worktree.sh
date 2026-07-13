@@ -300,6 +300,14 @@ case "$SUBCMD" in
     # is a registered git worktree — which it verifiably is at this point.
     "$WS" patch "$KEY" "$ISSUE_NUMBER" '.worktree_path' "$(_json_encode "$WT_PATH")"
 
+    # Record the owning loop.sh PID in the worktree (#320 — stale-crash reap).
+    # The reaper reads this file to confirm the owner is still alive before
+    # removing a non-landed worktree.  $PPID is the calling script's PID
+    # (loop.sh or po-agent), which is the process that owns this worktree
+    # for liveness purposes.  If the worktree is resumed, overwrite with the
+    # current owner so a fresh run inherits ownership correctly.
+    printf '%s\n' "$PPID" >"$WT_PATH/.loop-owner.pid" 2>/dev/null || true
+
     # Stdout contract: event on line 1, path on line 2. Callers can read both
     # via head -1 / tail -1 without parsing JSON.
     echo "$EVENT"

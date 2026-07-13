@@ -134,6 +134,20 @@
 #                              `git worktree list --porcelain` output,
 #                              read instead of invoking git.
 #
+# --- Stale-worktree reaper (#320) ---
+#   MAKATO_LOOP_REAP_STALE_AGE Seconds a worktree must be on-disk
+#                              (measured by directory mtime) before the
+#                              stale-reaper considers it (default 86400 =
+#                              24 h).  Worktrees younger than this are
+#                              always skipped even when the owning pid is
+#                              gone.  Set 0 to bypass the age guard
+#                              (tests / emergency cleanup).
+#   MAKATO_LOOP_REAP_STALE_FORCE
+#                              Set to `1` to allow reaping a stale
+#                              worktree that has unpushed commits.
+#                              Default 0 — unpushed commits block reaping
+#                              without this flag (un-landed work guard).
+#
 # --- Sleep-wake guard (#171) ---
 #   MAKATO_LOOP_SLEEP_MAX_STEP Max seconds per raw `sleep` call inside
 #                              `_guarded_sleep` (default 30). The outer
@@ -276,24 +290,35 @@ PIDFILE="${MAKATO_LOOP_PIDFILE:-$STATE_DIR/loop.pid}"
 # the shell, large enough that the target's EXIT trap gets to clean up.
 FORCE_GRACE_SECS="${MAKATO_LOOP_FORCE_GRACE:-10}"
 
-# Merged-worktree reaper (#265). Worktrees under .claude/worktrees/ pile up on
-# the operator's local disk: the per-issue `worktree.sh cleanup` only fires for
-# a fully-autonomous run that reaches merge inside its own session, but most
-# worktrees are hand-created (EnterWorktree) or orphaned by a dead session and
-# carry no workflow-state, so nothing ever removes them. The reaper is a
-# name-agnostic pre-poll sweep: it walks `git worktree list --porcelain` and
-# removes worktrees whose branch has a MERGED PR, skipping any that are dirty,
-# locked, retained, detached, nested, or the main checkout (see the guard stack
-# in _reap_merged_worktrees). It runs on the operator's machine because that is
-# where the worktrees physically live — a cloud GitHub Action cannot reach the
-# local disk. Best-effort: any `gh`/`git` failure logs a WARN and never blocks
-# the tick.
+# Merged- and stale-worktree reaper (#265, #320). Worktrees under
+# .claude/worktrees/ pile up on the operator's local disk: the per-issue
+# `worktree.sh cleanup` only fires for a fully-autonomous run that reaches merge
+# inside its own session, but most worktrees are hand-created (EnterWorktree) or
+# orphaned by a dead session and carry no workflow-state, so nothing ever removes
+# them.  The reaper is a name-agnostic pre-poll sweep with two removal paths:
+#
+#   Path A (merged-branch) — branch has a MERGED PR or HEAD is already an
+#     ancestor of the base ref.  Always safe; no owning-pid check needed.
+#
+#   Path B (stale-crash) — branch has NOT landed, but the owning loop.sh
+#     process (recorded in <worktree>/.loop-owner.pid by worktree.sh) is dead
+#     AND the worktree is older than REAP_STALE_AGE_SECS (default 24 h).
+#     Catches hard-crashed runs that leave a worktree behind indefinitely.
+#     Blocked by unpushed commits unless MAKATO_LOOP_REAP_STALE_FORCE=1.
+#
+# Both paths skip dirty, locked, retained, detached, nested, and main-checkout
+# worktrees (guard stack in _reap_merged_worktrees).  Runs on the operator's
+# machine because that is where the worktrees physically live.  Best-effort:
+# any gh/git failure logs a WARN and never blocks the tick.
 #   - MAKATO_LOOP_REAP_ON_POLL=0 disables the reaper entirely (default on).
 #   - MAKATO_LOOP_REAP_INTERVAL throttles the pass to at most once per N seconds
 #     (default 3600 = 1h); the function is called every tick but no-ops until
 #     the window elapses. Set 0 to run every call (tests / one-shot cleanup).
 REAP_ON_POLL="${MAKATO_LOOP_REAP_ON_POLL:-1}"
 REAP_INTERVAL_SECS="${MAKATO_LOOP_REAP_INTERVAL:-3600}"
+# Stale-worktree reap thresholds (#320).
+REAP_STALE_AGE_SECS="${MAKATO_LOOP_REAP_STALE_AGE:-86400}"
+REAP_STALE_FORCE="${MAKATO_LOOP_REAP_STALE_FORCE:-0}"
 
 # --- Sleep-wake guard (#171) --------------------------------------------
 # After a macOS host suspend/resume, `sleep $interval` in the outer
@@ -1451,6 +1476,60 @@ _realpath() {
 }
 
 # ---------------------------------------------------------------------------
+# _reap_wt_age_secs <worktree-dir> — return the age of the worktree directory
+# in whole seconds (now - directory mtime).  Used by the stale-reaper (#320).
+# Falls back to 0 on stat failure so a broken directory is treated as young
+# (safe default — no false positive reaping on stat error).
+# ---------------------------------------------------------------------------
+_reap_wt_age_secs() {
+  local dir="$1"
+  # Use python3 (already a project dependency) for portable mtime — avoids the
+  # macOS BSD vs GNU `stat` flag incompatibility.  Falls back to 0 on error so
+  # a broken directory is treated as young (safe default, no false-positive reap).
+  python3 -c '
+import os, sys, time
+try:
+    mtime = os.path.getmtime(sys.argv[1])
+    print(int(time.time() - mtime))
+except Exception:
+    print(0)
+' "$dir" 2>/dev/null || echo 0
+}
+
+# ---------------------------------------------------------------------------
+# _reap_owner_pid_alive <worktree-dir> — return 0 when the owning loop.sh
+# process (recorded in <worktree-dir>/.loop-owner.pid) is still running.
+# Return 1 when the pid file is absent, empty, or the pid is dead.
+# ---------------------------------------------------------------------------
+_reap_owner_pid_alive() {
+  local dir="$1"
+  local pid_file="$dir/.loop-owner.pid"
+  [[ -f "$pid_file" ]] || return 1
+  local pid
+  pid="$(cat "$pid_file" 2>/dev/null || echo "")"
+  [[ -n "$pid" ]] || return 1
+  kill -0 "$pid" 2>/dev/null
+}
+
+# ---------------------------------------------------------------------------
+# _reap_has_unpushed <worktree-dir> <branch> — return 0 when the worktree has
+# commits on <branch> that have not been pushed to the remote tracking branch.
+# Return 1 (= no unpushed commits, safe to reap) on any error or when the
+# branch has no upstream configured.
+# ---------------------------------------------------------------------------
+_reap_has_unpushed() {
+  local dir="$1" branch="$2"
+  # Verify the remote tracking ref exists; if not, treat as no unpushed.
+  local upstream
+  upstream="$(git -C "$dir" rev-parse --abbrev-ref "@{u}" 2>/dev/null || echo "")"
+  [[ -n "$upstream" ]] || return 1
+  # Any commit reachable from HEAD but not from the remote tracking ref.
+  local count
+  count="$(git -C "$dir" rev-list --count HEAD "^$upstream" 2>/dev/null || echo 0)"
+  [[ "$count" -gt 0 ]]
+}
+
+# ---------------------------------------------------------------------------
 # _reap_merged_worktrees — name-agnostic sweep that removes local worktrees
 # whose work has already LANDED on the base branch (#265). See the config block
 # near the top of this file for the rationale. Best-effort: never fails the tick.
@@ -1467,6 +1546,10 @@ _realpath() {
 #   8. branch has LANDED on the base branch — merged PR OR HEAD is an ancestor
 #      of the base ref (renamed-head / squash-merge safe; see
 #      _reap_branch_landed)
+#      — OR, when guard 8 fails, Guard 9 (#320) applies:
+#   9. stale-crash reap — branch NOT landed BUT: owning loop.sh pid is dead
+#      AND worktree age >= REAP_STALE_AGE_SECS AND (no unpushed commits OR
+#      REAP_STALE_FORCE=1).  Records a "stale-crashed worktree" landed reason.
 #
 # Throttle: no-ops when the last pass ran within REAP_INTERVAL_SECS. Offline
 # test hooks: MAKATO_LOOP_REAP_WT_OVERRIDE (fake porcelain), _REAP_GH_OVERRIDE
@@ -1572,14 +1655,49 @@ _reap_merged_worktrees() {
     if _reap_is_retained "$rp"; then
       echo "loop: reap skip $rp (worktree_retained=true)" >&2; return 0
     fi
-    # Guard 8: the branch's work must have LANDED on the base branch — either a
+    # Guard 8: the branch’s work must have LANDED on the base branch — either a
     # merged PR (any merge style) OR the HEAD is already an ancestor of the
     # base ref (catches renamed-head branches the PR lookup misses). A worktree
     # whose work is not yet in base is live and must survive.
-    local landed
+    # Exception: Guard 9 (stale-crash reap) can authorise removal without landing.
+    local landed=""
     landed="$(_reap_branch_landed "$cur_head" "$branch" "$repo" "$base_ref")"
     if [[ -z "$landed" ]]; then
-      echo "loop: reap skip $rp (branch $branch not landed on $base_ref)" >&2; return 0
+      # Guard 9 (#320): stale-crash reap — the branch has NOT landed but the
+      # owning loop.sh process is dead AND the worktree is older than
+      # REAP_STALE_AGE_SECS.  This catches hard-crashed runs that leave a
+      # worktree behind indefinitely.
+      #
+      # Safety invariants:
+      #   a) A live owning PID always skips — we never reap under a live loop.
+      #   b) Unpushed commits block reaping unless REAP_STALE_FORCE=1 (explicit
+      #      operator opt-in that un-landed work may be discarded).
+      #   c) Age threshold prevents mis-reaping a freshly created worktree whose
+      #      loop is still starting up (REAP_STALE_AGE_SECS default = 24h).
+      #   d) All upstream guards (locked, dirty, retained) already fired above;
+      #      a worktree reaching here is clean and un-retained.
+
+      # (a) live owner — skip
+      if _reap_owner_pid_alive "$rp"; then
+        echo "loop: reap skip $rp (branch $branch not landed; owner pid alive)" >&2; return 0
+      fi
+      # (c) age gate
+      local age
+      age="$(_reap_wt_age_secs "$rp")"
+      if [[ "${REAP_STALE_AGE_SECS:-86400}" -gt 0 ]] && \
+         (( age < REAP_STALE_AGE_SECS )); then
+        echo "loop: reap skip $rp (branch $branch not landed; worktree too young ${age}s < ${REAP_STALE_AGE_SECS}s)" >&2; return 0
+      fi
+      # (b) unpushed commits gate
+      if _reap_has_unpushed "$rp" "$branch"; then
+        if [[ "${REAP_STALE_FORCE:-0}" != "1" ]]; then
+          echo "loop: reap skip $rp (branch $branch not landed; unpushed commits — set MAKATO_LOOP_REAP_STALE_FORCE=1 to override)" >&2; return 0
+        fi
+        echo "loop: reap WARN $rp (branch $branch not landed; unpushed commits present; REAP_STALE_FORCE=1)" >&2
+      fi
+
+      # Passed all stale-crash guards — authorise reap.
+      landed="stale-crashed worktree (owner pid dead, age ${age}s)"
     fi
 
     if [[ -n "$dryrun" ]]; then

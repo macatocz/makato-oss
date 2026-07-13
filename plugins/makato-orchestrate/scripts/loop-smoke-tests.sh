@@ -43,6 +43,8 @@
 #        transient blip; exhaustion returns non-zero + empty stdout; cmd_poll
 #        propagates failure as rc 75; run --once stamps a transient-error state
 #        (poll_healthy=false, last_poll_error) instead of a false "queue empty"
+#   T44–T48: stale-crash reaper (#320) — dead-pid reap, live-pid skip, age gate,
+#        unpushed-commits gate, REAP_STALE_FORCE=1 override
 #
 # A fixture file is injected via MAKATO_LOOP_GH_OVERRIDE so `gh` is not
 # invoked. Test isolation uses MAKATO_LOOP_STATE_DIR + ephemeral spec
@@ -1284,6 +1286,7 @@ grep -q "would remove .*child-wt" <<<"$reap6_out" \
   && fail "T38: nested child must NOT be a removal candidate; got: $reap6_out"
 echo "  ✓ both the nesting parent and the nested child are skipped"
 
+
 echo
 echo "=== T43: watchdog ownership guard prevents orphaned-writer state resurrection (#312) ==="
 # Regression for the T30 loop-smoke flake. An orphaned _watchdog_poll (its
@@ -1324,4 +1327,135 @@ jq -e '.active_workflow.killed_by_watchdog == true' "$T43_STATE/loop-status.json
 echo "  ✓ ownership guard permits writes when the slot is still owned"
 
 echo
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T43 watchdog ownership guard, #312) ==="
+echo "=== T44: stale-crash reap — dead owner pid + age=0 (bypass) → reaped ==="
+# REAP_STALE_AGE=0 bypasses the age gate so we can exercise the pid-dead
+# path without waiting 24h.  Worktree has no merged PR and its branch is
+# NOT an ancestor of main (it has its own commit on top).
+REAP7_ROOT="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/reap7-repo"
+REAP7_STATE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/reap7-state"
+mkdir -p "$REAP7_ROOT" "$REAP7_STATE"
+(
+  cd "$REAP7_ROOT"
+  git init -q -b main
+  git config user.email t@t.t; git config user.name t
+  git commit -q --allow-empty -m init
+  git worktree add -q -b feat/crashed "$REAP7_ROOT/.claude/worktrees/crashed-wt" 2>/dev/null
+  git -C "$REAP7_ROOT/.claude/worktrees/crashed-wt" commit -q --allow-empty -m "wip"
+  # Simulate a dead owner pid (999999999 is virtually guaranteed dead on any OS).
+  echo "999999999" >"$REAP7_ROOT/.claude/worktrees/crashed-wt/.loop-owner.pid"
+)
+# Live-pid worktree: owner pid = $$ (this shell is alive).
+(
+  cd "$REAP7_ROOT"
+  git worktree add -q -b feat/live "$REAP7_ROOT/.claude/worktrees/live-wt" 2>/dev/null
+  git -C "$REAP7_ROOT/.claude/worktrees/live-wt" commit -q --allow-empty -m "wip live"
+  echo "$$" >"$REAP7_ROOT/.claude/worktrees/live-wt/.loop-owner.pid"
+)
+REAP7_GH="$REAP7_STATE/reap7-gh.json"
+echo '{}' >"$REAP7_GH"  # no merged PRs
+reap7_dry="$(
+  cd "$REAP7_ROOT" &&
+  MAKATO_LOOP_STATE_DIR="$REAP7_STATE" \
+  MAKATO_LOOP_REAP_INTERVAL=0 \
+  MAKATO_LOOP_REAP_DRYRUN=1 \
+  MAKATO_LOOP_REAP_GH_OVERRIDE="$REAP7_GH" \
+  MAKATO_LOOP_REAP_BASE_REF="main" \
+  MAKATO_LOOP_REAP_REPO="macatocz/makato" \
+  MAKATO_LOOP_REAP_STALE_AGE=0 \
+    "$LOOP" remove-worktrees 2>&1
+)" || fail "T44: remove-worktrees dry-run should exit 0; got: $reap7_dry"
+grep -q "would remove .*/crashed-wt (stale-crashed worktree" <<<"$reap7_dry" \
+  || fail "T44: crashed-wt (dead pid) must be a removal candidate; got: $reap7_dry"
+grep -q "reap skip .*/live-wt (branch feat/live not landed; owner pid alive" <<<"$reap7_dry" \
+  || fail "T44: live-wt (live pid) must be skipped; got: $reap7_dry"
+echo "  \xe2\x9c\x93 dead-pid worktree reaped; live-pid worktree survives"
+
+echo
+echo "=== T45: stale-crash reap — age gate blocks young worktree ==="
+# Same dead-pid setup but REAP_STALE_AGE=86400 (default): worktree is
+# seconds old so it must be skipped.
+reap7_age_dry="$(
+  cd "$REAP7_ROOT" &&
+  MAKATO_LOOP_STATE_DIR="$REAP7_STATE" \
+  MAKATO_LOOP_REAP_INTERVAL=0 \
+  MAKATO_LOOP_REAP_DRYRUN=1 \
+  MAKATO_LOOP_REAP_GH_OVERRIDE="$REAP7_GH" \
+  MAKATO_LOOP_REAP_BASE_REF="main" \
+  MAKATO_LOOP_REAP_REPO="macatocz/makato" \
+  MAKATO_LOOP_REAP_STALE_AGE=86400 \
+    "$LOOP" remove-worktrees 2>&1
+)" || fail "T45: remove-worktrees dry-run should exit 0 (age gate); got: $reap7_age_dry"
+grep -q "reap skip .*/crashed-wt (branch feat/crashed not landed; worktree too young" <<<"$reap7_age_dry" \
+  || fail "T45: young worktree must be skipped by age gate; got: $reap7_age_dry"
+echo "  \xe2\x9c\x93 age gate blocks reaping of a recently-created dead-pid worktree"
+
+echo
+echo "=== T46: stale-crash reap — unpushed commits block without FORCE ==="
+# Set upstream of feat/crashed to main so the unpushed-commits check fires.
+(
+  cd "$REAP7_ROOT"
+  git -C "$REAP7_ROOT/.claude/worktrees/crashed-wt" branch --set-upstream-to=main feat/crashed 2>/dev/null || true
+)
+reap7_unpushed_dry="$(
+  cd "$REAP7_ROOT" &&
+  MAKATO_LOOP_STATE_DIR="$REAP7_STATE" \
+  MAKATO_LOOP_REAP_INTERVAL=0 \
+  MAKATO_LOOP_REAP_DRYRUN=1 \
+  MAKATO_LOOP_REAP_GH_OVERRIDE="$REAP7_GH" \
+  MAKATO_LOOP_REAP_BASE_REF="main" \
+  MAKATO_LOOP_REAP_REPO="macatocz/makato" \
+  MAKATO_LOOP_REAP_STALE_AGE=0 \
+    "$LOOP" remove-worktrees 2>&1
+)" || fail "T46: remove-worktrees dry-run should exit 0 (unpushed); got: $reap7_unpushed_dry"
+grep -q "reap skip .*/crashed-wt (branch feat/crashed not landed; unpushed commits" <<<"$reap7_unpushed_dry" \
+  || fail "T46: worktree with unpushed commits must be skipped without FORCE; got: $reap7_unpushed_dry"
+echo "  \xe2\x9c\x93 unpushed commits block stale reap without REAP_STALE_FORCE=1"
+
+echo
+echo "=== T47: stale-crash reap — REAP_STALE_FORCE=1 overrides unpushed block ==="
+reap7_force_dry="$(
+  cd "$REAP7_ROOT" &&
+  MAKATO_LOOP_STATE_DIR="$REAP7_STATE" \
+  MAKATO_LOOP_REAP_INTERVAL=0 \
+  MAKATO_LOOP_REAP_DRYRUN=1 \
+  MAKATO_LOOP_REAP_GH_OVERRIDE="$REAP7_GH" \
+  MAKATO_LOOP_REAP_BASE_REF="main" \
+  MAKATO_LOOP_REAP_REPO="macatocz/makato" \
+  MAKATO_LOOP_REAP_STALE_AGE=0 \
+  MAKATO_LOOP_REAP_STALE_FORCE=1 \
+    "$LOOP" remove-worktrees 2>&1
+)" || fail "T47: remove-worktrees dry-run should exit 0 (force); got: $reap7_force_dry"
+grep -q "would remove .*/crashed-wt (stale-crashed worktree" <<<"$reap7_force_dry" \
+  || fail "T47: REAP_STALE_FORCE=1 must allow reap despite unpushed commits; got: $reap7_force_dry"
+echo "  \xe2\x9c\x93 REAP_STALE_FORCE=1 overrides unpushed-commits block"
+
+echo
+echo "=== T48: stale-crash live removal — crashed-wt gone, live-wt survives ==="
+# Remove the upstream so the unpushed-commits check is bypassed.
+(
+  cd "$REAP7_ROOT"
+  git -C "$REAP7_ROOT/.claude/worktrees/crashed-wt" branch --unset-upstream 2>/dev/null || true
+)
+reap7_live="$(
+  cd "$REAP7_ROOT" &&
+  MAKATO_LOOP_STATE_DIR="$REAP7_STATE" \
+  MAKATO_LOOP_REAP_INTERVAL=0 \
+  MAKATO_LOOP_REAP_GH_OVERRIDE="$REAP7_GH" \
+  MAKATO_LOOP_REAP_BASE_REF="main" \
+  MAKATO_LOOP_REAP_REPO="macatocz/makato" \
+  MAKATO_LOOP_REAP_STALE_AGE=0 \
+    "$LOOP" remove-worktrees 2>&1
+)" || fail "T48: remove-worktrees (live) should exit 0; got: $reap7_live"
+reap7_list="$(cd "$REAP7_ROOT" && git worktree list --porcelain)"
+grep -q "/crashed-wt$" <<<"$reap7_list" \
+  && fail "T48: crashed-wt must have been removed; still registered"
+grep -q "/live-wt$" <<<"$reap7_list" \
+  || fail "T48: live-wt must survive (owner pid alive); got removed"
+jq -e '.last_reap_count >= 1' "$REAP7_STATE/loop-status.json" >/dev/null \
+  || fail "T48: last_reap_count should be >= 1; got $(jq -r .last_reap_count "$REAP7_STATE/loop-status.json")"
+echo "  \xe2\x9c\x93 crashed-wt removed; live-wt survives; audit count correct"
+echo
+
+echo
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320) ==="
+
