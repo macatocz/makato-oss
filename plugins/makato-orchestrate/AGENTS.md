@@ -114,6 +114,8 @@ makato-orchestrate/
 │   ├── context-handoff-smoke-tests.sh    (GAP-004 / #30 — shipped)
 │   ├── loop.sh                           (GAP-007 / #33 — shipped)
 │   ├── loop-smoke-tests.sh               (GAP-007 / #33 — shipped)
+│   ├── promote-ready.sh                  (#268 — dependency-aware Ready promotion)
+│   ├── promote-ready-smoke-tests.sh      (#268 — 9 scenarios / T1–T9)
 │   ├── should-materialize-spec.sh        (#200 — HALT-006 auto-materialize gate)
 │   ├── should-materialize-spec-smoke-tests.sh (#200 — 12 asserts)
 │   ├── validate-plan-body.sh             (#212 — promotion guard)
@@ -129,6 +131,7 @@ makato-orchestrate/
 │   │   └── references/
 │   │       └── daily-budget.schema.json
 │   ├── loop/SKILL.md                     (GAP-007 / #33 — shipped)
+│   ├── promote-ready/SKILL.md            (#268 — dependency-aware Ready promotion)
 │   ├── resolve-pr-conflict/SKILL.md      (GAP-016 / #45 — shipped)
 │   └── session-status/SKILL.md           (GAP-014 / #31 — shipped)
 ├── shared/

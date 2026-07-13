@@ -290,7 +290,7 @@ On resume, check three flags before continuing:
 | Flag                                                         | Action                                                                                                                                                               |
 | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `current_phase == "done"` AND `github_pr_number != null` | Return R1`success` with `data.github_pr_number` populated. Skip Steps 2b–7 — cleanup already ran on the prior session.                                         |
-| `handoff_reason == "context_ceiling"`                      | Read`session_summary` (≤ 500 tokens). Clear the flag via `workflow-state.sh patch <KEY> <ISSUE_NUMBER> .handoff_reason 'null'`. Continue from `resume_point`. Do NOT touch `budget_consumed_tokens` or `session_baseline_tokens` — `context-handoff.sh` already advanced the baseline to the cumulative total, so HALT-007B now measures this session's delta from 0 (#281). Resetting the cumulative counter here would silently disable the HALT-007 cost ceilings. |
+| `handoff_reason == "context_ceiling"`                      | Read`session_summary` (≤ 500 tokens). **First, acknowledge the restart (#284):** write `resume_ack` with the current timestamp via `workflow-state.sh patch <KEY> <ISSUE_NUMBER> .resume_ack "\"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)\""` — this signals the `check-pid` liveness watchdog that the detached resume subprocess started successfully and reached this resume path. **`resume_ack` MUST be written BEFORE clearing `handoff_reason`** — the watchdog detects a pending handoff by `handoff_reason == "context_ceiling" AND spawned_pid != null AND no fresh resume_ack`; clearing the reason first would blind it to a subsequent crash before the ack lands. Then clear the flag via `workflow-state.sh patch <KEY> <ISSUE_NUMBER> .handoff_reason 'null'`. Continue from `resume_point`. Do NOT touch `budget_consumed_tokens` or `session_baseline_tokens` — `context-handoff.sh` already advanced the baseline to the cumulative total, so HALT-007B now measures this session's delta from 0 (#281). Resetting the cumulative counter here would silently disable the HALT-007 cost ceilings. |
 | `restart_failed == true`                                   | Return R1`failure` with `errors: ["restart_failed=true on prior session"]`.                                                                                      |
 
 On a fresh run (not a resume), open the live issue comment with a
@@ -560,6 +560,14 @@ re-plan attempts:
 | HALT path                    | No. Terminates the run.                      |
 | HANDOFF (Step 4b exit 2)     | No. Fresh session resumes at same iteration. |
 
+`outer_iteration` counts **re-plan attempts only**. The CI-failure fix
+loop (Step 6a) and the merge-conflict sub-loop (Step 6) each own an
+independent counter — `ci_failure_cycles` (#288) and
+`merge_conflict_cycles` (GAP-016 / #45) respectively — so a transient CI
+failure or an irreconcilable merge conflict never consumes the re-plan
+budget. All three fire HALT-008 at their own ceiling; the `halt_audit[]`
+`data.origin` field distinguishes them.
+
 ### Step 6 — PR pipeline
 
 Triggered when all `sub_tasks[].status == "complete"`.
@@ -604,9 +612,44 @@ row). The `gh`-only polls (CI, review) are narrated with a single
      - Failed check name matches `(?i)(rebase|merge.?conflict)` →
        route through the conflict sub-loop (below); the CI-failure fix
        loop is SKIPPED.
-     - Otherwise → enter the CI-failure fix loop (below).
+     - Otherwise → **flake probe first** (see below), then, only if the
+       failure reproduces, enter the CI-failure fix loop.
    - 10-poll timeout → append `trigger: ci_failure` lesson, enter the
      CI-failure fix loop.
+
+   **Flake probe (#312) — run BEFORE consuming a `ci_failure_cycle`.**
+   A red check is not proof of a real regression: a content-independent
+   flaky test (a background-process race, a timing-sensitive assertion)
+   fails once and passes on re-run. Feeding such a failure into the
+   CI-failure fix loop wastes cycles — `build-implement-tdd` cannot fix a
+   test the PR never touched and that passes locally — and eventually
+   HALT-008s a human for a non-issue. So, on the FIRST non-conflict failure
+   only (guarded by `flake_rerun_pending`):
+
+   1. Read `flake_rerun_pending` from state (default `false`). If already
+      `true`, the probe has run once this PR — skip it and enter the
+      CI-failure fix loop directly (a failure that survived one re-run is
+      treated as real).
+   2. Otherwise set `flake_rerun_pending = true`, capture the failed run id
+      (`gh pr checks <PR> --json name,state,conclusion,link` → the run id
+      of the first `failure`), and re-run only the failed jobs:
+      `gh run rerun <run_id> --failed`. Emit a JSONL `ci-flake-probe`
+      entry (`data.run_id`, `data.checks_failed`). Do **not** increment
+      `ci_failure_cycles`. Return to the top of the Step 6a poll loop
+      (reset the poll-round counter).
+   3. On re-poll: **all green** → clear `flake_rerun_pending`, log the
+      probe outcome as `flake_confirmed: true`, advance to sub-step 5 as a
+      normal pass. The flake cost one extra CI wait and zero fix cycles.
+   4. On re-poll: **still failing** → clear `flake_rerun_pending`, log
+      `flake_confirmed: false` (reproducible), and enter the CI-failure
+      fix loop, which now legitimately consumes a `ci_failure_cycle`.
+
+   `flake_rerun_pending` lives in `workflow-state.json` alongside
+   `ci_failure_cycles`; it is a per-PR one-shot, reset on both probe
+   outcomes and on PR merge. No new HALT code — the ceiling design (#288)
+   is unchanged; the probe only defers cycle consumption until a failure is
+   known to be reproducible. Disable with
+   `MAKATO_LOOP_CI_FLAKE_PROBE=0` (legacy straight-to-fix-loop behaviour).
 
    Emit JSONL after each poll:
 
@@ -617,20 +660,50 @@ row). The `gh`-only polls (CI, review) are narrated with a single
    `/makato-build:build-address-pr-comments <KEY> --autonomous` IFF
    `gh pr view <PR> --json comments,reviews` reports pre-existing
    unresolved feedback (e.g. re-used draft PR). Skipped on fresh PR.
-6. **Step 6b — Review poll.** Every `MAKATO_REVIEW_POLL_INTERVAL`
-   seconds (default 300) run
-   `gh pr view <PR> --json reviewDecision,state`:
+6. **Step 6b — Review poll.** Record the wait start time and set
+   `REVIEW_WAIT_SECS = ${MAKATO_REVIEW_WAIT_SECS:-3600}` — the wall-clock
+   ceiling on the first-review wait (external-actor timeout; default 60 min,
+   coherent with `loop.sh`'s `MAKATO_LOOP_STALL_KILL` / `STALL_KILL_SECS`).
+   Set `REVIEW_WAIT_SECS=0` to disable the ceiling (legacy unbounded
+   behaviour). Then loop every `MAKATO_REVIEW_POLL_INTERVAL` seconds
+   (default 300).
+
+   Each round, **before** the `gh pr view` call, run the kill-switch and
+   context-handoff gates (identical exit-code contracts to Step 4a/4b), so
+   an operator HALT or a context-ceiling handoff can release the loop slot
+   mid-wait rather than only at the never-reached outer boundary:
+
+   - `kill-switch poll <KEY>` — non-zero exit means a HALT fired
+     (HALT-000/009 etc.); the skill has already written `halt_audit[]` and
+     applied `needs-human-review` where applicable. Retain the worktree,
+     emit session-end JSONL, return R1 `failure` with that `data.halt_code`.
+   - `kill-switch handoff <KEY>` — exit `2` → HANDOFF: patch
+     `resume_point: "review-poll"` (so the fresh session re-enters this poll,
+     not the top of the PR pipeline — `github_pr_number` is already on state),
+     emit the handoff JSONL, return R1 `partial` with `data.handoff: true`
+     (NO `needs-human-review`). Exit `1` → HALT-007 fallback, R1 `failure`.
+
+   Then run `gh pr view <PR> --json reviewDecision,state`:
 
    - `state != "OPEN"` → PR resolved (merged/closed). Exit → sub-step 7.
    - `reviewDecision == "APPROVED"` → exit → sub-step 7.
    - `reviewDecision == "CHANGES_REQUESTED"` → human-review fix loop
      (below).
-   - `null` / `"REVIEW_REQUIRED"` → continue polling.
+   - `null` / `"REVIEW_REQUIRED"` → check the elapsed wall-clock **after**
+     the decision branches above (a late APPROVED / CHANGES_REQUESTED on the
+     same round wins over the ceiling):
+     - `REVIEW_WAIT_SECS > 0` AND `elapsed >= REVIEW_WAIT_SECS` → **HALT-012**
+       (REVIEW-TIMEOUT): apply `needs-human-review`, append `halt_audit[]`
+       (`code: "HALT-012"`, `data: {pr, review_decision, waited_secs,
+       review_wait_secs}`), `worktree.sh retain <KEY> HALT-012`, emit
+       session-end JSONL, return R1 `failure` with
+       `data.halt_code: "HALT-012"` — releasing the slot and paging the operator.
+     - else → sleep `MAKATO_REVIEW_POLL_INTERVAL` and continue polling.
 
    Emit JSONL on each cycle exit or HALT:
 
    ```json
-   {"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"review-poll","status":"<ok|warn>","data":{"pr":<PR>,"review_decision":"<decision>","human_review_cycles":<N>}}
+   {"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"review-poll","status":"<ok|warn>","data":{"pr":<PR>,"review_decision":"<decision>","human_review_cycles":<N>,"waited_secs":<S>}}
    ```
 7. Patch `current_phase: "done"`. Run `shared/worktree.sh cleanup <KEY>`
    (`git worktree remove --force` + patch `.worktree_path` to `null`;
@@ -674,13 +747,20 @@ row). The `gh`-only polls (CI, review) are narrated with a single
 
 #### CI-failure fix loop (Step 6a test-failure path)
 
-1. `kill-switch poll <KEY>` — HALT-008 fires if `outer_iteration >= 3`.
-   Apply `needs-human-review`, `worktree.sh retain <KEY> HALT-008`,
-   session-end JSONL, R1 `failure`.
+1. Read `ci_failure_cycles`. Already `>= MAKATO_MAX_CI_FAILURE_CYCLES`
+   (default 3) → HALT-008 immediately: apply `needs-human-review`,
+   append `halt_audit[]` (`code: "HALT-008"`,
+   `data: {origin: "ci_failure", ci_failure_cycles}`),
+   `worktree.sh retain <KEY> HALT-008`, session-end JSONL, R1 `failure`
+   with `data.halt_code: "HALT-008"`. This ceiling is checked directly
+   here — NOT via `kill-switch poll`, which enforces only the
+   `outer_iteration` re-plan budget. `ci_failure_cycles` is independent
+   of `outer_iteration` (#288) so a transient CI failure never consumes
+   the re-plan budget.
 2. Fetch the failed job log: `gh run view --log-failed` (truncate to
    ≤ 4000 chars from tail). Append `trigger: ci_failure` lesson
    (description truncated at 200 chars). `files_affected: []`.
-3. `outer_iteration += 1`.
+3. `ci_failure_cycles += 1`.
 4. Dispatch `/makato-build:build-implement-tdd <KEY> --autonomous` with
    `CI_FAILURE_LOG` added to the context bundle (alongside normal
    fields). The skill identifies failing task(s) from the log, skips

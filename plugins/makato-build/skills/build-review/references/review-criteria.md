@@ -36,7 +36,11 @@ Check:
 
 **CRITICAL if:** an unhandled edge case will cause data corruption, data loss, or an
 unhandled exception visible to the end user.
-**SUGGESTION if:** the edge case is unlikely in production but theoretically reachable.
+**MAJOR if:** the edge case is reachable on a real-but-lower-likelihood path and degrades
+behaviour (wrong-but-recoverable output, a missing guard masked by a current caller)
+without corrupting data.
+**SUGGESTION if:** the edge case is theoretical only and has no behavioural consequence
+on any realistically reachable path.
 
 ---
 
@@ -129,6 +133,8 @@ Only flag improvements where the better approach is evident and not speculative.
 suggest micro-optimizations unless the code is on a known hot path.
 
 **CRITICAL if:** the inefficiency will cause production failures under expected load.
+**MAJOR if:** the inefficiency degrades performance on a realistic path (an N+1 on a
+common code path, an O(n²) over user-controlled input) without causing outright failure.
 **SUGGESTION otherwise.**
 
 ---
@@ -138,11 +144,20 @@ suggest micro-optimizations unless the code is on a known hot path.
 | Question | Level |
 |---|---|
 | Will this cause data loss, corruption, or an unmet AC in production? | CRITICAL |
-| Could this cause a problem under realistic conditions? | SUGGESTION |
-| Style, naming, minor clarity — no behavioral consequence | NITPICK |
+| Is this a real correctness/security concern below the CRITICAL bar — a lower-likelihood bug, a missing guard currently masked by a caller, an unhandled edge case that degrades behaviour, or an untested failure path? | MAJOR |
+| Could this make the code harder to maintain, with no behavioural consequence? | SUGGESTION |
+| Style, naming, minor clarity — no functional impact | NITPICK |
 
-When in doubt between CRITICAL and SUGGESTION, ask: *"Would I block a PR over this?"*
-If yes: CRITICAL. If you'd leave a comment and let it merge: SUGGESTION.
+The MAJOR tier exists to stop correctness concerns from being under-rated as SUGGESTION. If a finding touches correctness, security, or a real failure path but does not clear the CRITICAL bar, it is **MAJOR**, not SUGGESTION. SUGGESTION is reserved for pure maintainability — anything that could change observable behaviour on some path is MAJOR or CRITICAL.
+
+Decision order, applied in sequence:
+
+1. Would a user experience a wrong result or security exposure? → **CRITICAL**
+2. Else, is it correctness-adjacent (real but lower-likelihood bug, missing guard, untested failure path)? → **MAJOR**
+3. Else, would a future developer have to work harder to maintain it? → **SUGGESTION**
+4. Else → **NITPICK**
+
+When in doubt between CRITICAL and MAJOR, ask: *"Would I block a PR over this even with a human reviewing?"* If yes: CRITICAL. When in doubt between MAJOR and SUGGESTION, ask: *"Does this touch correctness, security, or a real failure path?"* If yes: MAJOR — never downgrade a correctness concern to SUGGESTION because it is "unlikely."
 
 ## The Adversarial Stance
 

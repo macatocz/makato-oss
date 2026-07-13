@@ -63,7 +63,10 @@ sensor-fixer pipeline — the canonical Finding contract is [`shared/finding-sch
 ```
 
 `autofix_available` is always `false` for findings reaching this skill — type checkers
-do not provide automated fixes. `attempt` increments on retry by the caller.
+do not provide automated fixes. `attempt` increments on retry by the caller. **`model_override`
+is reserved/inert (#287):** no runtime consumes it yet — this skill runs under the Skill tool
+(no `model` parameter), so the field is documented for a future Agent-tool-based dispatch but
+currently has no effect.
 
 ## 3. Classification (Step 1)
 

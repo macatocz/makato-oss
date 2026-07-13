@@ -38,10 +38,40 @@ Do not loosen integration test assertions to force a pass.
 
 ### VERIFY — Full Suite Passes
 
+The VERIFY contract has two levels. Both gates must clear before a task is marked complete.
+
+#### Level 1 — Per-task full suite (inside coder, Phase 4)
+
 **Gate:** Zero new failures vs. the baseline recorded at session start.
 
 Run unit + integration + all pre-existing tests. Compare failure count to baseline.
 Any new failure blocks progression to the next task.
+
+#### Level 2 — Cross-task regression sweep (outer loop, between tasks)
+
+**Gate:** After each task's coder R1 returns `status:"success"`, the outer loop
+(`build-implement-tdd` Step 6) re-runs the union of `tests_written[]` from all
+**prior** completed tasks. If any of those previously-passing tests now fail, the
+regression is attributed to the task that just completed — detected at O(1 task)
+localisation cost rather than O(whole diff) at the terminal `build-verify` gate.
+
+Rules:
+- **Task 1 skip**: the first task has no prior tasks, so the accumulated set is empty.
+  Skip the sweep for task 1; no log entry is emitted. The first cross-task sweep
+  occurs after task 2 completes.
+- **Set deduplication**: if two tasks write to the same test file path, that path
+  appears once in the accumulated set (no double-counting).
+- **Accumulator update timing**: a task's `tests_written[]` is added to the accumulator
+  AFTER the sweep for that task passes — ensuring the sweep at task N covers tasks 1…N-1
+  only, never task N's own tests.
+- **Same BASELINE_FAILURES gate**: sweep failures are compared against `BASELINE_FAILURES`
+  from Step 3 (same formula: `sweep_failures − BASELINE_FAILURES == 0`).
+- **Fix-vs-escalate**: apply the same threshold as Level 1. A sweep regression that can
+  be fixed without changing the implementation approach is fixed in place and the sweep
+  is re-run. A structural regression escalates via R1 `status:"failure"`.
+
+See `build-implement-tdd/SKILL.md` § *Cross-task regression sweep* for the outer-loop
+implementation contract.
 
 ## Fix vs. Escalate Threshold
 

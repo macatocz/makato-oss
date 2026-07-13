@@ -134,6 +134,20 @@
 #                              `git worktree list --porcelain` output,
 #                              read instead of invoking git.
 #
+# --- Stale-worktree reaper (#320) ---
+#   MAKATO_LOOP_REAP_STALE_AGE Seconds a worktree must be on-disk
+#                              (measured by directory mtime) before the
+#                              stale-reaper considers it (default 86400 =
+#                              24 h).  Worktrees younger than this are
+#                              always skipped even when the owning pid is
+#                              gone.  Set 0 to bypass the age guard
+#                              (tests / emergency cleanup).
+#   MAKATO_LOOP_REAP_STALE_FORCE
+#                              Set to `1` to allow reaping a stale
+#                              worktree that has unpushed commits.
+#                              Default 0 — unpushed commits block reaping
+#                              without this flag (un-landed work guard).
+#
 # --- Sleep-wake guard (#171) ---
 #   MAKATO_LOOP_SLEEP_MAX_STEP Max seconds per raw `sleep` call inside
 #                              `_guarded_sleep` (default 30). The outer
@@ -198,6 +212,25 @@ DEFAULT_STATUS="${MAKATO_LOOP_STATUS:-Ready}"
 ASSIGN_ON_DISPATCH="${MAKATO_LOOP_ASSIGN_ON_DISPATCH:-1}"
 ASSIGNEE="${MAKATO_LOOP_ASSIGNEE:-@me}"
 
+# --- Board-poll resilience (#289) ---
+# The board poll (`gh project item-list`) is the loop's single point of contact
+# with the GitHub API. A 429 (rate-limit) or transient 5xx returns non-zero;
+# before #289 every caller degraded that to `echo '{"items":[]}'`, which the
+# queue filter then read as an EMPTY QUEUE — so a rate-limited loop logged
+# "queue empty" and idled while Ready work sat undispatched. `_gh_project_item_list`
+# retries with exponential backoff and distinguishes "poll failed" from "queue
+# empty" so a read failure can never silently masquerade as no-work-to-do.
+#   MAKATO_LOOP_POLL_RETRIES       Total poll attempts before giving up
+#                                  (default 3).
+#   MAKATO_LOOP_POLL_BACKOFF_BASE  Base seconds for exponential backoff between
+#                                  attempts (default 2 → waits 2s, 4s, …). Reuses
+#                                  MAKATO_LOOP_SLEEP_CMD so tests stay offline.
+#   MAKATO_LOOP_POLL_ERROR_BACKOFF Seconds cmd_run sleeps after a failed poll
+#                                  before the next tick (default: --interval).
+#   MAKATO_LOOP_POLL_TEST_CMD      Tests only: command string eval'd in place of
+#                                  the real `gh` call, so smoke tests can simulate
+#                                  N failures then a success without a network hit.
+
 # Synchronous board claim (#259 — cross-worktree double-dispatch). All three
 # single-thread guarantees are worktree-local: the run-mutex pidfile is
 # $STATE_DIR-scoped, the in-flight filter is specs/-scoped, and the only
@@ -257,24 +290,35 @@ PIDFILE="${MAKATO_LOOP_PIDFILE:-$STATE_DIR/loop.pid}"
 # the shell, large enough that the target's EXIT trap gets to clean up.
 FORCE_GRACE_SECS="${MAKATO_LOOP_FORCE_GRACE:-10}"
 
-# Merged-worktree reaper (#265). Worktrees under .claude/worktrees/ pile up on
-# the operator's local disk: the per-issue `worktree.sh cleanup` only fires for
-# a fully-autonomous run that reaches merge inside its own session, but most
-# worktrees are hand-created (EnterWorktree) or orphaned by a dead session and
-# carry no workflow-state, so nothing ever removes them. The reaper is a
-# name-agnostic pre-poll sweep: it walks `git worktree list --porcelain` and
-# removes worktrees whose branch has a MERGED PR, skipping any that are dirty,
-# locked, retained, detached, nested, or the main checkout (see the guard stack
-# in _reap_merged_worktrees). It runs on the operator's machine because that is
-# where the worktrees physically live — a cloud GitHub Action cannot reach the
-# local disk. Best-effort: any `gh`/`git` failure logs a WARN and never blocks
-# the tick.
+# Merged- and stale-worktree reaper (#265, #320). Worktrees under
+# .claude/worktrees/ pile up on the operator's local disk: the per-issue
+# `worktree.sh cleanup` only fires for a fully-autonomous run that reaches merge
+# inside its own session, but most worktrees are hand-created (EnterWorktree) or
+# orphaned by a dead session and carry no workflow-state, so nothing ever removes
+# them.  The reaper is a name-agnostic pre-poll sweep with two removal paths:
+#
+#   Path A (merged-branch) — branch has a MERGED PR or HEAD is already an
+#     ancestor of the base ref.  Always safe; no owning-pid check needed.
+#
+#   Path B (stale-crash) — branch has NOT landed, but the owning loop.sh
+#     process (recorded in <worktree>/.loop-owner.pid by worktree.sh) is dead
+#     AND the worktree is older than REAP_STALE_AGE_SECS (default 24 h).
+#     Catches hard-crashed runs that leave a worktree behind indefinitely.
+#     Blocked by unpushed commits unless MAKATO_LOOP_REAP_STALE_FORCE=1.
+#
+# Both paths skip dirty, locked, retained, detached, nested, and main-checkout
+# worktrees (guard stack in _reap_merged_worktrees).  Runs on the operator's
+# machine because that is where the worktrees physically live.  Best-effort:
+# any gh/git failure logs a WARN and never blocks the tick.
 #   - MAKATO_LOOP_REAP_ON_POLL=0 disables the reaper entirely (default on).
 #   - MAKATO_LOOP_REAP_INTERVAL throttles the pass to at most once per N seconds
 #     (default 3600 = 1h); the function is called every tick but no-ops until
 #     the window elapses. Set 0 to run every call (tests / one-shot cleanup).
 REAP_ON_POLL="${MAKATO_LOOP_REAP_ON_POLL:-1}"
 REAP_INTERVAL_SECS="${MAKATO_LOOP_REAP_INTERVAL:-3600}"
+# Stale-worktree reap thresholds (#320).
+REAP_STALE_AGE_SECS="${MAKATO_LOOP_REAP_STALE_AGE:-86400}"
+REAP_STALE_FORCE="${MAKATO_LOOP_REAP_STALE_FORCE:-0}"
 
 # --- Sleep-wake guard (#171) --------------------------------------------
 # After a macOS host suspend/resume, `sleep $interval` in the outer
@@ -299,6 +343,17 @@ REAP_INTERVAL_SECS="${MAKATO_LOOP_REAP_INTERVAL:-3600}"
 SLEEP_MAX_STEP_SECS="${MAKATO_LOOP_SLEEP_MAX_STEP:-30}"
 MIN_DISPATCH_GAP_SECS="${MAKATO_LOOP_MIN_DISPATCH_GAP:-30}"
 LAST_DISPATCH_GAP_SECS="${MAKATO_LOOP_LAST_DISPATCH_GAP:-30}"
+# Board-poll resilience (#289) — see the doc block near ASSIGNEE above.
+POLL_RETRIES="${MAKATO_LOOP_POLL_RETRIES:-3}"
+POLL_BACKOFF_BASE_SECS="${MAKATO_LOOP_POLL_BACKOFF_BASE:-2}"
+# Guard against non-numeric / non-positive overrides that would make the
+# retry loop misbehave (mirrors the SLEEP_MAX_STEP_SECS floor below).
+if [[ ! "$POLL_RETRIES" =~ ^[0-9]+$ ]] || [[ "$POLL_RETRIES" -lt 1 ]]; then
+  POLL_RETRIES=1
+fi
+if [[ ! "$POLL_BACKOFF_BASE_SECS" =~ ^[0-9]+$ ]]; then
+  POLL_BACKOFF_BASE_SECS=2
+fi
 # Floor SLEEP_MAX_STEP_SECS at 1. Values ≤ 0 (whether accidentally
 # unset-then-defaulted, or explicitly overridden by an operator) would
 # make _guarded_sleep's inner cap `step=$SLEEP_MAX_STEP_SECS` deliver
@@ -395,6 +450,60 @@ _read_project_config() {
 }
 
 # ---------------------------------------------------------------------------
+# _gh_project_item_list <host> <number> <owner> (#289) — bounded-retry wrapper
+# around the ONE `gh` API call the loop depends on. Prints the raw JSON board
+# payload to stdout on success and returns 0. On failure of every attempt it
+# prints NOTHING to stdout and returns non-zero — the caller MUST distinguish
+# this from a successful poll that happened to yield an empty item set.
+#
+# Why this exists (#289): a 429 rate-limit or transient 5xx makes `gh` exit
+# non-zero. The previous `gh … || echo '{"items":[]}'` idiom turned that into
+# an empty-looking payload, which the queue filter read as "no work to do" —
+# a rate-limited loop then logged "queue empty" and idled while Ready issues
+# sat undispatched, with the audit showing a healthy idle loop. Retrying with
+# exponential backoff rides out a transient blip; propagating the failure (not
+# masking it as `{"items":[]}`) lets callers surface a distinct transient-error
+# state instead of a false empty queue.
+#
+# Retry budget: POLL_RETRIES attempts (default 3), backoff POLL_BACKOFF_BASE_SECS
+# * 2^(attempt-1) seconds between them (2s, 4s, …), using the same overridable
+# sleep command as _guarded_sleep so smoke tests stay offline and fast. Test
+# hook MAKATO_LOOP_POLL_TEST_CMD replaces the real `gh` invocation with an
+# eval'd command string so failure/success sequences can be simulated.
+# ---------------------------------------------------------------------------
+_gh_project_item_list() {
+  local host="$1" number="$2" owner="$3"
+  local sleep_cmd="${MAKATO_LOOP_SLEEP_CMD:-sleep}"
+  local attempt=1 out rc
+  while (( attempt <= POLL_RETRIES )); do
+    # Guard the command-substitution assignment with `|| rc=$?`: under
+    # `set -e` a bare `out="$(failing-cmd)"` would abort the function on the
+    # first non-zero exit, defeating the retry loop entirely. The `||` keeps
+    # the failure local so we can inspect rc and back off.
+    rc=0
+    if [[ -n "${MAKATO_LOOP_POLL_TEST_CMD:-}" ]]; then
+      out="$(MAKATO_LOOP_POLL_ATTEMPT="$attempt" eval "$MAKATO_LOOP_POLL_TEST_CMD" 2>/dev/null)" || rc=$?
+    else
+      out="$(GH_HOST="$host" gh project item-list "$number" \
+        --owner "$owner" --format json --limit 9999 2>/dev/null)" || rc=$?
+    fi
+    if [[ $rc -eq 0 ]]; then
+      printf '%s' "$out"
+      return 0
+    fi
+    if (( attempt < POLL_RETRIES )); then
+      local wait=$(( POLL_BACKOFF_BASE_SECS * (1 << (attempt - 1)) ))
+      echo "loop: WARN — board poll attempt $attempt/$POLL_RETRIES failed (gh exit $rc); retrying in ${wait}s (#289)" >&2
+      $sleep_cmd "$wait" 2>/dev/null || true
+    else
+      echo "loop: ERROR — board poll failed after $POLL_RETRIES attempts (gh exit $rc); NOT treating as empty queue (#289)" >&2
+    fi
+    attempt=$(( attempt + 1 ))
+  done
+  return 1
+}
+
+# ---------------------------------------------------------------------------
 # Read the loop-status file, or echo `{}` if missing.
 # ---------------------------------------------------------------------------
 _read_status() {
@@ -407,6 +516,9 @@ _read_status() {
 
 # ---------------------------------------------------------------------------
 # Atomic write to STATUS_FILE. Stamps updated_at automatically.
+# Uses a same-directory mktemp so mv is a same-filesystem rename(2) — each
+# write is all-or-nothing with no torn-read window. Matches the
+# _atomic_write pattern in shared/workflow-state.sh.
 # Args: JSON object string
 # ---------------------------------------------------------------------------
 _write_status() {
@@ -416,7 +528,7 @@ _write_status() {
   local stamped
   stamped="$(jq --arg ts "$now" '. + {updated_at: $ts}' <<<"$payload")"
   local tmp
-  tmp="$(mktemp)"
+  tmp="$(mktemp "${STATUS_FILE}.XXXXXX")"
   printf '%s\n' "$stamped" >"$tmp"
   mv "$tmp" "$STATUS_FILE"
 }
@@ -472,13 +584,17 @@ cmd_poll() {
     # host via `GH_HOST` (auth context) and `--owner`. A bare
     # `gh --hostname …` at this subcommand position fails with
     # `unknown flag: --hostname` and previously left the queue silently
-    # empty (issue #156). Route host through the env var instead, and let
-    # gh's stderr surface real failures so callers see them (the outer
-    # `run` loop retries next tick regardless — the loss was diagnostics).
+    # empty (issue #156). Route host through the env var instead.
     # `--limit 9999` mirrors plugins/makato-plan/.../board-audit.md — same
     # ceiling, same WARN-on-truncation contract.
-    raw="$(GH_HOST="$host" gh project item-list "$number" \
-      --owner "$owner" --format json --limit 9999 || echo '{"items":[]}')"
+    #
+    # #289: the poll now goes through _gh_project_item_list, which retries on
+    # rate-limit / transient failure and returns non-zero on exhaustion. We
+    # PROPAGATE that failure (return 75, EX_TEMPFAIL) rather than substituting
+    # `{"items":[]}` — a failed poll must NOT read as an empty queue downstream.
+    if ! raw="$(_gh_project_item_list "$host" "$number" "$owner")"; then
+      return 75
+    fi
   fi
   jq --arg status "$status_name" \
     '[.items[]
@@ -518,6 +634,45 @@ in_flight_issues() {
 }
 
 # ---------------------------------------------------------------------------
+# _check_pending_handoffs — HALT-007B liveness watchdog sweep (#284).
+#
+# The HALT-007B self-restart (scripts/context-handoff.sh) forks a detached
+# `claude --resume` subprocess and exits the old session. If that subprocess
+# dies after the fork, nothing detects it: the state is stranded with
+# handoff_reason="context_ceiling" and no PR. This pre-poll pass walks every
+# per-issue state file and, for any with a pending handoff (handoff_reason ==
+# context_ceiling AND spawned_pid set), calls `context-handoff.sh check-pid`.
+# check-pid clears the pid on a healthy resume (fresh resume_ack), keeps
+# waiting while the subprocess is booting inside the ack timeout, or fires the
+# HALT-007 fallback (restart_failed=true, needs-human-review applied) when the
+# pid is dead or the ack never arrived.
+#
+# Best-effort: any error is swallowed so a single bad state file never blocks
+# the tick. Mirrors in_flight_issues' scan (glob + per-file jq tolerance).
+# ---------------------------------------------------------------------------
+_check_pending_handoffs() {
+  [[ -d "$SPECS_DIR" ]] || return 0
+  local handoff_script="$REPO_ROOT/plugins/makato-orchestrate/scripts/context-handoff.sh"
+  [[ -x "$handoff_script" ]] || return 0
+  find "$SPECS_DIR" -maxdepth 2 \
+    \( -name 'workflow-state-*.json' -o -name 'workflow-state.json' \) \
+    -print0 2>/dev/null |
+    while IFS= read -r -d '' f; do
+      local handoff_reason spawned_pid issue key
+      handoff_reason="$(jq -r '.handoff_reason // "null"' "$f" 2>/dev/null || echo null)"
+      spawned_pid="$(jq -r '.spawned_pid // "null"' "$f" 2>/dev/null || echo null)"
+      [[ "$handoff_reason" == "context_ceiling" && "$spawned_pid" != "null" ]] || continue
+      issue="$(jq -r '.issue_number // empty' "$f" 2>/dev/null || true)"
+      [[ -n "$issue" ]] || continue
+      # KEY is the spec-folder basename (workflow-state.sh resolves it to this
+      # exact dir); e.g. specs/284-halt-007b-silent-fork/workflow-state-284.json.
+      key="$(basename "$(dirname "$f")")"
+      echo "loop: check-pid #$issue (HALT-007B handoff pending, spawned_pid=$spawned_pid)" >&2
+      "$handoff_script" check-pid "$key" "$issue" 2>&1 | sed 's/^/loop:   /' >&2 || true
+    done
+}
+
+# ---------------------------------------------------------------------------
 # next [STATUS_NAME] — first untracked open issue at the requested Status,
 # or empty.
 # ---------------------------------------------------------------------------
@@ -542,6 +697,25 @@ cmd_status() {
 }
 
 # ---------------------------------------------------------------------------
+# _wd_owns_active <issue> — watchdog ownership CAS (#312). Returns 0 iff the
+# live status file still names <issue> as the active workflow. Every watchdog
+# write to active_workflow.* is gated on this so an ORPHANED watchdog (its
+# parent cmd_dispatch was TERM'd mid-`wait`, reparenting the poll to init)
+# cannot write against a loop-status.json that a LATER dispatch already
+# cleared to active_workflow=null. Without the guard, jq's null-path
+# autovivification (`.active_workflow.killed_by_watchdog = true` on a null
+# node → {active_workflow:{killed_by_watchdog:true}}) resurrects the key —
+# the T30 loop-smoke flake. File-scope (not nested in _watchdog_poll) so the
+# smoke suite can exercise it deterministically via the _test-wd-owns hook.
+# ---------------------------------------------------------------------------
+_wd_owns_active() {
+  local issue="$1"
+  local cur
+  cur="$(_read_status | jq -r '.active_workflow.issue // empty' 2>/dev/null || echo "")"
+  [[ "$cur" == "$issue" ]]
+}
+
+# ---------------------------------------------------------------------------
 # _watchdog_poll — background helper spawned by cmd_dispatch. Polls the
 # dispatch log's mtime every $STALL_POLL_SECS seconds. When mtime has not
 # advanced for STALL_WARN_SECS, stamps active_workflow.stalled=true and
@@ -563,6 +737,11 @@ _watchdog_poll() {
 
   local warn_stamped=0
   local killed=0
+
+  # Ownership guard (#312): only stamp active_workflow.* when the live status
+  # file still shows THIS issue as the active workflow. See _wd_owns_active
+  # (file-scope) for the full rationale — this makes a stale/orphaned watchdog
+  # a no-op regardless of whether it was reaped in time.
 
   # `stat -c` on Linux, `stat -f` on macOS. Detect once.
   local stat_cmd
@@ -591,6 +770,12 @@ _watchdog_poll() {
     idle=$((now_epoch - mtime))
 
     if [[ $killed -eq 0 && $idle -ge $STALL_KILL_SECS ]]; then
+      # Orphan guard: a stale watchdog must not resurrect a cleared
+      # active_workflow. If we no longer own the active slot, still kill the
+      # tracked child (that is always safe and correct — a runaway process
+      # should die) but do NOT write active_workflow.* against foreign state.
+      local own_kill=1
+      _wd_owns_active "$issue" || own_kill=0
       # Snapshot the kill audit BEFORE signalling — active_workflow will
       # be nulled by cmd_dispatch shortly, but last_watchdog_kill is a
       # sibling field that survives.
@@ -602,8 +787,10 @@ _watchdog_poll() {
         --argjson idle "$idle" \
         --argjson kill_secs "$STALL_KILL_SECS" \
         '{issue: $issue, killed_at: $stamped_at, idle_seconds: $idle, stall_kill_seconds: $kill_secs}')"
-      _patch_status '.last_watchdog_kill' "$audit"
-      _patch_status '.active_workflow.killed_by_watchdog' 'true'
+      if [[ $own_kill -eq 1 ]]; then
+        _patch_status '.last_watchdog_kill' "$audit"
+        _patch_status '.active_workflow.killed_by_watchdog' 'true'
+      fi
       echo "loop: watchdog SIGTERM'ing PO-agent pid=$child_pid (issue #$issue, idle=${idle}s ≥ ${STALL_KILL_SECS}s)" >&2
       kill -TERM "$child_pid" 2>/dev/null || true
       # Grace period, then hard-kill if the child hasn't exited.
@@ -621,12 +808,16 @@ _watchdog_poll() {
     fi
 
     if [[ $warn_stamped -eq 0 && $idle -ge $STALL_WARN_SECS ]]; then
-      local warn_stamp
-      warn_stamp="$(_now)"
-      _patch_status '.active_workflow.stalled' 'true'
-      _patch_status '.active_workflow.stalled_since' "\"$warn_stamp\""
-      echo "loop: watchdog WARN — PO-agent idle for ${idle}s ≥ ${STALL_WARN_SECS}s (issue #$issue)" >&2
-      warn_stamped=1
+      # Same orphan guard as the kill path: never stamp stalled against a
+      # loop-status.json we no longer own (would resurrect a cleared key).
+      if _wd_owns_active "$issue"; then
+        local warn_stamp
+        warn_stamp="$(_now)"
+        _patch_status '.active_workflow.stalled' 'true'
+        _patch_status '.active_workflow.stalled_since' "\"$warn_stamp\""
+        echo "loop: watchdog WARN — PO-agent idle for ${idle}s ≥ ${STALL_WARN_SECS}s (issue #$issue)" >&2
+        warn_stamped=1
+      fi
     fi
 
     sleep "$STALL_POLL_SECS"
@@ -965,8 +1156,16 @@ _claim_board_card() {
   if [[ -n "${MAKATO_LOOP_GH_OVERRIDE:-}" ]]; then
     board="$(cat "$MAKATO_LOOP_GH_OVERRIDE" 2>/dev/null || echo '{"items":[]}')"
   else
-    board="$(GH_HOST="$host" gh project item-list "$number" --owner "$owner" \
-      --format json --limit 9999 2>/dev/null || echo '{"items":[]}')"
+    # #289: the CAS re-poll goes through the retrying wrapper. If it fails after
+    # all retries we must NOT warn-proceed — proceeding on an unreadable board
+    # re-opens the pre-#259 double-dispatch race (two sessions each unable to
+    # read the card, each falling through to spawn). A failed read is treated as
+    # "cannot safely claim → SKIP this tick" (return 1); the issue stays on the
+    # queue and a later tick re-attempts the claim once the API recovers.
+    if ! board="$(_gh_project_item_list "$host" "$number" "$owner")"; then
+      echo "loop: skip #$issue — board re-poll failed (rate-limit/transient); NOT claiming to avoid double-dispatch (#289)" >&2
+      return 1
+    fi
   fi
   item_line="$(jq -c --argjson i "$issue" \
     'first(.items[] | select(.content.type == "Issue" and .content.number == $i))' \
@@ -1021,7 +1220,12 @@ _claim_board_card() {
 #       calling `gh project item-edit` (asserted by T28).
 # ---------------------------------------------------------------------------
 # Labels that veto promotion even when status:ready-for-dev is present.
-_PROMOTE_EXCLUSION_LABELS="triage experimental status:blocked autonomous:halt"
+# `needs-human-review` is applied on every HALT path but `status:ready-for-dev`
+# is never stripped there — without this veto the promotion pass would drag a
+# halted card back onto Ready every tick, where the in-flight guard then blocks
+# dispatch, leaving the issue stuck. Excluding it keeps a halted issue off Ready
+# until a human clears the label (#286).
+_PROMOTE_EXCLUSION_LABELS="triage experimental status:blocked autonomous:halt needs-human-review"
 _PROMOTE_READY_LABEL="status:ready-for-dev"
 
 _promote_labelled_ready() {
@@ -1272,6 +1476,60 @@ _realpath() {
 }
 
 # ---------------------------------------------------------------------------
+# _reap_wt_age_secs <worktree-dir> — return the age of the worktree directory
+# in whole seconds (now - directory mtime).  Used by the stale-reaper (#320).
+# Falls back to 0 on stat failure so a broken directory is treated as young
+# (safe default — no false positive reaping on stat error).
+# ---------------------------------------------------------------------------
+_reap_wt_age_secs() {
+  local dir="$1"
+  # Use python3 (already a project dependency) for portable mtime — avoids the
+  # macOS BSD vs GNU `stat` flag incompatibility.  Falls back to 0 on error so
+  # a broken directory is treated as young (safe default, no false-positive reap).
+  python3 -c '
+import os, sys, time
+try:
+    mtime = os.path.getmtime(sys.argv[1])
+    print(int(time.time() - mtime))
+except Exception:
+    print(0)
+' "$dir" 2>/dev/null || echo 0
+}
+
+# ---------------------------------------------------------------------------
+# _reap_owner_pid_alive <worktree-dir> — return 0 when the owning loop.sh
+# process (recorded in <worktree-dir>/.loop-owner.pid) is still running.
+# Return 1 when the pid file is absent, empty, or the pid is dead.
+# ---------------------------------------------------------------------------
+_reap_owner_pid_alive() {
+  local dir="$1"
+  local pid_file="$dir/.loop-owner.pid"
+  [[ -f "$pid_file" ]] || return 1
+  local pid
+  pid="$(cat "$pid_file" 2>/dev/null || echo "")"
+  [[ -n "$pid" ]] || return 1
+  kill -0 "$pid" 2>/dev/null
+}
+
+# ---------------------------------------------------------------------------
+# _reap_has_unpushed <worktree-dir> <branch> — return 0 when the worktree has
+# commits on <branch> that have not been pushed to the remote tracking branch.
+# Return 1 (= no unpushed commits, safe to reap) on any error or when the
+# branch has no upstream configured.
+# ---------------------------------------------------------------------------
+_reap_has_unpushed() {
+  local dir="$1" branch="$2"
+  # Verify the remote tracking ref exists; if not, treat as no unpushed.
+  local upstream
+  upstream="$(git -C "$dir" rev-parse --abbrev-ref "@{u}" 2>/dev/null || echo "")"
+  [[ -n "$upstream" ]] || return 1
+  # Any commit reachable from HEAD but not from the remote tracking ref.
+  local count
+  count="$(git -C "$dir" rev-list --count HEAD "^$upstream" 2>/dev/null || echo 0)"
+  [[ "$count" -gt 0 ]]
+}
+
+# ---------------------------------------------------------------------------
 # _reap_merged_worktrees — name-agnostic sweep that removes local worktrees
 # whose work has already LANDED on the base branch (#265). See the config block
 # near the top of this file for the rationale. Best-effort: never fails the tick.
@@ -1288,6 +1546,10 @@ _realpath() {
 #   8. branch has LANDED on the base branch — merged PR OR HEAD is an ancestor
 #      of the base ref (renamed-head / squash-merge safe; see
 #      _reap_branch_landed)
+#      — OR, when guard 8 fails, Guard 9 (#320) applies:
+#   9. stale-crash reap — branch NOT landed BUT: owning loop.sh pid is dead
+#      AND worktree age >= REAP_STALE_AGE_SECS AND (no unpushed commits OR
+#      REAP_STALE_FORCE=1).  Records a "stale-crashed worktree" landed reason.
 #
 # Throttle: no-ops when the last pass ran within REAP_INTERVAL_SECS. Offline
 # test hooks: MAKATO_LOOP_REAP_WT_OVERRIDE (fake porcelain), _REAP_GH_OVERRIDE
@@ -1393,14 +1655,49 @@ _reap_merged_worktrees() {
     if _reap_is_retained "$rp"; then
       echo "loop: reap skip $rp (worktree_retained=true)" >&2; return 0
     fi
-    # Guard 8: the branch's work must have LANDED on the base branch — either a
+    # Guard 8: the branch’s work must have LANDED on the base branch — either a
     # merged PR (any merge style) OR the HEAD is already an ancestor of the
     # base ref (catches renamed-head branches the PR lookup misses). A worktree
     # whose work is not yet in base is live and must survive.
-    local landed
+    # Exception: Guard 9 (stale-crash reap) can authorise removal without landing.
+    local landed=""
     landed="$(_reap_branch_landed "$cur_head" "$branch" "$repo" "$base_ref")"
     if [[ -z "$landed" ]]; then
-      echo "loop: reap skip $rp (branch $branch not landed on $base_ref)" >&2; return 0
+      # Guard 9 (#320): stale-crash reap — the branch has NOT landed but the
+      # owning loop.sh process is dead AND the worktree is older than
+      # REAP_STALE_AGE_SECS.  This catches hard-crashed runs that leave a
+      # worktree behind indefinitely.
+      #
+      # Safety invariants:
+      #   a) A live owning PID always skips — we never reap under a live loop.
+      #   b) Unpushed commits block reaping unless REAP_STALE_FORCE=1 (explicit
+      #      operator opt-in that un-landed work may be discarded).
+      #   c) Age threshold prevents mis-reaping a freshly created worktree whose
+      #      loop is still starting up (REAP_STALE_AGE_SECS default = 24h).
+      #   d) All upstream guards (locked, dirty, retained) already fired above;
+      #      a worktree reaching here is clean and un-retained.
+
+      # (a) live owner — skip
+      if _reap_owner_pid_alive "$rp"; then
+        echo "loop: reap skip $rp (branch $branch not landed; owner pid alive)" >&2; return 0
+      fi
+      # (c) age gate
+      local age
+      age="$(_reap_wt_age_secs "$rp")"
+      if [[ "${REAP_STALE_AGE_SECS:-86400}" -gt 0 ]] && \
+         (( age < REAP_STALE_AGE_SECS )); then
+        echo "loop: reap skip $rp (branch $branch not landed; worktree too young ${age}s < ${REAP_STALE_AGE_SECS}s)" >&2; return 0
+      fi
+      # (b) unpushed commits gate
+      if _reap_has_unpushed "$rp" "$branch"; then
+        if [[ "${REAP_STALE_FORCE:-0}" != "1" ]]; then
+          echo "loop: reap skip $rp (branch $branch not landed; unpushed commits — set MAKATO_LOOP_REAP_STALE_FORCE=1 to override)" >&2; return 0
+        fi
+        echo "loop: reap WARN $rp (branch $branch not landed; unpushed commits present; REAP_STALE_FORCE=1)" >&2
+      fi
+
+      # Passed all stale-crash guards — authorise reap.
+      landed="stale-crashed worktree (owner pid dead, age ${age}s)"
     fi
 
     if [[ -n "$dryrun" ]]; then
@@ -1667,6 +1964,17 @@ cmd_dispatch() {
     # Spawn watchdog against the child's PID.
     _watchdog_poll "$log_file" "$child_pid" "$issue" &
     watchdog_pid=$!
+    # Signal-safe reap: if this dispatch shell is TERM'd/INT'd while blocked
+    # on `wait "$child_pid"` below, bash runs the default signal action and
+    # exits BEFORE the reap block — orphaning the watchdog grandchild, which
+    # is reparented to init and keeps calling _patch_status against the shared
+    # loop-status.json (resurrecting a just-cleared active_workflow via jq's
+    # null-path autovivification). That leaked writer corrupts a later
+    # dispatch's state — the source of the T30 loop-smoke-test flake (#312).
+    # Trapping TERM/INT reaps both children in-scope (dynamic scoping makes
+    # the locals visible here) before exiting, so a kill of the dispatch PID
+    # cascades to the watchdog instead of orphaning it.
+    trap 'kill -TERM "$watchdog_pid" "$child_pid" 2>/dev/null || true; wait "$watchdog_pid" "$child_pid" 2>/dev/null || true; exit 143' TERM INT
     # Block on child. `wait` returns the child's exit status if we name it.
     wait "$child_pid" || rc=$?
     # Reap watchdog — it either exited already (kill path or child-exit)
@@ -1675,6 +1983,9 @@ cmd_dispatch() {
       kill -TERM "$watchdog_pid" 2>/dev/null || true
       wait "$watchdog_pid" 2>/dev/null || true
     fi
+    # Normal completion — drop the signal trap so it cannot fire against
+    # stale PIDs during the rest of the function.
+    trap - TERM INT
   else
     # Opt-out path (MAKATO_LOOP_STALL_DISABLE=1) — legacy behaviour, no
     # log capture, no watchdog. No streaming needed (nothing reads the
@@ -1866,18 +2177,45 @@ cmd_run() {
       _reap_merged_worktrees || true
     fi
 
-    local queue queue_depth
-    queue="$(cmd_poll "$status_name" || echo '[]')"
+    local queue queue_depth poll_rc
+    # #289: capture cmd_poll's exit code. A non-zero rc means the board poll
+    # FAILED (rate-limit / transient API error after all retries) — this is
+    # categorically different from a successful poll that returned an empty
+    # item set. We must not let a failed read masquerade as an empty queue and
+    # trigger an "idle" tick, hiding an ongoing API outage behind a healthy-
+    # looking loop.
+    poll_rc=0
+    queue="$(cmd_poll "$status_name")" || poll_rc=$?
+    if [[ $poll_rc -ne 0 ]]; then
+      # Distinct transient-error state: stamp the failure into loop-status.json
+      # (so the audit shows an outage, not an idle loop), skip dispatch this
+      # tick, and re-poll after a short backoff rather than the full interval —
+      # Ready work must resume promptly once the API recovers.
+      local now err_backoff
+      now="$(_now)"
+      err_backoff="${MAKATO_LOOP_POLL_ERROR_BACKOFF:-$interval}"
+      echo "loop: board poll FAILED (transient/rate-limit) — skipping dispatch this tick, re-polling in ${err_backoff}s (#289)" >&2
+      _write_status "$(jq \
+        --arg ts "$now" \
+        '. + {last_poll_error: $ts, poll_healthy: false}' \
+        <<<"$(_read_status)")"
+      if [[ -n "$once" ]]; then
+        return 0
+      fi
+      _guarded_sleep "$err_backoff"
+      continue
+    fi
     queue_depth="$(jq 'length' <<<"$queue")"
-    # Batch the three poll-result fields into a single status write — saves
+    # Batch the poll-result fields into a single status write — saves
     # three `_patch_status` invocations (each reads + jq-merges + mktemp + mv).
+    # `poll_healthy:true` clears any prior transient-error flag (#289).
     local now
     now="$(_now)"
     _write_status "$(jq \
       --arg ts "$now" \
       --argjson depth "$queue_depth" \
       --argjson q "$(jq '[.[].issue]' <<<"$queue")" \
-      '. + {last_poll: $ts, queue_depth: $depth, queue: $q}' \
+      '. + {last_poll: $ts, queue_depth: $depth, queue: $q, poll_healthy: true}' \
       <<<"$(_read_status)")"
 
     local in_flight
@@ -1945,6 +2283,22 @@ if [[ "$SUBCMD" == _test-* ]]; then
   fi
   case "$SUBCMD" in
     _test-guarded-sleep) _guarded_sleep "$@" ;;
+    _test-gh-item-list) _gh_project_item_list "$@" ;;
+    # _test-wd-guarded-write <issue> — exercise the watchdog ownership guard
+    # (#312) deterministically, without the process-timing flakiness of a real
+    # orphaned poll. Runs the exact guarded write the kill path performs:
+    # writes active_workflow.killed_by_watchdog=true ONLY when _wd_owns_active
+    # <issue> holds. The smoke suite seeds loop-status.json, invokes this, and
+    # asserts the slot is resurrected iff ownership matched.
+    _test-wd-guarded-write)
+      _test_issue="${1:?issue required}"
+      if _wd_owns_active "$_test_issue"; then
+        _patch_status '.active_workflow.killed_by_watchdog' 'true'
+        echo "wrote (owns)"
+      else
+        echo "skipped (foreign)"
+      fi
+      ;;
     *) echo "loop: unknown test hook: $SUBCMD" >&2; exit 64 ;;
   esac
   exit 0

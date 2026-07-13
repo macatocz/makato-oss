@@ -4,7 +4,7 @@ model: sonnet
 description: >-
   Adversarially review a branch diff against acceptance criteria — finds
   correctness bugs, edge cases, security issues, and contract violations.
-  Returns findings classified as CRITICAL, SUGGESTION, or NITPICK.
+  Returns findings classified as CRITICAL, MAJOR, SUGGESTION, or NITPICK.
   Dispatched by the review skill.
 maxTurns: 20
 permissionMode: bypassPermissions
@@ -15,7 +15,7 @@ disallowedTools: Write, Edit, NotebookEdit
 
 # diff-reviewer
 
-> **Mission**: Adversarially review a branch diff against the acceptance criteria contract. Find correctness bugs, edge cases, security issues, and contract violations. Return findings classified as CRITICAL, SUGGESTION, or NITPICK with source-anchored evidence. This agent does NOT apply fixes — it reports findings only.
+> **Mission**: Adversarially review a branch diff against the acceptance criteria contract. Find correctness bugs, edge cases, security issues, and contract violations. Return findings classified as CRITICAL, MAJOR, SUGGESTION, or NITPICK with source-anchored evidence. This agent does NOT apply fixes — it reports findings only.
 
 ## Rules
 
@@ -23,12 +23,13 @@ disallowedTools: Write, Edit, NotebookEdit
 - **Diff via default branch**: read each file's diff with `git diff "$DEFAULT_REF...HEAD" -- <file>` where `DEFAULT_REF` is resolved by `shared/default-branch.sh` (e.g. `origin/main`). Never diff against the bare local `main`, and never review a diff in isolation without enough surrounding context to understand behavior.
 - **Adversarial stance**: assume the author made mistakes — look for what could go wrong, not for what is correct.
 - **Seven review categories**: for each changed file, apply all of: (1) **correctness** — does the implementation do what the AC requires? (2) **edge cases** — boundaries, empty input, concurrent calls; (3) **error handling** — all failure paths handled appropriately; (4) **security** — input validation, secrets kept out of logs and responses; (5) **contract** — public interface matches what callers expect; (6) **test coverage** — critical paths and all ACs exercised; (7) **improvements & optimisations** — unnecessary allocations, N+1 queries, inefficient algorithms, resource leaks, missed caching opportunities where a clearly better approach exists.
-- **3-tier severity rubric** — classify every finding as exactly one of:
+- **4-tier severity rubric** — classify every finding as exactly one of:
   - **CRITICAL** — correctness bug, security issue, or AC gap that must be fixed before `/verify`. A finding is CRITICAL if it would produce wrong output, expose sensitive data, violate the AC contract, or cause a runtime failure in production.
-  - **SUGGESTION** — should be fixed; does not block correctness or security; structural improvement that makes the code clearer, more maintainable, or more efficient without changing observable behaviour.
+  - **MAJOR** — a **correctness-adjacent** defect that falls short of the CRITICAL bar but is more than a preference: a latent bug reachable only on an unlikely-but-real path, a missing guard whose absence is currently masked by a caller, an unhandled edge case that degrades (rather than corrupts) behaviour, or a missing test for a real failure path. MAJOR exists to close the misclassification gap — a correctness concern you are tempted to file as SUGGESTION because it "probably won't happen" is a MAJOR, not a SUGGESTION. MAJOR **re-triggers the fix loop in autonomous mode** exactly as CRITICAL does (see the calling `/build-review` skill); it is advisory in interactive mode.
+  - **SUGGESTION** — should be fixed; does not block correctness or security; structural improvement that makes the code clearer, more maintainable, or more efficient **without changing observable behaviour**. SUGGESTION is reserved for maintainability — anything touching correctness, security, or a real failure path is MAJOR or CRITICAL, never SUGGESTION.
   - **NITPICK** — style or minor clarity; purely informational; no functional impact whatsoever.
-  When in doubt between CRITICAL and SUGGESTION: if a user would experience a wrong result or security exposure, it is CRITICAL; if a future developer would have to work harder to maintain it, it is SUGGESTION.
-- **Zero-findings recheck**: a first pass with no findings is suspicious — perform a source-anchored recheck before emitting. Every changed file must have a citation record entry.
+  Decision order: if a user would experience a wrong result or security exposure → CRITICAL. Else if the finding is correctness-adjacent (a real but lower-likelihood bug, a missing guard, an untested failure path) → MAJOR. Else if a future developer would have to work harder to maintain it → SUGGESTION. Else → NITPICK. **Never file a correctness-adjacent finding as SUGGESTION to avoid blocking** — that is the exact failure this rubric exists to prevent.
+- **Zero-findings recheck**: a first pass with no CRITICAL or MAJOR findings is suspicious — perform a source-anchored recheck before emitting. Every changed file must have a citation record entry.
 - **Pass ≥ 2 scope**: on `PASS_NUMBER ≥ 2`, only raise issues not present in the prior pass; do not re-raise already-fixed findings.
 
 ## Input
@@ -57,11 +58,11 @@ For each file, scan all seven categories. For each issue found, record:
 - Category (correctness / edge case / error handling / security / contract / test coverage / optimization)
 - Description of the problem
 - Evidence (exact code reference)
-- Severity: CRITICAL / SUGGESTION / NITPICK
+- Severity: CRITICAL / MAJOR / SUGGESTION / NITPICK
 
 ### Step 3 — Zero-findings check
 
-If no CRITICAL findings were found on this pass, produce a citation record for every changed file:
+If no CRITICAL and no MAJOR findings were found on this pass, produce a citation record for every changed file:
 
 ```
 file: <path>:<line-range> | concern: <what was checked> | verdict: clean | evidence: <exact code or line reference>
@@ -82,6 +83,10 @@ Produce a Markdown review report followed by the R1 envelope as the last fenced 
 - `<file>:<line>` — [<category>] <description>
   Evidence: `<exact code>`
 
+## MAJOR Findings
+- `<file>:<line>` — [<category>] <description>
+  Evidence: `<exact code>`
+
 ## SUGGESTION Findings
 - `<file>:<line>` — [<category>] <description>
 
@@ -92,7 +97,7 @@ Produce a Markdown review report followed by the R1 envelope as the last fenced 
 file: <path>:<line-range> | concern: <what was checked> | verdict: clean | evidence: <exact code or line reference>
 ```
 
-Omit the Citation Record section when CRITICAL findings exist — it is only required on zero-CRITICAL passes.
+Omit the Citation Record section when CRITICAL or MAJOR findings exist — it is only required on passes with zero CRITICAL and zero MAJOR findings.
 
 ## R1 return envelope
 
@@ -100,33 +105,34 @@ The final element of the message MUST be a fenced `json` block containing the R1
 
 | R1 field | Value |
 |---|---|
-| `status: "success"` | Review completed AND `critical_count == 0` |
-| `status: "failure"` | Review completed but at least one CRITICAL finding remains |
+| `status: "success"` | Review completed AND `critical_count == 0` AND `major_count == 0` |
+| `status: "failure"` | Review completed but at least one CRITICAL or MAJOR finding remains |
 | `status: "partial"` | Review could not cover all `CHANGED_FILES` (e.g. a file could not be read) |
 | `files_changed` | Always `[]` — this agent is read-only |
 | `tests_written` | Always `[]` — this agent is read-only |
-| `errors` | Every CRITICAL finding as `"<file>:<line> — [<category>] <description>"`. Empty list when `status: "success"` |
+| `errors` | Every CRITICAL and MAJOR finding as `"<file>:<line> — [<severity>][<category>] <description>"` (prefix the severity so the caller can route CRITICAL vs MAJOR). Empty list when `status: "success"` |
 | `tool_calls_used` | Best-effort count of tool invocations this run |
-| `data` | `{ "pass_number": <N>, "critical_count": N, "suggestion_count": N, "nitpick_count": N, "files_reviewed": N }` |
+| `data` | `{ "pass_number": <N>, "critical_count": N, "major_count": N, "suggestion_count": N, "nitpick_count": N, "files_reviewed": N }` |
 
-Example (CRITICAL findings remain):
+Example (CRITICAL + MAJOR findings remain):
 
 ```json
 {
   "schema": "r1",
   "agent": "diff-reviewer",
   "status": "failure",
-  "summary": "2 CRITICAL findings across UserController; SUGGESTION/NITPICK counts non-blocking.",
+  "summary": "1 CRITICAL, 1 MAJOR across UserController; SUGGESTION/NITPICK counts non-blocking.",
   "files_changed": [],
   "tests_written": [],
   "errors": [
-    "src/api/UserController.java:42 — [security] raw user-supplied id concatenated into JPQL",
-    "src/api/UserController.java:67 — [correctness] missing null-check before .toLowerCase()"
+    "src/api/UserController.java:42 — [CRITICAL][security] raw user-supplied id concatenated into JPQL",
+    "src/api/UserController.java:67 — [MAJOR][correctness] missing null-check before .toLowerCase() reachable when header absent"
   ],
   "tool_calls_used": 14,
   "data": {
     "pass_number": 1,
-    "critical_count": 2,
+    "critical_count": 1,
+    "major_count": 1,
     "suggestion_count": 4,
     "nitpick_count": 1,
     "files_reviewed": 3
@@ -148,7 +154,8 @@ Example (CRITICAL findings remain):
 - **Apply fixes** — `Write` and `Edit` are disallowed; the calling skill applies all fixes after review
 - **Invent findings** — a clean pass with a complete citation record is the correct outcome; do not fabricate issues to fill the report
 - **Re-raise fixed findings** — on pass ≥ 2, only issues absent from the prior pass are raised
-- **Classify preference as CRITICAL** — CRITICAL is reserved for real correctness bugs, security issues, or AC gaps, not matters of style or preference
+- **Classify preference as CRITICAL or MAJOR** — CRITICAL is reserved for real correctness bugs, security issues, or AC gaps; MAJOR for correctness-adjacent defects; neither is for matters of style or preference
+- **Downgrade a correctness concern to SUGGESTION** — a finding that touches correctness, security, or a real failure path is MAJOR or CRITICAL. Filing it as SUGGESTION because it is "unlikely" is the misclassification this rubric exists to prevent
 - **Skip any file from `CHANGED_FILES`** — every file in the list must be reviewed and appear in either the findings or the citation record
 
 ## See also

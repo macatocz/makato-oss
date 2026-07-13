@@ -20,6 +20,7 @@
     "context_warn_tokens",
     "outer_iteration",
     "merge_conflict_cycles",
+    "ci_failure_cycles",
     "halt_audit",
     "human_review_cycles",
     "github_pr_number",
@@ -134,6 +135,15 @@
       "minimum": 0,
       "description": "Count of merge-conflict resolution attempts within this run (GAP-016 / #45). Incremented by resolve-pr-conflict on every irreconcilable conflict (Step 6 HALT path). HALT-008 fires when this reaches MAKATO_MAX_MERGE_CONFLICT_CYCLES (default 3) — separate ceiling from the outer_iteration counter so a single run can exhaust re-plan budget AND conflict-resolution budget independently."
     },
+    "ci_failure_cycles": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Count of CI-failure fix attempts within this run (#288). Incremented by the PO-agent's CI-failure fix loop (Step 6a test-failure path) on every RED CI check that triggers a re-dispatch of build-implement-tdd. HALT-008 fires when this reaches MAKATO_MAX_CI_FAILURE_CYCLES (default 3) — a ceiling independent of both outer_iteration (re-plan budget) and merge_conflict_cycles (conflict-resolution budget), so transient CI noise no longer burns the operator's re-plan budget. All three counters are independent; a single run can exhaust each."
+    },
+    "flake_rerun_pending": {
+      "type": "boolean",
+      "description": "Per-PR one-shot flag for the Step 6a flake probe (#312). Set true when the PO-agent re-runs a failed CI job (gh run rerun --failed) to distinguish a content-independent flaky failure from a reproducible regression BEFORE consuming a ci_failure_cycle. Reset to false on both probe outcomes (green re-run = flake, still-failing = reproducible) and on PR merge. Optional field: absent is treated as false, preserving backward compatibility with pre-#312 state files. Disabled entirely by MAKATO_LOOP_CI_FLAKE_PROBE=0."
+    },
     "halt_audit": {
       "type": "array",
       "description": "Immutable append-only log of HALT events. Each entry is written when a HALT code fires.",
@@ -232,7 +242,17 @@
     },
     "restart_failed": {
       "type": "boolean",
-      "description": "Set true by context-handoff.sh when the self-restart subprocess could not be spawned (e.g. 'claude' binary not on PATH). Triggers the HALT-007 fallback path — the issue is labelled needs-human-review and the run terminates. False in steady state."
+      "description": "Set true by context-handoff.sh when the self-restart subprocess could not be spawned (e.g. 'claude' binary not on PATH), OR when the check-pid liveness watchdog (#284) determines a spawned resume subprocess died after fork or never acknowledged startup within MAKATO_HANDOFF_ACK_TIMEOUT. Triggers the HALT-007 fallback path — the issue is labelled needs-human-review and the run terminates. False in steady state."
+    },
+    "spawned_pid": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "PID of the detached resume subprocess spawned by the HALT-007B context-handoff self-restart (#284). Written by context-handoff.sh immediately after the nohup fork, before disown, so the check-pid liveness watchdog can probe it with `kill -0`. Cleared back to null by check-pid once the resumed session confirms startup (resume_ack present and fresh). Optional for backward compatibility with state files predating #284 — readers treat an absent field as null (no handoff subprocess to supervise)."
+    },
+    "resume_ack": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "ISO-8601 timestamp (millisecond precision) written by the po-agent as its first action on resuming from a context_ceiling handoff (#284), BEFORE it clears handoff_reason. Signals that the detached resume subprocess started successfully and reached the po-agent resume path. The check-pid watchdog treats resume_ack fresher than the latest HALT-007B halt_audit entry as proof of life. Null at init and between handoffs. Optional for backward compatibility — readers treat an absent field as null."
     },
     "created_at": {
       "type": "string",

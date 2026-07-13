@@ -4,8 +4,9 @@ description: >-
   Outer loop that reads parsed sensor findings, runs a batched
   deterministic-autofix pre-pass (Phase 0) for routes with action
   `autofix` or `autofix-then-skill`, then dispatches build-resolve-finding
-  per residual finding; tier-escalates from sonnet to opus on second failure
-  for the same finding; writes JSONL audit to specs/<key>/build.jsonl.
+  per residual finding; documents an *intended* sonnet→opus tier escalation
+  on the second failure for the same finding (NOT yet wired — see Phase 1
+  note); writes JSONL audit to specs/<key>/build.jsonl.
   Triggered by build-sensors on non-zero pre-commit exit.
 model: claude-sonnet-latest[1m]
 maxTurns: 30
@@ -132,7 +133,17 @@ fi
 
 ### Phase 1 — per-finding dispatch (loop 1..MAX_LOOPS)
 
-For each residual finding, dispatch `build-resolve-finding`. On success remove the finding from the queue. On failure at loop 2, tier-escalate to opus and retry. Continue until `pre-commit run --files "${touched_files[@]}"` exits 0 or `MAX_LOOPS` is exhausted. Route remaining residuals to draft PR carry-over.
+For each residual finding, dispatch `build-resolve-finding`. On success remove the finding from the queue. On failure at loop 2, the pseudocode below *intends* to tier-escalate to opus and retry. Continue until `pre-commit run --files "${touched_files[@]}"` exits 0 or `MAX_LOOPS` is exhausted. Route remaining residuals to draft PR carry-over.
+
+> **⚠ Not yet wired (#287).** The sonnet→opus tier escalation is documented intent, not live
+> behaviour. `build-resolve-finding` is invoked via the **Skill tool**, which has no `model`
+> parameter — a skill cannot switch models mid-invocation — so the `--model "opus"` argument in
+> the pseudocode below is aspirational and has no runtime that consumes it. The `finding.model_override`
+> field (see `build-resolve-finding/SKILL.md` §2/§5) is likewise a reserved-but-inert placeholder.
+> Genuinely wiring this would require converting the per-finding dispatch to an **Agent-tool**
+> sub-agent (which does take a model). Tracked as a follow-up; today loops 2–5 stay on the
+> default model tier. Treat the `escalated` counter as "escalation *attempted* per the intended
+> policy", not "model actually changed".
 
 ```bash
 # Pseudocode — sensor-fixer Phase 1
@@ -190,7 +201,7 @@ fi
 
 Notes on Phase 1:
 - Each `build-resolve-finding` dispatch is isolated — its own subagent context window.
-- Tier escalation fires only on the second loop iteration's failure for a given finding. First-loop failures simply re-enter the queue for loop 2 at the default model. Loops 3–5 stay at the escalated tier if escalation already happened.
+- Tier escalation fires only on the second loop iteration's failure for a given finding. First-loop failures simply re-enter the queue for loop 2 at the default model. Loops 3–5 stay at the escalated tier if escalation already happened. **⚠ As noted above (#287), the model tier does not actually change at runtime** — the Skill tool has no `model` parameter. This describes the *intended* escalation policy; the `--model "opus"` retry is inert pseudocode pending an Agent-tool-based dispatch.
 - `touched_files` accumulates across all loops (Phase 0 and Phase 1).
 
 ### Audit log

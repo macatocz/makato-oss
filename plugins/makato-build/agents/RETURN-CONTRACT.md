@@ -1,6 +1,6 @@
-# R1 Return Contract — makato-build sub-agents
+# R1 Return Contract — makato suite agents
 
-> **Status**: Authoritative. Every agent in `plugins/makato-build/agents/` MUST emit an R1 JSON block as the final element of its output. Callers MUST parse the last fenced ` ```json ` block in the agent message — no prose parsing.
+> **Status**: Authoritative. Every agent in the makato suite that emits structured output MUST emit an R1 JSON block as the final element of its output. Callers MUST parse the last fenced ` ```json ` block in the agent message — no prose parsing.
 
 ## Why this exists
 
@@ -75,12 +75,12 @@ If `schema != "r1"` or the JSON does not parse: the caller MUST treat the dispat
 
 ### `diff-reviewer.md` (model: sonnet, read-only)
 
-- `status: "success"` — review completed, zero CRITICAL findings.
-- `status: "failure"` — review completed but CRITICAL findings remain (the calling `/review` skill must apply fixes).
+- `status: "success"` — review completed, zero CRITICAL and zero MAJOR findings.
+- `status: "failure"` — review completed but CRITICAL or MAJOR findings remain (the calling `/build-review` skill applies fixes: CRITICAL always; MAJOR in autonomous mode).
 - `status: "partial"` — review could not cover all CHANGED_FILES (e.g. a file could not be read).
 - `files_changed: []`, `tests_written: []` (agent is read-only).
-- `errors` — every CRITICAL finding as `"<file>:<line> — <description>"`. Empty when `status: "success"`.
-- `data` keys: `{ "pass_number": N, "critical_count": N, "suggestion_count": N, "nitpick_count": N, "files_reviewed": N }`.
+- `errors` — every CRITICAL and MAJOR finding as `"<file>:<line> — [<severity>][<category>] <description>"` (severity prefix lets the caller route CRITICAL vs MAJOR). Empty when `status: "success"`.
+- `data` keys: `{ "pass_number": N, "critical_count": N, "major_count": N, "suggestion_count": N, "nitpick_count": N, "files_reviewed": N }`.
 
 ### `sensor-fixer.md` (model: sonnet)
 
@@ -117,6 +117,27 @@ If `schema != "r1"` or the JSON does not parse: the caller MUST treat the dispat
 - `errors: []` on success; on partial/failure: short reason strings.
 - `data` keys: `{ "project_type": "...", "config_files_read": N, "build": "...", "lint": "...", "unit": "...", "integration": "...", "coverage": "...", "java_version_required": "...", "lint_ci_divergence": true|false }`.
 
+### `scout.md` (plugin: `makato-orchestrate`, model: haiku, read-only)
+
+- `status: "success"` — at least one file was read and the summary is non-empty.
+- `status: "partial"` — some pre-read files could not be read AND the resulting summary covers fewer than half of `CHANGED_FILES`.
+- `status: "failure"` — dispatch bundle missing a required field, OR every pre-read attempt failed (zero readable files).
+- `files_changed: []`, `tests_written: []` (agent is read-only).
+- `errors: []` on `status: "success"`; on `status: "partial"`: names of unreadable files; on `status: "failure"`: `["missing input: <field>"]` or `["no readable files"]`.
+- `data` keys:
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `key_patterns` | `string[]` | ≤ 3 short sentences describing dominant existing patterns in the production files the coder should mirror. Empty array when `CHANGED_FILES` is empty or no files were readable. |
+| `naming_conventions` | `object` | Observed naming convention categories (`class`, `method`, `test_class`, `test_method`, etc.) → 1-line description. Empty object when nothing observable. |
+| `test_file_paths` | `string[]` | Project-relative paths of test files the coder should write to (one per production file in `CHANGED_FILES`). Includes predicted paths for not-yet-existing test files. |
+| `existing_exports` | `string[]` | `"<file>::<symbol>"` strings listing top-level exported symbols from each production file read. Capped at 20 entries. |
+| `warnings` | `string[]` | Anomalies: truncation, inconsistent naming, oversize files (>1500 lines), unexpected language mix. |
+| `files_read` | `integer` | Count of files actually read this run (0 on failure). |
+| `truncated` | `boolean` | `true` when `CHANGED_FILES` entries were dropped to stay within the 8-file cap. |
+
+**Caller fallback contract**: callers MUST tolerate `status: "failure"` without halting. On failure: log a `warn` entry to `build.jsonl` (`step: "scout-skipped"`) and dispatch coder without `SCOUT_SUMMARY`. On `status: "partial"`: forward the partial `data` payload and log a `warn` entry naming unreadable files. The scout is advisory — a scout failure must never block a sub-task that `knowledge-scout` already greenlit at plan time.
+
 ## Examples
 
 ### Example — `coder` success
@@ -148,24 +169,25 @@ If `schema != "r1"` or the JSON does not parse: the caller MUST treat the dispat
 }
 ```
 
-### Example — `diff-reviewer` failure (CRITICAL findings remain)
+### Example — `diff-reviewer` failure (CRITICAL + MAJOR findings remain)
 
 ```json
 {
   "schema": "r1",
   "agent": "diff-reviewer",
   "status": "failure",
-  "summary": "2 CRITICAL findings: missing null-check on user input; SQL string concat.",
+  "summary": "1 CRITICAL, 1 MAJOR: SQL string concat; unguarded null-deref on rare path.",
   "files_changed": [],
   "tests_written": [],
   "errors": [
-    "src/api/UserController.java:42 — [security] raw user-supplied id concatenated into JPQL query",
-    "src/api/UserController.java:67 — [correctness] missing null-check before .toLowerCase()"
+    "src/api/UserController.java:42 — [CRITICAL][security] raw user-supplied id concatenated into JPQL query",
+    "src/api/UserController.java:67 — [MAJOR][correctness] missing null-check before .toLowerCase() reachable when header absent"
   ],
   "tool_calls_used": 14,
   "data": {
     "pass_number": 1,
-    "critical_count": 2,
+    "critical_count": 1,
+    "major_count": 1,
     "suggestion_count": 4,
     "nitpick_count": 1,
     "files_reviewed": 3

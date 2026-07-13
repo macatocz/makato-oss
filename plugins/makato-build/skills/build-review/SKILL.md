@@ -1,11 +1,11 @@
 ---
 name: build-review
 description: >-
-  Adversarial quality review of the branch diff — CRITICAL findings
-  are fixed and the review loops until clean. Auto-fixes mechanical
-  issues (formatting, imports). Reports SUGGESTION and NITPICK
-  findings. Autonomous. Use after simplify, before verify.
-version: "1.3.3"
+  Adversarial quality review of the branch diff — CRITICAL and (in
+  autonomous mode) MAJOR findings are fixed and the review loops until
+  clean. Auto-fixes mechanical issues (formatting, imports). Reports
+  SUGGESTION and NITPICK findings. Autonomous. Use after simplify, before verify.
+version: "1.4.0"
 model: opus
 argument-hint: "[work-item-key]"
 
@@ -63,34 +63,45 @@ Dispatch the `diff-reviewer` agent with:
 - `PLAN_CONTEXT`: acceptance criteria and task list extracted from `plan.md` in the resolved spec folder in Step 1
 - `REPO_ROOT`: absolute path to the target repository root
 
-The agent applies the adversarial lens across all seven categories (correctness, edge cases, error handling, security, contract, test coverage, optimizations) and returns findings classified as CRITICAL, SUGGESTION, or NITPICK with source-anchored evidence.
+The agent applies the adversarial lens across all seven categories (correctness, edge cases, error handling, security, contract, test coverage, optimizations) and returns findings classified as CRITICAL, MAJOR, SUGGESTION, or NITPICK with source-anchored evidence.
 
 Log:
 ```
-{"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"analyze","status":"ok","data":{"pass":<N>,"critical":<N>,"suggestion":<N>,"nitpick":<N>}}
+{"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"analyze","status":"ok","data":{"pass":<N>,"critical":<N>,"major":<N>,"suggestion":<N>,"nitpick":<N>}}
 ```
 
 ---
 
-### Step 5 — CRITICAL loop and zero-findings gate
+### Step 5 — Blocking-findings loop and zero-findings gate
 
-**If CRITICAL findings exist:**
+**What counts as blocking** depends on mode:
+- **CRITICAL findings are always blocking** — in both interactive and autonomous mode.
+- **MAJOR findings are blocking in autonomous mode only.** With no human at the prompt, a correctness-adjacent MAJOR would otherwise reach the PR ungated (issue #290). In autonomous mode MAJOR re-triggers the fix loop exactly as CRITICAL does. In interactive mode MAJOR is advisory — reported in Step 6 alongside SUGGESTION so the user decides.
+
+Autonomous mode is detected via the standard triggers in `plugins/makato-build/AUTONOMOUS-MODE.md` § *Activation triggers* (`--autonomous`, `task_id` in the dispatch bundle, or `$AGENT_ID` exported).
+
+**If blocking findings exist** (CRITICAL always; MAJOR when autonomous):
 Fix each one. For logic issues, fix the production code. For missing test coverage, add
 the test.
 
-Before fixing each CRITICAL finding, log it:
+Before fixing each blocking finding, log it:
 ```
-{"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"critical-finding","status":"warn","data":{"pass":<N>,"finding":<id>,"file":"<path>","category":"<type>","description":"<one line>"}}
+{"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"blocking-finding","status":"warn","data":{"pass":<N>,"severity":"CRITICAL"|"MAJOR","finding":<id>,"file":"<path>","category":"<type>","description":"<one line>"}}
 ```
 
 Log each fix:
 ```
-{"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"fix-critical","data":{"finding":<id>,"file":"<path>"}}
+{"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"fix-blocking","data":{"severity":"CRITICAL"|"MAJOR","finding":<id>,"file":"<path>"}}
+```
+
+In autonomous mode, also emit an `autonomous_bypass` audit entry the first time a MAJOR is auto-fixed on a pass (the interactive path would have deferred the decision to the user):
+```bash
+shared/log-bypass.sh build-review "<key>" major-autofix apply-in-loop "$TRIGGER"
 ```
 
 Return to Step 4. Increment the pass counter.
 
-**If zero CRITICAL findings on the first pass:**
+**If zero blocking findings on the first pass:**
 Treat zero findings as suspicious when the changed LOC count (from `git diff "$DEFAULT_REF...HEAD" --stat`) exceeds 50. For diffs ≤ 50 LOC, a clean first pass is plausible and the citation record still applies. For diffs > 50 LOC, perform a source-anchored recheck:
 for every changed file, produce a citation record confirming it is clean:
 
@@ -109,14 +120,14 @@ Log:
 
 Return to Step 4 if the source-anchored recheck surfaces new findings.
 
-**If zero CRITICAL findings on any pass after the first, or the recheck confirms clean:**
+**If zero blocking findings on any pass after the first, or the recheck confirms clean:**
 Proceed to Step 5.5.
 
 ---
 
 ### Step 5.5 — Re-run mechanical fixes after CRITICAL loop
 
-CRITICAL fixes can introduce formatting drift (e.g. a multi-line fix that the formatter would rewrite). Re-apply the same mechanical fix pass from Step 3 — formatter, unused imports, trailing whitespace — before the final report. This ensures the working tree is clean when `/build-push-to-git` stages files.
+CRITICAL fixes can introduce formatting drift (e.g. a multi-line fix that the formatter would rewrite). Re-apply the same mechanical fix pass from Step 3 — formatter, unused imports, trailing whitespace — before the final report. This ensures the working tree is clean when `/build-push-to-git` stages files. (MAJOR fixes applied in autonomous mode are subject to the same re-run.)
 
 Log:
 ```
@@ -129,6 +140,7 @@ Log:
 
 Present the clean-run findings to the user:
 
+- **MAJOR findings** — correctness-adjacent defects below the CRITICAL bar. In **autonomous mode** these were already fixed in the Step 5 loop, so this list is empty on a clean run; if any MAJOR survives (e.g. a fix was reverted), it is reported here and the run should not be treated as clean. In **interactive mode** MAJOR findings are advisory: list them with file, line, and description. The user SHOULD address them before `/verify` — they are more than preferences — but they do not hard-block the interactive pipeline.
 - **SUGGESTION findings** — list with file, line, description. The user may address these
   before `/verify` if desired; they do not block.
 - **NITPICK findings** — list with file, line, description. Purely informational.
@@ -136,10 +148,10 @@ Present the clean-run findings to the user:
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"session","status":"ok","data":{"passes":<N>,"criticals_fixed":<N>,"suggestions":<N>,"nitpicks":<N>}}'
+shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"session","status":"ok","data":{"passes":<N>,"criticals_fixed":<N>,"majors_fixed":<N>,"majors_open":<N>,"suggestions":<N>,"nitpicks":<N>}}'
 ```
 
 Tell the user:
-*"\<N\> criticals fixed across \<N\> passes. \<N\> suggestions and \<N\> nitpicks noted above.*
+*"\<N\> criticals and \<N\> majors fixed across \<N\> passes. \<N\> majors (interactive advisory), \<N\> suggestions and \<N\> nitpicks noted above.*
 *Pipeline remaining: `/build-verify` → `/build-push-to-git` → `/build-create-pr`*
 *Next: run `/build-verify` to confirm all quality gates pass."*

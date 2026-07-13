@@ -101,7 +101,11 @@ exit code as the HALT signal and reads `halt_audit[-1]` to learn which code fire
    missing). If today's cumulative ≥ `MAKATO_DAILY_TOKEN_BUDGET` (when set), append HALT-007
    with `data.trigger: "daily"`, apply `needs-human-review`, exit 1.
 5. **HALT-008** — Read `outer_iteration` from state. If `outer_iteration >= 3`, append HALT-008,
-   apply `needs-human-review`, exit 1.
+   apply `needs-human-review`, exit 1. This poll enforces **only** the re-plan budget
+   (`outer_iteration`). The two other HALT-008 origins — `merge_conflict_cycles` (GAP-016 / #45)
+   and `ci_failure_cycles` (#288) — are enforced by direct pre-dispatch checks in the PO-agent
+   (Step 6 conflict sub-loop and Step 6a CI-failure fix loop respectively), NOT here, so their
+   independent budgets are never conflated with the re-plan counter.
 
 If all five checks pass, exit 0.
 
@@ -182,7 +186,7 @@ rather than from the day's start.
 | HALT-007 (daily) | Daily ledger ≥ `MAKATO_DAILY_TOKEN_BUDGET` | Append audit, apply label, exit 1. |
 | HALT-007 (handoff fallback) | Via `context-handoff.sh` — restart_failed or cap exceeded | Append audit, apply label, exit 1. |
 | HALT-007B | Via `context-handoff.sh` — per-session delta (`consumed - session_baseline_tokens`) reached `context_warn_tokens` (#281) | Append audit, no label, exit 2. |
-| HALT-008 | `outer_iteration >= 3` | Append audit, apply label, exit 1. |
+| HALT-008 | `outer_iteration >= 3` (re-plan budget only; `merge_conflict_cycles` and `ci_failure_cycles` enforced by the PO-agent, not this poll) | Append audit, apply label, exit 1. |
 | HALT-009 | `claude-halt` label on GitHub issue | Append audit, apply label, exit 1. Preserve `claude-halt`. |
 
 See `plugins/makato-orchestrate/halt-conditions.md` for the full table including codes this

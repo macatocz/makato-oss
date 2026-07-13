@@ -39,6 +39,12 @@
 #        tracked-dirty/locked/not-landed/retained/main; ancestry-of-base reaps
 #        a renamed-head branch with no PR; untracked scratch does not pin;
 #        nested parent and nested child both skipped; disable + throttle
+#   T39–T42: board-poll rate-limit resilience (#289) — retry rides out a
+#        transient blip; exhaustion returns non-zero + empty stdout; cmd_poll
+#        propagates failure as rc 75; run --once stamps a transient-error state
+#        (poll_healthy=false, last_poll_error) instead of a false "queue empty"
+#   T44–T48: stale-crash reaper (#320) — dead-pid reap, live-pid skip, age gate,
+#        unpushed-commits gate, REAP_STALE_FORCE=1 override
 #
 # A fixture file is injected via MAKATO_LOOP_GH_OVERRIDE so `gh` is not
 # invoked. Test isolation uses MAKATO_LOOP_STATE_DIR + ephemeral spec
@@ -219,6 +225,69 @@ if jq -e '[.[] | select(.issue == null)] | length > 0' <<<"$queue" >/dev/null; t
   fail "DraftIssue leaked into the queue"
 fi
 echo "  ✓ DraftIssue excluded (Issue-only)"
+
+# ---------------------------------------------------------------------------
+# #289 — board-poll rate-limit / transient-failure resilience. The poll must
+# retry with backoff and distinguish "poll failed" from "queue empty" so a
+# 429'd loop never masquerades as idle. Fully offline via MAKATO_LOOP_POLL_TEST_CMD
+# (replaces the real `gh` call) + MAKATO_LOOP_SLEEP_CMD=true (skip backoff waits).
+# ---------------------------------------------------------------------------
+echo "=== T39: _gh_project_item_list retries then succeeds (transient blip) ==="
+# Fail attempts 1-2, succeed on attempt 3. With POLL_RETRIES default 3 the
+# wrapper must ride out the blip and return the payload with rc 0.
+t39_cmd='if [ "$MAKATO_LOOP_POLL_ATTEMPT" -lt 3 ]; then exit 22; else echo "{\"items\":[{\"content\":{\"type\":\"Issue\",\"number\":777}}]}"; fi'
+t39_out="$(MAKATO_LOOP_TEST_HOOK=1 MAKATO_LOOP_SLEEP_CMD=true MAKATO_LOOP_POLL_TEST_CMD="$t39_cmd" \
+  "$LOOP" _test-gh-item-list github.com 4 macatocz 2>/dev/null)" \
+  || fail "T39: wrapper should return 0 when a later retry succeeds"
+jq -e '.items[0].content.number == 777' <<<"$t39_out" >/dev/null \
+  || fail "T39: wrapper must emit the successful attempt's payload; got: $t39_out"
+echo "  ✓ retried past 2 failures and returned the payload"
+
+echo "=== T40: _gh_project_item_list exhausts retries → non-zero, empty stdout ==="
+t40_rc=0
+t40_out="$(MAKATO_LOOP_TEST_HOOK=1 MAKATO_LOOP_SLEEP_CMD=true MAKATO_LOOP_POLL_TEST_CMD='exit 22' \
+  "$LOOP" _test-gh-item-list github.com 4 macatocz 2>/dev/null)" || t40_rc=$?
+[[ $t40_rc -ne 0 ]] || fail "T40: wrapper must return non-zero when every attempt fails"
+[[ -z "$t40_out" ]] || fail "T40: wrapper must emit NOTHING on stdout on exhaustion (no fake empty payload); got: $t40_out"
+echo "  ✓ exhaustion returns non-zero with empty stdout (no empty-queue masking)"
+
+echo "=== T41: cmd_poll propagates poll failure as rc 75 (not empty queue) ==="
+T41_CFG="$STATE_DIR/t41-config.json"
+jq -n '{github_project:{owner:"macatocz",number:4,host:"github.com"}}' >"$T41_CFG"
+t41_rc=0
+# Unset MAKATO_LOOP_GH_OVERRIDE (exported globally above) so cmd_poll takes the
+# real gh path — routed here through MAKATO_LOOP_POLL_TEST_CMD — instead of the
+# offline fixture, which would succeed and mask the failure branch under test.
+t41_out="$(MAKATO_LOOP_GH_OVERRIDE= MAKATO_LOOP_CONFIG="$T41_CFG" MAKATO_LOOP_SLEEP_CMD=true \
+  MAKATO_LOOP_POLL_TEST_CMD='exit 22' \
+  "$LOOP" poll Ready 2>/dev/null)" || t41_rc=$?
+[[ $t41_rc -eq 75 ]] || fail "T41: cmd_poll must exit 75 (EX_TEMPFAIL) on poll failure; got rc=$t41_rc"
+[[ -z "$t41_out" ]] || fail "T41: cmd_poll must not print a fabricated empty array on failure; got: $t41_out"
+echo "  ✓ failed poll surfaces rc 75, does not print an empty queue"
+
+echo "=== T42: run --once on failed poll stamps transient-error state, no idle-dispatch ==="
+T42_STATE="$STATE_DIR/t42"; mkdir -p "$T42_STATE"
+T42_CFG="$STATE_DIR/t42-config.json"
+jq -n '{github_project:{owner:"macatocz",number:4,host:"github.com"}}' >"$T42_CFG"
+rm -f "$HALT_FILE"
+# MAKATO_LOOP_GH_OVERRIDE unset here too — the run's poll must hit the failing
+# MAKATO_LOOP_POLL_TEST_CMD, not the offline fixture.
+t42_out="$(MAKATO_LOOP_GH_OVERRIDE= MAKATO_LOOP_STATE_DIR="$T42_STATE" MAKATO_LOOP_CONFIG="$T42_CFG" \
+  MAKATO_HALT_FILE="$HALT_FILE" MAKATO_LOOP_SLEEP_CMD=true \
+  MAKATO_LOOP_POLL_TEST_CMD='exit 22' MAKATO_LOOP_REAP_ON_POLL=0 \
+  MAKATO_LOOP_POLL_ERROR_BACKOFF=0 \
+  "$LOOP" run --once --status Ready 2>&1)" \
+  || fail "T42: run --once should exit 0 even when the poll fails; out: $t42_out"
+grep -q "board poll FAILED" <<<"$t42_out" \
+  || fail "T42: a failed poll must log 'board poll FAILED'; got: $t42_out"
+grep -q "queue empty" <<<"$t42_out" \
+  && fail "T42: a failed poll must NOT log 'queue empty' (that is the #289 bug); got: $t42_out"
+jq -e '.poll_healthy == false' "$T42_STATE/loop-status.json" >/dev/null \
+  || fail "T42: loop-status.json must record poll_healthy=false after a failed poll"
+jq -e '.last_poll_error != null' "$T42_STATE/loop-status.json" >/dev/null \
+  || fail "T42: loop-status.json must stamp last_poll_error after a failed poll"
+echo "  ✓ transient-error state recorded; no false 'queue empty' idle"
+
 
 # ---------------------------------------------------------------------------
 # Watchdog scenarios (#164). We spawn a genuinely-hung child via
@@ -780,7 +849,8 @@ cat >"$promote_fixture" <<'PROMOTEJSON'
   {"number": 602, "labels": [{"name": "status:ready-for-dev"}, {"name": "status:blocked"}]},
   {"number": 603, "labels": [{"name": "status:ready-for-dev"}, {"name": "triage"}]},
   {"number": 604, "labels": [{"name": "status:ready-for-dev"}, {"name": "experimental"}]},
-  {"number": 605, "labels": [{"name": "status:ready-for-dev"}, {"name": "autonomous:halt"}]}
+  {"number": 605, "labels": [{"name": "status:ready-for-dev"}, {"name": "autonomous:halt"}]},
+  {"number": 606, "labels": [{"name": "status:ready-for-dev"}, {"name": "needs-human-review"}]}
 ]
 PROMOTEJSON
 
@@ -792,11 +862,11 @@ promote_out="$(
 )" || fail "T28: promote-ready should exit 0; got: $promote_out"
 grep -q "would promote #601" <<<"$promote_out" \
   || fail "T28: plain ready issue #601 should be promoted; got: $promote_out"
-for skip in 602 603 604 605; do
+for skip in 602 603 604 605 606; do
   grep -q "would promote #${skip}" <<<"$promote_out" \
     && fail "T28: excluded issue #${skip} must NOT be promoted; got: $promote_out"
 done
-echo "  ✓ only the non-excluded ready issue is promoted; blocked/triage/experimental/halt skipped"
+echo "  ✓ only the non-excluded ready issue is promoted; blocked/triage/experimental/halt/needs-human-review skipped"
 
 echo
 echo "=== ALL TESTS PASSED ==="
@@ -1216,5 +1286,176 @@ grep -q "would remove .*child-wt" <<<"$reap6_out" \
   && fail "T38: nested child must NOT be a removal candidate; got: $reap6_out"
 echo "  ✓ both the nesting parent and the nested child are skipped"
 
+
 echo
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265) ==="
+echo "=== T43: watchdog ownership guard prevents orphaned-writer state resurrection (#312) ==="
+# Regression for the T30 loop-smoke flake. An orphaned _watchdog_poll (its
+# parent cmd_dispatch was TERM'd mid-`wait`, reparenting the poll to init)
+# used to keep calling _patch_status against a loop-status.json that a LATER
+# dispatch had already cleared to active_workflow=null. jq's null-path
+# autovivification (`.active_workflow.killed_by_watchdog = true` on a null
+# node → {active_workflow:{killed_by_watchdog:true}}) resurrected the key,
+# so T30's `jq -e '.active_workflow == null'` intermittently failed on CI
+# while passing locally (platform-timing-dependent). The fix gates every
+# watchdog active_workflow write behind a CAS on active_workflow.issue
+# (_wd_owns_active). This test drives that predicate DETERMINISTICALLY via
+# the _test-wd-guarded-write hook — no process timing, so the regression
+# test is not itself flaky (the exact anti-pattern under repair).
+T43_STATE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/t39-state"
+mkdir -p "$T43_STATE"
+
+# Case A — foreign slot (a later dispatch cleared it to null): the guard must
+# BLOCK the write; active_workflow stays null (no resurrection).
+printf '%s\n' '{"active_workflow":null}' >"$T43_STATE/loop-status.json"
+t43_out="$(MAKATO_LOOP_STATE_DIR="$T43_STATE" MAKATO_LOOP_TEST_HOOK=1 \
+  "$LOOP" _test-wd-guarded-write 39001 2>/dev/null)"
+[[ "$t43_out" == "skipped (foreign)" ]] \
+  || fail "T43A: guard should skip a foreign-slot write; got: '$t43_out'"
+jq -e '.active_workflow == null' "$T43_STATE/loop-status.json" >/dev/null \
+  || fail "T43A: orphaned watchdog resurrected active_workflow; slot: $(cat "$T43_STATE/loop-status.json")"
+echo "  ✓ orphaned watchdog (foreign/null slot) did not resurrect active_workflow"
+
+# Case B — the slot is still owned by this issue: the guard is a no-op and the
+# legitimate watchdog write proceeds (no regression to the stall/kill audit).
+printf '%s\n' '{"active_workflow":{"issue":39002}}' >"$T43_STATE/loop-status.json"
+t43_out="$(MAKATO_LOOP_STATE_DIR="$T43_STATE" MAKATO_LOOP_TEST_HOOK=1 \
+  "$LOOP" _test-wd-guarded-write 39002 2>/dev/null)"
+[[ "$t43_out" == "wrote (owns)" ]] \
+  || fail "T43B: guard should permit an owned write; got: '$t43_out'"
+jq -e '.active_workflow.killed_by_watchdog == true' "$T43_STATE/loop-status.json" >/dev/null \
+  || fail "T43B: owned write did not land; slot: $(cat "$T43_STATE/loop-status.json")"
+echo "  ✓ ownership guard permits writes when the slot is still owned"
+
+echo
+echo "=== T44: stale-crash reap — dead owner pid + age=0 (bypass) → reaped ==="
+# REAP_STALE_AGE=0 bypasses the age gate so we can exercise the pid-dead
+# path without waiting 24h.  Worktree has no merged PR and its branch is
+# NOT an ancestor of main (it has its own commit on top).
+REAP7_ROOT="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/reap7-repo"
+REAP7_STATE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/reap7-state"
+mkdir -p "$REAP7_ROOT" "$REAP7_STATE"
+(
+  cd "$REAP7_ROOT"
+  git init -q -b main
+  git config user.email t@t.t; git config user.name t
+  git commit -q --allow-empty -m init
+  git worktree add -q -b feat/crashed "$REAP7_ROOT/.claude/worktrees/crashed-wt" 2>/dev/null
+  git -C "$REAP7_ROOT/.claude/worktrees/crashed-wt" commit -q --allow-empty -m "wip"
+  # Simulate a dead owner pid (999999999 is virtually guaranteed dead on any OS).
+  echo "999999999" >"$REAP7_ROOT/.claude/worktrees/crashed-wt/.loop-owner.pid"
+)
+# Live-pid worktree: owner pid = $$ (this shell is alive).
+(
+  cd "$REAP7_ROOT"
+  git worktree add -q -b feat/live "$REAP7_ROOT/.claude/worktrees/live-wt" 2>/dev/null
+  git -C "$REAP7_ROOT/.claude/worktrees/live-wt" commit -q --allow-empty -m "wip live"
+  echo "$$" >"$REAP7_ROOT/.claude/worktrees/live-wt/.loop-owner.pid"
+)
+REAP7_GH="$REAP7_STATE/reap7-gh.json"
+echo '{}' >"$REAP7_GH"  # no merged PRs
+reap7_dry="$(
+  cd "$REAP7_ROOT" &&
+  MAKATO_LOOP_STATE_DIR="$REAP7_STATE" \
+  MAKATO_LOOP_REAP_INTERVAL=0 \
+  MAKATO_LOOP_REAP_DRYRUN=1 \
+  MAKATO_LOOP_REAP_GH_OVERRIDE="$REAP7_GH" \
+  MAKATO_LOOP_REAP_BASE_REF="main" \
+  MAKATO_LOOP_REAP_REPO="macatocz/makato" \
+  MAKATO_LOOP_REAP_STALE_AGE=0 \
+    "$LOOP" remove-worktrees 2>&1
+)" || fail "T44: remove-worktrees dry-run should exit 0; got: $reap7_dry"
+grep -q "would remove .*/crashed-wt (stale-crashed worktree" <<<"$reap7_dry" \
+  || fail "T44: crashed-wt (dead pid) must be a removal candidate; got: $reap7_dry"
+grep -q "reap skip .*/live-wt (branch feat/live not landed; owner pid alive" <<<"$reap7_dry" \
+  || fail "T44: live-wt (live pid) must be skipped; got: $reap7_dry"
+echo "  \xe2\x9c\x93 dead-pid worktree reaped; live-pid worktree survives"
+
+echo
+echo "=== T45: stale-crash reap — age gate blocks young worktree ==="
+# Same dead-pid setup but REAP_STALE_AGE=86400 (default): worktree is
+# seconds old so it must be skipped.
+reap7_age_dry="$(
+  cd "$REAP7_ROOT" &&
+  MAKATO_LOOP_STATE_DIR="$REAP7_STATE" \
+  MAKATO_LOOP_REAP_INTERVAL=0 \
+  MAKATO_LOOP_REAP_DRYRUN=1 \
+  MAKATO_LOOP_REAP_GH_OVERRIDE="$REAP7_GH" \
+  MAKATO_LOOP_REAP_BASE_REF="main" \
+  MAKATO_LOOP_REAP_REPO="macatocz/makato" \
+  MAKATO_LOOP_REAP_STALE_AGE=86400 \
+    "$LOOP" remove-worktrees 2>&1
+)" || fail "T45: remove-worktrees dry-run should exit 0 (age gate); got: $reap7_age_dry"
+grep -q "reap skip .*/crashed-wt (branch feat/crashed not landed; worktree too young" <<<"$reap7_age_dry" \
+  || fail "T45: young worktree must be skipped by age gate; got: $reap7_age_dry"
+echo "  \xe2\x9c\x93 age gate blocks reaping of a recently-created dead-pid worktree"
+
+echo
+echo "=== T46: stale-crash reap — unpushed commits block without FORCE ==="
+# Set upstream of feat/crashed to main so the unpushed-commits check fires.
+(
+  cd "$REAP7_ROOT"
+  git -C "$REAP7_ROOT/.claude/worktrees/crashed-wt" branch --set-upstream-to=main feat/crashed 2>/dev/null || true
+)
+reap7_unpushed_dry="$(
+  cd "$REAP7_ROOT" &&
+  MAKATO_LOOP_STATE_DIR="$REAP7_STATE" \
+  MAKATO_LOOP_REAP_INTERVAL=0 \
+  MAKATO_LOOP_REAP_DRYRUN=1 \
+  MAKATO_LOOP_REAP_GH_OVERRIDE="$REAP7_GH" \
+  MAKATO_LOOP_REAP_BASE_REF="main" \
+  MAKATO_LOOP_REAP_REPO="macatocz/makato" \
+  MAKATO_LOOP_REAP_STALE_AGE=0 \
+    "$LOOP" remove-worktrees 2>&1
+)" || fail "T46: remove-worktrees dry-run should exit 0 (unpushed); got: $reap7_unpushed_dry"
+grep -q "reap skip .*/crashed-wt (branch feat/crashed not landed; unpushed commits" <<<"$reap7_unpushed_dry" \
+  || fail "T46: worktree with unpushed commits must be skipped without FORCE; got: $reap7_unpushed_dry"
+echo "  \xe2\x9c\x93 unpushed commits block stale reap without REAP_STALE_FORCE=1"
+
+echo
+echo "=== T47: stale-crash reap — REAP_STALE_FORCE=1 overrides unpushed block ==="
+reap7_force_dry="$(
+  cd "$REAP7_ROOT" &&
+  MAKATO_LOOP_STATE_DIR="$REAP7_STATE" \
+  MAKATO_LOOP_REAP_INTERVAL=0 \
+  MAKATO_LOOP_REAP_DRYRUN=1 \
+  MAKATO_LOOP_REAP_GH_OVERRIDE="$REAP7_GH" \
+  MAKATO_LOOP_REAP_BASE_REF="main" \
+  MAKATO_LOOP_REAP_REPO="macatocz/makato" \
+  MAKATO_LOOP_REAP_STALE_AGE=0 \
+  MAKATO_LOOP_REAP_STALE_FORCE=1 \
+    "$LOOP" remove-worktrees 2>&1
+)" || fail "T47: remove-worktrees dry-run should exit 0 (force); got: $reap7_force_dry"
+grep -q "would remove .*/crashed-wt (stale-crashed worktree" <<<"$reap7_force_dry" \
+  || fail "T47: REAP_STALE_FORCE=1 must allow reap despite unpushed commits; got: $reap7_force_dry"
+echo "  \xe2\x9c\x93 REAP_STALE_FORCE=1 overrides unpushed-commits block"
+
+echo
+echo "=== T48: stale-crash live removal — crashed-wt gone, live-wt survives ==="
+# Remove the upstream so the unpushed-commits check is bypassed.
+(
+  cd "$REAP7_ROOT"
+  git -C "$REAP7_ROOT/.claude/worktrees/crashed-wt" branch --unset-upstream 2>/dev/null || true
+)
+reap7_live="$(
+  cd "$REAP7_ROOT" &&
+  MAKATO_LOOP_STATE_DIR="$REAP7_STATE" \
+  MAKATO_LOOP_REAP_INTERVAL=0 \
+  MAKATO_LOOP_REAP_GH_OVERRIDE="$REAP7_GH" \
+  MAKATO_LOOP_REAP_BASE_REF="main" \
+  MAKATO_LOOP_REAP_REPO="macatocz/makato" \
+  MAKATO_LOOP_REAP_STALE_AGE=0 \
+    "$LOOP" remove-worktrees 2>&1
+)" || fail "T48: remove-worktrees (live) should exit 0; got: $reap7_live"
+reap7_list="$(cd "$REAP7_ROOT" && git worktree list --porcelain)"
+grep -q "/crashed-wt$" <<<"$reap7_list" \
+  && fail "T48: crashed-wt must have been removed; still registered"
+grep -q "/live-wt$" <<<"$reap7_list" \
+  || fail "T48: live-wt must survive (owner pid alive); got removed"
+jq -e '.last_reap_count >= 1' "$REAP7_STATE/loop-status.json" >/dev/null \
+  || fail "T48: last_reap_count should be >= 1; got $(jq -r .last_reap_count "$REAP7_STATE/loop-status.json")"
+echo "  \xe2\x9c\x93 crashed-wt removed; live-wt survives; audit count correct"
+echo
+
+echo
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320) ==="
+

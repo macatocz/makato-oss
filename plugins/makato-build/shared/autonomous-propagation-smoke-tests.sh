@@ -98,7 +98,7 @@ EOF
 chmod +x "$SUBPROC"
 
 # Case A: AGENT_ID set, no WORKTREE_PATH → expect HALT
-RESULT="$(AGENT_ID=test "$SUBPROC" 2>&1 || true)"
+RESULT="$(env AGENT_ID=test "$SUBPROC" 2>&1 || true)"
 if [[ "$RESULT" == "AUTONOMOUS_HALT" ]]; then
   _pass "AGENT_ID set alone routes to autonomous-mode HALT"
 else
@@ -114,6 +114,31 @@ else
 fi
 
 rm -f "$SUBPROC"
+
+# ----- T-PRIOR-LESSONS: PRIOR_LESSONS reaches the coder (#287) -----
+# GAP-015 lesson-recall is only effective if PRIOR_LESSONS is actually forwarded
+# on the last hop. Assert it appears in build-implement-tdd Step 6's dispatch
+# bundle AND in coder.md's Input table — the two sites an LLM reads as the
+# authoritative dispatch contract.
+echo "T-PRIOR-LESSONS: PRIOR_LESSONS forwarded on the build-implement-tdd → coder hop (#287)"
+TDD_MD="$PLUGIN_DIR/skills/build-implement-tdd/SKILL.md"
+CODER_MD="$PLUGIN_DIR/agents/coder.md"
+
+# The Step 6 dispatch-bundle list is the region between "### Step 6" and "#### Pre-flight".
+STEP6_BLOCK="$(awk '/^### Step 6/{f=1} f{print} /^#### Pre-flight scout dispatch/{if(f)exit}' "$TDD_MD")"
+if grep -q 'PRIOR_LESSONS' <<<"$STEP6_BLOCK"; then
+  _pass "PRIOR_LESSONS listed in build-implement-tdd Step 6 dispatch bundle"
+else
+  _fail "PRIOR_LESSONS NOT in Step 6 dispatch bundle — GAP-015 lessons never reach the coder"
+fi
+
+# coder.md Input table is the region between "## Input" and the next "## " heading.
+CODER_INPUT="$(awk '/^## Input/{f=1;next} /^## /{if(f)exit} f{print}' "$CODER_MD")"
+if grep -q 'PRIOR_LESSONS' <<<"$CODER_INPUT"; then
+  _pass "PRIOR_LESSONS documented in coder.md Input table"
+else
+  _fail "PRIOR_LESSONS NOT in coder.md Input table — coder spec drops the field"
+fi
 
 echo ""
 if [[ $FAIL -eq 0 ]]; then

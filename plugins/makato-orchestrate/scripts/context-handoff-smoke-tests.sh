@@ -24,6 +24,15 @@
 #   T8:  resumed session below the delta threshold → no-op (storm prevented)
 #   T9:  delta above threshold still hands off; baseline advances to consumed
 #   T10: absent session_baseline_tokens (pre-#281 state) defaults to 0
+#
+# Plus four #284 liveness-watchdog tests (spawned_pid recorded on the live
+# fork; check-pid supervises the resumed subprocess):
+#   T11: live fork (non-dry-run) records spawned_pid in workflow-state
+#   T12: check-pid clears the pid when a fresh resume_ack is present (healthy)
+#   T13: check-pid fires HALT-007 when the pid is alive but no ack within timeout
+#   T14: check-pid fires HALT-007 immediately when the pid is dead (no wait)
+#   T15: check-pid is idempotent — after a fallback fires it clears spawned_pid,
+#        so a re-check on the same state no-ops (no duplicate HALT-007 audit)
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
@@ -85,6 +94,9 @@ HANDOFF_AFTER=$("$WS" read "$KEY" "$ISSUE" | jq -r '.handoff_reason')
 echo "  ✓ no mutation, no resume script"
 
 echo "=== T2: threshold crossed, restart succeeds (dry-run) → HANDOFF ==="
+# NB (#284): this uses MAKATO_HANDOFF_DRY_RUN=1, which exits BEFORE the nohup
+# fork, so spawned_pid is intentionally NOT written here. The live-fork PID
+# recording is exercised by T11 (the only test that runs the real fork).
 _init_state 160000 0 yes
 set +e
 MAKATO_CLAUDE_BIN="$STUB_CLAUDE" MAKATO_HANDOFF_DRY_RUN=1 \
@@ -181,6 +193,7 @@ echo "  ✓ delta 20k < 150k → no-op; no second handoff, baseline/session_coun
 echo "=== T9: #281 — delta above threshold still hands off (baseline honoured) ==="
 # consumed=480k, baseline=300k → delta=180k >= 150k: this session genuinely
 # accrued enough context pressure, so a handoff is correct.
+# NB (#284): dry-run again — no fork, so spawned_pid stays null (see T11).
 _init_state 480000 1 yes 300000
 set +e
 MAKATO_CLAUDE_BIN="$STUB_CLAUDE" MAKATO_HANDOFF_DRY_RUN=1 \
@@ -210,5 +223,121 @@ set -e
 [[ "$("$WS" read "$KEY" "$ISSUE" | jq -r '.session_baseline_tokens')" == "160000" ]]  || { echo "  ✗ FAIL: baseline not written on handoff from legacy state"; exit 1; }
 echo "  ✓ absent baseline → treated as 0, handoff fires, baseline written for next session"
 
+echo "=== T11: #284 — live fork (non-dry-run) records spawned_pid in state ==="
+# The only test that exercises the REAL nohup fork. The stub claude exits 0
+# immediately; the resume script's idempotency guard is not the point here —
+# we assert that context-handoff.sh captured $! and persisted it before disown.
+_init_state 160000 0 yes
+rm -f "$RESUME_SCRIPT"
+set +e
+MAKATO_CLAUDE_BIN="$STUB_CLAUDE" "$HANDOFF" check "$KEY" "$ISSUE" 2>/dev/null
+RC=$?
+set -e
+[[ $RC -eq 2 ]]                                                                     || { echo "  ✗ FAIL: expected exit 2 (HANDOFF), got $RC"; exit 1; }
+PID_AFTER=$("$WS" read "$KEY" "$ISSUE" | jq -r '.spawned_pid')
+[[ "$PID_AFTER" =~ ^[0-9]+$ ]]                                                       || { echo "  ✗ FAIL: spawned_pid not recorded or not an integer (got '$PID_AFTER')"; exit 1; }
+[[ "$PID_AFTER" -ge 1 ]]                                                             || { echo "  ✗ FAIL: spawned_pid not >= 1"; exit 1; }
+echo "  ✓ live fork recorded spawned_pid=$PID_AFTER before disown"
+# Reap the stub subprocess so it does not linger.
+wait "$PID_AFTER" 2>/dev/null || true
+
+# Helper: an ISO-8601 (ms, UTC) timestamp shifted by N seconds from now.
+# Positive N = future, negative N = past. Mirrors context-handoff.sh:_now.
+_ts_shift() {
+  python3 -c "import sys,datetime
+n=datetime.datetime.now(datetime.timezone.utc)+datetime.timedelta(seconds=int(sys.argv[1]))
+print(n.strftime('%Y-%m-%dT%H:%M:%S.')+f'{n.microsecond//1000:03d}Z')" "$1"
+}
+
+# Helper: seed a state file with a pending HALT-007B handoff. Args:
+#   $1 spawned_pid (JSON int or null)   $2 resume_ack (JSON string or null)
+#   $3 handoff-audit age in seconds (how far in the PAST the HALT-007B fired)
+_seed_handoff() {
+  local pid="$1" ack="$2" age="$3"
+  local hts; hts="$(_ts_shift "-${age}")"
+  _init_state 160000 1 yes 160000
+  "$WS" write "$KEY" "$ISSUE" "$("$WS" read "$KEY" "$ISSUE" | jq \
+    --argjson pid "$pid" --argjson ack "$ack" --arg hts "$hts" \
+    '.handoff_reason = "context_ceiling"
+     | .spawned_pid = $pid
+     | .resume_ack = $ack
+     | .halt_audit = [{code: "HALT-007B", ts: $hts, data: {}}]')" >/dev/null 2>&1
+}
+
+echo "=== T12: #284 — check-pid clears pid when a fresh resume_ack is present ==="
+# handoff fired 60s ago; ack written just now (fresher) → healthy resume.
+FRESH_ACK="$(_ts_shift 0)"
+_seed_handoff 424242 "\"$FRESH_ACK\"" 60
+set +e
+"$HANDOFF" check-pid "$KEY" "$ISSUE" >/dev/null 2>&1
+RC=$?
+set -e
+[[ $RC -eq 0 ]]                                                                     || { echo "  ✗ FAIL: expected exit 0 (healthy), got $RC"; exit 1; }
+[[ "$("$WS" read "$KEY" "$ISSUE" | jq -r '.spawned_pid')" == "null" ]]                        || { echo "  ✗ FAIL: spawned_pid not cleared after healthy ack"; exit 1; }
+[[ "$("$WS" read "$KEY" "$ISSUE" | jq -r '.restart_failed')" == "false" ]]                    || { echo "  ✗ FAIL: restart_failed set on a healthy resume"; exit 1; }
+echo "  ✓ fresh ack → pid cleared, no fallback"
+
+echo "=== T13: #284 — check-pid fires HALT-007 when pid alive but no ack in window ==="
+# Use this shell's own PID (guaranteed alive), handoff fired 300s ago, no ack,
+# ACK_TIMEOUT=1 → the window has elapsed. Fallback must fire.
+_seed_handoff "$$" null 300
+set +e
+MAKATO_HANDOFF_ACK_TIMEOUT=1 MAKATO_HANDOFF_SKIP_LABEL=1 \
+  "$HANDOFF" check-pid "$KEY" "$ISSUE" 2>/dev/null
+RC=$?
+set -e
+[[ $RC -eq 1 ]]                                                                     || { echo "  ✗ FAIL: expected exit 1 (fallback), got $RC"; exit 1; }
+[[ "$("$WS" read "$KEY" "$ISSUE" | jq -r '.restart_failed')" == "true" ]]                     || { echo "  ✗ FAIL: restart_failed not set on ack-timeout"; exit 1; }
+[[ "$("$WS" read "$KEY" "$ISSUE" | jq -r '.halt_audit[-1].code')" == "HALT-007" ]]            || { echo "  ✗ FAIL: HALT-007 not appended on ack-timeout"; exit 1; }
+echo "  ✓ alive pid + no ack past timeout → exit 1, restart_failed=true, HALT-007 audited"
+
+echo "=== T14: #284 — check-pid fires HALT-007 immediately when the pid is dead ==="
+# Spawn a throwaway subprocess and wait for it to exit → its PID is dead.
+# ACK_TIMEOUT is huge; the dead-pid fast path must fire WITHOUT waiting for it.
+( exit 0 ) &
+DEAD_PID=$!
+wait "$DEAD_PID" 2>/dev/null || true
+_seed_handoff "$DEAD_PID" null 5    # handoff fired only 5s ago — inside any timeout
+START_EPOCH=$(python3 -c "import time;print(int(time.time()))")
+set +e
+MAKATO_HANDOFF_ACK_TIMEOUT=999 MAKATO_HANDOFF_SKIP_LABEL=1 \
+  "$HANDOFF" check-pid "$KEY" "$ISSUE" 2>/dev/null
+RC=$?
+set -e
+END_EPOCH=$(python3 -c "import time;print(int(time.time()))")
+[[ $RC -eq 1 ]]                                                                     || { echo "  ✗ FAIL: expected exit 1 (fallback), got $RC"; exit 1; }
+[[ "$("$WS" read "$KEY" "$ISSUE" | jq -r '.restart_failed')" == "true" ]]                     || { echo "  ✗ FAIL: restart_failed not set on dead-pid"; exit 1; }
+[[ "$("$WS" read "$KEY" "$ISSUE" | jq -r '.halt_audit[-1].code')" == "HALT-007" ]]            || { echo "  ✗ FAIL: HALT-007 not appended on dead-pid"; exit 1; }
+[[ $(( END_EPOCH - START_EPOCH )) -lt 10 ]]                                          || { echo "  ✗ FAIL: dead-pid path waited on the timeout instead of firing immediately"; exit 1; }
+echo "  ✓ dead pid → immediate exit 1 (no timeout wait), restart_failed=true, HALT-007 audited"
+
+echo "=== T15: #284 — check-pid is idempotent after a fallback (no duplicate HALT-007) ==="
+# Regression for the repeated-fallback bug: the fallback must clear spawned_pid
+# so the NEXT loop tick short-circuits at guard (1) instead of re-firing. Seed a
+# dead-pid handoff, fire the fallback once, then re-check on the (unchanged apart
+# from the fallback's own writes) state and assert no second HALT-007 lands.
+( exit 0 ) &
+DEAD_PID2=$!
+wait "$DEAD_PID2" 2>/dev/null || true
+_seed_handoff "$DEAD_PID2" null 5
+set +e
+MAKATO_HANDOFF_ACK_TIMEOUT=999 MAKATO_HANDOFF_SKIP_LABEL=1 \
+  "$HANDOFF" check-pid "$KEY" "$ISSUE" 2>/dev/null
+RC1=$?
+set -e
+[[ $RC1 -eq 1 ]]                                                                    || { echo "  ✗ FAIL: first check-pid did not fire fallback (got $RC1)"; exit 1; }
+HALT_COUNT_1=$("$WS" read "$KEY" "$ISSUE" | jq '[.halt_audit[] | select(.code == "HALT-007")] | length')
+[[ "$("$WS" read "$KEY" "$ISSUE" | jq -r '.spawned_pid')" == "null" ]]                        || { echo "  ✗ FAIL: fallback did not clear spawned_pid"; exit 1; }
+# Second check on the same state — spawned_pid is now null, so guard (1) no-ops.
+set +e
+MAKATO_HANDOFF_ACK_TIMEOUT=999 MAKATO_HANDOFF_SKIP_LABEL=1 \
+  "$HANDOFF" check-pid "$KEY" "$ISSUE" 2>/dev/null
+RC2=$?
+set -e
+[[ $RC2 -eq 0 ]]                                                                    || { echo "  ✗ FAIL: second check-pid re-fired instead of no-op (got $RC2)"; exit 1; }
+HALT_COUNT_2=$("$WS" read "$KEY" "$ISSUE" | jq '[.halt_audit[] | select(.code == "HALT-007")] | length')
+[[ "$HALT_COUNT_1" == "$HALT_COUNT_2" ]]                                             || { echo "  ✗ FAIL: duplicate HALT-007 appended on re-check ($HALT_COUNT_1 → $HALT_COUNT_2)"; exit 1; }
+echo "  ✓ fallback cleared spawned_pid; re-check no-ops, HALT-007 count stable at $HALT_COUNT_2"
+
 echo
-echo "All 10 context-handoff smoke tests passed."
+echo "All 15 context-handoff smoke tests passed."

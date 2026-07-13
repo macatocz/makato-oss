@@ -59,6 +59,8 @@ Skill-side detection lives in the `build-*` skill's Step 1b (see `build-refine/S
 | `build-simplify` | Step 5 — per-finding approval | Asks user to approve/reject each SIMPLIFY finding | Auto-approve every `SIMPLIFY` finding (apply in Step 6). KEEP findings remain KEEP (no action). ESCALATE findings are not auto-applied — they are logged and surfaced in the R1 envelope so the PO-agent can decide whether to open a `/build-refine` session for the structural piece. |
 | `build-simplify` | Step 5 — zero-findings confirmation | Asks user to confirm zero findings | Proceed without confirmation. Log `step: "review"` with `data.zero_findings: true`. |
 | `build-simplify` | Step 7a — unverified-code-changes prompt (no test runner discovered AND ≥1 code-file change applied) | Prompts y/n before hand-off | Skip prompt entirely; emit R1 with `data.test_suite_present: false` + `data.degraded_confidence: true` so the PO-agent routes the run for elevated scrutiny. See § *No-test-runner handling in `build-simplify` is a degraded-confidence path, not a HALT*. |
+| `build-review` | Step 5 — blocking-findings loop (MAJOR tier) | MAJOR findings are advisory; reported in Step 6 for the user to address | MAJOR re-triggers the fix loop exactly as CRITICAL (auto-fix, re-review until clean). Emit an `autonomous_bypass` audit entry (`gate: major-autofix`) the first time a MAJOR is auto-fixed on a pass. See § *MAJOR findings block the autonomous review loop*. |
+| `build-implement-tdd` | Step 7 — coverage-floor acknowledgement | May proceed on a structured, human-owned "acknowledged risk" entry | No acknowledgement is possible — no human owns the risk. Log `threshold_met:false`, emit `log-bypass.sh … coverage-floor defer-to-gate5`, and defer authoritatively to `build-verify` Gate 5 (HALT-002). Never wave the miss through. See § *Coverage-floor acknowledgement is human-only; autonomous defers to Gate 5*. |
 
 ### STRUCTURAL MUST-FIX is deliberately not auto-handled
 
@@ -90,6 +92,23 @@ When `build-simplify` Step 3 dispatches `gate-scout` against a project with no r
 The non-autonomous prompt (Step 7a y/n before hand-off when code files were touched) is replaced in autonomous mode by the `degraded_confidence` signal. This mirrors the ESCALATE pattern: judgment-required decisions are surfaced upward via the R1 envelope, never silently dropped. The `BASELINE_BROKEN` HALT code remains for the **distinct** case where a test runner exists but crashes before producing pass/fail counts — that is an error, the no-runner case is not.
 
 Step 7a is a no-op when the only files touched are doc/config (`**/*.{md,yaml,yml,json,toml}`); the diff is auditable from the file list itself and no scrutiny gate is needed. `status` remains `"success"` with `degraded_confidence: true`. Any code-file touch in autonomous mode bumps the envelope to `status: "partial"` so the PO-agent treats the run as "completed, needs review."
+
+### MAJOR findings block the autonomous review loop
+
+`diff-reviewer` classifies findings on a 4-tier rubric: CRITICAL, **MAJOR**, SUGGESTION, NITPICK (see `agents/diff-reviewer.md` § *4-tier severity rubric*). MAJOR is the correctness-adjacent tier — a real but lower-likelihood bug, a missing guard currently masked by a caller, an unhandled edge case that degrades behaviour, or an untested failure path. It exists to close a specific gap (#290): before it existed, a reviewer tempted to under-rate a correctness concern as SUGGESTION ("probably won't happen") produced a non-blocking finding that reached the PR ungated.
+
+In **autonomous mode** MAJOR is blocking: `build-review` Step 5 fixes every MAJOR and re-reviews until clean, exactly as it does for CRITICAL. The `diff-reviewer` R1 returns `status:"failure"` while `critical_count > 0` OR `major_count > 0`, so the loop does not exit on an unfixed MAJOR. The first MAJOR auto-fix on a pass emits an `autonomous_bypass` entry (`gate: major-autofix`) — the interactive path would have deferred that decision to the user, so the bypass is auditable.
+
+In **interactive mode** MAJOR is advisory: reported in Step 6 alongside SUGGESTION with a stronger "you SHOULD address this" framing, but it does not hard-block the pipeline — the human decides. This mirrors the ESCALATE pattern: the tier that a human would weigh is surfaced, not silently dropped, and only the no-human path makes it mandatory.
+
+### Coverage-floor acknowledgement is human-only; autonomous defers to Gate 5
+
+`build-implement-tdd` Step 7 checks conditional coverage against the `design.md` threshold after all TDD tasks complete. On a miss it first tries to add targeted tests; if the gap survives, the two modes diverge — and neither is a silent proceed (#290):
+
+- **Interactive mode**: the gap may proceed only as a **structured, human-owned acknowledgement** — a `coverage-acknowledged` JSONL entry recording `acknowledged_by` and `reason`. A free-form "logged as a known risk" note is no longer sufficient; the acknowledgement must name who owns the risk and why. Gate 5 in `build-verify` still re-checks coverage independently.
+- **Autonomous mode**: no acknowledgement is possible — there is no human to own the risk, so the skill MUST NOT synthesise one. It logs `threshold_met:false`, emits `log-bypass.sh … coverage-floor defer-to-gate5`, and defers authoritatively to **Gate 5** in `build-verify`, which enforces `HALT-002` on `threshold_met:false` before `build-push-to-git`. Step 7 is explicitly *not* a gate itself in autonomous mode — it neither blocks the intra-build flow nor waves the miss through; it hands the authoritative decision to the terminal gate. This removes the "proceed-anyway" reading the old Step 7 wording invited.
+
+No new HALT code is introduced: the terminal enforcement remains `HALT-002` at Gate 5 (registered in `plugins/makato-orchestrate/halt-conditions.md`). Step 7's role is to stop pretending a miss can be silently acknowledged and to point unambiguously at that existing gate.
 
 ## Cross-skill propagation
 

@@ -217,7 +217,10 @@ schema_path = sys.argv[2]
 try:
     import jsonschema
 except ImportError:
-    sys.stderr.write("workflow-state: jsonschema not installed — skipping validation\n")
+    sys.stderr.write(
+        "workflow-state: WARN — jsonschema not installed; "
+        "degraded: schema-unvalidated (install jsonschema to enable full validation)\n"
+    )
     sys.exit(0)
 try:
     data = json.loads(data_str)
@@ -398,6 +401,7 @@ case "$SUBCMD" in
         context_warn_tokens: $ctx_warn,
         outer_iteration: 0,
         merge_conflict_cycles: 0,
+        ci_failure_cycles: 0,
         halt_audit: [],
         human_review_cycles: 0,
         github_pr_number: null,
@@ -407,6 +411,8 @@ case "$SUBCMD" in
         session_count: 0,
         handoff_reason: null,
         restart_failed: false,
+        spawned_pid: null,
+        resume_ack: null,
         created_at: $now,
         updated_at: $now
       }')"

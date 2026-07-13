@@ -6,7 +6,7 @@ description: >-
   Tracer bullet phase for multi-layer stories. Autonomous loop. Use
   after refine to implement-tdd a story plan, implement tdd tasks, or
   run the core build loop.
-version: "1.10.0"
+version: "1.11.0"
 model: sonnet
 argument-hint: "[work-item-key]"
 ---
@@ -28,6 +28,7 @@ When dispatched by the PO-agent (`--autonomous` mode), this skill receives a con
 
 - `<work-item-key>` — positional argument (e.g. `#123`, `GAP-085`).
 - `WORKTREE_PATH` — absolute filesystem path to the per-run git worktree the PO-agent owns. **Mandatory in autonomous mode** (see `plugins/makato-build/AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract*). The skill MUST `cd "$WORKTREE_PATH"` before any `git`, `pytest`, or file-edit operation, and forward this value to every nested `coder` dispatch in Step 6.
+- `ISSUE_NUMBER` — GitHub issue number (integer, no leading zeros). Used by the workflow-state patch call at the end of Step 6 (`workflow-state-<issue>.json`). **Mandatory in autonomous mode** when `makato-orchestrate` is present; ignored in interactive mode.
 - `--autonomous` — activation flag (also activated by `$AGENT_ID` or `task_id` bundle).
 
 Optional fields (autonomous mode):
@@ -157,6 +158,7 @@ For each `mode: tdd` task in topological order, dispatch the per-task `scout` ag
 - `CI_FAILURE_LOG`: forwarded verbatim when present in this skill's input bundle (see § *CI-failure recovery mode*). Omit when absent — the coder treats it as optional advisory diagnostic context, not a gate.
 - `RECOMMENDED_SKILLS`: forwarded verbatim when the task object from `plan.md` carries a `recommended_skills[]` field (agent-skill-routing #146). When present and non-empty, the coder agent invokes each skill before Phase 1 RED (see `coder.md` § *Skill consultation prepend*). Omit this field from the dispatch bundle when the task's `recommended_skills` is absent — do NOT pass an empty array.
 - `TEST_ORACLE`: forwarded verbatim when the Plan Analysis (from `plan-analyst`, Step 4) carries a non-empty `## Acceptance Test Oracle` section. Pass the whole section (all scenarios with their `(maps to AC-N)` annotations); the coder filters it to the task's own `**Satisfies:**` AC links and implements the matching scenarios as its RED tests (see `coder.md` § *Test oracle*). Omit this field from the dispatch bundle when the plan has no Acceptance Test Oracle section — do NOT pass an empty value. Source is the Plan Analysis output, never a re-read of `plan.md` or `stories.json`.
+- `PRIOR_LESSONS`: forwarded verbatim when present in this skill's input bundle (see § *Input* and `plugins/makato-orchestrate/agents/po-agent.md`). A JSON array of the top-3 lessons recalled by the PO-agent (GAP-015 / #37). The coder reads them as advisory context, equal in weight to `SCOUT_SUMMARY` — they never override `PLAN_CONTEXT.Hard Constraints` (see `coder.md` § *Prior lessons*). Omit this field from the dispatch bundle when it is absent or `[]` — do NOT pass an empty array. Consumers tolerate a missing key and `[]` identically.
 
 **blockedBy enforcement**: before dispatching a task, check its `blockedBy` list. Do not dispatch a task concurrently with any task whose index appears in its `blockedBy` list. A task blocked by Task N must wait until Task N's coder agent returns `status: complete` before being dispatched.
 
@@ -224,7 +226,7 @@ The coder agent runs the full RED→GREEN→INTEGRATE→VERIFY cycle for the tas
 The coder agent emits an R1 envelope as the final fenced ` ```json ` block in its message (see `plugins/makato-build/agents/RETURN-CONTRACT.md`). Parse the **last** `json`-fenced block via `JSON.parse()` — do not scrape the prose Output Format section. The R1 envelope is the authoritative contract.
 
 Map `r1.status` to action:
-- `r1.status == "success"` — task complete; proceed to the next task. The prose Output Format remains for human inspection; the R1 envelope drives the loop.
+- `r1.status == "success"` — task complete; run the cross-task regression sweep (see § *Cross-task regression sweep* below), then proceed to the next task. The prose Output Format remains for human inspection; the R1 envelope drives the loop.
 - `r1.status == "partial"` — VERIFY did not reach zero new failures. Treat as soft failure: log a warn entry, then stop the loop unless `r1.data.new_failures` is explicitly within an acknowledged threshold for this story. Recommend `/build-simplify` to triage.
 - `r1.status == "failure"` — structural escalation. The contents of `r1.errors[0]` (or `r1.summary` if empty) is the escalation reason. Stop the loop, report to user, recommend `/refine`.
 
@@ -235,6 +237,50 @@ After every coder dispatch (success or otherwise), mirror the R1 envelope into `
 ```bash
 shared/build-log.sh "<key>" '{"ts":"<ISO-8601-ms>","skill":"build-implement-tdd","story":"<key>","step":"r1","status":"<r1.status>","task":<TASK_INDEX>,"data":<entire-r1-envelope-object>}'
 ```
+
+#### Cross-task regression sweep
+
+After a successful coder R1 and after mirroring it to `build.jsonl`, run the accumulated prior-task test sweep before patching workflow-state or dispatching the next task.
+
+**Initialization**: before the first task dispatches, initialize an empty list:
+`ACCUMULATED_TEST_FILES=()` — this is a session-scoped in-memory list, carried as a variable across all task iterations in this outer loop.
+
+**Per-task sweep logic** (runs on every `r1.status == "success"` result):
+
+1. **Snapshot prior tests** — capture the current `ACCUMULATED_TEST_FILES` as `ACCUMULATED_PRIOR_TEST_FILES` (the tests from tasks 1…N-1). This snapshot is what the sweep runs against for task N.
+
+2. **Guard** — if `ACCUMULATED_PRIOR_TEST_FILES` is empty (task 1 has no prior tasks), skip the sweep entirely and go directly to step 4. No JSONL entry is emitted for the skip.
+
+3. **Run sweep** — execute the unit test command (from `gate-scout` output, already available via `PLAN_CONTEXT`) with the accumulated prior-task test files as explicit arguments:
+   ```
+   <unit_command> <ACCUMULATED_PRIOR_TEST_FILES[0]> <ACCUMULATED_PRIOR_TEST_FILES[1]> …
+   ```
+   Count the sweep failure count. Compare against `BASELINE_FAILURES` (from Step 3):
+   - **Zero new failures** (`sweep_failures − BASELINE_FAILURES == 0`): sweep passes.
+     Flush to `build.jsonl` via `shared/build-log.sh`:
+     ```bash
+     shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"cross-task-verify","status":"ok","task":<TASK_INDEX>,"data":{"sweep_tests":<N>,"new_failures":0}}'
+     ```
+     You may batch-flush the `r1` mirror entry and this `cross-task-verify` entry together using `shared/build-log.sh "<key>" --batch` (see `AUTONOMOUS-MODE.md` § *Batched logging*) to minimize overhead.
+   - **New failures detected** (`sweep_failures > BASELINE_FAILURES`): apply the fix-vs-escalate threshold:
+     - *Fixable*: the regression is a straightforward consequence of the current task's changes. Fix the code in place, re-run the sweep, emit the JSONL on pass. Do not proceed until the sweep clears.
+     - *Structural*: cannot fix without changing the implementation approach. Emit:
+       ```bash
+       shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"cross-task-verify","status":"error","task":<TASK_INDEX>,"data":{"sweep_tests":<N>,"new_failures":<M>}}'
+       ```
+       Stop the outer loop. Return R1 `status:"failure"` with `summary:"Cross-task regression detected at task <TASK_INDEX>: <M> new failure(s) in prior-task tests"`. Recommend `/refine`.
+
+4. **Accumulate** — after the sweep passes (or was skipped for task 1), add `r1.tests_written` to `ACCUMULATED_TEST_FILES` using set semantics (deduplicate by exact path). Tasks with an empty `tests_written:[]` contribute nothing.
+
+   ```
+   for path in r1.tests_written:
+     if path not in ACCUMULATED_TEST_FILES:
+       ACCUMULATED_TEST_FILES.append(path)
+   ```
+
+   The ordering (snapshot before sweep, accumulate after sweep) ensures the sweep for task N tests tasks 1…N-1 only — never task N's own tests.
+
+5. **Continue** — proceed to the `workflow-state.sh patch` call and next-task dispatch as before.
 
 When `r1.status == "success"`, also patch workflow-state so the PO-agent (GAP-006) can resume from accurate task state without re-parsing `build.jsonl`. The call is guarded — it skips silently when running in a consumer repo without the `makato-orchestrate` plugin present:
 
@@ -265,7 +311,21 @@ After all tdd tasks complete, run the full suite one final time.
 
 If `design.md` specifies a coverage threshold: check **conditional coverage** (branch/condition coverage) — not line coverage. Conditional coverage verifies that every branch of every condition has been exercised, which is the meaningful signal for logic-heavy TDD work. Line coverage alone can be satisfied without testing all branches of conditional logic.
 
-If conditional coverage is below threshold: identify uncovered branches and add targeted tests for those paths. Do not proceed until coverage is met or the gap is explicitly acknowledged and logged as a known risk.
+If conditional coverage is below threshold, first attempt to close the gap: identify uncovered branches and add targeted tests for those paths, then re-run. If coverage still falls short after that attempt, behaviour is **mode-dependent** — there is no silent-proceed path:
+
+- **Autonomous mode** (`--autonomous`, `task_id` in the dispatch bundle, or `$AGENT_ID` exported — see `plugins/makato-build/AUTONOMOUS-MODE.md` § *Activation triggers*): a coverage miss CANNOT be "acknowledged" — no human is at the prompt to own the risk. Do NOT invent an acknowledgement. Log the miss with `threshold_met:false` (below) and hand off; the terminal coverage gate is **Gate 5** in `build-verify`, which enforces `HALT-002` on `threshold_met:false` before `build-push-to-git`. Step 7 defers to Gate 5 authoritatively — it neither blocks the intra-build flow itself nor waves the miss through. To make the deferral explicit rather than implied, also emit the audit marker:
+
+  ```bash
+  shared/log-bypass.sh build-implement-tdd "<key>" coverage-floor defer-to-gate5 "$TRIGGER"
+  ```
+
+- **Interactive mode**: the gap may proceed only as an **explicitly acknowledged risk**, recorded as a structured entry — not a free-form "logged as known risk" note. Capture who acknowledged it and why, so the acknowledgement is auditable:
+
+  ```bash
+  shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"coverage-acknowledged","status":"decision","data":{"conditional_coverage":"<X>%","threshold":"<Y>%","acknowledged_by":"<user>","reason":"<one-line justification>"}}'
+  ```
+
+  An interactive acknowledgement is local to this build session; Gate 5 in `build-verify` still re-checks coverage independently and will HALT-002 if the miss is real.
 
 Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"final-verify","status":"ok","data":{"tdd_tasks_complete":<N>,"conditional_coverage":"<X>%","threshold_met":<true|false>}}'`
 

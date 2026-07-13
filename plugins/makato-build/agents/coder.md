@@ -54,6 +54,7 @@ Your dispatch prompt provides:
 | `WORKTREE_PATH` | no | Absolute filesystem path to the per-run git worktree owned by the PO-agent |
 | `RECOMMENDED_SKILLS` | no | Array of `"plugin:skill-id"` strings from `plan.md` task's `recommended_skills[]` field (agent-skill-routing #146). When present and non-empty, invoke these skills BEFORE Phase 1 RED — see § *Skill consultation prepend* below. |
 | `TEST_ORACLE` | no | Acceptance-test scenarios (Gherkin `given`/`when`/`then`/`and`) from the plan's `## Acceptance Test Oracle` section, each annotated `(maps to AC-N)`. When present, filter to this task's `**Satisfies:**` AC links and implement the matching scenarios as RED tests — see § *Test oracle* below. |
+| `PRIOR_LESSONS` | no | JSON array of the top-3 prior-session lessons recalled by the PO-agent (GAP-015 / #37), forwarded verbatim from `build-implement-tdd` Step 6. When present and non-empty, read them before Phase 1 RED as advisory context — see § *Prior lessons* below. Absent key and `[]` are treated identically (skip). |
 
 `PLAN_CONTEXT` may include:
 
@@ -123,6 +124,23 @@ Rules:
   invent scenarios, and do NOT block.
 - When `TEST_ORACLE` is absent: skip this section — derive RED tests from the task's test
   specs, AC links, and `SCOUT_SUMMARY` as before (legacy behavior).
+
+## Prior lessons (GAP-015)
+
+When `PRIOR_LESSONS` is present and non-empty in the dispatch bundle, it carries a JSON array
+of the top-3 lessons the PO-agent recalled from prior sessions (GAP-015 / #37), forwarded
+verbatim through `build-implement-tdd` Step 6. Read them **before Phase 1 RED** and let them
+inform your approach — e.g. a lesson noting a recurring flaky-test pattern, a naming pitfall,
+or a dependency that previously broke integration.
+
+Rules:
+
+- Treat each lesson as advisory context, equivalent in weight to `SCOUT_SUMMARY`. A prior
+  lesson never overrides `PLAN_CONTEXT.Hard Constraints` or `PLAN_CONTEXT.Standards`.
+- Lessons are hints, not requirements: if a lesson conflicts with the task's `TASK` spec or the
+  plan's constraints, follow the spec and the constraints.
+- When `PRIOR_LESSONS` is absent or `[]`: skip this section entirely — the two cases are
+  identical. Do NOT block, do NOT invent lessons.
 
 ## Process
 

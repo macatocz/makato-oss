@@ -1,5 +1,109 @@
 # Changelog
 
+## [0.54.3](https://github.com/macatocz/makato/compare/v0.54.2...v0.54.3) (2026-07-13)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** add stale-worktree reaping for crashed runs ([#320](https://github.com/macatocz/makato/issues/320)) ([#338](https://github.com/macatocz/makato/issues/338)) ([959ea7c](https://github.com/macatocz/makato/commit/959ea7c1f068a2cd90cb9ef922878ba18feff1b6))
+
+## [0.54.2](https://github.com/macatocz/makato/compare/v0.54.1...v0.54.2) (2026-07-13)
+
+
+### 🐛 Bug Fixes
+
+* **makato-langgraph:** cross-plugin collision gate + robust shared path resolution ([#335](https://github.com/macatocz/makato/issues/335)) ([21887ed](https://github.com/macatocz/makato/commit/21887edf1948c4ab68d2c91479ba5e3a9015c9df))
+
+## [0.54.1](https://github.com/macatocz/makato/compare/v0.54.0...v0.54.1) (2026-07-13)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** emit loud degraded warning when jsonschema missing ([#317](https://github.com/macatocz/makato/issues/317)) ([#337](https://github.com/macatocz/makato/issues/337)) ([2ac2b80](https://github.com/macatocz/makato/commit/2ac2b80e125fc327b95622aaf4d877934515dd2e))
+* **makato-orchestrate:** make _write_status atomic via same-dir mktemp ([#316](https://github.com/macatocz/makato/issues/316)) ([#336](https://github.com/macatocz/makato/issues/336)) ([3b1e0d3](https://github.com/macatocz/makato/commit/3b1e0d3cb7d3292a297f2a35c39726552b43d5ae))
+
+## [0.54.0](https://github.com/macatocz/makato/compare/v0.53.1...v0.54.0) (2026-07-13)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** dependency-aware Ready promotion ([#268](https://github.com/macatocz/makato/issues/268)) ([#327](https://github.com/macatocz/makato/issues/327)) ([daa0ef4](https://github.com/macatocz/makato/commit/daa0ef49d7f8a19c49a4aa1efdeed76153fe9d46))
+
+## [0.53.1](https://github.com/macatocz/makato/compare/v0.53.0...v0.53.1) (2026-07-13)
+
+
+### 🐛 Bug Fixes
+
+* **makato-build:** gate advisory diff-reviewer + coverage-floor escapes ([#290](https://github.com/macatocz/makato/issues/290)) ([#314](https://github.com/macatocz/makato/issues/314)) ([2005beb](https://github.com/macatocz/makato/commit/2005beb470e45cb882ac28c420518a2cf3afc857))
+
+## [0.53.0](https://github.com/macatocz/makato/compare/v0.52.9...v0.53.0) (2026-07-13)
+
+
+### ✨ Features
+
+* **makato-build:** add pre-commit gate for context-bundles.yml ([#324](https://github.com/macatocz/makato/issues/324)) ([#332](https://github.com/macatocz/makato/issues/332)) ([e5ecd39](https://github.com/macatocz/makato/commit/e5ecd395a2ea351c08da03ca1c68973ea1e66d85))
+
+
+### 🐛 Bug Fixes
+
+* **.gitignore:** re-include specs/**/build.jsonl audit trail ([#321](https://github.com/macatocz/makato/issues/321)) ([#329](https://github.com/macatocz/makato/issues/329)) ([6dd7b37](https://github.com/macatocz/makato/commit/6dd7b373e72e89db54154878831656b67d8d696e))
+
+## [0.52.9](https://github.com/macatocz/makato/compare/v0.52.8...v0.52.9) (2026-07-13)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** guard watchdog writes by ownership + flake-probe CI failures ([#312](https://github.com/macatocz/makato/issues/312)) ([#328](https://github.com/macatocz/makato/issues/328)) ([02c6ff0](https://github.com/macatocz/makato/commit/02c6ff0e11f16a58f4fce2f707486cdcbb8b9141))
+
+## [0.52.8](https://github.com/macatocz/makato/compare/v0.52.7...v0.52.8) (2026-07-13)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** retry board poll, stop treating 429 as empty queue ([#289](https://github.com/macatocz/makato/issues/289)) ([#313](https://github.com/macatocz/makato/issues/313)) ([6b17096](https://github.com/macatocz/makato/commit/6b170961a4e3e62ae2f10b5528f61c3323339ec3))
+
+## [0.52.7](https://github.com/macatocz/makato/compare/v0.52.6...v0.52.7) (2026-07-13)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** supervise HALT-007B restart subprocess liveness ([#284](https://github.com/macatocz/makato/issues/284)) ([#311](https://github.com/macatocz/makato/issues/311)) ([38b6200](https://github.com/macatocz/makato/commit/38b62004e1e456981462a804e60589f6aed644ca))
+
+## [0.52.6](https://github.com/macatocz/makato/compare/v0.52.5...v0.52.6) (2026-07-13)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** give CI-failure loop its own budget counter ([#288](https://github.com/macatocz/makato/issues/288)) ([#309](https://github.com/macatocz/makato/issues/309)) ([781c2a1](https://github.com/macatocz/makato/commit/781c2a148eb9ad8bde4a4bb96f4a7a55b2257bfb))
+
+## [0.52.5](https://github.com/macatocz/makato/compare/v0.52.4...v0.52.5) (2026-07-13)
+
+
+### 🐛 Bug Fixes
+
+* **makato-build:** reconcile documented-but-unwired mechanisms ([#287](https://github.com/macatocz/makato/issues/287)) ([#307](https://github.com/macatocz/makato/issues/307)) ([6cd6809](https://github.com/macatocz/makato/commit/6cd6809ffcf94abb62b9cf5786c1a4820e5973b3))
+
+## [0.52.4](https://github.com/macatocz/makato/compare/v0.52.3...v0.52.4) (2026-07-13)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** bound Step 6b review poll with wall-clock timeout ([#283](https://github.com/macatocz/makato/issues/283)) ([#305](https://github.com/macatocz/makato/issues/305)) ([274eecd](https://github.com/macatocz/makato/commit/274eecd0a1b1361e83edefb14b7da378abff0fb3))
+
+## [0.52.3](https://github.com/macatocz/makato/compare/v0.52.2...v0.52.3) (2026-07-13)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** exclude needs-human-review from Ready re-promotion ([#286](https://github.com/macatocz/makato/issues/286)) ([#303](https://github.com/macatocz/makato/issues/303)) ([62f6afa](https://github.com/macatocz/makato/commit/62f6afaff5cc546803b1212ab91313becaa98d78))
+
+## [0.52.2](https://github.com/macatocz/makato/compare/v0.52.1...v0.52.2) (2026-07-13)
+
+
+### 🐛 Bug Fixes
+
+* **makato-build:** add cross-task regression sweep to TDD outer loop ([#285](https://github.com/macatocz/makato/issues/285)) ([#301](https://github.com/macatocz/makato/issues/301)) ([fcff000](https://github.com/macatocz/makato/commit/fcff000dd01cf13d5f1c340607d6de916e8c8f12))
+
 ## [0.52.1](https://github.com/macatocz/makato/compare/v0.52.0...v0.52.1) (2026-07-13)
 
 

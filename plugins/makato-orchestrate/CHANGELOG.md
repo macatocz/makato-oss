@@ -5,6 +5,98 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## `promote-ready` 1.0.0 — dependency-aware Ready promotion (#268)
+
+New skill + shared script closing the "FIFO only in v1" gap left by `loop` (#33). The
+autonomous loop dispatches board `Ready` items strictly FIFO and single-threaded and ignores
+cross-issue `blocked_by` dependencies; no makato component read the dependency graph back at
+promotion time. `promote-ready` is the missing dependency-aware layer — an operator tool, run
+deliberately wave-by-wave, that decides which issues may enter the loop's `Ready` queue.
+
+- **`scripts/promote-ready.sh`** — loads the cross-issue dependency graph from
+  `specs/<slug>/created-issues.json` (`issues[].blocked_by[]`, real issue numbers); falls back to
+  `stories.json` (`stories[].dependencies.blockedBy`, story sequences translated to issue numbers
+  via `sequence → githubIssue`, warning on stories with no `githubIssue`). Reads each issue's live
+  board Status via `GH_HOST=<host> gh project item-list` (no `--hostname`; `gh project` has no host
+  flag). Computes right-now-unblocked issues (board Status ∈ {Todo, Blocked, off-board} AND every
+  `blocked_by` predecessor is `Done`), arranges topological waves, and prints a recommendation
+  (waves / promote-now / collision-deferred / still-blocked / already-progressing). On approval
+  (interactive, or `--yes`), promotes selected issues to `Status=Ready` via `gh project item-edit`
+  — **idempotent, forward-only** (never rolls a card back from Ready/In progress/In review/Done, so
+  it never races the loop claim or `issue-to-project sync-lifecycle`, #259), **warn-not-fail**.
+  `--dry-run` / the `plan` subcommand mutates nothing. Reads all ids from `.claude/config.json` →
+  `github_project` (no hardcoded IDs).
+- **plan.md collision guard (#173)** — issues sharing one `specs/<KEY>-<slug>/` folder share a
+  single `plan.md` in the main checkout (#173 isolated `workflow-state-<n>.json` but not
+  `plan.md`). The tool never recommends two same-folder issues in one pass: it keeps the lowest
+  issue number per folder and defers the rest, to be promoted after the sibling's PR merges.
+- **`scripts/promote-ready-smoke-tests.sh`** — thirteen offline scenarios (T1–T13): graph load,
+  unblocked/wave computation, non-Done blocker stays blocked, collision guard defers a same-folder
+  sibling, `--dry-run` makes no mutation (isolated via `--yes` so the dry-run gate — not the
+  non-TTY guard — is the tested gate), forward-only skip, live promote of exactly the recommended
+  set, the `stories.json` sequence→githubIssue fallback, off-board promotability, an **unfiled**
+  `stories.json` blocker keeping the dependent issue blocked, dependency-cycle termination, the
+  empty-graph `(no issues in graph)` message, and a clean no-such-slug run on bash 3.2. Fully
+  offline via `MAKATO_PROMOTE_GH_OVERRIDE` + `MAKATO_PROMOTE_EDIT_TEST_FILE` — `gh` is never
+  invoked. Wired into `.github/workflows/validate.yml`.
+- **Hardened against nine adversarially-verified defects** (independent review + verify pass):
+  a CRITICAL where an unfiled `stories.json` `blockedBy` sequence was silently dropped (dependent
+  issue wrongly appeared unblocked — now kept blocked as an unresolved predecessor); a TOCTOU where
+  `_promote_one` wrote `Ready` unconditionally and could roll a concurrently-claimed `In progress`
+  card backward (now a re-poll compare-and-set skips a card that moved off `Todo`/`Blocked` since
+  the snapshot); a topological-level miscount for cyclic graphs (cycle sentinel is now memoized so
+  parent frames don't overwrite it); the `--dry-run` test being vacuous (the non-TTY guard, not the
+  dry-run gate, was holding it — now bypassed via `--yes`, with a meta-test confirming it catches a
+  dry-run-gate regression); a bash 3.2 empty-array crash under `set -u` in `_collect_graph_files`;
+  a malformed synthesized fallback URL that silently failed `item-add` for off-board `stories.json`
+  issues (now `item-add` only with a real URL, else an actionable WARN); an inflated `issue_count`
+  in the report; and the dead empty-graph message branch.
+
+## `loop.sh` — board-poll rate-limit is no longer an unmitigated SPOF (#289)
+
+Fixes a MEDIUM-severity availability bug. The board poll (`gh project item-list`) is the loop's
+single point of contact with the GitHub API, and every caller degraded a `gh` non-zero exit to
+`echo '{"items":[]}'`. A 429 (rate-limit) or transient 5xx therefore read downstream as an
+**empty queue**: a rate-limited loop logged "queue empty" and idled the full interval while
+Ready work sat undispatched, with the audit showing a healthy idle loop and masking the outage.
+On the `_claim_board_card` re-poll the same idiom additionally warn-proceeded on an unreadable
+board, re-opening the pre-#259 double-dispatch race.
+
+- **`scripts/loop.sh`** — new `_gh_project_item_list` wrapper adds bounded exponential-backoff
+  retry (`MAKATO_LOOP_POLL_RETRIES`, default 3; `MAKATO_LOOP_POLL_BACKOFF_BASE`, default 2s) and,
+  crucially, distinguishes "poll failed" from "queue empty": on exhaustion it returns non-zero
+  and prints nothing rather than a fabricated empty payload. `cmd_poll` propagates that as rc 75
+  (`EX_TEMPFAIL`); `cmd_run` stamps a distinct transient-error state (`poll_healthy:false`,
+  `last_poll_error`) into `loop-status.json`, skips dispatch that tick, and re-polls after a short
+  `MAKATO_LOOP_POLL_ERROR_BACKOFF` (default: `--interval`) instead of the full idle interval.
+  `_claim_board_card` now SKIPs the claim (returns 1) on a failed re-poll rather than warn-
+  proceeding, so a transient read failure can never re-open the double-dispatch race.
+- **`scripts/loop-smoke-tests.sh`** — T39–T42 added: retry rides out a transient blip; exhaustion
+  returns non-zero with empty stdout; `cmd_poll` surfaces rc 75; `run --once` records the
+  transient-error state and never logs a false "queue empty". Fully offline via
+  `MAKATO_LOOP_POLL_TEST_CMD` + `MAKATO_LOOP_SLEEP_CMD=true`.
+
+---
+
+## `loop.sh` — halted issue excluded from Ready re-promotion (#286)
+
+Fixes a MEDIUM-severity dual-source-of-truth bug. Every HALT path applies `needs-human-review`
+but never strips `status:ready-for-dev`, and the pre-poll promotion pass
+`_promote_labelled_ready` did not treat `needs-human-review` as a promotion veto. So a halted
+issue kept getting dragged back onto Status=Ready, where the in-flight guard
+(`workflow-state-<N>.json` non-done) then refused to dispatch it — leaving the card stuck on
+Ready every tick, wasting polls and obscuring the real queue until an operator intervened.
+
+- **`scripts/loop.sh`** — `needs-human-review` added to `_PROMOTE_EXCLUSION_LABELS` (the veto
+  filter that already excludes `triage experimental status:blocked autonomous:halt`). A halted,
+  human-review-pending issue is now skipped by the promotion pass until a human clears the label;
+  the recovery path (clear label → issue promotes to Ready normally) is intact.
+- **`scripts/loop-smoke-tests.sh`** — T28 extended with fixture `#606`
+  (`status:ready-for-dev` + `needs-human-review`) asserting it is NOT promoted, alongside the
+  existing four exclusion-label cases. Full loop suite passes.
+
+---
+
 ## `workflow-state.sh` — worktree-safe `specs/` resolution (#282)
 
 Fixes a HIGH-severity split-tree bug. `workflow-state.sh` resolved `REPO_ROOT` with a bare
