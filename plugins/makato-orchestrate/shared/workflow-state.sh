@@ -58,7 +58,24 @@ SUBCMD="${1:?subcommand required: init|read|write|patch|append-lesson|append-hal
 ARG2="${2:?second arg required (KEY for most subcommands, REPO for recall-lessons)}"
 KEY="$ARG2"
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
+# Resolve to the MAIN checkout's repo root — NOT the per-run worktree. The
+# entire autonomous run lives in a git worktree (NEVER 10), and specs/ is
+# gitignored, so a fresh `git worktree add` has no specs/ content. A bare
+# `git rev-parse --show-toplevel` here would resolve state files under the
+# worktree copy of specs/, while the sibling build-log.sh (which uses
+# --git-common-dir) writes build.jsonl under the main checkout — splitting the
+# state and audit trail across two disconnected trees (#282). Mirror
+# build-log.sh:34-42 exactly: derive REPO_ROOT from the COMMON git dir, which
+# always points at the main repo's .git regardless of the caller's CWD.
+GIT_COMMON_DIR="$(git rev-parse --git-common-dir 2>/dev/null || true)"
+if [[ -n "$GIT_COMMON_DIR" ]]; then
+  # `--git-common-dir` may be relative to CWD; absolutise via the parent dir.
+  REPO_ROOT="$(cd "$GIT_COMMON_DIR/.." && pwd)"
+else
+  # Outside a git repo entirely — degrade to the legacy behaviour so the
+  # script never crashes in test fixtures or scratch dirs.
+  REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+fi
 SPECS_DIR="$REPO_ROOT/specs"
 SCHEMA_PATH="$REPO_ROOT/plugins/makato-orchestrate/skills/workflow-state/references/workflow-state.schema.json"
 

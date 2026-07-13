@@ -204,7 +204,7 @@ The scout dispatch is conditional on the `makato-orchestrate` plugin
 being installed (the scout agent lives there). Detect via:
 
 ```bash
-MAKATO_ORCH="$(git rev-parse --show-toplevel)/plugins/makato-orchestrate"
+MAKATO_ORCH="$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)/plugins/makato-orchestrate"
 if [[ ! -f "$MAKATO_ORCH/agents/scout.md" ]]; then
   scout_dispatched=false  # consumer repo without makato-orchestrate; skip scout silently
 fi
@@ -239,7 +239,7 @@ shared/build-log.sh "<key>" '{"ts":"<ISO-8601-ms>","skill":"build-implement-tdd"
 When `r1.status == "success"`, also patch workflow-state so the PO-agent (GAP-006) can resume from accurate task state without re-parsing `build.jsonl`. The call is guarded — it skips silently when running in a consumer repo without the `makato-orchestrate` plugin present:
 
 ```bash
-MAKATO_ROOT="$(git rev-parse --show-toplevel)/plugins/makato-orchestrate"
+MAKATO_ROOT="$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)/plugins/makato-orchestrate"
 if [[ -x "$MAKATO_ROOT/shared/workflow-state.sh" ]]; then
   "$MAKATO_ROOT/shared/workflow-state.sh" patch "<key>" "<issue>" ".sub_tasks[$((TASK_INDEX-1))].status" '"complete"'
   "$MAKATO_ROOT/shared/workflow-state.sh" patch "<key>" "<issue>" ".sub_tasks[$((TASK_INDEX-1))].agent_result" '<r1-envelope-as-json-literal>'

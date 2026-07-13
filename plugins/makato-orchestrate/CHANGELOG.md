@@ -5,6 +5,30 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## `workflow-state.sh` — worktree-safe `specs/` resolution (#282)
+
+Fixes a HIGH-severity split-tree bug. `workflow-state.sh` resolved `REPO_ROOT` with a bare
+`git rev-parse --show-toplevel`, which returns the **worktree** path when the helper is invoked
+from inside a per-run worktree (the normal autonomous-run condition — NEVER 10). Because
+`specs/` is gitignored, a fresh `git worktree add` has no `specs/` content, so the sole-writer
+state helper wrote `workflow-state-<N>.json` under the worktree's `specs/`, while the sibling
+`build-log.sh` (already worktree-safe via `--git-common-dir`) appended `build.jsonl` under the
+main checkout's `specs/`. State and audit trail split across two disconnected trees; a resume
+from the main checkout saw `{}` and the run's audit was orphaned.
+
+- **`shared/workflow-state.sh`** — `REPO_ROOT` now derives from the COMMON git dir
+  (`git rev-parse --git-common-dir`), mirroring `plugins/makato-build/shared/build-log.sh:34-42`
+  byte-for-byte, with the same outside-a-repo fallback to `--show-toplevel`. Non-worktree
+  callers are unaffected (the common dir and top-level resolve to the same root). The intentional
+  duplication of spec-folder resolution between the two helpers (documented in AGENTS.md) is
+  preserved — one copy had been fixed to `--git-common-dir` and the other had not; this closes
+  the drift.
+- **`shared/worktree-smoke-tests.sh`** — adds T19, a hermetic regression: invokes `init` from
+  inside a real worktree and asserts the state file lands in the main checkout's `specs/`, never
+  the worktree's. 19/19 pass.
+
+---
+
 ## `context-handoff.sh` / `workflow-state` — HALT-007B evaluates per-session delta (#281)
 
 Fixes a CRITICAL restart-storm: after a HALT-007B context handoff, `budget_consumed_tokens`

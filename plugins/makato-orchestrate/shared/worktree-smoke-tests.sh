@@ -360,5 +360,26 @@ echo "=== T18: patching an unrelated field is never guarded by the .worktree_pat
   || { echo "  ✗ unrelated .current_phase patch was refused"; exit 1; }
 echo "  ✓ unrelated field passes through unchanged"
 
+echo "=== T19: workflow-state.sh resolves specs/ to the MAIN checkout when invoked from a worktree (#282) ==="
+# Regression for #282: workflow-state.sh must derive REPO_ROOT from the COMMON
+# git dir (like build-log.sh), NOT from `git rev-parse --show-toplevel` of the
+# CWD. Running from inside a worktree, an `init` must land the per-issue state
+# file under the MAIN checkout's specs/ — never under the worktree's specs/ —
+# so the sole-writer state helper and the build.jsonl audit trail share one
+# tree. Reuse the WT_T14 worktree created above.
+test -d "$WT_T14" || { echo "  ✗ pre-condition: WT_T14 worktree missing"; exit 1; }
+KEY_T19="issue-282-worktree-specs"
+ISSUE_T19=282
+# Invoke the real helper (absolute path) from INSIDE the worktree so its CWD is
+# the worktree root — the exact condition that used to mis-resolve.
+( cd "$WT_T14" && "$WS_LOCAL" init "$KEY_T19" "$REPO_NAME" "feat/282-fix" "$ISSUE_T19" ) 2>/dev/null
+MAIN_STATE="$SANDBOX/repo/specs/$KEY_T19/workflow-state-${ISSUE_T19}.json"
+WT_STATE="$WT_T14/specs/$KEY_T19/workflow-state-${ISSUE_T19}.json"
+test -f "$MAIN_STATE" \
+  || { echo "  ✗ state file not written to main checkout: $MAIN_STATE"; exit 1; }
+test ! -f "$WT_STATE" \
+  || { echo "  ✗ #282 regression: state leaked into worktree specs/ at $WT_STATE"; exit 1; }
+echo "  ✓ state resolves to main checkout from within a worktree (no split trees)"
+
 echo
-echo "All 18 worktree-lifecycle smoke tests passed."
+echo "All 19 worktree-lifecycle smoke tests passed."

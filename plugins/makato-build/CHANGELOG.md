@@ -5,6 +5,22 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## `build-implement-tdd` — worktree-safe orchestrate-root resolution (#282)
+
+Two `MAKATO_ORCH` / `MAKATO_ROOT` derivations in `build-implement-tdd/SKILL.md` (the scout-dispatch
+guard and the post-coder `workflow-state.sh patch`) used a bare `git rev-parse --show-toplevel`
+**after** the skill has already `cd`'d into `$WORKTREE_PATH`, so both resolved to the worktree
+root instead of the main checkout. Line 61 of the same skill already used the correct
+`git -C "$WORKTREE_PATH" rev-parse --git-common-dir` form; these two lagged behind it.
+
+- **`skills/build-implement-tdd/SKILL.md`** — both bare `--show-toplevel` calls now resolve
+  `MAKATO_ORCH` / `MAKATO_ROOT` via `git -C "$WORKTREE_PATH" rev-parse --git-common-dir`,
+  matching line 61 and the sibling `workflow-state.sh` fix in #282. This keeps the scout-agent
+  probe and the state-patch call pointed at the main checkout's `plugins/makato-orchestrate`
+  regardless of the worktree CWD. Companion to the makato-orchestrate `workflow-state.sh` fix.
+
+---
+
 ## F5 task-text routing — `task_contains` bundle key (#131)
 
 Adds a task-text dimension to the inject-skills resolver alongside the existing
