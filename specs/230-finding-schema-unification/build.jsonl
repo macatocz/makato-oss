@@ -1,0 +1,16 @@
+{"ts":"2026-07-11T21:12:57Z","skill":"build-start","story":"230-finding-schema-unification","step":"session-start","status":"start","data":{"mode":"tdd","local_work":false,"spec_artifacts":["prd.md","design.md","stories.json"]}}
+{"ts":"2026-07-11T21:14:07Z","skill":"build-start","story":"230-finding-schema-unification","step":"session-end","status":"ok","data":{"next":"build-refine"}}
+{"ts":"2026-07-11T21:14:25.699Z","skill":"build-refine","story":"230-finding-schema-unification","step":"session","status":"start","data":{}}
+{"ts":"2026-07-11T21:15:15.018Z","skill":"build-refine","story":"230-finding-schema-unification","step":"load-artifacts","status":"ok","data":{"path":"ticket","spec_tier":"none","trigger":"none"}}
+{"ts":"2026-07-11T21:15:15.023Z","skill":"build-refine","story":"230-finding-schema-unification","step":"extract-story","status":"ok","data":{"ac_count":3}}
+{"ts":"2026-07-11T21:15:15.027Z","skill":"build-refine","story":"230-finding-schema-unification","step":"load-knowledge-graph","status":"ok","data":{"loaded":false,"source":"none","constraints":0}}
+{"ts":"2026-07-11T21:15:15.032Z","skill":"build-refine","story":"230-finding-schema-unification","step":"explore-codebase","status":"ok","data":{"files_explored":6,"patterns_noted":3,"reusable_deps":1,"agents_md_found":true,"context_used":false}}
+{"ts":"2026-07-11T21:16:10.140Z","skill":"build-refine","story":"230-finding-schema-unification","step":"write-plan","status":"ok","data":{"tasks":4,"plan_file":"specs/230-finding-schema-unification/plan.md"}}
+{"ts":"2026-07-11T21:16:10.147Z","skill":"build-refine","story":"230-finding-schema-unification","step":"session","status":"ok","data":{"tasks":4,"mode":"tdd","plan":"specs/230-finding-schema-unification/plan.md"}}
+{"ts":"2026-07-11T21:25:43.559Z","skill":"build-implement-tdd","story":"230-finding-schema-unification","step":"session","status":"start","data":{"mode":"tdd","tasks":4}}
+{"ts":"2026-07-11T21:25:43.564Z","skill":"build-implement-tdd","story":"230-finding-schema-unification","step":"task-1-RED","status":"ok","data":{"task":"contract smoke test","file":"shared/finding-schema-smoke-test.sh","result":"12 failures as expected"}}
+{"ts":"2026-07-11T21:25:43.569Z","skill":"build-implement-tdd","story":"230-finding-schema-unification","step":"task-2-GREEN","status":"ok","data":{"task":"reference doc","file":"shared/finding-schema.md"}}
+{"ts":"2026-07-11T21:25:43.574Z","skill":"build-implement-tdd","story":"230-finding-schema-unification","step":"task-3-GREEN","status":"ok","data":{"task":"reconcile drifted artefacts + link consumers","files":5}}
+{"ts":"2026-07-11T21:25:43.578Z","skill":"build-implement-tdd","story":"230-finding-schema-unification","step":"task-4-VERIFY","status":"ok","data":{"task":"CI wiring + CHANGELOG + version + README","validate_yml":true,"build_sensors_version":"1.1.0"}}
+{"ts":"2026-07-11T21:25:43.584Z","skill":"build-implement-tdd","story":"230-finding-schema-unification","step":"verify","status":"ok","data":{"smoke":"19/19 pass","selftest":"green","yaml":"valid","residual_forbidden":0}}
+{"ts":"2026-07-11T21:25:43.588Z","skill":"build-implement-tdd","story":"230-finding-schema-unification","step":"session","status":"ok","data":{"mode":"tdd","tasks_completed":4,"ac_coverage_complete":true}}

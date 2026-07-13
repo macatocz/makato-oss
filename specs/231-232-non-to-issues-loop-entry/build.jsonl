@@ -1,0 +1,12 @@
+{"ts":"2026-07-11T21:43:15.251Z","skill":"build-start","story":"231-232-non-to-issues-loop-entry","step":"session-start","status":"start","data":{"mode":"tdd","local_work":false,"spec_artifacts":["prd.md","design.md","stories.json"]}}
+{"ts":"2026-07-11T21:43:15.251Z","skill":"build-start","story":"231-232-non-to-issues-loop-entry","step":"session-end","status":"ok","data":{"next":"build-refine"}}
+{"ts":"2026-07-11T21:44:09.718Z","skill":"build-refine","story":"231-232-non-to-issues-loop-entry","step":"session","status":"start","data":{}}
+{"ts":"2026-07-11T21:44:09.722Z","skill":"build-refine","story":"231-232-non-to-issues-loop-entry","step":"write-plan","status":"ok","data":{"tasks":4,"mode":"mixed","plan_file":"specs/231-232-non-to-issues-loop-entry/plan.md"}}
+{"ts":"2026-07-11T21:44:09.726Z","skill":"build-refine","story":"231-232-non-to-issues-loop-entry","step":"session","status":"ok","data":{"tasks":4,"mode":"mixed"}}
+{"ts":"2026-07-11T22:05:41.023Z","skill":"build-implement","story":"231-232-non-to-issues-loop-entry","step":"session","status":"start","data":{"mode":"mixed","tasks":4}}
+{"ts":"2026-07-11T22:05:41.030Z","skill":"build-implement","story":"231-232-non-to-issues-loop-entry","step":"task-1-RED","status":"ok","data":{"task":"T27 KEY-fallback smoke test","result":"RED as expected"}}
+{"ts":"2026-07-11T22:05:41.037Z","skill":"build-implement","story":"231-232-non-to-issues-loop-entry","step":"task-2-GREEN","status":"ok","data":{"task":"_derive_key_for_issue third fallback (#232)","file":"loop.sh"}}
+{"ts":"2026-07-11T22:05:41.043Z","skill":"build-implement","story":"231-232-non-to-issues-loop-entry","step":"task-3-goal","status":"ok","data":{"task":"_promote_labelled_ready + promote-ready subcommand + T28 (#231)","file":"loop.sh"}}
+{"ts":"2026-07-11T22:05:41.050Z","skill":"build-implement","story":"231-232-non-to-issues-loop-entry","step":"task-4-VERIFY","status":"ok","data":{"task":"CI wiring + docs + version 1.5.0","validate_yml":true}}
+{"ts":"2026-07-11T22:05:41.056Z","skill":"build-implement","story":"231-232-non-to-issues-loop-entry","step":"verify","status":"ok","data":{"smoke":"T1-T28 pass","yaml":"valid","shellcheck":"clean","offline":true}}
+{"ts":"2026-07-11T22:05:41.063Z","skill":"build-implement","story":"231-232-non-to-issues-loop-entry","step":"session","status":"ok","data":{"mode":"mixed","tasks_completed":4,"ac_coverage_complete":true}}

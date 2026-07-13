@@ -1,0 +1,14 @@
+{"ts":"2026-07-12T21:21:17Z","skill":"build-start","story":"272","step":"session-start","status":"start","data":{"mode":"tdd","local_work":false,"spec_artifacts":["design.md"]}}
+{"ts":"2026-07-12T21:22:10Z","skill":"build-start","story":"272","step":"session-end","status":"ok","data":{"next":"build-refine"}}
+{"ts":"2026-07-12T21:26:00.000Z","skill":"build-refine","story":"272","step":"write-plan","status":"ok","data":{"tasks":4,"oracle_scenarios":0,"plan_file":"specs/272-decompose-taxonomic-labels/plan.md"}}
+{"ts":"2026-07-12T21:26:00.000Z","skill":"build-refine","story":"272","step":"session","status":"ok","data":{"tasks":4,"mode":"mixed","plan":"specs/272-decompose-taxonomic-labels/plan.md"}}
+{"ts":"2026-07-12T22:04:08.000Z","skill":"build-refine","story":"272","step":"plan-review","status":"ok","data":{"decision":"approved","mode":"interactive"}}
+{"ts":"2026-07-12T22:05:29.000Z","skill":"build-implement-tdd","story":"272","step":"session","status":"start","data":{"tdd_tasks":1,"goal_tasks_skipped":3,"note":"inline-impl-interactive-surgical"}}
+{"ts":"2026-07-12T22:05:30.000Z","skill":"build-implement-tdd","story":"272","step":"baseline","status":"ok","data":{"pre_existing_failures":0,"baseline_mode":"proceed"}}
+{"ts":"2026-07-12T22:07:34.000Z","skill":"build-implement-tdd","story":"272","step":"r1","status":"success","task":1,"data":{"phase":"RED-GREEN-VERIFY","asserts_added":5,"total_asserts":21,"red_proof":"precedence-disabled->golden+explicit fail (2), restored->21/21"}}
+{"ts":"2026-07-12T22:08:29.000Z","skill":"build-implement-tdd","story":"272","step":"r1","status":"success","task":2,"data":{"mode":"goal","files":["to-issues/SKILL.md","label-taxonomy.md"],"change":"type: explicit-label precedence prose"}}
+{"ts":"2026-07-12T22:10:19.000Z","skill":"build-implement-tdd","story":"272","step":"r1","status":"success","task":3,"data":{"mode":"goal","files":["decompose/SKILL.md","stories-json-schema.md","stories-json-template.json"],"change":"Step7.12 type: emission + Step8 warn + schema/template"}}
+{"ts":"2026-07-12T22:12:44.000Z","skill":"build-implement-tdd","story":"272","step":"r1","status":"success","task":4,"data":{"mode":"goal","files":["decompose/SKILL.md","to-issues/SKILL.md","CHANGELOG.md","README.md"],"change":"version bumps 1.3.0/3.6.0 + changelog + readme"}}
+{"ts":"2026-07-12T22:12:44.000Z","skill":"build-implement-tdd","story":"272","step":"final-verify","status":"ok","data":{"tdd_tasks_complete":4,"smoke":"21/21","threshold_met":true}}
+{"ts":"2026-07-12T22:12:44.000Z","skill":"build-implement-tdd","story":"272","step":"session","status":"ok","data":{"tdd_tasks":4,"goal_tasks_pending":0}}
+{"ts":"2026-07-12T22:15:09.000Z","skill":"build-create-pr","story":"272","step":"session","status":"ok","data":{"pr":275,"draft":true,"commits":4,"branch":"worktree-272-decompose-taxonomic-labels"}}

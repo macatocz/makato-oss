@@ -1,0 +1,1 @@
+{"ts":"2026-07-13T18:30:33.446Z","skill":"makato-change:design","story":"324-makato-build-enhancement-add-pre-commit","step":"decision","status":"decision","data":{"halt_code":"HALT-CH-003","note":"auto-approved in autonomous mode","event":"autonomous_bypass","gate":"design-approval","bypassed":true,"default_taken":"approve","trigger":"cli_flag"}}

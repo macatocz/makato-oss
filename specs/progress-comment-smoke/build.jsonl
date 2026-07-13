@@ -1,0 +1,57 @@
+{"ts":"2026-07-12T08:18:13.989Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"ok","data":{"event":"create","detail":"created live comment id=1001"}}
+{"ts":"2026-07-12T08:18:14.239Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"warn","data":{"event":"refetch","detail":"could not fetch comment id=1001 — starting a fresh follow-up comment"}}
+{"ts":"2026-07-12T08:18:14.440Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"warn","data":{"event":"refetch-fallback","detail":"started follow-up comment id=1001"}}
+{"ts":"2026-07-12T08:18:33.592Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"ok","data":{"event":"create","detail":"created live comment id=1001"}}
+{"ts":"2026-07-12T08:18:33.772Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"ok","data":{"event":"append","detail":"appended entry to comment id=1001"}}
+{"ts":"2026-07-12T08:18:33.940Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"ok","data":{"event":"append","detail":"appended entry to comment id=1001"}}
+{"ts":"2026-07-12T08:18:34.070Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"warn","data":{"event":"refetch","detail":"could not fetch comment id=1001 — starting a fresh follow-up comment"}}
+{"ts":"2026-07-12T08:18:34.131Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"warn","data":{"event":"create","detail":"fallback create also failed on issue #999"}}
+{"ts":"2026-07-12T08:18:34.708Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"warn","data":{"event":"refetch","detail":"could not fetch comment id=424242 — starting a fresh follow-up comment"}}
+{"ts":"2026-07-12T08:18:34.947Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"warn","data":{"event":"refetch-fallback","detail":"started follow-up comment id=1002"}}
+{"ts":"2026-07-12T08:18:35.408Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"ok","data":{"event":"create","detail":"created live comment id=1003"}}
+{"ts":"2026-07-12T08:18:35.715Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"ok","data":{"event":"rollover","detail":"rolled over to follow-up comment id=1004 (prev 1003 full)"}}
+{"ts":"2026-07-12T08:26:39.662Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"ok","data":{"event":"create","detail":"created live comment id=1001"}}
+{"ts":"2026-07-12T08:26:40.000Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"ok","data":{"event":"append","detail":"appended entry to comment id=1001"}}
+{"ts":"2026-07-12T08:26:40.182Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"ok","data":{"event":"append","detail":"appended entry to comment id=1001"}}
+{"ts":"2026-07-12T08:26:40.303Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"warn","data":{"event":"refetch","detail":"could not fetch comment id=1001 — starting a fresh follow-up comment"}}
+{"ts":"2026-07-12T08:26:40.363Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"warn","data":{"event":"create","detail":"fallback create also failed on issue #999"}}
+{"ts":"2026-07-12T08:26:40.665Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"warn","data":{"event":"refetch","detail":"could not fetch comment id=424242 — starting a fresh follow-up comment"}}
+{"ts":"2026-07-12T08:26:40.890Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"warn","data":{"event":"refetch-fallback","detail":"started follow-up comment id=1002"}}
+{"ts":"2026-07-12T08:26:41.403Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"ok","data":{"event":"create","detail":"created live comment id=1003"}}
+{"ts":"2026-07-12T08:26:41.714Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"ok","data":{"event":"rollover","detail":"rolled over to follow-up comment id=1004 (prev 1003 full)"}}
+{"ts":"2026-07-12T08:27:46.242Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"ok","data":{"event":"create","detail":"created live comment id=1001"}}
+{"ts":"2026-07-12T08:27:46.415Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"ok","data":{"event":"append","detail":"appended entry to comment id=1001"}}
+{"ts":"2026-07-12T08:27:46.599Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"ok","data":{"event":"append","detail":"appended entry to comment id=1001"}}
+{"ts":"2026-07-12T08:27:46.733Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"warn","data":{"event":"refetch","detail":"could not fetch comment id=1001 — starting a fresh follow-up comment"}}
+{"ts":"2026-07-12T08:27:46.789Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"warn","data":{"event":"create","detail":"fallback create also failed on issue #999"}}
+{"ts":"2026-07-12T08:27:47.063Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"warn","data":{"event":"refetch","detail":"could not fetch comment id=424242 — starting a fresh follow-up comment"}}
+{"ts":"2026-07-12T08:27:47.280Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"warn","data":{"event":"refetch-fallback","detail":"started follow-up comment id=1002"}}
+{"ts":"2026-07-12T08:27:47.760Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"ok","data":{"event":"create","detail":"created live comment id=1003"}}
+{"ts":"2026-07-12T08:27:48.075Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"ok","data":{"event":"rollover","detail":"rolled over to follow-up comment id=1004 (prev 1003 full)"}}
+{"ts":"2026-07-12T09:10:05.373Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"ok","data":{"event":"create","detail":"created live comment id=1001"}}
+{"ts":"2026-07-12T09:10:05.568Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"ok","data":{"event":"append","detail":"appended entry to comment id=1001"}}
+{"ts":"2026-07-12T09:10:05.732Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"ok","data":{"event":"append","detail":"appended entry to comment id=1001"}}
+{"ts":"2026-07-12T09:10:05.839Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"warn","data":{"event":"refetch","detail":"could not fetch comment id=1001 — starting a fresh follow-up comment"}}
+{"ts":"2026-07-12T09:10:05.894Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"warn","data":{"event":"create","detail":"fallback create also failed on issue #999"}}
+{"ts":"2026-07-12T09:10:06.144Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"warn","data":{"event":"refetch","detail":"could not fetch comment id=424242 — starting a fresh follow-up comment"}}
+{"ts":"2026-07-12T09:10:06.341Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"warn","data":{"event":"refetch-fallback","detail":"started follow-up comment id=1002"}}
+{"ts":"2026-07-12T09:10:06.786Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"ok","data":{"event":"create","detail":"created live comment id=1003"}}
+{"ts":"2026-07-12T09:10:07.105Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"ok","data":{"event":"rollover","detail":"rolled over to follow-up comment id=1004 (prev 1003 full)"}}
+{"ts":"2026-07-12T09:10:23.446Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"ok","data":{"event":"create","detail":"created live comment id=1001"}}
+{"ts":"2026-07-12T09:10:23.620Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"ok","data":{"event":"append","detail":"appended entry to comment id=1001"}}
+{"ts":"2026-07-12T09:10:23.798Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"ok","data":{"event":"append","detail":"appended entry to comment id=1001"}}
+{"ts":"2026-07-12T09:10:23.929Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"warn","data":{"event":"refetch","detail":"could not fetch comment id=1001 — starting a fresh follow-up comment"}}
+{"ts":"2026-07-12T09:10:23.997Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"warn","data":{"event":"create","detail":"fallback create also failed on issue #999"}}
+{"ts":"2026-07-12T09:10:24.278Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"warn","data":{"event":"refetch","detail":"could not fetch comment id=424242 — starting a fresh follow-up comment"}}
+{"ts":"2026-07-12T09:10:24.477Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"warn","data":{"event":"refetch-fallback","detail":"started follow-up comment id=1002"}}
+{"ts":"2026-07-12T09:10:24.933Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"ok","data":{"event":"create","detail":"created live comment id=1003"}}
+{"ts":"2026-07-12T09:10:25.241Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"ok","data":{"event":"rollover","detail":"rolled over to follow-up comment id=1004 (prev 1003 full)"}}
+{"ts":"2026-07-12T09:14:19.991Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"ok","data":{"event":"create","detail":"created live comment id=1001"}}
+{"ts":"2026-07-12T09:14:20.174Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"ok","data":{"event":"append","detail":"appended entry to comment id=1001"}}
+{"ts":"2026-07-12T09:14:20.334Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"ok","data":{"event":"append","detail":"appended entry to comment id=1001"}}
+{"ts":"2026-07-12T09:14:20.451Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"warn","data":{"event":"refetch","detail":"could not fetch comment id=1001 — starting a fresh follow-up comment"}}
+{"ts":"2026-07-12T09:14:20.509Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"warn","data":{"event":"create","detail":"fallback create also failed on issue #999"}}
+{"ts":"2026-07-12T09:14:20.786Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"warn","data":{"event":"refetch","detail":"could not fetch comment id=424242 — starting a fresh follow-up comment"}}
+{"ts":"2026-07-12T09:14:21.002Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"warn","data":{"event":"refetch-fallback","detail":"started follow-up comment id=1002"}}
+{"ts":"2026-07-12T09:14:21.500Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"ok","data":{"event":"create","detail":"created live comment id=1003"}}
+{"ts":"2026-07-12T09:14:21.790Z","skill":"progress-comment","issue":999,"step":"progress-comment","status":"ok","data":{"event":"rollover","detail":"rolled over to follow-up comment id=1004 (prev 1003 full)"}}
