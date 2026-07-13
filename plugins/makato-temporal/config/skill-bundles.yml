@@ -1,0 +1,50 @@
+# Skill Bundles — makato-temporal
+#
+# Maps changed-file path globs (plus optional content-hint predicates) to an
+# ordered list of recommended skills that inject-skills prepends into an
+# agent's system prompt before dispatch.
+#
+# Bundle names are plugin-prefixed to avoid cross-plugin collisions in the
+# merged registry. No `default` bundle here — makato-build owns that.
+
+version: "1.0"
+
+bundles:
+  # Triggered when working on the makato-temporal plugin's own skill files.
+  # Literal segments: plugins/makato-temporal/skills → specificity ≥ 3.
+  - name: temporal-skills
+    globs:
+      - "plugins/makato-temporal/skills/**/*.md"
+    skills:
+      - temporal-development
+
+  # Triggered when working on Temporal SDK code in any supported language
+  # (Python, TypeScript, Java, Rust). All globs are wide (zero literal path
+  # segments) so a contains predicate scopes them to files that actually
+  # import a Temporal SDK. task_contains additionally routes the skill for
+  # green-field durable-execution tasks whose SDK files are not yet in the diff.
+  - name: temporal-code
+    globs:
+      - "**/*.py"
+      - "**/*.ts"
+      - "**/*.java"
+      - "**/*.rs"
+    contains:
+      - "from temporalio"
+      - "import temporalio"
+      - "@temporalio/"
+      - "io.temporal."
+      - "temporal_sdk"
+    task_contains:
+      - "temporal workflow"
+      - "temporal activity"
+      - "durable execution"
+      - "non-determinism"
+      - "continue-as-new"
+      - "saga pattern"
+      - "child workflow"
+      - "workflow signal"
+      - "workflow query"
+      - "temporal worker"
+    skills:
+      - temporal-development
