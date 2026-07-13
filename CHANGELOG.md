@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.52.4](https://github.com/macatocz/makato/compare/v0.52.3...v0.52.4) (2026-07-13)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** bound Step 6b review poll with wall-clock timeout ([#283](https://github.com/macatocz/makato/issues/283)) ([#305](https://github.com/macatocz/makato/issues/305)) ([274eecd](https://github.com/macatocz/makato/commit/274eecd0a1b1361e83edefb14b7da378abff0fb3))
+
 ## [0.52.3](https://github.com/macatocz/makato/compare/v0.52.2...v0.52.3) (2026-07-13)
 
 
