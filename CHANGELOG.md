@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.53.1](https://github.com/macatocz/makato/compare/v0.53.0...v0.53.1) (2026-07-13)
+
+
+### 🐛 Bug Fixes
+
+* **makato-build:** gate advisory diff-reviewer + coverage-floor escapes ([#290](https://github.com/macatocz/makato/issues/290)) ([#314](https://github.com/macatocz/makato/issues/314)) ([2005beb](https://github.com/macatocz/makato/commit/2005beb470e45cb882ac28c420518a2cf3afc857))
+
 ## [0.53.0](https://github.com/macatocz/makato/compare/v0.52.9...v0.53.0) (2026-07-13)
 
 
