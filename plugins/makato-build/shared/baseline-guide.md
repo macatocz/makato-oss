@@ -62,3 +62,5 @@ Throughout the session, when comparing test results to baseline:
 - New failures = current failure count − pre_existing_failures
 - Zero new failures is the gate at each VERIFY step
 - A simplification or fix that introduces even one new failure must be reverted before proceeding
+
+Cross-task sweep: the outer loop in `build-implement-tdd` Step 6 applies the same `current_failures − pre_existing_failures == 0` gate to the accumulated prior-task test set after each task. See `build-implement-tdd/SKILL.md` § *Cross-task regression sweep*.

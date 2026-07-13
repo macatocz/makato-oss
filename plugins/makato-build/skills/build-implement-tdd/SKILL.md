@@ -224,7 +224,7 @@ The coder agent runs the full RED→GREEN→INTEGRATE→VERIFY cycle for the tas
 The coder agent emits an R1 envelope as the final fenced ` ```json ` block in its message (see `plugins/makato-build/agents/RETURN-CONTRACT.md`). Parse the **last** `json`-fenced block via `JSON.parse()` — do not scrape the prose Output Format section. The R1 envelope is the authoritative contract.
 
 Map `r1.status` to action:
-- `r1.status == "success"` — task complete; proceed to the next task. The prose Output Format remains for human inspection; the R1 envelope drives the loop.
+- `r1.status == "success"` — task complete; run the cross-task regression sweep (see § *Cross-task regression sweep* below), then proceed to the next task. The prose Output Format remains for human inspection; the R1 envelope drives the loop.
 - `r1.status == "partial"` — VERIFY did not reach zero new failures. Treat as soft failure: log a warn entry, then stop the loop unless `r1.data.new_failures` is explicitly within an acknowledged threshold for this story. Recommend `/build-simplify` to triage.
 - `r1.status == "failure"` — structural escalation. The contents of `r1.errors[0]` (or `r1.summary` if empty) is the escalation reason. Stop the loop, report to user, recommend `/refine`.
 
@@ -235,6 +235,50 @@ After every coder dispatch (success or otherwise), mirror the R1 envelope into `
 ```bash
 shared/build-log.sh "<key>" '{"ts":"<ISO-8601-ms>","skill":"build-implement-tdd","story":"<key>","step":"r1","status":"<r1.status>","task":<TASK_INDEX>,"data":<entire-r1-envelope-object>}'
 ```
+
+#### Cross-task regression sweep
+
+After a successful coder R1 and after mirroring it to `build.jsonl`, run the accumulated prior-task test sweep before patching workflow-state or dispatching the next task.
+
+**Initialization**: before the first task dispatches, initialize an empty list:
+`ACCUMULATED_TEST_FILES=()` — this is a session-scoped in-memory list, carried as a variable across all task iterations in this outer loop.
+
+**Per-task sweep logic** (runs on every `r1.status == "success"` result):
+
+1. **Snapshot prior tests** — capture the current `ACCUMULATED_TEST_FILES` as `ACCUMULATED_PRIOR_TEST_FILES` (the tests from tasks 1…N-1). This snapshot is what the sweep runs against for task N.
+
+2. **Guard** — if `ACCUMULATED_PRIOR_TEST_FILES` is empty (task 1 has no prior tasks), skip the sweep entirely and go directly to step 4. No JSONL entry is emitted for the skip.
+
+3. **Run sweep** — execute the unit test command (from `gate-scout` output, already available via `PLAN_CONTEXT`) with the accumulated prior-task test files as explicit arguments:
+   ```
+   <unit_command> <ACCUMULATED_PRIOR_TEST_FILES[0]> <ACCUMULATED_PRIOR_TEST_FILES[1]> …
+   ```
+   Count the sweep failure count. Compare against `BASELINE_FAILURES` (from Step 3):
+   - **Zero new failures** (`sweep_failures − BASELINE_FAILURES == 0`): sweep passes.
+     Flush to `build.jsonl` via `shared/build-log.sh`:
+     ```bash
+     shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"cross-task-verify","status":"ok","task":<TASK_INDEX>,"data":{"sweep_tests":<N>,"new_failures":0}}'
+     ```
+     You may batch-flush the `r1` mirror entry and this `cross-task-verify` entry together using `shared/build-log.sh "<key>" --batch` (see `AUTONOMOUS-MODE.md` § *Batched logging*) to minimize overhead.
+   - **New failures detected** (`sweep_failures > BASELINE_FAILURES`): apply the fix-vs-escalate threshold:
+     - *Fixable*: the regression is a straightforward consequence of the current task's changes. Fix the code in place, re-run the sweep, emit the JSONL on pass. Do not proceed until the sweep clears.
+     - *Structural*: cannot fix without changing the implementation approach. Emit:
+       ```bash
+       shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"cross-task-verify","status":"error","task":<TASK_INDEX>,"data":{"sweep_tests":<N>,"new_failures":<M>}}'
+       ```
+       Stop the outer loop. Return R1 `status:"failure"` with `summary:"Cross-task regression detected at task <TASK_INDEX>: <M> new failure(s) in prior-task tests"`. Recommend `/refine`.
+
+4. **Accumulate** — after the sweep passes (or was skipped for task 1), add `r1.tests_written` to `ACCUMULATED_TEST_FILES` using set semantics (deduplicate by exact path). Tasks with an empty `tests_written:[]` contribute nothing.
+
+   ```
+   for path in r1.tests_written:
+     if path not in ACCUMULATED_TEST_FILES:
+       ACCUMULATED_TEST_FILES.append(path)
+   ```
+
+   The ordering (snapshot before sweep, accumulate after sweep) ensures the sweep for task N tests tasks 1…N-1 only — never task N's own tests.
+
+5. **Continue** — proceed to the `workflow-state.sh patch` call and next-task dispatch as before.
 
 When `r1.status == "success"`, also patch workflow-state so the PO-agent (GAP-006) can resume from accurate task state without re-parsing `build.jsonl`. The call is guarded — it skips silently when running in a consumer repo without the `makato-orchestrate` plugin present:
 
