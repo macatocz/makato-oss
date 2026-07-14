@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.67.0](https://github.com/macatocz/makato/compare/v0.66.0...v0.67.0) (2026-07-14)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** auto-seed tick integration, toggle, and offline smoke suite ([#373](https://github.com/macatocz/makato/issues/373)) ([#391](https://github.com/macatocz/makato/issues/391)) ([7d468db](https://github.com/macatocz/makato/commit/7d468db03621e713e7ac877aa072f535391d938d))
+
 ## [0.66.0](https://github.com/macatocz/makato/compare/v0.65.0...v0.66.0) (2026-07-14)
 
 
