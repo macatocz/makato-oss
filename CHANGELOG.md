@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.58.0](https://github.com/macatocz/makato/compare/v0.57.0...v0.58.0) (2026-07-14)
+
+
+### ✨ Features
+
+* **makato-fastapi:** initial plugin with governance and fastapi skill ([#359](https://github.com/macatocz/makato/issues/359)) ([34a010d](https://github.com/macatocz/makato/commit/34a010d4334501bf2c3c7e4d7a9c1b7dfde5f8db))
+
 ## [0.57.0](https://github.com/macatocz/makato/compare/v0.56.1...v0.57.0) (2026-07-14)
 
 
