@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.68.0](https://github.com/macatocz/makato/compare/v0.67.0...v0.68.0) (2026-07-14)
+
+
+### ✨ Features
+
+* **makato-change:** wire progress-comment narration into orchestrate skill (v1.2.0) ([#387](https://github.com/macatocz/makato/issues/387)) ([48641d2](https://github.com/macatocz/makato/commit/48641d2a2ed1258979c3a6d96b64be8f426465e9))
+
+
+### ♻️ Refactors
+
+* **makato-contribute:** remove manage-pr, consolidate into build-address-pr-comments ([#393](https://github.com/macatocz/makato/issues/393)) ([05eacef](https://github.com/macatocz/makato/commit/05eacefb12b186f4678d3601dd306c2c4a6ad492))
+
 ## [0.67.0](https://github.com/macatocz/makato/compare/v0.66.0...v0.67.0) (2026-07-14)
 
 
