@@ -20,10 +20,10 @@ bundles:
     skills:
       - create-issue
       - makato-guide
-      - zoom-out
+      - map-codebase-context
 
   # Triggered when working on AGENTS.md or CLAUDE.md governance files,
-  # where zoom-out and makato-guide apply.
+  # where map-codebase-context and makato-guide apply.
   # Literal segments: plugins/ → specificity = 1; contains filter scopes to governance.
   - name: core-governance
     globs:
@@ -32,5 +32,5 @@ bundles:
       - "plugins/*/AGENTS.md"
       - "plugins/*/CLAUDE.md"
     skills:
-      - zoom-out
+      - map-codebase-context
       - makato-guide

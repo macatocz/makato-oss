@@ -1,11 +1,11 @@
 ---
-name: zoom-out
+name: map-codebase-context
 description: Use when the user says "zoom out", "show me the big picture", "what calls this", "map the dependencies", "I don't know this area", "higher level view", "how does this module connect", or "give me context on this code". Do NOT use when already understanding the component or debugging a single file.
-version: "1.4.0"
+version: "1.5.0"
 argument-hint: "[optional: module or file name]"
 allowed-tools: Read Bash Grep Glob
 ---
-# Zoom Out
+# Map Codebase Context
 
 ## Tools
 
@@ -25,7 +25,7 @@ present a consolidated picture of scope, risk, and impact before any changes.
 
 Orientation is a prerequisite for correct action. An engineer who edits a module without
 understanding what calls it and what it calls is operating on local information in a global
-system — the change may be locally correct and globally wrong. Zoom-out exists to make the
+system — the change may be locally correct and globally wrong. This skill exists to make the
 global context explicit before any changes are made.
 
 The 2-hop limit is intentional. Transitive dependency graphs grow exponentially and model the

@@ -68,12 +68,12 @@
 
   "refactor": ["makato-build:build-simplify", "makato-build:build-grill-with-docs"],
   "refactor-extract-function": ["makato-build:build-simplify", "makato-build:build-implement-tdd"],
-  "refactor-rename": ["makato-build:build-simplify", "makato-core:zoom-out"],
-  "refactor-split-module": ["makato-build:build-simplify", "makato-core:zoom-out"],
+  "refactor-rename": ["makato-build:build-simplify", "makato-core:map-codebase-context"],
+  "refactor-split-module": ["makato-build:build-simplify", "makato-core:map-codebase-context"],
   "refactor-merge-module": ["makato-build:build-simplify", "makato-build:build-grill-with-docs"],
   "refactor-decouple": ["makato-build:build-simplify", "makato-build:build-grill-with-docs"],
   "refactor-extract-class": ["makato-build:build-simplify", "makato-build:build-implement-tdd"],
-  "refactor-move-file": ["makato-build:build-simplify", "makato-core:zoom-out"],
+  "refactor-move-file": ["makato-build:build-simplify", "makato-core:map-codebase-context"],
   "refactor-remove-duplication": ["makato-build:build-simplify", "makato-build:build-implement-tdd"],
   "refactor-improve-naming": ["makato-build:build-simplify", "makato-build:build-grill-with-docs"],
 
@@ -245,8 +245,8 @@
 
   "look-up-library-docs": ["makato-doc:context7", "makato-build:build-refine"],
   "check-api-reference": ["makato-doc:context7", "makato-build:build-implement-tdd"],
-  "explore-codebase": ["makato-core:zoom-out", "makato-build:build-grill-with-docs"],
-  "understand-module": ["makato-core:zoom-out", "makato-build:inject-context"],
+  "explore-codebase": ["makato-core:map-codebase-context", "makato-build:build-grill-with-docs"],
+  "understand-module": ["makato-core:map-codebase-context", "makato-build:inject-context"],
   "discover-skills": ["makato-core:makato-guide", "makato-build:inject-skills"],
 
   "grill-build-plan": ["makato-build:build-grill-with-docs", "makato-plan:grill"],

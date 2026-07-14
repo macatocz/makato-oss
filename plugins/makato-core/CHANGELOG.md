@@ -3,6 +3,15 @@
 
 Changes are grouped by skill/component. Within each group, latest version on top. Each version block lists one sub-bullet per logical change. Until per-PR version automation is in place, entries land here on merge to main; release-please will date and version them at the next release cut.
 
+## map-codebase-context skill (formerly zoom-out)
+
+- **1.5.0** (#397)
+  - Renamed `zoom-out` → `map-codebase-context`. The old name read as a UI action rather than
+    code comprehension. Skill directory, frontmatter `name`, H1 title, and all references
+    (`skill-bundles.yml`, `task-skill-map.json` archetypes, READMEs, AGENTS.md) updated. The
+    `"zoom out"` user trigger phrase is retained in the `description` for discoverability.
+    Breaking: the slash command is now `/makato-core:map-codebase-context`.
+
 ---
 
 ## Plugin-level

@@ -51,4 +51,4 @@ is carried by the AGENTS.md rules, which are the authoritative source.
 | Produces for | `makato-build` | `context7` before writing code; `markdown` / `crafting-effective-readmes` / `writing-clearly-and-concisely` for doc tasks |
 | Produces for | `makato-change` | same documentation obligations during change execution |
 | Produces for | `makato-plan` | `context7` for library lookups; doc skills for artifact authoring |
-| Sibling of | `makato-core` | core keeps suite infrastructure (`create-issue`, `makato-guide`, `zoom-out`) |
+| Sibling of | `makato-core` | core keeps suite infrastructure (`create-issue`, `makato-guide`, `map-codebase-context`) |

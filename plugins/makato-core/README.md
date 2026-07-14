@@ -41,7 +41,7 @@ Skills are invoked independently on demand by users or by other plugins.
        │               │              │
        ▼               ▼              ▼
  ┌──────────┐  ┌──────────────┐  ┌──────────────┐
- │  makato- │  │   create-    │  │   zoom-out   │
+ │  makato- │  │   create-    │  │   map-codebase-context   │
  │  guide   │  │   issue      │  │              │
  │ discover │  │ gh issue     │  │ dependency   │
  │ plugins  │  │ filed        │  │ map          │
@@ -51,7 +51,7 @@ Skills are invoked independently on demand by users or by other plugins.
 Invocation order (typical session):
 
 1. `makato-guide` — discover what is installed and find the right skill.
-2. `zoom-out` — when orientation is needed in an unfamiliar codebase area.
+2. `map-codebase-context` — when orientation is needed in an unfamiliar codebase area.
 3. domain skill (in another plugin) — do the work.
 4. `create-issue` — file follow-up bugs or features against the makato repo.
 
@@ -64,7 +64,7 @@ Invocation order (typical session):
 |-------|-------------|-------|--------|---------|
 | [`create-issue`](skills/create-issue/SKILL.md) | File a structured GitHub issue against the makato repo with the correct template, `[plugin-name]` title prefix, and labels. (autonomous) | Issue type (bug/feature/docs), plugin scope, title subject, and body details. Reads `.github/ISSUE_TEMPLATE/issue.md` and `.claude/config.json` automatically. | GitHub issue created via `gh` CLI; issue URL printed to stdout. | 1.1.0 |
 | [`makato-guide`](skills/makato-guide/SKILL.md) | Discover installed makato plugins, list available skills, and help users find the right tool for any task. Scans `plugins/` directory and reads each `plugin.json` and `SKILL.md`. (interactive) | User question about suite capabilities or a specific task need; no file inputs required. | Structured text listing installed plugins, their skills with one-line descriptions, and a suggested next step. | 1.1.0 |
-| [`zoom-out`](skills/zoom-out/SKILL.md) | Map module dependencies and build a higher-level view of unfamiliar code areas. Two-phase: call hierarchy up (who calls this) and down (what this calls) to 2 hops, then ranked reading recommendations. (interactive) | Optional module or file name; codebase must be readable. Uses LSP, Grep, Glob, and Read tools. | Structured dependency map: module responsibility, callers, callees, architecture placement, and 2–3 ranked files to read next. | 1.4.0 |
+| [`map-codebase-context`](skills/map-codebase-context/SKILL.md) | Map module dependencies and build a higher-level view of unfamiliar code areas. Two-phase: call hierarchy up (who calls this) and down (what this calls) to 2 hops, then ranked reading recommendations. (interactive) | Optional module or file name; codebase must be readable. Uses LSP, Grep, Glob, and Read tools. | Structured dependency map: module responsibility, callers, callees, architecture placement, and 2–3 ranked files to read next. | 1.4.0 |
 
 ## Shared Resources
 
@@ -88,15 +88,15 @@ Invocation order (typical session):
 | Direction | Plugin | What flows |
 |-----------|--------|-----------|
 | Produces for | `makato-contribute` | `makato-guide` for skill discovery; `create-issue` for filing bugs and features |
-| Produces for | `makato-plan` | `create-issue` for filing issues; `zoom-out` for codebase orientation |
+| Produces for | `makato-plan` | `create-issue` for filing issues; `map-codebase-context` for codebase orientation |
 | Produces for | `makato-build` | `create-issue`; `contracts/spec-folder.md` and `contracts/build-jsonl.md` as design-time schemas consumed by makato-build skills |
 | Produces for | `makato-orchestrate` | `makato-guide` for skill discovery; `create-issue` for filing issues |
 | Produces for | `makato-change` | `makato-guide` for skill discovery; `create-issue` for filing issues |
 | Produces for | `makato-ux` | `makato-guide` for skill discovery; `create-issue` for filing issues |
-| Produces for | `makato-langgraph` | `create-issue` for filing issues; `zoom-out` for orientation |
+| Produces for | `makato-langgraph` | `create-issue` for filing issues; `map-codebase-context` for orientation |
 | Produces for | `makato-database` | `makato-guide` for skill discovery; `create-issue` for filing issues |
 | Produces for | `makato-sagibeast` | `makato-guide` for skill discovery; `create-issue` for filing issues |
-| Produces for | `makato-observability` | `create-issue` for filing issues; `zoom-out` for orientation |
+| Produces for | `makato-observability` | `create-issue` for filing issues; `map-codebase-context` for orientation |
 | Sibling of | `makato-doc` | documentation-authoring skills (`context7`, `crafting-effective-readmes`, `markdown`, `writing-clearly-and-concisely`) extracted from core |
 
 ## Prerequisites / MCP Servers
