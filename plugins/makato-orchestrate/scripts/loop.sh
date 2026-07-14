@@ -204,6 +204,12 @@
 #                              labels instead of calling `gh issue view
 #                              --json labels` in the label-backstop signal.
 #
+# --- Auto-seed pass toggle (#373, epic #367 S5) ---
+#   MAKATO_LOOP_AUTOSEED_ON_POLL
+#                              Set to `0` to disable the pre-poll auto-seed
+#                              pass entirely (no candidate query, no seed or
+#                              block action). Default on (unset or `1`).
+#
 # Conventions: matches scripts/context-handoff.sh (POSIX-ish bash, `set
 # -euo pipefail`, python3 for ISO-8601 millisecond timestamps, jq for
 # JSON work).
@@ -1386,6 +1392,15 @@ cmd_promote_ready() {
 }
 
 # ---------------------------------------------------------------------------
+# auto-seed — standalone entry point for the pre-poll auto-seed pass.
+# Runs _auto_seed_unprepared once and exits. Mirrors cmd_promote_ready.
+# (#373, epic #367 S5).
+# ---------------------------------------------------------------------------
+cmd_auto_seed() {
+  _auto_seed_unprepared
+}
+
+# ---------------------------------------------------------------------------
 # _auto_seed_candidates — discover open issues that are NOT yet status:ready-for-dev
 # and classify their plan-tier. Returns a JSON array of {number, plan_tier} objects.
 # (#369, epic #367 S1).
@@ -1909,6 +1924,67 @@ _This comment was posted automatically by the makato auto-seed pass (#372)._"
     fi
   fi
 
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# _auto_seed_unprepared — composing pass that seeds or blocks every open issue
+# that is not yet status:ready-for-dev. (#373, epic #367 S5).
+#
+# Calls _auto_seed_candidates() to obtain a JSON array of
+# {number, plan_tier} objects, then routes each candidate:
+#
+#   plan_tier == "light"                → S2: _auto_seed_dispatch_light
+#                                          If the dispatch succeeds (rc=0),
+#                                          runs S3: _auto_seed_reconcile_thin_body
+#                                          to detect and reconcile thin-body outcomes.
+#   plan_tier == "full" | "change" | "" → S4: _auto_seed_block_full
+#
+# Each candidate's handling is wrapped in `|| true` (best-effort): a single
+# failure logs a WARN and the pass continues. The function always returns 0.
+#
+# Test hook:
+#   Reuses the per-step test hooks of S1–S4 (MAKATO_LOOP_AUTOSEED_OVERRIDE,
+#   MAKATO_LOOP_SEED_TEST_CMD, MAKATO_LOOP_BLOCK_TEST_FILE, etc.). The
+#   _test-auto-seed-unprepared hook in the MAKATO_LOOP_TEST_HOOK block
+#   invokes this function directly.
+# ---------------------------------------------------------------------------
+_auto_seed_unprepared() {
+  echo "loop: auto-seed — starting pre-poll unprepared pass (#373, epic #367 S5)" >&2
+
+  local candidates
+  # Candidates function writes JSON to stdout, messages to stderr.
+  candidates="$(_auto_seed_candidates)" 2>/dev/null || candidates='[]'
+  [[ -n "$candidates" ]] || candidates='[]'
+
+  local count
+  count="$(jq 'length' <<<"$candidates" 2>/dev/null || echo 0)"
+  echo "loop: auto-seed — $count candidate(s) to process" >&2
+
+  local n plan_tier
+  while IFS=$'\t' read -r n plan_tier; do
+    [[ -n "$n" ]] || continue
+
+    if [[ "$plan_tier" == "light" ]]; then
+      # S2: dispatch seed-issue headlessly.
+      local dispatch_rc=0
+      _auto_seed_dispatch_light "$n" "$plan_tier" || dispatch_rc=$?
+      if [[ "$dispatch_rc" -eq 0 ]]; then
+        # S3: reconcile thin-body outcome. Derive seed_key from issue number.
+        # _auto_seed_reconcile_thin_body handles an absent jsonl gracefully.
+        local seed_key=""
+        seed_key="$(_derive_key_for_issue "$n" "${MAKATO_LOOP_DISPATCH_REPO:-}" 2>/dev/null || true)"
+        _auto_seed_reconcile_thin_body "$n" "$seed_key" || true
+      else
+        echo "loop: WARN — auto-seed #$n light dispatch failed (rc=$dispatch_rc); tick continues" >&2
+      fi
+    else
+      # S4: block full/change/untiered issues.
+      _auto_seed_block_full "$n" "$plan_tier" || true
+    fi
+  done < <(jq -r '.[] | [.number, .plan_tier] | @tsv' <<<"$candidates" 2>/dev/null || true)
+
+  echo "loop: auto-seed — pre-poll unprepared pass complete" >&2
   return 0
 }
 
@@ -2806,6 +2882,13 @@ cmd_run() {
       return 0
     fi
 
+    # Pre-poll auto-seed pass (#373, epic #367 S5): seed/block unprepared
+    # issues before promoting labelled-ready issues, so a freshly-seeded
+    # light issue can be eligible for dispatch in the same tick.
+    if [[ "${MAKATO_LOOP_AUTOSEED_ON_POLL:-1}" != "0" && "$status_name" == "Ready" && -z "$dry_run" ]]; then
+      _auto_seed_unprepared || true
+    fi
+
     # Pre-poll bridge (#231): promote any status:ready-for-dev issue that is
     # off-board-Ready onto Ready, so hand-filed / auto-filed issues (no
     # to-issues provenance, no created-issues.json) enter the queue the same
@@ -2953,6 +3036,11 @@ if [[ "$SUBCMD" == _test-* ]]; then
     #   MAKATO_LOOP_LABEL_TEST_FILE.
     # (#371, epic #367 S3).
     _test-auto-seed-reconcile-thin-body) _auto_seed_reconcile_thin_body "$@" ;;
+    # _test-auto-seed-unprepared — exercise _auto_seed_unprepared
+    # deterministically. Reads from MAKATO_LOOP_AUTOSEED_OVERRIDE and
+    # routes through the four arms via test hooks.
+    # (#373, epic #367 S5).
+    _test-auto-seed-unprepared) _auto_seed_unprepared "$@" ;;
     # _test-wd-guarded-write <issue> — exercise the watchdog ownership guard
     # (#312) deterministically, without the process-timing flakiness of a real
     # orphaned poll. Runs the exact guarded write the kill path performs:
@@ -2980,6 +3068,7 @@ case "$SUBCMD" in
   status)     cmd_status ;;
   dispatch)   cmd_dispatch "$@" ;;
   promote-ready) cmd_promote_ready ;;
+  auto-seed)  cmd_auto_seed ;;
   remove-worktrees) cmd_remove_worktrees ;;
   check-halt) cmd_check_halt ;;
   *) echo "loop: unknown subcommand: $SUBCMD" >&2; exit 64 ;;

@@ -10,7 +10,7 @@ description: >-
   exits on a HALT. Honors `~/.claude/HALT` before every dispatch
   (NEVER 3) and emits `.claude/state/loop-status.json` as the
   operator-facing live audit.
-version: "1.9.0"
+version: "2.0.0"
 argument-hint: "[--status <NAME>] [--interval <S>] [--dry-run] [--once] [--force]"
 ---
 
@@ -160,6 +160,8 @@ The driver also exposes lower-level subcommands for diagnostics:
 | `status` | Pretty-print `.claude/state/loop-status.json`. |
 | `dispatch <ISSUE> [--dry-run]` | Manually dispatch one issue. |
 | `remove-worktrees` | Remove local worktrees under `.claude/worktrees/` whose branch has a merged PR (#265); skips main/dirty/locked/retained/detached/nested. Also a pre-poll pass in `run`. One-shot: `MAKATO_LOOP_REAP_INTERVAL=0 loop remove-worktrees` (`MAKATO_LOOP_REAP_DRYRUN=1` to inspect). |
+| `promote-ready` | Run the label→board promotion pass once and exit (#231). Useful for one-shot promotion without starting the full loop. |
+| `auto-seed` | Run the pre-poll auto-seed pass (`_auto_seed_unprepared`) once and exit (#373, epic #367 S5). Seeds or blocks every open issue not yet at `status:ready-for-dev`: light-tier issues → headless `seed-issue` dispatch + thin-body reconciliation; full/change/untiered → spec-folder stub + board `Blocked` + `needs-human-review`. Best-effort: a failure per candidate logs a WARN and the pass always returns 0. |
 | `check-halt` | Exit 0/1 mirroring `hooks/check-halt.sh`. |
 
 ## Process
@@ -170,6 +172,21 @@ Each outer iteration of `run` performs the following steps in order:
    `$MAKATO_HALT_FILE`) is present — the loop exits cleanly (NEVER 3,
    HALT-000). The exit is recorded by stamping `.last_halt_at` in
    `loop-status.json`.
+1.5. **Pre-poll auto-seed pass (#373, epic #367 S5).** When polling the
+   default `Ready` status and `MAKATO_LOOP_AUTOSEED_ON_POLL` is not `0`,
+   `_auto_seed_unprepared` iterates every open issue that does NOT yet carry
+   `status:ready-for-dev` and routes it to the appropriate arm:
+   `plan-tier:light` → `_auto_seed_dispatch_light` (headless `seed-issue`
+   dispatch) followed by `_auto_seed_reconcile_thin_body` (thin-body
+   reconciliation); `plan-tier:full`, `plan-tier:change`, or untiered →
+   `_auto_seed_block_full` (spec-folder stub + board `Blocked` +
+   `needs-human-review`). Each candidate is handled under `|| true`
+   (best-effort: any per-candidate failure logs a WARN and the pass continues).
+   The pass runs **before** `_promote_labelled_ready` (step 2) so a freshly-seeded
+   light issue arrives at `Status=Ready` in time to be dispatched in the same
+   tick. Skipped under `--dry-run`, for custom `--status` runs, and when
+   `MAKATO_LOOP_AUTOSEED_ON_POLL=0`. Also available standalone as
+   `loop auto-seed`.
 2. **Pre-poll promotion (#231).** When polling the default `Ready` status,
    `_promote_labelled_ready` lists open `status:ready-for-dev` issues and
    promotes those that are off-`Ready` and not carrying an exclusion label
@@ -611,6 +628,11 @@ The intentional design split:
 | `MAKATO_LOOP_REAP_BASE_REF` | unset | Override the base ref used for the ancestry landed-check (default: `origin/HEAD`, else `origin/main`). Tests point it at a local `main` so ancestry works in a throwaway repo with no remote. |
 | `MAKATO_LOOP_REAP_WT_OVERRIDE` | unset | Test-only: path to a file with canned `git worktree list --porcelain` output, read instead of invoking git. |
 | `MAKATO_HANDOFF_ACK_TIMEOUT` | `120` | Seconds the pre-poll HALT-007B liveness check (#284) waits for a resumed subprocess to write `resume_ack` before firing the HALT-007 fallback. A dead PID short-circuits the wait. Read by `context-handoff.sh check-pid`; lower it in tests to force the timeout path. |
+| `MAKATO_LOOP_AUTOSEED_ON_POLL` | `1` | Set to `0` to disable the pre-poll auto-seed pass entirely (#373, epic #367 S5). When unset or `1`, `_auto_seed_unprepared` runs before `_promote_labelled_ready` on every `Ready`-status tick. Disable for repos that manage seeding externally or for debugging. |
+| `MAKATO_LOOP_AUTOSEED_OVERRIDE` | unset | Test-only: path to a JSON file in `gh issue list --json number,labels,author` shape, read instead of calling `gh` in `_auto_seed_candidates`. Keeps S1/S5 discovery smoke tests offline. |
+| `MAKATO_LOOP_SEED_TEST_CMD` | unset | Test-only: command string used as the dispatch command instead of the real `claude -p` in `_auto_seed_dispatch_light`. Receives the same env (`MAKATO_HEADLESS=1`, `ISSUE_NUMBER`, `REPO`, `REPO_ROOT`) and prompt as the production invocation. Keeps S2/S5 dispatch smoke tests offline. |
+| `MAKATO_LOOP_BLOCK_TEST_FILE` | unset | Test-only: path to a file that `_auto_seed_block_full` appends `block #<n>` to instead of calling `gh project item-edit` to set `Blocked`. Keeps S4/S5 block smoke tests offline. |
+| `MAKATO_LOOP_AUTOSEED_SPEC_ROOT` | unset | Test-only: override the `SPECS_DIR` root used by `_auto_seed_block_full` when creating spec-folder stubs. Tests redirect to a temp directory to avoid polluting `specs/`. |
 
 ## Smoke tests
 
@@ -677,6 +699,32 @@ The intentional design split:
 30. **Reaper nested-worktree guard (#265, T38).** Both a worktree that is the
     parent of a nested worktree and one nested inside another worktree are
     skipped.
+31. **Auto-seed composition — light seed (Ta, #373).** `_auto_seed_unprepared`
+    dispatches S2 for a `plan-tier:light` candidate, S3 confirms no thin-body,
+    function returns 0.
+32. **Auto-seed composition — thin-body reconciled (Tb, #373).** Light candidate
+    dispatched (S2); S3 detects thin-body → `needs-human-review` applied; function
+    returns 0 (best-effort).
+33. **Auto-seed composition — full-blocked (Tc, #373).** `plan-tier:full` candidate
+    routes to S4 (block recorded), function returns 0.
+34. **Auto-seed composition — untiered-as-full (Td, #373).** Empty `plan_tier`
+    routes to S4 (same as full).
+35. **Auto-seed composition — exclusion-veto (Te, #373).** Candidate carrying an
+    exclusion label is skipped; no seed or block action.
+36. **Auto-seed composition — best-effort on S2 failure (Tf, #373).** S2 dispatch
+    exits 1; WARN is logged; function still returns 0.
+37. **Auto-seed composition — sentinel idempotency (Tg, #373).** S4 detects the
+    block sentinel already present in issue comments and skips re-posting.
+38. **Auto-seed composition — toggle-off (Th, #373).** `MAKATO_LOOP_AUTOSEED_ON_POLL`
+    guard is present in `cmd_run` and protects the `_auto_seed_unprepared` call
+    (structural check — confirms the toggle controls the call site).
+39. **Auto-seed composition — ordering (Ti, #373).** `_auto_seed_unprepared`
+    appears on an earlier line than `_promote_labelled_ready` in `cmd_run`,
+    confirming the load-bearing tick ordering.
+40. **Auto-seed composition — dependencies veto (Tj, #373).** Candidate with the
+    `dependencies` label is skipped by S1 discovery.
+41. **Auto-seed composition — already-ready skipped (Tk, #373).** Candidate with
+    `status:ready-for-dev` is excluded from candidates (S1 filter); no action.
 
 Run them directly:
 

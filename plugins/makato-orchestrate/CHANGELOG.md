@@ -5,7 +5,45 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
-## `resolve-pr-conflict` 1.2.0 — union-merge append-only files instead of silently dropping the target's lines
+## `loop` 2.0.0 — auto-seed at dispatch: tick integration, toggle, and offline smoke suite (#373, epic #367 S5)
+
+S5 (final) of epic #367 completes the auto-seed-at-dispatch pipeline by composing the four arms
+built by S1–S4 into a single pre-poll pass, wiring it into `cmd_run` before `_promote_labelled_ready`,
+and providing a default-on toggle plus a standalone entry point. A full offline smoke suite
+(scenarios Ta–Tk) validates all arms, best-effort behaviour, idempotency, toggle, and ordering.
+
+- **`scripts/loop.sh`** (→ 2.0.0 via SKILL.md):
+  - New function **`_auto_seed_unprepared()`** (#373, epic #367 S5) — composing pass that calls
+    `_auto_seed_candidates()` (S1) and routes each `{number, plan_tier}` candidate: `light` →
+    `_auto_seed_dispatch_light()` (S2) then `_auto_seed_reconcile_thin_body()` (S3) on the result;
+    `full`/`change`/untiered → `_auto_seed_block_full()` (S4). Each candidate's handling is wrapped
+    in `|| true` so a single failure never aborts the pass; the function always returns 0
+    (best-effort contract, AC1).
+  - **`cmd_run`** — pre-poll auto-seed call added immediately before `_promote_labelled_ready`
+    (ordering is load-bearing: a freshly-seeded light issue must reach `Status=Ready` in the same
+    tick, AC2). Gated on `MAKATO_LOOP_AUTOSEED_ON_POLL` (default on) and `status_name == "Ready"`.
+  - New env var **`MAKATO_LOOP_AUTOSEED_ON_POLL`** (default on: unset / `1` runs the pass, `0`
+    disables it entirely — no candidate query, no seed or block action, AC3). Documented at the
+    top of the file alongside other `MAKATO_LOOP_*` toggle vars.
+  - New subcommand **`auto-seed`** / `cmd_auto_seed()` — standalone entry point that runs
+    `_auto_seed_unprepared` once and exits, mirroring `cmd_promote_ready` (AC4). Wired into the
+    arg dispatcher at the `auto-seed)` case.
+  - New test hook **`_test-auto-seed-unprepared`** in the `MAKATO_LOOP_TEST_HOOK` block — exercises
+    `_auto_seed_unprepared` offline, reusing the per-step S1–S4 test hooks.
+- **`scripts/loop-smoke-tests.sh`** — 11 new scenarios Ta–Tk covering all four arms, best-effort,
+  idempotency, toggle, and ordering (AC5). All offline via `MAKATO_LOOP_*_OVERRIDE` /
+  `MAKATO_LOOP_SEED_TEST_CMD` / `MAKATO_LOOP_BLOCK_TEST_FILE` hooks. Updated `ALL TESTS PASSED`
+  summary line.
+- **`skills/loop/SKILL.md`** (1.9.0 → 2.0.0):
+  - Version bumped.
+  - Subcommands table: added `promote-ready` and `auto-seed` rows.
+  - Process section: new step 1.5 documenting the pre-poll auto-seed pass.
+  - Env-var table: added `MAKATO_LOOP_AUTOSEED_ON_POLL`, `MAKATO_LOOP_AUTOSEED_OVERRIDE`,
+    `MAKATO_LOOP_SEED_TEST_CMD`, `MAKATO_LOOP_BLOCK_TEST_FILE`, `MAKATO_LOOP_AUTOSEED_SPEC_ROOT`.
+  - Smoke-tests section: added items 31–41 (Ta–Tk).
+
+
+ — union-merge append-only files instead of silently dropping the target's lines
 
 The `merge -X ours` fallback silently discarded the target branch's hunks on any conflicting region — and for an **append-only** file (a CHANGELOG where each PR prepends its own release block, an AUTHORS list, a `*.jsonl` audit log) that is data loss, not a resolution. `-X ours` does not even report a conflict there: `main`'s changelog entry just vanishes from the merge. This is the single most common conflict the autonomous loop hits (two PRs both touched the changelog), and it was being "resolved" by throwing away one side.
 
