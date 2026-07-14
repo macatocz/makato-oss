@@ -6,7 +6,7 @@
 output to makato-build execution — workflow-state for resumable session state, kill-switch for
 operator and budget controls, a polling loop as the unattended entry point, a session-status hook
 for restart resumability, and resolve-pr-conflict for autonomous merge-conflict handling. Four
-agents (po-agent, context-summariser, scout, documentation-agent) and five skills cover the full
+agents (po-agent, context-summariser, task-file-scout, documentation-agent) and five skills cover the full
 lifecycle from issue pickup through post-merge housekeeping.
 
 **Why:** Without an outer driver, every transition between planning and build requires a human.
@@ -24,7 +24,7 @@ unattended.
 - The autonomous loop skill (entry point for unattended runs)
 - HALT-code dispatch tables and needs-human-review labelling logic
 - resolve-pr-conflict skill for autonomous merge-conflict resolution
-- context-summariser and scout agents supporting the PO-agent loop
+- context-summariser and task-file-scout agents supporting the PO-agent loop
 - documentation-agent for post-merge housekeeping
 - worktree lifecycle helper (shared/worktree.sh)
 
@@ -136,7 +136,7 @@ See `agents/po-agent.md` § *Progress comment* for the per-skill agent/goal map.
 |-------|-------|------------|---------|---------------|
 | [po-agent](agents/po-agent.md) | claude-sonnet | bypassPermissions | Outer-loop driver — reads a GitHub Issue, resolves the spec folder (Step 1a auto-materializes a missing/stub plan.md via the light-planner agent for plan-tier:light issues before halting, #200), builds sub-task list, dispatches build-implement-tdd / build-implement-goal per task, polls CI and review decisions for fix loops, patches workflow-state, manages git worktree lifecycle, captures structured lessons, routes merge-conflict pushes through resolve-pr-conflict. Sole writer of workflow-state.json. Terminates on merged PR or documented HALT code. | loop skill (scripts/loop.sh) |
 | [context-summariser](agents/context-summariser.md) | claude-haiku | read-only (bypassPermissions with Write/Edit/Bash/NotebookEdit/Task disallowed) | Produces a <=500-token session summary for HALT-007B context-ceiling handoff. Input is workflow-state.json plus the current task description only — never source files. Output is the session_summary string injected into the fresh Claude session. | scripts/context-handoff.sh (via po-agent) |
-| [scout](agents/scout.md) | claude-haiku | read-only (bypassPermissions with Write/Edit/Bash/NotebookEdit disallowed) | Per-task pre-read agent — given a sub-task's predicted changed files and bundle-resolved rule paths from inject-context, reads up to 8 files and returns a ~500-token structured summary (key_patterns, naming_conventions, test_file_paths, existing_exports, warnings) injected into the coder's SCOUT_SUMMARY. Distinct from makato-build/knowledge-scout. | build-implement-tdd Step 6 (per coder dispatch) |
+| [task-file-scout](agents/task-file-scout.md) | claude-haiku | read-only (bypassPermissions with Write/Edit/Bash/NotebookEdit disallowed) | Per-task pre-read agent — given a sub-task's predicted changed files and bundle-resolved rule paths from inject-context, reads up to 8 files and returns a ~500-token structured summary (key_patterns, naming_conventions, test_file_paths, existing_exports, warnings) injected into the coder's SCOUT_SUMMARY. Distinct from makato-build/knowledge-scout. | build-implement-tdd Step 6 (per coder dispatch) |
 | [documentation-agent](agents/documentation-agent.md) | claude-sonnet | bypassPermissions (Edit/Write on src/, lib/, app/ blocked at frontmatter level via disallowedTools path patterns) | Post-merge documentation pass — reads merged PR diff and commit history, appends CHANGELOG entry (Keep a Changelog format), conditionally updates README on public-API change, marks verified AC checkboxes `[x]` on the linked Issue from the PR's `makato:ac-verdicts` block (Step 4a), closes parent and child Issues via gh issue close, advances Projects v2 board to Done via issue-to-project sync-lifecycle, emits docs_coverage_warning when src/ diff outpaces docs/ diff by 2x. Never writes workflow-state.json. | workflows/post-merge.yml (GitHub Actions, on pull_request.closed + merged=true) |
 | [light-planner](agents/light-planner.md) | claude-sonnet | bypassPermissions | Lightweight planning-lane plan producer (#212) — given a plan-tier:light issue body + bounded target-repo context, writes a full plan.md (non-empty ## Tasks + ## Acceptance criteria) that build-refine's plan-only path consumes, or returns a thin_body R1 so seed-issue re-tiers the issue to full. Writes exactly one file (plan.md); never touches source, labels, seed-manifest.json, or the board — seed-issue owns those and gates promotion on scripts/validate-plan-body.sh. Runs locally under the operator's Claude at seed time. | seed-issue (Step 8.5); po-agent (Step 1a HALT-006 auto-materialize, #200) |
 

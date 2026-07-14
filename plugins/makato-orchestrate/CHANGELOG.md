@@ -3,6 +3,18 @@
 
 Changes are grouped by skill/component. Within each group, latest version on top. Each version block lists one sub-bullet per logical change.
 
+## task-file-scout agent (formerly scout) (#397)
+
+- Renamed the `scout` agent → `task-file-scout`. The bare `scout` root was the most
+  confusable of four discovery agents (`context-scout`, `gate-scout`, `knowledge-scout`,
+  `scout`); the new name states its per-task-file role. Agent file `agents/scout.md` →
+  `agents/task-file-scout.md` (`git mv`), frontmatter `name`, H1, self-reported R1 `agent`
+  identity, and all references updated: the `agents/scout.md` dispatch path in
+  `build-implement-tdd`, `coder.md`, `knowledge-scout.md`, `RETURN-CONTRACT.md`, and the
+  orchestrate AGENTS.md/README roster + agent table. The `SCOUT_SUMMARY` coder-input field
+  and the `scout-skipped` / `scout-partial` JSONL step names are unchanged (renaming those is
+  a separate breaking contract change, out of scope here).
+
 ---
 
 ## `loop` 2.0.0 — auto-seed at dispatch: tick integration, toggle, and offline smoke suite (#373, epic #367 S5)

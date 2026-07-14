@@ -144,7 +144,7 @@ Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","st
 
 Only proceed once the dependency graph is confirmed acyclic.
 
-For each `mode: tdd` task in topological order, dispatch the per-task `scout` agent first (GAP-013 / #29) — see § *Pre-flight scout dispatch* below — then dispatch the `coder` agent with:
+For each `mode: tdd` task in topological order, dispatch the per-task `task-file-scout` agent first (GAP-013 / #29) — see § *Pre-flight scout dispatch* below — then dispatch the `coder` agent with:
 - `TASK`: the task object (title, files, unit test spec, integration test spec, AC links, mode, blockedBy, commitMessage)
 - `TASK_INDEX`: 1-based index of the task within the plan
 - `STORY_KEY`: the work item key (e.g. DCP-1234)
@@ -166,7 +166,7 @@ For each `mode: tdd` task in topological order, dispatch the per-task `scout` ag
 
 Before each `coder` dispatch, resolve the task's bundle rules via the
 `inject-context` skill (`plugins/makato-build/skills/inject-context/SKILL.md`)
-and dispatch the per-task `scout` agent (`plugins/makato-orchestrate/agents/scout.md`).
+and dispatch the per-task `task-file-scout` agent (`plugins/makato-orchestrate/agents/task-file-scout.md`).
 The scout is **advisory**, not a gate — a scout failure must never block
 the coder dispatch.
 
@@ -190,13 +190,13 @@ the coder dispatch.
 4. **Map scout R1 to coder input:**
    - `r1.status == "success"` — forward `r1.data` to coder as
      `SCOUT_SUMMARY`. Mirror the scout R1 to `build.jsonl` with
-     `step: "r1"`, `data.scout_agent: "scout"`.
+     `step: "r1"`, `data.scout_agent: "task-file-scout"`.
    - `r1.status == "partial"` — forward `r1.data` to coder, AND log a
      `warn` JSONL entry: `{"…","skill":"build-implement-tdd","story":"<key>","step":"scout-partial","status":"warn","data":{"task":<N>,"errors":<r1.errors>}}`.
    - `r1.status == "failure"` — do NOT forward `SCOUT_SUMMARY`. Log a
      `warn` JSONL entry: `{"…","skill":"build-implement-tdd","story":"<key>","step":"scout-skipped","status":"warn","data":{"task":<N>,"reason":<r1.errors[0]>}}`.
      The coder dispatch proceeds without scout context — this matches
-     the GAP-013 fallback contract (`plugins/makato-orchestrate/agents/scout.md`
+     the GAP-013 fallback contract (`plugins/makato-orchestrate/agents/task-file-scout.md`
      § *Caller fallback contract*).
    - **R1 contract violation** (missing block, parse failure,
      `schema != "r1"`) — treat as `failure` per the table above. Per
@@ -207,7 +207,7 @@ being installed (the scout agent lives there). Detect via:
 
 ```bash
 MAKATO_ORCH="$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)/plugins/makato-orchestrate"
-if [[ ! -f "$MAKATO_ORCH/agents/scout.md" ]]; then
+if [[ ! -f "$MAKATO_ORCH/agents/task-file-scout.md" ]]; then
   scout_dispatched=false  # consumer repo without makato-orchestrate; skip scout silently
 fi
 ```

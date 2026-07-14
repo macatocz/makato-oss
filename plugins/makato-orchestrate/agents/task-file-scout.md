@@ -1,5 +1,5 @@
 ---
-name: scout
+name: task-file-scout
 model: haiku
 description: >-
   Per-task read-only file scout. Given a sub-task's predicted changed
@@ -17,7 +17,7 @@ disallowedTools: Write, Edit, Bash, NotebookEdit
 
 <!-- markdownlint-disable MD013 -->
 
-# scout
+# task-file-scout
 
 > **Mission**: Given a sub-task's predicted changed files and the bundle
 > rule paths already resolved by `inject-context`, pre-read at most eight
@@ -150,7 +150,7 @@ JSONL line of its own.
 ```json
 {
   "schema": "r1",
-  "agent": "scout",
+  "agent": "task-file-scout",
   "status": "success",
   "summary": "Pre-read 5 files (3 production, 2 rule); 6 existing exports, 1 warning.",
   "files_changed": [],
@@ -190,7 +190,7 @@ JSONL line of its own.
 ```json
 {
   "schema": "r1",
-  "agent": "scout",
+  "agent": "task-file-scout",
   "status": "partial",
   "summary": "Pre-read 2 of 5 requested files; production target unreadable.",
   "files_changed": [],
@@ -214,7 +214,7 @@ JSONL line of its own.
 ```json
 {
   "schema": "r1",
-  "agent": "scout",
+  "agent": "task-file-scout",
   "status": "failure",
   "summary": "Dispatch bundle missing CHANGED_FILES.",
   "files_changed": [],

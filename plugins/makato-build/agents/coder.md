@@ -382,5 +382,5 @@ This instruction applies only when `skill_routing` is not disabled in this agent
 - `plugins/makato-build/skills/build-implement-tdd/SKILL.md` — the skill that dispatches this agent per task.
 - `plugins/makato-build/skills/definition-of-done/SKILL.md` — the Automated-tier checklist verified in Phase 4.
 - `plugins/makato-build/AUTONOMOUS-MODE.md` — `WORKTREE_PATH` workspace-isolation contract and the `--autonomous` bypass conventions.
-- `plugins/makato-orchestrate/agents/scout.md` — the per-task scout whose `data` payload feeds `SCOUT_SUMMARY`.
+- `plugins/makato-orchestrate/agents/task-file-scout.md` — the per-task scout whose `data` payload feeds `SCOUT_SUMMARY`.
 - `plugins/makato-orchestrate/agents/po-agent.md` — the PO-agent that owns the worktree lifecycle and dispatches `build-implement-tdd`.

@@ -117,7 +117,7 @@ If `schema != "r1"` or the JSON does not parse: the caller MUST treat the dispat
 - `errors: []` on success; on partial/failure: short reason strings.
 - `data` keys: `{ "project_type": "...", "config_files_read": N, "build": "...", "lint": "...", "unit": "...", "integration": "...", "coverage": "...", "java_version_required": "...", "lint_ci_divergence": true|false }`.
 
-### `scout.md` (plugin: `makato-orchestrate`, model: haiku, read-only)
+### `task-file-scout.md` (plugin: `makato-orchestrate`, model: haiku, read-only)
 
 - `status: "success"` — at least one file was read and the summary is non-empty.
 - `status: "partial"` — some pre-read files could not be read AND the resulting summary covers fewer than half of `CHANGED_FILES`.

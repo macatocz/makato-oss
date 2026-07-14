@@ -198,7 +198,7 @@ Do not emit prose after the R1 block.
 - Return file paths — always synthesize to actionable sentences
 - Fail hard if discovery steps fail — fall through to `loaded: false`
 - Re-resolve bundles already computed — if called with pre-resolved rules, accept them as-is
-- Perform per-task file pre-reading — that is `makato-orchestrate/agents/scout.md`'s responsibility
+- Perform per-task file pre-reading — that is `makato-orchestrate/agents/task-file-scout.md`'s responsibility
 
 ## F4 Telemetry — Skill Invocation Log
 
@@ -230,5 +230,5 @@ This instruction applies only when `skill_routing` is not disabled in this agent
 - `plugins/makato-build/config/context-bundles.yml` — the bundle registry read in Step 0a.
 - `plugins/makato-build/skills/inject-skills/SKILL.md` — the skill-bundle resolution contract governing Step 0e.
 - `plugins/makato-build/shared/inject_skills.py` — reference implementation for `resolve_skills` / `resolve_skills_for_repo`.
-- `plugins/makato-orchestrate/agents/scout.md` — the per-task file scout; disjoint from this agent (task-file-specific vs. repo-wide).
+- `plugins/makato-orchestrate/agents/task-file-scout.md` — the per-task file scout; disjoint from this agent (task-file-specific vs. repo-wide).
 - `plugins/makato-build/AGENTS.md` — plugin security model and agent roster.
