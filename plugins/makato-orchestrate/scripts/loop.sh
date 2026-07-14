@@ -182,6 +182,16 @@
 #                              verify the wall-clock guarantee in
 #                              seconds instead of the full interval.
 #
+# --- Dispatch gate (#318/#355) ---
+#   MAKATO_LOOP_GATE_DISABLE   Set to `1` to disable the dispatch gate
+#                              entirely and restore pre-#318 behaviour
+#                              (no checks, no stamp, no counter). Default 0.
+#   MAKATO_LOOP_GATE_LABELS_OVERRIDE
+#                              Tests only: path to a JSON file with
+#                              `gh issue view --json labels,title` output
+#                              read instead of calling `gh`. Keeps gate
+#                              smoke tests offline.
+#
 # Conventions: matches scripts/context-handoff.sh (POSIX-ish bash, `set
 # -euo pipefail`, python3 for ISO-8601 millisecond timestamps, jq for
 # JSON work).
@@ -266,6 +276,15 @@ ASSIGNEE="${MAKATO_LOOP_ASSIGNEE:-@me}"
 #     decision to a file instead of calling `gh`; the fixture Status is read
 #     from MAKATO_LOOP_CLAIM_STATUS_OVERRIDE.
 CLAIM_ON_DISPATCH="${MAKATO_LOOP_CLAIM_ON_DISPATCH:-1}"
+
+# Dispatch gate (#318/#355) — read-only pre-dispatch guard that refuses to
+# dispatch an issue whose PR has already merged or whose workflow-state is
+# non-done (stale board). The gate is a total no-op when GATE_DISABLE=1.
+#   - MAKATO_LOOP_GATE_DISABLE=1 fully restores pre-#318 dispatch (no checks,
+#     no stamp, no counter). Default off.
+#   - MAKATO_LOOP_GATE_LABELS_OVERRIDE (test-only): path to a JSON file with
+#     `gh issue view --json labels,title` output used instead of a live gh call.
+GATE_DISABLE="${MAKATO_LOOP_GATE_DISABLE:-0}"
 
 # Watchdog defaults — see #164. Values are seconds of no-output on the
 # combined stdout+stderr log before the watchdog escalates. Operators can
@@ -545,6 +564,18 @@ _patch_status() {
   local merged
   merged="$(jq "$path = $value" <<<"$current")"
   _write_status "$merged"
+}
+
+# ---------------------------------------------------------------------------
+# _increment_gate_skips — read-increment-write gate_skips_total in the status
+# file. Initialises to 0 if absent. Called by every dispatch-gate skip path
+# (exclusion-label veto, merged-PR, in-flight). NOT called on read failures
+# (proceed path) or GATE_DISABLE=1.
+# ---------------------------------------------------------------------------
+_increment_gate_skips() {
+  local cur
+  cur="$(_read_status | jq -r '.gate_skips_total // 0')"
+  _patch_status '.gate_skips_total' "$((cur + 1))"
 }
 
 # ---------------------------------------------------------------------------
@@ -1843,6 +1874,84 @@ cmd_dispatch() {
     _patch_status '.active_workflow' 'null'
     return 0
   fi
+
+  # ---------------------------------------------------------------------------
+  # Dispatch gate (#318/#355) — read-only checks that refuse to dispatch a
+  # Ready issue that is already merged or in-flight. Skipped entirely when
+  # GATE_DISABLE=1. Every skip path: logs attribution, increments
+  # gate_skips_total, clears active_workflow, returns 0 (clean skip).
+  # Best-effort: any read failure logs WARN and proceeds (does not increment
+  # gate_skips_total). Gate never writes board Status — D5 no-op invariant.
+  # ---------------------------------------------------------------------------
+  if [[ "$GATE_DISABLE" != "1" ]]; then
+    # Task 1 — Consolidated label+title fetch (D10 enabler).
+    # One gh call for exclusion-label veto; result also available for S2/tier-4.
+    # Offline override: MAKATO_LOOP_GATE_LABELS_OVERRIDE points to a canned file.
+    # Task 6 — Best-effort: a read failure sets gate_labels_json="" and logs WARN;
+    # the gate skips the veto check and proceeds (no gate_skips_total increment).
+    local repo="${MAKATO_LOOP_DISPATCH_REPO:-}"
+    local gate_labels_json=""
+    if [[ -n "${MAKATO_LOOP_GATE_LABELS_OVERRIDE:-}" ]]; then
+      if ! gate_labels_json="$(cat "${MAKATO_LOOP_GATE_LABELS_OVERRIDE}" 2>/dev/null)"; then
+        echo "loop: WARN — gate: could not read MAKATO_LOOP_GATE_LABELS_OVERRIDE ('${MAKATO_LOOP_GATE_LABELS_OVERRIDE}'); proceeding" >&2
+        gate_labels_json=""
+      fi
+    else
+      if ! gate_labels_json="$(gh issue view "$issue" --repo "$repo" \
+          --json labels,title 2>/dev/null)"; then
+        echo "loop: WARN — gate: could not fetch labels for #${issue}; proceeding" >&2
+        gate_labels_json=""
+      fi
+    fi
+
+    # Task 3 — Exclusion-label veto (D4).
+    # If any label matches _PROMOTE_EXCLUSION_LABELS, skip immediately.
+    local gate_veto_label=""
+    if [[ -n "$gate_labels_json" ]]; then
+      gate_veto_label="$(jq -r \
+        --argjson excl "$(printf '%s\n' $_PROMOTE_EXCLUSION_LABELS | jq -R . | jq -s .)" \
+        '[.labels[].name] as $lbls | $excl[] | select(. as $e | $lbls | any(. == $e)) | .' \
+        <<<"$gate_labels_json" 2>/dev/null | head -1 || true)"
+    fi
+    if [[ -n "$gate_veto_label" ]]; then
+      echo "loop: gate — #${issue} carries exclusion label '${gate_veto_label}'; skip dispatch" >&2
+      _increment_gate_skips
+      _patch_status '.active_workflow' 'null'
+      return 0
+    fi
+
+    # Task 4 — Tier 1: merged-PR check.
+    # Call _reap_pr_merged (honours MAKATO_LOOP_REAP_GH_OVERRIDE offline override).
+    # Guard: skip when branch is empty (key derivation failed) — an empty --head
+    # flag on `gh pr list` would return all recently-merged PRs, producing a false
+    # positive. Best-effort (Task 6): _reap_pr_merged returns empty on any read
+    # failure (the function uses 2>/dev/null || true internally); gate proceeds.
+    local gate_merged_pr=""
+    if [[ -n "$branch" ]]; then
+      gate_merged_pr="$(_reap_pr_merged "$repo" "$branch" 2>/dev/null || true)"
+    fi
+    if [[ -n "$gate_merged_pr" ]]; then
+      echo "loop: gate — #${issue} branch '${branch}' already merged (PR #${gate_merged_pr}); skip dispatch + stamp needs-human-review" >&2
+      gh issue edit "$issue" --repo "$repo" --add-label needs-human-review 2>/dev/null || true
+      _increment_gate_skips
+      _patch_status '.active_workflow' 'null'
+      return 0
+    fi
+
+    # Task 4 — Tier 2: in-flight workflow-state check.
+    # Re-assert in_flight_issues for the direct `dispatch <n>` entry point.
+    # Task 6 — Best-effort: in_flight_issues uses 2>/dev/null per-file; any
+    # scan failure returns empty so the gate proceeds.
+    local gate_inflight=""
+    gate_inflight="$(in_flight_issues 2>/dev/null | grep -x "$issue" || true)"
+    if [[ -n "$gate_inflight" ]]; then
+      echo "loop: gate — #${issue} has a non-done workflow-state (in-flight); skip dispatch" >&2
+      _increment_gate_skips
+      _patch_status '.active_workflow' 'null'
+      return 0
+    fi
+  fi
+  # End dispatch gate.
 
   # Synchronous board claim (#259) — the compare-and-set that makes the board
   # the cross-worktree LOCK. Runs BEFORE the async assign so a lost CAS costs

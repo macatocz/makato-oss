@@ -925,6 +925,7 @@ MAKATO_LOOP_DRY_DISPATCH=1 \
 MAKATO_LOOP_CLAIM_TEST_FILE="$claim_file" \
 MAKATO_LOOP_CLAIM_STATUS_OVERRIDE="Ready" \
 MAKATO_LOOP_ASSIGN_TEST_FILE="$assign_file" \
+MAKATO_LOOP_GATE_DISABLE=1 \
 MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
   "$LOOP" dispatch 101 >/dev/null 2>&1 || fail "T30: dispatch should exit 0 on a successful claim"
 grep -q "claim #101 status=Ready → claimed" "$claim_file" \
@@ -944,6 +945,7 @@ MAKATO_LOOP_DRY_DISPATCH=1 \
 MAKATO_LOOP_CLAIM_TEST_FILE="$claim_file" \
 MAKATO_LOOP_CLAIM_STATUS_OVERRIDE="In progress" \
 MAKATO_LOOP_ASSIGN_TEST_FILE="$assign_file" \
+MAKATO_LOOP_GATE_DISABLE=1 \
 MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
   "$LOOP" dispatch 101 >/dev/null 2>&1 || rc=$?
 [[ $rc -eq 0 ]] || fail "T30: a lost CAS must be a clean skip (exit 0), got $rc"
@@ -963,6 +965,7 @@ MAKATO_LOOP_DRY_DISPATCH=1 \
 MAKATO_LOOP_CLAIM_TEST_FILE="$claim_file" \
 MAKATO_LOOP_CLAIM_STATUS_OVERRIDE="" \
 MAKATO_LOOP_ASSIGN_TEST_FILE="$assign_file" \
+MAKATO_LOOP_GATE_DISABLE=1 \
 MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
   "$LOOP" dispatch 101 >/dev/null 2>&1 || fail "T30: an unreadable Status must not block dispatch"
 grep -q "claim #101 status=<unknown> → warn-proceed" "$claim_file" \
@@ -980,6 +983,7 @@ MAKATO_LOOP_CLAIM_ON_DISPATCH=0 \
 MAKATO_LOOP_CLAIM_TEST_FILE="$claim_file" \
 MAKATO_LOOP_CLAIM_STATUS_OVERRIDE="In progress" \
 MAKATO_LOOP_ASSIGN_TEST_FILE="$assign_file" \
+MAKATO_LOOP_GATE_DISABLE=1 \
 MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
   "$LOOP" dispatch 101 >/dev/null 2>&1 || fail "T30: claim-disabled dispatch should exit 0"
 [[ ! -s "$claim_file" ]] \
@@ -1457,5 +1461,136 @@ echo "  \xe2\x9c\x93 crashed-wt removed; live-wt survives; audit count correct"
 echo
 
 echo
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320) ==="
+echo "=== T49: gate tier-1 merged-PR skip ==="
+rm -f "$STATE_DIR/loop-status.json"
+T49_REAP="$STATE_DIR/t49-reap-$$.json"
+T49_LABELS="$STATE_DIR/t49-labels-$$.json"
+T49_BODY="$STATE_DIR/t49-body-$$.txt"
+# Issue 101 + body → key=gate-test-key → branch=feat/101-gate-test-key
+printf '%s\n' '*Feature slug: `gate-test-key` — produced by to-issues v3.x.*' >"$T49_BODY"
+printf '{"feat/101-gate-test-key": "999"}' >"$T49_REAP"
+printf '{"labels":[],"title":"Issue 101"}' >"$T49_LABELS"
+MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T49_BODY" \
+  MAKATO_LOOP_REAP_GH_OVERRIDE="$T49_REAP" \
+  MAKATO_LOOP_GATE_LABELS_OVERRIDE="$T49_LABELS" \
+  MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="type:feature" \
+  MAKATO_LOOP_CLAIM_ON_DISPATCH=0 \
+  MAKATO_LOOP_DRY_DISPATCH=1 \
+  MAKATO_LOOP_ASSIGN_ON_DISPATCH=0 \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  "$LOOP" dispatch 101 2>/dev/null
+t49_skips="$(jq -r '.gate_skips_total // 0' "$STATE_DIR/loop-status.json" 2>/dev/null || echo 0)"
+[[ "$t49_skips" -eq 1 ]] \
+  || fail "T49: expected gate_skips_total=1 after merged-PR skip; got $t49_skips"
+jq -e '.active_workflow == null' "$STATE_DIR/loop-status.json" >/dev/null \
+  || fail "T49: active_workflow should be null after gate skip"
+echo "  ✓ tier-1 merged-PR: gate skip increments counter, clears active_workflow"
+rm -f "$T49_REAP" "$T49_LABELS" "$T49_BODY"
 
+# ---------------------------------------------------------------------------
+echo "=== T50: GATE_DISABLE=1 bypasses gate — merged-PR proceeds ==="
+rm -f "$STATE_DIR/loop-status.json"
+T50_REAP="$STATE_DIR/t50-reap-$$.json"
+T50_BODY="$STATE_DIR/t50-body-$$.txt"
+printf '%s\n' '*Feature slug: `gate-test-key` — produced by to-issues v3.x.*' >"$T50_BODY"
+printf '{"feat/101-gate-test-key": "999"}' >"$T50_REAP"
+MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T50_BODY" \
+  MAKATO_LOOP_REAP_GH_OVERRIDE="$T50_REAP" \
+  MAKATO_LOOP_GATE_DISABLE=1 \
+  MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="type:feature" \
+  MAKATO_LOOP_CLAIM_ON_DISPATCH=0 \
+  MAKATO_LOOP_DRY_DISPATCH=1 \
+  MAKATO_LOOP_ASSIGN_ON_DISPATCH=0 \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  "$LOOP" dispatch 101 2>/dev/null
+t50_skips="$(jq -r '.gate_skips_total // 0' "$STATE_DIR/loop-status.json" 2>/dev/null || echo 0)"
+[[ "$t50_skips" -eq 0 ]] \
+  || fail "T50: GATE_DISABLE=1: gate_skips_total should be 0; got $t50_skips"
+jq -e '.last_dispatch_issue == 101' "$STATE_DIR/loop-status.json" >/dev/null \
+  || fail "T50: GATE_DISABLE=1 should allow dispatch (last_dispatch_issue=101)"
+echo "  ✓ GATE_DISABLE=1: merged-PR fixture, dispatch proceeds, counter unchanged"
+rm -f "$T50_REAP" "$T50_BODY"
+
+# ---------------------------------------------------------------------------
+echo "=== T51: exclusion-label veto ==="
+rm -f "$STATE_DIR/loop-status.json"
+T51_REAP="$STATE_DIR/t51-reap-$$.json"
+T51_LABELS="$STATE_DIR/t51-labels-$$.json"
+T51_BODY="$STATE_DIR/t51-body-$$.txt"
+printf '%s\n' '*Feature slug: `gate-test-key` — produced by to-issues v3.x.*' >"$T51_BODY"
+printf '{}' >"$T51_REAP"
+printf '{"labels":[{"name":"status:blocked"}],"title":"Issue 101"}' >"$T51_LABELS"
+MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T51_BODY" \
+  MAKATO_LOOP_REAP_GH_OVERRIDE="$T51_REAP" \
+  MAKATO_LOOP_GATE_LABELS_OVERRIDE="$T51_LABELS" \
+  MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="type:feature" \
+  MAKATO_LOOP_CLAIM_ON_DISPATCH=0 \
+  MAKATO_LOOP_DRY_DISPATCH=1 \
+  MAKATO_LOOP_ASSIGN_ON_DISPATCH=0 \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  "$LOOP" dispatch 101 2>/dev/null
+t51_skips="$(jq -r '.gate_skips_total // 0' "$STATE_DIR/loop-status.json" 2>/dev/null || echo 0)"
+[[ "$t51_skips" -eq 1 ]] \
+  || fail "T51: exclusion label: gate_skips_total should be 1; got $t51_skips"
+jq -e '.active_workflow == null' "$STATE_DIR/loop-status.json" >/dev/null \
+  || fail "T51: active_workflow should be null after exclusion-label veto"
+echo "  ✓ exclusion-label 'status:blocked': veto skip, counter +1, no dispatch"
+rm -f "$T51_LABELS" "$T51_REAP" "$T51_BODY"
+
+# ---------------------------------------------------------------------------
+echo "=== T52: in-flight workflow-state skip (tier 2) ==="
+rm -f "$STATE_DIR/loop-status.json"
+T52_REAP="$STATE_DIR/t52-reap-$$.json"
+T52_LABELS="$STATE_DIR/t52-labels-$$.json"
+T52_BODY="$STATE_DIR/t52-body-$$.txt"
+T52_SPEC="$REPO_ROOT/specs/gap-007-loop-smoke-gate-t52-$$"
+mkdir -p "$T52_SPEC"
+printf '{"issue_number": 101, "current_phase": "implement"}' \
+  >"$T52_SPEC/workflow-state-101.json"
+printf '%s\n' '*Feature slug: `gate-test-key` — produced by to-issues v3.x.*' >"$T52_BODY"
+printf '{}' >"$T52_REAP"
+printf '{"labels":[],"title":"Issue 101"}' >"$T52_LABELS"
+MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T52_BODY" \
+  MAKATO_LOOP_REAP_GH_OVERRIDE="$T52_REAP" \
+  MAKATO_LOOP_GATE_LABELS_OVERRIDE="$T52_LABELS" \
+  MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="type:feature" \
+  MAKATO_LOOP_CLAIM_ON_DISPATCH=0 \
+  MAKATO_LOOP_DRY_DISPATCH=1 \
+  MAKATO_LOOP_ASSIGN_ON_DISPATCH=0 \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  "$LOOP" dispatch 101 2>/dev/null
+t52_skips="$(jq -r '.gate_skips_total // 0' "$STATE_DIR/loop-status.json" 2>/dev/null || echo 0)"
+[[ "$t52_skips" -eq 1 ]] \
+  || fail "T52: in-flight: gate_skips_total should be 1; got $t52_skips"
+jq -e '.active_workflow == null' "$STATE_DIR/loop-status.json" >/dev/null \
+  || fail "T52: active_workflow should be null after in-flight skip"
+rm -rf "$T52_SPEC"
+echo "  ✓ in-flight workflow-state: tier-2 skip, counter +1, no dispatch"
+rm -f "$T52_REAP" "$T52_LABELS" "$T52_BODY"
+
+# ---------------------------------------------------------------------------
+echo "=== T53: read failure degrades gracefully (best-effort proceed) ==="
+rm -f "$STATE_DIR/loop-status.json"
+T53_BODY="$STATE_DIR/t53-body-$$.txt"
+printf '%s\n' '*Feature slug: `gate-test-key` — produced by to-issues v3.x.*' >"$T53_BODY"
+MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T53_BODY" \
+  MAKATO_LOOP_REAP_GH_OVERRIDE="/tmp/t53-nonexistent-reap-fixture-$$.json" \
+  MAKATO_LOOP_GATE_LABELS_OVERRIDE="/tmp/t53-nonexistent-labels-fixture-$$.json" \
+  MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="type:feature" \
+  MAKATO_LOOP_CLAIM_ON_DISPATCH=0 \
+  MAKATO_LOOP_DRY_DISPATCH=1 \
+  MAKATO_LOOP_ASSIGN_ON_DISPATCH=0 \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  "$LOOP" dispatch 101 2>/dev/null
+t53_skips="$(jq -r '.gate_skips_total // 0' "$STATE_DIR/loop-status.json" 2>/dev/null || echo 0)"
+[[ "$t53_skips" -eq 0 ]] \
+  || fail "T53: read failure: gate_skips_total should be 0 (degraded proceed); got $t53_skips"
+jq -e '.last_dispatch_issue == 101' "$STATE_DIR/loop-status.json" >/dev/null \
+  || fail "T53: read failure: dispatch should proceed (last_dispatch_issue=101)"
+echo "  ✓ read failure: WARN + proceed, counter unchanged, dispatch not blocked"
+rm -f "$T53_BODY"
+
+
+
+echo
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318) ==="
