@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.69.0](https://github.com/macatocz/makato/compare/v0.68.0...v0.69.0) (2026-07-14)
+
+
+### ✨ Features
+
+* **makato-build:** make context7 lookup mandatory in coder before RED ([#400](https://github.com/macatocz/makato/issues/400)) ([a6ece38](https://github.com/macatocz/makato/commit/a6ece38d4a7c4b717a56fc03d3cb70a3393b904b)), closes [#395](https://github.com/macatocz/makato/issues/395)
+* **makato-plan:** add fastapi & temporal-development archetypes to task-skill-map ([#399](https://github.com/macatocz/makato/issues/399)) ([06a2918](https://github.com/macatocz/makato/commit/06a2918828938a09be0f8ff5674d19f00ffcfbb2)), closes [#394](https://github.com/macatocz/makato/issues/394)
+
 ## [0.68.0](https://github.com/macatocz/makato/compare/v0.67.0...v0.68.0) (2026-07-14)
 
 
