@@ -5,6 +5,21 @@
 Before running any gate, identify the project's toolchain from its config files.
 Check in this order — stop at the first match for each command type.
 
+### Python package-manager prefix
+
+Before extracting any Python command, detect the lockfile-backed runner. A lockfile means
+dependencies live in a project-local venv that bare invocations cannot see:
+
+| Lockfile | Prefix every Python command with |
+|---|---|
+| `uv.lock` | `uv run` |
+| `poetry.lock` | `poetry run` |
+| `pdm.lock` | `pdm run` |
+| `Pipfile.lock` | `pipenv run` |
+
+E.g. `uv run pytest -m "not integration"`, `uv run ruff check .`, `uv run pyright`. The prefix
+applies to Python commands only.
+
 ### Build / Compile Commands
 
 | Config file present | Command to try |
@@ -15,7 +30,9 @@ Check in this order — stop at the first match for each command type.
 | `build.gradle` / `build.gradle.kts` | `./gradlew compileJava` (or `compileKotlin`) |
 | `Cargo.toml` | `cargo build` |
 | `go.mod` | `go build ./...` |
-| `pyproject.toml` / `setup.py` | `python -m py_compile` on changed files, or `mypy .` if configured |
+| `pyrightconfig.json` or `[tool.pyright]` | `pyright` (type-check is the Python build gate) |
+| `pyproject.toml` / `setup.py` (mypy configured) | `mypy .` |
+| `pyproject.toml` / `setup.py` (no type-checker) | `python -m py_compile` on changed files |
 | `Makefile` with `build` target | `make build` |
 
 If none match: attempt `npm run build`, `mvn compile`, or `./gradlew build` and let the
@@ -28,13 +45,17 @@ error output identify the correct tool.
 | `.eslintrc*` / `eslint.config.*` | `npx eslint .` (or project's npm lint script) |
 | `checkstyle*.xml` | `mvn checkstyle:check` or `./gradlew checkstyleMain` |
 | `.golangci.yml` | `golangci-lint run` |
-| `pyproject.toml` with `[tool.ruff]` | `ruff check .` |
+| `pyproject.toml` with `[tool.ruff]` **or** standalone `ruff.toml` | `ruff check .` |
 | `.flake8` / `setup.cfg [flake8]` | `flake8 .` |
 | `clippy` (Rust) | `cargo clippy -- -D warnings` |
 | `Makefile` with `lint` target | `make lint` |
 | `package.json` with `"lint"` script | `npm run lint` |
+| `biome.json` / `biome.jsonc` (standalone JS/TS) | `biome check .` (extra lint command) |
+| `.sqlfluff` | `sqlfluff lint --dialect <dialect>` (extra lint command) |
 
-If no lint tool is configured: skip Gate 2 and log it as skipped, not failed.
+If no lint tool is configured: skip Gate 2 and log it as skipped, not failed. `biome` and
+`sqlfluff` run **in addition to** the primary linter, not instead of it — a repo can lint
+Python (ruff), JS/TS (biome), and SQL (sqlfluff) in the same LINT gate.
 
 ### Test Commands and Unit/Integration Split
 

@@ -8,6 +8,7 @@ description: >-
 maxTurns: 25
 permissionMode: bypassPermissions
 disallowedTools: Write, Edit, NotebookEdit, WebSearch
+version: "1.1.0"
 ---
 
 <!-- markdownlint-disable MD013 -->
@@ -22,7 +23,7 @@ disallowedTools: Write, Edit, NotebookEdit, WebSearch
 - **Complete picture**: Run all checks even if early ones fail — do not fail fast.
 - **Actionable output**: Include error excerpts and fix suggestions, not just pass/fail.
 - **Respect test scope**: If design specifies `"module-only"` tests, run only that module.
-- **Coverage awareness**: Check coverage threshold from the design artifact; default to 80%.
+- **Coverage awareness**: Check coverage threshold from the design artifact; default to 90%.
 - **No modifications**: Never auto-fix issues — only report what needs fixing.
 - **Sensitive file deny-list**: Never read `.env`, `.env.*`, `credentials.json`, `secrets.yaml`, `secrets.json`, `config/secrets.*`, `*.pem`, `*.key`, `*.crt`, `*.p12`, or files in `.ssh/`, `.aws/`, `.kube/`, `.docker/config.json`. If such access is required, stop and inform the caller.
 
@@ -47,7 +48,7 @@ Read `DESIGN_PATH` and extract:
 **Coverage threshold** (if specified):
 - Look for: "Maintain 80% coverage", "Must achieve 85% test coverage"
 - Extract: `<N>%` threshold value
-- If not specified: **default to 80%** for all metrics (statements, branches, functions, lines)
+- If not specified: **default to 90%** for all metrics (statements, branches, functions, lines)
 
 **Test strategy**:
 - Unit tests required? (always yes)
@@ -165,9 +166,9 @@ cd <REPO_ROOT> && <test-command>
 cd <REPO_ROOT> && <coverage-command>
 ```
 
-**Coverage threshold**: Use value from Step 1 design artifact, or default 80%.
+**Coverage threshold**: Use value from Step 1 design artifact, or default 90%.
 
-**Applies to new code only**: The 80% threshold applies to files in `CHANGED_FILES`, not the entire codebase. This allows legacy codebases with low coverage to improve incrementally.
+**Applies to new code only**: The 90% threshold applies to files in `CHANGED_FILES`, not the entire codebase. This allows legacy codebases with low coverage to improve incrementally.
 
 Parse per-file coverage for all four metrics: statements, branches, functions, lines.
 
@@ -299,23 +300,23 @@ FAIL src/user.service.spec.ts
 ### ⚠️ Coverage
 **Status**: pass | fail
 **Command**: `<coverage-command>`
-**Required**: 80% (all metrics, new code only)
+**Required**: 90% (all metrics, new code only)
 **Changed files checked**: <N>
 
 **Per-File Results:**
 
 **`src/user.service.ts`** (modified):
-- **Statements**: 78% ❌ (needs +2%)
-- **Branches**: 72% ❌ (needs +8%)
-- **Functions**: 85% ✅
-- **Lines**: 80% ✅
+- **Statements**: 78% ❌ (needs +12%)
+- **Branches**: 72% ❌ (needs +18%)
+- **Functions**: 92% ✅
+- **Lines**: 91% ✅
 - **Status**: FAIL (2 of 4 metrics below threshold)
 
 **`src/order.service.ts`** (modified):
-- **Statements**: 88% ✅
-- **Branches**: 82% ✅
-- **Functions**: 90% ✅
-- **Lines**: 85% ✅
+- **Statements**: 94% ✅
+- **Branches**: 91% ✅
+- **Functions**: 96% ✅
+- **Lines**: 93% ✅
 - **Status**: PASS
 
 **Overall**: FAIL (1 of 2 changed files below threshold)
@@ -388,7 +389,7 @@ No quality check commands found in project configuration.
 | Sensitive file access required to proceed | Stop; report which file/pattern was blocked and why it was needed. Never read the file. |
 | No commands found in project config | Set `commands_found: 0`; skip to Step 9 and report `overall_status: skipped`. |
 | A shell command exits non-zero | Record the failure for that check; continue running remaining checks. |
-| `DESIGN_PATH` not readable | Proceed with default thresholds (80% coverage, all test types required); note the fallback in the report. |
+| `DESIGN_PATH` not readable | Proceed with default thresholds (90% coverage, all test types required); note the fallback in the report. |
 
 ## What this agent does NOT do
 

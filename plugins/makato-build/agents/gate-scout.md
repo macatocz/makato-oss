@@ -1,6 +1,7 @@
 ---
 name: gate-scout
 model: haiku
+version: "1.1.0"
 description: >-
   Discover build, lint, unit test, integration test, and coverage commands
   by scanning project config files. Returns a structured command map for
@@ -49,6 +50,46 @@ Scan `REPO_ROOT` for config files in this order:
 
 Multiple files may coexist — report all project types found.
 
+### Step 1b — Detect the Python package manager / runner prefix
+
+Modern Python projects are frequently driven by a lockfile-backed package manager
+that installs dependencies into a project-local virtualenv. Commands MUST be run
+through that manager's runner, or the tooling resolves against the system Python and
+fails with `ModuleNotFoundError`. When a `pyproject.toml` or `setup.py` was detected,
+probe `REPO_ROOT` for a lockfile and set `python_runner_prefix` accordingly:
+
+| Lockfile present | `python_runner_prefix` |
+|---|---|
+| `uv.lock` | `uv run` |
+| `poetry.lock` | `poetry run` |
+| `pdm.lock` | `pdm run` |
+| `Pipfile.lock` | `pipenv run` |
+| none of the above | *(empty string)* |
+
+When `python_runner_prefix` is non-empty, **prefix every extracted Python command**
+(build, lint, unit, integration, coverage) with it — e.g. `uv run pytest -m "not integration"`,
+not bare `pytest`. First lockfile match wins; report only one prefix. This prefix is
+Python-only — it never applies to Node/Maven/Gradle/Rust/Go commands.
+
+### Step 1c — Detect standalone tool configs (not just `pyproject.toml` sections)
+
+A Python repo may configure a tool via a **dedicated top-level file** instead of (or in
+addition to) a `[tool.*]` section in `pyproject.toml`. Scan for these and treat a match as
+authoritative evidence the tool is in use, even when `pyproject.toml` has no matching section:
+
+| Standalone config file | Tool | Command implication |
+|---|---|---|
+| `ruff.toml` or `.ruff.toml` | Ruff | lint via `ruff check .` (config auto-discovered) |
+| `pyrightconfig.json` | Pyright | type-check / build gate via `pyright` |
+| `biome.json` or `biome.jsonc` | Biome (JS/TS lint+format) | lint via `biome check .` |
+| `.sqlfluff` | SQLFluff | SQL lint via `sqlfluff lint` |
+| `mypy.ini` or `.mypy.ini` | mypy | type-check / build gate via `mypy .` |
+| `.flake8` or `setup.cfg` `[flake8]` | flake8 | lint via `flake8 .` |
+
+A standalone `ruff.toml` and a `[tool.ruff]` block are equivalent evidence — either one means
+Ruff is the linter. When both a `ruff.toml` and `[tool.ruff]` exist, they configure the same
+tool; report a single `ruff check .` lint command.
+
 ### Step 2 — Extract commands
 
 For each detected config file, extract:
@@ -76,11 +117,18 @@ For each detected config file, extract:
 **Makefile**: Read targets. Look for `build`, `lint`, `test`, `integration-test`, `coverage` targets.
 
 **pyproject.toml**: Read `[tool.pytest.ini_options]`, `[tool.mypy]`, `[tool.ruff]` sections:
-- Build: `pip install -e .` or `python -m build`
-- Lint: `ruff check .` or `flake8`
-- Unit: check for markers in `[tool.pytest.ini_options]`; if `integration` marker is defined, unit command is `pytest -m "not integration"`; otherwise `pytest`
-- Integration: `pytest -m integration` if the marker is defined; otherwise `"not found"`
-- Coverage: `pytest --cov`
+- Build: prefer a type-checker as the Python "build" gate. If `pyrightconfig.json` exists or a `[tool.pyright]` section is present (Step 1c), the build command is `pyright`. Otherwise if mypy is configured (`[tool.mypy]`, `mypy.ini`), it is `mypy .`. Otherwise `pip install -e .` or `python -m build`.
+- Lint: `ruff check .` when Ruff is configured via `[tool.ruff]` **or** a standalone `ruff.toml` (Step 1c); else `flake8` when a flake8 config is present.
+- Unit: **directory split takes precedence over markers.** If a `tests/unit/` directory exists, the unit command is `pytest tests/unit`. Otherwise, check `[tool.pytest.ini_options]` `markers`; if an `integration` marker is defined, unit is `pytest -m "not integration"`; else `pytest`.
+- Integration: if a `tests/integration/` directory exists, integration is `pytest tests/integration`. Otherwise `pytest -m integration` when the marker is defined; else `"not found"`. When both `tests/unit/` and `tests/integration/` exist, report them as separate directory-scoped commands.
+- Coverage: `pytest --cov`. Read the coverage source packages from `[tool.coverage.run]` `source` if present (e.g. `--cov=src/brain --cov=src/body`); otherwise default to `--cov=src`. See Step 3 for the threshold.
+
+**Additional Python linters (report as separate lint commands, not folded into the primary lint):** when Step 1c detects a `biome.json`/`biome.jsonc` or `.sqlfluff`, these are independent linters that run alongside Ruff. Surface them in the output:
+
+- `biome.json` / `biome.jsonc` → `lint_js: biome check .`
+- `.sqlfluff` → `lint_sql: sqlfluff lint` (read `dialect` from the `[sqlfluff]` section and, if present, append `--dialect <value>`).
+
+Apply the `python_runner_prefix` from Step 1b to every command above when it is non-empty.
 
 ### Step 2b — JVM version detection (Maven / Gradle projects only)
 
@@ -118,7 +166,13 @@ Flag divergence only when commands are materially different — additional `--ma
 
 ### Step 3 — Check for threshold
 
-If `COVERAGE_HINT` is provided, include it in the coverage line. Otherwise default to `80%` — this is the DCP project standard for new code. The verify skill reads `design.md` from the resolved spec folder separately before dispatching this agent and passes any threshold it finds via `COVERAGE_HINT`; a story-specific threshold overrides this default.
+Resolve the coverage threshold in this precedence order:
+
+1. `COVERAGE_HINT` (story-specific, from `design.md`) — highest priority when provided.
+2. `[tool.coverage.report]` `fail_under` in `pyproject.toml` — the project-configured gate. Report it verbatim (e.g. `fail_under = 0` → threshold `0%`), including `0`, which is a deliberate greenfield setting, not "absent".
+3. Default `90%` — the DCP project standard for new code, used only when neither of the above is found.
+
+The verify skill reads `design.md` separately and passes any story threshold via `COVERAGE_HINT`; a story-specific threshold overrides the `pyproject.toml` value, which in turn overrides the default.
 
 ## Output Format
 
@@ -129,12 +183,15 @@ Emit this prose block as part of your message (before the R1 block):
 
 **project_type**: <node | maven | gradle | python | make | rust | go> (comma-separated if multiple)
 **config_files_read**: <N>
+**python_runner_prefix**: `<uv run | poetry run | pdm run | pipenv run>` | none
 **java_version_required**: <version, e.g. "21"> | not applicable
 **lint_ci_divergence**: true | false
 **lint_ci_command**: `<exact command from CI>` | not found
 
 **build**: `<exact command>` | not found
 **lint**: `<exact command>` | not found
+**lint_js**: `<exact command>` | not found
+**lint_sql**: `<exact command>` | not found
 **unit**: `<exact command>` | not found
 **integration**: `<exact command>` | not found
 **coverage**: `<exact command>` — threshold: <X>% | not found
@@ -144,7 +201,7 @@ Emit this prose block as part of your message (before the R1 block):
 
 The final element of your message MUST be a fenced ` ```json ` block containing the R1 envelope defined in `plugins/makato-build/agents/RETURN-CONTRACT.md`. Callers parse the last `json`-fenced block via `JSON.parse()` — no prose parsing.
 
-`data` shape: `{ "project_type": "...", "config_files_read": N, "build": "...", "lint": "...", "unit": "...", "integration": "...", "coverage": "...", "java_version_required": "...", "lint_ci_divergence": true|false, "lint_ci_command": "..." }`. Use the string `"not found"` for any command not discovered.
+`data` shape: `{ "project_type": "...", "config_files_read": N, "python_runner_prefix": "...", "build": "...", "lint": "...", "lint_js": "...", "lint_sql": "...", "unit": "...", "integration": "...", "coverage": "...", "java_version_required": "...", "lint_ci_divergence": true|false, "lint_ci_command": "..." }`. Use the string `"not found"` for any command not discovered, and `"none"` for `python_runner_prefix` when no lockfile matches. `lint_js` / `lint_sql` are `"not found"` for projects without Biome / SQLFluff.
 
 ### Success
 
@@ -153,25 +210,30 @@ The final element of your message MUST be a fenced ` ```json ` block containing 
   "schema": "r1",
   "agent": "gate-scout",
   "status": "success",
-  "summary": "node project: build/lint/unit/coverage all discovered; integration not configured.",
+  "summary": "python (uv) project: pyright build gate, ruff + biome + sqlfluff lint, directory-split test lanes; coverage threshold 0% from pyproject fail_under.",
   "files_changed": [],
   "tests_written": [],
   "errors": [],
-  "tool_calls_used": 4,
+  "tool_calls_used": 7,
   "data": {
-    "project_type": "node",
-    "config_files_read": 1,
-    "build": "npm run build",
-    "lint": "npm run lint",
-    "unit": "npm test",
-    "integration": "not found",
-    "coverage": "npm run test:coverage — threshold: 80%",
+    "project_type": "python",
+    "config_files_read": 5,
+    "python_runner_prefix": "uv run",
+    "build": "uv run pyright",
+    "lint": "uv run ruff check .",
+    "lint_js": "biome check .",
+    "lint_sql": "sqlfluff lint --dialect postgres",
+    "unit": "uv run pytest tests/unit",
+    "integration": "uv run pytest tests/integration",
+    "coverage": "uv run pytest --cov=src/brain --cov=src/body --cov=src/shared — threshold: 0%",
     "java_version_required": "not applicable",
     "lint_ci_divergence": false,
     "lint_ci_command": "not found"
   }
 }
 ```
+
+A minimal Node project (no Python toolchain) sets `python_runner_prefix: "none"`, `lint_js`/`lint_sql`: `"not found"`, and reports npm scripts verbatim as before — the new fields never alter non-Python output.
 
 ## Error modes
 

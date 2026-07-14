@@ -6,7 +6,7 @@ description: >-
   separately so failures are attributable. Fixable failures are
   fixed and gates re-run; structural failures escalate to refine.
   Autonomous. Use after review, before push-to-git.
-version: "1.6.1"
+version: "1.7.0"
 argument-hint: "[work-item-key]"
 ---
 
@@ -73,6 +73,10 @@ Dispatch the `gate-scout` agent with:
 - `COVERAGE_HINT`: the coverage threshold extracted from `design.md` (or empty string if none declared)
 
 The agent scans config files (`package.json`, `pom.xml`, `Makefile`, `build.gradle`, `pyproject.toml`, etc.) and returns a structured command map with the exact build, lint, unit, integration, and coverage commands, and a `java_version_required` field for JVM projects. Use this command map for all subsequent gates — do not infer commands independently.
+
+**Python runner prefix**: if `python_runner_prefix` is present and not `"none"` (e.g. `uv run`, `poetry run`), the gate-scout commands already include it. Run them verbatim — do NOT strip the prefix and do NOT re-add it. A bare `pytest`/`ruff` invocation in a lockfile-managed project resolves against the system Python and fails with `ModuleNotFoundError`.
+
+**Extra linters**: if `lint_js` or `lint_sql` are present and not `"not found"`, run them as additional LINT-gate commands alongside the primary `lint` command. Each must pass independently; a failure in any is a LINT-gate failure. Log each under its own `data.linter` key.
 
 **JVM version check** (Maven/Gradle projects only): if `java_version_required` is present in the gate-scout output, run `java -version` and compare the major version. If they differ, emit a WARNING:
 

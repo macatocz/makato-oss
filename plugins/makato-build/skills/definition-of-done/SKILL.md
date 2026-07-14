@@ -7,7 +7,7 @@ description: >-
   asserted by the PO-agent from workflow-state. Use as the single source
   of truth that answers "is this task done?" — referenced from coder VERIFY,
   build-verify gate mapping, and PO-agent task-completion logic.
-version: "2.0.0"
+version: "2.1.0"
 ---
 
 # Definition of Done
@@ -47,7 +47,7 @@ gate log entry in `specs/<key>-<slug>/build.jsonl`.
    _Enforced by:_ `agents/coder.md` VERIFY phase; `skills/build-verify/SKILL.md` Gates 3
    and 4.
 
-2. **Conditional coverage ≥ threshold.** Default 85% conditional (branch) coverage; the
+2. **Conditional coverage ≥ threshold.** Default 90% conditional (branch) coverage; the
    threshold is overridable per-story in `specs/<key>-<slug>/design.md`. Below threshold
    triggers HALT-002.
    _Enforced by:_ `skills/build-verify/SKILL.md` Gate 5.

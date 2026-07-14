@@ -5,6 +5,31 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## `gate-scout` + `build-verify` — modern Python toolchain discovery (uv / pyright / biome / sqlfluff)
+
+`gate-scout` only recognised bare `pytest` / `ruff` / `mypy` and a `[tool.ruff]`-in-pyproject world. Lockfile-managed Python repos (`uv`, `poetry`, `pdm`) and repos that configure tools via standalone top-level files went undiscovered, so `build-verify` ran commands that resolved against the system Python and failed with `ModuleNotFoundError`, or missed whole linters.
+
+**`agents/gate-scout.md`** (new frontmatter `version: "1.1.0"`):
+
+- **Step 1b — package-manager prefix.** Detects `uv.lock` / `poetry.lock` / `pdm.lock` / `Pipfile.lock` and emits `python_runner_prefix` (`uv run`, …). Every Python command (build/lint/unit/integration/coverage) is prefixed with it. First lockfile wins; Python-only.
+- **Step 1c — standalone tool configs.** Treats `ruff.toml`, `pyrightconfig.json`, `biome.json`/`biome.jsonc`, `.sqlfluff`, `mypy.ini`, `.flake8` as authoritative tool evidence even when `pyproject.toml` has no matching `[tool.*]` section.
+- **Step 2 — Python extraction rewrite.** Build gate prefers `pyright` (or `mypy`) over the old `py_compile` placeholder; lint recognises standalone `ruff.toml`; **directory-based test lanes** (`tests/unit/`, `tests/integration/`) take precedence over the `integration` marker; coverage reads `[tool.coverage.run]` `source` for `--cov=` targets; new `lint_js` (biome) and `lint_sql` (sqlfluff, with `--dialect`) commands surface as extra linters.
+- **Step 3 — threshold precedence.** `COVERAGE_HINT` → `[tool.coverage.report] fail_under` → `90%` default. A configured `fail_under = 0` is now honoured as a deliberate greenfield setting.
+- **Output + R1 `data`** gained `python_runner_prefix`, `lint_js`, `lint_sql`; success example rewritten to a realistic uv/pyright/biome/sqlfluff project. Non-Python output is unchanged (`python_runner_prefix: "none"`, extra linters `"not found"`).
+
+**`skills/build-verify/SKILL.md`** (1.6.1 → 1.7.0):
+
+- Step 1 consumes `python_runner_prefix` (run commands verbatim — never strip/re-add the prefix) and runs `lint_js` / `lint_sql` as additional LINT-gate commands, each passing independently.
+
+**`skills/build-verify/references/gate-definitions.md`**:
+
+- Added the package-manager-prefix table, `pyright`/`mypy` build rows, standalone-`ruff.toml` lint row, and `biome`/`sqlfluff` extra-linter rows.
+
+---
+
+## `definition-of-done` — raise default conditional-coverage floor to 90%
+
+**`skills/definition-of-done/SKILL.md`** (2.0.0 → 2.1.0): default conditional (branch) coverage threshold raised 85% → **90%** (Automated item 2, enforced by `build-verify` Gate 5). Wording-only edit — item counts (13 automated / 6 manual) and enforcer unchanged, so a minor bump per the skill's own versioning policy. Per-story `design.md` override is unaffected. Aligned with the `gate-scout` default (also 90%).
 ## `diff-reviewer` + `build-review` + `build-create-pr` — per-AC verified/gap verdict for post-merge checkbox marking
 
 Acceptance-criteria checkboxes on a GitHub Issue were never checked by the pipeline — a merged PR left every `- [ ]` untouched, and nothing recorded *whether* each AC was actually verified. This adds a per-AC verdict that travels from the adversarial review to the post-merge `documentation-agent` (in `makato-orchestrate`), so a checked box means "the reviewer confirmed code + test coverage", not merely "the PR merged". See `AGENTS.md` § *ac_verdicts propagation chain*.

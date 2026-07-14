@@ -1,6 +1,10 @@
 <!-- markdownlint-disable MD012 MD013 -->
 # Changelog
 
+## `quality-guard` — raise default coverage threshold to 90%
+
+**`agents/quality-guard.md`** (new `version: "1.1.0"`): default coverage threshold raised 80% → **90%** for all metrics (statements, branches, functions, lines) on new/changed code, applied when the design artifact declares none. The design-artifact value and `DESIGN_PATH`-not-readable fallback now read 90%. The worked-example report block was re-based so its pass/fail illustrations remain correct against a 90% floor. The "Maintain 80% coverage" / "Must achieve 85% test coverage" strings under *Look for* are left as-is — they are examples of user-supplied design text the agent detects, not defaults. Aligned with the makato-build `gate-scout` / `definition-of-done` 90% default.
+
 ## Autonomous path — orchestrate + headless phase branches (#144)
 
 Adds full autonomous execution support to the `makato-change` pipeline so the `loop` skill can
