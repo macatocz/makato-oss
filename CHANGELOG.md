@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.59.0](https://github.com/macatocz/makato/compare/v0.58.0...v0.59.0) (2026-07-14)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** durable per-issue structural_halt_cycles counter ([#347](https://github.com/macatocz/makato/issues/347)) ([#354](https://github.com/macatocz/makato/issues/354)) ([65ea817](https://github.com/macatocz/makato/commit/65ea817628eb41900739ea1bdd85c63ab87287ec))
+
 ## [0.58.0](https://github.com/macatocz/makato/compare/v0.57.0...v0.58.0) (2026-07-14)
 
 
