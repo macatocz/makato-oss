@@ -28,7 +28,7 @@ separate routing path. So register a skill here **only if it is technical / rout
 - **Register:** `langgraph-*`, `manage-postgres`, `build-fix-types`, `build-verify`,
   `build-implement-tdd`, `e2e-testing-patterns`, `temporal-development`.
 - **Skip:** `brainstorming`, `grill`, `create-prd`, `decompose`, `to-issues`,
-  `makato-plugin-creator`, `makato-skill-creator`, `manage-pr`, `loop`, `seed-issue`.
+  `makato-plugin-creator`, `makato-skill-creator`, `sync-from-upstream`, `loop`, `seed-issue`.
 
 Edge cases: a skill with both an interactive and an AUTONOMOUS-MODE path (e.g.
 `build-simplify`) counts as technical — the autonomous path is the registry's

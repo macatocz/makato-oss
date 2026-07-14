@@ -6,16 +6,10 @@ Changes are grouped by skill/agent/component. Within each group, latest version 
 
 ## Plugin-level
 
-- **Added** `config/skill-bundles.yml` (#145) — bundles `contribute-skills`, `contribute-plugin-creation`, `contribute-pr` route plugin.json/marketplace files and CHANGELOG files to the makato-plugin-creator/makato-skill-creator/manage-pr skills.
+- **Removed** the `manage-pr` skill — its behaviour is fully covered by `makato-build:build-address-pr-comments` (superset: human + bot comments, CI failures, `--autonomous` mode). Dropped the `contribute-pr` skill bundle; retargeted the `review-pr` / `resolve-change-review` / `triage-pr-comments` / `address-pr-comments` archetypes in `makato-plan/config/task-skill-map.json` to `build-address-pr-comments`; updated the plugin description to drop "resolve PR review feedback".
+- **Added** `config/skill-bundles.yml` (#145) — bundles `contribute-skills`, `contribute-plugin-creation` route plugin.json/marketplace files to the makato-plugin-creator/makato-skill-creator skills.
 
 ---
-
-## `manage-pr` skill
-
-- **1.1.0**
-  - (no detail recorded — see git history)
-- **1.0.0**
-  - Initial — post-PR-creation review-bot triage: validates each bot comment against the actual code, rates severity/quality, waits for approval, applies fixes, posts gh CLI replies, and resolves threads via GraphQL `resolveReviewThread`; supports enterprise hosts like github.tools.sap
 
 ## `makato-plugin-creator` skill
 

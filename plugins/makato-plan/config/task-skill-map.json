@@ -108,7 +108,7 @@
   "decompose-epic": ["makato-plan:decompose", "makato-plan:brainstorming"],
   "decompose-feature": ["makato-plan:decompose", "makato-plan:create-prd"],
 
-  "review-pr": ["makato-contribute:manage-pr", "makato-build:build-review"],
+  "review-pr": ["makato-build:build-review", "makato-build:build-address-pr-comments"],
   "review-code": ["makato-build:build-review", "makato-build:build-simplify"],
   "review-design": ["makato-plan:grill", "makato-plan:create-ux"],
   "review-prd": ["makato-plan:grill", "makato-plan:create-prd"],
@@ -159,7 +159,7 @@
   "analyze-change-request": ["makato-change:analyze", "makato-change:design"],
   "design-change-request": ["makato-change:design", "makato-change:analyze"],
   "execute-change-request": ["makato-change:execute", "makato-change:design"],
-  "resolve-change-review": ["makato-change:resolve-review", "makato-contribute:manage-pr"],
+  "resolve-change-review": ["makato-change:resolve-review", "makato-build:build-address-pr-comments"],
   "orchestrate-change": ["makato-change:orchestrate", "makato-change:analyze"],
 
   "setup-testbox": ["makato-sagibeast:sagibeast-create-testbox", "makato-sagibeast:sagibeast-connect-testbox"],
@@ -207,8 +207,8 @@
   "scaffold-plugin": ["makato-contribute:makato-plugin-creator", "makato-doc:markdown"],
   "scaffold-skill": ["makato-contribute:makato-skill-creator", "makato-doc:markdown"],
   "sync-upstream": ["makato-contribute:sync-from-upstream", "makato-doc:markdown"],
-  "triage-pr-comments": ["makato-contribute:manage-pr", "makato-build:build-address-pr-comments"],
-  "address-pr-comments": ["makato-build:build-address-pr-comments", "makato-contribute:manage-pr"],
+  "triage-pr-comments": ["makato-build:build-address-pr-comments", "makato-build:build-review"],
+  "address-pr-comments": ["makato-build:build-address-pr-comments", "makato-build:build-review"],
 
   "run-sensors": ["makato-build:build-sensors", "makato-build:build-resolve-finding"],
   "resolve-finding": ["makato-build:build-resolve-finding", "makato-build:build-sensors"],

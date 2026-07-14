@@ -18,7 +18,7 @@
     {
       "name": "makato-contribute",
       "source": "./plugins/makato-contribute",
-      "description": "Contributor tools for the makato suite — scaffold plugins and skills, resolve PR review feedback, and sync content from upstream repos, all validated against suite conventions."
+      "description": "Contributor tools for the makato suite — scaffold plugins and skills and sync content from upstream repos, all validated against suite conventions."
     },
     {
       "name": "makato-plan",

@@ -45,9 +45,6 @@ makato-contribute/
 │   ├── makato-skill-creator/     # Scaffold a new skill inside an existing plugin
 │   │   ├── SKILL.md
 │   │   └── references/
-│   ├── manage-pr/                # Triage PR review-bot comments and apply fixes
-│   │   ├── SKILL.md
-│   │   └── references/
 │   └── sync-from-upstream/       # Migrate content from an upstream impact-market repo into makato
 │       ├── SKILL.md
 │       └── references/

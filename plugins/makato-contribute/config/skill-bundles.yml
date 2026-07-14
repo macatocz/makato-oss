@@ -31,12 +31,3 @@ bundles:
     skills:
       - makato-plugin-creator
       - makato-skill-creator
-
-  # Triggered when working on pull-request or changelog files.
-  # Literal segment: CHANGELOG → specificity = 1 (root CHANGELOG.md).
-  - name: contribute-pr
-    globs:
-      - "CHANGELOG.md"
-      - "plugins/*/CHANGELOG.md"
-    skills:
-      - manage-pr
