@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.60.0](https://github.com/macatocz/makato/compare/v0.59.0...v0.60.0) (2026-07-14)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** add _auto_seed_candidates() to loop.sh ([#369](https://github.com/macatocz/makato/issues/369)) ([#374](https://github.com/macatocz/makato/issues/374)) ([fcd7c84](https://github.com/macatocz/makato/commit/fcd7c84d89336e18d9a5741bd0475ea7d9299e34))
+
 ## [0.59.0](https://github.com/macatocz/makato/compare/v0.58.0...v0.59.0) (2026-07-14)
 
 
