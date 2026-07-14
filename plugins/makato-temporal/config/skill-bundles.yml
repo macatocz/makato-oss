@@ -23,6 +23,9 @@ bundles:
   # segments) so a contains predicate scopes them to files that actually
   # import a Temporal SDK. task_contains additionally routes the skill for
   # green-field durable-execution tasks whose SDK files are not yet in the diff.
+  # The "tech:temporal" substring matches the to-issues label footer that every
+  # temporal-tagged issue carries in its body, so routing fires regardless of
+  # prose casing (case-sensitive match; "Temporal workflow" in prose would miss).
   - name: temporal-code
     globs:
       - "**/*.py"
@@ -36,6 +39,7 @@ bundles:
       - "io.temporal."
       - "temporal_sdk"
     task_contains:
+      - "tech:temporal"
       - "temporal workflow"
       - "temporal activity"
       - "durable execution"
