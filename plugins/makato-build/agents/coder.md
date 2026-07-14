@@ -100,6 +100,39 @@ Rules:
 - When `RECOMMENDED_SKILLS` is absent or empty: skip this section entirely — proceed
   directly to Phase 0.
 
+## Mandatory context7 lookup (#395)
+
+The repo-root `AGENTS.md` and `makato-doc/AGENTS.md` declare `makato-doc:context7`
+**mandatory for every code-creating agent**: look up current library docs before writing
+code, not from training data. This obligation is unconditional — it does **not** depend on
+`RECOMMENDED_SKILLS` carrying `context7`, on a doc-lookup phrase appearing in the task text,
+or on matching source files already being staged. Enforce it here so every dispatch is
+covered regardless of archetype.
+
+**Before Phase 1 RED**, inspect the task for any external library, framework, SDK, or API —
+scan `TASK.files`, `TASK` description, `PLAN_CONTEXT`, and `SCOUT_SUMMARY.key_patterns` for
+import/dependency names (e.g. `fastapi`, `temporalio`, `langgraph`, `boto3`, `pydantic`).
+When at least one is present:
+
+> "Before implementing this task, invoke `makato-doc:context7` for `<library-1>`,
+> `<library-2>`, … — resolve the library ID, fetch the current docs for the specific APIs
+> this task uses, then write tests and code against that reference rather than training-data
+> recall."
+
+Rules:
+
+- Run this **once**, after the § *Skill consultation prepend* skills (if any) and before the
+  § *Test oracle* / Phase 1 RED. If `RECOMMENDED_SKILLS` already lists `makato-doc:context7`,
+  do not invoke it twice — the prepend covers it and this section is satisfied.
+- Treat context7 output as advisory context, equivalent in weight to `SCOUT_SUMMARY`. It never
+  overrides `PLAN_CONTEXT.Hard Constraints` or `PLAN_CONTEXT.Standards`.
+- **Pure-config / pure-docs / pure-refactor tasks touch no library surface**: when no external
+  library/framework/SDK/API is referenced, skip this section — do NOT invent a lookup, do NOT
+  block. context7 is for library-facing code, not for editing YAML, Markdown, or moving files.
+- If context7 is unavailable (MCP server not connected, path missing): log a warning and
+  proceed — do NOT HALT. The obligation is best-effort, mirroring the § *Skill consultation
+  prepend* skip-on-missing rule.
+
 ## Test oracle (acceptanceTestCases → RED)
 
 When `TEST_ORACLE` is present in the dispatch bundle, it carries the plan's
