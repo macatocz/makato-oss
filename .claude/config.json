@@ -20,7 +20,8 @@
           "done": "98236657",
           "blocked": "51fc4188",
           "ready": "61e4505c",
-          "in_review": "df73e18b"
+          "in_review": "df73e18b",
+          "needs_planning": null
         }
       },
       "priority": {
@@ -61,7 +62,8 @@
       "done": "98236657",
       "blocked": "51fc4188",
       "ready": "61e4505c",
-      "in_review": "df73e18b"
+      "in_review": "df73e18b",
+      "needs_planning": null
     },
     "title": "makato"
   }

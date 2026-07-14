@@ -116,9 +116,11 @@ with `errors: ["missing input: <field>"]`. Issue without
    whether `workflow-state.json` already existed (used for the
    `resumed` flag).
 2. Append the session-start entry to `orchestrate.jsonl`:
+
    ```json
    {"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"session","status":"start","data":{"key":"<KEY>","repo":"<REPO>","branch":"<BRANCH>","resumed":<bool>,"session_count":<S>}}
    ```
+
 3. Run `kill-switch poll <KEY>`. Non-zero exit means the operator
    dropped a HALT before dispatch — read `halt_audit[-1]`, emit
    session-end JSONL (Step 7), return R1 `failure`. The kill-switch has
@@ -253,6 +255,7 @@ their plans warrant human shaping.
    GUARD_OUT="$(scripts/validate-plan-body.sh "$PLAN_PATH" 2>/dev/null || true)"
    GUARD_VERDICT="${GUARD_OUT%% *}"   # valid | invalid
    ```
+
 5. **On `GUARD_VERDICT == valid`:** write `spec_tier:"plan-only"` into
    `seed-manifest.json` (`jq '.spec_tier = "plan-only"'`) so `build-refine`
    sources AC from `plan.md` (#210), emit the `materialize-spec` JSONL
@@ -367,7 +370,7 @@ Patch `current_phase: "implement"`.
 Each iteration dispatches ONE implementation skill (not one task). The
 skill walks the full list internally.
 
-```
+```text
 outer_iteration = current value (resumed) or 0 (fresh).
 
 repeat:
@@ -708,6 +711,7 @@ row). The `gh`-only polls (CI, review) are narrated with a single
    ```json
    {"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"review-poll","status":"<ok|warn>","data":{"pr":<PR>,"review_decision":"<decision>","human_review_cycles":<N>,"waited_secs":<S>}}
    ```
+
 7. Patch `current_phase: "done"`. Run `shared/worktree.sh cleanup <KEY>`
    (`git worktree remove --force` + patch `.worktree_path` to `null`;
    emit `worktree_removed` JSONL). Then run
@@ -785,9 +789,11 @@ row). The `gh`-only polls (CI, review) are narrated with a single
       On parse failure (empty FINDINGS), fall through to the
       `build-implement-tdd` path below.
    2. Emit `sensor-delegated` row to `specs/<KEY>-*/build.jsonl`:
+
       ```json
       {"ts":"<ISO>","skill":"po-agent","step":"ci-poll","action":"sensor-delegated","key":"<KEY>","ci_failure_type":"sensor","dispatched_by":"po-agent"}
       ```
+
    3. Dispatch `sensor-fixer` agent with: `REPO_ROOT`, `FINDINGS`,
       `SPEC_KEY=<KEY>`,
       `CI_CONTEXT={"check_name":"<failed-check-name>","run_id":"<run-id>","ci_failure_type":"sensor"}`.
@@ -870,6 +876,36 @@ If the script exits non-zero, log a warn to `orchestrate.jsonl`:
 
 **Do NOT block termination** — the HALT path must always terminate cleanly
 regardless of whether `emit-reshape-request.sh` succeeds.
+
+**Needs Planning signal (#348, epic #319).** Immediately after
+`bump-structural-halt` and before `emit-reshape-request.sh`, call:
+
+```bash
+scripts/emit-needs-planning-signal.sh <KEY> <ISSUE_NUMBER>
+```
+
+The script reads `structural_halt_cycles` from state and compares it to
+`MAKATO_STRUCTURAL_RESHAPE_THRESHOLD` (default 2). Below the threshold it
+exits 0 as a no-op. At or above the threshold it applies the `needs-reshape`
+label via `gh issue edit --add-label needs-reshape` (creating the label with
+colour `#0075ca` if absent) and attempts to set the board Status to Needs
+Planning via the `needs_planning` option ID from `.claude/config.json` (see
+the loop SKILL.md Prerequisites §*Needs Planning board Status*). The script
+degrades gracefully to label-only when the board option ID is absent or the
+`gh` call fails, and records a WARN in `orchestrate.jsonl`. The call is
+unconditional on the HALT path — the script's own threshold guard keeps it a
+no-op below the threshold. This call is distinct from `emit-reshape-request.sh`
+(serialises the planning context packet); both MUST run on every structural HALT.
+
+If the script exits non-zero (unrecoverable input error only), log a warn to
+`orchestrate.jsonl`:
+
+```json
+{"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"emit-needs-planning","status":"warn","error":"<stderr-line>"}
+```
+
+**Do NOT block termination** — the HALT path must always terminate cleanly
+regardless of whether `emit-needs-planning-signal.sh` succeeds.
 
 Append session-end to `orchestrate.jsonl` (JSONL `status` maps R1
 status: `success`→`ok`, `partial`→`warn`, `failure`→`error`):
@@ -969,16 +1005,23 @@ session-end JSONL and R1 `failure`:
    `summarise-lessons` JSONL with `data.terminal_state: "failure"`.
 4a. **Structural HALTs only** (HALT-003, HALT-STRUCTURAL, HALT-010, HALT-008 with
    `data.origin == "outer_iteration"`): call
-   `scripts/emit-reshape-request.sh <KEY> <ISSUE_NUMBER>`. This writes
-   `specs/<key>-<slug>/reshape-request.json` — the sole orchestrate→plan data
-   contract serializing the failure evidence (structural halt_audit entries,
-   structural-trigger lessons_learned trail, last CRITICAL coder errors) for
-   `makato-plan` to reshape the story. If the script exits non-zero, log a warn
-   to `orchestrate.jsonl` (`step: "emit-reshape-request"`, `status: "warn"`,
-   `error: <stderr-line>`) but do **NOT** block termination — the HALT path must
-   always terminate cleanly. Skip for non-structural HALTs (HALT-007, HALT-007B,
-   HALT-000, HALT-009, HALT-002, HALT-005, HALT-006, HALT-011, and HALT-008 with
-   any origin other than `outer_iteration`).
+   `scripts/emit-needs-planning-signal.sh <KEY> <ISSUE_NUMBER>` and then
+   `scripts/emit-reshape-request.sh <KEY> <ISSUE_NUMBER>`. Both calls apply to
+   all structural HALT exits. `emit-needs-planning-signal.sh` applies the
+   `needs-reshape` label and optionally sets board Status to Needs Planning when
+   `structural_halt_cycles >= MAKATO_STRUCTURAL_RESHAPE_THRESHOLD` (default 2);
+   it exits 0 as a no-op below the threshold so the call is unconditional.
+   `emit-reshape-request.sh` writes `specs/<key>-<slug>/reshape-request.json` —
+   the sole orchestrate→plan data contract serializing the failure evidence
+   (structural halt_audit entries, structural-trigger lessons_learned trail, last
+   CRITICAL coder errors) for `makato-plan` to reshape the story. If either
+   script exits non-zero, log a warn to `orchestrate.jsonl`
+   (`step: "emit-needs-planning"` or `step: "emit-reshape-request"`,
+   `status: "warn"`, `error: <stderr-line>`) but do **NOT** block termination —
+   the HALT path must always terminate cleanly. Skip both for non-structural
+   HALTs (HALT-007, HALT-007B, HALT-000, HALT-009, HALT-002, HALT-005,
+   HALT-006, HALT-011, and HALT-008 with any origin other than
+   `outer_iteration`).
 5. Narrate the halt into the live issue comment (best-effort — see
    § *Progress comment*; skip in the bootstrap exception below, where no
    state and possibly no comment id exist yet):

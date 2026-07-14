@@ -130,6 +130,30 @@ HALT-file polling at the outer-most boundary) assume it owns the session.
   named "Ready" (the makato project board, `macatocz/projects/4`, has
   this by default). To use a different option name, pass
   `--status <NAME>` or export `MAKATO_LOOP_STATUS`.
+- **Needs Planning board Status (one-time migration):** The
+  `emit-needs-planning-signal.sh` script sets a board card's Status to
+  "Needs Planning" when `structural_halt_cycles` reaches the threshold
+  (`MAKATO_STRUCTURAL_RESHAPE_THRESHOLD`, default 2). Before this signal
+  can write the board, a "Needs Planning" option must exist on the board's
+  Status field **and** its option ID must be recorded in
+  `.claude/config.json` under `github_project.fields.status.options.needs_planning`
+  (and the duplicate `github_project.options.needs_planning` key). Steps:
+  1. Add the "Needs Planning" Status option on Projects v2 board #4 via
+     the GitHub UI (board settings → Status field → add option).
+  2. Retrieve the new option's ID:
+     `gh project field-list <project-number> --owner <owner> --format json`.
+  3. Populate `.claude/config.json` (both locations):
+
+     ```json
+     "options": { ..., "needs_planning": "<option-id>" }
+     ```
+
+  4. Run `/makato-plan:issue-to-project --init` to refresh the full
+     options map from the live board and overwrite the placeholder.
+
+  Until this migration is complete the script degrades gracefully to
+  label-only (`needs-reshape` applied, board Status unchanged) and
+  records a WARN in `orchestrate.jsonl`.
 - `gh` is authenticated with the `project` OAuth scope. The sibling
   `issue-to-project` pre-flight check 4 fails loudly when this is
   missing; `loop` simply returns an empty queue (`gh` stderr suppressed)
@@ -473,7 +497,7 @@ Field semantics:
 | `dry_run` | boolean | True if the operator passed `--dry-run`. |
 | `last_poll` | ISO-8601 ms \| null | Timestamp of the most recent `gh` poll. |
 | `queue_depth` | integer ≥ 0 | Count of board Issue items at the requested Status at last poll. |
-| `queue` | array<int> | Issue numbers from last poll (untracked-vs-in-flight not filtered — call `next` for that). |
+| `queue` | array\<int\> | Issue numbers from last poll (untracked-vs-in-flight not filtered — call `next` for that). |
 | `active_workflow` | object \| null | `{issue, started_at, stalled, stalled_since, killed_by_watchdog}` while a dispatch is in flight; `null` between iterations. |
 | `active_workflow.stalled` | boolean | Set by the watchdog when the PO-agent has been silent ≥ `MAKATO_LOOP_STALL_WARN` seconds. Warn-only; no signal is sent. |
 | `active_workflow.stalled_since` | ISO-8601 ms \| null | Timestamp `stalled` was first flipped to `true`. |

@@ -1274,7 +1274,7 @@ _claim_board_card() {
 # halted card back onto Ready every tick, where the in-flight guard then blocks
 # dispatch, leaving the issue stuck. Excluding it keeps a halted issue off Ready
 # until a human clears the label (#286).
-_PROMOTE_EXCLUSION_LABELS="triage experimental status:blocked autonomous:halt needs-human-review"
+_PROMOTE_EXCLUSION_LABELS="triage experimental status:blocked autonomous:halt needs-human-review needs-reshape"
 _PROMOTE_READY_LABEL="status:ready-for-dev"
 
 _promote_labelled_ready() {

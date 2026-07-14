@@ -2512,5 +2512,67 @@ echo "$tk_stderr" | grep -q "0 candidate" \
 rm -f "$TK_FIXTURE" "$TK_BLOCK_FILE" "$TK_SEED_FLAG" "$TK_STUB_FILE"
 echo "  ✓ status:ready-for-dev issue excluded from candidates: no action, function returns 0"
 
+# ---------------------------------------------------------------------------
+# T-needs-reshape-excluded: needs-reshape label excludes issue from
+# _promote_labelled_ready promotion pass (#348).
+# ---------------------------------------------------------------------------
 echo
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373) ==="
+echo "=== T-needs-reshape-excluded: needs-reshape label → excluded from _promote_labelled_ready ==="
+TNRE_FIXTURE="$STATE_DIR/tnre-promote-$$.json"
+# Issue #900 carries status:ready-for-dev AND needs-reshape — must be skipped.
+# Issue #901 carries status:ready-for-dev alone — must be promoted.
+jq -n '[
+  {"number": 900, "labels": [{"name": "status:ready-for-dev"}, {"name": "needs-reshape"}]},
+  {"number": 901, "labels": [{"name": "status:ready-for-dev"}]}
+]' >"$TNRE_FIXTURE"
+
+TNRE_OUT="$(
+  MAKATO_LOOP_PROMOTE_OVERRIDE="$TNRE_FIXTURE" \
+  MAKATO_LOOP_PROMOTE_DRYRUN=1 \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+    "$LOOP" promote-ready 2>&1
+)" || fail "T-needs-reshape-excluded: promote-ready should exit 0; got: $TNRE_OUT"
+
+# Issue #901 (plain ready) should be promoted.
+grep -q "would promote #901" <<<"$TNRE_OUT" \
+  || fail "T-needs-reshape-excluded: plain ready #901 should be promoted; got: $TNRE_OUT"
+# Issue #900 (needs-reshape) must NOT be promoted.
+grep -q "would promote #900" <<<"$TNRE_OUT" \
+  && fail "T-needs-reshape-excluded: needs-reshape issue #900 must NOT be promoted; got: $TNRE_OUT" || true
+
+rm -f "$TNRE_FIXTURE"
+echo "  ✓ needs-reshape label excluded from _promote_labelled_ready promotion pass"
+
+# ---------------------------------------------------------------------------
+# T-needs-reshape-autoseed-excluded: needs-reshape label also excludes issue
+# from _auto_seed_candidates discovery (#348).
+# ---------------------------------------------------------------------------
+echo
+echo "=== T-needs-reshape-autoseed-excluded: needs-reshape label → excluded from _auto_seed_candidates ==="
+TNRAE_FIXTURE="$STATE_DIR/tnrae-autoseed-$$.json"
+TNRAE_BLOCK_FILE="$STATE_DIR/tnrae-block-$$.txt"
+TNRAE_SEED_FLAG="$STATE_DIR/tnrae-seeded-$$.txt"
+TNRAE_STUB_FILE="$STATE_DIR/tnrae-stub-$$.sh"
+# Issue #910 carries needs-reshape (and no ready label) — excluded by
+# the _PROMOTE_EXCLUSION_LABELS filter in _auto_seed_candidates.
+jq -n '[{"number": 910, "labels": [{"name": "needs-reshape"}, {"name": "plan-tier:light"}], "author": {"login": "user9"}}]' \
+  >"$TNRAE_FIXTURE"
+printf '#!/usr/bin/env bash\ntouch "%s"\nexit 0\n' "$TNRAE_SEED_FLAG" >"$TNRAE_STUB_FILE"
+chmod +x "$TNRAE_STUB_FILE"
+tnrae_rc=0
+tnrae_stderr="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_AUTOSEED_OVERRIDE="$TNRAE_FIXTURE" \
+  MAKATO_LOOP_SEED_TEST_CMD="$TNRAE_STUB_FILE" \
+  MAKATO_LOOP_BLOCK_TEST_FILE="$TNRAE_BLOCK_FILE" \
+    "$LOOP" _test-auto-seed-unprepared 2>&1 >/dev/null
+)" || tnrae_rc=$?
+[[ "$tnrae_rc" -eq 0 ]] \
+  || fail "T-needs-reshape-autoseed-excluded: function must return 0; got rc=$tnrae_rc stderr=$tnrae_stderr"
+[[ ! -f "$TNRAE_SEED_FLAG" ]] \
+  || fail "T-needs-reshape-autoseed-excluded: needs-reshape issue must be excluded — no seed dispatch"
+rm -f "$TNRAE_FIXTURE" "$TNRAE_BLOCK_FILE" "$TNRAE_SEED_FLAG" "$TNRAE_STUB_FILE"
+echo "  ✓ needs-reshape label excluded from _auto_seed_candidates (no seed dispatch)"
+
+echo
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348) ==="
