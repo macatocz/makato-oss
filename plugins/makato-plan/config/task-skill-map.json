@@ -295,5 +295,17 @@
   "propagate-recommended-skills": ["makato-build:inject-skills", "makato-plan:decompose"],
   "emit-recommended-skills": ["makato-plan:decompose", "makato-build:build-refine"],
   "pass-recommended-skills": ["makato-build:build-refine", "makato-langgraph:langgraph-fundamentals"],
-  "prepend-skill-instruction": ["makato-build:build-refine", "makato-contribute:makato-skill-creator"]
+  "prepend-skill-instruction": ["makato-build:build-refine", "makato-contribute:makato-skill-creator"],
+
+  "implement-temporal-workflow": ["makato-doc:context7", "makato-temporal:temporal-development", "makato-build:build-implement-tdd"],
+  "implement-temporal-activity": ["makato-doc:context7", "makato-temporal:temporal-development", "makato-build:build-implement-tdd"],
+  "implement-temporal-worker": ["makato-doc:context7", "makato-temporal:temporal-development", "makato-build:build-implement-tdd"],
+  "implement-durable-workflow": ["makato-temporal:temporal-development", "makato-build:build-implement-tdd"],
+  "integrate-temporal": ["makato-doc:context7", "makato-temporal:temporal-development", "makato-build:build-implement-tdd"],
+
+  "implement-fastapi-endpoint": ["makato-doc:context7", "makato-fastapi:fastapi", "makato-build:build-implement-tdd"],
+  "implement-api-route": ["makato-doc:context7", "makato-fastapi:fastapi", "makato-build:build-implement-tdd"],
+  "implement-sse-endpoint": ["makato-doc:context7", "makato-fastapi:fastapi", "makato-build:build-implement-tdd"],
+  "implement-rest-api": ["makato-fastapi:fastapi", "makato-build:build-implement-tdd"],
+  "integrate-fastapi": ["makato-doc:context7", "makato-fastapi:fastapi", "makato-build:build-implement-tdd"]
 }
