@@ -1,6 +1,16 @@
 <!-- markdownlint-disable MD012 MD013 -->
 # Changelog
 
+## change-implementer write-subagent for execute (v1.2.0)
+
+Introduces a write-capable `change-implementer` agent (analogue of `makato-build`'s `coder`).
+`execute` Step 2 now dispatches it to apply the design's file modifications in an isolated
+context instead of editing in the main skill context — which already carried `analyze` +
+`design` + repository discovery. This bounds main-context token growth during Medium (6–15
+file) changes and gives the mandatory `context7` obligation a real injection point at the
+write phase (agent prompt), routed for source files by makato-doc's cross-plugin
+`doc-code-docs` bundle rather than living only as AGENTS.md prose. Resolves #396.
+
 ## Progress comment narration in orchestrate skill (v1.2.0)
 
 Mirrors the `makato-orchestrate` PO-agent progress-comment pattern into the `makato-change`

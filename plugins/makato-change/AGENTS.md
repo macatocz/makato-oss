@@ -58,11 +58,13 @@ makato-change uses specialized sub-agents to delegate focused tasks during the C
 | **test-analyzer**              | haiku  | Discover and analyze all tests (unit, integration, E2E) affected by change request, map to affected functionality, identify coverage gaps | analyze, design |
 | **quality-guard**              | haiku  | Run quality checks (lint, format, tests, coverage) after implementation with actionable feedback                                          | execute         |
 | **code-reviewer**              | sonnet | Review implementation changes before PR creation for bugs, security issues, design alignment                                              | execute         |
+| **change-implementer**         | sonnet | Apply the design's file modifications in an isolated context (write-capable); invokes recommended skills + mandatory context7 before editing | execute         |
 
 ### Agent Design Principles
 
 - **Read-only agents** (code-explorer, test-analyzer): Use `permissionMode: bypassPermissions` with `disallowedTools: Write, Edit, Bash, NotebookEdit`
-- **Model selection**: Haiku for discovery/scanning, Sonnet for analysis/review
+- **Write-capable agent** (change-implementer): Uses `permissionMode: bypassPermissions` with NO `disallowedTools` — it performs the design's file modifications in an isolated context (the write phase of `execute` Step 2). It is dispatched only by `execute`, never invoked directly. Do not grant write access to any other agent without documenting the reason here.
+- **Model selection**: Haiku for discovery/scanning, Sonnet for analysis/review/implementation
 - **Structured output**: All agents return markdown with predictable sections and metadata fields
 - **Synthesized findings**: Agents distill insights so calling skills never re-read sources
 - **Agent versioning**: Bump `version` in agent frontmatter per feature PR
@@ -78,7 +80,8 @@ makato-change/
 │   ├── requirements-diff-analyzer.md
 │   ├── test-analyzer.md
 │   ├── quality-guard.md
-│   └── code-reviewer.md
+│   ├── code-reviewer.md
+│   └── change-implementer.md
 ├── skills/
 │   ├── analyze/             # Refine requirements vs current behavior
 │   ├── design/              # Plan technical approach + affected code

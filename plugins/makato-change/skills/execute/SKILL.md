@@ -1,7 +1,7 @@
 ---
 name: execute
 description: Implement change request by modifying code, updating tests, running verification, and creating pull request with GitHub issue link. Use for implementation, coding changes, test updates, PR creation.
-version: "1.1.0"
+version: "1.2.0"
 argument-hint: "[ISSUE-KEY]"
 ---
 
@@ -97,36 +97,53 @@ test -d "$REPO_ROOT/.git"
 
 ### Step 2: Implement Changes Following Design
 
-Load @references/implementation-guidelines.md for best practices.
+The file modifications are performed by a write-capable **`change-implementer`** subagent, not
+inline in this skill's context. This keeps the write phase off the main `execute` context —
+which already carries `analyze` + `design` + Step 1.5 repository discovery + every file read
+so far — and gives technology skills (including the mandatory `context7`) a natural injection
+point, mirroring `makato-build`'s isolated `coder`. See `agents/change-implementer.md`.
 
-Follow the implementation plan from the design artifact step-by-step:
+**2.1: Resolve recommended skills (optional).** If the design artifact carries a
+`recommended_skills[]` field for this change, capture it to forward below. When absent, omit
+the field entirely — do NOT pass an empty array. Independently of this field, the
+`change-implementer` agent always performs the mandatory `context7` lookup for any library the
+change touches (routing for source files is provided cross-plugin by makato-doc's
+`doc-code-docs` bundle; the agent prompt enforces it at the write phase regardless of routing).
 
-**For each file modification:**
-1. Construct absolute path: `<REPO_ROOT>/<relative-path-from-design>`
-   - Example: design says "src/services/UserService.ts" → read `<REPO_ROOT>/src/services/UserService.ts`
-2. Read the file at absolute path to understand context
-3. Apply changes per design specification
-4. Follow existing code patterns and conventions (naming, structure, error handling)
-5. Match the coding style of the existing file
-6. Add inline comments ONLY where the "why" is non-obvious (not for "what")
-7. Implement edge case handling as specified in design
-8. Add error handling per design's error strategy
+**2.2: Dispatch `change-implementer` agent** to apply the changes.
 
-**For each new file or component:**
-1. Construct absolute path: `<REPO_ROOT>/<relative-path-from-design>`
-   - Example: design says "create src/utils/validator.ts" → write `<REPO_ROOT>/src/utils/validator.ts`
-2. Create file at absolute path
-3. Implement functionality per design specification
-4. Match naming conventions from existing codebase
-5. Follow existing file structure patterns
-6. Use same import style, export style, and organization
+**Agent input:**
+```
+REPO_ROOT: <from Step 1.5: repositories.yml primary repo path>
+REPO_NAME: <from Step 1.5>
+ISSUE_KEY: <issue-key>
+DESIGN_PATH: <specs/<issue-key>/design.md>
+ANALYSIS_PATH: <specs/<issue-key>/analysis.md>   # omit if not present
+RECOMMENDED_SKILLS: <array from 2.1>              # omit when absent
+```
 
-**Key principles:**
+The agent loads `@references/implementation-guidelines.md`-equivalent best practices, invokes
+any recommended skills and the mandatory `context7` lookup, then applies every file
+modification and creation the design specifies (absolute paths, existing conventions, no
+scope creep) in its own context.
+
+**Agent will return:** a summary with `status: implemented | blocked`, the list of files
+changed and created (each with a one-line rationale), skills/context7 consulted, and any
+notes or deviations.
+
+**Handle results:**
+- If `status = implemented`: record the changed/created file list (needed for Step 5.5's
+  `CHANGED_FILES` and the commit in Step 7), then continue to Step 3.
+- If `status = blocked` with a `design_gap`: the design is incomplete or incorrect. Do NOT
+  guess — surface the gap to the user (interactive) or emit the blocker (autonomous), since
+  this context holds the full requirements needed to decide how to proceed.
+
+**Key principles (enforced by the agent, restated here for the contract):**
 - Don't add features beyond what the design specifies
 - Don't refactor unrelated code
 - Don't add abstractions not called for in the design
 - Follow the design's solution approach, don't improvise
-- If you discover the design is incomplete or incorrect, pause and inform the user
+- If the design is incomplete or incorrect, the agent returns `blocked` rather than improvising
 
 ### Step 3: Update and Generate Tests
 

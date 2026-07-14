@@ -35,3 +35,13 @@ bundles:
       - analyze
       - design
       - execute
+
+# NOTE (#396): source-file routing of the mandatory `context7` skill is NOT
+# duplicated here. makato-doc's `doc-code-docs` bundle already routes `context7`
+# for `**/*.{py,ts,tsx,js}` + import/require/from, cross-plugin, via the merged
+# registry (see plugins/makato-doc/config/skill-bundles.yml). A makato-change
+# copy would break the bare-name convention inject_skills uses (skills are
+# identified by directory name, not `plugin:skill`) and add no unique coverage.
+# The write-phase obligation is enforced at dispatch by the change-implementer
+# agent's own prompt (§ Mandatory context7 lookup), mirroring makato-build's
+# coder — not left as prose in AGENTS.md.
