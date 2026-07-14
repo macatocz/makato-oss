@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.64.0](https://github.com/macatocz/makato/compare/v0.63.0...v0.64.0) (2026-07-14)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** full/untiered arm — block for human ([#372](https://github.com/macatocz/makato/issues/372)) ([#384](https://github.com/macatocz/makato/issues/384)) ([fb7efd0](https://github.com/macatocz/makato/commit/fb7efd07e72edd61d2f60a67ecbc20209794bbd7))
+
 ## [0.63.0](https://github.com/macatocz/makato/compare/v0.62.0...v0.63.0) (2026-07-14)
 
 
