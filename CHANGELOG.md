@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.63.0](https://github.com/macatocz/makato/compare/v0.62.0...v0.63.0) (2026-07-14)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** add _auto_seed_dispatch_light() for light-tier auto-seed ([#370](https://github.com/macatocz/makato/issues/370)) ([#381](https://github.com/macatocz/makato/issues/381)) ([c1fdf87](https://github.com/macatocz/makato/commit/c1fdf87faf702b59835b78382e022cfafdd5ce0a))
+
 ## [0.62.0](https://github.com/macatocz/makato/compare/v0.61.0...v0.62.0) (2026-07-14)
 
 
