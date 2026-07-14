@@ -1,0 +1,7 @@
+{
+  "name": "makato-fastapi",
+  "description": "Provide FastAPI-specific reference skills and conventions for building correct, production-ready Python HTTP APIs with the FastAPI framework.",
+  "author": {
+    "name": "makato AI team"
+  }
+}

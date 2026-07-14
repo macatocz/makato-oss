@@ -1,0 +1,41 @@
+# Skill Bundles — makato-fastapi
+#
+# Maps changed-file path globs (plus optional content-hint predicates) to an
+# ordered list of recommended skills that inject-skills prepends into an
+# agent's system prompt before dispatch. The inject-skills resolver
+# (plugins/makato-build/shared/inject_skills.py) aggregates every plugin's
+# skill-bundles.yml into one registry, so the bundle declared here is merged
+# with makato-build's `default` bundle and any other plugin's bundles.
+#
+# Authoring reference: plugins/makato-langgraph/config/skill-bundles.yml.
+# Keep the schema notes there in sync with the resolver contract.
+#
+# ---------------------------------------------------------------------------
+# Authoring rule (enforced by pre-commit/validate-skill-bundles.sh):
+#   A "wide" glob — one with zero literal path segments, e.g. `**/*.py` — MUST
+#   be paired with EITHER a `contains:` predicate OR a `task_contains:`
+#   predicate when the bundle recommends any skills. The `fastapi` bundle
+#   satisfies this: its `**/*.py` glob is wide (0 literal segments) but it
+#   declares both `contains:` (file precision) and `task_contains:` (task-text
+#   routing for green-field API work where no FastAPI file exists yet).
+
+version: "1.0"
+
+bundles:
+  - name: fastapi
+    globs:
+      - "**/*.py"
+    contains:
+      - "from fastapi"
+      - "import fastapi"
+    task_contains:
+      - "FastAPI"
+      - "fastapi"
+      - "APIRouter"
+      - "path operation"
+      - "response_model"
+      - "Server-Sent Events"
+      - "SSE endpoint"
+      - "Pydantic model"
+    skills:
+      - fastapi

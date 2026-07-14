@@ -69,6 +69,11 @@
       "name": "makato-temporal",
       "source": "./plugins/makato-temporal",
       "description": "Provide Temporal durable-execution reference skills for building, debugging, and operating workflows, activities, and workers across Python, TypeScript, Java, and Rust SDKs."
+    },
+    {
+      "name": "makato-fastapi",
+      "source": "./plugins/makato-fastapi",
+      "description": "Provide FastAPI-specific reference skills and conventions for building correct, production-ready Python HTTP APIs with the FastAPI framework."
     }
   ]
 }
