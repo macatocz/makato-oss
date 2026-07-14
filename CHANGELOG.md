@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.73.0](https://github.com/macatocz/makato/compare/v0.72.0...v0.73.0) (2026-07-14)
+
+
+### ✨ Features
+
+* **makato-core:** align skill-judge with repo conventions, autonomous scoring ([#415](https://github.com/macatocz/makato/issues/415)) ([650cb67](https://github.com/macatocz/makato/commit/650cb672785da38f6336fe2ee08bdbff5b2c1cbc))
+* **makato-orchestrate:** label-board conflict gate for dispatch ([#356](https://github.com/macatocz/makato/issues/356)) ([2af4ba4](https://github.com/macatocz/makato/commit/2af4ba4d266d2b6c54608b8aa11fb996a856a908))
+
 ## [0.72.0](https://github.com/macatocz/makato/compare/v0.71.0...v0.72.0) (2026-07-14)
 
 
