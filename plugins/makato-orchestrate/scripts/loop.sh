@@ -1452,6 +1452,71 @@ _auto_seed_candidates() {
 }
 
 # ---------------------------------------------------------------------------
+# _auto_seed_dispatch_light — light-tier arm of the auto-seed routing.
+# (#370, epic #367 S2).
+#
+# Accepts a single candidate's issue number and its classified plan_tier.
+# When plan_tier == "light", dispatches seed-issue headlessly via the same
+# `MAKATO_HEADLESS=1 claude -p` mechanism cmd_dispatch uses (loop.sh:1959).
+# Non-light candidates are skipped with a deferral log and no dispatch.
+#
+# Exit codes:
+#   0 — seed dispatched successfully (or candidate skipped as non-light)
+#   1 — seed dispatch attempted but failed (non-fatal; caller continues)
+#
+# Test hook:
+#   MAKATO_LOOP_SEED_TEST_CMD — when set, runs its value as the spawn command
+#       instead of the real `claude -p`. Mirrors child_cmd in cmd_dispatch.
+#       The stub receives the same env (MAKATO_HEADLESS=1,
+#       CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0, ISSUE_NUMBER, REPO,
+#       REPO_ROOT) and prompt as the real invocation.
+# ---------------------------------------------------------------------------
+_auto_seed_dispatch_light() {
+  local issue="${1:?issue number required}"
+  local plan_tier="${2:-}"
+
+  # Non-light candidates: skip, defer to S4 (#372).
+  if [[ "$plan_tier" != "light" ]]; then
+    echo "loop: auto-seed — skip #$issue (plan-tier '$plan_tier' not light — deferred to S4)" >&2
+    return 0
+  fi
+
+  echo "loop: auto-seed — dispatching seed-issue for #$issue (plan-tier:light)" >&2
+
+  local repo="${MAKATO_LOOP_DISPATCH_REPO:-}"
+  local dispatch_prompt
+  dispatch_prompt="Use the Skill tool to invoke the makato-orchestrate:seed-issue skill with args '${issue} --type new-work'. Required env: ISSUE_NUMBER=${issue} REPO=${repo} REPO_ROOT=${REPO_ROOT}. MAKATO_HEADLESS=1 is already exported. Return R1 envelope verbatim."
+
+  local rc=0
+  if [[ -n "${MAKATO_LOOP_SEED_TEST_CMD:-}" ]]; then
+    # Test-hook path: run the stub command instead of the real claude -p.
+    # The stub receives the same env so the smoke suite can assert it.
+    MAKATO_HEADLESS=1 \
+    CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 \
+    ISSUE_NUMBER="$issue" \
+    REPO="$repo" \
+    REPO_ROOT="$REPO_ROOT" \
+      ${MAKATO_LOOP_SEED_TEST_CMD} -p "$dispatch_prompt" >/dev/null 2>&1 || rc=$?
+  else
+    # Production path: mirror the belt-and-braces invocation cmd_dispatch uses.
+    CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 \
+    MAKATO_HEADLESS=1 \
+    ISSUE_NUMBER="$issue" \
+    REPO="$repo" \
+    REPO_ROOT="$REPO_ROOT" \
+      "$CLAUDE_BIN" --dangerously-skip-permissions \
+      -p "$dispatch_prompt" >/dev/null 2>&1 || rc=$?
+  fi
+
+  if [[ "$rc" -ne 0 ]]; then
+    echo "loop: WARN — auto-seed seed dispatch for #$issue failed (rc=$rc); tick continues" >&2
+    return 1
+  fi
+
+  return 0
+}
+
+# ---------------------------------------------------------------------------
 # _reap_epoch_of_iso <iso-8601-ms> — convert an ISO-8601 ms timestamp (the
 # shape _now emits) to a Unix epoch integer, or empty on parse failure. Used
 # by the reap throttle to compare last_reap against wall-clock now. python3
@@ -2475,6 +2540,10 @@ if [[ "$SUBCMD" == _test-* ]]; then
     # using MAKATO_LOOP_AUTOSEED_OVERRIDE fixture. Returns JSON array to stdout.
     # (#369, epic #367 S1).
     _test-auto-seed-candidates) _auto_seed_candidates ;;
+    # _test-auto-seed-dispatch-light <issue> <plan_tier> — exercise
+    # _auto_seed_dispatch_light deterministically using MAKATO_LOOP_SEED_TEST_CMD.
+    # (#370, epic #367 S2).
+    _test-auto-seed-dispatch-light) _auto_seed_dispatch_light "$@" ;;
     # _test-wd-guarded-write <issue> — exercise the watchdog ownership guard
     # (#312) deterministically, without the process-timing flakiness of a real
     # orphaned poll. Runs the exact guarded write the kill path performs:

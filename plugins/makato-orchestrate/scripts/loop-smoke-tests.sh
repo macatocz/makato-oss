@@ -1689,5 +1689,123 @@ rm -f "$T58_FIXTURE"
 echo "  ✓ renovate[bot] author vetoes issue 208; issue 209 passes with plan_tier=full"
 
 
+# ---------------------------------------------------------------------------
+# T59–T62: _auto_seed_dispatch_light (#370, epic #367 S2)
+# ---------------------------------------------------------------------------
+
+# T59: plan-tier:light candidate triggers a seed-issue dispatch.
+echo "=== T59: light candidate dispatches seed-issue via test hook ==="
+T59_PROMPT_CAPTURE="$STATE_DIR/t59-prompt-$$.txt"
+T59_ENV_CAPTURE="$STATE_DIR/t59-env-$$.txt"
+# Stub: capture the prompt (last arg) and env to files, exit 0.
+T59_STUB="$(cat <<'STUB'
+#!/usr/bin/env bash
+# Write the -p prompt to a capture file, write key env vars to another.
+while [[ $# -gt 0 ]]; do
+  if [[ "$1" == "-p" ]]; then
+    printf '%s' "$2" >"${T59_PROMPT_CAPTURE}"
+    shift 2
+  else
+    shift
+  fi
+done
+printf 'ISSUE_NUMBER=%s REPO=%s MAKATO_HEADLESS=%s BG_CEILING=%s\n' \
+  "${ISSUE_NUMBER:-}" "${REPO:-}" "${MAKATO_HEADLESS:-}" \
+  "${CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS:-UNSET}" \
+  >"${T59_ENV_CAPTURE}"
+exit 0
+STUB
+)"
+T59_STUB_FILE="$STATE_DIR/t59-stub-$$.sh"
+printf '%s\n' "$T59_STUB" >"$T59_STUB_FILE"
+chmod +x "$T59_STUB_FILE"
+T59_PROMPT_CAPTURE="$T59_PROMPT_CAPTURE" \
+T59_ENV_CAPTURE="$T59_ENV_CAPTURE" \
+MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_LOOP_SEED_TEST_CMD="$T59_STUB_FILE" \
+  "$LOOP" _test-auto-seed-dispatch-light 301 light 2>/dev/null
+# Assert the dispatch prompt contains seed-issue and the issue number.
+grep -q "seed-issue" "$T59_PROMPT_CAPTURE" \
+  || fail "T59: dispatch prompt should reference seed-issue; got: $(cat "$T59_PROMPT_CAPTURE" 2>/dev/null)"
+grep -q "301" "$T59_PROMPT_CAPTURE" \
+  || fail "T59: dispatch prompt should contain issue number 301; got: $(cat "$T59_PROMPT_CAPTURE" 2>/dev/null)"
+# Assert MAKATO_HEADLESS=1 was exported to the stub.
+grep -q "MAKATO_HEADLESS=1" "$T59_ENV_CAPTURE" \
+  || fail "T59: MAKATO_HEADLESS=1 should be set; got: $(cat "$T59_ENV_CAPTURE" 2>/dev/null)"
+# Assert CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 was exported.
+grep -q "BG_CEILING=0" "$T59_ENV_CAPTURE" \
+  || fail "T59: CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 should be set; got: $(cat "$T59_ENV_CAPTURE" 2>/dev/null)"
+# Assert REPO is threaded into env from MAKATO_LOOP_DISPATCH_REPO.
+grep -q "REPO=macatocz/makato" "$T59_ENV_CAPTURE" \
+  || fail "T59: REPO should be macatocz/makato; got: $(cat "$T59_ENV_CAPTURE" 2>/dev/null)"
+rm -f "$T59_STUB_FILE" "$T59_PROMPT_CAPTURE" "$T59_ENV_CAPTURE"
+echo "  ✓ plan-tier:light: seed-issue dispatched with correct prompt and env"
+
+# T60: non-light candidate is skipped, not dispatched.
+echo "=== T60: non-light candidate (plan-tier:full) is skipped, no dispatch ==="
+T60_DISPATCHED="$STATE_DIR/t60-dispatched-$$"
+T60_STUB_FILE="$STATE_DIR/t60-stub-$$.sh"
+printf '#!/usr/bin/env bash\ntouch "%s"\nexit 0\n' "$T60_DISPATCHED" >"$T60_STUB_FILE"
+chmod +x "$T60_STUB_FILE"
+t60_stderr="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_SEED_TEST_CMD="$T60_STUB_FILE" \
+    "$LOOP" _test-auto-seed-dispatch-light 302 full 2>&1 >/dev/null
+)"
+[[ ! -f "$T60_DISPATCHED" ]] \
+  || fail "T60: stub should NOT have been called for plan-tier:full; dispatch file exists"
+echo "$t60_stderr" | grep -q "deferred to S4" \
+  || fail "T60: skip log should mention 'deferred to S4'; got: $t60_stderr"
+rm -f "$T60_STUB_FILE" "$T60_DISPATCHED"
+echo "  ✓ non-light (full) candidate: skipped with deferral log, no dispatch"
+
+# T61: stubbed seed-issue failure surfaces WARN and returns non-zero.
+echo "=== T61: seed dispatch failure → WARN logged, non-zero return ==="
+T61_STUB_FILE="$STATE_DIR/t61-stub-$$.sh"
+printf '#!/usr/bin/env bash\nexit 7\n' >"$T61_STUB_FILE"
+chmod +x "$T61_STUB_FILE"
+t61_rc=0
+t61_stderr="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_SEED_TEST_CMD="$T61_STUB_FILE" \
+    "$LOOP" _test-auto-seed-dispatch-light 303 light 2>&1 >/dev/null
+)" || t61_rc=$?
+[[ "$t61_rc" -ne 0 ]] \
+  || fail "T61: non-zero stub should cause non-zero return from dispatch; got rc=$t61_rc"
+echo "$t61_stderr" | grep -q "WARN" \
+  || fail "T61: WARN should be logged on dispatch failure; got: $t61_stderr"
+echo "$t61_stderr" | grep -q "303" \
+  || fail "T61: WARN log should name the issue number; got: $t61_stderr"
+rm -f "$T61_STUB_FILE"
+echo "  ✓ seed failure: WARN logged, non-zero return, no abort"
+
+# T62: MAKATO_LOOP_DISPATCH_REPO is threaded into dispatch prompt env.
+echo "=== T62: MAKATO_LOOP_DISPATCH_REPO is threaded into prompt env ==="
+T62_ENV_CAPTURE="$STATE_DIR/t62-env-$$.txt"
+T62_STUB_FILE="$STATE_DIR/t62-stub-$$.sh"
+cat >"$T62_STUB_FILE" <<STUB
+#!/usr/bin/env bash
+while [[ \$# -gt 0 ]]; do
+  if [[ "\$1" == "-p" ]]; then
+    shift 2
+  else
+    shift
+  fi
+done
+printf 'REPO=%s\n' "\${REPO:-}" >"${T62_ENV_CAPTURE}"
+exit 0
+STUB
+chmod +x "$T62_STUB_FILE"
+MAKATO_LOOP_DISPATCH_REPO="owner/other-repo" \
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_LOOP_SEED_TEST_CMD="$T62_STUB_FILE" \
+  "$LOOP" _test-auto-seed-dispatch-light 304 light 2>/dev/null
+grep -q "REPO=owner/other-repo" "$T62_ENV_CAPTURE" \
+  || fail "T62: MAKATO_LOOP_DISPATCH_REPO should be threaded into REPO env; got: $(cat "$T62_ENV_CAPTURE" 2>/dev/null)"
+rm -f "$T62_STUB_FILE" "$T62_ENV_CAPTURE"
+echo "  ✓ MAKATO_LOOP_DISPATCH_REPO threaded into dispatch env as REPO"
+
+
 echo
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369) ==="
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370) ==="
