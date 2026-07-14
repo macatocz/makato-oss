@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.65.0](https://github.com/macatocz/makato/compare/v0.64.0...v0.65.0) (2026-07-14)
+
+
+### ✨ Features
+
+* **makato-build:** gate-scout discovers uv/pyright/biome/sqlfluff toolchains ([#377](https://github.com/macatocz/makato/issues/377)) ([95da0c6](https://github.com/macatocz/makato/commit/95da0c6c3d806936cd6a1df765fa1a539c82a729))
+
 ## [0.64.0](https://github.com/macatocz/makato/compare/v0.63.0...v0.64.0) (2026-07-14)
 
 
