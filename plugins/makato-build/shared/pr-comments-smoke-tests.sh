@@ -136,6 +136,7 @@ assert "SKILL.md logs should-fix-scope-guard bypass"     contains_F "$SKILL_MD" 
 assert "SKILL.md logs out-of-scope-carry-over bypass"    contains_F "$SKILL_MD" 'log-bypass.sh build-address-pr-comments "<key>" out-of-scope-carry-over'
 assert "SKILL.md logs structural-must-fix bypass"        contains_F "$SKILL_MD" 'log-bypass.sh build-address-pr-comments "<key>" structural-must-fix'
 assert "SKILL.md logs structural-halt-summary bypass"    contains_F "$SKILL_MD" 'log-bypass.sh build-address-pr-comments "<key>" structural-halt-summary'
+assert "SKILL.md logs sensor-bot-classification bypass"  contains_F "$SKILL_MD" 'log-bypass.sh build-address-pr-comments "<key>" sensor-bot-classification'
 assert "SKILL.md routes autonomous_bypass through log-bypass.sh helper" \
   contains_F "$SKILL_MD" 'log-bypass.sh build-address-pr-comments'
 

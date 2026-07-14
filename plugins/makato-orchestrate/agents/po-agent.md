@@ -654,8 +654,11 @@ row). The `gh`-only polls (CI, review) are narrated with a single
    Emit JSONL after each poll:
 
    ```json
-   {"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"ci-poll","status":"<ok|warn>","data":{"poll_round":<I>,"pr":<PR>,"all_passing":<bool>}}
+   {"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"ci-poll","status":"<ok|warn>","data":{"poll_round":<I>,"pr":<PR>,"all_passing":<bool>,"ci_failure_type":"sensor|test|build|unknown"}}
    ```
+
+   The `ci_failure_type` field is only present when `all_passing` is
+   `false` and the CI-failure fix loop was entered.
 5. Optional: dispatch
    `/makato-build:build-address-pr-comments <KEY> --autonomous` IFF
    `gh pr view <PR> --json comments,reviews` reports pre-existing
@@ -760,12 +763,46 @@ row). The `gh`-only polls (CI, review) are narrated with a single
 2. Fetch the failed job log: `gh run view --log-failed` (truncate to
    ≤ 4000 chars from tail). Append `trigger: ci_failure` lesson
    (description truncated at 200 chars). `files_affected: []`.
+2.5. **Classify `ci_failure_type`** from the failed check name (from
+   `gh pr checks <PR> --json name,state,conclusion`, first failing entry)
+   and the CI log:
+
+   | Priority | Condition | `ci_failure_type` |
+   |----------|-----------|-------------------|
+   | 1 | Check name matches `(?i)(ruff\|pyright\|bandit\|biome\|sqlfluff\|markdownlint\|semgrep\|trivy\|gitleaks\|helm)` OR `parse-sarif.py --tool sarif < ci_log` exits 0 with ≥ 1 Finding | `"sensor"` |
+   | 2 | Check name matches `(?i)(pytest\|jest\|test\|coverage)` AND not already `"sensor"` | `"test"` |
+   | 3 | Check name matches `(?i)(build\|compile\|type.?check)` AND not already `"sensor"` | `"build"` |
+   | 4 | Fallback | `"unknown"` |
+
+   Emit `ci_failure_type` in the `ci-poll` JSONL row (see below).
+
 3. `ci_failure_cycles += 1`.
-4. Dispatch `/makato-build:build-implement-tdd <KEY> --autonomous` with
+4. **Route by `ci_failure_type`:**
+
+   **If `ci_failure_type == "sensor"`:**
+   1. Parse CI log into FINDINGS: `parse-sarif.py --tool sarif < ci_log`
+      (or `--tool pre-commit` if the log is pre-commit text format).
+      On parse failure (empty FINDINGS), fall through to the
+      `build-implement-tdd` path below.
+   2. Emit `sensor-delegated` row to `specs/<KEY>-*/build.jsonl`:
+      ```json
+      {"ts":"<ISO>","skill":"po-agent","step":"ci-poll","action":"sensor-delegated","key":"<KEY>","ci_failure_type":"sensor","dispatched_by":"po-agent"}
+      ```
+   3. Dispatch `sensor-fixer` agent with: `REPO_ROOT`, `FINDINGS`,
+      `SPEC_KEY=<KEY>`,
+      `CI_CONTEXT={"check_name":"<failed-check-name>","run_id":"<run-id>","ci_failure_type":"sensor"}`.
+   4. R1 `success` or `partial` → dispatch `build-push-to-git`, re-poll
+      CI from Step 6a top (reset poll counter).
+   5. R1 `failure` (residuals exhausted) → fall through to
+      `build-implement-tdd` dispatch below (escalation path).
+
+   **Otherwise (`"test"` | `"build"` | `"unknown"`):**
+   Dispatch `/makato-build:build-implement-tdd <KEY> --autonomous` with
    `CI_FAILURE_LOG` added to the context bundle (alongside normal
    fields). The skill identifies failing task(s) from the log, skips
    the tracer bullet, and runs scout + RED/GREEN/INTEGRATE/VERIFY on
    affected task(s).
+
 5. R1 `success` → dispatch `build-push-to-git`, re-poll CI from
    Step 6a top (reset poll counter).
 6. R1 `failure` → HALT-STRUCTURAL,

@@ -46,6 +46,7 @@ Your dispatch prompt provides:
 | `SPEC_KEY` | string | no | Spec key under `specs/`. Defaults to `sensor-harness-v1`. |
 | `MAX_LOOPS` | integer | no | Hard cap on Phase 1 outer iterations. Defaults to `5`. |
 | `RECOMMENDED_SKILLS` | `list[string]` | no | Array of `"plugin:skill-id"` strings forwarded from the parent task's `recommended_skills[]` field (agent-skill-routing #146). When present and non-empty, invoke each skill before Phase 0 to surface domain conventions relevant to the finding set. Forward to each `build-resolve-finding` dispatch as an additional input field so repair skills can benefit from the same context. Omit when absent — do NOT forward an empty array. |
+| `CI_CONTEXT` | `object \| null` | no | Advisory context from the caller when sensor-fixer is dispatched from a CI failure path (e.g. po-agent Step 6a). Fields: `check_name` (string), `run_id` (string), `ci_failure_type` (string). When `ci_failure_type == "sensor"` is set, sensor-fixer **skips `reparse_after_autofix`** after Phase 0 and instead re-invokes each distinct `FINDINGS[].tool` binary directly against the working tree to verify fixes (CI environments may not have pre-commit hooks installed). When absent or `null`, existing Phase 0 behaviour is byte-for-byte unchanged. Include in `build.jsonl` Phase 0 row when present (see § Audit log). |
 
 Missing `REPO_ROOT` or `FINDINGS` → R1 `failure` with `errors: ["missing input: <field>"]`.
 
@@ -125,7 +126,26 @@ done
 # whose hook now exits 0. See §Helper functions for the survival rule.
 if (( ${#autofix_files_for_cmd[@]} > 0 )); then
   before=${#findings[@]}
-  mapfile -t findings < <(reparse_after_autofix "${touched_files[@]}")
+  # CI_CONTEXT skip: when caller signals ci-log origin, skip pre-commit
+  # reparse (CI env may not have hooks installed) and use direct tool
+  # re-run instead to verify fixes.
+  if [[ -n "${CI_CONTEXT:-}" ]] && \
+     [[ "$(jq -r '.ci_failure_type // empty' <<<"$CI_CONTEXT" 2>/dev/null)" == "sensor" ]]; then
+    # Direct tool re-run verification for each distinct tool in the findings.
+    mapfile -t tools_used < <(
+      printf '%s\n' "${findings[@]}" | jq -r '.tool' 2>/dev/null | sort -u
+    )
+    for tool in "${tools_used[@]}"; do
+      tool_cmd="$(jq -r --arg t "$tool" '
+        to_entries | map(select(.key | test("^\($t):"))) | .[0].value.cmd // empty
+      ' "${ROUTES}" 2>/dev/null)"
+      [[ -z "$tool_cmd" ]] && continue
+      read -ra tool_argv <<<"$tool_cmd"
+      ("${tool_argv[@]}" "${touched_files[@]}") || true
+    done
+  else
+    mapfile -t findings < <(reparse_after_autofix "${touched_files[@]}")
+  fi
   phase0_resolved=$(( before - ${#findings[@]} ))
   resolved=$(( resolved + phase0_resolved ))
 fi
@@ -214,6 +234,12 @@ Two row shapes:
 
 ```json
 {"ts": "2026-06-18T12:34:50Z", "loop": 0, "action": "autofix-batched", "cmd": "ruff check --fix --select UP", "files": ["src/a.py", "src/b.py"]}
+```
+
+When `CI_CONTEXT` is present, the row includes the advisory context:
+
+```json
+{"ts": "2026-06-18T12:34:50Z", "loop": 0, "action": "autofix-batched", "cmd": "ruff check --fix --select UP", "files": ["src/a.py", "src/b.py"], "ci_context": {"check_name": "ruff", "ci_failure_type": "sensor"}}
 ```
 
 **Phase 1 (per-finding dispatch) — `loop: 1..MAX_LOOPS`:**

@@ -92,7 +92,13 @@ If there are no unresolved comments: tell the user and stop.
 
 ### Step 4 — Classify each comment
 
-Load `@references/comment-classification-guide.md`. Assign each unresolved comment a tier: **MUST-FIX**, **SHOULD-FIX**, **CONSIDER**, or **OUT-OF-SCOPE**. Use the source heuristics and classification rules from the guide; content of the comment overrides the source heuristic.
+Load `@references/comment-classification-guide.md`. Assign each unresolved comment a tier: **SENSOR-BOT**, **MUST-FIX**, **SHOULD-FIX**, **CONSIDER**, or **OUT-OF-SCOPE**. SENSOR-BOT is checked first. Use the source heuristics and classification rules from the guide; content of the comment overrides the source heuristic.
+
+**SENSOR-BOT detection (checked before all other tiers):**
+If `comment.author` (login or app name) matches `(?i)(ruff|pyright|bandit|biome|sqlfluff|markdownlint|semgrep|trivy|gitleaks|hyperspace-bot)`:
+- Attempt to parse comment body for one or more `tool:rule:path:line` finding shapes.
+- If ≥ 1 finding parseable → classify as **SENSOR-BOT** and skip further tier evaluation for this comment.
+- If not parseable → fall through to MUST-FIX tier evaluation (existing path).
 
 For any MUST-FIX: check whether it requires changing the fundamental implementation approach (data model redesign, API contract reversal, algorithm replacement). If yes, flag it as **STRUCTURAL**.
 
@@ -103,6 +109,7 @@ For any MUST-FIX: check whether it requires changing the fundamental implementat
 In **interactive mode**, present the full classification table to the user:
 
 ```
+[SENSOR-BOT]   ruff-bot (PR comment)    — "ruff:E501:src/foo.py:42: line too long"
 [MUST-FIX]     src/Invoice.java:42      — "status field must be non-null"
 [MUST-FIX]     CI: build failure        — "cannot find symbol OrderStatus"
 [SHOULD-FIX]   src/InvoiceService.java  — lint: "method too long (87 lines)"
@@ -124,6 +131,7 @@ Wait for the user to confirm or adjust classifications. User can: promote/demote
 
 In **autonomous mode**, skip the interactive prompts and apply this fixed policy:
 
+- **SENSOR-BOT** — delegate to `sensor-fixer`: parse the comment body for `tool:rule:path:line` findings (already parsed in Step 4), emit a `sensor-delegated` row to `specs/<key>-*/build.jsonl` (`{"ts":"<ISO>","skill":"build-address-pr-comments","step":"fix","action":"sensor-delegated","key":"<key>","dispatched_by":"build-address-pr-comments","comment_id":"<id>"}`), dispatch `sensor-fixer(REPO_ROOT, FINDINGS=[parsed], SPEC_KEY=<key>)`. On R1 `failure`, revert to MUST-FIX tier and re-apply via Step 6. Log bypass: `shared/log-bypass.sh build-address-pr-comments "<key>" sensor-bot-classification delegate "<agent_id|cli_flag|task_id_bundle>"`.
 - **MUST-FIX (non-STRUCTURAL)** — auto-apply in Step 6. Logged as `autonomous_bypass` with `gate: "comment-classification"`, `default_taken: "auto-apply"` (AC1).
 - **SHOULD-FIX** — apply ONLY if every file the comment touches is already inside this task's diff scope (the file list captured by Step 3 of the most recent `build-implement-tdd` / `build-implement-goal` session, recoverable from `specs/<key>-<slug>/plan.md` `task[].Files[]`). If any touched file is outside that set, the comment is marked **DEFERRED**: the skill does NOT implement it, posts a `[DEFERRED]` reply (template `pr-comment-replies.md` § *SHOULD-FIX (deferred — autonomous-only)*), and logs `autonomous_bypass` with `gate: "should-fix-scope-guard"`, `default_taken: "defer"`, and `data.comment_id` + `data.out_of_scope_files[]`. The PO-agent reads the R1 envelope and decides whether to open a follow-up issue (AC2).
 - **CONSIDER** — skip (do not implement). Reply with `pr-comment-replies.md` § *CONSIDER (deferred — interactive choice)* autonomous variant.
@@ -158,7 +166,7 @@ This step is **autonomous-only**. Interactive STRUCTURAL handling stays in Step 
 
 ### Step 6 — Implement fixes
 
-Implement in order: MUST-FIX first, then SHOULD-FIX, then approved CONSIDER items.
+Implement in order: SENSOR-BOT first (sensor-fixer delegation), then MUST-FIX, then SHOULD-FIX, then approved CONSIDER items.
 
 Group fixes by file — apply all changes to the same file in one pass to avoid partial edits. After all fixes to a file are applied, verify the file compiles (or passes a quick type-check if possible).
 
@@ -259,6 +267,7 @@ Tier → template section mapping:
 
 | Tier (mode) | Template section |
 |---|---|
+| SENSOR-BOT (delegated to sensor-fixer) | § *SENSOR-BOT (delegated)* — reply: "Delegated to sensor-fixer. Applied Phase 0 autofix for `<tool>:<rule>`. See `build.jsonl` for audit trail." |
 | MUST-FIX (implemented) | § *MUST-FIX (applied)* (autonomous variant in autonomous mode) |
 | SHOULD-FIX (implemented) | § *SHOULD-FIX (applied)* |
 | SHOULD-FIX (deferred — autonomous only) | § *SHOULD-FIX (deferred — autonomous-only)* |
@@ -304,6 +313,7 @@ Top-level R1 envelope fields follow `plugins/makato-build/agents/RETURN-CONTRACT
 ```json
 {
   "data": {
+    "sensor_bot_delegated": <N>,
     "must_fix_applied": <N>,
     "should_fix_applied": <N>,
     "should_fix_deferred": <N>,

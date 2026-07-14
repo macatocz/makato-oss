@@ -158,6 +158,25 @@ else
   _fail "parse-sarif.py --selftest failed — runtime behaviour changed"
 fi
 
+# ---- A6: sensor-fixer CI_CONTEXT input field is optional --------------------
+echo "A6: sensor-fixer.md CI_CONTEXT field"
+if grep -qF 'CI_CONTEXT' "$FIXER_MD"; then
+  _pass "sensor-fixer.md declares CI_CONTEXT input field"
+else
+  _fail "sensor-fixer.md missing CI_CONTEXT input field"
+fi
+if grep -A3 'CI_CONTEXT' "$FIXER_MD" | grep -qiE '\bno\b|\boptional\b'; then
+  _pass "CI_CONTEXT is optional (Required column is 'no')"
+else
+  _fail "CI_CONTEXT Required column should be 'no' (optional field)"
+fi
+if grep -qF 'reparse_after_autofix' "$FIXER_MD" && \
+   grep -A5 'CI_CONTEXT' "$FIXER_MD" | grep -qF 'reparse_after_autofix'; then
+  _pass "sensor-fixer.md documents reparse skip when CI_CONTEXT set"
+else
+  _fail "sensor-fixer.md should document that CI_CONTEXT skips reparse_after_autofix"
+fi
+
 echo
 if (( FAIL == 0 )); then
   echo "All Finding-schema contract tests passed."
