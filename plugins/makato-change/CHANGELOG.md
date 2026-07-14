@@ -1,6 +1,26 @@
 <!-- markdownlint-disable MD012 MD013 -->
 # Changelog
 
+## Progress comment narration in orchestrate skill (v1.2.0)
+
+Mirrors the `makato-orchestrate` PO-agent progress-comment pattern into the `makato-change`
+`orchestrate` skill so that anyone watching a change-request issue on GitHub can follow the run
+in plain English — without having to watch the local terminal.
+
+- **`orchestrate` skill — `## Progress comment` section** — documents the `progress-comment.sh`
+  interface, the per-phase narration table (`--skill`, `--agent`, `--goal` for each of
+  analyze / design / execute / resolve-review), and the three contract invariants (best-effort /
+  only when `MAKATO_ORCHESTRATE_SHARED` is set / opt-out via `MAKATO_PROGRESS_COMMENT_DISABLE=1`).
+- **Step 0.5 (autonomous init)** — emits a run-start `note` after worktree creation.
+- **Step 5 (invoke skill)** — calls `progress-comment.sh start` before every phase dispatch,
+  using the matching row from the narration table.
+- **Step 6 (post-phase check)** — calls `progress-comment.sh done` after every phase returns,
+  with `--result` (completed/failed) and a one-sentence `--summary`.
+- **Step 7 (loop/exit)** — calls `progress-comment.sh note` on workflow-complete and on HALT,
+  so the issue comment always has a clear terminal entry.
+- **Edge case** — added explicit degraded-mode note: when `MAKATO_ORCHESTRATE_SHARED` is unset
+  all progress-comment calls are skipped silently, no HALT is raised.
+- Skill version bumped `1.1.0 → 1.2.0`.
 ## `quality-guard` — raise default coverage threshold to 90%
 
 **`agents/quality-guard.md`** (new `version: "1.1.0"`): default coverage threshold raised 80% → **90%** for all metrics (statements, branches, functions, lines) on new/changed code, applied when the design artifact declares none. The design-artifact value and `DESIGN_PATH`-not-readable fallback now read 90%. The worked-example report block was re-based so its pass/fail illustrations remain correct against a 90% floor. The "Maintain 80% coverage" / "Must achieve 85% test coverage" strings under *Look for* are left as-is — they are examples of user-supplied design text the agent detects, not defaults. Aligned with the makato-build `gate-scout` / `definition-of-done` 90% default.

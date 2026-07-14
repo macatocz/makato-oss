@@ -1,7 +1,7 @@
 ---
 name: orchestrate
 description: Guide users through change request workflow (analyze, design, execute, resolve-review), track progress, coordinate phases
-version: "1.1.0"
+version: "1.2.0"
 argument-hint: "[ISSUE-KEY] [--autonomous]"
 ---
 # orchestrate
@@ -25,6 +25,37 @@ Use this skill when:
 ## Autonomous mode
 
 Load @../../AUTONOMOUS-MODE.md before Step 0.5. This skill supports headless operation — see that document for activation triggers, HALT codes, and the logging contract.
+
+## Progress comment
+
+Narrate every phase dispatch into a single live GitHub issue comment so anyone watching the issue can follow the run in plain English.
+
+`${MAKATO_ORCHESTRATE_SHARED}/progress-comment.sh` is the only entry point. Three subcommands:
+
+```bash
+"${MAKATO_ORCHESTRATE_SHARED}/progress-comment.sh" start <KEY> <ISSUE_NUMBER> <REPO> \
+  --skill <s> --agent <a> --input <i> --goal <g>
+"${MAKATO_ORCHESTRATE_SHARED}/progress-comment.sh" done  <KEY> <ISSUE_NUMBER> <REPO> \
+  --skill <s> --result <r> --summary <sum>
+"${MAKATO_ORCHESTRATE_SHARED}/progress-comment.sh" note  <KEY> <ISSUE_NUMBER> <REPO> --text <t>
+```
+
+`ISSUE_NUMBER` is the numeric GitHub issue number. `REPO` is the `<owner>/<repo>` slug of the makato repo (not the target repo). Resolve both from the `workflow-state-<N>.json` stub written in Step 0.5 or from `gh issue view <ISSUE_KEY>`.
+
+**Contract invariants:**
+
+- **Best-effort, never fatal.** Any `gh` / state failure logs a WARN and exits 0. Never triggers a HALT, never blocks a dispatch.
+- **Only when `MAKATO_ORCHESTRATE_SHARED` is set.** If the variable is unset, skip all progress-comment calls silently.
+- **Opt-out.** `MAKATO_PROGRESS_COMMENT_DISABLE=1` makes every call a silent no-op.
+
+**Per-phase narration rows:**
+
+| Phase dispatch | `--skill` | `--agent` | `--goal` |
+|---|---|---|---|
+| Analyze | `change-analyze` | `requirements analyst` | analyse requirements and compare against current behaviour |
+| Design | `change-design` | `technical designer` | design the technical approach for the change |
+| Execute | `change-execute` | `coder` | implement the change, run verification, and open a PR |
+| Resolve Review | `change-resolve-review` | `fix agent` | resolve the review comments on the pull request |
 
 ## Workflow
 
@@ -55,6 +86,13 @@ Load @../../AUTONOMOUS-MODE.md before Step 0.5. This skill supports headless ope
    ```
 
    Store the returned path in `change-state-<N>.json:.worktree_path`. If `MAKATO_ORCHESTRATE_SHARED` is unset, log a warning and continue without worktree isolation.
+
+5. **Emit run-start note** (if `MAKATO_ORCHESTRATE_SHARED` is set):
+
+   ```bash
+   "${MAKATO_ORCHESTRATE_SHARED}/progress-comment.sh" note <KEY> <N> <REPO> \
+     --text "Change request run started — working through analyze → design → execute."
+   ```
 
 ### Step 1: Get GitHub Issues Key
 
@@ -150,6 +188,22 @@ Based on user selection (or autonomous phase recommendation), invoke the appropr
 
 Load @references/skill-invocation-guide.md for invocation patterns.
 
+**Before dispatch**, narrate the START into the live issue comment (best-effort — see § *Progress comment*):
+
+```bash
+"${MAKATO_ORCHESTRATE_SHARED}/progress-comment.sh" start <KEY> <ISSUE_NUMBER> <REPO> \
+  --skill "<skill-name>" --agent "<agent>" \
+  --input "<brief description of inputs available>" \
+  --goal "<goal from per-phase narration table>"
+```
+
+Use the row for the dispatched phase from the narration table in § *Progress comment*.
+
+**In autonomous mode**, update `change-state-<N>.json` before dispatch:
+
+- Set `current_phase` to the phase being dispatched
+- Set `updated_at` to now
+
 **In interactive mode**, use the `Skill` tool to invoke:
 
 - Analyze → `Skill(skill="makato-change:analyze", args="<ISSUE_KEY>")`
@@ -164,25 +218,29 @@ Load @references/skill-invocation-guide.md for invocation patterns.
 - Execute → `Skill(skill="makato-change:execute", args="<ISSUE_KEY> --autonomous")`
 - `resolve-review` is NOT invoked in autonomous mode (see AUTONOMOUS-MODE.md § *Skills NOT in scope*)
 
-**In autonomous mode**, update `change-state-<N>.json` before dispatch:
-
-- Set `current_phase` to the phase being dispatched
-- Set `updated_at` to now
-
 Wait for the skill to complete before continuing.
 
 ### Step 6: Post-Phase Check
 
 After the invoked skill completes:
 
-1. Re-run phase detection (Step 2) to update progress
-2. Check if the phase actually completed:
+1. **Narrate DONE** into the live issue comment (best-effort — see § *Progress comment*):
+
+   ```bash
+   "${MAKATO_ORCHESTRATE_SHARED}/progress-comment.sh" done <KEY> <ISSUE_NUMBER> <REPO> \
+     --skill "<skill-name>" \
+     --result "<completed|failed>" \
+     --summary "<one sentence: what the phase produced or why it failed>"
+   ```
+
+2. Re-run phase detection (Step 2) to update progress
+3. Check if the phase actually completed:
 
    - Analyze: `analysis.md` should exist
    - Design: `design.md` should exist
    - Execute: PR link should exist in GitHub Issues
    - Resolve Review: verify comments were addressed
-3. **In autonomous mode**, after each phase completes, append the phase name to `phases_complete[]` in `change-state-<N>.json` and set `updated_at`. After the execute phase completes and a PR was created, also write the PR URL to `pr_url` in `change-state-<N>.json`:
+4. **In autonomous mode**, after each phase completes, append the phase name to `phases_complete[]` in `change-state-<N>.json` and set `updated_at`. After the execute phase completes and a PR was created, also write the PR URL to `pr_url` in `change-state-<N>.json`:
 
    ```bash
    # After each phase completes (e.g., "analyze"):
@@ -210,7 +268,14 @@ Check if all phases are complete:
 - Execute complete (PR link in GitHub Issues)
 - Resolve Review complete (no unresolved comments, or user confirms done)
 
-**If all phases complete**: Auto-exit with final summary:
+**If all phases complete**: Auto-exit with final summary. Emit a closing note (best-effort):
+
+```bash
+"${MAKATO_ORCHESTRATE_SHARED}/progress-comment.sh" note <KEY> <ISSUE_NUMBER> <REPO> \
+  --text "All phases complete — PR is open and ready for review."
+```
+
+Then show the user:
 
 ```
 ✅ Change Request Workflow Complete: <ISSUE_KEY>
@@ -232,10 +297,17 @@ Next:
 
 **On HALT in autonomous mode:**
 
-1. Patch `change-state-<N>.json:.current_phase` to `"halted"` and set `halt_code`.
-2. Patch `workflow-state-<N>.json:.current_phase` to `"halted"` and set `updated_at`.
-3. Run `${MAKATO_ORCHESTRATE_SHARED}/worktree.sh retain <KEY> <N> <HALT_CODE>` if worktree was created.
-4. Return R1 `status:"failure"` envelope.
+1. Emit a closing note (best-effort):
+
+   ```bash
+   "${MAKATO_ORCHESTRATE_SHARED}/progress-comment.sh" note <KEY> <ISSUE_NUMBER> <REPO> \
+     --text "Run halted with <HALT_CODE> — needs human review."
+   ```
+
+2. Patch `change-state-<N>.json:.current_phase` to `"halted"` and set `halt_code`.
+3. Patch `workflow-state-<N>.json:.current_phase` to `"halted"` and set `updated_at`.
+4. Run `${MAKATO_ORCHESTRATE_SHARED}/worktree.sh retain <KEY> <N> <HALT_CODE>` if worktree was created.
+5. Return R1 `status:"failure"` envelope.
 
 **If phases remain**: Re-detect current state (Step 2) and present recommendation:
 
@@ -297,3 +369,8 @@ Next Steps:
 - Warn the user
 - Offer to continue anyway (some orgs use custom types)
 - Phase skills will validate and may block if truly incompatible
+
+**`MAKATO_ORCHESTRATE_SHARED` is unset:**
+
+- All progress-comment calls are skipped silently
+- Workflow proceeds without narration (degraded mode — no HALT)
