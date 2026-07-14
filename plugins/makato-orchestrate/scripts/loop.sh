@@ -192,6 +192,18 @@
 #                              read instead of calling `gh`. Keeps gate
 #                              smoke tests offline.
 #
+# --- Thin-body reconciliation (#371, epic #367 S3) ---
+#   MAKATO_LOOP_RECONCILE_JSONL_DIR
+#                              Tests only: override SPECS_DIR root for
+#                              locating specs/<key>/orchestrate.jsonl in
+#                              _auto_seed_reconcile_thin_body. Keeps smoke
+#                              tests offline.
+#   MAKATO_LOOP_RECONCILE_LABEL_FILE
+#                              Tests only: path to a newline-separated list
+#                              of label names used as the issue's current
+#                              labels instead of calling `gh issue view
+#                              --json labels` in the label-backstop signal.
+#
 # Conventions: matches scripts/context-handoff.sh (POSIX-ish bash, `set
 # -euo pipefail`, python3 for ISO-8601 millisecond timestamps, jq for
 # JSON work).
@@ -1517,6 +1529,136 @@ _auto_seed_dispatch_light() {
 }
 
 # ---------------------------------------------------------------------------
+# _auto_seed_reconcile_thin_body — terminal-state reconciliation after a
+# light-tier seed-issue dispatch (S3, epic #367, #371).
+#
+# Accepts a seeded issue number and an optional spec-key (slug) for the seeded
+# issue. After _auto_seed_dispatch_light dispatches seed-issue for a
+# plan-tier:light candidate, the light-planner agent may refuse a thin body:
+# seed-issue Step 8.5c then writes NO plan, re-tiers the issue light → full,
+# and strips status:ready-for-dev.  The loop must NOT treat the refused issue
+# as dispatchable; this helper detects the thin-body outcome and reconciles
+# the loop's view.
+#
+# Detection order:
+#   1. (Primary signal) orchestrate.jsonl — reads
+#      specs/<seed_key>/orchestrate.jsonl and greps the light-plan line for
+#      data.thin_body == true or guard == "invalid".
+#   2. (Backstop) label state — re-fetches the issue labels; treats as
+#      thin-body when plan-tier:full is present AND status:ready-for-dev is
+#      absent (exact post-state Step 8.5c leaves).
+#
+# On a thin-body verdict:
+#   - Applies needs-human-review (idempotent — create if absent, skip if
+#     already present).
+#   - Does NOT touch the board (card stays at Todo).
+#   - Emits a loop message naming the issue.
+#   - Returns exit code 2 (thin-body — caller must not dispatch).
+#
+# On a non-thin (successful) seed:
+#   - Returns 0 (no-op — dispatch proceeds normally).
+#
+# Exit codes:
+#   0  — not thin-body; dispatch proceeds
+#   2  — thin-body detected; caller must not dispatch this issue
+#
+# Args:
+#   $1  issue number
+#   $2  seed_key (optional) — the slug derived from seed-issue for locating
+#       orchestrate.jsonl (e.g. "371-thin-body-terminal-reconciliation").
+#       When empty, the jsonl signal is skipped and only the label backstop
+#       applies.
+#
+# Test hooks (offline):
+#   MAKATO_LOOP_RECONCILE_JSONL_DIR — override SPECS_DIR root for locating
+#       orchestrate.jsonl files.  Tests redirect to a temp directory.
+#   MAKATO_LOOP_RECONCILE_LABEL_FILE — path to a newline-separated list of
+#       label names used as the issue's current labels instead of calling
+#       `gh issue view --json labels`.
+#   MAKATO_LOOP_LABEL_TEST_FILE — reused convention: append
+#       "label #N needs-human-review" instead of calling `gh issue edit`.
+# ---------------------------------------------------------------------------
+_auto_seed_reconcile_thin_body() {
+  local issue="${1:?issue number required}"
+  local seed_key="${2:-}"
+
+  local repo="${MAKATO_LOOP_DISPATCH_REPO:-}"
+  local -a repo_flag=()
+  [[ -n "$repo" ]] && repo_flag=(--repo "$repo")
+
+  # --- Signal 1: orchestrate.jsonl (primary) ---
+  local thin_body_detected=""
+  if [[ -n "$seed_key" ]]; then
+    local jsonl_root="${MAKATO_LOOP_RECONCILE_JSONL_DIR:-$SPECS_DIR}"
+    local jsonl_path="${jsonl_root}/${seed_key}/orchestrate.jsonl"
+    if [[ -f "$jsonl_path" && -s "$jsonl_path" ]]; then
+      # Grep for the light-plan line: data.thin_body == true or guard == "invalid".
+      # A line matches when jq can parse it AND either condition holds.
+      while IFS= read -r line; do
+        local _tb _guard
+        _tb="$(printf '%s' "$line" | jq -r '.data.thin_body // empty' 2>/dev/null || true)"
+        _guard="$(printf '%s' "$line" | jq -r '.data.guard // empty' 2>/dev/null || true)"
+        if [[ "$_tb" == "true" || "$_guard" == "invalid" ]]; then
+          thin_body_detected="jsonl"
+          break
+        fi
+      done <"$jsonl_path"
+    fi
+    # Missing or empty jsonl: fall through to label backstop (no error).
+  fi
+
+  # --- Signal 2: label-state backstop ---
+  if [[ -z "$thin_body_detected" ]]; then
+    local labels_raw=""
+    if [[ -n "${MAKATO_LOOP_RECONCILE_LABEL_FILE:-}" ]]; then
+      labels_raw="$(cat "$MAKATO_LOOP_RECONCILE_LABEL_FILE" 2>/dev/null || true)"
+    else
+      labels_raw="$(gh issue view "$issue" "${repo_flag[@]}" \
+        --json labels --jq '[.labels[].name] | .[]' 2>/dev/null || true)"
+    fi
+    local has_full="" has_ready=""
+    while IFS= read -r lbl; do
+      [[ -n "$lbl" ]] || continue
+      [[ "$lbl" == "plan-tier:full" ]] && has_full="1"
+      [[ "$lbl" == "status:ready-for-dev" ]] && has_ready="1"
+    done <<<"$labels_raw"
+    # Backstop: plan-tier:full present AND status:ready-for-dev absent.
+    if [[ -n "$has_full" && -z "$has_ready" ]]; then
+      thin_body_detected="label-backstop"
+    fi
+  fi
+
+  # --- No thin-body verdict: return 0, dispatch proceeds ---
+  if [[ -z "$thin_body_detected" ]]; then
+    return 0
+  fi
+
+  # --- Thin-body verdict: apply needs-human-review, leave at Todo ---
+  echo "loop: auto-seed — #${issue} thin-body, left at Todo + needs-human-review (not dispatched) [signal=${thin_body_detected}]" >&2
+
+  if [[ -n "${MAKATO_LOOP_LABEL_TEST_FILE:-}" ]]; then
+    # Test hook: record label action to file instead of calling gh.
+    echo "label #${issue} needs-human-review" >>"$MAKATO_LOOP_LABEL_TEST_FILE"
+  else
+    # Production path: create label if absent, then add idempotently.
+    if ! gh label list "${repo_flag[@]}" 2>/dev/null | grep -q "^needs-human-review"; then
+      gh label create "needs-human-review" "${repo_flag[@]}" \
+        --color "d93f0b" --description "Requires human review before autonomous dispatch" \
+        >/dev/null 2>&1 || true
+    fi
+    if gh issue edit "$issue" "${repo_flag[@]}" \
+        --add-label "needs-human-review" >/dev/null 2>&1; then
+      echo "loop: auto-seed-reconcile — applied 'needs-human-review' label to #$issue" >&2
+    else
+      echo "loop: WARN — auto-seed-reconcile #$issue: could not apply needs-human-review label" >&2
+    fi
+  fi
+
+  # Exit code 2 = thin-body; caller must not dispatch.
+  return 2
+}
+
+# ---------------------------------------------------------------------------
 # _auto_seed_block_full — full/untiered arm of the auto-seed routing.
 # (#372, epic #367 S4).
 #
@@ -2805,6 +2947,12 @@ if [[ "$SUBCMD" == _test-* ]]; then
     #   MAKATO_LOOP_AUTOSEED_SPEC_ROOT, MAKATO_LOOP_ISSUE_TITLE_OVERRIDE.
     # (#372, epic #367 S4).
     _test-auto-seed-block-full) _auto_seed_block_full "$@" ;;
+    # _test-auto-seed-reconcile-thin-body <issue> [seed_key] — exercise
+    # _auto_seed_reconcile_thin_body deterministically using test-hook env vars:
+    #   MAKATO_LOOP_RECONCILE_JSONL_DIR, MAKATO_LOOP_RECONCILE_LABEL_FILE,
+    #   MAKATO_LOOP_LABEL_TEST_FILE.
+    # (#371, epic #367 S3).
+    _test-auto-seed-reconcile-thin-body) _auto_seed_reconcile_thin_body "$@" ;;
     # _test-wd-guarded-write <issue> — exercise the watchdog ownership guard
     # (#312) deterministically, without the process-timing flakiness of a real
     # orphaned poll. Runs the exact guarded write the kill path performs:

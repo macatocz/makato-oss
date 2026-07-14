@@ -45,6 +45,9 @@
 #        (poll_healthy=false, last_poll_error) instead of a false "queue empty"
 #   T44–T48: stale-crash reaper (#320) — dead-pid reap, live-pid skip, age gate,
 #        unpushed-commits gate, REAP_STALE_FORCE=1 override
+#   T68–T71: thin-body reconciliation (#371, epic #367 S3) — thin-body via jsonl,
+#        thin-body via label backstop, exclusion-set membership guard,
+#        successful light seed is no-op
 #
 # A fixture file is injected via MAKATO_LOOP_GH_OVERRIDE so `gh` is not
 # invoked. Test isolation uses MAKATO_LOOP_STATE_DIR + ephemeral spec
@@ -2020,5 +2023,110 @@ echo "$t67_stderr" | grep -qi "already exist\|skip.*folder\|folder.*exist" \
 rm -f "$T67_CONFIG" "$T67_BLOCK_FILE" "$T67_COMMENT_FILE" "$T67_LABEL_FILE"
 echo "  ✓ existing spec folder: idempotent skip, rest of actions still fire"
 
+# ---------------------------------------------------------------------------
+# T68–T71: _auto_seed_reconcile_thin_body (#371, epic #367 S3)
+# ---------------------------------------------------------------------------
+
+# T68: thin-body detected from orchestrate.jsonl (primary signal) →
+#      needs-human-review applied, exit code 2 (not dispatched).
+echo "=== T68: thin-body via orchestrate.jsonl → needs-human-review, exit 2 ==="
+T68_JSONL_ROOT="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/t68-specs"
+T68_LABEL_FILE="$STATE_DIR/t68-label-$$.txt"
+mkdir -p "$T68_JSONL_ROOT/501-thin-body-issue"
+# Write an orchestrate.jsonl with a light-plan line where data.thin_body is true.
+jq -cn '{ts:"2026-07-14T10:00:00Z",skill:"light-planner",step:"plan",status:"ok",data:{thin_body:true,guard:"invalid"}}' \
+  >"$T68_JSONL_ROOT/501-thin-body-issue/orchestrate.jsonl"
+t68_rc=0
+t68_stderr="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_RECONCILE_JSONL_DIR="$T68_JSONL_ROOT" \
+  MAKATO_LOOP_LABEL_TEST_FILE="$T68_LABEL_FILE" \
+    "$LOOP" _test-auto-seed-reconcile-thin-body 501 501-thin-body-issue 2>&1 >/dev/null
+)" || t68_rc=$?
+[[ "$t68_rc" -eq 2 ]] \
+  || fail "T68: thin-body via jsonl should return exit code 2; got rc=$t68_rc"
+[[ -f "$T68_LABEL_FILE" ]] && grep -q "label #501 needs-human-review" "$T68_LABEL_FILE" \
+  || fail "T68: needs-human-review must be applied; label file: $(cat "$T68_LABEL_FILE" 2>/dev/null)"
+echo "$t68_stderr" | grep -q "thin-body" \
+  || fail "T68: loop message should mention thin-body; got: $t68_stderr"
+echo "$t68_stderr" | grep -q "501" \
+  || fail "T68: loop message should mention the issue number; got: $t68_stderr"
+echo "$t68_stderr" | grep -qi "not dispatched" \
+  || fail "T68: loop message should say not dispatched; got: $t68_stderr"
+rm -f "$T68_LABEL_FILE"
+rm -rf "$T68_JSONL_ROOT"
+echo "  ✓ thin-body via jsonl: exit 2, needs-human-review applied, loop message emitted"
+
+# T69: thin-body detected via label backstop when orchestrate.jsonl is absent.
+echo "=== T69: thin-body via label backstop (no jsonl) → needs-human-review, exit 2 ==="
+T69_JSONL_ROOT="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/t69-specs"
+T69_LABEL_FIXTURE="$STATE_DIR/t69-labels-$$.txt"
+T69_LABEL_FILE="$STATE_DIR/t69-applied-$$.txt"
+mkdir -p "$T69_JSONL_ROOT"
+# No orchestrate.jsonl for this seed key; label fixture shows re-tiered state.
+printf 'plan-tier:full\nenhancement\n' >"$T69_LABEL_FIXTURE"  # no status:ready-for-dev
+t69_rc=0
+t69_stderr="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_RECONCILE_JSONL_DIR="$T69_JSONL_ROOT" \
+  MAKATO_LOOP_RECONCILE_LABEL_FILE="$T69_LABEL_FIXTURE" \
+  MAKATO_LOOP_LABEL_TEST_FILE="$T69_LABEL_FILE" \
+    "$LOOP" _test-auto-seed-reconcile-thin-body 502 502-thin-no-jsonl 2>&1 >/dev/null
+)" || t69_rc=$?
+[[ "$t69_rc" -eq 2 ]] \
+  || fail "T69: thin-body via label backstop should return exit code 2; got rc=$t69_rc"
+[[ -f "$T69_LABEL_FILE" ]] && grep -q "label #502 needs-human-review" "$T69_LABEL_FILE" \
+  || fail "T69: needs-human-review must be applied; label file: $(cat "$T69_LABEL_FILE" 2>/dev/null)"
+echo "$t69_stderr" | grep -q "label-backstop" \
+  || fail "T69: loop message should name 'label-backstop' signal; got: $t69_stderr"
+rm -f "$T69_LABEL_FIXTURE" "$T69_LABEL_FILE"
+rm -rf "$T69_JSONL_ROOT"
+echo "  ✓ thin-body via label backstop: exit 2, needs-human-review applied"
+
+# T70: exclusion-set membership — a thin-body issue now carrying
+#      needs-human-review is excluded from the _auto_seed_candidates pass
+#      (S1 discovery filter), asserting against _PROMOTE_EXCLUSION_LABELS.
+echo "=== T70: needs-human-review is in _PROMOTE_EXCLUSION_LABELS (re-seed guard) ==="
+# Source just enough of loop.sh to read _PROMOTE_EXCLUSION_LABELS.
+T70_EXCL="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_GH_OVERRIDE="$FIXTURE" \
+    bash -c 'source '"$LOOP"' check-halt 2>/dev/null; echo "$_PROMOTE_EXCLUSION_LABELS"' 2>/dev/null || true
+)"
+# Fallback: grep the variable directly from the file (avoids sourcing side effects).
+if [[ -z "$T70_EXCL" ]]; then
+  T70_EXCL="$(grep '_PROMOTE_EXCLUSION_LABELS=' "$LOOP" | head -1 | sed 's/.*="\(.*\)"/\1/')"
+fi
+echo "$T70_EXCL" | grep -q "needs-human-review" \
+  || fail "T70: needs-human-review must be in _PROMOTE_EXCLUSION_LABELS; got: $T70_EXCL"
+echo "  ✓ needs-human-review is in _PROMOTE_EXCLUSION_LABELS — thin-body issues excluded from re-seed"
+
+# T71: successful (non-thin) light seed → function returns 0, no label applied.
+echo "=== T71: successful light seed (no thin-body) → exit 0, no label applied ==="
+T71_JSONL_ROOT="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/t71-specs"
+T71_LABEL_FILE="$STATE_DIR/t71-label-$$.txt"
+mkdir -p "$T71_JSONL_ROOT/503-successful-seed"
+# Write an orchestrate.jsonl with NO thin_body indicator.
+jq -cn '{ts:"2026-07-14T10:00:00Z",skill:"light-planner",step:"plan",status:"ok",data:{plan_written:true}}' \
+  >"$T71_JSONL_ROOT/503-successful-seed/orchestrate.jsonl"
+# Label fixture: issue still has status:ready-for-dev (successful promotion).
+T71_LABEL_FIXTURE="$STATE_DIR/t71-labels-$$.txt"
+printf 'plan-tier:light\nstatus:ready-for-dev\nenhancement\n' >"$T71_LABEL_FIXTURE"
+t71_rc=0
+t71_stderr="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_RECONCILE_JSONL_DIR="$T71_JSONL_ROOT" \
+  MAKATO_LOOP_RECONCILE_LABEL_FILE="$T71_LABEL_FIXTURE" \
+  MAKATO_LOOP_LABEL_TEST_FILE="$T71_LABEL_FILE" \
+    "$LOOP" _test-auto-seed-reconcile-thin-body 503 503-successful-seed 2>&1 >/dev/null
+)" || t71_rc=$?
+[[ "$t71_rc" -eq 0 ]] \
+  || fail "T71: successful seed should return exit code 0; got rc=$t71_rc stderr=$t71_stderr"
+[[ ! -f "$T71_LABEL_FILE" ]] || [[ ! -s "$T71_LABEL_FILE" ]] \
+  || fail "T71: no label must be applied for a successful seed; got: $(cat "$T71_LABEL_FILE" 2>/dev/null)"
+rm -f "$T71_LABEL_FIXTURE" "$T71_LABEL_FILE"
+rm -rf "$T71_JSONL_ROOT"
+echo "  ✓ successful seed: exit 0, no needs-human-review applied"
+
 echo
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372) ==="
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371) ==="
