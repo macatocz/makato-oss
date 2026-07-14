@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.72.0](https://github.com/macatocz/makato/compare/v0.71.0...v0.72.0) (2026-07-14)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** emit durable Needs Planning signal at recurrence threshold ([#348](https://github.com/macatocz/makato/issues/348)) ([#410](https://github.com/macatocz/makato/issues/410)) ([8ee32f6](https://github.com/macatocz/makato/commit/8ee32f6de77ccc0f7397474a4445505b5c874a30))
+
 ## [0.71.0](https://github.com/macatocz/makato/compare/v0.70.1...v0.71.0) (2026-07-14)
 
 
