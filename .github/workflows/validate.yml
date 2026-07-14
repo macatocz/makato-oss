@@ -71,6 +71,9 @@ jobs:
       - name: AC-checkbox matcher smoke tests (AC-verification)
         run: ./plugins/makato-orchestrate/scripts/mark-ac-checkboxes-smoke-tests.sh
 
+      - name: append-only conflict union-merge smoke tests (resolve-pr-conflict)
+        run: ./plugins/makato-orchestrate/scripts/resolve-append-only-conflict-smoke-tests.sh
+
   pr-title:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest

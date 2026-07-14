@@ -1,9 +1,9 @@
 ---
 name: resolve-pr-conflict
-description: Detect and resolve a merge conflict on an open PR branch inside the PO-agent worktree — rebase-first, merge -X ours fallback, HALT-008 when irreconcilable. Invoked by the PO-agent outer loop after a conflict signal or CI rebase-check failure. Returns R1 envelope.
-version: "1.1.0"
+description: Detect and resolve a merge conflict on an open PR branch inside the PO-agent worktree — rebase-first, then a partitioned merge fallback (union for append-only files like CHANGELOG, -X ours for the rest), HALT-008 when irreconcilable. Invoked by the PO-agent outer loop after a conflict signal or CI rebase-check failure. Returns R1 envelope.
+version: "1.2.0"
 argument-hint: "[work-item-key] [--autonomous]"
-allowed-tools: Bash(git *) Bash(gh *) Bash(jq *) Bash(python3 *) Read
+allowed-tools: Bash(git *) Bash(gh *) Bash(jq *) Bash(python3 *) Bash(plugins/makato-orchestrate/scripts/resolve-append-only-conflict.sh *) Read
 ---
 
 ## When to Use
@@ -159,36 +159,94 @@ shared/build-log.sh "$KEY" \
 
 ---
 
-### Step 4 — Abort rebase, attempt merge -X ours
+### Step 4 — Abort rebase, attempt partitioned merge (union for append-only, ours for the rest)
 
 Constraint: always call `git rebase --abort` before falling back to merge.
 Leaving a rebase in-progress state corrupts the worktree's HEAD and makes
 subsequent git operations fail with "rebase in progress" errors.
 
+**Why a plain merge first, not `merge -X ours` directly.** `git merge -X ours`
+resolves *every* conflicting hunk in favour of the feature branch **without
+reporting a conflict** — including on an append-only file like a CHANGELOG,
+where each branch prepends its own release block. There, `-X ours` silently
+discards the target branch's newly-added entry: the merge "succeeds" and the
+data loss is invisible. So the fallback runs a *plain* merge to surface all
+conflicts as unmerged paths, then resolves them by class:
+
+- **Append-only files** (CHANGELOG, AUTHORS, `*.jsonl` audit logs, and similar
+  files where both sides only *add* lines) → 3-way **union** merge via
+  `scripts/resolve-append-only-conflict.sh`, which keeps every line from both
+  sides in order. This is the fix for the common "two PRs both touched the
+  changelog" conflict — neither side's entry is lost.
+- **All other files** → `-X ours` semantics: the feature branch wins the
+  conflicting hunk (`git checkout --ours` + `git add`). Non-conflicting changes
+  from the target are already merged and are untouched.
+
 ```bash
 cd "$WORKTREE_PATH"
 git rebase --abort 2>/dev/null || true
-git merge "origin/$TARGET_BRANCH" -X ours --no-edit \
-  -m "fix: resolve conflicts on $(git branch --show-current) (merge -X ours)"
+
+# Plain merge to surface all conflicts as unmerged paths (do NOT use -X here).
+git merge "origin/$TARGET_BRANCH" --no-commit --no-ff
 MERGE_EXIT=$?
+
+mapfile -t UNRESOLVED < <(git diff --name-only --diff-filter=U)
 ```
 
-Constraint: always use `-X ours` (feature branch wins on conflict) for the
-feature → `$TARGET_BRANCH` direction. `-X theirs` would silently prefer the
-target branch's version and discard the PR's own changes. `-X ours` does
-NOT discard the target's non-conflicting changes — only conflicting hunks
-are resolved in favour of the feature branch.
+If `MERGE_EXIT == 0` and `UNRESOLVED` is empty → merge was clean, commit is
+already pending; run `git commit --no-edit` and go to Step 5.
 
-**If `MERGE_EXIT == 0`:**
+Otherwise partition the unresolved paths. An "append-only" file is matched by
+basename/extension against a fixed allow-list — the classes where a union merge
+is provably safe (both sides only add lines, order within the file is not
+load-bearing beyond "newest on top", which union preserves per-side):
 
 ```bash
-UNRESOLVED=$(git diff --name-only --diff-filter=U)
+# Append-only allow-list. Extend deliberately — union is only safe for files
+# where both sides append/prepend and never rewrite shared lines.
+is_append_only() {
+  local f; f="$(basename "$1")"
+  case "$f" in
+    CHANGELOG.md|CHANGELOG|AUTHORS|AUTHORS.md|CONTRIBUTORS|CONTRIBUTORS.md) return 0 ;;
+  esac
+  case "$1" in
+    *.jsonl) return 0 ;;   # append-only audit logs (build.jsonl, orchestrate.jsonl)
+  esac
+  return 1
+}
+
+RESOLVED_UNION=(); RESOLVED_OURS=()
+for f in "${UNRESOLVED[@]}"; do
+  if is_append_only "$f"; then
+    # Union-merge: keep both sides' additions. Stages the file on success.
+    if plugins/makato-orchestrate/scripts/resolve-append-only-conflict.sh "$f" >/dev/null; then
+      RESOLVED_UNION+=("$f")
+    fi
+  else
+    # ours-wins for the conflicting hunks; non-conflicting target changes stay.
+    git checkout --ours -- "$f" && git add -- "$f" && RESOLVED_OURS+=("$f")
+  fi
+done
+
+# Any path still unmerged after partitioning is irreconcilable here.
+mapfile -t STILL_UNRESOLVED < <(git diff --name-only --diff-filter=U)
 ```
 
-- `$UNRESOLVED` empty → merge clean, go to Step 5.
-- `$UNRESOLVED` non-empty → merge exited 0 but left conflict markers; treat as failure.
+Constraint: `-X ours` (or the `checkout --ours` equivalent used here) always
+means the **feature branch** wins for the feature → `$TARGET_BRANCH` direction.
+`-X theirs` would silently prefer the target branch's version and discard the
+PR's own changes. Union is used *only* for the append-only allow-list, where
+neither side should be discarded.
 
-**If `MERGE_EXIT != 0` OR unresolved files remain:**
+**If `STILL_UNRESOLVED` is empty:** all conflicts resolved. Commit the merge and
+go to Step 5:
+
+```bash
+git commit --no-edit \
+  -m "fix: resolve conflicts on $(git branch --show-current) (union: ${RESOLVED_UNION[*]:-none}; ours: ${RESOLVED_OURS[*]:-none})"
+```
+
+**If `STILL_UNRESOLVED` is non-empty:**
 
 ```bash
 git merge --abort 2>/dev/null || true
@@ -196,11 +254,12 @@ git merge --abort 2>/dev/null || true
 
 Go to Step 6 (HALT).
 
-Log the merge attempt:
+Log the merge attempt (record which files took which strategy so a downstream
+reader can audit why a changelog was union-merged vs. a source file taking ours):
 
 ```bash
 shared/build-log.sh "$KEY" \
-  '{"ts":"<ISO>","skill":"resolve-pr-conflict","story":"<KEY>","step":"merge-fallback","status":"<ok|error>","data":{"exit_code":<N>,"strategy":"merge-X-ours","unresolved_files":[...]}}'
+  '{"ts":"<ISO>","skill":"resolve-pr-conflict","story":"<KEY>","step":"merge-fallback","status":"<ok|error>","data":{"exit_code":<N>,"strategy":"partitioned","union_files":[...],"ours_files":[...],"unresolved_files":[...]}}'
 ```
 
 ---
@@ -225,10 +284,10 @@ Log:
 
 ```bash
 shared/build-log.sh "$KEY" \
-  '{"ts":"<ISO>","skill":"resolve-pr-conflict","story":"<KEY>","step":"push-resolved","status":"ok","data":{"strategy":"<rebase|merge-X-ours>","branch":"<BRANCH>"}}'
+  '{"ts":"<ISO>","skill":"resolve-pr-conflict","story":"<KEY>","step":"push-resolved","status":"ok","data":{"strategy":"<rebase|partitioned-merge>","branch":"<BRANCH>"}}'
 
 shared/build-log.sh "$KEY" \
-  '{"ts":"<ISO>","skill":"resolve-pr-conflict","story":"<KEY>","step":"rebase_resolved","status":"ok","data":{"strategy":"<rebase|merge-X-ours>","branch":"<BRANCH>"}}'
+  '{"ts":"<ISO>","skill":"resolve-pr-conflict","story":"<KEY>","step":"rebase_resolved","status":"ok","data":{"strategy":"<rebase|partitioned-merge>","branch":"<BRANCH>"}}'
 ```
 
 The dual log entry is intentional: `push-resolved` is the step-named audit
@@ -243,11 +302,11 @@ Return R1 success envelope:
   "schema": "r1",
   "agent": "resolve-pr-conflict",
   "status": "success",
-  "summary": "Conflict resolved on <branch> via <rebase|merge-X-ours>; branch force-pushed.",
+  "summary": "Conflict resolved on <branch> via <rebase|partitioned-merge>; branch force-pushed.",
   "files_changed": [],
   "errors": [],
   "data": {
-    "strategy": "rebase | merge-X-ours",
+    "strategy": "rebase | partitioned-merge",
     "branch": "<branch>",
     "worktree_path": "<path>"
   }
@@ -266,8 +325,9 @@ Both strategies failed. The conflict requires human judgment.
    contract still holds because resolve-pr-conflict runs *inside* the
    PO-agent's outer loop and inherits its allow-list. The cap check is
    performed by the **caller** (PO-agent Step 6 #3) before dispatching
-   this skill; reaching Step 6 here means rebase + `merge -X ours` both
-   failed at the git level, and HALT-008 fires unconditionally regardless
+   this skill; reaching Step 6 here means rebase + the partitioned merge
+   (union for append-only, ours for the rest) both left files unresolved
+   at the git level, and HALT-008 fires unconditionally regardless
    of the counter value. The increment exists so subsequent dispatches in
    the same run honour the cap on the PO-agent side.
 
@@ -297,7 +357,7 @@ Both strategies failed. The conflict requires human judgment.
    ```bash
    mapfile -t CONFLICT_FILES < <(git diff --name-only --diff-filter=U)
    shared/workflow-state.sh append-lesson "$KEY" "$ISSUE_NUMBER" "$NEW_CYCLES" merge_conflict \
-     "irreconcilable conflict on $BRANCH after rebase + merge -X ours" \
+     "irreconcilable conflict on $BRANCH after rebase + partitioned merge (union/ours)" \
      "${CONFLICT_FILES[@]}"
    ```
 
@@ -323,7 +383,7 @@ Both strategies failed. The conflict requires human judgment.
      "schema": "r1",
      "agent": "resolve-pr-conflict",
      "status": "failure",
-     "summary": "HALT-008: irreconcilable conflict on <branch> after rebase + merge-X-ours. Worktree retained.",
+     "summary": "HALT-008: irreconcilable conflict on <branch> after rebase + partitioned merge (union/ours). Worktree retained.",
      "errors": ["HALT-008: merge_conflict_cycles=<N>"],
      "data": {
        "halt_code": "HALT-008",
@@ -340,7 +400,7 @@ Both strategies failed. The conflict requires human judgment.
 
 | Code | Trigger | Recovery |
 |---|---|---|
-| `HALT-008` | Both rebase and merge-X-ours leave unresolved files, OR `merge_conflict_cycles >= MAKATO_MAX_MERGE_CONFLICT_CYCLES` (default 3) — see `halt-conditions.md` HALT-008 for the dual-origin documentation | Human resolves conflict in retained worktree, re-pushes, re-triggers PO-agent loop |
+| `HALT-008` | Both rebase and the partitioned merge (union for append-only, ours for the rest) leave unresolved files, OR `merge_conflict_cycles >= MAKATO_MAX_MERGE_CONFLICT_CYCLES` (default 3) — see `halt-conditions.md` HALT-008 for the dual-origin documentation | Human resolves conflict in retained worktree, re-pushes, re-triggers PO-agent loop |
 | `SAFETY_BOUNDARY` | Branch is `main`, `master`, or `development` | Check out a feature branch first |
 | `NETWORK_ERROR` | `git fetch origin <target>` fails OR neither `origin/development` nor `origin/main` exists | Verify network / GitHub access, confirm the consumer repo's default branch is `development` or `main`, retry |
 | `PUSH_REJECTED` | `--force-with-lease` refused | Fetch and inspect remote changes; re-run skill |

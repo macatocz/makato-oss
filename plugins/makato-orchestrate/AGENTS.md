@@ -124,7 +124,9 @@ makato-orchestrate/
 │   ├── emit-reshape-request-smoke-tests.sh (#349 — 12 scenarios T1–T12)
 │   ├── emit-reshape-request.schema.json  (#349 — reshape-request.json v1 schema; orchestrate→plan data contract)
 │   ├── mark-ac-checkboxes.sh             (AC-verification — deterministic issue-checkbox matcher for documentation-agent Step 4a)
-│   └── mark-ac-checkboxes-smoke-tests.sh (AC-verification — 10 scenarios T1–T10)
+│   ├── mark-ac-checkboxes-smoke-tests.sh (AC-verification — 10 scenarios T1–T10)
+│   ├── resolve-append-only-conflict.sh   (resolve-pr-conflict — union-merge a conflicted append-only file, CHANGELOG/AUTHORS/*.jsonl)
+│   └── resolve-append-only-conflict-smoke-tests.sh (resolve-pr-conflict — 8 scenarios T1–T8)
 ├── skills/
 │   ├── workflow-state/                   (GAP-003 / #26 — shipped)
 │   │   ├── SKILL.md

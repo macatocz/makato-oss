@@ -5,6 +5,16 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## `resolve-pr-conflict` 1.2.0 — union-merge append-only files instead of silently dropping the target's lines
+
+The `merge -X ours` fallback silently discarded the target branch's hunks on any conflicting region — and for an **append-only** file (a CHANGELOG where each PR prepends its own release block, an AUTHORS list, a `*.jsonl` audit log) that is data loss, not a resolution. `-X ours` does not even report a conflict there: `main`'s changelog entry just vanishes from the merge. This is the single most common conflict the autonomous loop hits (two PRs both touched the changelog), and it was being "resolved" by throwing away one side.
+
+- **`scripts/resolve-append-only-conflict.sh`** (new) — union-merges one conflicted path via `git merge-file -p --union` over the three merge stages (`:2` ours / `:1` base / `:3` theirs), keeping every line from both sides in order, then `git add`s it. Handles the add/add case (absent base → empty). Emits a one-line JSON summary; refuses any path that is not actually unmerged. stdlib + git only.
+- **`scripts/resolve-append-only-conflict-smoke-tests.sh`** (new) — 8 scenarios (T1–T8): arg validation, non-unmerged rejection, modify/modify union keeps both changelog blocks, staging + unmerged-state clearing, summary JSON, add/add (`had_base:false`), distinct-region superset, and merge-completes-after-resolution.
+- **`skills/resolve-pr-conflict/SKILL.md`** (1.1.0 → 1.2.0) — Step 4 rewritten from a blunt `merge -X ours` to a **partitioned** fallback: a *plain* merge first (so all conflicts surface as unmerged paths — `-X ours` would hide them), then per-file resolution by a fixed append-only allow-list (`CHANGELOG(.md)`, `AUTHORS(.md)`, `CONTRIBUTORS(.md)`, `*.jsonl` → union; everything else → `checkout --ours`). `merge-fallback` log gains `union_files[]` / `ours_files[]`; success strategy renamed `merge-X-ours` → `partitioned-merge`; HALT-008 trigger, lesson text, and R1 summaries updated. `allowed-tools` gains the helper script.
+- **`AGENTS.md`** — File Structure lists the two new scripts.
+
+
 ## `documentation-agent` 1.1.0 — mark verified AC checkboxes `[x]` on the linked Issue post-merge
 
 Acceptance-criteria checkboxes were never checked by the autonomous pipeline; a merged PR closed its Issue with every `- [ ]` still empty. This adds a post-merge step that transcribes the per-AC verified/gap verdict — produced by `diff-reviewer` and carried in the PR body by `build-create-pr` (both in `makato-build`) — into the Issue's checkboxes, so a `[x]` reflects confirmed code + test coverage rather than merely a merge.
