@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.66.0](https://github.com/macatocz/makato/compare/v0.65.0...v0.66.0) (2026-07-14)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** thin-body terminal state reconciliation ([#371](https://github.com/macatocz/makato/issues/371)) ([#388](https://github.com/macatocz/makato/issues/388)) ([43a7322](https://github.com/macatocz/makato/commit/43a732262cc03c17a2b6d7f86df8ad2c184505a6))
+
 ## [0.65.0](https://github.com/macatocz/makato/compare/v0.64.0...v0.65.0) (2026-07-14)
 
 
