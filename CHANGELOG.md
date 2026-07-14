@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.71.0](https://github.com/macatocz/makato/compare/v0.70.1...v0.71.0) (2026-07-14)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** classify CI failures and route sensor types to sensor-fixer ([#390](https://github.com/macatocz/makato/issues/390)) ([#406](https://github.com/macatocz/makato/issues/406)) ([2a3cc49](https://github.com/macatocz/makato/commit/2a3cc49217abf2b14438e96519c5e6e4e38701b8))
+
 ## [0.70.1](https://github.com/macatocz/makato/compare/v0.70.0...v0.70.1) (2026-07-14)
 
 
