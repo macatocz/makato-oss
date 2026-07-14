@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.62.0](https://github.com/macatocz/makato/compare/v0.61.0...v0.62.0) (2026-07-14)
+
+
+### ✨ Features
+
+* **makato-core:** extend create-issue with plan-tier, issue-to-project, and seed-issue (v1.2.0) ([#378](https://github.com/macatocz/makato/issues/378)) ([83becd0](https://github.com/macatocz/makato/commit/83becd0e33e412ee3cea7d0981d6d7204da5b084))
+
 ## [0.61.0](https://github.com/macatocz/makato/compare/v0.60.0...v0.61.0) (2026-07-14)
 
 
