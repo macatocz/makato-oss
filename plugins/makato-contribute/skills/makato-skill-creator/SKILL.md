@@ -220,7 +220,7 @@ Register **only if both answers are YES**. Quick signals:
 - **Interactive (skip):** first step is an interview/question; presents for approval
   or waits for human sign-off; is an entry-point/orchestrator/phase coordinator;
   produces a planning artifact for human review; manages GitHub issues/PRs/boards as
-  its primary action. Examples: `brainstorming`, `grill`, `makato-skill-creator`,
+  its primary action. Examples: `brainstorming`, `stress-test-artifact`, `makato-skill-creator`,
   `sync-from-upstream`, `to-issues`, `loop`.
 
 **If the skill is technical, perform the registration:**

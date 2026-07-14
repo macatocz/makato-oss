@@ -417,7 +417,7 @@ Brainstorm Complete! What's Next?
 Your ideas are captured and decisions documented.
 
 Recommended next steps:
-  1. Run /grill — stress-test your decisions
+  1. Run /stress-test-artifact — stress-test your decisions
   2. Run /create-prd — formalize into requirements
 
 The grill will challenge assumptions, probe edge cases,

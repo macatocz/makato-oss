@@ -17,7 +17,7 @@ specs/<story-key>/
 ├── prd.md                # OPTIONAL — produced by makato-plan/create-prd
 ├── design.md             # OPTIONAL — produced by makato-plan/create-architecture
 ├── decisions.md          # OPTIONAL — produced by makato-plan/brainstorming
-├── glossary.md           # OPTIONAL — produced by makato-plan/grill, enriched by makato-build/grill-with-docs
+├── glossary.md           # OPTIONAL — produced by makato-plan/stress-test-artifact, enriched by makato-build/grill-with-docs
 └── prototype.html        # OPTIONAL — produced by makato-plan/create-prototype
 ```
 
@@ -29,7 +29,7 @@ specs/<story-key>/
 | `prd.md` | makato-plan/create-prd | makato-build/refine |
 | `design.md` | makato-plan/create-architecture | makato-build/refine, makato-build/verify |
 | `decisions.md` | makato-plan/brainstorming | makato-build/refine, makato-build/grill-with-docs |
-| `glossary.md` | makato-plan/grill | makato-build/grill-with-docs (enriches), makato-build/agents/plan-analyst (reads), makato-build/implement-tdd, makato-build/implement-goal |
+| `glossary.md` | makato-plan/stress-test-artifact | makato-build/grill-with-docs (enriches), makato-build/agents/plan-analyst (reads), makato-build/implement-tdd, makato-build/implement-goal |
 | `prototype.html` | makato-plan/create-prototype | makato-build/implement-goal |
 | `plan.md` | makato-build/refine | makato-build/implement-tdd, makato-build/implement-goal, makato-build/simplify, makato-build/review, makato-build/push-to-git, makato-build/create-pr |
 | `build.jsonl` | makato-build/* (all skills append) | makato-build/push-to-git (reads), hooks/pre-push (reads), hooks/post-implement (reads) |

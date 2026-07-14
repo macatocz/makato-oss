@@ -61,7 +61,7 @@ Development teams own that next step.
     - `shared/scenario-schema.md` — Gherkin scenario shape (used by decompose's `successScenarios[]` and create-acceptance-tests' `acceptanceTestCases[]`)
     - `shared/refinement-contract.md` — rules for "Refine" update mode (used by create-prd, create-architecture, create-prototype, decompose)
 - The plugin-level terminology reference is for human readers (consumers and contributors). Skills do **not** reference it at runtime — `@`-mentions in SKILL.md don't auto-load file content, and forcing a Read on every skill run wastes context. When introducing a term that needs explanation in a skill, add it to `shared/terminology.md` first; the runtime path for making this content available to agents is tracked separately (see GitHub issues).
-- Distinct from the per-spec glossary written by `grill`: that file (`specs/{KEY}-{slug}/glossary.md`) is a runtime, feature-scoped artifact populated during interviews and read by other plan skills on entry. See the `grill` skill for its format and write-back rules.
+- Distinct from the per-spec glossary written by `stress-test-artifact`: that file (`specs/{KEY}-{slug}/glossary.md`) is a runtime, feature-scoped artifact populated during interviews and read by other plan skills on entry. See the `stress-test-artifact` skill for its format and write-back rules.
 
 ## Agents
 
@@ -71,9 +71,9 @@ makato-plan dispatches read-only specialists for context discovery, multi-perspe
 | ---------------------- | ------ | -------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
 | **context-scout**      | haiku  | Scan `context/{REPO_NAME}/` for files relevant to the current feature; returns a structured manifest                 | most plan skills                         |
 | **acceptance-writer**  | sonnet | Refine draft Gherkin scenarios from decompose into polished, manually-testable acceptance test cases                 | create-acceptance-tests                  |
-| **dev-reviewer**       | sonnet | Lead-developer perspective for Three Amigos review — challenges feasibility, dependencies, estimates                 | grill (story review)                     |
-| **po-reviewer**        | sonnet | Product-owner perspective — challenges value delivery, scope boundaries, user outcomes, phase assignment             | grill (story review)                     |
-| **qa-reviewer**        | sonnet | QA perspective — challenges testability, identifies edge cases, produces draft Gherkin scenarios                     | grill (story review), decompose          |
+| **dev-reviewer**       | sonnet | Lead-developer perspective for Three Amigos review — challenges feasibility, dependencies, estimates                 | stress-test-artifact (story review)                     |
+| **po-reviewer**        | sonnet | Product-owner perspective — challenges value delivery, scope boundaries, user outcomes, phase assignment             | stress-test-artifact (story review)                     |
+| **qa-reviewer**        | sonnet | QA perspective — challenges testability, identifies edge cases, produces draft Gherkin scenarios                     | stress-test-artifact (story review), decompose          |
 | **prototype-builder**  | opus   | Generate high-fidelity interactive HTML prototypes from design context and UX decisions                              | create-prototype, create-ux              |
 | **doc-writer**         | sonnet | Generate styled HTML review documents and write canonical markdown artifacts from structured input                   | most plan skills                         |
 
@@ -106,7 +106,7 @@ makato-plan/
 │   ├── create-ux/
 │   ├── decompose/
 │   ├── excalidraw/
-│   ├── grill/
+│   ├── stress-test-artifact/
 │   ├── issue-to-project/
 │   └── to-issues/
 ├── shared/

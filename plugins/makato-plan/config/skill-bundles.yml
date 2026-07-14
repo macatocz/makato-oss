@@ -19,7 +19,7 @@ bundles:
       - brainstorming
       - create-prd
       - create-architecture
-      - grill
+      - stress-test-artifact
       - decompose
       - create-acceptance-tests
       - to-issues
@@ -40,7 +40,7 @@ bundles:
       - "Acceptance Criteria"
       - "## Architecture"
     skills:
-      - grill
+      - stress-test-artifact
       - create-prd
       - create-acceptance-tests
 

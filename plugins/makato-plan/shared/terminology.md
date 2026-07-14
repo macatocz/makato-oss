@@ -1,7 +1,7 @@
 <!-- markdownlint-disable MD013 MD040 -->
 # makato-plan Terminology
 
-Canonical definitions for terms used across makato-plan skills, references, and templates. This file is the **plugin-level terminology reference** — it documents the vocabulary contributors and consumers need to read the skills. It is distinct from the runtime, feature-scoped glossary that the `grill` skill writes per spec (see `specs/{ITDB-KEY}-{slug}/glossary.md` inside each spec folder).
+Canonical definitions for terms used across makato-plan skills, references, and templates. This file is the **plugin-level terminology reference** — it documents the vocabulary contributors and consumers need to read the skills. It is distinct from the runtime, feature-scoped glossary that the `stress-test-artifact` skill writes per spec (see `specs/{ITDB-KEY}-{slug}/glossary.md` inside each spec folder).
 
 **For skill authors:** when you introduce a term that needs explanation, add it here and reference the entry from your skill at the point of use (`shared/terminology.md#anchor` — the `shared/` symlink lives in each skill that consumes it). Do not redefine terms inline.
 
@@ -62,7 +62,7 @@ The `reference/` subfolder inside a spec folder. Holds technical inputs the user
 
 The first makato-plan skill — divergent-then-convergent ideation on an ITDB feature. Produces `brainstorm.md` and seeds `decisions.md`.
 
-### grill
+### stress-test-artifact
 
 A relentless interview skill that stress-tests a plan or design until each branch of the decision tree is resolved. Used between major skills (e.g., between PRD and architecture) when the user wants to be challenged.
 

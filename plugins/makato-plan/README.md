@@ -9,7 +9,7 @@ ready for development.
 product requirements definition, architecture design, optional UX design and interactive HTML
 prototype, story decomposition with a Three Amigos simulation (PO, Dev Lead, and QA agents running
 in parallel), acceptance test refinement, and GitHub issue publication to a Projects v2 board. The
-`grill` skill is cross-cutting and can be invoked after any phase to stress-test decisions before
+`stress-test-artifact` skill is cross-cutting and can be invoked after any phase to stress-test decisions before
 proceeding.
 
 **Why**: Features shaped through this pipeline are thoroughly understood, architecturally grounded,
@@ -41,7 +41,7 @@ and architectural context, but no detailed implementation tasks or estimates.
 ## Workflow
 
 Skills follow a sequential shaping pipeline. Each phase produces a disk artifact that feeds the
-next. `grill` is cross-cutting — invoke it after any phase to stress-test decisions before
+next. `stress-test-artifact` is cross-cutting — invoke it after any phase to stress-test decisions before
 proceeding. `excalidraw` is a utility that can be used inside any phase that benefits from a visual.
 
 ```
@@ -52,7 +52,7 @@ Feature request / work item description
 │  brainstorming  │  Input:  feature description or GitHub issue URL
 └────────┬────────┘  Output: brainstorm.md + decisions.md
          │
-         │  ◀── grill (optional cross-cutting stress-test after any phase)
+         │  ◀── stress-test-artifact (optional cross-cutting stress-test after any phase)
          ▼
 ┌─────────────────┐
 │   create-prd    │  Input:  brainstorm.md + decisions.md
@@ -101,9 +101,9 @@ Feature request / work item description
 | Skill | Description | Input | Output | Version |
 |-------|-------------|-------|--------|---------|
 | [brainstorming](skills/brainstorming/SKILL.md) | Structured divergent-convergent ideation on a feature using 62 techniques, targeting 50+ ideas, converging to top 3-5 concepts with rationale. Creates the spec folder if it does not exist. (interactive) | Feature description, GitHub issue URL, or existing spec slug; optionally imports attachments from the GitHub issue | `specs/{slug}/brainstorm.md` (clustered ideas, top concepts) and `specs/{slug}/decisions.md` (initial decisions) | 1.2.0 |
-| [grill](skills/grill/SKILL.md) | Adversarial interview that stress-tests any phase artifact — challenges decisions, assumptions, and rejected options depth-first. Cross-cutting skill invokable after any phase. Captures resolved feature vocabulary into per-spec `glossary.md`. (interactive) | Any phase artifact (brainstorm.md, prd.md, design.md, etc.) + decisions.md + glossary.md (if present) | Grill Audit section appended to target artifact + updated decisions.md + updated/created glossary.md | 1.2.0 |
-| [create-prd](skills/create-prd/SKILL.md) | Creates a Product Requirements Document from brainstorming output via a product strategy interview, grill integration, vertical story sketches, and HTML review gate. Pure document output — no external side-effects. (interactive) | `specs/{slug}/brainstorm.md` + decisions.md | `specs/{slug}/prd.md` (goals, scope, success metrics, rough vertical story sketches, delivery recommendations) | 1.1.0 |
-| [create-architecture](skills/create-architecture/SKILL.md) | Creates an Architecture Design Document from PRD artifacts via a 3-round architect interview, grill integration, NFR implementation mapping, and interactive HTML review gate. Pure document output — no external side-effects. (interactive) | `specs/{slug}/prd.md` + decisions.md + repositories.yml (if present) + reference/ folder (technical docs, PPTX/PDF converted via markitdown MCP) | `specs/{slug}/design.md` (system context, component design, technical decisions, data model, API, security, deployment, test strategy) | 1.0.4 |
+| [stress-test-artifact](skills/stress-test-artifact/SKILL.md) | Adversarial interview that stress-tests any phase artifact — challenges decisions, assumptions, and rejected options depth-first. Cross-cutting skill invokable after any phase. Captures resolved feature vocabulary into per-spec `glossary.md`. (interactive) | Any phase artifact (brainstorm.md, prd.md, design.md, etc.) + decisions.md + glossary.md (if present) | Grill Audit section appended to target artifact + updated decisions.md + updated/created glossary.md | 1.2.0 |
+| [create-prd](skills/create-prd/SKILL.md) | Creates a Product Requirements Document from brainstorming output via a product strategy interview, stress-test-artifact integration, vertical story sketches, and HTML review gate. Pure document output — no external side-effects. (interactive) | `specs/{slug}/brainstorm.md` + decisions.md | `specs/{slug}/prd.md` (goals, scope, success metrics, rough vertical story sketches, delivery recommendations) | 1.1.0 |
+| [create-architecture](skills/create-architecture/SKILL.md) | Creates an Architecture Design Document from PRD artifacts via a 3-round architect interview, stress-test-artifact integration, NFR implementation mapping, and interactive HTML review gate. Pure document output — no external side-effects. (interactive) | `specs/{slug}/prd.md` + decisions.md + repositories.yml (if present) + reference/ folder (technical docs, PPTX/PDF converted via markitdown MCP) | `specs/{slug}/design.md` (system context, component design, technical decisions, data model, API, security, deployment, test strategy) | 1.0.4 |
 | [create-ux](skills/create-ux/SKILL.md) | Creates a UX design document with screen inventory, wireframes, interaction patterns, user testing plan, and accessibility notes for PRD UI surfaces. Optional phase — skipped when PRD has UI Required: No. (interactive) | `specs/{slug}/prd.md` (required, UI Required: Yes/Minimal) + design.md (optional) + decisions.md | `specs/{slug}/ux.md` (screen inventory, user flows, screen states, information architecture, accessibility, developer handoff notes) | 1.0.0 |
 | [create-prototype](skills/create-prototype/SKILL.md) | Creates an interactive, high-fidelity single-file HTML prototype of new UI surfaces using the target app's design system tokens. Optional phase for UI-bearing features. Dispatches prototype-builder agent. Pure visual/UX validation — no external side-effects. (interactive) | `specs/{slug}/prd.md` + design.md + ux.md (optional) + decisions.md + repositories.yml (for design system research) | `specs/{slug}/prototype.html` (interactive single-file HTML prototype with integrated review chrome) | 1.0.2 |
 | [decompose](skills/decompose/SKILL.md) | Decomposes shaped features into independently deliverable, vertically-sliced stories with acceptance criteria. Embeds a Three Amigos simulation (PO, Dev Lead, QA agents in parallel) for shared understanding. Emits taxonomic `type:` (+ Three-Amigos-produced `severity:`/`priority:`/`effort:`) labels into `stories[].labels[]` so `to-issues` need not guess type from text (#272). Produces interactive HTML reviews for three-amigos feedback and final story approval. (interactive) | `specs/{slug}/prd.md` + design.md + ux.md (optional) + prototype.html (optional) + decisions.md + repositories.yml | `specs/{slug}/stories.json` (machine-readable vertically-sliced stories with acceptance criteria and draft Gherkin scenarios) | 1.3.0 |
@@ -120,7 +120,7 @@ Feature request / work item description
 | acceptance-writer | sonnet | bypassPermissions | Refines draft Gherkin scenarios from decompose's QA agent into 3-5 polished, high-level, manually testable acceptance test cases per story written in business language. | create-acceptance-tests (once per story in stories.json) |
 | dev-reviewer | sonnet | bypassPermissions | Lead Developer perspective for Three Amigos story review — challenges technical feasibility, dependencies, estimates, and implementation risk. | decompose (Three Amigos simulation) |
 | po-reviewer | sonnet | bypassPermissions | Product Owner perspective for Three Amigos story review — challenges value delivery, scope boundaries, user outcomes, and phase assignment. | decompose (Three Amigos simulation) |
-| qa-reviewer | sonnet | bypassPermissions | QA Engineer perspective for Three Amigos story review — challenges testability, identifies edge cases, and produces 1-3 draft Gherkin scenarios per story. | decompose (Three Amigos simulation), grill (story review) |
+| qa-reviewer | sonnet | bypassPermissions | QA Engineer perspective for Three Amigos story review — challenges testability, identifies edge cases, and produces 1-3 draft Gherkin scenarios per story. | decompose (Three Amigos simulation), stress-test-artifact (story review) |
 | prototype-builder | sonnet | bypassPermissions (read/edit/bash/grep/glob allowed) | Generates high-fidelity interactive single-file HTML prototypes from design context and UX decisions, using the target app's design system tokens. Creative agent — never calls AskUserQuestion. | create-prototype, create-ux |
 | doc-writer | sonnet | bypassPermissions (read/edit/bash/grep/glob allowed) | Generates styled HTML review documents and writes canonical markdown artifacts from structured input. Template-driven — never invents structure or content. | Most plan skills (brainstorming, create-prd, create-architecture, decompose, etc.) |
 
@@ -150,7 +150,7 @@ Feature request / work item description
 | Produces for | makato-build | Emits `created-issues.json` (from to-issues) containing GitHub issue numbers and URLs that makato-build consumes as work item inputs for the build pipeline (build-start, build-refine). |
 | Produces for | makato-orchestrate | Emits `created-issues.json` that makato-orchestrate's autonomous control plane consumes to drive GitHub Issues to merged PRs unattended via the PO-agent loop. |
 | Complements | makato-contribute | makato-contribute's makato-skill-creator and makato-plugin-creator skills scaffold new skills and plugins within the suite; makato-plan does not perform this — it defers to makato-contribute. |
-| Complements | makato-change | makato-change's analyze and design phases may re-invoke makato-plan skills (e.g. grill, create-prd, decompose) when a change request requires full reshaping rather than targeted code modification. |
+| Complements | makato-change | makato-change's analyze and design phases may re-invoke makato-plan skills (e.g. stress-test-artifact, create-prd, decompose) when a change request requires full reshaping rather than targeted code modification. |
 
 ## Prerequisites / MCP Servers
 

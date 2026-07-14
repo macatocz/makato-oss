@@ -533,5 +533,5 @@ Dependencies: {N} inter-story, {N} external
 Next steps:
   - /create-acceptance-tests — refine Gherkin scenarios into polished test cases
   - /to-issues — create GitHub Issues from the shaped stories
-  - /grill — stress-test the decomposition independently
+  - /stress-test-artifact — stress-test the decomposition independently
 ```

@@ -1,14 +1,14 @@
 ---
-name: grill
+name: stress-test-artifact
 description: Adversarial interview that stress-tests phase artifacts — grill decisions,
   challenge assumptions, review critically. Use after any artifact is drafted and
   needs scrutiny before committing to the next phase.
-version: "1.2.0"
+version: "1.3.0"
 model: opus
 argument-hint: "[slug] [artifact]"
 ---
 
-# Grill
+# Stress-Test Artifact
 
 Interview me relentlessly about every aspect of the target artifact AND its context
 files until we reach a shared understanding. Challenge decisions, assumptions, ideas,
@@ -21,12 +21,12 @@ between decisions one-by-one.
 ## Step 1: Resolve Target
 
 ```text
-Args: /grill [spec-number-or-folder] [artifact-name]
+Args: /stress-test-artifact [spec-number-or-folder] [artifact-name]
 Examples:
-  /grill                         → auto-detect from most recently modified spec folder
-  /grill checkout-redesign       → auto-detect artifact in that spec folder
-  /grill checkout-redesign prd   → grill the PRD in that spec folder
-  /grill brainstorm              → grill brainstorm.md in most recent spec folder
+  /stress-test-artifact                         → auto-detect from most recently modified spec folder
+  /stress-test-artifact checkout-redesign       → auto-detect artifact in that spec folder
+  /stress-test-artifact checkout-redesign prd   → grill the PRD in that spec folder
+  /stress-test-artifact brainstorm              → grill brainstorm.md in most recent spec folder
 ```
 
 Resolution order:
@@ -163,7 +163,7 @@ sections.
 ```markdown
 # {Feature name} — Glossary
 
-Feature-scoped vocabulary for this shaping run. Populated by the `grill` skill as
+Feature-scoped vocabulary for this shaping run. Populated by the `stress-test-artifact` skill as
 terms are resolved during interviews. Other plan skills read this file on entry and
 prefer the canonical terms below.
 
@@ -218,8 +218,8 @@ Dispatch the `doc-writer` agent to generate a change-highlighted HTML review.
 Include in the prompt:
 
 - **MODE**: html-review
-- **TEMPLATE_PATH**: the absolute path to this skill's `templates/grill-review.html`
-- **OUTPUT_PATH**: `specs/{slug}/reviews/grill-review-{YYYY-MM-DD}.html` (date-stamped so successive sessions don't overwrite each other)
+- **TEMPLATE_PATH**: the absolute path to this skill's `templates/stress-test-review.html`
+- **OUTPUT_PATH**: `specs/{slug}/reviews/stress-test-review-{YYYY-MM-DD}.html` (date-stamped so successive sessions don't overwrite each other)
 - **CONTENT**: structured grill results including:
   - feature_name (from spec folder)
   - date (today)
@@ -243,9 +243,9 @@ Once the agent returns, open the HTML file in the browser (use the command for t
 user's OS):
 
 ```bash
-open specs/{slug}/reviews/grill-review-{YYYY-MM-DD}.html        # macOS
-xdg-open specs/{slug}/reviews/grill-review-{YYYY-MM-DD}.html    # Linux
-start specs/{slug}/reviews/grill-review-{YYYY-MM-DD}.html       # Windows
+open specs/{slug}/reviews/stress-test-review-{YYYY-MM-DD}.html        # macOS
+xdg-open specs/{slug}/reviews/stress-test-review-{YYYY-MM-DD}.html    # Linux
+start specs/{slug}/reviews/stress-test-review-{YYYY-MM-DD}.html       # Windows
 ```
 
 Tell the user:

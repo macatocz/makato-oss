@@ -3,6 +3,22 @@
 
 Changes are grouped by skill/agent/component. Within each group, latest version on top. Each version block lists one sub-bullet per logical change. Until per-PR version automation is in place, entries land here on merge to main; release-please will date and version them at the next release cut.
 
+## stress-test-artifact skill (formerly grill) (#397)
+
+- **1.3.0**
+  - Renamed `grill` → `stress-test-artifact`. "grill" was opaque and collided conceptually
+    with `makato-build:build-grill-with-docs` (unrelated — that skill aligns terminology).
+    Skill directory, frontmatter `name`, H1, the `/grill` command surface, and the
+    `templates/grill-review.html` → `stress-test-review.html` template all updated. All
+    references updated atomically: `skill-bundles.yml` (`plan-skills`, `plan-prd`),
+    `task-skill-map.json` archetypes, plan/build/contribute/core READMEs + AGENTS.md, the
+    three reviewer agents, `terminology.md`, and cross-skill `/grill` dispatch calls in
+    brainstorming / create-prd / create-architecture / create-prototype / decompose. The
+    `build-grill-with-docs` skill (a distinct skill) and its `/grill-with-docs` command are
+    untouched; only its identity references to the renamed skill were updated. The `"grill
+    decisions"` user trigger phrase is retained in the `description` for discoverability.
+    Breaking: the slash command is now `/makato-plan:stress-test-artifact`.
+
 ---
 
 ---

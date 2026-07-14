@@ -89,7 +89,7 @@
 
 ## Next Steps
 
-- [ ] Run `/grill` to stress-test decisions
+- [ ] Run `/stress-test-artifact` to stress-test decisions
 - [ ] Run `/create-prd` to formalize requirements
 
 ---

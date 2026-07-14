@@ -242,13 +242,13 @@ after Round 3 completes.
 
 ```text
 AskUserQuestion:
-  question: "Stress-test your decisions with /grill before writing the PRD?"
+  question: "Stress-test your decisions with /stress-test-artifact before writing the PRD?"
   options:
     - "Yes — challenge my assumptions (Recommended)"
     - "Skip — proceed to PRD"
 ```
 
-If "Yes": invoke `/grill` scoped to the current spec folder. The grill targets
+If "Yes": invoke `/stress-test-artifact` scoped to the current spec folder. The grill targets
 `brainstorm.md` and `decisions.md` — focusing on business behavior, scope, and user
 experience questions only (no technical implementation at this stage). After the grill
 completes, its findings are written back into `decisions.md`. These feed directly into
@@ -621,5 +621,5 @@ Next steps:
   • Medium scope → proceed to architecture design
   • Large/compliance → architecture + security review
 
-Run /grill to stress-test the PRD before moving on.
+Run /stress-test-artifact to stress-test the PRD before moving on.
 ```

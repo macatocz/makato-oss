@@ -87,4 +87,4 @@ Return structured markdown as the final message body. No fenced JSON block.
 - `plugins/makato-plan/AGENTS.md` — agent roster and design principles for makato-plan.
 - `plugins/makato-plan/agents/po-reviewer.md` — product-owner perspective (complements this review).
 - `plugins/makato-plan/agents/qa-reviewer.md` — QA perspective (complements this review).
-- `plugins/makato-plan/skills/grill/SKILL.md` — the dispatching skill that aggregates all Three Amigos perspectives.
+- `plugins/makato-plan/skills/stress-test-artifact/SKILL.md` — the dispatching skill that aggregates all Three Amigos perspectives.

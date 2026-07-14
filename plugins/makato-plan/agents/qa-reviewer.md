@@ -97,12 +97,12 @@ Return structured feedback as a markdown block:
 - **Challenge technical feasibility or estimates** — that is the dev-reviewer's scope.
 - **Raise new minor issues on iteration 2** — only checks whether previously raised concerns were addressed.
 - **Write exhaustive test suites** — the `create-acceptance-tests` skill owns that step.
-- **Mutate any artifact** — the calling skill (`grill`, `decompose`) commits the review output.
+- **Mutate any artifact** — the calling skill (`stress-test-artifact`, `decompose`) commits the review output.
 
 ## See also
 
 - `plugins/makato-plan/AGENTS.md` — agent roster and read-only design principle.
 - `plugins/makato-plan/agents/po-reviewer.md` — the product-owner perspective agent dispatched alongside this one.
 - `plugins/makato-plan/agents/dev-reviewer.md` — the lead-developer perspective agent dispatched alongside this one.
-- `plugins/makato-plan/skills/grill/SKILL.md` — the orchestrating skill that dispatches this agent.
+- `plugins/makato-plan/skills/stress-test-artifact/SKILL.md` — the orchestrating skill that dispatches this agent.
 - `plugins/makato-plan/skills/create-acceptance-tests/SKILL.md` — the downstream skill that produces exhaustive test cases from this agent's draft Gherkin.

@@ -243,7 +243,7 @@ AskUserQuestion:
     - "Skip — I'm confident, proceed to design doc"
 ```
 
-If accepted, invoke `/grill` scoped to the current spec folder. The grill targets
+If accepted, invoke `/stress-test-artifact` scoped to the current spec folder. The grill targets
 architectural decisions focusing on:
 
 - Missed integration points and failure modes
@@ -451,5 +451,5 @@ Repositories: {repos confirmed}
 Next steps based on feature characteristics:
   • UI feature → /create-prototype (visual/UX validation)
   • No UI or prototype done → /decompose (story slicing — planned)
-  • Additional review → /grill (stress-test the design independently)
+  • Additional review → /stress-test-artifact (stress-test the design independently)
 ```

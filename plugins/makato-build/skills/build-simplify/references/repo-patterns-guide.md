@@ -11,7 +11,7 @@ aligns with what already exists in the codebase — not just with generic best p
 Check these sources in order. Stop when you have enough signal.
 
 **1. `glossary.md` in the resolved spec folder** (if it exists)
-Written by `/makato-plan:grill` and enriched by `/grill-with-docs` with `_Code_:` annotations where codebase naming differs from spec language. Use it to verify naming in simplified code matches both the domain language and the expected codebase symbols.
+Written by `/makato-plan:stress-test-artifact` and enriched by `/grill-with-docs` with `_Code_:` annotations where codebase naming differs from spec language. Use it to verify naming in simplified code matches both the domain language and the expected codebase symbols.
 
 **2. Existing code in the same module/package as the changed files**
 Read 2–3 representative files in the same directory as each changed file. Look for:

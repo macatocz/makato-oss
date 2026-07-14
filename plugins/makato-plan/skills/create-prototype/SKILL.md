@@ -293,7 +293,7 @@ AskUserQuestion:
     - "Skip — I'm confident, proceed to prototype generation"
 ```
 
-If accepted, invoke `/grill` scoped to the current spec folder. The grill targets
+If accepted, invoke `/stress-test-artifact` scoped to the current spec folder. The grill targets
 UX decisions focusing on:
 
 - Interaction patterns that might confuse users
