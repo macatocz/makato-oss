@@ -597,6 +597,89 @@ _increment_gate_skips() {
 }
 
 # ---------------------------------------------------------------------------
+# _label_board_conflict <labels_json> <board_status> — tier 3/4 gate (#356).
+# Returns 0 (conflict detected) when a status:* label in the candidate's label
+# list contradicts the observed board Status. Returns 1 (no conflict / aligned).
+#
+# Conflict conditions:
+#   - Any status:* label that is NOT "status:ready-for-dev" when board is Ready
+#   - "status:ready-for-dev" when board is NOT the dispatch Status (Ready by default)
+#   - Any other status:* label present while board says Ready
+#
+# Aligned (no conflict):
+#   - No status:* label at all (board is authoritative)
+#   - Exactly "status:ready-for-dev" when board is also the dispatch Status (Ready)
+#
+# Args:
+#   $1 — JSON string: {"labels":[{"name":"..."},...], ...}
+#   $2 — board Status string observed by the CAS re-poll (e.g. "Ready")
+#
+# Reads MAKATO_LOOP_DISPATCH_STATUS (default "Ready") as the reference status.
+# ---------------------------------------------------------------------------
+_label_board_conflict() {
+  local labels_json="$1"
+  local board_status="$2"
+  local dispatch_status="${MAKATO_LOOP_DISPATCH_STATUS:-Ready}"
+
+  # Extract status:* labels from the candidates JSON.
+  local status_labels
+  status_labels="$(jq -r '[.labels[].name | select(startswith("status:"))] | .[]' \
+    <<<"$labels_json" 2>/dev/null || true)"
+
+  # No status:* labels at all — board is authoritative; no conflict.
+  [[ -z "$status_labels" ]] && return 1
+
+  # Evaluate each status:* label against the board Status.
+  local lbl
+  while IFS= read -r lbl; do
+    [[ -z "$lbl" ]] && continue
+    if [[ "$board_status" == "$dispatch_status" ]]; then
+      # Board says Ready. Only "status:ready-for-dev" is aligned.
+      if [[ "$lbl" != "status:ready-for-dev" ]]; then
+        return 0  # conflict
+      fi
+    else
+      # Board is NOT Ready. "status:ready-for-dev" contradicts that.
+      if [[ "$lbl" == "status:ready-for-dev" ]]; then
+        return 0  # conflict
+      fi
+    fi
+  done <<<"$status_labels"
+
+  return 1  # no conflict
+}
+
+# ---------------------------------------------------------------------------
+# _label_conflict_stamp <ISSUE_NUMBER> — best-effort idempotent label stamp.
+# Applies the needs-human-review label on a label-board conflict skip (D11,
+# #356). A non-zero gh exit logs a WARN and is swallowed — never a hard error.
+# Test hook: MAKATO_LOOP_LABEL_TEST_FILE — append "label #N needs-human-review"
+#   instead of calling gh (mirrors the existing stamp paths).
+# ---------------------------------------------------------------------------
+_label_conflict_stamp() {
+  local issue="$1"
+  local -a repo_flag=()
+  [[ -n "${MAKATO_LOOP_DISPATCH_REPO:-}" ]] && repo_flag=(--repo "${MAKATO_LOOP_DISPATCH_REPO}")
+
+  if [[ -n "${MAKATO_LOOP_LABEL_TEST_FILE:-}" ]]; then
+    echo "label #${issue} needs-human-review" >>"$MAKATO_LOOP_LABEL_TEST_FILE"
+    return 0
+  fi
+
+  # Ensure the label exists (idempotent create, best-effort).
+  if ! gh label list "${repo_flag[@]}" 2>/dev/null | grep -q "^needs-human-review"; then
+    gh label create "needs-human-review" "${repo_flag[@]}" \
+      --color "E4E669" --description "Requires human review" >/dev/null 2>&1 || true
+  fi
+
+  if gh issue edit "$issue" "${repo_flag[@]}" --add-label "needs-human-review" >/dev/null 2>&1; then
+    echo "loop: label-conflict — applied 'needs-human-review' to #$issue" >&2
+  else
+    echo "loop: WARN — label-conflict — could not stamp needs-human-review on #$issue; proceeding (best-effort, D11)" >&2
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # check-halt — exit 0 if HALT_FILE absent, exit 1 if present.
 # ---------------------------------------------------------------------------
 cmd_check_halt() {
@@ -1169,6 +1252,8 @@ _claim_board_card() {
     if [[ "$cur" == "$dispatch_status" ]]; then
       echo "claim #${issue} status=${cur} → claimed" >>"$MAKATO_LOOP_CLAIM_TEST_FILE"
       echo "loop: claimed #$issue (board $dispatch_status → In progress)" >&2
+      # Export the observed status for tier 3/4 label-board conflict gate (#356).
+      LOOP_LAST_CLAIMED_STATUS="$cur"
       return 0
     fi
     echo "claim #${issue} status=${cur} → skip" >>"$MAKATO_LOOP_CLAIM_TEST_FILE"
@@ -1235,6 +1320,9 @@ _claim_board_card() {
     echo "loop: WARN — claim #$issue: board item id unresolved; proceeding (assign→webhook backstop)" >&2
     return 0
   fi
+
+  # Export the CAS-observed Status for the tier 3/4 label-board conflict gate (#356).
+  LOOP_LAST_CLAIMED_STATUS="$cur_status"
 
   # Forward-only write: Ready → In progress. A failed write still proceeds —
   # we already observed Ready, and the async webhook is the backstop.
@@ -2578,6 +2666,27 @@ cmd_dispatch() {
   if ! _claim_board_card "$issue"; then
     _patch_status '.active_workflow' 'null'
     return 0
+  fi
+
+  # Tier 3/4 — label-vs-board conflict gate (#356). Runs immediately after the
+  # CAS succeeds (we have the board-observed Status and gate_labels_json already
+  # in scope from the dispatch gate block above). On conflict: skip dispatch,
+  # stamp needs-human-review (best-effort), increment gate_skips_total, and
+  # return 0 (clean skip — same contract as tiers 1/2). The board Status is NOT
+  # written (D5 no-op invariant). Skipped when gate_labels_json is empty (read
+  # failure already logged a WARN in the dispatch gate block — best-effort).
+  if [[ "$GATE_DISABLE" != "1" && -n "$gate_labels_json" ]]; then
+    local claimed_status="${MAKATO_LOOP_DISPATCH_STATUS:-Ready}"
+    # Use the CAS-observed status exported by _claim_board_card when available.
+    [[ -n "${LOOP_LAST_CLAIMED_STATUS:-}" ]] && claimed_status="$LOOP_LAST_CLAIMED_STATUS"
+    if _label_board_conflict "$gate_labels_json" "$claimed_status"; then
+      echo "loop: gate — #${issue} label-board conflict (labels vs board '${claimed_status}'); skip dispatch + stamp needs-human-review" >&2
+      _label_conflict_stamp "$issue"
+      _increment_gate_skips
+      echo "loop: gate-skip #${issue} reason=label-board-conflict gate_skips_total=$(_read_status | jq -r '.gate_skips_total // 0')" >&2
+      _patch_status '.active_workflow' 'null'
+      return 0
+    fi
   fi
 
   # Assign the issue to the dispatch actor → fires issues.assigned →

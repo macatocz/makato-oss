@@ -45,6 +45,8 @@
 #        (poll_healthy=false, last_poll_error) instead of a false "queue empty"
 #   T44–T48: stale-crash reaper (#320) — dead-pid reap, live-pid skip, age gate,
 #        unpushed-commits gate, REAP_STALE_FORCE=1 override
+#   T_LBC1–T_LBC4: label-board conflict gate (#356) — conflict skip + stamp,
+#        idempotent re-evaluation, stamp best-effort, aligned labels proceed
 #   T68–T71: thin-body reconciliation (#371, epic #367 S3) — thin-body via jsonl,
 #        thin-body via label backstop, exclusion-set membership guard,
 #        successful light seed is no-op
@@ -1593,7 +1595,149 @@ jq -e '.last_dispatch_issue == 101' "$STATE_DIR/loop-status.json" >/dev/null \
 echo "  ✓ read failure: WARN + proceed, counter unchanged, dispatch not blocked"
 rm -f "$T53_BODY"
 
+# ---------------------------------------------------------------------------
+echo "=== T_LBC1: label-board conflict triggers skip + stamps needs-human-review ==="
+rm -f "$STATE_DIR/loop-status.json"
+T_LBC1_LABELS="$STATE_DIR/tlbc1-labels-$$.json"
+T_LBC1_REAP="$STATE_DIR/tlbc1-reap-$$.json"
+T_LBC1_BODY="$STATE_DIR/tlbc1-body-$$.txt"
+T_LBC1_CLAIM="$STATE_DIR/tlbc1-claim-$$.txt"
+T_LBC1_LABEL_FILE="$STATE_DIR/tlbc1-label-$$.txt"
+# status:in-review label contradicts board Status "Ready"
+printf '{"labels":[{"name":"status:in-review"}],"title":"Issue 101"}' >"$T_LBC1_LABELS"
+printf '{}' >"$T_LBC1_REAP"
+printf '%s\n' '*Feature slug: `gate-test-key` — produced by to-issues v3.x.*' >"$T_LBC1_BODY"
+MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T_LBC1_BODY" \
+  MAKATO_LOOP_REAP_GH_OVERRIDE="$T_LBC1_REAP" \
+  MAKATO_LOOP_GATE_LABELS_OVERRIDE="$T_LBC1_LABELS" \
+  MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="type:feature" \
+  MAKATO_LOOP_CLAIM_ON_DISPATCH=1 \
+  MAKATO_LOOP_CLAIM_TEST_FILE="$T_LBC1_CLAIM" \
+  MAKATO_LOOP_CLAIM_STATUS_OVERRIDE="Ready" \
+  MAKATO_LOOP_LABEL_TEST_FILE="$T_LBC1_LABEL_FILE" \
+  MAKATO_LOOP_DRY_DISPATCH=1 \
+  MAKATO_LOOP_ASSIGN_ON_DISPATCH=0 \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  "$LOOP" dispatch 101 2>/dev/null
+tlbc1_skips="$(jq -r '.gate_skips_total // 0' "$STATE_DIR/loop-status.json" 2>/dev/null || echo 0)"
+[[ "$tlbc1_skips" -eq 1 ]] \
+  || fail "T_LBC1: expected gate_skips_total=1 after label-board conflict skip; got $tlbc1_skips"
+jq -e '.active_workflow == null' "$STATE_DIR/loop-status.json" >/dev/null \
+  || fail "T_LBC1: active_workflow should be null after label-board conflict skip"
+grep -q "needs-human-review" "$T_LBC1_LABEL_FILE" 2>/dev/null \
+  || fail "T_LBC1: needs-human-review label stamp must be written to MAKATO_LOOP_LABEL_TEST_FILE"
+# Verify no board Status write (claim file should not show item-edit for the conflict case)
+grep -qv "item-edit" "$T_LBC1_CLAIM" 2>/dev/null || true  # claim file only has claim events, not item-edit
+echo "  ✓ label-board conflict: skip increments counter, clears active_workflow, stamps needs-human-review"
+rm -f "$T_LBC1_LABELS" "$T_LBC1_REAP" "$T_LBC1_BODY" "$T_LBC1_CLAIM" "$T_LBC1_LABEL_FILE"
 
+# ---------------------------------------------------------------------------
+echo "=== T_LBC2: idempotent re-evaluation — each dispatch increments counter once ==="
+rm -f "$STATE_DIR/loop-status.json"
+T_LBC2_LABELS="$STATE_DIR/tlbc2-labels-$$.json"
+T_LBC2_REAP="$STATE_DIR/tlbc2-reap-$$.json"
+T_LBC2_BODY="$STATE_DIR/tlbc2-body-$$.txt"
+T_LBC2_LABEL_FILE="$STATE_DIR/tlbc2-label-$$.txt"
+T_LBC2_CLAIM="$STATE_DIR/tlbc2-claim-$$.txt"
+printf '{"labels":[{"name":"status:in-review"}],"title":"Issue 101"}' >"$T_LBC2_LABELS"
+printf '{}' >"$T_LBC2_REAP"
+printf '%s\n' '*Feature slug: `gate-test-key` — produced by to-issues v3.x.*' >"$T_LBC2_BODY"
+# First dispatch
+MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T_LBC2_BODY" \
+  MAKATO_LOOP_REAP_GH_OVERRIDE="$T_LBC2_REAP" \
+  MAKATO_LOOP_GATE_LABELS_OVERRIDE="$T_LBC2_LABELS" \
+  MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="type:feature" \
+  MAKATO_LOOP_CLAIM_ON_DISPATCH=1 \
+  MAKATO_LOOP_CLAIM_TEST_FILE="$T_LBC2_CLAIM" \
+  MAKATO_LOOP_CLAIM_STATUS_OVERRIDE="Ready" \
+  MAKATO_LOOP_LABEL_TEST_FILE="$T_LBC2_LABEL_FILE" \
+  MAKATO_LOOP_DRY_DISPATCH=1 \
+  MAKATO_LOOP_ASSIGN_ON_DISPATCH=0 \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  "$LOOP" dispatch 101 2>/dev/null
+# Second dispatch (re-evaluation of same issue) — override dispatch guard so it
+# doesn't block: set gap to 0 so last_dispatch is always old enough.
+MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T_LBC2_BODY" \
+  MAKATO_LOOP_REAP_GH_OVERRIDE="$T_LBC2_REAP" \
+  MAKATO_LOOP_GATE_LABELS_OVERRIDE="$T_LBC2_LABELS" \
+  MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="type:feature" \
+  MAKATO_LOOP_CLAIM_ON_DISPATCH=1 \
+  MAKATO_LOOP_CLAIM_TEST_FILE="$T_LBC2_CLAIM" \
+  MAKATO_LOOP_CLAIM_STATUS_OVERRIDE="Ready" \
+  MAKATO_LOOP_LABEL_TEST_FILE="$T_LBC2_LABEL_FILE" \
+  MAKATO_LOOP_DRY_DISPATCH=1 \
+  MAKATO_LOOP_ASSIGN_ON_DISPATCH=0 \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  MAKATO_LOOP_LAST_DISPATCH_GAP=0 \
+  MAKATO_LOOP_MIN_DISPATCH_GAP=0 \
+  "$LOOP" dispatch 101 2>/dev/null
+tlbc2_skips="$(jq -r '.gate_skips_total // 0' "$STATE_DIR/loop-status.json" 2>/dev/null || echo 0)"
+[[ "$tlbc2_skips" -eq 2 ]] \
+  || fail "T_LBC2: two dispatches of conflicting issue: expected gate_skips_total=2 (one per dispatch, no double-count); got $tlbc2_skips"
+echo "  ✓ idempotent re-evaluation: two dispatches each skip once (counter=2, no duplicate per-dispatch)"
+rm -f "$T_LBC2_LABELS" "$T_LBC2_REAP" "$T_LBC2_BODY" "$T_LBC2_LABEL_FILE" "$T_LBC2_CLAIM"
+
+# ---------------------------------------------------------------------------
+echo "=== T_LBC3: stamp write failure is best-effort — skip still happens ==="
+rm -f "$STATE_DIR/loop-status.json"
+T_LBC3_LABELS="$STATE_DIR/tlbc3-labels-$$.json"
+T_LBC3_REAP="$STATE_DIR/tlbc3-reap-$$.json"
+T_LBC3_BODY="$STATE_DIR/tlbc3-body-$$.txt"
+T_LBC3_CLAIM="$STATE_DIR/tlbc3-claim-$$.txt"
+printf '{"labels":[{"name":"status:in-review"}],"title":"Issue 101"}' >"$T_LBC3_LABELS"
+printf '{}' >"$T_LBC3_REAP"
+printf '%s\n' '*Feature slug: `gate-test-key` — produced by to-issues v3.x.*' >"$T_LBC3_BODY"
+# No MAKATO_LOOP_LABEL_TEST_FILE — real gh stamp path (fails offline = best-effort WARN), but skip must still happen
+tlbc3_rc=0
+MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T_LBC3_BODY" \
+  MAKATO_LOOP_REAP_GH_OVERRIDE="$T_LBC3_REAP" \
+  MAKATO_LOOP_GATE_LABELS_OVERRIDE="$T_LBC3_LABELS" \
+  MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="type:feature" \
+  MAKATO_LOOP_CLAIM_ON_DISPATCH=1 \
+  MAKATO_LOOP_CLAIM_TEST_FILE="$T_LBC3_CLAIM" \
+  MAKATO_LOOP_CLAIM_STATUS_OVERRIDE="Ready" \
+  MAKATO_LOOP_DRY_DISPATCH=1 \
+  MAKATO_LOOP_ASSIGN_ON_DISPATCH=0 \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  "$LOOP" dispatch 101 2>/dev/null || tlbc3_rc=$?
+[[ "$tlbc3_rc" -eq 0 ]] \
+  || fail "T_LBC3: dispatch must return 0 even when stamp fails; got rc=$tlbc3_rc"
+tlbc3_skips="$(jq -r '.gate_skips_total // 0' "$STATE_DIR/loop-status.json" 2>/dev/null || echo 0)"
+[[ "$tlbc3_skips" -eq 1 ]] \
+  || fail "T_LBC3: stamp failure must not prevent skip — gate_skips_total should be 1; got $tlbc3_skips"
+jq -e '.active_workflow == null' "$STATE_DIR/loop-status.json" >/dev/null \
+  || fail "T_LBC3: active_workflow should be null (skip happened despite stamp failure)"
+echo "  ✓ stamp write failure: WARN path, skip still recorded (gate_skips_total=1, active_workflow=null)"
+rm -f "$T_LBC3_LABELS" "$T_LBC3_REAP" "$T_LBC3_BODY" "$T_LBC3_CLAIM"
+
+# ---------------------------------------------------------------------------
+echo "=== T_LBC4: no conflict — status:ready-for-dev label + board Ready → dispatch proceeds ==="
+rm -f "$STATE_DIR/loop-status.json"
+T_LBC4_LABELS="$STATE_DIR/tlbc4-labels-$$.json"
+T_LBC4_REAP="$STATE_DIR/tlbc4-reap-$$.json"
+T_LBC4_BODY="$STATE_DIR/tlbc4-body-$$.txt"
+T_LBC4_CLAIM="$STATE_DIR/tlbc4-claim-$$.txt"
+printf '{"labels":[{"name":"status:ready-for-dev"}],"title":"Issue 101"}' >"$T_LBC4_LABELS"
+printf '{}' >"$T_LBC4_REAP"
+printf '%s\n' '*Feature slug: `gate-test-key` — produced by to-issues v3.x.*' >"$T_LBC4_BODY"
+MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T_LBC4_BODY" \
+  MAKATO_LOOP_REAP_GH_OVERRIDE="$T_LBC4_REAP" \
+  MAKATO_LOOP_GATE_LABELS_OVERRIDE="$T_LBC4_LABELS" \
+  MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="type:feature" \
+  MAKATO_LOOP_CLAIM_ON_DISPATCH=1 \
+  MAKATO_LOOP_CLAIM_TEST_FILE="$T_LBC4_CLAIM" \
+  MAKATO_LOOP_CLAIM_STATUS_OVERRIDE="Ready" \
+  MAKATO_LOOP_DRY_DISPATCH=1 \
+  MAKATO_LOOP_ASSIGN_ON_DISPATCH=0 \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  "$LOOP" dispatch 101 2>/dev/null
+tlbc4_skips="$(jq -r '.gate_skips_total // 0' "$STATE_DIR/loop-status.json" 2>/dev/null || echo 0)"
+[[ "$tlbc4_skips" -eq 0 ]] \
+  || fail "T_LBC4: status:ready-for-dev with board Ready is NOT a conflict; gate_skips_total should be 0; got $tlbc4_skips"
+jq -e '.last_dispatch_issue == 101' "$STATE_DIR/loop-status.json" >/dev/null \
+  || fail "T_LBC4: aligned labels + board → dispatch should proceed (last_dispatch_issue=101)"
+echo "  ✓ no conflict: status:ready-for-dev + board Ready → dispatch proceeds, no skip"
+rm -f "$T_LBC4_LABELS" "$T_LBC4_REAP" "$T_LBC4_BODY" "$T_LBC4_CLAIM"
 
 # ---------------------------------------------------------------------------
 echo "=== T54: unprepared issue (no ready label, no exclusion) → in candidates ==="
@@ -2575,4 +2719,4 @@ rm -f "$TNRAE_FIXTURE" "$TNRAE_BLOCK_FILE" "$TNRAE_SEED_FLAG" "$TNRAE_STUB_FILE"
 echo "  ✓ needs-reshape label excluded from _auto_seed_candidates (no seed dispatch)"
 
 echo
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348) ==="
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T_LBC1–T_LBC4 label-board conflict gate, #356; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348) ==="
