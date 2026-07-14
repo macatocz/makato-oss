@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.70.0](https://github.com/macatocz/makato/compare/v0.69.0...v0.70.0) (2026-07-14)
+
+
+### ✨ Features
+
+* **makato-change:** isolate execute write phase in change-implementer subagent ([#402](https://github.com/macatocz/makato/issues/402)) ([af8f87c](https://github.com/macatocz/makato/commit/af8f87cc03b285d9a9536d4d6077929e5fe4aa06)), closes [#396](https://github.com/macatocz/makato/issues/396)
+
+
+### ♻️ Refactors
+
+* **makato-core:** rename zoom-out skill to map-codebase-context ([#397](https://github.com/macatocz/makato/issues/397)) ([#403](https://github.com/macatocz/makato/issues/403)) ([97f65be](https://github.com/macatocz/makato/commit/97f65be9e95396724e00ed24649296d0b6616f21))
+
 ## [0.69.0](https://github.com/macatocz/makato/compare/v0.68.0...v0.69.0) (2026-07-14)
 
 
