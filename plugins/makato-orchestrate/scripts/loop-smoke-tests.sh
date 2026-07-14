@@ -258,7 +258,7 @@ t41_rc=0
 # Unset MAKATO_LOOP_GH_OVERRIDE (exported globally above) so cmd_poll takes the
 # real gh path — routed here through MAKATO_LOOP_POLL_TEST_CMD — instead of the
 # offline fixture, which would succeed and mask the failure branch under test.
-t41_out="$(MAKATO_LOOP_GH_OVERRIDE= MAKATO_LOOP_CONFIG="$T41_CFG" MAKATO_LOOP_SLEEP_CMD=true \
+t41_out="$(MAKATO_LOOP_GH_OVERRIDE='' MAKATO_LOOP_CONFIG="$T41_CFG" MAKATO_LOOP_SLEEP_CMD=true \
   MAKATO_LOOP_POLL_TEST_CMD='exit 22' \
   "$LOOP" poll Ready 2>/dev/null)" || t41_rc=$?
 [[ $t41_rc -eq 75 ]] || fail "T41: cmd_poll must exit 75 (EX_TEMPFAIL) on poll failure; got rc=$t41_rc"
@@ -272,7 +272,7 @@ jq -n '{github_project:{owner:"macatocz",number:4,host:"github.com"}}' >"$T42_CF
 rm -f "$HALT_FILE"
 # MAKATO_LOOP_GH_OVERRIDE unset here too — the run's poll must hit the failing
 # MAKATO_LOOP_POLL_TEST_CMD, not the offline fixture.
-t42_out="$(MAKATO_LOOP_GH_OVERRIDE= MAKATO_LOOP_STATE_DIR="$T42_STATE" MAKATO_LOOP_CONFIG="$T42_CFG" \
+t42_out="$(MAKATO_LOOP_GH_OVERRIDE='' MAKATO_LOOP_STATE_DIR="$T42_STATE" MAKATO_LOOP_CONFIG="$T42_CFG" \
   MAKATO_HALT_FILE="$HALT_FILE" MAKATO_LOOP_SLEEP_CMD=true \
   MAKATO_LOOP_POLL_TEST_CMD='exit 22' MAKATO_LOOP_REAP_ON_POLL=0 \
   MAKATO_LOOP_POLL_ERROR_BACKOFF=0 \
@@ -1807,5 +1807,218 @@ rm -f "$T62_STUB_FILE" "$T62_ENV_CAPTURE"
 echo "  ✓ MAKATO_LOOP_DISPATCH_REPO threaded into dispatch env as REPO"
 
 
+
+# ---------------------------------------------------------------------------
+# T63–T67: _auto_seed_block_full (#372, epic #367 S4)
+# ---------------------------------------------------------------------------
+
+# T63: plan-tier:full candidate → spec-stub created, board → Blocked, label applied, comment posted.
+echo "=== T63: full-tier candidate → spec-stub, Blocked, needs-human-review, launch comment ==="
+T63_STATE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/t63-state"
+T63_CONFIG="$STATE_DIR/t63-config-$$.json"
+T63_BLOCK_FILE="$STATE_DIR/t63-block-$$.txt"
+T63_COMMENT_FILE="$STATE_DIR/t63-comment-$$.txt"
+T63_LABEL_FILE="$STATE_DIR/t63-label-$$.txt"
+T63_SPEC_ROOT="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/t63-specs"
+mkdir -p "$T63_STATE" "$T63_SPEC_ROOT"
+# Config with blocked option id.
+jq -n '{
+  "github_project": {
+    "owner":"macatocz","number":4,"host":"github.com",
+    "project_node_id":"PVT_test",
+    "fields":{"status":{
+      "id":"STATUS_FIELD_ID",
+      "options":{"blocked":"BLOCKED_OPT_ID","ready":"READY_OPT_ID"}
+    }}
+  }
+}' >"$T63_CONFIG"
+t63_stderr="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_CONFIG="$T63_CONFIG" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  MAKATO_LOOP_BLOCK_TEST_FILE="$T63_BLOCK_FILE" \
+  MAKATO_LOOP_COMMENT_TEST_FILE="$T63_COMMENT_FILE" \
+  MAKATO_LOOP_LABEL_TEST_FILE="$T63_LABEL_FILE" \
+  MAKATO_LOOP_ISSUE_TITLE_OVERRIDE="Fix: widget not loading" \
+  MAKATO_LOOP_AUTOSEED_SPEC_ROOT="$T63_SPEC_ROOT" \
+    "$LOOP" _test-auto-seed-block-full 401 full 2>&1 >/dev/null
+)"
+# Spec stub must exist.
+slug="401-fix-widget-not-loading"
+[[ -f "$T63_SPEC_ROOT/${slug}/plan.md" ]] \
+  || fail "T63: plan.md stub must be created at specs/${slug}/plan.md; got: $t63_stderr"
+[[ -f "$T63_SPEC_ROOT/${slug}/seed-manifest.json" ]] \
+  || fail "T63: seed-manifest.json must be created; got: $t63_stderr"
+# seed-manifest.json must have correct fields.
+jq -e '.issue_number == 401' "$T63_SPEC_ROOT/${slug}/seed-manifest.json" >/dev/null \
+  || fail "T63: seed-manifest.json issue_number should be 401"
+jq -e '.schema_version == "2"' "$T63_SPEC_ROOT/${slug}/seed-manifest.json" >/dev/null \
+  || fail "T63: seed-manifest.json schema_version should be 2"
+# Board blocked + label applied (via test files).
+[[ -f "$T63_BLOCK_FILE" ]] \
+  || fail "T63: block test file not written — board Blocked step skipped; got: $t63_stderr"
+grep -q "block #401" "$T63_BLOCK_FILE" \
+  || fail "T63: block file should record 'block #401'; got: $(cat "$T63_BLOCK_FILE")"
+[[ -f "$T63_LABEL_FILE" ]] \
+  || fail "T63: label test file not written — needs-human-review step skipped; got: $t63_stderr"
+grep -q "label #401 needs-human-review" "$T63_LABEL_FILE" \
+  || fail "T63: label file should record 'label #401 needs-human-review'; got: $(cat "$T63_LABEL_FILE")"
+# Launch comment posted (via test file).
+[[ -f "$T63_COMMENT_FILE" ]] \
+  || fail "T63: comment test file not written — comment step skipped; got: $t63_stderr"
+grep -q "comment #401" "$T63_COMMENT_FILE" \
+  || fail "T63: comment file should record 'comment #401'; got: $(cat "$T63_COMMENT_FILE")"
+grep -q "make seed-issue" "$T63_COMMENT_FILE" || grep -q "seed-issue" "$T63_COMMENT_FILE" \
+  || fail "T63: comment should include 'seed-issue' launch command; got: $(cat "$T63_COMMENT_FILE")"
+grep -q "<!-- makato:auto-seed-block:full -->" "$T63_COMMENT_FILE" \
+  || fail "T63: comment should include sentinel; got: $(cat "$T63_COMMENT_FILE")"
+rm -f "$T63_CONFIG" "$T63_BLOCK_FILE" "$T63_COMMENT_FILE" "$T63_LABEL_FILE"
+echo "  ✓ full-tier: spec-stub created, Blocked, needs-human-review applied, launch comment posted"
+
+# T64: untiered (empty plan_tier) candidate → identical to full-tier.
+echo "=== T64: untiered (empty plan_tier) candidate → same as full-tier ==="
+T64_BLOCK_FILE="$STATE_DIR/t64-block-$$.txt"
+T64_COMMENT_FILE="$STATE_DIR/t64-comment-$$.txt"
+T64_LABEL_FILE="$STATE_DIR/t64-label-$$.txt"
+T64_CONFIG="$STATE_DIR/t64-config-$$.json"
+T64_SPEC_ROOT="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/t64-specs"
+mkdir -p "$T64_SPEC_ROOT"
+jq -n '{
+  "github_project": {
+    "owner":"macatocz","number":4,"host":"github.com",
+    "project_node_id":"PVT_test",
+    "fields":{"status":{
+      "id":"STATUS_FIELD_ID",
+      "options":{"blocked":"BLOCKED_OPT_ID","ready":"READY_OPT_ID"}
+    }}
+  }
+}' >"$T64_CONFIG"
+t64_stderr="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_CONFIG="$T64_CONFIG" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  MAKATO_LOOP_BLOCK_TEST_FILE="$T64_BLOCK_FILE" \
+  MAKATO_LOOP_COMMENT_TEST_FILE="$T64_COMMENT_FILE" \
+  MAKATO_LOOP_LABEL_TEST_FILE="$T64_LABEL_FILE" \
+  MAKATO_LOOP_ISSUE_TITLE_OVERRIDE="New feature request" \
+  MAKATO_LOOP_AUTOSEED_SPEC_ROOT="$T64_SPEC_ROOT" \
+    "$LOOP" _test-auto-seed-block-full 402 "" 2>&1 >/dev/null
+)"
+# Untiered must behave identically to full.
+[[ -f "$T64_BLOCK_FILE" ]] \
+  || fail "T64: untiered should act like full → board Blocked; got: $t64_stderr"
+grep -q "block #402" "$T64_BLOCK_FILE" \
+  || fail "T64: block file should record 'block #402'; got: $(cat "$T64_BLOCK_FILE")"
+[[ -f "$T64_COMMENT_FILE" ]] \
+  || fail "T64: untiered should post comment; got: $t64_stderr"
+rm -f "$T64_CONFIG" "$T64_BLOCK_FILE" "$T64_COMMENT_FILE" "$T64_LABEL_FILE"
+echo "  ✓ untiered candidate treated identically to full-tier"
+
+# T65: already-blocked + sentinel present → no duplicate comment, no duplicate label.
+echo "=== T65: sentinel already present → no duplicate comment ==="
+T65_BLOCK_FILE="$STATE_DIR/t65-block-$$.txt"
+T65_COMMENT_FILE="$STATE_DIR/t65-comment-$$.txt"
+T65_LABEL_FILE="$STATE_DIR/t65-label-$$.txt"
+T65_CONFIG="$STATE_DIR/t65-config-$$.json"
+T65_SPEC_ROOT="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/t65-specs"
+mkdir -p "$T65_SPEC_ROOT"
+jq -n '{
+  "github_project": {
+    "owner":"macatocz","number":4,"host":"github.com",
+    "project_node_id":"PVT_test",
+    "fields":{"status":{
+      "id":"STATUS_FIELD_ID",
+      "options":{"blocked":"BLOCKED_OPT_ID","ready":"READY_OPT_ID"}
+    }}
+  }
+}' >"$T65_CONFIG"
+# Pre-seed a comments override file containing the sentinel so the function
+# detects it and skips posting.
+T65_COMMENTS_OVERRIDE="$STATE_DIR/t65-comments-$$.json"
+jq -n '[{"body": "<!-- makato:auto-seed-block:full -->\nThis issue needs a full plan.\n"}]' \
+  >"$T65_COMMENTS_OVERRIDE"
+t65_stderr="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_CONFIG="$T65_CONFIG" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  MAKATO_LOOP_BLOCK_TEST_FILE="$T65_BLOCK_FILE" \
+  MAKATO_LOOP_COMMENT_TEST_FILE="$T65_COMMENT_FILE" \
+  MAKATO_LOOP_LABEL_TEST_FILE="$T65_LABEL_FILE" \
+  MAKATO_LOOP_ISSUE_TITLE_OVERRIDE="Dedup test" \
+  MAKATO_LOOP_AUTOSEED_SPEC_ROOT="$T65_SPEC_ROOT" \
+  MAKATO_LOOP_COMMENTS_OVERRIDE="$T65_COMMENTS_OVERRIDE" \
+    "$LOOP" _test-auto-seed-block-full 403 full 2>&1 >/dev/null
+)"
+# Block is still applied (idempotent) but comment must NOT be posted again.
+[[ ! -f "$T65_COMMENT_FILE" ]] \
+  || [[ ! -s "$T65_COMMENT_FILE" ]] \
+  || fail "T65: sentinel already present — must NOT post duplicate comment; got: $(cat "$T65_COMMENT_FILE" 2>/dev/null)"
+echo "$t65_stderr" | grep -q "sentinel" \
+  || fail "T65: should log that sentinel was detected; got: $t65_stderr"
+rm -f "$T65_CONFIG" "$T65_BLOCK_FILE" "$T65_COMMENT_FILE" "$T65_LABEL_FILE" "$T65_COMMENTS_OVERRIDE"
+echo "  ✓ sentinel detected → no duplicate comment"
+
+# T66: plan-tier:light candidate → no-op (S2 owns it, S4 must not block).
+echo "=== T66: plan-tier:light candidate → no-op (S4 skips light tier) ==="
+T66_BLOCK_FILE="$STATE_DIR/t66-block-$$.txt"
+T66_COMMENT_FILE="$STATE_DIR/t66-comment-$$.txt"
+T66_LABEL_FILE="$STATE_DIR/t66-label-$$.txt"
+t66_stderr="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  MAKATO_LOOP_BLOCK_TEST_FILE="$T66_BLOCK_FILE" \
+  MAKATO_LOOP_COMMENT_TEST_FILE="$T66_COMMENT_FILE" \
+  MAKATO_LOOP_LABEL_TEST_FILE="$T66_LABEL_FILE" \
+    "$LOOP" _test-auto-seed-block-full 404 light 2>&1 >/dev/null
+)"
+[[ ! -f "$T66_BLOCK_FILE" ]] || [[ ! -s "$T66_BLOCK_FILE" ]] \
+  || fail "T66: light-tier candidate must not trigger board Blocked; got: $(cat "$T66_BLOCK_FILE" 2>/dev/null)"
+[[ ! -f "$T66_COMMENT_FILE" ]] || [[ ! -s "$T66_COMMENT_FILE" ]] \
+  || fail "T66: light-tier candidate must not trigger comment; got: $(cat "$T66_COMMENT_FILE" 2>/dev/null)"
+echo "$t66_stderr" | grep -qi "light\|skip" \
+  || fail "T66: should log skip/light reason; got: $t66_stderr"
+rm -f "$T66_BLOCK_FILE" "$T66_COMMENT_FILE" "$T66_LABEL_FILE"
+echo "  ✓ plan-tier:light is a no-op (S2 owns it)"
+
+# T67: spec folder already exists → idempotent skip.
+echo "=== T67: spec folder already exists → idempotent skip (no error) ==="
+T67_BLOCK_FILE="$STATE_DIR/t67-block-$$.txt"
+T67_COMMENT_FILE="$STATE_DIR/t67-comment-$$.txt"
+T67_LABEL_FILE="$STATE_DIR/t67-label-$$.txt"
+T67_CONFIG="$STATE_DIR/t67-config-$$.json"
+T67_SPEC_ROOT="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/t67-specs"
+mkdir -p "$T67_SPEC_ROOT"
+jq -n '{
+  "github_project": {
+    "owner":"macatocz","number":4,"host":"github.com",
+    "project_node_id":"PVT_test",
+    "fields":{"status":{
+      "id":"STATUS_FIELD_ID",
+      "options":{"blocked":"BLOCKED_OPT_ID","ready":"READY_OPT_ID"}
+    }}
+  }
+}' >"$T67_CONFIG"
+# Pre-create the spec folder so the function sees it exists.
+mkdir -p "$T67_SPEC_ROOT/405-already-seeded"
+t67_stderr="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_CONFIG="$T67_CONFIG" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  MAKATO_LOOP_BLOCK_TEST_FILE="$T67_BLOCK_FILE" \
+  MAKATO_LOOP_COMMENT_TEST_FILE="$T67_COMMENT_FILE" \
+  MAKATO_LOOP_LABEL_TEST_FILE="$T67_LABEL_FILE" \
+  MAKATO_LOOP_ISSUE_TITLE_OVERRIDE="Already seeded" \
+  MAKATO_LOOP_AUTOSEED_SPEC_ROOT="$T67_SPEC_ROOT" \
+    "$LOOP" _test-auto-seed-block-full 405 full 2>&1 >/dev/null
+)"
+# Must still proceed to block/label/comment but NOT error.
+[[ $? -eq 0 ]] || fail "T67: function should exit 0 even when spec folder exists; got: $t67_stderr"
+echo "$t67_stderr" | grep -qi "already exist\|skip.*folder\|folder.*exist" \
+  || fail "T67: should log that folder already exists (idempotent); got: $t67_stderr"
+[[ -f "$T67_BLOCK_FILE" ]] \
+  || fail "T67: block should still fire even when folder exists; got: $t67_stderr"
+rm -f "$T67_CONFIG" "$T67_BLOCK_FILE" "$T67_COMMENT_FILE" "$T67_LABEL_FILE"
+echo "  ✓ existing spec folder: idempotent skip, rest of actions still fire"
+
 echo
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370) ==="
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372) ==="

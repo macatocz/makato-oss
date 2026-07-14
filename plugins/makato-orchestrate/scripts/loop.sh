@@ -1517,6 +1517,260 @@ _auto_seed_dispatch_light() {
 }
 
 # ---------------------------------------------------------------------------
+# _auto_seed_block_full — full/untiered arm of the auto-seed routing.
+# (#372, epic #367 S4).
+#
+# Accepts a single candidate's issue number and its classified plan_tier.
+# When plan_tier is "full", "change", or empty (untiered), performs three
+# best-effort actions:
+#   1. Prepare a minimal specs/<slug>/ spec folder (plan.md stub +
+#      seed-manifest.json, byte-for-byte matching seed-issue Step 8's format).
+#      Idempotent: if the folder already exists, logs and skips folder creation.
+#   2. Move the board card to Blocked. Resolves status_field_id and
+#      options.blocked from .claude/config.json. Finds or adds the board item
+#      (mirrors _promote_labelled_ready's item-add / item-list fallback).
+#      Also applies the `needs-human-review` label (creates if absent,
+#      idempotent).
+#   3. Post a sentinel-guarded launch-command comment. Before posting, checks
+#      whether any existing issue comment already contains the sentinel
+#      `<!-- makato:auto-seed-block:full -->`. If present, skips posting. If
+#      absent, posts a comment with the sentinel and the exact full-planning
+#      launch command for this issue.
+#
+# When plan_tier is "light", returns 0 immediately (no-op — S2 owns it).
+#
+# Exit codes:
+#   0 — all applicable steps executed (or skipped as idempotent / no-op)
+#   1 — one or more steps failed in a non-recoverable way
+#
+# All three steps are best-effort: a failure logs a WARN and continues to
+# the next step; the function returns 1 only when ALL three steps fail.
+#
+# Test hooks (offline):
+#   MAKATO_LOOP_BLOCK_TEST_FILE     — append "block #N" instead of calling
+#       `gh project item-edit` to set Blocked. Offline substitute.
+#   MAKATO_LOOP_LABEL_TEST_FILE     — append "label #N needs-human-review"
+#       instead of calling `gh issue edit --add-label`.
+#   MAKATO_LOOP_COMMENT_TEST_FILE   — append the full comment body instead of
+#       calling `gh issue comment`.
+#   MAKATO_LOOP_COMMENTS_OVERRIDE   — path to a JSON array of
+#       `[{"body":"..."},...]` used as existing issue comments in place of
+#       `gh issue view --json comments`. Keeps sentinel-detection offline.
+#   MAKATO_LOOP_AUTOSEED_SPEC_ROOT  — override SPECS_DIR for the spec-stub
+#       creation step (tests redirect to a temp directory).
+#   MAKATO_LOOP_ISSUE_TITLE_OVERRIDE — reused from _derive_key_for_issue to
+#       derive the slug without a `gh issue view` call.
+# ---------------------------------------------------------------------------
+_auto_seed_block_full() {
+  local issue="${1:?issue number required}"
+  local plan_tier="${2:-}"
+
+  # Light-tier candidates: no-op (S2 owns them).
+  if [[ "$plan_tier" == "light" ]]; then
+    echo "loop: auto-seed-block — skip #$issue (plan-tier:light — S2 owns it)" >&2
+    return 0
+  fi
+
+  echo "loop: auto-seed-block — processing #$issue (plan-tier '${plan_tier:-untiered}')" >&2
+
+  local repo="${MAKATO_LOOP_DISPATCH_REPO:-}"
+  local -a repo_flag=()
+  [[ -n "$repo" ]] && repo_flag=(--repo "$repo")
+
+  # --- Step 1: Derive slug and prepare spec-folder stub ---
+  # Derive slug using the same normalization as seed-issue Step 4 /
+  # _derive_key_for_issue's third-fallback path.
+  local title=""
+  if [[ -n "${MAKATO_LOOP_ISSUE_TITLE_OVERRIDE:-}" ]]; then
+    title="$MAKATO_LOOP_ISSUE_TITLE_OVERRIDE"
+  else
+    title="$(gh issue view "$issue" "${repo_flag[@]}" --json title \
+      --jq '.title' 2>/dev/null)" || true
+  fi
+
+  local slug=""
+  if [[ -n "$title" ]]; then
+    local norm
+    norm="$(printf '%s' "$title" \
+      | tr '[:upper:]' '[:lower:]' \
+      | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' \
+      | cut -c1-40 \
+      | sed -E 's/-+$//')"
+    [[ -n "$norm" ]] && slug="${issue}-${norm}"
+  fi
+  if [[ -z "$slug" ]]; then
+    slug="${issue}"
+    echo "loop: WARN — auto-seed-block #$issue could not derive slug (no title); using bare issue number" >&2
+  fi
+
+  local spec_root="${MAKATO_LOOP_AUTOSEED_SPEC_ROOT:-$SPECS_DIR}"
+  local spec_dir="$spec_root/$slug"
+
+  if [[ -d "$spec_dir" ]]; then
+    echo "loop: auto-seed-block — specs/$slug/ already exists — skipping folder creation" >&2
+  else
+    mkdir -p "$spec_dir" 2>/dev/null || {
+      echo "loop: WARN — auto-seed-block #$issue: could not create spec dir $spec_dir" >&2
+    }
+    if [[ -d "$spec_dir" ]]; then
+      local now_iso
+      now_iso="$(_now)"
+
+      # plan.md stub (mirrors seed-issue Step 8 format exactly).
+      printf '# Plan: %s\n\n> Auto-seeded by seed-issue v1.2.0 on %s. Replace this stub with a\n> full plan before the PO-agent starts.\n\n## Issue\n\n[#%s](https://github.com/%s/issues/%s)\n\n## Acceptance criteria\n\n_To be filled in. The PO-agent will HALT with HALT-006 (MISSING_SPEC) if\nthis file contains only the stub text above._\n' \
+        "${title:-#${issue}}" "$now_iso" "$issue" "${repo:-unknown/repo}" "$issue" \
+        >"$spec_dir/plan.md" 2>/dev/null || true
+
+      # seed-manifest.json (schema_version 2, same as seed-issue).
+      jq -n \
+        --arg seeded_at "$now_iso" \
+        --argjson issue_num "$issue" \
+        --arg issue_title "${title:-}" \
+        --arg slug "$slug" \
+        --arg repo "${repo:-}" \
+        '{
+          schema_version: "2",
+          seeded_at: $seeded_at,
+          seeded_by: "seed-issue",
+          skill_version: "1.2.0",
+          issue_number: $issue_num,
+          issue_title: $issue_title,
+          slug: $slug,
+          repo: $repo,
+          type: "new-work"
+        }' >"$spec_dir/seed-manifest.json" 2>/dev/null || true
+
+      echo "loop: auto-seed-block — created specs/$slug/ with plan.md stub and seed-manifest.json (schema_version 2)" >&2
+    fi
+  fi
+
+  # --- Step 2: Move board card to Blocked + apply needs-human-review label ---
+
+  # Test hook for the block (item-edit) step.
+  if [[ -n "${MAKATO_LOOP_BLOCK_TEST_FILE:-}" ]]; then
+    echo "block #${issue} plan_tier=${plan_tier:-untiered} → Blocked" \
+      >>"$MAKATO_LOOP_BLOCK_TEST_FILE"
+  else
+    # Production path: resolve project config + item id, set Blocked.
+    if [[ -f "$CONFIG_FILE" ]]; then
+      local status_field_id blocked_option_id project_node_id host owner number
+      status_field_id="$(jq -r '.github_project.fields.status.id // empty' "$CONFIG_FILE")"
+      blocked_option_id="$(jq -r '.github_project.fields.status.options.blocked // (.github_project.options.blocked // empty)' "$CONFIG_FILE")"
+      project_node_id="$(jq -r '.github_project.project_node_id // empty' "$CONFIG_FILE")"
+      host="$(jq -r '.github_project.host // "github.com"' "$CONFIG_FILE")"
+      owner="$(jq -r '.github_project.owner // empty' "$CONFIG_FILE")"
+      number="$(jq -r '.github_project.number // empty' "$CONFIG_FILE")"
+
+      if [[ -n "$status_field_id" && -n "$blocked_option_id" && -n "$project_node_id" && -n "$owner" && -n "$number" ]]; then
+        # Find or add the board item (mirrors _promote_labelled_ready).
+        local item_id=""
+        item_id="$(GH_HOST="$host" gh project item-add "$number" --owner "$owner" \
+          --url "https://github.com/${repo}/issues/$issue" \
+          --format json 2>/dev/null | jq -r '.id // empty' 2>/dev/null || true)"
+        if [[ -z "$item_id" ]]; then
+          item_id="$(GH_HOST="$host" gh project item-list "$number" --owner "$owner" \
+            --format json --limit 9999 2>/dev/null \
+            | jq -r --argjson i "$issue" '.items[] | select(.content.number == $i) | .id' 2>/dev/null \
+            | head -1 || true)"
+        fi
+        if [[ -n "$item_id" ]]; then
+          if GH_HOST="$host" gh project item-edit --id "$item_id" \
+              --project-id "$project_node_id" \
+              --field-id "$status_field_id" \
+              --single-select-option-id "$blocked_option_id" >/dev/null 2>&1; then
+            echo "loop: auto-seed-block — set #$issue → Blocked on board" >&2
+          else
+            echo "loop: WARN — auto-seed-block #$issue: board item-edit to Blocked failed" >&2
+          fi
+        else
+          echo "loop: WARN — auto-seed-block #$issue: could not resolve board item id" >&2
+        fi
+      else
+        echo "loop: WARN — auto-seed-block #$issue: missing config fields for board Blocked move" >&2
+      fi
+    else
+      echo "loop: WARN — auto-seed-block #$issue: .claude/config.json not found; skipping board move" >&2
+    fi
+  fi
+
+  # Apply needs-human-review label (idempotent, create if absent).
+  if [[ -n "${MAKATO_LOOP_LABEL_TEST_FILE:-}" ]]; then
+    echo "label #${issue} needs-human-review" >>"$MAKATO_LOOP_LABEL_TEST_FILE"
+  else
+    if gh label list "${repo_flag[@]}" 2>/dev/null | grep -q "^needs-human-review"; then
+      : # label exists
+    else
+      gh label create "needs-human-review" "${repo_flag[@]}" \
+        --color "d93f0b" --description "Requires human review before autonomous dispatch" \
+        >/dev/null 2>&1 || true
+    fi
+    if gh issue edit "$issue" "${repo_flag[@]}" \
+        --add-label "needs-human-review" >/dev/null 2>&1; then
+      echo "loop: auto-seed-block — applied 'needs-human-review' label to #$issue" >&2
+    else
+      echo "loop: WARN — auto-seed-block #$issue: could not apply needs-human-review label" >&2
+    fi
+  fi
+
+  # --- Step 3: Post sentinel-guarded launch-command comment ---
+  local SENTINEL="<!-- makato:auto-seed-block:full -->"
+
+  # Check for existing sentinel in issue comments.
+  local existing_comments=""
+  if [[ -n "${MAKATO_LOOP_COMMENTS_OVERRIDE:-}" ]]; then
+    existing_comments="$(cat "$MAKATO_LOOP_COMMENTS_OVERRIDE" 2>/dev/null || echo '[]')"
+  else
+    existing_comments="$(gh issue view "$issue" "${repo_flag[@]}" \
+      --json comments --jq '.comments' 2>/dev/null || echo '[]')"
+  fi
+
+  local sentinel_found=""
+  sentinel_found="$(printf '%s' "$existing_comments" \
+    | jq -r '.[].body' 2>/dev/null \
+    | grep -F "$SENTINEL" | head -1 || true)"
+
+  if [[ -n "$sentinel_found" ]]; then
+    echo "loop: auto-seed-block — sentinel already present on #$issue; skipping comment" >&2
+  else
+    # Build the launch command: seed-issue skill with new-work type.
+    local launch_cmd
+    if [[ -n "$repo" ]]; then
+      launch_cmd="/seed-issue ${issue} --type new-work  (or: claude code and invoke makato-orchestrate:seed-issue skill with args '${issue} --type new-work', repo=${repo})"
+    else
+      launch_cmd="/seed-issue ${issue} --type new-work  (or: claude code and invoke makato-orchestrate:seed-issue skill with args '${issue} --type new-work')"
+    fi
+
+    local comment_body
+    comment_body="${SENTINEL}
+This issue carries \`plan-tier:full\` (or no plan-tier label) and cannot be auto-planned headlessly — the full makato-plan pipeline is interview-driven.
+
+To dispatch this issue through the autonomous loop, run seed-issue first to generate a full \`plan.md\`:
+
+\`\`\`
+${launch_cmd}
+\`\`\`
+
+Once \`plan.md\` is complete and the issue is promoted to \`status:ready-for-dev\`, the loop will pick it up automatically.
+
+_This comment was posted automatically by the makato auto-seed pass (#372)._"
+
+    if [[ -n "${MAKATO_LOOP_COMMENT_TEST_FILE:-}" ]]; then
+      echo "comment #${issue} sentinel=${SENTINEL}" >>"$MAKATO_LOOP_COMMENT_TEST_FILE"
+      printf '%s\n' "$comment_body" >>"$MAKATO_LOOP_COMMENT_TEST_FILE"
+    else
+      if gh issue comment "$issue" "${repo_flag[@]}" \
+          --body "$comment_body" >/dev/null 2>&1; then
+        echo "loop: auto-seed-block — posted launch-command comment on #$issue" >&2
+      else
+        echo "loop: WARN — auto-seed-block #$issue: could not post launch-command comment" >&2
+      fi
+    fi
+  fi
+
+  return 0
+}
+
+# ---------------------------------------------------------------------------
 # _reap_epoch_of_iso <iso-8601-ms> — convert an ISO-8601 ms timestamp (the
 # shape _now emits) to a Unix epoch integer, or empty on parse failure. Used
 # by the reap throttle to compare last_reap against wall-clock now. python3
@@ -2544,6 +2798,13 @@ if [[ "$SUBCMD" == _test-* ]]; then
     # _auto_seed_dispatch_light deterministically using MAKATO_LOOP_SEED_TEST_CMD.
     # (#370, epic #367 S2).
     _test-auto-seed-dispatch-light) _auto_seed_dispatch_light "$@" ;;
+    # _test-auto-seed-block-full <issue> <plan_tier> — exercise
+    # _auto_seed_block_full deterministically using test-hook env vars:
+    #   MAKATO_LOOP_BLOCK_TEST_FILE, MAKATO_LOOP_LABEL_TEST_FILE,
+    #   MAKATO_LOOP_COMMENT_TEST_FILE, MAKATO_LOOP_COMMENTS_OVERRIDE,
+    #   MAKATO_LOOP_AUTOSEED_SPEC_ROOT, MAKATO_LOOP_ISSUE_TITLE_OVERRIDE.
+    # (#372, epic #367 S4).
+    _test-auto-seed-block-full) _auto_seed_block_full "$@" ;;
     # _test-wd-guarded-write <issue> — exercise the watchdog ownership guard
     # (#312) deterministically, without the process-timing flakiness of a real
     # orphaned poll. Runs the exact guarded write the kill path performs:
