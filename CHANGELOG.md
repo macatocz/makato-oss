@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.57.0](https://github.com/macatocz/makato/compare/v0.56.1...v0.57.0) (2026-07-14)
+
+
+### ✨ Features
+
+* **loop:** authoritative dispatch gate tiers 1-2 + exclusion veto ([#318](https://github.com/macatocz/makato/issues/318), [#355](https://github.com/macatocz/makato/issues/355)) ([#362](https://github.com/macatocz/makato/issues/362)) ([5afac3a](https://github.com/macatocz/makato/commit/5afac3a901676f685aca79a3d1d7808c54301fe5))
+
 ## [0.56.1](https://github.com/macatocz/makato/compare/v0.56.0...v0.56.1) (2026-07-14)
 
 
