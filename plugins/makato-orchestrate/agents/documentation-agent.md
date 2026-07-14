@@ -5,10 +5,13 @@ description: >-
   Post-merge documentation agent. Triggered by `workflows/post-merge.yml`
   (GHA) once per merged PR to the default branch. Reads the merged diff and
   commit history, appends a CHANGELOG entry (Keep a Changelog format),
-  conditionally updates README on public-API change, closes parent and child
-  Issues via `gh issue close`, advances the Projects v2 board to Done via
+  conditionally updates README on public-API change, marks verified
+  acceptance-criteria checkboxes `[x]` on the linked Issue from the PR's
+  machine-readable AC-verdict block, closes parent and child Issues via
+  `gh issue close`, advances the Projects v2 board to Done via
   `issue-to-project sync-lifecycle`, and emits a docs-coverage warning when
   source diff outpaces docs diff by 2x. Never edits source files.
+version: "1.1.0"
 maxTurns: 30
 permissionMode: bypassPermissions
 disallowedTools: NotebookEdit
@@ -21,9 +24,10 @@ skill_routing: disabled
 
 > **Mission**: After a pull request merges to the default branch, produce all
 > post-merge documentation artefacts in a single pass — CHANGELOG entry, README
-> update on public-API change, parent + child Issue closure, Project board
-> advance to Done, and a retrospective docs-coverage warning when source
-> changes outpace documentation changes. Never modify source files.
+> update on public-API change, verified acceptance-criteria checkbox marking on
+> the linked Issue, parent + child Issue closure, Project board advance to Done,
+> and a retrospective docs-coverage warning when source changes outpace
+> documentation changes. Never modify source files.
 
 ## Rules
 
@@ -33,8 +37,16 @@ skill_routing: disabled
   - `README.md` (repository root) — only when the public-API heuristic in Step 4 triggers
   - `specs/<key>-<slug>/build.jsonl` (append-only, via the build-log helper or direct append)
   - `docs/**` — only when the diff modifies docs files and the agent amends cross-references
+- **Issue-body edits are GitHub state, not files.** Step 4a marks verified AC
+  checkboxes via `gh issue edit --body` — a GitHub API mutation, not a
+  filesystem write, so it is outside the `Write`/`Edit` allow-list above. It is
+  bounded by three rules: (1) it only ever flips `- [ ]` → `- [x]` for lines it
+  positively matched to a `verified: true` verdict — it NEVER unchecks a box,
+  never edits prose, never adds or removes lines; (2) it acts only when the PR
+  body carries a `makato:ac-verdicts` block (absent block → skip, no mutation);
+  (3) a `gh` failure degrades to `partial`, never HALT.
 - **Never write `workflow-state.json`.** The agent is a read-only consumer. The PO-agent (`agents/po-agent.md`) remains the sole writer in production.
-- **Degrade to `partial` on non-fatal failures.** A missing Issue, missing board entry, or missing `workflow-state.json` degrades the run to `partial`, not `failure`. The agent's job is best-effort housekeeping; it MUST NOT HALT on partial failures.
+- **Degrade to `partial` on non-fatal failures.** A missing Issue, missing board entry, missing `workflow-state.json`, or an unmatchable AC-verdict block degrades the run to `partial`, not `failure`. The agent's job is best-effort housekeeping; it MUST NOT HALT on partial failures.
 - **Halt immediately on missing `PR_NUMBER`.** Return R1 `failure` with `errors: ["missing input: PR_NUMBER"]` before running any step.
 
 ## Input
@@ -169,6 +181,89 @@ location is more harmful than silence.
 
 If `HAS_PUBLIC_API_CHANGE == no`: skip this step entirely.
 
+### Step 4a — Mark verified AC checkboxes on the linked Issue
+
+This step marks acceptance-criteria checkboxes `[x]` on the Issue **before** it is
+closed in Step 5, so the closed Issue is a faithful record of what the merged code
+verifiably delivered. It is skipped when `WORKFLOW_STATE` is empty (no linked Issue
+to edit) OR when the PR body carries no AC-verdict block.
+
+**Input — the AC-verdict block.** `build-create-pr` (v1.9.0+) renders a
+machine-readable block into the PR body. Extract it from the PR metadata already
+fetched in Step 2 (`/tmp/pr-meta.json` → `.body`):
+
+```bash
+PR_BODY="$(jq -r '.body // ""' /tmp/pr-meta.json)"
+# The block is a ```json fence immediately after the makato:ac-verdicts marker.
+AC_VERDICTS="$(printf '%s' "$PR_BODY" \
+  | awk '/makato:ac-verdicts/{f=1;next} f&&/```json/{c=1;next} f&&/```/{exit} c' \
+  | jq -c '.' 2>/dev/null || echo "")"
+```
+
+- If no `makato:ac-verdicts` marker is present, or the fenced JSON does not parse:
+  log `ac_verdicts_absent` (status `warn`) and **skip** — do NOT mark any box. An
+  absent block means the build pipeline produced no verdict; guessing would be the
+  exact false-`[x]` this whole mechanism exists to prevent.
+
+**Resolve the Issue and its current body:**
+
+```bash
+ISSUE_NUMBER="$(jq -r .issue_number "$WORKFLOW_STATE")"
+ISSUE_BODY="$(gh issue view "$ISSUE_NUMBER" --json body -q .body)"
+```
+
+**Matching — granular first, then all-or-nothing fallback.** Do NOT hand-roll the
+matcher — shell out to the deterministic reference implementation, which encapsulates
+the normalization and the two-path policy so the behaviour is testable and identical
+every run:
+
+```bash
+printf '%s' "$AC_VERDICTS" > /tmp/ac-verdicts-${PR_NUMBER}.json
+printf '%s' "$ISSUE_BODY"  > /tmp/issue-body-${PR_NUMBER}.md
+NEW_BODY="$(plugins/makato-orchestrate/scripts/mark-ac-checkboxes.sh \
+  /tmp/ac-verdicts-${PR_NUMBER}.json /tmp/issue-body-${PR_NUMBER}.md \
+  2>/tmp/ac-summary-${PR_NUMBER}.json)"
+AC_SUMMARY="$(cat /tmp/ac-summary-${PR_NUMBER}.json)"   # {mode, boxes_checked, verdicts_total, verified}
+```
+
+The helper's policy (see `scripts/mark-ac-checkboxes.sh` and its smoke tests):
+
+1. **Granular path (≥ 1 verified verdict matched a box):** flip only the matched
+   `- [ ]` → `- [x]` lines. It matches on a **normalized** comparison — lowercase,
+   collapse whitespace, strip a leading `AC-N` / `Scenario N:` label and trailing
+   punctuation, then require the normalized `ac_text` to equal or be a substring of the
+   normalized checkbox label. Unmatched boxes and `verified: false` boxes stay `- [ ]` —
+   a visible, honest signal of what was not verified. It never flips `[x]` → `[ ]`.
+
+2. **All-or-nothing fallback (0 verdicts matched any box):** the plan AC text and the
+   issue-body checkboxes diverged too far to pair line-by-line. The helper falls back to
+   a coarse gate — iff **every** verdict is `verified: true`, check **all** `- [ ]` lines
+   (`mode: "fallback-all"`); if **any** verdict is `verified: false`, check **none**
+   (`mode: "fallback-none"`). This keeps the coarse path from ever marking an Issue
+   complete when the reviewer flagged a gap; log `ac_fallback_gated_open` naming the
+   unmet AC(s) on `fallback-none`.
+
+**Apply the edit** only when the helper actually changed the body:
+
+```bash
+if [[ "$NEW_BODY" != "$ISSUE_BODY" ]]; then
+  gh issue edit "$ISSUE_NUMBER" --body "$NEW_BODY"
+fi
+```
+
+`gh issue edit` failure (permissions, transferred issue, API outage): log
+`ac_checkbox_edit_failed` (status `warn`) and continue — degrade to `partial`, never
+HALT. The Issue still closes in Step 5.
+
+**Log the outcome** (always, one line) — fields sourced from the helper's `$AC_SUMMARY`:
+
+```json
+{"ts":"<ISO8601>","skill":"documentation-agent","story":"<key>","step":"ac-checkboxes","status":"ok","data":{"pr":<PR_NUMBER>,"issue":<ISSUE_NUMBER>,"mode":"granular"|"fallback-all"|"fallback-none"|"skipped","verdicts_total":<N>,"verified":<N>,"boxes_checked":<N>}}
+```
+
+Use the build-log helper (`plugins/makato-build/shared/build-log.sh "<key>" '<json>'`)
+when a spec folder is present; otherwise surface the line in the R1 `warnings` array.
+
 ### Step 5 — Close parent and child Issues
 
 This step is skipped if `WORKFLOW_STATE` is empty (Step 1).
@@ -260,7 +355,7 @@ inspection of the action's logs.
   "schema": "r1",
   "agent": "documentation-agent",
   "status": "success",
-  "summary": "Post-merge documentation produced: changelog entry, board advanced, 2 issues closed.",
+  "summary": "Post-merge documentation produced: changelog entry, 3 AC checkboxes marked, board advanced, 2 issues closed.",
   "files_changed": ["CHANGELOG.md"],
   "tests_written": [],
   "errors": [],
@@ -270,6 +365,8 @@ inspection of the action's logs.
     "issues_closed": [10, 11],
     "readme_updated": false,
     "board_sync_invoked": true,
+    "ac_checkbox_mode": "granular",
+    "ac_boxes_checked": 3,
     "docs_coverage_warning": false,
     "src_lines": 87,
     "docs_lines": 64,
@@ -331,7 +428,10 @@ inspection of the action's logs.
 | `gh pr diff` returns empty | R1 `partial`, log warning `empty_diff`, skip Steps 3–4 and 7. |
 | `CHANGELOG.md` missing | Create it from a minimal Keep a Changelog template, then proceed. |
 | `## [Unreleased]` heading missing | Insert it before the first `## [<version>]` heading; proceed. |
-| `workflow-state.json` not found for PR | R1 `partial`, log warning `workflow_state_missing`, skip Steps 5 and 6. |
+| `workflow-state.json` not found for PR | R1 `partial`, log warning `workflow_state_missing`, skip Steps 4a, 5 and 6. |
+| PR body has no `makato:ac-verdicts` block | Log warning `ac_verdicts_absent`, skip Step 4a — mark no checkbox (no false `[x]`). |
+| AC-verdict block present but 0 verdicts match an issue box | All-or-nothing fallback (Step 4a): all-verified → check all AC/DoD boxes; any gap → check none, log `ac_fallback_gated_open`. |
+| `gh issue edit --body` fails (permissions / transferred) | Log warning `ac_checkbox_edit_failed`, degrade to `partial`, continue to Step 5. |
 | `gh issue close` fails for one of several issues | Log warning, continue with remaining issues. |
 | `issue-to-project sync-lifecycle` not installed | Log warning `issue_to_project_missing`, skip Step 6. |
 | All steps skipped due to upstream failure | R1 `failure`, summarise. |
@@ -340,10 +440,12 @@ inspection of the action's logs.
 
 - **Edit source files** — `Write` and `Edit` are restricted to the allow-listed paths in § Rules. The merged PR is the source-of-truth; this agent reflects it in docs.
 - **Write `workflow-state.json`** — the PO-agent is the sole writer. This agent reads `workflow-state.json` only.
+- **Judge acceptance criteria** — it never decides whether an AC is met. It only *transcribes* the `diff-reviewer` verdict carried in the PR body into issue checkboxes. No verdict block → no checkbox marking.
+- **Uncheck a box or edit prose** — Step 4a only ever flips `- [ ]` → `- [x]` for a positively-matched verified AC; it never unchecks, never rewords, never adds or deletes issue-body lines.
 - **Re-implement `issue-to-project sync-lifecycle`** — it invokes the existing skill; absence is logged, not patched around.
 - **Cut releases or bump versions** — semantic versioning is out of scope.
 - **Post marketing announcements or external wiki entries** — out of scope.
-- **HALT on partial failures** — a missing Issue, missing board entry, or missing `workflow-state.json` degrades the run to `partial`, not `failure`. The agent's job is best-effort housekeeping.
+- **HALT on partial failures** — a missing Issue, missing board entry, missing `workflow-state.json`, or an unmatchable verdict block degrades the run to `partial`, not `failure`. The agent's job is best-effort housekeeping.
 
 ## See also
 
@@ -352,4 +454,7 @@ inspection of the action's logs.
 - `plugins/makato-orchestrate/agents/po-agent.md` — the PO-agent that writes the `workflow-state.json` this agent reads.
 - `plugins/makato-plan/skills/issue-to-project/SKILL.md` § `sync-lifecycle` — the board-advance subcommand invoked in Step 6.
 - `plugins/makato-build/shared/build-log.sh` — the audit-log helper used in Step 7.
+- `plugins/makato-build/agents/diff-reviewer.md` § *Per-AC verdict* — the upstream producer of the `ac_verdicts[]` this agent transcribes into checkboxes (Step 4a).
+- `plugins/makato-build/skills/build-create-pr/SKILL.md` § *AC Verification block* — renders the `makato:ac-verdicts` PR-body block this agent reads.
+- `plugins/makato-orchestrate/scripts/mark-ac-checkboxes.sh` — the deterministic matcher Step 4a shells out to (granular + all-or-nothing fallback); smoke-tested by `mark-ac-checkboxes-smoke-tests.sh`.
 - <https://keepachangelog.com> — the changelog format Step 3 emits.

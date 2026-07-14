@@ -5,7 +5,16 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
-## `workflow-state` 1.6.0 — durable per-issue `structural_halt_cycles` counter (#347, epic #319)
+## `documentation-agent` 1.1.0 — mark verified AC checkboxes `[x]` on the linked Issue post-merge
+
+Acceptance-criteria checkboxes were never checked by the autonomous pipeline; a merged PR closed its Issue with every `- [ ]` still empty. This adds a post-merge step that transcribes the per-AC verified/gap verdict — produced by `diff-reviewer` and carried in the PR body by `build-create-pr` (both in `makato-build`) — into the Issue's checkboxes, so a `[x]` reflects confirmed code + test coverage rather than merely a merge.
+
+- **`agents/documentation-agent.md`** (→ 1.1.0) — new **Step 4a** (runs before Issue closure): extracts the `makato:ac-verdicts` JSON block from the merged PR body, matches each `verified: true` verdict to an Issue checkbox by normalized text, and flips `- [ ]` → `- [x]` via `gh issue edit --body`. **Granular** matching by default; **all-or-nothing fallback** when no line pairs (all-verified → check all AC/DoD boxes; any gap → check none, log `ac_fallback_gated_open`); **marks nothing** when the block is absent (no false `[x]`). Forward-only — never unchecks a box, never edits prose.
+- Frontmatter gains `version: 1.1.0`; Rules document the issue-body edit as a bounded `gh` API mutation (outside the file `Write`/`Edit` allow-list); error-modes table and R1 examples updated (`ac_checkbox_mode`, `ac_boxes_checked`); "does NOT do" clarifies the agent transcribes verdicts, never judges ACs.
+- **`AGENTS.md`** — documentation-agent roster row updated to note Step 4a checkbox marking.
+- Producer chain: `plugins/makato-build/agents/diff-reviewer.md` § *Per-AC verdict* → `build-review` Step 4a → `build-create-pr` § *AC Verification block*.
+
+
 
 Foundation story of epic #319 (HALT → planning feedback loop). No counter tracked how many
 times an issue terminated on a **structural** HALT across separate PO-agent runs —

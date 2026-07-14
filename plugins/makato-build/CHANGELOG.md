@@ -5,7 +5,17 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
-## `diff-reviewer` + `build-review` + `build-implement-tdd` — close advisory-gate escapes (#290)
+## `diff-reviewer` + `build-review` + `build-create-pr` — per-AC verified/gap verdict for post-merge checkbox marking
+
+Acceptance-criteria checkboxes on a GitHub Issue were never checked by the pipeline — a merged PR left every `- [ ]` untouched, and nothing recorded *whether* each AC was actually verified. This adds a per-AC verdict that travels from the adversarial review to the post-merge `documentation-agent` (in `makato-orchestrate`), so a checked box means "the reviewer confirmed code + test coverage", not merely "the PR merged". See `AGENTS.md` § *ac_verdicts propagation chain*.
+
+- **`agents/diff-reviewer.md`** (→ 1.1.0) — new Step 3.5 emits one `{ac_id, ac_text, verified, evidence, reason}` verdict per AC in `PLAN_CONTEXT`; `verified: true` requires BOTH implementing code AND a test exercising the AC in the diff. Returned in R1 `data.ac_verdicts[]` and echoed in the review report's `## AC Verdicts` section. New rule + "does NOT do" clause (the agent emits verdicts; it never flips issue checkboxes).
+- **`skills/build-review/SKILL.md`** (1.4.0 → 1.5.0) — new Step 4a copies `data.ac_verdicts[]` verbatim into a `step:"ac-verification"` `build.jsonl` entry on the final clean pass (the durable local record; workflow-state is gitignored). Absent/empty verdicts log `status:"warn"` so downstream falls back gracefully.
+- **`skills/build-create-pr/SKILL.md`** (1.8.0 → 1.9.0) — Step 3 renders the last `ac-verification` entry into a `## AC Verification` PR-body block (fenced JSON behind a `makato:ac-verdicts` marker) — the sole cross-environment transport to the post-merge GHA runner. Omitted entirely when no verdict entry exists (no false `[x]`).
+- **`AGENTS.md`** — new *ac_verdicts propagation chain* section (parallel to `recommended_skills[]` and `TEST_ORACLE`), documenting the four-stage chain and its optional/transport-only/forward-only contract rules.
+- Consumer: `plugins/makato-orchestrate/agents/documentation-agent.md` § *Step 4a — Mark verified AC checkboxes* (Step 4a).
+
+
 
 Two advisory quality gates let non-blocking-but-real problems reach the PR unblocked. Both are now gated in autonomous mode without changing interactive ergonomics.
 

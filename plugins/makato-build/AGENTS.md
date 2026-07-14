@@ -232,6 +232,32 @@ Chain:
 - **TDD-only**: this chain touches only `build-implement-tdd` and the `coder` RED phase.
   `build-implement-goal` is intentionally not part of it (goal-mode writes tests after build).
 
+## ac_verdicts propagation chain (diff-reviewer → PR body → issue checkboxes)
+
+A third optional chain — parallel to `recommended_skills[]` and `TEST_ORACLE` above —
+carries a per-acceptance-criterion **verified/gap verdict** from the adversarial review to
+the post-merge point where the linked Issue's AC checkboxes are flipped `[x]`. Its consumer
+lives in the sibling `makato-orchestrate` plugin (`documentation-agent`). A checked box then
+means *"the reviewer confirmed code + test coverage"*, not merely *"the PR merged"*.
+
+1. **diff-reviewer** (v1.1.0+, Step 3.5): emit one `{ac_id, ac_text, verified, evidence, reason}`
+   per AC in `PLAN_CONTEXT`; `verified: true` needs BOTH code AND a test exercising it.
+   Returned in R1 `data.ac_verdicts[]`.
+2. **build-review** (Step 4a): copies `ac_verdicts[]` verbatim into a `step:"ac-verification"`
+   `build.jsonl` entry on the final clean pass (the only durable local record —
+   `workflow-state.json` is gitignored).
+3. **build-create-pr** (Step 3): renders the last entry into a `## AC Verification` PR-body
+   block (fenced JSON behind a `makato:ac-verdicts` marker) — the sole cross-environment
+   transport to the GHA runner. Omitted when no entry exists.
+4. **documentation-agent** (`makato-orchestrate`, Step 4a): post-merge, matches each verified
+   verdict to an Issue checkbox and flips `- [ ]` → `- [x]` (granular; all-or-nothing fallback;
+   marks nothing when the block is absent).
+
+**Contract:** optional end-to-end (no verdicts → every stage behaves as before);
+transport-only downstream (`build-review` / `build-create-pr` never re-judge — diff-reviewer
+is the sole judge, documentation-agent the sole checkbox writer); forward-only (never unchecks
+a box; unverified/unmatched ACs stay `- [ ]`).
+
 ## PR Checklist
 
 - [ ] Serves the plugin goal: transforms planned stories into merged code

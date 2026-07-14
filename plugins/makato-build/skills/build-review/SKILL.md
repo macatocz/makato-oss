@@ -5,7 +5,7 @@ description: >-
   autonomous mode) MAJOR findings are fixed and the review loops until
   clean. Auto-fixes mechanical issues (formatting, imports). Reports
   SUGGESTION and NITPICK findings. Autonomous. Use after simplify, before verify.
-version: "1.4.0"
+version: "1.5.0"
 model: opus
 argument-hint: "[work-item-key]"
 
@@ -63,12 +63,29 @@ Dispatch the `diff-reviewer` agent with:
 - `PLAN_CONTEXT`: acceptance criteria and task list extracted from `plan.md` in the resolved spec folder in Step 1
 - `REPO_ROOT`: absolute path to the target repository root
 
-The agent applies the adversarial lens across all seven categories (correctness, edge cases, error handling, security, contract, test coverage, optimizations) and returns findings classified as CRITICAL, MAJOR, SUGGESTION, or NITPICK with source-anchored evidence.
+The agent applies the adversarial lens across all seven categories (correctness, edge cases, error handling, security, contract, test coverage, optimizations) and returns findings classified as CRITICAL, MAJOR, SUGGESTION, or NITPICK with source-anchored evidence. As of diff-reviewer v1.1.0 it also returns `data.ac_verdicts[]` — one `{ac_id, ac_text, verified, evidence, reason}` per acceptance criterion in `PLAN_CONTEXT`.
 
 Log:
 ```
 {"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"analyze","status":"ok","data":{"pass":<N>,"critical":<N>,"major":<N>,"suggestion":<N>,"nitpick":<N>}}
 ```
+
+#### Step 4a — Persist the per-AC verdict set (AC-verification transport)
+
+After parsing the diff-reviewer R1, copy `data.ac_verdicts[]` **verbatim** into a dedicated
+`build.jsonl` entry. This is the durable Layer-2 transport: `workflow-state.json` is gitignored
+and never reaches the post-merge runner, and `build.jsonl` is the audit file `build-create-pr`
+reads to render the PR-body verdict block (Layer 3's only cross-environment input). Emit it on
+the **final** (clean) pass so the persisted verdicts reflect the merged code, overwriting any
+earlier pass's entry by recency (the last `ac-verification` line wins):
+
+```
+{"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"ac-verification","status":"ok","data":{"pass":<N>,"ac_verdicts":[{"ac_id":"AC-1","ac_text":"…","verified":true,"evidence":"…","reason":""}]}}
+```
+
+When `ac_verdicts` is absent (diff-reviewer predates v1.1.0) or empty, log the entry with
+`"ac_verdicts":[]` and `status:"warn"` so the downstream skills degrade to the all-or-nothing
+fallback rather than silently skipping checkbox marking.
 
 ---
 
