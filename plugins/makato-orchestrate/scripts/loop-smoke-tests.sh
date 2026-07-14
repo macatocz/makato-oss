@@ -1592,5 +1592,102 @@ rm -f "$T53_BODY"
 
 
 
+# ---------------------------------------------------------------------------
+echo "=== T54: unprepared issue (no ready label, no exclusion) → in candidates ==="
+T54_FIXTURE="$STATE_DIR/t54-autoseed-$$.json"
+cat >"$T54_FIXTURE" <<'EOF'
+[
+  {"number": 201, "labels": [{"name": "type:feature"}, {"name": "plan-tier:light"}], "author": {"login": "user1"}},
+  {"number": 202, "labels": [{"name": "status:ready-for-dev"}], "author": {"login": "user2"}}
+]
+EOF
+t54_out="$(MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_AUTOSEED_OVERRIDE="$T54_FIXTURE" \
+  "$LOOP" _test-auto-seed-candidates 2>/dev/null)"
+echo "$t54_out" | jq -e '[.[] | select(.number == 201)] | length == 1' >/dev/null \
+  || fail "T54: issue 201 (unprepared) should appear in candidates; got: $t54_out"
+echo "$t54_out" | jq -e '[.[] | select(.number == 202)] | length == 0' >/dev/null \
+  || fail "T54: issue 202 (ready) should NOT appear in candidates; got: $t54_out"
+echo "$t54_out" | jq -e '[.[] | select(.number == 201)] | .[0].plan_tier == "light"' >/dev/null \
+  || fail "T54: issue 201 should have plan_tier=light; got: $t54_out"
+rm -f "$T54_FIXTURE"
+echo "  ✓ unprepared issue appears in candidates with plan-tier classified; ready issue excluded"
+
+# ---------------------------------------------------------------------------
+echo "=== T55: ready issue (status:ready-for-dev) → NOT in candidates ==="
+T55_FIXTURE="$STATE_DIR/t55-autoseed-$$.json"
+cat >"$T55_FIXTURE" <<'EOF'
+[
+  {"number": 203, "labels": [{"name": "status:ready-for-dev"}, {"name": "plan-tier:full"}], "author": {"login": "user3"}}
+]
+EOF
+t55_out="$(MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_AUTOSEED_OVERRIDE="$T55_FIXTURE" \
+  "$LOOP" _test-auto-seed-candidates 2>/dev/null)"
+echo "$t55_out" | jq -e '. | length == 0' >/dev/null \
+  || fail "T55: ready issue should produce empty candidates; got: $t55_out"
+rm -f "$T55_FIXTURE"
+echo "  ✓ status:ready-for-dev issue filtered out (empty candidates)"
+
+# ---------------------------------------------------------------------------
+echo "=== T56: exclusion-label veto (status:blocked) → excluded from candidates ==="
+T56_FIXTURE="$STATE_DIR/t56-autoseed-$$.json"
+cat >"$T56_FIXTURE" <<'EOF'
+[
+  {"number": 204, "labels": [{"name": "type:feature"}, {"name": "status:blocked"}], "author": {"login": "user4"}},
+  {"number": 205, "labels": [{"name": "type:feature"}, {"name": "plan-tier:light"}], "author": {"login": "user5"}}
+]
+EOF
+t56_out="$(MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_AUTOSEED_OVERRIDE="$T56_FIXTURE" \
+  "$LOOP" _test-auto-seed-candidates 2>/dev/null)"
+echo "$t56_out" | jq -e '[.[] | select(.number == 204)] | length == 0' >/dev/null \
+  || fail "T56: issue 204 (status:blocked) should be excluded; got: $t56_out"
+echo "$t56_out" | jq -e '[.[] | select(.number == 205)] | length == 1' >/dev/null \
+  || fail "T56: issue 205 (clean) should remain; got: $t56_out"
+rm -f "$T56_FIXTURE"
+echo "  ✓ exclusion-label 'status:blocked' vetoes issue 204; issue 205 passes"
+
+# ---------------------------------------------------------------------------
+echo "=== T57: dependencies label → excluded from candidates ==="
+T57_FIXTURE="$STATE_DIR/t57-autoseed-$$.json"
+cat >"$T57_FIXTURE" <<'EOF'
+[
+  {"number": 206, "labels": [{"name": "dependencies"}, {"name": "type:chore"}], "author": {"login": "dependabot[bot]"}},
+  {"number": 207, "labels": [{"name": "type:feature"}], "author": {"login": "user6"}}
+]
+EOF
+t57_out="$(MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_AUTOSEED_OVERRIDE="$T57_FIXTURE" \
+  "$LOOP" _test-auto-seed-candidates 2>/dev/null)"
+echo "$t57_out" | jq -e '[.[] | select(.number == 206)] | length == 0' >/dev/null \
+  || fail "T57: issue 206 (dependencies label) should be excluded; got: $t57_out"
+echo "$t57_out" | jq -e '[.[] | select(.number == 207)] | length == 1' >/dev/null \
+  || fail "T57: issue 207 (clean) should remain; got: $t57_out"
+rm -f "$T57_FIXTURE"
+echo "  ✓ 'dependencies' label vetoes issue 206; issue 207 passes"
+
+# ---------------------------------------------------------------------------
+echo "=== T58: renovate[bot] author → excluded from candidates ==="
+T58_FIXTURE="$STATE_DIR/t58-autoseed-$$.json"
+cat >"$T58_FIXTURE" <<'EOF'
+[
+  {"number": 208, "labels": [{"name": "type:chore"}], "author": {"login": "renovate[bot]"}},
+  {"number": 209, "labels": [{"name": "type:feature"}, {"name": "plan-tier:full"}], "author": {"login": "user7"}}
+]
+EOF
+t58_out="$(MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_AUTOSEED_OVERRIDE="$T58_FIXTURE" \
+  "$LOOP" _test-auto-seed-candidates 2>/dev/null)"
+echo "$t58_out" | jq -e '[.[] | select(.number == 208)] | length == 0' >/dev/null \
+  || fail "T58: issue 208 (renovate[bot]) should be excluded; got: $t58_out"
+echo "$t58_out" | jq -e '[.[] | select(.number == 209)] | length == 1' >/dev/null \
+  || fail "T58: issue 209 (clean) should remain; got: $t58_out"
+echo "$t58_out" | jq -e '[.[] | select(.number == 209)] | .[0].plan_tier == "full"' >/dev/null \
+  || fail "T58: issue 209 should have plan_tier=full; got: $t58_out"
+rm -f "$T58_FIXTURE"
+echo "  ✓ renovate[bot] author vetoes issue 208; issue 209 passes with plan_tier=full"
+
+
 echo
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318) ==="
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369) ==="

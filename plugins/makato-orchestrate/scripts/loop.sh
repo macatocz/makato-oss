@@ -1374,6 +1374,84 @@ cmd_promote_ready() {
 }
 
 # ---------------------------------------------------------------------------
+# _auto_seed_candidates — discover open issues that are NOT yet status:ready-for-dev
+# and classify their plan-tier. Returns a JSON array of {number, plan_tier} objects.
+# (#369, epic #367 S1).
+#
+# Test hook:
+#   MAKATO_LOOP_AUTOSEED_OVERRIDE — path to a JSON file mimicking
+#       `gh issue list --json number,labels,author` output.
+# ---------------------------------------------------------------------------
+_auto_seed_candidates() {
+  local raw candidates
+  if [[ -n "${MAKATO_LOOP_AUTOSEED_OVERRIDE:-}" ]]; then
+    raw="$(cat "$MAKATO_LOOP_AUTOSEED_OVERRIDE" 2>/dev/null || echo '[]')"
+  else
+    local -a repo_flag=()
+    [[ -n "${MAKATO_LOOP_DISPATCH_REPO:-}" ]] && repo_flag=(--repo "${MAKATO_LOOP_DISPATCH_REPO}")
+    raw="$(gh issue list "${repo_flag[@]}" \
+      --state open --json number,labels,author --limit 200 2>/dev/null || echo '[]')"
+  fi
+  [[ -n "$raw" ]] || raw='[]'
+
+  # T1: Remove issues that already carry status:ready-for-dev — those belong
+  # to _promote_labelled_ready, not this auto-seed pass.
+  candidates="$(jq --arg ready "$_PROMOTE_READY_LABEL" \
+    '[.[] | select([.labels[].name] | contains([$ready]) | not)]' \
+    <<<"$raw" 2>/dev/null || echo '[]')"
+  [[ -n "$candidates" ]] || candidates='[]'
+
+  # Iterate per candidate, apply T2 exclusion labels, T3 bot veto, T4 plan-tier
+  local result='[]'
+  local n labels author_login excluded lbl plan_tier
+  while IFS= read -r n; do
+    [[ -n "$n" ]] || continue
+
+    labels="$(jq -r --argjson i "$n" \
+      '.[] | select(.number == $i) | [.labels[].name] | join(" ")' \
+      <<<"$candidates" 2>/dev/null || echo "")"
+    author_login="$(jq -r --argjson i "$n" \
+      '.[] | select(.number == $i) | .author.login // ""' \
+      <<<"$candidates" 2>/dev/null || echo "")"
+
+    # T2: Exclusion guard — reuse _PROMOTE_EXCLUSION_LABELS verbatim.
+    excluded=""
+    for lbl in $_PROMOTE_EXCLUSION_LABELS; do
+      if [[ " $labels " == *" $lbl "* ]]; then excluded="$lbl"; break; fi
+    done
+    if [[ -n "$excluded" ]]; then
+      echo "loop: auto-seed — skip #$n (exclusion label: $excluded)" >&2
+      continue
+    fi
+
+    # T3: dependencies label veto.
+    if [[ " $labels " == *" dependencies "* ]]; then
+      echo "loop: auto-seed — skip #$n (dependencies label)" >&2
+      continue
+    fi
+
+    # T3: renovate[bot] author veto.
+    if [[ "$author_login" == "renovate[bot]" ]]; then
+      echo "loop: auto-seed — skip #$n (renovate bot)" >&2
+      continue
+    fi
+
+    # T4: Classify plan-tier from labels.
+    plan_tier="$(jq -r --argjson i "$n" \
+      '.[] | select(.number == $i) | [.labels[].name] | .[] | select(startswith("plan-tier:"))' \
+      <<<"$candidates" 2>/dev/null | head -1 | sed 's/plan-tier://' || echo "")"
+    [[ -n "$plan_tier" ]] || plan_tier=""
+
+    result="$(jq --argjson n "$n" --arg t "$plan_tier" \
+      '. + [{"number": $n, "plan_tier": $t}]' \
+      <<<"$result" 2>/dev/null || echo "$result")"
+  done < <(jq -r '.[].number' <<<"$candidates" 2>/dev/null)
+
+  printf '%s\n' "$result"
+  return 0
+}
+
+# ---------------------------------------------------------------------------
 # _reap_epoch_of_iso <iso-8601-ms> — convert an ISO-8601 ms timestamp (the
 # shape _now emits) to a Unix epoch integer, or empty on parse failure. Used
 # by the reap throttle to compare last_reap against wall-clock now. python3
@@ -2393,6 +2471,10 @@ if [[ "$SUBCMD" == _test-* ]]; then
   case "$SUBCMD" in
     _test-guarded-sleep) _guarded_sleep "$@" ;;
     _test-gh-item-list) _gh_project_item_list "$@" ;;
+    # _test-auto-seed-candidates — exercise _auto_seed_candidates deterministically
+    # using MAKATO_LOOP_AUTOSEED_OVERRIDE fixture. Returns JSON array to stdout.
+    # (#369, epic #367 S1).
+    _test-auto-seed-candidates) _auto_seed_candidates ;;
     # _test-wd-guarded-write <issue> — exercise the watchdog ownership guard
     # (#312) deterministically, without the process-timing flakiness of a real
     # orphaned poll. Runs the exact guarded write the kill path performs:
