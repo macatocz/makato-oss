@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.61.0](https://github.com/macatocz/makato/compare/v0.60.0...v0.61.0) (2026-07-14)
+
+
+### ✨ Features
+
+* verify acceptance criteria before marking issue checkboxes ([#375](https://github.com/macatocz/makato/issues/375)) ([2de78db](https://github.com/macatocz/makato/commit/2de78db7c999a2b25d55405a39082a7824a2a68a))
+
 ## [0.60.0](https://github.com/macatocz/makato/compare/v0.59.0...v0.60.0) (2026-07-14)
 
 
