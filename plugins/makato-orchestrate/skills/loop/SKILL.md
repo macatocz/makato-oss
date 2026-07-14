@@ -186,6 +186,7 @@ The driver also exposes lower-level subcommands for diagnostics:
 | `remove-worktrees` | Remove local worktrees under `.claude/worktrees/` whose branch has a merged PR (#265); skips main/dirty/locked/retained/detached/nested. Also a pre-poll pass in `run`. One-shot: `MAKATO_LOOP_REAP_INTERVAL=0 loop remove-worktrees` (`MAKATO_LOOP_REAP_DRYRUN=1` to inspect). |
 | `promote-ready` | Run the label→board promotion pass once and exit (#231). Useful for one-shot promotion without starting the full loop. |
 | `auto-seed` | Run the pre-poll auto-seed pass (`_auto_seed_unprepared`) once and exit (#373, epic #367 S5). Seeds or blocks every open issue not yet at `status:ready-for-dev`: light-tier issues → headless `seed-issue` dispatch + thin-body reconciliation; full/change/untiered → spec-folder stub + board `Blocked` + `needs-human-review`. Best-effort: a failure per candidate logs a WARN and the pass always returns 0. |
+| `reconcile-orphaned` | Move board cards that are `In progress` but have no live local workflow-state to `Blocked` + `needs-human-review` (#368). Best-effort one-shot pass. |
 | `check-halt` | Exit 0/1 mirroring `hooks/check-halt.sh`. |
 
 ## Process
@@ -245,6 +246,15 @@ Each outer iteration of `run` performs the following steps in order:
    crashed after fork left the issue stranded with no PR and no page. Runs for
    all `--status` values (reads local state, not the board). Skipped under
    `--dry-run`. Best-effort — any failure logs a WARN and never blocks the tick.
+3.7. **Pre-poll orphaned-`In progress` reconciliation (#368).**
+   `_reconcile_orphaned_in_progress` polls the board for all `In progress`
+   cards. For each card, it checks whether a non-done `workflow-state.json`
+   exists locally. Cards with no live state (session died without cleanup,
+   or workflow completed but board write failed) are moved to `Blocked` and
+   labelled `needs-human-review`. The reconciliation is best-effort (any `gh`
+   failure logs a WARN and never blocks the tick) and toggle-able via
+   `MAKATO_LOOP_RECONCILE_ON_POLL=0`. Skipped under `--dry-run`. Also
+   available standalone as `loop reconcile-orphaned`.
 4. **Board poll.** `GH_HOST=<host> gh project item-list <number>
    --owner <owner> --format json --limit 9999` runs and is filtered in
    two steps via `jq`:
@@ -657,6 +667,12 @@ The intentional design split:
 | `MAKATO_LOOP_SEED_TEST_CMD` | unset | Test-only: command string used as the dispatch command instead of the real `claude -p` in `_auto_seed_dispatch_light`. Receives the same env (`MAKATO_HEADLESS=1`, `ISSUE_NUMBER`, `REPO`, `REPO_ROOT`) and prompt as the production invocation. Keeps S2/S5 dispatch smoke tests offline. |
 | `MAKATO_LOOP_BLOCK_TEST_FILE` | unset | Test-only: path to a file that `_auto_seed_block_full` appends `block #<n>` to instead of calling `gh project item-edit` to set `Blocked`. Keeps S4/S5 block smoke tests offline. |
 | `MAKATO_LOOP_AUTOSEED_SPEC_ROOT` | unset | Test-only: override the `SPECS_DIR` root used by `_auto_seed_block_full` when creating spec-folder stubs. Tests redirect to a temp directory to avoid polluting `specs/`. |
+| `MAKATO_LOOP_RECONCILE_ON_POLL` | `1` | Set to `0` to disable the orphaned-`In progress` reconciliation pass entirely (#368). |
+| `MAKATO_LOOP_RECONCILE_DRYRUN` | unset | Set to `1` to log intended reconciliations without mutating board or labels. |
+| `MAKATO_LOOP_RECONCILE_GH_OVERRIDE` | unset | Test-only: path to a JSON fixture for the `In progress` board poll instead of calling `gh`. Keeps Tl–Tp smoke tests offline. |
+| `MAKATO_LOOP_RECONCILE_TEST_FILE` | unset | Test-only: append `reconcile #N` here instead of calling `gh project item-edit`. |
+| `MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE` | unset | Test-only: append `label #N needs-human-review` here instead of calling `gh issue edit`. |
+| `MAKATO_LOOP_RECONCILE_SPECS_DIR` | unset | Test-only: override `SPECS_DIR` for the in-flight scan within `_reconcile_orphaned_in_progress`. Keeps Tm/Tn tests from polluting the real `specs/` tree. |
 
 ## Smoke tests
 
@@ -749,6 +765,21 @@ The intentional design split:
     `dependencies` label is skipped by S1 discovery.
 41. **Auto-seed composition — already-ready skipped (Tk, #373).** Candidate with
     `status:ready-for-dev` is excluded from candidates (S1 filter); no action.
+42. **Orphaned-In-progress reconciliation — orphaned card reconciled (Tl, #368).**
+    Board has issue #600 at `In progress`; no local workflow-state; function records
+    `reconcile #600` in test file and logs the orphaned message.
+43. **Orphaned-In-progress reconciliation — live workflow-state skipped (Tm, #368).**
+    Board has #601 at `In progress`; non-done `workflow-state-601.json` present;
+    #601 is NOT written to the reconcile test file.
+44. **Orphaned-In-progress reconciliation — done workflow-state reconciled (Tn, #368).**
+    Board has #602 at `In progress`; `workflow-state-602.json` with `current_phase: "done"`;
+    treated as orphaned → reconciled.
+45. **Orphaned-In-progress reconciliation — dry-run no mutation (To, #368).**
+    `MAKATO_LOOP_RECONCILE_DRYRUN=1`; board has orphaned #603; reconcile test file stays
+    empty; log contains `would reconcile`.
+46. **Orphaned-In-progress reconciliation — toggle-off no-op (Tp, #368).**
+    `MAKATO_LOOP_RECONCILE_ON_POLL=0`; board has orphaned #604; function returns 0
+    without walking candidates.
 
 Run them directly:
 

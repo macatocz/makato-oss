@@ -2718,5 +2718,146 @@ tnrae_stderr="$(
 rm -f "$TNRAE_FIXTURE" "$TNRAE_BLOCK_FILE" "$TNRAE_SEED_FLAG" "$TNRAE_STUB_FILE"
 echo "  ✓ needs-reshape label excluded from _auto_seed_candidates (no seed dispatch)"
 
+# ---------------------------------------------------------------------------
+# Tl–Tp: orphaned-In-progress reconciliation (#368)
+# ---------------------------------------------------------------------------
+
 echo
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T_LBC1–T_LBC4 label-board conflict gate, #356; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348) ==="
+echo "=== Tl: orphaned card (no workflow-state) → reconciled to Blocked ==="
+TL_FIXTURE="$STATE_DIR/tl-reconcile-$$.json"
+TL_RECON_FILE="$STATE_DIR/tl-reconcile-out-$$.txt"
+TL_SPECS="$STATE_DIR/tl-specs-$$"
+mkdir -p "$TL_SPECS"
+# Board: issue #600 at "In progress", no workflow-state files in specs dir.
+jq -n '{items:[{"content":{"type":"Issue","number":600,"title":"orphaned","repository":"macatocz/makato","url":"https://github.com/macatocz/makato/issues/600"},"status":"In progress","labels":[]}]}' \
+  >"$TL_FIXTURE"
+tl_rc=0
+tl_stderr="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_RECONCILE_GH_OVERRIDE="$TL_FIXTURE" \
+  MAKATO_LOOP_RECONCILE_TEST_FILE="$TL_RECON_FILE" \
+  SPECS_DIR="$TL_SPECS" \
+    "$LOOP" _test-reconcile-orphaned 2>&1 >/dev/null
+)" || tl_rc=$?
+[[ "$tl_rc" -eq 0 ]] \
+  || fail "Tl: function must return 0; got rc=$tl_rc stderr=$tl_stderr"
+grep -q "reconcile #600" "$TL_RECON_FILE" 2>/dev/null \
+  || fail "Tl: reconcile test file must contain 'reconcile #600'; got: $(cat "$TL_RECON_FILE" 2>/dev/null)"
+echo "$tl_stderr" | grep -q "orphaned" \
+  || fail "Tl: stderr must mention 'orphaned'; got: $tl_stderr"
+rm -f "$TL_FIXTURE" "$TL_RECON_FILE"
+rmdir "$TL_SPECS" 2>/dev/null || true
+echo "  ✓ orphaned card reconciled to Blocked (no workflow-state)"
+
+echo
+echo "=== Tm: live (non-done) workflow-state → card skipped ==="
+TM_FIXTURE="$STATE_DIR/tm-reconcile-$$.json"
+TM_RECON_FILE="$STATE_DIR/tm-reconcile-out-$$.txt"
+TM_SPECS="$STATE_DIR/tm-specs-$$"
+mkdir -p "$TM_SPECS/601-some-slug"
+# Board: issue #601 at "In progress", with a live (non-done) workflow-state.
+jq -n '{items:[{"content":{"type":"Issue","number":601,"title":"live","repository":"macatocz/makato","url":"https://github.com/macatocz/makato/issues/601"},"status":"In progress","labels":[]}]}' \
+  >"$TM_FIXTURE"
+jq -n '{"issue_number":601,"current_phase":"implement"}' \
+  >"$TM_SPECS/601-some-slug/workflow-state-601.json"
+tm_rc=0
+tm_stderr="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_RECONCILE_GH_OVERRIDE="$TM_FIXTURE" \
+  MAKATO_LOOP_RECONCILE_TEST_FILE="$TM_RECON_FILE" \
+  MAKATO_LOOP_RECONCILE_SPECS_DIR="$TM_SPECS" \
+    "$LOOP" _test-reconcile-orphaned 2>&1 >/dev/null
+)" || tm_rc=$?
+[[ "$tm_rc" -eq 0 ]] \
+  || fail "Tm: function must return 0; got rc=$tm_rc stderr=$tm_stderr"
+# #601 must NOT appear in the reconcile file.
+[[ ! -f "$TM_RECON_FILE" ]] || ! grep -q "reconcile #601" "$TM_RECON_FILE" \
+  || fail "Tm: live workflow-state issue #601 must NOT be reconciled; got: $(cat "$TM_RECON_FILE" 2>/dev/null)"
+echo "$tl_stderr" | grep -q "live workflow-state" 2>/dev/null || true  # advisory
+rm -f "$TM_FIXTURE" "$TM_RECON_FILE" "$TM_SPECS/601-some-slug/workflow-state-601.json"
+rmdir "$TM_SPECS/601-some-slug" "$TM_SPECS" 2>/dev/null || true
+echo "  ✓ live (non-done) workflow-state: card skipped"
+
+echo
+echo "=== Tn: done workflow-state → treated as orphaned, reconciled ==="
+TN_FIXTURE="$STATE_DIR/tn-reconcile-$$.json"
+TN_RECON_FILE="$STATE_DIR/tn-reconcile-out-$$.txt"
+TN_SPECS="$STATE_DIR/tn-specs-$$"
+mkdir -p "$TN_SPECS/602-some-slug"
+# Board: issue #602 at "In progress"; workflow-state has current_phase=done.
+jq -n '{items:[{"content":{"type":"Issue","number":602,"title":"done-state","repository":"macatocz/makato","url":"https://github.com/macatocz/makato/issues/602"},"status":"In progress","labels":[]}]}' \
+  >"$TN_FIXTURE"
+jq -n '{"issue_number":602,"current_phase":"done"}' \
+  >"$TN_SPECS/602-some-slug/workflow-state-602.json"
+tn_rc=0
+tn_stderr="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_RECONCILE_GH_OVERRIDE="$TN_FIXTURE" \
+  MAKATO_LOOP_RECONCILE_TEST_FILE="$TN_RECON_FILE" \
+  MAKATO_LOOP_RECONCILE_SPECS_DIR="$TN_SPECS" \
+    "$LOOP" _test-reconcile-orphaned 2>&1 >/dev/null
+)" || tn_rc=$?
+[[ "$tn_rc" -eq 0 ]] \
+  || fail "Tn: function must return 0; got rc=$tn_rc stderr=$tn_stderr"
+grep -q "reconcile #602" "$TN_RECON_FILE" 2>/dev/null \
+  || fail "Tn: done-state issue #602 must be treated as orphaned and reconciled; got: $(cat "$TN_RECON_FILE" 2>/dev/null)"
+rm -f "$TN_FIXTURE" "$TN_RECON_FILE" "$TN_SPECS/602-some-slug/workflow-state-602.json"
+rmdir "$TN_SPECS/602-some-slug" "$TN_SPECS" 2>/dev/null || true
+echo "  ✓ done workflow-state treated as orphaned: reconciled"
+
+echo
+echo "=== To: MAKATO_LOOP_RECONCILE_DRYRUN=1 → no mutation, logs 'would reconcile' ==="
+TO_FIXTURE="$STATE_DIR/to-reconcile-$$.json"
+TO_RECON_FILE="$STATE_DIR/to-reconcile-out-$$.txt"
+TO_SPECS="$STATE_DIR/to-specs-$$"
+mkdir -p "$TO_SPECS"
+jq -n '{items:[{"content":{"type":"Issue","number":603,"title":"dryrun","repository":"macatocz/makato","url":"https://github.com/macatocz/makato/issues/603"},"status":"In progress","labels":[]}]}' \
+  >"$TO_FIXTURE"
+to_rc=0
+to_stderr="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_RECONCILE_GH_OVERRIDE="$TO_FIXTURE" \
+  MAKATO_LOOP_RECONCILE_TEST_FILE="$TO_RECON_FILE" \
+  MAKATO_LOOP_RECONCILE_DRYRUN=1 \
+  SPECS_DIR="$TO_SPECS" \
+    "$LOOP" _test-reconcile-orphaned 2>&1 >/dev/null
+)" || to_rc=$?
+[[ "$to_rc" -eq 0 ]] \
+  || fail "To: function must return 0 in dry-run; got rc=$to_rc stderr=$to_stderr"
+# Test file must be empty / absent (no mutation in dry-run).
+[[ ! -f "$TO_RECON_FILE" ]] || [[ ! -s "$TO_RECON_FILE" ]] \
+  || fail "To: dry-run must not write to reconcile test file; got: $(cat "$TO_RECON_FILE" 2>/dev/null)"
+echo "$to_stderr" | grep -q "would reconcile" \
+  || fail "To: dry-run must log 'would reconcile'; got: $to_stderr"
+rm -f "$TO_FIXTURE" "$TO_RECON_FILE"
+rmdir "$TO_SPECS" 2>/dev/null || true
+echo "  ✓ dry-run: no mutation, 'would reconcile' logged"
+
+echo
+echo "=== Tp: MAKATO_LOOP_RECONCILE_ON_POLL=0 → pass entirely skipped ==="
+TP_FIXTURE="$STATE_DIR/tp-reconcile-$$.json"
+TP_RECON_FILE="$STATE_DIR/tp-reconcile-out-$$.txt"
+TP_SPECS="$STATE_DIR/tp-specs-$$"
+mkdir -p "$TP_SPECS"
+jq -n '{items:[{"content":{"type":"Issue","number":604,"title":"toggle-off","repository":"macatocz/makato","url":"https://github.com/macatocz/makato/issues/604"},"status":"In progress","labels":[]}]}' \
+  >"$TP_FIXTURE"
+tp_rc=0
+tp_stderr="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_RECONCILE_GH_OVERRIDE="$TP_FIXTURE" \
+  MAKATO_LOOP_RECONCILE_TEST_FILE="$TP_RECON_FILE" \
+  MAKATO_LOOP_RECONCILE_ON_POLL=0 \
+  RECONCILE_ON_POLL=0 \
+  SPECS_DIR="$TP_SPECS" \
+    "$LOOP" _test-reconcile-orphaned 2>&1 >/dev/null
+)" || tp_rc=$?
+[[ "$tp_rc" -eq 0 ]] \
+  || fail "Tp: function must return 0 when toggle-off; got rc=$tp_rc stderr=$tp_stderr"
+[[ ! -f "$TP_RECON_FILE" ]] || [[ ! -s "$TP_RECON_FILE" ]] \
+  || fail "Tp: RECONCILE_ON_POLL=0 must produce no reconcile output; got: $(cat "$TP_RECON_FILE" 2>/dev/null)"
+rm -f "$TP_FIXTURE" "$TP_RECON_FILE"
+rmdir "$TP_SPECS" 2>/dev/null || true
+echo "  ✓ RECONCILE_ON_POLL=0: pass skipped, no action"
+
+echo
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368) ==="

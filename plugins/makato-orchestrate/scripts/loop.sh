@@ -353,6 +353,9 @@ FORCE_GRACE_SECS="${MAKATO_LOOP_FORCE_GRACE:-10}"
 #     the window elapses. Set 0 to run every call (tests / one-shot cleanup).
 REAP_ON_POLL="${MAKATO_LOOP_REAP_ON_POLL:-1}"
 REAP_INTERVAL_SECS="${MAKATO_LOOP_REAP_INTERVAL:-3600}"
+# Orphaned-In-progress reconciliation (#368).
+RECONCILE_ON_POLL="${MAKATO_LOOP_RECONCILE_ON_POLL:-1}"
+RECONCILE_DRYRUN="${MAKATO_LOOP_RECONCILE_DRYRUN:-0}"
 # Stale-worktree reap thresholds (#320).
 REAP_STALE_AGE_SECS="${MAKATO_LOOP_REAP_STALE_AGE:-86400}"
 REAP_STALE_FORCE="${MAKATO_LOOP_REAP_STALE_FORCE:-0}"
@@ -802,6 +805,169 @@ _check_pending_handoffs() {
       echo "loop: check-pid #$issue (HALT-007B handoff pending, spawned_pid=$spawned_pid)" >&2
       "$handoff_script" check-pid "$key" "$issue" 2>&1 | sed 's/^/loop:   /' >&2 || true
     done
+}
+
+# ---------------------------------------------------------------------------
+# _reconcile_orphaned_in_progress — pre-poll pass (#368).
+#
+# Polls the board for all "In progress" cards. For each card that has NO live
+# (non-done) workflow-state.json locally, the card is treated as orphaned —
+# the session that claimed it died without cleanup. Orphaned cards are moved
+# to Blocked and labelled needs-human-review so the operator can triage.
+#
+# Guards:
+#   RECONCILE_ON_POLL == "0"  → skip entirely (toggle-off).
+#   RECONCILE_DRYRUN == "1"   → log intended action, no mutation.
+#   MAKATO_LOOP_RECONCILE_GH_OVERRIDE  → read "In progress" items from
+#     this JSON fixture instead of calling gh (test hook).
+#   MAKATO_LOOP_RECONCILE_TEST_FILE    → append "reconcile #N" instead of
+#     calling gh project item-edit (test hook).
+#   MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE → append "label #N needs-human-review"
+#     instead of calling gh issue edit (test hook).
+#   MAKATO_LOOP_RECONCILE_SPECS_DIR → override SPECS_DIR for the in-flight scan
+#     (test hook — avoids polluting the real specs/ tree with fixture files).
+#
+# Best-effort: any per-candidate gh failure logs a WARN and the pass
+# returns 0; it never blocks the tick.
+# ---------------------------------------------------------------------------
+_reconcile_orphaned_in_progress() {
+  [[ "$RECONCILE_ON_POLL" != "0" ]] || return 0
+  [[ -n "${MAKATO_LOOP_TEST_HOOK:-}" ]] || {
+    local cfg
+    cfg="$(_read_project_config 2>/dev/null)" || {
+      echo "loop: reconcile-orphaned — no project config, skipping" >&2
+      return 0
+    }
+  }
+
+  # Fetch "In progress" items from the board (or a test fixture).
+  local raw
+  if [[ -n "${MAKATO_LOOP_RECONCILE_GH_OVERRIDE:-}" ]]; then
+    raw="$(cat "$MAKATO_LOOP_RECONCILE_GH_OVERRIDE")" || {
+      echo "loop: WARN — reconcile-orphaned: could not read fixture ${MAKATO_LOOP_RECONCILE_GH_OVERRIDE}" >&2
+      return 0
+    }
+  else
+    local cfg owner number host
+    cfg="$(_read_project_config 2>/dev/null)" || return 0
+    owner="$(jq -r '.owner' <<<"$cfg")"
+    number="$(jq -r '.number' <<<"$cfg")"
+    host="$(jq -r '.host' <<<"$cfg")"
+    raw="$(GH_HOST="$host" gh project item-list "$number" \
+      --owner "$owner" --format json --limit 9999 2>/dev/null)" || {
+      echo "loop: WARN — reconcile-orphaned: board poll failed, skipping" >&2
+      return 0
+    }
+  fi
+
+  # Filter to Issue items at "In progress".
+  local candidates
+  candidates="$(jq -r \
+    '[.items[]
+      | select(.content.type == "Issue")
+      | select(.status == "In progress")
+      | .content.number] | .[]' \
+    <<<"$raw" 2>/dev/null)" || {
+    echo "loop: WARN — reconcile-orphaned: jq parse failed" >&2
+    return 0
+  }
+
+  [[ -n "$candidates" ]] || return 0
+
+  # Build the current in-flight set once (to avoid repeated scans).
+  # MAKATO_LOOP_RECONCILE_SPECS_DIR overrides SPECS_DIR for the in-flight scan
+  # in tests so the fixture workflow-state files are found without polluting
+  # the real specs/ tree.
+  local reconcile_specs_dir="${MAKATO_LOOP_RECONCILE_SPECS_DIR:-$SPECS_DIR}"
+  local in_flight
+  in_flight="$(SPECS_DIR="$reconcile_specs_dir" in_flight_issues 2>/dev/null || true)"
+
+  local n
+  while IFS= read -r n; do
+    [[ -n "$n" ]] || continue
+
+    # Skip if a live (non-done) workflow-state exists for this issue.
+    if echo "$in_flight" | grep -qx "$n"; then
+      echo "loop: reconcile-orphaned — #$n has live workflow-state, skipping" >&2
+      continue
+    fi
+
+    if [[ "${RECONCILE_DRYRUN:-0}" == "1" ]]; then
+      echo "loop: reconcile-orphaned — would reconcile #$n → Blocked + needs-human-review (dry-run)" >&2
+      continue
+    fi
+
+    echo "loop: reconcile-orphaned — #$n orphaned (In progress but no live workflow-state) → Blocked + needs-human-review" >&2
+
+    # Move the board card to Blocked.
+    {
+      if [[ -n "${MAKATO_LOOP_RECONCILE_TEST_FILE:-}" ]]; then
+        echo "reconcile #${n}" >>"$MAKATO_LOOP_RECONCILE_TEST_FILE"
+      else
+        local cfg item_id blocked_id proj_owner proj_number proj_host field_id
+        cfg="$(_read_project_config 2>/dev/null)" || { echo "loop: WARN — reconcile-orphaned #$n: no config for board edit" >&2; true; }
+        proj_owner="$(jq -r '.owner' <<<"$cfg")"
+        proj_number="$(jq -r '.number' <<<"$cfg")"
+        proj_host="$(jq -r '.host' <<<"$cfg")"
+        field_id="$(jq -r '.fields.status.id // .status_field_id // empty' <<<"$cfg")"
+        blocked_id="$(jq -r '.fields.status.options.blocked // .options.blocked // empty' <<<"$cfg")"
+        if [[ -z "$field_id" || -z "$blocked_id" ]]; then
+          echo "loop: WARN — reconcile-orphaned #$n: missing field_id or blocked option id in config" >&2
+        else
+          # Resolve the project item-id for this issue.
+          item_id="$(GH_HOST="$proj_host" gh project item-list "$proj_number" \
+            --owner "$proj_owner" --format json --limit 9999 2>/dev/null \
+            | jq -r --argjson n "$n" \
+              '.items[] | select(.content.type == "Issue" and .content.number == $n) | .id' \
+            2>/dev/null | head -1)" || true
+          if [[ -n "$item_id" ]]; then
+            GH_HOST="$proj_host" gh project item-edit "$proj_number" \
+              --owner "$proj_owner" \
+              --id "$item_id" \
+              --field-id "$field_id" \
+              --single-select-option-id "$blocked_id" \
+              >/dev/null 2>&1 || \
+              echo "loop: WARN — reconcile-orphaned #$n: gh project item-edit failed" >&2
+          else
+            echo "loop: WARN — reconcile-orphaned #$n: could not resolve board item-id" >&2
+          fi
+        fi
+      fi
+    } || true
+
+    # Apply needs-human-review label.
+    {
+      local repo_flag=()
+      if [[ -n "${MAKATO_LOOP_DISPATCH_REPO:-}" ]]; then
+        repo_flag=(--repo "$MAKATO_LOOP_DISPATCH_REPO")
+      fi
+      if [[ -n "${MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE:-}" ]]; then
+        echo "label #${n} needs-human-review" >>"$MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE"
+      else
+        if ! gh label list "${repo_flag[@]}" 2>/dev/null | grep -q "^needs-human-review"; then
+          gh label create "needs-human-review" "${repo_flag[@]}" \
+            --color "e4e669" --description "Needs human attention before autonomous dispatch" \
+            >/dev/null 2>&1 || true
+        fi
+        if ! gh issue edit "$n" "${repo_flag[@]}" \
+            --add-label "needs-human-review" >/dev/null 2>&1; then
+          echo "loop: WARN — reconcile-orphaned #$n: could not apply needs-human-review label" >&2
+        else
+          echo "loop: reconcile-orphaned — applied 'needs-human-review' label to #$n" >&2
+        fi
+      fi
+    } || true
+  done <<<"$candidates"
+
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# cmd_reconcile_orphaned — standalone subcommand: run one reconciliation pass
+# and exit.
+# ---------------------------------------------------------------------------
+cmd_reconcile_orphaned() {
+  _reconcile_orphaned_in_progress
 }
 
 # ---------------------------------------------------------------------------
@@ -2991,6 +3157,14 @@ cmd_run() {
       return 0
     fi
 
+    # Pre-poll orphaned-In-progress reconciliation (#368): move board cards
+    # that are "In progress" but have no live local workflow-state to Blocked
+    # + needs-human-review. Runs for all --status values. Skipped under
+    # --dry-run. Best-effort — never blocks the tick.
+    if [[ "${RECONCILE_ON_POLL}" != "0" && -z "$dry_run" ]]; then
+      _reconcile_orphaned_in_progress || true
+    fi
+
     # Pre-poll auto-seed pass (#373, epic #367 S5): seed/block unprepared
     # issues before promoting labelled-ready issues, so a freshly-seeded
     # light issue can be eligible for dispatch in the same tick.
@@ -3150,6 +3324,12 @@ if [[ "$SUBCMD" == _test-* ]]; then
     # routes through the four arms via test hooks.
     # (#373, epic #367 S5).
     _test-auto-seed-unprepared) _auto_seed_unprepared "$@" ;;
+    # _test-reconcile-orphaned — exercise _reconcile_orphaned_in_progress
+    # deterministically via test-hook env vars:
+    #   MAKATO_LOOP_RECONCILE_GH_OVERRIDE, MAKATO_LOOP_RECONCILE_TEST_FILE,
+    #   MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE.
+    # (#368).
+    _test-reconcile-orphaned) _reconcile_orphaned_in_progress "$@" ;;
     # _test-wd-guarded-write <issue> — exercise the watchdog ownership guard
     # (#312) deterministically, without the process-timing flakiness of a real
     # orphaned poll. Runs the exact guarded write the kill path performs:
@@ -3178,6 +3358,7 @@ case "$SUBCMD" in
   dispatch)   cmd_dispatch "$@" ;;
   promote-ready) cmd_promote_ready ;;
   auto-seed)  cmd_auto_seed ;;
+  reconcile-orphaned) cmd_reconcile_orphaned ;;
   remove-worktrees) cmd_remove_worktrees ;;
   check-halt) cmd_check_halt ;;
   *) echo "loop: unknown subcommand: $SUBCMD" >&2; exit 64 ;;
