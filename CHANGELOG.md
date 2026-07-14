@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.74.0](https://github.com/macatocz/makato/compare/v0.73.0...v0.74.0) (2026-07-14)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** reconcile orphaned In progress board cards ([#368](https://github.com/macatocz/makato/issues/368)) ([#414](https://github.com/macatocz/makato/issues/414)) ([7f8f8a1](https://github.com/macatocz/makato/commit/7f8f8a18a0a986a286dff57fb7ad8379103b6094))
+
 ## [0.73.0](https://github.com/macatocz/makato/compare/v0.72.0...v0.73.0) (2026-07-14)
 
 
