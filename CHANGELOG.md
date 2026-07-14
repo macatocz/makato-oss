@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.70.1](https://github.com/macatocz/makato/compare/v0.70.0...v0.70.1) (2026-07-14)
+
+
+### ♻️ Refactors
+
+* **makato-orchestrate:** rename scout agent to task-file-scout ([#397](https://github.com/macatocz/makato/issues/397)) ([#404](https://github.com/macatocz/makato/issues/404)) ([841d306](https://github.com/macatocz/makato/commit/841d306bd6ca3a83e5ce5c5b8052419c824cfb58))
+* **makato-plan:** rename grill skill to stress-test-artifact ([#397](https://github.com/macatocz/makato/issues/397)) ([#405](https://github.com/macatocz/makato/issues/405)) ([49b431d](https://github.com/macatocz/makato/commit/49b431d982c9d44df8608663829fce2eb8f8674e))
+
 ## [0.70.0](https://github.com/macatocz/makato/compare/v0.69.0...v0.70.0) (2026-07-14)
 
 
