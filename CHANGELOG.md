@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.56.1](https://github.com/macatocz/makato/compare/v0.56.0...v0.56.1) (2026-07-14)
+
+
+### 🐛 Bug Fixes
+
+* **makato-temporal:** route temporal-development via tech:temporal label ([#358](https://github.com/macatocz/makato/issues/358)) ([1a691a0](https://github.com/macatocz/makato/commit/1a691a04b88f96b3c66ebfe18b73cd2aedf4c5e0))
+
 ## [0.56.0](https://github.com/macatocz/makato/compare/v0.55.0...v0.56.0) (2026-07-13)
 
 
