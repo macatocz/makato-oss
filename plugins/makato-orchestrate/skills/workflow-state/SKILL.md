@@ -4,15 +4,16 @@ description: >-
   Read and write PO-agent resumable session state at
   `specs/<key>-<slug>/workflow-state-<issue>.json`. Per-issue file layout
   (#173) — multiple GitHub issues can share a story-level spec folder without
-  clobbering each other's audit trails. Provides eight subcommands
+  clobbering each other's audit trails. Provides nine subcommands
   (init / read / write / patch / append-lesson / append-halt /
-  recall-lessons / summarise-lessons) via `shared/workflow-state.sh`,
+  bump-structural-halt / recall-lessons / summarise-lessons) via
+  `shared/workflow-state.sh`,
   backed by a JSON Schema draft-07 contract. PO-agent (GAP-006 / #32) is
   the sole writer in production. Use when you need a resumable overlay
   over `build.jsonl` — the audit log captures forensics, this skill
   captures live loop state (sub-task graph, current phase, budget, HALT
   audit, structured lessons learned).
-version: "1.5.0"
+version: "1.6.0"
 argument-hint: "<subcommand> <key|repo> [<issue>] [args…]"
 ---
 
@@ -52,6 +53,7 @@ The full contract lives at @references/workflow-state.schema.json (draft-07, `ad
 | `outer_iteration` | integer ≥ 0 | HALT-008 fires at 3 |
 | `merge_conflict_cycles` | integer ≥ 0 | count of merge-conflict resolution attempts; HALT-008 fires independently at `MAKATO_MAX_MERGE_CONFLICT_CYCLES` (default 3) |
 | `ci_failure_cycles` | integer ≥ 0 | count of CI-failure fix attempts (#288); HALT-008 fires independently at `MAKATO_MAX_CI_FAILURE_CYCLES` (default 3) — kept separate from `outer_iteration` so transient CI noise does not consume the re-plan budget |
+| `structural_halt_cycles` | integer ≥ 0 | **durable cross-run** count of PO-agent runs on this issue that terminated on a structural HALT (#347, epic #319) — HALT-003, HALT-STRUCTURAL, HALT-010, HALT-008/origin=outer_iteration. Distinct from `outer_iteration` (within-run); never reset on a HALT-007B handoff. Written only via `bump-structural-halt`. Optional for pre-#347 in-flight state (readers default 0) |
 | `halt_audit` | array | append-only; see *halt_audit shape* |
 | `human_review_cycles` | integer ≥ 0 | count of `needs-human-review` labellings |
 | `github_pr_number` | integer \| null | set after `build-create-pr` succeeds |
@@ -71,7 +73,7 @@ The full contract lives at @references/workflow-state.schema.json (draft-07, `ad
 
 ## Operations
 
-Seven subcommands operate on per-issue state files at
+Eight subcommands operate on per-issue state files at
 `specs/<key>-<slug>/workflow-state-<ISSUE_NUMBER>.json` (#173) — spec-folder
 resolution still prefix-matches `specs/<key>-*/` (same convention as
 `build-log.sh`), then routes to the per-issue file. Every mutating and reading
@@ -144,6 +146,22 @@ shared/workflow-state.sh append-halt gap-003 26 HALT-007B \
 
 This subcommand replaces the open-coded read-merge-write pattern that previously lived in `scripts/context-handoff.sh` (`_append_halt_audit()`) and at every inline HALT-fire site in `agents/po-agent.md`. Callers MUST use `append-halt` rather than `patch .halt_audit ...` so the canonical entry shape and code-format validation stay in one place.
 
+### `bump-structural-halt <KEY> <ISSUE_NUMBER> <CODE> [<ORIGIN>]`
+
+Increment the durable `structural_halt_cycles` counter by exactly 1 — **but only** when `<CODE>` (with `<ORIGIN>` for HALT-008) names a structural HALT (#347, epic #319). The authoritative structural set is **HALT-003**, **HALT-STRUCTURAL**, **HALT-010**, and **HALT-008 with `<ORIGIN>` == `outer_iteration`**. Any other code — HALT-007 (cost), HALT-007B (context handoff), HALT-008 with origin `merge_conflict`/`ci_failure`, HALT-008 with no origin — is a documented **no-op**: the counter is left untouched and the command exits 0. A malformed code (not matching `HALT-NNN[A-Z]` / `HALT-STRUCTURAL`) is rejected. Prints the resulting counter value to stdout and, on a real increment, appends a `step: "structural_halt_increment"` entry to `orchestrate.jsonl`.
+
+```bash
+# structural — increments (e.g. 1 → 2):
+shared/workflow-state.sh bump-structural-halt gap-003 26 HALT-STRUCTURAL
+shared/workflow-state.sh bump-structural-halt gap-003 26 HALT-008 outer_iteration
+
+# non-structural — no-op (counter unchanged):
+shared/workflow-state.sh bump-structural-halt gap-003 26 HALT-007
+shared/workflow-state.sh bump-structural-halt gap-003 26 HALT-008 ci_failure
+```
+
+Called by the PO-agent **exactly once per run** at its terminal state (Step 7) so the counter measures cross-run recurrence of structural failure on the same issue — the property epic #319's AC-epic-1 needs to detect "repeated" structural HALT. It is **never** reset on a HALT-007B context handoff: the resumed session must read the same value the prior session persisted. Backward-compatible with pre-#347 in-flight state files — an absent field is treated as 0 and backfilled on the first structural increment. This counter drives the Needs Planning signal in sibling story #348.
+
 ### `recall-lessons <REPO> [N]`
 
 Aggregate `lessons_learned[]` across every `specs/*/workflow-state-*.json` whose `.repo` matches `<REPO>`. Returns the top-`N` (default 3) most recent lessons as a JSON array, sorted `(cycle DESC, ts DESC)`. Used by the PO-agent at session start (GAP-015 / #37 AC3) to warm-start the dispatch bundle with prior lessons from the same repository. The glob widened from `workflow-state.json` to `workflow-state-*.json` in #173 — legacy pre-migration files are picked up by their next read/mutate and thereafter appear in the aggregate view.
@@ -184,7 +202,7 @@ UPDATED_EPOCH=$(date -j -f "%Y-%m-%dT%H:%M:%S" \
 
 ## JSONL Audit Requirement
 
-Every mutating call (`init` / `write` / `patch` / `append-lesson` / `summarise-lessons`) **must** be followed by an `orchestrate.jsonl` entry from the calling skill. `recall-lessons` is read-only and does not require an audit entry. The helper does not write its own log — separation of concerns mirrors `build-log.sh` (which writes the log, not the data).
+Every mutating call (`init` / `write` / `patch` / `append-lesson` / `bump-structural-halt` / `summarise-lessons`) **must** be followed by an `orchestrate.jsonl` entry from the calling skill. `recall-lessons` is read-only and does not require an audit entry. `bump-structural-halt` additionally self-logs a `step: "structural_halt_increment"` entry on a real increment (a no-op logs nothing). The helper does not write its own data-mutation log — separation of concerns mirrors `build-log.sh` (which writes the log, not the data).
 
 Required audit shape:
 
@@ -227,4 +245,4 @@ All four are present on the repo's CI image and on standard developer machines.
 
 ## Verification
 
-Smoke tests live in @references/smoke-tests.sh — run from repo root after any change to `workflow-state.sh` or the schema. The script covers init/read/write/patch/append-lesson/recall-lessons/summarise-lessons, duplicate-init refusal, missing-file `{}` response, indexed-path patches, invalid-write halts, the GAP-015 / #37 lessons schema (enum violation, cycle integer guard, 200-char truncation, files_affected variadic, merge_conflict trigger, patch-preserves-lessons, recall filter by repo, summarise idempotency).
+Smoke tests live in @references/smoke-tests.sh — run from repo root after any change to `workflow-state.sh` or the schema. The script covers init/read/write/patch/append-lesson/append-halt/bump-structural-halt/recall-lessons/summarise-lessons, duplicate-init refusal, missing-file `{}` response, indexed-path patches, invalid-write halts, the GAP-015 / #37 lessons schema (enum violation, cycle integer guard, 200-char truncation, files_affected variadic, merge_conflict trigger, patch-preserves-lessons, recall filter by repo, summarise idempotency), and the #347 structural-HALT counter matrix (T47–T54: init default, HALT-STRUCTURAL / HALT-008-outer_iteration / HALT-003 / HALT-010 increments, non-structural no-ops incl. HALT-007B handoff, backward-compat backfill, malformed-code rejection).

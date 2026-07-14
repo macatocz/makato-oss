@@ -144,6 +144,11 @@
       "type": "boolean",
       "description": "Per-PR one-shot flag for the Step 6a flake probe (#312). Set true when the PO-agent re-runs a failed CI job (gh run rerun --failed) to distinguish a content-independent flaky failure from a reproducible regression BEFORE consuming a ci_failure_cycle. Reset to false on both probe outcomes (green re-run = flake, still-failing = reproducible) and on PR merge. Optional field: absent is treated as false, preserving backward compatibility with pre-#312 state files. Disabled entirely by MAKATO_LOOP_CI_FLAKE_PROBE=0."
     },
+    "structural_halt_cycles": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Durable cross-run counter of how many separate PO-agent runs on THIS issue terminated on a structural HALT (#347, epic #319). Incremented exactly once per run that ends on a structural-HALT code — the authoritative classification set is HALT-003 (structural blocker), HALT-STRUCTURAL, HALT-008 with data.origin == 'outer_iteration' (re-plan budget exhausted), and HALT-010. It is NOT incremented on non-structural terminations: HALT-007 (cost), HALT-007B (context handoff), or HALT-008 with origin merge_conflict/ci_failure. Distinct from outer_iteration (a within-run re-plan counter reset per run) — this is the cross-run recurrence property AC-epic-1 of #319 requires to make 'repeated structural failure on the same issue' detectable. NEVER reset on a HALT-007B context handoff: the resumed session must read the same value the prior session persisted. Initialised to 0 at init. Optional for backward compatibility with in-flight state files predating #347 — readers default it to 0 when absent."
+    },
     "halt_audit": {
       "type": "array",
       "description": "Immutable append-only log of HALT events. Each entry is written when a HALT code fires.",

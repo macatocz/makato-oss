@@ -5,6 +5,39 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## `workflow-state` 1.6.0 — durable per-issue `structural_halt_cycles` counter (#347, epic #319)
+
+Foundation story of epic #319 (HALT → planning feedback loop). No counter tracked how many
+times an issue terminated on a **structural** HALT across separate PO-agent runs —
+`outer_iteration`, `human_review_cycles`, `merge_conflict_cycles`, and `ci_failure_cycles` are all
+within-run and none captures "repeated structural failure on the same issue". Epic #319's
+AC-epic-1 needs that cross-run recurrence property to be detectable. This story adds the durable
+counter; sibling stories #348 (emit Needs Planning signal) and #349 (reshape context packet) build
+on it.
+
+- **Schema** — new optional top-level field `structural_halt_cycles` (integer ≥ 0). Left OUT of
+  `required` so the schema still validates the in-flight, gitignored `workflow-state-*.json` files
+  written before this bump (same backward-compat precedent as `session_baseline_tokens` #281 and
+  `flake_rerun_pending` #312); readers default an absent field to 0.
+- **`shared/workflow-state.sh`** — `init` seeds `structural_halt_cycles: 0` alongside the existing
+  counters. New subcommand **`bump-structural-halt <KEY> <ISSUE> <CODE> [<ORIGIN>]`** increments the
+  counter by exactly 1 **iff** `(CODE, ORIGIN)` is a structural HALT — the authoritative set is
+  HALT-003, HALT-STRUCTURAL, HALT-010, and HALT-008 with `ORIGIN == outer_iteration`. Every other
+  code (HALT-007, HALT-007B, HALT-008 with origin `merge_conflict`/`ci_failure`/none) is a
+  documented **no-op** (counter untouched, exit 0). Malformed codes are rejected. Prints the
+  resulting value; self-logs a `step: "structural_halt_increment"` entry to `orchestrate.jsonl` on a
+  real increment. Absent-field backward-compat: treated as 0 and backfilled on first structural bump.
+- **`agents/po-agent.md`** — Step 7 (session-end) now calls `bump-structural-halt` once per run on a
+  HALT termination, passing the `halt_audit[]` `data.origin` for HALT-008. Documents the HALT-007B
+  exception: the handoff path (Step 4b) returns `partial`/HANDOFF before Step 7, and the helper
+  classifies HALT-007B as non-structural, so the counter is never reset across a context handoff —
+  a resumed session reads the same value the prior session persisted.
+- **Tests** — `references/smoke-tests.sh` grows T47–T54 covering the #347 draft scenarios
+  (structural increment, non-structural no-op, handoff-does-not-reset) plus init default,
+  backward-compat backfill, and malformed-code rejection (46 → 54 assertions). The whole
+  workflow-state suite is now wired into `.github/workflows/validate.yml` (it was previously not run
+  in CI).
+
 ## po-agent — emit reshape-request on structural HALT (#349, epic #319)
 
 Third story of epic #319 (HALT → planning feedback loop). Wires

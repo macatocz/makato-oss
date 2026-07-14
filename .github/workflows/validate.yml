@@ -65,6 +65,9 @@ jobs:
       - name: dependency-aware promote-ready smoke tests (#268)
         run: ./plugins/makato-orchestrate/scripts/promote-ready-smoke-tests.sh
 
+      - name: workflow-state smoke tests (#173/#284/#317/#347)
+        run: ./plugins/makato-orchestrate/skills/workflow-state/references/smoke-tests.sh
+
   pr-title:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest

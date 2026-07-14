@@ -515,5 +515,104 @@ echo "$WARN_OUT" | grep -q "WARN" ||   { echo "  ✗ FAIL: WARN tag not in warni
 rm -rf "$SANDBOX_317"
 echo "  ✓ missing jsonschema emits degraded warning; run still succeeds"
 
+# ================================================================
+# #347 — durable per-issue structural_halt_cycles counter (epic #319)
+#
+# Foundation story: a cross-run counter that increments exactly once
+# per PO-agent run terminating on a STRUCTURAL HALT. The authoritative
+# structural set is HALT-003, HALT-STRUCTURAL, HALT-010, and HALT-008
+# with origin == outer_iteration. Everything else is a no-op.
+#
+# Covers the three issue #347 draft scenarios plus the init default,
+# backward-compat (field absent), and shell-level validation.
+# ================================================================
+
+echo "=== T47: #347 — structural_halt_cycles seeded at init with default 0 ==="
+KEY_347="issue-347-structural-halt"
+SANDBOX_347="$REPO_ROOT/specs/${KEY_347}"
+rm -rf "$SANDBOX_347"; mkdir -p "$SANDBOX_347"
+"$WS" init "$KEY_347" macatocz/test feat/347 347 >/dev/null 2>&1
+"$WS" read "$KEY_347" 347 | jq -e '.structural_halt_cycles == 0' > /dev/null || { echo "  ✗ FAIL: default not 0"; exit 1; }
+echo "  ✓ structural_halt_cycles default 0"
+
+echo "=== T48: #347 Scenario 1 — HALT-STRUCTURAL increments the counter ==="
+# Seed to 1 to mirror the scenario's Given.
+"$WS" patch "$KEY_347" 347 .structural_halt_cycles '1' >/dev/null
+OUT=$("$WS" bump-structural-halt "$KEY_347" 347 HALT-STRUCTURAL)
+[[ "$OUT" == "2" ]] || { echo "  ✗ FAIL: expected stdout 2, got '$OUT'"; exit 1; }
+"$WS" read "$KEY_347" 347 | jq -e '.structural_halt_cycles == 2' > /dev/null || { echo "  ✗ FAIL: persisted value not 2"; exit 1; }
+echo "  ✓ HALT-STRUCTURAL: 1 → 2, persisted and echoed"
+
+echo "=== T49: #347 Scenario 1 — HALT-008 origin outer_iteration is structural ==="
+OUT=$("$WS" bump-structural-halt "$KEY_347" 347 HALT-008 outer_iteration)
+[[ "$OUT" == "3" ]] || { echo "  ✗ FAIL: expected 3, got '$OUT'"; exit 1; }
+"$WS" read "$KEY_347" 347 | jq -e '.structural_halt_cycles == 3' > /dev/null || { echo "  ✗ FAIL: persisted value not 3"; exit 1; }
+echo "  ✓ HALT-008/outer_iteration: 2 → 3 (structural)"
+
+echo "=== T50: #347 — HALT-003 and HALT-010 are structural ==="
+"$WS" patch "$KEY_347" 347 .structural_halt_cycles '0' >/dev/null
+OUT=$("$WS" bump-structural-halt "$KEY_347" 347 HALT-003)
+[[ "$OUT" == "1" ]] || { echo "  ✗ FAIL: HALT-003 expected 1, got '$OUT'"; exit 1; }
+OUT=$("$WS" bump-structural-halt "$KEY_347" 347 HALT-010)
+[[ "$OUT" == "2" ]] || { echo "  ✗ FAIL: HALT-010 expected 2, got '$OUT'"; exit 1; }
+echo "  ✓ HALT-003 and HALT-010 each increment"
+
+echo "=== T51: #347 Scenario 2 — non-structural HALTs leave the counter untouched ==="
+# Given structural_halt_cycles = 1.
+"$WS" patch "$KEY_347" 347 .structural_halt_cycles '1' >/dev/null
+# HALT-007 (cost) — no-op.
+OUT=$("$WS" bump-structural-halt "$KEY_347" 347 HALT-007)
+[[ "$OUT" == "1" ]] || { echo "  ✗ FAIL: HALT-007 changed counter to '$OUT'"; exit 1; }
+# HALT-007B (context handoff) — no-op.
+OUT=$("$WS" bump-structural-halt "$KEY_347" 347 HALT-007B)
+[[ "$OUT" == "1" ]] || { echo "  ✗ FAIL: HALT-007B changed counter to '$OUT'"; exit 1; }
+# HALT-008 with origin merge_conflict — no-op.
+OUT=$("$WS" bump-structural-halt "$KEY_347" 347 HALT-008 merge_conflict)
+[[ "$OUT" == "1" ]] || { echo "  ✗ FAIL: HALT-008/merge_conflict changed counter to '$OUT'"; exit 1; }
+# HALT-008 with origin ci_failure — no-op.
+OUT=$("$WS" bump-structural-halt "$KEY_347" 347 HALT-008 ci_failure)
+[[ "$OUT" == "1" ]] || { echo "  ✗ FAIL: HALT-008/ci_failure changed counter to '$OUT'"; exit 1; }
+# HALT-008 with NO origin — not classified structural (origin unknown), no-op.
+OUT=$("$WS" bump-structural-halt "$KEY_347" 347 HALT-008)
+[[ "$OUT" == "1" ]] || { echo "  ✗ FAIL: HALT-008 (no origin) changed counter to '$OUT'"; exit 1; }
+"$WS" read "$KEY_347" 347 | jq -e '.structural_halt_cycles == 1' > /dev/null || { echo "  ✗ FAIL: persisted value drifted from 1"; exit 1; }
+echo "  ✓ HALT-007 / HALT-007B / HALT-008(merge_conflict|ci_failure|none) are all no-ops"
+
+echo "=== T52: #347 Scenario 3 — context handoff (HALT-007B) does not reset the counter ==="
+# Given structural_halt_cycles = 2; a HALT-007B classification must be a no-op
+# so the resumed session reads the same value.
+"$WS" patch "$KEY_347" 347 .structural_halt_cycles '2' >/dev/null
+"$WS" bump-structural-halt "$KEY_347" 347 HALT-007B >/dev/null
+# Simulate the handoff round-trip: session_baseline advances, handoff_reason set —
+# none of which may touch structural_halt_cycles.
+"$WS" patch "$KEY_347" 347 .handoff_reason '"context_ceiling"' >/dev/null
+"$WS" read "$KEY_347" 347 | jq -e '.structural_halt_cycles == 2' > /dev/null || { echo "  ✗ FAIL: counter reset across handoff"; exit 1; }
+echo "  ✓ counter survives HALT-007B handoff unchanged (== 2)"
+
+echo "=== T53: #347 — backward compat: field absent defaults to 0 on increment ==="
+# Delete the field entirely to mimic a pre-#347 in-flight state file, then a
+# structural bump must treat the missing field as 0 and write 1.
+"$WS" write "$KEY_347" 347 "$("$WS" read "$KEY_347" 347 | jq 'del(.structural_halt_cycles)')" >/dev/null
+"$WS" read "$KEY_347" 347 | jq -e 'has("structural_halt_cycles") | not' > /dev/null || { echo "  ✗ FAIL: field not actually deleted"; exit 1; }
+OUT=$("$WS" bump-structural-halt "$KEY_347" 347 HALT-STRUCTURAL)
+[[ "$OUT" == "1" ]] || { echo "  ✗ FAIL: absent field did not default to 0 (got '$OUT')"; exit 1; }
+"$WS" read "$KEY_347" 347 | jq -e '.structural_halt_cycles == 1' > /dev/null || { echo "  ✗ FAIL: field not backfilled to 1"; exit 1; }
+echo "  ✓ absent field treated as 0 and backfilled on structural bump"
+
+echo "=== T54: #347 — bump-structural-halt rejects a malformed HALT code ==="
+if "$WS" bump-structural-halt "$KEY_347" 347 NOT-A-HALT 2>/dev/null; then
+  echo "  ✗ FAIL: malformed code accepted"; exit 1
+fi
+# Non-structural no-op must NOT emit an orchestrate.jsonl increment line.
+"$WS" bump-structural-halt "$KEY_347" 347 HALT-007 >/dev/null
+if [[ -f "$SANDBOX_347/build.jsonl" ]]; then
+  # No increment entry may ever carry a non-structural halt_code. Filter to
+  # increment lines only, then assert none of them is HALT-007.
+  BAD=$(jq -rc 'select(.step == "structural_halt_increment") | .data.halt_code' "$SANDBOX_347/build.jsonl" 2>/dev/null | grep -c '^HALT-007$' || true)
+  [[ "$BAD" == "0" ]] || { echo "  ✗ FAIL: non-structural HALT-007 logged an increment"; exit 1; }
+fi
+echo "  ✓ malformed code rejected; non-structural code logs no increment"
+rm -rf "$SANDBOX_347"
+
 echo
-echo "All 46 smoke tests passed."
+echo "All 54 smoke tests passed."

@@ -24,6 +24,16 @@
 #       FILE…: zero or more repo-relative paths (variadic).
 #   append-halt <KEY> <ISSUE_NUMBER> <CODE> <JSON-DATA>
 #       Append {code, ts, data} to halt_audit[].
+#   bump-structural-halt <KEY> <ISSUE_NUMBER> <CODE> [ORIGIN]
+#       Increment structural_halt_cycles by 1 IFF <CODE> (with optional
+#       <ORIGIN> for HALT-008) is a structural HALT (#347, epic #319). The
+#       authoritative structural set is HALT-003, HALT-STRUCTURAL, HALT-010,
+#       and HALT-008 with ORIGIN == outer_iteration. Non-structural codes
+#       (HALT-007, HALT-007B, HALT-008 with origin merge_conflict/ci_failure,
+#       any other code) are a no-op — the counter is left untouched and the
+#       command exits 0. Called by the PO-agent EXACTLY ONCE per run at its
+#       terminal state (Step 7), so the counter measures cross-run recurrence,
+#       never within-run retries. Prints the resulting counter value to stdout.
 #   recall-lessons <REPO> [N]
 #       Print the top-N most recent lessons across every
 #       specs/*/workflow-state-*.json whose .repo == REPO (default N=3). Output is
@@ -52,7 +62,7 @@
 # precedent.
 set -euo pipefail
 
-SUBCMD="${1:?subcommand required: init|read|write|patch|append-lesson|append-halt|recall-lessons|summarise-lessons}"
+SUBCMD="${1:?subcommand required: init|read|write|patch|append-lesson|append-halt|bump-structural-halt|recall-lessons|summarise-lessons}"
 # recall-lessons takes REPO as positional #2 (not KEY) — every other subcommand
 # takes KEY. Resolve generically and have each subcommand re-bind the variable.
 ARG2="${2:?second arg required (KEY for most subcommands, REPO for recall-lessons)}"
@@ -402,6 +412,7 @@ case "$SUBCMD" in
         outer_iteration: 0,
         merge_conflict_cycles: 0,
         ci_failure_cycles: 0,
+        structural_halt_cycles: 0,
         halt_audit: [],
         human_review_cycles: 0,
         github_pr_number: null,
@@ -607,8 +618,118 @@ case "$SUBCMD" in
     _validate "$PATCHED"
     _atomic_write "$PATCHED"
     ;;
+
+  # -------------------------------------------------------------------------
+  # bump-structural-halt <KEY> <ISSUE_NUMBER> <CODE> [ORIGIN]
   #
-  # Aggregate lessons across every specs/*/workflow-state-*.json whose .repo
+  # Increment structural_halt_cycles by exactly 1 IFF (CODE, ORIGIN) names a
+  # structural HALT (#347, epic #319). This is the durable, cross-run
+  # recurrence counter that AC-epic-1 of #319 needs to detect "repeated
+  # structural failure on the same issue".
+  #
+  # Authoritative structural-HALT classification set:
+  #   - HALT-003        (structural blocker — CRITICAL findings / STRUCTURAL MUST-FIX)
+  #   - HALT-STRUCTURAL (a sub-agent escalated to refine and refine also failed)
+  #   - HALT-010        (human_review_cycles ceiling — repeated re-shape need)
+  #   - HALT-008 WITH ORIGIN == outer_iteration (re-plan budget exhausted)
+  #
+  # Explicitly NON-structural (no-op — counter untouched, exit 0):
+  #   - HALT-007        (cost ceiling)
+  #   - HALT-007B       (context handoff — quality control, run CONTINUES)
+  #   - HALT-008 with ORIGIN merge_conflict | ci_failure (transient, not a
+  #     structural defect of the story)
+  #   - any other / unknown code
+  #
+  # The PO-agent calls this EXACTLY ONCE per run at its terminal state
+  # (Step 7), so the counter reflects cross-run recurrence and never conflates
+  # with the within-run outer_iteration counter. HALT-007B is deliberately a
+  # no-op: the run has not terminated, it is handing off to a fresh session,
+  # and that session MUST read the same structural_halt_cycles value — this is
+  # the "context handoff does not reset the counter" contract (Scenario 3).
+  #
+  # Emits a JSONL audit line to orchestrate.jsonl on a real increment.
+  # Prints the resulting counter value to stdout (unchanged on a no-op).
+  # -------------------------------------------------------------------------
+  bump-structural-halt)
+    ISSUE_NUMBER="${3:?issue_number required}"
+    CODE="${4:?halt code required (e.g. HALT-008, HALT-STRUCTURAL)}"
+    ORIGIN="${5:-}"
+    _prepare_state_file "$ISSUE_NUMBER"
+
+    if [[ ! -f "$STATE_FILE" ]]; then
+      echo "workflow-state: $STATE_FILE not found — run 'init' first" >&2
+      exit 1
+    fi
+
+    # Validate CODE shape (same gate as append-halt) so a typo is caught
+    # rather than silently classified as non-structural.
+    if [[ ! "$CODE" =~ ^HALT-([0-9]{3}[A-Z]?|STRUCTURAL)$ ]]; then
+      echo "workflow-state: halt code must match HALT-NNN, HALT-NNN[A-Z], or HALT-STRUCTURAL (got '$CODE')" >&2
+      exit 1
+    fi
+
+    # Authoritative structural classification. HALT-008 is structural ONLY
+    # when its origin is the outer_iteration (re-plan) budget; the
+    # merge_conflict and ci_failure origins are transient and excluded.
+    is_structural=0
+    case "$CODE" in
+      HALT-003|HALT-STRUCTURAL|HALT-010)
+        is_structural=1
+        ;;
+      HALT-008)
+        if [[ "$ORIGIN" == "outer_iteration" ]]; then
+          is_structural=1
+        fi
+        ;;
+    esac
+
+    # Current counter — default 0 for backward compatibility with in-flight
+    # state files predating #347 (the field is optional in the schema).
+    CURRENT="$(jq -r '.structural_halt_cycles // 0' "$STATE_FILE")"
+
+    if (( is_structural == 0 )); then
+      # Non-structural HALT (or HALT-008 with a non-outer_iteration origin):
+      # leave the counter untouched. Exit 0 — this is the documented no-op.
+      echo "$CURRENT"
+      exit 0
+    fi
+
+    NOW="$(_now)"
+    NEXT=$(( CURRENT + 1 ))
+
+    # Patch the counter. Also backfill the field to CURRENT first via `// 0`
+    # so a pre-#347 file that lacks the field gains it on the increment.
+    PATCHED="$(jq \
+      --argjson next "$NEXT" \
+      --arg now "$NOW" \
+      '.structural_halt_cycles = $next | .updated_at = $now' \
+      "$STATE_FILE")"
+
+    _validate "$PATCHED"
+    _atomic_write "$PATCHED"
+
+    # Audit the increment to orchestrate.jsonl (best-effort — logging must
+    # never fail the state mutation). Mirrors the dual-write convention in
+    # halt-conditions.md: halt_audit[] for live state, orchestrate.jsonl for
+    # the cross-session audit trail.
+    if [[ -x "$REPO_ROOT/plugins/makato-build/shared/build-log.sh" ]]; then
+      LOG_ENTRY="$(jq -n \
+        --arg ts "$NOW" \
+        --argjson issue "$ISSUE_NUMBER" \
+        --arg code "$CODE" \
+        --arg origin "$ORIGIN" \
+        --argjson before "$CURRENT" \
+        --argjson after "$NEXT" \
+        '{ts: $ts, skill: "workflow-state", issue: $issue, step: "structural_halt_increment",
+          status: "warn",
+          data: {halt_code: $code, origin: (if $origin == "" then null else $origin end),
+                 structural_halt_cycles_before: $before, structural_halt_cycles: $after}}')"
+      "$REPO_ROOT/plugins/makato-build/shared/build-log.sh" "$KEY" "$LOG_ENTRY" 2>/dev/null || true
+    fi
+
+    echo "$NEXT"
+    ;;
+  #
   # matches REPO. Print the top-N (default 3) most recent lessons as a JSON
   # array, sorted by (cycle DESC, ts DESC). Used by the PO-agent at session
   # start (GAP-015 / #37 AC3) to inject warm-start context.
@@ -699,7 +820,7 @@ case "$SUBCMD" in
     ;;
 
   *)
-    echo "workflow-state: unknown subcommand '$SUBCMD'. Valid: init|read|write|patch|append-lesson|append-halt|recall-lessons|summarise-lessons" >&2
+    echo "workflow-state: unknown subcommand '$SUBCMD'. Valid: init|read|write|patch|append-lesson|append-halt|bump-structural-halt|recall-lessons|summarise-lessons" >&2
     exit 1
     ;;
 esac
