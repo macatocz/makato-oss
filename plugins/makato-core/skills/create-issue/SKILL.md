@@ -1,7 +1,7 @@
 ---
 name: create-issue
 description: File a structured issue against the makato repo with the correct template, [plugin-name] title prefix, and labels — file issue, report bug, feature request, AI agent issue, file bug, open issue
-version: "1.1.0"
+version: "1.2.0"
 ---
 
 # create-issue
@@ -77,6 +77,33 @@ Load @references/label-conventions.md.
 
 Apply the matching type label (`bug`, `enhancement`, `documentation`) and plugin label (`plugin:<scope>`, omitted for `repo-wide`). Verify with `GH_HOST=github.com gh label list --repo "$TARGET_REPO"`; create missing `plugin:*` labels using the colors in the reference.
 
+### Step 5.5: Infer and apply plan-tier label
+
+Infer the plan tier in priority order:
+
+1. `type=bug` → `plan-tier:change`
+2. `type=feature` or `type=docs`, and the body contains any of: `architecture`, `migration`, `breaking`, `multi-phase`, `epic`, `multiple stories` → `plan-tier:full`
+3. All other `feature`/`docs` → `plan-tier:light`
+
+Create the label if it does not exist in the repo (color `FBCA04`, description `Plan tier for autonomous dispatch`):
+
+```bash
+gh label create "plan-tier:<tier>" \
+  --repo "$TARGET_REPO" \
+  --color "FBCA04" \
+  --description "Plan tier for autonomous dispatch" 2>/dev/null || true
+```
+
+Apply the label to the issue immediately after it is filed (Step 7) — store `PLAN_TIER` for use in Steps 8.5 and 8.6:
+
+```bash
+GH_HOST=github.com gh issue edit "$ISSUE_NUMBER" \
+  --repo "$TARGET_REPO" \
+  --add-label "plan-tier:$PLAN_TIER"
+```
+
+Log `[create-issue] plan-tier: <tier>`.
+
 ### Step 6: Log assembled issue (no confirmation required)
 
 Log the assembled title, body, and labels to stdout for audit purposes, then proceed directly to Step 7. Do not wait for user input.
@@ -101,6 +128,96 @@ GH_HOST=github.com gh issue create \
 
 Omit the second `--label` flag for `repo-wide`.
 
-### Step 8: Report
+Capture the issue number and URL from the `gh` output for use in later steps:
 
-Print the issue URL and labels applied. Clean up the temp file.
+```bash
+ISSUE_URL="$(GH_HOST=github.com gh issue create ...)"  # gh prints the URL to stdout
+ISSUE_NUMBER="$(echo "$ISSUE_URL" | grep -oE '[0-9]+$')"
+```
+
+Apply the `plan-tier:<tier>` label (resolved in Step 5.5):
+
+```bash
+GH_HOST=github.com gh issue edit "$ISSUE_NUMBER" \
+  --repo "$TARGET_REPO" \
+  --add-label "plan-tier:$PLAN_TIER"
+```
+
+### Step 8.5: Board placement via issue-to-project (conditional)
+
+**Preconditions — skip with WARN if either fails:**
+
+```bash
+ITP_SKILL="$REPO_ROOT/plugins/makato-plan/skills/issue-to-project/SKILL.md"
+[[ -f "$ITP_SKILL" ]] || { echo "[create-issue] WARN: SKIP issue-to-project — skill not found at $ITP_SKILL"; ITP_SKIP=1; }
+python3 -c "import json; json.load(open('$REPO_ROOT/.claude/config.json'))['github_project']" 2>/dev/null \
+  || { echo "[create-issue] WARN: SKIP issue-to-project — github_project not configured in .claude/config.json"; ITP_SKIP=1; }
+```
+
+**When both preconditions pass:**
+
+1. Derive slug (mirrors seed-issue Step 4 algorithm):
+   ```bash
+   SLUG="$(echo "$ISSUE_TITLE" | tr '[:upper:]' '[:lower:]' \
+     | sed 's/[^a-z0-9]/-/g; s/-\+/-/g; s/^-//; s/-$//' \
+     | cut -c1-40 | sed 's/-$//')"
+   SPEC_SLUG="${ISSUE_NUMBER}-${SLUG}"
+   ```
+
+2. Create spec folder and write a minimal `created-issues.json`:
+   ```bash
+   mkdir -p "$REPO_ROOT/specs/$SPEC_SLUG"
+   ```
+   Write `$REPO_ROOT/specs/$SPEC_SLUG/created-issues.json`:
+   ```json
+   {
+     "slug": "<SPEC_SLUG>",
+     "repo": "<TARGET_REPO>",
+     "issues": [
+       {
+         "number": <ISSUE_NUMBER>,
+         "html_url": "<ISSUE_URL>",
+         "title": "<ISSUE_TITLE>",
+         "labels": ["<type-label>", "<plugin-label-or-omit>", "plan-tier:<PLAN_TIER>"]
+       }
+     ]
+   }
+   ```
+   Omit the plugin label entry for `repo-wide` issues (no plugin label on the issue).
+
+3. Invoke the skill:
+   Use the Skill tool to invoke `/makato-plan:issue-to-project <SPEC_SLUG>`.
+
+   If the Skill tool call fails for any reason, log `[create-issue] WARN: issue-to-project failed — issue filed but not yet on board` and continue. Never abort.
+
+### Step 8.6: Seed via seed-issue (conditional)
+
+**Precondition — skip with WARN if fails:**
+
+```bash
+SEED_SKILL="$REPO_ROOT/plugins/makato-orchestrate/skills/seed-issue/SKILL.md"
+[[ -f "$SEED_SKILL" ]] || { echo "[create-issue] WARN: SKIP seed-issue — skill not found at $SEED_SKILL"; SEED_SKIP=1; }
+```
+
+**When precondition passes:**
+
+Invoke the skill:
+Use the Skill tool to invoke `/makato-orchestrate:seed-issue <ISSUE_NUMBER>`.
+
+seed-issue reads the `plan-tier:*` label already on the issue, classifies new-work vs change from `type:feature`/`type:change`, adds the provenance footer, stamps `status:ready-for-dev`, and moves the board card to `Status=Ready`. No `--type` flag needed.
+
+If the Skill tool call fails, log `[create-issue] WARN: seed-issue failed — issue filed but not seeded for autonomous dispatch` and continue. Never abort.
+
+### Step 9: Report
+
+Print the issue URL and a summary of every step taken or skipped:
+
+```
+[create-issue] done:
+  issue    : #<N> <URL>
+  labels   : <type-label>, <plugin-label>, plan-tier:<tier>
+  board    : added via issue-to-project ✓  /  SKIP (<reason>)
+  seeded   : status:ready-for-dev stamped via seed-issue ✓  /  SKIP (<reason>)
+```
+
+Clean up the temp file.
