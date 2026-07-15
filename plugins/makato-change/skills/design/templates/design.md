@@ -281,3 +281,18 @@
 **User approved:** <Yes/No/Pending>
 **Approval date:** <date, if approved>
 **Changes requested:** <if any>
+
+---
+
+## Recommended Skills
+
+<!--
+  Populated by the `design` skill Step 4.5 inject-skills resolver.
+  Only present when the resolver returns a non-empty list for the affected-file set.
+  The `execute` skill Step 2.1 reads this section and forwards the list to
+  `change-implementer` as RECOMMENDED_SKILLS.
+  Omit this section entirely when the list is empty — do NOT write an empty array.
+-->
+
+- <skill-id-1>
+- <skill-id-2>

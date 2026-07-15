@@ -104,8 +104,13 @@ so far — and gives technology skills (including the mandatory `context7`) a na
 point, mirroring `makato-build`'s isolated `coder`. See `agents/change-implementer.md`.
 
 **2.1: Resolve recommended skills (optional).** If the design artifact carries a
-`recommended_skills[]` field for this change, capture it to forward below. When absent, omit
-the field entirely — do NOT pass an empty array. Independently of this field, the
+`## Recommended Skills` section, parse the bullet list and capture it as
+`recommended_skills[]` to forward below. This field is populated by `design` Step 4.5,
+which calls the inject-skills resolver on the affected-file set — the same resolver
+`knowledge-scout` Step 0e uses — and writes the result into design.md automatically.
+For change requests designed before this feature shipped, or for runs where the
+resolver returned no results, the section will be absent: omit the field entirely in
+that case — do NOT pass an empty array. Independently of this field, the
 `change-implementer` agent always performs the mandatory `context7` lookup for any library the
 change touches (routing for source files is provided cross-plugin by makato-doc's
 `doc-code-docs` bundle; the agent prompt enforces it at the write phase regardless of routing).

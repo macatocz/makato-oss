@@ -1,7 +1,7 @@
 ---
 name: design
 description: Design technical approach for change request by discovering affected code, planning solution, and updating GitHub issue with implementation strategy. Use for technical design, solution planning, code discovery, implementation approach.
-version: "1.2.0"
+version: "1.3.0"
 argument-hint: "[ISSUE-KEY]"
 ---
 
@@ -182,6 +182,42 @@ Extract FEATURE_KEYWORDS by identifying key terms from analysis artifact:
 - List of files to modify (with descriptions)
 - Existing patterns to follow (naming, error handling, testing)
 - Dependencies to consider
+
+### Step 4.5: Resolve Recommended Skills
+
+After the affected-file set is known from Step 4, resolve the technology skills that apply
+to those files using the same resolver `knowledge-scout` Step 0e uses. This closes the
+asymmetry with `makato-build`: change requests now get glob-based technology-skill routing
+automatically, not only when a human hand-writes `recommended_skills[]` in design.md.
+
+**Resolution:**
+
+1. Resolve the makato checkout root — the directory whose `plugins/` subtree contains the
+   installed plugins. When the skill is running inside a git worktree the root is:
+   ```bash
+   MAKATO_ROOT="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)"
+   ```
+   Fallback: `$(git rev-parse --show-toplevel)` if the common-dir strategy fails.
+
+2. Call the inject-skills resolver on the **affected-file paths from Step 4** (project-relative
+   paths, same form `knowledge-scout` passes):
+   ```python
+   import sys
+   sys.path.insert(0, f"{MAKATO_ROOT}/plugins/makato-build/shared")
+   from inject_skills import resolve_skills_for_repo
+   recommended_skills, warnings = resolve_skills_for_repo(AFFECTED_FILES, MAKATO_ROOT)
+   ```
+
+3. Capture the ordered, deduplicated `recommended_skills` list. Store it in working memory
+   as `RECOMMENDED_SKILLS_RESULT`.
+
+4. Log any `missing-skills` warnings at `warn` level — a referenced-but-uninstalled skill
+   is expected and non-fatal (D18).
+
+**Best-effort contract:** a resolver failure (import error, `BundleResolutionError`, any
+exception) logs a single warning line and sets `RECOMMENDED_SKILLS_RESULT = []`. This step
+NEVER blocks the design phase — it mirrors the warning-not-fatal contract `knowledge-scout`
+uses. An empty result omits the `## Recommended Skills` section from design.md (Task 2).
 
 ### Step 5: Load Test Analysis (Cached from Analyze Phase)
 
@@ -387,6 +423,20 @@ Write the complete design to `specs/<issue-key>/design.md`:
 6. **Test Scope** — Module-only or full suite, with justification
 7. **Risks** — Unknowns, blockers, technical concerns
 8. **Supporting Components** — New UI elements, helpers, config changes
+9. **Recommended Skills** *(conditional)* — Emit this section only when `RECOMMENDED_SKILLS_RESULT`
+   from Step 4.5 is non-empty. When the list is empty, omit the section entirely — do NOT
+   write an empty array. This is what `execute` Step 2.1 reads and forwards to
+   `change-implementer` as `RECOMMENDED_SKILLS`.
+
+   Format (one skill per line, matching the `plugin:skill-id` or bare `skill-id` convention
+   `execute` Step 2.2 and `change-implementer` expect):
+
+   ```markdown
+   ## Recommended Skills
+
+   - <skill-id-1>
+   - <skill-id-2>
+   ```
 
 Link back to the analysis artifact for traceability:
 > Analysis: `specs/<issue-key>/analysis.md`

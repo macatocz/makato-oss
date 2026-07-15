@@ -1,6 +1,48 @@
 <!-- markdownlint-disable MD012 MD013 -->
 # Changelog
 
+## Glob-based skill injection in design skill — closes makato-build asymmetry (v1.3.0)
+
+Closes the gap documented in #429: change requests now receive the same technology-skill
+routing that `makato-build`'s `coder` gets automatically, without requiring a human to
+hand-write `recommended_skills[]` in design.md.
+
+**Root cause:** `makato-build`'s `coder` receives technology skills via `knowledge-scout`
+Step 0e → `resolve_skills_for_repo(changed_files, MAKATO_ROOT)` → `plan.md`
+`recommended_skills[]` → coder dispatch. `makato-change`'s `change-implementer` had no
+equivalent step — nothing ever called the inject-skills resolver, so the field was absent
+from design.md unless a human added it manually.
+
+**Changes:**
+
+- **`plugins/makato-change/skills/design/SKILL.md`** (`v1.2.0 → v1.3.0`) — adds
+  **Step 4.5: Resolve recommended skills**, inserted after Step 4 (affected-file set
+  known) and before Step 9 (design.md written). The step calls
+  `resolve_skills_for_repo(AFFECTED_FILES, MAKATO_ROOT)` from
+  `plugins/makato-build/shared/inject_skills.py` — the same cross-plugin resolver
+  `knowledge-scout` uses — and stores the result as `RECOMMENDED_SKILLS_RESULT`.
+  Best-effort: resolver failure or empty result logs a warning, never blocks the design
+  phase. Updates Step 9 to emit the `## Recommended Skills` section from the result; omits
+  the section entirely when the list is empty (mirrors the execute Step 2.1 contract).
+
+- **`plugins/makato-change/skills/design/templates/design.md`** — adds a
+  `## Recommended Skills` section at the end of the template with an inline comment
+  explaining the execute Step 2.1 forward wiring and the omit-when-empty contract.
+
+- **`plugins/makato-change/skills/execute/SKILL.md`** — updates Step 2.1 prose to
+  reference `design` Step 4.5 as the authoritative source of `recommended_skills[]`,
+  replacing wording that implied the field was only ever hand-inserted.
+
+- **`plugins/makato-change/shared/skill-injection-smoke-tests.sh`** (new) — 13-scenario
+  smoke test covering: technology skill routing for FastAPI/Postgres/LangGraph affected-file
+  sets (AC-7a), design.md template structure (AC-7b), execute Step 2.1/2.2 wiring (AC-7c),
+  and empty-result/no-flood contract (AC-7d). Follows the `tests/integration/skill-bundles-aggregate.sh`
+  pattern.
+
+**Unchanged:** the mandatory `context7` lookup in `change-implementer` is unaffected —
+still enforced unconditionally at the write phase. The `execute` Step 2.2 dispatch
+mechanics are unchanged; only the Step 2.1 documentation was updated. Resolves #429.
+
 ## change-implementer write-subagent for execute (v1.2.0)
 
 Introduces a write-capable `change-implementer` agent (analogue of `makato-build`'s `coder`).
