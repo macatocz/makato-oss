@@ -17,7 +17,7 @@ Every issue created by `to-issues` carries one label from each applicable dimens
 | **phase** *(v3.3.0+)* | `stories[].labels[]` `phase:*` → legacy `metadata.phase` (enum: `1`–`5`) — distinct from `tier:`, this is execution-order classification not vertical-slice classification; never derived from `stories[].phase`. Bare digits — **not** P-prefixed (the `p` prefix is reserved for `priority:*`). | `phase:1`, `phase:2`, `phase:3`, `phase:4`, `phase:5` |
 | **effort** *(v3.3.0+)* | `stories[].labels[]` `effort:*` → legacy `metadata.effort` (enum: `s` / `m` / `l` / `xl`) — t-shirt sizing | `effort:s`, `effort:m`, `effort:l`, `effort:xl` |
 | **points** *(v3.4.0+)* | `stories[].labels[]` `points:*` → legacy `metadata.points` → derived from `stories[].storyPoints` → derived from `effort` via SIZE_MAP — consumed by `issue-to-project` for the Estimate number field | `points:1`, `points:3`, `points:8`, `points:13` |
-| **priority** *(v3.3.0+)* | `stories[].labels[]` `priority:*` → legacy `metadata.priority` → derived from `severity` via the severity→priority map below | `priority:p0`, `priority:p1`, `priority:p2`, `priority:p3` |
+| **priority** *(v3.3.0+; tier-derivation v3.7.0+)* | `stories[].labels[]` `priority:*` → legacy `metadata.priority` → derived from `severity` → derived from `tier:` (foundation→p0, happy-path→p1, edge-cases→p3) | `priority:p0`, `priority:p1`, `priority:p2`, `priority:p3` |
 | **status** *(sparse)* | Inferred from `dependencies.blockedBy` + `type:future-enhancement` + explicit `stories[].labels` (see `Status Dimension` below) | `status:blocked` *(auto)*, `status:todo` / `status:in-progress` / `status:done` *(reserved for future `manage-github-project` skill — not auto-emitted)* |
 
 ## Type Inference Table
@@ -152,8 +152,9 @@ Resolution:
 
 1. **Explicit `labels[]`** — if `stories[].labels[]` contains `priority:<value>` with `<value>` ∈ {`p0`, `p1`, `p2`, `p3`}, emit it verbatim.
 2. **Legacy `metadata.priority`** — same enum, emitted verbatim.
-3. **Derived from severity** — if no explicit/legacy priority BUT a `severity` was resolved, derive via the map below.
-4. **Omit** otherwise.
+3. **Derived from severity** — if no explicit/legacy priority BUT a `severity` was resolved, derive via the severity map below.
+4. **Derived from tier** *(v3.7.0+)* — if no explicit/legacy priority AND no `severity` was resolved BUT a `tier:` was resolved (from `stories[].phase`), derive via the tier map below. This gives every actionable, tier-classified story a board-display priority by default, so the Priority field is populated on `issue-to-project` sync without an operator hand-assigning `priority:*` or `severity:*` per story.
+5. **Omit** otherwise.
 
 | `severity:*` | derived `priority:*` |
 |---|---|
@@ -162,7 +163,15 @@ Resolution:
 | `severity:medium` | `priority:p2` |
 | `severity:low` | `priority:p3` |
 
-When derivation fires, the autonomous-mode log records `[to-issues:auto] story <n>: priority:<value> derived from severity:<value>`. When the explicit value contradicts the would-be derived value (e.g. `severity:medium` + `priority:p0`), the explicit value wins silently — operator intent is the source of truth.
+| `tier:*` | derived `priority:*` |
+|---|---|
+| `tier:foundation` | `priority:p0` |
+| `tier:happy-path` | `priority:p1` |
+| `tier:edge-cases` | `priority:p3` |
+
+When severity-derivation fires, the autonomous-mode log records `[to-issues:auto] story <n>: priority:<value> derived from severity:<value>`. When tier-derivation fires, it records `[to-issues:auto] story <n>: priority:<value> derived from tier:<value>`. Severity always wins over tier — a story with a resolved `severity` never falls through to tier-derivation. When the explicit value contradicts a would-be derived value (e.g. `severity:medium` + `priority:p0`, or `tier:foundation` + `priority:p2`), the explicit value wins silently — operator intent is the source of truth.
+
+**Why tier maps to p0/p1/p3 (not p2):** the tier axis has three values, priority has four. `foundation` slices are the critical spine everything else blocks on → `p0`. `happy-path` slices are the mainline deliverable → `p1`. `edge-cases` are deferrable hardening → `p3`. `p2` is intentionally left unmapped from tier so an operator can hand-assign it as a deliberate "medium, between mainline and deferrable" signal without it looking auto-derived. Because `type:future-enhancement` issues carry no `tier:` label (they are pre-phase), tier-derivation never fires for them — they omit `priority:*` exactly as before.
 
 **Why both severity and priority exist:** `severity:*` describes the issue intrinsically; `priority:*` is what gets written to the GitHub Project board's Priority field by `issue-to-project` (it picks up the label via the `signal_prefix: "priority"` resolver). Keeping them as separate axes means severity stays correct even when an operator manually re-prioritizes p0/p1/p2/p3 to fit current capacity.
 

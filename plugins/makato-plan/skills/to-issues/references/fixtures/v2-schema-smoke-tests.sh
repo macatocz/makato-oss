@@ -66,6 +66,7 @@ ADR_SLUGS = [
 
 SIZE_MAP = {"s": 1, "m": 3, "l": 8, "xl": 13}
 SEV_TO_PRIO = {"critical": "p0", "high": "p1", "medium": "p2", "low": "p3"}
+TIER_TO_PRIO = {"foundation": "p0", "happy-path": "p1", "edge-cases": "p3"}
 
 
 def tokenize(text):
@@ -157,11 +158,17 @@ for idx, story in enumerate(stories):
             points = str(sp)
     out.append(f"story{seq}.points={points or '_none_'}")
 
-    # severity from labels[], priority derived when absent
+    # severity from labels[], priority derived when absent.
+    # Priority resolution order (fixture path): labels[] → severity → tier.
+    # `tier` is copied from stories[].phase (see prose bullet 2); severity
+    # wins over tier, so tier-derivation only fires when severity is absent.
     severity = label_value(labels, "severity")
+    tier = story.get("phase")
     priority = label_value(labels, "priority")
     if priority is None and severity in SEV_TO_PRIO:
         priority = SEV_TO_PRIO[severity]
+    elif priority is None and tier in TIER_TO_PRIO:
+        priority = TIER_TO_PRIO[tier]
     out.append(f"story{seq}.severity={severity or '_none_'}")
     out.append(f"story{seq}.priority={priority or '_none_'}")
 
@@ -195,8 +202,11 @@ check "story2 points derived from storyPoints" "5" "$(get story2.points)"
 
 # severity read from labels[]; priority derived from it
 check "story1 severity from labels[]" "high" "$(get story1.severity)"
-check "story1 priority derived from severity" "p1" "$(get story1.priority)"
+# story1 has BOTH severity:high AND phase:foundation → severity wins over tier (p1, not p0)
+check "story1 priority derived from severity (wins over tier)" "p1" "$(get story1.priority)"
 check "story2 severity absent" "_none_" "$(get story2.severity)"
+# story2 has NO severity but phase:happy-path → priority derived from tier (v3.7.0+)
+check "story2 priority derived from tier (happy-path→p1)" "p1" "$(get story2.priority)"
 
 # v2.0 fixture carries NO metadata object
 check "story1 no metadata object" "no" "$(get story1.has_metadata)"

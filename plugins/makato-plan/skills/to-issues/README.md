@@ -74,7 +74,7 @@ Every issue carries one label from each applicable dimension. Five are always-re
 | `severity:*` | `labels[]` `severity:*` → `metadata.severity` | `severity:critical`, `severity:high`, `severity:medium`, `severity:low` | Operational urgency, intrinsic to the issue |
 | `phase:*` | `labels[]` `phase:*` → `metadata.phase` (bare digits, **never** `p<n>` — that prefix is reserved for priority; never derived from `stories[].phase`) | `phase:1`, `phase:2`, ..., `phase:5` | Execution order across the plan (lower = earlier) |
 | `effort:*` | `labels[]` `effort:*` → `metadata.effort` | `effort:s`, `effort:m`, `effort:l`, `effort:xl` | T-shirt sizing (S = <1 day, XL = >1 week) |
-| `priority:*` | `labels[]` `priority:*` → `metadata.priority` → derived from severity | `priority:p0`, `priority:p1`, `priority:p2`, `priority:p3` | Board-display priority — consumed by `issue-to-project` for the Priority single-select field |
+| `priority:*` | `labels[]` `priority:*` → `metadata.priority` → derived from severity → derived from tier | `priority:p0`, `priority:p1`, `priority:p2`, `priority:p3` | Board-display priority — consumed by `issue-to-project` for the Priority single-select field |
 | `points:*` *(v3.4.0+)* | `labels[]` `points:*` → `metadata.points` → derived from `storyPoints` → derived from effort | `points:1`, `points:3`, `points:8`, `points:13` | Story-point estimate — consumed by `issue-to-project` for the Estimate number field |
 
 ### Derivation chains (when no explicit `labels[]`/legacy value)
@@ -85,6 +85,12 @@ severity → priority:*
   high      → priority:p1
   medium    → priority:p2
   low       → priority:p3
+
+tier → priority:*   (v3.7.0+, fallback when no severity resolved)
+  foundation  → priority:p0
+  happy-path  → priority:p1
+  edge-cases  → priority:p3
+  (p2 intentionally unmapped — reserve for explicit operator assignment)
 
 storyPoints → points:*   (v3.5.0+, primary path for v2.0 stories.json)
   points:<storyPoints>   (verbatim positive integer)
