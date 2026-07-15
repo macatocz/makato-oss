@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.79.0](https://github.com/macatocz/makato/compare/v0.78.0...v0.79.0) (2026-07-15)
+
+
+### ✨ Features
+
+* **to-issues:** derive effort:* from a points signal ([#431](https://github.com/macatocz/makato/issues/431)) ([cbbc21d](https://github.com/macatocz/makato/commit/cbbc21d0f78e3b840b1f54039f9b91cb7e7b5d73))
+
 ## [0.78.0](https://github.com/macatocz/makato/compare/v0.77.0...v0.78.0) (2026-07-15)
 
 
