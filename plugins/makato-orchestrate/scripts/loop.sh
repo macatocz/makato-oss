@@ -1776,9 +1776,12 @@ _auto_seed_candidates() {
       continue
     fi
 
-    # T3: renovate[bot] author veto.
-    if [[ "$author_login" == "renovate[bot]" ]]; then
-      echo "loop: auto-seed — skip #$n (renovate bot)" >&2
+    # T3: bot-author veto — any GitHub App / bot account (login ends in
+    # "[bot]": renovate[bot], dependabot[bot], and future bots). Bot-filed
+    # issues (Renovate Dependency Dashboard #346, Dependabot alerts) are
+    # never human-shaped work and must never enter the auto-seed queue.
+    if [[ "$author_login" == *"[bot]" ]]; then
+      echo "loop: auto-seed — skip #$n (bot author: $author_login)" >&2
       continue
     fi
 

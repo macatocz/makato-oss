@@ -1861,6 +1861,31 @@ echo "$t58_out" | jq -e '[.[] | select(.number == 209)] | .[0].plan_tier == "ful
 rm -f "$T58_FIXTURE"
 echo "  ✓ renovate[bot] author vetoes issue 208; issue 209 passes with plan_tier=full"
 
+# ---------------------------------------------------------------------------
+echo "=== T58b: any [bot] author (no dependencies label) → excluded from candidates ==="
+# Regression guard: the author veto matches the generic "*[bot]" suffix, not
+# just the literal "renovate[bot]". A dependabot-filed issue with NO
+# 'dependencies' label must still be vetoed by the author backstop alone.
+T58B_FIXTURE="$STATE_DIR/t58b-autoseed-$$.json"
+cat >"$T58B_FIXTURE" <<'EOF'
+[
+  {"number": 210, "labels": [{"name": "type:chore"}], "author": {"login": "dependabot[bot]"}},
+  {"number": 211, "labels": [{"name": "type:chore"}], "author": {"login": "github-actions[bot]"}},
+  {"number": 212, "labels": [{"name": "type:feature"}, {"name": "plan-tier:full"}], "author": {"login": "user8"}}
+]
+EOF
+t58b_out="$(MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_AUTOSEED_OVERRIDE="$T58B_FIXTURE" \
+  "$LOOP" _test-auto-seed-candidates 2>/dev/null)"
+echo "$t58b_out" | jq -e '[.[] | select(.number == 210)] | length == 0' >/dev/null \
+  || fail "T58b: issue 210 (dependabot[bot], no dependencies label) should be excluded; got: $t58b_out"
+echo "$t58b_out" | jq -e '[.[] | select(.number == 211)] | length == 0' >/dev/null \
+  || fail "T58b: issue 211 (github-actions[bot]) should be excluded; got: $t58b_out"
+echo "$t58b_out" | jq -e '[.[] | select(.number == 212)] | length == 1' >/dev/null \
+  || fail "T58b: issue 212 (human author) should remain; got: $t58b_out"
+rm -f "$T58B_FIXTURE"
+echo "  ✓ generic [bot] veto excludes dependabot[bot]/github-actions[bot]; human author passes"
+
 
 # ---------------------------------------------------------------------------
 # T59–T62: _auto_seed_dispatch_light (#370, epic #367 S2)

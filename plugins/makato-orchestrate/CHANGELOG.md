@@ -3,6 +3,20 @@
 
 Changes are grouped by skill/component. Within each group, latest version on top. Each version block lists one sub-bullet per logical change.
 
+## `loop` — auto-seed: generalise bot-author veto from `renovate[bot]` to any `*[bot]`
+
+Hardens the auto-seed candidate filter's author backstop (added by #369). The veto previously
+matched only the literal `renovate[bot]`; a bot-filed issue from any other GitHub App
+(`dependabot[bot]`, `github-actions[bot]`, …) without the `dependencies` label would slip
+through into the auto-seed queue. Bot-authored issues are never human-shaped work.
+
+- **`scripts/loop.sh`**: `_auto_seed_candidates` T3 author veto now matches the generic
+  `*"[bot]"` suffix instead of the exact `renovate[bot]` login, covering all current and
+  future bot accounts. Skip log now includes the offending author login.
+- **`scripts/loop-smoke-tests.sh`**: new **T58b** regression guard — asserts `dependabot[bot]`
+  and `github-actions[bot]` (both without a `dependencies` label) are vetoed by the author
+  backstop alone, while a human author passes.
+
 ## `loop` — HALT-013: bound the auto-reshape to prevent plan↔build oscillation (#351, epic #319 S5)
 
 Story 5/5 of epic #319 closes the *no runaway* gap for the auto-drive reshape pass added by #350.
