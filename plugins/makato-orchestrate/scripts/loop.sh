@@ -3301,6 +3301,7 @@ _reshape_pass() {
         '{"ts": $ts, "skill": "loop", "issue": $issue, "step": "halt", "status": "error", "data": ($data + {"halt_code": "HALT-013"})}')" \
         >> "$spec_folder_halt/orchestrate.jsonl" 2>/dev/null || true
 
+
       _log_reshape_result "$key" "$n" "error" "$reshape_cycles" "cycle-ceiling"
       continue
     fi
