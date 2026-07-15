@@ -34,3 +34,12 @@ bundles:
     skills:
       - map-codebase-context
       - makato-guide
+
+  # Triggered when editing any plugin's SKILL.md — surfaces the skill-judge
+  # evaluator so authors can score quality while working on a skill.
+  # Literal segments: plugins, skills, SKILL.md → narrow glob, gate-exempt.
+  - name: core-skill-judge
+    globs:
+      - "plugins/**/skills/**/SKILL.md"
+    skills:
+      - skill-judge

@@ -22,6 +22,7 @@ bundles:
       - session-status
       - resolve-pr-conflict
       - archive-spec
+      - promote-ready
 
   # Triggered when working on workflow-state files in any spec folder.
   # Literal segment: specs → specificity = 1; contains scopes to orchestrate state.
@@ -49,3 +50,4 @@ bundles:
     skills:
       - workflow-state
       - kill-switch
+      - promote-ready

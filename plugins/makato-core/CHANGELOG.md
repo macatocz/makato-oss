@@ -3,6 +3,12 @@
 
 Changes are grouped by skill/component. Within each group, latest version on top. Each version block lists one sub-bullet per logical change. Until per-PR version automation is in place, entries land here on merge to main; release-please will date and version them at the next release cut.
 
+## [Unreleased]
+
+- **Added** `core-skill-judge` bundle in `config/skill-bundles.yml` (#430) — routes any edit to
+  `plugins/**/skills/**/SKILL.md` to the `skill-judge` skill so authors get quality-scoring
+  context while working on a skill file.
+
 ## map-codebase-context skill (formerly zoom-out)
 
 - **1.5.0** (#397)

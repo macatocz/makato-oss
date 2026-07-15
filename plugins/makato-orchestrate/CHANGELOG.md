@@ -3,6 +3,13 @@
 
 Changes are grouped by skill/component. Within each group, latest version on top. Each version block lists one sub-bullet per logical change.
 
+## [Unreleased]
+
+- **Changed** `config/skill-bundles.yml` (#430) — `promote-ready` appended to both the
+  `orchestrate-skills` bundle (after `archive-spec`) and the `orchestrate-shared` bundle
+  (after `kill-switch`), so edits to orchestrate skill files and shared/scripts/hooks bash
+  helpers surface the `promote-ready` skill in the injected context.
+
 ## `loop` — auto-seed: generalise bot-author veto from `renovate[bot]` to any `*[bot]`
 
 Hardens the auto-seed candidate filter's author backstop (added by #369). The veto previously
