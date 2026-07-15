@@ -864,7 +864,7 @@ const wrap = $("canvas-wrap");
 wrap.addEventListener("wheel", e => { e.preventDefault(); const p = svgPoint(e); zoomBy(e.deltaY < 0 ? 1.12 : 1/1.12, p.x, p.y); }, { passive: false });
 let panning = false, panStart = null;
 wrap.addEventListener("pointerdown", e => {
-  if (e.target.closest(".node-box") || e.target.closest("#zoom-controls")) return;
+  if (e.target.closest(".node-box") || e.target.closest("#zoom-controls") || e.target.closest("#panel-toggle")) return;
   panning = true; panStart = { x: e.clientX, y: e.clientY, tx: view.tx, ty: view.ty };
   wrap.classList.add("grabbing"); wrap.setPointerCapture(e.pointerId);
 });
