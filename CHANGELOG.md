@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.79.2](https://github.com/macatocz/makato/compare/v0.79.1...v0.79.2) (2026-07-15)
+
+
+### 🐛 Bug Fixes
+
+* **makato-build:** route biome 'files were modified' autofix signal ([#437](https://github.com/macatocz/makato/issues/437)) ([5b419cb](https://github.com/macatocz/makato/commit/5b419cb78fd779bf6a99a9b335201fcee8f0da72))
+
 ## [0.79.1](https://github.com/macatocz/makato/compare/v0.79.0...v0.79.1) (2026-07-15)
 
 
