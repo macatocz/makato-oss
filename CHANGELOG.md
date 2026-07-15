@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.76.0](https://github.com/macatocz/makato/compare/v0.75.0...v0.76.0) (2026-07-15)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** add loop reshape pass for Needs Planning signal ([#350](https://github.com/macatocz/makato/issues/350)) ([#418](https://github.com/macatocz/makato/issues/418)) ([592eddd](https://github.com/macatocz/makato/commit/592eddd5f77a8aec812acc556b1ecb696f781020))
+* **makato-orchestrate:** orphan degraded gate for hand-filed issues ([#357](https://github.com/macatocz/makato/issues/357)) ([#421](https://github.com/macatocz/makato/issues/421)) ([4c763c0](https://github.com/macatocz/makato/commit/4c763c01bc12efc7c03bfead9d4d05de1dc2294f))
+
 ## [0.75.0](https://github.com/macatocz/makato/compare/v0.74.0...v0.75.0) (2026-07-15)
 
 
