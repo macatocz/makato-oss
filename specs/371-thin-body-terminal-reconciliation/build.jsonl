@@ -1,0 +1,13 @@
+{"ts":"2026-07-14T12:59:59.313Z","skill":"progress-comment","issue":371,"step":"progress-comment","status":"ok","data":{"event":"create","detail":"created live comment id=4969421071"}}
+{"ts":"2026-07-14T13:01:18.869Z","skill":"progress-comment","issue":371,"step":"progress-comment","status":"ok","data":{"event":"append","detail":"appended entry to comment id=4969421071"}}
+{"ts":"2026-07-14T13:07:29.000Z","skill":"coder","story":"371-thin-body-terminal-reconciliation","step":"red","task":1,"status":"ok","data":{"unit_tests":4,"integration_tests":0}}
+{"ts":"2026-07-14T13:07:29.000Z","skill":"coder","story":"371-thin-body-terminal-reconciliation","step":"green","task":1,"status":"ok","data":{"unit_passing":4}}
+{"ts":"2026-07-14T13:07:29.000Z","skill":"coder","story":"371-thin-body-terminal-reconciliation","step":"integrate","task":1,"status":"ok","data":{"integration_passing":0}}
+{"ts":"2026-07-14T13:07:29.000Z","skill":"coder","story":"371-thin-body-terminal-reconciliation","step":"verify-task","task":1,"status":"ok","data":{"new_failures":0}}
+{"ts":"2026-07-14T13:09:42.202Z","skill":"progress-comment","issue":371,"step":"progress-comment","status":"ok","data":{"event":"append","detail":"appended entry to comment id=4969421071"}}
+{"ts":"2026-07-14T13:10:05.403Z","skill":"progress-comment","issue":371,"step":"progress-comment","status":"ok","data":{"event":"append","detail":"appended entry to comment id=4969421071"}}
+{"ts":"2026-07-14T13:14:44.000Z","skill":"build-verify","issue":371,"step":"session","status":"ok","data":{"gates_passed":["smoke-tests-71-pass","shellcheck-clean"],"gates_failed":[]}}
+{"ts":"2026-07-14T13:14:51.539Z","skill":"progress-comment","issue":371,"step":"progress-comment","status":"ok","data":{"event":"append","detail":"appended entry to comment id=4969421071"}}
+{"ts":"2026-07-14T13:14:59.827Z","skill":"progress-comment","issue":371,"step":"progress-comment","status":"ok","data":{"event":"append","detail":"appended entry to comment id=4969421071"}}
+{"ts":"2026-07-14T13:16:06.816Z","skill":"progress-comment","issue":371,"step":"progress-comment","status":"ok","data":{"event":"append","detail":"appended entry to comment id=4969421071"}}
+{"ts":"2026-07-14T13:17:15.789Z","skill":"progress-comment","issue":371,"step":"progress-comment","status":"ok","data":{"event":"append","detail":"appended entry to comment id=4969421071"}}

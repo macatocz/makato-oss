@@ -252,7 +252,14 @@
     "context7@claude-plugins-official": true,
     "playwright@claude-plugins-official": true,
     "figma@claude-plugins-official": true,
-    "playground@claude-plugins-official": true
+    "playground@claude-plugins-official": true,
+    "general@impact-claude-market": false,
+    "impact-concur@impact-claude-market": false,
+    "impact-k8s-helm-ops@impact-claude-market": false,
+    "impact-python@impact-claude-market": false,
+    "impact-sql@impact-claude-market": false,
+    "marketplace-managment@impact-claude-market": false,
+    "my-office@impact-claude-market": false
   },
   "extraKnownMarketplaces": {
     "makato-suite": {

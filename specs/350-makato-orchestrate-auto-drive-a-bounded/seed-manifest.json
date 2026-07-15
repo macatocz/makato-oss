@@ -1,0 +1,11 @@
+{
+  "schema_version": "2",
+  "seeded_at": "2026-07-14T00:00:00Z",
+  "seeded_by": "seed-issue",
+  "skill_version": "1.2.0",
+  "issue_number": 350,
+  "issue_title": "[makato-orchestrate] Auto-drive a bounded makato-plan re-shape from the Needs Planning signal",
+  "slug": "350-makato-orchestrate-auto-drive-a-bounded",
+  "repo": "macatocz/makato",
+  "type": "new-work"
+}

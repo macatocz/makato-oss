@@ -1,0 +1,13 @@
+{
+  "ts": "2026-07-14T22:25:21.532Z",
+  "skill": "loop",
+  "issue": 921,
+  "step": "reshape",
+  "status": "ok",
+  "data": {
+    "key": "350-reshape-test-happy-58099",
+    "issue": 921,
+    "reshape_cycles_after": 1,
+    "error_reason": null
+  }
+}
