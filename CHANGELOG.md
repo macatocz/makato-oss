@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.78.0](https://github.com/macatocz/makato/compare/v0.77.0...v0.78.0) (2026-07-15)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** generalise auto-seed bot veto to any [bot] author ([#425](https://github.com/macatocz/makato/issues/425)) ([83354fc](https://github.com/macatocz/makato/commit/83354fcad29e42bb887ddd3ee1b38f0837470ddf))
+
 ## [0.77.0](https://github.com/macatocz/makato/compare/v0.76.0...v0.77.0) (2026-07-15)
 
 
