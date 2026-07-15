@@ -273,3 +273,24 @@ is caught at operator-observation time via the exit code and `startup_audit` fie
 - `plugins/makato-orchestrate/halt-conditions.md` — the full HALT-code table.
 - `plugins/makato-orchestrate/AGENTS.md` § Security Model — the PO-agent permission contract.
 - `plugins/makato-build/agents/RETURN-CONTRACT.md` — the R1 envelope every sub-agent emits.
+
+---
+
+## NEVER — dispatch a reshape when reshape_cycles >= MAKATO_MAX_RESHAPE_CYCLES
+
+**Rule**: `loop.sh _reshape_pass` MUST NOT dispatch a `makato-plan:decompose` reshape when
+`reshape_cycles >= MAKATO_MAX_RESHAPE_CYCLES` (default 2). When the ceiling is reached,
+fire HALT-013 instead — apply `needs-human-review`, append a `halt_audit` entry with
+`code: "HALT-013"`, and write an `orchestrate.jsonl` line with `step:"halt" data.halt_code:"HALT-013"`.
+
+**Why**: auto-drive can loop plan→build→plan indefinitely if a re-shape never fixes the
+structural problem. The existing HALT design's *no runaway* property (HALT-008, HALT-010)
+must be preserved under auto-drive (#351, epic #319 S5).
+
+**Enforcement**: `_reshape_pass` ceiling check at
+`plugins/makato-orchestrate/scripts/loop.sh`. Smoke tests in `loop-smoke-tests.sh`
+(T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling).
+
+**HALT code**: HALT-013 with `data: {reshape_cycles, max_reshape_cycles}`. Recovery: operator
+shapes the issue manually via `makato-plan`, removes `needs-human-review` and `needs-reshape`,
+then restarts the loop.

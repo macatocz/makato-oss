@@ -2719,6 +2719,7 @@ rm -f "$TNRAE_FIXTURE" "$TNRAE_BLOCK_FILE" "$TNRAE_SEED_FLAG" "$TNRAE_STUB_FILE"
 echo "  ✓ needs-reshape label excluded from _auto_seed_candidates (no seed dispatch)"
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 # Tl–Tp: orphaned-In-progress reconciliation (#368)
 # ---------------------------------------------------------------------------
 
@@ -2860,4 +2861,456 @@ rmdir "$TP_SPECS" 2>/dev/null || true
 echo "  ✓ RECONCILE_ON_POLL=0: pass skipped, no action"
 
 echo
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368) ==="
+echo "=== ALL TESTS continue (Tl–Tp orphaned-In-progress reconciliation, #368 complete) ==="
+
+# ---------------------------------------------------------------------------
+# T-reshape-disabled: MAKATO_LOOP_RESHAPE_ENABLED=0 (or unset) → no dispatch
+# or board write. Feature flag off is the default and must be a no-op.
+# ---------------------------------------------------------------------------
+echo
+echo "=== T-reshape-disabled: MAKATO_LOOP_RESHAPE_ENABLED=0 → no dispatch, no label ==="
+TRDIS_OVERRIDE="$STATE_DIR/trdis-queue-$$.json"
+TRDIS_LABEL_FILE="$STATE_DIR/trdis-label-$$.txt"
+TRDIS_CMD_FLAG="$STATE_DIR/trdis-dispatched-$$.txt"
+jq -n '[{"number": 920, "key": "920-reshape-test"}]' >"$TRDIS_OVERRIDE"
+TRDIS_CMD="touch '${TRDIS_CMD_FLAG}'"
+trdis_rc=0
+trdis_stderr="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_RESHAPE_ENABLED=0 \
+  MAKATO_LOOP_RESHAPE_OVERRIDE="$TRDIS_OVERRIDE" \
+  MAKATO_LOOP_RESHAPE_TEST_CMD="$TRDIS_CMD" \
+  MAKATO_LOOP_LABEL_TEST_FILE="$TRDIS_LABEL_FILE" \
+    "$LOOP" _test-reshape-pass 2>&1 >/dev/null
+)" || trdis_rc=$?
+[[ "$trdis_rc" -eq 0 ]] \
+  || fail "T-reshape-disabled: _reshape_pass must return 0 when flag=0; got rc=$trdis_rc stderr=$trdis_stderr"
+[[ ! -f "$TRDIS_CMD_FLAG" ]] \
+  || fail "T-reshape-disabled: must NOT dispatch when flag=0; cmd flag found"
+[[ ! -f "$TRDIS_LABEL_FILE" ]] || [[ ! -s "$TRDIS_LABEL_FILE" ]] \
+  || fail "T-reshape-disabled: must NOT write label file when flag=0; got: $(cat "$TRDIS_LABEL_FILE")"
+rm -f "$TRDIS_OVERRIDE" "$TRDIS_LABEL_FILE" "$TRDIS_CMD_FLAG"
+echo "  ✓ MAKATO_LOOP_RESHAPE_ENABLED=0: no dispatch, no label write, function returns 0"
+
+# ---------------------------------------------------------------------------
+# T-reshape-halt-preempts: HALT file present → pass returns 0, no dispatch.
+# ---------------------------------------------------------------------------
+echo
+echo "=== T-reshape-halt-preempts: HALT file present → no dispatch ==="
+TRHALT_HALT_FILE="$STATE_DIR/trhalt-HALT-$$"
+TRHALT_OVERRIDE="$STATE_DIR/trhalt-queue-$$.json"
+TRHALT_CMD_FLAG="$STATE_DIR/trhalt-dispatched-$$.txt"
+jq -n '[{"number": 921, "key": "921-reshape-test"}]' >"$TRHALT_OVERRIDE"
+touch "$TRHALT_HALT_FILE"
+trhalt_rc=0
+trhalt_stderr="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_HALT_FILE="$TRHALT_HALT_FILE" \
+  MAKATO_LOOP_RESHAPE_ENABLED=1 \
+  MAKATO_LOOP_RESHAPE_OVERRIDE="$TRHALT_OVERRIDE" \
+  MAKATO_LOOP_RESHAPE_TEST_CMD="touch '${TRHALT_CMD_FLAG}'" \
+    "$LOOP" _test-reshape-pass 2>&1 >/dev/null
+)" || trhalt_rc=$?
+[[ "$trhalt_rc" -eq 0 ]] \
+  || fail "T-reshape-halt-preempts: _reshape_pass must return 0; got rc=$trhalt_rc stderr=$trhalt_stderr"
+[[ ! -f "$TRHALT_CMD_FLAG" ]] \
+  || fail "T-reshape-halt-preempts: must NOT dispatch when HALT file present"
+rm -f "$TRHALT_HALT_FILE" "$TRHALT_OVERRIDE" "$TRHALT_CMD_FLAG"
+echo "  ✓ HALT file present: no dispatch, function returns 0"
+
+# ---------------------------------------------------------------------------
+# T-reshape-happy-path: candidate reshape_cycles=0, both dispatches succeed
+# → needs-reshape removed, Status=Ready (label write recorded), build.jsonl
+# gets a step:"reshape" status:"ok" entry.
+# ---------------------------------------------------------------------------
+echo
+echo "=== T-reshape-happy-path: cycles=0, dispatch succeeds → label removed + status:ok log ==="
+# Use REPO_ROOT/specs since build-log.sh resolves there via git rev-parse.
+TRHAPPY_SPEC_KEY="350-reshape-test-happy-$$"
+TRHAPPY_SPEC_FOLDER="$REPO_ROOT/specs/$TRHAPPY_SPEC_KEY"
+mkdir -p "$TRHAPPY_SPEC_FOLDER"
+# Stub a minimal workflow-state file with reshape_cycles=0.
+jq -n '{
+  "repo": "macatocz/makato", "branch": "feat/test",
+  "worktree_path": null, "worktree_retained": false,
+  "worktree_retain_reason": null, "issue_number": 921,
+  "sub_tasks": [], "current_phase": "implement",
+  "resume_point": null, "budget_consumed_tokens": 0,
+  "budget_limit_tokens": 500000, "context_warn_tokens": 400000,
+  "outer_iteration": 0, "merge_conflict_cycles": 0,
+  "ci_failure_cycles": 0, "halt_audit": [],
+  "human_review_cycles": 0, "github_pr_number": null,
+  "progress_comment_id": null, "lessons_learned": [],
+  "session_summary": null, "session_count": 1,
+  "session_baseline_tokens": 0, "spawned_pid": null,
+  "handoff_reason": null, "restart_failed": false,
+  "resume_ack": null, "flake_rerun_pending": false,
+  "structural_halt_cycles": 2, "reshape_cycles": 0,
+  "updated_at": "2026-07-01T00:00:00.000Z", "created_at": "2026-07-01T00:00:00.000Z"
+}' >"$TRHAPPY_SPEC_FOLDER/workflow-state-921.json"
+
+TRHAPPY_OVERRIDE="$STATE_DIR/trhappy-queue-$$.json"
+TRHAPPY_LABEL_FILE="$STATE_DIR/trhappy-label-$$.txt"
+# Queue provides key so _derive_key_for_issue is not called.
+jq -n --arg key "$TRHAPPY_SPEC_KEY" '[{"number": 921, "key": $key}]' >"$TRHAPPY_OVERRIDE"
+
+trhappy_rc=0
+trhappy_stderr="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_RESHAPE_ENABLED=1 \
+  MAKATO_LOOP_RESHAPE_OVERRIDE="$TRHAPPY_OVERRIDE" \
+  MAKATO_LOOP_RESHAPE_TEST_CMD="exit 0" \
+  MAKATO_LOOP_LABEL_TEST_FILE="$TRHAPPY_LABEL_FILE" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  MAKATO_MAX_RESHAPE_CYCLES="3" \
+    "$LOOP" _test-reshape-pass 2>&1 >/dev/null
+)" || trhappy_rc=$?
+[[ "$trhappy_rc" -eq 0 ]] \
+  || fail "T-reshape-happy-path: function must return 0; got rc=$trhappy_rc stderr=$trhappy_stderr"
+# needs-reshape must be removed.
+grep -q "remove-label #921 needs-reshape" "$TRHAPPY_LABEL_FILE" 2>/dev/null \
+  || fail "T-reshape-happy-path: must record remove-label #921 needs-reshape; got: $(cat "$TRHAPPY_LABEL_FILE" 2>/dev/null)"
+# reshape_cycles in state should be incremented to 1.
+new_cycles="$(jq -r '.reshape_cycles' "$TRHAPPY_SPEC_FOLDER/workflow-state-921.json" 2>/dev/null || echo "")"
+[[ "$new_cycles" == "1" ]] \
+  || fail "T-reshape-happy-path: reshape_cycles should be 1; got: $new_cycles"
+# orchestrate.jsonl entry must record status:ok (loop.sh writes here).
+local_jsonl="$TRHAPPY_SPEC_FOLDER/orchestrate.jsonl"
+[[ -f "$local_jsonl" ]] && grep -q '"status":"ok"' "$local_jsonl" \
+  || fail "T-reshape-happy-path: orchestrate.jsonl missing status:ok entry; jsonl=$(cat "$local_jsonl" 2>/dev/null)"
+rm -rf "$TRHAPPY_SPEC_FOLDER" "$TRHAPPY_OVERRIDE" "$TRHAPPY_LABEL_FILE"
+echo "  ✓ happy-path: dispatch succeeded, needs-reshape removed, reshape_cycles=1, orchestrate.jsonl status:ok"
+
+# ---------------------------------------------------------------------------
+# T-reshape-decompose-fails: dispatch exits 1 → needs-human-review applied,
+# Status stays Needs Planning, orchestrate.jsonl records status:error.
+# ---------------------------------------------------------------------------
+echo
+echo "=== T-reshape-decompose-fails: dispatch exits 1 → needs-human-review + status:error ==="
+TRFAIL_SPEC_DIR="$STATE_DIR/trfail-specs-$$"
+TRFAIL_SPEC_KEY="922-reshape-fail"
+TRFAIL_SPEC_FOLDER="$TRFAIL_SPEC_DIR/$TRFAIL_SPEC_KEY"
+mkdir -p "$TRFAIL_SPEC_FOLDER"
+jq -n '{
+  "repo": "macatocz/makato", "branch": "feat/test",
+  "worktree_path": null, "worktree_retained": false,
+  "worktree_retain_reason": null, "issue_number": 922,
+  "sub_tasks": [], "current_phase": "implement",
+  "resume_point": null, "budget_consumed_tokens": 0,
+  "budget_limit_tokens": 500000, "context_warn_tokens": 400000,
+  "outer_iteration": 0, "merge_conflict_cycles": 0,
+  "ci_failure_cycles": 0, "halt_audit": [],
+  "human_review_cycles": 0, "github_pr_number": null,
+  "progress_comment_id": null, "lessons_learned": [],
+  "session_summary": null, "session_count": 1,
+  "session_baseline_tokens": 0, "spawned_pid": null,
+  "handoff_reason": null, "restart_failed": false,
+  "resume_ack": null, "flake_rerun_pending": false,
+  "structural_halt_cycles": 2, "reshape_cycles": 0,
+  "updated_at": "2026-07-01T00:00:00.000Z", "created_at": "2026-07-01T00:00:00.000Z"
+}' >"$TRFAIL_SPEC_FOLDER/workflow-state-922.json"
+
+TRFAIL_OVERRIDE="$STATE_DIR/trfail-queue-$$.json"
+TRFAIL_LABEL_FILE="$STATE_DIR/trfail-label-$$.txt"
+jq -n --arg key "$TRFAIL_SPEC_KEY" '[{"number": 922, "key": $key}]' >"$TRFAIL_OVERRIDE"
+
+trfail_rc=0
+trfail_stderr="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_RESHAPE_ENABLED=1 \
+  MAKATO_LOOP_RESHAPE_OVERRIDE="$TRFAIL_OVERRIDE" \
+  MAKATO_LOOP_RESHAPE_TEST_CMD="exit 1" \
+  MAKATO_LOOP_LABEL_TEST_FILE="$TRFAIL_LABEL_FILE" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  MAKATO_MAX_RESHAPE_CYCLES="3" \
+    SPECS_DIR="$TRFAIL_SPEC_DIR" \
+    "$LOOP" _test-reshape-pass 2>&1 >/dev/null
+)" || trfail_rc=$?
+[[ "$trfail_rc" -eq 0 ]] \
+  || fail "T-reshape-decompose-fails: function must return 0; got rc=$trfail_rc stderr=$trfail_stderr"
+# needs-human-review must be applied.
+grep -q "label #922 needs-human-review" "$TRFAIL_LABEL_FILE" 2>/dev/null \
+  || fail "T-reshape-decompose-fails: must record label #922 needs-human-review; got: $(cat "$TRFAIL_LABEL_FILE" 2>/dev/null)"
+# needs-reshape must NOT be removed.
+grep -q "remove-label #922 needs-reshape" "$TRFAIL_LABEL_FILE" 2>/dev/null \
+  && fail "T-reshape-decompose-fails: must NOT remove needs-reshape on failure; got: $(cat "$TRFAIL_LABEL_FILE" 2>/dev/null)" || true
+# reshape_cycles must NOT be incremented.
+fail_cycles="$(jq -r '.reshape_cycles // 0' "$TRFAIL_SPEC_FOLDER/workflow-state-922.json" 2>/dev/null || echo 0)"
+[[ "$fail_cycles" == "0" ]] \
+  || fail "T-reshape-decompose-fails: reshape_cycles must remain 0 on failure; got: $fail_cycles"
+# orchestrate.jsonl entry must record status:error.
+fail_jsonl="$TRFAIL_SPEC_FOLDER/orchestrate.jsonl"
+[[ -f "$fail_jsonl" ]] && grep -q '"status":"error"' "$fail_jsonl" \
+  || fail "T-reshape-decompose-fails: orchestrate.jsonl missing status:error; jsonl=$(cat "$fail_jsonl" 2>/dev/null)"
+rm -rf "$TRFAIL_SPEC_DIR" "$TRFAIL_OVERRIDE" "$TRFAIL_LABEL_FILE"
+echo "  ✓ decompose-fails: needs-human-review applied, reshape_cycles=0, orchestrate.jsonl status:error"
+
+# ---------------------------------------------------------------------------
+# T-reshape-cycle-ceiling: reshape_cycles >= MAKATO_MAX_RESHAPE_CYCLES →
+# needs-human-review applied, no dispatch.
+# ---------------------------------------------------------------------------
+echo
+echo "=== T-reshape-cycle-ceiling: cycles >= max → needs-human-review, no dispatch ==="
+TRCEIL_SPEC_DIR="$STATE_DIR/trceil-specs-$$"
+TRCEIL_SPEC_KEY="923-reshape-ceiling"
+TRCEIL_SPEC_FOLDER="$TRCEIL_SPEC_DIR/$TRCEIL_SPEC_KEY"
+mkdir -p "$TRCEIL_SPEC_FOLDER"
+jq -n '{
+  "repo": "macatocz/makato", "branch": "feat/test",
+  "worktree_path": null, "worktree_retained": false,
+  "worktree_retain_reason": null, "issue_number": 923,
+  "sub_tasks": [], "current_phase": "implement",
+  "resume_point": null, "budget_consumed_tokens": 0,
+  "budget_limit_tokens": 500000, "context_warn_tokens": 400000,
+  "outer_iteration": 0, "merge_conflict_cycles": 0,
+  "ci_failure_cycles": 0, "halt_audit": [],
+  "human_review_cycles": 0, "github_pr_number": null,
+  "progress_comment_id": null, "lessons_learned": [],
+  "session_summary": null, "session_count": 1,
+  "session_baseline_tokens": 0, "spawned_pid": null,
+  "handoff_reason": null, "restart_failed": false,
+  "resume_ack": null, "flake_rerun_pending": false,
+  "structural_halt_cycles": 3, "reshape_cycles": 3,
+  "updated_at": "2026-07-01T00:00:00.000Z", "created_at": "2026-07-01T00:00:00.000Z"
+}' >"$TRCEIL_SPEC_FOLDER/workflow-state-923.json"
+
+TRCEIL_OVERRIDE="$STATE_DIR/trceil-queue-$$.json"
+TRCEIL_LABEL_FILE="$STATE_DIR/trceil-label-$$.txt"
+TRCEIL_CMD_FLAG="$STATE_DIR/trceil-dispatched-$$.txt"
+jq -n --arg key "$TRCEIL_SPEC_KEY" '[{"number": 923, "key": $key}]' >"$TRCEIL_OVERRIDE"
+
+trceil_rc=0
+trceil_stderr="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_RESHAPE_ENABLED=1 \
+  MAKATO_LOOP_RESHAPE_OVERRIDE="$TRCEIL_OVERRIDE" \
+  MAKATO_LOOP_RESHAPE_TEST_CMD="touch '${TRCEIL_CMD_FLAG}'" \
+  MAKATO_LOOP_LABEL_TEST_FILE="$TRCEIL_LABEL_FILE" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  MAKATO_MAX_RESHAPE_CYCLES="3" \
+    SPECS_DIR="$TRCEIL_SPEC_DIR" \
+    "$LOOP" _test-reshape-pass 2>&1 >/dev/null
+)" || trceil_rc=$?
+[[ "$trceil_rc" -eq 0 ]] \
+  || fail "T-reshape-cycle-ceiling: function must return 0; got rc=$trceil_rc stderr=$trceil_stderr"
+[[ ! -f "$TRCEIL_CMD_FLAG" ]] \
+  || fail "T-reshape-cycle-ceiling: must NOT dispatch when at ceiling"
+grep -q "label #923 needs-human-review" "$TRCEIL_LABEL_FILE" 2>/dev/null \
+  || fail "T-reshape-cycle-ceiling: must apply needs-human-review; got: $(cat "$TRCEIL_LABEL_FILE" 2>/dev/null)"
+rm -rf "$TRCEIL_SPEC_DIR" "$TRCEIL_OVERRIDE" "$TRCEIL_LABEL_FILE" "$TRCEIL_CMD_FLAG"
+echo "  ✓ cycle-ceiling: needs-human-review applied, no dispatch"
+
+# ---------------------------------------------------------------------------
+# T-reshape-label-fallback: board poll override empty but MAKATO_LOOP_RESHAPE_OVERRIDE
+# provides a candidate (simulates label-based fallback path).
+# In production this is the gh issue list --label needs-reshape fallback;
+# in tests we verify the override path drives dispatch just like the primary.
+# ---------------------------------------------------------------------------
+echo
+echo "=== T-reshape-label-fallback: RESHAPE_OVERRIDE candidate → dispatch proceeds ==="
+TRLF_SPEC_DIR="$STATE_DIR/trlf-specs-$$"
+TRLF_SPEC_KEY="924-reshape-fallback"
+TRLF_SPEC_FOLDER="$TRLF_SPEC_DIR/$TRLF_SPEC_KEY"
+mkdir -p "$TRLF_SPEC_FOLDER"
+jq -n '{
+  "repo": "macatocz/makato", "branch": "feat/test",
+  "worktree_path": null, "worktree_retained": false,
+  "worktree_retain_reason": null, "issue_number": 924,
+  "sub_tasks": [], "current_phase": "implement",
+  "resume_point": null, "budget_consumed_tokens": 0,
+  "budget_limit_tokens": 500000, "context_warn_tokens": 400000,
+  "outer_iteration": 0, "merge_conflict_cycles": 0,
+  "ci_failure_cycles": 0, "halt_audit": [],
+  "human_review_cycles": 0, "github_pr_number": null,
+  "progress_comment_id": null, "lessons_learned": [],
+  "session_summary": null, "session_count": 1,
+  "session_baseline_tokens": 0, "spawned_pid": null,
+  "handoff_reason": null, "restart_failed": false,
+  "resume_ack": null, "flake_rerun_pending": false,
+  "structural_halt_cycles": 2, "reshape_cycles": 0,
+  "updated_at": "2026-07-01T00:00:00.000Z", "created_at": "2026-07-01T00:00:00.000Z"
+}' >"$TRLF_SPEC_FOLDER/workflow-state-924.json"
+
+TRLF_OVERRIDE="$STATE_DIR/trlf-queue-$$.json"
+TRLF_LABEL_FILE="$STATE_DIR/trlf-label-$$.txt"
+# MAKATO_LOOP_RESHAPE_OVERRIDE simulates the label-fallback queue
+# (in production this would be populated by gh issue list --label needs-reshape).
+jq -n --arg key "$TRLF_SPEC_KEY" '[{"number": 924, "key": $key}]' >"$TRLF_OVERRIDE"
+
+trlf_rc=0
+trlf_stderr="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_RESHAPE_ENABLED=1 \
+  MAKATO_LOOP_RESHAPE_OVERRIDE="$TRLF_OVERRIDE" \
+  MAKATO_LOOP_RESHAPE_TEST_CMD="exit 0" \
+  MAKATO_LOOP_LABEL_TEST_FILE="$TRLF_LABEL_FILE" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  MAKATO_MAX_RESHAPE_CYCLES="3" \
+    SPECS_DIR="$TRLF_SPEC_DIR" \
+    "$LOOP" _test-reshape-pass 2>&1 >/dev/null
+)" || trlf_rc=$?
+[[ "$trlf_rc" -eq 0 ]] \
+  || fail "T-reshape-label-fallback: function must return 0; got rc=$trlf_rc stderr=$trlf_stderr"
+grep -q "remove-label #924 needs-reshape" "$TRLF_LABEL_FILE" 2>/dev/null \
+  || fail "T-reshape-label-fallback: dispatch must proceed and remove label; got: $(cat "$TRLF_LABEL_FILE" 2>/dev/null)"
+rm -rf "$TRLF_SPEC_DIR" "$TRLF_OVERRIDE" "$TRLF_LABEL_FILE"
+echo "  ✓ label-fallback: override candidate drives dispatch correctly"
+
+# ---------------------------------------------------------------------------
+# T-reshape-toggle-position: _reshape_pass call appears before
+# _auto_seed_unprepared in cmd_run (structural grep check).
+# ---------------------------------------------------------------------------
+echo
+echo "=== T-reshape-toggle-position: _reshape_pass appears before _auto_seed_unprepared in cmd_run ==="
+# Extract the line range of cmd_run() using awk: from the opening brace
+# to the first line that is just '}' at column 1 (the function's closing brace).
+CMD_RUN_START="$(grep -n "^cmd_run()" "$LOOP" | head -1 | cut -d: -f1)"
+CMD_RUN_END="$(awk -v start="$CMD_RUN_START" '
+  NR < start { next }
+  NR == start { depth=0; next }
+  /^\{/ { depth++ }
+  /^\}/ { if (depth == 0) { print NR; exit } else depth-- }
+' "$LOOP")"
+RESHAPE_LINE="$(awk -v s="$CMD_RUN_START" -v e="$CMD_RUN_END" \
+  'NR>=s && NR<=e && /_reshape_pass/ && !/^[[:space:]]*#/' "$LOOP" \
+  | head -1 | grep -oP '^\d+' || \
+  sed -n "${CMD_RUN_START},${CMD_RUN_END}p" "$LOOP" \
+  | grep -n "_reshape_pass" | grep -v "#" | head -1 | \
+  awk -v s="$CMD_RUN_START" -F: '{print s + $1 - 1}')"
+AUTOSEED_LINE="$(sed -n "${CMD_RUN_START},${CMD_RUN_END}p" "$LOOP" \
+  | grep -n "_auto_seed_unprepared" | grep -v "#" | head -1 | \
+  awk -v s="$CMD_RUN_START" -F: '{print s + $1 - 1}')"
+[[ -n "$RESHAPE_LINE" ]] \
+  || fail "T-reshape-toggle-position: _reshape_pass call not found in cmd_run"
+[[ -n "$AUTOSEED_LINE" ]] \
+  || fail "T-reshape-toggle-position: _auto_seed_unprepared call not found in cmd_run"
+[[ "$RESHAPE_LINE" -lt "$AUTOSEED_LINE" ]] \
+  || fail "T-reshape-toggle-position: _reshape_pass (line $RESHAPE_LINE) must appear before _auto_seed_unprepared (line $AUTOSEED_LINE)"
+echo "  ✓ _reshape_pass (line $RESHAPE_LINE) < _auto_seed_unprepared (line $AUTOSEED_LINE) — ordering correct"
+
+# ---------------------------------------------------------------------------
+# T-reshape-halt013-ceiling: at ceiling (reshape_cycles == max) → HALT-013
+# fires: halt_audit entry written, orchestrate.jsonl step:"halt" recorded,
+# needs-human-review applied, NO dispatch (#351, epic #319).
+# ---------------------------------------------------------------------------
+echo
+echo "=== T-reshape-halt013-ceiling: cycles == max → HALT-013 audit + orchestrate.jsonl written ==="
+TR13_SPEC_DIR="$STATE_DIR/tr13-specs-$$"
+TR13_SPEC_KEY="925-reshape-halt013-ceiling"
+TR13_SPEC_FOLDER="$TR13_SPEC_DIR/$TR13_SPEC_KEY"
+mkdir -p "$TR13_SPEC_FOLDER"
+jq -n '{
+  "repo": "macatocz/makato", "branch": "feat/test",
+  "worktree_path": null, "worktree_retained": false,
+  "worktree_retain_reason": null, "issue_number": 925,
+  "sub_tasks": [], "current_phase": "implement",
+  "resume_point": null, "budget_consumed_tokens": 0,
+  "budget_limit_tokens": 500000, "context_warn_tokens": 400000,
+  "outer_iteration": 0, "merge_conflict_cycles": 0,
+  "ci_failure_cycles": 0, "halt_audit": [],
+  "human_review_cycles": 0, "github_pr_number": null,
+  "progress_comment_id": null, "lessons_learned": [],
+  "session_summary": null, "session_count": 1,
+  "session_baseline_tokens": 0, "spawned_pid": null,
+  "handoff_reason": null, "restart_failed": false,
+  "resume_ack": null, "flake_rerun_pending": false,
+  "structural_halt_cycles": 2, "reshape_cycles": 2,
+  "updated_at": "2026-07-01T00:00:00.000Z", "created_at": "2026-07-01T00:00:00.000Z"
+}' >"$TR13_SPEC_FOLDER/workflow-state-925.json"
+
+TR13_OVERRIDE="$STATE_DIR/tr13-queue-$$.json"
+TR13_LABEL_FILE="$STATE_DIR/tr13-label-$$.txt"
+TR13_CMD_FLAG="$STATE_DIR/tr13-dispatched-$$.txt"
+jq -n --arg key "$TR13_SPEC_KEY" '[{"number": 925, "key": $key}]' >"$TR13_OVERRIDE"
+
+tr13_rc=0
+tr13_stderr="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_RESHAPE_ENABLED=1 \
+  MAKATO_LOOP_RESHAPE_OVERRIDE="$TR13_OVERRIDE" \
+  MAKATO_LOOP_RESHAPE_TEST_CMD="touch '${TR13_CMD_FLAG}'" \
+  MAKATO_LOOP_LABEL_TEST_FILE="$TR13_LABEL_FILE" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  MAKATO_MAX_RESHAPE_CYCLES="2" \
+    SPECS_DIR="$TR13_SPEC_DIR" \
+    "$LOOP" _test-reshape-pass 2>&1 >/dev/null
+)" || tr13_rc=$?
+[[ "$tr13_rc" -eq 0 ]] \
+  || fail "T-reshape-halt013-ceiling: function must return 0 (best-effort); got rc=$tr13_rc stderr=$tr13_stderr"
+[[ ! -f "$TR13_CMD_FLAG" ]] \
+  || fail "T-reshape-halt013-ceiling: must NOT dispatch when at ceiling (reshape_cycles=2, max=2)"
+grep -q "label #925 needs-human-review" "$TR13_LABEL_FILE" 2>/dev/null \
+  || fail "T-reshape-halt013-ceiling: must apply needs-human-review label"
+# Verify halt_audit entry with HALT-013 was written to workflow-state
+HALT13_CODE="$(jq -r '.halt_audit[-1].code // empty' "$TR13_SPEC_FOLDER/workflow-state-925.json" 2>/dev/null)"
+[[ "$HALT13_CODE" == "HALT-013" ]] \
+  || fail "T-reshape-halt013-ceiling: halt_audit must contain HALT-013 entry; got halt_audit[-1].code='$HALT13_CODE'"
+# Verify orchestrate.jsonl step:"halt" line was written
+HALT13_JSONL="$(grep '"HALT-013"' "$TR13_SPEC_FOLDER/orchestrate.jsonl" 2>/dev/null | tail -1)"
+[[ -n "$HALT13_JSONL" ]] \
+  || fail "T-reshape-halt013-ceiling: orchestrate.jsonl must contain a HALT-013 entry"
+HALT13_STEP="$(printf '%s' "$HALT13_JSONL" | jq -r '.step // empty' 2>/dev/null)"
+[[ "$HALT13_STEP" == "halt" ]] \
+  || fail "T-reshape-halt013-ceiling: orchestrate.jsonl HALT-013 entry must have step:'halt'; got step='$HALT13_STEP'"
+rm -rf "$TR13_SPEC_DIR" "$TR13_OVERRIDE" "$TR13_LABEL_FILE" "$TR13_CMD_FLAG"
+echo "  ✓ HALT-013 ceiling: halt_audit entry + orchestrate.jsonl written, no dispatch, needs-human-review applied"
+
+# ---------------------------------------------------------------------------
+# T-reshape-halt013-below-ceiling: below ceiling (reshape_cycles < max) →
+# HALT-013 does NOT fire, reshape proceeds normally (#351, epic #319 S5).
+# ---------------------------------------------------------------------------
+echo
+echo "=== T-reshape-halt013-below-ceiling: cycles < max → reshape proceeds, HALT-013 absent ==="
+TR13B_SPEC_DIR="$STATE_DIR/tr13b-specs-$$"
+TR13B_SPEC_KEY="926-reshape-halt013-below"
+TR13B_SPEC_FOLDER="$TR13B_SPEC_DIR/$TR13B_SPEC_KEY"
+mkdir -p "$TR13B_SPEC_FOLDER"
+jq -n '{
+  "repo": "macatocz/makato", "branch": "feat/test",
+  "worktree_path": null, "worktree_retained": false,
+  "worktree_retain_reason": null, "issue_number": 926,
+  "sub_tasks": [], "current_phase": "implement",
+  "resume_point": null, "budget_consumed_tokens": 0,
+  "budget_limit_tokens": 500000, "context_warn_tokens": 400000,
+  "outer_iteration": 0, "merge_conflict_cycles": 0,
+  "ci_failure_cycles": 0, "halt_audit": [],
+  "human_review_cycles": 0, "github_pr_number": null,
+  "progress_comment_id": null, "lessons_learned": [],
+  "session_summary": null, "session_count": 1,
+  "session_baseline_tokens": 0, "spawned_pid": null,
+  "handoff_reason": null, "restart_failed": false,
+  "resume_ack": null, "flake_rerun_pending": false,
+  "structural_halt_cycles": 1, "reshape_cycles": 1,
+  "updated_at": "2026-07-01T00:00:00.000Z", "created_at": "2026-07-01T00:00:00.000Z"
+}' >"$TR13B_SPEC_FOLDER/workflow-state-926.json"
+
+TR13B_OVERRIDE="$STATE_DIR/tr13b-queue-$$.json"
+TR13B_LABEL_FILE="$STATE_DIR/tr13b-label-$$.txt"
+jq -n --arg key "$TR13B_SPEC_KEY" '[{"number": 926, "key": $key}]' >"$TR13B_OVERRIDE"
+
+tr13b_rc=0
+tr13b_stderr="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_RESHAPE_ENABLED=1 \
+  MAKATO_LOOP_RESHAPE_OVERRIDE="$TR13B_OVERRIDE" \
+  MAKATO_LOOP_RESHAPE_TEST_CMD="exit 0" \
+  MAKATO_LOOP_LABEL_TEST_FILE="$TR13B_LABEL_FILE" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  MAKATO_MAX_RESHAPE_CYCLES="2" \
+    SPECS_DIR="$TR13B_SPEC_DIR" \
+    "$LOOP" _test-reshape-pass 2>&1 >/dev/null
+)" || tr13b_rc=$?
+[[ "$tr13b_rc" -eq 0 ]] \
+  || fail "T-reshape-halt013-below-ceiling: function must return 0; got rc=$tr13b_rc stderr=$tr13b_stderr"
+# Must NOT write any HALT-013 audit entry
+HALT13B_CODE="$(jq -r '.halt_audit[-1].code // empty' "$TR13B_SPEC_FOLDER/workflow-state-926.json" 2>/dev/null)"
+[[ "$HALT13B_CODE" != "HALT-013" ]] \
+  || fail "T-reshape-halt013-below-ceiling: HALT-013 must NOT fire when reshape_cycles < max"
+# Dispatch must proceed — remove-label needs-reshape should appear (success path)
+grep -q "remove-label #926 needs-reshape" "$TR13B_LABEL_FILE" 2>/dev/null \
+  || fail "T-reshape-halt013-below-ceiling: dispatch must proceed and remove label; got: $(cat "$TR13B_LABEL_FILE" 2>/dev/null)"
+rm -rf "$TR13B_SPEC_DIR" "$TR13B_OVERRIDE" "$TR13B_LABEL_FILE"
+echo "  ✓ HALT-013 below-ceiling: reshape proceeds normally, HALT-013 absent"
+
+echo
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351) ==="

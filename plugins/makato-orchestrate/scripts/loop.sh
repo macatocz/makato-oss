@@ -210,13 +210,33 @@
 #                              pass entirely (no candidate query, no seed or
 #                              block action). Default on (unset or `1`).
 #
+# --- Reshape pass (#350, epic #319) ---
+#   MAKATO_LOOP_RESHAPE_ENABLED
+#                              Set to `1` to enable the pre-poll reshape pass.
+#                              Default off (`0`). When enabled, _reshape_pass
+#                              runs before auto-seed each poll tick.
+#   MAKATO_MAX_RESHAPE_CYCLES  Maximum reshape attempts per issue before
+#                              HALT-013 fires and needs-human-review is
+#                              applied. Default 2.
+#   MAKATO_LOOP_RESHAPE_TEST_CMD
+#                              Tests only: command string eval'd in place of
+#                              the real Claude dispatch for both decompose and
+#                              to-issues steps. Must exit 0 for success path.
+#   MAKATO_LOOP_RESHAPE_OVERRIDE
+#                              Tests only: path to a JSON file holding
+#                              [{"number":<N>,"key":"<KEY>"}] used as the
+#                              Needs Planning candidate queue instead of the
+#                              real board poll.
+#
 # Conventions: matches scripts/context-handoff.sh (POSIX-ish bash, `set
 # -euo pipefail`, python3 for ISO-8601 millisecond timestamps, jq for
 # JSON work).
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-SPECS_DIR="$REPO_ROOT/specs"
+# Allow tests to override SPECS_DIR (e.g. a temp dir) via the env; the
+# script-level default applies only when the env variable is not already set.
+SPECS_DIR="${SPECS_DIR:-$REPO_ROOT/specs}"
 STATE_DIR="${MAKATO_LOOP_STATE_DIR:-$REPO_ROOT/.claude/state}"
 STATUS_FILE="$STATE_DIR/loop-status.json"
 HALT_FILE="${MAKATO_HALT_FILE:-$HOME/.claude/HALT}"
@@ -3106,6 +3126,346 @@ _stamp_startup_audit() {
 }
 
 # ---------------------------------------------------------------------------
+# _reshape_pass — pre-poll reshape pass (#350, epic #319).
+#
+# Detects issues at board Status = Needs Planning (or `needs-reshape` label as
+# a degraded fallback when the board option is absent), honours the kill-switch,
+# and for each candidate:
+#   - Reads `reshape_cycles` from workflow-state-<issue>.json via workflow-state.sh
+#   - If at ceiling (>= MAKATO_MAX_RESHAPE_CYCLES, default 2): fires HALT-013,
+#     applies needs-human-review, appends halt_audit, writes orchestrate.jsonl — no dispatch.
+#   - Below ceiling: dispatches `makato-plan:decompose <slug> --autonomous` with
+#     RESHAPE_REQUEST pointing at reshape-request.json, then `to-issues
+#     --autonomous`.  On full success: increments reshape_cycles, removes
+#     needs-reshape, sets board Status=Ready, and logs step:"reshape" status:"ok"
+#     to orchestrate.jsonl.  On failure: leaves Needs Planning, applies
+#     needs-human-review, logs status:"error".
+#
+# Feature-flagged: MAKATO_LOOP_RESHAPE_ENABLED (default "0"). When disabled
+# the function returns 0 immediately as a no-op.
+#
+# Test hooks (offline):
+#   MAKATO_LOOP_RESHAPE_OVERRIDE     path to a JSON file of the form
+#       [{"number":<N>,"key":"<KEY>"}] used instead of the real board poll.
+#       When set, no `gh project item-list` call is made.
+#   MAKATO_LOOP_RESHAPE_TEST_CMD     command string eval'd in place of the
+#       real Claude dispatch. Must exit 0 for the success path and non-zero
+#       for the failure path. Overrides BOTH the decompose and to-issues
+#       dispatches (loop tests cannot invoke Claude headlessly). When absent
+#       the real dispatch path executes.
+#   MAKATO_LOOP_LABEL_TEST_FILE      reused from other passes: append
+#       "label #N needs-human-review" or "remove-label #N needs-reshape" etc.
+#       instead of calling `gh issue edit`.
+#
+# All gh / dispatch failures are best-effort per-candidate: a failure logs a
+# WARN and the pass continues to the next candidate. The function always
+# returns 0 (never blocks the tick).
+# ---------------------------------------------------------------------------
+_reshape_pass() {
+  # Guard 1: feature flag.
+  if [[ "${MAKATO_LOOP_RESHAPE_ENABLED:-0}" != "1" ]]; then
+    return 0
+  fi
+
+  echo "loop: reshape-pass — starting (#350)" >&2
+
+  # Guard 2: kill-switch.
+  if ! cmd_check_halt; then
+    echo "loop: reshape-pass — HALT file present, skipping pass" >&2
+    return 0
+  fi
+
+  local repo="${MAKATO_LOOP_DISPATCH_REPO:-}"
+  local -a repo_flag=()
+  [[ -n "$repo" ]] && repo_flag=(--repo "$repo")
+
+  local max_cycles="${MAKATO_MAX_RESHAPE_CYCLES:-2}"
+
+  # Guard 3: discover Needs Planning candidates.
+  # Primary: board Status = Needs Planning via MAKATO_LOOP_RESHAPE_OVERRIDE test
+  # hook or real gh project item-list.
+  # Fallback: gh issue list --label needs-reshape when board poll yields nothing.
+  local candidates='[]'
+
+  if [[ -n "${MAKATO_LOOP_RESHAPE_OVERRIDE:-}" ]]; then
+    candidates="$(cat "${MAKATO_LOOP_RESHAPE_OVERRIDE}" 2>/dev/null || echo '[]')"
+  else
+    # Primary: board Status = Needs Planning using config-resolved option id.
+    local needs_planning_option_id=""
+    if [[ -f "$CONFIG_FILE" ]]; then
+      needs_planning_option_id="$(jq -r '
+        (.github_project.fields.status.options.needs_planning // empty),
+        (.github_project.options.needs_planning // empty)
+        | select(. != null and . != "null" and . != "")
+        | .' "$CONFIG_FILE" 2>/dev/null | head -1 || true)"
+    fi
+
+    if [[ -n "$needs_planning_option_id" ]]; then
+      local board_items
+      board_items="$(_gh_project_item_list 2>/dev/null || echo '{"items":[]}')"
+      candidates="$(jq -r --arg opt_id "$needs_planning_option_id" \
+        '[.items[] | select(.content.type == "Issue") |
+          select(.status_option_id == $opt_id or .status == "Needs Planning") |
+          {number: .content.number, key: ""}]' \
+        <<<"$board_items" 2>/dev/null || echo '[]')"
+    fi
+
+    # Fallback: label-based discovery when board yields nothing.
+    if [[ "$(jq 'length' <<<"$candidates" 2>/dev/null || echo 0)" -eq 0 ]]; then
+      local label_issues
+      label_issues="$(gh issue list "${repo_flag[@]}" \
+        --label "needs-reshape" --state open \
+        --json number --limit 200 2>/dev/null || echo '[]')"
+      candidates="$(jq '[.[] | {number: .number, key: ""}]' <<<"$label_issues" 2>/dev/null || echo '[]')"
+    fi
+  fi
+
+  local count
+  count="$(jq 'length' <<<"$candidates" 2>/dev/null || echo 0)"
+  echo "loop: reshape-pass — $count candidate(s) to process" >&2
+
+  local n key
+  while IFS=$'\t' read -r n key; do
+    [[ -n "$n" ]] || continue
+    echo "loop: reshape-pass — processing issue #$n" >&2
+
+    # Derive spec KEY if not provided by the fixture.
+    if [[ -z "$key" || "$key" == "null" ]]; then
+      key="$(_derive_key_for_issue "$n" "$repo" 2>/dev/null || true)"
+    fi
+    if [[ -z "$key" ]]; then
+      echo "loop: WARN — reshape-pass #$n: cannot derive KEY; skipping" >&2
+      continue
+    fi
+
+    # Read reshape_cycles from workflow-state.
+    # Read the state file directly via SPECS_DIR (the loop-global variable),
+    # which tests can override via SPECS_DIR env. workflow-state.sh uses its own
+    # REPO_ROOT/specs so we resolve the path ourselves here.
+    local state_file=""
+    local spec_folder
+    spec_folder="$(find "$SPECS_DIR" -maxdepth 1 -type d -name "${key}-*" 2>/dev/null | head -1)"
+    [[ -z "$spec_folder" ]] && [[ -d "$SPECS_DIR/$key" ]] && spec_folder="$SPECS_DIR/$key"
+    [[ -z "$spec_folder" ]] && spec_folder="$SPECS_DIR/$key"
+    state_file="$spec_folder/workflow-state-${n}.json"
+    local wf_json reshape_cycles
+    wf_json="$([[ -f "$state_file" ]] && cat "$state_file" 2>/dev/null || echo '{}')"
+    reshape_cycles="$(jq -r '.reshape_cycles // 0' <<<"$wf_json" 2>/dev/null || echo 0)"
+
+    # Ceiling check — HALT-013: reshape oscillation guard (#351, epic #319).
+    # When reshape_cycles >= max_cycles, the issue has already been reshaped as
+    # many times as the operator allows. Dispatching again would risk an
+    # unbounded plan→build→plan oscillation, so we stop and page the operator.
+    #
+    # Contract per halt-conditions.md HALT-013:
+    #   1. Apply needs-human-review label.
+    #   2. Append halt_audit entry with code "HALT-013" to workflow-state.
+    #   3. Write orchestrate.jsonl step:"halt" line.
+    if [[ "$reshape_cycles" -ge "$max_cycles" ]]; then
+      echo "loop: reshape-pass — #$n HALT-013: reshape ceiling reached (reshape_cycles=${reshape_cycles} >= max=${max_cycles}); applying needs-human-review" >&2
+
+      # Step 1: apply needs-human-review label.
+      _apply_needs_human_review_reshape "$n" "${repo_flag[@]}"
+
+      # Step 2: append halt_audit entry directly to the state file using the same
+      # direct-write pattern as reshape_cycles increment (so SPECS_DIR overrides
+      # in tests are honoured — workflow-state.sh resolves from REPO_ROOT/specs/
+      # and would not find the test fixture file).
+      local halt_data halt_ts
+      halt_ts="$(_now)"
+      halt_data="$(jq -cn \
+        --argjson cycles "$reshape_cycles" \
+        --argjson max "$max_cycles" \
+        '{reshape_cycles: $cycles, max_reshape_cycles: $max}')"
+      if [[ -f "$state_file" ]]; then
+        local patched_halt
+        patched_halt="$(jq \
+          --arg code "HALT-013" \
+          --arg ts "$halt_ts" \
+          --argjson data "$halt_data" \
+          '.halt_audit += [{"code": $code, "ts": $ts, "data": $data}] | .updated_at = $ts' \
+          "$state_file" 2>/dev/null || true)"
+        [[ -n "$patched_halt" ]] && printf '%s\n' "$patched_halt" >"$state_file" 2>/dev/null || true
+      fi
+
+      # Step 3: write step:"halt" orchestrate.jsonl line.
+      local spec_folder_halt=""
+      spec_folder_halt="$(find "$SPECS_DIR" -maxdepth 1 -type d -name "${key}-*" 2>/dev/null | head -1 || true)"
+      [[ -z "$spec_folder_halt" && -d "$SPECS_DIR/$key" ]] && spec_folder_halt="$SPECS_DIR/$key"
+      [[ -z "$spec_folder_halt" ]] && spec_folder_halt="$SPECS_DIR/$key"
+      mkdir -p "$spec_folder_halt" 2>/dev/null || true
+      printf '%s\n' "$(jq -cn \
+        --arg ts "$halt_ts" \
+        --argjson issue "$n" \
+        --argjson data "$halt_data" \
+        '{"ts": $ts, "skill": "loop", "issue": $issue, "step": "halt", "status": "error", "data": ($data + {"halt_code": "HALT-013"})}')" \
+        >> "$spec_folder_halt/orchestrate.jsonl" 2>/dev/null || true
+
+      _log_reshape_result "$key" "$n" "error" "$reshape_cycles" "cycle-ceiling"
+      continue
+    fi
+
+    # Dispatch: decompose Refine + to-issues.
+    local dispatch_rc=0
+    local reshape_request_path="$SPECS_DIR/$key/reshape-request.json"
+
+    if [[ -n "${MAKATO_LOOP_RESHAPE_TEST_CMD:-}" ]]; then
+      # Test hook: eval the override command inside a subshell so that an
+      # `exit N` in the test command does not escape to the calling function.
+      ( eval "${MAKATO_LOOP_RESHAPE_TEST_CMD}" ) >/dev/null 2>&1 || dispatch_rc=$?
+    else
+      # Production path: dispatch Claude headlessly.
+      # Step 1: decompose in Refine mode.
+      local decompose_prompt
+      decompose_prompt="Use the Skill tool to invoke makato-plan:decompose for issue #${n} in Refine mode. ISSUE_NUMBER=${n} KEY=${key} REPO=${repo} REPO_ROOT=${REPO_ROOT} RESHAPE_REQUEST=${reshape_request_path}. --autonomous. Return R1 envelope verbatim."
+      REPO_ROOT="$REPO_ROOT" \
+      MAKATO_HEADLESS=1 \
+        "$CLAUDE_BIN" --dangerously-skip-permissions -p "$decompose_prompt" \
+        >/dev/null 2>&1 || dispatch_rc=$?
+
+      # Step 2: to-issues (only when decompose succeeded).
+      if [[ "$dispatch_rc" -eq 0 ]]; then
+        local to_issues_prompt
+        to_issues_prompt="Use the Skill tool to invoke makato-plan:to-issues for issue #${n}. ISSUE_NUMBER=${n} KEY=${key} REPO=${repo} REPO_ROOT=${REPO_ROOT}. --autonomous. Return R1 envelope verbatim."
+        REPO_ROOT="$REPO_ROOT" \
+        MAKATO_HEADLESS=1 \
+          "$CLAUDE_BIN" --dangerously-skip-permissions -p "$to_issues_prompt" \
+          >/dev/null 2>&1 || dispatch_rc=$?
+      fi
+    fi
+
+    if [[ "$dispatch_rc" -ne 0 ]]; then
+      echo "loop: reshape-pass — #$n dispatch failed (rc=${dispatch_rc}); applying needs-human-review" >&2
+      _apply_needs_human_review_reshape "$n" "${repo_flag[@]}"
+      _log_reshape_result "$key" "$n" "error" "$reshape_cycles" "dispatch-failed"
+      continue
+    fi
+
+    # Success: increment reshape_cycles, remove needs-reshape label, set Status=Ready.
+    local new_cycles=$(( reshape_cycles + 1 ))
+    # Patch reshape_cycles directly in the state file (uses SPECS_DIR path so
+    # SPECS_DIR overrides in tests are respected, same as the read above).
+    if [[ -f "$state_file" ]]; then
+      local patched_json
+      patched_json="$(jq --argjson c "$new_cycles" '.reshape_cycles = $c' "$state_file" 2>/dev/null || true)"
+      if [[ -n "$patched_json" ]]; then
+        printf '%s\n' "$patched_json" >"$state_file" 2>/dev/null || true
+      fi
+    fi
+
+    # Remove needs-reshape label.
+    if [[ -n "${MAKATO_LOOP_LABEL_TEST_FILE:-}" ]]; then
+      echo "remove-label #${n} needs-reshape" >>"$MAKATO_LOOP_LABEL_TEST_FILE"
+    else
+      gh issue edit "$n" "${repo_flag[@]}" --remove-label "needs-reshape" >/dev/null 2>&1 || true
+    fi
+
+    # Set board Status=Ready.
+    local ready_option_id=""
+    if [[ -f "$CONFIG_FILE" ]]; then
+      ready_option_id="$(jq -r '.github_project.fields.status.options.ready // empty' "$CONFIG_FILE" 2>/dev/null || true)"
+    fi
+    if [[ -n "$ready_option_id" ]]; then
+      local status_field_id project_node_id host owner number
+      status_field_id="$(jq -r '.github_project.fields.status.id // empty' "$CONFIG_FILE" 2>/dev/null || true)"
+      project_node_id="$(jq -r '.github_project.project_node_id // empty' "$CONFIG_FILE" 2>/dev/null || true)"
+      host="$(jq -r '.github_project.host // "github.com"' "$CONFIG_FILE" 2>/dev/null || true)"
+      owner="$(jq -r '.github_project.owner // empty' "$CONFIG_FILE" 2>/dev/null || true)"
+      number="$(jq -r '.github_project.number // empty' "$CONFIG_FILE" 2>/dev/null || true)"
+      if [[ -n "$status_field_id" && -n "$project_node_id" && -n "$owner" && -n "$number" ]]; then
+        # Find the board item id.
+        local item_id
+        item_id="$(GH_HOST="$host" gh project item-list "$number" --owner "$owner" \
+          --format json --limit 9999 2>/dev/null \
+          | jq -r --argjson i "$n" '.items[] | select(.content.number == $i) | .id' 2>/dev/null \
+          | head -1 || true)"
+        if [[ -n "$item_id" ]]; then
+          GH_HOST="$host" gh project item-edit \
+            --id "$item_id" \
+            --project-id "$project_node_id" \
+            --field-id "$status_field_id" \
+            --single-select-option-id "$ready_option_id" >/dev/null 2>&1 || true
+        fi
+      fi
+    fi
+
+    _log_reshape_result "$key" "$n" "ok" "$new_cycles" ""
+    echo "loop: reshape-pass — #$n reshaped successfully (reshape_cycles=$new_cycles), Status=Ready" >&2
+
+  done < <(jq -r '.[] | [.number, (.key // "")] | @tsv' <<<"$candidates" 2>/dev/null || true)
+
+  echo "loop: reshape-pass — complete" >&2
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# _apply_needs_human_review_reshape <ISSUE_NUMBER> [REPO_FLAGS...] — helper
+# that applies needs-human-review on a reshape-pass failure. Reuses the
+# MAKATO_LOOP_LABEL_TEST_FILE hook so tests stay offline.
+# ---------------------------------------------------------------------------
+_apply_needs_human_review_reshape() {
+  local issue="$1"
+  shift
+  local -a repo_flag=("$@")
+
+  if [[ -n "${MAKATO_LOOP_LABEL_TEST_FILE:-}" ]]; then
+    echo "label #${issue} needs-human-review" >>"$MAKATO_LOOP_LABEL_TEST_FILE"
+    return 0
+  fi
+
+  if ! gh label list "${repo_flag[@]}" 2>/dev/null | grep -q "^needs-human-review"; then
+    gh label create "needs-human-review" "${repo_flag[@]}" \
+      --color "E4E669" --description "Requires human review" >/dev/null 2>&1 || true
+  fi
+  gh issue edit "$issue" "${repo_flag[@]}" --add-label "needs-human-review" >/dev/null 2>&1 || true
+}
+
+# ---------------------------------------------------------------------------
+# _log_reshape_result <KEY> <ISSUE_NUMBER> <status:ok|error> <reshape_cycles>
+#   <error_reason> — emit one JSONL entry to specs/<key>/orchestrate.jsonl.
+# Uses build-log.sh when present; falls through silently when absent.
+# ---------------------------------------------------------------------------
+_log_reshape_result() {
+  local key="$1"
+  local issue="$2"
+  local status="$3"
+  local cycles="$4"
+  local reason="${5:-}"
+
+  local ts
+  ts="$(_now)"
+  local data
+  data="$(jq -cn \
+    --arg key "$key" \
+    --argjson issue "$issue" \
+    --argjson cycles "$cycles" \
+    --arg reason "$reason" \
+    '{key: $key, issue: $issue, reshape_cycles_after: $cycles, error_reason: (if $reason == "" then null else $reason end)}')"
+
+  local entry
+  entry="$(jq -cn \
+    --arg ts "$ts" \
+    --argjson issue "$issue" \
+    --arg status "$status" \
+    --argjson data "$data" \
+    '{"ts": $ts, "skill": "loop", "issue": $issue, "step": "reshape", "status": $status, "data": $data}')"
+
+  # Write to orchestrate.jsonl (loop's own audit trail), using SPECS_DIR
+  # (loop's own REPO_ROOT-relative path) rather than delegating to build-log.sh,
+  # which resolves via git --git-common-dir (main checkout). In a worktree,
+  # build-log.sh would write to the main checkout's specs/ while loop.sh and
+  # the tests use the worktree's specs/ — causing a mismatch. Writing here
+  # keeps the path consistent with how SPECS_DIR is resolved throughout this
+  # script.
+  local spec_folder=""
+  spec_folder="$(find "$SPECS_DIR" -maxdepth 1 -type d -name "${key}-*" 2>/dev/null | head -1 || true)"
+  [[ -z "$spec_folder" && -d "$SPECS_DIR/$key" ]] && spec_folder="$SPECS_DIR/$key"
+  [[ -z "$spec_folder" ]] && spec_folder="$SPECS_DIR/$key"
+  mkdir -p "$spec_folder" 2>/dev/null || true
+  printf '%s\n' "$entry" >> "$spec_folder/orchestrate.jsonl" 2>/dev/null || true
+}
+
+# ---------------------------------------------------------------------------
 # run — long-running poll loop. CLI flags override env defaults.
 # ---------------------------------------------------------------------------
 cmd_run() {
@@ -3163,6 +3523,14 @@ cmd_run() {
     # --dry-run. Best-effort — never blocks the tick.
     if [[ "${RECONCILE_ON_POLL}" != "0" && -z "$dry_run" ]]; then
       _reconcile_orphaned_in_progress || true
+    fi
+
+    # Pre-poll reshape pass (#350, epic #319): detect issues at board Status=Needs
+    # Planning and drive a bounded makato-plan re-shape. Runs before auto-seed so
+    # a reshaped issue can be seeded in the same tick. Feature-flagged off by
+    # default; serial invariant preserved. Skipped under --dry-run.
+    if [[ "${MAKATO_LOOP_RESHAPE_ENABLED:-0}" == "1" && -z "$dry_run" ]]; then
+      _reshape_pass || true
     fi
 
     # Pre-poll auto-seed pass (#373, epic #367 S5): seed/block unprepared
@@ -3330,6 +3698,10 @@ if [[ "$SUBCMD" == _test-* ]]; then
     #   MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE.
     # (#368).
     _test-reconcile-orphaned) _reconcile_orphaned_in_progress "$@" ;;
+    # _test-reshape-pass — exercise _reshape_pass deterministically using
+    # MAKATO_LOOP_RESHAPE_OVERRIDE and MAKATO_LOOP_RESHAPE_TEST_CMD.
+    # (#350, epic #319).
+    _test-reshape-pass) _reshape_pass "$@" ;;
     # _test-wd-guarded-write <issue> — exercise the watchdog ownership guard
     # (#312) deterministically, without the process-timing flakiness of a real
     # orphaned poll. Runs the exact guarded write the kill path performs:
@@ -3359,6 +3731,7 @@ case "$SUBCMD" in
   promote-ready) cmd_promote_ready ;;
   auto-seed)  cmd_auto_seed ;;
   reconcile-orphaned) cmd_reconcile_orphaned ;;
+  reshape-pass) _reshape_pass ;;
   remove-worktrees) cmd_remove_worktrees ;;
   check-halt) cmd_check_halt ;;
   *) echo "loop: unknown subcommand: $SUBCMD" >&2; exit 64 ;;

@@ -197,6 +197,22 @@ Each outer iteration of `run` performs the following steps in order:
    `$MAKATO_HALT_FILE`) is present — the loop exits cleanly (NEVER 3,
    HALT-000). The exit is recorded by stamping `.last_halt_at` in
    `loop-status.json`.
+1.4. **Pre-poll reshape pass (#350, epic #319).** When `MAKATO_LOOP_RESHAPE_ENABLED=1`
+   and `--dry-run` is not set, `_reshape_pass` checks for issues at board Status=Needs
+   Planning (primary) or carrying the `needs-reshape` label (fallback) and drives a
+   bounded `makato-plan:decompose` Refine + `to-issues` dispatch for each candidate.
+   For each candidate, reads `reshape_cycles` from `workflow-state-<N>.json`; if
+   `reshape_cycles >= MAKATO_MAX_RESHAPE_CYCLES` (default 3) it applies
+   `needs-human-review` and logs `status:error` without dispatching. On a successful
+   dispatch it increments `reshape_cycles`, removes the `needs-reshape` label, and sets
+   board Status=Ready so the reshaped issue enters the queue in the next tick. On a
+   dispatch failure it applies `needs-human-review` and leaves the issue at Needs
+   Planning. Feature-flagged **off** by default (`MAKATO_LOOP_RESHAPE_ENABLED=0`);
+   the pass is a no-op when disabled. Runs **before** `_auto_seed_unprepared` (step 1.5)
+   so a successfully reshaped issue can be seeded in the same tick. Skipped under
+   `--dry-run`. Kill-switch honoured: if a HALT file is present the pass returns 0
+   immediately without dispatching. Also available standalone as `loop reshape-pass`.
+
 1.5. **Pre-poll auto-seed pass (#373, epic #367 S5).** When polling the
    default `Ready` status and `MAKATO_LOOP_AUTOSEED_ON_POLL` is not `0`,
    `_auto_seed_unprepared` iterates every open issue that does NOT yet carry
@@ -673,10 +689,14 @@ The intentional design split:
 | `MAKATO_LOOP_RECONCILE_TEST_FILE` | unset | Test-only: append `reconcile #N` here instead of calling `gh project item-edit`. |
 | `MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE` | unset | Test-only: append `label #N needs-human-review` here instead of calling `gh issue edit`. |
 | `MAKATO_LOOP_RECONCILE_SPECS_DIR` | unset | Test-only: override `SPECS_DIR` for the in-flight scan within `_reconcile_orphaned_in_progress`. Keeps Tm/Tn tests from polluting the real `specs/` tree. |
+| `MAKATO_LOOP_RESHAPE_ENABLED` | `0` | Set to `1` to enable the pre-poll reshape pass (#350). When disabled (default), `_reshape_pass` is a no-op regardless of board state. Enable for repos that use the Needs Planning → Reshape → Ready feedback loop (epic #319). |
+| `MAKATO_MAX_RESHAPE_CYCLES` | `3` | Maximum number of `decompose Refine + to-issues` dispatch attempts per issue before `needs-human-review` is applied and no further reshaping is attempted. Guards against infinite reshape loops on structurally unresolvable stories. |
+| `MAKATO_LOOP_RESHAPE_TEST_CMD` | unset | Test-only: command string eval'd inside a subshell in place of the real `claude` dispatch in `_reshape_pass`. Receives the same env context as the production path. Keeps T-reshape smoke tests offline. |
+| `MAKATO_LOOP_RESHAPE_OVERRIDE` | unset | Test-only: path to a JSON file in `[{"number": N, "key": "K"}]` shape, read instead of calling `gh project item-list` / `gh issue list --label needs-reshape` in `_reshape_pass`. Keeps T-reshape smoke tests offline. |
 
 ## Smoke tests
 
-`scripts/loop-smoke-tests.sh` covers thirty scenarios:
+`scripts/loop-smoke-tests.sh` covers forty-eight scenarios:
 
 1. `check-halt` exits 0 with no HALT file.
 2. `check-halt` exits 1 with a HALT file.
@@ -780,6 +800,24 @@ The intentional design split:
 46. **Orphaned-In-progress reconciliation — toggle-off no-op (Tp, #368).**
     `MAKATO_LOOP_RECONCILE_ON_POLL=0`; board has orphaned #604; function returns 0
     without walking candidates.
+47. **Reshape pass — flag disabled (T-reshape-disabled, #350).** `MAKATO_LOOP_RESHAPE_ENABLED=0`
+    (or unset): `_reshape_pass` returns 0 immediately, no dispatch, no label write.
+48. **Reshape pass — HALT preempts (T-reshape-halt-preempts, #350).** HALT file present:
+    `_reshape_pass` returns 0 without dispatching, honouring the kill-switch.
+49. **Reshape pass — happy path (T-reshape-happy-path, #350).** `reshape_cycles=0`,
+    both dispatches succeed: `needs-reshape` label removed, `reshape_cycles` incremented
+    to 1, `orchestrate.jsonl` records `step:"reshape" status:"ok"`.
+50. **Reshape pass — decompose fails (T-reshape-decompose-fails, #350).** Dispatch exits
+    non-zero: `needs-human-review` applied, `reshape_cycles` unchanged,
+    `orchestrate.jsonl` records `status:"error"`.
+51. **Reshape pass — cycle ceiling (T-reshape-cycle-ceiling, #350).** `reshape_cycles >=
+    MAKATO_MAX_RESHAPE_CYCLES`: `needs-human-review` applied without dispatching.
+52. **Reshape pass — label fallback (T-reshape-label-fallback, #350).** Board poll empty
+    but `MAKATO_LOOP_RESHAPE_OVERRIDE` fixture provides a candidate: dispatch proceeds
+    correctly (tests the fallback discovery path).
+53. **Reshape pass — toggle position (T-reshape-toggle-position, #350).** Structural grep
+    confirms `_reshape_pass` call site appears on an earlier line than `_auto_seed_unprepared`
+    in `cmd_run`, preserving the load-bearing serial invariant.
 
 Run them directly:
 

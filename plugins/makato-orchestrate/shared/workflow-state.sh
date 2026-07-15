@@ -413,6 +413,7 @@ case "$SUBCMD" in
         merge_conflict_cycles: 0,
         ci_failure_cycles: 0,
         structural_halt_cycles: 0,
+        reshape_cycles: 0,
         halt_audit: [],
         human_review_cycles: 0,
         github_pr_number: null,

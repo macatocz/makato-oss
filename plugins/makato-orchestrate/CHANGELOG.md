@@ -3,6 +3,35 @@
 
 Changes are grouped by skill/component. Within each group, latest version on top. Each version block lists one sub-bullet per logical change.
 
+## `loop` — HALT-013: bound the auto-reshape to prevent plan↔build oscillation (#351, epic #319 S5)
+
+Story 5/5 of epic #319 closes the *no runaway* gap for the auto-drive reshape pass added by #350.
+Introduces `HALT-013` (Hard stop): when a Needs Planning issue is picked up by `_reshape_pass` but has
+already been reshaped `MAKATO_MAX_RESHAPE_CYCLES` (default **2**) times, the loop stops dispatching and
+pages the operator instead. Mirrors the bounded-counter design of HALT-008 origins and HALT-010.
+
+- **`scripts/loop.sh`**:
+  - Ceiling check in `_reshape_pass` now fires **HALT-013** instead of a silent `needs-human-review`.
+    Three-step contract per `halt-conditions.md HALT-013`: (1) apply `needs-human-review` label via
+    `_apply_needs_human_review_reshape`; (2) append `halt_audit` entry with `code:"HALT-013"` and
+    `data:{reshape_cycles, max_reshape_cycles}` to `workflow-state-<issue>.json` via
+    `workflow-state.sh append-halt`; (3) write `orchestrate.jsonl` line `step:"halt" data.halt_code:"HALT-013"`.
+  - `MAKATO_MAX_RESHAPE_CYCLES` default changed from `3` → **`2`** to match epic #319 design;
+    existing callers who already set this env var are unaffected.
+  - Inline doc comment updated to reference HALT-013 and new default.
+- **`shared/workflow-state.sh`**:
+  - `init` subcommand now initialises `reshape_cycles: 0` alongside `ci_failure_cycles` and
+    `structural_halt_cycles`, so freshly-initialised state files carry the counter.
+- **`skills/workflow-state/references/workflow-state.schema.json`**:
+  - Added `"default": 0` to the `reshape_cycles` property (field was added by #350; default was absent).
+- **`halt-conditions.md`**: new HALT-013 row — trigger, action, recovery.
+- **`agents/po-agent.md`**: HALT-013 added to the HALT/label matrix table.
+- **`never-patterns.md`**: new NEVER rule — "Never dispatch a reshape when `reshape_cycles >= MAKATO_MAX_RESHAPE_CYCLES`; fire HALT-013 and page the operator instead."
+- **`README.md`**: HALT code table updated to reference HALT-000 through HALT-013.
+- **`scripts/loop-smoke-tests.sh`**: two new scenarios (T-reshape-halt013-ceiling and T-reshape-halt013-below-ceiling) covering the HALT-013 boundary.
+
+---
+
 ## task-file-scout agent (formerly scout) (#397)
 
 - Renamed the `scout` agent → `task-file-scout`. The bare `scout` root was the most

@@ -149,6 +149,12 @@
       "minimum": 0,
       "description": "Durable cross-run counter of how many separate PO-agent runs on THIS issue terminated on a structural HALT (#347, epic #319). Incremented exactly once per run that ends on a structural-HALT code — the authoritative classification set is HALT-003 (structural blocker), HALT-STRUCTURAL, HALT-008 with data.origin == 'outer_iteration' (re-plan budget exhausted), and HALT-010. It is NOT incremented on non-structural terminations: HALT-007 (cost), HALT-007B (context handoff), or HALT-008 with origin merge_conflict/ci_failure. Distinct from outer_iteration (a within-run re-plan counter reset per run) — this is the cross-run recurrence property AC-epic-1 of #319 requires to make 'repeated structural failure on the same issue' detectable. NEVER reset on a HALT-007B context handoff: the resumed session must read the same value the prior session persisted. Initialised to 0 at init. Optional for backward compatibility with in-flight state files predating #347 — readers default it to 0 when absent."
     },
+    "reshape_cycles": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "Durable cross-run counter of how many makato-plan reshape attempts have been dispatched for THIS issue by _reshape_pass in loop.sh (#350, epic #319). Incremented by the loop's reshape pass on each successful decompose+to-issues dispatch. When reshape_cycles >= MAKATO_MAX_RESHAPE_CYCLES (default 3) the reshape pass stops dispatching and applies needs-human-review. Initialised to 0 at init (or treated as 0 when absent for backward compatibility). Optional for workflow-state files created before #350."
+    },
     "halt_audit": {
       "type": "array",
       "description": "Immutable append-only log of HALT events. Each entry is written when a HALT code fires.",

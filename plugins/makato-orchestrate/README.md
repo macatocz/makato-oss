@@ -178,7 +178,7 @@ See `agents/po-agent.md` § *Progress comment* for the per-skill agent/goal map.
 
 | File | Purpose |
 |------|---------|
-| [halt-conditions.md](halt-conditions.md) | Authoritative HALT code table (HALT-000 through HALT-012, plus HALT-007B and HALT-STRUCTURAL) — trigger, action, recovery, and whether needs-human-review label is applied for each code. |
+| [halt-conditions.md](halt-conditions.md) | Authoritative HALT code table (HALT-000 through HALT-013, plus HALT-007B and HALT-STRUCTURAL) — trigger, action, recovery, and whether needs-human-review label is applied for each code. |
 | [never-patterns.md](never-patterns.md) | Nine universal NEVER rules (e.g. never bypass pre-commit, never force-push default branch, never write target-repo source files, never run more than MAX_OUTER_ITERATIONS) that every skill and agent in this plugin must honour in autonomous mode, each with an associated HALT code. |
 | [AGENTS.md](AGENTS.md) | Contributor routing guide — defines goal/how/why, boundary, what belongs/does not belong, design principles, security model, agent table, skill authoring conventions, file structure, autonomous invocation contract, versioning, and PR checklist. |
 | [.claude-plugin/plugin.json](.claude-plugin/plugin.json) | Plugin metadata file — name, description, author. No version field (repo versioned via release-please + git tags). |
