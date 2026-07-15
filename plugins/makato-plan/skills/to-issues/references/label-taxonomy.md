@@ -15,7 +15,7 @@ Every issue created by `to-issues` carries one label from each applicable dimens
 | **module** | ADR folder-name match (see algorithm), extensible via `config.json` `labels.modules` | `module:to-issues`, `module:auth-service`, `module:billing` |
 | **severity** *(v3.3.0+)* | `stories[].labels[]` `severity:*` → legacy `metadata.severity` (enum: `critical` / `high` / `medium` / `low`) | `severity:critical`, `severity:high`, `severity:medium`, `severity:low` |
 | **phase** *(v3.3.0+)* | `stories[].labels[]` `phase:*` → legacy `metadata.phase` (enum: `1`–`5`) — distinct from `tier:`, this is execution-order classification not vertical-slice classification; never derived from `stories[].phase`. Bare digits — **not** P-prefixed (the `p` prefix is reserved for `priority:*`). | `phase:1`, `phase:2`, `phase:3`, `phase:4`, `phase:5` |
-| **effort** *(v3.3.0+)* | `stories[].labels[]` `effort:*` → legacy `metadata.effort` (enum: `s` / `m` / `l` / `xl`) — t-shirt sizing | `effort:s`, `effort:m`, `effort:l`, `effort:xl` |
+| **effort** *(v3.3.0+; points-derivation v3.8.0+)* | `stories[].labels[]` `effort:*` → legacy `metadata.effort` → derived from a points signal (`points:*` label / `metadata.points` / `storyPoints`) via the range map — t-shirt sizing | `effort:s`, `effort:m`, `effort:l`, `effort:xl` |
 | **points** *(v3.4.0+)* | `stories[].labels[]` `points:*` → legacy `metadata.points` → derived from `stories[].storyPoints` → derived from `effort` via SIZE_MAP — consumed by `issue-to-project` for the Estimate number field | `points:1`, `points:3`, `points:8`, `points:13` |
 | **priority** *(v3.3.0+; tier-derivation v3.7.0+)* | `stories[].labels[]` `priority:*` → legacy `metadata.priority` → derived from `severity` → derived from `tier:` (foundation→p0, happy-path→p1, edge-cases→p3) | `priority:p0`, `priority:p1`, `priority:p2`, `priority:p3` |
 | **status** *(sparse)* | Inferred from `dependencies.blockedBy` + `type:future-enhancement` + explicit `stories[].labels` (see `Status Dimension` below) | `status:blocked` *(auto)*, `status:todo` / `status:in-progress` / `status:done` *(reserved for future `manage-github-project` skill — not auto-emitted)* |
@@ -144,7 +144,25 @@ For backward compatibility, legacy `metadata.phase` values `"p1"` through `"p5"`
 
 ### `effort:*` — t-shirt sizing
 
-Resolution: explicit `labels[]` `effort:<value>` → legacy `metadata.effort` → omit (no derivation source). Enum: `s` (< 1 day) / `m` (1–3 days) / `l` (3–5 days) / `xl` (> 1 week). Use for capacity planning and to flag stories that should be re-decomposed before pickup.
+Resolution:
+
+1. **Explicit `labels[]`** — if `stories[].labels[]` contains `effort:<value>` with `<value>` ∈ {`s`, `m`, `l`, `xl`}, emit it verbatim.
+2. **Legacy `metadata.effort`** — same enum, emitted verbatim.
+3. **Derived from a points signal** *(v3.8.0+)* — if no explicit/legacy effort BUT a positive-integer points signal is available (an explicit `points:<n>` label, legacy `metadata.points`, or the v2.0 `stories[].storyPoints` field), derive via the range map below and log `[to-issues:auto] story <n>: effort:<value> derived from points:<n>`. This is the **primary path for v2.0 stories.json**, which always carries `storyPoints` — it gives every sized story a human-readable t-shirt chip by default without an operator hand-assigning `effort:*`.
+4. **Omit** otherwise.
+
+| points `<n>` | derived `effort:*` |
+|---|---|
+| `n ≤ 1` | `effort:s` |
+| `2 ≤ n ≤ 5` | `effort:m` |
+| `6 ≤ n ≤ 10` | `effort:l` |
+| `n ≥ 11` | `effort:xl` |
+
+Enum meaning: `s` (< 1 day) / `m` (1–3 days) / `l` (3–5 days) / `xl` (> 1 week). Use for capacity planning and to flag stories that should be re-decomposed before pickup.
+
+**Range map vs SIZE_MAP — why they differ.** `points:*` derives *from* `effort:*` via the exact-anchor `SIZE_MAP` (`s→1`, `m→3`, `l→8`, `xl→13`). The reverse (`effort` from `points`) cannot reuse those exact anchors because most integers (2, 4, 5, 6, 7, …) are not anchor values — so it uses the **range** map above, whose buckets are centred on the SIZE_MAP anchors (`m` covers 2–5 around anchor 3, `l` covers 6–10 around anchor 8). The two directions are **not circular**: `points`-from-`effort` (`## points:*` step 4) only fires when *no* points signal exists, which is exactly the case where `effort`-from-`points` cannot fire either — so at most one direction ever runs for a given story.
+
+**Why effort and points both exist:** `effort:*` is for humans (t-shirt sizes scan well in the issue list and on board chips); `points:*` is for the Project board's Estimate **number** field. See `## points:*` below for the full rationale — the two are kept as separate axes so an operator can re-estimate `points:` without changing the human-readable t-shirt size.
 
 ### `priority:*` — board-display priority (consumed by `issue-to-project`)
 

@@ -158,6 +158,24 @@ for idx, story in enumerate(stories):
             points = str(sp)
     out.append(f"story{seq}.points={points or '_none_'}")
 
+    # effort from labels[], else derived from a points signal via the range map
+    # (v3.8.0+). Points signal = points:* label / storyPoints (legacy metadata
+    # not exercised by this v2.0 fixture). Non-circular with points-from-effort:
+    # that SIZE_MAP path only fires when no points signal exists.
+    def points_to_effort(n):
+        if n <= 1:
+            return "s"
+        if n <= 5:
+            return "m"
+        if n <= 10:
+            return "l"
+        return "xl"
+
+    effort = label_value(labels, "effort")
+    if effort is None and points is not None:
+        effort = points_to_effort(int(points))
+    out.append(f"story{seq}.effort={effort or '_none_'}")
+
     # severity from labels[], priority derived when absent.
     # Priority resolution order (fixture path): labels[] → severity → tier.
     # `tier` is copied from stories[].phase (see prose bullet 2); severity
@@ -199,6 +217,11 @@ check "story2 module match (matches on privacy, not 'and')" \
 # (4) points derived from storyPoints (no metadata block present)
 check "story1 points derived from storyPoints" "8" "$(get story1.points)"
 check "story2 points derived from storyPoints" "5" "$(get story2.points)"
+
+# effort derived from the points signal via range map (v3.8.0+):
+#   story1 storyPoints=8 → 6..10 bucket → l ; story2 storyPoints=5 → 2..5 bucket → m
+check "story1 effort derived from points (8→l)" "l" "$(get story1.effort)"
+check "story2 effort derived from points (5→m)" "m" "$(get story2.effort)"
 
 # severity read from labels[]; priority derived from it
 check "story1 severity from labels[]" "high" "$(get story1.severity)"

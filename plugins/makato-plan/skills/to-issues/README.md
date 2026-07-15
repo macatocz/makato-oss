@@ -73,7 +73,7 @@ Every issue carries one label from each applicable dimension. Five are always-re
 | --- | --- | --- | --- |
 | `severity:*` | `labels[]` `severity:*` → `metadata.severity` | `severity:critical`, `severity:high`, `severity:medium`, `severity:low` | Operational urgency, intrinsic to the issue |
 | `phase:*` | `labels[]` `phase:*` → `metadata.phase` (bare digits, **never** `p<n>` — that prefix is reserved for priority; never derived from `stories[].phase`) | `phase:1`, `phase:2`, ..., `phase:5` | Execution order across the plan (lower = earlier) |
-| `effort:*` | `labels[]` `effort:*` → `metadata.effort` | `effort:s`, `effort:m`, `effort:l`, `effort:xl` | T-shirt sizing (S = <1 day, XL = >1 week) |
+| `effort:*` | `labels[]` `effort:*` → `metadata.effort` → derived from a points signal (range map) | `effort:s`, `effort:m`, `effort:l`, `effort:xl` | T-shirt sizing (S = <1 day, XL = >1 week) |
 | `priority:*` | `labels[]` `priority:*` → `metadata.priority` → derived from severity → derived from tier | `priority:p0`, `priority:p1`, `priority:p2`, `priority:p3` | Board-display priority — consumed by `issue-to-project` for the Priority single-select field |
 | `points:*` *(v3.4.0+)* | `labels[]` `points:*` → `metadata.points` → derived from `storyPoints` → derived from effort | `points:1`, `points:3`, `points:8`, `points:13` | Story-point estimate — consumed by `issue-to-project` for the Estimate number field |
 
@@ -100,6 +100,14 @@ effort → points:* (SIZE_MAP, fallback when storyPoints absent)
   m   → points:3
   l   → points:8
   xl  → points:13
+
+points → effort:*   (v3.8.0+, range map, fallback when no explicit/legacy effort)
+  n ≤ 1     → effort:s
+  2 ≤ n ≤ 5 → effort:m
+  6 ≤ n ≤ 10 → effort:l
+  n ≥ 11    → effort:xl
+  (points signal = points:* label / metadata.points / storyPoints;
+   non-circular with the SIZE_MAP row above — only one direction ever fires)
 ```
 
 Explicit values always win silently — operator intent is the source of truth. The derivation log line appears in autonomous mode: `[to-issues:auto] story <n>: priority:p0 derived from severity:critical`.
