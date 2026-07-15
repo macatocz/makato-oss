@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.75.0](https://github.com/macatocz/makato/compare/v0.74.0...v0.75.0) (2026-07-15)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** bound the auto-reshape to prevent plan↔build oscillation ([#351](https://github.com/macatocz/makato/issues/351), epic [#319](https://github.com/macatocz/makato/issues/319)) ([33737f4](https://github.com/macatocz/makato/commit/33737f4a5658444fc8c988940a486264d573576e))
+
 ## [0.74.0](https://github.com/macatocz/makato/compare/v0.73.0...v0.74.0) (2026-07-14)
 
 
