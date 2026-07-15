@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.79.1](https://github.com/macatocz/makato/compare/v0.79.0...v0.79.1) (2026-07-15)
+
+
+### 🐛 Bug Fixes
+
+* **flow:** hide-panels button swallowed by pointerdown capture ([#433](https://github.com/macatocz/makato/issues/433)) ([891c033](https://github.com/macatocz/makato/commit/891c033bd2c772250d677a95b9148d91b9e5b033))
+
 ## [0.79.0](https://github.com/macatocz/makato/compare/v0.78.0...v0.79.0) (2026-07-15)
 
 
