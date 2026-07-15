@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.77.0](https://github.com/macatocz/makato/compare/v0.76.0...v0.77.0) (2026-07-15)
+
+
+### ✨ Features
+
+* **to-issues:** derive priority:* from tier:* as fallback ([#424](https://github.com/macatocz/makato/issues/424)) ([538bf77](https://github.com/macatocz/makato/commit/538bf77f0bc0044e5d6760a11c992f399a075f66))
+
 ## [0.76.0](https://github.com/macatocz/makato/compare/v0.75.0...v0.76.0) (2026-07-15)
 
 
