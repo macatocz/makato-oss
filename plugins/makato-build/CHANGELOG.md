@@ -5,7 +5,21 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
-## `gate-scout` + `build-verify` — modern Python toolchain discovery (uv / pyright / biome / sqlfluff)
+## `parse-sarif.py` + `finding-routes.json` — biome "files were modified" autofix signal
+
+When a `biome check` pre-commit hook runs in `--write` mode it rewrites files and pre-commit exits non-zero with only `- files were modified by this hook` — no `path:line:` diagnostic rows. Two gaps meant this never reached makato's deterministic autofix: (1) `parse-sarif.py` extracted **zero findings** from that output (the modification line was not a recognised signal, and the hook header `biome check` — with a space — failed the strict lower-case hook-id regex, so diagnostics stayed attributed to the generic `pre-commit` tool); (2) even with a finding, no autofix route existed for it. Result: the hook's own fix was left unstaged and CI stayed red.
+
+**`shared/parse-sarif.py`:**
+
+- **Hook-label map.** Added `"biome check"` / `"biome"` → `biome` to `_PRECOMMIT_HOOK_LABEL_TO_TOOL`, so the spaced hook header is attributed to the `biome` tool.
+- **Autofix-signal detection.** New `_MODIFIED_SIGNAL_TOOLS` allowlist (currently `{"biome"}`) + `_PRECOMMIT_FILES_MODIFIED_RE`. When an allowlisted tool emits `files were modified by this hook`, the parser emits one synthetic `Finding(tool="biome", rule="files-modified", autofix_available=True)`. Non-allowlisted tools emitting the same line yield nothing (no spurious residuals).
+- **Selftest.** Added Fixture 3b covering the real CI output (1 finding, correct tool/rule/autofix flag) and the non-allowlisted negative case.
+
+**`shared/finding-routes.json`:**
+
+- New exact route `biome:files-modified` → `action: autofix`, `cmd: biome check --write`. Exact-match beats the catch-all `biome:*` glob, so `sensor-fixer` Phase 0 re-runs the writer deterministically (no LLM round-trip) and stages the result. The existing `biome:lint/style/*` and `biome:*` routes are unchanged.
+
+
 
 `gate-scout` only recognised bare `pytest` / `ruff` / `mypy` and a `[tool.ruff]`-in-pyproject world. Lockfile-managed Python repos (`uv`, `poetry`, `pdm`) and repos that configure tools via standalone top-level files went undiscovered, so `build-verify` ran commands that resolved against the system Python and failed with `ModuleNotFoundError`, or missed whole linters.
 

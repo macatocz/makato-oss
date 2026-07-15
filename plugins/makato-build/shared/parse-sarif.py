@@ -442,7 +442,27 @@ _PRECOMMIT_HOOK_LABEL_RE = re.compile(
 )
 _PRECOMMIT_HOOK_LABEL_TO_TOOL = {
     "detect hardcoded secrets": "gitleaks",
+    # biome's pre-commit hook header is "biome check" (with a space), which the
+    # strict lower-case hook-id regex rejects. Map the human label to the tool
+    # so follow-up diagnostics — and the "files were modified" autofix signal
+    # below — are attributed to biome, not left as the generic "pre-commit".
+    "biome check": "biome",
+    "biome": "biome",
 }
+
+# Hooks whose "files were modified by this hook" line is a genuine autofix
+# signal — the hook already rewrote the working tree deterministically, so the
+# fix is to re-run its writer (routed via finding-routes.json) and commit the
+# result. Restricted to an allowlist so tools without an autofix route don't
+# produce spurious residual findings. Extend as new autofixing hooks are wired
+# into finding-routes.json.
+_MODIFIED_SIGNAL_TOOLS = frozenset({"biome"})
+
+# pre-commit prints this when a hook (biome, ruff format, …) rewrote files.
+#   - files were modified by this hook
+_PRECOMMIT_FILES_MODIFIED_RE = re.compile(
+    r"^\s*-?\s*files were modified by this hook\s*$", re.IGNORECASE
+)
 
 # gitleaks block parser. Each finding is a multi-line block starting with
 # "Finding:" and exposing File:/Line:/RuleID:/Secret: rows. Blocks are
@@ -582,7 +602,32 @@ def parse_pre_commit_output(text: str) -> list[Finding]:
         if not line:
             continue
 
-        # Skip scanner log-noise (trivy, etc.):
+        # Autofix signal: a hook reported it rewrote files. For allowlisted
+        # autofixing tools (biome, …) this is the ONLY diagnostic they emit in
+        # --write mode — there are no `path:line:` rows to match. Emit one
+        # finding so sensor-fixer's Phase 0 can re-run the writer (via the
+        # tool's autofix route) and commit the result. The synthetic
+        # `files-modified` rule resolves against a dedicated exact route
+        # (e.g. "biome:files-modified"), which beats the catch-all glob.
+        if (
+            current_tool in _MODIFIED_SIGNAL_TOOLS
+            and _PRECOMMIT_FILES_MODIFIED_RE.match(line)
+        ):
+            findings.append(
+                Finding(
+                    tool=current_tool,
+                    rule="files-modified",
+                    path="",
+                    line=0,
+                    column=0,
+                    message="files were modified by this hook",
+                    severity="warning",
+                    autofix_available=True,
+                    raw={"line": raw_line},
+                )
+            )
+            continue
+
         #   2026-06-18T23:42+02:00\tINFO\t[vuln] ...
         if _PRECOMMIT_ISO_TS_RE.match(line):
             continue
@@ -943,6 +988,46 @@ def _selftest() -> int:
             md_findings[1].rule == "MD013",
             f"markdownlint[1].rule == 'MD013' (got {md_findings[1].rule!r})",
         )
+
+    # --- Fixture 3b: biome autofix "files were modified" signal ------------
+    # Real output from a `biome check` pre-commit hook running in --write mode:
+    # it rewrote 2 files and pre-commit reports the modification. There are no
+    # `path:line:` diagnostic rows — the modification line IS the signal.
+    biome_modified_fixture = (
+        "biome check..............................................................Failed\n"
+        "- hook id: biome-check\n"
+        "- files were modified by this hook\n"
+        "\n"
+        "Checked 25 files in 66ms. Fixed 2 files.\n"
+    )
+    bm_findings = parse_pre_commit_output(biome_modified_fixture)
+    _check(
+        len(bm_findings) == 1,
+        f"biome modified: expected 1 finding, got {len(bm_findings)}: {bm_findings}",
+    )
+    if len(bm_findings) == 1:
+        _check(
+            bm_findings[0].tool == "biome",
+            f"biome modified tool == 'biome' (got {bm_findings[0].tool!r})",
+        )
+        _check(
+            bm_findings[0].rule == "files-modified",
+            f"biome modified rule == 'files-modified' (got {bm_findings[0].rule!r})",
+        )
+        _check(
+            bm_findings[0].autofix_available is True,
+            "biome modified finding is autofix_available",
+        )
+    # A non-allowlisted tool emitting the same line must NOT yield a finding.
+    other_modified_fixture = (
+        "some-formatter...........................................................Failed\n"
+        "- hook id: some-formatter\n"
+        "- files were modified by this hook\n"
+    )
+    _check(
+        len(parse_pre_commit_output(other_modified_fixture)) == 0,
+        "non-allowlisted 'files were modified' tool yields no finding",
+    )
 
     # --- Fixture 4: trivy log-line noise should NOT become findings --------
     trivy_fixture = (

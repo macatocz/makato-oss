@@ -123,6 +123,11 @@
       "skill": "makato-ux:frontend-design",
       "note": "React hook dependency — route to frontend-design"
     },
+    "biome:files-modified": {
+      "action": "autofix",
+      "cmd": "biome check --write",
+      "note": "Biome pre-commit hook already rewrote files in --write mode (parse-sarif.py emits this synthetic finding from the 'files were modified by this hook' line). Re-run the writer deterministically in Phase 0 so the fix is staged and committed — no LLM round-trip."
+    },
     "biome:lint/style/*": {
       "action": "autofix",
       "cmd": "biome check --apply",
