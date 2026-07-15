@@ -342,6 +342,33 @@ Each outer iteration of `run` performs the following steps in order:
      deliberately — terminal state belongs to `workflow-state.json`,
      and the next poll re-derives ground truth instead of trusting an
      exit code.
+   - **Dispatch gate (#318/#355/#357).** Before the `exec`, read-only safety
+     checks run. Skipped entirely when `MAKATO_LOOP_GATE_DISABLE=1` (pre-#318
+     behaviour). Each skip path logs attribution, increments `gate_skips_total`,
+     clears `active_workflow`, and returns 0 (clean skip — the outer loop moves
+     on). Gate never writes board Status (D5 no-op invariant). Steps:
+     1. **Exclusion-label veto.** Fetch the issue's labels via `gh issue view`.
+        If any label is in the exclusion set (`status:blocked`,
+        `needs-human-review`, `claude-halt`, etc.), skip dispatch. Applies to
+        both normal and orphan issues.
+     2. **Orphan classification (#357 D6).** Check whether any
+        `specs/*/created-issues.json` references this issue number. A missing,
+        zero-byte, or malformed `created-issues.json` is treated as orphan (D11).
+        Orphan issues run the degraded gate: tiers 1 and 2 only; tiers 3 and 4
+        are skipped. `orphan_dispatches` is incremented on each orphan that
+        proceeds. An orphan whose merged-PR or in-flight signals fire still
+        skips dispatch (tier 1 MUST still win).
+     3. **Tier 1 — merged-PR check.** Call `_reap_pr_merged` for the derived
+        branch (`feat/<issue>-<key>`). If the branch already has a merged PR,
+        skip dispatch and apply `needs-human-review`.
+     4. **Tier 2 — in-flight workflow-state check.** Re-assert `in_flight_issues`
+        for the direct `dispatch <n>` entry point. If a non-done
+        `workflow-state-<issue>.json` exists, skip.
+     5. **Tier 3/4 — label-board conflict (#356).** Non-orphan only. After the
+        board CAS claim, check for a `status:*` label that contradicts the
+        observed board Status (`Ready`). Skip and apply `needs-human-review` on
+        conflict. Orphan issues bypass this check because their label history
+        pre-dates the `to-issues` taxonomy.
 8. **Sleep.** `sleep $interval_seconds`. The cycle repeats from step 1.
 
 `--once` short-circuits step 8 and exits after one cycle. `--dry-run`
@@ -535,6 +562,8 @@ Field semantics:
 | `last_reap` | ISO-8601 ms \| null | Timestamp of the most recent merged-worktree reap pass (#265). Drives the reap throttle. `null` until the first pass runs. |
 | `last_reap_count` | integer \| null | Number of worktrees removed in the last reap pass (`0` when the pass ran but removed nothing). |
 | `reaped` | array \| null | `[{path, branch, landed}, …]` from the last pass that removed at least one worktree (`landed` is the reason string, e.g. `merged PR #206` or `ancestor of origin/main`); not rewritten on a zero-removal pass. |
+| `gate_skips_total` | integer | Running total of dispatch-gate skips this session (each skip path — exclusion-label veto, merged-PR, in-flight workflow-state, label-board conflict — increments this by 1). Reset implicitly when `loop-status.json` is recreated at `run` startup (it is not an explicit session field, so it accumulates across ticks until the file is deleted). |
+| `orphan_dispatches` | integer | Count of orphan issues dispatched in the current `run` session (issues with no `created-issues.json` referencing them that proceed through the degraded gate after tiers 1+2). Reset to `0` at every `run` startup (#357 D7). Non-zero means at least one issue dispatched without full-authority gate checks — visible risk signal. |
 | `updated_at` | ISO-8601 ms | Auto-stamped on every write. |
 
 Operators can `tail -f .claude/state/loop-status.json | jq` (or
@@ -689,6 +718,7 @@ The intentional design split:
 | `MAKATO_LOOP_RECONCILE_TEST_FILE` | unset | Test-only: append `reconcile #N` here instead of calling `gh project item-edit`. |
 | `MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE` | unset | Test-only: append `label #N needs-human-review` here instead of calling `gh issue edit`. |
 | `MAKATO_LOOP_RECONCILE_SPECS_DIR` | unset | Test-only: override `SPECS_DIR` for the in-flight scan within `_reconcile_orphaned_in_progress`. Keeps Tm/Tn tests from polluting the real `specs/` tree. |
+| `MAKATO_LOOP_GATE_DISABLE` | `0` | Set to `1` to disable the entire dispatch gate (#318/#355/#357). All four tiers (exclusion-label veto, merged-PR, in-flight workflow-state, label-board conflict) are bypassed and orphan detection is skipped. Pre-#318 dispatch behaviour is fully restored. Use only for debugging or offline smoke tests that need to exercise the post-gate path without fixtures for all gate inputs. |
 | `MAKATO_LOOP_RESHAPE_ENABLED` | `0` | Set to `1` to enable the pre-poll reshape pass (#350). When disabled (default), `_reshape_pass` is a no-op regardless of board state. Enable for repos that use the Needs Planning → Reshape → Ready feedback loop (epic #319). |
 | `MAKATO_MAX_RESHAPE_CYCLES` | `3` | Maximum number of `decompose Refine + to-issues` dispatch attempts per issue before `needs-human-review` is applied and no further reshaping is attempted. Guards against infinite reshape loops on structurally unresolvable stories. |
 | `MAKATO_LOOP_RESHAPE_TEST_CMD` | unset | Test-only: command string eval'd inside a subshell in place of the real `claude` dispatch in `_reshape_pass`. Receives the same env context as the production path. Keeps T-reshape smoke tests offline. |
@@ -818,6 +848,22 @@ The intentional design split:
 53. **Reshape pass — toggle position (T-reshape-toggle-position, #350).** Structural grep
     confirms `_reshape_pass` call site appears on an earlier line than `_auto_seed_unprepared`
     in `cmd_run`, preserving the load-bearing serial invariant.
+54. **Orphan detection — missing created-issues.json (T-orphan-1, #357).** No `created-issues.json`
+    in any specs folder: `_is_orphan_issue` exits 0 (orphan).
+55. **Orphan detection — malformed created-issues.json (T-orphan-2, #357).** Non-JSON file:
+    treated as orphan (D11).
+56. **Orphan detection — zero-byte created-issues.json (T-orphan-3, #357).** Empty file:
+    treated as orphan (D11).
+57. **Orphan detection — referenced issue not orphan (T-orphan-4, #357).** `created-issues.json`
+    contains matching `issue_number`: `_is_orphan_issue` exits 1 (not orphan).
+58. **Orphan with merged PR skipped by tier 1 (T-orphan-5, #357).** Orphan + merged-PR fixture:
+    tier 1 fires, dispatch skipped, `orphan_dispatches` NOT incremented.
+59. **Orphan with no blocking signals proceeds (T-orphan-6, #357).** Orphan + no PR + no in-flight:
+    dispatch proceeds, `orphan_dispatches` increments to 1.
+60. **Orphan counter accumulates (T-orphan-7, #357).** Three orphan dispatches in sequence:
+    `orphan_dispatches == 3` after the run.
+61. **Orphan counter is session-scoped (T-orphan-8, #357).** Pre-existing `orphan_dispatches=5`
+    in status file is reset to 0 at session start; one orphan dispatch brings it to 1.
 
 Run them directly:
 

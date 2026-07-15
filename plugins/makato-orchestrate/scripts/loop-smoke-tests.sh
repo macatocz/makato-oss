@@ -1603,11 +1603,17 @@ T_LBC1_REAP="$STATE_DIR/tlbc1-reap-$$.json"
 T_LBC1_BODY="$STATE_DIR/tlbc1-body-$$.txt"
 T_LBC1_CLAIM="$STATE_DIR/tlbc1-claim-$$.txt"
 T_LBC1_LABEL_FILE="$STATE_DIR/tlbc1-label-$$.txt"
+# Fixture specs dir: issue 101 is in created-issues.json → non-orphan → tier 3/4 applies
+T_LBC1_SPECS="${TMPDIR:-/tmp}/tlbc1-specs-$$"
+mkdir -p "$T_LBC1_SPECS/gate-test-key"
+printf '{"schema_version":"1","issues":[{"issue_number":101,"url":"https://github.com/x/y/issues/101"}]}\n' \
+  >"$T_LBC1_SPECS/gate-test-key/created-issues.json"
 # status:in-review label contradicts board Status "Ready"
 printf '{"labels":[{"name":"status:in-review"}],"title":"Issue 101"}' >"$T_LBC1_LABELS"
 printf '{}' >"$T_LBC1_REAP"
 printf '%s\n' '*Feature slug: `gate-test-key` — produced by to-issues v3.x.*' >"$T_LBC1_BODY"
-MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T_LBC1_BODY" \
+SPECS_DIR="$T_LBC1_SPECS" \
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T_LBC1_BODY" \
   MAKATO_LOOP_REAP_GH_OVERRIDE="$T_LBC1_REAP" \
   MAKATO_LOOP_GATE_LABELS_OVERRIDE="$T_LBC1_LABELS" \
   MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="type:feature" \
@@ -1629,6 +1635,7 @@ grep -q "needs-human-review" "$T_LBC1_LABEL_FILE" 2>/dev/null \
 # Verify no board Status write (claim file should not show item-edit for the conflict case)
 grep -qv "item-edit" "$T_LBC1_CLAIM" 2>/dev/null || true  # claim file only has claim events, not item-edit
 echo "  ✓ label-board conflict: skip increments counter, clears active_workflow, stamps needs-human-review"
+rm -rf "$T_LBC1_SPECS"
 rm -f "$T_LBC1_LABELS" "$T_LBC1_REAP" "$T_LBC1_BODY" "$T_LBC1_CLAIM" "$T_LBC1_LABEL_FILE"
 
 # ---------------------------------------------------------------------------
@@ -1639,11 +1646,16 @@ T_LBC2_REAP="$STATE_DIR/tlbc2-reap-$$.json"
 T_LBC2_BODY="$STATE_DIR/tlbc2-body-$$.txt"
 T_LBC2_LABEL_FILE="$STATE_DIR/tlbc2-label-$$.txt"
 T_LBC2_CLAIM="$STATE_DIR/tlbc2-claim-$$.txt"
+T_LBC2_SPECS="${TMPDIR:-/tmp}/tlbc2-specs-$$"
+mkdir -p "$T_LBC2_SPECS/gate-test-key"
+printf '{"schema_version":"1","issues":[{"issue_number":101,"url":"https://github.com/x/y/issues/101"}]}\n' \
+  >"$T_LBC2_SPECS/gate-test-key/created-issues.json"
 printf '{"labels":[{"name":"status:in-review"}],"title":"Issue 101"}' >"$T_LBC2_LABELS"
 printf '{}' >"$T_LBC2_REAP"
 printf '%s\n' '*Feature slug: `gate-test-key` — produced by to-issues v3.x.*' >"$T_LBC2_BODY"
 # First dispatch
-MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T_LBC2_BODY" \
+SPECS_DIR="$T_LBC2_SPECS" \
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T_LBC2_BODY" \
   MAKATO_LOOP_REAP_GH_OVERRIDE="$T_LBC2_REAP" \
   MAKATO_LOOP_GATE_LABELS_OVERRIDE="$T_LBC2_LABELS" \
   MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="type:feature" \
@@ -1657,7 +1669,8 @@ MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T_LBC2_BODY" \
   "$LOOP" dispatch 101 2>/dev/null
 # Second dispatch (re-evaluation of same issue) — override dispatch guard so it
 # doesn't block: set gap to 0 so last_dispatch is always old enough.
-MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T_LBC2_BODY" \
+SPECS_DIR="$T_LBC2_SPECS" \
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T_LBC2_BODY" \
   MAKATO_LOOP_REAP_GH_OVERRIDE="$T_LBC2_REAP" \
   MAKATO_LOOP_GATE_LABELS_OVERRIDE="$T_LBC2_LABELS" \
   MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="type:feature" \
@@ -1675,6 +1688,7 @@ tlbc2_skips="$(jq -r '.gate_skips_total // 0' "$STATE_DIR/loop-status.json" 2>/d
 [[ "$tlbc2_skips" -eq 2 ]] \
   || fail "T_LBC2: two dispatches of conflicting issue: expected gate_skips_total=2 (one per dispatch, no double-count); got $tlbc2_skips"
 echo "  ✓ idempotent re-evaluation: two dispatches each skip once (counter=2, no duplicate per-dispatch)"
+rm -rf "$T_LBC2_SPECS"
 rm -f "$T_LBC2_LABELS" "$T_LBC2_REAP" "$T_LBC2_BODY" "$T_LBC2_LABEL_FILE" "$T_LBC2_CLAIM"
 
 # ---------------------------------------------------------------------------
@@ -1684,12 +1698,17 @@ T_LBC3_LABELS="$STATE_DIR/tlbc3-labels-$$.json"
 T_LBC3_REAP="$STATE_DIR/tlbc3-reap-$$.json"
 T_LBC3_BODY="$STATE_DIR/tlbc3-body-$$.txt"
 T_LBC3_CLAIM="$STATE_DIR/tlbc3-claim-$$.txt"
+T_LBC3_SPECS="${TMPDIR:-/tmp}/tlbc3-specs-$$"
+mkdir -p "$T_LBC3_SPECS/gate-test-key"
+printf '{"schema_version":"1","issues":[{"issue_number":101,"url":"https://github.com/x/y/issues/101"}]}\n' \
+  >"$T_LBC3_SPECS/gate-test-key/created-issues.json"
 printf '{"labels":[{"name":"status:in-review"}],"title":"Issue 101"}' >"$T_LBC3_LABELS"
 printf '{}' >"$T_LBC3_REAP"
 printf '%s\n' '*Feature slug: `gate-test-key` — produced by to-issues v3.x.*' >"$T_LBC3_BODY"
 # No MAKATO_LOOP_LABEL_TEST_FILE — real gh stamp path (fails offline = best-effort WARN), but skip must still happen
 tlbc3_rc=0
-MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T_LBC3_BODY" \
+SPECS_DIR="$T_LBC3_SPECS" \
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T_LBC3_BODY" \
   MAKATO_LOOP_REAP_GH_OVERRIDE="$T_LBC3_REAP" \
   MAKATO_LOOP_GATE_LABELS_OVERRIDE="$T_LBC3_LABELS" \
   MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="type:feature" \
@@ -1708,6 +1727,7 @@ tlbc3_skips="$(jq -r '.gate_skips_total // 0' "$STATE_DIR/loop-status.json" 2>/d
 jq -e '.active_workflow == null' "$STATE_DIR/loop-status.json" >/dev/null \
   || fail "T_LBC3: active_workflow should be null (skip happened despite stamp failure)"
 echo "  ✓ stamp write failure: WARN path, skip still recorded (gate_skips_total=1, active_workflow=null)"
+rm -rf "$T_LBC3_SPECS"
 rm -f "$T_LBC3_LABELS" "$T_LBC3_REAP" "$T_LBC3_BODY" "$T_LBC3_CLAIM"
 
 # ---------------------------------------------------------------------------
@@ -1717,10 +1737,15 @@ T_LBC4_LABELS="$STATE_DIR/tlbc4-labels-$$.json"
 T_LBC4_REAP="$STATE_DIR/tlbc4-reap-$$.json"
 T_LBC4_BODY="$STATE_DIR/tlbc4-body-$$.txt"
 T_LBC4_CLAIM="$STATE_DIR/tlbc4-claim-$$.txt"
+T_LBC4_SPECS="${TMPDIR:-/tmp}/tlbc4-specs-$$"
+mkdir -p "$T_LBC4_SPECS/gate-test-key"
+printf '{"schema_version":"1","issues":[{"issue_number":101,"url":"https://github.com/x/y/issues/101"}]}\n' \
+  >"$T_LBC4_SPECS/gate-test-key/created-issues.json"
 printf '{"labels":[{"name":"status:ready-for-dev"}],"title":"Issue 101"}' >"$T_LBC4_LABELS"
 printf '{}' >"$T_LBC4_REAP"
 printf '%s\n' '*Feature slug: `gate-test-key` — produced by to-issues v3.x.*' >"$T_LBC4_BODY"
-MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T_LBC4_BODY" \
+SPECS_DIR="$T_LBC4_SPECS" \
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T_LBC4_BODY" \
   MAKATO_LOOP_REAP_GH_OVERRIDE="$T_LBC4_REAP" \
   MAKATO_LOOP_GATE_LABELS_OVERRIDE="$T_LBC4_LABELS" \
   MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="type:feature" \
@@ -1737,6 +1762,7 @@ tlbc4_skips="$(jq -r '.gate_skips_total // 0' "$STATE_DIR/loop-status.json" 2>/d
 jq -e '.last_dispatch_issue == 101' "$STATE_DIR/loop-status.json" >/dev/null \
   || fail "T_LBC4: aligned labels + board → dispatch should proceed (last_dispatch_issue=101)"
 echo "  ✓ no conflict: status:ready-for-dev + board Ready → dispatch proceeds, no skip"
+rm -rf "$T_LBC4_SPECS"
 rm -f "$T_LBC4_LABELS" "$T_LBC4_REAP" "$T_LBC4_BODY" "$T_LBC4_CLAIM"
 
 # ---------------------------------------------------------------------------
@@ -3312,5 +3338,194 @@ grep -q "remove-label #926 needs-reshape" "$TR13B_LABEL_FILE" 2>/dev/null \
 rm -rf "$TR13B_SPEC_DIR" "$TR13B_OVERRIDE" "$TR13B_LABEL_FILE"
 echo "  ✓ HALT-013 below-ceiling: reshape proceeds normally, HALT-013 absent"
 
+# ---------------------------------------------------------------------------
+# T-orphan-1: missing created-issues.json → orphan (Task 1, #357)
+# ---------------------------------------------------------------------------
+echo "=== T-orphan-1: missing created-issues.json → orphan ==="
+rm -f "$STATE_DIR/loop-status.json"
+T_OR1_SPECS="${TMPDIR:-/tmp}/or1-specs-$$"
+mkdir -p "$T_OR1_SPECS/some-feature"
+# No created-issues.json in any specs folder
+MAKATO_LOOP_TEST_HOOK=1 SPECS_DIR="$T_OR1_SPECS" "$LOOP" _test-is-orphan 201 \
+  && echo "  (exit 0 = orphan)" \
+  || fail "T-orphan-1: missing created-issues.json should classify as orphan (exit 0)"
+rm -rf "$T_OR1_SPECS"
+echo "  ✓ missing created-issues.json: orphan"
+
+# ---------------------------------------------------------------------------
+# T-orphan-2: malformed created-issues.json → orphan (D11, Task 1, #357)
+# ---------------------------------------------------------------------------
+echo "=== T-orphan-2: malformed created-issues.json → orphan ==="
+rm -f "$STATE_DIR/loop-status.json"
+T_OR2_SPECS="${TMPDIR:-/tmp}/or2-specs-$$"
+mkdir -p "$T_OR2_SPECS/some-feature"
+printf 'this is not json\n' >"$T_OR2_SPECS/some-feature/created-issues.json"
+MAKATO_LOOP_TEST_HOOK=1 SPECS_DIR="$T_OR2_SPECS" "$LOOP" _test-is-orphan 202 \
+  && echo "  (exit 0 = orphan)" \
+  || fail "T-orphan-2: malformed created-issues.json should classify as orphan (exit 0)"
+rm -rf "$T_OR2_SPECS"
+echo "  ✓ malformed created-issues.json: orphan"
+
+# ---------------------------------------------------------------------------
+# T-orphan-3: zero-byte created-issues.json → orphan (D11, Task 1, #357)
+# ---------------------------------------------------------------------------
+echo "=== T-orphan-3: zero-byte created-issues.json → orphan ==="
+rm -f "$STATE_DIR/loop-status.json"
+T_OR3_SPECS="${TMPDIR:-/tmp}/or3-specs-$$"
+mkdir -p "$T_OR3_SPECS/some-feature"
+: >"$T_OR3_SPECS/some-feature/created-issues.json"
+MAKATO_LOOP_TEST_HOOK=1 SPECS_DIR="$T_OR3_SPECS" "$LOOP" _test-is-orphan 203 \
+  && echo "  (exit 0 = orphan)" \
+  || fail "T-orphan-3: zero-byte created-issues.json should classify as orphan (exit 0)"
+rm -rf "$T_OR3_SPECS"
+echo "  ✓ zero-byte created-issues.json: orphan"
+
+# ---------------------------------------------------------------------------
+# T-orphan-4: created-issues.json references the issue → NOT orphan (Task 1, #357)
+# ---------------------------------------------------------------------------
+echo "=== T-orphan-4: created-issues.json references the issue → not orphan ==="
+rm -f "$STATE_DIR/loop-status.json"
+T_OR4_SPECS="${TMPDIR:-/tmp}/or4-specs-$$"
+mkdir -p "$T_OR4_SPECS/some-feature"
+printf '{"schema_version":"1","issues":[{"issue_number":204,"url":"https://github.com/x/y/issues/204"}]}\n' \
+  >"$T_OR4_SPECS/some-feature/created-issues.json"
+MAKATO_LOOP_TEST_HOOK=1 SPECS_DIR="$T_OR4_SPECS" "$LOOP" _test-is-orphan 204 \
+  && fail "T-orphan-4: issue referenced in created-issues.json should NOT be orphan (exit 1 expected)" \
+  || echo "  (exit 1 = not orphan, correct)"
+rm -rf "$T_OR4_SPECS"
+echo "  ✓ referenced issue: not orphan"
+
+# ---------------------------------------------------------------------------
+# T-orphan-5: orphan with merged PR is skipped by tier 1, orphan_dispatches NOT incremented (Task 2, #357)
+# ---------------------------------------------------------------------------
+echo "=== T-orphan-5: orphan with merged PR skipped by tier 1 — orphan_dispatches NOT incremented ==="
+rm -f "$STATE_DIR/loop-status.json"
+T_OR5_SPECS="${TMPDIR:-/tmp}/or5-specs-$$"
+T_OR5_REAP="$STATE_DIR/or5-reap-$$.json"
+T_OR5_LABELS="$STATE_DIR/or5-labels-$$.json"
+T_OR5_BODY="$STATE_DIR/or5-body-$$.txt"
+mkdir -p "$T_OR5_SPECS"
+# No created-issues.json anywhere → orphan
+printf '%s\n' '*Feature slug: `orphan-merged-key` — produced by to-issues v3.x.*' >"$T_OR5_BODY"
+# Merged PR fixture for branch feat/205-orphan-merged-key
+printf '{"feat/205-orphan-merged-key": "888"}' >"$T_OR5_REAP"
+printf '{"labels":[],"title":"Issue 205"}' >"$T_OR5_LABELS"
+SPECS_DIR="$T_OR5_SPECS" \
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T_OR5_BODY" \
+  MAKATO_LOOP_REAP_GH_OVERRIDE="$T_OR5_REAP" \
+  MAKATO_LOOP_GATE_LABELS_OVERRIDE="$T_OR5_LABELS" \
+  MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="type:feature" \
+  MAKATO_LOOP_CLAIM_ON_DISPATCH=0 \
+  MAKATO_LOOP_DRY_DISPATCH=1 \
+  MAKATO_LOOP_ASSIGN_ON_DISPATCH=0 \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  "$LOOP" dispatch 205 2>/dev/null
+t_or5_orphan_dispatches="$(jq -r '.orphan_dispatches // 0' "$STATE_DIR/loop-status.json" 2>/dev/null || echo 0)"
+t_or5_skips="$(jq -r '.gate_skips_total // 0' "$STATE_DIR/loop-status.json" 2>/dev/null || echo 0)"
+[[ "$t_or5_orphan_dispatches" -eq 0 ]] \
+  || fail "T-orphan-5: orphan_dispatches should be 0 when merged-PR orphan is skipped by tier 1; got $t_or5_orphan_dispatches"
+[[ "$t_or5_skips" -ge 1 ]] \
+  || fail "T-orphan-5: gate_skips_total should be ≥1 after merged-PR skip; got $t_or5_skips"
+rm -rf "$T_OR5_SPECS" "$T_OR5_REAP" "$T_OR5_LABELS" "$T_OR5_BODY"
+echo "  ✓ orphan with merged PR: skipped by tier 1, orphan_dispatches NOT incremented"
+
+# ---------------------------------------------------------------------------
+# T-orphan-6: orphan with no blocking signals proceeds, orphan_dispatches increments (Tasks 2+3, #357)
+# ---------------------------------------------------------------------------
+echo "=== T-orphan-6: orphan with no blocking signals proceeds, orphan_dispatches increments ==="
+rm -f "$STATE_DIR/loop-status.json"
+T_OR6_SPECS="${TMPDIR:-/tmp}/or6-specs-$$"
+T_OR6_REAP="$STATE_DIR/or6-reap-$$.json"
+T_OR6_LABELS="$STATE_DIR/or6-labels-$$.json"
+T_OR6_BODY="$STATE_DIR/or6-body-$$.txt"
+mkdir -p "$T_OR6_SPECS"
+# No created-issues.json anywhere → orphan; no PR merged, no in-flight
+printf '%s\n' '*Feature slug: `orphan-proceed-key` — produced by to-issues v3.x.*' >"$T_OR6_BODY"
+printf '{}' >"$T_OR6_REAP"
+printf '{"labels":[],"title":"Issue 206"}' >"$T_OR6_LABELS"
+SPECS_DIR="$T_OR6_SPECS" \
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T_OR6_BODY" \
+  MAKATO_LOOP_REAP_GH_OVERRIDE="$T_OR6_REAP" \
+  MAKATO_LOOP_GATE_LABELS_OVERRIDE="$T_OR6_LABELS" \
+  MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="type:feature" \
+  MAKATO_LOOP_CLAIM_ON_DISPATCH=0 \
+  MAKATO_LOOP_DRY_DISPATCH=1 \
+  MAKATO_LOOP_ASSIGN_ON_DISPATCH=0 \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  "$LOOP" dispatch 206 2>/dev/null
+t_or6_orphan_dispatches="$(jq -r '.orphan_dispatches // 0' "$STATE_DIR/loop-status.json" 2>/dev/null || echo 0)"
+t_or6_dispatch="$(jq -r '.last_dispatch_issue // empty' "$STATE_DIR/loop-status.json" 2>/dev/null || echo "")"
+[[ "$t_or6_orphan_dispatches" -eq 1 ]] \
+  || fail "T-orphan-6: orphan_dispatches should be 1 after one orphan dispatch; got $t_or6_orphan_dispatches"
+[[ "$t_or6_dispatch" == "206" ]] \
+  || fail "T-orphan-6: dispatch should proceed for no-signal orphan (last_dispatch_issue=206); got $t_or6_dispatch"
+rm -rf "$T_OR6_SPECS" "$T_OR6_REAP" "$T_OR6_LABELS" "$T_OR6_BODY"
+echo "  ✓ orphan with no blocking signals: proceeds, orphan_dispatches=1"
+
+# ---------------------------------------------------------------------------
+# T-orphan-7: orphan_dispatches accumulates across 3 orphan dispatches, session-scoped (Task 3, #357)
+# ---------------------------------------------------------------------------
+echo "=== T-orphan-7: orphan_dispatches accumulates across 3 orphan dispatches ==="
+rm -f "$STATE_DIR/loop-status.json"
+T_OR7_SPECS="${TMPDIR:-/tmp}/or7-specs-$$"
+T_OR7_REAP="$STATE_DIR/or7-reap-$$.json"
+T_OR7_LABELS="$STATE_DIR/or7-labels-$$.json"
+mkdir -p "$T_OR7_SPECS"
+printf '{}' >"$T_OR7_REAP"
+for issue_n in 211 212 213; do
+  T_OR7_BODY="$STATE_DIR/or7-body-${issue_n}-$$.txt"
+  printf '%s\n' "*Feature slug: \`orphan-acc-${issue_n}\` — produced by to-issues v3.x.*" >"$T_OR7_BODY"
+  printf '{"labels":[],"title":"Issue %s"}' "$issue_n" >"$T_OR7_LABELS"
+  SPECS_DIR="$T_OR7_SPECS" \
+    MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T_OR7_BODY" \
+    MAKATO_LOOP_REAP_GH_OVERRIDE="$T_OR7_REAP" \
+    MAKATO_LOOP_GATE_LABELS_OVERRIDE="$T_OR7_LABELS" \
+    MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="type:feature" \
+    MAKATO_LOOP_CLAIM_ON_DISPATCH=0 \
+    MAKATO_LOOP_DRY_DISPATCH=1 \
+    MAKATO_LOOP_ASSIGN_ON_DISPATCH=0 \
+    MAKATO_LOOP_MIN_DISPATCH_GAP=0 \
+    MAKATO_LOOP_LAST_DISPATCH_GAP=0 \
+    MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+    "$LOOP" dispatch "$issue_n" 2>/dev/null
+  rm -f "$T_OR7_BODY"
+done
+t_or7_orphan_dispatches="$(jq -r '.orphan_dispatches // 0' "$STATE_DIR/loop-status.json" 2>/dev/null || echo 0)"
+[[ "$t_or7_orphan_dispatches" -eq 3 ]] \
+  || fail "T-orphan-7: orphan_dispatches should be 3 after 3 orphan dispatches; got $t_or7_orphan_dispatches"
+rm -rf "$T_OR7_SPECS" "$T_OR7_REAP" "$T_OR7_LABELS"
+echo "  ✓ orphan_dispatches accumulates: 3 orphan dispatches → count=3"
+
+# ---------------------------------------------------------------------------
+# T-orphan-8: orphan_dispatches is session-scoped — prior run's value not carried over (Task 3, #357)
+# ---------------------------------------------------------------------------
+echo "=== T-orphan-8: orphan_dispatches is session-scoped (prior run not carried over) ==="
+T_OR8_SPECS="${TMPDIR:-/tmp}/or8-specs-$$"
+T_OR8_REAP="$STATE_DIR/or8-reap-$$.json"
+T_OR8_LABELS="$STATE_DIR/or8-labels-$$.json"
+T_OR8_BODY="$STATE_DIR/or8-body-$$.txt"
+mkdir -p "$T_OR8_SPECS"
+printf '{}' >"$T_OR8_REAP"
+printf '{"labels":[],"title":"Issue 220"}' >"$T_OR8_LABELS"
+printf '%s\n' '*Feature slug: `orphan-session-key` — produced by to-issues v3.x.*' >"$T_OR8_BODY"
+# Seed the status file with a stale orphan_dispatches=5 from a prior run
+printf '{"orphan_dispatches":5}' >"$STATE_DIR/loop-status.json"
+SPECS_DIR="$T_OR8_SPECS" \
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T_OR8_BODY" \
+  MAKATO_LOOP_REAP_GH_OVERRIDE="$T_OR8_REAP" \
+  MAKATO_LOOP_GATE_LABELS_OVERRIDE="$T_OR8_LABELS" \
+  MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="type:feature" \
+  MAKATO_LOOP_CLAIM_ON_DISPATCH=0 \
+  MAKATO_LOOP_DRY_DISPATCH=1 \
+  MAKATO_LOOP_ASSIGN_ON_DISPATCH=0 \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+MAKATO_LOOP_TEST_HOOK=1 \
+  "$LOOP" _test-session-orphan-reset 220 2>/dev/null
+t_or8_orphan_dispatches="$(jq -r '.orphan_dispatches // 0' "$STATE_DIR/loop-status.json" 2>/dev/null || echo 0)"
+[[ "$t_or8_orphan_dispatches" -eq 1 ]] \
+  || fail "T-orphan-8: orphan_dispatches should be 1 (reset on session start + one dispatch); got $t_or8_orphan_dispatches"
+rm -rf "$T_OR8_SPECS" "$T_OR8_REAP" "$T_OR8_LABELS" "$T_OR8_BODY"
+echo "  ✓ session-scoped: prior orphan_dispatches=5 reset to 0 on new session start, then incremented to 1"
+
 echo
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351) ==="
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357) ==="

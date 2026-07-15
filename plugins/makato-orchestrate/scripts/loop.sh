@@ -620,6 +620,51 @@ _increment_gate_skips() {
 }
 
 # ---------------------------------------------------------------------------
+# _increment_orphan_dispatches — read-increment-write orphan_dispatches in the
+# status file. Initialises to 0 if absent. Called once per orphan dispatch that
+# proceeds (after tiers 1+2 pass). Session-scoped — reset to 0 at cmd_run start.
+# ---------------------------------------------------------------------------
+_increment_orphan_dispatches() {
+  local cur
+  cur="$(_read_status | jq -r '.orphan_dispatches // 0')"
+  _patch_status '.orphan_dispatches' "$((cur + 1))"
+}
+
+# ---------------------------------------------------------------------------
+# _is_orphan_issue <issue_number> — return 0 (orphan) when no created-issues.json
+# in any specs/ folder references this issue number. Returns 1 (not orphan) when
+# a valid created-issues.json contains a matching issue_number entry.
+#
+# A missing, zero-byte, or malformed created-issues.json counts as orphan (D11).
+# The scan uses SPECS_DIR (default: $REPO_ROOT/specs) so tests can inject a
+# fixture directory via env.
+#
+# Exit 0 = orphan (no authoritative record found)
+# Exit 1 = not orphan (created-issues.json with matching entry found)
+# ---------------------------------------------------------------------------
+_is_orphan_issue() {
+  local issue="$1"
+  local spec_root="${SPECS_DIR:-${REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null)}/specs}"
+  [[ -d "$spec_root" ]] || return 0  # no specs dir → orphan
+
+  local f
+  while IFS= read -r -d '' f; do
+    # Skip zero-byte files (D11)
+    [[ -s "$f" ]] || continue
+    # Attempt jq parse; skip malformed files (D11)
+    local matched
+    matched="$(jq -r --argjson n "$issue" \
+      '[.issues[]? | select(.issue_number == $n)] | length' \
+      "$f" 2>/dev/null || echo "0")"
+    if [[ "$matched" -gt 0 ]]; then
+      return 1  # found — not an orphan
+    fi
+  done < <(find "$spec_root" -maxdepth 2 -name "created-issues.json" -print0 2>/dev/null)
+
+  return 0  # no referencing file found → orphan
+}
+
+# ---------------------------------------------------------------------------
 # _label_board_conflict <labels_json> <board_status> — tier 3/4 gate (#356).
 # Returns 0 (conflict detected) when a status:* label in the candidate's label
 # list contradicts the observed board Status. Returns 1 (no conflict / aligned).
@@ -2772,6 +2817,10 @@ cmd_dispatch() {
   # Best-effort: any read failure logs WARN and proceeds (does not increment
   # gate_skips_total). Gate never writes board Status — D5 no-op invariant.
   # ---------------------------------------------------------------------------
+  # gate_is_orphan is declared outside the GATE_DISABLE block so the tier 3/4
+  # label-board conflict check (which runs after _claim_board_card) can also
+  # skip when the issue is an orphan (#357 D6).
+  local gate_is_orphan=0
   if [[ "$GATE_DISABLE" != "1" ]]; then
     # Task 1 — Consolidated label+title fetch (D10 enabler).
     # One gh call for exclusion-label veto; result also available for S2/tier-4.
@@ -2793,8 +2842,19 @@ cmd_dispatch() {
       fi
     fi
 
+    # Orphan detection (D6, #357): classify before tiers 1-4 so the degraded
+    # path can skip tiers 3/4. An orphan has no created-issues.json in any
+    # specs/ folder referencing this issue (missing / zero-byte / malformed
+    # counted as orphan per D11). _is_orphan_issue uses SPECS_DIR override for
+    # offline testing.
+    if _is_orphan_issue "$issue"; then
+      gate_is_orphan=1
+    fi
+
     # Task 3 — Exclusion-label veto (D4).
-    # If any label matches _PROMOTE_EXCLUSION_LABELS, skip immediately.
+    # Applies to both orphan and non-orphan paths: an issue carrying a hard-stop
+    # exclusion label (needs-human-review, status:blocked, etc.) must never
+    # dispatch regardless of orphan status.
     local gate_veto_label=""
     if [[ -n "$gate_labels_json" ]]; then
       gate_veto_label="$(jq -r \
@@ -2810,6 +2870,7 @@ cmd_dispatch() {
     fi
 
     # Task 4 — Tier 1: merged-PR check.
+    # Runs for BOTH orphan and non-orphan paths (tier 1 MUST still win — D6).
     # Call _reap_pr_merged (honours MAKATO_LOOP_REAP_GH_OVERRIDE offline override).
     # Guard: skip when branch is empty (key derivation failed) — an empty --head
     # flag on `gh pr list` would return all recently-merged PRs, producing a false
@@ -2828,6 +2889,7 @@ cmd_dispatch() {
     fi
 
     # Task 4 — Tier 2: in-flight workflow-state check.
+    # Runs for BOTH orphan and non-orphan paths (D6).
     # Re-assert in_flight_issues for the direct `dispatch <n>` entry point.
     # Task 6 — Best-effort: in_flight_issues uses 2>/dev/null per-file; any
     # scan failure returns empty so the gate proceeds.
@@ -2838,6 +2900,15 @@ cmd_dispatch() {
       _increment_gate_skips
       _patch_status '.active_workflow' 'null'
       return 0
+    fi
+
+    # Degraded gate path (D6, #357): orphan proceeds after tiers 1+2.
+    # Emit audit log and increment counter; skip tiers 3/4 (label-board
+    # conflict check requires created-issues.json context that orphans lack).
+    if [[ "$gate_is_orphan" -eq 1 ]]; then
+      local gate_issue_url="https://github.com/${repo}/issues/${issue}"
+      echo "loop: gate — orphan: ${gate_issue_url} — D6 tiers 1-2 enforced, board/label drift not checked" >&2
+      _increment_orphan_dispatches
     fi
   fi
   # End dispatch gate.
@@ -2861,7 +2932,9 @@ cmd_dispatch() {
   # return 0 (clean skip — same contract as tiers 1/2). The board Status is NOT
   # written (D5 no-op invariant). Skipped when gate_labels_json is empty (read
   # failure already logged a WARN in the dispatch gate block — best-effort).
-  if [[ "$GATE_DISABLE" != "1" && -n "$gate_labels_json" ]]; then
+  # Also skipped for orphan issues (#357 D6): tiers 3/4 require created-issues.json
+  # context that orphans lack; the degraded gate already ran tiers 1+2 above.
+  if [[ "$GATE_DISABLE" != "1" && -n "$gate_labels_json" && "$gate_is_orphan" -eq 0 ]]; then
     local claimed_status="${MAKATO_LOOP_DISPATCH_STATUS:-Ready}"
     # Use the CAS-observed status exported by _claim_board_card when available.
     [[ -n "${LOOP_LAST_CLAIMED_STATUS:-}" ]] && claimed_status="$LOOP_LAST_CLAIMED_STATUS"
@@ -3512,6 +3585,10 @@ cmd_run() {
   _patch_status '.interval_seconds' "$interval"
   _patch_status '.dry_run' "$( [[ -n "$dry_run" ]] && echo true || echo false )"
 
+  # Session-scoped counters: reset orphan_dispatches to 0 at each cmd_run
+  # start so a prior run's count is not carried over (#357 D7).
+  _patch_status '.orphan_dispatches' '0'
+
   while true; do
     if ! cmd_check_halt; then
       _patch_status '.last_halt_at' "\"$(_now)\""
@@ -3717,6 +3794,23 @@ if [[ "$SUBCMD" == _test-* ]]; then
       else
         echo "skipped (foreign)"
       fi
+      ;;
+    # _test-is-orphan <issue> — exercise _is_orphan_issue directly.
+    # Exits 0 if orphan, 1 if not. Uses SPECS_DIR env override.
+    # (#357).
+    _test-is-orphan)
+      _test_issue="${1:?issue required}"
+      _is_orphan_issue "$_test_issue"
+      ;;
+    # _test-session-orphan-reset <issue> — simulate a session start
+    # (reset orphan_dispatches to 0) then dispatch once so the counter
+    # increments to 1. Used by T-orphan-8 to assert session-scoped reset.
+    # (#357).
+    _test-session-orphan-reset)
+      _test_issue="${1:?issue required}"
+      # Simulate session start: reset orphan_dispatches to 0.
+      _patch_status '.orphan_dispatches' '0'
+      cmd_dispatch "$_test_issue"
       ;;
     *) echo "loop: unknown test hook: $SUBCMD" >&2; exit 64 ;;
   esac
