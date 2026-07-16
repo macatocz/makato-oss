@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.80.0](https://github.com/macatocz/makato/compare/v0.79.2...v0.80.0) (2026-07-16)
+
+
+### ✨ Features
+
+* **docs:** generate makato-flow.html graph-data with drift check ([#428](https://github.com/macatocz/makato/issues/428)) ([#439](https://github.com/macatocz/makato/issues/439)) ([d91bd7d](https://github.com/macatocz/makato/commit/d91bd7d5bb01a899948b7239900a430461ce1bca))
+
 ## [0.79.2](https://github.com/macatocz/makato/compare/v0.79.1...v0.79.2) (2026-07-15)
 
 
