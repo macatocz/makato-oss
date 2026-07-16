@@ -1,0 +1,24 @@
+{
+  "_comment": "Mapping sidecar for generate-flow-diagram.py drift detection (#428). The diagram's node model is NOT 1:1 with the on-disk skill/agent inventory: some nodes are composite (one node covers several skills), some skills are rendered as a different node kind (data/gha) rather than a skill node, some skills are intentionally not drawn, and some skill-kind nodes are conceptual loop steps with no backing skill directory. This file makes those relationships explicit and deterministic so the drift check has zero false positives while still catching a genuinely new/renamed/removed skill or agent.",
+
+  "nodeSources": {
+    "build-implement-tdd / goal": ["build-implement-tdd", "build-implement-goal"]
+  },
+
+  "unmappedSkills": {
+    "workflow-state": "rendered as data node 'workflow-state.json' (id=state), not a skill node",
+    "definition-of-done": "rendered as data node 'definition-of-done' (id=dod), not a skill node",
+    "archive-spec": "rendered as GHA node 'archive-spec.yml' (id=gha_archive), not a skill node",
+    "promote-ready": "operator-only tool; intentionally not drawn on the flow diagram",
+    "excalidraw": "standalone diagram utility; intentionally not drawn on the flow diagram"
+  },
+
+  "unmappedAgents": {},
+
+  "conceptualNodes": {
+    "auto-seed": "loop pre-poll pass, not a standalone skill directory",
+    "reconcile-orphaned": "loop pre-poll pass, not a standalone skill directory",
+    "emit-reshape-request": "orchestrate script step surfaced as a node, not a skill directory",
+    "CI poll & review": "po-agent inner loop step surfaced as a node, not a skill directory"
+  }
+}

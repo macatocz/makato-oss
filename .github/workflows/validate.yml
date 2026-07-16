@@ -9,6 +9,9 @@ on:
       - '.github/scripts/**'
       - '.github/workflows/validate.yml'
       - '.github/workflows/project-board-sync.yml'
+      - 'docs/assets/makato-flow.html'
+      - 'docs/assets/makato-flow.data.json'
+      - 'docs/assets/makato-flow.inventory.json'
       - 'AGENTS.md'
       - 'CLAUDE.md'
       - 'CONTRIBUTING.md'
@@ -20,6 +23,9 @@ on:
       - '.github/scripts/**'
       - '.github/workflows/validate.yml'
       - '.github/workflows/project-board-sync.yml'
+      - 'docs/assets/makato-flow.html'
+      - 'docs/assets/makato-flow.data.json'
+      - 'docs/assets/makato-flow.inventory.json'
       - 'AGENTS.md'
       - 'CLAUDE.md'
       - 'CONTRIBUTING.md'
@@ -73,6 +79,12 @@ jobs:
 
       - name: append-only conflict union-merge smoke tests (resolve-pr-conflict)
         run: ./plugins/makato-orchestrate/scripts/resolve-append-only-conflict-smoke-tests.sh
+
+      - name: makato-flow diagram drift check (#428)
+        run: python3 scripts/generate-flow-diagram.py --check
+
+      - name: makato-flow generator unit tests (#428)
+        run: python3 -m unittest scripts.test_generate_flow_diagram -v
 
   pr-title:
     if: github.event_name == 'pull_request'
