@@ -123,7 +123,19 @@
       "Bash(rm -r /tmp/*)",
       "Bash(rm -rf /tmp/*)",
       "Bash(rm /var/tmp/*)",
-      "Bash(rm -r /var/tmp/*)"
+      "Bash(rm -r /var/tmp/*)",
+      "Bash(kubectl get *)",
+      "Bash(kubectl logs *)",
+      "Bash(kubectl describe *)",
+      "Bash(kubectl top *)",
+      "Bash(aws logs *)",
+      "Bash(aws s3 ls *)",
+      "Bash(aws sts *)",
+      "Bash(aws codebuild batch-get-*)",
+      "Bash(aws codebuild list-*)",
+      "Bash(pre-commit run *)",
+      "Bash(sqlfluff lint *)",
+      "Bash(git worktree *)"
     ],
     "deny": [
       "Bash(shred *)",
