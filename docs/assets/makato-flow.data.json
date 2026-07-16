@@ -2264,52 +2264,52 @@
       "kind": "flow"
     },
     {
-      "from": "core_mapctx",
+      "from": "cluster:makato-core",
       "to": "inject_skills",
       "kind": "data"
     },
     {
-      "from": "doc_context7",
+      "from": "cluster:makato-doc",
       "to": "inject_skills",
       "kind": "data"
     },
     {
-      "from": "ux_webapp",
+      "from": "cluster:makato-ux",
       "to": "inject_skills",
       "kind": "data"
     },
     {
-      "from": "lg_fund",
+      "from": "cluster:makato-langgraph",
       "to": "inject_skills",
       "kind": "data"
     },
     {
-      "from": "db_pg",
+      "from": "cluster:makato-database",
       "to": "inject_skills",
       "kind": "data"
     },
     {
-      "from": "sb_dotx",
+      "from": "cluster:makato-sagibeast",
       "to": "inject_skills",
       "kind": "data"
     },
     {
-      "from": "obs_lf",
+      "from": "cluster:makato-observability",
       "to": "inject_skills",
       "kind": "data"
     },
     {
-      "from": "cb_skill",
+      "from": "cluster:makato-contribute",
       "to": "inject_skills",
       "kind": "data"
     },
     {
-      "from": "fastapi_skill",
+      "from": "cluster:makato-fastapi",
       "to": "inject_skills",
       "kind": "data"
     },
     {
-      "from": "temporal_skill",
+      "from": "cluster:makato-temporal",
       "to": "inject_skills",
       "kind": "data"
     },

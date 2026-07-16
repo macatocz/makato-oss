@@ -100,6 +100,15 @@ shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-verify","story":"<
 
 Run: `/makato-build:build-sensors all <key>`
 
+**CI parity — always `all`, never a staged/changed subset.** The `all` scope maps
+`build-sensors` onto `pre-commit run --hook-stage manual --all-files` — the *exact*
+command CI runs. A local pre-commit hook typically lints only staged/changed files, so a
+repo-wide lint finding (a formatter nit in a file the diff touched, or pre-existing debt in
+an untouched file that a repo-wide `--all-files` pass surfaces) passes locally and only goes
+red in CI. Gate 0 exists to close that gap: run it with `all` so `/build-verify` reproduces
+the CI lint surface **before** the PR is opened. Do NOT substitute a hand-run
+`pre-commit run --files …` here — that is the subset that lets CI-only failures through.
+
 Thread the resolved `<key>` (the work-item key from Step 1) as the `spec_key` positional
 argument — `build-sensors` marks it **required** and uses it to locate
 `specs/<key>-<slug>/build.jsonl`. Omitting it breaks the Gate-0 audit write (#229): the

@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Changed — full skill coverage in the `langgraph` bundle
+
+- `config/skill-bundles.yml` — the `langgraph` bundle now recommends all five
+  installed langgraph skills (`langgraph-fundamentals`, `langgraph-agent-patterns`,
+  `langgraph-human-in-the-loop`, `langgraph-persistence`, `langgraph-reflexion`)
+  instead of only `fundamentals` + `persistence`. Previously `agent-patterns`,
+  `human-in-the-loop`, and `reflexion` were reachable only via the
+  `task-skill-map.json` archetype path (decompose-time), so a coder editing
+  existing `*graph*.py` files that decompose had not pre-classified never received
+  them. File-glob routing now surfaces the full set on any LangGraph source touch.
+  Order follows glob-specificity dedup: fundamentals → patterns first.
+
 ### Added — first-plugin skill bundle (#144)
 
 F1 of agent-skill-routing. makato-langgraph is the first plugin to ship a

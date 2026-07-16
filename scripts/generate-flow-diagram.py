@@ -30,6 +30,9 @@ Drift classes reported:
   * orphan    — a diagram skill/agent node references a name that no longer exists on
                 disk (and is not declared conceptual in the sidecar).
   * stale-edge — an edge `from`/`to` or a flow `seq[]` id is absent from `nodes[].id`.
+                An edge endpoint may also be a synthetic `cluster:<name>` anchor
+                (a plugin bounding-box); it is valid when some node carries that
+                `cluster`, else reported as stale.
 
 Out of scope (intentional): auto-generating the rich per-node layout/prose fields
 (`col`, `subrow`, `kicker`, `desc`, `inp`, `out`, `ctx`, `meta`, `cluster`, `color`)
@@ -178,12 +181,28 @@ def detect_drift(data: dict, inventory: dict, repo_root: Path) -> list[str]:
 
     # --- Stale edges / flows ---
     node_ids = {n.get("id") for n in data.get("nodes", [])}
+    # An edge endpoint may also be a synthetic "cluster:<name>" anchor: the HTML
+    # renderer resolves it to the dashed plugin bounding-box built from every node
+    # carrying that `cluster`. Valid cluster names are the distinct `cluster` fields
+    # present on the nodes, so a typo'd "cluster:foo" is still caught.
+    cluster_ids = {
+        "cluster:" + n["cluster"]
+        for n in data.get("nodes", [])
+        if n.get("cluster")
+    }
+    valid_edge_ids = node_ids | cluster_ids
     for edge in data.get("edges", []):
         for end in ("from", "to"):
             ref = edge.get(end)
-            if ref is not None and ref not in node_ids:
+            if ref is not None and ref not in valid_edge_ids:
+                hint = (
+                    " (no node has this cluster)"
+                    if isinstance(ref, str) and ref.startswith("cluster:")
+                    else ""
+                )
                 findings.append(
                     f"ERROR: [stale-edge] edge {end}='{ref}' is not a known node id"
+                    f"{hint}"
                 )
     flows = data.get("flows", {})
     flow_items = flows.items() if isinstance(flows, dict) else enumerate(flows)

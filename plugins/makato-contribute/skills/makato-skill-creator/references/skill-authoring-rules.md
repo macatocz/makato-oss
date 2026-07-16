@@ -22,6 +22,14 @@ skills/<skill-name>/
 
 - References loaded at point of use, not front-loaded at the top
 - Each step must be actionable ("Generate X", "Ask the user Y", "Validate Z")
+- When a step collects a **choice** from the user, direct Claude to use the
+  `AskUserQuestion` tool with selectable options — not a freeform prose question
+  ("ask the user what X they want"). Freeform choice-gathering produces inconsistent
+  answers and is penalised by skill-judge (D2). Open-ended context the user must
+  type freely stays prose.
+- If any step runs a shell command, declare `allowed-tools` in the frontmatter
+  (e.g. `allowed-tools: Read Bash Glob`) — otherwise the user is prompted on every
+  invocation and skill-judge deducts D4 points. Omit the field for shell-free skills.
 - Avoid vague steps ("Handle errors", "Process input")
 - Include validation points within the workflow
 - Keep skills focused: one transformation per skill

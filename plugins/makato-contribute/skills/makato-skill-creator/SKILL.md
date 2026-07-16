@@ -1,7 +1,8 @@
 ---
 name: makato-skill-creator
 description: Create a complete, working skill inside an existing makato plugin with full guardrails and validation — create skill, new skill, add skill to plugin, write a skill
-version: "1.2.0"
+version: "1.3.0"
+allowed-tools: Read Write Glob Bash(./scripts/*) Bash(./plugins/*/pre-commit/*) Bash(python3 *) Bash(cp *) Bash(open *) Bash(xdg-open *)
 ---
 # makato-skill-creator
 
@@ -115,13 +116,17 @@ Use @references/plan-template.html as the structural template. Fill in the follo
 6. **File Tree**:
 
    - Visual directory structure of what will be created
-7. **Skill-Bundle Registration**:
+7. **Routing Registration** (both paths):
 
    - Whether the skill is **technical/routable** (register) or **interactive/meta**
      (skip) — state the verdict and the one-minute-test reasoning
-   - If registering: which `config/skill-bundles.yml` is created or updated, and
-     which bundle (`<prefix>-skills`) gains the new skill name
-   - If skipping: say so explicitly, so the reviewer knows it was a decision
+   - If registering: (a) which `config/skill-bundles.yml` bundle gains the skill and
+     whether it is a **domain** bundle (glob over user-authored source files) or the
+     **self-dev** `<prefix>-skills` bundle — plus the glob/`contains`/`task_contains`
+     used; and (b) which `task-skill-map.json` archetype key(s) gain the
+     `<plugin>:<skill-name>` entry
+   - If skipping: say so explicitly for BOTH paths, so the reviewer knows it was a
+     decision
 8. **Validation Checks**:
 
    - List of scripts that will run (including `validate-skill-bundles.sh`)
@@ -169,6 +174,25 @@ Write the complete `SKILL.md` with:
 - "Workflow" section with numbered steps and detailed instructions
 - `@references/` loads at point of use (not front-loaded)
 
+**Author for skill-judge quality (avoid built-in point deductions):**
+
+- **`allowed-tools` (skill-judge D4):** if any workflow step runs a shell command,
+  declare `allowed-tools` in the frontmatter listing those tools (e.g.
+  `allowed-tools: Read Bash Glob`). A skill that uses `Bash(...)` without
+  `allowed-tools` both prompts the user on every invocation and loses 1–2 D4 points.
+  Skills that run no shell commands omit the field.
+- **`AskUserQuestion` (skill-judge D2):** when a step collects a *choice* from the
+  user, instruct Claude to use the `AskUserQuestion` tool with selectable options
+  rather than a freeform prose question. Prose like "ask the user what X they want"
+  loses 2–3 D2 points and produces inconsistent answers. (Open-ended context the
+  user must type freely — e.g. "what should this skill accomplish?" — stays prose.)
+- **Anti-patterns inline (skill-judge D3, not a trailing NEVER list):** place
+  domain-specific NEVER/WHY guidance at the workflow step it applies to, never in a
+  trailing section (end-of-file content is dropped first under compaction).
+- **Knowledge delta (skill-judge D1):** keep only expert-only knowledge in
+  `SKILL.md`; move basics Claude already knows into `references/` behind an explicit
+  load trigger.
+
 Place at: `plugins/<plugin>/skills/<skill-name>/SKILL.md`
 
 #### Step 10: Create Reference Files
@@ -186,26 +210,36 @@ For each planned template:
 - Write the file to `plugins/<plugin>/skills/<skill-name>/templates/<filename>`
 - Use `<placeholder-name>` syntax for variable parts
 
-#### Step 12: Register the Skill in `skill-bundles.yml` (technical skills only)
+#### Step 12: Register the Skill on Both Routing Paths (technical skills only)
 
-`skill-bundles.yml` is a routing registry: its only consumer is `inject-skills`,
-which prepends a skill into a **programmatically-dispatched sub-agent's** system
-prompt when that agent touches files matching a glob (or a task matches
-`task_contains`). It has nothing to do with the `decompose → to-issues` planning
-lane or `task-skill-map.json` — do not conflate them. Therefore only a
-**technical / routable** skill belongs in the registry. An **interactive / meta**
-skill (one a human invokes directly) must NOT be registered — injecting it into a
-headless agent is pure noise.
+A technical skill reaches a coder agent through **two independent routing paths**,
+and a skill must be registered on **both** or it is only surfaced in narrow cases:
 
-Load @references/skill-bundles-rules.md for the schema, naming convention, the
-wide-glob precision-filter gate, and the full technical-vs-interactive criterion.
+- **Glob bundle** (`plugins/<plugin>/config/skill-bundles.yml`) — its only consumer
+  is `inject-skills`, which prepends the skill into a **programmatically-dispatched
+  sub-agent's** system prompt when that agent touches files matching a glob (or a
+  task matches `task_contains`). Fires for work that **touches existing files**.
+- **Task-archetype map** (`plugins/makato-plan/config/task-skill-map.json`) — read
+  by `decompose`, which emits `recommended_skills[]` per sub-task when the sub-task
+  title matches an archetype key. Fires for **green-field** work where the domain
+  files do not exist yet.
+
+Only a **technical / routable** skill belongs on either path. An **interactive /
+meta** skill (one a human invokes directly) must NOT be registered on either —
+injecting it into a headless agent is pure noise.
+
+Load @references/skill-bundles-rules.md for the bundle schema, naming convention,
+and the wide-glob precision-filter gate. Load @references/routing-registration.md
+for the two-path model, the domain-vs-self-dev bundle distinction, and the
+task-map schema.
 
 **Decision gate — apply the one-minute test first:**
 
 1. **Could a headless coder agent, already mid-task, act on this skill's content
    with no human present?** If NO → the skill is interactive/meta. **Skip
-   registration entirely** (do not create or modify `skill-bundles.yml`); note in
-   the Step 16 summary that the skill was intentionally not registered, and why.
+   registration on both paths** (do not create or modify `skill-bundles.yml` or
+   `task-skill-map.json`); note in the Step 16 summary that the skill was
+   intentionally not registered, and why.
 2. **Can you write a glob or `task_contains` predicate that fires only when this
    skill's domain is actually in play?** If NO → do not register (a skill that
    would only match a wide `**/*`-style glob with no precision filter is rejected
@@ -223,28 +257,63 @@ Register **only if both answers are YES**. Quick signals:
   its primary action. Examples: `brainstorming`, `stress-test-artifact`, `makato-skill-creator`,
   `sync-from-upstream`, `to-issues`, `loop`.
 
-**If the skill is technical, perform the registration:**
+**If the skill is technical, perform BOTH registrations (12a glob + 12b task-map):**
 
-3. **Check for an existing registry** at `plugins/<plugin>/config/skill-bundles.yml`.
+##### Step 12a: Glob bundle — route on the files the skill's domain actually lives in
 
-4. **If the file exists** — find the plugin's own self-referential bundle (named
-   `<prefix>-skills`, where `<prefix>` is the plugin name without the `makato-`
-   prefix; its glob is `plugins/<plugin>/skills/**/*.md`) and append `<skill-name>`
-   to that bundle's `skills:` list. If for some reason no such bundle exists, add it
-   using the template below. Do not touch other bundles.
+The most common mistake is appending the skill to **only** the self-referential
+`<prefix>-skills` bundle (glob `plugins/<plugin>/skills/**/*.md`). That glob fires
+only when someone edits the **makato plugin's own skill files** — never when a coder
+writes a user's application code — so the skill stays effectively unroutable for real
+work. That is exactly why the `makato-core` skills route only during
+self-development. Avoid repeating it.
+
+1. **Decide domain vs self-dev** (see @references/routing-registration.md):
+   - Skill acts on **user-authored source files** (library/framework/SDK pattern,
+     file-format handler, lint/type/security fixer) → you MUST add or extend a
+     **domain bundle** whose glob matches those user files (e.g. `**/*graph*.py`
+     with `contains: ["from langgraph"]`). Add the self-dev `<prefix>-skills` entry
+     too only if editing the plugin's own docs should also surface it.
+   - Skill acts **only on makato's own plugin files** (contributor tooling) → the
+     self-dev `<prefix>-skills` bundle is the correct and only target.
+
+2. **Check for an existing registry** at `plugins/<plugin>/config/skill-bundles.yml`.
+
+3. **If a matching domain bundle already exists** (e.g. `langgraph`, `database-orm`,
+   `fastapi`) — append `<skill-name>` to its `skills:` list. Do not create a
+   near-duplicate bundle.
+
+4. **If no matching bundle exists** — add one. For a domain bundle, write a glob over
+   the user-code files plus a `contains:` (and, recommended, `task_contains:` that
+   mirrors the Step 12b archetype triggers). For a self-dev skill, find or add the
+   `<prefix>-skills` bundle (glob `plugins/<plugin>/skills/**/*.md`).
 
 5. **If the file does NOT exist** — create it from @templates/skill-bundles.yml,
-   substituting `<plugin>`, `<prefix>`, and seeding the `<prefix>-skills` bundle's
-   `skills:` list with the technical skills already in `plugins/<plugin>/skills/`
-   plus the new `<skill-name>`. (Do not blanket-seed interactive skills; apply the
-   same decision gate to each existing skill you add.)
+   substituting `<plugin>`, `<prefix>`, and seeding the appropriate bundle. (Do not
+   blanket-seed interactive skills; apply the same decision gate to each existing
+   skill you add.)
 
 6. **Never add a `default` bundle** — `makato-build` owns the single suite-wide
    `default`. A per-plugin registry contains only that plugin's non-default bundles.
 
 7. **Bundle names are globally unique** across the merged registry — a collision
-   raises HALT-006. The `<prefix>-skills` name is safe because `<prefix>` is the
-   plugin name; any additional bundle you add must also carry the `<prefix>-` prefix.
+   raises HALT-006. Always prefix any bundle you add with the plugin's short name
+   (`<prefix>` = plugin name without `makato-`).
+
+##### Step 12b: Task-archetype map — route on green-field task titles
+
+Register the same technical skill in `plugins/makato-plan/config/task-skill-map.json`
+so `decompose` recommends it for from-scratch tasks (where no domain files exist yet
+for the Step 12a glob to match).
+
+1. Open `plugins/makato-plan/config/task-skill-map.json`. Its schema is
+   `{ "<archetype>": ["<plugin>:<skill-id>", ...] }`.
+2. Add `<plugin>:<skill-name>` (fully-qualified — a bare id will not resolve) to
+   every existing archetype key whose work would call for the skill.
+3. If no existing archetype fits, add a new verb-first archetype key
+   (e.g. `"implement-<domain>-<thing>"`) mapping to the skill.
+4. Prefer extending existing keys over inventing near-duplicates. Never trim the
+   file — it requires ≥ 200 entries and you are only adding.
 
 #### Step 13: Update Parent Plugin Files
 
@@ -267,10 +336,16 @@ Run validation scripts:
 ./scripts/check-naming.sh
 ```
 
-Then validate the bundle registry you touched in Step 12 (the pre-commit gate that
+Then validate the bundle registry you touched in Step 12a (the pre-commit gate that
 also runs at commit time):
 ```bash
 ./plugins/makato-langgraph/pre-commit/validate-skill-bundles.sh plugins/<plugin>/config/skill-bundles.yml
+```
+
+If you edited `task-skill-map.json` in Step 12b, verify it still parses and that the
+new entry uses the fully-qualified `<plugin>:<skill-id>` form:
+```bash
+python3 -c "import json,sys; d=json.load(open('plugins/makato-plan/config/task-skill-map.json')); assert any('<skill-name>' in v for v in d.values() if isinstance(v,list)), 'skill not found in any archetype'; print('task-skill-map OK:', len(d)-1, 'archetypes')"
 ```
 
 If any check fails:
@@ -295,10 +370,12 @@ This preserves the design rationale, workflow decisions, and feedback iterations
 Present to the user:
 
 1. **Files created** — full list with paths (including `references/skill-plan.html`)
-2. **Parent files updated** — CHANGELOG, README, and (for a technical skill)
-   `config/skill-bundles.yml` (bundle registered). For an interactive/meta skill,
-   state explicitly that registration was intentionally skipped and why.
+2. **Parent files updated** — CHANGELOG, README, and (for a technical skill) both
+   routing registrations: `config/skill-bundles.yml` (which bundle — domain or
+   self-dev — gained the skill) and `plugins/makato-plan/config/task-skill-map.json`
+   (which archetype keys gained the skill). For an interactive/meta skill, state
+   explicitly that registration on both paths was intentionally skipped and why.
 3. **Validation result** — all checks passed (including `validate-skill-bundles.sh`
-   when the registry was touched)
+   and the `task-skill-map.json` parse check when those registries were touched)
 4. **Test command**: `claude --plugin-dir ./plugins/<plugin-name>`
 5. **PR title suggestion**: `feat(<plugin-name>): add <skill-name> skill`

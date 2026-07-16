@@ -89,4 +89,7 @@ bundles:
       - "StateGraph"
     skills:
       - langgraph-fundamentals
+      - langgraph-agent-patterns
+      - langgraph-human-in-the-loop
       - langgraph-persistence
+      - langgraph-reflexion

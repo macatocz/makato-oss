@@ -4,9 +4,11 @@
 
 `inject-skills` is the **only** consumer of this registry. It prepends a skill into
 a programmatically-dispatched sub-agent's system prompt when the agent touches
-matching files (or a task matches `task_contains`). This is unrelated to the
-`decompose → to-issues` planning lane and `task-skill-map.json` — those are a
-separate routing path. So register a skill here **only if it is technical / routable**.
+matching files (or a task matches `task_contains`). This is the **file-match** half
+of routing; the **green-field task-title** half lives in `task-skill-map.json` (see
+@routing-registration.md). A technical skill is registered on **both** paths — this
+file governs the glob-bundle half. Register here **only if the skill is technical /
+routable**.
 
 **One-minute test — both must be YES to register:**
 
@@ -40,7 +42,10 @@ question is optional or inferable from file context; if mandatory and blocking, 
 `plugins/<plugin>/config/skill-bundles.yml` maps changed-file globs (plus optional
 content-hint predicates) to recommended skills that `inject-skills` prepends into an
 agent's system prompt before dispatch. A newly created **technical** skill (see the
-gate above) must be registered here, or `inject-skills` will never recommend it.
+gate above) must be registered here — in a **domain** bundle whose glob matches the
+user-authored source files where the skill's domain lives, not only in the self-dev
+`<prefix>-skills` bundle — or `inject-skills` will never recommend it for real work.
+See @routing-registration.md for the domain-vs-self-dev distinction.
 
 ## Schema
 

@@ -135,6 +135,33 @@ class TestGenerateFlowDiagram(unittest.TestCase):
         findings = _mod.detect_drift(self.data, self.inventory, self.repo)
         self.assertTrue(any("[stale-edge]" in f and "ghostnode" in f for f in findings))
 
+    def test_cluster_endpoint_accepted(self):
+        """An edge from a valid `cluster:<name>` anchor is not flagged stale."""
+        self.data["nodes"][0]["cluster"] = "makato-core"
+        self.data["edges"].append(
+            {"from": "cluster:makato-core", "to": "beta", "kind": "flow"}
+        )
+        findings = _mod.detect_drift(self.data, self.inventory, self.repo)
+        self.assertEqual(
+            [f for f in findings if "[stale-edge]" in f],
+            [],
+            f"cluster endpoint should be valid, got {findings}",
+        )
+
+    def test_unknown_cluster_endpoint_detected(self):
+        """A `cluster:<name>` whose name no node carries → [stale-edge] with hint."""
+        self.data["edges"].append(
+            {"from": "cluster:nonexistent", "to": "beta", "kind": "flow"}
+        )
+        findings = _mod.detect_drift(self.data, self.inventory, self.repo)
+        self.assertTrue(
+            any(
+                "[stale-edge]" in f and "cluster:nonexistent" in f and "no node" in f
+                for f in findings
+            ),
+            f"expected stale-edge for unknown cluster, got {findings}",
+        )
+
     def test_idempotent_splice(self):
         """Regenerating from an unchanged data file yields byte-identical HTML."""
         html_path, data_path, inv_path = self._paths()
