@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.81.0](https://github.com/macatocz/makato/compare/v0.80.0...v0.81.0) (2026-07-16)
+
+
+### ✨ Features
+
+* **makato-contribute:** full skill-routing coverage + box-level diagram edges ([#441](https://github.com/macatocz/makato/issues/441)) ([4f23863](https://github.com/macatocz/makato/commit/4f23863b4af4c532a8e944e189148543568538fc))
+
 ## [0.80.0](https://github.com/macatocz/makato/compare/v0.79.2...v0.80.0) (2026-07-16)
 
 
