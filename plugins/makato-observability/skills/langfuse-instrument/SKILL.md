@@ -63,6 +63,13 @@ Verify both:
 
 Log the confirmation. Proceed only when both checks pass.
 
+**JS/TS agents.** If the target is a JS/TS OTel client (a serverless/edge agent or
+chat widget), the Python steps below (2–5) do not apply — load
+`@references/js-ts-first-trace.md` for the `NodeSDK` + `LangfuseSpanProcessor`
+bootstrap, then rejoin at Step 6 for dashboard verification. Enrichment of the
+resulting spans (sessions, users, tags, feedback) is covered by the
+`langfuse-enrich` skill.
+
 ### Step 2 — Verify OTel + Langfuse dependencies
 
 Check the consumer's dependency manifest (`pyproject.toml` or `requirements.txt`):

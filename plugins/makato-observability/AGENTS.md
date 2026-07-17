@@ -10,9 +10,11 @@ Provide LLM-observability skills for tracing, monitoring, and debugging LangGrap
 
 ## What Belongs Here
 
-- OpenTelemetry SDK setup (Tracer, TracerProvider, resource attributes) for Python services running LangGraph nodes, exporting via OTLP HTTP/protobuf to a Langfuse endpoint
+- OpenTelemetry SDK setup (Tracer, TracerProvider, resource attributes) for Python services — or JS/TS OTel-SDK clients — running LangGraph (or LangGraph-compatible) agents, exporting via OTLP HTTP/protobuf to a Langfuse endpoint
 - In-process OTel span exporter recipe for unit tests that need to assert on emitted spans without a running Langfuse
 - Langfuse SDK usage for reading/asserting traces after they arrive (`get_traces`, `get_latest_trace_for(correlation_id)`) — this is verification-side, not instrumentation-side
+- Langfuse enrichment fields layered onto already-OTel-instrumented spans — sessions (`langfuse.session.id`), users (`langfuse.user.id`), environments (`langfuse.environment`), tags (`langfuse.tags`), metadata (`langfuse.metadata`), observation log levels, cross-service W3C distributed tracing, user-feedback scores (`langfuse.create_score`), PII masking hooks (`mask_otel_spans`), and token/cost tracking (`langfuse.observation.usage_details` + model-price inference)
+- Langfuse data-and-docs operations against a running instance — read-only `langfuse-cli` access to traces/scores/datasets/sessions, documentation lookup, trace-based error analysis, LLM-as-a-judge calibration, CI/CD experiment gates, and SDK-upgrade migration
 - Semantic conventions catalogue in `shared/` — HTTP, DB (Postgres / pgvector), and `gen_ai.*` attribute-name index every skill references
 - Cardinality-budget-first metric authoring workflow — dimension budgets enforced before code hits a Prometheus / OTLP-metric backend
 - OTLP exporter tuning (batch, timeout, retry, compression), sampling policy templates (head + tail), resource-detector patterns
@@ -28,7 +30,7 @@ Provide LLM-observability skills for tracing, monitoring, and debugging LangGrap
 
 ## Decision Test
 
-"Does this skill help make a shipped LangGraph agent or Python service observable at runtime through OpenTelemetry (typically exporting to Langfuse via OTLP), without also being a non-observability tool (test, alert, incident, correctness)?"
+"Does this skill help make a shipped LangGraph agent or service (Python, or a JS/TS OTel client) observable at runtime through OpenTelemetry (typically exporting to Langfuse via OTLP) — or help operate the Langfuse instance that stores those traces (read data, look up docs, analyze errors, calibrate judges, gate CI, upgrade the SDK) — without also being a non-observability tool (test, alert, incident, correctness)?"
 
 - Yes → it belongs here
 - No → it belongs elsewhere

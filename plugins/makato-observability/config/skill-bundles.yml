@@ -17,6 +17,8 @@ bundles:
       - "plugins/makato-observability/skills/**/*.md"
     skills:
       - langfuse-instrument
+      - langfuse-ops
+      - langfuse-enrich
 
   # Triggered when working on Python files that set up OpenTelemetry / Langfuse.
   # Wide globs — requires contains predicate.
@@ -31,6 +33,10 @@ bundles:
       - "langfuse"
       - "TracerProvider"
       - "OTLPSpanExporter"
+      - "langfuse.session.id"
+      - "langfuse.user.id"
+      - "mask_otel_spans"
+      - "create_score"
     task_contains:
       - "distributed tracing"
       - "opentelemetry"
@@ -39,5 +45,15 @@ bundles:
       - "langfuse"
       - "TracerProvider"
       - "OTLP"
+      - "session tracking"
+      - "user feedback"
+      - "token cost"
+      - "mask pii"
+      - "enrich traces"
+      - "error analysis"
+      - "judge calibration"
+      - "sdk upgrade"
     skills:
       - langfuse-instrument
+      - langfuse-ops
+      - langfuse-enrich

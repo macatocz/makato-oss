@@ -57,7 +57,23 @@ The sentinel strings are the canonical convention (matches the pattern used in t
 
 The consumer's context supplies which perimeter tag applies to which node — this skill does NOT choose the perimeter mapping. If the consumer has no perimeter concept, skip the scrub logic entirely and capture inputs/outputs directly.
 
-## Error attributes
+## Langfuse enrichment attributes
+
+The `langfuse-enrich` skill layers these Langfuse-native enrichment keys onto already-instrumented OTel spans. They are the canonical names — `langfuse-enrich` references this table rather than defining its own. Set on the OTel span via `span.set_attribute(...)`; the Langfuse OTLP receiver maps each key to its trace/observation field.
+
+| Attribute | Type | Value example | Notes |
+|---|---|---|---|
+| `langfuse.session.id` | string | `"chat-thread-42"` | Groups traces into one conversation. Max 200 chars, US-ASCII, else silently dropped. Set once at the graph entry point. |
+| `langfuse.user.id` | string | `"user-9f3a"` | Attributes the trace to an end-user. Missing → empty Users view, no error. |
+| `langfuse.trace.tags` | string[] | `["node:router", "tier:prod"]` | Native OTel string array (NOT a JSON string, NOT the bare key `langfuse.tags`). Immutable after span open. Each tag max 200 chars. |
+| `langfuse.trace.metadata.<key>` | string | `langfuse.trace.metadata.run_id = "…"` | One OTel attribute per metadata key → filterable trace-level metadata. Use `langfuse.observation.metadata.<key>` for observation-scoped keys. A single bare `langfuse.metadata` blob is not recognised. |
+| `langfuse.environment` | string | `"production"` | Deployment-stage label. Must match `^(?!langfuse)[a-z0-9-_]+$`, max 40 chars. Aliases: `deployment.environment.name`, `deployment.environment`. Unset → `"default"` bucket. |
+| `langfuse.observation.level` | string | `"ERROR"` | Log level `DEBUG`/`DEFAULT`/`WARNING`/`ERROR` on the observation (also inferred from `span.status.code`). |
+| `langfuse.observation.usage_details` | string (JSON) | `json.dumps({"input": 120, "output": 30})` | Fine-grained **mutually-exclusive** token buckets. Distinct from `gen_ai.usage.*` (inclusive) above — do not mix both on one span. Only `generation`/`embedding` observations support cost. |
+
+Log levels are set via the OTel status API (`span.set_status(StatusCode.ERROR, description=…)` + `span.record_exception(...)`) or the Langfuse SDK `level=` field (`DEBUG`/`DEFAULT`/`WARNING`/`ERROR`) — level lives on the observation, never the trace. See `langfuse-enrich/references/metadata-and-log-levels.md`.
+
+
 
 For failed spans, use the OTel error convention:
 

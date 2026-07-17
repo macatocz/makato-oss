@@ -1,311 +1,1162 @@
 {
   "_comment": "Task archetype → recommended skill IDs. Schema: { '<archetype>': ['<plugin>:<skill-id>', ...] }. Used by decompose to emit recommended_skills[] per sub-task. Maintained manually; auto-generation from F1 aggregate is out of scope (see #146). 11 plugin domains covered. ≥200 entries required.",
-
-  "write-unit-test": ["makato-build:build-implement-tdd", "makato-build:definition-of-done"],
-  "write-integration-test": ["makato-build:build-implement-tdd", "makato-build:build-verify"],
-  "write-e2e-test": ["makato-ux:e2e-testing-patterns", "makato-ux:webapp-testing"],
-  "write-acceptance-test": ["makato-plan:create-acceptance-tests", "makato-build:definition-of-done"],
-  "write-smoke-test": ["makato-build:build-verify", "makato-build:build-sensors"],
-  "write-regression-test": ["makato-build:build-implement-tdd", "makato-build:build-verify"],
-  "write-performance-test": ["makato-build:build-verify", "makato-observability:langfuse-instrument"],
-  "write-contract-test": ["makato-build:build-implement-tdd", "makato-change:analyze"],
-  "write-snapshot-test": ["makato-ux:e2e-testing-patterns", "makato-build:build-implement-tdd"],
-  "write-visual-regression-test": ["makato-ux:e2e-testing-patterns", "makato-ux:webapp-testing"],
-
-  "implement-tdd-cycle": ["makato-build:build-implement-tdd", "makato-build:build-refine", "makato-build:definition-of-done"],
-  "implement-goal": ["makato-build:build-implement-goal", "makato-build:build-refine"],
-  "implement-feature": ["makato-build:build-start", "makato-build:build-implement-tdd", "makato-build:build-refine"],
-  "implement-ui-component": ["makato-ux:frontend-design", "makato-build:build-implement-goal", "makato-ux:webapp-testing"],
-  "implement-api-endpoint": ["makato-build:build-implement-tdd", "makato-build:build-refine"],
-  "implement-data-model": ["makato-database:manage-postgres", "makato-build:build-implement-tdd"],
-  "implement-migration": ["makato-database:manage-postgres", "makato-build:build-implement-goal"],
-  "implement-cli-command": ["makato-build:build-implement-tdd", "makato-build:build-refine"],
-  "implement-agent": ["makato-build:build-implement-tdd", "makato-langgraph:langgraph-fundamentals"],
-  "implement-langgraph-agent": ["makato-langgraph:langgraph-fundamentals", "makato-langgraph:langgraph-agent-patterns", "makato-build:build-implement-tdd"],
-  "implement-tool": ["makato-build:build-implement-tdd", "makato-langgraph:langgraph-agent-patterns"],
-  "implement-workflow": ["makato-langgraph:langgraph-fundamentals", "makato-langgraph:langgraph-agent-patterns"],
-  "implement-state-machine": ["makato-langgraph:langgraph-fundamentals", "makato-langgraph:langgraph-persistence"],
-  "implement-human-in-the-loop": ["makato-langgraph:langgraph-human-in-the-loop", "makato-build:build-implement-tdd"],
-  "implement-dashboard": ["makato-ux:frontend-design", "makato-build:build-implement-goal", "makato-ux:webapp-testing"],
-  "implement-form": ["makato-ux:frontend-design", "makato-build:build-implement-goal"],
-  "implement-navigation": ["makato-ux:frontend-design", "makato-build:build-implement-goal"],
-  "implement-auth": ["makato-build:build-implement-tdd", "makato-build:build-fix-security"],
-  "implement-observability": ["makato-observability:langfuse-instrument", "makato-build:build-implement-goal"],
-  "implement-postgres-query": ["makato-database:manage-postgres", "makato-build:build-implement-tdd"],
-  "implement-schema": ["makato-database:manage-postgres", "makato-build:build-implement-tdd"],
-
-  "write-skill-md": ["makato-contribute:makato-skill-creator", "makato-doc:markdown"],
-  "write-agents-md": ["makato-contribute:makato-plugin-creator", "makato-doc:markdown"],
-  "write-readme": ["makato-doc:crafting-effective-readmes", "makato-doc:markdown"],
-  "write-changelog": ["makato-doc:crafting-effective-readmes", "makato-doc:markdown"],
-  "write-prd": ["makato-plan:create-prd", "makato-plan:stress-test-artifact"],
-  "write-architecture": ["makato-plan:create-architecture", "makato-plan:stress-test-artifact"],
-  "write-adr": ["makato-plan:create-architecture", "makato-doc:markdown"],
-  "write-user-story": ["makato-plan:decompose", "makato-plan:create-prd"],
-  "write-acceptance-criteria": ["makato-plan:create-acceptance-tests", "makato-plan:decompose"],
-  "write-api-docs": ["makato-doc:crafting-effective-readmes", "makato-doc:markdown"],
-  "write-design-doc": ["makato-plan:create-architecture", "makato-plan:create-ux"],
-  "write-runbook": ["makato-doc:crafting-effective-readmes", "makato-doc:markdown"],
-  "write-ux-spec": ["makato-plan:create-ux", "makato-ux:penpot-uiux-design"],
-  "write-test-plan": ["makato-plan:create-acceptance-tests", "makato-build:definition-of-done"],
-  "write-security-doc": ["makato-build:build-fix-security", "makato-doc:markdown"],
-  "write-migration-guide": ["makato-doc:crafting-effective-readmes", "makato-doc:markdown"],
-  "write-gherkin": ["makato-plan:create-acceptance-tests", "makato-plan:decompose"],
-  "write-config-doc": ["makato-doc:crafting-effective-readmes", "makato-doc:markdown"],
-  "write-plugin-doc": ["makato-contribute:makato-plugin-creator", "makato-doc:crafting-effective-readmes"],
-
-  "author-config-yml": ["makato-contribute:makato-skill-creator", "makato-doc:markdown"],
-  "author-config-json": ["makato-build:build-implement-goal", "makato-build:build-verify"],
-  "author-skill-bundles-yml": ["makato-build:inject-skills", "makato-contribute:makato-skill-creator"],
-  "author-task-skill-map-json": ["makato-plan:decompose", "makato-build:inject-skills"],
-  "author-context-bundles-yml": ["makato-build:inject-context", "makato-contribute:makato-skill-creator"],
-  "author-finding-routes-json": ["makato-build:build-resolve-finding", "makato-build:build-sensors"],
-  "author-gitignore": ["makato-build:build-implement-goal", "makato-doc:markdown"],
-  "author-ci-config": ["makato-build:build-verify", "makato-build:build-implement-goal"],
-  "author-schema-json": ["makato-build:build-implement-goal", "makato-build:build-verify"],
-  "author-pytest-config": ["makato-build:build-implement-tdd", "makato-build:build-verify"],
-  "author-env-config": ["makato-build:build-implement-goal", "makato-build:build-verify"],
-
-  "refactor": ["makato-build:build-simplify", "makato-build:build-grill-with-docs"],
-  "refactor-extract-function": ["makato-build:build-simplify", "makato-build:build-implement-tdd"],
-  "refactor-rename": ["makato-build:build-simplify", "makato-core:map-codebase-context"],
-  "refactor-split-module": ["makato-build:build-simplify", "makato-core:map-codebase-context"],
-  "refactor-merge-module": ["makato-build:build-simplify", "makato-build:build-grill-with-docs"],
-  "refactor-decouple": ["makato-build:build-simplify", "makato-build:build-grill-with-docs"],
-  "refactor-extract-class": ["makato-build:build-simplify", "makato-build:build-implement-tdd"],
-  "refactor-move-file": ["makato-build:build-simplify", "makato-core:map-codebase-context"],
-  "refactor-remove-duplication": ["makato-build:build-simplify", "makato-build:build-implement-tdd"],
-  "refactor-improve-naming": ["makato-build:build-simplify", "makato-build:build-grill-with-docs"],
-
-  "fix-bug": ["makato-build:build-implement-tdd", "makato-change:execute"],
-  "fix-security-finding": ["makato-build:build-fix-security", "makato-build:build-resolve-finding"],
-  "fix-type-error": ["makato-build:build-fix-types", "makato-build:build-resolve-finding"],
-  "fix-lint-error": ["makato-build:build-sensors", "makato-build:build-resolve-finding"],
-  "fix-test-failure": ["makato-build:build-implement-tdd", "makato-build:build-verify"],
-  "fix-ci-failure": ["makato-build:build-verify", "makato-build:build-sensors"],
-  "fix-merge-conflict": ["makato-orchestrate:resolve-pr-conflict", "makato-build:build-push-to-git"],
-  "fix-vulnerability": ["makato-build:build-fix-security", "makato-build:build-resolve-finding"],
-  "fix-performance": ["makato-database:manage-postgres", "makato-build:build-implement-tdd"],
-  "fix-accessibility": ["makato-ux:e2e-testing-patterns", "makato-ux:frontend-design"],
-  "fix-memory-leak": ["makato-build:build-implement-tdd", "makato-build:build-verify"],
-  "fix-race-condition": ["makato-build:build-implement-tdd", "makato-build:build-verify"],
-
-  "create-plugin": ["makato-contribute:makato-plugin-creator", "makato-doc:markdown"],
-  "create-skill": ["makato-contribute:makato-skill-creator", "makato-doc:markdown"],
-  "create-agent": ["makato-contribute:makato-plugin-creator", "makato-langgraph:langgraph-fundamentals"],
-  "create-pr": ["makato-build:build-create-pr", "makato-build:build-push-to-git"],
-  "create-issue": ["makato-core:create-issue", "makato-plan:to-issues"],
-  "create-prototype": ["makato-plan:create-prototype", "makato-plan:create-ux"],
-  "create-diagram": ["makato-plan:excalidraw", "makato-plan:create-architecture"],
-  "create-database": ["makato-database:manage-postgres", "makato-build:build-implement-goal"],
-  "create-index": ["makato-database:manage-postgres", "makato-build:build-implement-tdd"],
-  "create-view": ["makato-database:manage-postgres", "makato-build:build-implement-goal"],
-  "create-stored-procedure": ["makato-database:manage-postgres", "makato-build:build-implement-tdd"],
-  "create-testbox": ["makato-sagibeast:sagibeast-create-testbox", "makato-ux:webapp-testing"],
-  "create-design": ["makato-ux:penpot-uiux-design", "makato-plan:create-ux"],
-
-  "decompose-story": ["makato-plan:decompose", "makato-plan:stress-test-artifact"],
-  "decompose-epic": ["makato-plan:decompose", "makato-plan:brainstorming"],
-  "decompose-feature": ["makato-plan:decompose", "makato-plan:create-prd"],
-
-  "review-pr": ["makato-build:build-review", "makato-build:build-address-pr-comments"],
-  "review-code": ["makato-build:build-review", "makato-build:build-simplify"],
-  "review-design": ["makato-plan:stress-test-artifact", "makato-plan:create-ux"],
-  "review-prd": ["makato-plan:stress-test-artifact", "makato-plan:create-prd"],
-  "review-architecture": ["makato-plan:stress-test-artifact", "makato-plan:create-architecture"],
-  "review-security": ["makato-build:build-fix-security", "makato-build:build-sensors"],
-  "review-performance": ["makato-database:manage-postgres", "makato-observability:langfuse-instrument"],
-
-  "plan-feature": ["makato-plan:create-prd", "makato-plan:brainstorming", "makato-plan:stress-test-artifact"],
-  "plan-sprint": ["makato-plan:decompose", "makato-plan:to-issues"],
-  "plan-architecture": ["makato-plan:create-architecture", "makato-plan:stress-test-artifact"],
-
-  "add-migration": ["makato-database:manage-postgres", "makato-build:build-implement-goal"],
-  "add-index": ["makato-database:manage-postgres", "makato-build:build-implement-tdd"],
-  "add-column": ["makato-database:manage-postgres", "makato-build:build-implement-goal"],
-  "add-table": ["makato-database:manage-postgres", "makato-build:build-implement-goal"],
-  "add-foreign-key": ["makato-database:manage-postgres", "makato-build:build-implement-tdd"],
-  "add-constraint": ["makato-database:manage-postgres", "makato-build:build-implement-tdd"],
-  "add-feature-flag": ["makato-build:build-implement-goal", "makato-build:build-verify"],
-  "add-logging": ["makato-observability:langfuse-instrument", "makato-build:build-implement-goal"],
-  "add-tracing": ["makato-observability:langfuse-instrument", "makato-build:build-implement-goal"],
-  "add-metric": ["makato-observability:langfuse-instrument", "makato-build:build-implement-goal"],
-  "add-alert": ["makato-observability:langfuse-instrument", "makato-build:build-implement-goal"],
-
-  "update-dependency": ["makato-build:build-sensors", "makato-build:build-fix-security"],
-  "update-documentation": ["makato-doc:crafting-effective-readmes", "makato-doc:markdown"],
-  "update-changelog": ["makato-doc:crafting-effective-readmes", "makato-doc:markdown"],
-  "update-readme": ["makato-doc:crafting-effective-readmes", "makato-doc:markdown"],
-  "update-config": ["makato-build:build-implement-goal", "makato-build:build-verify"],
-  "update-schema": ["makato-database:manage-postgres", "makato-build:build-implement-tdd"],
-  "update-api": ["makato-build:build-implement-tdd", "makato-change:analyze"],
-  "update-ui": ["makato-ux:frontend-design", "makato-build:build-implement-goal"],
-
-  "delete-deprecated-code": ["makato-build:build-simplify", "makato-build:build-verify"],
-  "delete-dead-code": ["makato-build:build-simplify", "makato-build:build-sensors"],
-  "delete-unused-dependency": ["makato-build:build-simplify", "makato-build:build-sensors"],
-
-  "integrate-llm": ["makato-langgraph:langgraph-fundamentals", "makato-build:build-implement-goal"],
-  "integrate-database": ["makato-database:manage-postgres", "makato-build:build-implement-tdd"],
-  "integrate-external-api": ["makato-build:build-implement-tdd", "makato-change:design"],
-  "integrate-auth-provider": ["makato-build:build-implement-tdd", "makato-build:build-fix-security"],
-  "integrate-mcp-server": ["makato-langgraph:langgraph-fundamentals", "makato-build:build-implement-tdd"],
-  "integrate-observability": ["makato-observability:langfuse-instrument", "makato-build:build-implement-goal"],
-
-  "deploy-feature": ["makato-build:build-push-to-git", "makato-build:build-create-pr"],
-  "deploy-hotfix": ["makato-build:build-push-to-git", "makato-orchestrate:resolve-pr-conflict"],
-  "deploy-migration": ["makato-database:manage-postgres", "makato-build:build-push-to-git"],
-
-  "analyze-change-request": ["makato-change:analyze", "makato-change:design"],
-  "design-change-request": ["makato-change:design", "makato-change:analyze"],
-  "execute-change-request": ["makato-change:execute", "makato-change:design"],
-  "resolve-change-review": ["makato-change:resolve-review", "makato-build:build-address-pr-comments"],
-  "orchestrate-change": ["makato-change:orchestrate", "makato-change:analyze"],
-
-  "setup-testbox": ["makato-sagibeast:sagibeast-create-testbox", "makato-sagibeast:sagibeast-connect-testbox"],
-  "connect-testbox": ["makato-sagibeast:sagibeast-connect-testbox", "makato-ux:webapp-testing"],
-  "extract-dotx-schema": ["makato-sagibeast:dotx-schema-extractor", "makato-build:build-implement-goal"],
-  "manage-excel": ["makato-sagibeast:manage-microsoft-excel", "makato-build:build-implement-goal"],
-  "manage-pdf": ["makato-sagibeast:manage-pdf", "makato-build:build-implement-goal"],
-
-  "design-ui": ["makato-ux:penpot-uiux-design", "makato-plan:create-ux", "makato-ux:frontend-design"],
-  "design-wireframe": ["makato-plan:create-ux", "makato-ux:penpot-uiux-design"],
-  "design-prototype": ["makato-plan:create-prototype", "makato-ux:penpot-uiux-design"],
-  "design-system": ["makato-ux:penpot-uiux-design", "makato-plan:create-architecture"],
-  "design-ux-flow": ["makato-plan:create-ux", "makato-ux:penpot-uiux-design"],
-  "design-landing-page": ["makato-ux:frontend-design", "makato-plan:create-prototype"],
-  "design-dashboard-layout": ["makato-ux:penpot-uiux-design", "makato-ux:frontend-design"],
-  "design-component-library": ["makato-ux:penpot-uiux-design", "makato-ux:frontend-design"],
-
-  "test-ui": ["makato-ux:webapp-testing", "makato-ux:e2e-testing-patterns"],
-  "test-api": ["makato-build:build-implement-tdd", "makato-build:build-verify"],
-  "test-database": ["makato-database:manage-postgres", "makato-build:build-implement-tdd"],
-  "test-accessibility": ["makato-ux:e2e-testing-patterns", "makato-ux:webapp-testing"],
-  "test-playwright": ["makato-ux:e2e-testing-patterns", "makato-ux:webapp-testing"],
-
-  "orchestrate-autonomous": ["makato-orchestrate:loop", "makato-orchestrate:workflow-state"],
-  "manage-workflow-state": ["makato-orchestrate:workflow-state", "makato-orchestrate:session-status"],
-  "run-kill-switch": ["makato-orchestrate:kill-switch", "makato-orchestrate:workflow-state"],
-  "resolve-conflict": ["makato-orchestrate:resolve-pr-conflict", "makato-build:build-push-to-git"],
-  "archive-spec": ["makato-orchestrate:archive-spec", "makato-doc:markdown"],
-  "seed-issue": ["makato-orchestrate:seed-issue", "makato-plan:to-issues"],
-  "check-session-status": ["makato-orchestrate:session-status", "makato-orchestrate:workflow-state"],
-  "handoff-context": ["makato-orchestrate:kill-switch", "makato-orchestrate:workflow-state"],
-
-  "brainstorm-feature": ["makato-plan:brainstorming", "makato-plan:stress-test-artifact"],
-  "create-prd": ["makato-plan:create-prd", "makato-plan:stress-test-artifact"],
-  "create-architecture": ["makato-plan:create-architecture", "makato-plan:stress-test-artifact"],
-  "create-prototype-html": ["makato-plan:create-prototype", "makato-ux:frontend-design"],
-  "create-ux-design": ["makato-plan:create-ux", "makato-ux:penpot-uiux-design"],
-  "grill-artifact": ["makato-plan:stress-test-artifact", "makato-plan:create-prd"],
-  "create-github-issues": ["makato-plan:to-issues", "makato-plan:issue-to-project"],
-  "sync-issues-to-board": ["makato-plan:issue-to-project", "makato-plan:to-issues"],
-  "generate-diagram": ["makato-plan:excalidraw", "makato-plan:create-architecture"],
-  "create-excalidraw": ["makato-plan:excalidraw", "makato-doc:markdown"],
-
-  "install-plugin": ["makato-contribute:makato-plugin-creator", "makato-core:makato-guide"],
-  "scaffold-plugin": ["makato-contribute:makato-plugin-creator", "makato-doc:markdown"],
-  "scaffold-skill": ["makato-contribute:makato-skill-creator", "makato-doc:markdown"],
-  "sync-upstream": ["makato-contribute:sync-from-upstream", "makato-doc:markdown"],
-  "triage-pr-comments": ["makato-build:build-address-pr-comments", "makato-build:build-review"],
-  "address-pr-comments": ["makato-build:build-address-pr-comments", "makato-build:build-review"],
-
-  "run-sensors": ["makato-build:build-sensors", "makato-build:build-resolve-finding"],
-  "resolve-finding": ["makato-build:build-resolve-finding", "makato-build:build-sensors"],
-  "run-verify": ["makato-build:build-verify", "makato-build:definition-of-done"],
-  "push-to-git": ["makato-build:build-push-to-git", "makato-build:build-create-pr"],
-  "create-pull-request": ["makato-build:build-create-pr", "makato-build:build-push-to-git"],
-  "start-build": ["makato-build:build-start", "makato-build:build-refine"],
-  "refine-plan": ["makato-build:build-refine", "makato-build:build-grill-with-docs"],
-  "simplify-code": ["makato-build:build-simplify", "makato-build:build-review"],
-  "inject-context": ["makato-build:inject-context", "makato-build:build-refine"],
-  "inject-skills": ["makato-build:inject-skills", "makato-build:inject-context"],
-
-  "query-database": ["makato-database:manage-postgres", "makato-build:build-implement-tdd"],
-  "optimize-query": ["makato-database:manage-postgres", "makato-build:build-verify"],
-  "design-postgres-schema": ["makato-database:manage-postgres", "makato-build:build-implement-goal"],
-  "tune-postgres": ["makato-database:manage-postgres", "makato-observability:langfuse-instrument"],
-
-  "instrument-llm-call": ["makato-observability:langfuse-instrument", "makato-build:build-implement-goal"],
-  "add-langfuse-trace": ["makato-observability:langfuse-instrument", "makato-build:build-implement-goal"],
-  "add-langfuse-span": ["makato-observability:langfuse-instrument", "makato-build:build-implement-goal"],
-  "add-langfuse-score": ["makato-observability:langfuse-instrument", "makato-build:build-implement-goal"],
-
-  "build-react-component": ["makato-ux:frontend-design", "makato-build:build-implement-goal", "makato-ux:webapp-testing"],
-  "build-html-page": ["makato-ux:frontend-design", "makato-build:build-implement-goal"],
-  "build-css-layout": ["makato-ux:frontend-design", "makato-build:build-implement-goal"],
-  "build-tailwind-component": ["makato-ux:frontend-design", "makato-build:build-implement-goal"],
-
-  "write-python-module": ["makato-build:build-implement-tdd", "makato-build:build-refine"],
-  "write-bash-script": ["makato-build:build-implement-goal", "makato-build:build-verify"],
-  "write-jinja-template": ["makato-build:build-implement-goal", "makato-build:build-verify"],
-  "write-yaml-config": ["makato-contribute:makato-skill-creator", "makato-doc:markdown"],
-  "write-dockerfile": ["makato-build:build-implement-goal", "makato-build:build-verify"],
-  "write-github-action": ["makato-build:build-implement-goal", "makato-build:build-verify"],
-
-  "look-up-library-docs": ["makato-doc:context7", "makato-build:build-refine"],
-  "check-api-reference": ["makato-doc:context7", "makato-build:build-implement-tdd"],
-  "explore-codebase": ["makato-core:map-codebase-context", "makato-build:build-grill-with-docs"],
-  "understand-module": ["makato-core:map-codebase-context", "makato-build:inject-context"],
-  "discover-skills": ["makato-core:makato-guide", "makato-build:inject-skills"],
-
-  "grill-build-plan": ["makato-build:build-grill-with-docs", "makato-plan:stress-test-artifact"],
-  "grill-decompose-output": ["makato-plan:stress-test-artifact", "makato-plan:decompose"],
-  "grill-architecture": ["makato-plan:stress-test-artifact", "makato-plan:create-architecture"],
-  "grill-prd": ["makato-plan:stress-test-artifact", "makato-plan:create-prd"],
-
-  "langgraph-multi-agent": ["makato-langgraph:langgraph-agent-patterns", "makato-langgraph:langgraph-fundamentals"],
-  "langgraph-react-agent": ["makato-langgraph:langgraph-agent-patterns", "makato-langgraph:langgraph-fundamentals"],
-  "langgraph-persist-state": ["makato-langgraph:langgraph-persistence", "makato-langgraph:langgraph-fundamentals"],
-  "langgraph-interrupt": ["makato-langgraph:langgraph-human-in-the-loop", "makato-langgraph:langgraph-fundamentals"],
-  "langgraph-reflexion": ["makato-langgraph:langgraph-reflexion", "makato-langgraph:langgraph-fundamentals"],
-  "langgraph-map-reduce": ["makato-langgraph:langgraph-fundamentals", "makato-langgraph:langgraph-agent-patterns"],
-  "langgraph-subgraph": ["makato-langgraph:langgraph-fundamentals", "makato-langgraph:langgraph-agent-patterns"],
-  "langgraph-tool-node": ["makato-langgraph:langgraph-agent-patterns", "makato-langgraph:langgraph-fundamentals"],
-
-  "upgrade-skill-md": ["makato-contribute:makato-skill-creator", "makato-doc:markdown"],
-  "migrate-config": ["makato-build:build-implement-goal", "makato-contribute:sync-from-upstream"],
-  "write-prose": ["makato-doc:writing-clearly-and-concisely", "makato-doc:markdown"],
-  "edit-prose": ["makato-doc:writing-clearly-and-concisely", "makato-doc:markdown"],
-  "create-issue-file": ["makato-core:create-issue", "makato-plan:to-issues"],
-  "run-makato-guide": ["makato-core:makato-guide", "makato-build:inject-skills"],
-
-  "audit-security": ["makato-build:build-fix-security", "makato-build:build-sensors"],
-  "audit-dependencies": ["makato-build:build-sensors", "makato-build:build-fix-security"],
-  "audit-types": ["makato-build:build-fix-types", "makato-build:build-sensors"],
-  "audit-code-quality": ["makato-build:build-simplify", "makato-build:build-sensors"],
-
-  "prototype-ui": ["makato-plan:create-prototype", "makato-ux:frontend-design"],
-  "test-prototype": ["makato-ux:webapp-testing", "makato-ux:e2e-testing-patterns"],
-  "iterate-design": ["makato-plan:stress-test-artifact", "makato-plan:create-ux"],
-
-  "write-langfuse-eval": ["makato-observability:langfuse-instrument", "makato-build:build-implement-tdd"],
-  "instrument-agent-trace": ["makato-observability:langfuse-instrument", "makato-langgraph:langgraph-fundamentals"],
-
-  "build-sagibeast-connector": ["makato-sagibeast:sagibeast-connect-testbox", "makato-sagibeast:sagibeast-create-testbox"],
-  "parse-word-document": ["makato-sagibeast:dotx-schema-extractor", "makato-sagibeast:manage-pdf"],
-  "automate-excel": ["makato-sagibeast:manage-microsoft-excel", "makato-sagibeast:manage-pdf"],
-
-  "bootstrap-skill-bundles": ["makato-build:inject-skills", "makato-contribute:makato-skill-creator"],
-  "rollout-skill-bundles": ["makato-build:inject-skills", "makato-build:build-implement-goal"],
-  "add-skill-bundle": ["makato-build:inject-skills", "makato-contribute:makato-skill-creator"],
-  "validate-skill-bundles": ["makato-build:inject-skills", "makato-build:build-verify"],
-
-  "bootstrap-task-skill-map": ["makato-plan:decompose", "makato-build:inject-skills"],
-  "propagate-recommended-skills": ["makato-build:inject-skills", "makato-plan:decompose"],
-  "emit-recommended-skills": ["makato-plan:decompose", "makato-build:build-refine"],
-  "pass-recommended-skills": ["makato-build:build-refine", "makato-langgraph:langgraph-fundamentals"],
-  "prepend-skill-instruction": ["makato-build:build-refine", "makato-contribute:makato-skill-creator"],
-
-  "implement-temporal-workflow": ["makato-doc:context7", "makato-temporal:temporal-development", "makato-build:build-implement-tdd"],
-  "implement-temporal-activity": ["makato-doc:context7", "makato-temporal:temporal-development", "makato-build:build-implement-tdd"],
-  "implement-temporal-worker": ["makato-doc:context7", "makato-temporal:temporal-development", "makato-build:build-implement-tdd"],
-  "implement-durable-workflow": ["makato-temporal:temporal-development", "makato-build:build-implement-tdd"],
-  "integrate-temporal": ["makato-doc:context7", "makato-temporal:temporal-development", "makato-build:build-implement-tdd"],
-
-  "implement-fastapi-endpoint": ["makato-doc:context7", "makato-fastapi:fastapi", "makato-build:build-implement-tdd"],
-  "implement-api-route": ["makato-doc:context7", "makato-fastapi:fastapi", "makato-build:build-implement-tdd"],
-  "implement-sse-endpoint": ["makato-doc:context7", "makato-fastapi:fastapi", "makato-build:build-implement-tdd"],
-  "implement-rest-api": ["makato-fastapi:fastapi", "makato-build:build-implement-tdd"],
-  "integrate-fastapi": ["makato-doc:context7", "makato-fastapi:fastapi", "makato-build:build-implement-tdd"]
+  "write-unit-test": [
+    "makato-build:build-implement-tdd",
+    "makato-build:definition-of-done"
+  ],
+  "write-integration-test": [
+    "makato-build:build-implement-tdd",
+    "makato-build:build-verify"
+  ],
+  "write-e2e-test": [
+    "makato-ux:e2e-testing-patterns",
+    "makato-ux:webapp-testing"
+  ],
+  "write-acceptance-test": [
+    "makato-plan:create-acceptance-tests",
+    "makato-build:definition-of-done"
+  ],
+  "write-smoke-test": [
+    "makato-build:build-verify",
+    "makato-build:build-sensors"
+  ],
+  "write-regression-test": [
+    "makato-build:build-implement-tdd",
+    "makato-build:build-verify"
+  ],
+  "write-performance-test": [
+    "makato-build:build-verify",
+    "makato-observability:langfuse-instrument"
+  ],
+  "write-contract-test": [
+    "makato-build:build-implement-tdd",
+    "makato-change:analyze"
+  ],
+  "write-snapshot-test": [
+    "makato-ux:e2e-testing-patterns",
+    "makato-build:build-implement-tdd"
+  ],
+  "write-visual-regression-test": [
+    "makato-ux:e2e-testing-patterns",
+    "makato-ux:webapp-testing"
+  ],
+  "implement-tdd-cycle": [
+    "makato-build:build-implement-tdd",
+    "makato-build:build-refine",
+    "makato-build:definition-of-done"
+  ],
+  "implement-goal": [
+    "makato-build:build-implement-goal",
+    "makato-build:build-refine"
+  ],
+  "implement-feature": [
+    "makato-build:build-start",
+    "makato-build:build-implement-tdd",
+    "makato-build:build-refine"
+  ],
+  "implement-ui-component": [
+    "makato-ux:frontend-design",
+    "makato-build:build-implement-goal",
+    "makato-ux:webapp-testing"
+  ],
+  "implement-api-endpoint": [
+    "makato-build:build-implement-tdd",
+    "makato-build:build-refine"
+  ],
+  "implement-data-model": [
+    "makato-database:manage-postgres",
+    "makato-build:build-implement-tdd"
+  ],
+  "implement-migration": [
+    "makato-database:manage-postgres",
+    "makato-build:build-implement-goal"
+  ],
+  "implement-cli-command": [
+    "makato-build:build-implement-tdd",
+    "makato-build:build-refine"
+  ],
+  "implement-agent": [
+    "makato-build:build-implement-tdd",
+    "makato-langgraph:langgraph-fundamentals"
+  ],
+  "implement-langgraph-agent": [
+    "makato-langgraph:langgraph-fundamentals",
+    "makato-langgraph:langgraph-agent-patterns",
+    "makato-build:build-implement-tdd"
+  ],
+  "implement-tool": [
+    "makato-build:build-implement-tdd",
+    "makato-langgraph:langgraph-agent-patterns"
+  ],
+  "implement-workflow": [
+    "makato-langgraph:langgraph-fundamentals",
+    "makato-langgraph:langgraph-agent-patterns"
+  ],
+  "implement-state-machine": [
+    "makato-langgraph:langgraph-fundamentals",
+    "makato-langgraph:langgraph-persistence"
+  ],
+  "implement-human-in-the-loop": [
+    "makato-langgraph:langgraph-human-in-the-loop",
+    "makato-build:build-implement-tdd"
+  ],
+  "implement-dashboard": [
+    "makato-ux:frontend-design",
+    "makato-build:build-implement-goal",
+    "makato-ux:webapp-testing"
+  ],
+  "implement-form": [
+    "makato-ux:frontend-design",
+    "makato-build:build-implement-goal"
+  ],
+  "implement-navigation": [
+    "makato-ux:frontend-design",
+    "makato-build:build-implement-goal"
+  ],
+  "implement-auth": [
+    "makato-build:build-implement-tdd",
+    "makato-build:build-fix-security"
+  ],
+  "implement-observability": [
+    "makato-observability:langfuse-instrument",
+    "makato-build:build-implement-goal",
+    "makato-observability:langfuse-enrich",
+    "makato-observability:langfuse-ops"
+  ],
+  "implement-postgres-query": [
+    "makato-database:manage-postgres",
+    "makato-build:build-implement-tdd"
+  ],
+  "implement-schema": [
+    "makato-database:manage-postgres",
+    "makato-build:build-implement-tdd"
+  ],
+  "write-skill-md": [
+    "makato-contribute:makato-skill-creator",
+    "makato-doc:markdown"
+  ],
+  "write-agents-md": [
+    "makato-contribute:makato-plugin-creator",
+    "makato-doc:markdown"
+  ],
+  "write-readme": [
+    "makato-doc:crafting-effective-readmes",
+    "makato-doc:markdown"
+  ],
+  "write-changelog": [
+    "makato-doc:crafting-effective-readmes",
+    "makato-doc:markdown"
+  ],
+  "write-prd": [
+    "makato-plan:create-prd",
+    "makato-plan:stress-test-artifact"
+  ],
+  "write-architecture": [
+    "makato-plan:create-architecture",
+    "makato-plan:stress-test-artifact"
+  ],
+  "write-adr": [
+    "makato-plan:create-architecture",
+    "makato-doc:markdown"
+  ],
+  "write-user-story": [
+    "makato-plan:decompose",
+    "makato-plan:create-prd"
+  ],
+  "write-acceptance-criteria": [
+    "makato-plan:create-acceptance-tests",
+    "makato-plan:decompose"
+  ],
+  "write-api-docs": [
+    "makato-doc:crafting-effective-readmes",
+    "makato-doc:markdown"
+  ],
+  "write-design-doc": [
+    "makato-plan:create-architecture",
+    "makato-plan:create-ux"
+  ],
+  "write-runbook": [
+    "makato-doc:crafting-effective-readmes",
+    "makato-doc:markdown"
+  ],
+  "write-ux-spec": [
+    "makato-plan:create-ux",
+    "makato-ux:penpot-uiux-design"
+  ],
+  "write-test-plan": [
+    "makato-plan:create-acceptance-tests",
+    "makato-build:definition-of-done"
+  ],
+  "write-security-doc": [
+    "makato-build:build-fix-security",
+    "makato-doc:markdown"
+  ],
+  "write-migration-guide": [
+    "makato-doc:crafting-effective-readmes",
+    "makato-doc:markdown"
+  ],
+  "write-gherkin": [
+    "makato-plan:create-acceptance-tests",
+    "makato-plan:decompose"
+  ],
+  "write-config-doc": [
+    "makato-doc:crafting-effective-readmes",
+    "makato-doc:markdown"
+  ],
+  "write-plugin-doc": [
+    "makato-contribute:makato-plugin-creator",
+    "makato-doc:crafting-effective-readmes"
+  ],
+  "author-config-yml": [
+    "makato-contribute:makato-skill-creator",
+    "makato-doc:markdown"
+  ],
+  "author-config-json": [
+    "makato-build:build-implement-goal",
+    "makato-build:build-verify"
+  ],
+  "author-skill-bundles-yml": [
+    "makato-build:inject-skills",
+    "makato-contribute:makato-skill-creator"
+  ],
+  "author-task-skill-map-json": [
+    "makato-plan:decompose",
+    "makato-build:inject-skills"
+  ],
+  "author-context-bundles-yml": [
+    "makato-build:inject-context",
+    "makato-contribute:makato-skill-creator"
+  ],
+  "author-finding-routes-json": [
+    "makato-build:build-resolve-finding",
+    "makato-build:build-sensors"
+  ],
+  "author-gitignore": [
+    "makato-build:build-implement-goal",
+    "makato-doc:markdown"
+  ],
+  "author-ci-config": [
+    "makato-build:build-verify",
+    "makato-build:build-implement-goal"
+  ],
+  "author-schema-json": [
+    "makato-build:build-implement-goal",
+    "makato-build:build-verify"
+  ],
+  "author-pytest-config": [
+    "makato-build:build-implement-tdd",
+    "makato-build:build-verify"
+  ],
+  "author-env-config": [
+    "makato-build:build-implement-goal",
+    "makato-build:build-verify"
+  ],
+  "refactor": [
+    "makato-build:build-simplify",
+    "makato-build:build-grill-with-docs"
+  ],
+  "refactor-extract-function": [
+    "makato-build:build-simplify",
+    "makato-build:build-implement-tdd"
+  ],
+  "refactor-rename": [
+    "makato-build:build-simplify",
+    "makato-core:map-codebase-context"
+  ],
+  "refactor-split-module": [
+    "makato-build:build-simplify",
+    "makato-core:map-codebase-context"
+  ],
+  "refactor-merge-module": [
+    "makato-build:build-simplify",
+    "makato-build:build-grill-with-docs"
+  ],
+  "refactor-decouple": [
+    "makato-build:build-simplify",
+    "makato-build:build-grill-with-docs"
+  ],
+  "refactor-extract-class": [
+    "makato-build:build-simplify",
+    "makato-build:build-implement-tdd"
+  ],
+  "refactor-move-file": [
+    "makato-build:build-simplify",
+    "makato-core:map-codebase-context"
+  ],
+  "refactor-remove-duplication": [
+    "makato-build:build-simplify",
+    "makato-build:build-implement-tdd"
+  ],
+  "refactor-improve-naming": [
+    "makato-build:build-simplify",
+    "makato-build:build-grill-with-docs"
+  ],
+  "fix-bug": [
+    "makato-build:build-implement-tdd",
+    "makato-change:execute"
+  ],
+  "fix-security-finding": [
+    "makato-build:build-fix-security",
+    "makato-build:build-resolve-finding"
+  ],
+  "fix-type-error": [
+    "makato-build:build-fix-types",
+    "makato-build:build-resolve-finding"
+  ],
+  "fix-lint-error": [
+    "makato-build:build-sensors",
+    "makato-build:build-resolve-finding"
+  ],
+  "fix-test-failure": [
+    "makato-build:build-implement-tdd",
+    "makato-build:build-verify"
+  ],
+  "fix-ci-failure": [
+    "makato-build:build-verify",
+    "makato-build:build-sensors"
+  ],
+  "fix-merge-conflict": [
+    "makato-orchestrate:resolve-pr-conflict",
+    "makato-build:build-push-to-git"
+  ],
+  "fix-vulnerability": [
+    "makato-build:build-fix-security",
+    "makato-build:build-resolve-finding"
+  ],
+  "fix-performance": [
+    "makato-database:manage-postgres",
+    "makato-build:build-implement-tdd"
+  ],
+  "fix-accessibility": [
+    "makato-ux:e2e-testing-patterns",
+    "makato-ux:frontend-design"
+  ],
+  "fix-memory-leak": [
+    "makato-build:build-implement-tdd",
+    "makato-build:build-verify"
+  ],
+  "fix-race-condition": [
+    "makato-build:build-implement-tdd",
+    "makato-build:build-verify"
+  ],
+  "create-plugin": [
+    "makato-contribute:makato-plugin-creator",
+    "makato-doc:markdown"
+  ],
+  "create-skill": [
+    "makato-contribute:makato-skill-creator",
+    "makato-doc:markdown"
+  ],
+  "create-agent": [
+    "makato-contribute:makato-plugin-creator",
+    "makato-langgraph:langgraph-fundamentals"
+  ],
+  "create-pr": [
+    "makato-build:build-create-pr",
+    "makato-build:build-push-to-git"
+  ],
+  "create-issue": [
+    "makato-core:create-issue",
+    "makato-plan:to-issues"
+  ],
+  "create-prototype": [
+    "makato-plan:create-prototype",
+    "makato-plan:create-ux"
+  ],
+  "create-diagram": [
+    "makato-plan:excalidraw",
+    "makato-plan:create-architecture"
+  ],
+  "create-database": [
+    "makato-database:manage-postgres",
+    "makato-build:build-implement-goal"
+  ],
+  "create-index": [
+    "makato-database:manage-postgres",
+    "makato-build:build-implement-tdd"
+  ],
+  "create-view": [
+    "makato-database:manage-postgres",
+    "makato-build:build-implement-goal"
+  ],
+  "create-stored-procedure": [
+    "makato-database:manage-postgres",
+    "makato-build:build-implement-tdd"
+  ],
+  "create-testbox": [
+    "makato-sagibeast:sagibeast-create-testbox",
+    "makato-ux:webapp-testing"
+  ],
+  "create-design": [
+    "makato-ux:penpot-uiux-design",
+    "makato-plan:create-ux"
+  ],
+  "decompose-story": [
+    "makato-plan:decompose",
+    "makato-plan:stress-test-artifact"
+  ],
+  "decompose-epic": [
+    "makato-plan:decompose",
+    "makato-plan:brainstorming"
+  ],
+  "decompose-feature": [
+    "makato-plan:decompose",
+    "makato-plan:create-prd"
+  ],
+  "review-pr": [
+    "makato-build:build-review",
+    "makato-build:build-address-pr-comments"
+  ],
+  "review-code": [
+    "makato-build:build-review",
+    "makato-build:build-simplify"
+  ],
+  "review-design": [
+    "makato-plan:stress-test-artifact",
+    "makato-plan:create-ux"
+  ],
+  "review-prd": [
+    "makato-plan:stress-test-artifact",
+    "makato-plan:create-prd"
+  ],
+  "review-architecture": [
+    "makato-plan:stress-test-artifact",
+    "makato-plan:create-architecture"
+  ],
+  "review-security": [
+    "makato-build:build-fix-security",
+    "makato-build:build-sensors"
+  ],
+  "review-performance": [
+    "makato-database:manage-postgres",
+    "makato-observability:langfuse-instrument"
+  ],
+  "plan-feature": [
+    "makato-plan:create-prd",
+    "makato-plan:brainstorming",
+    "makato-plan:stress-test-artifact"
+  ],
+  "plan-sprint": [
+    "makato-plan:decompose",
+    "makato-plan:to-issues"
+  ],
+  "plan-architecture": [
+    "makato-plan:create-architecture",
+    "makato-plan:stress-test-artifact"
+  ],
+  "add-migration": [
+    "makato-database:manage-postgres",
+    "makato-build:build-implement-goal"
+  ],
+  "add-index": [
+    "makato-database:manage-postgres",
+    "makato-build:build-implement-tdd"
+  ],
+  "add-column": [
+    "makato-database:manage-postgres",
+    "makato-build:build-implement-goal"
+  ],
+  "add-table": [
+    "makato-database:manage-postgres",
+    "makato-build:build-implement-goal"
+  ],
+  "add-foreign-key": [
+    "makato-database:manage-postgres",
+    "makato-build:build-implement-tdd"
+  ],
+  "add-constraint": [
+    "makato-database:manage-postgres",
+    "makato-build:build-implement-tdd"
+  ],
+  "add-feature-flag": [
+    "makato-build:build-implement-goal",
+    "makato-build:build-verify"
+  ],
+  "add-logging": [
+    "makato-observability:langfuse-instrument",
+    "makato-build:build-implement-goal"
+  ],
+  "add-tracing": [
+    "makato-observability:langfuse-instrument",
+    "makato-build:build-implement-goal"
+  ],
+  "add-metric": [
+    "makato-observability:langfuse-instrument",
+    "makato-build:build-implement-goal"
+  ],
+  "add-alert": [
+    "makato-observability:langfuse-instrument",
+    "makato-build:build-implement-goal"
+  ],
+  "update-dependency": [
+    "makato-build:build-sensors",
+    "makato-build:build-fix-security"
+  ],
+  "update-documentation": [
+    "makato-doc:crafting-effective-readmes",
+    "makato-doc:markdown"
+  ],
+  "update-changelog": [
+    "makato-doc:crafting-effective-readmes",
+    "makato-doc:markdown"
+  ],
+  "update-readme": [
+    "makato-doc:crafting-effective-readmes",
+    "makato-doc:markdown"
+  ],
+  "update-config": [
+    "makato-build:build-implement-goal",
+    "makato-build:build-verify"
+  ],
+  "update-schema": [
+    "makato-database:manage-postgres",
+    "makato-build:build-implement-tdd"
+  ],
+  "update-api": [
+    "makato-build:build-implement-tdd",
+    "makato-change:analyze"
+  ],
+  "update-ui": [
+    "makato-ux:frontend-design",
+    "makato-build:build-implement-goal"
+  ],
+  "delete-deprecated-code": [
+    "makato-build:build-simplify",
+    "makato-build:build-verify"
+  ],
+  "delete-dead-code": [
+    "makato-build:build-simplify",
+    "makato-build:build-sensors"
+  ],
+  "delete-unused-dependency": [
+    "makato-build:build-simplify",
+    "makato-build:build-sensors"
+  ],
+  "integrate-llm": [
+    "makato-langgraph:langgraph-fundamentals",
+    "makato-build:build-implement-goal"
+  ],
+  "integrate-database": [
+    "makato-database:manage-postgres",
+    "makato-build:build-implement-tdd"
+  ],
+  "integrate-external-api": [
+    "makato-build:build-implement-tdd",
+    "makato-change:design"
+  ],
+  "integrate-auth-provider": [
+    "makato-build:build-implement-tdd",
+    "makato-build:build-fix-security"
+  ],
+  "integrate-mcp-server": [
+    "makato-langgraph:langgraph-fundamentals",
+    "makato-build:build-implement-tdd"
+  ],
+  "integrate-observability": [
+    "makato-observability:langfuse-instrument",
+    "makato-build:build-implement-goal",
+    "makato-observability:langfuse-enrich",
+    "makato-observability:langfuse-ops"
+  ],
+  "deploy-feature": [
+    "makato-build:build-push-to-git",
+    "makato-build:build-create-pr"
+  ],
+  "deploy-hotfix": [
+    "makato-build:build-push-to-git",
+    "makato-orchestrate:resolve-pr-conflict"
+  ],
+  "deploy-migration": [
+    "makato-database:manage-postgres",
+    "makato-build:build-push-to-git"
+  ],
+  "analyze-change-request": [
+    "makato-change:analyze",
+    "makato-change:design"
+  ],
+  "design-change-request": [
+    "makato-change:design",
+    "makato-change:analyze"
+  ],
+  "execute-change-request": [
+    "makato-change:execute",
+    "makato-change:design"
+  ],
+  "resolve-change-review": [
+    "makato-change:resolve-review",
+    "makato-build:build-address-pr-comments"
+  ],
+  "orchestrate-change": [
+    "makato-change:orchestrate",
+    "makato-change:analyze"
+  ],
+  "setup-testbox": [
+    "makato-sagibeast:sagibeast-create-testbox",
+    "makato-sagibeast:sagibeast-connect-testbox"
+  ],
+  "connect-testbox": [
+    "makato-sagibeast:sagibeast-connect-testbox",
+    "makato-ux:webapp-testing"
+  ],
+  "extract-dotx-schema": [
+    "makato-sagibeast:dotx-schema-extractor",
+    "makato-build:build-implement-goal"
+  ],
+  "manage-excel": [
+    "makato-sagibeast:manage-microsoft-excel",
+    "makato-build:build-implement-goal"
+  ],
+  "manage-pdf": [
+    "makato-sagibeast:manage-pdf",
+    "makato-build:build-implement-goal"
+  ],
+  "design-ui": [
+    "makato-ux:penpot-uiux-design",
+    "makato-plan:create-ux",
+    "makato-ux:frontend-design"
+  ],
+  "design-wireframe": [
+    "makato-plan:create-ux",
+    "makato-ux:penpot-uiux-design"
+  ],
+  "design-prototype": [
+    "makato-plan:create-prototype",
+    "makato-ux:penpot-uiux-design"
+  ],
+  "design-system": [
+    "makato-ux:penpot-uiux-design",
+    "makato-plan:create-architecture"
+  ],
+  "design-ux-flow": [
+    "makato-plan:create-ux",
+    "makato-ux:penpot-uiux-design"
+  ],
+  "design-landing-page": [
+    "makato-ux:frontend-design",
+    "makato-plan:create-prototype"
+  ],
+  "design-dashboard-layout": [
+    "makato-ux:penpot-uiux-design",
+    "makato-ux:frontend-design"
+  ],
+  "design-component-library": [
+    "makato-ux:penpot-uiux-design",
+    "makato-ux:frontend-design"
+  ],
+  "test-ui": [
+    "makato-ux:webapp-testing",
+    "makato-ux:e2e-testing-patterns"
+  ],
+  "test-api": [
+    "makato-build:build-implement-tdd",
+    "makato-build:build-verify"
+  ],
+  "test-database": [
+    "makato-database:manage-postgres",
+    "makato-build:build-implement-tdd"
+  ],
+  "test-accessibility": [
+    "makato-ux:e2e-testing-patterns",
+    "makato-ux:webapp-testing"
+  ],
+  "test-playwright": [
+    "makato-ux:e2e-testing-patterns",
+    "makato-ux:webapp-testing"
+  ],
+  "orchestrate-autonomous": [
+    "makato-orchestrate:loop",
+    "makato-orchestrate:workflow-state"
+  ],
+  "manage-workflow-state": [
+    "makato-orchestrate:workflow-state",
+    "makato-orchestrate:session-status"
+  ],
+  "run-kill-switch": [
+    "makato-orchestrate:kill-switch",
+    "makato-orchestrate:workflow-state"
+  ],
+  "resolve-conflict": [
+    "makato-orchestrate:resolve-pr-conflict",
+    "makato-build:build-push-to-git"
+  ],
+  "archive-spec": [
+    "makato-orchestrate:archive-spec",
+    "makato-doc:markdown"
+  ],
+  "seed-issue": [
+    "makato-orchestrate:seed-issue",
+    "makato-plan:to-issues"
+  ],
+  "check-session-status": [
+    "makato-orchestrate:session-status",
+    "makato-orchestrate:workflow-state"
+  ],
+  "handoff-context": [
+    "makato-orchestrate:kill-switch",
+    "makato-orchestrate:workflow-state"
+  ],
+  "brainstorm-feature": [
+    "makato-plan:brainstorming",
+    "makato-plan:stress-test-artifact"
+  ],
+  "create-prd": [
+    "makato-plan:create-prd",
+    "makato-plan:stress-test-artifact"
+  ],
+  "create-architecture": [
+    "makato-plan:create-architecture",
+    "makato-plan:stress-test-artifact"
+  ],
+  "create-prototype-html": [
+    "makato-plan:create-prototype",
+    "makato-ux:frontend-design"
+  ],
+  "create-ux-design": [
+    "makato-plan:create-ux",
+    "makato-ux:penpot-uiux-design"
+  ],
+  "grill-artifact": [
+    "makato-plan:stress-test-artifact",
+    "makato-plan:create-prd"
+  ],
+  "create-github-issues": [
+    "makato-plan:to-issues",
+    "makato-plan:issue-to-project"
+  ],
+  "sync-issues-to-board": [
+    "makato-plan:issue-to-project",
+    "makato-plan:to-issues"
+  ],
+  "generate-diagram": [
+    "makato-plan:excalidraw",
+    "makato-plan:create-architecture"
+  ],
+  "create-excalidraw": [
+    "makato-plan:excalidraw",
+    "makato-doc:markdown"
+  ],
+  "install-plugin": [
+    "makato-contribute:makato-plugin-creator",
+    "makato-core:makato-guide"
+  ],
+  "scaffold-plugin": [
+    "makato-contribute:makato-plugin-creator",
+    "makato-doc:markdown"
+  ],
+  "scaffold-skill": [
+    "makato-contribute:makato-skill-creator",
+    "makato-doc:markdown"
+  ],
+  "sync-upstream": [
+    "makato-contribute:sync-from-upstream",
+    "makato-doc:markdown"
+  ],
+  "triage-pr-comments": [
+    "makato-build:build-address-pr-comments",
+    "makato-build:build-review"
+  ],
+  "address-pr-comments": [
+    "makato-build:build-address-pr-comments",
+    "makato-build:build-review"
+  ],
+  "run-sensors": [
+    "makato-build:build-sensors",
+    "makato-build:build-resolve-finding"
+  ],
+  "resolve-finding": [
+    "makato-build:build-resolve-finding",
+    "makato-build:build-sensors"
+  ],
+  "run-verify": [
+    "makato-build:build-verify",
+    "makato-build:definition-of-done"
+  ],
+  "push-to-git": [
+    "makato-build:build-push-to-git",
+    "makato-build:build-create-pr"
+  ],
+  "create-pull-request": [
+    "makato-build:build-create-pr",
+    "makato-build:build-push-to-git"
+  ],
+  "start-build": [
+    "makato-build:build-start",
+    "makato-build:build-refine"
+  ],
+  "refine-plan": [
+    "makato-build:build-refine",
+    "makato-build:build-grill-with-docs"
+  ],
+  "simplify-code": [
+    "makato-build:build-simplify",
+    "makato-build:build-review"
+  ],
+  "inject-context": [
+    "makato-build:inject-context",
+    "makato-build:build-refine"
+  ],
+  "inject-skills": [
+    "makato-build:inject-skills",
+    "makato-build:inject-context"
+  ],
+  "query-database": [
+    "makato-database:manage-postgres",
+    "makato-build:build-implement-tdd"
+  ],
+  "optimize-query": [
+    "makato-database:manage-postgres",
+    "makato-build:build-verify"
+  ],
+  "design-postgres-schema": [
+    "makato-database:manage-postgres",
+    "makato-build:build-implement-goal"
+  ],
+  "tune-postgres": [
+    "makato-database:manage-postgres",
+    "makato-observability:langfuse-instrument"
+  ],
+  "instrument-llm-call": [
+    "makato-observability:langfuse-instrument",
+    "makato-build:build-implement-goal"
+  ],
+  "add-langfuse-trace": [
+    "makato-observability:langfuse-instrument",
+    "makato-build:build-implement-goal"
+  ],
+  "add-langfuse-span": [
+    "makato-observability:langfuse-instrument",
+    "makato-build:build-implement-goal"
+  ],
+  "add-langfuse-score": [
+    "makato-observability:langfuse-instrument",
+    "makato-build:build-implement-goal",
+    "makato-observability:langfuse-enrich"
+  ],
+  "build-react-component": [
+    "makato-ux:frontend-design",
+    "makato-build:build-implement-goal",
+    "makato-ux:webapp-testing"
+  ],
+  "build-html-page": [
+    "makato-ux:frontend-design",
+    "makato-build:build-implement-goal"
+  ],
+  "build-css-layout": [
+    "makato-ux:frontend-design",
+    "makato-build:build-implement-goal"
+  ],
+  "build-tailwind-component": [
+    "makato-ux:frontend-design",
+    "makato-build:build-implement-goal"
+  ],
+  "write-python-module": [
+    "makato-build:build-implement-tdd",
+    "makato-build:build-refine"
+  ],
+  "write-bash-script": [
+    "makato-build:build-implement-goal",
+    "makato-build:build-verify"
+  ],
+  "write-jinja-template": [
+    "makato-build:build-implement-goal",
+    "makato-build:build-verify"
+  ],
+  "write-yaml-config": [
+    "makato-contribute:makato-skill-creator",
+    "makato-doc:markdown"
+  ],
+  "write-dockerfile": [
+    "makato-build:build-implement-goal",
+    "makato-build:build-verify"
+  ],
+  "write-github-action": [
+    "makato-build:build-implement-goal",
+    "makato-build:build-verify"
+  ],
+  "look-up-library-docs": [
+    "makato-doc:context7",
+    "makato-build:build-refine"
+  ],
+  "check-api-reference": [
+    "makato-doc:context7",
+    "makato-build:build-implement-tdd"
+  ],
+  "explore-codebase": [
+    "makato-core:map-codebase-context",
+    "makato-build:build-grill-with-docs"
+  ],
+  "understand-module": [
+    "makato-core:map-codebase-context",
+    "makato-build:inject-context"
+  ],
+  "discover-skills": [
+    "makato-core:makato-guide",
+    "makato-build:inject-skills"
+  ],
+  "grill-build-plan": [
+    "makato-build:build-grill-with-docs",
+    "makato-plan:stress-test-artifact"
+  ],
+  "grill-decompose-output": [
+    "makato-plan:stress-test-artifact",
+    "makato-plan:decompose"
+  ],
+  "grill-architecture": [
+    "makato-plan:stress-test-artifact",
+    "makato-plan:create-architecture"
+  ],
+  "grill-prd": [
+    "makato-plan:stress-test-artifact",
+    "makato-plan:create-prd"
+  ],
+  "langgraph-multi-agent": [
+    "makato-langgraph:langgraph-agent-patterns",
+    "makato-langgraph:langgraph-fundamentals"
+  ],
+  "langgraph-react-agent": [
+    "makato-langgraph:langgraph-agent-patterns",
+    "makato-langgraph:langgraph-fundamentals"
+  ],
+  "langgraph-persist-state": [
+    "makato-langgraph:langgraph-persistence",
+    "makato-langgraph:langgraph-fundamentals"
+  ],
+  "langgraph-interrupt": [
+    "makato-langgraph:langgraph-human-in-the-loop",
+    "makato-langgraph:langgraph-fundamentals"
+  ],
+  "langgraph-reflexion": [
+    "makato-langgraph:langgraph-reflexion",
+    "makato-langgraph:langgraph-fundamentals"
+  ],
+  "langgraph-map-reduce": [
+    "makato-langgraph:langgraph-fundamentals",
+    "makato-langgraph:langgraph-agent-patterns"
+  ],
+  "langgraph-subgraph": [
+    "makato-langgraph:langgraph-fundamentals",
+    "makato-langgraph:langgraph-agent-patterns"
+  ],
+  "langgraph-tool-node": [
+    "makato-langgraph:langgraph-agent-patterns",
+    "makato-langgraph:langgraph-fundamentals"
+  ],
+  "upgrade-skill-md": [
+    "makato-contribute:makato-skill-creator",
+    "makato-doc:markdown"
+  ],
+  "migrate-config": [
+    "makato-build:build-implement-goal",
+    "makato-contribute:sync-from-upstream"
+  ],
+  "write-prose": [
+    "makato-doc:writing-clearly-and-concisely",
+    "makato-doc:markdown"
+  ],
+  "edit-prose": [
+    "makato-doc:writing-clearly-and-concisely",
+    "makato-doc:markdown"
+  ],
+  "create-issue-file": [
+    "makato-core:create-issue",
+    "makato-plan:to-issues"
+  ],
+  "run-makato-guide": [
+    "makato-core:makato-guide",
+    "makato-build:inject-skills"
+  ],
+  "audit-security": [
+    "makato-build:build-fix-security",
+    "makato-build:build-sensors"
+  ],
+  "audit-dependencies": [
+    "makato-build:build-sensors",
+    "makato-build:build-fix-security"
+  ],
+  "audit-types": [
+    "makato-build:build-fix-types",
+    "makato-build:build-sensors"
+  ],
+  "audit-code-quality": [
+    "makato-build:build-simplify",
+    "makato-build:build-sensors"
+  ],
+  "prototype-ui": [
+    "makato-plan:create-prototype",
+    "makato-ux:frontend-design"
+  ],
+  "test-prototype": [
+    "makato-ux:webapp-testing",
+    "makato-ux:e2e-testing-patterns"
+  ],
+  "iterate-design": [
+    "makato-plan:stress-test-artifact",
+    "makato-plan:create-ux"
+  ],
+  "write-langfuse-eval": [
+    "makato-observability:langfuse-instrument",
+    "makato-build:build-implement-tdd",
+    "makato-observability:langfuse-ops"
+  ],
+  "instrument-agent-trace": [
+    "makato-observability:langfuse-instrument",
+    "makato-langgraph:langgraph-fundamentals"
+  ],
+  "build-sagibeast-connector": [
+    "makato-sagibeast:sagibeast-connect-testbox",
+    "makato-sagibeast:sagibeast-create-testbox"
+  ],
+  "parse-word-document": [
+    "makato-sagibeast:dotx-schema-extractor",
+    "makato-sagibeast:manage-pdf"
+  ],
+  "automate-excel": [
+    "makato-sagibeast:manage-microsoft-excel",
+    "makato-sagibeast:manage-pdf"
+  ],
+  "bootstrap-skill-bundles": [
+    "makato-build:inject-skills",
+    "makato-contribute:makato-skill-creator"
+  ],
+  "rollout-skill-bundles": [
+    "makato-build:inject-skills",
+    "makato-build:build-implement-goal"
+  ],
+  "add-skill-bundle": [
+    "makato-build:inject-skills",
+    "makato-contribute:makato-skill-creator"
+  ],
+  "validate-skill-bundles": [
+    "makato-build:inject-skills",
+    "makato-build:build-verify"
+  ],
+  "bootstrap-task-skill-map": [
+    "makato-plan:decompose",
+    "makato-build:inject-skills"
+  ],
+  "propagate-recommended-skills": [
+    "makato-build:inject-skills",
+    "makato-plan:decompose"
+  ],
+  "emit-recommended-skills": [
+    "makato-plan:decompose",
+    "makato-build:build-refine"
+  ],
+  "pass-recommended-skills": [
+    "makato-build:build-refine",
+    "makato-langgraph:langgraph-fundamentals"
+  ],
+  "prepend-skill-instruction": [
+    "makato-build:build-refine",
+    "makato-contribute:makato-skill-creator"
+  ],
+  "implement-temporal-workflow": [
+    "makato-doc:context7",
+    "makato-temporal:temporal-development",
+    "makato-build:build-implement-tdd"
+  ],
+  "implement-temporal-activity": [
+    "makato-doc:context7",
+    "makato-temporal:temporal-development",
+    "makato-build:build-implement-tdd"
+  ],
+  "implement-temporal-worker": [
+    "makato-doc:context7",
+    "makato-temporal:temporal-development",
+    "makato-build:build-implement-tdd"
+  ],
+  "implement-durable-workflow": [
+    "makato-temporal:temporal-development",
+    "makato-build:build-implement-tdd"
+  ],
+  "integrate-temporal": [
+    "makato-doc:context7",
+    "makato-temporal:temporal-development",
+    "makato-build:build-implement-tdd"
+  ],
+  "implement-fastapi-endpoint": [
+    "makato-doc:context7",
+    "makato-fastapi:fastapi",
+    "makato-build:build-implement-tdd"
+  ],
+  "implement-api-route": [
+    "makato-doc:context7",
+    "makato-fastapi:fastapi",
+    "makato-build:build-implement-tdd"
+  ],
+  "implement-sse-endpoint": [
+    "makato-doc:context7",
+    "makato-fastapi:fastapi",
+    "makato-build:build-implement-tdd"
+  ],
+  "implement-rest-api": [
+    "makato-fastapi:fastapi",
+    "makato-build:build-implement-tdd"
+  ],
+  "integrate-fastapi": [
+    "makato-doc:context7",
+    "makato-fastapi:fastapi",
+    "makato-build:build-implement-tdd"
+  ],
+  "enrich-traces": [
+    "makato-observability:langfuse-enrich",
+    "makato-build:build-implement-goal"
+  ],
+  "add-sessions": [
+    "makato-observability:langfuse-enrich",
+    "makato-build:build-implement-goal"
+  ],
+  "add-user-tracking": [
+    "makato-observability:langfuse-enrich",
+    "makato-build:build-implement-goal"
+  ],
+  "add-trace-tags": [
+    "makato-observability:langfuse-enrich",
+    "makato-build:build-implement-goal"
+  ],
+  "add-trace-metadata": [
+    "makato-observability:langfuse-enrich",
+    "makato-build:build-implement-goal"
+  ],
+  "add-environments": [
+    "makato-observability:langfuse-enrich",
+    "makato-build:build-implement-goal"
+  ],
+  "add-user-feedback": [
+    "makato-observability:langfuse-enrich",
+    "makato-build:build-implement-goal"
+  ],
+  "wire-cost-tracking": [
+    "makato-observability:langfuse-enrich",
+    "makato-build:build-implement-goal"
+  ],
+  "mask-pii-traces": [
+    "makato-observability:langfuse-enrich",
+    "makato-observability:langfuse-instrument",
+    "makato-build:build-implement-goal"
+  ],
+  "wire-distributed-tracing": [
+    "makato-observability:langfuse-enrich",
+    "makato-observability:langfuse-instrument",
+    "makato-build:build-implement-goal"
+  ],
+  "analyze-llm-pipeline-errors": [
+    "makato-observability:langfuse-ops",
+    "makato-build:build-implement-goal"
+  ],
+  "calibrate-llm-judge": [
+    "makato-observability:langfuse-ops",
+    "makato-build:build-implement-tdd"
+  ],
+  "setup-experiment-gate": [
+    "makato-observability:langfuse-ops",
+    "makato-build:build-implement-goal"
+  ],
+  "upgrade-langfuse-sdk": [
+    "makato-observability:langfuse-ops",
+    "makato-build:build-implement-goal"
+  ],
+  "query-langfuse-data": [
+    "makato-observability:langfuse-ops"
+  ]
 }
