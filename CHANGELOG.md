@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.85.0](https://github.com/macatocz/makato/compare/v0.84.0...v0.85.0) (2026-07-17)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** pre-dispatch KEY/slug validation against spec folder ([#445](https://github.com/macatocz/makato/issues/445)) ([#456](https://github.com/macatocz/makato/issues/456)) ([904e90a](https://github.com/macatocz/makato/commit/904e90a26a6704dfa74f8d910259b58e6d1fcecf))
+
 ## [0.84.0](https://github.com/macatocz/makato/compare/v0.83.0...v0.84.0) (2026-07-17)
 
 
