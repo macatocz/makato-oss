@@ -183,7 +183,7 @@ _halt_007_fallback() {
   "$WS" patch "$KEY" "$ISSUE_NUMBER" '.restart_failed' 'true'
   _append_halt_audit "HALT-007" "$(jq -n \
     --arg reason "$reason" \
-    '{trigger: "context-handoff-fallback", reason: $reason}')"
+    '{trigger: "context-handoff-fallback", reason: $reason, retryable: false, origin: "human"}')"
   cat >&2 <<HALT
 HALT-007: context-handoff fell back to cost-control HALT.
 
@@ -280,7 +280,9 @@ _check() {
       session_delta_tokens: $delta,
       context_warn_tokens: $warn,
       session_count: $session,
-      resume_point: $resume
+      resume_point: $resume,
+      retryable: true,
+      origin: "auto"
     }')"
 
   # Emit the resume script.

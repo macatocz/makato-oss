@@ -614,5 +614,57 @@ fi
 echo "  ✓ malformed code rejected; non-structural code logs no increment"
 rm -rf "$SANDBOX_347"
 
+
+# ---------------------------------------------------------------------------
+# T55–T58: #446 — halt_audit[] retryable/origin classification fields
+# ---------------------------------------------------------------------------
+KEY_446="446-classification-smoke"
+SANDBOX_446="$REPO_ROOT/specs/$KEY_446"
+mkdir -p "$SANDBOX_446"
+"$WS" init "$KEY_446" "macatocz/makato" "feat/446" "446" >/dev/null
+
+echo "=== T55: append-halt with retryable: true, origin: transient stores fields ==="
+"$WS" append-halt "$KEY_446" 446 "HALT-012" \
+  '{"pr": 99, "waited_secs": 3600, "retryable": true, "origin": "transient", "retry_after_secs": 300}'
+"$WS" read "$KEY_446" 446 | jq -e '.halt_audit[-1].data.retryable == true' > /dev/null \
+  || { echo "  ✗ FAIL: retryable not stored"; exit 1; }
+"$WS" read "$KEY_446" 446 | jq -e '.halt_audit[-1].data.origin == "transient"' > /dev/null \
+  || { echo "  ✗ FAIL: origin not stored"; exit 1; }
+echo "  ✓ retryable:true origin:transient persisted in halt_audit[-1].data"
+
+echo "=== T56: append-halt with retryable: false, origin: human stores fields ==="
+"$WS" append-halt "$KEY_446" 446 "HALT-003" \
+  '{"findings": 2, "retryable": false, "origin": "human"}'
+"$WS" read "$KEY_446" 446 | jq -e '.halt_audit[-1].data.retryable == false' > /dev/null \
+  || { echo "  ✗ FAIL: retryable:false not stored"; exit 1; }
+"$WS" read "$KEY_446" 446 | jq -e '.halt_audit[-1].data.origin == "human"' > /dev/null \
+  || { echo "  ✗ FAIL: origin:human not stored"; exit 1; }
+echo "  ✓ retryable:false origin:human persisted in halt_audit[-1].data"
+
+echo "=== T57: append-halt WITHOUT retryable/origin passes schema validation (backward compat) ==="
+# A legacy halt_audit entry with no classification fields must still pass.
+"$WS" append-halt "$KEY_446" 446 "HALT-007" \
+  '{"budget_consumed_tokens": 100000}'
+"$WS" read "$KEY_446" 446 | jq -e '.halt_audit[-1].code == "HALT-007"' > /dev/null \
+  || { echo "  ✗ FAIL: legacy entry not stored"; exit 1; }
+# Schema validation runs at write time — if the above did not exit non-zero, it passed.
+echo "  ✓ halt_audit entry without retryable/origin accepted (fields optional)"
+
+echo "=== T58: origin enum enforced — unknown value rejected at schema validation ==="
+# workflow-state.sh validation runs python3 + jsonschema. If jsonschema is absent
+# the helper is fail-open (it logs a warning and proceeds). We only assert rejection
+# when the validator is active.
+if python3 -c "import jsonschema" 2>/dev/null; then
+  ORIG_STATE="$("$WS" read "$KEY_446" 446)"
+  TAMPERED="$(echo "$ORIG_STATE" | jq '.halt_audit[-1].origin = "unknown-bad-value"')"
+  if "$WS" write "$KEY_446" 446 "$TAMPERED" 2>/dev/null; then
+    echo "  ✗ FAIL: invalid origin enum value accepted by schema validator"; exit 1
+  fi
+  echo "  ✓ origin:unknown-bad-value rejected by schema enum validation"
+else
+  echo "  ⚠ skip T58 — jsonschema not installed (fail-open; no rejection possible)"
+fi
+rm -rf "$SANDBOX_446"
+
 echo
-echo "All 54 smoke tests passed."
+echo "All 58 smoke tests passed."

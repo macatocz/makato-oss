@@ -3352,7 +3352,7 @@ _reshape_pass() {
       halt_data="$(jq -cn \
         --argjson cycles "$reshape_cycles" \
         --argjson max "$max_cycles" \
-        '{reshape_cycles: $cycles, max_reshape_cycles: $max}')"
+        '{reshape_cycles: $cycles, max_reshape_cycles: $max, retryable: false, origin: "human"}')"
       if [[ -f "$state_file" ]]; then
         local patched_halt
         patched_halt="$(jq \
@@ -3479,11 +3479,63 @@ _reshape_pass() {
 # _apply_needs_human_review_reshape <ISSUE_NUMBER> [REPO_FLAGS...] — helper
 # that applies needs-human-review on a reshape-pass failure. Reuses the
 # MAKATO_LOOP_LABEL_TEST_FILE hook so tests stay offline.
+#
+# Gates the label on `origin` from the latest halt_audit[] entry (#446).
+# Classification rules (from halt-conditions.md § HALT classification table):
+#   origin absent (legacy) → apply label (backward-compat)
+#   origin == "human"      → apply label
+#   origin == "auto"       → skip label (self-handling; no operator needed)
+#   origin == "transient"  → skip label (may resolve without operator action)
+#
+# State file resolution uses SPECS_DIR (the loop-global variable, same pattern
+# as _reshape_pass) so SPECS_DIR overrides in tests are honoured.
+#
+# Test hook: MAKATO_LOOP_NHR_ORIGIN_OVERRIDE — when set, bypass state-file
+# lookup and use this value directly as the gate origin. Allows
+# _test-apply-nhr-gate to exercise all four classification branches offline
+# without a real workflow-state file or gh calls.
 # ---------------------------------------------------------------------------
 _apply_needs_human_review_reshape() {
   local issue="$1"
   shift
   local -a repo_flag=("$@")
+
+  # Gate: determine the effective origin for this HALT.
+  # Priority: MAKATO_LOOP_NHR_ORIGIN_OVERRIDE (test hook) > state-file lookup > safe default.
+  local gate_origin="human"  # safe default: apply label when origin unknown
+
+  if [[ -n "${MAKATO_LOOP_NHR_ORIGIN_OVERRIDE+x}" ]]; then
+    # Test hook: use the explicitly provided origin (empty string is valid = legacy/absent).
+    gate_origin="${MAKATO_LOOP_NHR_ORIGIN_OVERRIDE}"
+  else
+    # Production path: read origin from the latest halt_audit[] entry in workflow-state.
+    local gate_key=""
+    gate_key="$(_derive_key_for_issue "$issue" "${MAKATO_LOOP_DISPATCH_REPO:-}" 2>/dev/null || true)"
+    if [[ -n "$gate_key" ]]; then
+      local gate_spec_folder=""
+      gate_spec_folder="$(find "${SPECS_DIR:-specs}" -maxdepth 1 -type d -name "${gate_key}-*" 2>/dev/null | head -1 || true)"
+      [[ -z "$gate_spec_folder" && -d "${SPECS_DIR:-specs}/$gate_key" ]] && gate_spec_folder="${SPECS_DIR:-specs}/$gate_key"
+      if [[ -n "$gate_spec_folder" ]]; then
+        local gate_state_file="$gate_spec_folder/workflow-state-${issue}.json"
+        if [[ -f "$gate_state_file" ]]; then
+          local latest_origin
+          latest_origin="$(jq -r '.halt_audit[-1].data.origin // ""' "$gate_state_file" 2>/dev/null || echo "")"
+          # Treat null/empty as "human" (backward compat for legacy entries without the field).
+          [[ -z "$latest_origin" || "$latest_origin" == "null" ]] && latest_origin="human"
+          gate_origin="$latest_origin"
+        fi
+      fi
+    fi
+  fi
+
+  # Treat empty origin (no field in legacy entry) as "human" for backward compat.
+  [[ -z "$gate_origin" ]] && gate_origin="human"
+
+  # Only apply needs-human-review for human-origin HALTs.
+  if [[ "$gate_origin" != "human" ]]; then
+    echo "loop: reshape-pass — #${issue} skipping needs-human-review (origin=${gate_origin}; non-human HALTs do not require operator action)" >&2
+    return 0
+  fi
 
   if [[ -n "${MAKATO_LOOP_LABEL_TEST_FILE:-}" ]]; then
     echo "label #${issue} needs-human-review" >>"$MAKATO_LOOP_LABEL_TEST_FILE"
@@ -3814,6 +3866,17 @@ if [[ "$SUBCMD" == _test-* ]]; then
       # Simulate session start: reset orphan_dispatches to 0.
       _patch_status '.orphan_dispatches' '0'
       cmd_dispatch "$_test_issue"
+      ;;
+    # _test-apply-nhr-gate <issue> <origin> — exercise the origin-gated
+    # _apply_needs_human_review_reshape deterministically (#446).
+    # Passes origin via MAKATO_LOOP_NHR_ORIGIN_OVERRIDE so no state-file
+    # lookup or gh calls are needed in the offline test environment.
+    # Uses MAKATO_LOOP_LABEL_TEST_FILE so no real gh calls are made.
+    _test-apply-nhr-gate)
+      _test_issue="${1:?issue required}"
+      _test_origin="${2:-}"   # empty string = legacy (no origin field)
+      MAKATO_LOOP_NHR_ORIGIN_OVERRIDE="$_test_origin" \
+        _apply_needs_human_review_reshape "$_test_issue"
       ;;
     *) echo "loop: unknown test hook: $SUBCMD" >&2; exit 64 ;;
   esac

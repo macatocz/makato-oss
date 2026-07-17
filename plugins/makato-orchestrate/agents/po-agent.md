@@ -701,7 +701,8 @@ row). The `gh`-only polls (CI, review) are narrated with a single
      - `REVIEW_WAIT_SECS > 0` AND `elapsed >= REVIEW_WAIT_SECS` → **HALT-012**
        (REVIEW-TIMEOUT): apply `needs-human-review`, append `halt_audit[]`
        (`code: "HALT-012"`, `data: {pr, review_decision, waited_secs,
-       review_wait_secs}`), `worktree.sh retain <KEY> HALT-012`, emit
+       review_wait_secs}`, `retryable: true, origin: "transient"` — see `halt-conditions.md ## HALT classification table`),
+       `worktree.sh retain <KEY> HALT-012`, emit
        session-end JSONL, return R1 `failure` with
        `data.halt_code: "HALT-012"` — releasing the slot and paging the operator.
      - else → sleep `MAKATO_REVIEW_POLL_INTERVAL` and continue polling.
@@ -757,7 +758,7 @@ row). The `gh`-only polls (CI, review) are narrated with a single
 1. Read `ci_failure_cycles`. Already `>= MAKATO_MAX_CI_FAILURE_CYCLES`
    (default 3) → HALT-008 immediately: apply `needs-human-review`,
    append `halt_audit[]` (`code: "HALT-008"`,
-   `data: {origin: "ci_failure", ci_failure_cycles}`),
+   `data: {origin: "ci_failure", ci_failure_cycles}`, `retryable: false, origin: "human"` — see `halt-conditions.md ## HALT classification table`),
    `worktree.sh retain <KEY> HALT-008`, session-end JSONL, R1 `failure`
    with `data.halt_code: "HALT-008"`. This ceiling is checked directly
    here — NOT via `kill-switch poll`, which enforces only the
@@ -995,7 +996,11 @@ session-end JSONL and R1 `failure`:
 1. `shared/workflow-state.sh append-halt <KEY> <ISSUE_NUMBER> <HALT_CODE> '<json-data>'`
    — canonical helper; injects `ts`, validates code shape
    (`HALT-NNN`, `HALT-NNN[A-Z]`, or `HALT-STRUCTURAL`), validates the
-   `data` payload.
+   `data` payload. Every invocation MUST also pass `retryable` and `origin`
+   top-level fields on the `append-halt` item per the
+   `## HALT classification table` in `halt-conditions.md` — these are
+   schema-optional for backward compat but required by the loop's
+   `needs-human-review` gate logic once this story ships.
 2. `shared/workflow-state.sh append-lesson <KEY> <ISSUE_NUMBER> <cycle> halt "<HALT_CODE>: <reason>"`.
 3. `shared/worktree.sh retain <KEY> <HALT_CODE>` — patches
    `.worktree_retained = true` and `.worktree_retain_reason`. Does NOT

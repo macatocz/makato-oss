@@ -157,7 +157,7 @@
     },
     "halt_audit": {
       "type": "array",
-      "description": "Immutable append-only log of HALT events. Each entry is written when a HALT code fires.",
+      "description": "Immutable append-only log of HALT events. Each entry is written when a HALT code fires. Each code's `origin`/`retryable` classification values are defined in `plugins/makato-orchestrate/halt-conditions.md` § *HALT classification table*.",
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -177,6 +177,20 @@
             "type": "object",
             "additionalProperties": true,
             "description": "HALT-code-specific context payload. Shape varies per code — consumers must tolerate unknown keys."
+          },
+          "retryable": {
+            "type": "boolean",
+            "description": "Whether the autonomous loop can auto-retry once the triggering condition resolves, without operator intervention. True for transient/auto origins (e.g. HALT-007B context handoff, HALT-012 reviewer-timeout); false for human-origin HALTs requiring operator judgement. Absent on legacy entries — consumers must default-false when missing."
+          },
+          "origin": {
+            "type": "string",
+            "enum": ["auto", "human", "transient"],
+            "description": "Who must act to unblock this HALT. 'auto' = fully automated (loop handles it, no human needed — e.g. HALT-007B self-restart); 'transient' = condition may resolve without human action but is not guaranteed (e.g. HALT-012 waiting for a reviewer); 'human' = operator judgement required (e.g. HALT-003 structural blocker). The loop gates `needs-human-review` on this field: only 'human' origin entries trigger the label; 'auto' and 'transient' do not. Absent on legacy entries — consumers must treat missing as 'human' to preserve backward-compatible label behaviour."
+          },
+          "retry_after_secs": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Optional hint for 'transient' and 'auto' paths: suggested wait in seconds before the loop re-attempts. Only meaningful when retryable is true. Absent when not applicable (e.g. 'human' origin HALTs or when no specific wait is suggested)."
           }
         }
       }

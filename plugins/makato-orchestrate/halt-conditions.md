@@ -24,6 +24,9 @@ gets the `needs-human-review` label:
 
 ## Code table
 
+> Each code's `origin`/`retryable` classification values are defined in the
+> [## HALT classification table](#halt-classification-table) below.
+
 | Code | Trigger | Action | Recovery |
 |------|---------|--------|----------|
 | **HALT-000** | `~/.claude/HALT` file exists at session start OR detected by `hooks/check-halt.sh` PreToolUse poll. | PO-agent exits immediately. Writes `halt_audit` entry with `code: "HALT-000"`. No `needs-human-review` label (operator-initiated). | Operator removes `~/.claude/HALT`, then re-invokes `loop --autonomous <issue>`. |
@@ -101,9 +104,50 @@ The same event is appended to `specs/<key>-<slug>/orchestrate.jsonl`:
 The dual write is intentional: `workflow-state.json` is the live state the next session reads;
 `orchestrate.jsonl` is the immutable audit trail across sessions.
 
-## See also
+## HALT classification table
 
-- `plugins/makato-orchestrate/never-patterns.md` — the 9 universal NEVER rules.
+> **Single source of truth** for the `origin` and `retryable` values each HALT code must emit
+> in its `halt_audit[]` entry. The schema at
+> `plugins/makato-orchestrate/skills/workflow-state/references/workflow-state.schema.json`
+> defines the field shapes; this table defines the per-code values. The loop gates
+> `needs-human-review` on `origin`: only `"human"` (or absent, for backward compatibility)
+> triggers the label — `"auto"` and `"transient"` do not.
+
+| Code | origin | retryable | retry_after_secs hint | Rationale |
+|------|--------|-----------|-----------------------|-----------|
+| **HALT-000** | `transient` | `true` | — | Operator-placed file; operator removes it when ready to resume. No human judgement needed after the file is gone — loop can retry. |
+| **HALT-001** | `human` | `false` | — | Sensor-fixer exhausted its retry budget on a real finding. Operator must inspect and fix. |
+| **HALT-002** | `human` | `false` | — | Coverage gap below floor after re-plan failed. Operator must raise coverage or relax floor. |
+| **HALT-003** | `human` | `false` | — | CRITICAL reviewer findings or STRUCTURAL PR comments that `coder` could not address. Operator must review and decide. |
+| **HALT-004** | `human` | `false` | — | Sensor-fixer per-finding MAX_LOOPS exhausted. Operator must resolve finding manually. |
+| **HALT-005** | `human` | `false` | — | Push denied by deny-list (force-push to main, protected branch, etc.). Operator must review intent. |
+| **HALT-006** | `human` | `false` | — | Spec folder missing or malformed; light-planner auto-materialize (plan-tier:light) also failed. Operator must shape the spec. |
+| **HALT-007** | `human` | `false` | — | Token budget exhausted (cost ceiling). Operator must decide whether to raise budget, split the issue, or abandon. |
+| **HALT-007B** | `auto` | `true` | — | Context-window quality gate. A fresh subprocess self-restarts automatically via the resume script — no operator action needed. |
+| **HALT-008** (outer_iteration) | `human` | `false` | — | Re-plan budget (outer_iteration ≥ 3) exhausted. Operator must reshape the story via makato-plan or resolve plan defects. |
+| **HALT-008** (merge_conflict) | `human` | `false` | — | Merge-conflict resolution budget exhausted. Operator must resolve conflicts manually from the retained worktree. |
+| **HALT-008** (ci_failure) | `human` | `false` | — | CI-failure fix budget exhausted. Operator must inspect failing CI logs and fix or reshape the task. |
+| **HALT-009** | `human` | `false` | — | Operator applied `claude-halt` label — explicit human-initiated stop. Operator must remove the label to resume. |
+| **HALT-010** | `human` | `false` | — | Human-review cycle ceiling (human_review_cycles ≥ MAX). Operator must decide whether to cancel, split, or re-shape. |
+| **HALT-011** | `human` | `false` | — | Sub-skill silent exit (no terminal `session` line in build.jsonl). Operator must inspect truncated audit trail and re-run. |
+| **HALT-012** | `transient` | `true` | `MAKATO_REVIEW_WAIT_SECS` (default 3600) | Review-poll timeout waiting for a first reviewer decision. A reviewer may appear; loop can retry once one is assigned. |
+| **HALT-013** | `human` | `false` | — | Reshape cycle ceiling (reshape_cycles ≥ MAKATO_MAX_RESHAPE_CYCLES). Operator must inspect reshape-request.json and shape manually. |
+| **HALT-STRUCTURAL** | `human` | `false` | — | `build-refine` failed after R1 escalation. Operator must re-shape the plan. |
+| **HALT-CH-001** | `human` | `false` | — | makato-change: headless repo discovery failed (REPO_ROOT missing, no repositories.yml). Operator must supply REPO_ROOT. |
+| **HALT-CH-002** | `human` | `false` | — | makato-change: critical blocking open question in analyze phase. Operator must answer the question in the issue body. |
+| **HALT-CH-003** | `auto` | `true` | — | makato-change: design auto-approved in autonomous mode (audit marker only — run continues). No operator action needed. |
+| **HALT-CH-004** | `auto` | `true` | — | makato-change: no test infrastructure found; implementation proceeded with degraded confidence. PR flagged for elevated scrutiny; no operator action to unblock. |
+
+### Backward compatibility
+
+Legacy `halt_audit[]` entries (written before this classification was introduced) do not carry
+`origin` or `retryable` fields. Consumers MUST default as follows when these fields are absent:
+
+- `origin` absent → treat as `"human"` (preserves existing `needs-human-review` labelling behaviour)
+- `retryable` absent → treat as `false` (conservative; prevents unintended auto-retry on legacy entries)
+- `retry_after_secs` absent → no wait hint; consumer decides
+
+## See also
 - `plugins/makato-orchestrate/skills/kill-switch/SKILL.md` — implementation of HALT-000, HALT-007, HALT-007B, HALT-009.
 - `plugins/makato-orchestrate/skills/resolve-pr-conflict/SKILL.md` — implementation of the HALT-008 merge-conflict origin (GAP-016 / #45).
 - `plugins/makato-orchestrate/agents/po-agent.md` § *CI-failure fix loop (Step 6a test-failure path)* — implementation of the HALT-008 CI-failure origin (#288).

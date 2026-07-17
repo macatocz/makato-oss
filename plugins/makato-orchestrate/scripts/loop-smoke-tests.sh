@@ -3552,5 +3552,88 @@ t_or8_orphan_dispatches="$(jq -r '.orphan_dispatches // 0' "$STATE_DIR/loop-stat
 rm -rf "$T_OR8_SPECS" "$T_OR8_REAP" "$T_OR8_LABELS" "$T_OR8_BODY"
 echo "  ✓ session-scoped: prior orphan_dispatches=5 reset to 0 on new session start, then incremented to 1"
 
+
+# ---------------------------------------------------------------------------
+# ## halt-classification gate (#446)
+#
+# Tests that _apply_needs_human_review_reshape gates the needs-human-review
+# label on the `origin` field of the HALT audit entry:
+#
+#   T-A: origin "human"    → label applied
+#   T-B: origin "transient" → label NOT applied
+#   T-C: origin "auto"     → label NOT applied
+#   T-D: no origin (legacy) → label applied (backward-compat)
+#
+# Each test exercises _apply_needs_human_review_reshape via the
+# _test-apply-nhr-gate hook, using MAKATO_LOOP_LABEL_TEST_FILE offline.
+# ---------------------------------------------------------------------------
 echo
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357) ==="
+echo "=== T-A: origin 'human' → needs-human-review applied ==="
+TA_LABEL_FILE="$STATE_DIR/ta-label-$$.txt"
+ta_rc=0
+ta_stderr="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_LABEL_TEST_FILE="$TA_LABEL_FILE" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+    "$LOOP" _test-apply-nhr-gate 901 "human" 2>&1 >/dev/null
+)" || ta_rc=$?
+[[ "$ta_rc" -eq 0 ]] \
+  || fail "T-A: _test-apply-nhr-gate must exit 0 for origin 'human'; got rc=$ta_rc stderr=$ta_stderr"
+grep -q "label #901 needs-human-review" "$TA_LABEL_FILE" 2>/dev/null \
+  || fail "T-A: origin 'human' must apply needs-human-review label; label file: $(cat "$TA_LABEL_FILE" 2>/dev/null || echo '<missing>')"
+rm -f "$TA_LABEL_FILE"
+echo "  ✓ origin 'human': needs-human-review applied"
+
+echo
+echo "=== T-B: origin 'transient' → needs-human-review NOT applied ==="
+TB_LABEL_FILE="$STATE_DIR/tb-label-$$.txt"
+tb_rc=0
+tb_stderr="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_LABEL_TEST_FILE="$TB_LABEL_FILE" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+    "$LOOP" _test-apply-nhr-gate 902 "transient" 2>&1 >/dev/null
+)" || tb_rc=$?
+[[ "$tb_rc" -eq 0 ]] \
+  || fail "T-B: _test-apply-nhr-gate must exit 0 for origin 'transient'; got rc=$tb_rc stderr=$tb_stderr"
+! grep -q "label #902 needs-human-review" "$TB_LABEL_FILE" 2>/dev/null \
+  || fail "T-B: origin 'transient' must NOT apply needs-human-review label; label file: $(cat "$TB_LABEL_FILE" 2>/dev/null)"
+rm -f "$TB_LABEL_FILE"
+echo "  ✓ origin 'transient': needs-human-review skipped"
+
+echo
+echo "=== T-C: origin 'auto' → needs-human-review NOT applied ==="
+TC_LABEL_FILE="$STATE_DIR/tc-label-$$.txt"
+tc_rc=0
+tc_stderr="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_LABEL_TEST_FILE="$TC_LABEL_FILE" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+    "$LOOP" _test-apply-nhr-gate 903 "auto" 2>&1 >/dev/null
+)" || tc_rc=$?
+[[ "$tc_rc" -eq 0 ]] \
+  || fail "T-C: _test-apply-nhr-gate must exit 0 for origin 'auto'; got rc=$tc_rc stderr=$tc_stderr"
+! grep -q "label #903 needs-human-review" "$TC_LABEL_FILE" 2>/dev/null \
+  || fail "T-C: origin 'auto' must NOT apply needs-human-review label; label file: $(cat "$TC_LABEL_FILE" 2>/dev/null)"
+rm -f "$TC_LABEL_FILE"
+echo "  ✓ origin 'auto': needs-human-review skipped"
+
+echo
+echo "=== T-D: no origin (legacy entry) → needs-human-review applied (backward-compat) ==="
+TD_LABEL_FILE="$STATE_DIR/td-label-$$.txt"
+td_rc=0
+td_stderr="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_LABEL_TEST_FILE="$TD_LABEL_FILE" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+    "$LOOP" _test-apply-nhr-gate 904 "" 2>&1 >/dev/null
+)" || td_rc=$?
+[[ "$td_rc" -eq 0 ]] \
+  || fail "T-D: _test-apply-nhr-gate must exit 0 for empty origin (legacy); got rc=$td_rc stderr=$td_stderr"
+grep -q "label #904 needs-human-review" "$TD_LABEL_FILE" 2>/dev/null \
+  || fail "T-D: no origin (legacy) must apply needs-human-review label; label file: $(cat "$TD_LABEL_FILE" 2>/dev/null || echo '<missing>')"
+rm -f "$TD_LABEL_FILE"
+echo "  ✓ no origin (legacy): needs-human-review applied (backward-compat)"
+
+echo
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446) ==="
