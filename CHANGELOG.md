@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.83.0](https://github.com/macatocz/makato/compare/v0.82.0...v0.83.0) (2026-07-17)
+
+
+### ✨ Features
+
+* **makato-observability:** add langfuse ops + langfuse-enrich skills ([#452](https://github.com/macatocz/makato/issues/452)) ([d15dcf8](https://github.com/macatocz/makato/commit/d15dcf8053cbfc8a6db86a3adc92ddeddbc31edc))
+
 ## [0.82.0](https://github.com/macatocz/makato/compare/v0.81.0...v0.82.0) (2026-07-17)
 
 
