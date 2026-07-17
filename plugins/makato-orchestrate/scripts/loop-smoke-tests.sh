@@ -3635,5 +3635,366 @@ grep -q "label #904 needs-human-review" "$TD_LABEL_FILE" 2>/dev/null \
 rm -f "$TD_LABEL_FILE"
 echo "  ✓ no origin (legacy): needs-human-review applied (backward-compat)"
 
+# ---------------------------------------------------------------------------
+# T-STALL-5: stall-recovery config vars resolve to expected defaults (#444)
+# Verifies that STALL_THRESHOLD_SECS, MAX_STALL_RESTARTS, and
+# STALL_BACKOFF_BASE_SECS are present with correct defaults when the
+# corresponding MAKATO_* env vars are unset.  Also confirms T12/T13/T14
+# still pass (no behavior change with default values -- regression guard).
+# ---------------------------------------------------------------------------
+echo "=== T-STALL-5: stall-recovery config vars resolve to defaults ==="
+# Extract the three assignment lines from loop.sh and evaluate them in an
+# isolated subshell with the MAKATO_* env vars unset.  This avoids sourcing
+# the full script (which has top-level mkdir/git calls that require a real
+# git repo and writable state dir) while still testing that the lines
+# actually exist and produce the correct default values.
+t_stall5_lines="$(grep -E '^(STALL_THRESHOLD_SECS|MAX_STALL_RESTARTS|STALL_BACKOFF_BASE_SECS)=' "$LOOP")"
+[[ -n "$t_stall5_lines" ]] \
+  || fail "T-STALL-5: none of the three stall-recovery vars found in loop.sh"
+t_stall5_out="$(
+  unset MAKATO_LOOP_STALL_THRESHOLD MAKATO_MAX_STALL_RESTARTS MAKATO_STALL_BACKOFF_BASE
+  eval "$t_stall5_lines"
+  echo "STALL_THRESHOLD_SECS=${STALL_THRESHOLD_SECS:-MISSING}"
+  echo "MAX_STALL_RESTARTS=${MAX_STALL_RESTARTS:-MISSING}"
+  echo "STALL_BACKOFF_BASE_SECS=${STALL_BACKOFF_BASE_SECS:-MISSING}"
+)"
+grep -q "STALL_THRESHOLD_SECS=300"  <<<"$t_stall5_out" \
+  || fail "T-STALL-5(a): STALL_THRESHOLD_SECS should default to 300; got: $t_stall5_out"
+grep -q "MAX_STALL_RESTARTS=3"       <<<"$t_stall5_out" \
+  || fail "T-STALL-5(b): MAX_STALL_RESTARTS should default to 3; got: $t_stall5_out"
+grep -q "STALL_BACKOFF_BASE_SECS=60" <<<"$t_stall5_out" \
+  || fail "T-STALL-5(c): STALL_BACKOFF_BASE_SECS should default to 60; got: $t_stall5_out"
+
+# (d) Regression guard: T12/T13/T14 already ran above and passed.
+# Their assertions exercise STALL_WARN/KILL/POLL paths which must be
+# byte-for-byte unaffected -- the new vars carry distinct env names and
+# distinct defaults, so they cannot collide with the existing watchdog vars.
+echo "  ✓ (a) STALL_THRESHOLD_SECS=300"
+echo "  ✓ (b) MAX_STALL_RESTARTS=3"
+echo "  ✓ (c) STALL_BACKOFF_BASE_SECS=60"
+echo "  ✓ (d) existing T12/T13/T14 watchdog tests already passed above (regression guard)"
+
+# ---------------------------------------------------------------------------
+# T-STALL-1: _stall_restart with stall_cause=transient, restart_count=0
+#   → emits step:stall-restart status:attempt; returns 0; stall_restart_count
+#     incremented to 1 in loop-status.json.
+# ---------------------------------------------------------------------------
+echo "=== T-STALL-1: _stall_restart emits attempt for transient stall ==="
+rm -f "$STATE_DIR/loop-status.json"
+T_ST1_SPECS="$REPO_ROOT/specs/gap-007-loop-smoke-st1-$$"
+T_ST1_SPEC_DIR="$T_ST1_SPECS/st1-slug"
+T_ST1_ORCH="$T_ST1_SPEC_DIR/orchestrate.jsonl"
+mkdir -p "$T_ST1_SPEC_DIR"
+touch "$T_ST1_ORCH"
+# Seed last_watchdog_kill.stall_cause=transient, stall_restart_count=0
+jq -n '{last_watchdog_kill:{stall_cause:"transient"},stall_restart_count:0}' \
+  > "$STATE_DIR/loop-status.json"
+# Use tiny backoff so the test doesn't wait 60s
+rc_st1=0
+MAKATO_LOOP_STATE_DIR="$STATE_DIR" \
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_LOOP_STALL_BACKOFF_BASE=0 \
+SPECS_DIR="$T_ST1_SPECS" \
+  "$LOOP" _test-stall-restart 55501 "$T_ST1_SPEC_DIR" || rc_st1=$?
+[[ $rc_st1 -eq 0 ]] \
+  || fail "T-STALL-1: _stall_restart should return 0 for transient stall; got rc=$rc_st1"
+grep -q '"status":"attempt"' "$T_ST1_ORCH" \
+  || fail "T-STALL-1: orchestrate.jsonl should contain status:attempt; got: $(cat "$T_ST1_ORCH")"
+jq -e '.stall_restart_count == 1' "$STATE_DIR/loop-status.json" >/dev/null \
+  || fail "T-STALL-1: stall_restart_count should be 1 after restart; got: $(jq '.stall_restart_count' "$STATE_DIR/loop-status.json")"
+rm -rf "$T_ST1_SPECS"
+echo "  ✓ stall_cause=transient → status:attempt emitted, stall_restart_count incremented, rc=0"
+
+# ---------------------------------------------------------------------------
+# T-STALL-2: _stall_restart with stall_cause=no_progress
+#   → emits step:stall-restart status:escalate with halt_code:HALT-014;
+#     returns 1.
+# ---------------------------------------------------------------------------
+echo "=== T-STALL-2: _stall_restart escalates for no_progress stall ==="
+rm -f "$STATE_DIR/loop-status.json"
+T_ST2_SPECS="$REPO_ROOT/specs/gap-007-loop-smoke-st2-$$"
+T_ST2_SPEC_DIR="$T_ST2_SPECS/st2-slug"
+T_ST2_ORCH="$T_ST2_SPEC_DIR/orchestrate.jsonl"
+mkdir -p "$T_ST2_SPEC_DIR"
+touch "$T_ST2_ORCH"
+jq -n '{last_watchdog_kill:{stall_cause:"no_progress"},stall_restart_count:3}' \
+  > "$STATE_DIR/loop-status.json"
+rc_st2=0
+MAKATO_LOOP_STATE_DIR="$STATE_DIR" \
+MAKATO_LOOP_TEST_HOOK=1 \
+SPECS_DIR="$T_ST2_SPECS" \
+  "$LOOP" _test-stall-restart 55502 "$T_ST2_SPEC_DIR" || rc_st2=$?
+[[ $rc_st2 -eq 1 ]] \
+  || fail "T-STALL-2: _stall_restart should return 1 for no_progress; got rc=$rc_st2"
+grep -q '"status":"escalate"' "$T_ST2_ORCH" \
+  || fail "T-STALL-2: orchestrate.jsonl should contain status:escalate; got: $(cat "$T_ST2_ORCH")"
+grep -q '"halt_code":"HALT-014"' "$T_ST2_ORCH" \
+  || fail "T-STALL-2: orchestrate.jsonl should contain halt_code:HALT-014; got: $(cat "$T_ST2_ORCH")"
+rm -rf "$T_ST2_SPECS"
+echo "  ✓ stall_cause=no_progress → status:escalate with halt_code:HALT-014 emitted, rc=1"
+
+# ---------------------------------------------------------------------------
+# T-STALL-3: _stall_restart with stall_cause=halt_emitted
+#   → emits step:stall-classify status:skip; returns 0; no restart.
+# ---------------------------------------------------------------------------
+echo "=== T-STALL-3: _stall_restart skips for halt_emitted stall ==="
+rm -f "$STATE_DIR/loop-status.json"
+T_ST3_SPECS="$REPO_ROOT/specs/gap-007-loop-smoke-st3-$$"
+T_ST3_SPEC_DIR="$T_ST3_SPECS/st3-slug"
+T_ST3_ORCH="$T_ST3_SPEC_DIR/orchestrate.jsonl"
+mkdir -p "$T_ST3_SPEC_DIR"
+touch "$T_ST3_ORCH"
+jq -n '{last_watchdog_kill:{stall_cause:"halt_emitted"},stall_restart_count:0}' \
+  > "$STATE_DIR/loop-status.json"
+rc_st3=0
+MAKATO_LOOP_STATE_DIR="$STATE_DIR" \
+MAKATO_LOOP_TEST_HOOK=1 \
+SPECS_DIR="$T_ST3_SPECS" \
+  "$LOOP" _test-stall-restart 55503 "$T_ST3_SPEC_DIR" || rc_st3=$?
+[[ $rc_st3 -eq 0 ]] \
+  || fail "T-STALL-3: _stall_restart should return 0 for halt_emitted; got rc=$rc_st3"
+grep -q '"step":"stall-classify"' "$T_ST3_ORCH" \
+  || fail "T-STALL-3: orchestrate.jsonl should contain step:stall-classify; got: $(cat "$T_ST3_ORCH")"
+grep -q '"status":"skip"' "$T_ST3_ORCH" \
+  || fail "T-STALL-3: orchestrate.jsonl should contain status:skip; got: $(cat "$T_ST3_ORCH")"
+# stall_restart_count must NOT be incremented
+jq -e '.stall_restart_count == 0' "$STATE_DIR/loop-status.json" >/dev/null \
+  || fail "T-STALL-3: stall_restart_count should remain 0 for halt_emitted; got: $(jq '.stall_restart_count' "$STATE_DIR/loop-status.json")"
+rm -rf "$T_ST3_SPECS"
+echo "  ✓ stall_cause=halt_emitted → step:stall-classify status:skip emitted, rc=0, count unchanged"
+
+# ---------------------------------------------------------------------------
+# T-STALL-4: MAKATO_LOOP_STALL_DISABLE=1 → _stall_restart is a no-op
+#   → returns 0; NO entry appended to orchestrate.jsonl.
+# ---------------------------------------------------------------------------
+echo "=== T-STALL-4: MAKATO_LOOP_STALL_DISABLE=1 makes _stall_restart a no-op ==="
+rm -f "$STATE_DIR/loop-status.json"
+T_ST4_SPECS="$REPO_ROOT/specs/gap-007-loop-smoke-st4-$$"
+T_ST4_SPEC_DIR="$T_ST4_SPECS/st4-slug"
+T_ST4_ORCH="$T_ST4_SPEC_DIR/orchestrate.jsonl"
+mkdir -p "$T_ST4_SPEC_DIR"
+touch "$T_ST4_ORCH"
+jq -n '{last_watchdog_kill:{stall_cause:"transient"},stall_restart_count:0}' \
+  > "$STATE_DIR/loop-status.json"
+rc_st4=0
+MAKATO_LOOP_STATE_DIR="$STATE_DIR" \
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_LOOP_STALL_DISABLE=1 \
+SPECS_DIR="$T_ST4_SPECS" \
+  "$LOOP" _test-stall-restart 55504 "$T_ST4_SPEC_DIR" || rc_st4=$?
+[[ $rc_st4 -eq 0 ]] \
+  || fail "T-STALL-4: _stall_restart should return 0 when disabled; got rc=$rc_st4"
+[[ ! -s "$T_ST4_ORCH" ]] \
+  || fail "T-STALL-4: orchestrate.jsonl should be empty when stall disabled; got: $(cat "$T_ST4_ORCH")"
+rm -rf "$T_ST4_SPECS"
+echo "  ✓ MAKATO_LOOP_STALL_DISABLE=1 → no-op, rc=0, no orchestrate.jsonl entry"
+
+# ---------------------------------------------------------------------------
+# T-STALL-1a: watchdog kill with no halt_code and restart_count=0
+#   → last_watchdog_kill.stall_cause == "transient"
+# ---------------------------------------------------------------------------
+echo "=== T-STALL-1a: watchdog kill stamps stall_cause=transient (no halt, count=0) ==="
+rm -f "$STATE_DIR/loop-status.json"
+T_S1A_SPECS="$REPO_ROOT/specs/gap-007-loop-smoke-stall1a-$$"
+mkdir -p "$T_S1A_SPECS"
+# No workflow-state file → no halt_code → stall_restart_count defaults to 0 → transient
+MAKATO_LOOP_STALL_TEST_CMD="sleep 30" \
+MAKATO_LOOP_STALL_WARN=1 \
+MAKATO_LOOP_STALL_KILL=2 \
+MAKATO_LOOP_STALL_POLL=1 \
+MAKATO_LOOP_STALL_TERM_GRACE=1 \
+SPECS_DIR="$T_S1A_SPECS" \
+  "$LOOP" dispatch 44401 >/dev/null 2>&1 || true
+jq -e '.last_watchdog_kill.stall_cause == "transient"' "$STATE_DIR/loop-status.json" >/dev/null \
+  || fail "T-STALL-1a: stall_cause should be transient; got: $(jq -r '.last_watchdog_kill.stall_cause // "null"' "$STATE_DIR/loop-status.json" 2>/dev/null)"
+rm -rf "$T_S1A_SPECS"
+echo "  ✓ stall_cause=transient when no halt_code and restart_count=0"
+
+# ---------------------------------------------------------------------------
+# T-STALL-2a: watchdog kill with stall_restart_count >= MAX_STALL_RESTARTS
+#   → last_watchdog_kill.stall_cause == "no_progress"
+# ---------------------------------------------------------------------------
+echo "=== T-STALL-2a: watchdog kill stamps stall_cause=no_progress (count>=MAX) ==="
+rm -f "$STATE_DIR/loop-status.json"
+T_S2A_SPECS="$REPO_ROOT/specs/gap-007-loop-smoke-stall2a-$$"
+mkdir -p "$T_S2A_SPECS"
+# Pre-seed loop-status.json with stall_restart_count >= MAX_STALL_RESTARTS (default 3)
+echo '{"stall_restart_count":3}' > "$STATE_DIR/loop-status.json"
+MAKATO_LOOP_STALL_TEST_CMD="sleep 30" \
+MAKATO_LOOP_STALL_WARN=1 \
+MAKATO_LOOP_STALL_KILL=2 \
+MAKATO_LOOP_STALL_POLL=1 \
+MAKATO_LOOP_STALL_TERM_GRACE=1 \
+SPECS_DIR="$T_S2A_SPECS" \
+  "$LOOP" dispatch 44402 >/dev/null 2>&1 || true
+jq -e '.last_watchdog_kill.stall_cause == "no_progress"' "$STATE_DIR/loop-status.json" >/dev/null \
+  || fail "T-STALL-2a: stall_cause should be no_progress; got: $(jq -r '.last_watchdog_kill.stall_cause // "null"' "$STATE_DIR/loop-status.json" 2>/dev/null)"
+rm -rf "$T_S2A_SPECS"
+echo "  ✓ stall_cause=no_progress when stall_restart_count >= MAX_STALL_RESTARTS"
+
+# ---------------------------------------------------------------------------
+# T-STALL-3a: watchdog kill with workflow-state containing a halt_code
+#   → last_watchdog_kill.stall_cause == "halt_emitted"
+# ---------------------------------------------------------------------------
+echo "=== T-STALL-3a: watchdog kill stamps stall_cause=halt_emitted (halt_code present) ==="
+rm -f "$STATE_DIR/loop-status.json"
+T_S3A_SPECS="$REPO_ROOT/specs/gap-007-loop-smoke-stall3a-$$"
+T_S3A_SPEC_DIR="$T_S3A_SPECS/stall3a-slug"
+mkdir -p "$T_S3A_SPEC_DIR"
+# Write a workflow-state file with a halt_audit entry
+echo '{"halt_audit":[{"code":"HALT-003","ts":"2026-01-01T00:00:00Z","data":{}}]}' \
+  > "$T_S3A_SPEC_DIR/workflow-state-44403.json"
+MAKATO_LOOP_STALL_TEST_CMD="sleep 30" \
+MAKATO_LOOP_STALL_WARN=1 \
+MAKATO_LOOP_STALL_KILL=2 \
+MAKATO_LOOP_STALL_POLL=1 \
+MAKATO_LOOP_STALL_TERM_GRACE=1 \
+SPECS_DIR="$T_S3A_SPECS" \
+  "$LOOP" dispatch 44403 >/dev/null 2>&1 || true
+jq -e '.last_watchdog_kill.stall_cause == "halt_emitted"' "$STATE_DIR/loop-status.json" >/dev/null \
+  || fail "T-STALL-3a: stall_cause should be halt_emitted; got: $(jq -r '.last_watchdog_kill.stall_cause // "null"' "$STATE_DIR/loop-status.json" 2>/dev/null)"
+rm -rf "$T_S3A_SPECS"
+echo "  ✓ stall_cause=halt_emitted when workflow-state halt_audit contains a code"
+
+# ---------------------------------------------------------------------------
+# T-STALL-1: transient stall → _stall_restart emits step:stall-restart
+#   status:attempt to orchestrate.jsonl and returns 0.
+# ---------------------------------------------------------------------------
+echo "=== T-STALL-1: _stall_restart transient → emits status:attempt, returns 0 ==="
+T_S1_STATE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-stall1/state"
+T_S1_SPECS="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-stall1/specs"
+T_S1_SPEC_DIR="$T_S1_SPECS/stall1-slug"
+mkdir -p "$T_S1_STATE" "$T_S1_SPEC_DIR"
+# Seed loop-status.json: stall_cause=transient, restart_count=0
+echo '{"last_watchdog_kill":{"stall_cause":"transient"},"stall_restart_count":0}' \
+  > "$T_S1_STATE/loop-status.json"
+# Seed workflow-state to provide a resume_point
+echo '{"resume_point":"task_2"}' \
+  > "$T_S1_SPEC_DIR/workflow-state-44410.json"
+t_stall1_rc=0
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_LOOP_STATE_DIR="$T_S1_STATE" \
+SPECS_DIR="$T_S1_SPECS" \
+MAKATO_LOOP_STALL_DISABLE=0 \
+MAKATO_LOOP_SLEEP_CMD=true \
+  "$LOOP" _test-stall-restart 44410 "$T_S1_SPEC_DIR" "$T_S1_STATE/dispatch-44410.log" \
+  >/dev/null 2>&1 || t_stall1_rc=$?
+[[ $t_stall1_rc -eq 0 ]] \
+  || fail "T-STALL-1: _stall_restart should return 0 for transient stall; got $t_stall1_rc"
+[[ -f "$T_S1_SPEC_DIR/orchestrate.jsonl" ]] \
+  || fail "T-STALL-1: orchestrate.jsonl not written"
+t_stall1_line="$(grep '"stall-restart"' "$T_S1_SPEC_DIR/orchestrate.jsonl" | tail -1)"
+[[ -n "$t_stall1_line" ]] \
+  || fail "T-STALL-1: no stall-restart entry in orchestrate.jsonl"
+t_stall1_status="$(printf '%s' "$t_stall1_line" | jq -r '.status // empty' 2>/dev/null)"
+[[ "$t_stall1_status" == "attempt" ]] \
+  || fail "T-STALL-1: status should be 'attempt'; got '$t_stall1_status'"
+t_stall1_resume="$(printf '%s' "$t_stall1_line" | jq -r '.data.resume_point // empty' 2>/dev/null)"
+[[ -n "$t_stall1_resume" ]] \
+  || fail "T-STALL-1: data.resume_point should be set in orchestrate.jsonl entry"
+# stall_restart_count should be incremented to 1
+t_stall1_count="$(jq -r '.stall_restart_count // empty' "$T_S1_STATE/loop-status.json" 2>/dev/null)"
+[[ "$t_stall1_count" -eq 1 ]] \
+  || fail "T-STALL-1: stall_restart_count should be 1 after increment; got '$t_stall1_count'"
+rm -rf "${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-stall1"
+echo "  ✓ transient stall: orchestrate.jsonl step:stall-restart status:attempt, returns 0"
+
+# ---------------------------------------------------------------------------
+# T-STALL-2: stall at ceiling (stall_restart_count >= MAX_STALL_RESTARTS,
+#   stall_cause=no_progress) → _stall_restart emits status:escalate with
+#   halt_code=HALT-014 and returns 1.
+# ---------------------------------------------------------------------------
+echo "=== T-STALL-2: _stall_restart no_progress/exhausted → emits status:escalate, returns 1 ==="
+T_S2_STATE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-stall2/state"
+T_S2_SPECS="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-stall2/specs"
+T_S2_SPEC_DIR="$T_S2_SPECS/stall2-slug"
+T_S2_LABEL_FILE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-stall2/labels.txt"
+mkdir -p "$T_S2_STATE" "$T_S2_SPEC_DIR"
+# Seed loop-status.json: stall_cause=no_progress (restart_count at ceiling)
+echo '{"last_watchdog_kill":{"stall_cause":"no_progress"},"stall_restart_count":3}' \
+  > "$T_S2_STATE/loop-status.json"
+t_stall2_rc=0
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_LOOP_STATE_DIR="$T_S2_STATE" \
+SPECS_DIR="$T_S2_SPECS" \
+MAKATO_LOOP_STALL_DISABLE=0 \
+MAKATO_LOOP_LABEL_TEST_FILE="$T_S2_LABEL_FILE" \
+MAKATO_LOOP_WF_STATE_TEST_CMD="true" \
+  "$LOOP" _test-stall-restart 44411 "$T_S2_SPEC_DIR" "$T_S2_STATE/dispatch-44411.log" \
+  >/dev/null 2>&1 || t_stall2_rc=$?
+[[ $t_stall2_rc -eq 1 ]] \
+  || fail "T-STALL-2: _stall_restart should return 1 for no_progress stall; got $t_stall2_rc"
+[[ -f "$T_S2_SPEC_DIR/orchestrate.jsonl" ]] \
+  || fail "T-STALL-2: orchestrate.jsonl not written"
+t_stall2_line="$(grep '"stall-restart"' "$T_S2_SPEC_DIR/orchestrate.jsonl" | tail -1)"
+[[ -n "$t_stall2_line" ]] \
+  || fail "T-STALL-2: no stall-restart entry in orchestrate.jsonl"
+t_stall2_status="$(printf '%s' "$t_stall2_line" | jq -r '.status // empty' 2>/dev/null)"
+[[ "$t_stall2_status" == "escalate" ]] \
+  || fail "T-STALL-2: status should be 'escalate'; got '$t_stall2_status'"
+t_stall2_halt="$(printf '%s' "$t_stall2_line" | jq -r '.data.halt_code // empty' 2>/dev/null)"
+[[ "$t_stall2_halt" == "HALT-014" ]] \
+  || fail "T-STALL-2: data.halt_code should be 'HALT-014'; got '$t_stall2_halt'"
+rm -rf "${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-stall2"
+echo "  ✓ no_progress stall: orchestrate.jsonl step:stall-restart status:escalate halt_code=HALT-014, returns 1"
+
+# ---------------------------------------------------------------------------
+# T-STALL-3: halt_emitted stall → _stall_restart emits step:stall-classify
+#   status:skip and returns 0.
+# ---------------------------------------------------------------------------
+echo "=== T-STALL-3: _stall_restart halt_emitted → emits step:stall-classify status:skip, returns 0 ==="
+T_S3_STATE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-stall3/state"
+T_S3_SPECS="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-stall3/specs"
+T_S3_SPEC_DIR="$T_S3_SPECS/stall3-slug"
+mkdir -p "$T_S3_STATE" "$T_S3_SPEC_DIR"
+# Seed loop-status.json: stall_cause=halt_emitted
+echo '{"last_watchdog_kill":{"stall_cause":"halt_emitted"},"stall_restart_count":0}' \
+  > "$T_S3_STATE/loop-status.json"
+t_stall3_rc=0
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_LOOP_STATE_DIR="$T_S3_STATE" \
+SPECS_DIR="$T_S3_SPECS" \
+MAKATO_LOOP_STALL_DISABLE=0 \
+  "$LOOP" _test-stall-restart 44412 "$T_S3_SPEC_DIR" "$T_S3_STATE/dispatch-44412.log" \
+  >/dev/null 2>&1 || t_stall3_rc=$?
+[[ $t_stall3_rc -eq 0 ]] \
+  || fail "T-STALL-3: _stall_restart should return 0 for halt_emitted stall; got $t_stall3_rc"
+[[ -f "$T_S3_SPEC_DIR/orchestrate.jsonl" ]] \
+  || fail "T-STALL-3: orchestrate.jsonl not written"
+t_stall3_line="$(grep '"stall-classify"' "$T_S3_SPEC_DIR/orchestrate.jsonl" | tail -1)"
+[[ -n "$t_stall3_line" ]] \
+  || fail "T-STALL-3: no stall-classify entry in orchestrate.jsonl"
+t_stall3_status="$(printf '%s' "$t_stall3_line" | jq -r '.status // empty' 2>/dev/null)"
+[[ "$t_stall3_status" == "skip" ]] \
+  || fail "T-STALL-3: status should be 'skip'; got '$t_stall3_status'"
+rm -rf "${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-stall3"
+echo "  ✓ halt_emitted stall: orchestrate.jsonl step:stall-classify status:skip, returns 0"
+
+# ---------------------------------------------------------------------------
+# T-STALL-4: MAKATO_LOOP_STALL_DISABLE=1 → _stall_restart returns 0
+#   immediately, no orchestrate.jsonl emit.
+# ---------------------------------------------------------------------------
+echo "=== T-STALL-4: MAKATO_LOOP_STALL_DISABLE=1 → _stall_restart returns 0, no emit ==="
+T_S4_STATE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-stall4/state"
+T_S4_SPECS="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-stall4/specs"
+T_S4_SPEC_DIR="$T_S4_SPECS/stall4-slug"
+mkdir -p "$T_S4_STATE" "$T_S4_SPEC_DIR"
+echo '{"last_watchdog_kill":{"stall_cause":"transient"},"stall_restart_count":0}' \
+  > "$T_S4_STATE/loop-status.json"
+t_stall4_rc=0
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_LOOP_STATE_DIR="$T_S4_STATE" \
+SPECS_DIR="$T_S4_SPECS" \
+MAKATO_LOOP_STALL_DISABLE=1 \
+  "$LOOP" _test-stall-restart 44413 "$T_S4_SPEC_DIR" "$T_S4_STATE/dispatch-44413.log" \
+  >/dev/null 2>&1 || t_stall4_rc=$?
+[[ $t_stall4_rc -eq 0 ]] \
+  || fail "T-STALL-4: _stall_restart should return 0 when STALL_DISABLE=1; got $t_stall4_rc"
+if [[ -f "$T_S4_SPEC_DIR/orchestrate.jsonl" ]]; then
+  fail "T-STALL-4: orchestrate.jsonl should NOT be written when STALL_DISABLE=1"
+fi
+rm -rf "${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-stall4"
+echo "  ✓ MAKATO_LOOP_STALL_DISABLE=1: returns 0 immediately, no orchestrate.jsonl"
+
 echo
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446) ==="
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444) ==="

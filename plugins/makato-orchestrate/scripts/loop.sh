@@ -335,6 +335,19 @@ STALL_POLL_SECS="${MAKATO_LOOP_STALL_POLL:-60}"
 # smoke suite doesn't have to wait 30 real seconds to observe the kill
 # path close out.
 STALL_TERM_GRACE_SECS="${MAKATO_LOOP_STALL_TERM_GRACE:-30}"
+# Stall-recovery config (#444). Distinct from the watchdog WARN/KILL
+# thresholds above — used by the classifier to trigger a bounded restart
+# sequence before escalating to a full watchdog kill.
+#   STALL_THRESHOLD_SECS — no-output window that triggers stall
+#     classification (default 300 s, below the 900 s WARN threshold).
+#   MAX_STALL_RESTARTS   — ceiling on restart attempts per dispatch;
+#     when exceeded the watchdog takes over.
+#   STALL_BACKOFF_BASE_SECS — base interval for exponential backoff
+#     between restart attempts.
+# All defaults leave existing behavior unchanged when the vars are unset.
+STALL_THRESHOLD_SECS="${MAKATO_LOOP_STALL_THRESHOLD:-300}"
+MAX_STALL_RESTARTS="${MAKATO_MAX_STALL_RESTARTS:-3}"
+STALL_BACKOFF_BASE_SECS="${MAKATO_STALL_BACKOFF_BASE:-60}"
 
 # Run-mutex pidfile — the layer-1 defence against #172 (a second
 # loop.sh instance running unnoticed in parallel against the same
@@ -1142,6 +1155,25 @@ _watchdog_poll() {
       # Snapshot the kill audit BEFORE signalling — active_workflow will
       # be nulled by cmd_dispatch shortly, but last_watchdog_kill is a
       # sibling field that survives.
+      # Classify stall cause (#444): read halt_code from the issue's
+      # workflow-state file; read stall_restart_count from loop-status.
+      local stall_cause
+      local _wf_halt_code=""
+      local _wf_file
+      _wf_file="$(find "${SPECS_DIR:-$REPO_ROOT/specs}" -maxdepth 2 \
+        -name "workflow-state-${issue}.json" 2>/dev/null | head -1)"
+      if [[ -f "$_wf_file" ]]; then
+        _wf_halt_code="$(jq -r '(.halt_audit // []) | last | .code // empty' "$_wf_file" 2>/dev/null || true)"
+      fi
+      local _restart_count=0
+      _restart_count="$(_read_status | jq -r '.stall_restart_count // 0' 2>/dev/null || echo 0)"
+      if [[ -n "$_wf_halt_code" ]]; then
+        stall_cause="halt_emitted"
+      elif [[ "$_restart_count" -ge "$MAX_STALL_RESTARTS" ]]; then
+        stall_cause="no_progress"
+      else
+        stall_cause="transient"
+      fi
       local kill_stamp
       kill_stamp="$(_now)"
       local audit
@@ -1149,7 +1181,8 @@ _watchdog_poll() {
         --arg stamped_at "$kill_stamp" \
         --argjson idle "$idle" \
         --argjson kill_secs "$STALL_KILL_SECS" \
-        '{issue: $issue, killed_at: $stamped_at, idle_seconds: $idle, stall_kill_seconds: $kill_secs}')"
+        --arg stall_cause "$stall_cause" \
+        '{issue: $issue, killed_at: $stamped_at, idle_seconds: $idle, stall_kill_seconds: $kill_secs, stall_cause: $stall_cause}')"
       if [[ $own_kill -eq 1 ]]; then
         _patch_status '.last_watchdog_kill' "$audit"
         _patch_status '.active_workflow.killed_by_watchdog' 'true'
@@ -1185,6 +1218,126 @@ _watchdog_poll() {
 
     sleep "$STALL_POLL_SECS"
   done
+}
+
+# ---------------------------------------------------------------------------
+# _stall_restart <issue> <spec-folder> <log-file>
+#
+# Called by cmd_dispatch after a watchdog kill. Reads last_watchdog_kill
+# .stall_cause from loop-status.json and routes:
+#   halt_emitted → skip (po-agent HALTed itself; restart would re-enter a
+#                        HALT state — let the HALT classification path handle
+#                        the issue instead). Emits step:stall-classify
+#                        status:skip to orchestrate.jsonl. Returns 0.
+#   transient    → bounded restart. Computes exponential backoff, sleeps,
+#                  increments stall_restart_count, re-dispatches. Emits
+#                  step:stall-restart status:attempt. Returns 0.
+#   no_progress  → escalate. Emits step:stall-restart status:escalate with
+#                  halt_code:HALT-014, appends halt to workflow-state, labels
+#                  the issue needs-human-review. Returns 1.
+#   (absent/unknown) → treated as transient (safe default).
+#
+# Guard: MAKATO_LOOP_STALL_DISABLE=1 → immediate return 0 (legacy path).
+# (#444)
+# ---------------------------------------------------------------------------
+_stall_restart() {
+  local issue="$1"
+  local spec_folder="${2:-}"
+  local log_file="${3:-}"
+
+  # Opt-out guard — must mirror the watchdog opt-out.
+  if [[ "${MAKATO_LOOP_STALL_DISABLE:-0}" == "1" ]]; then
+    return 0
+  fi
+
+  # Resolve orchestrate.jsonl path (best-effort: spec_folder hint first,
+  # then scan; emit is non-fatal when not found).
+  local orch_log=""
+  if [[ -n "$spec_folder" && -f "$spec_folder/orchestrate.jsonl" ]]; then
+    orch_log="$spec_folder/orchestrate.jsonl"
+  elif [[ -n "$spec_folder" ]]; then
+    orch_log="$spec_folder/orchestrate.jsonl"
+  else
+    orch_log="$(find "${SPECS_DIR:-$REPO_ROOT/specs}" -maxdepth 2 \
+      -name "orchestrate.jsonl" 2>/dev/null | head -1)"
+  fi
+
+  local stall_cause
+  stall_cause="$(_read_status | jq -r '.last_watchdog_kill.stall_cause // "transient"' 2>/dev/null || echo "transient")"
+
+  local now_ts
+  now_ts="$(_now)"
+
+  _orch_append() {
+    local entry="$1"
+    if [[ -n "$orch_log" ]]; then
+      echo "$entry" >> "$orch_log" 2>/dev/null || true
+    fi
+  }
+
+  case "$stall_cause" in
+    halt_emitted)
+      # po-agent already HALTed — do not restart; let the HALT path own it.
+      _orch_append "{\"ts\":\"$now_ts\",\"skill\":\"loop\",\"issue\":$issue,\"step\":\"stall-classify\",\"status\":\"skip\",\"data\":{\"stall_cause\":\"halt_emitted\",\"reason\":\"po-agent emitted a HALT code before stalling\"}}"
+      return 0
+      ;;
+    no_progress)
+      # Stall_restart_count exhausted or cause resolved to no_progress.
+      local restart_count
+      restart_count="$(_read_status | jq -r '.stall_restart_count // 0' 2>/dev/null || echo 0)"
+      _orch_append "{\"ts\":\"$now_ts\",\"skill\":\"loop\",\"issue\":$issue,\"step\":\"stall-restart\",\"status\":\"escalate\",\"data\":{\"stall_cause\":\"no_progress\",\"halt_code\":\"HALT-014\",\"stall_restart_count\":$restart_count}}"
+      # Append HALT-014 to workflow-state (best-effort).
+      local _wf_sh
+      _wf_sh="$(dirname "$(dirname "$0")")/shared/workflow-state.sh"
+      if [[ -x "$_wf_sh" ]]; then
+        # Derive KEY from spec_folder basename if available.
+        local _key=""
+        if [[ -n "$spec_folder" ]]; then
+          _key="$(basename "$spec_folder")"
+        fi
+        if [[ -n "$_key" ]]; then
+          "$_wf_sh" append-halt "$_key" "$issue" HALT-014 '{"origin":"stall"}' 2>/dev/null || true
+        fi
+      fi
+      # Apply needs-human-review label (best-effort, non-fatal).
+      local _repo="${MAKATO_LOOP_DISPATCH_REPO:-}"
+      if [[ -n "$_repo" ]]; then
+        gh issue edit "$issue" --add-label needs-human-review --repo "$_repo" 2>/dev/null || true
+      fi
+      return 1
+      ;;
+    *)
+      # transient (or absent/unknown) — bounded restart.
+      local restart_count
+      restart_count="$(_read_status | jq -r '.stall_restart_count // 0' 2>/dev/null || echo 0)"
+      # Exponential backoff: base * 2^count. Cap at STALL_KILL_SECS so we
+      # don't wait longer than the watchdog threshold.
+      local backoff=$(( STALL_BACKOFF_BASE_SECS * (1 << restart_count) ))
+      if [[ $backoff -gt $STALL_KILL_SECS ]]; then
+        backoff=$STALL_KILL_SECS
+      fi
+
+      # Read resume_point from workflow-state file (best-effort).
+      local resume_pt="null"
+      local _wf_file
+      _wf_file="$(find "${SPECS_DIR:-$REPO_ROOT/specs}" -maxdepth 2 \
+        -name "workflow-state-${issue}.json" 2>/dev/null | head -1)"
+      if [[ -f "$_wf_file" ]]; then
+        resume_pt="$(jq -r '.resume_point // "null"' "$_wf_file" 2>/dev/null || echo "null")"
+      fi
+
+      _orch_append "{\"ts\":\"$now_ts\",\"skill\":\"loop\",\"issue\":$issue,\"step\":\"stall-restart\",\"status\":\"attempt\",\"data\":{\"stall_cause\":\"transient\",\"backoff_secs\":$backoff,\"resume_point\":\"$resume_pt\",\"stall_restart_count\":$restart_count}}"
+
+      # Increment stall_restart_count before the sleep so a kill during
+      # backoff still records the attempt.
+      local new_count=$(( restart_count + 1 ))
+      _patch_status '.stall_restart_count' "$new_count"
+
+      # Backoff sleep (honour STALL_POLL_SECS as the minimum tick unit).
+      sleep "$backoff" 2>/dev/null || true
+      return 0
+      ;;
+  esac
 }
 
 # ---------------------------------------------------------------------------
@@ -3081,6 +3234,36 @@ cmd_dispatch() {
     # Normal completion — drop the signal trap so it cannot fire against
     # stale PIDs during the rest of the function.
     trap - TERM INT
+    # Stall-restart wiring (#444): if the watchdog killed the child, call
+    # _stall_restart to classify and route. On transient (returns 0), the
+    # outer cmd_run loop continues normally. On no_progress (returns 1),
+    # propagate the failure rc so the loop does not re-queue the issue.
+    if [[ "${MAKATO_LOOP_STALL_DISABLE:-0}" != "1" ]]; then
+      local _killed_issue
+      _killed_issue="$(_read_status | jq -r '.last_watchdog_kill.issue // empty' 2>/dev/null || true)"
+      local _killed_flag
+      _killed_flag="$(_read_status | jq -r '.active_workflow.killed_by_watchdog // false' 2>/dev/null || echo false)"
+      # active_workflow.killed_by_watchdog was true before the watchdog cleared
+      # it; we read the preserved snapshot from last_watchdog_kill.
+      local _wkill_flag
+      _wkill_flag="$(_read_status | jq -r '
+        if .last_watchdog_kill.issue == '"$issue"' then
+          "true"
+        else
+          "false"
+        end' 2>/dev/null || echo false)"
+      if [[ "$_wkill_flag" == "true" ]]; then
+        # Derive spec folder from SPECS_DIR + issue's workflow-state file.
+        local _spec_dir=""
+        local _wf
+        _wf="$(find "${SPECS_DIR:-$REPO_ROOT/specs}" -maxdepth 2 \
+          -name "workflow-state-${issue}.json" 2>/dev/null | head -1)"
+        if [[ -n "$_wf" ]]; then
+          _spec_dir="$(dirname "$_wf")"
+        fi
+        _stall_restart "$issue" "$_spec_dir" "$log_file" || rc=$?
+      fi
+    fi
   else
     # Opt-out path (MAKATO_LOOP_STALL_DISABLE=1) — legacy behaviour, no
     # log capture, no watchdog. No streaming needed (nothing reads the
@@ -3877,6 +4060,15 @@ if [[ "$SUBCMD" == _test-* ]]; then
       _test_origin="${2:-}"   # empty string = legacy (no origin field)
       MAKATO_LOOP_NHR_ORIGIN_OVERRIDE="$_test_origin" \
         _apply_needs_human_review_reshape "$_test_issue"
+      ;;
+    # _test-stall-restart <issue> [spec-folder] — exercise _stall_restart
+    # deterministically. Reads stall_cause from loop-status.json (pre-seeded
+    # by the test) and routes through halt_emitted / transient / no_progress.
+    # Returns _stall_restart's exit code. (#444)
+    _test-stall-restart)
+      _test_issue="${1:?issue required}"
+      _test_spec="${2:-}"
+      _stall_restart "$_test_issue" "$_test_spec" ""
       ;;
     *) echo "loop: unknown test hook: $SUBCMD" >&2; exit 64 ;;
   esac

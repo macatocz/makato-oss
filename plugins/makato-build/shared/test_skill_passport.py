@@ -20,7 +20,6 @@ from __future__ import annotations
 import copy
 import fcntl
 import json
-import os
 import sys
 import tempfile
 import time
