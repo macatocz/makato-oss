@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.84.0](https://github.com/macatocz/makato/compare/v0.83.0...v0.84.0) (2026-07-17)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** diagnostic stall recovery with auto-restart from preserved state ([#444](https://github.com/macatocz/makato/issues/444)) ([#453](https://github.com/macatocz/makato/issues/453)) ([3f58ac9](https://github.com/macatocz/makato/commit/3f58ac92a3adf1a702009a970e68274add4c5d48))
+
 ## [0.83.0](https://github.com/macatocz/makato/compare/v0.82.0...v0.83.0) (2026-07-17)
 
 
