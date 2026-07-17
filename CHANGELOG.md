@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.82.0](https://github.com/macatocz/makato/compare/v0.81.0...v0.82.0) (2026-07-17)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** machine-readable retryable/origin classification for HALT codes ([#446](https://github.com/macatocz/makato/issues/446)) ([#449](https://github.com/macatocz/makato/issues/449)) ([e280966](https://github.com/macatocz/makato/commit/e2809663dec2b3666a3a7508f01f281c3d0f25f5))
+
 ## [0.81.0](https://github.com/macatocz/makato/compare/v0.80.0...v0.81.0) (2026-07-16)
 
 
