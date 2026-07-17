@@ -3996,5 +3996,112 @@ fi
 rm -rf "${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-stall4"
 echo "  ✓ MAKATO_LOOP_STALL_DISABLE=1: returns 0 immediately, no orchestrate.jsonl"
 
+# ---------------------------------------------------------------------------
+# T72: pre-dispatch spec-folder gate — miss path (#445)
+#   KEY resolves fine from the body but SPECS_DIR has no matching folder.
+#   Expected: WARN "no specs/ folder" on stderr, active_workflow cleared,
+#   cmd_dispatch returns 0 (slot not consumed).
+# ---------------------------------------------------------------------------
+echo "=== T72: pre-dispatch gate — miss: KEY derives OK but no matching specs/ folder ==="
+T72_DIR="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-t72"
+T72_SPECS="$T72_DIR/specs"
+mkdir -p "$T72_SPECS"
+rm -f "$STATE_DIR/loop-status.json"
+
+t72_body="$T72_DIR/body.txt"
+printf '%s\n' '*Feature slug: `t72-some-feature` — produced by to-issues v3.x.*' >"$t72_body"
+
+# Deliberately create NO folder named t72-some-feature* in T72_SPECS.
+t72_stderr="$(
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$t72_body" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  SPECS_DIR="$T72_SPECS" \
+    "$LOOP" dispatch 700 2>&1 >/dev/null
+)" || fail "T72: cmd_dispatch should return 0 on spec-folder miss; got non-zero"
+
+grep -qi "no specs/ folder" <<<"$t72_stderr" \
+  || fail "T72: expected WARN 'no specs/ folder' on stderr; got: $t72_stderr"
+
+# active_workflow must be cleared (slot not consumed).
+t72_active="$(jq -r '.active_workflow // "absent"' "$STATE_DIR/loop-status.json" 2>/dev/null || echo 'absent')"
+[[ "$t72_active" == "null" || "$t72_active" == "absent" ]] \
+  || fail "T72: active_workflow should be null/absent after spec-folder miss; got: $t72_active"
+
+# last_dispatch_issue must be stamped (active_workflow path ran) but no
+# po-agent subprocess was forked (DRY_DISPATCH ensures the fork never fires;
+# the gate fires before the type-routing / fork block).
+t72_ldi="$(jq -r '.last_dispatch_issue // empty' "$STATE_DIR/loop-status.json" 2>/dev/null || true)"
+[[ "$t72_ldi" == "700" ]] \
+  || fail "T72: expected last_dispatch_issue == 700; got: '$t72_ldi'"
+
+rm -rf "$T72_DIR"
+echo "  ✓ spec-folder miss: WARN emitted, active_workflow cleared, slot not consumed"
+
+# ---------------------------------------------------------------------------
+# T73: pre-dispatch spec-folder gate — hit path (#445)
+#   KEY resolves fine AND a matching specs/<KEY>-slug folder exists.
+#   Expected: gate is transparent — dispatch proceeds past the gate, no WARN.
+# ---------------------------------------------------------------------------
+echo "=== T73: pre-dispatch gate — hit: KEY derives OK and matching specs/ folder exists ==="
+T73_DIR="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-t73"
+T73_SPECS="$T73_DIR/specs"
+# Create a matching folder so the gate passes.
+mkdir -p "$T73_SPECS/t73-some-feature-abcdef"
+rm -f "$STATE_DIR/loop-status.json"
+
+t73_body="$T73_DIR/body.txt"
+printf '%s\n' '*Feature slug: `t73-some-feature` — produced by to-issues v3.x.*' >"$t73_body"
+
+t73_stderr="$(
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$t73_body" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  MAKATO_LOOP_DRY_DISPATCH=1 \
+  SPECS_DIR="$T73_SPECS" \
+    "$LOOP" dispatch 701 2>&1 >/dev/null
+)" || fail "T73: cmd_dispatch should return 0 when spec folder exists; got non-zero"
+
+# Gate must be silent on the hit path (no WARN about missing folder).
+if grep -qi "no specs/ folder" <<<"$t73_stderr"; then
+  fail "T73: WARN 'no specs/ folder' must NOT fire on the hit path; got: $t73_stderr"
+fi
+
+rm -rf "$T73_DIR"
+echo "  ✓ spec-folder hit: gate transparent, no WARN, dispatch proceeds normally"
+
+# ---------------------------------------------------------------------------
+# T74: pre-dispatch spec-folder gate — empty-key regression (#445)
+#   KEY derivation itself fails (empty body). The new gate must NOT fire
+#   (the "no specs/ folder" WARN must be absent); the pre-existing
+#   "could not derive KEY" WARN must still appear.
+# ---------------------------------------------------------------------------
+echo "=== T74: pre-dispatch gate — empty-key: gate skipped when derivation fails ==="
+T74_DIR="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-t74"
+T74_SPECS="$T74_DIR/specs"
+mkdir -p "$T74_SPECS"
+rm -f "$STATE_DIR/loop-status.json"
+
+t74_empty_body="$T74_DIR/empty-body.txt"
+printf '' >"$t74_empty_body"   # empty body → key derivation returns 1, key=""
+
+t74_stderr="$(
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$t74_empty_body" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  MAKATO_LOOP_DRY_DISPATCH=1 \
+  SPECS_DIR="$T74_SPECS" \
+    "$LOOP" dispatch 702 2>&1 >/dev/null
+)" || fail "T74: cmd_dispatch should return 0 even when key derivation fails; got non-zero"
+
+# New gate must NOT fire (key="" means the gate's `if [[ -n "$key" ]]` guard skips it).
+if grep -qi "no specs/ folder" <<<"$t74_stderr"; then
+  fail "T74: new gate WARN 'no specs/ folder' must not fire when key is empty; got: $t74_stderr"
+fi
+
+# Original "could not derive KEY" WARN must still appear.
+grep -qi "could not derive KEY" <<<"$t74_stderr" \
+  || fail "T74: expected original 'could not derive KEY' WARN; got: $t74_stderr"
+
+rm -rf "$T74_DIR"
+echo "  ✓ empty-key regression: new gate skipped, original WARN preserved"
+
 echo
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444) ==="
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T72–T74 pre-dispatch spec-folder gate, #445) ==="

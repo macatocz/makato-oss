@@ -1558,6 +1558,38 @@ _derive_key_for_issue() {
 }
 
 # ---------------------------------------------------------------------------
+# _spec_folder_for_key <KEY>
+#
+# Binary existence check: does any specs/<KEY>*/ folder exist under SPECS_DIR?
+# Returns 0 and prints the matching basename when a folder is found; returns 1
+# and prints nothing when no folder matches.
+#
+# Reuses the SPECS_DIR env override (line 239) as its offline test seam —
+# the same override used throughout loop.sh (e.g. in_flight_issues, _is_orphan_issue,
+# _auto_seed_reconcile_thin_body). To exercise the miss path in tests, point
+# SPECS_DIR at a temp directory that contains no folder starting with <KEY>.
+# To exercise the hit path, create a ${KEY}-slug subfolder there.
+#
+# Distinct from the multi-candidate disambiguation block inside
+# _derive_key_for_issue (lines 1536-1550): that block resolves among several
+# matching folders to break an epic-slug collision; this function answers the
+# binary question "does any folder for this KEY exist?" with a single find
+# and is intentionally simpler.
+# ---------------------------------------------------------------------------
+_spec_folder_for_key() {
+  local key="$1"
+  local spec_root="${SPECS_DIR:-${REPO_ROOT}/specs}"
+  local match
+  match="$(find "$spec_root" -maxdepth 1 -type d -name "${key}*" -print0 2>/dev/null \
+    | tr '\0' '\n' | head -1)"
+  if [[ -n "$match" ]]; then
+    printf '%s\n' "$(basename "$match")"
+    return 0
+  fi
+  return 1
+}
+
+# ---------------------------------------------------------------------------
 # _assign_issue <ISSUE_NUMBER> — assign the issue to the dispatch actor via
 # `gh issue edit --add-assignee`, firing the `issues.assigned` webhook that
 # `project-board-sync.yml` translates into a Ready → In progress board move
@@ -2937,6 +2969,32 @@ cmd_dispatch() {
   else
     key=""
     echo "loop: WARN — could not derive KEY for issue #${issue} (no to-issues provenance in body); po-agent will fail input validation" >&2
+  fi
+
+  # ---------------------------------------------------------------------------
+  # Pre-dispatch spec-folder gate (#445) — verify the derived KEY resolves to
+  # an actual specs/ folder BEFORE forking the po-agent subprocess. A
+  # truncated or mismatched KEY (e.g. a 40-char title-derived slug that cuts
+  # mid-word) produces a KEY that has no matching specs/<KEY>*/ folder; the
+  # po-agent would start, fail Step 1, and HALT-006 — wasting the dispatch
+  # slot. This gate catches the mismatch here and routes to auto-seed
+  # instead, consuming no dispatch slot.
+  #
+  # The gate fires only when key is non-empty (a failed derivation already
+  # logged the "could not derive KEY" WARN above and leaves key=""; the
+  # existing path for that case is unchanged).
+  #
+  # SPECS_DIR (line 239) is the offline test seam: point it at a temp dir to
+  # exercise the miss or hit path in smoke tests — the same override used by
+  # _spec_folder_for_key, in_flight_issues, _is_orphan_issue, and the
+  # auto-seed helpers throughout this file (see MAKATO_LOOP_GATE_LABELS_OVERRIDE
+  # for the analogous pattern in the dispatch gate block below).
+  # ---------------------------------------------------------------------------
+  if [[ -n "$key" && "$dry_run" != "--dry-run" && "${MAKATO_LOOP_DRY_DISPATCH:-0}" != "1" ]] && ! _spec_folder_for_key "$key" >/dev/null 2>&1; then
+    echo "loop: WARN — pre-dispatch: KEY '${key}' matches no specs/ folder for #${issue}; routing to auto-seed, slot not consumed" >&2
+    _auto_seed_unprepared "$issue" 2>/dev/null || true
+    _patch_status '.active_workflow' 'null'
+    return 0
   fi
 
   # Routing: issues labelled type:change are dispatched through the
