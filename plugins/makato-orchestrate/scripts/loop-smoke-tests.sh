@@ -295,9 +295,99 @@ echo "  ✓ transient-error state recorded; no false 'queue empty' idle"
 
 
 # ---------------------------------------------------------------------------
+# gh-REST-fallback (#447) — _gh_with_fallback / _gh_json_valid. Every critical
+# GitHub read (KEY derivation, dispatch gate, issue-type routing) now retries
+# the primary `gh` call, falls back to `gh api` REST, and treats jq-unparseable
+# output as a failure (not an empty result). Fully offline via
+# MAKATO_LOOP_FALLBACK_TEST_CMD (replaces BOTH primary + REST calls) +
+# MAKATO_LOOP_SLEEP_CMD=true (skip backoff waits). MAKATO_LOOP_FALLBACK_ATTEMPT
+# is 0 on the primary attempt, 1..N on the REST fallback attempts.
+# ---------------------------------------------------------------------------
+echo "=== T-fb-json: _gh_json_valid parses good JSON, rejects garbage ==="
+MAKATO_LOOP_TEST_HOOK=1 "$LOOP" _test-gh-json-valid '{"body":"x"}' \
+  || fail "T-fb-json: valid JSON object must return 0"
+if MAKATO_LOOP_TEST_HOOK=1 "$LOOP" _test-gh-json-valid '<html>429</html>' 2>/dev/null; then
+  fail "T-fb-json: unparseable garbage must return non-zero"
+fi
+if MAKATO_LOOP_TEST_HOOK=1 "$LOOP" _test-gh-json-valid '' 2>/dev/null; then
+  fail "T-fb-json: empty string must return non-zero"
+fi
+echo "  ✓ _gh_json_valid: object OK, HTML garbage + empty rejected"
+
+echo "=== T-fb-1: primary succeeds → REST path never called ==="
+# Primary (attempt 0) returns valid JSON; any fallback attempt would return
+# a sentinel we assert is ABSENT, proving the REST path was not taken.
+tfb1_cmd='if [ "$MAKATO_LOOP_FALLBACK_ATTEMPT" -eq 0 ]; then echo "{\"body\":\"primary\"}"; else echo "{\"body\":\"REST-SHOULD-NOT-APPEAR\"}"; fi'
+tfb1_out="$(MAKATO_LOOP_TEST_HOOK=1 MAKATO_LOOP_SLEEP_CMD=true MAKATO_LOOP_FALLBACK_TEST_CMD="$tfb1_cmd" \
+  "$LOOP" _test-gh-with-fallback "ctx" issue view 4 --json body 2>/dev/null)" \
+  || fail "T-fb-1: wrapper should return 0 when primary succeeds"
+jq -e '.body == "primary"' <<<"$tfb1_out" >/dev/null \
+  || fail "T-fb-1: must emit the primary payload; got: $tfb1_out"
+echo "  ✓ primary success returns payload; REST never invoked"
+
+echo "=== T-fb-2: primary non-zero exit → fallback succeeds on attempt 1 ==="
+tfb2_cmd='if [ "$MAKATO_LOOP_FALLBACK_ATTEMPT" -eq 0 ]; then exit 1; else echo "{\"body\":\"via-REST\"}"; fi'
+tfb2_out="$(MAKATO_LOOP_TEST_HOOK=1 MAKATO_LOOP_SLEEP_CMD=true MAKATO_LOOP_FALLBACK_TEST_CMD="$tfb2_cmd" \
+  "$LOOP" _test-gh-with-fallback "ctx" issue view 4 --json body 2>/dev/null)" \
+  || fail "T-fb-2: wrapper should return 0 when the REST fallback succeeds"
+jq -e '.body == "via-REST"' <<<"$tfb2_out" >/dev/null \
+  || fail "T-fb-2: must emit the REST fallback payload; got: $tfb2_out"
+echo "  ✓ primary exit-fail falls back to REST and returns payload"
+
+echo "=== T-fb-3: primary returns unparseable JSON → fallback succeeds ==="
+# Primary exits 0 but returns garbage (jq failure). The wrapper must NOT trust
+# it — it must fall back to REST. This is the AC-1 unparseable-JSON path.
+tfb3_cmd='if [ "$MAKATO_LOOP_FALLBACK_ATTEMPT" -eq 0 ]; then echo "<html>rate limited</html>"; else echo "{\"body\":\"recovered\"}"; fi'
+tfb3_out="$(MAKATO_LOOP_TEST_HOOK=1 MAKATO_LOOP_SLEEP_CMD=true MAKATO_LOOP_FALLBACK_TEST_CMD="$tfb3_cmd" \
+  "$LOOP" _test-gh-with-fallback "ctx" issue view 4 --json body 2>/dev/null)" \
+  || fail "T-fb-3: wrapper should return 0 after unparseable-JSON fallback"
+jq -e '.body == "recovered"' <<<"$tfb3_out" >/dev/null \
+  || fail "T-fb-3: unparseable primary must fall back to REST; got: $tfb3_out"
+echo "  ✓ unparseable primary JSON triggers REST fallback (AC-1)"
+
+echo "=== T-fb-4: primary + all fallback attempts fail → non-zero, empty stdout ==="
+tfb4_rc=0
+tfb4_out="$(MAKATO_LOOP_TEST_HOOK=1 MAKATO_LOOP_SLEEP_CMD=true MAKATO_LOOP_FALLBACK_TEST_CMD='exit 1' \
+  "$LOOP" _test-gh-with-fallback "ctx" issue view 4 --json body 2>/dev/null)" || tfb4_rc=$?
+[[ $tfb4_rc -ne 0 ]] || fail "T-fb-4: wrapper must return non-zero when every attempt fails"
+[[ -z "$tfb4_out" ]] || fail "T-fb-4: wrapper must emit NOTHING on stdout on exhaustion; got: $tfb4_out"
+echo "  ✓ exhaustion returns non-zero with empty stdout (no empty-result masking)"
+
+echo "=== T-fb-5: 429 on primary + REST attempt 1; attempt 2 succeeds; backoff logged ==="
+# Default FALLBACK_RETRIES=2: attempt 0 (primary) and attempt 1 fail, attempt 2
+# succeeds. The between-attempts WARN must name the backoff (AC-2 backoff path).
+tfb5_cmd='if [ "$MAKATO_LOOP_FALLBACK_ATTEMPT" -lt 2 ]; then exit 1; else echo "{\"body\":\"late-success\"}"; fi'
+tfb5_err="$STATE_DIR/tfb5.err"
+tfb5_out="$(MAKATO_LOOP_TEST_HOOK=1 MAKATO_LOOP_SLEEP_CMD=true MAKATO_LOOP_FALLBACK_TEST_CMD="$tfb5_cmd" \
+  "$LOOP" _test-gh-with-fallback "ctx" issue view 4 --json body 2>"$tfb5_err")" \
+  || fail "T-fb-5: wrapper should return 0 when a later REST attempt succeeds"
+jq -e '.body == "late-success"' <<<"$tfb5_out" >/dev/null \
+  || fail "T-fb-5: must emit the late-success payload; got: $tfb5_out"
+grep -q "REST fallback attempt 1/2 failed; retrying in" "$tfb5_err" \
+  || fail "T-fb-5: must log a backoff WARN between REST attempts; got: $(cat "$tfb5_err")"
+echo "  ✓ backoff between REST attempts logged; late success returned (AC-2)"
+
+
+# ---------------------------------------------------------------------------
 # Watchdog scenarios (#164). We spawn a genuinely-hung child via
 # MAKATO_LOOP_STALL_TEST_CMD="sleep <big>" and squeeze STALL_WARN/KILL to
 # small values so the tests run in single-digit seconds instead of minutes.
+#
+# #447: these tests dispatch bogus issue numbers (12001/13001/14001) that do
+# not exist, so the newly-wrapped KEY-derivation / routing / gate reads fail.
+# _gh_with_fallback then runs primary + 2 REST retries with 2s+4s backoff BEFORE
+# the watchdog child even spawns — enough to blow past T12's 6-second window.
+# The fix must PRESERVE the original routing (a failed KEY derivation → empty
+# KEY → po-agent path; empty labels → gate proceeds), so a body/type override
+# is WRONG: a valid KEY reroutes dispatch to the auto-seed path and the watchdog
+# child never spawns. Instead force the wrapper to fail instantly and offline:
+#   MAKATO_LOOP_FALLBACK_TEST_CMD='exit 1'  → every wrapped gh/REST attempt
+#       returns non-zero with NO `gh` subprocess (same failure the real offline
+#       `gh` produced pre-#447, but instant).
+#   MAKATO_LOOP_SLEEP_CMD=true              → collapse the inter-attempt backoff
+#       sleeps to nothing (same hook T39–T42 use); does not affect the watchdog,
+#       which drives its child via MAKATO_LOOP_STALL_TEST_CMD.
+# This exercises the WATCHDOG on the identical dispatch routing as before #447.
 # ---------------------------------------------------------------------------
 
 echo "=== T12: watchdog WARNs after STALL_WARN ==="
@@ -310,6 +400,10 @@ rm -f "$STATE_DIR/loop-status.json"
   export MAKATO_LOOP_STALL_KILL=15
   export MAKATO_LOOP_STALL_POLL=1
   export MAKATO_LOOP_STALL_TERM_GRACE=1
+  # #447: fail the wrapped critical reads instantly + offline so no REST backoff
+  # delays the child spawn, while keeping the original empty-KEY → po-agent path.
+  export MAKATO_LOOP_FALLBACK_TEST_CMD='exit 1'
+  export MAKATO_LOOP_SLEEP_CMD=true
   # Run dispatch in background so we can poll status while the child sleeps.
   "$LOOP" dispatch 12001 >/dev/null 2>&1 &
   dispatch_pid=$!
@@ -342,6 +436,8 @@ MAKATO_LOOP_STALL_WARN=1 \
 MAKATO_LOOP_STALL_KILL=2 \
 MAKATO_LOOP_STALL_POLL=1 \
 MAKATO_LOOP_STALL_TERM_GRACE=1 \
+MAKATO_LOOP_FALLBACK_TEST_CMD='exit 1' \
+MAKATO_LOOP_SLEEP_CMD=true \
   "$LOOP" dispatch 13001 >/dev/null 2>&1 || true
 jq -e '.last_watchdog_kill.issue == 13001' "$STATE_DIR/loop-status.json" >/dev/null \
   || fail "last_watchdog_kill.issue should be 13001"
@@ -363,6 +459,8 @@ MAKATO_LOOP_STALL_TEST_CMD="sleep 1" \
 MAKATO_LOOP_STALL_WARN=1 \
 MAKATO_LOOP_STALL_KILL=2 \
 MAKATO_LOOP_STALL_POLL=1 \
+MAKATO_LOOP_FALLBACK_TEST_CMD='exit 1' \
+MAKATO_LOOP_SLEEP_CMD=true \
   "$LOOP" dispatch 14001 >/dev/null 2>&1
 if [[ -e "$STATE_DIR/dispatch-14001.log" ]]; then
   fail "dispatch log should not exist when watchdog disabled"
@@ -3803,6 +3901,8 @@ MAKATO_LOOP_STALL_WARN=1 \
 MAKATO_LOOP_STALL_KILL=2 \
 MAKATO_LOOP_STALL_POLL=1 \
 MAKATO_LOOP_STALL_TERM_GRACE=1 \
+MAKATO_LOOP_FALLBACK_TEST_CMD='exit 1' \
+MAKATO_LOOP_SLEEP_CMD=true \
 SPECS_DIR="$T_S1A_SPECS" \
   "$LOOP" dispatch 44401 >/dev/null 2>&1 || true
 jq -e '.last_watchdog_kill.stall_cause == "transient"' "$STATE_DIR/loop-status.json" >/dev/null \
@@ -3825,6 +3925,8 @@ MAKATO_LOOP_STALL_WARN=1 \
 MAKATO_LOOP_STALL_KILL=2 \
 MAKATO_LOOP_STALL_POLL=1 \
 MAKATO_LOOP_STALL_TERM_GRACE=1 \
+MAKATO_LOOP_FALLBACK_TEST_CMD='exit 1' \
+MAKATO_LOOP_SLEEP_CMD=true \
 SPECS_DIR="$T_S2A_SPECS" \
   "$LOOP" dispatch 44402 >/dev/null 2>&1 || true
 jq -e '.last_watchdog_kill.stall_cause == "no_progress"' "$STATE_DIR/loop-status.json" >/dev/null \
@@ -3849,6 +3951,8 @@ MAKATO_LOOP_STALL_WARN=1 \
 MAKATO_LOOP_STALL_KILL=2 \
 MAKATO_LOOP_STALL_POLL=1 \
 MAKATO_LOOP_STALL_TERM_GRACE=1 \
+MAKATO_LOOP_FALLBACK_TEST_CMD='exit 1' \
+MAKATO_LOOP_SLEEP_CMD=true \
 SPECS_DIR="$T_S3A_SPECS" \
   "$LOOP" dispatch 44403 >/dev/null 2>&1 || true
 jq -e '.last_watchdog_kill.stall_cause == "halt_emitted"' "$STATE_DIR/loop-status.json" >/dev/null \
@@ -4104,4 +4208,4 @@ rm -rf "$T74_DIR"
 echo "  ✓ empty-key regression: new gate skipped, original WARN preserved"
 
 echo
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T72–T74 pre-dispatch spec-folder gate, #445) ==="
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T72–T74 pre-dispatch spec-folder gate, #445; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447) ==="

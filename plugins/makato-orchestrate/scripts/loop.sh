@@ -278,6 +278,31 @@ ASSIGNEE="${MAKATO_LOOP_ASSIGNEE:-@me}"
 #   MAKATO_LOOP_POLL_TEST_CMD      Tests only: command string eval'd in place of
 #                                  the real `gh` call, so smoke tests can simulate
 #                                  N failures then a success without a network hit.
+#
+# --- Critical-call REST fallback (#447) ---
+# Beyond the board poll, the other critical GitHub reads (KEY derivation's
+# `issue view --json body`/`title`, the dispatch-gate `issue view --json
+# labels,title`, and the issue-type routing `issue view --json labels`) went
+# straight through `gh` with `|| true`. An auth glitch, a CLI bug, or an
+# unparseable JSON body (a truncated write or an HTML error page) degraded
+# silently: `jq` failed and the result was indistinguishable from an empty
+# one, so the tick proceeded on bad data. `_gh_with_fallback` wraps those
+# reads — it retries the primary `gh` call, falls back to the REST `gh api`
+# equivalent, and treats jq-unparseable output as a failure (not an empty
+# result), so a broken read can never masquerade as "no provenance" / "no
+# labels". Non-critical best-effort calls (assign, label create, comment
+# post, board item-add) keep their fail-open `|| true` behaviour.
+#   MAKATO_LOOP_FALLBACK_RETRIES       REST fallback attempts after the primary
+#                                      fails (default 2; floored at 1).
+#   MAKATO_LOOP_FALLBACK_BACKOFF_BASE  Base seconds for exponential backoff
+#                                      between fallback attempts (default 2 →
+#                                      waits 2s, 4s, …). Reuses
+#                                      MAKATO_LOOP_SLEEP_CMD so tests stay offline.
+#   MAKATO_LOOP_FALLBACK_TEST_CMD      Tests only: command string eval'd in place
+#                                      of BOTH the primary and REST calls,
+#                                      receiving the attempt number via
+#                                      MAKATO_LOOP_FALLBACK_ATTEMPT (0 = primary,
+#                                      1..N = fallback attempts).
 
 # Synchronous board claim (#259 — cross-worktree double-dispatch). All three
 # single-thread guarantees are worktree-local: the run-mutex pidfile is
@@ -427,6 +452,18 @@ fi
 if [[ ! "$POLL_BACKOFF_BASE_SECS" =~ ^[0-9]+$ ]]; then
   POLL_BACKOFF_BASE_SECS=2
 fi
+# Critical-call REST fallback (#447) — see the doc block near ASSIGNEE above.
+FALLBACK_RETRIES="${MAKATO_LOOP_FALLBACK_RETRIES:-2}"
+FALLBACK_BACKOFF_BASE_SECS="${MAKATO_LOOP_FALLBACK_BACKOFF_BASE:-2}"
+# Same floor guards as POLL_RETRIES: a non-numeric or < 1 retry count would
+# skip the fallback loop entirely; a non-numeric backoff would break the
+# arithmetic in _gh_with_fallback.
+if [[ ! "$FALLBACK_RETRIES" =~ ^[0-9]+$ ]] || [[ "$FALLBACK_RETRIES" -lt 1 ]]; then
+  FALLBACK_RETRIES=1
+fi
+if [[ ! "$FALLBACK_BACKOFF_BASE_SECS" =~ ^[0-9]+$ ]]; then
+  FALLBACK_BACKOFF_BASE_SECS=2
+fi
 # Floor SLEEP_MAX_STEP_SECS at 1. Values ≤ 0 (whether accidentally
 # unset-then-defaulted, or explicitly overridden by an operator) would
 # make _guarded_sleep's inner cap `step=$SLEEP_MAX_STEP_SECS` deliver
@@ -570,6 +607,131 @@ _gh_project_item_list() {
       $sleep_cmd "$wait" 2>/dev/null || true
     else
       echo "loop: ERROR — board poll failed after $POLL_RETRIES attempts (gh exit $rc); NOT treating as empty queue (#289)" >&2
+    fi
+    attempt=$(( attempt + 1 ))
+  done
+  return 1
+}
+
+# ---------------------------------------------------------------------------
+# _gh_json_valid <json-string> (#447) — shared parseability predicate.
+# Returns 0 when the input parses as JSON (`jq -e .` succeeds), 1 otherwise.
+# _gh_with_fallback uses this to distinguish "got parseable JSON" from "got
+# garbage that happens not to be empty" — a malformed `gh` response (truncated
+# body, an HTML error page, a partial write) is NOT an empty result and must
+# trigger the REST fallback rather than be consumed as valid data.
+# Note: `jq -e .` on a JSON `null`/`false` returns non-zero by design; that is
+# acceptable here because every wrapped critical call returns an object.
+# ---------------------------------------------------------------------------
+_gh_json_valid() {
+  local json="$1"
+  [[ -n "$json" ]] || return 1
+  jq -e . >/dev/null 2>&1 <<<"$json"
+}
+
+# ---------------------------------------------------------------------------
+# _gh_with_fallback <context> <primary gh args...> -- <rest gh args...> (#447)
+# Bounded-retry wrapper with a `gh api` / REST fallback for the loop's CRITICAL
+# read paths (KEY derivation, dispatch-gate label fetch, issue-type routing).
+# Mirrors _gh_project_item_list's contract: prints the raw JSON payload to
+# stdout and returns 0 on success; on exhaustion prints NOTHING to stdout and
+# returns non-zero — callers MUST distinguish this from an empty-but-valid
+# result.
+#
+# Why this exists (#447): every GitHub call outside the board poll went straight
+# through `gh` with `|| true`, silently degrading on an auth glitch, a CLI bug,
+# or an unparseable JSON body. A malformed response made `jq` fail and was
+# indistinguishable from an empty result, so a broken KEY derivation or gate
+# read looked like "no provenance" / "no labels" and the tick proceeded on bad
+# data. This wrapper retries the primary `gh` path, then falls back to the REST
+# API, and treats jq-unparseable output as a failure (not an empty result).
+#
+# Argument split: everything before the literal `--` is the PRIMARY invocation
+# (`gh <primary…>`); everything after is the REST fallback (`gh <rest…>`, i.e.
+# `gh api …`). Callers pass the raw-JSON form of BOTH (no `--jq` filter) so
+# _gh_json_valid is meaningful and both paths return the same shape; the caller
+# applies its own `jq` extraction to the stdout payload. The `--` and REST
+# tail are optional — with no REST tail the fallback re-tries the primary args
+# (a bounded retry with no REST escalation).
+#
+# Retry budget: FALLBACK_RETRIES fallback attempts (default 2) after the primary
+# fails, backoff FALLBACK_BACKOFF_BASE_SECS * 2^(attempt-1) seconds between them,
+# using the same overridable MAKATO_LOOP_SLEEP_CMD as _gh_project_item_list so
+# smoke tests stay offline and fast.
+#
+# Test hook: MAKATO_LOOP_FALLBACK_TEST_CMD — when set, its value is eval'd in
+# place of BOTH the primary `gh` call and the REST `gh api` call, receiving the
+# current attempt number via MAKATO_LOOP_FALLBACK_ATTEMPT (0 = primary, 1..N =
+# fallback attempts). Lets the smoke suite simulate failure/success sequences
+# without a network hit.
+# ---------------------------------------------------------------------------
+_gh_with_fallback() {
+  local context="$1"; shift
+  local sleep_cmd="${MAKATO_LOOP_SLEEP_CMD:-sleep}"
+  local test_cmd="${MAKATO_LOOP_FALLBACK_TEST_CMD:-}"
+
+  # Split argv on the literal `--` into primary and REST arg vectors.
+  local -a primary_args=() rest_args=()
+  local seen_sep=0
+  local a
+  for a in "$@"; do
+    if [[ "$seen_sep" -eq 0 && "$a" == "--" ]]; then
+      seen_sep=1
+      continue
+    fi
+    if [[ "$seen_sep" -eq 0 ]]; then
+      primary_args+=("$a")
+    else
+      rest_args+=("$a")
+    fi
+  done
+  # No REST tail supplied → fall back to re-trying the primary args.
+  if [[ "${#rest_args[@]}" -eq 0 ]]; then
+    rest_args=("${primary_args[@]}")
+  fi
+
+  local out rc
+
+  # --- Primary attempt: `gh <primary_args>`. -----------------------------
+  rc=0
+  if [[ -n "$test_cmd" ]]; then
+    out="$(MAKATO_LOOP_FALLBACK_ATTEMPT=0 eval "$test_cmd" 2>/dev/null)" || rc=$?
+  else
+    out="$(gh "${primary_args[@]}" 2>/dev/null)" || rc=$?
+  fi
+  if [[ $rc -eq 0 ]] && _gh_json_valid "$out"; then
+    printf '%s' "$out"
+    return 0
+  fi
+
+  # Primary failed (non-zero exit) OR returned unparseable JSON. Both are
+  # equally "do not trust this payload" — fall back to REST.
+  local reason
+  if [[ $rc -ne 0 ]]; then
+    reason="gh exit $rc"
+  else
+    reason="unparseable JSON"
+  fi
+  echo "loop: WARN — ${context} primary gh failed (${reason}); using REST fallback (#447)" >&2
+
+  local attempt=1
+  while (( attempt <= FALLBACK_RETRIES )); do
+    rc=0
+    if [[ -n "$test_cmd" ]]; then
+      out="$(MAKATO_LOOP_FALLBACK_ATTEMPT="$attempt" eval "$test_cmd" 2>/dev/null)" || rc=$?
+    else
+      out="$(gh "${rest_args[@]}" 2>/dev/null)" || rc=$?
+    fi
+    if [[ $rc -eq 0 ]] && _gh_json_valid "$out"; then
+      printf '%s' "$out"
+      return 0
+    fi
+    if (( attempt < FALLBACK_RETRIES )); then
+      local wait=$(( FALLBACK_BACKOFF_BASE_SECS * (1 << (attempt - 1)) ))
+      echo "loop: WARN — ${context} REST fallback attempt ${attempt}/${FALLBACK_RETRIES} failed; retrying in ${wait}s (#447)" >&2
+      $sleep_cmd "$wait" 2>/dev/null || true
+    else
+      echo "loop: ERROR — ${context} failed after primary + ${FALLBACK_RETRIES} REST fallback attempts; NOT masking as empty result (#447)" >&2
     fi
     attempt=$(( attempt + 1 ))
   done
@@ -1470,11 +1632,30 @@ _derive_key_for_issue() {
   local -a repo_flag=()
   [[ -n "$repo" ]] && repo_flag=(--repo "$repo")
 
+  # REST endpoint for the #447 fallback. `gh api` expands the {owner}/{repo}
+  # placeholders from the current repo when no explicit repo is supplied.
+  local rest_issue_path
+  if [[ -n "$repo" ]]; then
+    rest_issue_path="repos/${repo}/issues/${issue}"
+  else
+    rest_issue_path="repos/{owner}/{repo}/issues/${issue}"
+  fi
+
   local body
   if [[ -n "${MAKATO_LOOP_ISSUE_BODY_OVERRIDE:-}" ]]; then
     body="$(cat "$MAKATO_LOOP_ISSUE_BODY_OVERRIDE" 2>/dev/null)" || return 1
   else
-    body="$(gh issue view "$issue" "${repo_flag[@]}" --json body --jq '.body' 2>/dev/null)" || return 1
+    # #447: wrap the body fetch with a REST fallback. The wrapper returns the
+    # raw `{ "body": … }` JSON (primary) or the full issue object (REST); both
+    # expose `.body`, so the extraction below is shape-agnostic. On wrapper
+    # exhaustion the function returns 1 exactly as the previous `|| return 1`.
+    local body_json
+    if ! body_json="$(_gh_with_fallback "KEY-derivation body #${issue}" \
+        issue view "$issue" "${repo_flag[@]}" --json body \
+        -- api "$rest_issue_path")"; then
+      return 1
+    fi
+    body="$(jq -r '.body // ""' <<<"$body_json" 2>/dev/null)" || return 1
   fi
   [[ -n "$body" ]] || return 1
 
@@ -1505,7 +1686,14 @@ _derive_key_for_issue() {
     if [[ -n "${MAKATO_LOOP_ISSUE_TITLE_OVERRIDE:-}" ]]; then
       title="$MAKATO_LOOP_ISSUE_TITLE_OVERRIDE"
     else
-      title="$(gh issue view "$issue" "${repo_flag[@]}" --json title --jq '.title' 2>/dev/null)" || true
+      # #447: REST fallback for the title fetch. Failure keeps the previous
+      # fail-open behaviour (title stays empty, KEY derivation returns 1 below).
+      local title_json
+      if title_json="$(_gh_with_fallback "KEY-derivation title #${issue}" \
+          issue view "$issue" "${repo_flag[@]}" --json title \
+          -- api "$rest_issue_path")"; then
+        title="$(jq -r '.title // ""' <<<"$title_json" 2>/dev/null || true)"
+      fi
     fi
     if [[ -n "$title" ]]; then
       # seed-issue normalization: lowercase, non-alnum → '-', collapse runs,
@@ -3006,9 +3194,28 @@ cmd_dispatch() {
   if [[ -n "${MAKATO_LOOP_ISSUE_TYPE_OVERRIDE:-}" ]]; then
     issue_type="$MAKATO_LOOP_ISSUE_TYPE_OVERRIDE"
   else
-    issue_type="$(gh issue view "$issue" --repo "${MAKATO_LOOP_DISPATCH_REPO:-}" \
-      --json labels \
-      --jq '[.labels[].name | select(startswith("type:"))] | first // ""' 2>/dev/null || true)"
+    # #447: REST fallback for the routing label fetch. `gh api …/issues/N` and
+    # `gh issue view --json labels` both expose `.labels[].name`, so the
+    # `type:`-prefix extraction below is shape-agnostic. On wrapper failure
+    # issue_type stays empty and dispatch continues to the default po-agent
+    # path (unchanged fail-open routing).
+    local _rt_repo="${MAKATO_LOOP_DISPATCH_REPO:-}"
+    local -a _rt_repo_flag=()
+    [[ -n "$_rt_repo" ]] && _rt_repo_flag=(--repo "$_rt_repo")
+    local _rt_rest_path
+    if [[ -n "$_rt_repo" ]]; then
+      _rt_rest_path="repos/${_rt_repo}/issues/${issue}"
+    else
+      _rt_rest_path="repos/{owner}/{repo}/issues/${issue}"
+    fi
+    local labels_json
+    if labels_json="$(_gh_with_fallback "issue-type routing #${issue}" \
+        issue view "$issue" "${_rt_repo_flag[@]}" --json labels \
+        -- api "$_rt_rest_path")"; then
+      issue_type="$(jq -r \
+        '[.labels[].name | select(startswith("type:"))] | first // ""' \
+        <<<"$labels_json" 2>/dev/null || true)"
+    fi
   fi
 
   if [[ "$dry_run" == "--dry-run" ]]; then
@@ -3049,8 +3256,22 @@ cmd_dispatch() {
         gate_labels_json=""
       fi
     else
-      if ! gate_labels_json="$(gh issue view "$issue" --repo "$repo" \
-          --json labels,title 2>/dev/null)"; then
+      # #447: REST fallback for the gate label+title fetch. `gh api …/issues/N`
+      # exposes `.labels[].name` and `.title` just like `gh issue view
+      # --json labels,title`, so the downstream veto/tier-4 consumers are
+      # shape-agnostic. On wrapper failure gate_labels_json stays empty and the
+      # gate proceeds (unchanged best-effort WARN+proceed behaviour).
+      local gate_rest_path
+      if [[ -n "$repo" ]]; then
+        gate_rest_path="repos/${repo}/issues/${issue}"
+      else
+        gate_rest_path="repos/{owner}/{repo}/issues/${issue}"
+      fi
+      local -a gate_repo_flag=()
+      [[ -n "$repo" ]] && gate_repo_flag=(--repo "$repo")
+      if ! gate_labels_json="$(_gh_with_fallback "gate labels #${issue}" \
+          issue view "$issue" "${gate_repo_flag[@]}" --json labels,title \
+          -- api "$gate_rest_path")"; then
         echo "loop: WARN — gate: could not fetch labels for #${issue}; proceeding" >&2
         gate_labels_json=""
       fi
@@ -4040,6 +4261,15 @@ if [[ "$SUBCMD" == _test-* ]]; then
   case "$SUBCMD" in
     _test-guarded-sleep) _guarded_sleep "$@" ;;
     _test-gh-item-list) _gh_project_item_list "$@" ;;
+    # _test-gh-with-fallback <context> <args...> — exercise _gh_with_fallback
+    # deterministically via MAKATO_LOOP_FALLBACK_TEST_CMD (+ MAKATO_LOOP_SLEEP_CMD
+    # to skip backoff waits). Prints the payload to stdout / returns the wrapper's
+    # exit code so the smoke suite can assert success, exhaustion, and backoff.
+    # (#447).
+    _test-gh-with-fallback) _gh_with_fallback "$@" ;;
+    # _test-gh-json-valid <json> — exercise _gh_json_valid directly; exits 0 on
+    # parseable JSON, 1 otherwise. (#447).
+    _test-gh-json-valid) _gh_json_valid "$@" ;;
     # _test-auto-seed-candidates — exercise _auto_seed_candidates deterministically
     # using MAKATO_LOOP_AUTOSEED_OVERRIDE fixture. Returns JSON array to stdout.
     # (#369, epic #367 S1).

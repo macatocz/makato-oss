@@ -5,6 +5,33 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+- **Added** `loop` — `gh` CLI → REST fallback for the critical loop calls (#447, part of #443).
+  Every GitHub read outside the board poll (`_gh_project_item_list`) previously went straight
+  through `gh` with `|| true`, so an auth glitch, a CLI bug, or an unparseable JSON body
+  degraded silently — `jq` failed and the result was indistinguishable from an empty one, so
+  a broken KEY derivation or gate read looked like "no provenance" / "no labels" and the tick
+  proceeded on bad data.
+  - **`scripts/loop.sh`**: new `_gh_with_fallback <context> <primary args> -- <rest args>` wrapper
+    (mirrors `_gh_project_item_list`'s contract) that retries the primary `gh` call, falls back to
+    the REST `gh api` equivalent with bounded exponential backoff, and — via the new `_gh_json_valid`
+    predicate — treats jq-unparseable output as a failure, never masking it as an empty result. On
+    exhaustion it prints nothing and returns non-zero so callers distinguish it from an empty payload.
+  - Wired into the four critical read sites: `_derive_key_for_issue`'s body + title fetch, the
+    dispatch-gate `labels,title` fetch, and the issue-type routing `labels` fetch. Non-critical
+    best-effort calls (assign, label create, comment post, board item-add) keep their fail-open
+    `|| true` behaviour — no over-engineering.
+  - Two new env overrides, floor-guarded and documented in the `loop.sh` header like `POLL_RETRIES`:
+    `MAKATO_LOOP_FALLBACK_RETRIES` (default 2) and `MAKATO_LOOP_FALLBACK_BACKOFF_BASE` (default 2s).
+  - **`scripts/loop-smoke-tests.sh`**: new **T-fb-json** + **T-fb-1–T-fb-5** — primary-success (REST
+    never called), primary-exit-fail → REST success, unparseable-JSON → REST success, all-attempts
+    exhausted → non-zero + empty stdout, and 429 → backoff-then-late-success. Fully offline via
+    `MAKATO_LOOP_FALLBACK_TEST_CMD` + `MAKATO_LOOP_SLEEP_CMD=true`. Also hardened the pre-existing
+    watchdog (T12–T14) and stall-cause (T-STALL-1a/2a/3a) tests, which dispatch bogus offline issue
+    numbers: they now set `MAKATO_LOOP_FALLBACK_TEST_CMD='exit 1'` + `MAKATO_LOOP_SLEEP_CMD=true` so
+    the newly-wrapped KEY-derivation / routing / gate reads fail instantly and offline (preserving the
+    original empty-KEY → po-agent routing) instead of incurring real REST-fallback backoff before the
+    watchdog child spawns — that latency was pushing T12 past its 6-second observation window.
+
 - **Changed** `config/skill-bundles.yml` (#430) — `promote-ready` appended to both the
   `orchestrate-skills` bundle (after `archive-spec`) and the `orchestrate-shared` bundle
   (after `kill-switch`), so edits to orchestrate skill files and shared/scripts/hooks bash
