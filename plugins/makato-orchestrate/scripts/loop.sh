@@ -4057,6 +4057,36 @@ _log_reshape_result() {
 }
 
 # ---------------------------------------------------------------------------
+# _emit_run_report <issue…> (#448) — at end-of-run, aggregate the terminal
+# state of each dispatched issue into a single durable run report by delegating
+# to scripts/generate-run-report.sh (read-only over the per-issue
+# workflow-state-<issue>.json files). Prints the report path to stderr and
+# records it in loop-status.json under `.last_run_report`. Skips silently when
+# no issues were dispatched (an idle run has nothing to report). Best-effort:
+# a report-generation failure logs a WARN and never changes cmd_run's exit
+# status — reporting is additive and must not break the loop.
+# ---------------------------------------------------------------------------
+_emit_run_report() {
+  local -a issues=("$@")
+  [[ "${#issues[@]}" -gt 0 ]] || return 0
+  local report_script="$REPO_ROOT/plugins/makato-orchestrate/scripts/generate-run-report.sh"
+  if [[ ! -x "$report_script" ]]; then
+    echo "loop: WARN — run-report script not found/executable at $report_script; skipping report (#448)" >&2
+    return 0
+  fi
+  local report_path
+  # Forward SPECS_DIR / STATE_DIR via the report script's own env hooks so a
+  # test-overridden loop and its report share one specs/ + state/ location.
+  if report_path="$(MAKATO_REPORT_SPECS_DIR="$SPECS_DIR" MAKATO_LOOP_STATE_DIR="$STATE_DIR" \
+      "$report_script" --issues "${issues[*]}" 2>/dev/null)"; then
+    echo "loop: run report written → $report_path (#448)" >&2
+    _patch_status '.last_run_report' "\"$report_path\""
+  else
+    echo "loop: WARN — run-report generation failed for issues '${issues[*]}'; continuing (#448)" >&2
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # run — long-running poll loop. CLI flags override env defaults.
 # ---------------------------------------------------------------------------
 cmd_run() {
@@ -4065,6 +4095,10 @@ cmd_run() {
   local dry_run=""
   local once=""
   local force=""
+  # #448 — accumulate the issue numbers dispatched in this run so the
+  # end-of-run report can aggregate each one's terminal state. Populated only
+  # on a real (non-dry-run) dispatch below.
+  local -a dispatched_issues=()
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -4109,6 +4143,9 @@ cmd_run() {
   while true; do
     if ! cmd_check_halt; then
       _patch_status '.last_halt_at' "\"$(_now)\""
+      # #448 — bash-3.2-safe empty-array expansion (set -u would abort on a
+      # bare "${arr[@]}" when empty). _emit_run_report no-ops on empty input.
+      _emit_run_report "${dispatched_issues[@]+"${dispatched_issues[@]}"}"
       return 0
     fi
 
@@ -4177,6 +4214,7 @@ cmd_run() {
         '. + {last_poll_error: $ts, poll_healthy: false}' \
         <<<"$(_read_status)")"
       if [[ -n "$once" ]]; then
+        _emit_run_report "${dispatched_issues[@]+"${dispatched_issues[@]}"}"
         return 0
       fi
       _guarded_sleep "$err_backoff"
@@ -4219,11 +4257,17 @@ cmd_run() {
       # workflow-state.json; the loop's job is to surface the next issue,
       # not to second-guess the orchestrator's terminal state.
       MAKATO_LOOP_DISPATCH_REPO="$next_repo" cmd_dispatch "$next_issue" "$dry_run" || true
+      # #448 — record this issue for the end-of-run report. Dry-run dispatches
+      # never touch workflow-state, so they are excluded (nothing to aggregate).
+      if [[ -z "$dry_run" ]]; then
+        dispatched_issues+=("$next_issue")
+      fi
     else
       echo "loop: queue empty or fully in-flight (depth=$queue_depth) — idle" >&2
     fi
 
     if [[ -n "$once" ]]; then
+      _emit_run_report "${dispatched_issues[@]+"${dispatched_issues[@]}"}"
       return 0
     fi
 

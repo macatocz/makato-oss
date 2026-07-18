@@ -5,6 +5,29 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+- **Added** `loop` — per-issue final-envelope aggregation into a run report (#448, part of #443).
+  The loop dispatches issues serially and deliberately discards each PO-agent exit code, so an
+  overnight multi-issue run left no single "N issues → N verdicts" summary; operators had to
+  hand-reconstruct what shipped vs what escalated from N separate `workflow-state-<issue>.json`
+  files.
+  - **`scripts/generate-run-report.sh`** — new read-only script. Accepts issue numbers (positional
+    or via `--issues "<n> <n>"`), locates each `specs/*/workflow-state-<issue>.json`, and derives a
+    verdict per issue: `merged` (positive `github_pr_number`), `halted` (last `halt_audit` entry,
+    carrying its machine-readable `code` + `origin`), or `unknown` (missing/incomplete state — never
+    an error). Emits `.claude/state/run-report-<run_id>.json` (atomic write; `run_id` defaults to a
+    UTC slug, overridable with `--run-id`). Prints the report path to stdout, a one-line summary to
+    stderr. Never writes `workflow-state.json` or `orchestrate.jsonl` — it is a derived artefact, not
+    a second source of truth.
+  - **`scripts/loop.sh`**: `cmd_run` accumulates the dispatched issue numbers (real dispatches only,
+    not `--dry-run`) and calls the report script at every end-of-run boundary (HALT, `--once`,
+    poll-fail-`--once`) via the new best-effort `_emit_run_report` helper — prints the report path to
+    stderr and records it in `loop-status.json` under `.last_run_report`. Skips silently on an idle
+    run. bash-3.2-safe empty-array expansion at the call sites; a report failure never changes the
+    loop's exit status.
+  - **`scripts/generate-run-report-smoke-tests.sh`**: new **T1–T8** — mixed merged+halted batch,
+    halt-origin propagation, empty list, missing-state → unknown, multi-entry halt_audit (last wins),
+    legacy no-origin entry, read-only contract (no fixture mutation / no orchestrate.jsonl), and
+    `--run-id` override. Fully offline via synthetic fixtures under `MAKATO_REPORT_SPECS_DIR`.
 - **Added** `loop` — `gh` CLI → REST fallback for the critical loop calls (#447, part of #443).
   Every GitHub read outside the board poll (`_gh_project_item_list`) previously went straight
   through `gh` with `|| true`, so an auth glitch, a CLI bug, or an unparseable JSON body
