@@ -55,6 +55,11 @@
 #   MAKATO_LOOP_INTERVAL       Poll interval in seconds (default 300).
 #   MAKATO_LOOP_STATUS         Default Status name override
 #                              (CLI flag wins). Default: "Ready".
+#   MAKATO_LOOP_DISPATCH_REPO  Target repo in owner/repo form. Required
+#                              for all dispatch operations. Set by
+#                              cmd_run from the board-poll item; must be
+#                              set explicitly (or via --repo flag) when
+#                              calling `dispatch` directly.
 #   MAKATO_LOOP_CONFIG         Override path to .claude/config.json
 #                              (tests only).
 #   MAKATO_CLAUDE_BIN          Path to claude binary (default: `claude`).
@@ -3103,11 +3108,31 @@ cmd_remove_worktrees() {
 }
 
 # ---------------------------------------------------------------------------
-# dispatch <ISSUE_NUMBER> [--dry-run]
+# dispatch <ISSUE_NUMBER> [--repo owner/repo] [--dry-run]
+#
+# --repo sets MAKATO_LOOP_DISPATCH_REPO for this call, overriding any
+# ambient env value. Required when invoking dispatch directly (outside
+# cmd_run's board poll, which sets the env var itself).
 # ---------------------------------------------------------------------------
 cmd_dispatch() {
   local issue="${1:?issue number required}"
-  local dry_run="${2:-}"
+  shift
+  local dry_run=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --repo)    MAKATO_LOOP_DISPATCH_REPO="${2:?--repo requires owner/repo}"; shift 2 ;;
+      --dry-run) dry_run="--dry-run"; shift ;;
+      *) echo "loop: dispatch: unknown flag: $1" >&2; return 64 ;;
+    esac
+  done
+
+  # Require an explicit repo when dispatching directly — ambient git remote
+  # is the makato repo, not the target, and a silent wrong-repo gh call is
+  # harder to debug than an early failure here.
+  if [[ -z "${MAKATO_LOOP_DISPATCH_REPO:-}" ]]; then
+    echo "loop: dispatch: REPO is required — set MAKATO_LOOP_DISPATCH_REPO or pass --repo owner/repo" >&2
+    return 1
+  fi
 
   # #171 idempotent-dispatch guard — silent no-op (exit 0) when the same
   # issue is already in flight or was just dispatched within the guard
@@ -4256,7 +4281,7 @@ cmd_run() {
       # the PO-agent's exit code — it writes its own HALT audit to
       # workflow-state.json; the loop's job is to surface the next issue,
       # not to second-guess the orchestrator's terminal state.
-      MAKATO_LOOP_DISPATCH_REPO="$next_repo" cmd_dispatch "$next_issue" "$dry_run" || true
+      MAKATO_LOOP_DISPATCH_REPO="$next_repo" cmd_dispatch "$next_issue" ${dry_run:+"$dry_run"} || true
       # #448 — record this issue for the end-of-run report. Dry-run dispatches
       # never touch workflow-state, so they are excluded (nothing to aggregate).
       if [[ -z "$dry_run" ]]; then

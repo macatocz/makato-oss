@@ -130,7 +130,7 @@ rm -f "$HALT_FILE"
 # ---------------------------------------------------------------------------
 echo "=== T3: dispatch --dry-run mutates and clears active_workflow ==="
 rm -f "$STATE_DIR/loop-status.json"
-"$LOOP" dispatch 999 --dry-run >/dev/null
+MAKATO_LOOP_DISPATCH_REPO="test-owner/test-repo" "$LOOP" dispatch 999 --dry-run >/dev/null
 jq -e '.active_workflow == null' "$STATE_DIR/loop-status.json" >/dev/null \
   || fail "active_workflow not cleared after --dry-run"
 echo "  ✓ active_workflow null after --dry-run"
@@ -140,11 +140,25 @@ echo "=== T4: dispatch refuses while active_workflow set ==="
 jq -n '{active_workflow: {issue: 42, started_at: "2026-06-28T00:00:00.000Z"}}' \
   >"$STATE_DIR/loop-status.json"
 rc=0
-"$LOOP" dispatch 999 --dry-run 2>/dev/null || rc=$?
+MAKATO_LOOP_DISPATCH_REPO="test-owner/test-repo" "$LOOP" dispatch 999 --dry-run 2>/dev/null || rc=$?
 if [[ $rc -ne 2 ]]; then
   fail "expected exit 2 when active_workflow=42 != 999; got $rc"
 fi
 echo "  ✓ refused with exit 2"
+rm -f "$STATE_DIR/loop-status.json"
+
+# ---------------------------------------------------------------------------
+echo "=== T4b: dispatch without REPO fails with clear error ==="
+rm -f "$STATE_DIR/loop-status.json"
+t4b_rc=0
+t4b_err="$(MAKATO_LOOP_DISPATCH_REPO="" "$LOOP" dispatch 999 --dry-run 2>&1)" || t4b_rc=$?
+if [[ $t4b_rc -ne 1 ]]; then
+  fail "T4b: expected exit 1 when REPO is empty; got $t4b_rc"
+fi
+if [[ "$t4b_err" != *"REPO is required"* ]]; then
+  fail "T4b: expected 'REPO is required' in stderr; got: $t4b_err"
+fi
+echo "  ✓ exit 1 with REPO-required message"
 rm -f "$STATE_DIR/loop-status.json"
 
 # ---------------------------------------------------------------------------
@@ -404,6 +418,9 @@ rm -f "$STATE_DIR/loop-status.json"
   # delays the child spawn, while keeping the original empty-KEY → po-agent path.
   export MAKATO_LOOP_FALLBACK_TEST_CMD='exit 1'
   export MAKATO_LOOP_SLEEP_CMD=true
+  # dispatch now requires an explicit target repo (early-exit REPO validation);
+  # set it so the watchdog child spawns instead of the dispatch bailing early.
+  export MAKATO_LOOP_DISPATCH_REPO="macatocz/makato"
   # Run dispatch in background so we can poll status while the child sleeps.
   "$LOOP" dispatch 12001 >/dev/null 2>&1 &
   dispatch_pid=$!
@@ -438,6 +455,7 @@ MAKATO_LOOP_STALL_POLL=1 \
 MAKATO_LOOP_STALL_TERM_GRACE=1 \
 MAKATO_LOOP_FALLBACK_TEST_CMD='exit 1' \
 MAKATO_LOOP_SLEEP_CMD=true \
+MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
   "$LOOP" dispatch 13001 >/dev/null 2>&1 || true
 jq -e '.last_watchdog_kill.issue == 13001' "$STATE_DIR/loop-status.json" >/dev/null \
   || fail "last_watchdog_kill.issue should be 13001"
@@ -461,6 +479,7 @@ MAKATO_LOOP_STALL_KILL=2 \
 MAKATO_LOOP_STALL_POLL=1 \
 MAKATO_LOOP_FALLBACK_TEST_CMD='exit 1' \
 MAKATO_LOOP_SLEEP_CMD=true \
+MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
   "$LOOP" dispatch 14001 >/dev/null 2>&1
 if [[ -e "$STATE_DIR/dispatch-14001.log" ]]; then
   fail "dispatch log should not exist when watchdog disabled"
@@ -602,6 +621,7 @@ jq -n --arg ts "$fresh_started_at" \
   >"$STATE_DIR/loop-status.json"
 rc=0
 MAKATO_LOOP_MIN_DISPATCH_GAP=30 MAKATO_LOOP_DRY_DISPATCH=1 \
+MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
   "$LOOP" dispatch 200 2>/dev/null || rc=$?
 if [[ $rc -ne 0 ]]; then
   fail "expected exit 0 when guard refuses same-issue re-dispatch; got $rc"
@@ -629,6 +649,7 @@ jq -n --arg ts "$stale_active_started_at" \
   '{active_workflow: {issue: 200, started_at: $ts, stalled: false, stalled_since: null, killed_by_watchdog: false}}' \
   >"$STATE_DIR/loop-status.json"
 MAKATO_LOOP_MIN_DISPATCH_GAP=30 MAKATO_LOOP_LAST_DISPATCH_GAP=1 MAKATO_LOOP_DRY_DISPATCH=1 \
+MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
   "$LOOP" dispatch 200 >/dev/null 2>&1 \
   || fail "expected exit 0 when guard releases on stale active_workflow.started_at"
 # .last_dispatch_issue must be stamped by the real dispatch path (not the guard-skip path)
@@ -646,6 +667,7 @@ jq -n --arg ts "$stale_ts_2s_ago" \
   '{last_dispatch_at: $ts, last_dispatch_issue: 999}' \
   >"$STATE_DIR/loop-status.json"
 MAKATO_LOOP_LAST_DISPATCH_GAP=1 MAKATO_LOOP_DRY_DISPATCH=1 \
+MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
   "$LOOP" dispatch 200 >/dev/null 2>&1 \
   || fail "expected exit 0 when guard releases on stale .last_dispatch_at"
 if [[ "$(jq -r '.last_dispatch_issue' "$STATE_DIR/loop-status.json")" != "200" ]]; then
@@ -664,6 +686,7 @@ jq -n --arg ts "$stale_ts_2s_ago" \
 # "now").
 observed_ts_before="$(jq -r '.last_dispatch_at' "$STATE_DIR/loop-status.json")"
 MAKATO_LOOP_LAST_DISPATCH_GAP=60 MAKATO_LOOP_DRY_DISPATCH=1 \
+MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
   "$LOOP" dispatch 200 >/dev/null 2>&1 \
   || fail "expected exit 0 when guard refuses (silent no-op)"
 observed_ts_after="$(jq -r '.last_dispatch_at' "$STATE_DIR/loop-status.json")"
@@ -766,6 +789,7 @@ echo "  ✓ issue assigned on dispatch (assignee=@me, repo threaded through)"
 # Sub-assertion — --dry-run (inspection mode) must NOT assign.
 rm -f "$STATE_DIR/loop-status.json" "$assign_log"
 MAKATO_LOOP_ASSIGN_TEST_FILE="$assign_log" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
   "$LOOP" dispatch 12345 --dry-run >/dev/null 2>&1 \
   || fail "dispatch --dry-run should exit 0"
 [[ ! -f "$assign_log" ]] \
@@ -3904,6 +3928,7 @@ MAKATO_LOOP_STALL_TERM_GRACE=1 \
 MAKATO_LOOP_FALLBACK_TEST_CMD='exit 1' \
 MAKATO_LOOP_SLEEP_CMD=true \
 SPECS_DIR="$T_S1A_SPECS" \
+MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
   "$LOOP" dispatch 44401 >/dev/null 2>&1 || true
 jq -e '.last_watchdog_kill.stall_cause == "transient"' "$STATE_DIR/loop-status.json" >/dev/null \
   || fail "T-STALL-1a: stall_cause should be transient; got: $(jq -r '.last_watchdog_kill.stall_cause // "null"' "$STATE_DIR/loop-status.json" 2>/dev/null)"
@@ -3928,6 +3953,7 @@ MAKATO_LOOP_STALL_TERM_GRACE=1 \
 MAKATO_LOOP_FALLBACK_TEST_CMD='exit 1' \
 MAKATO_LOOP_SLEEP_CMD=true \
 SPECS_DIR="$T_S2A_SPECS" \
+MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
   "$LOOP" dispatch 44402 >/dev/null 2>&1 || true
 jq -e '.last_watchdog_kill.stall_cause == "no_progress"' "$STATE_DIR/loop-status.json" >/dev/null \
   || fail "T-STALL-2a: stall_cause should be no_progress; got: $(jq -r '.last_watchdog_kill.stall_cause // "null"' "$STATE_DIR/loop-status.json" 2>/dev/null)"
@@ -3954,6 +3980,7 @@ MAKATO_LOOP_STALL_TERM_GRACE=1 \
 MAKATO_LOOP_FALLBACK_TEST_CMD='exit 1' \
 MAKATO_LOOP_SLEEP_CMD=true \
 SPECS_DIR="$T_S3A_SPECS" \
+MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
   "$LOOP" dispatch 44403 >/dev/null 2>&1 || true
 jq -e '.last_watchdog_kill.stall_cause == "halt_emitted"' "$STATE_DIR/loop-status.json" >/dev/null \
   || fail "T-STALL-3a: stall_cause should be halt_emitted; got: $(jq -r '.last_watchdog_kill.stall_cause // "null"' "$STATE_DIR/loop-status.json" 2>/dev/null)"
