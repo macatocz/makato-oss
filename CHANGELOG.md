@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.87.0](https://github.com/macatocz/makato/compare/v0.86.0...v0.87.0) (2026-07-18)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** per-issue final-envelope aggregation into a run report ([#459](https://github.com/macatocz/makato/issues/459)) ([b4cba9a](https://github.com/macatocz/makato/commit/b4cba9a204b73e77394498dd8d95f19d6774d557)), closes [#448](https://github.com/macatocz/makato/issues/448)
+
 ## [0.86.0](https://github.com/macatocz/makato/compare/v0.85.0...v0.86.0) (2026-07-18)
 
 
