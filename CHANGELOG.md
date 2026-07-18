@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.86.0](https://github.com/macatocz/makato/compare/v0.85.0...v0.86.0) (2026-07-18)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** gh CLI to REST fallback for critical loop calls ([#458](https://github.com/macatocz/makato/issues/458)) ([e3a0900](https://github.com/macatocz/makato/commit/e3a0900aee84803a2e294623511f14ae97e7dc44)), closes [#447](https://github.com/macatocz/makato/issues/447)
+
 ## [0.85.0](https://github.com/macatocz/makato/compare/v0.84.0...v0.85.0) (2026-07-17)
 
 
