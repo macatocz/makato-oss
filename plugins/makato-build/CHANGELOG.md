@@ -5,6 +5,33 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## `gate-scout` + `build-verify` + `.pre-commit-config.yaml` — Gates 1/2 run CI hook, not raw tool (#450)
+
+Gates 1 and 2 in `build-verify` ran raw tool invocations (`uv run pyright`, `uv run ruff check .`) instead of the CI pre-commit hook, producing false-negative passes when the hook environment differed from the raw-tool environment (e.g. pyright reported 0 errors via `uvx` in a fresh env while CI reported 10 real errors on the same tree).
+
+**`agents/gate-scout.md`** (v1.1.0 → **v1.2.0**):
+
+- **Step 1d — pre-commit hook probe.** When `REPO_ROOT/.pre-commit-config.yaml` exists, parses it (YAML read, no shell execution) and extracts hook IDs for type-check tools (`pyright`, `mypy`) and lint tools (`ruff`, `flake8`, `pylint`). Constructs `pre-commit run --hook-stage manual <hook-id> --all-files` for each matched hook.
+- **New R1 `data` fields** (additive — all existing fields preserved):
+  - `build_hook_cmd` (string|null) — `pre-commit run --hook-stage manual pyright --all-files` or `null`
+  - `lint_hook_cmd` (string|null) — `pre-commit run --hook-stage manual ruff --all-files` or `null`
+  - `pyright_env` — `"hook"` when `build_hook_cmd` is non-null; `"raw"` otherwise
+  - `build_hook_missing` (boolean) — `true` when no type-check hook found
+  - `lint_hook_missing` (boolean) — `true` when no lint hook found
+- **Deprecation note** on `lint_ci_command`: renamed to `lint_hook_cmd` for consumers; `lint_ci_command` preserved for backward compatibility and will be removed in the next major version.
+
+**`skills/build-verify/SKILL.md`** (v1.7.0 → **v1.8.0**):
+
+- **Gate 1 (Step 4)**: sources command from `gate-scout.data.build_hook_cmd` (hook path) instead of `data.build`. Three fallback paths: (a) hook cmd non-null → use it, log `gate_command_source: "hook"`, (b) null + `build_hook_missing: true` → WARN + skip, (c) null + no `build_hook_missing` → fallback to `data.build` with WARN. Pre-flight no-hooks-matched guard: empty stdout + exit 0 → `skipped`, not `passed`. Error-count parsing: `(\d+) errors?` from stdout; gate passes when exit 0 AND parsed errors == 0; warnings don't block. Log entries extended with `gate_command_source`, `parsed_errors`, `parsed_warnings`.
+- **Gate 2 (Step 5)**: symmetric changes using `lint_hook_cmd`. When hook cmd is non-null, bypasses the `lint_ci_divergence` double-run check (hook path IS the CI path) with informational note. Ruff error-count parsed via `Found (\d+) errors?`.
+
+**`.pre-commit-config.yaml`**:
+
+- `pyright` hook: added `manual` to `stages` (`[pre-push]` → `[pre-push, manual]`).
+- `ruff` and `ruff-format` hooks: added explicit `stages: [pre-commit, manual]` (previously inherited `default_stages: [pre-commit]`). Without `manual` stage, `pre-commit run --hook-stage manual` exits 0 with no output — the exact silent-skip false-negative the pre-flight guard detects.
+
+---
+
 ## `parse-sarif.py` + `finding-routes.json` — biome "files were modified" autofix signal
 
 When a `biome check` pre-commit hook runs in `--write` mode it rewrites files and pre-commit exits non-zero with only `- files were modified by this hook` — no `path:line:` diagnostic rows. Two gaps meant this never reached makato's deterministic autofix: (1) `parse-sarif.py` extracted **zero findings** from that output (the modification line was not a recognised signal, and the hook header `biome check` — with a space — failed the strict lower-case hook-id regex, so diagnostics stayed attributed to the generic `pre-commit` tool); (2) even with a finding, no autofix route existed for it. Result: the hook's own fix was left unstaged and CI stayed red.

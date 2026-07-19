@@ -6,7 +6,7 @@ description: >-
   separately so failures are attributable. Fixable failures are
   fixed and gates re-run; structural failures escalate to refine.
   Autonomous. Use after review, before push-to-git.
-version: "1.7.0"
+version: "1.8.0"
 argument-hint: "[work-item-key]"
 ---
 
@@ -126,7 +126,39 @@ On residual: continue but log to specs/<key>/build.jsonl as `gate-0-residual` an
 
 Run the project's build command (compile / type-check).
 
-Gate passes when: zero errors. Warnings are noted in the log but do not fail the gate.
+**Command selection — three paths:**
+
+1. **Hook path** — `gate-scout.data.build_hook_cmd` is non-null: use it as the Gate 1
+   command. Log `data.gate_command_source: "hook"`. This is the authoritative CI-parity path.
+
+2. **Missing-hook path** — `build_hook_cmd` is null and `gate-scout.data.build_hook_missing`
+   is `true`: emit WARN `"Gate 1: no type-check pre-commit hook found — skipping BUILD gate
+   (no authoritative command)"`. Record gate as `skipped` (not `pass`). Log
+   `data.gate_command_source: "none"`. Do not fall back to a raw tool invocation.
+
+3. **Legacy fallback path** — `build_hook_cmd` is null and `build_hook_missing` is absent or
+   false (gate-scout pre-dates hook probing): fall back to `gate-scout.data.build` with WARN
+   `"Gate 1: gate-scout pre-dates hook probing — falling back to raw tool (non-authoritative)"`.
+   Log `data.gate_command_source: "raw"`.
+
+**Pre-flight no-hooks-matched guard:**
+
+Before recording a pass, detect the silent-skip case: `pre-commit run --hook-stage manual`
+exits 0 with no output when no hooks match the `manual` stage. If stdout is empty (or
+contains only whitespace/color codes) AND exit code is 0, emit WARN: `"Gate 1: pre-commit
+ran but matched no hooks — pyright hook may be missing 'manual' stage. Treating as skipped."`
+Record gate as `skipped`. This prevents a false-negative from a missing `manual` stage
+declaration on the hook.
+
+**Error-count parsing:**
+
+After running the Gate 1 command, parse stdout for the pyright error-count summary:
+
+- Pattern: `(\d+) errors?` (case-insensitive)
+- Gate passes when: exit code 0 **AND** parsed error count == 0 (or pattern absent — no errors reported)
+- Warnings (`(\d+) warnings?`) are logged but do not block the gate
+- Exit code non-zero but parsed error count == 0: treat as pass with WARN (pre-commit infrastructure error, not a type error)
+- Exit code 0 but parsed error count > 0: treat as FAIL (false-positive exit code)
 
 On failure: classify.
 - **Fixable** — typo, missing import, wrong type annotation → fix, re-run BUILD
@@ -140,7 +172,7 @@ On any gate failure and retry, log:
 
 Log:
 ```
-{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-build","status":"ok"|"error","data":{"warnings":<N>}}
+{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-build","status":"ok"|"error"|"skipped","data":{"gate_command_source":"hook|raw|none","parsed_errors":<N>,"parsed_warnings":<N>}}
 ```
 
 ---
@@ -149,18 +181,53 @@ Log:
 
 Run the project's lint command (static analysis / style enforcement).
 
-Gate passes when: zero errors. Warnings are noted but do not fail the gate.
+**Command selection — three paths:**
+
+1. **Hook path** — `gate-scout.data.lint_hook_cmd` is non-null: use it as the Gate 2
+   command. Log `data.gate_command_source: "hook"`. This is the authoritative CI-parity path.
+   When `lint_hook_cmd` is non-null, the hook path IS the CI path — bypass the
+   `lint_ci_divergence` double-run check with informational note: "CI-parity via pre-commit
+   hook — lint_ci_divergence check bypassed." Only run `lint_ci_command` when `lint_hook_cmd`
+   is null (legacy fallback path).
+
+2. **Missing-hook path** — `lint_hook_cmd` is null and `gate-scout.data.lint_hook_missing`
+   is `true`: emit WARN `"Gate 2: no lint pre-commit hook found — skipping LINT gate
+   (no authoritative command)"`. Record gate as `skipped` (not `pass`). Log
+   `data.gate_command_source: "none"`. Do not fall back to a raw tool invocation.
+
+3. **Legacy fallback path** — `lint_hook_cmd` is null and `lint_hook_missing` is absent or
+   false (gate-scout pre-dates hook probing): fall back to `gate-scout.data.lint` with WARN
+   `"Gate 2: gate-scout pre-dates hook probing — falling back to raw tool (non-authoritative)"`.
+   Log `data.gate_command_source: "raw"`.
+
+   In the legacy fallback path, if `lint_ci_divergence: true`, run **both** the local lint
+   command (`lint`) and the CI lint command (`lint_ci_command`) and require both to pass. Emit
+   an informational note: "Running local lint and CI lint — commands differ." If
+   `lint_ci_command` is "not found" (CI config not readable), emit a WARNING: "[WARNING] Could
+   not verify CI lint config — ensure local lint rules match your CI pipeline."
+
+**Pre-flight no-hooks-matched guard:**
+
+Before recording a pass, detect the silent-skip case: if stdout is empty (or contains only
+whitespace/color codes) AND exit code is 0, emit WARN: `"Gate 2: pre-commit ran but matched
+no hooks — ruff hook may be missing 'manual' stage. Treating as skipped."` Record gate as
+`skipped`. This prevents a false-negative from a missing `manual` stage declaration.
+
+**Error-count parsing:**
+
+After running the Gate 2 command, parse stdout for the ruff error-count summary:
+
+- Pattern: `Found (\d+) errors?`
+- Gate passes when: exit code 0 **AND** parsed error count == 0
 
 Fix all lint errors before proceeding to tests — a lint failure that survives into a
 test run contaminates the test log and makes failures harder to attribute.
 
 On failure: fix lint errors, re-run LINT. Lint failures are almost always fixable.
 
-**CI lint divergence check**: if the gate-scout output includes `lint_ci_divergence: true`, run **both** the local lint command (`lint`) and the CI lint command (`lint_ci_command`) and require both to pass. Emit an informational note: "Running local lint and CI lint — commands differ." If `lint_ci_command` is "not found" (CI config not readable), emit a WARNING: "[WARNING] Could not verify CI lint config — ensure local lint rules match your CI pipeline."
-
 Log:
 ```
-{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-lint","status":"ok"|"error","data":{"errors":<N>,"warnings":<N>,"ci_divergence":<true|false>,"ci_lint_run":<true|false>}}
+{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-lint","status":"ok"|"error"|"skipped","data":{"gate_command_source":"hook|raw|none","parsed_errors":<N>,"parsed_warnings":<N>,"ci_divergence":<true|false>,"ci_lint_run":<true|false>}}
 ```
 
 ---

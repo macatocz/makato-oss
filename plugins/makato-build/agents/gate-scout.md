@@ -1,7 +1,7 @@
 ---
 name: gate-scout
 model: haiku
-version: "1.1.0"
+version: "1.2.0"
 description: >-
   Discover build, lint, unit test, integration test, and coverage commands
   by scanning project config files. Returns a structured command map for
@@ -89,6 +89,34 @@ authoritative evidence the tool is in use, even when `pyproject.toml` has no mat
 A standalone `ruff.toml` and a `[tool.ruff]` block are equivalent evidence — either one means
 Ruff is the linter. When both a `ruff.toml` and `[tool.ruff]` exist, they configure the same
 tool; report a single `ruff check .` lint command.
+
+### Step 1d — Probe `.pre-commit-config.yaml` for hook-command fields
+
+When `REPO_ROOT/.pre-commit-config.yaml` exists, parse it (YAML read — no shell execution)
+and scan all hook entries for IDs matching the following categories:
+
+- **Type-check hooks**: hook IDs containing `pyright` or `mypy`
+- **Lint hooks**: hook IDs containing `ruff`, `flake8`, or `pylint`
+
+For each matched hook, construct the canonical gating command:
+
+```
+pre-commit run --hook-stage manual <hook-id> --all-files
+```
+
+Populate the following fields (always emit explicit `null` rather than omitting when not found):
+
+| Field | Type | Value |
+|---|---|---|
+| `build_hook_cmd` | string\|null | `pre-commit run --hook-stage manual pyright --all-files` — or `null` when no type-check hook found |
+| `lint_hook_cmd` | string\|null | `pre-commit run --hook-stage manual ruff --all-files` — or `null` when no lint hook found. When multiple lint hooks match, use the first match (`ruff` takes precedence over `flake8` / `pylint`); stop on first. |
+| `pyright_env` | string | `"hook"` when `build_hook_cmd` is non-null; `"raw"` otherwise. Signals to build-verify that a raw pyright run is non-authoritative. |
+| `build_hook_missing` | boolean | `true` when no type-check hook found in `.pre-commit-config.yaml`; `false` when one is found |
+| `lint_hook_missing` | boolean | `true` when no lint hook found; `false` when one is found |
+
+When `.pre-commit-config.yaml` does not exist: set all five fields to their "missing" defaults
+(`build_hook_cmd: null`, `lint_hook_cmd: null`, `pyright_env: "raw"`, `build_hook_missing: true`,
+`lint_hook_missing: true`).
 
 ### Step 2 — Extract commands
 
@@ -186,7 +214,13 @@ Emit this prose block as part of your message (before the R1 block):
 **python_runner_prefix**: `<uv run | poetry run | pdm run | pipenv run>` | none
 **java_version_required**: <version, e.g. "21"> | not applicable
 **lint_ci_divergence**: true | false
-**lint_ci_command**: `<exact command from CI>` | not found
+**lint_ci_command**: `<exact command from CI>` | not found  _(Deprecated — use `lint_hook_cmd`. Will be removed in next major version.)_
+
+**build_hook_cmd**: `<pre-commit run --hook-stage manual pyright --all-files>` | null
+**lint_hook_cmd**: `<pre-commit run --hook-stage manual ruff --all-files>` | null
+**pyright_env**: hook | raw
+**build_hook_missing**: true | false
+**lint_hook_missing**: true | false
 
 **build**: `<exact command>` | not found
 **lint**: `<exact command>` | not found
@@ -201,7 +235,7 @@ Emit this prose block as part of your message (before the R1 block):
 
 The final element of your message MUST be a fenced ` ```json ` block containing the R1 envelope defined in `plugins/makato-build/agents/RETURN-CONTRACT.md`. Callers parse the last `json`-fenced block via `JSON.parse()` — no prose parsing.
 
-`data` shape: `{ "project_type": "...", "config_files_read": N, "python_runner_prefix": "...", "build": "...", "lint": "...", "lint_js": "...", "lint_sql": "...", "unit": "...", "integration": "...", "coverage": "...", "java_version_required": "...", "lint_ci_divergence": true|false, "lint_ci_command": "..." }`. Use the string `"not found"` for any command not discovered, and `"none"` for `python_runner_prefix` when no lockfile matches. `lint_js` / `lint_sql` are `"not found"` for projects without Biome / SQLFluff.
+`data` shape: `{ "project_type": "...", "config_files_read": N, "python_runner_prefix": "...", "build": "...", "lint": "...", "lint_js": "...", "lint_sql": "...", "unit": "...", "integration": "...", "coverage": "...", "java_version_required": "...", "lint_ci_divergence": true|false, "lint_ci_command": "...", "build_hook_cmd": "...|null", "lint_hook_cmd": "...|null", "pyright_env": "hook|raw", "build_hook_missing": true|false, "lint_hook_missing": true|false }`. Use the string `"not found"` for any command not discovered, and `"none"` for `python_runner_prefix` when no lockfile matches. `lint_js` / `lint_sql` are `"not found"` for projects without Biome / SQLFluff. `build_hook_cmd` / `lint_hook_cmd` are `null` (not the string `"null"`) when no matching hook is found.
 
 ### Success
 
@@ -228,7 +262,12 @@ The final element of your message MUST be a fenced ` ```json ` block containing 
     "coverage": "uv run pytest --cov=src/brain --cov=src/body --cov=src/shared — threshold: 0%",
     "java_version_required": "not applicable",
     "lint_ci_divergence": false,
-    "lint_ci_command": "not found"
+    "lint_ci_command": "not found",
+    "build_hook_cmd": "pre-commit run --hook-stage manual pyright --all-files",
+    "lint_hook_cmd": "pre-commit run --hook-stage manual ruff --all-files",
+    "pyright_env": "hook",
+    "build_hook_missing": false,
+    "lint_hook_missing": false
   }
 }
 ```

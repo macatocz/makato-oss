@@ -22,36 +22,36 @@ applies to Python commands only.
 
 ### Build / Compile Commands
 
-| Config file present | Command to try |
-|---|---|
-| `package.json` with `"build"` script | `npm run build` (or `yarn build` / `pnpm build`) |
-| `tsconfig.json` (no build script) | `npx tsc --noEmit` |
-| `pom.xml` | `mvn compile -q` |
-| `build.gradle` / `build.gradle.kts` | `./gradlew compileJava` (or `compileKotlin`) |
-| `Cargo.toml` | `cargo build` |
-| `go.mod` | `go build ./...` |
-| `pyrightconfig.json` or `[tool.pyright]` | `pyright` (type-check is the Python build gate) |
-| `pyproject.toml` / `setup.py` (mypy configured) | `mypy .` |
-| `pyproject.toml` / `setup.py` (no type-checker) | `python -m py_compile` on changed files |
-| `Makefile` with `build` target | `make build` |
+| Config file present | Command to try | Pre-commit hook ID |
+|---|---|---|
+| `package.json` with `"build"` script | `npm run build` (or `yarn build` / `pnpm build`) | — |
+| `tsconfig.json` (no build script) | `npx tsc --noEmit` | — |
+| `pom.xml` | `mvn compile -q` | — |
+| `build.gradle` / `build.gradle.kts` | `./gradlew compileJava` (or `compileKotlin`) | — |
+| `Cargo.toml` | `cargo build` | — |
+| `go.mod` | `go build ./...` | — |
+| `pyrightconfig.json` or `[tool.pyright]` | `pyright` (type-check is the Python build gate) | `pyright` (when hook present: `pre-commit run --hook-stage manual pyright --all-files`) |
+| `pyproject.toml` / `setup.py` (mypy configured) | `mypy .` | — |
+| `pyproject.toml` / `setup.py` (no type-checker) | `python -m py_compile` on changed files | — |
+| `Makefile` with `build` target | `make build` | — |
 
 If none match: attempt `npm run build`, `mvn compile`, or `./gradlew build` and let the
 error output identify the correct tool.
 
 ### Lint Commands
 
-| Config file present | Command to try |
-|---|---|
-| `.eslintrc*` / `eslint.config.*` | `npx eslint .` (or project's npm lint script) |
-| `checkstyle*.xml` | `mvn checkstyle:check` or `./gradlew checkstyleMain` |
-| `.golangci.yml` | `golangci-lint run` |
-| `pyproject.toml` with `[tool.ruff]` **or** standalone `ruff.toml` | `ruff check .` |
-| `.flake8` / `setup.cfg [flake8]` | `flake8 .` |
-| `clippy` (Rust) | `cargo clippy -- -D warnings` |
-| `Makefile` with `lint` target | `make lint` |
-| `package.json` with `"lint"` script | `npm run lint` |
-| `biome.json` / `biome.jsonc` (standalone JS/TS) | `biome check .` (extra lint command) |
-| `.sqlfluff` | `sqlfluff lint --dialect <dialect>` (extra lint command) |
+| Config file present | Command to try | Pre-commit hook ID |
+|---|---|---|
+| `.eslintrc*` / `eslint.config.*` | `npx eslint .` (or project's npm lint script) | — |
+| `checkstyle*.xml` | `mvn checkstyle:check` or `./gradlew checkstyleMain` | — |
+| `.golangci.yml` | `golangci-lint run` | — |
+| `pyproject.toml` with `[tool.ruff]` **or** standalone `ruff.toml` | `ruff check .` | `ruff` (when hook present: `pre-commit run --hook-stage manual ruff --all-files`) |
+| `.flake8` / `setup.cfg [flake8]` | `flake8 .` | `flake8` (when hook present: `pre-commit run --hook-stage manual flake8 --all-files`) |
+| `clippy` (Rust) | `cargo clippy -- -D warnings` | — |
+| `Makefile` with `lint` target | `make lint` | — |
+| `package.json` with `"lint"` script | `npm run lint` | — |
+| `biome.json` / `biome.jsonc` (standalone JS/TS) | `biome check .` (extra lint command) | — |
+| `.sqlfluff` | `sqlfluff lint --dialect <dialect>` (extra lint command) | — |
 
 If no lint tool is configured: skip Gate 2 and log it as skipped, not failed. `biome` and
 `sqlfluff` run **in addition to** the primary linter, not instead of it — a repo can lint
@@ -122,3 +122,36 @@ does not satisfy the conditional coverage requirement.
 - **Warning**: no threshold declared — any coverage figure is advisory only
 - A branch that is genuinely unreachable (documented as such in the code) may be excluded
   from the denominator — do not manufacture tests to reach dead code
+
+## Pre-commit Hook Commands
+
+When `.pre-commit-config.yaml` defines hooks for a tool, Gates 1 and 2 use the hook as the
+authoritative command instead of a raw tool invocation:
+
+```
+pre-commit run --hook-stage manual <hook-id> --all-files
+```
+
+This is the same command CI runs and is the only form that guarantees environment parity with
+the CI pipeline.
+
+**Requirements:**
+
+- The hook must declare `stages: [manual]` (or include `manual` in its `stages` list).
+- Missing `manual` stage produces a silent skip: `pre-commit run --hook-stage manual` exits 0
+  with no stdout when no hooks match the stage. This is a worse false-negative than running
+  the raw tool — Gates 1 and 2 include a pre-flight guard that detects this condition (empty
+  stdout + exit 0) and records the gate as `skipped` rather than `passed`.
+
+**Raw tool invocations are non-authoritative** when a pre-commit hook exists for the tool.
+The hook environment (pinned rev, isolated venv, hook-specific args) differs from what `uv run
+pyright` or bare `ruff check .` resolves, which is how false-negative passes arise.
+
+**`gate-scout` fields** (v1.2.0+):
+- `build_hook_cmd` — the pre-commit hook command for the type-check gate, or `null`
+- `lint_hook_cmd` — the pre-commit hook command for the lint gate, or `null`
+- `pyright_env` — `"hook"` when `build_hook_cmd` is set; `"raw"` otherwise
+- `build_hook_missing` / `lint_hook_missing` — `true` when no matching hook was found
+
+**Deprecation note**: `lint_ci_command` (gate-scout R1 field) is deprecated — use
+`lint_hook_cmd` instead. `lint_ci_command` will be removed in the next major version.

@@ -65,6 +65,12 @@ jobs:
       - name: Finding-schema contract smoke test (#230)
         run: ./plugins/makato-build/shared/finding-schema-smoke-test.sh
 
+      - name: gate-scout hook-commands smoke tests (#450)
+        run: ./plugins/makato-build/shared/gate-scout-hook-commands-smoke-tests.sh
+
+      - name: build-verify gate-commands smoke tests (#450)
+        run: ./plugins/makato-build/shared/build-verify-gate-commands-smoke-tests.sh
+
       - name: loop smoke tests (#231/#232)
         run: ./plugins/makato-orchestrate/scripts/loop-smoke-tests.sh
 
