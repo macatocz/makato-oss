@@ -55,8 +55,17 @@ permissions:
 
 # One sync in flight per triggering entity — prevents a rapid open→close
 # sequence from racing the graph mutations.
+#
+# Issue events include the action in the group (#468). Creating an issue with
+# N labels fires one `opened` event plus N `labeled` events near-simultaneously;
+# keyed by issue number alone they share one group, and GitHub Actions prunes
+# all-but-newest *pending* runs in a group — frequently cancelling the load-
+# bearing `opened` run (the only action that onboards a new issue to the board),
+# so the issue silently never reaches the board. Scoping issue groups by action
+# isolates `opened` from `labeled`/`assigned`. PR events stay keyed by PR number
+# to preserve the open→close serialization above.
 concurrency:
-  group: project-board-sync-${{ github.event.pull_request.number || github.event.issue.number }}
+  group: project-board-sync-${{ github.event.pull_request.number || format('{0}-{1}', github.event.issue.number, github.event.action) }}
   cancel-in-progress: false
 
 jobs:
