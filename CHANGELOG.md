@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.89.0](https://github.com/macatocz/makato/compare/v0.88.0...v0.89.0) (2026-07-19)
+
+
+### ✨ Features
+
+* **makato-plan,makato-orchestrate:** dependency labels blocked-by / blocking ([#481](https://github.com/macatocz/makato/issues/481)) ([4d91305](https://github.com/macatocz/makato/commit/4d91305fd4fb688e825cda69815228a7f5443ca2))
+
 ## [0.88.0](https://github.com/macatocz/makato/compare/v0.87.2...v0.88.0) (2026-07-19)
 
 
