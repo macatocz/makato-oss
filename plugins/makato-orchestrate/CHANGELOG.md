@@ -5,6 +5,9 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+- **Fixed** `context-handoff.sh` `_emit_resume` — type:change resume routing (#467).
+  - A HALT-007B context handoff now detects a `type:change` run by the presence of `specs/*/change-state-<N>.json` and emits a `makato-change:orchestrate` resume prompt (with the recovered `WORKTREE_PATH` baked in and a "resume from current phase, commit inside WORKTREE_PATH" instruction) instead of the po-agent prompt. Non-change issues keep the byte-for-byte-unchanged po-agent resume path.
+  - Adds T16 (change-state present → change-orchestrate + WORKTREE_PATH) and T17 (absent → po-agent) to `context-handoff-smoke-tests.sh`; adds T76 (type:change dispatch threads change-orchestrate + REPO_ROOT) to `loop-smoke-tests.sh`.
 - **Fixed** `loop` — dispatch no longer produces a doubled issue-number branch prefix.
   - When the derived `KEY` already begins with `<issue>-` (both the `to-issues` footer slug for collision-avoidance folders like `470-persistent-…` and the seed-issue title-fallback slug `<issue>-<title>`), `cmd_dispatch` now emits `feat/<key>` instead of `feat/<issue>-<key>`, avoiding branches like `feat/470-470-persistent-…`. A `KEY` without the prefix (e.g. `test-feature`) still gets `feat/<issue>-<key>` as before.
   - T27 smoke-test assertion updated to expect the un-doubled `feat/503-fix-…`.

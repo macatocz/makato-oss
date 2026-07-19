@@ -995,6 +995,25 @@ for skip in 602 603 604 605 606; do
 done
 echo "  ✓ only the non-excluded ready issue is promoted; blocked/triage/experimental/halt/needs-human-review skipped"
 
+# ---------------------------------------------------------------------------
+echo
+echo "=== T76: type:change dispatch threads change-orchestrate + REPO_ROOT for worktree isolation (#467) ==="
+# #467: a type:change dispatch must route to makato-change:orchestrate AND
+# carry REPO_ROOT so orchestrate Step 0.5 can create the feat/<KEY>-change
+# worktree against the correct repo root (not the ambient checkout). T27
+# asserts routing; this asserts the two invariants co-occur in one prompt.
+t76_out="$(
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$issue_body_file" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="type:change" \
+    "$LOOP" dispatch 504 --dry-run 2>&1 >/dev/null
+)" || fail "T76: type:change dispatch --dry-run should exit 0; got: $t76_out"
+grep -q "makato-change:orchestrate --autonomous" <<<"$t76_out" \
+  || fail "T76: dispatch prompt must name makato-change:orchestrate --autonomous; got: $t76_out"
+grep -q "REPO_ROOT=" <<<"$t76_out" \
+  || fail "T76: dispatch prompt must thread REPO_ROOT for worktree isolation; got: $t76_out"
+echo "  ✓ type:change dispatch routes to change-orchestrate and threads REPO_ROOT"
+
 echo
 echo "=== ALL TESTS PASSED ==="
 

@@ -379,11 +379,13 @@ If on `main` or `master` branch, create and checkout a feature branch:
 
 **Headless branch (MAKATO_HEADLESS=1):**
 
-Use `worktree.sh` to create the branch inside a dedicated worktree (provides branch isolation). Resolve the script path from `MAKATO_ORCHESTRATE_SHARED`:
+1. **Use the orchestrate-provided `WORKTREE_PATH` when present.** When `execute` is dispatched by `makato-change:orchestrate` (the normal autonomous path), the context preamble carries a non-empty `WORKTREE_PATH` — orchestrate Step 0.5 already created (or, on resume, re-attached to) the `feat/<KEY>-change` worktree. In that case **do NOT call `worktree.sh create` again**: adopt the provided `WORKTREE_PATH` directly and skip to "Store the returned worktree path" below. This prevents a second, differently-named worktree and keeps every commit inside orchestrate's isolated branch (#467).
 
-```bash
-"${MAKATO_ORCHESTRATE_SHARED}/worktree.sh" create --new-branch <KEY> <ISSUE_NUMBER> <REPO_NAME> feat/<ISSUE-KEY>-<short-description>
-```
+2. **No `WORKTREE_PATH` in the bundle (standalone `execute` invocation).** Only in this case, use `worktree.sh` to create the branch inside a dedicated worktree. Use the **same** branch-name convention orchestrate uses — `feat/<ISSUE-KEY>-change` — so a standalone run and an orchestrate-driven run never diverge:
+
+   ```bash
+   "${MAKATO_ORCHESTRATE_SHARED}/worktree.sh" create --new-branch <KEY> <ISSUE_NUMBER> <REPO_NAME> feat/<ISSUE-KEY>-change
+   ```
 
 Store the returned worktree path as `WORKTREE_PATH`. All subsequent file edits and git operations in this step and Steps 7–8 MUST use `WORKTREE_PATH` instead of `REPO_ROOT` for git ops.
 

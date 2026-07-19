@@ -1,6 +1,29 @@
 <!-- markdownlint-disable MD012 MD013 -->
 # Changelog
 
+## Change orchestrate runs in an isolated worktree, on fresh runs and resumes (#467)
+
+Fixes #467: `makato-change:orchestrate --autonomous` committed to the operator's
+ambient checked-out branch instead of a dedicated `feat/<KEY>-change` worktree. The
+resulting PR was clean only by luck (when the ambient branch's prior work had already
+merged); otherwise it bundled unrelated work into one PR.
+
+**Changes:**
+
+- **`skills/orchestrate/SKILL.md`** — Step 0.5 now branches fresh-vs-resume. On a
+  resume (a `change-state-<N>.json` with a non-null `worktree_path` already exists) it
+  no longer re-initializes state or resets `current_phase`, and recovers `WORKTREE_PATH`
+  via the po-agent Step 2b `git ls-remote` probe-then-create pattern — calling
+  `worktree.sh create` **without** `--new-branch` when the branch exists on the remote
+  (the unconditional `--new-branch` previously hard-failed on resume and dropped the
+  session onto the ambient checkout). Step 5 re-reads `worktree_path` before each phase
+  dispatch and forwards it as an explicit `WORKTREE_PATH` context preamble to
+  analyze/design/execute.
+- **`skills/execute/SKILL.md`** — Step 6 (headless branch) now adopts an
+  orchestrate-provided `WORKTREE_PATH` when present instead of creating a second
+  worktree, and standalone invocations use the matching `feat/<ISSUE-KEY>-change`
+  branch name.
+
 ## Glob-based skill injection in design skill — closes makato-build asymmetry (v1.3.0)
 
 Closes the gap documented in #429: change requests now receive the same technology-skill

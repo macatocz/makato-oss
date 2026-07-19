@@ -64,28 +64,59 @@ Narrate every phase dispatch into a single live GitHub issue comment so anyone w
 **Only execute this step when autonomous mode is active (see AUTONOMOUS-MODE.md § *Activation triggers*).**
 
 1. **Read ISSUE_KEY from CLI arg** — if the first argument is present, use it as `ISSUE_KEY`. If absent, HALT with R1 `status:"failure"` and `errors:["MISSING_INPUT: ISSUE_KEY required in autonomous mode"]`.
-2. **Write workflow-state stub** — create `specs/<ISSUE_KEY>/workflow-state-<N>.json` (where `<N>` = GitHub issue number extracted from `ISSUE_KEY` or fetched via `gh issue view`):
+2. **Detect fresh vs resume run.** Check whether `specs/<ISSUE_KEY>/change-state-<N>.json` already exists **and** has a non-null `worktree_path`. This branch is load-bearing for #467: on a context-handoff resume the state file and the feature branch already exist, so re-initializing from scratch is wrong — it resets `current_phase` and hard-fails the `--new-branch` worktree create, which drops the session onto the ambient checkout.
 
-   ```json
-   {
-     "schema": "workflow-state",
-     "version": "1.0",
-     "issue_key": "<ISSUE_KEY>",
-     "issue_number": <N>,
-     "current_phase": "in_progress",
-     "plugin": "makato-change",
-     "started_at": "<ISO-8601-ms>",
-     "updated_at": "<ISO-8601-ms>"
-   }
-   ```
-3. **Write change-state file** — create `specs/<ISSUE_KEY>/change-state-<N>.json` with initial schema (see AUTONOMOUS-MODE.md § *Phase state file*). Set `current_phase:"analyze"`, `started_at` and `updated_at` to now.
-4. **Init worktree** (if `MAKATO_ORCHESTRATE_SHARED` is set):
+   **Resume branch** — `change-state-<N>.json` exists with a non-null `worktree_path`:
 
-   ```bash
-   "${MAKATO_ORCHESTRATE_SHARED}/worktree.sh" create --new-branch <KEY> <N> <REPO_NAME> feat/<KEY>-change
-   ```
+   a. Do **NOT** overwrite `workflow-state-<N>.json` or `change-state-<N>.json`.
+   b. Do **NOT** reset `current_phase` — the file already records where the run was interrupted (artifact-based phase detection in Step 2 stays authoritative).
+   c. Recover `WORKTREE_PATH` using the probe-then-create pattern from `po-agent.md` Step 2b (the canonical source — never mutate a local git branch directly, #170):
 
-   Store the returned path in `change-state-<N>.json:.worktree_path`. If `MAKATO_ORCHESTRATE_SHARED` is unset, log a warning and continue without worktree isolation.
+      ```bash
+      BRANCH="feat/<KEY>-change"
+      if git -C "<REPO_ROOT>" ls-remote --exit-code origin "$BRANCH" >/dev/null 2>&1; then
+        # Branch exists on remote — idempotent create WITHOUT --new-branch
+        # (worktree.sh re-attaches to a registered worktree, emitting
+        # `worktree_resumed`; --new-branch would hard-fail here).
+        WORKTREE_OUTPUT="$("${MAKATO_ORCHESTRATE_SHARED}/worktree.sh" create \
+          <KEY> <N> <REPO_NAME> "$BRANCH")"
+      else
+        # Rare: prior run never pushed the branch. Fall back to --new-branch.
+        WORKTREE_OUTPUT="$("${MAKATO_ORCHESTRATE_SHARED}/worktree.sh" create --new-branch \
+          <KEY> <N> <REPO_NAME> "$BRANCH")"
+      fi
+      WORKTREE_PATH="$(tail -1 <<<"$WORKTREE_OUTPUT")"
+      ```
+
+   d. Patch `change-state-<N>.json:.worktree_path` only if the recovered path differs from the stored one (avoid an unnecessary write).
+   e. Log `orchestrate: resume detected — recovered WORKTREE_PATH=<path>` and skip to Step 5.
+
+   **Fresh branch** — `change-state-<N>.json` is absent or has `worktree_path:null`:
+
+   a. **Write workflow-state stub** — create `specs/<ISSUE_KEY>/workflow-state-<N>.json` (where `<N>` = GitHub issue number extracted from `ISSUE_KEY` or fetched via `gh issue view`):
+
+      ```json
+      {
+        "schema": "workflow-state",
+        "version": "1.0",
+        "issue_key": "<ISSUE_KEY>",
+        "issue_number": <N>,
+        "current_phase": "in_progress",
+        "plugin": "makato-change",
+        "started_at": "<ISO-8601-ms>",
+        "updated_at": "<ISO-8601-ms>"
+      }
+      ```
+
+   b. **Write change-state file** — create `specs/<ISSUE_KEY>/change-state-<N>.json` with initial schema (see AUTONOMOUS-MODE.md § *Phase state file*). Set `current_phase:"analyze"`, `started_at` and `updated_at` to now.
+
+   c. **Init worktree** (if `MAKATO_ORCHESTRATE_SHARED` is set):
+
+      ```bash
+      "${MAKATO_ORCHESTRATE_SHARED}/worktree.sh" create --new-branch <KEY> <N> <REPO_NAME> feat/<KEY>-change
+      ```
+
+      Store the returned path (`tail -1` of the output) in `change-state-<N>.json:.worktree_path` and in `WORKTREE_PATH`. If `MAKATO_ORCHESTRATE_SHARED` is unset, log a warning and continue without worktree isolation.
 
 5. **Mark In Progress on project board** — immediately before any phase dispatch, mark the issue as In Progress so the autonomous loop cannot pick it up concurrently.
 
@@ -265,7 +296,23 @@ Use the row for the dispatched phase from the narration table in § *Progress co
 - Execute → `Skill(skill="makato-change:execute", args="<ISSUE_KEY>")`
 - Resolve Review → `Skill(skill="makato-change:resolve-review", args="<ISSUE_KEY>")`
 
-**In autonomous mode**, append `--autonomous` and include `WORKTREE_PATH` in the context bundle when a worktree was created:
+**In autonomous mode**, append `--autonomous` and forward `WORKTREE_PATH` to every phase so the phase skills operate inside the isolated worktree rather than the ambient checkout (#467).
+
+Immediately before each phase dispatch, re-read the current worktree path from state (it may have been set by Step 0.5's fresh branch or recovered by its resume branch):
+
+```bash
+WORKTREE_PATH="$(jq -r '.worktree_path // ""' "specs/<ISSUE_KEY>/change-state-<N>.json")"
+```
+
+When `WORKTREE_PATH` is non-empty, prepend this context preamble to each `Skill(...)` invocation so the phase skill can locate the worktree:
+
+```
+Context:
+WORKTREE_PATH=<worktree_path from change-state-<N>.json>
+REPO_ROOT=<REPO_ROOT from context bundle>
+ISSUE_KEY=<ISSUE_KEY>
+ISSUE_NUMBER=<N>
+```
 
 - Analyze → `Skill(skill="makato-change:analyze", args="<ISSUE_KEY> --autonomous")`
 - Design → `Skill(skill="makato-change:design", args="<ISSUE_KEY> --autonomous")`

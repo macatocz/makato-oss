@@ -339,5 +339,42 @@ HALT_COUNT_2=$("$WS" read "$KEY" "$ISSUE" | jq '[.halt_audit[] | select(.code ==
 [[ "$HALT_COUNT_1" == "$HALT_COUNT_2" ]]                                             || { echo "  ✗ FAIL: duplicate HALT-007 appended on re-check ($HALT_COUNT_1 → $HALT_COUNT_2)"; exit 1; }
 echo "  ✓ fallback cleared spawned_pid; re-check no-ops, HALT-007 count stable at $HALT_COUNT_2"
 
+# ---------------------------------------------------------------------------
+# T16: emit-resume routes to makato-change:orchestrate when a change-state
+#      file exists for the issue (#467). The resume script must re-establish
+#      WORKTREE_PATH and must NOT dispatch po-agent.
+# ---------------------------------------------------------------------------
+echo "=== T16: emit-resume routes to makato-change:orchestrate when change-state exists ==="
+_init_state 160000 0 yes
+rm -f "$RESUME_SCRIPT"
+cat > "$SANDBOX/change-state-${ISSUE}.json" <<JSON
+{"schema":"change-state","version":"1.0","issue_key":"$KEY","issue_number":$ISSUE,
+ "current_phase":"design","phases_complete":["analyze"],
+ "worktree_path":"/tmp/fake-worktrees/test-repo-$ISSUE",
+ "pr_url":null,"started_at":"2025-01-01T00:00:00.000Z","updated_at":"2025-01-01T00:00:00.000Z",
+ "halt_code":null,"degraded_confidence":false}
+JSON
+"$HANDOFF" emit-resume "$KEY" "$ISSUE"
+[[ -x "$RESUME_SCRIPT" ]]                                    || { echo "  ✗ FAIL: resume script not emitted/executable"; exit 1; }
+grep -q 'makato-change:orchestrate' "$RESUME_SCRIPT"        || { echo "  ✗ FAIL: resume script does not route to makato-change:orchestrate"; exit 1; }
+grep -q 'WORKTREE_PATH=' "$RESUME_SCRIPT"                   || { echo "  ✗ FAIL: resume script missing WORKTREE_PATH re-establishment"; exit 1; }
+grep -q '/tmp/fake-worktrees/test-repo-'"$ISSUE" "$RESUME_SCRIPT" || { echo "  ✗ FAIL: resume script did not bake in the recovered worktree_path"; exit 1; }
+grep -q 'po-agent' "$RESUME_SCRIPT"                         && { echo "  ✗ FAIL: change resume script erroneously references po-agent"; exit 1; } || true
+rm -f "$SANDBOX/change-state-${ISSUE}.json"
+echo "  ✓ change-state present → resume routes to makato-change:orchestrate with baked WORKTREE_PATH"
+
+# ---------------------------------------------------------------------------
+# T17: emit-resume routes to po-agent when no change-state file exists — the
+#      non-change (po-agent) path must be preserved byte-for-byte (#467).
+# ---------------------------------------------------------------------------
+echo "=== T17: emit-resume routes to po-agent when no change-state file exists ==="
+_init_state 160000 0 yes
+rm -f "$RESUME_SCRIPT" "$SANDBOX/change-state-${ISSUE}.json"
+"$HANDOFF" emit-resume "$KEY" "$ISSUE"
+[[ -x "$RESUME_SCRIPT" ]]                                    || { echo "  ✗ FAIL: resume script not emitted/executable"; exit 1; }
+grep -q 'po-agent' "$RESUME_SCRIPT"                         || { echo "  ✗ FAIL: resume script should route to po-agent for non-change issues"; exit 1; }
+grep -q 'makato-change:orchestrate' "$RESUME_SCRIPT"        && { echo "  ✗ FAIL: resume script routes to makato-change:orchestrate for a non-change issue"; exit 1; } || true
+echo "  ✓ no change-state → resume routes to po-agent (non-change issue preserved)"
+
 echo
-echo "All 15 context-handoff smoke tests passed."
+echo "All 17 context-handoff smoke tests passed."
