@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.87.2](https://github.com/macatocz/makato/compare/v0.87.1...v0.87.2) (2026-07-19)
+
+
+### 🐛 Bug Fixes
+
+* **ci:** scope project-board-sync issue concurrency by action ([#468](https://github.com/macatocz/makato/issues/468)) ([#469](https://github.com/macatocz/makato/issues/469)) ([172019e](https://github.com/macatocz/makato/commit/172019e69f150509dd4327b6fdf091f1c30a7f3e))
+
 ## [0.87.1](https://github.com/macatocz/makato/compare/v0.87.0...v0.87.1) (2026-07-19)
 
 
