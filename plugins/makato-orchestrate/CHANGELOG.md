@@ -5,6 +5,10 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+- **Fixed** `loop` — dispatch no longer produces a doubled issue-number branch prefix.
+  - When the derived `KEY` already begins with `<issue>-` (both the `to-issues` footer slug for collision-avoidance folders like `470-persistent-…` and the seed-issue title-fallback slug `<issue>-<title>`), `cmd_dispatch` now emits `feat/<key>` instead of `feat/<issue>-<key>`, avoiding branches like `feat/470-470-persistent-…`. A `KEY` without the prefix (e.g. `test-feature`) still gets `feat/<issue>-<key>` as before.
+  - T27 smoke-test assertion updated to expect the un-doubled `feat/503-fix-…`.
+
 - **Changed** `promote-ready` → v1.1.0 — dependency label cleanup after promotion.
   - Step 5 now removes `blocked by` from each promoted issue immediately after the board promotion succeeds.
   - After the full promotion batch completes, computes the reverse dependency graph and removes `blocking` from every upstream issue whose all downstream dependents have been promoted to `Ready` or beyond. Check runs once per upstream issue per batch (not per individual promotion) to avoid redundant API calls. Both operations are best-effort (`|| true`) — a label-remove failure never aborts or rolls back the board promotion.

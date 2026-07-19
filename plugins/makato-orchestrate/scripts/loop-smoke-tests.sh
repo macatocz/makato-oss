@@ -933,8 +933,8 @@ dry_run_t27="$(
 )" || fail "T27: no-provenance dispatch --dry-run should exit 0; got: $dry_run_t27"
 grep -q "KEY=503-fix-loop-dispatch-fails-on-empty" <<<"$dry_run_t27" \
   || fail "T27: KEY not derived from title; got: $dry_run_t27"
-grep -q "BRANCH=feat/503-503-fix-loop-dispatch-fails-on-empty" <<<"$dry_run_t27" \
-  || fail "T27: BRANCH not derived from title-based KEY; got: $dry_run_t27"
+grep -q "BRANCH=feat/503-fix-loop-dispatch-fails-on-empty" <<<"$dry_run_t27" \
+  || fail "T27: BRANCH not derived from title-based KEY (no doubled issue prefix); got: $dry_run_t27"
 echo "  ✓ no-provenance issue derives KEY=<issue>-<title-slug>"
 
 # Sub-assertion — regression: a provenance body still wins over the title.

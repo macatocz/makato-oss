@@ -3184,7 +3184,17 @@ cmd_dispatch() {
   # state where ALL four required inputs were silently absent.
   local key="" branch=""
   if key="$(_derive_key_for_issue "$issue" "${MAKATO_LOOP_DISPATCH_REPO:-}")"; then
-    branch="feat/${issue}-${key}"
+    # Avoid a doubled issue-number prefix: both the to-issues footer slug
+    # (e.g. a dedicated collision-avoidance slug "470-persistent-…") and the
+    # seed-issue title fallback slug ("<issue>-<normalized-title>") already
+    # embed the issue number. Only prepend "<issue>-" when KEY does not
+    # already start with it — key=470-foo → feat/470-foo (not feat/470-470-foo),
+    # while key=test-feature → feat/<issue>-test-feature as before.
+    if [[ "$key" == "${issue}-"* ]]; then
+      branch="feat/${key}"
+    else
+      branch="feat/${issue}-${key}"
+    fi
   else
     key=""
     echo "loop: WARN — could not derive KEY for issue #${issue} (no to-issues provenance in body); po-agent will fail input validation" >&2
