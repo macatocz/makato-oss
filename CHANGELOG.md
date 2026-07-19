@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.87.1](https://github.com/macatocz/makato/compare/v0.87.0...v0.87.1) (2026-07-19)
+
+
+### 🐛 Bug Fixes
+
+* **makato-build:** build-verify Gates 1-2 use pre-commit hooks, not raw tools ([#450](https://github.com/macatocz/makato/issues/450)) ([#463](https://github.com/macatocz/makato/issues/463)) ([ff2c63d](https://github.com/macatocz/makato/commit/ff2c63db059674a12f84a5e63a3c12be18f26bce))
+* **makato-orchestrate:** --repo flag and early-exit REPO validation for dispatch ([#461](https://github.com/macatocz/makato/issues/461)) ([ed61aea](https://github.com/macatocz/makato/commit/ed61aea2da0d5a23a0e35e877eced8beb29fc6ec))
+
 ## [0.87.0](https://github.com/macatocz/makato/compare/v0.86.0...v0.87.0) (2026-07-18)
 
 
