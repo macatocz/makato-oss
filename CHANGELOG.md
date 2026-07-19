@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.88.0](https://github.com/macatocz/makato/compare/v0.87.2...v0.88.0) (2026-07-19)
+
+
+### ✨ Features
+
+* mark issue In Progress at workflow start ([#477](https://github.com/macatocz/makato/issues/477)) ([5eefb0f](https://github.com/macatocz/makato/commit/5eefb0f5bb71c53a3ebc92faa4bdd597d1f92c8c))
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** auto-seed and pre-dispatch gate bypass type:change ([#466](https://github.com/macatocz/makato/issues/466)) ([#479](https://github.com/macatocz/makato/issues/479)) ([5e205d2](https://github.com/macatocz/makato/commit/5e205d2582bdcef176ff3ed8450e9f8e7124515e))
+
 ## [0.87.2](https://github.com/macatocz/makato/compare/v0.87.1...v0.87.2) (2026-07-19)
 
 
