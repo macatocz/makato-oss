@@ -2300,6 +2300,30 @@ echo "$t66_stderr" | grep -qi "light\|skip" \
 rm -f "$T66_BLOCK_FILE" "$T66_COMMENT_FILE" "$T66_LABEL_FILE"
 echo "  ✓ plan-tier:light is a no-op (S2 owns it)"
 
+# ---------------------------------------------------------------------------
+# T66b: plan-tier:change candidate → no-op (change-orchestrate owns it, S4 must not block).
+# ---------------------------------------------------------------------------
+echo "=== T66b: plan-tier:change candidate → no-op (change-orchestrate owns it) ==="
+T66B_BLOCK_FILE="$STATE_DIR/t66b-block-$$.txt"
+T66B_COMMENT_FILE="$STATE_DIR/t66b-comment-$$.txt"
+T66B_LABEL_FILE="$STATE_DIR/t66b-label-$$.txt"
+t66b_stderr="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  MAKATO_LOOP_BLOCK_TEST_FILE="$T66B_BLOCK_FILE" \
+  MAKATO_LOOP_COMMENT_TEST_FILE="$T66B_COMMENT_FILE" \
+  MAKATO_LOOP_LABEL_TEST_FILE="$T66B_LABEL_FILE" \
+    "$LOOP" _test-auto-seed-block-full 406 change 2>&1 >/dev/null
+)"
+[[ ! -f "$T66B_BLOCK_FILE" ]] || [[ ! -s "$T66B_BLOCK_FILE" ]] \
+  || fail "T66b: change-tier must not trigger board Blocked; got: $(cat "$T66B_BLOCK_FILE" 2>/dev/null)"
+[[ ! -f "$T66B_COMMENT_FILE" ]] || [[ ! -s "$T66B_COMMENT_FILE" ]] \
+  || fail "T66b: change-tier must not trigger comment; got: $(cat "$T66B_COMMENT_FILE" 2>/dev/null)"
+echo "$t66b_stderr" | grep -qi "change\|skip" \
+  || fail "T66b: should log skip/change reason; got: $t66b_stderr"
+rm -f "$T66B_BLOCK_FILE" "$T66B_COMMENT_FILE" "$T66B_LABEL_FILE"
+echo "  ✓ plan-tier:change is a no-op (change-orchestrate owns it)"
+
 # T67: spec folder already exists → idempotent skip.
 echo "=== T67: spec folder already exists → idempotent skip (no error) ==="
 T67_BLOCK_FILE="$STATE_DIR/t67-block-$$.txt"
@@ -4145,6 +4169,7 @@ printf '%s\n' '*Feature slug: `t72-some-feature` — produced by to-issues v3.x.
 # Deliberately create NO folder named t72-some-feature* in T72_SPECS.
 t72_stderr="$(
   MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$t72_body" \
+  MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="type:feature" \
   MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
   SPECS_DIR="$T72_SPECS" \
     "$LOOP" dispatch 700 2>&1 >/dev/null
@@ -4159,8 +4184,8 @@ t72_active="$(jq -r '.active_workflow // "absent"' "$STATE_DIR/loop-status.json"
   || fail "T72: active_workflow should be null/absent after spec-folder miss; got: $t72_active"
 
 # last_dispatch_issue must be stamped (active_workflow path ran) but no
-# po-agent subprocess was forked (DRY_DISPATCH ensures the fork never fires;
-# the gate fires before the type-routing / fork block).
+# po-agent subprocess was forked (the gate fires and returns 0 before reaching
+# the type-routing / fork block).
 t72_ldi="$(jq -r '.last_dispatch_issue // empty' "$STATE_DIR/loop-status.json" 2>/dev/null || true)"
 [[ "$t72_ldi" == "700" ]] \
   || fail "T72: expected last_dispatch_issue == 700; got: '$t72_ldi'"
@@ -4234,5 +4259,70 @@ grep -qi "could not derive KEY" <<<"$t74_stderr" \
 rm -rf "$T74_DIR"
 echo "  ✓ empty-key regression: new gate skipped, original WARN preserved"
 
+# ---------------------------------------------------------------------------
+# T75: pre-dispatch spec-folder gate — type:change bypass on miss path (#466)
+#   type:change issue with KEY that resolves OK but SPECS_DIR has no matching folder.
+#   Expected: gate is bypassed (no "no specs/ folder" WARN), dispatch proceeds.
+#
+# Design note: this test does NOT use MAKATO_LOOP_DRY_DISPATCH=1 — that flag
+# itself suppresses the gate for all types and would mask a regression of the
+# type:change bypass condition.  Instead we use a sentinel MAKATO_CLAUDE_BIN
+# that exits 0 immediately so the fork never spawns a real subprocess, while
+# the gate (and all intervening code) runs normally.
+#
+# Paired negative-control sub-assertion: type:feature + same miss path must
+# still trigger the gate WARN (regression guard for the non-change path).
+# ---------------------------------------------------------------------------
+echo "=== T75: pre-dispatch gate — type:change bypasses gate on miss path ==="
+T75_DIR="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-t75"
+T75_SPECS="$T75_DIR/specs"
+mkdir -p "$T75_SPECS"
+rm -f "$STATE_DIR/loop-status.json"
+
+t75_body="$T75_DIR/body.txt"
+printf '%s\n' '*Feature slug: `t75-some-change` — produced by to-issues v3.x.*' >"$t75_body"
+# Deliberately NO folder named t75-some-change* in T75_SPECS.
+
+# Sentinel CLAUDE_BIN: exits 0 immediately — lets dispatch reach the fork
+# without spawning real claude.  Disable side-effects that need live GitHub:
+# CAS claim, dispatch gate (merged-PR / in-flight), assign, watchdog.
+t75_sentinel="$T75_DIR/sentinel.sh"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$t75_sentinel"
+chmod +x "$t75_sentinel"
+
+t75_stderr="$(
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$t75_body" \
+  MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="type:change" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  MAKATO_LOOP_CLAIM_ON_DISPATCH=0 \
+  MAKATO_LOOP_GATE_DISABLE=1 \
+  MAKATO_LOOP_ASSIGN_ON_DISPATCH=0 \
+  MAKATO_LOOP_STALL_DISABLE=1 \
+  MAKATO_CLAUDE_BIN="$t75_sentinel" \
+  SPECS_DIR="$T75_SPECS" \
+    "$LOOP" dispatch 703 2>&1 >/dev/null
+)" || fail "T75: cmd_dispatch should return 0 for type:change on miss path"
+
+# Gate must NOT fire for type:change — the bypass condition is what we're testing.
+if grep -qi "no specs/ folder" <<<"$t75_stderr"; then
+  fail "T75: spec-folder gate must be bypassed for type:change; got WARN: $t75_stderr"
+fi
+
+# Negative control: type:feature + same miss path → gate MUST fire.
+# Gate returns 0 directly (calls _auto_seed_unprepared best-effort, returns before fork)
+# so no sentinel needed; the missing-folder error from _auto_seed_unprepared is suppressed.
+t75_nc_stderr="$(
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$t75_body" \
+  MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="type:feature" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  SPECS_DIR="$T75_SPECS" \
+    "$LOOP" dispatch 704 2>&1 >/dev/null
+)" || fail "T75 neg-control: should return 0 for type:feature on gate-miss path"
+grep -qi "no specs/ folder" <<<"$t75_nc_stderr" \
+  || fail "T75 neg-control: gate must fire for type:feature on miss path; got: $t75_nc_stderr"
+
+rm -rf "$T75_DIR"
+echo "  ✓ type:change: spec-folder gate bypassed; negative-control confirms gate fires for type:feature"
+
 echo
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T72–T74 pre-dispatch spec-folder gate, #445; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447) ==="
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447) ==="

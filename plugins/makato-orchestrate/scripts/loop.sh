@@ -2428,6 +2428,12 @@ _auto_seed_block_full() {
     return 0
   fi
 
+  # Change-tier candidates: no-op (makato-change:orchestrate owns them).
+  if [[ "$plan_tier" == "change" ]]; then
+    echo "loop: auto-seed-block — skip #$issue (plan-tier:change — change-orchestrate owns it)" >&2
+    return 0
+  fi
+
   echo "loop: auto-seed-block — processing #$issue (plan-tier '${plan_tier:-untiered}')" >&2
 
   local repo="${MAKATO_LOOP_DISPATCH_REPO:-}"
@@ -2679,7 +2685,7 @@ _auto_seed_unprepared() {
         echo "loop: WARN — auto-seed #$n light dispatch failed (rc=$dispatch_rc); tick continues" >&2
       fi
     else
-      # S4: block full/change/untiered issues.
+      # S4: block full/untiered issues. (change-tier is a no-op in _auto_seed_block_full)
       _auto_seed_block_full "$n" "$plan_tier" || true
     fi
   done < <(jq -r '.[] | [.number, .plan_tier] | @tsv' <<<"$candidates" 2>/dev/null || true)
@@ -3184,37 +3190,14 @@ cmd_dispatch() {
     echo "loop: WARN — could not derive KEY for issue #${issue} (no to-issues provenance in body); po-agent will fail input validation" >&2
   fi
 
-  # ---------------------------------------------------------------------------
-  # Pre-dispatch spec-folder gate (#445) — verify the derived KEY resolves to
-  # an actual specs/ folder BEFORE forking the po-agent subprocess. A
-  # truncated or mismatched KEY (e.g. a 40-char title-derived slug that cuts
-  # mid-word) produces a KEY that has no matching specs/<KEY>*/ folder; the
-  # po-agent would start, fail Step 1, and HALT-006 — wasting the dispatch
-  # slot. This gate catches the mismatch here and routes to auto-seed
-  # instead, consuming no dispatch slot.
-  #
-  # The gate fires only when key is non-empty (a failed derivation already
-  # logged the "could not derive KEY" WARN above and leaves key=""; the
-  # existing path for that case is unchanged).
-  #
-  # SPECS_DIR (line 239) is the offline test seam: point it at a temp dir to
-  # exercise the miss or hit path in smoke tests — the same override used by
-  # _spec_folder_for_key, in_flight_issues, _is_orphan_issue, and the
-  # auto-seed helpers throughout this file (see MAKATO_LOOP_GATE_LABELS_OVERRIDE
-  # for the analogous pattern in the dispatch gate block below).
-  # ---------------------------------------------------------------------------
-  if [[ -n "$key" && "$dry_run" != "--dry-run" && "${MAKATO_LOOP_DRY_DISPATCH:-0}" != "1" ]] && ! _spec_folder_for_key "$key" >/dev/null 2>&1; then
-    echo "loop: WARN — pre-dispatch: KEY '${key}' matches no specs/ folder for #${issue}; routing to auto-seed, slot not consumed" >&2
-    _auto_seed_unprepared "$issue" 2>/dev/null || true
-    _patch_status '.active_workflow' 'null'
-    return 0
-  fi
-
   # Routing: issues labelled type:change are dispatched through the
   # makato-change:orchestrate --autonomous path; everything else goes to
   # the po-agent (makato-build pipeline).
   # Test hook: MAKATO_LOOP_ISSUE_TYPE_OVERRIDE — when set, its value is used
   # as issue_type directly (keeps routing smoke tests offline).
+  # Resolved here (before the spec-folder gate) so the gate can bypass
+  # type:change issues — change-orchestrate creates its own spec folder in
+  # Step 0.5 and must never be blocked by a missing pre-existing folder.
   local issue_type=""
   if [[ -n "${MAKATO_LOOP_ISSUE_TYPE_OVERRIDE:-}" ]]; then
     issue_type="$MAKATO_LOOP_ISSUE_TYPE_OVERRIDE"
@@ -3241,6 +3224,37 @@ cmd_dispatch() {
         '[.labels[].name | select(startswith("type:"))] | first // ""' \
         <<<"$labels_json" 2>/dev/null || true)"
     fi
+  fi
+
+  # ---------------------------------------------------------------------------
+  # Pre-dispatch spec-folder gate (#445) — verify the derived KEY resolves to
+  # an actual specs/ folder BEFORE forking the po-agent subprocess. A
+  # truncated or mismatched KEY (e.g. a 40-char title-derived slug that cuts
+  # mid-word) produces a KEY that has no matching specs/<KEY>*/ folder; the
+  # po-agent would start, fail Step 1, and HALT-006 — wasting the dispatch
+  # slot. This gate catches the mismatch here and routes to auto-seed
+  # instead, consuming no dispatch slot.
+  #
+  # The gate fires only when key is non-empty (a failed derivation already
+  # logged the "could not derive KEY" WARN above and leaves key=""; the
+  # existing path for that case is unchanged) AND the issue is not type:change
+  # (change-orchestrate creates its own spec folder in Step 0.5 — the gate
+  # does not apply to that path).
+  #
+  # SPECS_DIR (line 239) is the offline test seam: point it at a temp dir to
+  # exercise the miss or hit path in smoke tests — the same override used by
+  # _spec_folder_for_key, in_flight_issues, _is_orphan_issue, and the
+  # auto-seed helpers throughout this file (see MAKATO_LOOP_GATE_LABELS_OVERRIDE
+  # for the analogous pattern in the dispatch gate block below).
+  # ---------------------------------------------------------------------------
+  if [[ -n "$key" && "$issue_type" != "type:change" \
+        && "$dry_run" != "--dry-run" \
+        && "${MAKATO_LOOP_DRY_DISPATCH:-0}" != "1" ]] \
+      && ! _spec_folder_for_key "$key" >/dev/null 2>&1; then
+    echo "loop: WARN — pre-dispatch: KEY '${key}' matches no specs/ folder for #${issue}; routing to auto-seed, slot not consumed" >&2
+    _auto_seed_unprepared "$issue" 2>/dev/null || true
+    _patch_status '.active_workflow' 'null'
+    return 0
   fi
 
   if [[ "$dry_run" == "--dry-run" ]]; then

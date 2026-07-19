@@ -185,7 +185,7 @@ The driver also exposes lower-level subcommands for diagnostics:
 | `dispatch <ISSUE> [--dry-run]` | Manually dispatch one issue. |
 | `remove-worktrees` | Remove local worktrees under `.claude/worktrees/` whose branch has a merged PR (#265); skips main/dirty/locked/retained/detached/nested. Also a pre-poll pass in `run`. One-shot: `MAKATO_LOOP_REAP_INTERVAL=0 loop remove-worktrees` (`MAKATO_LOOP_REAP_DRYRUN=1` to inspect). |
 | `promote-ready` | Run the label→board promotion pass once and exit (#231). Useful for one-shot promotion without starting the full loop. |
-| `auto-seed` | Run the pre-poll auto-seed pass (`_auto_seed_unprepared`) once and exit (#373, epic #367 S5). Seeds or blocks every open issue not yet at `status:ready-for-dev`: light-tier issues → headless `seed-issue` dispatch + thin-body reconciliation; full/change/untiered → spec-folder stub + board `Blocked` + `needs-human-review`. Best-effort: a failure per candidate logs a WARN and the pass always returns 0. |
+| `auto-seed` | Run the pre-poll auto-seed pass (`_auto_seed_unprepared`) once and exit (#373, epic #367 S5). Seeds or blocks every open issue not yet at `status:ready-for-dev`: light-tier issues → headless `seed-issue` dispatch + thin-body reconciliation; change-tier → no-op (change-orchestrate owns them); full/untiered → spec-folder stub + board `Blocked` + `needs-human-review`. Best-effort: a failure per candidate logs a WARN and the pass always returns 0. |
 | `reconcile-orphaned` | Move board cards that are `In progress` but have no live local workflow-state to `Blocked` + `needs-human-review` (#368). Best-effort one-shot pass. |
 | `check-halt` | Exit 0/1 mirroring `hooks/check-halt.sh`. |
 
@@ -219,7 +219,10 @@ Each outer iteration of `run` performs the following steps in order:
    `status:ready-for-dev` and routes it to the appropriate arm:
    `plan-tier:light` → `_auto_seed_dispatch_light` (headless `seed-issue`
    dispatch) followed by `_auto_seed_reconcile_thin_body` (thin-body
-   reconciliation); `plan-tier:full`, `plan-tier:change`, or untiered →
+   reconciliation); `plan-tier:change` → no-op (change-orchestrate creates
+   its own spec folder in Step 0.5 — `_auto_seed_block_full` returns 0
+   immediately without writing a plan.md stub, blocking the card, or posting
+   a comment); `plan-tier:full` or untiered →
    `_auto_seed_block_full` (spec-folder stub + board `Blocked` +
    `needs-human-review`). Each candidate is handled under `|| true`
    (best-effort: any per-candidate failure logs a WARN and the pass continues).
