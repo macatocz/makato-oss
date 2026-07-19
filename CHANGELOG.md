@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.89.2](https://github.com/macatocz/makato/compare/v0.89.1...v0.89.2) (2026-07-19)
+
+
+### 🐛 Bug Fixes
+
+* isolate makato-change orchestrate in a worktree on fresh runs and resumes ([#467](https://github.com/macatocz/makato/issues/467)) ([#485](https://github.com/macatocz/makato/issues/485)) ([7757329](https://github.com/macatocz/makato/commit/7757329e283df954cb4cf38452958397cdab2b51))
+
 ## [0.89.1](https://github.com/macatocz/makato/compare/v0.89.0...v0.89.1) (2026-07-19)
 
 
