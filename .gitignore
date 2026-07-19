@@ -175,6 +175,7 @@ docs/superpowers/specs/
 specs/**
 !specs/**/
 !specs/**/build.jsonl
+!specs/**/spec.md
 
 # Subagent-Driven Development scratch (progress ledger, task briefs, review packages)
 .superpowers/
