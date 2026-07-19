@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.89.1](https://github.com/macatocz/makato/compare/v0.89.0...v0.89.1) (2026-07-19)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** avoid doubled issue-number prefix in loop dispatch branch ([#483](https://github.com/macatocz/makato/issues/483)) ([57f04ad](https://github.com/macatocz/makato/commit/57f04adee054f242ac97261537e0e5e282e4f72f))
+
 ## [0.89.0](https://github.com/macatocz/makato/compare/v0.88.0...v0.89.0) (2026-07-19)
 
 
