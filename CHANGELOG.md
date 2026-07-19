@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.90.0](https://github.com/macatocz/makato/compare/v0.89.2...v0.90.0) (2026-07-19)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** persistent memory store and shared recall ([#470](https://github.com/macatocz/makato/issues/470)) ([#487](https://github.com/macatocz/makato/issues/487)) ([5393f87](https://github.com/macatocz/makato/commit/5393f87a409601b20b03fa2ff8f562ee786b0dd1))
+
 ## [0.89.2](https://github.com/macatocz/makato/compare/v0.89.1...v0.89.2) (2026-07-19)
 
 
