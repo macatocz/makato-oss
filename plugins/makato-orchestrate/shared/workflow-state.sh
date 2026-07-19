@@ -34,12 +34,17 @@
 #       command exits 0. Called by the PO-agent EXACTLY ONCE per run at its
 #       terminal state (Step 7), so the counter measures cross-run recurrence,
 #       never within-run retries. Prints the resulting counter value to stdout.
-#   recall-lessons <REPO> [N]
-#       Print the top-N most recent lessons across every
-#       specs/*/workflow-state-*.json whose .repo == REPO (default N=3). Output is
-#       a JSON array of lesson items, newest first. Used by the PO-agent at
-#       session start (GAP-015 / #37 AC3) to inject prior lessons into the coder
-#       dispatch bundle. Signature unchanged — the aggregator glob widened.
+#   recall-lessons <REPO> [N] [--bundles <b1,b2,...>] [--labels <l1,l2,...>]
+#       Print the top-N lessons across every specs/*/workflow-state-*.json whose
+#       .repo == REPO (default N=3) PLUS every line in
+#       $MAKATO_MEMORY_ROOT/.makato/memory/*.jsonl (the committed persistent store,
+#       defaulting to the main-checkout REPO_ROOT when the env var is unset).
+#       Ordered by scope asc, occurrences DESC, ts DESC. Malformed JSONL lines in
+#       the committed store are skipped without aborting (AC-4 / #470).
+#       --bundles <csv>  Filter to lessons whose .bundle field is in the list.
+#       --labels  <csv>  Filter to lessons whose .label  field is in the list.
+#       Empty (or absent) filter means no-filter — preserves the existing
+#       2-arg recall-lessons <REPO> [N] call byte-for-byte (AC-2 / #470).
 #   summarise-lessons <KEY> <ISSUE_NUMBER>
 #       Write specs/<key>-<slug>/lessons-YYYYMMDD.md from lessons_learned[]. Used by
 #       the PO-agent at terminal states (success and HALT) per GAP-015 / #37 AC4.
@@ -740,31 +745,160 @@ case "$SUBCMD" in
   # -------------------------------------------------------------------------
   recall-lessons)
     REPO="$ARG2"
-    LIMIT="${3:-3}"
+
+    # Parse positional N and optional --bundles / --labels flags.
+    # Supports both:
+    #   recall-lessons <REPO> [N]                                (AC-2 backward compat)
+    #   recall-lessons <REPO> [N] [--bundles b1,b2] [--labels l1,l2]  (AC-1 / #470)
+    # Parsing starts at $3 (after SUBCMD and REPO).
+    LIMIT="3"
+    BUNDLES_CSV=""
+    LABELS_CSV=""
+    _recall_idx=3
+    # Capture positional N if it is a bare positive integer (not a flag).
+    if [[ "${!_recall_idx:-}" =~ ^[0-9]+$ ]]; then
+      LIMIT="${!_recall_idx}"
+      _recall_idx=$(( _recall_idx + 1 ))
+    fi
+    # Parse remaining --bundles / --labels flags in any order.
+    while [[ $_recall_idx -le $# ]]; do
+      _flag="${!_recall_idx}"
+      _recall_idx=$(( _recall_idx + 1 ))
+      case "$_flag" in
+        --bundles)
+          BUNDLES_CSV="${!_recall_idx:-}"
+          _recall_idx=$(( _recall_idx + 1 ))
+          ;;
+        --labels)
+          LABELS_CSV="${!_recall_idx:-}"
+          _recall_idx=$(( _recall_idx + 1 ))
+          ;;
+        *)
+          echo "workflow-state: recall-lessons unrecognised argument '$_flag'" >&2
+          exit 1
+          ;;
+      esac
+    done
 
     if [[ ! "$LIMIT" =~ ^[0-9]+$ ]] || (( LIMIT < 1 )); then
       echo "workflow-state: recall-lessons N must be a positive integer (got '$LIMIT')" >&2
       exit 1
     fi
 
-    if [[ ! -d "$SPECS_DIR" ]]; then
-      echo '[]'
-      exit 0
+    # Resolve the committed memory store root. Callers may override via
+    # MAKATO_MEMORY_ROOT for testing (AC-3 / AC-4 isolation). Default is the
+    # main-checkout REPO_ROOT (NOT the worktree — committed store lives in main).
+    MEMORY_ROOT="${MAKATO_MEMORY_ROOT:-$REPO_ROOT}"
+    MEMORY_DIR="$MEMORY_ROOT/.makato/memory"
+
+    # Build jq bundle/label filter expressions.
+    # Empty CSV means no-filter (all lessons pass — AC-2 backward compat).
+    # --argjson allows null for "no filter applied".
+    BUNDLES_JSON="null"
+    LABELS_JSON="null"
+    if [[ -n "$BUNDLES_CSV" ]]; then
+      BUNDLES_JSON="$(echo "$BUNDLES_CSV" | tr ',' '\n' | jq -R . | jq -s .)"
+    fi
+    if [[ -n "$LABELS_CSV" ]]; then
+      LABELS_JSON="$(echo "$LABELS_CSV" | tr ',' '\n' | jq -R . | jq -s .)"
     fi
 
-    # Find every workflow-state-*.json under specs/, filter by .repo == REPO,
-    # flatten .lessons_learned[] across the matching states, sort newest first.
-    # Pass all paths to a single `jq -s` invocation (slurps the parsed payloads
-    # into one array) — O(1) jq forks instead of O(N) under xargs -I{}.
-    #
-    # Glob widened from workflow-state.json to workflow-state-*.json (#173).
-    # Any legacy pre-migration files are picked up by their next read/mutate;
-    # this aggregate view intentionally ignores them until then.
-    find "$SPECS_DIR" -mindepth 2 -maxdepth 2 -type f -name 'workflow-state-*.json' -print0 2>/dev/null |
-      xargs -0 jq -s --arg repo "$REPO" --argjson n "$LIMIT" \
-        '[.[] | select(.repo == $repo) | (.lessons_learned // [])[]]
-         | sort_by([.cycle, .ts]) | reverse | .[0:$n]' \
-        2>/dev/null
+    # ----------------------------------------------------------------
+    # Step 1: Collect lessons from workflow-state-*.json files (live state).
+    # ----------------------------------------------------------------
+    WS_LESSONS="[]"
+    if [[ -d "$SPECS_DIR" ]]; then
+      # xargs -0 with no input is a no-op; guard for empty find result.
+      MATCH_FILES="$(find "$SPECS_DIR" -mindepth 2 -maxdepth 2 -type f -name 'workflow-state-*.json' 2>/dev/null || true)"
+      if [[ -n "$MATCH_FILES" ]]; then
+        WS_LESSONS="$(echo "$MATCH_FILES" | tr '\n' '\0' | xargs -0 jq -s \
+          --arg repo "$REPO" \
+          '[.[] | select(.repo == $repo) | (.lessons_learned // [])[]]' \
+          2>/dev/null || echo "[]")"
+      fi
+    fi
+
+    # ----------------------------------------------------------------
+    # Step 2: Collect lessons from the committed memory store.
+    # Read each *.jsonl file in MEMORY_DIR line by line, skipping
+    # malformed lines (AC-4 / #470). Missing directory is AC-3 (return []).
+    # ----------------------------------------------------------------
+    STORE_LESSONS="[]"
+    if [[ -d "$MEMORY_DIR" ]]; then
+      # Read all *.jsonl files; python3 handles the malformed-line skip.
+      STORE_LESSONS="$(python3 - "$MEMORY_DIR" "$REPO" <<'PYEOF'
+import sys, json, glob, pathlib, os
+
+memory_dir = sys.argv[1]
+repo = sys.argv[2]
+
+lessons = []
+for fpath in sorted(glob.glob(os.path.join(memory_dir, "*.jsonl"))):
+    try:
+        with open(fpath) as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                    if isinstance(obj, dict) and obj.get("repo") == repo:
+                        lessons.append(obj)
+                except (json.JSONDecodeError, ValueError):
+                    # AC-4: skip malformed lines silently
+                    pass
+    except OSError:
+        pass
+
+print(json.dumps(lessons))
+PYEOF
+      )" || STORE_LESSONS="[]"
+    fi
+
+    # ----------------------------------------------------------------
+    # Step 3: Merge, filter, sort, limit.
+    # Filter: repo AND (bundle in my_bundles OR label in my_labels)
+    #         when bundles/labels filters are non-empty (AC-1 / #470).
+    #         When both are null, pass all lessons (AC-2 backward compat).
+    # Order: scope asc (generalizable < local < other), then occurrences DESC,
+    #        then ts DESC (AC-1 / #470).
+    # Two-pass stable sort: ts DESC first (so within scope+occ ties newest wins),
+    # then scope+occurrences as the primary stable key.
+    # ----------------------------------------------------------------
+    jq -n \
+      --argjson ws      "$WS_LESSONS" \
+      --argjson store   "$STORE_LESSONS" \
+      --argjson bundles "$BUNDLES_JSON" \
+      --argjson labels  "$LABELS_JSON" \
+      --argjson n       "$LIMIT" \
+      '
+      ($ws + $store)
+      | map(
+          if ($bundles == null and $labels == null) then
+            .
+          else
+            select(
+              ($bundles != null and ((.bundle // "") as $b | $bundles | index($b) != null))
+              or
+              ($labels  != null and ((.label  // "") as $l | $labels  | index($l) != null))
+            )
+          end
+        )
+      # Pass 1: sort by ts descending — so within scope+occurrences ties newest wins.
+      | sort_by(.ts // "") | reverse
+      # Pass 2: stable sort by [scope_rank asc, occurrences desc, cycle desc].
+      # Adding -cycle as a tiebreaker after occurrences restores the legacy
+      # cycle-DESC ordering for items that have no scope/occurrences fields
+      # (AC-2 backward compat — the old sort was cycle DESC, ts DESC).
+      # jq sort_by is stable: preserves the ts-desc order from pass 1 within
+      # groups that share the same scope_rank, occurrences, and cycle.
+      | sort_by([
+          (if .scope == "generalizable" then 0 elif .scope == "local" then 1 else 2 end),
+          ((.occurrences // 1) * -1),
+          ((.cycle // 0) * -1)
+        ])
+      | .[0:$n]
+      ' 2>/dev/null || echo "[]"
     ;;
 
   # -------------------------------------------------------------------------

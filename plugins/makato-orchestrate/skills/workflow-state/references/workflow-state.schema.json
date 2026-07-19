@@ -246,6 +246,26 @@
               "type": "string",
               "minLength": 1
             }
+          },
+          "bundle": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Optional skill/language/framework domain tag for this lesson (e.g. 'python', 'infra', 'ci'). Used by recall-lessons --bundles filter (#470). Absent on legacy entries without a bundle."
+          },
+          "scope": {
+            "type": "string",
+            "enum": ["generalizable", "local"],
+            "description": "Optional breadth classification: 'generalizable' = applicable across issues; 'local' = specific to this issue's context. Used by recall-lessons sort order (#470, AC-1): generalizable sorts before local."
+          },
+          "occurrences": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Optional count of how many times this pattern has been observed. Higher values sort earlier within the same scope level (AC-1 ordering: scope asc, occurrences DESC, recency DESC). Defaults to 1 when absent."
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Optional free-form label tag complementary to bundle (e.g. a GitHub label name). Used by recall-lessons --labels filter (#470). Absent on most entries."
           }
         }
       }

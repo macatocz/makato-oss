@@ -162,15 +162,46 @@ shared/workflow-state.sh bump-structural-halt gap-003 26 HALT-008 ci_failure
 
 Called by the PO-agent **exactly once per run** at its terminal state (Step 7) so the counter measures cross-run recurrence of structural failure on the same issue — the property epic #319's AC-epic-1 needs to detect "repeated" structural HALT. It is **never** reset on a HALT-007B context handoff: the resumed session must read the same value the prior session persisted. Backward-compatible with pre-#347 in-flight state files — an absent field is treated as 0 and backfilled on the first structural increment. This counter drives the Needs Planning signal in sibling story #348.
 
-### `recall-lessons <REPO> [N]`
+### `recall-lessons <REPO> [N] [--bundles b1,b2,...] [--labels l1,l2,...]`
 
-Aggregate `lessons_learned[]` across every `specs/*/workflow-state-*.json` whose `.repo` matches `<REPO>`. Returns the top-`N` (default 3) most recent lessons as a JSON array, sorted `(cycle DESC, ts DESC)`. Used by the PO-agent at session start (GAP-015 / #37 AC3) to warm-start the dispatch bundle with prior lessons from the same repository. The glob widened from `workflow-state.json` to `workflow-state-*.json` in #173 — legacy pre-migration files are picked up by their next read/mutate and thereafter appear in the aggregate view.
+Aggregate lessons from two sources for the given repo:
+
+1. `lessons_learned[]` arrays across every `specs/*/workflow-state-*.json` whose `.repo`
+   matches `<REPO>` (existing path, widened for #173).
+2. JSONL records in `.makato/memory/*.jsonl` in the main checkout whose `repo` field
+   matches `<REPO>` (committed persistent store, #470).
+
+Returns the top-`N` (default 3) lessons as a JSON array, sorted by **scope asc**
+(`generalizable` before `local`), then **occurrences DESC**, then **recency DESC**
+(cycle DESC, ts DESC as tiebreaker). The sort is a two-pass stable sort: ts-DESC
+first, then scope+occurrences+cycle as the primary key, so recency is the final
+tiebreaker within otherwise equal groups.
+
+Optional filters (both default to no-filter when omitted — **AC-2 backward compat**):
+
+- `--bundles b1,b2,...` — restrict results to lessons whose `bundle` field matches
+  one of the comma-separated values. Lessons without a `bundle` field never match a
+  bundle filter.
+- `--labels l1,l2,...` — restrict by `label` field (complementary to bundle).
+
+When both `--bundles` and `--labels` are provided, a lesson passes the filter if it
+matches either (OR semantics).
 
 ```bash
+# Original 2-arg call — returns top-3 for repo, no filter (AC-2 backward compat)
 shared/workflow-state.sh recall-lessons macatocz/my-app 3 | jq '.[].description'
+
+# Filtered call — top-5 lessons for the python bundle
+shared/workflow-state.sh recall-lessons macatocz/my-app 5 --bundles python
+
+# Multiple bundles
+shared/workflow-state.sh recall-lessons macatocz/my-app 3 --bundles python,infra
 ```
 
-Returns `[]` when no matching repo is found or `specs/` does not exist.
+Returns `[]` when no matching repo is found, `specs/` does not exist, and
+`.makato/memory/` is absent or empty for that repo. Malformed JSONL lines in the
+committed store are skipped silently (AC-4). See `MAKATO_MEMORY_ROOT` env var to
+override the committed store root in tests.
 
 ### `summarise-lessons <KEY> <ISSUE_NUMBER>`
 
@@ -246,3 +277,5 @@ All four are present on the repo's CI image and on standard developer machines.
 ## Verification
 
 Smoke tests live in @references/smoke-tests.sh — run from repo root after any change to `workflow-state.sh` or the schema. The script covers init/read/write/patch/append-lesson/append-halt/bump-structural-halt/recall-lessons/summarise-lessons, duplicate-init refusal, missing-file `{}` response, indexed-path patches, invalid-write halts, the GAP-015 / #37 lessons schema (enum violation, cycle integer guard, 200-char truncation, files_affected variadic, merge_conflict trigger, patch-preserves-lessons, recall filter by repo, summarise idempotency), and the #347 structural-HALT counter matrix (T47–T54: init default, HALT-STRUCTURAL / HALT-008-outer_iteration / HALT-003 / HALT-010 increments, non-structural no-ops incl. HALT-007B handoff, backward-compat backfill, malformed-code rejection).
+
+The `recall-lessons` extension (#470) is covered by a separate suite at @references/recall-extension-smoke-tests.sh (T59–T64): backward-compat 2-arg call, `--bundles` filter, scope/occurrences/recency sort order, `[]` on missing committed store, malformed-JSONL skip, and committed-store integration.

@@ -303,6 +303,13 @@ Thumbs.db
 # makato runtime state (session data, orchestrator caches) — machine-local
 .local/
 thycotic-secrets.json
+.loop-owner.pid
+
+# .makato committed memory store — ignore all *.jsonl under .makato/ by default,
+# then re-include only the two persistent committed files (AC-5 / #470).
+.makato/**/*.jsonl
+!.makato/memory/semantic.jsonl
+!.makato/memory/procedural.jsonl
 
 # Testing
 htmlcov/

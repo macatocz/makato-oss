@@ -8,6 +8,7 @@ ALLOWED=(
   ".claude"
   ".claude-plugin"
   ".github"
+  ".makato"
   ".git"
   "plugins"
   "packages"

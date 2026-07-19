@@ -5,6 +5,19 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+- **Added** persistent memory store and extended `recall-lessons` (#470, epic #464 S1).
+  Creates `.makato/memory/` with committed `semantic.jsonl` and `procedural.jsonl` JSONL files as the persistent, cross-run lesson store. Extends `recall-lessons` to read this store alongside `workflow-state-*.json` sources, adds optional `--bundles`/`--labels` filters, and sorts results by scope asc, occurrences DESC, recency DESC. Updates the po-agent Step 2c call-site to pass tech-label bundles. All changes backward-compatible with the existing 2-arg `recall-lessons <REPO> [N]` signature.
+  - **`.makato/memory/semantic.jsonl`** and **`.makato/memory/procedural.jsonl`** — empty committed JSONL files; the persistent store that outlives per-issue spec folders.
+  - **`.gitignore`** — `*.jsonl` under `.makato/` ignored by default; the two committed files explicitly negated. `.loop-owner.pid` also added to the gitignore so the root-structure guard passes cleanly.
+  - **`scripts/check-root-structure.sh`** — `.makato` added to the `ALLOWED` hidden-directory array.
+  - **`shared/workflow-state.sh`** — `recall-lessons` extended: reads `.makato/memory/*.jsonl`, parses optional `--bundles`/`--labels` from argv, applies OR-filtered bundle/label matching, sorts by `[scope_rank ASC, occurrences DESC, cycle DESC, ts DESC]` (two-pass stable sort for backward compat with legacy items). Malformed JSONL lines skipped without aborting.
+  - **`skills/workflow-state/references/workflow-state.schema.json`** — `lessons_learned` items extended with optional `bundle`, `scope` (`generalizable`|`local`), `occurrences`, and `label` fields (additionalProperties remains false).
+  - **`skills/workflow-state/references/recall-extension-smoke-tests.sh`** — new T59–T64 smoke suite for the recall extension (AC-1 through AC-5).
+  - **`agents/po-agent.md`** Step 2c — updated to derive `BUNDLES_CSV` from `tech:*` labels and pass `--bundles` to `recall-lessons`.
+  - **`skills/workflow-state/SKILL.md`** — `recall-lessons` signature documented with filters and sort order.
+  - **`README.md`** — workflow-state skill description updated; `workflow-state.sh` entry updated.
+  - New tests: `tests/test_memory_store.py`, `tests/test_root_structure_guard.py`, `tests/test_makato_gitignore.py`, `tests/test_recall_lessons.py`.
+
 - **Fixed** `context-handoff.sh` `_emit_resume` — type:change resume routing (#467).
   - A HALT-007B context handoff now detects a `type:change` run by the presence of `specs/*/change-state-<N>.json` and emits a `makato-change:orchestrate` resume prompt (with the recovered `WORKTREE_PATH` baked in and a "resume from current phase, commit inside WORKTREE_PATH" instruction) instead of the po-agent prompt. Non-change issues keep the byte-for-byte-unchanged po-agent resume path.
   - Adds T16 (change-state present → change-orchestrate + WORKTREE_PATH) and T17 (absent → po-agent) to `context-handoff-smoke-tests.sh`; adds T76 (type:change dispatch threads change-orchestrate + REPO_ROOT) to `loop-smoke-tests.sh`.

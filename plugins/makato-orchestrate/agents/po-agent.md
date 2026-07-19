@@ -340,17 +340,43 @@ AND PR number present). See § *Worktree lifecycle*.
 
 ### Step 2c — Recall prior lessons
 
-Run `shared/workflow-state.sh recall-lessons <REPO> 3`. It aggregates
-`lessons_learned[]` across every `specs/*/workflow-state.json` matching
-`<REPO>` and returns the top-3 most recent (sorted
-`cycle DESC, ts DESC`) as a JSON array. Cache it for Step 4d injection
+Collect the issue's `tech:*` label values (strip the `tech:` prefix) to use as
+bundle filters — e.g. `tech:python` → `python`. Reuse the labels already fetched
+in Step 1a when available; otherwise run:
+
+```bash
+mapfile -t LABELS < <(gh issue view <ISSUE_NUMBER> --repo <REPO> \
+  --json labels --jq '.labels[].name' 2>/dev/null || true)
+```
+
+Derive `BUNDLES_CSV` from the tech labels:
+
+```bash
+BUNDLES_CSV="$(printf '%s\n' "${LABELS[@]}" | grep '^tech:' | sed 's/^tech://' | paste -sd ',' -)"
+```
+
+Then call recall-lessons with the derived bundles when non-empty (AC-2 backward
+compat: omitting `--bundles` means no filter):
+
+```bash
+if [[ -n "$BUNDLES_CSV" ]]; then
+  PRIOR_LESSONS="$(shared/workflow-state.sh recall-lessons <REPO> 3 --bundles "$BUNDLES_CSV")"
+else
+  PRIOR_LESSONS="$(shared/workflow-state.sh recall-lessons <REPO> 3)"
+fi
+```
+
+The command aggregates `lessons_learned[]` across every `specs/*/workflow-state.json`
+matching `<REPO>` AND from `.makato/memory/*.jsonl` in the committed memory store,
+filters by the run's tech-label bundles (when present), and returns the top-3 sorted
+by scope asc, occurrences DESC, recency DESC (#470). Cache it for Step 4d injection
 under the canonical context-bundle key `PRIOR_LESSONS`. An empty result
 `[]` is normal on first run — do NOT HALT.
 
 Emit:
 
 ```json
-{"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"recall-lessons","status":"ok","data":{"repo":"<REPO>","count":<N>}}
+{"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"recall-lessons","status":"ok","data":{"repo":"<REPO>","count":<N>,"bundles":"<BUNDLES_CSV-or-empty>"}}
 ```
 
 ### Step 3 — Build the sub-task list (fresh run only)
