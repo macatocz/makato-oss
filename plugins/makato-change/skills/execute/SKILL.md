@@ -1,7 +1,7 @@
 ---
 name: execute
 description: Implement change request by modifying code, updating tests, running verification, and creating pull request with GitHub issue link. Use for implementation, coding changes, test updates, PR creation.
-version: "1.2.0"
+version: "1.3.0"
 argument-hint: "[ISSUE-KEY]"
 ---
 
@@ -85,15 +85,39 @@ test -d "$REPO_ROOT/.git"
 
 **IMPORTANT: All git operations must use `git -C <REPO_ROOT>` to operate on the target repository regardless of current working directory.**
 
-### Step 1.6: Transition to In Progress
+### Step 1.6: Transition to In Progress on project board
 
-**Transition to In Progress:**
-- Get current issue status using MCP tool `gh issue view` (with fields: ["status"]) - do NOT use `gh issue view`
-- If status is "Open" or "New", transition to "In Progress":
-  - Get available transitions using `gh issue view --json state`
-  - Find transition to "In Progress" status
-  - Execute transition using `gh issue edit --state` (no comment needed for this straightforward transition)
-  - If transition fails (not available), continue without error (workflow may differ by project)
+Mark the issue as In Progress on the GitHub Projects board immediately — before any code is written — so the autonomous loop does not pick up the same issue concurrently.
+
+**Determine `ISSUE_NUMBER`** from the `ISSUE_KEY` argument (e.g., `specs/<ISSUE_KEY>/repositories.yml` or simply parse the numeric part of the key if it is a plain integer).
+
+**Read project config** from `.claude/config.json` at the repo root. Extract from the `github_project` block: `fields.status.id`, `fields.status.options.in_progress`, `project_node_id`, `host`, `owner`, `number`. If the block is absent or any field is missing, skip this step with a WARN and continue (best-effort — never block execution).
+
+**Otherwise:**
+
+1. Find the board item and its current status:
+   ```bash
+   ITEM_LINE="$(GH_HOST="$HOST" gh project item-list "$PROJECT_NUMBER" \
+     --owner "$OWNER" --format json --limit 9999 \
+     --jq ".items[] | select(.content.number == $ISSUE_NUMBER)" 2>/dev/null \
+     | head -1)"
+   ITEM_ID="$(jq -r '.id // empty' <<<"$ITEM_LINE")"
+   CUR_STATUS="$(jq -r '.status // empty' <<<"$ITEM_LINE")"
+   ```
+   If `ITEM_ID` is empty: log `execute: WARN — issue #$ISSUE_NUMBER not found on board; skipping In Progress update` and continue.
+
+2. Set Status = In Progress (only if not already set):
+   If `CUR_STATUS` is already `"In progress"`: log `execute: #$ISSUE_NUMBER is already In Progress — skipping` and continue.
+   Otherwise:
+   ```bash
+   GH_HOST="$HOST" gh project item-edit \
+     --id "$ITEM_ID" \
+     --project-id "$PROJECT_NODE_ID" \
+     --field-id "$STATUS_FIELD_ID" \
+     --single-select-option-id "$IN_PROGRESS_OPTION_ID"
+   ```
+   On success: log `execute: marked #$ISSUE_NUMBER as In Progress on project board`.
+   On failure: log `execute: WARN — could not set In Progress on board; continuing` (best-effort).
 
 ### Step 2: Implement Changes Following Design
 

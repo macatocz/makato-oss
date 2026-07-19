@@ -1,7 +1,7 @@
 ---
 name: orchestrate
 description: Guide users through change request workflow (analyze, design, execute, resolve-review), track progress, coordinate phases
-version: "1.2.0"
+version: "1.3.0"
 argument-hint: "[ISSUE-KEY] [--autonomous]"
 ---
 # orchestrate
@@ -87,7 +87,34 @@ Narrate every phase dispatch into a single live GitHub issue comment so anyone w
 
    Store the returned path in `change-state-<N>.json:.worktree_path`. If `MAKATO_ORCHESTRATE_SHARED` is unset, log a warning and continue without worktree isolation.
 
-5. **Emit run-start note** (if `MAKATO_ORCHESTRATE_SHARED` is set):
+5. **Mark In Progress on project board** — immediately before any phase dispatch, mark the issue as In Progress so the autonomous loop cannot pick it up concurrently.
+
+   Determine `ISSUE_NUMBER` from the workflow-state stub (`.issue_number`).
+
+   Read `.claude/config.json` → `github_project` block. If the block or any of `fields.status.id`, `fields.status.options.in_progress`, `project_node_id`, `host`, `owner`, `number` are missing, log `orchestrate: WARN — no github_project config; board status not updated` and continue (best-effort — never HALT).
+
+   Otherwise, resolve `ITEM_ID` and current status:
+   ```bash
+   ITEM_LINE="$(GH_HOST="$HOST" gh project item-list "$PROJECT_NUMBER" \
+     --owner "$OWNER" --format json --limit 9999 \
+     --jq ".items[] | select(.content.number == $ISSUE_NUMBER)" 2>/dev/null \
+     | head -1)"
+   ITEM_ID="$(jq -r '.id // empty' <<<"$ITEM_LINE")"
+   CUR_STATUS="$(jq -r '.status // empty' <<<"$ITEM_LINE")"
+   ```
+   If `ITEM_ID` is empty: log a WARN and continue.
+   If `CUR_STATUS` is already `"In progress"`: log `orchestrate: #$ISSUE_NUMBER is already In Progress — skipping` and continue.
+   Otherwise:
+   ```bash
+   GH_HOST="$HOST" gh project item-edit \
+     --id "$ITEM_ID" \
+     --project-id "$PROJECT_NODE_ID" \
+     --field-id "$STATUS_FIELD_ID" \
+     --single-select-option-id "$IN_PROGRESS_OPTION_ID"
+   ```
+   Log `orchestrate: marked #$ISSUE_NUMBER as In Progress on project board` on success; log a WARN on failure and continue.
+
+6. **Emit run-start note** (if `MAKATO_ORCHESTRATE_SHARED` is set):
 
    ```bash
    "${MAKATO_ORCHESTRATE_SHARED}/progress-comment.sh" note <KEY> <N> <REPO> \
@@ -103,6 +130,33 @@ The key must be in format: `PROJECT-1234` (e.g., `PROJ-567`, `BDC-1234`)
 **In autonomous mode:** Use the CLI argument passed to this skill. HALT with `MISSING_INPUT` if no argument was provided (handled in Step 0.5).
 
 Store: `ISSUE_KEY`
+
+### Step 1.5: Mark In Progress on project board (interactive mode only)
+
+**In autonomous mode:** this was already done in Step 0.5. Skip.
+
+**In interactive mode:** mark the issue as In Progress now — before phase dispatch — so the autonomous loop cannot pick up the same issue concurrently.
+
+Fetch `ISSUE_NUMBER` from `gh issue view "$ISSUE_KEY" --json number --jq '.number'` (or parse numeric part directly if key is a plain integer).
+
+Read `.claude/config.json` → `github_project` block. If absent or any of `fields.status.id`, `fields.status.options.in_progress`, `project_node_id`, `host`, `owner`, `number` are missing, log `orchestrate: WARN — no github_project config; board status not updated` and continue.
+
+Otherwise:
+```bash
+ITEM_ID="$(GH_HOST="$HOST" gh project item-list "$PROJECT_NUMBER" \
+  --owner "$OWNER" --format json --limit 9999 \
+  --jq ".items[] | select(.content.number == $ISSUE_NUMBER) | .id" 2>/dev/null \
+  | head -1)"
+```
+If `ITEM_ID` is non-empty:
+```bash
+GH_HOST="$HOST" gh project item-edit \
+  --id "$ITEM_ID" \
+  --project-id "$PROJECT_NODE_ID" \
+  --field-id "$STATUS_FIELD_ID" \
+  --single-select-option-id "$IN_PROGRESS_OPTION_ID"
+```
+Log `orchestrate: marked #$ISSUE_NUMBER as In Progress on project board` on success; WARN on failure and continue.
 
 ### Step 2: Detect Current Phase
 

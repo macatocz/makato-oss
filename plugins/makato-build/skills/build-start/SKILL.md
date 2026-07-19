@@ -6,7 +6,7 @@ description: >-
   kicks off /build-refine. Use when starting a new story build, beginning the
   makato-build workflow, running build-start on a work item, or starting local
   work without a ticket.
-version: "1.3.1"
+version: "1.4.0"
 argument-hint: "[work-item-key]"
 ---
 
@@ -81,6 +81,50 @@ branch for this work? [Y/n]"*. If yes, prompt for a branch name (default:
 ```
 git checkout -b <branch-name>
 ```
+
+### Step 2.5 — Mark In Progress on project board
+
+Only when `local_work = false`. This is the earliest safe moment to claim the issue — git state is clean and work is about to start. Marking now prevents the autonomous loop from picking up the same issue concurrently.
+
+**Determine the GitHub issue number:**
+
+1. If `key` is a plain integer (e.g., `450`): use it directly as `ISSUE_NUMBER`.
+2. Otherwise: look for `specs/<key>-*/seed-manifest.json` or `specs/<key>/seed-manifest.json` and read `.issue_number` from it:
+   ```bash
+   ISSUE_NUMBER="$(jq -r '.issue_number // empty' specs/${key}-*/seed-manifest.json 2>/dev/null | head -1)"
+   # fallback: exact-match folder
+   [[ -z "$ISSUE_NUMBER" ]] && ISSUE_NUMBER="$(jq -r '.issue_number // empty' specs/${key}/seed-manifest.json 2>/dev/null || true)"
+   ```
+3. If `ISSUE_NUMBER` remains empty: skip this step silently (Jira-only key with no manifest — cannot resolve to a board item).
+
+**Read project config** from `.claude/config.json`. If the `github_project` block is absent, or any of `fields.status.id`, `fields.status.options.in_progress`, `project_node_id`, `host`, `owner`, `number` are missing, skip with:
+> `build-start: WARN — .claude/config.json has no github_project config — board status not updated`
+
+**Otherwise:**
+
+1. Find the board item and its current status:
+   ```bash
+   ITEM_LINE="$(GH_HOST="$HOST" gh project item-list "$PROJECT_NUMBER" \
+     --owner "$OWNER" --format json --limit 9999 \
+     --jq ".items[] | select(.content.number == $ISSUE_NUMBER)" 2>/dev/null \
+     | head -1)"
+   ITEM_ID="$(jq -r '.id // empty' <<<"$ITEM_LINE")"
+   CUR_STATUS="$(jq -r '.status // empty' <<<"$ITEM_LINE")"
+   ```
+   If `ITEM_ID` is empty: log `build-start: WARN — issue #$ISSUE_NUMBER not found on board; skipping In Progress update` and continue.
+
+2. Set Status = In Progress (only if not already set):
+   If `CUR_STATUS` is already `"In progress"`: log `build-start: #$ISSUE_NUMBER is already In Progress — skipping` and continue.
+   Otherwise:
+   ```bash
+   GH_HOST="$HOST" gh project item-edit \
+     --id "$ITEM_ID" \
+     --project-id "$PROJECT_NODE_ID" \
+     --field-id "$STATUS_FIELD_ID" \
+     --single-select-option-id "$IN_PROGRESS_OPTION_ID"
+   ```
+   On success: log `build-start: marked #$ISSUE_NUMBER as In Progress on project board`.
+   On failure: log `build-start: WARN — could not set In Progress on board; continuing` (best-effort — never block the build session).
 
 ### Step 3 — Validate or create spec
 
