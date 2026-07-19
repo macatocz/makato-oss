@@ -11,7 +11,7 @@ description: >-
   plan materializes (lightweight planning lane).
   Use for any issue that was filed manually — bypassing to-issues — and
   needs to enter the autonomous loop queue.
-version: "1.2.0"
+version: "1.3.0"
 argument-hint: "<ISSUE_NUMBER> [--repo <owner/name>] [--type new-work|change]"
 hooks:
   - "seed issue"
@@ -199,6 +199,17 @@ gh label create "type:change" \
   --repo "$REPO" \
   --color "FBCA04" \
   --description "Bug fix, refactor, or enhancement" 2>/dev/null || true
+
+# dependency labels — always ensure these exist regardless of issue type
+gh label create "blocked by" \
+  --repo "$REPO" \
+  --color "B60205" \
+  --description "Issue has upstream dependencies — see Blocked by: line in body" 2>/dev/null || true
+
+gh label create "blocking" \
+  --repo "$REPO" \
+  --color "D93F0B" \
+  --description "Issue must merge before downstream dependents can proceed" 2>/dev/null || true
 ```
 
 Log `[seed-issue] labeled #N with type:<label>`.
@@ -243,7 +254,7 @@ and skip the body write.
 **If absent**, append the provenance footer to the issue body:
 
 ```bash
-NEW_BODY="$(printf '%s\n\n---\n\n*Feature slug: `%s` — produced by to-issues v3.x (seeded by seed-issue v1.2.0).*' \
+NEW_BODY="$(printf '%s\n\n---\n\n*Feature slug: `%s` — produced by to-issues v3.x (seeded by seed-issue v1.3.0).*' \
   "$ISSUE_BODY" "$SLUG")"
 
 gh issue edit "$ISSUE_NUMBER" \
@@ -364,7 +375,7 @@ if the agent produces nothing.
 ```markdown
 # Plan: <ISSUE_TITLE>
 
-> Auto-seeded by seed-issue v1.2.0 on <ISO_DATE>. Replace this stub with a
+> Auto-seeded by seed-issue v1.3.0 on <ISO_DATE>. Replace this stub with a
 > full plan before the PO-agent starts.
 
 ## Issue
@@ -384,7 +395,7 @@ this file contains only the stub text above._
   "schema_version": "2",
   "seeded_at": "<ISO_DATETIME>",
   "seeded_by": "seed-issue",
-  "skill_version": "1.2.0",
+  "skill_version": "1.3.0",
   "issue_number": <ISSUE_NUMBER>,
   "issue_title": "<ISSUE_TITLE>",
   "slug": "<SLUG>",
@@ -553,7 +564,7 @@ Append one JSONL line to `specs/$SLUG/orchestrate.jsonl` recording the outcome
   Type    : <ISSUE_TYPE>
   Tier    : <light|full|change|none> (lightweight lane: <true|false>)
   Slug    : <SLUG>
-  Labels  : type:<label>, status:ready-for-dev (stamped)
+  Labels  : type:<label>, status:ready-for-dev (stamped); "blocked by" + "blocking" created on repo
   Footer  : provenance footer stamped (or already present)
   Board   : Status=Ready (or WARN if board move skipped)
   Spec    : specs/<SLUG>/ created (new-work) / not needed (change)

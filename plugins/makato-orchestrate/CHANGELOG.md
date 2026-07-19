@@ -5,6 +5,15 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+- **Changed** `promote-ready` → v1.1.0 — dependency label cleanup after promotion.
+  - Step 5 now removes `blocked by` from each promoted issue immediately after the board promotion succeeds.
+  - After the full promotion batch completes, computes the reverse dependency graph and removes `blocking` from every upstream issue whose all downstream dependents have been promoted to `Ready` or beyond. Check runs once per upstream issue per batch (not per individual promotion) to avoid redundant API calls. Both operations are best-effort (`|| true`) — a label-remove failure never aborts or rolls back the board promotion.
+
+- **Changed** `seed-issue` → v1.3.0 — dependency labels `blocked by` / `blocking` pre-created on every target repo at seed time.
+  - Step 3 now unconditionally creates both `blocked by` (`B60205`) and `blocking` (`D93F0B`) via idempotent `gh label create ... || true`, regardless of issue type. This ensures the labels are present before `to-issues` batches run or before operators apply them manually.
+  - Provenance footer, plan stub, and `seed-manifest.json` `skill_version` updated to `1.3.0`.
+  - Step 9 confirmation summary now lists the two dependency labels in the `Labels` line.
+
 - **Added** `loop` — per-issue final-envelope aggregation into a run report (#448, part of #443).
   The loop dispatches issues serially and deliberately discards each PO-agent exit code, so an
   overnight multi-issue run left no single "N issues → N verdicts" summary; operators had to

@@ -239,6 +239,39 @@ When derivation fires, the autonomous-mode log records `[to-issues:auto] story <
 
 `labels.module_stopwords` (string array, default empty) is the **opt-in** companion to the language-neutral document-frequency filter in `## ADR Folder-Match Algorithm`: its tokens are dropped from module matching in addition to the frequency-filtered ones. Use it only when you need per-story determinism independent of batch size (e.g. small batches where the `df ≥ 2` guard never fires) — the default matcher enumerates no words and assumes no language.
 
+## Dependency Dimension
+
+Two labels encode the **directed dependency edge** between issues. They are applied to individual issues (not to the batch as a whole) and are distinct from `status:blocked` — they capture *who blocks whom*, not whether an issue is currently waiting.
+
+| Label | Color | Direction | Applied to |
+|-------|-------|-----------|------------|
+| `blocked by` | `B60205` (red) | Inbound — this issue is blocked | The **downstream** issue waiting on another; value in the issue body references the upstream issue number(s) |
+| `blocking` | `D93F0B` (orange-red) | Outbound — this issue blocks others | The **upstream** issue that must merge first |
+
+### What `to-issues` auto-emits
+
+- **`blocked by`**: applied to every issue whose `dependencies.blockedBy` is non-empty after topological resolution. Applied in addition to `status:blocked` (which signals "currently waiting") — the two labels serve different query surfaces: `status:blocked` answers "what's stuck?", `blocked by` answers "what has upstream dependencies?".
+- **`blocking`**: applied **retroactively** to each upstream issue once the downstream issue has been created. Because `to-issues` processes stories in topological order (blockers first), an upstream issue exists before its dependents — the `blocking` label is applied via `gh issue edit --add-label` after each downstream issue is created.
+
+### What `seed-issue` emits
+
+`seed-issue` does not resolve dependency graphs — it stamps a single hand-filed issue. It creates both labels on the repo (idempotent) but does not apply them to the issue unless the operator explicitly passes `--add-label "blocked by"` or `--add-label blocking`. Dependency wiring between manually-filed issues remains the operator's responsibility.
+
+### Relationship to `status:blocked`
+
+| Signal | Meaning | Who sets it | Who removes it |
+|--------|---------|------------|----------------|
+| `status:blocked` | Issue is currently waiting and should not be dispatched | `to-issues` auto, `issue-to-project` board-sync | `issue-to-project` lifecycle sync on unblock |
+| `blocked by` | Issue has unresolved upstream dependencies | `to-issues` auto | `promote-ready` Step 5 when issue is promoted to Ready |
+| `blocking` | Issue must merge before downstream dependents can proceed | `to-issues` auto (retroactive patch) | `promote-ready` Step 5 when all dependents are promoted |
+
+An issue may carry both `status:blocked` and `blocked by` at creation time. Once all blockers merge, the dependency labels are cleaned up by `promote-ready` (Step 5):
+
+- **`blocked by`** is **removed** from an issue when it is promoted to `Ready` (all its `blocked_by` predecessors are `Done`) — the blocking relationship is resolved at that point.
+- **`blocking`** is **removed** from an upstream issue when every downstream dependent of that upstream issue has been promoted out of {`Todo`, `Blocked`} (i.e., all dependents are `Ready` or beyond). `promote-ready` evaluates this after each promotion batch by inspecting the reverse dependency graph.
+
+---
+
 ## Status Dimension
 
 The sagibeast GitHub Project board has a 4-value `Status` field that maps 1:1 to the four `status:*` labels:
@@ -317,5 +350,7 @@ This is a warning, not a halt — the human resolves the dangling reference manu
 | `status:in-progress` | `FBCA04` (yellow — matches project board) |
 | `status:done` | `5319E7` (deep purple — matches project board) |
 | `status:blocked` | `B60205` (red — matches project board; aligns with GitHub's red-for-blocker convention) |
+| `blocked by` | `B60205` (red — same hue as `status:blocked`; dependency labels and status share the red/orange palette) |
+| `blocking` | `D93F0B` (orange-red — same hue as `severity:high`; less urgent than the downstream `blocked by`) |
 
 Existing labels with the same name are reused as-is — colors are not overwritten.

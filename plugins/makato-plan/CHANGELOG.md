@@ -3,6 +3,16 @@
 
 Changes are grouped by skill/agent/component. Within each group, latest version on top. Each version block lists one sub-bullet per logical change. Until per-PR version automation is in place, entries land here on merge to main; release-please will date and version them at the next release cut.
 
+## `to-issues` skill
+
+- **3.9.0** — dependency labels `blocked by` / `blocking` automatically applied to all repos using makato suite.
+  - `references/label-taxonomy.md`: new **Dependency Dimension** section — defines `blocked by` (`B60205` red) and `blocking` (`D93F0B` orange-red), their semantics, the lifecycle (both labels removed by `promote-ready` when the dependency is resolved — not permanent), and the difference from `status:blocked`. Both colors added to the GitHub Label Creation table. Relationship table updated with "Who removes it" column.
+  - `SKILL.md` Step 3: new bullet 6 — `blocked by` emitted on every story whose `dependencies.blockedBy` is non-empty; `blocking` is a cross-issue retroactive signal (not in the story's own label set — applied to upstream issues in Step 5).
+  - `SKILL.md` Step 4: always pre-creates both dependency labels on the target repo even when no story in the current batch has blockers — they are cross-issue signals not covered by the per-story label-creation loop.
+  - `SKILL.md` Step 5: new sub-step 4 — immediately after creating each issue, patches `blocking` onto every upstream issue in `RESOLVED_BLOCKED_BY[]` via `gh issue edit --add-label`; best-effort (`|| true`), never aborts the batch.
+
+---
+
 ## stress-test-artifact skill (formerly grill) (#397)
 
 - **1.3.0**

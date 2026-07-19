@@ -14,7 +14,7 @@ description: >-
   recommend two issues that share one `specs/` folder at once (shared
   `plan.md` collision, #173). `--dry-run` / `plan` prints the
   recommendation without touching the board.
-version: "1.0.0"
+version: "1.1.0"
 argument-hint: "[SLUG] [--dry-run] [--yes]"
 allowed-tools: Bash(plugins/makato-orchestrate/scripts/promote-ready.sh *) Bash(gh project *) Bash(jq *) Bash(python3 *) Read
 ---
@@ -102,6 +102,34 @@ Without `SLUG`, every `specs/*/` folder with a `created-issues.json`
 5. **Promote (after approval).** For each recommended issue, resolve its
    board item (add it if absent) and `gh project item-edit` it to
    `Status=Ready`. Idempotent, forward-only, warn-not-fail.
+
+   After each successful promotion, clean up the dependency labels:
+
+   a. **Remove `blocked by` from the promoted issue** — the blocking
+      relationship is resolved at promotion time:
+      ```bash
+      GH_HOST=github.com gh issue edit "$ISSUE_NUMBER" \
+        --repo "$TARGET_REPO" \
+        --remove-label "blocked by" 2>/dev/null || true
+      ```
+
+   b. **Remove `blocking` from upstream issues whose all dependents are now
+      promoted.** After the full promotion batch completes, compute the
+      reverse dependency graph: for every upstream issue `U`, collect the
+      set of all downstream issues that list `U` in their `blocked_by`.
+      If every member of that set has now been promoted to `Ready` (or is
+      already `In Progress` / `In Review` / `Done`), remove `blocking`
+      from `U`:
+      ```bash
+      GH_HOST=github.com gh issue edit "$UPSTREAM_NUMBER" \
+        --repo "$TARGET_REPO" \
+        --remove-label "blocking" 2>/dev/null || true
+      ```
+      This check runs once per upstream issue at the end of the batch, not
+      per individual promotion — it avoids a redundant API call when
+      multiple dependents of the same upstream issue are promoted in the
+      same wave. Best-effort (`|| true`); a label-remove failure never
+      aborts or rolls back the board promotion.
 6. `--dry-run` / `plan` stops after step 4.
 
 ## Parallel-safety constraints (issue #268)
