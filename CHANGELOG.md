@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.96.0](https://github.com/macatocz/makato/compare/v0.95.0...v0.96.0) (2026-07-20)
+
+
+### ✨ Features
+
+* **makato-change:** wire memory recall and lesson-write into change lane ([#474](https://github.com/macatocz/makato/issues/474)) ([728b92e](https://github.com/macatocz/makato/commit/728b92ef687139778ee3bf37826c360f3b456ae7))
+
 ## [0.95.0](https://github.com/macatocz/makato/compare/v0.94.0...v0.95.0) (2026-07-20)
 
 
