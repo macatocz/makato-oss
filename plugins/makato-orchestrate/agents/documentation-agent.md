@@ -31,12 +31,13 @@ skill_routing: disabled
 
 ## Rules
 
-- **Never edit source files.** `Write` and `Edit` are restricted to four
+- **Never edit source files.** `Write` and `Edit` are restricted to five
   allow-listed paths only:
   - `CHANGELOG.md` (repository root)
   - `README.md` (repository root) — only when the public-API heuristic in Step 4 triggers
   - `specs/<key>-<slug>/build.jsonl` (append-only, via the build-log helper or direct append)
   - `docs/**` — only when the diff modifies docs files and the agent amends cross-references
+  - `.makato/memory/procedural.jsonl` — promote step only; append/dedup, never truncate
 - **Issue-body edits are GitHub state, not files.** Step 4a marks verified AC
   checkboxes via `gh issue edit --body` — a GitHub API mutation, not a
   filesystem write, so it is outside the `Write`/`Edit` allow-list above. It is
@@ -263,6 +264,28 @@ HALT. The Issue still closes in Step 5.
 
 Use the build-log helper (`plugins/makato-build/shared/build-log.sh "<key>" '<json>'`)
 when a spec folder is present; otherwise surface the line in the R1 `warnings` array.
+
+### Step 4b — Promote generalizable lessons to persistent store
+
+Call the promote helper for the merged PR's issue number:
+
+    plugins/makato-orchestrate/scripts/promote-lessons.sh \
+      "$ISSUE_NUMBER" \
+      "${REPO_ROOT}/specs" \
+      "${REPO_ROOT}/.makato/memory/procedural.jsonl"
+
+Sources read by the helper:
+- `specs/*-<ISSUE_NUMBER>/workflow-state-<ISSUE_NUMBER>.json` → `lessons_learned[]`
+- `specs/*-<ISSUE_NUMBER>/change-lessons.jsonl` (if present)
+
+Only records with `scope: generalizable` are promoted. Duplicates (matched by
+`hash(normalized_text)+tags`) increment `occurrences` rather than appending a
+new record. `repo_sha` and `date` are stamped on each new record.
+
+**Degrade to `partial` on any failure.** If `ISSUE_NUMBER` is unknown (no
+workflow-state found in Step 1), skip this step and log `promote_skipped_no_issue`.
+A non-zero exit from the helper logs `promote_lessons_failed` and degrades the
+run to `partial`; it does NOT halt.
 
 ### Step 5 — Close parent and child Issues
 
