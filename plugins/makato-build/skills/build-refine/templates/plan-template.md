@@ -1,5 +1,7 @@
 # Implementation Plan: <work-item-key>
 
+<!-- issue: #<issue-number> -->
+
 ## Story
 **Key:** <work-item-key>
 **Title:** <title>
