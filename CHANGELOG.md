@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.98.1](https://github.com/macatocz/makato/compare/v0.98.0...v0.98.1) (2026-07-20)
+
+
+### ⚡ Performance
+
+* **orchestrate:** cut board-poll GraphQL cost ~100x + adaptive idle backoff ([f27c814](https://github.com/macatocz/makato/commit/f27c814ad59395319fdc4ccb8b1479a8dfbbecae))
+
 ## [0.98.0](https://github.com/macatocz/makato/compare/v0.97.0...v0.98.0) (2026-07-20)
 
 
