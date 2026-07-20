@@ -1154,8 +1154,13 @@ _reconcile_orphaned_in_progress() {
         proj_owner="$(jq -r '.owner' <<<"$cfg")"
         proj_number="$(jq -r '.number' <<<"$cfg")"
         proj_host="$(jq -r '.host' <<<"$cfg")"
-        field_id="$(jq -r '.fields.status.id // .status_field_id // empty' <<<"$cfg")"
-        blocked_id="$(jq -r '.fields.status.options.blocked // .options.blocked // empty' <<<"$cfg")"
+        # #492: read field/option ids from $CONFIG_FILE with the full
+        # `.github_project.` prefix — the same shape the proven call sites at
+        # ~1880 / ~2520 use. _read_project_config only emits {owner,number,host},
+        # so reading these ids from $cfg always yielded empty and the board
+        # write silently no-op'd on every invocation.
+        field_id="$(jq -r '.github_project.fields.status.id // .github_project.status_field_id // empty' "$CONFIG_FILE")"
+        blocked_id="$(jq -r '.github_project.fields.status.options.blocked // (.github_project.options.blocked // empty)' "$CONFIG_FILE")"
         if [[ -z "$field_id" || -z "$blocked_id" ]]; then
           echo "loop: WARN — reconcile-orphaned #$n: missing field_id or blocked option id in config" >&2
         else

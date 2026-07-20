@@ -3080,6 +3080,81 @@ echo
 echo "=== ALL TESTS continue (Tl–Tp orphaned-In-progress reconciliation, #368 complete) ==="
 
 # ---------------------------------------------------------------------------
+# Tq: reconcile pass reads Status field/option ids from the correct config
+# shape (#492). REGRESSION TEST — Tl–Tp all take the
+# MAKATO_LOOP_RECONCILE_TEST_FILE short-circuit (echo "reconcile #N") and
+# return before the field-id logic runs, so none of them exercised the real
+# _read_project_config → field-id path. Before the fix, the ids were read from
+# the trimmed $cfg object ({owner,number,host} only), so field_id/blocked_id
+# were ALWAYS empty and the guard fired the "missing field_id or blocked
+# option id" WARN on every invocation regardless of config. This test drives
+# the real path against a fully-populated config and asserts that WARN is
+# ABSENT (the fix makes it read from $CONFIG_FILE with the .github_project.
+# prefix) and that the pass reaches the item-id resolution stage instead.
+# ---------------------------------------------------------------------------
+echo
+echo "=== Tq: reconcile reads field/option ids from correct config shape (#492) ==="
+TQ_FIXTURE="$STATE_DIR/tq-reconcile-$$.json"
+TQ_CONFIG="$STATE_DIR/tq-config-$$.json"
+TQ_SPECS="$STATE_DIR/tq-specs-$$"
+TQ_BIN="$STATE_DIR/tq-bin-$$"
+mkdir -p "$TQ_SPECS" "$TQ_BIN"
+# Board: issue #605 at "In progress", no workflow-state → orphan candidate.
+jq -n '{items:[{"content":{"type":"Issue","number":605,"title":"orphan-cfg","repository":"macatocz/makato","url":"https://github.com/macatocz/makato/issues/605"},"status":"In progress","labels":[]}]}' \
+  >"$TQ_FIXTURE"
+# Fully-populated config — the exact shape the fix reads from ($CONFIG_FILE
+# with the .github_project. prefix, incl. fields.status.id + options.blocked).
+cat >"$TQ_CONFIG" <<'EOF'
+{
+  "github_project": {
+    "owner": "macatocz",
+    "number": 4,
+    "host": "github.com",
+    "fields": {
+      "status": {
+        "id": "PVTSSF_field_status_123",
+        "options": {
+          "blocked": "opt_blocked_456"
+        }
+      }
+    }
+  }
+}
+EOF
+# Offline gh stub: the inner item-id resolution calls `gh project item-list`
+# (no override for that call), so stub gh on PATH to return an empty item set.
+# item_id then resolves empty → the pass logs "could not resolve board item-id",
+# which PROVES it got PAST the field-id guard (the point of the regression test).
+cat >"$TQ_BIN/gh" <<'EOF'
+#!/usr/bin/env bash
+echo '{"items":[]}'
+exit 0
+EOF
+chmod +x "$TQ_BIN/gh"
+tq_rc=0
+tq_stderr="$(
+  PATH="$TQ_BIN:$PATH" \
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_RECONCILE_GH_OVERRIDE="$TQ_FIXTURE" \
+  MAKATO_LOOP_CONFIG="$TQ_CONFIG" \
+  MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE="$STATE_DIR/tq-label-$$.txt" \
+  SPECS_DIR="$TQ_SPECS" \
+    "$LOOP" _test-reconcile-orphaned 2>&1 >/dev/null
+)" || tq_rc=$?
+[[ "$tq_rc" -eq 0 ]] \
+  || fail "Tq: function must return 0; got rc=$tq_rc stderr=$tq_stderr"
+# REGRESSION ASSERTION: the "missing field_id" WARN must NOT appear.
+if echo "$tq_stderr" | grep -q "missing field_id or blocked option id"; then
+  fail "Tq (#492 regression): reconcile must NOT log 'missing field_id or blocked option id' with a populated config; got: $tq_stderr"
+fi
+# POSITIVE ASSERTION: the pass must have reached the item-id resolution stage
+# (proving the field-id guard was cleared).
+echo "$tq_stderr" | grep -q "could not resolve board item-id" \
+  || fail "Tq (#492): reconcile should reach item-id resolution past the field-id guard; got: $tq_stderr"
+rm -rf "$TQ_FIXTURE" "$TQ_CONFIG" "$TQ_SPECS" "$TQ_BIN" "$STATE_DIR/tq-label-$$.txt"
+echo "  ✓ reconcile reads field/option ids from correct config shape; no false 'missing field_id' WARN (#492)"
+
+# ---------------------------------------------------------------------------
 # T-reshape-disabled: MAKATO_LOOP_RESHAPE_ENABLED=0 (or unset) → no dispatch
 # or board write. Feature flag off is the default and must be a no-op.
 # ---------------------------------------------------------------------------
