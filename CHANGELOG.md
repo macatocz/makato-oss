@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.95.0](https://github.com/macatocz/makato/compare/v0.94.0...v0.95.0) (2026-07-20)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** prune orphaned specs folders, promoting lessons first ([#501](https://github.com/macatocz/makato/issues/501)) ([f4ad11b](https://github.com/macatocz/makato/commit/f4ad11b79f3494bc8d37c5da3dfacb6a435f8052))
+
 ## [0.94.0](https://github.com/macatocz/makato/compare/v0.93.0...v0.94.0) (2026-07-20)
 
 
