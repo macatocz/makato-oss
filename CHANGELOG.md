@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.92.0](https://github.com/macatocz/makato/compare/v0.91.0...v0.92.0) (2026-07-20)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** auto-generate plan.md before dispatch to prevent HALT-006 ([#490](https://github.com/macatocz/makato/issues/490)) ([0470bb7](https://github.com/macatocz/makato/commit/0470bb70cbfa51bb6a957a43ba1fee9b134a9290))
+
 ## [0.91.0](https://github.com/macatocz/makato/compare/v0.90.0...v0.91.0) (2026-07-20)
 
 
