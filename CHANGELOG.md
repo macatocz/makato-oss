@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.99.0](https://github.com/macatocz/makato/compare/v0.98.1...v0.99.0) (2026-07-20)
+
+
+### ✨ Features
+
+* **to-issues:** emit plan-&lt;ISSUE_NUMBER&gt;.md per full-tier story at issue-create time ([9432bdc](https://github.com/macatocz/makato/commit/9432bdc9c2943d26973b401023ef277f40eb4c01))
+* **to-issues:** emit plan-&lt;N&gt;.md per full-tier story ([#511](https://github.com/macatocz/makato/issues/511)) ([f2b0e2e](https://github.com/macatocz/makato/commit/f2b0e2eee3c863df4957327bf199118c607cd773))
+* **to-issues:** emit plan-&lt;N&gt;.md per full-tier story ([#511](https://github.com/macatocz/makato/issues/511)) ([f2b0e2e](https://github.com/macatocz/makato/commit/f2b0e2eee3c863df4957327bf199118c607cd773))
+
 ## [0.98.1](https://github.com/macatocz/makato/compare/v0.98.0...v0.98.1) (2026-07-20)
 
 
