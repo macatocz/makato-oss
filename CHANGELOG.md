@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.91.0](https://github.com/macatocz/makato/compare/v0.90.0...v0.91.0) (2026-07-20)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** promote generalizable memory at merge ([#471](https://github.com/macatocz/makato/issues/471)) ([#489](https://github.com/macatocz/makato/issues/489)) ([d453de3](https://github.com/macatocz/makato/commit/d453de37074f2370b543f0bbef3ff6ca2a08844e))
+
 ## [0.90.0](https://github.com/macatocz/makato/compare/v0.89.2...v0.90.0) (2026-07-19)
 
 
