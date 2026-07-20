@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.96.1](https://github.com/macatocz/makato/compare/v0.96.0...v0.96.1) (2026-07-20)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** promote lessons in po-agent local lane, drop GHA no-op ([#502](https://github.com/macatocz/makato/issues/502)) ([#504](https://github.com/macatocz/makato/issues/504)) ([8e898b9](https://github.com/macatocz/makato/commit/8e898b9e24dcc43dcd9d60be747b3b392f04f762))
+
 ## [0.96.0](https://github.com/macatocz/makato/compare/v0.95.0...v0.96.0) (2026-07-20)
 
 
