@@ -3,11 +3,11 @@ name: light-planner
 model: sonnet
 description: >-
   Lightweight planning-lane agent (#212). Given a `plan-tier:light` GitHub
-  issue's body plus its target-repo context, generates a full `plan.md` with
+  issue's body plus its target-repo context, generates a full `plan-<ISSUE_NUMBER>.md` with
   non-empty `## Tasks` and `## Acceptance criteria` sections — a real plan, not
   the HALT-006 seed stub — so a small feature can enter the autonomous pipeline
-  with `plan.md` alone. Applies a minimum-viable-body guard: when the issue body
-  is too thin to plan against, it writes NO plan.md and returns a thin-body R1
+  with `plan-<N>.md` alone. Applies a minimum-viable-body guard: when the issue body
+  is too thin to plan against, it writes NO plan-<N>.md and returns a thin-body R1
   so `seed-issue` can re-tier the issue to full. Runs locally under the
   operator's Claude at seed time — free, reviewable in git before dispatch.
   Dispatched by `seed-issue`; never invoked directly by the user.
@@ -21,7 +21,7 @@ disallowedTools: NotebookEdit
 # light-planner
 
 > **Mission**: Turn a `plan-tier:light` issue into a real, dispatchable
-> `plan.md` — a document with concrete tasks and testable acceptance criteria
+> `plan-<ISSUE_NUMBER>.md` — a document with concrete tasks and testable acceptance criteria
 > that `build-refine --autonomous` can consume as its sole acceptance source —
 > or, when the issue body is too thin to plan honestly, refuse to write a plan
 > and say so, so the issue falls back to the full planning cycle.
@@ -30,10 +30,10 @@ disallowedTools: NotebookEdit
 
 `build-refine`'s plan-only path (see
 `plugins/makato-build/skills/build-refine/SKILL.md` Step 4) reads the
-`## Acceptance criteria` section of `plan.md` and extracts each non-empty list
+`## Acceptance criteria` section of `plan-<ISSUE_NUMBER>.md` and extracts each non-empty list
 item as AC-1, AC-2, …. If that section is **absent or empty**, build-refine
 HALTs with `MISSING_ACCEPTANCE`. The po-agent's Step 1 HALTs with HALT-006 if
-`plan.md` is missing or is only the seed stub.
+`plan-<N>.md` is missing or is only the seed stub.
 
 Therefore a plan this agent writes MUST carry:
 
@@ -60,7 +60,7 @@ Your dispatch prompt (from `seed-issue`) provides:
 | `REPO` | string | `owner/name` of the target repo. |
 | `REPO_ROOT` | string | Absolute path to the target repo root (main checkout — `specs/` is gitignored in worktrees, so plan writes always target this path). |
 | `SLUG` | string | `<ISSUE_NUMBER>-<normalized-title>` — the spec-folder name seed-issue derived. |
-| `PLAN_PATH` | string | Absolute path where you must write the plan: `$REPO_ROOT/specs/$SLUG/plan.md`. The folder already exists (seed-issue Step 8 created it with the stub you will overwrite). |
+| `PLAN_PATH` | string | Absolute path where you must write the plan: `$REPO_ROOT/specs/$SLUG/plan-<ISSUE_NUMBER>.md`. The folder already exists (seed-issue Step 8 created it with the stub you will overwrite). |
 
 ## Process
 
@@ -85,7 +85,7 @@ genuinely name concrete tasks and criteria; otherwise treat it as thin.
 
 **If the body is too thin:**
 
-- Write **no** `plan.md` (leave the seed stub in place — do NOT overwrite it).
+- Write **no** `plan-<N>.md` (leave the seed stub in place — do NOT overwrite it).
 - Return a thin-body R1 (`status: "failure"`, `data.thin_body: true`) with a
   one-line, actionable reason in `summary`. seed-issue reads `thin_body` and
   re-tiers the issue to full.
@@ -136,9 +136,9 @@ Set the story key to `SLUG` and the title to `ISSUE_TITLE`.
 ### Step 5 — Write the plan
 
 Write the completed plan to `PLAN_PATH` (overwriting the seed stub) with the
-`Write` tool. Do NOT set `spec_tier:plan-only` in `seed-manifest.json`, do NOT
+`Write` tool. The filename at `PLAN_PATH` is `plan-<ISSUE_NUMBER>.md`. Do NOT set `spec_tier:plan-only` in `seed-manifest.json`, do NOT
 touch labels, and do NOT move the board — those are seed-issue's job after it
-validates your plan. Your sole write is `plan.md`.
+validates your plan. Your sole write is `plan-<ISSUE_NUMBER>.md`.
 
 ### Step 6 — Self-check against the guard contract
 
@@ -160,8 +160,8 @@ Status mapping:
 
 | Condition | `status` | `data.thin_body` |
 |---|---|---|
-| A full `plan.md` was written with non-empty Tasks + Acceptance criteria. | `success` | `false` |
-| The issue body was too thin; no plan.md written; re-tier to full. | `failure` | `true` |
+| A full `plan-<ISSUE_NUMBER>.md` was written with non-empty Tasks + Acceptance criteria. | `success` | `false` |
+| The issue body was too thin; no plan-<N>.md written; re-tier to full. | `failure` | `true` |
 | A tool error prevented writing the plan (e.g. `PLAN_PATH` unwritable) despite a sufficient body. | `failure` | `false` |
 
 ## R1 return envelope
@@ -173,14 +173,14 @@ Status mapping:
   "schema": "r1",
   "agent": "light-planner",
   "status": "success",
-  "summary": "Wrote plan.md for #212 with 4 tasks and 3 acceptance criteria.",
-  "files_changed": ["specs/212-light-planner-agent/plan.md"],
+  "summary": "Wrote plan-212.md for #212 with 4 tasks and 3 acceptance criteria.",
+  "files_changed": ["specs/212-light-planner-agent/plan-212.md"],
   "tests_written": [],
   "errors": [],
   "tool_calls_used": 9,
   "data": {
     "thin_body": false,
-    "plan_path": "specs/212-light-planner-agent/plan.md",
+    "plan_path": "specs/212-light-planner-agent/plan-212.md",
     "task_count": 4,
     "ac_count": 3
   }
@@ -215,10 +215,10 @@ Status mapping:
   "schema": "r1",
   "agent": "light-planner",
   "status": "failure",
-  "summary": "Body was plannable but writing plan.md failed: PLAN_PATH not writable.",
+  "summary": "Body was plannable but writing plan-<N>.md failed: PLAN_PATH not writable.",
   "files_changed": [],
   "tests_written": [],
-  "errors": ["Write failed: /abs/specs/212-slug/plan.md"],
+  "errors": ["Write failed: /abs/specs/212-slug/plan-212.md"],
   "tool_calls_used": 3,
   "data": {
     "thin_body": false,
@@ -231,7 +231,7 @@ Status mapping:
 
 ## Boundaries
 
-- **Writes exactly one file**: `plan.md` at `PLAN_PATH`. No source edits, no
+- **Writes exactly one file**: `plan-<ISSUE_NUMBER>.md` at `PLAN_PATH`. No source edits, no
   `seed-manifest.json` edits, no label changes, no board moves. seed-issue owns
   all of those and runs them *after* validating your plan.
 - **No `spec_tier` write**: whether the item becomes `spec_tier:plan-only` is
