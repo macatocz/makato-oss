@@ -6,6 +6,32 @@ Changes are grouped by skill/component. Within each group, latest version on top
 ## [Unreleased]
 
 ### Added
+- `loop.sh`: orphaned `specs/<slug>/` folder pruning (`_reap_orphan_specs`) —
+  runs in the same reap pass as the merged-worktree reaper. Removes local spec
+  folders for issues that are done (`workflow-state-<N>.json`
+  `current_phase == "done"`, fast local path) or closed (`gh issue view` returns
+  `CLOSED`, fallback for thin folders). Only FULLY-UNTRACKED folders are ever
+  removed — any tracked file skips the folder (consumer repos use
+  `archive-spec.sh` via `git mv`). **Before deleting, generalizable lessons are
+  promoted:** the reaper runs `promote-lessons.sh <N>` so any
+  `scope: generalizable` lesson in the (gitignored) `workflow-state-<N>.json` /
+  `change-lessons.jsonl` lands in `.makato/memory/procedural.jsonl` first; a
+  failed promotion keeps the folder so no lesson is lost. This is the only place
+  that promotion can read those files — `documentation-agent` runs on a fresh
+  GHA checkout where the gitignored sources do not exist. Default on; opt-out via
+  `MAKATO_LOOP_REAP_SPECS=0`. Respects `MAKATO_LOOP_REAP_DRYRUN`; offline test
+  hook `MAKATO_LOOP_REAP_SPECS_GH_OVERRIDE`. Audit in `loop-status.json`
+  `.last_reap_specs_count` / `.reap_specs_pruned`. New smoke tests T84–T90.
+  Bumps `loop` skill to 2.1.0.
+
+### Fixed
+- `promote-lessons.sh`: spec-folder discovery now matches BOTH lane naming
+  conventions — number-first `<N>-<slug>` (new-work, e.g. `470-persistent-memory`)
+  as well as the previous number-last `<slug>-<N>` and bare `<N>`. Previously the
+  `*-<N>` glob silently missed every new-work spec folder, so their generalizable
+  lessons never promoted into `.makato/memory/`. New smoke test T8.
+
+
 - `seed-issue`: expanded plan lane to all `new-work` issues — light-planner now
   runs at seed time for `plan-tier:full` issues too, gating board promotion on a
   valid `plan.md` (`PLAN_LANE=true` replaces `LIGHTWEIGHT_LANE=true`)

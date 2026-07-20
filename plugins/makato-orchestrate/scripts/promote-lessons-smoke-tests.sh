@@ -189,5 +189,29 @@ echo "=== T7: multiple records — 2 generalizable + 1 local ==="
 )
 pass "T7: 2 generalizable promoted, 1 local skipped"
 
+# ---------------------------------------------------------------------------
+# T8: number-FIRST spec folder (<N>-slug) is discovered — new-work lane.
+# Regression: the folder-match glob was `*-<N>` only, which found change-lane
+# folders (test-<N>) but MISSED new-work folders seeded as `<N>-slug`
+# (e.g. 470-persistent-memory). Those lessons silently never promoted.
+# ---------------------------------------------------------------------------
+echo "=== T8: number-first folder (<N>-slug) discovered ==="
+(
+  D="$SANDBOX/t8"
+  spec_dir="$D/specs/800-new-work-feature"
+  mkdir -p "$spec_dir"
+  LESSON='[{"description":"Number-first folders must promote too","tags":["reaper"],"scope":"generalizable","cycle":1,"trigger":"review","ts":"2026-01-01T00:00:00Z","files_affected":[]}]'
+  printf '{"issue_number":800,"lessons_learned":%s}\n' "$LESSON" \
+    > "$spec_dir/workflow-state-800.json"
+  MEM="$D/procedural.jsonl"
+  MAKATO_PROMOTE_REPO_OVERRIDE="test/repo" \
+    bash "$SCRIPT" 800 "$D/specs" "$MEM"
+  [[ -f "$MEM" ]] || fail "T8: procedural.jsonl not created — <N>-slug folder was not discovered"
+  COUNT=$(grep -c '"scope":"generalizable"' "$MEM" || echo 0)
+  [[ "$COUNT" -eq 1 ]] || fail "T8: expected 1 record from <N>-slug folder, got $COUNT"
+  grep -q '"source_issue":800' "$MEM" || fail "T8: source_issue=800 missing"
+)
+pass "T8: number-first folder (<N>-slug) discovered"
+
 echo ""
 echo "All promote-lessons-smoke-tests passed."

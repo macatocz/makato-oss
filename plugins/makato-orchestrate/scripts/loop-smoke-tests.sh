@@ -4599,5 +4599,175 @@ t83_verdict="$(
 rm -rf "$T83_DIR"
 echo "T83 passed"
 
+# ---------------------------------------------------------------------------
+# T84–T89: orphaned specs/ folder pruning (_reap_orphan_specs)
+#
+# The reaper removes local specs/<slug>/ folders for done/closed issues, but
+# ONLY when the folder is fully untracked (tracked specs belong to consumer
+# repos managed by archive-spec.sh). Each test builds a disposable temp git
+# repo with a specs/ tree, points SPECS_DIR + REPO_ROOT at it, stubs gh state
+# offline via MAKATO_LOOP_REAP_SPECS_GH_OVERRIDE, and drives the standalone
+# `remove-worktrees` subcommand (which invokes _reap_merged_worktrees →
+# _reap_orphan_specs). Throttle is bypassed with MAKATO_LOOP_REAP_INTERVAL=0.
+# ---------------------------------------------------------------------------
+REAPSPECS_ROOT="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/reapspecs-repo"
+REAPSPECS_STATE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/reapspecs-state"
+mkdir -p "$REAPSPECS_ROOT" "$REAPSPECS_STATE"
+(
+  cd "$REAPSPECS_ROOT"
+  git init -q -b main
+  git config user.email t@t.t; git config user.name t
+  git commit -q --allow-empty -m init
+)
+# Offline gh state map for the fallback path.
+REAPSPECS_GH="$REAPSPECS_STATE/gh.json"
+cat >"$REAPSPECS_GH" <<'GHJSON'
+{ "84001": "open", "85001": "closed", "86001": "open", "87001": "closed", "88001": "open", "89001": "open" }
+GHJSON
+
+# Helper: (re)create the six fixture folders fresh before a pass.
+_reapspecs_fixtures() {
+  local sp="$REAPSPECS_ROOT/specs"
+  rm -rf "$sp"; mkdir -p "$sp"
+  # T84: untracked + workflow-state phase=done (fast path, no gh needed).
+  mkdir -p "$sp/84-done"
+  echo '{"issue_number":84001}' >"$sp/84-done/seed-manifest.json"
+  echo '{"current_phase":"done"}' >"$sp/84-done/workflow-state-84001.json"
+  # T85: untracked + no workflow-state + gh CLOSED (fallback path).
+  mkdir -p "$sp/85-closed"
+  echo '{"issue_number":85001}' >"$sp/85-closed/seed-manifest.json"
+  # T86: untracked + gh OPEN → skip.
+  mkdir -p "$sp/86-open"
+  echo '{"issue_number":86001}' >"$sp/86-open/seed-manifest.json"
+  # T87: TRACKED (critical safety) — gh says closed but the folder is committed.
+  mkdir -p "$sp/87-tracked"
+  echo '{"issue_number":87001}' >"$sp/87-tracked/seed-manifest.json"
+  git -C "$REAPSPECS_ROOT" add specs/87-tracked/seed-manifest.json >/dev/null 2>&1 || true
+  # `--allow-empty`: on the 2nd/3rd fixture rebuild the blob is identical, so a
+  # plain commit would exit 1 ("nothing to commit") and trip `set -e`.
+  git -C "$REAPSPECS_ROOT" -c user.email=t@t.t -c user.name=t \
+    commit -q --allow-empty -m "track 87" >/dev/null 2>&1 || true
+}
+
 echo
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470) ==="
+echo "=== T84: untracked + workflow-state phase=done → pruned ==="
+_reapspecs_fixtures
+rm -f "$REAPSPECS_STATE/loop-status.json"
+t84_out="$(
+  cd "$REAPSPECS_ROOT" &&
+  MAKATO_LOOP_STATE_DIR="$REAPSPECS_STATE" \
+  SPECS_DIR="$REAPSPECS_ROOT/specs" REPO_ROOT="$REAPSPECS_ROOT" \
+  MAKATO_LOOP_REAP_INTERVAL=0 \
+  MAKATO_LOOP_REAP_SPECS_GH_OVERRIDE="$REAPSPECS_GH" \
+    "$LOOP" remove-worktrees 2>&1
+)" || fail "T84: remove-worktrees should exit 0; got: $t84_out"
+grep -q "reap-specs removing .*/84-done (issue #84001, workflow-state phase=done)" <<<"$t84_out" \
+  || fail "T84: 84-done should be pruned via workflow-state; got: $t84_out"
+[[ ! -d "$REAPSPECS_ROOT/specs/84-done" ]] \
+  || fail "T84: 84-done folder should be gone after live prune"
+jq -e '.last_reap_specs_count >= 1' "$REAPSPECS_STATE/loop-status.json" >/dev/null \
+  || fail "T84: last_reap_specs_count should be >= 1"
+echo "T84 passed"
+
+echo
+echo "=== T85: untracked + no workflow-state + gh CLOSED → pruned ==="
+grep -q "reap-specs removing .*/85-closed (issue #85001, issue #85001 CLOSED)" <<<"$t84_out" \
+  || fail "T85: 85-closed should be pruned via gh CLOSED fallback; got: $t84_out"
+[[ ! -d "$REAPSPECS_ROOT/specs/85-closed" ]] \
+  || fail "T85: 85-closed folder should be gone after live prune"
+echo "T85 passed"
+
+echo
+echo "=== T86: untracked + gh OPEN → skipped ==="
+grep -q "reap-specs skip .*/86-open (issue #86001 is OPEN)" <<<"$t84_out" \
+  || fail "T86: 86-open should be skipped; got: $t84_out"
+[[ -d "$REAPSPECS_ROOT/specs/86-open" ]] \
+  || fail "T86: 86-open folder must survive"
+echo "T86 passed"
+
+echo
+echo "=== T87: TRACKED folder → skipped (critical safety) ==="
+grep -q "reap-specs skip .*/87-tracked (has tracked files" <<<"$t84_out" \
+  || fail "T87: tracked folder must be skipped; got: $t84_out"
+[[ -d "$REAPSPECS_ROOT/specs/87-tracked" ]] \
+  || fail "T87: tracked folder must NEVER be deleted by the reaper"
+echo "T87 passed"
+
+echo
+echo "=== T88: MAKATO_LOOP_REAP_DRYRUN=1 → logs intent, deletes nothing ==="
+_reapspecs_fixtures
+rm -f "$REAPSPECS_STATE/loop-status.json"
+t88_out="$(
+  cd "$REAPSPECS_ROOT" &&
+  MAKATO_LOOP_STATE_DIR="$REAPSPECS_STATE" \
+  SPECS_DIR="$REAPSPECS_ROOT/specs" REPO_ROOT="$REAPSPECS_ROOT" \
+  MAKATO_LOOP_REAP_INTERVAL=0 MAKATO_LOOP_REAP_DRYRUN=1 \
+  MAKATO_LOOP_REAP_SPECS_GH_OVERRIDE="$REAPSPECS_GH" \
+    "$LOOP" remove-worktrees 2>&1
+)" || fail "T88: remove-worktrees (dry-run) should exit 0; got: $t88_out"
+grep -q "reap-specs would remove .*/84-done" <<<"$t88_out" \
+  || fail "T88: dry-run should log intent for 84-done; got: $t88_out"
+[[ -d "$REAPSPECS_ROOT/specs/84-done" ]] \
+  || fail "T88: dry-run must NOT delete 84-done"
+echo "T88 passed"
+
+echo
+echo "=== T89: MAKATO_LOOP_REAP_SPECS=0 → whole specs-prune skipped ==="
+_reapspecs_fixtures
+rm -f "$REAPSPECS_STATE/loop-status.json"
+t89_out="$(
+  cd "$REAPSPECS_ROOT" &&
+  MAKATO_LOOP_STATE_DIR="$REAPSPECS_STATE" \
+  SPECS_DIR="$REAPSPECS_ROOT/specs" REPO_ROOT="$REAPSPECS_ROOT" \
+  MAKATO_LOOP_REAP_INTERVAL=0 MAKATO_LOOP_REAP_SPECS=0 \
+  MAKATO_LOOP_REAP_SPECS_GH_OVERRIDE="$REAPSPECS_GH" \
+    "$LOOP" remove-worktrees 2>&1
+)" || fail "T89: remove-worktrees should exit 0; got: $t89_out"
+grep -q "reap-specs" <<<"$t89_out" \
+  && fail "T89: no reap-specs activity expected when REAP_SPECS=0; got: $t89_out"
+[[ -d "$REAPSPECS_ROOT/specs/84-done" ]] \
+  || fail "T89: 84-done must survive when specs-prune is disabled"
+echo "T89 passed"
+
+echo
+echo "=== T90: generalizable lesson is promoted to .makato/memory/ BEFORE prune ==="
+# Critical data-safety test: the po-agent's lessons live only in gitignored
+# workflow-state-<N>.json, so the reaper must promote them into the committed
+# store before rm -rf. Uses a real git repo (promote-lessons resolves repo_sha
+# via git) with a number-first new-work folder + a generalizable lesson.
+REAPSPECS_MEM_ROOT="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/reapspecs-mem"
+rm -rf "$REAPSPECS_MEM_ROOT"; mkdir -p "$REAPSPECS_MEM_ROOT"
+(
+  cd "$REAPSPECS_MEM_ROOT"
+  git init -q -b main
+  git config user.email t@t.t; git config user.name t
+  git commit -q --allow-empty -m init
+  mkdir -p .makato/memory; : > .makato/memory/procedural.jsonl
+  mkdir -p specs/90001-lesson-feature
+  echo '{"issue_number":90001}' >specs/90001-lesson-feature/seed-manifest.json
+  printf '{"current_phase":"done","lessons_learned":[{"description":"Reaper promotes before rm -rf","scope":"generalizable","tags":["reaper"],"cycle":1,"trigger":"review","ts":"2026-01-01T00:00:00Z","files_affected":[]}]}\n' \
+    >specs/90001-lesson-feature/workflow-state-90001.json
+)
+t90_out="$(
+  cd "$REAPSPECS_MEM_ROOT" &&
+  MAKATO_LOOP_STATE_DIR="$REAPSPECS_STATE" \
+  SPECS_DIR="$REAPSPECS_MEM_ROOT/specs" REPO_ROOT="$REAPSPECS_MEM_ROOT" \
+  MAKATO_LOOP_REAP_INTERVAL=0 \
+  MAKATO_PROMOTE_REPO_OVERRIDE="test/repo" \
+  MAKATO_LOOP_REAP_SPECS_GH_OVERRIDE="$REAPSPECS_GH" \
+    "$LOOP" remove-worktrees 2>&1
+)" || fail "T90: remove-worktrees should exit 0; got: $t90_out"
+# The lesson must be in the committed store...
+grep -q '"text":"Reaper promotes before rm -rf"' "$REAPSPECS_MEM_ROOT/.makato/memory/procedural.jsonl" \
+  || fail "T90: generalizable lesson was NOT promoted before prune; got: $(cat "$REAPSPECS_MEM_ROOT/.makato/memory/procedural.jsonl")"
+# ...AND the folder is then removed.
+[[ ! -d "$REAPSPECS_MEM_ROOT/specs/90001-lesson-feature" ]] \
+  || fail "T90: folder should be pruned after successful promotion"
+rm -rf "$REAPSPECS_MEM_ROOT"
+echo "T90 passed"
+
+rm -rf "${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/reapspecs-repo" \
+       "${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/reapspecs-state"
+
+echo
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470; T84–T89 orphaned-specs pruning; T90 promote-before-prune) ==="

@@ -2,9 +2,12 @@
 # promote-lessons.sh — lift scope:generalizable lessons from per-issue stores
 # into the committed .makato/memory/procedural.jsonl for long-term retention.
 #
-# Two per-issue sources are read:
-#   a. specs/*-<ISSUE_NUMBER>/workflow-state-<ISSUE_NUMBER>.json → .lessons_learned[]
-#   b. specs/*-<ISSUE_NUMBER>/change-lessons.jsonl (if exists) → line-by-line
+# Two per-issue sources are read. The spec folder is matched by three name
+# shapes so BOTH lane conventions resolve: `<N>-<slug>` (new-work, number-first,
+# e.g. 470-persistent-memory), `<slug>-<N>` (change lane, number-last), and the
+# bare `<N>`:
+#   a. specs/{<N>-*,*-<N>,<N>}/workflow-state-<ISSUE_NUMBER>.json → .lessons_learned[]
+#   b. specs/{<N>-*,*-<N>,<N>}/change-lessons.jsonl (if exists) → line-by-line
 #
 # Only records with scope=="generalizable" are promoted. Records lacking a
 # scope field are silently skipped. Dedup is by hash(normalized_text + sorted_tags):
@@ -81,7 +84,8 @@ while IFS= read -r dir; do
   CL="$dir/change-lessons.jsonl"
   [[ -f "$WS" ]] && WS_FILES+=("$WS")
   [[ -f "$CL" ]] && CL_FILES+=("$CL")
-done < <(find "$SPECS_DIR" -maxdepth 1 -mindepth 1 -type d -name "*-${ISSUE_NUMBER}" 2>/dev/null \
+done < <(find "$SPECS_DIR" -maxdepth 1 -mindepth 1 -type d \
+           \( -name "*-${ISSUE_NUMBER}" -o -name "${ISSUE_NUMBER}-*" -o -name "${ISSUE_NUMBER}" \) 2>/dev/null \
          | sort || true)
 
 # When no source files exist, exit cleanly (no-op).

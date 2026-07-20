@@ -10,7 +10,7 @@ description: >-
   exits on a HALT. Honors `~/.claude/HALT` before every dispatch
   (NEVER 3) and emits `.claude/state/loop-status.json` as the
   operator-facing live audit.
-version: "2.0.0"
+version: "2.1.0"
 argument-hint: "[--status <NAME>] [--interval <S>] [--dry-run] [--once] [--force]"
 ---
 
@@ -108,6 +108,45 @@ work. Disable it with `MAKATO_LOOP_REAP_ON_POLL=0`.
 > hand-created worktrees have none, so `lock` is the reliable operator pin. The
 > clean-tree guard (6) is the independent backstop for everything else.
 
+### Orphaned specs/ folder pruning
+
+The reap pass also prunes local `specs/<slug>/` scratch folders in the same
+window (`_reap_orphan_specs`, run right after the worktree walk). The po-agent
+writes per-run artefacts there (`plan.md`, `workflow-state-<N>.json`,
+`orchestrate.jsonl`, `seed-manifest.json`, `lessons-*.md`); in the makato repo
+`specs/**` is gitignored, so once an issue is done those files linger as
+untracked local scratch. `archive-spec.sh` cannot clean them — it runs on a GHA
+runner with a fresh checkout and never sees the operator's disk — so the reaper
+does it locally.
+
+A folder is pruned only when **all** hold:
+
+1. it is **fully untracked** (`git ls-files <dir>` returns empty) — a folder
+   with any tracked file belongs to a consumer repo where specs are committed
+   and managed by `archive-spec.sh` via `git mv`; the reaper **never** deletes
+   it;
+2. the owning issue number is derivable — from `seed-manifest.json`
+   `.issue_number`, or the `workflow-state-<N>.json` filename;
+3. the issue is **done** — either `workflow-state-<N>.json` has
+   `current_phase == "done"` (fast local path, no network) **or**
+   `gh issue view <N> --json state` returns `CLOSED` (fallback for thin folders
+   with no workflow-state file). An `OPEN` issue is skipped; an unknown/error
+   state is skipped with a WARN.
+
+Best-effort and respects `MAKATO_LOOP_REAP_DRYRUN`. Disable with
+`MAKATO_LOOP_REAP_SPECS=0`. Audit counts land in `loop-status.json` under
+`last_reap_specs_count` / `reap_specs_pruned`.
+
+**Lessons are promoted before the folder is deleted.** The po-agent's lessons
+live only in gitignored `workflow-state-<N>.json` / `change-lessons.jsonl`, so
+`documentation-agent` on a fresh GHA checkout never sees them — the reaper is
+the one place that can lift them into the committed store. Before `rm -rf`,
+`_reap_orphan_specs` runs `promote-lessons.sh <N>` so any `scope: generalizable`
+lesson lands in `.makato/memory/procedural.jsonl`. If promotion fails
+(non-zero — a genuine I/O error), the folder is **kept** so no lesson is ever
+lost; a clean exit (promoted, or nothing generalizable to promote) authorises
+removal.
+
 ## When to Use
 
 Use **only** from the operator's terminal (or a `tmux`/`nohup` wrapper)
@@ -183,7 +222,7 @@ The driver also exposes lower-level subcommands for diagnostics:
 | `next [STATUS_NAME]` | Print the issue number that would be dispatched next, or empty if none. |
 | `status` | Pretty-print `.claude/state/loop-status.json`. |
 | `dispatch <ISSUE> [--dry-run]` | Manually dispatch one issue. |
-| `remove-worktrees` | Remove local worktrees under `.claude/worktrees/` whose branch has a merged PR (#265); skips main/dirty/locked/retained/detached/nested. Also a pre-poll pass in `run`. One-shot: `MAKATO_LOOP_REAP_INTERVAL=0 loop remove-worktrees` (`MAKATO_LOOP_REAP_DRYRUN=1` to inspect). |
+| `remove-worktrees` | Remove local worktrees under `.claude/worktrees/` whose branch has a merged PR (#265); skips main/dirty/locked/retained/detached/nested. Also prunes orphaned untracked `specs/<slug>/` folders for done/closed issues (`MAKATO_LOOP_REAP_SPECS=0` to disable). Also a pre-poll pass in `run`. One-shot: `MAKATO_LOOP_REAP_INTERVAL=0 loop remove-worktrees` (`MAKATO_LOOP_REAP_DRYRUN=1` to inspect). |
 | `promote-ready` | Run the label→board promotion pass once and exit (#231). Useful for one-shot promotion without starting the full loop. |
 | `auto-seed` | Run the pre-poll auto-seed pass (`_auto_seed_unprepared`) once and exit (#373, epic #367 S5). Seeds or blocks every open issue not yet at `status:ready-for-dev`: light-tier issues → headless `seed-issue` dispatch + thin-body reconciliation; change-tier → no-op (change-orchestrate owns them); full/untiered → spec-folder stub + board `Blocked` + `needs-human-review`. Best-effort: a failure per candidate logs a WARN and the pass always returns 0. |
 | `reconcile-orphaned` | Move board cards that are `In progress` but have no live local workflow-state to `Blocked` + `needs-human-review` (#368). Best-effort one-shot pass. |
@@ -249,7 +288,10 @@ Each outer iteration of `run` performs the following steps in order:
    all `--status` values (it operates on local disk, not the board).
    Best-effort: any `gh`/`git` failure logs a WARN and the tick
    continues. Skipped under `--dry-run` and when `MAKATO_LOOP_REAP_ON_POLL=0`.
-   Also available standalone as `loop remove-worktrees`.
+   Also available standalone as `loop remove-worktrees`. In the same pass,
+   `_reap_orphan_specs` prunes untracked `specs/<slug>/` folders for done/closed
+   issues (`MAKATO_LOOP_REAP_SPECS=0` to disable; see *Orphaned specs/ folder
+   pruning* above).
 3.5. **Pre-poll HALT-007B liveness check (#284).** `_check_pending_handoffs`
    walks every `specs/*/workflow-state-*.json` and calls
    `context-handoff.sh check-pid` for each issue with a pending handoff
@@ -709,6 +751,8 @@ The intentional design split:
 | `MAKATO_LOOP_REAP_GH_OVERRIDE` | unset | Test-only: path to a JSON map `{"<branch>": "<pr#>"}` read instead of calling `gh pr list`. Keeps the reap smoke tests offline. |
 | `MAKATO_LOOP_REAP_BASE_REF` | unset | Override the base ref used for the ancestry landed-check (default: `origin/HEAD`, else `origin/main`). Tests point it at a local `main` so ancestry works in a throwaway repo with no remote. |
 | `MAKATO_LOOP_REAP_WT_OVERRIDE` | unset | Test-only: path to a file with canned `git worktree list --porcelain` output, read instead of invoking git. |
+| `MAKATO_LOOP_REAP_SPECS` | `1` | Set to `0` to disable orphaned-specs pruning. When on, untracked `specs/<slug>/` folders for done/closed issues are removed in the same reap pass. Tracked spec folders are never touched (consumer repos use `archive-spec.sh`). |
+| `MAKATO_LOOP_REAP_SPECS_GH_OVERRIDE` | unset | Test-only: path to a JSON map `{"<issue_number>": "open\|closed"}` read instead of calling `gh issue view`. Keeps the specs-prune smoke tests offline. |
 | `MAKATO_HANDOFF_ACK_TIMEOUT` | `120` | Seconds the pre-poll HALT-007B liveness check (#284) waits for a resumed subprocess to write `resume_ack` before firing the HALT-007 fallback. A dead PID short-circuits the wait. Read by `context-handoff.sh check-pid`; lower it in tests to force the timeout path. |
 | `MAKATO_LOOP_AUTOSEED_ON_POLL` | `1` | Set to `0` to disable the pre-poll auto-seed pass entirely (#373, epic #367 S5). When unset or `1`, `_auto_seed_unprepared` runs before `_promote_labelled_ready` on every `Ready`-status tick. Disable for repos that manage seeding externally or for debugging. |
 | `MAKATO_LOOP_AUTOSEED_OVERRIDE` | unset | Test-only: path to a JSON file in `gh issue list --json number,labels,author` shape, read instead of calling `gh` in `_auto_seed_candidates`. Keeps S1/S5 discovery smoke tests offline. |

@@ -153,6 +153,22 @@
 #                              Default 0 — unpushed commits block reaping
 #                              without this flag (un-landed work guard).
 #
+# --- Orphaned specs/ folder pruning ---
+#   MAKATO_LOOP_REAP_SPECS     Set to `0` to disable orphaned-specs
+#                              pruning (default 1). When on, local
+#                              specs/<slug>/ folders for done/closed
+#                              issues are removed in the same reap pass as
+#                              merged worktrees. Only FULLY-UNTRACKED
+#                              folders are ever removed — tracked specs
+#                              (consumer repos) are managed by
+#                              archive-spec.sh via `git mv` and never
+#                              touched here.
+#   MAKATO_LOOP_REAP_SPECS_GH_OVERRIDE
+#                              Tests only: path to a JSON map
+#                              {"<issue_number>": "open|closed"} read
+#                              instead of calling `gh issue view`. Keeps
+#                              the specs-prune smoke tests fully offline.
+#
 # --- Sleep-wake guard (#171) ---
 #   MAKATO_LOOP_SLEEP_MAX_STEP Max seconds per raw `sleep` call inside
 #                              `_guarded_sleep` (default 30). The outer
@@ -422,6 +438,8 @@ RECONCILE_DRYRUN="${MAKATO_LOOP_RECONCILE_DRYRUN:-0}"
 # Stale-worktree reap thresholds (#320).
 REAP_STALE_AGE_SECS="${MAKATO_LOOP_REAP_STALE_AGE:-86400}"
 REAP_STALE_FORCE="${MAKATO_LOOP_REAP_STALE_FORCE:-0}"
+# Orphaned specs/ folder pruning — default on, opt-out via =0.
+REAP_SPECS="${MAKATO_LOOP_REAP_SPECS:-1}"
 
 # --- Sleep-wake guard (#171) --------------------------------------------
 # After a macOS host suspend/resume, `sleep $interval` in the outer
@@ -3091,6 +3109,11 @@ _reap_merged_worktrees() {
     git -C "$REPO_ROOT" worktree prune >/dev/null 2>&1 || true
   fi
 
+  # Orphaned specs/ folder pruning — runs in the same pass window so it
+  # inherits the REAP_ON_POLL guard and the shared throttle. Best-effort:
+  # a failure here never aborts the worktree-reap audit.
+  _reap_orphan_specs || true
+
   _reap_stamp "$reaped_count" "$reaped_json"
   return 0
 }
@@ -3107,6 +3130,151 @@ _reap_stamp() {
   if [[ "${count:-0}" -gt 0 && -n "$reaped_json" ]]; then
     _patch_status '.reaped' "$reaped_json"
   fi
+}
+
+# ---------------------------------------------------------------------------
+# _reap_orphan_specs — prune local specs/<slug>/ folders for completed or
+# closed issues. Called from _reap_merged_worktrees after the worktree pass,
+# so it shares the REAP_ON_POLL guard and the throttle window. Audit counts
+# land in separate loop-status.json fields (.last_reap_specs_count /
+# .reap_specs_pruned) so they never mingle with the worktree .reaped schema.
+#
+# Why this lives here and not in archive-spec.sh: in the makato repo `specs/**`
+# is gitignored (only build.jsonl / spec.md are whitelisted), so the po-agent's
+# per-run artefacts (plan.md, workflow-state-<N>.json, orchestrate.jsonl,
+# seed-manifest.json, lessons-*.md) are untracked local scratch. archive-spec.sh
+# runs on a GHA runner with a fresh checkout — it cannot see, let alone remove,
+# these local files. The reaper runs on the operator's machine where they live.
+#
+# Decision tree per folder:
+#   1. SAFETY: `git ls-files <dir>` non-empty → skip. A folder with ANY tracked
+#      file belongs to a consumer repo where specs are committed and managed by
+#      archive-spec.sh via `git mv`; the reaper must NEVER delete it.
+#   2. Issue number: seed-manifest.json .issue_number (primary), else N parsed
+#      from a workflow-state-<N>.json filename. Not derivable → skip with WARN.
+#   3. Done signal (fast local path first): workflow-state-<N>.json has
+#      .current_phase == "done" → prune. Otherwise fall back to `gh issue view
+#      <N> --json state` (or MAKATO_LOOP_REAP_SPECS_GH_OVERRIDE): CLOSED → prune,
+#      OPEN → skip, unknown/error → skip with WARN.
+#   4. Promote lessons THEN prune: before deleting, run promote-lessons.sh so
+#      any scope=generalizable lesson in workflow-state-<N>.json /
+#      change-lessons.jsonl is lifted into the committed .makato/memory/ store.
+#      Those source files are gitignored, so documentation-agent (fresh GHA
+#      checkout) never sees them — the reaper is the only place promotion can
+#      read them. A non-zero promote exit KEEPS the folder (never lose lessons).
+#   5. Dryrun (MAKATO_LOOP_REAP_DRYRUN): log intent, promote nothing, remove nothing.
+#
+# Always returns 0 (best-effort — a per-folder failure never aborts the tick).
+# ---------------------------------------------------------------------------
+_reap_orphan_specs() {
+  [[ "$REAP_SPECS" == "1" ]] || return 0
+
+  local spec_root="${SPECS_DIR:-${REPO_ROOT}/specs}"
+  [[ -d "$spec_root" ]] || return 0
+
+  local dryrun="${MAKATO_LOOP_REAP_DRYRUN:-}"
+  local pruned_count=0
+  local pruned_json="[]"
+
+  local slug_dir
+  while IFS= read -r -d '' slug_dir; do
+    [[ -d "$slug_dir" ]] || continue
+
+    # Guard 1: must be fully untracked (see NEVER note above).
+    if [[ -n "$(git -C "$REPO_ROOT" ls-files "$slug_dir" 2>/dev/null)" ]]; then
+      echo "loop: reap-specs skip $slug_dir (has tracked files — managed by archive-spec.sh)" >&2
+      continue
+    fi
+
+    # Derive the issue number: seed-manifest first, workflow-state filename fallback.
+    local issue_num=""
+    if [[ -f "$slug_dir/seed-manifest.json" ]]; then
+      issue_num="$(jq -r '.issue_number // empty' "$slug_dir/seed-manifest.json" 2>/dev/null || true)"
+    fi
+    if [[ -z "$issue_num" ]]; then
+      local wf_file
+      wf_file="$(find "$slug_dir" -maxdepth 1 -name 'workflow-state-*.json' 2>/dev/null | head -1)"
+      if [[ -n "$wf_file" ]]; then
+        issue_num="$(basename "$wf_file" | sed -E 's/^workflow-state-([0-9]+)\.json$/\1/')"
+      fi
+    fi
+    if [[ -z "$issue_num" || ! "$issue_num" =~ ^[0-9]+$ ]]; then
+      echo "loop: reap-specs WARN $slug_dir — cannot derive issue number, skipping" >&2
+      continue
+    fi
+
+    # Done signal — fast local path: workflow-state phase=done.
+    local reason=""
+    local wf_phase_file="$slug_dir/workflow-state-${issue_num}.json"
+    if [[ -f "$wf_phase_file" ]]; then
+      local phase
+      phase="$(jq -r '.current_phase // empty' "$wf_phase_file" 2>/dev/null || true)"
+      [[ "$phase" == "done" ]] && reason="workflow-state phase=done"
+    fi
+
+    # Fallback: gh issue state (offline override in tests).
+    if [[ -z "$reason" ]]; then
+      local gh_state=""
+      if [[ -n "${MAKATO_LOOP_REAP_SPECS_GH_OVERRIDE:-}" ]]; then
+        gh_state="$(jq -r --arg n "$issue_num" '.[$n] // empty' \
+          "$MAKATO_LOOP_REAP_SPECS_GH_OVERRIDE" 2>/dev/null | tr '[:upper:]' '[:lower:]' || true)"
+      else
+        local repo; repo="$(_derive_reap_repo)"
+        local -a repo_flag=()
+        [[ -n "$repo" ]] && repo_flag=(--repo "$repo")
+        gh_state="$(gh issue view "$issue_num" "${repo_flag[@]}" --json state --jq '.state' 2>/dev/null \
+          | tr '[:upper:]' '[:lower:]' || true)"
+      fi
+      if [[ "$gh_state" == "closed" ]]; then
+        reason="issue #${issue_num} CLOSED"
+      elif [[ "$gh_state" == "open" ]]; then
+        echo "loop: reap-specs skip $slug_dir (issue #${issue_num} is OPEN)" >&2
+        continue
+      else
+        echo "loop: reap-specs WARN $slug_dir (issue #${issue_num} gh state unknown: '${gh_state}') — skipping" >&2
+        continue
+      fi
+    fi
+
+    # Prune (or log intent under dryrun).
+    if [[ -n "$dryrun" ]]; then
+      echo "loop: reap-specs would remove $slug_dir (issue #${issue_num}, ${reason})" >&2
+    else
+      # Promote generalizable lessons into the committed store BEFORE deleting.
+      # This is the only place promotion can read the po-agent's per-issue
+      # lessons: workflow-state-<N>.json / change-lessons.jsonl are gitignored,
+      # so documentation-agent on a fresh GHA checkout never sees them. If the
+      # promote step fails (non-zero — a genuine I/O error), we KEEP the folder
+      # so the lessons are never lost; a clean exit (promoted or nothing to
+      # promote) authorises removal.
+      local promote_sh="$(dirname "$0")/promote-lessons.sh"
+      if [[ -f "$promote_sh" ]]; then
+        if ! bash "$promote_sh" "$issue_num" "$spec_root" \
+               "${REPO_ROOT}/.makato/memory/procedural.jsonl" >/dev/null 2>&1; then
+          echo "loop: reap-specs SKIP $slug_dir (issue #${issue_num}) — promote-lessons failed, keeping folder to avoid lesson loss" >&2
+          continue
+        fi
+      fi
+      echo "loop: reap-specs removing $slug_dir (issue #${issue_num}, ${reason})" >&2
+      if rm -rf "$slug_dir" 2>/dev/null; then
+        pruned_json="$(jq -c --arg d "$slug_dir" --arg n "$issue_num" --arg r "$reason" \
+          '. + [{dir:$d, issue:$n, reason:$r}]' <<<"$pruned_json")"
+        pruned_count=$((pruned_count + 1))
+      else
+        echo "loop: WARN — reap-specs remove failed for $slug_dir (tick continues)" >&2
+      fi
+    fi
+  done < <(find "$spec_root" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null)
+
+  # Audit — write count every live pass; the array only when something moved.
+  if [[ -z "$dryrun" ]]; then
+    _patch_status '.last_reap_specs_count' "${pruned_count}"
+    if [[ "$pruned_count" -gt 0 ]]; then
+      _patch_status '.reap_specs_pruned' "$pruned_json"
+    fi
+  fi
+
+  return 0
 }
 
 # ---------------------------------------------------------------------------
