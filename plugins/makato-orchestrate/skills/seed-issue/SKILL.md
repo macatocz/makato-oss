@@ -155,23 +155,20 @@ PLAN_TIER="$(printf '%s\n' "${ISSUE_LABELS[@]}" \
   | grep -m1 -oE 'plan-tier:(light|full|change)' | sed 's/^plan-tier://' || true)"
 ```
 
-- `PLAN_TIER=light` **and** `ISSUE_TYPE=new-work` → the **lightweight planning
-  lane** applies. The board promotion in Step 7 is **deferred**; the
-  light-planner agent runs in Step 8 and a valid plan gates promotion (Step 8.5).
-- `PLAN_TIER=full`, `PLAN_TIER=change`, empty, or `ISSUE_TYPE=change` → the
-  **standard path** applies, byte-for-byte as before: Step 7 promotes to Ready
-  unconditionally and Step 8 writes only the stub. light-planner is NOT
+- `ISSUE_TYPE=new-work` → the **plan lane** applies. The board promotion in
+  Step 7 is **deferred**; the light-planner agent runs in Step 8 and a valid
+  plan gates promotion (Step 8.5).
+- `ISSUE_TYPE=change` → the **standard path** applies: Step 7 promotes to
+  Ready unconditionally and Step 8 writes only the stub. light-planner is NOT
   dispatched and no `spec_tier` is written.
 
-**Precondition (soft dependency on Story 2, #211):** the lightweight lane keys
-off the `plan-tier:light` label. If the classifier from #211 is not yet shipped
-in the target repo, the label will be absent and seed-issue takes the standard
-path. Operators who want the lightweight lane before #211 lands must apply the
-`plan-tier:light` label manually before running seed-issue.
+**Note:** The plan lane fires for all `new-work` issues. The `plan-tier:light`
+label continues to control whether `spec_tier:plan-only` is written into
+`seed-manifest.json` (see Step 8.5c).
 
-Set `LIGHTWEIGHT_LANE=true` only when `PLAN_TIER=light` **and**
-`ISSUE_TYPE=new-work`; otherwise `LIGHTWEIGHT_LANE=false`. Log:
-`[seed-issue] plan tier: <light|full|change|none> — lightweight lane: <true|false>`.
+Set `PLAN_LANE=true` when `ISSUE_TYPE=new-work` (regardless of `PLAN_TIER`);
+otherwise `PLAN_LANE=false`. Log:
+`[seed-issue] plan tier: <light|full|change|none> — plan lane: <true|false>`.
 
 ### Step 3 — Write the type label
 
@@ -290,16 +287,16 @@ Log `[seed-issue] stamped status:ready-for-dev on #N`.
 
 ### Step 7 — Move board card to Status=Ready
 
-**Lightweight-lane deferral:** when `LIGHTWEIGHT_LANE=true`, **do not promote to
+**Plan-lane deferral:** when `PLAN_LANE=true`, **do not promote to
 Ready here.** The card must stay at `Todo` until the light-planner agent
 produces a valid plan (Step 8) and the guard passes (Step 8.5). Ensure the item
 exists on the board (add it if missing, exactly as sub-step 1 below) but **skip
 the `item-edit` to Ready** — Step 8.5 performs the promotion. Log:
-`[seed-issue] lightweight lane — deferring Status=Ready until a valid plan exists (Step 8.5)` and continue to Step 8. This is the core #212 restructure: today's
+`[seed-issue] plan lane — deferring Status=Ready until a valid plan exists (Step 8.5)` and continue to Step 8. This is the core #212 restructure: today's
 unconditional promote-before-plan would let the po-agent dispatch a stub and
 fire HALT-006; deferral closes that window.
 
-For the standard path (`LIGHTWEIGHT_LANE=false`), promote unconditionally as
+For the standard path (`PLAN_LANE=false`), promote unconditionally as
 before.
 
 Read `.claude/config.json` from the repo root. Parse the `github_project` block.
@@ -339,7 +336,7 @@ and skip to Step 8.
 
 2. Set Status=Ready:
 
-   **Skip this sub-step entirely when `LIGHTWEIGHT_LANE=true`** — capture
+   **Skip this sub-step entirely when `PLAN_LANE=true`** — capture
    `ITEM_ID` (from sub-step 1, adding to the board if needed) into a variable
    Step 8.5 can reuse, but do not write the Status field here. Otherwise:
 
@@ -433,9 +430,9 @@ If `specs/$SLUG/` already exists, skip creation and log:
 
 ### Step 8.5 — Lightweight lane: generate the plan and gate promotion
 
-**Run this step only when `LIGHTWEIGHT_LANE=true`.** For the standard path,
-skip it entirely — Step 7 has already promoted the card and the stub plan
-stands (unchanged behavior).
+**Run this step only when `PLAN_LANE=true`.** For the standard path
+(`PLAN_LANE=false`), skip it entirely — Step 7 has already promoted the card
+and the stub plan stands (unchanged behavior).
 
 This step turns the deferred promotion from Step 7 into a plan-gated one. It
 has four parts: dispatch → validate → promote-or-fallback → audit.
@@ -483,10 +480,12 @@ and any hollow plan return `invalid`.
 
 **If `GUARD_VERDICT=valid`** (the happy path — agent success AND a real plan):
 
-1. Write `spec_tier:plan-only` into `specs/$SLUG/seed-manifest.json`
-   (`jq '.spec_tier = "plan-only"'`). This is the ONLY path that sets
-   `spec_tier` — it routes `build-refine` to source AC from `plan.md`
-   (#210). Bump nothing else; the manifest is already `schema_version:"2"`.
+1. If `PLAN_TIER=light`: write `spec_tier:plan-only` into
+   `specs/$SLUG/seed-manifest.json` (`jq '.spec_tier = "plan-only"'`).
+   This routes `build-refine` to source AC from `plan.md` (#210).
+   If `PLAN_TIER` is `full`, `change`, or empty: do NOT set `spec_tier` —
+   `build-refine` takes the full-tier path (reads `stories.json` + `prd.md`).
+   Bump nothing else; the manifest is already `schema_version:"2"`.
 2. Promote the board card to `Status=Ready` now — reuse `ITEM_ID` captured in
    Step 7 and run the `item-edit` call that Step 7 deferred:
 
@@ -498,7 +497,7 @@ and any hollow plan return `invalid`.
 
    On board-move failure, log the same WARN as Step 7 and continue — the plan
    and `spec_tier` are already written; the card can be moved by hand.
-3. Log: `[seed-issue] lightweight lane — plan.md valid, spec_tier:plan-only set, promoted #N to Ready`.
+3. Log: `[seed-issue] plan lane — plan.md valid, promoted #N to Ready` (add `spec_tier:plan-only set` when PLAN_TIER=light).
 
 **If `GUARD_VERDICT=invalid`** (thin body, or the agent produced a hollow plan
 — the fallback path):
@@ -507,12 +506,15 @@ and any hollow plan return `invalid`.
    plan-only item).
 2. Do **not** promote the board — the card stays at `Todo` (Step 7 deferred it;
    leave it deferred).
-3. Re-tier the issue to full so the full planning cycle picks it up:
+3. If `PLAN_TIER=light`, re-tier to full:
 
    ```bash
    gh issue edit "$ISSUE_NUMBER" --repo "$REPO" \
      --remove-label "plan-tier:light" --add-label "plan-tier:full"
    ```
+
+   If `PLAN_TIER=full` or absent, skip this sub-step — the label is already
+   correct.
 
 4. Remove the premature `status:ready-for-dev` stamp written in Step 6 — a
    thin-body item is NOT ready for autonomous dispatch:
@@ -526,11 +528,10 @@ and any hollow plan return `invalid`.
    documented outcome — not a HALT):
 
    ```
-   [seed-issue] Lightweight planning declined for #N — issue body too thin to
+   [seed-issue] Plan generation declined for #N — issue body too thin to
    generate a plan (reason: <agent summary or guard reason>). The issue has been
-   re-tiered to plan-tier:full and left at Status=Todo. Shape it via the full
-   cycle (brainstorm → PRD → decompose) or expand the issue body and re-run
-   seed-issue.
+   left at Status=Todo. Shape it via the full cycle (brainstorm → PRD →
+   decompose) or expand the issue body and re-run seed-issue.
    ```
 
 #### 8.5d — Partial-write recovery
@@ -562,13 +563,13 @@ Append one JSONL line to `specs/$SLUG/orchestrate.jsonl` recording the outcome
   Issue   : #N — <ISSUE_TITLE>
   Repo    : <REPO>
   Type    : <ISSUE_TYPE>
-  Tier    : <light|full|change|none> (lightweight lane: <true|false>)
+  Tier    : <light|full|change|none> (plan lane: <true|false>)
   Slug    : <SLUG>
   Labels  : type:<label>, status:ready-for-dev (stamped); "blocked by" + "blocking" created on repo
   Footer  : provenance footer stamped (or already present)
   Board   : Status=Ready (or WARN if board move skipped)
   Spec    : specs/<SLUG>/ created (new-work) / not needed (change)
-  Plan    : full plan.md generated by light-planner (lightweight lane) / stub
+  Plan    : full plan.md generated by light-planner / stub (fallback)
 
 Next: start the loop or run 'loop dispatch <N>' to dispatch immediately.
 ```

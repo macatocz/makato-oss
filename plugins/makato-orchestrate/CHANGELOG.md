@@ -5,6 +5,14 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Added
+- `seed-issue`: expanded plan lane to all `new-work` issues — light-planner now
+  runs at seed time for `plan-tier:full` issues too, gating board promotion on a
+  valid `plan.md` (`PLAN_LANE=true` replaces `LIGHTWEIGHT_LANE=true`)
+- `loop.sh`: pre-dispatch plan guard (`_pre_dispatch_plan_guard`) in
+  `cmd_dispatch()` — validates `plan.md` before launching the PO-agent; attempts
+  `build-refine --autonomous` recovery on invalid plans; patches
+  `pre_dispatch_plan_guard` field into `loop-status.json`
 - **Added** persistent memory store and extended `recall-lessons` (#470, epic #464 S1).
   Creates `.makato/memory/` with committed `semantic.jsonl` and `procedural.jsonl` JSONL files as the persistent, cross-run lesson store. Extends `recall-lessons` to read this store alongside `workflow-state-*.json` sources, adds optional `--bundles`/`--labels` filters, and sorts results by scope asc, occurrences DESC, recency DESC. Updates the po-agent Step 2c call-site to pass tech-label bundles. All changes backward-compatible with the existing 2-arg `recall-lessons <REPO> [N]` signature.
   - **`.makato/memory/semantic.jsonl`** and **`.makato/memory/procedural.jsonl`** — empty committed JSONL files; the persistent store that outlives per-issue spec folders.

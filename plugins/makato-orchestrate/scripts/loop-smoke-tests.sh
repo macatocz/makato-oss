@@ -4343,5 +4343,186 @@ grep -qi "no specs/ folder" <<<"$t75_nc_stderr" \
 rm -rf "$T75_DIR"
 echo "  ✓ type:change: spec-folder gate bypassed; negative-control confirms gate fires for type:feature"
 
+# ---------------------------------------------------------------------------
+# T79: pre-dispatch plan guard — valid plan.md skips refine, verdict=valid:false:n/a
+#   A real plan.md with non-empty ## Tasks and ## Acceptance criteria sections.
+#   _pre_dispatch_plan_guard must return "valid:false:n/a" without invoking $CLAUDE_BIN.
+# ---------------------------------------------------------------------------
+echo "=== T79: pre-dispatch plan guard — valid plan skips refine ==="
+T79_DIR="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-t79"
+T79_SPECS="$T79_DIR/specs"
+mkdir -p "$T79_SPECS/472-some-feature"
+cat > "$T79_SPECS/472-some-feature/plan.md" << 'PLANEOF'
+# Plan: Some Feature
+
+## Tasks
+
+- Task 1: implement the thing
+
+## Acceptance criteria
+
+- The thing works correctly
+PLANEOF
+
+t79_verdict="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  SPECS_DIR="$T79_SPECS" REPO_ROOT="$T79_DIR" \
+    "$LOOP" _test-pre-dispatch-plan-guard '472-some-feature'
+)" 2>/dev/null
+
+[[ "$t79_verdict" == "valid:false:n/a" ]] \
+  || fail "T79: expected verdict=valid:false:n/a for a real plan.md; got: '$t79_verdict'"
+
+rm -rf "$T79_DIR"
+echo "T79 passed"
+
+# ---------------------------------------------------------------------------
+# T80: pre-dispatch plan guard — stub plan triggers refine, refine writes valid
+#   plan, verdict=valid:true:valid.
+#   Fake $CLAUDE_BIN exits 0 and overwrites plan.md with a real plan.
+# ---------------------------------------------------------------------------
+echo "=== T80: pre-dispatch plan guard — refine recovery produces valid plan ==="
+T80_DIR="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-t80"
+T80_SPECS="$T80_DIR/specs"
+mkdir -p "$T80_SPECS/99-thin-feature"
+cat > "$T80_SPECS/99-thin-feature/plan.md" << 'STUBEOF'
+# Plan: Thin Feature
+
+## Acceptance criteria
+
+_To be filled in._
+STUBEOF
+
+t80_fake_claude="$T80_DIR/fake-claude"
+cat > "$t80_fake_claude" << 'FAKEEOF'
+#!/usr/bin/env bash
+PLAN="$(find "${SPECS_DIR:-${REPO_ROOT}/specs}" -name plan.md -path '*99-thin*' 2>/dev/null | head -1)"
+if [[ -n "$PLAN" ]]; then
+  cat > "$PLAN" << 'REALPLAN'
+# Plan: Thin Feature
+
+## Tasks
+
+- Task 1: implement the thin thing
+
+## Acceptance criteria
+
+- The thin thing works
+REALPLAN
+fi
+exit 0
+FAKEEOF
+chmod +x "$t80_fake_claude"
+
+t80_verdict="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  SPECS_DIR="$T80_SPECS" REPO_ROOT="$T80_DIR" MAKATO_CLAUDE_BIN="$t80_fake_claude" \
+    "$LOOP" _test-pre-dispatch-plan-guard '99-thin-feature'
+)" 2>/dev/null
+
+[[ "$t80_verdict" == "valid:true:valid" ]] \
+  || fail "T80: expected verdict=valid:true:valid after successful refine; got: '$t80_verdict'"
+
+rm -rf "$T80_DIR"
+echo "T80 passed"
+
+# ---------------------------------------------------------------------------
+# T81: pre-dispatch plan guard — refine fails (exits non-zero), verdict=invalid:true:error,
+#   stderr contains "dispatching anyway".
+# ---------------------------------------------------------------------------
+echo "=== T81: pre-dispatch plan guard — refine fails, verdict=invalid:true:error ==="
+T81_DIR="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-t81"
+T81_SPECS="$T81_DIR/specs"
+mkdir -p "$T81_SPECS/55-bad-feature"
+cat > "$T81_SPECS/55-bad-feature/plan.md" << 'STUBEOF'
+# Plan: Bad Feature
+
+## Acceptance criteria
+
+_To be filled in._
+STUBEOF
+
+t81_fake_claude="$T81_DIR/fake-claude"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$t81_fake_claude"
+chmod +x "$t81_fake_claude"
+
+t81_output="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  SPECS_DIR="$T81_SPECS" REPO_ROOT="$T81_DIR" MAKATO_CLAUDE_BIN="$t81_fake_claude" \
+    "$LOOP" _test-pre-dispatch-plan-guard '55-bad-feature' 2>/tmp/t81_stderr_$$
+)"
+
+t81_verdict="$t81_output"
+t81_stderr="$(cat /tmp/t81_stderr_$$)"
+rm -f /tmp/t81_stderr_$$
+
+[[ "$t81_verdict" == "invalid:true:error" ]] \
+  || fail "T81: expected verdict=invalid:true:error when refine exits non-zero; got: '$t81_verdict'"
+echo "$t81_stderr" | grep -q "dispatching anyway" \
+  || fail "T81: expected 'dispatching anyway' WARN in stderr; got: '$t81_stderr'"
+
+rm -rf "$T81_DIR"
+echo "T81 passed"
+
+# ---------------------------------------------------------------------------
+# T82: pre-dispatch plan guard — no plan.md found, verdict=skipped:false:n/a
+#   Spec folder exists but contains no plan.md.
+# ---------------------------------------------------------------------------
+echo "=== T82: pre-dispatch plan guard — no plan.md, verdict=skipped:false:n/a ==="
+T82_DIR="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-t82"
+T82_SPECS="$T82_DIR/specs"
+mkdir -p "$T82_SPECS/77-no-plan-feature"
+# Deliberately NO plan.md in the folder.
+
+t82_verdict="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  SPECS_DIR="$T82_SPECS" REPO_ROOT="$T82_DIR" \
+    "$LOOP" _test-pre-dispatch-plan-guard '77-no-plan-feature'
+)" 2>/dev/null
+
+[[ "$t82_verdict" == "skipped:false:n/a" ]] \
+  || fail "T82: expected verdict=skipped:false:n/a when no plan.md exists; got: '$t82_verdict'"
+
+rm -rf "$T82_DIR"
+echo "T82 passed"
+
+# ---------------------------------------------------------------------------
+# T83: pre-dispatch plan guard — validate-plan-body.sh absent, verdict=error:false:n/a
+#   plan.md exists but the guard script is missing.
+# ---------------------------------------------------------------------------
+echo "=== T83: pre-dispatch plan guard — validate-plan-body.sh missing, verdict=error:false:n/a ==="
+T83_DIR="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-t83"
+T83_SPECS="$T83_DIR/specs"
+mkdir -p "$T83_SPECS/88-no-validate-feature"
+cat > "$T83_SPECS/88-no-validate-feature/plan.md" << 'PLANEOF'
+# Plan: No Validate Feature
+
+## Tasks
+
+- Task 1: something
+
+## Acceptance criteria
+
+- Something works
+PLANEOF
+
+# Run loop from a temp dir that has no validate-plan-body.sh alongside it.
+t83_loop_copy="$T83_DIR/loop.sh"
+cp "$LOOP" "$t83_loop_copy"
+chmod +x "$t83_loop_copy"
+# $0 inside the subshell will be t83_loop_copy; dirname $0 = T83_DIR — no validate-plan-body.sh there.
+
+t83_verdict="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  SPECS_DIR="$T83_SPECS" REPO_ROOT="$T83_DIR" \
+    "$t83_loop_copy" _test-pre-dispatch-plan-guard '88-no-validate-feature'
+)" 2>/dev/null
+
+[[ "$t83_verdict" == "error:false:n/a" ]] \
+  || fail "T83: expected verdict=error:false:n/a when validate-plan-body.sh is absent; got: '$t83_verdict'"
+
+rm -rf "$T83_DIR"
+echo "T83 passed"
+
 echo
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447) ==="
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470) ==="

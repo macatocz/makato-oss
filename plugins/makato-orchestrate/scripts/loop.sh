@@ -3114,6 +3114,75 @@ cmd_remove_worktrees() {
 }
 
 # ---------------------------------------------------------------------------
+# _pre_dispatch_plan_guard <KEY> — validate plan.md before PO-agent dispatch.
+# Runs validate-plan-body.sh; if invalid, attempts build-refine --autonomous
+# as a recovery step, then re-validates. Emits a colon-delimited tuple on
+# stdout: "<verdict>:<refine_attempted>:<refine_outcome>" where:
+#   verdict         ∈ {valid, invalid, skipped, error}
+#   refine_attempted ∈ {true, false}
+#   refine_outcome  ∈ {valid, invalid, error, n/a}
+# Never blocks dispatch on its own — callers decide whether to proceed.
+# ---------------------------------------------------------------------------
+_pre_dispatch_plan_guard() {
+  local key="$1"
+  local validate_sh
+  validate_sh="$(dirname "$0")/validate-plan-body.sh"
+
+  # Locate plan.md via the same glob _spec_folder_for_key uses.
+  local spec_root="${SPECS_DIR:-${REPO_ROOT}/specs}"
+  local plan_path
+  plan_path="$(find "$spec_root" -maxdepth 2 -name "plan.md" \
+    -path "*/${key}*" 2>/dev/null | head -1)"
+
+  if [[ -z "$plan_path" ]]; then
+    echo "skipped:false:n/a"
+    return 0
+  fi
+
+  if [[ ! -x "$validate_sh" && ! -f "$validate_sh" ]]; then
+    echo "error:false:n/a"
+    return 0
+  fi
+
+  local guard_out guard_verdict
+  guard_out="$(bash "$validate_sh" "$plan_path" 2>/dev/null || true)"
+  guard_verdict="${guard_out%% *}"
+
+  if [[ "$guard_verdict" == "valid" ]]; then
+    echo "valid:false:n/a"
+    return 0
+  fi
+
+  # Plan is invalid — attempt build-refine --autonomous as recovery.
+  echo "loop: pre-dispatch plan guard: plan.md invalid for KEY=${key} — running build-refine --autonomous" >&2
+
+  local refine_prompt="Use the Skill tool to invoke the makato-build:build-refine skill with args '${key} --autonomous'. REPO_ROOT=${REPO_ROOT}. MAKATO_HEADLESS=1 is already exported. Return R1 envelope verbatim."
+  local refine_exit=0
+  MAKATO_HEADLESS=1 REPO_ROOT="$REPO_ROOT" \
+    "$CLAUDE_BIN" --dangerously-skip-permissions -p "$refine_prompt" \
+    >/dev/null 2>&1 || refine_exit=$?
+
+  if [[ $refine_exit -ne 0 ]]; then
+    echo "loop: pre-dispatch plan guard: build-refine exited ${refine_exit} for KEY=${key} — dispatching anyway" >&2
+    echo "invalid:true:error"
+    return 0
+  fi
+
+  # Re-validate after refine — this is the single authoritative post-refine check.
+  local guard_out2 guard_verdict2
+  guard_out2="$(bash "$validate_sh" "$plan_path" 2>/dev/null || true)"
+  guard_verdict2="${guard_out2%% *}"
+
+  if [[ "$guard_verdict2" == "valid" ]]; then
+    echo "loop: pre-dispatch plan guard: build-refine produced a valid plan for KEY=${key}" >&2
+    echo "valid:true:valid"
+  else
+    echo "loop: pre-dispatch plan guard: build-refine did not produce a valid plan for KEY=${key} — dispatching anyway" >&2
+    echo "invalid:true:invalid"
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # dispatch <ISSUE_NUMBER> [--repo owner/repo] [--dry-run]
 #
 # --repo sets MAKATO_LOOP_DISPATCH_REPO for this call, overriding any
@@ -3266,6 +3335,31 @@ cmd_dispatch() {
     _patch_status '.active_workflow' 'null'
     return 0
   fi
+
+  # ---------------------------------------------------------------------------
+  # Pre-dispatch plan guard — validate plan.md and attempt build-refine
+  # recovery before launching the PO-agent. Safety net: never blocks dispatch.
+  # Skipped for type:change (no spec folder) and dry-run.
+  # ---------------------------------------------------------------------------
+  local _pdpg_tuple="skipped:false:n/a"
+  if [[ "$issue_type" != "type:change" \
+        && "$dry_run" != "--dry-run" \
+        && "${MAKATO_LOOP_DRY_DISPATCH:-0}" != "1" \
+        && -n "$key" ]]; then
+    # Guard returns "<verdict>:<refine_attempted>:<refine_outcome>" — parse in
+    # one shot to avoid a redundant validate-plan-body.sh invocation.
+    _pdpg_tuple="$(_pre_dispatch_plan_guard "$key")"
+  fi
+  local _pdpg_verdict="${_pdpg_tuple%%:*}"
+  local _pdpg_rest="${_pdpg_tuple#*:}"
+  local _pdpg_refine_attempted="${_pdpg_rest%%:*}"
+  local _pdpg_refine_outcome="${_pdpg_rest#*:}"
+  _patch_status '.pre_dispatch_plan_guard' \
+    "$(jq -n \
+      --arg verdict "$_pdpg_verdict" \
+      --argjson refine_attempted "$([[ "$_pdpg_refine_attempted" == "true" ]] && echo true || echo false)" \
+      --arg refine_outcome "$_pdpg_refine_outcome" \
+      '{verdict: $verdict, refine_attempted: $refine_attempted, refine_outcome: $refine_outcome}')"
 
   if [[ "$dry_run" == "--dry-run" ]]; then
     if [[ "$issue_type" == "type:change" ]]; then
@@ -4450,6 +4544,14 @@ if [[ "$SUBCMD" == _test-* ]]; then
       _test_issue="${1:?issue required}"
       _test_spec="${2:-}"
       _stall_restart "$_test_issue" "$_test_spec" ""
+      ;;
+    # _test-pre-dispatch-plan-guard <key> — exercise _pre_dispatch_plan_guard
+    # deterministically. SPECS_DIR and CLAUDE_BIN are consumed from the
+    # environment; the caller sets them to ephemeral test fixtures so no real
+    # claude process or GitHub calls are needed.
+    _test-pre-dispatch-plan-guard)
+      _test_pdpg_key="${1:?key required}"
+      _pre_dispatch_plan_guard "$_test_pdpg_key"
       ;;
     *) echo "loop: unknown test hook: $SUBCMD" >&2; exit 64 ;;
   esac
