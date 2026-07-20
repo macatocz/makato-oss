@@ -16,7 +16,8 @@
     "definition-of-done": "rendered as data node 'definition-of-done' (id=dod), not a skill node",
     "archive-spec": "rendered as GHA node 'archive-spec.yml' (id=gha_archive), not a skill node",
     "promote-ready": "operator-only tool; intentionally not drawn on the flow diagram",
-    "excalidraw": "standalone diagram utility; intentionally not drawn on the flow diagram"
+    "excalidraw": "standalone diagram utility; intentionally not drawn on the flow diagram",
+    "lesson-prune": "operator-only curation tool; intentionally not drawn on the flow diagram"
   },
   "unmappedAgents": {},
   "conceptualNodes": {
