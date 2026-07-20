@@ -46,7 +46,7 @@ posture is constrained by four safeguards — see `AGENTS.md` §
   restricted to five allow-listed orchestration paths:
   - `specs/<key>-<slug>/workflow-state.json` (via `shared/workflow-state.sh`)
   - `specs/<key>-<slug>/orchestrate.jsonl` (via `plugins/makato-build/shared/build-log.sh`)
-  - `specs/<key>-<slug>/plan.md` + `seed-manifest.json` — **Step 1a only** (#200): the
+  - `specs/<key>-<slug>/plan-<ISSUE_NUMBER>.md` + `seed-manifest.json` — **Step 1a only** (#200): the
     seed stub the PO-agent writes before dispatching `light-planner` to
     materialize a missing plan, and the `spec_tier` stamp on success.
     Both live under gitignored `specs/`; the light-planner (not the
@@ -130,7 +130,7 @@ with `errors: ["missing input: <field>"]`. Issue without
 ### Step 1 — Resolve the spec folder
 
 Prefix-match `specs/<KEY>-*/`. A missing folder or a missing / stub
-`plan.md` is a **HALT-006 sub-cause** — but before halting, run the
+`plan-<N>.md` is a **HALT-006 sub-cause** — but before halting, run the
 Step 1a auto-materialize gate below. `created-issues.json` and
 `acceptance-criteria.md` are enforced by downstream skills — do NOT
 pre-validate them here.
@@ -147,15 +147,20 @@ The resolver tries two patterns in order and stops at the first match:
 The bash code in Step 1a reflects this order:
 
 ```bash
-PLAN_PATH="$(ls specs/<KEY>-*/plan.md 2>/dev/null | head -1)"
+PLAN_PATH="$(ls specs/<KEY>-*/plan-<ISSUE_NUMBER>.md 2>/dev/null | head -1)"
+# Legacy-pass: if the per-issue file is absent but the singleton plan.md exists, accept it.
+if [ -z "$PLAN_PATH" ] && [ -f "specs/<KEY>-*/plan.md" 2>/dev/null ]; then
+  PLAN_PATH="$(ls specs/<KEY>-*/plan.md 2>/dev/null | head -1)"
+  echo "[po-agent] legacy-pass: found plan.md; per-issue file plan-<ISSUE_NUMBER>.md absent"
+fi
 # Fallback: exact-match bare slug (makato-plan, makato-change, seed-issue bare).
-[ -z "$PLAN_PATH" ] && PLAN_PATH="specs/<KEY>/plan.md"
+[ -z "$PLAN_PATH" ] && PLAN_PATH="specs/<KEY>/plan-<ISSUE_NUMBER>.md"
 ```
 
 All three folder shapes (`specs/<KEY>-<slug>/`, `specs/<KEY>-*/` multi-match, `specs/<KEY>/`) resolve correctly. Only a folder that matches neither pattern triggers HALT-006.
 
 The materializable sub-cause is narrow (issue #200 point 4): only a
-**missing spec folder** or a **stub / hollow `plan.md`** (the seed-issue
+**missing spec folder** or a **stub / hollow `plan-<N>.md`** (the seed-issue
 skeleton whose `## Acceptance criteria` is still `_To be filled in…_`,
 with no `## Tasks`). Every other HALT-006 origin — malformed dispatch
 bundle, `gh` unauthenticated, dependency cycle (Step 4c) — is NOT
@@ -164,21 +169,29 @@ materializable and halts as before; those paths never reach Step 1a.
 #### Step 1a — HALT-006 auto-materialize gate (#200)
 
 On a fresh clone `specs/` is a gitignored scratch dir (only `build.jsonl`
-is tracked), so the `plan.md` seed-issue wrote locally never travels with
+is tracked), so the `plan-<N>.md` seed-issue wrote locally never travels with
 the clone. For small, well-scoped work this dead-ended every autonomous
 run at HALT-006. This gate lets the PO-agent instead synthesize a real
-`plan.md` from the GitHub issue and retry Step 1 **once**, bounded and
+`plan-<N>.md` from the GitHub issue and retry Step 1 **once**, bounded and
 audited, before falling through to human review.
 
 Resolve the candidate plan path and read the issue's labels, then call
 the deterministic gate:
 
 ```bash
-PLAN_PATH="$(ls specs/<KEY>-*/plan.md 2>/dev/null | head -1)"
+PLAN_PATH="$(ls specs/<KEY>-*/plan-<ISSUE_NUMBER>.md 2>/dev/null | head -1)"
+# Legacy-pass: if the per-issue file is absent but the singleton plan.md exists, accept it.
+if [ -z "$PLAN_PATH" ]; then
+  LEGACY="$(ls specs/<KEY>-*/plan.md 2>/dev/null | head -1)"
+  if [ -n "$LEGACY" ]; then
+    PLAN_PATH="$LEGACY"
+    echo "[po-agent] legacy-pass: found plan.md; per-issue file plan-<ISSUE_NUMBER>.md absent"
+  fi
+fi
 # Fallback (step 2 of the two-step resolution order): exact-match bare slug.
 # When the prefix-match finds nothing, PLAN_PATH is empty — fall back to the
 # conventional bare-slug path so the gate reports `missing-file` accurately.
-[ -z "$PLAN_PATH" ] && PLAN_PATH="specs/<KEY>/plan.md"
+[ -z "$PLAN_PATH" ] && PLAN_PATH="specs/<KEY>/plan-<ISSUE_NUMBER>.md"
 mapfile -t LABELS < <(gh issue view <ISSUE_NUMBER> --repo <REPO> \
   --json labels --jq '.labels[].name' 2>/dev/null || true)
 
@@ -193,7 +206,7 @@ and gates eligibility on the `plan-tier:light` label:
 
 | `GATE_VERDICT` | Meaning                                              | Action                                        |
 | ---------------- | ---------------------------------------------------- | --------------------------------------------- |
-| `proceed`      | `plan.md` is already VALID — not a HALT-006 case. | Continue to Step 2 unchanged.                 |
+| `proceed`      | `plan-<N>.md` is already VALID — not a HALT-006 case. | Continue to Step 2 unchanged.                 |
 | `materialize`  | Missing / stub plan AND`plan-tier:light`.          | Run the materialize-and-retry sub-flow below. |
 | `halt`         | Missing / stub plan AND NOT`plan-tier:light`.      | Existing HALT-006 path (see below).           |
 
@@ -222,7 +235,7 @@ their plans warrant human shaping.
    `seed-issue` Step 8 would have created — `workflow-state.sh` resolves
    this exact form as its prefix-match fallback). If `SPEC_DIR` does not
    exist, create it and write the same two files `seed-issue` Step 8
-   writes: a `plan.md` stub and a `seed-manifest.json`
+   writes: a `plan-<ISSUE_NUMBER>.md` stub and a `seed-manifest.json`
    (`schema_version:"2"`, `type:"new-work"`, `slug` = the `SPEC_DIR`
    basename). The light-planner overwrites the stub next; the stub is the
    safe fallback if the agent produces nothing. Writes target `specs/` in
@@ -241,9 +254,9 @@ their plans warrant human shaping.
    | `REPO`         | `<REPO>`                                                                                      |
    | `REPO_ROOT`    | `<REPO_ROOT>` (plan writes target the main checkout — `specs/` is gitignored in worktrees) |
    | `SLUG`         | basename of`SPEC_DIR` (the spec-folder name)                                                  |
-   | `PLAN_PATH`    | `<REPO_ROOT>/$SPEC_DIR/plan.md` (= the gate's `PLAN_PATH`)                                  |
+   | `PLAN_PATH`    | `<REPO_ROOT>/$SPEC_DIR/plan-<ISSUE_NUMBER>.md` (= the gate's `PLAN_PATH`)                                  |
 
-   The light-planner writes exactly one file (`plan.md`) or, on a body too
+   The light-planner writes exactly one file (`plan-<ISSUE_NUMBER>.md`) or, on a body too
    thin to plan honestly, leaves the stub and returns `data.thin_body:true`.
    It touches no labels, manifest, or board — Step 1a owns nothing beyond
    the plan. Parse its R1 per `plugins/makato-build/agents/RETURN-CONTRACT.md`.
@@ -258,7 +271,7 @@ their plans warrant human shaping.
 
 5. **On `GUARD_VERDICT == valid`:** write `spec_tier:"plan-only"` into
    `seed-manifest.json` (`jq '.spec_tier = "plan-only"'`) so `build-refine`
-   sources AC from `plan.md` (#210), emit the `materialize-spec` JSONL
+   sources AC from `plan-<N>.md` (#210), emit the `materialize-spec` JSONL
    (below) with `status:"ok"`, and **retry Step 1** — the folder now
    resolves and carries a valid plan, so Step 1a's re-run returns
    `proceed`.
@@ -286,7 +299,7 @@ entry), and return R1 `failure` with `data.halt_code:"HALT-006"`.
 - Empty result (`{}`) → fresh run. Run
   `shared/workflow-state.sh init <KEY> <REPO> <BRANCH> <ISSUE_NUMBER>`.
 - Populated result → resume. Treat `current_phase` and `sub_tasks[]` as
-  the source of truth; do NOT rebuild from `plan.md`.
+  the source of truth; do NOT rebuild from `plan-<ISSUE_NUMBER>.md`.
 
 On resume, check three flags before continuing:
 
@@ -381,7 +394,7 @@ Emit:
 
 ### Step 3 — Build the sub-task list (fresh run only)
 
-Skip on resume. Read `plan.md` and extract every task under `## Tasks`:
+Skip on resume. Read `plan-<ISSUE_NUMBER>.md` and extract every task under `## Tasks`:
 
 - `id` — 1-based index in plan order
 - `description` — task title verbatim
@@ -448,7 +461,7 @@ loop.
 
 #### Step 4d — Dispatch the implementation skill
 
-Read `plan.md` once. Skill selection:
+Read `plan-<ISSUE_NUMBER>.md` once. Skill selection:
 
 | Task modes present | Dispatch                                                                                           |
 | ------------------ | -------------------------------------------------------------------------------------------------- |
@@ -462,7 +475,7 @@ Every dispatch context bundle carries:
   Consumers `cd` into it before any file operation. See § *Worktree
   lifecycle*.
 - `PRIOR_LESSONS` — the Step 2c JSON array (may be `[]`). Advisory
-  context; never triggers HALT, never overrides `plan.md`.
+  context; never triggers HALT, never overrides `plan-<ISSUE_NUMBER>.md`.
 
 The implementation skill dispatches per-task scout + coder internally.
 The PO-agent does NOT dispatch either directly. A scout failure
@@ -474,7 +487,7 @@ degrades to a coder dispatch without `SCOUT_SUMMARY` — never a HALT.
 ```bash
 shared/progress-comment.sh start <KEY> <ISSUE_NUMBER> <REPO> \
   --skill "build-implement-tdd" --agent "coder" \
-  --input "task plan (plan.md), working copy on branch <BRANCH>" \
+  --input "task plan (plan-<ISSUE_NUMBER>.md), working copy on branch <BRANCH>" \
   --goal "write and test the code per the plan (test-driven)"
 ```
 
@@ -1102,7 +1115,7 @@ fires — the audit log records every HALT code.
 | HALT-002                  | `build-verify` R1 `failure`                                                                                                                                                                                                                                                                                                         | **PO-agent**                                        |
 | HALT-003                  | `build-implement-tdd` R1 `failure`, or `build-address-pr-comments` STRUCTURAL                                                                                                                                                                                                                                                     | sub-skill applies first (idempotent) or**PO-agent** |
 | HALT-005                  | `build-push-to-git` deny-list, cleanup failure, missing PR number                                                                                                                                                                                                                                                                     | **PO-agent**                                        |
-| HALT-006                  | malformed plan / spec folder / dispatch bundle.**Note:** for a *missing spec folder or stub plan* on a `plan-tier:light` issue, Step 1a first attempts to auto-materialize `plan.md` via the `light-planner` agent and retry once (#200) — HALT-006 fires only if that single attempt does not yield a guard-valid plan. | **PO-agent**                                        |
+| HALT-006                  | malformed plan / spec folder / dispatch bundle.**Note:** for a *missing spec folder or stub plan-<N>.md* on a `plan-tier:light` issue, Step 1a first attempts to auto-materialize `plan-<N>.md` via the `light-planner` agent and retry once (#200) — HALT-006 fires only if that single attempt does not yield a guard-valid plan. A pre-migration singleton `plan.md` is accepted via legacy-pass and does not trigger HALT-006. | **PO-agent**                                        |
 | HALT-007                  | budget (`kill-switch poll`)                                                                                                                                                                                                                                                                                                           | `kill-switch poll`                                      |
 | HALT-007B                 | context ceiling (`kill-switch handoff`)                                                                                                                                                                                                                                                                                               | nobody — R1`partial`, no label                         |
 | HALT-008 (outer-iter)     | `outer_iteration >= 3` (`kill-switch poll`)                                                                                                                                                                                                                                                                                         | `kill-switch poll`                                      |
@@ -1243,12 +1256,12 @@ caller.
 - **Direct `coder` invocation** — CI-failure recovery, re-plan, and
   fresh implementation all go through `build-implement-tdd` /
   `build-implement-goal`.
-- **Issue decomposition or planning** — `plan.md` must exist at
+- **Issue decomposition or planning** — `plan-<ISSUE_NUMBER>.md` must exist at
   dispatch time; `makato-plan` and `build-refine` are the operator's
   responsibility upstream. **Narrow exception (#200):** for a
   `plan-tier:light` issue whose spec folder is missing or holds only the
   seed stub, Step 1a dispatches the `light-planner` agent once to
-  synthesize a real `plan.md` from the issue body before halting — a
+  synthesize a real `plan-<N>.md` from the issue body before halting — a
   bounded recovery, not general planning. Full/epic issues and any
   thin-body light issue still fall through to `needs-human-review`.
 - **Post-merge documentation, changelog, deploy** — owned by

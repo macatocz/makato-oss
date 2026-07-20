@@ -18,7 +18,7 @@ Use at the start of every build session, after a story has been shaped by makato
 
 **Do NOT use when:**
 - The story has not been shaped (no spec artifacts exist) — run makato-plan first
-- You want to continue an in-progress implementation — read `plan.md` in the spec folder directly
+- You want to continue an in-progress implementation — read `plan-<ISSUE_NUMBER>.md` in the spec folder directly
 - You are implementing changes to existing functionality from updated business requirements — use `makato-change` instead
 
 ## Input
@@ -26,7 +26,7 @@ Use at the start of every build session, after a story has been shaped by makato
 When dispatched by the PO-agent on a re-plan cycle (`--autonomous` mode):
 
 - `<work-item-key>` — positional argument.
-- `WORKTREE_PATH` — absolute filesystem path to the per-run git worktree. **Mandatory in autonomous mode** (see `plugins/makato-build/AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract*). Plan-file writes target `$REPO_ROOT/specs/<key>-*/plan.md` (main checkout — `specs/` is gitignored in worktrees); the worktree path is captured so the falsy-check is symmetric across the pipeline.
+- `WORKTREE_PATH` — absolute filesystem path to the per-run git worktree. **Mandatory in autonomous mode** (see `plugins/makato-build/AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract*). Plan-file writes target `$REPO_ROOT/specs/<key>-*/plan-<ISSUE_NUMBER>.md` (main checkout — `specs/` is gitignored in worktrees); the worktree path is captured so the falsy-check is symmetric across the pipeline.
 - `--autonomous` — activation flag.
 
 Interactive mode: `WORKTREE_PATH` is optional; fall back to `git rev-parse --show-toplevel` of the current `$PWD`.
@@ -110,7 +110,7 @@ Read from the resolved spec folder (`specs/<key>-*/`):
 - `stories.json` — required for ticket-based work; absent for lightweight work (see below)
 - `prd.md` — required for ticket-based work; optional for lightweight work
 - `design.md` — required for `local-` prefix work; optional otherwise
-- `plan.md` — required for `spec_tier:plan-only` work (sole acceptance source); optional otherwise
+- `plan-<ISSUE_NUMBER>.md` — required for `spec_tier:plan-only` work (sole acceptance source); optional otherwise. When `ISSUE_NUMBER` is not yet known at discovery time, match `plan-*.md` and use the first match.
 - `decisions.md` — optional
 - `prototype.html` — optional; if present, flag the story as having a UI reference
 
@@ -129,6 +129,12 @@ A work item enters the **lightweight path** when EITHER of these is true:
 - `spec_tier == "plan-only"` (numeric-slug KEYs like `123-add-feature` that never match
   `local-*` — this is exactly why the manifest read is required).
 
+On the `spec_tier:plan-only` path, the plan file is `plan-<ISSUE_NUMBER>.md` (per-issue name).
+Resolve `ISSUE_NUMBER` from the work-item KEY (the leading numeric segment) and look for
+`specs/<key>-*/plan-<ISSUE_NUMBER>.md`. Legacy fallback: if the per-issue file is absent but
+`plan.md` exists in the folder, accept it and log
+`[build-refine] legacy-pass: found plan.md; per-issue file plan-<N>.md absent`.
+
 Both triggers resolve to the **same single lightweight branch** — a manifest carrying both
 a `local-` prefix and `spec_tier:plan-only` is not a conflict; it takes the lightweight
 path once. `stories.json` and `prd.md` are NOT required on this path; do not read or
@@ -139,7 +145,7 @@ reference them.
 - **`spec_tier:plan-only`** (the new trigger): `plan.md` is the sole acceptance source.
   Read its `## Acceptance criteria` section (see Step 4). This path **bypasses the
   `design.md`-missing guard below** — `design.md` is optional and its absence is never a
-  stop condition. If `plan.md` is missing entirely, HALT with `MISSING_PLAN` (guide the
+  stop condition. If `plan-<ISSUE_NUMBER>.md` is missing entirely, HALT with `MISSING_PLAN` (guide the
   caller to run the light-planner / seed-issue that materializes the plan).
 
 - **`local-` prefix without `spec_tier:plan-only`** (legacy): if `design.md` is present,
@@ -173,21 +179,21 @@ from `design.md` serves as the story description. Generate one synthetic accepta
 criterion: *"AC-1: <goal statement> is implemented and all tests pass."* Note in the plan
 that this story has no formal ACs and the done-condition is self-evident from the goal.
 
-**Plan-only path** (`spec_tier:plan-only`): `plan.md` is the authoritative source. Do NOT
+**Plan-only path** (`spec_tier:plan-only`): `plan-<ISSUE_NUMBER>.md` is the authoritative source. Do NOT
 generate a synthetic AC-1 — real acceptance criteria exist in the plan. Read the
-`## Acceptance criteria` section of `plan.md` and extract each non-empty list item (or line)
-as AC-1, AC-2, … by order. The plan-only path and the "AC from plan.md, not synthetic"
+`## Acceptance criteria` section of `plan-<ISSUE_NUMBER>.md` and extract each non-empty list item (or line)
+as AC-1, AC-2, … by order. The plan-only path and the "AC from plan-<N>.md, not synthetic"
 behavior land together — one without the other is incorrect.
 
-**Empty-or-missing guard (plan-only only):** if `plan.md` has no `## Acceptance criteria`
+**Empty-or-missing guard (plan-only only):** if `plan-<ISSUE_NUMBER>.md` has no `## Acceptance criteria`
 heading, OR the section exists but contains no non-empty acceptance items (whitespace,
 placeholder stub text such as the seed-issue `_To be filled in…_` line, or only comments),
 treat both cases **identically** and HALT with `MISSING_ACCEPTANCE`:
 
-> "HALT MISSING_ACCEPTANCE: `plan.md` for `<key>` is `spec_tier:plan-only` but its
+> "HALT MISSING_ACCEPTANCE: `plan-<ISSUE_NUMBER>.md` for `<key>` is `spec_tier:plan-only` but its
 > `## Acceptance criteria` section is absent or empty. A plan-only work item must carry at
 > least one concrete acceptance criterion. Add criteria to
-> `specs/<key>-*/plan.md` under `## Acceptance criteria` (one bullet per testable outcome)
+> `specs/<key>-*/plan-<N>.md` under `## Acceptance criteria` (one bullet per testable outcome)
 > and re-dispatch `/makato-build:build-refine <key> --autonomous`."
 
 Append `{"ts":"…","skill":"build-refine","story":"<key>","step":"extract-story","status":"error","data":{"halt_code":"MISSING_ACCEPTANCE"}}`
@@ -278,7 +284,7 @@ Produce an ordered task list. Each task must specify:
 - **Mode**: tdd or goal
 - **blockedBy**: list of task indices (1-based) whose production code output this task's files depend on at compile time. Empty list `[]` means no hard dependency. This field must be populated for any task whose files cannot compile without a prior task's output (e.g. a test stub that references a class created by a prior task).
 - **commitMessage**: a conventional commit message draft for this task (e.g. `feat(invoice): add OrderStatus enum`). Pre-populated by refine; confirmed and may be adjusted in `/build-push-to-git`.
-- **recommended_skills** *(optional)*: array of `"plugin:skill-id"` strings inherited from `stories.json` sub-task `recommended_skills[]` when present (agent-skill-routing #146). When this field appears in `plan.md`, downstream implementation skills (`build-implement-tdd`, `build-implement-goal`) MUST include it as `RECOMMENDED_SKILLS` in the coder dispatch bundle. Omit this field entirely when the stories.json sub-task carries no `recommended_skills`.
+- **recommended_skills** *(optional)*: array of `"plugin:skill-id"` strings inherited from `stories.json` sub-task `recommended_skills[]` when present (agent-skill-routing #146). When this field appears in `plan-<N>.md`, downstream implementation skills (`build-implement-tdd`, `build-implement-goal`) MUST include it as `RECOMMENDED_SKILLS` in the coder dispatch bundle. Omit this field entirely when the stories.json sub-task carries no `recommended_skills`.
 
 **RECOMMENDED_SKILLS pass-through rule**: when building the plan from a `stories.json` that was produced by the `decompose` skill (v1.2.0+), check each sub-task for a `recommended_skills` field. If present and non-empty, copy it verbatim into the corresponding plan task under `recommended_skills`. The downstream coder then prepends skill consultation instructions before implementing the task. If absent — do NOT add an empty array; omit the field.
 
@@ -299,21 +305,22 @@ Every AC must be covered by at least one task. If any AC has no task: add a task
 Load @references/plan-schema.md.
 Read `templates/plan-template.md` and use it as the base for the output.
 
-Write `plan.md` in the resolved spec folder with all fields populated from the template.
+Write `plan-<ISSUE_NUMBER>.md` in the resolved spec folder with all fields populated from the template.
+Derive `ISSUE_NUMBER` from the numeric leading segment of the work-item key (e.g. key `510-foo` → `plan-510.md`).
 
-**Acceptance Test Oracle pass-through rule**: when the story from `stories.json` carries a non-empty `description.acceptanceTestCases[]` (Step 4), write a `## Acceptance Test Oracle` section into `plan.md` per `@references/plan-schema.md` § *Acceptance Test Oracle Schema*. Copy each scenario verbatim (Gherkin `given`/`when`/`then`/`and` shape) and annotate it `(maps to AC-N)` by aligning it to the AC coverage table from Step 9 — match on the scenario's outcome, or use `AC-*` when it applies story-wide. When `acceptanceTestCases[]` is absent or empty, do NOT emit the section — omit it entirely (legacy default). The oracle never introduces new AC numbers; it only supplies exact RED-test scenarios the coder implements downstream.
+**Acceptance Test Oracle pass-through rule**: when the story from `stories.json` carries a non-empty `description.acceptanceTestCases[]` (Step 4), write a `## Acceptance Test Oracle` section into `plan-<ISSUE_NUMBER>.md` per `@references/plan-schema.md` § *Acceptance Test Oracle Schema*. Copy each scenario verbatim (Gherkin `given`/`when`/`then`/`and` shape) and annotate it `(maps to AC-N)` by aligning it to the AC coverage table from Step 9 — match on the scenario's outcome, or use `AC-*` when it applies story-wide. When `acceptanceTestCases[]` is absent or empty, do NOT emit the section — omit it entirely (legacy default). The oracle never introduces new AC numbers; it only supplies exact RED-test scenarios the coder implements downstream.
 
-Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-refine","story":"<key>","step":"write-plan","status":"ok","data":{"tasks":<N>,"oracle_scenarios":<M>,"plan_file":"<resolved-spec-folder>/plan.md"}}'`
+Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-refine","story":"<key>","step":"write-plan","status":"ok","data":{"tasks":<N>,"oracle_scenarios":<M>,"plan_file":"<resolved-spec-folder>/plan-<ISSUE_NUMBER>.md"}}'`
 
 ### Step 11 — Present plan and iterate
 
-In **autonomous mode**, skip this step entirely: write `plan.md` (already done in Step 10), log the bypass via `shared/log-bypass.sh build-refine "<key>" plan-review approve "<agent_id|cli_flag|task_id_bundle>"`, and proceed to Step 12.
+In **autonomous mode**, skip this step entirely: write `plan-<ISSUE_NUMBER>.md` (already done in Step 10), log the bypass via `shared/log-bypass.sh build-refine "<key>" plan-review approve "<agent_id|cli_flag|task_id_bundle>"`, and proceed to Step 12.
 
 In **interactive mode**, use the `AskUserQuestion` tool to ask: "The plan is ready. How would you like to review it before implementation starts?" with two options:
 - **In chat** — description: "Show the plan as markdown in this conversation. You can reply with feedback or edits."
 - **In browser** — description: "Generate an interactive HTML page with per-task feedback fields and open it in your browser. Copy your feedback and paste it back here when done."
 
-**If Terminal**: display `plan.md` content inline. Ask: "Does this plan look accurate? Any tasks missing, wrong files, or scope concerns?"
+**If Terminal**: display `plan-<ISSUE_NUMBER>.md` content inline. Ask: "Does this plan look accurate? Any tasks missing, wrong files, or scope concerns?"
 
 **If Browser**:
 1. Read `@templates/plan-review-template.html`.
@@ -323,7 +330,7 @@ In **interactive mode**, use the `AskUserQuestion` tool to ask: "The plan is rea
 5. Tell the user: "Plan review is open in your browser. Add feedback in the textareas and click 'Copy Feedback' when done, then paste it here."
 6. Wait for pasted feedback; proceed as terminal mode below.
 
-If the user requests changes: update `plan.md` in the spec folder and ask again. Each revision appends:
+If the user requests changes: update `plan-<ISSUE_NUMBER>.md` in the spec folder and ask again. Each revision appends:
 ```
 {"ts":"…","skill":"build-refine","story":"<key>","step":"plan-revision","status":"ok","data":{"revision":<N>}}
 ```
@@ -334,10 +341,10 @@ Repeat until the user approves.
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO-8601-ms>","skill":"build-refine","story":"<key>","step":"session","status":"ok","data":{"tasks":<N>,"mode":"<tdd|goal|mixed>","plan":"<resolved-spec-folder>/plan.md"}}'
+shared/build-log.sh "<key>" '{"ts":"<ISO-8601-ms>","skill":"build-refine","story":"<key>","step":"session","status":"ok","data":{"tasks":<N>,"mode":"<tdd|goal|mixed>","plan":"<resolved-spec-folder>/plan-<ISSUE_NUMBER>.md"}}'
 ```
 
-Tell the user: "Plan written to `plan.md` in the spec folder. Next: run `/grill-with-docs` to validate terminology against the codebase, or proceed directly with `/implement-tdd` or `/implement-goal`."
+Tell the user: "Plan written to `plan-<ISSUE_NUMBER>.md` in the spec folder. Next: run `/grill-with-docs` to validate terminology against the codebase, or proceed directly with `/implement-tdd` or `/implement-goal`."
 
 **Grill-with-docs recommendation**: run `/build-grill-with-docs` if either condition is met:
 - `glossary.md` exists in the spec folder and contains 3 or more terms
@@ -364,7 +371,7 @@ Top-level R1 envelope fields follow `plugins/makato-build/agents/RETURN-CONTRACT
 ```json
 {
   "data": {
-    "plan_path": "specs/<key>-<slug>/plan.md",
+    "plan_path": "specs/<key>-<slug>/plan-<ISSUE_NUMBER>.md",
     "tasks": <N>,
     "mode": "tdd" | "goal" | "mixed",
     "knowledge_graph_loaded": <true|false>,
@@ -374,7 +381,7 @@ Top-level R1 envelope fields follow `plugins/makato-build/agents/RETURN-CONTRACT
 }
 ```
 
-`agent` is `"build-refine"`. `summary` is `"Refined plan with N tasks (mode: tdd|goal|mixed)"`. `files_changed` is `["specs/<key>-<slug>/plan.md"]` on success.
+`agent` is `"build-refine"`. `summary` is `"Refined plan with N tasks (mode: tdd|goal|mixed)"`. `files_changed` is `["specs/<key>-<slug>/plan-<ISSUE_NUMBER>.md"]` on success.
 
 ### HALT Codes
 
