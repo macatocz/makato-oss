@@ -17,11 +17,13 @@ import os
 import subprocess
 from pathlib import Path
 
-WORKTREE = Path("/Users/I346175/GITHUB/makato/.claude/worktrees/macatocz-makato-471")
-SCRIPT = WORKTREE / "plugins" / "makato-orchestrate" / "scripts" / "promote-lessons.sh"
+REPO_ROOT = Path(__file__).parent.parent
+SCRIPT = REPO_ROOT / "plugins" / "makato-orchestrate" / "scripts" / "promote-lessons.sh"
 
 
-def _run(issue_number: str, specs_dir: str, memory_file: str, **kwargs) -> subprocess.CompletedProcess:
+def _run(
+    issue_number: str, specs_dir: str, memory_file: str, **kwargs
+) -> subprocess.CompletedProcess:
     """Invoke promote-lessons.sh with the three positional arguments."""
     env = {**os.environ}
     env["MAKATO_PROMOTE_REPO_OVERRIDE"] = "macatocz/makato-test"
@@ -31,11 +33,13 @@ def _run(issue_number: str, specs_dir: str, memory_file: str, **kwargs) -> subpr
         capture_output=True,
         text=True,
         env=env,
-        cwd=str(WORKTREE),
+        cwd=str(REPO_ROOT),
     )
 
 
-def _make_workflow_state(specs_dir: Path, issue_number: int, lessons: list[dict]) -> Path:
+def _make_workflow_state(
+    specs_dir: Path, issue_number: int, lessons: list[dict]
+) -> Path:
     """Create a minimal workflow-state-<N>.json in a matching spec folder.
 
     Lessons use the workflow-state schema: {ts, cycle, trigger, description, files_affected}.
@@ -48,7 +52,9 @@ def _make_workflow_state(specs_dir: Path, issue_number: int, lessons: list[dict]
     return ws
 
 
-def _make_change_lessons(specs_dir: Path, issue_number: int, records: list[dict]) -> Path:
+def _make_change_lessons(
+    specs_dir: Path, issue_number: int, records: list[dict]
+) -> Path:
     """Create a change-lessons.jsonl in the matching spec folder.
 
     Records use the change-lane format: {text, tags, scope, ...}.
@@ -127,7 +133,9 @@ class TestPromoteLessonsGeneralizable:
         assert len(record["repo_sha"]) >= 7, f"repo_sha too short: {record['repo_sha']}"
 
         assert "date" in record, "Missing date field"
-        assert re.match(r"^\d{4}-\d{2}-\d{2}$", record["date"]), f"Bad date format: {record['date']}"
+        assert re.match(r"^\d{4}-\d{2}-\d{2}$", record["date"]), (
+            f"Bad date format: {record['date']}"
+        )
 
 
 class TestPromoteLessonsLocalSkipped:
@@ -202,19 +210,27 @@ class TestPromoteLessonsDuplicateBumpsOccurrences:
         result = _run("471", str(specs_dir), str(memory_file))
         assert result.returncode == 0, f"First run stderr: {result.stderr}"
 
-        lines_after_first = [line for line in memory_file.read_text().splitlines() if line.strip()]
-        assert len(lines_after_first) == 1, f"Expected 1 line after first run: {lines_after_first}"
+        lines_after_first = [
+            line for line in memory_file.read_text().splitlines() if line.strip()
+        ]
+        assert len(lines_after_first) == 1, (
+            f"Expected 1 line after first run: {lines_after_first}"
+        )
 
         # Second promotion of same lesson
         result = _run("471", str(specs_dir), str(memory_file))
         assert result.returncode == 0, f"Second run stderr: {result.stderr}"
 
-        lines_after_second = [line for line in memory_file.read_text().splitlines() if line.strip()]
+        lines_after_second = [
+            line for line in memory_file.read_text().splitlines() if line.strip()
+        ]
         assert len(lines_after_second) == 1, (
             f"Expected still 1 line (dedup) after second run, got {len(lines_after_second)}: {lines_after_second}"
         )
         record = json.loads(lines_after_second[0])
-        assert record["occurrences"] == 2, f"Expected occurrences=2, got {record['occurrences']}"
+        assert record["occurrences"] == 2, (
+            f"Expected occurrences=2, got {record['occurrences']}"
+        )
 
 
 class TestPromoteLessonsChangeLearnSource:
@@ -259,7 +275,9 @@ class TestPromoteLessonsNoOp:
         memory_file.touch()
 
         result = _run("471", str(specs_dir), str(memory_file))
-        assert result.returncode == 0, f"Expected exit 0, got {result.returncode}. stderr: {result.stderr}"
+        assert result.returncode == 0, (
+            f"Expected exit 0, got {result.returncode}. stderr: {result.stderr}"
+        )
 
         lines = [line for line in memory_file.read_text().splitlines() if line.strip()]
         assert len(lines) == 0, f"Expected memory file untouched, got: {lines}"
@@ -270,16 +288,20 @@ class TestPromoteLessonsNoOp:
         memory_file = tmp_path / "procedural.jsonl"
         memory_file.touch()
 
-        _make_workflow_state(specs_dir, 471, [
-            {
-                "ts": "2026-07-20T10:00:00Z",
-                "cycle": 1,
-                "trigger": "halt",
-                "description": "Only for this issue",
-                "files_affected": [],
-                "scope": "local",
-            },
-        ])
+        _make_workflow_state(
+            specs_dir,
+            471,
+            [
+                {
+                    "ts": "2026-07-20T10:00:00Z",
+                    "cycle": 1,
+                    "trigger": "halt",
+                    "description": "Only for this issue",
+                    "files_affected": [],
+                    "scope": "local",
+                },
+            ],
+        )
 
         result = _run("471", str(specs_dir), str(memory_file))
         assert result.returncode == 0, f"stderr: {result.stderr}"
@@ -295,4 +317,6 @@ class TestPromoteLessonsNoOp:
         # Do NOT create tmp_path/new_dir — script must create it.
 
         result = _run("471", str(specs_dir), str(memory_file))
-        assert result.returncode == 0, f"Expected exit 0, got {result.returncode}. stderr: {result.stderr}"
+        assert result.returncode == 0, (
+            f"Expected exit 0, got {result.returncode}. stderr: {result.stderr}"
+        )

@@ -14,8 +14,7 @@ import os
 import subprocess
 from pathlib import Path
 
-WORKTREE = Path("/Users/I346175/GITHUB/makato/.claire/worktrees/macatocz-makato-475") \
-    if False else Path("/Users/I346175/GITHUB/makato/.claude/worktrees/macatocz-makato-475")
+WORKTREE = Path(__file__).parent.parent
 SCRIPT = WORKTREE / "plugins" / "makato-orchestrate" / "scripts" / "lesson-prune.sh"
 
 
@@ -47,6 +46,7 @@ def _parse_output(result: subprocess.CompletedProcess) -> list[dict]:
 # GRADUATED tests
 # ---------------------------------------------------------------------------
 
+
 class TestLessonPruneGraduated:
     """GRADUATED: lesson text already encoded in an AGENTS.md."""
 
@@ -70,22 +70,32 @@ class TestLessonPruneGraduated:
         for line in content.splitlines():
             stripped = line.strip().lstrip("#").strip()
             words = stripped.split()
-            if len(words) >= 8 and not stripped.startswith("<!--") and not stripped.startswith("|"):
+            if (
+                len(words) >= 8
+                and not stripped.startswith("<!--")
+                and not stripped.startswith("|")
+            ):
                 phrase = stripped
                 break
-        assert phrase is not None, "Could not extract a long enough phrase from AGENTS.md"
+        assert phrase is not None, (
+            "Could not extract a long enough phrase from AGENTS.md"
+        )
 
         memory_dir = tmp_path / "memory"
-        _write_records(memory_dir, "procedural.jsonl", [
-            {
-                "key": "grad-real",
-                "text": phrase,
-                "tags": ["agents-doc"],
-                "occurrences": 1,
-                "date": "2026-07-01",
-                "repo_sha": "abc123",
-            }
-        ])
+        _write_records(
+            memory_dir,
+            "procedural.jsonl",
+            [
+                {
+                    "key": "grad-real",
+                    "text": phrase,
+                    "tags": ["agents-doc"],
+                    "occurrences": 1,
+                    "date": "2026-07-01",
+                    "repo_sha": "abc123",
+                }
+            ],
+        )
         result = _run(memory_dir)
         assert result.returncode == 0, f"stderr: {result.stderr}"
         records = _parse_output(result)
@@ -99,16 +109,20 @@ class TestLessonPruneGraduated:
         """A record whose text does NOT appear in any AGENTS.md is NOT GRADUATED."""
         memory_dir = tmp_path / "memory"
         # Use a highly specific phrase unlikely to appear in AGENTS.md.
-        _write_records(memory_dir, "procedural.jsonl", [
-            {
-                "key": "not-grad",
-                "text": "xyzzy quux frob nitz -- this phrase is not in any AGENTS.md file",
-                "tags": ["test"],
-                "occurrences": 1,
-                "date": "2026-07-01",
-                "repo_sha": "abc123",
-            }
-        ])
+        _write_records(
+            memory_dir,
+            "procedural.jsonl",
+            [
+                {
+                    "key": "not-grad",
+                    "text": "xyzzy quux frob nitz -- this phrase is not in any AGENTS.md file",
+                    "tags": ["test"],
+                    "occurrences": 1,
+                    "date": "2026-07-01",
+                    "repo_sha": "abc123",
+                }
+            ],
+        )
         result = _run(memory_dir)
         assert result.returncode == 0, f"stderr: {result.stderr}"
         records = _parse_output(result)
@@ -126,22 +140,30 @@ class TestLessonPruneGraduated:
         for line in content.splitlines():
             stripped = line.strip().lstrip("#").strip().lstrip("-").strip()
             words = stripped.split()
-            if len(words) >= 8 and not stripped.startswith("<!--") and not stripped.startswith("|"):
+            if (
+                len(words) >= 8
+                and not stripped.startswith("<!--")
+                and not stripped.startswith("|")
+            ):
                 phrase = stripped
                 break
         assert phrase is not None, "Could not extract a phrase from AGENTS.md"
 
         memory_dir = tmp_path / "memory"
-        _write_records(memory_dir, "procedural.jsonl", [
-            {
-                "key": "layout-a",
-                "text": phrase,
-                "tags": ["compat"],
-                "occurrences": 1,
-                "date": "2026-07-01",
-                "repo_sha": "abc123",
-            }
-        ])
+        _write_records(
+            memory_dir,
+            "procedural.jsonl",
+            [
+                {
+                    "key": "layout-a",
+                    "text": phrase,
+                    "tags": ["compat"],
+                    "occurrences": 1,
+                    "date": "2026-07-01",
+                    "repo_sha": "abc123",
+                }
+            ],
+        )
         result = _run(memory_dir)
         assert result.returncode == 0, f"stderr: {result.stderr}"
         records = _parse_output(result)
@@ -153,6 +175,7 @@ class TestLessonPruneGraduated:
 # ---------------------------------------------------------------------------
 # STALE tests — use a real git fixture so git merge-base --is-ancestor is real
 # ---------------------------------------------------------------------------
+
 
 def _make_git_fixture(sandbox: Path) -> tuple[Path, str, str]:
     """Create a real git repo with two commits. Return (repo_path, reachable_sha, unreachable_sha).
@@ -205,16 +228,20 @@ class TestLessonPruneStale:
         """Record with unreachable sha AND old date → STALE."""
         fixture_dir, reachable_sha, unreachable_sha = _make_git_fixture(tmp_path)
         memory_dir = tmp_path / "memory"
-        _write_records(memory_dir, "procedural.jsonl", [
-            {
-                "key": "stale-1",
-                "text": "an old lesson that is no longer relevant to any current code",
-                "tags": ["stale-tag"],
-                "occurrences": 1,
-                "date": "2020-01-01",  # >90 days ago
-                "repo_sha": unreachable_sha,
-            }
-        ])
+        _write_records(
+            memory_dir,
+            "procedural.jsonl",
+            [
+                {
+                    "key": "stale-1",
+                    "text": "an old lesson that is no longer relevant to any current code",
+                    "tags": ["stale-tag"],
+                    "occurrences": 1,
+                    "date": "2020-01-01",  # >90 days ago
+                    "repo_sha": unreachable_sha,
+                }
+            ],
+        )
         result = subprocess.run(
             ["bash", str(SCRIPT), str(memory_dir)],
             capture_output=True,
@@ -230,24 +257,26 @@ class TestLessonPruneStale:
         assert result.returncode == 0, f"stderr: {result.stderr}"
         records = _parse_output(result)
         assert len(records) == 1
-        assert records[0]["action"] == "STALE", (
-            f"Expected STALE, got: {records[0]}"
-        )
+        assert records[0]["action"] == "STALE", f"Expected STALE, got: {records[0]}"
 
     def test_not_stale_when_sha_reachable(self, tmp_path):
         """Record with reachable sha (even if old date) → NOT STALE."""
         fixture_dir, reachable_sha, unreachable_sha = _make_git_fixture(tmp_path)
         memory_dir = tmp_path / "memory"
-        _write_records(memory_dir, "procedural.jsonl", [
-            {
-                "key": "not-stale-sha",
-                "text": "lesson whose commit is still in the main history",
-                "tags": ["history"],
-                "occurrences": 1,
-                "date": "2020-01-01",  # old date but sha IS reachable
-                "repo_sha": reachable_sha,
-            }
-        ])
+        _write_records(
+            memory_dir,
+            "procedural.jsonl",
+            [
+                {
+                    "key": "not-stale-sha",
+                    "text": "lesson whose commit is still in the main history",
+                    "tags": ["history"],
+                    "occurrences": 1,
+                    "date": "2020-01-01",  # old date but sha IS reachable
+                    "repo_sha": reachable_sha,
+                }
+            ],
+        )
         result = subprocess.run(
             ["bash", str(SCRIPT), str(memory_dir)],
             capture_output=True,
@@ -271,16 +300,20 @@ class TestLessonPruneStale:
         """Record with unreachable sha but recent date → NOT STALE."""
         fixture_dir, reachable_sha, unreachable_sha = _make_git_fixture(tmp_path)
         memory_dir = tmp_path / "memory"
-        _write_records(memory_dir, "procedural.jsonl", [
-            {
-                "key": "not-stale-date",
-                "text": "recent lesson on a rebased commit",
-                "tags": ["recent"],
-                "occurrences": 1,
-                "date": "2026-07-01",  # recent — <90 days before 2026-07-20
-                "repo_sha": unreachable_sha,
-            }
-        ])
+        _write_records(
+            memory_dir,
+            "procedural.jsonl",
+            [
+                {
+                    "key": "not-stale-date",
+                    "text": "recent lesson on a rebased commit",
+                    "tags": ["recent"],
+                    "occurrences": 1,
+                    "date": "2026-07-01",  # recent — <90 days before 2026-07-20
+                    "repo_sha": unreachable_sha,
+                }
+            ],
+        )
         result = subprocess.run(
             ["bash", str(SCRIPT), str(memory_dir)],
             capture_output=True,
@@ -304,16 +337,20 @@ class TestLessonPruneStale:
         """STALE reason text mentions human judgment / false-positive."""
         fixture_dir, reachable_sha, unreachable_sha = _make_git_fixture(tmp_path)
         memory_dir = tmp_path / "memory"
-        _write_records(memory_dir, "procedural.jsonl", [
-            {
-                "key": "stale-note",
-                "text": "another old and unreachable lesson here for verification",
-                "tags": ["verify"],
-                "occurrences": 1,
-                "date": "2020-01-01",
-                "repo_sha": unreachable_sha,
-            }
-        ])
+        _write_records(
+            memory_dir,
+            "procedural.jsonl",
+            [
+                {
+                    "key": "stale-note",
+                    "text": "another old and unreachable lesson here for verification",
+                    "tags": ["verify"],
+                    "occurrences": 1,
+                    "date": "2020-01-01",
+                    "repo_sha": unreachable_sha,
+                }
+            ],
+        )
         result = subprocess.run(
             ["bash", str(SCRIPT), str(memory_dir)],
             capture_output=True,
@@ -331,6 +368,7 @@ class TestLessonPruneStale:
         assert records[0]["action"] == "STALE"
         # The reason must mention human judgment / false-positive per AC.
         reason = records[0]["reason"].lower()
-        assert any(phrase in reason for phrase in ["human", "false-positive", "judgment", "rebase"]), (
-            f"STALE reason should document false-positive risk: {records[0]['reason']}"
-        )
+        assert any(
+            phrase in reason
+            for phrase in ["human", "false-positive", "judgment", "rebase"]
+        ), f"STALE reason should document false-positive risk: {records[0]['reason']}"

@@ -11,12 +11,16 @@ import os
 import subprocess
 from pathlib import Path
 
-WORKTREE = Path("/Users/I346175/GITHUB/makato/.claude/worktrees/macatocz-makato-470")
+WORKTREE = Path(__file__).parent.parent
 WS = WORKTREE / "plugins" / "makato-orchestrate" / "shared" / "workflow-state.sh"
-REPO_ROOT = WORKTREE  # workflow-state.sh uses git --git-common-dir which resolves to main
+REPO_ROOT = (
+    WORKTREE  # workflow-state.sh uses git --git-common-dir which resolves to main
+)
 
 
-def _run_ws(*args: str, env: dict | None = None, cwd: str | None = None) -> subprocess.CompletedProcess:
+def _run_ws(
+    *args: str, env: dict | None = None, cwd: str | None = None
+) -> subprocess.CompletedProcess:
     merged = {**os.environ}
     if env:
         merged.update(env)
@@ -59,7 +63,9 @@ class TestRecallLessonsNoMemoryStore:
         """
         # tmp_path has no .makato/memory/ subdirectory — AC-3 scenario.
         result = _run_ws(
-            "recall-lessons", "macatocz/nonexistent-470-repo", "3",
+            "recall-lessons",
+            "macatocz/nonexistent-470-repo",
+            "3",
             env={"MAKATO_MEMORY_ROOT": str(tmp_path)},
         )
         assert result.returncode == 0, f"stderr: {result.stderr}"
@@ -77,29 +83,35 @@ class TestRecallLessonsMalformedLine:
         memory_dir.mkdir(parents=True)
         # Write a procedural.jsonl with good-bad-good structure
         proc = memory_dir / "procedural.jsonl"
-        good1 = json.dumps({
-            "repo": "macatocz/test-470-malformed",
-            "bundle": "python",
-            "label": "testing",
-            "scope": "generalizable",
-            "occurrences": 2,
-            "ts": "2026-07-19T10:00:00.000Z",
-            "description": "Good lesson 1",
-        })
+        good1 = json.dumps(
+            {
+                "repo": "macatocz/test-470-malformed",
+                "bundle": "python",
+                "label": "testing",
+                "scope": "generalizable",
+                "occurrences": 2,
+                "ts": "2026-07-19T10:00:00.000Z",
+                "description": "Good lesson 1",
+            }
+        )
         bad = "{ this is not valid json !!!"
-        good2 = json.dumps({
-            "repo": "macatocz/test-470-malformed",
-            "bundle": "python",
-            "label": "testing",
-            "scope": "generalizable",
-            "occurrences": 1,
-            "ts": "2026-07-18T10:00:00.000Z",
-            "description": "Good lesson 2",
-        })
+        good2 = json.dumps(
+            {
+                "repo": "macatocz/test-470-malformed",
+                "bundle": "python",
+                "label": "testing",
+                "scope": "generalizable",
+                "occurrences": 1,
+                "ts": "2026-07-18T10:00:00.000Z",
+                "description": "Good lesson 2",
+            }
+        )
         proc.write_text(f"{good1}\n{bad}\n{good2}\n")
 
         result = _run_ws(
-            "recall-lessons", "macatocz/test-470-malformed", "5",
+            "recall-lessons",
+            "macatocz/test-470-malformed",
+            "5",
             env={"MAKATO_MEMORY_ROOT": str(tmp_path)},
         )
         assert result.returncode == 0, f"stderr: {result.stderr}"
@@ -107,7 +119,9 @@ class TestRecallLessonsMalformedLine:
         descriptions = [d["description"] for d in data]
         assert "Good lesson 1" in descriptions, f"Good lesson 1 missing: {data}"
         assert "Good lesson 2" in descriptions, f"Good lesson 2 missing: {data}"
-        assert len(data) == 2, f"Expected 2 lessons (malformed skipped), got {len(data)}: {data}"
+        assert len(data) == 2, (
+            f"Expected 2 lessons (malformed skipped), got {len(data)}: {data}"
+        )
 
 
 class TestRecallLessonsBundleFilter:
@@ -118,33 +132,43 @@ class TestRecallLessonsBundleFilter:
         memory_dir = tmp_path / ".makato" / "memory"
         memory_dir.mkdir(parents=True)
         semantic = memory_dir / "semantic.jsonl"
-        python_lesson = json.dumps({
-            "repo": "macatocz/makato",
-            "bundle": "python",
-            "scope": "generalizable",
-            "occurrences": 3,
-            "ts": "2026-07-19T12:00:00.000Z",
-            "description": "Python-tagged lesson",
-        })
-        infra_lesson = json.dumps({
-            "repo": "macatocz/makato",
-            "bundle": "infra",
-            "scope": "local",
-            "occurrences": 5,
-            "ts": "2026-07-19T13:00:00.000Z",
-            "description": "Infra-only lesson",
-        })
+        python_lesson = json.dumps(
+            {
+                "repo": "macatocz/makato",
+                "bundle": "python",
+                "scope": "generalizable",
+                "occurrences": 3,
+                "ts": "2026-07-19T12:00:00.000Z",
+                "description": "Python-tagged lesson",
+            }
+        )
+        infra_lesson = json.dumps(
+            {
+                "repo": "macatocz/makato",
+                "bundle": "infra",
+                "scope": "local",
+                "occurrences": 5,
+                "ts": "2026-07-19T13:00:00.000Z",
+                "description": "Infra-only lesson",
+            }
+        )
         semantic.write_text(f"{python_lesson}\n{infra_lesson}\n")
 
         result = _run_ws(
-            "recall-lessons", "macatocz/makato", "5", "--bundles", "python",
+            "recall-lessons",
+            "macatocz/makato",
+            "5",
+            "--bundles",
+            "python",
             env={"MAKATO_MEMORY_ROOT": str(tmp_path)},
         )
         assert result.returncode == 0, f"stderr: {result.stderr}"
         data = json.loads(result.stdout)
         descriptions = [d["description"] for d in data]
         assert "Python-tagged lesson" in descriptions
-        assert "Infra-only lesson" not in descriptions, f"Infra lesson should be excluded: {data}"
+        assert "Infra-only lesson" not in descriptions, (
+            f"Infra lesson should be excluded: {data}"
+        )
 
     def test_bundle_filter_order_scope_then_occurrences_then_recency(self, tmp_path):
         """Order: scope asc (general before specific), then occurrences DESC, then ts DESC."""
@@ -153,26 +177,50 @@ class TestRecallLessonsBundleFilter:
         proc = memory_dir / "procedural.jsonl"
         lessons = [
             # scope=specific, high occurrences — should come AFTER general
-            {"repo": "macatocz/makato", "bundle": "python", "scope": "local",
-             "occurrences": 10, "ts": "2026-07-19T10:00:00.000Z", "description": "Specific-high-occ"},
+            {
+                "repo": "macatocz/makato",
+                "bundle": "python",
+                "scope": "local",
+                "occurrences": 10,
+                "ts": "2026-07-19T10:00:00.000Z",
+                "description": "Specific-high-occ",
+            },
             # scope=general, lower occurrences — should come FIRST (general < specific)
-            {"repo": "macatocz/makato", "bundle": "python", "scope": "generalizable",
-             "occurrences": 2, "ts": "2026-07-18T10:00:00.000Z", "description": "General-low-occ"},
+            {
+                "repo": "macatocz/makato",
+                "bundle": "python",
+                "scope": "generalizable",
+                "occurrences": 2,
+                "ts": "2026-07-18T10:00:00.000Z",
+                "description": "General-low-occ",
+            },
             # scope=general, higher occurrences — should come before General-low-occ
-            {"repo": "macatocz/makato", "bundle": "python", "scope": "generalizable",
-             "occurrences": 5, "ts": "2026-07-17T10:00:00.000Z", "description": "General-high-occ"},
+            {
+                "repo": "macatocz/makato",
+                "bundle": "python",
+                "scope": "generalizable",
+                "occurrences": 5,
+                "ts": "2026-07-17T10:00:00.000Z",
+                "description": "General-high-occ",
+            },
         ]
         proc.write_text("\n".join(json.dumps(item) for item in lessons) + "\n")
 
         result = _run_ws(
-            "recall-lessons", "macatocz/makato", "5", "--bundles", "python",
+            "recall-lessons",
+            "macatocz/makato",
+            "5",
+            "--bundles",
+            "python",
             env={"MAKATO_MEMORY_ROOT": str(tmp_path)},
         )
         assert result.returncode == 0, f"stderr: {result.stderr}"
         data = json.loads(result.stdout)
         assert len(data) == 3, f"Expected 3 results, got {len(data)}: {data}"
         # generalizable scope lessons must precede local
-        general_indices = [i for i, d in enumerate(data) if d["scope"] == "generalizable"]
+        general_indices = [
+            i for i, d in enumerate(data) if d["scope"] == "generalizable"
+        ]
         specific_indices = [i for i, d in enumerate(data) if d["scope"] == "local"]
         assert max(general_indices) < min(specific_indices), (
             f"generalizable lessons must all precede local: {[d['description'] for d in data]}"
@@ -189,16 +237,30 @@ class TestRecallLessonsBundleFilter:
         memory_dir.mkdir(parents=True)
         semantic = memory_dir / "semantic.jsonl"
         lessons = [
-            {"repo": "macatocz/makato", "bundle": "python", "scope": "generalizable",
-             "occurrences": 1, "ts": "2026-07-19T10:00:00.000Z", "description": "Python lesson"},
-            {"repo": "macatocz/makato", "bundle": "infra", "scope": "generalizable",
-             "occurrences": 1, "ts": "2026-07-19T09:00:00.000Z", "description": "Infra lesson"},
+            {
+                "repo": "macatocz/makato",
+                "bundle": "python",
+                "scope": "generalizable",
+                "occurrences": 1,
+                "ts": "2026-07-19T10:00:00.000Z",
+                "description": "Python lesson",
+            },
+            {
+                "repo": "macatocz/makato",
+                "bundle": "infra",
+                "scope": "generalizable",
+                "occurrences": 1,
+                "ts": "2026-07-19T09:00:00.000Z",
+                "description": "Infra lesson",
+            },
         ]
         semantic.write_text("\n".join(json.dumps(item) for item in lessons) + "\n")
 
         # 2-arg call — no bundle/label args
         result = _run_ws(
-            "recall-lessons", "macatocz/makato", "5",
+            "recall-lessons",
+            "macatocz/makato",
+            "5",
             env={"MAKATO_MEMORY_ROOT": str(tmp_path)},
         )
         assert result.returncode == 0, f"stderr: {result.stderr}"
@@ -213,24 +275,42 @@ class TestRecallLessonsBundleFilter:
         memory_dir.mkdir(parents=True)
         proc = memory_dir / "procedural.jsonl"
         lessons = [
-            {"repo": "macatocz/makato", "bundle": "python", "label": "testing",
-             "scope": "generalizable", "occurrences": 1, "ts": "2026-07-19T10:00:00.000Z",
-             "description": "Testing-labeled lesson"},
-            {"repo": "macatocz/makato", "bundle": "python", "label": "deploy",
-             "scope": "generalizable", "occurrences": 1, "ts": "2026-07-19T09:00:00.000Z",
-             "description": "Deploy-labeled lesson"},
+            {
+                "repo": "macatocz/makato",
+                "bundle": "python",
+                "label": "testing",
+                "scope": "generalizable",
+                "occurrences": 1,
+                "ts": "2026-07-19T10:00:00.000Z",
+                "description": "Testing-labeled lesson",
+            },
+            {
+                "repo": "macatocz/makato",
+                "bundle": "python",
+                "label": "deploy",
+                "scope": "generalizable",
+                "occurrences": 1,
+                "ts": "2026-07-19T09:00:00.000Z",
+                "description": "Deploy-labeled lesson",
+            },
         ]
         proc.write_text("\n".join(json.dumps(item) for item in lessons) + "\n")
 
         result = _run_ws(
-            "recall-lessons", "macatocz/makato", "5", "--labels", "testing",
+            "recall-lessons",
+            "macatocz/makato",
+            "5",
+            "--labels",
+            "testing",
             env={"MAKATO_MEMORY_ROOT": str(tmp_path)},
         )
         assert result.returncode == 0, f"stderr: {result.stderr}"
         data = json.loads(result.stdout)
         descriptions = [d["description"] for d in data]
         assert "Testing-labeled lesson" in descriptions
-        assert "Deploy-labeled lesson" not in descriptions, f"Deploy lesson should be filtered: {data}"
+        assert "Deploy-labeled lesson" not in descriptions, (
+            f"Deploy lesson should be filtered: {data}"
+        )
 
 
 class TestRecallLessonsCommittedStore:
@@ -251,7 +331,9 @@ class TestRecallLessonsCommittedStore:
         (memory_dir / "semantic.jsonl").write_text(json.dumps(lesson) + "\n")
 
         result = _run_ws(
-            "recall-lessons", "macatocz/makato", "5",
+            "recall-lessons",
+            "macatocz/makato",
+            "5",
             env={"MAKATO_MEMORY_ROOT": str(tmp_path)},
         )
         assert result.returncode == 0, f"stderr: {result.stderr}"
@@ -275,7 +357,9 @@ class TestRecallLessonsCommittedStore:
         (memory_dir / "procedural.jsonl").write_text(json.dumps(lesson) + "\n")
 
         result = _run_ws(
-            "recall-lessons", "macatocz/makato", "5",
+            "recall-lessons",
+            "macatocz/makato",
+            "5",
             env={"MAKATO_MEMORY_ROOT": str(tmp_path)},
         )
         assert result.returncode == 0, f"stderr: {result.stderr}"

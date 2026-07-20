@@ -162,8 +162,9 @@ shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-push-to-git","stor
 
 **(Optional) Lesson write (#473):** if this session produced a noteworthy lesson — a
 bugfix/gotcha pattern (`tier:procedural`) or a durable technical fact (`tier:semantic`) —
-append it to the per-issue store so `documentation-agent`'s promote step
-(`promote-lessons.sh`) can lift `generalizable` records into `.makato/memory/` at merge:
+append it to the per-issue store so the po-agent's local-lane promote step
+(`promote-lessons.sh`, run at the merge-success terminal, po-agent Step 6 item 7) can
+lift `generalizable` records into `.makato/memory/`:
 
 ```bash
 shared/write-lessons.sh "<key>" "<tier>" "<scope>" "<text>" "[tags]"

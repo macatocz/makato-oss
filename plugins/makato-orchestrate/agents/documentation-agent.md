@@ -31,13 +31,12 @@ skill_routing: disabled
 
 ## Rules
 
-- **Never edit source files.** `Write` and `Edit` are restricted to five
+- **Never edit source files.** `Write` and `Edit` are restricted to four
   allow-listed paths only:
   - `CHANGELOG.md` (repository root)
   - `README.md` (repository root) — only when the public-API heuristic in Step 4 triggers
   - `specs/<key>-<slug>/build.jsonl` (append-only, via the build-log helper or direct append)
   - `docs/**` — only when the diff modifies docs files and the agent amends cross-references
-  - `.makato/memory/procedural.jsonl` — promote step only; append/dedup, never truncate
 - **Issue-body edits are GitHub state, not files.** Step 4a marks verified AC
   checkboxes via `gh issue edit --body` — a GitHub API mutation, not a
   filesystem write, so it is outside the `Write`/`Edit` allow-list above. It is
@@ -265,27 +264,23 @@ HALT. The Issue still closes in Step 5.
 Use the build-log helper (`plugins/makato-build/shared/build-log.sh "<key>" '<json>'`)
 when a spec folder is present; otherwise surface the line in the R1 `warnings` array.
 
-### Step 4b — Promote generalizable lessons to persistent store
+### Step 4b — Lesson promotion (no-op on the GHA runner)
 
-Call the promote helper for the merged PR's issue number:
+**Intentionally a no-op here.** Lesson promotion now happens in the po-agent
+local lane (po-agent Step 6 item 7), which runs `promote-lessons.sh` at the
+merge-success terminal while the gitignored per-issue sources
+(`workflow-state-<N>.json` / `change-lessons.jsonl` under `specs/**`) are still
+present in the operator's main checkout. The GHA post-merge runner uses a fresh
+`actions/checkout` where those sources are absent (`.gitignore` tracks only
+`build.jsonl` / `spec.md` under `specs/**`), so a promote call from this agent
+could only ever be a silent no-op. It has therefore been removed to avoid
+implying promotion happens at merge on the runner. Do **not** call
+`promote-lessons.sh` from this step. Proceed directly to Step 5.
 
-    plugins/makato-orchestrate/scripts/promote-lessons.sh \
-      "$ISSUE_NUMBER" \
-      "${REPO_ROOT}/specs" \
-      "${REPO_ROOT}/.makato/memory/procedural.jsonl"
-
-Sources read by the helper:
-- `specs/*-<ISSUE_NUMBER>/workflow-state-<ISSUE_NUMBER>.json` → `lessons_learned[]`
-- `specs/*-<ISSUE_NUMBER>/change-lessons.jsonl` (if present)
-
-Only records with `scope: generalizable` are promoted. Duplicates (matched by
-`hash(normalized_text)+tags`) increment `occurrences` rather than appending a
-new record. `repo_sha` and `date` are stamped on each new record.
-
-**Degrade to `partial` on any failure.** If `ISSUE_NUMBER` is unknown (no
-workflow-state found in Step 1), skip this step and log `promote_skipped_no_issue`.
-A non-zero exit from the helper logs `promote_lessons_failed` and degrades the
-run to `partial`; it does NOT halt.
+> **Consumer note:** a repo that relies *solely* on this post-merge workflow —
+> with no local `loop`/po-agent driving merges — will not get generalizable
+> lessons promoted. That is the accepted trade-off of the local-lane design;
+> the makato repo runs the local loop, so it is unaffected.
 
 ### Step 5 — Close parent and child Issues
 

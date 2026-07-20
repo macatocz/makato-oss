@@ -4,7 +4,7 @@ from pathlib import Path
 import subprocess
 
 
-WORKTREE = Path("/Users/I346175/GITHUB/makato/.claude/worktrees/macatocz-makato-475")
+WORKTREE = Path(__file__).parent.parent
 SMOKE_SCRIPT = (
     WORKTREE
     / "plugins"

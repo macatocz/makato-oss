@@ -1,7 +1,8 @@
 """Tests for T1: .makato/memory/ committed store existence (AC-5 partial)."""
+
 from pathlib import Path
 
-WORKTREE = Path("/Users/I346175/GITHUB/makato/.claude/worktrees/macatocz-makato-470")
+WORKTREE = Path(__file__).parent.parent
 
 
 def test_semantic_jsonl_exists():

@@ -18,7 +18,7 @@ import os
 import subprocess
 from pathlib import Path
 
-WORKTREE = Path("/Users/I346175/GITHUB/makato/.claude/worktrees/macatocz-makato-475")
+WORKTREE = Path(__file__).parent.parent
 SCRIPT = WORKTREE / "plugins" / "makato-orchestrate" / "scripts" / "lesson-prune.sh"
 
 
@@ -55,15 +55,19 @@ class TestLessonPruneKeepDefault:
     def test_single_record_is_kept(self, tmp_path):
         """Single record in procedural.jsonl → action:KEEP."""
         memory_dir = tmp_path / "memory"
-        _write_records(memory_dir, "procedural.jsonl", [
-            {
-                "key": "abc123",
-                "text": "Always run tests before merging",
-                "tags": ["testing"],
-                "occurrences": 1,
-                "date": "2026-07-01",
-            }
-        ])
+        _write_records(
+            memory_dir,
+            "procedural.jsonl",
+            [
+                {
+                    "key": "abc123",
+                    "text": "Always run tests before merging",
+                    "tags": ["testing"],
+                    "occurrences": 1,
+                    "date": "2026-07-01",
+                }
+            ],
+        )
         result = _run(memory_dir)
         assert result.returncode == 0, f"stderr: {result.stderr}"
         records = _parse_output(result)
@@ -74,10 +78,26 @@ class TestLessonPruneKeepDefault:
     def test_all_keep_multiple_distinct_records(self, tmp_path):
         """Multiple records with no duplicates and no shared tags → all KEEP."""
         memory_dir = tmp_path / "memory"
-        _write_records(memory_dir, "procedural.jsonl", [
-            {"key": "aaa", "text": "Use atomic writes for files", "tags": ["io"], "occurrences": 1, "date": "2026-07-01"},
-            {"key": "bbb", "text": "Validate inputs at boundaries", "tags": ["validation"], "occurrences": 2, "date": "2026-07-02"},
-        ])
+        _write_records(
+            memory_dir,
+            "procedural.jsonl",
+            [
+                {
+                    "key": "aaa",
+                    "text": "Use atomic writes for files",
+                    "tags": ["io"],
+                    "occurrences": 1,
+                    "date": "2026-07-01",
+                },
+                {
+                    "key": "bbb",
+                    "text": "Validate inputs at boundaries",
+                    "tags": ["validation"],
+                    "occurrences": 2,
+                    "date": "2026-07-02",
+                },
+            ],
+        )
         result = _run(memory_dir)
         assert result.returncode == 0, f"stderr: {result.stderr}"
         records = _parse_output(result)
@@ -91,17 +111,37 @@ class TestLessonPruneDuplicate:
     def test_duplicate_keeps_higher_occurrences(self, tmp_path):
         """Two records with same text+tags: higher occurrences → KEEP, other → DUPLICATE."""
         memory_dir = tmp_path / "memory"
-        _write_records(memory_dir, "procedural.jsonl", [
-            {"key": "key-low", "text": "use atomic writes for file ops", "tags": ["io", "safety"], "occurrences": 1, "date": "2026-07-01"},
-            {"key": "key-high", "text": "use atomic writes for file ops", "tags": ["io", "safety"], "occurrences": 5, "date": "2026-07-02"},
-        ])
+        _write_records(
+            memory_dir,
+            "procedural.jsonl",
+            [
+                {
+                    "key": "key-low",
+                    "text": "use atomic writes for file ops",
+                    "tags": ["io", "safety"],
+                    "occurrences": 1,
+                    "date": "2026-07-01",
+                },
+                {
+                    "key": "key-high",
+                    "text": "use atomic writes for file ops",
+                    "tags": ["io", "safety"],
+                    "occurrences": 5,
+                    "date": "2026-07-02",
+                },
+            ],
+        )
         result = _run(memory_dir)
         assert result.returncode == 0, f"stderr: {result.stderr}"
         records = _parse_output(result)
         assert len(records) == 2
         by_key = {rec["key"]: rec for rec in records}
-        assert by_key["key-high"]["action"] == "KEEP", f"Expected KEEP for key-high, got: {by_key['key-high']}"
-        assert by_key["key-low"]["action"] == "DUPLICATE", f"Expected DUPLICATE for key-low, got: {by_key['key-low']}"
+        assert by_key["key-high"]["action"] == "KEEP", (
+            f"Expected KEEP for key-high, got: {by_key['key-high']}"
+        )
+        assert by_key["key-low"]["action"] == "DUPLICATE", (
+            f"Expected DUPLICATE for key-low, got: {by_key['key-low']}"
+        )
         assert by_key["key-low"]["target"] == "key-high", (
             f"Expected target=key-high, got: {by_key['key-low']['target']}"
         )
@@ -109,10 +149,26 @@ class TestLessonPruneDuplicate:
     def test_duplicate_keeps_newer_date_on_tie(self, tmp_path):
         """Two records with same text+tags and equal occurrences: newer date → KEEP."""
         memory_dir = tmp_path / "memory"
-        _write_records(memory_dir, "procedural.jsonl", [
-            {"key": "key-old", "text": "normalize text before hashing", "tags": ["hashing"], "occurrences": 3, "date": "2026-01-01"},
-            {"key": "key-new", "text": "normalize text before hashing", "tags": ["hashing"], "occurrences": 3, "date": "2026-07-20"},
-        ])
+        _write_records(
+            memory_dir,
+            "procedural.jsonl",
+            [
+                {
+                    "key": "key-old",
+                    "text": "normalize text before hashing",
+                    "tags": ["hashing"],
+                    "occurrences": 3,
+                    "date": "2026-01-01",
+                },
+                {
+                    "key": "key-new",
+                    "text": "normalize text before hashing",
+                    "tags": ["hashing"],
+                    "occurrences": 3,
+                    "date": "2026-07-20",
+                },
+            ],
+        )
         result = _run(memory_dir)
         assert result.returncode == 0, f"stderr: {result.stderr}"
         records = _parse_output(result)
@@ -127,10 +183,26 @@ class TestLessonPruneConsolidate:
     def test_shared_tag_triggers_consolidate(self, tmp_path):
         """Two records sharing a tag but different text → both get CONSOLIDATE."""
         memory_dir = tmp_path / "memory"
-        _write_records(memory_dir, "procedural.jsonl", [
-            {"key": "rec-a", "text": "use ruff for linting python files", "tags": ["python", "linting"], "occurrences": 1, "date": "2026-07-01"},
-            {"key": "rec-b", "text": "configure ruff in pyproject toml", "tags": ["python", "config"], "occurrences": 1, "date": "2026-07-02"},
-        ])
+        _write_records(
+            memory_dir,
+            "procedural.jsonl",
+            [
+                {
+                    "key": "rec-a",
+                    "text": "use ruff for linting python files",
+                    "tags": ["python", "linting"],
+                    "occurrences": 1,
+                    "date": "2026-07-01",
+                },
+                {
+                    "key": "rec-b",
+                    "text": "configure ruff in pyproject toml",
+                    "tags": ["python", "config"],
+                    "occurrences": 1,
+                    "date": "2026-07-02",
+                },
+            ],
+        )
         result = _run(memory_dir)
         assert result.returncode == 0, f"stderr: {result.stderr}"
         records = _parse_output(result)
@@ -146,9 +218,19 @@ class TestLessonPruneSemanticFile:
     def test_semantic_records_are_classified(self, tmp_path):
         """Records from semantic.jsonl appear in classification output."""
         memory_dir = tmp_path / "memory"
-        _write_records(memory_dir, "semantic.jsonl", [
-            {"key": "sem-1", "text": "Keep interfaces small and focused", "tags": ["design"], "occurrences": 2, "date": "2026-07-01"},
-        ])
+        _write_records(
+            memory_dir,
+            "semantic.jsonl",
+            [
+                {
+                    "key": "sem-1",
+                    "text": "Keep interfaces small and focused",
+                    "tags": ["design"],
+                    "occurrences": 2,
+                    "date": "2026-07-01",
+                },
+            ],
+        )
         result = _run(memory_dir)
         assert result.returncode == 0, f"stderr: {result.stderr}"
         records = _parse_output(result)
@@ -159,12 +241,32 @@ class TestLessonPruneSemanticFile:
     def test_duplicate_across_files_detected(self, tmp_path):
         """Same text+tags in procedural.jsonl and semantic.jsonl → DUPLICATE detected."""
         memory_dir = tmp_path / "memory"
-        _write_records(memory_dir, "procedural.jsonl", [
-            {"key": "proc-1", "text": "same lesson across files", "tags": ["cross"], "occurrences": 1, "date": "2026-07-01"},
-        ])
-        _write_records(memory_dir, "semantic.jsonl", [
-            {"key": "sem-2", "text": "same lesson across files", "tags": ["cross"], "occurrences": 3, "date": "2026-07-02"},
-        ])
+        _write_records(
+            memory_dir,
+            "procedural.jsonl",
+            [
+                {
+                    "key": "proc-1",
+                    "text": "same lesson across files",
+                    "tags": ["cross"],
+                    "occurrences": 1,
+                    "date": "2026-07-01",
+                },
+            ],
+        )
+        _write_records(
+            memory_dir,
+            "semantic.jsonl",
+            [
+                {
+                    "key": "sem-2",
+                    "text": "same lesson across files",
+                    "tags": ["cross"],
+                    "occurrences": 3,
+                    "date": "2026-07-02",
+                },
+            ],
+        )
         result = _run(memory_dir)
         assert result.returncode == 0, f"stderr: {result.stderr}"
         records = _parse_output(result)
@@ -181,9 +283,19 @@ class TestLessonPruneOutputFormat:
     def test_output_fields_present(self, tmp_path):
         """Every output record has the four required fields."""
         memory_dir = tmp_path / "memory"
-        _write_records(memory_dir, "procedural.jsonl", [
-            {"key": "chk-1", "text": "validate env before running", "tags": ["env"], "occurrences": 1, "date": "2026-07-01"},
-        ])
+        _write_records(
+            memory_dir,
+            "procedural.jsonl",
+            [
+                {
+                    "key": "chk-1",
+                    "text": "validate env before running",
+                    "tags": ["env"],
+                    "occurrences": 1,
+                    "date": "2026-07-01",
+                },
+            ],
+        )
         result = _run(memory_dir)
         assert result.returncode == 0, f"stderr: {result.stderr}"
         records = _parse_output(result)
@@ -196,9 +308,19 @@ class TestLessonPruneOutputFormat:
     def test_output_is_compact_json(self, tmp_path):
         """Output lines are compact JSON (no pretty-printing)."""
         memory_dir = tmp_path / "memory"
-        _write_records(memory_dir, "procedural.jsonl", [
-            {"key": "fmt-1", "text": "compact output test", "tags": ["fmt"], "occurrences": 1, "date": "2026-07-01"},
-        ])
+        _write_records(
+            memory_dir,
+            "procedural.jsonl",
+            [
+                {
+                    "key": "fmt-1",
+                    "text": "compact output test",
+                    "tags": ["fmt"],
+                    "occurrences": 1,
+                    "date": "2026-07-01",
+                },
+            ],
+        )
         result = _run(memory_dir)
         lines = [line for line in result.stdout.splitlines() if line.strip()]
         assert len(lines) == 1
@@ -212,9 +334,19 @@ class TestLessonPruneEnvOverride:
     def test_env_override_does_not_crash(self, tmp_path):
         """MAKATO_PRUNE_REPO_OVERRIDE env var is accepted without crashing."""
         memory_dir = tmp_path / "memory"
-        _write_records(memory_dir, "procedural.jsonl", [
-            {"key": "env-test", "text": "test env override path", "tags": ["env"], "occurrences": 1, "date": "2026-07-01"},
-        ])
+        _write_records(
+            memory_dir,
+            "procedural.jsonl",
+            [
+                {
+                    "key": "env-test",
+                    "text": "test env override path",
+                    "tags": ["env"],
+                    "occurrences": 1,
+                    "date": "2026-07-01",
+                },
+            ],
+        )
         result = _run(memory_dir, MAKATO_PRUNE_REPO_OVERRIDE="custom/repo-override")
         assert result.returncode == 0, f"stderr: {result.stderr}"
         records = _parse_output(result)
@@ -230,7 +362,9 @@ class TestLessonPruneEmptyInputs:
         memory_dir = tmp_path / "empty_memory"
         memory_dir.mkdir()
         result = _run(memory_dir)
-        assert result.returncode == 0, f"Expected exit 0, got {result.returncode}. stderr: {result.stderr}"
+        assert result.returncode == 0, (
+            f"Expected exit 0, got {result.returncode}. stderr: {result.stderr}"
+        )
         assert result.stdout.strip() == ""
 
     def test_empty_memory_file_exits_zero(self, tmp_path):
