@@ -410,5 +410,58 @@ check "out-of-enum type:bogus -> falls through to heuristic (fix)" "fix" "$(tget
 check "explicit type:chore wins over 'fix' keyword (explicit > inference)" "chore" "$(tget explicit_over_fix)"
 
 echo ""
+echo "== plan emission decision — full-tier vs future-enhancement (#511) =="
+
+# Reference implementation of the plan-emission decision logic, per SKILL.md
+# (to be added in Task 1). Mirrors the algorithm to-issues will implement:
+#   - A story gets plan-<issue>.md iff type:future-enhancement is NOT in labels[].
+#   - Tasks section is non-empty iff description.scope is non-empty.
+#   - AC section is non-empty iff successScenarios[] is non-empty.
+# If the prose in SKILL.md changes the algorithm, update this block in lockstep.
+PLAN_EMIT="$(python3 - "$REPO_ROOT/plugins/makato-plan/skills/to-issues/references/fixtures/plan-emission-fixture.stories.json" <<'PY'
+import json
+import sys
+
+fixture = json.load(open(sys.argv[1]))
+
+
+def should_emit_plan(story):
+    """A story gets plan-<issue>.md iff type:future-enhancement is NOT in its labels."""
+    for label in story.get("labels", []):
+        if label == "type:future-enhancement":
+            return False
+    return True
+
+
+def plan_tasks_nonempty(story):
+    """Tasks section is non-empty iff description.scope is non-empty."""
+    scope = story.get("description", {}).get("scope", "").strip()
+    return len(scope) > 0
+
+
+def plan_ac_nonempty(story):
+    """AC section is non-empty iff successScenarios[] is non-empty."""
+    scenarios = story.get("description", {}).get("successScenarios", [])
+    return len(scenarios) > 0
+
+
+# Print outputs for the bash harness
+for story in fixture["stories"]:
+    label_slug = "fulltier" if "type:future-enhancement" not in story.get("labels", []) else "futureenhancement"
+    print(f"plan_emit_{label_slug}={'true' if should_emit_plan(story) else 'false'}")
+    if should_emit_plan(story):
+        print(f"plan_tasks_nonempty={'yes' if plan_tasks_nonempty(story) else 'no'}")
+        print(f"plan_ac_nonempty={'yes' if plan_ac_nonempty(story) else 'no'}")
+PY
+)"
+
+pget() { echo "$PLAN_EMIT" | grep -F "$1=" | cut -d= -f2-; }
+
+check "full-tier story: plan emitted" "true" "$(pget plan_emit_fulltier)"
+check "future-enhancement story: plan NOT emitted" "false" "$(pget plan_emit_futureenhancement)"
+check "full-tier plan: ## Tasks section non-empty (from description.scope)" "yes" "$(pget plan_tasks_nonempty)"
+check "full-tier plan: ## Acceptance criteria non-empty (from successScenarios[])" "yes" "$(pget plan_ac_nonempty)"
+
+echo ""
 echo "to-issues v2.0-schema smoke: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

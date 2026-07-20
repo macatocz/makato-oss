@@ -305,12 +305,23 @@ Every AC must be covered by at least one task. If any AC has no task: add a task
 Load @references/plan-schema.md.
 Read `templates/plan-template.md` and use it as the base for the output.
 
-Write `plan-<ISSUE_NUMBER>.md` in the resolved spec folder with all fields populated from the template.
 Derive `ISSUE_NUMBER` from the numeric leading segment of the work-item key (e.g. key `510-foo` → `plan-510.md`).
+
+**Pre-write guard:** Before writing `plan-<ISSUE_NUMBER>.md`, check whether the file already exists in the resolved spec folder. If the file exists:
+- Read its content and check whether the `## Tasks` section is substantive: it is considered substantive if it is non-empty AND does not contain only stub placeholder text (patterns: `_To be filled in`, `_To be enriched by build-refine`, `<!-- to-issues:auto`-only with no real task items).
+- If substantive: use **enrichment mode** — treat the existing file's `## Tasks` and `## Acceptance criteria` content as the starting point. Merge by rewriting the file with the refined output from Steps 7-9, keeping the existing structure but replacing or extending individual sections with the refined analysis. Do not overwrite the `## Story` metadata block. Log the decision:
+  ```bash
+  shared/build-log.sh "<key>" '{"ts":"…","skill":"build-refine","story":"<key>","step":"write-plan","status":"ok","data":{"tasks":<N>,"oracle_scenarios":<M>,"plan_file":"<path>","enriched_existing":true}}'
+  ```
+- If the file does not exist, or is a stub (empty `## Tasks`, or placeholder-only content): proceed with the normal write (existing behavior). `enriched_existing` is `false` in the JSONL.
+
+The enrichment approach ensures that a `to-issues`-emitted `plan-<N>.md` (which already has real `## Tasks` derived from `description.scope` and real `## Acceptance criteria` derived from `successScenarios[]`) is treated as a first-pass that build-refine extends and sharpens — not discards.
+
+Write `plan-<ISSUE_NUMBER>.md` in the resolved spec folder with all fields populated from the template.
 
 **Acceptance Test Oracle pass-through rule**: when the story from `stories.json` carries a non-empty `description.acceptanceTestCases[]` (Step 4), write a `## Acceptance Test Oracle` section into `plan-<ISSUE_NUMBER>.md` per `@references/plan-schema.md` § *Acceptance Test Oracle Schema*. Copy each scenario verbatim (Gherkin `given`/`when`/`then`/`and` shape) and annotate it `(maps to AC-N)` by aligning it to the AC coverage table from Step 9 — match on the scenario's outcome, or use `AC-*` when it applies story-wide. When `acceptanceTestCases[]` is absent or empty, do NOT emit the section — omit it entirely (legacy default). The oracle never introduces new AC numbers; it only supplies exact RED-test scenarios the coder implements downstream.
 
-Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-refine","story":"<key>","step":"write-plan","status":"ok","data":{"tasks":<N>,"oracle_scenarios":<M>,"plan_file":"<resolved-spec-folder>/plan-<ISSUE_NUMBER>.md"}}'`
+Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-refine","story":"<key>","step":"write-plan","status":"ok","data":{"tasks":<N>,"oracle_scenarios":<M>,"plan_file":"<resolved-spec-folder>/plan-<ISSUE_NUMBER>.md","enriched_existing":<bool>}}'`
 
 ### Step 11 — Present plan and iterate
 
