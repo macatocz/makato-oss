@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.100.0](https://github.com/macatocz/makato/compare/v0.99.0...v0.100.0) (2026-07-20)
+
+
+### ✨ Features
+
+* **makato-observability:** add Claude Code session tracing via Langfuse Stop hook ([af59d1c](https://github.com/macatocz/makato/commit/af59d1c941050831b56fa1eaf12dfa35324efbd7))
+
 ## [0.99.0](https://github.com/macatocz/makato/compare/v0.98.1...v0.99.0) (2026-07-20)
 
 
