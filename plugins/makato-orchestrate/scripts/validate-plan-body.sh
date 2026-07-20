@@ -16,11 +16,17 @@
 #
 # Input:
 #   $1 — path to the plan.md file to validate.
+#   $2 — (optional) ISSUE_NUMBER to check against the <!-- issue: #NNN -->
+#        fingerprint in the plan. When supplied and the plan carries a
+#        fingerprint header whose number does not match, the guard fails with
+#        `invalid fingerprint-mismatch`. When the plan has no fingerprint
+#        header, it is treated as a legacy plan and this check is skipped
+#        (legacy-pass). When $2 is absent, fingerprint checking is skipped.
 #
 # Output (stdout): exactly one line "<verdict> <reason>"
 #   verdict ∈ {valid, invalid}
 #   reason  ∈ {ok, missing-file, no-tasks-heading, empty-tasks,
-#              no-acceptance-heading, empty-acceptance}
+#              no-acceptance-heading, empty-acceptance, fingerprint-mismatch}
 #
 # Exit code: 0 when valid, 1 when invalid. The stdout reason is the
 # authoritative signal; the exit code mirrors it for `if` convenience.
@@ -35,6 +41,7 @@
 set -euo pipefail
 
 PLAN_PATH="${1:-}"
+ISSUE_NUMBER="${2:-}"
 
 # emit <verdict> <reason>: print the one-line result, then exit 0 for valid
 # or 1 for invalid. Every terminal path funnels through here so stdout and
@@ -46,6 +53,20 @@ emit() {
 
 if [ -z "$PLAN_PATH" ] || [ ! -f "$PLAN_PATH" ]; then
   emit invalid missing-file
+fi
+
+# --- Fingerprint check (optional — only when $2 ISSUE_NUMBER is supplied) ----
+# Extract the <!-- issue: #NNN --> fingerprint from the plan file. The header
+# must be a standalone HTML comment on its own line (as written by light-planner
+# and plan templates). When present, compare against $2. When absent, treat the
+# plan as a legacy plan (legacy-pass — fingerprinting predates this feature).
+if [ -n "$ISSUE_NUMBER" ]; then
+  fingerprint="$(grep -m1 '<!-- issue: #[0-9]\+' "$PLAN_PATH" | \
+    grep -oE '[0-9]+' | head -1 || true)"
+  if [ -n "$fingerprint" ] && [ "$fingerprint" != "$ISSUE_NUMBER" ]; then
+    emit invalid fingerprint-mismatch
+  fi
+  # fingerprint absent → legacy-pass; fingerprint matches → continue to structural checks
 fi
 
 # Extract the body of a `## <Heading>` section: everything after the heading

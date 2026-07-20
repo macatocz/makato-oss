@@ -227,6 +227,78 @@ write_plan "$TMP/table.md" <<'EOF'
 EOF
 check "valid ok" 0 "$TMP/table.md"
 
+
+# --- T14: fingerprint mismatch → invalid fingerprint-mismatch (exit 1) -------
+# Given a plan fingerprinted <!-- issue: #147 --> validated with ISSUE_NUMBER=148,
+# the guard must fail on the fingerprint mismatch rather than passing the structural check.
+TEST_NAME="T14 fingerprint mismatch (plan=#147, dispatch=148) → invalid fingerprint-mismatch"
+write_plan "$TMP/fingerprint-mismatch.md" <<'EOF'
+# Implementation Plan: 147-some-story
+
+<!-- issue: #147 -->
+
+## Tasks
+
+1. Do the thing.
+
+## Acceptance criteria
+
+- The guard detects mismatched fingerprints.
+EOF
+check_with_issue() {
+  local expected="$1" want_exit="$2" plan="$3" issue_num="$4"
+  local got rc
+  set +e
+  got="$(bash "$GUARD" "$plan" "$issue_num" 2>/dev/null)"
+  rc=$?
+  set -e
+  if [ "$got" = "$expected" ] && [ "$rc" -eq "$want_exit" ]; then
+    pass=$((pass + 1))
+    printf '  ✓ %s → %s (exit %d)\n' "${TEST_NAME:-test}" "$got" "$rc"
+  else
+    fail=$((fail + 1))
+    printf '  ✗ %s: expected [%s] exit %d, got [%s] exit %d\n' \
+      "${TEST_NAME:-test}" "$expected" "$want_exit" "$got" "$rc"
+  fi
+}
+check_with_issue "invalid fingerprint-mismatch" 1 "$TMP/fingerprint-mismatch.md" "148"
+
+# --- T15: fingerprint match → valid ok (exit 0) ------------------------------
+# Given a plan fingerprinted <!-- issue: #512 --> validated with ISSUE_NUMBER=512,
+# the guard must pass.
+TEST_NAME="T15 fingerprint match (plan=#512, dispatch=512) → valid ok"
+write_plan "$TMP/fingerprint-match.md" <<'EOF'
+# Implementation Plan: 512-some-story
+
+<!-- issue: #512 -->
+
+## Tasks
+
+1. Do the thing.
+
+## Acceptance criteria
+
+- The guard passes on matching fingerprints.
+EOF
+check_with_issue "valid ok" 0 "$TMP/fingerprint-match.md" "512"
+
+# --- T16: legacy plan without fingerprint header → valid ok (legacy-pass) ----
+# Given a legacy plan with no <!-- issue: #NNN --> header, the guard must treat
+# it as legacy-pass and succeed — regardless of what ISSUE_NUMBER is supplied.
+TEST_NAME="T16 legacy plan (no fingerprint header) + ISSUE_NUMBER → valid ok (legacy-pass)"
+write_plan "$TMP/legacy-plan.md" <<'EOF'
+# Implementation Plan: 147-legacy-story
+
+## Tasks
+
+1. Do the thing.
+
+## Acceptance criteria
+
+- The guard accepts legacy plans that predate the fingerprint feature.
+EOF
+check_with_issue "valid ok" 0 "$TMP/legacy-plan.md" "999"
+
 echo ""
 echo "validate-plan-body smoke: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
