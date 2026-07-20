@@ -1,0 +1,89 @@
+{
+  "version": "2.0",
+  "slug": "plan-emission-fixture",
+  "created": "2026-07-20",
+  "status": "draft",
+  "epic": {
+    "summary": "Plan emission fixture for to-issues #511 — full-tier vs future-enhancement",
+    "objective": "Guard that to-issues emits plan-<issue>.md for full-tier stories and skips plan emission for type:future-enhancement stories.",
+    "labels": ["makato"]
+  },
+  "stories": [
+    {
+      "sequence": 1,
+      "phase": "foundation",
+      "summary": "Emit a substantive plan file for each full-tier story",
+      "storyPoints": 5,
+      "teams": ["platform"],
+      "labels": ["makato", "type:feat"],
+      "githubIssue": null,
+      "description": {
+        "background": "The to-issues skill must create a plan-<issue>.md for every story that is not deferred or future-scoped, containing a non-empty tasks section and acceptance criteria.",
+        "scope": "Implement plan emission logic; derive Tasks section from description.scope; derive Acceptance criteria from successScenarios[]",
+        "featureToggle": {
+          "alreadyInPlace": false,
+          "newNeeded": false,
+          "longTermUsage": false,
+          "name": "",
+          "defaultState": "disabled"
+        },
+        "successScenarios": [
+          {
+            "title": "Scenario 1: Plan file contains Tasks",
+            "given": "a full-tier story with a non-empty description.scope",
+            "when": "to-issues processes the story",
+            "then": "a plan-<issue>.md is created with a non-empty ## Tasks section",
+            "and": ["the ## Acceptance criteria section is also non-empty"]
+          }
+        ],
+        "solutionApproach": "",
+        "acceptanceTestCases": [],
+        "wikiDocumentation": "",
+        "outOfScope": ["future-enhancement stories"]
+      },
+      "definitionOfDone": [
+        "plan-<issue>.md is created for each full-tier story",
+        "## Tasks section is derived from description.scope and is non-empty",
+        "## Acceptance criteria section is derived from successScenarios[] and is non-empty"
+      ],
+      "dependencies": {
+        "blockedBy": [],
+        "blocks": []
+      },
+      "externalDependencies": []
+    },
+    {
+      "sequence": 2,
+      "phase": "future-enhancement",
+      "summary": "Skip plan emission for future-enhancement stories",
+      "storyPoints": 2,
+      "teams": ["platform"],
+      "labels": ["makato", "type:future-enhancement"],
+      "githubIssue": null,
+      "description": {
+        "background": "Stories labelled type:future-enhancement are deferred and should not produce a plan file during the current run.",
+        "scope": "",
+        "featureToggle": {
+          "alreadyInPlace": false,
+          "newNeeded": false,
+          "longTermUsage": false,
+          "name": "",
+          "defaultState": "disabled"
+        },
+        "successScenarios": [],
+        "solutionApproach": "",
+        "acceptanceTestCases": [],
+        "wikiDocumentation": "",
+        "outOfScope": []
+      },
+      "definitionOfDone": [
+        "No plan-<issue>.md is created for future-enhancement stories"
+      ],
+      "dependencies": {
+        "blockedBy": [],
+        "blocks": []
+      },
+      "externalDependencies": []
+    }
+  ]
+}

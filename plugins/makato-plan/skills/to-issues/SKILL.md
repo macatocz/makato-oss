@@ -235,7 +235,16 @@ For each story:
    done
    ```
    This is a best-effort call (`|| true`) — a label-apply failure does not abort the batch. Log `[to-issues:auto] story <n>: patched blocking label onto #<upstream_nums>` in autonomous mode.
-5. Append the new entry to an in-memory list with `issue_number`, `url`, `title`, `labels`, `blocked_by`.
+5. **Plan emission** — after the issue is created and the blocking patch is applied, if the story does NOT carry the label `type:future-enhancement`, write `$REPO_ROOT/specs/$SLUG/plan-${ISSUE_NUMBER}.md` using the template at `references/plan-template.md`. Populate the template by substituting:
+   - `{{ISSUE_NUMBER}}` → the created issue number (from `ISSUE_NUMBER`).
+   - `{{STORY_SUMMARY}}` → the story's `summary` field.
+   - `{{TASKS_LIST}}` → one markdown bullet per scope item from `description.scope`. When `scope` is a single string, split on `;` or `,` (trim whitespace from each piece); each piece becomes a `- <item>` bullet. When `scope` is an array, use each element directly as a `- <item>` bullet.
+   - `{{AC_LIST}}` → one markdown bullet per `successScenarios[]` entry (using the `then` field as the bullet text; if `and[]` is non-empty on the scenario, append each `and[]` item as an additional sub-bullet indented with two spaces). When `acceptanceTestCases[]` is non-empty, append the `then` and `and[]` lines from those entries as additional bullets.
+
+   The written plan file path is `$REPO_ROOT/specs/$SLUG/plan-${ISSUE_NUMBER}.md`. In autonomous mode, log: `[to-issues:auto] story <n>: wrote plan-<ISSUE_NUMBER>.md`
+
+   For `type:future-enhancement` stories: skip this step entirely (no plan file is written).
+6. Append the new entry to an in-memory list with `issue_number`, `url`, `title`, `labels`, `blocked_by`.
 
 **Partial-failure semantics (D13):** if any `gh issue create` call fails, stop the batch immediately. Persist the partial `created-issues.json` (Step 6) containing only the successfully-created entries. Print:
 
