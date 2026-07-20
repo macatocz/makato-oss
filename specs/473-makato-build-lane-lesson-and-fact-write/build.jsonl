@@ -1,0 +1,7 @@
+{"ts":"2026-07-20T00:00:00.000Z","skill":"build-refine","story":"473-makato-build-lane-lesson-and-fact-write","step":"session","status":"ok","data":{"tasks":3,"mode":"tdd","plan":"specs/473-makato-build-lane-lesson-and-fact-write/plan.md","ac_count":4,"oracle_scenarios":4}}
+{"ts":"2026-07-20T00:00:00.000Z","skill":"build-grill-with-docs","story":"473-makato-build-lane-lesson-and-fact-write","step":"session","status":"ok","data":{"terms_resolved":5,"terms_skipped":0,"adrs_written":0,"decisions_updated":3,"followup_issue":494}}
+{"ts":"2026-07-20T07:30:00.000Z","skill":"build-implement-tdd","story":"473-makato-build-lane-lesson-and-fact-write","step":"session","status":"ok","data":{"tdd_tasks":3,"goal_tasks_pending":0,"tests":"12/12 green"}}
+{"ts":"2026-07-20T07:27:36Z","skill":"build-simplify","story":"473-makato-build-lane-lesson-and-fact-write","step":"session","status":"start","data":{"files_changed":4}}
+{"ts":"2026-07-20T07:27:36Z","skill":"build-simplify","story":"473-makato-build-lane-lesson-and-fact-write","step":"baseline","status":"ok","data":{"passing":12,"failing":0,"test_suite_present":true,"cmd":"bash plugins/makato-build/shared/write-lessons-smoke-tests.sh"}}
+{"ts":"2026-07-20T07:27:36Z","skill":"build-simplify","story":"473-makato-build-lane-lesson-and-fact-write","step":"analyze","status":"ok","data":{"simplify":0,"keep":4,"escalate":0}}
+{"ts":"2026-07-20T07:30:45Z","skill":"build-review","story":"473-makato-build-lane-lesson-and-fact-write","step":"session","status":"start","data":{"files_changed":4,"pass":1}}

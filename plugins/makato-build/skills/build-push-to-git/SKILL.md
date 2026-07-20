@@ -160,6 +160,24 @@ Run:
 shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-push-to-git","story":"<key>","step":"session","status":"ok","data":{"commits":<N>,"branch":"<name>"}}'
 ```
 
+**(Optional) Lesson write (#473):** if this session produced a noteworthy lesson — a
+bugfix/gotcha pattern (`tier:procedural`) or a durable technical fact (`tier:semantic`) —
+append it to the per-issue store so `documentation-agent`'s promote step
+(`promote-lessons.sh`) can lift `generalizable` records into `.makato/memory/` at merge:
+
+```bash
+shared/write-lessons.sh "<key>" "<tier>" "<scope>" "<text>" "[tags]"
+#   tier  = procedural | semantic
+#   scope = generalizable | local   (generalizable → eligible for promotion)
+#   tags  = optional comma-separated list
+```
+
+This appends one record to `specs/<key>-*/change-lessons.jsonl`; it never writes to
+`.makato/memory/` (promotion is `documentation-agent`'s job). Omit the call entirely when
+there is nothing notable to record — it is optional and each call is an independent append.
+If both `build-verify` and `build-push-to-git` run in one session, record each lesson once
+(at whichever terminal step you reach it) to avoid duplicate records.
+
 Tell the user: *"`<N>` commits pushed to `<branch>`."*
 
 In **interactive mode**, then ask using `AskUserQuestion`:

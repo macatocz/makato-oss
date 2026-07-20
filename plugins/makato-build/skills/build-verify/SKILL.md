@@ -400,6 +400,23 @@ Run:
 shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"session","status":"ok","data":{"all_gates_passed":true,"conditional_coverage":"<X>%"}}'
 ```
 
+**(Optional) Lesson write (#473):** if this session produced a noteworthy lesson — a
+bugfix/gotcha pattern (`tier:procedural`) or a durable technical fact (`tier:semantic`,
+e.g. a dimension or socket override) — append it to the per-issue store so
+`documentation-agent`'s promote step (`promote-lessons.sh`) can lift `generalizable`
+records into `.makato/memory/` at merge:
+
+```bash
+shared/write-lessons.sh "<key>" "<tier>" "<scope>" "<text>" "[tags]"
+#   tier  = procedural | semantic
+#   scope = generalizable | local   (generalizable → eligible for promotion)
+#   tags  = optional comma-separated list
+```
+
+This appends one record to `specs/<key>-*/change-lessons.jsonl`; it never writes to
+`.makato/memory/` (promotion is `documentation-agent`'s job). Omit the call entirely when
+there is nothing notable to record — it is optional and each call is an independent append.
+
 Tell the user: *"All gates passed.*
 *Pipeline remaining: `/build-push-to-git` → `/build-create-pr`*
 *Next: run `/build-push-to-git` to commit and push."*
