@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.94.0](https://github.com/macatocz/makato/compare/v0.93.0...v0.94.0) (2026-07-20)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** add lesson-prune operator curation skill ([#475](https://github.com/macatocz/makato/issues/475)) ([#498](https://github.com/macatocz/makato/issues/498)) ([edeeb69](https://github.com/macatocz/makato/commit/edeeb692e9b3c6552c771b1c9b85446618e196dd))
+
 ## [0.93.0](https://github.com/macatocz/makato/compare/v0.92.1...v0.93.0) (2026-07-20)
 
 
