@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.98.0](https://github.com/macatocz/makato/compare/v0.97.0...v0.98.0) (2026-07-20)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** add &lt;!-- issue: #&lt;issue-number&gt; --&gt; fingerprint header to plan template ([dda91de](https://github.com/macatocz/makato/commit/dda91dea1e3d420fd898c00aba735431cdae70ba))
+* **makato-orchestrate:** add ISSUE_NUMBER fingerprint check to validate-plan-body.sh (T14/T15/T16) ([a2d434a](https://github.com/macatocz/makato/commit/a2d434a5246b2746bb73db2bddfaf1d9590a83ef))
+* **makato-orchestrate:** fingerprint check in validate-plan-body.sh ([#512](https://github.com/macatocz/makato/issues/512)) ([d839252](https://github.com/macatocz/makato/commit/d8392527bc9acdfae3f7eabb8b33fd190fc80309))
+* **makato-orchestrate:** fingerprint check in validate-plan-body.sh ([#512](https://github.com/macatocz/makato/issues/512)) ([d839252](https://github.com/macatocz/makato/commit/d8392527bc9acdfae3f7eabb8b33fd190fc80309))
+
 ## [0.97.0](https://github.com/macatocz/makato/compare/v0.96.1...v0.97.0) (2026-07-20)
 
 
