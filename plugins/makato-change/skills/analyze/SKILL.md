@@ -180,6 +180,28 @@ affected:
 - REPO_ROOT: <absolute-path>
 - REPO_NAME: <repo-name>
 
+### Step 2.7: Recall Prior Lessons
+
+After REPO_ROOT is resolved, recall any prior lessons recorded for this repository so they
+can inform analysis and be forwarded to the execute lane.
+
+```bash
+REPO_REMOTE="$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || echo "")"
+PRIOR_LESSONS="[]"
+if [[ -n "$REPO_REMOTE" ]]; then
+  _recalled="$(plugins/makato-orchestrate/shared/workflow-state.sh recall-lessons "$REPO_REMOTE" 3 2>/dev/null || echo "[]")"
+  # Validate minimal JSON-array shape; fall back to [] on malformed output.
+  if echo "$_recalled" | python3 -c "import sys,json; v=json.load(sys.stdin); assert isinstance(v,list)" 2>/dev/null; then
+    PRIOR_LESSONS="$_recalled"
+  fi
+fi
+```
+
+**MUST NOT block** — on any failure (script absent, git error, malformed JSON) set
+`PRIOR_LESSONS=[]` and continue without error. The recall is advisory only.
+
+**Store:** `PRIOR_LESSONS` (JSON array, may be `[]`).
+
 ### Step 3: Discover Affected Code and Current Behavior
 
 **Dispatch `code-explorer` agent** to discover affected files, dependencies, and patterns.
@@ -404,7 +426,18 @@ Write complete analysis to `specs/<issue-key>/analysis.md`:
 
 10. **Scope Estimate** — Small/medium/large with justification (from Step 7: based on CODE_EXPLORATION_RESULT file count + TEST_ANALYSIS_RESULT test count + REQUIREMENTS_DIFF_RESULT complexity)
 
-11. **Recommendation** — Next step:
+11. **Prior Lessons** — Emit the recalled lessons from Step 2.7 as a YAML front-matter or
+    fenced block at the end of `analysis.md` so the execute lane can read it back without
+    re-running recall:
+
+    ```
+    <!-- prior_lessons: <PRIOR_LESSONS JSON array, verbatim> -->
+    ```
+
+    When `PRIOR_LESSONS` is `[]`, write `<!-- prior_lessons: [] -->` as a stable sentinel
+    so the execute lane does not need to special-case a missing marker.
+
+12. **Recommendation** — Next step:
    - If open questions remain after Step 8 → "Resolve N remaining questions before design"
    - If inconsistencies exist from Step 6 → "Resolve inconsistencies before design"
    - If all questions resolved AND no inconsistencies AND scope = small/medium → "Ready to proceed to design skill"

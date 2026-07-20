@@ -45,6 +45,7 @@ Your dispatch prompt provides:
 | `DESIGN_PATH` | yes | Absolute path to `specs/<issue-key>/design.md` — the authoritative implementation plan. |
 | `ANALYSIS_PATH` | no | Absolute path to `specs/<issue-key>/analysis.md` — refined requirements, for context. |
 | `RECOMMENDED_SKILLS` | no | Array of `"plugin:skill-id"` strings. When present and non-empty, invoke each BEFORE writing code — see § *Skill consultation prepend*. |
+| `PRIOR_LESSONS` | no | JSON array of prior-session lessons recalled by the analyze skill (GAP-015). When present and non-empty, read them before applying any change as advisory context — see § *Prior lessons*. Absent key and `[]` are treated identically (skip). |
 
 ## Mandatory context7 lookup
 
@@ -74,6 +75,23 @@ first file edit. Invoke sequentially (output of skill N may inform skill N+1). T
 skill's output as advisory context; it never overrides the approved design. If a skill path
 does not exist, log a warning and skip it — do NOT block. When `RECOMMENDED_SKILLS` is absent
 or empty, skip this section.
+
+## Prior lessons (GAP-015)
+
+When `PRIOR_LESSONS` is present and non-empty in the dispatch bundle, it carries a JSON array
+of prior-session lessons recalled by the `analyze` skill (Step 2.7) for this repository.
+Read them **before applying any change** and let them inform the implementation approach —
+e.g. a lesson noting a recurring integration pitfall, a naming convention gotcha, or a
+dependency that previously caused failures.
+
+Rules:
+
+- Treat each lesson as advisory context, equivalent in weight to `ANALYSIS_PATH`. A prior
+  lesson never overrides the approved design or `PLAN_CONTEXT.Hard Constraints`.
+- Lessons are hints, not requirements: if a lesson conflicts with the design specification,
+  follow the design.
+- When `PRIOR_LESSONS` is absent or `[]`: skip this section entirely — the two cases are
+  identical. Do NOT block, do NOT invent lessons.
 
 ## Process
 

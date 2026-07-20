@@ -249,3 +249,34 @@ PR URL: <link>
 ```
 
 If all comments have been addressed and tests pass, the PR is ready for the reviewer to take another look.
+
+### Step 9: Record Lessons (optional)
+
+After a successful resolve-review cycle, the agent MAY record noteworthy lessons or facts
+discovered while addressing review feedback. This step is optional and agent-discretionary
+— only record a lesson if it is genuinely useful for a future session.
+
+```bash
+plugins/makato-build/shared/write-lessons.sh \
+  "<issue-key>" \
+  "<tier: procedural | semantic>" \
+  "<scope: generalizable | local>" \
+  "<lesson text>" \
+  "[tags_csv]"
+```
+
+This appends one JSONL record to `specs/<issue-key>-*/change-lessons.jsonl`. The record
+shape is `{ts, tier, text, tags, scope, key, repo}` — the seven fields `promote-lessons.sh`
+reads when lifting generalizable records into `.makato/memory/`.
+
+**When to record:**
+- A recurring reviewer concern that signals a project convention not captured in docs
+- A non-obvious test pattern that reviewers requested and that could help future sessions
+- A durable fact about this repo's review norms (e.g. required PR checklist items)
+
+**Do NOT record:**
+- Information already in the design, analysis, or PR artifacts
+- Trivial observations that are obvious from the code
+- PII, credentials, or internal service details
+
+If nothing noteworthy arose during the review cycle, skip this step entirely.

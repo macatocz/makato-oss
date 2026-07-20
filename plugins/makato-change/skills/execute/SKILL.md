@@ -141,6 +141,16 @@ change touches (routing for source files is provided cross-plugin by makato-doc'
 
 **2.2: Dispatch `change-implementer` agent** to apply the changes.
 
+**Before dispatching**, extract `PRIOR_LESSONS` from `specs/<issue-key>/analysis.md` if it
+was persisted there by the `analyze` skill (Step 2.7). Look for the sentinel comment:
+
+```
+<!-- prior_lessons: <JSON array> -->
+```
+
+If the marker is present and the JSON array is non-empty, include it in the dispatch bundle
+below. If absent, empty `[]`, or malformed — omit the field entirely.
+
 **Agent input:**
 ```
 REPO_ROOT: <from Step 1.5: repositories.yml primary repo path>
@@ -149,6 +159,7 @@ ISSUE_KEY: <issue-key>
 DESIGN_PATH: <specs/<issue-key>/design.md>
 ANALYSIS_PATH: <specs/<issue-key>/analysis.md>   # omit if not present
 RECOMMENDED_SKILLS: <array from 2.1>              # omit when absent
+PRIOR_LESSONS: <array from analysis.md sentinel>  # omit when absent or []
 ```
 
 The agent loads `@references/implementation-guidelines.md`-equivalent best practices, invokes
@@ -572,3 +583,34 @@ Confirm implementation is complete:
 ```
 
 Provide the PR URL prominently so the user can view it immediately.
+
+### Step 11: Record Lessons (optional)
+
+After a successful PR creation, the agent MAY record noteworthy lessons or facts discovered
+during this execution into the per-issue store. This step is optional and agent-discretionary
+— only record a lesson if it is genuinely useful for a future session.
+
+```bash
+plugins/makato-build/shared/write-lessons.sh \
+  "<issue-key>" \
+  "<tier: procedural | semantic>" \
+  "<scope: generalizable | local>" \
+  "<lesson text>" \
+  "[tags_csv]"
+```
+
+This appends one JSONL record to `specs/<issue-key>-*/change-lessons.jsonl`. The record
+shape is `{ts, tier, text, tags, scope, key, repo}` — the seven fields `promote-lessons.sh`
+reads when lifting generalizable records into `.makato/memory/`.
+
+**When to record:**
+- A non-obvious integration issue that affected this change and could recur
+- A naming or convention pitfall that is not captured in project docs
+- A durable technical fact about this repo that would benefit future agents
+
+**Do NOT record:**
+- Information already in the design or analysis artifacts
+- Trivial observations that are obvious from the code
+- PII, credentials, or internal service details
+
+If nothing noteworthy arose during execution, skip this step entirely.
