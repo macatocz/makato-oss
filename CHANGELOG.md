@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.97.0](https://github.com/macatocz/makato/compare/v0.96.1...v0.97.0) (2026-07-20)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** route tier:semantic lessons into semantic.jsonl ([#494](https://github.com/macatocz/makato/issues/494)) ([#508](https://github.com/macatocz/makato/issues/508)) ([530e336](https://github.com/macatocz/makato/commit/530e33622ed41b4a243a1b08a6caee1e89aaf088))
+
 ## [0.96.1](https://github.com/macatocz/makato/compare/v0.96.0...v0.96.1) (2026-07-20)
 
 
