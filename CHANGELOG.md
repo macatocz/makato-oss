@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.92.1](https://github.com/macatocz/makato/compare/v0.92.0...v0.92.1) (2026-07-20)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** reconcile pass reads Status field/option ids from correct config shape ([#492](https://github.com/macatocz/makato/issues/492)) ([#495](https://github.com/macatocz/makato/issues/495)) ([0e2d348](https://github.com/macatocz/makato/commit/0e2d348d487234c621105116877fb13832285e2f))
+
 ## [0.92.0](https://github.com/macatocz/makato/compare/v0.91.0...v0.92.0) (2026-07-20)
 
 
