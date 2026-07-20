@@ -467,7 +467,7 @@ mismatched R1 (agent claims success but wrote a hollow plan) is caught here:
 
 ```bash
 GUARD_OUT="$(bash "$REPO_ROOT_OR_PLUGIN/plugins/makato-orchestrate/scripts/validate-plan-body.sh" \
-  "$REPO_ROOT/specs/$SLUG/plan-<ISSUE_NUMBER>.md" 2>/dev/null || true)"
+  "$REPO_ROOT/specs/$SLUG/plan-<ISSUE_NUMBER>.md" "$ISSUE_NUMBER" 2>/dev/null || true)"
 GUARD_VERDICT="${GUARD_OUT%% *}"   # valid | invalid
 ```
 
