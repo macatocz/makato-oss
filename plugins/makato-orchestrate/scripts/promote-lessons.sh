@@ -10,17 +10,22 @@
 #   b. specs/{<N>-*,*-<N>,<N>}/change-lessons.jsonl (if exists) → line-by-line
 #
 # Only records with scope=="generalizable" are promoted. Records lacking a
-# scope field are silently skipped. Dedup is by hash(normalized_text + sorted_tags):
+# scope field are silently skipped. Each promoted record is routed by its
+# `tier` field: tier=="semantic" → SEMANTIC_MEMORY_FILE, anything else (or an
+# absent tier) → MEMORY_FILE (procedural). Dedup is by
+# hash(normalized_text + sorted_tags), applied independently per target file:
 # an existing record with a matching key has its occurrences bumped; new records
 # are appended with occurrences=1.
 #
 # Usage:
-#   promote-lessons.sh <ISSUE_NUMBER> [SPECS_DIR] [MEMORY_FILE]
+#   promote-lessons.sh <ISSUE_NUMBER> [SPECS_DIR] [MEMORY_FILE] [SEMANTIC_MEMORY_FILE]
 #
-#   ISSUE_NUMBER   integer (required)
-#   SPECS_DIR      path to specs/ root (default: specs)
-#   MEMORY_FILE    path to .makato/memory/procedural.jsonl
-#                  (default: .makato/memory/procedural.jsonl)
+#   ISSUE_NUMBER         integer (required)
+#   SPECS_DIR            path to specs/ root (default: specs)
+#   MEMORY_FILE          path to .makato/memory/procedural.jsonl
+#                        (default: .makato/memory/procedural.jsonl)
+#   SEMANTIC_MEMORY_FILE path to .makato/memory/semantic.jsonl
+#                        (default: .makato/memory/semantic.jsonl)
 #
 # Environment overrides (tests):
 #   MAKATO_PROMOTE_REPO_OVERRIDE   Override the repo slug (e.g. "owner/repo").
@@ -34,6 +39,7 @@ set -euo pipefail
 ISSUE_NUMBER="${1:?usage: promote-lessons.sh <ISSUE_NUMBER> [SPECS_DIR] [MEMORY_FILE]}"
 SPECS_DIR="${2:-specs}"
 MEMORY_FILE="${3:-.makato/memory/procedural.jsonl}"
+SEMANTIC_MEMORY_FILE="${4:-.makato/memory/semantic.jsonl}"
 
 # ---------------------------------------------------------------------------
 # _log <msg…> — stderr diagnostic
@@ -70,6 +76,11 @@ mkdir -p "$MEMORY_DIR"
 # Touch MEMORY_FILE if it does not exist yet.
 [[ -f "$MEMORY_FILE" ]] || : > "$MEMORY_FILE"
 
+# Same for the semantic store (tier==semantic routing target).
+SEMANTIC_MEMORY_DIR="$(dirname "$SEMANTIC_MEMORY_FILE")"
+mkdir -p "$SEMANTIC_MEMORY_DIR"
+[[ -f "$SEMANTIC_MEMORY_FILE" ]] || : > "$SEMANTIC_MEMORY_FILE"
+
 # ---------------------------------------------------------------------------
 # Collect all candidate input files for this ISSUE_NUMBER:
 #   - workflow-state-<N>.json files under matching spec folders
@@ -102,6 +113,7 @@ REPO_SLUG="$(_repo_slug)"
 REPO_SLUG="$REPO_SLUG" \
 ISSUE_NUMBER="$ISSUE_NUMBER" \
 MEMORY_FILE="$MEMORY_FILE" \
+SEMANTIC_MEMORY_FILE="$SEMANTIC_MEMORY_FILE" \
 python3 - "${WS_FILES[@]+"${WS_FILES[@]}"}" -- "${CL_FILES[@]+"${CL_FILES[@]}"}" <<'PYEOF'
 import datetime
 import hashlib
@@ -113,6 +125,7 @@ import tempfile
 
 issue_number = int(os.environ["ISSUE_NUMBER"])
 memory_file = os.environ["MEMORY_FILE"]
+semantic_memory_file = os.environ["SEMANTIC_MEMORY_FILE"]
 repo_slug = os.environ.get("REPO_SLUG", "unknown/unknown")
 
 # Split argv on the '--' separator: before it are WS files; after are CL files.
@@ -177,30 +190,45 @@ if not generalizable:
     sys.exit(0)
 
 # ---------------------------------------------------------------------------
-# Load existing MEMORY_FILE records.
+# Load existing records from a store file, plus a dedup index. Malformed lines
+# are preserved verbatim (never corrupt the file). Missing file → empty store.
 # ---------------------------------------------------------------------------
-existing_records = []
-try:
-    with open(memory_file, encoding="utf-8") as fh:
-        for line in fh:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                rec = json.loads(line)
-                if isinstance(rec, dict):
-                    existing_records.append(rec)
-            except json.JSONDecodeError:
-                # Preserve malformed lines (do not corrupt the file).
-                existing_records.append({"_raw": line})
-except FileNotFoundError:
-    pass
+def load_store(path):
+    records = []
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                    if isinstance(rec, dict):
+                        records.append(rec)
+                except json.JSONDecodeError:
+                    # Preserve malformed lines (do not corrupt the file).
+                    records.append({"_raw": line})
+    except FileNotFoundError:
+        pass
+    # Index existing records by their dedup key for O(1) lookup.
+    key_to_idx = {}
+    for idx, rec in enumerate(records):
+        if "key" in rec:
+            key_to_idx[rec["key"]] = idx
+    return records, key_to_idx
 
-# Index existing records by their dedup key for O(1) lookup.
-key_to_idx = {}
-for idx, rec in enumerate(existing_records):
-    if "key" in rec:
-        key_to_idx[rec["key"]] = idx
+
+# Two independent target stores, routed by the record's `tier` field.
+procedural_records, procedural_idx = load_store(memory_file)
+semantic_records, semantic_idx = load_store(semantic_memory_file)
+
+# Map a resolved tier → (records list, dedup index, dirty flag holder).
+stores = {
+    "procedural": {"records": procedural_records, "idx": procedural_idx,
+                   "path": memory_file, "dirty": False},
+    "semantic": {"records": semantic_records, "idx": semantic_idx,
+                 "path": semantic_memory_file, "dirty": False},
+}
 
 # ---------------------------------------------------------------------------
 # Helper functions.
@@ -238,13 +266,23 @@ today_str = datetime.date.today().isoformat()
 repo_sha = get_repo_sha()
 
 # ---------------------------------------------------------------------------
-# Process each generalizable candidate.
+# Process each generalizable candidate, routing by its `tier` field:
+#   tier == "semantic"  → semantic store
+#   tier == "procedural" or absent → procedural store (legacy default)
+# Dedup + occurrences-bump is applied independently per target store.
 # ---------------------------------------------------------------------------
 for candidate in generalizable:
     text = candidate.get("text", "")
     tags = candidate.get("tags") or []
     if not isinstance(tags, list):
         tags = []
+
+    # Resolve the target tier. Absent/any-other value defaults to procedural
+    # so legacy behaviour is byte-for-byte preserved.
+    resolved_tier = "semantic" if candidate.get("tier") == "semantic" else "procedural"
+    store = stores[resolved_tier]
+    records = store["records"]
+    key_to_idx = store["idx"]
 
     # Extract key field from spec folder path context; fall back to issue number.
     key_field = candidate.get("key", f"{issue_number}")
@@ -254,12 +292,12 @@ for candidate in generalizable:
     if dedup_key in key_to_idx:
         # Bump occurrences on the existing record.
         idx = key_to_idx[dedup_key]
-        existing_records[idx]["occurrences"] = existing_records[idx].get("occurrences", 1) + 1
+        records[idx]["occurrences"] = records[idx].get("occurrences", 1) + 1
     else:
         # Append a new record.
         new_record = {
             "ts": datetime.datetime.utcnow().isoformat() + "Z",
-            "tier": "procedural",
+            "tier": resolved_tier,
             "repo": repo_slug,
             "key": key_field,
             "text": text,
@@ -271,29 +309,38 @@ for candidate in generalizable:
             "repo_sha": repo_sha,
             "date": today_str,
         }
-        key_to_idx[dedup_key] = len(existing_records)
+        key_to_idx[dedup_key] = len(records)
         new_record["key"] = dedup_key
-        existing_records.append(new_record)
+        records.append(new_record)
+    store["dirty"] = True
+
 
 # ---------------------------------------------------------------------------
-# Atomic write: write to a sibling tmp file then mv over the target.
+# Atomic write: write to a sibling tmp file then mv over the target. Only
+# stores that received a promoted record this run are rewritten — a store with
+# no new records is left untouched on disk.
 # ---------------------------------------------------------------------------
-memory_dir = os.path.dirname(memory_file)
-os.makedirs(memory_dir, exist_ok=True)
-
-fd, tmp_path = tempfile.mkstemp(dir=memory_dir, prefix=".promote-lessons-", suffix=".tmp")
-try:
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        for rec in existing_records:
-            if "_raw" in rec and len(rec) == 1:
-                fh.write(rec["_raw"] + "\n")
-            else:
-                fh.write(json.dumps(rec, separators=(",", ":")) + "\n")
-    os.replace(tmp_path, memory_file)
-except Exception:
+def write_store(path, records):
+    memory_dir = os.path.dirname(path)
+    os.makedirs(memory_dir, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=memory_dir, prefix=".promote-lessons-", suffix=".tmp")
     try:
-        os.unlink(tmp_path)
-    except OSError:
-        pass
-    raise
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            for rec in records:
+                if "_raw" in rec and len(rec) == 1:
+                    fh.write(rec["_raw"] + "\n")
+                else:
+                    fh.write(json.dumps(rec, separators=(",", ":")) + "\n")
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
+for store in stores.values():
+    if store["dirty"]:
+        write_store(store["path"], store["records"])
 PYEOF

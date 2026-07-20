@@ -22,14 +22,21 @@ SCRIPT = REPO_ROOT / "plugins" / "makato-orchestrate" / "scripts" / "promote-les
 
 
 def _run(
-    issue_number: str, specs_dir: str, memory_file: str, **kwargs
+    issue_number: str,
+    specs_dir: str,
+    memory_file: str,
+    semantic_memory_file: str | None = None,
+    **kwargs,
 ) -> subprocess.CompletedProcess:
-    """Invoke promote-lessons.sh with the three positional arguments."""
+    """Invoke promote-lessons.sh with three (or four) positional arguments."""
     env = {**os.environ}
     env["MAKATO_PROMOTE_REPO_OVERRIDE"] = "macatocz/makato-test"
     env.update(kwargs.get("extra_env", {}))
+    argv = ["bash", str(SCRIPT), issue_number, specs_dir, memory_file]
+    if semantic_memory_file is not None:
+        argv.append(semantic_memory_file)
     return subprocess.run(
-        ["bash", str(SCRIPT), issue_number, specs_dir, memory_file],
+        argv,
         capture_output=True,
         text=True,
         env=env,
@@ -320,3 +327,135 @@ class TestPromoteLessonsNoOp:
         assert result.returncode == 0, (
             f"Expected exit 0, got {result.returncode}. stderr: {result.stderr}"
         )
+
+
+class TestPromoteLessonsSemanticTier:
+    """#494: generalizable records route by `tier` — semantic → semantic.jsonl."""
+
+    def test_semantic_record_routes_to_semantic_file(self, tmp_path):
+        """A tier=semantic generalizable record lands in semantic.jsonl, not procedural."""
+        specs_dir = tmp_path / "specs"
+        procedural = tmp_path / "procedural.jsonl"
+        semantic = tmp_path / "semantic.jsonl"
+        procedural.touch()
+        semantic.touch()
+
+        _make_change_lessons(
+            specs_dir,
+            494,
+            [
+                {
+                    "text": "Socket path override is /var/run/app.sock",
+                    "tags": ["infra"],
+                    "scope": "generalizable",
+                    "tier": "semantic",
+                }
+            ],
+        )
+
+        result = _run("494", str(specs_dir), str(procedural), str(semantic))
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+
+        sem_lines = [line for line in semantic.read_text().splitlines() if line.strip()]
+        proc_lines = [
+            line for line in procedural.read_text().splitlines() if line.strip()
+        ]
+        assert len(sem_lines) == 1, f"Expected 1 semantic record, got {sem_lines}"
+        assert len(proc_lines) == 0, f"Procedural must stay empty, got {proc_lines}"
+        rec = json.loads(sem_lines[0])
+        assert rec["tier"] == "semantic", f"tier not preserved: {rec}"
+        assert rec["text"] == "Socket path override is /var/run/app.sock"
+        assert rec["scope"] == "generalizable"
+
+    def test_procedural_record_still_routes_to_procedural(self, tmp_path):
+        """Regression: tier=procedural (and absent tier) still land in procedural.jsonl."""
+        specs_dir = tmp_path / "specs"
+        procedural = tmp_path / "procedural.jsonl"
+        semantic = tmp_path / "semantic.jsonl"
+        procedural.touch()
+        semantic.touch()
+
+        _make_change_lessons(
+            specs_dir,
+            494,
+            [
+                {
+                    "text": "Explicit procedural lesson",
+                    "tags": ["shell"],
+                    "scope": "generalizable",
+                    "tier": "procedural",
+                },
+                {
+                    "text": "Absent-tier lesson defaults to procedural",
+                    "tags": ["shell"],
+                    "scope": "generalizable",
+                    # no tier field → defaults to procedural
+                },
+            ],
+        )
+
+        result = _run("494", str(specs_dir), str(procedural), str(semantic))
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+
+        proc_lines = [
+            line for line in procedural.read_text().splitlines() if line.strip()
+        ]
+        sem_lines = [line for line in semantic.read_text().splitlines() if line.strip()]
+        assert len(proc_lines) == 2, f"Expected 2 procedural records, got {proc_lines}"
+        assert len(sem_lines) == 0, f"Semantic must stay empty, got {sem_lines}"
+        for line in proc_lines:
+            assert json.loads(line)["tier"] == "procedural"
+
+    def test_semantic_dedup_is_per_file(self, tmp_path):
+        """Promoting the same semantic record twice bumps occurrences in semantic.jsonl only."""
+        specs_dir = tmp_path / "specs"
+        procedural = tmp_path / "procedural.jsonl"
+        semantic = tmp_path / "semantic.jsonl"
+        procedural.touch()
+        semantic.touch()
+
+        rec = {
+            "text": "Durable fact worth deduping",
+            "tags": ["infra"],
+            "scope": "generalizable",
+            "tier": "semantic",
+        }
+        _make_change_lessons(specs_dir, 494, [rec])
+
+        r1 = _run("494", str(specs_dir), str(procedural), str(semantic))
+        assert r1.returncode == 0, f"stderr: {r1.stderr}"
+        r2 = _run("494", str(specs_dir), str(procedural), str(semantic))
+        assert r2.returncode == 0, f"stderr: {r2.stderr}"
+
+        sem_lines = [line for line in semantic.read_text().splitlines() if line.strip()]
+        assert len(sem_lines) == 1, (
+            f"Expected 1 deduped semantic record, got {sem_lines}"
+        )
+        assert json.loads(sem_lines[0])["occurrences"] == 2
+
+    def test_default_semantic_file_when_arg_omitted(self, tmp_path):
+        """3-arg back-compat: omitting the semantic arg still promotes procedural records."""
+        specs_dir = tmp_path / "specs"
+        procedural = tmp_path / "procedural.jsonl"
+        procedural.touch()
+
+        _make_change_lessons(
+            specs_dir,
+            494,
+            [
+                {
+                    "text": "Legacy three-arg caller lesson",
+                    "tags": ["shell"],
+                    "scope": "generalizable",
+                    "tier": "procedural",
+                }
+            ],
+        )
+
+        # No 4th arg — the script defaults SEMANTIC_MEMORY_FILE; procedural still works.
+        result = _run("494", str(specs_dir), str(procedural))
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        proc_lines = [
+            line for line in procedural.read_text().splitlines() if line.strip()
+        ]
+        assert len(proc_lines) == 1

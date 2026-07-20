@@ -12,6 +12,9 @@
 #   T5: empty sources — script exits 0, procedural.jsonl untouched
 #   T6: record with absent scope field is skipped
 #   T7: multiple records — 2 generalizable + 1 local → exactly 2 in output
+#   T8: number-first folder (<N>-slug) discovered
+#   T9: tier=semantic record routed to semantic.jsonl (not procedural) — #494
+#   T10: tier=procedural/absent record routed to procedural.jsonl (regression) — #494
 #
 # Fully offline: uses a temp directory; no GitHub access, no git remote calls.
 set -euo pipefail
@@ -212,6 +215,57 @@ echo "=== T8: number-first folder (<N>-slug) discovered ==="
   grep -q '"source_issue":800' "$MEM" || fail "T8: source_issue=800 missing"
 )
 pass "T8: number-first folder (<N>-slug) discovered"
+
+# ---------------------------------------------------------------------------
+# T9: tier=semantic record routed to semantic.jsonl (not procedural) — #494
+# ---------------------------------------------------------------------------
+echo "=== T9: tier=semantic routed to semantic.jsonl ==="
+(
+  D="$SANDBOX/t9"
+  spec_dir="$D/specs/494-semantic-routing"
+  mkdir -p "$spec_dir"
+  printf '%s\n' \
+    '{"text":"Socket override is /var/run/app.sock","tags":["infra"],"scope":"generalizable","tier":"semantic"}' \
+    > "$spec_dir/change-lessons.jsonl"
+  PROC="$D/procedural.jsonl"
+  SEM="$D/semantic.jsonl"
+  MAKATO_PROMOTE_REPO_OVERRIDE="test/repo" \
+    bash "$SCRIPT" 494 "$D/specs" "$PROC" "$SEM"
+  [[ -f "$SEM" ]] || fail "T9: semantic.jsonl not created"
+  SEM_COUNT=$(grep -c '"scope":"generalizable"' "$SEM" || echo 0)
+  [[ "$SEM_COUNT" -eq 1 ]] || fail "T9: expected 1 semantic record, got $SEM_COUNT"
+  grep -q '"tier":"semantic"' "$SEM" || fail "T9: tier:semantic not preserved in semantic.jsonl"
+  PROC_COUNT=$(grep -c '"scope":"generalizable"' "$PROC" 2>/dev/null || true)
+  PROC_COUNT="${PROC_COUNT:-0}"
+  [[ "$PROC_COUNT" -eq 0 ]] || fail "T9: procedural.jsonl must stay empty, got $PROC_COUNT"
+)
+pass "T9: tier=semantic routed to semantic.jsonl"
+
+# ---------------------------------------------------------------------------
+# T10: tier=procedural/absent routed to procedural.jsonl (regression) — #494
+# ---------------------------------------------------------------------------
+echo "=== T10: tier=procedural/absent routed to procedural.jsonl ==="
+(
+  D="$SANDBOX/t10"
+  spec_dir="$D/specs/494-procedural-regression"
+  mkdir -p "$spec_dir"
+  printf '%s\n%s\n' \
+    '{"text":"Explicit procedural","tags":["shell"],"scope":"generalizable","tier":"procedural"}' \
+    '{"text":"Absent tier defaults procedural","tags":["shell"],"scope":"generalizable"}' \
+    > "$spec_dir/change-lessons.jsonl"
+  PROC="$D/procedural.jsonl"
+  SEM="$D/semantic.jsonl"
+  MAKATO_PROMOTE_REPO_OVERRIDE="test/repo" \
+    bash "$SCRIPT" 494 "$D/specs" "$PROC" "$SEM"
+  [[ -f "$PROC" ]] || fail "T10: procedural.jsonl not created"
+  PROC_COUNT=$(grep -c '"scope":"generalizable"' "$PROC" || echo 0)
+  [[ "$PROC_COUNT" -eq 2 ]] || fail "T10: expected 2 procedural records, got $PROC_COUNT"
+  grep -q '"tier":"procedural"' "$PROC" || fail "T10: tier:procedural missing in procedural.jsonl"
+  SEM_COUNT=$(grep -c '"scope":"generalizable"' "$SEM" 2>/dev/null || true)
+  SEM_COUNT="${SEM_COUNT:-0}"
+  [[ "$SEM_COUNT" -eq 0 ]] || fail "T10: semantic.jsonl must stay empty, got $SEM_COUNT"
+)
+pass "T10: tier=procedural/absent routed to procedural.jsonl"
 
 echo ""
 echo "All promote-lessons-smoke-tests passed."

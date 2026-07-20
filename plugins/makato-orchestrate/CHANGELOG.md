@@ -6,6 +6,17 @@ Changes are grouped by skill/component. Within each group, latest version on top
 ## [Unreleased]
 
 ### Added
+- `promote-lessons.sh`: **tier-based routing** (#494, epic #464). A promoted
+  `scope: generalizable` record is now routed by its `tier` field —
+  `tier == "semantic"` lands in `.makato/memory/semantic.jsonl`, `tier ==
+  "procedural"` or an absent tier lands in `.makato/memory/procedural.jsonl`
+  (byte-for-byte legacy behaviour). Dedup + occurrences-bump applies
+  independently per target file. Adds an optional 4th positional argument
+  `SEMANTIC_MEMORY_FILE` (default `.makato/memory/semantic.jsonl`); 3-arg callers
+  are unaffected. Closes the gap where a `tier:semantic` fact written by the
+  build lane (#473) never reached `semantic.jsonl`. Smoke T9/T10 and
+  `test_promote_lessons.py::TestPromoteLessonsSemanticTier` cover routing,
+  regression, and per-file dedup.
 - `loop.sh`: orphaned `specs/<slug>/` folder pruning (`_reap_orphan_specs`) —
   runs in the same reap pass as the merged-worktree reaper. Removes local spec
   folders for issues that are done (`workflow-state-<N>.json`
