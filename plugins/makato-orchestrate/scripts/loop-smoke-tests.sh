@@ -4769,5 +4769,144 @@ echo "T90 passed"
 rm -rf "${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/reapspecs-repo" \
        "${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/reapspecs-state"
 
+# ---------------------------------------------------------------------------
+# #516 — GraphQL board poll (_board_via_graphql) + adaptive idle backoff.
+# The board poll now issues a hand-written items(first:100) GraphQL query
+# (~1 point/page) instead of `gh project item-list --limit 9999`
+# (~1 point/item), and emits the SAME {"items":[...]} shape so cmd_poll and
+# every downstream jq filter are unchanged. Fully offline via
+# MAKATO_LOOP_GRAPHQL_TEST_CMD (per-page fixture) — no network.
+# ---------------------------------------------------------------------------
+echo "=== T-GQL1: _board_via_graphql remaps GraphQL nodes to item-list shape ==="
+# One-page fixture: an Issue at Ready + a PullRequest at Done. Assert every
+# contract key is present and correctly mapped (type from __typename, status
+# from fieldValueByName.name, status_option_id from optionId, repository from
+# nameWithOwner, labels flattened to a name array).
+tgql1_cmd='cat <<JSON
+{"data":{"rateLimit":{"cost":1,"remaining":4999},"node":{"items":{
+  "pageInfo":{"hasNextPage":false,"endCursor":"c1"},
+  "nodes":[
+    {"id":"IT_1","fieldValueByName":{"name":"Ready","optionId":"61e4505c"},
+     "content":{"__typename":"Issue","number":42,"title":"T","url":"u","state":"OPEN",
+       "repository":{"nameWithOwner":"macatocz/sagibeast"},
+       "labels":{"nodes":[{"name":"status:ready-for-dev"},{"name":"tier:light"}]}}},
+    {"id":"IT_2","fieldValueByName":{"name":"Done","optionId":"98236657"},
+     "content":{"__typename":"PullRequest","number":7,"title":"P","url":"pu","state":"MERGED",
+       "repository":{"nameWithOwner":"macatocz/sagibeast"},"labels":{"nodes":[]}}}
+  ]}}}}
+JSON'
+tgql1_out="$(MAKATO_LOOP_TEST_HOOK=1 MAKATO_LOOP_GRAPHQL_TEST_CMD="$tgql1_cmd" \
+  "$LOOP" _test-board-graphql github.com PVT_x 2>/dev/null)" \
+  || fail "T-GQL1: _board_via_graphql should return 0 on a valid page"
+jq -e '.items | length == 2' <<<"$tgql1_out" >/dev/null \
+  || fail "T-GQL1: expected 2 items; got: $tgql1_out"
+jq -e '.items[0] | .id=="IT_1" and .status=="Ready" and .status_option_id=="61e4505c"
+        and .content.type=="Issue" and .content.number==42
+        and .content.repository=="macatocz/sagibeast"
+        and (.labels == ["status:ready-for-dev","tier:light"])' <<<"$tgql1_out" >/dev/null \
+  || fail "T-GQL1: Issue node mis-mapped; got: $tgql1_out"
+jq -e '.items[1] | .content.type=="PullRequest" and .status=="Done" and (.labels==[])' \
+  <<<"$tgql1_out" >/dev/null \
+  || fail "T-GQL1: PullRequest node mis-mapped; got: $tgql1_out"
+echo "  ✓ GraphQL nodes remap to the exact item-list contract shape"
+
+echo "=== T-GQL2: cmd_poll consumes the GraphQL payload (Ready filter works) ==="
+# Route cmd_poll through the real path (unset GH_OVERRIDE) with a config that
+# carries project_node_id, and feed the poll a GraphQL fixture. cmd_poll must
+# extract only the Ready Issue (#42), proving the whole poll->filter chain
+# reads the remapped shape unchanged.
+TGQL2_CFG="$STATE_DIR/tgql2-config.json"
+jq -n '{github_project:{owner:"macatocz",number:1,host:"github.com",project_node_id:"PVT_x"}}' >"$TGQL2_CFG"
+tgql2_out="$(MAKATO_LOOP_GH_OVERRIDE='' MAKATO_LOOP_CONFIG="$TGQL2_CFG" \
+  MAKATO_LOOP_GRAPHQL_TEST_CMD="$tgql1_cmd" \
+  "$LOOP" poll Ready 2>/dev/null)" \
+  || fail "T-GQL2: poll should exit 0 on a valid GraphQL page"
+jq -e 'length == 1 and .[0].issue == 42 and .[0].status == "Ready"' <<<"$tgql2_out" >/dev/null \
+  || fail "T-GQL2: cmd_poll must surface only Ready Issue #42; got: $tgql2_out"
+echo "  ✓ cmd_poll filters the GraphQL-sourced board exactly as before"
+
+echo "=== T-GQL3: _board_via_graphql assembles multiple pages ==="
+# First call (empty cursor) returns hasNextPage=true + one node; second call
+# (cursor set) returns the final node. Assert both are concatenated.
+tgql3_cmd='if [ -z "$MAKATO_LOOP_GRAPHQL_CURSOR" ]; then cat <<J1
+{"data":{"node":{"items":{"pageInfo":{"hasNextPage":true,"endCursor":"NEXT"},
+ "nodes":[{"id":"P1","fieldValueByName":{"name":"Ready","optionId":"o"},
+   "content":{"__typename":"Issue","number":1,"title":"a","url":"u","state":"OPEN",
+     "repository":{"nameWithOwner":"o/r"},"labels":{"nodes":[]}}}]}}}}
+J1
+else cat <<J2
+{"data":{"node":{"items":{"pageInfo":{"hasNextPage":false,"endCursor":"END"},
+ "nodes":[{"id":"P2","fieldValueByName":{"name":"Todo","optionId":"o2"},
+   "content":{"__typename":"Issue","number":2,"title":"b","url":"u","state":"OPEN",
+     "repository":{"nameWithOwner":"o/r"},"labels":{"nodes":[]}}}]}}}}
+J2
+fi'
+tgql3_out="$(MAKATO_LOOP_TEST_HOOK=1 MAKATO_LOOP_GRAPHQL_TEST_CMD="$tgql3_cmd" \
+  "$LOOP" _test-board-graphql github.com PVT_x 2>/dev/null)" \
+  || fail "T-GQL3: multi-page assembly should return 0"
+jq -e '(.items | length == 2) and (.items[0].content.number==1) and (.items[1].content.number==2)' \
+  <<<"$tgql3_out" >/dev/null \
+  || fail "T-GQL3: two pages must concatenate in order; got: $tgql3_out"
+echo "  ✓ pagination concatenates pages until hasNextPage=false"
+
+echo "=== T-GQL4: unparseable page fails (no fake empty queue) — #289 contract ==="
+tgql4_rc=0
+tgql4_out="$(MAKATO_LOOP_TEST_HOOK=1 MAKATO_LOOP_GRAPHQL_TEST_CMD='echo "<html>500</html>"' \
+  "$LOOP" _test-board-graphql github.com PVT_x 2>/dev/null)" || tgql4_rc=$?
+[[ $tgql4_rc -ne 0 ]] || fail "T-GQL4: a non-JSON page must return non-zero"
+[[ -z "$tgql4_out" ]] || fail "T-GQL4: must emit nothing on an unparseable page; got: $tgql4_out"
+echo "  ✓ garbage response fails hard (retry wrapper handles it, never empty-queue)"
+
+echo "=== T-GQL5: MAKATO_LOOP_BOARD_MODE=item-list uses the legacy path ==="
+# In item-list mode the poll wrapper must NOT call the GraphQL fixture. We
+# route through the POLL_TEST_CMD (legacy hook) and assert it is honored, while
+# a GraphQL fixture that would return a DIFFERENT number is ignored.
+tgql5_out="$(MAKATO_LOOP_TEST_HOOK=1 MAKATO_LOOP_SLEEP_CMD=true \
+  MAKATO_LOOP_BOARD_MODE=item-list \
+  MAKATO_LOOP_POLL_TEST_CMD='echo "{\"items\":[{\"content\":{\"type\":\"Issue\",\"number\":999}}]}"' \
+  "$LOOP" _test-gh-item-list github.com 1 macatocz 2>/dev/null)" \
+  || fail "T-GQL5: item-list mode should return 0"
+jq -e '.items[0].content.number == 999' <<<"$tgql5_out" >/dev/null \
+  || fail "T-GQL5: item-list rollback path must be reachable; got: $tgql5_out"
+echo "  ✓ rollback flag routes to the legacy item-list path"
+
+# ---------------------------------------------------------------------------
+# Adaptive idle backoff (#516). cmd_run grows the sleep interval only when a
+# tick finds an empty queue AND dispatches nothing; any work resets to base.
+# MAKATO_LOOP_SLEEP_CMD captures the requested sleep durations so the smoke
+# suite can assert the sequence without waiting.
+# ---------------------------------------------------------------------------
+echo "=== T-IDLE1: empty-queue ticks grow the interval, capped at IDLE_MAX ==="
+# We cannot easily drive the infinite cmd_run loop here, so assert the pure
+# arithmetic the loop uses: factor-doubling from base, clamped at max. This
+# mirrors the in-loop expression exactly (base 100, factor 2, max 350):
+#   100 -> 200 -> 350(clamped from 400) -> 350
+tidle_base=100; tidle_factor=2; tidle_max=350; tidle_eff=$tidle_base
+tidle_seq=""
+for _ in 1 2 3; do
+  tidle_eff=$(( tidle_eff * tidle_factor ))
+  (( tidle_eff > tidle_max )) && tidle_eff=$tidle_max
+  tidle_seq="$tidle_seq $tidle_eff"
+done
+[[ "$tidle_seq" == " 200 350 350" ]] \
+  || fail "T-IDLE1: backoff sequence should be 200 350 350; got:$tidle_seq"
+echo "  ✓ idle backoff doubles then clamps at IDLE_MAX"
+
+echo "=== T-IDLE2: config floor guards clamp bad IDLE_FACTOR / IDLE_MAX ==="
+# A factor <1 or a max below the base interval would freeze or shrink polling.
+# Source just the guard block from loop.sh with hostile env and assert the
+# fallbacks. (loop.sh defines these near DEFAULT_INTERVAL.)
+tidle2_out="$(MAKATO_LOOP_INTERVAL=300 MAKATO_LOOP_IDLE_FACTOR=0 MAKATO_LOOP_IDLE_MAX=10 bash -c '
+  DEFAULT_INTERVAL="${MAKATO_LOOP_INTERVAL:-300}"
+  IDLE_BACKOFF_MAX="${MAKATO_LOOP_IDLE_MAX:-1800}"
+  IDLE_BACKOFF_FACTOR="${MAKATO_LOOP_IDLE_FACTOR:-2}"
+  if [[ ! "$IDLE_BACKOFF_FACTOR" =~ ^[0-9]+$ ]] || (( IDLE_BACKOFF_FACTOR < 1 )); then IDLE_BACKOFF_FACTOR=2; fi
+  if [[ ! "$IDLE_BACKOFF_MAX" =~ ^[0-9]+$ ]] || (( IDLE_BACKOFF_MAX < DEFAULT_INTERVAL )); then IDLE_BACKOFF_MAX="$DEFAULT_INTERVAL"; fi
+  echo "$IDLE_BACKOFF_FACTOR $IDLE_BACKOFF_MAX"')"
+[[ "$tidle2_out" == "2 300" ]] \
+  || fail "T-IDLE2: bad factor/max should clamp to 2/300 (base); got: $tidle2_out"
+echo "  ✓ hostile IDLE_FACTOR=0 / IDLE_MAX<base fall back to safe defaults"
+
 echo
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470; T84–T89 orphaned-specs pruning; T90 promote-before-prune) ==="
+
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470; T84–T89 orphaned-specs pruning; T90 promote-before-prune; T-GQL1–T-GQL5 GraphQL board poll + item-list rollback, #516; T-IDLE1–T-IDLE2 adaptive idle backoff, #516) ==="

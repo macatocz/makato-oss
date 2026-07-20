@@ -266,6 +266,22 @@ CONFIG_FILE="${MAKATO_LOOP_CONFIG:-$REPO_ROOT/.claude/config.json}"
 DEFAULT_INTERVAL="${MAKATO_LOOP_INTERVAL:-300}"
 DEFAULT_STATUS="${MAKATO_LOOP_STATUS:-Ready}"
 
+# #516 — adaptive idle backoff bounds. When the queue is empty tick after tick,
+# the effective poll interval grows by IDLE_BACKOFF_FACTOR up to
+# IDLE_BACKOFF_MAX, then resets to the base interval the moment work appears.
+# Defaults: double each idle tick (300->600->1200->1800), cap at 30 minutes.
+# Set MAKATO_LOOP_IDLE_FACTOR=1 to disable backoff entirely (constant cadence).
+IDLE_BACKOFF_MAX="${MAKATO_LOOP_IDLE_MAX:-1800}"
+IDLE_BACKOFF_FACTOR="${MAKATO_LOOP_IDLE_FACTOR:-2}"
+# Floor guards: a non-numeric or <1 factor would freeze or shrink the interval;
+# a max below the base would clamp active polling. Fall back to safe defaults.
+if [[ ! "$IDLE_BACKOFF_FACTOR" =~ ^[0-9]+$ ]] || (( IDLE_BACKOFF_FACTOR < 1 )); then
+  IDLE_BACKOFF_FACTOR=2
+fi
+if [[ ! "$IDLE_BACKOFF_MAX" =~ ^[0-9]+$ ]] || (( IDLE_BACKOFF_MAX < DEFAULT_INTERVAL )); then
+  IDLE_BACKOFF_MAX="$DEFAULT_INTERVAL"
+fi
+
 # Assign-on-dispatch (#33 board-lifecycle-sync). Just before spawning the
 # PO-agent, the loop assigns the issue to an actor via `gh issue edit
 # --add-assignee`. That fires the `issues.assigned` webhook, which the
@@ -604,6 +620,105 @@ _read_project_config() {
 # hook MAKATO_LOOP_POLL_TEST_CMD replaces the real `gh` invocation with an
 # eval'd command string so failure/success sequences can be simulated.
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# BOARD_QUERY — the GraphQL document _board_via_graphql pages through.
+#
+# Why raw GraphQL instead of `gh project item-list --limit 9999` (#516):
+# `gh project item-list` charges roughly one GraphQL *point* per board item
+# (measured: 203 points for a 197-item board), while a hand-written
+# `items(first:100)` query costs a flat 1 point per 100-item page (measured:
+# 2 points for the same board) — a ~100x reduction. The board poll is the
+# loop's single hottest API call (every tick, every reconcile/reap/promote
+# pass reads it), so this dominates the loop's hourly GraphQL budget.
+#
+# The query requests ONLY the fields downstream consumers read (see the
+# _board_via_graphql jq remap for the full contract): item id, the Status
+# single-select value (name + optionId), and content number/title/url/state/
+# repository/labels for Issues and PullRequests. DraftIssues carry no number
+# and are dropped by the remap (cmd_poll filters to Issue anyway).
+# ---------------------------------------------------------------------------
+BOARD_QUERY='query($pid:ID!,$cursor:String){
+  rateLimit { cost remaining }
+  node(id:$pid){ ... on ProjectV2 {
+    items(first:100, after:$cursor){
+      pageInfo{ hasNextPage endCursor }
+      nodes{ id
+        fieldValueByName(name:"Status"){ ... on ProjectV2ItemFieldSingleSelectValue{ name optionId } }
+        content{ __typename
+          ... on Issue{ number title url state repository{nameWithOwner} labels(first:20){nodes{name}} }
+          ... on PullRequest{ number title url state repository{nameWithOwner} labels(first:20){nodes{name}} } } } } } } }'
+
+# ---------------------------------------------------------------------------
+# _board_via_graphql <host> <project_node_id> — page the board via raw GraphQL
+# and emit `{"items":[...]}` in the SAME shape `gh project item-list --format
+# json` produces, so every downstream jq filter is unchanged. Prints the
+# assembled payload to stdout and returns 0 on success; returns non-zero (and
+# prints nothing) on any page failure or unparseable response, so the
+# _gh_project_item_list retry/backoff wrapper treats it exactly like a failed
+# `gh` call — never as an empty queue (#289 contract).
+#
+# Field remap (GraphQL -> item-list shape):
+#   .id                              -> .id
+#   .fieldValueByName.name           -> .status
+#   .fieldValueByName.optionId       -> .status_option_id
+#   .content.__typename              -> .content.type   (Issue|PullRequest)
+#   .content.number|title|url|state  -> .content.number|title|url|state
+#   .content.repository.nameWithOwner-> .content.repository  (owner/name string)
+#   [.content.labels.nodes[].name]   -> .labels
+# ---------------------------------------------------------------------------
+_board_via_graphql() {
+  local host="$1" pid="$2"
+  local cursor="" acc='[]' resp page has_next
+  while :; do
+    if [[ -n "${MAKATO_LOOP_GRAPHQL_TEST_CMD:-}" ]]; then
+      # Offline test hook: the command string is eval'd in place of the real
+      # `gh api graphql` call. It receives the current cursor via
+      # MAKATO_LOOP_GRAPHQL_CURSOR ("" on the first page) and must echo a
+      # GraphQL-shaped response so the remap + pagination logic can be
+      # exercised without touching the network.
+      resp="$(MAKATO_LOOP_GRAPHQL_CURSOR="$cursor" eval "$MAKATO_LOOP_GRAPHQL_TEST_CMD" 2>/dev/null)" || return 1
+    elif [[ -n "$cursor" ]]; then
+      resp="$(GH_HOST="$host" gh api graphql -F pid="$pid" -F cursor="$cursor" \
+        -f query="$BOARD_QUERY" 2>/dev/null)" || return 1
+    else
+      resp="$(GH_HOST="$host" gh api graphql -F pid="$pid" \
+        -f query="$BOARD_QUERY" 2>/dev/null)" || return 1
+    fi
+    # A truncated / HTML-error / partial response is NOT an empty page — bail
+    # so the retry wrapper re-attempts rather than consuming garbage as data.
+    _gh_json_valid "$resp" || return 1
+    # #492-style label cap guard: labels(first:20) truncates issues with >20
+    # labels. Log once per page if any node hit the cap; the loop only reads a
+    # handful of status:* labels so truncation is benign, but silence is not.
+    if jq -e '[.data.node.items.nodes[]?.content.labels.nodes // [] | length] | any(. >= 20)' \
+        >/dev/null 2>&1 <<<"$resp"; then
+      echo "loop: WARN — board poll: an item has >=20 labels; labels(first:20) may be truncated" >&2
+    fi
+    page="$(jq -c '[.data.node.items.nodes[]?
+      | select(.content.__typename == "Issue" or .content.__typename == "PullRequest")
+      | {
+          id: .id,
+          status: (.fieldValueByName.name // null),
+          status_option_id: (.fieldValueByName.optionId // null),
+          labels: [ (.content.labels.nodes // [])[].name ],
+          content: {
+            type: .content.__typename,
+            number: .content.number,
+            title: .content.title,
+            url: .content.url,
+            state: .content.state,
+            repository: (.content.repository.nameWithOwner // null)
+          }
+        }]' <<<"$resp" 2>/dev/null)" || return 1
+    acc="$(jq -c --argjson p "$page" '. + $p' <<<"$acc" 2>/dev/null)" || return 1
+    has_next="$(jq -r '.data.node.items.pageInfo.hasNextPage' <<<"$resp" 2>/dev/null)"
+    [[ "$has_next" == "true" ]] || break
+    cursor="$(jq -r '.data.node.items.pageInfo.endCursor' <<<"$resp" 2>/dev/null)"
+    [[ -n "$cursor" && "$cursor" != "null" ]] || break
+  done
+  jq -nc --argjson items "$acc" '{items: $items}'
+}
+
 _gh_project_item_list() {
   local host="$1" number="$2" owner="$3"
   local sleep_cmd="${MAKATO_LOOP_SLEEP_CMD:-sleep}"
@@ -616,9 +731,25 @@ _gh_project_item_list() {
     rc=0
     if [[ -n "${MAKATO_LOOP_POLL_TEST_CMD:-}" ]]; then
       out="$(MAKATO_LOOP_POLL_ATTEMPT="$attempt" eval "$MAKATO_LOOP_POLL_TEST_CMD" 2>/dev/null)" || rc=$?
-    else
+    elif [[ "${MAKATO_LOOP_BOARD_MODE:-graphql}" == "item-list" ]]; then
+      # Emergency rollback path — the pre-#516 `gh project item-list` call.
+      # ~100x more expensive per poll; kept behind an env flag so an operator
+      # can fall back instantly if the GraphQL path regresses.
       out="$(GH_HOST="$host" gh project item-list "$number" \
         --owner "$owner" --format json --limit 9999 2>/dev/null)" || rc=$?
+    else
+      # Default path (#516): raw GraphQL, ~1 point/page vs ~1 point/item.
+      # Resolve the project node id from config; without it we cannot issue the
+      # node(id:) query, so fall back to the item-list call for this attempt.
+      local pid=""
+      [[ -f "$CONFIG_FILE" ]] && pid="$(jq -r '.github_project.project_node_id // empty' "$CONFIG_FILE" 2>/dev/null)"
+      if [[ -n "$pid" ]]; then
+        out="$(_board_via_graphql "$host" "$pid")" || rc=$?
+      else
+        echo "loop: WARN — github_project.project_node_id missing in config; using costlier item-list path (#516)" >&2
+        out="$(GH_HOST="$host" gh project item-list "$number" \
+          --owner "$owner" --format json --limit 9999 2>/dev/null)" || rc=$?
+      fi
     fi
     if [[ $rc -eq 0 ]]; then
       printf '%s' "$out"
@@ -4456,6 +4587,14 @@ cmd_run() {
   # start so a prior run's count is not carried over (#357 D7).
   _patch_status '.orphan_dispatches' '0'
 
+  # #516 — adaptive idle backoff. When a tick finds the queue empty AND
+  # dispatches nothing, the next sleep grows by IDLE_BACKOFF_FACTOR up to
+  # IDLE_BACKOFF_MAX; any tick with work resets it back to the base interval.
+  # An idle loop polling every 300s burns the board-poll budget for nothing;
+  # backing off to 30m during quiet periods cuts idle polls ~6x. Defaults keep
+  # the active-work cadence identical to today (effective == base when busy).
+  local effective_interval="$interval"
+
   while true; do
     if ! cmd_check_halt; then
       _patch_status '.last_halt_at' "\"$(_now)\""
@@ -4587,10 +4726,22 @@ cmd_run() {
       return 0
     fi
 
+    # #516 — adaptive idle backoff. A tick "did work" if it dispatched an
+    # issue OR the board still holds queued items (depth>0 but all in-flight
+    # means work is active — stay responsive). Only a genuinely empty queue
+    # with no dispatch grows the interval. Any work resets to base.
+    if [[ -n "$next_issue" || "${queue_depth:-0}" -gt 0 ]]; then
+      effective_interval="$interval"
+    else
+      effective_interval=$(( effective_interval * IDLE_BACKOFF_FACTOR ))
+      (( effective_interval > IDLE_BACKOFF_MAX )) && effective_interval="$IDLE_BACKOFF_MAX"
+    fi
+    _patch_status '.effective_interval_seconds' "$effective_interval"
+
     # #171 — wall-clock-guaranteed sleep. Naive `sleep "$interval"` can
     # return early after a macOS host suspend/resume; _guarded_sleep
     # re-enters raw sleep until the requested wall-clock has elapsed.
-    _guarded_sleep "$interval"
+    _guarded_sleep "$effective_interval"
   done
 }
 
@@ -4621,6 +4772,12 @@ if [[ "$SUBCMD" == _test-* ]]; then
   case "$SUBCMD" in
     _test-guarded-sleep) _guarded_sleep "$@" ;;
     _test-gh-item-list) _gh_project_item_list "$@" ;;
+    # _test-board-graphql <host> <pid> — exercise _board_via_graphql
+    # deterministically via MAKATO_LOOP_GRAPHQL_TEST_CMD (per-page fixture,
+    # receives MAKATO_LOOP_GRAPHQL_CURSOR). Prints the remapped {"items":[...]}
+    # payload to stdout / returns the function's exit code so the smoke suite
+    # can assert the item-list-shape contract and multi-page assembly (#516).
+    _test-board-graphql) _board_via_graphql "$@" ;;
     # _test-gh-with-fallback <context> <args...> — exercise _gh_with_fallback
     # deterministically via MAKATO_LOOP_FALLBACK_TEST_CMD (+ MAKATO_LOOP_SLEEP_CMD
     # to skip backoff waits). Prints the payload to stdout / returns the wrapper's
