@@ -688,6 +688,39 @@ class TraceContext:
     loop_phase: str | None
 
 
+_PLUGIN_NAMES = {
+    "makato-build",
+    "makato-change",
+    "makato-contribute",
+    "makato-core",
+    "makato-database",
+    "makato-doc",
+    "makato-fastapi",
+    "makato-langgraph",
+    "makato-observability",
+    "makato-orchestrate",
+    "makato-plan",
+    "makato-sagibeast",
+    "makato-temporal",
+    "makato-ux",
+}
+
+_LOOP_PHASES = {
+    "seed", "plan", "implement", "review", "verify", "push", "pr", "done",
+    "resolve-conflict", "address-pr-comments", "merge", "blocked",
+}
+
+
+def _plugin_from_skill_tag(tag: str) -> str | None:
+    """Extract plugin name from skill:plugin:skill-name or agent:plugin:agent-name tag."""
+    parts = tag.split(":", 2)
+    if len(parts) >= 3 and parts[1] in _PLUGIN_NAMES:
+        return parts[1]
+    if len(parts) >= 2 and parts[1] in _PLUGIN_NAMES:
+        return parts[1]
+    return None
+
+
 def _build_trace_tags(ctx: TraceContext, turn: Turn) -> list[str]:
     tags = ["claude-code", "makato"]
     if ctx.project_name:
@@ -696,8 +729,24 @@ def _build_trace_tags(ctx: TraceContext, turn: Turn) -> list[str]:
         tags.append(f"makato:{ctx.makato_version}")
     if ctx.loop_phase:
         tags.append(f"loop-phase:{ctx.loop_phase}")
-    skill_agent_tags, _ = _extract_skill_agent_tags(turn.assistant_msgs)
+        # Normalise to canonical phase name for easy filtering
+        phase_normalised = ctx.loop_phase.lower().replace("_", "-")
+        if any(phase_normalised.startswith(p) for p in _LOOP_PHASES):
+            tags.append(f"phase:{phase_normalised}")
+
+    skill_agent_tags, used_plugins = _extract_skill_agent_tags(turn.assistant_msgs)
     tags.extend(skill_agent_tags)
+
+    # Plugin-level tags — derived from skill/agent tags, enable per-plugin filtering
+    # without needing to enumerate every individual skill name in dashboard filters.
+    seen_plugins: set[str] = set(used_plugins)
+    for t in skill_agent_tags:
+        p = _plugin_from_skill_tag(t)
+        if p and p not in seen_plugins:
+            seen_plugins.add(p)
+    for p in sorted(seen_plugins):
+        tags.append(f"plugin:{p}")
+
     entrypoint = turn.user_msg.get("entrypoint")
     if entrypoint and isinstance(entrypoint, str):
         tags.append(f"entrypoint:{entrypoint}")
