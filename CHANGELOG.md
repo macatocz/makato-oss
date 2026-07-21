@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.101.0](https://github.com/macatocz/makato/compare/v0.100.1...v0.101.0) (2026-07-21)
+
+
+### ✨ Features
+
+* **observability:** Langfuse session tracing hook + plugin/phase tags ([#525](https://github.com/macatocz/makato/issues/525)) ([a57faff](https://github.com/macatocz/makato/commit/a57faff08d210501e7c7b04e57816be7ac777e4c))
+
 ## [0.100.1](https://github.com/macatocz/makato/compare/v0.100.0...v0.100.1) (2026-07-21)
 
 
