@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.102.0](https://github.com/macatocz/makato/compare/v0.101.0...v0.102.0) (2026-07-21)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** autonomous build-refine from committed stories.json ([#527](https://github.com/macatocz/makato/issues/527)) ([#529](https://github.com/macatocz/makato/issues/529)) ([fd1e622](https://github.com/macatocz/makato/commit/fd1e622da6b8afb5caba32c7d9c93225a543d8d2))
+
 ## [0.101.0](https://github.com/macatocz/makato/compare/v0.100.1...v0.101.0) (2026-07-21)
 
 
