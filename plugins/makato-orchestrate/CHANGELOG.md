@@ -6,6 +6,43 @@ Changes are grouped by skill/component. Within each group, latest version on top
 ## [Unreleased]
 
 ### Added
+- Autonomous build-refine materialization from committed `stories.json`
+  (#527). The Step 1a HALT-006 recovery gate gains a fourth verdict,
+  `materialize-refine`, that dispatches `build-refine --autonomous` for
+  **full-tier** issues (not just `plan-tier:light`) when a committed
+  `stories.json` sits in the spec folder — reversing the rejected
+  "wire build-refine into Step 1a" path of #499 now that `to-issues` commits
+  `stories.json`.
+  - `scripts/should-materialize-spec.sh`: new `materialize-refine` verdict.
+    Decision table (first match wins): (1) valid plan → `proceed`;
+    (2) missing/stub plan AND a **git-tracked** `stories.json` with ≥ 1 story
+    → `materialize-refine`; (3) missing/stub plan AND `plan-tier:light`
+    (no committed stories.json) → `materialize` (light-planner, unchanged);
+    (4) otherwise → `halt`. Row 2 takes precedence over row 3. An **untracked**
+    `stories.json` emits a WARN to stderr and degrades to the tier fallback —
+    it cannot survive a fresh clone. The `halt` reason suffix is `-no-engine`
+    (no committed stories.json AND not `plan-tier:light`). Signature unchanged
+    (`<plan-path> <label>...`); the stories.json probe derives the spec dir
+    from `dirname <plan-path>`, and captures each helper outcome into an
+    explicit bool before the decision logic so `set -e` never aborts on a
+    present-but-invalid `stories.json`. New test hook
+    `MAKATO_SPEC_STORIES_TRACKED` stubs the `git ls-files` tracked-check offline.
+  - `scripts/should-materialize-spec-smoke-tests.sh`: +12 asserts (24 total) —
+    `materialize-refine` for stub/missing plan, row-2-over-row-3 precedence,
+    full-tier autonomous materialize, empty-`stories[]` fallthrough, the
+    untracked WARN + degrade path, and errexit-safety on malformed /
+    no-`stories[]`-key JSON.
+  - `agents/po-agent.md`: Step 1a documents the `materialize-refine` sub-flow
+    (dispatch `build-refine --autonomous <KEY>` via the exported `$AGENT_ID`
+    bypass, forward `WORKTREE_PATH`, bounded **once** across both engines,
+    re-validate deterministically via `validate-plan-body.sh`, retry Step 1).
+    On this path the PO-agent writes neither the seed stub nor a `spec_tier`
+    stamp — build-refine authors the plan from the committed `stories.json`
+    (ticket path). Permission-boundary, HALT matrix, and "does NOT do" sections
+    updated; `materialize-spec` JSONL `data.gate` now records the engine.
+  - `halt-conditions.md`: HALT-006 rows document both materialization engines
+    and the untracked-stories.json degrade.
+
 - `promote-lessons.sh`: **tier-based routing** (#494, epic #464). A promoted
   `scope: generalizable` record is now routed by its `tier` field —
   `tier == "semantic"` lands in `.makato/memory/semantic.jsonl`, `tier ==

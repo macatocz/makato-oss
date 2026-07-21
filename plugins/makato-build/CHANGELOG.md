@@ -5,7 +5,37 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
-## `gate-scout` + `build-verify` + `.pre-commit-config.yaml` — Gates 1/2 run CI hook, not raw tool (#450)
+## `build-refine` — autonomous ticket-path key-miss HALTs instead of prompting (#527)
+
+Part of the autonomous build-refine materialization lane (makato-orchestrate
+#527): the po-agent's new `materialize-refine` verdict dispatches
+`build-refine --autonomous <KEY>` to translate a committed `stories.json` into
+`plan-<N>.md`. For that lane to be truly headless, the Step 4 key-resolution
+branch must not fire an interactive prompt.
+
+**`skills/build-refine/SKILL.md`** (v1.9.0 → **v1.10.0**):
+
+- **Step 4 (key resolution)**: split the "key not found in stories.json" branch
+  by mode. Interactive mode still asks the user to confirm the key. **Autonomous
+  mode** now HALTs with `MISSING_ARTIFACTS` (`data.reason: "unknown-key"`),
+  writes the `build.jsonl` `session/error` entry + a `confirm-key` bypass log,
+  and returns an R1 `failure` — never `AskUserQuestion`. This is the ticket-path
+  counterpart to the plan-only `MISSING_ACCEPTANCE` guard. The po-agent
+  re-validates deterministically and routes a full-tier key-miss to HALT-006.
+- **`## HALT Codes`**: behavioural note on the Step 4 autonomous key-miss.
+
+**`AUTONOMOUS-MODE.md`**:
+
+- New per-gate table row for `build-refine` Step 4 (confirm-the-key → HALT
+  `MISSING_ARTIFACTS`).
+- New section documenting `build-refine` as the engine of the po-agent
+  `materialize-refine` verdict — the three already-bypassed gates (Step 1 key,
+  Step 4 key-miss, Step 11 plan-review) make it a pure `stories.json` → plan
+  translation with no human gate.
+
+**`halt-codes.md`**: `MISSING_ARTIFACTS` origin extended to Step 4 (unknown-key).
+
+
 
 Gates 1 and 2 in `build-verify` ran raw tool invocations (`uv run pyright`, `uv run ruff check .`) instead of the CI pre-commit hook, producing false-negative passes when the hook environment differed from the raw-tool environment (e.g. pyright reported 0 errors via `uvx` in a fresh env while CI reported 10 real errors on the same tree).
 

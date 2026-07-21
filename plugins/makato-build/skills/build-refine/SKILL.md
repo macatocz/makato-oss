@@ -5,7 +5,7 @@ description: >-
   implementation plan — tasks, file targets, unit/integration test
   strategy, acceptance mapping. Use to start a build session before
   implement-tdd or implement-goal.
-version: "1.9.0"
+version: "1.10.0"
 model: opus
 argument-hint: "[work-item-key] [--autonomous]"
 ---
@@ -170,7 +170,23 @@ Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-refine","story":"<
 - Phase assignment and story type
 - Dependencies (work item keys that must be merged before this one)
 
-If the key is not found in stories.json: report it and ask the user to confirm the key.
+If the key is not found in stories.json:
+
+- **Interactive mode**: report it and ask the user to confirm the key
+  (`AskUserQuestion`).
+- **Autonomous mode** (per `@../../AUTONOMOUS-MODE.md` § *Activation triggers*):
+  do NOT prompt — the po-agent's `materialize-refine` dispatch (#527) supplies
+  the key it resolved, and a key-miss here means the committed `stories.json`
+  has no matching story. HALT with `MISSING_ARTIFACTS`: append
+  `{"ts":"…","skill":"build-refine","story":"<key>","step":"extract-story","status":"error","data":{"halt_code":"MISSING_ARTIFACTS","reason":"unknown-key"}}`
+  to `build.jsonl`, log the bypass via
+  `shared/log-bypass.sh build-refine "<key>" confirm-key halt "<agent_id|cli_flag|task_id_bundle>"`,
+  and return an R1 `status:"failure"` envelope with
+  `data.halt_code:"MISSING_ARTIFACTS"` and
+  `errors: ["MISSING_ARTIFACTS: key <key> not found in stories.json"]`. The
+  po-agent's Step 1a re-validate then finds no valid plan and routes to the
+  tier-based fallback (HALT-006 for full-tier without a matching story). Never
+  fire `AskUserQuestion` on this branch in autonomous mode.
 
 `stories.json` is the authoritative source for story content. If the content diverges from the Jira ticket, prefer `stories.json` — it captures the shaped and refined version of the story.
 
@@ -397,3 +413,5 @@ Top-level R1 envelope fields follow `plugins/makato-build/agents/RETURN-CONTRACT
 ### HALT Codes
 
 The HALT codes emitted by this skill (`MISSING_INPUT`, `SPEC_NOT_FOUND`, `MISSING_ARTIFACTS`, `MISSING_PLAN`, `MISSING_ACCEPTANCE`, `INVALID_FILE_TARGET`, `UNCOVERED_AC`) are registered with their PO-agent recovery routes in `plugins/makato-build/halt-codes.md`.
+
+**Step 4 autonomous key-miss (#527):** in autonomous mode a key absent from a present `stories.json` emits `MISSING_ARTIFACTS` (`data.reason:"unknown-key"`) instead of firing the interactive confirm-the-key `AskUserQuestion`. This is the ticket-path counterpart to the plan-only `MISSING_ACCEPTANCE` guard — the po-agent's `materialize-refine` dispatch re-validates deterministically and routes a full-tier key-miss to HALT-006.

@@ -50,7 +50,10 @@ posture is constrained by four safeguards — see `AGENTS.md` §
     seed stub the PO-agent writes before dispatching `light-planner` to
     materialize a missing plan, and the `spec_tier` stamp on success.
     Both live under gitignored `specs/`; the light-planner (not the
-    PO-agent) writes the plan body. Never touched outside Step 1a.
+    PO-agent) writes the plan body. On the `materialize-refine` path (#527)
+    the PO-agent writes NEITHER — `build-refine` authors the plan from the
+    committed `stories.json` and no `spec_tier` stamp is applied. Never
+    touched outside Step 1a.
   - `.claude/state/resume-{KEY}.sh` (via `scripts/context-handoff.sh`)
   - `.claude/state/daily-budget-{YYYY-MM-DD}.json` (via `kill-switch record-budget`)
 - **Sole writer of `workflow-state.json`.** Every mutation goes through
@@ -166,14 +169,26 @@ with no `## Tasks`). Every other HALT-006 origin — malformed dispatch
 bundle, `gh` unauthenticated, dependency cycle (Step 4c) — is NOT
 materializable and halts as before; those paths never reach Step 1a.
 
-#### Step 1a — HALT-006 auto-materialize gate (#200)
+#### Step 1a — HALT-006 auto-materialize gate (#200, extended #527)
 
-On a fresh clone `specs/` is a gitignored scratch dir (only `build.jsonl`
-is tracked), so the `plan-<N>.md` seed-issue wrote locally never travels with
-the clone. For small, well-scoped work this dead-ended every autonomous
-run at HALT-006. This gate lets the PO-agent instead synthesize a real
-`plan-<N>.md` from the GitHub issue and retry Step 1 **once**, bounded and
-audited, before falling through to human review.
+On a fresh clone `specs/` is a gitignored scratch dir (only `build.jsonl`,
+`spec.md`, and — since #527 — committed `stories.json` / `created-issues.json`
+travel with the clone), so the `plan-<N>.md` seed-issue wrote locally never
+survives the checkout. For small, well-scoped work this dead-ended every
+autonomous run at HALT-006. This gate lets the PO-agent instead materialize a
+real `plan-<N>.md` and retry Step 1 **once**, bounded and audited, before
+falling through to human review. There are two materialization engines,
+selected by the gate:
+
+- **`materialize-refine` (#527)** — a git-tracked `stories.json` with ≥ 1 story
+  sits next to the plan. Dispatch `build-refine --autonomous <KEY>`, which
+  translates that committed `stories.json` into the plan (Step 4 selects the
+  matching story). This is the richer, authoritative source and takes
+  **precedence** over the light-planner path — it works for **full-tier**
+  issues, not just `plan-tier:light`.
+- **`materialize` (#200)** — no committed stories.json, but the issue carries
+  `plan-tier:light`. Dispatch the `light-planner` agent to synthesize a plan
+  from the GitHub issue body.
 
 Resolve the candidate plan path and read the issue's labels, then call
 the deterministic gate:
@@ -196,36 +211,89 @@ mapfile -t LABELS < <(gh issue view <ISSUE_NUMBER> --repo <REPO> \
   --json labels --jq '.labels[].name' 2>/dev/null || true)
 
 GATE_OUT="$(scripts/should-materialize-spec.sh "$PLAN_PATH" "${LABELS[@]}")"
-GATE_VERDICT="${GATE_OUT%% *}"   # materialize | proceed | halt
+GATE_VERDICT="${GATE_OUT%% *}"   # materialize-refine | materialize | proceed | halt
 ```
 
 `should-materialize-spec.sh` classifies the HALT-006 sub-cause by
 delegating to `scripts/validate-plan-body.sh` (the SAME guard the
-lightweight lane uses — the two never disagree about "empty" / "stub")
-and gates eligibility on the `plan-tier:light` label:
+lightweight lane uses — the two never disagree about "empty" / "stub"),
+probes for a git-tracked `stories.json` next to the plan (`dirname
+"$PLAN_PATH"`), and gates the light-planner fallback on the
+`plan-tier:light` label:
 
-| `GATE_VERDICT` | Meaning                                              | Action                                        |
-| ---------------- | ---------------------------------------------------- | --------------------------------------------- |
-| `proceed`      | `plan-<N>.md` is already VALID — not a HALT-006 case. | Continue to Step 2 unchanged.                 |
-| `materialize`  | Missing / stub plan AND`plan-tier:light`.          | Run the materialize-and-retry sub-flow below. |
-| `halt`         | Missing / stub plan AND NOT`plan-tier:light`.      | Existing HALT-006 path (see below).           |
+| `GATE_VERDICT`     | Meaning                                                                  | Action                                            |
+| ------------------ | ------------------------------------------------------------------------ | ------------------------------------------------- |
+| `proceed`          | `plan-<N>.md` is already VALID — not a HALT-006 case.                    | Continue to Step 2 unchanged.                     |
+| `materialize-refine` | Missing / stub plan AND a tracked `stories.json` with ≥ 1 story.       | Run the **build-refine** sub-flow below (#527).   |
+| `materialize`      | Missing / stub plan AND `plan-tier:light` (no committed stories.json).   | Run the **light-planner** sub-flow below (#200).  |
+| `halt`             | Missing / stub plan AND neither engine applies.                          | Existing HALT-006 path (see below).               |
 
-**Why `plan-tier:light`, not `type:fix`/`type:bug` (issue #200 point 1
-reconciled to the shipped taxonomy):** there is no `type:fix` / `type:bug`
-label — `seed-issue` maps bug/fix issues to `type:change` (routed to
+An **untracked** `stories.json` never yields `materialize-refine` — it cannot
+survive a fresh clone, so the gate warns to stderr and degrades to the
+tier-based fallback (`materialize` for `plan-tier:light`, else `halt`).
+
+**Why `plan-tier:light` gates only the light-planner fallback (issue #200
+point 1 reconciled to the shipped taxonomy):** there is no `type:fix` /
+`type:bug` label — `seed-issue` maps bug/fix issues to `type:change` (routed to
 `makato-change`, never the PO-agent). The `plan-tier:light` label is the
 signal (from the #211 classifier) for "small, well-scoped work suitable
-for the plan-only lightweight lane" — exactly issue #200's "small,
-low-risk fix scope" gate. `plan-tier:full` and unlabelled feature/epic
-issues keep the current HALT-006 → `needs-human-review` behaviour, since
-their plans warrant human shaping.
+for the plan-only lightweight lane". A **full-tier** issue with a committed
+`stories.json` now materializes via `build-refine` (row 2, #527); a full-tier
+issue **without** a committed stories.json keeps the current HALT-006 →
+`needs-human-review` behaviour, since its plan warrants human shaping.
 
-**Materialize-and-retry sub-flow** (`GATE_VERDICT == materialize`):
+**Bounded once (both engines).** Materialization runs at most **once** per
+PO-agent run, across BOTH engines. Track it with a single session-local flag;
+if a prior Step 1a already attempted materialization this run (via either
+engine), do NOT retry — fall through to the `halt` path. No unbounded loop.
 
-1. **Bound the attempt.** This runs at most **once** per PO-agent run.
-   Track it with a session-local flag; if a prior Step 1a already
-   attempted materialization this run, do NOT retry — fall through to the
-   `halt` path. No unbounded loop.
+**Materialize-refine sub-flow** (`GATE_VERDICT == materialize-refine`, #527):
+
+1. **Bound the attempt** per the shared flag above.
+2. **Resolve the spec dir.** `SPEC_DIR="$(dirname "$PLAN_PATH")"` — an existing
+   prefix-matched `specs/<KEY>-*/` (the committed `stories.json` lives there).
+   Do NOT create a stub: on this path the plan is authored entirely by
+   `build-refine` from the committed `stories.json`; a hollow seed stub would
+   only mask a build-refine failure at the re-validate step.
+3. **Dispatch `build-refine --autonomous <KEY>`** via the Task tool as a
+   `/makato-build:build-refine` invocation. The PO-agent's exported `$AGENT_ID`
+   activates autonomous mode across the subprocess boundary (§ *Cross-skill
+   propagation* in `plugins/makato-build/AUTONOMOUS-MODE.md`) — Step 1
+   work-item-key uses the arg, Step 11 plan-review is skipped, and the Step 4
+   key-miss branch HALTs instead of prompting. Forward `WORKTREE_PATH`
+   (resolve via `shared/worktree.sh path <KEY>` — but note the plan write
+   targets `$REPO_ROOT/specs/<KEY>-*/plan-<N>.md` in the MAIN checkout, since
+   `specs/` is gitignored in the worktree; `WORKTREE_PATH` is forwarded to
+   satisfy the mandatory-in-autonomous falsy-check). Parse the skill's R1 per
+   `plugins/makato-build/agents/RETURN-CONTRACT.md`. A `failure` R1 (e.g.
+   `MISSING_ARTIFACTS` on a key-miss, `MISSING_ACCEPTANCE`) is NOT fatal here —
+   the deterministic re-validate below is the source of truth; fall through to
+   the `halt` path on any invalid outcome.
+4. **Re-validate deterministically** — the guard, not the skill's R1, is the
+   source of truth (a skill claiming success but writing a hollow plan is
+   caught here):
+
+   ```bash
+   GUARD_OUT="$(scripts/validate-plan-body.sh "$PLAN_PATH" 2>/dev/null || true)"
+   GUARD_VERDICT="${GUARD_OUT%% *}"   # valid | invalid
+   ```
+
+5. **On `GUARD_VERDICT == valid`:** build-refine has already written a real
+   `plan-<N>.md` from `stories.json` (and, on the ticket path, set no
+   `spec_tier` — the ticket path is the default; do NOT stamp
+   `spec_tier:plan-only`, which would misroute build-refine to the plan-only
+   acceptance source). Emit the `materialize-spec` JSONL (below) with
+   `status:"ok"` and `data.gate:"materialize-refine"`, and **retry Step 1** —
+   the folder now resolves and carries a valid plan, so Step 1a's re-run
+   returns `proceed`.
+6. **On `GUARD_VERDICT == invalid`** (build-refine HALTed, or wrote a hollow
+   plan): emit the `materialize-spec` JSONL with `status:"warn"` and
+   `data.gate:"materialize-refine"`, and fall through to the `halt` path below.
+   A single materialize-refine attempt failed, so human shaping is warranted.
+
+**Light-planner sub-flow** (`GATE_VERDICT == materialize`, #200):
+
+1. **Bound the attempt** per the shared once-per-run flag above.
 2. **Resolve the spec dir and create the stub if absent.** The spec dir is
    `SPEC_DIR="$(dirname "$PLAN_PATH")"` from the gate block above — an
    existing prefix-matched `specs/<KEY>-*/` when the fault was a stub
@@ -282,16 +350,20 @@ their plans warrant human shaping.
    materialize attempt failed, so human shaping is warranted.
 
 Emit one JSONL entry per Step 1a materialize attempt (issue #200 point 5
-— traceable, never silently masks a planning gap):
+— traceable, never silently masks a planning gap). The `gate` field records
+which engine ran (`materialize-refine` or `materialize`); `spec_tier` is
+`plan-only` only when the light-planner path stamped it, `none` on the
+build-refine ticket path; `plan_tier` echoes the issue's tier
+(`light`/`full`):
 
 ```json
-{"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"materialize-spec","status":"<ok|warn>","data":{"key":"<KEY>","gate":"materialize","guard":"<valid|invalid>","thin_body":<bool>,"spec_tier":"<plan-only|none>","plan_tier":"light"}}
+{"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"materialize-spec","status":"<ok|warn>","data":{"key":"<KEY>","gate":"<materialize-refine|materialize>","guard":"<valid|invalid>","thin_body":<bool>,"spec_tier":"<plan-only|none>","plan_tier":"<light|full>"}}
 ```
 
-**HALT-006 path** (`GATE_VERDICT == halt`, or a materialize attempt that
-did not yield a valid plan): apply `needs-human-review`, follow the
-bootstrap exception in § *Error modes* (state is not yet initialised —
-skip the state-mutating helpers, emit a `step:"halt-pre-init"` JSONL
+**HALT-006 path** (`GATE_VERDICT == halt`, or a materialize attempt — via
+either engine — that did not yield a valid plan): apply `needs-human-review`,
+follow the bootstrap exception in § *Error modes* (state is not yet initialised
+— skip the state-mutating helpers, emit a `step:"halt-pre-init"` JSONL
 entry), and return R1 `failure` with `data.halt_code:"HALT-006"`.
 
 ### Step 2 — Read or initialise state
@@ -1115,7 +1187,7 @@ fires — the audit log records every HALT code.
 | HALT-002                  | `build-verify` R1 `failure`                                                                                                                                                                                                                                                                                                         | **PO-agent**                                        |
 | HALT-003                  | `build-implement-tdd` R1 `failure`, or `build-address-pr-comments` STRUCTURAL                                                                                                                                                                                                                                                     | sub-skill applies first (idempotent) or**PO-agent** |
 | HALT-005                  | `build-push-to-git` deny-list, cleanup failure, missing PR number                                                                                                                                                                                                                                                                     | **PO-agent**                                        |
-| HALT-006                  | malformed plan / spec folder / dispatch bundle.**Note:** for a *missing spec folder or stub plan-<N>.md* on a `plan-tier:light` issue, Step 1a first attempts to auto-materialize `plan-<N>.md` via the `light-planner` agent and retry once (#200) — HALT-006 fires only if that single attempt does not yield a guard-valid plan. A pre-migration singleton `plan.md` is accepted via legacy-pass and does not trigger HALT-006. | **PO-agent**                                        |
+| HALT-006                  | malformed plan / spec folder / dispatch bundle.**Note:** for a *missing spec folder or stub plan-<N>.md*, Step 1a first attempts to auto-materialize `plan-<N>.md` and retry once — via `build-refine --autonomous` when a committed `stories.json` is present (any tier, #527), else via the `light-planner` agent on a `plan-tier:light` issue (#200). HALT-006 fires only if that single attempt does not yield a guard-valid plan. A pre-migration singleton `plan.md` is accepted via legacy-pass and does not trigger HALT-006. | **PO-agent**                                        |
 | HALT-007                  | budget (`kill-switch poll`)                                                                                                                                                                                                                                                                                                           | `kill-switch poll`                                      |
 | HALT-007B                 | context ceiling (`kill-switch handoff`)                                                                                                                                                                                                                                                                                               | nobody — R1`partial`, no label                         |
 | HALT-008 (outer-iter)     | `outer_iteration >= 3` (`kill-switch poll`)                                                                                                                                                                                                                                                                                         | `kill-switch poll`                                      |
@@ -1258,12 +1330,15 @@ caller.
   `build-implement-goal`.
 - **Issue decomposition or planning** — `plan-<ISSUE_NUMBER>.md` must exist at
   dispatch time; `makato-plan` and `build-refine` are the operator's
-  responsibility upstream. **Narrow exception (#200):** for a
-  `plan-tier:light` issue whose spec folder is missing or holds only the
-  seed stub, Step 1a dispatches the `light-planner` agent once to
-  synthesize a real `plan-<N>.md` from the issue body before halting — a
-  bounded recovery, not general planning. Full/epic issues and any
-  thin-body light issue still fall through to `needs-human-review`.
+  responsibility upstream. **Narrow exception (#200, #527):** for an issue
+  whose spec folder is missing or holds only the seed stub, Step 1a attempts a
+  single bounded materialization before halting — `build-refine --autonomous`
+  when a committed `stories.json` is present (translates the committed stories
+  into the plan, any tier, #527), else the `light-planner` agent on a
+  `plan-tier:light` issue (synthesizes from the issue body, #200). This is a
+  bounded recovery, not general planning. Full/epic issues with neither a
+  committed stories.json nor `plan-tier:light`, and any thin-body light issue,
+  still fall through to `needs-human-review`.
 - **Post-merge documentation, changelog, deploy** — owned by
   `documentation-agent` and downstream automation.
 - **Manual `git worktree` calls** — always via `shared/worktree.sh`.

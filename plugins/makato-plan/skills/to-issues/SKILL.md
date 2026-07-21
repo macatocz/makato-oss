@@ -7,7 +7,7 @@ description: >-
   (type/tier/tech/module/severity/phase/effort/priority/points/status), maps stories to ADR folders by
   name pattern, and emits `specs/{slug}/created-issues.json` for downstream plugins.
 license: MIT
-version: "3.9.0"
+version: "3.10.0"
 argument-hint: "[optional: feature slug] [--dry-run] [--interactive|--autonomous]"
 allowed-tools: Bash(gh *) Bash(git *) Bash(python3 *) Read Write Grep Glob
 hooks: ["convert to issues", "break into issues", "create github issues", "turn this into tickets", "issue breakdown", "create implementation tickets", "decompose into issues", "publish stories", "create issues from stories.json"]
@@ -276,6 +276,54 @@ EOF
 
 Validation failure on `created-issues.json` is a bug in this skill — abort the run with the validation error and DO NOT write the artifact.
 
+### Step 6a — Stage and guard the planning artifacts (#527)
+
+The autonomous build-refine lane (`makato-orchestrate` po-agent Step 1a
+`materialize-refine`) only fires when `stories.json` is **git-tracked** — a
+fresh clone/worktree of the target repo must carry it, or the po-agent
+degrades to the tier-based fallback and a full-tier issue dead-ends at
+HALT-006. So after writing `created-issues.json`, stage both planning
+artifacts and fail loudly if either remains untracked:
+
+```bash
+STORIES="$REPO_ROOT/specs/$SLUG/stories.json"
+CREATED="$REPO_ROOT/specs/$SLUG/created-issues.json"
+
+# Stage both. `git add` respects .gitignore, so this is a no-op signal check:
+# if the consumer repo's .gitignore still blocks specs/**/stories.json (i.e.
+# it lacks the !specs/**/stories.json negation), the file stays untracked and
+# the guard below fires with a precise remediation.
+git -C "$REPO_ROOT" add -- "$STORIES" "$CREATED" 2>/dev/null || true
+
+for f in "$STORIES" "$CREATED"; do
+  # `git ls-files` lists a path only when it is tracked or staged. Empty
+  # output => the artifact will NOT travel with a fresh clone.
+  if [[ -z "$(git -C "$REPO_ROOT" ls-files -- "$f")" ]]; then
+    cat >&2 <<MSG
+[to-issues] HALT: $f is untracked after write.
+[to-issues] The autonomous build-refine lane requires stories.json (and
+[to-issues] created-issues.json) to be committed so they survive a fresh clone.
+[to-issues] Your repo's .gitignore is blocking them. Add these negations AFTER
+[to-issues] the '!specs/**/' directory-descent escape:
+[to-issues]     !specs/**/stories.json
+[to-issues]     !specs/**/created-issues.json
+[to-issues] then re-run to-issues (or 'git add -f' the artifacts and commit).
+MSG
+    exit 1
+  fi
+done
+
+echo "[to-issues] staged planning artifacts: stories.json, created-issues.json"
+```
+
+In autonomous mode log `[to-issues:auto] staged + guarded stories.json,
+created-issues.json (tracked)`. The guard is a HALT (`exit 1`), not a warning —
+an untracked `stories.json` silently disables the entire autonomous
+materialize-refine path downstream, so surfacing it at emission time is the
+only place a human sees the misconfiguration before a fresh-clone run fails.
+`to-issues` **stages** the artifacts (`git add`); the commit itself belongs to
+the operator's normal flow — the skill never commits or pushes.
+
 ### Step 7 — Hand off
 
 Print the final summary:
@@ -283,6 +331,7 @@ Print the final summary:
 ```
 [to-issues] Created N issues for slug '<slug>' on github.com/$TARGET_REPO.
 [to-issues] Artifact: specs/<slug>/created-issues.json
+[to-issues] Staged (git add): specs/<slug>/stories.json, specs/<slug>/created-issues.json — commit them so the autonomous build-refine lane can consume stories.json on a fresh clone (#527).
 [to-issues] Next: implement the work and run /makato-build:build-create-pr — it will auto-inject Closes #N for each issue when you create the PR.
 ```
 
@@ -296,6 +345,7 @@ Autonomous mode activates when ANY of:
 In autonomous mode:
 - **Never prompt the user** — all inference decisions apply silently.
 - **Log every choice** to stdout, prefixed `[to-issues:auto]`. Format: `[to-issues:auto] story <n> title="<...>" type=<...> tier=<...> tech=[...] module=[...] body_bytes=<n>`.
+- **Stage and guard the planning artifacts (Step 6a, #527)** — `git add` `stories.json` + `created-issues.json` and HALT with `UNTRACKED_ARTIFACTS` if either stays untracked (the consumer repo's `.gitignore` lacks the negations). This is a hard `exit 1`, not a warning — an untracked `stories.json` silently disables the downstream autonomous materialize-refine path.
 - Skip out-of-scope stories — never invent stories that aren't in stories.json. If `stories.json` is empty, exit 0 and write an empty artifact `{ "schema_version": "1", "slug": "<slug>", "issues": [] }`.
 
 ### Return Format (R1, when called as a sub-skill)
@@ -320,3 +370,4 @@ In autonomous mode:
 | `GH_AUTH_FAILED` | `gh` CLI returns auth error — caller must run `gh auth login` |
 | `SCHEMA_VALIDATION_FAILED` | Generated `created-issues.json` failed schema validation (skill bug — file an issue) |
 | `PARTIAL_FAILURE` | `gh issue create` failed mid-batch; partial artifact persisted |
+| `UNTRACKED_ARTIFACTS` | `stories.json` or `created-issues.json` remained untracked after write (Step 6a) — the consumer repo's `.gitignore` lacks the `!specs/**/stories.json` / `!specs/**/created-issues.json` negations, so the autonomous build-refine lane cannot consume them on a fresh clone (#527) |

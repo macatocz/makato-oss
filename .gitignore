@@ -176,6 +176,13 @@ specs/**
 !specs/**/
 !specs/**/build.jsonl
 !specs/**/spec.md
+# Autonomous build-refine (#527) consumes a COMMITTED stories.json: the po-agent
+# materialize-refine gate only fires when stories.json is git-tracked (survives a
+# fresh clone/worktree). created-issues.json is the downstream handoff artifact.
+# These negations MUST sit after the `!specs/**/` directory-descent escape above,
+# or Git never reaches the files.
+!specs/**/stories.json
+!specs/**/created-issues.json
 
 # Subagent-Driven Development scratch (progress ledger, task briefs, review packages)
 .superpowers/

@@ -5,6 +5,12 @@ Changes are grouped by skill/agent/component. Within each group, latest version 
 
 ## `to-issues` skill
 
+- **3.10.0** — commit `stories.json` + `created-issues.json` so the autonomous build-refine lane can consume them on a fresh clone (#527).
+  - `SKILL.md` new **Step 6a** — after writing `created-issues.json`, `git add` both planning artifacts and HALT with `UNTRACKED_ARTIFACTS` if either stays untracked (the consumer repo's `.gitignore` lacks the `!specs/**/stories.json` / `!specs/**/created-issues.json` negations). Hard `exit 1`, not a warning: an untracked `stories.json` silently disables the downstream po-agent `materialize-refine` path. Stages only — the commit belongs to the operator's normal flow; the skill never commits or pushes.
+  - `SKILL.md` Step 7 hand-off + Autonomous Execution: document the stage/guard step; new `UNTRACKED_ARTIFACTS` HALT code.
+  - `references/fixtures/artifact-guard-smoke-tests.sh` — new executable spec (6 asserts) re-implementing the Step 6a guard: negations-present passes, negations-absent HALTs, mis-ordered negations (before `!specs/**/`) still blocked, and makato's own `.gitignore` carries the correctly-ordered negations (stories.json/created-issues.json trackable, workflow-state.json still ignored).
+  - Repo-root `.gitignore`: added `!specs/**/stories.json` + `!specs/**/created-issues.json` negations after the `!specs/**/` directory-descent escape, so the autonomous stories.json path works in makato itself, not just consumer repos that opt in.
+
 - **3.9.0** — dependency labels `blocked by` / `blocking` automatically applied to all repos using makato suite.
   - `references/label-taxonomy.md`: new **Dependency Dimension** section — defines `blocked by` (`B60205` red) and `blocking` (`D93F0B` orange-red), their semantics, the lifecycle (both labels removed by `promote-ready` when the dependency is resolved — not permanent), and the difference from `status:blocked`. Both colors added to the GitHub Label Creation table. Relationship table updated with "Who removes it" column.
   - `SKILL.md` Step 3: new bullet 6 — `blocked by` emitted on every story whose `dependencies.blockedBy` is non-empty; `blocking` is a cross-issue retroactive signal (not in the story's own label set — applied to upstream issues in Step 5).

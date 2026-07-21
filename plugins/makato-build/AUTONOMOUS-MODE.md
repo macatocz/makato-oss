@@ -47,6 +47,7 @@ Skill-side detection lives in the `build-*` skill's Step 1b (see `build-refine/S
 | Skill | Gate (line ref to the `AskUserQuestion` site) | Interactive behavior | Autonomous default |
 |---|---|---|---|
 | `build-refine` | Step 1 — work-item-key prompt | Asks for key | If no arg passed: HALT `MISSING_INPUT`. If arg passed: use it. |
+| `build-refine` | Step 4 — confirm-the-key prompt (key absent from stories.json) | Asks user to confirm the key | HALT `MISSING_ARTIFACTS` (unknown-key); never prompt. The po-agent re-validates and routes to the tier fallback (#527). |
 | `build-refine` | Step 11 — plan-review (in-chat vs in-browser) | Asks how to review | Write `plan.md`, skip review entirely, proceed to hand-off. |
 | `build-push-to-git` | Step 4 — commit-grouping confirmation | Asks user to confirm grouping & messages | Use plan task `commitMessage` fields verbatim; no confirmation. |
 | `build-push-to-git` | Step 6 — push confirmation | Asks "Ready to push N commits?" | Push immediately. Pre-push hook still fires. |
@@ -62,7 +63,34 @@ Skill-side detection lives in the `build-*` skill's Step 1b (see `build-refine/S
 | `build-review` | Step 5 — blocking-findings loop (MAJOR tier) | MAJOR findings are advisory; reported in Step 6 for the user to address | MAJOR re-triggers the fix loop exactly as CRITICAL (auto-fix, re-review until clean). Emit an `autonomous_bypass` audit entry (`gate: major-autofix`) the first time a MAJOR is auto-fixed on a pass. See § *MAJOR findings block the autonomous review loop*. |
 | `build-implement-tdd` | Step 7 — coverage-floor acknowledgement | May proceed on a structured, human-owned "acknowledged risk" entry | No acknowledgement is possible — no human owns the risk. Log `threshold_met:false`, emit `log-bypass.sh … coverage-floor defer-to-gate5`, and defer authoritatively to `build-verify` Gate 5 (HALT-002). Never wave the miss through. See § *Coverage-floor acknowledgement is human-only; autonomous defers to Gate 5*. |
 
-### STRUCTURAL MUST-FIX is deliberately not auto-handled
+### `build-refine` is the engine of the po-agent `materialize-refine` verdict (#527)
+
+`makato-orchestrate`'s `should-materialize-spec.sh` gate has a fourth verdict,
+`materialize-refine`: when a full-tier (or any-tier) issue reaches Step 1a with
+a missing/stub `plan-<N>.md` but a **git-tracked `stories.json`** (≥ 1 story)
+sits in its spec folder, the po-agent dispatches `build-refine --autonomous
+<KEY>` to translate that committed `stories.json` into the plan. This is a pure
+`stories.json` → `plan-<N>.md` translation, not a second planning pass:
+
+- **Step 1** (work-item-key) — uses the KEY the po-agent supplies (autonomous
+  default, per the table above); never prompts.
+- **Step 4** (key resolution) — the KEY selects the matching story; a key-miss
+  HALTs with `MISSING_ARTIFACTS` (autonomous default, per the table above)
+  rather than firing the interactive confirm-the-key prompt.
+- **Step 11** (plan-review) — writes the plan and skips review (autonomous
+  default, per the table above).
+
+Neither key (identity) nor plan-review (output-control) asks about content, so
+the autonomous lane never blocks on a human. The po-agent re-validates the
+written plan deterministically via `validate-plan-body.sh` — build-refine's R1
+is not trusted as the source of truth — and a full-tier key-miss routes to
+HALT-006 (`needs-human-review`). Precedence, the untracked-stories.json
+degrade, and the light-planner fallback (`plan-tier:light`, no committed
+stories.json) are documented in
+`plugins/makato-orchestrate/agents/po-agent.md` § *Step 1a* and
+`plugins/makato-orchestrate/halt-conditions.md` (HALT-006).
+
+
 
 `build-address-pr-comments` classifies a MUST-FIX as **STRUCTURAL** when it requires changing the fundamental implementation approach (data model redesign, API contract reversal, algorithm replacement). In autonomous mode the skill does NOT attempt to auto-fix structural items — it posts a single summary reply on the PR (template `templates/pr-comment-replies.md` § *STRUCTURAL MUST-FIX (autonomous HALT — AC3)*), applies the `needs-human-review` label, and halts with R1 `status: "failure"`, `errors: ["STRUCTURAL_BLOCKER: <first comment summary>"]`, and `data.halt_code: "HALT-003"`. The PO-agent reads the R1 envelope and escalates (e.g. opens a fresh `/build-refine` session or surfaces to the human operator).
 
