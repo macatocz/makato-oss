@@ -41,6 +41,13 @@ Run pre-commit sensors against the chosen file scope, parse findings, and dispat
      ```
    - `all` →
      ```bash
+     # Make untracked files visible to `--all-files` (which scans `git ls-files`
+     # = tracked + intent-to-add only). Without this, a NEW source/test/fixture
+     # file added this session passes Gate 0 locally and only fails in CI, where
+     # it is tracked after the commit (e.g. biome reformatting a new JSON fixture,
+     # or bandit flagging a new tool script → "files were modified by this hook").
+     UNTRACKED="$(git ls-files --others --exclude-standard)"
+     [ -n "$UNTRACKED" ] && git add -N -- $UNTRACKED
      pre-commit run --hook-stage manual --all-files
      ```
    - `changed-vs-main` →
