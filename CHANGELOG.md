@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.100.1](https://github.com/macatocz/makato/compare/v0.100.0...v0.100.1) (2026-07-21)
+
+
+### 🐛 Bug Fixes
+
+* **build-sensors:** reveal untracked files to Gate 0 --all-files scan ([#523](https://github.com/macatocz/makato/issues/523)) ([6483050](https://github.com/macatocz/makato/commit/6483050716b7e589824ea7feb5351d73ab169594))
+
 ## [0.100.0](https://github.com/macatocz/makato/compare/v0.99.0...v0.100.0) (2026-07-20)
 
 
