@@ -1704,6 +1704,201 @@ _stall_restart() {
 }
 
 # ---------------------------------------------------------------------------
+# _parse_dispatch_result <log-file>
+#
+# Classifies the outcome of a `claude -p --output-format stream-json`
+# dispatch by inspecting its log for the terminal {"type":"result",...}
+# line. Returns one of three values on stdout:
+#   complete   — terminal result line present and is_error is false/absent
+#   errored    — terminal result line present and is_error: true
+#   incomplete — terminal result line absent (process exited without it)
+#
+# Guard: MAKATO_LOOP_STALL_DISABLE=1 → returns "complete" immediately,
+# preserving legacy opt-out behaviour (no classification, no resume).
+#
+# When log-file path is empty or the file does not exist, returns
+# "incomplete" (safe default — triggers resume path). (#531)
+# ---------------------------------------------------------------------------
+_parse_dispatch_result() {
+  local log_file="${1:-}"
+
+  # Opt-out guard.
+  if [[ "${MAKATO_LOOP_STALL_DISABLE:-0}" == "1" ]]; then
+    echo "complete"
+    return 0
+  fi
+
+  # Missing or empty log file → safe default.
+  if [[ -z "$log_file" || ! -f "$log_file" ]]; then
+    echo "incomplete"
+    return 0
+  fi
+
+  # Scan for the terminal {"type":"result",...} line. stream-json emits one
+  # per session; the last one wins (defensive against multi-line tails).
+  local result_line=""
+  while IFS= read -r line; do
+    local t
+    t="$(printf '%s' "$line" | jq -r '.type // empty' 2>/dev/null || true)"
+    if [[ "$t" == "result" ]]; then
+      result_line="$line"
+    fi
+  done <"$log_file"
+
+  if [[ -z "$result_line" ]]; then
+    echo "incomplete"
+    return 0
+  fi
+
+  local is_error
+  is_error="$(printf '%s' "$result_line" | jq -r '.is_error // false' 2>/dev/null || echo "false")"
+  if [[ "$is_error" == "true" ]]; then
+    echo "errored"
+  else
+    echo "complete"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# _stall_resume <issue> <key> <spec-folder> <log-file>
+#
+# Called by cmd_dispatch when the child exited WITHOUT a watchdog kill but
+# _parse_dispatch_result returned "incomplete" or "errored" — meaning the
+# claude process exited before writing its terminal result line (crashed,
+# OOM'd, or SIGKILL'd by the kernel). Re-enters the session via
+#   claude --dangerously-skip-permissions --resume "$key" -p "<prompt>"
+# from the issue's worktree directory, mirroring context-handoff.sh:211.
+#
+# Budget: reads and shares stall_restart_count from loop-status.json with
+# _stall_restart — a single counter for both restart paths, so the two
+# mechanisms cannot double the budget.
+#
+# Backoff: STALL_BACKOFF_BASE_SECS * (1 << stall_restart_count), capped at
+# STALL_KILL_SECS (same formula as _stall_restart).
+#
+# On budget exhaustion (stall_restart_count >= MAX_STALL_RESTARTS):
+#   emits step:stall-resume status:escalate halt_code:HALT-014 to
+#   orchestrate.jsonl, appends HALT-014 to workflow-state, applies
+#   needs-human-review (best-effort), returns 1.
+#
+# Guard: MAKATO_LOOP_STALL_DISABLE=1 → emits step:stall-resume
+# status:skip and returns 0 (no claude invocation). (#531)
+# ---------------------------------------------------------------------------
+_stall_resume() {
+  local issue="$1"
+  local key="${2:-}"
+  local spec_folder="${3:-}"
+  local log_file="${4:-}"
+
+  # Opt-out guard.
+  if [[ "${MAKATO_LOOP_STALL_DISABLE:-0}" == "1" ]]; then
+    # Resolve orch_log for the skip emit.
+    local orch_log=""
+    if [[ -n "$spec_folder" ]]; then
+      orch_log="$spec_folder/orchestrate.jsonl"
+    fi
+    local now_ts
+    now_ts="$(_now)"
+    if [[ -n "$orch_log" ]]; then
+      echo "{\"ts\":\"$now_ts\",\"skill\":\"loop\",\"issue\":$issue,\"step\":\"stall-resume\",\"status\":\"skip\",\"data\":{\"reason\":\"MAKATO_LOOP_STALL_DISABLE=1\"}}" \
+        >> "$orch_log" 2>/dev/null || true
+    fi
+    return 0
+  fi
+
+  # Resolve orchestrate.jsonl path (same pattern as _stall_restart).
+  local orch_log=""
+  if [[ -n "$spec_folder" && -f "$spec_folder/orchestrate.jsonl" ]]; then
+    orch_log="$spec_folder/orchestrate.jsonl"
+  elif [[ -n "$spec_folder" ]]; then
+    orch_log="$spec_folder/orchestrate.jsonl"
+  else
+    orch_log="$(find "${SPECS_DIR:-$REPO_ROOT/specs}" -maxdepth 2 \
+      -name "orchestrate.jsonl" 2>/dev/null | head -1)"
+  fi
+
+  _orch_append() {
+    local entry="$1"
+    if [[ -n "$orch_log" ]]; then
+      echo "$entry" >> "$orch_log" 2>/dev/null || true
+    fi
+  }
+
+  local now_ts
+  now_ts="$(_now)"
+
+  # Read shared restart counter.
+  local restart_count
+  restart_count="$(_read_status | jq -r '.stall_restart_count // 0' 2>/dev/null || echo 0)"
+
+  # Budget check — mirrors _stall_restart's no_progress branch.
+  if [[ "$restart_count" -ge "$MAX_STALL_RESTARTS" ]]; then
+    _orch_append "{\"ts\":\"$now_ts\",\"skill\":\"loop\",\"issue\":$issue,\"step\":\"stall-resume\",\"status\":\"escalate\",\"data\":{\"halt_code\":\"HALT-014\",\"stall_restart_count\":$restart_count,\"max_stall_restarts\":$MAX_STALL_RESTARTS}}"
+    # Append HALT-014 to workflow-state (best-effort).
+    local _wf_sh
+    _wf_sh="$(dirname "$(dirname "$0")")/shared/workflow-state.sh"
+    if [[ -x "$_wf_sh" ]]; then
+      local _key_for_halt="${key:-}"
+      if [[ -z "$_key_for_halt" && -n "$spec_folder" ]]; then
+        _key_for_halt="$(basename "$spec_folder")"
+      fi
+      if [[ -n "$_key_for_halt" ]]; then
+        "$_wf_sh" append-halt "$_key_for_halt" "$issue" HALT-014 '{"origin":"stall-resume"}' 2>/dev/null || true
+      fi
+    fi
+    # Apply needs-human-review label (best-effort, non-fatal).
+    local _repo="${MAKATO_LOOP_DISPATCH_REPO:-}"
+    if [[ -n "${MAKATO_LOOP_LABEL_TEST_FILE:-}" ]]; then
+      echo "label #${issue} needs-human-review" >> "$MAKATO_LOOP_LABEL_TEST_FILE" 2>/dev/null || true
+    elif [[ -n "$_repo" ]]; then
+      gh issue edit "$issue" --add-label needs-human-review --repo "$_repo" 2>/dev/null || true
+    fi
+    return 1
+  fi
+
+  # Compute exponential backoff (same formula as _stall_restart).
+  local backoff=$(( STALL_BACKOFF_BASE_SECS * (1 << restart_count) ))
+  if [[ $backoff -gt $STALL_KILL_SECS ]]; then
+    backoff=$STALL_KILL_SECS
+  fi
+
+  # Resolve the worktree directory from workflow-state (best-effort).
+  local worktree_dir=""
+  local _wf_file
+  _wf_file="$(find "${SPECS_DIR:-$REPO_ROOT/specs}" -maxdepth 2 \
+    -name "workflow-state-${issue}.json" 2>/dev/null | head -1)"
+  if [[ -f "$_wf_file" ]]; then
+    worktree_dir="$(jq -r '.worktree_path // ""' "$_wf_file" 2>/dev/null || true)"
+  fi
+  # Fall back to REPO_ROOT when worktree_path is absent or null.
+  if [[ -z "$worktree_dir" || "$worktree_dir" == "null" ]]; then
+    worktree_dir="${REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+  fi
+
+  # Increment shared restart counter before the sleep (mirrors _stall_restart
+  # convention: a kill during backoff still records the attempt).
+  local new_count=$(( restart_count + 1 ))
+  _patch_status '.stall_restart_count' "$new_count"
+
+  _orch_append "{\"ts\":\"$now_ts\",\"skill\":\"loop\",\"issue\":$issue,\"step\":\"stall-resume\",\"status\":\"attempt\",\"data\":{\"key\":\"${key:-}\",\"backoff_secs\":$backoff,\"worktree_dir\":\"$worktree_dir\",\"stall_restart_count\":$restart_count}}"
+
+  # Backoff sleep.
+  local sleep_cmd="${MAKATO_LOOP_SLEEP_CMD:-sleep}"
+  $sleep_cmd "$backoff" 2>/dev/null || true
+
+  # Resume the session from the worktree directory.
+  local resume_prompt="Use the Task tool to dispatch the makato-orchestrate:po-agent subagent to resume driving GitHub issue #${issue} to a merged PR. The po-agent owns the outer loop, workflow-state, and all makato-build --autonomous dispatch; do not invoke makato-build or makato-plan skills directly from this session. Return the po-agent's final R1 envelope verbatim."
+  (
+    cd "$worktree_dir" 2>/dev/null || true
+    MAKATO_HEADLESS=1 "$CLAUDE_BIN" --dangerously-skip-permissions \
+      --output-format stream-json --verbose \
+      --resume "${key:-$issue}" \
+      -p "$resume_prompt" >>"$log_file" 2>&1 || true
+  )
+  return 0
+}
+
+# ---------------------------------------------------------------------------
 # _seconds_since <iso8601-timestamp>
 #
 # Emits seconds elapsed between the argument and now, or a large number
@@ -4030,6 +4225,33 @@ cmd_dispatch() {
           _spec_dir="$(dirname "$_wf")"
         fi
         _stall_restart "$issue" "$_spec_dir" "$log_file" || rc=$?
+      else
+        # Stall-resume wiring (#531): child exited without a watchdog kill.
+        # Classify the dispatch log; if the run was incomplete or errored
+        # and did NOT emit a HALT code, attempt a --resume re-entry.
+        local _dispatch_verdict
+        _dispatch_verdict="$(_parse_dispatch_result "$log_file")"
+        if [[ "$_dispatch_verdict" == "incomplete" || "$_dispatch_verdict" == "errored" ]]; then
+          # Check whether the run ended on a HALT code (grep orchestrate.jsonl
+          # for the most recent step:halt entry). If present, skip resume —
+          # the HALT classification path owns the issue.
+          local _spec_dir_r=""
+          local _wf_r
+          _wf_r="$(find "${SPECS_DIR:-$REPO_ROOT/specs}" -maxdepth 2 \
+            -name "workflow-state-${issue}.json" 2>/dev/null | head -1)"
+          if [[ -n "$_wf_r" ]]; then
+            _spec_dir_r="$(dirname "$_wf_r")"
+          fi
+          local _halt_emitted="false"
+          if [[ -f "${_spec_dir_r}/orchestrate.jsonl" ]]; then
+            if grep -q '"step":"halt"' "${_spec_dir_r}/orchestrate.jsonl" 2>/dev/null; then
+              _halt_emitted="true"
+            fi
+          fi
+          if [[ "$_halt_emitted" != "true" ]]; then
+            _stall_resume "$issue" "$key" "$_spec_dir_r" "$log_file" || rc=$?
+          fi
+        fi
       fi
     fi
   else
@@ -4916,6 +5138,24 @@ if [[ "$SUBCMD" == _test-* ]]; then
       _test_issue="${1:?issue required}"
       _test_spec="${2:-}"
       _stall_restart "$_test_issue" "$_test_spec" ""
+      ;;
+    # _test-stall-resume <issue> <key> [spec-folder] [log-file] — exercise
+    # _stall_resume deterministically. Reads stall_restart_count from
+    # loop-status.json (pre-seeded by the test). Returns _stall_resume's
+    # exit code. (#531)
+    _test-stall-resume)
+      _test_issue="${1:?issue required}"
+      _test_key="${2:-}"
+      _test_spec="${3:-}"
+      _test_log="${4:-}"
+      _stall_resume "$_test_issue" "$_test_key" "$_test_spec" "$_test_log"
+      ;;
+    # _test-parse-dispatch-result [log-file] — exercise _parse_dispatch_result
+    # deterministically. Prints the verdict (complete/incomplete/errored).
+    # (#531)
+    _test-parse-dispatch-result)
+      _test_logfile="${1:-}"
+      _parse_dispatch_result "$_test_logfile"
       ;;
     # _test-pre-dispatch-plan-guard <key> — exercise _pre_dispatch_plan_guard
     # deterministically. SPECS_DIR and CLAUDE_BIN are consumed from the
