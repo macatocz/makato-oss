@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.106.0](https://github.com/macatocz/makato/compare/v0.105.0...v0.106.0) (2026-07-23)
+
+
+### ✨ Features
+
+* **loop:** emit Langfuse traces for headless dispatches ([#547](https://github.com/macatocz/makato/issues/547)) ([#549](https://github.com/macatocz/makato/issues/549)) ([3d63188](https://github.com/macatocz/makato/commit/3d6318897a764f370395ecde97326a6ed16da2f9))
+
 ## [0.105.0](https://github.com/macatocz/makato/compare/v0.104.2...v0.105.0) (2026-07-23)
 
 
