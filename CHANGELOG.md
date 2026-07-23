@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.104.2](https://github.com/macatocz/makato/compare/v0.104.1...v0.104.2) (2026-07-23)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** plan-tier:change routes to change lane ([#539](https://github.com/macatocz/makato/issues/539)) ([#542](https://github.com/macatocz/makato/issues/542)) ([a6e9298](https://github.com/macatocz/makato/commit/a6e9298ced2abab772ee61be80db005d3de2ea5c))
+
 ## [0.104.1](https://github.com/macatocz/makato/compare/v0.104.0...v0.104.1) (2026-07-23)
 
 
