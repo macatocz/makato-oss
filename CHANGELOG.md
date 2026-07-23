@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.105.0](https://github.com/macatocz/makato/compare/v0.104.2...v0.105.0) (2026-07-23)
+
+
+### ✨ Features
+
+* **loop:** generic MAKATO_LOOP_PREPOLL_HOOK pre-poll hook (exit 0/2/3) ([#544](https://github.com/macatocz/makato/issues/544)) ([b0b3e4b](https://github.com/macatocz/makato/commit/b0b3e4bc608895e66683faf4c4896781ba252a9a))
+
 ## [0.104.2](https://github.com/macatocz/makato/compare/v0.104.1...v0.104.2) (2026-07-23)
 
 
