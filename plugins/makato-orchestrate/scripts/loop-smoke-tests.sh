@@ -4246,6 +4246,215 @@ rm -rf "${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-stall4"
 echo "  ✓ MAKATO_LOOP_STALL_DISABLE=1: returns 0 immediately, no orchestrate.jsonl"
 
 # ---------------------------------------------------------------------------
+# T-RESUME-1: dispatch log contains a valid terminal result line with
+#   is_error:false → _parse_dispatch_result returns "complete";
+#   _stall_resume is NOT called. (#531)
+# ---------------------------------------------------------------------------
+echo "=== T-RESUME-1: dispatch log has is_error:false result → _parse_dispatch_result returns complete ==="
+T_R1_STATE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-resume1/state"
+T_R1_SPECS="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-resume1/specs"
+T_R1_SPEC_DIR="$T_R1_SPECS/resume1-slug"
+mkdir -p "$T_R1_STATE" "$T_R1_SPEC_DIR"
+T_R1_LOG="$T_R1_STATE/dispatch-44420.log"
+# Write a synthetic dispatch log with a terminal result line (is_error: false).
+printf '%s\n' \
+  '{"type":"system","subtype":"init"}' \
+  '{"type":"assistant","message":{"content":[{"type":"text","text":"Working..."}]}}' \
+  '{"type":"result","subtype":"success","is_error":false,"result":"PR opened #42","usage":{"input_tokens":100,"output_tokens":50}}' \
+  >"$T_R1_LOG"
+echo '{"stall_restart_count":0}' >"$T_R1_STATE/loop-status.json"
+t_r1_verdict=""
+t_r1_verdict="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_STATE_DIR="$T_R1_STATE" \
+  SPECS_DIR="$T_R1_SPECS" \
+  MAKATO_LOOP_STALL_DISABLE=0 \
+    "$LOOP" _test-parse-dispatch-result "$T_R1_LOG" 2>/dev/null
+)"
+[[ "$t_r1_verdict" == "complete" ]] \
+  || fail "T-RESUME-1: expected 'complete'; got '$t_r1_verdict'"
+rm -rf "${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-resume1"
+echo "  ✓ is_error:false result → _parse_dispatch_result returns 'complete'"
+
+# ---------------------------------------------------------------------------
+# T-RESUME-2: dispatch log is missing the terminal result line →
+#   _parse_dispatch_result returns "incomplete"; _stall_resume is called;
+#   orchestrate.jsonl contains step:stall-resume status:attempt. (#531)
+# ---------------------------------------------------------------------------
+echo "=== T-RESUME-2: missing result line → _parse_dispatch_result returns incomplete; _stall_resume attempt ==="
+T_R2_STATE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-resume2/state"
+T_R2_SPECS="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-resume2/specs"
+T_R2_SPEC_DIR="$T_R2_SPECS/resume2-slug"
+mkdir -p "$T_R2_STATE" "$T_R2_SPEC_DIR"
+T_R2_LOG="$T_R2_STATE/dispatch-44421.log"
+# Write a synthetic dispatch log WITHOUT a terminal result line.
+printf '%s\n' \
+  '{"type":"system","subtype":"init"}' \
+  '{"type":"assistant","message":{"content":[{"type":"text","text":"Working..."}]}}' \
+  >"$T_R2_LOG"
+echo '{"stall_restart_count":0}' >"$T_R2_STATE/loop-status.json"
+# First verify _parse_dispatch_result returns "incomplete".
+t_r2_verdict=""
+t_r2_verdict="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_STATE_DIR="$T_R2_STATE" \
+  SPECS_DIR="$T_R2_SPECS" \
+  MAKATO_LOOP_STALL_DISABLE=0 \
+    "$LOOP" _test-parse-dispatch-result "$T_R2_LOG" 2>/dev/null
+)"
+[[ "$t_r2_verdict" == "incomplete" ]] \
+  || fail "T-RESUME-2: expected 'incomplete'; got '$t_r2_verdict'"
+# Now verify _stall_resume emits step:stall-resume status:attempt.
+t_r2_rc=0
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_LOOP_STATE_DIR="$T_R2_STATE" \
+SPECS_DIR="$T_R2_SPECS" \
+MAKATO_LOOP_STALL_DISABLE=0 \
+MAKATO_LOOP_SLEEP_CMD=true \
+MAKATO_CLAUDE_BIN=true \
+  "$LOOP" _test-stall-resume 44421 "resume2-slug" "$T_R2_SPEC_DIR" "$T_R2_LOG" \
+  >/dev/null 2>&1 || t_r2_rc=$?
+[[ $t_r2_rc -eq 0 ]] \
+  || fail "T-RESUME-2: _stall_resume should return 0 (budget available); got $t_r2_rc"
+[[ -f "$T_R2_SPEC_DIR/orchestrate.jsonl" ]] \
+  || fail "T-RESUME-2: orchestrate.jsonl not written"
+t_r2_line="$(grep '"stall-resume"' "$T_R2_SPEC_DIR/orchestrate.jsonl" | tail -1)"
+[[ -n "$t_r2_line" ]] \
+  || fail "T-RESUME-2: no stall-resume entry in orchestrate.jsonl"
+t_r2_status="$(printf '%s' "$t_r2_line" | jq -r '.status // empty' 2>/dev/null)"
+[[ "$t_r2_status" == "attempt" ]] \
+  || fail "T-RESUME-2: status should be 'attempt'; got '$t_r2_status'"
+rm -rf "${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-resume2"
+echo "  ✓ missing result line → 'incomplete', _stall_resume emits step:stall-resume status:attempt"
+
+# ---------------------------------------------------------------------------
+# T-RESUME-3: dispatch log contains a terminal result line with is_error:true
+#   → _parse_dispatch_result returns "errored"; _stall_resume is called;
+#   orchestrate.jsonl contains step:stall-resume status:attempt. (#531)
+# ---------------------------------------------------------------------------
+echo "=== T-RESUME-3: is_error:true result → _parse_dispatch_result returns errored; _stall_resume attempt ==="
+T_R3_STATE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-resume3/state"
+T_R3_SPECS="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-resume3/specs"
+T_R3_SPEC_DIR="$T_R3_SPECS/resume3-slug"
+mkdir -p "$T_R3_STATE" "$T_R3_SPEC_DIR"
+T_R3_LOG="$T_R3_STATE/dispatch-44422.log"
+# Write a synthetic dispatch log with is_error:true.
+printf '%s\n' \
+  '{"type":"system","subtype":"init"}' \
+  '{"type":"result","subtype":"error_max_turns","is_error":true,"result":"Max turns reached"}' \
+  >"$T_R3_LOG"
+echo '{"stall_restart_count":0}' >"$T_R3_STATE/loop-status.json"
+# Verify _parse_dispatch_result returns "errored".
+t_r3_verdict=""
+t_r3_verdict="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_STATE_DIR="$T_R3_STATE" \
+  SPECS_DIR="$T_R3_SPECS" \
+  MAKATO_LOOP_STALL_DISABLE=0 \
+    "$LOOP" _test-parse-dispatch-result "$T_R3_LOG" 2>/dev/null
+)"
+[[ "$t_r3_verdict" == "errored" ]] \
+  || fail "T-RESUME-3: expected 'errored'; got '$t_r3_verdict'"
+# Verify _stall_resume emits step:stall-resume status:attempt.
+t_r3_rc=0
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_LOOP_STATE_DIR="$T_R3_STATE" \
+SPECS_DIR="$T_R3_SPECS" \
+MAKATO_LOOP_STALL_DISABLE=0 \
+MAKATO_LOOP_SLEEP_CMD=true \
+MAKATO_CLAUDE_BIN=true \
+  "$LOOP" _test-stall-resume 44422 "resume3-slug" "$T_R3_SPEC_DIR" "$T_R3_LOG" \
+  >/dev/null 2>&1 || t_r3_rc=$?
+[[ $t_r3_rc -eq 0 ]] \
+  || fail "T-RESUME-3: _stall_resume should return 0 (budget available); got $t_r3_rc"
+[[ -f "$T_R3_SPEC_DIR/orchestrate.jsonl" ]] \
+  || fail "T-RESUME-3: orchestrate.jsonl not written"
+t_r3_line="$(grep '"stall-resume"' "$T_R3_SPEC_DIR/orchestrate.jsonl" | tail -1)"
+[[ -n "$t_r3_line" ]] \
+  || fail "T-RESUME-3: no stall-resume entry in orchestrate.jsonl"
+t_r3_status="$(printf '%s' "$t_r3_line" | jq -r '.status // empty' 2>/dev/null)"
+[[ "$t_r3_status" == "attempt" ]] \
+  || fail "T-RESUME-3: status should be 'attempt'; got '$t_r3_status'"
+rm -rf "${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-resume3"
+echo "  ✓ is_error:true result → 'errored', _stall_resume emits step:stall-resume status:attempt"
+
+# ---------------------------------------------------------------------------
+# T-RESUME-4: stall_restart_count >= MAX_STALL_RESTARTS with incomplete
+#   result → _stall_resume returns 1; orchestrate.jsonl contains
+#   step:stall-resume status:escalate halt_code:HALT-014;
+#   needs-human-review label applied. (#531)
+# ---------------------------------------------------------------------------
+echo "=== T-RESUME-4: budget exhausted → _stall_resume escalates to HALT-014, returns 1 ==="
+T_R4_STATE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-resume4/state"
+T_R4_SPECS="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-resume4/specs"
+T_R4_SPEC_DIR="$T_R4_SPECS/resume4-slug"
+T_R4_LABEL_FILE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-resume4/labels.txt"
+mkdir -p "$T_R4_STATE" "$T_R4_SPEC_DIR"
+T_R4_LOG="$T_R4_STATE/dispatch-44423.log"
+# stall_restart_count at ceiling (3 = MAX_STALL_RESTARTS default).
+echo '{"stall_restart_count":3}' >"$T_R4_STATE/loop-status.json"
+t_r4_rc=0
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_LOOP_STATE_DIR="$T_R4_STATE" \
+SPECS_DIR="$T_R4_SPECS" \
+MAKATO_LOOP_STALL_DISABLE=0 \
+MAKATO_LOOP_LABEL_TEST_FILE="$T_R4_LABEL_FILE" \
+MAKATO_LOOP_WF_STATE_TEST_CMD="true" \
+  "$LOOP" _test-stall-resume 44423 "resume4-slug" "$T_R4_SPEC_DIR" "$T_R4_LOG" \
+  >/dev/null 2>&1 || t_r4_rc=$?
+[[ $t_r4_rc -eq 1 ]] \
+  || fail "T-RESUME-4: _stall_resume should return 1 when budget exhausted; got $t_r4_rc"
+[[ -f "$T_R4_SPEC_DIR/orchestrate.jsonl" ]] \
+  || fail "T-RESUME-4: orchestrate.jsonl not written"
+t_r4_line="$(grep '"stall-resume"' "$T_R4_SPEC_DIR/orchestrate.jsonl" | tail -1)"
+[[ -n "$t_r4_line" ]] \
+  || fail "T-RESUME-4: no stall-resume entry in orchestrate.jsonl"
+t_r4_status="$(printf '%s' "$t_r4_line" | jq -r '.status // empty' 2>/dev/null)"
+[[ "$t_r4_status" == "escalate" ]] \
+  || fail "T-RESUME-4: status should be 'escalate'; got '$t_r4_status'"
+t_r4_halt="$(printf '%s' "$t_r4_line" | jq -r '.data.halt_code // empty' 2>/dev/null)"
+[[ "$t_r4_halt" == "HALT-014" ]] \
+  || fail "T-RESUME-4: data.halt_code should be 'HALT-014'; got '$t_r4_halt'"
+[[ -f "$T_R4_LABEL_FILE" && -s "$T_R4_LABEL_FILE" ]] \
+  || fail "T-RESUME-4: needs-human-review label should have been applied"
+grep -q "needs-human-review" "$T_R4_LABEL_FILE" \
+  || fail "T-RESUME-4: label file should contain needs-human-review; got: $(cat "$T_R4_LABEL_FILE")"
+rm -rf "${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-resume4"
+echo "  ✓ budget exhausted: step:stall-resume status:escalate halt_code=HALT-014, returns 1, label applied"
+
+# ---------------------------------------------------------------------------
+# T-RESUME-5: MAKATO_LOOP_STALL_DISABLE=1 with incomplete result →
+#   _stall_resume emits step:stall-resume status:skip and returns 0;
+#   no claude invocation attempted. (#531)
+# ---------------------------------------------------------------------------
+echo "=== T-RESUME-5: MAKATO_LOOP_STALL_DISABLE=1 → _stall_resume emits status:skip, returns 0 ==="
+T_R5_STATE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-resume5/state"
+T_R5_SPECS="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-resume5/specs"
+T_R5_SPEC_DIR="$T_R5_SPECS/resume5-slug"
+mkdir -p "$T_R5_STATE" "$T_R5_SPEC_DIR"
+T_R5_LOG="$T_R5_STATE/dispatch-44424.log"
+echo '{"stall_restart_count":0}' >"$T_R5_STATE/loop-status.json"
+t_r5_rc=0
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_LOOP_STATE_DIR="$T_R5_STATE" \
+SPECS_DIR="$T_R5_SPECS" \
+MAKATO_LOOP_STALL_DISABLE=1 \
+  "$LOOP" _test-stall-resume 44424 "resume5-slug" "$T_R5_SPEC_DIR" "$T_R5_LOG" \
+  >/dev/null 2>&1 || t_r5_rc=$?
+[[ $t_r5_rc -eq 0 ]] \
+  || fail "T-RESUME-5: _stall_resume should return 0 when STALL_DISABLE=1; got $t_r5_rc"
+[[ -f "$T_R5_SPEC_DIR/orchestrate.jsonl" ]] \
+  || fail "T-RESUME-5: orchestrate.jsonl should be written (skip entry)"
+t_r5_line="$(grep '"stall-resume"' "$T_R5_SPEC_DIR/orchestrate.jsonl" | tail -1)"
+[[ -n "$t_r5_line" ]] \
+  || fail "T-RESUME-5: no stall-resume entry in orchestrate.jsonl"
+t_r5_status="$(printf '%s' "$t_r5_line" | jq -r '.status // empty' 2>/dev/null)"
+[[ "$t_r5_status" == "skip" ]] \
+  || fail "T-RESUME-5: status should be 'skip'; got '$t_r5_status'"
+rm -rf "${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-resume5"
+echo "  ✓ MAKATO_LOOP_STALL_DISABLE=1: _stall_resume emits skip, returns 0, no claude invocation"
+
+# ---------------------------------------------------------------------------
 # T72: pre-dispatch spec-folder gate — miss path (#445)
 #   KEY resolves fine from the body but SPECS_DIR has no matching folder.
 #   Expected: WARN "no specs/ folder" on stderr, active_workflow cleared,
@@ -4909,4 +5118,4 @@ echo "  ✓ hostile IDLE_FACTOR=0 / IDLE_MAX<base fall back to safe defaults"
 
 echo
 
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470; T84–T89 orphaned-specs pruning; T90 promote-before-prune; T-GQL1–T-GQL5 GraphQL board poll + item-list rollback, #516; T-IDLE1–T-IDLE2 adaptive idle backoff, #516) ==="
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T-RESUME-1 complete result no-op, T-RESUME-2 incomplete triggers attempt, T-RESUME-3 errored triggers attempt, T-RESUME-4 budget-exhausted HALT-014, T-RESUME-5 STALL_DISABLE skip detect+resume, #531; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470; T84–T89 orphaned-specs pruning; T90 promote-before-prune; T-GQL1–T-GQL5 GraphQL board poll + item-list rollback, #516; T-IDLE1–T-IDLE2 adaptive idle backoff, #516) ==="
