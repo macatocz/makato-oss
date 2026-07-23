@@ -3825,6 +3825,54 @@ _pre_dispatch_plan_guard() {
 }
 
 # ---------------------------------------------------------------------------
+# _emit_langfuse_trace <log_file> <issue>
+#
+# Called after every headless `claude -p` dispatch completes. Extracts the
+# session_id from the stream-json result line in <log_file>, derives the
+# transcript path (~/.claude/projects/<project-hash>/<session_id>.jsonl),
+# and pipes a minimal Stop-hook payload to langfuse_hook.py.
+#
+# Skipped silently when:
+#   - TRACE_TO_LANGFUSE != true
+#   - langfuse_hook.py not found on the plugin search path
+#   - session_id absent from log (test stub / dry-run paths)
+# ---------------------------------------------------------------------------
+_emit_langfuse_trace() {
+  local log_file="${1:-}" issue="${2:-}"
+  [[ "${TRACE_TO_LANGFUSE:-false}" == "true" ]] || return 0
+  [[ -f "$log_file" ]] || return 0
+
+  # Resolve hook — prefer working-tree copy, fall back to marketplace cache.
+  local hook_py=""
+  local _candidates=(
+    "$REPO_ROOT/plugins/makato-observability/hooks/langfuse_hook.py"
+    "$HOME/.claude/plugins/marketplaces/makato-suite/plugins/makato-observability/hooks/langfuse_hook.py"
+  )
+  local _c
+  for _c in "${_candidates[@]}"; do
+    if [[ -f "$_c" ]]; then hook_py="$_c"; break; fi
+  done
+  [[ -n "$hook_py" ]] || return 0
+
+  # Extract session_id from the terminal {"type":"result",...} line.
+  local session_id
+  session_id="$(grep '"type":"result"' "$log_file" 2>/dev/null \
+    | tail -1 \
+    | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("session_id",""))' 2>/dev/null || true)"
+  [[ -n "$session_id" ]] || return 0
+
+  # Derive transcript path: ~/.claude/projects/<hash>/<session_id>.jsonl
+  local project_hash
+  project_hash="$(echo -n "$REPO_ROOT" | sed 's|/|-|g' | sed 's|^-||')"
+  local transcript="$HOME/.claude/projects/${project_hash}/${session_id}.jsonl"
+  [[ -f "$transcript" ]] || return 0
+
+  python3 "$hook_py" \
+    <<< "{\"sessionId\":\"${session_id}\",\"transcriptPath\":\"${transcript}\"}" \
+    2>/dev/null || true
+}
+
+# ---------------------------------------------------------------------------
 # dispatch <ISSUE_NUMBER> [--repo owner/repo] [--dry-run]
 #
 # --repo sets MAKATO_LOOP_DISPATCH_REPO for this call, overriding any
@@ -4390,6 +4438,7 @@ cmd_dispatch() {
         -p "$dispatch_prompt" || rc=$?
     fi
   fi
+  _emit_langfuse_trace "$log_file" "$issue"
   _patch_status '.active_workflow' 'null'
   return $rc
 }
