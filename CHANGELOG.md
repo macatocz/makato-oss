@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.102.1](https://github.com/macatocz/makato/compare/v0.102.0...v0.102.1) (2026-07-23)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** enable headless CLI retry to survive transient API stalls ([da5d800](https://github.com/macatocz/makato/commit/da5d8000d615fced4a8f24f7a4df3a40d718bb69))
+
 ## [0.102.0](https://github.com/macatocz/makato/compare/v0.101.0...v0.102.0) (2026-07-21)
 
 
