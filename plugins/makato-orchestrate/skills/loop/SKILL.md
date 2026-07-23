@@ -921,6 +921,98 @@ plugins/makato-orchestrate/scripts/loop-smoke-tests.sh
 The harness uses `MAKATO_LOOP_GH_OVERRIDE` to inject a canned
 `item-list` fixture — fully offline, no GitHub access required.
 
+## External supervisor (outermost safety net)
+
+`scripts/loop-supervisor.sh` is an **opt-in** safety net that sits one layer
+outside `loop.sh`. While `loop.sh`'s run-mutex and liveness watchdog protect
+the dispatch loop from within, they cannot restart themselves if the `loop.sh`
+process dies unexpectedly (OS-level OOM kill, session exit, `kill -9`). The
+external supervisor fills that gap.
+
+### What it checks
+
+On every invocation the supervisor reads exactly two public files — nothing else
+from `loop.sh` internals:
+
+| File | Used for |
+|------|----------|
+| `$STATE_DIR/loop.pid` | Liveness probe (`kill -0 <pid>`; missing pidfile = dead) |
+| `$STATE_DIR/loop-status.json` | `.last_dispatch_at` (staleness) and `.queue_depth` (idle vs. stuck) |
+
+### Decision table
+
+| Pidfile | Board | Action |
+|---------|-------|--------|
+| Alive   | Empty   | `no_action` — idle loop is healthy regardless of age |
+| Alive   | Non-empty, recent dispatch | `no_action` — loop is progressing |
+| Alive   | Non-empty, stale dispatch (≥ `SUPERVISOR_STALE_SECS`, default 600 s) | `restart` — loop appears stuck |
+| Dead / missing | Empty | `no_action` — nothing to do |
+| Dead / missing | Non-empty | `restart` — loop gone, work queued |
+| Any     | Any | `halt_skip` if `~/.claude/HALT` exists or the `autonomous:halt` label is on the repo |
+
+A restart is issued via `nohup bash loop.sh run … &`. Because `loop.sh`'s run-mutex
+refuses a second start when it is already alive (exit 3), a false-positive restart
+(supervisor misread a slow-starting process) is safe: the second start exits immediately
+and the incumbent continues unaffected.
+
+### Install
+
+The supervisor does **not** start automatically with `loop run`. Install it as a
+launchd agent or a cron job — whichever fits your setup.
+
+**launchd (macOS):**
+
+```bash
+# 1. Copy the template and substitute placeholders
+cp plugins/makato-orchestrate/scripts/com.makato.loop-supervisor.plist.template \
+   ~/Library/LaunchAgents/com.makato.loop-supervisor.plist
+
+# Replace {{MAKATO_REPO_ROOT}} and {{HOME}} in the copied file, then:
+
+# 2. Load the agent
+launchctl load ~/Library/LaunchAgents/com.makato.loop-supervisor.plist
+
+# 3. Unload when you want to stop it
+launchctl unload ~/Library/LaunchAgents/com.makato.loop-supervisor.plist
+```
+
+**cron (cross-platform fallback):**
+
+```bash
+# crontab -e
+*/5 * * * * /path/to/makato/plugins/makato-orchestrate/scripts/loop-supervisor.sh >> ~/.claude/state/supervisor.log 2>&1
+```
+
+### Audit log
+
+Every tick appends one JSON line to `$STATE_DIR/supervisor-audit.jsonl`:
+
+```json
+{"ts":"<ISO8601>","action":"<no_action|restart|halt_skip>","reason":"<why>","pid_status":"<alive|dead|missing>","stale_secs":<int-or-null>}
+```
+
+### Environment overrides
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `MAKATO_LOOP_STATE_DIR` | `<REPO_ROOT>/.claude/state` | State directory (matches `loop.sh`) |
+| `MAKATO_LOOP_PIDFILE` | `$STATE_DIR/loop.pid` | Pidfile path (matches `loop.sh`) |
+| `MAKATO_HALT_FILE` | `~/.claude/HALT` | HALT-file path override |
+| `SUPERVISOR_STALE_SECS` | `600` | Staleness threshold in seconds |
+| `MAKATO_REPO_ROOT` | Derived from script location | Repository root |
+| `MAKATO_LOOP_SCRIPT` | `<REPO_ROOT>/plugins/makato-orchestrate/scripts/loop.sh` | Path to `loop.sh` |
+| `MAKATO_SUPERVISOR_AUDIT` | `$STATE_DIR/supervisor-audit.jsonl` | Per-tick audit log |
+| `MAKATO_SUPERVISOR_DRY_RUN` | unset | Set to `1` to skip restart without a real `nohup` (tests) |
+
+### Smoke tests
+
+```bash
+plugins/makato-orchestrate/scripts/loop-supervisor-smoke-tests.sh
+```
+
+Seven offline scenarios covering all four plan-specified cases plus edge variants
+(dead-pid empty board, missing pidfile, alive+stale dispatch).
+
 ## Out of scope
 
 Documented limits of the v1 implementation (per issue #33):
