@@ -2808,7 +2808,77 @@ _auto_seed_reconcile_thin_body() {
 #       creation step (tests redirect to a temp directory).
 #   MAKATO_LOOP_ISSUE_TITLE_OVERRIDE — reused from _derive_key_for_issue to
 #       derive the slug without a `gh issue view` call.
+#   MAKATO_LOOP_RECONCILE_LABEL_FILE — path to a newline-separated list of
+#       label names used as the issue's current labels instead of calling
+#       `gh issue view --json labels`. Offline substitute for label fetch.
+#   MAKATO_LOOP_PROMOTE_TEST_FILE    — append "promote #N → Ready" instead of
+#       calling `gh project item-edit` to set Ready. Offline substitute.
+#   MAKATO_SPEC_STORIES_TRACKED      — forwarded to should-materialize-spec.sh:
+#       1=force tracked, 0=force untracked (keeps tests offline, no git probe).
 # ---------------------------------------------------------------------------
+_auto_seed_promote_ready_from_gate() {
+  local issue="${1:?issue number required}"
+
+  local repo="${MAKATO_LOOP_DISPATCH_REPO:-}"
+  local -a repo_flag=()
+  [[ -n "$repo" ]] && repo_flag=(--repo "$repo")
+
+  # --- Step A: Apply status:ready-for-dev label ---
+  if [[ -n "${MAKATO_LOOP_LABEL_TEST_FILE:-}" ]]; then
+    echo "label #${issue} status:ready-for-dev" >>"$MAKATO_LOOP_LABEL_TEST_FILE"
+  else
+    if gh issue edit "$issue" "${repo_flag[@]}" \
+        --add-label "status:ready-for-dev" >/dev/null 2>&1; then
+      echo "loop: auto-seed-block — applied 'status:ready-for-dev' label to #$issue" >&2
+    else
+      echo "loop: WARN — auto-seed-block #$issue: could not apply status:ready-for-dev label" >&2
+    fi
+  fi
+
+  # --- Step B: Move board card to Ready ---
+  if [[ -n "${MAKATO_LOOP_PROMOTE_TEST_FILE:-}" ]]; then
+    echo "promote #${issue} → Ready" >>"$MAKATO_LOOP_PROMOTE_TEST_FILE"
+  else
+    if [[ -f "$CONFIG_FILE" ]]; then
+      local status_field_id ready_option_id project_node_id host owner number
+      status_field_id="$(jq -r '.github_project.fields.status.id // empty' "$CONFIG_FILE")"
+      ready_option_id="$(jq -r '.github_project.fields.status.options.ready // (.github_project.options.ready // empty)' "$CONFIG_FILE")"
+      project_node_id="$(jq -r '.github_project.project_node_id // empty' "$CONFIG_FILE")"
+      host="$(jq -r '.github_project.host // "github.com"' "$CONFIG_FILE")"
+      owner="$(jq -r '.github_project.owner // empty' "$CONFIG_FILE")"
+      number="$(jq -r '.github_project.number // empty' "$CONFIG_FILE")"
+
+      if [[ -n "$status_field_id" && -n "$ready_option_id" && -n "$project_node_id" && -n "$owner" && -n "$number" ]]; then
+        local item_id=""
+        item_id="$(GH_HOST="$host" gh project item-add "$number" --owner "$owner" \
+          --url "https://github.com/${repo}/issues/$issue" \
+          --format json 2>/dev/null | jq -r '.id // empty' 2>/dev/null || true)"
+        if [[ -z "$item_id" ]]; then
+          item_id="$(GH_HOST="$host" gh project item-list "$number" --owner "$owner" \
+            --format json --limit 9999 2>/dev/null \
+            | jq -r --argjson i "$issue" '.items[] | select(.content.number == $i) | .id' 2>/dev/null \
+            | head -1 || true)"
+        fi
+        if [[ -n "$item_id" ]]; then
+          if GH_HOST="$host" gh project item-edit --id "$item_id" \
+              --project-id "$project_node_id" \
+              --field-id "$status_field_id" \
+              --single-select-option-id "$ready_option_id" >/dev/null 2>&1; then
+            echo "loop: auto-seed-block — set #$issue → Ready on board (materialize-refine)" >&2
+          else
+            echo "loop: WARN — auto-seed-block #$issue: board item-edit to Ready failed" >&2
+          fi
+        else
+          echo "loop: WARN — auto-seed-block #$issue: could not resolve board item id for Ready move" >&2
+        fi
+      else
+        echo "loop: WARN — auto-seed-block #$issue: missing config fields for board Ready move" >&2
+      fi
+    else
+      echo "loop: WARN — auto-seed-block #$issue: .claude/config.json not found; skipping Ready move" >&2
+    fi
+  fi
+}
 _auto_seed_block_full() {
   local issue="${1:?issue number required}"
   local plan_tier="${2:-}"
@@ -2896,6 +2966,37 @@ _auto_seed_block_full() {
 
       echo "loop: auto-seed-block — created specs/$slug/ with plan.md stub and seed-manifest.json (schema_version 2)" >&2
     fi
+  fi
+
+  # --- Gate: consult should-materialize-spec.sh before blocking (#533) ---
+  # When the issue has a committed stories.json the PO-agent's Step 1a gate
+  # can materialize the plan autonomously via build-refine. Blocking in that
+  # case contradicts the PO-agent — promote to Ready instead.
+  local materialize_sh
+  materialize_sh="$(dirname "$0")/should-materialize-spec.sh"
+
+  local labels_raw=""
+  if [[ -n "${MAKATO_LOOP_RECONCILE_LABEL_FILE:-}" ]]; then
+    labels_raw="$(cat "${MAKATO_LOOP_RECONCILE_LABEL_FILE}" 2>/dev/null || true)"
+  else
+    labels_raw="$(gh issue view "$issue" "${repo_flag[@]}" \
+      --json labels --jq '[.labels[].name] | .[]' 2>/dev/null || true)"
+  fi
+  local -a labels_arr=()
+  while IFS= read -r lbl; do [[ -n "$lbl" ]] && labels_arr+=("$lbl"); done <<<"$labels_raw"
+
+  local gate_out="" gate_verdict="halt"
+  if [[ -f "$materialize_sh" ]]; then
+    gate_out="$(bash "$materialize_sh" "$spec_dir/plan.md" "${labels_arr[@]}" 2>/dev/null || true)"
+    gate_verdict="${gate_out%% *}"
+  else
+    echo "loop: WARN — auto-seed-block #$issue: should-materialize-spec.sh not found; defaulting to block" >&2
+  fi
+
+  if [[ "$gate_verdict" == "materialize-refine" ]]; then
+    echo "loop: auto-seed-block — #$issue materialize-refine verdict; promoting to Ready (skipping block)" >&2
+    _auto_seed_promote_ready_from_gate "$issue"
+    return 0
   fi
 
   # --- Step 2: Move board card to Blocked + apply needs-human-review label ---
@@ -2996,7 +3097,7 @@ _auto_seed_block_full() {
 
     local comment_body
     comment_body="${SENTINEL}
-This issue carries \`plan-tier:full\` (or no plan-tier label) and cannot be auto-planned headlessly — the full makato-plan pipeline is interview-driven.
+This issue carries \`plan-tier:full\` (or no plan-tier label) and does not have a committed \`stories.json\` — the full makato-plan pipeline is needed before autonomous dispatch.
 
 To dispatch this issue through the autonomous loop, run seed-issue first to generate a full \`plan.md\`:
 

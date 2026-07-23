@@ -2384,6 +2384,70 @@ rm -f "$T67_CONFIG" "$T67_BLOCK_FILE" "$T67_COMMENT_FILE" "$T67_LABEL_FILE"
 echo "  ✓ existing spec folder: idempotent skip, rest of actions still fire"
 
 # ---------------------------------------------------------------------------
+# T67b: materialize-refine verdict → promote to Ready, NOT block (#533)
+# ---------------------------------------------------------------------------
+echo "=== T67b: materialize-refine verdict → promote to Ready, NOT block (#533) ==="
+T67b_BLOCK_FILE="$STATE_DIR/t67b-block-$$.txt"
+T67b_PROMOTE_FILE="$STATE_DIR/t67b-promote-$$.txt"
+T67b_LABEL_FILE="$STATE_DIR/t67b-label-$$.txt"
+T67b_CONFIG="$STATE_DIR/t67b-config-$$.json"
+T67b_SPEC_ROOT="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/t67b-specs"
+T67b_LABEL_SRC="$STATE_DIR/t67b-labels-$$.txt"
+mkdir -p "$T67b_SPEC_ROOT"
+jq -n '{
+  "github_project": {
+    "owner":"macatocz","number":4,"host":"github.com",
+    "project_node_id":"PVT_test",
+    "fields":{"status":{
+      "id":"STATUS_FIELD_ID",
+      "options":{"blocked":"BLOCKED_OPT_ID","ready":"READY_OPT_ID"}
+    }}
+  }
+}' >"$T67b_CONFIG"
+# Provide issue labels offline (plan-tier:full, no plan-tier:light → gate
+# will not return materialize due to light label alone; but stories.json
+# present + MAKATO_SPEC_STORIES_TRACKED=1 → materialize-refine).
+printf 'plan-tier:full\ntype:feature\n' >"$T67b_LABEL_SRC"
+# Derive the slug that _auto_seed_block_full will use for issue 407.
+t67b_slug="407-materialize-refine-test"
+mkdir -p "$T67b_SPEC_ROOT/$t67b_slug"
+# Pre-populate stories.json so should-materialize-spec.sh returns
+# materialize-refine (plan.md is absent → validate-plan-body → missing-file;
+# stories.json present + non-empty + MAKATO_SPEC_STORIES_TRACKED=1 → row 2).
+printf '{"stories":[{"id":"S1","title":"First story"}]}\n' \
+  >"$T67b_SPEC_ROOT/$t67b_slug/stories.json"
+t67b_stderr="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_CONFIG="$T67b_CONFIG" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  MAKATO_LOOP_BLOCK_TEST_FILE="$T67b_BLOCK_FILE" \
+  MAKATO_LOOP_PROMOTE_TEST_FILE="$T67b_PROMOTE_FILE" \
+  MAKATO_LOOP_LABEL_TEST_FILE="$T67b_LABEL_FILE" \
+  MAKATO_LOOP_ISSUE_TITLE_OVERRIDE="Materialize refine test" \
+  MAKATO_LOOP_AUTOSEED_SPEC_ROOT="$T67b_SPEC_ROOT" \
+  MAKATO_LOOP_RECONCILE_LABEL_FILE="$T67b_LABEL_SRC" \
+  MAKATO_SPEC_STORIES_TRACKED=1 \
+    "$LOOP" _test-auto-seed-block-full 407 full 2>&1 >/dev/null
+)"
+[[ $? -eq 0 ]] \
+  || fail "T67b: function should exit 0 on materialize-refine; got: $t67b_stderr"
+[[ ! -f "$T67b_BLOCK_FILE" ]] \
+  || fail "T67b: block must NOT fire on materialize-refine; got: $(cat "$T67b_BLOCK_FILE")"
+[[ -f "$T67b_PROMOTE_FILE" ]] \
+  || fail "T67b: promote test file not written — Ready promote step skipped; got: $t67b_stderr"
+grep -q "promote #407 → Ready" "$T67b_PROMOTE_FILE" \
+  || fail "T67b: promote file should record 'promote #407 → Ready'; got: $(cat "$T67b_PROMOTE_FILE")"
+[[ -f "$T67b_LABEL_FILE" ]] \
+  || fail "T67b: label test file not written — status:ready-for-dev step skipped; got: $t67b_stderr"
+grep -q "label #407 status:ready-for-dev" "$T67b_LABEL_FILE" \
+  || fail "T67b: label file should record 'label #407 status:ready-for-dev'; got: $(cat "$T67b_LABEL_FILE")"
+echo "$t67b_stderr" | grep -qi "materialize-refine\|promoting to Ready" \
+  || fail "T67b: stderr should mention materialize-refine or promoting to Ready; got: $t67b_stderr"
+rm -f "$T67b_CONFIG" "$T67b_BLOCK_FILE" "$T67b_PROMOTE_FILE" "$T67b_LABEL_FILE" "$T67b_LABEL_SRC"
+rm -rf "$T67b_SPEC_ROOT"
+echo "  ✓ materialize-refine verdict: promote to Ready, no block"
+
+# ---------------------------------------------------------------------------
 # T68–T71: _auto_seed_reconcile_thin_body (#371, epic #367 S3)
 # ---------------------------------------------------------------------------
 
@@ -5118,4 +5182,4 @@ echo "  ✓ hostile IDLE_FACTOR=0 / IDLE_MAX<base fall back to safe defaults"
 
 echo
 
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T-RESUME-1 complete result no-op, T-RESUME-2 incomplete triggers attempt, T-RESUME-3 errored triggers attempt, T-RESUME-4 budget-exhausted HALT-014, T-RESUME-5 STALL_DISABLE skip detect+resume, #531; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470; T84–T89 orphaned-specs pruning; T90 promote-before-prune; T-GQL1–T-GQL5 GraphQL board poll + item-list rollback, #516; T-IDLE1–T-IDLE2 adaptive idle backoff, #516) ==="
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 T67b auto-seed block full + materialize-refine bypass, #372 #533; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T-RESUME-1 complete result no-op, T-RESUME-2 incomplete triggers attempt, T-RESUME-3 errored triggers attempt, T-RESUME-4 budget-exhausted HALT-014, T-RESUME-5 STALL_DISABLE skip detect+resume, #531; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470; T84–T89 orphaned-specs pruning; T90 promote-before-prune; T-GQL1–T-GQL5 GraphQL board poll + item-list rollback, #516; T-IDLE1–T-IDLE2 adaptive idle backoff, #516) ==="
