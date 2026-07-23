@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.104.0](https://github.com/macatocz/makato/compare/v0.103.0...v0.104.0) (2026-07-23)
+
+
+### ✨ Features
+
+* **loop:** detect exited-incomplete dispatch and resume via --resume ([#531](https://github.com/macatocz/makato/issues/531)) ([ed5713e](https://github.com/macatocz/makato/commit/ed5713e41af0127b3fcc25ff497b471322b54538))
+* **makato-orchestrate:** detect exited-incomplete dispatch and resume via --resume ([#531](https://github.com/macatocz/makato/issues/531)) ([#537](https://github.com/macatocz/makato/issues/537)) ([9e618ea](https://github.com/macatocz/makato/commit/9e618ea4c5ca24aaf33178d51ab2e687dfda8955))
+
 ## [0.103.0](https://github.com/macatocz/makato/compare/v0.102.1...v0.103.0) (2026-07-23)
 
 
