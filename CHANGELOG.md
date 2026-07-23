@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.103.0](https://github.com/macatocz/makato/compare/v0.102.1...v0.103.0) (2026-07-23)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** add external supervisor script for loop.sh restart ([2ad0457](https://github.com/macatocz/makato/commit/2ad0457d57518ac09ebcdadd83d11988aacd443b)), closes [#532](https://github.com/macatocz/makato/issues/532)
+* **makato-orchestrate:** add launchd plist template for loop supervisor ([e0d5297](https://github.com/macatocz/makato/commit/e0d5297263121e8fa1d136d6c1d62d28301b169a))
+* **makato-orchestrate:** external supervisor to restart a dead loop.sh ([2fe04f5](https://github.com/macatocz/makato/commit/2fe04f57a7493e9970c3b7a1cd179c12020df565))
+
 ## [0.102.1](https://github.com/macatocz/makato/compare/v0.102.0...v0.102.1) (2026-07-23)
 
 
