@@ -3928,6 +3928,9 @@ cmd_dispatch() {
     # `type:`-prefix extraction below is shape-agnostic. On wrapper failure
     # issue_type stays empty and dispatch continues to the default po-agent
     # path (unchanged fail-open routing).
+    # Test seam: MAKATO_LOOP_ROUTING_LABELS_OVERRIDE — when set to a file path,
+    # the labels JSON is read from that file instead of calling _gh_with_fallback
+    # (mirrors MAKATO_LOOP_GATE_LABELS_OVERRIDE for offline smoke tests).
     local _rt_repo="${MAKATO_LOOP_DISPATCH_REPO:-}"
     local -a _rt_repo_flag=()
     [[ -n "$_rt_repo" ]] && _rt_repo_flag=(--repo "$_rt_repo")
@@ -3937,13 +3940,28 @@ cmd_dispatch() {
     else
       _rt_rest_path="repos/{owner}/{repo}/issues/${issue}"
     fi
-    local labels_json
-    if labels_json="$(_gh_with_fallback "issue-type routing #${issue}" \
+    local labels_json=""
+    if [[ -n "${MAKATO_LOOP_ROUTING_LABELS_OVERRIDE:-}" ]]; then
+      labels_json="$(cat "${MAKATO_LOOP_ROUTING_LABELS_OVERRIDE}" 2>/dev/null || true)"
+    elif labels_json="$(_gh_with_fallback "issue-type routing #${issue}" \
         issue view "$issue" "${_rt_repo_flag[@]}" --json labels \
         -- api "$_rt_rest_path")"; then
+      : # labels_json set by _gh_with_fallback
+    fi
+    if [[ -n "$labels_json" ]]; then
       issue_type="$(jq -r \
         '[.labels[].name | select(startswith("type:"))] | first // ""' \
         <<<"$labels_json" 2>/dev/null || true)"
+      # #539: fall back to plan-tier:change when no type:* label is present.
+      # The project-board classifier (#211) stamps plan-tier:change on change
+      # issues; an issue carrying that label but no type:change was invisible
+      # to the change router and stuck in the auto-seed skip loop forever.
+      if [[ -z "$issue_type" ]]; then
+        if jq -e '[.labels[].name] | contains(["plan-tier:change"])' \
+            <<<"$labels_json" >/dev/null 2>&1; then
+          issue_type="type:change"
+        fi
+      fi
     fi
   fi
 

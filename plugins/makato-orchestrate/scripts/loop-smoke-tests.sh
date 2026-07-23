@@ -5180,6 +5180,89 @@ tidle2_out="$(MAKATO_LOOP_INTERVAL=300 MAKATO_LOOP_IDLE_FACTOR=0 MAKATO_LOOP_IDL
   || fail "T-IDLE2: bad factor/max should clamp to 2/300 (base); got: $tidle2_out"
 echo "  ✓ hostile IDLE_FACTOR=0 / IDLE_MAX<base fall back to safe defaults"
 
+# ---------------------------------------------------------------------------
+# T91: plan-tier:change routing — no type:change label, only plan-tier:change (#539)
+#   An issue labelled plan-tier:change (but NOT type:change) must dispatch via
+#   the change lane (makato-change:orchestrate --autonomous), NOT the po-agent
+#   and NOT the auto-seed skip loop.
+#
+# Design: uses MAKATO_LOOP_ROUTING_LABELS_OVERRIDE (a file path seam introduced
+# by this fix) to inject a labels JSON fixture so the test stays offline.
+# MAKATO_LOOP_ISSUE_TYPE_OVERRIDE is deliberately NOT set (empty) so the real
+# label-reading code path runs and the new fallback fires.
+#
+# Three sub-assertions:
+#   T91-primary   : plan-tier:change (no type:change) -> change-orchestrate (AC-1, AC-2)
+#   T91-regression: type:change present directly -> change-orchestrate (AC-3)
+#   T91-po-agent  : no change label at all -> po-agent (AC-4)
+# ---------------------------------------------------------------------------
 echo
+echo "=== T91: plan-tier:change routes to makato-change:orchestrate (#539) ==="
 
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 T67b auto-seed block full + materialize-refine bypass, #372 #533; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T-RESUME-1 complete result no-op, T-RESUME-2 incomplete triggers attempt, T-RESUME-3 errored triggers attempt, T-RESUME-4 budget-exhausted HALT-014, T-RESUME-5 STALL_DISABLE skip detect+resume, #531; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470; T84–T89 orphaned-specs pruning; T90 promote-before-prune; T-GQL1–T-GQL5 GraphQL board poll + item-list rollback, #516; T-IDLE1–T-IDLE2 adaptive idle backoff, #516) ==="
+T91_DIR="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-t91"
+mkdir -p "$T91_DIR"
+rm -f "$STATE_DIR/loop-status.json"
+
+# Shared body fixture — has a to-issues provenance footer for KEY derivation.
+t91_body="$T91_DIR/body.txt"
+printf '%s\n' '*Feature slug: `t91-change-routing` — produced by to-issues v3.x.*' >"$t91_body"
+
+# T91 primary: labels contain plan-tier:change but NO type:change.
+t91_labels_primary="$T91_DIR/labels-primary.json"
+printf '{"labels":[{"name":"plan-tier:change"},{"name":"bug"},{"name":"status:ready-for-dev"}]}\n' >"$t91_labels_primary"
+
+t91_primary="$(
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$t91_body" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  MAKATO_LOOP_ROUTING_LABELS_OVERRIDE="$t91_labels_primary" \
+    "$LOOP" dispatch 539 --dry-run 2>&1 >/dev/null
+)" || fail "T91: plan-tier:change dispatch --dry-run should exit 0; got: $t91_primary"
+
+grep -q "makato-change:orchestrate" <<<"$t91_primary" \
+  || fail "T91: plan-tier:change (no type:change) must route to makato-change:orchestrate; got: $t91_primary"
+grep -qi "po-agent" <<<"$t91_primary" \
+  && fail "T91: plan-tier:change must NOT route to po-agent; got: $t91_primary"
+grep -qi "change-orchestrate owns\|auto.seed.block\|auto-seed-block" <<<"$t91_primary" \
+  && fail "T91: plan-tier:change must NOT fall into auto-seed-block skip; got: $t91_primary"
+echo "  ✓ plan-tier:change (no type:change) routes to makato-change:orchestrate --autonomous"
+
+rm -f "$STATE_DIR/loop-status.json"
+
+# T91 regression guard: type:change present directly must still route to change-orchestrate (AC-3).
+t91_labels_typechange="$T91_DIR/labels-typechange.json"
+printf '{"labels":[{"name":"type:change"},{"name":"plugin:makato-orchestrate"}]}\n' >"$t91_labels_typechange"
+
+t91_regression="$(
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$t91_body" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  MAKATO_LOOP_ROUTING_LABELS_OVERRIDE="$t91_labels_typechange" \
+    "$LOOP" dispatch 540 --dry-run 2>&1 >/dev/null
+)" || fail "T91 regression: type:change dispatch --dry-run should exit 0; got: $t91_regression"
+
+grep -q "makato-change:orchestrate" <<<"$t91_regression" \
+  || fail "T91 regression: type:change label must still route to makato-change:orchestrate; got: $t91_regression"
+echo "  ✓ type:change label still routes to makato-change:orchestrate (regression guard AC-3)"
+
+rm -f "$STATE_DIR/loop-status.json"
+
+# T91 po-agent guard: no change label at all must route to po-agent (AC-4).
+t91_labels_nochange="$T91_DIR/labels-nochange.json"
+printf '{"labels":[{"name":"type:feature"},{"name":"plan-tier:light"}]}\n' >"$t91_labels_nochange"
+
+t91_poagent="$(
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$t91_body" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  MAKATO_LOOP_ROUTING_LABELS_OVERRIDE="$t91_labels_nochange" \
+    "$LOOP" dispatch 541 --dry-run 2>&1 >/dev/null
+)" || fail "T91 po-agent: no-change dispatch --dry-run should exit 0; got: $t91_poagent"
+
+grep -q "po-agent" <<<"$t91_poagent" \
+  || fail "T91 po-agent: no change label must route to po-agent; got: $t91_poagent"
+grep -qi "makato-change:orchestrate" <<<"$t91_poagent" \
+  && fail "T91 po-agent: no change label must NOT route to change-orchestrate; got: $t91_poagent"
+echo "  ✓ no change label routes to po-agent (AC-4 regression guard)"
+
+rm -rf "$T91_DIR"
+
+echo
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T-RESUME-1 complete result no-op, T-RESUME-2 incomplete triggers attempt, T-RESUME-3 errored triggers attempt, T-RESUME-4 budget-exhausted HALT-014, T-RESUME-5 STALL_DISABLE skip detect+resume, #531; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470; T84–T89 orphaned-specs pruning; T90 promote-before-prune; T-GQL1–T-GQL5 GraphQL board poll + item-list rollback, #516; T-IDLE1–T-IDLE2 adaptive idle backoff, #516; T91 plan-tier:change routing, #539) ==="
