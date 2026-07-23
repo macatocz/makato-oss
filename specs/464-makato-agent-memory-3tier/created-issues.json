@@ -1,0 +1,103 @@
+{
+  "schema_version": "1",
+  "slug": "464-makato-agent-memory-3tier",
+  "issues": [
+    {
+      "issue_number": 470,
+      "url": "https://github.com/macatocz/makato/issues/470",
+      "title": "[makato] Persistent memory store and shared recall",
+      "labels": [
+        "makato",
+        "type:feat",
+        "tier:foundation",
+        "tech:skill",
+        "points:5",
+        "effort:m",
+        "priority:p0"
+      ],
+      "blocked_by": []
+    },
+    {
+      "issue_number": 471,
+      "url": "https://github.com/macatocz/makato/issues/471",
+      "title": "[makato] Promote generalizable memory at merge",
+      "labels": [
+        "makato",
+        "type:feat",
+        "tier:happy-path",
+        "points:5",
+        "effort:m",
+        "priority:p1"
+      ],
+      "blocked_by": [
+        470
+      ]
+    },
+    {
+      "issue_number": 472,
+      "url": "https://github.com/macatocz/makato/issues/472",
+      "title": "[makato] Build-lane recall in build-start",
+      "labels": [
+        "makato",
+        "type:feat",
+        "tier:happy-path",
+        "points:3",
+        "effort:m",
+        "priority:p1"
+      ],
+      "blocked_by": [
+        470
+      ]
+    },
+    {
+      "issue_number": 473,
+      "url": "https://github.com/macatocz/makato/issues/473",
+      "title": "[makato] Build-lane lesson and fact write",
+      "labels": [
+        "makato",
+        "type:feat",
+        "tier:happy-path",
+        "points:3",
+        "effort:m",
+        "priority:p1"
+      ],
+      "blocked_by": [
+        470
+      ]
+    },
+    {
+      "issue_number": 474,
+      "url": "https://github.com/macatocz/makato/issues/474",
+      "title": "[makato] Change-lane memory recall and write",
+      "labels": [
+        "makato",
+        "type:feat",
+        "tier:happy-path",
+        "points:5",
+        "effort:m",
+        "priority:p1"
+      ],
+      "blocked_by": [
+        470
+      ]
+    },
+    {
+      "issue_number": 475,
+      "url": "https://github.com/macatocz/makato/issues/475",
+      "title": "[makato] lesson-prune operator curation skill",
+      "labels": [
+        "makato",
+        "type:feat",
+        "tier:edge-cases",
+        "tech:skill",
+        "points:8",
+        "effort:l",
+        "priority:p3"
+      ],
+      "blocked_by": [
+        470,
+        471
+      ]
+    }
+  ]
+}

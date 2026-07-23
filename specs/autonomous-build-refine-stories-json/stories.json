@@ -1,0 +1,68 @@
+{
+  "slug": "autonomous-build-refine-stories-json",
+  "source": "brainstorm+source-grounded lifecycle analysis (sagibeast #149 incident; supersedes rejected build-refine-wire branch of makato#499)",
+  "epic": "Autonomous build-refine materialization from committed stories.json",
+  "generated": "2026-07-21",
+  "stories": [
+    {
+      "id": "S1",
+      "title": "po-agent Step 1a materializes full-tier plans from committed stories.json via build-refine --autonomous",
+      "labels": [
+        "type:feature",
+        "plugin:makato-orchestrate",
+        "plugin:makato-build",
+        "plugin:makato-plan",
+        "tech:bash",
+        "phase:foundation",
+        "effort:M",
+        "priority:high",
+        "points:5"
+      ],
+      "description": {
+        "summary": "When /loop (or a direct po-agent dispatch) hits a full-tier issue with no plan-<N>.md, the po-agent HALTs (HALT-006 -> needs-human-review) instead of building the plan itself. In autonomous mode the po-agent should not be surprised that the plan is missing: it should materialize it from the committed stories.json via build-refine --autonomous, which needs no interactive content questions. Interactive work keeps its own entry point (build-start -> interactive build-refine), so the autonomous lane never blocks on a human.",
+        "background": "Verified in code (v0.101.0) and on disk: (1) stories.json IS committed in sagibeast (specs/platform-core-phase-1/stories.json, 80KB, tracked) so it survives a fresh clone/worktree. (2) build-refine already builds a plan FROM stories.json (Step 3 ticket path: matches key, extracts AC from description.successScenarios[], oracle from acceptanceTestCases[], writes plan-<N>.md in Step 10) - it does NOT synthesize from the issue body and does NOT ask about content. (3) Both interactive gates are ALREADY resolved in autonomous mode per AUTONOMOUS-MODE.md: Step 1 work-item-key = use arg or HALT MISSING_INPUT (the po-agent supplies the key it dispatched); Step 11 plan-review = write plan, skip review, log autonomous_bypass. So there is NO 'second planning' - build-refine is a pure stories.json->plan translation; key is identity, plan-review is output-control, neither asks about content. (4) The ONLY gap: po-agent Step 1a never calls build-refine for full-tier - should-materialize-spec.sh returns 'materialize' only for plan-tier:light (-> light-planner from issue body); full-tier -> 'halt'. This reverses the rejected 'wire build-refine into Step 1a' path of makato#499: that rejection assumed stories.json is NOT committed ('on a fresh clone it just relocates the failure to MISSING_ARTIFACTS'); once to-issues always commits stories.json the assumption no longer holds.",
+        "scope": "Extend should-materialize-spec.sh with a new fourth verdict materialize-refine and wire the po-agent Step 1a sub-flow to dispatch build-refine --autonomous when a committed stories.json holds a matching key. Priority order (first match wins): (1) plan valid -> proceed; (2) missing/stub plan AND stories.json has an entry with the matching key -> materialize-refine (dispatch build-refine --autonomous <KEY>, bounded once, re-validate deterministically via validate-plan-body.sh, retry Step 1); (3) missing/stub plan AND plan-tier:light without a matching stories.json key -> materialize (light-planner, unchanged); (4) otherwise -> halt (HALT-006, unchanged). Row 2 takes precedence over row 3 (stories.json is the richer, authoritative source). When stories.json exists but has NO matching key: resolve by tier (light-tier -> materialize/light-planner, full-tier -> halt/HALT-006), preserving today's human-shaping gate for full-tier without a stories entry. In build-refine, verify the ticket path fires no AskUserQuestion beyond the already-bypassed Step 1/Step 11 in autonomous mode, and ensure the Step 3 'ask user to confirm the key' branch takes an autonomous default of HALT (never a prompt). In to-issues, always git add specs/<slug>/stories.json (and created-issues.json) after generation so the artifacts survive a fresh clone, and add a guard: to-issues fails when stories.json is untracked after write (source), should-materialize-spec.sh warns when it finds an untracked stories.json (consumer). build-start and the interactive lane are unchanged.",
+        "successScenarios": [
+          "Given a full-tier issue whose committed stories.json holds a matching key and no plan-<N>.md exists, When the po-agent Step 1a gate runs, Then should-materialize-spec.sh returns materialize-refine, the po-agent dispatches build-refine --autonomous <KEY>, a valid plan-<N>.md is written from stories.json, and Step 1 retries to proceed - with no interactive question and no HALT-006",
+          "Given an issue with plan-tier:light and no matching key in stories.json, When Step 1a runs, Then the verdict is materialize and the light-planner path runs unchanged (regression)",
+          "Given a full-tier issue with no stories.json entry for its key, When Step 1a runs, Then the verdict is halt (HALT-006 -> needs-human-review), preserving the human-shaping gate (regression)",
+          "Given build-refine --autonomous is dispatched with a key absent from stories.json, When Step 3 key resolution fails, Then the skill HALTs with a MISSING_ARTIFACTS/unknown-key code rather than firing AskUserQuestion, and the po-agent routes to the tier-based fallback",
+          "Given to-issues has just generated stories.json, When the emission step completes, Then stories.json and created-issues.json are git-tracked (git add applied) and to-issues fails loudly if they remain untracked",
+          "Given a consumer repo where stories.json exists on disk but is untracked, When should-materialize-spec.sh evaluates a dispatch, Then it logs a warning that the autonomous stories.json path is unavailable on a fresh clone and degrades to the tier-based fallback",
+          "Given the interactive lane, When a human runs build-start, Then build-refine runs interactively with the work-item-key prompt and plan-review active, unchanged"
+        ],
+        "outOfScope": [
+          "Changing the interactive lane (build-start -> interactive build-refine stays byte-for-byte)",
+          "Re-opening the plan.md-singleton / per-issue-filename work already shipped by makato#499 (opt6/opt5/opt11) - this story consumes the per-issue plan-<N>.md contract, it does not re-author it",
+          "Synthesizing a plan from the issue BODY in build-refine (that is light-planner's job; build-refine reads stories.json only)",
+          "Auto-materializing full-tier plans WITHOUT a matching stories.json entry (those keep the HALT-006 human gate)"
+        ]
+      },
+      "dependencies": {
+        "blockedBy": []
+      },
+      "acceptanceTestCases": [
+        {
+          "scenario": "Full-tier plan materialized from committed stories.json without human intervention",
+          "gherkin": "Given a full-tier GitHub issue whose committed stories.json holds an entry with the matching key\nAnd no plan-<ISSUE_NUMBER>.md exists in the spec folder\nWhen the po-agent Step 1a materialize gate evaluates the dispatch\nThen should-materialize-spec.sh returns the verdict `materialize-refine`\nAnd the po-agent dispatches `build-refine --autonomous <KEY>` exactly once\nAnd a plan-<ISSUE_NUMBER>.md validated by validate-plan-body.sh is written from the stories.json entry\nAnd Step 1 retries and returns `proceed`\nAnd no AskUserQuestion is fired and no HALT-006 is raised"
+        },
+        {
+          "scenario": "Full-tier issue without a stories.json entry preserves the human gate",
+          "gherkin": "Given a full-tier issue whose key is absent from stories.json (or stories.json is missing)\nAnd no plan-<ISSUE_NUMBER>.md exists\nWhen Step 1a evaluates the dispatch\nThen the verdict is `halt`\nAnd the po-agent routes the issue to needs-human-review via the existing HALT-006 path"
+        },
+        {
+          "scenario": "build-refine autonomous key-miss HALTs instead of prompting",
+          "gherkin": "Given build-refine is dispatched as `--autonomous <KEY>`\nAnd <KEY> has no matching entry in stories.json\nWhen Step 3 attempts key resolution\nThen the skill HALTs with a MISSING_ARTIFACTS/unknown-key R1 failure envelope\nAnd it does NOT fire the interactive 'confirm the key' AskUserQuestion"
+        },
+        {
+          "scenario": "to-issues commits stories.json and guards untracked state",
+          "gherkin": "Given to-issues has rendered stories.json and created-issues.json for a feature slug\nWhen the emission step completes\nThen both files are staged with git add\nAnd if either remains untracked after the write, to-issues halts with an instruction to commit the planning artifacts"
+        },
+        {
+          "scenario": "Interactive lane is unchanged",
+          "gherkin": "Given a human starts work via build-start\nWhen build-refine runs\nThen the work-item-key prompt and the Step 11 plan-review gate are both active\nAnd the autonomous materialize-refine path is not engaged"
+        }
+      ]
+    }
+  ]
+}

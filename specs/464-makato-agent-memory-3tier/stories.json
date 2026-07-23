@@ -1,0 +1,664 @@
+{
+  "version": "2.0",
+  "slug": "464-makato-agent-memory-3tier",
+  "source": "github:macatocz/makato#464",
+  "created": "2026-07-19",
+  "status": "draft",
+  "epic": {
+    "summary": "Three-tier dev-time agent memory for makato-suite",
+    "objective": "Make agent memory a platform-wide capability across loop, build, and change lanes, persisted beyond spec-folder archival.",
+    "labels": [
+      "makato",
+      "type:feat"
+    ]
+  },
+  "_decompositionNotes": {
+    "threeAmigos": "PO, Dev Lead, QA reviewed 2026-07-19. Strong convergence.",
+    "resolvedAmbiguities": [
+      "PER-ISSUE LESSONS STORE (load-bearing, flagged by Dev+PO+QA): loop lane uses workflow-state.json:lessons_learned[] (exists today, documentation-agent already reads it). Change lane has no workflow-state -> writes a new specs/<issue>/change-lessons.jsonl. Build lane (S4) writes the same change-lessons.jsonl-style per-issue artifact. documentation-agent (S2) promotes from BOTH sources.",
+      "RECALL SIGNATURE backward-compat (all three): bundles[] and labels[] are OPTIONAL (empty = no-filter). Existing 2-arg call `recall-lessons <REPO> [N]` must keep working. po-agent Step 2c call-site update is IN SCOPE for S1.",
+      "S4/S5 blockedBy corrected per Dev Lead: change-lane (seq 5) is blockedBy S1 ONLY (recall reads the store from S1; S2 promote is a soft/informational coupling, not a gate). lesson-prune (seq 6) blockedBy S1,S2 (operates on the promoted committed store).",
+      "SEMANTIC TIER writer IS in v1 (operator decision): write lanes (S4 change, S5 build-write) emit both procedural lessons AND semantic agent-facts, so semantic.jsonl is genuinely populated, not empty scaffolding.",
+      "S2 write allow-list (Dev, Major): documentation-agent.md Rules must add .makato/memory/ to allowed write paths; promote logic extracted into a standalone shell helper so it is CI-smoke-testable without the LLM agent."
+    ]
+  },
+  "stories": [
+    {
+      "sequence": 1,
+      "phase": "foundation",
+      "summary": "Persistent memory store and shared recall",
+      "storyPoints": 5,
+      "teams": [
+        "makato-orchestrate"
+      ],
+      "labels": [
+        "makato",
+        "type:feat"
+      ],
+      "githubIssue": null,
+      "description": {
+        "background": "Memory today is pinned to the wrong layer (po-agent only) and a transient location (per-issue spec folders that archive-spec moves below the recall glob). This foundation story creates a persistent committed store and extends recall to read it, so every lane can converge on one memory source.",
+        "scope": "Create .makato/memory/ with two committed JSONL files (semantic.jsonl, procedural.jsonl per R1). Add `.makato` to scripts/check-root-structure.sh ALLOWED (one array entry; hidden-dir branch reuses the same array). Update .gitignore to commit exactly semantic.jsonl and procedural.jsonl while keeping episodic *.jsonl ignored (negation pattern). Extend shared/workflow-state.sh `recall-lessons` to accept OPTIONAL bundles[] and labels[] (empty = no-filter, preserving the existing `<REPO> [N]` 2-arg call); read .makato/memory/*.jsonl (resolved at REPO_ROOT main checkout, not the worktree) alongside live workflow-state-*.json; filter `repo AND (bundle in my_bundles OR label in my_labels)`; order `scope, occurrences DESC, recency`; skip malformed JSONL lines without aborting. Update po-agent Step 2c call-site. Update SKILL.md / README / CHANGELOG for the new signature.",
+        "featureToggle": {
+          "alreadyInPlace": false,
+          "newNeeded": false,
+          "longTermUsage": false,
+          "name": "",
+          "defaultState": ""
+        },
+        "successScenarios": [
+          {
+            "title": "Scenario 1: Recall returns ordered lessons matching repo and bundle",
+            "given": ".makato/memory/procedural.jsonl contains 5 lessons for repo macatocz/makato, 3 tagged bundle \"python\" and 2 bundle \"infra\"",
+            "when": "recall-lessons is called with repo=macatocz/makato bundles=[python] labels=[] N=3",
+            "then": "the output is a JSON array of exactly 3 lessons ordered by scope asc, occurrences desc, recency desc",
+            "and": [
+              "no infra-only lessons appear in the result",
+              "Draft \u2014 to be refined by create-acceptance-tests"
+            ]
+          },
+          {
+            "title": "Scenario 2: Backward-compatible 2-arg call still works",
+            "given": "an existing caller invokes `recall-lessons macatocz/makato 3` with no bundles/labels",
+            "when": "the extended recall-lessons runs",
+            "then": "it returns the top-3 without error (bundles/labels default to no-filter), matching pre-change behavior",
+            "and": [
+              "Draft \u2014 to be refined by create-acceptance-tests"
+            ]
+          },
+          {
+            "title": "Scenario 3: First-run empty store and malformed line",
+            "given": ".makato/memory/ does not exist, OR procedural.jsonl has one malformed line between two valid records",
+            "when": "recall-lessons is called with any valid arguments",
+            "then": "it exits 0 and returns [] (missing dir) or only the two valid records (malformed line skipped)",
+            "and": [
+              "Draft \u2014 to be refined by create-acceptance-tests"
+            ]
+          }
+        ],
+        "solutionApproach": "",
+        "acceptanceTestCases": [
+          {
+            "title": "Recall filtered to a bundle returns only matching lessons ordered by scope and frequency",
+            "given": "The memory store contains lessons for the target repo, some tagged with the 'python' bundle and some tagged only with the 'infra' bundle",
+            "when": "The operator requests recall for the target repo filtered to the 'python' bundle",
+            "then": "The recalled lessons should contain only python-tagged lessons, ordered with generalizable scope first, then by higher occurrences, then by most recent",
+            "and": [
+              "No lessons tagged exclusively with 'infra' should appear in the recalled set"
+            ]
+          },
+          {
+            "title": "Recall without bundle or label filters returns all repo lessons in the expected order",
+            "given": "The memory store contains lessons for the target repo across multiple bundles, and the caller provides only a repo identifier and a count",
+            "when": "The operator requests recall without specifying any bundle or label filters",
+            "then": "The recalled set should include lessons from all bundles for that repo, ordered by scope, occurrences, and recency"
+          },
+          {
+            "title": "Recall on a repo with no memory store returns an empty lesson set",
+            "given": "The .makato/memory/ directory does not exist in the repository",
+            "when": "The operator requests recall for that repo",
+            "then": "The recall should return an empty set of lessons"
+          },
+          {
+            "title": "Recall returns readable lessons when procedural.jsonl contains a malformed entry",
+            "given": "procedural.jsonl contains one malformed line between two readable lesson records",
+            "when": "The operator requests recall for that repo",
+            "then": "The recall should return only the two readable lessons",
+            "and": [
+              "The malformed line should be skipped without stopping the recall"
+            ]
+          },
+          {
+            "title": "semantic.jsonl and procedural.jsonl are committed while episodic logs remain gitignored",
+            "given": ".makato/memory/ contains semantic.jsonl, procedural.jsonl, and an episodic JSONL file from a recent run",
+            "when": "The operator inspects which memory files the repository tracks",
+            "then": "semantic.jsonl and procedural.jsonl should appear as tracked committed files in the repository",
+            "and": [
+              "The episodic JSONL file should remain gitignored and absent from the repository's committed files"
+            ]
+          }
+        ],
+        "wikiDocumentation": "",
+        "outOfScope": [
+          "Promotion of lessons at merge (S2)",
+          "Any lane wiring recall/write (S3-S6)"
+        ]
+      },
+      "definitionOfDone": [
+        ".makato/memory/{semantic,procedural}.jsonl exist and are committed; episodic *.jsonl stays gitignored (verified via git check-ignore)",
+        "recall-lessons reads the committed store, honors optional bundle/label filters, orders scope/occurrences/recency, and skips malformed lines",
+        "The existing 2-arg `recall-lessons <REPO> [N]` call keeps working unchanged (regression test)",
+        "po-agent Step 2c invokes the new signature; check-root-structure.sh passes with .makato present",
+        "workflow-state SKILL.md, README, and CHANGELOG reflect the new signature"
+      ],
+      "dependencies": {
+        "blockedBy": [],
+        "blocks": [
+          2,
+          3,
+          4,
+          5,
+          6
+        ]
+      },
+      "externalDependencies": []
+    },
+    {
+      "sequence": 2,
+      "phase": "happy-path",
+      "summary": "Promote generalizable memory at merge",
+      "storyPoints": 5,
+      "teams": [
+        "makato-orchestrate"
+      ],
+      "labels": [
+        "makato",
+        "type:feat"
+      ],
+      "githubIssue": null,
+      "description": {
+        "background": "Archival kills recall today: live workflow-state JSON drops below the recall glob when archive-spec moves the folder. Promotion at merge lifts durable, generalizable memory into the committed store so it survives archival. Confirmed opt-in (R2): runs only where post-merge.yml is installed \u2014 for makato itself it already is.",
+        "scope": "Add a promote step to documentation-agent (CI, per-merge). Extract the dedup+write+stamp logic into a standalone shell helper (analogous to resolve-append-only-conflict.sh) so it is smoke-testable in CI without the LLM agent. The helper reads per-issue sources \u2014 workflow-state-*.json:lessons_learned[] (loop lane) AND specs/<issue>/change-lessons.jsonl (change/build lanes, produced by S4/S5) \u2014 does exact hash(normalized_text)+tags dedup (bump occurrences++ on match), promotes only records flagged scope:generalizable, and stamps repo_sha + date. Extend documentation-agent.md Rules write allow-list to include .makato/memory/. Pin the normalization function and the repo_sha source (document both in the helper).",
+        "featureToggle": {
+          "alreadyInPlace": false,
+          "newNeeded": false,
+          "longTermUsage": false,
+          "name": "",
+          "defaultState": ""
+        },
+        "successScenarios": [
+          {
+            "title": "Scenario 1: Promote writes a generalizable lesson with stamped metadata",
+            "given": "a merged PR with a per-issue source containing one scope:generalizable lesson",
+            "when": "documentation-agent runs the promote step post-merge",
+            "then": "the lesson appears in .makato/memory/procedural.jsonl with repo_sha and date populated and scope generalizable",
+            "and": [
+              "Draft \u2014 to be refined by create-acceptance-tests"
+            ]
+          },
+          {
+            "title": "Scenario 2: Duplicate increments occurrences instead of appending",
+            "given": "procedural.jsonl already contains a record with the same normalized text and tags as the per-issue source",
+            "when": "the promote helper runs",
+            "then": "no new record is appended and the existing record's occurrences increments by 1",
+            "and": [
+              "Draft \u2014 to be refined by create-acceptance-tests"
+            ]
+          },
+          {
+            "title": "Scenario 3: Local-scoped records are not promoted",
+            "given": "a per-issue source with records flagged scope:local only",
+            "when": "the promote helper runs",
+            "then": ".makato/memory/ is unchanged (only generalizable records promote)",
+            "and": [
+              "Draft \u2014 to be refined by create-acceptance-tests"
+            ]
+          }
+        ],
+        "solutionApproach": "",
+        "acceptanceTestCases": [
+          {
+            "title": "A generalizable lesson is written to the shared memory store with repo_sha and date after merge",
+            "given": "a repo with post-merge.yml installed has a PR merged whose per-issue sources contain a scope:generalizable lesson",
+            "when": "the documentation-agent runs the promote step",
+            "then": "the lesson should appear in .makato/memory/procedural.jsonl",
+            "and": [
+              "the record should carry the current repo_sha and today's date as its origin stamp"
+            ]
+          },
+          {
+            "title": "A lesson already in the memory store has its occurrences raised rather than a duplicate record added",
+            "given": ".makato/memory/procedural.jsonl already contains a record whose text and tags match an incoming scope:generalizable lesson from the merged PR",
+            "when": "the documentation-agent runs the promote step",
+            "then": "the number of records in procedural.jsonl should be unchanged",
+            "and": [
+              "the matching record's occurrences count should be one higher than before the promote step ran"
+            ]
+          },
+          {
+            "title": "Local-scoped lessons leave the shared memory store unchanged after merge",
+            "given": "a merged PR whose per-issue sources contain only scope:local lessons and no scope:generalizable records",
+            "when": "the documentation-agent runs the promote step",
+            "then": ".makato/memory/procedural.jsonl should contain no new records from that merge"
+          },
+          {
+            "title": "No memory promotion occurs in a repo that has not installed the post-merge workflow",
+            "given": "a repo without post-merge.yml configured in its CI workflows",
+            "when": "a PR is merged into the default branch",
+            "then": ".makato/memory/procedural.jsonl should not be created or modified"
+          }
+        ],
+        "wikiDocumentation": "",
+        "outOfScope": [
+          "LLM-judge scoping of records missing the scope flag (writer stamps it; judge is a fallback deferred)",
+          "Universal/always-on promotion in repos without post-merge.yml"
+        ]
+      },
+      "definitionOfDone": [
+        "A standalone shell helper performs dedup+promote+stamp and is covered by CI smoke tests without invoking the LLM agent",
+        "Only scope:generalizable records reach .makato/memory/; duplicates bump occurrences; repo_sha+date stamped",
+        "documentation-agent.md write allow-list includes .makato/memory/",
+        "Helper reads both workflow-state lessons_learned[] and specs/<issue>/change-lessons.jsonl",
+        "Normalization and repo_sha source are documented in the helper"
+      ],
+      "dependencies": {
+        "blockedBy": [
+          1
+        ],
+        "blocks": [
+          6
+        ]
+      },
+      "externalDependencies": []
+    },
+    {
+      "sequence": 3,
+      "phase": "happy-path",
+      "summary": "Build-lane recall in build-start",
+      "storyPoints": 3,
+      "teams": [
+        "makato-build"
+      ],
+      "labels": [
+        "makato",
+        "type:feat"
+      ],
+      "githubIssue": null,
+      "description": {
+        "background": "Closes gap #1: build-implement-tdd consumes PRIOR_LESSONS but only the po-agent fills it, so a manual /build-start leaves the coder with no historical memory. PRIOR_LESSONS infrastructure already exists in coder.md and build-implement-tdd \u2014 the only gap is that build-start never calls recall.",
+        "scope": "Add a guarded recall step to build-start/build-refine: fill PRIOR_LESSONS by calling recall-lessons when it is absent from the input bundle (Q5). If PRIOR_LESSONS is already present (po-agent path), the step is a no-op. At build-start there may be no changed files yet, so recall falls back to labels-only (empty bundles). Empty store must not block the build.",
+        "featureToggle": {
+          "alreadyInPlace": false,
+          "newNeeded": false,
+          "longTermUsage": false,
+          "name": "",
+          "defaultState": ""
+        },
+        "successScenarios": [
+          {
+            "title": "Scenario 1: build-start populates PRIOR_LESSONS from the store",
+            "given": ".makato/memory/procedural.jsonl contains lessons matching the issue's labels and PRIOR_LESSONS is not present",
+            "when": "build-start runs",
+            "then": "the dispatch bundle contains PRIOR_LESSONS populated with matching lessons",
+            "and": [
+              "Draft \u2014 to be refined by create-acceptance-tests"
+            ]
+          },
+          {
+            "title": "Scenario 2: Guard prevents overwrite when already present",
+            "given": "PRIOR_LESSONS is already set (pre-populated by po-agent)",
+            "when": "build-start runs its guarded recall step",
+            "then": "PRIOR_LESSONS retains its original value unchanged",
+            "and": [
+              "Draft \u2014 to be refined by create-acceptance-tests"
+            ]
+          },
+          {
+            "title": "Scenario 3: Empty store does not block the build",
+            "given": ".makato/memory/ does not exist",
+            "when": "build-start runs",
+            "then": "PRIOR_LESSONS is set to [] and the build proceeds to refine without error",
+            "and": [
+              "Draft \u2014 to be refined by create-acceptance-tests"
+            ]
+          }
+        ],
+        "solutionApproach": "",
+        "acceptanceTestCases": [
+          {
+            "title": "PRIOR_LESSONS is populated from the memory store when absent at build-start",
+            "given": "the memory store contains lessons tagged with labels matching the current issue and PRIOR_LESSONS is not present in the dispatch bundle",
+            "when": "the operator runs build-start",
+            "then": "the dispatch bundle should contain PRIOR_LESSONS populated with lessons matching the issue's labels"
+          },
+          {
+            "title": "PRIOR_LESSONS retains its original value when already present in the dispatch bundle",
+            "given": "PRIOR_LESSONS has been pre-populated in the dispatch bundle by the po-agent",
+            "when": "the operator runs build-start",
+            "then": "the dispatch bundle should show PRIOR_LESSONS unchanged from the value the po-agent set"
+          },
+          {
+            "title": "The build continues to build-refine when the memory store holds no lessons",
+            "given": "no lessons have been recorded in the memory store for this repository",
+            "when": "the operator runs build-start",
+            "then": "the dispatch bundle should contain PRIOR_LESSONS as an empty list",
+            "and": [
+              "build-start should continue to build-refine without requiring operator intervention"
+            ]
+          },
+          {
+            "title": "PRIOR_LESSONS is recalled using issue labels alone when no changed files exist yet",
+            "given": "the memory store contains lessons tagged with the issue's labels and no files have been changed on the branch yet",
+            "when": "the operator runs build-start",
+            "then": "the dispatch bundle should contain PRIOR_LESSONS populated from lessons matching the issue's labels"
+          }
+        ],
+        "wikiDocumentation": "",
+        "outOfScope": [
+          "Build-lane lesson WRITE (that is S4)"
+        ]
+      },
+      "definitionOfDone": [
+        "build-start fills PRIOR_LESSONS via recall when absent, no-ops when present",
+        "Labels-only fallback works when no changed files exist at start",
+        "Empty store never blocks the build (PRIOR_LESSONS = [])",
+        "A manual /build-start now warm-starts the coder with historical memory"
+      ],
+      "dependencies": {
+        "blockedBy": [
+          1
+        ],
+        "blocks": []
+      },
+      "externalDependencies": []
+    },
+    {
+      "sequence": 4,
+      "phase": "happy-path",
+      "summary": "Build-lane lesson and fact write",
+      "storyPoints": 3,
+      "teams": [
+        "makato-build"
+      ],
+      "labels": [
+        "makato",
+        "type:feat"
+      ],
+      "githubIssue": null,
+      "description": {
+        "background": "The spec names po/build/change as all three writers, but recall alone (S3) makes the build lane read-only \u2014 builds consume memory but never contribute. This story makes the build lane symmetric: it writes raw per-issue lessons AND semantic agent-facts at session end for documentation-agent (S2) to later promote.",
+        "scope": "At a build session terminal step (build-verify or build-push-to-git), emit raw per-issue records to specs/<issue>/change-lessons.jsonl: procedural lessons (bugfix/gotcha patterns) and semantic agent-facts (durable technical facts), each stamped tier + text + tags + scope (generalizable|local). This is the same per-issue artifact shape S5's change lane writes and S2's promote helper reads. No direct writes to .makato/memory/ (promotion is S2's job).",
+        "featureToggle": {
+          "alreadyInPlace": false,
+          "newNeeded": false,
+          "longTermUsage": false,
+          "name": "",
+          "defaultState": ""
+        },
+        "successScenarios": [
+          {
+            "title": "Scenario 1: Build session writes a per-issue lesson record",
+            "given": "a completed build session with a recorded gotcha",
+            "when": "the terminal write step runs",
+            "then": "specs/<issue>/change-lessons.jsonl gains a procedural record with tier, text, tags, and scope",
+            "and": [
+              "Draft \u2014 to be refined by create-acceptance-tests"
+            ]
+          },
+          {
+            "title": "Scenario 2: Build session writes a semantic fact",
+            "given": "a build session that discovered a durable technical fact (e.g. a dimension or socket override)",
+            "when": "the terminal write step runs",
+            "then": "a tier:semantic record is appended with scope generalizable so S2 can promote it into semantic.jsonl",
+            "and": [
+              "Draft \u2014 to be refined by create-acceptance-tests"
+            ]
+          }
+        ],
+        "solutionApproach": "",
+        "acceptanceTestCases": [
+          {
+            "title": "Procedural lesson available in the per-issue store after the build session ends",
+            "given": "a build session has completed and the agent recorded a bugfix pattern during the work",
+            "when": "the session writes its lessons at the terminal step",
+            "then": "the per-issue change-lessons.jsonl should contain a procedural record with tier, text, and tags fields populated",
+            "and": [
+              "the record's scope field should be set to either generalizable or local"
+            ]
+          },
+          {
+            "title": "Semantic fact discovered during a build is captured with generalizable scope in the per-issue store",
+            "given": "a build session has completed and the agent identified a durable technical fact during the work",
+            "when": "the session writes its lessons at the terminal step",
+            "then": "the per-issue change-lessons.jsonl should contain a semantic record",
+            "and": [
+              "the record's scope field should be set to generalizable"
+            ]
+          },
+          {
+            "title": "Each written record carries the full field set the documentation-agent needs to run promotion",
+            "given": "a build session has written lesson records to the per-issue store",
+            "when": "a reviewer inspects the per-issue change-lessons.jsonl",
+            "then": "every record should include tier, text, tags, scope, timestamp, key, and repo fields",
+            "and": [
+              "no required field should be absent or empty"
+            ]
+          },
+          {
+            "title": "Build lane lesson writes are confined to the per-issue store",
+            "given": "a build session has completed and written lesson records",
+            "when": "the session's terminal write step finishes",
+            "then": "the shared memory store should be unchanged",
+            "and": [
+              "the newly written records should exist only in the per-issue change-lessons.jsonl, not in the shared memory store"
+            ]
+          }
+        ],
+        "wikiDocumentation": "",
+        "outOfScope": [
+          "Promotion into .makato/memory/ (S2)",
+          "Recall (S3)"
+        ]
+      },
+      "definitionOfDone": [
+        "A build session appends procedural and semantic records to specs/<issue>/change-lessons.jsonl at end",
+        "Record shape matches S2's promote-helper read contract exactly",
+        "scope flag (generalizable|local) is stamped by the writer",
+        "No build-lane code writes directly to .makato/memory/"
+      ],
+      "dependencies": {
+        "blockedBy": [
+          1
+        ],
+        "blocks": []
+      },
+      "externalDependencies": []
+    },
+    {
+      "sequence": 5,
+      "phase": "happy-path",
+      "summary": "Change-lane memory recall and write",
+      "storyPoints": 5,
+      "teams": [
+        "makato-change"
+      ],
+      "labels": [
+        "makato",
+        "type:feat"
+      ],
+      "githubIssue": null,
+      "description": {
+        "background": "Closes gap #2: makato-change has zero lesson handling \u2014 grep across analyze/design/execute/resolve-review finds neither read nor write. Change work never recalls prior bugfix patterns nor records new ones. makato-change has no workflow-state, so the write path uses a new specs/<issue>/change-lessons.jsonl artifact.",
+        "scope": "Wire recall into makato-change analyze: fill PRIOR_LESSONS and inject it into the change-implementer dispatch bundle (new field on that agent). Wire write at the end of execute/resolve-review: append raw per-issue records (procedural lessons + semantic facts, each stamped tier/text/tags/scope) to specs/<issue>/change-lessons.jsonl \u2014 the same artifact S2 promotes and S4 writes. Empty store must not block analysis.",
+        "featureToggle": {
+          "alreadyInPlace": false,
+          "newNeeded": false,
+          "longTermUsage": false,
+          "name": "",
+          "defaultState": ""
+        },
+        "successScenarios": [
+          {
+            "title": "Scenario 1: Change analyze injects prior lessons into change-implementer",
+            "given": ".makato/memory/procedural.jsonl contains lessons matching the change request's labels",
+            "when": "makato-change analyze runs",
+            "then": "the change-implementer dispatch bundle contains a non-empty PRIOR_LESSONS field",
+            "and": [
+              "Draft \u2014 to be refined by create-acceptance-tests"
+            ]
+          },
+          {
+            "title": "Scenario 2: Change execute writes a lesson at completion",
+            "given": "a successfully completed change-execute run",
+            "when": "the skill reaches its terminal step",
+            "then": "a record is appended to specs/<issue>/change-lessons.jsonl with tier, text, tags, and scope",
+            "and": [
+              "Draft \u2014 to be refined by create-acceptance-tests"
+            ]
+          },
+          {
+            "title": "Scenario 3: No prior lessons does not block analysis",
+            "given": ".makato/memory/ does not exist in the target repo",
+            "when": "makato-change analyze runs its recall step",
+            "then": "PRIOR_LESSONS is set to [] and analysis continues to requirements-diff",
+            "and": [
+              "Draft \u2014 to be refined by create-acceptance-tests"
+            ]
+          }
+        ],
+        "solutionApproach": "",
+        "acceptanceTestCases": [
+          {
+            "title": "Change-implementer bundle contains prior lessons when the memory store holds matching records",
+            "given": "the target repository's memory store contains procedural lessons tagged to match the change request's labels",
+            "when": "makato-change analyze runs",
+            "then": "the change-implementer dispatch bundle should contain a non-empty PRIOR_LESSONS field"
+          },
+          {
+            "title": "Analysis reaches the requirements-diff phase when the memory store is absent",
+            "given": "the target repository has no memory store",
+            "when": "makato-change analyze runs",
+            "then": "the change-implementer dispatch bundle should contain PRIOR_LESSONS set to an empty list",
+            "and": [
+              "the analyze phase should continue to produce a requirements-diff"
+            ]
+          },
+          {
+            "title": "A promotion-ready lesson record is present in the change store after execute completes",
+            "given": "a change request has reached the end of the execute phase",
+            "when": "makato-change execute finishes",
+            "then": "change-lessons.jsonl for that issue should contain a new record with tier, text, tags, and scope fields present",
+            "and": [
+              "the tier field should hold either \"procedural\" or \"semantic\""
+            ]
+          },
+          {
+            "title": "A lesson record is present in the change store after a PR review is resolved",
+            "given": "a change request PR has received reviewer feedback that has been addressed",
+            "when": "makato-change resolve-review completes",
+            "then": "change-lessons.jsonl for that issue should contain a new record carrying tier, text, tags, and scope"
+          }
+        ],
+        "wikiDocumentation": "",
+        "outOfScope": [
+          "Promotion into .makato/memory/ (S2)",
+          "workflow-state.sh adoption by makato-change (uses a standalone JSONL artifact instead)"
+        ]
+      },
+      "definitionOfDone": [
+        "analyze injects a PRIOR_LESSONS field into the change-implementer bundle",
+        "execute/resolve-review append per-issue records (procedural + semantic) at end",
+        "Write shape matches S2's promote-helper read contract and S4's artifact",
+        "Empty store never blocks change analysis"
+      ],
+      "dependencies": {
+        "blockedBy": [
+          1
+        ],
+        "blocks": []
+      },
+      "externalDependencies": []
+    },
+    {
+      "sequence": 6,
+      "phase": "edge-cases",
+      "summary": "lesson-prune operator curation skill",
+      "storyPoints": 8,
+      "teams": [
+        "makato-orchestrate"
+      ],
+      "labels": [
+        "makato",
+        "type:feat"
+      ],
+      "githubIssue": null,
+      "description": {
+        "background": "Grow-append memory needs occasional human-gated curation. This is an operator tool, not a per-issue build step. Ported from the positronic vault prune skill, adapted to JSONL and repo_sha/date-aware STALE detection. Prune is destructive, so diff-before-write + explicit approval is load-bearing.",
+        "scope": "New makato-orchestrate:lesson-prune skill, JSONL-native, human-gated. Classify each record KEEP / DUPLICATE / GRADUATED (present in AGENTS.md) / STALE (repo_sha unreachable from HEAD AND old date) / CONSOLIDATE. Render a classification table (diff-before-write) and mutate only on explicit operator approval. Non-interactive all-KEEP path is a no-mutation exit-0. STALE uses a real git repo fixture (worktree-smoke-tests sandbox pattern). Document the rare-but-valid false-positive class requiring human judgment. Confirm the positronic source scope before locking the estimate.",
+        "featureToggle": {
+          "alreadyInPlace": false,
+          "newNeeded": false,
+          "longTermUsage": false,
+          "name": "",
+          "defaultState": ""
+        },
+        "successScenarios": [
+          {
+            "title": "Scenario 1: Classification table shown before any mutation",
+            "given": "procedural.jsonl contains records with mixed KEEP/DUPLICATE/STALE candidates",
+            "when": "lesson-prune runs",
+            "then": "a classification table shows the proposed action per record and no mutation occurs until the operator approves",
+            "and": [
+              "Draft \u2014 to be refined by create-acceptance-tests"
+            ]
+          },
+          {
+            "title": "Scenario 2: STALE for unreachable repo_sha",
+            "given": "a record whose repo_sha is not reachable from HEAD and whose date is >90 days old",
+            "when": "lesson-prune classifies records",
+            "then": "that record is proposed as STALE",
+            "and": [
+              "Draft \u2014 to be refined by create-acceptance-tests"
+            ]
+          },
+          {
+            "title": "Scenario 3: Operator rejection leaves files unchanged",
+            "given": "lesson-prune produced a diff with records proposed for deletion",
+            "when": "the operator declines approval",
+            "then": "the JSONL files are byte-identical to the pre-run state and lesson-prune exits 0",
+            "and": [
+              "Draft \u2014 to be refined by create-acceptance-tests"
+            ]
+          }
+        ],
+        "solutionApproach": "",
+        "acceptanceTestCases": [
+          {
+            "title": "Classification table for every record appears before any lesson is removed",
+            "given": "procedural.jsonl contains a mix of records including KEEP, DUPLICATE, and STALE candidates",
+            "when": "the operator runs lesson-prune",
+            "then": "the operator should see a classification table listing the proposed action for each record before any record is removed",
+            "and": [
+              "no record should be removed or modified until the operator explicitly approves"
+            ]
+          },
+          {
+            "title": "Lesson tied to an unreachable repo_sha and old date is proposed as STALE",
+            "given": "procedural.jsonl contains a record whose repo_sha is not reachable from the current branch and whose date is more than 90 days ago",
+            "when": "the operator runs lesson-prune",
+            "then": "that record should appear in the classification table with classification STALE"
+          },
+          {
+            "title": "Declining approval leaves lesson files unchanged and skill exits without error",
+            "given": "lesson-prune has displayed a classification table with one or more records proposed for removal",
+            "when": "the operator declines to approve the proposed changes",
+            "then": "procedural.jsonl should contain exactly the records it held before lesson-prune ran",
+            "and": [
+              "lesson-prune should exit without reporting an error"
+            ]
+          }
+        ],
+        "wikiDocumentation": "",
+        "outOfScope": [
+          "Automatic (non-approved) deletion",
+          "Per-issue build-time invocation"
+        ]
+      },
+      "definitionOfDone": [
+        "Skill classifies KEEP/DUPLICATE/GRADUATED/STALE/CONSOLIDATE over both JSONL files",
+        "Diff-before-write + explicit approval gate; rejection leaves files byte-identical",
+        "STALE is repo_sha/date-aware and tested against a real git fixture",
+        "All-KEEP non-interactive path is a no-mutation exit-0",
+        "GRADUATED check tolerates AGENTS.md structure variance across plugins"
+      ],
+      "dependencies": {
+        "blockedBy": [
+          1,
+          2
+        ],
+        "blocks": []
+      },
+      "externalDependencies": []
+    }
+  ]
+}

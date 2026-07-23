@@ -1,0 +1,1048 @@
+{
+  "version": "1.0",
+  "slug": "agentic-orchestration",
+  "created": "2026-06-26",
+  "status": "approved",
+  "epic": {
+    "summary": "[makato] Agentic Orchestration \u2014 autonomous control plane for makato build/plan workflows",
+    "objective": "Add autonomous orchestration to makato: plan \u2192 build \u2192 review \u2192 merge with minimal human in the loop, using R1 contracts, kill-switches, and resumable workflow state",
+    "pi": "26/Q3",
+    "labels": [
+      "makato",
+      "epic:agentic-orchestration"
+    ]
+  },
+  "stories": [
+    {
+      "sequence": 1,
+      "phase": "foundation",
+      "summary": "[makato-orchestrate] feat: scaffold makato-orchestrate plugin for autonomous control plane (GAP-001)",
+      "storyPoints": 2,
+      "teams": [
+        "makato-core"
+      ],
+      "labels": [
+        "plugin:makato-orchestrate"
+      ],
+      "metadata": {
+        "severity": "critical",
+        "phase": "2",
+        "effort": "s",
+        "points": 1
+      },
+      "issue_number": 23,
+      "gap_id": "GAP-001",
+      "description": {
+        "background": "Backfilled from GitHub issue #23 (GAP-001). See the issue body for full context.",
+        "scope": "Every other gap in this list either lives inside `makato-orchestrate` or integrates with it. The plugin needs its directory skeleton, `plugin.yml`, `AGENTS.md`, and `README.md` created in the standard makato format before any other P2 work can be merged. Without this scaffold, the PO-agent, workflow-state skill, session-status hook, and loop skill have no home.",
+        "featureToggle": {
+          "alreadyInPlace": false,
+          "newNeeded": false,
+          "longTermUsage": false,
+          "name": "",
+          "defaultState": "disabled"
+        },
+        "successScenarios": [
+          {
+            "title": "Scenario 1: `plugins/makato-orchestrate/plugin.yml` exists with name, ve",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "`plugins/makato-orchestrate/plugin.yml` exists with name, version `0.1.0`, description, and empty `skills`/`agents`/`hooks` lists."
+          },
+          {
+            "title": "Scenario 2: `plugins/makato-orchestrate/AGENTS.md` documents the agents ",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "`plugins/makato-orchestrate/AGENTS.md` documents the agents that will live here (po-agent, scout \u2014 stubs acceptable)."
+          },
+          {
+            "title": "Scenario 3: `plugins/makato-orchestrate/README.md` describes the plugin'",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "`plugins/makato-orchestrate/README.md` describes the plugin's purpose, integration points with `makato-plan` and `makato-build`, and the `--autonomous` invocation contract."
+          }
+        ],
+        "solutionApproach": "",
+        "acceptanceTestCases": [],
+        "wikiDocumentation": "",
+        "outOfScope": []
+      },
+      "definitionOfDone": [
+        "Implementation merged via PR with passing CI",
+        "Issue closed via 'Closes #<n>' in the merge commit",
+        "Downstream blockers reference this issue's number where applicable"
+      ],
+      "dependencies": {
+        "blockedBy": [],
+        "blocks": [
+          4,
+          10
+        ]
+      },
+      "externalDependencies": []
+    },
+    {
+      "sequence": 2,
+      "phase": "foundation",
+      "summary": "[makato-build] feat: add R1 structured-JSON return contract to all sub-agents (GAP-002)",
+      "storyPoints": 5,
+      "teams": [
+        "makato-core"
+      ],
+      "labels": [
+        "plugin:makato-build"
+      ],
+      "metadata": {
+        "severity": "critical",
+        "phase": "1",
+        "effort": "m",
+        "points": 3
+      },
+      "issue_number": 24,
+      "gap_id": "GAP-002",
+      "description": {
+        "background": "Backfilled from GitHub issue #24 (GAP-002). See the issue body for full context.",
+        "scope": "All six `makato-build` sub-agents currently return prose. A future PO-agent must machine-parse their output to extract `status`, `files_changed`, `tests_written`, `summary`, `errors`, and `tool_calls_used` in order to update workflow-state, gate on failures, and decide retry logic without human in the loop. Without a structured return contract no agent can act as a reliable PO-agent consumer.",
+        "featureToggle": {
+          "alreadyInPlace": false,
+          "newNeeded": false,
+          "longTermUsage": false,
+          "name": "",
+          "defaultState": "disabled"
+        },
+        "successScenarios": [
+          {
+            "title": "Scenario 1: A shared `plugins/makato-build/agents/RETURN-CONTRACT.md` do",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "A shared `plugins/makato-build/agents/RETURN-CONTRACT.md` document defines the R1 JSON schema: `{ \"status\": \"success|partial|failure\", \"files_changed\": [...], \"tests_written\": [...], \"summary\": \"...\", \"errors\": [...], \"tool_calls_used\": N }`."
+          },
+          {
+            "title": "Scenario 2: Each agent's `.md` file has a \"Return format\" section that m",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "Each agent's `.md` file has a \"Return format\" section that mandates emitting the R1 JSON block as the final output (fenced with ` ```json `)."
+          },
+          {
+            "title": "Scenario 3: `coder.md` \u2014 status reflects whether all four TDD phases com",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "`coder.md` \u2014 status reflects whether all four TDD phases completed; `files_changed` lists edited paths; `tests_written` lists new test paths."
+          }
+        ],
+        "solutionApproach": "",
+        "acceptanceTestCases": [],
+        "wikiDocumentation": "",
+        "outOfScope": []
+      },
+      "definitionOfDone": [
+        "Implementation merged via PR with passing CI",
+        "Issue closed via 'Closes #<n>' in the merge commit",
+        "Downstream blockers reference this issue's number where applicable"
+      ],
+      "dependencies": {
+        "blockedBy": [],
+        "blocks": [
+          5,
+          6,
+          10
+        ]
+      },
+      "externalDependencies": []
+    },
+    {
+      "sequence": 3,
+      "phase": "foundation",
+      "summary": "[makato-build] feat: context-bundles.yml + bundle resolution skill (GAP-008)",
+      "storyPoints": 5,
+      "teams": [
+        "makato-core"
+      ],
+      "labels": [
+        "plugin:makato-build"
+      ],
+      "metadata": {
+        "severity": "high",
+        "phase": "1",
+        "effort": "m",
+        "points": 3
+      },
+      "issue_number": 25,
+      "gap_id": "GAP-008",
+      "description": {
+        "background": "Backfilled from GitHub issue #25 (GAP-008). See the issue body for full context.",
+        "scope": "`knowledge-scout` reads dcp-specs and `context/{repo}/` directories and synthesizes Hard Constraints and Standards for a given repository \u2014 a well-developed capability. What is missing is a configurable per-technology bundle registry that maps changed-file extensions (or path globs) to ordered lists of rule files. Without this, the scout must guess which context is relevant; with it, the PO-agent ",
+        "featureToggle": {
+          "alreadyInPlace": false,
+          "newNeeded": false,
+          "longTermUsage": false,
+          "name": "",
+          "defaultState": "disabled"
+        },
+        "successScenarios": [
+          {
+            "title": "Scenario 1: `plugins/makato-build/config/context-bundles.yml` defines at",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "`plugins/makato-build/config/context-bundles.yml` defines at least 4 canonical bundles: `typescript`, `python`, `sql`, `default` \u2014 each listing ordered paths to rule files (can reference `context/{repo}/` patterns)."
+          },
+          {
+            "title": "Scenario 2: `plugins/makato-build/skills/inject-context/SKILL.md` docume",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "`plugins/makato-build/skills/inject-context/SKILL.md` documents bundle resolution: given a list of changed file paths, the skill matches extensions/globs to select one or more bundles, deduplicates rule files, and returns an ordered list for the scout to pre-read."
+          },
+          {
+            "title": "Scenario 3: Resolution is deterministic: more-specific glob wins; `defau",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "Resolution is deterministic: more-specific glob wins; `default` bundle appended last."
+          }
+        ],
+        "solutionApproach": "",
+        "acceptanceTestCases": [],
+        "wikiDocumentation": "",
+        "outOfScope": []
+      },
+      "definitionOfDone": [
+        "Implementation merged via PR with passing CI",
+        "Issue closed via 'Closes #<n>' in the merge commit",
+        "Downstream blockers reference this issue's number where applicable"
+      ],
+      "dependencies": {
+        "blockedBy": [],
+        "blocks": [
+          7
+        ]
+      },
+      "externalDependencies": []
+    },
+    {
+      "sequence": 4,
+      "phase": "foundation",
+      "summary": "[makato-orchestrate] feat: workflow-state schema and skill for resumable sessions (GAP-003)",
+      "storyPoints": 5,
+      "teams": [
+        "makato-core"
+      ],
+      "labels": [
+        "plugin:makato-orchestrate"
+      ],
+      "metadata": {
+        "severity": "critical",
+        "phase": "2",
+        "effort": "m",
+        "points": 3
+      },
+      "issue_number": 26,
+      "gap_id": "GAP-003",
+      "description": {
+        "background": "Backfilled from GitHub issue #26 (GAP-003). See the issue body for full context.",
+        "scope": "makato has no fat, resumable state. `build-log.sh` writes an append-only JSONL audit but has no concept of sub-task graph, current phase, resume point, or budget. When a session ends mid-pipeline \u2014 power cut, timeout, operator kill \u2014 there is no way to re-enter at the correct step. The workflow-state schema is the foundation for the PO-agent, session-status banner, kill-switch budget checks, and l",
+        "featureToggle": {
+          "alreadyInPlace": false,
+          "newNeeded": false,
+          "longTermUsage": false,
+          "name": "",
+          "defaultState": "disabled"
+        },
+        "successScenarios": [
+          {
+            "title": "Scenario 1: `plugins/makato-orchestrate/skills/workflow-state/SKILL.md` ",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "`plugins/makato-orchestrate/skills/workflow-state/SKILL.md` defines the full JSON schema for `.claude/state/workflow-{KEY}.json` (where KEY is `{repo}-{issue-number}`)."
+          },
+          {
+            "title": "Scenario 2: Schema fields: `repo`, `branch`, `worktree_path`, `issue_num",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "Schema fields: `repo`, `branch`, `worktree_path`, `issue_number`, `sub_tasks[]` (each with `id`, `description`, `status`, `phase`, `agent_result`), `current_phase`, `resume_point`, `budget_consumed_tokens`, `budget_limit_tokens`, `outer_iteration`, `halt_audit[]`, `human_review_cycles`, `github_pr_number`, `lessons_learned[]`, `created_at`, `updated_at`."
+          },
+          {
+            "title": "Scenario 3: Skill documents `read`, `write`, `patch-phase`, and `append-",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "Skill documents `read`, `write`, `patch-phase`, and `append-lesson` operations with exact file paths and shell snippets."
+          }
+        ],
+        "solutionApproach": "",
+        "acceptanceTestCases": [],
+        "wikiDocumentation": "",
+        "outOfScope": []
+      },
+      "definitionOfDone": [
+        "Implementation merged via PR with passing CI",
+        "Issue closed via 'Closes #<n>' in the merge commit",
+        "Downstream blockers reference this issue's number where applicable"
+      ],
+      "dependencies": {
+        "blockedBy": [
+          1
+        ],
+        "blocks": [
+          8,
+          9,
+          10,
+          15
+        ]
+      },
+      "externalDependencies": []
+    },
+    {
+      "sequence": 5,
+      "phase": "foundation",
+      "summary": "[makato-build] feat: add --autonomous mode flag to all build-* approval gates (GAP-005)",
+      "storyPoints": 5,
+      "teams": [
+        "makato-core"
+      ],
+      "labels": [
+        "plugin:makato-build"
+      ],
+      "metadata": {
+        "severity": "critical",
+        "phase": "1",
+        "effort": "m",
+        "points": 3
+      },
+      "issue_number": 27,
+      "gap_id": "GAP-005",
+      "description": {
+        "background": "Backfilled from GitHub issue #27 (GAP-005). See the issue body for full context.",
+        "scope": "Every `build-*` skill that transitions between pipeline phases currently calls `AskUserQuestion` for approval. This is intentional for interactive use \u2014 but it structurally prevents headless operation by a PO-agent. `to-issues` and `issue-to-project` already prove the `--autonomous` bypass pattern; the same pattern must be added to the build pipeline. Without this, the PO-agent (GAP-006 (#32)) can",
+        "featureToggle": {
+          "alreadyInPlace": false,
+          "newNeeded": false,
+          "longTermUsage": false,
+          "name": "",
+          "defaultState": "disabled"
+        },
+        "successScenarios": [
+          {
+            "title": "Scenario 1: A shared convention is documented in `plugins/makato-build/A",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "A shared convention is documented in `plugins/makato-build/AUTONOMOUS-MODE.md`: when `$AGENT_ID` env var is set OR the `--autonomous` flag is passed, all `AskUserQuestion` calls are skipped and defaults are taken."
+          },
+          {
+            "title": "Scenario 2: `build-refine.md`: skips \"approve refined plan?\" gate; proce",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "`build-refine.md`: skips \"approve refined plan?\" gate; proceeds with best-effort refinement when `--autonomous`."
+          },
+          {
+            "title": "Scenario 3: `build-push-to-git.md`: skips \"confirm push to remote?\" gate",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "`build-push-to-git.md`: skips \"confirm push to remote?\" gate; pushes automatically when `--autonomous` (pre-push hook advisory still fires)."
+          }
+        ],
+        "solutionApproach": "",
+        "acceptanceTestCases": [],
+        "wikiDocumentation": "",
+        "outOfScope": []
+      },
+      "definitionOfDone": [
+        "Implementation merged via PR with passing CI",
+        "Issue closed via 'Closes #<n>' in the merge commit",
+        "Downstream blockers reference this issue's number where applicable"
+      ],
+      "dependencies": {
+        "blockedBy": [
+          2
+        ],
+        "blocks": [
+          10,
+          14
+        ]
+      },
+      "externalDependencies": []
+    },
+    {
+      "sequence": 6,
+      "phase": "foundation",
+      "summary": "[makato-build] feat: definition-of-done shared skill (GAP-009)",
+      "storyPoints": 2,
+      "teams": [
+        "makato-core"
+      ],
+      "labels": [
+        "plugin:makato-build"
+      ],
+      "metadata": {
+        "severity": "high",
+        "phase": "1",
+        "effort": "s",
+        "points": 1
+      },
+      "issue_number": 28,
+      "gap_id": "GAP-009",
+      "description": {
+        "background": "Backfilled from GitHub issue #28 (GAP-009). See the issue body for full context.",
+        "scope": "The current `coder.md` and `build-verify.md` each carry implicit DoD criteria embedded in prose. There is no canonical, versioned list of done criteria shared across agents. This means the PO-agent cannot programmatically assert \"this task is done\" without re-reading every agent's prose. A declarative DoD with a machine-checkable automated tier and a human-verification tier closes this gap.",
+        "featureToggle": {
+          "alreadyInPlace": false,
+          "newNeeded": false,
+          "longTermUsage": false,
+          "name": "",
+          "defaultState": "disabled"
+        },
+        "successScenarios": [
+          {
+            "title": "Scenario 1: `plugins/makato-build/skills/definition-of-done/SKILL.md` de",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "`plugins/makato-build/skills/definition-of-done/SKILL.md` defines exactly 18 items in two tiers."
+          },
+          {
+            "title": "Scenario 2: Automated tier (12 items, checkable by verification-agent wi",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "Automated tier (12 items, checkable by verification-agent without human): all tests pass, coverage >= 85%, no lint errors, no type errors, no CRITICAL sensor findings, conventional commit format, branch rebased on main, no TODO/FIXME introduced without tracking issue, no hard-coded credentials, R1 JSON block present in agent return, `build.jsonl` entry written, PR description includes `Closes #N`."
+          },
+          {
+            "title": "Scenario 3: Manual tier (6 items, asserted by PO-agent from workflow-sta",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "Manual tier (6 items, asserted by PO-agent from workflow-state): decomposed sub-tasks all `status: success`, no unresolved MUST-FIX PR comments, outer_iterations < 3, human_review_cycles < MAX, no `needs-human-review` label, PR approved (or skip-review flag set)."
+          }
+        ],
+        "solutionApproach": "",
+        "acceptanceTestCases": [],
+        "wikiDocumentation": "",
+        "outOfScope": []
+      },
+      "definitionOfDone": [
+        "Implementation merged via PR with passing CI",
+        "Issue closed via 'Closes #<n>' in the merge commit",
+        "Downstream blockers reference this issue's number where applicable"
+      ],
+      "dependencies": {
+        "blockedBy": [
+          2
+        ],
+        "blocks": []
+      },
+      "externalDependencies": []
+    },
+    {
+      "sequence": 7,
+      "phase": "foundation",
+      "summary": "[makato-orchestrate] feat: per-task scout agent for file pre-reading (GAP-013)",
+      "storyPoints": 2,
+      "teams": [
+        "makato-core"
+      ],
+      "labels": [
+        "plugin:makato-orchestrate"
+      ],
+      "metadata": {
+        "severity": "medium",
+        "phase": "1",
+        "effort": "s",
+        "points": 1
+      },
+      "issue_number": 29,
+      "gap_id": "GAP-013",
+      "description": {
+        "background": "Backfilled from GitHub issue #29 (GAP-013). See the issue body for full context.",
+        "scope": "`knowledge-scout` discovers Hard Constraints and Standards from dcp-specs \u2014 a repository-wide, planning-phase tool. What is missing is a lightweight per-task scout that, given the specific files a sub-task will touch, pre-reads exactly those 5-8 files and returns a ~500-token structured summary for injection into the coder's context window. Without this, `coder.md` opens every implementation witho",
+        "featureToggle": {
+          "alreadyInPlace": false,
+          "newNeeded": false,
+          "longTermUsage": false,
+          "name": "",
+          "defaultState": "disabled"
+        },
+        "successScenarios": [
+          {
+            "title": "Scenario 1: `plugins/makato-orchestrate/agents/scout.md` defines: model ",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "`plugins/makato-orchestrate/agents/scout.md` defines: model (haiku), maxTurns (10), read-only (`disallowedTools: [\"Write\",\"Edit\",\"Bash\"]`), bypassPermissions false."
+          },
+          {
+            "title": "Scenario 2: Scout accepts: `task_description`, `changed_files[]` (predic",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "Scout accepts: `task_description`, `changed_files[]` (predicted from task), `bundle_rules[]` (from GAP-008 (#25) inject-context)."
+          },
+          {
+            "title": "Scenario 3: Scout reads up to 8 files (changed_files + bundle rule paths",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "Scout reads up to 8 files (changed_files + bundle rule paths), returning a structured ~500-token summary: `{ \"key_patterns\": [...], \"naming_conventions\": {...}, \"test_file_paths\": [...], \"existing_exports\": [...], \"warnings\": [...] }`."
+          }
+        ],
+        "solutionApproach": "",
+        "acceptanceTestCases": [],
+        "wikiDocumentation": "",
+        "outOfScope": []
+      },
+      "definitionOfDone": [
+        "Implementation merged via PR with passing CI",
+        "Issue closed via 'Closes #<n>' in the merge commit",
+        "Downstream blockers reference this issue's number where applicable"
+      ],
+      "dependencies": {
+        "blockedBy": [
+          3
+        ],
+        "blocks": []
+      },
+      "externalDependencies": []
+    },
+    {
+      "sequence": 8,
+      "phase": "foundation",
+      "summary": "[makato-orchestrate] feat: kill-switch triad \u2014 HALT file, GH label poll, token-budget ceilings (GAP-004)",
+      "storyPoints": 5,
+      "teams": [
+        "makato-core"
+      ],
+      "labels": [
+        "plugin:makato-orchestrate"
+      ],
+      "metadata": {
+        "severity": "critical",
+        "phase": "2",
+        "effort": "m",
+        "points": 3
+      },
+      "issue_number": 30,
+      "gap_id": "GAP-004",
+      "description": {
+        "background": "Backfilled from GitHub issue #30 (GAP-004). See the issue body for full context.",
+        "scope": "makato has partial HALT controls \u2014 `sensor-fixer` MAX_LOOPS=5, `agent maxTurns` caps, and a pre-push deny-list \u2014 but no operator kill-switch that works across session boundaries and no token-budget ceilings. A runaway PO-agent loop with no external stop mechanism is an unacceptable production risk. The PRD specifies three complementary controls that together cover operator-signal, per-task cost, a",
+        "featureToggle": {
+          "alreadyInPlace": false,
+          "newNeeded": false,
+          "longTermUsage": false,
+          "name": "",
+          "defaultState": "disabled"
+        },
+        "successScenarios": [
+          {
+            "title": "Scenario 1: `~/.claude/HALT` file pattern is documented: if the file exi",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "`~/.claude/HALT` file pattern is documented: if the file exists at session start or is detected by polling, the PO-agent exits immediately with HALT-000 code, writing audit to `halt_audit` in workflow-state."
+          },
+          {
+            "title": "Scenario 2: A `plugins/makato-orchestrate/hooks/check-halt.sh` script (P",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "A `plugins/makato-orchestrate/hooks/check-halt.sh` script (PreToolUse hook, runs before every `Bash` tool call in autonomous mode) checks for `~/.claude/HALT` existence; exits non-zero if found, blocking the tool call."
+          },
+          {
+            "title": "Scenario 3: GitHub kill-switch label `claude-halt` is polled approximate",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "GitHub kill-switch label `claude-halt` is polled approximately every 60 seconds by the PO-agent loop; detection triggers HALT-009, labels the issue `needs-human-review`, and stops."
+          }
+        ],
+        "solutionApproach": "",
+        "acceptanceTestCases": [],
+        "wikiDocumentation": "",
+        "outOfScope": []
+      },
+      "definitionOfDone": [
+        "Implementation merged via PR with passing CI",
+        "Issue closed via 'Closes #<n>' in the merge commit",
+        "Downstream blockers reference this issue's number where applicable"
+      ],
+      "dependencies": {
+        "blockedBy": [
+          4
+        ],
+        "blocks": [
+          10
+        ]
+      },
+      "externalDependencies": []
+    },
+    {
+      "sequence": 9,
+      "phase": "foundation",
+      "summary": "[makato-orchestrate] feat: session-status SessionStart hook (GAP-014)",
+      "storyPoints": 2,
+      "teams": [
+        "makato-core"
+      ],
+      "labels": [
+        "plugin:makato-orchestrate"
+      ],
+      "metadata": {
+        "severity": "medium",
+        "phase": "2",
+        "effort": "s",
+        "points": 1
+      },
+      "issue_number": 31,
+      "gap_id": "GAP-014",
+      "description": {
+        "background": "Backfilled from GitHub issue #31 (GAP-014). See the issue body for full context.",
+        "scope": "When an operator opens a new Claude Code session, there is no visibility into whether a workflow is already in progress, what phase it is in, or whether the budget is nearly exhausted. The session-status banner provides an at-a-glance summary before any command is entered, preventing duplicate dispatches and surfacing stale or blocked workflows immediately.",
+        "featureToggle": {
+          "alreadyInPlace": false,
+          "newNeeded": false,
+          "longTermUsage": false,
+          "name": "",
+          "defaultState": "disabled"
+        },
+        "successScenarios": [
+          {
+            "title": "Scenario 1: `plugins/makato-orchestrate/hooks/session-status.sh` is a `S",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "`plugins/makato-orchestrate/hooks/session-status.sh` is a `SessionStart` hook that reads all `.claude/state/workflow-*.json` files."
+          },
+          {
+            "title": "Scenario 2: For each active workflow, banner prints: issue number, curre",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "For each active workflow, banner prints: issue number, current phase, budget consumed vs. limit (%), HALT/BLOCKED status, last updated timestamp."
+          },
+          {
+            "title": "Scenario 3: Stale workflows (last `updated_at` > 24h) are highlighted wi",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "Stale workflows (last `updated_at` > 24h) are highlighted with a warning and a resume command suggestion."
+          }
+        ],
+        "solutionApproach": "",
+        "acceptanceTestCases": [],
+        "wikiDocumentation": "",
+        "outOfScope": []
+      },
+      "definitionOfDone": [
+        "Implementation merged via PR with passing CI",
+        "Issue closed via 'Closes #<n>' in the merge commit",
+        "Downstream blockers reference this issue's number where applicable"
+      ],
+      "dependencies": {
+        "blockedBy": [
+          4
+        ],
+        "blocks": []
+      },
+      "externalDependencies": []
+    },
+    {
+      "sequence": 10,
+      "phase": "foundation",
+      "summary": "[makato-orchestrate] feat: po-agent \u2014 top-level autonomous orchestrator (GAP-006)",
+      "storyPoints": 8,
+      "teams": [
+        "makato-core"
+      ],
+      "labels": [
+        "plugin:makato-orchestrate"
+      ],
+      "metadata": {
+        "severity": "critical",
+        "phase": "2",
+        "effort": "l",
+        "points": 8
+      },
+      "issue_number": 32,
+      "gap_id": "GAP-006",
+      "description": {
+        "background": "Backfilled from GitHub issue #32 (GAP-006). See the issue body for full context.",
+        "scope": "makato has no single agent that drives an issue from ready-for-dev through to a merged PR unattended. `makato-change/orchestrate` is the closest analogue \u2014 it coordinates phases with filesystem state detection \u2014 but it requires a human present and has no outer-iteration counter, no kill-switch integration, and no PR lifecycle management. The PO-agent is the primary deliverable of the AgenticSystem",
+        "featureToggle": {
+          "alreadyInPlace": false,
+          "newNeeded": false,
+          "longTermUsage": false,
+          "name": "",
+          "defaultState": "disabled"
+        },
+        "successScenarios": [
+          {
+            "title": "Scenario 1: `plugins/makato-orchestrate/agents/po-agent.md` defines: mod",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "`plugins/makato-orchestrate/agents/po-agent.md` defines: model (sonnet), maxTurns (100), bypassPermissions, disallowedTools (`Edit`, `Write` on source files \u2014 PO-agent never edits source directly), tool permissions."
+          },
+          {
+            "title": "Scenario 2: PO-agent reads a GitHub Issue (by number), calls `makato-pla",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "PO-agent reads a GitHub Issue (by number), calls `makato-plan/decompose` output or reads existing spec artifacts to build the sub-task list, writes initial workflow-state via GAP-003 (#26)."
+          },
+          {
+            "title": "Scenario 3: Outer loop: for each sub-task, checks HALT conditions (GAP-0",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "Outer loop: for each sub-task, checks HALT conditions (GAP-004 (#30)), dispatches `coder.md` with R1 contract (GAP-002 (#24)), parses `status` from R1 response, patches workflow-state, decides retry or advance."
+          }
+        ],
+        "solutionApproach": "",
+        "acceptanceTestCases": [],
+        "wikiDocumentation": "",
+        "outOfScope": []
+      },
+      "definitionOfDone": [
+        "Implementation merged via PR with passing CI",
+        "Issue closed via 'Closes #<n>' in the merge commit",
+        "Downstream blockers reference this issue's number where applicable"
+      ],
+      "dependencies": {
+        "blockedBy": [
+          1,
+          2,
+          4,
+          8,
+          5
+        ],
+        "blocks": [
+          11,
+          12,
+          13
+        ]
+      },
+      "externalDependencies": []
+    },
+    {
+      "sequence": 11,
+      "phase": "foundation",
+      "summary": "[makato-orchestrate] feat: /loop skill for polling work-item queue (GAP-007)",
+      "storyPoints": 2,
+      "teams": [
+        "makato-core"
+      ],
+      "labels": [
+        "plugin:makato-orchestrate"
+      ],
+      "metadata": {
+        "severity": "critical",
+        "phase": "2",
+        "effort": "s",
+        "points": 1
+      },
+      "issue_number": 33,
+      "gap_id": "GAP-007",
+      "description": {
+        "background": "Backfilled from GitHub issue #33 (GAP-007). See the issue body for full context.",
+        "scope": "Even with a complete PO-agent, someone must invoke it issue-by-issue. The PRD specifies a `/loop` runner that polls a GitHub Issues queue \u2014 filtered by a label (e.g., `ready-for-dev`) \u2014 and dispatches the PO-agent for each ready issue. Without this, autonomous operation still requires human-initiated dispatch per issue.",
+        "featureToggle": {
+          "alreadyInPlace": false,
+          "newNeeded": false,
+          "longTermUsage": false,
+          "name": "",
+          "defaultState": "disabled"
+        },
+        "successScenarios": [
+          {
+            "title": "Scenario 1: `plugins/makato-orchestrate/skills/loop.md` documents: invoc",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "`plugins/makato-orchestrate/skills/loop.md` documents: invocation `makato loop [--label ready-for-dev] [--interval 300] [--dry-run]`."
+          },
+          {
+            "title": "Scenario 2: Skill polls `gh issue list --label <label> --state open --js",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "Skill polls `gh issue list --label <label> --state open --json number,title,assignees` at the configured interval."
+          },
+          {
+            "title": "Scenario 3: For each issue not already tracked in `.claude/state/`, disp",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "For each issue not already tracked in `.claude/state/`, dispatches `po-agent` with the issue number."
+          }
+        ],
+        "solutionApproach": "",
+        "acceptanceTestCases": [],
+        "wikiDocumentation": "",
+        "outOfScope": []
+      },
+      "definitionOfDone": [
+        "Implementation merged via PR with passing CI",
+        "Issue closed via 'Closes #<n>' in the merge commit",
+        "Downstream blockers reference this issue's number where applicable"
+      ],
+      "dependencies": {
+        "blockedBy": [
+          10
+        ],
+        "blocks": []
+      },
+      "externalDependencies": []
+    },
+    {
+      "sequence": 12,
+      "phase": "happy-path",
+      "summary": "[makato-orchestrate] feat: CI failure + human-review outer fix loops in PO-agent (GAP-010)",
+      "storyPoints": 5,
+      "teams": [
+        "makato-core"
+      ],
+      "labels": [
+        "plugin:makato-orchestrate"
+      ],
+      "metadata": {
+        "severity": "high",
+        "phase": "3",
+        "effort": "m",
+        "points": 3
+      },
+      "issue_number": 34,
+      "gap_id": "GAP-010",
+      "description": {
+        "background": "Backfilled from GitHub issue #34 (GAP-010). See the issue body for full context.",
+        "scope": "After a PR is created, two failure modes require an outer fix cycle: (1) CI fails \u2014 `gh pr checks` returns failure \u2014 requiring the coder to be re-dispatched with the CI log output; (2) a reviewer requests changes \u2014 `gh pr view --json reviewDecision` returns `CHANGES_REQUESTED` \u2014 requiring the address-PR-comments skill to be re-run. Without these loops, the PO-agent's job ends at PR creation and a ",
+        "featureToggle": {
+          "alreadyInPlace": false,
+          "newNeeded": false,
+          "longTermUsage": false,
+          "name": "",
+          "defaultState": "disabled"
+        },
+        "successScenarios": [
+          {
+            "title": "Scenario 1: PO-agent polls `gh pr checks` after PR creation (30s initial",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "PO-agent polls `gh pr checks` after PR creation (30s initial delay, then every 60s up to 10 polls)."
+          },
+          {
+            "title": "Scenario 2: On CI failure: PO-agent fetches failed-job log via `gh run v",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "On CI failure: PO-agent fetches failed-job log via `gh run view --log-failed`, appends to workflow-state `lessons_learned[]`, dispatches `coder.md` with failure output as additional context, increments `outer_iteration`."
+          },
+          {
+            "title": "Scenario 3: HALT-008 (`outer_iterations >= 3`) fires before re-dispatch ",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "HALT-008 (`outer_iterations >= 3`) fires before re-dispatch \u2014 PO-agent labels the PR `needs-human-review` and stops."
+          }
+        ],
+        "solutionApproach": "",
+        "acceptanceTestCases": [],
+        "wikiDocumentation": "",
+        "outOfScope": []
+      },
+      "definitionOfDone": [
+        "Implementation merged via PR with passing CI",
+        "Issue closed via 'Closes #<n>' in the merge commit",
+        "Downstream blockers reference this issue's number where applicable"
+      ],
+      "dependencies": {
+        "blockedBy": [
+          10
+        ],
+        "blocks": [
+          14,
+          15
+        ]
+      },
+      "externalDependencies": []
+    },
+    {
+      "sequence": 13,
+      "phase": "edge-cases",
+      "summary": "[makato-orchestrate] feat: post-merge documentation agent and GHA workflow (GAP-012)",
+      "storyPoints": 8,
+      "teams": [
+        "makato-core"
+      ],
+      "labels": [
+        "plugin:makato-orchestrate"
+      ],
+      "metadata": {
+        "severity": "high",
+        "phase": "5",
+        "effort": "l",
+        "points": 8
+      },
+      "issue_number": 35,
+      "gap_id": "GAP-012",
+      "description": {
+        "background": "Backfilled from GitHub issue #35 (GAP-012). See the issue body for full context.",
+        "scope": "When a PR merges to the default branch, there is currently no automation to update the changelog, README, and project wiki; close parent and child Issues; or advance the Project board to Done. Human developers handle all of this manually today. The documentation-agent reads the merged diff and commit history and produces all post-merge artifacts in a single pass without modifying source code.",
+        "featureToggle": {
+          "alreadyInPlace": false,
+          "newNeeded": false,
+          "longTermUsage": false,
+          "name": "",
+          "defaultState": "disabled"
+        },
+        "successScenarios": [
+          {
+            "title": "Scenario 1: `plugins/makato-orchestrate/agents/documentation-agent.md` d",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "`plugins/makato-orchestrate/agents/documentation-agent.md` defines: model (sonnet), maxTurns (30), disallowedTools (`Edit`/`Write` on `src/`, `lib/`, `app/` paths \u2014 docs and changelog only), bypassPermissions."
+          },
+          {
+            "title": "Scenario 2: Agent reads merged PR diff and commits via `gh pr diff <numb",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "Agent reads merged PR diff and commits via `gh pr diff <number>` and `gh pr view <number> --json commits`."
+          },
+          {
+            "title": "Scenario 3: Agent appends a changelog entry to `CHANGELOG.md` (Keep a Ch",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "Agent appends a changelog entry to `CHANGELOG.md` (Keep a Changelog format) with PR number, summary, and sub-task bullets."
+          }
+        ],
+        "solutionApproach": "",
+        "acceptanceTestCases": [],
+        "wikiDocumentation": "",
+        "outOfScope": []
+      },
+      "definitionOfDone": [
+        "Implementation merged via PR with passing CI",
+        "Issue closed via 'Closes #<n>' in the merge commit",
+        "Downstream blockers reference this issue's number where applicable"
+      ],
+      "dependencies": {
+        "blockedBy": [
+          10
+        ],
+        "blocks": []
+      },
+      "externalDependencies": []
+    },
+    {
+      "sequence": 14,
+      "phase": "happy-path",
+      "summary": "[makato-build] feat: headless PR-comment handling in autonomous mode (GAP-011)",
+      "storyPoints": 2,
+      "teams": [
+        "makato-core"
+      ],
+      "labels": [
+        "plugin:makato-build"
+      ],
+      "metadata": {
+        "severity": "high",
+        "phase": "3",
+        "effort": "s",
+        "points": 1
+      },
+      "issue_number": 36,
+      "gap_id": "GAP-011",
+      "description": {
+        "background": "Backfilled from GitHub issue #36 (GAP-011). See the issue body for full context.",
+        "scope": "`build-address-pr-comments` already classifies PR comments into MUST-FIX/SHOULD-FIX/CONSIDER/OUT-OF-SCOPE with STRUCTURAL detection and replies to each. All three variants of this skill (`build-address-pr-comments`, `manage-pr`, `resolve-review`) require user approval at the classification step. GAP-005 (#27) adds `--autonomous` to the pipeline broadly; this issue specifically covers the comment-h",
+        "featureToggle": {
+          "alreadyInPlace": false,
+          "newNeeded": false,
+          "longTermUsage": false,
+          "name": "",
+          "defaultState": "disabled"
+        },
+        "successScenarios": [
+          {
+            "title": "Scenario 1: In `--autonomous` mode, MUST-FIX comments are applied withou",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "In `--autonomous` mode, MUST-FIX comments are applied without user confirmation; outcome is logged to `build.jsonl` with `autonomous_bypass` event."
+          },
+          {
+            "title": "Scenario 2: SHOULD-FIX comments in `--autonomous` mode are applied if th",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "SHOULD-FIX comments in `--autonomous` mode are applied if they touch only files already in the task diff; otherwise marked DEFERRED with a reply posted to the PR."
+          },
+          {
+            "title": "Scenario 3: STRUCTURAL findings (changes requiring architecture-level de",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "STRUCTURAL findings (changes requiring architecture-level decisions) in `--autonomous` mode always trigger HALT \u2014 the skill posts a summary reply, labels PR `needs-human-review`, and exits with HALT-003."
+          }
+        ],
+        "solutionApproach": "",
+        "acceptanceTestCases": [],
+        "wikiDocumentation": "",
+        "outOfScope": []
+      },
+      "definitionOfDone": [
+        "Implementation merged via PR with passing CI",
+        "Issue closed via 'Closes #<n>' in the merge commit",
+        "Downstream blockers reference this issue's number where applicable"
+      ],
+      "dependencies": {
+        "blockedBy": [
+          5,
+          12
+        ],
+        "blocks": []
+      },
+      "externalDependencies": []
+    },
+    {
+      "sequence": 15,
+      "phase": "happy-path",
+      "summary": "[makato-orchestrate] feat: lesson-learned accumulation and inter-session carry-forward (GAP-015)",
+      "storyPoints": 2,
+      "teams": [
+        "makato-core"
+      ],
+      "labels": [
+        "plugin:makato-orchestrate"
+      ],
+      "metadata": {
+        "severity": "medium",
+        "phase": "3",
+        "effort": "s",
+        "points": 1
+      },
+      "issue_number": 37,
+      "gap_id": "GAP-015",
+      "description": {
+        "background": "Backfilled from GitHub issue #37 (GAP-015). See the issue body for full context.",
+        "scope": "Each autonomous run accumulates implicit knowledge \u2014 a CI failure mode that recurred, a naming convention the coder missed twice, a HALT triggered by the same STRUCTURAL comment. Without explicit lesson-learned capture and carry-forward, the next PO-agent session starts cold and repeats the same mistakes. Lesson-learned entries written into workflow-state are also the input for any future fine-tun",
+        "featureToggle": {
+          "alreadyInPlace": false,
+          "newNeeded": false,
+          "longTermUsage": false,
+          "name": "",
+          "defaultState": "disabled"
+        },
+        "successScenarios": [
+          {
+            "title": "Scenario 1: `workflow-state` `lessons_learned[]` schema (defined in GAP-",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "`workflow-state` `lessons_learned[]` schema (defined in GAP-003 (#26)) is typed: each entry has `{ \"cycle\": N, \"trigger\": \"ci_failure|halt|review_comment|sensor\", \"description\": \"...\", \"files_affected\": [...] }`."
+          },
+          {
+            "title": "Scenario 2: PO-agent appends a lesson after every outer-loop cycle: CI f",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "PO-agent appends a lesson after every outer-loop cycle: CI fix, CHANGES_REQUESTED address, HALT trigger, or sensor fix resolution \u2014 each produces one lesson entry."
+          },
+          {
+            "title": "Scenario 3: On PO-agent startup for a new issue, it reads `lessons_learn",
+            "given": "the prior phase tasks are complete",
+            "when": "this story is implemented",
+            "then": "On PO-agent startup for a new issue, it reads `lessons_learned[]` from any prior workflow for the same repository (different issue, same repo path) and injects top-3 most-recent lessons into the initial coder context."
+          }
+        ],
+        "solutionApproach": "",
+        "acceptanceTestCases": [],
+        "wikiDocumentation": "",
+        "outOfScope": []
+      },
+      "definitionOfDone": [
+        "Implementation merged via PR with passing CI",
+        "Issue closed via 'Closes #<n>' in the merge commit",
+        "Downstream blockers reference this issue's number where applicable"
+      ],
+      "dependencies": {
+        "blockedBy": [
+          4,
+          12
+        ],
+        "blocks": []
+      },
+      "externalDependencies": []
+    }
+  ]
+}

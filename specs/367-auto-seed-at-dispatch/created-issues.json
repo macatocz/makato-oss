@@ -1,0 +1,96 @@
+{
+  "schema_version": "1",
+  "slug": "367-auto-seed-at-dispatch",
+  "issues": [
+    {
+      "story_id": "S1",
+      "issue_number": 369,
+      "url": "https://github.com/macatocz/makato/issues/369",
+      "title": "[makato] Exclusion set + unprepared-candidate discovery",
+      "labels": [
+        "enhancement",
+        "plugin:makato-orchestrate",
+        "type:feat",
+        "tech:bash",
+        "tier:foundation",
+        "effort:s",
+        "points:3"
+      ],
+      "blocked_by": []
+    },
+    {
+      "story_id": "S2",
+      "issue_number": 370,
+      "url": "https://github.com/macatocz/makato/issues/370",
+      "title": "[makato] Light-tier auto-seed happy path (delegate to seed-issue)",
+      "labels": [
+        "enhancement",
+        "plugin:makato-orchestrate",
+        "type:feat",
+        "tech:bash",
+        "tier:happy-path",
+        "effort:m",
+        "points:5"
+      ],
+      "blocked_by": [
+        369
+      ]
+    },
+    {
+      "story_id": "S3",
+      "issue_number": 371,
+      "url": "https://github.com/macatocz/makato/issues/371",
+      "title": "[makato] Thin-body terminal state reconciliation",
+      "labels": [
+        "enhancement",
+        "plugin:makato-orchestrate",
+        "type:feat",
+        "tech:bash",
+        "tier:happy-path",
+        "effort:s",
+        "points:3"
+      ],
+      "blocked_by": [
+        370
+      ]
+    },
+    {
+      "story_id": "S4",
+      "issue_number": 372,
+      "url": "https://github.com/macatocz/makato/issues/372",
+      "title": "[makato] Full / untiered arm \u2014 block for a human",
+      "labels": [
+        "enhancement",
+        "plugin:makato-orchestrate",
+        "type:feat",
+        "tech:bash",
+        "tier:happy-path",
+        "effort:m",
+        "points:5"
+      ],
+      "blocked_by": [
+        369
+      ]
+    },
+    {
+      "story_id": "S5",
+      "issue_number": 373,
+      "url": "https://github.com/macatocz/makato/issues/373",
+      "title": "[makato] Tick integration, toggle, and offline smoke suite",
+      "labels": [
+        "enhancement",
+        "plugin:makato-orchestrate",
+        "type:feat",
+        "tech:bash",
+        "tier:happy-path",
+        "effort:m",
+        "points:5"
+      ],
+      "blocked_by": [
+        370,
+        371,
+        372
+      ]
+    }
+  ]
+}

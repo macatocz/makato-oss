@@ -1,0 +1,27 @@
+{
+  "slug": "autonomous-build-refine-stories-json",
+  "generated": "2026-07-21",
+  "source": "manual to-issues parity run (skill not loadable in sagibeast-pinned session)",
+  "repo": "macatocz/makato",
+  "issues": [
+    {
+      "storyId": "S1",
+      "number": 527,
+      "url": "https://github.com/macatocz/makato/issues/527",
+      "title": "[makato-orchestrate] Autonomous build-refine: materialize full-tier plans from committed stories.json",
+      "labels": [
+        "type:feature",
+        "plugin:makato-orchestrate",
+        "plugin:makato-build",
+        "plugin:makato-plan",
+        "tech:bash",
+        "tier:foundation",
+        "effort:m",
+        "priority:p1",
+        "points:5"
+      ],
+      "blocked_by": [],
+      "blocks": []
+    }
+  ]
+}

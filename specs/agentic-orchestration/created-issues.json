@@ -1,0 +1,189 @@
+{
+  "schema_version": "1",
+  "slug": "agentic-orchestration",
+  "issues": [
+    {
+      "issue_number": 23,
+      "url": "https://github.com/macatocz/makato/issues/23",
+      "title": "[makato-orchestrate] feat: scaffold makato-orchestrate plugin for autonomous control plane (GAP-001)",
+      "labels": [
+        "enhancement",
+        "plugin:makato-orchestrate"
+      ],
+      "blocked_by": []
+    },
+    {
+      "issue_number": 24,
+      "url": "https://github.com/macatocz/makato/issues/24",
+      "title": "[makato-build] feat: add R1 structured-JSON return contract to all sub-agents (GAP-002)",
+      "labels": [
+        "enhancement",
+        "plugin:makato-build"
+      ],
+      "blocked_by": []
+    },
+    {
+      "issue_number": 25,
+      "url": "https://github.com/macatocz/makato/issues/25",
+      "title": "[makato-build] feat: context-bundles.yml + bundle resolution skill (GAP-008)",
+      "labels": [
+        "enhancement",
+        "plugin:makato-build"
+      ],
+      "blocked_by": []
+    },
+    {
+      "issue_number": 26,
+      "url": "https://github.com/macatocz/makato/issues/26",
+      "title": "[makato-orchestrate] feat: workflow-state schema and skill for resumable sessions (GAP-003)",
+      "labels": [
+        "enhancement",
+        "plugin:makato-orchestrate"
+      ],
+      "blocked_by": [
+        23
+      ]
+    },
+    {
+      "issue_number": 27,
+      "url": "https://github.com/macatocz/makato/issues/27",
+      "title": "[makato-build] feat: add --autonomous mode flag to all build-* approval gates (GAP-005)",
+      "labels": [
+        "enhancement",
+        "plugin:makato-build"
+      ],
+      "blocked_by": [
+        24
+      ]
+    },
+    {
+      "issue_number": 28,
+      "url": "https://github.com/macatocz/makato/issues/28",
+      "title": "[makato-build] feat: definition-of-done shared skill (GAP-009)",
+      "labels": [
+        "enhancement",
+        "plugin:makato-build"
+      ],
+      "blocked_by": [
+        24
+      ]
+    },
+    {
+      "issue_number": 29,
+      "url": "https://github.com/macatocz/makato/issues/29",
+      "title": "[makato-orchestrate] feat: per-task scout agent for file pre-reading (GAP-013)",
+      "labels": [
+        "enhancement",
+        "plugin:makato-orchestrate"
+      ],
+      "blocked_by": [
+        25,
+        24
+      ]
+    },
+    {
+      "issue_number": 30,
+      "url": "https://github.com/macatocz/makato/issues/30",
+      "title": "[makato-orchestrate] feat: kill-switch triad \u2014 HALT file, GH label poll, token-budget ceilings (GAP-004)",
+      "labels": [
+        "enhancement",
+        "plugin:makato-orchestrate"
+      ],
+      "blocked_by": [
+        26
+      ]
+    },
+    {
+      "issue_number": 31,
+      "url": "https://github.com/macatocz/makato/issues/31",
+      "title": "[makato-orchestrate] feat: session-status SessionStart hook (GAP-014)",
+      "labels": [
+        "enhancement",
+        "plugin:makato-orchestrate"
+      ],
+      "blocked_by": [
+        26
+      ]
+    },
+    {
+      "issue_number": 32,
+      "url": "https://github.com/macatocz/makato/issues/32",
+      "title": "[makato-orchestrate] feat: po-agent \u2014 top-level autonomous orchestrator (GAP-006)",
+      "labels": [
+        "enhancement",
+        "plugin:makato-orchestrate"
+      ],
+      "blocked_by": [
+        23,
+        24,
+        26,
+        30,
+        27
+      ]
+    },
+    {
+      "issue_number": 33,
+      "url": "https://github.com/macatocz/makato/issues/33",
+      "title": "[makato-orchestrate] feat: /loop skill for polling work-item queue (GAP-007)",
+      "labels": [
+        "enhancement",
+        "plugin:makato-orchestrate"
+      ],
+      "blocked_by": [
+        32
+      ]
+    },
+    {
+      "issue_number": 34,
+      "url": "https://github.com/macatocz/makato/issues/34",
+      "title": "[makato-orchestrate] feat: CI failure + human-review outer fix loops in PO-agent (GAP-010)",
+      "labels": [
+        "enhancement",
+        "plugin:makato-orchestrate"
+      ],
+      "blocked_by": [
+        32,
+        27,
+        26
+      ]
+    },
+    {
+      "issue_number": 35,
+      "url": "https://github.com/macatocz/makato/issues/35",
+      "title": "[makato-orchestrate] feat: post-merge documentation agent and GHA workflow (GAP-012)",
+      "labels": [
+        "enhancement",
+        "plugin:makato-orchestrate"
+      ],
+      "blocked_by": [
+        32
+      ]
+    },
+    {
+      "issue_number": 36,
+      "url": "https://github.com/macatocz/makato/issues/36",
+      "title": "[makato-build] feat: headless PR-comment handling in autonomous mode (GAP-011)",
+      "labels": [
+        "enhancement",
+        "plugin:makato-build"
+      ],
+      "blocked_by": [
+        27,
+        34
+      ]
+    },
+    {
+      "issue_number": 37,
+      "url": "https://github.com/macatocz/makato/issues/37",
+      "title": "[makato-orchestrate] feat: lesson-learned accumulation and inter-session carry-forward (GAP-015)",
+      "labels": [
+        "enhancement",
+        "plugin:makato-orchestrate"
+      ],
+      "blocked_by": [
+        26,
+        34
+      ]
+    }
+  ]
+}

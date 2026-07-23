@@ -1,0 +1,113 @@
+{
+  "slug": "367-auto-seed-at-dispatch",
+  "source": "github:macatocz/makato#367",
+  "epic": "auto-seed unprepared issues at dispatch",
+  "generated": "2026-07-14",
+  "stories": [
+    {
+      "id": "S1",
+      "title": "Exclusion set + unprepared-candidate discovery",
+      "labels": ["type:feature", "plugin:makato-orchestrate", "tech:bash", "phase:foundation", "effort:S", "priority:high", "points:3"],
+      "description": "Add the auto-seed candidate query (open issues WITHOUT status:ready-for-dev) and the exclusion filter. Reuse _PROMOTE_EXCLUSION_LABELS verbatim as the label veto and extend with Renovate/bot detection (label `dependencies` OR author `renovate[bot]`). This is the foundation both tier arms build on: it produces the filtered candidate list with each candidate's plan-tier classified.",
+      "dependencies": {"blockedBy": []},
+      "acceptanceTestCases": [
+        {
+          "scenario": "Unprepared issue is discovered as a candidate",
+          "gherkin": "Given an open issue with no `status:ready-for-dev` label\nAnd it carries no exclusion label\nWhen the auto-seed candidate query runs\nThen the issue appears in the candidate list with its plan-tier classified"
+        },
+        {
+          "scenario": "Ready issue is not a candidate",
+          "gherkin": "Given an open issue already carrying `status:ready-for-dev`\nWhen the auto-seed candidate query runs\nThen the issue does NOT appear in the candidate list (it is _promote_labelled_ready's job)"
+        },
+        {
+          "scenario": "Exclusion labels veto a candidate",
+          "gherkin": "Given an open issue without `status:ready-for-dev`\nAnd it carries one of `triage` / `experimental` / `status:blocked` / `autonomous:halt` / `needs-human-review`\nWhen the exclusion filter runs\nThen the issue is excluded from auto-seed"
+        },
+        {
+          "scenario": "Renovate bot noise is vetoed by label",
+          "gherkin": "Given an open issue carrying the `dependencies` label\nWhen the exclusion filter runs\nThen the issue is excluded (e.g. the Dependency Dashboard #346 is never seeded)"
+        },
+        {
+          "scenario": "Renovate bot noise is vetoed by author backstop",
+          "gherkin": "Given an open issue authored by `renovate[bot]` with no `dependencies` label\nWhen the exclusion filter runs\nThen the issue is still excluded"
+        }
+      ]
+    },
+    {
+      "id": "S2",
+      "title": "Light-tier auto-seed happy path (delegate to seed-issue)",
+      "labels": ["type:feature", "plugin:makato-orchestrate", "tech:bash", "phase:core", "effort:M", "priority:high", "points:5"],
+      "description": "For a plan-tier:light new-work candidate with a rich body, dispatch seed-issue headlessly (MAKATO_HEADLESS=1 claude -p), which produces the label + spec folder + light-planner plan.md and promotes the card to Ready. On success the candidate is dispatchable in the same tick. Test hook MAKATO_LOOP_SEED_TEST_CMD stubs the claude -p spawn offline.",
+      "dependencies": {"blockedBy": ["S1"]},
+      "acceptanceTestCases": [
+        {
+          "scenario": "Light plannable issue is auto-seeded and becomes dispatchable",
+          "gherkin": "Given a queued issue with `plan-tier:light` and no `status:ready-for-dev`\nAnd its body is rich enough to plan against\nWhen the loop reaches it\nThen the loop headlessly seeds it (label + spec folder + light-planner plan.md)\nAnd the issue is promoted to Ready and dispatched in the same tick — no manual seed-issue run required"
+        },
+        {
+          "scenario": "Seed dispatch uses the headless mechanism",
+          "gherkin": "Given a light plannable candidate\nWhen auto-seed dispatches seed-issue\nThen it spawns with MAKATO_HEADLESS=1 via the same claude -p mechanism cmd_dispatch uses"
+        }
+      ]
+    },
+    {
+      "id": "S3",
+      "title": "Thin-body terminal state reconciliation",
+      "labels": ["type:feature", "plugin:makato-orchestrate", "tech:bash", "phase:core", "effort:S", "priority:high", "points:3"],
+      "description": "When the light path's light-planner returns thin-body (no plan written; seed-issue's Step 8.5c re-tiered light→full and stripped status:ready-for-dev), the loop leaves the issue at Todo, ADDS needs-human-review (the label seed-issue's own fallback does not apply), and does NOT dispatch. The loop detects thin-body from seed-issue's orchestrate.jsonl light-plan line (data.thin_body / guard:invalid) with the post-seed label state as idempotent backstop.",
+      "dependencies": {"blockedBy": ["S2"]},
+      "acceptanceTestCases": [
+        {
+          "scenario": "Thin-body light issue lands on needs-human-review, not dispatched",
+          "gherkin": "Given a `plan-tier:light` issue whose body is too thin\nWhen light-planner refuses (thin-body)\nThen no plan is written\nAnd the issue stays at `Todo`\nAnd `needs-human-review` is applied\nAnd the loop does not dispatch it"
+        },
+        {
+          "scenario": "Thin-body issue is not re-seeded next tick",
+          "gherkin": "Given a thin-body issue already carrying `needs-human-review`\nWhen the next auto-seed pass runs\nThen the issue is excluded (needs-human-review is in the exclusion set) and not re-seeded"
+        }
+      ]
+    },
+    {
+      "id": "S4",
+      "title": "Full / untiered arm — block for a human",
+      "labels": ["type:feature", "plugin:makato-orchestrate", "tech:bash", "phase:core", "effort:M", "priority:high", "points:5"],
+      "description": "For a plan-tier:full or untiered candidate, do NOT dispatch. Pure-bash arm (no Claude spawn): prepare the spec folder, move the board card to Blocked, apply needs-human-review, and post a comment naming the exact full-makato-plan launch command. Comment guarded by a sentinel marker for idempotency (posts exactly once).",
+      "dependencies": {"blockedBy": ["S1"]},
+      "acceptanceTestCases": [
+        {
+          "scenario": "Full-tier issue is blocked with a launch-command comment",
+          "gherkin": "Given a `plan-tier:full` issue with no `status:ready-for-dev`\nWhen the loop reaches it\nThen it is NOT dispatched\nAnd the card moves to `Blocked`\nAnd `needs-human-review` is applied\nAnd a comment is posted naming the full-planning launch command"
+        },
+        {
+          "scenario": "Untiered issue is treated as full-tier",
+          "gherkin": "Given an open issue with no `plan-tier:*` label and no `status:ready-for-dev`\nWhen the loop reaches it\nThen it is blocked exactly like a `plan-tier:full` issue (Blocked + needs-human-review + launch-command comment), not dispatched"
+        },
+        {
+          "scenario": "Block comment posts exactly once (idempotency)",
+          "gherkin": "Given a full-tier issue already carrying the launch-command comment and `needs-human-review`\nWhen the next auto-seed pass runs\nThen no duplicate comment is posted and no duplicate label is added"
+        }
+      ]
+    },
+    {
+      "id": "S5",
+      "title": "Tick integration, toggle, and offline smoke suite",
+      "labels": ["type:feature", "plugin:makato-orchestrate", "tech:bash", "phase:integration", "effort:M", "priority:high", "points:5"],
+      "description": "Wire _auto_seed_unprepared into cmd_run before _promote_labelled_ready (so a freshly-seeded light issue is same-tick dispatchable). Add cmd_auto_seed standalone entry point (mirrors cmd_promote_ready). Add the MAKATO_LOOP_AUTOSEED_ON_POLL toggle (default on) and all offline test hooks. Extend loop-smoke-tests.sh with scenarios Ta–Tk covering all four arms, best-effort, idempotency, toggle, and ordering. Update loop SKILL.md version, README env-var + pre-poll-pass docs, CHANGELOG.",
+      "dependencies": {"blockedBy": ["S2", "S3", "S4"]},
+      "acceptanceTestCases": [
+        {
+          "scenario": "Auto-seed is best-effort — a failure never blocks the tick",
+          "gherkin": "Given the auto-seed pass encounters a `gh` or seed failure on a candidate\nWhen the pass runs\nThen it logs a WARN\nAnd the tick continues (the pass returns success)"
+        },
+        {
+          "scenario": "Auto-seed runs before promote-ready in the tick",
+          "gherkin": "Given a light plannable issue that auto-seed will promote to Ready\nWhen a single `loop run --once` tick executes\nThen auto-seed runs before _promote_labelled_ready\nAnd the freshly-seeded issue is eligible for dispatch in the same tick"
+        },
+        {
+          "scenario": "Toggle disables the pass",
+          "gherkin": "Given `MAKATO_LOOP_AUTOSEED_ON_POLL=0`\nWhen a tick executes\nThen the auto-seed pass performs no candidate query and no seed/block action"
+        }
+      ]
+    }
+  ]
+}
