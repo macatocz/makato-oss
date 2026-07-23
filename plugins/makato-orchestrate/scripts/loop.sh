@@ -411,6 +411,48 @@ STALL_THRESHOLD_SECS="${MAKATO_LOOP_STALL_THRESHOLD:-300}"
 MAX_STALL_RESTARTS="${MAKATO_MAX_STALL_RESTARTS:-3}"
 STALL_BACKOFF_BASE_SECS="${MAKATO_STALL_BACKOFF_BASE:-60}"
 
+# --- Headless CLI resilience (follow-on: #531, #532) --------------------
+# The loop's watchdog + stall-recovery (#164 / #444) only catch a PO-agent
+# that HANGS with no output — the watchdog reaps it and _stall_restart
+# re-dispatches. They do NOT catch a transient API error that terminates
+# the `claude -p` subprocess cleanly. The most common such error,
+# "API Error: Response stalled mid-stream. The response above may be
+# incomplete." (after output has started streaming), is NOT retried by the
+# CLI: the partial turn is kept and the process exits 0 — so a mid-build
+# story silently ends half-done. The CLI's own retry/timeout machinery is
+# the first line of defence, but it is OFF by default. Turning it on here
+# lets transient errors self-heal INSIDE a single dispatch, before the
+# process ever exits (which the loop cannot observe — cmd_run ignores the
+# dispatch rc, loop.sh:4711). Detecting an already-exited-incomplete run
+# and resuming it via `claude --resume` (#531), and an external supervisor
+# for a dead loop.sh (#532), are the follow-ons; this block is the cheap,
+# zero-risk first fix.
+#
+# All three are exported so every `claude -p` subprocess this script spawns
+# inherits them: the two cmd_dispatch invocations (stream-json + text
+# opt-out paths) plus the refine / decompose / to-issues dispatches. Each
+# honours an existing operator-set value via `:-`, so nothing here
+# overrides a deliberate environment override.
+#
+#   CLAUDE_CODE_RETRY_WATCHDOG=1
+#     Unattended/CI resilience switch. Retries 429/529 indefinitely and
+#     raises the transient-error retry budget to ~300 attempts (~3 h of
+#     backoff), removing the default 15-attempt cap. This is the primary
+#     defence against transient stream/API errors.
+#   API_TIMEOUT_MS
+#     Per-request timeout before a request is abandoned (CLI default
+#     600000 = 10 min). Raised to 20 min headroom for slow tool turns /
+#     proxied gateways; still bounded so a genuinely dead request fails
+#     rather than hanging past the loop's own STALL_KILL watchdog.
+#   API_FORCE_IDLE_TIMEOUT
+#     The CLI's 5-min stream-idle watchdog. Left ON by default (empty);
+#     operators behind a slow proxy/gateway can set 0 to disable it.
+export CLAUDE_CODE_RETRY_WATCHDOG="${CLAUDE_CODE_RETRY_WATCHDOG:-1}"
+export API_TIMEOUT_MS="${API_TIMEOUT_MS:-1200000}"
+if [[ -n "${API_FORCE_IDLE_TIMEOUT:-}" ]]; then
+  export API_FORCE_IDLE_TIMEOUT
+fi
+
 # Run-mutex pidfile — the layer-1 defence against #172 (a second
 # loop.sh instance running unnoticed in parallel against the same
 # state dir). Default lives alongside loop-status.json so the pidfile
