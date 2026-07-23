@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  com.makato.loop-supervisor.plist.template
+  ==========================================
+  macOS launchd plist for the makato loop supervisor (issue #532).
+
+  INSTALL INSTRUCTIONS:
+  =====================
+  1. Copy this template and substitute {{MAKATO_REPO_ROOT}} with the absolute
+     path to your makato repository root.
+
+     cp plugins/makato-orchestrate/scripts/com.makato.loop-supervisor.plist.template \
+        ~/Library/LaunchAgents/com.makato.loop-supervisor.plist
+
+     Then edit the copied file and replace:
+       {{MAKATO_REPO_ROOT}}  with e.g. /Users/yourname/GITHUB/makato
+       {{HOME}}              with e.g. /Users/yourname  (or keep as is if your shell
+                             expands it — launchd does NOT expand $HOME in plists)
+
+  2. Load the agent:
+       launchctl load ~/Library/LaunchAgents/com.makato.loop-supervisor.plist
+
+  3. To stop and unload:
+       launchctl unload ~/Library/LaunchAgents/com.makato.loop-supervisor.plist
+
+  4. Logs land at ~/.claude/state/supervisor.log (stdout + stderr combined).
+     The per-tick structured audit is at ~/.claude/state/supervisor-audit.jsonl.
+
+  CRON ALTERNATIVE:
+  =================
+  If you prefer cron over launchd, add a crontab entry that runs every 5 minutes:
+
+    # Edit crontab with: crontab -e
+    */5 * * * * /Users/yourname/GITHUB/makato/plugins/makato-orchestrate/scripts/loop-supervisor.sh >> /Users/yourname/.claude/state/supervisor.log 2>&1
+
+  The supervisor is idempotent — running it more frequently than needed is safe.
+  The run-mutex in loop.sh prevents double-dispatch even if the supervisor fires
+  while loop.sh is already running.
+
+  CONFIGURATION:
+  ==============
+  The supervisor reads MAKATO_REPO_ROOT and MAKATO_LOOP_STATE_DIR from the
+  EnvironmentVariables block below. Additional overrides (see loop-supervisor.sh
+  header) can be added here:
+    MAKATO_LOOP_PIDFILE       — custom pidfile path
+    MAKATO_HALT_FILE          — HALT file path (default: ~/.claude/HALT)
+    SUPERVISOR_STALE_SECS     — staleness threshold in seconds (default: 600)
+
+  The supervisor is opt-in and does NOT run automatically when you invoke
+  `loop run`. Install it only when you want the external safety net.
+-->
+<plist version="1.0">
+<dict>
+
+  <!-- Label must match the filename (without .plist) -->
+  <key>Label</key>
+  <string>com.makato.loop-supervisor</string>
+
+  <!-- The script to run (no shell wrapper needed — bash is explicit) -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>{{MAKATO_REPO_ROOT}}/plugins/makato-orchestrate/scripts/loop-supervisor.sh</string>
+  </array>
+
+  <!-- Run every 300 seconds (5 minutes) -->
+  <key>StartInterval</key>
+  <integer>300</integer>
+
+  <!-- Environment variables forwarded to the supervisor script -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>MAKATO_REPO_ROOT</key>
+    <string>{{MAKATO_REPO_ROOT}}</string>
+    <!-- Override state dir if loop.sh is started with MAKATO_LOOP_STATE_DIR -->
+    <key>MAKATO_LOOP_STATE_DIR</key>
+    <string>{{HOME}}/.claude/state</string>
+  </dict>
+
+  <!-- Redirect stdout and stderr to a persistent log file -->
+  <key>StandardOutPath</key>
+  <string>{{HOME}}/.claude/state/supervisor.log</string>
+  <key>StandardErrorPath</key>
+  <string>{{HOME}}/.claude/state/supervisor.log</string>
+
+  <!-- Do not launch immediately at load time — wait for the first interval -->
+  <key>RunAtLoad</key>
+  <false/>
+
+</dict>
+</plist>
