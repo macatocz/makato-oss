@@ -4987,6 +4987,39 @@ cmd_run() {
       return 0
     fi
 
+    # Pre-poll external hook (#pending): a consumer-supplied script run before
+    # any board interaction, right after the HALT check. Lets a consumer (e.g.
+    # sagibeast's testbox-recovery.sh) keep its self-hosted runners alive before
+    # the loop tries to dispatch. Exit contract:
+    #   0 → healthy/handled, continue tick
+    #   2 → transient problem, skip dispatch this tick (retry next tick)
+    #   3 → give up: HALT the loop (the hook has already notified)
+    # Any other non-zero is treated as 0 (best-effort — never block on a buggy
+    # hook). Unset/non-executable → no-op. Skipped under --dry-run.
+    if [[ -z "$dry_run" && -n "${MAKATO_LOOP_PREPOLL_HOOK:-}" \
+          && -x "${MAKATO_LOOP_PREPOLL_HOOK}" ]]; then
+      # `set -e` is active: a bare `hook; rc=$?` would abort cmd_run the moment
+      # the hook exits non-zero (2/3 are expected). Capture rc with a `|| rc=$?`
+      # guard — `$?` inside an `if !` body is already reset to 0, so that idiom
+      # cannot recover the real code; `|| ` runs only on failure and preserves it.
+      local prepoll_rc=0
+      "${MAKATO_LOOP_PREPOLL_HOOK}" || prepoll_rc=$?
+      case "$prepoll_rc" in
+        2) echo "loop: pre-poll hook returned 2 — skipping dispatch this tick" >&2
+           if [[ -n "$once" ]]; then
+             _emit_run_report "${dispatched_issues[@]+"${dispatched_issues[@]}"}"
+             return 0
+           fi
+           _guarded_sleep "$interval"; continue ;;
+        3) echo "loop: pre-poll hook returned 3 — HALT (hook gave up)" >&2
+           _patch_status '.last_halt_at' "\"$(_now)\""
+           _emit_run_report "${dispatched_issues[@]+"${dispatched_issues[@]}"}"
+           return 0 ;;
+        0) : ;;
+        *) echo "loop: pre-poll hook rc=${prepoll_rc} (ignored, best-effort)" >&2 ;;
+      esac
+    fi
+
     # Pre-poll orphaned-In-progress reconciliation (#368): move board cards
     # that are "In progress" but have no live local workflow-state to Blocked
     # + needs-human-review. Runs for all --status values. Skipped under

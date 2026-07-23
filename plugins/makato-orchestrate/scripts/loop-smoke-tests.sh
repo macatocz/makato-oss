@@ -5181,6 +5181,61 @@ tidle2_out="$(MAKATO_LOOP_INTERVAL=300 MAKATO_LOOP_IDLE_FACTOR=0 MAKATO_LOOP_IDL
 echo "  ✓ hostile IDLE_FACTOR=0 / IDLE_MAX<base fall back to safe defaults"
 
 # ---------------------------------------------------------------------------
+# T-PREPOLL-1..3: generic MAKATO_LOOP_PREPOLL_HOOK (#pending)
+#   The loop runs an executable hook right after the HALT check, honoring its
+#   exit code: 2 → skip dispatch this tick; 3 → HALT; 0/other → proceed.
+# ---------------------------------------------------------------------------
+echo "=== T-PREPOLL-1: hook exit 2 skips dispatch this tick ==="
+PP_DIR="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-prepoll"
+mkdir -p "$PP_DIR"
+rm -f "$STATE_DIR/loop-status.json"
+cat >"$PP_DIR/hook2.sh" <<'H'
+#!/usr/bin/env bash
+exit 2
+H
+chmod +x "$PP_DIR/hook2.sh"
+pp1_out="$(
+  MAKATO_LOOP_PREPOLL_HOOK="$PP_DIR/hook2.sh" \
+  MAKATO_LOOP_DRY_DISPATCH=1 \
+  MAKATO_LOOP_SLEEP_CMD=true \
+    "$LOOP" run --status Ready --once 2>&1 >/dev/null
+)"
+grep -qi "skipping dispatch this tick" <<<"$pp1_out" \
+  || fail "T-PREPOLL-1: hook exit 2 should log 'skipping dispatch this tick'; got: $pp1_out"
+jq -e '.last_dispatch_issue == null or (.last_dispatch_issue|not)' \
+  "$STATE_DIR/loop-status.json" >/dev/null 2>&1 \
+  || fail "T-PREPOLL-1: no dispatch should occur when hook returns 2"
+echo "  ✓ hook exit 2 → dispatch skipped this tick"
+
+echo "=== T-PREPOLL-2: hook exit 3 HALTs the loop ==="
+rm -f "$STATE_DIR/loop-status.json"
+cat >"$PP_DIR/hook3.sh" <<'H'
+#!/usr/bin/env bash
+exit 3
+H
+chmod +x "$PP_DIR/hook3.sh"
+pp2_out="$(
+  MAKATO_LOOP_PREPOLL_HOOK="$PP_DIR/hook3.sh" \
+  MAKATO_LOOP_DRY_DISPATCH=1 \
+    "$LOOP" run --status Ready --once 2>&1 >/dev/null
+)"
+grep -qi "HALT (hook gave up)" <<<"$pp2_out" \
+  || fail "T-PREPOLL-2: hook exit 3 should log 'HALT (hook gave up)'; got: $pp2_out"
+jq -e '.last_halt_at != null' "$STATE_DIR/loop-status.json" >/dev/null \
+  || fail "T-PREPOLL-2: last_halt_at should be stamped when hook returns 3"
+echo "  ✓ hook exit 3 → loop HALTs, last_halt_at stamped"
+
+echo "=== T-PREPOLL-3: unset hook is a no-op (dispatch proceeds) ==="
+rm -f "$STATE_DIR/loop-status.json"
+rm -rf "${SANDBOX_SPECS[@]}"
+pp3_out="$(MAKATO_LOOP_DRY_DISPATCH=1 "$LOOP" run --status Ready --once 2>&1 >/dev/null)"
+grep -qi "pre-poll hook" <<<"$pp3_out" \
+  && fail "T-PREPOLL-3: unset hook must not mention pre-poll hook; got: $pp3_out"
+jq -e '.last_dispatch_issue == 101' "$STATE_DIR/loop-status.json" >/dev/null \
+  || fail "T-PREPOLL-3: unset hook should not block dispatch (expected #101)"
+echo "  ✓ unset hook → no-op, dispatch proceeds"
+rm -rf "$PP_DIR"
+
 # T91: plan-tier:change routing — no type:change label, only plan-tier:change (#539)
 #   An issue labelled plan-tier:change (but NOT type:change) must dispatch via
 #   the change lane (makato-change:orchestrate --autonomous), NOT the po-agent
