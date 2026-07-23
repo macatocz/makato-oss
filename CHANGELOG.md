@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.104.1](https://github.com/macatocz/makato/compare/v0.104.0...v0.104.1) (2026-07-23)
+
+
+### 🐛 Bug Fixes
+
+* **loop:** auto-seed consults should-materialize-spec before blocking ([#533](https://github.com/macatocz/makato/issues/533)) ([#540](https://github.com/macatocz/makato/issues/540)) ([cad8e2e](https://github.com/macatocz/makato/commit/cad8e2eb67fb409774036421492a11f094e2ef64))
+
 ## [0.104.0](https://github.com/macatocz/makato/compare/v0.103.0...v0.104.0) (2026-07-23)
 
 
