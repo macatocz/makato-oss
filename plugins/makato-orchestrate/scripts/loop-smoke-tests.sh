@@ -309,6 +309,68 @@ echo "  ✓ transient-error state recorded; no false 'queue empty' idle"
 
 
 # ---------------------------------------------------------------------------
+# T-RG-1..T-RG-4: GraphQL rate-limit guard (#556).
+# _check_graphql_rate_budget calls `gh api rate_limit` (or MAKATO_LOOP_GRAPHQL_TEST_CMD)
+# and gates _gh_project_item_list. Fully offline via MAKATO_LOOP_GRAPHQL_TEST_CMD.
+# MAKATO_LOOP_SLEEP_CMD=true collapses any reset-wait so tests stay fast.
+# ---------------------------------------------------------------------------
+
+echo "=== T-RG-1: guard returns 0 when remaining=600 (above threshold 500) ==="
+trg1_rc=0
+MAKATO_LOOP_TEST_HOOK=1 MAKATO_LOOP_SLEEP_CMD=true \
+  MAKATO_LOOP_GRAPHQL_TEST_CMD='echo "{\"resources\":{\"graphql\":{\"remaining\":600,\"reset\":9999999999}}}"' \
+  "$LOOP" _test-check-graphql-rate-budget github.com \
+  || trg1_rc=$?
+[[ $trg1_rc -eq 0 ]] \
+  || fail "T-RG-1: guard should return 0 when remaining=600 >= 500; got rc=$trg1_rc"
+echo "  ✓ remaining=600 >= threshold → guard returns 0, poll proceeds"
+
+echo "=== T-RG-2: guard returns 2 when remaining=200 (below threshold 500); cmd_run stamps poll_skipped_rate_budget:true ==="
+trg2_rc=0
+MAKATO_LOOP_TEST_HOOK=1 MAKATO_LOOP_SLEEP_CMD=true \
+  MAKATO_LOOP_GRAPHQL_TEST_CMD='echo "{\"resources\":{\"graphql\":{\"remaining\":200,\"reset\":9999999999}}}"' \
+  "$LOOP" _test-check-graphql-rate-budget github.com \
+  || trg2_rc=$?
+[[ $trg2_rc -eq 2 ]] \
+  || fail "T-RG-2: guard should return 2 when remaining=200 < 500; got rc=$trg2_rc"
+# Also verify _gh_project_item_list propagates exit 76 and cmd_run stamps the state.
+TRG2_STATE="$STATE_DIR/trg2"; mkdir -p "$TRG2_STATE"
+TRG2_CFG="$STATE_DIR/trg2-config.json"
+jq -n '{github_project:{owner:"macatocz",number:4,host:"github.com",project_node_id:"PVT_x"}}' >"$TRG2_CFG"
+trg2_run_out="$(MAKATO_LOOP_GH_OVERRIDE='' MAKATO_LOOP_STATE_DIR="$TRG2_STATE" \
+  MAKATO_LOOP_CONFIG="$TRG2_CFG" MAKATO_LOOP_SLEEP_CMD=true \
+  MAKATO_LOOP_GRAPHQL_TEST_CMD='echo "{\"resources\":{\"graphql\":{\"remaining\":200,\"reset\":9999999999}}}"' \
+  "$LOOP" run --once --status Ready 2>&1)" \
+  || fail "T-RG-2: run --once should exit 0 when guard skips the tick; out: $trg2_run_out"
+jq -e '.poll_skipped_rate_budget == true' "$TRG2_STATE/loop-status.json" >/dev/null \
+  || fail "T-RG-2: loop-status.json must record poll_skipped_rate_budget=true; got: $(cat "$TRG2_STATE/loop-status.json" 2>/dev/null)"
+jq -e '.last_poll_skip_reason == "rate_budget"' "$TRG2_STATE/loop-status.json" >/dev/null \
+  || fail "T-RG-2: loop-status.json must record last_poll_skip_reason=rate_budget; got: $(cat "$TRG2_STATE/loop-status.json" 2>/dev/null)"
+echo "  ✓ remaining=200 < threshold → guard returns 2, poll_skipped_rate_budget:true stamped"
+
+echo "=== T-RG-3: MAKATO_LOOP_RATE_GUARD=0 bypasses guard even with remaining=0 ==="
+trg3_rc=0
+MAKATO_LOOP_TEST_HOOK=1 MAKATO_LOOP_SLEEP_CMD=true \
+  MAKATO_LOOP_RATE_GUARD=0 \
+  MAKATO_LOOP_GRAPHQL_TEST_CMD='echo "{\"resources\":{\"graphql\":{\"remaining\":0,\"reset\":9999999999}}}"' \
+  "$LOOP" _test-check-graphql-rate-budget github.com \
+  || trg3_rc=$?
+[[ $trg3_rc -eq 0 ]] \
+  || fail "T-RG-3: RATE_GUARD=0 must make guard a no-op; got rc=$trg3_rc (expected 0)"
+echo "  ✓ RATE_GUARD=0 → guard bypassed entirely, returns 0 regardless of remaining"
+
+echo "=== T-RG-4: guard degrades gracefully when gh api rate_limit returns non-zero ==="
+trg4_rc=0
+MAKATO_LOOP_TEST_HOOK=1 MAKATO_LOOP_SLEEP_CMD=true \
+  MAKATO_LOOP_GRAPHQL_TEST_CMD='exit 1' \
+  "$LOOP" _test-check-graphql-rate-budget github.com \
+  || trg4_rc=$?
+[[ $trg4_rc -eq 0 ]] \
+  || fail "T-RG-4: guard must return 0 (degrade gracefully) when rate_limit call fails; got rc=$trg4_rc"
+echo "  ✓ gh api rate_limit failure → guard logs WARN and returns 0 (poll proceeds)"
+
+
+# ---------------------------------------------------------------------------
 # gh-REST-fallback (#447) — _gh_with_fallback / _gh_json_valid. Every critical
 # GitHub read (KEY derivation, dispatch gate, issue-type routing) now retries
 # the primary `gh` call, falls back to `gh api` REST, and treats jq-unparseable
@@ -5485,4 +5547,4 @@ echo "  ✓ no graph: FIFO fallback dispatches first board item (#400)"
 rm -rf "$T_FIFO_DIR"
 
 echo
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T-RESUME-1 complete result no-op, T-RESUME-2 incomplete triggers attempt, T-RESUME-3 errored triggers attempt, T-RESUME-4 budget-exhausted HALT-014, T-RESUME-5 STALL_DISABLE skip detect+resume, #531; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470; T84–T89 orphaned-specs pruning; T90 promote-before-prune; T-GQL1–T-GQL5 GraphQL board poll + item-list rollback, #516; T-IDLE1–T-IDLE2 adaptive idle backoff, #516; T91 plan-tier:change routing, #539; T-wave-order, T-promote-on, T-promote-off, T-fifo-fallback wave-ordered dispatch + promote-unblocked, #548) ==="
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T-RG-1–T-RG-4 GraphQL rate-limit guard, #556; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T-RESUME-1 complete result no-op, T-RESUME-2 incomplete triggers attempt, T-RESUME-3 errored triggers attempt, T-RESUME-4 budget-exhausted HALT-014, T-RESUME-5 STALL_DISABLE skip detect+resume, #531; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470; T84–T89 orphaned-specs pruning; T90 promote-before-prune; T-GQL1–T-GQL5 GraphQL board poll + item-list rollback, #516; T-IDLE1–T-IDLE2 adaptive idle backoff, #516; T91 plan-tier:change routing, #539; T-wave-order, T-promote-on, T-promote-off, T-fifo-fallback wave-ordered dispatch + promote-unblocked, #548) ==="

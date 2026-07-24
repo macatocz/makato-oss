@@ -342,6 +342,31 @@ ASSIGNEE="${MAKATO_LOOP_ASSIGNEE:-@me}"
 #                                      MAKATO_LOOP_FALLBACK_ATTEMPT (0 = primary,
 #                                      1..N = fallback attempts).
 
+# --- GraphQL rate-limit guard (#556) ---
+# The GraphQL board poll consumes rate-limit points per page. When the
+# per-hour `resources.graphql.remaining` budget drops below the configured
+# floor, the guard proactively sleeps until the reset epoch rather than
+# burning the last tokens and forcing GitHub to reject the next request
+# mid-poll with a hard 429. This prevents the board poll from degrading to
+# the costlier `item-list` fallback path or emitting false `poll_healthy:false`
+# states while the limit recovers.
+#   MAKATO_LOOP_GRAPHQL_MIN_REMAINING  Remaining budget floor (default 500).
+#                                      When `resources.graphql.remaining` drops
+#                                      below this value, the guard sleeps until
+#                                      `resources.graphql.reset` and skips the
+#                                      poll tick, stamping
+#                                      `poll_skipped_rate_budget:true` in state.
+#   MAKATO_LOOP_RATE_GUARD             Set to 0 to disable the guard entirely
+#                                      (default 1 = enabled).
+#   MAKATO_LOOP_GRAPHQL_TEST_CMD       Tests only: command string eval'd in place
+#                                      of `gh api rate_limit`, receiving canned
+#                                      fixture JSON so smoke tests stay offline.
+#   MAKATO_LOOP_BOARD_LIMIT            Item count ceiling for the `item-list`
+#                                      fallback path (default 500). Replaces the
+#                                      hard-coded `--limit 9999` in
+#                                      `_gh_project_item_list` and
+#                                      `_reconcile_orphaned_in_progress`.
+
 # Synchronous board claim (#259 — cross-worktree double-dispatch). All three
 # single-thread guarantees are worktree-local: the run-mutex pidfile is
 # $STATE_DIR-scoped, the in-flight filter is specs/-scoped, and the only
@@ -534,6 +559,10 @@ fi
 if [[ ! "$POLL_BACKOFF_BASE_SECS" =~ ^[0-9]+$ ]]; then
   POLL_BACKOFF_BASE_SECS=2
 fi
+# GraphQL rate-limit guard (#556) — see the doc block near ASSIGNEE above.
+GRAPHQL_MIN_REMAINING="${MAKATO_LOOP_GRAPHQL_MIN_REMAINING:-500}"
+RATE_GUARD="${MAKATO_LOOP_RATE_GUARD:-1}"
+BOARD_LIMIT="${MAKATO_LOOP_BOARD_LIMIT:-500}"
 # Critical-call REST fallback (#447) — see the doc block near ASSIGNEE above.
 FALLBACK_RETRIES="${MAKATO_LOOP_FALLBACK_RETRIES:-2}"
 FALLBACK_BACKOFF_BASE_SECS="${MAKATO_LOOP_FALLBACK_BACKOFF_BASE:-2}"
@@ -762,10 +791,92 @@ _board_via_graphql() {
   jq -nc --argjson items "$acc" '{items: $items}'
 }
 
+# ---------------------------------------------------------------------------
+# _check_graphql_rate_budget <host> (#556) — proactive GraphQL rate-limit guard.
+#
+# When RATE_GUARD=1 (default), queries `gh api rate_limit` and compares
+# `resources.graphql.remaining` against GRAPHQL_MIN_REMAINING (default 500).
+# If the budget is healthy, returns 0 (caller proceeds). If the budget is
+# below the floor, logs an INFO line, sleeps until the reset epoch, then
+# returns exit code 2 — the caller reads exit 2 as "skip this poll tick"
+# and stamps `poll_skipped_rate_budget:true` in state rather than treating it
+# as a poll failure.
+#
+# Degradation: if `gh api rate_limit` itself exits non-zero (auth issue,
+# network blip), or if the JSON does not carry the expected fields, the
+# function logs a warning and returns 0 (guard degrades gracefully — the
+# poll is never blocked by a guard failure).
+#
+# RATE_GUARD=0 is a complete no-op: function returns 0 immediately.
+# MAKATO_LOOP_GRAPHQL_TEST_CMD: tests-only fixture override; evaluated in
+#   place of `gh api rate_limit` so smoke tests stay offline.
+# ---------------------------------------------------------------------------
+_check_graphql_rate_budget() {
+  local host="${1:-}"
+  [[ "${RATE_GUARD:-1}" == "1" ]] || return 0
+
+  local sleep_cmd="${MAKATO_LOOP_SLEEP_CMD:-sleep}"
+  local rate_json remaining reset_epoch rc
+
+  rc=0
+  if [[ -n "${MAKATO_LOOP_GRAPHQL_TEST_CMD:-}" ]]; then
+    rate_json="$(eval "$MAKATO_LOOP_GRAPHQL_TEST_CMD" 2>/dev/null)" || rc=$?
+  else
+    rate_json="$(GH_HOST="${host}" gh api rate_limit 2>/dev/null)" || rc=$?
+  fi
+
+  if [[ $rc -ne 0 || -z "$rate_json" ]]; then
+    echo "loop: WARN — _check_graphql_rate_budget: gh api rate_limit failed (rc=$rc); skipping guard (#556)" >&2
+    return 0
+  fi
+
+  remaining="$(jq -r '.resources.graphql.remaining // empty' <<<"$rate_json" 2>/dev/null || true)"
+  reset_epoch="$(jq -r '.resources.graphql.reset // empty' <<<"$rate_json" 2>/dev/null || true)"
+
+  if [[ -z "$remaining" || ! "$remaining" =~ ^[0-9]+$ ]]; then
+    echo "loop: WARN — _check_graphql_rate_budget: could not parse remaining from rate_limit response; skipping guard (#556)" >&2
+    return 0
+  fi
+
+  if (( remaining >= GRAPHQL_MIN_REMAINING )); then
+    return 0
+  fi
+
+  # Budget below floor — sleep until reset, then return 2 (caller skips tick).
+  echo "loop: INFO — poll_skipped_rate_budget remaining=$remaining < $GRAPHQL_MIN_REMAINING; sleeping until reset (#556)" >&2
+  if [[ -n "$reset_epoch" && "$reset_epoch" =~ ^[0-9]+$ ]]; then
+    local now_epoch
+    now_epoch="$(date +%s 2>/dev/null || echo 0)"
+    local wait_secs=$(( reset_epoch - now_epoch ))
+    (( wait_secs > 0 )) && $sleep_cmd "$wait_secs" 2>/dev/null || true
+  fi
+  return 2
+}
+
 _gh_project_item_list() {
   local host="$1" number="$2" owner="$3"
   local sleep_cmd="${MAKATO_LOOP_SLEEP_CMD:-sleep}"
   local attempt=1 out rc
+
+  # Proactive GraphQL rate-limit guard (#556). Check before the first attempt —
+  # if the budget is already below the floor, sleeping now is cheaper than
+  # burning remaining tokens and triggering a hard 429 mid-poll.
+  # Exit code 2 from the guard means "skip this tick"; propagate as 76
+  # (distinct from 75 = transient-poll-failure) so cmd_poll and cmd_run can
+  # stamp poll_skipped_rate_budget:true rather than poll_healthy:false.
+  #
+  # Guard is bypassed when MAKATO_LOOP_POLL_TEST_CMD is set: that hook
+  # completely replaces the real `gh` poll (including GraphQL), so a
+  # rate-limit check against the real API is irrelevant and would interfere
+  # with offline smoke tests whose live budget may be zero (#556).
+  if [[ "${RATE_GUARD:-1}" == "1" && -z "${MAKATO_LOOP_POLL_TEST_CMD:-}" ]]; then
+    local _rg_rc=0
+    _check_graphql_rate_budget "$host" || _rg_rc=$?
+    if [[ $_rg_rc -eq 2 ]]; then
+      return 76
+    fi
+  fi
+
   while (( attempt <= POLL_RETRIES )); do
     # Guard the command-substitution assignment with `|| rc=$?`: under
     # `set -e` a bare `out="$(failing-cmd)"` would abort the function on the
@@ -779,7 +890,7 @@ _gh_project_item_list() {
       # ~100x more expensive per poll; kept behind an env flag so an operator
       # can fall back instantly if the GraphQL path regresses.
       out="$(GH_HOST="$host" gh project item-list "$number" \
-        --owner "$owner" --format json --limit 9999 2>/dev/null)" || rc=$?
+        --owner "$owner" --format json --limit "$BOARD_LIMIT" 2>/dev/null)" || rc=$?
     else
       # Default path (#516): raw GraphQL, ~1 point/page vs ~1 point/item.
       # Resolve the project node id from config; without it we cannot issue the
@@ -791,7 +902,7 @@ _gh_project_item_list() {
       else
         echo "loop: WARN — github_project.project_node_id missing in config; using costlier item-list path (#516)" >&2
         out="$(GH_HOST="$host" gh project item-list "$number" \
-          --owner "$owner" --format json --limit 9999 2>/dev/null)" || rc=$?
+          --owner "$owner" --format json --limit "$BOARD_LIMIT" 2>/dev/null)" || rc=$?
       fi
     fi
     if [[ $rc -eq 0 ]]; then
@@ -1162,9 +1273,16 @@ cmd_poll() {
     #
     # #289: the poll now goes through _gh_project_item_list, which retries on
     # rate-limit / transient failure and returns non-zero on exhaustion. We
-    # PROPAGATE that failure (return 75, EX_TEMPFAIL) rather than substituting
-    # `{"items":[]}` — a failed poll must NOT read as an empty queue downstream.
-    if ! raw="$(_gh_project_item_list "$host" "$number" "$owner")"; then
+    # return 75 (EX_TEMPFAIL) for any transient failure so cmd_run can stamp
+    # poll_healthy:false — a failed poll must NOT read as an empty queue.
+    # #556: exit 76 from _gh_project_item_list means the rate-limit guard
+    # triggered; propagate as 76 so cmd_run can distinguish "rate-budget skip"
+    # from "transient poll error" and stamp poll_skipped_rate_budget:true.
+    local _item_list_rc=0
+    raw="$(_gh_project_item_list "$host" "$number" "$owner")" || _item_list_rc=$?
+    if [[ $_item_list_rc -eq 76 ]]; then
+      return 76
+    elif [[ $_item_list_rc -ne 0 ]]; then
       return 75
     fi
   fi
@@ -1355,7 +1473,7 @@ _reconcile_orphaned_in_progress() {
     number="$(jq -r '.number' <<<"$cfg")"
     host="$(jq -r '.host' <<<"$cfg")"
     raw="$(GH_HOST="$host" gh project item-list "$number" \
-      --owner "$owner" --format json --limit 9999 2>/dev/null)" || {
+      --owner "$owner" --format json --limit "$BOARD_LIMIT" 2>/dev/null)" || {
       echo "loop: WARN — reconcile-orphaned: board poll failed, skipping" >&2
       return 0
     }
@@ -5209,6 +5327,24 @@ cmd_run() {
     # looking loop.
     poll_rc=0
     queue="$(cmd_poll "$status_name")" || poll_rc=$?
+    if [[ $poll_rc -eq 76 ]]; then
+      # Rate-budget skip (#556): the proactive guard detected that
+      # resources.graphql.remaining < GRAPHQL_MIN_REMAINING and already slept
+      # until the reset epoch. Stamp poll_skipped_rate_budget:true (leave
+      # poll_healthy unchanged — this is not an error, just a pre-emptive
+      # sleep), then continue to the next tick.
+      local now
+      now="$(_now)"
+      _write_status "$(jq \
+        --arg ts "$now" \
+        '. + {poll_skipped_rate_budget: true, last_poll_skip_reason: "rate_budget", last_poll_skip: $ts}' \
+        <<<"$(_read_status)")"
+      if [[ -n "$once" ]]; then
+        _emit_run_report "${dispatched_issues[@]+"${dispatched_issues[@]}"}"
+        return 0
+      fi
+      continue
+    fi
     if [[ $poll_rc -ne 0 ]]; then
       # Distinct transient-error state: stamp the failure into loop-status.json
       # (so the audit shows an outage, not an idle loop), skip dispatch this
@@ -5374,6 +5510,12 @@ if [[ "$SUBCMD" == _test-* ]]; then
     # payload to stdout / returns the function's exit code so the smoke suite
     # can assert the item-list-shape contract and multi-page assembly (#516).
     _test-board-graphql) _board_via_graphql "$@" ;;
+    # _test-check-graphql-rate-budget <host> — exercise _check_graphql_rate_budget
+    # deterministically via MAKATO_LOOP_GRAPHQL_TEST_CMD (canned rate_limit JSON)
+    # and MAKATO_LOOP_RATE_GUARD / MAKATO_LOOP_GRAPHQL_MIN_REMAINING overrides.
+    # Returns the function's exit code (0=proceed, 2=skip) so smoke tests can
+    # assert the guard, bypass, and degrade paths (#556).
+    _test-check-graphql-rate-budget) _check_graphql_rate_budget "$@" ;;
     # _test-gh-with-fallback <context> <args...> — exercise _gh_with_fallback
     # deterministically via MAKATO_LOOP_FALLBACK_TEST_CMD (+ MAKATO_LOOP_SLEEP_CMD
     # to skip backoff waits). Prints the payload to stdout / returns the wrapper's
