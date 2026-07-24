@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.109.1](https://github.com/macatocz/makato/compare/v0.109.0...v0.109.1) (2026-07-24)
+
+
+### 🐛 Bug Fixes
+
+* **loop:** demote exit-127 refine log and numberless-folder reap-specs WARN to debug/info ([#569](https://github.com/macatocz/makato/issues/569)) ([6edba9b](https://github.com/macatocz/makato/commit/6edba9b8c0721a6b6dc96628484ccf3efabaea2c)), closes [#558](https://github.com/macatocz/makato/issues/558)
+
 ## [0.109.0](https://github.com/macatocz/makato/compare/v0.108.0...v0.109.0) (2026-07-24)
 
 
