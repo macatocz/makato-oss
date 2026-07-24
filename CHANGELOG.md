@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.108.0](https://github.com/macatocz/makato/compare/v0.107.0...v0.108.0) (2026-07-24)
+
+
+### ✨ Features
+
+* **makato-plan:** enforce Fibonacci ≤13 SP cap + split-preferred rule in decompose ([#554](https://github.com/macatocz/makato/issues/554)) ([#557](https://github.com/macatocz/makato/issues/557)) ([a06f014](https://github.com/macatocz/makato/commit/a06f0147db4271c4b59838e77fb3619422a43726))
+
 ## [0.107.0](https://github.com/macatocz/makato/compare/v0.106.0...v0.107.0) (2026-07-24)
 
 
