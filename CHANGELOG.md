@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.107.0](https://github.com/macatocz/makato/compare/v0.106.0...v0.107.0) (2026-07-24)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** wave-ordered loop dispatch from blocked_by graph ([#548](https://github.com/macatocz/makato/issues/548)) ([8dd41f5](https://github.com/macatocz/makato/commit/8dd41f5ab931eba5909c31941c715cd9ee6236f7))
+
 ## [0.106.0](https://github.com/macatocz/makato/compare/v0.105.0...v0.106.0) (2026-07-23)
 
 
