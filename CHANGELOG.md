@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.109.0](https://github.com/macatocz/makato/compare/v0.108.0...v0.109.0) (2026-07-24)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** proactive GraphQL rate-limit guard + cheaper board poll ([#556](https://github.com/macatocz/makato/issues/556)) ([#560](https://github.com/macatocz/makato/issues/560)) ([09284f2](https://github.com/macatocz/makato/commit/09284f296aab252176878a3bfea5cdbdb9cbfaa1))
+
 ## [0.108.0](https://github.com/macatocz/makato/compare/v0.107.0...v0.108.0) (2026-07-24)
 
 
