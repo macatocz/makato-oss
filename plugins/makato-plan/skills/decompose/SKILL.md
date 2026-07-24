@@ -4,7 +4,7 @@ description: >-
   Decompose shaped features into vertically-sliced stories with acceptance
   criteria — decompose, vertical slice, story slicing, break down feature,
   split into stories. Use after PRD and architecture are approved.
-version: "1.3.0"
+version: "1.4.0"
 model: opus
 argument-hint: "[slug]"
 ---
@@ -160,6 +160,20 @@ in story creation. Present brief summary:
    - Error handling flows
    - Admin/config/setup stories
    - Data migration needs
+5a. **Apply sizing gate** — for each candidate story, estimate SP using
+    @references/story-point-estimation-guide.md:
+    - If SP > 8: apply the split-preferred rule — attempt to split using the 9 patterns above.
+    - For every candidate split, validate it against the split-safety checklist in
+      @references/story-point-estimation-guide.md (all four checks: user-facing demoable outcome,
+      independently testable, independently deployable, crosses layers). Cross-check against the
+      anti-patterns table in @references/vertical-slicing-rules.md.
+    - **Reject** any split that produces a story with no standalone user-facing demoable outcome,
+      or a horizontal / single-layer cut.
+    - If a safe split exists: apply it — splitting is the default, not the exception.
+    - If no safe split exists AND SP > 13: record a **blocking error** to surface in Step 8.
+      Format: `BLOCK: story <title> storyPoints=<x> exceeds hard cap of 13 with no safe split`.
+    - Off-scale value (18, 21, any non-Fibonacci): record a blocking error immediately regardless
+      of split outcome.
 6. Identify external dependencies per story → drives phase assignment.
    Phase 1 must contain only stories with no external blockers — own code first.
 7. Propose initial story list with phase assignments.
@@ -170,6 +184,7 @@ Reject any story scoped to a single layer or single repository.
 
 Load @references/vertical-slicing-rules.md during this step.
 Load @references/phase-assignment-rules.md during this step.
+Load @references/story-point-estimation-guide.md during this step.
 
 ---
 
@@ -444,10 +459,14 @@ Not strict — some fields are intentionally rough at this stage.
 - scope
 - phase
 - teams (at least 1)
+- `storyPoints` present AND value is a valid Fibonacci (1, 2, 3, 5, 8, or 13) AND value ≤ 13.
+  **BLOCK** if absent, off-scale (e.g. 18, 21), or > 13.
+- No unsplit story may have `storyPoints` > 13. If one does AND no blocking error from the
+  Step 3 sizing gate was recorded for it, synthesize a blocking error here:
+  `BLOCK: story <n> storyPoints=<x> exceeds hard cap of 13 with no safe split recorded`.
 
 **Expected but can be rough** (warn but don't block):
 
-- storyPoints (rough estimate is fine)
 - At least 1 successScenario (high-level, not exhaustive —
   populated from qa-reviewer drafts in Step 7.4; warn if a story has none)
 - definitionOfDone (at least 2 product-level conditions)

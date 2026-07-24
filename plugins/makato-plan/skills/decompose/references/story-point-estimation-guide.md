@@ -2,10 +2,56 @@
 
 ## Scale
 
-Fibonacci: **1, 2, 3, 5, 8, 13**
+Fibonacci valid values: **1, 2, 3, 5, 8, 13**
 
-If an estimate exceeds 8 SP, consider splitting further.
-13 SP stories are rare and should be justified (true complexity that can't be decomposed).
+Values outside this set (18, 21, or any other non-Fibonacci number) are **INVALID** — not a
+rough estimate, not acceptable. A story estimated at 18 or 21 SP is a sizing failure that
+must be resolved before stories.json is written.
+
+**Hard cap: no story may exceed 13 SP.** A value above 13 is a hard validation failure in
+Step 8, not a warning.
+
+## Sizing Gate
+
+Apply this three-state decision tree when sizing each story:
+
+| Estimate | Decision | Action |
+|---|---|---|
+| ≤ 8 SP | Accepted as-is | No sizing action required. |
+| > 8 SP and ≤ 13 SP | **Split preferred** | Attempt to split into two or more independently deliverable, testable vertical slices. Keep whole only if every candidate split fails the split-safety checklist (see below). |
+| > 13 SP or off-scale (18, 21, any non-Fibonacci) | **Hard block** | Must split. If no safe split exists, flag a blocking error. Off-scale values are a hard block regardless of split outcome. |
+
+### Split-preferred rule
+
+When a story estimates > 8 SP, splitting is the **default** choice — not only when the
+estimate exceeds the cap. A ≤ 13 SP story that contains separable, independently-demoable
+concerns should still be split.
+
+Splitting is only skipped when both resulting pieces would fail the split-safety checklist.
+
+### Split-safety checklist (all four must pass for a split to be accepted)
+
+A candidate split slice is accepted only when ALL of the following hold:
+
+1. **User-facing demoable outcome** — the slice delivers a standalone outcome a user can
+   observe or interact with (not just internal plumbing).
+2. **Independently testable** — acceptance criteria can be written and verified without the
+   other slice being present.
+3. **Independently deployable** — the slice can be deployed to staging/production on its own.
+4. **Crosses layers** — the slice touches more than one layer or repository (not a
+   single-layer / single-repo horizontal cut).
+
+If any candidate split produces a piece that fails one or more of the four checks, that
+**split is rejected**. If no safe split exists and the story is still > 13 SP, record a
+**blocking error** to be surfaced in Step 8.
+
+### Rejection examples (the two hard rejection conditions)
+
+- **Non-demoable fragment** — splitting a UI dialog from the backend that makes it
+  functional: the dialog alone delivers no user outcome (fails check 1 and 3).
+- **Horizontal / single-layer cut** — a slice scoped to one layer only (e.g. "backend API
+  only" with no UI or integration story): violates the vertical-slicing requirement (fails
+  check 4).
 
 ## Team Calibration Summary
 

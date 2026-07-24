@@ -3,6 +3,15 @@
 
 Changes are grouped by skill/agent/component. Within each group, latest version on top. Each version block lists one sub-bullet per logical change. Until per-PR version automation is in place, entries land here on merge to main; release-please will date and version them at the next release cut.
 
+## `decompose` skill
+
+- **1.4.0** — enforce Fibonacci ≤13 SP hard cap and split-preferred rule (#554).
+  - `references/story-point-estimation-guide.md` **## Scale** section rewritten with normative language: valid values are 1 2 3 5 8 13 only; off-scale values (18, 21, etc.) are INVALID hard failures, not rough estimates. New **## Sizing Gate** subsection documents the three-state decision tree (≤8 SP accepted; >8 SP split-preferred; >13 SP or off-scale hard block), the split-preferred rule, the four-item split-safety checklist, and two concrete rejection examples (non-demoable fragment; horizontal/single-layer cut).
+  - `SKILL.md` **Step 3** new sub-step **5a** (between splitting patterns and external dependencies): for each candidate story, estimate SP and apply the sizing gate — stories estimating >8 SP must attempt a split via the 9 patterns; every candidate split is validated against the split-safety checklist and the anti-patterns table in `vertical-slicing-rules.md`; an unsafe split is rejected; if no safe split exists and SP > 13, a blocking error is recorded for Step 8. Off-scale values are a hard block immediately. `@references/story-point-estimation-guide.md` added to Step 3 load-references block.
+  - `SKILL.md` **Step 8** `storyPoints` promoted from "warn but don't block" to **Mandatory per story — BLOCKING**: must be present, a valid Fibonacci (1 2 3 5 8 13), and ≤ 13. Added second blocking check: if any story still has `storyPoints` > 13 with no prior gate error, Step 8 synthesizes `BLOCK: story <n> storyPoints=<x> exceeds hard cap of 13 with no safe split recorded`. Existing warn-but-don't-block bucket no longer lists `storyPoints`.
+
+---
+
 ## `to-issues` skill
 
 - **3.10.0** — commit `stories.json` + `created-issues.json` so the autonomous build-refine lane can consume them on a fresh clone (#527).
