@@ -61,6 +61,7 @@ plugins/makato-ux/
 ├── skills/
 │   ├── e2e-testing-patterns/   # Playwright end-to-end patterns
 │   ├── frontend-design/        # Visual design guidance + production UI patterns
+│   ├── penpot-uiux-design/     # Professional UI/UX design in Penpot via MCP tools
 │   └── webapp-testing/         # Browser-based functional + visual regression
 ├── AGENTS.md
 ├── CHANGELOG.md

@@ -62,7 +62,9 @@ makato-observability/
 ├── .claude-plugin/
 │   └── plugin.json
 ├── skills/
-│   └── (empty — populate via makato-skill-creator; first planned: langfuse-instrument via OTel SDK)
+│   ├── langfuse-instrument/           # Wire OTel SDK → OTLP HTTP → Langfuse; credential setup, Tracer/span conventions
+│   ├── langfuse-enrich/               # Add enrichment fields (session, user, tags, metadata, scores) onto already-instrumented spans
+│   └── langfuse-ops/                  # Operate Langfuse: read traces, docs lookup, error analysis, CI gates, SDK upgrade
 ├── shared/
 │   └── (semantic-conventions catalogue, cardinality budgets, span-attribute conventions)
 ├── CLAUDE.md

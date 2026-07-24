@@ -54,7 +54,8 @@ makato-core/
 ├── skills/
 │   ├── create-issue/                  # File a structured issue against the makato repo
 │   ├── makato-guide/                  # Discover installed plugins and their skills
-│   └── map-codebase-context/                      # Map dependencies / higher-level codebase view
+│   ├── map-codebase-context/          # Map dependencies / higher-level codebase view
+│   └── skill-judge/                   # Review and score a SKILL.md for quality and pattern compliance
 ├── shared/             # Cross-skill references (optional)
 ├── CLAUDE.md
 ├── AGENTS.md

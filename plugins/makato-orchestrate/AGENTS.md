@@ -139,6 +139,8 @@ makato-orchestrate/
 │   │   ├── SKILL.md
 │   │   └── references/
 │   │       └── daily-budget.schema.json
+│   ├── archive-spec/SKILL.md             (#— archive completed/obsolete spec folder post-merge)
+│   ├── lesson-prune/SKILL.md             (#— operator-gated curation of .makato/memory/ JSONL stores)
 │   ├── loop/SKILL.md                     (GAP-007 / #33 — shipped)
 │   ├── promote-ready/SKILL.md            (#268 — dependency-aware Ready promotion)
 │   ├── resolve-pr-conflict/SKILL.md      (GAP-016 / #45 — shipped)
