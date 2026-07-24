@@ -5,6 +5,22 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Fixed
+- `loop.sh` `_pre_dispatch_plan_guard`: exit 127 from the `claude` subprocess
+  (skill binary not launchable — PATH / installation issue) is now logged as an
+  expected skip/debug line (`build-refine skill not launchable (exit 127) — skipping
+  refine, dispatching anyway`) rather than the alarming
+  `build-refine exited ${refine_exit}` failure phrasing. Genuine non-zero refine
+  failures (any exit code other than 127) still surface the existing WARN unchanged.
+  New regression test `T-PREDISPATCH-127` in `loop-smoke-tests.sh` (#558).
+- `loop.sh` `_reap_orphan_specs`: spec folders with no `<N>-` name prefix AND no
+  `seed-manifest.json` AND no `workflow-state-*.json` file are human-authored
+  design-doc or scratch folders; they are now silently skipped with an info/debug
+  line (`no issue prefix, treating as design-doc folder`) instead of a WARN.
+  Folders that do carry a seed-manifest or workflow-state but still fail issue-number
+  derivation continue to emit a WARN (genuine anomaly unchanged).
+  New regression test `T-REAP-NUMBERLESS` in `loop-smoke-tests.sh` (#558).
+
 ### Added
 - Wave-ordered dispatch in `loop.sh` (#548). At each poll tick the loop now
   calls `promote-ready.sh plan --json` via the new `_dependency_order()`

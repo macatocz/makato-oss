@@ -5546,5 +5546,90 @@ fi
 echo "  ✓ no graph: FIFO fallback dispatches first board item (#400)"
 rm -rf "$T_FIFO_DIR"
 
+# ---------------------------------------------------------------------------
+# T-PREDISPATCH-127: exit 127 from build-refine (skill not launchable) must
+#   log a skip/debug line — NOT the alarming "build-refine exited 127" phrasing.
+#   Other non-zero exits (e.g. exit 1 genuine refine failure) still use the
+#   existing WARN — verified by T81 above.
+# ---------------------------------------------------------------------------
 echo
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T-RG-1–T-RG-4 GraphQL rate-limit guard, #556; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T-RESUME-1 complete result no-op, T-RESUME-2 incomplete triggers attempt, T-RESUME-3 errored triggers attempt, T-RESUME-4 budget-exhausted HALT-014, T-RESUME-5 STALL_DISABLE skip detect+resume, #531; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470; T84–T89 orphaned-specs pruning; T90 promote-before-prune; T-GQL1–T-GQL5 GraphQL board poll + item-list rollback, #516; T-IDLE1–T-IDLE2 adaptive idle backoff, #516; T91 plan-tier:change routing, #539; T-wave-order, T-promote-on, T-promote-off, T-fifo-fallback wave-ordered dispatch + promote-unblocked, #548) ==="
+echo "=== T-PREDISPATCH-127: exit-127 logs skip/debug, not alarming failure ==="
+T127_DIR="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-t127"
+T127_SPECS="$T127_DIR/specs"
+mkdir -p "$T127_SPECS/127-bad-skill"
+cat > "$T127_SPECS/127-bad-skill/plan.md" << 'STUBEOF'
+# Plan: Bad Skill
+
+## Acceptance criteria
+
+_To be filled in._
+STUBEOF
+
+t127_fake_claude="$T127_DIR/fake-claude"
+printf '#!/usr/bin/env bash\nexit 127\n' > "$t127_fake_claude"
+chmod +x "$t127_fake_claude"
+
+t127_stderr_file="/tmp/t127_stderr_$$"
+t127_verdict="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  SPECS_DIR="$T127_SPECS" REPO_ROOT="$T127_DIR" MAKATO_CLAUDE_BIN="$t127_fake_claude" \
+    "$LOOP" _test-pre-dispatch-plan-guard '127-bad-skill' 2>"$t127_stderr_file"
+)"
+t127_stderr="$(cat "$t127_stderr_file")"
+rm -f "$t127_stderr_file"
+
+[[ "$t127_verdict" == "invalid:true:error" ]] \
+  || fail "T-PREDISPATCH-127: expected verdict=invalid:true:error; got: '$t127_verdict'"
+echo "$t127_stderr" | grep -q "not launchable" \
+  || fail "T-PREDISPATCH-127: expected 'not launchable' in stderr; got: '$t127_stderr'"
+echo "$t127_stderr" | grep -qv "build-refine exited 127" \
+  || fail "T-PREDISPATCH-127: must NOT contain alarming 'build-refine exited 127' phrasing; got: '$t127_stderr'"
+echo "  ✓ exit-127 logs skip/debug, not alarming failure phrasing"
+
+rm -rf "$T127_DIR"
+echo "T-PREDISPATCH-127 passed"
+
+# ---------------------------------------------------------------------------
+# T-REAP-NUMBERLESS: a spec folder with no <N>- name prefix AND no
+#   seed-manifest.json AND no workflow-state-*.json is a human-authored
+#   design-doc folder — must emit NO WARN (only a debug/info skip line).
+#   Folders that DO have a seed-manifest or workflow-state but still fail
+#   number derivation keep the WARN (covered by existing logic).
+# ---------------------------------------------------------------------------
+echo
+echo "=== T-REAP-NUMBERLESS: numberless design-doc folder emits no WARN ==="
+T_NL_DIR="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-tnl"
+T_NL_STATE="$T_NL_DIR/state"
+mkdir -p "$T_NL_DIR" "$T_NL_STATE"
+(
+  cd "$T_NL_DIR"
+  git init -q -b main
+  git config user.email t@t.t; git config user.name t
+  git commit -q --allow-empty -m init
+)
+mkdir -p "$T_NL_DIR/specs/design-docs"
+# Deliberately NO seed-manifest.json, NO workflow-state-*.json, NO <N>- prefix.
+
+T_NL_GH="$T_NL_STATE/gh.json"
+echo '{}' >"$T_NL_GH"
+
+t_nl_out="$(
+  cd "$T_NL_DIR" &&
+  MAKATO_LOOP_STATE_DIR="$T_NL_STATE" \
+  SPECS_DIR="$T_NL_DIR/specs" REPO_ROOT="$T_NL_DIR" \
+  MAKATO_LOOP_REAP_INTERVAL=0 \
+  MAKATO_LOOP_REAP_SPECS_GH_OVERRIDE="$T_NL_GH" \
+    "$LOOP" remove-worktrees 2>&1
+)" || fail "T-REAP-NUMBERLESS: remove-worktrees should exit 0; got: $t_nl_out"
+
+echo "$t_nl_out" | grep -q "WARN.*design-docs" \
+  && fail "T-REAP-NUMBERLESS: must NOT emit WARN for numberless design-doc folder; got: $t_nl_out"
+echo "$t_nl_out" | grep -q "design-doc folder" \
+  || fail "T-REAP-NUMBERLESS: must emit debug skip line mentioning 'design-doc folder'; got: $t_nl_out"
+echo "  ✓ numberless design-doc folder skipped with info/debug line, no WARN"
+
+rm -rf "$T_NL_DIR"
+echo "T-REAP-NUMBERLESS passed"
+
+echo
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T-RG-1–T-RG-4 GraphQL rate-limit guard, #556; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T-RESUME-1 complete result no-op, T-RESUME-2 incomplete triggers attempt, T-RESUME-3 errored triggers attempt, T-RESUME-4 budget-exhausted HALT-014, T-RESUME-5 STALL_DISABLE skip detect+resume, #531; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470; T84–T89 orphaned-specs pruning; T90 promote-before-prune; T-GQL1–T-GQL5 GraphQL board poll + item-list rollback, #516; T-IDLE1–T-IDLE2 adaptive idle backoff, #516; T91 plan-tier:change routing, #539; T-wave-order, T-promote-on, T-promote-off, T-fifo-fallback wave-ordered dispatch + promote-unblocked, #548; T-PREDISPATCH-127 exit-127 log demotion, T-REAP-NUMBERLESS numberless-folder reap-specs demotion, #558) ==="

@@ -3851,7 +3851,19 @@ _reap_orphan_specs() {
       fi
     fi
     if [[ -z "$issue_num" || ! "$issue_num" =~ ^[0-9]+$ ]]; then
-      echo "loop: reap-specs WARN $slug_dir — cannot derive issue number, skipping" >&2
+      # Distinguish: a folder with no <N>- prefix AND no manifest/workflow-state
+      # is a human-authored design-doc or scratch folder — demote to info/debug.
+      # A folder that looks issue-derived (has a seed-manifest or workflow-state
+      # file) but still failed number derivation is a genuine anomaly — keep WARN.
+      local slug_basename
+      slug_basename="$(basename "$slug_dir")"
+      if [[ ! "$slug_basename" =~ ^[0-9] ]] \
+          && [[ ! -f "$slug_dir/seed-manifest.json" ]] \
+          && [[ -z "$(find "$slug_dir" -maxdepth 1 -name 'workflow-state-*.json' 2>/dev/null | head -1)" ]]; then
+        echo "loop: reap-specs skip $slug_dir (no issue prefix, treating as design-doc folder)" >&2
+      else
+        echo "loop: reap-specs WARN $slug_dir — cannot derive issue number, skipping" >&2
+      fi
       continue
     fi
 
@@ -3979,6 +3991,9 @@ _pre_dispatch_plan_guard() {
   fi
 
   # Plan is invalid — attempt build-refine --autonomous as recovery.
+  # Note: exit 127 from the claude subprocess means the skill binary is not
+  # launchable (PATH / installation issue), NOT a build-refine logic failure.
+  # That case is branched below before the generic non-zero error path.
   echo "loop: pre-dispatch plan guard: plan.md invalid for KEY=${key} — running build-refine --autonomous" >&2
 
   local refine_prompt="Use the Skill tool to invoke the makato-build:build-refine skill with args '${key} --autonomous'. REPO_ROOT=${REPO_ROOT}. MAKATO_HEADLESS=1 is already exported. Return R1 envelope verbatim."
@@ -3987,6 +4002,13 @@ _pre_dispatch_plan_guard() {
     "$CLAUDE_BIN" --dangerously-skip-permissions -p "$refine_prompt" \
     >/dev/null 2>&1 || refine_exit=$?
 
+  if [[ $refine_exit -eq 127 ]]; then
+    # exit 127 = skill not launchable (claude binary missing / PATH issue) —
+    # this is an expected infrastructure skip, not a refine logic failure.
+    echo "loop: pre-dispatch plan guard: build-refine skill not launchable (exit 127) for KEY=${key} — skipping refine, dispatching anyway" >&2
+    echo "invalid:true:error"
+    return 0
+  fi
   if [[ $refine_exit -ne 0 ]]; then
     echo "loop: pre-dispatch plan guard: build-refine exited ${refine_exit} for KEY=${key} — dispatching anyway" >&2
     echo "invalid:true:error"
