@@ -5339,24 +5339,22 @@ cat >"$T_WAVE_BOARD" <<'EOF'
 ]}
 EOF
 
-# Graph: #200 blocked by #201 → wave 1; #201 unblocked → wave 0.
-mkdir -p "$T_WAVE_SPECS/wave-test"
-cat >"$T_WAVE_SPECS/wave-test/created-issues.json" <<'EOF'
-{"schema_version":"1","slug":"wave-test","issues":[
-  {"issue_number":201,"url":"https://x/201","title":"Wave0","labels":[],"blocked_by":[]},
-  {"issue_number":200,"url":"https://x/200","title":"Wave1","labels":[],"blocked_by":[201]}
-]}
+# Stub for promote-ready.sh: emits fixed wave-ordered JSON so _dependency_order
+# returns #201 (wave 0) before #200 (wave 1) without invoking the real engine or
+# making any gh calls.  Mirror the pattern used by T-promote-on/off/T-fifo-fallback.
+T_WAVE_STUB="$T_WAVE_DIR/promote-ready-stub.sh"
+cat >"$T_WAVE_STUB" <<'EOF'
+#!/usr/bin/env bash
+# Returns fixed wave-ordered plan JSON: #201 wave 0, #200 wave 1.
+printf '{"waves":[[{"issue":201,"slug":"wave-test","folder":"specs/wave-test","status":"Ready","title":"Wave0 issue","blocked_by":[]}],[{"issue":200,"slug":"wave-test","folder":"specs/wave-test","status":"Ready","title":"Wave1 issue","blocked_by":[201]}]],"ready":[],"graphs":[]}\n'
 EOF
+chmod +x "$T_WAVE_STUB"
 
-# promote-ready.sh stub that emits wave-ordered JSON for _dependency_order.
-# T-wave-order only needs _dependency_order to return the right order;
-# promote-ready.sh reads MAKATO_PROMOTE_SPECS_DIR so point it to the fixture.
 MAKATO_LOOP_GH_OVERRIDE="$T_WAVE_BOARD" \
 MAKATO_LOOP_STATE_DIR="$T_WAVE_STATE" \
 MAKATO_LOOP_DRY_DISPATCH=1 \
 SPECS_DIR="$T_WAVE_SPECS" \
-MAKATO_PROMOTE_SPECS_DIR="$T_WAVE_SPECS" \
-MAKATO_PROMOTE_GH_OVERRIDE="$T_WAVE_BOARD" \
+MAKATO_PROMOTE_PATH="$T_WAVE_STUB" \
   "$LOOP" run --status Ready --once >/dev/null 2>&1 || true
 
 # The last_dispatch_issue in loop-status.json must be #201 (wave 0) not #200.
