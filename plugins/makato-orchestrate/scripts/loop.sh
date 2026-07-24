@@ -265,6 +265,7 @@ CLAUDE_BIN="${MAKATO_CLAUDE_BIN:-claude}"
 CONFIG_FILE="${MAKATO_LOOP_CONFIG:-$REPO_ROOT/.claude/config.json}"
 DEFAULT_INTERVAL="${MAKATO_LOOP_INTERVAL:-300}"
 DEFAULT_STATUS="${MAKATO_LOOP_STATUS:-Ready}"
+MAKATO_LOOP_ALLOW_TODO="${MAKATO_LOOP_ALLOW_TODO:-}"
 
 # #516 — adaptive idle backoff bounds. When the queue is empty tick after tick,
 # the effective poll interval grows by IDLE_BACKOFF_FACTOR up to
@@ -1202,6 +1203,70 @@ in_flight_issues() {
       jq -r 'select(.current_phase != "done") | (.issue_number // empty)' \
         "$f" 2>/dev/null || true
     done | sort -u
+}
+
+# ---------------------------------------------------------------------------
+# _dependency_order — emit a wave-ordered, newline-separated list of issue
+# numbers for the loop's next-issue selection.
+#
+# Calls `promote-ready.sh plan --json` (the --json mode added by #548 T1)
+# against the current workspace and extracts .ready[] entries ordered by
+# .wave ascending (wave 0 first), preserving FIFO order within each wave.
+# Emits nothing and exits 0 on any failure so the caller always falls back
+# to the original FIFO head -1 selection.
+#
+# The function MUST NOT mutate the board. It is read-only (plan --json never
+# contacts gh for board writes).
+#
+# MAKATO_PROMOTE_PATH overrides the resolved path to promote-ready.sh for
+# testing (inject a stub or a different binary without PATH manipulation).
+# ---------------------------------------------------------------------------
+_dependency_order() {
+  local pr_bin="${MAKATO_PROMOTE_PATH:-}"
+  if [[ -z "$pr_bin" ]]; then
+    # Locate promote-ready.sh relative to this script so it works regardless
+    # of PATH (the scripts/ directory may not be on PATH in CI).
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    pr_bin="$script_dir/promote-ready.sh"
+  fi
+
+  if [[ ! -x "$pr_bin" ]]; then
+    # promote-ready.sh absent or non-executable — degrade to FIFO silently.
+    return 0
+  fi
+
+  local plan_json
+  # Suppress stderr (warnings about missing graph files are expected in repos
+  # with no specs directory); exit non-zero is treated as empty list.
+  # Thread MAKATO_PROMOTE_SPECS_DIR = SPECS_DIR so promote-ready.sh reads the
+  # same graph files as the loop (critical for test isolation where SPECS_DIR
+  # is overridden via env). MAKATO_PROMOTE_SPECS_DIR already set → honour it;
+  # unset → inherit the loop's SPECS_DIR.
+  plan_json="$(MAKATO_PROMOTE_SPECS_DIR="${MAKATO_PROMOTE_SPECS_DIR:-$SPECS_DIR}" \
+    "$pr_bin" plan --json 2>/dev/null)" || return 0
+
+  # Validate JSON before jq; an empty string or non-JSON output exits 0 (FIFO).
+  if ! jq empty <<<"$plan_json" 2>/dev/null; then
+    return 0
+  fi
+
+  # Extract issues ordered by wave index (wave 0 = index 0, wave 1 = index 1,
+  # …). .waves is an array of arrays; the outer array index IS the wave number.
+  # FIFO order within each wave is preserved (jq preserves insertion order).
+  # Issues in .ready[] are always wave-0 candidates already eligible for
+  # promotion — they form the same set as .waves[0] when the graph is fresh.
+  # However, issues already at Status=Ready on the board appear in .waves but
+  # NOT in .ready[] (the forward-only filter skips them). We want all issues
+  # the graph considers unblocked/wave-ordered regardless of current board
+  # status, so we walk .waves directly.
+  jq -r '
+    .waves
+    | to_entries
+    | sort_by(.key)
+    | .[].value[]
+    | .issue
+  ' <<<"$plan_json" 2>/dev/null || true
 }
 
 # ---------------------------------------------------------------------------
@@ -4974,6 +5039,7 @@ cmd_run() {
   local dry_run=""
   local once=""
   local force=""
+  local promote_unblocked=""
   # #448 — accumulate the issue numbers dispatched in this run so the
   # end-of-run report can aggregate each one's terminal state. Populated only
   # on a real (non-dry-run) dispatch below.
@@ -4981,11 +5047,12 @@ cmd_run() {
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --status)   status_name="${2:?--status requires a value}"; shift 2 ;;
-      --interval) interval="${2:?--interval requires a value}"; shift 2 ;;
-      --dry-run)  dry_run="--dry-run"; shift ;;
-      --once)     once="1"; shift ;;
-      --force)    force="1"; shift ;;
+      --status)             status_name="${2:?--status requires a value}"; shift 2 ;;
+      --interval)           interval="${2:?--interval requires a value}"; shift 2 ;;
+      --dry-run)            dry_run="--dry-run"; shift ;;
+      --once)               once="1"; shift ;;
+      --force)              force="1"; shift ;;
+      --promote-unblocked)  promote_unblocked="1"; shift ;;
       *) echo "loop: unknown flag: $1" >&2; return 64 ;;
     esac
   done
@@ -5067,6 +5134,28 @@ cmd_run() {
         0) : ;;
         *) echo "loop: pre-poll hook rc=${prepoll_rc} (ignored, best-effort)" >&2 ;;
       esac
+    fi
+
+    # Pre-poll auto-promotion of Todo/Blocked issues (#548): when
+    # MAKATO_LOOP_ALLOW_TODO=1 or --promote-unblocked is given, invoke
+    # promote-ready.sh run --yes non-interactively so newly-unblocked issues
+    # are promoted to Ready before the board poll selects the next candidate.
+    # A non-zero exit is logged but never aborts the tick. Default OFF —
+    # a loop run without either signal does not invoke promote-ready.sh.
+    if [[ -n "${MAKATO_LOOP_ALLOW_TODO:-}${promote_unblocked:-}" && -z "$dry_run" ]]; then
+      local _pr_bin="${MAKATO_PROMOTE_PATH:-}"
+      if [[ -z "$_pr_bin" ]]; then
+        _pr_bin="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/promote-ready.sh"
+      fi
+      if [[ -x "$_pr_bin" ]]; then
+        local _promote_rc=0
+        "$_pr_bin" run --yes 2>&1 | while IFS= read -r _line; do
+          echo "loop: promote-unblocked: $_line" >&2
+        done || _promote_rc=$?
+        if [[ "$_promote_rc" -ne 0 ]]; then
+          echo "loop: promote-unblocked: promote-ready.sh exited $_promote_rc (logged, tick continues)" >&2
+        fi
+      fi
     fi
 
     # Pre-poll orphaned-In-progress reconciliation (#368): move board cards
@@ -5156,11 +5245,53 @@ cmd_run() {
     local in_flight
     in_flight="$(in_flight_issues)"
     local next_issue
-    next_issue="$(jq -r --argjson in_flight \
-      "$(jq -R . <<<"$in_flight" | jq -sc 'map(select(length>0))')" \
-      '.[] | .issue as $n
-        | select(($in_flight | index($n|tostring) | not)) | $n' \
-      <<<"$queue" | head -1)"
+    # Wave-ordered selection (#548): call _dependency_order to get an ordered
+    # candidate list (wave 0 before wave 1, FIFO within each wave). Pick the
+    # first candidate that is not already in-flight. Fall back byte-for-byte
+    # to the original jq | head -1 expression when no graph files are present
+    # or _dependency_order returns an empty list.
+    local _dep_order_list
+    _dep_order_list="$(_dependency_order)"
+    if [[ -n "$_dep_order_list" ]]; then
+      # Walk the wave-ordered list and pick the first not in-flight.
+      local _in_flight_arr=()
+      while IFS= read -r _fl_issue; do
+        [[ -n "$_fl_issue" ]] && _in_flight_arr+=("$_fl_issue")
+      done <<<"$in_flight"
+      next_issue=""
+      while IFS= read -r _candidate; do
+        [[ -z "$_candidate" ]] && continue
+        local _is_in_flight=0
+        for _fl in "${_in_flight_arr[@]+"${_in_flight_arr[@]}"}"; do
+          if [[ "$_fl" == "$_candidate" ]]; then _is_in_flight=1; break; fi
+        done
+        if [[ "$_is_in_flight" -eq 0 ]]; then
+          # Verify candidate is actually in the current queue (board may have
+          # changed since promote-ready.sh ran — intersection is mandatory).
+          if jq -e --argjson n "$_candidate" '.[] | select(.issue == $n)' \
+              <<<"$queue" >/dev/null 2>&1; then
+            next_issue="$_candidate"
+            break
+          fi
+        fi
+      done <<<"$_dep_order_list"
+      # If no wave-ordered candidate was found (e.g. all graph issues already
+      # in-flight but FIFO queue has non-graph items), fall back to legacy.
+      if [[ -z "$next_issue" ]]; then
+        next_issue="$(jq -r --argjson in_flight \
+          "$(jq -R . <<<"$in_flight" | jq -sc 'map(select(length>0))')" \
+          '.[] | .issue as $n
+            | select(($in_flight | index($n|tostring) | not)) | $n' \
+          <<<"$queue" | head -1)"
+      fi
+    else
+      # No graph / empty list: original FIFO selection (byte-for-byte fallback).
+      next_issue="$(jq -r --argjson in_flight \
+        "$(jq -R . <<<"$in_flight" | jq -sc 'map(select(length>0))')" \
+        '.[] | .issue as $n
+          | select(($in_flight | index($n|tostring) | not)) | $n' \
+        <<<"$queue" | head -1)"
+    fi
 
     if [[ -n "$next_issue" ]]; then
       echo "loop: dispatching issue #$next_issue (status=$status_name, queue_depth=$queue_depth)" >&2

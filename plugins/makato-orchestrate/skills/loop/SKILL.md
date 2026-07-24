@@ -447,10 +447,45 @@ second `run` in a *different* worktree on the same host):
   worktree-local, they are blind across parallel sessions in different
   worktrees; the claim is the only layer that closes that gap.
 
-This is the deliberate v1 design (see issue #33 Out of Scope: "Priority
-ordering of issues in the queue (FIFO only in v1)"). Parallel dispatch
+This is the deliberate v1 design (see issue #33 Out of Scope). Parallel dispatch
 across multiple PO-agents is not supported and would require a separate
 mutex around `loop-status.json` plus per-issue workflow-state isolation.
+
+## Wave-ordered dispatch (#548)
+
+When `specs/` contains a `created-issues.json` or `stories.json` dependency
+graph, the loop selects the next issue by **wave order** rather than raw board
+insertion (FIFO) order:
+
+1. At each poll tick, `_dependency_order()` calls
+   `promote-ready.sh plan --json` to obtain the topological wave structure.
+2. Issues at **wave 0** (no unresolved blockers) are selected before
+   issues at wave 1, 2, … and so on.
+3. **FIFO order is preserved within a wave** — issues at the same wave level
+   are dispatched in their original board insertion order.
+4. When no graph files are present (no `created-issues.json` / `stories.json`
+   under `specs/`) or `promote-ready.sh` returns an empty list, the loop falls
+   back **byte-for-byte** to the original `jq … | head -1` FIFO selection.
+   Callers that do not use dependency graphs observe no behaviour change.
+
+The `_dependency_order()` helper is **read-only** — it never mutates the board.
+The board-mutation (`promote-ready.sh run --yes`) is opt-in via
+`MAKATO_LOOP_ALLOW_TODO` or `--promote-unblocked` (see below).
+
+## Opt-in auto-promotion of Todo/Blocked issues
+
+By default the loop only dispatches issues already at board `Status=Ready`;
+it does not automatically promote unblocked issues from `Todo` or `Blocked`.
+Two mechanisms enable operator-controlled auto-promotion:
+
+| Trigger | Behaviour |
+|---------|-----------|
+| `MAKATO_LOOP_ALLOW_TODO=1` env var | Before each poll tick, run `promote-ready.sh run --yes` non-interactively to promote newly-unblocked issues to `Ready`. |
+| `--promote-unblocked` CLI flag | Same effect as `MAKATO_LOOP_ALLOW_TODO=1` for this run only. |
+
+A non-zero exit from `promote-ready.sh` is logged but never aborts the loop
+tick. Both flags default to **off** — a loop run without either does not
+invoke `promote-ready.sh` and does not change any board field.
 
 ## Board writes at dispatch: the synchronous claim (#259)
 
@@ -770,6 +805,8 @@ The intentional design split:
 | `MAKATO_MAX_RESHAPE_CYCLES` | `3` | Maximum number of `decompose Refine + to-issues` dispatch attempts per issue before `needs-human-review` is applied and no further reshaping is attempted. Guards against infinite reshape loops on structurally unresolvable stories. |
 | `MAKATO_LOOP_RESHAPE_TEST_CMD` | unset | Test-only: command string eval'd inside a subshell in place of the real `claude` dispatch in `_reshape_pass`. Receives the same env context as the production path. Keeps T-reshape smoke tests offline. |
 | `MAKATO_LOOP_RESHAPE_OVERRIDE` | unset | Test-only: path to a JSON file in `[{"number": N, "key": "K"}]` shape, read instead of calling `gh project item-list` / `gh issue list --label needs-reshape` in `_reshape_pass`. Keeps T-reshape smoke tests offline. |
+| `MAKATO_LOOP_ALLOW_TODO` | unset | Set to `1` to trigger `promote-ready.sh run --yes` in the pre-poll step before each board poll. Promotes newly-unblocked issues from `Todo`/`Blocked` to `Ready` so the same tick can dispatch them. Default off — omitting the flag means no auto-promotion and no board mutation by this env path. Equivalent to passing `--promote-unblocked` on the CLI. |
+| `MAKATO_PROMOTE_PATH` | (auto-resolved) | Override the path to `promote-ready.sh` for the `_dependency_order` helper and the `--promote-unblocked` pre-poll step. Defaults to `promote-ready.sh` in the same `scripts/` directory as `loop.sh`. Test-only: use a stub binary to control what wave ordering or promotion output the loop sees. |
 
 ## Smoke tests
 
@@ -1017,11 +1054,11 @@ Seven offline scenarios covering all four plan-specified cases plus edge variant
 
 Documented limits of the v1 implementation (per issue #33):
 
-- **Priority ordering.** The queue is FIFO from `gh project item-list`
-  (board insertion order). Issue priorities, labels like
-  `severity:critical`, and points are not consulted. Operators wanting
-  priority can sort the board manually or use the Projects v2 field
-  filters in the UI.
+- **Priority ordering within a wave.** Issues within the same wave are
+  dispatched in board insertion (FIFO) order. Priority labels, severity
+  fields, and story points are not consulted. Operators wanting finer
+  priority within a wave can reorder the board manually or use the
+  Projects v2 field filters in the UI.
 - **Multi-repo queue aggregation.** A single `loop` run operates against
   the project board configured in `.claude/config.json`. Cross-repo
   boards (the makato project board hosts multiple repos) work

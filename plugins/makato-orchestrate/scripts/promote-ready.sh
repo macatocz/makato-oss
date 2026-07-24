@@ -570,11 +570,12 @@ _promote_one() {
 # cmd_run [SLUG] [--dry-run] [--yes] — the main entry point.
 # ---------------------------------------------------------------------------
 cmd_run() {
-  local slug="" dry="${MAKATO_PROMOTE_DRYRUN:-}" yes="${MAKATO_PROMOTE_YES:-}"
+  local slug="" dry="${MAKATO_PROMOTE_DRYRUN:-}" yes="${MAKATO_PROMOTE_YES:-}" json=
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --dry-run) dry=1 ;;
       --yes|-y)  yes=1 ;;
+      --json)    json=1 ;;
       --*)       _log "unknown flag: $1"; return 2 ;;
       *)         slug="$1" ;;
     esac
@@ -598,6 +599,12 @@ cmd_run() {
   local board_json plan
   board_json="$(_read_board_json)"
   plan="$(_compute_plan "$board_json" "${graph_files[@]}")"
+
+  # --json: print raw _compute_plan JSON to stdout and exit; no board mutation.
+  if [[ -n "$json" ]]; then
+    printf '%s\n' "$plan"
+    return 0
+  fi
 
   _render_report "$plan"
 
@@ -649,14 +656,21 @@ usage() {
 Usage: promote-ready.sh <command> [SLUG] [options]
 
 Commands:
-  run [SLUG] [--dry-run] [--yes]   Compute unblocked issues and promote them to
-                                   Ready (interactive approval unless --yes).
-  plan [SLUG]                      Recommendation only; never mutates the board
-                                   (alias for `run --dry-run`).
+  run [SLUG] [--dry-run] [--yes] [--json]
+                           Compute unblocked issues and promote them to
+                           Ready (interactive approval unless --yes).
+                           --json: print raw _compute_plan JSON to stdout
+                                   and exit without mutating the board.
+  plan [SLUG] [--json]     Recommendation only; never mutates the board
+                           (alias for `run --dry-run`). Pass --json to
+                           print the raw plan JSON instead of the report.
 
 Options:
   --dry-run   Print the recommendation; make no board change.
   --yes, -y   Skip the interactive approval prompt.
+  --json      Print the raw _compute_plan JSON to stdout; implies no board
+              mutation. Consumers may extract .ready[].issue, .waves,
+              .blocked, .skipped, .deferred_collision; exits 0.
 
 Without SLUG, every specs/*/ folder with a created-issues.json (fallback
 stories.json) is loaded. See the header of this file and skills/promote-ready

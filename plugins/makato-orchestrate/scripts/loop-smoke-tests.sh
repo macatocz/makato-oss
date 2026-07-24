@@ -5319,5 +5319,172 @@ echo "  ✓ no change label routes to po-agent (AC-4 regression guard)"
 
 rm -rf "$T91_DIR"
 
+# ---------------------------------------------------------------------------
+# T-wave-order — wave-ordered dispatch: board with issue A (wave 0) and
+# issue B (wave 1); assert loop dispatches A first.
+# ---------------------------------------------------------------------------
+echo "=== T-wave-order: loop dispatches wave-0 issue before wave-1 issue ==="
+T_WAVE_DIR="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/t-wave"
+T_WAVE_SPECS="$T_WAVE_DIR/specs"
+T_WAVE_STATE="$T_WAVE_DIR/state"
+mkdir -p "$T_WAVE_SPECS" "$T_WAVE_STATE"
+
+# Board: #200 (wave 1, higher number) listed before #201 (wave 0) to prove
+# ordering is by wave, not by board position or issue number.
+T_WAVE_BOARD="$T_WAVE_DIR/board.json"
+cat >"$T_WAVE_BOARD" <<'EOF'
+{"items":[
+  {"content":{"type":"Issue","number":200,"title":"Wave1 issue","repository":"macatocz/makato","url":"https://x/200"},"status":"Ready","labels":[]},
+  {"content":{"type":"Issue","number":201,"title":"Wave0 issue","repository":"macatocz/makato","url":"https://x/201"},"status":"Ready","labels":[]}
+]}
+EOF
+
+# Graph: #200 blocked by #201 → wave 1; #201 unblocked → wave 0.
+mkdir -p "$T_WAVE_SPECS/wave-test"
+cat >"$T_WAVE_SPECS/wave-test/created-issues.json" <<'EOF'
+{"schema_version":"1","slug":"wave-test","issues":[
+  {"issue_number":201,"url":"https://x/201","title":"Wave0","labels":[],"blocked_by":[]},
+  {"issue_number":200,"url":"https://x/200","title":"Wave1","labels":[],"blocked_by":[201]}
+]}
+EOF
+
+# promote-ready.sh stub that emits wave-ordered JSON for _dependency_order.
+# T-wave-order only needs _dependency_order to return the right order;
+# promote-ready.sh reads MAKATO_PROMOTE_SPECS_DIR so point it to the fixture.
+MAKATO_LOOP_GH_OVERRIDE="$T_WAVE_BOARD" \
+MAKATO_LOOP_STATE_DIR="$T_WAVE_STATE" \
+MAKATO_LOOP_DRY_DISPATCH=1 \
+SPECS_DIR="$T_WAVE_SPECS" \
+MAKATO_PROMOTE_SPECS_DIR="$T_WAVE_SPECS" \
+MAKATO_PROMOTE_GH_OVERRIDE="$T_WAVE_BOARD" \
+  "$LOOP" run --status Ready --once >/dev/null 2>&1 || true
+
+# The last_dispatch_issue in loop-status.json must be #201 (wave 0) not #200.
+T_WAVE_STATUS="$T_WAVE_STATE/loop-status.json"
+if [[ -f "$T_WAVE_STATUS" ]]; then
+  _dispatched="$(jq -r '.last_dispatch_issue // "none"' "$T_WAVE_STATUS")"
+  [[ "$_dispatched" == "201" ]] \
+    || fail "T-wave-order: expected last_dispatch_issue=201 (wave 0), got $_dispatched"
+fi
+echo "  ✓ wave-0 issue #201 dispatched before wave-1 issue #200"
+rm -rf "$T_WAVE_DIR"
+
+# ---------------------------------------------------------------------------
+# T-promote-on — --promote-unblocked flag triggers promote-ready.sh run --yes
+# in the pre-poll step.
+# ---------------------------------------------------------------------------
+echo "=== T-promote-on: --promote-unblocked invokes promote-ready.sh run --yes ==="
+T_PRON_DIR="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/t-pron"
+T_PRON_SPECS="$T_PRON_DIR/specs"
+T_PRON_STATE="$T_PRON_DIR/state"
+T_PRON_PRLOG="$T_PRON_DIR/promote-invocations.txt"
+mkdir -p "$T_PRON_SPECS" "$T_PRON_STATE"
+
+# Board: one Todo issue to give the loop something to poll without dispatching.
+T_PRON_BOARD="$T_PRON_DIR/board.json"
+echo '{"items":[{"content":{"type":"Issue","number":300,"title":"T-pron","repository":"macatocz/makato","url":"https://x/300"},"status":"Todo","labels":[]}]}' \
+  >"$T_PRON_BOARD"
+
+# Stub for promote-ready.sh: records invocations so we can assert it ran.
+T_PRON_STUB="$T_PRON_DIR/promote-ready-stub.sh"
+cat >"$T_PRON_STUB" <<EOF
+#!/usr/bin/env bash
+echo "invoked: \$*" >> "$T_PRON_PRLOG"
+exit 0
+EOF
+chmod +x "$T_PRON_STUB"
+
+MAKATO_LOOP_GH_OVERRIDE="$T_PRON_BOARD" \
+MAKATO_LOOP_STATE_DIR="$T_PRON_STATE" \
+MAKATO_LOOP_DRY_DISPATCH=1 \
+SPECS_DIR="$T_PRON_SPECS" \
+MAKATO_PROMOTE_PATH="$T_PRON_STUB" \
+  "$LOOP" run --status Todo --once --promote-unblocked 2>/dev/null || true
+
+grep -q "run --yes" "$T_PRON_PRLOG" 2>/dev/null \
+  || fail "T-promote-on: promote-ready.sh run --yes not invoked with --promote-unblocked"
+echo "  ✓ --promote-unblocked: promote-ready.sh run --yes invoked in pre-poll"
+rm -rf "$T_PRON_DIR"
+
+# ---------------------------------------------------------------------------
+# T-promote-off — without flag or env, promote-ready.sh must NOT be invoked.
+# ---------------------------------------------------------------------------
+echo "=== T-promote-off: no flag → promote-ready.sh NOT invoked ==="
+T_PROFF_DIR="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/t-proff"
+T_PROFF_SPECS="$T_PROFF_DIR/specs"
+T_PROFF_STATE="$T_PROFF_DIR/state"
+T_PROFF_PRLOG="$T_PROFF_DIR/promote-invocations.txt"
+mkdir -p "$T_PROFF_SPECS" "$T_PROFF_STATE"
+
+T_PROFF_BOARD="$T_PROFF_DIR/board.json"
+echo '{"items":[{"content":{"type":"Issue","number":301,"title":"T-proff","repository":"macatocz/makato","url":"https://x/301"},"status":"Todo","labels":[]}]}' \
+  >"$T_PROFF_BOARD"
+
+T_PROFF_STUB="$T_PROFF_DIR/promote-ready-stub.sh"
+cat >"$T_PROFF_STUB" <<EOF
+#!/usr/bin/env bash
+echo "invoked: \$*" >> "$T_PROFF_PRLOG"
+exit 0
+EOF
+chmod +x "$T_PROFF_STUB"
+
+MAKATO_LOOP_GH_OVERRIDE="$T_PROFF_BOARD" \
+MAKATO_LOOP_STATE_DIR="$T_PROFF_STATE" \
+MAKATO_LOOP_DRY_DISPATCH=1 \
+SPECS_DIR="$T_PROFF_SPECS" \
+MAKATO_PROMOTE_PATH="$T_PROFF_STUB" \
+MAKATO_LOOP_ALLOW_TODO="" \
+  "$LOOP" run --status Todo --once 2>/dev/null || true
+
+if [[ -f "$T_PROFF_PRLOG" ]] && grep -q "run --yes" "$T_PROFF_PRLOG" 2>/dev/null; then
+  fail "T-promote-off: promote-ready.sh run --yes invoked without flag: $(cat "$T_PROFF_PRLOG")"
+fi
+echo "  ✓ no flag: promote-ready.sh NOT invoked, board status unchanged"
+rm -rf "$T_PROFF_DIR"
+
+# ---------------------------------------------------------------------------
+# T-fifo-fallback — no graph files: loop selects issues in original board
+# insertion (FIFO) order matching legacy head -1 behaviour.
+# ---------------------------------------------------------------------------
+echo "=== T-fifo-fallback: no graph files → FIFO issue selection ==="
+T_FIFO_DIR="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/t-fifo"
+T_FIFO_SPECS="$T_FIFO_DIR/specs"
+T_FIFO_STATE="$T_FIFO_DIR/state"
+mkdir -p "$T_FIFO_SPECS" "$T_FIFO_STATE"
+
+# Board with two Ready issues; no specs/ folder → no graph → FIFO → #400 first.
+T_FIFO_BOARD="$T_FIFO_DIR/board.json"
+cat >"$T_FIFO_BOARD" <<'EOF'
+{"items":[
+  {"content":{"type":"Issue","number":400,"title":"First","repository":"macatocz/makato","url":"https://x/400"},"status":"Ready","labels":[]},
+  {"content":{"type":"Issue","number":401,"title":"Second","repository":"macatocz/makato","url":"https://x/401"},"status":"Ready","labels":[]}
+]}
+EOF
+
+# Stub that exits 1 (no graph) so _dependency_order returns empty.
+T_FIFO_STUB="$T_FIFO_DIR/promote-ready-stub.sh"
+cat >"$T_FIFO_STUB" <<'EOF'
+#!/usr/bin/env bash
+# Simulate no-graph: exit non-zero with no stdout.
+exit 1
+EOF
+chmod +x "$T_FIFO_STUB"
+
+MAKATO_LOOP_GH_OVERRIDE="$T_FIFO_BOARD" \
+MAKATO_LOOP_STATE_DIR="$T_FIFO_STATE" \
+MAKATO_LOOP_DRY_DISPATCH=1 \
+SPECS_DIR="$T_FIFO_SPECS" \
+MAKATO_PROMOTE_PATH="$T_FIFO_STUB" \
+  "$LOOP" run --status Ready --once 2>/dev/null || true
+
+T_FIFO_STATUS="$T_FIFO_STATE/loop-status.json"
+if [[ -f "$T_FIFO_STATUS" ]]; then
+  _fifo_dispatched="$(jq -r '.last_dispatch_issue // "none"' "$T_FIFO_STATUS")"
+  [[ "$_fifo_dispatched" == "400" ]] \
+    || fail "T-fifo-fallback: expected first board item #400, got $_fifo_dispatched"
+fi
+echo "  ✓ no graph: FIFO fallback dispatches first board item (#400)"
+rm -rf "$T_FIFO_DIR"
+
 echo
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T-RESUME-1 complete result no-op, T-RESUME-2 incomplete triggers attempt, T-RESUME-3 errored triggers attempt, T-RESUME-4 budget-exhausted HALT-014, T-RESUME-5 STALL_DISABLE skip detect+resume, #531; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470; T84–T89 orphaned-specs pruning; T90 promote-before-prune; T-GQL1–T-GQL5 GraphQL board poll + item-list rollback, #516; T-IDLE1–T-IDLE2 adaptive idle backoff, #516; T91 plan-tier:change routing, #539) ==="
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T-RESUME-1 complete result no-op, T-RESUME-2 incomplete triggers attempt, T-RESUME-3 errored triggers attempt, T-RESUME-4 budget-exhausted HALT-014, T-RESUME-5 STALL_DISABLE skip detect+resume, #531; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470; T84–T89 orphaned-specs pruning; T90 promote-before-prune; T-GQL1–T-GQL5 GraphQL board poll + item-list rollback, #516; T-IDLE1–T-IDLE2 adaptive idle backoff, #516; T91 plan-tier:change routing, #539; T-wave-order, T-promote-on, T-promote-off, T-fifo-fallback wave-ordered dispatch + promote-unblocked, #548) ==="

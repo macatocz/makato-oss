@@ -14,8 +14,8 @@ description: >-
   recommend two issues that share one `specs/` folder at once (shared
   `plan.md` collision, #173). `--dry-run` / `plan` prints the
   recommendation without touching the board.
-version: "1.1.0"
-argument-hint: "[SLUG] [--dry-run] [--yes]"
+version: "1.2.0"
+argument-hint: "[SLUG] [--dry-run] [--yes] [--json]"
 allowed-tools: Bash(plugins/makato-orchestrate/scripts/promote-ready.sh *) Bash(gh project *) Bash(jq *) Bash(python3 *) Read
 ---
 
@@ -40,9 +40,11 @@ This skill is the missing dependency-aware layer. Use it:
   issues are unblocked, which are deferred by a `plan.md` collision, and
   which are still blocked and by what.
 
-Do **not** wire this into `loop`'s per-tick path — it is an operator tool,
-run deliberately wave-by-wave. `loop` remains the dispatcher; this skill
-only decides what may enter its `Ready` queue.
+The `loop` skill calls `promote-ready.sh plan --json` at each poll tick
+to determine wave-ordered dispatch order (see `loop/SKILL.md` §
+*Wave-ordered dispatch*). This is a **read-only** call — it never mutates
+the board. The board-mutation path (`run --yes`) is only invoked when
+`MAKATO_LOOP_ALLOW_TODO=1` or `--promote-unblocked` is active in `loop`.
 
 ## Prerequisites
 
@@ -64,6 +66,9 @@ plugins/makato-orchestrate/scripts/promote-ready.sh plan
 # Recommendation for one spec (accepts exact folder, KEY-slug, or bare slug)
 plugins/makato-orchestrate/scripts/promote-ready.sh plan checkout-redesign
 
+# Machine-readable JSON plan (consumed by loop's _dependency_order helper)
+plugins/makato-orchestrate/scripts/promote-ready.sh plan --json checkout-redesign
+
 # Promote the unblocked wave after interactive approval
 plugins/makato-orchestrate/scripts/promote-ready.sh run checkout-redesign
 
@@ -74,7 +79,8 @@ plugins/makato-orchestrate/scripts/promote-ready.sh run checkout-redesign --yes
 | Command | Purpose |
 |---------|---------|
 | `plan [SLUG]` | Print the recommendation; never mutates the board (alias for `run --dry-run`). |
-| `run [SLUG] [--dry-run] [--yes]` | Compute unblocked issues and promote them to `Ready`. Interactive approval unless `--yes`. `--dry-run` prints only. |
+| `plan [SLUG] --json` | Print raw `_compute_plan` JSON to stdout; exits 0. Consumed by `loop`'s `_dependency_order` helper for wave-ordered dispatch. Consumers may extract `.ready[].issue`, `.waves`, `.blocked`, `.skipped`, `.deferred_collision`. |
+| `run [SLUG] [--dry-run] [--yes] [--json]` | Compute unblocked issues and promote them to `Ready`. Interactive approval unless `--yes`. `--dry-run` prints only. `--json` prints raw plan JSON and exits immediately (no board mutation). |
 
 Without `SLUG`, every `specs/*/` folder with a `created-issues.json`
 (fallback `stories.json`) is loaded and the graphs are analyzed together.
@@ -172,7 +178,7 @@ Without `SLUG`, every `specs/*/` folder with a `created-issues.json`
 
 ## Smoke tests
 
-`scripts/promote-ready-smoke-tests.sh` covers thirteen scenarios, fully
+`scripts/promote-ready-smoke-tests.sh` covers fifteen scenarios, fully
 offline (board injected via `MAKATO_PROMOTE_GH_OVERRIDE`, promotions
 captured via `MAKATO_PROMOTE_EDIT_TEST_FILE` — `gh` is never invoked):
 
@@ -189,6 +195,8 @@ captured via `MAKATO_PROMOTE_EDIT_TEST_FILE` — `gh` is never invoked):
 11. A dependency cycle terminates, warns, and promotes neither member.
 12. An all-unparseable graph shows `(no issues in graph)` — no phantom `Wave 0`.
 13. A no-such-slug run is clean on bash 3.2 (no `unbound variable` leak).
+14. `plan --json` outputs valid JSON with the keys `ready`, `waves`, `blocked`, `skipped`, `deferred_collision`; exits 0 with any valid workspace graph.
+15. `plan --json` with a slug-collision graph populates `deferred_collision` with the higher issue number; the lower appears in `ready[]`.
 
 ```bash
 plugins/makato-orchestrate/scripts/promote-ready-smoke-tests.sh
@@ -200,9 +208,12 @@ Run in CI via `.github/workflows/validate.yml`.
 
 - **Dispatch.** This skill only moves cards to `Ready`; `loop` dispatches
   them. It never spawns a PO-agent.
-- **Automatic wave chaining.** It promotes the currently-unblocked wave and
-  stops. It does not watch for merges and auto-promote the next wave — that
-  is the deliberate wave-by-wave operating model (re-run after a merge).
+- **Automatic wave chaining.** This skill promotes the currently-unblocked
+  wave and stops. It does not watch for merges and auto-promote the next wave
+  — that is the deliberate wave-by-wave operating model (re-run after a
+  merge). The `loop` skill reads wave ordering via `plan --json` at each tick,
+  but the promotion itself (moving `Todo`/`Blocked` → `Ready`) is only
+  triggered when `MAKATO_LOOP_ALLOW_TODO=1` or `--promote-unblocked` is set.
 - **Cross-folder `plan.md` isolation.** The collision guard *avoids* the
   hazard by deferring; it does not *fix* it. Per-issue `plan.md` isolation
   (the prerequisite for safe same-folder parallelism) is a separate follow-on.

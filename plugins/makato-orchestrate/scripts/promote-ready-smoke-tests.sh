@@ -243,5 +243,36 @@ if grep -q "unbound variable" <<<"$ERR"; then fail "bash-3.2 empty-array leak: $
 grep -q "no created-issues.json or stories.json found" <<<"$ERR" || fail "expected clean no-files message: $ERR"
 pass "no-such-slug: clean message, no unbound-variable leak"
 
+# ---------------------------------------------------------------------------
+echo "=== T-pjson-valid: plan --json outputs valid JSON with required keys ==="
+# Two-issue alpha graph with a blocked_by dependency.
+OUT="$("$PR" plan --json alpha 2>/dev/null)"
+# Must exit 0 and emit valid JSON to stdout.
+echo "$OUT" | jq empty 2>/dev/null || fail "plan --json output is not valid JSON: $OUT"
+# Required top-level keys.
+for key in ready waves blocked skipped deferred_collision; do
+  echo "$OUT" | jq -e "has(\"$key\")" >/dev/null 2>&1 || fail "plan --json missing key '$key': $OUT"
+done
+# ready must contain the unblocked issue (#2) with at least .issue field.
+echo "$OUT" | jq -e '.ready | length >= 1' >/dev/null 2>&1 || fail "plan --json ready[] is empty: $OUT"
+echo "$OUT" | jq -e '.ready[] | select(.issue == 2)' >/dev/null 2>&1 || fail "#2 not in ready[]: $OUT"
+pass "plan --json: valid JSON with all required keys; #2 in ready[]"
+
+# ---------------------------------------------------------------------------
+echo "=== T-pjson-collision: plan --json with slug collision populates deferred_collision ==="
+# beta graph: #10 and #11 both unblocked but share the same spec folder.
+OUT="$("$PR" plan --json beta 2>/dev/null)"
+echo "$OUT" | jq empty 2>/dev/null || fail "plan --json (collision) output not valid JSON: $OUT"
+# Lower issue (#10) should be in ready.
+echo "$OUT" | jq -e '.ready[] | select(.issue == 10)' >/dev/null 2>&1 || fail "#10 not in ready[]: $OUT"
+# Higher issue (#11) should be in deferred_collision (not empty).
+echo "$OUT" | jq -e '.deferred_collision | length >= 1' >/dev/null 2>&1 || fail "deferred_collision is empty: $OUT"
+echo "$OUT" | jq -e '.deferred_collision[] | select(.issue == 11)' >/dev/null 2>&1 || fail "#11 not in deferred_collision[]: $OUT"
+# #11 must NOT appear in ready.
+if echo "$OUT" | jq -e '.ready[] | select(.issue == 11)' >/dev/null 2>&1; then
+  fail "#11 wrongly appears in ready[] despite collision: $OUT"
+fi
+pass "plan --json: deferred_collision populated; #10 in ready[], #11 in deferred_collision[]"
+
 echo
-echo "=== ALL PROMOTE-READY SMOKE TESTS PASSED (T1–T13) ==="
+echo "=== ALL PROMOTE-READY SMOKE TESTS PASSED (T1–T15) ==="

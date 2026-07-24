@@ -6,7 +6,41 @@ Changes are grouped by skill/component. Within each group, latest version on top
 ## [Unreleased]
 
 ### Added
-- Autonomous build-refine materialization from committed `stories.json`
+- Wave-ordered dispatch in `loop.sh` (#548). At each poll tick the loop now
+  calls `promote-ready.sh plan --json` via the new `_dependency_order()`
+  helper to obtain the topological wave structure from `created-issues.json`
+  / `stories.json` graphs. Issues at wave 0 (no unresolved blockers) are
+  selected before wave 1, 2, …; FIFO order is preserved within each wave.
+  When no graph files are present the loop falls back byte-for-byte to the
+  original `head -1` FIFO selection — callers that do not use dependency
+  graphs observe no behaviour change.
+  - `scripts/loop.sh`: new `_dependency_order()` helper (read-only, uses
+    `MAKATO_PROMOTE_PATH` override for tests); updated `next_issue`
+    selection block; new `--promote-unblocked` CLI flag; new
+    `MAKATO_LOOP_ALLOW_TODO` env default; pre-poll auto-promotion guard
+    (`promote-ready.sh run --yes`) triggered when either is set.
+  - `scripts/loop-smoke-tests.sh`: +4 scenarios — `T-wave-order`,
+    `T-promote-on`, `T-promote-off`, `T-fifo-fallback` (#548).
+  - `skills/loop/SKILL.md`: removed "FIFO only in v1" language; added
+    *Wave-ordered dispatch* and *Opt-in auto-promotion* sections;
+    added `MAKATO_LOOP_ALLOW_TODO` and `MAKATO_PROMOTE_PATH` to the env
+    table.
+- `plan --json` mode in `promote-ready.sh` (#548). `promote-ready.sh plan
+  --json [SLUG]` prints the raw `_compute_plan` JSON to stdout (keys:
+  `ready`, `waves`, `blocked`, `skipped`, `deferred_collision`) and exits 0.
+  Consumed by `loop`'s `_dependency_order()`. Also exposed as
+  `run --json` (same behaviour, no board mutation).
+  - `scripts/promote-ready.sh`: `--json` flag in `cmd_run`; raw plan
+    output branch; updated usage/help text.
+  - `scripts/promote-ready-smoke-tests.sh`: +2 scenarios — `T-pjson-valid`,
+    `T-pjson-collision` (15 total).
+  - `skills/promote-ready/SKILL.md`: removed "do not wire into loop
+    per-tick" prohibition; updated `When to Use`, `Invocation` table
+    (added `plan --json` row and `--json` flag to `run` signature),
+    `Out of scope`/wave-chaining bullet, smoke-tests count (13 → 15);
+    version bumped to 1.2.0.
+
+
   (#527). The Step 1a HALT-006 recovery gate gains a fourth verdict,
   `materialize-refine`, that dispatches `build-refine --autonomous` for
   **full-tier** issues (not just `plan-tier:light`) when a committed
