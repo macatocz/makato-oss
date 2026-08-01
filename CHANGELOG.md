@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.110.1](https://github.com/macatocz/makato/compare/v0.110.0...v0.110.1) (2026-08-01)
+
+
+### 🐛 Bug Fixes
+
+* **makato-sagibeast:** document sagibeast-testbox runner label contract ([#577](https://github.com/macatocz/makato/issues/577)) ([#578](https://github.com/macatocz/makato/issues/578)) ([ffd8898](https://github.com/macatocz/makato/commit/ffd8898219918df1afc6713b532e0b1171446986))
+
 ## [0.110.0](https://github.com/macatocz/makato/compare/v0.109.2...v0.110.0) (2026-08-01)
 
 
