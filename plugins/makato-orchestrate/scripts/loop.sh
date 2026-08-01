@@ -3085,34 +3085,49 @@ _auto_seed_block_full() {
   [[ -n "$repo" ]] && repo_flag=(--repo "$repo")
 
   # --- Step 1: Derive slug and prepare spec-folder stub ---
-  # Derive slug using the same normalization as seed-issue Step 4 /
-  # _derive_key_for_issue's third-fallback path.
-  local title=""
-  if [[ -n "${MAKATO_LOOP_ISSUE_TITLE_OVERRIDE:-}" ]]; then
-    title="$MAKATO_LOOP_ISSUE_TITLE_OVERRIDE"
-  else
-    title="$(gh issue view "$issue" "${repo_flag[@]}" --json title \
-      --jq '.title' 2>/dev/null)" || true
+  # Delegate to _derive_key_for_issue so to-issues footer KEY (primary) and
+  # specs/<slug>/stories.json provenance (secondary) take precedence over the
+  # title-slug fallback. This prevents false-positive Blocked on issues whose
+  # plan lives in a shared feature folder (e.g. plan-342.md under
+  # specs/platform-core-phase-2-admin-console/).
+  local slug=""
+  slug="$(_derive_key_for_issue "$issue" "${repo:-}" 2>/dev/null || true)"
+
+  # Title-slug fallback (restores pre-#571 behaviour): _derive_key_for_issue
+  # returns empty when the issue body is empty/unfetchable (its title fallback
+  # is unreachable past the body-required guard). A hand-filed issue with no
+  # to-issues provenance still needs a <issue>-<title-slug> spec stub, so
+  # re-derive from the title here — matching seed-issue Step 4 normalization.
+  if [[ -z "$slug" ]]; then
+    local title=""
+    if [[ -n "${MAKATO_LOOP_ISSUE_TITLE_OVERRIDE:-}" ]]; then
+      title="$MAKATO_LOOP_ISSUE_TITLE_OVERRIDE"
+    else
+      title="$(gh issue view "$issue" "${repo_flag[@]}" --json title \
+        --jq '.title' 2>/dev/null)" || true
+    fi
+    if [[ -n "$title" ]]; then
+      local norm
+      norm="$(printf '%s' "$title" \
+        | tr '[:upper:]' '[:lower:]' \
+        | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' \
+        | cut -c1-40 \
+        | sed -E 's/-+$//')"
+      [[ -n "$norm" ]] && slug="${issue}-${norm}"
+    fi
   fi
 
-  local slug=""
-  if [[ -n "$title" ]]; then
-    local norm
-    norm="$(printf '%s' "$title" \
-      | tr '[:upper:]' '[:lower:]' \
-      | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' \
-      | cut -c1-40 \
-      | sed -E 's/-+$//')"
-    [[ -n "$norm" ]] && slug="${issue}-${norm}"
-  fi
   if [[ -z "$slug" ]]; then
     slug="${issue}"
-    echo "loop: WARN — auto-seed-block #$issue could not derive slug (no title); using bare issue number" >&2
+    echo "loop: WARN — auto-seed-block #$issue could not derive slug; using bare issue number" >&2
   fi
 
   local spec_root="${MAKATO_LOOP_AUTOSEED_SPEC_ROOT:-$SPECS_DIR}"
   local spec_dir="$spec_root/$slug"
 
+  # Stub creation is intentionally skipped when _derive_key_for_issue returned a
+  # footer KEY that resolves to an existing shared spec folder (e.g. a to-issues
+  # feature folder containing plan-<N>.md). The existing guard below handles this.
   if [[ -d "$spec_dir" ]]; then
     echo "loop: auto-seed-block — specs/$slug/ already exists — skipping folder creation" >&2
   else
@@ -3125,14 +3140,14 @@ _auto_seed_block_full() {
 
       # plan.md stub (mirrors seed-issue Step 8 format exactly).
       printf '# Plan: %s\n\n> Auto-seeded by seed-issue v1.2.0 on %s. Replace this stub with a\n> full plan before the PO-agent starts.\n\n## Issue\n\n[#%s](https://github.com/%s/issues/%s)\n\n## Acceptance criteria\n\n_To be filled in. The PO-agent will HALT with HALT-006 (MISSING_SPEC) if\nthis file contains only the stub text above._\n' \
-        "${title:-#${issue}}" "$now_iso" "$issue" "${repo:-unknown/repo}" "$issue" \
+        "#${issue}" "$now_iso" "$issue" "${repo:-unknown/repo}" "$issue" \
         >"$spec_dir/plan.md" 2>/dev/null || true
 
       # seed-manifest.json (schema_version 2, same as seed-issue).
       jq -n \
         --arg seeded_at "$now_iso" \
         --argjson issue_num "$issue" \
-        --arg issue_title "${title:-}" \
+        --arg issue_title "" \
         --arg slug "$slug" \
         --arg repo "${repo:-}" \
         '{
@@ -3170,7 +3185,14 @@ _auto_seed_block_full() {
 
   local gate_out="" gate_verdict="halt"
   if [[ -f "$materialize_sh" ]]; then
-    gate_out="$(bash "$materialize_sh" "$spec_dir/plan.md" "${labels_arr[@]}" 2>/dev/null || true)"
+    # For to-issues shared folders the real plan is plan-<N>.md, not plan.md.
+    # Prefer the issue-specific plan file when it exists so the gate sees a
+    # valid plan and emits 'proceed plan-valid' rather than 'halt'.
+    local plan_file="$spec_dir/plan.md"
+    if [[ ! -f "$plan_file" && -f "$spec_dir/plan-${issue}.md" ]]; then
+      plan_file="$spec_dir/plan-${issue}.md"
+    fi
+    gate_out="$(bash "$materialize_sh" "$plan_file" "${labels_arr[@]}" 2>/dev/null || true)"
     gate_verdict="${gate_out%% *}"
   else
     echo "loop: WARN — auto-seed-block #$issue: should-materialize-spec.sh not found; defaulting to block" >&2
@@ -3178,6 +3200,17 @@ _auto_seed_block_full() {
 
   if [[ "$gate_verdict" == "materialize-refine" ]]; then
     echo "loop: auto-seed-block — #$issue materialize-refine verdict; promoting to Ready (skipping block)" >&2
+    _auto_seed_promote_ready_from_gate "$issue"
+    return 0
+  fi
+
+  # A 'proceed' verdict means the gate saw a valid, committed plan (plan.md or
+  # the issue-specific plan-<N>.md in a to-issues shared feature folder). This
+  # is the #571 fix: a full-tier issue whose real plan lives at plan-<N>.md
+  # under specs/<footer-KEY>/ must NOT be false-positive Blocked. Promote to
+  # Ready instead of blocking.
+  if [[ "$gate_verdict" == "proceed" ]]; then
+    echo "loop: auto-seed-block — #$issue gate verdict 'proceed' (valid committed plan); promoting to Ready (skipping block)" >&2
     _auto_seed_promote_ready_from_gate "$issue"
     return 0
   fi

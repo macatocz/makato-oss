@@ -2276,6 +2276,97 @@ grep -q "<!-- makato:auto-seed-block:full -->" "$T63_COMMENT_FILE" \
 rm -f "$T63_CONFIG" "$T63_BLOCK_FILE" "$T63_COMMENT_FILE" "$T63_LABEL_FILE"
 echo "  ✓ full-tier: spec-stub created, Blocked, needs-human-review applied, launch comment posted"
 
+# T63b: footer-KEY primary path — _auto_seed_block_full derives slug from footer slug, not title.
+echo "=== T63b: footer-KEY slug derivation → spec-stub at footer slug, NOT title slug ==="
+T63b_BLOCK_FILE="$STATE_DIR/t63b-block-$$.txt"
+T63b_LABEL_FILE="$STATE_DIR/t63b-label-$$.txt"
+T63b_COMMENT_FILE="$STATE_DIR/t63b-comment-$$.txt"
+T63b_CONFIG="$STATE_DIR/t63b-config-$$.json"
+T63b_SPEC_ROOT="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/t63b-specs"
+T63b_BODY="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/t63b-body-$$.md"
+mkdir -p "$T63b_SPEC_ROOT"
+jq -n '{
+  "github_project": {
+    "owner":"macatocz","number":4,"host":"github.com",
+    "project_node_id":"PVT_test",
+    "fields":{"status":{
+      "id":"STATUS_FIELD_ID",
+      "options":{"blocked":"BLOCKED_OPT_ID","ready":"READY_OPT_ID"}
+    }}
+  }
+}' >"$T63b_CONFIG"
+# Body contains a to-issues footer slug — different from the issue title.
+printf '*Feature slug: `553-loop-key-derivation-bug` — produced by to-issues v3.x.*\n' \
+  >"$T63b_BODY"
+t63b_stderr="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_CONFIG="$T63b_CONFIG" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  MAKATO_LOOP_BLOCK_TEST_FILE="$T63b_BLOCK_FILE" \
+  MAKATO_LOOP_LABEL_TEST_FILE="$T63b_LABEL_FILE" \
+  MAKATO_LOOP_COMMENT_TEST_FILE="$T63b_COMMENT_FILE" \
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T63b_BODY" \
+  MAKATO_LOOP_ISSUE_TITLE_OVERRIDE="Fix: this title must be ignored" \
+  MAKATO_LOOP_AUTOSEED_SPEC_ROOT="$T63b_SPEC_ROOT" \
+    "$LOOP" _test-auto-seed-block-full 553 full 2>&1 >/dev/null
+)"
+footer_slug="553-loop-key-derivation-bug"
+title_slug="553-fix-this-title-must-be-ig"
+# Spec folder must be at the footer slug, not the title slug.
+[[ -d "$T63b_SPEC_ROOT/${footer_slug}" ]] \
+  || fail "T63b: spec folder must be at footer slug '${footer_slug}'; got: $t63b_stderr"
+[[ ! -d "$T63b_SPEC_ROOT/${title_slug}" ]] \
+  || fail "T63b: spec folder must NOT be created at title slug '${title_slug}'"
+# seed-manifest slug must match footer slug.
+jq -e --arg s "$footer_slug" '.slug == $s' "$T63b_SPEC_ROOT/${footer_slug}/seed-manifest.json" >/dev/null \
+  || fail "T63b: seed-manifest.json slug should be '${footer_slug}'; got: $(cat "$T63b_SPEC_ROOT/${footer_slug}/seed-manifest.json" 2>/dev/null)"
+# Board must be blocked (no plan in that folder yet).
+grep -q "block #553" "$T63b_BLOCK_FILE" 2>/dev/null \
+  || fail "T63b: block file should record 'block #553'; got: $t63b_stderr"
+rm -f "$T63b_CONFIG" "$T63b_BLOCK_FILE" "$T63b_LABEL_FILE" "$T63b_COMMENT_FILE" "$T63b_BODY"
+echo "  ✓ footer-KEY: slug derived from footer, spec-stub at footer slug, NOT title slug"
+
+# T63c: stories.json body-provenance secondary path.
+echo "=== T63c: stories.json provenance slug derivation → spec-stub at provenance slug ==="
+T63c_BLOCK_FILE="$STATE_DIR/t63c-block-$$.txt"
+T63c_LABEL_FILE="$STATE_DIR/t63c-label-$$.txt"
+T63c_COMMENT_FILE="$STATE_DIR/t63c-comment-$$.txt"
+T63c_CONFIG="$STATE_DIR/t63c-config-$$.json"
+T63c_SPEC_ROOT="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/t63c-specs"
+T63c_BODY="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/t63c-body-$$.md"
+mkdir -p "$T63c_SPEC_ROOT"
+jq -n '{
+  "github_project": {
+    "owner":"macatocz","number":4,"host":"github.com",
+    "project_node_id":"PVT_test",
+    "fields":{"status":{
+      "id":"STATUS_FIELD_ID",
+      "options":{"blocked":"BLOCKED_OPT_ID","ready":"READY_OPT_ID"}
+    }}
+  }
+}' >"$T63c_CONFIG"
+# Body contains stories.json provenance (no footer slug line).
+printf 'specs/554-some-epic-story/stories.json\n' >"$T63c_BODY"
+t63c_stderr="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_CONFIG="$T63c_CONFIG" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  MAKATO_LOOP_BLOCK_TEST_FILE="$T63c_BLOCK_FILE" \
+  MAKATO_LOOP_LABEL_TEST_FILE="$T63c_LABEL_FILE" \
+  MAKATO_LOOP_COMMENT_TEST_FILE="$T63c_COMMENT_FILE" \
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T63c_BODY" \
+  MAKATO_LOOP_ISSUE_TITLE_OVERRIDE="Fix: provenance title must be ignored" \
+  MAKATO_LOOP_AUTOSEED_SPEC_ROOT="$T63c_SPEC_ROOT" \
+    "$LOOP" _test-auto-seed-block-full 554 full 2>&1 >/dev/null
+)"
+prov_slug="554-some-epic-story"
+[[ -d "$T63c_SPEC_ROOT/${prov_slug}" ]] \
+  || fail "T63c: spec folder must be at provenance slug '${prov_slug}'; got: $t63c_stderr"
+jq -e --arg s "$prov_slug" '.slug == $s' "$T63c_SPEC_ROOT/${prov_slug}/seed-manifest.json" >/dev/null \
+  || fail "T63c: seed-manifest.json slug should be '${prov_slug}'"
+rm -f "$T63c_CONFIG" "$T63c_BLOCK_FILE" "$T63c_LABEL_FILE" "$T63c_COMMENT_FILE" "$T63c_BODY"
+echo "  ✓ stories.json provenance: slug derived from body provenance, spec-stub at correct slug"
+
 # T64: untiered (empty plan_tier) candidate → identical to full-tier.
 echo "=== T64: untiered (empty plan_tier) candidate → same as full-tier ==="
 T64_BLOCK_FILE="$STATE_DIR/t64-block-$$.txt"
@@ -2508,6 +2599,104 @@ echo "$t67b_stderr" | grep -qi "materialize-refine\|promoting to Ready" \
 rm -f "$T67b_CONFIG" "$T67b_BLOCK_FILE" "$T67b_PROMOTE_FILE" "$T67b_LABEL_FILE" "$T67b_LABEL_SRC"
 rm -rf "$T67b_SPEC_ROOT"
 echo "  ✓ materialize-refine verdict: promote to Ready, no block"
+
+# T67c: plan-<N>.md present in footer-derived folder → gate returns 'proceed' → no block.
+echo "=== T67c: plan-N.md present in footer-derived folder → no block, no comment ==="
+T67c_BLOCK_FILE="$STATE_DIR/t67c-block-$$.txt"
+T67c_LABEL_FILE="$STATE_DIR/t67c-label-$$.txt"
+T67c_COMMENT_FILE="$STATE_DIR/t67c-comment-$$.txt"
+T67c_CONFIG="$STATE_DIR/t67c-config-$$.json"
+T67c_SPEC_ROOT="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/t67c-specs"
+T67c_BODY="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/t67c-body-$$.md"
+mkdir -p "$T67c_SPEC_ROOT/555-footer-slug"
+jq -n '{
+  "github_project": {
+    "owner":"macatocz","number":4,"host":"github.com",
+    "project_node_id":"PVT_test",
+    "fields":{"status":{
+      "id":"STATUS_FIELD_ID",
+      "options":{"blocked":"BLOCKED_OPT_ID","ready":"READY_OPT_ID"}
+    }}
+  }
+}' >"$T67c_CONFIG"
+# Footer resolves to 555-footer-slug, which has a real plan-555.md (valid content).
+printf '*Feature slug: `555-footer-slug` — produced by to-issues v3.x.*\n' >"$T67c_BODY"
+# Write a valid plan-555.md (non-stub: has Tasks and Acceptance criteria sections).
+cat >"$T67c_SPEC_ROOT/555-footer-slug/plan-555.md" <<'PLAN'
+# Plan: fix widget
+
+## Tasks
+
+- [x] Task 1
+
+## Acceptance criteria
+
+- AC1: widget loads
+PLAN
+t67c_stderr="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_CONFIG="$T67c_CONFIG" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  MAKATO_LOOP_BLOCK_TEST_FILE="$T67c_BLOCK_FILE" \
+  MAKATO_LOOP_LABEL_TEST_FILE="$T67c_LABEL_FILE" \
+  MAKATO_LOOP_COMMENT_TEST_FILE="$T67c_COMMENT_FILE" \
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T67c_BODY" \
+  MAKATO_LOOP_AUTOSEED_SPEC_ROOT="$T67c_SPEC_ROOT" \
+  MAKATO_SPEC_STORIES_TRACKED=0 \
+    "$LOOP" _test-auto-seed-block-full 555 full 2>&1 >/dev/null
+)"
+# No block, no comment — gate saw valid plan-555.md and emitted 'proceed'.
+[[ ! -f "$T67c_BLOCK_FILE" ]] \
+  || fail "T67c: block file must NOT be written when plan-N.md is valid; got: $(cat "$T67c_BLOCK_FILE" 2>/dev/null)"
+[[ ! -f "$T67c_COMMENT_FILE" ]] \
+  || fail "T67c: comment file must NOT be written when plan-N.md is valid; got: $(cat "$T67c_COMMENT_FILE" 2>/dev/null)"
+rm -f "$T67c_CONFIG" "$T67c_BLOCK_FILE" "$T67c_LABEL_FILE" "$T67c_COMMENT_FILE" "$T67c_BODY"
+echo "  ✓ plan-N.md present: gate returns proceed, no Blocked move, no comment"
+
+# T67d: shared-folder slug collision — footer -fN suffix selects correct folder.
+echo "=== T67d: shared-folder slug collision → footer -fN suffix selects correct folder ==="
+T67d_BLOCK_FILE="$STATE_DIR/t67d-block-$$.txt"
+T67d_LABEL_FILE="$STATE_DIR/t67d-label-$$.txt"
+T67d_COMMENT_FILE="$STATE_DIR/t67d-comment-$$.txt"
+T67d_CONFIG="$STATE_DIR/t67d-config-$$.json"
+T67d_SPEC_ROOT="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/t67d-specs"
+T67d_BODY="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/t67d-body-$$.md"
+# Pre-create both collision folders.
+mkdir -p "$T67d_SPEC_ROOT/499-lightweight-lane-race"
+mkdir -p "$T67d_SPEC_ROOT/499-lightweight-lane-race-f2"
+jq -n '{
+  "github_project": {
+    "owner":"macatocz","number":4,"host":"github.com",
+    "project_node_id":"PVT_test",
+    "fields":{"status":{
+      "id":"STATUS_FIELD_ID",
+      "options":{"blocked":"BLOCKED_OPT_ID","ready":"READY_OPT_ID"}
+    }}
+  }
+}' >"$T67d_CONFIG"
+# Issue 510 has footer pointing to the -f2 folder.
+printf '*Feature slug: `499-lightweight-lane-race-f2` — produced by to-issues v3.x.*\n' \
+  >"$T67d_BODY"
+t67d_stderr="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_CONFIG="$T67d_CONFIG" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  MAKATO_LOOP_BLOCK_TEST_FILE="$T67d_BLOCK_FILE" \
+  MAKATO_LOOP_LABEL_TEST_FILE="$T67d_LABEL_FILE" \
+  MAKATO_LOOP_COMMENT_TEST_FILE="$T67d_COMMENT_FILE" \
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T67d_BODY" \
+  MAKATO_LOOP_AUTOSEED_SPEC_ROOT="$T67d_SPEC_ROOT" \
+    "$LOOP" _test-auto-seed-block-full 510 full 2>&1 >/dev/null
+)"
+# plan.md stub must exist in the -f2 folder (already existed, so idempotent skip).
+# The base folder must NOT have gained a new plan.md stub.
+[[ ! -f "$T67d_SPEC_ROOT/499-lightweight-lane-race/plan.md" ]] \
+  || fail "T67d: plan.md stub must NOT be created in base collision folder; got: $t67d_stderr"
+# Block must reference the -f2 slug derivation path (block still fires — no plan in -f2 yet).
+grep -q "block #510" "$T67d_BLOCK_FILE" 2>/dev/null \
+  || fail "T67d: block file should record 'block #510'; got: $t67d_stderr"
+rm -f "$T67d_CONFIG" "$T67d_BLOCK_FILE" "$T67d_LABEL_FILE" "$T67d_COMMENT_FILE" "$T67d_BODY"
+echo "  ✓ slug collision: footer -fN suffix routes to correct folder, base folder untouched"
 
 # ---------------------------------------------------------------------------
 # T68–T71: _auto_seed_reconcile_thin_body (#371, epic #367 S3)
