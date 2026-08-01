@@ -7,7 +7,7 @@ description: >-
   Returns findings classified as CRITICAL, MAJOR, SUGGESTION, or NITPICK,
   plus a per-AC verified/gap verdict for downstream checkbox marking.
   Dispatched by the review skill.
-version: "1.1.0"
+version: "1.2.0"
 maxTurns: 20
 permissionMode: bypassPermissions
 disallowedTools: Write, Edit, NotebookEdit
@@ -46,6 +46,7 @@ Your dispatch prompt provides:
 | `CHANGED_FILES` | yes | List of changed file paths in this branch |
 | `PLAN_CONTEXT` | yes | Acceptance criteria and task list from `plan.md` — the correctness contract |
 | `REPO_ROOT` | yes | Absolute path to the repository root |
+| `SPEC_DELTA_CONTEXT` | no | Contents of `spec-delta.md` for the current story. When present and contains a `## MODIFIED Requirements` section, Step 2.5 verifies each requirement against the diff. Omit or leave empty to skip Step 2.5. |
 
 ## Process
 
@@ -62,6 +63,28 @@ For each file, scan all seven categories. For each issue found, record:
 - Description of the problem
 - Evidence (exact code reference)
 - Severity: CRITICAL / MAJOR / SUGGESTION / NITPICK
+
+### Step 2.5 — MODIFIED Requirements verification pass (when SPEC_DELTA_CONTEXT present)
+
+**Skip this step entirely when `SPEC_DELTA_CONTEXT` is absent or contains no `## MODIFIED Requirements` section.**
+
+When `SPEC_DELTA_CONTEXT` is present:
+
+1. **Parse** all `## MODIFIED Requirements` entries. Each entry follows the pattern:
+   ```
+   ### <Requirement Name>
+   **SHALL**: <statement>
+   ```
+2. **Evaluate** each requirement against the diff read in Step 1. For each, assign exactly one verdict:
+   - **CONFIRMED** — the diff contains an implementing change that satisfies the SHALL statement. Cite `file:line` as evidence.
+   - **GAP** — the diff does not satisfy the SHALL statement. Automatically classified as a **CRITICAL** finding; add it to the CRITICAL findings list with category `contract` and evidence noting which SHALL is unmet.
+3. **Emit** per-requirement verdicts in the review report under `## MODIFIED Requirements Verification` (see Step 4 report format).
+
+Rules:
+
+- Each GAP verdict automatically becomes a CRITICAL finding in Step 2's findings list — do not omit it from `## CRITICAL Findings` in the report.
+- A CONFIRMED verdict does not suppress other CRITICAL or MAJOR findings on the same file.
+- When `## MODIFIED Requirements` exists but is empty: skip this step (treat as absent).
 
 ### Step 3 — Zero-findings check
 
@@ -115,6 +138,11 @@ Produce a Markdown review report followed by the R1 envelope as the last fenced 
 
 ## NITPICK Findings
 - `<file>:<line>` — <description>
+
+## MODIFIED Requirements Verification
+_(Omit this section when SPEC_DELTA_CONTEXT is absent or contains no ## MODIFIED Requirements entries.)_
+- `<Requirement Name>` — **CONFIRMED** — evidence: `<file:line>`
+- `<Requirement Name>` — **GAP** — SHALL: <statement> — also filed as CRITICAL finding
 
 ## AC Verdicts
 - `<AC-id>` — **verified** — <ac text> — evidence: `<code file:line>` + `<test file:line>`
