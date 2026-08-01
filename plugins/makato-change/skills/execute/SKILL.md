@@ -1,7 +1,7 @@
 ---
 name: execute
 description: Implement change request by modifying code, updating tests, running verification, and creating pull request with GitHub issue link. Use for implementation, coding changes, test updates, PR creation.
-version: "1.3.0"
+version: "1.4.0"
 argument-hint: "[ISSUE-KEY]"
 ---
 
@@ -36,6 +36,10 @@ Read the design artifact at `specs/<issue-key>/design.md`:
 - Extract: affected files, solution approach, implementation plan, test strategy, test scope, risks
 - Review implementation steps to understand the execution sequence
 - Note the test scope decision (module-only vs full suite)
+
+If `specs/<issue-key>/spec-delta.md` exists, read it and store its full content as
+`SPEC_DELTA_CONTEXT`; otherwise `SPEC_DELTA_CONTEXT` is absent (no error, no warning —
+graceful degradation preserves byte-for-byte legacy behaviour).
 
 ### Step 1.5: Establish Repository Context
 
@@ -160,7 +164,12 @@ DESIGN_PATH: <specs/<issue-key>/design.md>
 ANALYSIS_PATH: <specs/<issue-key>/analysis.md>   # omit if not present
 RECOMMENDED_SKILLS: <array from 2.1>              # omit when absent
 PRIOR_LESSONS: <array from analysis.md sentinel>  # omit when absent or []
+SPEC_DELTA_CONTEXT: <full content of spec-delta.md from Step 1> # omit when absent
 ```
+
+When `SPEC_DELTA_CONTEXT` is present, the implementer MUST satisfy each SHALL statement in
+`## MODIFIED Requirements` — treat these as binding correctness constraints on par with
+`DESIGN_ARTIFACT`.
 
 The agent loads `@references/implementation-guidelines.md`-equivalent best practices, invokes
 any recommended skills and the mandatory `context7` lookup, then applies every file

@@ -1,7 +1,7 @@
 ---
 name: design
 description: Design technical approach for change request by discovering affected code, planning solution, and updating GitHub issue with implementation strategy. Use for technical design, solution planning, code discovery, implementation approach.
-version: "1.3.0"
+version: "1.4.0"
 argument-hint: "[ISSUE-KEY]"
 ---
 
@@ -438,10 +438,42 @@ Write the complete design to `specs/<issue-key>/design.md`:
    - <skill-id-2>
    ```
 
+**Note:** `spec-delta.md` is NOT a section inside design.md. It is emitted as a separate
+companion artifact in Step 9.5 immediately after this step.
+
 Link back to the analysis artifact for traceability:
 > Analysis: `specs/<issue-key>/analysis.md`
 
 Make the artifact self-contained so the execute skill can implement from this design without needing conversation context.
+
+### Step 9.5: Generate Spec-Delta Artifact
+
+Load @references/spec-delta-template.md for the template structure.
+
+Walk the solution approach documented in Step 7 and classify each requirement change as one of:
+- **ADDED** — a new requirement not present in the current implementation
+- **MODIFIED** — an existing requirement whose behavior changes
+- **REMOVED** — an existing requirement that must be retired
+- **RENAMED** — a requirement whose name changes but whose behavior is preserved
+
+Write `specs/<issue-key>/spec-delta.md` using the template structure: each change becomes a
+`### <Requirement Name>` entry under the correct section heading (`## ADDED Requirements`,
+`## MODIFIED Requirements`, `## REMOVED Requirements`, or `## RENAMED Requirements`) with a
+**SHALL**: statement derived from the requested behavior. Include an optional **Scenario**:
+block for behavioral changes where acceptance criteria can be expressed in Given/When/Then form.
+
+**Headless branch (MAKATO_HEADLESS=1):**
+
+Auto-generate spec-delta.md from design artifact content without prompting. Log an `autonomous_bypass` entry:
+```bash
+shared/log-bypass.sh makato-change:design "<ISSUE_KEY>" spec-delta-generation generate cli_flag
+```
+Proceed directly to Step 10.
+
+**Interactive branch (default):**
+
+After writing the file, inform the user:
+> "`specs/<issue-key>/spec-delta.md` written — review and edit the requirement delta before proceeding."
 
 ### Step 10: Present Design to User for Approval
 
