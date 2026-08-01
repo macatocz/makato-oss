@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.110.0](https://github.com/macatocz/makato/compare/v0.109.2...v0.110.0) (2026-08-01)
+
+
+### ✨ Features
+
+* **makato-build:** diff-reviewer gains MODIFIED-requirements verification pass (Step 2.5) ([0dd724a](https://github.com/macatocz/makato/commit/0dd724a58c76d6abe20844d244368f970014dc12))
+* **makato-change:** add spec-delta-template.md with ADDED/MODIFIED/REMOVED/RENAMED sections ([88c7582](https://github.com/macatocz/makato/commit/88c75823dced18e5c597c26573628a04d9a351eb))
+* **makato-change:** delta spec format for brownfield changes ([#562](https://github.com/macatocz/makato/issues/562)) ([e5eac7b](https://github.com/macatocz/makato/commit/e5eac7b0305f692db32d57baccdd3d0519d18ed6))
+* **makato-change:** delta spec format for brownfield changes ([#562](https://github.com/macatocz/makato/issues/562)) ([e5eac7b](https://github.com/macatocz/makato/commit/e5eac7b0305f692db32d57baccdd3d0519d18ed6))
+* **makato-change:** execute reads spec-delta.md and passes SPEC_DELTA_CONTEXT to change-implementer ([81f0adf](https://github.com/macatocz/makato/commit/81f0adf0a23c835b25b9a07744f828f6e41ac967))
+* **makato-change:** extend design skill to emit spec-delta.md as required output artifact ([b987968](https://github.com/macatocz/makato/commit/b9879681d6cbb655c7958c16f7b50e32cead45e4))
+
 ## [0.109.2](https://github.com/macatocz/makato/compare/v0.109.1...v0.109.2) (2026-08-01)
 
 
