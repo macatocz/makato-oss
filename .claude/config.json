@@ -7,6 +7,7 @@
     "owner": "macatocz",
     "owner_type": "organization",
     "number": 4,
+    "title": "makato",
     "url": "https://github.com/orgs/macatocz/projects/4",
     "project_node_id": "PVT_kwDOEZFnDM4Bbvsp",
     "fields": {
@@ -16,12 +17,11 @@
         "type": "single-select",
         "options": {
           "todo": "f75ad846",
-          "in_progress": "47fc9ee4",
-          "done": "98236657",
-          "blocked": "51fc4188",
           "ready": "61e4505c",
+          "in_progress": "47fc9ee4",
           "in_review": "df73e18b",
-          "needs_planning": null
+          "blocked": "51fc4188",
+          "done": "98236657"
         }
       },
       "priority": {
@@ -39,21 +39,71 @@
         "id": "PVTF_lADOEZFnDM4BbvspzhWeA9k",
         "name": "Estimate",
         "type": "number"
+      },
+      "size": {
+        "id": "PVTSSF_lADOEZFnDM4BbvspzhWeA9g",
+        "name": "Size",
+        "type": "single-select",
+        "signal_prefix": "size",
+        "options": {
+          "xs": "6c6483d2",
+          "s": "f784b110",
+          "m": "7515a9f1",
+          "l": "817d0097",
+          "xl": "db339eb2"
+        }
+      },
+      "tier": {
+        "id": "PVTSSF_lADOEZFnDM4BbvspzhWeA90",
+        "name": "Tier",
+        "type": "single-select",
+        "signal_prefix": "tier",
+        "options": {
+          "foundation": "d2d8a33f",
+          "happy-path": "ad3f791e",
+          "edge-cases": "450f8557"
+        }
+      },
+      "type_label": {
+        "id": "PVTSSF_lADOEZFnDM4BbvspzhWeA94",
+        "name": "Type-label",
+        "type": "single-select",
+        "signal_prefix": "type",
+        "options": {
+          "feat": "ecb19dac",
+          "fix": "0084d22a",
+          "docs": "6ab78726",
+          "refactor": "d8ae83ab",
+          "test": "c007b55f",
+          "chore": "0883702a",
+          "future-enhancement": "2e69f194"
+        }
+      },
+      "module": {
+        "id": "PVTSSF_lADOEZFnDM4BbvspzhWeA98",
+        "name": "Module",
+        "type": "single-select",
+        "signal_prefix": "module",
+        "options": {
+          "00-overview": "da3add26",
+          "01-brain-mesh": "7c77eb93",
+          "03-rag": "300b0796",
+          "04-frontend": "005ee417",
+          "05-ip-protection": "219e75b3",
+          "06-brain-body": "08118ba1",
+          "07-brainstorming": "48cec6ed",
+          "08-multi-tenancy": "b982e1bd",
+          "09-agent-gateway": "24898d43",
+          "10-api-gateway": "23121992",
+          "11-data-privacy": "fc5276ab",
+          "12-skills-dual-tier": "53b04049",
+          "13-operator-deploy": "d3baac6e",
+          "doc-classification": "0f741fd2",
+          "financial-assess": "8c8804e9",
+          "time-assess": "28ef659c"
+        }
       }
     },
-    "init_timestamp": "2026-06-26T13:49:32Z",
-    "init_skill_version": "2.7.0",
-    "include_draft_prs": true,
-    "webhook_audit_dir": ".issue-to-project/lifecycle",
-    "webhook_pr_link_patterns": [
-      "Closes",
-      "Fixes",
-      "Resolves"
-    ],
-    "known_repos": [],
-    "reconcile_scope": "this-repo-only",
-    "pr_label_name": "PR",
-    "ready_queue_mode": "manual",
     "status_field_id": "PVTSSF_lADOEZFnDM4BbvspzhWeA8w",
     "status_field_name": "Status",
     "options": {
@@ -65,6 +115,19 @@
       "in_review": "df73e18b",
       "needs_planning": null
     },
-    "title": "makato"
+    "init_timestamp": "2026-06-26T13:49:32Z",
+    "init_skill_version": "2.8.0",
+    "include_draft_prs": true,
+    "webhook_audit_dir": ".issue-to-project/lifecycle",
+    "webhook_pr_link_patterns": [
+      "Closes",
+      "Fixes",
+      "Resolves"
+    ],
+    "known_repos": [],
+    "reconcile_scope": "this-repo-only",
+    "pr_label_name": "PR",
+    "ready_queue_mode": "manual",
+    "ready_label_name": ""
   }
 }

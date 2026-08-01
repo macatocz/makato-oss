@@ -1,7 +1,7 @@
 ---
 name: create-issue
 description: File a structured issue against the makato repo with the correct template, [plugin-name] title prefix, and labels — file issue, report bug, feature request, AI agent issue, file bug, open issue
-version: "1.2.0"
+version: "1.3.0"
 ---
 
 # create-issue
@@ -77,6 +77,61 @@ Load @references/label-conventions.md.
 
 Apply the matching type label (`bug`, `enhancement`, `documentation`) and plugin label (`plugin:<scope>`, omitted for `repo-wide`). Verify with `GH_HOST=github.com gh label list --repo "$TARGET_REPO"`; create missing `plugin:*` labels using the colors in the reference.
 
+Also derive the **taxonomy type label** from the type input — used by `issue-to-project` to populate the Type-label board field:
+
+| Type input | GitHub label | Taxonomy label |
+|---|---|---|
+| `bug` | `bug` | `type:fix` |
+| `feature` | `enhancement` | `type:feat` |
+| `docs` | `documentation` | `type:docs` |
+
+Store `TYPE_LABEL` (GitHub label), `PLUGIN_LABEL` (or empty for repo-wide), and `TYPE_TAXONOMY` (taxonomy label) as variables.
+
+Initialize the label accumulator — this list will be used verbatim in `created-issues.json` at Step 8.5:
+
+```bash
+APPLIED_LABELS=("$TYPE_LABEL")
+[[ -n "$PLUGIN_LABEL" ]] && APPLIED_LABELS+=("$PLUGIN_LABEL")
+APPLIED_LABELS+=("$TYPE_TAXONOMY")
+```
+
+### Step 5.6: Infer priority and effort from body
+
+Parse the issue body for explicit priority and effort hints (scan for keywords `priority:p0/p1/p2/p3` or `effort:xs/s/m/l/xl` in the body text, case-insensitive). When absent, apply defaults:
+
+- **Priority** — default `priority:p1` (P1 is the standard backlog priority for new work)
+- **Effort** — skip if not found in body (no default; leave for the developer to set)
+- **Points** — skip if not found in body (no default; set by `seed-issue` / `makato-plan`)
+
+When a priority or effort value is found or defaulted:
+
+```bash
+PRIORITY_LABEL="priority:${PRIORITY_VALUE}"   # e.g. priority:p1
+APPLIED_LABELS+=("$PRIORITY_LABEL")
+```
+
+Create the label in the repo if absent (color `E4E669`, description `Issue priority`):
+
+```bash
+gh label create "$PRIORITY_LABEL" \
+  --repo "$TARGET_REPO" \
+  --color "E4E669" \
+  --description "Issue priority" 2>/dev/null || true
+```
+
+If an effort was found in body (`effort:xs|s|m|l|xl`):
+
+```bash
+EFFORT_LABEL="effort:${EFFORT_VALUE}"
+APPLIED_LABELS+=("$EFFORT_LABEL")
+gh label create "$EFFORT_LABEL" \
+  --repo "$TARGET_REPO" \
+  --color "BFD4F2" \
+  --description "Effort estimate" 2>/dev/null || true
+```
+
+Log resolved values: `[create-issue] taxonomy: priority=$PRIORITY_VALUE effort=${EFFORT_VALUE:-unset}`.
+
 ### Step 5.5: Infer and apply plan-tier label
 
 Infer the plan tier in priority order:
@@ -94,13 +149,7 @@ gh label create "plan-tier:<tier>" \
   --description "Plan tier for autonomous dispatch" 2>/dev/null || true
 ```
 
-Apply the label to the issue immediately after it is filed (Step 7) — store `PLAN_TIER` for use in Steps 8.5 and 8.6:
-
-```bash
-GH_HOST=github.com gh issue edit "$ISSUE_NUMBER" \
-  --repo "$TARGET_REPO" \
-  --add-label "plan-tier:$PLAN_TIER"
-```
+Store `PLAN_TIER` for use in Step 7 (where all taxonomy labels are applied in one batch) and Steps 8.5/8.6.
 
 Log `[create-issue] plan-tier: <tier>`.
 
@@ -135,12 +184,33 @@ ISSUE_URL="$(GH_HOST=github.com gh issue create ...)"  # gh prints the URL to st
 ISSUE_NUMBER="$(echo "$ISSUE_URL" | grep -oE '[0-9]+$')"
 ```
 
-Apply the `plan-tier:<tier>` label (resolved in Step 5.5):
+Apply the `plan-tier:<tier>` label (resolved in Step 5.5) and all taxonomy labels accumulated in `APPLIED_LABELS` (taxonomy type, priority, effort if present) via a single `gh issue edit` call:
 
 ```bash
+# Build --add-label flags from APPLIED_LABELS array (excludes type-label and plugin-label
+# already applied at create time — add plan-tier + taxonomy labels in one call)
+EXTRA_LABELS=("plan-tier:$PLAN_TIER")
+for lbl in "${APPLIED_LABELS[@]}"; do
+  # Skip labels already passed to gh issue create (type-label, plugin-label)
+  if [[ "$lbl" != "$TYPE_LABEL" && "$lbl" != "$PLUGIN_LABEL" ]]; then
+    EXTRA_LABELS+=("$lbl")
+  fi
+done
+
+LABEL_FLAGS=()
+for lbl in "${EXTRA_LABELS[@]}"; do
+  LABEL_FLAGS+=("--add-label" "$lbl")
+done
+
 GH_HOST=github.com gh issue edit "$ISSUE_NUMBER" \
   --repo "$TARGET_REPO" \
-  --add-label "plan-tier:$PLAN_TIER"
+  "${LABEL_FLAGS[@]}"
+```
+
+After this step, `APPLIED_LABELS` is complete — append `plan-tier:$PLAN_TIER` to it so Step 8.5 includes it:
+
+```bash
+APPLIED_LABELS+=("plan-tier:$PLAN_TIER")
 ```
 
 ### Step 8.5: Board placement via issue-to-project (conditional)
@@ -168,22 +238,26 @@ python3 -c "import json; json.load(open('$REPO_ROOT/.claude/config.json'))['gith
    ```bash
    mkdir -p "$REPO_ROOT/specs/$SPEC_SLUG"
    ```
-   Write `$REPO_ROOT/specs/$SPEC_SLUG/created-issues.json`:
-   ```json
-   {
-     "slug": "<SPEC_SLUG>",
-     "repo": "<TARGET_REPO>",
-     "issues": [
-       {
-         "number": <ISSUE_NUMBER>,
-         "html_url": "<ISSUE_URL>",
-         "title": "<ISSUE_TITLE>",
-         "labels": ["<type-label>", "<plugin-label-or-omit>", "plan-tier:<PLAN_TIER>"]
-       }
-     ]
+   Write `$REPO_ROOT/specs/$SPEC_SLUG/created-issues.json` using all labels accumulated in `APPLIED_LABELS` (includes type-label, plugin-label, type taxonomy, priority, effort if present, plan-tier):
+   ```python
+   import json, pathlib
+   labels = APPLIED_LABELS  # full list built across Steps 5–7
+   artifact = {
+       "slug": SPEC_SLUG,
+       "repo": TARGET_REPO,
+       "issues": [
+           {
+               "number": ISSUE_NUMBER,
+               "html_url": ISSUE_URL,
+               "title": ISSUE_TITLE,
+               "labels": labels,
+           }
+       ]
    }
+   path = pathlib.Path(f"{REPO_ROOT}/specs/{SPEC_SLUG}/created-issues.json")
+   path.write_text(json.dumps(artifact, indent=2) + "\n")
    ```
-   Omit the plugin label entry for `repo-wide` issues (no plugin label on the issue).
+   This gives `issue-to-project` the full taxonomy signal set (priority, tier via type taxonomy, effort) to populate board fields — matching the output that `to-issues` produces from `stories.json`.
 
 3. Invoke the skill:
    Use the Skill tool to invoke `/makato-plan:issue-to-project <SPEC_SLUG>`.
@@ -215,7 +289,7 @@ Print the issue URL and a summary of every step taken or skipped:
 ```
 [create-issue] done:
   issue    : #<N> <URL>
-  labels   : <type-label>, <plugin-label>, plan-tier:<tier>
+  labels   : <all APPLIED_LABELS joined by ", ">
   board    : added via issue-to-project ✓  /  SKIP (<reason>)
   seeded   : status:ready-for-dev stamped via seed-issue ✓  /  SKIP (<reason>)
 ```

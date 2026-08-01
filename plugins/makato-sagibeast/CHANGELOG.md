@@ -7,6 +7,11 @@
 - `sagibeast-connect-testbox` skill — connect, port-forward, credential sync, k3d on existing testbox
 - `sagibeast-create-testbox` skill — provision Multipass/EC2/Hetzner testbox VM for E2E parity
 
+### Changed
+
+- `sagibeast-create-testbox` — **1.0.0 → 1.1.0** (#572)
+  - documented the GitHub Actions runner label contract: registration MUST pass `--labels self-hosted,sagibeast-testbox` explicitly (the custom label is not derived from the runner name). Added a fourth "provision completely" mindset item and a `config.sh --labels …` registration step with a verify line under [6/6]. Without the label, testbox-routed workflows (`post-merge.yml` etc.) hang `queued` for GitHub's 24 h ceiling and surface a red `sync-status` check on every PR.
+
 ### Changed — sagibeast-alignment audit (2026-06-25)
 
 - `sagibeast-connect-testbox` — **1.0.0 → 1.0.1**

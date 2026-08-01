@@ -1,7 +1,7 @@
 ---
 name: sagibeast-create-testbox
 description: Provision a sagibeast testbox VM (Multipass, EC2, or Hetzner) for E2E parity testing. Use when creating testbox, provisioning testbox, spinning up vm, new sagibeast vm.
-version: "1.0.0"
+version: "1.1.0"
 argument-hint: "[runtime] [cpus] [memGB] [diskGB] [os]"
 ---
 
@@ -44,7 +44,7 @@ single laptop cannot physically simulate.
 
 ## Mindset: Provision Once, Configure Completely
 
-The three most-skipped steps that cause painful re-provisioning:
+The four most-skipped steps that cause painful re-provisioning:
 
 1. **Set an OS password during cloud-init.** The AGENT_SUBSTITUTE placeholder in
    `infra/testbox/cloud-init.yaml` must be replaced with a real password before
@@ -69,6 +69,18 @@ The three most-skipped steps that cause painful re-provisioning:
    Run `step ca root --ca-url "$SAGIBEAST_CA_URL" | sudo tee
    /usr/local/share/ca-certificates/sagibeast-root.crt && sudo update-ca-certificates`
    exactly once after first boot.
+
+4. **Register the GitHub Actions runner with the `sagibeast-testbox` label.** The
+   sagibeast workflows (`post-merge.yml`, `sensors.yml`, `spec-docs.yml`,
+   `archive-spec.yml`) route testbox jobs onto `["self-hosted", "sagibeast-testbox"]`
+   when `CI_RUNNER=self-hosted`. `sagibeast-testbox` is the runner **name** — it is
+   NOT automatically a runner **label**. If the runner is registered without an
+   explicit `--labels self-hosted,sagibeast-testbox`, it comes up with only the
+   default `self-hosted,Linux,ARM64` set, no job requesting the custom label ever
+   schedules, and every such workflow sits `queued` for GitHub's 24 h ceiling before
+   being killed as `cancelled` — surfacing a red `sync-status` check on every PR
+   (#572). Always pass the label explicitly at registration (see [§6/6](#66-bootstrap-and-verify)),
+   and re-assert it after any re-provisioning.
 
 ## Navigation
 
@@ -252,6 +264,38 @@ If `step certificate verify` fails, run bootstrap again with `SAGIBEAST_CA_URL` 
 If `pytest --collect-only` fails with `ModuleNotFoundError`, check that `src/` is on the
 testbox's `PYTHONPATH` via `pyproject.toml:pythonpath = ["src"]` and that the project
 was installed with `pip install -e .[test]`.
+
+### Register the GitHub Actions runner (label contract)
+
+The sagibeast workflows pin testbox jobs to `["self-hosted", "sagibeast-testbox"]`.
+Register the runner with **both** labels explicitly — the custom label is not applied
+automatically from the runner name (#572):
+
+```bash
+# On the testbox, from the actions-runner install dir.
+# Fetch a registration token (scoped to macatocz/sagibeast) on the host first:
+REG_TOKEN=$(gh api -X POST repos/macatocz/sagibeast/actions/runners/registration-token --jq '.token')
+
+multipass exec sagibeast-testbox -- bash -c "cd ~/actions-runner && \
+  ./config.sh \
+    --url https://github.com/macatocz/sagibeast \
+    --token ${REG_TOKEN} \
+    --name sagibeast-testbox \
+    --labels self-hosted,sagibeast-testbox \
+    --unattended --replace"
+
+# Verify the label landed (must list sagibeast-testbox, not just the defaults):
+gh api repos/macatocz/sagibeast/actions/runners \
+  --jq '.runners[] | select(.name=="sagibeast-testbox") | [.name, ([.labels[].name]|join(","))]'
+```
+
+The verify line must show `sagibeast-testbox` among the labels. If it shows only
+`self-hosted,Linux,ARM64`, the `--labels` flag was dropped and every testbox-routed
+workflow will hang `queued` for 24 h — re-run `config.sh` with `--replace`.
+
+**Caution:** Re-provisioning the VM resets the runner registration. Always re-run this
+step with the explicit `--labels self-hosted,sagibeast-testbox` after any reprovision —
+the label is the load-bearing contract the workflows' `runs-on` expressions depend on.
 
 **Caution:** Use `op run -- <command>` per invocation for tenant credentials — never export tenant API keys, DEKs, or service account tokens as long-lived shell env vars on the testbox. Long-lived env vars are a secret-exfiltration risk on shared testboxes.
 
