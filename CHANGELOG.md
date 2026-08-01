@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.109.2](https://github.com/macatocz/makato/compare/v0.109.1...v0.109.2) (2026-08-01)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** auto-seed-block derives slug from footer KEY, not title ([#571](https://github.com/macatocz/makato/issues/571)) ([#573](https://github.com/macatocz/makato/issues/573)) ([1a8ef6b](https://github.com/macatocz/makato/commit/1a8ef6b025d20913e1613e70c95d80e4facfbaa5))
+
 ## [0.109.1](https://github.com/macatocz/makato/compare/v0.109.0...v0.109.1) (2026-07-24)
 
 
