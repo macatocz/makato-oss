@@ -1,0 +1,397 @@
+{
+  "version": "2.0",
+  "slug": "openspec-transfer-features",
+  "created": "2026-07-24",
+  "status": "draft",
+  "epic": {
+    "summary": "Adopt high-value OpenSpec patterns into makato",
+    "objective": "Bring delta spec format, schema customization, living docs, explore mode, cross-repo stores, and guided onboarding from OpenSpec into makato to close the spec-governance gap without sacrificing makato's autonomous execution depth.",
+    "labels": ["makato"]
+  },
+  "stories": [
+    {
+      "sequence": 1,
+      "phase": "foundation",
+      "summary": "Delta spec format for brownfield changes in makato-change",
+      "storyPoints": 5,
+      "teams": ["makato-change"],
+      "labels": ["makato", "type:feat", "tier:foundation"],
+      "githubIssue": null,
+      "description": {
+        "background": "makato-change skills (analyze → design → execute) produce free-text design artifacts. There is no standardised contract for expressing *what changes* vs *what already exists*. OpenSpec solves this with a delta spec format: ADDED / MODIFIED / REMOVED / RENAMED requirement sections inside a `spec-delta.md` artifact. Without this, `diff-reviewer` has no machine-readable baseline to verify against, and `documentation-agent` cannot deterministically sync living docs post-merge.",
+        "scope": "Add a `spec-delta.md` artifact template to `makato-change:design` output. The template uses four top-level sections: `## ADDED Requirements`, `## MODIFIED Requirements`, `## REMOVED Requirements`, `## RENAMED Requirements`. Each requirement entry follows the OpenSpec delta pattern (requirement name + SHALL statement + optional Scenario blocks). `makato-change:execute` reads `spec-delta.md` as a structured implementation contract alongside `plan.md`. `diff-reviewer` gains a new verification pass: for each MODIFIED requirement, confirm the implementation satisfies the updated SHALL statement.",
+        "outOfScope": [
+          "Automatic sync of delta to main specs (covered by story 3 – living docs)",
+          "Parsing of OpenSpec-format specs imported from external repos",
+          "UI for editing spec-delta.md"
+        ],
+        "successScenarios": [
+          {
+            "title": "Scenario 1: design skill emits spec-delta.md",
+            "given": "a developer runs /makato-change:design on an existing GitHub issue",
+            "when": "the design skill completes",
+            "then": "a `specs/<KEY>-<slug>/spec-delta.md` file exists with at least one ADDED or MODIFIED requirement section"
+          },
+          {
+            "title": "Scenario 2: diff-reviewer verifies MODIFIED requirements",
+            "given": "a `spec-delta.md` exists with two MODIFIED requirements",
+            "when": "diff-reviewer runs on the PR diff",
+            "then": "the review output contains a per-requirement verdict (CONFIRMED / GAP) for each MODIFIED entry"
+          }
+        ],
+        "solutionApproach": "Extend `makato-change:design` SKILL.md to include a `spec-delta.md` generation step. Add `spec-delta.md` to the list of artifacts that `diff-reviewer` reads during its AC-verification pass. Provide a Markdown template in `makato-change/references/spec-delta-template.md`.",
+        "wikiDocumentation": "",
+        "acceptanceTestCases": [],
+        "featureToggle": null
+      },
+      "definitionOfDone": [
+        "`makato-change:design` SKILL.md documents spec-delta.md as a required output artifact",
+        "`makato-change/references/spec-delta-template.md` exists with ADDED/MODIFIED/REMOVED/RENAMED sections",
+        "`diff-reviewer` agent reads spec-delta.md when present and emits per-requirement verdicts",
+        "Smoke test: design skill on a fixture issue produces a valid spec-delta.md",
+        "CHANGELOG updated in makato-change"
+      ],
+      "dependencies": {
+        "blockedBy": [],
+        "blocks": [3]
+      },
+      "externalDependencies": []
+    },
+    {
+      "sequence": 2,
+      "phase": "foundation",
+      "summary": "Extensible workflow schema system for customising spec artifact pipelines",
+      "storyPoints": 8,
+      "teams": ["makato-build", "makato-plan"],
+      "labels": ["makato", "type:feat", "tier:foundation"],
+      "githubIssue": null,
+      "description": {
+        "background": "makato-build and makato-change have hard-coded artifact sequences (refine → implement-tdd → verify → sensors → push → PR). Teams that want a different pipeline (e.g. add a performance-test artifact after implementation, or skip design.md for micro-changes) must fork plugin source. OpenSpec solves this with a YAML DAG schema (`schema.yaml`) that declares artifacts, their dependencies, and generation templates. Any team can `openspec schema fork spec-driven my-workflow` and get a custom pipeline without touching plugin code.",
+        "scope": "Introduce `config/workflow-schema.yml` support at the repo level (`.claude/workflow-schema.yml` or `makato.config.json → workflowSchema`). The schema declares: artifact list, dependency edges, whether each artifact is required vs optional, and per-artifact instruction templates. `build-start` reads the schema and dynamically assembles the skill pipeline. Provide a built-in `default` schema that mirrors the current hardcoded pipeline for backward compatibility. Add a `makato-core:create-workflow-schema` skill that scaffolds a new schema file interactively.",
+        "outOfScope": [
+          "Community schema registry or marketplace (out of scope for this story)",
+          "Schema versioning or migration tooling",
+          "Validation of schema DAG cycles beyond basic checks"
+        ],
+        "successScenarios": [
+          {
+            "title": "Scenario 1: custom schema changes artifact order",
+            "given": "a repo has `.claude/workflow-schema.yml` that adds a `performance-test` artifact after `implement-tdd`",
+            "when": "a developer runs /makato-build:build-start",
+            "then": "the build pipeline includes a `performance-test` step between implement-tdd and verify"
+          },
+          {
+            "title": "Scenario 2: missing schema falls back to default",
+            "given": "a repo has no `.claude/workflow-schema.yml`",
+            "when": "a developer runs /makato-build:build-start",
+            "then": "the pipeline runs the built-in default sequence identical to the current behaviour"
+          },
+          {
+            "title": "Scenario 3: scaffold command creates schema file",
+            "given": "a developer runs /makato-core:create-workflow-schema",
+            "when": "the interactive wizard completes",
+            "then": "a `.claude/workflow-schema.yml` file exists with the developer's chosen artifact list and dependencies"
+          }
+        ],
+        "solutionApproach": "Define a YAML schema format (artifact id, requires[], optional bool, instruction template path). `build-start` resolves `.claude/workflow-schema.yml`; if absent uses built-in default. Add `makato-core:create-workflow-schema` skill as a guided interview. Validate DAG on load (cycle detection via DFS). Document schema format in `docs/workflow-schema.md`.",
+        "wikiDocumentation": "",
+        "acceptanceTestCases": [],
+        "featureToggle": null
+      },
+      "definitionOfDone": [
+        "`.claude/workflow-schema.yml` is parsed by `build-start` when present",
+        "Built-in `default` schema produces identical pipeline to current hardcoded behaviour (regression-safe)",
+        "`makato-core:create-workflow-schema` skill exists and generates a valid schema file",
+        "DAG cycle detection raises a clear error on load",
+        "Schema format documented in `docs/workflow-schema.md`",
+        "Smoke tests cover: schema-present path, schema-absent fallback, cycle detection",
+        "CHANGELOG updated in makato-build and makato-core"
+      ],
+      "dependencies": {
+        "blockedBy": [],
+        "blocks": []
+      },
+      "externalDependencies": []
+    },
+    {
+      "sequence": 3,
+      "phase": "happy-path",
+      "summary": "Living specifications — delta sync from spec-delta.md to docs/specs/ post-merge",
+      "storyPoints": 5,
+      "teams": ["makato-orchestrate"],
+      "labels": ["makato", "type:feat", "tier:happy-path"],
+      "githubIssue": null,
+      "description": {
+        "background": "makato `specs/` artifacts are planning documents — after a PR merges they are gitignored and not readable. There is no 'living specification' that reflects the current state of the system. OpenSpec solves this with `openspec-sync-specs`: delta specs (ADDED/MODIFIED/REMOVED) are merged into canonical `openspec/specs/<capability>/spec.md` files after each archive. This gives teams an always-current, human-readable specification layer. makato-orchestrate's `documentation-agent` already runs post-merge; this story extends it to perform the delta sync.",
+        "scope": "Extend `makato-orchestrate:documentation-agent` to read `specs/<KEY>-<slug>/spec-delta.md` (when present, see story 1) post-merge and apply it to `docs/specs/<capability>.md`: ADDED requirements are appended, MODIFIED requirements replace the matching section (matched by requirement name heading), REMOVED requirements are deleted with a tombstone comment. When `docs/specs/<capability>.md` does not exist, create it from the ADDED sections. Commit the updated docs as part of the post-merge documentation commit. Emit a warning when a MODIFIED requirement has no matching heading in the existing spec (dangling ref).",
+        "outOfScope": [
+          "Parsing specs from non-makato formats (OpenSpec native, Notion, Confluence)",
+          "Automated conflict resolution when two PRs modify the same requirement concurrently",
+          "UI or viewer for living specs"
+        ],
+        "successScenarios": [
+          {
+            "title": "Scenario 1: ADDED requirement appears in living spec",
+            "given": "a PR merges with a spec-delta.md containing one ADDED requirement",
+            "when": "documentation-agent runs post-merge",
+            "then": "`docs/specs/<capability>.md` contains the new requirement under `## ADDED Requirements`"
+          },
+          {
+            "title": "Scenario 2: MODIFIED requirement updates living spec",
+            "given": "a PR merges with a spec-delta.md MODIFIED requirement matching an existing heading in docs/specs/",
+            "when": "documentation-agent runs post-merge",
+            "then": "the matching section in `docs/specs/<capability>.md` is replaced with the updated requirement text"
+          },
+          {
+            "title": "Scenario 3: dangling MODIFIED ref emits warning",
+            "given": "a spec-delta.md MODIFIED requirement name has no matching heading in the existing spec",
+            "when": "documentation-agent processes the delta",
+            "then": "a warning line is emitted in the post-merge commit message: `WARN: dangling MODIFIED ref '<name>' in <capability>.md`"
+          }
+        ],
+        "solutionApproach": "Extend `documentation-agent` SKILL.md with a new Step: read spec-delta.md, parse sections by ## heading, apply add/modify/remove operations to docs/specs/<capability>.md. Use Python for deterministic section parsing. Add smoke test fixture.",
+        "wikiDocumentation": "",
+        "acceptanceTestCases": [],
+        "featureToggle": null
+      },
+      "definitionOfDone": [
+        "`documentation-agent` reads `spec-delta.md` when present and applies delta to `docs/specs/<capability>.md`",
+        "ADDED, MODIFIED, REMOVED operations all produce correct output on fixture inputs",
+        "Dangling MODIFIED ref emits a warning in the commit message",
+        "When `docs/specs/<capability>.md` does not exist, it is created from ADDED sections",
+        "Smoke test covers all three operations on fixture spec-delta.md",
+        "CHANGELOG updated in makato-orchestrate"
+      ],
+      "dependencies": {
+        "blockedBy": [1],
+        "blocks": []
+      },
+      "externalDependencies": []
+    },
+    {
+      "sequence": 4,
+      "phase": "foundation",
+      "summary": "Explore mode — read-only thinking-partner skill that blocks code writes",
+      "storyPoints": 3,
+      "teams": ["makato-build"],
+      "labels": ["makato", "type:feat", "tier:foundation"],
+      "githubIssue": null,
+      "description": {
+        "background": "makato has no 'think before you build' mode. Users who want to explore a problem space before committing to implementation must directly enter `build-start` or `brainstorming`, both of which assume implementation intent. OpenSpec's `/opsx:explore` is a formalized 'thinking partner' skill: the AI reads the codebase, draws ASCII diagrams, discusses alternatives, but is explicitly instructed never to write code. This avoids premature implementation commitment and aligns the developer and AI on the problem before the build pipeline starts.",
+        "scope": "Add `makato-build:build-explore` skill. The skill: (1) reads the codebase relevant to the stated topic using Glob/Read/Grep — no Write/Edit allowed, (2) produces an exploration report with: problem summary, current implementation overview (ASCII or prose), 2–4 solution alternatives with trade-offs, recommended approach with rationale, and open questions for the developer to decide before building, (3) explicitly declares `allowed-tools` that excludes Write, Edit, Bash(git commit), Bash(git push) and any file-mutation tool. The skill ends with a prompt to the developer: 'Ready to proceed? Run /build-start to begin implementation.'",
+        "outOfScope": [
+          "Automated transition from explore to build-start",
+          "Persisting exploration output as a spec artifact (this is a conversation-scoped thinking tool)",
+          "Integration with brainstorming or PRD pipeline"
+        ],
+        "successScenarios": [
+          {
+            "title": "Scenario 1: explore skill produces report without writing files",
+            "given": "a developer runs /makato-build:build-explore on a topic",
+            "when": "the skill completes",
+            "then": "an exploration report is shown in the conversation and no files in the repository have been created or modified"
+          },
+          {
+            "title": "Scenario 2: explore skill identifies 3 alternatives",
+            "given": "a developer explores 'how to add caching to the API layer'",
+            "when": "the explore skill completes",
+            "then": "the report contains at least 2 distinct solution alternatives with trade-offs listed"
+          }
+        ],
+        "solutionApproach": "New `skills/build-explore/SKILL.md` in `makato-build`. Frontmatter: `allowed-tools: Bash(grep *) Bash(find *) Read Glob`. Skill body: step-by-step instructions to read codebase, synthesise alternatives, present structured report. Explicitly prohibits Write/Edit in the instructions.",
+        "wikiDocumentation": "",
+        "acceptanceTestCases": [],
+        "featureToggle": null
+      },
+      "definitionOfDone": [
+        "`makato-build:build-explore` skill exists with correct frontmatter",
+        "`allowed-tools` in frontmatter excludes Write, Edit, and any file-mutation Bash commands",
+        "Skill body instructs AI to produce: problem summary, current impl overview, 2–4 alternatives, recommended approach, open questions",
+        "Skill ends with a prompt directing user to /build-start when ready",
+        "CHANGELOG updated in makato-build"
+      ],
+      "dependencies": {
+        "blockedBy": [],
+        "blocks": []
+      },
+      "externalDependencies": []
+    },
+    {
+      "sequence": 5,
+      "phase": "happy-path",
+      "summary": "Cross-repo spec stores — share specs and issues across multiple repositories",
+      "storyPoints": 8,
+      "teams": ["makato-plan"],
+      "labels": ["makato", "type:feat", "tier:happy-path"],
+      "githubIssue": null,
+      "description": {
+        "background": "makato-plan currently operates repo-locally: `to-issues` creates issues in the current repo, `specs/` lives in the current repo. Organisations with multiple repositories sharing a product backlog have no way to create issues in other repos or maintain cross-repo specs. OpenSpec solves this with 'Stores': standalone spec repositories registered locally and referenced via `--store <id>` on all CLI commands. This story implements a simpler variant: `to-issues --repo <owner/repo>` flag to direct issue creation to any configured target repo, and `makato-plan:manage-stores` skill to register/list/remove store pointers in `.claude/config.json`.",
+        "scope": "1. Extend `to-issues` with a `--repo <owner/repo>` flag that overrides `TARGET_REPO`. When `--repo` is passed, all `gh issue create` calls target the specified repo. 2. Add a `stores` array to `.claude/config.json` schema: `[{ id: string, repo: string, description: string }]`. 3. Add `makato-plan:manage-stores` skill with sub-commands: `register <id> <owner/repo>`, `list`, `remove <id>`. 4. `to-issues` resolves `--store <id>` by looking up `id` in `.claude/config.json → stores[]` and substituting `repo`. 5. `to-issues` documentation updated to show cross-repo usage.",
+        "outOfScope": [
+          "Git-backed remote store sync (specs stored in the target repo)",
+          "Cross-repo spec delta sync (covered separately by story 3)",
+          "Authentication management — assumes gh CLI is authenticated for all target repos"
+        ],
+        "successScenarios": [
+          {
+            "title": "Scenario 1: to-issues --repo creates issues in a different repo",
+            "given": "a developer runs /to-issues --repo macatocz/other-repo",
+            "when": "to-issues processes stories.json",
+            "then": "all GitHub issues are created in `macatocz/other-repo`, not the current repo"
+          },
+          {
+            "title": "Scenario 2: registered store resolves via --store flag",
+            "given": "a store `platform` is registered pointing to `macatocz/platform`",
+            "when": "a developer runs /to-issues --store platform",
+            "then": "issues are created in `macatocz/platform`"
+          },
+          {
+            "title": "Scenario 3: manage-stores list shows registered stores",
+            "given": "two stores are registered in .claude/config.json",
+            "when": "a developer runs /makato-plan:manage-stores list",
+            "then": "both stores are listed with their id, repo, and description"
+          }
+        ],
+        "solutionApproach": "Extend `to-issues` SKILL.md Step 0 to accept `--repo` and `--store` flags. Update Step 3–5 to use the resolved `TARGET_REPO`. Add `manage-stores` skill with simple gh/python-backed config.json manipulation. Schema-extend `created-issues.schema.json` with optional `target_repo` field.",
+        "wikiDocumentation": "",
+        "acceptanceTestCases": [],
+        "featureToggle": null
+      },
+      "definitionOfDone": [
+        "`to-issues` accepts `--repo <owner/repo>` and directs issue creation to that repo",
+        "`to-issues` accepts `--store <id>` and resolves via `.claude/config.json → stores[]`",
+        "`makato-plan:manage-stores` skill exists with `register`, `list`, `remove` sub-commands",
+        "`stores[]` added to `.claude/config.json` documented schema",
+        "Smoke test: `--repo` flag redirects issue URL to the specified repo (dry-run mode)",
+        "CHANGELOG updated in makato-plan"
+      ],
+      "dependencies": {
+        "blockedBy": [],
+        "blocks": []
+      },
+      "externalDependencies": []
+    },
+    {
+      "sequence": 6,
+      "phase": "foundation",
+      "summary": "Guided onboarding wizard for new repository setup — inspired by openspec init",
+      "storyPoints": 8,
+      "teams": ["makato-core"],
+      "labels": ["makato", "type:feat", "tier:foundation"],
+      "githubIssue": null,
+      "description": {
+        "background": "Installing makato in a new repository currently requires 30–60 minutes: manual Claude Code plugin install, GitHub Projects v2 board setup, `gh auth login`, `.claude/config.json` population, context-bundles authoring. There is no guided path and no concept of 'mandatory vs optional'. OpenSpec's `openspec init` takes 2 minutes: interactive selection of AI tools, automatic file generation, zero configuration. This story implements a `makato-core:init` skill — an interactive onboarding wizard that walks a developer through mandatory setup (Claude Code plugins, GitHub config) and optional setup (Projects board, context bundles, Langfuse tracing, tech plugins), generating all required config files and validating the result.",
+        "scope": "New `makato-core:init` skill. The wizard proceeds in phases: **Phase 1 — Mandatory** (always runs): (a) detect installed Claude Code plugins via `claude plugin list`, (b) guide user to install `makato-core` if missing, (c) check `gh auth status`, prompt login if not authenticated, (d) detect `.claude/config.json`; if absent, interactively set `project` name and write the file. **Phase 2 — Optional, selectable**: present a numbered menu of optional setup modules; user types the numbers they want or `all` or `skip`: (1) GitHub Projects v2 board integration → runs `issue-to-project --init` flow, (2) Context bundles → guides user through creating `config/context-bundles.yml` with tech-stack-specific templates (TypeScript/Python/Java/Go), (3) Langfuse tracing → guides through `.env` setup for `CC_LANGFUSE_*` vars and Stop hook registration, (4) Tech plugins (makato-build, makato-plan, makato-change, makato-orchestrate, makato-langgraph, makato-temporal, makato-fastapi, makato-database, makato-ux, makato-observability) → list with one-line descriptions, user selects which to install via `claude plugin install`. **Phase 3 — Validation**: run `makato-core:session-status` equivalent to verify the installation is healthy; print a summary of what is configured and what is skipped.",
+        "outOfScope": [
+          "Automated GitHub Projects v2 board creation (still requires the user to create it first)",
+          "Plugin uninstall or reconfiguration",
+          "Windows-specific path handling beyond what gh/claude already support",
+          "Storing init state for re-runs (idempotency is best-effort)"
+        ],
+        "successScenarios": [
+          {
+            "title": "Scenario 1: mandatory phase completes on a fresh repo",
+            "given": "a developer runs /makato-core:init on a repo with no makato configuration",
+            "when": "Phase 1 completes",
+            "then": "`makato-core` plugin is installed, `gh` is authenticated, and `.claude/config.json` exists with at least a `project` key"
+          },
+          {
+            "title": "Scenario 2: optional modules are skippable",
+            "given": "a developer runs /makato-core:init and types `skip` at the optional menu",
+            "when": "Phase 2 completes",
+            "then": "no optional configuration files are created and the wizard proceeds to Phase 3 validation"
+          },
+          {
+            "title": "Scenario 3: tech plugin selection installs chosen plugins",
+            "given": "a developer selects option (4) in the optional menu and chooses `makato-build` and `makato-plan`",
+            "when": "Phase 2 option 4 completes",
+            "then": "`claude plugin list` shows `makato-build` and `makato-plan` as installed"
+          },
+          {
+            "title": "Scenario 4: validation phase reports configuration summary",
+            "given": "Phase 1 and 2 have completed",
+            "when": "Phase 3 runs",
+            "then": "the wizard prints a summary table: each configured item (green checkmark) and each skipped item (dash), with a next-steps message"
+          }
+        ],
+        "solutionApproach": "New `skills/init/SKILL.md` in `makato-core`. The skill uses AskUserQuestion for optional menu selection when in interactive mode. Phase 1 uses `claude plugin list`, `gh auth status`, `python3 -c` for config.json. Phase 2 branches per selection. Phase 3 runs health checks. Provide a `references/tech-plugins-menu.md` with one-line descriptions of all installable plugins. Document the full init flow in `docs/onboarding.md`.",
+        "wikiDocumentation": "docs/onboarding.md",
+        "acceptanceTestCases": [],
+        "featureToggle": null
+      },
+      "definitionOfDone": [
+        "`makato-core:init` skill exists with 3-phase structure",
+        "Phase 1 checks: plugin install, gh auth, .claude/config.json",
+        "Phase 2 menu offers: Projects board, context bundles, Langfuse, tech plugins — each individually selectable",
+        "Tech plugins menu in `references/tech-plugins-menu.md` covers all 10 installable plugins with one-line descriptions",
+        "Phase 3 prints a configuration summary table",
+        "Skill works correctly when all optional modules are skipped",
+        "`docs/onboarding.md` documents the full init flow",
+        "CHANGELOG updated in makato-core"
+      ],
+      "dependencies": {
+        "blockedBy": [],
+        "blocks": []
+      },
+      "externalDependencies": []
+    },
+    {
+      "sequence": 7,
+      "phase": "happy-path",
+      "summary": "Spec-level verify skill — confirm implementation satisfies plan artifacts",
+      "storyPoints": 5,
+      "teams": ["makato-build"],
+      "labels": ["makato", "type:feat", "tier:happy-path"],
+      "githubIssue": null,
+      "description": {
+        "background": "`build-verify` runs quality gates (lint, unit tests, integration tests). It does not answer 'does the implementation actually do what plan.md promised?' OpenSpec's `openspec-verify-change` performs three-dimensional verification: Completeness (are all tasks in tasks.md checked off?), Correctness (does the implementation satisfy each requirement in specs/?), Coherence (are design decisions from design.md respected?). makato needs an equivalent post-implementation spec-level check before `build-push-to-git` to catch cases where the coder completed all tests but missed a requirement.",
+        "scope": "Add `makato-build:build-verify-spec` skill. The skill runs after `build-verify` and before `build-push-to-git`. It reads: `specs/<KEY>-<slug>/plan.md` (task completion — all checkboxes checked?), `specs/<KEY>-<slug>/stories.json` (requirements — each `successScenarios` entry satisfied by the diff?), `specs/<KEY>-<slug>/spec-delta.md` if present (MODIFIED requirements verified?). Output is a structured report with three sections: COMPLETENESS (tasks: N/N checked), CORRECTNESS (per-requirement: CONFIRMED / GAP / UNTESTABLE), COHERENCE (design decisions: respected / deviated). Any CRITICAL or GAP findings block `build-push-to-git`; SUGGESTION findings are surfaced but non-blocking. po-agent integrates `build-verify-spec` into Step 6 of its pipeline.",
+        "outOfScope": [
+          "Runtime/integration verification (that is build-verify's job)",
+          "Automated fix of GAP findings (escalates to build-refine)",
+          "Verification of non-plan-tier issues (future-enhancement labels)"
+        ],
+        "successScenarios": [
+          {
+            "title": "Scenario 1: all tasks checked, all requirements confirmed → pass",
+            "given": "plan.md has 5 tasks all checked and stories.json has 3 requirements all present in the diff",
+            "when": "build-verify-spec runs",
+            "then": "the report shows COMPLETENESS: 5/5, CORRECTNESS: 3 CONFIRMED, 0 GAP, and build-push-to-git proceeds"
+          },
+          {
+            "title": "Scenario 2: unchecked task blocks push",
+            "given": "plan.md has 5 tasks but only 4 are checked",
+            "when": "build-verify-spec runs",
+            "then": "COMPLETENESS shows 4/5 and the skill halts with HALT-011 before build-push-to-git"
+          },
+          {
+            "title": "Scenario 3: GAP in MODIFIED requirement blocks push",
+            "given": "spec-delta.md has one MODIFIED requirement whose SHALL statement is not satisfied by the diff",
+            "when": "build-verify-spec runs",
+            "then": "CORRECTNESS shows 1 GAP finding and the skill halts with HALT-011 before build-push-to-git"
+          }
+        ],
+        "solutionApproach": "New `skills/build-verify-spec/SKILL.md` in `makato-build`. Read plan.md checkboxes via grep. Read stories.json successScenarios via python3. Read spec-delta.md MODIFIED sections. For each requirement, ask the diff (read via git diff HEAD~1) whether the change satisfies the SHALL statement. Structured output per OpenSpec's CRITICAL/WARNING/SUGGESTION classification. Integrate into po-agent Step 6 between build-verify and build-push-to-git.",
+        "wikiDocumentation": "",
+        "acceptanceTestCases": [],
+        "featureToggle": null
+      },
+      "definitionOfDone": [
+        "`makato-build:build-verify-spec` skill exists",
+        "Skill reads plan.md checkboxes and emits COMPLETENESS N/M count",
+        "Skill reads stories.json successScenarios and emits per-requirement CONFIRMED/GAP/UNTESTABLE verdict",
+        "Skill reads spec-delta.md MODIFIED sections when present",
+        "Any GAP or unchecked task halts with HALT-011 before build-push-to-git",
+        "SUGGESTION findings are surfaced but non-blocking",
+        "po-agent SKILL.md updated to include build-verify-spec in Step 6",
+        "Smoke test covers pass, completeness-fail, and GAP scenarios",
+        "CHANGELOG updated in makato-build"
+      ],
+      "dependencies": {
+        "blockedBy": [1],
+        "blocks": []
+      },
+      "externalDependencies": []
+    }
+  ]
+}
