@@ -1,6 +1,31 @@
 <!-- markdownlint-disable MD012 MD013 -->
 # Changelog
 
+## spec-delta.md generation and binding constraint propagation (v1.4.0)
+
+Adds `spec-delta.md` awareness to the change request pipeline so that the
+precise diff between the original spec and the updated spec is captured at
+design time and carried into execution as a binding constraint — preventing
+the change-implementer from touching requirements that did not change.
+
+**Changes:**
+
+- **`plugins/makato-change/skills/design/SKILL.md`** (`v1.3.0 → v1.4.0`) —
+  adds **Step 9.5: Generate spec-delta.md**, inserted after Step 9 (design.md
+  written) and before Step 10 (GitHub issue update). The step reads
+  `spec-delta-template.md` from the skill's `references/` directory, computes
+  the requirement diff between `analysis.md` and the approved `design.md`,
+  and writes `specs/<issue-key>/spec-delta.md`. Supports headless auto-generate
+  with log-bypass: when invoked with `--autonomous`, Step 9.5 writes
+  spec-delta.md without an interactive confirmation checkpoint.
+
+- **`plugins/makato-change/skills/execute/SKILL.md`** (`v1.3.0 → v1.4.0`) —
+  Step 1 now reads `spec-delta.md` when present and stores its content as
+  `SPEC_DELTA_CONTEXT`. Step 2 passes `SPEC_DELTA_CONTEXT` to the
+  `change-implementer` agent as a binding constraint for MODIFIED requirements,
+  ensuring the implementer applies only the deltas recorded in spec-delta.md
+  and does not re-implement requirements that were not part of the change.
+
 ## Change orchestrate runs in an isolated worktree, on fresh runs and resumes (#467)
 
 Fixes #467: `makato-change:orchestrate --autonomous` committed to the operator's
