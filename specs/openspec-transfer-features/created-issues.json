@@ -1,0 +1,47 @@
+{
+  "slug": "openspec-transfer-features",
+  "issues": [
+    {
+      "sequence": 1,
+      "summary": "Delta spec format for brownfield changes in makato-change",
+      "issue_number": 562,
+      "url": "https://github.com/macatocz/makato/issues/562"
+    },
+    {
+      "sequence": 2,
+      "summary": "Extensible workflow schema system for customising spec artifact pipelines",
+      "issue_number": 563,
+      "url": "https://github.com/macatocz/makato/issues/563"
+    },
+    {
+      "sequence": 4,
+      "summary": "Explore mode \u2014 read-only thinking-partner skill that blocks code writes",
+      "issue_number": 564,
+      "url": "https://github.com/macatocz/makato/issues/564"
+    },
+    {
+      "sequence": 5,
+      "summary": "Cross-repo spec stores \u2014 share specs and issues across multiple repositories",
+      "issue_number": 565,
+      "url": "https://github.com/macatocz/makato/issues/565"
+    },
+    {
+      "sequence": 6,
+      "summary": "Guided onboarding wizard for new repository setup \u2014 inspired by openspec init",
+      "issue_number": 566,
+      "url": "https://github.com/macatocz/makato/issues/566"
+    },
+    {
+      "sequence": 3,
+      "summary": "Living specifications \u2014 delta sync from spec-delta.md to docs/specs/ post-merge",
+      "issue_number": 567,
+      "url": "https://github.com/macatocz/makato/issues/567"
+    },
+    {
+      "sequence": 7,
+      "summary": "Spec-level verify skill \u2014 confirm implementation satisfies plan artifacts",
+      "issue_number": 568,
+      "url": "https://github.com/macatocz/makato/issues/568"
+    }
+  ]
+}
