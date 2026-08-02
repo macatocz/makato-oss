@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.112.0](https://github.com/macatocz/makato/compare/v0.111.0...v0.112.0) (2026-08-02)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** workflow-state prune subcommand — reap stale done state files by age ([#597](https://github.com/macatocz/makato/issues/597)) ([#609](https://github.com/macatocz/makato/issues/609)) ([14e5c23](https://github.com/macatocz/makato/commit/14e5c231b2b1d27d3150e1dd630e4453746a24a4))
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** shared-epic folder guard in reaper (loop 2.2.0) ([#607](https://github.com/macatocz/makato/issues/607)) ([ec93f45](https://github.com/macatocz/makato/commit/ec93f45f292dd57ac3a6ac62f9630a43a5ddb771))
+
 ## [0.111.0](https://github.com/macatocz/makato/compare/v0.110.1...v0.111.0) (2026-08-02)
 
 
