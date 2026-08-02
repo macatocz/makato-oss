@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.111.0](https://github.com/macatocz/makato/compare/v0.110.1...v0.111.0) (2026-08-02)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** add sync-living-specs.sh for spec-delta to docs/specs/ sync ([fb5fadf](https://github.com/macatocz/makato/commit/fb5fadfc3f2c7655fe312caec7279cf70accb8d9))
+* **makato-orchestrate:** extend documentation-agent with spec-delta living-spec sync step ([72c351b](https://github.com/macatocz/makato/commit/72c351b93254f3eace28f40c3e6994d89905683d))
+* **makato-orchestrate:** living-spec delta sync post-merge ([#567](https://github.com/macatocz/makato/issues/567)) ([a751fb7](https://github.com/macatocz/makato/commit/a751fb70a22864071dec4ace2a7ad3c3a51ee587))
+* **makato-orchestrate:** living-spec delta sync post-merge ([#567](https://github.com/macatocz/makato/issues/567)) ([a751fb7](https://github.com/macatocz/makato/commit/a751fb70a22864071dec4ace2a7ad3c3a51ee587))
+
 ## [0.110.1](https://github.com/macatocz/makato/compare/v0.110.0...v0.110.1) (2026-08-01)
 
 
