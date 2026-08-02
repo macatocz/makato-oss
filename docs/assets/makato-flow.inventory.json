@@ -19,7 +19,8 @@
     "excalidraw": "standalone diagram utility; intentionally not drawn on the flow diagram",
     "lesson-prune": "operator-only curation tool; intentionally not drawn on the flow diagram",
     "create-workflow-schema": "interactive scaffolding wizard; intentionally not drawn on the pipeline flow diagram",
-    "build-explore": "standalone thinking-partner / read-only discovery tool; intentionally not drawn on the pipeline flow diagram"
+    "build-explore": "standalone thinking-partner / read-only discovery tool; intentionally not drawn on the pipeline flow diagram",
+    "manage-stores": "standalone operator utility for managing cross-repo stores[] in .claude/config.json; intentionally not drawn on the pipeline flow diagram"
   },
   "unmappedAgents": {},
   "conceptualNodes": {
