@@ -19,6 +19,7 @@
     "excalidraw": "standalone diagram utility; intentionally not drawn on the flow diagram",
     "lesson-prune": "operator-only curation tool; intentionally not drawn on the flow diagram",
     "create-workflow-schema": "interactive scaffolding wizard; intentionally not drawn on the pipeline flow diagram",
+  "init": "interactive onboarding wizard for new repository setup; intentionally not drawn on the pipeline flow diagram (prerequisite utility, not a pipeline step)",
     "build-explore": "standalone thinking-partner / read-only discovery tool; intentionally not drawn on the pipeline flow diagram",
     "manage-stores": "standalone operator utility for managing cross-repo stores[] in .claude/config.json; intentionally not drawn on the pipeline flow diagram",
     "build-verify-spec": "spec-level quality gate invoked as a sub-step inside po-agent Step 6 between build-verify and build-push-to-git; rendered as part of the build-verify flow node, not a separate node"
