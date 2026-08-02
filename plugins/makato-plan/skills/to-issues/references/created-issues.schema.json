@@ -17,6 +17,11 @@
       "minLength": 1,
       "description": "The kebab-case feature slug — the spec folder name without the leading work-item key."
     },
+    "target_repo": {
+      "type": "string",
+      "pattern": "^[^/]+/[^/]+$",
+      "description": "Optional: the resolved target repository (owner/repo) when the to-issues run used --repo or --store. Absent when issues were created in the current repo (default behaviour)."
+    },
     "issues": {
       "type": "array",
       "items": {
