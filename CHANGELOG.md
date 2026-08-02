@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.116.0](https://github.com/macatocz/makato/compare/v0.115.0...v0.116.0) (2026-08-02)
+
+
+### ✨ Features
+
+* **makato-build:** add build-verify-spec skill ([#568](https://github.com/macatocz/makato/issues/568)) ([#619](https://github.com/macatocz/makato/issues/619)) ([b4db21a](https://github.com/macatocz/makato/commit/b4db21a133ec89a802f93c97183243844cd01ef0))
+
 ## [0.115.0](https://github.com/macatocz/makato/compare/v0.114.0...v0.115.0) (2026-08-02)
 
 
