@@ -10,7 +10,7 @@ description: >-
   exits on a HALT. Honors `~/.claude/HALT` before every dispatch
   (NEVER 3) and emits `.claude/state/loop-status.json` as the
   operator-facing live audit.
-version: "2.2.0"
+version: "2.3.0"
 argument-hint: "[--status <NAME>] [--interval <S>] [--dry-run] [--once] [--force]"
 ---
 
@@ -271,7 +271,19 @@ Each outer iteration of `run` performs the following steps in order:
    immediately without writing a plan.md stub, blocking the card, or posting
    a comment); `plan-tier:full` or untiered →
    `_auto_seed_block_full` (spec-folder stub + board `Blocked` +
-   `needs-human-review`). Each candidate is handled under `|| true`
+   `needs-human-review`). Candidate discovery (`_auto_seed_candidates`) first
+   vetoes issues that must never be seeded: `status:ready-for-dev` (owned by
+   `_promote_labelled_ready`), exclusion labels, the `dependencies` label,
+   `[bot]` authors, and — closing the #499/#510 shared-folder gap (incident
+   #347) — **any issue already planned by `to-issues`** (referenced in a
+   `specs/<slug>/created-issues.json`, detected via `_is_orphan_issue`). Such
+   an issue already has a buildable `plan-<n>.md`; re-seeding it would spawn a
+   second, hollow stub folder under seed-issue's `<n>-<title>` convention,
+   producing two competing plans for one issue — the exact collision that makes
+   the po-agent look in the wrong folder and report "plan not found" (or
+   HALT-006) even though a real plan exists. #571 fixed this for the
+   auto-seed-block arm; this closes the candidate-discovery arm. Each candidate
+   is handled under `|| true`
    (best-effort: any per-candidate failure logs a WARN and the pass continues).
    The pass runs **before** `_promote_labelled_ready` (step 2) so a freshly-seeded
    light issue arrives at `Status=Ready` in time to be dispatched in the same

@@ -2747,6 +2747,23 @@ _auto_seed_candidates() {
       continue
     fi
 
+    # T3.5: already-planned veto (#499/#510 shared-folder gap; incident #347).
+    # An issue that came through `to-issues` is recorded in a specs/<slug>/
+    # created-issues.json, and its buildable plan already lives at
+    # specs/<slug>/plan-<n>.md. Re-seeding it would spawn a SECOND spec folder
+    # (seed-issue's <n>-<title> convention) holding a hollow stub plan.md,
+    # producing two competing "plans" for one issue — the exact class of
+    # collision that makes the po-agent look in the wrong folder and report
+    # "plan not found" (or HALT-006) even though a real plan exists. #571 fixed
+    # the auto-seed-BLOCK arm for this; this closes the auto-seed candidate
+    # arm. `_is_orphan_issue` returns 1 (not orphan) precisely when a valid
+    # created-issues.json references this number, so a non-orphan is
+    # already-planned and belongs to _promote_labelled_ready, not seeding.
+    if ! _is_orphan_issue "$n"; then
+      echo "loop: auto-seed — skip #$n (already planned by to-issues — in created-issues.json)" >&2
+      continue
+    fi
+
     # T4: Classify plan-tier from labels.
     plan_tier="$(jq -r --argjson i "$n" \
       '.[] | select(.number == $i) | [.labels[].name] | .[] | select(startswith("plan-tier:"))' \

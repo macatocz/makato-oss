@@ -2089,6 +2089,39 @@ echo "$t58b_out" | jq -e '[.[] | select(.number == 212)] | length == 1' >/dev/nu
 rm -f "$T58B_FIXTURE"
 echo "  ✓ generic [bot] veto excludes dependabot[bot]/github-actions[bot]; human author passes"
 
+# ---------------------------------------------------------------------------
+echo "=== T58c: already-planned issue (in created-issues.json) → excluded from candidates ==="
+# #499/#510 shared-folder gap; incident #347: an issue that came through
+# to-issues has a real plan-<n>.md and is recorded in a created-issues.json.
+# Re-seeding it would spawn a second, hollow stub folder — the exact collision
+# that makes "plan not found" surface even though a plan exists. The T3.5 guard
+# reuses _is_orphan_issue: a non-orphan (referenced in created-issues.json) is
+# already-planned and must be skipped.
+T58C_SPECS="$STATE_DIR/t58c-specs-$$"
+mkdir -p "$T58C_SPECS/some-feature-slug"
+# issue 213 is referenced → non-orphan → already-planned → skipped;
+# issue 214 is referenced by nothing → orphan → remains a candidate.
+cat >"$T58C_SPECS/some-feature-slug/created-issues.json" <<'EOF'
+{"issues": [{"issue_number": 213, "title": "planned by to-issues"}]}
+EOF
+T58C_FIXTURE="$STATE_DIR/t58c-autoseed-$$.json"
+cat >"$T58C_FIXTURE" <<'EOF'
+[
+  {"number": 213, "labels": [{"name": "type:feat"}, {"name": "plan-tier:full"}], "author": {"login": "user9"}},
+  {"number": 214, "labels": [{"name": "type:feat"}, {"name": "plan-tier:light"}], "author": {"login": "user10"}}
+]
+EOF
+t58c_out="$(MAKATO_LOOP_TEST_HOOK=1 \
+  SPECS_DIR="$T58C_SPECS" \
+  MAKATO_LOOP_AUTOSEED_OVERRIDE="$T58C_FIXTURE" \
+  "$LOOP" _test-auto-seed-candidates 2>/dev/null)"
+echo "$t58c_out" | jq -e '[.[] | select(.number == 213)] | length == 0' >/dev/null \
+  || fail "T58c: issue 213 (in created-issues.json) should be excluded; got: $t58c_out"
+echo "$t58c_out" | jq -e '[.[] | select(.number == 214)] | length == 1' >/dev/null \
+  || fail "T58c: issue 214 (orphan) should remain a candidate; got: $t58c_out"
+rm -rf "$T58C_SPECS" "$T58C_FIXTURE"
+echo "  ✓ already-planned issue 213 vetoed via created-issues.json; orphan 214 passes"
+
 
 # ---------------------------------------------------------------------------
 # T59–T62: _auto_seed_dispatch_light (#370, epic #367 S2)
