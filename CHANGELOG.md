@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.114.0](https://github.com/macatocz/makato/compare/v0.113.0...v0.114.0) (2026-08-02)
+
+
+### ✨ Features
+
+* **makato-build:** build-explore read-only thinking-partner skill ([#564](https://github.com/macatocz/makato/issues/564)) ([9ce3ecc](https://github.com/macatocz/makato/commit/9ce3ecc8d5ee48c661b275ea3b7f9e14d20e0361))
+
 ## [0.113.0](https://github.com/macatocz/makato/compare/v0.112.0...v0.113.0) (2026-08-02)
 
 
