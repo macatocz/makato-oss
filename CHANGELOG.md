@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.117.0](https://github.com/macatocz/makato/compare/v0.116.0...v0.117.0) (2026-08-02)
+
+
+### ✨ Features
+
+* **makato-core:** add init onboarding wizard skill ([#566](https://github.com/macatocz/makato/issues/566)) ([1738f83](https://github.com/macatocz/makato/commit/1738f83e17b08c5b0f77272486535f7e7ba25fec))
+* **makato-core:** guided onboarding wizard — makato-core:init skill ([#566](https://github.com/macatocz/makato/issues/566)) ([7ea351f](https://github.com/macatocz/makato/commit/7ea351f793f2963a8ed89d0de51542b062ccff24))
+* **makato-core:** guided onboarding wizard — makato-core:init skill ([#566](https://github.com/macatocz/makato/issues/566)) ([7ea351f](https://github.com/macatocz/makato/commit/7ea351f793f2963a8ed89d0de51542b062ccff24))
+
+
+### 🐛 Bug Fixes
+
+* **makato-core:** register init skill in makato-flow.inventory.json ([#566](https://github.com/macatocz/makato/issues/566)) ([c15508f](https://github.com/macatocz/makato/commit/c15508faa862288ce62e96a874ef6451e30a11ab))
+
 ## [0.116.0](https://github.com/macatocz/makato/compare/v0.115.0...v0.116.0) (2026-08-02)
 
 
