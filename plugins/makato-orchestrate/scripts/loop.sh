@@ -1334,6 +1334,46 @@ in_flight_issues() {
 }
 
 # ---------------------------------------------------------------------------
+# _compute_vcr — Verified-to-Completed Rate for the loop-status.json .vcr
+# field.
+#
+# "Verified" is defined SOLELY as current_phase == "done" in a
+# workflow-state JSON file. This is intentionally decoupled from
+# ac_verdicts / issue #568; the VCR is a dispatch-throughput metric, not
+# an acceptance-test pass rate.
+#
+# Scans $SPECS_DIR for workflow-state-*.json and legacy workflow-state.json
+# files — the same glob used by in_flight_issues above.
+#
+# Output: compact JSON {"activated":<n>,"verified":<n>,"rate":<f>}
+# When $SPECS_DIR does not exist, returns {"activated":0,"verified":0,"rate":0.0}.
+# ---------------------------------------------------------------------------
+_compute_vcr() {
+  if [[ ! -d "$SPECS_DIR" ]]; then
+    echo '{"activated":0,"verified":0,"rate":0.0}'
+    return 0
+  fi
+  local activated=0 verified=0
+  while IFS= read -r -d '' f; do
+    activated=$(( activated + 1 ))
+    local phase
+    phase="$(jq -r '.current_phase // empty' "$f" 2>/dev/null || true)"
+    if [[ "$phase" == "done" ]]; then
+      verified=$(( verified + 1 ))
+    fi
+  done < <(find "$SPECS_DIR" -maxdepth 2 \
+    \( -name 'workflow-state-*.json' -o -name 'workflow-state.json' \) \
+    -print0 2>/dev/null)
+  local rate
+  if [[ "$activated" -eq 0 ]]; then
+    rate="0.0"
+  else
+    rate="$(python3 -c "print('%.2f' % ($verified / $activated))")"
+  fi
+  echo "{\"activated\":${activated},\"verified\":${verified},\"rate\":${rate}}"
+}
+
+# ---------------------------------------------------------------------------
 # _dependency_order — emit a wave-ordered, newline-separated list of issue
 # numbers for the loop's next-issue selection.
 #
@@ -1625,7 +1665,17 @@ cmd_next() {
 # status — pretty-print the status file.
 # ---------------------------------------------------------------------------
 cmd_status() {
-  _read_status | jq .
+  local s
+  s="$(_read_status)"
+  # Pretty-print with vcr alongside other top-level fields.
+  jq 'if .vcr then
+    . | to_entries
+    | sort_by(
+        if .key == "vcr" then 1
+        elif .key == "updated_at" then 2
+        else 0 end)
+    | from_entries
+  else . end' <<<"$s"
 }
 
 # ---------------------------------------------------------------------------
@@ -5528,6 +5578,8 @@ cmd_run() {
       --argjson q "$(jq '[.[].issue]' <<<"$queue")" \
       '. + {last_poll: $ts, queue_depth: $depth, queue: $q, poll_healthy: true}' \
       <<<"$(_read_status)")"
+    vcr_obj="$(_compute_vcr)"
+    _patch_status '.vcr' "$vcr_obj"
 
     local in_flight
     in_flight="$(in_flight_issues)"
@@ -5790,6 +5842,11 @@ if [[ "$SUBCMD" == _test-* ]]; then
       _test_pdpg_key="${1:?key required}"
       _pre_dispatch_plan_guard "$_test_pdpg_key"
       ;;
+    # _test-compute-vcr — exercise _compute_vcr deterministically.
+    # Reads SPECS_DIR from the environment (caller sets it to an ephemeral
+    # fixture dir). Prints the compact JSON object {"activated":…,"verified":…,
+    # "rate":…} to stdout. (#585)
+    _test-compute-vcr) _compute_vcr ;;
     *) echo "loop: unknown test hook: $SUBCMD" >&2; exit 64 ;;
   esac
   exit 0

@@ -64,6 +64,14 @@
 #                                file instead of calling `gh project
 #                                item-edit`. Keeps the live-promote test
 #                                offline.
+#   MAKATO_MIN_VCR               Minimum Verified-to-Completed Rate gate.
+#                                Unset or empty: no gate, promote as today.
+#                                Set (e.g. 0.5): read .vcr.rate from
+#                                $REPO_ROOT/.claude/state/loop-status.json.
+#                                If absent or vcr missing, treat rate as 0.0.
+#                                If rate < MAKATO_MIN_VCR, skip all
+#                                promotions and exit 0. Does NOT apply to
+#                                --dry-run.
 #
 # Conventions: matches scripts/loop.sh (POSIX-ish bash, `set -euo pipefail`,
 # python3 for the graph/wave computation, jq for JSON extraction).
@@ -618,6 +626,20 @@ cmd_run() {
   if [[ "$ready_count" -eq 0 ]]; then
     _log "nothing to promote."
     return 0
+  fi
+
+  # VCR gate: if MAKATO_MIN_VCR is set, read .vcr.rate from loop-status.json.
+  # If rate < MAKATO_MIN_VCR, skip all promotions and exit 0.
+  # MAKATO_PROMOTE_LOOP_STATUS_OVERRIDE overrides the path for offline tests.
+  if [[ -n "${MAKATO_MIN_VCR:-}" ]]; then
+    local _loop_status_file="${MAKATO_PROMOTE_LOOP_STATUS_OVERRIDE:-${REPO_ROOT}/.claude/state/loop-status.json}"
+    local _vcr_rate
+    _vcr_rate="$(jq -r '.vcr.rate // 0.0' "$_loop_status_file" 2>/dev/null || echo "0.0")"
+    # python3 comparison: exits 0 when rate >= floor, exits 1 when rate < floor.
+    if ! python3 -c "import sys; sys.exit(0 if float('${_vcr_rate}') >= float('${MAKATO_MIN_VCR}') else 1)" 2>/dev/null; then
+      echo "promote-ready: VCR gate: rate=${_vcr_rate} < MAKATO_MIN_VCR=${MAKATO_MIN_VCR} — skipping promotion" >&2
+      return 0
+    fi
   fi
 
   # Interactive approval, unless --yes.

@@ -274,5 +274,116 @@ if echo "$OUT" | jq -e '.ready[] | select(.issue == 11)' >/dev/null 2>&1; then
 fi
 pass "plan --json: deferred_collision populated; #10 in ready[], #11 in deferred_collision[]"
 
+# ---------------------------------------------------------------------------
+# T-VCR-6 through T-VCR-9: MAKATO_MIN_VCR gate in promote-ready.sh (#585)
+#
+# REPO_ROOT is derived via `git rev-parse --show-toplevel` inside the
+# script. To control the loop-status.json path without patching the real
+# state dir we run each sub-test inside a throwaway git repo sandbox so
+# the path expands to our fixture root.
+# ---------------------------------------------------------------------------
+
+_vcr_sandbox="${CLAUDE_JOB_DIR:-/tmp}/promote-ready-smoke-$$-vcr"
+rm -rf "$_vcr_sandbox"; mkdir -p "$_vcr_sandbox"
+(
+  cd "$_vcr_sandbox"
+  git init -q -b main
+  git config user.email t@t.t; git config user.name t
+  git commit -q --allow-empty -m init
+)
+# Shared spec dir for the VCR tests — one unblocked issue so ready_count > 0.
+_vcr_specs="$_vcr_sandbox/vcr-specs"
+mkdir -p "$_vcr_specs/1-vcr-alpha"
+cat >"$_vcr_specs/1-vcr-alpha/created-issues.json" <<'CEOF'
+{"schema_version":"1","slug":"vcr-alpha","issues":[
+  {"issue_number":99,"url":"https://x/99","title":"vcr-target","labels":[],"blocked_by":[]}
+]}
+CEOF
+_vcr_board="$_vcr_sandbox/vcr-board.json"
+echo '{"items":[{"id":"v99","content":{"type":"Issue","number":99},"status":"Todo"}]}' >"$_vcr_board"
+_vcr_editlog="$_vcr_sandbox/vcr-edits.txt"
+_vcr_state_dir="$_vcr_sandbox/.claude/state"
+mkdir -p "$_vcr_state_dir"
+
+echo "=== T-VCR-6: MAKATO_MIN_VCR unset → promotion proceeds, no gate check ==="
+: >"$_vcr_editlog"
+(
+  cd "$_vcr_sandbox" &&
+  MAKATO_PROMOTE_SPECS_DIR="$_vcr_specs" \
+  MAKATO_PROMOTE_GH_OVERRIDE="$_vcr_board" \
+  MAKATO_PROMOTE_EDIT_TEST_FILE="$_vcr_editlog" \
+  MAKATO_PROMOTE_YES=1 \
+  unset MAKATO_MIN_VCR 2>/dev/null; \
+  MAKATO_PROMOTE_SPECS_DIR="$_vcr_specs" \
+  MAKATO_PROMOTE_GH_OVERRIDE="$_vcr_board" \
+  MAKATO_PROMOTE_EDIT_TEST_FILE="$_vcr_editlog" \
+  MAKATO_PROMOTE_YES=1 \
+    "$PR" run vcr-alpha >/dev/null 2>&1 || true
+)
+# Gate was not set — promote_one should have been called (entry in editlog).
+grep -q "^promote #99 " "$_vcr_editlog" \
+  || fail "T-VCR-6: MAKATO_MIN_VCR unset — expected promote #99 in editlog, got: $(cat "$_vcr_editlog")"
+pass "MAKATO_MIN_VCR unset — promotion reached promote_one, no gate block"
+echo "T-VCR-6 passed"
+
+echo "=== T-VCR-7: MAKATO_MIN_VCR=0.5, rate=0.3 → gate fires, no item-edit, exit 0 ==="
+: >"$_vcr_editlog"
+echo '{"vcr":{"activated":10,"verified":3,"rate":0.3}}' >"$_vcr_state_dir/loop-status.json"
+(
+  cd "$_vcr_sandbox" &&
+  MAKATO_PROMOTE_SPECS_DIR="$_vcr_specs" \
+  MAKATO_PROMOTE_GH_OVERRIDE="$_vcr_board" \
+  MAKATO_PROMOTE_EDIT_TEST_FILE="$_vcr_editlog" \
+  MAKATO_PROMOTE_YES=1 \
+  MAKATO_MIN_VCR=0.5 \
+    "$PR" run vcr-alpha >/dev/null 2>&1
+) && true   # must exit 0
+EXIT7=$?
+[[ "$EXIT7" -eq 0 ]] || fail "T-VCR-7: expected exit 0, got $EXIT7"
+if grep -q "^promote #99 " "$_vcr_editlog"; then
+  fail "T-VCR-7: gate should have blocked promotion but editlog has: $(cat "$_vcr_editlog")"
+fi
+pass "MAKATO_MIN_VCR=0.5, rate=0.3 — gate fired, no promote_one, exit 0"
+echo "T-VCR-7 passed"
+
+echo "=== T-VCR-8: MAKATO_MIN_VCR=0.5, rate=0.5 → gate passes (rate == floor), promotion proceeds ==="
+: >"$_vcr_editlog"
+echo '{"vcr":{"activated":10,"verified":5,"rate":0.5}}' >"$_vcr_state_dir/loop-status.json"
+(
+  cd "$_vcr_sandbox" &&
+  MAKATO_PROMOTE_SPECS_DIR="$_vcr_specs" \
+  MAKATO_PROMOTE_GH_OVERRIDE="$_vcr_board" \
+  MAKATO_PROMOTE_EDIT_TEST_FILE="$_vcr_editlog" \
+  MAKATO_PROMOTE_YES=1 \
+  MAKATO_MIN_VCR=0.5 \
+    "$PR" run vcr-alpha >/dev/null 2>&1 || true
+)
+grep -q "^promote #99 " "$_vcr_editlog" \
+  || fail "T-VCR-8: rate==floor should pass gate, expected promote #99, got: $(cat "$_vcr_editlog")"
+pass "MAKATO_MIN_VCR=0.5, rate=0.5 — gate passed (floor is inclusive), promotion proceeded"
+echo "T-VCR-8 passed"
+
+echo "=== T-VCR-9: MAKATO_MIN_VCR set, loop-status.json absent → rate=0.0, gate fires ==="
+: >"$_vcr_editlog"
+rm -f "$_vcr_state_dir/loop-status.json"
+(
+  cd "$_vcr_sandbox" &&
+  MAKATO_PROMOTE_SPECS_DIR="$_vcr_specs" \
+  MAKATO_PROMOTE_GH_OVERRIDE="$_vcr_board" \
+  MAKATO_PROMOTE_EDIT_TEST_FILE="$_vcr_editlog" \
+  MAKATO_PROMOTE_YES=1 \
+  MAKATO_MIN_VCR=0.5 \
+    "$PR" run vcr-alpha >/dev/null 2>&1
+) && true   # must exit 0
+EXIT9=$?
+[[ "$EXIT9" -eq 0 ]] || fail "T-VCR-9: expected exit 0, got $EXIT9"
+if grep -q "^promote #99 " "$_vcr_editlog"; then
+  fail "T-VCR-9: absent loop-status.json should default rate=0.0 and block, but editlog has: $(cat "$_vcr_editlog")"
+fi
+pass "MAKATO_MIN_VCR set, loop-status.json absent — treated as rate=0.0, gate fired, no promote"
+echo "T-VCR-9 passed"
+
+rm -rf "$_vcr_sandbox"
+
 echo
-echo "=== ALL PROMOTE-READY SMOKE TESTS PASSED (T1–T15) ==="
+echo "=== ALL PROMOTE-READY SMOKE TESTS PASSED (T1–T15, T-pjson-valid, T-pjson-collision, T-VCR-6–T-VCR-9) ==="
