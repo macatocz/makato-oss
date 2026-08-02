@@ -5,6 +5,50 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## `build-verify-spec` — spec-level verify skill (#568)
+
+Adds a new post-`build-verify` skill that confirms the implementation actually satisfies the
+plan artifacts before `build-push-to-git`. Closes a gap where a coder could pass all quality
+gates but miss a requirement stated in `plan.md` or `stories.json`.
+
+**`plugins/makato-build/skills/build-verify-spec/SKILL.md`** (new, v1.0.0):
+
+- Three-dimensional verification: **COMPLETENESS** (plan.md checkboxes), **CORRECTNESS**
+  (stories.json successScenarios keyword-matched against the diff), **COHERENCE**
+  (spec-delta.md MODIFIED sections; absent spec-delta.md is a no-op).
+- Exit 0 on all-pass; exit 1 on any CRITICAL finding (unchecked task, CORRECTNESS GAP,
+  COHERENCE GAP). SUGGESTION findings surface in output but are non-blocking.
+- Integrates into po-agent Step 6 between `build-verify` and `build-push-to-git`; a CRITICAL
+  finding raises HALT-011 before push.
+
+**`plugins/makato-build/skills/build-verify-spec/references/build-verify-spec.sh`** (new):
+
+- Thin bash wrapper: resolves spec folder via `specs/<KEY>-*/` prefix-match glob, picks the
+  latest `plan-<N>.md`, optionally captures `git diff HEAD`, then delegates to the Python module.
+- Accepts `REPO_ROOT` and `PY_MODULE` env overrides for test isolation.
+
+**`plugins/makato-build/shared/build_verify_spec.py`** (new):
+
+- Importable Python module (stdlib only): `check_completeness`, `check_correctness`,
+  `check_coherence`, `format_report`, and a `main()` CLI entry point.
+- `check_completeness` counts checkboxes strictly within the `## Tasks` section — boxes in
+  Background, Definition of Done, or other sections are ignored.
+- `check_correctness` applies a keyword-matching heuristic against the diff; absent
+  `stories.json` is skipped (no hard failure).
+- `check_coherence` parses `## MODIFIED Requirements` from `spec-delta.md`; absent file is
+  skipped; low-confidence matches are SUGGESTION (non-blocking), not GAP.
+
+**`plugins/makato-build/shared/test_build_verify_spec.py`** (new, 25 tests):
+
+- Direct import tests for all three verification functions and the report formatter.
+- Bash wrapper subprocess tests cover spec-folder resolution, missing-key, and fixture
+  scenarios matching the smoke-test suite.
+
+**`plugins/makato-build/skills/build-verify-spec/references/build-verify-spec-smoke-tests.sh`** (new):
+
+- Three offline scenarios: S1 (full pass), S2 (unchecked task → exit 1), S3 (GAP scenario → exit 1).
+- Mirrors the `mark-ac-checkboxes-smoke-tests.sh` sandbox pattern.
+
 ## `build-explore` — read-only thinking-partner skill (#564)
 
 Adds a new skill that lets an agent (or user) explore a problem area and produce a
