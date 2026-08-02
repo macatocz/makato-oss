@@ -98,6 +98,10 @@ the classification table can be extended.
 | `reportGeneralTypeIssues` | (no keyword above) | 5 (cast) | Default for generic issues — try cast first |
 | `reportUnknownMemberType` | — | 6 (ignore) | Member type from missing/wrong stubs |
 
+**Set `finding.repair_hint` before dispatching or returning.** Look up the finding's `rule`
+in Section 3a. When a mapping exists, set `finding.repair_hint` to the mapped string.
+When no mapping exists, leave `repair_hint` absent — do NOT set it to `null` or `""`.
+
 ### Mypy codes
 
 | Rule | Message keyword | Branch | Reason |
@@ -126,6 +130,24 @@ unrecognized codes — silently suppressing an unknown type error is worse than 
 the finding unresolved. The `mypy:*` glob in `finding-routes.json` routes all mypy
 findings here; this skill covers common mypy codes but not the full space. Carry-over
 is the correct outcome for any code not in the table above.
+
+## 3a. repair_hint mapping table
+
+Before dispatching or returning the result, set `finding.repair_hint` from the table below
+when the finding's rule has a mapping. Findings whose rule is **not** in the table leave
+`repair_hint` absent — do not set the field to `null` or `""`.
+
+The `repair_hint` string follows the WHAT/WHY/FIX sub-structure defined in
+[`../../shared/finding-schema.md`](../../shared/finding-schema.md).
+
+| Rule | repair_hint |
+|------|-------------|
+| `reportArgumentType` | `"WHAT: Argument type does not match the parameter's declared type.\nWHY: Passing the wrong type may cause runtime failures or silent data corruption.\nFIX: Check the function signature and either cast the value, narrow the union, or change the call site to pass a compatible type."` |
+| `reportReturnType` | `"WHAT: The function's return expression does not match its declared return type.\nWHY: A wrong return annotation either lies to callers or indicates the function body returns an unexpected type.\nFIX: Tighten the annotation to match what the function actually returns, or fix the return expression."` |
+| `reportOptionalMemberAccess` | `"WHAT: Attribute access on a value that may be None.\nWHY: Accessing a member on None raises AttributeError at runtime.\nFIX: Guard with 'if x is not None:' or 'assert x is not None' before the access, or change the type to non-optional."` |
+| `reportPossiblyUnbound` | `"WHAT: Variable may be unbound on some code path reaching this use.\nWHY: An unbound variable raises NameError at runtime on the unguarded path.\nFIX: Initialise the variable before any conditional that might skip its assignment, or restructure the control flow."` |
+| `reportMissingReturnType` | `"WHAT: Function is missing a return type annotation.\nWHY: Missing return type makes the function opaque to the type checker and callers.\nFIX: Infer the return type from the return expressions and add an explicit annotation (e.g. '-> str:', '-> None:')."` |
+| `reportMissingParameterType` | `"WHAT: One or more parameters are missing type annotations.\nWHY: Unannotated parameters widen to Any, defeating type checking for the whole function.\nFIX: Add type annotations for each unannotated parameter, inferring types from call sites or doc-comments."` |
 
 ## 4. Decision Branches
 

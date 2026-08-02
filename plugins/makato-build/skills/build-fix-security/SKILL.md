@@ -198,7 +198,35 @@ If `(tool, rule)` matches none of the rows above: return `status: "error"` with
 `fix_applied: false`. Log a `decision` entry naming the unmatched pair so the
 classification table can be extended. **Do not apply Branch 3** for unrecognized codes.
 
+## 3a. repair_hint mapping table
+
+Before dispatching or returning the result, set `finding.repair_hint` from the table below
+when the finding's `rule` has a mapping. Findings whose rule is **not** in the table leave
+`repair_hint` absent — do not set the field to `null` or `""`.
+
+The `repair_hint` string follows the WHAT/WHY/FIX sub-structure defined in
+[`../../shared/finding-schema.md`](../../shared/finding-schema.md).
+
+| Rule | repair_hint |
+|------|-------------|
+| `bandit:B105` | `"WHAT: Hard-coded password string detected.\nWHY: Committing credentials in source risks exposure in version control and logs.\nFIX: Replace the literal with an environment variable or secrets-manager lookup (e.g. 'os.environ[\"PASSWORD\"]')."` |
+| `bandit:B107` | `"WHAT: Hard-coded password passed as a function argument.\nWHY: A constant password argument is visible to anyone reading the source or call stack.\nFIX: Accept the password via an environment variable or a secrets manager; never pass it as a literal."` |
+| `bandit:B303` | `"WHAT: MD5 or SHA-1 used for hashing.\nWHY: Both algorithms are cryptographically broken and unsuitable for security-sensitive hashing.\nFIX: Replace with hashlib.sha256 for general hashing, or bcrypt/argon2 for password storage."` |
+| `bandit:B324` | `"WHAT: Weak hash function (MD5/SHA-1) used for password storage.\nWHY: MD5 and SHA-1 are fast algorithms easily brute-forced for password recovery.\nFIX: Use bcrypt or argon2-cffi for password hashing: 'bcrypt.hashpw(pwd.encode(), bcrypt.gensalt())'."` |
+| `bandit:*` | `"WHAT: Bandit security finding in this code path.\nWHY: The flagged pattern is associated with a known vulnerability class (see finding message and CWE).\nFIX: Consult the classification table in build-fix-security/SKILL.md for the specific branch and fix pattern for this bandit rule."` |
+| `safety:*` | `"WHAT: Vulnerable dependency version detected.\nWHY: The installed version has a known CVE that may be exploitable in this application.\nFIX: Upgrade the package to the fixed version via your package manager, or add an ignore entry with an expiry date if no fix is available."` |
+| `pip-audit:*` | `"WHAT: pip-audit found a dependency with a known vulnerability.\nWHY: The installed package version contains a publicly disclosed security flaw.\nFIX: Run 'pip install --upgrade <package>' or update the pinned version; add a timed ignore entry if no upgrade is available."` |
+
+**Specificity rule:** more-specific rules (e.g. `bandit:B105`) take precedence over the
+`bandit:*` catch-all. Look up the exact rule first; fall through to the glob only when no
+exact match exists.
+
 ## 4. Branch Playbooks
+
+**Set `finding.repair_hint` before dispatching or returning.** Look up the finding's `rule`
+in Section 3a (exact match first, then glob `bandit:*` / `safety:*` / `pip-audit:*`).
+When a mapping exists, set `finding.repair_hint` to the mapped string.
+When no mapping exists, leave `repair_hint` absent — do NOT set it to `null` or `""`.
 
 ### Branch 1 — Autofix
 

@@ -27,9 +27,10 @@ from __future__ import annotations
 import json
 import re
 import sys
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 # Optional: prefer vendored sarif-om when available, but never required.
 try:  # pragma: no cover - exercised only when user has the lib installed
@@ -86,6 +87,7 @@ class Finding:
     message: str
     severity: str  # 'error' | 'warning' | 'note'
     autofix_available: bool = False
+    repair_hint: str | None = None
     raw: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -93,7 +95,10 @@ class Finding:
             self.severity = "note"
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        d = asdict(self)
+        if d.get("repair_hint") is None:
+            d.pop("repair_hint", None)
+        return d
 
 
 # ---------------------------------------------------------------------------
@@ -592,7 +597,7 @@ def parse_pre_commit_output(text: str) -> list[Finding]:
             # Skip "- hook id: ..." / "- exit code: ..." pre-commit boilerplate
             # and gitleaks' own timestamped log line ("3:42PM INF ...").
             stripped = line.lstrip()
-            if stripped.startswith("- hook id:") or stripped.startswith("- exit code:"):
+            if stripped.startswith(("- hook id:", "- exit code:")):
                 continue
             if re.match(r"^\d{1,2}:\d{2}(?:AM|PM)\s+\w+\s", stripped):
                 continue
@@ -1234,6 +1239,36 @@ foo.py:42:3 - warning: Type partially unknown (reportUnknownMemberType)
             sg_findings[2].rule.startswith("security."),
             f"semgrep[2] xss rule (tag-based) should be 'security.*' (got {sg_findings[2].rule!r})",
         )
+
+    # --- Fixture: repair_hint round-trip -----------------------------------
+    f_no_hint = Finding(
+        tool="ruff",
+        rule="F401",
+        path="a.py",
+        line=1,
+        column=1,
+        message="unused",
+        severity="warning",
+    )
+    _check(
+        "repair_hint" not in f_no_hint.to_dict(),
+        "repair_hint absent from to_dict() when None",
+    )
+    f_with_hint = Finding(
+        tool="ruff",
+        rule="F401",
+        path="a.py",
+        line=1,
+        column=1,
+        message="unused",
+        severity="warning",
+        repair_hint="WHAT: unused import\nWHY: ...\nFIX: Remove it",
+    )
+    _check(
+        f_with_hint.to_dict().get("repair_hint")
+        == "WHAT: unused import\nWHY: ...\nFIX: Remove it",
+        "repair_hint present in to_dict() when set",
+    )
 
     if failures:
         for f in failures:

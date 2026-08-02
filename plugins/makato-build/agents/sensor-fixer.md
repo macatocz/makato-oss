@@ -169,22 +169,22 @@ For each residual finding, dispatch `build-resolve-finding`. On success remove t
 # Pseudocode — sensor-fixer Phase 1
 for loop in $(seq 1 ${MAX_LOOPS}); do
   for finding in "${findings[@]}"; do
+    # Build the dispatch bundle. Include repair_hint when the finding carries it;
+    # omit entirely when absent — never forward as null.
+    dispatch_bundle=(--finding "${finding}" --repo-root "${REPO_ROOT}" --attempt "${loop}")
+    if [[ -n "${finding.repair_hint:-}" ]]; then
+      dispatch_bundle+=(--repair-hint "${finding.repair_hint}")
+    fi
+
     # First attempt at this loop tier (sonnet)
-    result=$(dispatch build-resolve-finding \
-      --finding "${finding}" \
-      --repo-root "${REPO_ROOT}" \
-      --attempt "${loop}")
+    result=$(dispatch build-resolve-finding "${dispatch_bundle[@]}")
 
     if [[ "${result.outcome}" == "resolved" ]]; then
       findings=remove(findings, finding)
       resolved=$((resolved + 1))
     elif [[ "${result.outcome}" == "failed" && ${loop} -eq 2 ]]; then
       # Tier escalation: retry with opus on second loop failure
-      result=$(dispatch build-resolve-finding \
-        --finding "${finding}" \
-        --repo-root "${REPO_ROOT}" \
-        --attempt "${loop}" \
-        --model "opus")
+      result=$(dispatch build-resolve-finding "${dispatch_bundle[@]}" --model "opus")
       escalated=$((escalated + 1))
       if [[ "${result.outcome}" == "resolved" ]]; then
         findings=remove(findings, finding)
@@ -192,14 +192,16 @@ for loop in $(seq 1 ${MAX_LOOPS}); do
       fi
     fi
 
-    # Append audit row for every dispatch decision
+    # Append audit row for every dispatch decision.
+    # Include repair_hint_present flag so audit trail captures enrichment status.
     append_jsonl "${AUDIT_LOG}" "$(jq -nc \
       --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
       --argjson loop ${loop} \
       --arg action "${result.action}" \
       --argjson finding "$(serialize ${finding})" \
       --arg skill "${result.skill_used}" \
-      '{ts: $ts, loop: $loop, action: $action, finding: $finding, skill: $skill}')"
+      --argjson repair_hint_present "$([ -n "${finding.repair_hint:-}" ] && echo true || echo false)" \
+      '{ts: $ts, loop: $loop, action: $action, finding: $finding, skill: $skill, repair_hint_present: $repair_hint_present}')"
 
     skills_used+=("${result.skill_used}")
   done
@@ -221,6 +223,11 @@ fi
 
 Notes on Phase 1:
 - Each `build-resolve-finding` dispatch is isolated — its own subagent context window.
+- **`repair_hint` forwarding:** when a finding carries a non-None `repair_hint` (set by
+  `build-fix-types` or `build-fix-security` before returning to this loop), include it
+  verbatim in the `build-resolve-finding` dispatch bundle. When the field is absent, omit
+  it — never forward as `null`. The audit row records `repair_hint_present: true/false` so
+  the enrichment rate is visible in `build.jsonl`.
 - Tier escalation fires only on the second loop iteration's failure for a given finding. First-loop failures simply re-enter the queue for loop 2 at the default model. Loops 3–5 stay at the escalated tier if escalation already happened. **⚠ As noted above (#287), the model tier does not actually change at runtime** — the Skill tool has no `model` parameter. This describes the *intended* escalation policy; the `--model "opus"` retry is inert pseudocode pending an Agent-tool-based dispatch.
 - `touched_files` accumulates across all loops (Phase 0 and Phase 1).
 
@@ -245,8 +252,12 @@ When `CI_CONTEXT` is present, the row includes the advisory context:
 **Phase 1 (per-finding dispatch) — `loop: 1..MAX_LOOPS`:**
 
 ```json
-{"ts": "2026-06-18T12:34:56Z", "loop": 2, "action": "patched", "finding": {"tool": "...", "rule": "...", "path": "...", "line": 42, "fingerprint": "..."}, "skill": "build-resolve-finding"}
+{"ts": "2026-06-18T12:34:56Z", "loop": 2, "action": "patched", "finding": {"tool": "...", "rule": "...", "path": "...", "line": 42, "fingerprint": "..."}, "skill": "build-resolve-finding", "repair_hint_present": true}
 ```
+
+`repair_hint_present` is `true` when the finding carried a `repair_hint` that was forwarded
+in the dispatch bundle, `false` when the field was absent. Always included in the row so
+the audit trail captures the enrichment rate across all dispatches.
 
 ## R1 return envelope
 
