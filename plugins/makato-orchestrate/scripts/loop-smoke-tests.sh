@@ -5874,5 +5874,168 @@ echo "  ✓ numberless design-doc folder skipped with info/debug line, no WARN"
 rm -rf "$T_NL_DIR"
 echo "T-REAP-NUMBERLESS passed"
 
+# ---------------------------------------------------------------------------
+# T-loop-prune-1: MAKATO_LOOP_PRUNE_ON_RUN=0 — prune NOT invoked.
+# T-loop-prune-2: MAKATO_LOOP_PRUNE_ON_RUN=1 with stale done fixture — file removed.
+# T-loop-prune-3: MAKATO_LOOP_PRUNE_ON_RUN=1 + --dry-run — prune NOT invoked.
+# (#597 — optional prune pass in cmd_run)
+# ---------------------------------------------------------------------------
 echo
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T-RG-1–T-RG-4 GraphQL rate-limit guard, #556; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T-RESUME-1 complete result no-op, T-RESUME-2 incomplete triggers attempt, T-RESUME-3 errored triggers attempt, T-RESUME-4 budget-exhausted HALT-014, T-RESUME-5 STALL_DISABLE skip detect+resume, #531; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470; T84–T89 orphaned-specs pruning; T90 promote-before-prune; T-GQL1–T-GQL5 GraphQL board poll + item-list rollback, #516; T-IDLE1–T-IDLE2 adaptive idle backoff, #516; T91 plan-tier:change routing, #539; T-wave-order, T-promote-on, T-promote-off, T-fifo-fallback wave-ordered dispatch + promote-unblocked, #548; T-PREDISPATCH-127 exit-127 log demotion, T-REAP-NUMBERLESS numberless-folder reap-specs demotion, #558) ==="
+echo "=== T-loop-prune-1: MAKATO_LOOP_PRUNE_ON_RUN=0 — prune pass NOT invoked ==="
+T_LP1_DIR="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-lp1"
+rm -rf "$T_LP1_DIR"; mkdir -p "$T_LP1_DIR"
+(
+  cd "$T_LP1_DIR"
+  git init -q -b main
+  git config user.email t@t.t; git config user.name t
+  git commit -q --allow-empty -m init
+)
+mkdir -p "$T_LP1_DIR/specs/lp1-done-stale"
+OLD_TS_LP1="$(python3 -c "
+from datetime import datetime, timezone, timedelta
+n = datetime.now(timezone.utc) - timedelta(days=40)
+print(n.strftime('%Y-%m-%dT%H:%M:%S.') + f'{n.microsecond // 1000:03d}Z')
+")"
+jq -n --arg ts "$OLD_TS_LP1" '{
+  repo:"macatocz/test", branch:"feat/lp1", worktree_path:null,
+  worktree_retained:false, worktree_retain_reason:null,
+  issue_number:8801, sub_tasks:[], current_phase:"done",
+  resume_point:null, budget_consumed_tokens:0, session_baseline_tokens:0,
+  budget_limit_tokens:500000, context_warn_tokens:150000,
+  outer_iteration:0, merge_conflict_cycles:0, ci_failure_cycles:0,
+  structural_halt_cycles:0, reshape_cycles:0, halt_audit:[],
+  human_review_cycles:0, github_pr_number:null, progress_comment_id:null,
+  lessons_learned:[], session_summary:null, session_count:0,
+  handoff_reason:null, restart_failed:false, spawned_pid:null,
+  resume_ack:null, created_at:$ts, updated_at:$ts
+}' > "$T_LP1_DIR/specs/lp1-done-stale/workflow-state-8801.json"
+
+T_LP1_STATE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-lp1-state"
+mkdir -p "$T_LP1_STATE"
+
+# Run one tick with prune OFF (default). File must survive.
+(
+  cd "$T_LP1_DIR" &&
+  MAKATO_LOOP_DISPATCH_REPO="test-owner/test-repo" \
+  MAKATO_LOOP_STATE_DIR="$T_LP1_STATE" \
+  SPECS_DIR="$T_LP1_DIR/specs" REPO_ROOT="$T_LP1_DIR" \
+  MAKATO_LOOP_PRUNE_ON_RUN=0 \
+  MAKATO_LOOP_REAP_ON_POLL=0 \
+  MAKATO_LOOP_RECONCILE_ON_POLL=0 \
+    "$LOOP" run --status Ready --once --dry-run 2>/dev/null || true
+)
+[[ -f "$T_LP1_DIR/specs/lp1-done-stale/workflow-state-8801.json" ]] \
+  || fail "T-loop-prune-1: stale done file was WRONGLY removed when PRUNE_ON_RUN=0"
+echo "  ✓ PRUNE_ON_RUN=0 — stale done file untouched"
+rm -rf "$T_LP1_DIR" "$T_LP1_STATE"
+echo "T-loop-prune-1 passed"
+
+echo "=== T-loop-prune-2: MAKATO_LOOP_PRUNE_ON_RUN=1 with stale done fixture — file removed ==="
+T_LP2_DIR="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-lp2"
+rm -rf "$T_LP2_DIR"; mkdir -p "$T_LP2_DIR"
+(
+  cd "$T_LP2_DIR"
+  git init -q -b main
+  git config user.email t@t.t; git config user.name t
+  git commit -q --allow-empty -m init
+)
+mkdir -p "$T_LP2_DIR/specs/lp2-done-stale"
+OLD_TS_LP2="$(python3 -c "
+from datetime import datetime, timezone, timedelta
+n = datetime.now(timezone.utc) - timedelta(days=40)
+print(n.strftime('%Y-%m-%dT%H:%M:%S.') + f'{n.microsecond // 1000:03d}Z')
+")"
+jq -n --arg ts "$OLD_TS_LP2" '{
+  repo:"macatocz/test", branch:"feat/lp2", worktree_path:null,
+  worktree_retained:false, worktree_retain_reason:null,
+  issue_number:8802, sub_tasks:[], current_phase:"done",
+  resume_point:null, budget_consumed_tokens:0, session_baseline_tokens:0,
+  budget_limit_tokens:500000, context_warn_tokens:150000,
+  outer_iteration:0, merge_conflict_cycles:0, ci_failure_cycles:0,
+  structural_halt_cycles:0, reshape_cycles:0, halt_audit:[],
+  human_review_cycles:0, github_pr_number:null, progress_comment_id:null,
+  lessons_learned:[], session_summary:null, session_count:0,
+  handoff_reason:null, restart_failed:false, spawned_pid:null,
+  resume_ack:null, created_at:$ts, updated_at:$ts
+}' > "$T_LP2_DIR/specs/lp2-done-stale/workflow-state-8802.json"
+
+T_LP2_STATE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-lp2-state"
+mkdir -p "$T_LP2_STATE"
+
+# Use MAKATO_LOOP_DRY_DISPATCH=1 (no real dispatch) without --dry-run, so the
+# prune pass fires. Provide an empty GH fixture so cmd_poll returns no items.
+T_LP2_GH="$T_LP2_STATE/gh-empty.json"
+echo '{"items":[]}' > "$T_LP2_GH"
+
+# Run one tick with prune ON and AGE_DAYS=30. File is 40 days old, must be removed.
+(
+  cd "$T_LP2_DIR" &&
+  MAKATO_LOOP_DISPATCH_REPO="test-owner/test-repo" \
+  MAKATO_LOOP_STATE_DIR="$T_LP2_STATE" \
+  SPECS_DIR="$T_LP2_DIR/specs" REPO_ROOT="$T_LP2_DIR" \
+  MAKATO_LOOP_PRUNE_ON_RUN=1 \
+  MAKATO_LOOP_PRUNE_AGE_DAYS=30 \
+  MAKATO_LOOP_REAP_ON_POLL=0 \
+  MAKATO_LOOP_RECONCILE_ON_POLL=0 \
+  MAKATO_LOOP_DRY_DISPATCH=1 \
+  MAKATO_LOOP_GH_OVERRIDE="$T_LP2_GH" \
+    "$LOOP" run --status Ready --once 2>/dev/null || true
+)
+[[ ! -f "$T_LP2_DIR/specs/lp2-done-stale/workflow-state-8802.json" ]] \
+  || fail "T-loop-prune-2: stale done file was NOT removed when PRUNE_ON_RUN=1"
+echo "  ✓ PRUNE_ON_RUN=1 — stale done file removed"
+rm -rf "$T_LP2_DIR" "$T_LP2_STATE"
+echo "T-loop-prune-2 passed"
+
+echo "=== T-loop-prune-3: MAKATO_LOOP_PRUNE_ON_RUN=1 + --dry-run — prune NOT invoked ==="
+T_LP3_DIR="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-lp3"
+rm -rf "$T_LP3_DIR"; mkdir -p "$T_LP3_DIR"
+(
+  cd "$T_LP3_DIR"
+  git init -q -b main
+  git config user.email t@t.t; git config user.name t
+  git commit -q --allow-empty -m init
+)
+mkdir -p "$T_LP3_DIR/specs/lp3-done-stale"
+OLD_TS_LP3="$(python3 -c "
+from datetime import datetime, timezone, timedelta
+n = datetime.now(timezone.utc) - timedelta(days=40)
+print(n.strftime('%Y-%m-%dT%H:%M:%S.') + f'{n.microsecond // 1000:03d}Z')
+")"
+jq -n --arg ts "$OLD_TS_LP3" '{
+  repo:"macatocz/test", branch:"feat/lp3", worktree_path:null,
+  worktree_retained:false, worktree_retain_reason:null,
+  issue_number:8803, sub_tasks:[], current_phase:"done",
+  resume_point:null, budget_consumed_tokens:0, session_baseline_tokens:0,
+  budget_limit_tokens:500000, context_warn_tokens:150000,
+  outer_iteration:0, merge_conflict_cycles:0, ci_failure_cycles:0,
+  structural_halt_cycles:0, reshape_cycles:0, halt_audit:[],
+  human_review_cycles:0, github_pr_number:null, progress_comment_id:null,
+  lessons_learned:[], session_summary:null, session_count:0,
+  handoff_reason:null, restart_failed:false, spawned_pid:null,
+  resume_ack:null, created_at:$ts, updated_at:$ts
+}' > "$T_LP3_DIR/specs/lp3-done-stale/workflow-state-8803.json"
+
+T_LP3_STATE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-lp3-state"
+mkdir -p "$T_LP3_STATE"
+
+# Run with PRUNE_ON_RUN=1 but also --dry-run. Prune must be skipped under dry-run.
+(
+  cd "$T_LP3_DIR" &&
+  MAKATO_LOOP_DISPATCH_REPO="test-owner/test-repo" \
+  MAKATO_LOOP_STATE_DIR="$T_LP3_STATE" \
+  SPECS_DIR="$T_LP3_DIR/specs" REPO_ROOT="$T_LP3_DIR" \
+  MAKATO_LOOP_PRUNE_ON_RUN=1 \
+  MAKATO_LOOP_PRUNE_AGE_DAYS=30 \
+  MAKATO_LOOP_REAP_ON_POLL=0 \
+  MAKATO_LOOP_RECONCILE_ON_POLL=0 \
+    "$LOOP" run --status Ready --once --dry-run 2>/dev/null || true
+)
+[[ -f "$T_LP3_DIR/specs/lp3-done-stale/workflow-state-8803.json" ]] \
+  || fail "T-loop-prune-3: stale done file was WRONGLY removed under --dry-run with PRUNE_ON_RUN=1"
+echo "  ✓ PRUNE_ON_RUN=1 + --dry-run — stale done file untouched"
+rm -rf "$T_LP3_DIR" "$T_LP3_STATE"
+echo "T-loop-prune-3 passed"
+
+echo
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T-RG-1–T-RG-4 GraphQL rate-limit guard, #556; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T-RESUME-1 complete result no-op, T-RESUME-2 incomplete triggers attempt, T-RESUME-3 errored triggers attempt, T-RESUME-4 budget-exhausted HALT-014, T-RESUME-5 STALL_DISABLE skip detect+resume, #531; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470; T84–T89 orphaned-specs pruning; T90 promote-before-prune; T-GQL1–T-GQL5 GraphQL board poll + item-list rollback, #516; T-IDLE1–T-IDLE2 adaptive idle backoff, #516; T91 plan-tier:change routing, #539; T-wave-order, T-promote-on, T-promote-off, T-fifo-fallback wave-ordered dispatch + promote-unblocked, #548; T-PREDISPATCH-127 exit-127 log demotion, T-REAP-NUMBERLESS numberless-folder reap-specs demotion, #558; T-loop-prune-1–T-loop-prune-3 workflow-state prune wiring, #597) ==="

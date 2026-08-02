@@ -525,6 +525,16 @@ REAP_STALE_FORCE="${MAKATO_LOOP_REAP_STALE_FORCE:-0}"
 # Orphaned specs/ folder pruning — default on, opt-out via =0.
 REAP_SPECS="${MAKATO_LOOP_REAP_SPECS:-1}"
 
+# --- workflow-state prune pass (#597) ---
+# Optional pass that removes done+stale workflow-state-*.json files after
+# each reap pass. Off by default; opt-in via MAKATO_LOOP_PRUNE_ON_RUN=1.
+# Never runs under --dry-run (REAP_ON_POLL guard already skips the sibling
+# reap; the same convention applies here).
+#   MAKATO_LOOP_PRUNE_ON_RUN=1   Enable the prune pass (default off).
+#   MAKATO_LOOP_PRUNE_AGE_DAYS   Age threshold in days (default 30).
+MAKATO_LOOP_PRUNE_ON_RUN="${MAKATO_LOOP_PRUNE_ON_RUN:-0}"
+MAKATO_LOOP_PRUNE_AGE_DAYS="${MAKATO_LOOP_PRUNE_AGE_DAYS:-30}"
+
 # --- Sleep-wake guard (#171) --------------------------------------------
 # After a macOS host suspend/resume, `sleep $interval` in the outer
 # `cmd_run` loop can return early — the parent shell then tight-loops
@@ -5430,6 +5440,16 @@ cmd_run() {
     # blocks the tick.
     if [[ "$REAP_ON_POLL" == "1" && -z "$dry_run" ]]; then
       _reap_merged_worktrees || true
+    fi
+
+    # Optional prune pass (#597): remove done+stale workflow-state-*.json files.
+    # Opt-in via MAKATO_LOOP_PRUNE_ON_RUN=1. Skipped under --dry-run.
+    if [[ "${MAKATO_LOOP_PRUNE_ON_RUN}" == "1" && -z "$dry_run" ]]; then
+      local _ws_sh
+      _ws_sh="$(dirname "$(dirname "${BASH_SOURCE[0]}")")/shared/workflow-state.sh"
+      if [[ -x "$_ws_sh" ]]; then
+        "$_ws_sh" prune "*" "$MAKATO_LOOP_PRUNE_AGE_DAYS" || true
+      fi
     fi
 
     local queue queue_depth poll_rc

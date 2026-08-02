@@ -91,7 +91,10 @@ else
   # script never crashes in test fixtures or scratch dirs.
   REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 fi
-SPECS_DIR="$REPO_ROOT/specs"
+# Allow SPECS_DIR env override for offline smoke tests (mirrors the
+# MAKATO_MEMORY_ROOT override in recall-lessons). Production callers
+# must NOT set this — REPO_ROOT/specs is the canonical location.
+SPECS_DIR="${SPECS_DIR:-$REPO_ROOT/specs}"
 SCHEMA_PATH="$REPO_ROOT/plugins/makato-orchestrate/skills/workflow-state/references/workflow-state.schema.json"
 
 # ---------------------------------------------------------------------------
@@ -954,8 +957,81 @@ PYEOF
     echo "$LESSONS_FILE"
     ;;
 
+  # -------------------------------------------------------------------------
+  # prune <KEY_GLOB> [AGE_DAYS]
+  #
+  # Remove workflow-state-*.json files whose current_phase is "done" AND
+  # whose updated_at is older than AGE_DAYS days (default 30).
+  # Non-done files and files within the age threshold are never touched.
+  # Emits one stderr line per removed file: "workflow-state: pruned <path>".
+  # Prints pruned count (integer) to stdout.
+  # Idempotent: a second run with no qualifying files exits 0 with count=0.
+  # -------------------------------------------------------------------------
+  prune)
+    KEY_GLOB="${2:?key_glob required (e.g. \"*\" or \"gap-*\")}"
+    AGE_DAYS="${3:-30}"
+
+    if ! [[ "$AGE_DAYS" =~ ^[0-9]+$ ]]; then
+      echo "workflow-state: AGE_DAYS must be a non-negative integer (got '${AGE_DAYS}')" >&2
+      exit 1
+    fi
+
+    PRUNED=0
+    # Compute the cutoff epoch using python3 for portability (macOS/Linux).
+    CUTOFF_EPOCH="$(python3 -c "
+import time, sys
+age_days = int(sys.argv[1])
+print(int(time.time()) - age_days * 86400)
+" "$AGE_DAYS")"
+
+    # Iterate over all matching workflow-state-*.json files.
+    # KEY_GLOB is expanded by the shell glob below against $SPECS_DIR.
+    while IFS= read -r -d '' STATE_FILE_CANDIDATE; do
+      # Read current_phase and updated_at from the candidate.
+      if ! PHASE="$(jq -re '.current_phase // empty' "$STATE_FILE_CANDIDATE" 2>/dev/null)"; then
+        continue
+      fi
+      if [[ "$PHASE" != "done" ]]; then
+        continue
+      fi
+
+      UPDATED_AT="$(jq -re '.updated_at // empty' "$STATE_FILE_CANDIDATE" 2>/dev/null || true)"
+      if [[ -z "$UPDATED_AT" ]]; then
+        continue
+      fi
+
+      FILE_EPOCH="$(python3 -c "
+import time, sys
+from datetime import datetime, timezone
+ts = sys.argv[1]
+# Strip trailing Z, parse as UTC ISO-8601.
+ts_clean = ts.rstrip('Z').split('+')[0]
+try:
+    dt = datetime.fromisoformat(ts_clean).replace(tzinfo=timezone.utc)
+except ValueError:
+    sys.exit(1)
+print(int(dt.timestamp()))
+" "$UPDATED_AT" 2>/dev/null || echo "")"
+
+      if [[ -z "$FILE_EPOCH" ]]; then
+        continue
+      fi
+
+      if (( FILE_EPOCH < CUTOFF_EPOCH )); then
+        echo "workflow-state: pruned $STATE_FILE_CANDIDATE" >&2
+        rm -f "$STATE_FILE_CANDIDATE"
+        (( PRUNED++ )) || true
+      fi
+    done < <(find "$SPECS_DIR" -maxdepth 2 \
+        -name 'workflow-state-*.json' \
+        -path "*/${KEY_GLOB}/*" \
+        -print0 2>/dev/null)
+
+    echo "$PRUNED"
+    ;;
+
   *)
-    echo "workflow-state: unknown subcommand '$SUBCMD'. Valid: init|read|write|patch|append-lesson|append-halt|bump-structural-halt|recall-lessons|summarise-lessons" >&2
+    echo "workflow-state: unknown subcommand '$SUBCMD'. Valid: init|read|write|patch|append-lesson|append-halt|bump-structural-halt|recall-lessons|summarise-lessons|prune" >&2
     exit 1
     ;;
 esac

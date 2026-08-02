@@ -666,5 +666,173 @@ else
 fi
 rm -rf "$SANDBOX_446"
 
+
+# ---------------------------------------------------------------------------
+# T-prune-1..T-prune-5: #597 — prune subcommand
+#
+# prune <KEY_GLOB> <AGE_DAYS> removes workflow-state-*.json files where:
+#   current_phase == "done" AND updated_at is older than AGE_DAYS days.
+#
+# Files with current_phase != "done" or updated_at within the threshold
+# must never be touched. The subcommand is idempotent (exit 0 with count=0
+# on re-run). Pruned count is printed to stdout; one stderr line per file.
+#
+# These tests build isolated spec folders under /tmp (no specs/ sandbox
+# needed) by setting SPECS_DIR via a dedicated env var. workflow-state.sh
+# resolves SPECS_DIR from REPO_ROOT (the git-common-dir), so we create a
+# minimal git repo in TMPDIR to make the prune glob work offline.
+# ---------------------------------------------------------------------------
 echo
-echo "All 58 smoke tests passed."
+echo "=== T-prune-1: done + old file is removed ==="
+PRUNE_SANDBOX="${TMPDIR:-/tmp}/ws-prune-$$"
+PRUNE_SPECS="$PRUNE_SANDBOX/specs"
+mkdir -p "$PRUNE_SPECS/prune-key-1"
+
+# Create a state file with current_phase=done and updated_at 40 days ago.
+OLD_TS="$(python3 -c "
+from datetime import datetime, timezone, timedelta
+n = datetime.now(timezone.utc) - timedelta(days=40)
+print(n.strftime('%Y-%m-%dT%H:%M:%S.') + f'{n.microsecond // 1000:03d}Z')
+")"
+jq -n --arg ts "$OLD_TS" '{
+  repo:"macatocz/test", branch:"feat/prune", worktree_path:null,
+  worktree_retained:false, worktree_retain_reason:null,
+  issue_number:9001, sub_tasks:[], current_phase:"done",
+  resume_point:null, budget_consumed_tokens:0, session_baseline_tokens:0,
+  budget_limit_tokens:500000, context_warn_tokens:150000,
+  outer_iteration:0, merge_conflict_cycles:0, ci_failure_cycles:0,
+  structural_halt_cycles:0, reshape_cycles:0, halt_audit:[],
+  human_review_cycles:0, github_pr_number:null, progress_comment_id:null,
+  lessons_learned:[], session_summary:null, session_count:0,
+  handoff_reason:null, restart_failed:false, spawned_pid:null,
+  resume_ack:null, created_at:$ts, updated_at:$ts
+}' > "$PRUNE_SPECS/prune-key-1/workflow-state-9001.json"
+
+# Run prune; capture stdout count and stderr.
+PRUNE1_COUNT="$(SPECS_DIR="$PRUNE_SPECS" "$WS" prune "*" 30 2>/tmp/ws-prune-stderr-$$)"
+PRUNE1_STDERR="$(cat /tmp/ws-prune-stderr-$$)"
+rm -f /tmp/ws-prune-stderr-$$
+
+# File must be gone and count must be 1.
+[[ ! -f "$PRUNE_SPECS/prune-key-1/workflow-state-9001.json" ]] \
+  || { echo "  ✗ FAIL: done+old file was NOT removed"; rm -rf "$PRUNE_SANDBOX"; exit 1; }
+[[ "$PRUNE1_COUNT" == "1" ]] \
+  || { echo "  ✗ FAIL: expected stdout count=1, got '$PRUNE1_COUNT'"; rm -rf "$PRUNE_SANDBOX"; exit 1; }
+echo "$PRUNE1_STDERR" | grep -q "pruned" \
+  || { echo "  ✗ FAIL: expected 'pruned' in stderr, got: $PRUNE1_STDERR"; rm -rf "$PRUNE_SANDBOX"; exit 1; }
+echo "  ✓ done+old file removed, count=1, stderr mentions 'pruned'"
+rm -rf "$PRUNE_SANDBOX"
+
+echo "=== T-prune-2: done + recent file (within threshold) is NOT removed ==="
+PRUNE_SANDBOX="${TMPDIR:-/tmp}/ws-prune-$$"
+PRUNE_SPECS="$PRUNE_SANDBOX/specs"
+mkdir -p "$PRUNE_SPECS/prune-key-2"
+
+# Create a state file with current_phase=done but updated_at only 5 days ago.
+RECENT_TS="$(python3 -c "
+from datetime import datetime, timezone, timedelta
+n = datetime.now(timezone.utc) - timedelta(days=5)
+print(n.strftime('%Y-%m-%dT%H:%M:%S.') + f'{n.microsecond // 1000:03d}Z')
+")"
+jq -n --arg ts "$RECENT_TS" '{
+  repo:"macatocz/test", branch:"feat/prune", worktree_path:null,
+  worktree_retained:false, worktree_retain_reason:null,
+  issue_number:9002, sub_tasks:[], current_phase:"done",
+  resume_point:null, budget_consumed_tokens:0, session_baseline_tokens:0,
+  budget_limit_tokens:500000, context_warn_tokens:150000,
+  outer_iteration:0, merge_conflict_cycles:0, ci_failure_cycles:0,
+  structural_halt_cycles:0, reshape_cycles:0, halt_audit:[],
+  human_review_cycles:0, github_pr_number:null, progress_comment_id:null,
+  lessons_learned:[], session_summary:null, session_count:0,
+  handoff_reason:null, restart_failed:false, spawned_pid:null,
+  resume_ack:null, created_at:$ts, updated_at:$ts
+}' > "$PRUNE_SPECS/prune-key-2/workflow-state-9002.json"
+
+PRUNE2_COUNT="$(SPECS_DIR="$PRUNE_SPECS" "$WS" prune "*" 30 2>/dev/null)"
+[[ -f "$PRUNE_SPECS/prune-key-2/workflow-state-9002.json" ]] \
+  || { echo "  ✗ FAIL: done+recent file was WRONGLY removed"; rm -rf "$PRUNE_SANDBOX"; exit 1; }
+[[ "$PRUNE2_COUNT" == "0" ]] \
+  || { echo "  ✗ FAIL: expected stdout count=0, got '$PRUNE2_COUNT'"; rm -rf "$PRUNE_SANDBOX"; exit 1; }
+echo "  ✓ done+recent file NOT removed, count=0"
+rm -rf "$PRUNE_SANDBOX"
+
+echo "=== T-prune-3: non-done (current_phase=build) + old file is NOT removed ==="
+PRUNE_SANDBOX="${TMPDIR:-/tmp}/ws-prune-$$"
+PRUNE_SPECS="$PRUNE_SANDBOX/specs"
+mkdir -p "$PRUNE_SPECS/prune-key-3"
+
+OLD_TS="$(python3 -c "
+from datetime import datetime, timezone, timedelta
+n = datetime.now(timezone.utc) - timedelta(days=40)
+print(n.strftime('%Y-%m-%dT%H:%M:%S.') + f'{n.microsecond // 1000:03d}Z')
+")"
+jq -n --arg ts "$OLD_TS" '{
+  repo:"macatocz/test", branch:"feat/prune", worktree_path:null,
+  worktree_retained:false, worktree_retain_reason:null,
+  issue_number:9003, sub_tasks:[], current_phase:"build",
+  resume_point:null, budget_consumed_tokens:0, session_baseline_tokens:0,
+  budget_limit_tokens:500000, context_warn_tokens:150000,
+  outer_iteration:0, merge_conflict_cycles:0, ci_failure_cycles:0,
+  structural_halt_cycles:0, reshape_cycles:0, halt_audit:[],
+  human_review_cycles:0, github_pr_number:null, progress_comment_id:null,
+  lessons_learned:[], session_summary:null, session_count:0,
+  handoff_reason:null, restart_failed:false, spawned_pid:null,
+  resume_ack:null, created_at:$ts, updated_at:$ts
+}' > "$PRUNE_SPECS/prune-key-3/workflow-state-9003.json"
+
+PRUNE3_COUNT="$(SPECS_DIR="$PRUNE_SPECS" "$WS" prune "*" 30 2>/dev/null)"
+[[ -f "$PRUNE_SPECS/prune-key-3/workflow-state-9003.json" ]] \
+  || { echo "  ✗ FAIL: non-done+old file was WRONGLY removed"; rm -rf "$PRUNE_SANDBOX"; exit 1; }
+[[ "$PRUNE3_COUNT" == "0" ]] \
+  || { echo "  ✗ FAIL: expected stdout count=0, got '$PRUNE3_COUNT'"; rm -rf "$PRUNE_SANDBOX"; exit 1; }
+echo "  ✓ non-done+old file NOT removed, count=0"
+rm -rf "$PRUNE_SANDBOX"
+
+echo "=== T-prune-4: zero matching files — exits 0, count=0 ==="
+PRUNE_SANDBOX="${TMPDIR:-/tmp}/ws-prune-$$"
+PRUNE_SPECS="$PRUNE_SANDBOX/specs"
+mkdir -p "$PRUNE_SPECS"
+# No spec folders at all.
+PRUNE4_RC=0
+PRUNE4_COUNT="$(SPECS_DIR="$PRUNE_SPECS" "$WS" prune "*" 30 2>/dev/null)" || PRUNE4_RC=$?
+[[ "$PRUNE4_RC" == "0" ]] \
+  || { echo "  ✗ FAIL: expected exit 0, got $PRUNE4_RC"; rm -rf "$PRUNE_SANDBOX"; exit 1; }
+[[ "$PRUNE4_COUNT" == "0" ]] \
+  || { echo "  ✗ FAIL: expected count=0, got '$PRUNE4_COUNT'"; rm -rf "$PRUNE_SANDBOX"; exit 1; }
+echo "  ✓ zero matching files: exit 0, count=0"
+rm -rf "$PRUNE_SANDBOX"
+
+echo "=== T-prune-5: custom AGE_DAYS=7 removes a 10-day-old done file ==="
+PRUNE_SANDBOX="${TMPDIR:-/tmp}/ws-prune-$$"
+PRUNE_SPECS="$PRUNE_SANDBOX/specs"
+mkdir -p "$PRUNE_SPECS/prune-key-5"
+
+TEN_DAYS_TS="$(python3 -c "
+from datetime import datetime, timezone, timedelta
+n = datetime.now(timezone.utc) - timedelta(days=10)
+print(n.strftime('%Y-%m-%dT%H:%M:%S.') + f'{n.microsecond // 1000:03d}Z')
+")"
+jq -n --arg ts "$TEN_DAYS_TS" '{
+  repo:"macatocz/test", branch:"feat/prune", worktree_path:null,
+  worktree_retained:false, worktree_retain_reason:null,
+  issue_number:9005, sub_tasks:[], current_phase:"done",
+  resume_point:null, budget_consumed_tokens:0, session_baseline_tokens:0,
+  budget_limit_tokens:500000, context_warn_tokens:150000,
+  outer_iteration:0, merge_conflict_cycles:0, ci_failure_cycles:0,
+  structural_halt_cycles:0, reshape_cycles:0, halt_audit:[],
+  human_review_cycles:0, github_pr_number:null, progress_comment_id:null,
+  lessons_learned:[], session_summary:null, session_count:0,
+  handoff_reason:null, restart_failed:false, spawned_pid:null,
+  resume_ack:null, created_at:$ts, updated_at:$ts
+}' > "$PRUNE_SPECS/prune-key-5/workflow-state-9005.json"
+
+PRUNE5_COUNT="$(SPECS_DIR="$PRUNE_SPECS" "$WS" prune "*" 7 2>/dev/null)"
+[[ ! -f "$PRUNE_SPECS/prune-key-5/workflow-state-9005.json" ]] \
+  || { echo "  ✗ FAIL: done+10-day-old file was NOT removed with AGE_DAYS=7"; rm -rf "$PRUNE_SANDBOX"; exit 1; }
+[[ "$PRUNE5_COUNT" == "1" ]] \
+  || { echo "  ✗ FAIL: expected count=1, got '$PRUNE5_COUNT'"; rm -rf "$PRUNE_SANDBOX"; exit 1; }
+echo "  ✓ custom AGE_DAYS=7 removes 10-day-old done file, count=1"
+rm -rf "$PRUNE_SANDBOX"
+
+echo
+echo "All 66 smoke tests passed."
