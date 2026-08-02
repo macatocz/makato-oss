@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.115.0](https://github.com/macatocz/makato/compare/v0.114.0...v0.115.0) (2026-08-02)
+
+
+### ✨ Features
+
+* **makato-plan:** add manage-stores skill with register/list/remove sub-commands ([d0a4838](https://github.com/macatocz/makato/commit/d0a4838cccc357ba6d45a896b1de7427bf81fcc4))
+* **makato-plan:** add target_repo to created-issues schema + cross-repo smoke test ([d92f2d0](https://github.com/macatocz/makato/commit/d92f2d065caacaf036a337931494ed4b170a52cb))
+* **makato-plan:** cross-repo spec stores -- --repo/--store flags + manage-stores ([#565](https://github.com/macatocz/makato/issues/565)) ([67ab3e3](https://github.com/macatocz/makato/commit/67ab3e3a5adb26c4cae7294bac7abce3240d6d8d))
+* **makato-plan:** cross-repo spec stores -- --repo/--store flags + manage-stores ([#565](https://github.com/macatocz/makato/issues/565)) ([67ab3e3](https://github.com/macatocz/makato/commit/67ab3e3a5adb26c4cae7294bac7abce3240d6d8d))
+* **makato-plan:** stores[] schema in config.json + manage-stores.sh register/list/remove ([0a0459d](https://github.com/macatocz/makato/commit/0a0459de99d1495dece045db8f9d18f069029ceb))
+* **makato-plan:** to-issues --repo and --store flags for cross-repo issue creation ([e5ce3de](https://github.com/macatocz/makato/commit/e5ce3de36d8dabdb87e1eaab6f21b0547b3cd897))
+
 ## [0.114.0](https://github.com/macatocz/makato/compare/v0.113.0...v0.114.0) (2026-08-02)
 
 
