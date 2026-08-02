@@ -10,7 +10,7 @@ description: >-
   exits on a HALT. Honors `~/.claude/HALT` before every dispatch
   (NEVER 3) and emits `.claude/state/loop-status.json` as the
   operator-facing live audit.
-version: "2.1.0"
+version: "2.2.0"
 argument-hint: "[--status <NAME>] [--interval <S>] [--dry-run] [--once] [--force]"
 ---
 
@@ -132,6 +132,14 @@ A folder is pruned only when **all** hold:
    `gh issue view <N> --json state` returns `CLOSED` (fallback for thin folders
    with no workflow-state file). An `OPEN` issue is skipped; an unknown/error
    state is skipped with a WARN.
+4. **no still-open sibling** — the *shared-epic guard*. A folder whose
+   `created-issues.json` / `stories.json` enumerates more than one issue is the
+   shared AC/plan store for the whole batch (e.g. `openspec-transfer-features`
+   hosts #562–#568 under one `stories.json`). The done signal in (3) only clears
+   the single derived issue; the folder is pruned only once **every** referenced
+   sibling is also closed. While any sibling is still open — or its state is
+   unreadable — the folder is KEPT so the sibling stories never lose their plans.
+   A single-issue folder (no siblings) is unaffected.
 
 Best-effort and respects `MAKATO_LOOP_REAP_DRYRUN`. Disable with
 `MAKATO_LOOP_REAP_SPECS=0`. Audit counts land in `loop-status.json` under

@@ -14,6 +14,17 @@ Changes are grouped by skill/component. Within each group, latest version on top
   the run. Smoke-tested by `sync-living-specs-smoke-tests.sh` (T1–T6). (#567)
 
 ### Fixed
+- `loop.sh` `_reap_orphan_specs` (loop skill 2.2.0): added a **shared-epic
+  guard** (decision-tree step 3b). A `specs/<slug>/` folder whose
+  `created-issues.json` / `stories.json` enumerates more than one sibling issue
+  is the shared AC/plan store for the whole batch (e.g.
+  `openspec-transfer-features` hosts #562–#568 under one `stories.json`). The
+  done-signal only clears the single issue whose `workflow-state-<N>.json` was
+  derived; deleting the folder would destroy the plans the still-open sibling
+  stories depend on. The reaper now KEEPS the folder while ANY referenced
+  sibling issue is still open (unreadable sibling state is treated as open —
+  never lose shared plans), and only prunes once every sibling is closed.
+  New regression tests `T-epic` / `T-epic2` in `loop-smoke-tests.sh`.
 - `loop.sh` `_pre_dispatch_plan_guard`: exit 127 from the `claude` subprocess
   (skill binary not launchable — PATH / installation issue) is now logged as an
   expected skip/debug line (`build-refine skill not launchable (exit 127) — skipping

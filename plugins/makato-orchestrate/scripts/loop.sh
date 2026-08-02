@@ -3841,6 +3841,12 @@ _reap_stamp() {
 #      .current_phase == "done" → prune. Otherwise fall back to `gh issue view
 #      <N> --json state` (or MAKATO_LOOP_REAP_SPECS_GH_OVERRIDE): CLOSED → prune,
 #      OPEN → skip, unknown/error → skip with WARN.
+#   3b. SHARED-EPIC guard: if the folder holds a created-issues.json / stories.json
+#      that enumerates sibling issues, KEEP the folder while ANY sibling is still
+#      open — one stories.json is the shared AC/plan store for the whole batch
+#      (e.g. openspec-transfer-features hosts #562–#568). Unreadable sibling
+#      state is treated as open (KEEP). Prevents destroying sibling plans when
+#      only one story of an epic has merged.
 #   4. Promote lessons THEN prune: before deleting, run promote-lessons.sh so
 #      any scope=generalizable lesson in workflow-state-<N>.json /
 #      change-lessons.jsonl is lifted into the committed .makato/memory/ store.
@@ -3930,6 +3936,59 @@ _reap_orphan_specs() {
       else
         echo "loop: reap-specs WARN $slug_dir (issue #${issue_num} gh state unknown: '${gh_state}') — skipping" >&2
         continue
+      fi
+    fi
+
+    # Guard 6: shared-epic folder. A folder whose created-issues.json (or
+    # stories.json) enumerates MORE than one issue is an epic store shared by
+    # the whole batch (e.g. openspec-transfer-features hosts #562–#568 with one
+    # stories.json). The done signal above only clears the single issue whose
+    # workflow-state we derived; deleting the folder would destroy the AC/plan
+    # data the sibling stories still need. Skip while ANY referenced sibling is
+    # still open. Offline via MAKATO_LOOP_REAP_SPECS_GH_OVERRIDE (same fixture
+    # map used by the done-signal fallback). Best-effort: an unreadable sibling
+    # state is treated as "still open" (KEEP) — never lose shared plans.
+    local epic_manifest=""
+    for cand in "$slug_dir/created-issues.json" "$slug_dir/stories.json"; do
+      [[ -f "$cand" ]] && { epic_manifest="$cand"; break; }
+    done
+    if [[ -n "$epic_manifest" ]]; then
+      # Collect every issue number referenced in the manifest (both shapes:
+      # created-issues.json .issues[].issue_number and stories.json
+      # .stories[].issue_number / githubIssue), excluding the current one.
+      local -a siblings=()
+      while IFS= read -r sib; do
+        [[ -n "$sib" && "$sib" != "$issue_num" ]] && siblings+=("$sib")
+      done < <(jq -r '
+        [ (.issues[]?.issue_number // empty),
+          (.stories[]?.issue_number // empty),
+          (.stories[]?.githubIssue // empty) ]
+        | .[] | numbers' "$epic_manifest" 2>/dev/null | sort -u)
+
+      if [[ "${#siblings[@]}" -gt 0 ]]; then
+        local open_sibling=""
+        for sib in "${siblings[@]}"; do
+          local sib_state=""
+          if [[ -n "${MAKATO_LOOP_REAP_SPECS_GH_OVERRIDE:-}" ]]; then
+            sib_state="$(jq -r --arg n "$sib" '.[$n] // empty' \
+              "$MAKATO_LOOP_REAP_SPECS_GH_OVERRIDE" 2>/dev/null | tr '[:upper:]' '[:lower:]' || true)"
+          else
+            local sib_repo; sib_repo="$(_derive_reap_repo)"
+            local -a sib_repo_flag=()
+            [[ -n "$sib_repo" ]] && sib_repo_flag=(--repo "$sib_repo")
+            sib_state="$(gh issue view "$sib" "${sib_repo_flag[@]}" --json state --jq '.state' 2>/dev/null \
+              | tr '[:upper:]' '[:lower:]' || true)"
+          fi
+          # Anything not definitively "closed" (open, or unreadable) pins the folder.
+          if [[ "$sib_state" != "closed" ]]; then
+            open_sibling="$sib"
+            break
+          fi
+        done
+        if [[ -n "$open_sibling" ]]; then
+          echo "loop: reap-specs skip $slug_dir (shared-epic folder — sibling issue #${open_sibling} still open; keeping shared plans)" >&2
+          continue
+        fi
       fi
     fi
 
