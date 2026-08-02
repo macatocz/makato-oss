@@ -5,6 +5,12 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+- **Added** `create-workflow-schema` skill (v1.0.0, #563) — interactive wizard
+  that generates `.claude/workflow-schema.yml` via a guided interview. Presents
+  the built-in default pipeline, lets the user mark optional artifacts as required,
+  add custom artifacts at specific positions, and validates the result with
+  `workflow-schema-loader.sh` before confirming. See `docs/workflow-schema.md`
+  for the schema format reference.
 - **Added** `core-skill-judge` bundle in `config/skill-bundles.yml` (#430) — routes any edit to
   `plugins/**/skills/**/SKILL.md` to the `skill-judge` skill so authors get quality-scoring
   context while working on a skill file.

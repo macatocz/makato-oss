@@ -6,7 +6,7 @@ description: >-
   kicks off /build-refine. Use when starting a new story build, beginning the
   makato-build workflow, running build-start on a work item, or starting local
   work without a ticket.
-version: "1.4.0"
+version: "1.5.0"
 argument-hint: "[work-item-key]"
 ---
 
@@ -217,15 +217,56 @@ Ask the user to choose the implementation mode for this story:
 If the user is unsure, ask what the story primarily involves. Default to TDD
 when in doubt — `/build-refine` will confirm and may produce a mixed-mode plan.
 
+### Step 4.5 — Resolve workflow schema
+
+Before initialising the build log, resolve the workflow schema for this session.
+The schema determines which skill artifacts are assembled into the pipeline.
+
+Run `workflow-schema-loader.sh` passing the repository root as the first argument:
+
+```bash
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+ARTIFACT_LIST="$(bash scripts/workflow-schema-loader.sh "$REPO_ROOT" 2>/tmp/schema-loader-err)"
+SCHEMA_EXIT=$?
+```
+
+**On exit 0:** `ARTIFACT_LIST` contains one JSON object per line, each with fields
+`id`, `skill`, `required`, `description`. Use this list to assemble the pipeline
+order for Step 6. Log the resolved schema source:
+
+```bash
+SCHEMA_SOURCE="custom"   # or "default" — readable from first loader stderr line or infer:
+# if .claude/workflow-schema.yml is absent → "default"
+if [[ ! -f "$REPO_ROOT/.claude/workflow-schema.yml" ]]; then
+  SCHEMA_SOURCE="default"
+fi
+shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"schema-resolved","status":"ok","data":{"source":"<default|custom>","artifact_count":<N>}}'
+```
+
+**On exit 1 or 2:** The schema is invalid (parse error, cycle detected, or missing
+arg). Do NOT continue — stop and report:
+
+> "Workflow schema error: `<contents of /tmp/schema-loader-err>`
+>
+> Fix `.claude/workflow-schema.yml` before starting the build session. See
+> `docs/workflow-schema.md` for format documentation."
+
+Log the error:
+
+```bash
+shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"schema-resolved","status":"error","error":"<loader stderr>"}'
+```
+
 ### Step 5 — Initialize build log
 
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"session-start","status":"start","data":{"mode":"<tdd|goal>","local_work":<true|false>,"spec_artifacts":[...]}}'
+shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"session-start","status":"start","data":{"mode":"<tdd|goal>","local_work":<true|false>,"spec_artifacts":[...],"schema_source":"<default|custom>"}}'
 ```
 
 List every artifact file found in the resolved `specs/<key>-*/` folder in the `spec_artifacts` array.
+Include `schema_source` from Step 4.5.
 
 ### Step 6 — Hand off to build-refine
 

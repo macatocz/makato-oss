@@ -5,6 +5,46 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## `build-start` + `workflow-schema-loader.sh` — extensible workflow schema system (#563)
+
+Introduces an optional `.claude/workflow-schema.yml` that lets teams customise the
+skill pipeline assembled by `build-start`. When absent, the built-in default schema
+mirrors the current hardcoded behaviour exactly (backward-compatible).
+
+**`plugins/makato-build/config/default-workflow-schema.yml`** (new):
+
+- Built-in default workflow schema listing all 11 pipeline artifacts in dependency
+  order — matches the pipeline described in `AGENTS.md`.
+
+**`plugins/makato-build/scripts/workflow-schema-loader.sh`** (new):
+
+- Resolves `.claude/workflow-schema.yml` when present; falls back to the built-in
+  default when absent (exit 0 in both cases).
+- Parses the restricted YAML subset using Python 3 stdlib (no external deps —
+  matches the `mark-ac-checkboxes.sh` / `write-lessons.sh` pattern).
+- Detects direct cycles (`A→B→A`) and transitive cycles (`A→B→C→A`) via iterative
+  DFS; exits 1 with the full cycle path in the error message.
+- Exits 1 with a descriptive parse error on empty or malformed schema files.
+- Prints one JSON object per line (`id`, `skill`, `required`, `description`) in
+  topological order.
+
+**`plugins/makato-build/scripts/workflow-schema-smoke-tests.sh`** (new):
+
+- Six offline smoke scenarios (T1–T6): missing args, schema absent → default,
+  valid custom schema with extra artifact, direct cycle, transitive cycle, empty
+  schema file. Exit code = failure count.
+
+**`skills/build-start/SKILL.md`** (v1.4.0 → **v1.5.0**):
+
+- **New Step 4.5** (Resolve workflow schema): calls `workflow-schema-loader.sh`
+  before the build log is initialised; logs `schema-resolved` JSONL entry with
+  `source` (`default`/`custom`) and `artifact_count`; halts on non-zero exit with
+  the loader's error message.
+- **Step 5** (Initialize build log): `session-start` log now includes
+  `schema_source` field.
+
+---
+
 ## `build-refine` — autonomous ticket-path key-miss HALTs instead of prompting (#527)
 
 Part of the autonomous build-refine materialization lane (makato-orchestrate

@@ -1,0 +1,76 @@
+# default-workflow-schema.yml
+# Built-in default workflow schema for makato-build.
+#
+# This file mirrors the current hardcoded pipeline sequence used by build-start.
+# It is the fallback when no .claude/workflow-schema.yml is present in the repo.
+#
+# Format: see docs/workflow-schema.md for full field documentation.
+# Issue: #563
+
+version: "1.0"
+
+artifacts:
+  - id: refine
+    skill: build-refine
+    required: true
+    description: "Bridge planned story to implementation plan (tasks, file targets, test strategy)"
+
+  - id: grill-with-docs
+    skill: build-grill-with-docs
+    required: false
+    description: "Align implementation plan vocabulary to the codebase domain model (optional)"
+    after: [refine]
+
+  - id: implement-tdd
+    skill: build-implement-tdd
+    required: false
+    description: "TDD inner loop: RED → GREEN → INTEGRATE → VERIFY per task"
+    after: [refine]
+
+  - id: implement-goal
+    skill: build-implement-goal
+    required: false
+    description: "Goal-driven inner loop for UI, config, or migration work"
+    after: [refine]
+
+  - id: simplify
+    skill: build-simplify
+    required: true
+    description: "Review implemented code for incidental complexity"
+    after: [implement-tdd, implement-goal]
+
+  - id: review
+    skill: build-review
+    required: true
+    description: "Adversarial diff review against acceptance criteria"
+    after: [simplify]
+
+  - id: verify
+    skill: build-verify
+    required: true
+    description: "Full quality-gate pipeline (build, lint, unit, integration, coverage)"
+    after: [review]
+
+  - id: sensors
+    skill: build-sensors
+    required: true
+    description: "Run pre-commit sensors; dispatch sensor-fixer per finding"
+    after: [verify]
+
+  - id: push-to-git
+    skill: build-push-to-git
+    required: true
+    description: "Create atomic conventional commits and push the feature branch"
+    after: [sensors]
+
+  - id: create-pr
+    skill: build-create-pr
+    required: true
+    description: "Open pull request with AC-mapped description"
+    after: [push-to-git]
+
+  - id: address-pr-comments
+    skill: build-address-pr-comments
+    required: false
+    description: "Classify and resolve PR review comments (runs after review feedback arrives)"
+    after: [create-pr]
