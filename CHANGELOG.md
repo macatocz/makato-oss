@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.118.0](https://github.com/macatocz/makato/compare/v0.117.0...v0.118.0) (2026-08-02)
+
+
+### ✨ Features
+
+* **makato-build:** Gate 6 advisory runtime health-check in build-verify ([#580](https://github.com/macatocz/makato/issues/580)) ([9e695de](https://github.com/macatocz/makato/commit/9e695ded84d441289130d858ad661de40c7cc7d8))
+
 ## [0.117.0](https://github.com/macatocz/makato/compare/v0.116.0...v0.117.0) (2026-08-02)
 
 
