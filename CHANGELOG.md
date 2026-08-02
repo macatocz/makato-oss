@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.113.0](https://github.com/macatocz/makato/compare/v0.112.0...v0.113.0) (2026-08-02)
+
+
+### ✨ Features
+
+* **makato-build:** add repair_hint (WHAT/WHY/FIX) field to finding schema ([#611](https://github.com/macatocz/makato/issues/611)) ([78252be](https://github.com/macatocz/makato/commit/78252beadb869851e2520010da26b39aa3d66a60)), closes [#592](https://github.com/macatocz/makato/issues/592)
+* **makato-build:** extensible workflow schema system ([#563](https://github.com/macatocz/makato/issues/563)) ([#612](https://github.com/macatocz/makato/issues/612)) ([d60a82e](https://github.com/macatocz/makato/commit/d60a82e749fd460895d802c82cbf6c4f49c40d72))
+
 ## [0.112.0](https://github.com/macatocz/makato/compare/v0.111.0...v0.112.0) (2026-08-02)
 
 
