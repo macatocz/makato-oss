@@ -5,6 +5,36 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## `build-explore` — read-only thinking-partner skill (#564)
+
+Adds a new skill that lets an agent (or user) explore a problem area and produce a
+structured analysis report without writing any files — enforced by a restrictive
+`allowed-tools` frontmatter that excludes `Write`, `Edit`, and all file-mutating tools.
+
+**`plugins/makato-build/skills/build-explore/SKILL.md`** (new, v1.0.0):
+
+- Read-only by design: `allowed-tools` lists only `Read`, `Glob`, `Bash(grep *)`,
+  `Bash(find *)`, `Bash(ls *)`, `Bash(cat *)`, `Bash(head *)`, `Bash(tail *)`.
+  `Write`, `Edit`, and git-commit tools are absent — enforced by the harness, not
+  convention.
+- Three-step workflow: identify the topic → survey the current implementation →
+  produce the exploration report.
+- Structured report format with five required sections: **Problem Summary**,
+  **Current Implementation Overview**, **Solution Alternatives** (2–4, each with a
+  trade-off table), **Recommended Approach**, and **Open Questions**.
+- Closes with a `Ready to proceed? Run /build-start to begin implementation.` prompt
+  so the exploration session hands off cleanly to the build pipeline.
+- Carries `argument-hint: "[topic or file path]"` for inline invocation.
+
+**`plugins/makato-build/scripts/build-explore-smoke-tests.sh`** (new):
+
+- Six offline smoke scenarios (T1–T6): SKILL.md file exists, `allowed-tools` excludes
+  `Write`, `allowed-tools` excludes `Edit`, alternatives section has ≥ 2 sub-headings,
+  `/build-start` prompt present in body, missing SKILL.md exits 1 with a clear error.
+  Exit code = failure count.
+
+---
+
 ## `build-start` + `workflow-schema-loader.sh` — extensible workflow schema system (#563)
 
 Introduces an optional `.claude/workflow-schema.yml` that lets teams customise the

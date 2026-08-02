@@ -18,7 +18,8 @@
     "promote-ready": "operator-only tool; intentionally not drawn on the flow diagram",
     "excalidraw": "standalone diagram utility; intentionally not drawn on the flow diagram",
     "lesson-prune": "operator-only curation tool; intentionally not drawn on the flow diagram",
-    "create-workflow-schema": "interactive scaffolding wizard; intentionally not drawn on the pipeline flow diagram"
+    "create-workflow-schema": "interactive scaffolding wizard; intentionally not drawn on the pipeline flow diagram",
+    "build-explore": "standalone thinking-partner / read-only discovery tool; intentionally not drawn on the pipeline flow diagram"
   },
   "unmappedAgents": {},
   "conceptualNodes": {
