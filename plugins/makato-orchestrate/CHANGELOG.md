@@ -5,6 +5,14 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Added
+- `documentation-agent` Step 4c — living-spec delta sync: after a PR merges,
+  `sync-living-specs.sh` reads `specs/<key>-<slug>/spec-delta.md` (when present)
+  and applies ADDED / MODIFIED / REMOVED requirement sections to
+  `docs/specs/<capability>.md`, creating the file from ADDED sections when it does
+  not yet exist. Dangling MODIFIED refs emit a WARN and are skipped without failing
+  the run. Smoke-tested by `sync-living-specs-smoke-tests.sh` (T1–T6). (#567)
+
 ### Fixed
 - `loop.sh` `_pre_dispatch_plan_guard`: exit 127 from the `claude` subprocess
   (skill binary not launchable — PATH / installation issue) is now logged as an
