@@ -3,6 +3,28 @@
 
 Changes are grouped by skill/agent/component. Within each group, latest version on top. Each version block lists one sub-bullet per logical change. Until per-PR version automation is in place, entries land here on merge to main; release-please will date and version them at the next release cut.
 
+## [Unreleased]
+
+### Added
+
+- **`to-issues` skill v3.11.0** — cross-repo issue creation via `--repo` and `--store` flags (#565, AC-1, AC-2).
+  - `--repo <owner/repo>` flag: override the default target repository for a single `to-issues` run; issues are created in the specified repo instead of the repo inferred from `.claude/config.json`.
+  - `--store <store-id>` flag: select a named store from `stores[]` in `.claude/config.json`; resolves the store's `repo` and uses it as the target for the run.
+  - `references/fixtures/cross-repo-smoke-tests.sh` — offline smoke test covering T1–T5 flag resolution scenarios (AC-5).
+
+- **`manage-stores` skill** — new `makato-plan:manage-stores` skill for managing named cross-repo spec stores in `.claude/config.json` (#565, AC-3).
+  - Three sub-commands: `register <id> <owner/repo> [description]`, `list`, and `remove <id>`.
+  - Reads and writes the `stores[]` array in `.claude/config.json`; each entry has `{id, repo, description}` shape.
+  - Backed by `scripts/manage-stores.sh`; smoke-tested by `scripts/manage-stores-smoke-tests.sh` (10 unit + 6 integration scenarios).
+
+- **`config.schema.json`** — `stores[]` array property added with `{id, repo, description}` item shape (#565, AC-4).
+
+- **`created-issues.schema.json`** — optional `target_repo` field added to record the actual repository where each issue was created when using `--repo` or `--store` (#565, AC-4).
+
+- **Cross-repo smoke test suite** — `scripts/to-issues-cross-repo-smoke-tests.sh` covering T1–T5 end-to-end offline scenarios for `--repo`/`--store` flag resolution and `target_repo` output (#565, AC-5).
+
+---
+
 ## `decompose` skill
 
 - **1.4.0** — enforce Fibonacci ≤13 SP hard cap and split-preferred rule (#554).

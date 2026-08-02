@@ -7,8 +7,8 @@ description: >-
   (type/tier/tech/module/severity/phase/effort/priority/points/status), maps stories to ADR folders by
   name pattern, and emits `specs/{slug}/created-issues.json` for downstream plugins.
 license: MIT
-version: "3.10.0"
-argument-hint: "[optional: feature slug] [--dry-run] [--interactive|--autonomous]"
+version: "3.11.0"
+argument-hint: "[optional: feature slug] [--dry-run] [--interactive|--autonomous] [--repo owner/repo] [--store <id>]"
 allowed-tools: Bash(gh *) Bash(git *) Bash(python3 *) Read Write Grep Glob
 hooks: ["convert to issues", "break into issues", "create github issues", "turn this into tickets", "issue breakdown", "create implementation tickets", "decompose into issues", "publish stories", "create issues from stories.json"]
 metadata:
@@ -49,7 +49,78 @@ Create GitHub issues on **github.com** from a shaped `stories.json`. Each issue 
 REPO_ROOT="$(git rev-parse --show-toplevel)" || { echo "Not a git repo — aborting" >&2; exit 1; }
 REMOTE_URL="$(git -C "$REPO_ROOT" remote get-url origin)"
 TARGET_REPO="$(echo "$REMOTE_URL" | sed -E 's|.*github\.com[:/]||; s|\.git$||')"
+```
 
+**Cross-repo flag resolution (v3.11.0+):** After deriving the default `TARGET_REPO` from the git remote, apply `--repo` / `--store` overrides when either flag is present on the CLI.
+
+`--repo` and `--store` are **mutually exclusive** — passing both is an error:
+
+```bash
+if [[ -n "${ARG_REPO:-}" && -n "${ARG_STORE:-}" ]]; then
+  echo "[to-issues] ERROR: --repo and --store are mutually exclusive. Pass one or the other." >&2
+  exit 1
+fi
+```
+
+When `--repo <owner/repo>` is passed, override `TARGET_REPO` directly:
+
+```bash
+if [[ -n "${ARG_REPO:-}" ]]; then
+  TARGET_REPO="$ARG_REPO"
+  echo "[to-issues] target_repo override via --repo: $TARGET_REPO"
+fi
+```
+
+When `--store <id>` is passed, look up `id` in `.claude/config.json → stores[]` and resolve `TARGET_REPO` from that entry's `repo` field. If the `id` is absent from `stores[]`, abort and list the known IDs:
+
+```bash
+if [[ -n "${ARG_STORE:-}" ]]; then
+  TARGET_REPO="$(python3 -c "
+import json, sys
+try:
+    cfg = json.load(open('$REPO_ROOT/.claude/config.json'))
+except FileNotFoundError:
+    print('[to-issues] ERROR: .claude/config.json not found — cannot resolve --store', file=sys.stderr)
+    sys.exit(1)
+except json.JSONDecodeError as e:
+    print(f'[to-issues] ERROR: malformed config.json: {e}', file=sys.stderr)
+    sys.exit(2)
+stores = cfg.get('stores', [])
+for entry in stores:
+    if entry.get('id') == '$ARG_STORE':
+        repo = entry.get('repo', '')
+        if not repo:
+            print(f'[to-issues] ERROR: store \\'$ARG_STORE\\' has no repo field', file=sys.stderr)
+            sys.exit(1)
+        print(repo)
+        sys.exit(0)
+known = ', '.join(e.get('id', '<unnamed>') for e in stores) or '(none)'
+print(f'[to-issues] ERROR: unknown store id \\'$ARG_STORE\\'; known store IDs: {known}', file=sys.stderr)
+sys.exit(1)
+  ")" || exit $?
+  echo "[to-issues] target_repo resolved via --store=$ARG_STORE: $TARGET_REPO"
+fi
+```
+
+When neither `--repo` nor `--store` is passed, `TARGET_REPO` retains the git-remote-derived value (unchanged behaviour).
+
+**`.claude/config.json` `stores[]` schema** (v3.11.0+):
+
+```json
+{
+  "stores": [
+    {
+      "id": "acme",
+      "repo": "acme-corp/platform",
+      "description": "optional human-readable label"
+    }
+  ]
+}
+```
+
+Each entry requires `id` (unique string key) and `repo` (`owner/repo` on github.com). `description` is optional and informational only.
+
+```bash
 PROJECT_NAME="$(python3 -c "
 import json
 try:
