@@ -5,6 +5,41 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## [Unreleased]
+
+### `gate-scout` + `build-verify` — Gate 6 runtime health-check (#580)
+
+Adds discovery and execution of a project-level health or smoke command so the verify
+pipeline can surface runtime-health signals before a PR is pushed.
+
+**`agents/gate-scout.md`** (v1.2.0 → **v1.3.0**):
+
+- **Step 1e — Detect health/smoke command.** Probes `REPO_ROOT` in priority order:
+  (a) `Makefile` containing a `health` target → `make health`;
+  (b) `scripts/smoke.sh` file existence → `scripts/smoke.sh`;
+  (c) `docker-compose.yml` / `docker-compose.yaml` with a `services:` block →
+  `docker-compose up --wait`. When none of the three probes matches, `health_check_cmd` is
+  `null`.
+- **New `health_check_cmd` output field** (string|null) added to the `## Output Format`
+  prose block and to the R1 `data` shape. Null (not the string `"null"`) when no command is
+  discovered.
+
+**`skills/build-verify/SKILL.md`** (v1.8.0 → **v1.9.0**):
+
+- **Step 8b — Gate 6: RUNTIME HEALTH-CHECK** inserted between Gate 5 (Coverage) and the
+  Skill-provenance advisory gate (Step 9).
+- When `gate-scout.data.health_check_cmd` is non-null: run the command with a timeout
+  controlled by `HEALTH_CHECK_TIMEOUT_SECONDS` (default 60 s); assert exit code 0 within
+  timeout.
+- When `health_check_cmd` is null: emit advisory skip message; record gate as `skipped`.
+- Non-zero exit or timeout → gate status `warn`; log and continue — **gate is always
+  advisory, never blocks**.
+- `build.jsonl` log entry shape:
+  `{"step":"gate-health","status":"ok"|"warn"|"skipped","data":{"health_check_cmd":...,"exit_code":N,"duration_seconds":N}}`
+- DoD table gains an advisory Gate 6 row; gate summary table in Step 10 gains a Gate 6 row.
+
+---
+
 ## `build-verify-spec` — spec-level verify skill (#568)
 
 Adds a new post-`build-verify` skill that confirms the implementation actually satisfies the
