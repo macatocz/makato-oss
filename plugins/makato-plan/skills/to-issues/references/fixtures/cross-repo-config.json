@@ -1,0 +1,10 @@
+{
+  "project": "fixture-project",
+  "stores": [
+    {
+      "id": "acme",
+      "repo": "acme-corp/platform",
+      "description": "Acme Corp platform monorepo"
+    }
+  ]
+}
