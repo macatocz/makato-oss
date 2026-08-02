@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.118.1](https://github.com/macatocz/makato/compare/v0.118.0...v0.118.1) (2026-08-02)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** auto-seed skips issues already planned by to-issues ([#626](https://github.com/macatocz/makato/issues/626)) ([d95c050](https://github.com/macatocz/makato/commit/d95c050db428c17aae11cab7bca137cfc200ae87))
+
 ## [0.118.0](https://github.com/macatocz/makato/compare/v0.117.0...v0.118.0) (2026-08-02)
 
 
