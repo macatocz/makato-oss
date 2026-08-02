@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Smoke tests for scripts/sync-living-specs.sh (living-spec delta sync).
+# Smoke tests for scripts/sync-living-specs.sh (#567 — living-spec delta sync).
 #
 # Run from the makato repo root:
 #   plugins/makato-orchestrate/scripts/sync-living-specs-smoke-tests.sh
@@ -11,6 +11,8 @@
 #   T4: MODIFIED requirement replaces matching heading; other sections untouched
 #   T5: REMOVED requirement replaced with tombstone comment
 #   T6: dangling MODIFIED ref emits WARN but does not fail (exit 0, target unchanged)
+#   T7: ADDED sections create docs/specs/<capability>.md from scratch when file absent
+#   T8: empty spec-delta (template comment-only sections) is a clean no-op
 #
 # Fully offline: all inputs written to a temp sandbox.
 # Mirrors mark-ac-checkboxes-smoke-tests.sh conventions.
@@ -149,6 +151,56 @@ AFTER="$(cat "$SANDBOX/docs/specs/$CAP.md")"
   || fail "T6: target file was modified on dangling MODIFIED (should be unchanged)"
 
 pass "T6: dangling MODIFIED emits WARN, exits 0, target file unchanged"
+
+# ── T7: ADDED creates target file from scratch when it does not exist ─────────
+echo "=== T7: ADDED creates docs/specs/<capability>.md from scratch ==="
+SCRATCH_DIR="$SANDBOX/t7"
+mkdir -p "$SCRATCH_DIR/new-cap"
+# docs/specs dir does not exist yet — script must create it
+SCRATCH_DOCS="$SCRATCH_DIR/docs/specs"
+cat > "$SCRATCH_DIR/new-cap/spec-delta.md" << 'SDEOF'
+## ADDED Requirements
+
+### First Requirement
+
+**SHALL**: The system SHALL satisfy the first requirement.
+SDEOF
+
+"$SCRIPT" "$SCRATCH_DIR/new-cap/spec-delta.md" "$SCRATCH_DOCS" 2>/dev/null \
+  || fail "T7: script exited non-zero"
+
+[ -f "$SCRATCH_DOCS/new-cap.md" ] \
+  || fail "T7: target file not created from scratch"
+grep -q "First Requirement" "$SCRATCH_DOCS/new-cap.md" \
+  || fail "T7: ADDED heading missing in newly created file"
+grep -q "satisfy the first requirement" "$SCRATCH_DOCS/new-cap.md" \
+  || fail "T7: ADDED body missing in newly created file"
+pass "T7: ADDED creates target file from scratch when absent"
+
+# ── T8: empty spec-delta (template comment-only sections) is a clean no-op ────
+echo "=== T8: empty spec-delta (no populated sections) is a clean no-op ==="
+reset_target
+BEFORE_T8="$(cat "$SANDBOX/docs/specs/$CAP.md")"
+cat > "$SANDBOX/$CAP/spec-delta.md" << 'SDEOF'
+## ADDED Requirements
+
+<!-- Add new requirements here -->
+
+## MODIFIED Requirements
+
+<!-- List modified requirements here -->
+
+## REMOVED Requirements
+
+<!-- List removed requirements here -->
+SDEOF
+
+"$SCRIPT" "$SANDBOX/$CAP/spec-delta.md" "$SANDBOX/docs/specs" 2>/dev/null \
+  || fail "T8: script exited non-zero on empty spec-delta"
+AFTER_T8="$(cat "$SANDBOX/docs/specs/$CAP.md")"
+[ "$BEFORE_T8" = "$AFTER_T8" ] \
+  || fail "T8: target file was modified by empty spec-delta (should be unchanged)"
+pass "T8: empty spec-delta is a clean no-op"
 
 # ── Done ─────────────────────────────────────────────────────────────────────
 echo ""
