@@ -36,7 +36,7 @@ skill_routing: disabled
   - `CHANGELOG.md` (repository root)
   - `README.md` (repository root) — only when the public-API heuristic in Step 4 triggers
   - `specs/<key>-<slug>/build.jsonl` (append-only, via the build-log helper or direct append)
-  - `docs/**` — only when the diff modifies docs files and the agent amends cross-references
+  - `docs/**` — when the diff modifies docs files and the agent amends cross-references, AND when Step 4c writes a living-spec update to `docs/specs/<capability>.md` via `sync-living-specs.sh`
 - **Issue-body edits are GitHub state, not files.** Step 4a marks verified AC
   checkboxes via `gh issue edit --body` — a GitHub API mutation, not a
   filesystem write, so it is outside the `Write`/`Edit` allow-list above. It is
@@ -282,6 +282,69 @@ implying promotion happens at merge on the runner. Do **not** call
 > lessons promoted. That is the accepted trade-off of the local-lane design;
 > the makato repo runs the local loop, so it is unaffected.
 
+### Step 4c — Living spec delta sync
+
+Apply any `spec-delta.md` present in the spec folder to the canonical living-spec file
+at `docs/specs/<capability>.md`. This step implements the OpenSpec-inspired living-docs
+pattern: ADDED requirements are appended, MODIFIED requirements replace the matching
+section, and REMOVED requirements are replaced with a tombstone comment. The target
+file is created from ADDED sections when it does not yet exist.
+
+**When to run.** This step runs when ALL of the following are true:
+- `WORKFLOW_STATE` is non-empty (a spec folder was located in Step 1).
+- A `spec-delta.md` file exists under the resolved spec folder
+  (`specs/<key>-<slug>/spec-delta.md`).
+
+When either condition is false, skip this step silently.
+
+**Locate the spec-delta.md and call the sync helper:**
+
+```bash
+# Derive spec folder from WORKFLOW_STATE path (same pattern as Step 6).
+SPEC_DIR="$(dirname "$WORKFLOW_STATE")"
+DELTA="$SPEC_DIR/spec-delta.md"
+
+if [[ -f "$DELTA" ]]; then
+  REPO_ROOT="$(git rev-parse --show-toplevel)"
+  DOCS_SPECS_DIR="$REPO_ROOT/docs/specs"
+  plugins/makato-orchestrate/scripts/sync-living-specs.sh "$DELTA" "$DOCS_SPECS_DIR" \
+    2>>/tmp/living-spec-sync-${PR_NUMBER}.warn \
+    && SYNC_EXIT=0 || SYNC_EXIT=$?
+fi
+```
+
+**`sync-living-specs.sh` behaviour (see `scripts/sync-living-specs.sh`):**
+
+- Derives the capability name from the parent directory of `spec-delta.md`
+  (e.g. `specs/openspec-transfer-features/spec-delta.md` → capability
+  `openspec-transfer-features`, target `docs/specs/openspec-transfer-features.md`).
+- ADDED requirements: appended to `docs/specs/<capability>.md`; file created if absent.
+- MODIFIED requirements: replace the matching `### <name>` section in the target file.
+  A dangling MODIFIED ref (no matching heading) emits a WARN to stderr and is skipped —
+  it does **not** fail the step.
+- REMOVED requirements: replace the `### <name>` section with `<!-- REMOVED: <name> -->`.
+- Empty spec-delta.md (no populated sections) is a clean no-op; exit 0.
+
+**Include the updated `docs/specs/<capability>.md` in the documentation commit** (Step 3)
+when `$SYNC_EXIT == 0` and the file was actually modified. If the step is skipped or
+`sync-living-specs.sh` exits non-zero, degrade to `partial` (log warn, continue —
+never HALT on a documentation side-effect).
+
+**Log the outcome** (always one line, guarded on `$DELTA` existence):
+
+```bash
+plugins/makato-build/shared/build-log.sh "<key>" \
+  "{\"ts\":\"<ISO8601>\",\"skill\":\"documentation-agent\",\"story\":\"<key>\",
+    \"step\":\"living-spec-sync\",\"status\":\"<ok|warn|skipped>\",
+    \"data\":{\"pr\":<PR_NUMBER>,\"delta\":\"<DELTA-path-or-null>\",
+              \"capability\":\"<name-or-null>\",\"sync_exit\":<N>,
+              \"dangling_warns\":<count>}}"
+```
+
+Use `status:"skipped"` when no `spec-delta.md` exists; `status:"ok"` on a clean
+sync (exit 0, including a clean no-op); `status:"warn"` on a non-zero exit or a
+dangling MODIFIED warning.
+
 ### Step 5 — Close parent and child Issues
 
 This step is skipped if `WORKFLOW_STATE` is empty (Step 1).
@@ -475,4 +538,5 @@ inspection of the action's logs.
 - `plugins/makato-build/agents/diff-reviewer.md` § *Per-AC verdict* — the upstream producer of the `ac_verdicts[]` this agent transcribes into checkboxes (Step 4a).
 - `plugins/makato-build/skills/build-create-pr/SKILL.md` § *AC Verification block* — renders the `makato:ac-verdicts` PR-body block this agent reads.
 - `plugins/makato-orchestrate/scripts/mark-ac-checkboxes.sh` — the deterministic matcher Step 4a shells out to (granular + all-or-nothing fallback); smoke-tested by `mark-ac-checkboxes-smoke-tests.sh`.
+- `plugins/makato-orchestrate/scripts/sync-living-specs.sh` — the delta-sync helper Step 4c shells out to (ADDED/MODIFIED/REMOVED operations on `docs/specs/<capability>.md`); smoke-tested by `sync-living-specs-smoke-tests.sh`.
 - <https://keepachangelog.com> — the changelog format Step 3 emits.
