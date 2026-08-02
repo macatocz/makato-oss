@@ -5146,7 +5146,7 @@ mkdir -p "$REAPSPECS_ROOT" "$REAPSPECS_STATE"
 # Offline gh state map for the fallback path.
 REAPSPECS_GH="$REAPSPECS_STATE/gh.json"
 cat >"$REAPSPECS_GH" <<'GHJSON'
-{ "84001": "open", "85001": "closed", "86001": "open", "87001": "closed", "88001": "open", "89001": "open" }
+{ "84001": "open", "85001": "closed", "86001": "open", "87001": "closed", "88001": "open", "89001": "open", "90002": "open", "90003": "closed" }
 GHJSON
 
 # Helper: (re)create the six fixture folders fresh before a pass.
@@ -5254,7 +5254,61 @@ grep -q "reap-specs" <<<"$t89_out" \
 echo "T89 passed"
 
 echo
-echo "=== T90: generalizable lesson is promoted to .makato/memory/ BEFORE prune ==="
+echo "=== T-epic: shared-epic folder with an open sibling → NOT pruned ==="
+# A folder whose stories.json / created-issues.json enumerates a batch of
+# sibling issues is the shared AC/plan store for the whole epic (e.g.
+# openspec-transfer-features hosts #562–#568 under ONE stories.json). When only
+# one story merges, the derived done-signal must NOT authorise deleting the
+# folder while siblings are still open. Fixture: folder for done issue 90001
+# whose created-issues.json also lists open sibling 90002.
+_epic_specs="$REAPSPECS_ROOT/specs"
+rm -rf "$_epic_specs"; mkdir -p "$_epic_specs/openspec-epic"
+echo '{"current_phase":"done"}' >"$_epic_specs/openspec-epic/workflow-state-90001.json"
+cat >"$_epic_specs/openspec-epic/created-issues.json" <<'EPICJSON'
+{ "slug": "openspec-epic",
+  "issues": [ {"issue_number": 90001}, {"issue_number": 90002} ] }
+EPICJSON
+rm -f "$REAPSPECS_STATE/loop-status.json"
+tepic_out="$(
+  cd "$REAPSPECS_ROOT" &&
+  MAKATO_LOOP_STATE_DIR="$REAPSPECS_STATE" \
+  SPECS_DIR="$_epic_specs" REPO_ROOT="$REAPSPECS_ROOT" \
+  MAKATO_LOOP_REAP_INTERVAL=0 \
+  MAKATO_LOOP_REAP_SPECS_GH_OVERRIDE="$REAPSPECS_GH" \
+    "$LOOP" remove-worktrees 2>&1
+)" || fail "T-epic: remove-worktrees should exit 0; got: $tepic_out"
+grep -q "reap-specs skip .*/openspec-epic (shared-epic folder — sibling issue #90002 still open" <<<"$tepic_out" \
+  || fail "T-epic: shared-epic folder should be skipped while sibling open; got: $tepic_out"
+[[ -d "$_epic_specs/openspec-epic" ]] \
+  || fail "T-epic: shared-epic folder MUST survive while any sibling is open"
+echo "T-epic passed"
+
+echo
+echo "=== T-epic2: shared-epic folder with ALL siblings closed → pruned ==="
+# Once every referenced sibling is closed, the shared guard releases and the
+# folder is reaped as normal. gh map marks 90003 closed alongside done 90001.
+rm -rf "$_epic_specs"; mkdir -p "$_epic_specs/openspec-epic2"
+echo '{"current_phase":"done"}' >"$_epic_specs/openspec-epic2/workflow-state-90001.json"
+cat >"$_epic_specs/openspec-epic2/created-issues.json" <<'EPICJSON'
+{ "slug": "openspec-epic2",
+  "issues": [ {"issue_number": 90001}, {"issue_number": 90003} ] }
+EPICJSON
+rm -f "$REAPSPECS_STATE/loop-status.json"
+tepic2_out="$(
+  cd "$REAPSPECS_ROOT" &&
+  MAKATO_LOOP_STATE_DIR="$REAPSPECS_STATE" \
+  SPECS_DIR="$_epic_specs" REPO_ROOT="$REAPSPECS_ROOT" \
+  MAKATO_LOOP_REAP_INTERVAL=0 \
+  MAKATO_LOOP_REAP_SPECS_GH_OVERRIDE="$REAPSPECS_GH" \
+    "$LOOP" remove-worktrees 2>&1
+)" || fail "T-epic2: remove-worktrees should exit 0; got: $tepic2_out"
+grep -q "reap-specs removing .*/openspec-epic2 (issue #90001" <<<"$tepic2_out" \
+  || fail "T-epic2: folder should be pruned once all siblings closed; got: $tepic2_out"
+[[ ! -d "$_epic_specs/openspec-epic2" ]] \
+  || fail "T-epic2: folder should be gone once all siblings closed"
+echo "T-epic2 passed"
+
+echo
 # Critical data-safety test: the po-agent's lessons live only in gitignored
 # workflow-state-<N>.json, so the reaper must promote them into the committed
 # store before rm -rf. Uses a real git repo (promote-lessons resolves repo_sha
