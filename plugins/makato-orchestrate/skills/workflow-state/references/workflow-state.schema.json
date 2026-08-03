@@ -352,6 +352,31 @@
         }
       }
     },
+    "plan_analysis": {
+      "type": ["object", "null"],
+      "description": "Output of plan-analyst stored in workflow-state so build-verify Gate 4 can read it without re-running plan-analyst. Written by build-implement-tdd after plan-analyst dispatch (Step 4). Optional — absent on state files created before #581; readers treat null/absent as 'gate non-mandatory' (backward compat).",
+      "additionalProperties": false,
+      "required": ["tracer_required", "layers_detected", "distinct_layer_count"],
+      "properties": {
+        "tracer_required": {
+          "type": "boolean",
+          "description": "True when plan-analyst determined that the change spans multiple architectural layers and a tracer-bullet approach is warranted. When true, build-verify Gate 4 treats the integration suite as mandatory (blocking failure instead of advisory)."
+        },
+        "layers_detected": {
+          "type": "array",
+          "description": "List of architectural layer names detected by plan-analyst for this story (e.g. ['api', 'service', 'persistence']). Informational — Gate 4 uses distinct_layer_count for the numeric threshold.",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "distinct_layer_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of distinct architectural layers detected (length of layers_detected). Build-verify Gate 4 treats the integration suite as mandatory when this value is >= 3, regardless of tracer_required."
+        }
+      }
+    },
     "created_at": {
       "type": "string",
       "format": "date-time",

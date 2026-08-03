@@ -260,6 +260,23 @@ Log:
 
 ### Step 7 — Gate 4: INTEGRATION TESTS
 
+**Mandatory-gate determination.** Before running the suite, read `plan_analysis` from
+`workflow-state.json` (path: `specs/<key>-*/workflow-state-<N>.json`). The field is optional
+— absent on state files created before #581. Determine whether Gate 4 is mandatory:
+
+```
+MANDATORY = false  (default — backward-compatible non-blocking path)
+
+if plan_analysis is present and not null:
+    if plan_analysis.tracer_required == true:
+        MANDATORY = true
+    if plan_analysis.distinct_layer_count >= 3:
+        MANDATORY = true
+```
+
+When `plan_analysis` is absent or null, `MANDATORY` stays `false` — Gate 4 runs the suite
+advisory (existing behavior unchanged, single-layer changes are never blocked).
+
 Run the integration test suite only.
 
 Gate passes when: zero new failures vs. baseline. Record total, passed, failed, skipped.
@@ -276,11 +293,19 @@ On failure: classify.
 - **Structural** — the implementation approach doesn't work against real dependencies
   → stop, report, recommend `/refine`
 
+**Mandatory vs non-mandatory failure handling:**
+
+- When `MANDATORY == true` and Gate 4 fails: treat as a **blocking failure** — same severity
+  as Gate 3 (Unit). Do not advance to Gate 5. Classify as Fixable or Structural per the rules
+  above and block accordingly.
+- When `MANDATORY == false` (default) and Gate 4 fails: **advisory only** — log the failure,
+  continue to Gate 5. Do not block the pipeline for single-layer changes.
+
 **Re-run scope rule**: re-run from BUILD (Gate 1) if the fix touched production code. Re-run from INTEGRATION only if the fix was test-only, test-data, or environment config — no need to re-run BUILD/LINT/UNIT for integration-test-only fixes.
 
 Log:
 ```
-{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-integration","status":"ok"|"error","data":{"total":<N>,"passed":<N>,"failed":<N>,"skipped":<N>}}
+{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-integration","status":"ok"|"error","data":{"total":<N>,"passed":<N>,"failed":<N>,"skipped":<N>,"mandatory":<bool>,"tracer_required":<bool|null>,"distinct_layer_count":<int|null>}}
 ```
 
 ---
