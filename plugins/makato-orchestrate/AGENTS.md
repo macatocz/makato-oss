@@ -186,6 +186,43 @@ Skills and agents inside this plugin treat `--autonomous` as their default execu
 - Agent versions: bumped in agent frontmatter per feature PR
 - `CHANGELOG.md`: updated with each PR
 
+## Infrastructure
+
+### Webhook dispatch runner contract
+
+The `.github/workflows/webhook-dispatch.yml` workflow fires `loop.sh dispatch <N>` the moment
+`status:ready-for-dev` is applied to an issue, removing the ~300 s polling lag of `loop run`.
+
+**Required runner label:** `makato`
+
+The job must run on a self-hosted runner registered with the `makato` label. That runner must
+have the following available:
+
+- The `claude` CLI binary (same binary `loop run` uses for scheduled dispatch)
+- A checked-out copy of this repository (supplied by the `actions/checkout` step in the workflow)
+- Network access to GitHub and Anthropic APIs
+
+**Required secrets:**
+
+| Secret | Purpose |
+|--------|---------|
+| `ANTHROPIC_API_KEY` | Claude API key — forwarded to the `claude` subprocess |
+| `GH_TOKEN` or `MAKATO_TOKEN` | GitHub token for `gh` CLI calls inside `loop.sh` and the PO-agent |
+
+**Fallback guarantee:** the `loop run` polling path in `loop.sh` is unchanged and continues to
+serve as a fallback when the webhook runner is unavailable, the workflow is skipped, or a
+delivery is dropped by GitHub. The two dispatch paths are additive — neither blocks the other.
+
+**Idempotency guarantee:** the `_within_dispatch_guard` inside `loop.sh cmd_dispatch` prevents
+double-dispatch even when both the webhook and the poller fire within the guard window. The
+concurrency group `webhook-dispatch-${{ github.event.issue.number }}` with
+`cancel-in-progress: false` additionally serialises burst label events for the same issue on
+the GitHub Actions side, so at most one `dispatch` call is in flight at a time per issue.
+
+**Dispatch gate:** `MAKATO_LOOP_GATE_DISABLE` is intentionally absent from the workflow
+environment. The existing `_pre_dispatch_plan_guard` inside `cmd_dispatch` runs on every
+webhook-triggered invocation — no bypass.
+
 ## PR Checklist
 
 - [ ] Serves the plugin goal: drives a decomposed Issue to a merged PR unattended

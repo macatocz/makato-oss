@@ -6,6 +6,7 @@ Changes are grouped by skill/component. Within each group, latest version on top
 ## [Unreleased]
 
 ### Added
+- **Webhook instant dispatch** (`webhook-dispatch.yml`, #599). A new GHA workflow triggers on `issues: types: [labeled]` and, when the applied label is `status:ready-for-dev`, immediately invokes `loop.sh dispatch <N>` with `MAKATO_HEADLESS=1` and `MAKATO_LOOP_DISPATCH_REPO` set. The job runs on a self-hosted runner with the `makato` label. The existing dispatch gate (`_pre_dispatch_plan_guard`) is preserved — `MAKATO_LOOP_GATE_DISABLE` is absent from the workflow environment. The `_within_dispatch_guard` inside `cmd_dispatch` prevents double-dispatch when both the webhook and the scheduled poller fire within the guard window. The `loop run` polling path is unchanged and continues to serve as a fallback. Runner contract documented in `plugins/makato-orchestrate/AGENTS.md ## Infrastructure`.
 - `generate-quality-doc.sh` + `quality-doc` skill: per-domain quality scorecard from `build.jsonl` + `halt_audit`, written to `specs/master/<domain>-quality.md` post-merge (#598). `documentation-agent` Step 7.6 calls the script automatically after each PR merge (best-effort); operators can also invoke it directly on demand.
 - **PO-agent self-recovery after `Stream idle timeout` (#616).** Two additive
   recovery mechanisms:
