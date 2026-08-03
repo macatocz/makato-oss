@@ -47,11 +47,11 @@ def test_step_4b_is_documented_noop():
     )
 
 
-def test_allow_list_count_is_four():
-    """#502: allow-list reverts to four paths (the .makato/memory entry was removed)."""
+def test_allow_list_count_is_five():
+    """#601: allow-list grows to five paths (PROGRESS.md added as fifth write target)."""
     content = DOC_AGENT.read_text()
-    assert "four\n" in content or "four " in content, (
-        "Allow-list header should say 'four' after removing the .makato/memory entry"
+    assert "five\n" in content or "five " in content, (
+        "Allow-list header should say 'five' after adding PROGRESS.md in #601"
     )
 
 

@@ -31,13 +31,14 @@ skill_routing: disabled
 
 ## Rules
 
-- **Never edit source files.** `Write` and `Edit` are restricted to four
+- **Never edit source files.** `Write` and `Edit` are restricted to five
   allow-listed paths only:
   - `CHANGELOG.md` (repository root)
   - `README.md` (repository root) — only when the public-API heuristic in Step 4 triggers
   - `specs/<key>-<slug>/build.jsonl` (append-only, via the build-log helper or direct append)
   - `docs/**` — when the diff modifies docs files and the agent amends cross-references, AND when Step 4c writes a living-spec update to `docs/specs/<capability>.md` via `sync-living-specs.sh`
   - `specs/master/*-quality.md` — Step 7.6 updates the domain quality scorecard via `generate-quality-doc.sh` (write is performed by the script, not directly by the agent)
+  - `PROGRESS.md` (repository root) — Step 7.5 updates the epic roadmap via `generate-progress.sh` (write is performed by the script, not directly by the agent)
 - **Issue-body edits are GitHub state, not files.** Step 4a marks verified AC
   checkboxes via `gh issue edit --body` — a GitHub API mutation, not a
   filesystem write, so it is outside the `Write`/`Edit` allow-list above. It is
@@ -421,6 +422,31 @@ If `WORKFLOW_STATE` is empty (no spec folder to log to): write the warning to
 `/tmp/docs-coverage-warning-${PR_NUMBER}.json` and surface it in the R1
 `warnings` array instead.
 
+### Step 7.5 — Update PROGRESS.md
+
+Generate or refresh the repository-root `PROGRESS.md` roadmap by shelling out to the
+progress generator. This step runs unconditionally (no `WORKFLOW_STATE` guard — the script
+reads its own inputs from `.claude/state/loop-status.json` and `gh`).
+
+```bash
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+if [[ -x "$REPO_ROOT/plugins/makato-orchestrate/scripts/generate-progress.sh" ]]; then
+  bash "$REPO_ROOT/plugins/makato-orchestrate/scripts/generate-progress.sh" 2>/dev/null || {
+    plugins/makato-build/shared/build-log.sh "${KEY:-unknown}" \
+      "$(jq -nc --arg pr "${PR_NUMBER:-0}" \
+        '{"ts":"'"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"'","skill":"documentation-agent","step":"progress-md","status":"warn","data":{"event":"progress_md_failed","pr":($pr|tonumber)}}')" \
+    2>/dev/null || true
+  }
+else
+  echo "generate-progress: script not found at $REPO_ROOT/plugins/makato-orchestrate/scripts/generate-progress.sh, skipping" >&2
+fi
+```
+
+**Best-effort:** a non-zero exit from the script or a missing script file logs
+`progress_md_failed` (status `warn`) to `build.jsonl` and continues. This step MUST NOT
+cause the agent to HALT or degrade to `failure`. `PROGRESS.md` is a convenience artefact;
+its absence never blocks housekeeping.
+
 ### Step 7.6 — Update domain quality scorecard
 
 Derive the domain for the merged issue using the same `detect_domain` logic as
@@ -471,7 +497,7 @@ inspection of the action's logs.
   "agent": "documentation-agent",
   "status": "success",
   "summary": "Post-merge documentation produced: changelog entry, 3 AC checkboxes marked, board advanced, 2 issues closed.",
-  "files_changed": ["CHANGELOG.md"],
+  "files_changed": ["CHANGELOG.md", "PROGRESS.md"],
   "tests_written": [],
   "errors": [],
   "tool_calls_used": 12,
