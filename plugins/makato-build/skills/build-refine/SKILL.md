@@ -5,7 +5,7 @@ description: >-
   implementation plan — tasks, file targets, unit/integration test
   strategy, acceptance mapping. Use to start a build session before
   implement-tdd or implement-goal.
-version: "1.10.0"
+version: "1.11.0"
 model: opus
 argument-hint: "[work-item-key] [--autonomous]"
 ---
@@ -310,6 +310,20 @@ The full task list must be completable in a single autonomous session (target 2�
 
 > "Invalid file target in task <N>: `<path>`. All file targets must be relative paths within the repository root. Please correct the spec's design.md and re-run /build-refine."
 
+**Runtime verification elicitation**: after producing the task list, determine whether this story starts or modifies a service or API with an HTTP health endpoint or a runnable smoke command (e.g. a FastAPI app with `/health`, a background worker with a status check, a CLI tool whose `--version` exit-code is assertable). Use the story description, `prd.md`, and `design.md` to classify the story type:
+
+- **Service/API story detected**: in **interactive mode**, ask:
+  > "Does this service have a health-check or smoke command you want `build-verify` Gate 6 to run? If so, enter the shell command (e.g. `curl -sf http://localhost:8080/health`). Press Enter to skip."
+  Copy the provided command (if any) verbatim into a `## Runtime verification` fenced code block in `plan-<ISSUE_NUMBER>.md` per `@references/plan-schema.md` § *Runtime Verification Schema*.
+  In **autonomous mode**: skip the prompt — do NOT add a `## Runtime verification` section unless the story spec (`prd.md` or `design.md`) explicitly declares a health-check command. If one is found in the spec, extract it and write the section. Log the bypass:
+  ```bash
+  shared/log-bypass.sh build-refine "<key>" runtime-verification-elicitation skip "<agent_id|cli_flag|task_id_bundle>"
+  ```
+
+- **Non-service/non-API story** (pure library, config, doc, refactor with no service boundary): skip this elicitation step entirely — do NOT add a `## Runtime verification` section.
+
+The section is **always optional**. Omitting it is correct for non-service stories and for service stories where no command is known yet. The section must NOT declare a timeout — `HEALTH_CHECK_TIMEOUT_SECONDS` env-var is the authoritative mechanism.
+
 ### Step 9 — Map acceptance criteria to tasks
 
 Build a coverage table: for each AC, which task(s) satisfy it?
@@ -337,7 +351,9 @@ Write `plan-<ISSUE_NUMBER>.md` in the resolved spec folder with all fields popul
 
 **Acceptance Test Oracle pass-through rule**: when the story from `stories.json` carries a non-empty `description.acceptanceTestCases[]` (Step 4), write a `## Acceptance Test Oracle` section into `plan-<ISSUE_NUMBER>.md` per `@references/plan-schema.md` § *Acceptance Test Oracle Schema*. Copy each scenario verbatim (Gherkin `given`/`when`/`then`/`and` shape) and annotate it `(maps to AC-N)` by aligning it to the AC coverage table from Step 9 — match on the scenario's outcome, or use `AC-*` when it applies story-wide. When `acceptanceTestCases[]` is absent or empty, do NOT emit the section — omit it entirely (legacy default). The oracle never introduces new AC numbers; it only supplies exact RED-test scenarios the coder implements downstream.
 
-Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-refine","story":"<key>","step":"write-plan","status":"ok","data":{"tasks":<N>,"oracle_scenarios":<M>,"plan_file":"<resolved-spec-folder>/plan-<ISSUE_NUMBER>.md","enriched_existing":<bool>}}'`
+**Runtime verification pass-through rule**: when the Step 8 elicitation produced a runtime command (user-provided in interactive mode, or extracted from `prd.md`/`design.md` in autonomous mode), write a `## Runtime verification` section into `plan-<ISSUE_NUMBER>.md` per `@references/plan-schema.md` § *Runtime Verification Schema*. The command goes into a single fenced code block. When no command was elicited and none was found in the spec, do NOT emit the section — omit it entirely (the default for non-service stories).
+
+Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-refine","story":"<key>","step":"write-plan","status":"ok","data":{"tasks":<N>,"oracle_scenarios":<M>,"runtime_cmd":<true|false>,"plan_file":"<resolved-spec-folder>/plan-<ISSUE_NUMBER>.md","enriched_existing":<bool>}}'`
 
 ### Step 11 — Present plan and iterate
 
