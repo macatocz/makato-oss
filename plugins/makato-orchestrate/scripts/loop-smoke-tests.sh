@@ -3428,6 +3428,120 @@ echo
 echo "=== ALL TESTS continue (Tl–Tp orphaned-In-progress reconciliation, #368 complete) ==="
 
 # ---------------------------------------------------------------------------
+# T-STALE-1..4: #616 — _reconcile_orphaned_stale detects a dead orphan whose
+# workflow-state file is PRESENT (current_phase != done) — the file-present
+# gap the #368 reconciler skips. Fires only when the owning process is dead
+# AND updated_at is stale; routes to Blocked + needs-human-review.
+# ---------------------------------------------------------------------------
+# Helper: a UTC ISO-8601 (ms) timestamp shifted by N seconds from now.
+_stale_ts_shift() {
+  python3 -c "import sys,datetime
+n=datetime.datetime.now(datetime.timezone.utc)+datetime.timedelta(seconds=int(sys.argv[1]))
+print(n.strftime('%Y-%m-%dT%H:%M:%S.')+f'{n.microsecond//1000:03d}Z')" "$1"
+}
+# Helper: seed a spec dir with a workflow-state and an optional .loop-owner.pid.
+#   $1 specs-root  $2 issue  $3 age-seconds-ago  $4 pid|"dead"|"none"
+_seed_stale() {
+  local specs="$1" issue="$2" age="$3" pidmode="$4"
+  local sd="$specs/stale-${issue}-slug"
+  local wt="$specs/wt-${issue}"
+  mkdir -p "$sd" "$wt"
+  local upd; upd="$(_stale_ts_shift "-${age}")"
+  local wtpath=""
+  case "$pidmode" in
+    none) wtpath="" ;;                          # no worktree_path → owner treated dead
+    dead) ( exit 0 ) & local dp=$!; wait "$dp" 2>/dev/null || true
+          printf '%s\n' "$dp" >"$wt/.loop-owner.pid"; wtpath="$wt" ;;
+    alive) printf '%s\n' "$$" >"$wt/.loop-owner.pid"; wtpath="$wt" ;;
+  esac
+  printf '%s\n' "{\"issue_number\":${issue},\"current_phase\":\"implement\",\"worktree_path\":\"${wtpath}\",\"updated_at\":\"${upd}\"}" \
+    >"$sd/workflow-state-${issue}.json"
+}
+
+echo
+echo "=== T-STALE-1: #616 dead owner + stale updated_at → reconcile (Blocked + label) ==="
+TS1_SPECS="$STATE_DIR/stale1-specs-$$"
+TS1_RECON="$STATE_DIR/stale1-recon-$$.txt"
+TS1_LABEL="$STATE_DIR/stale1-label-$$.txt"
+mkdir -p "$TS1_SPECS"
+_seed_stale "$TS1_SPECS" 45001 7200 dead    # 2h old, dead owner
+ts1_rc=0
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_ORPHAN_STALE_SECS=3600 \
+MAKATO_LOOP_RECONCILE_SPECS_DIR="$TS1_SPECS" \
+MAKATO_LOOP_RECONCILE_TEST_FILE="$TS1_RECON" \
+MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE="$TS1_LABEL" \
+SPECS_DIR="$TS1_SPECS" \
+  "$LOOP" _test-reconcile-stale >/dev/null 2>&1 || ts1_rc=$?
+[[ $ts1_rc -eq 0 ]] || fail "T-STALE-1: expected rc 0; got $ts1_rc"
+grep -q "reconcile #45001" "$TS1_RECON" 2>/dev/null \
+  || fail "T-STALE-1: expected board reconcile for #45001; got: $(cat "$TS1_RECON" 2>/dev/null)"
+grep -q "label #45001 needs-human-review" "$TS1_LABEL" 2>/dev/null \
+  || fail "T-STALE-1: expected needs-human-review label for #45001; got: $(cat "$TS1_LABEL" 2>/dev/null)"
+grep -q '"reconcile-orphaned-stale"' "$TS1_SPECS/stale-45001-slug/orchestrate.jsonl" 2>/dev/null \
+  || fail "T-STALE-1: expected orchestrate.jsonl escalate entry"
+rm -rf "$TS1_SPECS" "$TS1_RECON" "$TS1_LABEL"
+echo "  ✓ dead owner + stale → Blocked + needs-human-review + escalate entry"
+
+echo "=== T-STALE-2: #616 fresh updated_at → skip (not stale yet) ==="
+TS2_SPECS="$STATE_DIR/stale2-specs-$$"
+TS2_RECON="$STATE_DIR/stale2-recon-$$.txt"
+mkdir -p "$TS2_SPECS"
+_seed_stale "$TS2_SPECS" 45002 60 dead     # only 60s old, dead owner
+ts2_rc=0
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_ORPHAN_STALE_SECS=3600 \
+MAKATO_LOOP_RECONCILE_SPECS_DIR="$TS2_SPECS" \
+MAKATO_LOOP_RECONCILE_TEST_FILE="$TS2_RECON" \
+SPECS_DIR="$TS2_SPECS" \
+  "$LOOP" _test-reconcile-stale >/dev/null 2>&1 || ts2_rc=$?
+[[ $ts2_rc -eq 0 ]] || fail "T-STALE-2: expected rc 0; got $ts2_rc"
+[[ ! -f "$TS2_RECON" || ! -s "$TS2_RECON" ]] \
+  || fail "T-STALE-2: fresh run must not be reconciled; got: $(cat "$TS2_RECON" 2>/dev/null)"
+rm -rf "$TS2_SPECS" "$TS2_RECON"
+echo "  ✓ fresh updated_at (60s < 3600s) → skipped"
+
+echo "=== T-STALE-3: #616 alive owner → skip regardless of age ==="
+TS3_SPECS="$STATE_DIR/stale3-specs-$$"
+TS3_RECON="$STATE_DIR/stale3-recon-$$.txt"
+mkdir -p "$TS3_SPECS"
+_seed_stale "$TS3_SPECS" 45003 99999 alive   # very old but owner pid alive ($$)
+ts3_rc=0
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_ORPHAN_STALE_SECS=3600 \
+MAKATO_LOOP_RECONCILE_SPECS_DIR="$TS3_SPECS" \
+MAKATO_LOOP_RECONCILE_TEST_FILE="$TS3_RECON" \
+SPECS_DIR="$TS3_SPECS" \
+  "$LOOP" _test-reconcile-stale >/dev/null 2>&1 || ts3_rc=$?
+[[ $ts3_rc -eq 0 ]] || fail "T-STALE-3: expected rc 0; got $ts3_rc"
+[[ ! -f "$TS3_RECON" || ! -s "$TS3_RECON" ]] \
+  || fail "T-STALE-3: live-owner run must not be reconciled; got: $(cat "$TS3_RECON" 2>/dev/null)"
+rm -rf "$TS3_SPECS" "$TS3_RECON"
+echo "  ✓ alive owner pid → skipped even at 99999s age (liveness gate is load-bearing)"
+
+echo "=== T-STALE-4: #616 MAKATO_ORPHAN_DETECT_DISABLE=1 → pass skipped entirely ==="
+TS4_SPECS="$STATE_DIR/stale4-specs-$$"
+TS4_RECON="$STATE_DIR/stale4-recon-$$.txt"
+mkdir -p "$TS4_SPECS"
+_seed_stale "$TS4_SPECS" 45004 7200 dead
+ts4_rc=0
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_ORPHAN_STALE_SECS=3600 \
+MAKATO_ORPHAN_DETECT_DISABLE=1 \
+MAKATO_LOOP_RECONCILE_SPECS_DIR="$TS4_SPECS" \
+MAKATO_LOOP_RECONCILE_TEST_FILE="$TS4_RECON" \
+SPECS_DIR="$TS4_SPECS" \
+  "$LOOP" _test-reconcile-stale >/dev/null 2>&1 || ts4_rc=$?
+[[ $ts4_rc -eq 0 ]] || fail "T-STALE-4: expected rc 0; got $ts4_rc"
+[[ ! -f "$TS4_RECON" || ! -s "$TS4_RECON" ]] \
+  || fail "T-STALE-4: disabled pass must not reconcile; got: $(cat "$TS4_RECON" 2>/dev/null)"
+rm -rf "$TS4_SPECS" "$TS4_RECON"
+echo "  ✓ MAKATO_ORPHAN_DETECT_DISABLE=1 → pass skipped"
+
+echo
+echo "=== #616 orphan-stale detection (T-STALE-1..4) complete ==="
+
+# ---------------------------------------------------------------------------
 # Tq: reconcile pass reads Status field/option ids from the correct config
 # shape (#492). REGRESSION TEST — Tl–Tp all take the
 # MAKATO_LOOP_RECONCILE_TEST_FILE short-circuit (echo "reconcile #N") and
@@ -4641,6 +4755,10 @@ printf '%s\n' \
   '{"type":"assistant","message":{"content":[{"type":"text","text":"Working..."}]}}' \
   >"$T_R2_LOG"
 echo '{"stall_restart_count":0}' >"$T_R2_STATE/loop-status.json"
+# #616: seed a workflow-state with last_session_id so _stall_resume attempts
+# the resume (a resume is only viable when a session UUID was captured).
+printf '%s\n' '{"issue_number":44421,"current_phase":"implement","last_session_id":"aaaa1111-bbbb-2222-cccc-333344445555","updated_at":"2026-01-01T00:00:00.000Z"}' \
+  >"$T_R2_SPEC_DIR/workflow-state-44421.json"
 # First verify _parse_dispatch_result returns "incomplete".
 t_r2_verdict=""
 t_r2_verdict="$(
@@ -4692,6 +4810,9 @@ printf '%s\n' \
   '{"type":"result","subtype":"error_max_turns","is_error":true,"result":"Max turns reached"}' \
   >"$T_R3_LOG"
 echo '{"stall_restart_count":0}' >"$T_R3_STATE/loop-status.json"
+# #616: seed workflow-state with last_session_id so the resume is attempted.
+printf '%s\n' '{"issue_number":44422,"current_phase":"implement","last_session_id":"bbbb1111-cccc-2222-dddd-333344445555","updated_at":"2026-01-01T00:00:00.000Z"}' \
+  >"$T_R3_SPEC_DIR/workflow-state-44422.json"
 # Verify _parse_dispatch_result returns "errored".
 t_r3_verdict=""
 t_r3_verdict="$(
@@ -4769,6 +4890,51 @@ grep -q "needs-human-review" "$T_R4_LABEL_FILE" \
   || fail "T-RESUME-4: label file should contain needs-human-review; got: $(cat "$T_R4_LABEL_FILE")"
 rm -rf "${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-resume4"
 echo "  ✓ budget exhausted: step:stall-resume status:escalate halt_code=HALT-014, returns 1, label applied"
+
+# ---------------------------------------------------------------------------
+# T-RESUME-616: #616 — _stall_resume skips (no claude --resume) when
+#   last_session_id is absent from workflow-state. `claude --resume` requires
+#   a session UUID, not the spec KEY; without a captured UUID the resume is
+#   impossible, so the pass must emit step:stall-resume status:skip
+#   reason:no_session_id, return 0, and NOT increment the restart counter.
+# ---------------------------------------------------------------------------
+echo "=== T-RESUME-616: #616 — no last_session_id → _stall_resume skips (status:skip, no counter bump) ==="
+T_R616_STATE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-resume616/state"
+T_R616_SPECS="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-resume616/specs"
+T_R616_SPEC_DIR="$T_R616_SPECS/resume616-slug"
+mkdir -p "$T_R616_STATE" "$T_R616_SPEC_DIR"
+T_R616_LOG="$T_R616_STATE/dispatch-44616.log"
+printf '%s\n' '{"type":"system","subtype":"init"}' >"$T_R616_LOG"
+echo '{"stall_restart_count":0}' >"$T_R616_STATE/loop-status.json"
+# workflow-state WITHOUT last_session_id (the crash-before-result-line case).
+printf '%s\n' '{"issue_number":44616,"current_phase":"implement","updated_at":"2026-01-01T00:00:00.000Z"}' \
+  >"$T_R616_SPEC_DIR/workflow-state-44616.json"
+t_r616_rc=0
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_LOOP_STATE_DIR="$T_R616_STATE" \
+SPECS_DIR="$T_R616_SPECS" \
+MAKATO_LOOP_STALL_DISABLE=0 \
+MAKATO_LOOP_SLEEP_CMD=true \
+MAKATO_CLAUDE_BIN=false \
+  "$LOOP" _test-stall-resume 44616 "resume616-slug" "$T_R616_SPEC_DIR" "$T_R616_LOG" \
+  >/dev/null 2>&1 || t_r616_rc=$?
+[[ $t_r616_rc -eq 0 ]] \
+  || fail "T-RESUME-616: _stall_resume should return 0 on no_session_id skip; got $t_r616_rc"
+[[ -f "$T_R616_SPEC_DIR/orchestrate.jsonl" ]] \
+  || fail "T-RESUME-616: orchestrate.jsonl not written"
+t_r616_line="$(grep '"stall-resume"' "$T_R616_SPEC_DIR/orchestrate.jsonl" | tail -1)"
+t_r616_status="$(printf '%s' "$t_r616_line" | jq -r '.status // empty' 2>/dev/null)"
+[[ "$t_r616_status" == "skip" ]] \
+  || fail "T-RESUME-616: status should be 'skip'; got '$t_r616_status'"
+t_r616_reason="$(printf '%s' "$t_r616_line" | jq -r '.data.reason // empty' 2>/dev/null)"
+[[ "$t_r616_reason" == "no_session_id" ]] \
+  || fail "T-RESUME-616: data.reason should be 'no_session_id'; got '$t_r616_reason'"
+# Restart counter must NOT have been bumped (skip is before the increment).
+t_r616_count="$(jq -r '.stall_restart_count // 0' "$T_R616_STATE/loop-status.json" 2>/dev/null)"
+[[ "$t_r616_count" == "0" ]] \
+  || fail "T-RESUME-616: stall_restart_count should stay 0 on skip; got '$t_r616_count'"
+rm -rf "${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-resume616"
+echo "  ✓ no last_session_id → status:skip reason:no_session_id, rc 0, counter untouched"
 
 # ---------------------------------------------------------------------------
 # T-RESUME-5: MAKATO_LOOP_STALL_DISABLE=1 with incomplete result →

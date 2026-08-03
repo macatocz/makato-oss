@@ -294,6 +294,10 @@
       "minimum": 1,
       "description": "PID of the detached resume subprocess spawned by the HALT-007B context-handoff self-restart (#284). Written by context-handoff.sh immediately after the nohup fork, before disown, so the check-pid liveness watchdog can probe it with `kill -0`. Cleared back to null by check-pid once the resumed session confirms startup (resume_ack present and fresh). Optional for backward compatibility with state files predating #284 — readers treat an absent field as null (no handoff subprocess to supervise)."
     },
+    "last_session_id": {
+      "type": ["string", "null"],
+      "description": "Claude session UUID of the most recent autonomous dispatch for this issue (#616). Written by loop.sh:cmd_dispatch after the dispatch child exits, extracted from the terminal {\"type\":\"result\",...} stream-json line of the dispatch log. This UUID — NOT the spec KEY or issue number — is the value `claude --resume` requires. Both loop.sh:_stall_resume and context-handoff.sh:_emit_resume read it to re-enter the session; when absent (hard crash before the terminal result line, or a legacy state file) they skip resume / fall back to HALT-007 respectively rather than pass an invalid KEY to --resume. Overwritten on every dispatch so it always reflects the latest session. Null at init. Optional for backward compatibility — readers treat an absent field as null."
+    },
     "resume_ack": {
       "type": ["string", "null"],
       "format": "date-time",

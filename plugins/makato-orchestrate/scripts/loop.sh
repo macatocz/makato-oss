@@ -519,6 +519,13 @@ REAP_INTERVAL_SECS="${MAKATO_LOOP_REAP_INTERVAL:-3600}"
 # Orphaned-In-progress reconciliation (#368).
 RECONCILE_ON_POLL="${MAKATO_LOOP_RECONCILE_ON_POLL:-1}"
 RECONCILE_DRYRUN="${MAKATO_LOOP_RECONCILE_DRYRUN:-0}"
+# Orphaned-stale in-flight detection (#616) — a present, non-done
+# workflow-state whose owning process is dead AND whose updated_at is older
+# than ORPHAN_STALE_SECS is a dead orphan; route it to Blocked +
+# needs-human-review (the file-present gap the #368 reconciler explicitly
+# skips). Default 3600 s (60 min); opt-out via MAKATO_ORPHAN_DETECT_DISABLE=1.
+ORPHAN_STALE_SECS="${MAKATO_ORPHAN_STALE_SECS:-3600}"
+ORPHAN_DETECT_DISABLE="${MAKATO_ORPHAN_DETECT_DISABLE:-0}"
 # Stale-worktree reap thresholds (#320).
 REAP_STALE_AGE_SECS="${MAKATO_LOOP_REAP_STALE_AGE:-86400}"
 REAP_STALE_FORCE="${MAKATO_LOOP_REAP_STALE_FORCE:-0}"
@@ -1645,6 +1652,173 @@ cmd_reconcile_orphaned() {
 }
 
 # ---------------------------------------------------------------------------
+# _reconcile_orphaned_stale — per-tick pass (#616).
+#
+# The #368 reconciler (_reconcile_orphaned_in_progress) recovers a card only
+# when NO workflow-state file exists. It explicitly SKIPS a card whose
+# workflow-state file is present with current_phase != "done", treating it as
+# a live run. But a dispatch killed by `Stream idle timeout` (or any hard
+# crash) leaves exactly that: a present, non-done workflow-state with no live
+# process. Both the reconciler and the in-flight gate then block the issue
+# forever with no automatic recovery. This pass closes that gap.
+#
+# For each workflow-state-<N>.json with current_phase != "done", an issue is a
+# dead orphan when BOTH hold:
+#   1. Its owning loop.sh process is dead — <worktree_path>/.loop-owner.pid
+#      fails `kill -0` (reuses _reap_owner_pid_alive). A live owner ALWAYS
+#      short-circuits to skip — this is the load-bearing guard against
+#      false-firing on a legitimately long-running task.
+#   2. Its updated_at is older than ORPHAN_STALE_SECS.
+# Dead orphans are routed to Blocked + needs-human-review — the same
+# operator-gated outcome the #368 reconciler uses. The workflow-state file is
+# NOT deleted or reset (avoids a crash-loop on an unrecoverable task and keeps
+# the audit trail for the operator).
+#
+# Guards:
+#   ORPHAN_DETECT_DISABLE == "1" → skip entirely.
+#   RECONCILE_DRYRUN == "1"      → log intended action, no mutation.
+#   MAKATO_LOOP_RECONCILE_TEST_FILE       → board-edit test hook (shared).
+#   MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE → label test hook (shared).
+#   MAKATO_LOOP_RECONCILE_SPECS_DIR       → override SPECS_DIR for the scan.
+#
+# Best-effort: any per-candidate failure logs a WARN and the pass returns 0.
+# ---------------------------------------------------------------------------
+_reconcile_orphaned_stale() {
+  [[ "$ORPHAN_DETECT_DISABLE" != "1" ]] || return 0
+
+  local scan_specs_dir="${MAKATO_LOOP_RECONCILE_SPECS_DIR:-$SPECS_DIR}"
+  [[ -d "$scan_specs_dir" ]] || return 0
+
+  local now_epoch
+  now_epoch="$(_reap_epoch_of_iso "$(_now)" 2>/dev/null || echo "")"
+
+  local f
+  while IFS= read -r -d '' f; do
+    [[ -f "$f" ]] || continue
+
+    # Read phase, issue number, worktree_path, updated_at in one pass.
+    local phase issue_n wt updated_at
+    phase="$(jq -r '.current_phase // "null"' "$f" 2>/dev/null || echo "null")"
+    [[ "$phase" != "done" && "$phase" != "null" ]] || continue
+    issue_n="$(jq -r '.issue_number // empty' "$f" 2>/dev/null || true)"
+    [[ -n "$issue_n" ]] || continue
+    wt="$(jq -r '.worktree_path // ""' "$f" 2>/dev/null || true)"
+    updated_at="$(jq -r '.updated_at // ""' "$f" 2>/dev/null || true)"
+
+    # Liveness gate — a live owner is always skipped (never touch a running
+    # dispatch). When worktree_path is absent/null the owner pid file cannot
+    # exist, so the owner is treated as dead (correct: no isolated worktree
+    # means no live po-agent for this run).
+    if [[ -n "$wt" && "$wt" != "null" ]] && _reap_owner_pid_alive "$wt"; then
+      echo "loop: reconcile-stale — #$issue_n owner pid alive, skipping" >&2
+      continue
+    fi
+
+    # Staleness gate — updated_at older than ORPHAN_STALE_SECS.
+    local age=""
+    if [[ -n "$updated_at" && -n "$now_epoch" ]]; then
+      local upd_epoch
+      upd_epoch="$(_reap_epoch_of_iso "$updated_at" 2>/dev/null || echo "")"
+      if [[ -n "$upd_epoch" ]]; then
+        age=$(( now_epoch - upd_epoch ))
+        (( age < 0 )) && age=0
+      fi
+    fi
+    if [[ -z "$age" ]]; then
+      # Unparseable timestamp — be conservative, do not fire.
+      echo "loop: reconcile-stale — #$issue_n unparseable updated_at, skipping" >&2
+      continue
+    fi
+    if (( age < ORPHAN_STALE_SECS )); then
+      echo "loop: reconcile-stale — #$issue_n fresh (${age}s < ${ORPHAN_STALE_SECS}s), skipping" >&2
+      continue
+    fi
+
+    if [[ "${RECONCILE_DRYRUN:-0}" == "1" ]]; then
+      echo "loop: reconcile-stale — would reconcile #$issue_n → Blocked + needs-human-review (dead owner, age ${age}s, dry-run)" >&2
+      continue
+    fi
+
+    echo "loop: reconcile-stale — #$issue_n orphaned (phase=$phase, owner dead, age ${age}s) → Blocked + needs-human-review" >&2
+
+    # Emit orchestrate.jsonl escalate entry (best-effort).
+    {
+      local orch_log
+      orch_log="$(dirname "$f")/orchestrate.jsonl"
+      local now_ts
+      now_ts="$(_now)"
+      echo "{\"ts\":\"$now_ts\",\"skill\":\"loop\",\"issue\":$issue_n,\"step\":\"reconcile-orphaned-stale\",\"status\":\"escalate\",\"data\":{\"phase\":\"$phase\",\"age_secs\":$age,\"orphan_stale_secs\":$ORPHAN_STALE_SECS}}" \
+        >>"$orch_log" 2>/dev/null || true
+    } || true
+
+    # Move the board card to Blocked (shared pattern with #368 reconciler).
+    {
+      if [[ -n "${MAKATO_LOOP_RECONCILE_TEST_FILE:-}" ]]; then
+        echo "reconcile #${issue_n}" >>"$MAKATO_LOOP_RECONCILE_TEST_FILE"
+      else
+        local cfg proj_owner proj_number proj_host field_id blocked_id item_id
+        cfg="$(_read_project_config 2>/dev/null)" || { echo "loop: WARN — reconcile-stale #$issue_n: no config for board edit" >&2; true; }
+        proj_owner="$(jq -r '.owner' <<<"$cfg")"
+        proj_number="$(jq -r '.number' <<<"$cfg")"
+        proj_host="$(jq -r '.host' <<<"$cfg")"
+        field_id="$(jq -r '.github_project.fields.status.id // .github_project.status_field_id // empty' "$CONFIG_FILE" 2>/dev/null)"
+        blocked_id="$(jq -r '.github_project.fields.status.options.blocked // (.github_project.options.blocked // empty)' "$CONFIG_FILE" 2>/dev/null)"
+        if [[ -z "$field_id" || -z "$blocked_id" ]]; then
+          echo "loop: WARN — reconcile-stale #$issue_n: missing field_id or blocked option id in config" >&2
+        else
+          item_id="$(GH_HOST="$proj_host" gh project item-list "$proj_number" \
+            --owner "$proj_owner" --format json --limit 9999 2>/dev/null \
+            | jq -r --argjson n "$issue_n" \
+              '.items[] | select(.content.type == "Issue" and .content.number == $n) | .id' \
+            2>/dev/null | head -1)" || true
+          if [[ -n "$item_id" ]]; then
+            GH_HOST="$proj_host" gh project item-edit "$proj_number" \
+              --owner "$proj_owner" \
+              --id "$item_id" \
+              --field-id "$field_id" \
+              --single-select-option-id "$blocked_id" \
+              >/dev/null 2>&1 || \
+              echo "loop: WARN — reconcile-stale #$issue_n: gh project item-edit failed" >&2
+          else
+            echo "loop: WARN — reconcile-stale #$issue_n: could not resolve board item-id" >&2
+          fi
+        fi
+      fi
+    } || true
+
+    # Apply needs-human-review label (shared pattern with #368 reconciler).
+    {
+      local repo_flag=()
+      if [[ -n "${MAKATO_LOOP_DISPATCH_REPO:-}" ]]; then
+        repo_flag=(--repo "$MAKATO_LOOP_DISPATCH_REPO")
+      fi
+      if [[ -n "${MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE:-}" ]]; then
+        echo "label #${issue_n} needs-human-review" >>"$MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE"
+      else
+        if ! gh issue edit "$issue_n" "${repo_flag[@]}" \
+            --add-label "needs-human-review" >/dev/null 2>&1; then
+          echo "loop: WARN — reconcile-stale #$issue_n: could not apply needs-human-review label" >&2
+        else
+          echo "loop: reconcile-stale — applied 'needs-human-review' label to #$issue_n" >&2
+        fi
+      fi
+    } || true
+  done < <(find "$scan_specs_dir" -maxdepth 2 \
+    \( -name 'workflow-state-*.json' -o -name 'workflow-state.json' \) \
+    -print0 2>/dev/null)
+
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# cmd_reconcile_stale — standalone subcommand: run one stale-orphan pass and
+# exit.
+# ---------------------------------------------------------------------------
+cmd_reconcile_stale() {
+  _reconcile_orphaned_stale
+}
+
+# ---------------------------------------------------------------------------
 # next [STATUS_NAME] — first untracked open issue at the requested Status,
 # or empty.
 # ---------------------------------------------------------------------------
@@ -2118,6 +2292,24 @@ _stall_resume() {
     worktree_dir="${REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
   fi
 
+  # #616: read the persisted Claude session UUID. `claude --resume` requires a
+  # session UUID, NOT the spec KEY or issue number — passing the KEY was the
+  # root cause of #616 (resume silently failed, orphaning the in-flight run).
+  # cmd_dispatch persists last_session_id after every dispatch; if it is
+  # absent (hard crash before the terminal result line, or a legacy state
+  # file), there is no session to resume into — skip the resume entirely and
+  # let the orphan-liveness detection pass recover the run on a later tick.
+  # Skipping BEFORE the counter increment + backoff avoids wasting a restart
+  # budget slot on a resume that cannot run.
+  local _resume_sid=""
+  if [[ -f "$_wf_file" ]]; then
+    _resume_sid="$(jq -r '.last_session_id // ""' "$_wf_file" 2>/dev/null || true)"
+  fi
+  if [[ -z "$_resume_sid" || "$_resume_sid" == "null" ]]; then
+    _orch_append "{\"ts\":\"$now_ts\",\"skill\":\"loop\",\"issue\":$issue,\"step\":\"stall-resume\",\"status\":\"skip\",\"data\":{\"reason\":\"no_session_id\"}}"
+    return 0
+  fi
+
   # Increment shared restart counter before the sleep (mirrors _stall_restart
   # convention: a kill during backoff still records the attempt).
   local new_count=$(( restart_count + 1 ))
@@ -2135,7 +2327,7 @@ _stall_resume() {
     cd "$worktree_dir" 2>/dev/null || true
     MAKATO_HEADLESS=1 "$CLAUDE_BIN" --dangerously-skip-permissions \
       --output-format stream-json --verbose \
-      --resume "${key:-$issue}" \
+      --resume "$_resume_sid" \
       -p "$resume_prompt" >>"$log_file" 2>&1 || true
   )
   return 0
@@ -4211,6 +4403,27 @@ _pre_dispatch_plan_guard() {
 #   - langfuse_hook.py not found on the plugin search path
 #   - session_id absent from log (test stub / dry-run paths)
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# _extract_session_id <log_file>
+#
+# Extract the Claude session UUID from a dispatch log's terminal
+# {"type":"result",...} stream-json line. This UUID is the value
+# `claude --resume` requires — NOT the spec KEY or issue number (#616). Emits
+# the UUID on stdout, or nothing when the log is absent/has no result line.
+#
+# Sole source of truth for session-id extraction: both _emit_langfuse_trace
+# (telemetry) and the dispatch capture that persists last_session_id
+# (recovery, #616) call this so the extraction logic exists in exactly one
+# place.
+# ---------------------------------------------------------------------------
+_extract_session_id() {
+  local log_file="${1:-}"
+  [[ -f "$log_file" ]] || return 0
+  grep '"type":"result"' "$log_file" 2>/dev/null \
+    | tail -1 \
+    | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("session_id",""))' 2>/dev/null || true
+}
+
 _emit_langfuse_trace() {
   local log_file="${1:-}" issue="${2:-}"
   [[ "${TRACE_TO_LANGFUSE:-false}" == "true" ]] || return 0
@@ -4230,9 +4443,7 @@ _emit_langfuse_trace() {
 
   # Extract session_id from the terminal {"type":"result",...} line.
   local session_id
-  session_id="$(grep '"type":"result"' "$log_file" 2>/dev/null \
-    | tail -1 \
-    | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("session_id",""))' 2>/dev/null || true)"
+  session_id="$(_extract_session_id "$log_file")"
   [[ -n "$session_id" ]] || return 0
 
   # Derive transcript path: ~/.claude/projects/<hash>/<session_id>.jsonl
@@ -4729,6 +4940,26 @@ cmd_dispatch() {
     trap 'kill -TERM "$watchdog_pid" "$child_pid" 2>/dev/null || true; wait "$watchdog_pid" "$child_pid" 2>/dev/null || true; exit 143' TERM INT
     # Block on child. `wait` returns the child's exit status if we name it.
     wait "$child_pid" || rc=$?
+    # #616: capture the Claude session UUID from the dispatch log and persist
+    # it to workflow-state as last_session_id, so a later recovery (either the
+    # loop's _stall_resume or context-handoff.sh's HALT-007B resume) can pass a
+    # VALID `claude --resume <uuid>` argument instead of the spec KEY (which
+    # --resume rejects — it requires a session UUID). Captured for every
+    # dispatch, not just failing ones, because the UUID must already be on disk
+    # by the time any recovery path runs. Best-effort — a missing UUID or a
+    # patch failure never aborts the dispatch; the recovery paths degrade
+    # gracefully (skip resume / HALT-007 fallback) when last_session_id is null.
+    if [[ -n "$log_file" && -n "${key:-}" ]]; then
+      local _sid
+      _sid="$(_extract_session_id "$log_file")"
+      if [[ -n "$_sid" ]]; then
+        local _ws_capture
+        _ws_capture="$(dirname "$(dirname "${BASH_SOURCE[0]}")")/shared/workflow-state.sh"
+        if [[ -x "$_ws_capture" ]]; then
+          "$_ws_capture" patch "$key" "$issue" '.last_session_id' "\"$_sid\"" >/dev/null 2>&1 || true
+        fi
+      fi
+    fi
     # Reap watchdog — it either exited already (kill path or child-exit)
     # or is between polls; killing is a no-op in the former case.
     if [[ -n "$watchdog_pid" ]] && kill -0 "$watchdog_pid" 2>/dev/null; then
@@ -5475,6 +5706,15 @@ cmd_run() {
       _reconcile_orphaned_in_progress || true
     fi
 
+    # Pre-poll orphaned-stale detection (#616): recover an in-flight run whose
+    # workflow-state file is PRESENT (current_phase != done) but whose owning
+    # process is dead and whose updated_at is stale — the file-present gap the
+    # #368 reconciler above explicitly skips. Runs right after it so both the
+    # no-file and stale-file orphan classes are handled each tick. Best-effort.
+    if [[ "${ORPHAN_DETECT_DISABLE}" != "1" && -z "$dry_run" ]]; then
+      _reconcile_orphaned_stale || true
+    fi
+
     # Pre-poll reshape pass (#350, epic #319): detect issues at board Status=Needs
     # Planning and drive a bounded makato-plan re-shape. Runs before auto-seed so
     # a reshaped issue can be seeded in the same tick. Feature-flagged off by
@@ -5760,6 +6000,12 @@ if [[ "$SUBCMD" == _test-* ]]; then
     #   MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE.
     # (#368).
     _test-reconcile-orphaned) _reconcile_orphaned_in_progress "$@" ;;
+    # _test-reconcile-stale — exercise _reconcile_orphaned_stale
+    # deterministically via test-hook env vars:
+    #   MAKATO_LOOP_RECONCILE_SPECS_DIR, MAKATO_LOOP_RECONCILE_TEST_FILE,
+    #   MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE, MAKATO_ORPHAN_STALE_SECS.
+    # (#616).
+    _test-reconcile-stale) _reconcile_orphaned_stale "$@" ;;
     # _test-reshape-pass — exercise _reshape_pass deterministically using
     # MAKATO_LOOP_RESHAPE_OVERRIDE and MAKATO_LOOP_RESHAPE_TEST_CMD.
     # (#350, epic #319).
