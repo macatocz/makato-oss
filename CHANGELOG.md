@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.127.1](https://github.com/macatocz/makato/compare/v0.127.0...v0.127.1) (2026-08-03)
+
+
+### 🐛 Bug Fixes
+
+* **makato-plan:** replace broken project-view fields assertion with field-list probe ([#606](https://github.com/macatocz/makato/issues/606)) ([#647](https://github.com/macatocz/makato/issues/647)) ([fe26c2e](https://github.com/macatocz/makato/commit/fe26c2ec28eb8a75e5829abbcf3c37fc80c40556))
+
 ## [0.127.0](https://github.com/macatocz/makato/compare/v0.126.0...v0.127.0) (2026-08-03)
 
 
