@@ -30,6 +30,9 @@ All fields are required unless marked optional.
 ## Acceptance Test Oracle   (optional)
 <QA-authored acceptance-test scenarios — see Acceptance Test Oracle Schema below. Omitted entirely when the source story carries no acceptanceTestCases.>
 
+## Runtime verification   (optional)
+<single shell command declared as a fenced code block — see Runtime Verification Schema below. Omitted when the story has no service/API runtime health-check to declare.>
+
 ## Scope Flags
 <optional warnings about task count, ambiguity, or split recommendations>
 ```
@@ -102,6 +105,41 @@ Then <observable outcome>
   implements the matching scenarios as its RED tests (see `coder.md` § *Test oracle*). The
   oracle is **advisory** — it never overrides `PLAN_CONTEXT.Hard Constraints`.
 
+## Runtime Verification Schema
+
+Optional section. Written **only** for service or API stories where a health-check or
+smoke command can be executed after startup to verify the runtime is healthy. When the
+story has no runtime health-check to declare, this section is **omitted entirely** — its
+absence is the default and changes nothing downstream.
+
+The section contains a **single fenced code block** with the shell command to run:
+
+```
+## Runtime verification
+
+```
+curl -sf http://localhost:8080/health | grep '"status":"ok"'
+```
+```
+
+Rules:
+
+- The command must be a single shell expression (pipeline allowed; multi-line not
+  supported — compose into a one-liner if needed).
+- The command must exit 0 on success and non-zero on failure.
+- **No timeout declaration.** `HEALTH_CHECK_TIMEOUT_SECONDS` env-var override remains the
+  authoritative timeout mechanism; the plan section must not declare a timeout value.
+- `build-verify` Step 1 reads this section from `plan-<N>.md` at session start and sets
+  `PLAN_RUNTIME_CMD`. Gate 6 (Step 8b) uses `PLAN_RUNTIME_CMD` when non-empty; this value
+  takes precedence over any `health_check_cmd` returned by the gate-scout. When the section
+  is absent or empty, gate-scout discovery is the fallback (existing behavior preserved).
+- `gate-scout` MUST NOT be modified to read `plan.md`; plan-command extraction belongs
+  exclusively in `build-verify` Step 1.
+- Gate 6 is always advisory: non-zero exit logs `warn`, never fails the build.
+- The `build.jsonl` entry for Gate 6 (`step:"gate-health"`) includes a
+  `runtime_cmd_source` field: `"plan"` when the command came from `plan-<N>.md`,
+  `"gate-scout"` when it came from gate-scout discovery, `"none"` when both are absent.
+
 ## Validation Rules
 
 - Every AC from stories.json must appear in the coverage table
@@ -113,3 +151,4 @@ Then <observable outcome>
 - `commitMessage` must be populated for every task — never omitted
 - `runOrder` must be present when top-level mode is `mixed`; omit or set to `N/A` for single-mode plans
 - `## Acceptance Test Oracle` is optional — present only when the source story has a non-empty `acceptanceTestCases[]`; every scenario in it must carry a `(maps to AC-N)` annotation referencing an AC from the coverage table (or `AC-*` for story-wide scenarios)
+- `## Runtime verification` is optional — present only for service/API stories that declare a health-check or smoke command; must contain exactly one fenced code block with a single shell expression; must NOT declare a timeout (use `HEALTH_CHECK_TIMEOUT_SECONDS` env-var instead)

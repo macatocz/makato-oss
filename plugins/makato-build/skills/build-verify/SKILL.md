@@ -6,7 +6,7 @@ description: >-
   separately so failures are attributable. Fixable failures are
   fixed and gates re-run; structural failures escalate to refine.
   Autonomous. Use after review, before push-to-git.
-version: "1.9.0"
+version: "1.10.0"
 argument-hint: "[work-item-key]"
 ---
 
@@ -68,6 +68,16 @@ Ask: *"Which work item are we verifying? (e.g. #123, or pass it directly: `/maka
 
 Read `design.md` from the resolved spec folder (`specs/<key>-*/`) if it exists and look for a declared coverage threshold.
 If none is declared, the coverage gate is advisory — it reports figures but does not block.
+
+**Runtime verification — read from plan**: read `plan-<N>.md` from the resolved spec folder (match `plan-<ISSUE_NUMBER>.md` where `ISSUE_NUMBER` is the leading numeric segment of the work-item key, or fallback to `plan.md` if the per-issue file is absent). Look for a `## Runtime verification` section. Extract the shell command from the first fenced code block inside that section and set `PLAN_RUNTIME_CMD` to that value. When the section is absent, empty, or contains no fenced code block, set `PLAN_RUNTIME_CMD` to empty string. This extraction is the only place plan-command reading happens — `gate-scout` MUST NOT be modified to read `plan.md`.
+
+```bash
+# Example extraction (pseudo-code):
+PLAN_FILE="$(ls specs/<key>-*/plan-<ISSUE_NUMBER>.md 2>/dev/null | head -1)"
+PLAN_FILE="${PLAN_FILE:-$(ls specs/<key>-*/plan.md 2>/dev/null | head -1)}"
+# Extract the command inside the fenced block that follows ## Runtime verification
+PLAN_RUNTIME_CMD="$(awk '/^## Runtime verification/{found=1} found && /^```/{if(++fence==1){next} else {exit}} found && fence==1{print}' "$PLAN_FILE" 2>/dev/null | head -1)"
+```
 
 Dispatch the `gate-scout` agent with:
 - `REPO_ROOT`: absolute path to the target repository root
@@ -338,16 +348,20 @@ Log:
 
 ### Step 8b — Gate 6: RUNTIME HEALTH-CHECK
 
-Run the project's health or smoke command when one was discovered by gate-scout.
+Run the project's health or smoke command when one is available. The command source follows a strict precedence order:
 
-**Command selection:**
+**Command selection (precedence order):**
 
-- When `gate-scout.data.health_check_cmd` is non-null: run the command. The timeout is
-  controlled by the `HEALTH_CHECK_TIMEOUT_SECONDS` environment variable (default: 60 seconds).
-  Use a wrapper such as `timeout $HEALTH_CHECK_TIMEOUT_SECONDS <cmd>` to enforce the limit.
-- When `health_check_cmd` is null: emit
-  `"Gate 6: no health command discovered — gate is advisory (skipped)"` and record gate as
-  `skipped`. No further action is needed.
+1. **Plan command** (`PLAN_RUNTIME_CMD` from Step 1, non-empty): use `PLAN_RUNTIME_CMD`. Set `runtime_cmd_source: "plan"`. This takes precedence over gate-scout discovery — the plan author's explicit declaration overrides any auto-discovered command.
+
+2. **Gate-scout discovery** (`PLAN_RUNTIME_CMD` is empty AND `gate-scout.data.health_check_cmd` is non-null): use `gate-scout.data.health_check_cmd`. Set `runtime_cmd_source: "gate-scout"`. This is the fallback when no plan command was declared (existing behavior preserved).
+
+3. **Neither source** (`PLAN_RUNTIME_CMD` is empty AND `health_check_cmd` is null): emit
+   `"Gate 6: no health command found in plan or gate-scout — gate is advisory (skipped)"` and record gate as `skipped`. Set `runtime_cmd_source: "none"`. No further action is needed.
+
+**Gate execution** (when a command is available from source 1 or 2):
+
+The timeout is controlled by the `HEALTH_CHECK_TIMEOUT_SECONDS` environment variable (default: 60 seconds). Use a wrapper such as `timeout $HEALTH_CHECK_TIMEOUT_SECONDS <cmd>` to enforce the limit.
 
 **Gate result mapping:**
 
@@ -361,7 +375,7 @@ current environment, the `warn` status is the expected degraded outcome.
 
 Log:
 ```
-{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-health","status":"ok"|"warn"|"skipped","data":{"health_check_cmd":"<cmd>|null","exit_code":<N>,"duration_seconds":<N>}}
+{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-health","status":"ok"|"warn"|"skipped","data":{"health_check_cmd":"<cmd>|null","exit_code":<N>,"duration_seconds":<N>,"runtime_cmd_source":"plan"|"gate-scout"|"none"}}
 ```
 
 ---

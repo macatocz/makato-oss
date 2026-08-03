@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
-# Contract / smoke test for build-verify gate-command consumption (#450).
+# Contract / smoke test for build-verify gate-command consumption (#450) and
+# Runtime verification doc-contract (#583).
 #
 # build-verify v1.8.0 updates Gates 1 and 2 to source their commands from
 # gate-scout's new hook-command fields (build_hook_cmd, lint_hook_cmd) and
 # adds error-count parsing so gates fail on N errors even when exit code is 0.
+#
+# build-verify v1.10.0 adds Gate 6 plan-command precedence: Step 1 reads
+# ## Runtime verification from plan-<N>.md; Gate 6 Step 8b uses PLAN_RUNTIME_CMD
+# when non-empty (takes precedence over gate-scout health_check_cmd); absent
+# section → gate skipped cleanly; runtime_cmd_source field added to build.jsonl.
 #
 # T1 — build-verify SKILL.md Step 4 references build_hook_cmd
 # T2 — build-verify SKILL.md Step 4 references pre-commit run --hook-stage manual pattern
@@ -11,6 +17,10 @@
 # T4 — build-verify SKILL.md Step 5 references pre-commit run --hook-stage manual pattern
 # T5 — build-verify SKILL.md contains error-count parsing logic (parsed_errors in log entry)
 # T6 — gate-definitions.md contains pre-commit hook path (hook-stage manual or pre-commit hook)
+# T7 — plan-template.md contains ## Runtime verification heading
+# T8 — plan-schema.md documents Runtime Verification Schema section
+# T9 — build-verify SKILL.md Gate 6 Step 8b references runtime_cmd_source field
+# T10 — build-verify SKILL.md Step 1 references reading plan for the runtime command
 #
 # All assertions are grep-based doc-contract checks.
 # No mutation, no network.
@@ -23,6 +33,8 @@ FAIL=0
 
 SKILL_MD="$PLUGIN_DIR/skills/build-verify/SKILL.md"
 GATE_DEFS_MD="$PLUGIN_DIR/skills/build-verify/references/gate-definitions.md"
+PLAN_TEMPLATE_MD="$PLUGIN_DIR/skills/build-refine/templates/plan-template.md"
+PLAN_SCHEMA_MD="$PLUGIN_DIR/skills/build-refine/references/plan-schema.md"
 
 _pass() { printf '  \xe2\x9c\x93 %s\n' "$1"; }
 _fail() { printf '  \xe2\x9c\x97 %s\n' "$1"; FAIL=$((FAIL + 1)); }
@@ -76,6 +88,38 @@ if grep -qF 'hook-stage manual' "$GATE_DEFS_MD" || grep -qiE 'pre-commit hook' "
   _pass "gate-definitions.md documents pre-commit hook path"
 else
   _fail "gate-definitions.md missing pre-commit hook path — Pre-commit Hook Commands section not added"
+fi
+
+# ---- T7: plan-template.md contains ## Runtime verification heading -----------
+echo "T7: plan-template.md contains ## Runtime verification heading"
+if grep -qF '## Runtime verification' "$PLAN_TEMPLATE_MD"; then
+  _pass "plan-template.md contains ## Runtime verification heading"
+else
+  _fail "plan-template.md missing ## Runtime verification heading — Task 1 not applied"
+fi
+
+# ---- T8: plan-schema.md documents Runtime Verification Schema section --------
+echo "T8: plan-schema.md documents Runtime Verification Schema section"
+if grep -qF 'Runtime Verification Schema' "$PLAN_SCHEMA_MD"; then
+  _pass "plan-schema.md contains Runtime Verification Schema section"
+else
+  _fail "plan-schema.md missing Runtime Verification Schema — Task 1 schema documentation not added"
+fi
+
+# ---- T9: build-verify SKILL.md Gate 6 Step 8b references runtime_cmd_source --
+echo "T9: build-verify SKILL.md Gate 6 Step 8b references runtime_cmd_source field"
+if grep -qF 'runtime_cmd_source' "$SKILL_MD"; then
+  _pass "build-verify SKILL.md references runtime_cmd_source in gate-health log entry"
+else
+  _fail "build-verify SKILL.md missing runtime_cmd_source — Gate 6 log entry not updated"
+fi
+
+# ---- T10: build-verify SKILL.md Step 1 references plan for runtime command ---
+echo "T10: build-verify SKILL.md Step 1 references reading plan for the runtime command"
+if grep -qF 'PLAN_RUNTIME_CMD' "$SKILL_MD"; then
+  _pass "build-verify SKILL.md references PLAN_RUNTIME_CMD — Step 1 reads plan.md runtime command"
+else
+  _fail "build-verify SKILL.md missing PLAN_RUNTIME_CMD — Step 1 plan-read not documented"
 fi
 
 echo
