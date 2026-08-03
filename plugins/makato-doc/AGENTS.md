@@ -1,5 +1,13 @@
 # makato-doc — Contributor Guide
 
+## Hard Constraints
+
+- **Never author source code.** Documentation skills produce prose, markdown, and structure — not implementation code.
+- **Suite infrastructure (issue filing, plugin discovery, codebase navigation) belongs in `makato-core`, not here.** Do not duplicate those utilities.
+- **Workflow logic and domain-specific skills belong in their respective plugins.** makato-doc handles documentation only.
+- **Documentation written must not contradict the source of truth** (`AGENTS.md`, skill SKILL.md frontmatter, `CHANGELOG.md`). When in doubt, read before writing.
+- **Skills must emit JSONL audit entries** — session start, each major step, session end.
+
 ## Goal
 
 Provide the documentation-authoring skills every makato plugin relies on — library

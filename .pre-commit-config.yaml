@@ -114,6 +114,20 @@ repos:
         pass_filenames: true
 
   # -----------------------------------------------------------------------
+  # AGENTS.md Hard Constraints gate — fast lane (#589)
+  # Rejects any staged AGENTS.md that is missing a '## Hard Constraints'
+  # section or has it after line 30. Runs only on staged AGENTS.md files.
+  # -----------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: validate-agents-hard-constraints
+        name: validate AGENTS.md Hard Constraints section (gate #589)
+        entry: plugins/makato-core/pre-commit/validate-agents-hard-constraints.sh
+        language: system
+        files: (^|/)AGENTS\.md$
+        pass_filenames: true
+
+  # -----------------------------------------------------------------------
   # Context-bundles authoring gate — fast lane (#324)
   # Rejects any context-bundles.yml missing the required `default` bundle
   # (or with duplicate bundle names / missing name fields). Surfaces HALT-006

@@ -1,5 +1,13 @@
 # makato-database — Contributor Guide
 
+## Hard Constraints
+
+- **Never include application-layer ORM code.** This plugin is for database-layer concerns only — schema, migrations, query patterns.
+- **Never add data migration tooling** that alters production data without an explicit operator approval gate.
+- **All schema changes must be reversible.** Migration scripts must include a down-migration or explicit documentation of why one is not possible.
+- **Do not include PostgreSQL performance-profiling tools here** if they are unrelated to the `makato-database` skill goals — route those to `makato-observability`.
+- **Skills must emit JSONL audit entries** — session start, each major step, session end.
+
 ## Goal
 
 Provide Postgres-focused skills for performance optimization, query writing, schema design, and database administration — with scope to expand to additional database technologies.

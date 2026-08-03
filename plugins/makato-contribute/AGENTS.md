@@ -1,5 +1,17 @@
 # makato-contribute — Contributor Guide
 
+## Hard Constraints
+
+- **Skills produced by this plugin must validate output against makato conventions before writing.** Never scaffold a plugin or skill without running the framework guardrails (frontmatter checks, file-structure checks, AGENTS.md presence).
+- **Never add end-user workflow skills or domain-specific skills here.** This plugin exists solely to help contributors create correct suite content.
+- **Do not add foundation/contract definitions.** Those belong in `makato-core`.
+- **All scaffolded output must include required frontmatter** (`name`, `description`, `version`) — creator skills must reject stubs missing these fields.
+- **Plugin scaffolds must include `AGENTS.md` with a `## Hard Constraints` section before line 30.** This is enforced by the pre-commit gate; generated files must comply on creation.
+- **`sync-from-upstream` must apply naming remaps before writing any file.** Raw upstream content must never land in the repo without makato-convention validation.
+- **Never create duplicate plugin or skill directories.** Creator skills must check for existing paths and halt on conflict.
+- **Never auto-push scaffolded content** without an explicit user approval gate — the human reviews and merges.
+- **No `bypassPermissions` agents in this plugin.** All scaffolding runs at the default permission level.
+
 ## Goal
 
 Help contributors participate in makato suite development — scaffolding new plugins and skills to convention, resolving PR review feedback, and syncing content from upstream repos — all pre-validated against the framework's guardrails.

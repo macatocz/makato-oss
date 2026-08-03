@@ -1,5 +1,13 @@
 # makato-sagibeast — Contributor Guide
 
+## Hard Constraints
+
+- **Skills must produce outputs usable within a contract management workflow.** General-purpose UX creation or generic document editing with no contract-management context does not belong here.
+- **General-purpose database schema definition belongs in `makato-database`.** Only CMAI-related schemas may live here.
+- **Skills already covered by `makato-build`, `makato-plan`, or `makato-change` must not be duplicated** in this plugin.
+- **Never add skills for non-contract-management domains** without explicit scope approval.
+- **Skills must emit JSONL audit entries** — session start, each major step, session end.
+
 ## Goal
 
 Provide skills for the Sagibeast (CMAI) platform covering contract document processing (Word/PDF/Excel), testbox environment provisioning and connection, and integration with the CMAI contract management system.

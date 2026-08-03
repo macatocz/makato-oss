@@ -1,6 +1,18 @@
 <!-- markdownlint-disable MD013 MD032 MD040 -->
 # makato-orchestrate — Contributor Guide
 
+## Hard Constraints
+
+- **PO-agent is the only `bypassPermissions` agent in this plugin.** Never add elevated permissions to any other agent without documenting the reason here and in README.md.
+- **PO-agent must never edit target-repo source files.** It orchestrates only — source-file writes belong to `coder` in `makato-build`. A PR adding source-file writes to PO-agent must be rejected at code review (NEVER 4).
+- **PO-agent is the sole writer of `workflow-state.json`.** Sub-agents return R1 envelopes; PO-agent patches state. Concurrent writes are a design failure, not a race to manage.
+- **HALT codes over silent failures.** Every exit path must be enumerated. When a ceiling fires, the issue receives `needs-human-review`, state captures the audit, and the run terminates cleanly.
+- **HALT-file poll fires at every outer-loop boundary.** A `~/.claude/HALT` file stops the next iteration. Never skip this check.
+- **R1 contract is mandatory for every sub-agent dispatch.** PO-agent parses `status` and `data`; it never scrapes prose.
+- **`documentation-agent` and `context-summariser` carry `skill_routing: disabled`.** Do not remove these flags — they exempt these non-technical agents from F4 telemetry and skill-recommendation injection.
+- **Sub-agents dispatched by this plugin inherit `makato-build`'s permission matrix.** Do not re-declare permission modes for agents defined in `makato-build`.
+- **`spec/` artefact paths are gitignored except `build.jsonl`.** PO-agent must never commit files under `specs/<key>/` other than `build.jsonl`.
+
 ## Goal
 
 Autonomous control plane that drives a GitHub Issue from ready-for-dev through to a merged PR unattended.

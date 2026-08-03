@@ -1,5 +1,17 @@
 # makato-core — Contributor Guide
 
+## Hard Constraints
+
+- **Only suite-wide utilities belong here.** Skills serving a single toolkit go in that toolkit. If it solves a concern for only one plugin, it is in the wrong place.
+- **Contracts are design-time definitions, not runtime imports.** Consuming skills use local templates; they must not import from core at runtime.
+- **No `bypassPermissions` agents in this plugin.** Core utilities run at the default permission level.
+- **Pre-commit hooks in `makato-core/pre-commit/` must be repo-path-agnostic.** Use `git -C "$SCRIPT_DIR" rev-parse --show-toplevel` to resolve the repo root — never hardcode paths.
+- **`create-issue` must use canonical templates and the 10-dimension label taxonomy**, and must check for duplicates before filing.
+- **`makato-guide` and `map-codebase-context` are read-only.** They must never write or modify files.
+- **`skill-judge` is advisory only.** Its scores never block a PR — they inform the author and are not a merge gate.
+- **Hooks defined here are shared infrastructure.** Breaking changes to `pre-commit-sensors.md`, `pre-push.md`, or `post-implement.md` require a CHANGELOG entry and a migration note.
+- **Never hard-code repository URLs, project IDs, or GitHub token values** in skills; read them from `.claude/config.json` or environment variables.
+
 ## Goal
 
 Provide the shared developer utilities and suite infrastructure every makato plugin depends on — codebase navigation, GitHub issue filing, and plugin discovery.

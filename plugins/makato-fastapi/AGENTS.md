@@ -1,5 +1,13 @@
 # makato-fastapi — Contributor Guide
 
+## Hard Constraints
+
+- **Only FastAPI-specific skills belong here.** General Python skills go in a general plugin; technology-agnostic build steps stay in `makato-build`.
+- **Never add skills for non-FastAPI web frameworks** (Django, Flask, Litestar, Starlette-only, etc.).
+- **Skills must validate FastAPI-specific conventions** (router patterns, dependency injection, Pydantic models) — do not accept Django/Flask patterns as equivalent.
+- **Project management, planning, and shaping skills are out of scope** — route those to `makato-plan`.
+- **Skills must emit JSONL audit entries** — session start, each major step, session end.
+
 ## Goal
 
 Provide FastAPI-specific reference skills and conventions for building correct, production-ready Python HTTP APIs with the FastAPI framework.

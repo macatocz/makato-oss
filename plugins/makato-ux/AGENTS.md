@@ -1,5 +1,13 @@
 # makato-ux — Contributor Guide
 
+## Hard Constraints
+
+- **Prototypes and mockups for UX validation belong in `makato-plan/create-prototype`, not here.** This plugin is for implementation-ready UX patterns.
+- **Architecture and workflow diagrams belong in `makato-plan`, not here.**
+- **Never implement backend or API logic.** Server code, database interactions, and infrastructure provisioning are out of scope — route to `makato-build` or `makato-database`.
+- **Skills must not ship framework-specific code for frameworks not in the plugin scope** (e.g., Vue-specific code in a React skill).
+- **Skills must emit JSONL audit entries** — session start, each major step, session end.
+
 ## Goal
 
 Transform built code into a production UX platform.

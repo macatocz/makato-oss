@@ -1,5 +1,13 @@
 # makato-langgraph — Contributor Guide
 
+## Hard Constraints
+
+- **Only LangGraph-specific skills belong here.** General Python or technology-agnostic build steps stay in `makato-build`.
+- **Never add skills for non-LangGraph AI frameworks** (LlamaIndex, CrewAI, AutoGen, etc.) — each gets its own plugin.
+- **Skills must reflect LangGraph idioms** (StateGraph, nodes, edges, checkpointers) — do not accept generic agent-loop patterns as equivalent.
+- **Project management, planning, and shaping skills are out of scope** — route those to `makato-plan`.
+- **Skills must emit JSONL audit entries** — session start, each major step, session end.
+
 ## Goal
 
 Provide LangGraph-specific reference skills and patterns for building Python AI agents with the LangGraph framework.

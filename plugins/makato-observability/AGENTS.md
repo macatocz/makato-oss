@@ -1,5 +1,14 @@
 # makato-observability — Contributor Guide
 
+## Hard Constraints
+
+- **Do not add LangChain-classic `CallbackHandler` wiring.** LangGraph consumers in scope run without the LangChain wrapper — that recipe does not apply.
+- **LiteLLM-direct and PydanticAI wiring are out of scope** until a consumer stack actually depends on them.
+- **Temporal-worker observability and Postgres query-perf profiling are out of scope.** Route those to `makato-temporal` and `makato-database` respectively.
+- **Non-OTel and non-Langfuse observability tooling does not belong here** — raw Prometheus scraping, log-aggregation pipelines (Loki / ELK / CloudWatch), SLO calculators.
+- **Runbook authoring, incident triage prose, and post-mortem authoring are out of scope.**
+- **Skills must emit JSONL audit entries** — session start, each major step, session end.
+
 ## Goal
 
 Provide LLM-observability skills for tracing, monitoring, and debugging LangGraph-based AI agents — Langfuse-first via OpenTelemetry SDK + OTLP HTTP export, so LangGraph nodes running without a LangChain wrapper still land structured traces in Langfuse.

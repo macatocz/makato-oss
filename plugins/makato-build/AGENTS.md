@@ -1,6 +1,18 @@
 <!-- markdownlint-disable MD013 MD032 MD040 -->
 # makato-build — Contributor Guide
 
+## Hard Constraints
+
+- **`coder` is the only `bypassPermissions` agent.** Never grant elevated permissions to any other agent without explicit documentation and code-review approval in this section.
+- **`coder` dispatched only by `build-implement-tdd` or `build-implement-goal`.** Never invoke it directly from user prompts or other skills.
+- **`sensor-fixer` must never edit files outside the changed-files set** captured at dispatch time. File targets are validated by `build-refine` before plan approval.
+- **`diff-reviewer` is the sole AC-verdict judge.** `build-review` and `build-create-pr` are transport-only — they copy verdicts, never re-evaluate them.
+- **`build.jsonl` is the only `specs/` artefact committed to the repo.** Never log secrets, credentials, file paths outside the repo, or any content you would not paste into a public PR.
+- **`PLAN_CONTEXT.Hard Constraints` always overrides advisory inputs.** `RECOMMENDED_SKILLS`, `SCOUT_SUMMARY`, and `TEST_ORACLE` are advisory and never override hard constraints.
+- **No hotfixes or ad-hoc changes.** Route defect fixes to `makato-change`; route new shaping work to `makato-plan`.
+- **Skill files must not use `../` paths outside their skill directory** (except `../shared/` within this plugin).
+- **`build-implement-goal` does not participate in the `TEST_ORACLE` chain.** That chain is TDD-only; do not add oracle propagation to goal-mode flows.
+
 ## Goal
 
 Transforms decomposed, vertically-sliced stories into tested, reviewed, merged code.

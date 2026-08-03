@@ -1,5 +1,13 @@
 # makato-temporal — Contributor Guide
 
+## Hard Constraints
+
+- **Only Temporal durable-execution skills belong here.** General AI-agent framework guidance goes in `makato-langgraph`; non-Temporal workflow/orchestration engines are out of scope.
+- **Never include product-specific application code or business workflows.** Those belong in the consuming repository.
+- **LLM-observability tooling unrelated to Temporal execution belongs in `makato-observability`, not here.**
+- **SDK guidance is limited to languages makato carries** (Python, TypeScript, Java, Rust). Do not add .NET, Go, Ruby, or other language guides without a corresponding plugin update.
+- **Skills must emit JSONL audit entries** — session start, each major step, session end.
+
 ## Goal
 
 Provide Temporal durable-execution reference skills for building, debugging, and operating workflows, activities, and workers across Python, TypeScript, Java, and Rust SDKs.

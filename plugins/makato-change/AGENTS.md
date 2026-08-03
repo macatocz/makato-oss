@@ -1,6 +1,18 @@
 <!-- markdownlint-disable MD013 MD040 -->
 # makato-change — Request for change
 
+## Hard Constraints
+
+- **`change-implementer` is the only write-capable agent.** Dispatched solely by `execute` — never invoke it directly or grant write access to any other agent without documenting the reason in this section.
+- **Scope cap: 15 files or fewer.** Changes touching 16+ files or requiring new subsystems must be escalated to `makato-plan` + `makato-build`.
+- **Never route new-feature work through this plugin.** Large-scale changes requiring discovery and preparation belong in `makato-plan` + `makato-build`.
+- **Read-only agents (`code-explorer`, `test-analyzer`, `requirements-diff-analyzer`, `code-reviewer`) must carry `disallowedTools: Write, Edit, Bash, NotebookEdit`.** Do not relax this.
+- **Skills must not touch files outside the scope defined by the approved design artifact.** `change-implementer` is bounded to the file set in the design; any out-of-scope write is a contract violation.
+- **Change scope is fixed at analyze time.** The `design` phase must not expand scope beyond what `analyze` identified without a new change request.
+- **`code-reviewer` and `quality-guard` are advisory only.** They never push code or create PRs — that belongs to the `execute` skill.
+- **Every code-creating agent must invoke `context7`** before writing code that touches a library, framework, SDK, or API. Never rely on training data for current API surfaces.
+- **All skills must emit JSONL to `specs/<key>-*/build.jsonl`** — session start, each major step, session end. Never skip the audit trail.
+
 ## Goal
 
 Implement changes to existing functionality based on updated business requirements.

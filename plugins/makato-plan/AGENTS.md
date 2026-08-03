@@ -1,6 +1,18 @@
 <!-- markdownlint-disable MD013 MD032 MD040 -->
 # makato-plan — Contributor Guide
 
+## Hard Constraints
+
+- **Never include implementation or coding skills.** Planning skills shape and decompose; they do not write source code or tests. Implementation belongs in `makato-build`.
+- **Never add sprint/iteration management or backlog grooming.** makato-plan produces specs and stories; project management and status transitions belong to `makato-orchestrate`.
+- **Read-only agents (`context-scout`) must carry `disallowedTools: Write, Edit, Bash, NotebookEdit`.** Never grant write access to a read-only agent.
+- **All output artifacts (`stories.json`, `prd.md`, `design.md`, `created-issues.json`) are the authoritative inputs for `makato-build`.** Do not bypass them by writing plan-tier content directly into source trees.
+- **`to-issues` is the canonical bridge to GitHub and must be idempotent.** Do not write ad-hoc issue-creation code; re-running must not create duplicates.
+- **`decompose` output (`stories.json`) must not be mutated after `to-issues` has run.** It is the authoritative contract between shaping and development.
+- **Opus-model skills must not be downgraded without a quality experiment.** Interview quality is the dominant cost driver — do not change a skill's model to save tokens without measurement.
+- **`acceptanceTestCases[]` is QA-refined, not PO opinion.** Never substitute `successScenarios[]` for the test oracle — they serve distinct roles.
+- **Cross-skill resources must live in `shared/` via symlink**, never via `../` paths. Cross-plugin sharing is not permitted.
+
 ## Goal
 
 Transforms raw feature requests into vertically-sliced GitHub issues through structured discovery, interviews, architectural analysis, and UX design — producing acceptance-tested stories ready for development.
