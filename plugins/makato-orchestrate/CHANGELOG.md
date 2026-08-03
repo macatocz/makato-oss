@@ -43,6 +43,7 @@ Changes are grouped by skill/component. Within each group, latest version on top
   the run. Smoke-tested by `sync-living-specs-smoke-tests.sh` (T1–T6). (#567)
 
 ### Fixed
+- loop pre-flight `gh auth status` now scoped to `github_project.host` (default `github.com`) — unrelated enterprise hosts no longer block loop startup (#656)
 - **`claude --resume` was passed a spec KEY instead of a session UUID (#616).**
   `context-handoff.sh` `_emit_resume` (HALT-007B self-restart, both the po-agent
   and type:change paths) and `loop.sh` `_stall_resume` (#531 stall recovery) both

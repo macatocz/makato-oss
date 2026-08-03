@@ -5647,8 +5647,10 @@ _check_tool_deps() {
   if [[ -z "${MAKATO_LOOP_GH_OVERRIDE:-}" \
      && -z "${MAKATO_LOOP_POLL_TEST_CMD:-}" \
      && -z "${MAKATO_LOOP_GRAPHQL_TEST_CMD:-}" ]]; then
-    if ! gh auth status >/dev/null 2>&1; then
-      echo "loop: pre-flight error — gh auth status failed; run 'gh auth login' and retry" >&2
+    local _host
+    _host="$(jq -r '.github_project.host // "github.com"' "${CONFIG_FILE}" 2>/dev/null || echo "github.com")"
+    if ! GH_HOST="$_host" gh auth status --hostname "$_host" >/dev/null 2>&1; then
+      echo "loop: pre-flight error — gh auth status failed for $_host; run 'gh auth login --hostname $_host' and retry" >&2
       return 1
     fi
   fi
@@ -6226,8 +6228,10 @@ if [[ "$SUBCMD" == _test-* ]]; then
           if [[ -z "${MAKATO_LOOP_GH_OVERRIDE:-}" \
              && -z "${MAKATO_LOOP_POLL_TEST_CMD:-}" \
              && -z "${MAKATO_LOOP_GRAPHQL_TEST_CMD:-}" ]]; then
-            if ! gh auth status >/dev/null 2>&1; then
-              echo "loop: pre-flight error — gh auth status failed; run 'gh auth login' and retry" >&2
+            local _host
+            _host="$(jq -r '.github_project.host // "github.com"' "${CONFIG_FILE}" 2>/dev/null || echo "github.com")"
+            if ! GH_HOST="$_host" gh auth status --hostname "$_host" >/dev/null 2>&1; then
+              echo "loop: pre-flight error — gh auth status failed for $_host; run 'gh auth login --hostname $_host' and retry" >&2
               return 1
             fi
           fi
