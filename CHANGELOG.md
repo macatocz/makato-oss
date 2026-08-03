@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.126.0](https://github.com/macatocz/makato/compare/v0.125.0...v0.126.0) (2026-08-03)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** capture design-time decisions into workflow-state ([#603](https://github.com/macatocz/makato/issues/603)) ([#645](https://github.com/macatocz/makato/issues/645)) ([a0bb004](https://github.com/macatocz/makato/commit/a0bb0045145436deec330bad377bdec041290683))
+
 ## [0.125.0](https://github.com/macatocz/makato/compare/v0.124.0...v0.125.0) (2026-08-03)
 
 
