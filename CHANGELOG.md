@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.123.0](https://github.com/macatocz/makato/compare/v0.122.0...v0.123.0) (2026-08-03)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** PROGRESS.md roadmap via generate-progress.sh ([#601](https://github.com/macatocz/makato/issues/601)) ([#639](https://github.com/macatocz/makato/issues/639)) ([1ace50f](https://github.com/macatocz/makato/commit/1ace50f84ca865b6353b6ec7973eb8be6c05f9b0))
+
 ## [0.122.0](https://github.com/macatocz/makato/compare/v0.121.0...v0.122.0) (2026-08-03)
 
 
