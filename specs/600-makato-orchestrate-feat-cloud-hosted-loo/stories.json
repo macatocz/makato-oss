@@ -1,5 +1,5 @@
 {
-  "slug": "600-makato-orchestrate-feat-cloud-hosted-loop",
+  "slug": "600-makato-orchestrate-feat-cloud-hosted-loo",
   "source": "github:macatocz/makato#600",
   "epic": "Cloud-hosted loop runner \u2014 GHA cron running loop.sh run --once",
   "generated": "2026-08-03",
