@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.130.0](https://github.com/macatocz/makato/compare/v0.129.0...v0.130.0) (2026-08-03)
+
+
+### ✨ Features
+
+* **makato-build:** add ## Runtime verification section to plan.md and execute as build-verify gate ([#583](https://github.com/macatocz/makato/issues/583)) ([640bea0](https://github.com/macatocz/makato/commit/640bea0e88c489b6ec346db6d3b58d2e20e8bee1))
+* **makato-build:** add optional ## Runtime verification section to plan-template and plan-schema ([c5e1b2e](https://github.com/macatocz/makato/commit/c5e1b2eadf76c0c11de2e99aff054df848a15195))
+* **makato-build:** build-refine Step 8 elicits ## Runtime verification for service/API stories ([2a52d7c](https://github.com/macatocz/makato/commit/2a52d7cc68315bf618755c6d6b0b7aaf35ea8719))
+* **makato-build:** build-verify Gate 6 reads ## Runtime verification from plan.md; plan command takes precedence over gate-scout discovery ([00c3af7](https://github.com/macatocz/makato/commit/00c3af7b7447ae4ec9651214fd1578e4b1415764))
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** scope loop pre-flight gh auth status to target host ([#656](https://github.com/macatocz/makato/issues/656)) ([#659](https://github.com/macatocz/makato/issues/659)) ([b837376](https://github.com/macatocz/makato/commit/b8373761c89d4bb3178646777c06841fa534f822))
+
 ## [0.129.0](https://github.com/macatocz/makato/compare/v0.128.0...v0.129.0) (2026-08-03)
 
 
