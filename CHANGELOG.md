@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.119.0](https://github.com/macatocz/makato/compare/v0.118.1...v0.119.0) (2026-08-03)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** Track VCR in loop-status.json + optional queue-advancement gate ([#585](https://github.com/macatocz/makato/issues/585)) ([4a1dd2f](https://github.com/macatocz/makato/commit/4a1dd2f98845f55c80fb159818e71bb9fc8a70e7))
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** PO-agent self-recovery after Stream idle timeout ([#616](https://github.com/macatocz/makato/issues/616)) ([#629](https://github.com/macatocz/makato/issues/629)) ([d032928](https://github.com/macatocz/makato/commit/d03292814239b93b6a1110045f1b1de045cce16a))
+
 ## [0.118.1](https://github.com/macatocz/makato/compare/v0.118.0...v0.118.1) (2026-08-02)
 
 
