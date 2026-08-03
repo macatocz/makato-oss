@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.125.0](https://github.com/macatocz/makato/compare/v0.124.0...v0.125.0) (2026-08-03)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** human session clock-in/clock-out ritual ([#602](https://github.com/macatocz/makato/issues/602)) ([#643](https://github.com/macatocz/makato/issues/643)) ([fc3eb00](https://github.com/macatocz/makato/commit/fc3eb002293bc17be030a69ae0c69a2849f21986))
+
 ## [0.124.0](https://github.com/macatocz/makato/compare/v0.123.0...v0.124.0) (2026-08-03)
 
 
