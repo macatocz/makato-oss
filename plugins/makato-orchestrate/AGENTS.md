@@ -107,6 +107,8 @@ makato-orchestrate/
 │   └── task-file-scout.md                          (GAP-013 / #29 — shipped)
 ├── hooks/
 │   ├── check-halt.sh                     (GAP-004 / #30 — shipped)
+│   ├── clock-out.sh                      (#602 — human session clock-out helper)
+│   ├── clock-out-smoke-tests.sh          (#602 — 10 scenarios T1–T10)
 │   ├── session-status.sh                 (GAP-014 / #31 — shipped)
 │   └── session-status-smoke-tests.sh     (GAP-014 / #31 — shipped)
 ├── scripts/
