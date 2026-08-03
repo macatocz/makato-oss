@@ -48,6 +48,7 @@ Routes are advisory for the PO-agent — operators can override per-issue. The t
 | `PR_CREATE_FAILED` | `build-create-pr` (Step 5) | operator-escalation | `gh pr create` returned non-zero for a reason other than auth (template missing, branch-protection rejection, GitHub API outage). Operator must read the embedded error and resolve. |
 | `STRUCTURAL_BLOCKER` | `build-address-pr-comments` (Step 5a) | structural | One or more PR comments classified as STRUCTURAL MUST-FIX in autonomous mode. The skill posts a summary reply, applies `needs-human-review`, and surfaces this token alongside `data.halt_code: "HALT-003"`. The PO-agent reads `HALT-003` and routes per `halt-conditions.md`; `STRUCTURAL_BLOCKER` is the forensic context. |
 | `CARRY_OVER_FAILED: <comment_id>` | `build-address-pr-comments` (Step 6) | operator-escalation | `gh issue create` for an OUT-OF-SCOPE carry-over comment failed. The reply was suppressed to avoid posting a half-rendered template referencing a non-existent issue. Surfaces as `HALT-005`. |
+| `HARNESS_ISSUE_FAILED: <category>` | `build-address-pr-comments` (Step 6a) | warn-continue | `gh issue create` for a recurring-category harness-promotion issue failed. Logged as `status:"warn"` to `build.jsonl`; skill continues. Does NOT surface as `HALT-005`. |
 | `RENDER_FAILED: <comment_id>` | `build-address-pr-comments` (Step 9) | operator-escalation | A placeholder in the reply template could not be filled (commit SHA unresolved, follow-up URL absent). The reply was suppressed. Surfaces as `HALT-005`. |
 
 ## Caller contract

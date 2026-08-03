@@ -121,7 +121,7 @@ assert "AUTONOMOUS-MODE.md documents Label-application exception" \
 
 # --- G. Template placeholder vocabulary completeness ----------------------
 
-for ph in "<commit-sha>" "<fix-summary>" "<reason>" "<follow-up-issue>" "<comment-summary>" "<key>"; do
+for ph in "<commit-sha>" "<fix-summary>" "<reason>" "<follow-up-issue>" "<comment-summary>" "<key>" "<harness-issue>" "<proposed-rule>"; do
   assert "Template defines placeholder $ph"  contains_F "$TEMPLATE_MD" "$ph"
 done
 
@@ -146,6 +146,32 @@ assert "AUTONOMOUS-MODE.md Step 5 row reflects scope-guard policy" \
   contains_F "$AUTONOMOUS_MD" "SHOULD-FIX is **scope-guarded**"
 assert "AUTONOMOUS-MODE.md Step 5a row added for STRUCTURAL flow" \
   contains_F "$AUTONOMOUS_MD" "Step 5a — STRUCTURAL handling"
+
+# --- J. Review-feedback promotion (Step 5b + Step 6a) ---
+
+assert "SKILL.md version bumped to at least 1.6.0" \
+  contains "$SKILL_MD" '^version: "1\.[6-9]\.'
+
+assert "SKILL.md documents Step 5b heading" \
+  contains_F "$SKILL_MD" 'Step 5b'
+
+assert "SKILL.md documents write-lessons.sh call-site" \
+  contains_F "$SKILL_MD" 'write-lessons.sh'
+
+assert "SKILL.md documents Step 6a heading" \
+  contains_F "$SKILL_MD" 'Step 6a'
+
+assert "SKILL.md documents RECURRENCE_THRESHOLD constant" \
+  contains_F "$SKILL_MD" 'RECURRENCE_THRESHOLD'
+
+assert "SKILL.md documents type:harness issue creation" \
+  contains_F "$SKILL_MD" 'type:harness'
+
+assert "SKILL.md documents recurring-pattern-check bypass gate" \
+  contains_F "$SKILL_MD" 'recurring-pattern-check'
+
+assert "AUTONOMOUS-MODE.md has recurring-pattern-check row" \
+  contains_F "$AUTONOMOUS_MD" 'recurring-pattern-check'
 
 # --- Summary --------------------------------------------------------------
 

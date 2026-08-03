@@ -165,3 +165,10 @@ This template file is referenced (not embedded) by `build-address-pr-comments`. 
 - Removing a template section, renaming a placeholder, or changing the marker vocabulary is a breaking change — coordinate with all consumers (currently just `build-address-pr-comments`) and bump the skill's MAJOR version.
 
 The skill itself reads this file at runtime; there is no compile step. Test new templates by running the skill against a sandbox PR before merging.
+
+## REVIEW-FEEDBACK PROMOTION (harness issue opened)
+
+A recurring **<proposed-rule>** finding has been detected across prior PRs on this repo.
+A candidate pre-commit rule has been proposed in: <harness-issue>
+
+This comment will not need manual attention in future sessions once the harness check is in place.

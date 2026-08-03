@@ -8,9 +8,10 @@ description: >-
   grouped by file, commits and pushes, replies to each resolved comment.
   Structural feedback escalates to refine. Headless-safe under --autonomous
   (MUST-FIX auto-apply, SHOULD-FIX scope-guarded, STRUCTURAL HALT-003,
-  OUT-OF-SCOPE carry-over issue).
+  OUT-OF-SCOPE carry-over issue). Review-feedback promotion — codifies recurring
+  MUST-FIX categories as permanent pre-commit checks (Step 5a + Step 6a).
   Interactive by default. Use after create-pr when review comments arrive.
-version: "1.5.2"
+version: "1.6.0"
 argument-hint: "[work-item-key] [--autonomous]"
 ---
 
@@ -164,6 +165,43 @@ This step is **autonomous-only**. Interactive STRUCTURAL handling stays in Step 
 
 ---
 
+### Step 5b — Write category lesson (review-feedback promotion)
+
+**Applies to every resolved MUST-FIX comment (non-STRUCTURAL).**
+
+Named constants:
+- `RECURRENCE_THRESHOLD = 2` — minimum prior occurrences before proposing a harness rule
+
+Category enum (from `comment-classification-guide.md` MUST-FIX sub-types):
+
+| Category key | MUST-FIX sub-type |
+|---|---|
+| `correctness` | Correctness bug |
+| `security` | Security issue |
+| `broken-contract` | Broken contract |
+| `ci-failure` | CI / build failure |
+| `scanner-finding` | Security scanner finding |
+| `reviewer-blocked` | Reviewer-explicit blocker |
+
+For each resolved MUST-FIX comment (derived from Step 4 classification):
+
+1. Derive `CATEGORY` from the sub-type enum above.
+2. Write a generalizable procedural lesson record:
+
+```bash
+plugins/makato-build/shared/write-lessons.sh \
+  "$KEY" "procedural" "generalizable" \
+  "MUST-FIX resolved: $CATEGORY in PR review" \
+  "must-fix,category:$CATEGORY"
+```
+
+3. On exit-code 0: log to `build.jsonl`: `{"step":"step-5b","status":"ok","data":{"category":"$CATEGORY"}}`.
+4. On any failure: log `{"step":"step-5b","status":"warn","data":{"category":"$CATEGORY","error":"write-lessons failed"}}` and continue — never HALT.
+
+This step runs in both interactive and autonomous mode without a gate bypass (the write is unconditional).
+
+---
+
 ### Step 6 — Implement fixes
 
 Implement in order: SENSOR-BOT first (sensor-fixer delegation), then MUST-FIX, then SHOULD-FIX, then approved CONSIDER items.
@@ -213,6 +251,93 @@ Log each fix:
 
 ```
 {"ts":"<ISO8601>","skill":"build-address-pr-comments","story":"<key>","step":"fix","status":"ok","data":{"tier":"MUST-FIX","file":"src/Invoice.java","comment_id":"<id>"}}
+```
+
+---
+
+### Step 6a — Recurrence check and harness promotion
+
+Runs once per PR run after all fixes are committed and pushed (Step 6), before verify gates (Step 7). De-duplicates by category within the run.
+
+```bash
+RECURRENCE_THRESHOLD=2
+REPO="$(git remote get-url origin | sed 's/\.git$//')"
+```
+
+For each unique resolved MUST-FIX category in this run:
+
+**1. Query prior occurrences:**
+
+```bash
+PRIOR=0
+if [ -f "$REPO_ROOT/.makato/memory/procedural.jsonl" ]; then
+  PRIOR=$(jq -c --arg repo "$REPO" --arg cat "category:$CATEGORY" \
+    'select(.repo == $repo and (.tags // [] | contains([$cat])))' \
+    "$REPO_ROOT/.makato/memory/procedural.jsonl" 2>/dev/null | wc -l)
+else
+  shared/build-log.sh "$KEY" \
+    "{\"step\":\"step-6a\",\"status\":\"warn\",\"data\":{\"msg\":\"procedural.jsonl absent — PRIOR=0\",\"category\":\"$CATEGORY\"}}"
+fi
+```
+
+**2. Recurrence gate:**
+
+If `PRIOR < RECURRENCE_THRESHOLD`: log `{"step":"step-6a","status":"ok","data":{"category":"$CATEGORY","prior":$PRIOR,"promoted":false}}` and skip to next category.
+
+**3. Dedup check:**
+
+```bash
+EXISTING=$(gh issue list --repo "$REPO" \
+  --label "type:harness" --state open \
+  --search "pre-commit promotion: $CATEGORY" \
+  --json number --jq length 2>/dev/null || echo 0)
+```
+
+If `EXISTING > 0`: log `{"step":"step-6a","status":"warn","data":{"category":"$CATEGORY","skipped_dedup":true}}` and skip to next category.
+
+**4. Stanza lookup (static table):**
+
+| Category | Candidate stanza |
+|---|---|
+| `correctness` | `ruff` hook (ruff-pre-commit, `ruff check`) |
+| `security` | `bandit` hook (PyCQA/bandit, `-r .`) |
+| `broken-contract` | `pyright` hook (RobertCraigie/pyright-pre-commit) |
+| `ci-failure` | `pytest` hook (local, `pytest --tb=short`) |
+| `scanner-finding` | `gitleaks` hook (gitleaks, `protect`) |
+| `reviewer-blocked` | `markdownlint` hook (igorshubovych/markdownlint-cli) |
+
+If category not in table: use placeholder stanza `# TODO: add pre-commit rule for <CATEGORY>`.
+
+**5. Open harness issue:**
+
+```bash
+HARNESS_URL="$(gh issue create \
+  --repo "$REPO" \
+  --title "pre-commit promotion: $CATEGORY" \
+  --label "type:harness,makato" \
+  --body "## Review-feedback promotion
+
+**Category**: $CATEGORY
+**Prior occurrences**: $PRIOR
+
+This category has appeared in >=$RECURRENCE_THRESHOLD PR reviews. Candidate pre-commit stanza:
+
+\`\`\`yaml
+$STANZA
+\`\`\`" 2>/dev/null)"
+```
+
+On failure: log `{"step":"step-6a","status":"warn","data":{"halt_token":"HARNESS_ISSUE_FAILED: $CATEGORY"}}` and continue (soft-warn — does NOT block). Do NOT post a reply.
+On success: record `HARNESS_URL`.
+
+**6. Post reply** on the triggering MUST-FIX comment thread using the `[HARNESS-PROPOSED]` template section (see `@../../templates/pr-comment-replies.md`), substituting `<harness-issue>` = `$HARNESS_URL` and `<proposed-rule>` = `$CATEGORY`.
+
+**7. Log bypass (autonomous mode only):**
+
+```bash
+shared/log-bypass.sh build-address-pr-comments "$KEY" recurring-pattern-check \
+  open-harness-issue "$TRIGGER" \
+  "{\"category\":\"$CATEGORY\",\"prior\":$PRIOR,\"harness_url\":\"$HARNESS_URL\"}"
 ```
 
 ---
@@ -302,6 +427,7 @@ In autonomous mode:
 - **SHOULD-FIX scope guard** (AC2): a SHOULD-FIX is applied only if every file it touches is already inside the task's diff. If not, the comment is marked DEFERRED, the `[DEFERRED]` reply is posted, and the PO-agent is left to decide whether to follow up. See `pr-comment-replies.md` § *SHOULD-FIX (deferred — autonomous-only)*.
 - **STRUCTURAL MUST-FIX → HALT-003** (AC3): post a single summary reply on the PR (template § *STRUCTURAL MUST-FIX*), apply `needs-human-review` to the PR and linked issue, log per-comment and summary `autonomous_bypass` entries with `gate: "structural-must-fix"` / `structural-halt-summary`, then return R1 `status: "failure"` with `data.halt_code: "HALT-003"`. The PO-agent enters its HALT-003 recovery path (see `plugins/makato-orchestrate/halt-conditions.md`).
 - **OUT-OF-SCOPE carry-over** (AC4): for each OUT-OF-SCOPE comment, open a follow-up GitHub Issue via `gh issue create` (label `makato-carry-over`, auto-created if missing), reply with template § *OUT-OF-SCOPE* autonomous variant pointing at the new issue. If `gh issue create` fails, HALT with `HALT-005` and `CARRY_OVER_FAILED: <comment_id>`.
+- **Review-feedback promotion** (Step 5b + Step 6a): after each MUST-FIX fix, write a category lesson via `write-lessons.sh`. After commit+push, check recurrence in `.makato/memory/procedural.jsonl`; on ≥`RECURRENCE_THRESHOLD` occurrences, open a `type:harness` issue with a candidate stanza. Gate `recurring-pattern-check` auto-approves in autonomous mode. `HARNESS_ISSUE_FAILED` is a soft-warn (non-blocking).
 - **Reply templates externalized** (AC5): every reply is rendered from `@../../templates/pr-comment-replies.md`. No reply text is hard-coded in this skill.
 - **Log every bypass** to `build.jsonl` via `shared/build-log.sh` with the `autonomous_bypass` event schema documented in `@../../AUTONOMOUS-MODE.md` (AC1).
 - **Emit an R1 envelope** as the final `json`-fenced block of the skill's output.
@@ -323,7 +449,9 @@ Top-level R1 envelope fields follow `plugins/makato-build/agents/RETURN-CONTRACT
     "structural_blockers": <N>,
     "halt_code": "HALT-003" | null,
     "commits": <N>,
-    "replies_posted": <N>
+    "replies_posted": <N>,
+    "harness_issues_opened": <N>,
+    "recurring_patterns_detected": <N>
   }
 }
 ```
@@ -342,4 +470,4 @@ Top-level R1 envelope fields follow `plugins/makato-build/agents/RETURN-CONTRACT
 
 The HALT codes emitted by this skill are registered with their PO-agent recovery routes in `plugins/makato-build/halt-codes.md`. Skill-level tokens: `MISSING_INPUT`, `PROTECTED_BRANCH`, `STRUCTURAL_BLOCKER`, `BUILD_FAILED`, `PUSH_REJECTED`, `CARRY_OVER_FAILED: <id>`, `RENDER_FAILED: <id>`.
 
-Skill-specific cross-references the registry's prose cannot carry: `STRUCTURAL_BLOCKER` (Step 5a) is paired with `data.halt_code: "HALT-003"` — the PO-agent reads the numeric HALT and routes per `plugins/makato-orchestrate/halt-conditions.md`; the string token is forensic context. `PUSH_REJECTED`, `CARRY_OVER_FAILED`, and `RENDER_FAILED` all surface as `HALT-005` at the PO-agent boundary.
+Skill-specific cross-references the registry's prose cannot carry: `STRUCTURAL_BLOCKER` (Step 5a) is paired with `data.halt_code: "HALT-003"` — the PO-agent reads the numeric HALT and routes per `plugins/makato-orchestrate/halt-conditions.md`; the string token is forensic context. `PUSH_REJECTED`, `CARRY_OVER_FAILED`, and `RENDER_FAILED` all surface as `HALT-005` at the PO-agent boundary. `HARNESS_ISSUE_FAILED: <category>` is logged as a warn from Step 6a but does not surface as HALT-005 (soft-warn, non-blocking).

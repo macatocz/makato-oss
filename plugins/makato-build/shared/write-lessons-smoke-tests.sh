@@ -271,10 +271,21 @@ else
   _fail "write-lessons.sh call-site missing from build-push-to-git SKILL.md"
 fi
 
+# ===========================================================================
+# T13: build-address-pr-comments records write-lessons.sh call-site
+# ===========================================================================
+echo "T13: build-address-pr-comments SKILL.md documents write-lessons.sh call-site"
+ADDRESS_SKILL_MD="$SCRIPT_DIR/../skills/build-address-pr-comments/SKILL.md"
+if [[ -f "$ADDRESS_SKILL_MD" ]] && grep -q 'write-lessons.sh' "$ADDRESS_SKILL_MD"; then
+  _pass "call-site documented in build-address-pr-comments SKILL.md"
+else
+  _fail "write-lessons.sh call-site missing from build-address-pr-comments SKILL.md"
+fi
+
 # ---------------------------------------------------------------------------
 echo ""
 if [[ "$FAIL" -eq 0 ]]; then
-  echo "All 12 tests passed."
+  echo "All 13 tests passed."
 else
   echo "$FAIL test(s) failed."
 fi
