@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.124.0](https://github.com/macatocz/makato/compare/v0.123.0...v0.124.0) (2026-08-03)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** tool-dependency pre-flight in loop.sh ([#587](https://github.com/macatocz/makato/issues/587)) ([#641](https://github.com/macatocz/makato/issues/641)) ([043975f](https://github.com/macatocz/makato/commit/043975f94ae1ab5f47fad95f3ab5bfed4d943b89))
+
 ## [0.123.0](https://github.com/macatocz/makato/compare/v0.122.0...v0.123.0) (2026-08-03)
 
 
