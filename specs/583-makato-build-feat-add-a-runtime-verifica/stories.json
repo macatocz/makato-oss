@@ -1,0 +1,37 @@
+{
+  "slug": "583-makato-build-feat-add-a-runtime-verifica",
+  "source": "github:macatocz/makato#583",
+  "epic": "Add a '## Runtime verification' section to plan.md and execute it as a build-verify gate",
+  "generated": "2026-08-03",
+  "stories": [
+    {
+      "id": "S1",
+      "title": "Add a '## Runtime verification' section to plan.md and execute it as a build-ver",
+      "description": "Let the plan author declare one critical-path verification command (e.g. curl .../health, a CLI smoke invocation); build-verify reads and runs it as a named gate. An author-driven alternative to A1's auto-detection.",
+      "acceptanceTestCases": [
+        {
+          "scenario": "plan-template.md contains an optional `## Runtime verification` sec...",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen plan-template.md contains an optional `## Runtime verification` section"
+        },
+        {
+          "scenario": "build-refine prompts for a runtime command for service/API build types",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen build-refine prompts for a runtime command for service/API build types"
+        },
+        {
+          "scenario": "build-verify executes the declared command as a named gate and logs...",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen build-verify executes the declared command as a named gate and logs a build.jsonl entry"
+        },
+        {
+          "scenario": "absent section => gate is skipped cleanly",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen absent section => gate is skipped cleanly"
+        }
+      ],
+      "dependencies": {
+        "blockedBy": []
+      },
+      "labels": [
+        "plugin:makato-build"
+      ]
+    }
+  ]
+}

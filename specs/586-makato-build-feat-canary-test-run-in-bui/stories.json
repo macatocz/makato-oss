@@ -1,0 +1,37 @@
+{
+  "slug": "586-makato-build-feat-canary-test-run-in-bui",
+  "source": "github:macatocz/makato#586",
+  "epic": "Canary test run in build-start pre-flight to verify the test framework works",
+  "generated": "2026-08-03",
+  "stories": [
+    {
+      "id": "S1",
+      "title": "Canary test run in build-start pre-flight to verify the test framework works",
+      "description": "Before build-refine, run the gate-scout-discovered unit test command once with a short timeout, so a broken test harness is caught in seconds instead of mid-TDD after the coder has spent context.",
+      "acceptanceTestCases": [
+        {
+          "scenario": "build-start dispatches gate-scout and runs the discovered unit comm...",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen build-start dispatches gate-scout and runs the discovered unit command once with a timeout before build-refine"
+        },
+        {
+          "scenario": "a failing/absent test harness halts build-start with an actionable ...",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen a failing/absent test harness halts build-start with an actionable message"
+        },
+        {
+          "scenario": "a passing canary proceeds to build-refine normally",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen a passing canary proceeds to build-refine normally"
+        },
+        {
+          "scenario": "canary is skipped cleanly when no unit command is discovered",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen canary is skipped cleanly when no unit command is discovered"
+        }
+      ],
+      "dependencies": {
+        "blockedBy": []
+      },
+      "labels": [
+        "plugin:makato-build"
+      ]
+    }
+  ]
+}

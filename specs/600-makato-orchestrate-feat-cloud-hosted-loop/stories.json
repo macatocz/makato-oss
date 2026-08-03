@@ -1,0 +1,33 @@
+{
+  "slug": "600-makato-orchestrate-feat-cloud-hosted-loop",
+  "source": "github:macatocz/makato#600",
+  "epic": "Cloud-hosted loop runner \u2014 GHA cron running loop.sh run --once",
+  "generated": "2026-08-03",
+  "stories": [
+    {
+      "id": "S1",
+      "title": "Cloud-hosted loop runner \u2014 GHA cron running loop.sh run --once",
+      "description": "Run loop.sh run --once on a scheduled GHA cron so the loop survives machine-off. Has a known blocker: the worktree reaper needs local disk, so this requires a self-hosted runner or a board-read-only dispatch variant.",
+      "acceptanceTestCases": [
+        {
+          "scenario": "a scheduled workflow runs loop.sh run --once on a self-hosted runne...",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen a scheduled workflow runs loop.sh run --once on a self-hosted runner OR a fresh-checkout dispatch variant"
+        },
+        {
+          "scenario": "the worktree-reaper local-disk constraint is addressed or documente...",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen the worktree-reaper local-disk constraint is addressed or documented as a bounded limitation"
+        },
+        {
+          "scenario": "cross-machine in-flight visibility is handled so cloud and local ru...",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen cross-machine in-flight visibility is handled so cloud and local runs do not double-dispatch"
+        }
+      ],
+      "dependencies": {
+        "blockedBy": []
+      },
+      "labels": [
+        "plugin:makato-orchestrate"
+      ]
+    }
+  ]
+}

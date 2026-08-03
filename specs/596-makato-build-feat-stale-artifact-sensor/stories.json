@@ -1,0 +1,37 @@
+{
+  "slug": "596-makato-build-feat-stale-artifact-sensor",
+  "source": "github:macatocz/makato#596",
+  "epic": "stale-artifact sensor lane \u2014 flag console.log/debugger/*.log/temp files in the session diff",
+  "generated": "2026-08-03",
+  "stories": [
+    {
+      "id": "S1",
+      "title": "stale-artifact sensor lane \u2014 flag console.log/debugger/*.log/temp files in the s",
+      "description": "Extend DoD hygiene (currently only TODO/FIXME) with a sensor that flags debug leftovers introduced by the session diff, routed through the existing sensor-fixer pipeline.",
+      "acceptanceTestCases": [
+        {
+          "scenario": "a stale-artifact sensor flags console.log/debugger/*.log/temp addit...",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen a stale-artifact sensor flags console.log/debugger/*.log/temp additions in the session diff"
+        },
+        {
+          "scenario": "findings route through the existing sensor-fixer / build-resolve-fi...",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen findings route through the existing sensor-fixer / build-resolve-finding pipeline"
+        },
+        {
+          "scenario": "DoD item 8 is extended to cover debug artifacts, not just TODO/FIXME",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen DoD item 8 is extended to cover debug artifacts, not just TODO/FIXME"
+        },
+        {
+          "scenario": "clean diffs produce no findings",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen clean diffs produce no findings"
+        }
+      ],
+      "dependencies": {
+        "blockedBy": []
+      },
+      "labels": [
+        "plugin:makato-build"
+      ]
+    }
+  ]
+}

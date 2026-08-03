@@ -1,0 +1,41 @@
+{
+  "slug": "582-makato-build-feat-runtime-qa-agent-exerc",
+  "source": "github:macatocz/makato#582",
+  "epic": "runtime-qa agent \u2014 exercise the built app via Playwright MCP and score against acceptance criteria",
+  "generated": "2026-08-03",
+  "stories": [
+    {
+      "id": "S1",
+      "title": "runtime-qa agent \u2014 exercise the built app via Playwright MCP and score against a",
+      "description": "makato evaluates code statically but never observes the running artifact the way Anthropic's QA agent does. Add an autonomous runtime-QA agent that drives the built app through Playwright MCP after build-verify and scores it against acceptance criteria.",
+      "acceptanceTestCases": [
+        {
+          "scenario": "build-runtime-qa agent exists with autonomous frontmatter and Playw...",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen build-runtime-qa agent exists with autonomous frontmatter and Playwright MCP tools"
+        },
+        {
+          "scenario": "agent launches the built app and exercises critical paths from plan...",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen agent launches the built app and exercises critical paths from plan.md acceptance criteria"
+        },
+        {
+          "scenario": "agent emits a severity-classified scored report; CRITICAL blocks bu...",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen agent emits a severity-classified scored report; CRITICAL blocks build-push-to-git"
+        },
+        {
+          "scenario": "PO-agent dispatches build-runtime-qa after build-verify for UI/web ...",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen PO-agent dispatches build-runtime-qa after build-verify for UI/web builds"
+        },
+        {
+          "scenario": "agent is a no-op with a logged SKIP when the build has no runtime s...",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen agent is a no-op with a logged SKIP when the build has no runtime surface"
+        }
+      ],
+      "dependencies": {
+        "blockedBy": []
+      },
+      "labels": [
+        "plugin:makato-build"
+      ]
+    }
+  ]
+}

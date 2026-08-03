@@ -1,0 +1,33 @@
+{
+  "slug": "581-makato-build-feat-make-the-integration-e",
+  "source": "github:macatocz/makato#581",
+  "epic": "Make the integration/E2E gate mandatory when a change spans >=3 architectural layers",
+  "generated": "2026-08-03",
+  "stories": [
+    {
+      "id": "S1",
+      "title": "Make the integration/E2E gate mandatory when a change spans >=3 architectural la",
+      "description": "build-verify Gate 4 runs the integration suite when a command exists, but never treats it as mandatory based on how many architectural layers the change touches. Promote it to a blocking gate for cross-layer changes.",
+      "acceptanceTestCases": [
+        {
+          "scenario": "build-verify reads tracer_required / layer count from plan-analyst ...",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen build-verify reads tracer_required / layer count from plan-analyst output in workflow-state"
+        },
+        {
+          "scenario": "integration/E2E gate is blocking when tracer_required==true or dist...",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen integration/E2E gate is blocking when tracer_required==true or distinct layers >=3"
+        },
+        {
+          "scenario": "gate remains non-mandatory for single-layer changes (backward compa...",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen gate remains non-mandatory for single-layer changes (backward compatible)"
+        }
+      ],
+      "dependencies": {
+        "blockedBy": []
+      },
+      "labels": [
+        "plugin:makato-build"
+      ]
+    }
+  ]
+}

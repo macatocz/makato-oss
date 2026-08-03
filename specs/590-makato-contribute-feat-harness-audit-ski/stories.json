@@ -1,0 +1,37 @@
+{
+  "slug": "590-makato-contribute-feat-harness-audit-ski",
+  "source": "github:macatocz/makato#590",
+  "epic": "harness-audit skill \u2014 detect AGENTS.md bloat, stale rules, and permissionMode mismatches",
+  "generated": "2026-08-03",
+  "stories": [
+    {
+      "id": "S1",
+      "title": "harness-audit skill \u2014 detect AGENTS.md bloat, stale rules, and permissionMode mi",
+      "description": "A human-gated skill (modeled on lesson-prune) that scans all plugin AGENTS.md for line-count bloat, rules with no spec/issue cross-reference, and agent permissionMode/disallowedTools inconsistencies, presenting a classification table for approval.",
+      "acceptanceTestCases": [
+        {
+          "scenario": "harness-audit skill scans all plugin AGENTS.md and agent frontmatter",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen harness-audit skill scans all plugin AGENTS.md and agent frontmatter"
+        },
+        {
+          "scenario": "output is a human-gated classification table (KEEP/BLOAT/REDUNDANT/...",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen output is a human-gated classification table (KEEP/BLOAT/REDUNDANT/MOVE)"
+        },
+        {
+          "scenario": "skill never mutates files without approval (mirrors lesson-prune)",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen skill never mutates files without approval (mirrors lesson-prune)"
+        },
+        {
+          "scenario": "flags permissionMode/disallowedTools inconsistencies across agents",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen flags permissionMode/disallowedTools inconsistencies across agents"
+        }
+      ],
+      "dependencies": {
+        "blockedBy": []
+      },
+      "labels": [
+        "plugin:makato-contribute"
+      ]
+    }
+  ]
+}

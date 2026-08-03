@@ -1,0 +1,47 @@
+{
+  "slug": "546-makato-orchestrate-feat-bounded-parallel",
+  "source": "github:macatocz/makato#546",
+  "epic": "bounded parallel issue fleet via N independent loop.sh workers",
+  "generated": "2026-08-03",
+  "stories": [
+    {
+      "id": "S1",
+      "title": "bounded parallel issue fleet via N independent loop.sh workers",
+      "description": "Enable a bounded **parallel issue fleet** \u2014 run N (default 4) autonomous PO-agent dispatches concurrently instead of strictly one at a time \u2014 via N independent `loop.sh` worker instances coordinated through the existing GitHub Projects board CAS claim, without rewriting the single-threaded dispatch core.",
+      "acceptanceTestCases": [
+        {
+          "scenario": "Two-plus `loop.sh` workers run concurrently against the same repo, ...",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen Two-plus `loop.sh` workers run concurrently against the same repo, each with an"
+        },
+        {
+          "scenario": "Board CAS claim is fail-closed: a worker that cannot confirm its cl...",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen Board CAS claim is fail-closed: a worker that cannot confirm its claim skips the"
+        },
+        {
+          "scenario": "No two workers ever dispatch the same issue (board claim + in-fligh...",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen No two workers ever dispatch the same issue (board claim + in-flight gate proven"
+        },
+        {
+          "scenario": "Same-folder issues are never co-scheduled.",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen Same-folder issues are never co-scheduled."
+        },
+        {
+          "scenario": "A launcher keeps N workers alive, renders a live per-worker dashboa...",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen A launcher keeps N workers alive, renders a live per-worker dashboard, and emits"
+        },
+        {
+          "scenario": "Single-worker (N=1) behaviour is byte-for-byte the existing serial ...",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen Single-worker (N=1) behaviour is byte-for-byte the existing serial path"
+        }
+      ],
+      "dependencies": {
+        "blockedBy": []
+      },
+      "labels": [
+        "plugin:makato-orchestrate",
+        "type:feature",
+        "priority:p3"
+      ]
+    }
+  ]
+}

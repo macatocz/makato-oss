@@ -1,0 +1,37 @@
+{
+  "slug": "593-makato-orchestrate-feat-harness-layer-di",
+  "source": "github:macatocz/makato#593",
+  "epic": "Harness-layer diagnostic report \u2014 map HALT codes to the 5 harness layers and show the bottleneck",
+  "generated": "2026-08-03",
+  "stories": [
+    {
+      "id": "S1",
+      "title": "Harness-layer diagnostic report \u2014 map HALT codes to the 5 harness layers and sho",
+      "description": "Add a 'layer' field to the HALT classification table and a report that shows which of the five harness layers (task-spec/context/environment/verification/state) causes the most failures across the last N issues.",
+      "acceptanceTestCases": [
+        {
+          "scenario": "each HALT code in halt-conditions.md carries a `layer` field",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen each HALT code in halt-conditions.md carries a `layer` field"
+        },
+        {
+          "scenario": "a report aggregates HALT-by-layer across the last N issues from orc...",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen a report aggregates HALT-by-layer across the last N issues from orchestrate.jsonl"
+        },
+        {
+          "scenario": "the report identifies the most frequent failure layer (bottleneck)",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen the report identifies the most frequent failure layer (bottleneck)"
+        },
+        {
+          "scenario": "report is operator-invocable (e.g. loop run --report or a dedicated...",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen report is operator-invocable (e.g. loop run --report or a dedicated script)"
+        }
+      ],
+      "dependencies": {
+        "blockedBy": []
+      },
+      "labels": [
+        "plugin:makato-orchestrate"
+      ]
+    }
+  ]
+}

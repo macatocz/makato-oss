@@ -1,0 +1,33 @@
+{
+  "slug": "589-repo-wide-feat-standardize-a-hard-constr",
+  "source": "github:macatocz/makato#589",
+  "epic": "Standardize a '## Hard Constraints' first section in every plugin AGENTS.md + lint gate",
+  "generated": "2026-08-03",
+  "stories": [
+    {
+      "id": "S1",
+      "title": "Standardize a '## Hard Constraints' first section in every plugin AGENTS.md + li",
+      "description": "Move each plugin's non-negotiable red-lines to a '## Hard Constraints' section at the top of AGENTS.md (avoid 'lost in the middle'), and add a lint gate that checks the section exists early in the file.",
+      "acceptanceTestCases": [
+        {
+          "scenario": "every plugin AGENTS.md opens with a '## Hard Constraints' section (...",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen every plugin AGENTS.md opens with a '## Hard Constraints' section (5\u201310 items) before line 30"
+        },
+        {
+          "scenario": "a pre-commit hook validates the section's presence and position",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen a pre-commit hook validates the section's presence and position"
+        },
+        {
+          "scenario": "existing constraint content (security model, never-patterns) is con...",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen existing constraint content (security model, never-patterns) is consolidated there, not duplicated"
+        }
+      ],
+      "dependencies": {
+        "blockedBy": []
+      },
+      "labels": [
+        "type:feature"
+      ]
+    }
+  ]
+}

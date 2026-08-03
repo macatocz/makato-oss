@@ -1,0 +1,57 @@
+{
+  "slug": "608-makato-plan-feat-value-bearing-blocked-b",
+  "source": "github:macatocz/makato#608",
+  "epic": "value-bearing blocked-by:N labels with GHA auto-cleanup and migration",
+  "generated": "2026-08-03",
+  "stories": [
+    {
+      "id": "S1",
+      "title": "value-bearing blocked-by:N labels with GHA auto-cleanup and migration",
+      "description": "Replace the boolean `blocked by` / `blocking` labels with value-bearing `blocked-by:N` / `blocking:N` labels (one label per referenced issue number), add a GitHub Actions webhook that removes stale `blocked-by:N` labels the moment a blocker closes, add a `promote-ready` reconcile pass as a safety net, handle reopen, and migrate all existing `blocked by` / `blocking` labels.",
+      "acceptanceTestCases": [
+        {
+          "scenario": "`to-issues` emits `blocked-by:N` (one label per blocker) instead of...",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen `to-issues` emits `blocked-by:N` (one label per blocker) instead of hol\u00e9 `blocked by`; emits `blocking:N` (one label per dependent) retroactively instead of hol\u00e9 `blocking`"
+        },
+        {
+          "scenario": "`seed-issue` accepts `--blocked-by N,M`; emits `blocked-by:N` / `bl...",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen `seed-issue` accepts `--blocked-by N,M`; emits `blocked-by:N` / `blocked-by:M`; retroactively patches `blocking:ISSUE` on upstream issues"
+        },
+        {
+          "scenario": "`label-taxonomy.md` documents the new `blocked-by:N` / `blocking:N`...",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen `label-taxonomy.md` documents the new `blocked-by:N` / `blocking:N` pattern, removal lifecycle, and deprecation of hol\u00e9 labels"
+        },
+        {
+          "scenario": "`blocked-by-cleanup.yml` GHA workflow triggers on `issues: [closed]...",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen `blocked-by-cleanup.yml` GHA workflow triggers on `issues: [closed]`; removes `blocked-by:N` from all open dependents; promotes fully-unblocked dependents to Ready; removes `blocking:DEPENDENT` from the closed issue when its dependents are clear"
+        },
+        {
+          "scenario": "`blocked-by-cleanup.yml` triggers on `issues: [reopened]`; re-adds ...",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen `blocked-by-cleanup.yml` triggers on `issues: [reopened]`; re-adds `blocked-by:N` to dependents that were unblocked by this issue; demotes them back to Blocked"
+        },
+        {
+          "scenario": "`promote-ready.sh` reconcile pass removes stale `blocked-by:N` labe...",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen `promote-ready.sh` reconcile pass removes stale `blocked-by:N` labels where N is closed; promotes fully-unblocked issues"
+        },
+        {
+          "scenario": "`migrate-blocked-by-labels.sh` converts all existing `blocked by` /...",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen `migrate-blocked-by-labels.sh` converts all existing `blocked by` / `blocking` issues; `--dry-run` mode supported; script is idempotent"
+        },
+        {
+          "scenario": "After migration: zero open issues carry hol\u00e9 `blocked by` or `block...",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen After migration: zero open issues carry hol\u00e9 `blocked by` or `blocking` labels"
+        },
+        {
+          "scenario": "`gh issue list --label \"blocked-by:42\"` returns all open issues cur...",
+          "gherkin": "Given the feature is implemented\nWhen the behaviour is exercised\nThen `gh issue list --label \"blocked-by:42\"` returns all open issues currently waiting on #42"
+        }
+      ],
+      "dependencies": {
+        "blockedBy": []
+      },
+      "labels": [
+        "type:feature"
+      ]
+    }
+  ]
+}
