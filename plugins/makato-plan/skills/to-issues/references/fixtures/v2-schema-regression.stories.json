@@ -91,6 +91,54 @@
         "blocks": []
       },
       "externalDependencies": []
+    },
+    {
+      "sequence": 3,
+      "phase": "edge-cases",
+      "summary": "Reject probe when authentication token is expired",
+      "storyPoints": 3,
+      "teams": ["platform"],
+      "labels": ["makato", "type:feat"],
+      "githubIssue": null,
+      "description": {
+        "background": "Expired tokens must be rejected at the probe boundary so that stale credentials cannot access tenant data.",
+        "scope": "Return 401 when the caller presents an expired JWT; existing valid-token path is unchanged.",
+        "featureToggle": {
+          "alreadyInPlace": false,
+          "newNeeded": false,
+          "longTermUsage": false,
+          "name": "",
+          "defaultState": ""
+        },
+        "successScenarios": [
+          {
+            "title": "Scenario 1: Expired token is rejected",
+            "given": "a probe endpoint running with token validation enabled",
+            "when": "a caller presents an expired JWT",
+            "then": "the probe should return 401 Unauthorized",
+            "verificationCommand": "pytest tests/test_probe_auth.py -k expired_token"
+          },
+          {
+            "title": "Scenario 2: Valid token is accepted",
+            "given": "a probe endpoint running with token validation enabled",
+            "when": "a caller presents a valid JWT",
+            "then": "the probe should return 200 with the tenant id"
+          }
+        ],
+        "solutionApproach": "",
+        "acceptanceTestCases": [],
+        "wikiDocumentation": "",
+        "outOfScope": ["Token refresh flows", "Multi-factor authentication"]
+      },
+      "definitionOfDone": [
+        "Probe returns 401 for an expired JWT",
+        "Probe returns 200 for a valid JWT (regression: existing behaviour unchanged)"
+      ],
+      "dependencies": {
+        "blockedBy": [1],
+        "blocks": []
+      },
+      "externalDependencies": []
     }
   ]
 }

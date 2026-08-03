@@ -5,7 +5,53 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Added
+- `generate-progress.sh`: auto-generate repo-root PROGRESS.md from loop-status.json + GitHub epic issues post-merge (#601). `documentation-agent` Step 7.5 calls the script automatically after each PR merge (best-effort); script classifies epics as Done / In Progress / Not Started from `.claude/state/loop-status.json` `active_workflow.issue` + `queue[]` and `gh issue list --label type:epic`. Smoke-tested by `generate-progress-smoke-tests.sh` (T1–T6).
+- **Webhook instant dispatch** (`webhook-dispatch.yml`, #599). A new GHA workflow triggers on `issues: types: [labeled]` and, when the applied label is `status:ready-for-dev`, immediately invokes `loop.sh dispatch <N>` with `MAKATO_HEADLESS=1` and `MAKATO_LOOP_DISPATCH_REPO` set. The job runs on a self-hosted runner with the `makato` label. The existing dispatch gate (`_pre_dispatch_plan_guard`) is preserved — `MAKATO_LOOP_GATE_DISABLE` is absent from the workflow environment. The `_within_dispatch_guard` inside `cmd_dispatch` prevents double-dispatch when both the webhook and the scheduled poller fire within the guard window. The `loop run` polling path is unchanged and continues to serve as a fallback. Runner contract documented in `plugins/makato-orchestrate/AGENTS.md ## Infrastructure`.
+- `generate-quality-doc.sh` + `quality-doc` skill: per-domain quality scorecard from `build.jsonl` + `halt_audit`, written to `specs/master/<domain>-quality.md` post-merge (#598). `documentation-agent` Step 7.6 calls the script automatically after each PR merge (best-effort); operators can also invoke it directly on demand.
+- **PO-agent self-recovery after `Stream idle timeout` (#616).** Two additive
+  recovery mechanisms:
+  - `loop.sh` now persists the Claude session UUID (`last_session_id`) to
+    `workflow-state-<N>.json` after every autonomous dispatch (extracted from the
+    terminal `{"type":"result",...}` stream-json line by the new
+    `_extract_session_id` helper, shared with `_emit_langfuse_trace`). This UUID
+    — not the spec KEY — is the value `claude --resume` requires.
+  - `loop.sh` `_reconcile_orphaned_stale` (new per-tick pass) recovers an
+    in-flight run whose `workflow-state` file is PRESENT (`current_phase != done`)
+    but whose owning process is dead (`<worktree>/.loop-owner.pid` fails
+    `kill -0`) AND whose `updated_at` is older than `MAKATO_ORPHAN_STALE_SECS`
+    (default 3600s). This is the file-present gap the #368
+    `_reconcile_orphaned_in_progress` pass explicitly skips. A dead orphan is
+    routed to Blocked + `needs-human-review` (the same operator-gated outcome the
+    #368 reconciler uses); the state file is never auto-reset (avoids crash-loops
+    on an unrecoverable task). A live owner short-circuits to skip regardless of
+    age — the liveness gate is load-bearing against false-firing. Opt-out via
+    `MAKATO_ORPHAN_DETECT_DISABLE=1`. Standalone subcommand: `_test-reconcile-stale`.
+  - New `last_session_id` (`string|null`) property in `workflow-state.schema.json`.
+  - New env: `MAKATO_ORPHAN_STALE_SECS` (default 3600), `MAKATO_ORPHAN_DETECT_DISABLE`.
+  - New tests: `context-handoff-smoke-tests.sh` T18–T19 (UUID resume + missing-UUID
+    HALT-007 fallback); `loop-smoke-tests.sh` T-RESUME-616 (skip-on-missing-UUID)
+    and T-STALE-1..4 (orphan-stale detection).
+- `documentation-agent` Step 4c — living-spec delta sync: after a PR merges,
+  `sync-living-specs.sh` reads `specs/<key>-<slug>/spec-delta.md` (when present)
+  and applies ADDED / MODIFIED / REMOVED requirement sections to
+  `docs/specs/<capability>.md`, creating the file from ADDED sections when it does
+  not yet exist. Dangling MODIFIED refs emit a WARN and are skipped without failing
+  the run. Smoke-tested by `sync-living-specs-smoke-tests.sh` (T1–T6). (#567)
+
 ### Fixed
+- **`claude --resume` was passed a spec KEY instead of a session UUID (#616).**
+  `context-handoff.sh` `_emit_resume` (HALT-007B self-restart, both the po-agent
+  and type:change paths) and `loop.sh` `_stall_resume` (#531 stall recovery) both
+  passed `$KEY` / `${key:-$issue}` to `claude --resume`, which requires a UUID
+  session id — so every automatic resume silently failed, orphaning the in-flight
+  run (the root cause of #616). Both now read the persisted `last_session_id` and
+  pass the UUID. When no UUID was captured (hard crash before the terminal result
+  line, or a legacy state file): `_stall_resume` emits `status:skip
+  reason:no_session_id` and returns 0 (the orphan-stale pass recovers it later);
+  `_emit_resume` falls back to HALT-007 (cost-control + `needs-human-review`)
+  rather than emit a resume script that passes a KEY. The `${key:-$issue}`
+  fallback is removed.
 - `loop.sh` `_reap_orphan_specs` (loop skill 2.2.0): added a **shared-epic
   guard** (decision-tree step 3b). A `specs/<slug>/` folder whose
   `created-issues.json` / `stories.json` enumerates more than one sibling issue

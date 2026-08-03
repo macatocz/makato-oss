@@ -281,6 +281,8 @@ Run three dedicated agents **in parallel** against the proposed stories:
    - Challenges: testability, completeness, produces draft Gherkin
    - Produces: 1-3 draft Gherkin scenarios per story
    - Reads: proposed stories + prd.md + design.md + decisions.md
+   - For each scenario: if a concrete shell command exists that would verify this scenario
+     in a running environment, record it as `verificationCommand`; otherwise omit the field.
 
 **Output**: Structured per-story feedback from each perspective + draft Gherkin from QA.
 The qa-reviewer's draft Gherkin is later copied into each story's
@@ -347,6 +349,8 @@ Tell the user:
    produced in Step 5 (after any user edits from the three-amigos review in Step 6) and
    write them into the story's `description.successScenarios[]` array using the shared
    scenario schema — read `shared/scenario-schema.md` for the canonical plan.
+   `verificationCommand` is copied verbatim when present on a scenario and omitted when
+   absent — do not add the field if the qa-reviewer did not produce one.
    These drafts are the seed input that the downstream `create-acceptance-tests` skill
    refines into polished `acceptanceTestCases[]`. If a story has no qa-reviewer draft
    (e.g., agent skipped it), leave `successScenarios: []` and flag it in Step 8 validation.

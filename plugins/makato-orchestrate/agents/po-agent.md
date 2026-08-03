@@ -700,6 +700,17 @@ row). The `gh`-only polls (CI, review) are narrated with a single
    HALT-002 (apply `needs-human-review`). `partial` → route through
    Step 4f (`build-refine` + increment `outer_iteration`), re-enter
    Step 4.
+1a. **Spec-level verify.** After `build-verify` succeeds, dispatch
+   `plugins/makato-build/skills/build-verify-spec/references/build-verify-spec.sh <KEY>`
+   (narrate START with `--skill "build-verify-spec" --agent "(script)"
+   --goal "confirm implementation satisfies plan.md and stories.json"`).
+   The script reads `plan-<N>.md` checkboxes (COMPLETENESS), `stories.json`
+   successScenarios (CORRECTNESS), and `spec-delta.md` MODIFIED sections
+   (COHERENCE). Exit 0 → proceed. Exit 1 (CRITICAL finding) → HALT-011
+   (apply `needs-human-review`; the output report identifies which task or
+   scenario caused the gap so `build-refine` can fix it). The script is
+   advisory on `stories.json` / `spec-delta.md` absence (those sections are
+   skipped rather than hard-failing). Narrate DONE after the script exits.
 2. Patch `current_phase: "pr"`. Narrate START
    (`--skill "build-push-to-git" --goal "save the finished changes, push
    to the remote and open a pull request"`), dispatch
@@ -1257,6 +1268,7 @@ state), and rolls over to a fresh comment near GitHub's 65 536-char limit.
 | Step 4d (goal) | `build-implement-goal` | `coder` | build the code per the plan and verify it runs |
 | Step 4f | `build-refine` | `planning agent` | re-plan the task list after a failure |
 | Step 6 #1 | `build-verify` | `review agent` | run all quality checks and tests |
+| Step 6 #1a | `build-verify-spec` | `(script)` | confirm implementation satisfies plan.md and stories.json |
 | Step 6 #2 | `build-push-to-git` | *(no sub-agent)* | save the finished changes, push to the remote and open a pull request |
 | Step 6 #5 / 6b | `build-address-pr-comments` | `fix agent` | resolve the review comments on the pull request |
 | Conflict sub-loop | `resolve-pr-conflict` | *(no sub-agent)* | resolve the merge conflict between branches |

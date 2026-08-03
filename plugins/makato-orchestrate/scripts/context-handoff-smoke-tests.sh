@@ -71,6 +71,11 @@ _init_state() {
   local count="${2:-0}"
   local with_summary="${3:-yes}"
   local baseline="${4:-0}"
+  # #616: last_session_id — the UUID `claude --resume` requires. Defaults to a
+  # fixed fake UUID so every emit-resume/handoff fixture has one; pass "none"
+  # to simulate a state file where no session id was ever captured (exercises
+  # the HALT-007 fallback in _emit_resume).
+  local session_id="${5:-11111111-2222-3333-4444-555555555555}"
   rm -rf "$SANDBOX"
   mkdir -p "$SANDBOX"
   MAKATO_CONTEXT_WARN_TOKENS=150000 "$WS" init "$KEY" macatocz/test feat/gap-004 "$ISSUE" >/dev/null 2>&1
@@ -78,6 +83,9 @@ _init_state() {
   "$WS" patch "$KEY" "$ISSUE" '.session_baseline_tokens' "$baseline"
   "$WS" patch "$KEY" "$ISSUE" '.session_count' "$count"
   "$WS" patch "$KEY" "$ISSUE" '.resume_point' '"task:7"'
+  if [[ "$session_id" != "none" ]]; then
+    "$WS" patch "$KEY" "$ISSUE" '.last_session_id' "\"$session_id\""
+  fi
   if [[ "$with_summary" == "yes" ]]; then
     "$WS" patch "$KEY" "$ISSUE" '.session_summary' '"RUN: test · issue #30 · session 1\n\nDONE (0 tasks)\n\nNEXT: task:7"'
   fi
@@ -148,7 +156,12 @@ _init_state 160000 0 yes
 [[ -x "$RESUME_SCRIPT" ]]                                                  || { echo "  ✗ FAIL: resume script not executable"; exit 1; }
 grep -qE 'claude["[:space:]]+.*--dangerously-skip-permissions.*--resume'    "$RESUME_SCRIPT"   || { echo "  ✗ FAIL: resume script missing dispatch command"; exit 1; }
 grep -qE 'current_phase[[:space:]]*=.*done'                    "$RESUME_SCRIPT"   || { echo "  ✗ FAIL: resume script missing idempotency guard"; exit 1; }
-echo "  ✓ resume script executable, contains dispatch + idempotency guard"
+# #616: --resume must receive the session UUID, NOT the spec KEY. Assert the
+# UUID is baked in and the KEY is NOT the --resume argument.
+grep -q 'SESSION_ID="11111111-2222-3333-4444-555555555555"' "$RESUME_SCRIPT" || { echo "  ✗ FAIL: resume script did not bake in last_session_id UUID"; exit 1; }
+grep -qE -- '--resume "\$SESSION_ID"' "$RESUME_SCRIPT"                        || { echo "  ✗ FAIL: resume script does not pass \$SESSION_ID to --resume"; exit 1; }
+grep -qE -- '--resume "\$KEY"' "$RESUME_SCRIPT"                               && { echo "  ✗ FAIL: resume script still passes KEY to --resume (#616 regression)"; exit 1; } || true
+echo "  ✓ resume script executable, dispatch + idempotency guard, --resume uses SESSION_ID (not KEY)"
 
 echo "=== T6: resume script no-ops when current_phase == done ==="
 "$WS" patch "$KEY" "$ISSUE" '.current_phase' '"done"'
@@ -376,5 +389,46 @@ grep -q 'po-agent' "$RESUME_SCRIPT"                         || { echo "  ✗ FAI
 grep -q 'makato-change:orchestrate' "$RESUME_SCRIPT"        && { echo "  ✗ FAIL: resume script routes to makato-change:orchestrate for a non-change issue"; exit 1; } || true
 echo "  ✓ no change-state → resume routes to po-agent (non-change issue preserved)"
 
+# ---------------------------------------------------------------------------
+# T18: #616 — emit-resume falls back to HALT-007 when last_session_id is absent.
+#      Without a captured session UUID there is nothing valid to pass to
+#      `claude --resume`, so automatic recovery is impossible and the handoff
+#      must degrade to the cost-control fallback rather than emit a resume
+#      script that passes the KEY.
+# ---------------------------------------------------------------------------
+echo "=== T18: #616 — emit-resume HALT-007 fallback when last_session_id absent ==="
+_init_state 160000 0 yes 0 none   # session_id="none" (5th arg) → no last_session_id written
+rm -f "$RESUME_SCRIPT"
+set +e
+MAKATO_HANDOFF_SKIP_LABEL=1 "$HANDOFF" emit-resume "$KEY" "$ISSUE" 2>/dev/null
+RC=$?
+set -e
+[[ $RC -eq 1 ]]                                                            || { echo "  ✗ FAIL: expected exit 1 (HALT-007 fallback), got $RC"; exit 1; }
+[[ "$("$WS" read "$KEY" "$ISSUE" | jq -r '.restart_failed')" == "true" ]]           || { echo "  ✗ FAIL: restart_failed not set on missing-UUID fallback"; exit 1; }
+[[ "$("$WS" read "$KEY" "$ISSUE" | jq -r '.halt_audit[-1].code')" == "HALT-007" ]]  || { echo "  ✗ FAIL: HALT-007 not appended on missing-UUID fallback"; exit 1; }
+[[ ! -f "$RESUME_SCRIPT" ]]                                                || { echo "  ✗ FAIL: a resume script was emitted despite the missing UUID"; exit 1; }
+echo "  ✓ absent last_session_id → HALT-007 fallback, no broken resume script emitted"
+
+# ---------------------------------------------------------------------------
+# T19: #616 — change-path resume also bakes in the UUID (not the KEY).
+# ---------------------------------------------------------------------------
+echo "=== T19: #616 — change-state resume uses SESSION_ID (not KEY) ==="
+_init_state 160000 0 yes
+rm -f "$RESUME_SCRIPT"
+cat > "$SANDBOX/change-state-${ISSUE}.json" <<JSON
+{"schema":"change-state","version":"1.0","issue_key":"$KEY","issue_number":$ISSUE,
+ "current_phase":"design","phases_complete":["analyze"],
+ "worktree_path":"/tmp/fake-worktrees/test-repo-$ISSUE",
+ "pr_url":null,"started_at":"2025-01-01T00:00:00.000Z","updated_at":"2025-01-01T00:00:00.000Z",
+ "halt_code":null,"degraded_confidence":false}
+JSON
+"$HANDOFF" emit-resume "$KEY" "$ISSUE"
+[[ -x "$RESUME_SCRIPT" ]]                                                  || { echo "  ✗ FAIL: resume script not emitted/executable"; exit 1; }
+grep -q 'SESSION_ID="11111111-2222-3333-4444-555555555555"' "$RESUME_SCRIPT" || { echo "  ✗ FAIL: change resume script did not bake in last_session_id UUID"; exit 1; }
+grep -qE -- '--resume "\$SESSION_ID"' "$RESUME_SCRIPT"                        || { echo "  ✗ FAIL: change resume script does not pass \$SESSION_ID to --resume"; exit 1; }
+grep -qE -- '--resume "\$KEY"' "$RESUME_SCRIPT"                               && { echo "  ✗ FAIL: change resume script still passes KEY to --resume (#616 regression)"; exit 1; } || true
+rm -f "$SANDBOX/change-state-${ISSUE}.json"
+echo "  ✓ change-state resume uses SESSION_ID (not KEY)"
+
 echo
-echo "All 17 context-handoff smoke tests passed."
+echo "All 19 context-handoff smoke tests passed."

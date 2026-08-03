@@ -1,7 +1,7 @@
 ---
 name: gate-scout
 model: haiku
-version: "1.2.0"
+version: "1.3.0"
 description: >-
   Discover build, lint, unit test, integration test, and coverage commands
   by scanning project config files. Returns a structured command map for
@@ -118,6 +118,26 @@ When `.pre-commit-config.yaml` does not exist: set all five fields to their "mis
 (`build_hook_cmd: null`, `lint_hook_cmd: null`, `pyright_env: "raw"`, `build_hook_missing: true`,
 `lint_hook_missing: true`).
 
+### Step 1e — Detect health/smoke command
+
+Probe `REPO_ROOT` for a runnable health or smoke command in this priority order:
+
+1. **Makefile `health` target** — read `REPO_ROOT/Makefile` and scan for a target named `health`
+   (a line matching `^health:`). If found, `health_check_cmd` is `make health`.
+
+2. **`scripts/smoke.sh`** — check whether `REPO_ROOT/scripts/smoke.sh` exists as a file. If
+   found (and the Makefile check above did not match), `health_check_cmd` is `scripts/smoke.sh`.
+
+3. **`docker-compose.yml` / `docker-compose.yaml`** — check whether either compose file exists
+   at `REPO_ROOT`. If found (and neither check above matched), scan for at least one `services:`
+   key indicating a real service definition. When a services block is present,
+   `health_check_cmd` is `docker-compose up --wait`.
+
+When none of the three probes finds a match: `health_check_cmd` is `null`.
+
+Emit the discovered value verbatim — do not paraphrase or construct a command that was not
+confirmed by the file scan.
+
 ### Step 2 — Extract commands
 
 For each detected config file, extract:
@@ -229,13 +249,14 @@ Emit this prose block as part of your message (before the R1 block):
 **unit**: `<exact command>` | not found
 **integration**: `<exact command>` | not found
 **coverage**: `<exact command>` — threshold: <X>% | not found
+**health_check_cmd**: `<exact command>` | null
 ```
 
 ## R1 return envelope
 
 The final element of your message MUST be a fenced ` ```json ` block containing the R1 envelope defined in `plugins/makato-build/agents/RETURN-CONTRACT.md`. Callers parse the last `json`-fenced block via `JSON.parse()` — no prose parsing.
 
-`data` shape: `{ "project_type": "...", "config_files_read": N, "python_runner_prefix": "...", "build": "...", "lint": "...", "lint_js": "...", "lint_sql": "...", "unit": "...", "integration": "...", "coverage": "...", "java_version_required": "...", "lint_ci_divergence": true|false, "lint_ci_command": "...", "build_hook_cmd": "...|null", "lint_hook_cmd": "...|null", "pyright_env": "hook|raw", "build_hook_missing": true|false, "lint_hook_missing": true|false }`. Use the string `"not found"` for any command not discovered, and `"none"` for `python_runner_prefix` when no lockfile matches. `lint_js` / `lint_sql` are `"not found"` for projects without Biome / SQLFluff. `build_hook_cmd` / `lint_hook_cmd` are `null` (not the string `"null"`) when no matching hook is found.
+`data` shape: `{ "project_type": "...", "config_files_read": N, "python_runner_prefix": "...", "build": "...", "lint": "...", "lint_js": "...", "lint_sql": "...", "unit": "...", "integration": "...", "coverage": "...", "java_version_required": "...", "lint_ci_divergence": true|false, "lint_ci_command": "...", "build_hook_cmd": "...|null", "lint_hook_cmd": "...|null", "pyright_env": "hook|raw", "build_hook_missing": true|false, "lint_hook_missing": true|false, "health_check_cmd": "...|null" }`. Use the string `"not found"` for any command not discovered, and `"none"` for `python_runner_prefix` when no lockfile matches. `lint_js` / `lint_sql` are `"not found"` for projects without Biome / SQLFluff. `build_hook_cmd` / `lint_hook_cmd` are `null` (not the string `"null"`) when no matching hook is found. `health_check_cmd` is `null` (not the string `"null"`) when no health/smoke command is discovered.
 
 ### Success
 
@@ -267,7 +288,8 @@ The final element of your message MUST be a fenced ` ```json ` block containing 
     "lint_hook_cmd": "pre-commit run --hook-stage manual ruff --all-files",
     "pyright_env": "hook",
     "build_hook_missing": false,
-    "lint_hook_missing": false
+    "lint_hook_missing": false,
+    "health_check_cmd": null
   }
 }
 ```

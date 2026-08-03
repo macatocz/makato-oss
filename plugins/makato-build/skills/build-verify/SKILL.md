@@ -6,7 +6,7 @@ description: >-
   separately so failures are attributable. Fixable failures are
   fixed and gates re-run; structural failures escalate to refine.
   Autonomous. Use after review, before push-to-git.
-version: "1.8.0"
+version: "1.9.0"
 argument-hint: "[work-item-key]"
 ---
 
@@ -54,6 +54,7 @@ autonomous mode and the failure is structural.
 | 11 | R1 JSON block as last fenced ` ```json ` in agent return | `plugins/makato-build/agents/RETURN-CONTRACT.md` | caller treats missing/invalid R1 as `status: "failure"` |
 | 12 | PR description contains `Closes #N` | `build-create-pr` description draft | interactive review catches omission before PR is opened |
 | 13 | Skill-provenance recorded and complete | Step 9 (skill-provenance advisory gate) in this skill | advisory only — never fails the build (NFR-R2) |
+| — | Runtime health-check passes | Step 8b (Gate 6: advisory) in this skill | advisory only — non-zero exit logged, build continues |
 
 A failure to satisfy any item in this table **MUST** trigger the corresponding HALT code
 at the gate that enforces it; the autonomous loop does not proceed past an unmet item.
@@ -310,6 +311,36 @@ Log:
 
 ---
 
+### Step 8b — Gate 6: RUNTIME HEALTH-CHECK
+
+Run the project's health or smoke command when one was discovered by gate-scout.
+
+**Command selection:**
+
+- When `gate-scout.data.health_check_cmd` is non-null: run the command. The timeout is
+  controlled by the `HEALTH_CHECK_TIMEOUT_SECONDS` environment variable (default: 60 seconds).
+  Use a wrapper such as `timeout $HEALTH_CHECK_TIMEOUT_SECONDS <cmd>` to enforce the limit.
+- When `health_check_cmd` is null: emit
+  `"Gate 6: no health command discovered — gate is advisory (skipped)"` and record gate as
+  `skipped`. No further action is needed.
+
+**Gate result mapping:**
+
+- Exit code 0 within timeout → gate status `ok`.
+- Non-zero exit code OR timeout exceeded → gate status `warn`. Log the failure details and
+  **continue** — this gate is ADVISORY. Do NOT block subsequent steps or fail the build.
+
+**This gate is always advisory.** A failing health check surfaces a runtime signal for the
+operator but never halts the pipeline. If the command is slow, noisy, or unavailable in the
+current environment, the `warn` status is the expected degraded outcome.
+
+Log:
+```
+{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-health","status":"ok"|"warn"|"skipped","data":{"health_check_cmd":"<cmd>|null","exit_code":<N>,"duration_seconds":<N>}}
+```
+
+---
+
 ### Step 9 — Skill-provenance advisory gate
 
 After all quality gates pass (Gates 0–5), compute the skill-provenance diff for the run.
@@ -391,6 +422,7 @@ Gate 2  LINT              ✓ PASS   0 errors
 Gate 3  UNIT              ✓ PASS   N passed, 0 failed
 Gate 4  INTEGRATION       ✓ PASS   N passed, 0 failed
 Gate 5  COVERAGE          ✓ PASS   N% conditional (threshold: N%)
+Gate 6  RUNTIME HEALTH    ✓ PASS   exit 0 in Ns  (advisory — warn does not block)
 Advisory  SKILL-PROVENANCE  ⚠ WARN   N skills expected, M invoked (advisory only, never blocks)
 ```
 

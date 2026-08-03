@@ -1,5 +1,151 @@
 # Changelog
 
+## [0.125.0](https://github.com/macatocz/makato/compare/v0.124.0...v0.125.0) (2026-08-03)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** human session clock-in/clock-out ritual ([#602](https://github.com/macatocz/makato/issues/602)) ([#643](https://github.com/macatocz/makato/issues/643)) ([fc3eb00](https://github.com/macatocz/makato/commit/fc3eb002293bc17be030a69ae0c69a2849f21986))
+
+## [0.124.0](https://github.com/macatocz/makato/compare/v0.123.0...v0.124.0) (2026-08-03)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** tool-dependency pre-flight in loop.sh ([#587](https://github.com/macatocz/makato/issues/587)) ([#641](https://github.com/macatocz/makato/issues/641)) ([043975f](https://github.com/macatocz/makato/commit/043975f94ae1ab5f47fad95f3ab5bfed4d943b89))
+
+## [0.123.0](https://github.com/macatocz/makato/compare/v0.122.0...v0.123.0) (2026-08-03)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** PROGRESS.md roadmap via generate-progress.sh ([#601](https://github.com/macatocz/makato/issues/601)) ([#639](https://github.com/macatocz/makato/issues/639)) ([1ace50f](https://github.com/macatocz/makato/commit/1ace50f84ca865b6353b6ec7973eb8be6c05f9b0))
+
+## [0.122.0](https://github.com/macatocz/makato/compare/v0.121.0...v0.122.0) (2026-08-03)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** webhook instant dispatch on status:ready-for-dev ([#599](https://github.com/macatocz/makato/issues/599)) ([#637](https://github.com/macatocz/makato/issues/637)) ([9bc1b37](https://github.com/macatocz/makato/commit/9bc1b374eec0b136a570e516879922111ac71b07))
+
+## [0.121.0](https://github.com/macatocz/makato/compare/v0.120.1...v0.121.0) (2026-08-03)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** quality-doc skill — per-domain quality scorecard ([#598](https://github.com/macatocz/makato/issues/598)) ([#635](https://github.com/macatocz/makato/issues/635)) ([0009f17](https://github.com/macatocz/makato/commit/0009f1752cc83a25dfc9e374960cddbd09018a48))
+
+## [0.120.1](https://github.com/macatocz/makato/compare/v0.120.0...v0.120.1) (2026-08-03)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** route reconciler board reads through rate-guarded wrapper ([#630](https://github.com/macatocz/makato/issues/630)) ([0e3f29d](https://github.com/macatocz/makato/commit/0e3f29d22f4dfc70b7ee80064c975c52902879af))
+
+## [0.120.0](https://github.com/macatocz/makato/compare/v0.119.0...v0.120.0) (2026-08-03)
+
+
+### ✨ Features
+
+* **makato-build:** add context/makato/standards/ so makato dogfoods inject-context ([#591](https://github.com/macatocz/makato/issues/591)) ([1f5e129](https://github.com/macatocz/makato/commit/1f5e1295b93681fedee5b3c3d3e36993697bdec4))
+* **makato-build:** add context/makato/standards/ so makato dogfoods inject-context ([#591](https://github.com/macatocz/makato/issues/591)) ([1f5e129](https://github.com/macatocz/makato/commit/1f5e1295b93681fedee5b3c3d3e36993697bdec4))
+
+## [0.119.0](https://github.com/macatocz/makato/compare/v0.118.1...v0.119.0) (2026-08-03)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** Track VCR in loop-status.json + optional queue-advancement gate ([#585](https://github.com/macatocz/makato/issues/585)) ([4a1dd2f](https://github.com/macatocz/makato/commit/4a1dd2f98845f55c80fb159818e71bb9fc8a70e7))
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** PO-agent self-recovery after Stream idle timeout ([#616](https://github.com/macatocz/makato/issues/616)) ([#629](https://github.com/macatocz/makato/issues/629)) ([d032928](https://github.com/macatocz/makato/commit/d03292814239b93b6a1110045f1b1de045cce16a))
+
+## [0.118.1](https://github.com/macatocz/makato/compare/v0.118.0...v0.118.1) (2026-08-02)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** auto-seed skips issues already planned by to-issues ([#626](https://github.com/macatocz/makato/issues/626)) ([d95c050](https://github.com/macatocz/makato/commit/d95c050db428c17aae11cab7bca137cfc200ae87))
+
+## [0.118.0](https://github.com/macatocz/makato/compare/v0.117.0...v0.118.0) (2026-08-02)
+
+
+### ✨ Features
+
+* **makato-build:** Gate 6 advisory runtime health-check in build-verify ([#580](https://github.com/macatocz/makato/issues/580)) ([9e695de](https://github.com/macatocz/makato/commit/9e695ded84d441289130d858ad661de40c7cc7d8))
+
+## [0.117.0](https://github.com/macatocz/makato/compare/v0.116.0...v0.117.0) (2026-08-02)
+
+
+### ✨ Features
+
+* **makato-core:** add init onboarding wizard skill ([#566](https://github.com/macatocz/makato/issues/566)) ([1738f83](https://github.com/macatocz/makato/commit/1738f83e17b08c5b0f77272486535f7e7ba25fec))
+* **makato-core:** guided onboarding wizard — makato-core:init skill ([#566](https://github.com/macatocz/makato/issues/566)) ([7ea351f](https://github.com/macatocz/makato/commit/7ea351f793f2963a8ed89d0de51542b062ccff24))
+* **makato-core:** guided onboarding wizard — makato-core:init skill ([#566](https://github.com/macatocz/makato/issues/566)) ([7ea351f](https://github.com/macatocz/makato/commit/7ea351f793f2963a8ed89d0de51542b062ccff24))
+
+
+### 🐛 Bug Fixes
+
+* **makato-core:** register init skill in makato-flow.inventory.json ([#566](https://github.com/macatocz/makato/issues/566)) ([c15508f](https://github.com/macatocz/makato/commit/c15508faa862288ce62e96a874ef6451e30a11ab))
+
+## [0.116.0](https://github.com/macatocz/makato/compare/v0.115.0...v0.116.0) (2026-08-02)
+
+
+### ✨ Features
+
+* **makato-build:** add build-verify-spec skill ([#568](https://github.com/macatocz/makato/issues/568)) ([#619](https://github.com/macatocz/makato/issues/619)) ([b4db21a](https://github.com/macatocz/makato/commit/b4db21a133ec89a802f93c97183243844cd01ef0))
+
+## [0.115.0](https://github.com/macatocz/makato/compare/v0.114.0...v0.115.0) (2026-08-02)
+
+
+### ✨ Features
+
+* **makato-plan:** add manage-stores skill with register/list/remove sub-commands ([d0a4838](https://github.com/macatocz/makato/commit/d0a4838cccc357ba6d45a896b1de7427bf81fcc4))
+* **makato-plan:** add target_repo to created-issues schema + cross-repo smoke test ([d92f2d0](https://github.com/macatocz/makato/commit/d92f2d065caacaf036a337931494ed4b170a52cb))
+* **makato-plan:** cross-repo spec stores -- --repo/--store flags + manage-stores ([#565](https://github.com/macatocz/makato/issues/565)) ([67ab3e3](https://github.com/macatocz/makato/commit/67ab3e3a5adb26c4cae7294bac7abce3240d6d8d))
+* **makato-plan:** cross-repo spec stores -- --repo/--store flags + manage-stores ([#565](https://github.com/macatocz/makato/issues/565)) ([67ab3e3](https://github.com/macatocz/makato/commit/67ab3e3a5adb26c4cae7294bac7abce3240d6d8d))
+* **makato-plan:** stores[] schema in config.json + manage-stores.sh register/list/remove ([0a0459d](https://github.com/macatocz/makato/commit/0a0459de99d1495dece045db8f9d18f069029ceb))
+* **makato-plan:** to-issues --repo and --store flags for cross-repo issue creation ([e5ce3de](https://github.com/macatocz/makato/commit/e5ce3de36d8dabdb87e1eaab6f21b0547b3cd897))
+
+## [0.114.0](https://github.com/macatocz/makato/compare/v0.113.0...v0.114.0) (2026-08-02)
+
+
+### ✨ Features
+
+* **makato-build:** build-explore read-only thinking-partner skill ([#564](https://github.com/macatocz/makato/issues/564)) ([9ce3ecc](https://github.com/macatocz/makato/commit/9ce3ecc8d5ee48c661b275ea3b7f9e14d20e0361))
+
+## [0.113.0](https://github.com/macatocz/makato/compare/v0.112.0...v0.113.0) (2026-08-02)
+
+
+### ✨ Features
+
+* **makato-build:** add repair_hint (WHAT/WHY/FIX) field to finding schema ([#611](https://github.com/macatocz/makato/issues/611)) ([78252be](https://github.com/macatocz/makato/commit/78252beadb869851e2520010da26b39aa3d66a60)), closes [#592](https://github.com/macatocz/makato/issues/592)
+* **makato-build:** extensible workflow schema system ([#563](https://github.com/macatocz/makato/issues/563)) ([#612](https://github.com/macatocz/makato/issues/612)) ([d60a82e](https://github.com/macatocz/makato/commit/d60a82e749fd460895d802c82cbf6c4f49c40d72))
+
+## [0.112.0](https://github.com/macatocz/makato/compare/v0.111.0...v0.112.0) (2026-08-02)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** workflow-state prune subcommand — reap stale done state files by age ([#597](https://github.com/macatocz/makato/issues/597)) ([#609](https://github.com/macatocz/makato/issues/609)) ([14e5c23](https://github.com/macatocz/makato/commit/14e5c231b2b1d27d3150e1dd630e4453746a24a4))
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** shared-epic folder guard in reaper (loop 2.2.0) ([#607](https://github.com/macatocz/makato/issues/607)) ([ec93f45](https://github.com/macatocz/makato/commit/ec93f45f292dd57ac3a6ac62f9630a43a5ddb771))
+
+## [0.111.0](https://github.com/macatocz/makato/compare/v0.110.1...v0.111.0) (2026-08-02)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** add sync-living-specs.sh for spec-delta to docs/specs/ sync ([fb5fadf](https://github.com/macatocz/makato/commit/fb5fadfc3f2c7655fe312caec7279cf70accb8d9))
+* **makato-orchestrate:** extend documentation-agent with spec-delta living-spec sync step ([72c351b](https://github.com/macatocz/makato/commit/72c351b93254f3eace28f40c3e6994d89905683d))
+* **makato-orchestrate:** living-spec delta sync post-merge ([#567](https://github.com/macatocz/makato/issues/567)) ([a751fb7](https://github.com/macatocz/makato/commit/a751fb70a22864071dec4ace2a7ad3c3a51ee587))
+* **makato-orchestrate:** living-spec delta sync post-merge ([#567](https://github.com/macatocz/makato/issues/567)) ([a751fb7](https://github.com/macatocz/makato/commit/a751fb70a22864071dec4ace2a7ad3c3a51ee587))
+
 ## [0.110.1](https://github.com/macatocz/makato/compare/v0.110.0...v0.110.1) (2026-08-01)
 
 

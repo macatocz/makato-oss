@@ -2089,6 +2089,39 @@ echo "$t58b_out" | jq -e '[.[] | select(.number == 212)] | length == 1' >/dev/nu
 rm -f "$T58B_FIXTURE"
 echo "  ✓ generic [bot] veto excludes dependabot[bot]/github-actions[bot]; human author passes"
 
+# ---------------------------------------------------------------------------
+echo "=== T58c: already-planned issue (in created-issues.json) → excluded from candidates ==="
+# #499/#510 shared-folder gap; incident #347: an issue that came through
+# to-issues has a real plan-<n>.md and is recorded in a created-issues.json.
+# Re-seeding it would spawn a second, hollow stub folder — the exact collision
+# that makes "plan not found" surface even though a plan exists. The T3.5 guard
+# reuses _is_orphan_issue: a non-orphan (referenced in created-issues.json) is
+# already-planned and must be skipped.
+T58C_SPECS="$STATE_DIR/t58c-specs-$$"
+mkdir -p "$T58C_SPECS/some-feature-slug"
+# issue 213 is referenced → non-orphan → already-planned → skipped;
+# issue 214 is referenced by nothing → orphan → remains a candidate.
+cat >"$T58C_SPECS/some-feature-slug/created-issues.json" <<'EOF'
+{"issues": [{"issue_number": 213, "title": "planned by to-issues"}]}
+EOF
+T58C_FIXTURE="$STATE_DIR/t58c-autoseed-$$.json"
+cat >"$T58C_FIXTURE" <<'EOF'
+[
+  {"number": 213, "labels": [{"name": "type:feat"}, {"name": "plan-tier:full"}], "author": {"login": "user9"}},
+  {"number": 214, "labels": [{"name": "type:feat"}, {"name": "plan-tier:light"}], "author": {"login": "user10"}}
+]
+EOF
+t58c_out="$(MAKATO_LOOP_TEST_HOOK=1 \
+  SPECS_DIR="$T58C_SPECS" \
+  MAKATO_LOOP_AUTOSEED_OVERRIDE="$T58C_FIXTURE" \
+  "$LOOP" _test-auto-seed-candidates 2>/dev/null)"
+echo "$t58c_out" | jq -e '[.[] | select(.number == 213)] | length == 0' >/dev/null \
+  || fail "T58c: issue 213 (in created-issues.json) should be excluded; got: $t58c_out"
+echo "$t58c_out" | jq -e '[.[] | select(.number == 214)] | length == 1' >/dev/null \
+  || fail "T58c: issue 214 (orphan) should remain a candidate; got: $t58c_out"
+rm -rf "$T58C_SPECS" "$T58C_FIXTURE"
+echo "  ✓ already-planned issue 213 vetoed via created-issues.json; orphan 214 passes"
+
 
 # ---------------------------------------------------------------------------
 # T59–T62: _auto_seed_dispatch_light (#370, epic #367 S2)
@@ -3395,6 +3428,120 @@ echo
 echo "=== ALL TESTS continue (Tl–Tp orphaned-In-progress reconciliation, #368 complete) ==="
 
 # ---------------------------------------------------------------------------
+# T-STALE-1..4: #616 — _reconcile_orphaned_stale detects a dead orphan whose
+# workflow-state file is PRESENT (current_phase != done) — the file-present
+# gap the #368 reconciler skips. Fires only when the owning process is dead
+# AND updated_at is stale; routes to Blocked + needs-human-review.
+# ---------------------------------------------------------------------------
+# Helper: a UTC ISO-8601 (ms) timestamp shifted by N seconds from now.
+_stale_ts_shift() {
+  python3 -c "import sys,datetime
+n=datetime.datetime.now(datetime.timezone.utc)+datetime.timedelta(seconds=int(sys.argv[1]))
+print(n.strftime('%Y-%m-%dT%H:%M:%S.')+f'{n.microsecond//1000:03d}Z')" "$1"
+}
+# Helper: seed a spec dir with a workflow-state and an optional .loop-owner.pid.
+#   $1 specs-root  $2 issue  $3 age-seconds-ago  $4 pid|"dead"|"none"
+_seed_stale() {
+  local specs="$1" issue="$2" age="$3" pidmode="$4"
+  local sd="$specs/stale-${issue}-slug"
+  local wt="$specs/wt-${issue}"
+  mkdir -p "$sd" "$wt"
+  local upd; upd="$(_stale_ts_shift "-${age}")"
+  local wtpath=""
+  case "$pidmode" in
+    none) wtpath="" ;;                          # no worktree_path → owner treated dead
+    dead) ( exit 0 ) & local dp=$!; wait "$dp" 2>/dev/null || true
+          printf '%s\n' "$dp" >"$wt/.loop-owner.pid"; wtpath="$wt" ;;
+    alive) printf '%s\n' "$$" >"$wt/.loop-owner.pid"; wtpath="$wt" ;;
+  esac
+  printf '%s\n' "{\"issue_number\":${issue},\"current_phase\":\"implement\",\"worktree_path\":\"${wtpath}\",\"updated_at\":\"${upd}\"}" \
+    >"$sd/workflow-state-${issue}.json"
+}
+
+echo
+echo "=== T-STALE-1: #616 dead owner + stale updated_at → reconcile (Blocked + label) ==="
+TS1_SPECS="$STATE_DIR/stale1-specs-$$"
+TS1_RECON="$STATE_DIR/stale1-recon-$$.txt"
+TS1_LABEL="$STATE_DIR/stale1-label-$$.txt"
+mkdir -p "$TS1_SPECS"
+_seed_stale "$TS1_SPECS" 45001 7200 dead    # 2h old, dead owner
+ts1_rc=0
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_ORPHAN_STALE_SECS=3600 \
+MAKATO_LOOP_RECONCILE_SPECS_DIR="$TS1_SPECS" \
+MAKATO_LOOP_RECONCILE_TEST_FILE="$TS1_RECON" \
+MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE="$TS1_LABEL" \
+SPECS_DIR="$TS1_SPECS" \
+  "$LOOP" _test-reconcile-stale >/dev/null 2>&1 || ts1_rc=$?
+[[ $ts1_rc -eq 0 ]] || fail "T-STALE-1: expected rc 0; got $ts1_rc"
+grep -q "reconcile #45001" "$TS1_RECON" 2>/dev/null \
+  || fail "T-STALE-1: expected board reconcile for #45001; got: $(cat "$TS1_RECON" 2>/dev/null)"
+grep -q "label #45001 needs-human-review" "$TS1_LABEL" 2>/dev/null \
+  || fail "T-STALE-1: expected needs-human-review label for #45001; got: $(cat "$TS1_LABEL" 2>/dev/null)"
+grep -q '"reconcile-orphaned-stale"' "$TS1_SPECS/stale-45001-slug/orchestrate.jsonl" 2>/dev/null \
+  || fail "T-STALE-1: expected orchestrate.jsonl escalate entry"
+rm -rf "$TS1_SPECS" "$TS1_RECON" "$TS1_LABEL"
+echo "  ✓ dead owner + stale → Blocked + needs-human-review + escalate entry"
+
+echo "=== T-STALE-2: #616 fresh updated_at → skip (not stale yet) ==="
+TS2_SPECS="$STATE_DIR/stale2-specs-$$"
+TS2_RECON="$STATE_DIR/stale2-recon-$$.txt"
+mkdir -p "$TS2_SPECS"
+_seed_stale "$TS2_SPECS" 45002 60 dead     # only 60s old, dead owner
+ts2_rc=0
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_ORPHAN_STALE_SECS=3600 \
+MAKATO_LOOP_RECONCILE_SPECS_DIR="$TS2_SPECS" \
+MAKATO_LOOP_RECONCILE_TEST_FILE="$TS2_RECON" \
+SPECS_DIR="$TS2_SPECS" \
+  "$LOOP" _test-reconcile-stale >/dev/null 2>&1 || ts2_rc=$?
+[[ $ts2_rc -eq 0 ]] || fail "T-STALE-2: expected rc 0; got $ts2_rc"
+[[ ! -f "$TS2_RECON" || ! -s "$TS2_RECON" ]] \
+  || fail "T-STALE-2: fresh run must not be reconciled; got: $(cat "$TS2_RECON" 2>/dev/null)"
+rm -rf "$TS2_SPECS" "$TS2_RECON"
+echo "  ✓ fresh updated_at (60s < 3600s) → skipped"
+
+echo "=== T-STALE-3: #616 alive owner → skip regardless of age ==="
+TS3_SPECS="$STATE_DIR/stale3-specs-$$"
+TS3_RECON="$STATE_DIR/stale3-recon-$$.txt"
+mkdir -p "$TS3_SPECS"
+_seed_stale "$TS3_SPECS" 45003 99999 alive   # very old but owner pid alive ($$)
+ts3_rc=0
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_ORPHAN_STALE_SECS=3600 \
+MAKATO_LOOP_RECONCILE_SPECS_DIR="$TS3_SPECS" \
+MAKATO_LOOP_RECONCILE_TEST_FILE="$TS3_RECON" \
+SPECS_DIR="$TS3_SPECS" \
+  "$LOOP" _test-reconcile-stale >/dev/null 2>&1 || ts3_rc=$?
+[[ $ts3_rc -eq 0 ]] || fail "T-STALE-3: expected rc 0; got $ts3_rc"
+[[ ! -f "$TS3_RECON" || ! -s "$TS3_RECON" ]] \
+  || fail "T-STALE-3: live-owner run must not be reconciled; got: $(cat "$TS3_RECON" 2>/dev/null)"
+rm -rf "$TS3_SPECS" "$TS3_RECON"
+echo "  ✓ alive owner pid → skipped even at 99999s age (liveness gate is load-bearing)"
+
+echo "=== T-STALE-4: #616 MAKATO_ORPHAN_DETECT_DISABLE=1 → pass skipped entirely ==="
+TS4_SPECS="$STATE_DIR/stale4-specs-$$"
+TS4_RECON="$STATE_DIR/stale4-recon-$$.txt"
+mkdir -p "$TS4_SPECS"
+_seed_stale "$TS4_SPECS" 45004 7200 dead
+ts4_rc=0
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_ORPHAN_STALE_SECS=3600 \
+MAKATO_ORPHAN_DETECT_DISABLE=1 \
+MAKATO_LOOP_RECONCILE_SPECS_DIR="$TS4_SPECS" \
+MAKATO_LOOP_RECONCILE_TEST_FILE="$TS4_RECON" \
+SPECS_DIR="$TS4_SPECS" \
+  "$LOOP" _test-reconcile-stale >/dev/null 2>&1 || ts4_rc=$?
+[[ $ts4_rc -eq 0 ]] || fail "T-STALE-4: expected rc 0; got $ts4_rc"
+[[ ! -f "$TS4_RECON" || ! -s "$TS4_RECON" ]] \
+  || fail "T-STALE-4: disabled pass must not reconcile; got: $(cat "$TS4_RECON" 2>/dev/null)"
+rm -rf "$TS4_SPECS" "$TS4_RECON"
+echo "  ✓ MAKATO_ORPHAN_DETECT_DISABLE=1 → pass skipped"
+
+echo
+echo "=== #616 orphan-stale detection (T-STALE-1..4) complete ==="
+
+# ---------------------------------------------------------------------------
 # Tq: reconcile pass reads Status field/option ids from the correct config
 # shape (#492). REGRESSION TEST — Tl–Tp all take the
 # MAKATO_LOOP_RECONCILE_TEST_FILE short-circuit (echo "reconcile #N") and
@@ -4608,6 +4755,10 @@ printf '%s\n' \
   '{"type":"assistant","message":{"content":[{"type":"text","text":"Working..."}]}}' \
   >"$T_R2_LOG"
 echo '{"stall_restart_count":0}' >"$T_R2_STATE/loop-status.json"
+# #616: seed a workflow-state with last_session_id so _stall_resume attempts
+# the resume (a resume is only viable when a session UUID was captured).
+printf '%s\n' '{"issue_number":44421,"current_phase":"implement","last_session_id":"aaaa1111-bbbb-2222-cccc-333344445555","updated_at":"2026-01-01T00:00:00.000Z"}' \
+  >"$T_R2_SPEC_DIR/workflow-state-44421.json"
 # First verify _parse_dispatch_result returns "incomplete".
 t_r2_verdict=""
 t_r2_verdict="$(
@@ -4659,6 +4810,9 @@ printf '%s\n' \
   '{"type":"result","subtype":"error_max_turns","is_error":true,"result":"Max turns reached"}' \
   >"$T_R3_LOG"
 echo '{"stall_restart_count":0}' >"$T_R3_STATE/loop-status.json"
+# #616: seed workflow-state with last_session_id so the resume is attempted.
+printf '%s\n' '{"issue_number":44422,"current_phase":"implement","last_session_id":"bbbb1111-cccc-2222-dddd-333344445555","updated_at":"2026-01-01T00:00:00.000Z"}' \
+  >"$T_R3_SPEC_DIR/workflow-state-44422.json"
 # Verify _parse_dispatch_result returns "errored".
 t_r3_verdict=""
 t_r3_verdict="$(
@@ -4736,6 +4890,51 @@ grep -q "needs-human-review" "$T_R4_LABEL_FILE" \
   || fail "T-RESUME-4: label file should contain needs-human-review; got: $(cat "$T_R4_LABEL_FILE")"
 rm -rf "${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-resume4"
 echo "  ✓ budget exhausted: step:stall-resume status:escalate halt_code=HALT-014, returns 1, label applied"
+
+# ---------------------------------------------------------------------------
+# T-RESUME-616: #616 — _stall_resume skips (no claude --resume) when
+#   last_session_id is absent from workflow-state. `claude --resume` requires
+#   a session UUID, not the spec KEY; without a captured UUID the resume is
+#   impossible, so the pass must emit step:stall-resume status:skip
+#   reason:no_session_id, return 0, and NOT increment the restart counter.
+# ---------------------------------------------------------------------------
+echo "=== T-RESUME-616: #616 — no last_session_id → _stall_resume skips (status:skip, no counter bump) ==="
+T_R616_STATE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-resume616/state"
+T_R616_SPECS="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-resume616/specs"
+T_R616_SPEC_DIR="$T_R616_SPECS/resume616-slug"
+mkdir -p "$T_R616_STATE" "$T_R616_SPEC_DIR"
+T_R616_LOG="$T_R616_STATE/dispatch-44616.log"
+printf '%s\n' '{"type":"system","subtype":"init"}' >"$T_R616_LOG"
+echo '{"stall_restart_count":0}' >"$T_R616_STATE/loop-status.json"
+# workflow-state WITHOUT last_session_id (the crash-before-result-line case).
+printf '%s\n' '{"issue_number":44616,"current_phase":"implement","updated_at":"2026-01-01T00:00:00.000Z"}' \
+  >"$T_R616_SPEC_DIR/workflow-state-44616.json"
+t_r616_rc=0
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_LOOP_STATE_DIR="$T_R616_STATE" \
+SPECS_DIR="$T_R616_SPECS" \
+MAKATO_LOOP_STALL_DISABLE=0 \
+MAKATO_LOOP_SLEEP_CMD=true \
+MAKATO_CLAUDE_BIN=false \
+  "$LOOP" _test-stall-resume 44616 "resume616-slug" "$T_R616_SPEC_DIR" "$T_R616_LOG" \
+  >/dev/null 2>&1 || t_r616_rc=$?
+[[ $t_r616_rc -eq 0 ]] \
+  || fail "T-RESUME-616: _stall_resume should return 0 on no_session_id skip; got $t_r616_rc"
+[[ -f "$T_R616_SPEC_DIR/orchestrate.jsonl" ]] \
+  || fail "T-RESUME-616: orchestrate.jsonl not written"
+t_r616_line="$(grep '"stall-resume"' "$T_R616_SPEC_DIR/orchestrate.jsonl" | tail -1)"
+t_r616_status="$(printf '%s' "$t_r616_line" | jq -r '.status // empty' 2>/dev/null)"
+[[ "$t_r616_status" == "skip" ]] \
+  || fail "T-RESUME-616: status should be 'skip'; got '$t_r616_status'"
+t_r616_reason="$(printf '%s' "$t_r616_line" | jq -r '.data.reason // empty' 2>/dev/null)"
+[[ "$t_r616_reason" == "no_session_id" ]] \
+  || fail "T-RESUME-616: data.reason should be 'no_session_id'; got '$t_r616_reason'"
+# Restart counter must NOT have been bumped (skip is before the increment).
+t_r616_count="$(jq -r '.stall_restart_count // 0' "$T_R616_STATE/loop-status.json" 2>/dev/null)"
+[[ "$t_r616_count" == "0" ]] \
+  || fail "T-RESUME-616: stall_restart_count should stay 0 on skip; got '$t_r616_count'"
+rm -rf "${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-resume616"
+echo "  ✓ no last_session_id → status:skip reason:no_session_id, rc 0, counter untouched"
 
 # ---------------------------------------------------------------------------
 # T-RESUME-5: MAKATO_LOOP_STALL_DISABLE=1 with incomplete result →
@@ -5874,5 +6073,336 @@ echo "  ✓ numberless design-doc folder skipped with info/debug line, no WARN"
 rm -rf "$T_NL_DIR"
 echo "T-REAP-NUMBERLESS passed"
 
+# ---------------------------------------------------------------------------
+# T-loop-prune-1: MAKATO_LOOP_PRUNE_ON_RUN=0 — prune NOT invoked.
+# T-loop-prune-2: MAKATO_LOOP_PRUNE_ON_RUN=1 with stale done fixture — file removed.
+# T-loop-prune-3: MAKATO_LOOP_PRUNE_ON_RUN=1 + --dry-run — prune NOT invoked.
+# (#597 — optional prune pass in cmd_run)
+# ---------------------------------------------------------------------------
 echo
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T-RG-1–T-RG-4 GraphQL rate-limit guard, #556; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T-RESUME-1 complete result no-op, T-RESUME-2 incomplete triggers attempt, T-RESUME-3 errored triggers attempt, T-RESUME-4 budget-exhausted HALT-014, T-RESUME-5 STALL_DISABLE skip detect+resume, #531; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470; T84–T89 orphaned-specs pruning; T90 promote-before-prune; T-GQL1–T-GQL5 GraphQL board poll + item-list rollback, #516; T-IDLE1–T-IDLE2 adaptive idle backoff, #516; T91 plan-tier:change routing, #539; T-wave-order, T-promote-on, T-promote-off, T-fifo-fallback wave-ordered dispatch + promote-unblocked, #548; T-PREDISPATCH-127 exit-127 log demotion, T-REAP-NUMBERLESS numberless-folder reap-specs demotion, #558) ==="
+echo "=== T-loop-prune-1: MAKATO_LOOP_PRUNE_ON_RUN=0 — prune pass NOT invoked ==="
+T_LP1_DIR="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-lp1"
+rm -rf "$T_LP1_DIR"; mkdir -p "$T_LP1_DIR"
+(
+  cd "$T_LP1_DIR"
+  git init -q -b main
+  git config user.email t@t.t; git config user.name t
+  git commit -q --allow-empty -m init
+)
+mkdir -p "$T_LP1_DIR/specs/lp1-done-stale"
+OLD_TS_LP1="$(python3 -c "
+from datetime import datetime, timezone, timedelta
+n = datetime.now(timezone.utc) - timedelta(days=40)
+print(n.strftime('%Y-%m-%dT%H:%M:%S.') + f'{n.microsecond // 1000:03d}Z')
+")"
+jq -n --arg ts "$OLD_TS_LP1" '{
+  repo:"macatocz/test", branch:"feat/lp1", worktree_path:null,
+  worktree_retained:false, worktree_retain_reason:null,
+  issue_number:8801, sub_tasks:[], current_phase:"done",
+  resume_point:null, budget_consumed_tokens:0, session_baseline_tokens:0,
+  budget_limit_tokens:500000, context_warn_tokens:150000,
+  outer_iteration:0, merge_conflict_cycles:0, ci_failure_cycles:0,
+  structural_halt_cycles:0, reshape_cycles:0, halt_audit:[],
+  human_review_cycles:0, github_pr_number:null, progress_comment_id:null,
+  lessons_learned:[], session_summary:null, session_count:0,
+  handoff_reason:null, restart_failed:false, spawned_pid:null,
+  resume_ack:null, created_at:$ts, updated_at:$ts
+}' > "$T_LP1_DIR/specs/lp1-done-stale/workflow-state-8801.json"
+
+T_LP1_STATE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-lp1-state"
+mkdir -p "$T_LP1_STATE"
+
+# Run one tick with prune OFF (default). File must survive.
+(
+  cd "$T_LP1_DIR" &&
+  MAKATO_LOOP_DISPATCH_REPO="test-owner/test-repo" \
+  MAKATO_LOOP_STATE_DIR="$T_LP1_STATE" \
+  SPECS_DIR="$T_LP1_DIR/specs" REPO_ROOT="$T_LP1_DIR" \
+  MAKATO_LOOP_PRUNE_ON_RUN=0 \
+  MAKATO_LOOP_REAP_ON_POLL=0 \
+  MAKATO_LOOP_RECONCILE_ON_POLL=0 \
+    "$LOOP" run --status Ready --once --dry-run 2>/dev/null || true
+)
+[[ -f "$T_LP1_DIR/specs/lp1-done-stale/workflow-state-8801.json" ]] \
+  || fail "T-loop-prune-1: stale done file was WRONGLY removed when PRUNE_ON_RUN=0"
+echo "  ✓ PRUNE_ON_RUN=0 — stale done file untouched"
+rm -rf "$T_LP1_DIR" "$T_LP1_STATE"
+echo "T-loop-prune-1 passed"
+
+echo "=== T-loop-prune-2: MAKATO_LOOP_PRUNE_ON_RUN=1 with stale done fixture — file removed ==="
+T_LP2_DIR="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-lp2"
+rm -rf "$T_LP2_DIR"; mkdir -p "$T_LP2_DIR"
+(
+  cd "$T_LP2_DIR"
+  git init -q -b main
+  git config user.email t@t.t; git config user.name t
+  git commit -q --allow-empty -m init
+)
+mkdir -p "$T_LP2_DIR/specs/lp2-done-stale"
+OLD_TS_LP2="$(python3 -c "
+from datetime import datetime, timezone, timedelta
+n = datetime.now(timezone.utc) - timedelta(days=40)
+print(n.strftime('%Y-%m-%dT%H:%M:%S.') + f'{n.microsecond // 1000:03d}Z')
+")"
+jq -n --arg ts "$OLD_TS_LP2" '{
+  repo:"macatocz/test", branch:"feat/lp2", worktree_path:null,
+  worktree_retained:false, worktree_retain_reason:null,
+  issue_number:8802, sub_tasks:[], current_phase:"done",
+  resume_point:null, budget_consumed_tokens:0, session_baseline_tokens:0,
+  budget_limit_tokens:500000, context_warn_tokens:150000,
+  outer_iteration:0, merge_conflict_cycles:0, ci_failure_cycles:0,
+  structural_halt_cycles:0, reshape_cycles:0, halt_audit:[],
+  human_review_cycles:0, github_pr_number:null, progress_comment_id:null,
+  lessons_learned:[], session_summary:null, session_count:0,
+  handoff_reason:null, restart_failed:false, spawned_pid:null,
+  resume_ack:null, created_at:$ts, updated_at:$ts
+}' > "$T_LP2_DIR/specs/lp2-done-stale/workflow-state-8802.json"
+
+T_LP2_STATE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-lp2-state"
+mkdir -p "$T_LP2_STATE"
+
+# Use MAKATO_LOOP_DRY_DISPATCH=1 (no real dispatch) without --dry-run, so the
+# prune pass fires. Provide an empty GH fixture so cmd_poll returns no items.
+T_LP2_GH="$T_LP2_STATE/gh-empty.json"
+echo '{"items":[]}' > "$T_LP2_GH"
+
+# Run one tick with prune ON and AGE_DAYS=30. File is 40 days old, must be removed.
+(
+  cd "$T_LP2_DIR" &&
+  MAKATO_LOOP_DISPATCH_REPO="test-owner/test-repo" \
+  MAKATO_LOOP_STATE_DIR="$T_LP2_STATE" \
+  SPECS_DIR="$T_LP2_DIR/specs" REPO_ROOT="$T_LP2_DIR" \
+  MAKATO_LOOP_PRUNE_ON_RUN=1 \
+  MAKATO_LOOP_PRUNE_AGE_DAYS=30 \
+  MAKATO_LOOP_REAP_ON_POLL=0 \
+  MAKATO_LOOP_RECONCILE_ON_POLL=0 \
+  MAKATO_LOOP_DRY_DISPATCH=1 \
+  MAKATO_LOOP_GH_OVERRIDE="$T_LP2_GH" \
+    "$LOOP" run --status Ready --once 2>/dev/null || true
+)
+[[ ! -f "$T_LP2_DIR/specs/lp2-done-stale/workflow-state-8802.json" ]] \
+  || fail "T-loop-prune-2: stale done file was NOT removed when PRUNE_ON_RUN=1"
+echo "  ✓ PRUNE_ON_RUN=1 — stale done file removed"
+rm -rf "$T_LP2_DIR" "$T_LP2_STATE"
+echo "T-loop-prune-2 passed"
+
+echo "=== T-loop-prune-3: MAKATO_LOOP_PRUNE_ON_RUN=1 + --dry-run — prune NOT invoked ==="
+T_LP3_DIR="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-lp3"
+rm -rf "$T_LP3_DIR"; mkdir -p "$T_LP3_DIR"
+(
+  cd "$T_LP3_DIR"
+  git init -q -b main
+  git config user.email t@t.t; git config user.name t
+  git commit -q --allow-empty -m init
+)
+mkdir -p "$T_LP3_DIR/specs/lp3-done-stale"
+OLD_TS_LP3="$(python3 -c "
+from datetime import datetime, timezone, timedelta
+n = datetime.now(timezone.utc) - timedelta(days=40)
+print(n.strftime('%Y-%m-%dT%H:%M:%S.') + f'{n.microsecond // 1000:03d}Z')
+")"
+jq -n --arg ts "$OLD_TS_LP3" '{
+  repo:"macatocz/test", branch:"feat/lp3", worktree_path:null,
+  worktree_retained:false, worktree_retain_reason:null,
+  issue_number:8803, sub_tasks:[], current_phase:"done",
+  resume_point:null, budget_consumed_tokens:0, session_baseline_tokens:0,
+  budget_limit_tokens:500000, context_warn_tokens:150000,
+  outer_iteration:0, merge_conflict_cycles:0, ci_failure_cycles:0,
+  structural_halt_cycles:0, reshape_cycles:0, halt_audit:[],
+  human_review_cycles:0, github_pr_number:null, progress_comment_id:null,
+  lessons_learned:[], session_summary:null, session_count:0,
+  handoff_reason:null, restart_failed:false, spawned_pid:null,
+  resume_ack:null, created_at:$ts, updated_at:$ts
+}' > "$T_LP3_DIR/specs/lp3-done-stale/workflow-state-8803.json"
+
+T_LP3_STATE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-lp3-state"
+mkdir -p "$T_LP3_STATE"
+
+# Run with PRUNE_ON_RUN=1 but also --dry-run. Prune must be skipped under dry-run.
+(
+  cd "$T_LP3_DIR" &&
+  MAKATO_LOOP_DISPATCH_REPO="test-owner/test-repo" \
+  MAKATO_LOOP_STATE_DIR="$T_LP3_STATE" \
+  SPECS_DIR="$T_LP3_DIR/specs" REPO_ROOT="$T_LP3_DIR" \
+  MAKATO_LOOP_PRUNE_ON_RUN=1 \
+  MAKATO_LOOP_PRUNE_AGE_DAYS=30 \
+  MAKATO_LOOP_REAP_ON_POLL=0 \
+  MAKATO_LOOP_RECONCILE_ON_POLL=0 \
+    "$LOOP" run --status Ready --once --dry-run 2>/dev/null || true
+)
+[[ -f "$T_LP3_DIR/specs/lp3-done-stale/workflow-state-8803.json" ]] \
+  || fail "T-loop-prune-3: stale done file was WRONGLY removed under --dry-run with PRUNE_ON_RUN=1"
+echo "  ✓ PRUNE_ON_RUN=1 + --dry-run — stale done file untouched"
+rm -rf "$T_LP3_DIR" "$T_LP3_STATE"
+echo "T-loop-prune-3 passed"
+
+# ---------------------------------------------------------------------------
+echo "=== T-VCR-1: empty SPECS_DIR → activated=0, verified=0, rate=0.0 ==="
+T_VCR1_SPECS="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-vcr1-specs"
+rm -rf "$T_VCR1_SPECS"; mkdir -p "$T_VCR1_SPECS"
+T_VCR1_STATE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-vcr1-state"
+mkdir -p "$T_VCR1_STATE"
+OUT="$(MAKATO_LOOP_STATE_DIR="$T_VCR1_STATE" SPECS_DIR="$T_VCR1_SPECS" \
+  MAKATO_LOOP_TEST_HOOK=1 "$LOOP" _test-compute-vcr 2>/dev/null)"
+echo "$OUT" | jq empty 2>/dev/null || fail "T-VCR-1: output not valid JSON: $OUT"
+[[ "$(echo "$OUT" | jq '.activated')" == "0" ]] || fail "T-VCR-1: expected activated=0: $OUT"
+[[ "$(echo "$OUT" | jq '.verified')" == "0" ]] || fail "T-VCR-1: expected verified=0: $OUT"
+echo "$OUT" | jq -e '(.rate | tonumber) == 0.0' >/dev/null 2>&1 || fail "T-VCR-1: expected rate=0.0: $OUT"
+rm -rf "$T_VCR1_SPECS" "$T_VCR1_STATE"
+echo "T-VCR-1 passed"
+
+# ---------------------------------------------------------------------------
+echo "=== T-VCR-2: 3 workflow-state files, 0 done → activated=3, verified=0, rate=0.0 ==="
+T_VCR2_SPECS="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-vcr2-specs"
+rm -rf "$T_VCR2_SPECS"; mkdir -p "$T_VCR2_SPECS/a" "$T_VCR2_SPECS/b" "$T_VCR2_SPECS/c"
+T_VCR2_STATE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-vcr2-state"
+mkdir -p "$T_VCR2_STATE"
+echo '{"current_phase":"implement"}' > "$T_VCR2_SPECS/a/workflow-state-1.json"
+echo '{"current_phase":"verify"}'    > "$T_VCR2_SPECS/b/workflow-state-2.json"
+echo '{"current_phase":"pr"}'        > "$T_VCR2_SPECS/c/workflow-state-3.json"
+OUT="$(MAKATO_LOOP_STATE_DIR="$T_VCR2_STATE" SPECS_DIR="$T_VCR2_SPECS" \
+  MAKATO_LOOP_TEST_HOOK=1 "$LOOP" _test-compute-vcr 2>/dev/null)"
+echo "$OUT" | jq empty 2>/dev/null || fail "T-VCR-2: output not valid JSON: $OUT"
+[[ "$(echo "$OUT" | jq '.activated')" == "3" ]] || fail "T-VCR-2: expected activated=3: $OUT"
+[[ "$(echo "$OUT" | jq '.verified')" == "0" ]] || fail "T-VCR-2: expected verified=0: $OUT"
+echo "$OUT" | jq -e '(.rate | tonumber) == 0.0' >/dev/null 2>&1 || fail "T-VCR-2: expected rate=0.0: $OUT"
+rm -rf "$T_VCR2_SPECS" "$T_VCR2_STATE"
+echo "T-VCR-2 passed"
+
+# ---------------------------------------------------------------------------
+echo "=== T-VCR-3: 3 workflow-state files, 2 done → activated=3, verified=2, rate=0.67 ==="
+T_VCR3_SPECS="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-vcr3-specs"
+rm -rf "$T_VCR3_SPECS"; mkdir -p "$T_VCR3_SPECS/a" "$T_VCR3_SPECS/b" "$T_VCR3_SPECS/c"
+T_VCR3_STATE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-vcr3-state"
+mkdir -p "$T_VCR3_STATE"
+echo '{"current_phase":"done"}'      > "$T_VCR3_SPECS/a/workflow-state-10.json"
+echo '{"current_phase":"done"}'      > "$T_VCR3_SPECS/b/workflow-state-11.json"
+echo '{"current_phase":"implement"}' > "$T_VCR3_SPECS/c/workflow-state-12.json"
+OUT="$(MAKATO_LOOP_STATE_DIR="$T_VCR3_STATE" SPECS_DIR="$T_VCR3_SPECS" \
+  MAKATO_LOOP_TEST_HOOK=1 "$LOOP" _test-compute-vcr 2>/dev/null)"
+echo "$OUT" | jq empty 2>/dev/null || fail "T-VCR-3: output not valid JSON: $OUT"
+[[ "$(echo "$OUT" | jq '.activated')" == "3" ]] || fail "T-VCR-3: expected activated=3: $OUT"
+[[ "$(echo "$OUT" | jq '.verified')" == "2" ]] || fail "T-VCR-3: expected verified=2: $OUT"
+echo "$OUT" | jq -e '(.rate | tonumber) == 0.67' >/dev/null 2>&1 || fail "T-VCR-3: expected rate=0.67: $OUT"
+rm -rf "$T_VCR3_SPECS" "$T_VCR3_STATE"
+echo "T-VCR-3 passed"
+
+# ---------------------------------------------------------------------------
+echo "=== T-VCR-4: all done (3/3) → rate=1.00 ==="
+T_VCR4_SPECS="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-vcr4-specs"
+rm -rf "$T_VCR4_SPECS"; mkdir -p "$T_VCR4_SPECS/a" "$T_VCR4_SPECS/b" "$T_VCR4_SPECS/c"
+T_VCR4_STATE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-vcr4-state"
+mkdir -p "$T_VCR4_STATE"
+echo '{"current_phase":"done"}' > "$T_VCR4_SPECS/a/workflow-state-20.json"
+echo '{"current_phase":"done"}' > "$T_VCR4_SPECS/b/workflow-state-21.json"
+echo '{"current_phase":"done"}' > "$T_VCR4_SPECS/c/workflow-state-22.json"
+OUT="$(MAKATO_LOOP_STATE_DIR="$T_VCR4_STATE" SPECS_DIR="$T_VCR4_SPECS" \
+  MAKATO_LOOP_TEST_HOOK=1 "$LOOP" _test-compute-vcr 2>/dev/null)"
+echo "$OUT" | jq empty 2>/dev/null || fail "T-VCR-4: output not valid JSON: $OUT"
+[[ "$(echo "$OUT" | jq '.activated')" == "3" ]] || fail "T-VCR-4: expected activated=3: $OUT"
+[[ "$(echo "$OUT" | jq '.verified')" == "3" ]] || fail "T-VCR-4: expected verified=3: $OUT"
+# rate should be 1.00 (python3 '%.2f' % 1.0)
+RATE4="$(echo "$OUT" | jq -r '.rate')"
+[[ "$RATE4" == "1.0" || "$RATE4" == "1.00" ]] || fail "T-VCR-4: expected rate=1.00, got: $RATE4"
+rm -rf "$T_VCR4_SPECS" "$T_VCR4_STATE"
+echo "T-VCR-4 passed"
+
+# ---------------------------------------------------------------------------
+echo "=== T-VCR-5: _compute_vcr output has all three required fields ==="
+T_VCR5_SPECS="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-vcr5-specs"
+rm -rf "$T_VCR5_SPECS"; mkdir -p "$T_VCR5_SPECS/x"
+T_VCR5_STATE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-vcr5-state"
+mkdir -p "$T_VCR5_STATE"
+echo '{"current_phase":"done"}' > "$T_VCR5_SPECS/x/workflow-state-30.json"
+OUT="$(MAKATO_LOOP_STATE_DIR="$T_VCR5_STATE" SPECS_DIR="$T_VCR5_SPECS" \
+  MAKATO_LOOP_TEST_HOOK=1 "$LOOP" _test-compute-vcr 2>/dev/null)"
+echo "$OUT" | jq empty 2>/dev/null || fail "T-VCR-5: output not valid JSON: $OUT"
+echo "$OUT" | jq -e 'has("activated")' >/dev/null 2>&1 || fail "T-VCR-5: missing 'activated' field: $OUT"
+echo "$OUT" | jq -e 'has("verified")' >/dev/null 2>&1  || fail "T-VCR-5: missing 'verified' field: $OUT"
+echo "$OUT" | jq -e 'has("rate")' >/dev/null 2>&1      || fail "T-VCR-5: missing 'rate' field: $OUT"
+echo "$OUT" | jq -e '.activated | type == "number"' >/dev/null 2>&1 || fail "T-VCR-5: 'activated' not a number: $OUT"
+echo "$OUT" | jq -e '.verified  | type == "number"' >/dev/null 2>&1 || fail "T-VCR-5: 'verified' not a number: $OUT"
+rm -rf "$T_VCR5_SPECS" "$T_VCR5_STATE"
+echo "T-VCR-5 passed"
+
+# ---------------------------------------------------------------------------
+# T-TOOLDEP-1–T-TOOLDEP-3: _check_tool_deps pre-flight (#587)
+#
+# Exercise _check_tool_deps via the _test-check-tool-deps hook, which calls
+# the function in isolation with the caller's PATH — no mutex, no board poll.
+#
+# T-TOOLDEP-1: missing required binary → non-zero exit, stderr names the tool.
+# T-TOOLDEP-2: gh auth status fails → non-zero exit, stderr mentions auth.
+# T-TOOLDEP-3: all tools present + auth passes → exit 0, no tool-dep error.
+# ---------------------------------------------------------------------------
+echo "=== T-TOOLDEP-1: missing jq → _check_tool_deps exits non-zero, stderr names jq ==="
+# Use MAKATO_LOOP_TEST_MISSING_TOOL to simulate jq absent — portable across macOS
+# and Linux (where /bin may be a symlink to /usr/bin making PATH exclusion unreliable).
+T_TD1_RC=0
+T_TD1_STDERR="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_TEST_MISSING_TOOL="jq" \
+    bash "$LOOP" _test-check-tool-deps 2>&1 >/dev/null
+)" || T_TD1_RC=$?
+[[ $T_TD1_RC -ne 0 ]] \
+  || fail "T-TOOLDEP-1: expected non-zero exit when jq absent; got 0"
+echo "$T_TD1_STDERR" | grep -qi "jq" \
+  || fail "T-TOOLDEP-1: stderr should name the missing tool 'jq'; got: $T_TD1_STDERR"
+echo "  ✓ missing jq: exits non-zero, stderr names jq"
+
+# ---------------------------------------------------------------------------
+echo "=== T-TOOLDEP-2: gh auth failure → _check_tool_deps exits non-zero, stderr mentions auth ==="
+# Prepend a stub dir: stub gh exits 1 for 'gh auth status', 0 otherwise.
+# Real jq/git/python3 resolve from the normal PATH.
+# Clear all three test-mode bypass vars so the auth check fires despite the
+# file-level MAKATO_LOOP_GH_OVERRIDE export.
+T_TD2_BINDIR="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-td2-bin"
+mkdir -p "$T_TD2_BINDIR"
+cat >"$T_TD2_BINDIR/gh" <<'GHSTUB'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "auth" && "${2:-}" == "status" ]]; then
+  echo "gh: not logged in" >&2
+  exit 1
+fi
+exit 0
+GHSTUB
+chmod +x "$T_TD2_BINDIR/gh"
+T_TD2_RC=0
+T_TD2_STDERR="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_GH_OVERRIDE="" \
+  MAKATO_LOOP_POLL_TEST_CMD="" \
+  MAKATO_LOOP_GRAPHQL_TEST_CMD="" \
+  PATH="$T_TD2_BINDIR:$PATH" \
+    bash "$LOOP" _test-check-tool-deps 2>&1 >/dev/null
+)" || T_TD2_RC=$?
+[[ $T_TD2_RC -ne 0 ]] \
+  || fail "T-TOOLDEP-2: expected non-zero exit when gh auth fails; got 0"
+echo "$T_TD2_STDERR" | grep -qiE "auth|not logged" \
+  || fail "T-TOOLDEP-2: stderr should mention auth failure; got: $T_TD2_STDERR"
+rm -rf "$T_TD2_BINDIR"
+echo "  ✓ failed gh auth: exits non-zero, stderr mentions auth"
+
+# ---------------------------------------------------------------------------
+echo "=== T-TOOLDEP-3: all tools present + auth passes → exit 0, no tool-dep error ==="
+# Prepend a stub gh that always exits 0 (including auth status). Real tools
+# (jq, git, python3) resolve from the normal PATH.
+T_TD3_BINDIR="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-td3-bin"
+mkdir -p "$T_TD3_BINDIR"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$T_TD3_BINDIR/gh"
+chmod +x "$T_TD3_BINDIR/gh"
+T_TD3_RC=0
+T_TD3_STDERR="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  PATH="$T_TD3_BINDIR:$PATH" \
+    bash "$LOOP" _test-check-tool-deps 2>&1 >/dev/null
+)" || T_TD3_RC=$?
+[[ $T_TD3_RC -eq 0 ]] \
+  || fail "T-TOOLDEP-3: expected exit 0 when all deps satisfied; got $T_TD3_RC"
+echo "$T_TD3_STDERR" | grep -qiE "pre-flight error|not found on PATH|gh auth" \
+  && fail "T-TOOLDEP-3: unexpected tool-dep error on stderr; got: $T_TD3_STDERR"
+rm -rf "$T_TD3_BINDIR"
+echo "  ✓ all deps satisfied: exit 0, no tool-dep error"
+
+echo
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T-RG-1–T-RG-4 GraphQL rate-limit guard, #556; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T-RESUME-1 complete result no-op, T-RESUME-2 incomplete triggers attempt, T-RESUME-3 errored triggers attempt, T-RESUME-4 budget-exhausted HALT-014, T-RESUME-5 STALL_DISABLE skip detect+resume, #531; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470; T84–T89 orphaned-specs pruning; T90 promote-before-prune; T-GQL1–T-GQL5 GraphQL board poll + item-list rollback, #516; T-IDLE1–T-IDLE2 adaptive idle backoff, #516; T91 plan-tier:change routing, #539; T-wave-order, T-promote-on, T-promote-off, T-fifo-fallback wave-ordered dispatch + promote-unblocked, #548; T-PREDISPATCH-127 exit-127 log demotion, T-REAP-NUMBERLESS numberless-folder reap-specs demotion, #558; T-loop-prune-1–T-loop-prune-3 workflow-state prune wiring, #597; T-VCR-1–T-VCR-5 _compute_vcr helper, #585; T-TOOLDEP-1–T-TOOLDEP-3 tool-dependency pre-flight, #587) ==="

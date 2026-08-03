@@ -30,9 +30,13 @@ unchanged by every downstream stage.
   "message": "<human-readable diagnostic; secrets redacted for gitleaks>",
   "severity": "error | warning | note",
   "autofix_available": true,
-  "raw": { }
+  "raw": { },
+  "repair_hint": "WHAT: ...\nWHY: ...\nFIX: ..."
 }
 ```
+
+`repair_hint` is **optional** — it is absent when no mapping exists for the finding's rule.
+See § *repair_hint* below for the full sub-structure contract.
 
 | Field | Type | Notes |
 |-------|------|-------|
@@ -45,9 +49,37 @@ unchanged by every downstream stage.
 | `severity` | str | Normalised to one of `error` / `warning` / `note` in `Finding.__post_init__`. |
 | `autofix_available` | bool | `True` when the issuing tool can fix it — SARIF `fixes[]` present, or the rule matches `AUTOFIXABLE_RULES`. |
 | `raw` | dict | Original tool payload, pass-through. Optional for consumers; carried for debugging. |
+| `repair_hint` | str \| absent | Optional. Structured self-correction context for the coder. WHAT/WHY/FIX sub-structure (see below). Populated by repair skills only — `parse-sarif.py` never sets it. Absent when no rule→repair mapping exists. |
 
 The route key used by `sensor-fixer` / `build-resolve-finding` / `finding-routes.json` is
 `"<tool>:<rule>"` — the concatenation of `tool` and `rule`.
+
+## repair_hint
+
+`repair_hint` is an **optional** string field that carries structured self-correction
+context for the coder agent. It follows the WHAT/WHY/FIX pattern:
+
+```
+WHAT: <one-line description of what the finding is>
+WHY: <why this pattern is a problem in this context>
+FIX: <concrete step(s) to resolve it>
+```
+
+**Rules:**
+
+- `repair_hint` is **populated by repair skills only** (`build-fix-types`,
+  `build-fix-security`). `parse-sarif.py` never sets it — the parser has no knowledge of
+  repair mappings. A finding that comes out of the parser always has `repair_hint` absent.
+- When a repair skill has a rule→repair mapping for the finding, it sets `repair_hint` on
+  the finding object before dispatching or returning the result.
+- When no mapping exists for a rule, `repair_hint` is **absent** — not `null`, not `""`.
+  The field is omitted from the serialised dict entirely (omit-on-None contract in
+  `Finding.to_dict()`).
+- `sensor-fixer` forwards `repair_hint` verbatim in the dispatch bundle passed to
+  `build-resolve-finding` when the field is present. When absent it is omitted — never
+  forwarded as `null`.
+- Consumers of the dispatch bundle (`build-resolve-finding`, the coder) treat `repair_hint`
+  as advisory context, not a gate.
 
 ## Forbidden field names
 

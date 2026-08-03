@@ -49,7 +49,15 @@ for autonomous dispatch. Specifically:
 
 Do **not** use for issues that already have the `*Feature slug: ...` provenance
 footer — they are ready; just move the board card to `Ready` via the GitHub UI
-or `issue-to-project`.
+or `issue-to-project`. Seeding such an issue would create a **second** spec
+folder (seed-issue's `<n>-<title>` convention) alongside the `to-issues`
+`specs/<slug>/` folder that already holds the buildable `plan-<n>.md`, leaving
+two competing plans for one issue — the collision that makes the po-agent report
+"plan not found" (or HALT-006) despite a real plan existing (#499/#510; incident
+sagibeast#347). The `loop` auto-seed pass enforces this in code:
+`_auto_seed_candidates` skips any issue referenced in a `created-issues.json`
+(via `_is_orphan_issue`), so it will never re-seed a `to-issues` issue even if
+its board card is momentarily off-`Ready`.
 
 ## Prerequisites
 

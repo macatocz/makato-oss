@@ -80,7 +80,7 @@ makato-orchestrate hosts the top-level orchestrator and supporting read-only sco
 | **po-agent** | sonnet | bypassPermissions | Plan-level outer-loop driver — reads a GitHub Issue, resolves the spec folder, dispatches `build-implement-tdd` / `build-implement-goal` once per outer iteration, decides advance-vs-replan from the skill's R1, patches workflow-state, terminates on PR-merged or HALT | `loop` |
 | **context-summariser** | haiku | read-only | ≤ 500-token session summary for HALT-007B handoff. Input: `workflow-state.json` + current task description ONLY. Source files explicitly out of scope. | `scripts/context-handoff.sh` (via po-agent) |
 | **task-file-scout** | haiku | read-only | Per-task pre-read agent — given a task's `CHANGED_FILES` plus the bundle rules resolved by `inject-context`, opens ≤ 8 files and returns a ~500-token structured summary (`key_patterns`, `naming_conventions`, `test_file_paths`, `existing_exports`, `warnings`) injected into the coder's `SCOUT_SUMMARY` input. Disjoint from `makato-build/knowledge-scout` (repo-wide, plan-time). | `build-implement-tdd` Step 6 (per coder dispatch) |
-| **documentation-agent** | sonnet | bypassPermissions | Post-merge documentation pass — reads merged PR diff and commits, appends a CHANGELOG entry (Keep a Changelog format), conditionally updates README on public-API change, marks verified acceptance-criteria checkboxes `[x]` on the linked Issue from the PR's `makato:ac-verdicts` block (Step 4a), closes parent and child Issues via `gh issue close`, advances the Projects v2 board to Done via `issue-to-project sync-lifecycle`, and emits a `docs_coverage_warning` when `src/` diff lines outpace `docs/` diff lines by 2×. Frontmatter denies `Edit`/`Write` on `src/`, `lib/`, `app/`; issue-body checkbox edits are `gh` API mutations, forward-only (`[ ]`→`[x]` for matched verified ACs only). | `workflows/post-merge.yml` (GHA) |
+| **documentation-agent** | sonnet | bypassPermissions | Post-merge documentation pass — reads merged PR diff and commits, appends a CHANGELOG entry (Keep a Changelog format), conditionally updates README on public-API change, marks verified acceptance-criteria checkboxes `[x]` on the linked Issue from the PR's `makato:ac-verdicts` block (Step 4a), applies spec-delta.md ADDED/MODIFIED/REMOVED operations to `docs/specs/<capability>.md` (Step 4c — living-spec sync), closes parent and child Issues via `gh issue close`, advances the Projects v2 board to Done via `issue-to-project sync-lifecycle`, emits a `docs_coverage_warning` when `src/` diff lines outpace `docs/` diff lines by 2×, updates the domain quality scorecard `specs/master/<domain>-quality.md` via `generate-quality-doc.sh` (Step 7.6, best-effort), and regenerates the repo-root `PROGRESS.md` epic roadmap from `loop-status.json` + GitHub epic issues via `generate-progress.sh` (Step 7.5, best-effort). Frontmatter denies `Edit`/`Write` on `src/`, `lib/`, `app/`; issue-body checkbox edits are `gh` API mutations, forward-only (`[ ]`→`[x]` for matched verified ACs only). | `workflows/post-merge.yml` (GHA) |
 | **light-planner** | sonnet | bypassPermissions | Lightweight planning-lane plan producer (#212) — given a `plan-tier:light` issue body + bounded repo context, writes a full `plan.md` (non-empty `## Tasks` + `## Acceptance criteria`) that `build-refine`'s plan-only path consumes, or returns a `thin_body` R1 so seed-issue re-tiers to full. Writes exactly one file (`plan.md`); never touches source, labels, manifest, or the board — seed-issue owns those and gates promotion on `scripts/validate-plan-body.sh`. Runs locally at seed time. | `seed-issue` (Step 8.5) |
 
 *po-agent, context-summariser, task-file-scout, and documentation-agent are shipped (GAP-006 / #32, GAP-004 / #30, GAP-013 / #29, GAP-012 / #35). light-planner ships with #212.*
@@ -107,6 +107,8 @@ makato-orchestrate/
 │   └── task-file-scout.md                          (GAP-013 / #29 — shipped)
 ├── hooks/
 │   ├── check-halt.sh                     (GAP-004 / #30 — shipped)
+│   ├── clock-out.sh                      (#602 — human session clock-out helper)
+│   ├── clock-out-smoke-tests.sh          (#602 — 10 scenarios T1–T10)
 │   ├── session-status.sh                 (GAP-014 / #31 — shipped)
 │   └── session-status-smoke-tests.sh     (GAP-014 / #31 — shipped)
 ├── scripts/
@@ -127,8 +129,14 @@ makato-orchestrate/
 │   ├── mark-ac-checkboxes-smoke-tests.sh (AC-verification — 10 scenarios T1–T10)
 │   ├── generate-run-report.sh            (#448 — read-only per-issue final-envelope aggregation into a run report)
 │   ├── generate-run-report-smoke-tests.sh (#448 — 8 scenarios T1–T8)
+│   ├── generate-quality-doc.sh            (#598 — per-domain quality scorecard from build.jsonl + halt_audit)
+│   ├── generate-quality-doc-smoke-tests.sh (#598 — 6 scenarios T1–T6)
+│   ├── generate-progress.sh               (#601 — auto-generate repo-root PROGRESS.md from loop-status.json + GitHub epic issues)
+│   ├── generate-progress-smoke-tests.sh   (#601 — 6 scenarios T1–T6)
 │   ├── resolve-append-only-conflict.sh   (resolve-pr-conflict — union-merge a conflicted append-only file, CHANGELOG/AUTHORS/*.jsonl)
-│   └── resolve-append-only-conflict-smoke-tests.sh (resolve-pr-conflict — 8 scenarios T1–T8)
+│   ├── resolve-append-only-conflict-smoke-tests.sh (resolve-pr-conflict — 8 scenarios T1–T8)
+│   ├── sync-living-specs.sh              (#567 — apply spec-delta.md ADDED/MODIFIED/REMOVED to docs/specs/<capability>.md)
+│   └── sync-living-specs-smoke-tests.sh  (#567 — 6 scenarios T1–T6)
 ├── skills/
 │   ├── workflow-state/                   (GAP-003 / #26 — shipped)
 │   │   ├── SKILL.md
@@ -145,6 +153,7 @@ makato-orchestrate/
 │   ├── promote-ready/SKILL.md            (#268 — dependency-aware Ready promotion)
 │   ├── resolve-pr-conflict/SKILL.md      (GAP-016 / #45 — shipped)
 │   └── session-status/SKILL.md           (GAP-014 / #31 — shipped)
+│   └── quality-doc/SKILL.md              (#598 — per-domain quality scorecard skill)
 ├── shared/
 │   ├── workflow-state.sh                 (GAP-003 / #26 — shipped)
 │   ├── progress-comment.sh               (live issue-comment run narration)
@@ -180,6 +189,43 @@ Skills and agents inside this plugin treat `--autonomous` as their default execu
 - Skill versions: bumped in `SKILL.md` frontmatter per feature PR
 - Agent versions: bumped in agent frontmatter per feature PR
 - `CHANGELOG.md`: updated with each PR
+
+## Infrastructure
+
+### Webhook dispatch runner contract
+
+The `.github/workflows/webhook-dispatch.yml` workflow fires `loop.sh dispatch <N>` the moment
+`status:ready-for-dev` is applied to an issue, removing the ~300 s polling lag of `loop run`.
+
+**Required runner label:** `makato`
+
+The job must run on a self-hosted runner registered with the `makato` label. That runner must
+have the following available:
+
+- The `claude` CLI binary (same binary `loop run` uses for scheduled dispatch)
+- A checked-out copy of this repository (supplied by the `actions/checkout` step in the workflow)
+- Network access to GitHub and Anthropic APIs
+
+**Required secrets:**
+
+| Secret | Purpose |
+|--------|---------|
+| `ANTHROPIC_API_KEY` | Claude API key — forwarded to the `claude` subprocess |
+| `GH_TOKEN` or `MAKATO_TOKEN` | GitHub token for `gh` CLI calls inside `loop.sh` and the PO-agent |
+
+**Fallback guarantee:** the `loop run` polling path in `loop.sh` is unchanged and continues to
+serve as a fallback when the webhook runner is unavailable, the workflow is skipped, or a
+delivery is dropped by GitHub. The two dispatch paths are additive — neither blocks the other.
+
+**Idempotency guarantee:** the `_within_dispatch_guard` inside `loop.sh cmd_dispatch` prevents
+double-dispatch even when both the webhook and the poller fire within the guard window. The
+concurrency group `webhook-dispatch-${{ github.event.issue.number }}` with
+`cancel-in-progress: false` additionally serialises burst label events for the same issue on
+the GitHub Actions side, so at most one `dispatch` call is in flight at a time per issue.
+
+**Dispatch gate:** `MAKATO_LOOP_GATE_DISABLE` is intentionally absent from the workflow
+environment. The existing `_pre_dispatch_plan_guard` inside `cmd_dispatch` runs on every
+webhook-triggered invocation — no bypass.
 
 ## PR Checklist
 

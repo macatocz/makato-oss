@@ -52,7 +52,8 @@
         "given": "...",
         "when": "...",
         "then": "...",
-        "and": ["Optional additional Then assertions"]
+        "and": ["Optional additional Then assertions"],
+        "verificationCommand": "pytest tests/test_happy_path.py -k scenario_1"
       }
     ],
     "solutionApproach": "",
@@ -100,7 +101,7 @@
 | `stories[].description.background` | string | Yes | Context/rationale |
 | `stories[].description.scope` | string | Yes | Bounded scope statement |
 | `stories[].description.featureToggle` | object | Yes | Toggle configuration |
-| `stories[].description.successScenarios` | array | Yes | 1-3 high-level Gherkin (draft) |
+| `stories[].description.successScenarios` | array | Yes | 1-3 high-level Gherkin (draft). Each scenario follows the optional extension pattern from `shared/scenario-schema.md`; the `verificationCommand` field may be present on individual scenarios and must be omitted when unknown. |
 | `stories[].description.solutionApproach` | string | No | Empty — filled during refinement |
 | `stories[].description.acceptanceTestCases` | array | No | Empty — filled by create-acceptance-tests |
 | `stories[].description.wikiDocumentation` | string | No | Empty — filled post-implementation |

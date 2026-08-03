@@ -5,6 +5,155 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ---
 
+## [Unreleased]
+
+### `gate-scout` + `build-verify` — Gate 6 runtime health-check (#580)
+
+Adds discovery and execution of a project-level health or smoke command so the verify
+pipeline can surface runtime-health signals before a PR is pushed.
+
+**`agents/gate-scout.md`** (v1.2.0 → **v1.3.0**):
+
+- **Step 1e — Detect health/smoke command.** Probes `REPO_ROOT` in priority order:
+  (a) `Makefile` containing a `health` target → `make health`;
+  (b) `scripts/smoke.sh` file existence → `scripts/smoke.sh`;
+  (c) `docker-compose.yml` / `docker-compose.yaml` with a `services:` block →
+  `docker-compose up --wait`. When none of the three probes matches, `health_check_cmd` is
+  `null`.
+- **New `health_check_cmd` output field** (string|null) added to the `## Output Format`
+  prose block and to the R1 `data` shape. Null (not the string `"null"`) when no command is
+  discovered.
+
+**`skills/build-verify/SKILL.md`** (v1.8.0 → **v1.9.0**):
+
+- **Step 8b — Gate 6: RUNTIME HEALTH-CHECK** inserted between Gate 5 (Coverage) and the
+  Skill-provenance advisory gate (Step 9).
+- When `gate-scout.data.health_check_cmd` is non-null: run the command with a timeout
+  controlled by `HEALTH_CHECK_TIMEOUT_SECONDS` (default 60 s); assert exit code 0 within
+  timeout.
+- When `health_check_cmd` is null: emit advisory skip message; record gate as `skipped`.
+- Non-zero exit or timeout → gate status `warn`; log and continue — **gate is always
+  advisory, never blocks**.
+- `build.jsonl` log entry shape:
+  `{"step":"gate-health","status":"ok"|"warn"|"skipped","data":{"health_check_cmd":...,"exit_code":N,"duration_seconds":N}}`
+- DoD table gains an advisory Gate 6 row; gate summary table in Step 10 gains a Gate 6 row.
+
+---
+
+## `build-verify-spec` — spec-level verify skill (#568)
+
+Adds a new post-`build-verify` skill that confirms the implementation actually satisfies the
+plan artifacts before `build-push-to-git`. Closes a gap where a coder could pass all quality
+gates but miss a requirement stated in `plan.md` or `stories.json`.
+
+**`plugins/makato-build/skills/build-verify-spec/SKILL.md`** (new, v1.0.0):
+
+- Three-dimensional verification: **COMPLETENESS** (plan.md checkboxes), **CORRECTNESS**
+  (stories.json successScenarios keyword-matched against the diff), **COHERENCE**
+  (spec-delta.md MODIFIED sections; absent spec-delta.md is a no-op).
+- Exit 0 on all-pass; exit 1 on any CRITICAL finding (unchecked task, CORRECTNESS GAP,
+  COHERENCE GAP). SUGGESTION findings surface in output but are non-blocking.
+- Integrates into po-agent Step 6 between `build-verify` and `build-push-to-git`; a CRITICAL
+  finding raises HALT-011 before push.
+
+**`plugins/makato-build/skills/build-verify-spec/references/build-verify-spec.sh`** (new):
+
+- Thin bash wrapper: resolves spec folder via `specs/<KEY>-*/` prefix-match glob, picks the
+  latest `plan-<N>.md`, optionally captures `git diff HEAD`, then delegates to the Python module.
+- Accepts `REPO_ROOT` and `PY_MODULE` env overrides for test isolation.
+
+**`plugins/makato-build/shared/build_verify_spec.py`** (new):
+
+- Importable Python module (stdlib only): `check_completeness`, `check_correctness`,
+  `check_coherence`, `format_report`, and a `main()` CLI entry point.
+- `check_completeness` counts checkboxes strictly within the `## Tasks` section — boxes in
+  Background, Definition of Done, or other sections are ignored.
+- `check_correctness` applies a keyword-matching heuristic against the diff; absent
+  `stories.json` is skipped (no hard failure).
+- `check_coherence` parses `## MODIFIED Requirements` from `spec-delta.md`; absent file is
+  skipped; low-confidence matches are SUGGESTION (non-blocking), not GAP.
+
+**`plugins/makato-build/shared/test_build_verify_spec.py`** (new, 25 tests):
+
+- Direct import tests for all three verification functions and the report formatter.
+- Bash wrapper subprocess tests cover spec-folder resolution, missing-key, and fixture
+  scenarios matching the smoke-test suite.
+
+**`plugins/makato-build/skills/build-verify-spec/references/build-verify-spec-smoke-tests.sh`** (new):
+
+- Three offline scenarios: S1 (full pass), S2 (unchecked task → exit 1), S3 (GAP scenario → exit 1).
+- Mirrors the `mark-ac-checkboxes-smoke-tests.sh` sandbox pattern.
+
+## `build-explore` — read-only thinking-partner skill (#564)
+
+Adds a new skill that lets an agent (or user) explore a problem area and produce a
+structured analysis report without writing any files — enforced by a restrictive
+`allowed-tools` frontmatter that excludes `Write`, `Edit`, and all file-mutating tools.
+
+**`plugins/makato-build/skills/build-explore/SKILL.md`** (new, v1.0.0):
+
+- Read-only by design: `allowed-tools` lists only `Read`, `Glob`, `Bash(grep *)`,
+  `Bash(find *)`, `Bash(ls *)`, `Bash(cat *)`, `Bash(head *)`, `Bash(tail *)`.
+  `Write`, `Edit`, and git-commit tools are absent — enforced by the harness, not
+  convention.
+- Three-step workflow: identify the topic → survey the current implementation →
+  produce the exploration report.
+- Structured report format with five required sections: **Problem Summary**,
+  **Current Implementation Overview**, **Solution Alternatives** (2–4, each with a
+  trade-off table), **Recommended Approach**, and **Open Questions**.
+- Closes with a `Ready to proceed? Run /build-start to begin implementation.` prompt
+  so the exploration session hands off cleanly to the build pipeline.
+- Carries `argument-hint: "[topic or file path]"` for inline invocation.
+
+**`plugins/makato-build/scripts/build-explore-smoke-tests.sh`** (new):
+
+- Six offline smoke scenarios (T1–T6): SKILL.md file exists, `allowed-tools` excludes
+  `Write`, `allowed-tools` excludes `Edit`, alternatives section has ≥ 2 sub-headings,
+  `/build-start` prompt present in body, missing SKILL.md exits 1 with a clear error.
+  Exit code = failure count.
+
+---
+
+## `build-start` + `workflow-schema-loader.sh` — extensible workflow schema system (#563)
+
+Introduces an optional `.claude/workflow-schema.yml` that lets teams customise the
+skill pipeline assembled by `build-start`. When absent, the built-in default schema
+mirrors the current hardcoded behaviour exactly (backward-compatible).
+
+**`plugins/makato-build/config/default-workflow-schema.yml`** (new):
+
+- Built-in default workflow schema listing all 11 pipeline artifacts in dependency
+  order — matches the pipeline described in `AGENTS.md`.
+
+**`plugins/makato-build/scripts/workflow-schema-loader.sh`** (new):
+
+- Resolves `.claude/workflow-schema.yml` when present; falls back to the built-in
+  default when absent (exit 0 in both cases).
+- Parses the restricted YAML subset using Python 3 stdlib (no external deps —
+  matches the `mark-ac-checkboxes.sh` / `write-lessons.sh` pattern).
+- Detects direct cycles (`A→B→A`) and transitive cycles (`A→B→C→A`) via iterative
+  DFS; exits 1 with the full cycle path in the error message.
+- Exits 1 with a descriptive parse error on empty or malformed schema files.
+- Prints one JSON object per line (`id`, `skill`, `required`, `description`) in
+  topological order.
+
+**`plugins/makato-build/scripts/workflow-schema-smoke-tests.sh`** (new):
+
+- Six offline smoke scenarios (T1–T6): missing args, schema absent → default,
+  valid custom schema with extra artifact, direct cycle, transitive cycle, empty
+  schema file. Exit code = failure count.
+
+**`skills/build-start/SKILL.md`** (v1.4.0 → **v1.5.0**):
+
+- **New Step 4.5** (Resolve workflow schema): calls `workflow-schema-loader.sh`
+  before the build log is initialised; logs `schema-resolved` JSONL entry with
+  `source` (`default`/`custom`) and `artifact_count`; halts on non-zero exit with
+  the loader's error message.
+- **Step 5** (Initialize build log): `session-start` log now includes
+  `schema_source` field.
+
+---
+
 ## `build-refine` — autonomous ticket-path key-miss HALTs instead of prompting (#527)
 
 Part of the autonomous build-refine materialization lane (makato-orchestrate

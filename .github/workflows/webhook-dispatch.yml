@@ -1,0 +1,64 @@
+name: webhook-dispatch
+
+# Instant dispatch — fires the PO-agent the moment status:ready-for-dev is
+# applied to an issue, eliminating the ~300s polling lag of the scheduled loop.
+# Reuses the existing `loop.sh dispatch <N>` subcommand and its dispatch gate
+# without modification or bypass.
+#
+# Trigger: issues.labeled(status:ready-for-dev)
+# Runner:  self-hosted with the `makato` label (must have Claude CLI + repo checkout)
+# Gate:    the existing _within_dispatch_guard / _pre_dispatch_plan_guard inside
+#          loop.sh run on every invocation — no bypass here.
+#
+# Idempotency: the _within_dispatch_guard in cmd_dispatch prevents double-dispatch
+# even when both the webhook and the scheduled poll fire within the guard window.
+# Polling (loop run) is preserved as a fallback when this workflow is unavailable.
+#
+# Runner contract: see plugins/makato-orchestrate/AGENTS.md ## Infrastructure
+
+on:
+  issues:
+    types:
+      - labeled
+
+permissions:
+  contents: read
+  issues: write
+
+# One dispatch in flight per issue — prevents a burst of label events for the
+# same issue from racing. cancel-in-progress: false so a second delivery waits
+# rather than drops: the _within_dispatch_guard inside loop.sh will no-op the
+# second invocation if the first already started within the guard window.
+concurrency:
+  group: webhook-dispatch-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    # Early exit for any label other than status:ready-for-dev — keeps the
+    # runner slot free for all other label events on the repo.
+    if: ${{ github.event.label.name == 'status:ready-for-dev' }}
+    runs-on: [self-hosted, makato]
+    timeout-minutes: 120
+
+    env:
+      MAKATO_HEADLESS: "1"
+      MAKATO_LOOP_DISPATCH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ secrets.GH_TOKEN || secrets.MAKATO_TOKEN || github.token }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      ISSUE_NUMBER: ${{ github.event.issue.number }}
+      # Dispatch gate is the authoritative guard — explicitly NOT disabled here.
+      # MAKATO_LOOP_GATE_DISABLE must remain absent (unset) so the existing gate
+      # logic inside loop.sh runs on every webhook-triggered dispatch.
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Dispatch issue via loop.sh
+        run: |
+          set -euo pipefail
+          echo "→ webhook-dispatch: issue #${ISSUE_NUMBER} labeled status:ready-for-dev"
+          echo "→ invoking: plugins/makato-orchestrate/scripts/loop.sh dispatch ${ISSUE_NUMBER}"
+          plugins/makato-orchestrate/scripts/loop.sh dispatch "${ISSUE_NUMBER}" \
+            --repo "${MAKATO_LOOP_DISPATCH_REPO}"

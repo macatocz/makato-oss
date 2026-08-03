@@ -1,0 +1,45 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "makato .claude/config.json",
+  "description": "Schema for the .claude/config.json configuration file used by makato plugins.",
+  "type": "object",
+  "properties": {
+    "project": {
+      "type": "string",
+      "description": "The name of this makato project/repository."
+    },
+    "github_project": {
+      "type": "object",
+      "description": "GitHub Projects v2 board configuration, written by issue-to-project --init.",
+      "additionalProperties": true
+    },
+    "stores": {
+      "type": "array",
+      "description": "Cross-repo store registrations. Each entry describes a remote repository that this repo can read from or publish to via makato cross-repo workflows.",
+      "items": {
+        "type": "object",
+        "required": ["id", "repo", "description"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique identifier for this store within the config. Used as a stable reference key in skill invocations.",
+            "pattern": "^[a-z0-9][a-z0-9_-]*$"
+          },
+          "repo": {
+            "type": "string",
+            "description": "The GitHub repository in owner/name format (e.g. macatocz/platform).",
+            "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+          },
+          "description": {
+            "type": "string",
+            "description": "Human-readable description of this store's purpose.",
+            "minLength": 1
+          }
+        }
+      },
+      "default": []
+    }
+  },
+  "additionalProperties": true
+}

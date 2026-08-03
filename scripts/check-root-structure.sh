@@ -12,6 +12,7 @@ ALLOWED=(
   ".git"
   "plugins"
   "packages"
+  "context"
   "docs"
   "scripts"
   "specs"

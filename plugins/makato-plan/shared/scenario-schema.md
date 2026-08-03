@@ -11,7 +11,8 @@
   "given": "Single precondition describing world state before action",
   "when": "Single triggering action by the user/actor",
   "then": "Observable outcome using 'should' (e.g., 'the user should see...')",
-  "and": ["Optional additional Then assertions"]
+  "and": ["Optional additional Then assertions"],
+  "verificationCommand": "Optional shell command that verifies this scenario in a running environment"
 }
 ```
 
@@ -24,6 +25,7 @@
 | `when` | string | Yes | Single triggering action. Avoid chaining with "and". |
 | `then` | string | Yes | Observable outcome. Should contain "should". |
 | `and` | string[] | No | Continuation Then assertions. Rendered as `And ...` lines after the `Then` line. Omit when empty. |
+| `verificationCommand` | string | No | Shell command that build-verify / A1 / A4 can run to confirm this scenario passes. Omit when unknown. Execution is out of scope for makato-plan. |
 
 ## Where It's Used
 
