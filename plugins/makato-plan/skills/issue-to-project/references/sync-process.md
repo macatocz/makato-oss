@@ -30,8 +30,24 @@ assert d["id"] == PROJECT_NODE_ID, (
     f"issue-to-project: cached project_node_id does not match live board "
     f"({PROJECT_NODE_ID!r} vs {d['id']!r}). Re-run 'issue-to-project --init'."
 )
-fields = {f["id"] for f in d.get("fields", {}).get("nodes", [])}
-assert STATUS_FIELD_ID in fields, (
+```
+
+Then run a second probe to validate `status_field_id` using `field-list` (the correct endpoint for field enumeration):
+
+```bash
+# NOTE: gh project view --format json does NOT return a "fields" key — use field-list for field enumeration.
+FIELD_LIST_RAW="$(timeout "${ITP_GH_TIMEOUT_SECONDS:-30}" \
+  GH_HOST="${RESOLVED_HOST:-github.com}" gh project field-list "$NUMBER" --owner "$OWNER" --format json 2>&1)" || {
+    echo "issue-to-project: field-list probe failed: $FIELD_LIST_RAW. Check network/auth and retry, or re-run '--init'."
+    echo "HALT: CROSS_REPO_VERIFY_FAILED"
+    exit 1
+}
+```
+
+```python
+import json, sys
+fnodes = json.loads(FIELD_LIST_RAW).get("fields", [])
+assert any(f.get("id") == STATUS_FIELD_ID for f in fnodes), (
     f"issue-to-project: cached status_field_id {STATUS_FIELD_ID!r} not found on live board. "
     "Re-run 'issue-to-project --init'."
 )
@@ -41,7 +57,7 @@ Any assertion failure or `gh` error → exit 1 with HALT `CROSS_REPO_VERIFY_FAIL
 - ID mismatch: `"issue-to-project: cached project_node_id or status_field_id does not match live board. Re-run 'issue-to-project --init'."`
 - Probe failure: `"issue-to-project: board ID verify probe failed: <gh error>. Check network/auth and retry, or re-run '--init'."`
 
-**Performance note:** check 5 adds one `gh project view` call (~200 ms). `DRY_RUN=1` still runs check 5 (it is a read). The original v1 `STALE_CONFIG` heuristic (2-consecutive-item-add failures) remains active as a backstop even when check 5 is skipped.
+**Performance note:** check 5 now uses two probes — `gh project view` (~200 ms) for `project_node_id` and `gh project field-list` (~200 ms) for `status_field_id`. Both run only on the first normal-sync call (before any mutations). `ITP_SKIP_VERIFY=1` skips both. `DRY_RUN=1` still runs check 5 (both calls are read-only). **Note:** `gh project view --format json` does NOT include a `fields` key; `gh project field-list` is the correct endpoint for field enumeration.
 
 ## Step 1 — Read and validate config
 

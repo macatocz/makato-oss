@@ -147,7 +147,7 @@ After checks 1–4 pass and config is read (step 1), run a cheap `gh project vie
 
 | # | Check | Command | Failure message |
 |---|---|---|---|
-| 5 | Board ID verify (verify-on-first-call) | `GH_HOST=<resolved_host> gh project view <number> --owner <owner> --format json` piped to Python assertion | `"issue-to-project: cached project_node_id or status_field_id does not match live board. Re-run 'issue-to-project --init'."` → HALT `CROSS_REPO_VERIFY_FAILED` |
+| 5 | Board ID verify (verify-on-first-call) | `gh project view $NUMBER --owner $OWNER --format json` (node-ID probe) + `gh project field-list $NUMBER --owner $OWNER --format json` (field-ID probe), each piped to a Python assertion | `"issue-to-project: cached project_node_id or status_field_id does not match live board. Re-run 'issue-to-project --init'."` → HALT `CROSS_REPO_VERIFY_FAILED` |
 
 **Pre-flight check 6 — GHES version gate (v2.6.0+, enterprise only)**
 
@@ -320,7 +320,7 @@ Re-running the same command produces the same final board state:
 - **NEVER log the configured `host` value in log lines that also contain issue content, project node IDs, or user data** — enterprise hostnames are internal infrastructure. The `[issue-to-project]` prefix lines may log `host` in isolation (e.g. pre-flight messages) but must not concatenate it with sensitive values.
 - **NEVER remove an item from the board.** v1 only adds or status-edits.
 - **NEVER overwrite a Status that was changed externally.** The re-run guard (step 3 snapshot) exempts already-on-board items from status writes entirely — even if `status:blocked` is still on the issue's labels. **Amendment for `ready_queue_mode: "autonomous"` (v2.7.0):** in autonomous mode, items whose current board Status is `Todo` (or absent — new-add) may be promoted to `Ready` by `auto_promote_to_ready()`. This is the **only** narrowing of the v1 re-run guard: items at `Ready`, `In progress`, `Blocked`, `In review`, or `Done` are still never overwritten by the skill. Manual mode is entirely unchanged.
-- **NEVER call `gh project view` on every run to validate cached IDs** — that defeats the cache point. Trust the cache; the stale-`project_node_id` heuristic in step 4 handles drift. Exception: Pre-flight check 5 (verify-on-first-call) is explicitly designed to call `gh project view` once per normal-sync run as a board-ID freshness probe; it is a deliberate exception to this rule and is skippable via `ITP_SKIP_VERIFY=1`.
+- **NEVER call `gh project view` on every run to validate cached IDs** — that defeats the cache point. Trust the cache; the stale-`project_node_id` heuristic in step 4 handles drift. Exception: Pre-flight check 5 (verify-on-first-call) is explicitly designed to call `gh project view` once per normal-sync run for `project_node_id` validation, and `gh project field-list` once for `status_field_id` validation; both are deliberate exceptions to this rule and are skippable via `ITP_SKIP_VERIFY=1`.
 - **NEVER query labels from the GitHub issue directly.** `labels[]` on `created-issues.json` is the only signal for status routing. Decouples this skill from human relabeling between `to-issues` and `issue-to-project`.
 - **NEVER overwrite an existing `project-sync.json` non-atomically.** Always write to `<path>.tmp` first, then `os.replace`. No half-written file is observable.
 - **NEVER prompt the user in normal-run.** Only `--init` is interactive.
