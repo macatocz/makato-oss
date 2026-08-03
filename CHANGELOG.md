@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.121.0](https://github.com/macatocz/makato/compare/v0.120.1...v0.121.0) (2026-08-03)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** quality-doc skill — per-domain quality scorecard ([#598](https://github.com/macatocz/makato/issues/598)) ([#635](https://github.com/macatocz/makato/issues/635)) ([0009f17](https://github.com/macatocz/makato/commit/0009f1752cc83a25dfc9e374960cddbd09018a48))
+
 ## [0.120.1](https://github.com/macatocz/makato/compare/v0.120.0...v0.120.1) (2026-08-03)
 
 
