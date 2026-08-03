@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.132.0](https://github.com/macatocz/makato/compare/v0.131.0...v0.132.0) (2026-08-03)
+
+
+### ✨ Features
+
+* **repo-wide:** standardize ## Hard Constraints first section in every plugin AGENTS.md + lint gate ([#589](https://github.com/macatocz/makato/issues/589)) ([#664](https://github.com/macatocz/makato/issues/664)) ([addd777](https://github.com/macatocz/makato/commit/addd777256550b362d03c171d74ca33d900e7f91))
+
 ## [0.131.0](https://github.com/macatocz/makato/compare/v0.130.0...v0.131.0) (2026-08-03)
 
 
