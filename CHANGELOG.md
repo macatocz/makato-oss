@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.127.0](https://github.com/macatocz/makato/compare/v0.126.0...v0.127.0) (2026-08-03)
+
+
+### ✨ Features
+
+* **repo-wide:** add .devcontainer spec for uv + Python 3.14 ([11a972e](https://github.com/macatocz/makato/commit/11a972efe124de155374fe6aece55b59cab037f9))
+* **repo-wide:** Add .python-version pin and .devcontainer for cold-start reproducibility ([b649743](https://github.com/macatocz/makato/commit/b649743f6d1cd34a3ded924806e026e8fbbfb2c1))
+* **repo-wide:** Add .python-version pin and .devcontainer for cold-start reproducibility ([b649743](https://github.com/macatocz/makato/commit/b649743f6d1cd34a3ded924806e026e8fbbfb2c1))
+* **repo-wide:** add .python-version pin to 3.14 ([d501a16](https://github.com/macatocz/makato/commit/d501a16c7ec55c3e66119f055e74d42a79b26274))
+* **repo-wide:** bump requires-python to &gt;=3.14 in pyproject.toml ([2430700](https://github.com/macatocz/makato/commit/24307000109ff19caea49270480234dc0c968093)), closes [#588](https://github.com/macatocz/makato/issues/588)
+
 ## [0.126.0](https://github.com/macatocz/makato/compare/v0.125.0...v0.126.0) (2026-08-03)
 
 
