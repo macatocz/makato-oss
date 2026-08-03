@@ -21,7 +21,7 @@
 name = "makato-smoke-tests"
 version = "0.0.0"
 description = "Internal pytest harness for makato skill smoke tests. Not published."
-requires-python = ">=3.10"
+requires-python = ">=3.14"
 
 [dependency-groups]
 dev = [
