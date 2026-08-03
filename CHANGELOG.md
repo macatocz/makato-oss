@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.128.0](https://github.com/macatocz/makato/compare/v0.127.1...v0.128.0) (2026-08-03)
+
+
+### ✨ Features
+
+* **makato-build:** review-feedback promotion — codify recurring MUST-FIX as pre-commit checks ([#594](https://github.com/macatocz/makato/issues/594)) ([#649](https://github.com/macatocz/makato/issues/649)) ([8126a73](https://github.com/macatocz/makato/commit/8126a73d830b6cf30b71a1eac336eb51b729e88f))
+
 ## [0.127.1](https://github.com/macatocz/makato/compare/v0.127.0...v0.127.1) (2026-08-03)
 
 
