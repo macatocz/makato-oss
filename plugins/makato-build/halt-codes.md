@@ -50,6 +50,7 @@ Routes are advisory for the PO-agent — operators can override per-issue. The t
 | `CARRY_OVER_FAILED: <comment_id>` | `build-address-pr-comments` (Step 6) | operator-escalation | `gh issue create` for an OUT-OF-SCOPE carry-over comment failed. The reply was suppressed to avoid posting a half-rendered template referencing a non-existent issue. Surfaces as `HALT-005`. |
 | `HARNESS_ISSUE_FAILED: <category>` | `build-address-pr-comments` (Step 6a) | warn-continue | `gh issue create` for a recurring-category harness-promotion issue failed. Logged as `status:"warn"` to `build.jsonl`; skill continues. Does NOT surface as `HALT-005`. |
 | `RENDER_FAILED: <comment_id>` | `build-address-pr-comments` (Step 9) | operator-escalation | A placeholder in the reply template could not be filled (commit SHA unresolved, follow-up URL absent). The reply was suppressed. Surfaces as `HALT-005`. |
+| `CANARY_FAILED` | `build-start` (Step 2.75) | operator-escalation | The canary test run (a single execution of the project's unit command with `--timeout 30` or equivalent) failed before `build-refine` was dispatched. Indicates the test framework itself is broken or the baseline is already red — `build-refine` would plan on a broken foundation. Operator must restore a green baseline before re-dispatching `build-start`. |
 
 ## Caller contract
 

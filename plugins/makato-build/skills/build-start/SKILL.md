@@ -126,6 +126,56 @@ Only when `local_work = false`. This is the earliest safe moment to claim the is
    On success: log `build-start: marked #$ISSUE_NUMBER as In Progress on project board`.
    On failure: log `build-start: WARN — could not set In Progress on board; continuing` (best-effort — never block the build session).
 
+### Step 2.75 — Canary test-framework pre-flight
+
+Run a single canary test to verify the test framework is operational before dispatching `/build-refine`. This catches a broken baseline early — before planning commits to file targets on a red foundation.
+
+**Discover the unit command** by dispatching the `gate-scout` agent (same agent used by `/build-verify`). If no unit command is discovered (no test framework present in the project), log a skip entry and proceed to Step 3 unchanged:
+
+```bash
+shared/build-log.sh "<key>" '{"ts":"<ISO>","skill":"build-start","story":"<key>","step":"canary-skipped","status":"ok","data":{"reason":"no-unit-command"}}'
+```
+
+Append one `build.jsonl` entry with step `"canary"`, `status: "ok"`, `data.event: "CANARY_SKIPPED"` so the audit trail records the skip:
+
+```json
+{"ts":"<ISO>","skill":"build-start","story":"<key>","step":"canary","status":"ok","data":{"event":"CANARY_SKIPPED","reason":"no-unit-command"}}
+```
+
+**When a unit command is discovered**, run it once with a timeout of 30 seconds (or the equivalent flag for the discovered runner — e.g. `--timeout 30` for pytest, `--testTimeout 30000` for jest):
+
+```bash
+<unit_command> --timeout 30
+```
+
+- **Canary passes (exit 0):** append one `build.jsonl` entry and proceed to Step 3:
+
+  ```json
+  {"ts":"<ISO>","skill":"build-start","story":"<key>","step":"canary","status":"ok","data":{"event":"CANARY_PASSED","unit_command":"<discovered-command>"}}
+  ```
+
+- **Canary fails (non-zero exit or timeout):** append one `build.jsonl` entry, then HALT with `CANARY_FAILED`:
+
+  ```json
+  {"ts":"<ISO>","skill":"build-start","story":"<key>","step":"canary","status":"error","data":{"event":"CANARY_FAILED","unit_command":"<discovered-command>","exit_code":<N>}}
+  ```
+
+  Stop immediately. Do NOT proceed to Step 3 or dispatch `/build-refine`. Return a clear message to the user:
+
+  > "The canary test run failed before planning began. The test framework is broken or the baseline is already red. Fix the test failures first, then re-run `build-start`.
+  > Failing command: `<unit_command> --timeout 30`
+  > Exit code: `<N>`"
+
+  In **autonomous mode** (`--autonomous`): return R1 `status: "failure"` with `data.halt_code: "CANARY_FAILED"` and `errors: ["CANARY_FAILED: unit command exited <N> before build-refine dispatch"]`.
+
+## HALT Codes
+
+This skill registers one skill-level halt code. See `plugins/makato-build/halt-codes.md` for the full registry.
+
+| Code | Step | Route | Description |
+|------|------|-------|-------------|
+| `CANARY_FAILED` | Step 2.75 | operator-escalation | Unit command exited non-zero or timed out before `build-refine` was dispatched. See `halt-codes.md` for recovery instructions. |
+
 ### Step 3 — Validate or create spec
 
 **Ticket path** (`local_work = false`):

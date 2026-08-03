@@ -59,6 +59,7 @@ EXPECTED_CODES=(
   STRUCTURAL_BLOCKER
   CARRY_OVER_FAILED
   RENDER_FAILED
+  CANARY_FAILED
 )
 for code in "${EXPECTED_CODES[@]}"; do
   if grep -qE "\`${code}\`|\`${code}: " "$REGISTRY"; then
