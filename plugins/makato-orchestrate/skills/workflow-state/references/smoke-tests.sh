@@ -6,6 +6,7 @@
 #
 # T1–T34: existing coverage — updated for the per-issue file layout (#173).
 # T35–T42: new coverage for the per-issue file layout.
+# T67–T72: append-decision subcommand (#603).
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
@@ -835,4 +836,62 @@ echo "  ✓ custom AGE_DAYS=7 removes 10-day-old done file, count=1"
 rm -rf "$PRUNE_SANDBOX"
 
 echo
-echo "All 66 smoke tests passed."
+# ---------------------------------------------------------------------------
+# T67–T72: #603 — append-decision subcommand
+#
+# Tests use SCHEMA_PATH override to point at the worktree's updated schema
+# (workflow-state.sh resolves SCHEMA_PATH from REPO_ROOT=git-common-dir,
+# which is the main checkout; SCHEMA_PATH= env override uses the local copy).
+# ---------------------------------------------------------------------------
+DECISION_SCHEMA="$REPO_ROOT/plugins/makato-orchestrate/skills/workflow-state/references/workflow-state.schema.json"
+KEY_603="gap-603-smoke-test"
+SANDBOX_603="$REPO_ROOT/specs/${KEY_603}"
+mkdir -p "$SANDBOX_603"
+
+echo "=== T67: append-decision basic write — entry appears in design_decision[] (#603) ==="
+SCHEMA_PATH="$DECISION_SCHEMA" "$WS" init "$KEY_603" macatocz/makato feat/603 603
+SCHEMA_PATH="$DECISION_SCHEMA" "$WS" append-decision "$KEY_603" 603 \
+  '{"title":"Use jq over Python","chosen":"jq patch via workflow-state.sh","rejected":["python3 inline","direct file write"],"rationale":"jq is already the state-mutation tool; consistent with append-lesson"}'
+SCHEMA_PATH="$DECISION_SCHEMA" "$WS" read "$KEY_603" 603 | jq -e '.design_decision | length == 1' > /dev/null
+SCHEMA_PATH="$DECISION_SCHEMA" "$WS" read "$KEY_603" 603 | jq -e '.design_decision[0].title == "Use jq over Python"' > /dev/null
+SCHEMA_PATH="$DECISION_SCHEMA" "$WS" read "$KEY_603" 603 | jq -e '.design_decision[0].chosen == "jq patch via workflow-state.sh"' > /dev/null
+SCHEMA_PATH="$DECISION_SCHEMA" "$WS" read "$KEY_603" 603 | jq -e '.design_decision[0].rationale | length > 0' > /dev/null
+echo "  ✓ entry written with title, chosen, rationale"
+
+echo "=== T68: append-decision generates id and ts automatically (#603 AC) ==="
+SCHEMA_PATH="$DECISION_SCHEMA" "$WS" read "$KEY_603" 603 | jq -e '.design_decision[0].id | test("^[0-9]{8}T[0-9]{6}Z$")' > /dev/null
+SCHEMA_PATH="$DECISION_SCHEMA" "$WS" read "$KEY_603" 603 | jq -e '.design_decision[0].ts | length > 0' > /dev/null
+echo "  ✓ id is short ISO timestamp slug; ts is ISO-8601"
+
+echo "=== T69: append-decision grows the array on second call (#603) ==="
+SCHEMA_PATH="$DECISION_SCHEMA" "$WS" append-decision "$KEY_603" 603 \
+  '{"title":"Sequential tasks over parallel","chosen":"runOrder: sequential","rationale":"avoids file conflicts in smoke tests"}'
+SCHEMA_PATH="$DECISION_SCHEMA" "$WS" read "$KEY_603" 603 | jq -e '.design_decision | length == 2' > /dev/null
+echo "  ✓ second entry appended; array length is 2"
+
+echo "=== T70: append-decision updates updated_at (#603) ==="
+BEFORE_TS="$(SCHEMA_PATH="$DECISION_SCHEMA" "$WS" read "$KEY_603" 603 | jq -r '.updated_at')"
+sleep 1
+SCHEMA_PATH="$DECISION_SCHEMA" "$WS" append-decision "$KEY_603" 603 \
+  '{"title":"A third decision","chosen":"chosen C","rationale":"rationale C"}'
+AFTER_TS="$(SCHEMA_PATH="$DECISION_SCHEMA" "$WS" read "$KEY_603" 603 | jq -r '.updated_at')"
+[[ "$AFTER_TS" > "$BEFORE_TS" ]] || { echo "  ✗ FAIL: updated_at did not advance"; rm -rf "$SANDBOX_603"; exit 1; }
+echo "  ✓ updated_at advances on append-decision"
+
+echo "=== T71: append-decision rejects missing required key — title (#603) ==="
+if SCHEMA_PATH="$DECISION_SCHEMA" "$WS" append-decision "$KEY_603" 603 \
+  '{"chosen":"x","rationale":"y"}' 2>/dev/null; then
+  echo "  ✗ FAIL: accepted JSON without title"; rm -rf "$SANDBOX_603"; exit 1
+fi
+echo "  ✓ missing title rejected"
+
+echo "=== T72: append-decision rejects non-JSON input (#603) ==="
+if SCHEMA_PATH="$DECISION_SCHEMA" "$WS" append-decision "$KEY_603" 603 \
+  "not-json" 2>/dev/null; then
+  echo "  ✗ FAIL: accepted non-JSON input"; rm -rf "$SANDBOX_603"; exit 1
+fi
+echo "  ✓ non-JSON input rejected"
+
+rm -rf "$SANDBOX_603"
+
+echo "All 72 smoke tests passed."

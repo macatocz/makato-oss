@@ -67,7 +67,7 @@
 # precedent.
 set -euo pipefail
 
-SUBCMD="${1:?subcommand required: init|read|write|patch|append-lesson|append-halt|bump-structural-halt|recall-lessons|summarise-lessons}"
+SUBCMD="${1:?subcommand required: init|read|write|patch|append-lesson|append-halt|bump-structural-halt|recall-lessons|summarise-lessons|append-decision}"
 # recall-lessons takes REPO as positional #2 (not KEY) — every other subcommand
 # takes KEY. Resolve generically and have each subcommand re-bind the variable.
 ARG2="${2:?second arg required (KEY for most subcommands, REPO for recall-lessons)}"
@@ -95,7 +95,7 @@ fi
 # MAKATO_MEMORY_ROOT override in recall-lessons). Production callers
 # must NOT set this — REPO_ROOT/specs is the canonical location.
 SPECS_DIR="${SPECS_DIR:-$REPO_ROOT/specs}"
-SCHEMA_PATH="$REPO_ROOT/plugins/makato-orchestrate/skills/workflow-state/references/workflow-state.schema.json"
+SCHEMA_PATH="${SCHEMA_PATH:-$REPO_ROOT/plugins/makato-orchestrate/skills/workflow-state/references/workflow-state.schema.json}"
 
 # ---------------------------------------------------------------------------
 # Spec-folder resolution (duplicated from build-log.sh — intentional).
@@ -1030,8 +1030,73 @@ print(int(dt.timestamp()))
     echo "$PRUNED"
     ;;
 
+  # -------------------------------------------------------------------------
+  # append-decision <KEY> <ISSUE_NUMBER> <JSON-OBJECT>
+  #
+  # Append a design decision entry to design_decision[] (#603).
+  # Schema: {id, ts, title, chosen, rationale} required;
+  #         {rejected[], source} optional.
+  #
+  # The helper:
+  #   - injects id (short ISO timestamp slug) and ts automatically
+  #   - validates required keys: title, chosen, rationale
+  #   - accepts optional: rejected (JSON array), source (string)
+  #   - appends the entry to design_decision[] via a jq patch
+  #   - updates updated_at
+  #
+  # Mirrors the append-lesson subcommand pattern.
+  # -------------------------------------------------------------------------
+  append-decision)
+    ISSUE_NUMBER="${3:?issue_number required}"
+    DECISION_JSON="${4:?json-object required}"
+    _prepare_state_file "$ISSUE_NUMBER"
+    NOW="$(_now)"
+
+    if [[ ! -f "$STATE_FILE" ]]; then
+      echo "workflow-state: $STATE_FILE not found — run 'init' first" >&2
+      exit 1
+    fi
+
+    # Validate JSON parsability.
+    if ! echo "$DECISION_JSON" | jq -e . >/dev/null 2>&1; then
+      echo "workflow-state: append-decision requires a valid JSON object (got '${DECISION_JSON:0:60}')" >&2
+      exit 1
+    fi
+
+    # Validate required keys: title, chosen, rationale.
+    for REQ_KEY in title chosen rationale; do
+      VAL="$(echo "$DECISION_JSON" | jq -r --arg k "$REQ_KEY" '.[$k] // empty' 2>/dev/null)"
+      if [[ -z "$VAL" ]]; then
+        echo "workflow-state: append-decision requires '$REQ_KEY' in JSON object" >&2
+        exit 1
+      fi
+    done
+
+    # Generate id as a short ISO timestamp slug (e.g. 20260803T110700Z).
+    DECISION_ID="$(python3 -c "
+from datetime import datetime, timezone
+now = datetime.now(timezone.utc)
+print(now.strftime('%Y%m%dT%H%M%SZ'))
+")"
+
+    # Build the final entry: inject id and ts, pass the rest through.
+    ENTRY="$(echo "$DECISION_JSON" | jq \
+      --arg id "$DECISION_ID" \
+      --arg ts "$NOW" \
+      '. + {id: $id, ts: $ts}')"
+
+    PATCHED="$(jq \
+      --argjson entry "$ENTRY" \
+      --arg ts "$NOW" \
+      '(.design_decision //= []) | .design_decision += [$entry] | .updated_at = $ts' \
+      "$STATE_FILE")"
+
+    _validate "$PATCHED"
+    _atomic_write "$PATCHED"
+    ;;
+
   *)
-    echo "workflow-state: unknown subcommand '$SUBCMD'. Valid: init|read|write|patch|append-lesson|append-halt|bump-structural-halt|recall-lessons|summarise-lessons|prune" >&2
+    echo "workflow-state: unknown subcommand '$SUBCMD'. Valid: init|read|write|patch|append-lesson|append-halt|bump-structural-halt|recall-lessons|summarise-lessons|append-decision|prune" >&2
     exit 1
     ;;
 esac

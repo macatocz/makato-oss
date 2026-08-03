@@ -1,7 +1,7 @@
 ---
 name: build-grill-with-docs
 description: Align implementation plan terminology to the codebase domain model — grill plan, terminology conflicts, glossary.md enrichment, ADR decisions. Use after /refine, before /implement-tdd or /implement-goal. Optional but recommended for complex stories.
-version: "1.3.2"
+version: "1.4.0"
 model: opus
 argument-hint: "[work-item-key]"
 ---
@@ -113,6 +113,36 @@ For each decision surfaced during the interview, apply the three-criteria test a
 
 Use `@templates/adr.md` for ADR structure.
 
+**After routing each decision** (whether written to an ADR file, appended to `decisions.md`, or marked `[ADR-PENDING]`), check whether a `workflow-state.json` exists for the current KEY. Use the spec-folder glob from Step 1 (`specs/<KEY>-*/`) to find `workflow-state-*.json`; if multiple issue-scoped files exist, write to all of them (one call per file):
+
+```bash
+# Find all per-issue workflow-state files for this KEY
+WS_FILES="$(ls specs/<KEY>-*/workflow-state-*.json 2>/dev/null || true)"
+
+if [[ -n "$WS_FILES" ]]; then
+  for WS_FILE in $WS_FILES; do
+    # Derive ISSUE_NUMBER from the filename (workflow-state-<N>.json)
+    ISSUE_NUMBER="${WS_FILE##*workflow-state-}"
+    ISSUE_NUMBER="${ISSUE_NUMBER%.json}"
+    SPEC_KEY="$(basename "$(dirname "$WS_FILE")")"
+    plugins/makato-orchestrate/shared/workflow-state.sh append-decision \
+      "$SPEC_KEY" "$ISSUE_NUMBER" \
+      "$(jq -n \
+        --arg title "<decision title>" \
+        --arg chosen "<chosen approach>" \
+        --argjson rejected '["<alt1>","<alt2>"]' \
+        --arg rationale "<rationale>" \
+        --arg source "<adr-file-path or decisions.md>" \
+        '{title:$title, chosen:$chosen, rejected:$rejected, rationale:$rationale, source:$source}')" \
+      2>/dev/null || true  # best-effort: never block the session on a state write
+  done
+fi
+```
+
+Replace `<decision title>`, `<chosen approach>`, `<rejected alternatives>`, `<rationale>`, and `<source>` with the actual values from the decision just routed. The `rejected` array may be empty (`[]`) when no alternatives were considered. The `source` field should be the ADR file path (e.g., `docs/governance/adr/adr-001.md`) or `decisions.md` as applicable.
+
+**This write is best-effort.** A failed `append-decision` call (missing workflow-state, schema version mismatch, jq error) MUST NOT block the session or abort Step 7. Log a brief inline note if the write fails, then continue to the next decision. The `workflow-state.json` write is a convenience; the ADR file or `decisions.md` entry is the primary record.
+
 ---
 
 ### Step 8 — Log session end and hand off
@@ -120,7 +150,9 @@ Use `@templates/adr.md` for ADR structure.
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-grill-with-docs","story":"<key>","step":"session","status":"ok","data":{"terms_resolved":<N>,"terms_skipped":<M>,"adrs_written":<K>,"decisions_updated":<J>}}'
+shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-grill-with-docs","story":"<key>","step":"session","status":"ok","data":{"terms_resolved":<N>,"terms_skipped":<M>,"adrs_written":<K>,"decisions_updated":<J>,"decisions_persisted_to_state":<P>}}'
 ```
+
+`decisions_persisted_to_state` is the count of decisions successfully written to `workflow-state.json` via `append-decision` in Step 7. Zero is a valid value when no workflow-state file exists for the KEY or all writes failed.
 
 Tell the user: *"Alignment complete. `glossary.md` enriched with `<N>` terms. Next: `/implement-tdd` or `/implement-goal`."*

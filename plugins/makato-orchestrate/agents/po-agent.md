@@ -660,7 +660,34 @@ On `partial` or `failure(escalation: refine)`, first narrate the START
 agent" --goal "re-plan the task list after a failure"`), then dispatch
 `/makato-build:build-refine <KEY> --autonomous`. Parse R1. `failure` →
 HALT-STRUCTURAL (apply `needs-human-review`, R1 `failure`). `success` →
-narrate DONE, increment `outer_iteration` (Step 5), re-enter Step 4.
+narrate DONE, then **capture design decisions** (#603): if
+`r1.data.design_decisions[]` is present and non-empty, call
+`workflow-state.sh append-decision <KEY> <ISSUE_NUMBER> '<json>'` for
+each entry so the chosen approach and rejected alternatives are
+persisted in `workflow-state.json` before proceeding to Step 5.
+Failure of an individual `append-decision` call is logged as a WARN in
+`orchestrate.jsonl` but does NOT block the outer loop — the PO-agent
+remains the sole writer of state (the sub-skill sets
+`r1.data.design_decisions[]`; it never writes state directly). Then
+increment `outer_iteration` (Step 5), re-enter Step 4.
+
+**Design decision capture detail.** For each entry in
+`r1.data.design_decisions[]`, construct the JSON object as:
+
+```json
+{
+  "title": "<entry.title>",
+  "chosen": "<entry.chosen>",
+  "rejected": ["<entry.rejected[0]>", ...],
+  "rationale": "<entry.rationale>",
+  "source": "build-refine"
+}
+```
+
+Pass it to `workflow-state.sh append-decision`; the helper injects
+`id` and `ts`. The `rejected` and `source` fields are optional — omit
+if absent in the R1 entry. This is the sole write path for
+`design_decision[]` in the Step 4 outer loop.
 
 ### Step 5 — Outer-iteration bookkeeping
 
