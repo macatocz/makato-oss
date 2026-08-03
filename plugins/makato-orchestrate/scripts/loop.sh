@@ -1529,11 +1529,34 @@ _reconcile_orphaned_in_progress() {
     owner="$(jq -r '.owner' <<<"$cfg")"
     number="$(jq -r '.number' <<<"$cfg")"
     host="$(jq -r '.host' <<<"$cfg")"
-    raw="$(GH_HOST="$host" gh project item-list "$number" \
-      --owner "$owner" --format json --limit "$BOARD_LIMIT" 2>/dev/null)" || {
-      echo "loop: WARN — reconcile-orphaned: board poll failed, skipping" >&2
+    # #516: read the board via the cheap raw-GraphQL poll (~1-2 points/board)
+    # instead of a raw `gh project item-list --limit BOARD_LIMIT` (~1 point per
+    # item, ~200 for a large board). The old raw call was itself a top
+    # contributor to draining the shared token's GraphQL budget every tick, and
+    # once drained it failed with gh's masked "unknown owner type" (a
+    # graphql_rate_limit hit during --owner resolution) — silently leaving
+    # orphaned "In progress" cards unreconciled.
+    #
+    # We deliberately DO NOT route through _gh_project_item_list here: that
+    # wrapper's #556 rate-limit guard sleeps until the reset epoch on a low
+    # budget, which is correct for the main poll (the loop must wait for budget)
+    # but wrong for this pre-poll best-effort pass — a reconcile tick must never
+    # block. On a drained budget _board_via_graphql simply fails fast and we
+    # skip, exactly like the old raw call did.
+    local _recon_rc=0 pid=""
+    [[ -f "$CONFIG_FILE" ]] && pid="$(jq -r '.github_project.project_node_id // empty' "$CONFIG_FILE" 2>/dev/null)"
+    if [[ -n "$pid" ]]; then
+      raw="$(_board_via_graphql "$host" "$pid")" || _recon_rc=$?
+    else
+      # No node id cached — fall back to the (costlier) item-list call so the
+      # pass still works, but never through the sleeping guard.
+      raw="$(GH_HOST="$host" gh project item-list "$number" \
+        --owner "$owner" --format json --limit "$BOARD_LIMIT" 2>/dev/null)" || _recon_rc=$?
+    fi
+    if [[ "$_recon_rc" -ne 0 ]]; then
+      echo "loop: WARN — reconcile-orphaned: board poll failed (rc=$_recon_rc), skipping" >&2
       return 0
-    }
+    fi
   fi
 
   # Filter to Issue items at "In progress".
@@ -1595,12 +1618,17 @@ _reconcile_orphaned_in_progress() {
         if [[ -z "$field_id" || -z "$blocked_id" ]]; then
           echo "loop: WARN — reconcile-orphaned #$n: missing field_id or blocked option id in config" >&2
         else
-          # Resolve the project item-id for this issue.
-          item_id="$(GH_HOST="$proj_host" gh project item-list "$proj_number" \
-            --owner "$proj_owner" --format json --limit 9999 2>/dev/null \
-            | jq -r --argjson n "$n" \
-              '.items[] | select(.content.type == "Issue" and .content.number == $n) | .id' \
-            2>/dev/null | head -1)" || true
+          # Resolve the project item-id from the board payload already fetched
+          # above ($raw) instead of issuing a second `gh project item-list
+          # --limit 9999` per candidate. That per-candidate call was the second
+          # GraphQL-budget drain in this pass (one full board scan for every
+          # orphan); $raw already carries every item's .id in the same shape.
+          # `// empty` collapses a missing/null .id to no output (rather than
+          # the literal string "null", which would pass the -n test below and
+          # send `--id null` to gh).
+          item_id="$(jq -r --argjson n "$n" \
+            '.items[] | select(.content.type == "Issue" and .content.number == $n) | (.id // empty)' \
+            <<<"$raw" 2>/dev/null | head -1)" || true
           if [[ -n "$item_id" ]]; then
             GH_HOST="$proj_host" gh project item-edit "$proj_number" \
               --owner "$proj_owner" \
