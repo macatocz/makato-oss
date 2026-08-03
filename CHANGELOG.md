@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.131.0](https://github.com/macatocz/makato/compare/v0.130.0...v0.131.0) (2026-08-03)
+
+
+### ✨ Features
+
+* **makato-build:** canary test-framework pre-flight in build-start (Step 2.75) ([#662](https://github.com/macatocz/makato/issues/662)) ([0ce6cea](https://github.com/macatocz/makato/commit/0ce6cea8047bcfaa0cc1bdc7c91a0265ca85869e))
+
 ## [0.130.0](https://github.com/macatocz/makato/compare/v0.129.0...v0.130.0) (2026-08-03)
 
 
