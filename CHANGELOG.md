@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.120.1](https://github.com/macatocz/makato/compare/v0.120.0...v0.120.1) (2026-08-03)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** route reconciler board reads through rate-guarded wrapper ([#630](https://github.com/macatocz/makato/issues/630)) ([0e3f29d](https://github.com/macatocz/makato/commit/0e3f29d22f4dfc70b7ee80064c975c52902879af))
+
 ## [0.120.0](https://github.com/macatocz/makato/compare/v0.119.0...v0.120.0) (2026-08-03)
 
 
