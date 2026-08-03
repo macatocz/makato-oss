@@ -978,6 +978,99 @@ plugins/makato-orchestrate/scripts/loop-smoke-tests.sh
 The harness uses `MAKATO_LOOP_GH_OVERRIDE` to inject a canned
 `item-list` fixture — fully offline, no GitHub access required.
 
+## Fleet mode — N parallel workers (#546)
+
+`scripts/loop-fleet.sh` is an **opt-in** launcher that runs N independent
+`loop.sh` workers concurrently against the same board, enabling parallel
+issue dispatch without modifying the single-threaded dispatch core.
+
+### Design
+
+Each worker gets its own isolated state directory and pidfile so the
+`loop-status.json` read-modify-write path and `stall_restart_count` counter
+are never shared. The **board CAS claim** (`_claim_board_card`) is the sole
+cross-worker coordination point — worker that cannot confirm its claim skips
+the item rather than dispatching (fail-closed contract, #289).
+
+A **same-folder co-schedule guard** prevents two workers from dispatching
+issues that share a `specs/<folder>/` directory at the same time (avoids
+`plan.md` / `seed-manifest.json` collisions, mirrors `promote-ready`'s
+exclusion rule).
+
+### Usage
+
+```bash
+# Launch 4 parallel workers (default)
+plugins/makato-orchestrate/scripts/loop-fleet.sh
+
+# Explicit worker count
+plugins/makato-orchestrate/scripts/loop-fleet.sh --workers 2
+
+# Single-tick run (each worker runs --once then exits)
+plugins/makato-orchestrate/scripts/loop-fleet.sh --workers 3 --once
+
+# N=1 is byte-for-byte the existing serial loop.sh path
+plugins/makato-orchestrate/scripts/loop-fleet.sh --workers 1
+```
+
+### Key environment variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `MAKATO_FLEET_WORKERS` | `4` | Worker count (overridden by `--workers`) |
+| `MAKATO_FLEET_STATE_DIR` | `$REPO_ROOT/.claude/state/fleet` | Fleet state root; per-worker subdirs are `worker-N/` |
+| `MAKATO_FLEET_CAS_STRICT` | `1` | Set `MAKATO_LOOP_CLAIM_ON_DISPATCH=1` per worker (fail-closed CAS) |
+| `MAKATO_FLEET_TICK_SECS` | `5` | Supervision tick interval in seconds |
+| `MAKATO_FLEET_DASHBOARD` | `1` | Print per-worker status line each tick (set `0` to suppress) |
+| `MAKATO_SPECS_DIR` | `$REPO_ROOT/specs` | Specs directory for the same-folder in-flight scan |
+| `MAKATO_LOOP_SH_PATH` | auto-resolved | Path to `loop.sh` (useful for testing with a stub) |
+| `MAKATO_HALT_FILE` | `~/.claude/HALT` | HALT-file path; launcher exits without spawning if present |
+
+### Same-folder co-schedule guard
+
+Before dispatching an issue, the launcher scans `MAKATO_SPECS_DIR` for
+`workflow-state-*.json` files. If another issue in the same `specs/<folder>/`
+has `current_phase != "done"` (i.e. is in-flight), the candidate issue is
+held back for that tick. This is **read-only** — the guard never writes state
+or touches the board.
+
+### N=1 backward-compatibility guarantee
+
+`loop-fleet.sh --workers 1` is strictly equivalent to running `loop.sh run`
+directly: a single worker-1 subprocess is spawned with the same forwarded
+arguments and the same environment (minus the fleet-specific vars). No
+behavioural change, no extra state files beyond `fleet/worker-1/`.
+
+### Supervision
+
+The launcher keeps N workers alive: if a worker exits unexpectedly in
+continuous mode (no `--once`), it is restarted on the next supervision tick.
+Use `MAKATO_FLEET_TICK_SECS` to tune the restart latency.
+
+### Smoke tests
+
+```bash
+plugins/makato-orchestrate/scripts/loop-fleet-smoke-tests.sh
+```
+
+Six scenarios: N=2 distinct state dirs (T-FLEET-1), CAS fail-closed
+(T-FLEET-2), no double-dispatch (T-FLEET-3), same-folder guard (T-FLEET-4),
+N=1 serial compat (T-FLEET-5), HALT-file blocks spawn (T-FLEET-6). All run
+offline with a stub `loop.sh`.
+
+### Known limitations
+
+- **No cross-machine fleet**: `in_flight_issues()` scans gitignored
+  `specs/**` — a second host sees an empty in-flight set. The board CAS
+  claim is still the correctness backstop, but cross-machine fleets are
+  unsupported until `workflow-state` is promoted to a tracked location.
+- **Shared Anthropic daily token budget**: N workers burn N× faster.
+  Surface budget headroom before launching a large fleet; the kill-switch
+  HALT-007 fires per-worker when the ceiling is reached.
+- **Shared GitHub PAT secondary rate limits**: no global throttle exists;
+  heavy write ops (`gh pr create`, board sync) from N workers may trigger
+  GitHub secondary limits under sustained load.
+
 ## External supervisor (outermost safety net)
 
 `scripts/loop-supervisor.sh` is an **opt-in** safety net that sits one layer

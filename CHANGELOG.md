@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+* **makato-orchestrate:** `loop-fleet.sh` — bounded parallel issue fleet: run N independent `loop.sh` workers concurrently with per-worker isolated state dir/pidfile, board CAS fail-closed contract, same-folder co-schedule guard, live per-worker dashboard, and N=1 byte-for-byte serial compat ([#546](https://github.com/macatocz/makato/issues/546))
+
 ## [0.128.0](https://github.com/macatocz/makato/compare/v0.127.1...v0.128.0) (2026-08-03)
 
 
