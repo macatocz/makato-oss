@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.120.0](https://github.com/macatocz/makato/compare/v0.119.0...v0.120.0) (2026-08-03)
+
+
+### ✨ Features
+
+* **makato-build:** add context/makato/standards/ so makato dogfoods inject-context ([#591](https://github.com/macatocz/makato/issues/591)) ([1f5e129](https://github.com/macatocz/makato/commit/1f5e1295b93681fedee5b3c3d3e36993697bdec4))
+* **makato-build:** add context/makato/standards/ so makato dogfoods inject-context ([#591](https://github.com/macatocz/makato/issues/591)) ([1f5e129](https://github.com/macatocz/makato/commit/1f5e1295b93681fedee5b3c3d3e36993697bdec4))
+
 ## [0.119.0](https://github.com/macatocz/makato/compare/v0.118.1...v0.119.0) (2026-08-03)
 
 
