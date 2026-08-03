@@ -6325,5 +6325,84 @@ echo "$OUT" | jq -e '.verified  | type == "number"' >/dev/null 2>&1 || fail "T-V
 rm -rf "$T_VCR5_SPECS" "$T_VCR5_STATE"
 echo "T-VCR-5 passed"
 
+# ---------------------------------------------------------------------------
+# T-TOOLDEP-1–T-TOOLDEP-3: _check_tool_deps pre-flight (#587)
+#
+# Exercise _check_tool_deps via the _test-check-tool-deps hook, which calls
+# the function in isolation with the caller's PATH — no mutex, no board poll.
+#
+# T-TOOLDEP-1: missing required binary → non-zero exit, stderr names the tool.
+# T-TOOLDEP-2: gh auth status fails → non-zero exit, stderr mentions auth.
+# T-TOOLDEP-3: all tools present + auth passes → exit 0, no tool-dep error.
+# ---------------------------------------------------------------------------
+echo "=== T-TOOLDEP-1: missing jq → _check_tool_deps exits non-zero, stderr names jq ==="
+# Use MAKATO_LOOP_TEST_MISSING_TOOL to simulate jq absent — portable across macOS
+# and Linux (where /bin may be a symlink to /usr/bin making PATH exclusion unreliable).
+T_TD1_RC=0
+T_TD1_STDERR="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_TEST_MISSING_TOOL="jq" \
+    bash "$LOOP" _test-check-tool-deps 2>&1 >/dev/null
+)" || T_TD1_RC=$?
+[[ $T_TD1_RC -ne 0 ]] \
+  || fail "T-TOOLDEP-1: expected non-zero exit when jq absent; got 0"
+echo "$T_TD1_STDERR" | grep -qi "jq" \
+  || fail "T-TOOLDEP-1: stderr should name the missing tool 'jq'; got: $T_TD1_STDERR"
+echo "  ✓ missing jq: exits non-zero, stderr names jq"
+
+# ---------------------------------------------------------------------------
+echo "=== T-TOOLDEP-2: gh auth failure → _check_tool_deps exits non-zero, stderr mentions auth ==="
+# Prepend a stub dir: stub gh exits 1 for 'gh auth status', 0 otherwise.
+# Real jq/git/python3 resolve from the normal PATH.
+# Clear all three test-mode bypass vars so the auth check fires despite the
+# file-level MAKATO_LOOP_GH_OVERRIDE export.
+T_TD2_BINDIR="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-td2-bin"
+mkdir -p "$T_TD2_BINDIR"
+cat >"$T_TD2_BINDIR/gh" <<'GHSTUB'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "auth" && "${2:-}" == "status" ]]; then
+  echo "gh: not logged in" >&2
+  exit 1
+fi
+exit 0
+GHSTUB
+chmod +x "$T_TD2_BINDIR/gh"
+T_TD2_RC=0
+T_TD2_STDERR="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_GH_OVERRIDE="" \
+  MAKATO_LOOP_POLL_TEST_CMD="" \
+  MAKATO_LOOP_GRAPHQL_TEST_CMD="" \
+  PATH="$T_TD2_BINDIR:$PATH" \
+    bash "$LOOP" _test-check-tool-deps 2>&1 >/dev/null
+)" || T_TD2_RC=$?
+[[ $T_TD2_RC -ne 0 ]] \
+  || fail "T-TOOLDEP-2: expected non-zero exit when gh auth fails; got 0"
+echo "$T_TD2_STDERR" | grep -qiE "auth|not logged" \
+  || fail "T-TOOLDEP-2: stderr should mention auth failure; got: $T_TD2_STDERR"
+rm -rf "$T_TD2_BINDIR"
+echo "  ✓ failed gh auth: exits non-zero, stderr mentions auth"
+
+# ---------------------------------------------------------------------------
+echo "=== T-TOOLDEP-3: all tools present + auth passes → exit 0, no tool-dep error ==="
+# Prepend a stub gh that always exits 0 (including auth status). Real tools
+# (jq, git, python3) resolve from the normal PATH.
+T_TD3_BINDIR="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-td3-bin"
+mkdir -p "$T_TD3_BINDIR"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$T_TD3_BINDIR/gh"
+chmod +x "$T_TD3_BINDIR/gh"
+T_TD3_RC=0
+T_TD3_STDERR="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  PATH="$T_TD3_BINDIR:$PATH" \
+    bash "$LOOP" _test-check-tool-deps 2>&1 >/dev/null
+)" || T_TD3_RC=$?
+[[ $T_TD3_RC -eq 0 ]] \
+  || fail "T-TOOLDEP-3: expected exit 0 when all deps satisfied; got $T_TD3_RC"
+echo "$T_TD3_STDERR" | grep -qiE "pre-flight error|not found on PATH|gh auth" \
+  && fail "T-TOOLDEP-3: unexpected tool-dep error on stderr; got: $T_TD3_STDERR"
+rm -rf "$T_TD3_BINDIR"
+echo "  ✓ all deps satisfied: exit 0, no tool-dep error"
+
 echo
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T-RG-1–T-RG-4 GraphQL rate-limit guard, #556; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T-RESUME-1 complete result no-op, T-RESUME-2 incomplete triggers attempt, T-RESUME-3 errored triggers attempt, T-RESUME-4 budget-exhausted HALT-014, T-RESUME-5 STALL_DISABLE skip detect+resume, #531; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470; T84–T89 orphaned-specs pruning; T90 promote-before-prune; T-GQL1–T-GQL5 GraphQL board poll + item-list rollback, #516; T-IDLE1–T-IDLE2 adaptive idle backoff, #516; T91 plan-tier:change routing, #539; T-wave-order, T-promote-on, T-promote-off, T-fifo-fallback wave-ordered dispatch + promote-unblocked, #548; T-PREDISPATCH-127 exit-127 log demotion, T-REAP-NUMBERLESS numberless-folder reap-specs demotion, #558; T-loop-prune-1–T-loop-prune-3 workflow-state prune wiring, #597; T-VCR-1–T-VCR-5 _compute_vcr helper, #585) ==="
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T-RG-1–T-RG-4 GraphQL rate-limit guard, #556; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T-RESUME-1 complete result no-op, T-RESUME-2 incomplete triggers attempt, T-RESUME-3 errored triggers attempt, T-RESUME-4 budget-exhausted HALT-014, T-RESUME-5 STALL_DISABLE skip detect+resume, #531; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470; T84–T89 orphaned-specs pruning; T90 promote-before-prune; T-GQL1–T-GQL5 GraphQL board poll + item-list rollback, #516; T-IDLE1–T-IDLE2 adaptive idle backoff, #516; T91 plan-tier:change routing, #539; T-wave-order, T-promote-on, T-promote-off, T-fifo-fallback wave-ordered dispatch + promote-unblocked, #548; T-PREDISPATCH-127 exit-127 log demotion, T-REAP-NUMBERLESS numberless-folder reap-specs demotion, #558; T-loop-prune-1–T-loop-prune-3 workflow-state prune wiring, #597; T-VCR-1–T-VCR-5 _compute_vcr helper, #585; T-TOOLDEP-1–T-TOOLDEP-3 tool-dependency pre-flight, #587) ==="
