@@ -37,6 +37,7 @@ skill_routing: disabled
   - `README.md` (repository root) — only when the public-API heuristic in Step 4 triggers
   - `specs/<key>-<slug>/build.jsonl` (append-only, via the build-log helper or direct append)
   - `docs/**` — when the diff modifies docs files and the agent amends cross-references, AND when Step 4c writes a living-spec update to `docs/specs/<capability>.md` via `sync-living-specs.sh`
+  - `specs/master/*-quality.md` — Step 7.6 updates the domain quality scorecard via `generate-quality-doc.sh` (write is performed by the script, not directly by the agent)
 - **Issue-body edits are GitHub state, not files.** Step 4a marks verified AC
   checkboxes via `gh issue edit --body` — a GitHub API mutation, not a
   filesystem write, so it is outside the `Write`/`Edit` allow-list above. It is
@@ -419,6 +420,39 @@ plugins/makato-build/shared/build-log.sh "<key>" '<json>'
 If `WORKFLOW_STATE` is empty (no spec folder to log to): write the warning to
 `/tmp/docs-coverage-warning-${PR_NUMBER}.json` and surface it in the R1
 `warnings` array instead.
+
+### Step 7.6 — Update domain quality scorecard
+
+Derive the domain for the merged issue using the same `detect_domain` logic as
+`archive-spec.sh`: read the `domain:` frontmatter field from
+`specs/<key>-<slug>/plan.md` (or `spec.md`); default to `general` when absent.
+
+Then call:
+
+```bash
+bash plugins/makato-orchestrate/scripts/generate-quality-doc.sh \
+  --domain "<domain>"
+```
+
+**Best-effort:** if the script exits non-zero, or if the script file is absent
+(not installed in the consumer repo), log a warning to `build.jsonl` and
+continue — this step MUST NOT HALT the agent:
+
+```bash
+if [[ -x "plugins/makato-orchestrate/scripts/generate-quality-doc.sh" ]]; then
+  bash plugins/makato-orchestrate/scripts/generate-quality-doc.sh \
+    --domain "$DOMAIN" 2>/dev/null || {
+    plugins/makato-build/shared/build-log.sh "$KEY" \
+      "$(jq -nc --arg pr "$PR_NUMBER" --arg domain "$DOMAIN" \
+        '{"ts":"'"$(_now)"'","skill":"documentation-agent","step":"quality-doc","status":"warn","data":{"event":"quality_doc_failed","pr":($pr|tonumber),"domain":$domain}}')"
+  }
+else
+  echo "quality-doc: script not found, skipping" >&2
+fi
+```
+
+On success the scorecard at `specs/master/<domain>-quality.md` is updated in
+place (idempotent — see `quality-doc` skill for column semantics).
 
 ### Step 8 — Emit R1
 

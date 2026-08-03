@@ -6,6 +6,7 @@ Changes are grouped by skill/component. Within each group, latest version on top
 ## [Unreleased]
 
 ### Added
+- `generate-quality-doc.sh` + `quality-doc` skill: per-domain quality scorecard from `build.jsonl` + `halt_audit`, written to `specs/master/<domain>-quality.md` post-merge (#598). `documentation-agent` Step 7.6 calls the script automatically after each PR merge (best-effort); operators can also invoke it directly on demand.
 - **PO-agent self-recovery after `Stream idle timeout` (#616).** Two additive
   recovery mechanisms:
   - `loop.sh` now persists the Claude session UUID (`last_session_id`) to
