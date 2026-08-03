@@ -3617,6 +3617,110 @@ rm -rf "$TQ_FIXTURE" "$TQ_CONFIG" "$TQ_SPECS" "$TQ_BIN" "$STATE_DIR/tq-label-$$.
 echo "  ✓ reconcile reads field/option ids from correct config shape; no false 'missing field_id' WARN (#492)"
 
 # ---------------------------------------------------------------------------
+# T-RECON-LABELGATE-1 / T-RECON-LABELGATE-2: label gate — label must NOT be
+# applied when gh project item-edit fails (board edit fails → no label stamp).
+# Prevents the infinite oscillation where the card stays "In progress" (board
+# write silently failed) but the label keeps being reapplied every tick.
+# ---------------------------------------------------------------------------
+echo
+echo "=== T-RECON-LABELGATE-1: _reconcile_orphaned_in_progress — board edit fails → label NOT applied ==="
+TLG1_FIXTURE="$STATE_DIR/tlg1-reconcile-$$.json"
+TLG1_RECON="$STATE_DIR/tlg1-recon-$$.txt"
+TLG1_LABEL="$STATE_DIR/tlg1-label-$$.txt"
+TLG1_CONFIG="$STATE_DIR/tlg1-config-$$.json"
+TLG1_BIN="$STATE_DIR/tlg1-bin-$$"
+TLG1_SPECS="$STATE_DIR/tlg1-specs-$$"
+mkdir -p "$TLG1_BIN" "$TLG1_SPECS"
+jq -n '{items:[{"content":{"type":"Issue","number":30001,"title":"label-gate","repository":"macatocz/makato","url":"https://github.com/macatocz/makato/issues/30001"},"status":"In progress","id":"PVTI_gate1"}]}' \
+  >"$TLG1_FIXTURE"
+# Config with field+option ids so the field-id guard passes.
+jq -n '{"github_project":{"owner":"macatocz","number":4,"host":"github.com","fields":{"status":{"id":"PVTSSF_x","options":{"blocked":"opt_b_x"}}}}}' \
+  >"$TLG1_CONFIG"
+# gh stub: item-edit exits non-zero (simulates API failure); item-list returns
+# the board item so item_id resolves — failure is at the edit step itself.
+cat >"$TLG1_BIN/gh" <<'GHSTUB'
+#!/usr/bin/env bash
+# item-list: return the item so item_id resolves
+if [[ "$*" == *"item-list"* ]]; then
+  echo '{"items":[{"id":"PVTI_gate1","content":{"type":"Issue","number":30001}}]}'
+  exit 0
+fi
+# item-edit: fail
+if [[ "$*" == *"item-edit"* ]]; then
+  echo "gh: simulated item-edit failure" >&2
+  exit 1
+fi
+exit 0
+GHSTUB
+chmod +x "$TLG1_BIN/gh"
+tlg1_rc=0
+tlg1_stderr="$(
+  PATH="$TLG1_BIN:$PATH" \
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_RECONCILE_GH_OVERRIDE="$TLG1_FIXTURE" \
+  MAKATO_LOOP_CONFIG="$TLG1_CONFIG" \
+  MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE="$TLG1_LABEL" \
+  SPECS_DIR="$TLG1_SPECS" \
+    "$LOOP" _test-reconcile-orphaned 2>&1 >/dev/null
+)" || tlg1_rc=$?
+[[ "$tlg1_rc" -eq 0 ]] \
+  || fail "T-RECON-LABELGATE-1: function must return 0; got rc=$tlg1_rc stderr=$tlg1_stderr"
+# Board edit failure must be logged.
+echo "$tlg1_stderr" | grep -q "item-edit failed" \
+  || fail "T-RECON-LABELGATE-1: stderr must mention item-edit failed; got: $tlg1_stderr"
+# Label must NOT have been applied when board edit failed.
+if [[ -s "$TLG1_LABEL" ]]; then
+  fail "T-RECON-LABELGATE-1: label must NOT be applied when board edit failed; got: $(cat "$TLG1_LABEL")"
+fi
+rm -rf "$TLG1_FIXTURE" "$TLG1_CONFIG" "$TLG1_BIN" "$TLG1_SPECS" "$TLG1_RECON" "$TLG1_LABEL"
+echo "  ✓ in-progress reconciler: board edit failure suppresses label stamp"
+
+echo
+echo "=== T-RECON-LABELGATE-2: _reconcile_orphaned_stale — board edit fails → label NOT applied ==="
+TLG2_SPECS="$STATE_DIR/tlg2-specs-$$"
+TLG2_LABEL="$STATE_DIR/tlg2-label-$$.txt"
+TLG2_CONFIG="$STATE_DIR/tlg2-config-$$.json"
+TLG2_BIN="$STATE_DIR/tlg2-bin-$$"
+mkdir -p "$TLG2_BIN" "$TLG2_SPECS"
+# Seed a stale orphan (dead pid, 2h old).
+_seed_stale "$TLG2_SPECS" 30002 7200 dead
+# Config with field+option ids so the field-id guard passes.
+jq -n '{"github_project":{"owner":"macatocz","number":4,"host":"github.com","fields":{"status":{"id":"PVTSSF_y","options":{"blocked":"opt_b_y"}}}}}' \
+  >"$TLG2_CONFIG"
+# gh stub: item-list returns item so item_id resolves, item-edit fails.
+cat >"$TLG2_BIN/gh" <<'GHSTUB'
+#!/usr/bin/env bash
+if [[ "$*" == *"item-list"* ]]; then
+  echo '{"items":[{"id":"PVTI_gate2","content":{"type":"Issue","number":30002}}]}'
+  exit 0
+fi
+if [[ "$*" == *"item-edit"* ]]; then
+  echo "gh: simulated item-edit failure" >&2
+  exit 1
+fi
+exit 0
+GHSTUB
+chmod +x "$TLG2_BIN/gh"
+tlg2_rc=0
+tlg2_stderr="$(
+  PATH="$TLG2_BIN:$PATH" \
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_ORPHAN_STALE_SECS=3600 \
+  MAKATO_LOOP_RECONCILE_SPECS_DIR="$TLG2_SPECS" \
+  MAKATO_LOOP_CONFIG="$TLG2_CONFIG" \
+  MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE="$TLG2_LABEL" \
+    "$LOOP" _test-reconcile-stale >/dev/null 2>&1
+)" || tlg2_rc=$?
+[[ "$tlg2_rc" -eq 0 ]] \
+  || fail "T-RECON-LABELGATE-2: function must return 0; got rc=$tlg2_rc"
+# Label must NOT have been applied when board edit failed.
+if [[ -s "$TLG2_LABEL" ]]; then
+  fail "T-RECON-LABELGATE-2: label must NOT be applied when board edit failed; got: $(cat "$TLG2_LABEL")"
+fi
+rm -rf "$TLG2_SPECS" "$TLG2_BIN" "$TLG2_CONFIG" "$TLG2_LABEL"
+echo "  ✓ stale reconciler: board edit failure suppresses label stamp"
+
+# ---------------------------------------------------------------------------
 # T-reshape-disabled: MAKATO_LOOP_RESHAPE_ENABLED=0 (or unset) → no dispatch
 # or board write. Feature flag off is the default and must be a no-op.
 # ---------------------------------------------------------------------------
@@ -6405,4 +6509,4 @@ rm -rf "$T_TD3_BINDIR"
 echo "  ✓ all deps satisfied: exit 0, no tool-dep error"
 
 echo
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T-RG-1–T-RG-4 GraphQL rate-limit guard, #556; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T-RESUME-1 complete result no-op, T-RESUME-2 incomplete triggers attempt, T-RESUME-3 errored triggers attempt, T-RESUME-4 budget-exhausted HALT-014, T-RESUME-5 STALL_DISABLE skip detect+resume, #531; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470; T84–T89 orphaned-specs pruning; T90 promote-before-prune; T-GQL1–T-GQL5 GraphQL board poll + item-list rollback, #516; T-IDLE1–T-IDLE2 adaptive idle backoff, #516; T91 plan-tier:change routing, #539; T-wave-order, T-promote-on, T-promote-off, T-fifo-fallback wave-ordered dispatch + promote-unblocked, #548; T-PREDISPATCH-127 exit-127 log demotion, T-REAP-NUMBERLESS numberless-folder reap-specs demotion, #558; T-loop-prune-1–T-loop-prune-3 workflow-state prune wiring, #597; T-VCR-1–T-VCR-5 _compute_vcr helper, #585; T-TOOLDEP-1–T-TOOLDEP-3 tool-dependency pre-flight, #587) ==="
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T-RG-1–T-RG-4 GraphQL rate-limit guard, #556; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T-RESUME-1 complete result no-op, T-RESUME-2 incomplete triggers attempt, T-RESUME-3 errored triggers attempt, T-RESUME-4 budget-exhausted HALT-014, T-RESUME-5 STALL_DISABLE skip detect+resume, #531; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470; T84–T89 orphaned-specs pruning; T90 promote-before-prune; T-GQL1–T-GQL5 GraphQL board poll + item-list rollback, #516; T-IDLE1–T-IDLE2 adaptive idle backoff, #516; T91 plan-tier:change routing, #539; T-wave-order, T-promote-on, T-promote-off, T-fifo-fallback wave-ordered dispatch + promote-unblocked, #548; T-PREDISPATCH-127 exit-127 log demotion, T-REAP-NUMBERLESS numberless-folder reap-specs demotion, #558; T-loop-prune-1–T-loop-prune-3 workflow-state prune wiring, #597; T-VCR-1–T-VCR-5 _compute_vcr helper, #585; T-TOOLDEP-1–T-TOOLDEP-3 tool-dependency pre-flight, #587; T-RECON-LABELGATE-1–T-RECON-LABELGATE-2 reconcile label gate) ==="

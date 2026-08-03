@@ -1599,9 +1599,14 @@ _reconcile_orphaned_in_progress() {
     echo "loop: reconcile-orphaned — #$n orphaned (In progress but no live workflow-state) → Blocked + needs-human-review" >&2
 
     # Move the board card to Blocked.
+    # board_edit_ok=1 only when the edit actually lands; label stamp is gated on it
+    # to prevent infinite oscillation where label keeps being reapplied every tick
+    # while the board card stays "In progress" because item-edit silently failed.
+    local board_edit_ok=0
     {
       if [[ -n "${MAKATO_LOOP_RECONCILE_TEST_FILE:-}" ]]; then
         echo "reconcile #${n}" >>"$MAKATO_LOOP_RECONCILE_TEST_FILE"
+        board_edit_ok=1
       else
         local cfg item_id blocked_id proj_owner proj_number proj_host field_id
         cfg="$(_read_project_config 2>/dev/null)" || { echo "loop: WARN — reconcile-orphaned #$n: no config for board edit" >&2; true; }
@@ -1630,13 +1635,16 @@ _reconcile_orphaned_in_progress() {
             '.items[] | select(.content.type == "Issue" and .content.number == $n) | (.id // empty)' \
             <<<"$raw" 2>/dev/null | head -1)" || true
           if [[ -n "$item_id" ]]; then
-            GH_HOST="$proj_host" gh project item-edit "$proj_number" \
+            if GH_HOST="$proj_host" gh project item-edit "$proj_number" \
               --owner "$proj_owner" \
               --id "$item_id" \
               --field-id "$field_id" \
               --single-select-option-id "$blocked_id" \
-              >/dev/null 2>&1 || \
+              >/dev/null 2>&1; then
+              board_edit_ok=1
+            else
               echo "loop: WARN — reconcile-orphaned #$n: gh project item-edit failed" >&2
+            fi
           else
             echo "loop: WARN — reconcile-orphaned #$n: could not resolve board item-id" >&2
           fi
@@ -1644,7 +1652,10 @@ _reconcile_orphaned_in_progress() {
       fi
     } || true
 
-    # Apply needs-human-review label.
+    # Apply needs-human-review label only when board edit succeeded.
+    # Stamping the label without moving the card causes infinite oscillation:
+    # the card stays "In progress" on the next tick and gets reconciled again.
+    [[ "$board_edit_ok" -eq 1 ]] || { echo "loop: WARN — reconcile-orphaned #$n: skipping label stamp (board edit did not succeed)" >&2; continue; }
     {
       local repo_flag=()
       if [[ -n "${MAKATO_LOOP_DISPATCH_REPO:-}" ]]; then
@@ -1780,9 +1791,13 @@ _reconcile_orphaned_stale() {
     } || true
 
     # Move the board card to Blocked (shared pattern with #368 reconciler).
+    # board_edit_ok=1 only when the edit actually lands; label stamp is gated on it
+    # to prevent infinite oscillation on repeated ticks.
+    local board_edit_ok=0
     {
       if [[ -n "${MAKATO_LOOP_RECONCILE_TEST_FILE:-}" ]]; then
         echo "reconcile #${issue_n}" >>"$MAKATO_LOOP_RECONCILE_TEST_FILE"
+        board_edit_ok=1
       else
         local cfg proj_owner proj_number proj_host field_id blocked_id item_id
         cfg="$(_read_project_config 2>/dev/null)" || { echo "loop: WARN — reconcile-stale #$issue_n: no config for board edit" >&2; true; }
@@ -1800,13 +1815,16 @@ _reconcile_orphaned_stale() {
               '.items[] | select(.content.type == "Issue" and .content.number == $n) | .id' \
             2>/dev/null | head -1)" || true
           if [[ -n "$item_id" ]]; then
-            GH_HOST="$proj_host" gh project item-edit "$proj_number" \
+            if GH_HOST="$proj_host" gh project item-edit "$proj_number" \
               --owner "$proj_owner" \
               --id "$item_id" \
               --field-id "$field_id" \
               --single-select-option-id "$blocked_id" \
-              >/dev/null 2>&1 || \
+              >/dev/null 2>&1; then
+              board_edit_ok=1
+            else
               echo "loop: WARN — reconcile-stale #$issue_n: gh project item-edit failed" >&2
+            fi
           else
             echo "loop: WARN — reconcile-stale #$issue_n: could not resolve board item-id" >&2
           fi
@@ -1814,6 +1832,8 @@ _reconcile_orphaned_stale() {
       fi
     } || true
 
+    # Apply needs-human-review label only when board edit succeeded.
+    [[ "$board_edit_ok" -eq 1 ]] || { echo "loop: WARN — reconcile-stale #$issue_n: skipping label stamp (board edit did not succeed)" >&2; continue; }
     # Apply needs-human-review label (shared pattern with #368 reconciler).
     {
       local repo_flag=()
