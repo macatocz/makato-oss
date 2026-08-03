@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.129.0](https://github.com/macatocz/makato/compare/v0.128.0...v0.129.0) (2026-08-03)
+
+
+### ✨ Features
+
+* **makato-build:** make integration/E2E gate mandatory for &gt;=3-layer changes ([#581](https://github.com/macatocz/makato/issues/581)) ([#657](https://github.com/macatocz/makato/issues/657)) ([a976a3f](https://github.com/macatocz/makato/commit/a976a3fe26c1390eaa8099f6651fbf2e5208a437))
+* **makato-orchestrate:** bounded parallel issue fleet via N independent loop.sh workers ([#546](https://github.com/macatocz/makato/issues/546)) ([213081c](https://github.com/macatocz/makato/commit/213081c535d42f31766ea5bc87e3ca17e41bf3d9))
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** gate label stamp on board edit success in reconcile passes ([#653](https://github.com/macatocz/makato/issues/653)) ([f5bc7d5](https://github.com/macatocz/makato/commit/f5bc7d588e9dc345c5784dd1388d5550d10ac8b1))
+
 ## [Unreleased]
 
 ### Added
