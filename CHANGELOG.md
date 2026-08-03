@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.122.0](https://github.com/macatocz/makato/compare/v0.121.0...v0.122.0) (2026-08-03)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** webhook instant dispatch on status:ready-for-dev ([#599](https://github.com/macatocz/makato/issues/599)) ([#637](https://github.com/macatocz/makato/issues/637)) ([9bc1b37](https://github.com/macatocz/makato/commit/9bc1b374eec0b136a570e516879922111ac71b07))
+
 ## [0.121.0](https://github.com/macatocz/makato/compare/v0.120.1...v0.121.0) (2026-08-03)
 
 
