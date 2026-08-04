@@ -738,6 +738,19 @@ row). The `gh`-only polls (CI, review) are narrated with a single
    scenario caused the gap so `build-refine` can fix it). The script is
    advisory on `stories.json` / `spec-delta.md` absence (those sections are
    skipped rather than hard-failing). Narrate DONE after the script exits.
+1b. **Runtime QA.** After `build-verify-spec` succeeds, conditionally dispatch
+   `/makato-build:build-runtime-qa <KEY> --autonomous`
+   (narrate START with `--skill "build-runtime-qa" --agent "runtime-qa"
+   --goal "exercise the built app via Playwright MCP and score against acceptance criteria"`).
+   The guard is a grep for `## Runtime verification` in `plan-<N>.md`; skip
+   dispatch (no narration, no log) when the section is absent AND the most recent
+   `build.jsonl` `step:"gate-scout"` entry has no `health_check_cmd`.
+   R1 `status: "success"` with `data.skipped: true` → proceed (no-op, logged
+   internally by the skill). R1 `status: "failure"` (CRITICAL findings) → HALT-011
+   equivalent via `RUNTIME_QA_BLOCKED` (apply `needs-human-review`; the
+   `build.jsonl` `step:"runtime-qa-findings"` entry identifies the CRITICAL
+   finding so the coder can fix before re-dispatching). R1 `status: "success"`
+   with findings → proceed (MAJOR/ADVISORY are advisory). Narrate DONE after R1.
 2. Patch `current_phase: "pr"`. Narrate START
    (`--skill "build-push-to-git" --goal "save the finished changes, push
    to the remote and open a pull request"`), dispatch
@@ -1296,6 +1309,7 @@ state), and rolls over to a fresh comment near GitHub's 65 536-char limit.
 | Step 4f | `build-refine` | `planning agent` | re-plan the task list after a failure |
 | Step 6 #1 | `build-verify` | `review agent` | run all quality checks and tests |
 | Step 6 #1a | `build-verify-spec` | `(script)` | confirm implementation satisfies plan.md and stories.json |
+| Step 6 #1b | `build-runtime-qa` | `runtime-qa` | exercise the built app via Playwright MCP and score against acceptance criteria |
 | Step 6 #2 | `build-push-to-git` | *(no sub-agent)* | save the finished changes, push to the remote and open a pull request |
 | Step 6 #5 / 6b | `build-address-pr-comments` | `fix agent` | resolve the review comments on the pull request |
 | Conflict sub-loop | `resolve-pr-conflict` | *(no sub-agent)* | resolve the merge conflict between branches |
