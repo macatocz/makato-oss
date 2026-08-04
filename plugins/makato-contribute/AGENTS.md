@@ -51,6 +51,8 @@ Help contributors participate in makato suite development — scaffolding new pl
 makato-contribute/
 ├── .claude-plugin/plugin.json
 ├── skills/
+│   ├── harness-audit/            # Operator-gated audit: AGENTS.md bloat + permissionMode mismatches
+│   │   └── SKILL.md
 │   ├── makato-plugin-creator/    # Scaffold a new plugin from interview
 │   │   ├── SKILL.md
 │   │   └── references/
@@ -60,6 +62,9 @@ makato-contribute/
 │   └── sync-from-upstream/       # Migrate content from an upstream impact-market repo into makato
 │       ├── SKILL.md
 │       └── references/
+├── scripts/
+│   ├── harness-audit.sh          # Pure classifier: AGENTS.md sections + agent frontmatter (no mutation)
+│   └── harness-audit-smoke-tests.sh  # 8 scenarios T1–T8
 ├── shared/             # Cross-skill references (optional)
 ├── CLAUDE.md
 ├── AGENTS.md
