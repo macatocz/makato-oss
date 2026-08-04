@@ -154,6 +154,34 @@
       "fallback_skill": "makato-doc:markdown",
       "note": "markdownlint --fix handles most MD0xx rules; structural rules (MD001/024/025/033/043/052/…) fall through to makato-doc:markdown — the domain skill for markdown structure, not build-simplify"
     },
+    "stale-artifact:console-log": {
+      "action": "autofix-then-skill",
+      "cmd": "sed -i '' '/console\\.log(/d'",
+      "fallback_skill": "makato-build:build-simplify",
+      "note": "Leftover console.log — sed deletes lone debug lines; structural/inline usages fall through to build-simplify"
+    },
+    "stale-artifact:debugger": {
+      "action": "autofix-then-skill",
+      "cmd": "sed -i '' '/\\bdebugger\\b/d'",
+      "fallback_skill": "makato-build:build-simplify",
+      "note": "JS/TS debugger statement — autoremove lone lines; inline usages fall through to build-simplify"
+    },
+    "stale-artifact:python-debugger": {
+      "action": "autofix-then-skill",
+      "cmd": "sed -i '' '/pdb\\.set_trace\\(\\|breakpoint(/d'",
+      "fallback_skill": "makato-build:build-simplify",
+      "note": "Python debugger call — autoremove; multi-expression usages fall through to build-simplify"
+    },
+    "stale-artifact:log-file": {
+      "action": "autofix",
+      "cmd": "git rm --cached",
+      "note": "Staged *.log file — unstage with git rm --cached; never commit log files"
+    },
+    "stale-artifact:temp-file": {
+      "action": "autofix",
+      "cmd": "git rm --cached",
+      "note": "Staged temp file (*.tmp / tmp_* / temp_*) — unstage with git rm --cached"
+    },
     "sqlfluff:*": {
       "action": "autofix-then-skill",
       "cmd": "sqlfluff fix",
