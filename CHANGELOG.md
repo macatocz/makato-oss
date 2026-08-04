@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.138.0](https://github.com/macatocz/makato/compare/v0.137.0...v0.138.0) (2026-08-04)
+
+
+### ✨ Features
+
+* **makato-plan:** value-bearing blocked-by:N labels with GHA auto-cleanup ([#608](https://github.com/macatocz/makato/issues/608)) ([#676](https://github.com/macatocz/makato/issues/676)) ([a7ba76e](https://github.com/macatocz/makato/commit/a7ba76eff58e38bd4f85874fcb99b291f14897fd))
+
 ## [0.137.0](https://github.com/macatocz/makato/compare/v0.136.0...v0.137.0) (2026-08-04)
 
 
