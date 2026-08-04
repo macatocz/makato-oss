@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.139.2](https://github.com/macatocz/makato/compare/v0.139.1...v0.139.2) (2026-08-04)
+
+
+### 🐛 Bug Fixes
+
+* **makato-build:** guard against string description in check_correctness ([24cb760](https://github.com/macatocz/makato/commit/24cb760c6696fce927cb1ee263d72a0c56f75e11))
+
 ## [0.139.1](https://github.com/macatocz/makato/compare/v0.139.0...v0.139.1) (2026-08-04)
 
 
