@@ -141,6 +141,8 @@ makato-orchestrate/
 │   ├── mark-ac-checkboxes-smoke-tests.sh (AC-verification — 10 scenarios T1–T10)
 │   ├── generate-run-report.sh            (#448 — read-only per-issue final-envelope aggregation into a run report)
 │   ├── generate-run-report-smoke-tests.sh (#448 — 8 scenarios T1–T8)
+│   ├── generate-layer-report.sh          (#593 — HALT-by-layer aggregation report)
+│   ├── generate-layer-report-smoke-tests.sh (#593 — 8 scenarios T1–T8)
 │   ├── generate-quality-doc.sh            (#598 — per-domain quality scorecard from build.jsonl + halt_audit)
 │   ├── generate-quality-doc-smoke-tests.sh (#598 — 6 scenarios T1–T6)
 │   ├── generate-progress.sh               (#601 — auto-generate repo-root PROGRESS.md from loop-status.json + GitHub epic issues)

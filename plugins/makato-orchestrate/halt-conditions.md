@@ -107,37 +107,38 @@ The dual write is intentional: `workflow-state.json` is the live state the next 
 
 ## HALT classification table
 
-> **Single source of truth** for the `origin` and `retryable` values each HALT code must emit
+> **Single source of truth** for the `origin`, `retryable`, and `layer` values each HALT code must emit
 > in its `halt_audit[]` entry. The schema at
 > `plugins/makato-orchestrate/skills/workflow-state/references/workflow-state.schema.json`
 > defines the field shapes; this table defines the per-code values. The loop gates
 > `needs-human-review` on `origin`: only `"human"` (or absent, for backward compatibility)
 > triggers the label — `"auto"` and `"transient"` do not.
 
-| Code | origin | retryable | retry_after_secs hint | Rationale |
-|------|--------|-----------|-----------------------|-----------|
-| **HALT-000** | `transient` | `true` | — | Operator-placed file; operator removes it when ready to resume. No human judgement needed after the file is gone — loop can retry. |
-| **HALT-001** | `human` | `false` | — | Sensor-fixer exhausted its retry budget on a real finding. Operator must inspect and fix. |
-| **HALT-002** | `human` | `false` | — | Coverage gap below floor after re-plan failed. Operator must raise coverage or relax floor. |
-| **HALT-003** | `human` | `false` | — | CRITICAL reviewer findings or STRUCTURAL PR comments that `coder` could not address. Operator must review and decide. |
-| **HALT-004** | `human` | `false` | — | Sensor-fixer per-finding MAX_LOOPS exhausted. Operator must resolve finding manually. |
-| **HALT-005** | `human` | `false` | — | Push denied by deny-list (force-push to main, protected branch, etc.). Operator must review intent. |
-| **HALT-006** | `human` | `false` | — | Spec folder missing or malformed; auto-materialize also failed — build-refine (committed stories.json, any tier) and light-planner (`plan-tier:light`) both declined or produced no valid plan. Operator must shape the spec. |
-| **HALT-007** | `human` | `false` | — | Token budget exhausted (cost ceiling). Operator must decide whether to raise budget, split the issue, or abandon. |
-| **HALT-007B** | `auto` | `true` | — | Context-window quality gate. A fresh subprocess self-restarts automatically via the resume script — no operator action needed. |
-| **HALT-008** (outer_iteration) | `human` | `false` | — | Re-plan budget (outer_iteration ≥ 3) exhausted. Operator must reshape the story via makato-plan or resolve plan defects. |
-| **HALT-008** (merge_conflict) | `human` | `false` | — | Merge-conflict resolution budget exhausted. Operator must resolve conflicts manually from the retained worktree. |
-| **HALT-008** (ci_failure) | `human` | `false` | — | CI-failure fix budget exhausted. Operator must inspect failing CI logs and fix or reshape the task. |
-| **HALT-009** | `human` | `false` | — | Operator applied `claude-halt` label — explicit human-initiated stop. Operator must remove the label to resume. |
-| **HALT-010** | `human` | `false` | — | Human-review cycle ceiling (human_review_cycles ≥ MAX). Operator must decide whether to cancel, split, or re-shape. |
-| **HALT-011** | `human` | `false` | — | Sub-skill silent exit (no terminal `session` line in build.jsonl). Operator must inspect truncated audit trail and re-run. |
-| **HALT-012** | `transient` | `true` | `MAKATO_REVIEW_WAIT_SECS` (default 3600) | Review-poll timeout waiting for a first reviewer decision. A reviewer may appear; loop can retry once one is assigned. |
-| **HALT-013** | `human` | `false` | — | Reshape cycle ceiling (reshape_cycles ≥ MAKATO_MAX_RESHAPE_CYCLES). Operator must inspect reshape-request.json and shape manually. |
-| **HALT-STRUCTURAL** | `human` | `false` | — | `build-refine` failed after R1 escalation. Operator must re-shape the plan. |
-| **HALT-CH-001** | `human` | `false` | — | makato-change: headless repo discovery failed (REPO_ROOT missing, no repositories.yml). Operator must supply REPO_ROOT. |
-| **HALT-CH-002** | `human` | `false` | — | makato-change: critical blocking open question in analyze phase. Operator must answer the question in the issue body. |
-| **HALT-CH-003** | `auto` | `true` | — | makato-change: design auto-approved in autonomous mode (audit marker only — run continues). No operator action needed. |
-| **HALT-CH-004** | `auto` | `true` | — | makato-change: no test infrastructure found; implementation proceeded with degraded confidence. PR flagged for elevated scrutiny; no operator action to unblock. |
+| Code | origin | retryable | retry_after_secs hint | layer | Rationale |
+|------|--------|-----------|-----------------------|-------|-----------|
+| **HALT-000** | `transient` | `true` | — | `environment` | Operator-placed file; operator removes it when ready to resume. No human judgement needed after the file is gone — loop can retry. |
+| **HALT-001** | `human` | `false` | — | `verification` | Sensor-fixer exhausted its retry budget on a real finding. Operator must inspect and fix. |
+| **HALT-002** | `human` | `false` | — | `verification` | Coverage gap below floor after re-plan failed. Operator must raise coverage or relax floor. |
+| **HALT-003** | `human` | `false` | — | `verification` | CRITICAL reviewer findings or STRUCTURAL PR comments that `coder` could not address. Operator must review and decide. |
+| **HALT-004** | `human` | `false` | — | `verification` | Sensor-fixer per-finding MAX_LOOPS exhausted. Operator must resolve finding manually. |
+| **HALT-005** | `human` | `false` | — | `environment` | Push denied by deny-list (force-push to main, protected branch, etc.). Operator must review intent. |
+| **HALT-006** | `human` | `false` | — | `task-spec` | Spec folder missing or malformed; auto-materialize also failed — build-refine (committed stories.json, any tier) and light-planner (`plan-tier:light`) both declined or produced no valid plan. Operator must shape the spec. |
+| **HALT-007** | `human` | `false` | — | `environment` | Token budget exhausted (cost ceiling). Operator must decide whether to raise budget, split the issue, or abandon. |
+| **HALT-007B** | `auto` | `true` | — | `environment` | Context-window quality gate. A fresh subprocess self-restarts automatically via the resume script — no operator action needed. |
+| **HALT-008** (outer_iteration) | `human` | `false` | — | `state` | Re-plan budget (outer_iteration ≥ 3) exhausted. Operator must reshape the story via makato-plan or resolve plan defects. |
+| **HALT-008** (merge_conflict) | `human` | `false` | — | `environment` | Merge-conflict resolution budget exhausted. Operator must resolve conflicts manually from the retained worktree. |
+| **HALT-008** (ci_failure) | `human` | `false` | — | `verification` | CI-failure fix budget exhausted. Operator must inspect failing CI logs and fix or reshape the task. |
+| **HALT-009** | `human` | `false` | — | `environment` | Operator applied `claude-halt` label — explicit human-initiated stop. Operator must remove the label to resume. |
+| **HALT-010** | `human` | `false` | — | `state` | Human-review cycle ceiling (human_review_cycles ≥ MAX). Operator must decide whether to cancel, split, or re-shape. |
+| **HALT-011** | `human` | `false` | — | `state` | Sub-skill silent exit (no terminal `session` line in build.jsonl). Operator must inspect truncated audit trail and re-run. |
+| **HALT-012** | `transient` | `true` | `MAKATO_REVIEW_WAIT_SECS` (default 3600) | `context` | Review-poll timeout waiting for a first reviewer decision. A reviewer may appear; loop can retry once one is assigned. |
+| **HALT-013** | `human` | `false` | — | `state` | Reshape cycle ceiling (reshape_cycles ≥ MAKATO_MAX_RESHAPE_CYCLES). Operator must inspect reshape-request.json and shape manually. |
+| **HALT-014** | `human` | `false` | — | `state` | Stall-restart ceiling (stall_restart_count ≥ MAX_STALL_RESTARTS). Operator must diagnose the semantic dead loop and reshape or fix the root cause. |
+| **HALT-STRUCTURAL** | `human` | `false` | — | `verification` | `build-refine` failed after R1 escalation. Operator must re-shape the plan. |
+| **HALT-CH-001** | `human` | `false` | — | `context` | makato-change: headless repo discovery failed (REPO_ROOT missing, no repositories.yml). Operator must supply REPO_ROOT. |
+| **HALT-CH-002** | `human` | `false` | — | `context` | makato-change: critical blocking open question in analyze phase. Operator must answer the question in the issue body. |
+| **HALT-CH-003** | `auto` | `true` | — | `context` | makato-change: design auto-approved in autonomous mode (audit marker only — run continues). No operator action needed. |
+| **HALT-CH-004** | `auto` | `true` | — | `verification` | makato-change: no test infrastructure found; implementation proceeded with degraded confidence. PR flagged for elevated scrutiny; no operator action to unblock. |
 
 ### Backward compatibility
 
@@ -147,6 +148,7 @@ Legacy `halt_audit[]` entries (written before this classification was introduced
 - `origin` absent → treat as `"human"` (preserves existing `needs-human-review` labelling behaviour)
 - `retryable` absent → treat as `false` (conservative; prevents unintended auto-retry on legacy entries)
 - `retry_after_secs` absent → no wait hint; consumer decides
+- `layer` absent → treat as `"unknown"` (backward compat; consumers that aggregate by layer MUST include an `unknown` bucket)
 
 ## See also
 - `plugins/makato-orchestrate/skills/kill-switch/SKILL.md` — implementation of HALT-000, HALT-007, HALT-007B, HALT-009.
