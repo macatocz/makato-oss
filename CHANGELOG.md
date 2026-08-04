@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.135.0](https://github.com/macatocz/makato/compare/v0.134.0...v0.135.0) (2026-08-04)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** cloud-hosted loop runner — GHA cron running loop.sh run --once ([#600](https://github.com/macatocz/makato/issues/600)) ([87db6a0](https://github.com/macatocz/makato/commit/87db6a0ea6561a5d314172e55af643ee0bca8c9a))
+
 ## [0.134.0](https://github.com/macatocz/makato/compare/v0.133.0...v0.134.0) (2026-08-04)
 
 
