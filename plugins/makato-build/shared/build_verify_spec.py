@@ -196,7 +196,7 @@ def check_correctness(stories_text: str | None, diff_text: str) -> CorrectnessRe
 
     try:
         stories_data = json.loads(stories_text)
-    except json.JSONDecodeError, ValueError:
+    except (json.JSONDecodeError, ValueError):
         # Treat as gap — malformed stories.json
         v = ScenarioVerdict(title="(malformed stories.json)", verdict="GAP")
         return CorrectnessResult(verdicts=[v], gap_count=1)
@@ -207,7 +207,7 @@ def check_correctness(stories_text: str | None, diff_text: str) -> CorrectnessRe
     all_scenarios = [
         scenario
         for story in stories_data.get("stories", [])
-        for scenario in (story.get("description") or {}).get("successScenarios", [])
+        for scenario in (story.get("description") if isinstance(story.get("description"), dict) else {}).get("successScenarios", [])
     ]
 
     result = CorrectnessResult()

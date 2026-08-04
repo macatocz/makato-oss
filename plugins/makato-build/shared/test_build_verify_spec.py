@@ -225,6 +225,18 @@ class TestCorrectness:
         assert all(v.verdict == "UNTESTABLE" for v in result.verdicts)
         assert result.ok  # UNTESTABLE is not a GAP
 
+    def test_string_description_does_not_raise(self):
+        # description as plain string (not dict) must not raise AttributeError
+        stories = {
+            "version": "2.0",
+            "slug": "test",
+            "stories": [
+                {"sequence": 1, "summary": "s", "description": "plain string value"}
+            ],
+        }
+        result = check_correctness(json.dumps(stories), DIFF_WITH_WIDGET)
+        assert result.skipped or result.ok  # no scenarios extracted → ok/skipped, never error
+
 
 # ---------------------------------------------------------------------------
 # COHERENCE tests
