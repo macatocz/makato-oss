@@ -70,6 +70,16 @@ AUTOFIXABLE_RULES: dict[str, tuple[str, ...]] = {
         r"^prettier/.*$",
         r"^import/order$",
     ),
+    # stale-artifact-check hook rules (#596): debug leftovers and staged temp/log files.
+    # Patterns match the bare rule name extracted from the [stale-artifact/<rule>] bracket
+    # notation emitted by the hook (brackets are stripped by _PRECOMMIT_LINE_RE).
+    "stale-artifact": (
+        r"^console-log$",
+        r"^debugger$",
+        r"^python-debugger$",
+        r"^log-file$",
+        r"^temp-file$",
+    ),
 }
 
 _SEVERITY_VALUES = {"error", "warning", "note"}
@@ -382,6 +392,11 @@ def parse_markdownlint_json(stdin_or_path: Any) -> list[Finding]:
 # Match common forms emitted by tools running under pre-commit, e.g.:
 #   path/to/file.py:42:5: F401 'os' imported but unused
 #   path/to/file.py:10: warning: something happened
+#   src/index.js:3: [stale-artifact/console-log] console.log( found in addition
+#
+# The bracket form [tool/rule] is emitted by hooks like stale-artifact-check; the
+# named group `rule_bare` captures only the rule part after the slash so callers
+# can normalise it via `m.group("rule") or m.group("rule_bare") or ""`.
 _PRECOMMIT_LINE_RE = re.compile(
     r"""^
     (?P<path>[^\s:][^:]*?):
@@ -389,7 +404,11 @@ _PRECOMMIT_LINE_RE = re.compile(
     (?::(?P<col>\d+))?
     :\s*
     (?:(?P<sev>error|warning|note|info)\s*:\s*)?
-    (?:(?P<rule>[A-Z]{1,4}\d{2,4}|[A-Za-z0-9_-]+/[A-Za-z0-9_-]+)\s+)?
+    (?:
+        \[[A-Za-z0-9_-]+/(?P<rule_bare>[A-Za-z0-9_-]+)\]\s+
+        |
+        (?P<rule>[A-Z]{1,4}\d{2,4}|[A-Za-z0-9_-]+/[A-Za-z0-9_-]+)\s+
+    )?
     (?P<msg>.+)
     $""",
     re.VERBOSE,
@@ -443,7 +462,7 @@ _PRECOMMIT_HOOK_RE = re.compile(r"^([a-z][a-z0-9_-]+)\.{3,}.*(Failed|Passed)\s*$
 # uses a human-readable label instead of the hook id (e.g. "Detect hardcoded
 # secrets" for gitleaks).
 _PRECOMMIT_HOOK_LABEL_RE = re.compile(
-    r"^(?P<label>[A-Za-z][A-Za-z0-9 _-]*?)\.{3,}.*(Failed|Passed)\s*$"
+    r"^(?P<label>[A-Za-z][A-Za-z0-9 _()\[\].-]*?)\.{3,}.*(Failed|Passed)\s*$"
 )
 _PRECOMMIT_HOOK_LABEL_TO_TOOL = {
     "detect hardcoded secrets": "gitleaks",
@@ -453,6 +472,9 @@ _PRECOMMIT_HOOK_LABEL_TO_TOOL = {
     # below — are attributed to biome, not left as the generic "pre-commit".
     "biome check": "biome",
     "biome": "biome",
+    # stale-artifact-check hook: debug leftovers and temp files (#596)
+    "stale-artifact check (debug leftovers)": "stale-artifact",
+    "stale-artifact check": "stale-artifact",
 }
 
 # Hooks whose "files were modified by this hook" line is a genuine autofix
@@ -721,7 +743,7 @@ def parse_pre_commit_output(text: str) -> list[Finding]:
         else:
             severity = "warning"
 
-        rule = m.group("rule") or ""
+        rule = m.group("rule") or m.group("rule_bare") or ""
         findings.append(
             Finding(
                 tool=current_tool,
