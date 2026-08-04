@@ -5,6 +5,14 @@ Changes are grouped by skill/agent/component. Within each group, latest version 
 
 ## [Unreleased]
 
+### Fixed
+
+- **`issue-to-project` skill** — Step 3 FIELD_NOT_FOUND check now uses a dedicated `gh project field-list` call instead of reading a non-existent `fields` key from the `item-list` payload (#648).
+  - `gh project item-list --format json` returns `{"items": [...]}` with no top-level `fields` key; the previous `payload.get("fields", {}).get("nodes", [])` always produced an empty set, causing every configured non-Status field to trigger a false-positive HALT.
+  - Fix mirrors the pattern already used by pre-flight check 5 (#606): a separate `field-list` call with `.get("fields", [])` (flat list, no `.nodes` wrapper).
+  - Graceful fallback: if the `field-list` call itself fails, a WARN is logged and validation is skipped rather than silently producing a bad result.
+  - `references/fixtures/issue-to-project-preflight-smoke-tests.sh` — added T5 (all configured field IDs present → no HALT) and T6 (configured ID absent → FIELD_NOT_FOUND) to cover the Step 3 check.
+
 ### Added
 
 - **`to-issues` skill v3.11.0** — cross-repo issue creation via `--repo` and `--store` flags (#565, AC-1, AC-2).

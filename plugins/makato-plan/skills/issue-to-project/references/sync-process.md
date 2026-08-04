@@ -332,11 +332,23 @@ if fields_config:
             raw_val = item.get(field_name) or item.get(field_name.lower())
             field_values[field_key] = raw_val
         snapshot[url]["fieldValues"] = field_values
+```
 
-# Verify all configured non-Status field IDs are live on the project
-# (FIELD_NOT_FOUND check — done once before the add/edit loop)
+```bash
+# FIELD_NOT_FOUND check — fetch live field list via field-list (item-list has no fields key)
+FIELD_LIST_RAW="$(timeout "${ITP_GH_TIMEOUT_SECONDS:-30}" \
+  GH_HOST="${RESOLVED_HOST:-github.com}" gh project field-list "$NUMBER" \
+  --owner "$OWNER" --format json 2>&1)" || true
+```
+
+```python
 if fields_config:
-    live_field_ids = {f["id"] for f in payload.get("fields", {}).get("nodes", [])}
+    try:
+        live_field_ids = {f["id"] for f in json.loads(FIELD_LIST_RAW).get("fields", [])}
+    except (json.JSONDecodeError, Exception):
+        live_field_ids = set()
+        print("[issue-to-project] WARN: field-list call failed during FIELD_NOT_FOUND check; "
+              "proceeding without field-ID validation", file=sys.stderr)
     for field_key, field_cfg in fields_config.items():
         if field_key == "status":
             continue  # Status id validated in pre-flight check 5

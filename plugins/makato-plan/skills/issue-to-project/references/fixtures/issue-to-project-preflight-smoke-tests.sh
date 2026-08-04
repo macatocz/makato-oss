@@ -181,6 +181,94 @@ check "T4 no HALT emitted"              "none"                      "$(xhalt "$T
 check "T4 no WARN emitted"              "none"                      "$(xwarn "$T4")"
 
 # ---------------------------------------------------------------------------
+# Reference implementation of the deterministic core of sync-process.md
+# Step 3 FIELD_NOT_FOUND check.
+#
+# run_field_check(field_list_ok, field_list_json, fields_config_json)
+#
+# Arguments simulate what the real skill does with actual gh calls:
+#   field_list_ok       — "1" when gh project field-list exits 0, else "0"
+#   field_list_json     — raw JSON text returned by gh project field-list
+#   fields_config_json  — JSON object mapping field_key → {id, name} for all
+#                         non-Status configured fields (empty object "{}" when
+#                         fields_config is empty, skipping the check entirely)
+#
+# Emits one line: "exit=<N> halt=<code|none> warn=<line|none>"
+# If the prose in sync-process.md Step 3 changes the algorithm, update this
+# block in lockstep — a drift here means the spec and its guard disagree.
+# ---------------------------------------------------------------------------
+run_field_check() {
+  python3 - "$@" <<'PY'
+import json
+import sys
+
+(field_list_ok, field_list_json, fields_config_json) = sys.argv[1:]
+
+fields_config = json.loads(fields_config_json)
+
+# Guard: if no non-Status fields configured, skip entirely
+if not fields_config:
+    print("exit=0 halt=none warn=none")
+    sys.exit(0)
+
+# Derive live_field_ids via field-list response (flat fields list, no .nodes)
+warn = "none"
+if field_list_ok == "1":
+    try:
+        live_field_ids = {f["id"] for f in json.loads(field_list_json).get("fields", [])}
+    except (json.JSONDecodeError, Exception):
+        live_field_ids = set()
+        warn = "[issue-to-project] WARN: field-list call failed during FIELD_NOT_FOUND check; proceeding without field-ID validation"
+else:
+    live_field_ids = set()
+    warn = "[issue-to-project] WARN: field-list call failed during FIELD_NOT_FOUND check; proceeding without field-ID validation"
+
+# Check each configured non-Status field ID
+for field_key, field_cfg in fields_config.items():
+    if field_key == "status":
+        continue
+    if field_cfg["id"] not in live_field_ids:
+        print(f"exit=1 halt=FIELD_NOT_FOUND warn={warn}")
+        sys.exit(0)
+
+print(f"exit=0 halt=none warn={warn}")
+PY
+}
+
+# ---------------------------------------------------------------------------
+# Fixture values for T5 / T6
+# ---------------------------------------------------------------------------
+FIELD_ID_PRIORITY="PVTF_lADOAaaaaaBBBB_PRIO"
+FIELD_ID_ESTIMATE="PVTF_lADOAaaaaaBBBB_EST"
+
+# fields_config with one non-Status field (Priority)
+FIELDS_CFG_ONE='{"priority":{"id":"PVTF_lADOAaaaaaBBBB_PRIO","name":"Priority"}}'
+
+# field-list response that CONTAINS the configured Priority field ID
+FIELD_LIST_OK_JSON='{"fields":[{"id":"PVTSSF_lADOAaaaaaBBBB_CCCC","name":"Status","type":"ProjectV2SingleSelectField"},{"id":"PVTF_lADOAaaaaaBBBB_PRIO","name":"Priority","type":"ProjectV2Field"}],"totalCount":2}'
+
+# field-list response that does NOT contain the configured Priority field ID
+FIELD_LIST_MISSING_JSON='{"fields":[{"id":"PVTSSF_lADOAaaaaaBBBB_CCCC","name":"Status","type":"ProjectV2SingleSelectField"}],"totalCount":1}'
+
+# ---------------------------------------------------------------------------
+# T5: fields_config non-empty, field-list contains all configured IDs → exit 0
+# ---------------------------------------------------------------------------
+echo ""
+echo "T5: all configured field IDs present in field-list — no FIELD_NOT_FOUND"
+T5="$(run_field_check "1" "$FIELD_LIST_OK_JSON" "$FIELDS_CFG_ONE")"
+check "T5 exit code is 0"    "0"    "$(xexit "$T5")"
+check "T5 no HALT emitted"   "none" "$(xhalt "$T5")"
+
+# ---------------------------------------------------------------------------
+# T6: fields_config non-empty, field-list missing one configured ID → exit 1
+# ---------------------------------------------------------------------------
+echo ""
+echo "T6: configured field ID absent from field-list — FIELD_NOT_FOUND"
+T6="$(run_field_check "1" "$FIELD_LIST_MISSING_JSON" "$FIELDS_CFG_ONE")"
+check "T6 exit code is 1"              "1"               "$(xexit "$T6")"
+check "T6 HALT is FIELD_NOT_FOUND"     "FIELD_NOT_FOUND" "$(xhalt "$T6")"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo ""
