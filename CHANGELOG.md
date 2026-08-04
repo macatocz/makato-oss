@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.134.0](https://github.com/macatocz/makato/compare/v0.133.0...v0.134.0) (2026-08-04)
+
+
+### ✨ Features
+
+* **makato-build:** add stale-artifact sensor routes to finding-routes.json ([8ff2b27](https://github.com/macatocz/makato/commit/8ff2b27102def2ae121f358be1e405a6de781ea5))
+* **makato-build:** add stale-artifact-check pre-commit hook (console.log/debugger/temp-file detection) ([521c114](https://github.com/macatocz/makato/commit/521c114bca1102399337bcc7963741f350f617a9))
+* **makato-build:** DoD item 8 and build-verify Gate 8 extended to cover debug/stale artifacts ([f71054e](https://github.com/macatocz/makato/commit/f71054ec8dfc4c58312625965b120101cc5f7ba5))
+* **makato-build:** parse-sarif.py maps stale-artifact-check hook label to tool stale-artifact ([7fc0282](https://github.com/macatocz/makato/commit/7fc028247f3697862cbb6bc17be4c43f443a22da))
+* **makato-build:** stale-artifact sensor lane — flag debug leftovers in diff ([#596](https://github.com/macatocz/makato/issues/596)) ([bac73fd](https://github.com/macatocz/makato/commit/bac73fd9ed16eabd49ed1dd4a7902726da2cde17))
+* **makato-build:** stale-artifact sensor lane — flag debug leftovers in diff ([#596](https://github.com/macatocz/makato/issues/596)) ([bac73fd](https://github.com/macatocz/makato/commit/bac73fd9ed16eabd49ed1dd4a7902726da2cde17))
+
 ## [0.133.0](https://github.com/macatocz/makato/compare/v0.132.0...v0.133.0) (2026-08-04)
 
 
