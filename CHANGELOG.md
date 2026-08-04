@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.139.1](https://github.com/macatocz/makato/compare/v0.139.0...v0.139.1) (2026-08-04)
+
+
+### 🐛 Bug Fixes
+
+* **makato-plan:** Step 3 FIELD_NOT_FOUND check uses broken fields.nodes traversal ([#648](https://github.com/macatocz/makato/issues/648)) ([#680](https://github.com/macatocz/makato/issues/680)) ([0ea79b4](https://github.com/macatocz/makato/commit/0ea79b4ad4a00d9f8f3cadf674e9fbe009e9c9a9))
+
 ## [0.139.0](https://github.com/macatocz/makato/compare/v0.138.0...v0.139.0) (2026-08-04)
 
 
