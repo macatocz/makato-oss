@@ -1,0 +1,52 @@
+name: loop-cron
+
+# Scheduled loop runner — fires loop.sh run --once on a self-hosted makato runner
+# every 10 minutes so the autonomous PO-agent continues processing Ready items even
+# when the local machine is off or the terminal loop is not running.
+#
+# Trigger: schedule cron every 10 minutes
+# Runner:  self-hosted with the `makato` label (must have Claude CLI + repo checkout)
+# Gate:    the existing _within_dispatch_guard / _pre_dispatch_plan_guard inside
+#          loop.sh run on every invocation — no bypass here.
+#
+# Cross-machine guard: when both this cron run and a local `loop run` see the same
+# Ready item, the board CAS claim (Status move to "In Progress" via gh project
+# item-edit with MAKATO_LOOP_CLAIM_ON_DISPATCH=1) is the cross-machine mutex.
+# The in_flight_issues file-scan is a same-machine guard only.
+#
+# Concurrency: cancel-in-progress: false prevents two cron ticks from stacking —
+# a second tick will queue behind the first rather than cancel it.
+#
+# Runner contract: see plugins/makato-orchestrate/AGENTS.md ## Infrastructure
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: loop-cron
+  cancel-in-progress: false
+
+jobs:
+  run-loop:
+    runs-on: [self-hosted, makato]
+    timeout-minutes: 120
+
+    env:
+      MAKATO_HEADLESS: "1"
+      MAKATO_LOOP_DISPATCH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ secrets.GH_TOKEN || secrets.MAKATO_TOKEN || github.token }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Run loop once
+        run: |
+          set -euo pipefail
+          echo "→ loop-cron: running loop.sh run --once"
+          plugins/makato-orchestrate/scripts/loop.sh run --once

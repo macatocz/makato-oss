@@ -147,6 +147,7 @@ makato-orchestrate/
 │   ├── generate-quality-doc-smoke-tests.sh (#598 — 6 scenarios T1–T6)
 │   ├── generate-progress.sh               (#601 — auto-generate repo-root PROGRESS.md from loop-status.json + GitHub epic issues)
 │   ├── generate-progress-smoke-tests.sh   (#601 — 6 scenarios T1–T6)
+│   ├── loop-cron-smoke-tests.sh           (#600 — YAML invariant assertions for loop-cron.yml T-CRON-1 to T-CRON-5)
 │   ├── resolve-append-only-conflict.sh   (resolve-pr-conflict — union-merge a conflicted append-only file, CHANGELOG/AUTHORS/*.jsonl)
 │   ├── resolve-append-only-conflict-smoke-tests.sh (resolve-pr-conflict — 8 scenarios T1–T8)
 │   ├── sync-living-specs.sh              (#567 — apply spec-delta.md ADDED/MODIFIED/REMOVED to docs/specs/<capability>.md)
@@ -240,6 +241,57 @@ the GitHub Actions side, so at most one `dispatch` call is in flight at a time p
 **Dispatch gate:** `MAKATO_LOOP_GATE_DISABLE` is intentionally absent from the workflow
 environment. The existing `_pre_dispatch_plan_guard` inside `cmd_dispatch` runs on every
 webhook-triggered invocation — no bypass.
+
+### Scheduled loop runner contract
+
+The `.github/workflows/loop-cron.yml` workflow fires `loop.sh run --once` on the same
+self-hosted `makato` runner every 10 minutes, providing a "loop survives machine-off" fallback
+when the operator's local terminal is not running the polling loop.
+
+**Runner requirement:** `[self-hosted, makato]` — the same runner label as `webhook-dispatch`.
+
+Cloud `ubuntu-latest` runners are explicitly unsupported: the merged/stale-worktree reaper
+requires local disk access to clean up worktrees left by previous PO-agent runs. If no
+self-hosted runner with the `makato` label is registered and online, the cron workflow will
+queue but not execute. In that situation, the local `loop run` terminal invocation remains the
+fallback — the two paths are additive.
+
+**Cross-machine double-dispatch guarantee:**
+
+`loop.sh run --once` uses `_within_dispatch_guard` combined with a synchronous board CAS claim
+(`MAKATO_LOOP_CLAIM_ON_DISPATCH=1`). When a cloud cron run and a local `loop run` both see the
+same Ready item at the same time, the board CAS claim — a `gh project item-edit` Status move to
+"In Progress" — is the cross-machine mutex. Only one caller wins the CAS; the other sees the
+item is no longer Ready and skips it.
+
+The `in_flight_issues` file-scan guard inside `loop.sh` is a same-machine guard only: it
+protects against two invocations on the same runner sharing the same filesystem, but it cannot
+see the other machine's in-flight state. Across machines, the board CAS claim is authoritative.
+
+**Concurrency group:** the cron job uses `group: loop-cron` with `cancel-in-progress: false`.
+This prevents two cron ticks from running simultaneously on the same runner — a second tick
+queues behind the first rather than being dropped. Each tick runs at most one `loop run --once`
+invocation end-to-end before the slot is released.
+
+**Required secrets:**
+
+| Secret | Purpose |
+|--------|---------|
+| `ANTHROPIC_API_KEY` | Claude API key — forwarded to the `claude` subprocess |
+| `GH_TOKEN` or `MAKATO_TOKEN` | GitHub token for `gh` CLI calls inside `loop.sh` and the PO-agent |
+
+**Interaction with webhook-dispatch:** the two dispatch paths are additive. The cron workflow is
+the "loop survives machine-off" fallback; the webhook is the low-latency path that fires the
+moment `status:ready-for-dev` is applied. Neither blocks the other. Both are guarded by the
+board CAS claim, so a Ready item processed by one path is invisible to the other by the time
+it polls.
+
+**CI smoke tests:** `plugins/makato-orchestrate/scripts/loop-cron-smoke-tests.sh` asserts the
+five YAML invariants that make `loop-cron.yml` safe for autonomous operation (T-CRON-1 to
+T-CRON-5): `schedule:` trigger present, `self-hosted` runner without `ubuntu-latest`,
+`MAKATO_HEADLESS: "1"` env guard, `cancel-in-progress: false` concurrency guard, and
+`run --once` invocation. Run from the repo root with no arguments; exits non-zero on any
+failure.
 
 ## PR Checklist
 
