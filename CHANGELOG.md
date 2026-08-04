@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.136.0](https://github.com/macatocz/makato/compare/v0.135.0...v0.136.0) (2026-08-04)
+
+
+### ✨ Features
+
+* **makato-build:** add runtime-qa agent definition with R1 envelope contract ([17eaf9e](https://github.com/macatocz/makato/commit/17eaf9e397aafdea46748c97b2dafbeb425fc5a1))
+* **makato-build:** register RUNTIME_QA_BLOCKED halt code in halt-codes.md ([a5c93d1](https://github.com/macatocz/makato/commit/a5c93d1ef0aedf6a01cf6fd83d767faefe2bc489))
+* **makato-build:** runtime-qa agent — exercise built app via Playwright MCP ([#582](https://github.com/macatocz/makato/issues/582)) ([0f36b97](https://github.com/macatocz/makato/commit/0f36b97e1f6293171af876683d46d55d46ff9c98))
+* **makato-build:** runtime-qa agent — exercise built app via Playwright MCP ([#582](https://github.com/macatocz/makato/issues/582)) ([0f36b97](https://github.com/macatocz/makato/commit/0f36b97e1f6293171af876683d46d55d46ff9c98))
+* **makato-orchestrate:** add build-runtime-qa Step 6 [#1](https://github.com/macatocz/makato/issues/1)b dispatch to po-agent and progress-comment table ([7b1f7ed](https://github.com/macatocz/makato/commit/7b1f7ed91c9ca693a5a19c65702d89c55d5e64eb))
+
 ## [0.135.0](https://github.com/macatocz/makato/compare/v0.134.0...v0.135.0) (2026-08-04)
 
 
