@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.139.0](https://github.com/macatocz/makato/compare/v0.138.0...v0.139.0) (2026-08-04)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** thread issue-level trace ID across sessions ([#595](https://github.com/macatocz/makato/issues/595)) ([#678](https://github.com/macatocz/makato/issues/678)) ([a79c01b](https://github.com/macatocz/makato/commit/a79c01b9f2853ed1a5526c07c56ac4086e636cde))
+
 ## [0.138.0](https://github.com/macatocz/makato/compare/v0.137.0...v0.138.0) (2026-08-04)
 
 
