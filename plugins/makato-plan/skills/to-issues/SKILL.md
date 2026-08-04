@@ -205,9 +205,10 @@ For each story in `stories.json.stories[]`, apply the algorithm in `references/l
    - **points**: if `stories[].labels[]` contains a `points:<n>` string with a positive-integer `<n>`, emit it verbatim; else if legacy `metadata.points` is a positive integer, emit `points:<value>`; else if `stories[].storyPoints` is a positive integer, **derive** `points:<storyPoints>` verbatim and log `[to-issues:auto] story <n>: points:<value> derived from storyPoints`; else if a resolved `effort` exists, derive via the SIZE_MAP (`s→1`, `m→3`, `l→8`, `xl→13`) and log `[to-issues:auto] story <n>: points:<derived> derived from effort:<value>`; else omit. Non-positive or non-integer inputs log `[to-issues:auto] story <n>: points source <value> not a positive integer — skipped` and are omitted.
    - Any label-array or legacy-metadata value outside the documented enum logs `[to-issues:auto] story <n>: <field>=<value> not in enum — skipped` and is omitted (the issue is still created).
    - When none of the five dimensions resolve for a story, all five labels are omitted silently (no warning — these dimensions are sparse-by-default).
-6. **dependency labels** *(v3.9.0+)*: apply `blocked by` and `blocking` per `references/label-taxonomy.md` `## Dependency Dimension`:
-   - **`blocked by`**: emit on every story whose resolved `dependencies.blockedBy` is non-empty (i.e. at least one blocker issue number was resolved). Applied alongside `status:blocked` — the two signals are additive. In autonomous mode log `[to-issues:auto] story <n>: adding label "blocked by" (blockers: #<n1>, #<n2>)`.
-   - **`blocking`**: this label is applied **retroactively** to upstream issues via `gh issue edit --add-label` immediately after each downstream issue is created (see Step 5 for the exact placement). The `blocking` label is **not** included in a story's own label set during inference — it is a cross-issue signal applied to blockers, not to the blocked story itself. In autonomous mode log `[to-issues:auto] story <n>: patching blocking label onto upstream issues: #<n1>, #<n2>`.
+6. **dependency labels** *(v3.9.0+, value-bearing format v3.12.0+)*: apply `blocked-by:N` and `blocking:N` per `references/label-taxonomy.md` `## Dependency Dimension`:
+   - **`blocked-by:N`**: for each blocker issue number in `RESOLVED_BLOCKED_BY[]`, emit a separate label `blocked-by:<N>` (no `#` prefix — numeric only, safe in shell without quoting). E.g. two blockers #42 and #43 → labels `blocked-by:42` and `blocked-by:43`. Applied alongside `status:blocked` — the two signals are additive. In autonomous mode log `[to-issues:auto] story <n>: adding label "blocked-by:<N>"`.
+   - **`blocking:N`**: applied **retroactively** to each upstream issue via `gh issue edit --add-label "blocking:<DOWNSTREAM_ISSUE_NUMBER>"` after the downstream issue is created. Applied per-blocker: upstream #42 gets `blocking:<DOWNSTREAM>`. The `blocking:N` label is **not** included in a story's own label set during inference — it is a cross-issue signal applied to blockers, not to the blocked story itself. In autonomous mode log `[to-issues:auto] story <n>: patching blocking:<DOWNSTREAM> onto upstream #<N>`.
+   - Both labels are created on-demand (pattern labels — not pre-created). The label name is derived at runtime from the resolved issue number; no hard-coded set of `blocked-by:*` labels exists.
 
 7. **status**: emit `status:blocked` when ANY of the following hold, otherwise omit the `status:` dimension entirely (sparse — see `references/label-taxonomy.md` `## Status Dimension`):
    - The story's `dependencies.blockedBy` contains an integer ID that is unresolved at the point of issue creation. "Unresolved" means: (a) the upstream story has no corresponding GitHub issue yet AND (b) the upstream story was not created earlier in the current batch's topological order. Dangling references (ID not in batch at all) also emit `status:blocked` with a soft-warning log line.
@@ -230,17 +231,7 @@ For each unique label across all stories, if it is not in `EXISTING_LABELS`, cre
 GH_HOST=github.com gh label create "<label>" --repo "$TARGET_REPO" --color "<hex>" --description "Auto-created by to-issues v3"
 ```
 
-In addition, always ensure the two dependency labels exist on the repo — they are emitted cross-issue (not per-story label sets) so the per-story loop above will not create them automatically:
-
-```bash
-GH_HOST=github.com gh label create "blocked by" \
-  --repo "$TARGET_REPO" --color "B60205" \
-  --description "Issue has upstream dependencies — see Blocked by: line in body" 2>/dev/null || true
-
-GH_HOST=github.com gh label create "blocking" \
-  --repo "$TARGET_REPO" --color "D93F0B" \
-  --description "Issue must merge before downstream dependents can proceed" 2>/dev/null || true
-```
+Pattern labels `blocked-by:N` and `blocking:N` are created on-demand during Step 5 issue creation — no pre-creation step needed. The label name is derived at runtime from the resolved issue number; no hard-coded set of `blocked-by:*` or `blocking:*` labels exists.
 
 Skip silently when the label already exists; never overwrite color or description.
 
@@ -297,15 +288,18 @@ For each story:
      $(printf -- '--label %q ' "${LABELS_ARRAY[@]}"))"
    ISSUE_NUMBER="$(basename "$ISSUE_URL")"
    ```
-4. **Retroactive `blocking` patch** — immediately after creating the issue, for each upstream issue referenced in `RESOLVED_BLOCKED_BY[]` (the real issue numbers resolved in step 1), apply the `blocking` label if it is not already present:
+4. **Retroactive `blocking:N` patch** — immediately after creating the issue, for each upstream issue referenced in `RESOLVED_BLOCKED_BY[]` (the real issue numbers resolved in step 1), create the per-dependency labels and apply them:
    ```bash
    for UPSTREAM_NUM in "${RESOLVED_BLOCKED_BY[@]}"; do
+     GH_HOST=github.com gh label create "blocking:${ISSUE_NUMBER}" \
+       --repo "$TARGET_REPO" --color "D93F0B" \
+       --description "Blocks issue #${ISSUE_NUMBER}" 2>/dev/null || true
      GH_HOST=github.com gh issue edit "$UPSTREAM_NUM" \
        --repo "$TARGET_REPO" \
-       --add-label "blocking" 2>/dev/null || true
+       --add-label "blocking:${ISSUE_NUMBER}" 2>/dev/null || true
    done
    ```
-   This is a best-effort call (`|| true`) — a label-apply failure does not abort the batch. Log `[to-issues:auto] story <n>: patched blocking label onto #<upstream_nums>` in autonomous mode.
+   This is a best-effort call (`|| true`) — a label-apply failure does not abort the batch. Log `[to-issues:auto] story <n>: patching blocking:<ISSUE_NUMBER> onto upstream #<UPSTREAM_NUM>` in autonomous mode.
 5. **Plan emission** — after the issue is created and the blocking patch is applied, if the story does NOT carry the label `type:future-enhancement`, write `$REPO_ROOT/specs/$SLUG/plan-${ISSUE_NUMBER}.md` using the template at `references/plan-template.md`. Populate the template by substituting:
    - `{{ISSUE_NUMBER}}` → the created issue number (from `ISSUE_NUMBER`).
    - `{{STORY_SUMMARY}}` → the story's `summary` field.

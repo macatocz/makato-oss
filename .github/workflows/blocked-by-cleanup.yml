@@ -1,0 +1,139 @@
+name: blocked-by-cleanup
+
+# Automatic cleanup of value-bearing blocked-by:N dependency labels when a
+# blocker issue closes or reopens.
+#
+# On close:
+#   1. Find all open issues with label "blocked-by:<CLOSED_NUM>".
+#   2. Remove that label from each dependent.
+#   3. If no blocked-by:* labels remain: promote to status:ready-for-dev.
+#   4. Remove blocking:<DEP> from the closed issue for any fully-unblocked dependent.
+#
+# On reopen:
+#   1. Find dependents in specs/*/created-issues.json.
+#   2. Re-add blocked-by:<REOPENED_NUM> and status:blocked.
+#      NOTE: status:ready-for-dev is a PERMANENT historical marker — NEVER removed.
+#   3. Re-add blocking:<DEP> on the reopened issue.
+#
+# All gh calls are best-effort (|| true) — a label operation failure must never
+# abort the workflow.
+#
+# Runner contract: see plugins/makato-orchestrate/AGENTS.md ## Infrastructure
+
+on:
+  issues:
+    types: [closed, reopened]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: [self-hosted, makato]
+    timeout-minutes: 10
+
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Remove blocked-by:N labels on close
+        if: github.event.action == 'closed'
+        run: |
+          set -euo pipefail
+          CLOSED_NUM="${{ github.event.issue.number }}"
+          REPO="${{ github.repository }}"
+
+          echo "→ blocked-by-cleanup: issue #${CLOSED_NUM} closed"
+
+          # Find all open issues with blocked-by:<CLOSED_NUM>
+          DEPENDENTS="$(gh issue list \
+            --repo "$REPO" \
+            --label "blocked-by:${CLOSED_NUM}" \
+            --state open \
+            --json number \
+            --jq '.[].number' 2>/dev/null || true)"
+
+          if [[ -z "$DEPENDENTS" ]]; then
+            echo "No open issues blocked by #${CLOSED_NUM} — nothing to do"
+            exit 0
+          fi
+
+          for DEP in $DEPENDENTS; do
+            echo "Processing dependent #${DEP}…"
+
+            # Remove blocked-by:<CLOSED_NUM>
+            gh issue edit "$DEP" --repo "$REPO" \
+              --remove-label "blocked-by:${CLOSED_NUM}" 2>/dev/null || true
+
+            # Check if any blocked-by:* labels remain
+            REMAINING="$(gh issue view "$DEP" --repo "$REPO" \
+              --json labels \
+              --jq '[.labels[].name | select(startswith("blocked-by:"))] | length' \
+              2>/dev/null || echo '1')"
+
+            if [[ "$REMAINING" -eq 0 ]]; then
+              # Fully unblocked — promote to ready-for-dev
+              # NOTE: status:ready-for-dev is a PERMANENT historical marker — only add, never remove
+              gh issue edit "$DEP" --repo "$REPO" \
+                --remove-label "status:blocked" \
+                --add-label "status:ready-for-dev" 2>/dev/null || true
+              echo "Promoted #${DEP} to status:ready-for-dev (all blockers closed)"
+
+              # Remove blocking:<DEP> from the closed issue (conservative: only when DEP is now fully unblocked)
+              gh issue edit "$CLOSED_NUM" --repo "$REPO" \
+                --remove-label "blocking:${DEP}" 2>/dev/null || true
+              echo "Removed blocking:${DEP} from #${CLOSED_NUM}"
+            else
+              echo "Issue #${DEP} still blocked by ${REMAINING} other issue(s) — leaving status:blocked"
+            fi
+          done
+
+      - name: Re-add blocked-by:N labels on reopen
+        if: github.event.action == 'reopened'
+        run: |
+          set -euo pipefail
+          REOPENED_NUM="${{ github.event.issue.number }}"
+          REPO="${{ github.repository }}"
+
+          echo "→ blocked-by-cleanup: issue #${REOPENED_NUM} reopened"
+
+          # Find dependents from specs/*/created-issues.json
+          DEPENDENT_ISSUES="$(find specs -name 'created-issues.json' -exec \
+            jq -r --argjson n "$REOPENED_NUM" \
+              '.issues[] | select(.blocked_by | arrays | index($n) != null) | .issue_number' \
+            {} \; 2>/dev/null | sort -u || true)"
+
+          if [[ -z "$DEPENDENT_ISSUES" ]]; then
+            echo "No dependents found in specs/*/created-issues.json for #${REOPENED_NUM} — nothing to do"
+            exit 0
+          fi
+
+          for DEP in $DEPENDENT_ISSUES; do
+            DEP_STATE="$(gh issue view "$DEP" --repo "$REPO" \
+              --json state --jq '.state' 2>/dev/null || echo '')"
+            [[ "$DEP_STATE" == "OPEN" ]] || continue
+
+            echo "Re-blocking dependent #${DEP}…"
+
+            # Create and apply blocked-by:<REOPENED_NUM>
+            gh label create "blocked-by:${REOPENED_NUM}" \
+              --repo "$REPO" --color "B60205" \
+              --description "Blocked by issue #${REOPENED_NUM}" 2>/dev/null || true
+            gh issue edit "$DEP" --repo "$REPO" \
+              --add-label "blocked-by:${REOPENED_NUM}" \
+              --add-label "status:blocked" 2>/dev/null || true
+            # NOTE: status:ready-for-dev is a PERMANENT historical marker — NEVER removed here.
+            # Board "Blocked" status is driven by project-board-sync.yml on issues.labeled(status:blocked).
+
+            # Re-add blocking:<DEP> on the reopened issue
+            gh label create "blocking:${DEP}" \
+              --repo "$REPO" --color "D93F0B" \
+              --description "Blocks issue #${DEP}" 2>/dev/null || true
+            gh issue edit "$REOPENED_NUM" --repo "$REPO" \
+              --add-label "blocking:${DEP}" 2>/dev/null || true
+
+            echo "Re-blocked #${DEP} (blocker #${REOPENED_NUM} reopened)"
+          done

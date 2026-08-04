@@ -11,8 +11,8 @@ description: >-
   plan materializes (lightweight planning lane).
   Use for any issue that was filed manually — bypassing to-issues — and
   needs to enter the autonomous loop queue.
-version: "1.3.0"
-argument-hint: "<ISSUE_NUMBER> [--repo <owner/name>] [--type new-work|change]"
+version: "1.4.0"
+argument-hint: "<ISSUE_NUMBER> [--repo <owner/name>] [--type new-work|change] [--blocked-by N,M,...]"
 hooks:
   - "seed issue"
   - "prepare issue for loop"
@@ -91,13 +91,23 @@ its board card is momentarily off-`Ready`.
 
 ### Step 0 — Parse arguments
 
-Accept `<ISSUE_NUMBER> [--repo <owner/name>] [--type new-work|change]`.
+Accept `<ISSUE_NUMBER> [--repo <owner/name>] [--type new-work|change] [--blocked-by N,M,...]`.
 
 - `ISSUE_NUMBER`: required, positive integer.
 - `--repo <owner/name>`: optional. When absent, derive the repo from
   `gh repo view --json nameWithOwner --jq '.nameWithOwner'` at the repo root.
   If that also fails, exit with `HALT: MISSING_REPO`.
 - `--type new-work|change`: optional. When absent, classify in Step 2.
+- `--blocked-by <N,M,...>`: optional. Comma-separated list of upstream issue numbers this issue
+  is blocked by. When provided: creates `blocked-by:N` labels (one per blocker) on the repo,
+  applies them to this issue, and retroactively patches `blocking:<ISSUE_NUMBER>` on each
+  upstream issue. Implies `status:blocked` — the issue is not promoted to `status:ready-for-dev`
+  until all blockers close (board card stays at `Todo` / `Blocked`). Stored as `BLOCKED_BY_ARG`.
+
+```bash
+# Example
+/makato-orchestrate:seed-issue 99 --blocked-by 42,43
+```
 
 ### Step 1 — Fetch the issue
 
@@ -204,20 +214,54 @@ gh label create "type:change" \
   --repo "$REPO" \
   --color "FBCA04" \
   --description "Bug fix, refactor, or enhancement" 2>/dev/null || true
-
-# dependency labels — always ensure these exist regardless of issue type
-gh label create "blocked by" \
-  --repo "$REPO" \
-  --color "B60205" \
-  --description "Issue has upstream dependencies — see Blocked by: line in body" 2>/dev/null || true
-
-gh label create "blocking" \
-  --repo "$REPO" \
-  --color "D93F0B" \
-  --description "Issue must merge before downstream dependents can proceed" 2>/dev/null || true
 ```
 
+Pattern labels `blocked-by:N` and `blocking:N` are created on-demand in Step 3.5 when
+`--blocked-by` is supplied — no pre-creation step needed here.
+
 Log `[seed-issue] labeled #N with type:<label>`.
+
+### Step 3.5 — Dependency wiring (only when `--blocked-by` is supplied)
+
+Skip this step entirely when `BLOCKED_BY_ARG` is empty.
+
+```bash
+IFS=',' read -ra BLOCKERS <<< "$BLOCKED_BY_ARG"
+for BLOCKER_NUM in "${BLOCKERS[@]}"; do
+  BLOCKER_NUM="$(echo "$BLOCKER_NUM" | tr -d ' ')"
+  [[ -z "$BLOCKER_NUM" ]] && continue
+
+  # Create the blocked-by:N label on the repo (idempotent, best-effort)
+  GH_HOST="${HOST:-github.com}" gh label create "blocked-by:${BLOCKER_NUM}" \
+    --repo "$REPO" --color "B60205" \
+    --description "Blocked by issue #${BLOCKER_NUM}" 2>/dev/null || true
+  # Apply blocked-by:N to this issue
+  GH_HOST="${HOST:-github.com}" gh issue edit "$ISSUE_NUMBER" \
+    --repo "$REPO" --add-label "blocked-by:${BLOCKER_NUM}" 2>/dev/null || true
+
+  # Create blocking:THIS_ISSUE label on the repo (idempotent, best-effort)
+  GH_HOST="${HOST:-github.com}" gh label create "blocking:${ISSUE_NUMBER}" \
+    --repo "$REPO" --color "D93F0B" \
+    --description "Blocks issue #${ISSUE_NUMBER}" 2>/dev/null || true
+  # Retroactively patch blocking:THIS_ISSUE onto each upstream issue
+  GH_HOST="${HOST:-github.com}" gh issue edit "$BLOCKER_NUM" \
+    --repo "$REPO" --add-label "blocking:${ISSUE_NUMBER}" 2>/dev/null || true
+
+  echo "[seed-issue] patched blocking:${ISSUE_NUMBER} onto upstream #${BLOCKER_NUM}"
+done
+```
+
+When `BLOCKED_BY_ARG` is non-empty, also add `status:blocked` to this issue (idempotent):
+
+```bash
+GH_HOST="${HOST:-github.com}" gh label create "status:blocked" \
+  --repo "$REPO" --color "B60205" \
+  --description "Currently waiting until there is an implemented prerequisite issue" 2>/dev/null || true
+GH_HOST="${HOST:-github.com}" gh issue edit "$ISSUE_NUMBER" \
+  --repo "$REPO" --add-label "status:blocked" 2>/dev/null || true
+```
+
+Log: `[seed-issue] dependency wiring: applied blocked-by:N labels and patched blocking:${ISSUE_NUMBER} onto upstream issues`.
 
 ### Step 4 — Derive slug
 
@@ -573,7 +617,7 @@ Append one JSONL line to `specs/$SLUG/orchestrate.jsonl` recording the outcome
   Type    : <ISSUE_TYPE>
   Tier    : <light|full|change|none> (plan lane: <true|false>)
   Slug    : <SLUG>
-  Labels  : type:<label>, status:ready-for-dev (stamped); "blocked by" + "blocking" created on repo
+  Labels  : type:<label>, status:ready-for-dev (stamped); blocked-by:N + blocking:N created on-demand when --blocked-by used
   Footer  : provenance footer stamped (or already present)
   Board   : Status=Ready (or WARN if board move skipped)
   Spec    : specs/<SLUG>/ created (new-work) / not needed (change)

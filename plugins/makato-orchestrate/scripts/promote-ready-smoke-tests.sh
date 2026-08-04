@@ -385,5 +385,25 @@ echo "T-VCR-9 passed"
 
 rm -rf "$_vcr_sandbox"
 
+# ---------------------------------------------------------------------------
+# T-reconcile-1/2/3: _reconcile_blocked_by_labels doc-contract assertions
+# These are grep-based structural checks — no network calls.
+# ---------------------------------------------------------------------------
+
+echo "=== T-reconcile-1: _reconcile_blocked_by_labels function exists in promote-ready.sh ==="
+grep -q "_reconcile_blocked_by_labels()" "$PR" \
+  || fail "T-reconcile-1: _reconcile_blocked_by_labels function not found in promote-ready.sh"
+pass "_reconcile_blocked_by_labels function present"
+
+echo "=== T-reconcile-2: promote-ready.sh contains blocked-by: pattern (stale label removal) ==="
+grep -q '"blocked-by:' "$PR" \
+  || fail "T-reconcile-2: blocked-by: label pattern not found in promote-ready.sh"
+pass "blocked-by: pattern present in promote-ready.sh"
+
+echo "=== T-reconcile-3: promote-ready.sh calls _reconcile_blocked_by_labels from cmd_run ==="
+grep -q "_reconcile_blocked_by_labels$" "$PR" \
+  || fail "T-reconcile-3: _reconcile_blocked_by_labels is not called (no bare call line found)"
+pass "_reconcile_blocked_by_labels called from cmd_run"
+
 echo
-echo "=== ALL PROMOTE-READY SMOKE TESTS PASSED (T1–T15, T-pjson-valid, T-pjson-collision, T-VCR-6–T-VCR-9) ==="
+echo "=== ALL PROMOTE-READY SMOKE TESTS PASSED (T1–T15, T-pjson-valid, T-pjson-collision, T-VCR-6–T-VCR-9, T-reconcile-1–T-reconcile-3) ==="

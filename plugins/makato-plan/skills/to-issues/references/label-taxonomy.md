@@ -243,32 +243,46 @@ When derivation fires, the autonomous-mode log records `[to-issues:auto] story <
 
 Two labels encode the **directed dependency edge** between issues. They are applied to individual issues (not to the batch as a whole) and are distinct from `status:blocked` — they capture *who blocks whom*, not whether an issue is currently waiting.
 
+**Format rule:** labels use a numeric suffix with no `#` prefix — `blocked-by:42`, not `blocked-by:#42`. This makes them safe in shell without quoting, unambiguous in grep/regex, and queryable directly via `gh issue list --label "blocked-by:42"`.
+
 | Label | Color | Direction | Applied to |
 |-------|-------|-----------|------------|
-| `blocked by` | `B60205` (red) | Inbound — this issue is blocked | The **downstream** issue waiting on another; value in the issue body references the upstream issue number(s) |
-| `blocking` | `D93F0B` (orange-red) | Outbound — this issue blocks others | The **upstream** issue that must merge first |
+| `blocked-by:N` | `B60205` (red) | Inbound — this issue is blocked by issue N | The **downstream** issue waiting on upstream issue N; one label per blocker (two blockers #42 and #43 → two labels `blocked-by:42` + `blocked-by:43`) |
+| `blocking:N` | `D93F0B` (orange-red) | Outbound — this issue blocks downstream issue N | The **upstream** issue that must merge first; one label per dependent |
+
+These are **pattern labels** — created on-demand at runtime from the resolved issue numbers. No hard-coded set of `blocked-by:*` or `blocking:*` labels is pre-created on the repo.
+
+> **Deprecation:** The holé `blocked by` and `blocking` labels (no numeric suffix) were deprecated in v3.12.0. Migrate existing issues with `scripts/migrate-blocked-by-labels.sh`. New issues created by `to-issues` v3.12.0+ never carry the holé labels.
 
 ### What `to-issues` auto-emits
 
-- **`blocked by`**: applied to every issue whose `dependencies.blockedBy` is non-empty after topological resolution. Applied in addition to `status:blocked` (which signals "currently waiting") — the two labels serve different query surfaces: `status:blocked` answers "what's stuck?", `blocked by` answers "what has upstream dependencies?".
-- **`blocking`**: applied **retroactively** to each upstream issue once the downstream issue has been created. Because `to-issues` processes stories in topological order (blockers first), an upstream issue exists before its dependents — the `blocking` label is applied via `gh issue edit --add-label` after each downstream issue is created.
+- **`blocked-by:N`**: applied to every issue whose `dependencies.blockedBy` is non-empty after topological resolution. One label per blocker — two blockers emit two separate `blocked-by:*` labels. Applied in addition to `status:blocked` (which signals "currently waiting") — the two labels serve different query surfaces: `status:blocked` answers "what's stuck?", `blocked-by:N` answers "what is waiting specifically on issue N?".
+- **`blocking:N`**: applied **retroactively** to each upstream issue once the downstream issue has been created. Because `to-issues` processes stories in topological order (blockers first), an upstream issue exists before its dependents — the `blocking:N` label is applied via `gh issue edit --add-label "blocking:<DOWNSTREAM>"` after each downstream issue is created. One label per dependent.
+
+### Removal lifecycle
+
+- **`blocked-by:N`** is removed when issue N closes, via two orthogonal paths:
+  - **Primary (immediate):** `blocked-by-cleanup.yml` GHA workflow fires on `issues: [closed]`, removes `blocked-by:N` from all open dependents, and promotes fully-unblocked issues to `status:ready-for-dev`.
+  - **Safety net (operator-invoked):** `promote-ready.sh` `_reconcile_blocked_by_labels` pass removes stale `blocked-by:N` labels where N is already closed.
+- **`blocking:N`** is removed from the upstream issue when issue N no longer has any `blocked-by:*` labels (i.e. N is itself fully unblocked or closed). This cleanup is performed by `blocked-by-cleanup.yml` (conservative: only when the dependent has no remaining `blocked-by:*` labels).
 
 ### What `seed-issue` emits
 
-`seed-issue` does not resolve dependency graphs — it stamps a single hand-filed issue. It creates both labels on the repo (idempotent) but does not apply them to the issue unless the operator explicitly passes `--add-label "blocked by"` or `--add-label blocking`. Dependency wiring between manually-filed issues remains the operator's responsibility.
+`seed-issue` supports a `--blocked-by N,M` flag. When supplied:
+- Creates `blocked-by:N` labels on the repo (idempotent), applies them to the seeded issue, and retroactively patches `blocking:<SEEDED_ISSUE>` on each upstream issue.
+- Implies `status:blocked` — the seeded issue is not promoted to `status:ready-for-dev` until all its blockers close.
+
+Without `--blocked-by`, `seed-issue` applies no dependency labels — dependency wiring between manually-filed issues remains the operator's responsibility.
 
 ### Relationship to `status:blocked`
 
 | Signal | Meaning | Who sets it | Who removes it |
 |--------|---------|------------|----------------|
-| `status:blocked` | Issue is currently waiting and should not be dispatched | `to-issues` auto, `issue-to-project` board-sync | `issue-to-project` lifecycle sync on unblock |
-| `blocked by` | Issue has unresolved upstream dependencies | `to-issues` auto | `promote-ready` Step 5 when issue is promoted to Ready |
-| `blocking` | Issue must merge before downstream dependents can proceed | `to-issues` auto (retroactive patch) | `promote-ready` Step 5 when all dependents are promoted |
+| `status:blocked` | Issue is currently waiting and should not be dispatched | `to-issues` auto, `seed-issue` (with `--blocked-by`) | `blocked-by-cleanup.yml` on full unblock; `promote-ready.sh` reconcile pass |
+| `blocked-by:N` | Issue is waiting specifically on issue N | `to-issues` auto, `seed-issue --blocked-by` | `blocked-by-cleanup.yml` on issue N close; `promote-ready.sh` reconcile pass |
+| `blocking:N` | This issue must merge before issue N can proceed | `to-issues` auto (retroactive), `seed-issue --blocked-by` (retroactive) | `blocked-by-cleanup.yml` when N is fully unblocked |
 
-An issue may carry both `status:blocked` and `blocked by` at creation time. Once all blockers merge, the dependency labels are cleaned up by `promote-ready` (Step 5):
-
-- **`blocked by`** is **removed** from an issue when it is promoted to `Ready` (all its `blocked_by` predecessors are `Done`) — the blocking relationship is resolved at that point.
-- **`blocking`** is **removed** from an upstream issue when every downstream dependent of that upstream issue has been promoted out of {`Todo`, `Blocked`} (i.e., all dependents are `Ready` or beyond). `promote-ready` evaluates this after each promotion batch by inspecting the reverse dependency graph.
+An issue may carry both `status:blocked` and `blocked-by:N` at creation time. Once all blockers close, the dependency labels are cleaned up automatically via `blocked-by-cleanup.yml` (primary) or `promote-ready.sh` reconcile (safety net).
 
 ---
 
@@ -350,7 +364,7 @@ This is a warning, not a halt — the human resolves the dangling reference manu
 | `status:in-progress` | `FBCA04` (yellow — matches project board) |
 | `status:done` | `5319E7` (deep purple — matches project board) |
 | `status:blocked` | `B60205` (red — matches project board; aligns with GitHub's red-for-blocker convention) |
-| `blocked by` | `B60205` (red — same hue as `status:blocked`; dependency labels and status share the red/orange palette) |
-| `blocking` | `D93F0B` (orange-red — same hue as `severity:high`; less urgent than the downstream `blocked by`) |
+| `blocked-by:*` | `B60205` (red — same hue as `status:blocked`; dependency labels and status share the red/orange palette) — created on-demand per blocker issue number |
+| `blocking:*` | `D93F0B` (orange-red — same hue as `severity:high`; less urgent than the downstream `blocked-by:*`) — created on-demand per dependent issue number |
 
 Existing labels with the same name are reused as-is — colors are not overwritten.

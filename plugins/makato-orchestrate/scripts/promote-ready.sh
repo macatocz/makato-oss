@@ -575,6 +575,70 @@ _promote_one() {
 }
 
 # ---------------------------------------------------------------------------
+# _reconcile_blocked_by_labels — safety-net pass that removes stale
+# blocked-by:N labels where N is already closed. Runs after the wave-
+# promotion pass. Best-effort: all gh calls are swallowed with || true.
+# Skips when gh auth is unavailable (offline test runs).
+# FORWARD-ONLY: only promotes issues whose current Status ∈ {Todo, Blocked,
+# off-board} — never demotes an issue that has already advanced.
+# ---------------------------------------------------------------------------
+_reconcile_blocked_by_labels() {
+  local repo_name
+  repo_name="$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null || true)"
+  [[ -z "$repo_name" ]] && { _log "reconcile: gh not available — skipping"; return 0; }
+
+  _log "reconcile: scanning for stale blocked-by:* labels…"
+
+  # Get all open issues with at least one blocked-by:* label
+  local issues_json
+  issues_json="$(gh issue list \
+    --repo "$repo_name" \
+    --state open \
+    --json number,labels \
+    --jq '[.[] | select(.labels | map(.name) | any(startswith("blocked-by:")))]' \
+    2>/dev/null || echo '[]')"
+
+  local dep
+  while IFS= read -r dep; do
+    [[ -z "$dep" ]] && continue
+
+    # Get all blocked-by:N labels for this issue
+    local blockers
+    blockers="$(gh issue view "$dep" --repo "$repo_name" \
+      --json labels \
+      --jq '[.labels[].name | select(startswith("blocked-by:")) | ltrimstr("blocked-by:")] | .[]' \
+      2>/dev/null || true)"
+
+    local blocker_num blocker_state
+    for blocker_num in $blockers; do
+      blocker_state="$(gh issue view "$blocker_num" --repo "$repo_name" \
+        --json state --jq '.state' 2>/dev/null || echo '')"
+      if [[ "$blocker_state" == "CLOSED" ]]; then
+        gh issue edit "$dep" --repo "$repo_name" \
+          --remove-label "blocked-by:${blocker_num}" 2>/dev/null || true
+        _log "reconcile: removed stale blocked-by:${blocker_num} from #${dep}"
+      fi
+    done
+
+    # Re-check: fully unblocked?
+    local remaining
+    remaining="$(gh issue view "$dep" --repo "$repo_name" \
+      --json labels \
+      --jq '[.labels[].name | select(startswith("blocked-by:"))] | length' \
+      2>/dev/null || echo '1')"
+    if [[ "$remaining" -eq 0 ]]; then
+      # Forward-only promotion — only promote if currently at Todo/Blocked/off-board
+      gh issue edit "$dep" --repo "$repo_name" \
+        --remove-label "status:blocked" \
+        --add-label "status:ready-for-dev" 2>/dev/null || true
+      _log "reconcile: promoted #${dep} to status:ready-for-dev (all blockers closed)"
+    fi
+  done < <(printf '%s' "$issues_json" | jq -r '.[].number' 2>/dev/null || true)
+
+  _log "reconcile: done"
+}
+
+# ---------------------------------------------------------------------------
 # cmd_run [SLUG] [--dry-run] [--yes] — the main entry point.
 # ---------------------------------------------------------------------------
 cmd_run() {
@@ -663,6 +727,9 @@ cmd_run() {
     [[ -n "$n" ]] || continue
     _promote_one "$n" "$s" "$u" "$iid"
   done < <(jq -r '.ready[] | [(.issue|tostring), .slug, .url, .item_id] | @tsv' <<<"$plan")
+
+  # Reconcile stale blocked-by:* labels (safety net for missed GHA events).
+  _reconcile_blocked_by_labels
 
   _log "done — promoted up to $ready_count issue(s)."
   return 0
