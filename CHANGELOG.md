@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.137.0](https://github.com/macatocz/makato/compare/v0.136.0...v0.137.0) (2026-08-04)
+
+
+### ✨ Features
+
+* **makato-contribute:** add harness-audit SKILL.md ([fa85260](https://github.com/macatocz/makato/commit/fa85260cd74a71d050e18c11995e038883468ec5))
+* **makato-contribute:** add harness-audit.sh classifier + smoke tests ([4e85f40](https://github.com/macatocz/makato/commit/4e85f40b7ddd42cf3a70d891a193d77d71913581))
+* **makato-contribute:** harness-audit skill — AGENTS.md bloat + permissionMode audit ([#590](https://github.com/macatocz/makato/issues/590)) ([1f34aac](https://github.com/macatocz/makato/commit/1f34aac3613468c9d620f4b05778ad78d703a348))
+* **makato-contribute:** harness-audit skill — AGENTS.md bloat + permissionMode audit ([#590](https://github.com/macatocz/makato/issues/590)) ([1f34aac](https://github.com/macatocz/makato/commit/1f34aac3613468c9d620f4b05778ad78d703a348))
+
 ## [0.136.0](https://github.com/macatocz/makato/compare/v0.135.0...v0.136.0) (2026-08-04)
 
 
