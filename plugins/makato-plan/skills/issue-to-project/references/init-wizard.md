@@ -213,6 +213,7 @@ All four option keys must resolve: `todo`, `in_progress`, `done`, `blocked`. Nam
 ```text
 [issue-to-project] INFO: Status option 'Ready' not found on project — options.ready will not be cached. issues with status:ready will route to Todo with WARN until you re-run --init after adding the option.
 [issue-to-project] INFO: Status option 'In review' not found on project — options.in_review will not be cached. issues with status:in-review will route to Todo with WARN until you re-run --init after adding the option.
+[issue-to-project] INFO: Status option 'Needs Planning' not found on project — options.needs_planning will not be cached. Board status will degrade to label-only until you re-run --init after adding the option.
 ```
 
 ## Step 4b — Auto-discover `known_repos` from live board (v2.3.0+)
@@ -395,6 +396,8 @@ fields_dict = {
             # Optional v2.7.0+ options — only written when found on the board.
             **({} if "ready" not in options else {"ready": options["ready"]}),
             **({} if "in_review" not in options else {"in_review": options["in_review"]}),
+            # Optional v2.9.0+: needs_planning — cached when the board has a "Needs Planning" status option.
+            **({} if "needs_planning" not in options else {"needs_planning": options["needs_planning"]}),
         },
     },
 }
@@ -439,8 +442,16 @@ config["github_project"] = {
     "url": f"https://{HOST}/{'users' if OWNER_TYPE=='user' else 'orgs'}/{OWNER}/projects/{PROJECT_NUMBER}",
     "project_node_id": PROJECT_NODE_ID,
     "fields": fields_dict,
+    # Flat options shorthand — mirrors fields.status.options for dual-read compat
+    # (e.g. emit-needs-planning-signal.sh reads both paths). Only written when found.
+    "options": {
+        **({} if "ready" not in options else {"ready": options["ready"]}),
+        **({} if "in_review" not in options else {"in_review": options["in_review"]}),
+        # Optional v2.9.0+: needs_planning
+        **({} if "needs_planning" not in options else {"needs_planning": options["needs_planning"]}),
+    },
     "init_timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
-    "init_skill_version": "2.8.0",
+    "init_skill_version": "2.9.0",
     "include_draft_prs": INCLUDE_DRAFT_PRS,
     "webhook_audit_dir": config.get("github_project", {}).get("webhook_audit_dir", ".issue-to-project/lifecycle"),
     "webhook_pr_link_patterns": config.get("github_project", {}).get("webhook_pr_link_patterns", ["Closes", "Fixes", "Resolves"]),

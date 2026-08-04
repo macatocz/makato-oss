@@ -26,6 +26,13 @@
 #   MAKATO_EMIT_NPS_CONFIG_FILE  override .claude/config.json path (tests)
 #   MAKATO_EMIT_NPS_GH_DRY_RUN  if set to "1", skip actual gh calls and echo
 #                                 commands to stdout instead (tests)
+#   MAKATO_EMIT_NPS_GH_ITEM_ID          when SET (even to empty string),
+#                                         _get_item_id returns this value instead
+#                                         of calling gh project item-list (tests)
+#   MAKATO_EMIT_NPS_GH_ITEM_ADD_RESULT  when set in dry-run, item-add returns
+#                                         this ID instead of calling gh (tests)
+#   MAKATO_EMIT_NPS_GH_ITEM_ADD_FAIL    when "1" in dry-run, item-add returns
+#                                         empty (simulates gh failure) (tests)
 #
 # Exit codes:
 #   0  success or no-op (below threshold, board/label soft failures are WARN)
@@ -174,6 +181,10 @@ if [[ -n "$NEEDS_PLANNING_OPTION_ID" ]] && [[ "$NEEDS_PLANNING_OPTION_ID" != "nu
   if [[ -n "$PROJECT_OWNER" ]] && [[ -n "$PROJECT_NUMBER" ]] && [[ -n "$STATUS_FIELD_ID" ]]; then
     # Resolve the board item ID for the linked issue.
     _get_item_id() {
+      if [[ -n "${MAKATO_EMIT_NPS_GH_ITEM_ID+x}" ]]; then
+        echo "${MAKATO_EMIT_NPS_GH_ITEM_ID}"
+        return 0
+      fi
       gh project item-list "$PROJECT_NUMBER" \
         --owner "$PROJECT_OWNER" \
         --format json \
@@ -182,6 +193,22 @@ if [[ -n "$NEEDS_PLANNING_OPTION_ID" ]] && [[ "$NEEDS_PLANNING_OPTION_ID" != "nu
     }
 
     ITEM_ID="$(_get_item_id)"
+
+    if [[ -z "$ITEM_ID" ]] && [[ -n "$REPO" ]]; then
+      # Issue absent from board — attempt idempotent item-add (mirrors _promote_labelled_ready pattern).
+      if [[ "${MAKATO_EMIT_NPS_GH_DRY_RUN:-0}" == "1" ]]; then
+        if [[ "${MAKATO_EMIT_NPS_GH_ITEM_ADD_FAIL:-0}" == "1" ]]; then
+          ITEM_ID=""
+        elif [[ -n "${MAKATO_EMIT_NPS_GH_ITEM_ADD_RESULT:-}" ]]; then
+          ITEM_ID="$MAKATO_EMIT_NPS_GH_ITEM_ADD_RESULT"
+          echo "gh project item-add $PROJECT_NUMBER --owner $PROJECT_OWNER --url https://github.com/$REPO/issues/$ISSUE_NUMBER"
+        fi
+      else
+        ITEM_ID="$(gh project item-add "$PROJECT_NUMBER" --owner "$PROJECT_OWNER" \
+          --url "https://github.com/$REPO/issues/$ISSUE_NUMBER" \
+          --format json 2>/dev/null | jq -r '.id // empty' 2>/dev/null || true)"
+      fi
+    fi
 
     if [[ -n "$ITEM_ID" ]]; then
       _set_board_status() {
