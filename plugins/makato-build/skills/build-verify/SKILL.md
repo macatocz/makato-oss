@@ -48,7 +48,7 @@ autonomous mode and the failure is structural.
 | 5 | No CRITICAL sensor findings | Gate 0 (Sensors) | HALT-001 (sensor-fixer exhausted) / HALT-004 (same finding 5×) |
 | 6 | Conventional commits | `build-push-to-git` (per-commit drafting) | denied push → HALT-005 |
 | 7 | Rebased on `origin/main` | `build-push-to-git` push deny-list | denied push → HALT-005 |
-| 8 | No `TODO`/`FIXME` without tracking issue | sensor `todo-check` | HALT-001 family |
+| 8 | No `TODO`/`FIXME` without tracking issue; no debug/stale artifacts introduced | sensors `todo-check` + `stale-artifact-check` | HALT-001 family |
 | 9 | No hard-coded credentials | sensors `gitleaks` / `detect-secrets` | HALT-001 family |
 | 10 | `build.jsonl` entry per skill step | every skill via `shared/build-log.sh` | contract — caller treats omission as agent failure |
 | 11 | R1 JSON block as last fenced ` ```json ` in agent return | `plugins/makato-build/agents/RETURN-CONTRACT.md` | caller treats missing/invalid R1 as `status: "failure"` |

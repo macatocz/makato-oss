@@ -77,10 +77,14 @@ gate log entry in `specs/<key>-<slug>/build.jsonl`.
    linear history maintained.
    _Enforced by:_ `skills/build-push-to-git/SKILL.md` push deny-list; mismatch ⇒ HALT-005.
 
-8. **No `TODO` / `FIXME` introduced without a tracking issue reference.** A `TODO` line
-   must be accompanied by a `#N` or `GAP-NNN` reference in the same line or its trailing
-   comment.
-   _Enforced by:_ sensor `todo-check` (part of `skills/build-sensors/SKILL.md`).
+8. **No `TODO` / `FIXME` introduced without a tracking issue reference, and no debug/stale
+   artifacts left in staged files.** A `TODO` line must be accompanied by a `#N` or
+   `GAP-NNN` reference in the same line or its trailing comment. Debug artifacts
+   (`console.log(`, `debugger`, `pdb.set_trace()`, `breakpoint()`) and staged temp/log
+   files (`*.log`, `*.tmp`, `tmp_*`, `temp_*`) introduced in the session diff are also
+   blocked.
+   _Enforced by:_ sensor `todo-check` (TODO/FIXME) and sensor `stale-artifact-check`
+   (debug/temp artifacts), both part of `skills/build-sensors/SKILL.md`.
 
 9. **No hard-coded credentials.** `gitleaks` and `detect-secrets` both clean.
    _Enforced by:_ `skills/build-sensors/SKILL.md` (security sensor lane).
