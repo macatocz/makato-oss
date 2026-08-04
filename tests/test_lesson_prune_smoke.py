@@ -1,8 +1,7 @@
 """RED test for Task 4: lesson-prune-smoke-tests.sh must exist and pass all 12 scenarios."""
 
-from pathlib import Path
 import subprocess
-
+from pathlib import Path
 
 WORKTREE = Path(__file__).parent.parent
 SMOKE_SCRIPT = (

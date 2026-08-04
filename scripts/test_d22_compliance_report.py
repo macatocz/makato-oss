@@ -13,7 +13,7 @@ import json
 import sys
 import tempfile
 import unittest
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 _HERE = Path(__file__).parent.resolve()
@@ -90,8 +90,8 @@ class TestReadersTask1(unittest.TestCase):
             {"step": "session", "status": "ok", "task": 1},
             {"step": "session", "status": "ok", "task": 2},
             {"step": "session", "status": "ok", "task": 3},
-            {"step": "red", "status": "ok", "task": 1},           # step != session
-            {"step": "session", "status": "error", "task": 4},    # status != ok
+            {"step": "red", "status": "ok", "task": 1},  # step != session
+            {"step": "session", "status": "error", "task": 4},  # status != ok
         ]
         (spec1 / "build.jsonl").write_text(
             "\n".join(json.dumps(line) for line in build_lines),
@@ -337,7 +337,12 @@ class TestAdoptionMetricsTask3(unittest.TestCase):
 
     # Helper to build a log entry dict with a fixed timestamp.
     def _entry(self, ts: str, session_id: str = "s1") -> dict:
-        return {"ts": ts, "session_id": session_id, "event": "invoke", "skill": "build-refine"}
+        return {
+            "ts": ts,
+            "session_id": session_id,
+            "event": "invoke",
+            "skill": "build-refine",
+        }
 
     # ------------------------------------------------------------------
     # test_empty_log
@@ -471,9 +476,18 @@ class TestGenerateReportTask4(unittest.TestCase):
 
     def _make_structural(self, overall="PASS", missing=None, covered=12, total=12):
         return {
-            "bundle_coverage": {"covered": covered, "total": total, "missing": missing or [], "verdict": overall},
+            "bundle_coverage": {
+                "covered": covered,
+                "total": total,
+                "missing": missing or [],
+                "verdict": overall,
+            },
             "passport_rate": {"rate": 0.97, "verdict": overall},
-            "audit_active": {"active": True, "last_entry_date": "2026-07-10", "verdict": overall},
+            "audit_active": {
+                "active": True,
+                "last_entry_date": "2026-07-10",
+                "verdict": overall,
+            },
             "overall": overall,
         }
 
@@ -640,11 +654,13 @@ class TestCLITask5(unittest.TestCase):
 
     def tearDown(self):
         import os
+
         os.chdir(self.orig_dir)
 
     def test_dry_run_exits_zero(self):
         """main(["--dry-run"]) in a temp dir with no files → exits without exception."""
         import os
+
         os.chdir(self.tmp)
         # Should not raise — dry_run with no input files returns without writing anything.
         try:
@@ -657,6 +673,7 @@ class TestCLITask5(unittest.TestCase):
     def test_custom_output_path(self):
         """main(["--output-path", ...]) with empty inputs → file created at custom path."""
         import os
+
         os.chdir(self.tmp)
         out_file = self.tmp / "out.md"
         # main() should create the output file at the specified path.
@@ -714,7 +731,9 @@ class TestScenario1AllPass(unittest.TestCase):
                 encoding="utf-8",
             )
             (task_dir / "build.jsonl").write_text(
-                json.dumps({"step": "session", "status": "ok", "ts": "2026-07-01T00:00:00Z"}),
+                json.dumps(
+                    {"step": "session", "status": "ok", "ts": "2026-07-01T00:00:00Z"}
+                ),
                 encoding="utf-8",
             )
 
@@ -750,7 +769,9 @@ class TestScenario1AllPass(unittest.TestCase):
         passport_result = _mod.read_skill_passports(self.tmpdir / "specs")
         bundle_result = _mod.read_bundle_coverage(self.tmpdir / "plugins")
         notes_path = self.tmpdir / "docs" / "skill-audit-notes.md"
-        structural = _mod.compute_structural_metrics(bundle_result, passport_result, notes_path)
+        structural = _mod.compute_structural_metrics(
+            bundle_result, passport_result, notes_path
+        )
         adoption = _mod.compute_adoption_metrics(log_entries, now=self.now)
         output_path = self.tmpdir / "docs" / "d22-compliance-report.md"
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -807,7 +828,9 @@ class TestScenario2AdoptionShortfall(unittest.TestCase):
                 encoding="utf-8",
             )
             (task_dir / "build.jsonl").write_text(
-                json.dumps({"step": "session", "status": "ok", "ts": "2026-07-01T00:00:00Z"}),
+                json.dumps(
+                    {"step": "session", "status": "ok", "ts": "2026-07-01T00:00:00Z"}
+                ),
                 encoding="utf-8",
             )
 
@@ -843,7 +866,9 @@ class TestScenario2AdoptionShortfall(unittest.TestCase):
         passport_result = _mod.read_skill_passports(self.tmpdir / "specs")
         bundle_result = _mod.read_bundle_coverage(self.tmpdir / "plugins")
         notes_path = self.tmpdir / "docs" / "skill-audit-notes.md"
-        structural = _mod.compute_structural_metrics(bundle_result, passport_result, notes_path)
+        structural = _mod.compute_structural_metrics(
+            bundle_result, passport_result, notes_path
+        )
         adoption = _mod.compute_adoption_metrics(log_entries, now=self.now)
         output_path = self.tmpdir / "docs" / "d22-compliance-report.md"
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -904,7 +929,9 @@ class TestScenario3StructuralGap(unittest.TestCase):
                 encoding="utf-8",
             )
             (task_dir / "build.jsonl").write_text(
-                json.dumps({"step": "session", "status": "ok", "ts": "2026-07-01T00:00:00Z"}),
+                json.dumps(
+                    {"step": "session", "status": "ok", "ts": "2026-07-01T00:00:00Z"}
+                ),
                 encoding="utf-8",
             )
 
@@ -940,7 +967,9 @@ class TestScenario3StructuralGap(unittest.TestCase):
         passport_result = _mod.read_skill_passports(self.tmpdir / "specs")
         bundle_result = _mod.read_bundle_coverage(self.tmpdir / "plugins")
         notes_path = self.tmpdir / "docs" / "skill-audit-notes.md"
-        structural = _mod.compute_structural_metrics(bundle_result, passport_result, notes_path)
+        structural = _mod.compute_structural_metrics(
+            bundle_result, passport_result, notes_path
+        )
         adoption = _mod.compute_adoption_metrics(log_entries, now=self.now)
         output_path = self.tmpdir / "docs" / "d22-compliance-report.md"
         output_path.parent.mkdir(parents=True, exist_ok=True)

@@ -24,7 +24,6 @@ from __future__ import annotations
 import pathlib
 import subprocess
 
-
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 

@@ -22,7 +22,7 @@ import argparse
 import json
 import sys
 from collections import Counter
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import IO, Optional
 
@@ -186,7 +186,7 @@ def _check_d15_anomaly(
             ts = datetime.fromisoformat(entry["ts"].replace("Z", "+00:00"))
             if ts >= cutoff:
                 skill_7d[skill] += 1
-        except (ValueError, AttributeError):
+        except ValueError, AttributeError:
             pass
 
     anomalies: dict[str, float] = {}
@@ -256,7 +256,7 @@ def _load_state(state_path: Path) -> dict:
         return {}
     try:
         return json.loads(state_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+    except json.JSONDecodeError, OSError:
         return {}
 
 
@@ -313,7 +313,7 @@ def _evaluate_windows(
             ts = datetime.fromisoformat(entry["ts"].replace("Z", "+00:00"))
             if ts >= cutoff:
                 skill_7d[skill] += 1
-        except (ValueError, AttributeError):
+        except ValueError, AttributeError:
             pass
 
     new_state = dict(prior_state)

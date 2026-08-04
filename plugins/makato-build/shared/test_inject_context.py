@@ -27,7 +27,6 @@ from inject_context import (  # noqa: E402  (sys.path mutation above)
     resolve_bundles,
 )
 
-
 # A canonical in-memory config used by every unit case so the tests do not
 # couple to the production YAML file. Bundles are intentionally listed in an
 # order that is NOT specificity-sorted so the resolver must do the sort itself.

@@ -50,7 +50,9 @@ class TestStaleArtifactLabelMapping(unittest.TestCase):
             "src/index.js:3: [stale-artifact/console-log] console.log( found in addition\n"
         )
         findings = parse_pre_commit(pre_commit_output)
-        self.assertEqual(len(findings), 1, f"Expected 1 finding, got {len(findings)}: {findings}")
+        self.assertEqual(
+            len(findings), 1, f"Expected 1 finding, got {len(findings)}: {findings}"
+        )
         f = findings[0]
         self.assertEqual(f.tool, "stale-artifact")
         self.assertEqual(f.rule, "console-log")
@@ -62,9 +64,7 @@ class TestStaleArtifactLabelMapping(unittest.TestCase):
 
         Scenario 4 (maps to AC-4): clean diffs produce no findings.
         """
-        pre_commit_output = (
-            "stale-artifact check (debug leftovers).....Passed\n"
-        )
+        pre_commit_output = "stale-artifact check (debug leftovers).....Passed\n"
         findings = parse_pre_commit(pre_commit_output)
         self.assertEqual(findings, [])
 

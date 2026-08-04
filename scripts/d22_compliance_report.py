@@ -213,7 +213,6 @@ def compute_structural_metrics(
     }
 
 
-
 _TRAILING_WINDOW_DAYS = 28
 _ADOPTION_RATE_THRESHOLD = 0.70
 _INSUFFICIENT_DATA_THRESHOLD_DAYS = 21  # need oldest entry >= 21 days before now
@@ -266,7 +265,7 @@ def compute_adoption_metrics(
             continue
         try:
             ts = datetime.fromisoformat(str(ts_raw))
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             continue
         if ts.tzinfo is None:
             ts = ts.replace(tzinfo=timezone.utc)
@@ -397,8 +396,7 @@ def generate_report(
     today_str = _now.date().isoformat()
 
     overall_pass = (
-        structural.get("overall") == "PASS"
-        and adoption.get("verdict") == "PASS"
+        structural.get("overall") == "PASS" and adoption.get("verdict") == "PASS"
     )
 
     if overall_pass:
@@ -522,6 +520,7 @@ A full PASS on both criteria unblocks [#131 (F5 domain-tagged skill schema)]({f5
 # CLI entry point
 # ---------------------------------------------------------------------------
 
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="D22 system-done compliance gate — aggregates skill telemetry and emits compliance report.",
@@ -562,9 +561,17 @@ def main(argv=None):
     log_entries = read_invocations_log(Path(args.log_path))
     passport_result = read_skill_passports(Path(args.specs_root))
     bundle_result = read_bundle_coverage(Path(args.plugins_root))
-    structural = compute_structural_metrics(bundle_result, passport_result, Path(args.notes_path))
+    structural = compute_structural_metrics(
+        bundle_result, passport_result, Path(args.notes_path)
+    )
     adoption = compute_adoption_metrics(log_entries)
-    md = generate_report(structural, adoption, Path(args.output_path), Path(args.notes_path), dry_run=args.dry_run)
+    md = generate_report(
+        structural,
+        adoption,
+        Path(args.output_path),
+        Path(args.notes_path),
+        dry_run=args.dry_run,
+    )
     if args.dry_run:
         # Honour the documented contract: print report to stdout, write no files.
         print(md)

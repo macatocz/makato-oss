@@ -392,6 +392,12 @@ case "$SUBCMD" in
     NOW="$(_now)"
     mkdir -p "$SPEC_FOLDER"
 
+    # Derive a stable per-issue trace ID from static data: sha256(repo+issue_number).
+    # Deterministic — same inputs always yield the same hex digest, so repeated
+    # init calls (e.g. in tests) remain idempotent on this field. sha256sum is
+    # available on macOS (via coreutils) and all Linux targets — no new deps.
+    ISSUE_TRACE_ID="$(printf '%s%s' "$REPO" "$ISSUE_NUMBER" | sha256sum | cut -c1-64)"
+
     # Context-ceiling default — env var override, else 150000 (safe below the
     # observed 170 k degradation threshold for 200 k context models). See
     # GAP-004 / #30 extension and the field doc in workflow-state.schema.json.
@@ -402,6 +408,7 @@ case "$SUBCMD" in
       --arg branch "$BRANCH" \
       --argjson issue "$ISSUE_NUMBER" \
       --argjson ctx_warn "$CTX_WARN" \
+      --arg trace_id "$ISSUE_TRACE_ID" \
       --arg now "$NOW" \
       '{
         repo: $repo,
@@ -433,6 +440,7 @@ case "$SUBCMD" in
         restart_failed: false,
         spawned_pid: null,
         resume_ack: null,
+        issue_trace_id: $trace_id,
         created_at: $now,
         updated_at: $now
       }')"

@@ -35,7 +35,6 @@ from typing import Any
 
 import pytest
 
-
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 BUILD_LOG_SH = REPO_ROOT / "plugins" / "makato-build" / "shared" / "build-log.sh"
 FIXTURE_DIR = REPO_ROOT / "tests" / "fixtures" / "build-simplify-smoke"
@@ -103,127 +102,163 @@ def test_full_arc_no_test_runner_autonomous_mode(temp_repo: pathlib.Path) -> Non
     ts = "2026-06-30T00:00:00Z"
 
     # --- Step 2 — session:start ----------------------------------------
-    _log(temp_repo, STORY_KEY, {
-        "ts": ts,
-        "skill": "build-simplify",
-        "story": STORY_KEY,
-        "step": "session",
-        "status": "start",
-        "data": {"files_changed": 1},
-    })
+    _log(
+        temp_repo,
+        STORY_KEY,
+        {
+            "ts": ts,
+            "skill": "build-simplify",
+            "story": STORY_KEY,
+            "step": "session",
+            "status": "start",
+            "data": {"files_changed": 1},
+        },
+    )
 
     # --- Step 3 — baseline (outcome (b) — no test runner) --------------
     # AC1: status:"skip" with test_suite_present:false and the reason string.
-    _log(temp_repo, STORY_KEY, {
-        "ts": ts,
-        "skill": "build-simplify",
-        "story": STORY_KEY,
-        "step": "baseline",
-        "status": "skip",
-        "data": {
-            "test_suite_present": False,
-            "reason": "no test runner discovered",
+    _log(
+        temp_repo,
+        STORY_KEY,
+        {
+            "ts": ts,
+            "skill": "build-simplify",
+            "story": STORY_KEY,
+            "step": "baseline",
+            "status": "skip",
+            "data": {
+                "test_suite_present": False,
+                "reason": "no test runner discovered",
+            },
         },
-    })
+    )
 
     # --- Step 4 — analyze ---------------------------------------------
-    _log(temp_repo, STORY_KEY, {
-        "ts": ts,
-        "skill": "build-simplify",
-        "story": STORY_KEY,
-        "step": "analyze",
-        "status": "ok",
-        "data": {"simplify": 1, "keep": 0, "escalate": 0},
-    })
+    _log(
+        temp_repo,
+        STORY_KEY,
+        {
+            "ts": ts,
+            "skill": "build-simplify",
+            "story": STORY_KEY,
+            "step": "analyze",
+            "status": "ok",
+            "data": {"simplify": 1, "keep": 0, "escalate": 0},
+        },
+    )
 
     # --- Step 5 — review (autonomous: auto-approve SIMPLIFY) -----------
-    _log(temp_repo, STORY_KEY, {
-        "ts": ts,
-        "skill": "build-simplify",
-        "story": STORY_KEY,
-        "step": "decision",
-        "status": "decision",
-        "data": {
-            "event": "autonomous_bypass",
-            "gate": "per-finding-approval",
-            "bypassed": True,
-            "default_taken": "auto-approve-simplify",
-            "trigger": "task_id_bundle",
+    _log(
+        temp_repo,
+        STORY_KEY,
+        {
+            "ts": ts,
+            "skill": "build-simplify",
+            "story": STORY_KEY,
+            "step": "decision",
+            "status": "decision",
+            "data": {
+                "event": "autonomous_bypass",
+                "gate": "per-finding-approval",
+                "bypassed": True,
+                "default_taken": "auto-approve-simplify",
+                "trigger": "task_id_bundle",
+            },
         },
-    })
-    _log(temp_repo, STORY_KEY, {
-        "ts": ts,
-        "skill": "build-simplify",
-        "story": STORY_KEY,
-        "step": "review",
-        "status": "ok",
-        "data": {
-            "approved": 1,
-            "rejected": 0,
-            "escalated": 0,
-            "pattern_divergences": 0,
-            "zero_findings": False,
+    )
+    _log(
+        temp_repo,
+        STORY_KEY,
+        {
+            "ts": ts,
+            "skill": "build-simplify",
+            "story": STORY_KEY,
+            "step": "review",
+            "status": "ok",
+            "data": {
+                "approved": 1,
+                "rejected": 0,
+                "escalated": 0,
+                "pattern_divergences": 0,
+                "zero_findings": False,
+            },
         },
-    })
+    )
 
     # --- Step 6 — apply ------------------------------------------------
-    _log(temp_repo, STORY_KEY, {
-        "ts": ts,
-        "skill": "build-simplify",
-        "story": STORY_KEY,
-        "step": "apply",
-        "data": {
-            "finding": "wrapper-for-wrappers-sake-1",
-            "lines_removed": 12,
+    _log(
+        temp_repo,
+        STORY_KEY,
+        {
+            "ts": ts,
+            "skill": "build-simplify",
+            "story": STORY_KEY,
+            "step": "apply",
+            "data": {
+                "finding": "wrapper-for-wrappers-sake-1",
+                "lines_removed": 12,
+            },
         },
-    })
+    )
 
     # --- Step 7 — verify (short-circuit; AC2) --------------------------
-    _log(temp_repo, STORY_KEY, {
-        "ts": ts,
-        "skill": "build-simplify",
-        "story": STORY_KEY,
-        "step": "verify",
-        "status": "skip",
-        "data": {
-            "test_suite_present": False,
-            "degraded_confidence": True,
-            "new_failures": 0,
-            "lines_removed_total": 12,
+    _log(
+        temp_repo,
+        STORY_KEY,
+        {
+            "ts": ts,
+            "skill": "build-simplify",
+            "story": STORY_KEY,
+            "step": "verify",
+            "status": "skip",
+            "data": {
+                "test_suite_present": False,
+                "degraded_confidence": True,
+                "new_failures": 0,
+                "lines_removed_total": 12,
+            },
         },
-    })
+    )
 
     # --- Step 7a — autonomous bypass for unverified code changes (AC3) -
-    _log(temp_repo, STORY_KEY, {
-        "ts": ts,
-        "skill": "build-simplify",
-        "story": STORY_KEY,
-        "step": "decision",
-        "status": "decision",
-        "data": {
-            "event": "autonomous_bypass",
-            "gate": "unverified-code-changes",
-            "bypassed": True,
-            "default_taken": "proceed-with-degraded-confidence",
-            "trigger": "task_id_bundle",
+    _log(
+        temp_repo,
+        STORY_KEY,
+        {
+            "ts": ts,
+            "skill": "build-simplify",
+            "story": STORY_KEY,
+            "step": "decision",
+            "status": "decision",
+            "data": {
+                "event": "autonomous_bypass",
+                "gate": "unverified-code-changes",
+                "bypassed": True,
+                "default_taken": "proceed-with-degraded-confidence",
+                "trigger": "task_id_bundle",
+            },
         },
-    })
+    )
 
     # --- Step 8 — session:end (AC4) ------------------------------------
-    _log(temp_repo, STORY_KEY, {
-        "ts": ts,
-        "skill": "build-simplify",
-        "story": STORY_KEY,
-        "step": "session",
-        "status": "ok",
-        "data": {
-            "findings_applied": 1,
-            "escalated": 0,
-            "lines_removed": 12,
-            "test_suite_present": False,
-            "degraded_confidence": True,
+    _log(
+        temp_repo,
+        STORY_KEY,
+        {
+            "ts": ts,
+            "skill": "build-simplify",
+            "story": STORY_KEY,
+            "step": "session",
+            "status": "ok",
+            "data": {
+                "findings_applied": 1,
+                "escalated": 0,
+                "lines_removed": 12,
+                "test_suite_present": False,
+                "degraded_confidence": True,
+            },
         },
-    })
+    )
 
     # --- assertions on the JSONL audit trail ---------------------------
     assert jsonl_path.exists(), "build-log.sh did not create the JSONL file"
@@ -324,15 +359,25 @@ def test_full_arc_doc_only_touch_is_status_success(temp_repo: pathlib.Path) -> N
         {
             "step": "baseline",
             "status": "skip",
-            "data": {"test_suite_present": False, "reason": "no test runner discovered"},
+            "data": {
+                "test_suite_present": False,
+                "reason": "no test runner discovered",
+            },
         },
-        {"step": "analyze", "status": "ok", "data": {"simplify": 1, "keep": 0, "escalate": 0}},
+        {
+            "step": "analyze",
+            "status": "ok",
+            "data": {"simplify": 1, "keep": 0, "escalate": 0},
+        },
         {
             "step": "review",
             "status": "ok",
             "data": {
-                "approved": 1, "rejected": 0, "escalated": 0,
-                "pattern_divergences": 0, "zero_findings": False,
+                "approved": 1,
+                "rejected": 0,
+                "escalated": 0,
+                "pattern_divergences": 0,
+                "zero_findings": False,
             },
         },
         {"step": "apply", "data": {"finding": "doc-cleanup-1", "lines_removed": 3}},
@@ -350,8 +395,11 @@ def test_full_arc_doc_only_touch_is_status_success(temp_repo: pathlib.Path) -> N
             "step": "session",
             "status": "ok",
             "data": {
-                "findings_applied": 1, "escalated": 0, "lines_removed": 3,
-                "test_suite_present": False, "degraded_confidence": True,
+                "findings_applied": 1,
+                "escalated": 0,
+                "lines_removed": 3,
+                "test_suite_present": False,
+                "degraded_confidence": True,
             },
         },
     ]:
@@ -361,8 +409,10 @@ def test_full_arc_doc_only_touch_is_status_success(temp_repo: pathlib.Path) -> N
     # No Step 7a autonomous_bypass row this time — only doc/config touched.
     rows = _read_jsonl(temp_repo / "specs" / SPEC_SLUG / "build.jsonl")
     unverified_bypass = [
-        r for r in rows
-        if r["step"] == "decision" and r["data"].get("gate") == "unverified-code-changes"
+        r
+        for r in rows
+        if r["step"] == "decision"
+        and r["data"].get("gate") == "unverified-code-changes"
     ]
     assert unverified_bypass == [], (
         "Step 7a must be a no-op when only doc/config files were touched"
@@ -415,7 +465,11 @@ def test_full_arc_runner_discovered_emits_baseline_cmd(temp_repo: pathlib.Path) 
                 "cmd": BASELINE_CMD,
             },
         },
-        {"step": "analyze", "status": "ok", "data": {"simplify": 1, "keep": 0, "escalate": 0}},
+        {
+            "step": "analyze",
+            "status": "ok",
+            "data": {"simplify": 1, "keep": 0, "escalate": 0},
+        },
         {
             "step": "decision",
             "status": "decision",
@@ -431,11 +485,17 @@ def test_full_arc_runner_discovered_emits_baseline_cmd(temp_repo: pathlib.Path) 
             "step": "review",
             "status": "ok",
             "data": {
-                "approved": 1, "rejected": 0, "escalated": 0,
-                "pattern_divergences": 0, "zero_findings": False,
+                "approved": 1,
+                "rejected": 0,
+                "escalated": 0,
+                "pattern_divergences": 0,
+                "zero_findings": False,
             },
         },
-        {"step": "apply", "data": {"finding": "wrapper-for-wrappers-sake-1", "lines_removed": 12}},
+        {
+            "step": "apply",
+            "data": {"finding": "wrapper-for-wrappers-sake-1", "lines_removed": 12},
+        },
         {
             "step": "verify",
             "status": "ok",
@@ -450,8 +510,11 @@ def test_full_arc_runner_discovered_emits_baseline_cmd(temp_repo: pathlib.Path) 
             "step": "session",
             "status": "ok",
             "data": {
-                "findings_applied": 1, "escalated": 0, "lines_removed": 12,
-                "test_suite_present": True, "degraded_confidence": False,
+                "findings_applied": 1,
+                "escalated": 0,
+                "lines_removed": 12,
+                "test_suite_present": True,
+                "degraded_confidence": False,
             },
         },
     ]:
@@ -482,8 +545,10 @@ def test_full_arc_runner_discovered_emits_baseline_cmd(temp_repo: pathlib.Path) 
     # Step 7a no-op — autonomous bypass for unverified code changes never
     # fires when the verify gate ran.
     unverified_bypass = [
-        r for r in rows
-        if r["step"] == "decision" and r["data"].get("gate") == "unverified-code-changes"
+        r
+        for r in rows
+        if r["step"] == "decision"
+        and r["data"].get("gate") == "unverified-code-changes"
     ]
     assert unverified_bypass == [], (
         "Step 7a is a no-op when test_suite_present:true — verify gate ran"
@@ -521,12 +586,28 @@ def test_full_arc_runner_discovered_emits_baseline_cmd(temp_repo: pathlib.Path) 
 # R1 envelope schema helpers
 # ---------------------------------------------------------------------------
 
-_R1_REQUIRED_TOP = {"schema", "agent", "status", "summary", "files_changed",
-                    "tests_written", "errors", "tool_calls_used", "data"}
+_R1_REQUIRED_TOP = {
+    "schema",
+    "agent",
+    "status",
+    "summary",
+    "files_changed",
+    "tests_written",
+    "errors",
+    "tool_calls_used",
+    "data",
+}
 _R1_REQUIRED_DATA = {
-    "findings_simplify", "findings_keep", "findings_escalate",
-    "applied", "escalated", "lines_removed", "zero_findings",
-    "new_test_failures", "test_suite_present", "degraded_confidence",
+    "findings_simplify",
+    "findings_keep",
+    "findings_escalate",
+    "applied",
+    "escalated",
+    "lines_removed",
+    "zero_findings",
+    "new_test_failures",
+    "test_suite_present",
+    "degraded_confidence",
 }
 _R1_VALID_STATUS = {"success", "partial", "failure"}
 

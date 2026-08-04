@@ -686,6 +686,7 @@ class TraceContext:
     project_name: str | None
     makato_version: str | None
     loop_phase: str | None
+    issue_trace_id: str | None = None
 
 
 _PLUGIN_NAMES = {
@@ -818,6 +819,8 @@ def emit_turn(langfuse: Langfuse, turn_num: int, turn: Turn, ctx: TraceContext) 
         trace_metadata["project"] = ctx.project_name
     if ctx.loop_phase:
         trace_metadata["loop_phase"] = ctx.loop_phase
+    if ctx.issue_trace_id:
+        trace_metadata["issue_trace_id"] = ctx.issue_trace_id
     if turn.start_time:
         trace_metadata["start_time"] = turn.start_time.isoformat()
     if turn.end_time:
@@ -918,6 +921,7 @@ def main() -> int:
 
     payload = read_hook_payload()
     session_id, transcript_path = extract_session_and_transcript(payload)
+    issue_trace_id = payload.get("issue_trace_id")
 
     if not session_id or not transcript_path or not transcript_path.exists():
         debug("Missing session_id or transcript_path; exiting.")
@@ -942,6 +946,7 @@ def main() -> int:
         project_name=get_project_name(),
         makato_version=_get_makato_version(),
         loop_phase=_get_loop_phase(),
+        issue_trace_id=issue_trace_id,
     )
 
     try:

@@ -75,10 +75,12 @@ def setup_tracing(service_name: str, service_version: str) -> None:
         headers={"Authorization": f"Basic {auth}"},
     )
 
-    resource = Resource.create({
-        "service.name": name,
-        "service.version": version,
-    })
+    resource = Resource.create(
+        {
+            "service.name": name,
+            "service.version": version,
+        }
+    )
     provider = TracerProvider(resource=resource)
     provider.add_span_processor(BatchSpanProcessor(exporter))
     trace.set_tracer_provider(provider)

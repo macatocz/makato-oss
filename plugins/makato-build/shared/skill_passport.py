@@ -35,7 +35,6 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-
 # ---------------------------------------------------------------------------
 # PassportNode dataclass
 # ---------------------------------------------------------------------------
@@ -128,7 +127,7 @@ def write_passport(dir: Path, node: dict) -> None:
         # Attempt non-blocking exclusive lock
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except (BlockingIOError, OSError):
+        except BlockingIOError, OSError:
             # Lock held by another process — skip gracefully
             return
 

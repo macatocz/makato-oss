@@ -59,3 +59,40 @@ addopts = [
   "--strict-markers",
   "--strict-config",
 ]
+
+# ---------------------------------------------------------------------------
+# Ruff linter — explicit config boundary so ruff does not inherit rules from
+# sibling-directory ruff.toml files when invoked from a git worktree path
+# (e.g. .claude/worktrees/<worktree>). The default rule set (E, F, W) is what
+# the pre-commit hook enforces; per-file-ignores suppress pre-existing debt in
+# files not authored by this repo's build lane.
+# ---------------------------------------------------------------------------
+[tool.ruff.lint]
+# Use ruff's default select (E, F, W) — deliberately minimal.
+# Adding extra rules here would require fixing pre-existing debt across all
+# plugin Python files, which is out of scope for the build lane.
+select = ["E", "F", "W", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+# langfuse_hook.py intentionally uses broad exception handling (BLE001),
+# try/except/pass patterns (S110, S112), and shebang without execute bit
+# (EXE001) as part of its fail-open contract. These are pre-existing patterns;
+# the per-file-ignore prevents false positives when the file is staged.
+"plugins/makato-observability/hooks/langfuse_hook.py" = [
+  "BLE001",  # broad exception catch — intentional fail-open contract
+  "S110",    # try-except-pass — intentional silent-logging fallback
+  "S112",    # try-except-continue — intentional JSONL parse skip
+  "EXE001",  # shebang without execute bit — hook is invoked via python3
+  "PYI034",  # __enter__ return type — pre-existing FileLock implementation
+  "PYI036",  # __exit__ annotation — pre-existing FileLock implementation
+  "FURB162", # timezone.replace — pre-existing fromisoformat compat pattern
+  "UP017",   # datetime.UTC — deferred modernisation
+  "UP012",   # encode() UTF-8 — deferred modernisation
+  "UP037",   # string annotations — deferred modernisation
+  "RUF100",  # unused noqa — stale directive from prior ruff version
+]
+# Test files that use sys.path.insert before imports need E402 and import-sort
+# suppression; the conditional import is intentional (path setup before hook import).
+"tests/test_langfuse_hook_trace_id.py" = ["E402", "I001"]
+# test_build_verify_spec.py uses conditional sys.path.insert before imports.
+"plugins/makato-build/shared/test_build_verify_spec.py" = ["E402"]

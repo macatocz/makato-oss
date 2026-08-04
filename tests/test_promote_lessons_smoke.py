@@ -1,10 +1,16 @@
 """RED test for Task 2: promote-lessons-smoke-tests.sh must exist and pass all 7 scenarios."""
-from pathlib import Path
-import subprocess
 
+import subprocess
+from pathlib import Path
 
 WORKTREE = Path(__file__).parent.parent
-SMOKE_SCRIPT = WORKTREE / "plugins" / "makato-orchestrate" / "scripts" / "promote-lessons-smoke-tests.sh"
+SMOKE_SCRIPT = (
+    WORKTREE
+    / "plugins"
+    / "makato-orchestrate"
+    / "scripts"
+    / "promote-lessons-smoke-tests.sh"
+)
 
 
 def test_smoke_script_exists():

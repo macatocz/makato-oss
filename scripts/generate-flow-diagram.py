@@ -186,9 +186,7 @@ def detect_drift(data: dict, inventory: dict, repo_root: Path) -> list[str]:
     # carrying that `cluster`. Valid cluster names are the distinct `cluster` fields
     # present on the nodes, so a typo'd "cluster:foo" is still caught.
     cluster_ids = {
-        "cluster:" + n["cluster"]
-        for n in data.get("nodes", [])
-        if n.get("cluster")
+        "cluster:" + n["cluster"] for n in data.get("nodes", []) if n.get("cluster")
     }
     valid_edge_ids = node_ids | cluster_ids
     for edge in data.get("edges", []):

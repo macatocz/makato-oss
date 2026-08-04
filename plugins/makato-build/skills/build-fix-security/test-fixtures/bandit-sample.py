@@ -16,8 +16,8 @@ import hashlib
 import pickle
 import ssl
 import subprocess
-import yaml
 
+import yaml
 
 # ---------------------------------------------------------------------------
 # Branch 1 — Autofix: mechanical safe-function swap

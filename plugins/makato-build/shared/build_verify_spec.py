@@ -196,7 +196,7 @@ def check_correctness(stories_text: str | None, diff_text: str) -> CorrectnessRe
 
     try:
         stories_data = json.loads(stories_text)
-    except (json.JSONDecodeError, ValueError):
+    except json.JSONDecodeError, ValueError:
         # Treat as gap — malformed stories.json
         v = ScenarioVerdict(title="(malformed stories.json)", verdict="GAP")
         return CorrectnessResult(verdicts=[v], gap_count=1)

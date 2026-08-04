@@ -4500,9 +4500,27 @@ _emit_langfuse_trace() {
   local transcript="$HOME/.claude/projects/${project_hash}/${session_id}.jsonl"
   [[ -f "$transcript" ]] || return 0
 
-  python3 "$hook_py" \
-    <<< "{\"sessionId\":\"${session_id}\",\"transcriptPath\":\"${transcript}\"}" \
-    2>/dev/null || true
+  # Read issue_trace_id from workflow-state (when available — absent on first
+  # emit before init runs, or in repos without makato-orchestrate workflow-state).
+  local issue_trace_id=""
+  if [[ -n "${issue:-}" ]]; then
+    local wf_file
+    wf_file="$(find "${SPECS_DIR:-$REPO_ROOT/specs}" -maxdepth 2 \
+      -name "workflow-state-${issue}.json" 2>/dev/null | head -1)"
+    if [[ -n "$wf_file" ]]; then
+      issue_trace_id="$(jq -r '.issue_trace_id // empty' "$wf_file" 2>/dev/null || true)"
+    fi
+  fi
+
+  # Build payload via jq to avoid inline string interpolation with untrusted values.
+  local payload_json
+  payload_json="$(jq -n \
+    --arg sid "$session_id" \
+    --arg tp "$transcript" \
+    --arg tid "${issue_trace_id:-}" \
+    'if $tid != "" then {sessionId:$sid,transcriptPath:$tp,issue_trace_id:$tid}
+     else {sessionId:$sid,transcriptPath:$tp} end')"
+  python3 "$hook_py" <<< "$payload_json" 2>/dev/null || true
 }
 
 # ---------------------------------------------------------------------------

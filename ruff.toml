@@ -1,0 +1,25 @@
+# Ruff configuration for the makato repo.
+# This file establishes a config boundary so ruff does not inherit rules from
+# sibling-directory ruff.toml files when invoked from a git worktree path
+# (e.g. .claude/worktrees/<worktree>). The default rule set is kept intentionally
+# minimal; linting is enforced via the pre-commit hook.
+
+# Set a generous line-length to avoid E501 false positives in a repo that
+# contains long auto-generated lines (skill docs, JSONL payloads, etc.).
+line-length = 200
+
+[lint]
+select = ["E", "F", "W", "I"]
+
+[lint.per-file-ignores]
+# langfuse_hook.py intentionally uses broad exception handling (BLE001),
+# try/except/pass patterns (S110, S112), and shebang without execute bit
+# (EXE001) as part of its fail-open contract. These are pre-existing patterns.
+"plugins/makato-observability/hooks/langfuse_hook.py" = [
+  "BLE001", "S110", "S112", "EXE001",
+  "PYI034", "PYI036", "FURB162",
+  "UP017", "UP012", "UP037", "RUF100",
+]
+# Test files that use conditional sys.path.insert before imports.
+"tests/test_langfuse_hook_trace_id.py" = ["E402", "I001"]
+"plugins/makato-build/shared/test_build_verify_spec.py" = ["E402"]

@@ -82,7 +82,6 @@ import fnmatch
 from pathlib import Path
 from typing import Iterable
 
-
 # ---------------------------------------------------------------------------
 # Glob matching — identical semantics to inject_context._match_glob.
 # ---------------------------------------------------------------------------
@@ -360,9 +359,7 @@ def resolve_skills(
             if not default_match:
                 unmatched.append(file_path)
         if unmatched:
-            warnings.append(
-                {"code": "no-match-fallback", "unmatched_files": unmatched}
-            )
+            warnings.append({"code": "no-match-fallback", "unmatched_files": unmatched})
 
     # Step 6: D10 target-repo subset filter + D18 graceful missing-skill skip.
     if installed_skills is not None:
@@ -410,7 +407,7 @@ def aggregate_bundles(makato_root: Path | str) -> dict:
     for cfg_path in config_paths:
         try:
             raw = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
-        except (OSError, yaml.YAMLError):
+        except OSError, yaml.YAMLError:
             continue
         for bundle in raw.get("bundles", []) or []:
             if bundle.get("name") == "default":
@@ -442,8 +439,7 @@ def discover_installed_skills(makato_root: Path | str) -> set[str]:
     """
     root = Path(makato_root)
     return {
-        skill_md.parent.name
-        for skill_md in root.glob("plugins/*/skills/*/SKILL.md")
+        skill_md.parent.name for skill_md in root.glob("plugins/*/skills/*/SKILL.md")
     }
 
 
@@ -490,7 +486,10 @@ def resolve_skills_for_repo(
 
     installed = discover_installed_skills(root) if apply_subset_filter else None
     return resolve_skills(
-        files, config, file_texts=file_texts, installed_skills=installed,
+        files,
+        config,
+        file_texts=file_texts,
+        installed_skills=installed,
         task_text=task_text,
     )
 

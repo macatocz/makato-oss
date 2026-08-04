@@ -1,4 +1,5 @@
 """Tests for T2: .makato allowed in check-root-structure.sh (AC-6)."""
+
 from __future__ import annotations
 
 import pathlib

@@ -75,9 +75,7 @@ class ContentHintMatchTests(unittest.TestCase):
             _CONFIG,
             file_texts={"agent_graph.py": "from langgraph.graph import StateGraph\n"},
         )
-        self.assertEqual(
-            skills, ["langgraph-fundamentals", "langgraph-persistence"]
-        )
+        self.assertEqual(skills, ["langgraph-fundamentals", "langgraph-persistence"])
         self.assertEqual(warnings, [])
 
     def test_import_langgraph_alternate_substring_matches(self) -> None:
@@ -152,9 +150,7 @@ class SubsetFilterTests(unittest.TestCase):
             file_texts={"agent_graph.py": "from langgraph import x\n"},
             installed_skills={"langgraph-fundamentals", "langgraph-persistence"},
         )
-        self.assertEqual(
-            skills, ["langgraph-fundamentals", "langgraph-persistence"]
-        )
+        self.assertEqual(skills, ["langgraph-fundamentals", "langgraph-persistence"])
         self.assertEqual(warnings, [])
 
     def test_no_subset_filter_returns_all(self) -> None:
@@ -164,9 +160,7 @@ class SubsetFilterTests(unittest.TestCase):
             file_texts={"agent_graph.py": "from langgraph import x\n"},
             installed_skills=None,
         )
-        self.assertEqual(
-            skills, ["langgraph-fundamentals", "langgraph-persistence"]
-        )
+        self.assertEqual(skills, ["langgraph-fundamentals", "langgraph-persistence"])
         self.assertEqual(warnings, [])
 
 
@@ -367,7 +361,9 @@ class FileAndTaskCombinationTests(unittest.TestCase):
             task_text="A keyword driven task.",
         )
         # shared-sk must appear exactly once, coming from the higher-specificity file bundle
-        self.assertEqual(skills.count("shared-sk"), 1, "shared-sk must not be duplicated")
+        self.assertEqual(
+            skills.count("shared-sk"), 1, "shared-sk must not be duplicated"
+        )
         self.assertIn("file-only-sk", skills)
         self.assertIn("task-only-sk", skills)
         # file bundle (higher specificity) comes first, so file-only-sk precedes task-only-sk
@@ -393,8 +389,9 @@ class FileAndTaskCombinationTests(unittest.TestCase):
             config,
             task_text="kw",
         )
-        self.assertEqual(skills[-1], "default-sk",
-                         "default-sk must be the last skill in the list")
+        self.assertEqual(
+            skills[-1], "default-sk", "default-sk must be the last skill in the list"
+        )
 
 
 class ValidatorTaskContainsTests(unittest.TestCase):
@@ -410,12 +407,9 @@ class ValidatorTaskContainsTests(unittest.TestCase):
         import tempfile
 
         validator = (
-            _REPO_ROOT
-            / "plugins/makato-langgraph/pre-commit/validate-skill-bundles.sh"
+            _REPO_ROOT / "plugins/makato-langgraph/pre-commit/validate-skill-bundles.sh"
         )
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yml", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yml", delete=False) as f:
             f.write(yaml_content)
             tmp_path = f.name
 
@@ -428,6 +422,7 @@ class ValidatorTaskContainsTests(unittest.TestCase):
             return result.returncode, result.stderr
         finally:
             import os
+
             os.unlink(tmp_path)
 
     def test_wide_glob_with_task_contains_passes(self) -> None:
@@ -449,9 +444,14 @@ class ValidatorTaskContainsTests(unittest.TestCase):
             "    globs:\n      - '**/*.py'\n"
             "    skills:\n      - some-skill\n"
         )
-        self.assertEqual(rc, 1, "wide-glob without any filter should fail the validator")
-        self.assertIn("task_contains", stderr,
-                      "error message should mention task_contains as a fix option")
+        self.assertEqual(
+            rc, 1, "wide-glob without any filter should fail the validator"
+        )
+        self.assertIn(
+            "task_contains",
+            stderr,
+            "error message should mention task_contains as a fix option",
+        )
 
 
 class TaskContainsBundleDataTests(unittest.TestCase):
@@ -463,6 +463,7 @@ class TaskContainsBundleDataTests(unittest.TestCase):
 
     def _load_bundle_by_name(self, config_path: Path, bundle_name: str) -> dict | None:
         import yaml
+
         data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
         for bundle in data.get("bundles", []) or []:
             if bundle.get("name") == bundle_name:
@@ -474,41 +475,60 @@ class TaskContainsBundleDataTests(unittest.TestCase):
         bundle = self._load_bundle_by_name(cfg, "langgraph")
         self.assertIsNotNone(bundle, "langgraph bundle not found")
         task_contains = bundle.get("task_contains") or []
-        self.assertGreater(len(task_contains), 0,
-                           "langgraph bundle must declare a non-empty task_contains list")
-        self.assertTrue(any("langgraph" in kw.lower() for kw in task_contains),
-                        "langgraph bundle task_contains should include a langgraph keyword")
+        self.assertGreater(
+            len(task_contains),
+            0,
+            "langgraph bundle must declare a non-empty task_contains list",
+        )
+        self.assertTrue(
+            any("langgraph" in kw.lower() for kw in task_contains),
+            "langgraph bundle task_contains should include a langgraph keyword",
+        )
 
     def test_database_bundle_has_task_contains(self) -> None:
         cfg = _REPO_ROOT / "plugins/makato-database/config/skill-bundles.yml"
         import yaml
+
         data = yaml.safe_load(cfg.read_text(encoding="utf-8")) or {}
         # Any bundle named database-* should carry task_contains
-        db_bundles = [b for b in data.get("bundles", [])
-                      if str(b.get("name", "")).startswith("database-")
-                      and b.get("skills")]
+        db_bundles = [
+            b
+            for b in data.get("bundles", [])
+            if str(b.get("name", "")).startswith("database-") and b.get("skills")
+        ]
         # At least one database bundle must carry task_contains
         bundles_with_task = [b for b in db_bundles if b.get("task_contains")]
-        self.assertGreater(len(bundles_with_task), 0,
-                           "At least one database-* bundle must declare task_contains")
+        self.assertGreater(
+            len(bundles_with_task),
+            0,
+            "At least one database-* bundle must declare task_contains",
+        )
 
     def test_observability_otel_bundle_has_task_contains(self) -> None:
         cfg = _REPO_ROOT / "plugins/makato-observability/config/skill-bundles.yml"
         bundle = self._load_bundle_by_name(cfg, "observability-otel")
         self.assertIsNotNone(bundle, "observability-otel bundle not found")
         task_contains = bundle.get("task_contains") or []
-        self.assertGreater(len(task_contains), 0,
-                           "observability-otel bundle must declare a non-empty task_contains list")
+        self.assertGreater(
+            len(task_contains),
+            0,
+            "observability-otel bundle must declare a non-empty task_contains list",
+        )
 
     def test_task_contains_bundles_fire_on_task_text(self) -> None:
         """End-to-end: a langgraph task_text keyword selects the langgraph bundle
         skills via the live merged registry."""
         skills, _ = resolve_skills_for_repo(
-            [], _REPO_ROOT, apply_subset_filter=False,
-            task_text="design a langgraph agent loop with state transitions"
+            [],
+            _REPO_ROOT,
+            apply_subset_filter=False,
+            task_text="design a langgraph agent loop with state transitions",
         )
-        self.assertIn("langgraph-fundamentals", skills,
-                      "langgraph bundle should fire on task_text with 'langgraph' keyword")
+        self.assertIn(
+            "langgraph-fundamentals",
+            skills,
+            "langgraph bundle should fire on task_text with 'langgraph' keyword",
+        )
 
 
 class TaskTextForRepoTests(unittest.TestCase):
@@ -553,8 +573,10 @@ class TaskTextForRepoTests(unittest.TestCase):
         # For now, just verify the parameter is accepted and the function runs.
         try:
             skills, warns = resolve_skills_for_repo(
-                [], _REPO_ROOT, apply_subset_filter=False,
-                task_text="agent loop state machine langgraph"
+                [],
+                _REPO_ROOT,
+                apply_subset_filter=False,
+                task_text="agent loop state machine langgraph",
             )
             # No assertion on content here — the bundle data depends on Task 3.
             # Verifying the call succeeds without TypeError is the key contract.

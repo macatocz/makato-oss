@@ -45,11 +45,13 @@ def _inprocess_tracer():
     global _EXPORTER
     _EXPORTER = InMemorySpanExporter()
 
-    resource = Resource.create({
-        "service.name": "test",
-        "service.version": "0.0.0",
-        "deployment.environment": "test",
-    })
+    resource = Resource.create(
+        {
+            "service.name": "test",
+            "service.version": "0.0.0",
+            "deployment.environment": "test",
+        }
+    )
     provider = TracerProvider(resource=resource)
     provider.add_span_processor(SimpleSpanProcessor(_EXPORTER))
     trace.set_tracer_provider(provider)

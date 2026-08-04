@@ -27,6 +27,16 @@ set -euo pipefail
 KEY="${1:?key required}"
 ENTRY_OR_FLAG="${2:?json entry or --batch flag required}"
 
+# Optional --trace-id <hex> flag: when present, the actual entry/flag is shifted
+# to position 4, and TRACE_ID carries the 64-char sha256 hex digest that will be
+# merged into each logged object. Fully backward-compatible — callers that omit
+# --trace-id behave identically to before.
+TRACE_ID=""
+if [[ "$ENTRY_OR_FLAG" == "--trace-id" ]]; then
+  TRACE_ID="${3:?--trace-id requires a hex value}"
+  ENTRY_OR_FLAG="${4:?json entry or --batch flag required after --trace-id}"
+fi
+
 # Resolve to the MAIN checkout's repo root. From a worktree,
 # `git rev-parse --git-common-dir` echoes the main repo's `.git`; its parent is
 # the main checkout. From the main checkout the same call echoes `.git` and the
@@ -75,10 +85,17 @@ if [[ "$ENTRY_OR_FLAG" == "--batch" ]]; then
     if ! jq -e . >/dev/null 2>&1 <<<"$line"; then
       continue
     fi
+    # Merge issue_trace_id when --trace-id was supplied.
+    if [[ -n "$TRACE_ID" ]]; then
+      line="$(jq --arg tid "$TRACE_ID" '. + {issue_trace_id: $tid}' <<<"$line")"
+    fi
     printf '%s\n' "$line" >> "$LOG_FILE"
   done
   exit 0
 fi
 
-# Single-entry mode (legacy, unchanged).
+# Single-entry mode: merge issue_trace_id when --trace-id was supplied.
+if [[ -n "$TRACE_ID" ]]; then
+  ENTRY_OR_FLAG="$(jq --arg tid "$TRACE_ID" '. + {issue_trace_id: $tid}' <<<"$ENTRY_OR_FLAG")"
+fi
 printf '%s\n' "$ENTRY_OR_FLAG" >> "$LOG_FILE"
