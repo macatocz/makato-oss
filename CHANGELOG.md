@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.133.0](https://github.com/macatocz/makato/compare/v0.132.0...v0.133.0) (2026-08-04)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** HALT-by-layer diagnostic report ([#593](https://github.com/macatocz/makato/issues/593)) ([#666](https://github.com/macatocz/makato/issues/666)) ([635791b](https://github.com/macatocz/makato/commit/635791b72cf4dd64a4a4602720a00222881aed43))
+
 ## [0.132.0](https://github.com/macatocz/makato/compare/v0.131.0...v0.132.0) (2026-08-03)
 
 
