@@ -47,6 +47,20 @@ repos:
           )$
 
   # -----------------------------------------------------------------------
+  # Stale-artifact sensor — fast lane (debug leftovers + temp files, #596)
+  # Flags console.log(, debugger, pdb.set_trace(), breakpoint() in additions
+  # and staged *.log / *.tmp / tmp_* / temp_* files.
+  # -----------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: stale-artifact-check
+        name: stale-artifact check (debug leftovers)
+        entry: plugins/makato-build/pre-commit/stale-artifact-check.sh
+        language: system
+        pass_filenames: true
+        stages: [pre-commit]
+
+  # -----------------------------------------------------------------------
   # Python — fast lane (lint + format only; type-check is slow lane)
   # 16 .py files in repo: parse-sarif.py + makato-sagibeast extractor.
   # -----------------------------------------------------------------------
