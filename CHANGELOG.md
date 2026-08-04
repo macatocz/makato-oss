@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.139.3](https://github.com/macatocz/makato/compare/v0.139.2...v0.139.3) (2026-08-04)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** board_applied:false in emit-needs-planning-signal ([#682](https://github.com/macatocz/makato/issues/682)) ([#685](https://github.com/macatocz/makato/issues/685)) ([61860ca](https://github.com/macatocz/makato/commit/61860ca85319b7c9eb7f4e3d64617c633b5a43fb))
+
 ## [0.139.2](https://github.com/macatocz/makato/compare/v0.139.1...v0.139.2) (2026-08-04)
 
 
