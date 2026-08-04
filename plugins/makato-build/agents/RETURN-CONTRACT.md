@@ -117,6 +117,27 @@ If `schema != "r1"` or the JSON does not parse: the caller MUST treat the dispat
 - `errors: []` on success; on partial/failure: short reason strings.
 - `data` keys: `{ "project_type": "...", "config_files_read": N, "build": "...", "lint": "...", "unit": "...", "integration": "...", "coverage": "...", "java_version_required": "...", "lint_ci_divergence": true|false }`.
 
+### `runtime-qa.md` (model: haiku, read-only scorer)
+
+- `status: "success"` — all exercised paths passed, OR the agent skipped cleanly (no runtime surface).
+- `status: "failure"` — at least one CRITICAL finding (app crash, 5xx, or core AC outcome not achievable).
+- `files_changed: []`, `tests_written: []` (agent is read-only — it observes but never edits source).
+- `errors: []` on `status: "success"`; on `status: "failure"`: `["CRITICAL: <description>", …]` for each CRITICAL finding.
+- `data` keys:
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `skipped` | `boolean` | `true` when no `## Runtime verification` section and no `health_check_cmd` — clean no-op. |
+| `skip_reason` | `string\|null` | Why skipped (e.g. `"no-runtime-surface"`), or `null` when not skipped. |
+| `paths_exercised` | `integer` | Number of AC-driven Playwright paths executed. 0 when skipped. |
+| `findings_total` | `integer` | Total count of all findings (CRITICAL + MAJOR + ADVISORY). 0 when skipped. |
+| `findings_critical` | `integer` | Findings that block push. 0 when skipped. |
+| `findings_major` | `integer` | MAJOR findings (advisory, logged as warn). 0 when skipped. |
+| `findings_advisory` | `integer` | ADVISORY findings (cosmetic, logged as warn). 0 when skipped. |
+| `runtime_cmd` | `string\|null` | The shell command used to launch the app, or `null` when skipped. |
+
+**Caller contract**: `build-runtime-qa` MUST tolerate `status: "success"` with `data.skipped: true` — this is not an error, it is the correct outcome for non-service builds. On `status: "failure"`: surface `errors[]` to the PO-agent as a HALT-002-equivalent (RUNTIME_QA_BLOCKED); do NOT push to git until CRITICAL findings are resolved.
+
 ### `task-file-scout.md` (plugin: `makato-orchestrate`, model: haiku, read-only)
 
 - `status: "success"` — at least one file was read and the summary is non-empty.
