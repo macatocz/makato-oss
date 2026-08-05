@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.141.2](https://github.com/macatocz/makato/compare/v0.141.1...v0.141.2) (2026-08-05)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** reconcilers use --project-id in gh item-edit ([#697](https://github.com/macatocz/makato/issues/697)) ([#700](https://github.com/macatocz/makato/issues/700)) ([bf8eebe](https://github.com/macatocz/makato/commit/bf8eebee1d5189ca04e1a9bf97f4ef95e2411012))
+* **makato-orchestrate:** reset board card to Ready after api_error dispatch (687-makato-orchestrate--bug--api-error-dispa) ([#698](https://github.com/macatocz/makato/issues/698)) ([131dd89](https://github.com/macatocz/makato/commit/131dd89f7c06096c9380bc7e8903e929db0ece93))
+
 ## [0.141.1](https://github.com/macatocz/makato/compare/v0.141.0...v0.141.1) (2026-08-05)
 
 
