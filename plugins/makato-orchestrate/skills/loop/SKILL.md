@@ -39,24 +39,15 @@ field directly puts `loop` on the same source of truth as the sibling
 (`status:ready` → board `Ready` via `issue-to-project`, or manual board
 edit) cascades straight into the queue.
 
-### Pre-poll label→board bridge (#231)
+### Pre-poll label→board bridge (removed in #688)
 
-The board is still the queue source — but an issue that never came through
-`to-issues` (a hand-filed issue, or an auto-filed testbox/CI bug) has no
-`created-issues.json`, so `issue-to-project`'s autonomous promotion never sees
-it and it stays off the board's `Ready` column even when the operator has
-stamped it `status:ready-for-dev`. Before #231 the only fix was a manual
-`seed-issue` run.
-
-`run` now performs a **pre-poll promotion pass** (Process step 2 below): every
-tick, before the board poll, it lists open `status:ready-for-dev` issues and
-sets any that are off-`Ready` to `Status=Ready` via `gh project item-edit` (the
-same mutation `seed-issue` performs). This keeps the board the single source of
-truth — every dispatched issue still has a real `Ready` card — while giving the
-label a one-way on-ramp onto it. The pass is **guarded** (issues carrying
-`triage`, `experimental`, `status:blocked`, or `autonomous:halt` are skipped)
-and **best-effort** (any `gh` failure logs a WARN and never blocks the tick).
-It runs only when polling the default `Ready` status.
+> **Note:** The `_promote_labelled_ready` pre-poll pass that previously listed
+> open `status:ready-for-dev` issues and moved them to board Status=Ready has
+> been removed. Board Status=Ready is now the sole dispatch signal and the sole
+> on-ramp into the queue. Use `seed-issue` (which moves the card to Ready) or
+> `issue-to-project` autonomous mode for issues that need to enter the queue.
+> The `promote-ready` subcommand of `loop.sh` now exits with an error message
+> as a removed-feature notice.
 
 ### Pre-poll merged-worktree reap (#265)
 
@@ -231,8 +222,8 @@ The driver also exposes lower-level subcommands for diagnostics:
 | `status` | Pretty-print `.claude/state/loop-status.json`. |
 | `dispatch <ISSUE> [--dry-run]` | Manually dispatch one issue. |
 | `remove-worktrees` | Remove local worktrees under `.claude/worktrees/` whose branch has a merged PR (#265); skips main/dirty/locked/retained/detached/nested. Also prunes orphaned untracked `specs/<slug>/` folders for done/closed issues (`MAKATO_LOOP_REAP_SPECS=0` to disable). Also a pre-poll pass in `run`. One-shot: `MAKATO_LOOP_REAP_INTERVAL=0 loop remove-worktrees` (`MAKATO_LOOP_REAP_DRYRUN=1` to inspect). |
-| `promote-ready` | Run the label→board promotion pass once and exit (#231). Useful for one-shot promotion without starting the full loop. |
-| `auto-seed` | Run the pre-poll auto-seed pass (`_auto_seed_unprepared`) once and exit (#373, epic #367 S5). Seeds or blocks every open issue not yet at `status:ready-for-dev`: light-tier issues → headless `seed-issue` dispatch + thin-body reconciliation; change-tier → no-op (change-orchestrate owns them); full/untiered → spec-folder stub + board `Blocked` + `needs-human-review`. Best-effort: a failure per candidate logs a WARN and the pass always returns 0. |
+| `promote-ready` | **Removed in #688.** Exits with an error message. Use `seed-issue` to move a card to Status=Ready. |
+| `auto-seed` | Run the pre-poll auto-seed pass (`_auto_seed_unprepared`) once and exit (#373, epic #367 S5). Seeds or blocks every open issue not yet at board Status=Ready: light-tier issues → headless `seed-issue` dispatch + thin-body reconciliation; change-tier → no-op (change-orchestrate owns them); full/untiered → spec-folder stub + board `Blocked` + `needs-human-review`. Best-effort: a failure per candidate logs a WARN and the pass always returns 0. |
 | `reconcile-orphaned` | Move board cards that are `In progress` but have no live local workflow-state to `Blocked` + `needs-human-review` (#368). Best-effort one-shot pass. |
 | `check-halt` | Exit 0/1 mirroring `hooks/check-halt.sh`. |
 
@@ -260,10 +251,10 @@ Each outer iteration of `run` performs the following steps in order:
    `--dry-run`. Kill-switch honoured: if a HALT file is present the pass returns 0
    immediately without dispatching. Also available standalone as `loop reshape-pass`.
 
-1.5. **Pre-poll auto-seed pass (#373, epic #367 S5).** When polling the
-   default `Ready` status and `MAKATO_LOOP_AUTOSEED_ON_POLL` is not `0`,
-   `_auto_seed_unprepared` iterates every open issue that does NOT yet carry
-   `status:ready-for-dev` and routes it to the appropriate arm:
+1.5. **Pre-poll auto-seed pass (#373, epic #367 S5).** When "Ready" is among
+   the polled statuses and `MAKATO_LOOP_AUTOSEED_ON_POLL` is not `0`,
+   `_auto_seed_unprepared` iterates every open issue not yet at board Status=Ready
+   and routes it to the appropriate arm:
    `plan-tier:light` → `_auto_seed_dispatch_light` (headless `seed-issue`
    dispatch) followed by `_auto_seed_reconcile_thin_body` (thin-body
    reconciliation); `plan-tier:change` → no-op (change-orchestrate creates
@@ -271,9 +262,8 @@ Each outer iteration of `run` performs the following steps in order:
    immediately without writing a plan.md stub, blocking the card, or posting
    a comment); `plan-tier:full` or untiered →
    `_auto_seed_block_full` (spec-folder stub + board `Blocked` +
-   `needs-human-review`). Candidate discovery (`_auto_seed_candidates`) first
-   vetoes issues that must never be seeded: `status:ready-for-dev` (owned by
-   `_promote_labelled_ready`), exclusion labels, the `dependencies` label,
+   `needs-human-review`). Candidate discovery (`_auto_seed_candidates`) vetoes
+   issues that must never be seeded: exclusion labels, the `dependencies` label,
    `[bot]` authors, and — closing the #499/#510 shared-folder gap (incident
    #347) — **any issue already planned by `to-issues`** (referenced in a
    `specs/<slug>/created-issues.json`, detected via `_is_orphan_issue`). Such
@@ -285,20 +275,12 @@ Each outer iteration of `run` performs the following steps in order:
    auto-seed-block arm; this closes the candidate-discovery arm. Each candidate
    is handled under `|| true`
    (best-effort: any per-candidate failure logs a WARN and the pass continues).
-   The pass runs **before** `_promote_labelled_ready` (step 2) so a freshly-seeded
-   light issue arrives at `Status=Ready` in time to be dispatched in the same
-   tick. Skipped under `--dry-run`, for custom `--status` runs, and when
-   `MAKATO_LOOP_AUTOSEED_ON_POLL=0`. Also available standalone as
-   `loop auto-seed`.
-2. **Pre-poll promotion (#231).** When polling the default `Ready` status,
-   `_promote_labelled_ready` lists open `status:ready-for-dev` issues and
-   promotes those that are off-`Ready` and not carrying an exclusion label
-   (`triage`, `experimental`, `status:blocked`, `autonomous:halt`) to
-   `Status=Ready`. This bridges labelled non-`to-issues` issues onto the board
-   queue (see *Pre-poll label→board bridge* above). Best-effort: a `gh` failure
-   or missing config logs a WARN and the tick continues. Skipped under
-   `--dry-run` and for custom `--status` runs. Also available standalone as
-   `loop promote-ready`.
+   Skipped under `--dry-run` and when `MAKATO_LOOP_AUTOSEED_ON_POLL=0`. Also
+   available standalone as `loop auto-seed`.
+2. **Pre-poll promotion pass removed (#688).** The `_promote_labelled_ready`
+   pass (which promoted `status:ready-for-dev` issues to board Ready) has been
+   removed. Board Status=Ready is now the sole dispatch signal. Use `seed-issue`
+   or `issue-to-project` autonomous mode to bring an issue into the queue.
 3. **Pre-poll worktree reap (#265).** `_reap_merged_worktrees` walks
    `git worktree list --porcelain` and removes worktrees whose work has landed
    on the base branch (merged PR or ancestor of the base ref), subject to the
@@ -567,22 +549,17 @@ the loop then relies solely on the async assign→webhook path and the
 cross-worktree double-dispatch race re-opens. Leave the claim **enabled**
 in any multi-worktree setup.
 
-## Why we still don't mutate labels at dispatch
+## Board Status=Ready as the sole dispatch signal (#688)
 
-The issue #33 brief suggested removing `status:ready-for-dev` at dispatch
-to prevent double-dispatch. We don't touch the label:
+The board's `Status=Ready` field is the **single source of truth** for dispatch.
+`loop` reads (and, since #259, claims) `Status` — not any label. Any `status:*`
+label on an issue whose board card is at `Status=Ready` is now a conflict
+(caught by the label-board conflict gate, tier 3/4). Operators wanting to hold
+a Ready card for human review should apply `needs-human-review` (which also
+appears in `_PROMOTE_EXCLUSION_LABELS` and prevents seeding).
 
-1. `status:ready-for-dev` exists in the repo as a **passive stamp**
-   written by `issue-to-project` v2.8+ during autonomous auto-promotion
-   (`ready_queue_mode: "autonomous"`). It is a historical marker — the
-   downstream orchestrator can grep it without reading the board — but it
-   is **not the dispatch signal**. The board's `Status` field remains the
-   source of truth; `loop` reads (and, since #259, claims) `Status`, not
-   the label.
-2. The double-dispatch defence is now the board CAS claim above (plus the
-   worktree-local in-flight filter for same-session restarts). Mutating
-   the *label* from `loop` would duplicate `issue-to-project
-   sync-lifecycle`'s contract for no additional protection.
+The double-dispatch defence is the board CAS claim (plus the worktree-local
+in-flight filter for same-session restarts).
 
 ### assign-on-dispatch (#33) — now a belt-and-braces trigger
 
@@ -783,8 +760,8 @@ The intentional design split:
 | `MAKATO_LOOP_GH_OVERRIDE` | unset | Test-only: read the canned `gh project item-list` JSON from this path instead of invoking `gh`. |
 | `MAKATO_LOOP_ISSUE_BODY_OVERRIDE` | unset | Test-only: read the issue body from this path instead of invoking `gh issue view` in `_derive_key_for_issue`. Keeps the T25 KEY-derivation test offline. |
 | `MAKATO_LOOP_ISSUE_TITLE_OVERRIDE` | unset | Test-only: use this string as the issue title instead of `gh issue view --json title` in the `_derive_key_for_issue` third fallback (#232). Keeps the T27 no-provenance KEY test offline. |
-| `MAKATO_LOOP_PROMOTE_OVERRIDE` | unset | Test-only: read the candidate list (`gh issue list --json number,labels` shape) from this path instead of invoking `gh` in `_promote_labelled_ready` (#231). Keeps the T28 promotion test offline. |
-| `MAKATO_LOOP_PROMOTE_DRYRUN` | unset | Test-only: set to `1` so `_promote_labelled_ready` logs `would promote #N → Ready` instead of calling `gh project item-edit`. Asserted by T28. |
+| `MAKATO_LOOP_PROMOTE_OVERRIDE` | unset | **Removed in #688.** No-op — `_promote_labelled_ready` no longer exists. |
+| `MAKATO_LOOP_PROMOTE_DRYRUN` | unset | **Removed in #688.** No-op — `_promote_labelled_ready` no longer exists. |
 | `MAKATO_LOOP_STALL_WARN` | `900` | Seconds of no output before the watchdog stamps `active_workflow.stalled = true`. |
 | `MAKATO_LOOP_STALL_KILL` | `3600` | Seconds of no output before the watchdog `SIGTERM`s the PO-agent. |
 | `MAKATO_LOOP_STALL_POLL` | `60` | Watchdog poll cadence in seconds (small values used in smoke tests). |
@@ -809,7 +786,7 @@ The intentional design split:
 | `MAKATO_LOOP_REAP_SPECS` | `1` | Set to `0` to disable orphaned-specs pruning. When on, untracked `specs/<slug>/` folders for done/closed issues are removed in the same reap pass. Tracked spec folders are never touched (consumer repos use `archive-spec.sh`). |
 | `MAKATO_LOOP_REAP_SPECS_GH_OVERRIDE` | unset | Test-only: path to a JSON map `{"<issue_number>": "open\|closed"}` read instead of calling `gh issue view`. Keeps the specs-prune smoke tests offline. |
 | `MAKATO_HANDOFF_ACK_TIMEOUT` | `120` | Seconds the pre-poll HALT-007B liveness check (#284) waits for a resumed subprocess to write `resume_ack` before firing the HALT-007 fallback. A dead PID short-circuits the wait. Read by `context-handoff.sh check-pid`; lower it in tests to force the timeout path. |
-| `MAKATO_LOOP_AUTOSEED_ON_POLL` | `1` | Set to `0` to disable the pre-poll auto-seed pass entirely (#373, epic #367 S5). When unset or `1`, `_auto_seed_unprepared` runs before `_promote_labelled_ready` on every `Ready`-status tick. Disable for repos that manage seeding externally or for debugging. |
+| `MAKATO_LOOP_AUTOSEED_ON_POLL` | `1` | Set to `0` to disable the pre-poll auto-seed pass entirely (#373, epic #367 S5). When unset or `1`, `_auto_seed_unprepared` runs on every tick where "Ready" is among the polled statuses. Disable for repos that manage seeding externally or for debugging. |
 | `MAKATO_LOOP_AUTOSEED_OVERRIDE` | unset | Test-only: path to a JSON file in `gh issue list --json number,labels,author` shape, read instead of calling `gh` in `_auto_seed_candidates`. Keeps S1/S5 discovery smoke tests offline. |
 | `MAKATO_LOOP_SEED_TEST_CMD` | unset | Test-only: command string used as the dispatch command instead of the real `claude -p` in `_auto_seed_dispatch_light`. Receives the same env (`MAKATO_HEADLESS=1`, `ISSUE_NUMBER`, `REPO`, `REPO_ROOT`) and prompt as the production invocation. Keeps S2/S5 dispatch smoke tests offline. |
 | `MAKATO_LOOP_BLOCK_TEST_FILE` | unset | Test-only: path to a file that `_auto_seed_block_full` appends `block #<n>` to instead of calling `gh project item-edit` to set `Blocked`. Keeps S4/S5 block smoke tests offline. |
@@ -912,13 +889,12 @@ The intentional design split:
 38. **Auto-seed composition — toggle-off (Th, #373).** `MAKATO_LOOP_AUTOSEED_ON_POLL`
     guard is present in `cmd_run` and protects the `_auto_seed_unprepared` call
     (structural check — confirms the toggle controls the call site).
-39. **Auto-seed composition — ordering (Ti, #373).** `_auto_seed_unprepared`
-    appears on an earlier line than `_promote_labelled_ready` in `cmd_run`,
-    confirming the load-bearing tick ordering.
+39. **Auto-seed composition — ordering (Ti, #688).** `_promote_labelled_ready || true`
+    is absent from `cmd_run` (removed); `_auto_seed_unprepared` call is still present.
 40. **Auto-seed composition — dependencies veto (Tj, #373).** Candidate with the
     `dependencies` label is skipped by S1 discovery.
-41. **Auto-seed composition — already-ready skipped (Tk, #373).** Candidate with
-    `status:ready-for-dev` is excluded from candidates (S1 filter); no action.
+41. **Auto-seed composition — already-ready (Tk, #688).** Candidate with
+    `status:ready-for-dev` label now appears in candidates (label filter removed; AC-4).
 42. **Orphaned-In-progress reconciliation — orphaned card reconciled (Tl, #368).**
     Board has issue #600 at `In progress`; no local workflow-state; function records
     `reconcile #600` in test file and logs the orphaned message.

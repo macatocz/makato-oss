@@ -52,7 +52,14 @@ Routing comes from `labels[]` in `created-issues.json` only — the skill never 
 
 **PR label stamp (v2.7.0+):** when `sync-lifecycle` or `--from-webhook` detects a linked open PR for an issue, the skill calls `gh issue edit --add-label <pr_label_name>` on that issue. The label is a **permanent historical marker** — the skill NEVER removes it, even after the PR closes or merges. Default label name is `"PR"` (configurable via `pr_label_name` in config; empty string `""` disables all label calls). `--init` creates the label in the repo if absent (color `0E8A16`, description `"This issue has an open linked pull request."`). The add-label call is additive and idempotent at the GitHub API level; `pr_label_action` row field encodes `"added"` or `"failed"`; `pr_label_added` / `pr_label_failed` summary counters track totals per run.
 
-**Ready-for-dev label stamp (v2.8.0+):** when autonomous mode (`ready_queue_mode: "autonomous"`) auto-promotes a `Todo` item to `Ready`, the skill calls `gh issue edit --add-label <ready_label_name>` on that issue — a passive handoff marker the downstream orchestrator (`makato-orchestrate` po-agent / loop) can grep without reading the board. Like the PR label, it is a **permanent historical marker** the skill NEVER removes. Default label name is `"status:ready-for-dev"` (configurable via `ready_label_name` in config; empty string `""` disables the stamp). `--init` v2.8.0+ creates the label in the repo if absent (color `0075CA`, blue). The `ready_label_action` row field encodes `"added"` or `"failed"`; `ready_label_stamped` / `ready_label_failed` summary counters track totals per run. Fired **only** on the `auto_promoted_ready` outcome in autonomous mode — never by `sync-lifecycle` or `--from-webhook`. Note: `status:ready-for-dev` is exempted from the `auto_promote_to_ready()` `status:*` block guard (it is stamped by the skill itself, not an operator routing signal), so it never suppresses promotion; operators wanting to block a `Todo` item use `status:todo`, `needs-human-review`, `hold-in-todo`, or a `blocked-by:*` label.
+**Ready-for-dev label stamp (v2.8.0+, deprecated in v0.126.0 / #688):**
+`ready_label_name`, `ready_label_action`, `ready_label_stamped`, and
+`ready_label_failed` are deprecated and always empty-string / zero effective
+v0.126.0. The `status:ready-for-dev` label is no longer the dispatch signal —
+board Status=Ready is authoritative. The stamp code is retained for backward
+compatibility with consumers reading `ready_label_stamped` counters in RESULT
+output, but no `gh issue edit --add-label` call is made. These fields will be
+removed in v0.127.0. Do NOT add `ready_label_name` to new `config.json` files.
 
 ## Tools
 

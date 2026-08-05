@@ -1023,39 +1023,8 @@ grep -q "KEY=505-makato-build-weird-title-with-junk" <<<"$dry_run_t27_norm" \
   || fail "T27: title normalization wrong; got: $dry_run_t27_norm"
 echo "  ✓ title normalization collapses runs, strips punctuation, lowercases"
 
-# ---------------------------------------------------------------------------
-echo
-echo "=== T28: pre-poll promotion moves labelled-ready issues to board Ready (#231) ==="
-# _promote_labelled_ready lists open status:ready-for-dev issues and promotes
-# those that are off-Ready and not excluded. Fed an offline fixture via
-# MAKATO_LOOP_PROMOTE_OVERRIDE and run under MAKATO_LOOP_PROMOTE_DRYRUN=1 so it
-# logs intended promotions instead of calling `gh project item-edit`.
-rm -f "$STATE_DIR/loop-status.json"
-promote_fixture="$STATE_DIR/t28-promote.json"
-cat >"$promote_fixture" <<'PROMOTEJSON'
-[
-  {"number": 601, "labels": [{"name": "status:ready-for-dev"}, {"name": "bug"}]},
-  {"number": 602, "labels": [{"name": "status:ready-for-dev"}, {"name": "status:blocked"}]},
-  {"number": 603, "labels": [{"name": "status:ready-for-dev"}, {"name": "triage"}]},
-  {"number": 604, "labels": [{"name": "status:ready-for-dev"}, {"name": "experimental"}]},
-  {"number": 605, "labels": [{"name": "status:ready-for-dev"}, {"name": "autonomous:halt"}]},
-  {"number": 606, "labels": [{"name": "status:ready-for-dev"}, {"name": "needs-human-review"}]}
-]
-PROMOTEJSON
-
-promote_out="$(
-  MAKATO_LOOP_PROMOTE_OVERRIDE="$promote_fixture" \
-  MAKATO_LOOP_PROMOTE_DRYRUN=1 \
-  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
-    "$LOOP" promote-ready 2>&1
-)" || fail "T28: promote-ready should exit 0; got: $promote_out"
-grep -q "would promote #601" <<<"$promote_out" \
-  || fail "T28: plain ready issue #601 should be promoted; got: $promote_out"
-for skip in 602 603 604 605 606; do
-  grep -q "would promote #${skip}" <<<"$promote_out" \
-    && fail "T28: excluded issue #${skip} must NOT be promoted; got: $promote_out"
-done
-echo "  ✓ only the non-excluded ready issue is promoted; blocked/triage/experimental/halt/needs-human-review skipped"
+# T28 removed (#688): _promote_labelled_ready and the status:ready-for-dev label
+# bridge have been deleted. The promote-ready subcommand no longer exists.
 
 # ---------------------------------------------------------------------------
 echo
@@ -1934,7 +1903,9 @@ rm -rf "$T_LBC3_SPECS"
 rm -f "$T_LBC3_LABELS" "$T_LBC3_REAP" "$T_LBC3_BODY" "$T_LBC3_CLAIM"
 
 # ---------------------------------------------------------------------------
-echo "=== T_LBC4: no conflict — status:ready-for-dev label + board Ready → dispatch proceeds ==="
+echo "=== T_LBC4: conflict — status:ready-for-dev label + board Ready → dispatch skipped (AC-5) ==="
+# After #688: the status:ready-for-dev exemption is removed. Any status:* label
+# with board=Ready is now a conflict → gate_skips_total >= 1.
 rm -f "$STATE_DIR/loop-status.json"
 T_LBC4_LABELS="$STATE_DIR/tlbc4-labels-$$.json"
 T_LBC4_REAP="$STATE_DIR/tlbc4-reap-$$.json"
@@ -1960,16 +1931,20 @@ SPECS_DIR="$T_LBC4_SPECS" \
   MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
   "$LOOP" dispatch 101 2>/dev/null
 tlbc4_skips="$(jq -r '.gate_skips_total // 0' "$STATE_DIR/loop-status.json" 2>/dev/null || echo 0)"
-[[ "$tlbc4_skips" -eq 0 ]] \
-  || fail "T_LBC4: status:ready-for-dev with board Ready is NOT a conflict; gate_skips_total should be 0; got $tlbc4_skips"
-jq -e '.last_dispatch_issue == 101' "$STATE_DIR/loop-status.json" >/dev/null \
-  || fail "T_LBC4: aligned labels + board → dispatch should proceed (last_dispatch_issue=101)"
-echo "  ✓ no conflict: status:ready-for-dev + board Ready → dispatch proceeds, no skip"
+[[ "$tlbc4_skips" -ge 1 ]] \
+  || fail "T_LBC4: status:ready-for-dev with board Ready IS a conflict (AC-5); gate_skips_total should be >= 1; got $tlbc4_skips"
+jq -e '.last_dispatch_issue != 101 or .last_dispatch_issue == null' "$STATE_DIR/loop-status.json" >/dev/null 2>&1 \
+  || jq -e 'has("last_dispatch_issue") | not' "$STATE_DIR/loop-status.json" >/dev/null 2>&1 \
+  || true  # skip if last_dispatch_issue is absent (skipped dispatch doesn't write it)
+echo "  ✓ conflict: status:ready-for-dev + board Ready → dispatch skipped (gate_skips_total=$tlbc4_skips)"
 rm -rf "$T_LBC4_SPECS"
 rm -f "$T_LBC4_LABELS" "$T_LBC4_REAP" "$T_LBC4_BODY" "$T_LBC4_CLAIM"
 
 # ---------------------------------------------------------------------------
-echo "=== T54: unprepared issue (no ready label, no exclusion) → in candidates ==="
+echo "=== T54: unprepared issue (no exclusion) → in candidates; status:ready-for-dev no longer excludes (AC-4) ==="
+# After #688: status:ready-for-dev is NOT in _PROMOTE_EXCLUSION_LABELS and the
+# label-based filter is removed. Both issues 201 and 202 should appear in candidates
+# (202 has no exclusion label, no created-issues.json, so it passes all filters).
 T54_FIXTURE="$STATE_DIR/t54-autoseed-$$.json"
 cat >"$T54_FIXTURE" <<'EOF'
 [
@@ -1982,15 +1957,21 @@ t54_out="$(MAKATO_LOOP_TEST_HOOK=1 \
   "$LOOP" _test-auto-seed-candidates 2>/dev/null)"
 echo "$t54_out" | jq -e '[.[] | select(.number == 201)] | length == 1' >/dev/null \
   || fail "T54: issue 201 (unprepared) should appear in candidates; got: $t54_out"
-echo "$t54_out" | jq -e '[.[] | select(.number == 202)] | length == 0' >/dev/null \
-  || fail "T54: issue 202 (ready) should NOT appear in candidates; got: $t54_out"
 echo "$t54_out" | jq -e '[.[] | select(.number == 201)] | .[0].plan_tier == "light"' >/dev/null \
   || fail "T54: issue 201 should have plan_tier=light; got: $t54_out"
+# issue 202 now appears too — status:ready-for-dev is no longer a filter (AC-4)
+echo "$t54_out" | jq -e '[.[] | select(.number == 202)] | length == 1' >/dev/null \
+  || fail "T54: issue 202 (status:ready-for-dev only) should now appear in candidates (label filter removed); got: $t54_out"
 rm -f "$T54_FIXTURE"
-echo "  ✓ unprepared issue appears in candidates with plan-tier classified; ready issue excluded"
+echo "  ✓ unprepared issue 201 in candidates; issue 202 (status:ready-for-dev) also in candidates (label filter removed)"
 
 # ---------------------------------------------------------------------------
-echo "=== T55: ready issue (status:ready-for-dev) → NOT in candidates ==="
+echo "=== T55: status:ready-for-dev issue → now appears in candidates (label filter removed, AC-4) ==="
+# After #688: _auto_seed_candidates no longer filters on status:ready-for-dev label.
+# Board-Ready exclusion is handled per-item via _is_orphan_issue (to-issues provenance).
+# An issue with only status:ready-for-dev and plan-tier:full and no to-issues provenance
+# is NOT excluded by the label filter — it passes T2 (status:ready-for-dev is not in
+# _PROMOTE_EXCLUSION_LABELS) and T3.5 (no created-issues.json → orphan → NOT skipped).
 T55_FIXTURE="$STATE_DIR/t55-autoseed-$$.json"
 cat >"$T55_FIXTURE" <<'EOF'
 [
@@ -2000,10 +1981,15 @@ EOF
 t55_out="$(MAKATO_LOOP_TEST_HOOK=1 \
   MAKATO_LOOP_AUTOSEED_OVERRIDE="$T55_FIXTURE" \
   "$LOOP" _test-auto-seed-candidates 2>/dev/null)"
-echo "$t55_out" | jq -e '. | length == 0' >/dev/null \
-  || fail "T55: ready issue should produce empty candidates; got: $t55_out"
+# status:ready-for-dev is NOT in _PROMOTE_EXCLUSION_LABELS, so the issue passes the label
+# filter. It then passes the T3.5 already-planned check (no created-issues.json for #203).
+# It should appear as a candidate with plan_tier=full.
+echo "$t55_out" | jq -e '. | length > 0' >/dev/null \
+  || fail "T55: status:ready-for-dev issue should now appear in candidates (label filter removed); got: $t55_out"
+echo "$t55_out" | jq -e '.[0].number == 203' >/dev/null \
+  || fail "T55: issue #203 should be in candidates; got: $t55_out"
 rm -f "$T55_FIXTURE"
-echo "  ✓ status:ready-for-dev issue filtered out (empty candidates)"
+echo "  ✓ status:ready-for-dev label no longer filters from candidates — board-Ready exclusion is the only gate"
 
 # ---------------------------------------------------------------------------
 echo "=== T56: exclusion-label veto (status:blocked) → excluded from candidates ==="
@@ -2623,15 +2609,15 @@ t67b_stderr="$(
   || fail "T67b: promote test file not written — Ready promote step skipped; got: $t67b_stderr"
 grep -q "promote #407 → Ready" "$T67b_PROMOTE_FILE" \
   || fail "T67b: promote file should record 'promote #407 → Ready'; got: $(cat "$T67b_PROMOTE_FILE")"
-[[ -f "$T67b_LABEL_FILE" ]] \
-  || fail "T67b: label test file not written — status:ready-for-dev step skipped; got: $t67b_stderr"
-grep -q "label #407 status:ready-for-dev" "$T67b_LABEL_FILE" \
-  || fail "T67b: label file should record 'label #407 status:ready-for-dev'; got: $(cat "$T67b_LABEL_FILE")"
+# After #688: Step A (status:ready-for-dev label stamp) is removed from
+# _auto_seed_promote_ready_from_gate. The label file must NOT record it.
+[[ ! -f "$T67b_LABEL_FILE" ]] || ! grep -q "status:ready-for-dev" "$T67b_LABEL_FILE" \
+  || fail "T67b: label file must NOT record status:ready-for-dev (Step A removed); got: $(cat "$T67b_LABEL_FILE")"
 echo "$t67b_stderr" | grep -qi "materialize-refine\|promoting to Ready" \
   || fail "T67b: stderr should mention materialize-refine or promoting to Ready; got: $t67b_stderr"
 rm -f "$T67b_CONFIG" "$T67b_BLOCK_FILE" "$T67b_PROMOTE_FILE" "$T67b_LABEL_FILE" "$T67b_LABEL_SRC"
 rm -rf "$T67b_SPEC_ROOT"
-echo "  ✓ materialize-refine verdict: promote to Ready, no block"
+echo "  ✓ materialize-refine verdict: promote to Ready, no block, no status:ready-for-dev label stamp"
 
 # T67c: plan-<N>.md present in footer-derived folder → gate returns 'proceed' → no block.
 echo "=== T67c: plan-N.md present in footer-derived folder → no block, no comment ==="
@@ -2766,13 +2752,16 @@ rm -rf "$T68_JSONL_ROOT"
 echo "  ✓ thin-body via jsonl: exit 2, needs-human-review applied, loop message emitted"
 
 # T69: thin-body detected via label backstop when orchestrate.jsonl is absent.
-echo "=== T69: thin-body via label backstop (no jsonl) → needs-human-review, exit 2 ==="
+echo "=== T69: no-jsonl + plan-tier:full → no thin-body (Signal 2 label-backstop removed, #688) ==="
+# After #688: Signal 2 (label-state backstop) is removed from _auto_seed_reconcile_thin_body.
+# An issue with plan-tier:full and no orchestrate.jsonl must NOT be flagged as thin-body.
+# (Only Signal 1 — the orchestrate.jsonl thin_body entry — triggers thin-body detection.)
 T69_JSONL_ROOT="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/t69-specs"
 T69_LABEL_FIXTURE="$STATE_DIR/t69-labels-$$.txt"
 T69_LABEL_FILE="$STATE_DIR/t69-applied-$$.txt"
 mkdir -p "$T69_JSONL_ROOT"
-# No orchestrate.jsonl for this seed key; label fixture shows re-tiered state.
-printf 'plan-tier:full\nenhancement\n' >"$T69_LABEL_FIXTURE"  # no status:ready-for-dev
+# No orchestrate.jsonl for this seed key; label fixture shows plan-tier:full.
+printf 'plan-tier:full\nenhancement\n' >"$T69_LABEL_FIXTURE"
 t69_rc=0
 t69_stderr="$(
   MAKATO_LOOP_TEST_HOOK=1 \
@@ -2781,15 +2770,13 @@ t69_stderr="$(
   MAKATO_LOOP_LABEL_TEST_FILE="$T69_LABEL_FILE" \
     "$LOOP" _test-auto-seed-reconcile-thin-body 502 502-thin-no-jsonl 2>&1 >/dev/null
 )" || t69_rc=$?
-[[ "$t69_rc" -eq 2 ]] \
-  || fail "T69: thin-body via label backstop should return exit code 2; got rc=$t69_rc"
-[[ -f "$T69_LABEL_FILE" ]] && grep -q "label #502 needs-human-review" "$T69_LABEL_FILE" \
-  || fail "T69: needs-human-review must be applied; label file: $(cat "$T69_LABEL_FILE" 2>/dev/null)"
-echo "$t69_stderr" | grep -q "label-backstop" \
-  || fail "T69: loop message should name 'label-backstop' signal; got: $t69_stderr"
+[[ "$t69_rc" -eq 0 ]] \
+  || fail "T69: plan-tier:full with no jsonl should return exit code 0 (Signal 2 removed); got rc=$t69_rc"
+[[ ! -f "$T69_LABEL_FILE" ]] || [[ ! -s "$T69_LABEL_FILE" ]] \
+  || fail "T69: no needs-human-review should be applied (no thin-body detected); label file: $(cat "$T69_LABEL_FILE" 2>/dev/null)"
 rm -f "$T69_LABEL_FIXTURE" "$T69_LABEL_FILE"
 rm -rf "$T69_JSONL_ROOT"
-echo "  ✓ thin-body via label backstop: exit 2, needs-human-review applied"
+echo "  ✓ no-jsonl + plan-tier:full: no thin-body (Signal 2 label-backstop removed)"
 
 # T70: exclusion-set membership — a thin-body issue now carrying
 #      needs-human-review is excluded from the _auto_seed_candidates pass
@@ -2817,9 +2804,9 @@ mkdir -p "$T71_JSONL_ROOT/503-successful-seed"
 # Write an orchestrate.jsonl with NO thin_body indicator.
 jq -cn '{ts:"2026-07-14T10:00:00Z",skill:"light-planner",step:"plan",status:"ok",data:{plan_written:true}}' \
   >"$T71_JSONL_ROOT/503-successful-seed/orchestrate.jsonl"
-# Label fixture: issue still has status:ready-for-dev (successful promotion).
+# Label fixture: successful light seed (no longer stamps status:ready-for-dev — #688).
 T71_LABEL_FIXTURE="$STATE_DIR/t71-labels-$$.txt"
-printf 'plan-tier:light\nstatus:ready-for-dev\nenhancement\n' >"$T71_LABEL_FIXTURE"
+printf 'plan-tier:light\nenhancement\n' >"$T71_LABEL_FIXTURE"
 t71_rc=0
 t71_stderr="$(
   MAKATO_LOOP_TEST_HOOK=1 \
@@ -2855,8 +2842,8 @@ jq -n '[{"number": 800, "labels": [{"name": "plan-tier:light"}, {"name": "enhanc
 # Write an orchestrate.jsonl with NO thin_body → successful seed.
 jq -cn '{ts:"2026-07-14T10:00:00Z",skill:"light-planner",step:"plan",status:"ok",data:{plan_written:true}}' \
   >"$TA_JSONL_ROOT/800-light-feature/orchestrate.jsonl"
-# Label fixture: successful seed → issue still has status:ready-for-dev.
-printf 'plan-tier:light\nstatus:ready-for-dev\nenhancement\n' >"$TA_LABEL_FIXTURE"
+# Label fixture: successful seed (no longer stamps status:ready-for-dev — #688).
+printf 'plan-tier:light\nenhancement\n' >"$TA_LABEL_FIXTURE"
 # Stub: capture that seed was dispatched.
 printf '#!/usr/bin/env bash\ntouch "%s"\nexit 0\n' "$TA_SEED_FLAG" >"$TA_STUB_FILE"
 chmod +x "$TA_STUB_FILE"
@@ -2896,26 +2883,34 @@ jq -n '[{"number": 801, "labels": [{"name": "plan-tier:light"}, {"name": "enhanc
 # Write orchestrate.jsonl with thin_body=true.
 jq -cn '{ts:"2026-07-14T10:00:00Z",skill:"light-planner",step:"plan",status:"ok",data:{thin_body:true}}' \
   >"$TB_JSONL_ROOT/801-thin-body-feature/orchestrate.jsonl"
-# Label fixture: re-tiered to full, no status:ready-for-dev.
+# Label fixture: re-tiered to full.
 printf 'plan-tier:full\nenhancement\n' >"$TB_LABEL_FIXTURE"
 # Stub: capture seed dispatch, exit 0.
 printf '#!/usr/bin/env bash\ntouch "%s"\nexit 0\n' "$TB_SEED_FLAG" >"$TB_STUB_FILE"
 chmod +x "$TB_STUB_FILE"
-tb_rc=0
-tb_stderr="$(
-  MAKATO_LOOP_TEST_HOOK=1 \
-  MAKATO_LOOP_AUTOSEED_OVERRIDE="$TB_FIXTURE" \
-  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
-  MAKATO_LOOP_SEED_TEST_CMD="$TB_STUB_FILE" \
-  MAKATO_LOOP_RECONCILE_JSONL_DIR="$TB_JSONL_ROOT" \
-  MAKATO_LOOP_RECONCILE_LABEL_FILE="$TB_LABEL_FIXTURE" \
-  MAKATO_LOOP_LABEL_TEST_FILE="$TB_LABEL_FILE" \
-    "$LOOP" _test-auto-seed-unprepared 2>&1 >/dev/null
-)" || tb_rc=$?
-[[ "$tb_rc" -eq 0 ]] \
-  || fail "Tb: _auto_seed_unprepared must return 0 (best-effort) even on thin-body; got rc=$tb_rc stderr=$tb_stderr"
+# Part 1: verify S2 dispatches for the light issue.
+tb_seed_rc=0
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_LOOP_AUTOSEED_OVERRIDE="$TB_FIXTURE" \
+MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+MAKATO_LOOP_SEED_TEST_CMD="$TB_STUB_FILE" \
+  "$LOOP" _test-auto-seed-unprepared 2>&1 >/dev/null || tb_seed_rc=$?
+[[ "$tb_seed_rc" -eq 0 ]] \
+  || fail "Tb: _auto_seed_unprepared must return 0 (best-effort) even on thin-body; got rc=$tb_seed_rc"
 [[ -f "$TB_SEED_FLAG" ]] \
-  || fail "Tb: stub should have been called; got stderr=$tb_stderr"
+  || fail "Tb: stub should have been called; got rc=$tb_seed_rc"
+# Part 2: verify S3 (reconcile-thin-body) applies needs-human-review.
+# Call reconcile directly with the seed_key — mirrors what _auto_seed_unprepared
+# does internally once _derive_key_for_issue succeeds. Direct call avoids
+# depending on gh API availability for key derivation in offline CI.
+tb_reconcile_rc=0
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_LOOP_RECONCILE_JSONL_DIR="$TB_JSONL_ROOT" \
+MAKATO_LOOP_RECONCILE_LABEL_FILE="$TB_LABEL_FIXTURE" \
+MAKATO_LOOP_LABEL_TEST_FILE="$TB_LABEL_FILE" \
+  "$LOOP" _test-auto-seed-reconcile-thin-body 801 "801-thin-body-feature" 2>/dev/null || tb_reconcile_rc=$?
+[[ "$tb_reconcile_rc" -eq 2 ]] \
+  || fail "Tb: reconcile thin-body should return exit code 2; got rc=$tb_reconcile_rc"
 [[ -f "$TB_LABEL_FILE" ]] && grep -q "label #801 needs-human-review" "$TB_LABEL_FILE" \
   || fail "Tb: needs-human-review must be applied on thin-body; got: $(cat "$TB_LABEL_FILE" 2>/dev/null)"
 rm -f "$TB_FIXTURE" "$TB_SEED_FLAG" "$TB_STUB_FILE" "$TB_LABEL_FIXTURE" "$TB_LABEL_FILE"
@@ -3148,18 +3143,16 @@ echo "$AUTOSEED_WINDOW" | grep -q '_auto_seed_unprepared' \
 rm -f "$TH_FIXTURE" "$TH_SEED_FLAG" "$TH_STUB_FILE" "$TH_BLOCK_FILE"
 echo "  ✓ MAKATO_LOOP_AUTOSEED_ON_POLL=0 guard present in cmd_run, protects _auto_seed_unprepared"
 
-# Ti: auto-seed runs before promote-ready ordering — verify source-level ordering.
-echo "=== Ti: _auto_seed_unprepared called before _promote_labelled_ready in cmd_run ==="
-# Assert ordering by checking the relative line positions in loop.sh.
-TI_AUTOSEED_LINE="$(grep -n '_auto_seed_unprepared' "$LOOP" | grep -v '^[0-9]*:#' | grep -v '_test-auto-seed-unprepared\|cmd_auto_seed\|_auto_seed_unprepared()' | head -1 | cut -d: -f1)"
-TI_PROMOTE_LINE="$(grep -n '_promote_labelled_ready || true' "$LOOP" | head -1 | cut -d: -f1)"
+# Ti: _promote_labelled_ready removed in #688 — assert it is absent from cmd_run.
+echo "=== Ti: _promote_labelled_ready || true is NOT in cmd_run (removed in #688) ==="
+TI_PROMOTE_LINE="$(grep -n '_promote_labelled_ready || true' "$LOOP" 2>/dev/null | head -1 | cut -d: -f1 || true)"
+[[ -z "$TI_PROMOTE_LINE" ]] \
+  || fail "Ti: _promote_labelled_ready || true should have been removed from cmd_run; found at line $TI_PROMOTE_LINE"
+# Also assert _auto_seed_unprepared is still present (unchanged).
+TI_AUTOSEED_LINE="$(grep -n '_auto_seed_unprepared' "$LOOP" 2>/dev/null | grep -v '^[0-9]*:#' | grep -v '_test-auto-seed-unprepared\|cmd_auto_seed\|_auto_seed_unprepared()' | head -1 | cut -d: -f1 || true)"
 [[ -n "$TI_AUTOSEED_LINE" ]] \
-  || fail "Ti: _auto_seed_unprepared call not found in cmd_run body; searched $LOOP"
-[[ -n "$TI_PROMOTE_LINE" ]] \
-  || fail "Ti: _promote_labelled_ready || true not found in cmd_run body"
-[[ "$TI_AUTOSEED_LINE" -lt "$TI_PROMOTE_LINE" ]] \
-  || fail "Ti: _auto_seed_unprepared (line $TI_AUTOSEED_LINE) must come BEFORE _promote_labelled_ready (line $TI_PROMOTE_LINE)"
-echo "  ✓ _auto_seed_unprepared (line $TI_AUTOSEED_LINE) < _promote_labelled_ready (line $TI_PROMOTE_LINE) — ordering correct"
+  || fail "Ti: _auto_seed_unprepared call must remain in cmd_run body; searched $LOOP"
+echo "  ✓ _promote_labelled_ready || true absent from cmd_run; _auto_seed_unprepared present at line $TI_AUTOSEED_LINE"
 
 # Tj: renovate/dependencies veto — issue with 'dependencies' label → skipped.
 echo "=== Tj: issue with 'dependencies' label → skipped (no block/seed) ==="
@@ -3191,11 +3184,28 @@ rm -f "$TJ_FIXTURE" "$TJ_BLOCK_FILE" "$TJ_SEED_FLAG" "$TJ_STUB_FILE"
 echo "  ✓ 'dependencies' label veto: skipped, function returns 0"
 
 # Tk: already-ready-skipped — issue with status:ready-for-dev excluded from candidates.
-echo "=== Tk: issue with status:ready-for-dev → excluded from candidates, no action ==="
+echo "=== Tk: status:ready-for-dev no longer excludes candidates; full-tier proceeds to S4 block (AC-4, #688) ==="
+# After #688: status:ready-for-dev is NOT in _PROMOTE_EXCLUSION_LABELS and the
+# label filter is removed from _auto_seed_candidates. Issue 809 (plan-tier:full +
+# status:ready-for-dev) now reaches S4 (_auto_seed_block_full) — it passes T2
+# (status:ready-for-dev not an exclusion label) and is processed as full-tier.
 TK_FIXTURE="$STATE_DIR/tk-autoseed-$$.json"
 TK_BLOCK_FILE="$STATE_DIR/tk-block-$$.txt"
 TK_SEED_FLAG="$STATE_DIR/tk-seeded-$$.txt"
 TK_STUB_FILE="$STATE_DIR/tk-stub-$$.sh"
+TK_CONFIG="$STATE_DIR/tk-config-$$.json"
+TK_SPEC_ROOT="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$/tk-specs"
+mkdir -p "$TK_SPEC_ROOT"
+jq -n '{
+  "github_project": {
+    "owner":"macatocz","number":4,"host":"github.com",
+    "project_node_id":"PVT_test",
+    "fields":{"status":{
+      "id":"STATUS_FIELD_ID",
+      "options":{"blocked":"BLOCKED_OPT_ID","ready":"READY_OPT_ID"}
+    }}
+  }
+}' >"$TK_CONFIG"
 jq -n '[{"number": 809, "labels": [{"name": "status:ready-for-dev"}, {"name": "plan-tier:full"}], "author": {"login": "user9"}}]' \
   >"$TK_FIXTURE"
 printf '#!/usr/bin/env bash\ntouch "%s"\nexit 0\n' "$TK_SEED_FLAG" >"$TK_STUB_FILE"
@@ -3206,50 +3216,46 @@ tk_stderr="$(
   MAKATO_LOOP_AUTOSEED_OVERRIDE="$TK_FIXTURE" \
   MAKATO_LOOP_SEED_TEST_CMD="$TK_STUB_FILE" \
   MAKATO_LOOP_BLOCK_TEST_FILE="$TK_BLOCK_FILE" \
+  MAKATO_LOOP_CONFIG="$TK_CONFIG" \
+  MAKATO_LOOP_AUTOSEED_SPEC_ROOT="$TK_SPEC_ROOT" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  MAKATO_LOOP_ISSUE_TITLE_OVERRIDE="Tk full feature" \
     "$LOOP" _test-auto-seed-unprepared 2>&1 >/dev/null
 )" || tk_rc=$?
 [[ "$tk_rc" -eq 0 ]] \
-  || fail "Tk: function must return 0 even when all candidates are excluded; got rc=$tk_rc stderr=$tk_stderr"
-[[ ! -f "$TK_BLOCK_FILE" ]] || [[ ! -s "$TK_BLOCK_FILE" ]] \
-  || fail "Tk: status:ready-for-dev issue must be excluded from candidates — no block; got: $(cat "$TK_BLOCK_FILE" 2>/dev/null)"
+  || fail "Tk: function must return 0 even on full-tier block; got rc=$tk_rc stderr=$tk_stderr"
+# Issue 809 is now a candidate (label filter removed) and reaches S4 (full-tier block).
+[[ -f "$TK_BLOCK_FILE" ]] && grep -q "block #809" "$TK_BLOCK_FILE" \
+  || fail "Tk: full-tier issue with status:ready-for-dev should now reach S4 block; got: $(cat "$TK_BLOCK_FILE" 2>/dev/null) stderr=$tk_stderr"
 [[ ! -f "$TK_SEED_FLAG" ]] \
-  || fail "Tk: status:ready-for-dev issue must be excluded — no seed dispatch"
-# Should log "0 candidate(s)" since the only issue is filtered out.
-echo "$tk_stderr" | grep -q "0 candidate" \
-  || fail "Tk: should log 0 candidates; got: $tk_stderr"
-rm -f "$TK_FIXTURE" "$TK_BLOCK_FILE" "$TK_SEED_FLAG" "$TK_STUB_FILE"
-echo "  ✓ status:ready-for-dev issue excluded from candidates: no action, function returns 0"
+  || fail "Tk: full-tier issue must NOT trigger light-seed dispatch; got: $tk_stderr"
+rm -f "$TK_FIXTURE" "$TK_BLOCK_FILE" "$TK_SEED_FLAG" "$TK_STUB_FILE" "$TK_CONFIG"
+rm -rf "$TK_SPEC_ROOT"
+echo "  ✓ status:ready-for-dev no longer excludes; issue 809 (full-tier) reaches S4 block"
 
 # ---------------------------------------------------------------------------
 # T-needs-reshape-excluded: needs-reshape label excludes issue from
-# _promote_labelled_ready promotion pass (#348).
+# _auto_seed_candidates discovery (#348). After #688, _promote_labelled_ready
+# is removed; the needs-reshape exclusion now lives in _PROMOTE_EXCLUSION_LABELS
+# which gates _auto_seed_candidates (the same guard, different entry point).
 # ---------------------------------------------------------------------------
 echo
-echo "=== T-needs-reshape-excluded: needs-reshape label → excluded from _promote_labelled_ready ==="
-TNRE_FIXTURE="$STATE_DIR/tnre-promote-$$.json"
-# Issue #900 carries status:ready-for-dev AND needs-reshape — must be skipped.
-# Issue #901 carries status:ready-for-dev alone — must be promoted.
+echo "=== T-needs-reshape-excluded: needs-reshape label → excluded from _auto_seed_candidates ==="
+TNRE_FIXTURE="$STATE_DIR/tnre-autoseed-$$.json"
+# Issue #900 carries needs-reshape — must be excluded from candidates.
+# Issue #901 carries plan-tier:full — should appear in candidates.
 jq -n '[
-  {"number": 900, "labels": [{"name": "status:ready-for-dev"}, {"name": "needs-reshape"}]},
-  {"number": 901, "labels": [{"name": "status:ready-for-dev"}]}
+  {"number": 900, "labels": [{"name": "needs-reshape"}, {"name": "plan-tier:full"}], "author": {"login": "user9"}},
+  {"number": 901, "labels": [{"name": "plan-tier:full"}], "author": {"login": "user9"}}
 ]' >"$TNRE_FIXTURE"
-
-TNRE_OUT="$(
-  MAKATO_LOOP_PROMOTE_OVERRIDE="$TNRE_FIXTURE" \
-  MAKATO_LOOP_PROMOTE_DRYRUN=1 \
-  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
-    "$LOOP" promote-ready 2>&1
-)" || fail "T-needs-reshape-excluded: promote-ready should exit 0; got: $TNRE_OUT"
-
-# Issue #901 (plain ready) should be promoted.
-grep -q "would promote #901" <<<"$TNRE_OUT" \
-  || fail "T-needs-reshape-excluded: plain ready #901 should be promoted; got: $TNRE_OUT"
-# Issue #900 (needs-reshape) must NOT be promoted.
-grep -q "would promote #900" <<<"$TNRE_OUT" \
-  && fail "T-needs-reshape-excluded: needs-reshape issue #900 must NOT be promoted; got: $TNRE_OUT" || true
-
+TNRE_OUT="$(MAKATO_LOOP_TEST_HOOK=1 MAKATO_LOOP_AUTOSEED_OVERRIDE="$TNRE_FIXTURE" \
+  "$LOOP" _test-auto-seed-candidates 2>/dev/null)"
+echo "$TNRE_OUT" | jq -e '[.[] | select(.number == 901)] | length == 1' >/dev/null \
+  || fail "T-needs-reshape-excluded: plain full-tier #901 should appear in candidates; got: $TNRE_OUT"
+echo "$TNRE_OUT" | jq -e '[.[] | select(.number == 900)] | length == 0' >/dev/null \
+  || fail "T-needs-reshape-excluded: needs-reshape issue #900 must be excluded from candidates; got: $TNRE_OUT"
 rm -f "$TNRE_FIXTURE"
-echo "  ✓ needs-reshape label excluded from _promote_labelled_ready promotion pass"
+echo "  ✓ needs-reshape label excluded from _auto_seed_candidates (via _PROMOTE_EXCLUSION_LABELS)"
 
 # ---------------------------------------------------------------------------
 # T-needs-reshape-autoseed-excluded: needs-reshape label also excludes issue
@@ -6339,6 +6345,69 @@ mkdir -p "$T_LP3_STATE"
 echo "  ✓ PRUNE_ON_RUN=1 + --dry-run — stale done file untouched"
 rm -rf "$T_LP3_DIR" "$T_LP3_STATE"
 echo "T-loop-prune-3 passed"
+
+# ---------------------------------------------------------------------------
+# T_MULTISTATUS-1: cmd_poll --status Ready,Todo returns items from both statuses
+# in list-position order (AC-3).
+# ---------------------------------------------------------------------------
+echo "=== T_MULTISTATUS-1: cmd_poll --status Ready,Todo returns items from both statuses, Ready first ==="
+T_MS1_GH="$STATE_DIR/t-ms1-gh-$$.json"
+cat >"$T_MS1_GH" <<'MSJSON'
+{
+  "items": [
+    {"id": "i1","content": {"type": "Issue","number": 301,"title": "Todo item","repository": "macatocz/makato","url": "https://github.com/macatocz/makato/issues/301"},"status": "Todo","labels": []},
+    {"id": "i2","content": {"type": "Issue","number": 302,"title": "Ready item","repository": "macatocz/makato","url": "https://github.com/macatocz/makato/issues/302"},"status": "Ready","labels": []},
+    {"id": "i3","content": {"type": "Issue","number": 303,"title": "In progress item","repository": "macatocz/makato","url": "https://github.com/macatocz/makato/issues/303"},"status": "In progress","labels": []}
+  ]
+}
+MSJSON
+t_ms1_out="$(MAKATO_LOOP_GH_OVERRIDE="$T_MS1_GH" "$LOOP" poll "Ready,Todo" 2>/dev/null)"
+# Should contain both issue 302 (Ready) and 301 (Todo), but NOT 303 (In progress).
+echo "$t_ms1_out" | jq -e '[.[].issue] | contains([302])' >/dev/null \
+  || fail "T_MULTISTATUS-1: Ready issue #302 should be in poll output; got: $t_ms1_out"
+echo "$t_ms1_out" | jq -e '[.[].issue] | contains([301])' >/dev/null \
+  || fail "T_MULTISTATUS-1: Todo issue #301 should be in poll output; got: $t_ms1_out"
+echo "$t_ms1_out" | jq -e '[.[].issue] | contains([303]) | not' >/dev/null \
+  || fail "T_MULTISTATUS-1: In-progress issue #303 should NOT be in poll output; got: $t_ms1_out"
+# Verify ordering: Ready (302) appears before Todo (301).
+first_issue="$(echo "$t_ms1_out" | jq -r '.[0].issue')"
+[[ "$first_issue" == "302" ]] \
+  || fail "T_MULTISTATUS-1: Ready issue #302 should appear first (list-position order); got first=$first_issue"
+rm -f "$T_MS1_GH"
+echo "  ✓ cmd_poll --status Ready,Todo: 2 items (Ready first, Todo second), In-progress excluded"
+
+# ---------------------------------------------------------------------------
+# T_MULTISTATUS-2: _claim_board_card CAS uses per-item status (MAKATO_LOOP_ITEM_STATUS),
+# so a Todo item's CAS compares against "Todo", not the global default "Ready" (AC-3).
+# ---------------------------------------------------------------------------
+echo "=== T_MULTISTATUS-2: _claim_board_card CAS uses per-item status for Todo item ==="
+T_MS2_CLAIM="$STATE_DIR/t-ms2-claim-$$.txt"
+# Simulate a Todo item: MAKATO_LOOP_ITEM_STATUS=Todo, override observed status = Todo.
+# CAS should succeed (claim) because observed=Todo matches the per-item status.
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_LOOP_CLAIM_ON_DISPATCH=1 \
+MAKATO_LOOP_CLAIM_TEST_FILE="$T_MS2_CLAIM" \
+MAKATO_LOOP_CLAIM_STATUS_OVERRIDE="Todo" \
+MAKATO_LOOP_ITEM_STATUS="Todo" \
+MAKATO_LOOP_DISPATCH_STATUS="" \
+  "$LOOP" _test-claim-board-card 999 2>/dev/null || true
+grep -q "claim #999 status=Todo → claimed" "$T_MS2_CLAIM" \
+  || fail "T_MULTISTATUS-2: Todo item should be claimed when MAKATO_LOOP_ITEM_STATUS=Todo and observed=Todo; got: $(cat "$T_MS2_CLAIM" 2>/dev/null)"
+# Now test that a Todo item is NOT claimed when the global default "Ready" would be
+# used (no MAKATO_LOOP_ITEM_STATUS). Simulates an issue in multi-status queue where
+# the global default wrongly overrides a non-Ready item.
+rm -f "$T_MS2_CLAIM"
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_LOOP_CLAIM_ON_DISPATCH=1 \
+MAKATO_LOOP_CLAIM_TEST_FILE="$T_MS2_CLAIM" \
+MAKATO_LOOP_CLAIM_STATUS_OVERRIDE="Todo" \
+MAKATO_LOOP_ITEM_STATUS="" \
+MAKATO_LOOP_DISPATCH_STATUS="Ready" \
+  "$LOOP" _test-claim-board-card 999 2>/dev/null || true
+grep -q "claim #999 status=Todo → skip" "$T_MS2_CLAIM" \
+  || fail "T_MULTISTATUS-2: Todo item should be skipped when MAKATO_LOOP_DISPATCH_STATUS=Ready (no per-item override); got: $(cat "$T_MS2_CLAIM" 2>/dev/null)"
+rm -f "$T_MS2_CLAIM"
+echo "  ✓ _claim_board_card CAS uses MAKATO_LOOP_ITEM_STATUS when set (per-item status for multi-status dispatch)"
 
 # ---------------------------------------------------------------------------
 echo "=== T-VCR-1: empty SPECS_DIR → activated=0, verified=0, rate=0.0 ==="

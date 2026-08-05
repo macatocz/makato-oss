@@ -1169,14 +1169,13 @@ _is_orphan_issue() {
 # Returns 0 (conflict detected) when a status:* label in the candidate's label
 # list contradicts the observed board Status. Returns 1 (no conflict / aligned).
 #
-# Conflict conditions:
-#   - Any status:* label that is NOT "status:ready-for-dev" when board is Ready
-#   - "status:ready-for-dev" when board is NOT the dispatch Status (Ready by default)
-#   - Any other status:* label present while board says Ready
+# Conflict conditions (AC-5: status:ready-for-dev exemption removed):
+#   - Board is Ready AND issue carries ANY status:* label (no exemptions).
+#   - Board is NOT Ready AND issue carries any status:* label that contradicts it.
+#   - `needs-human-review` present → vetoed by _PROMOTE_EXCLUSION_LABELS upstream.
 #
 # Aligned (no conflict):
-#   - No status:* label at all (board is authoritative)
-#   - Exactly "status:ready-for-dev" when board is also the dispatch Status (Ready)
+#   - No status:* label at all (board is authoritative).
 #
 # Args:
 #   $1 — JSON string: {"labels":[{"name":"..."},...], ...}
@@ -1197,24 +1196,14 @@ _label_board_conflict() {
   # No status:* labels at all — board is authoritative; no conflict.
   [[ -z "$status_labels" ]] && return 1
 
-  # Evaluate each status:* label against the board Status.
-  local lbl
-  while IFS= read -r lbl; do
-    [[ -z "$lbl" ]] && continue
-    if [[ "$board_status" == "$dispatch_status" ]]; then
-      # Board says Ready. Only "status:ready-for-dev" is aligned.
-      if [[ "$lbl" != "status:ready-for-dev" ]]; then
-        return 0  # conflict
-      fi
-    else
-      # Board is NOT Ready. "status:ready-for-dev" contradicts that.
-      if [[ "$lbl" == "status:ready-for-dev" ]]; then
-        return 0  # conflict
-      fi
-    fi
-  done <<<"$status_labels"
+  # Any status:* label present when the board says dispatch_status → conflict.
+  # The former "status:ready-for-dev is aligned" exemption is removed (AC-5).
+  if [[ "$board_status" == "$dispatch_status" ]]; then
+    return 0  # conflict — any status:* label contradicts the board-only authority
+  fi
 
-  return 1  # no conflict
+  # Board is NOT at dispatch_status. Any status:* label present is a conflict.
+  return 0
 }
 
 # ---------------------------------------------------------------------------
@@ -1260,6 +1249,9 @@ cmd_check_halt() {
 
 # ---------------------------------------------------------------------------
 # poll [STATUS_NAME] — emit board items at the requested Status.
+# STATUS_NAME may be a comma-separated list (e.g. "Ready,Todo") — items
+# matching ANY listed status are included; ordering follows list position
+# (items for the first listed status appear before items for the second, etc.).
 #
 # Output shape (JSON array, one entry per matching open Issue):
 #   [{"issue": 33, "repository": "macatocz/makato",
@@ -1303,18 +1295,33 @@ cmd_poll() {
       return 75
     fi
   fi
-  jq --arg status "$status_name" \
+  # Build a list of accepted status names from the comma-separated input.
+  # For a single value ("Ready") this is a one-element list and the behaviour
+  # is identical to before. For "Ready,Todo" the filter includes both, with
+  # list-position ordering preserved by sorting on the index of the status.
+  local -a status_list=()
+  IFS=',' read -r -a status_list <<<"$status_name"
+
+  # jq: collect all matching items preserving list-position order.
+  # Build the accepted-statuses JSON array for the filter.
+  local statuses_json
+  statuses_json="$(printf '%s\n' "${status_list[@]}" | jq -R . | jq -sc .)"
+
+  jq --argjson statuses "$statuses_json" \
     '[.items[]
       | select(.content.type == "Issue")
-      | select(.status == $status)
+      | select(.status as $s | $statuses | index($s) != null)
       | {
           issue: .content.number,
           repository: .content.repository,
           title: .content.title,
           url: .content.url,
           status: .status,
-          labels: (.labels // [])
-        }]' <<<"$raw"
+          labels: (.labels // []),
+          _sort_key: (.status as $s | $statuses | index($s))
+        }]
+    | sort_by(._sort_key)
+    | map(del(._sort_key))' <<<"$raw"
 }
 
 # ---------------------------------------------------------------------------
@@ -2719,7 +2726,13 @@ _assign_issue() {
 # ---------------------------------------------------------------------------
 _claim_board_card() {
   local issue="$1"
-  local dispatch_status="${MAKATO_LOOP_DISPATCH_STATUS:-$DEFAULT_STATUS}"
+  # Optional: per-item expected status (from the queue entry). When provided,
+  # the CAS compares against this specific status instead of the global default,
+  # which is critical for multi-status dispatch ("Ready,Todo") so a Todo item's
+  # CAS is not incorrectly compared against "Ready". Falls back to
+  # MAKATO_LOOP_ITEM_STATUS (set by cmd_run per queue item), then
+  # MAKATO_LOOP_DISPATCH_STATUS / DEFAULT_STATUS for backward compatibility.
+  local dispatch_status="${2:-${MAKATO_LOOP_ITEM_STATUS:-${MAKATO_LOOP_DISPATCH_STATUS:-$DEFAULT_STATUS}}}"
 
   # Disabled → fall straight through to the async assign→webhook path.
   [[ "$CLAIM_ON_DISPATCH" == "1" ]] || return 0
@@ -2820,151 +2833,14 @@ _claim_board_card() {
   return 0
 }
 
-# ---------------------------------------------------------------------------
-# _promote_labelled_ready — bridge label → board for non-to-issues issues
-# (#231). loop's queue is the board Status=Ready set (cmd_poll); nothing moves
-# a card TO Ready except seed-issue (manual) or issue-to-project autonomous
-# mode (a strict created-issues.json consumer). So a hand-filed / auto-filed
-# issue carrying status:ready-for-dev sits off-queue forever. This pass lists
-# open status:ready-for-dev issues and promotes those that are (a) not already
-# at board Status=Ready and (b) not carrying an exclusion label, using the same
-# `gh project item-edit` seed-issue uses.
-#
-# Best-effort: any gh failure logs a WARN and is swallowed — a GitHub hiccup
-# must never block a tick (mirrors _assign_issue's contract).
-#
-# Test hooks (offline):
-#   MAKATO_LOOP_PROMOTE_OVERRIDE — path to a JSON file mimicking
-#       `gh issue list --json number,labels` output.
-#   MAKATO_LOOP_PROMOTE_DRYRUN=1 — log "would promote #N → Ready" instead of
-#       calling `gh project item-edit` (asserted by T28).
-# ---------------------------------------------------------------------------
-# Labels that veto promotion even when status:ready-for-dev is present.
-# `needs-human-review` is applied on every HALT path but `status:ready-for-dev`
-# is never stripped there — without this veto the promotion pass would drag a
-# halted card back onto Ready every tick, where the in-flight guard then blocks
-# dispatch, leaving the issue stuck. Excluding it keeps a halted issue off Ready
-# until a human clears the label (#286).
+# Labels that veto auto-seed promotion / dispatch even when the board Status
+# matches. `needs-human-review` is applied on every HALT path; excluding it
+# keeps a halted issue off-queue until a human clears the label (#286).
 _PROMOTE_EXCLUSION_LABELS="triage experimental status:blocked autonomous:halt needs-human-review needs-reshape"
-_PROMOTE_READY_LABEL="status:ready-for-dev"
-
-_promote_labelled_ready() {
-  local dryrun="${MAKATO_LOOP_PROMOTE_DRYRUN:-}"
-
-  # Candidate list: open issues carrying the ready label.
-  local candidates
-  if [[ -n "${MAKATO_LOOP_PROMOTE_OVERRIDE:-}" ]]; then
-    candidates="$(cat "$MAKATO_LOOP_PROMOTE_OVERRIDE" 2>/dev/null || echo '[]')"
-  else
-    local -a repo_flag=()
-    [[ -n "${MAKATO_LOOP_DISPATCH_REPO:-}" ]] && repo_flag=(--repo "${MAKATO_LOOP_DISPATCH_REPO}")
-    candidates="$(gh issue list "${repo_flag[@]}" \
-      --label "$_PROMOTE_READY_LABEL" --state open \
-      --json number,labels --limit 200 2>/dev/null || echo '[]')"
-  fi
-  [[ -n "$candidates" ]] || candidates='[]'
-
-  local count
-  count="$(jq 'length' <<<"$candidates" 2>/dev/null || echo 0)"
-  [[ "$count" -gt 0 ]] || return 0
-
-  # Board mutation needs the status field id + Ready option id from config.
-  # Resolve them once; if absent we cannot write the board — WARN and skip the
-  # whole pass (degrade to pre-#231 behavior, never fail the tick). Skipped
-  # under DRYRUN so the offline smoke test does not need a full config.
-  local status_field_id ready_option_id host owner number
-  if [[ -z "$dryrun" ]]; then
-    if [[ ! -f "$CONFIG_FILE" ]]; then
-      echo "loop: WARN — promote-ready skipped: .claude/config.json not found" >&2
-      return 0
-    fi
-    status_field_id="$(jq -r '.github_project.fields.status.id // empty' "$CONFIG_FILE")"
-    ready_option_id="$(jq -r '.github_project.fields.status.options.ready // empty' "$CONFIG_FILE")"
-    host="$(jq -r '.github_project.host // "github.com"' "$CONFIG_FILE")"
-    owner="$(jq -r '.github_project.owner // empty' "$CONFIG_FILE")"
-    number="$(jq -r '.github_project.number // empty' "$CONFIG_FILE")"
-    if [[ -z "$status_field_id" || -z "$ready_option_id" || -z "$owner" || -z "$number" ]]; then
-      echo "loop: WARN — promote-ready skipped: status field / ready option / project missing in config" >&2
-      return 0
-    fi
-  fi
-
-  # Snapshot the current Ready set so we skip already-Ready issues (idempotent,
-  # avoids a redundant item-edit). Best-effort — an empty snapshot just means
-  # we may attempt a promote that the board no-ops.
-  local ready_now=""
-  if [[ -z "$dryrun" ]]; then
-    ready_now="$(cmd_poll Ready 2>/dev/null | jq -r '.[].issue' 2>/dev/null || true)"
-  fi
-
-  local n labels excluded lbl
-  while IFS= read -r n; do
-    [[ -n "$n" ]] || continue
-    labels="$(jq -r --argjson i "$n" \
-      '.[] | select(.number == $i) | [.labels[].name] | join(" ")' \
-      <<<"$candidates" 2>/dev/null || echo "")"
-
-    # Exclusion guard: any excluded label vetoes promotion.
-    excluded=""
-    for lbl in $_PROMOTE_EXCLUSION_LABELS; do
-      if [[ " $labels " == *" $lbl "* ]]; then excluded="$lbl"; break; fi
-    done
-    if [[ -n "$excluded" ]]; then
-      echo "loop: promote-ready — skip #$n (carries exclusion label '$excluded')" >&2
-      continue
-    fi
-
-    # Skip issues already at Ready.
-    if [[ -n "$ready_now" ]] && grep -qx "$n" <<<"$ready_now"; then
-      echo "loop: promote-ready — skip #$n (already at Status=Ready)" >&2
-      continue
-    fi
-
-    if [[ -n "$dryrun" ]]; then
-      echo "loop: would promote #$n → Ready" >&2
-      continue
-    fi
-
-    # Add to board if absent, then set Status=Ready. Both best-effort.
-    local item_id=""
-    item_id="$(GH_HOST="$host" gh project item-add "$number" --owner "$owner" \
-      --url "https://github.com/${MAKATO_LOOP_DISPATCH_REPO:-}/issues/$n" \
-      --format json 2>/dev/null | jq -r '.id // empty' 2>/dev/null || true)"
-    if [[ -z "$item_id" ]]; then
-      # Already on the board — find its item id from the board listing.
-      item_id="$(GH_HOST="$host" gh project item-list "$number" --owner "$owner" \
-        --format json --limit 9999 2>/dev/null \
-        | jq -r --argjson i "$n" '.items[] | select(.content.number == $i) | .id' 2>/dev/null \
-        | head -1 || true)"
-    fi
-    if [[ -z "$item_id" ]]; then
-      echo "loop: WARN — promote-ready could not resolve board item for #$n; skipping" >&2
-      continue
-    fi
-    if GH_HOST="$host" gh project item-edit --id "$item_id" \
-        --project-id "$(jq -r '.github_project.project_node_id // empty' "$CONFIG_FILE")" \
-        --field-id "$status_field_id" \
-        --single-select-option-id "$ready_option_id" >/dev/null 2>&1; then
-      echo "loop: promote-ready — set #$n → Status=Ready" >&2
-    else
-      echo "loop: WARN — promote-ready failed to set #$n → Ready (tick continues)" >&2
-    fi
-  done < <(jq -r '.[].number' <<<"$candidates" 2>/dev/null)
-
-  return 0
-}
-
-# ---------------------------------------------------------------------------
-# promote-ready — standalone entry point for the label→board promotion pass
-# (#231). Also called by cmd_run before each poll when Status=Ready.
-# ---------------------------------------------------------------------------
-cmd_promote_ready() {
-  _promote_labelled_ready
-}
 
 # ---------------------------------------------------------------------------
 # auto-seed — standalone entry point for the pre-poll auto-seed pass.
-# Runs _auto_seed_unprepared once and exits. Mirrors cmd_promote_ready.
+# Runs _auto_seed_unprepared once and exits.
 # (#373, epic #367 S5).
 # ---------------------------------------------------------------------------
 cmd_auto_seed() {
@@ -2972,8 +2848,9 @@ cmd_auto_seed() {
 }
 
 # ---------------------------------------------------------------------------
-# _auto_seed_candidates — discover open issues that are NOT yet status:ready-for-dev
-# and classify their plan-tier. Returns a JSON array of {number, plan_tier} objects.
+# _auto_seed_candidates — discover open issues that need seeding (not yet on the
+# board at the dispatch Status) and classify their plan-tier.
+# Returns a JSON array of {number, plan_tier} objects.
 # (#369, epic #367 S1).
 #
 # Test hook:
@@ -2992,11 +2869,9 @@ _auto_seed_candidates() {
   fi
   [[ -n "$raw" ]] || raw='[]'
 
-  # T1: Remove issues that already carry status:ready-for-dev — those belong
-  # to _promote_labelled_ready, not this auto-seed pass.
-  candidates="$(jq --arg ready "$_PROMOTE_READY_LABEL" \
-    '[.[] | select([.labels[].name] | contains([$ready]) | not)]' \
-    <<<"$raw" 2>/dev/null || echo '[]')"
+  # Start with all open issues; board-Ready exclusion is applied per-candidate
+  # in T3.5 via _is_orphan_issue / board status checks below.
+  local candidates="$raw"
   [[ -n "$candidates" ]] || candidates='[]'
 
   # Iterate per candidate, apply T2 exclusion labels, T3 bot veto, T4 plan-tier
@@ -3048,7 +2923,7 @@ _auto_seed_candidates() {
     # the auto-seed-BLOCK arm for this; this closes the auto-seed candidate
     # arm. `_is_orphan_issue` returns 1 (not orphan) precisely when a valid
     # created-issues.json references this number, so a non-orphan is
-    # already-planned and belongs to _promote_labelled_ready, not seeding.
+    # already-planned and belongs to the board-Ready queue, not seeding.
     if ! _is_orphan_issue "$n"; then
       echo "loop: auto-seed — skip #$n (already planned by to-issues — in created-issues.json)" >&2
       continue
@@ -3210,28 +3085,7 @@ _auto_seed_reconcile_thin_body() {
         fi
       done <"$jsonl_path"
     fi
-    # Missing or empty jsonl: fall through to label backstop (no error).
-  fi
-
-  # --- Signal 2: label-state backstop ---
-  if [[ -z "$thin_body_detected" ]]; then
-    local labels_raw=""
-    if [[ -n "${MAKATO_LOOP_RECONCILE_LABEL_FILE:-}" ]]; then
-      labels_raw="$(cat "$MAKATO_LOOP_RECONCILE_LABEL_FILE" 2>/dev/null || true)"
-    else
-      labels_raw="$(gh issue view "$issue" "${repo_flag[@]}" \
-        --json labels --jq '[.labels[].name] | .[]' 2>/dev/null || true)"
-    fi
-    local has_full="" has_ready=""
-    while IFS= read -r lbl; do
-      [[ -n "$lbl" ]] || continue
-      [[ "$lbl" == "plan-tier:full" ]] && has_full="1"
-      [[ "$lbl" == "status:ready-for-dev" ]] && has_ready="1"
-    done <<<"$labels_raw"
-    # Backstop: plan-tier:full present AND status:ready-for-dev absent.
-    if [[ -n "$has_full" && -z "$has_ready" ]]; then
-      thin_body_detected="label-backstop"
-    fi
+    # Missing or empty jsonl: fall through — no error.
   fi
 
   # --- No thin-body verdict: return 0, dispatch proceeds ---
@@ -3276,7 +3130,7 @@ _auto_seed_reconcile_thin_body() {
 #      Idempotent: if the folder already exists, logs and skips folder creation.
 #   2. Move the board card to Blocked. Resolves status_field_id and
 #      options.blocked from .claude/config.json. Finds or adds the board item
-#      (mirrors _promote_labelled_ready's item-add / item-list fallback).
+#      (mirrors seed-issue's item-add / item-list fallback).
 #      Also applies the `needs-human-review` label (creates if absent,
 #      idempotent).
 #   3. Post a sentinel-guarded launch-command comment. Before posting, checks
@@ -3322,18 +3176,6 @@ _auto_seed_promote_ready_from_gate() {
   local repo="${MAKATO_LOOP_DISPATCH_REPO:-}"
   local -a repo_flag=()
   [[ -n "$repo" ]] && repo_flag=(--repo "$repo")
-
-  # --- Step A: Apply status:ready-for-dev label ---
-  if [[ -n "${MAKATO_LOOP_LABEL_TEST_FILE:-}" ]]; then
-    echo "label #${issue} status:ready-for-dev" >>"$MAKATO_LOOP_LABEL_TEST_FILE"
-  else
-    if gh issue edit "$issue" "${repo_flag[@]}" \
-        --add-label "status:ready-for-dev" >/dev/null 2>&1; then
-      echo "loop: auto-seed-block — applied 'status:ready-for-dev' label to #$issue" >&2
-    else
-      echo "loop: WARN — auto-seed-block #$issue: could not apply status:ready-for-dev label" >&2
-    fi
-  fi
 
   # --- Step B: Move board card to Ready ---
   if [[ -n "${MAKATO_LOOP_PROMOTE_TEST_FILE:-}" ]]; then
@@ -3550,7 +3392,7 @@ _auto_seed_block_full() {
       number="$(jq -r '.github_project.number // empty' "$CONFIG_FILE")"
 
       if [[ -n "$status_field_id" && -n "$blocked_option_id" && -n "$project_node_id" && -n "$owner" && -n "$number" ]]; then
-        # Find or add the board item (mirrors _promote_labelled_ready).
+        # Find or add the board item (mirrors seed-issue's item-add path).
         local item_id=""
         item_id="$(GH_HOST="$host" gh project item-add "$number" --owner "$owner" \
           --url "https://github.com/${repo}/issues/$issue" \
@@ -4872,7 +4714,7 @@ cmd_dispatch() {
   # Also skipped for orphan issues (#357 D6): tiers 3/4 require created-issues.json
   # context that orphans lack; the degraded gate already ran tiers 1+2 above.
   if [[ "$GATE_DISABLE" != "1" && -n "$gate_labels_json" && "$gate_is_orphan" -eq 0 ]]; then
-    local claimed_status="${MAKATO_LOOP_DISPATCH_STATUS:-Ready}"
+    local claimed_status="${MAKATO_LOOP_ITEM_STATUS:-${MAKATO_LOOP_DISPATCH_STATUS:-Ready}}"
     # Use the CAS-observed status exported by _claim_board_card when available.
     [[ -n "${LOOP_LAST_CLAIMED_STATUS:-}" ]] && claimed_status="$LOOP_LAST_CLAIMED_STATUS"
     if _label_board_conflict "$gate_labels_json" "$claimed_status"; then
@@ -5835,19 +5677,11 @@ cmd_run() {
     fi
 
     # Pre-poll auto-seed pass (#373, epic #367 S5): seed/block unprepared
-    # issues before promoting labelled-ready issues, so a freshly-seeded
-    # light issue can be eligible for dispatch in the same tick.
-    if [[ "${MAKATO_LOOP_AUTOSEED_ON_POLL:-1}" != "0" && "$status_name" == "Ready" && -z "$dry_run" ]]; then
+    # issues before polling, so a freshly-seeded light issue can be eligible
+    # for dispatch in the same tick. Only meaningful when "Ready" is among the
+    # polled statuses (comma-list membership check).
+    if [[ "${MAKATO_LOOP_AUTOSEED_ON_POLL:-1}" != "0" && ",${status_name}," == *",Ready,"* && -z "$dry_run" ]]; then
       _auto_seed_unprepared || true
-    fi
-
-    # Pre-poll bridge (#231): promote any status:ready-for-dev issue that is
-    # off-board-Ready onto Ready, so hand-filed / auto-filed issues (no
-    # to-issues provenance, no created-issues.json) enter the queue the same
-    # tick. Only meaningful when polling the Ready status; a custom-status run
-    # must not force-promote to Ready. Best-effort — never blocks the tick.
-    if [[ "$status_name" == "Ready" && -z "$dry_run" ]]; then
-      _promote_labelled_ready || true
     fi
 
     # Pre-poll merged-worktree reap (#265): remove local worktrees whose PR is
@@ -5990,14 +5824,18 @@ cmd_run() {
       # Passed to cmd_dispatch via env so the public `dispatch <ISSUE>`
       # signature is unchanged; the assign-on-dispatch step needs it for
       # `gh issue edit --repo`.
-      local next_repo
+      local next_repo next_item_status
       next_repo="$(jq -r --argjson n "$next_issue" \
         'map(select(.issue == $n)) | .[0].repository // empty' <<<"$queue")"
+      next_item_status="$(jq -r --argjson n "$next_issue" \
+        'map(select(.issue == $n)) | .[0].status // empty' <<<"$queue")"
       # `cmd_dispatch` already clears active_workflow on return; we ignore
       # the PO-agent's exit code — it writes its own HALT audit to
       # workflow-state.json; the loop's job is to surface the next issue,
       # not to second-guess the orchestrator's terminal state.
-      MAKATO_LOOP_DISPATCH_REPO="$next_repo" cmd_dispatch "$next_issue" ${dry_run:+"$dry_run"} || true
+      MAKATO_LOOP_DISPATCH_REPO="$next_repo" \
+      MAKATO_LOOP_ITEM_STATUS="$next_item_status" \
+        cmd_dispatch "$next_issue" ${dry_run:+"$dry_run"} || true
       # #448 — record this issue for the end-of-run report. Dry-run dispatches
       # never touch workflow-state, so they are excluded (nothing to aggregate).
       if [[ -z "$dry_run" ]]; then
@@ -6105,6 +5943,11 @@ if [[ "$SUBCMD" == _test-* ]]; then
     # routes through the four arms via test hooks.
     # (#373, epic #367 S5).
     _test-auto-seed-unprepared) _auto_seed_unprepared "$@" ;;
+    # _test-claim-board-card — exercise _claim_board_card deterministically.
+    # Uses MAKATO_LOOP_CLAIM_ON_DISPATCH=1 + MAKATO_LOOP_CLAIM_TEST_FILE +
+    # MAKATO_LOOP_CLAIM_STATUS_OVERRIDE + MAKATO_LOOP_ITEM_STATUS.
+    # Arg: <ISSUE_NUMBER>
+    _test-claim-board-card) _claim_board_card "$1" ;;
     # _test-reconcile-orphaned — exercise _reconcile_orphaned_in_progress
     # deterministically via test-hook env vars:
     #   MAKATO_LOOP_RECONCILE_GH_OVERRIDE, MAKATO_LOOP_RECONCILE_TEST_FILE,
@@ -6272,7 +6115,7 @@ case "$SUBCMD" in
   next)       cmd_next "$@" ;;
   status)     cmd_status ;;
   dispatch)   cmd_dispatch "$@" ;;
-  promote-ready) cmd_promote_ready ;;
+  promote-ready) echo "loop: promote-ready subcommand removed (status:ready-for-dev label bridge is no longer supported)" >&2; exit 1 ;;
   auto-seed)  cmd_auto_seed ;;
   reconcile-orphaned) cmd_reconcile_orphaned ;;
   reshape-pass) _reshape_pass ;;

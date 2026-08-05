@@ -3,9 +3,9 @@ name: seed-issue
 description: >-
   Prepare a hand-filed GitHub issue for autonomous dispatch by the loop skill.
   Reads the issue, classifies it as new-work or change, stamps the to-issues
-  provenance footer so _derive_key_for_issue can derive the KEY, adds the
-  status:ready-for-dev label, moves the board card to Status=Ready, and
-  (for new-work issues) creates a minimal specs/<N>-<slug>/ folder.
+  provenance footer so _derive_key_for_issue can derive the KEY, moves the
+  board card to Status=Ready, and (for new-work issues) creates a minimal
+  specs/<N>-<slug>/ folder.
   For plan-tier:light issues it dispatches the light-planner agent to
   generate a full plan-<ISSUE_NUMBER>.md and defers the board promotion until a valid
   plan materializes (lightweight planning lane).
@@ -125,8 +125,8 @@ Store: `ISSUE_NUMBER`, `ISSUE_TITLE`, `ISSUE_BODY`, `ISSUE_LABELS[]`.
 
 ### Step 2 — Classify type (when `--type` not given)
 
-Check whether `status:ready-for-dev` already appears in `ISSUE_LABELS`. If it
-does, and `--type` was not supplied, the issue may already be seeded. Continue
+Check the issue labels. If the board card is already at Status=Ready and
+`--type` was not supplied, the issue may already be seeded. Continue
 anyway — all subsequent steps are idempotent.
 
 Keyword match against `ISSUE_TITLE` and the first 200 characters of
@@ -313,43 +313,18 @@ gh issue edit "$ISSUE_NUMBER" \
 
 Log `[seed-issue] stamped provenance footer on #N (slug: $SLUG)`.
 
-### Step 6 — Add `status:ready-for-dev` label
+### Step 6 — Move board card to Status=Ready
 
-This label is the passive stamp that downstream tooling (loop, issue-to-project
-v2.8+ autonomous path) can grep without reading the board.
-
-**Note:** `issue-to-project` v2.8+ stamps this label automatically for issues
-auto-promoted via `ready_queue_mode: "autonomous"`. `seed-issue` stamps it here
-for the manual bypass path — the label means the same thing in both cases.
-
-```bash
-# Create if absent (idempotent)
-gh label create "status:ready-for-dev" \
-  --repo "$REPO" \
-  --color "0075CA" \
-  --description "Issue is ready for autonomous dispatch" 2>/dev/null || true
-
-# Stamp
-gh issue edit "$ISSUE_NUMBER" \
-  --repo "$REPO" \
-  --add-label "status:ready-for-dev"
-```
-
-Log `[seed-issue] stamped status:ready-for-dev on #N`.
-
-### Step 7 — Move board card to Status=Ready
+> **Note (#688):** The `status:ready-for-dev` label stamp that previously
+> appeared here has been removed. Board Status=Ready is now the sole dispatch
+> signal. `seed-issue` moves the card to Ready — it does not stamp a label.
 
 **Plan-lane deferral:** when `PLAN_LANE=true`, **do not promote to
 Ready here.** The card must stay at `Todo` until the light-planner agent
 produces a valid plan (Step 8) and the guard passes (Step 8.5). Ensure the item
 exists on the board (add it if missing, exactly as sub-step 1 below) but **skip
 the `item-edit` to Ready** — Step 8.5 performs the promotion. Log:
-`[seed-issue] plan lane — deferring Status=Ready until a valid plan exists (Step 8.5)` and continue to Step 8. This is the core #212 restructure: today's
-unconditional promote-before-plan would let the po-agent dispatch a stub and
-fire HALT-006; deferral closes that window.
-
-For the standard path (`PLAN_LANE=false`), promote unconditionally as
-before.
+`[seed-issue] plan lane — deferring Status=Ready until a valid plan exists (Step 8.5)` and continue to Step 8.
 
 Read `.claude/config.json` from the repo root. Parse the `github_project` block.
 
@@ -568,13 +543,12 @@ and any hollow plan return `invalid`.
    If `PLAN_TIER=full` or absent, skip this sub-step — the label is already
    correct.
 
-4. Remove the premature `status:ready-for-dev` stamp written in Step 6 — a
-   thin-body item is NOT ready for autonomous dispatch:
+4. Ensure the board card is NOT at Status=Ready — a thin-body item must
+   stay at `Todo` (or `Blocked`) until a human shapes it:
 
-   ```bash
-   gh issue edit "$ISSUE_NUMBER" --repo "$REPO" \
-     --remove-label "status:ready-for-dev"
-   ```
+   Leave the board card at its current status. If it was promoted to Ready in a
+   prior step, move it back to `Todo` via `gh project item-edit`. A thin-body
+   item is NOT ready for autonomous dispatch.
 
 5. Print a clear, actionable message and exit **0** (fallback is a valid,
    documented outcome — not a HALT):
@@ -617,7 +591,7 @@ Append one JSONL line to `specs/$SLUG/orchestrate.jsonl` recording the outcome
   Type    : <ISSUE_TYPE>
   Tier    : <light|full|change|none> (plan lane: <true|false>)
   Slug    : <SLUG>
-  Labels  : type:<label>, status:ready-for-dev (stamped); blocked-by:N + blocking:N created on-demand when --blocked-by used
+  Labels  : type:<label>; blocked-by:N + blocking:N created on-demand when --blocked-by used
   Footer  : provenance footer stamped (or already present)
   Board   : Status=Ready (or WARN if board move skipped)
   Spec    : specs/<SLUG>/ created (new-work) / not needed (change)
@@ -628,8 +602,7 @@ Next: start the loop or run 'loop dispatch <N>' to dispatch immediately.
 
 For the **lightweight-lane fallback** (thin body, Step 8.5c invalid), print the
 fallback message from Step 8.5c instead of this success summary — the issue was
-re-tiered to `plan-tier:full`, `status:ready-for-dev` was removed, and the card
-stays at `Todo`.
+re-tiered to `plan-tier:full` and the card stays at `Todo`.
 
 ## HALT codes
 
@@ -664,12 +637,12 @@ Running `seed-issue` twice on the same issue produces the same final state.
 
 ## Relationship to `issue-to-project` autonomous path
 
-`issue-to-project` v2.8+ stamps `status:ready-for-dev` automatically when
-`ready_queue_mode: "autonomous"` is set and it auto-promotes a `Todo` item to
-`Ready`. That is the primary production path for issues filed via `to-issues`.
+`issue-to-project` moves a `Todo` item to `Status=Ready` automatically when
+`ready_queue_mode: "autonomous"` is set and the item is unblocked. That is the
+primary production path for issues filed via `to-issues`.
 
 `seed-issue` covers the manual bypass path — issues filed directly on GitHub
-that need the same stamps applied by hand. The label has the same meaning in
+that need the provenance footer and board promotion applied by hand.
 both cases: the issue has been reviewed, a slug has been assigned, and the loop
 may dispatch it.
 

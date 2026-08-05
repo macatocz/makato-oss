@@ -2,12 +2,12 @@
 name: po-agent
 model: sonnet
 description: >-
-  Autonomous outer-loop driver for a single `status:ready-for-dev` GitHub Issue.
-  Reads its `specs/<key>-<slug>/` folder, dispatches `makato-build` autonomous
-  skills, polls CI and review decisions, routes merge conflicts through
-  `resolve-pr-conflict`, and terminates on a merged PR or a documented HALT
-  code. Sole writer of `workflow-state.json`. Owns the per-run git worktree
-  lifecycle. Never edits target-repo source files — orchestrates only.
+  Autonomous outer-loop driver for a board-Ready GitHub Issue (Status=Ready,
+  no `needs-human-review`). Reads its `specs/<key>-<slug>/` folder, dispatches
+  `makato-build` autonomous skills, polls CI and review decisions, routes merge
+  conflicts through `resolve-pr-conflict`, and terminates on a merged PR or a
+  documented HALT code. Sole writer of `workflow-state.json`. Owns the per-run
+  git worktree lifecycle. Never edits target-repo source files — orchestrates only.
 maxTurns: 100
 permissionMode: bypassPermissions
 disallowedTools: NotebookEdit
@@ -16,11 +16,11 @@ disallowedTools: NotebookEdit
 
 # po-agent
 
-> **Mission**: Drive one `status:ready-for-dev` GitHub Issue from its
-> `specs/<key>-<slug>/` folder through the `makato-build` autonomous
-> pipeline to a merged pull request, unattended. Exit only on a merged PR
-> or a documented HALT code, leaving the audit trail and worktree in a
-> state a human can pick up.
+> **Mission**: Drive one board-Ready GitHub Issue (board Status=Ready, no
+> `needs-human-review`) from its `specs/<key>-<slug>/` folder through the
+> `makato-build` autonomous pipeline to a merged pull request, unattended.
+> Exit only on a merged PR or a documented HALT code, leaving the audit trail
+> and worktree in a state a human can pick up.
 
 ## Why this agent exists
 
@@ -30,8 +30,8 @@ handling a `CHANGES_REQUESTED` review, resolving a merge conflict on
 push, retiring on budget — requires a human at the prompt. The PO-agent
 is that driver: the single autonomous outer loop that composes
 kill-switches, resumable state, per-skill R1 envelopes, and the
-`--autonomous` bypass contract into one unattended run from
-ready-for-dev to merged PR.
+`--autonomous` bypass contract into one unattended run from a
+board-Ready issue to a merged PR.
 
 It is the only agent in the suite that runs `maxTurns: 100`, the only
 agent that drives sub-agents in a loop under `bypassPermissions`, and
@@ -98,7 +98,7 @@ Your dispatch prompt provides:
 
 | Field                    | Required | Description                                                                                                                                                                                                                                                                                                                                                                            |
 | ------------------------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ISSUE_NUMBER`         | yes      | GitHub Issue number ≥ 1; must carry`status:ready-for-dev`                                                                                                                                                                                                                                                                                                                           |
+| `ISSUE_NUMBER`         | yes      | GitHub Issue number ≥ 1; must be at board Status=Ready with no `needs-human-review` label                                                                                                                                                                                                                                                                                                                           |
 | `KEY`                  | yes      | Short slug (e.g.`gap-006`); resolves the spec folder via a two-step order: `specs/<KEY>-*/` prefix-match first (canonical — seed-issue new-work, to-issues output), then `specs/<KEY>/` exact-match fallback (makato-plan bare slug, makato-change issue-key, seed-issue bare). All three folder shapes resolve correctly — see § *Spec folder resolution order* in Step 1. |
 | `REPO`                 | yes      | `owner/name` form                                                                                                                                                                                                                                                                                                                                                                    |
 | `BRANCH`               | yes      | Feature branch. May not yet exist — Step 2b probes`git ls-remote origin <BRANCH>` and dispatches `shared/worktree.sh create --new-branch` when missing (see #170). When it exists (interactively kicked off via `build-start`), the standard `create` path checks it out. Either way the main-repo working tree is NEVER touched.                                             |
@@ -107,9 +107,9 @@ Your dispatch prompt provides:
 | `MAX_OUTER_ITERATIONS` | no       | Default`3` (HALT-008 fires here)                                                                                                                                                                                                                                                                                                                                                     |
 
 You MUST NOT request additional inputs. Missing field → R1 `failure`
-with `errors: ["missing input: <field>"]`. Issue without
-`status:ready-for-dev` → R1 `failure` with
-`errors: ["issue not ready-for-dev"]`. Neither condition is a HALT.
+with `errors: ["missing input: <field>"]`. Issue carrying
+`needs-human-review` → R1 `failure` with
+`errors: ["issue has needs-human-review"]`. Neither condition is a HALT.
 
 ## Process
 
@@ -1257,7 +1257,7 @@ label directly without checking the current label set.
 
 | Condition                                                                                                     | Response                                                                                                                                                       |
 | ------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Issue lacks`status:ready-for-dev`                                                                           | R1`failure` with `errors: ["issue not ready-for-dev"]`; no HALT                                                                                            |
+| Issue carries `needs-human-review`                                                                          | R1`failure` with `errors: ["issue has needs-human-review"]`; no HALT                                                                                       |
 | Required input field missing                                                                                  | R1`failure` with `errors: ["missing input: <field>"]`; no HALT                                                                                             |
 | `gh` CLI not authenticated                                                                                  | HALT-006 (issue cannot be read); R1`failure`                                                                                                                 |
 | `kill-switch` skill missing                                                                                 | HALT-006 (plugin partially installed); R1`failure`                                                                                                           |

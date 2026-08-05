@@ -5,6 +5,21 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Breaking Changes
+- **Board Status=Ready as sole dispatch condition (#688)**: `status:ready-for-dev` is no longer the dispatch signal. Board Status=Ready is now authoritative end-to-end.
+  - `_promote_labelled_ready` function removed from `loop.sh` — no more pre-poll label→board bridge.
+  - `loop promote-ready` subcommand removed (exits with error message).
+  - Step A (status:ready-for-dev label stamp) removed from `_auto_seed_promote_ready_from_gate`.
+  - `.github/workflows/webhook-dispatch.yml` deleted — it triggered on `status:ready-for-dev` being applied; the label no longer exists as a dispatch trigger.
+  - `_label_board_conflict` exemption removed: any `status:*` label when board=Ready is now a conflict (AC-5).
+  - `has_ready` Signal 2 label-backstop removed from `_auto_seed_reconcile_thin_body` (thin-body detection now uses only the orchestrate.jsonl Signal 1).
+  - `_auto_seed_candidates` no longer filters on `status:ready-for-dev` — board-Ready exclusion is per-item via `_is_orphan_issue`.
+  - **Migration:** remove `status:ready-for-dev` labels from existing issues (`gh label delete "status:ready-for-dev" --repo <repo> --yes`). Confirm loop dispatches a Ready card with no label.
+
+### Added
+- **Multi-status dispatch (`--status Ready,Todo`, #688)**: `cmd_poll` accepts a comma-separated status list; items are ordered by list position. `_claim_board_card` uses per-item `MAKATO_LOOP_ITEM_STATUS` for CAS, not the global default. `_test-claim-board-card` test hook added.
+- **`T_MULTISTATUS-1` and `T_MULTISTATUS-2`** smoke tests covering multi-status poll ordering and CAS per-item status correctness.
+
 ### Fixed
 - **`emit-needs-planning-signal.sh` board_applied:false (#682)**: Two failure modes resolved. (1) `_get_item_id` now adds an idempotent `gh project item-add` fallback when the issue is absent from the board, adopting the `_promote_labelled_ready` pattern from `loop.sh`; `board_applied` is now `true` on recovery. (2) `init-wizard.md` (issue-to-project v2.9.0) discovers and caches the `needs_planning` Status option ID alongside `ready`/`in_review`, so `--init` auto-populates both `github_project.fields.status.options.needs_planning` and `github_project.options.needs_planning`. Three new dry-run test hooks (`MAKATO_EMIT_NPS_GH_ITEM_ID`, `MAKATO_EMIT_NPS_GH_ITEM_ADD_RESULT`, `MAKATO_EMIT_NPS_GH_ITEM_ADD_FAIL`) enable fully offline smoke-test coverage; T2/T3/T5 assertions strengthened; T6 (item-add success) and T7 (item-add failure) added. **Post-merge operational step required**: create the "Needs Planning" Status option in GitHub Projects v2 UI, then re-run `issue-to-project --init`.
 - **`loop.sh` reconcile label-gate** (`_reconcile_orphaned_in_progress`, `_reconcile_orphaned_stale`): label `needs-human-review` is now applied **only when `gh project item-edit` succeeds**. Previously both reconcilers stamped the label unconditionally after a best-effort board write — when `item-edit` failed the card stayed "In progress", the label was reapplied on every subsequent tick, and the issue oscillated indefinitely. The fix tracks `board_edit_ok` per candidate and skips the label stamp (with a WARN) when the board write did not land. Regression tests: `T-RECON-LABELGATE-1` (in-progress reconciler) and `T-RECON-LABELGATE-2` (stale reconciler).
