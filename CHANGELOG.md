@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.140.0](https://github.com/macatocz/makato/compare/v0.139.3...v0.140.0) (2026-08-05)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** board Status=Ready as sole dispatch condition (remove status:ready-for-dev) ([0b68c9c](https://github.com/macatocz/makato/commit/0b68c9cefd5e58e2e314927c8debbcbccd9bf20d))
+
 ## [0.139.3](https://github.com/macatocz/makato/compare/v0.139.2...v0.139.3) (2026-08-04)
 
 
