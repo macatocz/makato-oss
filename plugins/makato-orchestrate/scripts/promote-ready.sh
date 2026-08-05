@@ -112,9 +112,19 @@ _read_board_json() {
     echo '{"items":[]}'
     return 0
   fi
-  # `gh project` resolves the host via GH_HOST (auth context), not a flag.
-  GH_HOST="$host" gh project item-list "$number" --owner "$owner" \
-    --format json --limit 9999 2>/dev/null || echo '{"items":[]}'
+  # Use _board_via_graphql (~1 pt/page) when project_node_id is cached (#683).
+  # Falls back to item-list (~1 pt/item) in degraded mode (pid absent or
+  # _board_via_graphql not available — standalone invocation without loop.sh sourced).
+  local _pid=""
+  _pid="$(jq -r '.github_project.project_node_id // empty' "$CONFIG_FILE" 2>/dev/null)"
+  if [[ -n "$_pid" ]] && declare -f _board_via_graphql >/dev/null 2>&1; then
+    _board_via_graphql "$host" "$_pid" 2>/dev/null \
+      || { _log "WARN — board poll failed (graphql); treating board as empty"; echo '{"items":[]}'; }
+  else
+    GH_HOST="$host" gh project item-list "$number" --owner "$owner" \
+      --format json --limit 9999 2>/dev/null \
+      || { _log "WARN — board poll failed (item-list); treating board as empty"; echo '{"items":[]}'; }
+  fi
 }
 
 # ---------------------------------------------------------------------------

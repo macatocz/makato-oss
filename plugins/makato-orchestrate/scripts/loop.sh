@@ -577,8 +577,10 @@ if [[ ! "$POLL_BACKOFF_BASE_SECS" =~ ^[0-9]+$ ]]; then
   POLL_BACKOFF_BASE_SECS=2
 fi
 # GraphQL rate-limit guard (#556) — see the doc block near ASSIGNEE above.
-GRAPHQL_MIN_REMAINING="${MAKATO_LOOP_GRAPHQL_MIN_REMAINING:-500}"
+GRAPHQL_MIN_REMAINING="${MAKATO_LOOP_GRAPHQL_MIN_REMAINING:-1000}"
 RATE_GUARD="${MAKATO_LOOP_RATE_GUARD:-1}"
+RATE_SKIP_THRESHOLD="${MAKATO_LOOP_RATE_SKIP_THRESHOLD:-3}"
+RATE_SKIP_BACKOFF="${MAKATO_LOOP_RATE_SKIP_BACKOFF:-600}"
 BOARD_LIMIT="${MAKATO_LOOP_BOARD_LIMIT:-500}"
 # Critical-call REST fallback (#447) — see the doc block near ASSIGNEE above.
 FALLBACK_RETRIES="${MAKATO_LOOP_FALLBACK_RETRIES:-2}"
@@ -1105,6 +1107,19 @@ _patch_status() {
   local merged
   merged="$(jq "$path = $value" <<<"$current")"
   _write_status "$merged"
+}
+
+# ---------------------------------------------------------------------------
+# _increment_poll_skip_count / _reset_poll_skip_count — track consecutive
+# rate-budget skip ticks for the circuit-breaker (#683).
+# ---------------------------------------------------------------------------
+_increment_poll_skip_count() {
+  local cur
+  cur="$(_read_status | jq -r '.poll_skip_count // 0')"
+  _patch_status '.poll_skip_count' "$((cur + 1))"
+}
+_reset_poll_skip_count() {
+  _patch_status '.poll_skip_count' '0'
 }
 
 # ---------------------------------------------------------------------------
@@ -1841,11 +1856,27 @@ _reconcile_orphaned_stale() {
         if [[ -z "$field_id" || -z "$blocked_id" ]]; then
           echo "loop: WARN — reconcile-stale #$issue_n: missing field_id or blocked option id in config" >&2
         else
-          item_id="$(GH_HOST="$proj_host" gh project item-list "$proj_number" \
-            --owner "$proj_owner" --format json --limit 9999 2>/dev/null \
-            | jq -r --argjson n "$issue_n" \
-              '.items[] | select(.content.type == "Issue" and .content.number == $n) | .id' \
-            2>/dev/null | head -1)" || true
+          # Rate-budget pre-check (#683): skip item-id lookup if budget is low.
+          # _check_graphql_rate_budget sleeps until reset when budget < floor —
+          # acceptable here since reconcile-stale runs infrequently.
+          if [[ "${RATE_GUARD:-1}" == "1" ]]; then
+            local _rs_rg_rc=0
+            _check_graphql_rate_budget "$proj_host" || _rs_rg_rc=$?
+            if [[ $_rs_rg_rc -eq 2 ]]; then
+              echo "loop: WARN — reconcile-stale #$issue_n: rate budget low; skipping board item-id lookup this tick (#683)" >&2
+              continue
+            fi
+          fi
+          local _rs_item_cmd_out=""
+          if [[ -n "${MAKATO_LOOP_STALE_REAP_TEST_CMD:-}" ]]; then
+            _rs_item_cmd_out="$(eval "$MAKATO_LOOP_STALE_REAP_TEST_CMD" 2>/dev/null)" || true
+          else
+            _rs_item_cmd_out="$(GH_HOST="$proj_host" gh project item-list "$proj_number" \
+              --owner "$proj_owner" --format json --limit 9999 2>/dev/null)" || true
+          fi
+          item_id="$(jq -r --argjson n "$issue_n" \
+            '.items[] | select(.content.type == "Issue" and .content.number == $n) | .id' \
+            <<<"$_rs_item_cmd_out" 2>/dev/null | head -1)" || true
           if [[ -n "$item_id" ]]; then
             if GH_HOST="$proj_host" gh project item-edit "$proj_number" \
               --owner "$proj_owner" \
@@ -5758,6 +5789,14 @@ cmd_run() {
         --arg ts "$now" \
         '. + {poll_skipped_rate_budget: true, last_poll_skip_reason: "rate_budget", last_poll_skip: $ts}' \
         <<<"$(_read_status)")"
+      _increment_poll_skip_count
+      local _psc
+      _psc="$(_read_status | jq -r '.poll_skip_count // 0')"
+      if (( _psc >= RATE_SKIP_THRESHOLD )); then
+        echo "loop: INFO — poll_skip_count=$_psc >= threshold=$RATE_SKIP_THRESHOLD; circuit-breaker sleep ${RATE_SKIP_BACKOFF}s (#683)" >&2
+        _patch_status '.poll_skip_count' '0'
+        _guarded_sleep "$RATE_SKIP_BACKOFF"
+      fi
       if [[ -n "$once" ]]; then
         _emit_run_report "${dispatched_issues[@]+"${dispatched_issues[@]}"}"
         return 0
@@ -5794,8 +5833,9 @@ cmd_run() {
       --arg ts "$now" \
       --argjson depth "$queue_depth" \
       --argjson q "$(jq '[.[].issue]' <<<"$queue")" \
-      '. + {last_poll: $ts, queue_depth: $depth, queue: $q, poll_healthy: true}' \
+      '. + {last_poll: $ts, queue_depth: $depth, queue: $q, poll_healthy: true, poll_skipped_rate_budget: false}' \
       <<<"$(_read_status)")"
+    _reset_poll_skip_count
     vcr_obj="$(_compute_vcr)"
     _patch_status '.vcr' "$vcr_obj"
 

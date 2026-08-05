@@ -41,11 +41,14 @@ unattended.
 The outer loop is entered via the `loop` skill and exits on a merged PR or a documented HALT:
 
 ```
-GitHub Issue (Status: Ready on Projects v2 board)
-        │
-        ▼
+  operator terminal              loop-cron.yml (GHA, every 10 min)
+  loop --autonomous              loop.sh run --once
+        │                        [requires ANTHROPIC_API_KEY secret]
+        └────────────┬───────────────────────┘
+                     │ cross-machine mutex: board CAS claim (Status → In Progress)
+                     ▼
 ┌───────────────────────────┐
-│           loop            │  Entry: loop --autonomous
+│           loop            │  Entry: loop --autonomous / run --once
 │        (autonomous)       │  Output: .claude/state/loop-status.json
 └──────────┬────────────────┘
            │ dispatches PO-agent serially per untracked issue
@@ -162,6 +165,7 @@ See `agents/po-agent.md` § *Progress comment* for the per-skill agent/goal map.
 | Workflow | Purpose |
 |----------|---------|
 | [workflows/post-merge.yml](workflows/post-merge.yml) | Triggered on pull_request.closed where merged=true targeting the default branch. Dispatches documentation-agent with the merged PR number to produce post-merge artefacts: CHANGELOG entry, README update, Issue closure, Projects v2 board advance to Done, docs-coverage retrospective. Consumers copy this file to .github/workflows/. |
+| [workflows/loop-cron.yml](../../.github/workflows/loop-cron.yml) | Fires `loop.sh run --once` on the `[self-hosted, makato]` runner every 10 minutes — "loop survives machine-off" fallback when the operator's local terminal is not running. Requires `ANTHROPIC_API_KEY` and `GH_TOKEN`/`MAKATO_TOKEN` secrets. Without `ANTHROPIC_API_KEY` the cron ticks fail silently (auth error in `claude` subprocess) but **do not affect the local `loop run`** path. Disable temporarily with `gh workflow disable loop-cron.yml`; re-enable with `gh workflow enable loop-cron.yml`. Cross-machine double-dispatch is prevented by the board CAS claim (Status → In Progress). Smoke tests: `scripts/loop-cron-smoke-tests.sh` (T-CRON-1 to T-CRON-5). |
 
 ## Shared Resources
 
