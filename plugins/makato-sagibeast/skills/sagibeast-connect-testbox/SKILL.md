@@ -1,9 +1,12 @@
 ---
 name: sagibeast-connect-testbox
-description: Connect to or resume a sagibeast testbox VM — SSH, port-forward, credential sync, k3d. Use for: connect to testbox, ssh to testbox, port forward, sync creds, resume testbox, k3d testbox.
-version: "1.0.1"
+description: "Connect to or resume a sagibeast testbox VM — SSH, port-forward, credential sync, k3d. Use for: connect to testbox, ssh to testbox, port forward, sync creds, resume testbox, k3d testbox."
+version: "1.1.0"
 argument-hint: "port-forward <local>:<remote> | --sync-creds | --k3d | --step-ca | --ide vscode | --ide jetbrains | --tmux"
 allowed-tools: Bash Read Write
+metadata:
+  Authors: Zdenek Stary
+  last_updated: "2026-08-05"
 ---
 
 # Connect Testbox
@@ -54,6 +57,9 @@ Treat every connection failure as a layer problem. Ask at each layer before digg
 Skipping layers wastes time — a step-ca TLS error after 5 minutes of diagnosis is often a
 missing `update-ca-certificates` from 20 seconds of work.
 
+The `@references/troubleshooting.md` layer-by-layer diagnostic checklist mirrors this model
+with runnable commands for each layer.
+
 ## Navigation
 
 | Goal                               | Argument / Step                                 |
@@ -81,7 +87,84 @@ missing `update-ca-certificates` from 20 seconds of work.
 | `--tmux`                        | `ssh sagibeast.testbox -t tmux attach -t e2e`                  |
 | (none)                          | Open interactive SSH session only                               |
 
+## No-Argument Routing
+
+If invoked without an argument, use `AskUserQuestion` to route the caller before proceeding:
+
+```
+What do you need to do with the testbox?
+  1. Open an SSH session
+  2. Forward a port (e.g. Brain-PG 5432, Temporal 7233)
+  3. Sync 1Password credentials into the testbox
+  4. Bootstrap a k3d cluster
+  5. Set up IDE remote development (VSCode or JetBrains)
+  6. Attach to an existing tmux session
+```
+
+Execute only the steps relevant to the selected mode; do not run the full workflow.
+
+## Anti-Patterns
+
+Read before executing the workflow. Each item is a non-obvious failure mode that wastes
+significant time when encountered mid-session.
+
+**NEVER-1 — Omit `ServerAliveInterval 5` from `~/.ssh/config`.**
+Without it, testbox VMs drop idle TCP connections silently; the session freezes rather than
+disconnecting, requiring a kill of the SSH process and a second session to recover. There is
+no symptom that distinguishes a frozen session from a working one without this guard.
+
+**NEVER-2 — Start long-running processes without tmux.**
+`pytest -m e2e`, `k3d cluster create`, and `langgraph dev` run in the foreground of the SSH
+session. SSH sends SIGHUP to the foreground process group on disconnect; the process is killed
+with no output. Use `tmux new-session -s e2e` before any long-running command; `tmux attach
+-t e2e` is the only reliable recovery path after an accidental disconnect.
+
+**NEVER-3 — Port-forward 5432 without confirming the `dev` container.**
+The bilateral PG split (ADR-0020) means Brain-PG (Class A) and Body-PG (Class B) are separate
+instances. Forwarding the wrong one silently exposes customer data over an unencrypted local
+port. Always confirm the container name includes `dev` (`docker ps --filter name=brain`) before
+forwarding 5432.
+
+**NEVER-4 — Ignore mounted tenant skill trees on connect.**
+If `ls ~/tenant_skills/ 2>/dev/null` returns entries, abort immediately and rotate the tenant
+DEK via OpenBao. Testboxes may be accessible to multiple team members; tenant skill encryption
+keys must never leave vault (ADR-0021). Proceed only after confirming the directory is absent.
+
+**NEVER-5 — Run background port forward without `-fNT` together.**
+Without `-N`, SSH opens a shell alongside the tunnel; closing that shell does not close the
+tunnel, leaving leaked open ports on the testbox. The correct form is always `ssh -fNT -L ...`.
+
+**NEVER-6 — Sync credentials before the VM is fully `Running`.**
+A starting VM may accept the SSH connection but silently fail writes to the runtime environment.
+`op run --` exits 0 while credentials are absent — the credential layer appears healthy but
+service calls fail opaquely. Confirm `multipass info` shows `Running` and uptime before syncing.
+
+**NEVER-7 — Cross-connect the testbox k3d to the production Mac Studio cluster.**
+The ADR-0023 deployment runs a dedicated brain-only K8s cluster with real customer checkpoint
+data. Setting `KUBECONFIG` to the production cluster from a shared testbox violates the
+ADR-0023 perimeter and risks data exfiltration. The testbox k3d is dev-tier only; always
+export and use `~/.kube/sagibeast-dev.kubeconfig`.
+
+**NEVER-8 — Apply to the k3d `default` namespace without creating a developer namespace.**
+A shared default namespace means one developer's `kubectl apply` can silently overwrite
+another's Deployment and Brain-PG fixtures. Create `kubectl create namespace dev-<yourname>`
+and set it as the default before any `kubectl apply`.
+
+**NEVER-9 — Run `ssh-add -A` for agent forwarding.**
+Adding all identities grants every process on the testbox access to every SSH key on your
+local agent; testboxes may be shared during pair sessions. Only add the specific key needed:
+`ssh-add ~/.ssh/id_ed25519`.
+
+**NEVER-10 — Remove `ForwardAgent yes` from `~/.ssh/config` to "harden" the connection.**
+Without it, the 1Password SSH socket forwarding fails with an opaque "no suitable identity"
+error that looks identical to expired credentials. The two failure modes are indistinguishable
+without knowing that ForwardAgent controls socket availability.
+
 ## Workflow
+
+> For any connection failure at any step, load `@references/troubleshooting.md`.
+> Do NOT load it on the happy path — it adds diagnostic depth not needed when each step
+> succeeds.
 
 ### [1] Check and resume if stopped
 
@@ -99,18 +182,10 @@ multipass info sagibeast-testbox
 
 If no VM exists at all → run `/sagibeast-create-testbox` first.
 
-For cloud VMs:
-
-```bash
-# AWS
-aws ec2 start-instances --instance-ids <instance-id>
-aws ec2 wait instance-running --instance-ids <instance-id>
-
-# Hetzner
-hcloud server power-on sagibeast-testbox
-```
-
-For extended error diagnosis, load `@references/troubleshooting.md`.
+For cloud VMs (AWS or Hetzner), start the instance via standard CLI
+(`aws ec2 start-instances` / `hcloud server power-on`) and wait for `Running` state before
+continuing. Note: cloud IPs change on restart — update `HostName` in `~/.ssh/config` after
+every start; Multipass manages this automatically via `sagibeast.testbox` hostname resolution.
 
 ### [2] SSH connection
 
@@ -132,11 +207,9 @@ Host sagibeast.testbox
 
 Append this block once via `sagibeast-create-testbox` step [5]; it is idempotent.
 
-**Caution:** `ServerAliveInterval 5` is required — without it, testbox VMs drop idle TCP connections silently; the session freezes rather than disconnecting, requiring a kill of the SSH process and a second session to recover.
-
-**Caution:** Use `tmux new-session -s e2e` before starting any long-running process (`pytest -m e2e`, `k3d cluster create`, `langgraph dev`) — SSH sends SIGHUP to the foreground process group on disconnect. `tmux attach -t e2e` after a drop is the only reliable recovery path.
-
-**Caution:** On connect, check for mounted tenant skill trees: `ls ~/tenant_skills/ 2>/dev/null` — if found, abort the session immediately and rotate the tenant DEK via OpenBao. Testboxes may be accessible to multiple team members; tenant skill encryption keys must never leave vault (ADR-0021).
+→ NEVER-1: missing `ServerAliveInterval 5` causes silent session freeze.
+→ NEVER-4: check for mounted tenant skill trees immediately after connect.
+→ NEVER-10: `ForwardAgent yes` is required for 1Password SSH socket forwarding.
 
 ### [3] Port forwarding
 
@@ -169,11 +242,16 @@ To stop a background forward:
 ps aux | grep 'ssh -fNT' | awk '{print $2}' | xargs kill
 ```
 
-**Caution:** Before forwarding 5432, confirm the container name includes `dev` (`docker ps --filter name=brain`) — the bilateral PG split (ADR-0020) means Brain-PG (Class A) and Body-PG (Class B) are separate instances; forwarding the wrong one silently exposes customer data over an unencrypted local port.
-
-**Caution:** Always use `-fNT` together for background tunnels — without `-N`, SSH opens a shell alongside the tunnel; closing the shell does not close the tunnel, leaving leaked open ports on the testbox.
+→ NEVER-3: confirm `dev` container before forwarding 5432.
+→ NEVER-5: always use `-fNT` together for background tunnels.
 
 ### [4] Credential sync
+
+**Prerequisite — `.env.testbox.runtime`:** This file is not committed to git and is not
+created automatically. It must exist in the project root on your local machine before
+running credential sync. Each line maps an environment variable name to a 1Password secret
+reference (`op://vault/item/field` format). Copy the template from your team's 1Password
+vault under the `sagibeast-testbox` item.
 
 ```bash
 op run -- env-file .env.testbox.runtime -- ssh sagibeast.testbox
@@ -189,7 +267,7 @@ op run --env-file .env.testbox.runtime -- bash -c \
 Credentials are short-lived and in-memory only. Do NOT write them to disk permanently
 on the testbox.
 
-**Caution:** Confirm the VM is fully `Running` before syncing credentials — a starting VM may accept the SSH connection but silently fail writes to the runtime environment; the sync command may exit 0 while credentials are absent.
+→ NEVER-6: confirm VM is fully `Running` before syncing — sync may exit 0 while creds absent.
 
 ### [5] Trust step-ca root (run once per testbox)
 
@@ -226,7 +304,6 @@ k3d kubeconfig get sagibeast-dev > /tmp/sagibeast-dev.kubeconfig
 # On local machine
 scp sagibeast.testbox:/tmp/sagibeast-dev.kubeconfig ~/.kube/sagibeast-dev.kubeconfig
 export KUBECONFIG=~/.kube/sagibeast-dev.kubeconfig
-kubectl get nodes
 ```
 
 Delete the ephemeral kubeconfig file on the testbox after export:
@@ -235,9 +312,8 @@ Delete the ephemeral kubeconfig file on the testbox after export:
 ssh sagibeast.testbox "rm /tmp/sagibeast-dev.kubeconfig"
 ```
 
-**Caution:** Never set `KUBECONFIG` to the production Mac Studio brain-only cluster from a testbox — the ADR-0023 deployment runs a dedicated brain-only K8s cluster with real customer checkpoint data; cross-connecting it from a shared testbox violates the ADR-0023 perimeter and risks data exfiltration. The testbox k3d is dev-tier only.
-
-**Caution:** Create per-developer namespaces (`kubectl create namespace dev-<yourname>`) and set the namespace before any `kubectl apply` — a shared default namespace means one developer's apply can overwrite another's Deployment and Brain-PG fixtures.
+→ NEVER-7: never cross-connect this k3d kubeconfig to the production Mac Studio cluster.
+→ NEVER-8: create a per-developer namespace before any `kubectl apply`.
 
 ### [7] SSH agent forwarding
 
@@ -248,14 +324,23 @@ ssh-add ~/.ssh/id_ed25519
 The `~/.ssh/config` block (step [2]) sets `ForwardAgent yes`. This enables git operations
 inside the testbox without copying private keys onto it.
 
-**Caution:** Only add the specific key needed (`ssh-add ~/.ssh/id_ed25519`) — never `ssh-add -A`; adding all identities grants every process on the testbox access to every SSH key on your local agent, and testboxes may be shared during pair sessions.
-
-**Caution:** `ForwardAgent yes` in `~/.ssh/config` is required — without it, the 1Password SSH socket forwarding fails with an opaque "no suitable identity" error that looks identical to expired credentials.
+→ NEVER-9: only add the specific key needed — never `ssh-add -A` on a shared testbox.
 
 ### [8] IDE remote development
 
 **VSCode Remote-SSH**: Install the Remote-SSH extension → Connect to Host →
-`sagibeast.testbox`. Ports opened in VSCode terminals are auto-forwarded.
+`sagibeast.testbox`. Ports opened in VSCode terminals are auto-forwarded to localhost
+without a separate `port-forward` step.
+
+*Failure: VSCode Remote-SSH disconnects in a loop* — The `vscode-server` process was killed
+by OOM. Diagnose with `journalctl -u user@1000 -n 50` on the testbox. Fix: increase Multipass
+memory (`multipass set sagibeast-testbox.memory=16G`) and reconnect.
 
 **JetBrains Gateway**: Requires JetBrains Ultimate license. Install Gateway →
 New Connection → SSH → `sagibeast.testbox` → select key `~/.ssh/id_ed25519`.
+
+*Failure: Gateway shows "IDE not started"* — Either the remote project path is wrong or JDK
+21+ is absent on the testbox. Check the Gateway log under Help → Show Log; set the remote
+project path explicitly and ensure `java --version` returns 21+ on the testbox.
+
+→ NEVER-2: start long-running E2E processes inside `tmux` before connecting your IDE.

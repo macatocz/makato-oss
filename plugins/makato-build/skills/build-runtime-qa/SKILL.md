@@ -2,29 +2,23 @@
 name: build-runtime-qa
 description: >-
   Exercise the built app via Playwright MCP and score against acceptance
-  criteria. Advisory: CRITICAL findings block build-push-to-git; all other
-  findings are logged. No-op when no runtime surface detected.
-version: "1.0.0"
+  criteria. Advisory: CRITICAL findings block build-push-to-git; MAJOR/ADVISORY
+  findings are logged as warn and build proceeds. No-op when no runtime surface
+  detected (no ## Runtime verification section and no health_check_cmd).
+  Dispatched by the PO-agent after build-verify-spec succeeds and before
+  build-push-to-git. Keywords: runtime-qa, playwright, acceptance-criteria,
+  build-verify, runtime-verification, health-check.
+version: "1.0.1"
+argument-hint: "<work-item-key> [--autonomous]"
 tools: Bash, Read, Agent
+metadata:
+  authors: ["makato-build"]
+  last_updated: "2026-08-05"
 ---
 
 <!-- markdownlint-disable MD013 -->
 
 # build-runtime-qa
-
-> **Mission**: After `build-verify` passes, dispatch the `runtime-qa` agent to
-> launch the built application, drive critical user paths through Playwright MCP,
-> and score each path against the plan's acceptance criteria. CRITICAL findings
-> block `build-push-to-git`. All other findings are advisory and logged. When the
-> build has no `## Runtime verification` section and no `health_check_cmd`, the
-> skill exits cleanly as a no-op.
-
-## When to Use
-
-Dispatched by the PO-agent (Step 6 #1b) after `build-verify-spec` succeeds and
-before `build-push-to-git`, when the plan includes a `## Runtime verification`
-section or gate-scout discovered a `health_check_cmd`. Not dispatched for
-non-service/non-UI builds.
 
 ## Autonomous Mode
 
@@ -32,11 +26,25 @@ This skill is invoked by the PO-agent with `--autonomous`. All `AskUserQuestion`
 gates are bypassed per `@../../AUTONOMOUS-MODE.md`. An empty `WORKTREE_PATH` in
 autonomous mode is a `MISSING_INPUT` HALT.
 
+## Decision Framework
+
+Two non-obvious routing choices govern this skill:
+
+1. **Parse failure vs runtime failure**: Agent output is non-deterministic — a
+   truncated or malformed R1 block does not prove any AC failed. Route parse
+   failures as advisory (`status: "warn"` to `build.jsonl`, return R1 `success`).
+   Only a *successfully parsed* R1 with `status: "failure"` and `errors[]` entries
+   prefixed `"CRITICAL: …"` triggers `RUNTIME_QA_BLOCKED`.
+
+2. **Skip vs no-op**: When neither `## Runtime verification` nor `health_check_cmd`
+   exists, this is correct behavior for non-service/non-UI builds — log SKIP and
+   return R1 `success` with `data.skipped: true`. It is never an error.
+
 ## Input
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `<work-item-key>` | yes | Positional argument |
+| `<work-item-key>` | yes | Positional argument (e.g. `123-add-feature`) |
 | `WORKTREE_PATH` | yes (autonomous) | Absolute path to the per-run git worktree |
 | `REPO_ROOT` | yes | Absolute path to the main checkout |
 | `--autonomous` | flag | Activation flag for headless mode |
@@ -106,6 +114,13 @@ shared/build-log.sh "<key>" '{"ts":"<ISO>","skill":"build-runtime-qa","story":"<
 
 ### Step 3 — Dispatch `runtime-qa` agent
 
+> **MANDATORY**: Load `references/severity-contract.md` before dispatching the
+> agent. It defines the CRITICAL/MAJOR/ADVISORY rubric and shows the R1 envelope
+> shapes you must parse in Step 4.
+>
+> Do NOT load this reference for other skills — it is specific to the
+> runtime-qa contract.
+
 Dispatch the `runtime-qa` agent (from `plugins/makato-build/agents/runtime-qa.md`)
 with the following bundle:
 
@@ -121,6 +136,8 @@ with the following bundle:
 ### Step 4 — Parse R1 and route
 
 Parse the last fenced ` ```json ` block from the agent's output as the R1 envelope.
+See `references/severity-contract.md` for R1 envelope examples and the reasoning
+behind each routing decision.
 
 | R1 `status` | Action |
 |-------------|--------|
@@ -129,7 +146,8 @@ Parse the last fenced ` ```json ` block from the agent's output as the R1 envelo
 | `"failure"` (CRITICAL findings) | Surface `errors[]` to caller; return R1 `failure` with `data.halt_code: "RUNTIME_QA_BLOCKED"`. |
 
 On parse failure: log `status: "warn"` to `build.jsonl` (`step: "parse-failure"`),
-return R1 `success` (advisory — a parse failure is not a CRITICAL finding).
+return R1 `success` (advisory — a parse failure is not a CRITICAL finding; see
+`references/severity-contract.md § Why parse failure is advisory`).
 
 ### Step 5 — Log session end and emit R1
 
@@ -137,7 +155,40 @@ return R1 `success` (advisory — a parse failure is not a CRITICAL finding).
 shared/build-log.sh "<key>" '{"ts":"<ISO>","skill":"build-runtime-qa","story":"<key>","step":"session","status":"<ok|error>","data":{"skipped":<bool>,"paths_exercised":<N>,"findings_critical":<C>}}'
 ```
 
+Also append the R1 envelope to `build.jsonl` per `agents/RETURN-CONTRACT.md §
+Audit-log integration` (`step: "r1"`).
+
 Emit the R1 envelope as the **last** fenced ` ```json ` block.
+
+## Anti-patterns
+
+**NEVER treat a parse failure as CRITICAL.**
+A malformed or missing R1 block is a transport failure, not evidence that any AC
+failed. Promoting parse failure to CRITICAL would silently block a clean build
+whenever the model truncates its output — the operator would see a build stoppage
+with no actionable runtime evidence. The only valid CRITICAL source is a
+*successfully parsed* R1 with `status: "failure"` and `"CRITICAL: …"` entries in
+`errors[]`.
+
+**NEVER omit `WORKTREE_PATH` in autonomous mode.**
+The worktree is per-run state created by the loop for isolation. Without it, the
+skill runs against the main checkout, writes runtime state into the shared
+workspace, and pollutes it for concurrent dispatches. `WORKTREE_PATH` absent in
+autonomous mode is a `MISSING_INPUT` HALT — do not fall back to `git rev-parse
+--show-toplevel` in that branch.
+
+**NEVER forward `RUNTIME_CMD` containing multiple shell statements without stripping.**
+The awk extractor pulls every non-fence line from the first code block after
+`## Runtime verification`. If the plan author wrote a multi-command block (export +
+start), blindly forwarding the full string causes the agent to mis-execute it as a
+heredoc. Either extract only the executable command line or pass the full block as
+a named script file.
+
+**NEVER escalate RUNTIME_QA_BLOCKED as a planning problem.**
+A CRITICAL runtime finding means the code is wrong, not the plan. Routing
+`RUNTIME_QA_BLOCKED` to `/build-refine` produces a re-plan loop that never touches
+the broken production code. The correct path is code repair (via `makato-change` or
+inline fix) followed by a re-run of `build-verify` → `build-runtime-qa`.
 
 ## HALT Codes
 

@@ -1,16 +1,30 @@
 ---
 name: resolve-review
-description: Resolve PR review feedback for change request by addressing comments with code fixes or clarifying replies, update GitHub issue status
-version: "1.0.3"
+description: >-
+  Resolve PR review feedback for a change request — address inline comment
+  threads and review-level comments with code fixes or clarifying replies,
+  push fixes to the feature branch, and reply to reviewers with commit SHAs.
+  Use after a PR has been created and reviewers have left feedback.
+  Triggers: PR comments, review feedback, address comments, reviewer feedback,
+  resolve review, re-review, address PR review.
+version: "1.0.4"
+metadata:
+  last_updated: "2026-08-05"
+allowed-tools:
+  - Bash
+  - Read
+  - Write
 ---
 
 # resolve-review
 
-Resolve PR review feedback for change request implementation by addressing comments, making necessary code changes, and replying to reviewers.
+Resolve PR review feedback for change request implementation by addressing
+comments, making necessary code changes, and replying to reviewers.
 
 ## When to Use
 
-Use this skill after a PR has been created for a change request and reviewers have left feedback that needs to be addressed. This skill helps systematically work through review comments, make code changes where needed, provide clarifying responses, and update the PR.
+Use this skill after a PR has been created for a change request and reviewers
+have left feedback that needs to be addressed.
 
 **Handles:**
 - PR review comments (general feedback on the PR)
@@ -20,24 +34,62 @@ Use this skill after a PR has been created for a change request and reviewers ha
 **Does NOT handle:**
 - Issue comments on the linked GitHub Issues ticket (use GitHub Issues MCP tools directly)
 - Commit comments (use `gh` CLI directly)
-- GitHub issue comments (if PR is from a fork)
+- GitHub issue comments if the PR is from a fork
 
 **Do NOT use this skill if:**
 - No PR exists yet (use `execute` first)
 - The PR has no review comments
 - The PR has already been approved and merged
 
+## Anti-patterns
+
+**NEVER mark comment threads as resolved yourself — only the original reviewer should.**
+GitHub's thread-resolution state drives the reviewer's re-check workflow. If you
+mark a thread resolved, the reviewer loses their own checklist of items-to-verify,
+and the PR may show "all resolved" while the reviewer has not yet seen the fix.
+Thread resolution is a reviewer-owned gate, not a writer-owned one.
+
+**NEVER push partial fixes mid-batch when multiple comments share a root cause.**
+Pushing separate "address PR review feedback" commits for the same underlying
+problem (e.g., a missing null guard in three locations) makes bisect useless and
+buries the actual fix in noise. Group all comments with the same root cause into
+one atomic commit and reference all comment IDs in the commit body.
+
+**NEVER reply to a comment before the fix commit is pushed.**
+A reply saying "Fixed" without a commit SHA gives reviewers nothing to click.
+They must wait for the commit, then manually correlate the fix to the thread.
+Push first, capture the SHA, then reply with `Fixed in <SHA>` so reviewers jump
+directly to the diff.
+
+**NEVER adopt a Design Disagreement suggestion without consulting the user first.**
+The design was settled in the `design` phase and is the source of truth for scope.
+Autonomously refactoring to a reviewer's preferred pattern can invalidate the
+design artifact, expand scope, and violate the makato-change 15-file scope cap.
+Always present the tradeoffs and get explicit user approval before restructuring.
+
+**NEVER use `gh pr comment` to reply to inline (line-specific) review comments.**
+`gh pr comment` appends a new top-level PR comment — not a threaded reply. Inline
+review threads require the dedicated endpoint:
+`gh api repos/{owner}/{repo}/pulls/{pr}/comments/{id}/replies`
+Using the wrong endpoint breaks thread context; reviewers must hunt for the reply
+instead of seeing it inline, and automated "resolved" tracking is bypassed.
+
 ## Workflow
 
 ### Step 1: Identify the PR
 
-Ask the user for the PR identifier (either PR number or GitHub Issues key).
+Ask the user for the PR identifier (either PR number or GitHub issue number).
 
-If GitHub Issues key is provided:
-- Use MCP tool `gh issue view` to fetch the issue (do NOT use `gh issue view`)
-- Extract PR link from `remote_links` field
-- Parse PR number from the link
-- If no PR link found: Inform user and exit (PR not yet created, use `execute` skill first)
+If GitHub issue number is provided:
+- Use the GitHub MCP `issue_read` tool (method: get) to fetch the issue —
+  do NOT use `gh issue view` CLI (MCP tools return structured data without
+  shell-escaping concerns)
+- Locate the linked PR:
+  ```bash
+  gh pr list --json number,url --search "closes:#<ISSUE_NUMBER>"
+  ```
+- Parse PR number from the result
+- If no PR link found: inform user and exit (PR not yet created, use `execute` first)
 
 If PR number is provided directly, use it.
 
@@ -45,15 +97,27 @@ Store: `PR_NUMBER`, `ISSUE_KEY`
 
 ### Step 2: Fetch Review Comments
 
-Use `gh pr view <PR_NUMBER> --json reviews,comments` to get all review feedback.
+GitHub PR feedback lives in three distinct structures — fetch all three for
+complete coverage (a common miss is omitting inline comments):
 
-Parse the response to extract:
+```bash
+# Completed review submissions (state: APPROVED, CHANGES_REQUESTED, COMMENTED)
+gh pr view <PR_NUMBER> --json reviews
+
+# General PR-level comments (not attached to a specific line)
+gh pr view <PR_NUMBER> --json comments
+
+# Inline review comments attached to file:line positions (includes id field for replies)
+gh api repos/{owner}/{repo}/pulls/<PR_NUMBER>/comments
+```
+
+Parse each response to extract:
 - Review-level comments (general feedback on the PR)
-- Line-specific comments (feedback on particular code sections)
-- Threads (groups of related comments)
+- Line-specific inline comments — note each comment's `id`, `path`, and `line`
+  (the `id` is required for thread replies in Step 7)
 - Comment authors and timestamps
 
-If no comments found, inform the user and exit.
+If no comments found across all three sources, inform the user and exit.
 
 Store the comments in a structured format for processing.
 
@@ -116,39 +180,53 @@ Comment #<N> by @<reviewer> on <file>:<line>
 ---
 ```
 
-Load @references/review-feedback-patterns.md to understand common feedback types and appropriate responses.
+MANDATORY: Load @references/review-feedback-patterns.md now to understand
+feedback categories before classifying any comment. Do NOT load this reference
+at any other step.
 
-For each comment, determine the appropriate action:
+For each comment, classify the appropriate action:
 
-**Code Change Required:**
-- Reviewer identified a bug, security issue, or incorrect implementation
-- Action: Make the code change, explain what was fixed
+**Code Change Required:** Reviewer identified a bug, security issue, or
+incorrect implementation → make the code change.
 
-**Clarification Needed:**
-- Reviewer has a question or misunderstood the approach
-- Action: Load @references/reply-templates.md and craft a response explaining the reasoning
+**Clarification Needed:** Reviewer has a question or misunderstood the approach.
+MANDATORY: Load @references/reply-templates.md when crafting a clarification
+reply. Do NOT load reply-templates.md unless a clarification or reply is needed.
 
-**Design Disagreement:**
-- Reviewer suggests a different approach
-- Action: Discuss with user, decide whether to adopt suggestion or explain current approach
+**Design Disagreement:** Reviewer suggests a different approach → do NOT adopt
+autonomously (see Anti-patterns). Use AskUserQuestion with these options:
+```
+Options:
+1. Adopt reviewer's suggestion ([describe the change])
+2. Keep current approach — reply with rationale
+3. Propose a compromise
+```
 
-**Acknowledgment:**
-- Reviewer suggests an improvement that will be addressed later
-- Action: Acknowledge and optionally create a follow-up GitHub Issues issue
+**Acknowledgment:** Reviewer suggests a future improvement → acknowledge and
+optionally create a follow-up GitHub Issues issue.
 
-After addressing each comment, ask the user: "How should we address this comment?" Present the options:
-1. Make the code change
-2. Reply with clarification
-3. Discuss alternative approach
-4. Acknowledge for follow-up
+After classifying each comment, use AskUserQuestion to confirm before
+implementing:
 
-Implement the chosen action.
+```
+Comment #<N>: <summary>
+Classification: <Code Change / Clarification / Design Disagreement / Acknowledgment>
+Proposed action: <specific action>
+
+Options:
+1. Proceed with proposed action
+2. Override → Code Change
+3. Override → Clarification
+4. Override → Design Disagreement
+5. Override → Acknowledgment
+```
 
 ### Step 5: Run Quality Gate
 
-After all code changes are made, dispatch the **quality-guard** agent to verify the changes.
+After all code changes are made, dispatch the **quality-guard** agent to verify.
 
-**Skip this step if no code changes were made** (all comments resolved via replies, clarifications, or acknowledgments only — proceed directly to Step 6).
+**Skip this step if no code changes were made** (all comments resolved via
+replies, clarifications, or acknowledgments only — proceed directly to Step 6).
 
 **Agent input:**
 ```
@@ -170,13 +248,12 @@ CHANGED_FILES: <list of modified/created files, relative to REPO_ROOT>
 
 **Handle results:**
 - If gate PASSED: proceed to Step 6
-- If gate FAILED:
-  - Review blocker issues (unit test failures, type errors, critical coverage gaps)
-  - Fix issues
-  - Re-run quality-guard agent
-  - Do not proceed until gate passes
+- If gate FAILED: review blocker issues, fix, re-run quality-guard agent, do
+  not proceed until gate passes
 
-**Why this step is critical:** Review feedback often introduces new code paths or edge case handling. Without running the full quality gate, these changes may lack test coverage or violate project standards, causing the pipeline to fail after the PR is pushed.
+**Why this step is critical:** Review feedback often introduces new code paths
+or edge case handling. Without the full quality gate, these changes may lack
+test coverage or violate project standards.
 
 ### Step 6: Commit and Push Changes
 
@@ -192,18 +269,24 @@ fix(<scope>): address PR review feedback (<ISSUE_KEY>)
 Design: specs/<ISSUE_KEY>/design.md
 EOF
 )"
-```
-
-Push to the PR branch:
-```bash
 git -C <REPO_ROOT> push
 ```
 
-**Why `-C <REPO_ROOT>`:** Ensures git operations target the correct repository when the skill is invoked from a separate specs directory or another location.
+**Why `-C <REPO_ROOT>`:** Ensures git operations target the correct repository
+when the skill is invoked from a separate specs directory or another location.
+
+**Capture the commit SHA immediately after push** — required for reply messages
+in Step 7 (see Anti-patterns: never reply before pushing):
+
+```bash
+REPLY_SHA=$(git -C <REPO_ROOT> rev-parse --short HEAD)
+```
 
 ### Step 7: Reply to Comments
 
-For each comment that requires a written response, reply directly to the specific review comment thread.
+Reply to every comment that was addressed. Always reference `$REPLY_SHA` in
+fix-replies. For inline comments, use the thread-reply endpoint (NOT `gh pr comment`
+— see Anti-patterns).
 
 **For review-level comments (general PR feedback):**
 ```bash
@@ -213,28 +296,23 @@ EOF
 )"
 ```
 
-**For line-specific comments (inline code feedback):**
-Reply directly to the comment thread using the GitHub API:
-
+**For line-specific inline comments:**
 ```bash
-gh api repos/:owner/:repo/pulls/<PR_NUMBER>/comments/<COMMENT_ID>/replies \
+gh api repos/{owner}/{repo}/pulls/<PR_NUMBER>/comments/<COMMENT_ID>/replies \
   -f body="$(cat <<'EOF'
 <response text>
 EOF
 )"
 ```
 
-To get comment IDs, parse the output from Step 2 (`gh pr view --json comments`). Each comment has an `id` field.
+Comment IDs come from the inline comment payload fetched in Step 2.
 
-**Best practices:**
-- Reply in the same thread as the original comment (keeps discussion organized)
-- For line-specific comments, explain what code was changed and why
-- Reference commit SHAs when code was fixed: "Fixed in abc1234"
-- Keep replies concise and professional
+**Reply discipline:**
+- Always include commit SHA: "Fixed in $REPLY_SHA"
+- For line-specific comments, explain what code changed and why
+- Do NOT mark threads as resolved — that is the reviewer's gate (see Anti-patterns)
 
 ### Step 8: Present Summary
-
-Show the user a summary of actions taken:
 
 ```
 Review Resolution Summary:
@@ -248,16 +326,15 @@ PR Status: Ready for re-review
 PR URL: <link>
 ```
 
-If all comments have been addressed and tests pass, the PR is ready for the reviewer to take another look.
-
 ### Step 9: Record Lessons (optional)
 
-After a successful resolve-review cycle, the agent MAY record noteworthy lessons or facts
-discovered while addressing review feedback. This step is optional and agent-discretionary
-— only record a lesson if it is genuinely useful for a future session.
+After a successful resolve-review cycle, the agent MAY record noteworthy lessons
+discovered while addressing review feedback. Only record if genuinely useful for
+a future session.
 
 ```bash
-plugins/makato-build/shared/write-lessons.sh \
+MAKATO_ROOT=$(git rev-parse --show-toplevel)
+"$MAKATO_ROOT/plugins/makato-build/shared/write-lessons.sh" \
   "<issue-key>" \
   "<tier: procedural | semantic>" \
   "<scope: generalizable | local>" \
@@ -265,18 +342,19 @@ plugins/makato-build/shared/write-lessons.sh \
   "[tags_csv]"
 ```
 
-This appends one JSONL record to `specs/<issue-key>-*/change-lessons.jsonl`. The record
-shape is `{ts, tier, text, tags, scope, key, repo}` — the seven fields `promote-lessons.sh`
-reads when lifting generalizable records into `.makato/memory/`.
+This appends one JSONL record to `specs/<issue-key>-*/change-lessons.jsonl`.
+The record shape is `{ts, tier, text, tags, scope, key, repo}` — the seven
+fields `promote-lessons.sh` reads when lifting generalizable records into
+`.makato/memory/`.
 
 **When to record:**
-- A recurring reviewer concern that signals a project convention not captured in docs
-- A non-obvious test pattern that reviewers requested and that could help future sessions
+- A recurring reviewer concern signaling a project convention not captured in docs
+- A non-obvious test pattern that reviewers requested
 - A durable fact about this repo's review norms (e.g. required PR checklist items)
 
 **Do NOT record:**
 - Information already in the design, analysis, or PR artifacts
-- Trivial observations that are obvious from the code
+- Trivial observations obvious from the code
 - PII, credentials, or internal service details
 
-If nothing noteworthy arose during the review cycle, skip this step entirely.
+If nothing noteworthy arose, skip this step entirely.

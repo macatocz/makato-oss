@@ -7,11 +7,30 @@ description: >-
   Use after verify, before create-pr.
 version: "1.6.0"
 argument-hint: "[work-item-key] [--autonomous]"
+allowed-tools: [Bash]
+metadata:
+  authors: [makato-build]
+  last_updated: "2026-08-05"
 ---
 
 ## When to Use
 
 Use after `/verify` (all gates pass) and before `/create-pr`. The code is clean, tested, and reviewed. This step produces a commit history that maps to the plan's task structure and pushes the branch to remote.
+
+## Mindset
+
+**This step is about history, not just delivery.** The commits you create here are the permanent record a future engineer uses to understand *why* each change was made. A message like `feat(invoice): add status field` is navigable three months later; `misc changes` is not.
+
+Three non-obvious principles:
+
+**1. Every commit must leave the build green.**
+The rule "tests go in the same commit as production code" exists because a commit containing only new production code leaves a failing test suite — breaking `git bisect` even though the final state compiles. A bisect-clean sequence is the guarantee this step makes to the team.
+
+**2. Push is the first truly irreversible action.**
+Before `git push`, every commit can be rebased, amended, or dropped with no team impact. After push, treat the history as shared. The explicit confirmation gate at Step 6 is not ceremony — it is the last checkpoint where local cleanup is free.
+
+**3. Staging discipline is how you control what the commit records.**
+`git add <specific-files>` stages exactly the plan's intent. `git add -A` stages everything in the working tree — including auto-generated files, IDE configs, and secrets written during debugging. Once pushed, stray files are permanent and public.
 
 ## Input
 
@@ -24,6 +43,8 @@ When dispatched by the PO-agent (`--autonomous` mode):
 Interactive mode: `WORKTREE_PATH` is optional; fall back to `git rev-parse --show-toplevel` of the current `$PWD`.
 
 ### Workspace-isolation entry guard
+
+**MANDATORY: Load `@../../AUTONOMOUS-MODE.md`** before applying this guard — sections *WORKTREE_PATH — workspace-isolation contract*, *Falsy-check pattern*, and *Two roots, one contract* define the derivation formulas used in every step below. Do NOT skip this load even in interactive mode; the REPO_ROOT bash formula is defined there.
 
 Apply the workspace-isolation entry guard from `@../../AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract* and § *Falsy-check pattern* before Step 1's `git status`. In autonomous mode an empty `WORKTREE_PATH` is a HALT with `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`; in interactive mode the guard falls back to `git rev-parse --show-toplevel`. After resolution, `cd "$WORKTREE_PATH"` — every `git`/`gh` command below runs from this CWD.
 
@@ -49,13 +70,13 @@ Run `git status` and `git branch --show-current`. Verify the current branch is N
 
 ### Step 1a — Mode detection
 
-Load `@../../AUTONOMOUS-MODE.md` for the activation contract (§ *Activation triggers*) and the per-gate default table. The skill runs in `--interactive` mode by default; autonomous mode opts in per dispatch.
+**MANDATORY: Load `@../../AUTONOMOUS-MODE.md`** when `--autonomous` is present in the dispatch bundle — sections *Activation triggers* and the per-gate default table apply throughout. Do NOT load this section at runtime in a pure interactive session (no dispatch bundle, no `--autonomous` flag).
 
 In autonomous mode, the Step 1 work-item-key prompt is replaced by:
 - If an argument was passed: use it.
 - If no argument: HALT with `MISSING_INPUT: build-push-to-git in --autonomous mode requires a work-item-key argument`, write `{step:"session", status:"error", data:{halt_code:"MISSING_INPUT"}}`, and return R1 `status:"failure"`.
 
-Log the bypass via `shared/log-bypass.sh build-push-to-git "<key>" work-item-key use-arg "<agent_id|cli_flag|task_id_bundle>"` when bypassed.
+Log the bypass via `shared/log-bypass.sh build-push-to-git "<key>" work-item-key use-arg "$AGENT_ID"` when bypassed.
 
 ---
 
@@ -79,7 +100,7 @@ Check for untracked files in source or test directories. Any untracked file that
 
 ### Step 4 — Plan commit grouping from task structure
 
-Load `@references/commit-guide.md`.
+**MANDATORY: Load `@references/commit-guide.md`** at this step — not before. Do NOT load it before Step 4; the conventional-commit format details are irrelevant to the git-state checks above.
 
 Map each plan task to its changed files using the task's file targets from `plan.md` and the actual diff (`git diff --name-only HEAD`).
 
@@ -102,7 +123,7 @@ Commit 2: feat(invoice): add InvoiceStatusService with transition logic
 
 In **interactive mode**, wait for the user to confirm or adjust the grouping and commit messages before proceeding to Step 5.
 
-In **autonomous mode**, skip the confirmation: use each task's `commitMessage` field from `plan.md` verbatim, apply the grouping rules above, log `shared/log-bypass.sh build-push-to-git "<key>" commit-grouping plan-as-drafted "<agent_id|cli_flag|task_id_bundle>"`, and proceed to Step 5.
+In **autonomous mode**, skip the confirmation: use each task's `commitMessage` field from `plan.md` verbatim, apply the grouping rules above, log `shared/log-bypass.sh build-push-to-git "<key>" commit-grouping plan-as-drafted "$AGENT_ID"`, and proceed to Step 5.
 
 ---
 
@@ -113,7 +134,9 @@ For each planned commit in task order:
 2. Create the commit with the conventional message from the plan
 3. Verify the commit landed: `git log -1 --oneline`
 
-Do not amend existing commits. If a commit fails, report the error verbatim and stop — do not proceed to the next commit until the failure is resolved.
+Do not amend existing commits. WHY: amending rewrites the commit SHA, invalidating the `build.jsonl` log entry that recorded the original SHA (Step 5 JSONL) and making any later commit that built on top of it require a force-push — which the `PUSH_REJECTED` HALT has no auto-recovery path for.
+
+If a commit fails, report the error verbatim and stop — do not proceed to the next commit until the failure is resolved.
 
 Log each commit:
 ```
@@ -133,7 +156,7 @@ git log "$DEFAULT_REF..HEAD" --oneline
 
 In **interactive mode**, ask: *"Ready to push `<N>` commits to `origin/<branch>`? This will trigger CI and be visible to the team."* Wait for explicit confirmation. If the user declines, the commits are local — they can push manually when ready. Stop here without error.
 
-In **autonomous mode**, skip the prompt: proceed directly to Step 7 (the pre-push hook still fires — autonomous mode does not bypass git hooks). Log `shared/log-bypass.sh build-push-to-git "<key>" push-confirm push "<agent_id|cli_flag|task_id_bundle>"`.
+In **autonomous mode**, skip the prompt: proceed directly to Step 7 (the pre-push hook still fires — autonomous mode does not bypass git hooks). Log `shared/log-bypass.sh build-push-to-git "<key>" push-confirm push "$AGENT_ID"`.
 
 ---
 
@@ -189,7 +212,24 @@ In **interactive mode**, then ask using `AskUserQuestion`:
 If option A: invoke `/build-create-pr <key>` directly.
 If option B: tell the user: "Run `/makato-build:build-create-pr <key>` when ready."
 
-In **autonomous mode**, skip the prompt: invoke `/build-create-pr <key>` directly. Autonomous mode signals through the inherited `$AGENT_ID` env var (see `@../../AUTONOMOUS-MODE.md` § *Cross-skill propagation*); the `--autonomous` CLI flag is NOT forwarded on cross-skill dispatch. The downstream context bundle MUST still carry the `WORKTREE_PATH` field verbatim from this skill's input — `build-create-pr` runs its own entry-guard falsy-check and HALTs `MISSING_INPUT` if the field is absent in autonomous mode. The hand-off prompt that dispatches `/build-create-pr` therefore includes `WORKTREE_PATH=<absolute path>` and any other documented bundle fields. Log `shared/log-bypass.sh build-push-to-git "<key>" create-pr-handoff invoke-create-pr "<agent_id|cli_flag|task_id_bundle>" '{"forwarded":["WORKTREE_PATH"]}'`.
+In **autonomous mode**, skip the prompt: invoke `/build-create-pr <key>` directly. Autonomous mode signals through the inherited `$AGENT_ID` env var (see `@../../AUTONOMOUS-MODE.md` § *Cross-skill propagation*); the `--autonomous` CLI flag is NOT forwarded on cross-skill dispatch. The downstream context bundle MUST still carry the `WORKTREE_PATH` field verbatim from this skill's input — `build-create-pr` runs its own entry-guard falsy-check and HALTs `MISSING_INPUT` if the field is absent in autonomous mode. The hand-off prompt that dispatches `/build-create-pr` therefore includes `WORKTREE_PATH=<absolute path>` and any other documented bundle fields. Log `shared/log-bypass.sh build-push-to-git "<key>" create-pr-handoff invoke-create-pr "$AGENT_ID" '{"forwarded":["WORKTREE_PATH"]}'`.
+
+## Anti-patterns
+
+**NEVER `git add -A` or `git add .` (Step 5).**
+WHY: Both stage every tracked and untracked file in the working tree — including IDE config directories, auto-generated artefacts, and any `.env` or credential file written during the session. A single stray secret staged this way becomes a permanent public record once pushed. `git add <file1> <file2>` is the only safe staging command for this step.
+
+**NEVER amend an existing commit (Step 5).**
+WHY: Amending rewrites the SHA. The `build.jsonl` log entry written at Step 5 records the original short SHA as an immutable audit reference. A rewritten SHA produces a ghost reference in that log. More critically, any subsequent commit already built on the original SHA now diverges from the remote after push — producing a non-fast-forward rejection that has no automatic recovery in the `PUSH_REJECTED` HALT path. Create a fixup commit instead; clean up via interactive rebase before Step 6 if needed.
+
+**NEVER retry automatically on push rejection (Step 7).**
+WHY: A push rejection may mean another agent or engineer pushed to the same remote branch after your last `git fetch`. Auto-retry with force would silently overwrite their work. HALT with `PUSH_REJECTED` and surface the error — the PO-agent's recovery route decides whether to rebase or escalate to the operator.
+
+**NEVER read spec artefacts from `$WORKTREE_PATH` (entry guard, Step 1).**
+WHY: `specs/*` is excluded by the repo-root `.gitignore` and a fresh `git worktree add` creates a worktree with no `specs/` content at all. Reading `$WORKTREE_PATH/specs/<key>-*/plan.md` fails silently (file not found) and surfaces only when commit grouping cannot parse a task list at Step 4. Always use `$REPO_ROOT/specs/<key>-*/plan.md`.
+
+**Do NOT forward `--autonomous` to `/build-create-pr` (Step 8).**
+WHY: `$AGENT_ID` is the cross-dispatch signal for autonomous mode. Forwarding `--autonomous` as an explicit CLI flag causes double-activation in `build-create-pr` and may bypass guards that specifically check `$AGENT_ID` presence for safe handoff. Forward `WORKTREE_PATH` in the context bundle — not the flag.
 
 ## Autonomous Execution
 
@@ -211,10 +251,10 @@ Top-level R1 envelope fields follow `plugins/makato-build/agents/RETURN-CONTRACT
 {
   "data": {
     "branch": "<name>",
-    "commits": <N>,
+    "commits": "<N>",
     "remote_branch": "origin/<name>",
-    "pre_push_hook_fired": <true|false>,
-    "next_skill_invoked": "build-create-pr" | null
+    "pre_push_hook_fired": "<true|false>",
+    "next_skill_invoked": "build-create-pr | null"
   }
 }
 ```

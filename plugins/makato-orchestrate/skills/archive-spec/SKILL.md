@@ -1,7 +1,14 @@
 ---
 name: archive-spec
-description: 'Archive completed or obsolete specs after a PR is merged. Extracts requirements into the master spec, moves the spec folder to specs/archive/ or specs/obsolete/, and closes the linked GitHub Issue. Use when: PR merged, feature complete, spec superseded, or spec abandoned. Triggers: "archive spec", "archive feature", "spec done", "close feature", "mark obsolete", "merge to master spec".'
-version: 1.1.0
+description: >-
+  Archive completed or obsolete specs after a PR is merged. Extracts requirements
+  into the master spec, moves the spec folder to specs/archive/ or specs/obsolete/,
+  and closes the linked GitHub Issue. Use when: PR merged, feature complete, spec
+  superseded, or spec abandoned. Triggers: "archive spec", "archive feature",
+  "spec done", "close feature", "mark obsolete", "merge to master spec".
+version: 1.2.1
+argument-hint: '<spec-folder-name or issue-number>'
+allowed-tools: [Bash]
 ---
 
 # archive-spec
@@ -34,12 +41,59 @@ Was the spec implemented?
 
 ---
 
+## Before You Start — Resolving the Spec Folder
+
+When the caller provides only an issue number (no folder name), derive the spec folder before
+proceeding. Attempt in order — stop at the first hit:
+
+```bash
+ISSUE=<issue-number>
+
+# 1. PO-agent workflow-state (most reliable when the loop has run)
+grep -o '"spec_folder":\s*"[^"]*"' \
+  "$(git rev-parse --show-toplevel)/.claude/state/workflow-state.json" 2>/dev/null
+
+# 2. to-issues provenance footer in the issue body
+gh issue view $ISSUE --json body \
+  | grep -oP 'specs/[^\s/)>]+' | head -1
+
+# 3. Issue-number prefix on the folder name (seed-issue stamps <N>-<slug>)
+ls "$(git rev-parse --show-toplevel)/specs/" \
+  | grep -E "^${ISSUE}-"
+
+# 4. stories.json githubIssue field (to-issues emits this)
+grep -rl "\"github_issue\"" "$(git rev-parse --show-toplevel)/specs/" \
+  | xargs grep -l "\"${ISSUE}\"" 2>/dev/null | head -1
+```
+
+If none of the four lookups resolve the folder, ask the operator for the exact path before
+continuing — do NOT guess or construct a folder name from the issue title alone (title-slug
+derivation diverges from `_derive_key_for_issue`'s hard-cut logic and will produce the wrong
+path).
+
+---
+
 ## ARCHIVE Path
 
 ### Step 0 — Retrospective Spec Check
 
 Before archiving, verify the spec reflects what was actually built. Specs drift during
 implementation — the original plan rarely matches the shipped code exactly.
+
+**Stale-threshold decision framework — use this to decide what to update before archiving:**
+
+| Drift Condition | Action |
+|-----------------|--------|
+| >30% of `plan.md` tasks cannot be matched to merged commits | Rewrite `plan.md` tasks to reflect what landed; annotate dropped tasks as `skipped:` with a reason |
+| `prd.md` missing entirely | Synthesize a stub from the PR description (title + merged diff summary); mark frontmatter `source: synthesized`; do NOT skip archiving |
+| Architectural decisions were made (schema changed, API contract changed) but `design.md` absent | Write a stub capturing the decisions; note `retroactively documented` in Evolution Log |
+| Scope shrank (features dropped mid-PR) | Mark dropped user stories as REMOVED in Evolution Log; do NOT add them to Current Requirements |
+| Scope expanded (undocumented additions) | Add them as new capabilities in Current Requirements; note `scope drift: expanded` in Evolution Log rationale |
+| Minor drift (1-2 tasks swapped, wording updates) | Annotate inline with `<!-- as-shipped: ... -->`; no full rewrite needed |
+
+The bar is: *archive is always better than not-archive even with drift*. The goal is capturing
+what actually shipped, not preserving the original plan. Only refuse to archive when the PR is
+still open or in review (see NEVER).
 
 Checklist:
 
@@ -48,8 +102,7 @@ Checklist:
 - [ ] `plan.md` tasks match the commits that landed (not the original task list)
 - [ ] `domain` is set in `spec.md` or `plan.md` frontmatter for master spec routing (the makato-plan pipeline does not write this field — add it manually before archiving; omitting it routes the spec to the `general` master spec, which is a safe fallback but loses topic-specific grouping)
 
-If artifacts are missing or badly stale, update them now. Archive is the last moment
-to capture this knowledge before the feature context is lost.
+Archive is the last moment to capture this knowledge before the feature context is lost.
 
 ### Step 1 — Validate Completion
 
@@ -65,7 +118,8 @@ If the issue is already closed, skip to Step 4 (folder may already be moved — 
 
 ### Step 2 — Extract Delta to Master Spec
 
-Load @references/master-spec-format.md for the target file structure.
+MANDATORY: Load @references/master-spec-format.md now — needed for merge rules, domain
+resolution fallback (keyword routing table), and conflict handling. Do NOT load before this step.
 
 ```bash
 # Determine domain from spec frontmatter
@@ -86,10 +140,23 @@ Append ADDED to the `## Current Requirements` section of `${master}`. Move REMOV
 folder, change type, and a one-line rationale.
 
 If `${master}` does not exist, create it from @templates/master-spec.md.
+MANDATORY when creating a new master spec: the template is at @templates/master-spec.md —
+load it at this point only. Do NOT load for updates to existing master specs.
 
 **Capability extraction rule**: for each PRD user story of the form
 `As a {persona}, I want to {action}` → produce capability `{Persona} can {action}`.
-See @references/capability-extraction.md for the full extraction rules.
+MANDATORY when the PRD contains "As a / I want to" stories: load
+@references/capability-extraction.md for edge cases (no-PRD, duplicate, truncation).
+Do NOT load unless extraction is underway.
+
+**Conflict handling**: if an incoming requirement overlaps an existing one in `${master}`,
+show both to the user with a diff and offer three options — supersede (replace), merge
+(combine), or skip — then record the decision in the Evolution Log rationale column.
+Full conflict-resolution rules are in @references/master-spec-format.md § Conflict Handling.
+
+**Partial-step recovery**: if Step 2 fails mid-merge (e.g. editor crash), check
+`${master}` for a partially written Evolution Log row before re-running — duplicate rows
+will silently corrupt the audit trail.
 
 ### Step 3 — Move Folder
 
@@ -178,16 +245,20 @@ REMOVED), the OBSOLETE path, and conflict handling — judgement the bash port
 intentionally does not attempt. Invoke it directly (`/makato-orchestrate:archive-spec`)
 when you want that richer merge into the master spec, or for obsolete specs.
 
-See @references/archive-spec-workflow.md for the full workflow file and wiring notes.
+MANDATORY only when wiring up GHA automation: load @references/archive-spec-workflow.md
+for the full YAML and issue-resolution edge cases. Do NOT load during interactive
+archival runs — it is CI infrastructure, not interactive process guidance.
 
 ---
 
 ## NEVER
 
-- NEVER move to `specs/archive/` without merging to the master spec first — requirements are lost
-- NEVER close a parent issue before all child issues are closed
-- NEVER use `--reason completed` for abandoned specs — use `--reason "not planned"`
-- NEVER skip the retrospective spec check — emergent requirements disappear into the archive
+- NEVER move to `specs/archive/` without merging to the master spec first — WHY: once the folder moves, requirements are indexed only by the archive folder name; future work in the same domain starts from a stale master spec with no automated alert that a merge was skipped. The master spec is the only living index of domain capability.
+- NEVER close a parent issue before all child issues are closed — WHY: GitHub has no built-in cascade; a closed parent misleads `promote-ready` (which reads live child Status on the board, not the parent state) and leaves the board showing a Done epic with open child work that the loop will silently skip on next poll.
+- NEVER use `--reason completed` for abandoned or superseded specs — WHY: `promote-ready` reads closure reason when computing dependency waves and distinguishing implemented from abandoned predecessors; wrong reason causes incorrect dependency resolution in the unblocking graph.
+- NEVER skip the retrospective spec check (Step 0) — WHY: archive is the last moment the implementer's context is live and the branch still exists; spec drift (tasks that didn't land, scope that changed mid-PR) becomes permanently invisible in the Evolution Log once the branch is deleted.
+- NEVER archive a spec whose linked PR is still open or in review — WHY: the PR may be rejected, rebased away, or the `Closes #N` link removed; archiving before merge creates a phantom capability entry in the master spec for code that may never ship, silently corrupting the domain baseline.
+- NEVER re-run Step 2 (master spec merge) after a crash without first checking `${master}` for a partially written Evolution Log row — WHY: Evolution Log rows are only semi-unique (same date + folder combination can appear twice); a blind rerun appends a duplicate row that corrupts the audit trail with no automated detection, because the merge rules append without deduplicating.
 
 ## Composes With
 
@@ -197,6 +268,7 @@ See @references/archive-spec-workflow.md for the full workflow file and wiring n
 
 ## References
 
-- @references/master-spec-format.md — master spec file structure and merge rules
-- @references/capability-extraction.md — PRD user story → capability extraction rules
-- @templates/master-spec.md — blank master spec template
+- @references/master-spec-format.md — master spec file structure, domain resolution fallback (keyword routing table), and merge/conflict rules. Load at Step 2 only.
+- @references/capability-extraction.md — PRD user story → capability extraction rules and edge cases. Load at Step 2 when "As a / I want to" stories are present.
+- @templates/master-spec.md — blank master spec template (used when `${master}` does not exist). Load at Step 2 only when creating a new master spec.
+- @references/archive-spec-workflow.md — GHA YAML template and script wiring. Load only when setting up automation; never during interactive runs.

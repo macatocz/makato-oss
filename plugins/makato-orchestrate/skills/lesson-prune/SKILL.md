@@ -5,10 +5,14 @@ description: >-
   (.makato/memory/procedural.jsonl and semantic.jsonl). Classifies every
   record as KEEP / DUPLICATE / GRADUATED / STALE / CONSOLIDATE, renders a
   diff-before-write classification table, and — only on explicit operator
-  approval — rewrites the files atomically. Operator-only: never wired into
-  any per-issue build lane or autonomous pipeline.
-version: "1.0.0"
+  approval — rewrites the files atomically. Trigger keywords: prune lessons,
+  curate memory, clean memory store, trim procedural, trim semantic.
+  Operator-only: never wired into any per-issue build lane or autonomous
+  pipeline. Do NOT load this skill for recall-lessons, promote-lessons, or
+  any read-only memory operation.
+version: "1.1.0"
 argument-hint: "[MEMORY_DIR] [--non-interactive]"
+allowed-tools: Bash(plugins/makato-orchestrate/scripts/lesson-prune.sh *) Bash(python3 *) Read
 ---
 
 <!-- markdownlint-disable MD013 -->
@@ -27,7 +31,8 @@ merged epics, or whenever `recall-lessons` returns obviously outdated content.
 
 **Do NOT use** as an automated build step, a CI gate, or inside any autonomous
 pipeline. This skill is operator-only: it requires a human to review and approve
-the classification table before any record is touched.
+the classification table before any record is touched. Do NOT load this skill
+for read-only memory operations — use `recall-lessons` instead.
 
 ## Classification Classes
 
@@ -38,6 +43,17 @@ the classification table before any record is touched.
 | **GRADUATED** | Lesson text (verbatim or strong token subset) already encoded in an `AGENTS.md` | Remove — the rule is now architecture, not memory |
 | **STALE** | `repo_sha` not reachable from HEAD **and** `date` >90 days old | Remove — probable dead-branch remnant |
 | **CONSOLIDATE** | 2+ records sharing a tag cluster, not identical | Merge into a single authoritative entry |
+
+### GRADUATED: the critical boundary judgment
+
+A GRADUATED lesson is one the classifier matched as already encoded in an
+`AGENTS.md`. The non-obvious failure mode: the classifier detects a token-subset
+match, not semantic equivalence. A lesson about a *failure scenario* ("never do X
+because it triggers Y") can share 60–70% of tokens with an `AGENTS.md` rule that
+encodes only the prohibition without the causation. If the `reason` field drops the
+failure scenario, future agents lack the corrective context. Always read the
+`AGENTS.md` anchor before approving GRADUATED — ask: does the encoded rule capture
+*why*, not just *what*?
 
 ### STALE false-positive warning
 
@@ -58,6 +74,18 @@ CLASSIFICATION="$(bash plugins/makato-orchestrate/scripts/lesson-prune.sh "$MEMO
 
 The helper reads both `procedural.jsonl` and `semantic.jsonl` and emits one JSON
 line per record: `{"key":"…","action":"KEEP|…","reason":"…","target":"…"}`.
+
+**Error paths — Step 1:**
+
+- **`lesson-prune.sh` exits non-zero**: print its stderr verbatim, then exit the
+  skill without touching any file. Do not attempt to parse partial output.
+- **Malformed JSONL** (a line that does not parse as JSON): print the offending
+  line number and the raw content, then exit without touching any file. Do NOT
+  silently skip the malformed record — a corrupt store requires manual repair
+  before curation.
+- **Both files absent or both empty** (fresh install / empty store): print
+  "Memory store is empty — nothing to prune." and exit 0. There is no
+  mutation path.
 
 ### Step 2 — Render the classification table
 
@@ -126,6 +154,51 @@ for filepath, records in [(proc_file, proc_records), (sem_file, sem_records)]:
 ```
 
 Print a summary: "Curation applied: N records removed (K DUPLICATE, M STALE, …)"
+
+## Anti-patterns
+
+**NEVER call from a CI job, pre-commit hook, or any automated pipeline.**
+WHY: the `[y/N]` approval gate cannot fire in a non-TTY context. The
+`--non-interactive` flag exits 0 silently — if the caller treats exit 0 as
+success and assumes mutations were applied, the store is never pruned but the
+caller sees no error. The operator-review requirement is not optional ceremony;
+it is the only defense against bulk-removing lessons that were misclassified
+by the hash algorithm.
+
+**NEVER approve STALE records as a batch without reading each one individually.**
+WHY: a rebased or squash-merged commit SHA is legitimately unreachable from HEAD
+yet the lesson remains valid; `git log` will not surface it. Batch-approving
+STALE removes knowledge the team wrote specifically because something went wrong
+in a workflow that no longer exists in history. The `repo_sha unreachable` signal
+is necessary but not sufficient for "this lesson is obsolete."
+
+**NEVER approve GRADUATED without reading the matching `AGENTS.md` anchor.**
+WHY: the classifier detects a token-subset match, not semantic equivalence. The
+AGENTS.md rule may encode the prohibition but drop the *causation* (the failure
+scenario that taught the rule). If the lesson's `text` adds corrective context not
+present in AGENTS.md, removing it silently degrades future agent judgment.
+
+**NEVER run lesson-prune while `promote-lessons.sh` is actively writing.**
+WHY: both tools use `tmp + os.replace` but operate independently. A concurrent
+`promote-lessons.sh` write replaces the file after lesson-prune reads it and
+before lesson-prune's `os.replace` fires — the promoted record is silently lost
+(last writer wins). The `os.replace` contract is process-safe against crashes, not
+against concurrent writers. Coordinate via the same terminal session; do not
+background either process.
+
+**NEVER silently skip a malformed JSONL record.**
+WHY: a JSON parse error means the file was written incorrectly by a prior
+`promote-lessons.sh` run or a manual edit. If curation proceeds on the parseable
+subset, the malformed record is silently discarded in the next `os.replace` pass —
+permanent data loss with no audit trail. The correct response is to surface the
+corrupt line and halt, forcing manual repair before curation.
+
+**NEVER approve CONSOLIDATE without reading the full `text` of both candidates.**
+WHY: the tie-break rule (highest `occurrences`, then newest `date`) retains the
+better-anchored record structurally, but the *losing* record's text may contain
+the clearer description or the only occurrence of a specific edge-case. The winning
+record's `text` does not automatically absorb the loser's meaning; the curator must
+decide whether to edit the surviving record before applying.
 
 ## Examples
 

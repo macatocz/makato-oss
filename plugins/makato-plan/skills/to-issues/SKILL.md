@@ -6,6 +6,9 @@ description: >-
   for project name, targets `github.com`, applies a 10-dimension label taxonomy
   (type/tier/tech/module/severity/phase/effort/priority/points/status), maps stories to ADR folders by
   name pattern, and emits `specs/{slug}/created-issues.json` for downstream plugins.
+  Do NOT use for: adding already-created issues to a project board (use issue-to-project),
+  managing issue lifecycle/status transitions (use makato-orchestrate), or editing issues
+  after creation (use gh issue edit directly).
 license: MIT
 version: "3.11.0"
 argument-hint: "[optional: feature slug] [--dry-run] [--interactive|--autonomous] [--repo owner/repo] [--store <id>]"
@@ -39,7 +42,9 @@ Create GitHub issues on **github.com** from a shaped `stories.json`. Each issue 
 - **MANDATORY** — load `references/label-taxonomy.md` for the 10-dimension taxonomy (`type:` / `tier:` / `tech:` / `module:` / `severity:` / `phase:` / `effort:` / `priority:` / `points:` / `status:`), type-inference table, ADR-match algorithm, config-extension contract, and the sparse `status:` inference rules in `## Status Dimension`.
 - **MANDATORY** — load `references/issue-template.md` for the body template (single edit point for issue body format).
 - **MANDATORY** — load `references/created-issues.schema.json` as the validation schema for the output artifact.
+- **MANDATORY** — load `references/plan-template.md` before Step 5 whenever the batch contains at least one story that is NOT `type:future-enhancement`. The template is the sole source of truth for the `plan-${ISSUE_NUMBER}.md` scaffold written by Step 5; loading it late (after Step 3 inference resolves the type) is intentional — batches composed entirely of `type:future-enhancement` stories skip plan emission entirely and do not need this file.
 - `references/slice-patterns.md` — only when a slice boundary is ambiguous or the caller asks about vertical-slicing strategy.
+- `references/fixtures/` — **Do NOT Load**: contains test-only smoke-test fixtures (`artifact-guard-smoke-tests.sh`, `cross-repo-smoke-tests.sh`, `v2-schema-smoke-tests.sh`, `plan-emission-fixture.stories.json`, `v2-schema-regression.stories.json`, `cross-repo-config.json`) used for skill regression testing and CI validation. These are not runtime inputs and must not be loaded during normal skill execution.
 
 ## Process
 
@@ -162,6 +167,19 @@ The skill runs in `--interactive` mode by default. Switch to `--autonomous` when
 
 Read the resolved `stories.json` with `python3 -c "import json; json.load(open('...'))"` and abort with the parse error if invalid.
 
+After parsing, validate required fields before any `gh` call:
+
+```python
+for i, story in enumerate(stories):
+    if not story.get("summary", "").strip():
+        print(f"[to-issues] ERROR: story {i} has no summary — aborting before any gh calls", file=sys.stderr)
+        sys.exit(1)
+    if not story.get("phase"):
+        print(f"[to-issues] WARN: story {i} ('{story.get('summary', '')}') has no phase — tier: label will be omitted")
+```
+
+`summary` is mandatory (it becomes the issue title — a blank title is a 422 API error). `phase` is required for `tier:` but its absence is a soft-warn, not an abort, because `type:future-enhancement` stories intentionally omit it.
+
 ### Step 2 — Discover ADR folders
 
 ```bash
@@ -217,7 +235,18 @@ For each story in `stories.json.stories[]`, apply the algorithm in `references/l
    When an explicit `stories[].labels` value contradicts inference (e.g. the operator wrote `status:todo` on a story that would otherwise infer `status:blocked`), the explicit value wins; log `[to-issues:auto] story <n>: status inference (<inferred>) overridden by explicit label (<explicit>)`.
    `status:in-progress` and `status:done` are taxonomy values but are **never** auto-emitted by this skill — lifecycle transitions belong to a future `manage-github-project` skill.
 
-In `--interactive` mode, after inference for each story, present the proposed label set and ask `confirm / edit / skip` before proceeding to creation. In `--autonomous` mode, log every inferred label to stdout (one line per story, prefixed `[to-issues:auto] story <n>:`).
+In `--interactive` mode, after inference for **all** stories (not story-by-story — reduce round-trips), present a numbered table of proposed label sets and use **AskUserQuestion** with the question:
+
+> "Story labels are ready. For each story below, choose: confirm all / edit <story-N> <label>=<value> / skip <story-N>."
+
+Accepted response values:
+- `confirm` — proceed to creation with all inferred labels as shown.
+- `edit <story-N> <dimension>=<value>` — override one label dimension for story N, re-display affected row, re-ask.
+- `skip <story-N>` — exclude story N from the batch (log `[to-issues] story <n> skipped by operator`; it is NOT written to `created-issues.json`).
+
+Only the label set is editable at this step — `summary`, `phase`, `storyPoints`, and dependency graphs are upstream contract fields that this skill does not mutate.
+
+In `--autonomous` mode, log every inferred label to stdout (one line per story, prefixed `[to-issues:auto] story <n>:`).
 
 ### Step 4 — Ensure required labels exist on the repo
 
@@ -399,6 +428,29 @@ Print the final summary:
 [to-issues] Staged (git add): specs/<slug>/stories.json, specs/<slug>/created-issues.json — commit them so the autonomous build-refine lane can consume stories.json on a fresh clone (#527).
 [to-issues] Next: implement the work and run /makato-build:build-create-pr — it will auto-inject Closes #N for each issue when you create the PR.
 ```
+
+## Anti-patterns
+
+**NEVER derive `phase:` from `stories[].phase`.**
+WHY: `stories[].phase` is the vertical-slice tier (`foundation`, `happy-path`, `edge-cases`) — it already drives `tier:`. Emitting it as `phase:` too would produce conflated labels where `phase:foundation` means *vertical position in a single feature*, which contradicts the numeric cross-plan sequencing that `phase:1`–`phase:5` encodes. Callers reading `phase:` expect to filter by release wave, not by slicing order.
+
+**NEVER read ADR file contents during module matching.**
+WHY: Module matching is intentionally a folder-name-only signal. Reading file bodies would (a) balloon context on large repos, (b) bleed private design decisions into label inference, and (c) couple this skill to the internal format of each ADR document. The folder slug is the public API; the file body is not.
+
+**NEVER auto-emit `status:in-progress` or `status:done`.**
+WHY: Lifecycle transitions are owned by `makato-orchestrate` (loop skill, promote-ready). If `to-issues` stamped issues `status:in-progress`, the promote-ready dependency check would skip them as already-started, breaking the dependency-wave ordering that the whole autonomous lane depends on.
+
+**NEVER target an enterprise GitHub host (non-`github.com`) or set `GH_HOST` to anything other than `github.com`.**
+WHY: The 2.x enterprise wiring (`GH_ENTERPRISE_TOKEN`, custom TLS) was removed in v3. Attempting it silently creates labels and issues on the wrong host, producing a split-brain state where `created-issues.json` references one host and the downstream build lane (which always calls `github.com`) targets another. The result is broken PR `Closes #N` links and board-sync failures with no obvious error.
+
+**NEVER abort on a retroactive `blocking:N` label-patch failure.**
+WHY: The upstream issue already exists and the downstream issue was just created — aborting would leave `created-issues.json` in a truncated state while the upstream issue is intact. The dependency information is advisory (used by `promote-ready` to drive wave ordering), not structural. A missed `blocking:N` patch is a cosmetic gap that `promote-ready --dry-run` can detect; aborting would sacrifice all remaining issues in the batch for a non-critical annotation.
+
+**NEVER re-run to-issues against a slug that already has a `created-issues.json` without deleting or archiving the prior artifact first.**
+WHY: `gh issue create` is not idempotent — GitHub has no duplicate-detection on title alone. A second run creates duplicate issues with identical titles. The artifact guard does not check for a pre-existing `created-issues.json`; that check belongs to the caller. The canonical recovery path is to delete the duplicate issues via `gh issue delete`, then delete `created-issues.json` and re-run from scratch.
+
+**NEVER fall back silently when `stories[].summary` is missing or empty.**
+WHY: `summary` is the GitHub issue title. A blank or absent title causes `gh issue create` to fail with an opaque API error (422 Unprocessable Entity). Checking upfront — before any network call — prevents partial-batch creation where the first N stories succeed and story N+1 fails with a title error, leaving a `PARTIAL_FAILURE` artifact that does not indicate the root cause. Emit `[to-issues] ERROR: story <n> has no summary — aborting before any gh calls` and exit 1 with `MISSING_INPUT`.
 
 ## Autonomous Execution
 

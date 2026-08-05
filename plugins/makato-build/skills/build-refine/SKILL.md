@@ -8,6 +8,12 @@ description: >-
 version: "1.11.0"
 model: opus
 argument-hint: "[work-item-key] [--autonomous]"
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - AskUserQuestion
 ---
 
 # refine
@@ -104,6 +110,7 @@ shared/build-log.sh "<key>" '{"ts":"<ISO-8601-ms>","skill":"build-refine","story
 ### Step 3 — Load spec artifacts
 
 Load @references/spec-artifacts-schema.md to know what fields to extract from each file.
+(Do NOT load spec-artifacts-schema.md on the `spec_tier:plan-only` path where `stories.json` is not read — the only spec artifact consumed there is `plan-<N>.md`.)
 
 Read from the resolved spec folder (`specs/<key>-*/`):
 - `seed-manifest.json` — optional; carries the `spec_tier` routing flag (see below)
@@ -282,6 +289,7 @@ Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-refine","story":"<
 ### Step 7 — Determine implementation mode
 
 Load @references/implementation-mode-guide.md.
+(Do NOT load implementation-mode-guide.md until Step 7 — loading it earlier wastes context before the codebase exploration that informs the tdd-vs-goal decision.)
 
 Decide: `implement-tdd` or `implement-goal`? Record the decision and a one-line rationale in the plan. If the story spans both modes, mark each task individually with its mode.
 
@@ -290,6 +298,7 @@ Decide: `implement-tdd` or `implement-goal`? Record the decision and a one-line 
 ### Step 8 — Break story into implementation tasks
 
 Load @references/task-sizing-guide.md.
+(Do NOT load task-sizing-guide.md before Step 8 — the guide is only relevant once the story details and mode have been determined in Steps 4–7.)
 
 Produce an ordered task list. Each task must specify:
 - **Title**: verb + subject ("Add OrderStatus enum", "Implement DealService.cancel()")
@@ -333,6 +342,7 @@ Every AC must be covered by at least one task. If any AC has no task: add a task
 ### Step 10 — Write the implementation plan
 
 Load @references/plan-schema.md.
+(Do NOT load plan-schema.md before Step 10 — it is only needed at write time, not during codebase exploration or task decomposition.)
 Read `templates/plan-template.md` and use it as the base for the output.
 
 Derive `ISSUE_NUMBER` from the numeric leading segment of the work-item key (e.g. key `510-foo` → `plan-510.md`).
@@ -394,6 +404,29 @@ Tell the user: "Plan written to `plan-<ISSUE_NUMBER>.md` in the spec folder. Nex
 - The plan touches domain-specific field names (entity fields, API paths, enum values — not generic names like `service` or `handler`)
 
 Skip `/build-grill-with-docs` for infra/config-only changes (no domain-model files touched). State the recommendation inline.
+
+## Anti-Patterns
+
+### NEVER prompt the user in autonomous mode (Steps 1, 4, 8, 11)
+**WHY:** `AskUserQuestion` in a headless `claude -p` subprocess blocks on a pipe with no reader — the process hangs silently until it is killed externally. The failure is not a timeout; it is an indefinite deadlock. The guard in Step 1b (MAKATO_HEADLESS=1 + no autonomous trigger) and the autonomous bypasses in Steps 4/11 exist precisely to prevent this. Any new branching that would fire AskUserQuestion must first confirm an autonomous trigger is absent.
+
+### NEVER use stdin/tty presence (`[[ ! -t 0 ]]`) to detect headless context
+**WHY:** Inside a Claude Code Bash tool, `stdin` and `stdout` are always pipes — even in a fully interactive human-driven session. A tty-detection guard would false-positive constantly and kill legitimate interactive runs. `MAKATO_HEADLESS=1` is the correct signal; it is an explicit caller-side assertion, not an inferred environment property.
+
+### NEVER overwrite a substantive `plan-<N>.md` with a fresh write
+**WHY:** `to-issues` pre-populates `plan-<N>.md` with real `## Tasks` (from `description.scope`) and real `## Acceptance criteria` (from `successScenarios[]`). Discarding that content silently loses the PO/decompose-authored structure and forces the user to re-shape the story. Use **enrichment mode** (Step 10 pre-write guard): detect whether the existing file's `## Tasks` section is substantive, and if so merge rather than overwrite.
+
+### NEVER generate a synthetic AC-1 on the `spec_tier:plan-only` path
+**WHY:** `plan-<N>.md` already carries the real acceptance criteria under `## Acceptance criteria`. Writing `"AC-1: goal statement is implemented and all tests pass"` masks missing coverage — the HALT on an empty/stub AC section exists to catch exactly this case. Synthetic ACs belong only on the legacy `local-` prefix path where no other acceptance source exists.
+
+### NEVER add a `## Runtime verification` section for non-service stories
+**WHY:** For pure library/config/refactor/doc stories, no health endpoint or smoke command exists to run. A speculative verification block causes `build-verify` Gate 6 to attempt a command that either errors or is nonsensical. Omit the section entirely; the default (no section) is always correct for non-service work.
+
+### NEVER continue past Step 4 with zero acceptance criteria on the plan-only path
+**WHY:** A plan with no ACs produces a task list with no coverage anchor. `build-implement-tdd` and `build-verify` both key off AC links for correctness checks; zero ACs means the entire implementation is formally unverified. The `MISSING_ACCEPTANCE` HALT is the correct outcome — it forces the caller to populate the plan before dispatch rather than silently shipping a coverage-blind implementation.
+
+### NEVER use `pwd` or relative paths for REPO_ROOT in autonomous mode
+**WHY:** Claude Code dispatches build skills into git worktrees. `pwd` inside a worktree resolves to the worktree directory, not the main checkout where `specs/` lives. Plan-file writes to `specs/<key>-*/plan-<N>.md` must target the main checkout. Use `git -C "$WORKTREE_PATH" rev-parse --git-common-dir` and derive REPO_ROOT from it (Step 2 workspace guard).
 
 ## Autonomous Execution
 

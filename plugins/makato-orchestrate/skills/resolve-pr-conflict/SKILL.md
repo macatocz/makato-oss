@@ -2,8 +2,33 @@
 name: resolve-pr-conflict
 description: Detect and resolve a merge conflict on an open PR branch inside the PO-agent worktree — rebase-first, then a partitioned merge fallback (union for append-only files like CHANGELOG, -X ours for the rest), HALT-008 when irreconcilable. Invoked by the PO-agent outer loop after a conflict signal or CI rebase-check failure. Returns R1 envelope.
 version: "1.2.0"
+metadata:
+  authors: [makato-orchestrate]
+  last_updated: "2026-08-05"
 argument-hint: "[work-item-key] [--autonomous]"
 allowed-tools: Bash(git *) Bash(gh *) Bash(jq *) Bash(python3 *) Bash(plugins/makato-orchestrate/scripts/resolve-append-only-conflict.sh *) Read
+---
+
+## Do NOT Load This Skill When
+
+- The current branch is `main`, `master`, or `development` — the Entry Router will block with `SAFETY_BOUNDARY`, and no useful work can be done.
+- The worktree was NOT created by the PO-agent (no `workflow-state.json` for the given KEY/ISSUE) — autonomous mode cannot resolve the worktree path and will fail at Step 1.
+- You want to resolve an in-progress interactive rebase or merge on your own working branch — use the `resolving-merge-conflicts` skill instead.
+
+---
+
+## Mindset
+
+> Start with the least-destructive strategy. Never widen the conflict surface. Escalate to HALT over guessing.
+
+This skill is a **headless resolution subroutine**, not a conversational assistant. In autonomous mode it never asks the user anything — every branch is deterministic. The three-level escalation exists because each level trades safety for coverage:
+
+1. **Rebase** — history-clean, zero conflict surface widening. Succeeds for the 90 % case where commits are independent.
+2. **Partitioned merge** — union on append-only files (data-safe for changelogs and audit logs), ours-wins on everything else (PR changes are preserved). Succeeds for the "two PRs touched CHANGELOG" pattern.
+3. **HALT-008** — fires when human judgment is irreplaceable. The worktree is retained so the human can inspect the exact conflict state.
+
+The critical insight: the partition between union and ours-wins is the expert decision. Do not extend the union allow-list casually — union on a source file produces duplicate symbols; union on a lockfile produces unparseable JSON. See `references/append-only-classes.md` for the invariant checklist.
+
 ---
 
 ## When to Use
@@ -19,9 +44,38 @@ conflict signals:
 Not intended for interactive use — it is a headless resolution subroutine. In
 interactive mode it may be invoked directly on a dirty feature branch.
 
-**When NOT to use:** Do not invoke on protected branches (`main`, `master`,
-`development`) — the Entry Router blocks this. Do not invoke when the worktree
-was not created by the PO-agent (state file would be absent).
+---
+
+## Anti-Patterns
+
+Dedicated section — every item is an experience-only NEVER with its causal WHY.
+
+**NEVER use bare `--force` on the push (Step 5).** Always use `--force-with-lease`.
+WHY: bare `--force` overwrites remote commits unconditionally. If a concurrent push arrived between your rebase and your push, `--force` silently discards it. `--force-with-lease` refuses when the remote ref has advanced, turning a silent data-loss into a retryable `PUSH_REJECTED` HALT.
+
+**NEVER delete and recreate the branch to resolve a conflict.**
+WHY: the open PR is tied to the branch name. Deleting the branch closes the PR, destroys all CI status links, invalidates review threads, and loses the GitHub PR URL. Always resolve in-place and force-push.
+
+**NEVER apply `git merge -X ours` directly (without a plain merge first).**
+WHY: `-X ours` resolves every conflicting hunk silently in favour of the feature branch — including on append-only files like CHANGELOG where the target branch's new entry is simply discarded. There is no conflict marker and no indication of data loss. The two-step approach (plain `--no-commit` merge to surface all unmerged paths, then partition by class) makes every resolved path visible in the Step 4 log.
+
+**NEVER apply `git merge -X theirs`.**
+WHY: this silently discards the PR's own changes in favour of the target branch. The whole purpose of the skill is to land the PR's changes — preferring theirs is the opposite of correct. If you are tempted by `-X theirs`, you are likely resolving the wrong branch direction.
+
+**NEVER skip `git rebase --abort` before the merge fallback.**
+WHY: a rebase left in-progress corrupts the worktree's HEAD. Subsequent git operations fail with "rebase in progress" errors until the abort is issued. The `|| true` guard ensures the abort does not fail the script when the rebase already exited cleanly.
+
+**NEVER extend the union allow-list without verifying all three invariants** (both sides only add lines; order is not load-bearing; duplicate lines do not break consumers). See `references/append-only-classes.md`.
+WHY: union on a JSON config file produces duplicate keys (silent parse error or exception). Union on `package-lock.json` produces an unparseable lockfile. Union on a Python source file produces duplicate `import` statements or double-registered handlers. Each of these failures is invisible at merge time and only surfaces at runtime.
+
+**NEVER run conflict resolution on a protected branch (`main`, `master`, `development`).**
+WHY: these branches have CI-enforced protection and shared history. Force-pushing them rewrites the base for every open PR targeting them — a single wrong resolution can cascade into dozens of broken PRs. The Entry Router's deny-list covers all three common default-branch names unconditionally.
+
+**NEVER hand-construct the spec folder path or the workflow-state file path.**
+WHY: the spec folder uses a `<key>-<slug>` suffix resolved by prefix match. Hand-constructing it will silently resolve to the wrong folder if the slug contains hyphens or if the issue has a long title. Always use `shared/workflow-state.sh read "$KEY" "$ISSUE"` — the helper encapsulates the prefix-match logic.
+
+**NEVER call `AskUserQuestion` in autonomous mode.**
+WHY: this skill runs inside the PO-agent's outer loop which is fully unattended. Any user prompt will stall the loop indefinitely. Every decision must follow the deterministic strategy table in Steps 3–4. Autonomous mode is detected at Step 1; the code path never reaches an interactive branch.
 
 ---
 
@@ -181,6 +235,10 @@ conflicts as unmerged paths, then resolves them by class:
 - **All other files** → `-X ours` semantics: the feature branch wins the
   conflicting hunk (`git checkout --ours` + `git add`). Non-conflicting changes
   from the target are already merged and are untouched.
+
+> MANDATORY: Load `references/append-only-classes.md` before extending the
+> `is_append_only()` allow-list. Union is only safe for files matching all
+> three invariants documented there.
 
 ```bash
 cd "$WORKTREE_PATH"
@@ -399,9 +457,11 @@ Both strategies failed. The conflict requires human judgment.
 
 ## HALT Codes
 
+> MANDATORY: Load `references/halt-conditions.md` when diagnosing a HALT or implementing recovery — it documents the dual-origin logic for HALT-008 and the full state-mutation sequence.
+
 | Code | Trigger | Recovery |
 |---|---|---|
-| `HALT-008` | Both rebase and the partitioned merge (union for append-only, ours for the rest) leave unresolved files, OR `merge_conflict_cycles >= MAKATO_MAX_MERGE_CONFLICT_CYCLES` (default 3) — see `halt-conditions.md` HALT-008 for the dual-origin documentation | Human resolves conflict in retained worktree, re-pushes, re-triggers PO-agent loop |
+| `HALT-008` | Both rebase and the partitioned merge (union for append-only, ours for the rest) leave unresolved files, OR `merge_conflict_cycles >= MAKATO_MAX_MERGE_CONFLICT_CYCLES` (default 3) — see `references/halt-conditions.md` HALT-008 for the dual-origin documentation | Human resolves conflict in retained worktree, re-pushes, re-triggers PO-agent loop |
 | `SAFETY_BOUNDARY` | Branch is `main`, `master`, or `development` | Check out a feature branch first |
 | `NETWORK_ERROR` | `git fetch origin <target>` fails OR neither `origin/development` nor `origin/main` exists | Verify network / GitHub access, confirm the consumer repo's default branch is `development` or `main`, retry |
 | `PUSH_REJECTED` | `--force-with-lease` refused | Fetch and inspect remote changes; re-run skill |
@@ -411,3 +471,13 @@ Both strategies failed. The conflict requires human judgment.
 | Variable | Default | Purpose |
 |---|---|---|
 | `MAKATO_MAX_MERGE_CONFLICT_CYCLES` | `3` | Hard ceiling on irreconcilable-conflict retries within a single run. When the post-increment `merge_conflict_cycles` reaches this value, Step 6 fires HALT-008 unconditionally. Distinct from `MAX_OUTER_ITERATIONS` (the re-plan-loop ceiling enforced by `kill-switch poll`) — a run can exhaust BOTH ceilings independently. |
+
+## Smoke Tests
+
+To validate the union-merge helper used in Step 4 interactively:
+
+```bash
+plugins/makato-orchestrate/scripts/resolve-append-only-conflict-smoke-tests.sh
+```
+
+8 scenarios (T1–T8) covering clean union, single-side additions, both-sides prepend, and malformed-marker edge cases. Exits non-zero on any failure.

@@ -6,11 +6,34 @@ description: >-
   kicks off /build-refine. Use when starting a new story build, beginning the
   makato-build workflow, running build-start on a work item, or starting local
   work without a ticket.
-version: "1.5.0"
+version: "1.6.0"
 argument-hint: "[work-item-key]"
+allowed-tools: [Bash]
+metadata:
+  last_updated: "2026-08-05"
 ---
 
 # build-start
+
+## Mindset
+
+Three non-obvious ordering principles drive this skill's sequencing:
+
+1. **Claim before plan.** Marking the issue In Progress (Step 2d) happens at
+   the earliest safe moment — after git state is verified but before
+   `/build-refine` consumes tokens. This prevents the autonomous loop from
+   dispatching a second agent to the same issue concurrently; a clean git
+   branch is the authoritative ownership signal, but the board claim is the
+   race guard.
+2. **Canary before commit.** Running the test framework before refinement
+   (Step 2e) catches a red baseline before file targets are committed to
+   `plan.md`. A plan written on a broken foundation is invalid from birth —
+   the TDD RED→GREEN loop cannot distinguish "tests I wrote" from "tests
+   already broken before I started".
+3. **Board is best-effort; git is hard-stop.** Board update failures never
+   block a build session — the branch namespace is the authoritative ownership
+   record. Git state violations always stop — a dirty tree or diverged base
+   corrupts the branch diff that `/build-review` uses to judge AC coverage.
 
 ## When to Use
 
@@ -82,7 +105,7 @@ branch for this work? [Y/n]"*. If yes, prompt for a branch name (default:
 git checkout -b <branch-name>
 ```
 
-### Step 2.5 — Mark In Progress on project board
+### Step 2d — Mark In Progress on project board
 
 Only when `local_work = false`. This is the earliest safe moment to claim the issue — git state is clean and work is about to start. Marking now prevents the autonomous loop from picking up the same issue concurrently.
 
@@ -126,7 +149,7 @@ Only when `local_work = false`. This is the earliest safe moment to claim the is
    On success: log `build-start: marked #$ISSUE_NUMBER as In Progress on project board`.
    On failure: log `build-start: WARN — could not set In Progress on board; continuing` (best-effort — never block the build session).
 
-### Step 2.75 — Canary test-framework pre-flight
+### Step 2e — Canary test-framework pre-flight
 
 Run a single canary test to verify the test framework is operational before dispatching `/build-refine`. This catches a broken baseline early — before planning commits to file targets on a red foundation.
 
@@ -174,7 +197,7 @@ This skill registers one skill-level halt code. See `plugins/makato-build/halt-c
 
 | Code | Step | Route | Description |
 |------|------|-------|-------------|
-| `CANARY_FAILED` | Step 2.75 | operator-escalation | Unit command exited non-zero or timed out before `build-refine` was dispatched. See `halt-codes.md` for recovery instructions. |
+| `CANARY_FAILED` | Step 2e | operator-escalation | Unit command exited non-zero or timed out before `build-refine` was dispatched. See `halt-codes.md` for recovery instructions. |
 
 ### Step 3 — Validate or create spec
 
@@ -186,6 +209,10 @@ Locate the spec folder using a two-step resolution:
 2. **Exact-match fallback**: if no prefix-match exists, check for `specs/<key>/` (exact folder name). This covers issues seeded directly without a slug suffix.
 
 Resolution order: (1) `specs/<key>-*/` prefix-match; (2) `specs/<key>/` exact-match fallback.
+
+**Multiple prefix-matches:** if step 1 finds more than one folder (e.g. `specs/DCP-1234-feat-a/` and `specs/DCP-1234-feat-b/`), do NOT silently use the first — this indicates a corrupted spec state. Stop and report:
+
+> "Multiple spec folders found for `<key>`: `<list>`. Disambiguate by passing the full folder name as the key, e.g. `build-start DCP-1234-feat-a`."
 
 - If no `specs/<key>-*/` folder exists → stop: *"No spec folder found for `<key>`.
   Run makato-plan first to produce shaped artifacts in `specs/<key>-<slug>/`."*
@@ -253,21 +280,26 @@ Tell the user: *"No stories.json will be created. `/build-refine` will read
 
 ### Step 4 — Select implementation mode
 
-Load @references/pipeline-map.md for mode guidance.
+**Quick decision heuristic (covers the common case without loading the reference):**
 
-Ask the user to choose the implementation mode for this story:
+| Story primarily involves… | Default mode |
+|---|---|
+| Business logic, API endpoints, data processing, event handling, validators | **TDD** |
+| UI components (must render before tests can assert) | **Goal** |
+| Database migrations (must run before tests verify schema) | **Goal** |
+| Config changes, CLI scripts where behavior is observed by running | **Goal** |
+| A mix of the above | **TDD** — let `/build-refine` override per-task |
 
-- **TDD** (default) — RED → GREEN → INTEGRATE → VERIFY per task. For backend
-  logic, APIs, services, data processing — any work where behavior can be
-  encoded as tests before the implementation exists.
-- **Goal** — BUILD → VERIFY RUNTIME → TEST → VERIFY. For UI components,
-  configuration changes, database migrations — work where the implementation
-  must exist before meaningful tests can be written.
+Ask the user:
+> "Which implementation mode? **(T) TDD** — tests-first, for logic/APIs/services. **(G) Goal** — build-first, for UI/config/migrations. [T/g]"
 
-If the user is unsure, ask what the story primarily involves. Default to TDD
-when in doubt — `/build-refine` will confirm and may produce a mixed-mode plan.
+If the user is unsure or the story spans both categories: default to **TDD**. The `/build-refine` step will override individual tasks to Goal mode when it detects UI or migration work during plan decomposition.
 
-### Step 4.5 — Resolve workflow schema
+**MANDATORY: Load @references/pipeline-map.md** when the user asks for a detailed pipeline overview, when the story has an unusual structure (e.g. involves the `grill-with-docs` optional phase), or when you need to verify hook-triggered phase transitions.
+
+**Do NOT Load** `references/pipeline-map.md` outside Step 4, or when the heuristic table above is sufficient to answer the mode question. Front-loading it wastes context that `/build-refine` needs for plan decomposition.
+
+### Step 4a — Resolve workflow schema
 
 Before initialising the build log, resolve the workflow schema for this session.
 The schema determines which skill artifacts are assembled into the pipeline.
@@ -316,7 +348,7 @@ shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<k
 ```
 
 List every artifact file found in the resolved `specs/<key>-*/` folder in the `spec_artifacts` array.
-Include `schema_source` from Step 4.5.
+Include `schema_source` from Step 4a.
 
 ### Step 6 — Hand off to build-refine
 
@@ -332,3 +364,29 @@ shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<k
 ```
 
 Invoke `/build-refine <key>`.
+
+## Anti-Patterns
+
+### NEVER proceed to Step 3 or dispatch `/build-refine` when the canary fails
+
+**WHY:** `plan.md` encodes file targets chosen against the current codebase state. If the baseline is already red, the TDD RED→GREEN loop cannot distinguish "tests I wrote" from "tests that were already broken before I started" — the INTEGRATE phase gate becomes meaningless. Fix the baseline first; a plan built on broken ground must be discarded.
+
+### NEVER let a board update failure block the build session
+
+**WHY:** The board status is best-effort metadata. The authoritative record that "this issue is owned right now" is the feature branch in git. Blocking on a `gh project item-edit` timeout or API error does not protect against concurrent dispatch and wastes build tokens — the branch namespace provides the real race guard.
+
+### NEVER silently use the first result when multiple `specs/<key>-*/` folders exist
+
+**WHY:** Two folders with the same key prefix indicate a corrupted spec state — usually a re-seeded issue that created a second folder without removing the first. Silently loading the wrong `stories.json` produces a plan targeting files from a different feature; the error surfaces only at review time when AC coverage fails, not at plan-start when it is cheapest to fix.
+
+### NEVER stop when `plan.md` already exists
+
+**WHY:** A pre-existing `plan.md` almost always means a partially-executed session. Stopping with an error forces the user to manually archive or delete it; offering Continue / Start-fresh / Implement-now is the only path that preserves work-in-progress without data loss. The archive-to-`plan.md.bak` option preserves the old plan for diff comparison if the new plan diverges.
+
+### NEVER use `pwd` for persistent paths in `build-log.sh` entries or `REPO_ROOT` derivation
+
+**WHY:** `pwd` varies by shell invocation context — it diverges between worktrees, Claude invocation directories, and the autonomous loop's dispatched agent contexts. `git rev-parse --show-toplevel` is the only path stable across all contexts. `build.jsonl` entries using wrong absolute paths silently fail the log-archiver that reads `specs/<key>/` from the repo root.
+
+### NEVER start the build session on `main` or `master` without creating a feature branch
+
+**WHY:** `/build-push-to-git` pushes commits to the current branch. If that branch is `main`, the commits go directly to the protected default branch — bypassing PR review, CI gates, and AC verification. The branch check at Step 2c is the only guard; it must run before any spec file is written or the build log initialized.

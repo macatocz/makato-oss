@@ -1,11 +1,16 @@
 ---
 name: stress-test-artifact
-description: Adversarial interview that stress-tests phase artifacts — grill decisions,
-  challenge assumptions, review critically. Use after any artifact is drafted and
-  needs scrutiny before committing to the next phase.
-version: "1.3.0"
+description: >-
+  Adversarial interview that stress-tests phase artifacts — grill decisions,
+  challenge assumptions, review critically. Use after any artifact is drafted
+  and needs scrutiny before committing to the next phase.
+version: "1.4.0"
 model: opus
 argument-hint: "[slug] [artifact]"
+allowed-tools: Bash
+metadata:
+  authors: ["makato-plan"]
+  last_updated: "2026-08-05"
 ---
 
 # Stress-Test Artifact
@@ -55,6 +60,10 @@ definition. Apply the glossary when reading every other context file — assumpt
 about ambiguous terms in those files should be checked against the glossary first.
 
 Also read any relevant docs from `reference/` within the spec folder if it exists.
+
+> **Do NOT load** files beyond the auto-detection table above. Front-loading the full
+> spec tree creates token waste and contradicts the context-scout's role in surfacing
+> relevant prior art.
 
 Show the user what will be grilled:
 
@@ -139,6 +148,44 @@ has the full list.
 
 ---
 
+## Anti-patterns
+
+**NEVER use `AskUserQuestion` during the grill (Step 2)**
+WHY: The skill's value comes from free-form dialogue that surfaces angles Claude
+could not predict. Structured option lists constrain the user to choices Claude
+already considered, terminating the discovery process at exactly the point where
+unexpected input is most likely.
+
+**NEVER hop between unrelated decision branches before the current branch is exhausted**
+WHY: Partially-resolved branches mask second-order dependencies — a decision at the
+end of branch A often constrains the first decision of branch B. Premature
+topic-switching forces a return to branch A after branch B's context has changed it,
+producing inconsistent conclusions the user already agreed to.
+
+**NEVER accept vague or deferred answers ("we'll figure it out later") without
+parking them as open questions**
+WHY: Verbal agreements to "figure it out later" disappear from the session record.
+The items that get deferred in a grill are precisely the ones that blow up during
+implementation; a named open question in decisions.md with a Q# reference creates an
+audit trail and prevents the team from discovering the ambiguity when it is most
+expensive to resolve.
+
+**NEVER modify the grill target artifact itself (prd.md, brainstorm.md, design.md)**
+WHY: decisions.md is the canonical record of all shaping outcomes; the grill target
+is the input, not the output. Writing conclusions back into the PRD breaks the
+lineage used by downstream skills (decompose, create-architecture) to trace why a
+decision was made. If the PRD needs updating based on grill findings, that is a
+separate Refine invocation.
+
+**NEVER duplicate decision content into glossary.md or other artifacts — reference
+by ID only (e.g., "per D-12")**
+WHY: Duplicated decision content silently diverges when a decision is later revised
+via a subsequent grill session. Two documents with different versions of the same
+decision create contradictory sources of truth that downstream skills cannot resolve
+automatically.
+
+---
+
 ## Step 3: Output
 
 After all branches are resolved, update artifacts:
@@ -214,11 +261,21 @@ it was resolved:
 
 ## Step 4: HTML Review
 
+> **MANDATORY — derive TEMPLATE_PATH before dispatching doc-writer:**
+> ```bash
+> REPO_ROOT=$(git rev-parse --show-toplevel)
+> TEMPLATE_PATH="${REPO_ROOT}/plugins/makato-plan/skills/stress-test-artifact/templates/stress-test-review.html"
+> ```
+> Do NOT hard-code a `pwd`-relative or `~`-relative path — the working directory
+> differs between a normal checkout, a git worktree, and a nested spec subfolder.
+> A mismatched path causes the agent to silently write an empty or broken HTML file
+> with no error output.
+
 Dispatch the `doc-writer` agent to generate a change-highlighted HTML review.
 Include in the prompt:
 
 - **MODE**: html-review
-- **TEMPLATE_PATH**: the absolute path to this skill's `templates/stress-test-review.html`
+- **TEMPLATE_PATH**: derived above
 - **OUTPUT_PATH**: `specs/{slug}/reviews/stress-test-review-{YYYY-MM-DD}.html` (date-stamped so successive sessions don't overwrite each other)
 - **CONTENT**: structured grill results including:
   - feature_name (from spec folder)

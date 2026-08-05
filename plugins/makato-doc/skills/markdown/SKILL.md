@@ -1,23 +1,23 @@
 ---
 name: markdown
-description: Use when creating or editing .md files, fixing lint errors, setting up markdown tooling, or ensuring markdown renders correctly. Triggers on: "markdown", ".md file", "format markdown", "markdownlint", "prettier markdown", "MD013", "MD040", "code fence", "lint error", or any request to write, validate, or fix markdown structure.
-version: "1.3.1"
+description: >-
+  Use when creating or editing .md files, fixing lint errors, setting up
+  markdown tooling, or ensuring markdown renders correctly across GitHub, CI
+  pipelines, and docs-as-code exporters (pandoc, MkDocs, GitBook). Triggers
+  on: "markdown", ".md file", "format markdown", "markdownlint",
+  "prettier markdown", "MD013", "MD040", "code fence", "lint error", "pre-commit
+  hook", or any request to write, validate, or fix markdown structure.
+  Do NOT use for non-markdown files, content quality review, or when the file
+  already passes all lint checks.
+version: "1.4.0"
 allowed-tools: Bash(prettier *) Bash(markdownlint *) Bash(which *) Bash(git diff*) Bash(git log*) Read Grep
 argument-hint: "[file or directory to format/validate]"
+metadata:
+  authors: [makato-doc]
+  last_updated: "2026-08-05"
 ---
 
 # Markdown
-
-## Tools
-
-| Tool | Purpose |
-| --- | --- |
-| `Bash(prettier *)` | Auto-format markdown with consistent whitespace |
-| `Bash(markdownlint *)` | Lint for rule violations |
-| `Bash(which *)` | Verify tools are installed |
-| `Bash(git diff*)` | Identify changed markdown files |
-| `Read` | Read markdown files before formatting |
-| `Grep` | Find suppression comments and custom rules |
 
 ## Philosophy
 
@@ -80,6 +80,14 @@ batch fix commands.
 **Do NOT load** `references/lint-rules.md` for general markdown writing tasks — only load
 when actively fixing lint errors or configuring linting rules.
 
+**MANDATORY**: load [`references/pre-commit-setup.md`](references/pre-commit-setup.md) when
+wiring prettier and markdownlint into a pre-commit hook (lint-staged/husky, pre-commit
+framework, or plain git hook) — it contains the correct hook ordering rationale, pitfalls
+for each framework, xargs safety guards, and the CI-vs-local divergence pattern.
+
+**Do NOT load** `references/pre-commit-setup.md` for routine formatting passes on existing
+documents.
+
 ## Prerequisite Check
 
 Before running either tool, verify both are available:
@@ -88,14 +96,9 @@ Before running either tool, verify both are available:
 which prettier markdownlint
 ```
 
-If either is missing, stop and tell the user which tool is absent and how to install it:
-
-| Missing tool   | Install command                   |
-| -------------- | --------------------------------- |
-| `prettier`     | `npm install -g prettier`         |
-| `markdownlint` | `npm install -g markdownlint-cli` |
-
-Do not proceed with formatting or validation until both tools are confirmed present.
+If either is missing, stop and report which tool is absent. Install with
+`npm install -g prettier` or `npm install -g markdownlint-cli` as appropriate.
+Do not proceed until both tools are confirmed present (HALT code: `TOOL_UNAVAILABLE`).
 
 ## Scope
 
@@ -115,22 +118,25 @@ If a git-scoped command returns no `.md` files, tell the user — don't silently
 
 Pick the command block that matches the scope determined above.
 
+Guard each git-scoped command against empty output before passing to xargs:
+
 ```bash
 # Specific files
 prettier --prose-wrap always --print-width 100 --write path/to/file.md
 markdownlint --config .markdownlint.json path/to/file.md
 
 # Changed files (unstaged + staged vs HEAD)
-git diff --name-only --diff-filter=AM HEAD | grep '\.md$' \
-  | xargs prettier --prose-wrap always --print-width 100 --write
-git diff --name-only --diff-filter=AM HEAD | grep '\.md$' \
-  | xargs markdownlint --config .markdownlint.json
+# Guard: if no .md files exist in diff, stop and notify — do not run xargs with empty input
+CHANGED=$(git diff --name-only --diff-filter=AM HEAD | grep '\.md$' || true)
+[ -z "$CHANGED" ] && echo "No changed .md files." && exit 0
+echo "$CHANGED" | xargs prettier --prose-wrap always --print-width 100 --write
+echo "$CHANGED" | xargs markdownlint --config .markdownlint.json
 
 # Branch files (current branch vs main — substitute master or origin/HEAD if needed)
-git diff --name-only --diff-filter=AM main...HEAD | grep '\.md$' \
-  | xargs prettier --prose-wrap always --print-width 100 --write
-git diff --name-only --diff-filter=AM main...HEAD | grep '\.md$' \
-  | xargs markdownlint --config .markdownlint.json
+BRANCH=$(git diff --name-only --diff-filter=AM main...HEAD | grep '\.md$' || true)
+[ -z "$BRANCH" ] && echo "No .md files in branch diff." && exit 0
+echo "$BRANCH" | xargs prettier --prose-wrap always --print-width 100 --write
+echo "$BRANCH" | xargs markdownlint --config .markdownlint.json
 
 # Full scan
 prettier --prose-wrap always --print-width 100 --write "**/*.md"
@@ -208,20 +214,10 @@ Do not suppress MD040. Always add a language tag — see Code Fences below.
 
 Every fenced code block must have a language. No bare ` ``` `.
 
-| Content                                   | Language tag |
-| ----------------------------------------- | ------------ |
-| Shell commands                            | `bash`       |
-| YAML                                      | `yaml`       |
-| JSON                                      | `json`       |
-| Markdown                                  | `markdown`   |
-| Plain text, pseudo-code, multi-line prose | `text`       |
-| Mermaid diagrams                          | `mermaid`    |
-| SQL                                       | `sql`        |
-| Go                                        | `go`         |
-| Python                                    | `python`     |
-| JavaScript/TypeScript                     | `js` / `ts`  |
+When the content does not fit a named language, use `text`. Never leave the tag blank.
 
-When in doubt, use `text`. Never leave the tag blank.
+Common mappings: `bash` (shell), `yaml`, `json`, `markdown`, `text` (plain text /
+pseudo-code / multi-line prose), `mermaid`, `sql`, `go`, `python`, `js` / `ts`.
 
 ## When to Use
 
@@ -230,74 +226,81 @@ When in doubt, use `text`. Never leave the tag blank.
 | Creating or editing any `.md` file | Editing non-markdown files — use language-specific linters |
 | Fixing markdownlint or prettier errors | Reviewing content quality — this covers formatting only |
 | Setting up markdown tooling for a new repo | File already passes all lint checks — no action needed |
+| Configuring pre-commit hooks for markdown | — |
 
 **Entry decision tree:**
 
 1. What is the scope? Single file, branch diff, or full repo? (See Scope section.)
 2. Does `.markdownlint.json` or `.prettierrc` exist? → Use existing config. Missing → create from templates.
 3. Do you want to suppress a rule? → Check `## Suppressing a Rule` section first.
+4. Setting up a pre-commit hook? → Load `references/pre-commit-setup.md` (MANDATORY).
 
 **Reference:** `references/lint-rules.md` — **MANDATORY** when adding new suppression rules or
 troubleshooting unfamiliar violations. **Do NOT load** for routine formatting passes.
 
-## Constraints
+## Anti-patterns
 
-- **NEVER overwrite `.markdownlint.json`** — always read it first, amend only missing rules, and
+- **NEVER overwrite `.markdownlint.json`** without reading it first and amending only missing
+  rules. WHY: every project accumulates intentional suppressions for generated content,
+  scraped docs, and legacy decisions; silent overwrite destroys those decisions and forces
+  the team to reconstruct them from scratch.
 
-  show a diff before writing; existing values are intentional project decisions (see Existing
-  Config)
+- **NEVER run markdownlint before prettier** in any tool sequence (interactive, autonomous,
+  or pre-commit hooks). WHY: prettier normalises whitespace, wraps prose, and realigns table
+  columns — these transformations change line content that markdownlint has already validated.
+  Running lint first means validating content that the formatter will immediately rewrite,
+  producing false positives that disappear after formatting and hard-to-reproduce CI failures.
+  The correct order is always: prettier → markdownlint.
 
-- **NEVER run markdownlint before prettier** — prettier reformats text that lint has already
+- **NEVER leave a bare ` ``` ` fence** without a language tag. WHY: MD040 exists because an
+  unlabeled fence is structurally ambiguous — no automated tool can determine whether the
+  content is code, shell output, pseudo-code, or prose. This ambiguity is permanent once
+  committed; suppressing MD040 in config multiplies it across the entire codebase.
 
-  checked, potentially introducing new violations or making fixed violations reappear
+- **NEVER fully disable MD024** — use `allow_different_nesting: true` instead. WHY: full
+  disable hides true duplicate headings at the same level (a navigation bug) while the nesting
+  variant only permits same-name headings under different parent sections, which is valid and
+  common in structured docs.
 
-- **NEVER leave a bare ` ``` ` fence** — add a language tag, even if it is just `text`; MD040 is one
+- **NEVER suppress MD040 in config**. WHY: adding `"MD040": false` silences all unlabeled
+  fences repo-wide with no indication of which are intentional. Each individual case must be
+  evaluated and tagged — `text` is a valid tag for content that has no named language.
 
-  of the few rules worth enforcing without exception
+- **NEVER use prettier's `--prose-wrap preserve`** for new files. WHY: it produces inconsistent
+  line lengths that differ between editors and cannot be round-tripped; two contributors editing
+  the same file with different editor widths produce diverging line breaks on every save.
+  Use `--prose-wrap always` with `--print-width 100`.
 
-- **NEVER fully disable MD024** — use `allow_different_nesting: true` to permit same-name headings
+- **NEVER suppress MD013 (line-length) for content prose** via config. WHY: the 100-character
+  limit is a proxy for rendering width in PDF export and side-by-side diff views; GitHub's
+  renderer wraps at viewport width making violations invisible there, but pandoc and most PDF
+  exporters treat hard line breaks as paragraph breaks — a 100-character line in source becomes
+  a visually cut sentence in exported docs. Use prettier's wrapping instead.
 
-  across sections while still catching true duplicates at the same level
+- **NEVER place HTML comments `<!-- -->` inside markdown table cells**. WHY: markdown table
+  parsing is line-based and processes pipe characters before HTML parsing; comment tokens
+  inside a cell are not consumed by the HTML tokenizer before the table parser splits the row,
+  so the comment markers render as visible literal text in HTML and PDF output.
 
-- **NEVER suppress MD040 in config** — it catches a real structural issue; fix by tagging, not
+- **NEVER add inline suppression comments without a reason comment**. WHY: `<!-- markdownlint-disable MD013 -->`
+  without explanation is undocumented technical debt — six months later it looks like a bug,
+  gets removed by a cleanup, and re-introduces the violation. The comment explaining why it
+  exists is the only defence against this cycle.
 
-  suppressing
+- **NEVER assume a markdown file is valid because it renders in GitHub**. WHY: GitHub's
+  renderer applies implicit fixes (closes unclosed tags, normalises whitespace) that downstream
+  tools such as MkDocs and GitBook do not. Rendering success in GitHub creates false confidence
+  that CI will also pass.
 
-- **NEVER use prettier's `--prose-wrap preserve`** for new files — it produces inconsistent line
+- **NEVER mix tab and space indentation in nested lists**. WHY: CommonMark defines tab as
+  equivalent to 4 spaces only in certain continuation-paragraph contexts; this rule is
+  implemented differently across all major renderers, so a file that renders as nested lists
+  in one processor renders as flat lists in another.
 
-  lengths that differ between editors; use `--prose-wrap always` with `--print-width 100`
-
-- **NEVER suppress MD013 (line-length) for content prose** — the 100-character limit is a
-  proxy for rendering width in PDF export and side-by-side diff views; content that displays
-  fine in a browser may truncate visually in docs-as-code PDF pipelines. WHY: markdown
-  renderers apply different line-wrap rules; the GitHub renderer wraps at the viewport width,
-  but pandoc and most PDF exporters treat hard line breaks as paragraph breaks, so a
-  100-character line in source becomes a cut-off sentence in export.
-
-- **NEVER place HTML comments `<!-- -->` inside markdown table cells** — most markdown parsers
-  treat the comment as literal text within the cell, rendering the comment markers as visible
-  output in HTML and PDF. WHY: markdown table parsing is line-based and processes pipe
-  characters before HTML parsing; comment tokens that span mid-cell are not consumed by the
-  HTML tokenizer before the table parser has already split the row.
-- **NEVER suppress markdownlint errors using inline disables without a comment explaining
-  why** — the reason for the exception decays; six months later the disable looks like a bug
-  and gets removed, re-introducing the violation. WHY: inline disables without context
-  accumulate as undocumented technical debt; each one becomes a future maintainer's trap.
-- **NEVER run prettier before markdownlint in a pre-commit hook sequence** — prettier may
-  reformat in ways that introduce markdownlint violations; running markdownlint after
-  prettier prevents this class of hard-to-reproduce CI failures. WHY: the tool order is
-  not commutative; prettier normalises whitespace that markdownlint validates, so the
-  correct order is always prettier → markdownlint, never the reverse.
-- **NEVER assume a markdown file is valid because it renders in GitHub** — GitHub's renderer
-  is more permissive than markdownlint; files that pass GitHub rendering fail in
-  docs-as-code pipelines (MkDocs, GitBook) where strictness is enforced. WHY: GitHub
-  applies implicit fixes (closing unclosed tags, normalizing whitespace) that downstream
-  tools do not; rendering success in GitHub creates false confidence.
-- **NEVER mix tab and space indentation in nested lists** — markdown processors are
-  inconsistent on tab vs 4-space equivalence; a file that renders correctly in one processor
-  renders as flat lists in another. WHY: CommonMark spec defines tab as equivalent to 4
-  spaces but only in certain contexts; the continuation-paragraph rule is implemented
-  differently across all major renderers.
+- **NEVER pass an empty file list to xargs** without a guard. WHY: on some platforms
+  `xargs prettier` with no stdin input runs prettier with no arguments, which may format all
+  files in the current directory — a full-repo blast-radius violation. Always guard with
+  `[ -z "$FILES" ] && exit 0` before the xargs call.
 
 ## Fixing Common Violations
 
@@ -313,31 +316,35 @@ troubleshooting unfamiliar violations. **Do NOT load** for routine formatting pa
 ## Suppressing a Rule
 
 **NEVER suppress a rule without explicit user confirmation.** Before adding any rule to
-`.markdownlint.json`, prompt the user with all three of the following:
+`.markdownlint.json`, present the user with all three of the following using a selectable
+prompt (use AskUserQuestion with options):
 
 1. **Rule description** — what the rule enforces and why it exists
 2. **Current violation** — the exact line(s) triggering it, quoted verbatim
 3. **Compliant alternative** — how the content would need to be rewritten to pass without
-
    suppression
 
-Example prompt format:
+Present two options: **A) Suppress the rule** / **B) Fix the content**. Wait for selection
+before proceeding.
+
+Example AskUserQuestion prompt:
 
 ```text
-MD033 prohibits inline HTML. It exists to keep markdown portable across renderers
-that strip or mishandle raw HTML tags.
+MD033 prohibits inline HTML (keeps markdown portable across renderers that strip raw HTML).
 
-Current violation (line 42):
+Violation at line 42:
   <br/>
 
 To fix without suppressing:
   Use two trailing spaces or a blank line to create a line break instead.
 
-Suppress MD033 in .markdownlint.json, or fix the content?
+Options:
+  A) Suppress MD033 in .markdownlint.json
+  B) Fix the content (replace <br/> with blank line)
 ```
 
-Only add the suppression after the user explicitly chooses it. If the user chooses to fix the
-content instead, make the edit and re-run markdownlint before proceeding.
+Only add the suppression after the user explicitly selects A. If they select B,
+make the edit and re-run markdownlint before proceeding.
 
 **Autonomous mode exception:** In autonomous mode, never suppress rules at all.
 Fix the content to comply. If fixing would require semantic changes beyond formatting,

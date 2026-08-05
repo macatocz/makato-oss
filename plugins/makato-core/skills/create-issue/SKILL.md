@@ -1,12 +1,23 @@
 ---
 name: create-issue
-description: File a structured issue against the makato repo with the correct template, [plugin-name] title prefix, and labels — file issue, report bug, feature request, AI agent issue, file bug, open issue
-version: "1.3.0"
+description: >-
+  File a structured issue against the makato repo with the correct template,
+  [plugin-name] title prefix, and labels — file issue, report bug, feature
+  request, AI agent issue, file bug, open issue
+version: "1.4.0"
+allowed-tools: [Bash, Python, Skill]
+metadata:
+  authors: [makato-core]
+  last_updated: "2026-08-05"
 ---
 
 # create-issue
 
-Files a structured issue against the makato repo. Enforces title prefix, body plan, and labels so the backlog stays self-organizing without manual triage. Fully autonomous — no confirmation prompts, no human gates.
+Files a structured issue against the makato repo. Enforces title prefix, body template, and labels so the backlog stays self-organizing without manual triage. Fully autonomous — no confirmation prompts, no human gates.
+
+**Mental model — this skill is a router, not a writer.** It does not decide what an issue should say; it enforces structural invariants (title prefix, body template, label taxonomy, provenance footer) so every downstream consumer (`issue-to-project`, `seed-issue`, `loop`) can process the issue without guessing field values. Apply documented defaults silently. Never prompt the user for optional fields.
+
+**Escalation rule:** Abort only when `git rev-parse --show-toplevel` fails (Step 1) — no target repo can be resolved. WARN-and-continue for all post-creation failures: missing skill files, missing config keys, `gh` calls that fail after the issue number is captured.
 
 ## When to Use
 
@@ -18,24 +29,35 @@ Files a structured issue against the makato repo. Enforces title prefix, body pl
 - Open-ended question or discussion — direct the user to GitHub Discussions.
 - Filing a PR — use `.github/PULL_REQUEST_TEMPLATE.md`.
 
+## Anti-patterns
+
+**NEVER pass `--body` to `gh issue create` for multi-line content** — shell interpolation at `$()` boundaries and unmatched quotes silently truncate or corrupt markdown. Always write to a `mktemp` file and pass `--body-file`.
+
+**NEVER omit `GH_HOST=github.com` from any `gh` call** — when the git remote points to an enterprise GitHub host (e.g. `github.mycompany.com`), the `gh` CLI resolves there by default, silently routing the issue to an instance where the project board, automation labels, and `seed-issue` hooks are absent.
+
+**NEVER auto-create `bug`, `enhancement`, or `documentation` type labels** — these three are fixture labels with exact color codes expected by `issue-to-project` board-field queries. A near-duplicate (wrong color, mismatched casing, typo) creates a label the board query won't match, silently blocking Status promotion for every issue that inherits it. If a type label is missing from the repo, surface it to the user.
+
+**NEVER infer `plan-tier:full` from body length or subjective complexity** — `plan-tier` is a dispatch-routing signal; an incorrect `full` tier forces a multi-phase planning run for a single-story task, unnecessarily blocking autonomous dispatch. Use only the keyword list from Step 5.5 (`architecture`, `migration`, `breaking`, `multi-phase`, `epic`, `multiple stories`).
+
+**NEVER pass taxonomy labels to `gh issue create`** — pass only `type-label` and `plugin-label` at create time. Taxonomy labels (`type:feat`, `priority:p1`, `plan-tier:light`, etc.) must flow through `gh issue edit` in Step 7. Applying them at create risks a partial label set if the GitHub API commits the issue before the second mutation lands.
+
 ## Workflow
 
 ### Step 1: Detect target repo and project name
 
-**1a. Locate the active repo root:**
 ```bash
-REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
-```
-If this fails (not a git repo), abort with an error log: "Cannot file issue — not inside a git repository." Do not prompt the user.
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" \
+  || { echo "[create-issue] ERROR: not inside a git repository"; exit 1; }
 
-**1b. Determine the GitHub remote:**
-```bash
 REMOTE_URL="$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null)"
+# Normalises both HTTPS (https://github.com/OWNER/REPO.git) and SSH (git@github.com:OWNER/REPO.git)
 TARGET_REPO="$(echo "$REMOTE_URL" | sed -E 's|.*github\.com[:/]||; s|\.git$||')"
 ```
-This resolves both HTTPS (`https://github.com/OWNER/REPO.git`) and SSH (`git@github.com:OWNER/REPO.git`) formats. Always set `GH_HOST=github.com` for all subsequent `gh` calls.
 
-**1c. Read project name from config — no prompt, apply default silently:**
+Always set `GH_HOST=github.com` on all subsequent `gh` calls (see Anti-patterns).
+
+Read project name from `.claude/config.json`; fall back to `"sagibeast"` silently — never prompt:
+
 ```bash
 CONFIG_FILE="$REPO_ROOT/.claude/config.json"
 PROJECT_NAME="$(python3 -c "
@@ -47,23 +69,23 @@ except Exception:
     print('sagibeast')
 " 2>/dev/null)"
 ```
-Fallback is `"sagibeast"` — applied silently without asking the user.
 
 ### Step 2: Gather inputs
 
 If all inputs are provided by the calling agent, skip to Step 3 immediately.
 
-Required inputs:
-1. **Type** — `bug`, `feature`, `docs`
-2. **Plugin scope** — `makato-core`, `makato-plan`, `makato-contribute`, `repo-wide`
-3. **Title subject** — short, imperative, no prefix
-4. **Body details** — content for the issue template sections
+When inputs are missing, use **AskUserQuestion** with selectable options — do not accept freeform prose for structured fields:
+
+- **Type** — options: `bug`, `feature`, `docs`
+- **Plugin scope** — options: `makato-core`, `makato-plan`, `makato-contribute`, `repo-wide`
+- **Title subject** — short, imperative phrase, no prefix (freeform)
+- **Body details** — content for the issue template sections (freeform)
 
 ### Step 3: Build the title
 
 Format: `[<plugin-scope>] <type-segment>: <subject>`
 
-Type segment maps from the type input: `bug` → `bug`, `feature` → `feat`, `docs` → `docs`.
+Type segment: `bug` → `bug`, `feature` → `feat`, `docs` → `docs`.
 
 Example: `[makato-plan] bug: grill crashes when glossary.md is empty`
 
@@ -73,9 +95,10 @@ Read `.github/ISSUE_TEMPLATE/issue.md`, strip the YAML frontmatter, and fill eac
 
 ### Step 5: Resolve labels
 
-Load @references/label-conventions.md.
+> **MANDATORY: Load @references/label-conventions.md now** — it contains plugin label color codes and the type-label fixture rule (do not auto-create type labels).
+> **Do NOT load this reference before Step 5** — it is not needed for Steps 1–4.
 
-Apply the matching type label (`bug`, `enhancement`, `documentation`) and plugin label (`plugin:<scope>`, omitted for `repo-wide`). Verify with `GH_HOST=github.com gh label list --repo "$TARGET_REPO"`; create missing `plugin:*` labels using the colors in the reference.
+Apply the matching type label (`bug`, `enhancement`, `documentation`) and plugin label (`plugin:<scope>`, omitted for `repo-wide`). Verify with `GH_HOST=github.com gh label list --repo "$TARGET_REPO"`. Create missing `plugin:*` labels using the colors in the reference. If a type label is absent from the repo, surface it to the user and do not proceed — never auto-create it.
 
 Also derive the **taxonomy type label** from the type input — used by `issue-to-project` to populate the Type-label board field:
 
@@ -134,7 +157,7 @@ Log resolved values: `[create-issue] taxonomy: priority=$PRIORITY_VALUE effort=$
 
 ### Step 5.5: Infer and apply plan-tier label
 
-Infer the plan tier in priority order:
+Infer the plan tier in priority order (NEVER use body length as a signal — see Anti-patterns):
 
 1. `type=bug` → `plan-tier:change`
 2. `type=feature` or `type=docs`, and the body contains any of: `architecture`, `migration`, `breaking`, `multi-phase`, `epic`, `multiple stories` → `plan-tier:full`
@@ -149,7 +172,7 @@ gh label create "plan-tier:<tier>" \
   --description "Plan tier for autonomous dispatch" 2>/dev/null || true
 ```
 
-Store `PLAN_TIER` for use in Step 7 (where all taxonomy labels are applied in one batch) and Steps 8.5/8.6.
+Store `PLAN_TIER` for use in Step 7 (batch taxonomy edit) and Steps 8.5/8.6.
 
 Log `[create-issue] plan-tier: <tier>`.
 
@@ -159,7 +182,7 @@ Log the assembled title, body, and labels to stdout for audit purposes, then pro
 
 ### Step 7: File the issue
 
-Write the body to a temp file and pass `--body-file` (not `--body` — multi-line markdown breaks shell quoting):
+Write the body to a temp file and pass `--body-file` (NEVER `--body` — see Anti-patterns):
 
 ```bash
 TMPFILE="$(mktemp /tmp/makato-issue-XXXXXX.md)"
@@ -167,31 +190,21 @@ cat > "$TMPFILE" << 'EOF'
 <assembled body>
 EOF
 
-GH_HOST=github.com gh issue create \
+ISSUE_URL="$(GH_HOST=github.com gh issue create \
   --repo "$TARGET_REPO" \
   --title "<assembled title>" \
   --body-file "$TMPFILE" \
-  --label "<type-label>" \
-  --label "<plugin-label>"
-```
-
-Omit the second `--label` flag for `repo-wide`.
-
-Capture the issue number and URL from the `gh` output for use in later steps:
-
-```bash
-ISSUE_URL="$(GH_HOST=github.com gh issue create ...)"  # gh prints the URL to stdout
+  --label "$TYPE_LABEL" \
+  ${PLUGIN_LABEL:+--label "$PLUGIN_LABEL"})"
 ISSUE_NUMBER="$(echo "$ISSUE_URL" | grep -oE '[0-9]+$')"
 ```
 
-Apply the `plan-tier:<tier>` label (resolved in Step 5.5) and all taxonomy labels accumulated in `APPLIED_LABELS` (taxonomy type, priority, effort if present) via a single `gh issue edit` call:
+Apply the `plan-tier:<tier>` label and all taxonomy labels accumulated in `APPLIED_LABELS` (excluding `type-label` and `plugin-label` already applied at create time) via a single `gh issue edit` call — NEVER split across multiple edit calls:
 
 ```bash
-# Build --add-label flags from APPLIED_LABELS array (excludes type-label and plugin-label
-# already applied at create time — add plan-tier + taxonomy labels in one call)
+# Build --add-label flags: plan-tier + all taxonomy labels not already on the issue
 EXTRA_LABELS=("plan-tier:$PLAN_TIER")
 for lbl in "${APPLIED_LABELS[@]}"; do
-  # Skip labels already passed to gh issue create (type-label, plugin-label)
   if [[ "$lbl" != "$TYPE_LABEL" && "$lbl" != "$PLUGIN_LABEL" ]]; then
     EXTRA_LABELS+=("$lbl")
   fi
@@ -207,7 +220,7 @@ GH_HOST=github.com gh issue edit "$ISSUE_NUMBER" \
   "${LABEL_FLAGS[@]}"
 ```
 
-After this step, `APPLIED_LABELS` is complete — append `plan-tier:$PLAN_TIER` to it so Step 8.5 includes it:
+After this step, append `plan-tier:$PLAN_TIER` to `APPLIED_LABELS` so Step 8.5 includes it:
 
 ```bash
 APPLIED_LABELS+=("plan-tier:$PLAN_TIER")
@@ -215,7 +228,7 @@ APPLIED_LABELS+=("plan-tier:$PLAN_TIER")
 
 ### Step 8.5: Board placement via issue-to-project (conditional)
 
-**Preconditions — skip with WARN if either fails:**
+**Preconditions — WARN-and-continue if either fails:**
 
 ```bash
 ITP_SKILL="$REPO_ROOT/plugins/makato-plan/skills/issue-to-project/SKILL.md"
@@ -266,7 +279,7 @@ python3 -c "import json; json.load(open('$REPO_ROOT/.claude/config.json'))['gith
 
 ### Step 8.6: Seed via seed-issue (conditional)
 
-**Precondition — skip with WARN if fails:**
+**Precondition — WARN-and-continue if fails:**
 
 ```bash
 SEED_SKILL="$REPO_ROOT/plugins/makato-orchestrate/skills/seed-issue/SKILL.md"
@@ -275,10 +288,9 @@ SEED_SKILL="$REPO_ROOT/plugins/makato-orchestrate/skills/seed-issue/SKILL.md"
 
 **When precondition passes:**
 
-Invoke the skill:
-Use the Skill tool to invoke `/makato-orchestrate:seed-issue <ISSUE_NUMBER>`.
+Invoke the skill: Use the Skill tool to invoke `/makato-orchestrate:seed-issue <ISSUE_NUMBER>`.
 
-seed-issue reads the `plan-tier:*` label already on the issue, classifies new-work vs change from `type:feature`/`type:change`, adds the provenance footer, stamps `status:ready-for-dev`, and moves the board card to `Status=Ready`. No `--type` flag needed.
+`seed-issue` reads the `plan-tier:*` label already on the issue, classifies new-work vs change from `type:feature`/`type:change`, adds the provenance footer, stamps `status:ready-for-dev`, and moves the board card to `Status=Ready`. No `--type` flag needed.
 
 If the Skill tool call fails, log `[create-issue] WARN: seed-issue failed — issue filed but not seeded for autonomous dispatch` and continue. Never abort.
 
@@ -294,4 +306,4 @@ Print the issue URL and a summary of every step taken or skipped:
   seeded   : status:ready-for-dev stamped via seed-issue ✓  /  SKIP (<reason>)
 ```
 
-Clean up the temp file.
+Clean up: `rm -f "$TMPFILE"`.

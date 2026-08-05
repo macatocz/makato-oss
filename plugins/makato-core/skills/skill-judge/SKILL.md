@@ -7,11 +7,13 @@ description: >-
   review or security audits.
 version: "2.8.0"
 license: MIT
+compatibility: "Claude Code; no additional tool dependencies"
 argument-hint: "[path/to/SKILL.md or skill-name]"
 allowed-tools: Read Bash Glob
 hooks: ["skill review", "skill audit", "evaluate skill", "skill score", "skill judge", "is this a good skill", "improve skill", "fix skill", "rewrite skill", "skill quality", "skill check"]
 metadata:
   Authors: makato
+  version: "2.8.0"
   last_updated: "2026-07-14"
   mcp_server: none
 ---
@@ -38,112 +40,145 @@ or **[R] Redundant** (delete). Target: >70% Expert, <20% Activation, <10% Redund
 
 ---
 
+## Before Evaluating — Ask Yourself
+
+These four questions shape everything that follows. Answer them before assigning a single score:
+
+1. **What is the single most expensive mistake I could make here?** Inflating D1 because the skill looks polished.
+2. **Do I know this domain well enough to judge knowledge delta?** If not, cap D1/D2/D3 at 10 and weight D4/D5/D7/D8 instead.
+3. **What pattern is this Skill targeting?** Identify it before scoring — pattern mismatch is a D7 deduction, not a D1 one.
+4. **What would an expert already know?** That baseline is your D1 zero-point.
+
+---
+
 ## Evaluation Dimensions (120 points total)
 
-Detail on each dimension's red flags, examples, and anti-pattern tests is in
-[`references/dimensions.md`](references/dimensions.md) — loaded conditionally at Step 3.
+Full red/green flags, examples, and anti-pattern tests: **MANDATORY** load
+[`references/dimensions.md`](references/dimensions.md) at Step 3 for any dimension scoring below 12
+or when the domain is unfamiliar. **Do NOT Load** until you are actively scoring a dimension.
 
 ### D1: Knowledge Delta (20 points) — THE CORE DIMENSION
 
-| Score| Criteria|
-| -----| --------------------------------------------------------------------|
-| 0-5| Explains basics Claude knows (what is X, standard library tutorials)|
-| 6-10| Mixed: some expert knowledge diluted by obvious content|
-| 11-15| Mostly expert knowledge with minimal redundancy|
-| 16-20| Pure knowledge delta — every paragraph earns its tokens|
+| Score | Threshold |
+| ----- | --------- |
+| 16-20 | Pure delta — every paragraph earns its tokens; no [R] content |
+| 11-15 | Mostly expert; minor [A] sections dilute slightly |
+| 6-10  | Mixed; [R] basics coexist with genuine expertise |
+| 0-5   | Restates basics Claude already knows |
+
+Classify every section **[E] Expert / [A] Activation / [R] Redundant**. Target: >70% E, <20% A,
+<10% R. Count paragraphs before assigning the score — don't estimate the ratio.
 
 ### D2: Mindset + Appropriate Procedures (15 points)
 
-| Score| Criteria|
-| -----| --------------------------------------------------------------------------|
-| 0-3| Only generic procedures Claude already knows|
-| 4-7| Has domain procedures but lacks thinking frameworks|
-| 8-11| Good balance: thinking patterns + domain-specific workflows|
-| 12-15| Expert-level: shapes thinking AND provides procedures Claude wouldn't know|
+| Score | Threshold |
+| ----- | --------- |
+| 12-15 | Shapes thinking AND provides non-obvious procedures |
+| 8-11  | Good balance; either thinking or procedures but not both |
+| 4-7   | Domain procedures only; no thinking framework |
+| 0-3   | Generic procedures Claude already knows |
 
-**User input pattern**: When a skill needs to collect choices from the user, it should direct Claude
-to use `AskUserQuestion` with selectable options rather than asking in freeform prose. Freeform
-questions produce inconsistent answers and require Claude to parse intent; `AskUserQuestion` gives
-the user a structured UI and delivers a clean value. Deduct 2-3 points from D2 when a skill solicits
-choices via prose ("ask the user what X they want") without specifying `AskUserQuestion`.
+**User input pattern**: Freeform "ask the user what X they want" → deduct 2-3 pts from D2. A skill
+that collects choices should direct Claude to use `AskUserQuestion` with selectable options; it
+delivers a clean value instead of requiring intent parsing.
 
 ### D3: Anti-Pattern Quality (15 points)
 
-| Score| Criteria|
-| -----| ----------------------------------------------------------------------|
-| 0-3| No anti-patterns mentioned|
-| 4-7| Generic warnings ("avoid errors", "be careful", "consider edge cases")|
-| 8-11| Specific NEVER list with some reasoning|
-| 12-15| Expert-grade anti-patterns with WHY — things only experience teaches|
+| Score | Threshold |
+| ----- | --------- |
+| 12-15 | Expert NEVERs with explicit WHY — things only experience teaches |
+| 8-11  | Specific NEVER list with some reasoning |
+| 4-7   | Generic warnings ("be careful", "avoid errors") |
+| 0-3   | No anti-patterns |
 
-### D4: Specification Compliance — Especially Description (15 points)
+A dedicated anti-patterns section with **WHY on each item** is the reliable path to 12+.
 
-| Score| Criteria|
-| -----| ------------------------------------------------------------------------|
-| 0-5| Missing frontmatter, invalid format, or YAML parse error (colon-space in unquoted value; multi-line at col-0 without `>-`/`\|` block scalar)|
-| 6-10| Has frontmatter but description is vague or incomplete|
-| 11-13| Valid frontmatter, description has WHAT but weak on WHEN|
-| 14-15| Perfect: comprehensive description with WHAT, WHEN, and trigger keywords|
+### D4: Specification Compliance — Description Especially (15 points)
 
-**`allowed-tools` field**: If the skill runs any Bash commands, it should declare `allowed-tools` in
-the frontmatter to pre-approve them — otherwise users are prompted for permission on every
-invocation. Deduct 1-2 points from D4 when a skill uses `Bash(...)` calls but omits `allowed-tools`.
-Skills that run no shell commands do not need this field.
+| Score | Threshold |
+| ----- | --------- |
+| 14-15 | Perfect frontmatter + description with WHAT + WHEN + trigger KEYWORDS |
+| 11-13 | Valid frontmatter; description has WHAT but weak WHEN |
+| 6-10  | Has frontmatter but description is vague |
+| 0-5   | Missing frontmatter or YAML parse error |
+
+Required frontmatter fields: `name`, `description`, `version`, `compatibility`; `metadata` with
+`Authors/version/last_updated`; `allowed-tools` when Bash runs; `argument-hint`, `mcp_server` where
+applicable. Missing field → D4 ≤ 13. YAML parse error → D4 ≤ 5.
+
+**`allowed-tools` field**: Skill uses `Bash(...)` but omits `allowed-tools` → deduct 1-2 pts from D4
+(users get a permission prompt on every invocation).
 
 ### D5: Progressive Disclosure (15 points)
 
-| Score| Criteria|
-| -----| --------------------------------------------------------------------|
-| 0-5| Everything dumped in SKILL.md (>500 lines, no structure)|
-| 6-10| Has references but unclear when to load them|
-| 11-13| Good layering with MANDATORY triggers present|
-| 14-15| Perfect: decision trees + explicit triggers + "Do NOT Load" guidance|
+| Score | Threshold |
+| ----- | --------- |
+| 14-15 | Decision trees + explicit MANDATORY triggers + "Do NOT Load" guidance |
+| 11-13 | Good layering with MANDATORY triggers present |
+| 6-10  | References exist but unclear when to load them |
+| 0-5   | Everything dumped in SKILL.md (>500 lines, no structure) |
+
+A `references/` directory alone is NOT enough for >10. Each reference needs: (a) an explicit
+MANDATORY trigger embedded in the workflow step where it is needed, and (b) a "Do NOT Load" line.
+Orphan references that are never triggered score as [R] overhead.
+
+**MANDATORY** references and their triggers in this skill:
+
+| Reference | Trigger |
+| --------- | ------- |
+| `references/dimensions.md` | MANDATORY at Step 3 when a dimension scores below 12 or domain is unfamiliar |
+| `references/failure-patterns.md` | MANDATORY at Step 3 before scoring any dimension — contains Pattern 1–12 tests |
+| `references/evaluation-protocol.md` | MANDATORY when starting a full evaluation (Steps 1–6) |
+| `references/quick-reference.md` | MANDATORY at Step 5 for report generation |
+
+**Do NOT Load** `references/dimensions.md` or `references/quick-reference.md` during first-pass
+orientation of the dimensions table above.
 
 ### D6: Freedom Calibration (15 points)
 
-| Score| Criteria|
-| -----| -----------------------------------------------------------------------------|
-| 0-5| Severely mismatched (rigid scripts for creative tasks, vague for fragile ops)|
-| 6-10| Partially appropriate, some mismatches|
-| 11-13| Good calibration for most scenarios|
-| 14-15| Perfect freedom calibration throughout|
+| Score | Threshold |
+| ----- | --------- |
+| 14-15 | Perfect calibration throughout |
+| 11-13 | Good; most scenarios correctly calibrated |
+| 6-10  | Partial mismatch in some areas |
+| 0-5   | Severe mismatch |
+
+**Rigid rules govern** (no agent judgment overrides): YAML error → D4 ≤ 5; YAML parse = D4 ≤ 5;
+`disable-model-invocation` present → flag; `references/` without triggers → D5 ≤ 10; `metadata`
+fields missing → D4 ≤ 13. These are binary, not judgment calls.
+
+**Agent judgment governs** (principles apply): E/A/R classification of paragraphs; identifying
+which pattern a skill follows; assessing whether a procedure is "non-obvious" for D2; scoring
+anti-pattern quality for D3.
 
 ### D7: Pattern Recognition (10 points)
 
-| Pattern| ~Lines| When to Use|
-| ----------| ------| --------------------------------------|
-| Mindset| ~50| Creative tasks requiring taste|
-| Navigation| ~30| Multiple distinct scenarios|
-| Philosophy| ~150| Art/creation requiring originality|
-| Process| ~300| Complex multi-step projects|
-| Tool| ~400| Precise operations on specific formats|
+| Pattern    | ~Lines | Score signal |
+| ---------- | ------ | ------------ |
+| Mindset    | ~50    | Creative tasks requiring taste |
+| Navigation | ~30    | Multiple distinct scenarios, each needing its own guidance |
+| Philosophy | ~150   | Art/creation requiring originality |
+| Process    | ~200-300 | Complex multi-step projects with phase gates |
+| Tool       | ~300-400 | Precise operations on a specific format or target |
 
-| Score| Criteria|
-| -----| -------------------------------------------------------|
-| 0-3| No recognizable pattern, chaotic structure|
-| 4-6| Partially follows a pattern with significant deviations|
-| 7-8| Clear pattern with minor deviations|
-| 9-10| Masterful application of appropriate pattern|
+Masterful = 9-10; clear pattern with minor deviations = 7-8; partial = 4-6; none = 0-3.
 
-**Pattern tie-breaking**: When a Skill sits between two patterns, ask:
-
-- Tool vs Process: Does it center on a decision tree with format constraints (→ Tool) or a workflow
-  with checkpoints and phase gates (→ Process)?
-
-- Mindset vs Philosophy: Is the goal taste/judgment (→ Mindset) or originality and craft quality (→
-  Philosophy)?
-
-- Any pattern vs Navigation: Does it contain multiple distinct sub-scenarios that each need their
-  own guidance file (→ Navigation)?
+**Pattern tie-breaking** (use the first matching rule):
+- Tool vs Process: centers on a decision tree with format constraints → Tool; workflow with
+  checkpoints and phase gates → Process.
+- Mindset vs Philosophy: goal is taste/judgment → Mindset; goal is originality and craft quality →
+  Philosophy.
+- Any pattern vs Navigation: multiple distinct sub-scenarios each needing their own guidance file →
+  Navigation.
 
 ### D8: Practical Usability (15 points)
 
-| Score| Criteria|
-| -----| --------------------------------------------------------------|
-| 0-5| Confusing, incomplete, contradictory, or untested guidance|
-| 6-10| Usable but with noticeable gaps|
-| 11-13| Clear guidance for common cases|
-| 14-15| Comprehensive coverage including edge cases and error handling|
+| Score | Threshold |
+| ----- | --------- |
+| 14-15 | Comprehensive: edge cases + error handling + decision trees + fallbacks |
+| 11-13 | Clear for common cases |
+| 6-10  | Usable with noticeable gaps |
+| 0-5   | Confusing, incomplete, or contradictory |
 
 **When evaluating an unfamiliar domain**: weight D4, D5, D7, and D8 heavily — these are
 domain-agnostic. Flag D1, D2, and D3 as "domain expertise required" and note the limitation in your
@@ -329,23 +364,36 @@ The expert calibration is to notice the ratio: 80% generic, 20% expert. Weighted
 
 ---
 
-**MANDATORY**: Load [`references/evaluation-protocol.md`](references/evaluation-protocol.md) when
-conducting a full evaluation (Steps 1-6). Contains the step-by-step protocol, orientation
-questions, grade scale, and re-evaluation guidance.
+## Evaluation Workflow (Steps 1–6)
 
-**Do NOT Load** during a first-pass orientation of the dimensions table above — load only when
-you begin the full evaluation (every invocation runs the full evaluation).
+Every invocation runs the full evaluation — there are no shortcut modes.
 
-### Step 3: Score Each Dimension
+**Step 1**: First-pass E/A/R scan. Mark every section Expert / Activation / Redundant.
 
-Score each dimension using the rubric in [Evaluation Dimensions](#evaluation-dimensions-120-points-total).
-Assign score with one-line evidence-backed justification per dimension.
+**Step 2**: Structure analysis. Check frontmatter validity, line count, references, pattern.
 
-### Steps 4–6: Grade, Report, Re-evaluate
+**Step 3**: Score each dimension.
 
-**MANDATORY**: Load [`references/evaluation-protocol.md`](references/evaluation-protocol.md) to
-execute Steps 4–6 (grade calculation, report generation, and iterative
-re-evaluation). **Do NOT Load** for a first-pass orientation — load only when actively scoring.
+- **MANDATORY**: Load [`references/failure-patterns.md`](references/failure-patterns.md) **before
+  scoring any dimension**. It contains Pattern 1–12 recognition tests that directly inform D1–D3.
+  **Do NOT skip** — evaluating without it produces inflated D1/D3 scores.
+- **MANDATORY**: Load [`references/dimensions.md`](references/dimensions.md) for any dimension
+  scoring below 12, or when the domain is unfamiliar. **Do NOT Load** for dimensions already
+  clearly above threshold.
+- **MANDATORY**: Load [`references/evaluation-protocol.md`](references/evaluation-protocol.md) for
+  the full Step 1–6 protocol, orientation questions, and re-evaluation guidance. **Do NOT Load**
+  during a first-pass orientation of the dimensions table above.
+
+**Step 4**: Calculate total. D1+D2+D3+D4+D5+D6+D7+D8. Grade: A 108-120, B 96-107, C 84-95, D 72-83, F <72.
+
+**Step 5**: Generate report.
+
+- **MANDATORY**: Load [`references/quick-reference.md`](references/quick-reference.md) to write
+  the report using the canonical template. **Do NOT Load** before Step 5 — it is only needed at
+  report generation time.
+
+**Step 6**: Re-evaluate. Compare per-dimension deltas to prior report. Stop at ≤2-point delta:
+"Score is stable."
 
 - **NEVER skip evaluating D4 (Spec Compliance) even when the skill is clearly expert-level** —
   WHY: missing frontmatter fields break automated tool triggering regardless of content quality;

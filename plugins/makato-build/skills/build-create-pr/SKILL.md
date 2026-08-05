@@ -8,6 +8,18 @@ description: >-
   Interactive. Use after push-to-git, before address-pr-comments.
 version: "1.9.0"
 argument-hint: "[work-item-key] [--autonomous]"
+allowed-tools:
+  - Bash
+  - Read
+---
+
+## References
+
+| Reference | MANDATORY trigger | Do NOT Load |
+|-----------|-------------------|-------------|
+| `@references/pr-description-guide.md` | Load at Step 3 before drafting the PR description body | Do NOT load before Step 3 — the guide is section-filling detail, not entry context |
+| `@../../AUTONOMOUS-MODE.md` | Load at Step 1a when `--autonomous` flag is present, to read activation contract and bypass-log schema | Do NOT load in interactive-only sessions — the reference is autonomous-contract detail that adds noise when running interactively |
+
 ---
 
 ## When to Use
@@ -40,7 +52,12 @@ Every spec-artefact path resolved in Step 1 below (`stories.json`, `prd.md`, `pl
 
 ### Step 1 — Ask for work item key and load context
 
-Ask: *"Which work item are we creating a PR for? (e.g. DCP-1234, or pass it directly: `/makato-build:build-create-pr DCP-1234`)"* — or use the passed argument. A work item key is optional; if none is provided, the PR can still be created without an issue link.
+Use **AskUserQuestion** with selectable options:
+
+> "Which work item are we creating a PR for?"
+> Options: [ "DCP-1234 (paste your key)", "GitHub #N (paste issue number)", "No issue link — proceed without" ]
+
+Or use the passed argument directly. A work item key is optional; if none is provided, the PR is created without an issue link.
 
 Verify the branch is pushed: run `git status -sb` and check that the upstream tracking branch exists and no local commits are ahead of it. If commits are ahead of remote, stop and tell the user:
 
@@ -48,7 +65,7 @@ Verify the branch is pushed: run `git status -sb` and check that the upstream tr
 
 ### Step 1a — Mode detection
 
-Load `@../../AUTONOMOUS-MODE.md` for the activation contract (§ *Activation triggers*) and the per-gate default table. The skill runs in `--interactive` mode by default; autonomous mode opts in per dispatch.
+The skill runs in `--interactive` mode by default; autonomous mode opts in per dispatch. When `--autonomous` is present, load `@../../AUTONOMOUS-MODE.md` (MANDATORY — see References table) to read the activation contract (§ *Activation triggers*) and the per-gate default table.
 
 In autonomous mode, the Step 1 work-item-key prompt is replaced by:
 1. If an argument was passed: use it.
@@ -103,7 +120,7 @@ shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-create-pr","story"
 
 ### Step 3 — Draft the PR description
 
-Load `@references/pr-description-guide.md`. Use `.github/PULL_REQUEST_TEMPLATE.md` (already read in Step 1) as the body structure — populate each of its sections from spec artifacts. This ensures the produced PR matches the template enforced by the project rather than a free-form body.
+Load `@references/pr-description-guide.md` (MANDATORY — see References table). Use `.github/PULL_REQUEST_TEMPLATE.md` (already read in Step 1) as the body structure — populate each of its sections from spec artifacts. This ensures the produced PR matches the template enforced by the project rather than a free-form body.
 
 **PR title**: `feat: <story title>` — title from `stories.json` or `plan.md`; if no spec, derive from commit messages. Append ` (DCP-1234)` or ` (#42)` when a work item key is available. The full title must fit on one line in GitHub's PR list view: keep it under 72 characters total. Truncate or rephrase the story title if needed; never truncate the issue reference.
 
@@ -161,9 +178,12 @@ Rules:
 
 In **interactive mode**, present the complete draft PR (title + full description body) to the user.
 
-Ask: *"Does this PR description look correct? Reply with any edits, or 'approved' to open the PR."*
+Use **AskUserQuestion** with selectable options:
 
-Apply any edits the user requests. Re-present if edits are substantial. Do not open the PR until the user gives explicit approval.
+> "Does this PR description look correct?"
+> Options: [ "Approved — open the PR", "Edit title", "Edit description", "Re-generate from spec" ]
+
+Apply any edits the user requests. Re-present if edits alter the title or more than one section. Do not open the PR until the user selects "Approved".
 
 In **autonomous mode**, skip the prompt: proceed directly to Step 5 with the draft as-rendered. Log `shared/log-bypass.sh build-create-pr "<key>" pr-draft-approval open-pr-as-drafted "<agent_id|cli_flag|task_id_bundle>"`. The PR body is populated entirely from spec artifacts (`stories.json`, `prd.md`, `plan.md`) and workflow-state (`build.jsonl`) — no human authoring is required and the `created-issues.json` auto-`Closes` injection in Step 6 Case 4 is the canonical issue-link source.
 
@@ -273,6 +293,35 @@ shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-create-pr","story"
 ```
 
 Tell the user: *"PR open: `<URL>`. Next: wait for review, then use `/address-pr-comments` to handle feedback."*
+
+---
+
+## Anti-patterns
+
+These are production-derived failure modes — most were silent bugs before explicit guards were added.
+
+**NEVER use `data.issue` or `data.story` from `build.jsonl` for key recovery.**
+WHY: those fields do not exist in the build.jsonl schema. `build-log.sh` writes the key at the top-level `story` field; the `data` sub-object is free-form payload per skill. Reading a non-existent field silently produces `null` and creates a PR with no issue link and an incorrect session key that later breaks the audit trail search.
+
+**NEVER compare the commit range against bare local `main`.**
+WHY: a stale local `main` includes commits from already-merged PRs that happened between your last `git fetch` and now. Those commits appear in `git log main..HEAD` as if they are part of this PR, inflating the "What changed" section with unrelated history. Always resolve via `shared/default-branch.sh` after a `git fetch origin --quiet` so the tip is `origin/main` (or the true remote default).
+
+**NEVER rely on `data.branch` in `build.jsonl` for key recovery.**
+WHY: `data.branch` is written only by `build-push-to-git` and is absent if that skill has not run yet (e.g., the agent is re-dispatched after a partial session). Treating an absent field as the key silently falls through to an empty string, producing a MISSING_INPUT halt that looks like a missing argument bug, not a schema misread.
+
+**NEVER truncate the issue reference at the end of the PR title.**
+WHY: the CI `pr-title` check validates the full title against the conventional commit regex, and the GitHub PR list renders the issue reference as a clickable identifier. Truncating `(DCP-1234)` to `(DCP-...` breaks both the regex match (non-alphanumeric suffix) and the cross-link. Truncate or rephrase the story title instead.
+
+**NEVER emit an empty `## AC Verification` block when no `step:"ac-verification"` entry exists in `build.jsonl`.**
+WHY: an empty block is indistinguishable from a block where all verdicts evaluated to zero. The `documentation-agent` uses block *absence* as the signal to skip checkbox marking entirely — an empty block triggers the checkbox writer and marks every AC as unverified (`- [ ]` stays), which is correct only if a reviewer actually ran. An omitted block means "no reviewer ran" and is the safe fallback.
+
+**NEVER retry `gh pr create` silently after a non-zero exit.**
+WHY: `gh pr create` errors split into recoverable (auth token expired, network blip) and hard-stop (branch-protection reject, PR already exists, title too long). A silent retry on a hard-stop reason creates duplicate PR drafts or hammers a rate-limited API endpoint. Log the `halt_code`, emit the R1 failure envelope, and let the PO-agent route the recovery.
+
+**NEVER run `git log` or `gh pr create` from `REPO_ROOT` in autonomous mode when `WORKTREE_PATH` is set.**
+WHY: in the autonomous loop each story runs in a dedicated `git worktree add` at `WORKTREE_PATH`. That worktree has its own `HEAD` pointing to the feature branch. Running `gh pr create` from the main checkout instead opens a PR against whatever branch the main checkout is on, not the story branch — this silently creates a PR against `main` from `main` (or the previous story's branch), which GitHub may accept but is irreversible without force-closing.
+
+---
 
 ## Autonomous Execution
 

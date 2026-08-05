@@ -1,18 +1,34 @@
 ---
 name: langgraph-human-in-the-loop
-description: "INVOKE THIS SKILL when implementing human-in-the-loop patterns, pausing for approval, breakpoints, or state editing in LangGraph. Covers interrupt(), Command(resume=...), interrupt_before breakpoints, update_state, approval/validation workflows, and idempotency. Python-only"
-version: "1.0.1"
+description: >-
+  INVOKE THIS SKILL when implementing human-in-the-loop patterns, pausing for
+  approval, breakpoints, or state editing in LangGraph. Covers interrupt(),
+  Command(resume=...), interrupt_before breakpoints, update_state,
+  approval/validation workflows, and idempotency. Python-only.
+version: "1.1.0"
+metadata:
+  authors: ["makato-langgraph"]
+  last_updated: "2026-08-05"
+argument-hint: "[pattern: interrupt | breakpoint | state-edit | multi-interrupt | validation-loop]"
 ---
-<overview>
-LangGraph's human-in-the-loop patterns let you pause graph execution, surface data to users, and resume with their input:
 
-- **`interrupt(value)`** — pauses execution, surfaces a value to the caller
-- **`Command(resume=value)`** — resumes execution, providing the value back to `interrupt()`
-- **`interrupt_before`** — compile-time breakpoints that pause before specific nodes
-- **`update_state`** — modify graph state between runs
-- **Checkpointer** — required to save state while paused
-- **Thread ID** — required to identify which paused execution to resume
-</overview>
+## Decision tree — pick your HITL pattern
+
+```
+Need to pause execution?
+├── YES: Is the pause conditional (only some runs)?
+│   ├── YES → use interrupt()         (inline, inside node function)
+│   └── NO  → use interrupt_before    (compile-time breakpoint, always fires)
+│               LOAD references/breakpoints.md
+│
+├── Do you need to edit state between runs (correct agent decisions)?
+│   └── YES → use update_state
+│               LOAD references/state-editing.md
+│
+└── Multiple parallel branches each interrupt?
+    └── YES → resume with Command(resume={id: value, ...}) map
+               see ## Multiple Interrupts below
+```
 
 ---
 
@@ -26,15 +42,37 @@ Three things are required for interrupts to work:
 
 ---
 
+## Anti-patterns
+
+**NEVER call db.insert() or any non-idempotent operation before interrupt()**
+WHY: When the graph resumes, the node restarts from the beginning — every line before `interrupt()` re-runs. An `INSERT` before `interrupt()` creates a duplicate record on every resume attempt. Use upsert / check-before-create, or move the write after `interrupt()`.
+
+**NEVER append to a list before interrupt()**
+WHY: Same re-execution mechanic. `list.append(item)` before `interrupt()` adds the same item every time the thread resumes, producing duplicates in state.
+
+**NEVER pass Command(update=...) as the top-level input to invoke()/stream()**
+WHY: `Command(update=...)` is designed to be returned *from* a node, not passed as an *invoke* argument. When passed as invoke input it resumes from the latest checkpoint but the update is applied at the wrong phase — the graph appears stuck, spinning without progress. Only `Command(resume=...)` is valid as invoke input.
+
+**NEVER pass a plain dict to invoke() to resume an interrupted graph**
+WHY: Passing a dict starts a *new* run on the same thread_id — it does not resume the paused interrupt. The paused state is lost (overwritten by the new run's initial state). Resume always requires `Command(resume=value)`.
+
+**NEVER skip the checkpointer in subgraph deployments**
+WHY: If a parent graph has a checkpointer but a subgraph does not, `interrupt()` inside the subgraph raises at runtime. The subgraph must also be compiled with the same (or a compatible) checkpointer.
+
+**NEVER assume subgraph interrupt() re-executes only the subgraph node**
+WHY: Resuming re-executes BOTH the parent node (which called subgraph.invoke()) AND the subgraph node that called interrupt(). Any non-idempotent code in the parent node before the subgraph call is also duplicated — a double re-execution trap that is easy to miss.
+
+**NEVER resume multiple parallel interrupts with separate invoke() calls**
+WHY: Each `invoke(Command(resume=single_value), config)` tries to resume all pending interrupts with the same value. The second parallel interrupt gets the wrong value (the same one as the first). Collect all pending interrupt IDs from `result["__interrupt__"]` and resume with a single `Command(resume={id: value, ...})` map.
+
+---
+
 ## Basic Interrupt + Resume
 
 `interrupt(value)` pauses the graph. The value surfaces in the result under `__interrupt__`. `Command(resume=value)` resumes — the resume value becomes the return value of `interrupt()`.
 
 **Critical**: when the graph resumes, the node restarts from the **beginning** — all code before `interrupt()` re-runs.
 
-<ex-basic-interrupt-resume>
-<python>
-Pause execution for human review and resume with Command.
 ```python
 from langgraph.types import interrupt, Command
 from langgraph.checkpoint.memory import InMemorySaver
@@ -62,20 +100,14 @@ graph = (
 config = {"configurable": {"thread_id": "thread-1"}}
 
 # Initial run — hits interrupt and pauses
-
 result = graph.invoke({"approved": False}, config)
 print(result["__interrupt__"])
-
 # [Interrupt(value='Do you approve this action?')]
 
 # Resume with the human's response
-
 result = graph.invoke(Command(resume=True), config)
 print(result["approved"])  # True
-
 ```
-</python>
-</ex-basic-interrupt-resume>
 
 ---
 
@@ -83,9 +115,6 @@ print(result["approved"])  # True
 
 A common pattern: interrupt to show a draft, then route based on the human's decision.
 
-<ex-approval-workflow>
-<python>
-Interrupt for human review, then route to send or end based on the decision.
 ```python
 from langgraph.types import interrupt, Command
 from langgraph.graph import StateGraph, START, END
@@ -115,18 +144,12 @@ def human_review(state: EmailAgentState) -> Command[Literal["send_reply", "__end
         return Command(update={}, goto=END)
 ```
 
-</python>
-</ex-approval-workflow>
-
 ---
 
 ## Validation Loop
 
-Use `interrupt()` in a loop to validate human input and re-prompt if invalid.
+Use `interrupt()` in a loop to validate human input and re-prompt if invalid. Each `Command(resume=...)` call provides the next answer.
 
-<ex-validation-loop>
-<python>
-Validate human input in a loop, re-prompting until valid.
 ```python
 from langgraph.types import interrupt
 
@@ -135,18 +158,15 @@ def get_age_node(state):
 
     while True:
         answer = interrupt(prompt)
-
-    # Validate the input
+        # Validate the input
         if isinstance(answer, int) and answer > 0:
             break
         else:
             prompt = f"'{answer}' is not a valid age. Please enter a positive number."
 
     return {"age": answer}
-
 ```
 
-Each `Command(resume=...)` call provides the next answer. If invalid, the loop re-interrupts with a clearer message.
 ```python
 config = {"configurable": {"thread_id": "form-1"}}
 first = graph.invoke({"age": None}, config)
@@ -159,53 +179,17 @@ final = graph.invoke(Command(resume=30), config)
 print(final["age"])  # 30
 ```
 
-</python>
-</ex-validation-loop>
-
 ---
 
 ## Breakpoints (interrupt_before)
 
-Breakpoints are compile-time declarations that pause execution before specific nodes. Unlike `interrupt()`, they do not require code changes inside nodes.
+MANDATORY: Load `references/breakpoints.md` when the user asks about `interrupt_before`, `interrupt_after`, always-pause-before-node, or compile-time breakpoints.
 
-<breakpoint-vs-interrupt>
+Do NOT Load `references/breakpoints.md` for inline `interrupt()` patterns — those are covered in this file.
 
-| Feature          | `interrupt_before`                             | `interrupt()`                        |
-| ---------------- | ------------------------------------------------ | -------------------------------------- |
-| Where defined    | At `compile()` time                            | Inside node function                   |
-| When it triggers | Always before the named node                     | Conditionally, based on code logic     |
-| Data surfaced    | Current graph state                              | Custom value passed to `interrupt()` |
-| Best for         | Always-pause gates (e.g., before tool execution) | Dynamic, data-dependent pauses         |
+Quick summary: breakpoints are compile-time declarations that pause before/after a node without code changes inside it — ideal for `ToolNode` and operator consoles. See `references/breakpoints.md` for the full inspect-modify-resume pattern, `as_node` usage, and the resume-with-None mechanic.
 
-</breakpoint-vs-interrupt>
-
-<ex-breakpoint>
-<python>
-Pause before tool execution and resume after human approval.
 ```python
-from langchain_core.messages import HumanMessage, SystemMessage
-from langgraph.checkpoint.memory import MemorySaver
-from langgraph.graph import MessagesState, StateGraph, START
-from langgraph.prebuilt import ToolNode, tools_condition
-from langchain_openai import ChatOpenAI
-
-llm = ChatOpenAI(model="gpt-4.1", temperature=0.2)
-tools = [calculator, kv_set, kv_get]
-llm_with_tools = llm.bind_tools(tools)
-
-def assistant(state: MessagesState):
-    system_msg = SystemMessage(content="You are a helpful assistant.")
-    return {"messages": [llm_with_tools.invoke([system_msg] + state["messages"])]}
-
-builder = StateGraph(MessagesState)
-builder.add_node("assistant", assistant)
-builder.add_node("tools", ToolNode(tools))
-builder.add_edge(START, "assistant")
-builder.add_conditional_edges("assistant", tools_condition)
-builder.add_edge("tools", "assistant")
-
-# Compile with breakpoint BEFORE tools node
-
 graph = builder.compile(
     checkpointer=MemorySaver(),
     interrupt_before=["tools"]
@@ -213,59 +197,34 @@ graph = builder.compile(
 
 config = {"configurable": {"thread_id": "approval-1"}}
 
-# Run until breakpoint
-
 for chunk in graph.stream({"messages": [HumanMessage(content="Calculate 15 * 23")]}, config):
     pass
 
-# Inspect what tool is about to execute
-
 state = graph.get_state(config)
-print(f"Stopped before: {state.next}")
-last_msg = state.values["messages"][-1]
-if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
-    print(f"Tool: {last_msg.tool_calls[0]['name']}")
-    print(f"Args: {last_msg.tool_calls[0]['args']}")
+print(f"Stopped before: {state.next}")    # ('tools',)
 
-# Resume after human approval
-
+# Resume after human approval — pass None, not a new dict
 for chunk in graph.stream(None, config):
     pass
-
 ```
-</python>
-</ex-breakpoint>
 
 ---
 
 ## State Editing
 
-Modify graph state between runs using `update_state`. Useful for correcting agent decisions before resuming.
+MANDATORY: Load `references/state-editing.md` when the user asks about `update_state`, `get_state`, `as_node`, overriding state between runs, time-travel, or injecting a synthetic node result.
 
-<ex-state-editing>
-<python>
-Inspect state, modify it, and resume execution with corrected values.
+Do NOT Load `references/state-editing.md` for basic interrupt/resume flows — load only when state inspection or mutation is explicitly needed.
+
+Quick summary: `update_state(config, values, as_node=None)` writes through reducers — appending fields append, scalar fields overwrite. Use `as_node` to advance `state.next` past a node without running it. See `references/state-editing.md` for reducer behavior, time-travel rollback, and the ghost-checkpoint trap.
+
 ```python
-config = {"configurable": {"thread_id": "edit-1"}}
-
-# Run the graph
-result = graph.invoke(initial_state, config)
-
-# Inspect current state
-state = graph.get_state(config)
-print(f"Current values: {state.values}")
-print(f"Next node: {state.next}")
-
-# Modify state before resuming
+# Modify state before resuming from a breakpoint
 graph.update_state(config, {"radius": 5.0})  # Correct a value
-
-# Resume with updated state
-result = graph.invoke(None, config)
+result = graph.invoke(None, config)           # Resume
 ```
 
-Note: `update_state` passes through reducers. Use `Overwrite()` to replace instead of merge — see the persistence skill.
-</python>
-</ex-state-editing>
+Note: `update_state` passes through reducers. Use `Overwrite()` in your schema to replace instead of merge — see `references/state-editing.md` and the persistence skill.
 
 ---
 
@@ -273,9 +232,6 @@ Note: `update_state` passes through reducers. Use `Overwrite()` to replace inste
 
 When parallel branches each call `interrupt()`, resume all of them in a single invocation by mapping each interrupt ID to its resume value.
 
-<ex-multiple-interrupts>
-<python>
-Resume multiple parallel interrupts by mapping interrupt IDs to values.
 ```python
 from typing import Annotated, TypedDict
 import operator
@@ -308,22 +264,16 @@ graph = (
 config = {"configurable": {"thread_id": "1"}}
 
 # Both parallel nodes hit interrupt() and pause
-
 result = graph.invoke({"vals": []}, config)
 
 # Resume all pending interrupts at once using a map of id -> value
-
 resume_map = {
     i.id: f"answer for {i.value}"
     for i in result["__interrupt__"]
 }
 result = graph.invoke(Command(resume=resume_map), config)
-
 # result["vals"] = ["a:answer for question_a", "b:answer for question_b"]
-
 ```
-</python>
-</ex-multiple-interrupts>
 
 User-fixable errors use `interrupt()` to pause and collect missing data — that's the pattern covered by this skill. For the full 4-tier error handling strategy (RetryPolicy, Command error loops, etc.), see the **fundamentals** skill.
 
@@ -332,8 +282,6 @@ User-fixable errors use `interrupt()` to pause and collect missing data — that
 ## Side Effects Before Interrupt Must Be Idempotent
 
 When the graph resumes, the node restarts from the **beginning** — ALL code before `interrupt()` re-runs. In subgraphs, BOTH the parent node and the subgraph node re-execute.
-
-<idempotency-rules>
 
 **Do:**
 - Use **upsert** (not insert) operations before `interrupt()`
@@ -345,11 +293,6 @@ When the graph resumes, the node restarts from the **beginning** — ALL code be
 - Create new records before `interrupt()` — duplicates on each resume
 - Append to lists before `interrupt()` — duplicate entries on each resume
 
-</idempotency-rules>
-
-<ex-idempotent-patterns>
-<python>
-Idempotent operations before interrupt vs non-idempotent (wrong).
 ```python
 # GOOD: Upsert is idempotent — safe before interrupt
 def node_a(state: State):
@@ -374,16 +317,10 @@ def node_a(state: State):
     return {"approved": approved}
 ```
 
-</python>
-</ex-idempotent-patterns>
-
-<subgraph-interrupt-re-execution>
-
 ### Subgraph re-execution on resume
 
 When a subgraph contains an `interrupt()`, resuming re-executes BOTH the parent node (that invoked the subgraph) AND the subgraph node (that called `interrupt()`):
 
-<python>
 ```python
 def node_in_parent_graph(state: State):
     some_code()  # <-- Re-executes on resume
@@ -394,24 +331,14 @@ def node_in_subgraph(state: State):
     some_other_code()  # <-- Also re-executes on resume
     result = interrupt("What's your name?")
     # ...
-
 ```
-</python>
-</subgraph-interrupt-re-execution>
-
----
-
-## Command(resume) Warning
-
-`Command(resume=...)` is the **only** Command pattern intended as input to `invoke()`/`stream()`. Do NOT pass `Command(update=...)` as input — it resumes from the latest checkpoint and the graph appears stuck. See the fundamentals skill for the full antipattern explanation.
 
 ---
 
 ## Fixes
 
-<fix-checkpointer-required-for-interrupts>
-<python>
-Checkpointer required for interrupt functionality.
+**Checkpointer required for interrupt functionality:**
+
 ```python
 # WRONG
 graph = builder.compile()
@@ -420,20 +347,23 @@ graph = builder.compile()
 graph = builder.compile(checkpointer=InMemorySaver())
 ```
 
-</python>
-</fix-checkpointer-required-for-interrupts>
+**Use Command to resume from an interrupt (regular dict restarts graph):**
 
-<fix-resume-with-command>
-<python>
-Use Command to resume from an interrupt (regular dict restarts graph).
 ```python
-# WRONG
+# WRONG — starts a new run, overwrites paused state
 graph.invoke({"resume_data": "approve"}, config)
 
 # CORRECT
-
 graph.invoke(Command(resume="approve"), config)
-
 ```
-</python>
-</fix-resume-with-command>
+
+**Command(resume=...) is the only Command pattern valid as invoke() input:**
+
+```python
+# WRONG — Command(update=...) as invoke input causes stuck graph
+graph.invoke(Command(update={"field": "value"}), config)
+
+# CORRECT — return Command(update=...) from inside a node, never pass as invoke input
+def my_node(state):
+    return Command(update={"field": "value"}, goto="next_node")
+```

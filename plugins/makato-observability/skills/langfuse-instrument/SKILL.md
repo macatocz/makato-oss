@@ -12,6 +12,9 @@ description: >-
   agent", "otel setup", "langfuse setup", "wire tracing", "monitor
   tokens", "debug graph", "instrument agent".
 version: "0.1.0"
+metadata:
+  authors: ["makato-observability"]
+  last_updated: "2026-08-05"
 ---
 
 # langfuse-instrument
@@ -26,13 +29,35 @@ Use when a contributor wants to wire OpenTelemetry-based tracing into a LangGrap
 - The consumer wants Prometheus / Loki / ELK / CloudWatch instrumentation. That's not observability-via-Langfuse and belongs elsewhere.
 - The consumer wants alerting, SLO calculators, or incident-response prose.
 
+## Anti-patterns
+
+Each item below represents a failure mode that practitioners learn through production breakage — not obvious from the OTel or LangGraph documentation.
+
+**NEVER wrap `graph.invoke()` in a top-level span.**
+LangGraph's own runtime emits the trace root; adding an outer span externally double-counts every observation on the Langfuse dashboard, inflates token totals, and produces a broken trace tree where the root span appears twice. Wrap *node bodies* only, not the invoke call.
+
+**NEVER instantiate `InMemorySpanExporter()` per-test.**
+The `TracerProvider` is set globally via `trace.set_tracer_provider(provider)` once at session scope. A fresh `InMemorySpanExporter` created inside a test body is never connected to that provider — all spans go to the original exporter and the new one stays empty forever. Always register the exporter once at session scope and use a `clear()` reset between tests.
+
+**NEVER register `atexit.register(shutdown)` inside the pytest session fixture.**
+The session fixture's teardown (`yield` cleanup) runs before interpreter exit. `atexit` handlers fire *after* pytest has torn down fixture scope. Combining both causes the `TracerProvider.shutdown()` call to race the fixture teardown, which truncates trailing spans from the last test(s). Use the session fixture's `yield` cleanup exclusively for test teardown; `atexit` is for production service entry points only.
+
+**NEVER use the gRPC OTLP exporter (`opentelemetry-exporter-otlp-proto-grpc`) with Langfuse.**
+The Langfuse OTLP receiver listens on HTTP/protobuf only — the gRPC transport is not implemented. The gRPC exporter silently connects and then fails with generic connection errors that do not name Langfuse or HTTP as the cause. Always use `opentelemetry-exporter-otlp-proto-http`.
+
+**NEVER omit the `/api/public/otel/v1/traces` path suffix.**
+A common mistake is pointing the exporter at `<LANGFUSE_HOST>` with no path (or `/v1/traces`). Both return 404. The full path is `<LANGFUSE_HOST>/api/public/otel/v1/traces` — the `/api/public/otel` prefix is Langfuse-specific and absent from generic OTLP collector documentation.
+
+**NEVER paraphrase the scrub sentinel strings.**
+`[CONTENT SCRUBBED]` and `[OUTPUT SCRUBBED]` are exact sentinel strings that downstream test contracts and QA pipelines match literally. Paraphrasing them (e.g., `<redacted>`, `SCRUBBED`, `[REDACTED]`) breaks those contracts silently — the span appears to contain real data to any matcher that does not see the exact sentinel.
+
 ## Workflow
 
 Follow the seven steps in order. Do not skip Step 6 — a "success" without dashboard verification is a failed install.
 
 ### Step 0 — Gather Langfuse credentials
 
-Load `@references/deployment-paths.md`.
+Load `@references/deployment-paths.md` now. Do NOT load this reference before Step 0 or front-load it with other steps.
 
 Ask via `AskUserQuestion`:
 
@@ -52,7 +77,7 @@ If the operator cannot supply all three, HALT. Do NOT proceed. Point them at the
 
 ### Step 1 — Confirm agent runs LangGraph on the OTel-SDK path
 
-Load `@references/langgraph-otel-integration.md`.
+Load `@references/langgraph-otel-integration.md` now. Do NOT load this reference before Step 1 or during Step 0 credential gathering.
 
 Read the agent entry file(s) the operator names (or scan the conventional locations — typical layouts include a `src/` package with the graph module, plus a bootstrap that calls `graph.compile()` or `graph.invoke()`).
 
@@ -66,7 +91,8 @@ Log the confirmation. Proceed only when both checks pass.
 **JS/TS agents.** If the target is a JS/TS OTel client (a serverless/edge agent or
 chat widget), the Python steps below (2–5) do not apply — load
 `@references/js-ts-first-trace.md` for the `NodeSDK` + `LangfuseSpanProcessor`
-bootstrap, then rejoin at Step 6 for dashboard verification. Enrichment of the
+bootstrap. Do NOT load `js-ts-first-trace.md` for Python targets. Rejoin at
+Step 6 for dashboard verification after loading that reference. Enrichment of the
 resulting spans (sessions, users, tags, feedback) is covered by the
 `langfuse-enrich` skill.
 
@@ -83,7 +109,7 @@ If any dependency is missing, add it to the correct group (production-scope goes
 
 ### Step 3 — Wire the OTel TracerProvider + OTLP HTTP exporter
 
-Load `@references/otel-setup.md`.
+Load `@references/otel-setup.md` now. Do NOT load this reference before Step 3.
 
 Copy `@templates/otel-setup.py` into the consumer's bootstrap module (the module that runs before any LangGraph node imports — typically an app entry point or a dedicated `observability.py`).
 
@@ -98,7 +124,7 @@ Adapt the module path per the consumer's conventions; do NOT hard-code a filesys
 
 ### Step 4 — Instrument LangGraph nodes with spans + attributes
 
-Load `@references/span-attribute-conventions.md`.
+Load `@references/span-attribute-conventions.md` now. Do NOT load this reference before Step 4.
 
 For each LangGraph node whose behaviour needs tracing, wrap the node body:
 
@@ -120,7 +146,7 @@ Use canonical `gen_ai.*` attribute names from the catalogue — do not invent ne
 
 ### Step 5 — Add the in-process exporter for unit tests
 
-Load `@references/inprocess-exporter.md`.
+Load `@references/inprocess-exporter.md` now. Do NOT load this reference before Step 5, and do NOT load it for the production wiring path.
 
 Copy `@templates/otel-inprocess-exporter.py` into the consumer's test-helpers directory (the operator supplies the path — typical layouts use `tests/_helpers/` but this skill does not hard-code that location).
 
@@ -163,6 +189,6 @@ Then verify traces end-to-end:
      "$LANGFUSE_HOST/api/public/observations?limit=1&type=GENERATION" | jq '.data[0] | {model: .model, inputTokens: .promptTokens, outputTokens: .completionTokens}'
    ```
 
-If any step fails, walk `@references/troubleshooting.md` before retrying.
+If any step fails, load `@references/troubleshooting.md` now. Do NOT load troubleshooting.md proactively — defer it to this failure path only.
 
 **Do NOT declare success until traces are visible on the dashboard.**

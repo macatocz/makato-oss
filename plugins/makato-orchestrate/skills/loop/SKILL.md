@@ -9,9 +9,17 @@ description: >-
   `workflow-state.json` reaches `current_phase: "done"` or the loop
   exits on a HALT. Honors `~/.claude/HALT` before every dispatch
   (NEVER 3) and emits `.claude/state/loop-status.json` as the
-  operator-facing live audit.
+  operator-facing live audit. Use when starting an unattended run
+  across a queue of Ready items, driving autonomous polling overnight,
+  or running a single dispatch cycle with --once. Trigger keywords:
+  autonomous, polling, board, Ready, unattended, GAP-007, loop run,
+  dispatch queue.
 version: "2.3.0"
 argument-hint: "[--status <NAME>] [--interval <S>] [--dry-run] [--once] [--force]"
+allowed-tools: [Bash]
+metadata:
+  authors: [makato-orchestrate]
+  last_updated: "2026-08-05"
 ---
 
 <!-- markdownlint-disable MD013 -->
@@ -157,6 +165,29 @@ dispatched from this loop, never the other way around.
 Do **not** invoke from sub-agents, `build-*` skills, or the PO-agent
 itself. The loop's invariants (single-threaded dispatch, board filtering,
 HALT-file polling at the outer-most boundary) assume it owns the session.
+
+## Anti-patterns
+
+**NEVER invoke `loop` from sub-agents, `build-*` skills, or the PO-agent itself.**
+WHY: The loop's invariants (single-threaded dispatch, board filtering, HALT-file polling at the outermost boundary) assume it owns the session. A sub-agent invoking `loop` would spawn a second session that bypasses every single-thread guarantee — the pidfile, the in-flight filter, and the board CAS claim all live in the parent session's state dir, invisible to the child. The result is unchecked parallel dispatch against the same issue.
+
+**NEVER use `--force` unless you have verified the incumbent `loop` process is genuinely stuck.**
+WHY: `--force` sends `SIGTERM` followed by `SIGKILL` to the incumbent. If the PO-agent inside that session is mid-write to `workflow-state.json`, `orchestrate.jsonl`, or the branch, a forced kill leaves those files in a partially-written state. The safer alternative is `kill -TERM <pid>` from your terminal — the incumbent's EXIT trap runs, the pidfile is released, and the next `loop run` starts clean. Reserve `--force` for `kill -9` orphans where the EXIT trap cannot run.
+
+**NEVER disable `MAKATO_LOOP_CLAIM_ON_DISPATCH` in a multi-worktree setup.**
+WHY: The board CAS claim (`Ready → In progress` compare-and-set) is the only cross-session coordination point. The pidfile, in-flight filter, and run-mutex are all worktree-local — they are blind across parallel sessions. Disabling the claim with `MAKATO_LOOP_CLAIM_ON_DISPATCH=0` re-opens the double-dispatch race that #259 closed: two sessions both see `Ready`, both proceed to spawn a PO-agent for the same issue, and both worktrees drive a competing PR on the same branch.
+
+**NEVER set `MAKATO_LOOP_GATE_DISABLE=1` in production.**
+WHY: The dispatch gate runs four safety tiers before spawning the PO-agent — exclusion-label veto, merged-PR check, in-flight workflow-state check, and label-board conflict check. Each tier prevents a category of wasted or corrupting work. Disabling all four simultaneously (which `GATE_DISABLE=1` does) bypasses the only protection against dispatching an already-merged issue, an already-in-flight issue, or an issue that carries `needs-human-review`. Use only for offline smoke tests that need to exercise the post-gate path with incomplete fixtures.
+
+**NEVER use `MAKATO_LOOP_STALL_DISABLE=1` in production.**
+WHY: The watchdog is the liveness net of last resort for the class of PO-agent deadlocks that motivated #160. If the PO-agent enters an infinite-wait that keeps the log mtime fresh (e.g. a blocking tool call), the watchdog is the only mechanism that will eventually `SIGTERM` it. Disabling the watchdog means a single stuck dispatch can hold the loop hostage indefinitely — no SIGTERM, no `last_watchdog_kill` audit, no opportunity for the next item to run. Use only for interactive debug sessions where an operator is attached and long silences are expected.
+
+**NEVER seed issues via the removed `promote-ready` subcommand of `loop.sh`.**
+WHY: `loop.sh promote-ready` was removed in #688. The pre-poll `_promote_labelled_ready` pass that it invoked no longer exists — calling the subcommand exits immediately with an error. The correct on-ramp is `seed-issue` (which stamps the to-issues provenance footer and moves the board card to `Status=Ready`) or `issue-to-project` autonomous mode. Any automation invoking `loop.sh promote-ready` will silently stop seeding issues without an obvious failure.
+
+**NEVER run `loop` on a cloud runner that lacks access to the operator's local disk.**
+WHY: The merged-worktree reaper and orphaned-specs pruner operate on git worktrees and `specs/` folders that physically exist on the local disk. A fresh `ubuntu-latest` checkout on GitHub Actions has neither. The reap pass is best-effort, so the cloud run itself won't fail, but local worktrees and spec folders accumulate silently — the exact leak the reaper was built to prevent. The scheduled `loop-cron.yml` workflow requires a self-hosted `makato` runner with local checkout access for this reason.
 
 ## Prerequisites
 
@@ -748,204 +779,25 @@ The intentional design split:
 
 ## Environment variables
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `MAKATO_LOOP_INTERVAL` | `300` | Poll cadence in seconds (CLI `--interval` wins). |
-| `MAKATO_LOOP_STATUS` | `Ready` | Default board Status option name (CLI `--status` wins). |
-| `MAKATO_LOOP_CONFIG` | `<repo>/.claude/config.json` | Override config path (tests only). |
-| `MAKATO_CLAUDE_BIN` | `claude` | Path to the claude binary used for dispatch. Tests stub this. |
-| `MAKATO_HALT_FILE` | `~/.claude/HALT` | HALT-file path override (mirrors `hooks/check-halt.sh`). |
-| `MAKATO_LOOP_STATE_DIR` | `<repo>/.claude/state` | Override status-file directory (tests only). |
-| `MAKATO_LOOP_DRY_DISPATCH` | unset | Test-only: skip the real `claude` exec and record `last_dispatch_issue` instead. |
-| `MAKATO_LOOP_GH_OVERRIDE` | unset | Test-only: read the canned `gh project item-list` JSON from this path instead of invoking `gh`. |
-| `MAKATO_LOOP_ISSUE_BODY_OVERRIDE` | unset | Test-only: read the issue body from this path instead of invoking `gh issue view` in `_derive_key_for_issue`. Keeps the T25 KEY-derivation test offline. |
-| `MAKATO_LOOP_ISSUE_TITLE_OVERRIDE` | unset | Test-only: use this string as the issue title instead of `gh issue view --json title` in the `_derive_key_for_issue` third fallback (#232). Keeps the T27 no-provenance KEY test offline. |
-| `MAKATO_LOOP_PROMOTE_OVERRIDE` | unset | **Removed in #688.** No-op — `_promote_labelled_ready` no longer exists. |
-| `MAKATO_LOOP_PROMOTE_DRYRUN` | unset | **Removed in #688.** No-op — `_promote_labelled_ready` no longer exists. |
-| `MAKATO_LOOP_STALL_WARN` | `900` | Seconds of no output before the watchdog stamps `active_workflow.stalled = true`. |
-| `MAKATO_LOOP_STALL_KILL` | `3600` | Seconds of no output before the watchdog `SIGTERM`s the PO-agent. |
-| `MAKATO_LOOP_STALL_POLL` | `60` | Watchdog poll cadence in seconds (small values used in smoke tests). |
-| `MAKATO_LOOP_STALL_TERM_GRACE` | `30` | Seconds between `SIGTERM` and the follow-up `SIGKILL` if the child hasn't exited. |
-| `MAKATO_LOOP_STALL_DISABLE` | unset | Set to `1` to disable the watchdog entirely (no log capture, no background poller, no status stamps). |
-| `MAKATO_LOOP_STALL_TEST_CMD` | unset | Test-only: run this command in place of `claude` (e.g. `sleep 30`) so the watchdog has a real stall to reap. |
-| `MAKATO_LOOP_PIDFILE` | `<state-dir>/loop.pid` | Override the run-mutex pidfile path (#172). Tests use this to isolate the mutex from any concurrent operator loop on the same box. |
-| `MAKATO_LOOP_FORCE_GRACE` | `10` | Seconds between `SIGTERM` and `SIGKILL` when `run --force` reclaims a live pidfile. |
-| `MAKATO_LOOP_ASSIGN_ON_DISPATCH` | `1` | Set to `0` to skip the assign-on-dispatch step (no `issues.assigned` webhook → board stays at `Ready`). See §*assign-on-dispatch (#33) — now a belt-and-braces trigger*. |
-| `MAKATO_LOOP_ASSIGNEE` | `@me` | Assignee login passed to `gh issue edit --add-assignee` at dispatch. `@me` = the authenticated `gh` user driving the loop. |
-| `MAKATO_LOOP_ASSIGN_TEST_FILE` | unset | Test-only: append the intended assign (`assign #<n> assignee=<x> repo=<y>`) to this file instead of calling `gh`. |
-| `MAKATO_LOOP_CLAIM_ON_DISPATCH` | `1` | Set to `0` to disable the synchronous board CAS claim (#259). With it off, the loop relies solely on the async assign→webhook path and the cross-worktree double-dispatch race re-opens — leave enabled in multi-worktree setups. See §*Board writes at dispatch: the synchronous claim*. |
-| `MAKATO_LOOP_CLAIM_TEST_FILE` | unset | Test-only: append the claim decision (`claim #<n> status=<s> → {claimed\|skip\|warn-proceed}`) to this file instead of calling `gh`. |
-| `MAKATO_LOOP_CLAIM_STATUS_OVERRIDE` | unset | Test-only: the fixture current board Status the re-poll should observe (`Ready`, `In progress`, or empty for the unreadable-Status fallback). Consumed only alongside `MAKATO_LOOP_CLAIM_TEST_FILE`. |
-| `MAKATO_LOOP_REAP_ON_POLL` | `1` | Set to `0` to disable the merged-worktree reaper (#265) entirely (no pre-poll pass, `remove-worktrees` short-circuits). |
-| `MAKATO_LOOP_REAP_INTERVAL` | `3600` | Minimum seconds between reap passes. The pass is invoked every tick but no-ops until the window elapses. Set `0` to run every call (one-shot cleanup / tests). |
-| `MAKATO_LOOP_REAP_DRYRUN` | unset | Set to `1` to log intended removals (`reap would remove …`) without running `git worktree remove`. |
-| `MAKATO_LOOP_REAP_REPO` | unset | Override the owner/repo used for `gh pr list` (default: `MAKATO_LOOP_DISPATCH_REPO`, else parsed from `git remote get-url origin`). |
-| `MAKATO_LOOP_REAP_GH_OVERRIDE` | unset | Test-only: path to a JSON map `{"<branch>": "<pr#>"}` read instead of calling `gh pr list`. Keeps the reap smoke tests offline. |
-| `MAKATO_LOOP_REAP_BASE_REF` | unset | Override the base ref used for the ancestry landed-check (default: `origin/HEAD`, else `origin/main`). Tests point it at a local `main` so ancestry works in a throwaway repo with no remote. |
-| `MAKATO_LOOP_REAP_WT_OVERRIDE` | unset | Test-only: path to a file with canned `git worktree list --porcelain` output, read instead of invoking git. |
-| `MAKATO_LOOP_REAP_SPECS` | `1` | Set to `0` to disable orphaned-specs pruning. When on, untracked `specs/<slug>/` folders for done/closed issues are removed in the same reap pass. Tracked spec folders are never touched (consumer repos use `archive-spec.sh`). |
-| `MAKATO_LOOP_REAP_SPECS_GH_OVERRIDE` | unset | Test-only: path to a JSON map `{"<issue_number>": "open\|closed"}` read instead of calling `gh issue view`. Keeps the specs-prune smoke tests offline. |
-| `MAKATO_HANDOFF_ACK_TIMEOUT` | `120` | Seconds the pre-poll HALT-007B liveness check (#284) waits for a resumed subprocess to write `resume_ack` before firing the HALT-007 fallback. A dead PID short-circuits the wait. Read by `context-handoff.sh check-pid`; lower it in tests to force the timeout path. |
-| `MAKATO_LOOP_AUTOSEED_ON_POLL` | `1` | Set to `0` to disable the pre-poll auto-seed pass entirely (#373, epic #367 S5). When unset or `1`, `_auto_seed_unprepared` runs on every tick where "Ready" is among the polled statuses. Disable for repos that manage seeding externally or for debugging. |
-| `MAKATO_LOOP_AUTOSEED_OVERRIDE` | unset | Test-only: path to a JSON file in `gh issue list --json number,labels,author` shape, read instead of calling `gh` in `_auto_seed_candidates`. Keeps S1/S5 discovery smoke tests offline. |
-| `MAKATO_LOOP_SEED_TEST_CMD` | unset | Test-only: command string used as the dispatch command instead of the real `claude -p` in `_auto_seed_dispatch_light`. Receives the same env (`MAKATO_HEADLESS=1`, `ISSUE_NUMBER`, `REPO`, `REPO_ROOT`) and prompt as the production invocation. Keeps S2/S5 dispatch smoke tests offline. |
-| `MAKATO_LOOP_BLOCK_TEST_FILE` | unset | Test-only: path to a file that `_auto_seed_block_full` appends `block #<n>` to instead of calling `gh project item-edit` to set `Blocked`. Keeps S4/S5 block smoke tests offline. |
-| `MAKATO_LOOP_AUTOSEED_SPEC_ROOT` | unset | Test-only: override the `SPECS_DIR` root used by `_auto_seed_block_full` when creating spec-folder stubs. Tests redirect to a temp directory to avoid polluting `specs/`. |
-| `MAKATO_LOOP_RECONCILE_ON_POLL` | `1` | Set to `0` to disable the orphaned-`In progress` reconciliation pass entirely (#368). |
-| `MAKATO_LOOP_RECONCILE_DRYRUN` | unset | Set to `1` to log intended reconciliations without mutating board or labels. |
-| `MAKATO_LOOP_RECONCILE_GH_OVERRIDE` | unset | Test-only: path to a JSON fixture for the `In progress` board poll instead of calling `gh`. Keeps Tl–Tp smoke tests offline. |
-| `MAKATO_LOOP_RECONCILE_TEST_FILE` | unset | Test-only: append `reconcile #N` here instead of calling `gh project item-edit`. |
-| `MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE` | unset | Test-only: append `label #N needs-human-review` here instead of calling `gh issue edit`. |
-| `MAKATO_LOOP_RECONCILE_SPECS_DIR` | unset | Test-only: override `SPECS_DIR` for the in-flight scan within `_reconcile_orphaned_in_progress`. Keeps Tm/Tn tests from polluting the real `specs/` tree. |
-| `MAKATO_LOOP_GATE_DISABLE` | `0` | Set to `1` to disable the entire dispatch gate (#318/#355/#357). All four tiers (exclusion-label veto, merged-PR, in-flight workflow-state, label-board conflict) are bypassed and orphan detection is skipped. Pre-#318 dispatch behaviour is fully restored. Use only for debugging or offline smoke tests that need to exercise the post-gate path without fixtures for all gate inputs. |
-| `MAKATO_LOOP_RESHAPE_ENABLED` | `0` | Set to `1` to enable the pre-poll reshape pass (#350). When disabled (default), `_reshape_pass` is a no-op regardless of board state. Enable for repos that use the Needs Planning → Reshape → Ready feedback loop (epic #319). |
-| `MAKATO_MAX_RESHAPE_CYCLES` | `3` | Maximum number of `decompose Refine + to-issues` dispatch attempts per issue before `needs-human-review` is applied and no further reshaping is attempted. Guards against infinite reshape loops on structurally unresolvable stories. |
-| `MAKATO_LOOP_RESHAPE_TEST_CMD` | unset | Test-only: command string eval'd inside a subshell in place of the real `claude` dispatch in `_reshape_pass`. Receives the same env context as the production path. Keeps T-reshape smoke tests offline. |
-| `MAKATO_LOOP_RESHAPE_OVERRIDE` | unset | Test-only: path to a JSON file in `[{"number": N, "key": "K"}]` shape, read instead of calling `gh project item-list` / `gh issue list --label needs-reshape` in `_reshape_pass`. Keeps T-reshape smoke tests offline. |
-| `MAKATO_LOOP_ALLOW_TODO` | unset | Set to `1` to trigger `promote-ready.sh run --yes` in the pre-poll step before each board poll. Promotes newly-unblocked issues from `Todo`/`Blocked` to `Ready` so the same tick can dispatch them. Default off — omitting the flag means no auto-promotion and no board mutation by this env path. Equivalent to passing `--promote-unblocked` on the CLI. |
-| `MAKATO_PROMOTE_PATH` | (auto-resolved) | Override the path to `promote-ready.sh` for the `_dependency_order` helper and the `--promote-unblocked` pre-poll step. Defaults to `promote-ready.sh` in the same `scripts/` directory as `loop.sh`. Test-only: use a stub binary to control what wave ordering or promotion output the loop sees. |
+> **MANDATORY: Load `references/env-vars.md` when configuring environment overrides, writing tests, or tuning watchdog/reap thresholds.** The reference file is the authoritative table for all `loop.sh`, `loop-fleet.sh`, and `loop-supervisor.sh` variables. Do not duplicate it here.
+
+Key groupings for quick orientation:
+
+- **Dispatch control**: `MAKATO_LOOP_INTERVAL`, `MAKATO_LOOP_STATUS`, `MAKATO_CLAUDE_BIN`, `MAKATO_HALT_FILE`
+- **Watchdog thresholds**: `MAKATO_LOOP_STALL_WARN` (900 s), `MAKATO_LOOP_STALL_KILL` (3600 s), `MAKATO_LOOP_STALL_DISABLE`
+- **Board CAS claim**: `MAKATO_LOOP_CLAIM_ON_DISPATCH` (default `1` — leave enabled in multi-worktree setups)
+- **Reaper**: `MAKATO_LOOP_REAP_ON_POLL`, `MAKATO_LOOP_REAP_INTERVAL` (3600 s), `MAKATO_LOOP_REAP_SPECS`
+- **Escape hatches (debug/test only)**: `MAKATO_LOOP_GATE_DISABLE`, `MAKATO_LOOP_STALL_DISABLE`, `MAKATO_LOOP_DRY_DISPATCH`
+- **Fleet** (`loop-fleet.sh`): `MAKATO_FLEET_WORKERS`, `MAKATO_FLEET_CAS_STRICT`
+- **Supervisor** (`loop-supervisor.sh`): `SUPERVISOR_STALE_SECS`, `MAKATO_SUPERVISOR_DRY_RUN`
+
+State directory anchor: all paths under `.claude/state/` resolve from the repo root obtained via `git rev-parse --show-toplevel`, or from the `MAKATO_LOOP_STATE_DIR` override. Never construct state paths from `pwd`.
 
 ## Smoke tests
 
-`scripts/loop-smoke-tests.sh` covers forty-eight scenarios:
+> **MANDATORY: Load `references/smoke-test-scenarios.md` when writing new tests, debugging a failing scenario, or verifying test coverage against the process steps above.** The reference file is the authoritative enumeration of all 61 scenarios across `loop-smoke-tests.sh`, `loop-fleet-smoke-tests.sh`, and `loop-supervisor-smoke-tests.sh`.
 
-1. `check-halt` exits 0 with no HALT file.
-2. `check-halt` exits 1 with a HALT file.
-3. `dispatch <n> --dry-run` writes and clears `active_workflow`.
-4. `dispatch` refuses (exit 2) while another `active_workflow` is in flight.
-5. `in_flight_issues` skips spec folders with `current_phase: "done"`.
-6. `in_flight_issues` includes spec folders with `current_phase: "implement"`.
-7. `run --once --dry-run` writes the status file and exits without
-   dispatching.
-8. `run --once` exits cleanly when the HALT file is present (no dispatch).
-9. `run --once` with `MAKATO_LOOP_DRY_DISPATCH=1` dispatches the first
-   untracked issue and records `last_dispatch_issue`.
-10. `poll <STATUS>` filters by board Status (items at other Statuses excluded).
-11. `poll` excludes non-Issue content (DraftIssue, PullRequest).
-12. Watchdog stamps `active_workflow.stalled = true` after
-    `MAKATO_LOOP_STALL_WARN` seconds of silence (#164).
-13. Watchdog SIGTERMs the child after `MAKATO_LOOP_STALL_KILL` seconds and
-    the `last_watchdog_kill` snapshot survives the `active_workflow=null`
-    clear (#164).
-14. `MAKATO_LOOP_STALL_DISABLE=1` opts out of the watchdog entirely —
-    no log file, no status stamps (#164).
-15. `run` refuses with exit 3 when a live pidfile exists — the refusing
-    instance does not clobber the pidfile (#172).
-16. `run` reclaims a stale pidfile silently (PID gone) and its EXIT
-    trap cleans up on shutdown (#172).
-17. `startup_audit` records `script_path`, `pid`, `ppid`, `pidfile`, and
-    the CLI arguments (#172).
-18. `run --force` SIGTERMs a live incumbent and takes over the pidfile (#172).
-19. `dispatch` assigns the issue on the real-fork path (assignee + repo
-    threaded through); `--dry-run` does not assign (#33).
-20. `MAKATO_LOOP_ASSIGN_ON_DISPATCH=0` disables the assign step (#33).
-21. `dispatch` derives `KEY`/`BRANCH` from the issue body's `to-issues`
-    provenance and threads the full po-agent input bundle
-    (`ISSUE_NUMBER`/`KEY`/`REPO`/`BRANCH`/`REPO_ROOT`) into the dispatch
-    prompt; falls back to the `specs/<slug>/stories.json` line; degrades
-    to a `WARN` with empty `KEY` when the body has no provenance (#144).
-22. **Board CAS claim (#259, T30).** `dispatch` claims the card when its
-    board Status is still `Ready`, **skips** (exit 0, no spawn, no
-    assign, `active_workflow` cleared) when the Status has moved off
-    `Ready` (a second worktree session already claimed it),
-    `WARN`-proceeds when the Status is unreadable, and records no claim
-    decision when `MAKATO_LOOP_CLAIM_ON_DISPATCH=0`.
-23. **Reaper decision set (#265, T31).** `remove-worktrees --dry-run` flags a
-    landed (merged-PR) clean worktree for removal and skips tracked-dirty,
-    locked, not-landed, and the main checkout.
-24. **Reaper live removal (#265, T32).** A landed, clean worktree is actually
-    removed; tracked-dirty/locked/not-landed worktrees survive; `last_reap`,
-    `last_reap_count`, and `reaped[].landed` are stamped in `loop-status.json`.
-25. **Reaper retained guard (#265, T33).** A worktree whose `workflow-state`
-    has `worktree_retained: true` is skipped even when its PR is merged.
-26. **Reaper opt-out (#265, T34).** `MAKATO_LOOP_REAP_ON_POLL=0` short-circuits
-    the whole pass — no worktrees are walked.
-27. **Reaper throttle (#265, T35).** A second `remove-worktrees` call within
-    `MAKATO_LOOP_REAP_INTERVAL` is a no-op (the `last_reap` stamp gates it).
-28. **Reaper ancestry landed-check (#265, T36).** A branch whose `HEAD` is an
-    ancestor of the base ref is reaped even with **no** merged PR (renamed-head
-    / squash-merge safe); a worktree sitting exactly on the base tip survives.
-29. **Reaper untracked-scratch (#265, T37).** A landed worktree carrying only
-    untracked files is still reaped — untracked scratch does not pin.
-30. **Reaper nested-worktree guard (#265, T38).** Both a worktree that is the
-    parent of a nested worktree and one nested inside another worktree are
-    skipped.
-31. **Auto-seed composition — light seed (Ta, #373).** `_auto_seed_unprepared`
-    dispatches S2 for a `plan-tier:light` candidate, S3 confirms no thin-body,
-    function returns 0.
-32. **Auto-seed composition — thin-body reconciled (Tb, #373).** Light candidate
-    dispatched (S2); S3 detects thin-body → `needs-human-review` applied; function
-    returns 0 (best-effort).
-33. **Auto-seed composition — full-blocked (Tc, #373).** `plan-tier:full` candidate
-    routes to S4 (block recorded), function returns 0.
-34. **Auto-seed composition — untiered-as-full (Td, #373).** Empty `plan_tier`
-    routes to S4 (same as full).
-35. **Auto-seed composition — exclusion-veto (Te, #373).** Candidate carrying an
-    exclusion label is skipped; no seed or block action.
-36. **Auto-seed composition — best-effort on S2 failure (Tf, #373).** S2 dispatch
-    exits 1; WARN is logged; function still returns 0.
-37. **Auto-seed composition — sentinel idempotency (Tg, #373).** S4 detects the
-    block sentinel already present in issue comments and skips re-posting.
-38. **Auto-seed composition — toggle-off (Th, #373).** `MAKATO_LOOP_AUTOSEED_ON_POLL`
-    guard is present in `cmd_run` and protects the `_auto_seed_unprepared` call
-    (structural check — confirms the toggle controls the call site).
-39. **Auto-seed composition — ordering (Ti, #688).** `_promote_labelled_ready || true`
-    is absent from `cmd_run` (removed); `_auto_seed_unprepared` call is still present.
-40. **Auto-seed composition — dependencies veto (Tj, #373).** Candidate with the
-    `dependencies` label is skipped by S1 discovery.
-41. **Auto-seed composition — already-ready (Tk, #688).** Candidate with
-    `status:ready-for-dev` label now appears in candidates (label filter removed; AC-4).
-42. **Orphaned-In-progress reconciliation — orphaned card reconciled (Tl, #368).**
-    Board has issue #600 at `In progress`; no local workflow-state; function records
-    `reconcile #600` in test file and logs the orphaned message.
-43. **Orphaned-In-progress reconciliation — live workflow-state skipped (Tm, #368).**
-    Board has #601 at `In progress`; non-done `workflow-state-601.json` present;
-    #601 is NOT written to the reconcile test file.
-44. **Orphaned-In-progress reconciliation — done workflow-state reconciled (Tn, #368).**
-    Board has #602 at `In progress`; `workflow-state-602.json` with `current_phase: "done"`;
-    treated as orphaned → reconciled.
-45. **Orphaned-In-progress reconciliation — dry-run no mutation (To, #368).**
-    `MAKATO_LOOP_RECONCILE_DRYRUN=1`; board has orphaned #603; reconcile test file stays
-    empty; log contains `would reconcile`.
-46. **Orphaned-In-progress reconciliation — toggle-off no-op (Tp, #368).**
-    `MAKATO_LOOP_RECONCILE_ON_POLL=0`; board has orphaned #604; function returns 0
-    without walking candidates.
-47. **Reshape pass — flag disabled (T-reshape-disabled, #350).** `MAKATO_LOOP_RESHAPE_ENABLED=0`
-    (or unset): `_reshape_pass` returns 0 immediately, no dispatch, no label write.
-48. **Reshape pass — HALT preempts (T-reshape-halt-preempts, #350).** HALT file present:
-    `_reshape_pass` returns 0 without dispatching, honouring the kill-switch.
-49. **Reshape pass — happy path (T-reshape-happy-path, #350).** `reshape_cycles=0`,
-    both dispatches succeed: `needs-reshape` label removed, `reshape_cycles` incremented
-    to 1, `orchestrate.jsonl` records `step:"reshape" status:"ok"`.
-50. **Reshape pass — decompose fails (T-reshape-decompose-fails, #350).** Dispatch exits
-    non-zero: `needs-human-review` applied, `reshape_cycles` unchanged,
-    `orchestrate.jsonl` records `status:"error"`.
-51. **Reshape pass — cycle ceiling (T-reshape-cycle-ceiling, #350).** `reshape_cycles >=
-    MAKATO_MAX_RESHAPE_CYCLES`: `needs-human-review` applied without dispatching.
-52. **Reshape pass — label fallback (T-reshape-label-fallback, #350).** Board poll empty
-    but `MAKATO_LOOP_RESHAPE_OVERRIDE` fixture provides a candidate: dispatch proceeds
-    correctly (tests the fallback discovery path).
-53. **Reshape pass — toggle position (T-reshape-toggle-position, #350).** Structural grep
-    confirms `_reshape_pass` call site appears on an earlier line than `_auto_seed_unprepared`
-    in `cmd_run`, preserving the load-bearing serial invariant.
-54. **Orphan detection — missing created-issues.json (T-orphan-1, #357).** No `created-issues.json`
-    in any specs folder: `_is_orphan_issue` exits 0 (orphan).
-55. **Orphan detection — malformed created-issues.json (T-orphan-2, #357).** Non-JSON file:
-    treated as orphan (D11).
-56. **Orphan detection — zero-byte created-issues.json (T-orphan-3, #357).** Empty file:
-    treated as orphan (D11).
-57. **Orphan detection — referenced issue not orphan (T-orphan-4, #357).** `created-issues.json`
-    contains matching `issue_number`: `_is_orphan_issue` exits 1 (not orphan).
-58. **Orphan with merged PR skipped by tier 1 (T-orphan-5, #357).** Orphan + merged-PR fixture:
-    tier 1 fires, dispatch skipped, `orphan_dispatches` NOT incremented.
-59. **Orphan with no blocking signals proceeds (T-orphan-6, #357).** Orphan + no PR + no in-flight:
-    dispatch proceeds, `orphan_dispatches` increments to 1.
-60. **Orphan counter accumulates (T-orphan-7, #357).** Three orphan dispatches in sequence:
-    `orphan_dispatches == 3` after the run.
-61. **Orphan counter is session-scoped (T-orphan-8, #357).** Pre-existing `orphan_dispatches=5`
-    in status file is reset to 0 at session start; one orphan dispatch brings it to 1.
-
-Run them directly:
+Run all core scenarios:
 
 ```bash
 plugins/makato-orchestrate/scripts/loop-smoke-tests.sh
@@ -953,6 +805,13 @@ plugins/makato-orchestrate/scripts/loop-smoke-tests.sh
 
 The harness uses `MAKATO_LOOP_GH_OVERRIDE` to inject a canned
 `item-list` fixture — fully offline, no GitHub access required.
+
+Fleet and supervisor scenarios have their own harnesses:
+
+```bash
+plugins/makato-orchestrate/scripts/loop-fleet-smoke-tests.sh
+plugins/makato-orchestrate/scripts/loop-supervisor-smoke-tests.sh
+```
 
 ## Fleet mode — N parallel workers (#546)
 

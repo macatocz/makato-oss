@@ -13,7 +13,20 @@ description: >-
   Interactive by default. Use after create-pr when review comments arrive.
 version: "1.6.0"
 argument-hint: "[work-item-key] [--autonomous]"
+allowed-tools: ["Bash", "Read", "Edit", "Write"]
 ---
+
+## Classification Decision Framework
+
+Before executing steps, internalise this decision hierarchy — it governs every non-obvious call:
+
+**Tier assignment precedence (highest to lowest):**
+1. SENSOR-BOT detection — checked first, unconditionally. If the author login matches the bot regex and the body is parseable as `tool:rule:path:line` findings, the tier is locked; no other classifier runs.
+2. STRUCTURAL flag — a MUST-FIX that requires changing the fundamental implementation approach (data model redesign, API contract reversal, algorithm replacement). STRUCTURAL is a modifier on MUST-FIX, not a separate tier. Even a single STRUCTURAL item triggers HALT-003 in autonomous mode.
+3. SHOULD-FIX scope guard — the critical autonomous decision: is *every* file the comment touches already inside the task's diff? If any file is outside `plan.md` `task[].Files[]`, the comment is DEFERRED regardless of how valuable the fix is. This is a hard boundary, not a judgment call.
+4. MUST-FIX vs SHOULD-FIX vs CONSIDER — driven by the classification guide. When in doubt: source heuristic sets the default, comment content overrides it.
+
+**The STRUCTURAL decision is the highest-consequence call in this skill.** When uncertain whether a MUST-FIX is STRUCTURAL, default to STRUCTURAL — a spurious HALT-003 is recoverable; silently implementing a broken architecture compounds debt.
 
 ## When to Use
 
@@ -54,7 +67,7 @@ Run `git branch --show-current` to confirm we are on the story branch. If on `ma
 
 ### Step 1a — Mode detection
 
-Load `@../../AUTONOMOUS-MODE.md` for the activation contract (§ *Activation triggers*) and the per-gate default table. The skill runs in `--interactive` mode by default; autonomous mode opts in per dispatch.
+**MANDATORY: Load `@../../AUTONOMOUS-MODE.md`** at this step and no later — it defines the activation contract (§ *Activation triggers*) and the per-gate default table. Do NOT load it before Step 1a; you do not need it during fetch or workspace setup. Do NOT load it again later in the workflow — it is session-global once loaded here.
 
 In autonomous mode, the Step 1 work-item-key prompt is replaced by:
 - If an argument was passed: use it.
@@ -93,7 +106,7 @@ If there are no unresolved comments: tell the user and stop.
 
 ### Step 4 — Classify each comment
 
-Load `@references/comment-classification-guide.md`. Assign each unresolved comment a tier: **SENSOR-BOT**, **MUST-FIX**, **SHOULD-FIX**, **CONSIDER**, or **OUT-OF-SCOPE**. SENSOR-BOT is checked first. Use the source heuristics and classification rules from the guide; content of the comment overrides the source heuristic.
+**MANDATORY: Load `@references/comment-classification-guide.md`** at this step. Do NOT load it earlier (you need the full comment list from Step 3 to apply the heuristics). Do NOT skip it for "obvious" MUST-FIX items — the guide owns the SENSOR-BOT regex and sub-type enum that Steps 5b and 6a depend on. Assign each unresolved comment a tier: **SENSOR-BOT**, **MUST-FIX**, **SHOULD-FIX**, **CONSIDER**, or **OUT-OF-SCOPE**. SENSOR-BOT is checked first. Use the source heuristics and classification rules from the guide; content of the comment overrides the source heuristic.
 
 **SENSOR-BOT detection (checked before all other tiers):**
 If `comment.author` (login or app name) matches `(?i)(ruff|pyright|bandit|biome|sqlfluff|markdownlint|semgrep|trivy|gitleaks|hyperspace-bot)`:
@@ -386,7 +399,7 @@ gh api repos/{owner}/{repo}/pulls/comments/{comment_id}/replies \
 gh pr review <pr-number> --comment -b "<reply text>"
 ```
 
-**Reply text is rendered from `@../../templates/pr-comment-replies.md`** — one section per classification tier plus three autonomous-only sections (DEFERRED, OUT-OF-SCOPE autonomous, STRUCTURAL). The skill MUST load that file and substitute placeholders (`<commit-sha>`, `<fix-summary>`, `<reason>`, `<follow-up-issue>`, `<comment-summary>`) at render time. Hard-coded prose in this skill is a contract violation (AC5).
+**Reply text is rendered from `@../../templates/pr-comment-replies.md`** — **MANDATORY: load this file at Step 9 and only at Step 9** (earlier loading wastes context; later loading causes unsubstituted placeholder renders). Do NOT load it during Step 5 or Step 6 — the tier decisions happen before rendering. One section per classification tier plus three autonomous-only sections (DEFERRED, OUT-OF-SCOPE autonomous, STRUCTURAL). The skill MUST load that file and substitute placeholders (`<commit-sha>`, `<fix-summary>`, `<reason>`, `<follow-up-issue>`, `<comment-summary>`) at render time. Hard-coded prose in this skill is a contract violation (AC5).
 
 Tier → template section mapping:
 
@@ -416,21 +429,47 @@ shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-address-pr-comment
 
 Tell the user: *"`<N>` comments addressed, `<N>` commits pushed. PR is ready for re-review."*
 
-## Autonomous Execution
+## Anti-patterns
 
-Autonomous mode is activated per `@../../AUTONOMOUS-MODE.md` § *Activation triggers*.
+Each item below captures a failure mode that experience (not documentation) teaches.
 
-In autonomous mode:
+**NEVER implement a fix on `main` or `master`.**
+WHY: `git push` from the main branch overwrites the protected default branch without a PR review. The guard at Step 1 (`git branch --show-current`) catches this, but if skipped — e.g. in a one-off "just fix it" interactive run — the result is unreviewed code on the release branch with no audit trail.
 
-- **Never prompt the user** — work-item-key, classification-approval, and push-fix-confirm gates are bypassed per the rules above.
-- **Auto-apply policy**: MUST-FIX (non-STRUCTURAL) ✓, SHOULD-FIX ✓ (scope-guarded — see AC2 below), CONSIDER ✗, OUT-OF-SCOPE ✗ (but carry-over issue opened — see AC4).
-- **SHOULD-FIX scope guard** (AC2): a SHOULD-FIX is applied only if every file it touches is already inside the task's diff. If not, the comment is marked DEFERRED, the `[DEFERRED]` reply is posted, and the PO-agent is left to decide whether to follow up. See `pr-comment-replies.md` § *SHOULD-FIX (deferred — autonomous-only)*.
-- **STRUCTURAL MUST-FIX → HALT-003** (AC3): post a single summary reply on the PR (template § *STRUCTURAL MUST-FIX*), apply `needs-human-review` to the PR and linked issue, log per-comment and summary `autonomous_bypass` entries with `gate: "structural-must-fix"` / `structural-halt-summary`, then return R1 `status: "failure"` with `data.halt_code: "HALT-003"`. The PO-agent enters its HALT-003 recovery path (see `plugins/makato-orchestrate/halt-conditions.md`).
-- **OUT-OF-SCOPE carry-over** (AC4): for each OUT-OF-SCOPE comment, open a follow-up GitHub Issue via `gh issue create` (label `makato-carry-over`, auto-created if missing), reply with template § *OUT-OF-SCOPE* autonomous variant pointing at the new issue. If `gh issue create` fails, HALT with `HALT-005` and `CARRY_OVER_FAILED: <comment_id>`.
-- **Review-feedback promotion** (Step 5b + Step 6a): after each MUST-FIX fix, write a category lesson via `write-lessons.sh`. After commit+push, check recurrence in `.makato/memory/procedural.jsonl`; on ≥`RECURRENCE_THRESHOLD` occurrences, open a `type:harness` issue with a candidate stanza. Gate `recurring-pattern-check` auto-approves in autonomous mode. `HARNESS_ISSUE_FAILED` is a soft-warn (non-blocking).
-- **Reply templates externalized** (AC5): every reply is rendered from `@../../templates/pr-comment-replies.md`. No reply text is hard-coded in this skill.
-- **Log every bypass** to `build.jsonl` via `shared/build-log.sh` with the `autonomous_bypass` event schema documented in `@../../AUTONOMOUS-MODE.md` (AC1).
-- **Emit an R1 envelope** as the final `json`-fenced block of the skill's output.
+**NEVER implement a SHOULD-FIX that touches files outside the current task diff (autonomous mode).**
+WHY: the scope guard exists because `plan.md Files[]` defines the blast radius that `build-refine` validated. Applying a SHOULD-FIX to an out-of-scope file silently expands the diff, invalidating the diff-reviewer's prior AC verdict and potentially shipping unreviewed changes to unrelated modules.
+
+**NEVER auto-apply a STRUCTURAL MUST-FIX.**
+WHY: STRUCTURAL means the current implementation plan is wrong at the architecture level. Implementing it inline without re-planning creates code that satisfies the reviewer's wording but breaks internal consistency (e.g. implementing an API contract reversal mid-task produces orphaned callers). The correct path — HALT-003 → `/build-refine` re-plan — costs one session but prevents compound debt.
+
+**NEVER post a reply containing an unsubstituted `<placeholder>` token.**
+WHY: the PR reply is the public record of what was done. A `<commit-sha>` or `<follow-up-issue>` placeholder left in the reply provides zero traceability and signals to reviewers that the automation misfired. HALT-005 (`RENDER_FAILED`) is the correct response — it keeps the audit trail honest.
+
+**NEVER open the `makato-carry-over` follow-up issue, then fail to post the reply (or vice versa).**
+WHY: if `gh issue create` fails, the reply template references a URL that does not exist — posting it creates a broken link in the PR thread. The HALT-005 guard on `gh issue create` failure ensures the two operations are atomic: both succeed or neither is visible.
+
+**NEVER write reply text inline in this skill.**
+WHY: reply text lives in `pr-comment-replies.md` so that all skills in the build pipeline produce consistent, reviewable comment language. Inlining prose forks the message surface, making automated reply-detection (e.g. checking whether a comment was already handled) fragile and creating a maintenance split when phrasing is updated.
+
+**NEVER skip the Step 5b lesson write on a resolved MUST-FIX.**
+WHY: `write-lessons.sh` feeds the recurrence counter that Step 6a reads from `procedural.jsonl`. Skipping even one write depresses the count, preventing `RECURRENCE_THRESHOLD=2` from firing and silently deferring harness promotion. The write is unconditional — a best-effort call that logs warn on failure and never blocks.
+
+**NEVER re-read `AUTONOMOUS-MODE.md` mid-workflow after Step 1a.**
+WHY: loading it again mid-step wastes context window and, in a long session, can surface a stale cached version if the file changed between loads. Load once at Step 1a; treat it as session-global.
+
+---
+
+## Autonomous Quick-Reference
+
+| Tier | Step where policy fires | Key constraint |
+|---|---|---|
+| SENSOR-BOT | Step 5 → sensor-fixer dispatch | Parse failure falls through to MUST-FIX |
+| MUST-FIX (non-STRUCTURAL) | Step 6 | Auto-apply; Step 5b lesson always written |
+| SHOULD-FIX | Step 6 | Scope guard: defer if any touched file is outside `plan.md Files[]` |
+| CONSIDER | Step 5 | Skip; deferred reply posted |
+| OUT-OF-SCOPE | Step 6 | Carry-over issue opened via `gh issue create`; HALT-005 if that fails |
+| STRUCTURAL | Step 5a | HALT-003: post-reply → label → log → HALT (order mandatory) |
+| Promotion | Steps 5b + 6a | `write-lessons.sh` → `procedural.jsonl` recurrence check → `type:harness` issue |
 
 ### Return Format (R1, when called as a sub-skill)
 

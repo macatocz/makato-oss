@@ -13,22 +13,26 @@ description: >-
   makato reads the dependency graph back at promotion time. Refuses to
   recommend two issues that share one `specs/` folder at once (shared
   `plan.md` collision, #173). `--dry-run` / `plan` prints the
-  recommendation without touching the board.
+  recommendation without touching the board. `--json` emits machine-readable
+  plan output consumed by `loop`'s `_dependency_order` helper.
 version: "1.2.0"
 argument-hint: "[SLUG] [--dry-run] [--yes] [--json]"
 allowed-tools: Bash(plugins/makato-orchestrate/scripts/promote-ready.sh *) Bash(gh project *) Bash(jq *) Bash(python3 *) Read
+metadata:
+  authors: [makato-orchestrate]
+  last_updated: "2025-11-01"
 ---
 
 ## When to Use
 
-Run from the operator's terminal when a spec has more than a couple of
-issues with **cross-issue dependencies** and you want the board's `Ready`
-column to reflect *what is actually unblocked right now* — not the whole
-backlog. The autonomous `loop` (see the `loop` skill) dispatches board
-`Ready` items strictly **FIFO and single-threaded**; it does not read the
-dependency graph and cannot tell an unblocked issue from one whose upstream
-is still open. `loop`'s own pre-poll bridge (`_promote_labelled_ready`,
-#231) promotes on a *label*, with no dependency awareness at all.
+Run from the operator's terminal (repo root as cwd) when a spec has more than a
+couple of issues with **cross-issue dependencies** and you want the board's
+`Ready` column to reflect *what is actually unblocked right now* — not the whole
+backlog. The autonomous `loop` (see the `loop` skill) dispatches board `Ready`
+items strictly **FIFO and single-threaded**; it does not read the dependency
+graph and cannot tell an unblocked issue from one whose upstream is still open.
+`loop`'s own pre-poll bridge (`_promote_labelled_ready`, #231) promotes on a
+*label*, with no dependency awareness at all.
 
 This skill is the missing dependency-aware layer. Use it:
 
@@ -48,6 +52,9 @@ the board. The board-mutation path (`run --yes`) is only invoked when
 
 ## Prerequisites
 
+- Run all invocations from the **repository root** (`git rev-parse --show-toplevel`).
+  The scripts are called with relative paths (`plugins/makato-orchestrate/scripts/…`);
+  a different cwd silently produces "No such file" errors.
 - `.claude/config.json` → `github_project` is populated (owner, number,
   host, `project_node_id`, `fields.status.{id, options.ready, options.done}`).
   Run `/makato-plan:issue-to-project --init` once per repo first. Same
@@ -138,6 +145,46 @@ Without `SLUG`, every `specs/*/` folder with a `created-issues.json`
       aborts or rolls back the board promotion.
 6. `--dry-run` / `plan` stops after step 4.
 
+## Never Do
+
+**1. Never use `--hostname` with `gh project`.** `gh project item-list` has no
+`--hostname` flag — it silently ignores it and queries the default host instead,
+meaning all reads come from the wrong org/instance. Use `GH_HOST=<host>` as an
+environment prefix on every `gh project` call.
+
+**2. Never treat an off-board or unknown predecessor as Done.** If a
+`blocked_by` issue has no entry in the board snapshot (not yet filed, not
+on the board), its actual status is unknown. Treating it as Done would
+allow dependent issues to promote past an incomplete upstream, corrupting
+wave ordering and causing acceptance-criteria failures at PR time.
+
+**3. Never promote two issues from the same `specs/<slug>/` folder in one
+pass.** Both issues share a single `plan.md` in the main checkout (`#173`
+isolated `workflow-state-<n>.json` but not `plan.md`). Promoting two
+same-folder issues means two concurrent `loop` worktrees will both write
+`plan.md`, clobbering each other. Keep the lowest issue number and defer
+the rest until the first one's PR merges.
+
+**4. Never roll a board card backward (Ready → Todo, or Done → Ready).** The
+board Status is the cross-machine shared lock between `promote-ready`,
+`loop`, and `sync-lifecycle`. Rolling backward during a concurrent `loop`
+claim resets an item that is already being worked, causing a double-dispatch
+race. The forward-only check must run both at plan time and as a TOCTOU
+re-poll compare-and-set immediately before each `item-edit`.
+
+**5. Never silently drop an unfiled `stories.json` blocker.** A `blockedBy`
+sequence that has no corresponding `githubIssue` is an unfiled upstream. If
+it is dropped instead of treated as blocking, the dependent issue gets
+promoted to `Ready` with an unresolved dependency, and the PR that lands
+will merge against an unverified upstream assumption. Always warn and keep
+the dependent blocked until the upstream story is filed.
+
+**6. Never recommend or promote without being in the repo root.** The script
+resolves paths like `plugins/makato-orchestrate/scripts/promote-ready.sh`
+relative to cwd. Running from a subdirectory produces silent "No such file
+or directory" failures — the script exits 127 rather than reporting a graph
+or touching the board, but no error is surfaced to the caller.
+
 ## Parallel-safety constraints (issue #268)
 
 - **Shared `plan.md` collision.** Issues sharing one `specs/<KEY>-<slug>/`
@@ -164,6 +211,16 @@ Without `SLUG`, every `specs/*/` folder with a `created-issues.json`
   but queue *order* is not honored. Promote the next wave only after the
   previous wave's PR merges (flipping its blocker to `Done`), and this
   skill will then surface the newly-unblocked issues.
+
+> **TOCTOU skip recovery** — if one or more items are skipped during a batch
+> promotion run, load the operator recovery reference:
+> `references/operator-recovery.md`.
+>
+> **MANDATORY load trigger:** any TOCTOU skip message printed during `run --yes`,
+> or any question about whether re-running after a partial batch is safe.
+>
+> **Do NOT load** for read-only `plan` / `--dry-run` invocations; those never
+> mutate the board and produce no skips.
 
 ## Environment variables
 

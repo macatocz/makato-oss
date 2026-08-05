@@ -315,8 +315,11 @@ Run this checklist to confirm everything works:
 3. **Tools Available**: In your MCP client, verify these tools appear:
    - `mcp__penpot__execute_code`
    - `mcp__penpot__export_shape`
-   - `mcp__penpot__import_image`
+   - `mcp__penpot__high_level_overview`
    - `mcp__penpot__penpot_api_info`
+
+   > **Note**: `mcp__penpot__import_image` is NOT available in the cloud Penpot MCP (`design.penpot.app`).
+   > It may appear only in a self-hosted local setup. Do not include it in setup verification for cloud.
 
 4. **Test Execution**: Ask your AI assistant to run a simple command:
    > "Use Penpot to get the current page name"

@@ -1,17 +1,12 @@
-# External Library Registry
+# Library Registry
 
 ## Purpose
 
-This file lists external libraries/frameworks that should use **ExternalScout** (via Context7) for live documentation instead of relying on potentially outdated training data.
-
-## When to Use This
-
-**ContextScout** checks this list when:
-1. User asks about a library/framework
-2. No internal context exists in `.opencode/context/development/frameworks/`
-3. Query matches a library name below
-
-**Action**: Recommend **ExternalScout** subagent
+Pre-optimized query patterns and aliases for the 22 libraries covered by this skill.
+When Step 1 (SKILL.md) directs you here, locate the target library and substitute the
+corresponding `+`-joined query string for the matching user intent — do not construct a
+freeform query. Strings are tuned for Context7's term-frequency index; natural-language
+sentences dilute signal by including stop words.
 
 ---
 
@@ -22,14 +17,10 @@ This file lists external libraries/frameworks that should use **ExternalScout** 
 #### Drizzle ORM
 - **Aliases**: `drizzle`, `drizzle-orm`, `drizzle orm`
 - **Docs**: https://orm.drizzle.team/
-- **Context7**: `use context7 for drizzle`
-- **Common topics**: schema organization, migrations, relational queries, transactions, TypeScript types
 
 #### Prisma
 - **Aliases**: `prisma`
 - **Docs**: https://www.prisma.io/docs
-- **Context7**: `use context7 for prisma`
-- **Common topics**: schema, migrations, client, relations, TypeScript
 
 ---
 
@@ -38,20 +29,14 @@ This file lists external libraries/frameworks that should use **ExternalScout** 
 #### Better Auth
 - **Aliases**: `better-auth`, `better auth`, `betterauth`
 - **Docs**: https://www.better-auth.com/docs
-- **Context7**: `use context7 for better-auth`
-- **Common topics**: Next.js integration, Drizzle adapter, social providers, session management, 2FA
 
 #### NextAuth.js
-- **Aliases**: `nextauth`, `next-auth`, `nextauth.js`
-- **Docs**: https://next-auth.js.org/
-- **Context7**: `use context7 for nextauth`
-- **Common topics**: providers, callbacks, sessions, JWT
+- **Aliases**: `nextauth`, `next-auth`, `nextauth.js`, `auth.js`
+- **Docs**: https://authjs.dev/
 
 #### Clerk
 - **Aliases**: `clerk`
 - **Docs**: https://clerk.com/docs
-- **Context7**: `use context7 for clerk`
-- **Common topics**: authentication, user management, organizations
 
 ---
 
@@ -60,32 +45,22 @@ This file lists external libraries/frameworks that should use **ExternalScout** 
 #### Next.js
 - **Aliases**: `nextjs`, `next.js`, `next`
 - **Docs**: https://nextjs.org/docs
-- **Context7**: `use context7 for nextjs`
-- **Common topics**: App Router, Server Actions, Server Components, routing, middleware, API routes
 
 #### React
 - **Aliases**: `react`, `reactjs`, `react.js`
 - **Docs**: https://react.dev/
-- **Context7**: `use context7 for react`
-- **Common topics**: hooks, components, state, effects, context
 
 #### TanStack Query
 - **Aliases**: `tanstack query`, `react query`, `@tanstack/react-query`
 - **Docs**: https://tanstack.com/query/latest
-- **Context7**: `use context7 for tanstack query`
-- **Common topics**: useQuery, useMutation, prefetching, caching, Server Components
 
 #### TanStack Router
 - **Aliases**: `tanstack router`, `@tanstack/react-router`
 - **Docs**: https://tanstack.com/router/latest
-- **Context7**: `use context7 for tanstack router`
-- **Common topics**: routing, type-safe routes, loaders, navigation
 
 #### TanStack Start
 - **Aliases**: `tanstack start`, `@tanstack/start`
 - **Docs**: https://tanstack.com/start/latest
-- **Context7**: `use context7 for tanstack start`
-- **Common topics**: full-stack setup, server functions, file routing
 
 ---
 
@@ -94,20 +69,14 @@ This file lists external libraries/frameworks that should use **ExternalScout** 
 #### Cloudflare Workers
 - **Aliases**: `cloudflare workers`, `cloudflare`, `workers`, `cf workers`
 - **Docs**: https://developers.cloudflare.com/workers
-- **Context7**: `use context7 for cloudflare workers`
-- **Common topics**: routing, KV storage, Durable Objects, bindings, middleware
 
 #### AWS Lambda
-- **Aliases**: `aws lambda`, `lambda`, `aws λ`
+- **Aliases**: `aws lambda`, `lambda`
 - **Docs**: https://docs.aws.amazon.com/lambda
-- **Context7**: `use context7 for aws lambda`
-- **Common topics**: handlers, layers, environment variables, triggers, TypeScript
 
 #### Vercel
 - **Aliases**: `vercel`
 - **Docs**: https://vercel.com/docs
-- **Context7**: `use context7 for vercel`
-- **Common topics**: deployment, environment variables, edge functions, serverless
 
 ---
 
@@ -116,20 +85,14 @@ This file lists external libraries/frameworks that should use **ExternalScout** 
 #### Shadcn/ui
 - **Aliases**: `shadcn`, `shadcn/ui`, `shadcn-ui`
 - **Docs**: https://ui.shadcn.com/
-- **Context7**: `use context7 for shadcn`
-- **Common topics**: components, installation, theming, customization
 
 #### Radix UI
 - **Aliases**: `radix`, `radix ui`, `radix-ui`, `@radix-ui`
 - **Docs**: https://www.radix-ui.com/
-- **Context7**: `use context7 for radix`
-- **Common topics**: primitives, accessibility, composition
 
 #### Tailwind CSS
 - **Aliases**: `tailwind`, `tailwindcss`, `tailwind css`
 - **Docs**: https://tailwindcss.com/docs
-- **Context7**: `use context7 for tailwind`
-- **Common topics**: configuration, utilities, responsive design, dark mode
 
 ---
 
@@ -138,14 +101,10 @@ This file lists external libraries/frameworks that should use **ExternalScout** 
 #### Zustand
 - **Aliases**: `zustand`
 - **Docs**: https://zustand-demo.pmnd.rs/
-- **Context7**: `use context7 for zustand`
-- **Common topics**: store creation, selectors, middleware, TypeScript
 
 #### Jotai
 - **Aliases**: `jotai`
 - **Docs**: https://jotai.org/
-- **Context7**: `use context7 for jotai`
-- **Common topics**: atoms, async atoms, utilities
 
 ---
 
@@ -154,14 +113,10 @@ This file lists external libraries/frameworks that should use **ExternalScout** 
 #### Zod
 - **Aliases**: `zod`
 - **Docs**: https://zod.dev/
-- **Context7**: `use context7 for zod`
-- **Common topics**: schema validation, TypeScript inference, parsing, refinements
 
 #### React Hook Form
 - **Aliases**: `react hook form`, `react-hook-form`, `rhf`
 - **Docs**: https://react-hook-form.com/
-- **Context7**: `use context7 for react hook form`
-- **Common topics**: register, validation, errors, TypeScript
 
 ---
 
@@ -170,33 +125,18 @@ This file lists external libraries/frameworks that should use **ExternalScout** 
 #### Vitest
 - **Aliases**: `vitest`
 - **Docs**: https://vitest.dev/
-- **Context7**: `use context7 for vitest`
-- **Common topics**: configuration, testing, mocking, coverage
 
 #### Playwright
 - **Aliases**: `playwright`
 - **Docs**: https://playwright.dev/
-- **Context7**: `use context7 for playwright`
-- **Common topics**: browser automation, testing, selectors, assertions
-
----
-
-## Detection Patterns
-
-ContextScout and ExternalScout should match queries containing:
-- Library name (case-insensitive)
-- Common variations (e.g., "next.js" vs "nextjs")
-- Package names (e.g., "@tanstack/react-query")
-
-**Examples**:
-- "How do I use **Drizzle** with PostgreSQL?" → Match: Drizzle ORM
-- "Show me **Next.js** App Router setup" → Match: Next.js
-- "**TanStack Query** with Server Components" → Match: TanStack Query
-- "**Better Auth** integration" → Match: Better Auth
 
 ---
 
 ## Query Optimization Patterns
+
+Use the exact query string from the matching row. Each string is `+`-joined to avoid
+stop-word dilution in Context7's TF index. A library's Context7 resolved ID is returned
+by `resolve-library-id`; do not hardcode it.
 
 ### Drizzle ORM
 
@@ -209,6 +149,16 @@ ContextScout and ExternalScout should match queries containing:
 | Transactions | `database+transactions+patterns+TypeScript` |
 | Type safety | `TypeScript+type+inference+schema+types+inferInsert` |
 
+### Prisma
+
+| User Intent | Optimized Query |
+|-------------|-----------------|
+| Setup/datasource | `datasource+generator+schema+provider+TypeScript+configuration` |
+| Migrations | `migrate+dev+deploy+reset+TypeScript+Prisma+CLI` |
+| Client queries | `findUnique+findMany+create+update+delete+where+TypeScript` |
+| Relations | `one+to+many+many+to+many+include+select+relations+schema` |
+| Type inference | `TypeScript+generated+types+namespace+infer+Prisma` |
+
 ### Better Auth
 
 | User Intent | Optimized Query |
@@ -219,6 +169,25 @@ ContextScout and ExternalScout should match queries containing:
 | Social providers | `social+providers+OAuth+GitHub+Google+setup` |
 | Email/password | `email+password+authentication+signup+signin` |
 | Session management | `session+management+cookies+JWT+middleware` |
+
+### NextAuth.js
+
+| User Intent | Optimized Query |
+|-------------|-----------------|
+| Setup | `setup+configuration+providers+Next.js+App+Router+TypeScript` |
+| Providers | `OAuth+providers+GitHub+Google+Credentials+authorize+TypeScript` |
+| Callbacks | `callbacks+session+jwt+signIn+authorized+TypeScript+types` |
+| Database sessions | `database+adapter+Prisma+Drizzle+session+strategy+TypeScript` |
+| Protected routes | `middleware+authorized+callback+protected+routes+TypeScript` |
+
+### Clerk
+
+| User Intent | Optimized Query |
+|-------------|-----------------|
+| Setup/middleware | `clerkMiddleware+matcher+protected+routes+TypeScript+installation` |
+| Server-side auth | `auth+currentUser+clerkClient+server+side+TypeScript` |
+| UI components | `SignIn+SignUp+UserButton+UserProfile+components+TypeScript` |
+| Organizations | `organization+members+roles+permissions+TypeScript` |
 
 ### Next.js
 
@@ -231,6 +200,16 @@ ContextScout and ExternalScout should match queries containing:
 | Middleware | `middleware+authentication+redirects+headers+cookies` |
 | API routes | `API+routes+route+handlers+TypeScript+POST+GET` |
 
+### React
+
+| User Intent | Optimized Query |
+|-------------|-----------------|
+| State/effects | `useState+useEffect+TypeScript+custom+hooks+patterns` |
+| Context | `createContext+useContext+Provider+TypeScript+patterns` |
+| Refs | `useRef+forwardRef+TypeScript+DOM+ref+patterns` |
+| Performance | `memo+useMemo+useCallback+TypeScript+optimization+re-render` |
+| Suspense | `Suspense+ErrorBoundary+lazy+TypeScript+async+patterns` |
+
 ### TanStack Query
 
 | User Intent | Optimized Query |
@@ -240,6 +219,23 @@ ContextScout and ExternalScout should match queries containing:
 | Mutations | `useMutation+optimistic+updates+invalidation+TypeScript` |
 | Prefetching | `prefetchQuery+Server+Components+hydration+Next.js` |
 | Caching | `cache+configuration+staleTime+gcTime+invalidation` |
+
+### TanStack Router
+
+| User Intent | Optimized Query |
+|-------------|-----------------|
+| File-based routing | `createFileRoute+TypeScript+file+based+routing+params` |
+| Links/navigation | `Link+useNavigate+useParams+useSearch+TypeScript` |
+| Loaders | `loader+context+TypeScript+defer+data+fetching` |
+| Type-safe routes | `type+safe+params+search+TypeScript+RouteOptions+strict` |
+
+### TanStack Start
+
+| User Intent | Optimized Query |
+|-------------|-----------------|
+| Server functions | `createServerFn+TypeScript+server+functions+setup` |
+| File routing | `file+based+routing+TypeScript+Route+createFileRoute+server` |
+| Deployment | `deployment+Nitro+Vinxi+TypeScript+adapter+configuration` |
 
 ### Cloudflare Workers
 
@@ -259,32 +255,123 @@ ContextScout and ExternalScout should match queries containing:
 | Layers | `layers+dependencies+shared+code+deployment` |
 | Environment variables | `environment+variables+secrets+configuration+SSM` |
 
+### Vercel
+
+| User Intent | Optimized Query |
+|-------------|-----------------|
+| Deployment config | `vercel+json+configuration+rewrites+redirects+headers` |
+| Edge runtime | `edge+runtime+TypeScript+middleware+functions+configuration` |
+| Environment variables | `environment+variables+preview+production+secrets+CLI` |
+| Storage | `Vercel+KV+Blob+Postgres+TypeScript+configuration` |
+
+### Shadcn/ui
+
+| User Intent | Optimized Query |
+|-------------|-----------------|
+| Installation | `CLI+init+add+components+TypeScript+Next.js+installation` |
+| Components | `Button+Form+Dialog+Sheet+TypeScript+props+variants` |
+| Theming | `CSS+variables+dark+mode+theme+colors+configuration` |
+| Form integration | `Form+useForm+react-hook-form+zod+TypeScript+validation` |
+
+### Radix UI
+
+| User Intent | Optimized Query |
+|-------------|-----------------|
+| Composition | `asChild+composition+TypeScript+primitive+patterns` |
+| Accessibility | `accessibility+ARIA+keyboard+focus+TypeScript` |
+| Dialog/overlay | `Dialog+AlertDialog+Sheet+TypeScript+open+onOpenChange` |
+| Selection | `Select+DropdownMenu+Tooltip+TypeScript+patterns` |
+
+### Tailwind CSS
+
+| User Intent | Optimized Query |
+|-------------|-----------------|
+| Config | `tailwind+config+theme+extend+TypeScript+configuration` |
+| Dark mode | `dark+mode+class+media+configuration+TypeScript` |
+| Responsive | `responsive+breakpoints+sm+md+lg+xl+TypeScript` |
+| Arbitrary values | `arbitrary+values+CSS+variables+TypeScript+customization` |
+
+### Zustand
+
+| User Intent | Optimized Query |
+|-------------|-----------------|
+| Create store | `create+store+set+get+TypeScript+state+actions` |
+| Middleware | `persist+devtools+immer+middleware+TypeScript+configuration` |
+| Selectors | `useStore+selector+TypeScript+shallow+equal+performance` |
+| Slices pattern | `slices+pattern+combine+TypeScript+modular+store` |
+
+### Jotai
+
+| User Intent | Optimized Query |
+|-------------|-----------------|
+| Basic atoms | `atom+useAtom+useAtomValue+useSetAtom+TypeScript` |
+| Derived atoms | `derived+atom+get+TypeScript+computed+patterns` |
+| Async atoms | `async+atom+Suspense+TypeScript+loadable+patterns` |
+| Utilities | `atomWithStorage+atomWithReset+atomFamily+TypeScript` |
+
+### Zod
+
+| User Intent | Optimized Query |
+|-------------|-----------------|
+| Schema definition | `z+object+string+number+TypeScript+schema+infer` |
+| Parsing/errors | `parse+safeParse+TypeScript+error+flatten+format` |
+| Refinements | `refine+superRefine+TypeScript+custom+validation` |
+| Transforms | `transform+preprocess+coerce+TypeScript+pipe` |
+| Discriminated unions | `discriminatedUnion+union+TypeScript+literal+enum` |
+
+### React Hook Form
+
+| User Intent | Optimized Query |
+|-------------|-----------------|
+| Setup | `useForm+register+TypeScript+defaultValues+mode+configuration` |
+| Validation | `resolver+zodResolver+TypeScript+errors+validation` |
+| Controlled inputs | `Controller+useController+TypeScript+controlled+input` |
+| Field arrays | `useFieldArray+TypeScript+dynamic+fields+append+remove` |
+| Submit state | `handleSubmit+TypeScript+formState+isSubmitting+errors` |
+
+### Vitest
+
+| User Intent | Optimized Query |
+|-------------|-----------------|
+| Config | `vitest+config+TypeScript+setupFiles+globals+environment` |
+| Testing patterns | `describe+it+expect+test+TypeScript+assertions` |
+| Mocking | `vi+mock+fn+spyOn+TypeScript+module+hoisting` |
+| Coverage | `coverage+v8+istanbul+thresholds+TypeScript+configuration` |
+| Snapshots | `snapshot+toMatchSnapshot+TypeScript+inline+update` |
+
+### Playwright
+
+| User Intent | Optimized Query |
+|-------------|-----------------|
+| Config | `playwright+config+TypeScript+browsers+baseURL+reporter` |
+| Locators | `getByRole+getByText+getByLabel+locator+TypeScript` |
+| Assertions | `expect+toBeVisible+toHaveText+toHaveURL+TypeScript` |
+| Page objects | `page+object+model+TypeScript+fixtures+patterns` |
+| API testing | `APIRequestContext+request+TypeScript+response+assertions` |
+
 ---
 
 ## Adding New Libraries
 
-To add a new library:
-1. Add entry under appropriate category
-2. Include: Name, aliases, docs link, Context7 command, common topics
-3. (Optional) Add query optimization patterns
-4. Update ExternalScout if needed (usually automatic)
+To add a library:
+1. Add an entry under the appropriate category (name + aliases + docs link)
+2. Add a "Query Optimization Patterns" table using `+`-joined nouns for each common intent
+3. Add the library name and its aliases to the SKILL.md Step 1 MANDATORY trigger list
+4. Bump SKILL.md version (minor)
 
 **Template**:
 ```markdown
 #### Library Name
 - **Aliases**: `alias1`, `alias2`, `package-name`
 - **Docs**: https://example.com/docs
-- **Context7**: `use context7 for library-name`
-- **Common topics**: topic1, topic2, topic3
 ```
 
----
+Then in the Query Optimization section:
+```markdown
+### Library Name
 
-## Usage by ExternalScout
-
-ExternalScout uses this file to:
-1. **Detect** which library the user is asking about
-2. **Load** query optimization patterns for that library
-3. **Build** optimized Context7 queries
-4. **Fetch** live documentation
-5. **Return** filtered, relevant results
+| User Intent | Optimized Query |
+|-------------|-----------------|
+| Setup | `term1+term2+term3+TypeScript` |
+| Core API | `specific+api+method+TypeScript+patterns` |
+```

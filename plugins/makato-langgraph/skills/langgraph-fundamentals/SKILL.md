@@ -1,43 +1,48 @@
 ---
 name: langgraph-fundamentals
-description: "INVOKE THIS SKILL when writing ANY LangGraph code. Covers StateGraph, state schemas (TypedDict/dataclass/Pydantic), reducers, nodes, edges, Command, Send, parallel execution, map-reduce, message trimming, invoke, streaming, and error handling. Python-only"
-version: "1.0.1"
+description: >-
+  INVOKE THIS SKILL when writing ANY LangGraph code — StateGraph, reducers,
+  nodes, edges, Command, Send, parallel execution, map-reduce, message
+  trimming, invoke, streaming, or error handling. Python-only. Trigger keywords:
+  StateGraph, reducer, Annotated state, add_node, add_edge, Command, Send,
+  fan-out, fan-in, interrupt, compile.
+version: "1.2.0"
+argument-hint: "what LangGraph task are you working on?"
+metadata:
+  authors: ["makato-langgraph"]
+  last_updated: "2026-08-05"
 ---
-<overview>
-LangGraph models agent workflows as **directed graphs**:
 
-- **StateGraph**: Main class for building stateful graphs
-- **Nodes**: Functions that perform work and update state
-- **Edges**: Define execution order (static or conditional)
-- **START/END**: Special nodes marking entry and exit points
-- **State with Reducers**: Control how state updates are merged
+## LangGraph Design Framework
 
-Graphs must be `compile()`d before execution.
-</overview>
+Answer these questions in order before writing any code — each answer constrains the next.
 
-<design-methodology>
+**1. State schema — which type?**
 
-### Designing a LangGraph application
+| Condition | Schema |
+|---|---|
+| Messages only | `MessagesState` (built-in; `add_messages` reducer already included) |
+| Typed data, no defaults, no validation | `TypedDict` (most common; `total=False` for optional fields) |
+| Typed data with field defaults or `__post_init__` logic | `dataclass` (`field(default_factory=...)`) |
+| Runtime validation, strict contracts, or external-input coercion | `Pydantic BaseModel` (costs: `arbitrary_types_allowed=True` required for LangChain types; validators re-run on every partial update) |
 
-Follow these 5 steps when building a new graph:
+**2. Which fields need reducers?**
+- Any field written by ≥2 nodes (parallel static edges OR `Send` workers) → `Annotated[T, reducer]`
+- Fields written only in sequence → default overwrite is correct; no reducer needed
 
-1. **Map out discrete steps** — sketch a flowchart of your workflow. Each step becomes a node.
-2. **Identify what each step does** — categorize nodes: LLM step, data step, action step, or user input step. For each, determine static context (prompt), dynamic context (from state), retry strategy, and desired outcome.
-3. **Design your state** — state is shared memory for all nodes. Store raw data, format prompts on-demand inside nodes.
-4. **Build your nodes** — implement each step as a function that takes state and returns partial updates.
-5. **Wire it together** — connect nodes with edges, add conditional routing, compile with a checkpointer if needed.
+**3. How many nodes?**
+- One distinct responsibility → one node; do not split for structure alone
+- Multiple LLM calls or tool calls → one node each (enables per-node `RetryPolicy`, per-node streaming, per-node observability)
 
-</design-methodology>
+**4. Routing type?**
+- Same next node always → `add_edge()` (compile-time static)
+- Branch at runtime on state → `add_conditional_edges()` with router returning `Literal` node name(s)
+- Update state AND route in one return → `Command` (eliminates the separate router function)
+- Parallel workers with distinct per-worker inputs → `Send` (not static fan-out — each worker gets its own state snapshot)
 
-<when-to-use-langgraph>
-
-| Use LangGraph When                                 | Use Alternatives When                          |
-| -------------------------------------------------- | ---------------------------------------------- |
-| Need fine-grained control over agent orchestration | Quick prototyping → LangChain agents          |
-| Building complex workflows with branching/loops    | Simple stateless workflows → LangChain direct |
-| Require human-in-the-loop, persistence             | Batteries-included features → Deep Agents     |
-
-</when-to-use-langgraph>
+**5. Fan-in aggregation?**
+- Workers produce partial results → reducer on the aggregation field + synthesizer node after workers
+- Workers only cause side effects → no aggregation needed; no synthesizer required
 
 ---
 
@@ -45,89 +50,86 @@ Follow these 5 steps when building a new graph:
 
 <state-update-strategies>
 
-| Need            | Solution                        | Example                     |
-| --------------- | ------------------------------- | --------------------------- |
-| Overwrite value | No reducer (default)            | Simple fields like counters |
-| Append to list  | Reducer (operator.add / concat) | Message history, logs       |
-| Custom logic    | Custom reducer function         | Complex merging             |
+| Need            | Solution                         | Example                     |
+|-----------------|----------------------------------|-----------------------------|
+| Overwrite value | No reducer (default)             | Simple fields like counters |
+| Append to list  | Reducer (`operator.add`)         | Message history, logs       |
+| Custom logic    | Custom reducer function          | Per-key metric aggregation  |
 
 </state-update-strategies>
 
 <ex-state-with-reducer>
-<python>
-Define state schema with reducers for accumulating lists and summing integers.
+
 ```python
 from typing_extensions import TypedDict, Annotated
 import operator
 
 class State(TypedDict):
-    name: str  # Default: overwrites on update
-    messages: Annotated[list, operator.add]  # Appends to list
-    total: Annotated[int, operator.add]  # Sums integers
-
+    name: str                                 # Default: overwrites on update
+    messages: Annotated[list, operator.add]   # Appends to list
+    total: Annotated[int, operator.add]       # Sums integers
 ```
-</python>
+
 </ex-state-with-reducer>
 
 <fix-forgot-reducer-for-list>
-<python>
-Without a reducer, returning a list overwrites previous values.
+
 ```python
-# WRONG: List will be OVERWRITTEN
+# WRONG: List will be OVERWRITTEN — data silently lost, no error raised
 class State(TypedDict):
     messages: list  # No reducer!
 
 # Node 1 returns: {"messages": ["A"]}
 # Node 2 returns: {"messages": ["B"]}
-# Final: {"messages": ["B"]}  # "A" is LOST!
+# Final: {"messages": ["B"]}  # "A" is LOST — silent data loss
 
-# CORRECT: Use Annotated with operator.add
-from typing import Annotated
-import operator
-
+# CORRECT
 class State(TypedDict):
     messages: Annotated[list, operator.add]
 # Final: {"messages": ["A", "B"]}
 ```
 
-</python>
 </fix-forgot-reducer-for-list>
 
+<fix-parallel-no-reducer>
+
+```python
+# WRONG: Two parallel nodes both write to "items" — runtime ERROR
+class State(TypedDict):
+    items: list  # No reducer!
+
+graph.add_edge(START, "task_a")  # task_a returns {"items": ["A"]}
+graph.add_edge(START, "task_b")  # task_b returns {"items": ["B"]}
+# ERROR: Cannot resolve conflicting updates!
+
+# CORRECT: Add a reducer
+class State(TypedDict):
+    items: Annotated[list, operator.add]
+```
+
+</fix-parallel-no-reducer>
+
 <fix-state-must-return-dict>
-<python>
-Nodes must return partial updates, not mutate and return full state.
+
 ```python
 # WRONG: Returning entire state object
 def my_node(state: State) -> State:
     state["field"] = "updated"
-    return state  # Don't mutate and return!
+    return state  # Mutates and returns — causes unexpected behaviour
 
 # CORRECT: Return dict with only the updates
-
 def my_node(state: State) -> dict:
     return {"field": "updated"}
-
 ```
-</python>
+
 </fix-state-must-return-dict>
 
 ---
 
-## State Schema Choices
-
-<state-schema-selection>
-
-| Schema Type | Runtime Validation | Defaults | Best For |
-|------------|-------------------|----------|----------|
-| `TypedDict` | No | No (use `total=False`) | Lightweight state, most common |
-| `dataclass` | No | Yes (`__post_init__`) | Structured data with defaults |
-| `Pydantic BaseModel` | Yes (`field_validator`) | Yes | Input validation, strict contracts |
-
-</state-schema-selection>
+## State Schema Examples
 
 <ex-state-schema-typeddict>
-<python>
-TypedDict state — lightest, no runtime validation. Use `total=False` for optional fields.
+
 ```python
 from typing import Any, Literal, TypedDict
 
@@ -139,12 +141,27 @@ class State(TypedDict, total=False):
     result: dict[str, Any]
 ```
 
-</python>
 </ex-state-schema-typeddict>
 
+<ex-state-schema-dataclass>
+
+```python
+from dataclasses import dataclass, field
+from typing_extensions import Annotated
+import operator
+
+@dataclass
+class State:
+    name: str = ""
+    messages: Annotated[list, operator.add] = field(default_factory=list)
+    count: int = 0
+    # Annotated reducers work on dataclass fields exactly as with TypedDict
+```
+
+</ex-state-schema-dataclass>
+
 <ex-state-schema-pydantic>
-<python>
-Pydantic state — validates at runtime with field validators.
+
 ```python
 from typing import Any, Literal
 from pydantic import BaseModel, field_validator
@@ -154,7 +171,6 @@ class State(BaseModel):
     age: int = 0
     mood: Literal["happy", "sad", "excited"] = "happy"
     interests: list[str] = []
-    result: dict[str, Any] = {}
 
     @field_validator("age")
     @classmethod
@@ -162,15 +178,14 @@ class State(BaseModel):
         if value < 0 or value > 150:
             raise ValueError("Age must be between 0 and 150")
         return value
-
 ```
-</python>
+
 </ex-state-schema-pydantic>
 
 <fix-pydantic-arbitrary-types>
-<python>
-Pydantic state with LangChain message types requires extra config.
+
 ```python
+# Pydantic state with LangChain message types requires extra config
 from pydantic import ConfigDict
 
 class State(BaseModel):
@@ -178,69 +193,21 @@ class State(BaseModel):
     messages: list[BaseMessage]  # LangChain types need arbitrary_types_allowed
 ```
 
-</python>
+Without `arbitrary_types_allowed=True`, Pydantic raises a validation error at class definition time when it encounters non-standard types like `BaseMessage` — the graph never compiles.
+
 </fix-pydantic-arbitrary-types>
-
----
-
-## State Reducers
-
-<ex-custom-reducer>
-<python>
-Custom reducer that aggregates numeric metrics from parallel nodes.
-```python
-from typing import Annotated
-
-def metrics_aggregator(left: dict[str, int], right: dict[str, int]) -> dict[str, int]:
-    """Sum matching keys from parallel metric collectors."""
-    result = (left or {}).copy()
-    for key, value in (right or {}).items():
-        result[key] = result.get(key, 0) + value
-    return result
-
-class AnalysisState(TypedDict):
-    metrics: Annotated[dict[str, int], metrics_aggregator]
-    summary: str
-
-```
-</python>
-</ex-custom-reducer>
-
-<fix-parallel-no-reducer>
-<python>
-Parallel nodes writing to the same key without a reducer causes an error.
-```python
-# WRONG: Two parallel nodes both write to "items" with no reducer
-class State(TypedDict):
-    items: list  # No reducer!
-
-graph.add_edge(START, "task_a")  # task_a returns {"items": ["A"]}
-graph.add_edge(START, "task_b")  # task_b returns {"items": ["B"]}
-# ERROR: Cannot resolve conflicting updates!
-
-# CORRECT: Add a reducer
-class State(TypedDict):
-    items: Annotated[list, operator.add]  # Now parallel writes merge correctly
-```
-
-</python>
-</fix-parallel-no-reducer>
 
 ---
 
 ## Nodes
 
-<node-function-signatures>
+Node functions accept these signatures:
 
-Node functions accept these arguments:
-
-<python>
-
-| Signature                                             | When to Use                                   |
-| ----------------------------------------------------- | --------------------------------------------- |
-| `def node(state: State)`                            | Simple nodes that only need state             |
-| `def node(state: State, config: RunnableConfig)`    | Need thread_id, tags, or configurable values  |
-| `def node(state: State, runtime: Runtime[Context])` | Need runtime context, store, or stream_writer |
+| Signature                                              | When to Use                                    |
+|--------------------------------------------------------|------------------------------------------------|
+| `def node(state: State)`                               | Simple nodes that only need state              |
+| `def node(state: State, config: RunnableConfig)`       | Need `thread_id`, tags, or configurable values |
+| `def node(state: State, runtime: Runtime[Context])`    | Need runtime context, store, or stream writer  |
 
 ```python
 from langchain_core.runnables import RunnableConfig
@@ -258,147 +225,41 @@ def node_with_runtime(state: State, runtime: Runtime[Context]):
     return {"results": f"User: {user_id}"}
 ```
 
-</python>
-
-</node-function-signatures>
-
 ---
 
 ## Edges
 
-<edge-type-selection>
-
-| Need                      | Edge Type                   | When to Use                             |
-| ------------------------- | --------------------------- | --------------------------------------- |
-| Always go to same node    | `add_edge()`              | Fixed, deterministic flow               |
-| Route based on state      | `add_conditional_edges()` | Dynamic branching                       |
-| Update state AND route    | `Command`                 | Combine logic in single node            |
-| Fan-out to multiple nodes | `Send`                    | Parallel processing with dynamic inputs |
-
-</edge-type-selection>
-
-<ex-basic-graph>
-<python>
-Simple two-node graph with linear edges.
-```python
-from langgraph.graph import StateGraph, START, END
-from typing_extensions import TypedDict
-
-class State(TypedDict):
-    input: str
-    output: str
-
-def process_input(state: State) -> dict:
-    return {"output": f"Processed: {state['input']}"}
-
-def finalize(state: State) -> dict:
-    return {"output": state["output"].upper()}
-
-graph = (
-    StateGraph(State)
-    .add_node("process", process_input)
-    .add_node("finalize", finalize)
-    .add_edge(START, "process")
-    .add_edge("process", "finalize")
-    .add_edge("finalize", END)
-    .compile()
-)
-
-result = graph.invoke({"input": "hello"})
-print(result["output"])  # "PROCESSED: HELLO"
-
-```
-</python>
-</ex-basic-graph>
-
-<ex-conditional-edges>
-<python>
-Route to different nodes based on state with conditional edges.
-```python
-from typing import Literal
-from langgraph.graph import StateGraph, START, END
-
-class State(TypedDict):
-    query: str
-    route: str
-    result: str
-
-def classify(state: State) -> dict:
-    if "weather" in state["query"].lower():
-        return {"route": "weather"}
-    return {"route": "general"}
-
-def route_query(state: State) -> Literal["weather", "general"]:
-    return state["route"]
-
-graph = (
-    StateGraph(State)
-    .add_node("classify", classify)
-    .add_node("weather", lambda s: {"result": "Sunny, 72F"})
-    .add_node("general", lambda s: {"result": "General response"})
-    .add_edge(START, "classify")
-    .add_conditional_edges("classify", route_query, ["weather", "general"])
-    .add_edge("weather", END)
-    .add_edge("general", END)
-    .compile()
-)
-```
-
-</python>
-</ex-conditional-edges>
+| Need                       | Edge Type                    | When to Use                              |
+|----------------------------|------------------------------|------------------------------------------|
+| Always go to same node     | `add_edge()`                 | Fixed, deterministic flow                |
+| Route based on state       | `add_conditional_edges()`    | Dynamic branching                        |
+| Update state AND route     | `Command`                    | Combine logic + routing in a single node |
+| Fan-out to multiple nodes  | `Send`                       | Parallel with dynamic per-worker inputs  |
 
 ---
 
 ## Command
 
-Command combines state updates and routing in a single return value. Fields:
+`Command` combines state updates and routing in a single return value.
 
-- **`update`**: State updates to apply (like returning a dict from a node)
+- **`update`**: State updates to apply (same as returning a dict from a node)
 - **`goto`**: Node name(s) to navigate to next
-- **`resume`**: Value to resume after `interrupt()` — see human-in-the-loop skill
+- **`resume`**: Value to resume after `interrupt()` — see `langgraph-human-in-the-loop`
 
-<ex-command-state-and-routing>
-<python>
-Command lets you update state AND choose next node in one return.
 ```python
 from langgraph.types import Command
 from typing import Literal
 
-class State(TypedDict):
-    count: int
-    result: str
-
 def node_a(state: State) -> Command[Literal["node_b", "node_c"]]:
-    """Update state AND decide next node in one return."""
     new_count = state["count"] + 1
     if new_count > 5:
         return Command(update={"count": new_count}, goto="node_c")
     return Command(update={"count": new_count}, goto="node_b")
-
-graph = (
-    StateGraph(State)
-    .add_node("node_a", node_a)
-    .add_node("node_b", lambda s: {"result": "B"})
-    .add_node("node_c", lambda s: {"result": "C"})
-    .add_edge(START, "node_a")
-    .add_edge("node_b", END)
-    .add_edge("node_c", END)
-    .compile()
-)
-
 ```
-</python>
-</ex-command-state-and-routing>
-
-<command-return-type-annotations>
-
-**Python**: Use `Command[Literal["node_a", "node_b"]]` as the return type annotation to declare valid goto destinations.
-
-</command-return-type-annotations>
 
 <warning-command-static-edges>
 
-**Warning**: `Command` only adds **dynamic** edges — static edges defined with `add_edge` still execute. If `node_a` returns `Command(goto="node_c")` and you also have `graph.add_edge("node_a", "node_b")`, **both** `node_b` and `node_c` will run.
+**Critical**: `Command` only adds **dynamic** edges. Static edges from `add_edge()` still execute unconditionally. If `node_a` returns `Command(goto="node_c")` and you also have `graph.add_edge("node_a", "node_b")`, **both** `node_b` and `node_c` run — this is not a routing choice, it is additive fan-out.
 
 </warning-command-static-edges>
 
@@ -406,11 +267,8 @@ graph = (
 
 ## Send API
 
-Fan-out with `Send`: return `[Send("worker", {...})]` from a conditional edge to spawn parallel workers. Requires a reducer on the results field.
+Fan-out with `Send`: return `[Send("worker", {...})]` from a conditional edge to spawn parallel workers with per-worker state. Requires a reducer on the results field — without one, the last worker's write overwrites all others (no error raised).
 
-<ex-orchestrator-worker>
-<python>
-Fan out tasks to parallel workers using the Send API and aggregate results.
 ```python
 from langgraph.types import Send
 from typing import Annotated
@@ -418,11 +276,10 @@ import operator
 
 class OrchestratorState(TypedDict):
     tasks: list[str]
-    results: Annotated[list, operator.add]
+    results: Annotated[list, operator.add]  # reducer required
     summary: str
 
 def orchestrator(state: OrchestratorState):
-    """Fan out tasks to workers."""
     return [Send("worker", {"task": task}) for task in state["tasks"]]
 
 def worker(state: dict) -> dict:
@@ -440,55 +297,27 @@ graph = (
     .add_edge("synthesize", END)
     .compile()
 )
-
-result = graph.invoke({"tasks": ["Task A", "Task B", "Task C"]})
 ```
-
-</python>
-</ex-orchestrator-worker>
-
-<fix-send-accumulator>
-<python>
-Use a reducer to accumulate parallel worker results (otherwise last worker overwrites).
-```python
-# WRONG: No reducer - last worker overwrites
-class State(TypedDict):
-    results: list
-
-# CORRECT
-
-class State(TypedDict):
-    results: Annotated[list, operator.add]  # Accumulates
-
-```
-</python>
-</fix-send-accumulator>
 
 ---
 
 ## Message Trimming
 
-Long conversations can exceed LLM context limits. Trim messages before invoking the LLM inside your node.
+Long conversations exceed LLM context limits. Trim inside the node before invoking the LLM.
 
-<message-trimming-strategies>
+| Strategy     | How It Works                                  | Best For                              |
+|--------------|-----------------------------------------------|---------------------------------------|
+| Count-based  | Keep last N messages                          | Simple limit enforcement              |
+| Token-based  | Estimate tokens, trim to budget               | Cost management                       |
+| Smart        | Preserve system + early context + recent msgs | Context-sensitive conversations       |
+| Summary-based| LLM summarizes old messages, keep recent      | Long sessions with critical early ctx |
 
-| Strategy | How It Works | Best For |
-|----------|-------------|----------|
-| Count-based | Keep last N messages | Simple limit enforcement |
-| Token-based | Estimate tokens, trim to budget | Cost management |
-| Smart | Preserve system + early context + recent | Context-sensitive conversations |
-| Summary-based | LLM summarizes old messages, keep recent | Long sessions with important early context |
+**Forcing function**: start with count-based; escalate to token-based only when cost of over-inclusion is measurable; escalate to summary-based only when early context is causally required (user-stated goals or system instructions embedded in conversation history).
 
-</message-trimming-strategies>
-
-<ex-message-trimming>
-<python>
-Count-based trimming that always preserves SystemMessages.
 ```python
 from langchain_core.messages import BaseMessage, SystemMessage
 
 def trim_messages_by_count(messages: list[BaseMessage], max_messages: int = 10) -> list[BaseMessage]:
-    """Keep system messages and the most recent N non-system messages."""
     if len(messages) <= max_messages:
         return messages
     system_msgs = [m for m in messages if isinstance(m, SystemMessage)]
@@ -496,336 +325,103 @@ def trim_messages_by_count(messages: list[BaseMessage], max_messages: int = 10) 
     recent = other_msgs[-(max_messages - len(system_msgs)):]
     return system_msgs + recent
 
-# Use inside a node
 def chat_node(state: MessagesState):
     trimmed = trim_messages_by_count(state["messages"], max_messages=8)
     response = llm.invoke(trimmed)
     return {"messages": [response]}
 ```
 
-</python>
-</ex-message-trimming>
-
 <fix-preserve-system-message>
-<python>
-Always preserve SystemMessage when trimming — it contains critical instructions.
+
 ```python
-# WRONG: Naive slicing drops the system message
-trimmed = messages[-10:]  # System message at index 0 is lost!
+# WRONG: Naive slicing silently drops the SystemMessage
+trimmed = messages[-10:]  # System message at index 0 is gone
 
-# CORRECT: Separate and preserve system messages
-
+# CORRECT: Separate before slicing
 system_msgs = [m for m in messages if isinstance(m, SystemMessage)]
 other_msgs = [m for m in messages if not isinstance(m, SystemMessage)]
 trimmed = system_msgs + other_msgs[-8:]
-
 ```
-</python>
+
 </fix-preserve-system-message>
 
 ---
 
-## Parallel Execution (Fan-out / Fan-in)
+## Anti-Patterns
 
-Multiple edges from the same source node cause all targets to execute in the same superstep (parallel). All must complete before the next superstep begins.
+A dedicated list of non-obvious failures — each with the exact WHY that experience teaches.
 
-<ex-parallel-fanout>
-<python>
-Three parallel research nodes fan out from START, fan in to a synthesizer.
-```python
-import operator
-from typing import Annotated, TypedDict
-from langgraph.graph import StateGraph, START, END
+**NEVER return the full state object from a node.**
+WHY: LangGraph applies the return value as a partial update dict. Returning the full state object causes every field to be "updated" (triggering all reducers), and on Pydantic state it re-runs field validators on unchanged data — silent validator side-effects and corrupted reducer state.
 
-class ResearchState(TypedDict):
-    query: str
-    stock_data: Annotated[list, operator.add]
-    news_data: Annotated[list, operator.add]
-    info_data: Annotated[list, operator.add]
-    report: str
+**NEVER use `Command` goto together with a static `add_edge()` from the same source unless you intend both to execute.**
+WHY: `Command.goto` does not replace static edges — it is additive. The static edge fan-out runs regardless, so `node_b` and `node_c` both execute. This looks like a routing bug but is correct LangGraph semantics; the only fix is to remove the static edge.
 
-def get_stock(state: ResearchState) -> dict:
-    return {"stock_data": [f"Price for {state['query']}: $150.00"]}
+**NEVER define a list field receiving parallel writes without a reducer.**
+WHY: For parallel fan-out (static edges), LangGraph raises an explicit conflict error. For `Send` fan-out, no error is raised — the last worker to finish silently overwrites all earlier results. Silent data loss is harder to detect than the error case.
 
-def get_news(state: ResearchState) -> dict:
-    return {"news_data": [f"Latest news for {state['query']}"]}
+**NEVER apply `RetryPolicy` to non-idempotent side-effecting nodes.**
+WHY: `RetryPolicy` restores LangGraph state to the pre-node snapshot but does NOT undo external side effects (database writes, API calls, emails). Retrying a non-idempotent node duplicates those side effects on every retry attempt.
 
-def get_info(state: ResearchState) -> dict:
-    return {"info_data": [f"Company info for {state['query']}"]}
+**NEVER route back to `START`.**
+WHY: `START` is a virtual entry node injected by LangGraph at compile time — it has no actual function. Routing to it does not re-enter the graph from the beginning; it raises a compile-time or runtime error. Use a named entry node instead.
 
-def synthesize(state: ResearchState) -> dict:
-    all_data = state["stock_data"] + state["news_data"] + state["info_data"]
-    return {"report": f"Report with {len(all_data)} data points"}
+**NEVER use a custom reducer that does not handle `None` as the left argument.**
+WHY: When a reducer field has not yet received any value (first write), LangGraph passes `None` as the `left` argument. A reducer that does `left.copy()` without guarding raises `AttributeError` the first time the field is written.
 
-builder = StateGraph(ResearchState)
-builder.add_node("stock", get_stock)
-builder.add_node("news", get_news)
-builder.add_node("info", get_info)
-builder.add_node("synthesize", synthesize)
-
-# Fan-out: START to all three (parallel)
-builder.add_edge(START, "stock")
-builder.add_edge(START, "news")
-builder.add_edge(START, "info")
-
-# Fan-in: all three to synthesizer
-builder.add_edge("stock", "synthesize")
-builder.add_edge("news", "synthesize")
-builder.add_edge("info", "synthesize")
-builder.add_edge("synthesize", END)
-
-graph = builder.compile()
-```
-
-</python>
-</ex-parallel-fanout>
-
----
-
-## Map-Reduce Pattern
-
-Fan-out mappers analyze different aspects in parallel, then a single reducer combines results. Uses static edges for a fixed set of mappers or the Send API for dynamic fan-out.
-
-<ex-map-reduce>
-<python>
-Four parallel analysis mappers + one reducer, using static edges.
-```python
-import operator
-from typing import Any, Annotated, TypedDict
-from langgraph.graph import StateGraph, START, END
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage
-
-class AnalysisState(TypedDict):
-    code: str
-    security: Annotated[list[dict[str, Any]], operator.add]
-    performance: Annotated[list[dict[str, Any]], operator.add]
-    quality: Annotated[list[dict[str, Any]], operator.add]
-    report: dict[str, Any]
-
-llm = ChatOpenAI(model="gpt-4.1", temperature=0.2)
-
-def security_mapper(state: AnalysisState) -> dict:
-    system = SystemMessage(content="Analyze code for security issues. Return JSON: {\"issues\": [...]}")
-    response = llm.invoke([system, HumanMessage(content=state["code"])])
-    return {"security": [{"aspect": "security", "raw": response.content}]}
-
-def performance_mapper(state: AnalysisState) -> dict:
-    system = SystemMessage(content="Analyze code for performance issues. Return JSON: {\"issues\": [...]}")
-    response = llm.invoke([system, HumanMessage(content=state["code"])])
-    return {"performance": [{"aspect": "performance", "raw": response.content}]}
-
-def quality_mapper(state: AnalysisState) -> dict:
-    system = SystemMessage(content="Analyze code quality (SOLID, readability). Return JSON: {\"issues\": [...]}")
-    response = llm.invoke([system, HumanMessage(content=state["code"])])
-    return {"quality": [{"aspect": "quality", "raw": response.content}]}
-
-def reducer(state: AnalysisState) -> dict:
-    total = len(state["security"]) + len(state["performance"]) + len(state["quality"])
-    return {"report": {"total_aspects_analyzed": total}}
-
-builder = StateGraph(AnalysisState)
-builder.add_node("security", security_mapper)
-builder.add_node("performance", performance_mapper)
-builder.add_node("quality", quality_mapper)
-builder.add_node("reduce", reducer)
-
-builder.add_edge(START, "security")
-builder.add_edge(START, "performance")
-builder.add_edge(START, "quality")
-builder.add_edge("security", "reduce")
-builder.add_edge("performance", "reduce")
-builder.add_edge("quality", "reduce")
-builder.add_edge("reduce", END)
-
-graph = builder.compile()
-
-```
-</python>
-</ex-map-reduce>
-
----
-
-## Running Graphs: Invoke and Stream
-
-<invoke-basics>
-
-Call `graph.invoke(input, config)` to run a graph to completion and return the final state.
-
-<python>
-```python
-result = graph.invoke({"input": "hello"})
-# With config (for persistence, tags, etc.)
-result = graph.invoke({"input": "hello"}, {"configurable": {"thread_id": "1"}})
-```
-
-</python>
-
-</invoke-basics>
-
-<stream-mode-selection>
-
-| Mode         | What it Streams            | Use Case                  |
-| ------------ | -------------------------- | ------------------------- |
-| `values`   | Full state after each step | Monitor complete state    |
-| `updates`  | State deltas               | Track incremental updates |
-| `messages` | LLM tokens + metadata      | Chat UIs                  |
-| `custom`   | User-defined data          | Progress indicators       |
-
-</stream-mode-selection>
-
-<ex-stream-llm-tokens>
-<python>
-Stream LLM tokens in real-time for chat UI display.
-```python
-from langchain_core.messages import HumanMessage
-
-for chunk in graph.stream(
-    {"messages": [HumanMessage("Hello")]},
-    stream_mode="messages"
-):
-    token, metadata = chunk
-    if hasattr(token, "content"):
-        print(token.content, end="", flush=True)
-
-```
-</python>
-</ex-stream-llm-tokens>
-
-<ex-stream-custom-data>
-<python>
-Emit custom progress updates from within nodes using the stream writer.
-```python
-from langgraph.config import get_stream_writer
-
-def my_node(state):
-    writer = get_stream_writer()
-    writer("Processing step 1...")
-    # Do work
-    writer("Complete!")
-    return {"result": "done"}
-
-for chunk in graph.stream({"data": "test"}, stream_mode="custom"):
-    print(chunk)
-```
-
-</python>
-</ex-stream-custom-data>
-
----
-
-## Error Handling
-
-Match the error type to the right handler:
-
-<error-handling-table>
-
-| Error Type                       | Who Fixes | Strategy                                     | Example                               |
-| -------------------------------- | --------- | -------------------------------------------- | ------------------------------------- |
-| Transient (network, rate limits) | System    | `RetryPolicy(max_attempts=3)`              | `add_node(..., retry_policy=...)`   |
-| LLM-recoverable (tool failures)  | LLM       | `ToolNode(tools, handle_tool_errors=True)` | Error returned as ToolMessage         |
-| User-fixable (missing info)      | Human     | `interrupt({"message": ...})`              | Collect missing data (see HITL skill) |
-| Unexpected                       | Developer | Let bubble up                                | `raise`                             |
-
-</error-handling-table>
-
-<ex-retry-policy>
-<python>
-Use RetryPolicy for transient errors (network issues, rate limits).
-```python
-from langgraph.types import RetryPolicy
-
-workflow.add_node(
-    "search_documentation",
-    search_documentation,
-    retry_policy=RetryPolicy(max_attempts=3, initial_interval=1.0)
-)
-
-```
-</python>
-</ex-retry-policy>
-
-<ex-tool-node-error-handling>
-<python>
-Use ToolNode from langgraph.prebuilt to handle tool execution and errors. When handle_tool_errors=True, errors are returned as ToolMessages so the LLM can recover.
-```python
-from langgraph.prebuilt import ToolNode
-
-tool_node = ToolNode(tools, handle_tool_errors=True)
-
-workflow.add_node("tools", tool_node)
-```
-
-</python>
-</ex-tool-node-error-handling>
+**NEVER call `get_stream_writer()` outside a running graph node.**
+WHY: The stream writer is a contextvar injected by the LangGraph runtime — it does not exist outside `graph.stream()`. Calling it in tests or outside a node raises `RuntimeError: No stream writer in context`.
 
 ---
 
 ## Common Fixes
 
-<fix-compile-before-execution>
-<python>
-Must compile() to get executable graph.
 ```python
-# WRONG
-builder.invoke({"input": "test"})  # AttributeError!
-
-# CORRECT
-
+# Must compile() before invoke — builder has no invoke() method
 graph = builder.compile()
-graph.invoke({"input": "test"})
+graph.invoke({"input": "test"})  # CORRECT
 
-```
-</python>
-</fix-compile-before-execution>
-
-<fix-infinite-loop-needs-exit>
-<python>
-Provide conditional path to END to avoid infinite loops.
-```python
-# WRONG: Loops forever
-builder.add_edge("node_a", "node_b")
-builder.add_edge("node_b", "node_a")
-
-# CORRECT
+# Provide an exit path to avoid infinite loops
 def should_continue(state):
     return END if state["count"] > 10 else "node_b"
 builder.add_conditional_edges("node_a", should_continue)
-```
 
-</python>
-</fix-infinite-loop-needs-exit>
-
-<fix-common-mistakes>
-Other common mistakes:
-```python
-# Router must return names of nodes that exist in the graph
+# Router must return node names that exist in the graph
 builder.add_node("my_node", func)  # Add node BEFORE referencing in edges
 builder.add_conditional_edges("node_a", router, ["my_node"])
 
-# Command return type needs Literal for routing destinations (Python)
+# Reducer expects matching element types
+return {"items": ["item"]}   # list for a list reducer — not a bare string
 
+# Command return type annotation declares valid goto targets (Python)
 def node_a(state) -> Command[Literal["node_b", "node_c"]]:
     return Command(goto="node_b")
 
-# START is entry-only — cannot route back to it
-
-builder.add_edge("node_a", START)  # WRONG!
-builder.add_edge("node_a", "entry")  # Use a named entry node instead
-
-# Reducer expects matching types
-
-return {"items": ["item"]}  # List for list reducer, not a string
-
+# Inspect the compiled graph structure — useful when routing is wrong
+print(graph.get_graph().draw_mermaid())  # Mermaid diagram of all nodes + edges
+graph.get_graph().print_ascii()          # Text-mode graph for terminal debugging
 ```
-</fix-common-mistakes>
 
-<boundaries>
-### What You Should NOT Do
+---
 
-- Mutate state directly — always return partial update dicts from nodes
-- Route back to START — it's entry-only; use a named node instead
-- Forget reducers on list fields — without one, last write wins
-- Mix static edges with Command goto without understanding both will execute
-- Use parallel fan-out without reducers on fields receiving concurrent updates
-</boundaries>
+## Reference Files
+
+Load these only when the corresponding task arises. **Do NOT load all references at once.**
+
+### `references/parallel-and-map-reduce.md`
+
+**MANDATORY when**: building fan-out/fan-in graphs, writing a map-reduce pattern, or designing a custom reducer for complex aggregation (e.g., per-key metric summing).
+
+**Do NOT load** for single-path linear graphs or graphs with conditional edges only.
+
+### `references/stream-modes.md`
+
+**MANDATORY when**: implementing token streaming for a chat UI, using `stream_mode="custom"` or `stream_mode="messages"`, or calling `get_stream_writer()` inside a node.
+
+**Do NOT load** when the graph is invoked with `graph.invoke()` only (no streaming).
+
+### `references/error-handling.md`
+
+**MANDATORY when**: attaching `RetryPolicy` to a node, using `ToolNode` with `handle_tool_errors`, or deciding which error type (transient / LLM-recoverable / user-fixable) applies.
+
+**Do NOT load** for graphs with no retry requirements and no tool execution nodes.

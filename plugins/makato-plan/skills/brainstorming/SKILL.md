@@ -1,10 +1,15 @@
 ---
 name: brainstorming
 description: >-
-  Structured divergent-convergent ideation on a feature — brainstorm, explore ideas, creative
-  exploration. Use when starting a new feature that needs ideation before PRD.
-version: "1.2.0"
+  Structured divergent-convergent ideation on a feature — brainstorm, explore ideas, ideate,
+  creative exploration, explore feature angles. Use when starting a new feature that needs
+  ideation before PRD.
+version: "1.3.0"
 model: opus
+allowed-tools: [Bash]
+mcp_server: github
+metadata:
+  last_updated: "2026-08-05"
 ---
 
 # Brainstorming Ideas Into Designs
@@ -25,6 +30,53 @@ grilling and PRD creation.
 - Feature is already well-defined with clear requirements (go straight to PRD)
 - Quick bug fix or small change (no brainstorming needed)
 - Technical refinement of already-shaped stories
+
+---
+
+## Anti-patterns
+
+These are failure modes that only practitioners learn through repeated facilitation errors. Each
+NEVER has a concrete WHY — the non-obvious reason most violators don't discover until it's too late.
+
+**NEVER organize ideas into themes mid-ideation (Step 4).**
+Why: Taxonomizing forces evaluation — the brain switches from generative to analytical mode the
+moment you name a category. Once a user sees "Performance Ideas" and "UX Ideas" on the screen,
+they start fitting new ideas into existing buckets rather than generating orthogonal concepts.
+This collapses the divergence phase prematurely. Clustering belongs in Step 5 only.
+
+**NEVER block on an idea count — use coverage gates, not volume gates.**
+Why: A team can generate 50 variants of "make the button bigger" and zero architectural alternatives.
+Count-based gates create the illusion of thorough exploration while allowing a narrow idea space.
+The convergence gate must verify at least 3 domain perspectives (User/UX, Business/Value,
+Process/Operations, Edge cases/Risks) — not that a magic number was hit.
+
+**NEVER skip rejected-option capture at convergence (Step 6).**
+Why: Six months later a new team member proposes the same approach you rejected. Without documented
+rationale they have no signal it was considered — they re-investigate, re-present, and consume
+planning cycles. The cost of not writing "why we didn't pick X" is repeated re-evaluation of
+the same solution space in every subsequent planning cycle.
+
+**NEVER generate more than 2 ideas in a row as the facilitator.**
+Why: The moment Claude produces a stream of ideas, the user's cognitive posture shifts from
+co-creator to judge. They begin reacting to Claude's ideas rather than generating their own.
+The outcome is a list of Claude's ideas with user stamps — not the user's domain expertise
+expressed as concepts. The facilitator's ideas are invariably lower-quality than the user's
+because Claude lacks operational and business context.
+
+**NEVER write the spec folder path as `pwd`-relative; always anchor to REPO_ROOT.**
+Why: Sub-agents inherit an unpredictable working directory. A `specs/{slug}/` relative path
+that resolves correctly from the user's cwd silently resolves to a different location when the
+doc-writer agent is dispatched. The canonical anchor is:
+```bash
+REPO_ROOT=$(git rev-parse --show-toplevel)
+```
+All artifact paths must be expressed as `$REPO_ROOT/specs/{slug}/...` in agent dispatch prompts.
+
+**NEVER skip the open-questions startup check when `decisions.md` exists (Step 1.3).**
+Why: The parking lot persists open questions across sessions for exactly this reason. Brainstorming
+over a question that is already parked generates ideas that collapse when the unknown resolves.
+Users forget they parked a question; the startup check is the only guard against re-diverging into
+an already-identified unknown.
 
 ---
 
@@ -233,7 +285,7 @@ AskUserQuestion:
 
 ### Step 3: Technique Selection
 
-Load @references/techniques.md
+Load @references/techniques.md — MANDATORY at Step 3 ONLY. Do NOT preload at skill start.
 
 Present selection options:
 
@@ -258,7 +310,9 @@ fine).
 
 ### Step 4: Ideation
 
-Load @references/facilitation-rules.md
+Load @references/facilitation-rules.md — MANDATORY at Step 4 ONLY. Do NOT preload at skill start.
+Load @references/open-questions.md — MANDATORY at Step 4 ONLY when a question needs parking.
+Do NOT load open-questions.md speculatively; load it only when a question surfaces during ideation.
 
 Apply selected techniques one at a time. For each technique:
 
@@ -290,7 +344,8 @@ shift:
 ideas for them.
 
 **Parking questions**: If an unanswerable question surfaces during ideation, park it (note as Q#
-for later persistence to decisions.md). Load @references/open-questions.md for parking rules.
+for later persistence to decisions.md). Use @references/open-questions.md (already loaded above)
+for parking rules.
 
 ---
 
@@ -376,19 +431,25 @@ Tell the user:
 
 ### Step 8: Write Artifacts
 
+Resolve the repo root before dispatching — sub-agents inherit an unpredictable cwd:
+
+```bash
+REPO_ROOT=$(git rev-parse --show-toplevel)
+```
+
 Dispatch the `doc-writer` agent to write the canonical files. Include in the prompt:
 
 - **MODE**: write-artifacts
 - **TEMPLATE_PATHS**: absolute paths to this skill's `templates/brainstorm-template.md` and
   `templates/decisions-template.md`
-- **OUTPUT_PATH**: `specs/{slug}/`
+- **OUTPUT_PATH**: `$REPO_ROOT/specs/{slug}/`
 - **CONTENT**: the full structured brainstorming results (same as Step 7, plus all ideas by
   theme)
 
 Files written:
 
-- `specs/{slug}/brainstorm.md` — all ideas, themes, top concepts
-- `specs/{slug}/decisions.md` — decisions + open questions with Q# IDs
+- `$REPO_ROOT/specs/{slug}/brainstorm.md` — all ideas, themes, top concepts
+- `$REPO_ROOT/specs/{slug}/decisions.md` — decisions + open questions with Q# IDs
 
 ---
 

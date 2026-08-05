@@ -1,8 +1,16 @@
 ---
 name: sync-from-upstream
-description: Use when synchronizing new or updated content from an upstream impact-market repo into the makato repo — applies naming remaps, strips impact-market-specific tooling references, and validates each migrated file against makato conventions before writing.
-version: "1.0.0"
+description: >-
+  Use when synchronizing new or updated content from an upstream impact-market
+  repo into the makato repo — applies naming remaps, strips
+  impact-market-specific tooling references, and validates each migrated file
+  against makato conventions before writing. Trigger keywords: upstream sync,
+  migrate skill, migrate plugin, impact-market, daff-build, daff-shape, daff-cr.
+version: "1.0.1"
 argument-hint: "[upstream-repo-path]"
+allowed-tools: [Bash]
+metadata:
+  last_updated: "2026-08-05"
 ---
 
 # sync-from-upstream
@@ -18,7 +26,7 @@ Migrate skills, agents, and plugin files from an upstream impact-market repo int
 ## When NOT to Use
 
 - makato-specific additions (LangGraph skills, dotx-schema, manage-pdf, manage-microsoft-excel) — these have no upstream equivalent; do not "reverse-sync" them
-- Content that was deliberately diverged (see `@references/deliberate-divergences.md`) — check first
+- Content that was deliberately diverged — check `@references/deliberate-divergences.md` first
 
 ---
 
@@ -28,27 +36,26 @@ Migrate skills, agents, and plugin files from an upstream impact-market repo int
 
 #### Step 1: Confirm Repositories
 
-Ask the user: **"What is the path to the upstream impact-market repository?"** (default: `../impact-market` relative to the makato root).
+Invoke `AskUserQuestion` with:
+- question: "What is the path to the upstream impact-market repository?"
+- options: ["../impact-market (default)", "Specify a custom path"]
 
 Resolve both paths absolutely and verify they exist:
 - Upstream: `<upstream-root>/plugins/`
 - Makato: `<makato-root>/plugins/`
 
+**Error: upstream repo not found** — if the resolved path does not exist or has no `plugins/` subdirectory, halt immediately and report the full path tried. Do not proceed to Step 2.
+
 #### Step 2: Map Upstream Plugins to Makato Plugins
 
-Load `@references/plugin-map.md`.
+> MANDATORY: Load `@references/plugin-map.md` at this step, before mapping any plugin.
+> Do NOT load this reference after Step 3 — plugin mapping is only needed during discovery.
 
-For each upstream plugin directory (`daff-*`), determine its makato counterpart:
+For each upstream plugin directory (`daff-*`), look up its makato counterpart in the loaded plugin-map.
 
-| Upstream | Makato |
-|----------|--------|
-| `daff-build` | `makato-build` |
-| `daff-shape` | `makato-plan` |
-| `daff-cr` | `makato-change` |
-| `daff-core` | `makato-core` |
-| `daff-contribute` | `makato-contribute` |
-
-If the upstream plugin has no mapping entry, ask the user whether to create a new makato plugin or skip.
+If the upstream plugin has no mapping entry, invoke `AskUserQuestion` with:
+- question: "Plugin '<name>' has no makato counterpart. How should it be handled?"
+- options: ["Create a new makato plugin for it", "Skip this plugin"]
 
 #### Step 3: Compute the Sync Delta
 
@@ -76,83 +83,38 @@ MAKATO-ONLY (skip):
   makato-core/skills/manage-pdf
 ```
 
-Present the delta to the user. Ask: **"Proceed with migration planning for these items? (yes / no / select)"**
+**Error: no changes found** — if all files are identical or makato-only, report "No sync needed — upstream is identical to makato for all mapped plugins" and stop.
+
+Present the delta summary, then invoke `AskUserQuestion` with:
+- question: "Proceed with migration planning for these items?"
+- options: ["yes — plan all", "no — abort", "select — I will name specific items to include"]
 
 ---
 
 ### Phase 2: Build Migration Plan
 
+> MANDATORY: Load `@references/deliberate-divergences.md` before planning any file — new or updated. Do NOT skip for new files: a new upstream file may replicate a behavior makato intentionally changed.
+
 #### Step 4: Apply Naming Remaps
 
-For every file scheduled for migration, apply all renames from `@references/naming-map.md`:
+> MANDATORY: Load `@references/naming-map.md` now. Apply every substitution category in that file — brand, tooling, issue-tracking, documentation-platform, internal-tool — to all file content, frontmatter, prose, and code comments.
+> Do NOT load naming-map.md in Phase 1; no substitutions are applied during discovery.
 
-**Brand substitutions (apply everywhere — file content, frontmatter, prose, code comments):**
+**Critical semantic traps** — substitutions that silently corrupt meaning if applied mechanically:
 
-| From | To |
-|------|----|
-| `daff` (as brand) | `makato` |
-| `daff-build` | `makato-build` |
-| `daff-shape` | `makato-plan` |
-| `daff-cr` | `makato-change` |
-| `daff-core` | `makato-core` |
-| `daff-contribute` | `makato-contribute` |
-| `daff-guide` | `makato-guide` |
-| `daff-suite` | `makato-suite` |
-| `daff-skill-creator` | `makato-skill-creator` |
-| `daff-plugin-creator` | `makato-plugin-creator` |
-
-**Do NOT blindly replace the word "daff" in all positions** — apply only when used as a brand/plugin identifier. The word may also appear in variable names or unrelated prose.
-
-**Tooling substitutions:**
-
-| From | To |
-|------|----|
-| `github.tools.sap` | `github.com` |
-| `--hostname github.tools.sap` | *(remove this flag entirely)* |
-| `DCP/<repo>` or `DCP/daff` | `sagibeast/makato` |
-| `DCP AI Team` / `DCP DAFF Team` / `DCP makato Team` | `makato Team` |
-| `DCP/` prefix in issue/PR references | *(remove — use bare repo path)* |
-
-**Issue tracking substitutions:**
-
-| From | To |
-|------|----|
-| `JIRA` / `Jira` / `jira` (as the tool/platform) | `GitHub Issues` |
-| `ITDB-KEY` / `ITDB-1234` / `ITDB key` | `ISSUE-KEY` |
-| `ITDB` (as the issue tracking project) | `GitHub Issues` |
-| `DCP-55800` / `DCP-1234` (as example story keys) | `ISSUE-1234` (use generic format) |
-| `mcp__plugin_daff-core_jira__*` | `gh issue view` / GitHub API |
-| `JIRA_KEY` variable name | `ISSUE_KEY` |
-| Jira MCP tool calls | GitHub `gh` CLI equivalents |
-| `argument-hint: "[JIRA-KEY]"` | `argument-hint: "[ISSUE-KEY]"` |
-
-**Documentation platform substitutions:**
-
-| From | To |
-|------|----|
-| `Confluence` / `confluence` | *(remove — no equivalent in makato)* |
-| `DCPL` (Confluence space) | *(remove)* |
-| "publish to Confluence" | "publish to GitHub" or remove |
-
-**Internal tool substitutions:**
-
-| From | To |
-|------|----|
-| `@DCPAT-` tags | *(remove)* |
-| `PI \| YY/QQ` component | *(keep — planning cadence concept is still valid)* |
-| `github.tools.sap/DCP/makato` (README links) | `github.com/sagibeast/makato` |
+- `impact` as a plain noun ("the impact if wrong", "high-impact change") must **never** become `makato`. Only replace `impact-market` (the org/repo name).
+- `shape` as a verb or generic noun ("the shape of the data", "repositories.yml using the shape defined in") must **never** become `plan`. Only replace `daff-shape` (the plugin name).
+- When a substitution would change the semantic meaning of a sentence, rewrite the sentence to be makato-accurate rather than doing a mechanical find-replace.
 
 #### Step 5: Validate Per-File Rules
 
-After applying substitutions, check each migrated file against makato conventions (load `@references/validation-rules.md`):
+> MANDATORY: Load `@references/validation-rules.md` now. Apply every check defined there.
+> Do NOT load validation-rules.md before Step 5 — files are not ready to validate until substitutions are complete.
 
-1. **SKILL.md frontmatter**: `name` uses only `[a-z0-9-]`, `description` starts with "Use when...", max 1024 chars total
-2. **plugin.json**: `name` matches `^makato-[a-z][a-z0-9-]*$`; `author.name` is `"makato Team"`
-3. **No lingering brand terms**: grep for `daff`, `ITDB`, `DCP`, `Confluence`, `github.tools.sap`, `sagibeast/daff`
-4. **No garbled substitutions**: watch for semantic distortion — e.g., `"the makato if wrong"` instead of `"the impact if wrong"`. The word "impact" as a noun (not a brand) must NOT be replaced.
-5. **Cross-plugin references updated**: all `/daff-cr:orchestrate` → `/makato-change:orchestrate` style references updated
-
-**Semantic substitution trap:** `impact` as a plain English noun (e.g., "the impact if wrong", "high-impact change") must never be replaced with `makato`. Only replace `impact-market` (the org/repo) and `daff` (the plugin brand prefix).
+Key checks (full detail in validation-rules.md):
+1. SKILL.md frontmatter: `name` matches `[a-z0-9-]`; `description` starts with "Use when"
+2. plugin.json: `name` matches `^makato-[a-z][a-z0-9-]*$`; `author.name` is `"makato Team"`
+3. No garbled substitutions — cross-check against the semantic trap list in Step 4
 
 #### Step 6: Present Migration Plan
 
@@ -182,7 +144,11 @@ PLUGIN.JSON UPDATES:
     - author.name: "DCP DAFF Team" → "makato Team"
 ```
 
-Ask: **"Approve this migration plan? (yes / no / edit)"**
+Invoke `AskUserQuestion` with:
+- question: "Approve this migration plan?"
+- options: ["yes — execute now", "no — abort", "edit — I will describe changes to the plan"]
+
+**If "edit" is selected:** invoke `AskUserQuestion` to ask what changes to make (free text). Apply requested edits and re-present the revised plan (loop back to Step 6). Do NOT proceed to Phase 3 until the user selects "yes".
 
 Do NOT write any files until the user explicitly approves.
 
@@ -197,7 +163,7 @@ For each approved file:
 2. Write to the makato path
 3. Report each file written: `✓ written: plugins/<path>`
 
-If writing an **update** (not a new file): show the diff summary to the user before overwriting. Only overwrite after confirmation.
+If writing an **update** (not a new file): show the diff summary to the user before overwriting. Only overwrite after per-file confirmation.
 
 #### Step 8: Update plugin.json Skills Array
 
@@ -207,22 +173,22 @@ For any plugin where new skills were added, check `.claude-plugin/plugin.json` a
 {
   "skills": [
     "skills/existing-skill",
-    "skills/new-skill"     ← add this
+    "skills/new-skill"
   ]
 }
 ```
 
 #### Step 9: Post-Migration Validation
 
-After all files are written, run a final grep-based check across all written files:
+After all files are written, run final grep-based checks across all written files:
 
 ```bash
 grep -rn "daff\|ITDB\|Confluence\|DCP\|github\.tools\.sap" <written files>
 ```
 
 Report findings. For each hit:
-- If it's a **false positive** (e.g., the word appears inside a code block describing the upstream system): note it and explain
-- If it's a **real miss**: fix it immediately
+- **False positive** (e.g., the word appears inside a code block explicitly describing the upstream system): note it and explain
+- **Real miss**: fix it immediately, then re-run the grep to confirm clean
 
 #### Step 10: Summary
 
@@ -243,34 +209,35 @@ Notes:
 
 ---
 
-## Known Divergences
+## Anti-patterns
 
-These are deliberate differences between makato and impact-market that must NOT be overwritten:
+**NEVER overwrite makato-only additions with upstream content**
+WHY: makato has LangGraph skills, dotx-schema-extractor, manage-pdf, and other files with no upstream equivalent. Overwriting them deletes working production skills. The MAKATO-ONLY classification in Step 3 exists precisely for this reason; skipping it is silent data loss.
 
-| makato file | Upstream file | Divergence |
-|-------------|---------------|------------|
-| `makato-build/skills/langgraph-*` | *(none)* | makato-only LangGraph skills |
-| `makato-core/skills/dotx-schema-extractor/` | *(none)* | makato-only skill |
-| `makato-core/skills/manage-microsoft-excel/` | *(none)* | makato-only skill |
-| `makato-core/skills/manage-pdf/` | *(none)* | makato-only skill |
-| `makato-core/skills/excalidraw/` | `daff-core` has none; `daff-shape` has one | Moved to core in makato |
-| `makato-skill-creator` Step 14 | `daff-skill-creator` Step 14 | makato copies skill-plan.html into references; upstream does not |
-| `create-prd` argument-hint | `daff-shape`: `[ITDB-KEY]` | makato uses `[slug]` (no ITDB) |
+**NEVER apply brand substitutions mechanically across all occurrences**
+WHY: The words `impact`, `shape`, and `DCP` are plain English in many contexts. Blind find-replace produces `"the makato if wrong"` (mangled from `"the impact if wrong"`) and `"using the plan defined in"` (mangled from `"using the shape defined in"`). These pass the Step 9 grep check but silently corrupt meaning that only a careful human reader would catch — often much later.
 
-Load `@references/deliberate-divergences.md` for the full list before Phase 2.
+**NEVER write files before the user approves the migration plan**
+WHY: Substitution rules touch hundreds of strings across multiple files simultaneously. A missed deliberate-divergence entry or a garbled sentence discovered after writing requires a rollback or a second corrective pass. The approval gate in Step 6 is the only point where structural problems (wrong target path, divergence collision, skipped file) are visible before any disk state changes.
+
+**NEVER skip loading `@references/deliberate-divergences.md` before planning updates**
+WHY: Some makato files diverge intentionally from upstream — e.g., skill-plan.html is placed in `references/` in makato but explicitly excluded in upstream ADR-0014. Syncing without checking this reference silently restores upstream behavior that was deliberately overridden, breaking downstream workflows that depend on makato's behavior.
+
+**NEVER add migration-provenance comments to migrated files**
+WHY: Comments like `# migrated from daff` add noise with no utility — the git history captures the commit context. More critically, they contain the word `daff` and will fail the brand-cleanliness grep in Step 9, triggering false-positive remediation work that obscures real misses.
+
+**NEVER bump a SKILL.md version for a purely mechanical sync**
+WHY: Version bumps signal behavioral changes to consumers. A sync that only substitutes `daff-cr → makato-change` does not change what the skill does; bumping the version misleads operators who use version diffs to assess upgrade impact.
 
 ---
 
-## Semantic Substitution Rules
+## Known Divergences
 
-**Never replace blindly.** These words require context judgment:
+Load `@references/deliberate-divergences.md` for the complete and authoritative list. High-priority cases to check on every sync:
 
-| Word | When to replace | When NOT to replace |
-|------|----------------|---------------------|
-| `daff` | Used as plugin brand prefix (`daff-build`, `daff-shape`) | Part of an unrelated word or acronym |
-| `impact` | Only in `impact-market` (org/repo name) | Plain noun: "the impact if wrong", "high-impact", "business impact" |
-| `shape` | Only in `daff-shape` (plugin name) → `plan` | Used as a verb or general noun: "the shape of the data", "write repositories.yml using the shape defined in..." |
-| `DCP` | Team name / Confluence space / key prefix | Acronym used for a different concept |
-| `Jira` / `JIRA` | Issue tracker platform name | Generic noun meaning "issue list" in a non-tool-specific context |
-
-When substitution would change the semantic meaning of a sentence, prefer rewriting the sentence to be makato-accurate rather than doing a mechanical find-replace.
+| makato file | Upstream file | Divergence |
+|-------------|---------------|------------|
+| `makato-skill-creator` Step 14 | `daff-skill-creator` Step 14 | makato copies skill-plan.html into references; upstream does not |
+| `create-prd` argument-hint | `daff-shape`: `[ITDB-KEY]` | makato uses `[slug]` (no ITDB) |
+| `makato-plan/publish` | `daff-shape/publish` | makato: GitHub Issues only; upstream: Jira + Confluence |
+| `makato-core/skills/excalidraw/` | `daff-shape` excalidraw | makato hosts in core AND plan — update both locations |

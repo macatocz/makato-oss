@@ -1,9 +1,16 @@
 ---
 name: writing-clearly-and-concisely
-description: Use when writing, editing, or reviewing prose for clarity. Applies Strunk's rules and avoids common AI writing patterns. Triggers on: "make this clearer", "too wordy", "rewrite", "edit for clarity", "copyedit", "improve writing", "concise", "writing style", "sounds like AI", "proofread", "documentation", "README". Do NOT use for: writing code or technical specifications, creating presentation slides, or README creation as the primary task (use crafting-effective-readmes).
-version: "1.4.0"
+description: >-
+  Use when writing, editing, or reviewing prose for clarity. Applies Strunk's
+  rules and avoids common AI writing patterns. Triggers on: "make this clearer",
+  "too wordy", "rewrite", "edit for clarity", "copyedit", "improve writing",
+  "concise", "writing style", "sounds like AI", "proofread", "documentation",
+  "README". Do NOT use for: writing code or technical specifications, creating
+  presentation slides, or README creation as the primary task (use
+  crafting-effective-readmes).
+version: "1.6.0"
 argument-hint: "[text or file to edit]"
-allowed-tools: Read Write Agent
+allowed-tools: Read Write Edit Agent
 ---
 
 # Writing Clearly and Concisely
@@ -19,12 +26,39 @@ See the **Reference Files** section below for which file to load and when.
 
 ## Workflow
 
-1. **Identify scope**: is the request "make this clearer" (surgical) or "rewrite this" (fresh start)?
-2. **Check reader context**: who reads this and what do they need? (commit message vs error message vs doc)
-3. **Apply Strunk Rule 13** first — omit needless words. Most first drafts are twice as long as needed.
-4. **Check active voice**: who is the subject of each sentence? Passive hides responsibility.
-5. **Verify point placement**: does each paragraph lead with its key claim? (Strunk: paragraph → topic sentence first)
-6. **Load reference if needed**: use the Tools table to choose the right file.
+1. **Classify scope** — "make this clearer" = surgical (preserve structure and voice); "rewrite
+   this" = fresh start (preserve only the meaning). Ambiguous? See **Scope Ambiguity** below.
+2. **Identify reader and register** — commit message: scannable at 2 seconds, no prior context
+   assumed; error message: condition + remedy, terse; documentation: dense OK; API reference:
+   skip prose preamble entirely.
+3. **Nominalization audit** — count nouns ending in -tion, -ment, -ance, -al per paragraph. More
+   than 2 in one paragraph signals structural energy loss; recast each as a verb.
+4. **Apply the 50% cut test** — for each sentence, can the next sentence absorb its meaning? If
+   yes, merge or delete. Most first drafts are 50% longer than needed.
+5. **Check sentence-length variance** — are all sentences 15–18 words? That is the AI convergence
+   band. Inject intentional short sentences (under 8 words) to restore variance.
+6. **Load reference if needed** — consult the Reference Files table; resolve scope first so you
+   choose the right section.
+
+## Scope Ambiguity
+
+When the edit request is ambiguous, use AskUserQuestion with selectable options:
+
+> What level of edit do you want?
+> - **Surgical** — tighten sentences, cut hedges, fix passive voice; preserve all structure and voice
+> - **Structural** — reorder paragraphs, reframe topic sentences, merge thin sections; keep the author's voice
+> - **Rewrite** — start from the intended meaning; replace the draft entirely
+
+**Defaults**: "make this clearer" → Surgical. "Rewrite this" → Rewrite.
+
+**Scope escalation fallback**: if you cannot apply Surgical fixes without changing more than 30%
+of the words or restructuring more than 2 paragraphs, surface the escalation before proceeding:
+
+> "This text needs structural changes beyond surgical edits. Do you want (1) surgical fixes only,
+> preserving structure even if some clarity issues remain, or (2) a structural rewrite?"
+
+**Input format**: if the user provides a file path, use `Read` → `Edit` workflow. If the user
+pastes inline text, write the edited version directly in the reply.
 
 ## Mindset
 
@@ -51,32 +85,20 @@ sentences; AI writing converges to 15-18 words per sentence consistently. Reader
 convergence before they consciously notice it as "sounds like AI." Inject intentional short
 sentences (under 8 words) after long ones.
 
-## Overview
-
-Write with clarity and force. This skill covers what to do (Strunk) and what not to do (AI
-patterns).
-
 ## Limited Context Strategy
 
-When context is tight:
+Token-budget thresholds:
 
-1. Write your draft using judgment
-2. Dispatch a subagent with your draft and the relevant section file
-3. Have the subagent copyedit and return the revision
+- **> 16k tokens available**: load inline whichever section(s) the task requires
+- **8k–16k tokens**: load at most one section; pick by task type — structural edit →
+  `03-elementary-principles-of-composition.md`, grammar → `02-elementary-rules-of-usage.md`,
+  word choice → `05-words-and-expressions-commonly-misused.md`
+- **< 8k tokens**: do NOT load any reference file; apply the inline rules in this skill only;
+  if a reference-dependent pass is still needed, dispatch a subagent with your draft and one
+  section file and ask for the copyedited revision
 
-Loading a single section (~1,000-4,500 tokens) instead of everything saves significant context.
+Before finalizing any prose, ask:
 
-Before finalizing any prose, ask yourself:
-
-- **Who reads this, and what do they need?** A commit message serves `git log` scanners. An error
-  message serves a user mid-task. Documentation serves someone learning. Each demands different
-  density and tone. Error messages must be parseable mid-crisis — shorter and more direct than
-  documentation.
-- **Is the actor visible in every sentence?** If you wrote "the configuration is loaded" — by
-  what? Rewrite: "The server loads the configuration." Passive hides responsibility and adds words.
-- **Can I cut this sentence in half without losing meaning?** If yes, do it. Strunk's Rule 13:
-  "Omit needless words." The sentence "He is a man who is very ambitious" becomes "He is very
-  ambitious." Most first drafts are twice as long as they need to be.
 - **Does every adjective earn its place?** Remove it and re-read. If the reader wouldn't miss it,
   delete it. "A robust, scalable solution" says nothing. "Handles 10k requests/second" says
   something.
@@ -103,29 +125,12 @@ Strunk's full text with examples lives in `elements-of-style/`. Load the section
 | Reviewing text that sounds AI-generated | Load [`signs-of-ai-writing.md`](signs-of-ai-writing.md) ONLY IF the AI pattern list below is insufficient | 25,000 |
 | Grammar or punctuation questions | Read [`02-elementary-rules-of-usage.md`](elements-of-style/02-elementary-rules-of-usage.md) | 2,500 |
 | Word choice or common misuse | Read [`05-words-and-expressions-commonly-misused.md`](elements-of-style/05-words-and-expressions-commonly-misused.md) | 4,000 |
+| Formatting conventions (headings, quotations, numerals) | Read [`04-a-few-matters-of-form.md`](elements-of-style/04-a-few-matters-of-form.md) ONLY IF user asks about heading styles, quotation marks, or numeral formatting | ~1,200 |
+| Strunk's historical scope and intent | **Do NOT load** [`01-introductory.md`](elements-of-style/01-introductory.md) — the actionable rules are in sections 02–05; load only if the user asks about the philosophy behind the rules | 500 |
 
 **Do NOT load** `signs-of-ai-writing.md` for routine writing tasks — the AI patterns listed
 below cover 90% of cases and cost 25x less context. Load `signs-of-ai-writing.md` only when
 the text has pervasive AI patterns that the inline list doesn't resolve.
-
-**Do NOT load** `04-a-few-matters-of-form.md` unless the user asks about formatting conventions
-(headings, quotations, numerals).
-
-## When to Use
-
-**When NOT to use:** Do NOT use for code formatting/style (use linters), translating between
-languages, or generating new content from scratch (use write-a-prd or similar).
-
-| Task | Action |
-| ---- | ------ |
-| Prose is clear but verbose | Apply Strunk Rule 13 (omit needless words) — no reference needed |
-| Text "sounds like AI" | Apply AI patterns list below; load `signs-of-ai-writing.md` only if patterns persist |
-| Grammar question | Load `02-elementary-rules-of-usage.md` |
-| Structuring an argument | Load `03-elementary-principles-of-composition.md` |
-| Word choice | Load `05-words-and-expressions-commonly-misused.md` |
-| Editing someone else's text | Tighten their voice — do NOT replace it with yours |
-| "Rewrite this completely" | Start fresh — do not attempt surgical edits |
-| "Make this clearer" | Surgical fixes only — do not change the author's structure |
 
 ## AI Writing Patterns to Avoid
 
@@ -139,24 +144,11 @@ LLMs regress to statistical means, producing generic, puffy prose. Avoid:
 
 Be specific, not grandiose. Say what it actually does.
 
-## Philosophy
+## Anti-patterns
 
-Prose that requires a second reading has failed. The reader's time is the scarce resource —
-every excess word, every hedged construction, every passive clause is a tax the writer imposes
-on the reader. Good writing respects the reader's time by doing the editorial work in advance:
-choosing the right word, cutting the unnecessary sentence, leading with the point rather than
-the context.
-
-AI-generated text has a systematic failure mode: it hedges, qualifies, and inflates. The hedges
-are not politeness — they are evasions. "It is important to note that the API might potentially
-return an error" contains four separate evasions in one sentence. This skill exists to strip
-them out and replace them with what the writer actually means.
-
-## Constraints
-
-- **NEVER open with "This document..." or "This section..."** — dead starts that bury the lede;
-  lead with what the reader needs to know, not with a description of the container they're already
-  reading
+- **NEVER open with "This document..." or "This section..."** — WHY: the reader is already inside
+  the document; naming the container adds no information and delays the key claim; it signals the
+  writer hasn't committed to a thesis and is describing structure instead of leading with it.
 - **NEVER hedge with throat-clearing** ("It is important to note that...", "It should be mentioned
   that...", "It is worth noting...") — these add a full clause before the actual content; either
   say it or don't
@@ -202,10 +194,11 @@ them out and replace them with what the writer actually means.
   linearly; every section should be independently comprehensible; backward references signal
   that sections should be merged or the current section lacks necessary context.
 - **NEVER mix second-person ('you should') with third-person ('the user should') in the same
-  document** — inconsistent perspective forces mental translation between frames. WHY: person
-  inconsistency signals uncertainty about the reader's identity; a document that addresses 'you'
-  in some places and 'the user' in others implicitly serves two audiences, which means it is
-  two documents poorly merged.
+  document** — WHY: a reader who encounters 'you should install' followed by 'the user should
+  configure' is involuntarily stepped outside the document's frame; they must mentally translate
+  between pronouns rather than follow the argument; over multiple edit cycles this compounds
+  because each editor defaults to their own preferred frame, producing a chimeric document where
+  no single reader is clearly addressed.
 
 Every rule here has valid exceptions. Passive voice is correct when the actor is irrelevant ("The
 server was rebooted at 3 AM" — who did it doesn't matter). A throat-clearing opener works in a
@@ -215,6 +208,11 @@ with yours.
 
 ## Bottom Line
 
-Writing for humans? Use the thinking questions above, load the reference you need, and cut until
-every word earns its place. When editing, match the scope to the request — "make this clearer"
-means surgical fixes; "rewrite this" means start fresh.
+Prose fails when it requires a second reading. AI-generated text has a systematic failure mode:
+it hedges, qualifies, and inflates — "It is important to note that the API might potentially
+return an error" contains four evasions in one sentence. Strip them and replace them with what
+the writer actually means.
+
+Use the thinking questions above, load the reference you need, and cut until every word earns
+its place. Match scope to the request: "make this clearer" means surgical fixes; "rewrite this"
+means start fresh.

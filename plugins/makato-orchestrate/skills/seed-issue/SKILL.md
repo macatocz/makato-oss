@@ -13,6 +13,10 @@ description: >-
   needs to enter the autonomous loop queue.
 version: "1.4.0"
 argument-hint: "<ISSUE_NUMBER> [--repo <owner/name>] [--type new-work|change] [--blocked-by N,M,...]"
+allowed-tools: ["Bash", "Task", "Read", "Write"]
+metadata:
+  authors: ["makato-orchestrate"]
+  last_updated: "2026-08-05"
 hooks:
   - "seed issue"
   - "prepare issue for loop"
@@ -58,6 +62,64 @@ sagibeast#347). The `loop` auto-seed pass enforces this in code:
 `_auto_seed_candidates` skips any issue referenced in a `created-issues.json`
 (via `_is_orphan_issue`), so it will never re-seed a `to-issues` issue even if
 its board card is momentarily off-`Ready`.
+
+**Do NOT Load this skill** when the issue was created by `to-issues` (provenance
+footer already present) or when the issue's `specs/<slug>/` folder already
+holds a real `plan-<N>.md` with filled acceptance criteria. Use
+`issue-to-project` to move the board card instead.
+
+## Anti-Patterns
+
+### NEVER re-seed an issue that already has a `*Feature slug:` provenance footer
+
+**WHY:** `seed-issue` derives its SLUG from the issue title and creates
+`specs/<N>-<normalized-title>/`. A `to-issues`-created issue already has
+`specs/<slug>/` with a complete `plan-<N>.md` and `stories.json`. Running
+`seed-issue` on it creates a parallel `specs/<N>-<title>/` folder with only a
+stub plan. The loop then finds two spec folders matching the KEY, picks one
+non-deterministically, loads the stub instead of the real plan, and the PO-agent
+halts with `HALT-006 MISSING_SPEC` on an issue that had a perfectly valid plan
+all along (incidents: #499, #510, sagibeast#347).
+
+### NEVER promote to Status=Ready before the guard passes on plan-tier:light issues
+
+**WHY:** The lightweight-lane path (`PLAN_LANE=true`) deliberately defers the
+board promote to Step 8.5. Bypassing the deferral (e.g., calling `item-edit`
+inline in Step 6) puts a stub-only issue on the Ready queue. The PO-agent picks
+it up within seconds and immediately emits `HALT-006` because the stub's
+`## Acceptance criteria` section contains only the placeholder text. The issue
+then requires manual `needs-human-review` triage to exit. Always let Step 8.5
+own the promote for `PLAN_LANE=true`.
+
+### NEVER write `spec_tier:plan-only` before `GUARD_VERDICT=valid`
+
+**WHY:** `spec_tier:plan-only` in `seed-manifest.json` is consumed by
+`build-refine` to select the plan-only routing path: it reads
+`plan-<N>.md ## Acceptance criteria` instead of `stories.json`. Writing the
+field before the guard validates that `## Tasks` and `## Acceptance criteria`
+are present and non-placeholder causes `build-refine` to find empty or
+placeholder sections and abort every task before a line of code is written. The
+guard (`validate-plan-body.sh`) is the single source of truth for "is this plan
+promotable" — `spec_tier` must be written only inside the `GUARD_VERDICT=valid`
+branch of Step 8.5c.
+
+### NEVER hard-truncate the slug without backing off to a word boundary
+
+**WHY:** `_derive_key_for_issue` in `loop.sh` derives KEY from the same
+`<N>-<slug>` formula, also truncating at 40 chars with the same word-boundary
+backoff rule. A hard cut mid-word on your side produces a different string than
+the loop's derivation — the loop's folder-scan finds no matching `specs/`
+folder and falls through to the KEY=-slug- false-match fallback (incident #553).
+Always back off to the last `-` boundary within 40 chars before storing `SLUG`.
+
+### NEVER omit the provenance footer `--` separator
+
+**WHY:** `_derive_key_for_issue` fallback #2 in `loop.sh` uses a regex match
+against the issue body for `Feature slug:`. Without the `\n\n---\n\n` separator
+the footer may blend into body prose, causing the regex to match body text
+instead of the footer, returning a wrong KEY (incident: `KEY=-slug-` false
+match that silently killed po-agent on issue #571).
+
 
 ## Prerequisites
 
@@ -146,15 +208,13 @@ Keyword match against `ISSUE_TITLE` and the first 200 characters of
 2. If only `type:feature` keywords match → `INFERRED_TYPE=new-work`.
 3. If both or neither keyword set matches → type is ambiguous.
 
-When type is **ambiguous** and the skill is running interactively, ask:
+When type is **ambiguous** and the skill is running interactively, use the
+`AskUserQuestion` tool with these selectable options:
 
-```
-seed-issue: Could not classify issue #N — "{ISSUE_TITLE}" as new-work or change.
-Which type applies?
-  1) new-work  (new feature, capability, or milestone)
-  2) change    (bug fix, refactor, enhancement to existing code)
-Enter 1 or 2:
-```
+- **Question:** `seed-issue: Could not classify issue #N — "{ISSUE_TITLE}" as new-work or change. Which type applies?`
+- **Options:**
+  - `new-work` — new feature, capability, or milestone
+  - `change` — bug fix, refactor, enhancement to existing code
 
 When running **autonomously** (`$MAKATO_HEADLESS=1` or `$AGENT_ID` is set) and
 type is ambiguous, default to `new-work` and log:
@@ -174,9 +234,9 @@ PLAN_TIER="$(printf '%s\n' "${ISSUE_LABELS[@]}" \
 ```
 
 - `ISSUE_TYPE=new-work` → the **plan lane** applies. The board promotion in
-  Step 7 is **deferred**; the light-planner agent runs in Step 8 and a valid
+  Step 6 is **deferred**; the light-planner agent runs in Step 8 and a valid
   plan gates promotion (Step 8.5).
-- `ISSUE_TYPE=change` → the **standard path** applies: Step 7 promotes to
+- `ISSUE_TYPE=change` → the **standard path** applies: Step 6 promotes to
   Ready unconditionally and Step 8 writes only the stub. light-planner is NOT
   dispatched and no `spec_tier` is written.
 
@@ -458,10 +518,10 @@ If `specs/$SLUG/` already exists, skip creation and log:
 ### Step 8.5 — Lightweight lane: generate the plan and gate promotion
 
 **Run this step only when `PLAN_LANE=true`.** For the standard path
-(`PLAN_LANE=false`), skip it entirely — Step 7 has already promoted the card
+(`PLAN_LANE=false`), skip it entirely — Step 6 has already promoted the card
 and the stub plan stands (unchanged behavior).
 
-This step turns the deferred promotion from Step 7 into a plan-gated one. It
+This step turns the deferred promotion from Step 6 into a plan-gated one. It
 has four parts: dispatch → validate → promote-or-fallback → audit.
 
 #### 8.5a — Dispatch the light-planner agent
@@ -488,12 +548,17 @@ git). It either overwrites the stub `plan-<ISSUE_NUMBER>.md` with a full plan an
 
 #### 8.5b — Validate the plan with the deterministic guard
 
+> **MANDATORY:** Before invoking the guard or interpreting its verdicts, load
+> `references/lightweight-lane-smoke-tests.sh` to understand the three routing
+> scenarios (S1 promote / S2 fallback / S3 standard) and four edge-case rules
+> (E1–E4) the guard decision tree must satisfy.
+
 Regardless of the agent's R1, run the guard on the file that now exists — the
 guard is the single source of truth for "is this plan promotable", so a
 mismatched R1 (agent claims success but wrote a hollow plan) is caught here:
 
 ```bash
-GUARD_OUT="$(bash "$REPO_ROOT_OR_PLUGIN/plugins/makato-orchestrate/scripts/validate-plan-body.sh" \
+GUARD_OUT="$(bash "$REPO_ROOT/plugins/makato-orchestrate/scripts/validate-plan-body.sh" \
   "$REPO_ROOT/specs/$SLUG/plan-<ISSUE_NUMBER>.md" "$ISSUE_NUMBER" 2>/dev/null || true)"
 GUARD_VERDICT="${GUARD_OUT%% *}"   # valid | invalid
 ```
@@ -514,7 +579,7 @@ and any hollow plan return `invalid`.
    `build-refine` takes the full-tier path (reads `stories.json` + `prd.md`).
    Bump nothing else; the manifest is already `schema_version:"2"`.
 2. Promote the board card to `Status=Ready` now — reuse `ITEM_ID` captured in
-   Step 7 and run the `item-edit` call that Step 7 deferred:
+   Step 6 and run the `item-edit` call that Step 6 deferred:
 
    ```bash
    GH_HOST="$HOST" gh project item-edit \
@@ -522,7 +587,7 @@ and any hollow plan return `invalid`.
      --field-id "$STATUS_FIELD_ID" --single-select-option-id "$READY_OPTION_ID"
    ```
 
-   On board-move failure, log the same WARN as Step 7 and continue — the plan
+   On board-move failure, log the same WARN as Step 6 and continue — the plan
    and `spec_tier` are already written; the card can be moved by hand.
 3. Log: `[seed-issue] plan lane — plan.md valid, promoted #N to Ready` (add `spec_tier:plan-only set` when PLAN_TIER=light).
 
@@ -531,7 +596,7 @@ and any hollow plan return `invalid`.
 
 1. Write **no** `spec_tier` (leave the manifest without it — the item is NOT a
    plan-only item).
-2. Do **not** promote the board — the card stays at `Todo` (Step 7 deferred it;
+2. Do **not** promote the board — the card stays at `Todo` (Step 6 deferred it;
    leave it deferred).
 3. If `PLAN_TIER=light`, re-tier to full:
 

@@ -1,12 +1,30 @@
 ---
 name: penpot-uiux-design
-description: 'Comprehensive guide for creating professional UI/UX designs in Penpot using MCP tools. Use this skill when: (1) Creating new UI/UX designs for web, mobile, or desktop applications, (2) Building design systems with components and tokens, (3) Designing dashboards, forms, navigation, or landing pages, (4) Applying accessibility standards and best practices, (5) Following platform guidelines (iOS, Android, Material Design), (6) Reviewing or improving existing Penpot designs for usability. Triggers: "design a UI", "create interface", "build layout", "design dashboard", "create form", "design landing page", "make it accessible", "design system", "component library".'
-version: 1.1.0
+description: >-
+  Comprehensive guide for creating professional UI/UX designs in Penpot using
+  MCP tools. Use this skill when: (1) Creating new UI/UX designs for web,
+  mobile, or desktop applications, (2) Building design systems with components
+  and tokens, (3) Designing dashboards, forms, navigation, or landing pages,
+  (4) Applying accessibility standards and best practices, (5) Following
+  platform guidelines (iOS, Android, Material Design), (6) Reviewing or
+  improving existing Penpot designs for usability. Triggers: "design a UI",
+  "create interface", "build layout", "design dashboard", "create form",
+  "design landing page", "make it accessible", "design system",
+  "component library".
+version: 1.2.0
+mcp_server: penpot
+allowed-tools:
+  - mcp__penpot__execute_code
+  - mcp__penpot__export_shape
+  - mcp__penpot__high_level_overview
+  - mcp__penpot__penpot_api_info
+metadata:
+  last_updated: "2026-08-05"
 ---
 
 # Penpot UI/UX Design Guide
 
-Create professional, user-centered designs in Penpot using the Penpot MCP server and proven UI/UX principles.
+Create professional, user-centered designs in Penpot using the Penpot MCP server.
 
 ## Available MCP Tools
 
@@ -60,6 +78,10 @@ The cloud MCP does not use WebSockets or local ports.
 
 For self-hosted Penpot or offline work, see [setup-troubleshooting.md](references/setup-troubleshooting.md).
 
+MANDATORY: load `references/setup-troubleshooting.md` when: user reports connection errors, port conflicts,
+plugin not loading, WebSocket failures, or needs local/self-hosted Penpot setup.
+Do NOT load for cloud Penpot users with a working token.
+
 ### Troubleshooting
 
 | Issue | Solution |
@@ -71,47 +93,46 @@ For self-hosted Penpot or offline work, see [setup-troubleshooting.md](reference
 
 ## Quick Reference
 
-| Task | Reference File |
-| ---- | -------------- |
-| MCP server installation & troubleshooting | [setup-troubleshooting.md](references/setup-troubleshooting.md) |
-| Component specs (buttons, forms, nav) | [component-patterns.md](references/component-patterns.md) |
-| Accessibility (contrast, touch targets) | [accessibility.md](references/accessibility.md) |
-| Screen sizes & platform specs | [platform-guidelines.md](references/platform-guidelines.md) |
+| Task | Reference File | MANDATORY trigger |
+| ---- | -------------- | ----------------- |
+| MCP server installation & troubleshooting | [setup-troubleshooting.md](references/setup-troubleshooting.md) | Load when user has connection/setup issues |
+| Component specs (buttons, forms, nav, cards, modals) | [component-patterns.md](references/component-patterns.md) | Load when creating or specifying any UI component |
+| Accessibility (contrast, touch targets, WCAG) | [accessibility.md](references/accessibility.md) | Load when user asks about contrast, a11y, WCAG, or touch targets |
+| Screen sizes & platform specs (iOS, Android, Material) | [platform-guidelines.md](references/platform-guidelines.md) | Load when designing for a specific platform or screen size |
 
-## Core Design Principles
-
-### The Golden Rules
-
-1. **Clarity over cleverness**: Every element must have a purpose
-2. **Consistency builds trust**: Reuse patterns, colors, and components
-3. **User goals first**: Design for tasks, not features
-4. **Accessibility is not optional**: Design for everyone
-5. **Test with real users**: Validate assumptions early
-
-### Visual Hierarchy (Priority Order)
-
-1. **Size**: Larger = more important
-2. **Color/Contrast**: High contrast draws attention
-3. **Position**: Top-left (LTR) gets seen first
-4. **Whitespace**: Isolation emphasizes importance
-5. **Typography weight**: Bold stands out
+**Do NOT load references pre-emptively.** Load each reference only at the MANDATORY trigger point above.
 
 ## Design Workflow
 
 1. **Read the API overview first**: Call `mcp__penpot__high_level_overview` before the first `execute_code` call (it is deferred — call it once per session)
-2. **Check for design system**: Ask user if they have existing tokens/specs, or discover from current Penpot file
-3. **Understand the page**: Call `mcp__penpot__execute_code` with `penpotUtils.shapeStructure()` to see hierarchy
-4. **Find elements**: Use `penpotUtils.findShapes()` to locate elements by type or name
-5. **Create/modify**: Use `penpot.createBoard()`, `penpot.createRectangle()`, `penpot.createText()` etc.
-6. **Apply layout**: Use `addFlexLayout()` for responsive containers
-7. **Validate**: Call `mcp__penpot__export_shape` to visually check your work
+2. **Discover design context**: Query the active file for existing patterns before creating anything (see code below)
+3. **Determine design system source** (see decision tree below)
+4. **Understand the page**: Call `mcp__penpot__execute_code` with `penpotUtils.shapeStructure()` to see hierarchy
+5. **Find elements**: Use `penpotUtils.findShapes()` to locate elements by type or name
+6. **Position new boards**: Check existing board positions before creating (see Positioning section)
+7. **Create/modify**: Use `penpot.createBoard()`, `penpot.createRectangle()`, `penpot.createText()` etc.
+8. **Apply layout**: Use `addFlexLayout()` for responsive containers
+9. **Validate**: Call `mcp__penpot__export_shape` to visually check your work
+10. **Emit JSONL audit entries**: session start, each major step, session end (required by plugin contract)
 
-## Design System Handling
+## Design System Decision Tree
 
-**Before creating designs, determine if the user has an existing design system:**
+**Before creating designs, determine the design system source.**
 
-1. **Ask the user**: "Do you have a design system or brand guidelines to follow?"
-2. **Discover from Penpot**: Check for existing components, colors, and patterns
+Use `AskUserQuestion` with these options:
+
+```
+Q: Do you have a design system or brand guidelines to follow?
+
+Options:
+  A) Yes — I have brand tokens/guidelines (describe or share them)
+  B) Yes — discover from the current Penpot file
+  C) No — start from scratch with sensible defaults
+```
+
+**Path A (user-provided tokens):** Use their specified colors, spacing, typography exactly. Match their naming conventions. Do not substitute defaults.
+
+**Path B (discover from file):**
 
 ```javascript
 // Discover existing design patterns in current file
@@ -134,17 +155,12 @@ const components = penpot.library.local.components;
 return { colors: [...colors], textStyles, componentCount: components.length };
 ```
 
-**If user HAS a design system:**
+Adopt discovered colors and type scales. Do not override them with defaults.
 
-- Use their specified colors, spacing, typography
-- Match their existing component patterns
-- Follow their naming conventions
-
-**If user has NO design system:**
-
-- Use the default tokens below as a starting point
-- Offer to help establish consistent patterns
-- Reference specs in [component-patterns.md](references/component-patterns.md)
+**Path C (no design system):**
+MANDATORY: load `references/component-patterns.md` before specifying any component dimensions or states.
+Use an 8px spacing base scale (4/8/16/24/32/48px) as a starting point, offer to help establish consistent
+patterns, and document the tokens used so they can be adopted as a system.
 
 ## Key Penpot API Gotchas
 
@@ -155,6 +171,34 @@ return { colors: [...colors], textStyles, componentCount: components.length };
 - After `text.resize()`, reset `growType` to `"auto-width"` or `"auto-height"`
 - `execute_code` return value must be explicitly `return`-ed — the last expression is NOT auto-returned
 - `mcp__penpot__high_level_overview` must be called before accessing advanced API — it loads deferred type definitions
+
+## Anti-patterns
+
+**NEVER do these — each reflects a non-obvious failure mode confirmed by the Penpot API:**
+
+1. **NEVER assign `shape.width = x` or `shape.height = x` directly.**
+   WHY: These properties are read-only on all Penpot shape types. The assignment silently fails — the shape stays unchanged with no error thrown, and the design looks wrong only on visual export. Always use `shape.resize(w, h)`.
+
+2. **NEVER use `appendChild` when z-order matters.**
+   WHY: `appendChild` always inserts at the end of the children array (bottom of z-stack). In Penpot's flex layout and layer panels, z-order determines visual stacking. Use `insertChild(index, shape)` to place at the correct position.
+
+3. **NEVER iterate flex children expecting top-to-bottom order for `dir="column"`.**
+   WHY: Penpot stores flex children in a reversed array for column direction. Iterating index 0→N to build a top-to-bottom visual stack produces a visually upside-down layout. Reverse the array before building column layouts, or build bottom-up.
+
+4. **NEVER call `text.resize()` without immediately resetting `growType`.**
+   WHY: Calling `resize()` on a text shape implicitly changes `growType` to `"fixed"`. The text then clips or overflows instead of auto-sizing on subsequent edits. Always follow `text.resize(w, h)` with `text.growType = "auto-width"` (single-line) or `"auto-height"` (multi-line).
+
+5. **NEVER omit `return` from `execute_code` snippets expecting a result.**
+   WHY: Penpot's `execute_code` runs the code as a function body. The last expression value is NOT auto-returned (unlike browser console eval). Omitting `return` makes the tool appear to succeed but returns `undefined`, silently discarding audit data, IDs, or diagnostic outputs.
+
+6. **NEVER call `execute_code` advanced API without first calling `mcp__penpot__high_level_overview`.**
+   WHY: Penpot defers loading type definitions until `high_level_overview` is called. Skipping this in a new session causes `penpotUtils` and advanced shape methods to be undefined, producing cryptic `TypeError: penpotUtils is not defined` errors.
+
+7. **NEVER create a new board without first querying existing board positions.**
+   WHY: Penpot has no automatic layout for frames. New boards default to `x=0, y=0`, stacking invisibly on top of existing boards. The result looks like work was lost. Always compute `nextX` from existing board right-edges before creating (see Positioning section).
+
+8. **NEVER verify cloud Penpot MCP setup by looking for `mcp__penpot__import_image`.**
+   WHY: This tool does not exist in the cloud MCP (`design.penpot.app`). Checking for it as a setup-complete signal gives a false "broken" diagnosis and wastes time on non-existent troubleshooting. Cloud setup verification uses `execute_code`, `export_shape`, `high_level_overview`, and `penpot_api_info` only.
 
 ## Positioning New Boards
 
@@ -190,129 +234,6 @@ newBoard.resize(375, 812);
 - Align boards vertically (same y) for visual organization
 - Group related screens horizontally in user flow order
 
-## Default Design Tokens
-
-**Use these defaults only when user has no design system. Always prefer user's tokens if available.**
-
-### Spacing Scale (8px base)
-
-| Token | Value | Usage |
-| ----- | ----- | ----- |
-| `spacing-xs` | 4px | Tight inline elements |
-| `spacing-sm` | 8px | Related elements |
-| `spacing-md` | 16px | Default padding |
-| `spacing-lg` | 24px | Section spacing |
-| `spacing-xl` | 32px | Major sections |
-| `spacing-2xl` | 48px | Page-level spacing |
-
-### Typography Scale
-
-| Level | Size | Weight | Usage |
-| ----- | ---- | ------ | ----- |
-| Display | 48-64px | Bold | Hero headlines |
-| H1 | 32-40px | Bold | Page titles |
-| H2 | 24-28px | Semibold | Section headers |
-| H3 | 20-22px | Semibold | Subsections |
-| Body | 16px | Regular | Main content |
-| Small | 14px | Regular | Secondary text |
-| Caption | 12px | Regular | Labels, hints |
-
-### Color Usage
-
-| Purpose | Recommendation |
-| ------- | -------------- |
-| Primary | Main brand color, CTAs |
-| Secondary | Supporting actions |
-| Success | #22C55E range (confirmations) |
-| Warning | #F59E0B range (caution) |
-| Error | #EF4444 range (errors) |
-| Neutral | Gray scale for text/borders |
-
-## Common Layouts
-
-### Mobile Screen (375×812)
-
-```text
-┌─────────────────────────────┐
-│ Status Bar (44px)           │
-├─────────────────────────────┤
-│ Header/Nav (56px)           │
-├─────────────────────────────┤
-│                             │
-│ Content Area                │
-│ (Scrollable)                │
-│ Padding: 16px horizontal    │
-│                             │
-├─────────────────────────────┤
-│ Bottom Nav/CTA (84px)       │
-└─────────────────────────────┘
-
-```
-
-### Desktop Dashboard (1440×900)
-
-```text
-┌──────┬──────────────────────────────────┐
-│      │ Header (64px)                    │
-│ Side │──────────────────────────────────│
-│ bar  │ Page Title + Actions             │
-│      │──────────────────────────────────│
-│ 240  │ Content Grid                     │
-│ px   │ ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐ │
-│      │ │Card │ │Card │ │Card │ │Card │ │
-│      │ └─────┘ └─────┘ └─────┘ └─────┘ │
-│      │                                  │
-└──────┴──────────────────────────────────┘
-
-```
-
-## Component Checklist
-
-### Buttons
-
-- [ ] Clear, action-oriented label (2-3 words)
-- [ ] Minimum touch target: 44×44px
-- [ ] Visual states: default, hover, active, disabled, loading
-- [ ] Sufficient contrast (3:1 against background)
-- [ ] Consistent border radius across app
-
-### Forms
-
-- [ ] Labels above inputs (not just placeholders)
-- [ ] Required field indicators
-- [ ] Error messages adjacent to fields
-- [ ] Logical tab order
-- [ ] Input types match content (email, tel, etc.)
-
-### Navigation
-
-- [ ] Current location clearly indicated
-- [ ] Consistent position across screens
-- [ ] Maximum 7±2 top-level items
-- [ ] Touch-friendly on mobile (48px targets)
-
-## Accessibility Quick Checks
-
-1. **Color contrast**: Text 4.5:1, Large text 3:1
-2. **Touch targets**: Minimum 44×44px
-3. **Focus states**: Visible keyboard focus indicators
-4. **Alt text**: Meaningful descriptions for images
-5. **Hierarchy**: Proper heading levels (H1→H2→H3)
-6. **Color independence**: Never rely solely on color
-
-## Design Review Checklist
-
-Before finalizing any design:
-
-- [ ] Visual hierarchy is clear
-- [ ] Consistent spacing and alignment
-- [ ] Typography is readable (16px+ body text)
-- [ ] Color contrast meets WCAG AA
-- [ ] Interactive elements are obvious
-- [ ] Mobile-friendly touch targets
-- [ ] Loading/empty/error states considered
-- [ ] Consistent with design system
-
 ## Validating Designs
 
 Use these validation approaches with `mcp__penpot__execute_code`:
@@ -324,17 +245,9 @@ Use these validation approaches with `mcp__penpot__execute_code`:
 | Missing contrast | Call `mcp__penpot__export_shape` and visually inspect |
 | Hierarchy structure | `penpotUtils.shapeStructure()` to review nesting |
 
+MANDATORY: load `references/accessibility.md` when the user asks about contrast ratios, WCAG compliance,
+touch target sizes, or color accessibility. Do NOT load for layout-only or structure-only tasks.
+
 ### Export CSS
 
 Use `penpot.generateStyle(selection, { type: 'css', includeChildren: true })` via `mcp__penpot__execute_code` to extract CSS from designs.
-
-## Tips for Great Designs
-
-1. **Start with content**: Real content reveals layout needs
-2. **Design mobile-first**: Constraints breed creativity
-3. **Use a grid**: 8px base grid keeps things aligned
-4. **Limit colors**: 1 primary + 1 secondary + neutrals
-5. **Limit fonts**: 1-2 typefaces maximum
-6. **Embrace whitespace**: Breathing room improves comprehension
-7. **Be consistent**: Same action = same appearance everywhere
-8. **Provide feedback**: Every action needs a response

@@ -7,7 +7,7 @@ description: >-
   user feedback score, mask pii traces, enable token cost tracking, enrich
   traces, or control log levels on individual observations. Assumes the OTel
   TracerProvider and OTLP HTTP exporter are already wired (langfuse-instrument).
-version: "1.0.0"
+version: "1.0.1"
 allowed-tools:
   - Read
   - Edit
@@ -16,6 +16,8 @@ allowed-tools:
   - Glob
   - Bash
   - AskUserQuestion
+metadata:
+  last_updated: "2026-08-05"
 ---
 
 # langfuse-enrich
@@ -35,6 +37,55 @@ node spans.
   `span-attribute-conventions.md`.
 - The request is about alerting, SLO budgets, or incident triage.
 
+## Anti-patterns
+
+These are the highest-consequence pitfalls for this enrichment skill. Each
+produces silent data loss or corruption — no exception is raised.
+
+**NEVER add a second `langfuse` SDK `TracerProvider` when one is already
+registered by `langfuse-instrument`.**
+Two `TracerProvider` registrations on the same Python process produce
+conflicting global providers. The last `set_tracer_provider()` call wins, but
+earlier spans are already registered to the first provider — both providers then
+export partial, non-overlapping sets of spans to Langfuse, making traces appear
+truncated or split. Use the OTel SDK primary path (`span.set_attribute(...)`) for
+all enrichment unless `langfuse>=2.0` is already a declared dependency AND the
+contributor explicitly requests the SDK path.
+
+**NEVER set `langfuse.session.id` or `langfuse.user.id` inside individual node
+functions.**
+OTel context propagation automatically carries root-span attributes to all child
+spans. Setting these attributes inside each node creates redundant writes and
+misses the root observation. Set them exactly once on the root span before
+`graph.invoke()` is called.
+
+**NEVER call `get_trace_id_hex()` after the root span ends.**
+Once the span context is closed, `trace.get_current_span()` returns the
+invalid-span sentinel. `format(ctx.trace_id, "032x")` then produces
+`"00000000000000000000000000000000"` — a valid-looking string that matches no
+trace in Langfuse. Always extract the trace ID inside the active span, before
+`graph.invoke()` returns.
+
+**NEVER mix `gen_ai.usage.*` and `langfuse.observation.usage_details` on the
+same span for the same token dimension.**
+`gen_ai.usage.*` attributes are treated as **inclusive** counts (Langfuse
+subtracts cache buckets during ingest). `langfuse.observation.usage_details` is
+stored **verbatim**. Setting both for, say, `input_tokens` causes the ingest
+pipeline to count that dimension twice — cost and token totals in the dashboard
+become permanently wrong with no error surfaced.
+
+**NEVER use the legacy `mask=` hook for LangGraph-via-OTel setups.**
+`Langfuse(mask=...)` fires only at Langfuse-SDK attribute-creation time. It does
+NOT intercept raw OTel spans emitted by LangGraph nodes or third-party
+auto-instrumentation libraries. Only `mask_otel_spans` covers those spans. Using
+`mask=` gives a false sense of PII protection while the actual node payloads land
+in Langfuse unmasked.
+
+**NEVER let `mask_otel_spans` raise an unhandled exception.**
+Any uncaught exception in the hook drops the entire export batch with no error
+surface and no retry. Always wrap the hook body in `try/except` and return `None`
+on failure (safe fallback — passes the batch through unmodified).
+
 ## Workflow
 
 ### Step 0 — Confirm credentials are in place
@@ -51,19 +102,20 @@ hardcoded URL and never default to a remote host; always read from the environme
 ### Step 1 — Detect the enrichment feature from context and load the reference
 
 Read the contributor's request and the surrounding codebase context, then load
-exactly the reference(s) that match. Do not front-load all references.
+**exactly one** reference that matches. Do NOT pre-load multiple references — load
+only the file whose row matches, then proceed to Step 2.
 
-| Request signals | Reference to load |
-|---|---|
-| session, conversation id, group traces, multi-turn | `@references/session-and-user-propagation.md` |
-| user id, user tracking, attribute trace to user | `@references/session-and-user-propagation.md` |
-| environment, staging, production, classify traces | `@references/environment-and-tags.md` |
-| tag, label, categorize, filter by tag | `@references/environment-and-tags.md` |
-| metadata, arbitrary key-value, trace context, log level, severity, DEBUG/WARNING/ERROR | `@references/metadata-and-log-levels.md` |
-| traceparent, cross-service, distributed, W3C baggage, upstream span | `@references/distributed-tracing.md` |
-| feedback, score, thumbs, rating, user signal | `@references/user-feedback.md` |
-| pii, mask, redact, scrub, sensitive data | `@references/masking.md` |
-| token, cost, usage, billing, input_tokens, output_tokens | `@references/token-and-cost.md` |
+| Request signals | Reference to load | Do NOT load if |
+|---|---|---|
+| session, conversation id, group traces, multi-turn | `@references/session-and-user-propagation.md` | request is only about user id with no multi-turn grouping |
+| user id, user tracking, attribute trace to user | `@references/session-and-user-propagation.md` | request is only about session grouping with no user attribution |
+| environment, staging, production, classify traces | `@references/environment-and-tags.md` | request mentions neither environment nor tag classification |
+| tag, label, categorize, filter by tag | `@references/environment-and-tags.md` | request is about metadata key-value, not tag classification |
+| metadata, arbitrary key-value, trace context, log level, severity, DEBUG/WARNING/ERROR | `@references/metadata-and-log-levels.md` | request is about session/user/tag/env — those are separate keys |
+| traceparent, cross-service, distributed, W3C baggage, upstream span | `@references/distributed-tracing.md` | request is about in-process session propagation only |
+| feedback, score, thumbs, rating, user signal | `@references/user-feedback.md` | request does not mention surfacing a score value to the Langfuse UI |
+| pii, mask, redact, scrub, sensitive data | `@references/masking.md` | request is about filtering traces by tag, not payload redaction |
+| token, cost, usage, billing, input_tokens, output_tokens | `@references/token-and-cost.md` | request is about log-level severity, not token counts |
 
 If the request is to **set up** JS/TS OTel tracing from scratch (create
 `instrumentation.ts`, register `NodeSDK` / `LangfuseSpanProcessor`), that is
@@ -93,9 +145,9 @@ explicitly opts into the Langfuse SDK convenience APIs.
 **Optional — Langfuse SDK convenience APIs (`propagate_attributes` / `@observe`):**
 
 Available only when `langfuse>=2.0` is already a declared dependency and the
-contributor explicitly requests the decorator or context-manager style. If adding
-this dependency solely for enrichment, note the trade-off: a second SDK alongside
-the existing OTel setup requires careful TracerProvider conflict management.
+contributor explicitly requests the decorator or context-manager style. Before
+adding the Langfuse SDK for enrichment alone, surface the TracerProvider conflict
+risk (see Anti-patterns above) and get explicit confirmation.
 
 **Shared attribute names note:**
 

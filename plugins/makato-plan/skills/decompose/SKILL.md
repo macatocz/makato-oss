@@ -7,6 +7,9 @@ description: >-
 version: "1.4.0"
 model: opus
 argument-hint: "[slug]"
+metadata:
+  authors: ["makato-plan"]
+  last_updated: "2026-08-05"
 ---
 
 # Decompose
@@ -32,7 +35,85 @@ understanding.
 
 ---
 
+## Anti-Patterns
+
+Non-obvious failure modes. Each NEVER is grounded in a downstream contract or sprint failure
+mode — not generic advice.
+
+**NEVER create a standalone technical enabler story.**
+WHY: Produces a story with zero user-observable outcome — cannot be demoed or independently
+tested against a Definition of Done. The enabler is only useful when paired with the
+user-facing story it enables; splitting it out creates two stories where neither can ship
+alone, defeating the vertical-slice contract and poisoning sprint velocity.
+
+**NEVER accept a single-layer or single-repository story.**
+WHY: A layer-cut story (UI-only, API-only, DB schema-only) delivers no standalone value and
+cannot be tested in a running environment without the other layers. It creates a hidden
+"must combine to demo" dependency between board items that appear independent but aren't.
+
+**NEVER write `storyPoints > 13` without recording a BLOCK error.**
+WHY: 13 SP is the schema hard cap (enforced in Step 8). An oversized story routinely crosses
+sprint boundaries, corrupts velocity measurement, and almost always hides a safe split — the
+BLOCK forces re-examination before `to-issues` creates an issue that the team cannot realistically
+close in a sprint.
+
+**NEVER emit `tier:`, `points:`, `module:`, `tech:`, or `status:` into `stories[].labels[]`.**
+WHY: Each label is owned by a different authoritative source. `tier:` derives from `phase`;
+`points:` from `storyPoints`; `module:` from the target repo's ADR folder structure (only
+`to-issues` knows this at publish time); `tech:` from `to-issues` text-match; `status:` from
+the dependency topo-sort. Emitting them here creates a drift vector: decompose's guess can
+conflict with `to-issues`'s derivation, producing mismatched labels on the GitHub issue.
+
+**NEVER mutate `stories.json` after `to-issues` has run.**
+WHY: GitHub issues are anchored to story sequence numbers in `created-issues.json`. A sequence
+shift after publish breaks the audit trail between each issue and its originating story.
+Re-running `to-issues` after mutation creates duplicate issues with no link to the originals.
+
+**NEVER omit `epic.objective` from `stories.json`.**
+WHY: `to-issues` validates its presence before rendering the GitHub epic tracking issue title.
+A missing objective is a hard publish failure — `to-issues` blocks the entire run, not just
+the epic story row. The objective cannot be patched after publish without rewriting the issue.
+
+**NEVER solicit a user choice with freeform prose — always use AskUserQuestion with enum options.**
+WHY: Freeform questions cannot be handled by the autonomous loop's headless mode. Enum options
+let the loop apply a predictable default (first option) without a human present, enabling
+unattended dispatch. Freeform blocks the loop silently.
+
+---
+
 ## Workflow
+
+### Workflow Overview
+
+| Step | What Happens | Key Output |
+|------|-------------|------------|
+| 1 | Resolve spec folder, load artifacts, detect update mode | Loaded artifacts |
+| 2 | Repository research + team mapping via context-scout | Team assignments |
+| 3 | Story sketch analysis against architecture + sizing gate | Candidate story list |
+| 4 | Decomposition interview — 3 rounds + feature toggle capture | Validated stories |
+| 5 | Three Amigos simulation — parallel PO/Dev/QA agents | Per-story feedback + Gherkin |
+| 6 | Three Amigos HTML review (max 2 iterations) | Resolved feedback |
+| 7 | Generate `stories.json` with labels, skills, scenarios | `stories.json` |
+| 8 | Completeness validation — BLOCK/warn/defer tiers | Error/warning list |
+| 9 | Parked questions written to `decisions.md` | Updated `decisions.md` |
+| 10 | Final HTML review + approval gate | Approved `stories.json` |
+| 11 | Status + next-step routing | Handoff message |
+
+### Reference Loading Contract
+
+Load each reference ONLY at its designated step. Do NOT pre-load all references at skill entry —
+loading before the designated step wastes context and can cause stale reads if artifacts change
+during the interview rounds.
+
+| Reference | MANDATORY at | Do NOT Load Before |
+|-----------|-------------|-------------------|
+| `@references/team-repository-mapping.md` | Step 2.2 | Step 2.2 |
+| `@references/vertical-slicing-rules.md` | Step 3 | Step 3 |
+| `@references/phase-assignment-rules.md` | Step 3 | Step 3 |
+| `@references/story-point-estimation-guide.md` | Step 3 (5a) | Step 3 |
+| `@references/stories-json-schema.md` | Step 7 | Step 7 |
+
+---
 
 ### Step 1: Resolve Spec Folder & Load Artifacts
 
@@ -133,9 +214,14 @@ Research focus for decomposition:
 
 If no `context/` directory exists, skip silently.
 
+**context-scout failure path**: If the scout agent returns an empty manifest or errors out
+(e.g., no matching files, directory missing), skip silently and proceed with Step 2.2 using
+only the artifact content loaded in Step 1. Do NOT block or prompt — absence of scout findings
+is not an error; team mapping can still proceed from `repositories.yml` alone.
+
 #### 2.2: Map Repositories to Teams
 
-Load @references/team-repository-mapping.md
+**MANDATORY: Load @references/team-repository-mapping.md at this step. Do NOT load before Step 2.2.**
 
 Using repository findings + the mapping reference, propose team assignments for later use
 in story creation. Present brief summary:
@@ -154,15 +240,13 @@ in story creation. Present brief summary:
    - Does the architecture reveal it should be split further?
    - Are technical enablers correctly absorbed (not standalone)?
      Absorb enablers into the first story that needs them.
-5. Apply the 9 splitting patterns — look for hidden slices:
-   - Business rule variations not captured
-   - Data variations that warrant separate stories
-   - Error handling flows
-   - Admin/config/setup stories
-   - Data migration needs
+5. Apply the 9 splitting patterns from @references/vertical-slicing-rules.md.
+   Look specifically for hidden slices not obvious from the PRD sketch:
+   business rule variations, error handling flows, admin/config setup stories,
+   and data migration needs.
 5a. **Apply sizing gate** — for each candidate story, estimate SP using
     @references/story-point-estimation-guide.md:
-    - If SP > 8: apply the split-preferred rule — attempt to split using the 9 patterns above.
+    - If SP > 8: apply the split-preferred rule — attempt to split using the patterns above.
     - For every candidate split, validate it against the split-safety checklist in
       @references/story-point-estimation-guide.md (all four checks: user-facing demoable outcome,
       independently testable, independently deployable, crosses layers). Cross-check against the
@@ -182,9 +266,9 @@ in story creation. Present brief summary:
 Every story must be a vertical slice delivering a user outcome across layers.
 Reject any story scoped to a single layer or single repository.
 
-Load @references/vertical-slicing-rules.md during this step.
-Load @references/phase-assignment-rules.md during this step.
-Load @references/story-point-estimation-guide.md during this step.
+**MANDATORY: Load @references/vertical-slicing-rules.md during this step. Do NOT load before Step 3.**
+**MANDATORY: Load @references/phase-assignment-rules.md during this step. Do NOT load before Step 3.**
+**MANDATORY: Load @references/story-point-estimation-guide.md during this step. Do NOT load before Step 3.**
 
 ---
 
@@ -372,6 +456,8 @@ Tell the user:
 12. **Emit taxonomic labels into `stories[].labels[]`** where `decompose` has an
     authoritative source of truth (see Step 7.12 below)
 
+**MANDATORY: Load @references/stories-json-schema.md during this step. Do NOT load before Step 7.**
+
 #### Step 7.11 — recommended_skills[] emission (agent-skill-routing #146)
 
 After writing all sub-tasks for a story, enrich each sub-task with skill recommendations
@@ -441,8 +527,6 @@ Emit, per story, into `stories[].labels[]` (always alongside the mandatory `"mak
 begins with `"makato"` and may still carry free-form tags. A `to-issues` version predating
 #272 simply ignores an unrecognized `type:` label (it read `type:` from text only), so old and
 new consumers both work.
-
-Load @references/stories-json-schema.md during this step.
 
 ---
 

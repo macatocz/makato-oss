@@ -1,7 +1,12 @@
 ---
 name: makato-plugin-creator
-description: Create a complete, working makato plugin with governance files populated from an interview process — create plugin, new plugin, scaffold plugin, create a new plugin
+description: >-
+  Create a complete, working makato plugin with governance files populated from a
+  structured interview. Use when a contributor needs to add a new capability domain
+  to the makato suite as a standalone plugin — create plugin, new plugin, scaffold
+  plugin, create a new plugin
 version: "2.2.1"
+allowed-tools: Bash(open *) Bash(xdg-open *) Bash(./scripts/check-plugin-structure.sh *) Bash(./scripts/check-naming.sh *) Bash(ls *) Read Write
 ---
 
 # makato-plugin-creator
@@ -9,6 +14,30 @@ version: "2.2.1"
 ## When to Use
 
 Use when a contributor wants to create a new plugin for the makato suite. This skill does not generate empty scaffolds — it conducts a structured interview, validates suite alignment, presents a plan for review, and produces a complete plugin with fully populated governance documentation ready for skill development.
+
+---
+
+## Anti-patterns
+
+**NEVER create any plugin file before the user gives explicit approval ("approved", "looks good", "build it").**
+WHY: Partial state cannot be atomically reviewed. If the user rejects the plan after files exist, re-running the skill silently overwrites already-written governance files with stale content. Corrupt AGENTS.md is worse than no AGENTS.md.
+
+**NEVER skip `check-plugin-structure.sh` and `check-naming.sh` after build.**
+WHY: The pre-commit hook runs these exact scripts. A plugin that fails locally will be rejected at PR time with a cryptic error and no diff to guide the fix. Running them during build surfaces problems when the context is still hot.
+
+**NEVER accept a plugin name already present in `plugins/`.**
+WHY: The marketplace resolves plugins by directory name. A collision silently shadows the existing plugin for every user of that install, breaking their workflow with no error message. Check `ls plugins/` first.
+
+**NEVER use a generic decision test such as "Does this skill belong here?".**
+WHY: Without a concrete transform (X → Y), contributors cannot reliably classify edge-case skills and governance entropy accumulates. The decision test must name both what the plugin transforms and what it produces.
+
+**NEVER skip marketplace.json registration (Step 14).**
+WHY: `claude --plugin-dir` discovers a plugin by directory, but `claude install <name>` via normal marketplace flows requires the entry in `.claude-plugin/marketplace.json`. Skipping this step leaves the plugin unreachable through standard installation paths.
+
+**NEVER populate AGENTS.md with placeholder or TODO text.**
+WHY: The `## Hard Constraints` section must appear before line 30 (enforced by pre-commit). Placeholder text passes that structural check while creating a governance document that looks authoritative but contains no real constraints — the worst outcome for a contributor reading it later.
+
+---
 
 ## Workflow
 
@@ -40,7 +69,7 @@ Load @references/plugin-architecture-rules.md to understand what governance data
 Ask the contributor:
 1. **What belongs in this plugin?** (2-5 concrete bullet points)
 2. **What does NOT belong?** (2-5 concrete bullet points)
-3. **Decision test** — a single question that can be asked of any proposed skill
+3. **Decision test** — a single question that names both what is being transformed and what is produced
 
 Provide examples from existing plugins:
 - makato-core: "Does this serve one toolkit's goal, or the entire suite?"
@@ -56,11 +85,16 @@ Ask:
 
 #### Step 4: Suite Alignment Check
 
-Before proceeding, verify the proposed plugin fits the makato suite:
-1. List existing plugins and their goals for the contributor
-2. Check for goal overlap with existing plugins
-3. Verify the goal represents a single, coherent responsibility
-4. If concerns arise, discuss and resolve before continuing
+Before proceeding, list existing plugins and their goals for the contributor, then apply this decision tree:
+
+| Situation | Action |
+|---|---|
+| Overlap > 50% of proposed goal AND existing plugin already ships skills for it | **HALT** — redirect contributor to extend the existing plugin; explain why a new plugin is not justified |
+| Overlap is partial (shared concern, distinct transform) | **NARROW** — shrink proposed scope to the non-overlapping responsibility; confirm revised scope with contributor |
+| Proposed goal spans two clearly distinct domains | **SPLIT** — ask contributor to choose one coherent responsibility; file a separate request for the other |
+| Single coherent responsibility, no significant overlap | **PROCEED** — continue to Step 5 |
+
+Verify the goal represents a single, coherent responsibility before continuing.
 
 #### Step 5: Plan File Content
 
@@ -80,7 +114,7 @@ Based on all gathered information, synthesize planned content for each output fi
 
 Create an interactive HTML plan file at `/tmp/makato-plugin-plan-<plugin-name>.html`.
 
-Use @references/plan-template.html as the structural template. Fill in these sections:
+Load @references/plan-template.html as the structural template. Fill in these sections:
 
 1. **Plugin Identity** — name, goal, how, why, author
 2. **Governance** — belongs, doesn't belong, decision test (displayed prominently)
@@ -98,6 +132,9 @@ Each section includes a comment textarea. A "Copy Feedback" button aggregates al
 Open the HTML file in the browser:
 - macOS: `open /tmp/makato-plugin-plan-<plugin-name>.html`
 - Linux: `xdg-open /tmp/makato-plugin-plan-<plugin-name>.html`
+
+If the open command fails (CI environment, Gatekeeper quarantine, headless shell): tell the user the exact path and ask them to open it manually:
+> "Could not open browser automatically. Please open this file: `/tmp/makato-plugin-plan-<plugin-name>.html`"
 
 Tell the user:
 > "I've opened the plugin plan in your browser. Review each section and add comments in the text areas for anything you'd like changed. When done, click 'Copy Feedback' and paste it back here."
@@ -143,7 +180,7 @@ Write a single line:
 
 Load @references/agents-template.md
 
-Write the full AGENTS.md populated from interview data. Every section must contain concrete, specific content — no placeholders or generic text.
+Write the full AGENTS.md populated from interview data. Every section must contain concrete, specific content — no placeholders or generic text. The `## Hard Constraints` section must appear before line 30.
 
 #### Step 13: Generate README.md, CHANGELOG.md, and .mcp.json
 
@@ -176,6 +213,12 @@ Run validation scripts:
 
 If any check fails: report the error, fix it, re-run until all pass.
 
+If validation fails repeatedly or a file write error occurs mid-build, list every file that was written and advise the user:
+```bash
+git clean -fd plugins/<plugin-name>
+```
+to restore clean state before retrying the build phase.
+
 Present to the user:
 1. **Files created** — full list with paths
 2. **Marketplace** — registered in `.claude-plugin/marketplace.json`
@@ -183,3 +226,19 @@ Present to the user:
 4. **Test command**: `claude --plugin-dir ./plugins/<plugin-name>`
 5. **Next steps**: "Add skills using `makato-skill-creator`"
 6. **PR title suggestion**: `feat(<plugin-name>): initial plugin with governance`
+
+---
+
+## References
+
+Each reference is loaded exactly once at the step listed. Do NOT pre-load any reference before its step — they are large templates that consume context budget and are meaningless before the interview data exists.
+
+| Reference | Loaded at | Do NOT Load if... |
+|---|---|---|
+| `@references/naming-conventions.md` | Step 1 | Name already validated in a prior iteration |
+| `@references/plugin-architecture-rules.md` | Step 2 | Governance boundaries already gathered |
+| `@references/plan-template.html` | Step 6 | **MANDATORY** — never skip; only load after Step 5 completes |
+| `@references/plugin-json-template.md` | Step 10 | Build phase not reached |
+| `@references/agents-template.md` | Step 12 | Build phase not reached |
+| `@references/readme-template.md` | Step 13 | Build phase not reached |
+| `@references/changelog-template.md` | Step 13 | Build phase not reached |

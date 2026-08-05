@@ -1,6 +1,6 @@
 # Context7 Skill Navigation
 
-**Purpose**: Live documentation fetching for external libraries via Context7 API
+**Purpose**: Live documentation fetching for external libraries via Context7 MCP server
 
 ---
 
@@ -10,8 +10,8 @@
 context7/
 ├── navigation.md              # This file
 ├── README.md                  # Quick start and workflow
-├── SKILL.md                  # Context7 API documentation
-└── library-registry.md        # Supported libraries and query patterns
+├── SKILL.md                   # Full skill: workflow, anti-patterns, decision trees
+└── library-registry.md        # Supported libraries and pre-optimized query patterns
 ```
 
 ---
@@ -21,11 +21,10 @@ context7/
 | Task | Path |
 |------|------|
 | **Quick start** | `README.md` |
-| **API reference** | `SKILL.md` |
+| **Full workflow + anti-patterns** | `SKILL.md` |
 | **Supported libraries** | `library-registry.md` (lines 18-181) |
-| **Query patterns** | `library-registry.md` (lines 199-261) |
+| **Pre-optimized query patterns** | `library-registry.md` (lines 199-261) |
 | **Add new library** | `library-registry.md` (lines 264-279) |
-| **ExternalScout integration** | `README.md` (lines 9-26) |
 
 ---
 
@@ -33,19 +32,11 @@ context7/
 
 **Using Context7**:
 - Quick start → `README.md`
-- API details → `SKILL.md`
+- Full procedure + recovery → `SKILL.md`
 
-**Adding Libraries**:
-- Template → `library-registry.md` (lines 272-279)
-- Supported list → `library-registry.md` (lines 18-181)
+**Query Optimization**:
+- Pre-built query strings → `library-registry.md` (MANDATORY for listed libraries)
+- Query construction rules → `SKILL.md` § Workflow Step 3
 
-**Integration**:
-- ContextScout workflow → `README.md` (lines 54-73)
-- ExternalScout subagent → `.opencode/agent/subagents/core/externalscout.md`
-
----
-
-## Related
-
-- **ExternalScout**: `.opencode/agent/subagents/core/externalscout.md`
-- **ContextScout**: `.opencode/agent/subagents/core/contextscout.md`
+**Anti-Patterns**:
+- All NEVER items with WHY → `SKILL.md` § Anti-Patterns

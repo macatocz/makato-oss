@@ -9,6 +9,9 @@ description: >-
 version: "1.11.0"
 model: sonnet
 argument-hint: "[work-item-key]"
+allowed-tools: ["Bash", "Read"]
+metadata:
+  last_updated: "2026-08-05"
 ---
 
 # implement-tdd
@@ -64,7 +67,58 @@ REPO_ROOT="$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pw
 
 `plan.md` and `build.jsonl` paths below resolve to `$REPO_ROOT/specs/<key>-*/...`. The `shared/build-log.sh` helper handles this for JSONL appends automatically; spec-artefact reads use `REPO_ROOT` explicitly.
 
-## Workflow
+## Anti-patterns
+
+A dedicated list of failure modes this skill has encountered in production. Each NEVER has an
+explicit WHY — these are the non-obvious ones.
+
+**NEVER re-read `plan.md` or `glossary.md` after Step 4.** The `plan-analyst` agent is the
+sole reader of those files — it returns a structured Plan Analysis that Step 4 stores as
+`PLAN_CONTEXT`. Re-reading independently produces an inconsistent second parse, and any
+ambiguity in `plan.md` prose will be resolved differently the second time. If you need a
+field that the Plan Analysis did not surface, that is a gap in `plan-analyst` — file an
+issue, do not bypass the contract.
+
+**NEVER scrape the prose `Output Format` section of an R1 message.** The skill contract
+specifies the last fenced ` ```json ` block as the authoritative source. The prose summary is
+for human inspection only; its field names and structure may differ from the envelope (they
+deliberately use a different style). Parsing prose leads to silent field mismatches when the
+coder's summary diverges from the machine envelope.
+
+**NEVER pass an empty array for `RECOMMENDED_SKILLS`, `TEST_ORACLE`, `SCOUT_SUMMARY`, or
+`PRIOR_LESSONS`.** All four fields use "omit when absent" semantics — the coder and scout
+agents tolerate a missing key, but an empty array can trigger type-coercion or no-op branches
+that differ by agent version. Omit the field entirely; do not pass `[]`.
+
+**NEVER retry a failed `task-file-scout` dispatch.** Scout failure is classified as an
+advisory miss — the coder proceeds without `SCOUT_SUMMARY`. Retrying triggers the NEVER 6
+anti-runaway rule and adds latency for zero gain, since a scout that fails once on the same
+inputs will fail again. Log the miss and move on.
+
+**NEVER run the tracer bullet step (Step 5) in CI-failure recovery mode.** The tracer is a
+multi-layer scaffold for greenfield architectures; the CI-failure recovery path re-enters a
+story that already has real implementation. Running the tracer a second time would overwrite
+real code with hardcoded stubs. The recovery mode is explicitly a subset of the normal walk
+(`ci-failure-recovery` decision JSONL is the gate). See § *CI-failure recovery mode*.
+
+**NEVER acknowledge a coverage miss silently in autonomous mode.** No human is at the prompt.
+Inventing an acknowledgement to continue is a contract violation that bypasses `build-verify`
+Gate 5 (`HALT-002`). Log `threshold_met:false`, emit the `log-bypass.sh` marker, and defer
+to Gate 5 — that is the authoritative coverage enforcement point.
+
+**NEVER dispatch tasks outside topological order.** Even when two tasks appear independent,
+the `blockedBy` graph in `plan.md` encodes constraints the user set during refinement. Out-of-
+order dispatch creates file conflicts and can produce GREEN tests that pass on stub data from
+a task that hasn't run yet. Topo-sort first, enforce strictly.
+
+**NEVER patch `workflow-state.json` unconditionally.** The patch is guarded on both the
+`makato-orchestrate` plugin being present AND `r1.status == "success"`. Patching on
+`partial`/`failure` would record false task completion in the PO-agent's state machine,
+causing the outer loop to skip the failed task on the next dispatch.
+
+**Do NOT Load `references/test-writing-guide.md` unless dispatching a coder in Step 6 for
+a story with no established test conventions.** Do NOT Load `references/tdd-cycle-rules.md`
+outside Steps 1 and 5. Do NOT Load `@shared/baseline-guide.md` outside Step 3.
 
 ### Step 1 — Ask for work item key and load plan
 
@@ -105,6 +159,17 @@ Dispatch the `plan-analyst` agent with:
 - `REPO_ROOT`: absolute path to the target repository root
 
 The agent returns a structured Plan Analysis containing: task list with tdd/goal mode, layers detected, `tracer_required` flag, glossary constraints, and reusable codebase patterns. Use this output for all subsequent steps — do not re-read plan.md or glossary.md independently.
+
+**plan-analyst failure branch:** if the plan-analyst agent returns R1 `status:"failure"` or
+its envelope cannot be parsed, stop immediately. Do not attempt to read `plan.md` directly
+as a fallback — the sole-reader contract exists precisely because direct reads produce
+ambiguous parses. Surface `r1.errors[0]` (or `"R1 contract violation"` on parse failure) to
+the user and recommend re-running `/build-refine` to produce a fresh `plan.md` before
+retrying this skill. Log:
+
+```bash
+shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"load-context","status":"error","data":{"reason":"<r1.errors[0]>"}}'
+```
 
 Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"load-context","status":"ok","data":{"grill_context":<true|false>,"tracer_required":<true|false>}}'`
 
@@ -220,6 +285,13 @@ developer's hands without the orchestrate plugin present (mirrors the
 guarded `workflow-state.sh patch` pattern at § Step 6 end of this skill).
 
 The coder agent runs the full RED→GREEN→INTEGRATE→VERIFY cycle for the task and appends JSONL entries directly to JSONL_PATH.
+
+**MANDATORY — load test conventions before first coder dispatch:** if the project has no
+established test conventions discoverable from the codebase (i.e. `PLAN_CONTEXT` or
+`SCOUT_SUMMARY` returns no test-style hints), load @references/test-writing-guide.md
+before dispatching the first `coder` agent in this step, and include the relevant sections
+as advisory context in `PLAN_CONTEXT`. Do NOT load for projects where the scout or
+plan-analyst already surfaced test conventions — redundant loading wastes context budget.
 
 **On coder result (R1 envelope parsing):**
 

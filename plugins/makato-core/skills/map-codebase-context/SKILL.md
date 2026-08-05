@@ -1,25 +1,36 @@
 ---
 name: map-codebase-context
 description: Use when the user says "zoom out", "show me the big picture", "what calls this", "map the dependencies", "I don't know this area", "higher level view", "how does this module connect", or "give me context on this code". Do NOT use when already understanding the component or debugging a single file.
-version: "1.5.0"
+version: "1.6.0"
 argument-hint: "[optional: module or file name]"
 allowed-tools: Read Bash Grep Glob
 ---
 # Map Codebase Context
 
-## Tools
-
-| Tool     | Purpose                                           |
-| -------- | ------------------------------------------------- |
-| `LSP`  | Go-to-definition, find-references, call hierarchy |
-| `Grep` | Pattern search for symbols, imports, usage        |
-| `Read` | Inspect file content and understand context       |
-| `Glob` | List files to map project structure               |
-
 ## Workflow
 
-Two-phase: map call hierarchy up (who calls this) and down (what this calls) to 2 hops, then
-present a consolidated picture of scope, risk, and impact before any changes.
+Two-phase: map call hierarchy **up** (who calls this) and **down** (what this calls) to 2 hops, then present a consolidated picture of scope, risk, and impact before any changes.
+
+```
+Phase 1 — Locate
+  Grep callers (1 hop up)
+  → Zero callers: apply Zero-Callers procedure (see Constraints) — halt map, report situation
+  → 50+ callers: sample 3–5 representative entry points; record total count for output
+  Grep callees (1 hop down): list direct dependencies only; do not recurse
+
+Phase 2 — Read
+  Read one actual caller: record intent, argument shape, error-handling pattern
+  Read the module under analysis: identify layer, single responsibility, invariants
+  Check for test file: note pinned behaviors; absence of tests is itself a finding
+
+Phase 3 — Surface
+  Identify data contracts at call boundaries (what caller passes, what callee assumes)
+  Check for 2-hop hidden coupling: C→B→A where C hardcodes A's internal format
+  Check whether the module's stated layer is respected in its own import list
+
+Phase 4 — Report
+  Produce 5-section output (What module / Callers / Dependencies / Architecture fit / Read next)
+```
 
 ## Philosophy
 
@@ -84,14 +95,35 @@ to zoom out after the immediate task, not before.
 ## What to Show
 
 1. **What module/layer is this?** — Name it and describe its responsibility in one sentence.
+   Expert signal: if the module's imports span multiple layers (a service importing an HTTP
+   request object, a repository calling another service), flag the layer violation — layer-crossing
+   imports are a reliable bug-density predictor because two responsibilities share a single change
+   surface and any future split requires touching both.
+
 2. **What calls it?** — List the main callers or entry points (function names, files, services).
-   Limit to 2 hops up the call chain; do not enumerate all transitive callers.
-3. **What does it call?** — List its key dependencies (downstream modules, external services,
-   data stores). Limit to direct dependencies — do not recurse into their dependencies.
-4. **How does it fit the overall architecture?** — One paragraph placing it in the system:
-   what layer it belongs to, what abstractions it hides, and what invariants it enforces.
-5. **What should I read next?** — The 2–3 most important files to understand this area deeply.
-   Justify each choice: "because it defines the interface" / "because it shows the contract".
+   Limit to 2 hops up the call chain; do not enumerate all transitive callers. Expert signal: look
+   for callers that de-structure the return value in non-obvious ways (signals the return contract
+   is under-specified) and callers that pass the unchecked result of a prior call as an argument
+   (signals a hidden error-propagation assumption that breaks silently when the prior call changes
+   behavior).
+
+3. **What does it call?** — List its key dependencies (downstream modules, external services, data
+   stores). Limit to direct dependencies — do not recurse. Expert signal: flag synchronous fan-out —
+   multiple independent service calls in sequence with no batching or async coordination — it is a
+   latency multiplication point under load and a common source of timeout cascades.
+
+4. **How does it fit the overall architecture?** — One paragraph placing it in the system: what
+   layer it belongs to, what abstractions it hides, and what invariants it enforces. Expert signal:
+   if callers bypass this module and call its downstream dependency directly, the abstraction has
+   already leaked — flag it as a refactor risk even if the code passes tests. A bypassed abstraction
+   has two change surfaces instead of one.
+
+5. **What should I read next?** — The 2–3 most important files ranked with explicit rationale.
+   Ranking heuristic: (1) the file that defines the data structure crossing the primary call
+   boundary — that file is the actual contract; (2) the test that pins the most-called behavior;
+   (3) any upstream dependency not in this module's own directory. If no data-structure definition
+   file exists (inline dicts/maps cross every boundary), that absence is itself the most important
+   finding — the contract exists only as convention and will drift silently across callers.
 
 If you need to explore the codebase to answer, do so before responding.
 
@@ -99,12 +131,21 @@ If you need to explore the codebase to answer, do so before responding.
 
 Before reporting:
 
-- Use `Grep` to find callers: search for the function or class name being used as an import or
-  call site
-- Use `Glob` to locate related files (same directory, same prefix, same test directory)
-- Use `Read` on key files identified by grep — read the relevant section, not the entire file
-- Read at least one actual caller before concluding about the call pattern — the import graph
-  reveals intent that the implementation hides
+- **Grep for callers**: search for the function or class name used as an import or call site.
+  When reading actual caller code (not just listing grep hits): look for argument shapes that
+  differ from the callee's declared parameters — this signals implicit transformation that belongs
+  in the callee. Look for return-value handling inconsistencies across callers (some check `.ok`
+  or `.success`, others don't) — this signals a contract enforced by convention, not by type, and
+  will break when any caller is added or modified without reading all the others.
+
+- **Glob for related files**: same directory, same prefix, same test directory.
+
+- **Read key files**: relevant section, not the entire file. If a test file exists, read the test
+  assertions before reading the implementation — test assertions pin the intended contract faster
+  than source-reading and reveal which behaviors are considered load-bearing.
+
+- **Read at least one actual caller** before concluding about the call pattern — the import graph
+  reveals structure; the caller body reveals intent.
 
 For architecture-specific patterns (layered, event-driven, microservices, pipeline):
 
@@ -121,7 +162,7 @@ when the call structure is already clear from the first grep.
 | ----------------------------------------------------- | --------------------------------------------------------- |
 | Deep in a feature, lost orientation across modules    | Clear plan exists — orientation not needed               |
 | Need to understand data flow across 3+ files          | Only need a single file — read it directly               |
-| Want to know callers/callees and why something exists | Want code review — use`/self-review` or `/pr-review` |
+| Want to know callers/callees and why something exists | Want code review — use `/self-review` or `/pr-review`    |
 
 **Entry:** Run when answering "where does this data come from and go?" requires traversing ≥3 files.
 
@@ -146,9 +187,15 @@ when the call structure is already clear from the first grep.
 - **NEVER provide more than 5 "read next" recommendations** — ranked top-3 is more actionable
   than an unranked list of 10. WHY: an unranked list forces the user to re-prioritize what you
   were asked to prioritize; a ranked list of 3 with rationale is immediately actionable.
-- **NEVER zoom out without first reading the test suite** — WHY: tests are the only
-  machine-verifiable specification of intended behavior; code without tests has no observable
-  contract; zooming out without tests means analyzing structure without semantics.
-- **NEVER present more than 5 'important things to know' after zooming out** — WHY: working
-  memory capacity is 7±2 items; presenting 10 conclusions forces the user to re-prioritize;
-  a ranked list of 5 with rationale is immediately actionable.
+- **NEVER zoom out without first checking the test suite** — WHY: tests are the only
+  machine-verifiable specification of intended behavior; a module without tests has no observable
+  contract; the absence of tests is itself an architectural finding that belongs in the output.
+- **NEVER present more than 5 'important things to know' after zooming out** — WHY: the goal of a
+  zoom-out is to reduce cognitive load, not redistribute it. Ten unranked conclusions recreate the
+  same information-density problem the analysis was meant to solve; five ranked conclusions with
+  rationale is the maximum that remains immediately actionable without re-processing by the reader.
+- **NEVER invoke this skill on a module with zero callers** — WHY: there is no context to map.
+  A new module has no callers yet — run the skill after integration test stubs establish the
+  intended call contract. An old module with zero callers is dead code — report that finding
+  directly rather than producing a false-empty context map. In either case, halt the zoom-out
+  and state the situation explicitly so the user can act on the real problem.

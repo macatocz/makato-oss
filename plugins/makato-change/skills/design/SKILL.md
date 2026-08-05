@@ -1,8 +1,16 @@
 ---
 name: design
-description: Design technical approach for change request by discovering affected code, planning solution, and updating GitHub issue with implementation strategy. Use for technical design, solution planning, code discovery, implementation approach.
-version: "1.4.0"
+description: >-
+  Design technical approach for a change request: discover affected code,
+  plan solution, produce design.md + spec-delta.md, and update GitHub issue.
+  Use when analysis.md exists and requirements are clear. Triggers: technical
+  design, solution planning, code discovery, implementation approach, design CR.
+version: "1.5.0"
 argument-hint: "[ISSUE-KEY]"
+metadata:
+  authors: ["makato-change"]
+  last_updated: "2026-08-05"
+allowed-tools: ["Bash", "Read", "Write", "Edit", "gh"]
 ---
 
 # Design Change Request Solution
@@ -25,6 +33,46 @@ Design the technical approach for implementing a change request. Discovers affec
 
 ---
 
+## Anti-Patterns
+
+These failures are non-obvious and only surface mid-execution. Read before starting.
+
+**NEVER expand the file set beyond what analyze identified** without opening a new change request.
+WHY: design.md becomes the implementation contract for execute. Any file added here that
+analyze never scoped bypasses the 15-file cap check and the scope guard in AGENTS.md.
+The execute skill trusts design.md as a complete, reviewed boundary — unexpected files
+break `change-implementer`'s isolation model.
+
+**NEVER post Jira Wiki Markup to a GitHub Issues comment.**
+WHY: GitHub Issues renders Markdown, not Jira markup. `h2.`, `h3.`, `{{text}}`, `*bold*`,
+and `#` list prefix will appear as raw literal characters in the rendered comment. Every
+reviewer will see visually broken output. Use `##`/`###`, `**bold**`, backticks, and
+`1.`/`2.` lists.
+
+**NEVER skip the HALT-CH-003 audit log in autonomous mode.**
+WHY: The PO-agent outer loop audits `log-bypass.sh` entries to verify that design approval
+was intentional rather than silently dropped. A missing entry causes the loop's reconcile
+phase to flag the session as incomplete, which can re-queue the item and duplicate work.
+
+**NEVER emit an empty `## Recommended Skills` section in design.md.**
+WHY: `execute` Step 2.1 reads this section to forward skills to `change-implementer`.
+An empty section causes the implementer to skip skill injection silently — no error, no
+warning — leaving it without context for framework-specific code. The rule: if
+`RECOMMENDED_SKILLS_RESULT` is empty, omit the section entirely.
+
+**NEVER resolve REPO_ROOT using `pwd` or relative paths.**
+WHY: The skill often runs inside a git worktree whose CWD does not match the target
+repository. `pwd` returns the makato checkout, not the project under change. Always derive
+REPO_ROOT via the path-resolution algorithm in Step 1.5, which tries sibling-of-CWD and
+git-basename strategies before failing with a clear error message.
+
+**NEVER write spec-delta.md as a section inside design.md.**
+WHY: `execute` reads these two artifacts separately. Merging them breaks the execute
+skill's artifact loading contract and loses the structured ADDED/MODIFIED/REMOVED/RENAMED
+taxonomy that downstream tooling (e.g., acceptance-test generation) depends on.
+
+---
+
 ## Workflow
 
 ### Step 1: Load Analysis Artifact
@@ -37,7 +85,7 @@ Read the analysis artifact at `specs/<issue-key>/analysis.md`:
 - Confirm scope is small/medium (not escalated to makato-plan)
 
 **Optional: Fetch latest from GitHub Issues** (if user wants to check for updates):
-- Use MCP tool `gh issue view` to get current status (do NOT use `gh issue view`)
+- Use `gh issue view <issue-number>` to get current status
 - Compare with analysis artifact to detect any requirement changes
 
 ### Step 1.5: Load Repository Metadata
@@ -63,18 +111,18 @@ affected:
 
 **Resolve path** using @shared/path-resolution.md algorithm:
 
-Determine base search directory:
+Determine base search directory using a stable root anchor — never `pwd`:
 ```bash
-SPECS_DIR="specs/<ISSUE_KEY>"
-SPECS_ROOT=$(cd "$(dirname "$SPECS_DIR")" && cd .. && pwd)
+MAKATO_ROOT="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)"
+SPECS_ROOT="${MAKATO_ROOT}/specs"
 ```
 
 Try multiple search strategies:
 
-1. **Sibling of CWD**: `$SPECS_ROOT/../$REPO_NAME`
-2. **Same parent, one level deeper**: `$SPECS_ROOT/../*/$REPO_NAME`
+1. **Sibling of MAKATO_ROOT**: `${MAKATO_ROOT}/../${REPO_NAME}`
+2. **Same parent, one level deeper**: `${MAKATO_ROOT}/../*/${REPO_NAME}`
 3. **Current working directory**: If `git rev-parse --show-toplevel` basename matches `$REPO_NAME`
-4. **specs/ parent itself**: If `$SPECS_ROOT` basename matches `$REPO_NAME`
+4. **specs/ parent itself**: If `$SPECS_ROOT/..` basename matches `$REPO_NAME`
 
 Set `REPO_ROOT` to first matching location.
 
@@ -83,19 +131,15 @@ Set `REPO_ROOT` to first matching location.
 test -d "$REPO_ROOT/.git"
 ```
 
-If validation fails:
-- Show searched locations
-- Suggest standard layouts (see @shared/path-resolution.md for error message template)
-- Exit gracefully
-
 **If validation fails:**
-- Inform user with specific failure: "Repository not found at <REPO_ROOT>" or "Invalid repositories.yml structure"
+- Inform user with specific failure: "Repository not found at `<REPO_ROOT>`" or "Invalid repositories.yml structure"
+- Show all searched locations
 - Suggest: "Update `specs/<issue-key>/repositories.yml` manually or re-run analyze skill"
 - Exit gracefully
 
 **Store for subsequent steps:**
-- REPO_ROOT: <absolute-path>
-- REPO_NAME: <repo-name>
+- REPO_ROOT: `<absolute-path>`
+- REPO_NAME: `<repo-name>`
 
 ### Step 2: Verify Prerequisites
 
@@ -108,7 +152,7 @@ If questions are resolved or there were none, proceed.
 
 ### Step 3: Ask User for Code Discovery Preference
 
-Load @references/code-discovery-strategies.md to understand the two approaches.
+**MANDATORY: Load @references/code-discovery-strategies.md** to understand the two approaches before presenting options.
 
 **Headless branch (MAKATO_HEADLESS=1):**
 
@@ -116,7 +160,9 @@ Auto-select **Guided mode** (Option A). Log an `autonomous_bypass` entry:
 ```bash
 shared/log-bypass.sh makato-change:design "<ISSUE_KEY>" discovery-preference guided cli_flag
 ```
-Proceed to Step 4 Option A. Since no user has provided file paths, derive affected files from the analysis artifact's "Affected Files" section and CODE_EXPLORATION_RESULT. If neither source yields a list, dispatch the code-explorer agent (Option B) without prompting.
+Proceed to Step 4 Option A. Derive affected files from the analysis artifact's "Affected Files"
+section and CODE_EXPLORATION_RESULT. If neither source yields a list, dispatch the
+code-explorer agent (Option B) without prompting.
 
 **Interactive branch (default):**
 
@@ -217,7 +263,7 @@ automatically, not only when a human hand-writes `recommended_skills[]` in desig
 **Best-effort contract:** a resolver failure (import error, `BundleResolutionError`, any
 exception) logs a single warning line and sets `RECOMMENDED_SKILLS_RESULT = []`. This step
 NEVER blocks the design phase — it mirrors the warning-not-fatal contract `knowledge-scout`
-uses. An empty result omits the `## Recommended Skills` section from design.md (Task 2).
+uses. An empty result omits the `## Recommended Skills` section from design.md (Step 9).
 
 ### Step 5: Load Test Analysis (Cached from Analyze Phase)
 
@@ -328,17 +374,19 @@ If "Request changes": update test-scenarios.md with corrected implementation typ
 
 ### Step 6: Read and Understand Affected Code
 
-Read the key files identified in Step 4:
-- Understand how the code is structured
-- Note patterns and conventions used (naming, error handling, testing style)
-- Identify dependencies: what this code imports, what imports it
-- Review existing test coverage: what's tested, what's not
+Read each file identified in Step 4. For each file, focus on:
 
-Focus on understanding enough to design a solution that fits the existing codebase patterns, not reading every line in detail.
+- **Entry points and call sites** — what calls this function/component and with what arguments
+- **Existing patterns** — naming, error handling, validation style used in this module
+- **Test coverage shape** — unit vs. integration, mock boundaries, fixture patterns
+- **Inbound dependencies** — who imports this; a signature change here breaks those callers
+
+Stop reading when you can answer: "What is the minimal change that satisfies the requirement
+without breaking caller contracts?" Do not read every line; focus on interfaces and patterns.
 
 ### Step 7: Design Solution Approach
 
-Load @references/solution-design-pattern.md for structure guidance.
+**MANDATORY: Load @references/solution-design-pattern.md** for structure guidance before writing.
 
 Design how the changes will be implemented:
 
@@ -373,21 +421,24 @@ Plan how to handle:
 - What E2E scenarios need updates (from test-analyzer: E2E tests found)
 - What test data or fixtures are needed
 
-**Determine test scope:**
-- **Module-only tests**: Change is isolated to one module/package with clear boundaries
-  - Modified code only affects that module
-  - No shared utilities or cross-module dependencies touched
-  - Run only that module's test suite
-- **Full test suite**: Change affects shared code or has cross-cutting impact
-  - Modified shared utilities, common libraries, or base classes
-  - Changed API contracts or data models used by multiple modules
-  - Modified configuration, environment setup, or build process
-  - When unsure about impact → default to full suite
-- Document the test scope decision in the design artifact
+**Determine test scope** — this is a non-obvious decision with project-wide impact:
+
+| Signal | → Test Scope |
+|--------|-------------|
+| Change isolated to one module, no shared utility touched | Module-only |
+| Shared utility, base class, or common library modified | Full suite |
+| API contract or data model changes (used by multiple modules) | Full suite |
+| Config, environment setup, or build process touched | Full suite |
+| Unsure about cross-module impact | Full suite (safe default) |
+
+The **only safe default is full suite** when the impact boundary is unclear. Module-only is an
+optimization, not a shortcut; choose it only when you can name the exact module boundary.
+
+Document the test scope decision and justification in the design artifact.
 
 ### Step 8: Plan Implementation Steps
 
-Load @references/implementation-planning-guide.md for step breakdown guidance.
+**MANDATORY: Load @references/implementation-planning-guide.md** for step breakdown guidance before writing.
 
 Break the solution into logical implementation chunks (not exhaustive task list, just major phases):
 
@@ -406,11 +457,14 @@ Identify risks or blockers:
 - **External dependencies:** waiting on other teams, infrastructure changes needed
 - **Technical risks:** breaking changes, migration complexity, edge case coverage
 
-Validate scope: if the design is revealing more complexity than expected, flag it. If scope is growing beyond small/medium, recommend pausing and escalating to makato-plan.
+**Scope escalation guard:** If the design is revealing more files or subsystems than the
+analysis estimated, stop and evaluate. A design that touches 13+ files or requires a new
+module that analyze never mentioned is a signal to pause and escalate to makato-plan before
+proceeding. Expanding scope silently is a contract violation (see Anti-Patterns).
 
 ### Step 9: Generate Design Artifact
 
-Load @templates/design.md for structure.
+**MANDATORY: Load @templates/design.md** for structure before writing.
 
 Write the complete design to `specs/<issue-key>/design.md`:
 
@@ -424,8 +478,8 @@ Write the complete design to `specs/<issue-key>/design.md`:
 7. **Risks** — Unknowns, blockers, technical concerns
 8. **Supporting Components** — New UI elements, helpers, config changes
 9. **Recommended Skills** *(conditional)* — Emit this section only when `RECOMMENDED_SKILLS_RESULT`
-   from Step 4.5 is non-empty. When the list is empty, omit the section entirely — do NOT
-   write an empty array. This is what `execute` Step 2.1 reads and forwards to
+   from Step 4.5 is non-empty. When the list is empty, **omit the section entirely** — do NOT
+   write an empty array or placeholder. This is what `execute` Step 2.1 reads and forwards to
    `change-implementer` as `RECOMMENDED_SKILLS`.
 
    Format (one skill per line, matching the `plugin:skill-id` or bare `skill-id` convention
@@ -438,8 +492,8 @@ Write the complete design to `specs/<issue-key>/design.md`:
    - <skill-id-2>
    ```
 
-**Note:** `spec-delta.md` is NOT a section inside design.md. It is emitted as a separate
-companion artifact in Step 9.5 immediately after this step.
+**Note:** `spec-delta.md` is NOT a section inside design.md. It is a separate companion
+artifact emitted in Step 9.5 immediately after this step.
 
 Link back to the analysis artifact for traceability:
 > Analysis: `specs/<issue-key>/analysis.md`
@@ -448,7 +502,7 @@ Make the artifact self-contained so the execute skill can implement from this de
 
 ### Step 9.5: Generate Spec-Delta Artifact
 
-Load @references/spec-delta-template.md for the template structure.
+**MANDATORY: Load @references/spec-delta-template.md** for the template structure.
 
 Walk the solution approach documented in Step 7 and classify each requirement change as one of:
 - **ADDED** — a new requirement not present in the current implementation
@@ -509,7 +563,7 @@ shared/log-bypass.sh makato-change:design "<ISSUE_KEY>" design-approval approve 
   '{"halt_code":"HALT-CH-003","note":"auto-approved in autonomous mode"}'
 ```
 
-Set `POST_TO_JIRA = (MAKATO_CHANGE_POST_DESIGN == "1")`. Proceed to Step 11 conditionally.
+Set `POST_TO_GITHUB = (MAKATO_CHANGE_POST_DESIGN == "1")`. Proceed to Step 11 conditionally.
 
 **Interactive branch (default):**
 
@@ -518,8 +572,8 @@ Use `AskUserQuestion` to get approval:
 **Question:** "Does this design look good?"
 
 **Options:**
-1. **Approve and post to GitHub Issues** — Accept design and update GitHub Issues issue with design summary
-2. **Approve but don't post to GitHub Issues** — Accept design but skip GitHub Issues update (useful for drafts or offline work)
+1. **Approve and post to GitHub Issues** — Accept design and update the GitHub issue with design summary
+2. **Approve but don't post to GitHub Issues** — Accept design but skip GitHub issue update (useful for drafts or offline work)
 3. **Request changes** — Provide feedback to revise the design
 
 If user requests changes:
@@ -527,60 +581,58 @@ If user requests changes:
 - Regenerate the design artifact
 - Present the updated summary again with the same approval options
 
-Store the user's choice: `POST_TO_JIRA` (boolean)
+Store the user's choice: `POST_TO_GITHUB` (boolean)
 
-### Step 11: Update GitHub Issues Issue (Conditional)
+### Step 11: Update GitHub Issue (Conditional)
 
-**Only proceed if user selected "Approve and post to GitHub Issues" in Step 10.**
+**Only proceed if `POST_TO_GITHUB` is true (user selected "Approve and post to GitHub Issues" in Step 10).**
 
-Load @references/jira-design-update-format.md for comment structure.
+**MANDATORY: Load @references/github-design-update-format.md** for comment structure and tone.
 
 Post the solution approach as a GitHub issue comment using `gh issue comment`:
 
-**IMPORTANT**: Use GitHub Issues Wiki Markup format (NOT Markdown). Key syntax:
-- Headers: `h2.`, `h3.` (NOT `##`, `###`)
-- Bold: `*text*` (NOT `**text**`)
-- Numbered lists: `#` at line start (NOT `1.`, `2.`)
-- Bulleted lists: `*` at line start
-- Monospace: `{{text}}` (NOT backticks)
-- Horizontal rule: `----` (NOT `---`)
+**IMPORTANT**: Use **GitHub Markdown** (NOT Jira Wiki Markup). Key syntax:
+- Headers: `##`, `###` (NOT `h2.`, `h3.`)
+- Bold: `**text**` (NOT `*text*`)
+- Numbered lists: `1.`, `2.`, `3.` (NOT `#` at line start)
+- Bulleted lists: `-` or `*`
+- Inline code/monospace: `` `text` `` (NOT `{{text}}`)
+- Horizontal rule: `---` (NOT `----`)
 
 **Comment template:**
-```
-h2. Technical Design
+```markdown
+## Technical Design
 
-*Files Affected:* <count>
+**Files Affected:** <count>
 
-h3. Solution Approach
+### Solution Approach
 <2-3 sentence summary of how changes will be implemented>
 
-h3. Key Changes
-* <change 1>
-* <change 2>
-* <change 3>
+### Key Changes
+- <change 1>
+- <change 2>
+- <change 3>
 
-h3. Implementation Steps
-# <step 1>
-# <step 2>
-# <step 3>
+### Implementation Steps
+1. <step 1>
+2. <step 2>
+3. <step 3>
 
-h3. Risks
-<list using * if any, or "None identified">
+### Risks
+<bulleted list if any, or "None identified">
 
-*Estimated time:* <minutes/hours>
+**Estimated time:** <minutes/hours>
 
-----
-Full design: {{specs/<issue-key>/design.md}}
+---
+Full design: `specs/<issue-key>/design.md`
 ```
 
 Add label `makato-change-designed` using `gh issue edit --add-label`.
 
 **Transition status if needed:**
-- Get current issue status using `gh issue view` (with fields: ["status"])
+- Get current issue status using `gh issue view --json state`
 - If status is "New", transition to "Open":
-  - Get available transitions using `gh issue view --json state`
-  - Find transition to "Open" status
-  - Execute transition using `gh issue edit --state` (no comment needed for this straightforward transition)
+  - Execute using `gh issue edit --state open`
   - If transition fails (not available), continue without error (workflow may differ by project)
 
 ### Step 12: Present Summary to User

@@ -1,6 +1,6 @@
 ---
 name: makato-skill-creator
-description: Create a complete, working skill inside an existing makato plugin with full guardrails and validation — create skill, new skill, add skill to plugin, write a skill
+description: "Use when a contributor wants to add a skill to an existing makato plugin — creates a complete, working skill with real workflows, references, templates, and routing registration, all validated against suite guardrails. Keywords: create skill, new skill, add skill to plugin, write a skill"
 version: "1.3.0"
 allowed-tools: Read Write Glob Bash(./scripts/*) Bash(./plugins/*/pre-commit/*) Bash(python3 *) Bash(cp *) Bash(open *) Bash(xdg-open *)
 ---
@@ -20,7 +20,16 @@ This skill follows a strict 3-phase workflow: **Plan → Present → Build**. No
 
 #### Step 1: Identify Target Plugin
 
-Ask the user: **"Which makato plugin should this skill be added to?"**
+Use `AskUserQuestion` with selectable options, enumerating installed plugin names from
+`plugins/*/. claude-plugin/plugin.json` (glob, then strip path to get the name):
+
+```
+Question: "Which makato plugin should this skill be added to?"
+Options: [<list of plugin names from plugins/*/. claude-plugin/plugin.json>]
+```
+
+Do NOT ask with freeform prose — the first interaction must offer known valid choices, not
+a blank field. If the glob returns zero results, fall back to freeform and warn.
 
 Validate:
 
@@ -142,9 +151,29 @@ Automatically open the HTML file in the browser:
 - macOS: `open /tmp/makato-skill-plan-<skill-name>.html`
 - Linux: `xdg-open /tmp/makato-skill-plan-<skill-name>.html`
 
-Tell the user:
+**Headless / CI fallback:** If the `open`/`xdg-open` command exits non-zero or the
+environment variable `CI` is set, skip the browser launch and instead print the plan
+as a structured Markdown summary to stdout:
 
-> "I've opened the skill plan in your browser. Review each section and add comments in the text areas for anything you'd like changed. When done, click 'Copy Feedback' and paste it back here."
+```
+## Skill Plan: <skill-name>
+### Goal Alignment
+<...>
+### Workflow Steps (summary)
+1. <title>: <short description>
+...
+### Files to be created
+- SKILL.md
+- references/<file>.md (purpose)
+...
+### Routing Registration
+<interactive/meta — skipped | domain bundle + archetype keys>
+```
+
+Inform the user:
+
+> "Browser launch unavailable (headless environment). Plan summary printed above. Reply
+> with any change requests or say 'approved' to proceed to build."
 
 #### Step 8: Iterate on Feedback
 
@@ -228,24 +257,30 @@ Only a **technical / routable** skill belongs on either path. An **interactive /
 meta** skill (one a human invokes directly) must NOT be registered on either —
 injecting it into a headless agent is pure noise.
 
-Load @references/skill-bundles-rules.md for the bundle schema, naming convention,
-and the wide-glob precision-filter gate. Load @references/routing-registration.md
-for the two-path model, the domain-vs-self-dev bundle distinction, and the
-task-map schema.
-
-**Decision gate — apply the one-minute test first:**
+**Decision gate — apply the one-minute test BEFORE loading references:**
 
 1. **Could a headless coder agent, already mid-task, act on this skill's content
    with no human present?** If NO → the skill is interactive/meta. **Skip
    registration on both paths** (do not create or modify `skill-bundles.yml` or
    `task-skill-map.json`); note in the Step 16 summary that the skill was
    intentionally not registered, and why.
+
+   **Do NOT load @references/skill-bundles-rules.md or
+   @references/routing-registration.md** when the skill is interactive/meta.
+   Loading them anyway burns context budget on irrelevant schema details and — more
+   dangerously — raises the risk that Claude hallucinates a registration entry that
+   must not exist, which the pre-commit gate will then block at commit time.
 2. **Can you write a glob or `task_contains` predicate that fires only when this
    skill's domain is actually in play?** If NO → do not register (a skill that
    would only match a wide `**/*`-style glob with no precision filter is rejected
    by the pre-commit gate anyway).
 
-Register **only if both answers are YES**. Quick signals:
+Register **only if both answers are YES.**
+
+**MANDATORY — only if registering:** Load @references/skill-bundles-rules.md for
+the bundle schema, naming convention, and the wide-glob precision-filter gate.
+Load @references/routing-registration.md for the two-path model, the
+domain-vs-self-dev bundle distinction, and the task-map schema. Quick signals:
 
 - **Technical (register):** dispatched/invoked by another skill or agent; documents
   library/framework/SDK construction patterns; fixes/verifies/optimizes a concrete
@@ -364,6 +399,50 @@ cp /tmp/makato-skill-plan-<skill-name>.html plugins/<plugin>/skills/<skill-name>
 ```
 
 This preserves the design rationale, workflow decisions, and feedback iterations for future reference when modifying the skill.
+
+---
+
+## Anti-patterns
+
+These are the non-obvious failure modes practitioners discover by breaking things. Each
+NEVER has an explicit WHY — the consequence that justifies the rule.
+
+**NEVER register an interactive/meta skill on either routing path**
+because `inject-skills` prepends it into every headless coder agent that touches the
+matching files. The agent then reads a Phase-1 interview script mid-task and either
+stalls waiting for human input or silently ignores the skill and wastes a context token
+budget that is already the scarce resource in autonomous loops.
+
+**NEVER place domain-specific NEVER/WHY guidance in a trailing section**
+(e.g. an "Anti-patterns" appendix in the new SKILL.md the skill creates) because
+Claude's context compaction drops end-of-file content first. A NEVER that only activates
+under compaction is no NEVER at all. Place each anti-pattern inline, at the workflow
+step where the mistake would be made.
+
+**NEVER add a `default` bundle to `skill-bundles.yml`**
+because `makato-build` owns the single suite-wide `default` bundle, and the
+`validate-skill-bundles.sh` pre-commit gate rejects duplicate `default` entries as a
+hard error — the commit fails and the fix requires manually editing the registry.
+
+**NEVER create a wide-glob bundle without a `contains:` precision filter**
+because `inject-skills` matches every file touched in the task against the glob. A glob
+like `**/*.py` with no `contains:` fires on all Python work in the repo, flooding
+unrelated agents with an irrelevant skill. The pre-commit gate rejects it, so the skill
+will never be reachable until the glob is narrowed.
+
+**NEVER use a bare (unqualified) skill id in `task-skill-map.json`**
+(e.g. `"langgraph-fundamentals"` instead of `"makato-langgraph:langgraph-fundamentals"`)
+because the resolver `decompose` uses does a prefix-qualified lookup. An unqualified id
+silently fails to resolve — the skill is never recommended, with no error surfaced.
+
+**NEVER ask choice questions with freeform prose**
+(e.g. "Ask the user which plugin to use") because the answer arrives as an arbitrary
+string the skill then has to fuzzy-match against directory names. Use `AskUserQuestion`
+with a filesystem-enumerated options list so the answer is always a validated plugin
+name — avoiding a mismatch that would only surface when a non-existent directory is read
+in a later step.
+
+---
 
 #### Step 16: Summary
 

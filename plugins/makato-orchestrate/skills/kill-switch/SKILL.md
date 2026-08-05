@@ -9,6 +9,7 @@ description: >-
   by sub-agents or user-facing skills.
 version: "1.0.0"
 argument-hint: "<subcommand> <key> [args…]"
+allowed-tools: [Bash]
 ---
 
 <!-- markdownlint-disable MD013 -->
@@ -36,6 +37,26 @@ for task in workflow_state.sub_tasks:
 Do **not** call from sub-agents, build-* skills, or user-facing commands. The PO-agent is the
 sole consumer; the kill-switch's writes (halt_audit, restart_failed, session_count,
 needs-human-review label) are state-machine transitions only the PO-agent is authorised to make.
+
+**Do NOT load this skill if:** you are inside a build-*, makato-change, or makato-plan skill;
+if you are a sub-agent dispatched by the PO-agent; or if the task is user-initiated rather
+than part of the autonomous outer loop.
+
+## Subcommand-Dispatch Framework
+
+Each of the four subcommands has exactly one correct moment in the PO-agent loop:
+
+| Subcommand | When to call | Who may call |
+|------------|-------------|--------------|
+| `poll` | Before every `dispatch_coder` call | PO-agent only |
+| `handoff` | Immediately after a passing `poll`, before dispatch | PO-agent only |
+| `record-budget` | After every sub-agent dispatch returns its R1 | PO-agent only |
+| `reset-daily-budget` | Operator-only; never inside the automated loop | Operator only |
+
+The PO-agent never branches on individual HALT codes inside the loop body. It checks `poll`'s
+exit code (0 = proceed, non-zero = stop), then reads `halt_audit[-1]` for logging and
+`needs-human-review` labelling. This single-conditional design is the core invariant — adding
+per-HALT-code branches in the outer loop is an anti-pattern (see Anti-Patterns below).
 
 ## Operator-facing controls
 
@@ -136,9 +157,14 @@ shell-script call. Exit codes pass through unchanged:
 Increment `budget_consumed_tokens` by `DELTA_TOKENS` AND increment the daily ledger by the
 same amount. Used by the PO-agent after every sub-agent dispatch (it reads `tool_calls_used`
 and a token estimate from the R1 envelope, multiplies by the model's price tier, and calls
-this skill).
+this skill). The skill increments both counters atomically; computing an accurate `DELTA_TOKENS`
+is the caller's responsibility — supply actual R1 figures, not pre-dispatch estimates (see
+Anti-Patterns).
 
 The daily ledger schema lives at @references/daily-budget.schema.json.
+
+MANDATORY: load `@references/daily-budget.schema.json` if you need to validate or inspect the
+ledger structure after a `record-budget` or `reset-daily-budget` call.
 
 ```bash
 /makato-orchestrate:kill-switch record-budget gap-004 42 12500
@@ -194,6 +220,42 @@ rather than from the day's start.
 See `plugins/makato-orchestrate/halt-conditions.md` for the full table including codes this
 skill does NOT emit (HALT-001 through HALT-006 are emitted by makato-build).
 
+## Anti-Patterns
+
+**NEVER call this skill from a sub-agent, build-* skill, or user-facing command.**
+WHY: the kill-switch writes state-machine transitions (`halt_audit`, `session_count`,
+`needs-human-review` label) that are authorised only at the PO-agent outer-loop boundary. A
+sub-agent call produces out-of-sequence HALT audit entries and can double-apply
+`needs-human-review` on an issue still actively being worked, corrupting the operator's
+resumption signal with a false-positive halt.
+
+**NEVER invoke `claude -p` directly for resumption; always use `loop.sh run`.**
+WHY: bypassing `loop.sh` loses the `_pre_dispatch_plan_guard` (plan-presence gate), the
+`_within_dispatch_guard` (concurrency mutex), and the board CAS claim (cross-machine
+double-dispatch lock). The result is a headless session with no self-HALT path and no
+idempotency guarantee — two sessions can dispatch against the same issue simultaneously
+(issue #160).
+
+**NEVER conflate `outer_iteration` with `merge_conflict_cycles` or `ci_failure_cycles`.**
+WHY: these three counters are independent retry budgets with separate ceilings. Routing all
+three through a single `poll`-side HALT-008 check would allow a runaway CI-failure loop to
+consume the re-plan budget, or a conflict loop to false-trigger the ceiling before any
+re-plan attempt has occurred. Each counter's ceiling is enforced at its own decision site
+in the PO-agent.
+
+**NEVER pass an estimated `DELTA_TOKENS` to `record-budget`; use the actual R1 figure.**
+WHY: the daily ledger is append-only and non-rewindable. Over-reporting silently throttles
+subsequent runs on the same day; under-reporting silently bypasses the daily ceiling.
+`record-budget` increments atomically — correctness depends entirely on the caller supplying
+the real token count from the R1 envelope's `tool_calls_used` field, not a pre-dispatch
+estimate.
+
+**NEVER add HALT-code-specific branches inside the PO-agent outer loop.**
+WHY: the single-conditional design (`if poll exits non-zero → read halt_audit[-1] and log`)
+is what keeps the outer loop auditable and the kill-switch surface composable. Per-code
+branches inside the caller would couple the PO-agent to kill-switch's internal taxonomy,
+forcing dual-file edits for every future HALT code addition.
+
 ## JSONL Audit
 
 Every poll that fires a HALT, and every `record-budget` call that crosses a ceiling, MUST be
@@ -216,14 +278,11 @@ would dwarf the rest of the log.
 
 ## Verification
 
-Smoke tests live at @references/kill-switch-smoke-tests.sh. The script covers the five `poll`
-shutdowns (HALT-000, HALT-007 per-task, HALT-007 daily, HALT-008, HALT-009) and the
-`record-budget` ledger lifecycle. The handoff sub-path is covered by
-`scripts/context-handoff-smoke-tests.sh` — this skill's tests intentionally don't duplicate
-that coverage.
+The `handoff` subcommand is covered by `scripts/context-handoff-smoke-tests.sh` (T1–T15;
+run from repo root). The 15 scenarios exercise all HALT-007B and HALT-007 fallback paths
+including delta-baseline calculation (#281) and liveness-watchdog supervision (#284).
 
-The implementation itself ships in a follow-up issue once the PO-agent (GAP-006 / #32) is the
-caller — until then, this SKILL.md fixes the contract that PO-agent will dispatch against.
-The four operator levers (HALT file, `claude-halt` label, env-var budgets, handoff) are all
-operational today via `hooks/check-halt.sh` and `scripts/context-handoff.sh` even before this
-skill's implementation lands.
+Dedicated smoke tests for the `poll` and `record-budget` subcommands are a planned follow-on
+— `references/kill-switch-smoke-tests.sh` does not yet exist. Until then, verify the five
+`poll` shutdown paths against `halt-conditions.md` and confirm each produces the correct
+`halt_code` entry in `orchestrate.jsonl`.

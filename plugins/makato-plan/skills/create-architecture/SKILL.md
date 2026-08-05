@@ -4,9 +4,12 @@ description: >-
   Create Architecture Design Documents from PRD output — architecture, technical
   design, system context, component design, API design, data model, security,
   deployment, test strategy. Use after PRD is approved.
-version: "1.0.4"
+version: "1.0.5"
 model: opus
 argument-hint: "[slug]"
+allowed-tools: Bash
+metadata:
+  last_updated: "2026-08-05"
 ---
 
 # Create Architecture
@@ -29,6 +32,33 @@ technical decisions, and operational strategy. No external side-effects.
 - Already have a design.md and want to decompose into stories (use decompose skill)
 - Want to create implementation tasks or stories (that's the decompose skill)
 - Want to create GitHub Issues or publish externally (use /to-issues downstream)
+
+---
+
+## Anti-Patterns
+
+These failure modes are non-obvious and only experience teaches them. Claude MUST NOT do any of the following.
+
+**NEVER accept "we'll figure it out later" for core architectural paths.**
+WHY: service boundaries, auth mechanisms, and data models are the decisions that force rework late in delivery. An unanswered question on a critical path is not deferred risk — it is hidden cost. Push back explicitly: "Is this a critical path? If yes, decide now or park as a High-priority Q# that blocks decompose." Defer only peripherals (e.g., exact alerting thresholds, log retention policies).
+
+**NEVER write a design.md section using AI-inferred content without flagging it.**
+WHY: design.md is the authoritative technical contract consumed by build-refine. A plausible-sounding but inferred technology choice (e.g., "Redis for caching") that contradicts the team's actual infrastructure creates a false contract — developers implement against a fiction and discover the mismatch during integration, not shaping. Every section must trace to interview answer, PRD requirement, or context-scout finding. If no source exists, mark `[PENDING: Q#]`.
+
+**NEVER accept vague architecture vocabulary without demanding concrete specifics.**
+WHY: "microservices", "cache", "event-driven", and "scalable" each describe at least a dozen incompatible designs. Accepting them produces a design doc that reads coherent but makes no real decisions. The doc-writer agent will then fabricate specifics to fill the void, compounding the problem. Push back on every vague term — see `references/architecture-quality.md` for the push-back question per pattern.
+
+**NEVER duplicate PRD requirements in the design doc.**
+WHY: any PRD content copied into design.md creates two canonical sources. When the PRD is updated (common during refinement), the design doc silently drifts. The design doc's job is to say HOW — it references PRD requirements by implication ("NFR: page load <2s → CDN + edge caching + lazy loading"). If you're writing a requirement, it belongs in the PRD; if you find implementation detail in the PRD, move it here.
+
+**NEVER approve a design with critical sections still `[PENDING: Q#]`.**
+WHY: security, data model, and component design are the three sections that every downstream story depends on. Approving with a pending auth mechanism means every security story is blocked the moment development starts. Step 9 enforces this gate — it is not advisory.
+
+**NEVER re-run all interview rounds when in Refine mode.**
+WHY: re-interviewing on an update erases the user's existing answers and creates a full replacement instead of a delta. In Refine mode (Step 1.4), enter with the existing design loaded, ask only "what changed", and preserve untouched sections byte-for-byte per `shared/refinement-contract.md`. A refinement that inadvertently reverts a prior decision is harder to detect than a gap in a fresh document.
+
+**NEVER downgrade this skill's model to sonnet to save tokens.**
+WHY: the architecture interview drives multi-round synthesis across all three interview rounds plus grill output. Sonnet produces shallower follow-ups and misses coupling concerns that only emerge from connecting answers across rounds. The model selection is governed by AGENTS.md — change it only via a quality experiment.
 
 ---
 
@@ -58,7 +88,8 @@ Read from the resolved spec folder:
 2. **`decisions.md`** — cross-session continuity, existing decisions from brainstorming
    and PRD phases
 3. **`repositories.yml`** — if already identified (from PRD phase or earlier).
-   See plan: read `shared/repositories-yml-schema.md`.
+   See plan: read `shared/repositories-yml-schema.md` now only if `repositories.yml`
+   exists and needs schema validation — Do NOT load if no repo file is present yet.
 4. **`reference/`** folder — scan for technical documents (architecture diagrams,
    T-shirt sizings, API specs, DB schemas)
 
@@ -107,9 +138,10 @@ AskUserQuestion:
 If "Refine": load existing design, display current content summary (components, key
 decisions, status). Enter refinement flow — ask what changed (new constraint, revised
 approach, additional component), preserve unchanged content.
-Read `shared/refinement-contract.md` and apply its rules (enumerate change candidates,
-preserve untouched sections byte-for-byte, surface AI-inferred changes for approval,
-emit a `changes[]` summary).
+Read `shared/refinement-contract.md` now (Do NOT load outside Refine mode — it
+applies only when design.md already exists) and apply its rules (enumerate change
+candidates, preserve untouched sections byte-for-byte, surface AI-inferred changes
+for approval, emit a `changes[]` summary).
 
 ---
 
@@ -151,65 +183,35 @@ Display brief summary:
 
 ### Step 3: Architecture Interview
 
+MANDATORY: Load @references/interview-rounds.md now for the full question bank.
+Do NOT load it before this step — it is unused during artifact setup and validation.
+
 Comprehensive interview targeting lead architects and team architects. Every design.md
 section MUST trace back to either (a) a direct interview answer, (b) PRD content, or
 (c) confirmed context-scout findings.
 The AI MUST NOT generate content for a section without explicit input.
 
-#### Round 1 — System Context & Boundaries (always ask)
+Conduct the three rounds in `references/interview-rounds.md` in order (System Context,
+Design Decisions, Operations). All rounds always run; Round 3 depth varies by scope.
 
-Reject vague architecture terms: "microservices" needs service boundaries and
-justification; "cache" needs type, invalidation strategy, and TTL; "message queue"
-needs topic design and consumer groups.
+#### Expert Heuristics (non-obvious practitioner rules applied across all rounds)
 
-- **System context** — "How does this feature interact with external systems?
-  What's the boundary between what we own and what we consume/produce? Draw the
-  picture: our system, external actors, data exchanges."
-- **Component breakdown** — "Which components need to change or be created?
-  How do they communicate (sync/async, REST/events/shared DB)? What are the
-  responsibilities of each?"
-- **Data flow** — "Trace the data from input to output. Where does it enter the
-  system, how is it transformed, where does it persist, and how does it exit?"
-- **Technical constraints** — "What's non-negotiable technically? Language, framework,
-  platform, deployment target, protocols, team capabilities, existing tech debt
-  that constrains us?"
-- **Integration points** — "What services, APIs, or systems do we integrate with?
-  Owned or external? Sync or async? What happens when they're unavailable?"
+**Reject vague architecture vocabulary immediately — do not record it as an answer.**
+"Microservices", "cache", "event-driven", "scalable" describe incompatible designs.
+Accepting them produces a design doc that reads coherent but decides nothing.
+Push back inline: see `references/architecture-quality.md` Anti-Patterns table for the
+exact push-back question per vague term. Only record a concrete answer.
 
-#### Round 2 — Design Decisions & Data (always ask)
+**Cross-round connection: link Round 2 decisions back to Round 1 constraints.**
+A technical decision (e.g., "use Kafka for events") not grounded in a Round 1 constraint
+or integration point is a free-floating choice the grill will tear apart. After each Round
+2 answer, check: "Does this trace to a constraint, integration point, or PRD NFR?"
+If not, ask what drives the choice before recording it.
 
-- **Key technical decisions** — "What are the 3-5 most impactful technical choices
-  we need to make? For each: what options did you consider, what did you choose,
-  why, and what trade-offs are we accepting?"
-- **Data model** — "What entities exist? Relationships? Storage technology
-  (SQL/NoSQL/object store)? Schema evolution strategy? Expected data volumes?
-  Retention policy?"
-- **API design** — "REST/GraphQL/gRPC/events? Key endpoints or operations?
-  Versioning strategy? Authentication and authorization approach?
-  Error handling patterns? Rate limiting?"
-- **Security considerations** — mandatory for every feature.
-  "Authentication mechanism (OAuth/SAML/API keys)? Authorization model
-  (RBAC/ABAC/custom)? Data sensitivity classification? Encryption at rest and in
-  transit? Compliance requirements from PRD NFRs — how do we meet them?"
-
-#### Round 3 — Operations & Quality (always ask, depth varies by scope)
-
-- **Performance approach** — "How do we meet the NFRs from the PRD? Specific
-  techniques: CDN, caching (what type, invalidation strategy, TTL), pagination,
-  lazy loading, connection pooling, async processing. Where are the likely
-  bottlenecks?"
-- **Deployment strategy** — "Blue-green, canary, rolling, feature flags? Rollback
-  plan if it goes wrong? Environment topology (dev/staging/prod)?
-  Infrastructure as code? CI/CD pipeline changes needed?"
-- **Observability** — "What do we monitor? Key business and technical metrics,
-  alerting thresholds, logging strategy (structured?), distributed tracing?
-  How do we know the feature is healthy in production?"
-- **Test strategy** — "Unit/integration/e2e split? Coverage targets for critical
-  paths? What are the critical test scenarios that must pass? Performance/load testing
-  approach? Contract testing for APIs?"
-- **Migration & rollback** — "Data migration needed? Is it backwards-compatible?
-  What are the rollback steps if deployment fails? Feature flag kill switch?
-  Can we deploy incrementally?"
+**Security is mandatory regardless of how the architect frames the feature.**
+Every feature has an auth mechanism, a data sensitivity classification, and at least
+one compliance angle from the PRD NFRs. If the architect says "no special security
+requirements", probe the data model and user roles — they will reveal requirements.
 
 #### Parking Unanswerable Questions
 
@@ -221,9 +223,12 @@ When the architect says "I don't know", "need to check with {person}", or
 3. Note the question with context: what answering it unblocks.
 4. Continue without dwelling.
 
-For critical architectural paths (core data model, service boundaries, auth
-mechanism): reject "we'll figure it out later" — either decide now or park as
-High-priority open question that blocks the next phase.
+**For critical architectural paths (core data model, service boundaries, auth
+mechanism): reject "we'll figure it out later".** Either decide now or park as
+High-priority open question that blocks the next phase. The distinction matters:
+peripherals (exact alerting thresholds, log retention) are safe to defer; structural
+elements are not — a pending auth model makes every security story in decompose
+un-refinable.
 
 If a parked question leaves a design.md section empty, mark it `[PENDING: Q#]`.
 
@@ -263,7 +268,9 @@ feed directly into design document generation.
 
 Dispatch the `doc-writer` agent to write `specs/{folder}/design.md`.
 
-Load @references/architecture-quality.md
+MANDATORY: Load @references/architecture-quality.md now (decision format, NFR mapping rules,
+anti-patterns, required sections, boundary rule). Do NOT load before Step 5 — it is
+irrelevant during the interview and would inflate context for no gain.
 
 Pass to the doc-writer:
 

@@ -1,7 +1,14 @@
 ---
 name: frontend-design
-description: Create distinctive, production-grade frontend interfaces — HTML/CSS, React, components, pages, dashboards, landing pages, web UI. Use when building or styling any web interface, avoiding generic AI aesthetics in favour of bold intentional design.
-version: "1.1.0"
+description: >-
+  Create distinctive, production-grade frontend interfaces — HTML/CSS, React, components,
+  pages, dashboards, landing pages, web UI. Use when building or styling any web interface,
+  avoiding generic AI aesthetics in favour of bold intentional design. Triggers: frontend,
+  UI, design, component, style, CSS, React, HTML, dashboard, landing page, visual design.
+version: "1.2.0"
+argument-hint: "[brief description of UI surface to build or restyle]"
+metadata:
+  last_updated: "2026-08-05"
 ---
 
 # frontend-design
@@ -27,6 +34,87 @@ brief, and take one real aesthetic risk you can justify.
 
 ---
 
+## Audit Emission (MANDATORY)
+
+This skill runs inside the makato-ux plugin, which requires JSONL audit entries at every
+major boundary. Emit to the session log at:
+
+- **Session start**: `{"event":"skill_start","skill":"frontend-design","step":0}`
+- **After Step 1** (context locked): `{"event":"step_complete","skill":"frontend-design","step":1,"context_subject":"<subject>"}`
+- **After Step 2** (design system scanned): `{"event":"step_complete","skill":"frontend-design","step":2,"tokens_found":<true|false>}`
+- **After Step 3** (plan approved): `{"event":"step_complete","skill":"frontend-design","step":3,"clustering_check":"pass|revised"}`
+- **After Step 4** (implementation done): `{"event":"step_complete","skill":"frontend-design","step":4}`
+- **Session end**: `{"event":"skill_end","skill":"frontend-design","outcome":"complete|halted"}`
+
+These are appended to the JSONL audit stream (stdout or the active session log file);
+they are not written to the project source tree.
+
+---
+
+## Anti-Patterns
+
+### NEVER use warm cream + terracotta as a default palette
+WHY: This is the single most common AI-generated look (~#F4F1EA background, terracotta
+accent, high-contrast serif display). It appears regardless of subject because it is
+the statistical mean of "warm, elevated, editorial" — not a response to any specific
+brief. A fintech dashboard, a developer tool, and a recipe app receive the same
+treatment. It signals the design was not thought about. Exception: the brief uses the
+word "warm," "earthy," or "rustic," or the product is literally in a craft or food
+category and the brief explicitly asks for this direction.
+
+### NEVER default to near-black + acid-green or vermilion as a "dark, modern" direction
+WHY: This is the second most common AI clustering aesthetic. Near-black with a single
+bright accent (acid-green #00FF41 or vermilion) signals "tech startup dark theme" and
+has been used so heavily it reads as template, not voice. Exception: the brief names
+"hacker aesthetic," "terminal," "gaming," or the product has an established brand that
+uses exactly this palette.
+
+### NEVER apply broadsheet layout (hairline rules, zero border-radius, dense columns) as a default "editorial" direction
+WHY: Third AI clustering aesthetic. Newspaper-grid treatments appear as the default
+response to any brief that mentions "editorial," "publication," or "content-rich" —
+regardless of whether the product has any relationship to print media. Exception: the
+subject is genuinely print-adjacent (news, long-form journalism, academic publishing)
+and the brief names this direction.
+
+### NEVER use Inter, Roboto, or Arial as the display typeface
+WHY: These are system utility fonts — optimised for legibility at small sizes in
+functional UI, not for creating a visual identity. Using them as the display face
+produces the same neutral, unmemorable result on every project. A distinctive typeface
+is the highest-leverage branding decision in a design and costs nothing extra.
+Exception: the project's design system explicitly mandates one of these as the brand
+typeface (e.g., a Google product using Roboto for brand consistency).
+
+### NEVER use numbered markers (01 / 02 / 03) when the content is not actually a sequence
+WHY: Numbered decorations encode a claim: "these items have an inherent order and that
+order matters." Applying them to a features grid, a team page, or a capabilities list
+is a lie in the UI — it says "order matters" when it doesn't. It also reads as a design
+cliché: the AI-generated equivalent of bullet-point slides. Use numbers only when the
+progression genuinely matters (installation steps, a wizard, an ordered ranking).
+
+### NEVER scatter animation across every element
+WHY: Multiple concurrent animations on load, hover, and scroll compete for attention,
+fragment the visual hierarchy, and signal that the motion was added for its own sake
+rather than to reinforce meaning. More critically, it is now a recognizable AI-
+generated tell — the equivalent of Lorem Ipsum in motion. One well-composed moment
+(a page-load sequence OR a key micro-interaction, not both everywhere) lands harder
+and reads as intentional.
+
+### NEVER use solid flat colours as the primary visual treatment without deliberate reason
+WHY: Flat solid fills produce surfaces that look like placeholder wireframes or 2013-era
+flat design. Gradient meshes, noise textures, subtle geometric patterns, layered
+transparencies, and dramatic shadows create atmosphere and distinguish the surface from
+a template. Exception: the brief explicitly asks for "ultra-minimal," "brutalist," or
+"stripped-back" — these directions use flat color as a deliberate statement.
+
+### NEVER resolve a conflict between discovered design tokens and the brainstormed palette by silently ignoring the tokens
+WHY: The codebase's design system is the single source of truth for a production UI.
+Overriding it with a custom palette creates a maintenance fork — two parallel systems
+that diverge at every subsequent change. Surface the conflict explicitly: list the
+discovered tokens, explain the aesthetic tension, and let the user decide whether to
+extend the system or override it for a standalone surface.
+
+---
+
 ## Workflow
 
 ### Step 1: Understand Context and Ground It in the Subject
@@ -48,6 +136,8 @@ Before writing a single line of code, establish:
 5. **Signature** — the single unique element this page will be remembered by, one that
    embodies the brief. Define it upfront; everything else stays quiet around it.
 
+Emit audit entry for Step 1.
+
 ### Step 2: Discover Design System
 
 If the target codebase exists, scan for design tokens before writing anything:
@@ -58,6 +148,12 @@ If the target codebase exists, scan for design tokens before writing anything:
 
 Use discovered tokens exclusively. Fall back to custom CSS variables only when no design
 system exists. Avoid Bootstrap, Material Design defaults unless they are the project standard.
+
+**Token conflict resolution:** if discovered tokens clash aesthetically with the
+direction from Step 1, do not silently override them — see the Anti-Patterns section.
+Surface the conflict and resolve it explicitly with the user.
+
+Emit audit entry for Step 2.
 
 ### Step 3: Brainstorm a Design Plan, Then Critique It
 
@@ -73,18 +169,19 @@ Work in two passes before touching implementation code.
   wireframes to ideate and compare.
 - **Signature** — the one memorable element from Step 1, now made concrete.
 
-**Then review that plan against the brief.** AI-generated design right now clusters
-around three looks that appear regardless of subject:
+**Then run the anti-clustering check.** Ask: does this plan match any of the three
+default AI looks in the Anti-Patterns section (warm-cream, near-black+acid-green,
+broadsheet)? Does the typeface choice default to Inter/Roboto/Arial? Does the layout
+fall into a predictable symmetric grid? If yes on any axis the brief left free, revise
+that axis and note what changed and why.
 
-1. Warm cream background (near `#F4F1EA`), high-contrast serif display, terracotta accent.
-2. Near-black background with a single bright acid-green or vermilion accent.
-3. Broadsheet layout — hairline rules, zero border-radius, dense newspaper columns.
+All three aesthetics are legitimate when the brief asks for them. The test is: "Did the
+brief create this, or did I produce it because it is the default?" Brief always wins.
 
-All three are legitimate *when the brief asks for them* — the brief's own words always
-win. But where the brief leaves an axis free, don't spend that freedom on a default. If
-any part of your plan reads like the generic answer you would produce for any similar
-page, revise it, and note what you changed and why. Only after confirming the plan's
-relative uniqueness should you start writing code — then follow the plan exactly.
+Only after passing the clustering check should you start writing code — then follow the
+plan exactly.
+
+Emit audit entry for Step 3, recording whether any clustering revision occurred.
 
 ### Step 4: Implement
 
@@ -120,37 +217,22 @@ and dramatic shadows create atmosphere. Solid flat colours are rarely the right 
 minimal directions need precision in spacing, type, and detail. Elegance is executing
 the chosen vision well — not adding more.
 
+Emit audit entry for Step 4.
+
 ### Step 5: Write the Copy
 
-Words appear in a design for one reason: to make it easier to understand, and therefore
-easier to use. They are design material, not decoration — bring the same intentionality
-to copy you bring to spacing and color. Generic copy makes a design feel as templated as
-generic layout does.
+MANDATORY: load `@references/copy-and-validation.md` before writing user-visible copy.
 
-- **Write from the end user's side of the screen.** Name things by what people control
-  and recognize, never by how the system is built. A person manages notifications, not
-  webhook config. Be specific rather than clever.
-- **Use active voice.** A control says exactly what happens when used: "Save changes,"
-  not "Submit." An action keeps the same name through the whole flow — the button that
-  says "Publish" produces a toast that says "Published."
-- **Treat failure and emptiness as direction, not mood.** Errors explain what went wrong
-  and how to fix it, in the interface's voice; they don't apologize and are never vague.
-  An empty screen is an invitation to act.
-- **Keep the register conversational and tuned** — plain verbs, sentence case, no filler,
-  tone matched to brand and audience. Each element does one job: a label labels, an
-  example demonstrates.
+Copy writing is required whenever the implementation includes user-visible text that is
+not pre-specified in the brief (labels, CTAs, error messages, empty states, onboarding
+text). If all copy is provided verbatim in the brief, this step is read-only.
+
+Reference: `references/copy-and-validation.md` — UX copy principles section.
 
 ### Step 6: Validate and Critique
 
-Before declaring complete, confirm the quality floor:
+MANDATORY: load `@references/copy-and-validation.md` before running the validation checklist.
 
-1. Verify all interactive elements have visible focus states (keyboard navigation).
-2. Check colour contrast ratios meet WCAG AA for all text.
-3. Confirm responsive behaviour at mobile (375px), tablet (768px), and desktop (1280px).
-4. Confirm reduced-motion is respected.
-5. Confirm no external CDN dependencies — code must run self-contained.
+Reference: `references/copy-and-validation.md` — validation checklist section.
 
-Then critique your own work. Spend your boldness in one place: let the signature element
-be the one memorable thing and keep everything around it disciplined. Cut any decoration
-that does not serve the brief. Consider Chanel's advice — before leaving the house, look
-in the mirror and remove one accessory.
+Emit session-end audit entry after Step 6 completes.

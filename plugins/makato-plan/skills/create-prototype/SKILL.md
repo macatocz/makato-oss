@@ -4,9 +4,10 @@ description: >-
   Create interactive HTML prototypes of new UI surfaces from PRD and architecture
   artifacts — prototype, mockup, UI preview, UX validation. Use after architecture
   design is complete for features with user-facing interfaces.
-version: "1.0.2"
+version: "1.1.0"
 model: opus
 argument-hint: "[slug]"
+allowed-tools: WebFetch Bash(open *) Bash(xdg-open *) Bash(start *) Bash(uname *) Bash(git *) Read Write
 ---
 
 # Create Prototype
@@ -29,6 +30,74 @@ Pure visual/UX validation — no external side-effects.
 - Feature is trivial UI (single button, config toggle — decompose directly)
 - Want to validate technical architecture (that's the architecture skill or grill)
 - Want to create GitHub Issues or publish externally (use /to-issues downstream)
+
+---
+
+## Mindset
+
+A prototype answers one question per surface: "Is this the right interaction?" — not
+"Does this look production-ready?" Every fidelity and scope decision should be evaluated
+against that question.
+
+**Fidelity calibration rule**: Raise fidelity only where stakeholders cannot evaluate
+the UX decision without it. A navigation pattern needs real design tokens because
+stakeholders react to visual weight. A data table needs realistic row counts because
+cognitive load depends on density. An error message needs correct placement, not
+correct copy.
+
+**Scope discipline**: Prototype the delta from the existing app. If three of five screens
+in the flow already exist, prototype two. Stakeholders will mentally fill in known screens;
+effort spent on existing screens produces feedback about the existing app, not the new
+feature.
+
+**[ASSUMED] as first-class output**: A prototype with five well-placed [ASSUMED] markers
+is more valuable than a polished prototype with hidden decisions. The markers direct
+decompose-phase acceptance criteria and surface exactly what reviewers must confirm
+before development begins.
+
+## Anti-Patterns
+
+**NEVER prototype surfaces that differ only in data (same layout, different records)**
+WHY: Feedback collapses to "the data looks wrong" rather than "this interaction is wrong."
+Describe the data variation in a surface note instead; prototype one canonical instance.
+
+**NEVER dispatch prototype-builder without MOCK_DATA derived from `design.md`**
+WHY: Without a data model, the agent generates "John Doe / Item 1" stand-ins that shift
+stakeholder attention to data accuracy. The entire review session gets consumed by "but
+our field names are different" — the interaction feedback you need is lost. Domain-realistic
+data keeps feedback on layout and interaction, not content.
+
+**NEVER skip design system research when `repositories.yml` or a known repo is present**
+WHY: A prototype with wrong or missing tokens looks different from the real app. Every
+review comment becomes "but our buttons look different" — styling corrections bury the
+interaction feedback you need. Design system research is the single highest-leverage step
+for review quality.
+
+**NEVER send a full-regeneration request to prototype-builder during the revision loop
+(Step 7.4)**
+WHY: Full regen wipes [ASSUMED] markers that reviewers may have already seen and confirmed,
+resets mock data to agent defaults, and destroys unchanged surfaces. Always diff and pass
+a targeted change set with only the modified surfaces.
+
+**NEVER open the prototype before completing Step 6.1 HTML validation**
+WHY: A prototype with unclosed tags or a silent CDN failure looks broken in the browser
+without a clear error. The user assumes generation failed and requests a re-run, consuming
+a second opus call. Validate first; re-dispatch with error details if needed.
+
+**NEVER carry parked Q# questions into prototype generation without [ASSUMED] markers**
+WHY: If the prototype renders an assumed interaction without marking it, reviewers click
+through, approve it, and the assumption silently becomes the spec. The [ASSUMED] marker
+is the mechanism for making invisible decisions visible before they harden into stories.
+
+---
+
+## Reference Loading Rules
+
+> **Do NOT load** `references/design-system-extraction.md` before Step 2.2 — loading
+> it early wastes context before the scout dispatch.
+
+> **Do NOT load** `references/prototype-quality.md` before Step 6 — the agent receives
+> its content as `QUALITY_STANDARDS`; the agent does NOT read it from disk independently.
 
 ---
 
@@ -127,9 +196,11 @@ AskUserQuestion:
     - "Skip design system research — I'll describe the design system in the interview"
 ```
 
-If skipped, proceed directly to Step 3 (UX Interview) with no design tokens.
+If skipped, proceed directly to Step 3 (surface selection) with no design tokens.
 
 #### 2.2: Spawn Context-Scout for Design System Discovery
+
+> Do NOT load `references/design-system-extraction.md` before this step.
 
 Spawn the `context-scout` agent per repository with a design-system-focused search
 brief.
@@ -201,25 +272,26 @@ If the user provides a URL, use `WebFetch` to extract token and pattern informat
 - API endpoints: those that produce user-visible results
 - Data model: entities that surface in the UI
 
-#### 3.3: Derive Discrete UI Surfaces
+#### 3.3: Filter Surfaces — What Needs a Prototype Slide
 
-Compile a list of discrete UI surfaces — each is one "view" the user sees:
+Not every identified surface warrants a prototype slide. Apply this decision matrix
+before confirming the list with the user:
 
-- Screens (full page views)
-- Dialogs/modals (overlay interactions)
-- Panels/sections (distinct functional areas within a page)
-- Key states (empty, loading, error, success — if significantly different from
-  default)
-
-For each surface, note:
-
-- What the user sees (layout, data displayed)
-- What they can interact with (buttons, forms, navigation)
-- What state transitions occur (click → result)
+| Surface type | Prototype? | Rationale |
+|---|---|---|
+| Multi-step flow with branching | Always | Navigation structure is the primary UX risk; sequence cannot be evaluated from a description |
+| Form with conditional validation or field visibility | Always | Inline error states and conditional fields require click-through to evaluate |
+| New navigation pattern (differs from existing app chrome) | Always | Stakeholders anchor to current patterns; they must click the new one to react |
+| Modal/dialog with non-obvious trigger or dismiss logic | Always | Trigger conditions and dismiss interactions are invisible in documents |
+| Read-only data table (same layout as existing tables) | Skip — describe in note | Prototype slide produces data-accuracy feedback, not UX feedback |
+| Single-field config toggle or simple setting | Skip — defer to decompose | One sentence in the spec covers it; insufficient interaction complexity |
+| Notification / toast | Skip — describe in note | Position and timing are better specified in text; static render misrepresents async behavior |
+| State variant with data-only differences (same layout, empty array) | Skip — describe in note | Describe the empty/error condition in the base surface's notes |
+| State variant with layout-level differences (empty state has CTA + illustration) | Prototype | Layout change justifies a dedicated slide |
 
 #### 3.4: Confirm with User
 
-Present the surface list (scope to new/changed surfaces for this feature only —
+Present the filtered surface list (scoped to new/changed surfaces only —
 do not prototype the entire application):
 
 ```text
@@ -240,7 +312,7 @@ Wait for confirmation before proceeding.
 
 #### 4.1: Gap Analysis
 
-Scan the identified surfaces for ambiguity:
+Scan the confirmed surfaces for ambiguity:
 
 - Missing interaction patterns (what happens on click?)
 - Unclear navigation flow (how do surfaces connect?)
@@ -250,25 +322,29 @@ Scan the identified surfaces for ambiguity:
 
 #### 4.2: Skip Condition
 
-If user journeys in the PRD cover all identified surfaces AND states are
+If user journeys in the PRD cover all confirmed surfaces AND states are
 well-specified in the design doc: skip the interview, proceed to Step 5.
 
 Tell the user: "UX decisions are well-specified in existing artifacts.
 Proceeding directly to grill/generation."
 
-#### 4.3: Targeted UX Questions (if gaps exist)
+#### 4.3: Gap Routing — Classify Before Asking
 
-Ask only about the gaps (max 3-5 questions total, not per surface):
+For each gap, route it before asking the user:
 
-- **Interactions**: "When the user clicks {action}, what happens? Inline feedback,
-  modal confirmation, or navigation to a new view?"
-- **Navigation**: "How does the user move between {Surface A} and {Surface B}?
-  Tab navigation, breadcrumb, wizard steps, or direct links?"
-- **Responsive**: "Mobile-first or desktop-first? Which surfaces must work on mobile?"
-- **States**: "What does {Surface X} look like when empty? During loading?
-  After an error?"
-- **Accessibility**: "Any specific accessibility requirements beyond standard
-  (screen reader focus order, high contrast, reduced motion)?"
+- **Blocking (ask)**: Resolving this gap changes surface structure — slide count,
+  navigation between surfaces, primary CTA placement, or whether a surface exists.
+  Ask a targeted question (max 3-5 total across all surfaces, not per surface).
+- **Non-blocking (ASSUMED)**: Resolving this gap affects styling, copy, or animation
+  but not layout or navigation. Make a reasonable choice, mark [ASSUMED], continue.
+- **Prototype-irrelevant (skip)**: This gap affects implementation behavior (retry
+  logic, exact error codes) but not the interaction the user sees. Park for decompose.
+
+Non-obvious classification examples:
+- "Modal or new page?" → blocking (navigation structure changes)
+- "Exact error message text?" → non-blocking (layout is unchanged)
+- "Paginated or infinite scroll?" → blocking (affects layout density and navigation pattern)
+- "What happens on 3rd retry?" → prototype-irrelevant
 
 #### 4.4: Park Unanswerable Questions
 
@@ -311,6 +387,9 @@ After grill completes, its findings feed into prototype generation:
 ---
 
 ### Step 6: Prototype Generation
+
+> Do NOT load `references/prototype-quality.md` before this step — the agent receives
+> its content as `QUALITY_STANDARDS` and does NOT read it from disk independently.
 
 Dispatch the `prototype-builder` agent with all collected context.
 
@@ -355,7 +434,15 @@ After the agent returns the generated file:
 4. Verify all interactive elements have functional responses (no broken buttons or
    dead-end forms)
 5. Verify file size is reasonable (warn if >500KB — might indicate issues)
-6. If validation fails, re-dispatch with error details
+6. If validation fails, re-dispatch with error details (targeted fix, not full regen)
+
+**Structural failure fallback**: If re-dispatch also fails (second attempt produces
+malformed or empty output):
+- Write error details to `specs/{folder}/prototype-error.txt`
+- Report to user: "Prototype generation failed after two attempts. Error in
+  `specs/{folder}/prototype-error.txt`. Options: reduce surface count and retry,
+  or proceed to decompose using UX interview notes as the interaction spec."
+- Do NOT attempt a third dispatch — escalate to user.
 
 ---
 
@@ -367,11 +454,12 @@ The prototype-builder writes to `specs/{folder}/prototype.html`.
 
 #### 7.2: Open in Browser
 
+Resolve the repo root via `git rev-parse --show-toplevel` for a stable path.
 Use platform-aware command:
 
-- macOS: `open specs/{folder}/prototype.html`
-- Linux: `xdg-open specs/{folder}/prototype.html`
-- Windows: `start specs/{folder}/prototype.html`
+- macOS: `open {repo_root}/specs/{folder}/prototype.html`
+- Linux: `xdg-open {repo_root}/specs/{folder}/prototype.html`
+- Windows: `start {repo_root}/specs/{folder}/prototype.html`
 
 Detect platform via `uname` or environment.
 
@@ -384,7 +472,8 @@ Detect platform via `uname` or environment.
 #### 7.4: Process Feedback
 
 **If revisions requested**: parse the structured feedback (section → comments),
-re-dispatch prototype-builder with targeted changes, re-open.
+re-dispatch prototype-builder with targeted changes (modified surfaces only — do
+not regenerate unchanged surfaces), re-open.
 
 **If approved** (user says "looks good", "approved", pastes empty feedback):
 proceed to Step 8.

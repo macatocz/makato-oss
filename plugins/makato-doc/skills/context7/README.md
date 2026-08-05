@@ -8,37 +8,15 @@ Fetches **live, version-specific documentation** for external libraries and fram
 
 ## Quick Start
 
-### Recommended: Use ExternalScout Subagent
+### Using the Context7 Skill
 
-The **ExternalScout** subagent is the recommended way to fetch external documentation. It handles:
-- Library detection
-- Query optimization
-- Documentation filtering and sorting
-- Formatted results with code examples
-
-**Invocation**:
-```
-Use ExternalScout to fetch documentation for [Library Name]: [your specific question]
-```
+Invoke via the makato-doc `context7` skill. See `SKILL.md` for full workflow,
+decision trees, anti-patterns, and the MANDATORY trigger for `library-registry.md`.
 
 **Example**:
 ```
-Use ExternalScout to fetch documentation for Drizzle ORM: How do I set up modular schemas with PostgreSQL?
+Use context7 to fetch documentation for Drizzle ORM: modular schemas with PostgreSQL
 ```
-
-### Alternative: Direct Skill Usage
-
-You can also invoke the Context7 skill directly via bash:
-
-```bash
-# Step 1: Search for library
-curl -s "https://context7.com/api/v2/libs/search?libraryName=LIBRARY&query=TOPIC" | jq '.results[0]'
-
-# Step 2: Fetch documentation
-curl -s "https://context7.com/api/v2/context?libraryId=LIBRARY_ID&query=OPTIMIZED_QUERY&type=txt"
-```
-
-See `SKILL.md` for detailed API documentation.
 
 ## Supported Libraries
 
@@ -98,5 +76,5 @@ To add a new library to the registry:
 
 ## Related
 
-- **ExternalScout**: `.opencode/agent/subagents/core/externalscout.md`
-- **ContextScout**: `.opencode/agent/subagents/core/contextscout.md`
+- **SKILL.md** — full workflow, anti-patterns, decision trees, recovery paths
+- **library-registry.md** — pre-optimized query strings for 20 listed libraries

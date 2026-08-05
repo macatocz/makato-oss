@@ -5,9 +5,13 @@ description: >-
   integration tests, conditional coverage check. Each gate runs
   separately so failures are attributable. Fixable failures are
   fixed and gates re-run; structural failures escalate to refine.
-  Autonomous. Use after review, before push-to-git.
+  Autonomous (--autonomous, dispatched by PO-agent) or interactive.
+  Use after review, before push-to-git. Triggers: verify, quality-gate,
+  all-gates, build-pass, tests-pass, lint-clean, coverage-check,
+  gate-pipeline, run-verify.
 version: "1.10.0"
 argument-hint: "[work-item-key]"
+allowed-tools: Bash
 ---
 
 ## When to Use
@@ -15,6 +19,47 @@ argument-hint: "[work-item-key]"
 Use after `/review` and before `/push-to-git`. The code has been reviewed and simplified.
 This step answers: *"Does it actually work?"* — build succeeds, lint passes, all tests
 pass, coverage is met.
+
+## Anti-patterns
+
+These failure modes are only learnable from production incidents — they are non-obvious
+and each has caused gate false-negatives or false-positives in real sessions.
+
+**NEVER strip the Python runner prefix from gate-scout commands, and NEVER re-add it
+manually.**
+WHY: `uv run`/`poetry run` resolves dependencies from the project-local lockfile venv. A
+bare `pytest` or `ruff` invocation uses the system Python, which lacks the locked
+dependencies → `ModuleNotFoundError` or a different package version produces a spurious
+pass or fail signal that does not reproduce in CI.
+
+**NEVER substitute `pre-commit run --files <subset>` for `--all-files` in Gate 0.**
+WHY: staged-subset scans miss repo-wide formatter nits and pre-existing debt that
+`--all-files` (the exact CI command) surfaces. The silent consequence is a CI-only
+failure — the build passes locally and goes red only after the PR is opened.
+
+**NEVER treat exit code 0 as a gate pass without error-count parsing (Gates 1 and 2).**
+WHY: pyright and ruff both have known exit-code bugs where errors are printed but exit
+code is 0. The inverse also occurs: `pre-commit run --hook-stage manual` exits 0 with no
+stdout when no hooks match the `manual` stage — a silent skip that looks like a pass.
+Always parse the error-count pattern AND detect empty stdout before recording a pass.
+
+**NEVER infer gate commands independently of gate-scout output.**
+WHY: the project may use a lockfile runner prefix (uv/poetry), CI-divergent flags, or a
+non-standard hook ID. Independent inference produces commands that differ from what CI
+runs. Gate-scout's runtime discovery (config scan + hook probe) is the only authoritative
+source.
+
+**NEVER run integration tests against an environment that failed setup.**
+WHY: a partial environment causes tests to either skip silently or fail for infrastructure
+reasons unrelated to the code change. The failure signal is unattributable — it looks like
+an integration failure but is an environment failure. Fail hard on setup and report the
+blocker before entering the test run.
+
+**NEVER re-run all gates when the fix is test-only or config-only.**
+WHY: re-running BUILD and LINT after a test-file change wastes time and risks surfacing
+pre-existing lint debt as new failures. The re-run scope rule (Steps 6 and 7) applies: re-
+run from BUILD only if production code changed; re-run from the failed gate only for test-
+only or environment-only fixes.
 
 ## Input
 
@@ -31,6 +76,26 @@ Interactive mode: `WORKTREE_PATH` is optional; fall back to `git rev-parse --sho
 Apply the workspace-isolation entry guard from `@../../AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract* and § *Falsy-check pattern* before Gate 0. In autonomous mode an empty `WORKTREE_PATH` is a HALT with `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`; in interactive mode the guard falls back to `git rev-parse --show-toplevel`. After resolution, `cd "$WORKTREE_PATH"` — every gate command below runs from this CWD.
 
 ## Workflow
+
+### References
+
+#### `references/gate-definitions.md` — toolchain command tables
+
+**MANDATORY: load before Gate 1 (Step 4) or Gate 2 (Step 5) when** gate-scout returns a
+toolchain not covered by the three-path hook/missing-hook/legacy command selection — for
+example: Maven, Gradle, Go, Rust, Biome, or sqlfluff projects where the exact hook IDs,
+unit/integration split flags, or runner conventions are not obvious from gate-scout output.
+
+**Also load when** the unit/integration split convention for the detected toolchain is
+ambiguous and gate-scout does not populate a separate `unit_cmd` / `integration_cmd`.
+
+**Do NOT load** when gate-scout's `build_hook_cmd` or `lint_hook_cmd` is non-null and the
+three-path command selection in Steps 4–5 already resolved the command unambiguously — the
+hook is the authoritative CI-parity path and the reference adds no new information. Do NOT
+load for Python or JS/TS projects where the runner prefix and hook path are already
+populated in gate-scout output.
+
+---
 
 ### Definition-of-Done — Automated Tier Mapping
 
@@ -64,7 +129,12 @@ skill / agent boundary in the session, including by this skill on itself.
 
 ### Step 1 — Ask for work item key and load context
 
-Ask: *"Which work item are we verifying? (e.g. #123, or pass it directly: `/makato-build:build-verify #123`)"* — or use the passed argument.
+**Interactive mode** (no argument passed): use `AskUserQuestion` with two options:
+
+1. **Auto-detect from current branch** — run `git branch --show-current | grep -oE '[0-9]+'` and use the leading numeric segment as the key
+2. **Enter manually** — free-text prompt: "Which work item are we verifying? (e.g. #123)"
+
+**Autonomous mode** (`--autonomous`): use the passed `<work-item-key>` argument directly — do not prompt.
 
 Read `design.md` from the resolved spec folder (`specs/<key>-*/`) if it exists and look for a declared coverage threshold.
 If none is declared, the coverage gate is advisory — it reports figures but does not block.
@@ -84,6 +154,11 @@ Dispatch the `gate-scout` agent with:
 - `COVERAGE_HINT`: the coverage threshold extracted from `design.md` (or empty string if none declared)
 
 The agent scans config files (`package.json`, `pom.xml`, `Makefile`, `build.gradle`, `pyproject.toml`, etc.) and returns a structured command map with the exact build, lint, unit, integration, and coverage commands, and a `java_version_required` field for JVM projects. Use this command map for all subsequent gates — do not infer commands independently.
+
+**MANDATORY: load `references/gate-definitions.md`** if gate-scout returns a toolchain
+(Maven, Gradle, Go, Rust, Biome, sqlfluff) for which the three-path command selection in
+Steps 4–5 does not cover the exact hook IDs, split flags, or runner conventions. For
+Python/JS/TS with populated hook commands, skip the reference.
 
 **Python runner prefix**: if `python_runner_prefix` is present and not `"none"` (e.g. `uv run`, `poetry run`), the gate-scout commands already include it. Run them verbatim — do NOT strip the prefix and do NOT re-add it. A bare `pytest`/`ruff` invocation in a lockfile-managed project resolves against the system Python and fails with `ModuleNotFoundError`.
 
@@ -381,6 +456,8 @@ Log:
 ---
 
 ### Step 9 — Skill-provenance advisory gate
+
+**This step is fully automated — no judgment or user interaction required.** Execute sub-steps 9a–9c mechanically. The only conditional branches are whether the passport file is valid (9b) and whether expected skills are covered (9c). Do not prompt the user at any point in this step.
 
 After all quality gates pass (Gates 0–5), compute the skill-provenance diff for the run.
 This gate is **advisory only** — it never fails the build (NFR-R2).

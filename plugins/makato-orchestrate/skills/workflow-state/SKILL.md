@@ -15,6 +15,7 @@ description: >-
   audit, structured lessons learned).
 version: "1.6.0"
 argument-hint: "<subcommand> <key|repo> [<issue>] [args…]"
+allowed-tools: []
 ---
 
 <!-- markdownlint-disable MD013 -->
@@ -31,9 +32,39 @@ Use **only** from:
 
 Do **not** call from sub-agents (`coder`, `diff-reviewer`, `gate-scout`, `plan-analyst`, etc.). Sub-agents return R1 envelopes; the PO-agent translates those into state patches. Concurrent writes are a design failure, not a race to manage.
 
+## Anti-patterns
+
+### NEVER use `patch .halt_audit` directly — use `append-halt`
+
+**WHY:** Open-coded `read → jq '. + [entry]' → write` bypasses the HALT-code format validation (`HALT-NNN[A-Z]` / `HALT-STRUCTURAL` enum check) and the required-keys check on the entry object. A malformed code silently lands in the audit; the next `append-halt` call then rejects the array with `HALT: INVALID_STATE` because the pre-existing entry fails schema re-validation. Debugging traces back to the original silent corruption, not the failing call.
+
+### NEVER write partial JSON via `write` to update a subset of fields
+
+**WHY:** `write` validates then atomically overwrites the entire file. A partial JSON blob that passes schema validation (all required fields present, all optional fields absent) silently drops every field the caller omitted — `lessons_learned`, `halt_audit`, `sub_tasks` arrays, `github_pr_number`, `structural_halt_cycles`. There is no diff or merge: the file is replaced wholesale. Every unset optional field reverts to its default. Use `patch` for any update that touches fewer than the full document.
+
+### NEVER call from two agents concurrently — not even "just reads" followed by a patch
+
+**WHY:** The read → validate → atomic-overwrite path in `patch` has a TOCTOU window. Two agents that each read the same state file, compute an update, and race to write will produce last-write-wins JSON clobber — the slower write discards the faster write's mutation entirely. This is not a race the helper can manage; it is a design failure. The result on the next read is `HALT: INVALID_STATE` if the winner's write dropped a required field, or silent data loss if it dropped only optional data (e.g. a `halt_audit` entry appended by the loser).
+
+### NEVER use `write` with a path derived from `pwd` — use `git rev-parse --show-toplevel`
+
+**WHY:** `workflow-state.sh` resolves `specs/<key>-*/` from the repo root. A caller that constructs the checkpoint path from `pwd` (e.g. inside a worktree or a sub-directory) resolves to the wrong directory, writes to a stale or nonexistent path, and the helper on the next read silently returns `{}` (missing-file behavior) — the issue resumes from a blank state as if `init` were never called.
+
+### NEVER reset `structural_halt_cycles` on a HALT-007B handoff
+
+**WHY:** This counter is specifically designed to be durable across context handoffs. It measures cross-run recurrence of structural failure on the same issue — the property epic #319's AC-epic-1 needs to detect "repeated" structural HALT and trigger the Needs Planning signal (#348). A handoff that resets it causes the Needs Planning signal to never fire on an issue that repeatedly hits structural failures across sessions.
+
+### NEVER call `bump-structural-halt` with non-structural codes expecting a counter increment
+
+**WHY:** HALT-007, HALT-007B, and HALT-008 with `origin=ci_failure` or `origin=merge_conflict` are explicitly documented no-ops. The command exits 0 with no counter change and no error. Callers that do not read the printed counter value and assume an increment occurred will under-count structural recurrence, making epic #319's detection threshold unreachable.
+
 ## Schema Reference
 
-The full contract lives at @references/workflow-state.schema.json (draft-07, `additionalProperties: false` at top level). Top-level fields:
+The full contract lives at @references/workflow-state.schema.json (draft-07, `additionalProperties: false` at top level).
+Load MANDATORY when: modifying `workflow-state.sh`, adding a new top-level field, or writing a new HALT-audit shape.
+Do NOT Load unless you need to inspect the field-level JSON Schema constraints (the table below covers all caller needs).
+
+Top-level fields:
 
 | Field | Type | Notes |
 |-------|------|-------|
@@ -80,6 +111,16 @@ resolution still prefix-matches `specs/<key>-*/` (same convention as
 subcommand except `recall-lessons` takes `<KEY>` **and** `<ISSUE_NUMBER>` as
 positional arguments.
 
+**patch vs write — when to use each:**
+
+| Situation | Command |
+|-----------|---------|
+| Advancing a single field (`current_phase`, `outer_iteration`, `github_pr_number`, a single sub-task status) | `patch` |
+| Restoring a full checkpoint (e.g. from `/tmp/` during a HALT-007B resume) | `write` |
+| Updating two or more unrelated fields in one call | Multiple `patch` calls, NOT `write` — preserves all other fields |
+
+Use `patch` for any single-field update. Use `write` **only** when restoring a full validated checkpoint JSON from disk. Writing a partial JSON object via `write` silently drops every field not present in the supplied JSON — schema validation catches missing required fields but not missing optional ones.
+
 **Backward-compat migration**: on first `read`/`write`/`patch`/`append-*`/
 `summarise-lessons` for a given `<KEY>`, any legacy
 `specs/<key>-<slug>/workflow-state.json` is promoted in-place to
@@ -108,7 +149,7 @@ shared/workflow-state.sh read gap-003 26 | jq '.current_phase'
 
 ### `write <KEY> <ISSUE_NUMBER> '<JSON>'`
 
-Validate against the schema then atomically overwrite the file. `updated_at` is injected automatically (any value the caller supplies is replaced). Use for bulk state replacement (e.g. resuming from a checkpoint).
+Validate against the schema then atomically overwrite the file. `updated_at` is injected automatically (any value the caller supplies is replaced). Use for bulk state replacement (e.g. resuming from a checkpoint). **Validation is fail-open when `jsonschema` is absent** — the write proceeds without structural checking; the caller is responsible for supplying a complete, valid document (all required fields, no extra top-level keys). See *Dependencies* below.
 
 ```bash
 shared/workflow-state.sh write gap-003 26 "$(cat /tmp/new-state.json)"
@@ -116,7 +157,7 @@ shared/workflow-state.sh write gap-003 26 "$(cat /tmp/new-state.json)"
 
 ### `patch <KEY> <ISSUE_NUMBER> <JQ-PATH> <VALUE>`
 
-Read → apply a single jq-style mutation → validate → atomically overwrite. `VALUE` is a JSON literal (caller quotes strings as `'"value"'`). Supports nested and indexed paths.
+Read → apply a single jq-style mutation → validate → atomically overwrite. `VALUE` is a JSON literal (caller quotes strings as `'"value"'`). Supports nested and indexed paths. **Validation is fail-open when `jsonschema` is absent** — same caveat as `write`: the patched document is written without schema enforcement. In practice CI has `jsonschema`; local developer machines default to fail-open if the package is missing.
 
 ```bash
 shared/workflow-state.sh patch gap-003 26 .current_phase '"implement"'
@@ -276,6 +317,12 @@ All four are present on the repo's CI image and on standard developer machines.
 
 ## Verification
 
-Smoke tests live in @references/smoke-tests.sh — run from repo root after any change to `workflow-state.sh` or the schema. The script covers init/read/write/patch/append-lesson/append-halt/bump-structural-halt/recall-lessons/summarise-lessons, duplicate-init refusal, missing-file `{}` response, indexed-path patches, invalid-write halts, the GAP-015 / #37 lessons schema (enum violation, cycle integer guard, 200-char truncation, files_affected variadic, merge_conflict trigger, patch-preserves-lessons, recall filter by repo, summarise idempotency), and the #347 structural-HALT counter matrix (T47–T54: init default, HALT-STRUCTURAL / HALT-008-outer_iteration / HALT-003 / HALT-010 increments, non-structural no-ops incl. HALT-007B handoff, backward-compat backfill, malformed-code rejection).
+Smoke tests live at @references/smoke-tests.sh — run from repo root after any change to `workflow-state.sh` or the schema.
+Load MANDATORY when: after any edit to `workflow-state.sh` or `workflow-state.schema.json`; before releasing a version bump.
+Do NOT Load in routine read-only use of this skill.
 
-The `recall-lessons` extension (#470) is covered by a separate suite at @references/recall-extension-smoke-tests.sh (T59–T64): backward-compat 2-arg call, `--bundles` filter, scope/occurrences/recency sort order, `[]` on missing committed store, malformed-JSONL skip, and committed-store integration.
+The script covers init/read/write/patch/append-lesson/append-halt/bump-structural-halt/recall-lessons/summarise-lessons, duplicate-init refusal, missing-file `{}` response, indexed-path patches, invalid-write halts, the GAP-015 / #37 lessons schema (enum violation, cycle integer guard, 200-char truncation, files_affected variadic, merge_conflict trigger, patch-preserves-lessons, recall filter by repo, summarise idempotency), and the #347 structural-HALT counter matrix (T47–T54: init default, HALT-STRUCTURAL / HALT-008-outer_iteration / HALT-003 / HALT-010 increments, non-structural no-ops incl. HALT-007B handoff, backward-compat backfill, malformed-code rejection).
+
+The `recall-lessons` extension (#470) is covered by @references/recall-extension-smoke-tests.sh (T59–T64): backward-compat 2-arg call, `--bundles` filter, scope/occurrences/recency sort order, `[]` on missing committed store, malformed-JSONL skip, and committed-store integration.
+Load MANDATORY when: after any change to `recall-lessons` logic or the committed memory store format.
+Do NOT Load unless debugging the recall/filter/sort pipeline.

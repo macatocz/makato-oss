@@ -4,14 +4,39 @@ description: >-
   Adversarial quality review of the branch diff — CRITICAL and (in
   autonomous mode) MAJOR findings are fixed and the review loops until
   clean. Auto-fixes mechanical issues (formatting, imports). Reports
-  SUGGESTION and NITPICK findings. Autonomous. Use after simplify, before verify.
+  SUGGESTION and NITPICK findings. Autonomous. Use after simplify, before
+  verify. Trigger keywords: review, adversarial, diff-review, code-review,
+  quality-gate, build-review, check implementation.
 version: "1.5.0"
 model: opus
 argument-hint: "[work-item-key]"
+allowed-tools:
+  - Bash
+metadata:
+  last_updated: "2026-08-05"
+---
+
+**Do NOT load this skill when:** reviewing human PR comments (use `build-address-pr-comments`); simplifying complexity without correctness review (use `build-simplify`). Load this skill when the implementation loop has completed and a full adversarial review + CRITICAL fix loop is needed before verify.
 
 Use after `/simplify` and before `/verify`. The implementation is working, tested, and
 simplified. This step reads the branch diff adversarially — its job is to find problems
 and improvements, not to confirm correctness.
+
+## Expert Constraints (read before every step)
+
+Non-obvious rules that cannot be inferred from context:
+
+1. **Three-dot diff, not two-dot.** `git diff "$DEFAULT_REF...HEAD"` (three dots) diffs the branch tip against the merge-base with the integration target. Two-dot (`..`) diffs against the *current local tip* — if local `main` lags `origin/main`, you import commits from already-merged PRs as if they are changes on this branch, producing false findings on code the author never touched (#98). Always `git fetch origin` first.
+
+2. **Zero-findings suspicion threshold: 50 LOC.** For diffs > 50 changed lines, zero CRITICAL/MAJOR findings on a first pass is statistically improbable. Require the citation-record recheck (Step 5). For diffs ≤ 50 LOC, a clean first pass is plausible but the citation record still applies.
+
+3. **`ac_verdicts[]` transport: `build.jsonl` is the only durable record.** `workflow-state.json` is gitignored and never reaches the post-merge GHA runner. `build.jsonl` is the only cross-environment path the `build-create-pr` PR-body renderer and the `documentation-agent` checkpoint flipper can read. Write the verdict entry on the final clean pass — not on intermediate passes, not to any other file.
+
+4. **MAJOR is mode-gated, not severity-downgraded.** In autonomous mode, a MAJOR finding that reaches a PR without human review is a gating failure (#290). In interactive mode, MAJOR is advisory. Never silently drop a MAJOR or reclassify it as SUGGESTION to avoid triggering the fix loop.
+
+5. **`diff-reviewer` is the sole verdict judge.** `build-review` and `build-create-pr` are transport-only — they copy `ac_verdicts[]` verbatim. Re-evaluating verdicts here diverges silently from the diff-reviewer's reasoning and corrupts the downstream Issue checkbox chain.
+
+---
 
 ## Workflow
 
@@ -19,7 +44,9 @@ and improvements, not to confirm correctness.
 
 ### Step 1 — Ask for work item key and load context
 
-Ask: *"Which work item are we reviewing? (e.g. #123, or pass it directly: `/makato-build:build-review #123`)"* — or use the passed argument.
+If no argument was passed, invoke `AskUserQuestion`:
+- question: *"Which work item are we reviewing?"*
+- hint: `e.g. #123 — or pass directly: /makato-build:build-review #123`
 
 Read `plan.md` from the resolved spec folder (`specs/<key>-*/`) if it exists. Extract the acceptance criteria and task list —
 these are the correctness contract. Every AC must be demonstrably covered by the diff.
@@ -55,6 +82,8 @@ Log:
 ---
 
 ### Step 4 — Review the diff (via diff-reviewer agent) — loops
+
+**MANDATORY: Load `@references/review-criteria.md` before dispatching the diff-reviewer agent.** The severity classification decision tree (CRITICAL / MAJOR / SUGGESTION / NITPICK) and the adversarial stance live in that reference and govern how the diff-reviewer rates every finding. Incorrect classification at this step misroutes the entire fix loop — a MAJOR rated SUGGESTION bypasses the autonomous fix loop entirely.
 
 Dispatch the `diff-reviewer` agent with:
 - `STORY_KEY`: the work item key
@@ -172,3 +201,27 @@ Tell the user:
 *"\<N\> criticals and \<N\> majors fixed across \<N\> passes. \<N\> majors (interactive advisory), \<N\> suggestions and \<N\> nitpicks noted above.*
 *Pipeline remaining: `/build-verify` → `/build-push-to-git` → `/build-create-pr`*
 *Next: run `/build-verify` to confirm all quality gates pass."*
+
+---
+
+## Anti-patterns
+
+### NEVER diff against bare local `main` — WHY: PR-bleed
+
+`git diff main...HEAD` uses the local `main` tip. If local `main` lags `origin/main` by even one merged PR, that PR's commits appear in the diff as if the author wrote them. The diff-reviewer then emits findings on code outside the story scope. Those findings trigger fix loops on the wrong code, and the ac_verdicts written to `build.jsonl` reference ACs the author never implemented. Three-dot syntax with a prefetch is the only correct form (#98).
+
+### NEVER commit during this skill — WHY: atomic-commit model
+
+`/build-push-to-git` owns the commit step. Each commit must map to exactly one plan task and carry a conventional commit message derived from the plan. Ad-hoc commits during review produce un-attributable changesets that bisect incorrectly and confuse the post-merge documentation-agent that reads `build.jsonl` to reconstruct the session.
+
+### NEVER accept "reviewed and found nothing" without source-anchored citations — WHY: non-falsifiable claim
+
+Zero findings on a > 50 LOC diff without per-file citation records is not evidence of correctness — it is evidence of a passive scan. The citation format (`file:path:range | concern | verdict: clean | evidence: code line`) forces an active verification act: you must name the concern you looked for and quote the code that addresses it. A file without a citation is not reviewed; go back and read it.
+
+### NEVER re-evaluate `ac_verdicts` in this skill or in `build-create-pr` — WHY: chain integrity
+
+`diff-reviewer` is the only agent that reads both the diff AND the acceptance criteria simultaneously with the adversarial lens. Re-evaluating verdicts here or in `build-create-pr` uses only partial context (e.g., no diff, or no AC text) and silently diverges from the diff-reviewer's reasoning. The downstream `documentation-agent` in `makato-orchestrate` uses `build.jsonl` as the authoritative verdict source to flip Issue checkboxes; a re-evaluated verdict that contradicts the diff-reviewer's corrupts the audit trail irrecoverably.
+
+### NEVER downgrade a correctness concern to SUGGESTION to avoid blocking — WHY: silent PR escape
+
+SUGGESTION findings are informational and do not trigger the autonomous fix loop. A correctness issue mis-rated as SUGGESTION in interactive mode lands in the PR as a comment, not as a required fix. See `references/review-criteria.md` Classification Summary: if a finding touches correctness, security, or a real failure path it is MAJOR regardless of probability. The MAJOR tier exists precisely to catch this slip.

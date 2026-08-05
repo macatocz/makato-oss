@@ -10,6 +10,7 @@ description: >-
   by sensor-fixer / build-resolve-finding for code-complexity findings.
 version: "1.4.2"
 argument-hint: "[work-item-key] [--autonomous]"
+allowed-tools: [Bash]
 ---
 
 ## When to Use
@@ -103,7 +104,9 @@ The Step 7 verify gate honors this flag and short-circuits; the R1 envelope surf
 
 ### Step 4 — Analyze changed files for simplification opportunities
 
-Load `@references/simplification-patterns.md`.
+MANDATORY: Load `@references/simplification-patterns.md` now — the anti-pattern catalog is
+required to classify findings. Do NOT load it before Step 4; it is not needed for context
+loading or baseline steps.
 
 For each changed file, read the full diff (`git diff "$DEFAULT_REF...HEAD" -- <file>`, with `DEFAULT_REF` from Step 1) and scan for
 patterns. For each candidate, cross-reference against the plan's ACs:
@@ -128,8 +131,10 @@ Log:
 
 ### Step 5 — Optional: check against repo patterns, then present findings (interactive)
 
-Load `@references/repo-patterns-guide.md`. Follow its instructions to discover local code
-conventions from the repository context (naming, abstraction levels, structural patterns).
+MANDATORY: Load `@references/repo-patterns-guide.md` now — local convention discovery
+requires the guide's "Where to Look" and "What to Extract" instructions. Do NOT load it
+before Step 5; it references local module files that do not exist until Step 4 has
+identified the changed-file set.
 
 For each SIMPLIFY finding, check whether the proposed simplification aligns with local
 patterns or diverges from them. If a simplification would introduce a pattern inconsistency,
@@ -325,3 +330,29 @@ Top-level R1 envelope fields follow `plugins/makato-build/agents/RETURN-CONTRACT
 The HALT codes emitted by this skill (`MISSING_INPUT`, `MISSING_PLAN`, `BASELINE_BROKEN`, `VERIFY_FAILED`, `UNVERIFIED_HALT`) are registered with their PO-agent recovery routes in `plugins/makato-build/halt-codes.md`.
 
 Skill-specific behavioural notes the registry's prose cannot carry: `MISSING_PLAN` is soft in this skill — Step 1 proceeds without a plan when one is absent; it only HALTs when autonomous mode AND the dispatch contract demanded inline acceptance criteria. `BASELINE_BROKEN` is the test-runner-crash path; the test-runner-absent path is NOT a HALT — that sets `test_suite_present: false` and surfaces `degraded_confidence: true` in R1 per § *Step 7a*. `UNVERIFIED_HALT` is interactive-only; autonomous mode emits `degraded_confidence: true` instead.
+
+---
+
+## Anti-Patterns
+
+Each NEVER below encodes a failure mode learned from production runs. The WHY is the non-obvious part — the action alone is not enough.
+
+### NEVER diff against the bare local `main` branch
+
+**WHY:** When local `main` lags `origin/main`, a diff against it pulls in commits from already-merged PRs that were not authored in this branch. This skill would then "simplify" code it did not write — removing correct patterns introduced by the merged work and producing a diff that conflicts on the next rebase (#98). Always fetch `origin` first and diff against `origin/main` (or the `DEFAULT_REF` from `shared/default-branch.sh`).
+
+### NEVER infer the test command independently
+
+**WHY:** Every project has subtle test configuration — environment variables, flags, working-directory dependencies, wrapper scripts — that differ from the obvious invocation. Inferring the command produces a different pass/fail count than the canonical baseline captured by `gate-scout`, silently breaking the Step 7 comparison. The `data.cmd` field in the baseline log entry is the audit anchor: a reviewer reading `build.jsonl` must be able to reproduce the exact run from a fresh checkout (#97 AC#1). Use `gate-scout` as the single canonical source; the exact returned string is what Step 7 re-runs.
+
+### NEVER auto-approve removal of security-related guards — always ESCALATE
+
+**WHY:** A test suite may not cover the removed security path. Input validation, authentication/authorization checks, null guards on external input, permission assertions, CSRF tokens, and rate-limit enforcement form the security perimeter. A passing test baseline after removal does not mean the path is safe — the test simply does not exercise the removed guard. Security regressions manifest as production incidents, not as CI failures. Classify any removal of these guards as ESCALATE regardless of test pass/fail state, and surface for explicit human review.
+
+### NEVER edit test files during simplification
+
+**WHY:** Test files are the behavioral contract. Changing them during simplification conflates two distinct concerns — reducing production code complexity and changing the specification of what the code must do. A simplification that requires a test change is not behavior-neutral; it is a behavioral change that belongs in `/build-refine` or a separate story. Keeping the test suite frozen is what makes the Step 7 gate meaningful: if tests break, the simplification changed behavior.
+
+### NEVER introduce new behavior while applying a SIMPLIFY finding
+
+**WHY:** This skill's scope is purely subtractive — remove lines, collapse layers, inline trivial wrappers. Introducing new behavior (a new parameter, a renamed public method, a different return type) is a feature change that has not been reviewed against the acceptance criteria. It could satisfy a hidden AC, break an undocumented caller contract, or trigger downstream failures in a context this skill cannot see. Behavior changes belong in the implement or refine phase, not in simplification.

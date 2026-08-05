@@ -1,8 +1,13 @@
 ---
 name: sagibeast-create-testbox
-description: Provision a sagibeast testbox VM (Multipass, EC2, or Hetzner) for E2E parity testing. Use when creating testbox, provisioning testbox, spinning up vm, new sagibeast vm.
-version: "1.1.0"
+description: >-
+  Provision a sagibeast testbox VM (Multipass, EC2, or Hetzner) for E2E parity
+  testing. Use when creating testbox, provisioning testbox, spinning up vm, new
+  sagibeast vm.
+version: "1.2.0"
 argument-hint: "[runtime] [cpus] [memGB] [diskGB] [os]"
+allowed-tools:
+  - Bash
 ---
 
 # sagibeast-create-testbox
@@ -38,10 +43,6 @@ makes the ADR-0020 / ADR-0021 perimeter harder to reason about. Every team-membe
 provisioning "just to be safe" ends up running two stacks in parallel, burning disk
 quota, and creating lateral-movement risk.
 
-The testbox is also the preferred runtime for Team-shared multi-day E2E rigs, stable-
-egress-IP scenarios, and ADR-0023 brain-only / customer-tier parity testing that a
-single laptop cannot physically simulate.
-
 ## Mindset: Provision Once, Configure Completely
 
 The four most-skipped steps that cause painful re-provisioning:
@@ -49,13 +50,14 @@ The four most-skipped steps that cause painful re-provisioning:
 1. **Set an OS password during cloud-init.** The AGENT_SUBSTITUTE placeholder in
    `infra/testbox/cloud-init.yaml` must be replaced with a real password before
    `multipass launch`. Without it, `sudo` prompts will stall automation and any future
-   `chpasswd` reset requires serial console access. Fetch a generated password from
+   `chpasswd` reset requires serial console access — there is no password-reset path
+   for a Multipass VM short of re-provisioning. Fetch a generated password from
    1Password: `op item create --category login --title sagibeast-testbox-os-password
    --generate-password 32,letters,digits`.
 
 2. **Append `ServerAliveInterval 5` to `~/.ssh/config`.** Without it, a `multipass
    exec` or plain SSH session drops silently mid-run, leaving `pytest -m e2e` orphaned
-   in the background and the Brain-PG pool unreleased. Add the block once:
+   in the background and the Brain-PG connection pool unreleased. Add the block once:
 
    ```text
    Host sagibeast.testbox
@@ -65,10 +67,10 @@ The four most-skipped steps that cause painful re-provisioning:
 
 3. **Trust the project step-ca root before the first API call.** `bootstrap.sh` does
    this automatically, but if you skip bootstrap and curl a Brain/Body endpoint directly,
-   you will get a TLS certificate error that looks like a service misconfiguration.
-   Run `step ca root --ca-url "$SAGIBEAST_CA_URL" | sudo tee
+   you will get a TLS certificate error that looks like a service misconfiguration — not
+   a missing trust anchor. Run `step ca root --ca-url "$SAGIBEAST_CA_URL" | sudo tee
    /usr/local/share/ca-certificates/sagibeast-root.crt && sudo update-ca-certificates`
-   exactly once after first boot.
+   exactly once after first boot if you bypass bootstrap.
 
 4. **Register the GitHub Actions runner with the `sagibeast-testbox` label.** The
    sagibeast workflows (`post-merge.yml`, `sensors.yml`, `spec-docs.yml`,
@@ -79,8 +81,49 @@ The four most-skipped steps that cause painful re-provisioning:
    default `self-hosted,Linux,ARM64` set, no job requesting the custom label ever
    schedules, and every such workflow sits `queued` for GitHub's 24 h ceiling before
    being killed as `cancelled` — surfacing a red `sync-status` check on every PR
-   (#572). Always pass the label explicitly at registration (see [§6/6](#66-bootstrap-and-verify)),
-   and re-assert it after any re-provisioning.
+   (#572). Always pass the label explicitly at registration (see [§5/5](#55-bootstrap-and-verify)).
+
+## Anti-patterns
+
+**NEVER point two testboxes at the same Brain-PG.**
+ADR-0020 mandates a bilateral Brain-PG / Body-PG split: one Brain-PG owns the
+checkpoint table for exactly one developer context. Sharing a Brain-PG across two
+testboxes contaminates checkpoint rows — tests from developer A overwrite vectors
+created by developer B mid-run, producing non-deterministic E2E failures that are
+extremely hard to attribute. Each testbox must provision its own Brain-PG container.
+
+**NEVER export tenant API keys, DEKs, or service account tokens as long-lived shell env vars on the testbox.**
+A shared testbox (team-shared rig) means multiple developers access the same shell
+history and any env dump (e.g., `printenv`) leaks every credential set in the
+session. Use `op run -- <command>` per invocation. Long-lived env vars survive `ssh`
+reconnects and `tmux` sessions, expanding the exfiltration window.
+
+**NEVER write tenant skill encryption keys to disk on the testbox.**
+ADR-0021 (customer IP isolation) prohibits materialising tenant keys outside the
+vault. A key written to `/tmp` or a dotfile persists across re-boots, is included in
+`scp` transfers, and may end up in Docker bind mounts or test artefacts. Fetch via
+`op run --` per invocation; the key must never touch the filesystem.
+
+**NEVER peer, VPN-join, or network-connect the testbox k3d cluster to the customer K8s tier.**
+ADR-0023 defines the testbox as a dev-tier perimeter. Joining a dev k3d node to the
+customer K8s network collapses the perimeter: workloads in the testbox gain
+network-level access to production service endpoints. Provision the testbox in a
+dedicated dev VPC with no route to customer-tier CIDRs.
+
+**NEVER register the runner without `--labels self-hosted,sagibeast-testbox`.**
+The runner name `sagibeast-testbox` does NOT automatically become a label (#572).
+Omitting `--labels` leaves only the platform defaults (`self-hosted,Linux,ARM64`).
+Every workflow using `runs-on: [self-hosted, sagibeast-testbox]` then queues for 24 h
+and dies as `cancelled`. Re-run `config.sh --replace` with the explicit flag to
+recover; the flag is load-bearing, not optional.
+
+**NEVER launch a Multipass VM with fewer than 64 GB disk or 8 GB RAM.**
+Ubuntu base (~6 GB) + Docker layer cache (~22 GB) + pgvector + bge-m3 indexes
+(~12 GB) = ~48 GB before swap. With 8 GB RAM the Temporal worker and bge-m3
+ONNX inference together exhaust available memory before the first E2E test completes.
+MANDATORY: Load `@references/sizing-guide.md` when the operator is choosing VM
+specs or evaluating whether an existing instance type is adequate — it contains the
+full per-layer disk and RAM breakdown with recommended instance tiers.
 
 ## Navigation
 
@@ -114,22 +157,24 @@ Cross-reference: `docs/superpowers/plans/2026-06-21-e2e-testing-strategy.md` §
 
 ## Workflow
 
-### [0/6] Pre-flight checks
+Run all steps from the repository root (`git rev-parse --show-toplevel`). Relative
+paths (`infra/testbox/...`) are repo-root-relative and fail if invoked from a
+subdirectory.
+
+### [0/5] Pre-flight checks
 
 Verify all dependencies exist before spending time on provisioning:
 
 ```bash
 # Multipass runtime
 multipass version
-# OR for EC2:
-aws sts get-caller-identity
-# OR for Hetzner:
-hcloud version
+# OR for EC2: aws sts get-caller-identity
+# OR for Hetzner: hcloud version
 
 # 1Password CLI signed in
 op whoami
 
-# step-ca root present locally
+# step-ca root reachable
 step ca root --ca-url "$SAGIBEAST_CA_URL"
 ```
 
@@ -138,19 +183,18 @@ If `SAGIBEAST_CA_URL` is not set, check `infra/testbox/bootstrap.sh` and the pro
 
 If `op whoami` fails, run `op signin` before continuing.
 
-### [1/6] Install Multipass if missing
+For EC2: MANDATORY load `@references/provider-ec2.md` for instance selection and
+exact `aws ec2 run-instances` invocation with ARM64 AMI lookup.
 
-```bash
-# macOS (Apple Silicon or Intel)
-brew install --cask multipass
+For Hetzner: MANDATORY load `@references/provider-hetzner.md` for instance
+selection — `cx31` is too small (OOM), minimum is `cx41`; file also has the
+`hcloud server create` command and volume attachment for large Docker storage.
 
-# Verify
-multipass version
-```
+Do NOT load provider-ec2.md or provider-hetzner.md for a Multipass provisioning run.
+Do NOT load sizing-guide.md unless the operator is choosing VM specs or evaluating
+whether an existing instance type is adequate.
 
-For EC2 or Hetzner runtimes, skip this step — use the provider CLI instead.
-
-### [2/6] Abort if testbox already exists
+### [1/5] Abort if testbox already exists
 
 ```bash
 if multipass list | grep -q sagibeast-testbox; then
@@ -163,7 +207,10 @@ fi
 If you need to reprovision from scratch: `multipass delete sagibeast-testbox &&
 multipass purge`. This is destructive — confirm first.
 
-### [3/6] Prepare cloud-init
+If the testbox is on EC2 or Hetzner, replace the `multipass list` check with the
+provider equivalent from the loaded provider reference.
+
+### [2/5] Prepare cloud-init
 
 ```bash
 # Copy cloud-init template
@@ -184,9 +231,9 @@ sed -i '' \
 
 For k3d parity testing, verify `--with-k3d` is set so `bootstrap.sh` installs k3d.
 
-**Caution:** Replace the AGENT_SUBSTITUTE placeholder before launch — without it, `sudo` prompts stall automation and any future `chpasswd` reset requires serial console access. Use `op item create` to generate and store the password in 1Password first.
+Replace `sed -i ''` with `sed -i` on Linux (the BSD flag differs from GNU `sed`).
 
-### [4/6] Launch the VM
+### [3/5] Launch the VM
 
 ```bash
 multipass launch \
@@ -207,40 +254,36 @@ echo "VM is Running."
 multipass info sagibeast-testbox
 ```
 
-For EC2: `aws ec2 run-instances --image-id ami-<ubuntu24-arm64> --instance-type m7g.xlarge
---user-data file:///tmp/sagibeast-cloud-init.yaml --block-device-mappings
-'[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":64}}]'`
+**4 vCPU / 8 GB / 64 GB is the absolute minimum** for a single-developer testbox
+running Compose without k3d. Upgrade to 16 GB RAM if you observe OOM kills in the
+Temporal worker or LangGraph execution.
 
-For Hetzner: `hcloud server create --name sagibeast-testbox --type cx31
---image ubuntu-24.04 --user-data-from-file /tmp/sagibeast-cloud-init.yaml`
+For EC2 or Hetzner: use the launch command from the provider reference loaded in step
+[0/5] in place of `multipass launch`.
 
-**Caution:** Minimum 64 GB disk. Ubuntu base (~6 GB) + Docker layer cache (~22 GB) + k3d image cache (~8 GB) + pgvector + bge-m3 indexes (~12 GB) = ~48 GB before swap, test artefacts, or log growth. Load `@references/sizing-guide.md` for the full breakdown.
+### [4/5] Configure local SSH
 
-**Caution:** The testbox k3d is a dev-tier rig — never peer, VPN-join, or network-connect it to the customer K8s tier (ADR-0023 perimeter). A testbox running k3d for shape-parity must remain isolated.
-
-**Caution:** Provision in a dedicated dev VPC with no route to customer-tier networks — if the production customer-facing API is IP-allowlisted from a known CIDR, a testbox in the same subnet could accidentally reach production endpoints.
-
-### [5/6] Configure local SSH
-
-Append once to `~/.ssh/config`:
-
-```text
-Host sagibeast.testbox
-    HostName <IP-from-multipass-info>
-    User ubuntu
-    IdentityFile ~/.ssh/id_ed25519
-    ServerAliveInterval 5
-    ServerAliveCountMax 1
-```
-
-For Multipass, retrieve the IP:
+Retrieve the testbox IP (Multipass):
 
 ```bash
 TESTBOX_IP=$(multipass info sagibeast-testbox | grep IPv4 | awk '{print $2}')
 echo "Add to ~/.ssh/config: HostName ${TESTBOX_IP}"
 ```
 
-### [6/6] Bootstrap and verify
+For EC2 or Hetzner: use the IP retrieval command from the loaded provider reference.
+
+Append once to `~/.ssh/config`:
+
+```text
+Host sagibeast.testbox
+    HostName <IP-from-above>
+    User ubuntu
+    IdentityFile ~/.ssh/id_ed25519
+    ServerAliveInterval 5
+    ServerAliveCountMax 1
+```
+
+### [5/5] Bootstrap and verify
 
 ```bash
 # Copy bootstrap script to the VM
@@ -259,20 +302,27 @@ multipass exec sagibeast-testbox -- \
 multipass exec sagibeast-testbox -- bash -c "cd /repo && pytest --collect-only -q"
 ```
 
-If `step certificate verify` fails, run bootstrap again with `SAGIBEAST_CA_URL` exported.
+If `step certificate verify` fails, re-run bootstrap with `SAGIBEAST_CA_URL` exported:
+```bash
+multipass exec sagibeast-testbox -- bash -c "SAGIBEAST_CA_URL=${SAGIBEAST_CA_URL} bash /home/ubuntu/bootstrap.sh"
+```
 
-If `pytest --collect-only` fails with `ModuleNotFoundError`, check that `src/` is on the
-testbox's `PYTHONPATH` via `pyproject.toml:pythonpath = ["src"]` and that the project
-was installed with `pip install -e .[test]`.
+If `pytest --collect-only` fails with `ModuleNotFoundError`, check that `src/` is on
+the testbox's `PYTHONPATH` via `pyproject.toml:pythonpath = ["src"]` and that the
+project was installed with `pip install -e .[test]`.
 
-### Register the GitHub Actions runner (label contract)
+Run `pytest --collect-only -q` before any full E2E suite — this step confirms
+`pythonpath = ["src"]` is resolved. The `pyproject.toml` setting is silently ignored
+if pytest is invoked from a subdirectory or if the package is not installed with
+`pip install -e .`. Catching this early saves 20+ minutes of a failed E2E run.
+
+#### Register the GitHub Actions runner
 
 The sagibeast workflows pin testbox jobs to `["self-hosted", "sagibeast-testbox"]`.
 Register the runner with **both** labels explicitly — the custom label is not applied
 automatically from the runner name (#572):
 
 ```bash
-# On the testbox, from the actions-runner install dir.
 # Fetch a registration token (scoped to macatocz/sagibeast) on the host first:
 REG_TOKEN=$(gh api -X POST repos/macatocz/sagibeast/actions/runners/registration-token --jq '.token')
 
@@ -290,17 +340,8 @@ gh api repos/macatocz/sagibeast/actions/runners \
 ```
 
 The verify line must show `sagibeast-testbox` among the labels. If it shows only
-`self-hosted,Linux,ARM64`, the `--labels` flag was dropped and every testbox-routed
-workflow will hang `queued` for 24 h — re-run `config.sh` with `--replace`.
+`self-hosted,Linux,ARM64`, the `--labels` flag was dropped — re-run `config.sh`
+with `--replace` to recover.
 
-**Caution:** Re-provisioning the VM resets the runner registration. Always re-run this
-step with the explicit `--labels self-hosted,sagibeast-testbox` after any reprovision —
-the label is the load-bearing contract the workflows' `runs-on` expressions depend on.
-
-**Caution:** Use `op run -- <command>` per invocation for tenant credentials — never export tenant API keys, DEKs, or service account tokens as long-lived shell env vars on the testbox. Long-lived env vars are a secret-exfiltration risk on shared testboxes.
-
-**Caution:** Tenant skill encryption keys live in `vault://tenants/{tenant_id}/skills/encryption_key` — never write them to disk on the testbox (ADR-0021 customer IP isolation). Fetch via `op run --` per invocation only.
-
-**Caution:** Each developer's testbox must provision its own Brain-PG container — never point two testboxes at the same Brain-PG. Doing so violates the ADR-0020 bilateral split and contaminates checkpoint rows across developers.
-
-**Caution:** Run `pytest --collect-only -q` before any full E2E suite — this confirms `pythonpath = ["src"]` is resolved. The `pyproject.toml` setting is silently ignored if pytest is invoked from a subdirectory or if the package is not installed with `pip install -e .`. Catching this saves 20+ minutes of a failed E2E run.
+Re-provisioning the VM resets the runner registration. Always re-run this step with
+the explicit `--labels self-hosted,sagibeast-testbox` after any reprovision.

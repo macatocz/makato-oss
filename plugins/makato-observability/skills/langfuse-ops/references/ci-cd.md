@@ -9,8 +9,20 @@ Full guide: https://langfuse.com/docs/evaluation/experiments/experiments-ci-cd
       does not apply — follow the guide's
       [other CI/CD systems](https://langfuse.com/docs/evaluation/experiments/experiments-ci-cd#other-cicd-systems)
       section instead.
-- [ ] Ask which evaluators and run-evaluators the user wants to set up.
-- [ ] Ask which regression thresholds (if any) should gate the workflow.
+- [ ] Use `AskUserQuestion` to collect evaluator and threshold choices before writing any code:
+
+  > **"Which evaluators and regression thresholds do you need for this experiment gate?"**
+  >
+  > 1. LLM-as-a-judge evaluator (model-graded scoring)
+  > 2. Deterministic / rule-based evaluator (regex, exact-match, JSON schema)
+  > 3. Human scorer (dataset items already have `expected_output` ground-truth)
+  > 4. Multiple evaluators — I will list them
+  > 5. Not sure yet — show me what my dataset currently has
+
+  After the choice, separately ask:
+
+  > **"What regression threshold should gate the workflow? (e.g. mean score ≥ 0.8, or no more than 5% regressions)"**
+
 - [ ] **Confirm dataset shape via CLI before writing any code:**
 
   ```bash

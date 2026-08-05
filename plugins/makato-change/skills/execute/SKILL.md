@@ -1,8 +1,18 @@
 ---
 name: execute
-description: Implement change request by modifying code, updating tests, running verification, and creating pull request with GitHub issue link. Use for implementation, coding changes, test updates, PR creation.
-version: "1.4.0"
+description: >-
+  Implement a change request by modifying code in the target repo, updating
+  tests, running the quality gate (code-reviewer + quality-guard agents), and
+  opening a pull request linked to the GitHub issue. Use when design.md is
+  approved and the user is ready to write code. Trigger keywords:
+  implementation, coding changes, test updates, PR creation, execute change,
+  apply design, implement change request.
+version: "1.5.0"
 argument-hint: "[ISSUE-KEY]"
+allowed-tools: Bash
+metadata:
+  authors: [makato-change]
+  last_updated: "2026-08-05"
 ---
 
 # Execute Change Request Implementation
@@ -22,6 +32,50 @@ Implement the designed change request by modifying code, creating new components
 - Design is not approved or needs revision
 - Requirements or design are unclear
 - Want to review or address PR feedback (use resolve-review skill)
+
+---
+
+## Anti-patterns
+
+Violations in this section cause silent failures that are hard to diagnose — each WHY explains the non-obvious failure mode.
+
+**NEVER call `worktree.sh create` when `WORKTREE_PATH` is already present in the dispatch bundle.**
+WHY: `orchestrate` Step 0.5 already created the `feat/<KEY>-change` worktree and recorded its path in the loop's `workflow-state.json`. A second `worktree.sh create` call spawns a differently-named branch, orphaning the issue's audit trail, creating divergent board state, and preventing `orchestrate` from reconciling the in-flight item (#467).
+
+**NEVER improvise when `change-implementer` returns `status=blocked` with a `design_gap`.**
+WHY: The `execute` context holds the full approved requirements from `analyze` + `design`. Any decision about resolving the gap belongs to the user (interactive) or must be surfaced as a blocker (autonomous). Improvising produces an implementation that silently diverges from the approved design — the design review step catches code issues, not requirement substitution.
+
+**NEVER use `gh issue view --json state` or `gh issue edit --state` to advance the project board Status.**
+WHY: These two commands control the issue's open/closed lifecycle flag, not the GitHub Projects v2 board column. The command exits 0 and appears to succeed while leaving the board card unchanged — so the loop picks the issue up again on the next poll, producing a duplicate dispatch. Use `gh project item-edit --single-select-option-id` (exactly as Step 1.6 does for In Progress).
+
+**NEVER use `git add .` or `git add -A` when staging changes.**
+WHY: The skill is invoked from a `specs/` directory that is typically a sibling of the target repo. A glob add stages from the current working directory — which is the specs tree, not the repo — and may include `.env`, generated credentials, or large binaries that are outside the design scope and must not be committed.
+
+**NEVER pass an empty array (`[]`) for `PRIOR_LESSONS` or `RECOMMENDED_SKILLS` in the `change-implementer` dispatch bundle.**
+WHY: `change-implementer` treats an empty array as "no prior art was found" (checked and confirmed empty), while an absent field means "not applicable / not looked up". Sending `[]` suppresses the agent's own lookup fallback, silently discarding lessons that were recorded but happened to be empty at analysis time. Omit the field entirely when the value is absent or `[]`.
+
+**NEVER use `--no-verify` or `--no-gpg-sign` on commits.**
+WHY: Pre-commit hooks in the target repo enforce security policies, compliance gates, or lint rules that exist independent of this skill's quality gate. Bypassing them produces commits that pass locally but fail CI on push — and the failure cannot be remedied without a force-push or a fixup commit, both of which disrupt the audit trail.
+
+**NEVER improvise custom PR section headers.**
+WHY: Both the repo template and `templates/pr-description-template.md` have fixed section names that automated PR bots, semantic-release tooling, and changelog generators parse by exact header text. Custom sections like "Summary" or "Changes" cause those tools to silently skip the PR, producing an incomplete changelog and breaking linked-issue tracking.
+
+---
+
+## Reference Loading Contract
+
+References are loaded **at point-of-use only** — never pre-loaded. Each entry is marked **MANDATORY** at the step where it is required.
+
+| Reference | Load at | Condition |
+|---|---|---|
+| `@shared/repositories-yml-schema.md` | Step 1.5 | always |
+| `@shared/path-resolution.md` | Step 1.5 | always |
+| `@references/implementation-guidelines.md` | Step 2 | always |
+| `@references/test-generation-guide.md` | Step 3 | test infrastructure present |
+| `@references/test-generation-guide.md` | Step 4 | test infrastructure present |
+| `@shared/commit-message-format.md` | Step 7 | always |
+
+**Do NOT load** any reference before the step listed above. Loading `test-generation-guide.md` before confirming that test infrastructure exists wastes context on a branch the skill may never enter.
 
 ---
 
@@ -49,12 +103,12 @@ Read `specs/<issue-key>/repositories.yml`.
 - Error: "Repository metadata not found. Run analyze skill first to discover target repository."
 - Exit gracefully
 
-**Load and validate** (per @shared/repositories-yml-schema.md):
+**MANDATORY: Load `@shared/repositories-yml-schema.md`** — schema and field semantics for repositories.yml.
 
 Extract:
 - REPO_NAME: `affected[role=primary].path`
 
-**Resolve path** using @shared/path-resolution.md algorithm:
+**MANDATORY: Load `@shared/path-resolution.md`** — resolution algorithm, error message template, and edge-case handling.
 
 Determine base search directory:
 ```bash
@@ -78,7 +132,7 @@ test -d "$REPO_ROOT/.git"
 
 **If validation fails:**
 - Show searched locations
-- Suggest standard layouts (see @shared/path-resolution.md for error message template)
+- Suggest standard layouts (see `@shared/path-resolution.md` for error message template)
 - Exit gracefully
 
 **Store repository context for all subsequent steps:**
@@ -130,6 +184,8 @@ inline in this skill's context. This keeps the write phase off the main `execute
 which already carries `analyze` + `design` + Step 1.5 repository discovery + every file read
 so far — and gives technology skills (including the mandatory `context7`) a natural injection
 point, mirroring `makato-build`'s isolated `coder`. See `agents/change-implementer.md`.
+
+**MANDATORY: The agent loads `@references/implementation-guidelines.md`** before writing any code — this is enforced by the agent prompt and covers absolute-path conventions, scope cap (15 files), and context7 lookup obligation.
 
 **2.1: Resolve recommended skills (optional).** If the design artifact carries a
 `## Recommended Skills` section, parse the bullet list and capture it as
@@ -196,8 +252,6 @@ notes or deviations.
 
 ### Step 3: Update and Generate Tests
 
-Load @references/test-generation-guide.md for testing patterns.
-
 **First, check if test infrastructure exists:**
 
 1. Look for test directories (`test/`, `tests/`, `__tests__/`, `spec/`)
@@ -245,40 +299,15 @@ If user chooses "Create basic test setup":
 - Document test setup in commit message
 - Proceed with test writing below
 
-**If test infrastructure exists, follow the test strategy from the design artifact:**
+**If test infrastructure exists:**
 
-**Update Existing Tests:**
-1. Find test files that cover modified code (unit, integration, and E2E)
-2. Adjust assertions for changed behavior
-3. Add new test cases for new scenarios within existing tests
-4. Update mocks/fixtures if data structures changed
-5. Ensure test names still accurately describe what they test
+**MANDATORY: Load `@references/test-generation-guide.md`** — contains the full stack-specific test writing procedure, mocking patterns, fixture conventions, and coverage thresholds for this skill.
 
-**Check for E2E tests:**
-- Search for E2E test files that cover the affected functionality
-- Common locations: `e2e/`, `tests/e2e/`, `cypress/`, `playwright/`, `__e2e__/`
-- Common patterns: `*.e2e.spec.*`, `*.e2e.test.*`, `*.spec.ts` (in e2e directories)
-- If E2E tests exist, read them to understand what user scenarios they validate
-- Update E2E test scenarios if behavior changes affect those workflows
-
-**Generate New Tests:**
-1. Create test files for new functions/components
-2. Write unit tests for new behavior (following existing patterns)
-3. Write integration tests for new flows (if design specifies)
-4. Use the same mocking/fixture approach as existing tests
-5. Match test file naming and location conventions
-6. Cover happy path and edge cases identified in the design
-
-**Test Coverage Checklist:**
-- All new functions have unit tests
-- All modified behavior has updated tests
-- E2E tests updated if user workflows changed
-- Edge cases from analysis are covered
-- Error scenarios from design are tested
+Apply the test scope from the design artifact (module-only vs full suite). For each modified file: update assertions for changed behavior, add new test cases for new scenarios, update mocks/fixtures if data structures changed. For new files: create test files following existing naming conventions. Detect and update E2E tests in `e2e/`, `cypress/`, `playwright/`, `__e2e__/` if the changed behavior affects user-facing workflows.
 
 ### Step 4: Run Test Suites
 
-Load @references/test-generation-guide.md for test command detection patterns.
+**MANDATORY: Load `@references/test-generation-guide.md`** — for test command detection patterns and stack-specific run conventions.
 
 **Detect test command** (README → package.json scripts → language conventions → Makefile → ask user if unclear).
 
@@ -298,28 +327,13 @@ Load @references/test-generation-guide.md for test command detection patterns.
 
 **If changes affect UI or user-facing behavior:**
 
-1. Check if a dev server is needed:
-   - Look for `start` or `dev` script in `package.json`
-   - Common patterns: `npm start`, `npm run dev`, `rails server`, `python manage.py runserver`
-2. Start the application locally
-3. Navigate to the affected feature in the UI
-4. Manually verify the changed behavior works as designed:
-   - Test the happy path (normal usage)
-   - Test edge cases identified in the analysis
-   - Verify error messages appear correctly
-   - Check that UI elements look right (buttons, dialogs, text)
-5. Look for regressions (other features broken by the change)
-6. Stop the dev server when done
+Start the application locally (check `package.json` `start`/`dev` scripts, or `rails server`, `python manage.py runserver`) and navigate to the affected feature. Verify against the happy path and each edge case listed in `analysis.md`. Look for regressions in adjacent workflows. Stop the dev server when done.
 
 **If changes are backend-only (no UI):**
-- Confirm via test output that behavior is correct
-- Optionally: make test API calls using curl or Postman to verify manually
-- Check logs for any unexpected warnings or errors
+Confirm via test output that behavior is correct; optionally make test API calls via curl and check logs for unexpected warnings.
 
 **Confirm requirements met:**
-- Review the requirements from the analysis artifact
-- Verify each requirement is satisfied by the implementation
-- If any requirement is not met, go back and fix before proceeding
+Review the requirements from the analysis artifact — each requirement must be satisfied before proceeding.
 
 ### Step 5.5: Review and Verify Implementation (Loop Until Approved)
 
@@ -429,14 +443,12 @@ If already on a feature branch, continue on that branch.
 
 ### Step 7: Commit Changes
 
-Load @shared/commit-message-format.md for commit structure.
+**MANDATORY: Load `@shared/commit-message-format.md`** — conventional commit structure, type vocabulary, subject-line limits, and footer conventions for this plugin.
 
-Stage all changed and new files in target repository:
+Stage all changed and new files in target repository (explicit paths only — never `git add .` or `git add -A`):
 ```bash
 git -C <REPO_ROOT> add <files>
 ```
-
-**Important:** Do NOT use `git add .` or `git add -A` — explicitly add files to avoid accidentally committing sensitive files (.env, credentials, etc.) or large binaries.
 
 Check git status to confirm:
 ```bash
@@ -478,8 +490,8 @@ EOF
 - Link back to the design artifact for traceability
 
 **Do NOT:**
-- Use `--no-verify` or `--no-gpg-sign` (respect hooks and signing)
-- Use `--amend` unless explicitly replacing a commit you just made
+- Use `--no-verify` or `--no-gpg-sign` (respect hooks and signing — see Anti-patterns)
+- Use `--amend` unless explicitly replacing a commit you just made in this session
 - Skip writing a meaningful commit message
 - Commit directly to main/master (feature branch should already be checked out from Step 6)
 
@@ -487,7 +499,7 @@ If the commit fails due to a pre-commit hook:
 1. Read the hook output
 2. Fix the issue (linting, formatting, validation)
 3. Stage the fixes
-4. Create a NEW commit (don't amend unless the previous commit was yours)
+4. Create a NEW commit (do not amend the previous commit)
 
 ### Step 8: Push and Create Pull Request
 
@@ -539,11 +551,11 @@ EOF
 
 **CRITICAL**:
 - Use the EXACT section headers from whichever template was read
-- Do NOT improvise custom sections like "Summary", "Changes", or "Testing"
+- Do NOT improvise custom sections like "Summary", "Changes", or "Testing" (see Anti-patterns)
 - Remove ALL HTML comments from the filled template
 - The filled template must have the same sections in the same order as the source template
 
-### Step 9: Update GitHub Issues Issue
+### Step 9: Update GitHub Issues and Advance Board
 
 Link the PR to GitHub Issues using `gh issue comment`:
 ```
@@ -556,36 +568,58 @@ title: "Pull Request: <PR title>"
 
 Add label `makato-change-implemented` using `gh issue edit --add-label`.
 
-**Transition to Code Review:**
-- Get current issue status using `gh issue view` (with fields: ["status"])
-- If status is "In Progress", transition to "Code Review":
-  - Get available transitions using `gh issue view --json state`
-  - Find transition to "Code Review" status
-  - Execute transition using `gh issue edit --state` (no comment needed for this straightforward transition)
-  - If "Code Review" not available, try "In Review" as fallback
-  - If transition fails (not available), continue without error (workflow may differ by project)
+**Transition to In Review on project board:**
+
+Read project config from `.claude/config.json` (`github_project` block). Extract:
+`fields.status.id` → `STATUS_FIELD_ID`, `fields.status.options.in_review` → `IN_REVIEW_OPTION_ID`, `project_node_id` → `PROJECT_NODE_ID`, `host`, `owner`, `number`. If any field is missing, skip board transition with a WARN and continue.
+
+Otherwise, find the board item and advance its Status (same `gh project item-edit` pattern as Step 1.6 — never `gh issue edit --state`, which sets open/closed, not board column):
+
+```bash
+ITEM_LINE="$(GH_HOST="$HOST" gh project item-list "$PROJECT_NUMBER" \
+  --owner "$OWNER" --format json --limit 9999 \
+  --jq ".items[] | select(.content.number == $ISSUE_NUMBER)" 2>/dev/null \
+  | head -1)"
+ITEM_ID="$(jq -r '.id // empty' <<<"$ITEM_LINE")"
+CUR_STATUS="$(jq -r '.status // empty' <<<"$ITEM_LINE")"
+```
+
+If `ITEM_ID` is empty: log `execute: WARN — issue not found on board; skipping In Review update` and continue.
+
+If `CUR_STATUS` is already `"In review"`: log `execute: already In Review — skipping` and continue.
+
+Otherwise:
+```bash
+GH_HOST="$HOST" gh project item-edit \
+  --id "$ITEM_ID" \
+  --project-id "$PROJECT_NODE_ID" \
+  --field-id "$STATUS_FIELD_ID" \
+  --single-select-option-id "$IN_REVIEW_OPTION_ID"
+```
+
+On failure: log `execute: WARN — could not set In Review on board; continuing` (best-effort).
 
 ### Step 10: Present Summary to User
 
 Confirm implementation is complete:
 
 ```
-✅ Implementation complete!
+Implementation complete!
 
-**PR**: <PR URL>
+PR: <PR URL>
 
-**Changes**:
+Changes:
 - Modified: <count> files
 - Created: <count> new files
 - Tests: <count> added/updated
-- All tests passing ✓
+- All tests passing
 
-**Verification**:
+Verification:
 - Implementation matches design
 - Requirements satisfied
 - Manual verification complete
 
-**Next steps**:
+Next steps:
 - Wait for code review
 - Address review feedback (use resolve-review skill if needed)
 - Merge once approved
@@ -593,11 +627,9 @@ Confirm implementation is complete:
 
 Provide the PR URL prominently so the user can view it immediately.
 
-### Step 11: Record Lessons (optional)
+### Step 11: Record Lessons
 
-After a successful PR creation, the agent MAY record noteworthy lessons or facts discovered
-during this execution into the per-issue store. This step is optional and agent-discretionary
-— only record a lesson if it is genuinely useful for a future session.
+After successful PR creation, record one JSONL entry per noteworthy lesson discovered during execution — only if genuinely useful for a future session. Skip entirely if nothing noteworthy arose.
 
 ```bash
 plugins/makato-build/shared/write-lessons.sh \
@@ -608,18 +640,14 @@ plugins/makato-build/shared/write-lessons.sh \
   "[tags_csv]"
 ```
 
-This appends one JSONL record to `specs/<issue-key>-*/change-lessons.jsonl`. The record
-shape is `{ts, tier, text, tags, scope, key, repo}` — the seven fields `promote-lessons.sh`
-reads when lifting generalizable records into `.makato/memory/`.
+Appends to `specs/<issue-key>-*/change-lessons.jsonl`. Record shape: `{ts, tier, text, tags, scope, key, repo}` — the seven fields `promote-lessons.sh` reads when lifting generalizable records into `.makato/memory/`.
 
-**When to record:**
-- A non-obvious integration issue that affected this change and could recur
-- A naming or convention pitfall that is not captured in project docs
-- A durable technical fact about this repo that would benefit future agents
+**Record when:**
+- A non-obvious integration issue affected this change and could recur
+- A naming or convention pitfall is not captured in project docs
+- A durable technical fact about this repo would benefit future agents
 
 **Do NOT record:**
 - Information already in the design or analysis artifacts
-- Trivial observations that are obvious from the code
+- Trivial observations obvious from the code
 - PII, credentials, or internal service details
-
-If nothing noteworthy arose during execution, skip this step entirely.

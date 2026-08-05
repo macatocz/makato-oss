@@ -1,8 +1,15 @@
 ---
 name: analyze
-description: Analyze change request requirements by comparing current behavior against requested changes, identify and address open questions and inconsistencies, update GitHub issue with refined requirements. Use for change requests, requirement analysis, behavior comparison, scope estimation.
-version: "1.2.0"
+description: >-
+  Analyze change request requirements by comparing current behavior against
+  requested changes, identify and address open questions and inconsistencies,
+  update GitHub issue with refined requirements. Use for change requests,
+  requirement analysis, behavior comparison, scope estimation.
+version: "1.3.0"
 argument-hint: "[ISSUE-KEY]"
+allowed-tools: Bash(git *) Bash(gh *) Bash(test *) Bash(python3 *) Bash(plugins/makato-orchestrate/shared/workflow-state.sh *) Read Write
+metadata:
+  last_updated: "2026-08-05"
 ---
 
 # Analyze Change Request
@@ -25,19 +32,47 @@ Analyze change request requirements by comparing current system behavior against
 
 ---
 
+## Mindset
+
+**Three non-obvious principles shape this skill's sequencing:**
+
+**1. Scope is a gate, not a label.** The scope estimate at Step 7 is not metadata — it decides whether to continue this workflow or terminate and recommend makato-plan. If code-explorer returns 16+ primary affected files OR signals a new subsystem is required, short-circuit immediately: skip Steps 3.5 and 4, compute scope from code-explorer alone, and emit the Large recommendation. Running test-analyzer and requirements-diff-analyzer against a clearly-large scope wastes agent budget and produces artifacts that will not be used.
+
+**2. Blocking vs clarifying questions are NOT the same triage axis as blocking vs deferrable.** A blocking question (agent `blocking: true`) is one whose answer changes WHICH files need to change or WHETHER a behavior is correct. A clarifying question only determines HOW to implement something already decided. In headless mode: block on blocking questions. In interactive mode: ask all questions — the user usually knows answers even if they're not in the written requirements. Never silently assume an answer to a blocking question in either mode.
+
+**3. The artifact is the contract.** The design skill loads `analysis.md` cold, with no conversation context. Every assumption, answer, and piece of prior knowledge must be in the artifact. If it is not in `analysis.md`, the design lane will miss it.
+
+---
+
+## References
+
+**Do NOT load any reference before its indicated step** — loading eagerly inflates context and may bias analysis before agent results are available.
+
+| Reference | Load When |
+|-----------|-----------|
+| `@references/exploration-strategy.md` | **MANDATORY at Step 3** — before dispatching code-explorer |
+| `@references/requirements-comparison-pattern.md` | **MANDATORY at Step 4** — before dispatching requirements-diff-analyzer |
+| `@references/question-identification-guide.md` | At Step 5 — only when supplementing agent questions |
+| `@references/scope-estimation-criteria.md` | **MANDATORY at Step 7** — before scope decision |
+| `@templates/analysis.md` | At Step 9 — before writing the artifact |
+| `@references/jira-update-format.md` | At Step 10 — tone and section structure only (see note in Step 10) |
+
+---
+
 ## Workflow
 
 ### Step 1: Fetch Requirements from GitHub Issues
 
 GitHub Issues issue key is required (passed as argument or asked from user).
 
-**IMPORTANT:** Use the GitHub Issues MCP tool only. Do NOT use `gh issue view` or attempt to fetch from GitHub.
-
-Call the MCP tool `gh issue view` with the issue key:
+Use the `issue_read` MCP tool with `method: get` to fetch the issue. Do NOT use the `gh issue view` CLI command for this structured fetch — the MCP tool returns typed JSON that agents can consume directly without shell parsing.
 
 ```json
 {
-  "issueKey": "<issue-key>"
+  "method": "get",
+  "owner": "<org>",
+  "repo": "<repo>",
+  "issue_number": <number>
 }
 ```
 
@@ -45,19 +80,13 @@ Response handling:
 - Validate issue exists and type is Story or Activity
 - Extract: summary, description, acceptance criteria, comments, current status
 - If issue type is not Story or Activity, inform user and exit
-- If MCP tool fails, report the error - do not fall back to GitHub
+- If MCP tool fails, report the error — do not fall back to CLI
 
 ### Step 2: Establish Artifact Location
 
 Create the artifact directory for this change request:
 ```
 specs/<issue-key>/
-
-> **Spec folder shapes:** When the issue was seeded via `seed-issue` (new-work path), the
-> folder may be `specs/<N>-<slug>/` instead of `specs/<issue-key>/`. Both shapes are valid.
-> The canonical shape from `seed-issue` is `specs/<issue-number>-<normalized-title>/`.
-> Consumers should apply the two-step resolution: prefix-match `specs/<key>-*/` first,
-> then exact-match fallback `specs/<key>/`.
 ```
 
 This follows the makato-plan pattern of project-scoped work directories. All analysis artifacts for this change request will live here. The design and execute skills will load artifacts from this location.
@@ -177,8 +206,8 @@ affected:
 **Note**: The `path` field contains just the repo name (same as `name`). Consumer skills will automatically resolve this to the local path using standard search strategies. No configuration needed - works for everyone with standard directory layouts.
 
 **Store for subsequent steps:**
-- REPO_ROOT: <absolute-path>
-- REPO_NAME: <repo-name>
+- REPO_ROOT: `<absolute-path>` — always use `git rev-parse --show-toplevel` inside the target repo, never pwd
+- REPO_NAME: `<repo-name>`
 
 ### Step 2.7: Recall Prior Lessons
 
@@ -204,6 +233,8 @@ fi
 
 ### Step 3: Discover Affected Code and Current Behavior
 
+**MANDATORY: Load `@references/exploration-strategy.md` now** — it contains discovery patterns for code files, test files, E2E frameworks, and project specs that the code-explorer agent applies. Do NOT load it before this step.
+
 **Dispatch `code-explorer` agent** to discover affected files, dependencies, and patterns.
 
 **Agent input:**
@@ -226,6 +257,8 @@ Extract FEATURE_KEYWORDS by identifying key terms from GitHub Issues summary and
 - Project specs context (if available)
 
 **Store result** in working memory as CODE_EXPLORATION_RESULT.
+
+**Early large-scope shortcut:** If CODE_EXPLORATION_RESULT shows **16+ primary affected files** OR explicitly signals a new subsystem is required, skip Steps 3.5 and 4 entirely and jump to Step 7. A change this large should not consume test-analyzer and requirements-diff-analyzer budget — the scope verdict is already clear from code exploration.
 
 **Document current behavior** from agent findings:
 - What the system does now (from file analysis)
@@ -258,6 +291,8 @@ REQUESTED_CHANGES: <brief summary from GitHub Issues>
 - What test updates will be needed
 
 ### Step 4: Generate Requirements Comparison
+
+**MANDATORY: Load `@references/requirements-comparison-pattern.md` now** — it defines the three-column comparison table format, gap analysis structure, and ambiguity annotation conventions. Do NOT load it before code-explorer results are available; the pattern requires knowing actual current behavior before the diff is meaningful.
 
 **Dispatch `requirements-diff-analyzer` agent** to compare current vs requested behavior.
 
@@ -320,24 +355,16 @@ EXISTING_TESTS: <from test-analyzer: unit and E2E test list>
 
 ### Step 7: Estimate Scope
 
-Load @references/scope-estimation-criteria.md for decision tree.
+**MANDATORY: Load `@references/scope-estimation-criteria.md` now** — it contains the full 6-dimension decision tree (file count, architectural impact, new components, test impact, uncertainty, coordination) with thresholds and edge-case guidance for borderline medium/large calls.
 
 **Use agent results for sizing:**
 - **File count**: From CODE_EXPLORATION_RESULT (primary affected files + dependencies)
 - **Test impact**: From TEST_ANALYSIS_RESULT (number of test files affected)
 - **Requirements complexity**: From REQUIREMENTS_DIFF_RESULT (number of gaps, questions, conflicts)
 
-Determine if the change fits makato-change (small/medium) or needs makato-plan (large):
-
-**Consider:**
-- Number of affected files (1-5 = small, 6-15 = medium, 16+ = large)
-- Architectural impact (isolated change = small, cross-cutting = medium, new subsystem = large)
-- New components needed (none = small, helpers/utils = medium, new modules/services = large)
-- Test impact (adjust existing = small, write new + adjust = medium, new test strategy = large)
-
 **Decision:**
-- Small/Medium → proceed with makato-change workflow
-- Large → recommend makato-plan workflow, explain why (complexity, discovery needed, multiple teams involved)
+- Small/Medium (≤15 files, isolated or shallow cross-cutting) → proceed with makato-change workflow
+- Large (16+ files, new subsystem, or deep architectural impact) → recommend makato-plan workflow, explain why
 
 ### Step 8: Resolve Open Questions Interactively
 
@@ -426,9 +453,7 @@ Write complete analysis to `specs/<issue-key>/analysis.md`:
 
 10. **Scope Estimate** — Small/medium/large with justification (from Step 7: based on CODE_EXPLORATION_RESULT file count + TEST_ANALYSIS_RESULT test count + REQUIREMENTS_DIFF_RESULT complexity)
 
-11. **Prior Lessons** — Emit the recalled lessons from Step 2.7 as a YAML front-matter or
-    fenced block at the end of `analysis.md` so the execute lane can read it back without
-    re-running recall:
+11. **Prior Lessons** — Emit the recalled lessons from Step 2.7 as a fenced block at the end of `analysis.md` so the execute lane can read it back without re-running recall:
 
     ```
     <!-- prior_lessons: <PRIOR_LESSONS JSON array, verbatim> -->
@@ -447,54 +472,48 @@ Make the artifact self-contained. The design skill will load this file without a
 
 ### Step 10: Update GitHub Issues Issue
 
-Load @references/jira-update-format.md for tone and structure.
+Load @references/jira-update-format.md for **tone and section structure guidance only**. Ignore its markup syntax examples — that file contains Jira Wiki Markup (`h2.`, `h3.`, `*bold*`, `# lists`), which renders as literal text in GitHub Issues. Use standard GitHub Markdown as shown below.
 
 Post analysis summary as a GitHub issue comment using `gh issue comment`.
 
-**IMPORTANT**: Use GitHub Issues Wiki Markup format (NOT Markdown). Key syntax:
-- Headers: `h2.`, `h3.` (NOT `##`, `###`)
-- Bold: `*text*` (NOT `**text**`)
-- Numbered lists: `#` at line start (NOT `1.`, `2.`)
-- Bulleted lists: `*` at line start
-- Monospace: `{{text}}` (NOT backticks)
-- Horizontal rule: `----` (NOT `---`)
+**IMPORTANT**: Use standard GitHub Markdown — NOT Jira Wiki Markup. GitHub renders `##` as headers, `**text**` as bold, and `1.`/`2.` as numbered lists. Jira-style syntax appears as unformatted noise to reviewers.
 
 **Comment structure:**
 ```
-h2. Change Request Analysis
+## Change Request Analysis
 
-*Scope*: [Small/Medium/Large]
+**Scope**: [Small/Medium/Large]
 
-h3. Summary
+### Summary
 [2-3 sentence overview of what changes and complexity]
 
-h3. Questions Resolved
-[If any questions were answered in Step 8, list them here with answers:
- # Question: <question text>
-   *Answer*: <user's answer>
+### Questions Resolved
+[If any questions were answered in Step 8:
+ 1. Question: <question text>
+    **Answer**: <user's answer>
 OR if none resolved: "None — all questions require stakeholder input"]
 
-h3. Open Questions
-[Numbered list of remaining unresolved questions using # symbols, or "None — requirements are clear"]
+### Open Questions
+[Numbered list of remaining unresolved questions, or "None — requirements are clear"]
 
-h3. Inconsistencies
-[List using * symbols, or "None identified"]
+### Inconsistencies
+[Bulleted list, or "None identified"]
 
-h3. E2E Test Scenarios Affected
+### E2E Test Scenarios Affected
 [List scenarios with format:
   - For scenarios with IDs: "DCPAT-123: Scenario name"
   - For .feature files: "Scenario name (features/checkout.feature)"
   - For code-based tests: "Test description (e2e/checkout.spec.ts)"
 OR if no E2E tests found: "None found — no E2E test coverage detected"]
 
-h3. Next Steps
+### Next Steps
 [Recommendation based on resolved vs remaining questions:
  - If all questions resolved: "Proceed to design"
  - If N questions remain: "Resolve N remaining questions, then proceed to design"
  - If scope is large: "Escalate to makato-plan"]
 
-----
-Full analysis: {{specs/<issue-key>/analysis.md}}
+---
+Full analysis: `specs/<issue-key>/analysis.md`
 ```
 
 Add label `makato-change-analyzed` using `gh issue edit --add-label`.
@@ -520,3 +539,19 @@ Provide the path to the analysis artifact for detailed review:
 ```
 specs/<issue-key>/analysis.md
 ```
+
+---
+
+## Anti-patterns
+
+**NEVER route a bug/defect through this skill.** Bugs have a gap between expected and actual behavior for a spec that is already correct — not a "current behavior vs requested behavior" comparison. Running the 3-agent pipeline on a defect produces a misleading `analysis.md` with a fabricated "requested change" section, and the design skill will design around the wrong problem. Route bugs to `makato-build` directly.
+
+**NEVER guess or derive REPO_ROOT from CWD in headless mode when it is absent from the dispatch bundle.** The headless agent's CWD is the makato repo, not the target repo. Calling `git rev-parse --show-toplevel` without an explicit `-C` path silently points all three discovery agents at the makato codebase instead of the target service — every file reference in the resulting `analysis.md` will be wrong. Emit HALT-CH-001 and stop.
+
+**NEVER silently widen scope past the 15-file cap to keep a change in makato-change.** If Step 3 or Step 7 reveals a large change, emit the Large verdict and recommend makato-plan — do not mentally split or downgrade the scope. The AGENTS.md hard constraint exists to protect the execute lane from unbounded PRs. Silent expansion produces a `design.md` that `change-implementer` cannot safely execute, and the failure surfaces mid-implementation where recovery is expensive.
+
+**NEVER post Jira Wiki Markup (`h2.`, `h3.`, `*bold*`, `#` for lists, `{{code}}`) in a GitHub Issues comment.** That syntax renders as literal text in GitHub Issues — reviewers see raw markup noise instead of structured content. Use `##`, `**bold**`, `1.`/`-` and backticks. (The `jira-update-format.md` reference uses Jira syntax in its examples; override those examples with the Markdown structure in Step 10.)
+
+**NEVER load `references/exploration-strategy.md` or `references/requirements-comparison-pattern.md` at skill start or before their designated steps.** Eager loading inflates the context window before agent outputs are available, and the exploration-strategy guidance is meaningless without the feature keywords and codebase context produced in Steps 1–2.
+
+**NEVER write `analysis.md` without the `<!-- prior_lessons: ... -->` sentinel**, even when `PRIOR_LESSONS` is `[]`. The execute lane reads this marker unconditionally to avoid re-running recall. A missing sentinel forces execute to re-dispatch the recall script mid-phase, potentially reading stale lessons if the lesson store was updated between analyze and execute.

@@ -8,7 +8,10 @@ description: >-
   traces, debug llm pipeline. NOT for wiring instrumentation (use
   langfuse-instrument) and NOT for enrichment-field setup (use
   langfuse-enrich).
-version: "1.0.0"
+version: "1.0.1"
+metadata:
+  authors: ["makato-observability"]
+  last_updated: "2026-08-05"
 allowed-tools:
   - "WebFetch(domain:langfuse.com)"
   - "Bash(curl *langfuse.com/*)"
@@ -63,7 +66,7 @@ NEVER ask the operator to paste key values into the chat. Run the connectivity c
 
 ### Step 1 — Detect use case autonomously
 
-Read the triggering request and route without asking if the signal is clear. Apply the first matching row:
+Read the triggering request and route without asking if the signal is clear. Apply the **first** matching row and load exactly **one** reference — do NOT load multiple references speculatively or pre-emptively:
 
 | Signal words in the request | Reference to load |
 |---|---|
@@ -74,6 +77,8 @@ Read the triggering request and route without asking if the signal is clear. App
 | score, judge, calibrate, quality, eval, rating | `@references/judge-calibration.md` |
 | cli, query, traces, list, get, read, dataset, session | `@references/cli.md` |
 | feedback, wrong guidance, skill bug, incorrect step | `@references/skill-feedback.md` |
+
+**Do NOT load** any reference that does not match the current task. Do NOT load `credentials.md` again here — it was already loaded in Step 0.
 
 If no row matches clearly, or two rows match with equal weight, use `AskUserQuestion` as the declared fallback only:
 

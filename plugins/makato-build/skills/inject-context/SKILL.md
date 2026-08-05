@@ -13,17 +13,18 @@ version: "1.0.0"
 
 # inject-context
 
+> **MANDATORY load trigger:** `knowledge-scout` MUST load this skill at Step 0
+> (before SPECS_ROOT discovery) whenever it processes a task with a changed-file
+> list.
+>
+> **Do NOT load** this skill directly from user prompts, other skills, or any
+> agent other than `knowledge-scout`. It has no user-facing interaction surface.
+
 ## 1. Overview
 
 This skill is the **context-bundle resolver** that `knowledge-scout` calls before its
 existing dcp-specs discovery process. Given a task's predicted changed-file list, it
 returns the ordered rule-file paths the scout should pre-read.
-
-Without this resolver the scout had to guess which context (TypeScript conventions vs.
-Python conventions vs. SQL migration rules) was relevant for a given task. With it, the
-PO-agent can inject the right rules for a TypeScript PR vs. a Python PR vs. a database
-migration automatically — deterministically, with config-driven ordering, and with a
-single fallback path (`default`) so the scout always receives something.
 
 The resolver does NOT read rule-file contents — it returns paths only. Reading is the
 scout's job (so file-not-found tolerance, encoding, and size limits stay localised in
@@ -174,13 +175,82 @@ canonical call shape is:
    silently (the registry references aspirational `context/{repo}/` paths that may not
    exist in every target repo).
 
+### Caller decision tree for response states
+
+After step 3, exactly one of three states is reached. The correct response differs by
+state:
+
+```
+resolve_bundles() returns
+│
+├─ raises BundleResolutionError (halt_code="HALT-006")
+│     → ABORT. Emit halt entry to workflow-state.json and build.jsonl.
+│       Do NOT continue with a partial rule list.
+│       Operator must fix context-bundles.yml and retry.
+│       Recovery: operator-only (not agent-fixable at runtime).
+│
+├─ returns (rules, warning=non-None)   ["no-match-fallback"]
+│     → CONTINUE with the returned rules list (it is still valid).
+│       Log warning to build.jsonl as status="warn".
+│       The scout proceeds normally — the default bundle covers the gap.
+│       Recovery: advisory only; scout should surface it so an operator
+│       can add a matching bundle to context-bundles.yml later.
+│
+└─ returns (rules, warning=None)       [happy path]
+      → CONTINUE. Pre-read the rules list and proceed to SPECS_ROOT discovery.
+```
+
+Key invariant: the `HALT-006` path is the **only** state that must stop the loop.
+The `no-match-fallback` warning is a quality signal, not a blocker — the scout always
+has at least the `default` bundle's rules to work from.
+
 ## 7. R1 Output Contract
 
 This skill produces no R1 envelope of its own — it is a pure-function helper consumed by
 `knowledge-scout`. The scout's R1 envelope reflects any HALT-006 or warning surfaced by
 the resolver (see `plugins/makato-build/agents/RETURN-CONTRACT.md`).
 
-## 8. What this skill does NOT do
+## 8. Anti-patterns
+
+NEVER pass absolute paths in `changed_files`.
+> WHY: Specificity scoring counts literal path segments split on `/`. An absolute path
+> like `/home/user/repo/src/foo.py` produces a large literal-segment count that
+> swamps all other bundles' scores, producing a nonsensical ranking. The contract
+> assumes project-relative paths; the integration tests only exercise relative inputs.
+> Absolute paths will not raise an error — they will silently mis-rank every bundle.
+
+NEVER re-implement glob matching inline instead of calling `resolve_bundles`.
+> WHY: The resolver uses a custom recursive `_match_glob` that gives `**` true
+> globstar semantics (matches zero or more whole path segments). Python's stdlib
+> `fnmatch` does NOT special-case `**` — it treats `**` like `*` and lets it swallow
+> `/`, so `fnmatch.fnmatch("src/sub/foo.py", "**/*.py")` returns `False`. Callers
+> that bypass the resolver and use raw `fnmatch` will produce incorrect bundle
+> selections that are hard to debug because the mismatch only appears for nested paths.
+
+NEVER swallow a `BundleResolutionError` and continue with an empty rules list.
+> WHY: A `BundleResolutionError` signals a malformed registry (missing `default`,
+> missing `name`, duplicate `name`). Continuing without a valid rules list means the
+> scout operates with zero context rules and will silently skip all hard-constraint
+> injection. The downstream coder then runs without project standards. The error must
+> be translated to HALT-006 and the session must stop so the operator can repair the
+> registry before re-dispatch.
+
+NEVER skip the `{repo}` token substitution (step 2) before passing paths to the scout.
+> WHY: Rule paths in `context-bundles.yml` contain the literal string `{repo}` (e.g.
+> `context/{repo}/standards/typescript.md`). Passing unsubstituted paths to the scout's
+> file-read step will silently produce misses for every rule file — the path doesn't
+> exist on disk as-is. Missing rule files are tolerated silently (§6 step 6), so
+> there is no error; the scout simply has no context rules injected, which defeats the
+> entire purpose of this skill.
+
+NEVER call `resolve_bundles` with a `config` argument that is not a fully parsed dict.
+> WHY: If YAML parsing fails and the caller passes `None` or a string, the resolver
+> will raise a bare `AttributeError` or `TypeError` rather than a `BundleResolutionError`.
+> The caller then has no `halt_code` to translate and may propagate an unhandled
+> exception. Always check that `yaml.safe_load` returned a dict before calling
+> `resolve_bundles`; if it did not, treat it as HALT-006 and halt before calling in.
+
+## 9. What this skill does NOT do
 
 - It does not read rule-file contents — only paths. File I/O belongs to the scout.
 - It does not parse YAML — the caller passes a pre-parsed `dict`.
@@ -189,7 +259,7 @@ the resolver (see `plugins/makato-build/agents/RETURN-CONTRACT.md`).
   caller emits the halt.
 - It does not modify the `context-bundles.yml` registry — that file is hand-authored.
 
-## 9. Versioning
+## 10. Versioning
 
 The output shape (the `(rules, warning)` tuple, the warning dict schema, the
 `BundleResolutionError.halt_code` contract) is part of this skill's version. Any change

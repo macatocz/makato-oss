@@ -8,10 +8,16 @@ description: >-
   classification table and a permissionMode report, then — only on
   explicit operator approval — reports findings. Never mutates files.
   Operator-only: never wired into any per-issue build lane or autonomous
-  pipeline.
+  pipeline. WHEN: after every 3-5 plugin additions, periodic harness
+  health review, or when AGENTS.md bloat or permissionMode drift is
+  suspected. TRIGGERS: harness audit, AGENTS.md bloat, permissionMode
+  drift, harness health, agent whitelist check.
 version: "1.0.0"
 argument-hint: "[--non-interactive]"
 allowed-tools: Read Bash Glob
+metadata:
+  Authors: Zdenek Stary
+  last_updated: "2026-08-05"
 ---
 
 <!-- markdownlint-disable MD013 -->
@@ -31,6 +37,24 @@ every 3–5 plugin additions or during a periodic harness health review.
 **Do NOT use** as an automated build step, a CI gate, or inside any autonomous
 pipeline. This skill is operator-only: it requires a human to review findings
 before any structural action is taken.
+
+### Mode selection
+
+```
+Has the user asked to run a quick classification only (no report)?
+  YES → run Step 1 + Step 2 only, skip Step 3 and Step 4
+        (or pass --non-interactive flag directly to the script)
+  NO  → run full workflow Steps 1–4
+
+Does output include MOVE-TO-SKILL findings?
+  YES → MANDATORY: load plugins/makato-orchestrate/skills/lesson-prune/SKILL.md
+        for guidance on analogous operator-gated curation of content stores
+  NO  → Do NOT load lesson-prune/SKILL.md; no sub-skills are pre-loaded by default
+
+Is the user running against a repo other than the current working tree?
+  YES → pass REPO_ROOT explicitly in Step 1 (e.g. /path/to/repo)
+  NO  → omit; git rev-parse --show-toplevel is used automatically
+```
 
 ## Classification Classes
 
@@ -52,6 +76,23 @@ section.
 `Goal`, `What Belongs Here`, `What Does NOT Belong Here`, `Decision Test`,
 `Hard Constraints`, `File Structure`, `Versioning`, `PR Checklist`, `Skill Authoring`.
 
+**MOVE-TO-SKILL heuristic:** fires on heading text containing `contract`, `propagation`,
+`dispatch table`, `runtime contract`, or `dispatch chain` — body text is not scanned.
+A section whose heading does not match but whose body describes runtime contracts
+is still BLOAT, not MOVE-TO-SKILL.
+
+### Classification Tiebreakers
+
+These edge cases have fixed resolution — two audit runs must produce the same result:
+
+| Situation | Resolution |
+|---|---|
+| AGENTS.md total lines = exactly 150 | KEEP — threshold check is `total ≤ 150`; 151+ triggers bloat scan |
+| Canonical heading appears as a sub-section (`### Hard Constraints` inside `## Deployment`) | KEEP — canonical check normalizes and strips heading level markers |
+| `#NNN` or `specs/` ref appears only inside a code fence | KEEP — ref regex scans all text including code blocks; one match anywhere suppresses BLOAT |
+| Section heading matches canonical set but section is empty (0 lines) | KEEP — canonical check runs before line count; empty canonical sections are structural |
+| New write-capable agent not yet in script whitelist | READ_WRITE_MISMATCH — the SKILL.md table and `scripts/harness-audit.sh` WRITE_CAPABLE_AGENTS set must be updated together; doc-only update creates persistent false positives |
+
 ### permissionMode Report Classes
 
 | Class | Meaning |
@@ -65,13 +106,49 @@ agents): `coder`, `change-implementer`, `documentation-agent`, `po-agent`, `ligh
 `acceptance-writer`, `dev-reviewer`, `doc-writer`, `po-reviewer`, `prototype-builder`,
 `qa-reviewer`.
 
+## Anti-patterns
+
+Each item below is a non-obvious failure mode. Generic warnings are omitted.
+
+**NEVER classify a section REDUNDANT because two plugins cover the same topic.**
+REDUNDANT requires near-identical sentences or constraints — not shared subject matter.
+Cross-plugin boundary repetition is intentional: each plugin must be self-contained.
+Misapplying REDUNDANT silently deletes the deliberate isolation that prevents
+cross-plugin coupling; the section's presence in two places is signal, not noise.
+
+**NEVER conclude a section is BLOAT solely because it contains an embedded code block
+or table.**
+The 150-line threshold counts all lines including markup. A section with 80 prose lines
+and a 40-line code example totals 120 lines of content — but the cross-ref check and
+canonical check still apply to those 120 lines. A code block that is the entire value
+of the section (showing the canonical file layout, for instance) should prompt a
+MOVE-TO-SKILL check before a BLOAT verdict, not a reflexive extraction.
+
+**NEVER update the SKILL.md write-capable whitelist without also updating
+`WRITE_CAPABLE_AGENTS` in `scripts/harness-audit.sh`.**
+The script is the authoritative classifier. A doc-only update leaves the script
+producing READ_WRITE_MISMATCH for every agent added; the next audit will produce
+findings that cannot be resolved because the whitelist change never landed in code.
+
+**NEVER invoke this skill from an automated pipeline or CI job.**
+The approval gate at Step 3 checks `sys.stdin.isatty()`. Non-TTY stdin exits 0
+with no output — not a report. Wiring harness-audit into automation produces
+silent no-ops, creating false assurance that a real audit ran.
+
+**NEVER surface a BLOAT finding for a section where `refs > 0` is present but
+the ref lands inside a commented-out line or a `<!-- -->` HTML comment.**
+The ref regex `#\d+|specs/` matches any occurrence in file text, including HTML
+comments. A `<!-- TODO: link to #123 -->` comment is not a meaningful spec reference.
+If all refs in a section are inside comments, treat refs as 0 for audit purposes
+and classify normally by threshold.
+
 ## Workflow
 
 ### Step 1 — Classify
 
 ```bash
 REPO_ROOT="${1:-$(git rev-parse --show-toplevel)}"
-FINDINGS="$(bash plugins/makato-contribute/scripts/harness-audit.sh "$REPO_ROOT")"
+FINDINGS="$(bash "$REPO_ROOT/plugins/makato-contribute/scripts/harness-audit.sh" "$REPO_ROOT")"
 ```
 
 The helper reads `$REPO_ROOT/plugins/*/AGENTS.md` and `$REPO_ROOT/plugins/*/agents/*.md`,
@@ -86,6 +163,23 @@ classifies each finding, and emits one JSON object per finding on stdout:
 ```json
 {"type":"permission","plugin":"<name>","agent":"<name>","permissionMode":"<val>","disallowedTools":"<val>","action":"OK|MISSING_PM|READ_WRITE_MISMATCH","reason":"…"}
 ```
+
+Note: a plugin with no `agents/` directory emits only AGENTS.md findings. A plugin
+missing its `AGENTS.md` entirely emits no findings for that plugin — the audit is
+silent on absent files; the pre-commit gate enforces presence at commit time.
+
+### Step 1b — Guard against script failure
+
+Check the exit code and output of Step 1 before continuing:
+
+| Condition | Action |
+|---|---|
+| Exit non-zero | Halt with: `harness-audit.sh failed (exit N). Check that REPO_ROOT is a valid makato repo and that Python 3 is available.` |
+| `$FINDINGS` is empty and `plugins/` dir exists | Print: `No AGENTS.md or agent files found under plugins/. Nothing to audit.` and exit 0. |
+| Any line in `$FINDINGS` is not valid JSON | Halt with: `harness-audit.sh emitted malformed output on line N: <line>. Run the script directly and inspect stderr for the cause.` |
+
+The script exits 0 in all classification-only scenarios (including empty plugins dir).
+A non-zero exit signals a fatal environment problem (Python not found, I/O error).
 
 ### Step 2 — Render the classification tables
 
@@ -122,14 +216,12 @@ are OK — no issues found." and exit 0.
 
 ### Step 3 — Approval gate
 
-Prompt:
+Use `AskUserQuestion` with the following options:
 
-```
-Review findings above. Proceed with detailed report? [y/N]
-```
+> Review findings above. Proceed with the detailed per-finding report?
 
-- **y / yes**: print the full detailed findings and any recommended actions.
-- **anything else / no input**: print "No further action taken." and exit 0.
+- **Yes** — print the full detailed findings and any recommended actions (Step 4).
+- **No** — print "No further action taken." and exit 0.
 
 When `--non-interactive` is passed (or stdin is not a TTY): treat as rejection
 and exit 0. This makes the skill safe to call from scripts.
@@ -176,7 +268,8 @@ This skill never mutates any file. All recommended actions are advisory.
 ### Classification only (no approval prompt)
 
 ```bash
-bash plugins/makato-contribute/scripts/harness-audit.sh
+REPO_ROOT=$(git rev-parse --show-toplevel)
+bash "$REPO_ROOT/plugins/makato-contribute/scripts/harness-audit.sh" "$REPO_ROOT"
 ```
 
 ### Non-interactive (safe for scripts)
@@ -188,7 +281,8 @@ bash plugins/makato-contribute/scripts/harness-audit.sh
 ## Smoke tests
 
 ```bash
-plugins/makato-contribute/scripts/harness-audit-smoke-tests.sh
+REPO_ROOT=$(git rev-parse --show-toplevel)
+bash "$REPO_ROOT/plugins/makato-contribute/scripts/harness-audit-smoke-tests.sh"
 ```
 
 Covers: KEEP/BLOAT/OK/MISSING_PM/READ_WRITE_MISMATCH/known-write-capable,
@@ -198,4 +292,7 @@ non-interactive flag, empty plugins dir.
 
 - `scripts/harness-audit.sh` — classification helper (pure classification, stdout-only)
 - `scripts/harness-audit-smoke-tests.sh` — offline smoke tests
-- `plugins/makato-orchestrate/skills/lesson-prune/SKILL.md` — analogous operator-gated curation skill for memory stores
+- `plugins/makato-orchestrate/skills/lesson-prune/SKILL.md` — analogous operator-gated
+  curation skill for memory stores. **MANDATORY: load this when the audit produces any
+  MOVE-TO-SKILL findings** — it documents the same human-gated curation contract for a
+  different artifact type. **Do NOT load** for BLOAT-only or MISSING_PM-only runs.

@@ -8,6 +8,10 @@ description: >-
 version: "1.5.0"
 model: opus
 argument-hint: "[work-item-key]"
+allowed-tools: [Bash]
+metadata:
+  authors: [makato-build]
+  last_updated: "2026-08-05"
 ---
 
 ## When to Use
@@ -48,18 +52,23 @@ Spec-artefact paths below resolve to `$REPO_ROOT/specs/<key>-*/...`.
 
 ### Step 1 — Ask for work item key and load plan
 
-Ask: *"Which work item are you implementing? (e.g. #123, or pass it directly: `/makato-build:build-implement-goal #123`)"* — or use the passed argument directly.
+If no `<work-item-key>` argument was passed (interactive mode): use `AskUserQuestion` with:
+- question: `"Which work item are you implementing?"`
+- options: `["Pass it directly, e.g. #123", "Run /build-implement-goal #123 to skip this prompt"]`
 
 Load `@references/goal-driven-rules.md`. These rules govern all decisions in the goal loop
 for this session.
+**Do NOT load `references/goal-driven-rules.md` more than once per session.**
 
 Read `plan.md` from the resolved spec folder (`specs/<key>-*/`). If the plan does not exist, stop and tell the user to run `/refine` first.
 
 Extract all tasks where `mode: goal`. If none exist, stop and tell the user:
 *"All tasks in this plan are tdd-mode. Run `/implement-tdd` instead."*
 
-If the plan is mixed mode, note the tdd-mode tasks and confirm scope with the user:
-*"Tasks [N, M] are tdd-mode and will be skipped here — run `/implement-tdd` for those."*
+If the plan is mixed mode, note the tdd-mode tasks and present scope to the user with
+`AskUserQuestion`:
+- question: `"Tasks [N, M] are tdd-mode and will be skipped here. Proceed with goal tasks only?"`
+- options: `["Yes — implement goal tasks now, I will run /implement-tdd separately", "No — cancel"]`
 
 ---
 
@@ -76,6 +85,7 @@ shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-implement-goal","s
 ### Step 3 — Establish test baseline
 
 Load @shared/baseline-guide.md. Follow its instructions to establish the baseline and handle the broken baseline gate.
+**Do NOT load `shared/baseline-guide.md` more than once per session.**
 
 **Flakey test rule**: if a test fails but no source code was changed between runs, re-run that single test once before classifying. If it passes on the second run, log it as flakey and continue. If it fails again, classify normally.
 
@@ -99,6 +109,8 @@ Dispatch the `plan-analyst` agent with:
 - `REPO_ROOT`: absolute path to the target repository root
 
 The agent returns a structured Plan Analysis containing: task list with tdd/goal mode, layers detected, `tracer_required` flag, glossary constraints, and reusable codebase patterns. Use this output for all subsequent steps — do not re-read plan.md or glossary.md independently.
+
+If the plan-analyst agent returns an error or empty task list: HALT with `errors: ["PLAN_ANALYST_FAILED: <agent error message>"]`. Do not attempt to infer task structure from plan.md directly — a failed analysis means the plan structure is ambiguous and the session must not proceed.
 
 If `prototype.html` exists in the resolved spec folder: note it. It is the visual target for UI tasks in the BUILD phase. Read its structure to understand the intended component layout and interactions.
 
@@ -151,6 +163,7 @@ Log:
 #### ✎ TEST
 
 Load `@references/post-impl-test-guide.md`.
+**Do NOT load `references/post-impl-test-guide.md` more than once per session.**
 
 Write tests that document the observed behavior of the implementation. Tests must describe
 what the implementation actually does — not what was hoped, and not internal implementation
@@ -188,7 +201,11 @@ If `design.md` in the resolved spec folder specifies a coverage threshold: check
 new code must be exercised by at least one test.
 
 Identify uncovered branches and add targeted tests. Do not proceed until the threshold is
-met or the gap is explicitly acknowledged and logged as a known exception.
+met or the gap is explicitly acknowledged: use `AskUserQuestion` with
+- question: `"Coverage threshold not met (<X>% vs required <Y>%). Acknowledge and log as known exception?"`
+- options: `["Acknowledge — log as known exception and proceed", "Add more tests to meet threshold"]`
+
+A "yes" answer is logged as `status: "decision"` in `build.jsonl` and execution continues.
 
 Log:
 ```
@@ -223,3 +240,28 @@ Tell the user:
 
 If tdd-mode tasks remain in the plan:
 *"Run `/build-implement-tdd` first for the remaining tdd tasks, then `/build-simplify`."*
+
+---
+
+## Anti-patterns
+
+**NEVER write tests during the BUILD phase.**
+WHY: Tests written before VERIFY RUNTIME will document broken behavior. Once a test is in the codebase asserting on a broken state, fixing the implementation causes a test failure — the test now appears to "fail the fix" and creates artificial pressure to weaken the acceptance criterion instead of completing the runtime fix.
+
+**NEVER loosen an acceptance criterion to avoid a VERIFY RUNTIME failure.**
+WHY: The fix-vs-escalate threshold exists precisely because the temptation is to redefine success around what compiles. If the spec requires X and X is technically problematic, the plan is wrong — not the spec. Silently delivering Y while the AC still reads X creates an unfixable audit divergence that `diff-reviewer` will surface as a gap verdict, blocking the PR.
+
+**NEVER re-read `plan.md` after dispatching `plan-analyst`.**
+WHY: The plan-analyst agent is the sole reader of `plan.md` during a session. Re-reading it independently creates a divergence risk when `plan.md` is updated mid-session (rare but possible in concurrent PO-agent runs), and bypasses the glossary-constraint enrichment that only the agent applies.
+
+**NEVER use `pwd` to derive `REPO_ROOT` in a worktree session.**
+WHY: `pwd` inside a git worktree returns the worktree directory (e.g. `.claude/worktrees/<branch>`), not the main checkout. `specs/` is gitignored and lives only in the main checkout. Using `pwd` silently produces a path where `specs/<key>-*/plan.md` does not exist, causing a false "plan not found" error that wastes a full session before the root cause is discovered. Always use `git -C "$WORKTREE_PATH" rev-parse --git-common-dir` to derive `REPO_ROOT`.
+
+**NEVER skip the WORKTREE_PATH falsy-check in autonomous mode.**
+WHY: In autonomous mode there is no user present to answer `AskUserQuestion`. If `WORKTREE_PATH` is empty and the falsy-check is skipped, Step 1 will invoke `AskUserQuestion` for the work-item-key, which blocks forever — the session deadlocks and the PO-agent loop stalls until the kill-switch TTL expires. The check must run before Step 1, not at Step 1.
+
+**NEVER proceed past VERIFY RUNTIME with `status: "ok"` when compilation errors remain.**
+WHY: A goal-mode test suite written against broken code is worse than no tests — it encodes the broken behavior as "passing" and will fail as soon as the runtime error is fixed. The entire value of the goal-driven cycle is that tests document *working* behavior, not aspirational behavior.
+
+**NEVER apply `TEST_ORACLE` from the `build-implement-tdd` chain in this skill.**
+WHY: `build-implement-goal` is intentionally excluded from the `TEST_ORACLE` propagation chain (TDD-only contract in `AGENTS.md`). Applying oracle scenarios here would create test stubs before VERIFY RUNTIME passes, violating the BUILD-first contract of goal-mode work.
