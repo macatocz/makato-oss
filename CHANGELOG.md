@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.141.1](https://github.com/macatocz/makato/compare/v0.141.0...v0.141.1) (2026-08-05)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** GraphQL rate-limit circuit-breaker in loop ([#683](https://github.com/macatocz/makato/issues/683)) ([#695](https://github.com/macatocz/makato/issues/695)) ([aeeed03](https://github.com/macatocz/makato/commit/aeeed03a1ec1a5bac19a8b6cd778e02b726a868d))
+
 ## [0.141.0](https://github.com/macatocz/makato/compare/v0.140.0...v0.141.0) (2026-08-05)
 
 
