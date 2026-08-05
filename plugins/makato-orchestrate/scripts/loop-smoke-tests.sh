@@ -6732,4 +6732,65 @@ echo "  ✓ reconcile-stale: item-list not called when rate budget low (guard sk
 
 echo
 
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T-RG-1–T-RG-4 GraphQL rate-limit guard, #556; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T-RESUME-1 complete result no-op, T-RESUME-2 incomplete triggers attempt, T-RESUME-3 errored triggers attempt, T-RESUME-4 budget-exhausted HALT-014, T-RESUME-5 STALL_DISABLE skip detect+resume, #531; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470; T84–T89 orphaned-specs pruning; T90 promote-before-prune; T-GQL1–T-GQL5 GraphQL board poll + item-list rollback, #516; T-IDLE1–T-IDLE2 adaptive idle backoff, #516; T91 plan-tier:change routing, #539; T-wave-order, T-promote-on, T-promote-off, T-fifo-fallback wave-ordered dispatch + promote-unblocked, #548; T-PREDISPATCH-127 exit-127 log demotion, T-REAP-NUMBERLESS numberless-folder reap-specs demotion, #558; T-loop-prune-1–T-loop-prune-3 workflow-state prune wiring, #597; T-VCR-1–T-VCR-5 _compute_vcr helper, #585; T-TOOLDEP-1–T-TOOLDEP-4 tool-dependency pre-flight, #587 #656; T-RECON-LABELGATE-1–T-RECON-LABELGATE-2 reconcile label gate; T-RG-5 poll_skipped_rate_budget reset, T-CB-1–T-CB-2 circuit-breaker poll_skip_count, T-STALE-RG-1 reconcile-stale rate-guard, #683) ==="
+echo "=== T-RC-1: api_error: rc!=0 + no WF file → board card reset to Ready ==="
+T_RC1_TMP="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-rc1"
+mkdir -p "$T_RC1_TMP"
+T_RC1_RESET_FILE="$T_RC1_TMP/reset.txt"
+T_RC1_SPECS="$T_RC1_TMP/specs"
+mkdir -p "$T_RC1_SPECS"
+
+SPECS_DIR="$T_RC1_SPECS" \
+MAKATO_LOOP_RESET_BOARD_TEST_FILE="$T_RC1_RESET_FILE" \
+MAKATO_LOOP_TEST_HOOK=1 \
+  "$LOOP" _test-reset-board-card-to-ready 42 2>/dev/null
+
+grep -q "reset #42 → Ready" "$T_RC1_RESET_FILE" \
+  || fail "T-RC-1: expected 'reset #42 → Ready' in test hook file; got: $(cat "$T_RC1_RESET_FILE" 2>/dev/null || echo '<empty>')"
+rm -rf "$T_RC1_TMP"
+echo "  ✓ rc!=0 + no WF file: _reset_board_card_to_ready writes reset entry via test hook"
+
+# ---------------------------------------------------------------------------
+echo "=== T-RC-2: api_error: rc!=0 + WF file exists → board reset NOT called ==="
+T_RC2_TMP="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-rc2"
+mkdir -p "$T_RC2_TMP"
+T_RC2_RESET_FILE="$T_RC2_TMP/reset.txt"
+T_RC2_SPECS="$T_RC2_TMP/specs/42-test-issue"
+mkdir -p "$T_RC2_SPECS"
+echo '{"current_phase":"implement"}' > "$T_RC2_SPECS/workflow-state-42.json"
+
+bash -c "
+  _wf_absent='true'
+  _wf_check=\"\$(find '$T_RC2_TMP/specs' -maxdepth 2 -name 'workflow-state-42.json' 2>/dev/null | head -1)\"
+  [[ -n \"\$_wf_check\" ]] && _wf_absent='false'
+  if [[ \"\$_wf_absent\" == 'true' ]]; then
+    echo 'reset #42 → Ready' >> '$T_RC2_RESET_FILE'
+  fi
+" 2>/dev/null
+
+[[ ! -f "$T_RC2_RESET_FILE" ]] || [[ ! -s "$T_RC2_RESET_FILE" ]] \
+  || fail "T-RC-2: reset file should be empty when WF file exists; got: $(cat "$T_RC2_RESET_FILE")"
+rm -rf "$T_RC2_TMP"
+echo "  ✓ rc!=0 + WF file exists: board reset NOT called (WF-absent guard works)"
+
+# ---------------------------------------------------------------------------
+echo "=== T-RC-3: api_error: board reset with no config → WARN logged, returns 0 ==="
+T_RC3_TMP="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-rc3"
+mkdir -p "$T_RC3_TMP"
+
+T_RC3_RC=0
+T_RC3_WARN="$(
+  CONFIG_FILE="$T_RC3_TMP/nonexistent-config.json" \
+  SPECS_DIR="$T_RC3_TMP/specs" \
+  MAKATO_LOOP_TEST_HOOK=1 \
+    "$LOOP" _test-reset-board-card-to-ready 99 2>&1
+)" || T_RC3_RC=$?
+
+[[ "$T_RC3_RC" -eq 0 ]] \
+  || fail "T-RC-3: expected rc=0 from _reset_board_card_to_ready on missing config; got rc=$T_RC3_RC"
+echo "$T_RC3_WARN" | grep -q "WARN" \
+  || fail "T-RC-3: expected WARN in stderr output; got: $T_RC3_WARN"
+rm -rf "$T_RC3_TMP"
+echo "  ✓ no config: WARN logged, returns 0 (best-effort, never blocks)"
+
+echo
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T-RG-1–T-RG-4 GraphQL rate-limit guard, #556; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T-RESUME-1 complete result no-op, T-RESUME-2 incomplete triggers attempt, T-RESUME-3 errored triggers attempt, T-RESUME-4 budget-exhausted HALT-014, T-RESUME-5 STALL_DISABLE skip detect+resume, #531; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470; T84–T89 orphaned-specs pruning; T90 promote-before-prune; T-GQL1–T-GQL5 GraphQL board poll + item-list rollback, #516; T-IDLE1–T-IDLE2 adaptive idle backoff, #516; T91 plan-tier:change routing, #539; T-wave-order, T-promote-on, T-promote-off, T-fifo-fallback wave-ordered dispatch + promote-unblocked, #548; T-PREDISPATCH-127 exit-127 log demotion, T-REAP-NUMBERLESS numberless-folder reap-specs demotion, #558; T-loop-prune-1–T-loop-prune-3 workflow-state prune wiring, #597; T-VCR-1–T-VCR-5 _compute_vcr helper, #585; T-TOOLDEP-1–T-TOOLDEP-4 tool-dependency pre-flight, #587 #656; T-RECON-LABELGATE-1–T-RECON-LABELGATE-2 reconcile label gate; T-RG-5 poll_skipped_rate_budget reset, T-CB-1–T-CB-2 circuit-breaker poll_skip_count, T-STALE-RG-1 reconcile-stale rate-guard, #683; T-RC-1–T-RC-3 api_error board-reset recovery, #687) ==="

@@ -2891,6 +2891,103 @@ _claim_board_card() {
   return 0
 }
 
+# ---------------------------------------------------------------------------
+# _reset_board_card_to_ready <ISSUE_NUMBER> — api_error board recovery (#687).
+#
+# Called by cmd_dispatch when the child exits rc!=0 and no workflow-state-<N>.json
+# was written (session never started — e.g. Stream idle timeout). Moves the board
+# card from "In progress" back to "Ready" so the loop retries on the next tick.
+#
+# Best-effort: any read/write failure logs a WARN and returns 0. Never blocks.
+#
+# Test hook: MAKATO_LOOP_RESET_BOARD_TEST_FILE — when set, write
+#   "reset #N → Ready"  to the file instead of calling gh.
+# ---------------------------------------------------------------------------
+_reset_board_card_to_ready() {
+  local issue="$1"
+
+  # Test hook — offline smoke tests write to this file instead of calling gh.
+  if [[ -n "${MAKATO_LOOP_RESET_BOARD_TEST_FILE:-}" ]]; then
+    echo "reset #${issue} → Ready" >>"$MAKATO_LOOP_RESET_BOARD_TEST_FILE"
+    echo "loop: api-error-reset — #$issue board reset → Ready (test hook)" >&2
+    return 0
+  fi
+
+  if [[ ! -f "$CONFIG_FILE" ]]; then
+    echo "loop: WARN — api-error-reset #$issue: no config; board card stays In progress" >&2
+    return 0
+  fi
+
+  local status_field_id ready_option_id project_node_id host owner number
+  status_field_id="$(jq -r '.github_project.fields.status.id // empty' "$CONFIG_FILE")"
+  ready_option_id="$(jq -r '.github_project.fields.status.options.ready // (.github_project.options.ready // empty)' "$CONFIG_FILE")"
+  project_node_id="$(jq -r '.github_project.project_node_id // empty' "$CONFIG_FILE")"
+  host="$(jq -r '.github_project.host // "github.com"' "$CONFIG_FILE")"
+  owner="$(jq -r '.github_project.owner // empty' "$CONFIG_FILE")"
+  number="$(jq -r '.github_project.number // empty' "$CONFIG_FILE")"
+
+  if [[ -z "$status_field_id" || -z "$ready_option_id" || -z "$project_node_id" || -z "$owner" || -z "$number" ]]; then
+    echo "loop: WARN — api-error-reset #$issue: missing config fields; board card stays In progress" >&2
+    return 0
+  fi
+
+  # Re-fetch item_id from board. Cannot reuse _claim_board_card's local item_id.
+  # Use _board_via_graphql (cheap, ~1 point) with fallback to item-list.
+  local board=""
+  local _pid
+  _pid="$(jq -r '.github_project.project_node_id // empty' "$CONFIG_FILE" 2>/dev/null)"
+  if [[ -n "$_pid" ]]; then
+    board="$(_board_via_graphql "$host" "$_pid" 2>/dev/null)" || board=""
+  fi
+  if [[ -z "$board" ]]; then
+    board="$(GH_HOST="$host" gh project item-list "$number" \
+      --owner "$owner" --format json --limit "$BOARD_LIMIT" 2>/dev/null)" || board=""
+  fi
+  if [[ -z "$board" ]]; then
+    echo "loop: WARN — api-error-reset #$issue: board poll failed; card stays In progress" >&2
+    return 0
+  fi
+
+  local item_line item_id cur_status
+  item_line="$(jq -c --argjson i "$issue" \
+    'first(.items[] | select(.content.type == "Issue" and .content.number == $i))' \
+    <<<"$board" 2>/dev/null || echo "")"
+  item_id="$(jq -r '.id // empty' <<<"$item_line" 2>/dev/null)"
+  cur_status="$(jq -r '.status // empty' <<<"$item_line" 2>/dev/null)"
+
+  if [[ -z "$item_id" ]]; then
+    echo "loop: WARN — api-error-reset #$issue: item_id not found; card stays In progress" >&2
+    return 0
+  fi
+
+  # Status guard: only reset when card is still "In progress".
+  # Avoids forward-backward oscillation if reconciler raced ahead.
+  if [[ "$cur_status" != "In progress" ]]; then
+    echo "loop: api-error-reset #$issue: card is '${cur_status:-<unknown>}', not In progress — skip" >&2
+    return 0
+  fi
+
+  if GH_HOST="$host" gh project item-edit --id "$item_id" \
+      --project-id "$project_node_id" \
+      --field-id "$status_field_id" \
+      --single-select-option-id "$ready_option_id" >/dev/null 2>&1; then
+    echo "loop: api-error-reset — #$issue board reset In progress → Ready (api_error, no workflow-state)" >&2
+    # Best-effort JSONL audit to orchestrate.jsonl when found.
+    local _spec_dir_reset
+    _spec_dir_reset="$(find "${SPECS_DIR:-$REPO_ROOT/specs}" -maxdepth 2 \
+      -name "orchestrate.jsonl" 2>/dev/null | head -1 | xargs -I{} dirname {} 2>/dev/null || true)"
+    if [[ -n "$_spec_dir_reset" ]]; then
+      local _now_ts
+      _now_ts="$(_now)"
+      echo "{\"ts\":\"$_now_ts\",\"skill\":\"loop\",\"issue\":$issue,\"step\":\"api-error-board-reset\",\"status\":\"reset\",\"data\":{\"from\":\"In progress\",\"to\":\"Ready\",\"reason\":\"api_error_no_workflow_state\"}}" \
+        >>"$_spec_dir_reset/orchestrate.jsonl" 2>/dev/null || true
+    fi
+  else
+    echo "loop: WARN — api-error-reset #$issue: item-edit failed; card stays In progress (reconciler will recover)" >&2
+  fi
+  return 0
+}
+
 # Labels that veto auto-seed promotion / dispatch even when the board Status
 # matches. `needs-human-review` is applied on every HALT path; excluding it
 # keeps a halted issue off-queue until a human clears the label (#286).
@@ -4992,6 +5089,19 @@ cmd_dispatch() {
           fi
           if [[ "$_halt_emitted" != "true" ]]; then
             _stall_resume "$issue" "$key" "$_spec_dir_r" "$log_file" || rc=$?
+            # #687: api_error recovery — reset board card to Ready when dispatch
+            # failed before writing workflow-state (session never started).
+            if [[ "$rc" -ne 0 ]]; then
+              local _wf_absent="true"
+              local _wf_check
+              _wf_check="$(find "${SPECS_DIR:-$REPO_ROOT/specs}" -maxdepth 2 \
+                -name "workflow-state-${issue}.json" 2>/dev/null | head -1)"
+              [[ -n "$_wf_check" ]] && _wf_absent="false"
+              if [[ "$_wf_absent" == "true" ]]; then
+                echo "loop: api-error: #$issue exited rc=$rc with no workflow-state — resetting board to Ready" >&2
+                _reset_board_card_to_ready "$issue" || true
+              fi
+            fi
           fi
         fi
       fi
@@ -6176,6 +6286,12 @@ if [[ "$SUBCMD" == _test-* ]]; then
       else
         _check_tool_deps
       fi
+      ;;
+    # _test-reset-board-card-to-ready <issue> — exercise _reset_board_card_to_ready
+    # in isolation (#687). Caller sets MAKATO_LOOP_RESET_BOARD_TEST_FILE,
+    # CONFIG_FILE, and SPECS_DIR to ephemeral fixtures so no gh call is made.
+    _test-reset-board-card-to-ready)
+      _reset_board_card_to_ready "${1:?issue required}"
       ;;
     *) echo "loop: unknown test hook: $SUBCMD" >&2; exit 64 ;;
   esac
