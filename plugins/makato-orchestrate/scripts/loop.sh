@@ -1653,7 +1653,7 @@ _reconcile_orphaned_in_progress() {
         echo "reconcile #${n}" >>"$MAKATO_LOOP_RECONCILE_TEST_FILE"
         board_edit_ok=1
       else
-        local cfg item_id blocked_id proj_owner proj_number proj_host field_id
+        local cfg item_id blocked_id proj_owner proj_number proj_host field_id proj_node_id
         cfg="$(_read_project_config 2>/dev/null)" || { echo "loop: WARN — reconcile-orphaned #$n: no config for board edit" >&2; true; }
         proj_owner="$(jq -r '.owner' <<<"$cfg")"
         proj_number="$(jq -r '.number' <<<"$cfg")"
@@ -1665,8 +1665,9 @@ _reconcile_orphaned_in_progress() {
         # write silently no-op'd on every invocation.
         field_id="$(jq -r '.github_project.fields.status.id // .github_project.status_field_id // empty' "$CONFIG_FILE")"
         blocked_id="$(jq -r '.github_project.fields.status.options.blocked // (.github_project.options.blocked // empty)' "$CONFIG_FILE")"
-        if [[ -z "$field_id" || -z "$blocked_id" ]]; then
-          echo "loop: WARN — reconcile-orphaned #$n: missing field_id or blocked option id in config" >&2
+        proj_node_id="$(jq -r '.github_project.project_node_id // empty' "$CONFIG_FILE" 2>/dev/null)"
+        if [[ -z "$field_id" || -z "$blocked_id" || -z "$proj_node_id" ]]; then
+          echo "loop: WARN — reconcile-orphaned #$n: missing field_id, blocked option id, or project_node_id in config" >&2
         else
           # Resolve the project item-id from the board payload already fetched
           # above ($raw) instead of issuing a second `gh project item-list
@@ -1680,9 +1681,9 @@ _reconcile_orphaned_in_progress() {
             '.items[] | select(.content.type == "Issue" and .content.number == $n) | (.id // empty)' \
             <<<"$raw" 2>/dev/null | head -1)" || true
           if [[ -n "$item_id" ]]; then
-            if GH_HOST="$proj_host" gh project item-edit "$proj_number" \
-              --owner "$proj_owner" \
+            if GH_HOST="$proj_host" gh project item-edit \
               --id "$item_id" \
+              --project-id "$proj_node_id" \
               --field-id "$field_id" \
               --single-select-option-id "$blocked_id" \
               >/dev/null 2>&1; then
@@ -1846,15 +1847,16 @@ _reconcile_orphaned_stale() {
         echo "reconcile #${issue_n}" >>"$MAKATO_LOOP_RECONCILE_TEST_FILE"
         board_edit_ok=1
       else
-        local cfg proj_owner proj_number proj_host field_id blocked_id item_id
+        local cfg proj_owner proj_number proj_host field_id blocked_id item_id proj_node_id
         cfg="$(_read_project_config 2>/dev/null)" || { echo "loop: WARN — reconcile-stale #$issue_n: no config for board edit" >&2; true; }
         proj_owner="$(jq -r '.owner' <<<"$cfg")"
         proj_number="$(jq -r '.number' <<<"$cfg")"
         proj_host="$(jq -r '.host' <<<"$cfg")"
         field_id="$(jq -r '.github_project.fields.status.id // .github_project.status_field_id // empty' "$CONFIG_FILE" 2>/dev/null)"
         blocked_id="$(jq -r '.github_project.fields.status.options.blocked // (.github_project.options.blocked // empty)' "$CONFIG_FILE" 2>/dev/null)"
-        if [[ -z "$field_id" || -z "$blocked_id" ]]; then
-          echo "loop: WARN — reconcile-stale #$issue_n: missing field_id or blocked option id in config" >&2
+        proj_node_id="$(jq -r '.github_project.project_node_id // empty' "$CONFIG_FILE" 2>/dev/null)"
+        if [[ -z "$field_id" || -z "$blocked_id" || -z "$proj_node_id" ]]; then
+          echo "loop: WARN — reconcile-stale #$issue_n: missing field_id, blocked option id, or project_node_id in config" >&2
         else
           # Rate-budget pre-check (#683): skip item-id lookup if budget is low.
           # _check_graphql_rate_budget sleeps until reset when budget < floor —
@@ -1878,9 +1880,9 @@ _reconcile_orphaned_stale() {
             '.items[] | select(.content.type == "Issue" and .content.number == $n) | .id' \
             <<<"$_rs_item_cmd_out" 2>/dev/null | head -1)" || true
           if [[ -n "$item_id" ]]; then
-            if GH_HOST="$proj_host" gh project item-edit "$proj_number" \
-              --owner "$proj_owner" \
+            if GH_HOST="$proj_host" gh project item-edit \
               --id "$item_id" \
+              --project-id "$proj_node_id" \
               --field-id "$field_id" \
               --single-select-option-id "$blocked_id" \
               >/dev/null 2>&1; then

@@ -3578,6 +3578,7 @@ cat >"$TQ_CONFIG" <<'EOF'
     "owner": "macatocz",
     "number": 4,
     "host": "github.com",
+    "project_node_id": "PVT_kwTq",
     "fields": {
       "status": {
         "id": "PVTSSF_field_status_123",
@@ -3612,8 +3613,8 @@ tq_stderr="$(
 [[ "$tq_rc" -eq 0 ]] \
   || fail "Tq: function must return 0; got rc=$tq_rc stderr=$tq_stderr"
 # REGRESSION ASSERTION: the "missing field_id" WARN must NOT appear.
-if echo "$tq_stderr" | grep -q "missing field_id or blocked option id"; then
-  fail "Tq (#492 regression): reconcile must NOT log 'missing field_id or blocked option id' with a populated config; got: $tq_stderr"
+if echo "$tq_stderr" | grep -q "missing field_id, blocked option id, or project_node_id"; then
+  fail "Tq (#492 regression): reconcile must NOT log 'missing field_id' WARN with a populated config; got: $tq_stderr"
 fi
 # POSITIVE ASSERTION: the pass must have reached the item-id resolution stage
 # (proving the field-id guard was cleared).
@@ -3640,7 +3641,7 @@ mkdir -p "$TLG1_BIN" "$TLG1_SPECS"
 jq -n '{items:[{"content":{"type":"Issue","number":30001,"title":"label-gate","repository":"macatocz/makato","url":"https://github.com/macatocz/makato/issues/30001"},"status":"In progress","id":"PVTI_gate1"}]}' \
   >"$TLG1_FIXTURE"
 # Config with field+option ids so the field-id guard passes.
-jq -n '{"github_project":{"owner":"macatocz","number":4,"host":"github.com","fields":{"status":{"id":"PVTSSF_x","options":{"blocked":"opt_b_x"}}}}}' \
+jq -n '{"github_project":{"owner":"macatocz","number":4,"host":"github.com","project_node_id":"PVT_kwLG1","fields":{"status":{"id":"PVTSSF_x","options":{"blocked":"opt_b_x"}}}}}' \
   >"$TLG1_CONFIG"
 # gh stub: item-edit exits non-zero (simulates API failure); item-list returns
 # the board item so item_id resolves — failure is at the edit step itself.
@@ -3691,7 +3692,7 @@ mkdir -p "$TLG2_BIN" "$TLG2_SPECS"
 # Seed a stale orphan (dead pid, 2h old).
 _seed_stale "$TLG2_SPECS" 30002 7200 dead
 # Config with field+option ids so the field-id guard passes.
-jq -n '{"github_project":{"owner":"macatocz","number":4,"host":"github.com","fields":{"status":{"id":"PVTSSF_y","options":{"blocked":"opt_b_y"}}}}}' \
+jq -n '{"github_project":{"owner":"macatocz","number":4,"host":"github.com","project_node_id":"PVT_kwLG2","fields":{"status":{"id":"PVTSSF_y","options":{"blocked":"opt_b_y"}}}}}' \
   >"$TLG2_CONFIG"
 # gh stub: item-list returns item so item_id resolves, item-edit fails.
 cat >"$TLG2_BIN/gh" <<'GHSTUB'
@@ -3725,6 +3726,111 @@ if [[ -s "$TLG2_LABEL" ]]; then
 fi
 rm -rf "$TLG2_SPECS" "$TLG2_BIN" "$TLG2_CONFIG" "$TLG2_LABEL"
 echo "  ✓ stale reconciler: board edit failure suppresses label stamp"
+
+# ---------------------------------------------------------------------------
+# T-RECON-ARGSHAPE-1 / T-RECON-ARGSHAPE-2: argv shape regression guard —
+# both reconcilers must use --project-id (not a positional project number
+# and not --owner) when calling gh project item-edit after the #697 fix.
+# ---------------------------------------------------------------------------
+echo
+echo "=== T-RECON-ARGSHAPE-1: _reconcile_orphaned_in_progress — item-edit uses --project-id, no positional ==="
+TAS1_FIXTURE="$STATE_DIR/tas1-reconcile-$$.json"
+TAS1_CONFIG="$STATE_DIR/tas1-config-$$.json"
+TAS1_BIN="$STATE_DIR/tas1-bin-$$"
+TAS1_SPECS="$STATE_DIR/tas1-specs-$$"
+TAS1_LABEL="$STATE_DIR/tas1-label-$$.txt"
+TAS1_ARGS="$STATE_DIR/tas1-args-$$.txt"
+mkdir -p "$TAS1_BIN" "$TAS1_SPECS"
+jq -n '{items:[{"content":{"type":"Issue","number":31001,"title":"argshape-1","repository":"macatocz/makato","url":"https://github.com/macatocz/makato/issues/31001"},"status":"In progress","id":"PVTI_as1"}]}' \
+  >"$TAS1_FIXTURE"
+jq -n '{"github_project":{"owner":"macatocz","number":4,"host":"github.com","project_node_id":"PVT_argshape1","fields":{"status":{"id":"PVTSSF_as1","options":{"blocked":"opt_b_as1"}}}}}' \
+  >"$TAS1_CONFIG"
+cat >"$TAS1_BIN/gh" <<GHSTUB
+#!/usr/bin/env bash
+if [[ "\$*" == *"item-edit"* ]]; then
+  echo "item-edit \$*" >>"$TAS1_ARGS"
+  exit 0
+fi
+if [[ "\$*" == *"item-list"* ]]; then
+  echo '{"items":[{"id":"PVTI_as1","content":{"type":"Issue","number":31001}}]}'
+  exit 0
+fi
+exit 0
+GHSTUB
+chmod +x "$TAS1_BIN/gh"
+tas1_rc=0
+tas1_stderr="$(
+  PATH="$TAS1_BIN:$PATH" \
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_RECONCILE_GH_OVERRIDE="$TAS1_FIXTURE" \
+  MAKATO_LOOP_CONFIG="$TAS1_CONFIG" \
+  MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE="$TAS1_LABEL" \
+  SPECS_DIR="$TAS1_SPECS" \
+    "$LOOP" _test-reconcile-orphaned 2>&1 >/dev/null
+)" || tas1_rc=$?
+[[ "$tas1_rc" -eq 0 ]] \
+  || fail "T-RECON-ARGSHAPE-1: function must return 0; got rc=$tas1_rc stderr=$tas1_stderr"
+[[ -s "$TAS1_ARGS" ]] \
+  || fail "T-RECON-ARGSHAPE-1: gh item-edit must have been called (args capture file empty); stderr=$tas1_stderr"
+grep -q -- "--project-id" "$TAS1_ARGS" \
+  || fail "T-RECON-ARGSHAPE-1: item-edit must use --project-id; got: $(cat "$TAS1_ARGS")"
+if grep -qE "item-edit [0-9]+" "$TAS1_ARGS"; then
+  fail "T-RECON-ARGSHAPE-1: item-edit must NOT have positional project number; got: $(cat "$TAS1_ARGS")"
+fi
+if grep -q -- "--owner" "$TAS1_ARGS"; then
+  fail "T-RECON-ARGSHAPE-1: item-edit must NOT use --owner; got: $(cat "$TAS1_ARGS")"
+fi
+rm -rf "$TAS1_FIXTURE" "$TAS1_CONFIG" "$TAS1_BIN" "$TAS1_SPECS" "$TAS1_LABEL" "$TAS1_ARGS"
+echo "  ✓ in-progress reconciler: item-edit uses --project-id, no positional arg, no --owner"
+
+echo
+echo "=== T-RECON-ARGSHAPE-2: _reconcile_orphaned_stale — item-edit uses --project-id, no positional ==="
+TAS2_SPECS="$STATE_DIR/tas2-specs-$$"
+TAS2_CONFIG="$STATE_DIR/tas2-config-$$.json"
+TAS2_BIN="$STATE_DIR/tas2-bin-$$"
+TAS2_LABEL="$STATE_DIR/tas2-label-$$.txt"
+TAS2_ARGS="$STATE_DIR/tas2-args-$$.txt"
+mkdir -p "$TAS2_BIN" "$TAS2_SPECS"
+_seed_stale "$TAS2_SPECS" 31002 7200 dead
+jq -n '{"github_project":{"owner":"macatocz","number":4,"host":"github.com","project_node_id":"PVT_argshape2","fields":{"status":{"id":"PVTSSF_as2","options":{"blocked":"opt_b_as2"}}}}}' \
+  >"$TAS2_CONFIG"
+cat >"$TAS2_BIN/gh" <<GHSTUB
+#!/usr/bin/env bash
+if [[ "\$*" == *"item-list"* ]]; then
+  echo '{"items":[{"id":"PVTI_as2","content":{"type":"Issue","number":31002}}]}'
+  exit 0
+fi
+if [[ "\$*" == *"item-edit"* ]]; then
+  echo "item-edit \$*" >>"$TAS2_ARGS"
+  exit 0
+fi
+exit 0
+GHSTUB
+chmod +x "$TAS2_BIN/gh"
+tas2_rc=0
+tas2_stderr="$(
+  PATH="$TAS2_BIN:$PATH" \
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_ORPHAN_STALE_SECS=3600 \
+  MAKATO_LOOP_RECONCILE_SPECS_DIR="$TAS2_SPECS" \
+  MAKATO_LOOP_CONFIG="$TAS2_CONFIG" \
+  MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE="$TAS2_LABEL" \
+    "$LOOP" _test-reconcile-stale 2>&1 >/dev/null
+)" || tas2_rc=$?
+[[ "$tas2_rc" -eq 0 ]] \
+  || fail "T-RECON-ARGSHAPE-2: function must return 0; got rc=$tas2_rc stderr=$tas2_stderr"
+[[ -s "$TAS2_ARGS" ]] \
+  || fail "T-RECON-ARGSHAPE-2: gh item-edit must have been called (args capture file empty)"
+grep -q -- "--project-id" "$TAS2_ARGS" \
+  || fail "T-RECON-ARGSHAPE-2: item-edit must use --project-id; got: $(cat "$TAS2_ARGS")"
+if grep -qE "item-edit [0-9]+" "$TAS2_ARGS"; then
+  fail "T-RECON-ARGSHAPE-2: item-edit must NOT have positional project number; got: $(cat "$TAS2_ARGS")"
+fi
+if grep -q -- "--owner" "$TAS2_ARGS"; then
+  fail "T-RECON-ARGSHAPE-2: item-edit must NOT use --owner; got: $(cat "$TAS2_ARGS")"
+fi
+rm -rf "$TAS2_SPECS" "$TAS2_BIN" "$TAS2_CONFIG" "$TAS2_LABEL" "$TAS2_ARGS"
+echo "  ✓ stale reconciler: item-edit uses --project-id, no positional arg, no --owner"
 
 # ---------------------------------------------------------------------------
 # T-reshape-disabled: MAKATO_LOOP_RESHAPE_ENABLED=0 (or unset) → no dispatch
@@ -6793,4 +6899,4 @@ rm -rf "$T_RC3_TMP"
 echo "  ✓ no config: WARN logged, returns 0 (best-effort, never blocks)"
 
 echo
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T-RG-1–T-RG-4 GraphQL rate-limit guard, #556; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T-RESUME-1 complete result no-op, T-RESUME-2 incomplete triggers attempt, T-RESUME-3 errored triggers attempt, T-RESUME-4 budget-exhausted HALT-014, T-RESUME-5 STALL_DISABLE skip detect+resume, #531; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470; T84–T89 orphaned-specs pruning; T90 promote-before-prune; T-GQL1–T-GQL5 GraphQL board poll + item-list rollback, #516; T-IDLE1–T-IDLE2 adaptive idle backoff, #516; T91 plan-tier:change routing, #539; T-wave-order, T-promote-on, T-promote-off, T-fifo-fallback wave-ordered dispatch + promote-unblocked, #548; T-PREDISPATCH-127 exit-127 log demotion, T-REAP-NUMBERLESS numberless-folder reap-specs demotion, #558; T-loop-prune-1–T-loop-prune-3 workflow-state prune wiring, #597; T-VCR-1–T-VCR-5 _compute_vcr helper, #585; T-TOOLDEP-1–T-TOOLDEP-4 tool-dependency pre-flight, #587 #656; T-RECON-LABELGATE-1–T-RECON-LABELGATE-2 reconcile label gate; T-RG-5 poll_skipped_rate_budget reset, T-CB-1–T-CB-2 circuit-breaker poll_skip_count, T-STALE-RG-1 reconcile-stale rate-guard, #683; T-RC-1–T-RC-3 api_error board-reset recovery, #687) ==="
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T-RG-1–T-RG-4 GraphQL rate-limit guard, #556; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T-RESUME-1 complete result no-op, T-RESUME-2 incomplete triggers attempt, T-RESUME-3 errored triggers attempt, T-RESUME-4 budget-exhausted HALT-014, T-RESUME-5 STALL_DISABLE skip detect+resume, #531; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470; T84–T89 orphaned-specs pruning; T90 promote-before-prune; T-GQL1–T-GQL5 GraphQL board poll + item-list rollback, #516; T-IDLE1–T-IDLE2 adaptive idle backoff, #516; T91 plan-tier:change routing, #539; T-wave-order, T-promote-on, T-promote-off, T-fifo-fallback wave-ordered dispatch + promote-unblocked, #548; T-PREDISPATCH-127 exit-127 log demotion, T-REAP-NUMBERLESS numberless-folder reap-specs demotion, #558; T-loop-prune-1–T-loop-prune-3 workflow-state prune wiring, #597; T-VCR-1–T-VCR-5 _compute_vcr helper, #585; T-TOOLDEP-1–T-TOOLDEP-4 tool-dependency pre-flight, #587 #656; T-RECON-LABELGATE-1–T-RECON-LABELGATE-2 reconcile label gate; T-RECON-ARGSHAPE-1–T-RECON-ARGSHAPE-2 reconcile item-edit argv shape, #697; T-RG-5 poll_skipped_rate_budget reset, T-CB-1–T-CB-2 circuit-breaker poll_skip_count, T-STALE-RG-1 reconcile-stale rate-guard, #683; T-RC-1–T-RC-3 api_error board-reset recovery, #687) ==="
