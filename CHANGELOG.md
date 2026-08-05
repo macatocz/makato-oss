@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.141.0](https://github.com/macatocz/makato/compare/v0.140.0...v0.141.0) (2026-08-05)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** post structured comment on needs-human-review ([#689](https://github.com/macatocz/makato/issues/689)) ([#692](https://github.com/macatocz/makato/issues/692)) ([0d4788c](https://github.com/macatocz/makato/commit/0d4788c99f2df619eeed93056edf5f3bbb0505a1))
+
 ## [0.140.0](https://github.com/macatocz/makato/compare/v0.139.3...v0.140.0) (2026-08-05)
 
 
