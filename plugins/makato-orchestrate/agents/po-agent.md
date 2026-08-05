@@ -364,7 +364,8 @@ build-refine ticket path; `plan_tier` echoes the issue's tier
 either engine — that did not yield a valid plan): apply `needs-human-review`,
 follow the bootstrap exception in § *Error modes* (state is not yet initialised
 — skip the state-mutating helpers, emit a `step:"halt-pre-init"` JSONL
-entry), and return R1 `failure` with `data.halt_code:"HALT-006"`.
+entry), and return R1 `failure` with `data.halt_code:"HALT-006"`. Also call
+`shared/post-halt-comment.sh HALT-006 $ISSUE_NUMBER $REPO` (best-effort).
 
 ### Step 2 — Read or initialise state
 
@@ -528,7 +529,8 @@ loop.
    (patch via
    `workflow-state.sh patch <KEY> <ISSUE_NUMBER> '.sub_tasks[<idx>].status' '"pending"'`).
 2. **Dependency sanity.** Topologically sort `sub_tasks[]` by
-   `blockedBy`. Cycle → HALT-006, apply `needs-human-review`, R1
+   `blockedBy`. Cycle → HALT-006, apply `needs-human-review`, also call
+   `shared/post-halt-comment.sh HALT-006 $ISSUE_NUMBER $REPO` (best-effort), R1
    `failure`.
 
 #### Step 4d — Dispatch the implementation skill
@@ -586,7 +588,7 @@ leaves the PO-agent with `failure` and no `halt_code`.
 | ---------- | ------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ok`     | Sub-skill wrote`step:"session" status:"ok"`.                                                                     | Proceed to Step 4e unchanged (happy-path additive guard).                                                                                                                                                                                                      |
 | `error`  | Sub-skill wrote`step:"session" status:"error"` with `data.halt_code`.                                          | If R1 already carried the same`halt_code`, no-op — Step 4e routes it. If R1 was `failure` without `halt_code`, adopt `data.halt_code` from the tail: patch state, log the tail-recovered code, then route per `plugins/makato-build/halt-codes.md`. |
-| `silent` | Session-start seen, no terminal`session` line — the exact silent-exit class #143 / #169 reproduced.             | HALT-011: append`halt_audit[]` with `code:"HALT-011"`, `data.skill`, `data.last_step`, `data.last_status`; apply `needs-human-review` on the linked issue; retain the worktree; return R1 `failure` with `data.halt_code:"HALT-011"`.          |
+| `silent` | Session-start seen, no terminal`session` line — the exact silent-exit class #143 / #169 reproduced.             | HALT-011: append`halt_audit[]` with `code:"HALT-011"`, `data.skill`, `data.last_step`, `data.last_status`; apply `needs-human-review` on the linked issue; also call `shared/post-halt-comment.sh HALT-011 $ISSUE_NUMBER $REPO` (best-effort); retain the worktree; return R1 `failure` with `data.halt_code:"HALT-011"`.          |
 | `no-log` | Empty`build.jsonl` or no entries for the dispatched skill (skill invoked outside the standard logging contract). | Fall back to R1 as authority. No HALT, no state mutation.                                                                                                                                                                                                      |
 
 JSONL per guard invocation (regardless of verdict, for forensics):
@@ -625,7 +627,7 @@ completed (the carve-out). Aggregate handling:
 | `success`                                      | All tasks complete. Advance to Step 6.                                                                |
 | `partial`                                      | At least one task incomplete. Go to Step 4f (Step 4c handles stuck`in_progress` on next iteration). |
 | `failure` with `data.escalation == "refine"` | Go to Step 4f.                                                                                        |
-| `failure` (other)                              | HALT-003, apply`needs-human-review`, R1 `failure`.                                                |
+| `failure` (other)                              | HALT-003, apply`needs-human-review`, also call `shared/post-halt-comment.sh HALT-003 $ISSUE_NUMBER $REPO` (best-effort), R1 `failure`.                                                |
 
 JSONL per dispatch (JSONL `status` maps R1 status: `success`→`ok`,
 `partial`→`warn`, `failure`→`error`):
@@ -659,7 +661,9 @@ On `partial` or `failure(escalation: refine)`, first narrate the START
 (`progress-comment.sh start … --skill "build-refine" --agent "planning
 agent" --goal "re-plan the task list after a failure"`), then dispatch
 `/makato-build:build-refine <KEY> --autonomous`. Parse R1. `failure` →
-HALT-STRUCTURAL (apply `needs-human-review`, R1 `failure`). `success` →
+HALT-STRUCTURAL (apply `needs-human-review`, also call
+`shared/post-halt-comment.sh HALT-STRUCTURAL $ISSUE_NUMBER $REPO`
+(best-effort), R1 `failure`). `success` →
 narrate DONE, then **capture design decisions** (#603): if
 `r1.data.design_decisions[]` is present and non-empty, call
 `workflow-state.sh append-decision <KEY> <ISSUE_NUMBER> '<json>'` for
@@ -724,7 +728,8 @@ row). The `gh`-only polls (CI, review) are narrated with a single
    quality checks and tests"`), dispatch
    `/makato-build:build-verify <KEY> --autonomous`, then narrate DONE.
    `failure` →
-   HALT-002 (apply `needs-human-review`). `partial` → route through
+   HALT-002 (apply `needs-human-review`, also call
+   `shared/post-halt-comment.sh HALT-002 $ISSUE_NUMBER $REPO` (best-effort)). `partial` → route through
    Step 4f (`build-refine` + increment `outer_iteration`), re-enter
    Step 4.
 1a. **Spec-level verify.** After `build-verify` succeeds, dispatch
@@ -747,7 +752,8 @@ row). The `gh`-only polls (CI, review) are narrated with a single
    `build.jsonl` `step:"gate-scout"` entry has no `health_check_cmd`.
    R1 `status: "success"` with `data.skipped: true` → proceed (no-op, logged
    internally by the skill). R1 `status: "failure"` (CRITICAL findings) → HALT-011
-   equivalent via `RUNTIME_QA_BLOCKED` (apply `needs-human-review`; the
+   equivalent via `RUNTIME_QA_BLOCKED` (apply `needs-human-review`; also call
+   `shared/post-halt-comment.sh HALT-011 $ISSUE_NUMBER $REPO` (best-effort); the
    `build.jsonl` `step:"runtime-qa-findings"` entry identifies the CRITICAL
    finding so the coder can fix before re-dispatching). R1 `status: "success"`
    with findings → proceed (MAJOR/ADVISORY are advisory). Narrate DONE after R1.
@@ -762,10 +768,10 @@ row). The `gh`-only polls (CI, review) are narrated with a single
    - **Merge-conflict signals** in `r1.errors[]` (case-insensitive
      substring match on `conflict`, `cannot be rebased automatically`,
      `non-fast-forward`) → enter conflict sub-loop (below).
-   - **Deny-list failure** → HALT-005, apply `needs-human-review`.
+   - **Deny-list failure** → HALT-005, apply `needs-human-review`, also call `shared/post-halt-comment.sh HALT-005 $ISSUE_NUMBER $REPO` (best-effort).
 3. Read `github_pr_number` from R1 `data.github_pr_number`. Fallback:
    read the most recent `build-create-pr` R1 from
-   `specs/<key>-*/build.jsonl`. Both null → HALT-005. Patch
+   `specs/<key>-*/build.jsonl`. Both null → HALT-005, apply `needs-human-review`, also call `shared/post-halt-comment.sh HALT-005 $ISSUE_NUMBER $REPO` (best-effort). Patch
    `.github_pr_number` on state.
 4. **Step 6a — CI poll.** Wait 30 s, then run
    `gh pr checks <PR> --json name,state,conclusion` every 60 s for up
@@ -861,7 +867,9 @@ row). The `gh`-only polls (CI, review) are narrated with a single
      the decision branches above (a late APPROVED / CHANGES_REQUESTED on the
      same round wins over the ceiling):
      - `REVIEW_WAIT_SECS > 0` AND `elapsed >= REVIEW_WAIT_SECS` → **HALT-012**
-       (REVIEW-TIMEOUT): apply `needs-human-review`, append `halt_audit[]`
+       (REVIEW-TIMEOUT): apply `needs-human-review`, also call
+       `shared/post-halt-comment.sh HALT-012 $ISSUE_NUMBER $REPO` (best-effort),
+       append `halt_audit[]`
        (`code: "HALT-012"`, `data: {pr, review_decision, waited_secs,
        review_wait_secs}`, `retryable: true, origin: "transient"` — see `halt-conditions.md ## HALT classification table`),
        `worktree.sh retain <KEY> HALT-012`, emit
@@ -915,7 +923,8 @@ row). The `gh`-only polls (CI, review) are narrated with a single
 
 1. Read `merge_conflict_cycles`. Already
    `>= MAKATO_MAX_MERGE_CONFLICT_CYCLES` (default 3) → HALT-008
-   immediately: apply `needs-human-review`,
+   immediately: apply `needs-human-review`, also call
+   `shared/post-halt-comment.sh HALT-008 $ISSUE_NUMBER $REPO` (best-effort),
    `worktree.sh retain <KEY> HALT-008`, session-end JSONL, R1 `failure`
    with `data.halt_code: "HALT-008"`.
 2. Dispatch `/makato-orchestrate:resolve-pr-conflict <KEY> --autonomous`.
@@ -930,7 +939,8 @@ row). The `gh`-only polls (CI, review) are narrated with a single
      labelled, retained, and appended the lesson. Emit session-end
      JSONL, propagate the failure R1 with the same `data.halt_code`.
    - `failure` (other: `SAFETY_BOUNDARY`, `NETWORK_ERROR`,
-     `PUSH_REJECTED`) → HALT-005, apply `needs-human-review`, retain,
+     `PUSH_REJECTED`) → HALT-005, apply `needs-human-review`, also call
+     `shared/post-halt-comment.sh HALT-005 $ISSUE_NUMBER $REPO` (best-effort), retain,
      R1 `failure`.
 
    Emit JSONL on entry:
@@ -942,7 +952,8 @@ row). The `gh`-only polls (CI, review) are narrated with a single
 #### CI-failure fix loop (Step 6a test-failure path)
 
 1. Read `ci_failure_cycles`. Already `>= MAKATO_MAX_CI_FAILURE_CYCLES`
-   (default 3) → HALT-008 immediately: apply `needs-human-review`,
+   (default 3) → HALT-008 immediately: apply `needs-human-review`, also call
+   `shared/post-halt-comment.sh HALT-008 $ISSUE_NUMBER $REPO` (best-effort),
    append `halt_audit[]` (`code: "HALT-008"`,
    `data: {origin: "ci_failure", ci_failure_cycles}`, `retryable: false, origin: "human"` — see `halt-conditions.md ## HALT classification table`),
    `worktree.sh retain <KEY> HALT-008`, session-end JSONL, R1 `failure`
@@ -998,21 +1009,24 @@ row). The `gh`-only polls (CI, review) are narrated with a single
 
 5. R1 `success` → dispatch `build-push-to-git`, re-poll CI from
    Step 6a top (reset poll counter).
-6. R1 `failure` → HALT-STRUCTURAL,
+6. R1 `failure` → HALT-STRUCTURAL, apply `needs-human-review`, also call
+   `shared/post-halt-comment.sh HALT-STRUCTURAL $ISSUE_NUMBER $REPO` (best-effort),
    `worktree.sh retain <KEY> HALT-STRUCTURAL`, R1 `failure`.
 
 #### Human-review fix loop (Step 6b CHANGES_REQUESTED)
 
 1. `human_review_cycles += 1`.
 2. `human_review_cycles >= MAX_HUMAN_REVIEW_CYCLES` (default 3) →
-   HALT-010: apply `needs-human-review`, append halt audit with
+   HALT-010: apply `needs-human-review`, also call
+   `shared/post-halt-comment.sh HALT-010 $ISSUE_NUMBER $REPO` (best-effort),
+   append halt audit with
    `data.human_review_cycles`, `worktree.sh retain <KEY> HALT-010`,
    session-end JSONL, R1 `failure`.
 3. Collect reviewer-flagged files from
    `gh pr view <PR> --json reviews --jq '[.reviews[].comments[]?.path | select(. != null)] | unique | .[]'`.
    Append `trigger: review_comment` lesson with those files.
 4. Dispatch `/makato-build:build-address-pr-comments <KEY> --autonomous`.
-   R1 `failure` → HALT-002 (label, retain, R1 `failure`).
+   R1 `failure` → HALT-002 (label, also call `shared/post-halt-comment.sh HALT-002 $ISSUE_NUMBER $REPO` (best-effort), retain, R1 `failure`).
 5. R1 `success` → dispatch `build-push-to-git`, re-poll from Step 6b
    top.
 

@@ -93,15 +93,17 @@ exit code as the HALT signal and reads `halt_audit[-1]` to learn which code fire
 1. **HALT-000** — Re-check `~/.claude/HALT` even though the PreToolUse hook also checks it. The
    hook only fires on `Bash`; not every outer-loop iteration runs a `Bash` call. Belt and braces.
 2. **HALT-009** — Query `gh issue view <issue_number> --json labels`. If `claude-halt` is in the
-   label list, append HALT-009, apply `needs-human-review`, exit 1.
+   label list, append HALT-009, apply `needs-human-review`, also call
+   `shared/post-halt-comment.sh HALT-009 $issue_number $REPO` (best-effort), exit 1.
 3. **HALT-007 (per-task)** — Read `budget_consumed_tokens` and `budget_limit_tokens` from state.
    If consumed ≥ limit, append HALT-007 with `data.trigger: "per_task"`, apply
-   `needs-human-review`, exit 1.
+   `needs-human-review`, also call `shared/post-halt-comment.sh HALT-007 $issue_number $REPO` (best-effort), exit 1.
 4. **HALT-007 (daily)** — Read `.claude/state/daily-budget-{YYYY-MM-DD}.json` (zero-init if
    missing). If today's cumulative ≥ `MAKATO_DAILY_TOKEN_BUDGET` (when set), append HALT-007
-   with `data.trigger: "daily"`, apply `needs-human-review`, exit 1.
+   with `data.trigger: "daily"`, apply `needs-human-review`, also call
+   `shared/post-halt-comment.sh HALT-007 $issue_number $REPO` (best-effort), exit 1.
 5. **HALT-008** — Read `outer_iteration` from state. If `outer_iteration >= 3`, append HALT-008,
-   apply `needs-human-review`, exit 1. This poll enforces **only** the re-plan budget
+   apply `needs-human-review`, also call `shared/post-halt-comment.sh HALT-008 $issue_number $REPO` (best-effort), exit 1. This poll enforces **only** the re-plan budget
    (`outer_iteration`). The two other HALT-008 origins — `merge_conflict_cycles` (GAP-016 / #45)
    and `ci_failure_cycles` (#288) — are enforced by direct pre-dispatch checks in the PO-agent
    (Step 6 conflict sub-loop and Step 6a CI-failure fix loop respectively), NOT here, so their

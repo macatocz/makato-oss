@@ -173,6 +173,8 @@ makato-orchestrate/
 │   ├── workflow-state.sh                 (GAP-003 / #26 — shipped)
 │   ├── progress-comment.sh               (live issue-comment run narration)
 │   ├── progress-comment-smoke-tests.sh   (9 scenarios / 24 asserts)
+│   ├── post-halt-comment.sh              (post structured comment on needs-human-review application)
+│   ├── post-halt-comment-smoke-tests.sh  (6 scenarios T1–T6, 22 asserts)
 │   ├── worktree.sh                       (GAP-017 / #46 — shipped)
 │   └── worktree-smoke-tests.sh           (GAP-017 / #46 — shipped)
 ├── workflows/

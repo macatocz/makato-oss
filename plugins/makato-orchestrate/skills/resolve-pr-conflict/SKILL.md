@@ -342,10 +342,11 @@ Both strategies failed. The conflict requires human judgment.
    `.worktree_retain_reason = "merge_conflict"` — AC7 mandates the worktree
    survives the HALT so a human can inspect the conflict state.
 
-2. Apply `needs-human-review` label:
+2. Apply `needs-human-review` label and post a structured comment (best-effort):
 
    ```bash
    gh issue edit "$ISSUE_NUMBER" --add-label "needs-human-review" --repo "$REPO"
+   shared/post-halt-comment.sh HALT-008 "$ISSUE_NUMBER" "$REPO" || true
    ```
 
 3. Append lesson (GAP-015 / #37 schema — typed `append-lesson`

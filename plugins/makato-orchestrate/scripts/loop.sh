@@ -1207,6 +1207,27 @@ _label_board_conflict() {
 }
 
 # ---------------------------------------------------------------------------
+# _post_halt_comment <HALT_CODE> <ISSUE_NUMBER> <REPO> [--reason <text>]
+#   [--what-to-fix <text>]
+#
+# Best-effort wrapper: delegate to shared/post-halt-comment.sh.
+# A non-zero exit is swallowed and logged as a WARN — never a hard error.
+# Honour MAKATO_POST_HALT_COMMENT_DISABLE to skip all comment posting.
+# ---------------------------------------------------------------------------
+_post_halt_comment() {
+  local halt_code="${1:-}"
+  local issue="${2:-}"
+  local repo="${3:-}"
+  shift 3 2>/dev/null || true
+
+  local phc_script="$REPO_ROOT/plugins/makato-orchestrate/shared/post-halt-comment.sh"
+  [[ -x "$phc_script" ]] || return 0
+
+  bash "$phc_script" "$halt_code" "$issue" "$repo" "$@" 2>/dev/null || \
+    echo "loop: WARN — post-halt-comment failed for #${issue} (${halt_code}); proceeding (best-effort)" >&2
+}
+
+# ---------------------------------------------------------------------------
 # _label_conflict_stamp <ISSUE_NUMBER> — best-effort idempotent label stamp.
 # Applies the needs-human-review label on a label-board conflict skip (D11,
 # #356). A non-zero gh exit logs a WARN and is swallowed — never a hard error.
@@ -1220,6 +1241,7 @@ _label_conflict_stamp() {
 
   if [[ -n "${MAKATO_LOOP_LABEL_TEST_FILE:-}" ]]; then
     echo "label #${issue} needs-human-review" >>"$MAKATO_LOOP_LABEL_TEST_FILE"
+    _post_halt_comment "HALT-006" "$issue" "${MAKATO_LOOP_DISPATCH_REPO:-}" || true
     return 0
   fi
 
@@ -1234,6 +1256,7 @@ _label_conflict_stamp() {
   else
     echo "loop: WARN — label-conflict — could not stamp needs-human-review on #$issue; proceeding (best-effort, D11)" >&2
   fi
+  _post_halt_comment "HALT-006" "$issue" "${MAKATO_LOOP_DISPATCH_REPO:-}" || true
 }
 
 # ---------------------------------------------------------------------------
@@ -1670,6 +1693,7 @@ _reconcile_orphaned_in_progress() {
       fi
       if [[ -n "${MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE:-}" ]]; then
         echo "label #${n} needs-human-review" >>"$MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE"
+        _post_halt_comment "HALT-014" "$n" "${MAKATO_LOOP_DISPATCH_REPO:-}" || true
       else
         if ! gh label list "${repo_flag[@]}" 2>/dev/null | grep -q "^needs-human-review"; then
           gh label create "needs-human-review" "${repo_flag[@]}" \
@@ -1682,6 +1706,7 @@ _reconcile_orphaned_in_progress() {
         else
           echo "loop: reconcile-orphaned — applied 'needs-human-review' label to #$n" >&2
         fi
+        _post_halt_comment "HALT-014" "$n" "${MAKATO_LOOP_DISPATCH_REPO:-}" || true
       fi
     } || true
   done <<<"$candidates"
@@ -1849,6 +1874,7 @@ _reconcile_orphaned_stale() {
       fi
       if [[ -n "${MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE:-}" ]]; then
         echo "label #${issue_n} needs-human-review" >>"$MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE"
+        _post_halt_comment "HALT-014" "$issue_n" "${MAKATO_LOOP_DISPATCH_REPO:-}" || true
       else
         if ! gh issue edit "$issue_n" "${repo_flag[@]}" \
             --add-label "needs-human-review" >/dev/null 2>&1; then
@@ -1856,6 +1882,7 @@ _reconcile_orphaned_stale() {
         else
           echo "loop: reconcile-stale — applied 'needs-human-review' label to #$issue_n" >&2
         fi
+        _post_halt_comment "HALT-014" "$issue_n" "${MAKATO_LOOP_DISPATCH_REPO:-}" || true
       fi
     } || true
   done < <(find "$scan_specs_dir" -maxdepth 2 \
@@ -3099,6 +3126,7 @@ _auto_seed_reconcile_thin_body() {
   if [[ -n "${MAKATO_LOOP_LABEL_TEST_FILE:-}" ]]; then
     # Test hook: record label action to file instead of calling gh.
     echo "label #${issue} needs-human-review" >>"$MAKATO_LOOP_LABEL_TEST_FILE"
+    _post_halt_comment "HALT-006" "$issue" "${MAKATO_LOOP_DISPATCH_REPO:-}" || true
   else
     # Production path: create label if absent, then add idempotently.
     if ! gh label list "${repo_flag[@]}" 2>/dev/null | grep -q "^needs-human-review"; then
@@ -3112,6 +3140,7 @@ _auto_seed_reconcile_thin_body() {
     else
       echo "loop: WARN — auto-seed-reconcile #$issue: could not apply needs-human-review label" >&2
     fi
+    _post_halt_comment "HALT-006" "$issue" "${MAKATO_LOOP_DISPATCH_REPO:-}" || true
   fi
 
   # Exit code 2 = thin-body; caller must not dispatch.
@@ -3426,6 +3455,7 @@ _auto_seed_block_full() {
   # Apply needs-human-review label (idempotent, create if absent).
   if [[ -n "${MAKATO_LOOP_LABEL_TEST_FILE:-}" ]]; then
     echo "label #${issue} needs-human-review" >>"$MAKATO_LOOP_LABEL_TEST_FILE"
+    _post_halt_comment "HALT-006" "$issue" "${MAKATO_LOOP_DISPATCH_REPO:-}" || true
   else
     if gh label list "${repo_flag[@]}" 2>/dev/null | grep -q "^needs-human-review"; then
       : # label exists
@@ -3440,6 +3470,7 @@ _auto_seed_block_full() {
     else
       echo "loop: WARN — auto-seed-block #$issue: could not apply needs-human-review label" >&2
     fi
+    _post_halt_comment "HALT-006" "$issue" "${MAKATO_LOOP_DISPATCH_REPO:-}" || true
   fi
 
   # --- Step 3: Post sentinel-guarded launch-command comment ---
@@ -5393,6 +5424,7 @@ _apply_needs_human_review_reshape() {
 
   if [[ -n "${MAKATO_LOOP_LABEL_TEST_FILE:-}" ]]; then
     echo "label #${issue} needs-human-review" >>"$MAKATO_LOOP_LABEL_TEST_FILE"
+    _post_halt_comment "HALT-013" "$issue" "${MAKATO_LOOP_DISPATCH_REPO:-}" || true
     return 0
   fi
 
@@ -5401,6 +5433,7 @@ _apply_needs_human_review_reshape() {
       --color "E4E669" --description "Requires human review" >/dev/null 2>&1 || true
   fi
   gh issue edit "$issue" "${repo_flag[@]}" --add-label "needs-human-review" >/dev/null 2>&1 || true
+  _post_halt_comment "HALT-013" "$issue" "${MAKATO_LOOP_DISPATCH_REPO:-}" || true
 }
 
 # ---------------------------------------------------------------------------

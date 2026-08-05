@@ -550,7 +550,14 @@ and any hollow plan return `invalid`.
    prior step, move it back to `Todo` via `gh project item-edit`. A thin-body
    item is NOT ready for autonomous dispatch.
 
-5. Print a clear, actionable message and exit **0** (fallback is a valid,
+5. Call `shared/post-halt-comment.sh HALT-006 "$ISSUE_NUMBER" "$REPO"` (best-effort)
+   to notify the operator that this issue will HALT-006 until the body is shaped:
+
+   ```bash
+   shared/post-halt-comment.sh HALT-006 "$ISSUE_NUMBER" "$REPO" || true
+   ```
+
+   Then print a clear, actionable message and exit **0** (fallback is a valid,
    documented outcome — not a HALT):
 
    ```
