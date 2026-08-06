@@ -29,3 +29,8 @@ specs/
 # lines, duplicate "✨ Features" headings per release section) is dictated
 # by the release-please template, not by author choice.
 CHANGELOG.md
+
+# Suite feature audit report is a long-form generated document with deliberately
+# long prose lines (audit findings, tool invocations, fix instructions). Line-length
+# and inline-HTML rules do not apply here.
+docs/makato-feature-audit.md

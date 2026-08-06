@@ -50,6 +50,12 @@
 #   T68–T71: thin-body reconciliation (#371, epic #367 S3) — thin-body via jsonl,
 #        thin-body via label backstop, exclusion-set membership guard,
 #        successful light seed is no-op
+#   T-SEED-PARITY-1: slug truncation word-boundary parity — KNOWN-FAIL: loop.sh uses
+#        naive cut -c1-40 without word-boundary backoff; seed-issue Step 4 specifies
+#        backoff to last '-'. Documents the gap; fix tracked as follow-on issue. (#725)
+#   T-SEED-PARITY-2: footer injection is primary-path stable — provenance footer
+#        seed-issue stamps matched by primary sed pattern, NOT fallback-2.
+#        Guards KEY=-slug- false-match regression (#571). (#725)
 #
 # A fixture file is injected via MAKATO_LOOP_GH_OVERRIDE so `gh` is not
 # invoked. Test isolation uses MAKATO_LOOP_STATE_DIR + ephemeral spec
@@ -6965,5 +6971,136 @@ echo "$T_RC3_WARN" | grep -q "WARN" \
 rm -rf "$T_RC3_TMP"
 echo "  ✓ no config: WARN logged, returns 0 (best-effort, never blocks)"
 
+# ---------------------------------------------------------------------------
+# T-SEED-PARITY-1: slug truncation word-boundary parity (#725)
+#
+# Audit finding: loop.sh third-fallback uses `cut -c1-40 | sed -E 's/-+$//'`
+# (naive truncation) while seed-issue SKILL.md Step 4 specifies backing off to
+# the last '-' boundary within 40 chars when the cutoff lands mid-word.
+# This is a KNOWN-FAIL: the gap exists as of PR #573 / issue #571. The test
+# documents the exact divergence so a future fix has a regression guard.
+# When loop.sh is fixed to implement word-boundary backoff this test must be
+# updated to assert PARITY: SAME and the KNOWN-FAIL marker removed.
+# ---------------------------------------------------------------------------
+echo "=== T-SEED-PARITY-1: slug truncation word-boundary parity (KNOWN-FAIL: loop.sh gap, #725) ==="
+T_SP1_TMP="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-sp1"
+mkdir -p "$T_SP1_TMP"
+T_SP1_BODY="$T_SP1_TMP/body.txt"
+
+# Title that normalizes to 64 chars; naive cut -c1-40 produces
+# "update-the-automated-verification-pipeli" (mid-word at pos 40),
+# while seed-issue SKILL.md Step 4 word-boundary backoff produces
+# "update-the-automated-verification" (backs off to last '-' at pos 33).
+cat >"$T_SP1_BODY" <<'BODY'
+## Summary
+
+A hand-filed issue with no to-issues provenance.
+Forces loop.sh to use third-fallback title normalization.
+BODY
+
+T_SP1_TITLE="update the automated verification pipeline for deployment checks"
+
+rm -f "$STATE_DIR/loop-status.json"
+T_SP1_OUT="$(
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T_SP1_BODY" \
+  MAKATO_LOOP_ISSUE_TITLE_OVERRIDE="$T_SP1_TITLE" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  MAKATO_LOOP_STATE_DIR="$T_SP1_TMP/state" \
+    "$LOOP" dispatch 9997 --dry-run 2>&1 >/dev/null
+)" || true
+
+# Derive what loop.sh actually produces (naive cut):
+T_SP1_FULL_NORM="$(printf '%s' "$T_SP1_TITLE" \
+  | tr '[:upper:]' '[:lower:]' \
+  | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')"
+T_SP1_LOOP_SLUG="$(printf '%s' "$T_SP1_FULL_NORM" | cut -c1-40 | sed -E 's/-+$//')"
+T_SP1_LOOP_KEY="9997-${T_SP1_LOOP_SLUG}"
+
+# Derive what seed-issue SKILL.md Step 4 specifies (word-boundary backoff):
+if [[ "${#T_SP1_FULL_NORM}" -le 40 ]]; then
+  T_SP1_SEED_NORM="$T_SP1_FULL_NORM"
+else
+  T_SP1_CUT40="$(printf '%s' "$T_SP1_FULL_NORM" | cut -c1-40)"
+  if [[ "${T_SP1_CUT40: -1}" == '-' ]]; then
+    T_SP1_SEED_NORM="$(printf '%s' "$T_SP1_CUT40" | sed -E 's/-+$//')"
+  else
+    T_SP1_SEED_NORM="$(printf '%s' "$T_SP1_CUT40" | sed -E 's/-[^-]*$//')"
+  fi
+fi
+T_SP1_SEED_KEY="9997-${T_SP1_SEED_NORM}"
+
+# Confirm loop.sh actually produced the naive-cut key (not the backoff key):
+grep -q "KEY=${T_SP1_LOOP_KEY}" <<<"$T_SP1_OUT" \
+  || fail "T-SEED-PARITY-1: expected loop.sh to produce KEY=${T_SP1_LOOP_KEY} (naive cut); got: $T_SP1_OUT"
+
+# KNOWN-FAIL: assert the two pipelines diverge so this test fails when the gap is fixed.
+# If loop.sh is fixed (backoff implemented), the two keys will be equal and this assertion
+# will fire — at that point remove this block and instead assert PARITY: SAME.
+[[ "$T_SP1_LOOP_KEY" != "$T_SP1_SEED_KEY" ]] \
+  || fail "T-SEED-PARITY-1: KNOWN-FAIL guard triggered — loop.sh and seed-issue now agree on '${T_SP1_LOOP_KEY}'; remove the KNOWN-FAIL marker and assert parity directly"
+
+echo "  NOTE: T-SEED-PARITY-1 KNOWN-FAIL: loop.sh produces KEY=${T_SP1_LOOP_KEY} (naive cut);"
+echo "        seed-issue spec produces KEY=${T_SP1_SEED_KEY} (word-boundary backoff)."
+echo "        Gap: char 34-40 '$(printf '%s' "$T_SP1_LOOP_KEY" | cut -c38-45)' vs end of '${T_SP1_SEED_KEY}'."
+echo "        Fix: implement word-boundary backoff in _derive_key_for_issue third-fallback."
+echo "  ✓ T-SEED-PARITY-1 regression guard committed (KNOWN-FAIL — gap documented, fix is out of scope for #725)"
+
+rm -rf "$T_SP1_TMP"
+
+# ---------------------------------------------------------------------------
+# T-SEED-PARITY-2: footer injection is primary-path stable (#725, #571 guard)
+#
+# Verifies that the provenance footer seed-issue Step 5 stamps —
+#   *Feature slug: `<slug>` — produced by to-issues v3.x.*
+# — is matched by the PRIMARY sed pattern in _derive_key_for_issue and does
+# NOT fall through to the fallback-2 `specs/<slug>/stories.json` pattern.
+# Guards against the KEY=-slug- false-match regression (#571) where fallback-2
+# fired on a doc-example `specs/<slug>/stories.json` line in the body.
+# ---------------------------------------------------------------------------
+echo "=== T-SEED-PARITY-2: footer injection is primary-path stable (#725, #571 guard) ==="
+T_SP2_TMP="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-sp2"
+mkdir -p "$T_SP2_TMP"
+T_SP2_BODY="$T_SP2_TMP/body.txt"
+
+# Body that contains BOTH a doc-example specs/<slug>/stories.json line (would
+# trigger fallback-2 false-match) AND the correct provenance footer.
+# The primary pattern must win; fallback-2 must NOT fire.
+cat >"$T_SP2_BODY" <<'BODY'
+## Summary
+
+Re-verify seed-issue KEY derivation parity with loop.sh.
+
+## Docs example
+
+See also `specs/<slug>/stories.json` for the story structure.
+
+---
+
+*Feature slug: `725-re-verify-seed-issue-key-parity` — produced by to-issues v3.x (seeded by seed-issue v1.3.0).*
+BODY
+
+T_SP2_EXPECTED_KEY="725-re-verify-seed-issue-key-parity"
+
+rm -f "$STATE_DIR/loop-status.json"
+T_SP2_OUT="$(
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T_SP2_BODY" \
+  MAKATO_LOOP_ISSUE_TITLE_OVERRIDE="This Title Must Be Ignored When Footer Present" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  MAKATO_LOOP_STATE_DIR="$T_SP2_TMP/state" \
+    "$LOOP" dispatch 9998 --dry-run 2>&1 >/dev/null
+)" || fail "T-SEED-PARITY-2: dispatch --dry-run should exit 0; got: $T_SP2_OUT"
+
+grep -q "KEY=${T_SP2_EXPECTED_KEY}" <<<"$T_SP2_OUT" \
+  || fail "T-SEED-PARITY-2: expected KEY=${T_SP2_EXPECTED_KEY} from footer primary path; got: $T_SP2_OUT"
+
+# Confirm the title-based fallback was NOT used (would produce a different key):
+grep -q "KEY=9998-" <<<"$T_SP2_OUT" \
+  && fail "T-SEED-PARITY-2: fallback-3 title derivation must NOT fire when footer is present; got: $T_SP2_OUT" \
+  || true
+
+echo "  ✓ T-SEED-PARITY-2: footer primary path wins; KEY=${T_SP2_EXPECTED_KEY}; fallback-2 false-match does not fire"
+
+rm -rf "$T_SP2_TMP"
+
 echo
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T-RG-1–T-RG-4 GraphQL rate-limit guard, #556; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T-RESUME-1 complete result no-op, T-RESUME-2 incomplete triggers attempt, T-RESUME-3 errored triggers attempt, T-RESUME-4 budget-exhausted HALT-014, T-RESUME-5 STALL_DISABLE skip detect+resume, #531; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470; T84–T89 orphaned-specs pruning; T90 promote-before-prune; T-GQL1–T-GQL5 GraphQL board poll + item-list rollback, #516; T-IDLE1–T-IDLE2 adaptive idle backoff, #516; T91 plan-tier:change routing, #539; T-wave-order, T-promote-on, T-promote-off, T-fifo-fallback wave-ordered dispatch + promote-unblocked, #548; T-PREDISPATCH-127 exit-127 log demotion, T-REAP-NUMBERLESS numberless-folder reap-specs demotion, #558; T-loop-prune-1–T-loop-prune-3 workflow-state prune wiring, #597; T-VCR-1–T-VCR-5 _compute_vcr helper, #585; T-TOOLDEP-1–T-TOOLDEP-4 tool-dependency pre-flight, #587 #656; T-RECON-LABELGATE-1–T-RECON-LABELGATE-2 reconcile label gate; T-RECON-ARGSHAPE-1–T-RECON-ARGSHAPE-2 reconcile item-edit argv shape, #697; T-RG-5 poll_skipped_rate_budget reset, T-CB-1–T-CB-2 circuit-breaker poll_skip_count, T-STALE-RG-1 reconcile-stale rate-guard, #683; T-RC-1–T-RC-3 api_error board-reset recovery, #687) ==="
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T-RG-1–T-RG-4 GraphQL rate-limit guard, #556; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T-RESUME-1 complete result no-op, T-RESUME-2 incomplete triggers attempt, T-RESUME-3 errored triggers attempt, T-RESUME-4 budget-exhausted HALT-014, T-RESUME-5 STALL_DISABLE skip detect+resume, #531; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470; T84–T89 orphaned-specs pruning; T90 promote-before-prune; T-GQL1–T-GQL5 GraphQL board poll + item-list rollback, #516; T-IDLE1–T-IDLE2 adaptive idle backoff, #516; T91 plan-tier:change routing, #539; T-wave-order, T-promote-on, T-promote-off, T-fifo-fallback wave-ordered dispatch + promote-unblocked, #548; T-PREDISPATCH-127 exit-127 log demotion, T-REAP-NUMBERLESS numberless-folder reap-specs demotion, #558; T-loop-prune-1–T-loop-prune-3 workflow-state prune wiring, #597; T-VCR-1–T-VCR-5 _compute_vcr helper, #585; T-TOOLDEP-1–T-TOOLDEP-4 tool-dependency pre-flight, #587 #656; T-RECON-LABELGATE-1–T-RECON-LABELGATE-2 reconcile label gate; T-RECON-ARGSHAPE-1–T-RECON-ARGSHAPE-2 reconcile item-edit argv shape, #697; T-RG-5 poll_skipped_rate_budget reset, T-CB-1–T-CB-2 circuit-breaker poll_skip_count, T-STALE-RG-1 reconcile-stale rate-guard, #683; T-RC-1–T-RC-3 api_error board-reset recovery, #687; T-SEED-PARITY-1 KNOWN-FAIL slug-truncation parity gap, T-SEED-PARITY-2 footer primary-path stable, #725) ==="
