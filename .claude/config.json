@@ -128,6 +128,7 @@
     "reconcile_scope": "this-repo-only",
     "pr_label_name": "PR",
     "ready_queue_mode": "manual",
-    "ready_label_name": ""
+    "ready_label_name": "",
+    "id": "PVT_kwDOEZFnDM4Bbvsp"
   }
 }
