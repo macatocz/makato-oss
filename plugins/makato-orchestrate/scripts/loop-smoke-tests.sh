@@ -3544,6 +3544,54 @@ SPECS_DIR="$TS4_SPECS" \
 rm -rf "$TS4_SPECS" "$TS4_RECON"
 echo "  ✓ MAKATO_ORPHAN_DETECT_DISABLE=1 → pass skipped"
 
+echo "=== T-STALE-CLOSED: #616 follow-up — dead+stale orphan whose issue is CLOSED → skip (terminal, not orphan) ==="
+TS5_SPECS="$STATE_DIR/stale5-specs-$$"
+TS5_RECON="$STATE_DIR/stale5-recon-$$.txt"
+TS5_LABEL="$STATE_DIR/stale5-label-$$.txt"
+TS5_STATE="$STATE_DIR/stale5-state-$$.json"
+mkdir -p "$TS5_SPECS"
+_seed_stale "$TS5_SPECS" 45005 7200 dead    # would reconcile (2h old, dead owner)…
+printf '{"45005":"CLOSED"}\n' >"$TS5_STATE"  # …but the issue is CLOSED
+ts5_rc=0
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_ORPHAN_STALE_SECS=3600 \
+MAKATO_LOOP_RECONCILE_SPECS_DIR="$TS5_SPECS" \
+MAKATO_LOOP_RECONCILE_TEST_FILE="$TS5_RECON" \
+MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE="$TS5_LABEL" \
+MAKATO_LOOP_RECONCILE_ISSUE_STATE_OVERRIDE="$TS5_STATE" \
+SPECS_DIR="$TS5_SPECS" \
+  "$LOOP" _test-reconcile-stale >/dev/null 2>&1 || ts5_rc=$?
+[[ $ts5_rc -eq 0 ]] || fail "T-STALE-CLOSED: expected rc 0; got $ts5_rc"
+[[ ! -f "$TS5_RECON" || ! -s "$TS5_RECON" ]] \
+  || fail "T-STALE-CLOSED: CLOSED issue must NOT be reconciled; got: $(cat "$TS5_RECON" 2>/dev/null)"
+[[ ! -f "$TS5_LABEL" || ! -s "$TS5_LABEL" ]] \
+  || fail "T-STALE-CLOSED: CLOSED issue must NOT be labelled; got: $(cat "$TS5_LABEL" 2>/dev/null)"
+rm -rf "$TS5_SPECS" "$TS5_RECON" "$TS5_LABEL" "$TS5_STATE"
+echo "  ✓ dead+stale but CLOSED → skipped (no re-Block, no label)"
+
+echo "=== T-STALE-CLOSED-OPEN: #616 follow-up — same but issue OPEN → still reconciles (guard only ADDS a skip) ==="
+TS6_SPECS="$STATE_DIR/stale6-specs-$$"
+TS6_RECON="$STATE_DIR/stale6-recon-$$.txt"
+TS6_LABEL="$STATE_DIR/stale6-label-$$.txt"
+TS6_STATE="$STATE_DIR/stale6-state-$$.json"
+mkdir -p "$TS6_SPECS"
+_seed_stale "$TS6_SPECS" 45006 7200 dead
+printf '{"45006":"OPEN"}\n' >"$TS6_STATE"
+ts6_rc=0
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_ORPHAN_STALE_SECS=3600 \
+MAKATO_LOOP_RECONCILE_SPECS_DIR="$TS6_SPECS" \
+MAKATO_LOOP_RECONCILE_TEST_FILE="$TS6_RECON" \
+MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE="$TS6_LABEL" \
+MAKATO_LOOP_RECONCILE_ISSUE_STATE_OVERRIDE="$TS6_STATE" \
+SPECS_DIR="$TS6_SPECS" \
+  "$LOOP" _test-reconcile-stale >/dev/null 2>&1 || ts6_rc=$?
+[[ $ts6_rc -eq 0 ]] || fail "T-STALE-CLOSED-OPEN: expected rc 0; got $ts6_rc"
+grep -q "reconcile #45006" "$TS6_RECON" 2>/dev/null \
+  || fail "T-STALE-CLOSED-OPEN: OPEN orphan must still reconcile; got: $(cat "$TS6_RECON" 2>/dev/null)"
+rm -rf "$TS6_SPECS" "$TS6_RECON" "$TS6_LABEL" "$TS6_STATE"
+echo "  ✓ dead+stale and OPEN → still reconciled (guard never masks a real orphan)"
+
 echo
 echo "=== #616 orphan-stale detection (T-STALE-1..4) complete ==="
 

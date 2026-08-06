@@ -1603,6 +1603,53 @@ _check_pending_handoffs() {
 # Best-effort: any per-candidate gh failure logs a WARN and the pass
 # returns 0; it never blocks the tick.
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# _reconcile_issue_closed — terminal-state guard shared by both reconcile
+# passes (#616 follow-up).
+#
+# A reconcile pass fires on a workflow-state whose `current_phase != "done"`.
+# But a PO-agent dispatch that merged its PR and closed the issue WITHOUT
+# writing `current_phase: "done"` (e.g. killed by a Stream idle timeout right
+# after the merge) leaves exactly that: a non-done state whose issue is
+# already CLOSED. Without this guard the stale/in-progress reconcilers keep
+# flipping such a card back to Blocked + needs-human-review on every tick —
+# an issue that is Done and closed gets perpetually re-blocked. `reap-specs`
+# already treats CLOSED as a terminal (prune) signal; this mirrors that so the
+# reconcilers agree: a closed issue is finished work, never a dead orphan.
+#
+# Returns 0 (is closed → caller must skip) when the issue is CLOSED; returns 1
+# (open or unknown) otherwise. On an unknown/unreachable state it returns 1
+# (do NOT skip) — the staleness + dead-owner gates still apply, so a genuinely
+# orphaned open issue is still recovered; we only ever ADD a skip, never mask a
+# real orphan.
+#
+# Offline test hook: MAKATO_LOOP_RECONCILE_ISSUE_STATE_OVERRIDE points at a
+# JSON object mapping "<issue>" → "OPEN"|"CLOSED" (same shape convention as
+# MAKATO_LOOP_REAP_SPECS_GH_OVERRIDE), consulted instead of a live gh call.
+#   $1 issue number   $2 repo (may be empty → derive)
+# ---------------------------------------------------------------------------
+_reconcile_issue_closed() {
+  local issue="$1" repo="${2:-}"
+  [[ -n "$issue" ]] || return 1
+
+  local state=""
+  if [[ -n "${MAKATO_LOOP_RECONCILE_ISSUE_STATE_OVERRIDE:-}" ]]; then
+    state="$(jq -r --arg n "$issue" '.[$n] // empty' \
+      "$MAKATO_LOOP_RECONCILE_ISSUE_STATE_OVERRIDE" 2>/dev/null \
+      | tr '[:lower:]' '[:upper:]' || true)"
+  else
+    [[ -n "$repo" ]] || repo="$(_derive_reap_repo 2>/dev/null || true)"
+    local -a repo_flag=()
+    [[ -n "$repo" ]] && repo_flag=(--repo "$repo")
+    state="$(gh issue view "$issue" "${repo_flag[@]}" --json state --jq '.state' 2>/dev/null \
+      | tr '[:lower:]' '[:upper:]' || true)"
+  fi
+
+  [[ "$state" == "CLOSED" ]] && return 0
+  return 1
+}
+
 _reconcile_orphaned_in_progress() {
   [[ "$RECONCILE_ON_POLL" != "0" ]] || return 0
   [[ -n "${MAKATO_LOOP_TEST_HOOK:-}" ]] || {
@@ -1685,6 +1732,13 @@ _reconcile_orphaned_in_progress() {
     # Skip if a live (non-done) workflow-state exists for this issue.
     if echo "$in_flight" | grep -qx "$n"; then
       echo "loop: reconcile-orphaned — #$n has live workflow-state, skipping" >&2
+      continue
+    fi
+
+    # Terminal-state guard (#616 follow-up): a CLOSED issue is finished work,
+    # never a dead orphan. Skip so a Done+closed card is not re-Blocked forever.
+    if _reconcile_issue_closed "$n" "${MAKATO_LOOP_DISPATCH_REPO:-}"; then
+      echo "loop: reconcile-orphaned — #$n is CLOSED, skipping (terminal state, not an orphan)" >&2
       continue
     fi
 
@@ -1852,6 +1906,15 @@ _reconcile_orphaned_stale() {
     # means no live po-agent for this run).
     if [[ -n "$wt" && "$wt" != "null" ]] && _reap_owner_pid_alive "$wt"; then
       echo "loop: reconcile-stale — #$issue_n owner pid alive, skipping" >&2
+      continue
+    fi
+
+    # Terminal-state guard (#616 follow-up): a CLOSED issue is finished work,
+    # never a dead orphan. A dispatch that merged its PR and closed the issue
+    # without writing current_phase=done leaves a non-done state whose issue is
+    # already CLOSED; without this the pass re-Blocks a Done card every tick.
+    if _reconcile_issue_closed "$issue_n" "$_rs_repo"; then
+      echo "loop: reconcile-stale — #$issue_n is CLOSED, skipping (terminal state, not an orphan)" >&2
       continue
     fi
 
