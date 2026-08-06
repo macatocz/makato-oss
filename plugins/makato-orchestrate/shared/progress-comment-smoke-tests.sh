@@ -123,6 +123,22 @@ RC=$?
 set -e
 check "unknown subcommand → exit 2" test "$RC" -eq 2
 
+echo "=== T10: worktree-created note appears with clock ==="
+# Reset to a known live comment, then fire the worktree-created setup note.
+"$WS" patch "$KEY" "$ISSUE" .progress_comment_id null >/dev/null
+"$PC" start "$KEY" "$ISSUE" "$REPO" --skill build-verify --goal "prime comment" >/dev/null
+"$PC" note "$KEY" "$ISSUE" "$REPO" --text "Worktree ready (branch: feat/test-branch)" >/dev/null
+WT_ID="$(state_id)"
+WT_BODY="$(stub_body "$WT_ID")"
+check "T10: worktree-ready text present"       grep -q "Worktree ready (branch: feat/test-branch)" <<<"$WT_BODY"
+check "T10: note line starts with HH:MM:SS"   grep -qE '^- [0-9]{2}:[0-9]{2}:[0-9]{2} \| Worktree ready' <<<"$WT_BODY"
+
+echo "=== T11: plan-validated note appears with clock ==="
+"$PC" note "$KEY" "$ISSUE" "$REPO" --text "Plan validated — proceeding to build-refine" >/dev/null
+PV_BODY="$(stub_body "$(state_id)")"
+check "T11: plan-validated text present"       grep -q "Plan validated — proceeding to build-refine" <<<"$PV_BODY"
+check "T11: note line starts with HH:MM:SS"   grep -qE '^- [0-9]{2}:[0-9]{2}:[0-9]{2} \| Plan validated' <<<"$PV_BODY"
+
 echo ""
 echo "progress-comment smoke: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

@@ -232,6 +232,15 @@ An **untracked** `stories.json` never yields `materialize-refine` — it cannot
 survive a fresh clone, so the gate warns to stderr and degrades to the
 tier-based fallback (`materialize` for `plan-tier:light`, else `halt`).
 
+**On `GATE_VERDICT == proceed`** (plan is already valid), narrate into the live issue comment
+before continuing to Step 2 (best-effort):
+
+```bash
+shared/progress-comment.sh note "$KEY" "$ISSUE_NUMBER" "$REPO" \
+  --text "Plan validated — proceeding to build-refine" 2>/dev/null || \
+  echo "[po-agent WARN] progress-comment failed; continuing"
+```
+
 **Why `plan-tier:light` gates only the light-planner fallback (issue #200
 point 1 reconciled to the shipped taxonomy):** there is no `type:fix` /
 `type:bug` label — `seed-issue` maps bug/fix issues to `type:change` (routed to
@@ -255,7 +264,15 @@ engine), do NOT retry — fall through to the `halt` path. No unbounded loop.
    Do NOT create a stub: on this path the plan is authored entirely by
    `build-refine` from the committed `stories.json`; a hollow seed stub would
    only mask a build-refine failure at the re-validate step.
-3. **Dispatch `build-refine --autonomous <KEY>`** via the Task tool as a
+3. **Narrate the materialize attempt** into the live issue comment (best-effort, must not gate the dispatch):
+
+   ```bash
+   shared/progress-comment.sh note "$KEY" "$ISSUE_NUMBER" "$REPO" \
+     --text "No plan found — materialising via build-refine (HALT-006 path)" 2>/dev/null || \
+     echo "[po-agent WARN] progress-comment failed; continuing"
+   ```
+
+   Then **dispatch `build-refine --autonomous <KEY>`** via the Task tool as a
    `/makato-build:build-refine` invocation. The PO-agent's exported `$AGENT_ID`
    activates autonomous mode across the subprocess boundary (§ *Cross-skill
    propagation* in `plugins/makato-build/AUTONOMOUS-MODE.md`) — Step 1
@@ -309,7 +326,15 @@ engine), do NOT retry — fall through to the `halt` path. No unbounded loop.
    safe fallback if the agent produces nothing. Writes target `specs/` in
    the MAIN checkout (gitignored) — within the PO-agent's orchestration
    allow-list, not a target-source edit.
-3. **Dispatch the `light-planner` agent** (this plugin,
+3. **Narrate the materialize attempt** into the live issue comment (best-effort, must not gate the dispatch):
+
+   ```bash
+   shared/progress-comment.sh note "$KEY" "$ISSUE_NUMBER" "$REPO" \
+     --text "No plan found — materialising via light-planner (HALT-006 path)" 2>/dev/null || \
+     echo "[po-agent WARN] progress-comment failed; continuing"
+   ```
+
+   Then **dispatch the `light-planner` agent** (this plugin,
    `agents/light-planner.md`) via the Task tool with the bundle it
    documents:
 
@@ -421,6 +446,21 @@ Emit one JSONL entry:
 {"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"worktree","status":"ok","data":{"event":"<worktree_created|worktree_resumed>","path":"<abs>","new_branch":<bool>}}
 ```
 
+After the worktree helper returns, narrate the event into the live issue comment
+(best-effort — non-zero exit from `progress-comment.sh` logs a WARN and the run continues):
+
+```bash
+if [[ "$WORKTREE_EVENT" == "worktree_created" ]]; then
+  shared/progress-comment.sh note "$KEY" "$ISSUE_NUMBER" "$REPO" \
+    --text "Worktree ready (branch: $BRANCH)" 2>/dev/null || \
+    echo "[po-agent WARN] progress-comment failed; continuing"
+else
+  shared/progress-comment.sh note "$KEY" "$ISSUE_NUMBER" "$REPO" \
+    --text "Resumed existing worktree (branch: $BRANCH)" 2>/dev/null || \
+    echo "[po-agent WARN] progress-comment failed; continuing"
+fi
+```
+
 Skip Step 2b ONLY when Step 2's success early-return fired (both `done`
 AND PR number present). See § *Worktree lifecycle*.
 
@@ -463,6 +503,20 @@ Emit:
 
 ```json
 {"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"recall-lessons","status":"ok","data":{"repo":"<REPO>","count":<N>,"bundles":"<BUNDLES_CSV-or-empty>"}}
+```
+
+After emitting the JSONL, narrate the recall into the live issue comment (best-effort):
+
+```bash
+if [[ -n "$BUNDLES_CSV" ]]; then
+  shared/progress-comment.sh note "$KEY" "$ISSUE_NUMBER" "$REPO" \
+    --text "Recalling prior lessons for tech: $BUNDLES_CSV" 2>/dev/null || \
+    echo "[po-agent WARN] progress-comment failed; continuing"
+else
+  shared/progress-comment.sh note "$KEY" "$ISSUE_NUMBER" "$REPO" \
+    --text "Recalling prior lessons (no tech-label filter)" 2>/dev/null || \
+    echo "[po-agent WARN] progress-comment failed; continuing"
+fi
 ```
 
 ### Step 3 — Build the sub-task list (fresh run only)
@@ -1343,6 +1397,22 @@ state), and rolls over to a fresh comment near GitHub's 65 536-char limit.
 For CI-failure and human-review fix loops, reuse the row for the
 re-dispatched skill; add a `note` describing why the loop was entered
 (e.g. "CI tests failed — the agent will try to fix the problem.").
+
+**Setup-phase notes** (fired via `progress-comment.sh note` before any skill dispatch):
+
+These notes fire during the session setup window (Steps 1a, 2b, 2c) so an operator watching
+the issue thread can distinguish a healthy startup from a hang. All calls are best-effort and
+must never gate or delay the action they narrate.
+
+| Step | Trigger | Note text template |
+|------|---------|-------------------|
+| Step 1a — `proceed` verdict | Plan already valid | `"Plan validated — proceeding to build-refine"` |
+| Step 1a — `materialize-refine` | Missing/stub plan + tracked `stories.json` | `"No plan found — materialising via build-refine (HALT-006 path)"` |
+| Step 1a — `materialize` | Missing/stub plan + `plan-tier:light` | `"No plan found — materialising via light-planner (HALT-006 path)"` |
+| Step 2b — `worktree_created` | Fresh `git worktree add` succeeded | `"Worktree ready (branch: <BRANCH>)"` |
+| Step 2b — `worktree_resumed` | Existing worktree detected and reused | `"Resumed existing worktree (branch: <BRANCH>)"` |
+| Step 2c — lesson recall | After `recall-lessons` call, bundles non-empty | `"Recalling prior lessons for tech: <BUNDLES_CSV>"` |
+| Step 2c — lesson recall | After `recall-lessons` call, no tech labels | `"Recalling prior lessons (no tech-label filter)"` |
 
 ## Worktree lifecycle
 
