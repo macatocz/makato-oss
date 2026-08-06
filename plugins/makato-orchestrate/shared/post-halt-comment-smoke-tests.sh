@@ -20,6 +20,18 @@ cleanup 2>/dev/null || true
 pass=0
 fail=0
 
+# check_absent <label> <pattern> — passes when CAPTURED does NOT contain
+# pattern. Uses a fixed-string grep on the captured var directly, so backticks
+# in the comment body are never re-evaluated by a nested `bash -c`.
+check_absent() {
+  local label="$1" pat="$2"
+  if grep -qF -- "$pat" <<<"$CAPTURED"; then
+    fail=$((fail + 1)); printf '  FAIL %s\n' "$label"
+  else
+    pass=$((pass + 1)); printf '  PASS %s\n' "$label"
+  fi
+}
+
 # check <label> <condition-cmd...>  — passes when the command exits 0.
 check() {
   local label="$1"; shift
@@ -109,8 +121,27 @@ run_phc HALT-007 "$ISSUE" "$REPO" \
 check "override reason present verbatim"  grep -q "custom reason text for T6"       <<<"$CAPTURED"
 check "override what-to-fix present verbatim" grep -q "custom fix instructions for T6" <<<"$CAPTURED"
 check "HALT-007 code still present"       grep -q "HALT-007"                        <<<"$CAPTURED"
-check "override does not contain built-in reason" \
-  bash -c '! grep -q "Token budget exhausted" <<<"'"$CAPTURED"'"'
+check_absent "override does not contain built-in reason" "Token budget exhausted"
+
+# ---------------------------------------------------------------------------
+# T7: HALT-006 (missing/malformed spec folder) → Next step DOES recommend
+#     seed-issue, because the spec folder genuinely needs (re)creating.
+# ---------------------------------------------------------------------------
+echo "=== T7: HALT-006 Next step recommends seed-issue ==="
+run_phc HALT-006 "$ISSUE" "$REPO"
+check "HALT-006 Next step contains seed-issue" \
+  grep -q "seed-issue ${ISSUE}" <<<"$CAPTURED"
+
+# ---------------------------------------------------------------------------
+# T8: HALT-012 (and every non-HALT-006 code) → Next step must NOT recommend
+#     seed-issue (spec folder already exists; re-seeding forks a duplicate
+#     stub plan.md) and must steer to the board / loop instead.
+# ---------------------------------------------------------------------------
+echo "=== T8: HALT-012 Next step avoids seed-issue, steers to board/loop ==="
+run_phc HALT-012 "$ISSUE" "$REPO"
+check_absent "HALT-012 Next step does NOT run seed-issue" "Run \`seed-issue"
+check "HALT-012 Next step mentions Status=Ready" \
+  grep -q "Status=Ready" <<<"$CAPTURED"
 
 echo ""
 echo "post-halt-comment smoke: $pass passed, $fail failed"

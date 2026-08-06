@@ -140,11 +140,25 @@ fi
 # ---------------------------------------------------------------------------
 # Build comment body
 # ---------------------------------------------------------------------------
+# `seed-issue` (re)creates the specs/<n>-<slug>/ folder and moves the board
+# card to Ready. It is ONLY the correct resume verb when that folder is
+# missing/malformed (HALT-006) or when the issue was never seeded. By the time
+# any *other* HALT fires, the loop has already seeded the issue and usually
+# opened a PR — a second seed-issue run forks a duplicate stub plan.md (shared
+# specs/ folder collision). For those, the resume verb lives in WHAT_TO_FIX
+# above (typically `re-invoke loop --autonomous <issue>`); the board hint alone
+# is the safe, non-duplicating "Next step".
+if [[ "$HALT_CODE" == "HALT-006" ]]; then
+  NEXT_STEP="Run \`seed-issue ${ISSUE}\` (or move the board card to Status=Ready) once the fix is applied."
+else
+  NEXT_STEP="Once the fix above is applied, move the board card to Status=Ready (or re-invoke \`loop --autonomous ${ISSUE}\`). Do NOT run \`seed-issue\` — the spec folder already exists and re-seeding forks a duplicate stub plan.md."
+fi
+
 COMMENT_BODY="## Needs human review
 
 **Reason:** ${HALT_CODE} — ${REASON}
 **What to fix:** ${WHAT_TO_FIX}
-**Next step:** Run \`seed-issue ${ISSUE}\` (or move the board card to Status=Ready) once the fix is applied."
+**Next step:** ${NEXT_STEP}"
 
 # ---------------------------------------------------------------------------
 # Emit: test hook or real gh call

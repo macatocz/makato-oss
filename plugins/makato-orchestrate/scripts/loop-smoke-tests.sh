@@ -4652,6 +4652,38 @@ rm -rf "$T_ST2_SPECS"
 echo "  ✓ stall_cause=no_progress → status:escalate with halt_code:HALT-014 emitted, rc=1"
 
 # ---------------------------------------------------------------------------
+# T-STALL-2b: _stall_restart with stall_cause=no_progress
+#   → _post_halt_comment is called with HALT-014 (comment body written via
+#     MAKATO_POST_HALT_COMMENT_TEST_FILE test hook). (#699)
+# ---------------------------------------------------------------------------
+echo "=== T-STALL-2b: _stall_restart no_progress → _post_halt_comment writes HALT-014 comment ==="
+rm -f "$STATE_DIR/loop-status.json"
+T_ST2B_SPECS="$REPO_ROOT/specs/gap-007-loop-smoke-st2b-$$"
+T_ST2B_SPEC_DIR="$T_ST2B_SPECS/st2b-slug"
+T_ST2B_ORCH="$T_ST2B_SPEC_DIR/orchestrate.jsonl"
+T_ST2B_COMMENT="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-st2b-comment.txt"
+mkdir -p "$T_ST2B_SPEC_DIR"
+touch "$T_ST2B_ORCH"
+: >"$T_ST2B_COMMENT"
+jq -n '{last_watchdog_kill:{stall_cause:"no_progress"},stall_restart_count:3}' \
+  > "$STATE_DIR/loop-status.json"
+rc_st2b=0
+MAKATO_LOOP_STATE_DIR="$STATE_DIR" \
+MAKATO_LOOP_TEST_HOOK=1 \
+SPECS_DIR="$T_ST2B_SPECS" \
+MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+MAKATO_POST_HALT_COMMENT_TEST_FILE="$T_ST2B_COMMENT" \
+  "$LOOP" _test-stall-restart 55502 "$T_ST2B_SPEC_DIR" || rc_st2b=$?
+[[ $rc_st2b -eq 1 ]] \
+  || fail "T-STALL-2b: _stall_restart should return 1 for no_progress; got rc=$rc_st2b"
+[[ -f "$T_ST2B_COMMENT" && -s "$T_ST2B_COMMENT" ]] \
+  || fail "T-STALL-2b: MAKATO_POST_HALT_COMMENT_TEST_FILE should be written; got: $(cat "$T_ST2B_COMMENT" 2>/dev/null || echo '<missing>')"
+grep -q "HALT-014" "$T_ST2B_COMMENT" \
+  || fail "T-STALL-2b: comment body should contain HALT-014; got: $(cat "$T_ST2B_COMMENT")"
+rm -rf "$T_ST2B_SPECS" "$T_ST2B_COMMENT"
+echo "  ✓ stall_cause=no_progress → _post_halt_comment writes HALT-014 comment, rc=1"
+
+# ---------------------------------------------------------------------------
 # T-STALL-3: _stall_restart with stall_cause=halt_emitted
 #   → emits step:stall-classify status:skip; returns 0; no restart.
 # ---------------------------------------------------------------------------
@@ -5106,6 +5138,41 @@ grep -q "needs-human-review" "$T_R4_LABEL_FILE" \
   || fail "T-RESUME-4: label file should contain needs-human-review; got: $(cat "$T_R4_LABEL_FILE")"
 rm -rf "${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-resume4"
 echo "  ✓ budget exhausted: step:stall-resume status:escalate halt_code=HALT-014, returns 1, label applied"
+
+# ---------------------------------------------------------------------------
+# T-RESUME-4b: stall_restart_count >= MAX_STALL_RESTARTS →
+#   _stall_resume calls _post_halt_comment with HALT-014
+#   (verified via MAKATO_POST_HALT_COMMENT_TEST_FILE test hook). (#699)
+# ---------------------------------------------------------------------------
+echo "=== T-RESUME-4b: budget exhausted → _stall_resume writes HALT-014 comment via post-halt-comment ==="
+T_R4B_STATE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-resume4b/state"
+T_R4B_SPECS="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-resume4b/specs"
+T_R4B_SPEC_DIR="$T_R4B_SPECS/resume4b-slug"
+T_R4B_LABEL_FILE="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-resume4b/labels.txt"
+T_R4B_COMMENT="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-resume4b/comment.txt"
+mkdir -p "$T_R4B_STATE" "$T_R4B_SPEC_DIR"
+: >"$T_R4B_COMMENT"
+T_R4B_LOG="$T_R4B_STATE/dispatch-44423b.log"
+echo '{"stall_restart_count":3}' >"$T_R4B_STATE/loop-status.json"
+t_r4b_rc=0
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_LOOP_STATE_DIR="$T_R4B_STATE" \
+SPECS_DIR="$T_R4B_SPECS" \
+MAKATO_LOOP_STALL_DISABLE=0 \
+MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+MAKATO_LOOP_LABEL_TEST_FILE="$T_R4B_LABEL_FILE" \
+MAKATO_LOOP_WF_STATE_TEST_CMD="true" \
+MAKATO_POST_HALT_COMMENT_TEST_FILE="$T_R4B_COMMENT" \
+  "$LOOP" _test-stall-resume 44423 "resume4b-slug" "$T_R4B_SPEC_DIR" "$T_R4B_LOG" \
+  >/dev/null 2>&1 || t_r4b_rc=$?
+[[ $t_r4b_rc -eq 1 ]] \
+  || fail "T-RESUME-4b: _stall_resume should return 1 when budget exhausted; got $t_r4b_rc"
+[[ -f "$T_R4B_COMMENT" && -s "$T_R4B_COMMENT" ]] \
+  || fail "T-RESUME-4b: MAKATO_POST_HALT_COMMENT_TEST_FILE should be written; got: $(cat "$T_R4B_COMMENT" 2>/dev/null || echo '<missing>')"
+grep -q "HALT-014" "$T_R4B_COMMENT" \
+  || fail "T-RESUME-4b: comment body should contain HALT-014; got: $(cat "$T_R4B_COMMENT")"
+rm -rf "${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-resume4b"
+echo "  ✓ budget exhausted: _post_halt_comment writes HALT-014 comment, rc=1"
 
 # ---------------------------------------------------------------------------
 # T-RESUME-616: #616 — _stall_resume skips (no claude --resume) when

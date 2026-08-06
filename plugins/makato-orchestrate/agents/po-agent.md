@@ -860,10 +860,22 @@ row). The `gh`-only polls (CI, review) are narrated with a single
    Then run `gh pr view <PR> --json reviewDecision,state`:
 
    - `state != "OPEN"` → PR resolved (merged/closed). Exit → sub-step 7.
+   - `reviewDecision == ""` (empty string) → **review is not required** by
+     the repo — GitHub returns an empty `reviewDecision` only when the base
+     branch has no protection rule mandating approvals (verify with
+     `gh api repos/<owner>/<repo>/branches/<base>/protection` → HTTP 404
+     "Branch not protected", or a rule with no
+     `required_pull_request_reviews`). There is no external reviewer to wait
+     for, so **do not enter the review-wait ceiling**: the PR is mergeable on
+     green checks alone. Exit → sub-step 7. (This is distinct from `null` /
+     `"REVIEW_REQUIRED"`, which mean review *is* required but not yet given —
+     see below. Conflating the two is what made a no-review-required PR with
+     passing checks sit the full `REVIEW_WAIT_SECS` and false-HALT-012.)
    - `reviewDecision == "APPROVED"` → exit → sub-step 7.
    - `reviewDecision == "CHANGES_REQUESTED"` → human-review fix loop
      (below).
-   - `null` / `"REVIEW_REQUIRED"` → check the elapsed wall-clock **after**
+   - `null` / `"REVIEW_REQUIRED"` → review **is** required but not yet
+     given — check the elapsed wall-clock **after**
      the decision branches above (a late APPROVED / CHANGES_REQUESTED on the
      same round wins over the ceiling):
      - `REVIEW_WAIT_SECS > 0` AND `elapsed >= REVIEW_WAIT_SECS` → **HALT-012**

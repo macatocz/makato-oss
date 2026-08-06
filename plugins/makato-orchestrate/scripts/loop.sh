@@ -2199,6 +2199,7 @@ _stall_restart() {
       if [[ -n "$_repo" ]]; then
         gh issue edit "$issue" --add-label needs-human-review --repo "$_repo" 2>/dev/null || true
       fi
+      _post_halt_comment "HALT-014" "$issue" "${MAKATO_LOOP_DISPATCH_REPO:-}" || true
       return 1
       ;;
     *)
@@ -2382,8 +2383,10 @@ _stall_resume() {
     local _repo="${MAKATO_LOOP_DISPATCH_REPO:-}"
     if [[ -n "${MAKATO_LOOP_LABEL_TEST_FILE:-}" ]]; then
       echo "label #${issue} needs-human-review" >> "$MAKATO_LOOP_LABEL_TEST_FILE" 2>/dev/null || true
+      _post_halt_comment "HALT-014" "$issue" "${MAKATO_LOOP_DISPATCH_REPO:-}" || true
     elif [[ -n "$_repo" ]]; then
       gh issue edit "$issue" --add-label needs-human-review --repo "$_repo" 2>/dev/null || true
+      _post_halt_comment "HALT-014" "$issue" "${MAKATO_LOOP_DISPATCH_REPO:-}" || true
     fi
     return 1
   fi
