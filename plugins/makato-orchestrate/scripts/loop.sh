@@ -1287,7 +1287,16 @@ _post_halt_comment() {
   local repo="${3:-}"
   shift 3 2>/dev/null || true
 
-  local phc_script="$REPO_ROOT/plugins/makato-orchestrate/shared/post-halt-comment.sh"
+  # Resolve the helper next to this script first (plugin cache / marketplace —
+  # where it always ships), falling back to the consumer repo-mirror. The prior
+  # $REPO_ROOT-only path silently no-op'd in consumer repos (e.g. sagibeast),
+  # which vendor the other shared/ scripts as symlinks but not this one, so the
+  # needs-human-review comment was never posted (#744).
+  local phc_script
+  phc_script="$(dirname "$(dirname "${BASH_SOURCE[0]}")")/shared/post-halt-comment.sh"
+  if [[ ! -x "$phc_script" ]]; then
+    phc_script="$REPO_ROOT/plugins/makato-orchestrate/shared/post-halt-comment.sh"
+  fi
   [[ -x "$phc_script" ]] || return 0
 
   bash "$phc_script" "$halt_code" "$issue" "$repo" "$@" 2>/dev/null || \
@@ -6296,6 +6305,13 @@ if [[ "$SUBCMD" == _test-* ]]; then
     #   MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE, MAKATO_ORPHAN_STALE_SECS.
     # (#616).
     _test-reconcile-stale) _reconcile_orphaned_stale "$@" ;;
+    # _test-post-halt-comment <HALT_CODE> <ISSUE> <REPO> — exercise the
+    # _post_halt_comment script-resolution directly. Regression guard for #744:
+    # the helper must resolve post-halt-comment.sh next to this script (plugin
+    # cache / marketplace) even when $REPO_ROOT/plugins/... does not vendor it
+    # (the consumer-repo case that silently no-op'd). Honours
+    # MAKATO_POST_HALT_COMMENT_TEST_FILE so no real gh call is made.
+    _test-post-halt-comment) _post_halt_comment "$@" ;;
     # _test-reshape-pass — exercise _reshape_pass deterministically using
     # MAKATO_LOOP_RESHAPE_OVERRIDE and MAKATO_LOOP_RESHAPE_TEST_CMD.
     # (#350, epic #319).

@@ -4732,6 +4732,33 @@ rm -rf "$T_ST2B_SPECS" "$T_ST2B_COMMENT"
 echo "  ✓ stall_cause=no_progress → _post_halt_comment writes HALT-014 comment, rc=1"
 
 # ---------------------------------------------------------------------------
+# T-STALL-2c: _post_halt_comment resolves post-halt-comment.sh next to the
+#   script (plugin cache / marketplace) even when $REPO_ROOT/plugins/... does
+#   NOT vendor it. Regression guard for #744: the prior $REPO_ROOT-only path
+#   silently no-op'd in consumer repos (e.g. sagibeast), so the
+#   needs-human-review comment was never posted.
+# ---------------------------------------------------------------------------
+echo "=== T-STALL-2c: _post_halt_comment resolves helper via BASH_SOURCE (consumer-repo path, #744) ==="
+T_ST2C_COMMENT="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-st2c-comment.txt"
+T_ST2C_EMPTY_ROOT="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-st2c-emptyroot"
+rm -rf "$T_ST2C_EMPTY_ROOT"; mkdir -p "$T_ST2C_EMPTY_ROOT"   # NO plugins/makato-orchestrate/shared/ mirror
+: >"$T_ST2C_COMMENT"
+rc_st2c=0
+# REPO_ROOT points at a dir with no vendored helper → only the BASH_SOURCE
+# branch (helper shipped alongside $LOOP under ../shared/) can satisfy this.
+MAKATO_LOOP_TEST_HOOK=1 \
+REPO_ROOT="$T_ST2C_EMPTY_ROOT" \
+MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+MAKATO_POST_HALT_COMMENT_TEST_FILE="$T_ST2C_COMMENT" \
+  "$LOOP" _test-post-halt-comment HALT-014 450 macatocz/makato || rc_st2c=$?
+[[ -f "$T_ST2C_COMMENT" && -s "$T_ST2C_COMMENT" ]] \
+  || fail "T-STALL-2c: comment must be written via BASH_SOURCE branch when REPO_ROOT lacks the mirror; got: <empty> (rc=$rc_st2c)"
+grep -q "HALT-014" "$T_ST2C_COMMENT" \
+  || fail "T-STALL-2c: comment body should contain HALT-014; got: $(cat "$T_ST2C_COMMENT")"
+rm -rf "$T_ST2C_COMMENT" "$T_ST2C_EMPTY_ROOT"
+echo "  ✓ _post_halt_comment resolves helper next to script even when REPO_ROOT mirror absent (#744)"
+
+# ---------------------------------------------------------------------------
 # T-STALL-3: _stall_restart with stall_cause=halt_emitted
 #   → emits step:stall-classify status:skip; returns 0; no restart.
 # ---------------------------------------------------------------------------
