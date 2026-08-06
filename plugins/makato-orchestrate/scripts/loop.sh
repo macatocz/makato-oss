@@ -811,6 +811,58 @@ _board_via_graphql() {
 }
 
 # ---------------------------------------------------------------------------
+# _project_item_id_for_issue <host> <owner> <repo> <issue> <project_node_id>
+#
+# Resolve the ProjectV2 item id for a single issue in ONE cheap GraphQL call
+# (~1 point), instead of `gh project item-list --limit 9999` which charges
+# ~1 point PER board item and, on a large board, exhausts the GraphQL budget
+# just to find one id (incident 2026-08-06: parking 24 issues drained the
+# budget mid-run). Queries the issue's own `projectItems` connection and
+# filters to the item whose `project.id` matches the target board — an issue
+# may sit on several boards, so the project_node_id filter is required.
+#
+# Prints the item id to stdout and returns 0 on success; prints nothing and
+# returns non-zero when the issue is not on the board, the response is
+# unparseable, or the call fails (caller falls back to item-add / item-list).
+#
+# Offline test hook: MAKATO_LOOP_ITEM_ID_TEST_CMD, when set, is eval'd in
+# place of the real `gh api graphql` call and must echo a GraphQL-shaped
+# response (same contract as MAKATO_LOOP_GRAPHQL_TEST_CMD).
+# ---------------------------------------------------------------------------
+_ITEM_ID_QUERY='query($owner:String!,$repo:String!,$num:Int!){
+  repository(owner:$owner,name:$repo){
+    issue(number:$num){
+      projectItems(first:20){ nodes{ id project{ id } } }
+    }
+  }
+}'
+
+_project_item_id_for_issue() {
+  local host="$1" owner="$2" repo="$3" issue="$4" pid="$5"
+  [[ -n "$owner" && -n "$repo" && -n "$issue" && -n "$pid" ]] || return 1
+
+  # Strip an "owner/name" repo into just the name for the GraphQL `name:` arg.
+  local repo_name="${repo##*/}"
+
+  local resp
+  if [[ -n "${MAKATO_LOOP_ITEM_ID_TEST_CMD:-}" ]]; then
+    resp="$(eval "$MAKATO_LOOP_ITEM_ID_TEST_CMD" 2>/dev/null)" || return 1
+  else
+    resp="$(GH_HOST="$host" gh api graphql \
+      -F owner="$owner" -F repo="$repo_name" -F num="$issue" \
+      -f query="$_ITEM_ID_QUERY" 2>/dev/null)" || return 1
+  fi
+  _gh_json_valid "$resp" || return 1
+
+  local item_id
+  item_id="$(jq -r --arg pid "$pid" \
+    '.data.repository.issue.projectItems.nodes[]?
+      | select(.project.id == $pid) | .id' <<<"$resp" 2>/dev/null | head -1)" || return 1
+  [[ -n "$item_id" && "$item_id" != "null" ]] || return 1
+  printf '%s\n' "$item_id"
+}
+
+# ---------------------------------------------------------------------------
 # _check_graphql_rate_budget <host> (#556) — proactive GraphQL rate-limit guard.
 #
 # When RATE_GUARD=1 (default), queries `gh api rate_limit` and compares
@@ -1789,6 +1841,8 @@ _reconcile_orphaned_stale() {
     [[ "$phase" != "done" && "$phase" != "null" ]] || continue
     issue_n="$(jq -r '.issue_number // empty' "$f" 2>/dev/null || true)"
     [[ -n "$issue_n" ]] || continue
+    local _rs_repo=""
+    _rs_repo="$(jq -r '.repo // empty' "$f" 2>/dev/null || true)"
     wt="$(jq -r '.worktree_path // ""' "$f" 2>/dev/null || true)"
     updated_at="$(jq -r '.updated_at // ""' "$f" 2>/dev/null || true)"
 
@@ -1870,15 +1924,23 @@ _reconcile_orphaned_stale() {
             fi
           fi
           local _rs_item_cmd_out=""
+          item_id=""
           if [[ -n "${MAKATO_LOOP_STALE_REAP_TEST_CMD:-}" ]]; then
             _rs_item_cmd_out="$(eval "$MAKATO_LOOP_STALE_REAP_TEST_CMD" 2>/dev/null)" || true
-          else
-            _rs_item_cmd_out="$(GH_HOST="$proj_host" gh project item-list "$proj_number" \
-              --owner "$proj_owner" --format json --limit 9999 2>/dev/null)" || true
+          elif [[ -n "$_rs_repo" ]]; then
+            # Cheap single-issue lookup (~1 GraphQL point) instead of paging the
+            # whole board via item-list --limit 9999 (~1 point per item).
+            item_id="$(_project_item_id_for_issue "$proj_host" "$proj_owner" "$_rs_repo" "$issue_n" "$proj_node_id" || true)"
           fi
-          item_id="$(jq -r --argjson n "$issue_n" \
-            '.items[] | select(.content.type == "Issue" and .content.number == $n) | .id' \
-            <<<"$_rs_item_cmd_out" 2>/dev/null | head -1)" || true
+          if [[ -z "$item_id" ]]; then
+            if [[ -z "$_rs_item_cmd_out" && -z "${MAKATO_LOOP_STALE_REAP_TEST_CMD:-}" ]]; then
+              _rs_item_cmd_out="$(GH_HOST="$proj_host" gh project item-list "$proj_number" \
+                --owner "$proj_owner" --format json --limit 9999 2>/dev/null)" || true
+            fi
+            item_id="$(jq -r --argjson n "$issue_n" \
+              '.items[] | select(.content.type == "Issue" and .content.number == $n) | .id' \
+              <<<"$_rs_item_cmd_out" 2>/dev/null | head -1)" || true
+          fi
           if [[ -n "$item_id" ]]; then
             if GH_HOST="$proj_host" gh project item-edit \
               --id "$item_id" \
@@ -3358,6 +3420,11 @@ _auto_seed_promote_ready_from_gate() {
           --url "https://github.com/${repo}/issues/$issue" \
           --format json 2>/dev/null | jq -r '.id // empty' 2>/dev/null || true)"
         if [[ -z "$item_id" ]]; then
+          # Cheap single-issue lookup (~1 GraphQL point) before the expensive
+          # whole-board item-list fallback.
+          item_id="$(_project_item_id_for_issue "$host" "$owner" "$repo" "$issue" "$project_node_id" || true)"
+        fi
+        if [[ -z "$item_id" ]]; then
           item_id="$(GH_HOST="$host" gh project item-list "$number" --owner "$owner" \
             --format json --limit 9999 2>/dev/null \
             | jq -r --argjson i "$issue" '.items[] | select(.content.number == $i) | .id' 2>/dev/null \
@@ -3559,6 +3626,11 @@ _auto_seed_block_full() {
         item_id="$(GH_HOST="$host" gh project item-add "$number" --owner "$owner" \
           --url "https://github.com/${repo}/issues/$issue" \
           --format json 2>/dev/null | jq -r '.id // empty' 2>/dev/null || true)"
+        if [[ -z "$item_id" ]]; then
+          # Cheap single-issue lookup (~1 GraphQL point) before the expensive
+          # whole-board item-list fallback.
+          item_id="$(_project_item_id_for_issue "$host" "$owner" "$repo" "$issue" "$project_node_id" || true)"
+        fi
         if [[ -z "$item_id" ]]; then
           item_id="$(GH_HOST="$host" gh project item-list "$number" --owner "$owner" \
             --format json --limit 9999 2>/dev/null \
@@ -5482,11 +5554,18 @@ _reshape_pass() {
       number="$(jq -r '.github_project.number // empty' "$CONFIG_FILE" 2>/dev/null || true)"
       if [[ -n "$status_field_id" && -n "$project_node_id" && -n "$owner" && -n "$number" ]]; then
         # Find the board item id.
-        local item_id
-        item_id="$(GH_HOST="$host" gh project item-list "$number" --owner "$owner" \
-          --format json --limit 9999 2>/dev/null \
-          | jq -r --argjson i "$n" '.items[] | select(.content.number == $i) | .id' 2>/dev/null \
-          | head -1 || true)"
+        local item_id=""
+        # Cheap single-issue lookup (~1 GraphQL point) when we know the repo;
+        # falls through to the expensive whole-board item-list otherwise.
+        if [[ -n "$repo" ]]; then
+          item_id="$(_project_item_id_for_issue "$host" "$owner" "$repo" "$n" "$project_node_id" || true)"
+        fi
+        if [[ -z "$item_id" ]]; then
+          item_id="$(GH_HOST="$host" gh project item-list "$number" --owner "$owner" \
+            --format json --limit 9999 2>/dev/null \
+            | jq -r --argjson i "$n" '.items[] | select(.content.number == $i) | .id' 2>/dev/null \
+            | head -1 || true)"
+        fi
         if [[ -n "$item_id" ]]; then
           GH_HOST="$host" gh project item-edit \
             --id "$item_id" \
@@ -6090,6 +6169,12 @@ if [[ "$SUBCMD" == _test-* ]]; then
     # payload to stdout / returns the function's exit code so the smoke suite
     # can assert the item-list-shape contract and multi-page assembly (#516).
     _test-board-graphql) _board_via_graphql "$@" ;;
+    # _test-item-id-for-issue <host> <owner> <repo> <issue> <pid> — exercise
+    # _project_item_id_for_issue deterministically via MAKATO_LOOP_ITEM_ID_TEST_CMD
+    # (canned repository.issue.projectItems JSON). Prints the resolved item id /
+    # returns the function's exit code so the smoke suite can assert the
+    # project-id filter and not-on-board miss paths.
+    _test-item-id-for-issue) _project_item_id_for_issue "$@" ;;
     # _test-check-graphql-rate-budget <host> — exercise _check_graphql_rate_budget
     # deterministically via MAKATO_LOOP_GRAPHQL_TEST_CMD (canned rate_limit JSON)
     # and MAKATO_LOOP_RATE_GUARD / MAKATO_LOOP_GRAPHQL_MIN_REMAINING overrides.
