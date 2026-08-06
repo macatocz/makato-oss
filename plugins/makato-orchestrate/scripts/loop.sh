@@ -3638,13 +3638,13 @@ _auto_seed_block_full() {
     comment_body="${SENTINEL}
 This issue carries \`plan-tier:full\` (or no plan-tier label) and does not have a committed \`stories.json\` — the full makato-plan pipeline is needed before autonomous dispatch.
 
-To dispatch this issue through the autonomous loop, run seed-issue first to generate a full \`plan.md\`:
+**To make this issue dispatchable without manual board action**, relabel it \`plan-tier:light\`: the auto-seed pass then dispatches \`seed-issue\` headlessly, the light-planner generates \`plan-<N>.md\`, and \`seed-issue\` moves the board card to **Status=Ready** on its own. Otherwise, run \`seed-issue\` yourself to generate a full \`plan.md\`:
 
 \`\`\`
 ${launch_cmd}
 \`\`\`
 
-Once \`plan.md\` is complete and the issue is promoted to \`status:ready-for-dev\`, the loop will pick it up automatically.
+Once a valid \`plan.md\` exists, \`seed-issue\` moves the board card to **Status=Ready** — the sole dispatch signal — and the loop picks it up automatically. (The former \`status:ready-for-dev\` label bridge was removed in #688.)
 
 _This comment was posted automatically by the makato auto-seed pass (#372)._"
 
