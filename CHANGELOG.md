@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.141.5](https://github.com/macatocz/makato/compare/v0.141.4...v0.141.5) (2026-08-06)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** resolve board item-id via cheap single-issue GraphQL, not whole-board item-list ([#736](https://github.com/macatocz/makato/issues/736)) ([3291465](https://github.com/macatocz/makato/commit/3291465938be6e78aa9b7fb4ae32e5967ca0e599))
+
 ## [0.141.4](https://github.com/macatocz/makato/compare/v0.141.3...v0.141.4) (2026-08-06)
 
 
