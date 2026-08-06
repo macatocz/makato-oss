@@ -97,6 +97,9 @@ jobs:
       - name: loop smoke tests (#231/#232)
         run: ./plugins/makato-orchestrate/scripts/loop-smoke-tests.sh
 
+      - name: loop HALT notifier smoke tests
+        run: ./plugins/makato-orchestrate/scripts/loop-halt-watch-smoke-tests.sh
+
       - name: dependency-aware promote-ready smoke tests (#268)
         run: ./plugins/makato-orchestrate/scripts/promote-ready-smoke-tests.sh
 

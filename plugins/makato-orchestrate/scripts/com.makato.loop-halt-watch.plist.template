@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  com.makato.loop-halt-watch.plist.template
+  ==========================================
+  macOS launchd plist for the makato loop HALT notifier (loop-halt-watch.sh).
+
+  Fires a macOS notification the moment a running `loop.sh` stops progressing:
+  HALT-000 (HALT file / clean HALT exit), loop process death while work is
+  queued, or a liveness-watchdog kill. Runs INDEPENDENTLY of loop.sh so it
+  survives a loop crash. One agent PER WATCHED REPO.
+
+  IMPORTANT — script path vs. watched repo are INDEPENDENT:
+  ========================================================
+  {{WATCHER_SCRIPT}} is the absolute path to THIS plugin's loop-halt-watch.sh
+  (wherever makato-orchestrate is installed). {{WATCH_REPO}} is the repo whose
+  .claude/state/ is being watched. They are usually DIFFERENT: a consumer repo
+  (e.g. sagibeast) has no copy of the script — the watcher lives in the makato
+  plugin checkout and is pointed at the consumer's state dir. Do not assume
+  <watched-repo>/plugins/... exists.
+
+  INSTALL INSTRUCTIONS:
+  =====================
+  1. Copy this template, substituting the placeholders. Pick a unique <repo>
+     suffix for the Label and filename so multiple repos each get their own agent.
+
+     WATCHER_SCRIPT=/Users/yourname/GITHUB/makato/plugins/makato-orchestrate/scripts/loop-halt-watch.sh
+     WATCH_REPO=/Users/yourname/GITHUB/sagibeast
+     REPO=sagibeast   # short unique suffix identifying the watched repo
+     sed -e "s|{{WATCHER_SCRIPT}}|$WATCHER_SCRIPT|g" \
+         -e "s|{{WATCH_REPO}}|$WATCH_REPO|g" \
+         -e "s|{{REPO_LABEL}}|$REPO|g" \
+       plugins/makato-orchestrate/scripts/com.makato.loop-halt-watch.plist.template \
+       > ~/Library/LaunchAgents/com.makato.loop-halt-watch.$REPO.plist
+
+     Placeholders:
+       {{WATCHER_SCRIPT}}  absolute path to loop-halt-watch.sh in the makato plugin checkout
+       {{WATCH_REPO}}      absolute root of the repo to watch, e.g. /Users/yourname/GITHUB/sagibeast
+       {{REPO_LABEL}}      short unique suffix, e.g. sagibeast (must match the filename suffix)
+
+  2. Load the agent (starts immediately and at every login):
+       launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.makato.loop-halt-watch.<repo>.plist
+
+  3. To stop and unload:
+       launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.makato.loop-halt-watch.<repo>.plist
+
+  4. To restart after editing the plist or the watcher script:
+       launchctl kickstart -k gui/$(id -u)/com.makato.loop-halt-watch.<repo>
+
+  5. Logs land at <WATCH_REPO>/.claude/state/loop-halt-watch.log.
+
+  NOTES:
+  ======
+  - Requires `terminal-notifier` (brew install terminal-notifier) for rich
+    notifications; falls back to `osascript` if absent. PATH below includes
+    /opt/homebrew/bin so terminal-notifier resolves under launchd.
+  - Do NOT also launch the watcher by hand (nohup) while launchd owns it — that
+    spawns a duplicate. `launchctl list | grep loop-halt-watch` shows what runs.
+  - The watcher takes the state at startup as its baseline, so pre-existing
+    events never fire — only genuine transitions after launch do.
+  - Opt-in: this is NOT started automatically by `loop run`. Install it only
+    when you want on-screen HALT notifications for a watched repo.
+
+  CONFIGURATION (optional EnvironmentVariables overrides):
+    MAKATO_WATCH_INTERVAL   poll cadence seconds (default 30)
+    MAKATO_HALT_FILE        HALT file path (default ~/.claude/HALT)
+-->
+<plist version="1.0">
+<dict>
+
+  <!-- Label must match the filename (without .plist); {{REPO_LABEL}} keeps it unique per repo -->
+  <key>Label</key>
+  <string>com.makato.loop-halt-watch.{{REPO_LABEL}}</string>
+
+  <!-- The watcher script (in the makato plugin checkout); the WATCHED repo root is the argument -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>{{WATCHER_SCRIPT}}</string>
+    <string>{{WATCH_REPO}}</string>
+  </array>
+
+  <!-- terminal-notifier lives in /opt/homebrew/bin; launchd has a minimal PATH otherwise -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <!-- Long-running daemon: start at login and keep it alive across crashes -->
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <!-- Back off between respawns so a crash-loop cannot hammer the CPU -->
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+
+  <!-- Combined stdout+stderr log inside the WATCHED repo's state dir -->
+  <key>StandardOutPath</key>
+  <string>{{WATCH_REPO}}/.claude/state/loop-halt-watch.log</string>
+  <key>StandardErrorPath</key>
+  <string>{{WATCH_REPO}}/.claude/state/loop-halt-watch.log</string>
+
+</dict>
+</plist>
