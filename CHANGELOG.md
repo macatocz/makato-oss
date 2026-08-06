@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.141.4](https://github.com/macatocz/makato/compare/v0.141.3...v0.141.4) (2026-08-06)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** update stale status:ready-for-dev reference in auto-seed-block comment ([#733](https://github.com/macatocz/makato/issues/733)) ([409f9a7](https://github.com/macatocz/makato/commit/409f9a78f3b616e1d64f73cae6ff3039ee927f7e))
+
 ## [0.141.3](https://github.com/macatocz/makato/compare/v0.141.2...v0.141.3) (2026-08-06)
 
 
