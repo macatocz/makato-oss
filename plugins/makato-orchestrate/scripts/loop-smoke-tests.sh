@@ -7018,4 +7018,59 @@ rm -rf "$T_RC3_TMP"
 echo "  ✓ no config: WARN logged, returns 0 (best-effort, never blocks)"
 
 echo
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T-RG-1–T-RG-4 GraphQL rate-limit guard, #556; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T-RESUME-1 complete result no-op, T-RESUME-2 incomplete triggers attempt, T-RESUME-3 errored triggers attempt, T-RESUME-4 budget-exhausted HALT-014, T-RESUME-5 STALL_DISABLE skip detect+resume, #531; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470; T84–T89 orphaned-specs pruning; T90 promote-before-prune; T-GQL1–T-GQL5 GraphQL board poll + item-list rollback, #516; T-IDLE1–T-IDLE2 adaptive idle backoff, #516; T91 plan-tier:change routing, #539; T-wave-order, T-promote-on, T-promote-off, T-fifo-fallback wave-ordered dispatch + promote-unblocked, #548; T-PREDISPATCH-127 exit-127 log demotion, T-REAP-NUMBERLESS numberless-folder reap-specs demotion, #558; T-loop-prune-1–T-loop-prune-3 workflow-state prune wiring, #597; T-VCR-1–T-VCR-5 _compute_vcr helper, #585; T-TOOLDEP-1–T-TOOLDEP-4 tool-dependency pre-flight, #587 #656; T-RECON-LABELGATE-1–T-RECON-LABELGATE-2 reconcile label gate; T-RECON-ARGSHAPE-1–T-RECON-ARGSHAPE-2 reconcile item-edit argv shape, #697; T-RG-5 poll_skipped_rate_budget reset, T-CB-1–T-CB-2 circuit-breaker poll_skip_count, T-STALE-RG-1 reconcile-stale rate-guard, #683; T-RC-1–T-RC-3 api_error board-reset recovery, #687) ==="
+# ---------------------------------------------------------------------------
+echo
+echo "=== T-FM1-derive-key-disambig: dispatch picks correct folder when slug matches two specs/ dirs ==="
+# FM-1 regression: when two specs/ folders share the same slug prefix
+# (epic shared-slug collision), _derive_key_for_issue must resolve
+# to the folder whose created-issues.json contains the issue number.
+# The disambiguation block in loop.sh (lines 2725-2747) reads
+# REPO_ROOT/specs — which is always the repo root resolved by
+# git rev-parse at script startup — so temp folders are created there.
+T_FM1_SLUG="loop-smoke-$$-disambig"
+T_FM1_SPECS_ROOT="$(cd "$(dirname "$LOOP")/.." && git rev-parse --show-toplevel)/specs"
+T_FM1_DIR_A="$T_FM1_SPECS_ROOT/${T_FM1_SLUG}-f1"
+T_FM1_DIR_B="$T_FM1_SPECS_ROOT/${T_FM1_SLUG}-f2"
+mkdir -p "$T_FM1_DIR_A" "$T_FM1_DIR_B"
+printf '{"issues":[{"issue_number":145}]}\n' > "$T_FM1_DIR_A/created-issues.json"
+printf '{"issues":[{"issue_number":146}]}\n' > "$T_FM1_DIR_B/created-issues.json"
+T_FM1_BODY="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-fm1-body.txt"
+printf '*Feature slug: `%s` — produced by to-issues v3.x.*\n' "$T_FM1_SLUG" > "$T_FM1_BODY"
+rm -f "$STATE_DIR/loop-status.json"
+dry_run_fm1="$(
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T_FM1_BODY" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+    "$LOOP" dispatch 145 --dry-run 2>&1 >/dev/null
+)" || fail "T-FM1: dispatch --dry-run should exit 0; got: $dry_run_fm1"
+grep -q "KEY=${T_FM1_SLUG}-f1" <<<"$dry_run_fm1" \
+  || fail "T-FM1: expected KEY=${T_FM1_SLUG}-f1 (disambiguation by created-issues.json); got: $dry_run_fm1"
+rm -rf "$T_FM1_DIR_A" "$T_FM1_DIR_B" "$T_FM1_BODY"
+echo "  ✓ shared-slug disambiguation: _derive_key_for_issue picks folder matching issue_number in created-issues.json"
+# ---------------------------------------------------------------------------
+
+echo
+echo "=== T-FM2-stories-provenance-no-footer: stories.json provenance line derives KEY without to-issues footer ==="
+# FM-2 regression: a body with only the specs/<slug>/stories.json provenance
+# line (no to-issues footer) must derive KEY from that line.
+# This sub-case was covered only as a sub-assertion in T26; naming it explicitly
+# guards against regression in third-fallback logic (#232/#573).
+T_FM2_BODY="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-fm2-body.txt"
+cat >"$T_FM2_BODY" <<'STORYPROV'
+> generated from `specs/my-feature-slug/stories.json` by to-issues skill.
+
+## Summary
+A hand-filed issue with only the stories.json provenance, no to-issues footer.
+STORYPROV
+rm -f "$STATE_DIR/loop-status.json"
+dry_run_fm2="$(
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T_FM2_BODY" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+    "$LOOP" dispatch 600 --dry-run 2>&1 >/dev/null
+)" || fail "T-FM2: dispatch --dry-run should exit 0; got: $dry_run_fm2"
+grep -q "KEY=my-feature-slug" <<<"$dry_run_fm2" \
+  || fail "T-FM2: KEY must be derived from stories.json provenance line; got: $dry_run_fm2"
+rm -f "$T_FM2_BODY"
+echo "  ✓ stories.json-only provenance (no footer) derives KEY correctly"
+# ---------------------------------------------------------------------------
+
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T-RG-1–T-RG-4 GraphQL rate-limit guard, #556; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T-RESUME-1 complete result no-op, T-RESUME-2 incomplete triggers attempt, T-RESUME-3 errored triggers attempt, T-RESUME-4 budget-exhausted HALT-014, T-RESUME-5 STALL_DISABLE skip detect+resume, #531; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470; T84–T89 orphaned-specs pruning; T90 promote-before-prune; T-GQL1–T-GQL5 GraphQL board poll + item-list rollback, #516; T-IDLE1–T-IDLE2 adaptive idle backoff, #516; T91 plan-tier:change routing, #539; T-wave-order, T-promote-on, T-promote-off, T-fifo-fallback wave-ordered dispatch + promote-unblocked, #548; T-PREDISPATCH-127 exit-127 log demotion, T-REAP-NUMBERLESS numberless-folder reap-specs demotion, #558; T-loop-prune-1–T-loop-prune-3 workflow-state prune wiring, #597; T-VCR-1–T-VCR-5 _compute_vcr helper, #585; T-TOOLDEP-1–T-TOOLDEP-4 tool-dependency pre-flight, #587 #656; T-RECON-LABELGATE-1–T-RECON-LABELGATE-2 reconcile label gate; T-RECON-ARGSHAPE-1–T-RECON-ARGSHAPE-2 reconcile item-edit argv shape, #697; T-RG-5 poll_skipped_rate_budget reset, T-CB-1–T-CB-2 circuit-breaker poll_skip_count, T-STALE-RG-1 reconcile-stale rate-guard, #683; T-RC-1–T-RC-3 api_error board-reset recovery, #687; T-FM1-derive-key-disambig shared-slug disambiguation, #724; T-FM2-stories-provenance-no-footer stories.json-only KEY derivation, #724) ==="

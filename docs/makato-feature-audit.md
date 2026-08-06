@@ -305,6 +305,11 @@ Highest-severity gaps first. Full detail lives in each plugin section below.
 - **Gap:** Step 6 validation uses 'import json, jsonschema' without a guard for jsonschema not being installed. If jsonschema is absent, the error will be an ImportError rather than the documented SCHEMA_VALIDATION_FAILED HALT code, producing confusing output.
 - **Fix:** Add a try/except ImportError around the jsonschema import with a clear error message directing the user to 'pip install jsonschema', or fall back to a structural JSON validation without the library.
 - **sagibeast usage:** plan-*.md files confirmed in platform-core-phase-2-admin-console (plan-342.md through plan-354.md), platform-core-phase-1 (plan-147.md through plan-155.md), platform-core-phase-3 (plan-446.md), 208-langfuse-span-writer (plan-208.md). created-issues.json confirmed in platform-core-phase-1, platform-core-phase-2-admin-console, platform-core-phase-3-admin-console-remediation, 230-self-healing-coverage-loop. Commit 97e1778 'docs(230): add stories.json + created-issues.json (to-issues handoff)' directly confirms the skill ran.
+- **Re-verification note (#724, 2026-08-06):** ✅ confirmed. Three documented failure modes re-verified against current code and test suite:
+  - FM-1 (shared-slug collision): REFUTED. `_derive_key_for_issue` (loop.sh lines 2725–2746) contains an explicit disambiguation block — when `find specs/ -name "${slug}-*"` returns multiple candidate directories, it greps `created-issues.json` and `plan.md` for the issue number and picks the matching folder. T67d (loop-smoke-tests.sh line 2675) exercises this path via `_auto_seed_block_full`. New regression test T-FM1-derive-key-disambig (loop-smoke-tests.sh) now exercises the direct `dispatch --dry-run` path with two collision folders and a `created-issues.json` pointer.
+  - FM-2 (missing provenance footer causing silent po-agent death): REFUTED. The third-fallback (#232) derives `<issue>-<normalized-title>` when neither the to-issues footer nor a `specs/<slug>/stories.json` provenance line is present. A WARN is emitted rather than silent death. T27 (loop-smoke-tests.sh line 974) covers the title-slug fallback and normalization. New named test T-FM2-stories-provenance-no-footer explicitly covers the stories.json-only provenance sub-case (previously an unnamed sub-assertion in T26).
+  - FM-3 (`_auto_seed_block_full` KEY delegation): REFUTED. `_auto_seed_block_full` (loop.sh line 3476) explicitly delegates to `_derive_key_for_issue`, making the to-issues footer KEY primary over the title slug. T63b (loop-smoke-tests.sh line 2298) fully covers this contract. No new test needed.
+  - All three failure modes are refuted by existing + new guards. ✅ status confirmed.
 
 
 ## Spec → Merged PR (build lane)
@@ -1317,6 +1322,8 @@ SUSPICIOUS "WORKS-AS-EXPECTED" CLAIMS ===
 
 4. makato-plan [skill] to-issues — works-as-expected
    Memory documents shared-slug collision producing mis-resolved epics (dispatch_key_collision_shared_slug.md), to-issues provenance footer missing causing silent po-agent death (#571, PR #573 MERGED but the underlying slug derivation fragility is structural), and the auto_seed_block_full delegation pattern that changed the KEY contract. These are recent enough that a re-verification is warranted.
+
+   **Re-verification result (#724, 2026-08-06):** ✅ confirmed. All three failure modes refuted by current code and guards. Regression tests T-FM1-derive-key-disambig and T-FM2-stories-provenance-no-footer added to loop-smoke-tests.sh. ✅ status stands.
 
 5. makato-orchestrate [skill] seed-issue — works-as-expected
    seed-issue depends on _derive_key_for_issue producing the exact same KEY that loop.sh will later use to match a specs/ folder. That contract had at least three breaking bugs fixed in quick succession (#553, #571, PR #573). The skill being marked works-as-expected while the loop KEY derivation it depends on is documented as buggy (#1 above) creates a false sense of end-to-end correctness.
