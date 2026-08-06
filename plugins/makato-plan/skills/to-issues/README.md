@@ -164,7 +164,7 @@ Never `phase:p1` (that would collide with `priority:p1`). The skill auto-normali
 }
 ```
 
-`metadata` is optional. Without it, the 5 prioritization labels are simply omitted — issues still get created with type/tier/tech/module/status. Full schema lives in the `decompose` skill's [`references/stories-json-schema.md`](../decompose/references/stories-json-schema.md).
+`metadata` is optional. Without it, the 5 prioritization labels are simply omitted — issues still get created with type/tier/tech/module/status. Full schema lives in the `decompose` skill's `references/stories-json-schema.md`.
 
 ## Output
 
@@ -220,4 +220,4 @@ Full contract lives in [`references/label-taxonomy.md`](./references/label-taxon
 - [`references/label-taxonomy.md`](./references/label-taxonomy.md) — the 10 dimensions in detail, type-inference regex table, derivation maps, GitHub-label colors.
 - [`references/issue-template.md`](./references/issue-template.md) — issue body template; edit here to change body format for every issue going forward.
 - [`references/slice-patterns.md`](./references/slice-patterns.md) — load only when a slice boundary is ambiguous.
-- [`../../CHANGELOG.md`](../../CHANGELOG.md) — version history (search for `to-issues skill`).
+- The plugin `CHANGELOG.md` (repo root `plugins/makato-plan/CHANGELOG.md`) — version history (search for `to-issues skill`).

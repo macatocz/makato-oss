@@ -23,8 +23,9 @@ Each plugin owns one phase of that workflow. Install the ones you need; skip the
   Issues.
 - **`gh` CLI** authenticated (`gh auth login`) — required by `makato-plan`, `makato-build`, and
   `makato-orchestrate` for issue and PR operations.
-- **Python 3.11+** — only if you plan to run the repo's smoke tests or contribute to plugins that
-  ship pytest fixtures (`makato-build`, `makato-sagibeast`).
+- **Python 3.14+** — only if you plan to run the repo's smoke tests or contribute to plugins that
+  ship pytest fixtures (`makato-build`, `makato-sagibeast`). Pinned in `pyproject.toml`
+  (`requires-python = ">=3.14"`) and in the audit CI workflows.
 
 Individual plugins may add their own requirements (for example, `makato-database` expects a
 reachable Postgres instance). See each plugin's `README.md` for its specifics.

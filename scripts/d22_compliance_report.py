@@ -265,7 +265,7 @@ def compute_adoption_metrics(
             continue
         try:
             ts = datetime.fromisoformat(str(ts_raw))
-        except ValueError, TypeError:
+        except (ValueError, TypeError):
             continue
         if ts.tzinfo is None:
             ts = ts.replace(tzinfo=timezone.utc)

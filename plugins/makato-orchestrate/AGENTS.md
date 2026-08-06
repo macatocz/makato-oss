@@ -111,84 +111,22 @@ makato-orchestrate hosts the top-level orchestrator and supporting read-only sco
 ```text
 makato-orchestrate/
 ├── .claude-plugin/plugin.json
-├── agents/
-│   ├── context-summariser.md             (GAP-004 / #30 — shipped)
-│   ├── documentation-agent.md            (GAP-012 / #35 — shipped)
-│   ├── light-planner.md                  (#212 — lightweight planning lane)
-│   ├── po-agent.md                       (GAP-006 / #32 — shipped)
-│   └── task-file-scout.md                          (GAP-013 / #29 — shipped)
-├── hooks/
-│   ├── check-halt.sh                     (GAP-004 / #30 — shipped)
-│   ├── clock-out.sh                      (#602 — human session clock-out helper)
-│   ├── clock-out-smoke-tests.sh          (#602 — 10 scenarios T1–T10)
-│   ├── session-status.sh                 (GAP-014 / #31 — shipped)
-│   └── session-status-smoke-tests.sh     (GAP-014 / #31 — shipped)
-├── scripts/
-│   ├── context-handoff.sh                (GAP-004 / #30 — shipped)
-│   ├── context-handoff-smoke-tests.sh    (GAP-004 / #30 — shipped)
-│   ├── loop.sh                           (GAP-007 / #33 — shipped)
-│   ├── loop-smoke-tests.sh               (GAP-007 / #33 — shipped)
-│   ├── promote-ready.sh                  (#268 — dependency-aware Ready promotion)
-│   ├── promote-ready-smoke-tests.sh      (#268 — 9 scenarios / T1–T9)
-│   ├── should-materialize-spec.sh        (#200 — HALT-006 auto-materialize gate; #527 — materialize-refine verdict)
-│   ├── should-materialize-spec-smoke-tests.sh (#200 — 12 asserts; #527 — 24 asserts)
-│   ├── validate-plan-body.sh             (#212 — promotion guard)
-│   ├── validate-plan-body-smoke-tests.sh (#212 — 13 asserts)
-│   ├── emit-reshape-request.sh           (#349 — serialize structural-failure evidence into reshape context packet)
-│   ├── emit-reshape-request-smoke-tests.sh (#349 — 12 scenarios T1–T12)
-│   ├── emit-reshape-request.schema.json  (#349 — reshape-request.json v1 schema; orchestrate→plan data contract)
-│   ├── mark-ac-checkboxes.sh             (AC-verification — deterministic issue-checkbox matcher for documentation-agent Step 4a)
-│   ├── mark-ac-checkboxes-smoke-tests.sh (AC-verification — 10 scenarios T1–T10)
-│   ├── generate-run-report.sh            (#448 — read-only per-issue final-envelope aggregation into a run report)
-│   ├── generate-run-report-smoke-tests.sh (#448 — 8 scenarios T1–T8)
-│   ├── generate-layer-report.sh          (#593 — HALT-by-layer aggregation report)
-│   ├── generate-layer-report-smoke-tests.sh (#593 — 8 scenarios T1–T8)
-│   ├── generate-quality-doc.sh            (#598 — per-domain quality scorecard from build.jsonl + halt_audit)
-│   ├── generate-quality-doc-smoke-tests.sh (#598 — 6 scenarios T1–T6)
-│   ├── generate-progress.sh               (#601 — auto-generate repo-root PROGRESS.md from loop-status.json + GitHub epic issues)
-│   ├── generate-progress-smoke-tests.sh   (#601 — 6 scenarios T1–T6)
-│   ├── loop-cron-smoke-tests.sh           (#600 — YAML invariant assertions for loop-cron.yml T-CRON-1 to T-CRON-5)
-│   ├── resolve-append-only-conflict.sh   (resolve-pr-conflict — union-merge a conflicted append-only file, CHANGELOG/AUTHORS/*.jsonl)
-│   ├── resolve-append-only-conflict-smoke-tests.sh (resolve-pr-conflict — 8 scenarios T1–T8)
-│   ├── sync-living-specs.sh              (#567 — apply spec-delta.md ADDED/MODIFIED/REMOVED to docs/specs/<capability>.md)
-│   └── sync-living-specs-smoke-tests.sh  (#567 — 6 scenarios T1–T6)
-├── skills/
-│   ├── workflow-state/                   (GAP-003 / #26 — shipped)
-│   │   ├── SKILL.md
-│   │   └── references/
-│   │       ├── workflow-state.schema.json
-│   │       └── smoke-tests.sh
-│   ├── kill-switch/                      (GAP-004 / #30 — shipped)
-│   │   ├── SKILL.md
-│   │   └── references/
-│   │       └── daily-budget.schema.json
-│   ├── archive-spec/SKILL.md             (#— archive completed/obsolete spec folder post-merge)
-│   ├── lesson-prune/SKILL.md             (#— operator-gated curation of .makato/memory/ JSONL stores)
-│   ├── loop/SKILL.md                     (GAP-007 / #33 — shipped)
-│   ├── promote-ready/SKILL.md            (#268 — dependency-aware Ready promotion)
-│   ├── resolve-pr-conflict/SKILL.md      (GAP-016 / #45 — shipped)
-│   └── session-status/SKILL.md           (GAP-014 / #31 — shipped)
-│   └── quality-doc/SKILL.md              (#598 — per-domain quality scorecard skill)
-├── shared/
-│   ├── workflow-state.sh                 (GAP-003 / #26 — shipped)
-│   ├── progress-comment.sh               (live issue-comment run narration)
-│   ├── progress-comment-smoke-tests.sh   (9 scenarios / 24 asserts)
-│   ├── post-halt-comment.sh              (post structured comment on needs-human-review application)
-│   ├── post-halt-comment-smoke-tests.sh  (6 scenarios T1–T6, 22 asserts)
-│   ├── worktree.sh                       (GAP-017 / #46 — shipped)
-│   └── worktree-smoke-tests.sh           (GAP-017 / #46 — shipped)
-├── workflows/
-│   └── post-merge.yml                    (GAP-012 / #35 — shipped)
-├── halt-conditions.md                    (GAP-004 / #30 — shipped)
-├── never-patterns.md                     (GAP-004 / #30 — shipped)
-├── CLAUDE.md
-├── AGENTS.md
-├── CHANGELOG.md
-└── README.md
+├── agents/       context-summariser, documentation-agent, light-planner, po-agent, task-file-scout
+├── hooks/        check-halt, clock-out, session-status (+ *-smoke-tests.sh)
+├── scripts/      loop, promote-ready, context-handoff, should-materialize-spec, validate-plan-body,
+│                 emit-reshape-request, mark-ac-checkboxes, sync-living-specs, resolve-append-only-conflict,
+│                 generate-{run,layer,progress}-report, generate-quality-doc (each with a *-smoke-tests.sh twin)
+├── skills/       workflow-state, kill-switch, loop, promote-ready, resolve-pr-conflict,
+│                 session-status, quality-doc, archive-spec, lesson-prune
+├── shared/       workflow-state.sh, progress-comment.sh, post-halt-comment.sh, worktree.sh (+ smoke-tests)
+├── workflows/    post-merge.yml
+├── halt-conditions.md, never-patterns.md
+├── CLAUDE.md, AGENTS.md, CHANGELOG.md, README.md
 ```
 
-The `skills/`, `agents/`, and `hooks/` directories contain a mix of shipped files and
-`.gitkeep` placeholders for stubs that land per their tracking issues.
+Every script ships with a `*-smoke-tests.sh` twin. Each feature traces to a GAP-/# tracking issue —
+see the per-file `## Infrastructure` contracts below and CHANGELOG for provenance. The `skills/`,
+`agents/`, and `hooks/` directories mix shipped files with `.gitkeep` stubs that land per their issues.
 
 ## --autonomous Invocation Contract
 
@@ -209,91 +147,21 @@ Skills and agents inside this plugin treat `--autonomous` as their default execu
 
 ## Infrastructure
 
-### Webhook dispatch runner contract
+Two GitHub Actions workflows drive autonomous dispatch on a **self-hosted runner labelled `makato`**
+(cloud `ubuntu-latest` is unsupported — the worktree reaper needs local disk). Both require secrets
+`ANTHROPIC_API_KEY` and `GH_TOKEN`/`MAKATO_TOKEN`, and the `claude` CLI on the runner.
 
-The `.github/workflows/webhook-dispatch.yml` workflow fires `loop.sh dispatch <N>` the moment
-`status:ready-for-dev` is applied to an issue, removing the ~300 s polling lag of `loop run`.
+- **`webhook-dispatch.yml`** — fires `loop.sh dispatch <N>` the moment `status:ready-for-dev` is
+  applied, removing the ~300 s poll lag. Concurrency group per issue (`cancel-in-progress: false`).
+- **`loop-cron.yml`** — fires `loop.sh run --once` every 10 min as a "loop survives machine-off"
+  fallback. Concurrency group `loop-cron`.
 
-**Required runner label:** `makato`
-
-The job must run on a self-hosted runner registered with the `makato` label. That runner must
-have the following available:
-
-- The `claude` CLI binary (same binary `loop run` uses for scheduled dispatch)
-- A checked-out copy of this repository (supplied by the `actions/checkout` step in the workflow)
-- Network access to GitHub and Anthropic APIs
-
-**Required secrets:**
-
-| Secret | Purpose |
-|--------|---------|
-| `ANTHROPIC_API_KEY` | Claude API key — forwarded to the `claude` subprocess |
-| `GH_TOKEN` or `MAKATO_TOKEN` | GitHub token for `gh` CLI calls inside `loop.sh` and the PO-agent |
-
-**Fallback guarantee:** the `loop run` polling path in `loop.sh` is unchanged and continues to
-serve as a fallback when the webhook runner is unavailable, the workflow is skipped, or a
-delivery is dropped by GitHub. The two dispatch paths are additive — neither blocks the other.
-
-**Idempotency guarantee:** the `_within_dispatch_guard` inside `loop.sh cmd_dispatch` prevents
-double-dispatch even when both the webhook and the poller fire within the guard window. The
-concurrency group `webhook-dispatch-${{ github.event.issue.number }}` with
-`cancel-in-progress: false` additionally serialises burst label events for the same issue on
-the GitHub Actions side, so at most one `dispatch` call is in flight at a time per issue.
-
-**Dispatch gate:** `MAKATO_LOOP_GATE_DISABLE` is intentionally absent from the workflow
-environment. The existing `_pre_dispatch_plan_guard` inside `cmd_dispatch` runs on every
-webhook-triggered invocation — no bypass.
-
-### Scheduled loop runner contract
-
-The `.github/workflows/loop-cron.yml` workflow fires `loop.sh run --once` on the same
-self-hosted `makato` runner every 10 minutes, providing a "loop survives machine-off" fallback
-when the operator's local terminal is not running the polling loop.
-
-**Runner requirement:** `[self-hosted, makato]` — the same runner label as `webhook-dispatch`.
-
-Cloud `ubuntu-latest` runners are explicitly unsupported: the merged/stale-worktree reaper
-requires local disk access to clean up worktrees left by previous PO-agent runs. If no
-self-hosted runner with the `makato` label is registered and online, the cron workflow will
-queue but not execute. In that situation, the local `loop run` terminal invocation remains the
-fallback — the two paths are additive.
-
-**Cross-machine double-dispatch guarantee:**
-
-`loop.sh run --once` uses `_within_dispatch_guard` combined with a synchronous board CAS claim
-(`MAKATO_LOOP_CLAIM_ON_DISPATCH=1`). When a cloud cron run and a local `loop run` both see the
-same Ready item at the same time, the board CAS claim — a `gh project item-edit` Status move to
-"In Progress" — is the cross-machine mutex. Only one caller wins the CAS; the other sees the
-item is no longer Ready and skips it.
-
-The `in_flight_issues` file-scan guard inside `loop.sh` is a same-machine guard only: it
-protects against two invocations on the same runner sharing the same filesystem, but it cannot
-see the other machine's in-flight state. Across machines, the board CAS claim is authoritative.
-
-**Concurrency group:** the cron job uses `group: loop-cron` with `cancel-in-progress: false`.
-This prevents two cron ticks from running simultaneously on the same runner — a second tick
-queues behind the first rather than being dropped. Each tick runs at most one `loop run --once`
-invocation end-to-end before the slot is released.
-
-**Required secrets:**
-
-| Secret | Purpose |
-|--------|---------|
-| `ANTHROPIC_API_KEY` | Claude API key — forwarded to the `claude` subprocess |
-| `GH_TOKEN` or `MAKATO_TOKEN` | GitHub token for `gh` CLI calls inside `loop.sh` and the PO-agent |
-
-**Interaction with webhook-dispatch:** the two dispatch paths are additive. The cron workflow is
-the "loop survives machine-off" fallback; the webhook is the low-latency path that fires the
-moment `status:ready-for-dev` is applied. Neither blocks the other. Both are guarded by the
-board CAS claim, so a Ready item processed by one path is invisible to the other by the time
-it polls.
-
-**CI smoke tests:** `plugins/makato-orchestrate/scripts/loop-cron-smoke-tests.sh` asserts the
-five YAML invariants that make `loop-cron.yml` safe for autonomous operation (T-CRON-1 to
-T-CRON-5): `schedule:` trigger present, `self-hosted` runner without `ubuntu-latest`,
-`MAKATO_HEADLESS: "1"` env guard, `cancel-in-progress: false` concurrency guard, and
-`run --once` invocation. Run from the repo root with no arguments; exits non-zero on any
-failure.
+The two paths are **additive** — neither blocks the other. Same-machine double-dispatch is prevented
+by `_within_dispatch_guard` + the `in_flight_issues` file scan; **cross-machine** dispatch is
+serialised by a board CAS claim (`MAKATO_LOOP_CLAIM_ON_DISPATCH=1`, a `gh project item-edit` Status
+move to In Progress — the authoritative mutex). `_pre_dispatch_plan_guard` runs on every invocation
+(no `MAKATO_LOOP_GATE_DISABLE` bypass). `loop-cron-smoke-tests.sh` asserts the five YAML invariants
+(T-CRON-1..5). The workflow files are the source of truth for exact wiring.
 
 ## PR Checklist
 

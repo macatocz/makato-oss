@@ -47,6 +47,29 @@ jobs:
             fi
           done
 
+      - name: Check plugin structure (AGENTS.md ≤200 lines, required files)
+        run: |
+          rc=0
+          for plugin_dir in plugins/*/; do
+            if [ -d "$plugin_dir" ]; then
+              ./scripts/check-plugin-structure.sh "$plugin_dir" || rc=1
+            fi
+          done
+          exit $rc
+
+      - name: Check skill self-containment (advisory — no ../ escaping paths)
+        continue-on-error: true  # check-self-contained.sh over-flags URL examples
+                                 # (https://…/…) and legitimate ../../shared/ links;
+                                 # run as warn-only until the matcher is tightened.
+        run: |
+          rc=0
+          for skill_dir in plugins/*/skills/*/; do
+            if [ -d "$skill_dir" ]; then
+              ./scripts/check-self-contained.sh "$skill_dir" || rc=1
+            fi
+          done
+          exit $rc
+
       - name: plan-tier classifier smoke tests (#211)
         run: ./.github/scripts/classify-plan-tier-smoke-tests.sh
 

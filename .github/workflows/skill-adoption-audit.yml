@@ -1,4 +1,4 @@
-name: Skill Adoption Audit
+name: Skill Adoption Compliance Audit
 
 on:
   workflow_dispatch:
@@ -11,6 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'  # scripts require >=3.14 (see pyproject.toml)
 
       - name: Run Skill Adoption Audit
         run: python3 scripts/skill_adoption_audit.py

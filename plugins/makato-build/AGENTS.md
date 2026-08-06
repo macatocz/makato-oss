@@ -95,49 +95,22 @@ The `coder` agent runs with `permissionMode: bypassPermissions`. This is the onl
 
 ## File Structure
 
-```
+```text
 makato-build/
 ├── .claude-plugin/plugin.json
-├── agents/
-│   ├── coder.md                # TDD inner-loop implementer (bypassPermissions)
-│   ├── diff-reviewer.md        # Adversarial review of branch diff vs acceptance criteria
-│   ├── gate-scout.md           # Discover build/lint/unit/integration/coverage commands
-│   ├── knowledge-scout.md      # Surface project Hard Constraints + Standards via inject-context
-│   ├── plan-analyst.md         # Read refined plan → task list, tracer flag, glossary constraints
-│   ├── RETURN-CONTRACT.md      # R1 envelope spec shared by all build agents
-│   └── sensor-fixer.md         # Outer loop that dispatches build-resolve-finding per sensor finding
-├── hooks/
-│   └── (hooks for pre-commit, testing, etc.)
-├── skills/
-│   ├── build-start/                # Entry point
-│   ├── build-refine/               # Story → implementation plan
-│   ├── build-grill-with-docs/      # Align plan vocabulary to codebase
-│   ├── build-implement-tdd/        # TDD inner loop
-│   ├── build-implement-goal/       # Goal-driven inner loop for UI/config
-│   ├── build-simplify/             # Trim incidental complexity
-│   ├── build-verify/               # Full quality-gate pipeline
-│   ├── build-sensors/              # Pre-commit findings loop
-│   ├── build-resolve-finding/      # Per-finding decision tree (autofix / skill / safe-auto / carry-over)
-│   ├── build-fix-types/            # Per-finding pyright/mypy repair
-│   ├── build-fix-security/         # Per-finding bandit/safety/pip-audit repair
-│   ├── build-push-to-git/          # Atomic commits + push
-│   ├── build-create-pr/            # PR open + description
-│   ├── build-address-pr-comments/  # Triage + fix review comments
-│   ├── definition-of-done/         # Versioned DoD shared across the pipeline
-│   └── inject-context/             # Resolve changed files → context-bundle rule files
-├── shared/
-│   ├── build-log.sh                # JSONL audit-log helper (used suite-wide)
-│   ├── context-bundles.yml         # Bundle registry consumed by inject-context
-│   ├── finding-routes.json         # Sensor finding → action routing
-│   ├── inject_context.py / test_inject_context.py
-│   ├── parse-sarif.py
-│   └── (smoke-test scripts for PR comments, worktree path propagation)
-├── CLAUDE.md
-├── AGENTS.md
-├── AUTONOMOUS-MODE.md              # Conventions for --autonomous propagation
-├── CHANGELOG.md
-└── README.md
+├── agents/    coder, diff-reviewer, gate-scout, knowledge-scout, plan-analyst, sensor-fixer
+│              (+ RETURN-CONTRACT.md — R1 envelope spec shared by all build agents)
+├── hooks/     pre-commit / testing hooks
+├── skills/    build-start, build-refine, build-grill-with-docs, build-implement-{tdd,goal},
+│              build-simplify, build-verify, build-sensors, build-resolve-finding,
+│              build-fix-{types,security}, build-push-to-git, build-create-pr,
+│              build-address-pr-comments, definition-of-done, inject-context
+├── shared/    build-log.sh (suite-wide JSONL helper), context-bundles.yml, finding-routes.json,
+│              inject_context.py (+ tests), parse-sarif.py, smoke-test scripts
+├── CLAUDE.md, AGENTS.md, AUTONOMOUS-MODE.md, CHANGELOG.md, README.md
 ```
+
+`coder` runs at `bypassPermissions`. See each skill's SKILL.md for its step contract.
 
 ## Versioning
 
@@ -153,122 +126,52 @@ makato-build/
 > `crafting-effective-readmes` / `writing-clearly-and-concisely`. See repo-root `AGENTS.md` § *Documentation skills*.
 
 `build-refine`, `build-implement-tdd`, `build-implement-goal`, `sensor-fixer`, and `coder`
-implement the downstream half of the agent-skill-routing propagation chain:
+implement the downstream half of the agent-skill-routing chain. `build-refine` copies a
+sub-task's `recommended_skills` from `stories.json` (decompose v1.2.0+) verbatim into the plan
+task; the implement skills forward it as `RECOMMENDED_SKILLS` in the coder/​sensor-fixer dispatch
+bundle. The coder invokes each listed skill sequentially before RED/BUILD as advisory context
+(weight = `SCOUT_SUMMARY`; never overrides Hard Constraints; missing skill → warn+skip, never
+HALT). **Omit the field entirely when absent — never write an empty array.**
 
-### build-refine pass-through
-
-When reading a `stories.json` produced by `decompose` v1.2.0+, `build-refine` checks each
-sub-task for a `recommended_skills` field. If present and non-empty, it copies the value
-verbatim into the corresponding plan task as `recommended_skills`. The field is then
-available to `build-implement-tdd` and `build-implement-goal` when they dispatch the coder.
-**Omit when absent** — do NOT write an empty array.
-
-### build-implement-tdd / build-implement-goal coder dispatch
-
-Both implementation skills check the task's `recommended_skills` field from `plan.md` before
-each coder dispatch. If present and non-empty, `RECOMMENDED_SKILLS` is included in the coder
-dispatch bundle. If absent — the field is omitted entirely from the bundle.
-
-### coder skill consultation prepend (§ *Skill consultation prepend*)
-
-When `RECOMMENDED_SKILLS` is present and non-empty in the coder dispatch bundle:
-
-1. Invoke each listed skill **sequentially** before Phase 1 RED (TDD) or Phase BUILD (goal).
-2. Treat each skill's output as advisory context — weight equivalent to `SCOUT_SUMMARY`.
-3. A recommended skill never overrides `PLAN_CONTEXT.Hard Constraints`.
-4. If a skill path does not exist: log a warning and skip — do NOT HALT.
-
-When `RECOMMENDED_SKILLS` is absent or empty: skip this section and proceed directly.
-
-### sensor-fixer pass-through
-
-`sensor-fixer` also accepts `RECOMMENDED_SKILLS` from its dispatch bundle and forwards it
-to each `build-resolve-finding` call so repair skills can benefit from the same domain context.
-
-### Skill-passport writer + advisory gate (agent-skill-routing F3 / #147)
-
-Skill-routed agents write a **passport node** to `specs/<key>-*/skill-passport.json` when they
-complete a skill invocation, gated by `should_emit_f4_log` in
-`plugins/makato-build/shared/skill_passport.py`. Each passport node records the skill ID,
-invocation timestamp, and parent agent, forming a tree that `compute_rollup` flattens into
-the set `skills_invoked_transitively`.
-
-After all quality gates pass, `build-verify` Step 9 reads the passport and compares
-`skills_invoked_transitively` against `skills_expected` (resolved from the final git diff via
-`skill-bundles.yml` / `inject-skills`). When a required skill was not invoked, Step 9 emits
-one advisory warning per missing skill to `build.jsonl`. **The gate is advisory only — it
-never fails the build (NFR-R2).**
-
-Absent passport (session predates F3 or agent opted out of F4 telemetry) → "skill usage
-tracking skipped" note to `build.jsonl`, build proceeds.
-
-Detected concurrent-write race (malformed JSON, missing `schema_version`, or last-modified
-collision) → warning to `build.jsonl`, diff skipped — no passport corruption (v1
-single-session fallback).
+**Skill-passport writer + advisory gate (F3 / #147):** routed agents write a passport node to
+`specs/<key>-*/skill-passport.json` (gated by `should_emit_f4_log` in `shared/skill_passport.py`).
+`build-verify` Step 9 compares `skills_invoked_transitively` against `skills_expected` (from the
+final diff via `skill-bundles.yml`) and emits one advisory `build.jsonl` warning per missing skill.
+**Advisory only — never fails the build (NFR-R2).** Absent/malformed passport → note + proceed.
 
 ## TEST_ORACLE propagation chain (acceptanceTestCases → coder RED)
 
-`build-refine`, `plan-analyst`, `build-implement-tdd`, and `coder` implement a second
-optional propagation chain that gives the makato-plan `acceptanceTestCases[]` field a
-downstream consumer. It is structurally parallel to the `recommended_skills[]` chain above.
+A second optional chain, structurally parallel to `recommended_skills[]`, gives makato-plan's
+`acceptanceTestCases[]` a downstream consumer. The two acceptance fields play distinct roles:
+`successScenarios[]` (PO-authored) = **what to build** (build-refine numbers them AC-1, AC-2… and
+drives decomposition); `acceptanceTestCases[]` (QA-refined) = **how to verify** = the `TEST_ORACLE`.
 
-The two acceptance fields on a `stories.json` story play distinct roles:
+Chain: **build-refine** copies a non-empty `acceptanceTestCases[]` verbatim into a
+`## Acceptance Test Oracle` section of `plan.md` (each `(maps to AC-N)`; no new AC numbers) →
+**plan-analyst** returns that section verbatim (sole reader of `plan.md`) → **build-implement-tdd**
+forwards it as `TEST_ORACLE` in the coder bundle → **coder** filters by the task's `**Satisfies:**`
+AC links and implements matching scenarios as RED tests (coverage floor, not ceiling).
 
-- `description.successScenarios[]` (PO/decompose-authored) → **what to build** → `build-refine`
-  numbers them AC-1, AC-2, … and drives task decomposition + the AC coverage table.
-- `description.acceptanceTestCases[]` (QA-refined by `create-acceptance-tests`) → **how to
-  verify** → the `TEST_ORACLE`.
-
-Chain:
-
-1. **build-refine** (Step 4 / Step 10): when the story carries a non-empty
-   `acceptanceTestCases[]`, copy the scenarios verbatim into a `## Acceptance Test Oracle`
-   section of `plan.md`, each annotated `(maps to AC-N)`. Omit the section entirely when the
-   field is absent or empty. Does NOT create new AC numbers.
-2. **plan-analyst**: reads the `## Acceptance Test Oracle` section from `plan.md` and returns
-   it verbatim in the Plan Analysis prose block. It is the sole reader of `plan.md` —
-   `build-implement-tdd` never re-reads the file.
-3. **build-implement-tdd** (Step 6 coder dispatch): forwards the section verbatim as
-   `TEST_ORACLE` in the coder dispatch bundle when present; omits it when absent — never an
-   empty value. Sourced from the Plan Analysis, not a re-read.
-4. **coder** (§ *Test oracle*, Phase 1 RED): filters the oracle by the task's `**Satisfies:**`
-   AC links and implements the matching scenarios as its RED tests (given → arrange, when →
-   act, then/and → assert). The oracle is a coverage floor, not a ceiling.
-
-**Contract rules:**
-
-- Optional end-to-end: absent/empty `acceptanceTestCases[]` → no oracle section → every stage
-  behaves byte-for-byte as before. All existing `stories.json` (empty `[]`) are unaffected.
-- Advisory: `TEST_ORACLE` never overrides `PLAN_CONTEXT.Hard Constraints` or `Standards` —
-  same weight as `SCOUT_SUMMARY`.
-- **TDD-only**: this chain touches only `build-implement-tdd` and the `coder` RED phase.
-  `build-implement-goal` is intentionally not part of it (goal-mode writes tests after build).
+**Contract:** optional end-to-end (absent → byte-for-byte prior behaviour); advisory (never
+overrides Hard Constraints); **TDD-only** — `build-implement-goal` is excluded (goal-mode writes
+tests after build).
 
 ## ac_verdicts propagation chain (diff-reviewer → PR body → issue checkboxes)
 
-A third optional chain — parallel to `recommended_skills[]` and `TEST_ORACLE` above —
-carries a per-acceptance-criterion **verified/gap verdict** from the adversarial review to
-the post-merge point where the linked Issue's AC checkboxes are flipped `[x]`. Its consumer
-lives in the sibling `makato-orchestrate` plugin (`documentation-agent`). A checked box then
-means *"the reviewer confirmed code + test coverage"*, not merely *"the PR merged"*.
+A third optional chain carries a per-AC **verified/gap verdict** from adversarial review to the
+post-merge point where the linked Issue's AC checkboxes flip `[x]` — so a checked box means
+*"reviewer confirmed code + test coverage"*, not merely *"PR merged"*. Its consumer lives in the
+sibling `makato-orchestrate` plugin (`documentation-agent`).
 
-1. **diff-reviewer** (v1.1.0+, Step 3.5): emit one `{ac_id, ac_text, verified, evidence, reason}`
-   per AC in `PLAN_CONTEXT`; `verified: true` needs BOTH code AND a test exercising it.
-   Returned in R1 `data.ac_verdicts[]`.
-2. **build-review** (Step 4a): copies `ac_verdicts[]` verbatim into a `step:"ac-verification"`
-   `build.jsonl` entry on the final clean pass (the only durable local record —
-   `workflow-state.json` is gitignored).
-3. **build-create-pr** (Step 3): renders the last entry into a `## AC Verification` PR-body
-   block (fenced JSON behind a `makato:ac-verdicts` marker) — the sole cross-environment
-   transport to the GHA runner. Omitted when no entry exists.
-4. **documentation-agent** (`makato-orchestrate`, Step 4a): post-merge, matches each verified
-   verdict to an Issue checkbox and flips `- [ ]` → `- [x]` (granular; all-or-nothing fallback;
-   marks nothing when the block is absent).
+Chain: **diff-reviewer** (v1.1.0+) emits one `{ac_id, ac_text, verified, evidence, reason}` per AC
+(`verified:true` needs BOTH code AND a test) in R1 `data.ac_verdicts[]` → **build-review** copies it
+into a `step:"ac-verification"` `build.jsonl` entry (the only durable local record) →
+**build-create-pr** renders it into a `## AC Verification` PR-body block behind a `makato:ac-verdicts`
+marker (sole transport to the GHA runner) → **documentation-agent** post-merge flips matched verified
+boxes `- [ ]` → `- [x]`.
 
-**Contract:** optional end-to-end (no verdicts → every stage behaves as before);
-transport-only downstream (`build-review` / `build-create-pr` never re-judge — diff-reviewer
-is the sole judge, documentation-agent the sole checkbox writer); forward-only (never unchecks
-a box; unverified/unmatched ACs stay `- [ ]`).
+**Contract:** optional end-to-end; transport-only downstream (diff-reviewer is sole judge,
+documentation-agent sole checkbox writer); forward-only (never unchecks; unverified ACs stay `- [ ]`).
 
 ## PR Checklist
 

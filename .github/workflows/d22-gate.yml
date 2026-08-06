@@ -12,6 +12,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'  # scripts require >=3.14 (see pyproject.toml)
+
       - name: Run D22 compliance report
         run: python3 scripts/d22_compliance_report.py
 

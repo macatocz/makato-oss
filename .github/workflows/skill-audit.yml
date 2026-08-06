@@ -1,4 +1,4 @@
-name: Skill Adoption Audit
+name: Skill Adoption Dashboard
 
 on:
   schedule:
@@ -16,6 +16,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'  # scripts require >=3.14 (see pyproject.toml)
 
       - name: Generate skill adoption dashboard
         run: python3 scripts/audit_skill_adoption.py
