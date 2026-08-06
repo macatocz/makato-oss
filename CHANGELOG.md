@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.141.3](https://github.com/macatocz/makato/compare/v0.141.2...v0.141.3) (2026-08-06)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** don't false-HALT-012 when review is not required ([#726](https://github.com/macatocz/makato/issues/726)) ([6550844](https://github.com/macatocz/makato/commit/6550844cc9fec952c0171142cb7d367ea6552d06))
+
 ## [0.141.2](https://github.com/macatocz/makato/compare/v0.141.1...v0.141.2) (2026-08-05)
 
 
