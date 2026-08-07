@@ -8,15 +8,15 @@ description: >-
   or constructor signatures; or debugging library-specific errors. Triggers:
   "library docs", "API reference", "how do I use X", "latest version",
   "check docs for", "current syntax", "framework docs", "SDK reference".
-version: "1.2.0"
+version: "1.2.1"
 metadata:
   Authors: makato-doc contributors
-  last_updated: "2026-08-05"
+  last_updated: "2026-08-07"
 argument-hint: "<library-name> <topic>"
 mcp_server: plugin:context7:context7
 allowed-tools:
-  - mcp__plugin_context7_context7__resolve-library-id
-  - mcp__plugin_context7_context7__query-docs
+  - mcp__plugin_general_context7__resolve-library-id
+  - mcp__plugin_general_context7__query-docs
 ---
 
 # Context7
