@@ -6,7 +6,7 @@
 - **Suite infrastructure (issue filing, plugin discovery, codebase navigation) belongs in `makato-core`, not here.** Do not duplicate those utilities.
 - **Workflow logic and domain-specific skills belong in their respective plugins.** makato-doc handles documentation only.
 - **Documentation written must not contradict the source of truth** (`AGENTS.md`, skill SKILL.md frontmatter, `CHANGELOG.md`). When in doubt, read before writing.
-- **Skills must emit JSONL audit entries** — session start, each major step, session end.
+- **Skills that run as standalone build sessions must emit JSONL audit entries** — session start, each major step, session end. Doc-utility skills (context7, markdown, crafting-effective-readmes, writing-clearly-and-concisely) are invoked from within makato-build or makato-change sessions; the invoking skill's `build.jsonl` already covers the audit trail for those invocations. The self-emit requirement applies to any future doc skill that runs as a standalone build session (i.e. has its own `session start`/`session end` lifecycle rather than being called as a sub-step).
 
 ## Goal
 
