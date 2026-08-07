@@ -1,0 +1,12 @@
+{
+  "schema_version": "2",
+  "seeded_at": "2026-08-06T07:40:54.480Z",
+  "seeded_by": "seed-issue",
+  "skill_version": "1.3.0",
+  "issue_number": 723,
+  "issue_title": "[makato-orchestrate] feat: re-verify promote-ready after reconciler --project-id + api_error board-reset fixes",
+  "slug": "723-makato-orchestrate-feat-re-verify-promot",
+  "repo": "macatocz/makato",
+  "type": "new-work",
+  "spec_tier": "plan-only"
+}

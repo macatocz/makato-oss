@@ -1287,6 +1287,17 @@ _post_halt_comment() {
   local repo="${3:-}"
   shift 3 2>/dev/null || true
 
+  # Derive repo when the caller passed an empty arg. Every call site passes
+  # "${MAKATO_LOOP_DISPATCH_REPO:-}", which is empty in a bare loop process
+  # (only GH_HOST is exported). The helper HARD-fails on an empty REPO (exit 1)
+  # while the paired `gh issue edit --add-label` derives its repo from the cwd
+  # git remote — so the label landed but the comment silently no-op'd every
+  # time. Reuse _derive_reap_repo (env override → git remote) to close that
+  # asymmetry once for all ~15 call sites (#744 fixed only the script path).
+  if [[ -z "$repo" ]]; then
+    repo="$(_derive_reap_repo 2>/dev/null || true)"
+  fi
+
   # Resolve the helper next to this script first (plugin cache / marketplace —
   # where it always ships), falling back to the consumer repo-mirror. The prior
   # $REPO_ROOT-only path silently no-op'd in consumer repos (e.g. sagibeast),
@@ -4970,6 +4981,9 @@ cmd_dispatch() {
     if [[ -n "$gate_merged_pr" ]]; then
       echo "loop: gate — #${issue} branch '${branch}' already merged (PR #${gate_merged_pr}); skip dispatch + stamp needs-human-review" >&2
       gh issue edit "$issue" --repo "$repo" --add-label needs-human-review 2>/dev/null || true
+      _post_halt_comment "HALT-014" "$issue" "$repo" \
+        --reason "Branch '${branch}' was already merged (PR #${gate_merged_pr}) but the issue is still open — dispatch was skipped to avoid duplicate work." \
+        --what-to-fix "Verify PR #${gate_merged_pr} delivered this issue; if so close the issue and move the board card to Done. Otherwise open a fresh branch. Then remove needs-human-review." || true
       _increment_gate_skips
       _patch_status '.active_workflow' 'null'
       return 0
