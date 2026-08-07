@@ -181,6 +181,12 @@ See `agents/po-agent.md` § *Progress comment* for the per-skill agent/goal map.
 - **skills/workflow-state/references/smoke-tests.sh** — Smoke tests for workflow-state.sh covering all eight subcommands, duplicate-init refusal, invalid-write halts, lessons schema validation, and recall/summarise operations.
 - **skills/kill-switch/references/daily-budget.schema.json** — JSON Schema for the per-day token ledger at .claude/state/daily-budget-{YYYY-MM-DD}.json — tracks consumed_tokens, runs[], ceiling_tokens, and updated_at.
 
+## Integration Tests
+
+| Test | What it covers |
+|------|---------------|
+| [tests/test_change_memory_recall_integration.sh](tests/test_change_memory_recall_integration.sh) | End-to-end write → promote → recall pipeline for the change-memory contract: write-lessons.sh appends a record, promote-lessons.sh lifts scope:generalizable records into the correct tier store (semantic vs. procedural), and workflow-state.sh recall-lessons surfaces the promoted record. Also asserts scope:local records are not promoted and that the change-lane key shape (`<slug>-<N>`) is preserved through the pipeline. Cross-plugin seam between makato-build (write-lessons.sh) and makato-orchestrate (promote-lessons.sh, workflow-state.sh). Contract documented in [docs/contracts/change-memory-recall-contract.md](../../../../docs/contracts/change-memory-recall-contract.md). |
+
 ## Notable Governance Files
 
 | File | Purpose |
