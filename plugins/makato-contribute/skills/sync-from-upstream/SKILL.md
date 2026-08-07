@@ -165,17 +165,11 @@ For each approved file:
 
 If writing an **update** (not a new file): show the diff summary to the user before overwriting. Only overwrite after per-file confirmation.
 
-#### Step 8: Update plugin.json Skills Array
+#### Step 8: Verify plugin.json Fields
 
-For any plugin where new skills were added, check `.claude-plugin/plugin.json` and add the new skill path to the `skills` array if not already present:
+For any plugin where new skills were added, verify that `.claude-plugin/plugin.json` has the correct `name`, `description`, and `author` fields per `@references/naming-map.md`.
 
-```json
-{
-  "skills": [
-    "skills/existing-skill",
-    "skills/new-skill"
-  ]
-}
+Do NOT add a `skills` array — Claude Code discovers skills from the directory structure automatically. No real `plugin.json` in the makato repo contains a `skills` field; adding one would introduce a stale field that `plugin-json-template.md` explicitly forbids.
 ```
 
 #### Step 9: Post-Migration Validation
