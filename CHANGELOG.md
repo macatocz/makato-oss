@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.143.0](https://github.com/macatocz/makato/compare/v0.142.4...v0.143.0) (2026-08-07)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** specify + verify change-memory recall contract ([#720](https://github.com/macatocz/makato/issues/720)) ([e8039cb](https://github.com/macatocz/makato/commit/e8039cb649e5cf56af0d537f24d322b22a6681a4))
+
 ## [0.142.4](https://github.com/macatocz/makato/compare/v0.142.3...v0.142.4) (2026-08-07)
 
 
