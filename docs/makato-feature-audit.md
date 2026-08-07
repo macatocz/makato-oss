@@ -1288,8 +1288,8 @@ for an end-to-end integration test.
 ```text
 TOP 5 CROSS-PLUGIN INTEGRATION SEAMS ===
 
-1. makato-build write-lessons.sh → makato-orchestrate promote-lessons.sh → lesson store (semantic routing gap)
-   build-side writes JSONL lessons; orchestrate-side promote-lessons.sh is supposed to route tier:semantic entries to semantic.jsonl but does not (open issue #494). Neither plugin's standalone agent exercises the full write→promote→route chain. An end-to-end test would need to stage a lesson with tier:semantic from a build session and verify it lands in the correct destination file, which no single-plugin audit can do.
+1. makato-build write-lessons.sh → makato-orchestrate promote-lessons.sh → lesson store (semantic routing — gap closed)
+   build-side writes JSONL lessons; orchestrate-side promote-lessons.sh routes tier:semantic entries to semantic.jsonl (line 302: `resolved_tier = "semantic" if candidate.get("tier") == "semantic" else "procedural"`). The routing gap that was open issue #494 is now closed. The full write→promote→route chain is covered by tests/integration/write-promote-lessons-e2e.sh (added in #716): Scenario A stages a tier:semantic lesson via write-lessons.sh and verifies it lands in semantic.jsonl; Scenario B guards the procedural-default regression.
 
 2. makato-orchestrate loop.sh → po-agent → makato-change analyze/design/execute skills
    The AUTONOMOUS-MODE.md contract governs how po-agent dispatches change-lane skills. The full path is: loop.sh derives KEY → finds specs folder → po-agent reads workflow-state.json → dispatches analyze/design/execute in sequence. Bugs in KEY derivation (seam #1 above in the loop) corrupt the specs folder lookup before change skills are ever reached. No single-plugin test covers loop KEY → change skill dispatch → workflow-state advancement as an integrated chain.
@@ -1316,6 +1316,8 @@ SUSPICIOUS "WORKS-AS-EXPECTED" CLAIMS ===
 
 2. makato-orchestrate [script] promote-lessons.sh — works-as-expected
    Memory note project_494_semantic_routing.md documents that promote-lessons.sh does not route tier:semantic lessons to semantic.jsonl — an open known gap filed as issue #494. The script does what it does, but a stated responsibility is unimplemented. This is at best partial.
+
+   **Re-verification result (#722, 2026-08-07):** ✅ confirmed. The documented failure mode (tier:semantic not routed to semantic.jsonl) was a real gap at issue #494 creation time but was subsequently implemented. Line 302 of promote-lessons.sh: `resolved_tier = "semantic" if candidate.get("tier") == "semantic" else "procedural"`. All 10 smoke tests pass (T9: tier:semantic → semantic.jsonl, T10: tier:procedural → procedural.jsonl). Cross-plugin e2e Scenarios A and B pass (tests/integration/write-promote-lessons-e2e.sh). No new regression guard required. ✅ status stands.
 
 3. makato-orchestrate [skill] promote-ready — works-as-expected
    Two commits in the recent log (9aeba0e, cfb1605) patch reconciler behavior ("reconcilers use --project-id in gh item-edit") and the commit just before (131dd89) fixes "reset board card to Ready after api_error dispatch." All three touch promote-ready's codepath. Marking stable while the fix branch is still open and reconciler behavior is being patched is premature.
