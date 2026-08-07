@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.142.2](https://github.com/macatocz/makato/compare/v0.142.1...v0.142.2) (2026-08-07)
+
+
+### 🐛 Bug Fixes
+
+* **makato-contribute:** correct plugin-creator Step 5 preview and default author ([bb2e950](https://github.com/macatocz/makato/commit/bb2e950e529485ac270c1882b4782bd3b7848f86))
+* **makato-contribute:** enforce skill-creator Step 15 persist-plan via checklist ([e98cbf9](https://github.com/macatocz/makato/commit/e98cbf952bcdea58f143003b9aef2c9a5c479194))
+* **makato-contribute:** remove stale skills-array instruction from sync-from-upstream Step 8 ([f89fe02](https://github.com/macatocz/makato/commit/f89fe02a9df3f3cd767c711798da02f8d983b239))
+* **makato-contribute:** replace contains with task_contains in contribute-plugin-creation bundle ([ae98c74](https://github.com/macatocz/makato/commit/ae98c74375d755f1e02d40755a2152e2458282e4))
+* **makato-contribute:** resolve 4 feature-audit gaps ([#715](https://github.com/macatocz/makato/issues/715)) ([32ad9cd](https://github.com/macatocz/makato/commit/32ad9cd040525661bf1a6838d80a9813068a6e09))
+* **makato-contribute:** resolve 4 feature-audit gaps ([#715](https://github.com/macatocz/makato/issues/715)) ([32ad9cd](https://github.com/macatocz/makato/commit/32ad9cd040525661bf1a6838d80a9813068a6e09))
+
 ## [0.142.1](https://github.com/macatocz/makato/compare/v0.142.0...v0.142.1) (2026-08-07)
 
 
