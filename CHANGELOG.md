@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.142.3](https://github.com/macatocz/makato/compare/v0.142.2...v0.142.3) (2026-08-07)
+
+
+### 🤖 CI
+
+* **makato-orchestrate:** wire loop-change-dispatch integration tests into validate.yml ([#717](https://github.com/macatocz/makato/issues/717)) ([685ffdd](https://github.com/macatocz/makato/commit/685ffdd90877abe98a2c91a1d1f6ffdeb321cf67))
+
 ## [0.142.2](https://github.com/macatocz/makato/compare/v0.142.1...v0.142.2) (2026-08-07)
 
 
