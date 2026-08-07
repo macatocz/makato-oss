@@ -20,14 +20,17 @@ bundles:
       - makato-skill-creator
 
   # Triggered when working on plugin scaffold files that suggest contributor tooling.
-  # Literal segments: plugins/ → specificity = 1; contains filter keeps it precise.
+  # Literal segments: plugins/ → specificity = 1; task_contains filter routes on
+  # task-text intent keywords so the bundle fires for green-field plugin-creation
+  # tasks where no JSON file body contains these strings as content.
   - name: contribute-plugin-creation
     globs:
       - "plugins/**/*.json"
-    contains:
-      - "plugin.json"
-      - "marketplace.json"
-      - ".claude-plugin"
+    task_contains:
+      - "new plugin"
+      - "scaffold plugin"
+      - "create plugin"
+      - "marketplace"
     skills:
       - makato-plugin-creator
       - makato-skill-creator
