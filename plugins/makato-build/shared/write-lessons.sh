@@ -25,10 +25,29 @@
 #   text   lesson text (required, quoted)
 #   tags   optional comma-separated list (default: empty array)
 #
-# The writer STAMPS tier verbatim but does NOT route by tier. Routing a
-# tier:semantic record into .makato/memory/semantic.jsonl is the promoter's job
-# and is tracked separately (#494); until then a semantic record is still
-# promoted by S2 but mis-tiered as procedural (no data loss).
+# The writer STAMPS tier verbatim but does NOT route by tier. Routing is the
+# promoter's job (promote-lessons.sh). As of #494, semantic routing is
+# implemented: tier:semantic records land in .makato/memory/semantic.jsonl and
+# tier:procedural (or absent) records land in .makato/memory/procedural.jsonl.
+#
+# Shared JSONL record contract at the write-lessons → promote-lessons seam:
+#
+#   Field   Type    Required  Description
+#   ------  ------  --------  --------------------------------------------------
+#   ts      string  yes       ISO-8601 timestamp (written by this script)
+#   tier    string  yes       "procedural" | "semantic" — stamped verbatim from $2
+#   scope   string  yes       "generalizable" | "local" — stamped verbatim from $3
+#   text    string  yes       lesson/fact body (written as `text` and `description`)
+#   tags    array   no        JSON array derived from comma-split $5 (default: [])
+#   key     string  yes       story key — identifies the source spec folder
+#   repo    string  yes       "owner/repo" slug from git remote origin
+#
+#   Routing promise (enforced by promote-lessons.sh):
+#     scope==generalizable AND tier==semantic    → .makato/memory/semantic.jsonl
+#     scope==generalizable AND tier==procedural  → .makato/memory/procedural.jsonl
+#     scope==local                               → never promoted (per-issue only)
+#
+# End-to-end integration test: tests/integration/write-promote-lessons-e2e.sh
 #
 # Exit codes:
 #   0   record appended
