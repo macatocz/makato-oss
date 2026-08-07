@@ -17,6 +17,26 @@
 # an existing record with a matching key has its occurrences bumped; new records
 # are appended with occurrences=1.
 #
+# Shared JSONL record contract at the write-lessons → promote-lessons seam:
+#
+#   Field   Type    Required  Description
+#   ------  ------  --------  --------------------------------------------------
+#   ts      string  yes       ISO-8601 timestamp (written by write-lessons.sh)
+#   tier    string  yes       "procedural" | "semantic"
+#   scope   string  yes       "generalizable" | "local"
+#   text    string  yes       lesson/fact body (also present as `description`)
+#   tags    array   no        JSON array (default: [])
+#   key     string  yes       story key — identifies the source spec folder
+#   repo    string  yes       "owner/repo" slug from git remote origin
+#
+#   Routing promise (implemented here, verified by the e2e test):
+#     scope==generalizable AND tier==semantic    → SEMANTIC_MEMORY_FILE
+#     scope==generalizable AND tier==procedural  → MEMORY_FILE (procedural)
+#     scope==local                               → never promoted (skipped)
+#     tier absent or any other value             → MEMORY_FILE (procedural, safe default)
+#
+# End-to-end integration test: tests/integration/write-promote-lessons-e2e.sh
+#
 # Usage:
 #   promote-lessons.sh <ISSUE_NUMBER> [SPECS_DIR] [MEMORY_FILE] [SEMANTIC_MEMORY_FILE]
 #
