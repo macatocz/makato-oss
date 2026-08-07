@@ -67,6 +67,8 @@ bundles:
     globs:
       - "plugins/makato-sagibeast/**/*.sh"
       - "plugins/makato-sagibeast/**/*.yml"
+      - "infra/testbox/**"
+      - "scripts/testbox-*.sh"
     skills:
       - sagibeast-create-testbox
       - sagibeast-connect-testbox

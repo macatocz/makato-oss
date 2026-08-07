@@ -222,16 +222,18 @@ OS_PASSWORD=$(op item get sagibeast-testbox-os-password --fields password)
 # Substitute SSH public key
 SSH_PUB_KEY=$(cat ~/.ssh/id_ed25519.pub)
 
-# Apply substitutions
-sed -i '' \
-  "s|# AGENT_SUBSTITUTE: os-password|${OS_PASSWORD}|g" \
-  "s|# AGENT_SUBSTITUTE: ssh-public-key|${SSH_PUB_KEY}|g" \
-  /tmp/sagibeast-cloud-init.yaml
+# Apply substitutions — BSD sed (macOS) requires an empty-string backup suffix (-i '');
+# GNU sed (Linux) does not accept that form and uses plain -i instead.
+if [[ "$(uname)" == "Darwin" ]]; then
+  sed -i '' "s|# AGENT_SUBSTITUTE: os-password|${OS_PASSWORD}|g" /tmp/sagibeast-cloud-init.yaml
+  sed -i '' "s|# AGENT_SUBSTITUTE: ssh-public-key|${SSH_PUB_KEY}|g" /tmp/sagibeast-cloud-init.yaml
+else
+  sed -i "s|# AGENT_SUBSTITUTE: os-password|${OS_PASSWORD}|g" /tmp/sagibeast-cloud-init.yaml
+  sed -i "s|# AGENT_SUBSTITUTE: ssh-public-key|${SSH_PUB_KEY}|g" /tmp/sagibeast-cloud-init.yaml
+fi
 ```
 
 For k3d parity testing, verify `--with-k3d` is set so `bootstrap.sh` installs k3d.
-
-Replace `sed -i ''` with `sed -i` on Linux (the BSD flag differs from GNU `sed`).
 
 ### [3/5] Launch the VM
 
@@ -345,3 +347,20 @@ with `--replace` to recover.
 
 Re-provisioning the VM resets the runner registration. Always re-run this step with
 the explicit `--labels self-hosted,sagibeast-testbox` after any reprovision.
+
+## Output Audit Entry
+
+Emit a JSONL audit entry at the start of each provisioning step executed. Use the `event`
+values below — one line per step reached:
+
+```json
+{"event": "sagibeast-create-testbox.preflight", "runtime": "multipass|ec2|hetzner", "status": "ok"}
+{"event": "sagibeast-create-testbox.cloud-init", "template": "infra/testbox/cloud-init.yaml", "status": "ok"}
+{"event": "sagibeast-create-testbox.launch", "name": "sagibeast-testbox", "cpus": 4, "mem": "8G", "disk": "64G", "status": "Running"}
+{"event": "sagibeast-create-testbox.ssh-config", "host": "sagibeast.testbox", "status": "ok"}
+{"event": "sagibeast-create-testbox.bootstrap", "with_k3d": false, "status": "ok"}
+{"event": "sagibeast-create-testbox.runner-register", "labels": "self-hosted,sagibeast-testbox", "status": "ok"}
+```
+
+Always emit `sagibeast-create-testbox.preflight` first. Emit subsequent entries only for the
+steps actually completed — omit steps that were skipped or not reached.

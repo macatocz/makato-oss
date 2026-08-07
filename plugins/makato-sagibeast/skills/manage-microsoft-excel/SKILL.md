@@ -61,12 +61,24 @@ Task involves formulas, formatting, charts, or merging multiple sheets?
 
 ## Core Workflow
 
+0. **Pre-flight: verify recalc.py** — confirm the script is present before investing time in
+   formula writing. Skip this step for pure pandas data-analysis tasks that produce no formulas.
+
+   ```bash
+   REPO_ROOT=$(git rev-parse --show-toplevel)
+   test -f "$REPO_ROOT/scripts/recalc.py" || {
+     echo "HALT: scripts/recalc.py not found in $REPO_ROOT. Either ship this file in the target repo or skip formula writing for this session."
+     exit 1
+   }
+   ```
+
 1. **Plan** — identify whether task needs formulas/formatting (openpyxl) or bulk data (pandas)
 2. **Load / create** — open existing file or create new workbook
 3. **Write Excel formulas** (not Python-computed constants — see Anti-patterns)
 4. **Save** the file
 5. **Recalculate** — run `scripts/recalc.py` (MANDATORY when formulas were written)
 6. **Verify** — check JSON output; if `status: errors_found`, fix and re-run (max 3 attempts)
+7. **Deliver** — confirm output file path and summarize changes made
 
 ### Recalculate — exact invocation
 

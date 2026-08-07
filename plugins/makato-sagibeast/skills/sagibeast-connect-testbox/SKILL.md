@@ -344,3 +344,21 @@ New Connection → SSH → `sagibeast.testbox` → select key `~/.ssh/id_ed25519
 project path explicitly and ensure `java --version` returns 21+ on the testbox.
 
 → NEVER-2: start long-running E2E processes inside `tmux` before connecting your IDE.
+
+## Output Audit Entry
+
+Emit a JSONL audit entry at session start (`connect`) and at the beginning of each major step
+executed. Use the `event` values below — one line per step reached:
+
+```json
+{"event": "sagibeast-connect-testbox.connect", "testbox": "sagibeast-testbox", "state": "Running"}
+{"event": "sagibeast-connect-testbox.port-forward", "local": "<local>", "remote": "<remote>"}
+{"event": "sagibeast-connect-testbox.sync-creds", "status": "ok"}
+{"event": "sagibeast-connect-testbox.k3d", "config": "infra/testbox/k3d.yaml", "status": "ok"}
+{"event": "sagibeast-connect-testbox.step-ca", "status": "ok"}
+{"event": "sagibeast-connect-testbox.ide", "ide": "vscode|jetbrains", "status": "ok"}
+{"event": "sagibeast-connect-testbox.tmux", "session": "e2e", "status": "ok"}
+```
+
+Always emit `sagibeast-connect-testbox.connect` first. Emit subsequent entries only for the
+steps actually executed in the session — omit steps that were skipped.
