@@ -400,6 +400,18 @@ cp /tmp/makato-skill-plan-<skill-name>.html plugins/<plugin>/skills/<skill-name>
 
 This preserves the design rationale, workflow decisions, and feedback iterations for future reference when modifying the skill.
 
+**Post-build validation checklist item — MANDATORY:**
+
+After build, confirm `references/skill-plan.html` exists in the new skill directory:
+
+```bash
+test -f plugins/<plugin>/skills/<skill-name>/references/skill-plan.html \
+  && echo "skill-plan.html: OK" \
+  || echo "ERROR: skill-plan.html missing — Step 15 copy did not complete"
+```
+
+If the file is absent, re-run the `cp` command above before proceeding to Step 16. This is a deliberate divergence from upstream (see `sync-from-upstream/references/deliberate-divergences.md` — makato preserves the skill plan artifact; upstream omits it).
+
 ---
 
 ## Anti-patterns
