@@ -54,7 +54,7 @@ Ask the contributor for:
 2. **Goal statement** — one sentence: what does this plugin transform or provide?
 3. **How** — one sentence: what mechanism does it use?
 4. **Why** — one sentence: what value does this deliver?
-5. **Author** — default: "makato AI team"
+5. **Author** — default: "makato Team"
 
 Validate:
 - Load @references/naming-conventions.md
@@ -99,7 +99,7 @@ Verify the goal represents a single, coherent responsibility before continuing.
 #### Step 5: Plan File Content
 
 Based on all gathered information, synthesize planned content for each output file:
-- `plugin.json` — name, version 0.1.0, description = goal, author, empty skills array
+- `plugin.json` — name, description = goal, author (no version field, no skills field)
 - `CLAUDE.md` — single `@AGENTS.md` pointer
 - `AGENTS.md` — full governance (goal + how + why, belongs, doesn't belong, decision test, skill authoring, file structure, versioning, PR checklist)
 - `README.md` — goal + how + why, belongs, doesn't belong, skills placeholder, prerequisites (if MCP), installation
