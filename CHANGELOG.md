@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.142.1](https://github.com/macatocz/makato/compare/v0.142.0...v0.142.1) (2026-08-07)
+
+
+### 🐛 Bug Fixes
+
+* **makato-sagibeast:** resolve 4 feature-audit gaps ([#714](https://github.com/macatocz/makato/issues/714)) ([bc23bad](https://github.com/macatocz/makato/commit/bc23badab92f005fe9d77173e966678285117205))
+
 ## [0.142.0](https://github.com/macatocz/makato/compare/v0.141.5...v0.142.0) (2026-08-07)
 
 
