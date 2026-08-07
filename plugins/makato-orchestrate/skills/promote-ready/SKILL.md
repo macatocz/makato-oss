@@ -20,7 +20,7 @@ argument-hint: "[SLUG] [--dry-run] [--yes] [--json]"
 allowed-tools: Bash(plugins/makato-orchestrate/scripts/promote-ready.sh *) Bash(gh project *) Bash(jq *) Bash(python3 *) Read
 metadata:
   authors: [makato-orchestrate]
-  last_updated: "2025-11-01"
+  last_updated: "2026-08-07"
 ---
 
 ## When to Use

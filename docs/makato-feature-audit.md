@@ -748,12 +748,12 @@ Highest-severity gaps first. Full detail lives in each plugin section below.
 - **Fix:** Add loop-fleet.sh and loop-supervisor.sh rows to the README.md Scripts table.
 - **sagibeast usage:** sagibeast/.claude/state/loop-status.json (2026-08-05T19:39:38Z) shows queue_depth:14, active_workflow issue 441, startup_audit from plugin cache commit 03a4b5e. loop is actively dispatching issues.
 
-#### ✅ works — `promote-ready skill` (skill)
+#### ✅ confirmed-stable — `promote-ready skill` (skill) [re-verified #723, 2026-08-07]
 
 - **Expected:** Dependency-aware Ready promotion — read cross-issue blocked_by graph from created-issues.json or stories.json, compute topological waves, check live board Status, promote right-now-unblocked issues to Ready idempotently forward-only, with plan.md collision guard for shared spec folders. Machine-readable --json output consumed by loop's _dependency_order.
-- **Real finding:** SKILL.md version 1.2.0 is complete. promote-ready.sh implements all 15 documented smoke scenarios. SKILL.md frontmatter shows last_updated '2025-11-01' while all other skills show 2026 dates — metadata field is stale but content is consistent with v1.2.0 capabilities. The wave-ordered dispatch integration with loop.sh is confirmed (loop.sh calls _dependency_order which calls promote-ready.sh plan --json).
-- **Gap:** SKILL.md frontmatter last_updated is '2025-11-01', inconsistent with the 2026-dated rest of the plugin.
-- **Fix:** Update promote-ready SKILL.md frontmatter last_updated to current date.
+- **Real finding:** SKILL.md version 1.2.0 is complete. promote-ready.sh implements all 15 documented smoke scenarios. Re-verified after merges cfb1605 (reconcilers use --project-id in gh item-edit, #697) and 131dd89 (reset board card to Ready after api_error dispatch, #698): both fixes landed correctly. _reconcile_orphaned_in_progress and _reconcile_orphaned_stale in loop.sh now pass --project-id; _reset_board_card_to_ready is wired into cmd_dispatch and covered by offline smoke tests T-RC-1/T-RC-2/T-RC-3. _reconcile_blocked_by_labels in promote-ready.sh uses gh issue edit (not gh project item-edit) and is outside the cfb1605 scope — confirmed stable, no regression. SKILL.md frontmatter last_updated updated to 2026-08-07.
+- **Gap:** None. All previously identified gaps resolved.
+- **Fix applied:** cfb1605+131dd89 merged; SKILL.md last_updated corrected; T-RC-PROMOTE alias documents offline AC-2 coverage; promote-ready-smoke-tests.sh annotated with --project-id scope boundary. Confirmed stable as of 2026-08-07 (#723).
 - **sagibeast usage:** sagibeast/specs/platform-core-phase-2-admin-console/created-issues.json is present. loop-status.json queue contains 14 issues, implying _dependency_order (which calls promote-ready.sh plan --json) ran at each poll tick.
 
 #### ✅ works — `quality-doc skill` (skill)

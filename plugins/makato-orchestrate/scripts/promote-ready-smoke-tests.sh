@@ -388,6 +388,14 @@ rm -rf "$_vcr_sandbox"
 # ---------------------------------------------------------------------------
 # T-reconcile-1/2/3: _reconcile_blocked_by_labels doc-contract assertions
 # These are grep-based structural checks — no network calls.
+#
+# Scope boundary (cfb1605 / #697): _reconcile_blocked_by_labels calls
+# `gh issue edit` to add/remove blocked-by: labels on issues.  It does NOT
+# call `gh project item-edit` and is therefore entirely outside the
+# cfb1605 --project-id fix scope.  The cfb1605 fix patched
+# _reconcile_orphaned_in_progress and _reconcile_orphaned_stale in loop.sh,
+# which write to the project board via `gh project item-edit`.
+# promote-ready.sh's reconciler only touches issue labels, never the board.
 # ---------------------------------------------------------------------------
 
 echo "=== T-reconcile-1: _reconcile_blocked_by_labels function exists in promote-ready.sh ==="
