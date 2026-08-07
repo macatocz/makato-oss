@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.142.0](https://github.com/macatocz/makato/compare/v0.141.5...v0.142.0) (2026-08-07)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** add progress-comment notes for setup phases before build-refine ([#742](https://github.com/macatocz/makato/issues/742)) ([#746](https://github.com/macatocz/makato/issues/746)) ([74ca242](https://github.com/macatocz/makato/commit/74ca24251a1ea794e00c442800a26d8fcaf0049e))
+
+
+### 🐛 Bug Fixes
+
+* **config:** add github_project.id (GraphQL node ID) for board writes ([#741](https://github.com/macatocz/makato/issues/741)) ([c0b6a5b](https://github.com/macatocz/makato/commit/c0b6a5bfa35b59ae6e82b8d95085bc5adb6b8b59))
+* **loop:** resolve post-halt-comment.sh next to script for consumer repos ([#744](https://github.com/macatocz/makato/issues/744)) ([#745](https://github.com/macatocz/makato/issues/745)) ([8dbc452](https://github.com/macatocz/makato/commit/8dbc452144fb1ac501cde123d03091613928d16e))
+* **loop:** skip reconcile for CLOSED issues (terminal-state guard) ([#740](https://github.com/macatocz/makato/issues/740)) ([7bdf998](https://github.com/macatocz/makato/commit/7bdf99856bb0dba6d3925154a4937f6992c5032e))
+* **makato-doc:** clarify JSONL audit constraint for doc-utility skills ([5dc7daf](https://github.com/macatocz/makato/commit/5dc7daf420d13b629ffd7c5c601371b7f15bf581))
+* **makato-doc:** correct context7 allowed-tools prefix to mcp__plugin_general_context7__ ([6d62e9c](https://github.com/macatocz/makato/commit/6d62e9cadd16f7ac405529b7c37cdc7286f3f5c6))
+* **makato-doc:** remove stale ContextScout/ExternalScout from context7 README ([f9bc31a](https://github.com/macatocz/makato/commit/f9bc31a9c442bc476c730c9b8a62530c575bad7c))
+* **makato-doc:** resolve 3 feature-audit gaps ([#713](https://github.com/macatocz/makato/issues/713)) ([0d0a283](https://github.com/macatocz/makato/commit/0d0a283a22eceb076e0eca8b58ef5cd1835a7bc9))
+* **makato-doc:** resolve 3 feature-audit gaps ([#713](https://github.com/macatocz/makato/issues/713)) ([0d0a283](https://github.com/macatocz/makato/commit/0d0a283a22eceb076e0eca8b58ef5cd1835a7bc9))
+* **makato-doc:** update plugin README version table (context7 1.2.0, markdown 1.4.0) ([97266c4](https://github.com/macatocz/makato/commit/97266c42cd3c5200629bf537055856201fc8e0ee))
+* **scripts:** make regenerate-agents.sh a no-op — stop writing to root AGENTS.md / CLAUDE.md ([50c0c17](https://github.com/macatocz/makato/commit/50c0c17d94f63eba9041003455935d5a1b3b8c86))
+* **scripts:** skip root AGENTS.md generation, write routing content directly to CLAUDE.md ([82f67b0](https://github.com/macatocz/makato/commit/82f67b0494f4f6e5adabc1eb1b83225715c705e3))
+
 ## [0.141.5](https://github.com/macatocz/makato/compare/v0.141.4...v0.141.5) (2026-08-06)
 
 
