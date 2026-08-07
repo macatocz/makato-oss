@@ -9,6 +9,17 @@
 
 ### Changed
 
+- `sagibeast-connect-testbox` — **1.0.1 → 1.1.0**
+  - added navigation table mapping goals to arguments/steps
+  - added 10 NEVER anti-patterns covering silent session freezes, tmux discipline, bilateral PG port-forward confusion, tenant skill tree detection, background tunnel flag discipline, credential sync ordering, k3d/production cluster cross-connection, per-developer namespace discipline, agent forwarding scope, and ForwardAgent requirement
+  - added no-argument routing via `AskUserQuestion` to avoid silently running the full workflow
+  - terminology aligned with ADR-0020 (bilateral PG split) and ADR-0024 (L1/L2/L3 layer naming)
+  - added `## Output Audit Entry` section with JSONL template covering connect, port-forward, sync-creds, k3d, step-ca, ide, and tmux events
+
+- `sagibeast-create-testbox` — **1.1.0 → 1.2.0**
+  - added `## Output Audit Entry` section with JSONL template covering preflight, cloud-init, launch, ssh-config, bootstrap, and runner-register events
+  - fixed `sed` invocation in step [2/5] "Prepare cloud-init" to be portable across macOS (BSD sed, requires `-i ''`) and Linux (GNU sed, uses plain `-i`); replaced single cross-platform command with an OS-detection block; removed the manual "Replace `sed -i ''` with `sed -i` on Linux" note
+
 - `sagibeast-create-testbox` — **1.0.0 → 1.1.0** (#572)
   - documented the GitHub Actions runner label contract: registration MUST pass `--labels self-hosted,sagibeast-testbox` explicitly (the custom label is not derived from the runner name). Added a fourth "provision completely" mindset item and a `config.sh --labels …` registration step with a verify line under [6/6]. Without the label, testbox-routed workflows (`post-merge.yml` etc.) hang `queued` for GitHub's 24 h ceiling and surface a red `sync-status` check on every PR.
 
