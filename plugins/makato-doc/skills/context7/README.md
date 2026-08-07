@@ -35,19 +35,13 @@ See `library-registry.md` for the complete list of supported libraries including
 ```
 User Query
     ↓
-ContextScout (searches internal context)
+Check library-registry.md
+    ├─ Library listed? → load pre-optimized query string
+    └─ Library unlisted? → construct freeform query
     ↓
-No internal context found
+Call resolve-library-id (Context7 MCP)
     ↓
-ContextScout recommends ExternalScout
-    ↓
-ExternalScout invoked
-    ├─ Reads library-registry.md
-    ├─ Detects library
-    ├─ Loads query patterns
-    ├─ Fetches from Context7 API
-    ├─ Filters & sorts results
-    └─ Returns formatted documentation
+Call query-docs with resolved library ID
     ↓
 User receives current, actionable docs
 ```
@@ -72,9 +66,8 @@ To add a new library to the registry:
    - **Common topics**: topic1, topic2, topic3
    ```
 3. (Optional) Add query optimization patterns
-4. ExternalScout will automatically detect the new library
 
 ## Related
 
 - **SKILL.md** — full workflow, anti-patterns, decision trees, recovery paths
-- **library-registry.md** — pre-optimized query strings for 20 listed libraries
+- **library-registry.md** — pre-optimized query strings for 22 listed libraries
