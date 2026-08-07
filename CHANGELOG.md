@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.142.4](https://github.com/macatocz/makato/compare/v0.142.3...v0.142.4) (2026-08-07)
+
+
+### 🐛 Bug Fixes
+
+* **loop:** post-halt-comment derives repo when arg empty ([#450](https://github.com/macatocz/makato/issues/450)) ([#757](https://github.com/macatocz/makato/issues/757)) ([47efcdb](https://github.com/macatocz/makato/commit/47efcdb62e68fbbe2ca5b073d31171c754e776af))
+
 ## [0.142.3](https://github.com/macatocz/makato/compare/v0.142.2...v0.142.3) (2026-08-07)
 
 
