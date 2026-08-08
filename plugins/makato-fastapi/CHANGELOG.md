@@ -1,5 +1,13 @@
 # Changelog — makato-fastapi
 
+## [1.1.0] — 2026-08-08
+
+### Changed
+- Raised `fastapi` skill to grade B via skill-judge rubric (commit `522570e`, PR #694)
+- Added MANDATORY trigger annotations to every Quick Reference table row in `SKILL.md`
+- Tightened progressive-disclosure structure across `SKILL.md` and all six reference files —
+  no behavior, contract, or output changes
+
 ## [0.1.0] — 2026-07-14
 
 ### Added

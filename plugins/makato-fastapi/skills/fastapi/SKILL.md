@@ -32,6 +32,33 @@ official tutorial already covers.
 
 ---
 
+## JSONL Audit Instrumentation
+
+Emit a session-start entry when this skill is loaded, one entry per major section triggered,
+and a session-end entry when the skill completes. Use
+[`plugins/makato-build/shared/build-log.sh`](../../../../makato-build/shared/build-log.sh)
+from within the worktree.
+
+```bash
+KEY="<issue-key>"  # e.g. 708-makato-fastapi-feat-resolve-5-feature-au
+
+# Session start
+build-log.sh "$KEY" '{"step":"session","skill":"fastapi","status":"start"}'
+
+# Per-section entries (emit only for sections actually used)
+build-log.sh "$KEY" '{"step":"streaming","skill":"fastapi","status":"ok"}'
+build-log.sh "$KEY" '{"step":"dependencies","skill":"fastapi","status":"ok"}'
+build-log.sh "$KEY" '{"step":"responses","skill":"fastapi","status":"ok"}'
+build-log.sh "$KEY" '{"step":"pydantic","skill":"fastapi","status":"ok"}'
+build-log.sh "$KEY" '{"step":"path-operations","skill":"fastapi","status":"ok"}'
+build-log.sh "$KEY" '{"step":"other-tools","skill":"fastapi","status":"ok"}'
+
+# Session end
+build-log.sh "$KEY" '{"step":"session","skill":"fastapi","status":"ok"}'
+```
+
+---
+
 ## CLI
 
 Run the development server (auto-reload):

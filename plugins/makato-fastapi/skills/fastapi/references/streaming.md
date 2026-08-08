@@ -61,6 +61,42 @@ Use `raw_data` instead of `data` to send pre-formatted strings without JSON enco
 yield ServerSentEvent(raw_data="plain text line", event="log")
 ```
 
+### `sse_starlette` compatibility note
+
+Existing codebases (for example, projects created before FastAPI 0.115) often use
+`sse_starlette.sse.EventSourceResponse` from the third-party `sse-starlette` package. Both
+work correctly at runtime; the native `fastapi.sse` module is the **preferred choice for new
+code** (FastAPI 0.115+) — no extra dependency, same API surface.
+
+**Migration from `sse_starlette` to `fastapi.sse`:**
+
+```python
+# Before (sse_starlette)
+from sse_starlette.sse import EventSourceResponse
+
+@app.get("/events", response_class=EventSourceResponse)
+async def stream_events():
+    yield {"data": "hello", "event": "msg", "media_type": "text/event-stream"}
+```
+
+```python
+# After (fastapi.sse — FastAPI 0.115+)
+from fastapi.sse import EventSourceResponse, ServerSentEvent
+
+@app.get("/events", response_class=EventSourceResponse)
+async def stream_events():
+    yield ServerSentEvent(data="hello", event="msg")
+    # No explicit media_type= — EventSourceResponse sets it automatically
+```
+
+Key differences:
+- Remove the explicit `"media_type": "text/event-stream"` key from yielded dicts — `EventSourceResponse` sets the header automatically.
+- Replace plain `dict` yields with `ServerSentEvent` instances for type safety and IDE support.
+- Swap the import: `from fastapi.sse import EventSourceResponse` replaces `from sse_starlette.sse import EventSourceResponse`.
+
+Do **not** change existing working `sse_starlette` endpoints unless you are already touching
+the file — a mechanical import swap is low-risk, but the migration is not urgent.
+
 ## Stream bytes
 
 To stream bytes, declare a `response_class=` of `StreamingResponse` or a sub-class, and use `yield` to return the data.

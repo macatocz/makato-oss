@@ -1,6 +1,22 @@
 #!/usr/bin/env bash
 # validate-skill-bundles.sh — pre-commit gate for skill-bundles.yml (D18 authoring-time)
 #
+# RELATIONSHIP TO THE LANGGRAPH COPY
+# ---------------------------------------------------------------------------
+# This file is byte-for-byte identical to
+#   plugins/makato-langgraph/pre-commit/validate-skill-bundles.sh
+# which is the CANONICAL entry point wired into .pre-commit-config.yaml.
+# The fastapi copy exists for local parity only — plugin contributors can run
+# it directly (e.g. `bash plugins/makato-fastapi/pre-commit/validate-skill-bundles.sh
+# plugins/makato-fastapi/config/skill-bundles.yml`) without knowing which
+# plugin owns the pre-commit hook.
+#
+# When updating the validation logic, update BOTH copies together.  A future
+# consolidation can introduce a shared entry point in makato-build; for now
+# keeping the copies explicit is safer than a symlink that breaks on shallow
+# clones or some CI checkout strategies.
+# ---------------------------------------------------------------------------
+#
 # Rejects any bundle that pairs a WIDE glob with a skill recommendation but
 # omits BOTH the `contains:` file-content predicate AND the `task_contains:`
 # task-text predicate. A wide glob is one with ZERO literal path segments
