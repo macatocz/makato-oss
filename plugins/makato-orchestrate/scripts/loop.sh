@@ -4809,18 +4809,25 @@ cmd_dispatch() {
       : # labels_json set by _gh_with_fallback
     fi
     if [[ -n "$labels_json" ]]; then
-      issue_type="$(jq -r \
-        '[.labels[].name | select(startswith("type:"))] | first // ""' \
-        <<<"$labels_json" 2>/dev/null || true)"
-      # #539: fall back to plan-tier:change when no type:* label is present.
-      # The project-board classifier (#211) stamps plan-tier:change on change
-      # issues; an issue carrying that label but no type:change was invisible
-      # to the change router and stuck in the auto-seed skip loop forever.
-      if [[ -z "$issue_type" ]]; then
-        if jq -e '[.labels[].name] | contains(["plan-tier:change"])' \
-            <<<"$labels_json" >/dev/null 2>&1; then
-          issue_type="type:change"
-        fi
+      # #760: plan-tier:change is the authoritative routing signal and takes
+      # priority over any type:* label. The project-board classifier (#211)
+      # stamps plan-tier:change on change issues, but those same issues also
+      # carry a work-kind type:* label (e.g. type:fix, type:feature). The
+      # earlier #539 logic only consulted plan-tier:change when *no* type:*
+      # label was present, so an issue labelled BOTH type:fix AND
+      # plan-tier:change resolved to type:fix, routed to the po-agent, failed
+      # the spec-folder gate (change-orchestrate owns its own folder), fell
+      # into the auto-seed change no-op, and — as first-in-queue — stalled the
+      # whole FIFO queue forever. Checking plan-tier:change FIRST closes that
+      # gap: the tier label decides the pipeline; type:* only decides routing
+      # when no tier override is present.
+      if jq -e '[.labels[].name] | contains(["plan-tier:change"])' \
+          <<<"$labels_json" >/dev/null 2>&1; then
+        issue_type="type:change"
+      else
+        issue_type="$(jq -r \
+          '[.labels[].name | select(startswith("type:"))] | first // ""' \
+          <<<"$labels_json" 2>/dev/null || true)"
       fi
     fi
   fi

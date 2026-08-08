@@ -970,8 +970,44 @@ grep -q "po-agent" <<<"$no_type_route" \
 echo "  ✓ missing type: label falls back to po-agent"
 
 # ---------------------------------------------------------------------------
-echo
-echo "=== T27: KEY falls back to <issue>-<title-slug> when no to-issues provenance (#232) ==="
+echo "=== T27b: plan-tier:change overrides a co-present type:* label (#760) ==="
+# Regression for the queue-stalling misroute: audit issues carry BOTH a
+# work-kind type:* label (type:fix / type:feature) AND plan-tier:change. The
+# pre-#760 logic consulted plan-tier:change only when type:* was absent, so
+# these resolved to type:fix, routed to the po-agent, failed the spec-folder
+# gate, and stalled the FIFO queue. plan-tier:change must now win.
+change_collide_labels="$STATE_DIR/t27b-labels.json"
+cat >"$change_collide_labels" <<'LABELS'
+{"labels":[{"name":"bug"},{"name":"type:fix"},{"name":"plan-tier:change"},{"name":"plan-tier:full"},{"name":"priority:p1"}]}
+LABELS
+collide_route="$(
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$issue_body_file" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  MAKATO_LOOP_ROUTING_LABELS_OVERRIDE="$change_collide_labels" \
+    "$LOOP" dispatch 760 --dry-run 2>&1 >/dev/null
+)" || fail "T27b: type:fix+plan-tier:change dispatch --dry-run should exit 0; got: $collide_route"
+grep -q "makato-change:orchestrate" <<<"$collide_route" \
+  || fail "T27b: plan-tier:change must override type:fix and route to change-orchestrate; got: $collide_route"
+grep -q "po-agent" <<<"$collide_route" \
+  && fail "T27b: co-present type:fix must NOT route to po-agent when plan-tier:change is set; got: $collide_route"
+echo "  ✓ plan-tier:change wins over co-present type:fix → change-orchestrate"
+
+# A pure type:* issue (no plan-tier:change) still routes to the po-agent.
+plain_type_labels="$STATE_DIR/t27b-plain-labels.json"
+cat >"$plain_type_labels" <<'LABELS'
+{"labels":[{"name":"enhancement"},{"name":"type:feature"},{"name":"plan-tier:light"}]}
+LABELS
+plain_route="$(
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$issue_body_file" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  MAKATO_LOOP_ROUTING_LABELS_OVERRIDE="$plain_type_labels" \
+    "$LOOP" dispatch 711 --dry-run 2>&1 >/dev/null
+)" || fail "T27b: type:feature dispatch --dry-run should exit 0; got: $plain_route"
+grep -q "po-agent" <<<"$plain_route" \
+  || fail "T27b: type:feature without plan-tier:change must route to po-agent; got: $plain_route"
+echo "  ✓ type:feature without plan-tier:change → po-agent (unchanged)"
+
+
 # A hand-filed / auto-filed issue carries neither the to-issues footer nor a
 # specs/<slug>/stories.json line. _derive_key_for_issue must then derive
 # <issue-number>-<normalized-title> (the seed-issue SLUG convention) instead of
