@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.144.2](https://github.com/macatocz/makato/compare/v0.144.1...v0.144.2) (2026-08-08)
+
+
+### 🐛 Bug Fixes
+
+* **makato-fastapi:** resolve 5 feature-audit gaps ([#708](https://github.com/macatocz/makato/issues/708)) ([#778](https://github.com/macatocz/makato/issues/778)) ([abbcdd2](https://github.com/macatocz/makato/commit/abbcdd2f2b3de10596fbcd22baa4d00e2e911b90))
+
 ## [0.144.1](https://github.com/macatocz/makato/compare/v0.144.0...v0.144.1) (2026-08-08)
 
 
