@@ -197,6 +197,8 @@ specs/**
 
 # Project-level MCP override (machine-specific; not part of plugin distribution)
 .mcp.json
+# Plugin-level .mcp.json declares required MCP servers — part of plugin distribution
+!plugins/*/.mcp.json
 
 # AGENTS.md is regenerated each session from plugin templates
 AGENTS.md

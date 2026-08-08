@@ -113,7 +113,27 @@ Do NOT load for cloud Penpot users with a working token.
 7. **Create/modify**: Use `penpot.createBoard()`, `penpot.createRectangle()`, `penpot.createText()` etc.
 8. **Apply layout**: Use `addFlexLayout()` for responsive containers
 9. **Validate**: Call `mcp__penpot__export_shape` to visually check your work
-10. **Emit JSONL audit entries**: session start, each major step, session end (required by plugin contract)
+10. **Emit JSONL audit entries**: see `## Audit Emission (MANDATORY)` below for concrete payload shapes
+
+## Audit Emission (MANDATORY)
+
+This skill runs inside the makato-ux plugin, which requires JSONL audit entries at every
+major boundary. Emit to the session log at:
+
+- **Session start**: `{"event":"skill_start","skill":"penpot-uiux-design","step":0}`
+- **After Step 1** (API overview read): `{"event":"step_complete","skill":"penpot-uiux-design","step":1}`
+- **After Step 2** (design context discovered): `{"event":"step_complete","skill":"penpot-uiux-design","step":2,"colors_found":<count>,"components_found":<count>}`
+- **After Step 3** (design system source determined): `{"event":"step_complete","skill":"penpot-uiux-design","step":3,"design_system_path":"user-provided|discovered|scratch"}`
+- **After Step 4** (page hierarchy understood): `{"event":"step_complete","skill":"penpot-uiux-design","step":4}`
+- **After Step 5** (elements located): `{"event":"step_complete","skill":"penpot-uiux-design","step":5,"shapes_found":<count>}`
+- **After Step 6** (board positions checked): `{"event":"step_complete","skill":"penpot-uiux-design","step":6,"next_x":<px>}`
+- **After Step 7** (shapes created or modified): `{"event":"step_complete","skill":"penpot-uiux-design","step":7,"shapes_created":<count>}`
+- **After Step 8** (layout applied): `{"event":"step_complete","skill":"penpot-uiux-design","step":8}`
+- **After Step 9** (design validated via export): `{"event":"step_complete","skill":"penpot-uiux-design","step":9,"export_ok":<true|false>}`
+- **Session end**: `{"event":"skill_end","skill":"penpot-uiux-design","outcome":"complete|halted"}`
+
+These are appended to the JSONL audit stream (stdout or the active session log file);
+they are not written to the project source tree.
 
 ## Design System Decision Tree
 

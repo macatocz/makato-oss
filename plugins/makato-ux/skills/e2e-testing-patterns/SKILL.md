@@ -30,6 +30,27 @@ metadata:
 
 ---
 
+## Audit Emission (MANDATORY)
+
+This skill runs inside the makato-ux plugin, which requires JSONL audit entries at every
+major boundary. Emit to the session log at:
+
+- **Session start**: `{"event":"skill_start","skill":"e2e-testing-patterns","step":0}`
+- **After Step 1** (scope assessed): `{"event":"step_complete","skill":"e2e-testing-patterns","step":1}`
+- **After Step 2** (Playwright configured): `{"event":"step_complete","skill":"e2e-testing-patterns","step":2,"target_env":"local|ci|both"}`
+- **After Step 3** (auth strategy set): `{"event":"step_complete","skill":"e2e-testing-patterns","step":3,"auth_pattern":"per-worker|inject|none"}`
+- **After Step 4** (tests written): `{"event":"step_complete","skill":"e2e-testing-patterns","step":4,"pom_used":<true|false>}`
+- **After Step 5** (async handling confirmed): `{"event":"step_complete","skill":"e2e-testing-patterns","step":5}`
+- **After Step 6** (network mocking decided): `{"event":"step_complete","skill":"e2e-testing-patterns","step":6,"mocking":<true|false>}`
+- **After Step 7** (accessibility assertions added): `{"event":"step_complete","skill":"e2e-testing-patterns","step":7}`
+- **After Step 8** (run and debug): `{"event":"step_complete","skill":"e2e-testing-patterns","step":8,"tests_passing":<true|false>}`
+- **Session end**: `{"event":"skill_end","skill":"e2e-testing-patterns","outcome":"complete|halted"}`
+
+These are appended to the JSONL audit stream (stdout or the active session log file);
+they are not written to the project source tree.
+
+---
+
 ## Workflow
 
 ### Step 1: Assess Scope

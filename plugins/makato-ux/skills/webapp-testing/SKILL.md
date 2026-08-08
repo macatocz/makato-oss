@@ -57,6 +57,25 @@ entire skill.
 
 ---
 
+## Audit Emission (MANDATORY)
+
+This skill runs inside the makato-ux plugin, which requires JSONL audit entries at every
+major boundary. Emit to the session log at:
+
+- **Session start**: `{"event":"skill_start","skill":"webapp-testing","step":0}`
+- **After Step 1** (server confirmed running): `{"event":"step_complete","skill":"webapp-testing","step":1,"port":<port>}`
+- **After Step 2** (navigation and render confirmed): `{"event":"step_complete","skill":"webapp-testing","step":2,"url":"<url>"}`
+- **After Step 3** (snapshot inspected): `{"event":"step_complete","skill":"webapp-testing","step":3,"elements_found":<true|false>}`
+- **After Step 4** (interactions completed): `{"event":"step_complete","skill":"webapp-testing","step":4}`
+- **After Step 5** (console and network checked): `{"event":"step_complete","skill":"webapp-testing","step":5,"errors_found":<true|false>}`
+- **After Step 6** (findings reported): `{"event":"step_complete","skill":"webapp-testing","step":6}`
+- **Session end**: `{"event":"skill_end","skill":"webapp-testing","outcome":"complete|halted"}`
+
+These are appended to the JSONL audit stream (stdout or the active session log file);
+they are not written to the project source tree.
+
+---
+
 ## Inspection Strategy: choosing the right tool
 
 Before touching any tool, decide which inspection axis matters:
