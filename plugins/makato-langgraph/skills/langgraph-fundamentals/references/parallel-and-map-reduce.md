@@ -53,59 +53,49 @@ graph = builder.compile()
 
 ## Map-Reduce Pattern (Dynamic Fan-out via Send)
 
-Use `Send` for dynamic fan-out where the number of workers is not known at graph-definition time.
+Use `Send` for dynamic fan-out where the number of workers is not known at graph-definition time. A dispatcher function returns a list of `Send` objects — one per work item — via `add_conditional_edges`. LangGraph spawns a separate worker invocation for each `Send`, then a reducer collects all results.
 
 ```python
 import operator
-from typing import Any, Annotated, TypedDict
+from typing import Annotated, TypedDict
 from langgraph.graph import StateGraph, START, END
 from langgraph.types import Send
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage
 
-class AnalysisState(TypedDict):
-    code: str
-    security: Annotated[list[dict[str, Any]], operator.add]
-    performance: Annotated[list[dict[str, Any]], operator.add]
-    quality: Annotated[list[dict[str, Any]], operator.add]
-    report: dict[str, Any]
+class OverallState(TypedDict):
+    tasks: list[str]
+    results: Annotated[list[dict], operator.add]
+    summary: str
 
-llm = ChatOpenAI(model="gpt-4.1", temperature=0.2)
+class WorkerState(TypedDict):
+    task: str
+    results: Annotated[list[dict], operator.add]
 
-def security_mapper(state: AnalysisState) -> dict:
-    system = SystemMessage(content="Analyze code for security issues. Return JSON: {\"issues\": [...]}")
-    response = llm.invoke([system, HumanMessage(content=state["code"])])
-    return {"security": [{"aspect": "security", "raw": response.content}]}
+def dispatcher(state: OverallState) -> list[Send]:
+    """Dynamic fan-out: one Send per task item; count determined at runtime."""
+    return [Send("worker", {"task": t}) for t in state["tasks"]]
 
-def performance_mapper(state: AnalysisState) -> dict:
-    system = SystemMessage(content="Analyze code for performance issues. Return JSON: {\"issues\": [...]}")
-    response = llm.invoke([system, HumanMessage(content=state["code"])])
-    return {"performance": [{"aspect": "performance", "raw": response.content}]}
+def worker(state: WorkerState) -> dict:
+    """Process a single task and append its result."""
+    return {"results": [{"task": state["task"], "output": f"processed: {state['task']}"}]}
 
-def quality_mapper(state: AnalysisState) -> dict:
-    system = SystemMessage(content="Analyze code quality (SOLID, readability). Return JSON: {\"issues\": [...]}")
-    response = llm.invoke([system, HumanMessage(content=state["code"])])
-    return {"quality": [{"aspect": "quality", "raw": response.content}]}
+def reducer(state: OverallState) -> dict:
+    """Collect results from all worker invocations and produce a summary."""
+    return {"summary": f"Processed {len(state['results'])} tasks"}
 
-def reducer(state: AnalysisState) -> dict:
-    total = len(state["security"]) + len(state["performance"]) + len(state["quality"])
-    return {"report": {"total_aspects_analyzed": total}}
-
-builder = StateGraph(AnalysisState)
-builder.add_node("security", security_mapper)
-builder.add_node("performance", performance_mapper)
-builder.add_node("quality", quality_mapper)
+builder = StateGraph(OverallState)
+builder.add_node("worker", worker)
 builder.add_node("reduce", reducer)
 
-builder.add_edge(START, "security")
-builder.add_edge(START, "performance")
-builder.add_edge(START, "quality")
-builder.add_edge("security", "reduce")
-builder.add_edge("performance", "reduce")
-builder.add_edge("quality", "reduce")
+# Dynamic fan-out via conditional edge returning Send objects — NOT add_edge(START, ...)
+builder.add_conditional_edges(START, dispatcher, ["worker"])
+builder.add_edge("worker", "reduce")
 builder.add_edge("reduce", END)
 
 graph = builder.compile()
+
+# The task list is determined at runtime; any number of workers is spawned
+result = graph.invoke({"tasks": ["task-A", "task-B", "task-C"]})
+# result["summary"] == "Processed 3 tasks"
 ```
 
 ## Custom Reducer for Metrics Aggregation
