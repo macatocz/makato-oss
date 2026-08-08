@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.144.1](https://github.com/macatocz/makato/compare/v0.144.0...v0.144.1) (2026-08-08)
+
+
+### 🐛 Bug Fixes
+
+* **makato-langgraph:** qualify JSONL audit constraint to exempt reference skills ([baa401d](https://github.com/macatocz/makato/commit/baa401d3d208d904879447f96a2a00d7570e52ba))
+* **makato-langgraph:** replace mislabeled static fan-out with correct Send-based map-reduce example ([a25cdc6](https://github.com/macatocz/makato/commit/a25cdc6bcc218daeec5a5993c10fda0c11e528c1))
+* **makato-langgraph:** resolve 2 feature-audit gaps (JSONL constraint + Send map-reduce example) ([0cd91f4](https://github.com/macatocz/makato/commit/0cd91f4fe0bb68578e45ebfb146db7c53a11af42))
+
 ## [0.144.0](https://github.com/macatocz/makato/compare/v0.143.3...v0.144.0) (2026-08-08)
 
 
