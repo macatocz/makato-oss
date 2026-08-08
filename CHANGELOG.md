@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.143.3](https://github.com/macatocz/makato/compare/v0.143.2...v0.143.3) (2026-08-08)
+
+
+### 🐛 Bug Fixes
+
+* **makato-ux:** resolve 4 feature-audit gaps (1 broken, 3 partial) [#712](https://github.com/macatocz/makato/issues/712) ([#771](https://github.com/macatocz/makato/issues/771)) ([70ce204](https://github.com/macatocz/makato/commit/70ce20407dd557ee2a5c19e16413ccc2788f5f65))
+
 ## [0.143.2](https://github.com/macatocz/makato/compare/v0.143.1...v0.143.2) (2026-08-08)
 
 
