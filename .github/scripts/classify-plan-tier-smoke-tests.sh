@@ -53,6 +53,9 @@ run "light classified" "add a prefix option" "" "effort:xs"
 TEST_NAME="T7 word-boundary: 'debugging' does NOT match 'bug'"
 run "light classified" "improve debugging output" "" "type:feature"
 
+TEST_NAME="T7b canonical type:feat (enum) → light (rule 4, alongside legacy type:feature)"
+run "light classified" "add a prefix option" "" "type:feat"
+
 TEST_NAME="T8 effort:l → full"
 run "full classified" "medium feature" "" "effort:l" "type:feature"
 

@@ -200,6 +200,7 @@ board_raw = os.environ.get("BOARD_JSON", '{"items":[]}')
 
 # --- board status + item id maps -----------------------------------------
 status_of = {}   # issue_number -> normalized lowercase status ("" if none)
+state_of = {}    # issue_number -> normalized github issue state ("open", "closed", "")
 item_of = {}     # issue_number -> project item id (for item-edit)
 try:
     board = json.loads(board_raw)
@@ -211,6 +212,7 @@ try:
         if not isinstance(n, int):
             continue
         status_of[n] = (it.get("status") or "").strip().lower()
+        state_of[n] = (c.get("state") or "").strip().lower()
         if it.get("id"):
             item_of[n] = it["id"]
 except Exception as e:
@@ -220,6 +222,7 @@ except Exception as e:
     sys.exit(0)
 
 DONE = "done"
+CLOSED_STATE = "closed"
 # Statuses that mean "already progressing or finished" — never re-promote.
 FORWARD_SKIP = {"ready", "in progress", "in review", "done"}
 # Statuses eligible to be promoted TO Ready.
@@ -377,6 +380,9 @@ skipped = []
 for n in sorted(nodes):
     nd = nodes[n]
     st = status_of.get(n, "")
+    if state_of.get(n, "") == CLOSED_STATE:
+        skipped.append({"issue": n, "slug": nd["slug"], "status": "closed"})
+        continue
     if st in FORWARD_SKIP:
         skipped.append({"issue": n, "slug": nd["slug"], "status": st})
         continue

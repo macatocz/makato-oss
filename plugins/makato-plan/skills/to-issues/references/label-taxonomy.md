@@ -45,6 +45,22 @@ Match the lowercased **inference text** — the story `summary` concatenated wit
 
 Evaluation order is top-to-bottom; first match wins. In autonomous mode (per D10), apply the inferred label silently and log the decision to stdout prefixed `[to-issues:auto]`. In interactive mode, propose the inferred label and ask the user to confirm or override.
 
+### Canonical enum, legacy aliases, and `plan-tier:change`
+
+The `type:` enum emitted by `to-issues` is exactly: `type:feat`, `type:fix`, `type:docs`, `type:refactor`, `type:test`, `type:chore`, `type:future-enhancement`. These are the only values this skill writes.
+
+**Legacy aliases (do not emit; recognised only for backward compatibility).** Issues filed before the enum consolidation carry ad-hoc `type:*` labels that are *not* in the enum. They were migrated to the canonical set:
+
+| Legacy label | Canonical | Rationale |
+|--------------|-----------|-----------|
+| `type:feature` | `type:feat` | Same meaning; enum uses the short form. `classify-plan-tier.sh` rule 4 still recognises both. |
+| `type:correctness` | `type:fix` | Correctness/validation defects are fixes. |
+| `type:governance` | `type:chore` | Policy/process work is a chore. |
+| `type:rollout` | `type:chore` | Migration/rollout is a chore. |
+| `type:tracer` | `type:feat` | Tracer-bullet foundation is feature work. |
+
+**`type:change` is NOT a `type:` enum value — it is a routing signal, not a work-kind.** It belongs to the orthogonal `plan-tier:` dimension (`plan-tier:light` / `plan-tier:full` / `plan-tier:change`), assigned by `.github/scripts/classify-plan-tier.sh` (the project-board classifier, #211), not by this skill. A `plan-tier:change` card routes to `makato-change:orchestrate` instead of the `makato-build` pipeline; it co-exists with a work-kind `type:*` label (e.g. `type:fix` + `plan-tier:change` is valid — the fix is routed through the change lane). The loop dispatch router treats `plan-tier:change` as authoritative over any `type:*` label (see #760).
+
 ### `type:future-enhancement` semantics
 
 A `type:future-enhancement` issue is **real work parked until a condition is met** — it is created so contributors can scan and promote it later, but it is not actionable now. Treatment rules:

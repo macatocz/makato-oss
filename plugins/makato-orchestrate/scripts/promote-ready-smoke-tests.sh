@@ -386,6 +386,70 @@ echo "T-VCR-9 passed"
 rm -rf "$_vcr_sandbox"
 
 # ---------------------------------------------------------------------------
+echo "=== T-PROMOTE-CLOSED-SKIP: CLOSED issue is never promoted to Ready ==="
+# A CLOSED GitHub issue (content.state=CLOSED) with no blockers must land in
+# .skipped with status "closed" and must NOT appear in .ready, regardless of
+# its board Status value (here: null/off-board, which would normally make it
+# PROMOTABLE via the "" path).
+CLOSED_SANDBOX="${CLAUDE_JOB_DIR:-/tmp}/promote-ready-smoke-$$-closed"
+mkdir -p "$CLOSED_SANDBOX/specs/1-closed-test"
+
+cat >"$CLOSED_SANDBOX/specs/1-closed-test/created-issues.json" <<'EOF'
+{"schema_version":"1","slug":"test","issues":[
+ {"issue_number":23,"url":"https://x/23","title":"old epic","labels":[],"blocked_by":[]}
+]}
+EOF
+
+cat >"$CLOSED_SANDBOX/board-closed.json" <<'EOF'
+{"items":[
+ {"id":"ITEM1","content":{"type":"Issue","number":23,"state":"CLOSED","title":"test","url":"https://x/23"},"status":null}
+]}
+EOF
+
+OUT="$(MAKATO_PROMOTE_SPECS_DIR="$CLOSED_SANDBOX/specs" \
+       MAKATO_PROMOTE_GH_OVERRIDE="$CLOSED_SANDBOX/board-closed.json" \
+       "$PR" plan --json test 2>/dev/null)"
+echo "$OUT" | jq empty 2>/dev/null || fail "T-PROMOTE-CLOSED-SKIP: output is not valid JSON: $OUT"
+echo "$OUT" | jq -e '.ready | length == 0' >/dev/null 2>&1 \
+  || fail "T-PROMOTE-CLOSED-SKIP: CLOSED issue #23 appeared in .ready: $OUT"
+echo "$OUT" | jq -e '.skipped | length == 1' >/dev/null 2>&1 \
+  || fail "T-PROMOTE-CLOSED-SKIP: expected 1 skipped entry, got: $OUT"
+echo "$OUT" | jq -e '.skipped[0].status == "closed"' >/dev/null 2>&1 \
+  || fail "T-PROMOTE-CLOSED-SKIP: .skipped[0].status != \"closed\": $OUT"
+rm -rf "$CLOSED_SANDBOX"
+pass "CLOSED issue #23 not promoted; in .skipped with status \"closed\""
+
+echo "=== T-PROMOTE-CLOSED-SKIP-TODO: CLOSED issue with board Status=Todo is never promoted ==="
+# Primary repro path from #747: CLOSED issue that has board Status="Todo"
+# (not merely off-board). The CLOSED guard must fire before the PROMOTABLE
+# check so the issue does not slip through via the "todo" → Ready path.
+CLOSED_TODO_SANDBOX="${CLAUDE_JOB_DIR:-/tmp}/promote-ready-smoke-$$-closed-todo"
+mkdir -p "$CLOSED_TODO_SANDBOX/specs/1-closed-todo-test"
+
+cat >"$CLOSED_TODO_SANDBOX/specs/1-closed-todo-test/created-issues.json" <<'EOF'
+{"schema_version":"1","slug":"test","issues":[
+ {"issue_number":23,"url":"https://x/23","title":"old epic","labels":[],"blocked_by":[]}
+]}
+EOF
+
+cat >"$CLOSED_TODO_SANDBOX/board-closed-todo.json" <<'EOF'
+{"items":[
+ {"id":"ITEM1","content":{"type":"Issue","number":23,"state":"CLOSED","title":"test","url":"https://x/23"},"status":"Todo"}
+]}
+EOF
+
+OUT="$(MAKATO_PROMOTE_SPECS_DIR="$CLOSED_TODO_SANDBOX/specs" \
+       MAKATO_PROMOTE_GH_OVERRIDE="$CLOSED_TODO_SANDBOX/board-closed-todo.json" \
+       "$PR" plan --json test 2>/dev/null)"
+echo "$OUT" | jq empty 2>/dev/null || fail "T-PROMOTE-CLOSED-SKIP-TODO: output is not valid JSON: $OUT"
+echo "$OUT" | jq -e '.ready | length == 0' >/dev/null 2>&1 \
+  || fail "T-PROMOTE-CLOSED-SKIP-TODO: CLOSED+Todo issue #23 appeared in .ready: $OUT"
+echo "$OUT" | jq -e '.skipped[0].status == "closed"' >/dev/null 2>&1 \
+  || fail "T-PROMOTE-CLOSED-SKIP-TODO: .skipped[0].status != \"closed\": $OUT"
+rm -rf "$CLOSED_TODO_SANDBOX"
+pass "CLOSED+Todo issue #23 not promoted; in .skipped with status \"closed\""
+
+# ---------------------------------------------------------------------------
 # T-reconcile-1/2/3: _reconcile_blocked_by_labels doc-contract assertions
 # These are grep-based structural checks — no network calls.
 #
@@ -414,4 +478,4 @@ grep -q "_reconcile_blocked_by_labels$" "$PR" \
 pass "_reconcile_blocked_by_labels called from cmd_run"
 
 echo
-echo "=== ALL PROMOTE-READY SMOKE TESTS PASSED (T1–T15, T-pjson-valid, T-pjson-collision, T-VCR-6–T-VCR-9, T-reconcile-1–T-reconcile-3) ==="
+echo "=== ALL PROMOTE-READY SMOKE TESTS PASSED (T1–T13, T-pjson-valid, T-pjson-collision, T-VCR-6–T-VCR-9, T-reconcile-1–T-reconcile-3, T-PROMOTE-CLOSED-SKIP, T-PROMOTE-CLOSED-SKIP-TODO) ==="

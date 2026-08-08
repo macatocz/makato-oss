@@ -4812,7 +4812,7 @@ cmd_dispatch() {
       # #760: plan-tier:change is the authoritative routing signal and takes
       # priority over any type:* label. The project-board classifier (#211)
       # stamps plan-tier:change on change issues, but those same issues also
-      # carry a work-kind type:* label (e.g. type:fix, type:feature). The
+      # carry a work-kind type:* label (e.g. type:fix, type:feat). The
       # earlier #539 logic only consulted plan-tier:change when *no* type:*
       # label was present, so an issue labelled BOTH type:fix AND
       # plan-tier:change resolved to type:fix, routed to the po-agent, failed

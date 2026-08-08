@@ -25,7 +25,7 @@
 #   1. human plan-tier:* label present               → keep it (override)
 #   2. type:change OR change keyword in title/snippet → change
 #   3. effort:l|xl OR epic:*/phase:* OR body_full>thr → full
-#   4. effort:xs|s OR (type:feature AND body_full≤thr)→ light
+#   4. effort:xs|s OR (type:feat|feature AND body_full≤thr)→ light
 #   5. otherwise (ambiguous)                          → full (safe default)
 #
 # Keyword scan runs over `title + body_snippet` (first 200 chars of body).
@@ -77,8 +77,15 @@ fi
 
 # --- Rule 4: light ---------------------------------------------------------
 # Reaching here guarantees body_len ≤ THRESHOLD (rule 3 already excluded the
-# over-threshold case), so the type:feature branch needs no length re-check.
-if has_label 'effort:xs' || has_label 'effort:s' || has_label 'type:feature'; then
+# over-threshold case), so the type:feat/type:feature branch needs no length
+# re-check.
+#
+# type:feat is the canonical work-kind label emitted by to-issues (see
+# plugins/makato-plan/skills/to-issues/references/label-taxonomy.md); type:feature
+# is a legacy alias retained for issues filed before the enum consolidation.
+# Both map to the light lane here.
+if has_label 'effort:xs' || has_label 'effort:s' \
+    || has_label 'type:feat' || has_label 'type:feature'; then
   printf 'light classified\n'
   exit 0
 fi
