@@ -22,6 +22,18 @@ argument-hint: "<task description, e.g. 'debug Python workflow non-determinism' 
 
 Python is the canonical SDK for the sagibeast (CMAI) durable-execution runtime — see § Sagibeast Runtime Alignment before generating any workflow code for that platform.
 
+## JSONL Audit Logging
+
+Append the following JSONL entry to `specs/<KEY>/build.jsonl` when this skill is invoked:
+
+```json
+{"ts":"<ISO-8601-ms>","skill":"temporal-development","story":"<KEY>","step":"session-start","status":"start","data":{"task":"<argument-hint value>"}}
+```
+
+Replace `<KEY>` with the specs folder key for the current work item (e.g. `710-makato-temporal-feat-resolve-1-feature-a`) and `<argument-hint value>` with the task description provided when the skill was invoked (the `argument-hint` frontmatter describes the expected format).
+
+---
+
 ## Temporal Durable-Execution Mindset
 
 Before generating or reviewing any workflow code, apply **replay-first thinking**: mentally execute every line of workflow code *twice* — once on first run, once on replay after a Worker restart. Any value that differs between those two executions is a latent non-determinism bug that will surface only in production, never in local unit tests. This is the non-obvious cognitive model that separates Temporal-proficient code from code that merely passes tests.
@@ -143,6 +155,14 @@ Load `references/core/ai-patterns.md`. If the target language is Python, also lo
 - `references/python/workflow-streams.md` — Python only: load if the user asks about streaming data into or out of a running Python workflow (Update-based streaming patterns).
 - `references/{language}/standalone-activities.md` — load only if the user is evaluating or building standalone Activity execution without a parent Workflow (Public Preview feature).
 
+Once all scenario-specific references have been loaded, append the following JSONL entry to `specs/<KEY>/build.jsonl`:
+
+```json
+{"ts":"<ISO-8601-ms>","skill":"temporal-development","story":"<KEY>","step":"references-loaded","status":"ok","data":{"refs":["<path of each reference file actually loaded>"]}}
+```
+
+List every reference file path that was actually read in the `data.refs` array (e.g. `["references/core/determinism.md","references/python/determinism.md"]`). Omit files that were not loaded.
+
 ---
 
 ## Primary Reference Index
@@ -210,3 +230,13 @@ When building Temporal code for the sagibeast (CMAI) platform, Temporal is **Lay
 ### Reporting Issues in This Skill
 
 If you (the AI) find this skill's explanations are unclear, misleading, or missing important information — or if Temporal concepts are proving unexpectedly difficult to work with — draft a GitHub issue body describing the problem encountered and what would have helped, then ask the user to file it against the makato repository. Do not file the issue autonomously.
+
+---
+
+## Skill Completion
+
+After delivering the final response for this skill session, append the following JSONL entry to `specs/<KEY>/build.jsonl`:
+
+```json
+{"ts":"<ISO-8601-ms>","skill":"temporal-development","story":"<KEY>","step":"session-end","status":"done"}
+```
