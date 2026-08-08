@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.143.1](https://github.com/macatocz/makato/compare/v0.143.0...v0.143.1) (2026-08-08)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** plan-tier:change overrides co-present type:* in loop routing ([#760](https://github.com/macatocz/makato/issues/760)) ([#766](https://github.com/macatocz/makato/issues/766)) ([6721652](https://github.com/macatocz/makato/commit/67216528edcc0465038a07db96e3f28dfeac6061))
+
 ## [0.143.0](https://github.com/macatocz/makato/compare/v0.142.4...v0.143.0) (2026-08-07)
 
 
