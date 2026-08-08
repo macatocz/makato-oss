@@ -6,7 +6,7 @@
 - **Never add skills for non-LangGraph AI frameworks** (LlamaIndex, CrewAI, AutoGen, etc.) — each gets its own plugin.
 - **Skills must reflect LangGraph idioms** (StateGraph, nodes, edges, checkpointers) — do not accept generic agent-loop patterns as equivalent.
 - **Project management, planning, and shaping skills are out of scope** — route those to `makato-plan`.
-- **Skills must emit JSONL audit entries** — session start, each major step, session end.
+- **Executable workflow skills must emit JSONL audit entries** — session start, each major step, session end; reference skills (this plugin) are exempt because they are loaded as context by the AI model, not invoked as executable workflow steps.
 
 ## Goal
 
