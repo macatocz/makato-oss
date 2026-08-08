@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.144.0](https://github.com/macatocz/makato/compare/v0.143.3...v0.144.0) (2026-08-08)
+
+
+### ✨ Features
+
+* **makato-temporal:** add JSONL audit-logging blocks to temporal-development skill ([#710](https://github.com/macatocz/makato/issues/710)) ([#773](https://github.com/macatocz/makato/issues/773)) ([679a64b](https://github.com/macatocz/makato/commit/679a64b64e67bae79f1fc66f7759499465e3aa3f))
+
 ## [0.143.3](https://github.com/macatocz/makato/compare/v0.143.2...v0.143.3) (2026-08-08)
 
 
