@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.143.2](https://github.com/macatocz/makato/compare/v0.143.1...v0.143.2) (2026-08-08)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** skip CLOSED issues in promote-ready candidate selection ([#747](https://github.com/macatocz/makato/issues/747)) ([#768](https://github.com/macatocz/makato/issues/768)) ([7cb252c](https://github.com/macatocz/makato/commit/7cb252cc87999cc4928e6a2eef5d11b0d269feec))
+
 ## [0.143.1](https://github.com/macatocz/makato/compare/v0.143.0...v0.143.1) (2026-08-08)
 
 
