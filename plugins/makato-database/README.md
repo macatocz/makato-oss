@@ -37,7 +37,7 @@ Caller (user / makato-build / makato-change)
         v
 ┌──────────────────────────────┐
 │       manage-postgres         │
-│  (35 rule reference files)    │
+│  (31 rule reference files)    │
 └──────────────────────────────┘
         |
         |  Optimized queries, schema recommendations,
@@ -51,19 +51,19 @@ Caller (user / makato-build / makato-change)
 Input: SQL queries, schema specs, or database configuration context requiring review or
 optimization.
 Output: Optimized SQL, schema recommendations, index strategies, connection pooling guidance, and
-RLS patterns drawn from 35 reference rule files across 8 impact-prioritized categories.
+RLS patterns drawn from 31 reference rule files across 8 impact-prioritized categories.
 
 ## Skills
 
 | Skill | Description | Input | Output | Version |
 |-------|-------------|-------|--------|---------|
-| [manage-postgres](skills/manage-postgres/SKILL.md) | Postgres performance optimization and best practices: query performance, connection management, security & RLS, schema design, concurrency, data access, monitoring, and advanced features across 8 rule categories prioritized by impact. (interactive) | SQL queries, schema specs, or database configuration context requiring review or optimization | Optimized SQL queries, schema recommendations, index strategies, connection pooling guidance, and RLS patterns drawn from 35 reference rule files | 1.1.1 |
+| [manage-postgres](skills/manage-postgres/SKILL.md) | Postgres performance optimization and best practices: query performance, connection management, security & RLS, schema design, concurrency, data access, monitoring, and advanced features across 8 rule categories prioritized by impact. (interactive) | SQL queries, schema specs, or database configuration context requiring review or optimization | Optimized SQL queries, schema recommendations, index strategies, connection pooling guidance, and RLS patterns drawn from 31 reference rule files | 1.1.3 |
 
 ## Notable Governance Files
 
 | File | Purpose |
 |------|---------|
-| `plugins/makato-database/skills/manage-postgres/references/_sections.md` | Index of all 35 rule reference files organized by category |
+| `plugins/makato-database/skills/manage-postgres/references/_sections.md` | Index of all 31 rule reference files organized by category |
 | `plugins/makato-database/skills/manage-postgres/references/_contributing.md` | Authoring guide for adding new rule files to the references directory |
 | `plugins/makato-database/skills/manage-postgres/references/_template.md` | Template for new rule files, defining the standard structure (why, incorrect example, correct example, metrics) |
 | `plugins/makato-database/AGENTS.md` | Contributor routing, What Belongs/Does Not Belong, PR checklist, and file structure contract for the plugin |

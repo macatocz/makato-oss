@@ -134,3 +134,39 @@ time. Note: `CONCURRENTLY` cannot run inside a transaction block.
 
 - [Postgres Documentation](https://www.postgresql.org/docs/current/)
 - [Postgres Wiki — Performance Optimization](https://wiki.postgresql.org/wiki/Performance_Optimization)
+
+## JSONL Audit
+
+This skill writes structured audit entries to `.makato/build.jsonl` in the target repository root.
+Emit one entry at each of the three checkpoints below. Use `shared/build-log.sh` when available;
+otherwise append a raw JSONL line.
+
+### Session start
+
+Emit immediately after resolving the work-item key, before loading any reference file:
+
+```json
+{"ts":"<ISO8601>","skill":"manage-postgres","story":"<key>","step":"session","status":"start","data":{}}
+```
+
+### Reference file loaded
+
+Emit once per reference file, immediately after reading it:
+
+```json
+{"ts":"<ISO8601>","skill":"manage-postgres","story":"<key>","step":"reference-loaded","status":"ok","data":{"file":"<filename>"}}
+```
+
+Example: `"file": "query-missing-indexes.md"`.
+
+### Session end
+
+Emit after the final response is composed. Set `status` to `"ok"` on a clean run or `"error"`
+when an unrecoverable problem occurred (include a short `"error"` field in `data` when erroring):
+
+```json
+{"ts":"<ISO8601>","skill":"manage-postgres","story":"<key>","step":"session","status":"ok","data":{}}
+```
+
+These entries satisfy the AGENTS.md line 9 mandate: _"Skills must emit JSONL audit entries —
+session start, each major step, session end."_

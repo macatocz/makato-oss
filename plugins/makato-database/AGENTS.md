@@ -55,12 +55,14 @@ makato-database/
 │   └── plugin.json
 ├── skills/
 │   └── manage-postgres/   # Postgres performance & best practices
-├── shared/                # Cross-skill references (TBD)
 ├── AGENTS.md
 ├── CHANGELOG.md
 ├── CLAUDE.md
 └── README.md
 ```
+
+> `shared/` does not exist yet. It will be created when a second skill is added and
+> cross-skill references are needed. Do not create it speculatively.
 
 > `.mcp.json` is gitignored (machine-specific). Create one locally if a future
 > skill needs an MCP server.

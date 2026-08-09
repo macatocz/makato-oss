@@ -44,7 +44,10 @@ Policy for authenticated role:
 create policy orders_user_policy on orders
   for all
   to authenticated
-  using (user_id = auth.uid());
+  -- (select auth.uid()) caches the result once per statement, not once per row;
+  -- the bare auth.uid() form is evaluated for every candidate row, causing 100x+
+  -- slowdowns on large tables.
+  using (user_id = (select auth.uid()));
 ```
 
 Reference: [Row Level Security](https://www.postgresql.org/docs/current/ddl-rowsecurity.html)
