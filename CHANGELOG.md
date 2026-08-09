@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.146.1](https://github.com/macatocz/makato/compare/v0.146.0...v0.146.1) (2026-08-09)
+
+
+### 🐛 Bug Fixes
+
+* **makato-core:** resolve 7 feature-audit gaps (contracts, labels, hook docs) ([70ac0eb](https://github.com/macatocz/makato/commit/70ac0eb0b12fe964a560a07c0c2cfcd37f41c4f9))
+
 ## [0.146.0](https://github.com/macatocz/makato/compare/v0.145.3...v0.146.0) (2026-08-09)
 
 
