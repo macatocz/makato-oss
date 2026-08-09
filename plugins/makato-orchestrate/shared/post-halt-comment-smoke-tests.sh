@@ -143,6 +143,37 @@ check_absent "HALT-012 Next step does NOT run seed-issue" "Run \`seed-issue"
 check "HALT-012 Next step mentions Status=Ready" \
   grep -q "Status=Ready" <<<"$CAPTURED"
 
+# ---------------------------------------------------------------------------
+# T9: HALT-015 (dead session / orphaned card) → distinct dead-session reason,
+#     NOT the HALT-014 semantic-dead-loop text. #786.
+# ---------------------------------------------------------------------------
+echo "=== T9: HALT-015 has dead-session reason, not semantic-dead-loop ==="
+run_phc HALT-015 "$ISSUE" "$REPO"
+check "body contains HALT-015"           grep -q "HALT-015"              <<<"$CAPTURED"
+check "HALT-015 mentions dead/infra session" \
+  grep -qi "died mid-run\|infra failure\|API error\|connection closed" <<<"$CAPTURED"
+check_absent "HALT-015 does NOT claim semantic dead loop" "semantic dead loop"
+check "HALT-015 Next step avoids seed-issue" bash -c '! grep -q "Run \`seed-issue" <<<"$0"' "$CAPTURED"
+
+# ---------------------------------------------------------------------------
+# T10: --situation renders a **Situation:** section, before **What to fix:**.
+# ---------------------------------------------------------------------------
+echo "=== T10: --situation renders a Situation section in order ==="
+run_phc HALT-015 "$ISSUE" "$REPO" \
+  --situation "phase \`pr\`; stale ~2h 0m (7200s); last event \`create-pr/attempt\`"
+check "Situation heading present"        grep -q "\*\*Situation:\*\*"    <<<"$CAPTURED"
+check "Situation content present verbatim" grep -q "last event" <<<"$CAPTURED"
+# Situation must appear AFTER Reason and BEFORE What to fix.
+check "Situation ordered after Reason, before What to fix" \
+  bash -c 'awk "/\\*\\*Reason:/{r=NR} /\\*\\*Situation:/{s=NR} /\\*\\*What to fix:/{w=NR} END{exit !(r<s && s<w)}" <<<"$0"' "$CAPTURED"
+
+# ---------------------------------------------------------------------------
+# T11: no --situation → no **Situation:** section (backward-compat).
+# ---------------------------------------------------------------------------
+echo "=== T11: omitting --situation → no Situation section ==="
+run_phc HALT-015 "$ISSUE" "$REPO"
+check_absent "no Situation heading when flag omitted" "**Situation:**"
+
 echo ""
 echo "post-halt-comment smoke: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

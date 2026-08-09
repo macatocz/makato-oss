@@ -12,11 +12,16 @@
 #
 # USAGE
 #   post-halt-comment.sh <HALT_CODE> <ISSUE_NUMBER> <REPO> \
-#       [--reason "<text>"] [--what-to-fix "<text>"]
+#       [--reason "<text>"] [--what-to-fix "<text>"] [--situation "<text>"]
 #
 # If --reason and --what-to-fix are omitted, the built-in lookup table
 # for the given HALT code is used. For unknown codes a generic fallback
 # message is generated.
+#
+# --situation is optional runtime context (phase, age, last orchestrate
+# event, where the dispatch died). When supplied it renders as a
+# **Situation:** section BEFORE **What to fix:** so the operator sees what
+# actually happened, not just a static per-code lookup string.
 #
 # ENVIRONMENT
 #   MAKATO_POST_HALT_COMMENT_DISABLE=1
@@ -41,7 +46,7 @@ ISSUE="${2:-}"
 REPO="${3:-}"
 
 if [[ -z "$HALT_CODE" || -z "$ISSUE" || -z "$REPO" ]]; then
-  echo "post-halt-comment: usage: post-halt-comment.sh <HALT_CODE> <ISSUE_NUMBER> <REPO> [--reason '<text>'] [--what-to-fix '<text>']" >&2
+  echo "post-halt-comment: usage: post-halt-comment.sh <HALT_CODE> <ISSUE_NUMBER> <REPO> [--reason '<text>'] [--what-to-fix '<text>'] [--situation '<text>']" >&2
   exit 1
 fi
 
@@ -49,10 +54,12 @@ shift 3 || true
 
 OVERRIDE_REASON=""
 OVERRIDE_WHAT_TO_FIX=""
+SITUATION=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --reason)      OVERRIDE_REASON="$2";    shift 2 ;;
     --what-to-fix) OVERRIDE_WHAT_TO_FIX="$2"; shift 2 ;;
+    --situation)   SITUATION="$2";          shift 2 ;;
     *) shift ;;
   esac
 done
@@ -116,6 +123,9 @@ _lookup() {
     HALT-014)
       echo "Stall-restart ceiling reached — the issue has stalled the maximum allowed times without progressing.|Diagnose the semantic dead loop (failing CI gate, irresolvable conflict, or unimplementable plan), apply the fix, remove \`needs-human-review\`, then restart."
       ;;
+    HALT-015)
+      echo "The dispatch session died mid-run and its In-progress board card went stale — most likely an infra failure (API error, connection closed, harness exit), not a stalled or unimplementable build. The work-in-progress may be partially or fully complete.|Read the **Situation** below to see the phase and where the session died. Check for a merged/open PR and staged work in the worktree before re-running: if a PR exists, close the issue or address review; if the phase is \`pr\` with 5/5 tasks done, the run may just have failed to open the PR. Only re-dispatch once you have confirmed no work would be duplicated."
+      ;;
     HALT-STRUCTURAL)
       echo "A dispatched sub-agent returned a failure with escalation:refine and re-planning also failed.|Re-shape the plan via \`makato-plan\`, then restart the loop."
       ;;
@@ -156,7 +166,17 @@ fi
 
 COMMENT_BODY="## Needs human review
 
-**Reason:** ${HALT_CODE} — ${REASON}
+**Reason:** ${HALT_CODE} — ${REASON}"
+
+# Optional runtime-context section — rendered only when the caller supplied
+# --situation. Placed BEFORE **What to fix:** so the operator reads what
+# actually happened before the recovery steps.
+if [[ -n "$SITUATION" ]]; then
+  COMMENT_BODY="${COMMENT_BODY}
+**Situation:** ${SITUATION}"
+fi
+
+COMMENT_BODY="${COMMENT_BODY}
 **What to fix:** ${WHAT_TO_FIX}
 **Next step:** ${NEXT_STEP}"
 

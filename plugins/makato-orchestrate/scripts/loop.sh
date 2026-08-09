@@ -1315,6 +1315,66 @@ _post_halt_comment() {
 }
 
 # ---------------------------------------------------------------------------
+# _reconcile_situation <spec_folder> <issue> <phase> <age_secs>
+#
+# Build a compact one-line **Situation** string for the HALT-015 comment
+# posted by the two reconcilers. Surfaces the runtime facts that make an
+# orphaned card actionable — the phase it died in, how long it has been
+# stale, the last orchestrate.jsonl event, and the last meaningful line of
+# the dispatch log (where the session actually died) — plus a pointer to the
+# spec folder's audit trail. Every arg is optional: an empty/absent value is
+# omitted, so the same helper serves both the stale reconciler (full context
+# from workflow-state) and the in-progress reconciler (issue number only).
+#
+# Best-effort: any read failure yields a shorter string, never a hard error.
+# ---------------------------------------------------------------------------
+_reconcile_situation() {
+  local spec_folder="${1:-}" issue="${2:-}" phase="${3:-}" age="${4:-}"
+  local -a parts=()
+
+  [[ -n "$phase" && "$phase" != "null" ]] && parts+=("phase \`${phase}\`")
+
+  if [[ -n "$age" ]]; then
+    # Humanise seconds → "~2h 15m" so the operator reads staleness at a glance.
+    local _h=$(( age / 3600 )) _m=$(( (age % 3600) / 60 ))
+    if (( _h > 0 )); then
+      parts+=("stale ~${_h}h ${_m}m (${age}s)")
+    else
+      parts+=("stale ~${_m}m (${age}s)")
+    fi
+  fi
+
+  # Last orchestrate.jsonl event (step/status) — the last thing the loop logged.
+  if [[ -n "$spec_folder" && -f "$spec_folder/orchestrate.jsonl" ]]; then
+    local _last_evt
+    _last_evt="$(tail -n 1 "$spec_folder/orchestrate.jsonl" 2>/dev/null \
+      | jq -r '"\(.step // "?")/\(.status // "?")"' 2>/dev/null || true)"
+    [[ -n "$_last_evt" && "$_last_evt" != "?/?" ]] && parts+=("last event \`${_last_evt}\`")
+  fi
+
+  # Last meaningful line of the dispatch log (where the session died). Cap at
+  # 200 chars so a giant stack trace cannot blow up the comment body.
+  local _disp_log="$STATE_DIR/dispatch-${issue}.log"
+  if [[ -n "$issue" && -f "$_disp_log" ]]; then
+    local _last_log
+    _last_log="$(grep -v '^[[:space:]]*$' "$_disp_log" 2>/dev/null | tail -n 1 | cut -c1-200 || true)"
+    [[ -n "$_last_log" ]] && parts+=("dispatch died at: \`${_last_log}\`")
+  fi
+
+  # Pointer to the spec folder's audit trail.
+  [[ -n "$spec_folder" ]] && parts+=("audit trail in \`specs/$(basename "$spec_folder")/\`")
+
+  # Join with "; " (manual join — IFS-based join collapses the space). The
+  # `${parts[@]+…}` guard keeps this safe under `set -u` on bash 3.2 (macOS),
+  # where an empty-array expansion is otherwise an "unbound variable" error.
+  local _out="" _p
+  for _p in ${parts[@]+"${parts[@]}"}; do
+    if [[ -z "$_out" ]]; then _out="$_p"; else _out="$_out; $_p"; fi
+  done
+  echo "$_out"
+}
+
+# ---------------------------------------------------------------------------
 # _label_conflict_stamp <ISSUE_NUMBER> — best-effort idempotent label stamp.
 # Applies the needs-human-review label on a label-board conflict skip (D11,
 # #356). A non-zero gh exit logs a WARN and is swallowed — never a hard error.
@@ -1670,6 +1730,49 @@ _reconcile_issue_closed() {
   return 1
 }
 
+# ---------------------------------------------------------------------------
+# _reconcile_has_human_review_label — dedup guard for the stale reconciler.
+#
+# The stale reconciler (_reconcile_orphaned_stale) scans workflow-state files
+# directly, NOT board status. It never deletes the state file (keeps the audit
+# trail), so a dead orphan that has already been reconciled re-satisfies every
+# gate (dead owner, stale age, non-done phase) on EVERY subsequent tick — and
+# without this guard it re-posts an identical needs-human-review comment each
+# time (the 6-8× duplicate-comment bug, #786). Once the label is present the
+# operator has already been notified; skip the whole candidate.
+#
+# (The in-progress reconciler does NOT need this: it moves the card OUT of
+# "In progress" to Blocked, so its status-based candidate filter stops
+# matching on the next tick — it is self-limiting.)
+#
+# Returns 0 (label present → caller must skip) when needs-human-review is set;
+# returns 1 (absent or unknown) otherwise. On an unreachable state it returns 1
+# (do NOT skip) — we only ever ADD a skip, never mask a real orphan.
+#
+# Offline test hook: MAKATO_LOOP_RECONCILE_LABELS_OVERRIDE points at a JSON
+# object mapping "<issue>" → ["label", …], consulted instead of a live gh call.
+#   $1 issue number   $2 repo (may be empty → derive)
+# ---------------------------------------------------------------------------
+_reconcile_has_human_review_label() {
+  local issue="$1" repo="${2:-}"
+  [[ -n "$issue" ]] || return 1
+
+  local labels=""
+  if [[ -n "${MAKATO_LOOP_RECONCILE_LABELS_OVERRIDE:-}" ]]; then
+    labels="$(jq -r --arg n "$issue" '(.[$n] // []) | .[]' \
+      "$MAKATO_LOOP_RECONCILE_LABELS_OVERRIDE" 2>/dev/null || true)"
+  else
+    [[ -n "$repo" ]] || repo="$(_derive_reap_repo 2>/dev/null || true)"
+    local -a repo_flag=()
+    [[ -n "$repo" ]] && repo_flag=(--repo "$repo")
+    labels="$(gh issue view "$issue" "${repo_flag[@]}" --json labels \
+      --jq '.labels[].name' 2>/dev/null || true)"
+  fi
+
+  grep -qx "needs-human-review" <<<"$labels" && return 0
+  return 1
+}
+
 _reconcile_orphaned_in_progress() {
   [[ "$RECONCILE_ON_POLL" != "0" ]] || return 0
   [[ -n "${MAKATO_LOOP_TEST_HOOK:-}" ]] || {
@@ -1828,6 +1931,12 @@ _reconcile_orphaned_in_progress() {
     # Stamping the label without moving the card causes infinite oscillation:
     # the card stays "In progress" on the next tick and gets reconciled again.
     [[ "$board_edit_ok" -eq 1 ]] || { echo "loop: WARN — reconcile-orphaned #$n: skipping label stamp (board edit did not succeed)" >&2; continue; }
+    # HALT-015 (orphaned card, dead session) — this reconciler fires on an
+    # In-progress card with NO live workflow-state, i.e. the session died
+    # before/without persisting state. Only the dispatch log can locate where
+    # it died, so the Situation carries the issue number alone (#786).
+    local _ro_situation
+    _ro_situation="$(_reconcile_situation "" "$n" "" "" 2>/dev/null || true)"
     {
       local repo_flag=()
       if [[ -n "${MAKATO_LOOP_DISPATCH_REPO:-}" ]]; then
@@ -1835,7 +1944,8 @@ _reconcile_orphaned_in_progress() {
       fi
       if [[ -n "${MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE:-}" ]]; then
         echo "label #${n} needs-human-review" >>"$MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE"
-        _post_halt_comment "HALT-014" "$n" "${MAKATO_LOOP_DISPATCH_REPO:-}" || true
+        _post_halt_comment "HALT-015" "$n" "${MAKATO_LOOP_DISPATCH_REPO:-}" \
+          --situation "$_ro_situation" || true
       else
         if ! gh label list "${repo_flag[@]}" 2>/dev/null | grep -q "^needs-human-review"; then
           gh label create "needs-human-review" "${repo_flag[@]}" \
@@ -1848,7 +1958,8 @@ _reconcile_orphaned_in_progress() {
         else
           echo "loop: reconcile-orphaned — applied 'needs-human-review' label to #$n" >&2
         fi
-        _post_halt_comment "HALT-014" "$n" "${MAKATO_LOOP_DISPATCH_REPO:-}" || true
+        _post_halt_comment "HALT-015" "$n" "${MAKATO_LOOP_DISPATCH_REPO:-}" \
+          --situation "$_ro_situation" || true
       fi
     } || true
   done <<<"$candidates"
@@ -1938,6 +2049,15 @@ _reconcile_orphaned_stale() {
       continue
     fi
 
+    # Dedup guard (#786): the state file is never deleted, so an already-
+    # reconciled dead orphan re-satisfies every gate below on each tick. Once
+    # needs-human-review is present the operator has been notified — skip so we
+    # do not re-Block the card and re-post an identical comment every tick.
+    if _reconcile_has_human_review_label "$issue_n" "$_rs_repo"; then
+      echo "loop: reconcile-stale — #$issue_n already needs-human-review, skipping (already reconciled)" >&2
+      continue
+    fi
+
     # Staleness gate — updated_at older than ORPHAN_STALE_SECS.
     local age=""
     if [[ -n "$updated_at" && -n "$now_epoch" ]]; then
@@ -1964,6 +2084,16 @@ _reconcile_orphaned_stale() {
     fi
 
     echo "loop: reconcile-stale — #$issue_n orphaned (phase=$phase, owner dead, age ${age}s) → Blocked + needs-human-review" >&2
+
+    # Build the runtime-context Situation string BEFORE emitting the escalate
+    # entry below — otherwise `_reconcile_situation`'s "last event" read would
+    # pick up this pass's own reconcile-orphaned-stale line instead of the last
+    # thing the *dispatch* logged (#786). This is HALT-015 (dead session /
+    # orphaned card), NOT HALT-014 (semantic stall ceiling): the reconciler
+    # fires when a session died mid-run leaving a stale In-progress card, which
+    # is an infra failure, not a dead loop.
+    local _rs_situation
+    _rs_situation="$(_reconcile_situation "$(dirname "$f")" "$issue_n" "$phase" "$age" 2>/dev/null || true)"
 
     # Emit orchestrate.jsonl escalate entry (best-effort).
     {
@@ -2044,6 +2174,7 @@ _reconcile_orphaned_stale() {
 
     # Apply needs-human-review label only when board edit succeeded.
     [[ "$board_edit_ok" -eq 1 ]] || { echo "loop: WARN — reconcile-stale #$issue_n: skipping label stamp (board edit did not succeed)" >&2; continue; }
+    # (_rs_situation was computed above, before the escalate entry was emitted.)
     # Apply needs-human-review label (shared pattern with #368 reconciler).
     {
       local repo_flag=()
@@ -2052,7 +2183,8 @@ _reconcile_orphaned_stale() {
       fi
       if [[ -n "${MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE:-}" ]]; then
         echo "label #${issue_n} needs-human-review" >>"$MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE"
-        _post_halt_comment "HALT-014" "$issue_n" "${MAKATO_LOOP_DISPATCH_REPO:-}" || true
+        _post_halt_comment "HALT-015" "$issue_n" "${MAKATO_LOOP_DISPATCH_REPO:-}" \
+          --situation "$_rs_situation" || true
       else
         if ! gh issue edit "$issue_n" "${repo_flag[@]}" \
             --add-label "needs-human-review" >/dev/null 2>&1; then
@@ -2060,7 +2192,8 @@ _reconcile_orphaned_stale() {
         else
           echo "loop: reconcile-stale — applied 'needs-human-review' label to #$issue_n" >&2
         fi
-        _post_halt_comment "HALT-014" "$issue_n" "${MAKATO_LOOP_DISPATCH_REPO:-}" || true
+        _post_halt_comment "HALT-015" "$issue_n" "${MAKATO_LOOP_DISPATCH_REPO:-}" \
+          --situation "$_rs_situation" || true
       fi
     } || true
   done < <(find "$scan_specs_dir" -maxdepth 2 \

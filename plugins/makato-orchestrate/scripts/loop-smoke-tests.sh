@@ -3334,6 +3334,14 @@ echo "=== Tl: orphaned card (no workflow-state) → reconciled to Blocked ==="
 TL_FIXTURE="$STATE_DIR/tl-reconcile-$$.json"
 TL_RECON_FILE="$STATE_DIR/tl-reconcile-out-$$.txt"
 TL_SPECS="$STATE_DIR/tl-specs-$$"
+# Deterministic issue-state override for the #616 CLOSED guard shared by the
+# reconcilers: without it `_reconcile_issue_closed` calls LIVE `gh issue view`
+# for these fixture issue numbers, and the pass silently skips (or not)
+# depending on the real board state of #600/#602/#603 in macatocz/makato —
+# flaky and environment-dependent. Mark them all OPEN so these #368 tests
+# (written before the #616 guard) exercise the reconcile path deterministically.
+TL_ISSUE_STATE="$STATE_DIR/tlp-issue-state-$$.json"
+jq -n '{"600":"OPEN","602":"OPEN","603":"OPEN"}' >"$TL_ISSUE_STATE"
 mkdir -p "$TL_SPECS"
 # Board: issue #600 at "In progress", no workflow-state files in specs dir.
 jq -n '{items:[{"content":{"type":"Issue","number":600,"title":"orphaned","repository":"macatocz/makato","url":"https://github.com/macatocz/makato/issues/600"},"status":"In progress","labels":[]}]}' \
@@ -3343,6 +3351,7 @@ tl_stderr="$(
   MAKATO_LOOP_TEST_HOOK=1 \
   MAKATO_LOOP_RECONCILE_GH_OVERRIDE="$TL_FIXTURE" \
   MAKATO_LOOP_RECONCILE_TEST_FILE="$TL_RECON_FILE" \
+  MAKATO_LOOP_RECONCILE_ISSUE_STATE_OVERRIDE="$TL_ISSUE_STATE" \
   SPECS_DIR="$TL_SPECS" \
     "$LOOP" _test-reconcile-orphaned 2>&1 >/dev/null
 )" || tl_rc=$?
@@ -3401,6 +3410,7 @@ tn_stderr="$(
   MAKATO_LOOP_TEST_HOOK=1 \
   MAKATO_LOOP_RECONCILE_GH_OVERRIDE="$TN_FIXTURE" \
   MAKATO_LOOP_RECONCILE_TEST_FILE="$TN_RECON_FILE" \
+  MAKATO_LOOP_RECONCILE_ISSUE_STATE_OVERRIDE="$TL_ISSUE_STATE" \
   MAKATO_LOOP_RECONCILE_SPECS_DIR="$TN_SPECS" \
     "$LOOP" _test-reconcile-orphaned 2>&1 >/dev/null
 )" || tn_rc=$?
@@ -3425,6 +3435,7 @@ to_stderr="$(
   MAKATO_LOOP_TEST_HOOK=1 \
   MAKATO_LOOP_RECONCILE_GH_OVERRIDE="$TO_FIXTURE" \
   MAKATO_LOOP_RECONCILE_TEST_FILE="$TO_RECON_FILE" \
+  MAKATO_LOOP_RECONCILE_ISSUE_STATE_OVERRIDE="$TL_ISSUE_STATE" \
   MAKATO_LOOP_RECONCILE_DRYRUN=1 \
   SPECS_DIR="$TO_SPECS" \
     "$LOOP" _test-reconcile-orphaned 2>&1 >/dev/null
@@ -3464,6 +3475,7 @@ tp_stderr="$(
   || fail "Tp: RECONCILE_ON_POLL=0 must produce no reconcile output; got: $(cat "$TP_RECON_FILE" 2>/dev/null)"
 rm -f "$TP_FIXTURE" "$TP_RECON_FILE"
 rmdir "$TP_SPECS" 2>/dev/null || true
+rm -f "$TL_ISSUE_STATE"
 echo "  ✓ RECONCILE_ON_POLL=0: pass skipped, no action"
 
 echo
@@ -3627,6 +3639,72 @@ grep -q "reconcile #45006" "$TS6_RECON" 2>/dev/null \
   || fail "T-STALE-CLOSED-OPEN: OPEN orphan must still reconcile; got: $(cat "$TS6_RECON" 2>/dev/null)"
 rm -rf "$TS6_SPECS" "$TS6_RECON" "$TS6_LABEL" "$TS6_STATE"
 echo "  ✓ dead+stale and OPEN → still reconciled (guard never masks a real orphan)"
+
+# ---------------------------------------------------------------------------
+# T-STALE-DEDUP: #786 — a dead+stale orphan that ALREADY carries
+# needs-human-review is skipped (no re-Block, no duplicate comment). The state
+# file is never deleted, so without the dedup guard the reconciler re-fires on
+# the same orphan every tick, re-posting an identical comment (the 6-8× dupe).
+# ---------------------------------------------------------------------------
+echo "=== T-STALE-DEDUP: #786 already-labelled orphan → skip (no dupe comment) ==="
+TS7_SPECS="$STATE_DIR/stale7-specs-$$"
+TS7_RECON="$STATE_DIR/stale7-recon-$$.txt"
+TS7_LABEL="$STATE_DIR/stale7-label-$$.txt"
+TS7_LABELS="$STATE_DIR/stale7-labels-$$.json"
+TS7_COMMENT="$STATE_DIR/stale7-comment-$$.txt"
+mkdir -p "$TS7_SPECS"
+_seed_stale "$TS7_SPECS" 45007 7200 dead      # would reconcile (2h old, dead owner)…
+printf '{"45007":["needs-human-review"]}\n' >"$TS7_LABELS"  # …but already labelled
+ts7_rc=0
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_ORPHAN_STALE_SECS=3600 \
+MAKATO_LOOP_RECONCILE_SPECS_DIR="$TS7_SPECS" \
+MAKATO_LOOP_RECONCILE_TEST_FILE="$TS7_RECON" \
+MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE="$TS7_LABEL" \
+MAKATO_LOOP_RECONCILE_LABELS_OVERRIDE="$TS7_LABELS" \
+MAKATO_POST_HALT_COMMENT_TEST_FILE="$TS7_COMMENT" \
+SPECS_DIR="$TS7_SPECS" \
+  "$LOOP" _test-reconcile-stale >/dev/null 2>&1 || ts7_rc=$?
+[[ $ts7_rc -eq 0 ]] || fail "T-STALE-DEDUP: expected rc 0; got $ts7_rc"
+[[ ! -f "$TS7_RECON" || ! -s "$TS7_RECON" ]] \
+  || fail "T-STALE-DEDUP: already-labelled orphan must NOT be re-reconciled; got: $(cat "$TS7_RECON" 2>/dev/null)"
+[[ ! -f "$TS7_COMMENT" || ! -s "$TS7_COMMENT" ]] \
+  || fail "T-STALE-DEDUP: already-labelled orphan must NOT re-post a comment; got: $(cat "$TS7_COMMENT" 2>/dev/null)"
+rm -rf "$TS7_SPECS" "$TS7_RECON" "$TS7_LABEL" "$TS7_LABELS" "$TS7_COMMENT"
+echo "  ✓ already needs-human-review → skipped (no re-Block, no duplicate comment)"
+
+# ---------------------------------------------------------------------------
+# T-STALE-HALT015: #786 — a fresh dead+stale orphan posts a HALT-015 comment
+# (dead session / orphaned card), NOT HALT-014 (semantic stall ceiling), and
+# the comment carries a **Situation:** section with the runtime phase.
+# ---------------------------------------------------------------------------
+echo "=== T-STALE-HALT015: #786 dead+stale orphan → HALT-015 comment with Situation ==="
+TS8_SPECS="$STATE_DIR/stale8-specs-$$"
+TS8_RECON="$STATE_DIR/stale8-recon-$$.txt"
+TS8_LABEL="$STATE_DIR/stale8-label-$$.txt"
+TS8_COMMENT="$STATE_DIR/stale8-comment-$$.txt"
+mkdir -p "$TS8_SPECS"
+_seed_stale "$TS8_SPECS" 45008 7200 dead
+ts8_rc=0
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_ORPHAN_STALE_SECS=3600 \
+MAKATO_LOOP_RECONCILE_SPECS_DIR="$TS8_SPECS" \
+MAKATO_LOOP_RECONCILE_TEST_FILE="$TS8_RECON" \
+MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE="$TS8_LABEL" \
+MAKATO_POST_HALT_COMMENT_TEST_FILE="$TS8_COMMENT" \
+SPECS_DIR="$TS8_SPECS" \
+  "$LOOP" _test-reconcile-stale >/dev/null 2>&1 || ts8_rc=$?
+[[ $ts8_rc -eq 0 ]] || fail "T-STALE-HALT015: expected rc 0; got $ts8_rc"
+grep -q "HALT-015" "$TS8_COMMENT" 2>/dev/null \
+  || fail "T-STALE-HALT015: comment must be HALT-015; got: $(cat "$TS8_COMMENT" 2>/dev/null)"
+grep -q "HALT-014" "$TS8_COMMENT" 2>/dev/null \
+  && fail "T-STALE-HALT015: comment must NOT be HALT-014; got: $(cat "$TS8_COMMENT" 2>/dev/null)"
+grep -q "\*\*Situation:\*\*" "$TS8_COMMENT" 2>/dev/null \
+  || fail "T-STALE-HALT015: comment must carry a Situation section; got: $(cat "$TS8_COMMENT" 2>/dev/null)"
+grep -q "phase \`implement\`" "$TS8_COMMENT" 2>/dev/null \
+  || fail "T-STALE-HALT015: Situation must name the runtime phase; got: $(cat "$TS8_COMMENT" 2>/dev/null)"
+rm -rf "$TS8_SPECS" "$TS8_RECON" "$TS8_LABEL" "$TS8_COMMENT"
+echo "  ✓ dead+stale → HALT-015 comment with **Situation:** (phase, not HALT-014)"
 
 echo
 echo "=== #616 orphan-stale detection (T-STALE-1..4) complete ==="
