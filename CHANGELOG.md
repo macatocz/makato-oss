@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.145.3](https://github.com/macatocz/makato/compare/v0.145.2...v0.145.3) (2026-08-09)
+
+
+### 🐛 Bug Fixes
+
+* **makato-plan:** resolve 7 feature-audit gaps ([#703](https://github.com/macatocz/makato/issues/703)) ([#792](https://github.com/macatocz/makato/issues/792)) ([ba24117](https://github.com/macatocz/makato/commit/ba24117effb037312d41d7c31596786ec69d4702))
+
 ## [0.145.2](https://github.com/macatocz/makato/compare/v0.145.1...v0.145.2) (2026-08-09)
 
 
