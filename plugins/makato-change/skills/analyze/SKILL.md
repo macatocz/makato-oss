@@ -65,6 +65,13 @@ Analyze change request requirements by comparing current system behavior against
 
 GitHub Issues issue key is required (passed as argument or asked from user).
 
+Emit a session-start entry to the audit log immediately after the issue key is resolved:
+
+```bash
+plugins/makato-build/shared/build-log.sh "<KEY>" \
+  '{"step":"session","status":"start","data":{"skill":"analyze","key":"<KEY>","issue":<N>}}'
+```
+
 Use the `issue_read` MCP tool with `method: get` to fetch the issue. Do NOT use the `gh issue view` CLI command for this structured fetch — the MCP tool returns typed JSON that agents can consume directly without shell parsing.
 
 ```json
@@ -258,6 +265,11 @@ Extract FEATURE_KEYWORDS by identifying key terms from GitHub Issues summary and
 
 **Store result** in working memory as CODE_EXPLORATION_RESULT.
 
+```bash
+plugins/makato-build/shared/build-log.sh "<KEY>" \
+  '{"step":"code-explorer","status":"ok","data":{"skill":"analyze","agent":"code-explorer"}}'
+```
+
 **Early large-scope shortcut:** If CODE_EXPLORATION_RESULT shows **16+ primary affected files** OR explicitly signals a new subsystem is required, skip Steps 3.5 and 4 entirely and jump to Step 7. A change this large should not consume test-analyzer and requirements-diff-analyzer budget — the scope verdict is already clear from code exploration.
 
 **Document current behavior** from agent findings:
@@ -284,6 +296,11 @@ REQUESTED_CHANGES: <brief summary from GitHub Issues>
 - Coverage gaps identified
 
 **Store result** in working memory as TEST_ANALYSIS_RESULT.
+
+```bash
+plugins/makato-build/shared/build-log.sh "<KEY>" \
+  '{"step":"test-analyzer","status":"ok","data":{"skill":"analyze","agent":"test-analyzer"}}'
+```
 
 **Extract for analysis:**
 - Existing E2E test scenarios (IDs and names)
@@ -313,6 +330,11 @@ EXISTING_TESTS: <from test-analyzer: unit and E2E test list>
 - Completeness assessment (ready_for_design | needs_clarification | resolve_conflicts)
 
 **Store result** in working memory as REQUIREMENTS_DIFF_RESULT.
+
+```bash
+plugins/makato-build/shared/build-log.sh "<KEY>" \
+  '{"step":"requirements-diff-analyzer","status":"ok","data":{"skill":"analyze","agent":"requirements-diff-analyzer"}}'
+```
 
 **Extract for analysis artifact:**
 - Comparison table
@@ -538,6 +560,13 @@ If analysis is complete and clear:
 Provide the path to the analysis artifact for detailed review:
 ```
 specs/<issue-key>/analysis.md
+```
+
+Emit a session-end entry:
+
+```bash
+plugins/makato-build/shared/build-log.sh "<KEY>" \
+  '{"step":"session","status":"ok","data":{"skill":"analyze","key":"<KEY>","issue":<N>}}'
 ```
 
 ---

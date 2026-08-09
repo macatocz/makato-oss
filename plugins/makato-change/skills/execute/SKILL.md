@@ -85,6 +85,13 @@ References are loaded **at point-of-use only** — never pre-loaded. Each entry 
 
 GitHub Issues key is required (from argument or ask user).
 
+Emit a session-start entry to the audit log immediately after the design artifact is loaded:
+
+```bash
+plugins/makato-build/shared/build-log.sh "<KEY>" \
+  '{"step":"session","status":"start","data":{"skill":"execute","key":"<KEY>","issue":<N>}}'
+```
+
 Read the design artifact at `specs/<issue-key>/design.md`:
 - Validate artifact exists (if not, prompt user to run design skill first)
 - Extract: affected files, solution approach, implementation plan, test strategy, test scope, risks
@@ -243,6 +250,11 @@ notes or deviations.
   guess — surface the gap to the user (interactive) or emit the blocker (autonomous), since
   this context holds the full requirements needed to decide how to proceed.
 
+```bash
+plugins/makato-build/shared/build-log.sh "<KEY>" \
+  '{"step":"change-implementer","status":"ok","data":{"skill":"execute","agent":"change-implementer"}}'
+```
+
 **Key principles (enforced by the agent, restated here for the contract):**
 - Don't add features beyond what the design specifies
 - Don't refactor unrelated code
@@ -304,6 +316,11 @@ If user chooses "Create basic test setup":
 **MANDATORY: Load `@references/test-generation-guide.md`** — contains the full stack-specific test writing procedure, mocking patterns, fixture conventions, and coverage thresholds for this skill.
 
 Apply the test scope from the design artifact (module-only vs full suite). For each modified file: update assertions for changed behavior, add new test cases for new scenarios, update mocks/fixtures if data structures changed. For new files: create test files following existing naming conventions. Detect and update E2E tests in `e2e/`, `cypress/`, `playwright/`, `__e2e__/` if the changed behavior affects user-facing workflows.
+
+```bash
+plugins/makato-build/shared/build-log.sh "<KEY>" \
+  '{"step":"tests-updated","status":"ok","data":{"skill":"execute","agent":"test-generation"}}'
+```
 
 ### Step 4: Run Test Suites
 
@@ -399,6 +416,11 @@ CHANGED_FILES: <list of modified/created files, relative to REPO_ROOT>
   - **Loop guard**: Track iteration count. If this is the 3rd iteration without approval, stop and report to user with details of blocking issues that prevent automatic resolution.
 
 **Why this sequence matters:** Code review can introduce new code paths (edge case handling, bug fixes). Running quality-guard AFTER code-reviewer ensures those changes are tested and meet coverage thresholds before committing.
+
+```bash
+plugins/makato-build/shared/build-log.sh "<KEY>" \
+  '{"step":"review-quality-gate","status":"ok","data":{"skill":"execute","agent":"code-reviewer+quality-guard"}}'
+```
 
 ### Step 6: Create Feature Branch
 
@@ -555,6 +577,11 @@ EOF
 - Remove ALL HTML comments from the filled template
 - The filled template must have the same sections in the same order as the source template
 
+```bash
+plugins/makato-build/shared/build-log.sh "<KEY>" \
+  '{"step":"pr-created","status":"ok","data":{"skill":"execute","agent":"gh-pr-create"}}'
+```
+
 ### Step 9: Update GitHub Issues and Advance Board
 
 Link the PR to GitHub Issues using `gh issue comment`:
@@ -626,6 +653,11 @@ Next steps:
 ```
 
 Provide the PR URL prominently so the user can view it immediately.
+
+```bash
+plugins/makato-build/shared/build-log.sh "<KEY>" \
+  '{"step":"session","status":"ok","data":{"skill":"execute","key":"<KEY>","issue":<N>}}'
+```
 
 ### Step 11: Record Lessons
 
