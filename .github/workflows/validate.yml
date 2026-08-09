@@ -59,10 +59,7 @@ jobs:
           done
           exit $rc
 
-      - name: Check skill self-containment (advisory — no ../ escaping paths)
-        continue-on-error: true  # check-self-contained.sh over-flags URL examples
-                                 # (https://…/…) and legitimate ../../shared/ links;
-                                 # run as warn-only until the matcher is tightened.
+      - name: Check skill self-containment (no ../ escaping paths)
         run: |
           rc=0
           for skill_dir in plugins/*/skills/*/; do

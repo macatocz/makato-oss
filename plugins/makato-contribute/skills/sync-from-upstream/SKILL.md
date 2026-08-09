@@ -38,7 +38,7 @@ Migrate skills, agents, and plugin files from an upstream impact-market repo int
 
 Invoke `AskUserQuestion` with:
 - question: "What is the path to the upstream impact-market repository?"
-- options: ["../impact-market (default)", "Specify a custom path"]
+- options: [`../impact-market` (default), "Specify a custom path"]
 
 Resolve both paths absolutely and verify they exist:
 - Upstream: `<upstream-root>/plugins/`
