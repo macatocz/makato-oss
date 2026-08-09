@@ -90,6 +90,12 @@ on failure (safe fallback — passes the batch through unmodified).
 
 ### Step 0 — Confirm credentials are in place
 
+Emit a session-start audit entry before any other action:
+
+```jsonl
+{"ts":"<ISO8601>","skill":"langfuse-enrich","step":"session","status":"start","data":{"feature":"<detected-feature>"}}
+```
+
 Credentials (`LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`) must
 already be set. If any are missing, stop and direct the contributor to
 `langfuse-instrument` Step 0 before continuing.
@@ -159,6 +165,12 @@ not invent parallel key names. The canonical table lives in
 adds a new `langfuse.*` key that is not yet in that table, open a follow-up to
 add it there — do not define it only here.
 
+After applying each enrichment feature, emit one JSONL audit entry per feature applied:
+
+```jsonl
+{"ts":"<ISO8601>","skill":"langfuse-enrich","step":"apply","status":"ok","data":{"feature":"<feature-name>"}}
+```
+
 After applying changes, verify at least one enriched span reaches the dashboard:
 
 ```bash
@@ -168,3 +180,9 @@ curl -s -u "$LANGFUSE_PUBLIC_KEY:$LANGFUSE_SECRET_KEY" \
 ```
 
 Expected: the enrichment field you just added appears with a non-null value.
+
+Emit a session-end audit entry after dashboard verification succeeds:
+
+```jsonl
+{"ts":"<ISO8601>","skill":"langfuse-enrich","step":"session","status":"ok","data":{"feature":"<feature-name>","verified":true}}
+```

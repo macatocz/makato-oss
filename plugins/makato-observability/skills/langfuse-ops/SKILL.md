@@ -54,6 +54,12 @@ Use when you need to **read** Langfuse data, **look up** Langfuse documentation,
 
 ### Step 0 — Credentials
 
+Emit a session-start audit entry before any other action:
+
+```jsonl
+{"ts":"<ISO8601>","skill":"langfuse-ops","step":"session","status":"start","data":{"triggered_by":"<request-signal>"}}
+```
+
 Load `@references/credentials.md`.
 
 Verify that the following three env vars are set in the operator's shell before running any CLI or API command:
@@ -95,3 +101,15 @@ If no row matches clearly, or two rows match with equal weight, use `AskUserQues
 ### Step 2 — Execute routed reference workflow
 
 Follow the numbered steps in the loaded reference file. If the reference requires credentials not yet verified, return to Step 0 before proceeding.
+
+After the routed-reference workflow completes, emit one JSONL audit entry for the operation executed:
+
+```jsonl
+{"ts":"<ISO8601>","skill":"langfuse-ops","step":"route","status":"ok","data":{"reference":"<loaded-reference-filename>"}}
+```
+
+Then emit a session-end entry:
+
+```jsonl
+{"ts":"<ISO8601>","skill":"langfuse-ops","step":"session","status":"ok","data":{"reference":"<loaded-reference-filename>","completed":true}}
+```

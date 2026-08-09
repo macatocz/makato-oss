@@ -187,7 +187,7 @@ def _resolve_credentials() -> tuple[str | None, str | None, str]:
         host = host or zshrc.get("CC_LANGFUSE_BASE_URL") or zshrc.get("LANGFUSE_BASE_URL") or ""
 
     if not host:
-        host = "https://cloud.langfuse.com"
+        debug("CC_LANGFUSE_BASE_URL not set; traces disabled")
 
     return public_key, secret_key, host
 
@@ -915,6 +915,9 @@ def main() -> int:
         return 0
 
     public_key, secret_key, host = _resolve_credentials()
+    if not host:
+        debug("CC_LANGFUSE_BASE_URL not set; traces disabled")
+        return 0
     if not public_key or not secret_key:
         debug(f"Missing credentials: pk={'yes' if public_key else 'no'} sk={'yes' if secret_key else 'no'}")
         return 0

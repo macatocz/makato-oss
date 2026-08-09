@@ -57,6 +57,12 @@ Follow the seven steps in order. Do not skip Step 6 — a "success" without dash
 
 ### Step 0 — Gather Langfuse credentials
 
+Emit a session-start audit entry before any other action:
+
+```jsonl
+{"ts":"<ISO8601>","skill":"langfuse-instrument","step":"session","status":"start","data":{"target":"<agent-path>"}}
+```
+
 Load `@references/deployment-paths.md` now. Do NOT load this reference before Step 0 or front-load it with other steps.
 
 Ask via `AskUserQuestion`:
@@ -77,7 +83,13 @@ If the operator cannot supply all three, HALT. Do NOT proceed. Point them at the
 
 ### Step 1 — Confirm agent runs LangGraph on the OTel-SDK path
 
-Load `@references/langgraph-otel-integration.md` now. Do NOT load this reference before Step 1 or during Step 0 credential gathering.
+Emit an audit entry on entering this step:
+
+```jsonl
+{"ts":"<ISO8601>","skill":"langfuse-instrument","step":"validate-langgraph","status":"start","data":{}}
+```
+
+Load `@shared/langgraph-otel-integration.md` now. Do NOT load this reference before Step 1 or during Step 0 credential gathering.
 
 Read the agent entry file(s) the operator names (or scan the conventional locations — typical layouts include a `src/` package with the graph module, plus a bootstrap that calls `graph.compile()` or `graph.invoke()`).
 
@@ -98,6 +110,12 @@ resulting spans (sessions, users, tags, feedback) is covered by the
 
 ### Step 2 — Verify OTel + Langfuse dependencies
 
+Emit an audit entry on entering this step:
+
+```jsonl
+{"ts":"<ISO8601>","skill":"langfuse-instrument","step":"verify-deps","status":"start","data":{}}
+```
+
 Check the consumer's dependency manifest (`pyproject.toml` or `requirements.txt`):
 
 - `opentelemetry-api>=1.25` — required
@@ -108,6 +126,12 @@ Check the consumer's dependency manifest (`pyproject.toml` or `requirements.txt`
 If any dependency is missing, add it to the correct group (production-scope goes in `[project.dependencies]`; test-only wiring goes in `[project.optional-dependencies].test`). Do NOT run `pip install`. Tell the operator to run their local install command (`pip install -e .`, `uv sync`, or their equivalent).
 
 ### Step 3 — Wire the OTel TracerProvider + OTLP HTTP exporter
+
+Emit an audit entry on entering this step:
+
+```jsonl
+{"ts":"<ISO8601>","skill":"langfuse-instrument","step":"wire-tracerprovider","status":"start","data":{}}
+```
 
 Load `@references/otel-setup.md` now. Do NOT load this reference before Step 3.
 
@@ -124,7 +148,13 @@ Adapt the module path per the consumer's conventions; do NOT hard-code a filesys
 
 ### Step 4 — Instrument LangGraph nodes with spans + attributes
 
-Load `@references/span-attribute-conventions.md` now. Do NOT load this reference before Step 4.
+Emit an audit entry on entering this step:
+
+```jsonl
+{"ts":"<ISO8601>","skill":"langfuse-instrument","step":"instrument-nodes","status":"start","data":{}}
+```
+
+Load `@shared/span-attribute-conventions.md` now. Do NOT load this reference before Step 4.
 
 For each LangGraph node whose behaviour needs tracing, wrap the node body:
 
@@ -146,6 +176,12 @@ Use canonical `gen_ai.*` attribute names from the catalogue — do not invent ne
 
 ### Step 5 — Add the in-process exporter for unit tests
 
+Emit an audit entry on entering this step:
+
+```jsonl
+{"ts":"<ISO8601>","skill":"langfuse-instrument","step":"add-test-exporter","status":"start","data":{}}
+```
+
 Load `@references/inprocess-exporter.md` now. Do NOT load this reference before Step 5, and do NOT load it for the production wiring path.
 
 Copy `@templates/otel-inprocess-exporter.py` into the consumer's test-helpers directory (the operator supplies the path — typical layouts use `tests/_helpers/` but this skill does not hard-code that location).
@@ -165,6 +201,12 @@ def test_node_emits_gen_ai_attrs(captured_spans):
 ```
 
 ### Step 6 — Configure env vars + verify traces on dashboard (MANDATORY)
+
+Emit an audit entry on entering this step:
+
+```jsonl
+{"ts":"<ISO8601>","skill":"langfuse-instrument","step":"verify-dashboard","status":"start","data":{}}
+```
 
 Update or create `.env.local` at the consumer repo root with the three `LANGFUSE_*` values from Step 0. Provide `@templates/env-local.example` as reference.
 
@@ -192,3 +234,9 @@ Then verify traces end-to-end:
 If any step fails, load `@references/troubleshooting.md` now. Do NOT load troubleshooting.md proactively — defer it to this failure path only.
 
 **Do NOT declare success until traces are visible on the dashboard.**
+
+Emit a session-end audit entry after dashboard verification succeeds:
+
+```jsonl
+{"ts":"<ISO8601>","skill":"langfuse-instrument","step":"session","status":"ok","data":{"steps_completed":7,"traces_verified":true}}
+```

@@ -121,7 +121,6 @@ makato-langgraph            makato-build              makato-observability
 | `plugins/makato-observability/skills/langfuse-instrument/references/inprocess-exporter.md` | Reference for the `InMemorySpanExporter` + `SimpleSpanProcessor` pytest fixture pattern — consumed in Step 5 |
 | `plugins/makato-observability/skills/langfuse-instrument/references/langgraph-otel-integration.md` | Reference verifying the LangGraph-on-OTel-SDK integration path (vs. classic-LangChain callback path) — consumed in Step 1 |
 | `plugins/makato-observability/skills/langfuse-instrument/references/troubleshooting.md` | Troubleshooting guide walked when Step 6 dashboard verification fails |
-| `plugins/makato-observability/skills/langfuse-instrument/references/skill-plan.html` | Design artifact documenting the skill plan for `langfuse-instrument` |
 | `plugins/makato-observability/skills/langfuse-instrument/templates/otel-setup.py` | Bootstrap template for TracerProvider + OTLP HTTP exporter — silent no-op when `LANGFUSE_PUBLIC_KEY` is unset; copied into consumer bootstrap module in Step 3 |
 | `plugins/makato-observability/skills/langfuse-instrument/templates/otel-inprocess-exporter.py` | `InMemorySpanExporter` pytest fixture template for unit-test span assertions without a running Langfuse — copied into consumer test helpers in Step 5 |
 | `plugins/makato-observability/skills/langfuse-instrument/templates/env-local.example` | Example `.env.local` file showing the three required `LANGFUSE_*` environment variables — provided to operators in Step 6 |
