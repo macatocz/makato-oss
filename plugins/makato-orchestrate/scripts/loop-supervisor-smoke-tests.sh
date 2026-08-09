@@ -194,8 +194,8 @@ echo "T7: alive + stale dispatch + queued items → restart"
 {
   sb="$(new_sandbox)"
   echo "$$" >"$sb/state/loop.pid"
-  # Very old dispatch timestamp with items queued → stale
-  printf '{"queue_depth":2,"last_dispatch_at":"2020-01-01T00:00:00.000Z"}\n' \
+  # Very old dispatch timestamp with items queued → stale, and stalled=true so guard doesn't fire
+  printf '{"queue_depth":2,"last_dispatch_at":"2020-01-01T00:00:00.000Z","active_workflow":{"issue":42,"stalled":true}}\n' \
     >"$sb/state/loop-status.json"
 
   MAKATO_SUPERVISOR_DRY_RUN=1 run_supervisor "$sb" >/dev/null 2>&1
@@ -205,6 +205,50 @@ echo "T7: alive + stale dispatch + queued items → restart"
     pass "T7"
   else
     fail "T7" "expected action=restart, got '$action'"
+  fi
+  rm -rf "$sb"
+}
+
+# ---------------------------------------------------------------------------
+# T8: alive + active_workflow.stalled=false + stale dispatch + queued items → no_action
+# ---------------------------------------------------------------------------
+echo "T8: alive + active_workflow.stalled=false + stale dispatch + queued items → no_action"
+{
+  sb="$(new_sandbox)"
+  echo "$$" >"$sb/state/loop.pid"
+  # active_workflow present and not stalled — mid-dispatch guard fires
+  printf '{"queue_depth":2,"last_dispatch_at":"2020-01-01T00:00:00.000Z","active_workflow":{"issue":42,"stalled":false}}\n' \
+    >"$sb/state/loop-status.json"
+
+  run_supervisor "$sb" >/dev/null 2>&1
+
+  action="$(last_action "$sb/state/supervisor-audit.jsonl")"
+  if [[ "$action" == "no_action" ]]; then
+    pass "T8"
+  else
+    fail "T8" "expected action=no_action, got '$action'"
+  fi
+  rm -rf "$sb"
+}
+
+# ---------------------------------------------------------------------------
+# T9: alive + active_workflow.stalled=true + stale dispatch + queued items → restart
+# ---------------------------------------------------------------------------
+echo "T9: alive + active_workflow.stalled=true + stale dispatch + queued items → restart"
+{
+  sb="$(new_sandbox)"
+  echo "$$" >"$sb/state/loop.pid"
+  # active_workflow present but stalled — mid-dispatch guard does NOT fire
+  printf '{"queue_depth":2,"last_dispatch_at":"2020-01-01T00:00:00.000Z","active_workflow":{"issue":42,"stalled":true}}\n' \
+    >"$sb/state/loop-status.json"
+
+  MAKATO_SUPERVISOR_DRY_RUN=1 run_supervisor "$sb" >/dev/null 2>&1
+
+  action="$(last_action "$sb/state/supervisor-audit.jsonl")"
+  if [[ "$action" == "restart" ]]; then
+    pass "T9"
+  else
+    fail "T9" "expected action=restart, got '$action'"
   fi
   rm -rf "$sb"
 }

@@ -148,6 +148,18 @@ if [[ "$PID_STATUS" == "alive" ]]; then
     exit 0
   fi
 
+  # Mid-dispatch guard: active_workflow takes precedence over last_dispatch_at age.
+  # When a dispatch is in flight and not stalled, the loop is healthy regardless of
+  # how old last_dispatch_at is (it is written once at dispatch start, never refreshed).
+  ACTIVE_WF_ISSUE="$(jq -r '.active_workflow.issue // empty' "$STATUS_FILE" 2>/dev/null || true)"
+  ACTIVE_WF_STALLED="$(jq -r '.active_workflow.stalled // false' "$STATUS_FILE" 2>/dev/null || true)"
+
+  if [[ -n "$ACTIVE_WF_ISSUE" && "$ACTIVE_WF_STALLED" != "true" ]]; then
+    echo "loop-supervisor: loop alive (pid=$PID), mid-dispatch (issue=${ACTIVE_WF_ISSUE}, stalled=false) — no action" >&2
+    _append_audit "no_action" "loop_alive_mid_dispatch" "alive" "null"
+    exit 0
+  fi
+
   # Board has queued items — check staleness.
   STALE_ELAPSED="null"
   if [[ -n "$LAST_DISPATCH_AT" ]]; then
@@ -185,7 +197,6 @@ print(int(dt.timestamp()))
     REASON="loop_stale_no_dispatch_timestamp"
   fi
   echo "loop-supervisor: loop appears stale (pid=$PID age=${STALE_ELAPSED}s >= ${STALE_SECS}s, queue_depth=${QUEUE_DEPTH}) — restarting" >&2
-  _restart_loop() { true; }
   _do_restart=1
   _restart_reason="$REASON"
 else

@@ -99,7 +99,7 @@ plugins/makato-orchestrate/scripts/loop-fleet-smoke-tests.sh
 
 ## Supervisor Scenarios (`loop-supervisor-smoke-tests.sh`)
 
-Seven offline scenarios covering all four plan-specified cases plus edge variants (dead-pid empty board, missing pidfile, alive+stale dispatch).
+Nine offline scenarios covering all four plan-specified cases plus edge variants (dead-pid empty board, missing pidfile, alive+stale dispatch, alive mid-dispatch no-action, alive stalled dispatch restart).
 
 ```bash
 plugins/makato-orchestrate/scripts/loop-supervisor-smoke-tests.sh
