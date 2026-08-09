@@ -343,7 +343,7 @@ $STANZA
 On failure: log `{"step":"step-6a","status":"warn","data":{"halt_token":"HARNESS_ISSUE_FAILED: $CATEGORY"}}` and continue (soft-warn — does NOT block). Do NOT post a reply.
 On success: record `HARNESS_URL`.
 
-**6. Post reply** on the triggering MUST-FIX comment thread using the `[HARNESS-PROPOSED]` template section (see `@../../templates/pr-comment-replies.md`), substituting `<harness-issue>` = `$HARNESS_URL` and `<proposed-rule>` = `$CATEGORY`.
+**6. Post reply** on the triggering MUST-FIX comment thread using the `## REVIEW-FEEDBACK PROMOTION (harness issue opened)` template section (see `@../../templates/pr-comment-replies.md`), substituting `<harness-issue>` = `$HARNESS_URL` and `<proposed-rule>` = `$CATEGORY`.
 
 **7. Log bypass (autonomous mode only):**
 

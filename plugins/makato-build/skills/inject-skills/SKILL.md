@@ -36,6 +36,13 @@ that is `inject-context`'s responsibility. `inject-skills` returns skill
 _identifiers_ (e.g. `langgraph-fundamentals`), not file paths. Do NOT load when
 assembling task context rather than an agent dispatch bundle.
 
+> **Domain-specific recommendations require bundles.** For a consuming plugin's
+> skills to appear in recommendations, that plugin must ship at least one bundle
+> in its own `config/skill-bundles.yml` (or `shared/skill-bundles.yml`). Without
+> a bundle file, `inject-skills` has no mapping and produces no recommendations
+> for that plugin's skill identifiers, regardless of what files change. See
+> `plugins/makato-build/shared/skill-bundles.yml` for a worked example.
+
 ## Input
 
 | Field | Type | Required | Description |
@@ -203,6 +210,12 @@ resolver's contract verifiable. All filesystem work belongs in
 `aggregate_bundles`, `discover_installed_skills`, and `resolve_skills_for_repo`.
 
 ## Authoring skill bundles
+
+> **Domain-scoped recommendations require a plugin-local bundle.** Domain-specific
+> recommendations require at minimum one bundle in a consuming plugin's
+> `skill-bundles.yml`. Without a plugin-specific bundle, no domain-scoped skill
+> recommendations are generated for that plugin's files — only the `default` bundle
+> (owned by `makato-build`) applies, which recommends no skills.
 
 See `plugins/makato-langgraph/config/skill-bundles.yml` for the canonical
 example (the first F1 bundle). Key rules for authors:

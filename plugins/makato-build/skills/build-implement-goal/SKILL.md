@@ -205,6 +205,8 @@ met or the gap is explicitly acknowledged: use `AskUserQuestion` with
 - question: `"Coverage threshold not met (<X>% vs required <Y>%). Acknowledge and log as known exception?"`
 - options: `["Acknowledge — log as known exception and proceed", "Add more tests to meet threshold"]`
 
+**Autonomous mode:** When running with `--autonomous`, skip the interactive coverage check. Log the bypass and proceed with available coverage.
+
 A "yes" answer is logged as `status: "decision"` in `build.jsonl` and execution continues.
 
 Log:
@@ -265,3 +267,39 @@ WHY: A goal-mode test suite written against broken code is worse than no tests �
 
 **NEVER apply `TEST_ORACLE` from the `build-implement-tdd` chain in this skill.**
 WHY: `build-implement-goal` is intentionally excluded from the `TEST_ORACLE` propagation chain (TDD-only contract in `AGENTS.md`). Applying oracle scenarios here would create test stubs before VERIFY RUNTIME passes, violating the BUILD-first contract of goal-mode work.
+
+## Autonomous Execution
+
+Autonomous mode is activated per `@../../AUTONOMOUS-MODE.md` § *Activation triggers*.
+
+In autonomous mode:
+
+- **Never prompt the user** — work-item-key, coverage check, and session-end gates are bypassed per the rules above.
+- **Log every bypass** to `build.jsonl` via `shared/build-log.sh` with the `autonomous_bypass` event schema.
+- **Emit an R1 envelope** as the final `json`-fenced block of the skill's output.
+
+### Return Format (R1)
+
+Top-level R1 envelope fields follow `plugins/makato-build/agents/RETURN-CONTRACT.md` § *R1 envelope schema*. The skill-specific `data` payload is:
+
+```json
+{
+  "status": "success | partial | failure",
+  "summary": "<one-line summary>",
+  "files_changed": ["<list of repo-relative paths changed>"],
+  "tests_written": ["<list of test file paths written>"],
+  "errors": [],
+  "tool_calls_used": 0,
+  "data": {
+    "tasks_completed": 0,
+    "halt_code": null
+  }
+}
+```
+
+`agent` is `"build-implement-goal"`. `summary` is `"N goal tasks complete; 0 new failures."` on success.
+
+### HALT Codes
+
+The HALT codes emitted by this skill (`MISSING_INPUT`, `MISSING_PLAN`, `PLAN_ANALYST_FAILED`) are registered with their PO-agent recovery routes in `plugins/makato-build/halt-codes.md`.
+

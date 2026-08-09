@@ -243,9 +243,7 @@ naming") cause refine to plan two tasks that collapse into one, wasting a full
 skill invocation and making the plan analyst flag a scope ambiguity.
 
 **NEVER stream partial sections of the report.**
-WHY: the report is consumed directly by `/build-start` and may be piped to an
-autonomous loop; an incomplete response produces a malformed handoff that the
-next skill cannot recover from without re-running explore.
+WHY: The report is for human consumption; there is no automated build-start integration.
 
 **NEVER hedge the recommendation ("either A or B could work").**
 WHY: the recommendation is a decision input, not a discussion. Hedging forces
@@ -254,10 +252,9 @@ the user to redo the trade-off analysis that explore was supposed to do.
 on a hedge.
 
 **NEVER omit required headings even if a section is empty.**
-WHY: downstream skills and automated pipeline parsers rely on heading presence
-to extract sections. A missing "## Open Questions" heading silently drops
+WHY: The report is for human consumption; there is no automated build-start integration. A missing "## Open Questions" heading silently drops
 questions that could affect the implementation; a missing "## Recommended
-Approach" heading causes `build-start` to HALT on missing handoff data.
+Approach" section leaves the reader without a clear direction.
 
 **NEVER explore when the topic spans more than two cross-plugin contracts
 simultaneously.**

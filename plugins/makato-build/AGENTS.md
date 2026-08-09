@@ -98,7 +98,8 @@ The `coder` agent runs with `permissionMode: bypassPermissions`. This is the onl
 ```text
 makato-build/
 ├── .claude-plugin/plugin.json
-├── agents/    coder, diff-reviewer, gate-scout, knowledge-scout, plan-analyst, sensor-fixer
+├── agents/    coder, diff-reviewer, gate-scout, knowledge-scout, plan-analyst, runtime-qa, sensor-fixer
+│              runtime-qa: autonomous Playwright MCP QA agent — exercises built app against ACs, scores CRITICAL/MAJOR/ADVISORY findings, blocks push on CRITICAL
 │              (+ RETURN-CONTRACT.md — R1 envelope spec shared by all build agents)
 ├── hooks/     pre-commit / testing hooks
 ├── skills/    build-start, build-refine, build-grill-with-docs, build-implement-{tdd,goal},

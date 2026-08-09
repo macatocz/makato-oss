@@ -31,6 +31,34 @@
 version: "1.0"
 
 bundles:
+  - name: python-quality
+    globs:
+      - "**/*.py"
+    task_contains:
+      - "python"
+      - "Python"
+      - "type annotation"
+      - "type error"
+      - "security fix"
+      - "pyright"
+      - "mypy"
+      - "bandit"
+    skills:
+      - build-fix-types
+      - build-fix-security
+
+  - name: typescript-quality
+    globs:
+      - "**/*.ts"
+      - "**/*.tsx"
+    task_contains:
+      - "typescript"
+      - "TypeScript"
+      - "type error"
+      - "type annotation"
+    skills:
+      - build-fix-types
+
   - name: default
     globs:
       - "**/*"

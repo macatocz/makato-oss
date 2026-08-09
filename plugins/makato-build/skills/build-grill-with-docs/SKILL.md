@@ -43,14 +43,7 @@ Wait for the user's numbered choice before continuing. Record the resolved path 
 
 **ADR fallback**: if the user chooses to skip or the ADR directory cannot be created, do not silently drop ADR-worthy decisions. For each decision that meets the ADR criteria (Step 7), append it to `decisions.md` in the resolved spec folder with an `[ADR-PENDING]` marker and a note: `(ADR path unresolved — promote to ADR when directory is available)`. This preserves the decision for future promotion without blocking the session.
 
-**Complexity check** — count plan tasks, file targets, and loaded spec files. If any threshold is crossed (>7 tasks, >8 file targets, or >3 spec files), present the following numbered options:
-
-```
-1. Load /fast for Opus-quality reasoning before continuing
-2. Continue without /fast
-```
-
-Wait for the user's numbered choice before proceeding.
+**Complexity check** — Assess complexity by counting tasks and architectural layers from the plan. Note the overall complexity level (>7 tasks, >8 file targets, or >3 spec files flags high complexity) and proceed with enhanced attention to alignment depth.
 
 ---
 

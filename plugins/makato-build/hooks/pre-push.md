@@ -116,6 +116,8 @@ Field semantics:
 - `blocking: true` — a non-zero exit from `pre-commit` aborts the tool call; Claude sees the failure and surfaces it to the user instead of pushing.
 - `timeout: 120000` — 120 s ceiling for the hook stage; long enough for typical lint/test bundles, short enough to fail fast on a stuck check.
 
+> **Deployment note:** Consumer repos (including sagibeast) must include `"blocking": true` in this hook entry. Without it the hook fires but a non-zero exit does not abort the push — the gate becomes advisory-only instead of enforcing.
+
 ## Deny-List Addition (Bypass Prevention)
 
 The `--no-verify` flag bypasses `pre-commit` hooks at the git level, which would defeat this gate. The harness must reject that exact invocation. Add the following to `.claude/settings.json` in the target project:

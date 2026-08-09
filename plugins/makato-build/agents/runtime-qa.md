@@ -9,6 +9,14 @@ description: >-
   when the build has no runtime surface.
 model: claude-haiku-4-5-20251001
 maxTurns: 30
+allowedTools:
+  - mcp__plugin_makato-ux_plugin_playwright__browser_navigate
+  - mcp__plugin_makato-ux_plugin_playwright__browser_snapshot
+  - mcp__plugin_makato-ux_plugin_playwright__browser_click
+  - mcp__plugin_makato-ux_plugin_playwright__browser_take_screenshot
+  - mcp__plugin_makato-ux_plugin_playwright__browser_evaluate
+  - Bash
+  - Read
 ---
 
 <!-- markdownlint-disable MD013 -->
@@ -35,6 +43,20 @@ maxTurns: 30
 - **CRITICAL blocks push**: any finding scored CRITICAL must appear in `errors[]`
   as `"CRITICAL: <description>"` and set `status: "failure"`.
 
+## Step 0 — Playwright MCP availability guard
+
+Before proceeding to Step 1, verify that at least one of the Playwright MCP tools
+listed in `allowedTools` is available in this session. If none of the
+`mcp__plugin_makato-ux_plugin_playwright__*` tools respond, emit a SKIP log entry
+and return immediately:
+
+```jsonl
+{"ts":"<ISO>","skill":"runtime-qa","story":"<SPEC_KEY>","step":"session","status":"ok","data":{"skipped":true,"reason":"Playwright MCP unavailable"}}
+```
+
+Return R1 `status: "success"` with `data.skipped: true, data.reason: "Playwright MCP unavailable"`.
+Do NOT proceed to Step 1.
+
 ## Inputs
 
 | Field | Required | Description |
@@ -47,6 +69,26 @@ maxTurns: 30
 | `SPEC_KEY` | yes | Work-item key (e.g. `123-add-feature`) |
 
 ## Workflow
+
+### Step 0 — Check Playwright MCP availability
+
+Before proceeding, verify that at least one of the required Playwright MCP tools is
+available in the current execution context:
+
+- `mcp__plugin_makato-ux_plugin_playwright__browser_navigate`
+- `mcp__plugin_makato-ux_plugin_playwright__browser_snapshot`
+- `mcp__plugin_makato-ux_plugin_playwright__browser_click`
+- `mcp__plugin_makato-ux_plugin_playwright__browser_take_screenshot`
+- `mcp__plugin_makato-ux_plugin_playwright__browser_evaluate`
+
+If **none** of these tools are available, emit a SKIP log entry and return immediately:
+
+```jsonl
+{"ts":"<ISO>","skill":"runtime-qa","story":"<SPEC_KEY>","step":"session","status":"ok","data":{"skipped":true,"reason":"Playwright MCP unavailable"}}
+```
+
+Return R1 `status: "success"` with `data.skipped: true, data.reason: "Playwright MCP unavailable"`.
+Do NOT proceed to Step 1.
 
 ### Step 1 — Detect runtime surface
 

@@ -60,7 +60,7 @@ Reading `plan.md` in Step 1 below means `$REPO_ROOT/specs/<key>-*/plan.md`, neve
 
 ### Step 1 — Ask for work item key and load context
 
-Ask: *"Which work item are we pushing? (e.g. DCP-1234, or pass it directly: `/daff-build:build-push-to-git DCP-1234`)"* — or use the passed argument.
+Ask: *"Which work item are we pushing? (e.g. DCP-1234, or pass it directly: `/makato-build:build-push-to-git DCP-1234`)"* — or use the passed argument.
 
 Read `plan.md` from the resolved spec folder under `$REPO_ROOT` (`$REPO_ROOT/specs/<key>-*/plan.md`, NOT under `$WORKTREE_PATH`). Extract the task list — task titles and their file targets. This defines the commit grouping.
 

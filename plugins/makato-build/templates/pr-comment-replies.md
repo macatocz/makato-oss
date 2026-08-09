@@ -166,6 +166,12 @@ This template file is referenced (not embedded) by `build-address-pr-comments`. 
 
 The skill itself reads this file at runtime; there is no compile step. Test new templates by running the skill against a sandbox PR before merging.
 
+## SENSOR-BOT (delegated)
+
+Delegated to sensor-fixer. Applied Phase 0 autofix for `<tool>:<rule>`. See `build.jsonl` for audit trail.
+
+---
+
 ## REVIEW-FEEDBACK PROMOTION (harness issue opened)
 
 A recurring **<proposed-rule>** finding has been detected across prior PRs on this repo.
