@@ -2850,6 +2850,36 @@ _within_dispatch_guard() {
 #   MAKATO_LOOP_ISSUE_TITLE_OVERRIDE — string used as the issue title instead
 #                                      of `gh issue view --json title` (#232).
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# _slug_truncate_wb <normalized-slug> — truncate a hyphen-normalized slug to
+# 40 chars with word-boundary backoff (#721, FM-KEY-CUT).
+#
+# The seed-issue SKILL.md Step 4 algorithm truncates a title-slug to 40 chars
+# on a WORD boundary — it never cuts mid-word. Two loop.sh call sites
+# (`_derive_key_for_issue` third-fallback and `_auto_seed_block_full`
+# title-slug fallback) previously used a bare `cut -c1-40 | sed 's/-+$//'`,
+# which cuts at byte 40 regardless of word boundaries, so a KEY derived here
+# for a title crossing 40 chars mid-word mismatched the folder seed-issue
+# created (e.g. `…-verificatio` vs `…-verification`), silently killing the
+# po-agent on input validation.
+#
+# This helper reproduces the word-boundary rule: cut to 40, strip a trailing
+# hyphen; then if the result is exactly 40 chars AND still contains a hyphen
+# (i.e. the cut landed mid-word, not on a boundary), drop the trailing partial
+# word. sed -E with basic classes only (macOS + GNU safe).
+# ---------------------------------------------------------------------------
+_slug_truncate_wb() {
+  local s="$1"
+  s="$(printf '%s' "$s" | cut -c1-40 | sed -E 's/-+$//')"
+  if [[ "${#s}" -eq 40 && "$s" == *-* ]]; then
+    # Mid-word cut: strip the trailing partial word (everything after the last
+    # hyphen), then any hyphen the strip exposes.
+    s="$(printf '%s' "$s" | sed -E 's/-[^-]*$//')"
+  fi
+  printf '%s' "$s"
+}
+
 _derive_key_for_issue() {
   local issue="$1"
   local repo="${2:-${MAKATO_LOOP_DISPATCH_REPO:-}}"
@@ -2894,9 +2924,16 @@ _derive_key_for_issue() {
     | head -1)"
 
   # Fallback: top-of-body provenance  specs/<slug>/stories.json
+  # Matches a real slug (starts alnum, then alnum/hyphen only) so the literal
+  # doc-example placeholder `specs/<slug>/stories.json` — angle brackets, which
+  # a real slug never contains — no longer matches and can no longer produce a
+  # bogus KEY=-slug- (#721, FM-FALSE-MATCH; incident #571). A genuine
+  # provenance slug like `554-some-epic-story` still matches (with or without a
+  # `> generated from` prefix, per the historic to-issues formats). sed -E
+  # basic classes only (macOS + GNU safe).
   if [[ -z "$slug" ]]; then
     slug="$(printf '%s\n' "$body" \
-      | sed -n 's|.*specs/\([^/]*\)/stories\.json.*|\1|p' \
+      | sed -nE 's|.*specs/([a-z0-9][a-z0-9-]*)/stories\.json.*|\1|p' \
       | head -1)"
   fi
 
@@ -2929,9 +2966,8 @@ _derive_key_for_issue() {
       local norm
       norm="$(printf '%s' "$title" \
         | tr '[:upper:]' '[:lower:]' \
-        | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' \
-        | cut -c1-40 \
-        | sed -E 's/-+$//')"
+        | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')"
+      norm="$(_slug_truncate_wb "$norm")"
       [[ -n "$norm" ]] && slug="${issue}-${norm}"
     fi
   fi
@@ -3607,6 +3643,9 @@ _auto_seed_reconcile_thin_body() {
 #       `gh issue view --json labels`. Offline substitute for label fetch.
 #   MAKATO_LOOP_PROMOTE_TEST_FILE    — append "promote #N → Ready" instead of
 #       calling `gh project item-edit` to set Ready. Offline substitute.
+#   MAKATO_LOOP_PARK_LABELS          — comma-separated label names that mark an
+#       operator-parked issue (default "priority:hold"). An issue with any of
+#       these is skipped for Ready promotion (#721, FM-LABEL-PARK).
 #   MAKATO_SPEC_STORIES_TRACKED      — forwarded to should-materialize-spec.sh:
 #       1=force tracked, 0=force untracked (keeps tests offline, no git probe).
 # ---------------------------------------------------------------------------
@@ -3616,6 +3655,37 @@ _auto_seed_promote_ready_from_gate() {
   local repo="${MAKATO_LOOP_DISPATCH_REPO:-}"
   local -a repo_flag=()
   [[ -n "$repo" ]] && repo_flag=(--repo "$repo")
+
+  # --- Step A: park-label guard (#721, FM-LABEL-PARK) ---
+  # MAKATO_LOOP_PARK_LABELS: comma-separated label names marking an
+  # operator-parked issue (default "priority:hold"). An issue carrying any of
+  # them is NOT promoted to Ready — the operator parked it deliberately, and a
+  # silent auto-promote would override that. Checked BEFORE any board mutation
+  # so the offline MAKATO_LOOP_PROMOTE_TEST_FILE path observes the skip too.
+  # Offline label source: MAKATO_LOOP_RECONCILE_LABEL_FILE (newline-separated),
+  # else `gh issue view --json labels`.
+  local park_labels="${MAKATO_LOOP_PARK_LABELS:-priority:hold}"
+  local issue_labels=""
+  if [[ -n "${MAKATO_LOOP_RECONCILE_LABEL_FILE:-}" && -f "${MAKATO_LOOP_RECONCILE_LABEL_FILE}" ]]; then
+    issue_labels="$(tr '\n' ',' <"$MAKATO_LOOP_RECONCILE_LABEL_FILE" 2>/dev/null || echo "")"
+  else
+    issue_labels="$(gh issue view "$issue" "${repo_flag[@]}" --json labels \
+      --jq '[.labels[].name] | join(",")' 2>/dev/null || echo "")"
+  fi
+  local _pl_ifs_save="$IFS"; IFS=","
+  local pl
+  for pl in $park_labels; do
+    IFS="$_pl_ifs_save"
+    # trim surrounding whitespace
+    pl="${pl#"${pl%%[![:space:]]*}"}"; pl="${pl%"${pl##*[![:space:]]}"}"
+    [[ -n "$pl" ]] || { IFS=","; continue; }
+    if printf '%s' "$issue_labels" | tr ',' '\n' | grep -qxF "$pl"; then
+      echo "loop: auto-seed-block — skip promote #$issue (label '$pl' matches MAKATO_LOOP_PARK_LABELS; operator-parked)" >&2
+      return 0
+    fi
+    IFS=","
+  done
+  IFS="$_pl_ifs_save"
 
   # --- Step B: Move board card to Ready ---
   if [[ -n "${MAKATO_LOOP_PROMOTE_TEST_FILE:-}" ]]; then
@@ -3714,9 +3784,8 @@ _auto_seed_block_full() {
       local norm
       norm="$(printf '%s' "$title" \
         | tr '[:upper:]' '[:lower:]' \
-        | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' \
-        | cut -c1-40 \
-        | sed -E 's/-+$//')"
+        | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')"
+      norm="$(_slug_truncate_wb "$norm")"
       [[ -n "$norm" ]] && slug="${issue}-${norm}"
     fi
   fi
@@ -6444,6 +6513,12 @@ if [[ "$SUBCMD" == _test-* ]]; then
     #   MAKATO_LOOP_AUTOSEED_SPEC_ROOT, MAKATO_LOOP_ISSUE_TITLE_OVERRIDE.
     # (#372, epic #367 S4).
     _test-auto-seed-block-full) _auto_seed_block_full "$@" ;;
+    # _test-auto-seed-promote <issue> — exercise _auto_seed_promote_ready_from_gate
+    # deterministically using test-hook env vars:
+    #   MAKATO_LOOP_PROMOTE_TEST_FILE (append "promote #N → Ready" on promote),
+    #   MAKATO_LOOP_RECONCILE_LABEL_FILE (offline issue-label source),
+    #   MAKATO_LOOP_PARK_LABELS (park-label list). (#721, FM-LABEL-PARK).
+    _test-auto-seed-promote) _auto_seed_promote_ready_from_gate "$@" ;;
     # _test-auto-seed-reconcile-thin-body <issue> [seed_key] — exercise
     # _auto_seed_reconcile_thin_body deterministically using test-hook env vars:
     #   MAKATO_LOOP_RECONCILE_JSONL_DIR, MAKATO_LOOP_RECONCILE_LABEL_FILE,

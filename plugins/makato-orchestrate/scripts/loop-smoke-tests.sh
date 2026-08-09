@@ -3497,6 +3497,7 @@ print(n.strftime('%Y-%m-%dT%H:%M:%S.')+f'{n.microsecond//1000:03d}Z')" "$1"
 #   $1 specs-root  $2 issue  $3 age-seconds-ago  $4 pid|"dead"|"none"
 _seed_stale() {
   local specs="$1" issue="$2" age="$3" pidmode="$4"
+  local phase="${5:-implement}"   # #721: optional phase override (default implement)
   local sd="$specs/stale-${issue}-slug"
   local wt="$specs/wt-${issue}"
   mkdir -p "$sd" "$wt"
@@ -3508,7 +3509,7 @@ _seed_stale() {
           printf '%s\n' "$dp" >"$wt/.loop-owner.pid"; wtpath="$wt" ;;
     alive) printf '%s\n' "$$" >"$wt/.loop-owner.pid"; wtpath="$wt" ;;
   esac
-  printf '%s\n' "{\"issue_number\":${issue},\"current_phase\":\"implement\",\"worktree_path\":\"${wtpath}\",\"updated_at\":\"${upd}\"}" \
+  printf '%s\n' "{\"issue_number\":${issue},\"current_phase\":\"${phase}\",\"worktree_path\":\"${wtpath}\",\"updated_at\":\"${upd}\"}" \
     >"$sd/workflow-state-${issue}.json"
 }
 
@@ -3705,6 +3706,124 @@ grep -q "phase \`implement\`" "$TS8_COMMENT" 2>/dev/null \
   || fail "T-STALE-HALT015: Situation must name the runtime phase; got: $(cat "$TS8_COMMENT" 2>/dev/null)"
 rm -rf "$TS8_SPECS" "$TS8_RECON" "$TS8_LABEL" "$TS8_COMMENT"
 echo "  ✓ dead+stale → HALT-015 comment with **Situation:** (phase, not HALT-014)"
+
+# ---------------------------------------------------------------------------
+# T-PHASE-PR-1 / -DRYRUN / -DISABLE: #721 FM-PHASE-PR — a dead+stale orphan
+# with current_phase=pr must reconcile (the guard at loop.sh ~line 2026,
+# `[[ "$phase" != "done" && "$phase" != "null" ]]`, does NOT exclude "pr").
+# FM-PHASE-PR is REFUTED (no code change needed); these tests prove the
+# reconciler fires for phase=pr and that the escalate entry records it.
+# ISSUE_STATE_OVERRIDE=OPEN keeps the #616 CLOSED guard offline/deterministic.
+# ---------------------------------------------------------------------------
+echo "=== T-PHASE-PR-1: #721 dead+stale orphan at phase=pr → reconciled, escalate records phase:pr ==="
+TPR_SPECS="$STATE_DIR/tpr1-specs-$$"
+TPR_RECON="$STATE_DIR/tpr1-recon-$$.txt"
+TPR_LABEL="$STATE_DIR/tpr1-label-$$.txt"
+TPR_STATE="$STATE_DIR/tpr1-state-$$.json"
+mkdir -p "$TPR_SPECS"
+_seed_stale "$TPR_SPECS" 45100 7200 dead pr    # 2h old, dead owner, phase=pr
+printf '{"45100":"OPEN"}\n' >"$TPR_STATE"
+tpr1_rc=0
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_ORPHAN_STALE_SECS=3600 \
+MAKATO_LOOP_RECONCILE_SPECS_DIR="$TPR_SPECS" \
+MAKATO_LOOP_RECONCILE_TEST_FILE="$TPR_RECON" \
+MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE="$TPR_LABEL" \
+MAKATO_LOOP_RECONCILE_ISSUE_STATE_OVERRIDE="$TPR_STATE" \
+SPECS_DIR="$TPR_SPECS" \
+  "$LOOP" _test-reconcile-stale >/dev/null 2>&1 || tpr1_rc=$?
+[[ $tpr1_rc -eq 0 ]] || fail "T-PHASE-PR-1: expected rc 0; got $tpr1_rc"
+grep -q "reconcile #45100" "$TPR_RECON" 2>/dev/null \
+  || fail "T-PHASE-PR-1: phase=pr orphan must be reconciled; got: $(cat "$TPR_RECON" 2>/dev/null)"
+grep -q "label #45100 needs-human-review" "$TPR_LABEL" 2>/dev/null \
+  || fail "T-PHASE-PR-1: phase=pr orphan must be labelled; got: $(cat "$TPR_LABEL" 2>/dev/null)"
+grep -q '"phase":"pr"' "$TPR_SPECS/stale-45100-slug/orchestrate.jsonl" 2>/dev/null \
+  || fail "T-PHASE-PR-1: escalate entry must record phase:pr; got: $(cat "$TPR_SPECS/stale-45100-slug/orchestrate.jsonl" 2>/dev/null)"
+rm -rf "$TPR_SPECS" "$TPR_RECON" "$TPR_LABEL" "$TPR_STATE"
+echo "  ✓ phase=pr orphan reconciled + escalate records phase:pr (queue unblocked)"
+
+echo "=== T-PHASE-PR-DRYRUN: #721 phase=pr + MAKATO_LOOP_RECONCILE_DRYRUN=1 → no mutation ==="
+TPR2_SPECS="$STATE_DIR/tpr2-specs-$$"
+TPR2_RECON="$STATE_DIR/tpr2-recon-$$.txt"
+TPR2_STATE="$STATE_DIR/tpr2-state-$$.json"
+mkdir -p "$TPR2_SPECS"
+_seed_stale "$TPR2_SPECS" 45101 7200 dead pr
+printf '{"45101":"OPEN"}\n' >"$TPR2_STATE"
+tpr2_rc=0
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_ORPHAN_STALE_SECS=3600 \
+MAKATO_LOOP_RECONCILE_DRYRUN=1 \
+MAKATO_LOOP_RECONCILE_SPECS_DIR="$TPR2_SPECS" \
+MAKATO_LOOP_RECONCILE_TEST_FILE="$TPR2_RECON" \
+MAKATO_LOOP_RECONCILE_ISSUE_STATE_OVERRIDE="$TPR2_STATE" \
+SPECS_DIR="$TPR2_SPECS" \
+  "$LOOP" _test-reconcile-stale >/dev/null 2>&1 || tpr2_rc=$?
+[[ $tpr2_rc -eq 0 ]] || fail "T-PHASE-PR-DRYRUN: expected rc 0; got $tpr2_rc"
+[[ ! -f "$TPR2_RECON" || ! -s "$TPR2_RECON" ]] \
+  || fail "T-PHASE-PR-DRYRUN: dry-run must not reconcile; got: $(cat "$TPR2_RECON" 2>/dev/null)"
+rm -rf "$TPR2_SPECS" "$TPR2_RECON" "$TPR2_STATE"
+echo "  ✓ phase=pr + MAKATO_LOOP_RECONCILE_DRYRUN=1 → no mutation"
+
+echo "=== T-PHASE-PR-DISABLE: #721 phase=pr + ORPHAN_DETECT_DISABLE=1 → pass skipped ==="
+TPR3_SPECS="$STATE_DIR/tpr3-specs-$$"
+TPR3_RECON="$STATE_DIR/tpr3-recon-$$.txt"
+mkdir -p "$TPR3_SPECS"
+_seed_stale "$TPR3_SPECS" 45102 7200 dead pr
+tpr3_rc=0
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_ORPHAN_STALE_SECS=3600 \
+MAKATO_ORPHAN_DETECT_DISABLE=1 \
+MAKATO_LOOP_RECONCILE_SPECS_DIR="$TPR3_SPECS" \
+MAKATO_LOOP_RECONCILE_TEST_FILE="$TPR3_RECON" \
+SPECS_DIR="$TPR3_SPECS" \
+  "$LOOP" _test-reconcile-stale >/dev/null 2>&1 || tpr3_rc=$?
+[[ $tpr3_rc -eq 0 ]] || fail "T-PHASE-PR-DISABLE: expected rc 0; got $tpr3_rc"
+[[ ! -f "$TPR3_RECON" || ! -s "$TPR3_RECON" ]] \
+  || fail "T-PHASE-PR-DISABLE: disabled pass must not reconcile; got: $(cat "$TPR3_RECON" 2>/dev/null)"
+rm -rf "$TPR3_SPECS" "$TPR3_RECON"
+echo "  ✓ phase=pr + ORPHAN_DETECT_DISABLE=1 → pass skipped"
+
+# ---------------------------------------------------------------------------
+# T-PARK-LABELS-1 / -ABSENT: #721 FM-LABEL-PARK — an operator-parked issue
+# (label in MAKATO_LOOP_PARK_LABELS, default "priority:hold") must NOT be
+# auto-promoted to Ready by _auto_seed_promote_ready_from_gate; an issue
+# without a park label must still be promoted (the guard doesn't over-fire).
+# Offline: MAKATO_LOOP_RECONCILE_LABEL_FILE supplies the label list,
+# MAKATO_LOOP_PROMOTE_TEST_FILE captures the promote action.
+# ---------------------------------------------------------------------------
+echo "=== T-PARK-LABELS-1: #721 priority:hold label → NOT promoted to Ready ==="
+TPARK1_LBL="$STATE_DIR/tpark1-labels-$$.txt"
+TPARK1_PROMOTE="$STATE_DIR/tpark1-promote-$$.txt"
+printf 'priority:hold\nbug\nplugin:makato-orchestrate\n' >"$TPARK1_LBL"
+tpark1_rc=0
+tpark1_out="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_PROMOTE_TEST_FILE="$TPARK1_PROMOTE" \
+  MAKATO_LOOP_RECONCILE_LABEL_FILE="$TPARK1_LBL" \
+    "$LOOP" _test-auto-seed-promote 45300 2>&1
+)" || tpark1_rc=$?
+[[ $tpark1_rc -eq 0 ]] || fail "T-PARK-LABELS-1: expected rc 0; got $tpark1_rc"
+[[ ! -f "$TPARK1_PROMOTE" || ! -s "$TPARK1_PROMOTE" ]] \
+  || fail "T-PARK-LABELS-1: parked issue must NOT be promoted; got: $(cat "$TPARK1_PROMOTE" 2>/dev/null)"
+grep -qi "skip promote #45300" <<<"$tpark1_out" \
+  || fail "T-PARK-LABELS-1: expected skip-promote log for parked issue; got: $tpark1_out"
+rm -f "$TPARK1_LBL" "$TPARK1_PROMOTE"
+echo "  ✓ priority:hold issue is not promoted to Ready (operator-parked)"
+
+echo "=== T-PARK-LABELS-ABSENT: #721 no park label → promoted normally ==="
+TPARK2_LBL="$STATE_DIR/tpark2-labels-$$.txt"
+TPARK2_PROMOTE="$STATE_DIR/tpark2-promote-$$.txt"
+printf 'bug\nenhancement\n' >"$TPARK2_LBL"
+tpark2_rc=0
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_LOOP_PROMOTE_TEST_FILE="$TPARK2_PROMOTE" \
+MAKATO_LOOP_RECONCILE_LABEL_FILE="$TPARK2_LBL" \
+  "$LOOP" _test-auto-seed-promote 45301 >/dev/null 2>&1 || tpark2_rc=$?
+[[ $tpark2_rc -eq 0 ]] || fail "T-PARK-LABELS-ABSENT: expected rc 0; got $tpark2_rc"
+grep -q "promote #45301 → Ready" "$TPARK2_PROMOTE" 2>/dev/null \
+  || fail "T-PARK-LABELS-ABSENT: non-parked issue must be promoted; got: $(cat "$TPARK2_PROMOTE" 2>/dev/null)"
+rm -f "$TPARK2_LBL" "$TPARK2_PROMOTE"
+echo "  ✓ issue without a park label is promoted normally (guard does not over-fire)"
 
 echo
 echo "=== #616 orphan-stale detection (T-STALE-1..4) complete ==="
@@ -7272,6 +7391,75 @@ grep -q "KEY=my-feature-slug" <<<"$dry_run_fm2" \
 rm -f "$T_FM2_BODY"
 echo "  ✓ stories.json-only provenance (no footer) derives KEY correctly"
 # ---------------------------------------------------------------------------
+# T-SEED-PARITY-1 / T-SEED-PARITY-2: KEY third-fallback (title-slug) must use
+# word-boundary truncation matching seed-issue SKILL.md Step 4, not a bare
+# byte-40 cut (#721, FM-KEY-CUT). No footer, no provenance line → the
+# derivation falls through to the title-slug path, which now routes through
+# _slug_truncate_wb.
+# ---------------------------------------------------------------------------
+echo "=== T-SEED-PARITY-1: title crossing 40 chars mid-word → word-boundary slug (#721) ==="
+rm -f "$STATE_DIR/loop-status.json"
+# _derive_key_for_issue requires a non-empty body; supply one with NO to-issues
+# footer and NO stories.json provenance so derivation falls through to the
+# title-slug third fallback (the path _slug_truncate_wb guards).
+T_SP_BODY="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-seedparity-body.txt"
+printf '## Summary\nA hand-filed issue with no to-issues provenance footer.\n' >"$T_SP_BODY"
+# "Update the automated verification pipeline" normalizes to 42 chars; a bare
+# cut -c1-40 would yield "…-verificatio" (mid-word). Word-boundary backoff must
+# instead produce "…-verification".
+dry_run_sp1="$(
+  MAKATO_LOOP_ISSUE_TITLE_OVERRIDE="Update the automated verification pipeline" \
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T_SP_BODY" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+    "$LOOP" dispatch 45201 --dry-run 2>&1 >/dev/null
+)" || fail "T-SEED-PARITY-1: dispatch --dry-run should exit 0; got: $dry_run_sp1"
+grep -q "KEY=45201-update-the-automated-verification\b" <<<"$dry_run_sp1" \
+  || fail "T-SEED-PARITY-1: KEY must end on a word boundary (…-verification), not mid-word; got: $dry_run_sp1"
+grep -q "KEY=45201-update-the-automated-verificatio\b" <<<"$dry_run_sp1" \
+  && fail "T-SEED-PARITY-1: KEY must NOT be truncated mid-word (…-verificatio); got: $dry_run_sp1"
+echo "  ✓ mid-word title truncates on a word boundary (…-verification, not …-verificatio)"
+
+echo "=== T-SEED-PARITY-2: title within 40 chars → slug unchanged (#721) ==="
+rm -f "$STATE_DIR/loop-status.json"
+dry_run_sp2="$(
+  MAKATO_LOOP_ISSUE_TITLE_OVERRIDE="Fix the login bug" \
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T_SP_BODY" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+    "$LOOP" dispatch 45202 --dry-run 2>&1 >/dev/null
+)" || fail "T-SEED-PARITY-2: dispatch --dry-run should exit 0; got: $dry_run_sp2"
+grep -q "KEY=45202-fix-the-login-bug\b" <<<"$dry_run_sp2" \
+  || fail "T-SEED-PARITY-2: short title slug must be unchanged; got: $dry_run_sp2"
+rm -f "$T_SP_BODY"
+echo "  ✓ title within 40 chars is not truncated"
+# ---------------------------------------------------------------------------
+# T-FM2-dispatch-doc-example: a body containing the literal doc-example
+# placeholder `specs/<slug>/stories.json` (angle-bracket, NOT a real
+# `> generated from` provenance line) must NOT produce KEY=-slug- (#721,
+# FM-FALSE-MATCH; incident #571). With fallback-2 anchored to `generated from`,
+# derivation falls through to the title-slug third fallback instead.
+# ---------------------------------------------------------------------------
+echo "=== T-FM2-dispatch-doc-example: doc-example specs/<slug>/stories.json does not produce KEY=-slug- (#721) ==="
+rm -f "$STATE_DIR/loop-status.json"
+T_FM2DE_BODY="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-fm2de-body.txt"
+cat >"$T_FM2DE_BODY" <<'DOCEXAMPLE'
+## Summary
+See the schema file `specs/<slug>/stories.json` for the expected layout.
+
+This is a doc-example placeholder, not a to-issues provenance line.
+DOCEXAMPLE
+dry_run_fm2de="$(
+  MAKATO_LOOP_ISSUE_TITLE_OVERRIDE="Document the stories json schema" \
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T_FM2DE_BODY" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+    "$LOOP" dispatch 45203 --dry-run 2>&1 >/dev/null
+)" || fail "T-FM2-dispatch-doc-example: dispatch --dry-run should exit 0; got: $dry_run_fm2de"
+grep -q "KEY=-slug-" <<<"$dry_run_fm2de" \
+  && fail "T-FM2-dispatch-doc-example: doc-example body must NOT produce KEY=-slug-; got: $dry_run_fm2de"
+grep -q "KEY=45203-document-the-stories-json-schema\b" <<<"$dry_run_fm2de" \
+  || fail "T-FM2-dispatch-doc-example: must fall through to title-slug KEY; got: $dry_run_fm2de"
+rm -f "$T_FM2DE_BODY"
+echo "  ✓ doc-example placeholder falls through to title-slug, no KEY=-slug-"
+# ---------------------------------------------------------------------------
 # T-PHC-EMPTY-REPO: _post_halt_comment derives repo from git remote when the
 # caller passes an empty repo arg (#450 recurrence). Every call site passes
 # "${MAKATO_LOOP_DISPATCH_REPO:-}", empty in a bare loop process — the helper
@@ -7293,4 +7481,4 @@ rm -f "$T_PHC_FILE"
 echo "  ✓ empty repo arg derives repo from git remote and posts the comment"
 # ---------------------------------------------------------------------------
 
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T-RG-1–T-RG-4 GraphQL rate-limit guard, #556; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T-RESUME-1 complete result no-op, T-RESUME-2 incomplete triggers attempt, T-RESUME-3 errored triggers attempt, T-RESUME-4 budget-exhausted HALT-014, T-RESUME-5 STALL_DISABLE skip detect+resume, #531; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470; T84–T89 orphaned-specs pruning; T90 promote-before-prune; T-GQL1–T-GQL5 GraphQL board poll + item-list rollback, #516; T-IDLE1–T-IDLE2 adaptive idle backoff, #516; T91 plan-tier:change routing, #539; T-wave-order, T-promote-on, T-promote-off, T-fifo-fallback wave-ordered dispatch + promote-unblocked, #548; T-PREDISPATCH-127 exit-127 log demotion, T-REAP-NUMBERLESS numberless-folder reap-specs demotion, #558; T-loop-prune-1–T-loop-prune-3 workflow-state prune wiring, #597; T-VCR-1–T-VCR-5 _compute_vcr helper, #585; T-TOOLDEP-1–T-TOOLDEP-4 tool-dependency pre-flight, #587 #656; T-RECON-LABELGATE-1–T-RECON-LABELGATE-2 reconcile label gate; T-RECON-ARGSHAPE-1–T-RECON-ARGSHAPE-2 reconcile item-edit argv shape, #697; T-RG-5 poll_skipped_rate_budget reset, T-CB-1–T-CB-2 circuit-breaker poll_skip_count, T-STALE-RG-1 reconcile-stale rate-guard, #683; T-RC-1–T-RC-3 api_error board-reset recovery, T-RC-PROMOTE ac2-confirmation alias, #687 #723; T-FM1-derive-key-disambig shared-slug disambiguation, #724; T-FM2-stories-provenance-no-footer stories.json-only KEY derivation, #724; T-PHC-EMPTY-REPO post-halt-comment empty-repo derive, #450) ==="
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T-RG-1–T-RG-4 GraphQL rate-limit guard, #556; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T-RESUME-1 complete result no-op, T-RESUME-2 incomplete triggers attempt, T-RESUME-3 errored triggers attempt, T-RESUME-4 budget-exhausted HALT-014, T-RESUME-5 STALL_DISABLE skip detect+resume, #531; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470; T84–T89 orphaned-specs pruning; T90 promote-before-prune; T-GQL1–T-GQL5 GraphQL board poll + item-list rollback, #516; T-IDLE1–T-IDLE2 adaptive idle backoff, #516; T91 plan-tier:change routing, #539; T-wave-order, T-promote-on, T-promote-off, T-fifo-fallback wave-ordered dispatch + promote-unblocked, #548; T-PREDISPATCH-127 exit-127 log demotion, T-REAP-NUMBERLESS numberless-folder reap-specs demotion, #558; T-loop-prune-1–T-loop-prune-3 workflow-state prune wiring, #597; T-VCR-1–T-VCR-5 _compute_vcr helper, #585; T-TOOLDEP-1–T-TOOLDEP-4 tool-dependency pre-flight, #587 #656; T-RECON-LABELGATE-1–T-RECON-LABELGATE-2 reconcile label gate; T-RECON-ARGSHAPE-1–T-RECON-ARGSHAPE-2 reconcile item-edit argv shape, #697; T-RG-5 poll_skipped_rate_budget reset, T-CB-1–T-CB-2 circuit-breaker poll_skip_count, T-STALE-RG-1 reconcile-stale rate-guard, #683; T-RC-1–T-RC-3 api_error board-reset recovery, T-RC-PROMOTE ac2-confirmation alias, #687 #723; T-FM1-derive-key-disambig shared-slug disambiguation, #724; T-FM2-stories-provenance-no-footer stories.json-only KEY derivation, #724; T-PHC-EMPTY-REPO post-halt-comment empty-repo derive, #450; T-SEED-PARITY-1, T-SEED-PARITY-2 KEY third-fallback word-boundary, T-FM2-dispatch-doc-example doc-example body no KEY=-slug-, T-PHASE-PR-1, T-PHASE-PR-DRYRUN, T-PHASE-PR-DISABLE phase=pr orphan reconcile, T-PARK-LABELS-1, T-PARK-LABELS-ABSENT park-label skip guard, #721) ==="
