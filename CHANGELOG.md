@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.145.2](https://github.com/macatocz/makato/compare/v0.145.1...v0.145.2) (2026-08-09)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** HALT-015 for orphaned-card reconcilers with runtime context ([#786](https://github.com/macatocz/makato/issues/786)) ([#790](https://github.com/macatocz/makato/issues/790)) ([a24b87e](https://github.com/macatocz/makato/commit/a24b87e92d43835263154350e914339d351eecf0))
+
 ## [0.145.1](https://github.com/macatocz/makato/compare/v0.145.0...v0.145.1) (2026-08-09)
 
 
