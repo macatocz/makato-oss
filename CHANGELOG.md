@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.144.3](https://github.com/macatocz/makato/compare/v0.144.2...v0.144.3) (2026-08-09)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** loop-supervisor false-positive restart on long dispatch ([#779](https://github.com/macatocz/makato/issues/779)) ([#781](https://github.com/macatocz/makato/issues/781)) ([b42d429](https://github.com/macatocz/makato/commit/b42d4297a584b09ba5d2242f63ac37e865295de2))
+
 ## [0.144.2](https://github.com/macatocz/makato/compare/v0.144.1...v0.144.2) (2026-08-08)
 
 
