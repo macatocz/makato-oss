@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.144.4](https://github.com/macatocz/makato/compare/v0.144.3...v0.144.4) (2026-08-09)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** resolve 4 feature-audit gaps (4 partial) ([#706](https://github.com/macatocz/makato/issues/706)) ([#784](https://github.com/macatocz/makato/issues/784)) ([12407ae](https://github.com/macatocz/makato/commit/12407ae3647d3f57b66ef133ded95bc0f414f19f))
+
 ## [0.144.3](https://github.com/macatocz/makato/compare/v0.144.2...v0.144.3) (2026-08-09)
 
 
