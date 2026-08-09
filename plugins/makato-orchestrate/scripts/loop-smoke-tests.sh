@@ -3825,6 +3825,130 @@ grep -q "promote #45301 → Ready" "$TPARK2_PROMOTE" 2>/dev/null \
 rm -f "$TPARK2_LBL" "$TPARK2_PROMOTE"
 echo "  ✓ issue without a park label is promoted normally (guard does not over-fire)"
 
+echo "=== T-STALE-PR-1: #732 phase=pr, open PR, last_session_id → reap-and-resume (stall-resume attempt) ==="
+TSP1_SPECS="$STATE_DIR/stalepr1-specs-$$"
+TSP1_RECON="$STATE_DIR/stalepr1-recon-$$.txt"
+TSP1_LABEL="$STATE_DIR/stalepr1-label-$$.txt"
+TSP1_PR_STATE="$STATE_DIR/stalepr1-prstate-$$.json"
+mkdir -p "$TSP1_SPECS/stale-pr1-slug"
+_upd="$(_stale_ts_shift "-7200")"
+printf '%s\n' "{\"issue_number\":46001,\"current_phase\":\"pr\",\"github_pr_number\":9901,\"last_session_id\":\"sess-pr1\",\"worktree_path\":\"$TSP1_SPECS/stale-pr1-wt\",\"updated_at\":\"$_upd\",\"repo\":\"macatocz/makato\"}" \
+  >"$TSP1_SPECS/stale-pr1-slug/workflow-state-46001.json"
+mkdir -p "$TSP1_SPECS/stale-pr1-wt"
+( exit 0 ) & _p=$!; wait "$_p" 2>/dev/null || true; printf '%s\n' "$_p" >"$TSP1_SPECS/stale-pr1-wt/.loop-owner.pid"
+printf '{"9901":"OPEN"}\n' >"$TSP1_PR_STATE"
+tsp1_rc=0
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_ORPHAN_STALE_SECS=3600 \
+MAKATO_LOOP_RECONCILE_SPECS_DIR="$TSP1_SPECS" \
+MAKATO_LOOP_RECONCILE_TEST_FILE="$TSP1_RECON" \
+MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE="$TSP1_LABEL" \
+MAKATO_LOOP_PR_STATE_OVERRIDE="$TSP1_PR_STATE" \
+MAKATO_LOOP_STALL_DISABLE=1 \
+MAKATO_CLAUDE_BIN=true \
+SPECS_DIR="$TSP1_SPECS" \
+  "$LOOP" _test-reconcile-stale >/dev/null 2>&1 || tsp1_rc=$?
+[[ $tsp1_rc -eq 0 ]] || fail "T-STALE-PR-1: expected rc 0; got $tsp1_rc"
+[[ ! -f "$TSP1_RECON" || ! -s "$TSP1_RECON" ]] \
+  || fail "T-STALE-PR-1: phase=pr+OPEN must NOT escalate to Blocked; got: $(cat "$TSP1_RECON" 2>/dev/null)"
+[[ ! -f "$TSP1_LABEL" || ! -s "$TSP1_LABEL" ]] \
+  || fail "T-STALE-PR-1: phase=pr+OPEN must NOT apply needs-human-review; got: $(cat "$TSP1_LABEL" 2>/dev/null)"
+grep -q '"reap-and-resume"' "$TSP1_SPECS/stale-pr1-slug/orchestrate.jsonl" 2>/dev/null \
+  || fail "T-STALE-PR-1: expected reap-and-resume entry in orchestrate.jsonl"
+rm -rf "$TSP1_SPECS" "$TSP1_RECON" "$TSP1_LABEL" "$TSP1_PR_STATE"
+echo "  ✓ phase=pr + OPEN PR → stall-resume attempt (no escalation)"
+
+echo "=== T-STALE-PR-2: #732 phase=pr, MERGED PR → reap-done-ooband (patch current_phase=done) ==="
+TSP2_SPECS="$STATE_DIR/stalepr2-specs-$$"
+TSP2_RECON="$STATE_DIR/stalepr2-recon-$$.txt"
+TSP2_LABEL="$STATE_DIR/stalepr2-label-$$.txt"
+TSP2_PR_STATE="$STATE_DIR/stalepr2-prstate-$$.json"
+mkdir -p "$TSP2_SPECS/stale-pr2-slug"
+_upd="$(_stale_ts_shift "-7200")"
+_wf2="$TSP2_SPECS/stale-pr2-slug/workflow-state-46002.json"
+printf '%s\n' "{\"issue_number\":46002,\"current_phase\":\"pr\",\"github_pr_number\":9902,\"worktree_path\":\"$TSP2_SPECS/stale-pr2-wt\",\"updated_at\":\"$_upd\",\"repo\":\"macatocz/makato\"}" \
+  >"$_wf2"
+mkdir -p "$TSP2_SPECS/stale-pr2-wt"
+( exit 0 ) & _p=$!; wait "$_p" 2>/dev/null || true; printf '%s\n' "$_p" >"$TSP2_SPECS/stale-pr2-wt/.loop-owner.pid"
+printf '{"9902":"MERGED"}\n' >"$TSP2_PR_STATE"
+tsp2_rc=0
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_ORPHAN_STALE_SECS=3600 \
+MAKATO_LOOP_RECONCILE_SPECS_DIR="$TSP2_SPECS" \
+MAKATO_LOOP_RECONCILE_TEST_FILE="$TSP2_RECON" \
+MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE="$TSP2_LABEL" \
+MAKATO_LOOP_PR_STATE_OVERRIDE="$TSP2_PR_STATE" \
+SPECS_DIR="$TSP2_SPECS" \
+  "$LOOP" _test-reconcile-stale >/dev/null 2>&1 || tsp2_rc=$?
+[[ $tsp2_rc -eq 0 ]] || fail "T-STALE-PR-2: expected rc 0; got $tsp2_rc"
+[[ ! -f "$TSP2_RECON" || ! -s "$TSP2_RECON" ]] \
+  || fail "T-STALE-PR-2: MERGED PR must NOT escalate to Blocked; got: $(cat "$TSP2_RECON" 2>/dev/null)"
+[[ ! -f "$TSP2_LABEL" || ! -s "$TSP2_LABEL" ]] \
+  || fail "T-STALE-PR-2: MERGED PR must NOT apply needs-human-review; got: $(cat "$TSP2_LABEL" 2>/dev/null)"
+_phase_after="$(jq -r '.current_phase' "$_wf2" 2>/dev/null)"
+[[ "$_phase_after" == "done" ]] \
+  || fail "T-STALE-PR-2: expected current_phase=done after MERGED patch; got: $_phase_after"
+grep -q '"reap-done-ooband"' "$TSP2_SPECS/stale-pr2-slug/orchestrate.jsonl" 2>/dev/null \
+  || fail "T-STALE-PR-2: expected reap-done-ooband entry in orchestrate.jsonl"
+rm -rf "$TSP2_SPECS" "$TSP2_RECON" "$TSP2_LABEL" "$TSP2_PR_STATE"
+echo "  ✓ phase=pr + MERGED PR → current_phase patched to done (no escalation)"
+
+echo "=== T-STALE-PR-3: #732 phase=pr, null github_pr_number → falls through to escalation ==="
+TSP3_SPECS="$STATE_DIR/stalepr3-specs-$$"
+TSP3_RECON="$STATE_DIR/stalepr3-recon-$$.txt"
+TSP3_LABEL="$STATE_DIR/stalepr3-label-$$.txt"
+mkdir -p "$TSP3_SPECS/stale-pr3-slug"
+_upd="$(_stale_ts_shift "-7200")"
+printf '%s\n' "{\"issue_number\":46003,\"current_phase\":\"pr\",\"worktree_path\":\"$TSP3_SPECS/stale-pr3-wt\",\"updated_at\":\"$_upd\",\"repo\":\"macatocz/makato\"}" \
+  >"$TSP3_SPECS/stale-pr3-slug/workflow-state-46003.json"
+mkdir -p "$TSP3_SPECS/stale-pr3-wt"
+( exit 0 ) & _p=$!; wait "$_p" 2>/dev/null || true; printf '%s\n' "$_p" >"$TSP3_SPECS/stale-pr3-wt/.loop-owner.pid"
+tsp3_rc=0
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_ORPHAN_STALE_SECS=3600 \
+MAKATO_LOOP_RECONCILE_SPECS_DIR="$TSP3_SPECS" \
+MAKATO_LOOP_RECONCILE_TEST_FILE="$TSP3_RECON" \
+MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE="$TSP3_LABEL" \
+SPECS_DIR="$TSP3_SPECS" \
+  "$LOOP" _test-reconcile-stale >/dev/null 2>&1 || tsp3_rc=$?
+[[ $tsp3_rc -eq 0 ]] || fail "T-STALE-PR-3: expected rc 0; got $tsp3_rc"
+grep -q "reconcile #46003" "$TSP3_RECON" 2>/dev/null \
+  || fail "T-STALE-PR-3: phase=pr with null PR# must still escalate; got: $(cat "$TSP3_RECON" 2>/dev/null)"
+grep -q "label #46003 needs-human-review" "$TSP3_LABEL" 2>/dev/null \
+  || fail "T-STALE-PR-3: phase=pr with null PR# must apply needs-human-review; got: $(cat "$TSP3_LABEL" 2>/dev/null)"
+rm -rf "$TSP3_SPECS" "$TSP3_RECON" "$TSP3_LABEL"
+echo "  ✓ phase=pr + null github_pr_number → falls through to escalation (existing behavior)"
+
+echo "=== T-STALE-PR-4: #732 MAKATO_LOOP_PR_RESUME_DISABLE=1 → opt-out, falls through to escalation ==="
+TSP4_SPECS="$STATE_DIR/stalepr4-specs-$$"
+TSP4_RECON="$STATE_DIR/stalepr4-recon-$$.txt"
+TSP4_LABEL="$STATE_DIR/stalepr4-label-$$.txt"
+TSP4_PR_STATE="$STATE_DIR/stalepr4-prstate-$$.json"
+mkdir -p "$TSP4_SPECS/stale-pr4-slug"
+_upd="$(_stale_ts_shift "-7200")"
+printf '%s\n' "{\"issue_number\":46004,\"current_phase\":\"pr\",\"github_pr_number\":9904,\"worktree_path\":\"$TSP4_SPECS/stale-pr4-wt\",\"updated_at\":\"$_upd\",\"repo\":\"macatocz/makato\"}" \
+  >"$TSP4_SPECS/stale-pr4-slug/workflow-state-46004.json"
+mkdir -p "$TSP4_SPECS/stale-pr4-wt"
+( exit 0 ) & _p=$!; wait "$_p" 2>/dev/null || true; printf '%s\n' "$_p" >"$TSP4_SPECS/stale-pr4-wt/.loop-owner.pid"
+printf '{"9904":"OPEN"}\n' >"$TSP4_PR_STATE"
+tsp4_rc=0
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_ORPHAN_STALE_SECS=3600 \
+MAKATO_LOOP_RECONCILE_SPECS_DIR="$TSP4_SPECS" \
+MAKATO_LOOP_RECONCILE_TEST_FILE="$TSP4_RECON" \
+MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE="$TSP4_LABEL" \
+MAKATO_LOOP_PR_STATE_OVERRIDE="$TSP4_PR_STATE" \
+MAKATO_LOOP_PR_RESUME_DISABLE=1 \
+SPECS_DIR="$TSP4_SPECS" \
+  "$LOOP" _test-reconcile-stale >/dev/null 2>&1 || tsp4_rc=$?
+[[ $tsp4_rc -eq 0 ]] || fail "T-STALE-PR-4: expected rc 0; got $tsp4_rc"
+grep -q "reconcile #46004" "$TSP4_RECON" 2>/dev/null \
+  || fail "T-STALE-PR-4: PR_RESUME_DISABLE must fall through to escalation; got: $(cat "$TSP4_RECON" 2>/dev/null)"
+grep -q "label #46004 needs-human-review" "$TSP4_LABEL" 2>/dev/null \
+  || fail "T-STALE-PR-4: PR_RESUME_DISABLE must apply needs-human-review; got: $(cat "$TSP4_LABEL" 2>/dev/null)"
+rm -rf "$TSP4_SPECS" "$TSP4_RECON" "$TSP4_LABEL" "$TSP4_PR_STATE"
+echo "  ✓ MAKATO_LOOP_PR_RESUME_DISABLE=1 → opt-out, falls through to existing escalation"
+
 echo
 echo "=== #616 orphan-stale detection (T-STALE-1..4) complete ==="
 

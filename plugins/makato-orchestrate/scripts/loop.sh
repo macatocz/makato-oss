@@ -2079,8 +2079,61 @@ _reconcile_orphaned_stale() {
     fi
 
     if [[ "${RECONCILE_DRYRUN:-0}" == "1" ]]; then
-      echo "loop: reconcile-stale — would reconcile #$issue_n → Blocked + needs-human-review (dead owner, age ${age}s, dry-run)" >&2
+      echo "loop: reconcile-stale — would reconcile #$issue_n (phase=$phase) → Blocked + needs-human-review (dead owner, age ${age}s, dry-run)" >&2
       continue
+    fi
+
+    # reap-and-resume: if phase=pr with a live PR, route to _stall_resume instead
+    # of escalating — the po-agent was killed after PR creation but before CI poll.
+    if [[ "${MAKATO_LOOP_PR_RESUME_DISABLE:-0}" != "1" && "$phase" == "pr" ]]; then
+      local pr_num=""
+      pr_num="$(jq -r '.github_pr_number // empty' "$f" 2>/dev/null || true)"
+      if [[ -n "$pr_num" && "$pr_num" != "null" ]]; then
+        # Dispatch guard (#171): returns 0 when the guard FIRES (same issue
+        # dispatched within the window) → defer the reap to the next cycle.
+        # Returns 1 when clear → proceed. Matches the cmd_dispatch call site
+        # (`if _within_dispatch_guard; then skip`); no `!` inversion here.
+        if _within_dispatch_guard "$issue_n" 2>/dev/null; then
+          echo "loop: reconcile-stale — #$issue_n dispatch guard active, deferring reap-resume to next cycle" >&2
+          continue
+        fi
+        # Lookup PR state via test hook or gh API.
+        local pr_state=""
+        if [[ -n "${MAKATO_LOOP_PR_STATE_OVERRIDE:-}" && -f "$MAKATO_LOOP_PR_STATE_OVERRIDE" ]]; then
+          pr_state="$(jq -r --arg n "$pr_num" '.[$n] // empty' "$MAKATO_LOOP_PR_STATE_OVERRIDE" 2>/dev/null || true)"
+        elif [[ -n "$_rs_repo" ]]; then
+          pr_state="$(GH_HOST="${GH_HOST:-github.com}" gh pr view "$pr_num" \
+            --repo "$_rs_repo" --json state --jq '.state' 2>/dev/null || true)"
+        fi
+        local spec_dir
+        spec_dir="$(dirname "$f")"
+        local key_for_resume
+        key_for_resume="$(basename "$spec_dir")"
+        local now_ts_r
+        now_ts_r="$(_now)"
+        local orch_log_r="$spec_dir/orchestrate.jsonl"
+        if [[ "$pr_state" == "OPEN" ]]; then
+          echo "loop: reconcile-stale — #$issue_n phase=pr, PR #${pr_num} OPEN, dead owner → reap-and-resume" >&2
+          echo "{\"ts\":\"$now_ts_r\",\"skill\":\"loop\",\"issue\":$issue_n,\"step\":\"reap-and-resume\",\"status\":\"attempt\",\"data\":{\"pr_num\":$pr_num,\"phase\":\"$phase\",\"age_secs\":$age}}" \
+            >>"$orch_log_r" 2>/dev/null || true
+          _stall_resume "$issue_n" "$key_for_resume" "$spec_dir" "" || true
+          continue
+        elif [[ "$pr_state" == "MERGED" ]]; then
+          echo "loop: reconcile-stale — #$issue_n phase=pr, PR #${pr_num} MERGED out-of-band → patching done" >&2
+          jq '.current_phase = "done"' "$f" > "${f}.tmp" && mv "${f}.tmp" "$f" || true
+          echo "{\"ts\":\"$now_ts_r\",\"skill\":\"loop\",\"issue\":$issue_n,\"step\":\"reap-done-ooband\",\"status\":\"ok\",\"data\":{\"pr_num\":$pr_num,\"phase_was\":\"$phase\"}}" \
+            >>"$orch_log_r" 2>/dev/null || true
+          continue
+        elif [[ "$pr_state" == "CLOSED" ]]; then
+          echo "loop: reconcile-stale — #$issue_n phase=pr, PR #${pr_num} CLOSED (not merged) → falling through to escalation" >&2
+          echo "{\"ts\":\"$now_ts_r\",\"skill\":\"loop\",\"issue\":$issue_n,\"step\":\"reap-closed-fallthrough\",\"status\":\"warn\",\"data\":{\"pr_num\":$pr_num,\"phase\":\"$phase\"}}" \
+            >>"$orch_log_r" 2>/dev/null || true
+          # fall through to existing escalation
+        elif [[ -z "$pr_state" ]]; then
+          echo "loop: WARN — reconcile-stale #$issue_n: could not determine PR #${pr_num} state → falling through to escalation" >&2
+          # fall through to existing escalation
+        fi
+      fi
     fi
 
     echo "loop: reconcile-stale — #$issue_n orphaned (phase=$phase, owner dead, age ${age}s) → Blocked + needs-human-review" >&2
