@@ -26,6 +26,8 @@ comments, making necessary code changes, and replying to reviewers.
 Use this skill after a PR has been created for a change request and reviewers
 have left feedback that needs to be addressed.
 
+**Note:** `resolve-review` is interactive-only and has not been validated in CI-backed autonomous scenarios. The `gh pr list --search 'closes:#<N>'` lookup may not match PRs linked via the GitHub issue sidebar rather than a `Closes #N` footer — use `gh pr list --head feat/<KEY>-change` as a reliable fallback.
+
 **Handles:**
 - PR review comments (general feedback on the PR)
 - Line-specific inline comments (feedback on particular code sections)
