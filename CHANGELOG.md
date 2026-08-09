@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.147.1](https://github.com/macatocz/makato/compare/v0.147.0...v0.147.1) (2026-08-09)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** re-verify loop.sh stability, fix 3 of 4 known bugs ([#721](https://github.com/macatocz/makato/issues/721)) ([#801](https://github.com/macatocz/makato/issues/801)) ([d7358c4](https://github.com/macatocz/makato/commit/d7358c49b2bfb52045017d6c40673138c760ee63))
+* **makato-orchestrate:** reap-and-resume killed PO-agent at phase:pr ([#732](https://github.com/macatocz/makato/issues/732)) ([#802](https://github.com/macatocz/makato/issues/802)) ([f9d2c9e](https://github.com/macatocz/makato/commit/f9d2c9ea966854fb9f40d96a9fbeee1c62ca177f))
+* **repo:** tighten check-self-contained.sh matcher; flip CI gate to blocking ([#730](https://github.com/macatocz/makato/issues/730)) ([#800](https://github.com/macatocz/makato/issues/800)) ([72b3a02](https://github.com/macatocz/makato/commit/72b3a02c4dc0658ea14945dd1cd206a177ce4903))
+
 ## [0.147.0](https://github.com/macatocz/makato/compare/v0.146.1...v0.147.0) (2026-08-09)
 
 
