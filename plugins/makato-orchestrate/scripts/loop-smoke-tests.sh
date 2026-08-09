@@ -50,6 +50,12 @@
 #   T68–T71: thin-body reconciliation (#371, epic #367 S3) — thin-body via jsonl,
 #        thin-body via label backstop, exclusion-set membership guard,
 #        successful light seed is no-op
+#   T77: Ready-but-folderless non-orphan is demoted Ready → Todo, not silently
+#        skipped, so it no longer starves the dispatch queue (#783)
+#   T_BG1/T_BG2: cmd_run session-safety guard aborts under bg-spare ancestry and
+#        is bypassable via MAKATO_LOOP_ALLOW_BG_SESSION (#743)
+#   T_STATUS_PASSTHROUGH: --status Ready,Todo threads both statuses through to
+#        the queue verbatim (#743)
 #
 # A fixture file is injected via MAKATO_LOOP_GH_OVERRIDE so `gh` is not
 # invoked. Test isolation uses MAKATO_LOOP_STATE_DIR + ephemeral spec
@@ -2143,6 +2149,124 @@ echo "$t58c_out" | jq -e '[.[] | select(.number == 214)] | length == 1' >/dev/nu
   || fail "T58c: issue 214 (orphan) should remain a candidate; got: $t58c_out"
 rm -rf "$T58C_SPECS" "$T58C_FIXTURE"
 echo "  ✓ already-planned issue 213 vetoed via created-issues.json; orphan 214 passes"
+
+
+# ---------------------------------------------------------------------------
+# T77: Ready-but-folderless non-orphan is demoted Ready → Todo, not silently
+# skipped (#783). A non-orphan issue (referenced in created-issues.json) whose
+# derived KEY resolves to NO specs/ folder used to be silently `continue`d by
+# the T3.5 guard — so the spec-folder gate in cmd_dispatch bounced it to
+# auto-seed every tick and it starved the queue. The fix demotes it to Todo so
+# it exits the dispatchable queue and gets re-seeded next pass. A non-orphan
+# WITH a folder (the normal already-planned path) must NOT be demoted.
+echo "=== T77: Ready-but-folderless non-orphan → demoted to Todo, not silently skipped (#783) ==="
+T77_SPECS="$STATE_DIR/t77-specs-$$"
+mkdir -p "$T77_SPECS/registry"
+# Both #301 and #302 are non-orphan (referenced in created-issues.json). The
+# registry/ folder never matches a KEY of the shape k-<n>, so it does not act
+# as a spec folder for either issue.
+cat >"$T77_SPECS/registry/created-issues.json" <<'EOF'
+{"issues": [{"issue_number": 301, "title": "folderless"}, {"issue_number": 302, "title": "has folder"}]}
+EOF
+# #302 has a matching specs folder (KEY k-302); #301 has none (folderless).
+mkdir -p "$T77_SPECS/k-302-has-folder"
+T77_FIXTURE="$STATE_DIR/t77-autoseed-$$.json"
+cat >"$T77_FIXTURE" <<'EOF'
+[
+  {"number": 301, "labels": [{"name": "type:feat"}, {"name": "plan-tier:full"}], "author": {"login": "user11"}},
+  {"number": 302, "labels": [{"name": "type:feat"}, {"name": "plan-tier:full"}], "author": {"login": "user12"}}
+]
+EOF
+T77_DEMOTE="$STATE_DIR/t77-demote-$$.txt"
+rm -f "$T77_DEMOTE"
+# Per-issue KEY derivation: emit a to-issues footer slug `k-<issue>` parsed from
+# the _gh_with_fallback context string ("KEY-derivation body #<issue>"). The
+# eval runs in _gh_with_fallback's scope, so $context is visible.
+T77_CMD='num="${context##*#}"; printf "{\"body\":\"Feature slug: \`k-%s\` — produced by to-issues on 2026-08-09\"}" "$num"'
+t77_out="$(MAKATO_LOOP_TEST_HOOK=1 \
+  SPECS_DIR="$T77_SPECS" \
+  MAKATO_LOOP_AUTOSEED_OVERRIDE="$T77_FIXTURE" \
+  MAKATO_LOOP_FALLBACK_TEST_CMD="$T77_CMD" \
+  MAKATO_LOOP_DEMOTE_TEST_FILE="$T77_DEMOTE" \
+  "$LOOP" _test-auto-seed-candidates 2>/dev/null)"
+# Both non-orphans are excluded from the seed-candidate result (neither is
+# re-seeded this pass).
+echo "$t77_out" | jq -e '[.[] | select(.number == 301)] | length == 0' >/dev/null \
+  || fail "T77: folderless non-orphan #301 must NOT appear in seed candidates; got: $t77_out"
+echo "$t77_out" | jq -e '[.[] | select(.number == 302)] | length == 0' >/dev/null \
+  || fail "T77: folder-backed non-orphan #302 must NOT appear in seed candidates; got: $t77_out"
+# The folderless issue #301 was demoted to Todo; the folder-backed #302 was not.
+[[ -f "$T77_DEMOTE" ]] \
+  || fail "T77: demote test file not written — #301 was not demoted"
+grep -qF "demote #301 → Todo" "$T77_DEMOTE" \
+  || fail "T77: expected 'demote #301 → Todo' in demote log; got: $(cat "$T77_DEMOTE")"
+grep -qF "demote #302" "$T77_DEMOTE" \
+  && fail "T77: folder-backed #302 must NOT be demoted; got: $(cat "$T77_DEMOTE")"
+rm -rf "$T77_SPECS" "$T77_FIXTURE" "$T77_DEMOTE"
+echo "  ✓ folderless non-orphan #301 demoted Ready → Todo; folder-backed #302 left untouched"
+
+
+# ---------------------------------------------------------------------------
+# T_BG1/T_BG2: session-safety guard (#743). cmd_run must abort when it is a
+# descendant of a bg-spare / bg-pty-host / headless-Claude session (which would
+# SIGTERM the loop when reaped), and must be bypassable via the opt-out.
+echo "=== T_BG1: session-safety guard aborts under bg-spare ancestry (#743) ==="
+T_BG1_PS="$STATE_DIR/t-bg1-ps-$$.txt"
+# Fake `ps -o args=` output for the injected ppid: a bg-spare session.
+printf 'claude bg-spare --bg-spare /tmp/cc-daemon-501/spare/x.claim.sock\n' >"$T_BG1_PS"
+rm -f "$STATE_DIR/loop-status.json"
+t_bg1_rc=0
+t_bg1_err="$(MAKATO_LOOP_SESSION_SAFETY_TEST_PPID=99999 \
+  MAKATO_LOOP_SESSION_SAFETY_PS_OVERRIDE="$T_BG1_PS" \
+  "$LOOP" run --status Ready --once --dry-run 2>&1 >/dev/null)" || t_bg1_rc=$?
+if [[ $t_bg1_rc -eq 0 ]]; then
+  fail "T_BG1: expected non-zero exit under bg-spare ancestry; got 0"
+fi
+grep -qF "background/headless Claude session" <<<"$t_bg1_err" \
+  || fail "T_BG1: stderr must name the bg-session cause; got: $t_bg1_err"
+grep -qF "nohup" <<<"$t_bg1_err" \
+  || fail "T_BG1: stderr must include the nohup+disown remedy; got: $t_bg1_err"
+# The pidfile must NOT have been taken (guard fires before _acquire_run_mutex).
+[[ ! -f "$STATE_DIR/loop.pid" ]] \
+  || fail "T_BG1: pidfile was acquired despite guard abort — guard fired too late"
+rm -f "$T_BG1_PS"
+echo "  ✓ guard aborts before pidfile with actionable message under bg-spare ancestry"
+
+# ---------------------------------------------------------------------------
+echo "=== T_BG2: MAKATO_LOOP_ALLOW_BG_SESSION=1 bypasses the guard (#743) ==="
+T_BG2_PS="$STATE_DIR/t-bg2-ps-$$.txt"
+printf 'claude bg-spare --bg-spare /tmp/cc-daemon-501/spare/x.claim.sock\n' >"$T_BG2_PS"
+rm -f "$STATE_DIR/loop-status.json"
+t_bg2_rc=0
+MAKATO_LOOP_ALLOW_BG_SESSION=1 \
+  MAKATO_LOOP_SESSION_SAFETY_TEST_PPID=99999 \
+  MAKATO_LOOP_SESSION_SAFETY_PS_OVERRIDE="$T_BG2_PS" \
+  "$LOOP" run --status Ready --once --dry-run >/dev/null 2>&1 || t_bg2_rc=$?
+if [[ $t_bg2_rc -ne 0 ]]; then
+  fail "T_BG2: expected exit 0 with ALLOW_BG_SESSION=1 despite bg-spare ancestry; got $t_bg2_rc"
+fi
+jq -e '.status_name == "Ready"' "$STATE_DIR/loop-status.json" >/dev/null \
+  || fail "T_BG2: loop should have polled normally (status_name=Ready) with the guard bypassed"
+rm -f "$T_BG2_PS"
+echo "  ✓ opt-out bypasses the guard; loop polls normally"
+
+# ---------------------------------------------------------------------------
+echo "=== T_STATUS_PASSTHROUGH: --status Ready,Todo threads both statuses through (#743) ==="
+# The arg-drop bug (#743) is a SKILL.md invocation-template defect, not a
+# cmd_poll one — cmd_poll already accepts a comma-separated --status. This test
+# guards that contract: a multi-value --status must reach status_name verbatim
+# and both a Ready and a Todo item must appear in the queue (fixture: #101/#102
+# Ready, #103 Todo).
+rm -f "$STATE_DIR/loop-status.json"
+rm -rf "${SANDBOX_SPECS[@]}"
+"$LOOP" run --status "Ready,Todo" --once --dry-run >/dev/null 2>&1
+jq -e '.status_name == "Ready,Todo"' "$STATE_DIR/loop-status.json" >/dev/null \
+  || fail "T_STATUS_PASSTHROUGH: status_name must equal 'Ready,Todo'; got $(jq -r '.status_name' "$STATE_DIR/loop-status.json")"
+jq -e '.queue | index(101) != null' "$STATE_DIR/loop-status.json" >/dev/null \
+  || fail "T_STATUS_PASSTHROUGH: Ready issue #101 missing from queue; got $(jq -c '.queue' "$STATE_DIR/loop-status.json")"
+jq -e '.queue | index(103) != null' "$STATE_DIR/loop-status.json" >/dev/null \
+  || fail "T_STATUS_PASSTHROUGH: Todo issue #103 missing from queue — --status Todo was dropped; got $(jq -c '.queue' "$STATE_DIR/loop-status.json")"
+echo "  ✓ 'Ready,Todo' reaches status_name verbatim; both Ready and Todo items queued"
 
 
 # ---------------------------------------------------------------------------
@@ -7605,4 +7729,4 @@ rm -f "$T_PHC_FILE"
 echo "  ✓ empty repo arg derives repo from git remote and posts the comment"
 # ---------------------------------------------------------------------------
 
-echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T-RG-1–T-RG-4 GraphQL rate-limit guard, #556; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T-RESUME-1 complete result no-op, T-RESUME-2 incomplete triggers attempt, T-RESUME-3 errored triggers attempt, T-RESUME-4 budget-exhausted HALT-014, T-RESUME-5 STALL_DISABLE skip detect+resume, #531; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470; T84–T89 orphaned-specs pruning; T90 promote-before-prune; T-GQL1–T-GQL5 GraphQL board poll + item-list rollback, #516; T-IDLE1–T-IDLE2 adaptive idle backoff, #516; T91 plan-tier:change routing, #539; T-wave-order, T-promote-on, T-promote-off, T-fifo-fallback wave-ordered dispatch + promote-unblocked, #548; T-PREDISPATCH-127 exit-127 log demotion, T-REAP-NUMBERLESS numberless-folder reap-specs demotion, #558; T-loop-prune-1–T-loop-prune-3 workflow-state prune wiring, #597; T-VCR-1–T-VCR-5 _compute_vcr helper, #585; T-TOOLDEP-1–T-TOOLDEP-4 tool-dependency pre-flight, #587 #656; T-RECON-LABELGATE-1–T-RECON-LABELGATE-2 reconcile label gate; T-RECON-ARGSHAPE-1–T-RECON-ARGSHAPE-2 reconcile item-edit argv shape, #697; T-RG-5 poll_skipped_rate_budget reset, T-CB-1–T-CB-2 circuit-breaker poll_skip_count, T-STALE-RG-1 reconcile-stale rate-guard, #683; T-RC-1–T-RC-3 api_error board-reset recovery, T-RC-PROMOTE ac2-confirmation alias, #687 #723; T-FM1-derive-key-disambig shared-slug disambiguation, #724; T-FM2-stories-provenance-no-footer stories.json-only KEY derivation, #724; T-PHC-EMPTY-REPO post-halt-comment empty-repo derive, #450; T-SEED-PARITY-1, T-SEED-PARITY-2 KEY third-fallback word-boundary, T-FM2-dispatch-doc-example doc-example body no KEY=-slug-, T-PHASE-PR-1, T-PHASE-PR-DRYRUN, T-PHASE-PR-DISABLE phase=pr orphan reconcile, T-PARK-LABELS-1, T-PARK-LABELS-ABSENT park-label skip guard, #721) ==="
+echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T-RG-1–T-RG-4 GraphQL rate-limit guard, #556; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T-RESUME-1 complete result no-op, T-RESUME-2 incomplete triggers attempt, T-RESUME-3 errored triggers attempt, T-RESUME-4 budget-exhausted HALT-014, T-RESUME-5 STALL_DISABLE skip detect+resume, #531; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470; T84–T89 orphaned-specs pruning; T90 promote-before-prune; T-GQL1–T-GQL5 GraphQL board poll + item-list rollback, #516; T-IDLE1–T-IDLE2 adaptive idle backoff, #516; T91 plan-tier:change routing, #539; T-wave-order, T-promote-on, T-promote-off, T-fifo-fallback wave-ordered dispatch + promote-unblocked, #548; T-PREDISPATCH-127 exit-127 log demotion, T-REAP-NUMBERLESS numberless-folder reap-specs demotion, #558; T-loop-prune-1–T-loop-prune-3 workflow-state prune wiring, #597; T-VCR-1–T-VCR-5 _compute_vcr helper, #585; T-TOOLDEP-1–T-TOOLDEP-4 tool-dependency pre-flight, #587 #656; T-RECON-LABELGATE-1–T-RECON-LABELGATE-2 reconcile label gate; T-RECON-ARGSHAPE-1–T-RECON-ARGSHAPE-2 reconcile item-edit argv shape, #697; T-RG-5 poll_skipped_rate_budget reset, T-CB-1–T-CB-2 circuit-breaker poll_skip_count, T-STALE-RG-1 reconcile-stale rate-guard, #683; T-RC-1–T-RC-3 api_error board-reset recovery, T-RC-PROMOTE ac2-confirmation alias, #687 #723; T-FM1-derive-key-disambig shared-slug disambiguation, #724; T-FM2-stories-provenance-no-footer stories.json-only KEY derivation, #724; T-PHC-EMPTY-REPO post-halt-comment empty-repo derive, #450; T-SEED-PARITY-1, T-SEED-PARITY-2 KEY third-fallback word-boundary, T-FM2-dispatch-doc-example doc-example body no KEY=-slug-, T-PHASE-PR-1, T-PHASE-PR-DRYRUN, T-PHASE-PR-DISABLE phase=pr orphan reconcile, T-PARK-LABELS-1, T-PARK-LABELS-ABSENT park-label skip guard, #721; T77 folderless-Ready demote-to-Todo, #783; T_BG1, T_BG2 session-safety guard, T_STATUS_PASSTHROUGH multi-status passthrough, #743) ==="

@@ -162,6 +162,14 @@ skill is the entry point for autonomous mode — every other autonomous
 component (PO-agent, kill-switch, workflow-state, context-handoff) is
 dispatched from this loop, never the other way around.
 
+This is now **enforced** (#743): `cmd_run` aborts with an actionable error
+when it detects a `bg-spare` / `bg-pty-host` / headless-Claude ancestor,
+because such a session is reaped after a few minutes and its SIGTERM would
+kill the loop and any in-flight dispatch. For an unattended run, detach with
+`nohup`+`disown` (see *Invocation → When invoked from a Claude skill*); set
+`MAKATO_LOOP_ALLOW_BG_SESSION=1` only for headless CI with external SIGTERM
+protection.
+
 Do **not** invoke from sub-agents, `build-*` skills, or the PO-agent
 itself. The loop's invariants (single-threaded dispatch, board filtering,
 HALT-file polling at the outer-most boundary) assume it owns the session.
@@ -230,12 +238,51 @@ WHY: The merged-worktree reaper and orphaned-specs pruner operate on git worktre
 
 ## Invocation
 
+**Thread the operator's arguments through verbatim.** When an operator invokes
+`/makato-orchestrate:loop run --status Ready,Todo`, the generated Bash MUST pass
+that exact `--status` value to `loop.sh` — do NOT copy a hardcoded `--status Ready`
+from the examples below. A comma-separated value such as `Ready,Todo` must reach
+`loop.sh run --status "Ready,Todo"` unchanged (#743). Bind the operator's values to
+shell variables and quote them:
+
+```bash
+# Thread the operator-supplied --status / --interval through verbatim.
+# Substitute the operator's values for the defaults; do NOT hardcode "Ready".
+STATUS="${STATUS:-Ready}"        # e.g. "Ready,Todo" when the operator passed it
+INTERVAL="${INTERVAL:-300}"
+plugins/makato-orchestrate/scripts/loop.sh run --status "$STATUS" --interval "$INTERVAL"
+```
+
+### When invoked from a Claude skill (unattended)
+
+The loop must **not** inherit a background/headless Claude session's lifecycle —
+that session is reaped after a few minutes and its SIGTERM kills the loop and any
+in-flight dispatch (#743). `cmd_run` now aborts with an actionable error when it
+detects a `bg-spare` / `bg-pty-host` ancestor. For an unattended run, detach the
+loop from the session with `nohup`+`disown` so its ppid becomes `1`:
+
+```bash
+# Detach from the session (ppid=1) so a session reap does NOT SIGTERM the loop.
+STATUS="${STATUS:-Ready}"
+nohup plugins/makato-orchestrate/scripts/loop.sh run --status "$STATUS" \
+  > ~/.claude/state/loop.log 2>&1 &
+disown
+```
+
+To intentionally run headless in CI where SIGTERM protection is handled
+externally, export `MAKATO_LOOP_ALLOW_BG_SESSION=1` to bypass the guard.
+
+### Examples
+
 ```bash
 # Long-running default (poll every 300 s, Status=Ready)
 plugins/makato-orchestrate/scripts/loop.sh run
 
-# Custom Status name and 60 s cadence
-plugins/makato-orchestrate/scripts/loop.sh run --status Ready --interval 60
+# Custom Status name and 60 s cadence — pass the operator's value verbatim
+plugins/makato-orchestrate/scripts/loop.sh run --status "$STATUS" --interval 60
+
+# Multi-status queue (Ready and Todo) — comma-separated, quoted
+plugins/makato-orchestrate/scripts/loop.sh run --status "Ready,Todo"
 
 # Inspect the queue without dispatching anything
 plugins/makato-orchestrate/scripts/loop.sh run --dry-run --once

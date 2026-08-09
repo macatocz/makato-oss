@@ -249,6 +249,20 @@
 #                              Needs Planning candidate queue instead of the
 #                              real board poll.
 #
+# --- Session-safety guard (#743) ---
+#   MAKATO_LOOP_ALLOW_BG_SESSION
+#                              Set to `1` to bypass the bg-session ancestry
+#                              guard in cmd_run. For headless CI where external
+#                              SIGTERM protection is provided by the caller.
+#                              Default off (guard active).
+#   MAKATO_LOOP_SESSION_SAFETY_TEST_PPID
+#                              Tests only: starting ppid for the ancestry walk
+#                              instead of $PPID (offline tests, no bg-spare).
+#   MAKATO_LOOP_SESSION_SAFETY_PS_OVERRIDE
+#                              Tests only: path to a file whose contents stand
+#                              in for `ps -o args= -p <ppid>` on the first
+#                              ancestry level, supplying fake ancestry output.
+#
 # Conventions: matches scripts/context-handoff.sh (POSIX-ish bash, `set
 # -euo pipefail`, python3 for ISO-8601 millisecond timestamps, jq for
 # JSON work).
@@ -3375,6 +3389,88 @@ cmd_auto_seed() {
 }
 
 # ---------------------------------------------------------------------------
+# _auto_seed_demote_to_todo — move a board card Ready → Todo (#783).
+#
+# Called by the T3.5 guard in _auto_seed_candidates for a Ready-but-folderless
+# issue (tracked by to-issues, so `_is_orphan_issue` returns 1, but no matching
+# specs/<KEY>*/ folder exists). Demoting to Todo takes the card out of the
+# dispatchable queue immediately, so the loop advances to the next Ready issue
+# instead of re-selecting the folderless one forever (the starvation described
+# in #783). On the next auto-seed pass the issue is a genuine unprepared Todo
+# candidate that gets seeded and re-promoted.
+#
+# Mirrors the board-mutation pattern of _reset_board_card_to_ready /
+# _auto_seed_block_full, but targets the `todo` Status option.
+#
+# Best-effort: any read/write failure logs a WARN and returns 0. Never blocks.
+#
+# Test hook: MAKATO_LOOP_DEMOTE_TEST_FILE — when set, append
+#   "demote #N → Todo" to the file instead of calling gh.
+# ---------------------------------------------------------------------------
+_auto_seed_demote_to_todo() {
+  local issue="${1:?issue number required}"
+
+  # Test hook — offline smoke tests write to this file instead of calling gh.
+  if [[ -n "${MAKATO_LOOP_DEMOTE_TEST_FILE:-}" ]]; then
+    echo "demote #${issue} → Todo" >>"$MAKATO_LOOP_DEMOTE_TEST_FILE"
+    echo "loop: auto-seed-demote — #$issue → Todo (test hook)" >&2
+    return 0
+  fi
+
+  if [[ ! -f "$CONFIG_FILE" ]]; then
+    echo "loop: WARN — auto-seed-demote #$issue: no config; card stays Ready" >&2
+    return 0
+  fi
+
+  local status_field_id todo_option_id project_node_id host owner number repo
+  status_field_id="$(jq -r '.github_project.fields.status.id // empty' "$CONFIG_FILE")"
+  todo_option_id="$(jq -r '.github_project.fields.status.options.todo // (.github_project.options.todo // empty)' "$CONFIG_FILE")"
+  project_node_id="$(jq -r '.github_project.project_node_id // empty' "$CONFIG_FILE")"
+  host="$(jq -r '.github_project.host // "github.com"' "$CONFIG_FILE")"
+  owner="$(jq -r '.github_project.owner // empty' "$CONFIG_FILE")"
+  number="$(jq -r '.github_project.number // empty' "$CONFIG_FILE")"
+  repo="${MAKATO_LOOP_DISPATCH_REPO:-}"
+
+  if [[ -z "$status_field_id" || -z "$todo_option_id" || -z "$project_node_id" || -z "$owner" || -z "$number" ]]; then
+    echo "loop: WARN — auto-seed-demote #$issue: missing config fields (need github_project.fields.status.options.todo); card stays Ready" >&2
+    return 0
+  fi
+
+  # Resolve the board item id (3-step: idempotent item-add → cheap single-issue
+  # GraphQL lookup → whole-board item-list fallback), matching _auto_seed_block_full.
+  local item_id=""
+  if [[ -n "$repo" ]]; then
+    item_id="$(GH_HOST="$host" gh project item-add "$number" --owner "$owner" \
+      --url "https://github.com/${repo}/issues/$issue" \
+      --format json 2>/dev/null | jq -r '.id // empty' 2>/dev/null || true)"
+  fi
+  if [[ -z "$item_id" ]]; then
+    item_id="$(_project_item_id_for_issue "$host" "$owner" "$repo" "$issue" "$project_node_id" || true)"
+  fi
+  if [[ -z "$item_id" ]]; then
+    item_id="$(GH_HOST="$host" gh project item-list "$number" --owner "$owner" \
+      --format json --limit 9999 2>/dev/null \
+      | jq -r --argjson i "$issue" '.items[] | select(.content.number == $i) | .id' 2>/dev/null \
+      | head -1 || true)"
+  fi
+
+  if [[ -z "$item_id" ]]; then
+    echo "loop: WARN — auto-seed-demote #$issue: could not resolve board item id; card stays Ready" >&2
+    return 0
+  fi
+
+  if GH_HOST="$host" gh project item-edit --id "$item_id" \
+      --project-id "$project_node_id" \
+      --field-id "$status_field_id" \
+      --single-select-option-id "$todo_option_id" >/dev/null 2>&1; then
+    echo "loop: auto-seed-demote — #$issue board demoted Ready → Todo (folderless; will re-seed)" >&2
+  else
+    echo "loop: WARN — auto-seed-demote #$issue: board item-edit to Todo failed; card stays Ready" >&2
+  fi
+  return 0
+}
+
+# ---------------------------------------------------------------------------
 # _auto_seed_candidates — discover open issues that need seeding (not yet on the
 # board at the dispatch Status) and classify their plan-tier.
 # Returns a JSON array of {number, plan_tier} objects.
@@ -3452,7 +3548,24 @@ _auto_seed_candidates() {
     # created-issues.json references this number, so a non-orphan is
     # already-planned and belongs to the board-Ready queue, not seeding.
     if ! _is_orphan_issue "$n"; then
-      echo "loop: auto-seed — skip #$n (already planned by to-issues — in created-issues.json)" >&2
+      # #783: an already-planned (non-orphan) issue that is ALSO folderless
+      # starves the dispatch queue — the cmd_dispatch spec-folder gate bounces
+      # it to auto-seed every tick, but the old `continue` here silently skipped
+      # it, so the folder never materialized and the same issue was re-selected
+      # forever (blocking everything behind it). Detect the folderless case and
+      # demote the card Ready → Todo so it exits the dispatchable queue; the next
+      # auto-seed pass then treats it as a genuine unprepared candidate. When a
+      # folder DOES exist (the normal already-planned path), behaviour is
+      # unchanged. KEY-derivation failure → skip demotion, continue silently
+      # (the gate WARN fires on the next dispatch attempt, no regression).
+      local n_key=""
+      n_key="$(_derive_key_for_issue "$n" "${MAKATO_LOOP_DISPATCH_REPO:-}" 2>/dev/null || true)"
+      if [[ -n "$n_key" ]] && ! _spec_folder_for_key "$n_key" >/dev/null 2>&1; then
+        echo "loop: auto-seed — #$n Ready-but-folderless (KEY='$n_key'); demoting to Todo for re-seed (#783)" >&2
+        _auto_seed_demote_to_todo "$n" || true
+      else
+        echo "loop: auto-seed — skip #$n (already planned by to-issues — in created-issues.json)" >&2
+      fi
       continue
     fi
 
@@ -6137,6 +6250,90 @@ _check_tool_deps() {
 }
 
 # ---------------------------------------------------------------------------
+# _check_session_safety — pre-flight session-ancestry guard (#743).
+#
+# Detects when `loop.sh run` is a descendant of a background/headless Claude
+# session (`bg-spare`, `bg-pty-host`, `claude daemon run --origin transient`).
+# Such a session is reaped after a few minutes and its SIGTERM propagates down
+# the process tree — killing the loop and any in-flight PO-agent dispatch
+# (incident: dispatch #453, seed-issue #742). The loop MUST NOT inherit that
+# lifecycle, so this guard aborts BEFORE the run-mutex/pidfile is taken.
+#
+# Walks up to 4 levels of ppid ancestry using `ps -o args=` (the full command
+# string — `comm` is truncated at 15 chars on macOS, hiding `bg-pty-host` and
+# `claude daemon run --origin transient`).
+#
+# Returns 0 (guard passes / bypassed / degraded) or 1 (bg-session detected).
+#
+# Bypass / test seams:
+#   MAKATO_LOOP_ALLOW_BG_SESSION=1  — opt-out for headless CI where external
+#       SIGTERM protection is provided by the caller. No-op, returns 0.
+#   MAKATO_LOOP_GH_OVERRIDE (or POLL/GRAPHQL test cmds) — offline smoke-test
+#       mode; guard is skipped (mirrors _check_tool_deps' auth-check skip).
+#   MAKATO_LOOP_SESSION_SAFETY_TEST_PPID — inject the starting ppid for the
+#       ancestry walk instead of using $PPID (offline tests, no real bg-spare).
+#   MAKATO_LOOP_SESSION_SAFETY_PS_OVERRIDE — path to a file whose contents are
+#       returned in place of `ps -o args= -p <pid>` for the injected ppid, so
+#       tests can supply fake ancestry output without a live process.
+# ---------------------------------------------------------------------------
+_check_session_safety() {
+  # Opt-out: headless CI with external SIGTERM protection.
+  [[ "${MAKATO_LOOP_ALLOW_BG_SESSION:-0}" == "1" ]] && return 0
+
+  # Offline smoke-test mode — never fire in the test harness (consistent with
+  # _check_tool_deps skipping the live gh-auth check under these vars).
+  if [[ -n "${MAKATO_LOOP_GH_OVERRIDE:-}" \
+     || -n "${MAKATO_LOOP_POLL_TEST_CMD:-}" \
+     || -n "${MAKATO_LOOP_GRAPHQL_TEST_CMD:-}" ]] \
+     && [[ -z "${MAKATO_LOOP_SESSION_SAFETY_TEST_PPID:-}" ]]; then
+    return 0
+  fi
+
+  local pid
+  pid="${MAKATO_LOOP_SESSION_SAFETY_TEST_PPID:-$PPID}"
+
+  local level args
+  for level in 1 2 3 4; do
+    [[ -n "$pid" && "$pid" != "0" && "$pid" != "1" ]] || break
+
+    # Resolve this ancestor's full command string. Test seam short-circuits the
+    # real ps call for the injected ppid on the FIRST level only; subsequent
+    # levels walk real ppids (empty → break via graceful-degrade below).
+    if [[ -n "${MAKATO_LOOP_SESSION_SAFETY_PS_OVERRIDE:-}" && "$level" == "1" ]]; then
+      args="$(cat "${MAKATO_LOOP_SESSION_SAFETY_PS_OVERRIDE}" 2>/dev/null || echo "")"
+    else
+      args="$(ps -o args= -p "$pid" 2>/dev/null || echo "")"
+    fi
+
+    # Graceful degrade: `ps` unavailable / empty output → skip the check.
+    if [[ -z "$args" ]]; then
+      [[ "$level" == "1" ]] && echo "loop: WARN — session-safety: could not read process ancestry (ps unavailable); skipping guard" >&2
+      break
+    fi
+
+    if [[ "$args" == *"bg-spare"* \
+       || "$args" == *"bg-pty-host"* \
+       || "$args" == *"claude daemon run --origin transient"* ]]; then
+      cat >&2 <<EOF
+loop: error — launched under a background/headless Claude session (process: '${args}').
+The loop will be SIGTERM'd when this session is reaped.
+Fix: run from an interactive terminal or use nohup+disown:
+  nohup plugins/makato-orchestrate/scripts/loop.sh run > ~/.claude/state/loop.log 2>&1 &
+  disown
+To suppress this guard: export MAKATO_LOOP_ALLOW_BG_SESSION=1
+EOF
+      return 1
+    fi
+
+    # Walk one level up. Test seam only mocks level 1; from level 2 we probe
+    # the real ppid of the injected pid, which typically fails and breaks.
+    pid="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ' || echo "")"
+  done
+
+  return 0
+}
+
+# ---------------------------------------------------------------------------
 # run — long-running poll loop. CLI flags override env defaults.
 # ---------------------------------------------------------------------------
 cmd_run() {
@@ -6168,6 +6365,12 @@ cmd_run() {
   # non-zero exit and an actionable stderr message when any required tool is
   # absent or gh is not authenticated.
   _check_tool_deps || return 1
+
+  # Pre-flight session-safety guard (#743). Aborts BEFORE the run-mutex/pidfile
+  # is acquired when the loop is a descendant of a bg-spare / bg-pty-host /
+  # headless Claude session that would SIGTERM the loop (and any in-flight
+  # dispatch) when reaped. Bypass with MAKATO_LOOP_ALLOW_BG_SESSION=1.
+  _check_session_safety || return 1
 
   # Layer 1 — run-mutex pidfile (see #172). Refuses to start a second
   # instance sharing this state dir. Two loops writing to the same
