@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.147.0](https://github.com/macatocz/makato/compare/v0.146.1...v0.147.0) (2026-08-09)
+
+
+### ✨ Features
+
+* **makato-observability:** resolve 6 feature-audit gaps ([#707](https://github.com/macatocz/makato/issues/707)) ([#796](https://github.com/macatocz/makato/issues/796)) ([040bf63](https://github.com/macatocz/makato/commit/040bf633bc877f10f0978af2180105c6bfb7ab24))
+
 ## [0.146.1](https://github.com/macatocz/makato/compare/v0.146.0...v0.146.1) (2026-08-09)
 
 
