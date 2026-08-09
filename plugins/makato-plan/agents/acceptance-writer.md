@@ -132,7 +132,7 @@ The `and` field is optional — include only when additional Then assertions are
 | Condition | Response |
 |---|---|
 | Required input field missing | R1 `failure` with `errors: ["missing input: <field>"]` |
-| `STORY.successScenarios` is empty | Produce scenarios from `PRD_CONTEXT` + `FEATURE_CONTEXT` alone; emit a `warnings` entry noting no drafts were present |
+| `STORY.successScenarios` is empty | R1 failure with errors: ["no successScenarios seeds — cannot produce anchored scenarios; return to /decompose"] |
 | Cannot produce at least 1 valid scenario after quality checks | R1 `failure` with `errors: ["could not produce valid scenarios: <reason>"]` |
 
 ## What this agent does NOT do

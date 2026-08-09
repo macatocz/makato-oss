@@ -88,4 +88,5 @@ Return the review as a markdown block in this exact structure:
 - `plugins/makato-plan/AGENTS.md` — agent roster and design principles for this plugin.
 - `plugins/makato-plan/agents/dev-reviewer.md` — technical feasibility perspective (Three Amigos peer).
 - `plugins/makato-plan/agents/qa-reviewer.md` — testability and edge-case perspective (Three Amigos peer).
-- `plugins/makato-plan/skills/stress-test-artifact/SKILL.md` — dispatching skill; defines the Three Amigos workflow and how review iterations are combined.
+- `plugins/makato-plan/skills/decompose/SKILL.md` — primary dispatching skill; embeds the Three Amigos simulation that triggers this agent.
+- `plugins/makato-plan/skills/stress-test-artifact/SKILL.md` — secondary dispatching context; defines the Three Amigos workflow and how review iterations are combined.

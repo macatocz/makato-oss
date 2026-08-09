@@ -306,6 +306,16 @@ On approval, for each story in `stories.json`:
 
 2. Write the updated `stories.json` back to disk (preserve all other fields unchanged).
 
+3. **Post-write verification** — re-read `stories.json` from disk and assert that every processed story has an `acceptanceTestCases` field present and non-empty. For each story where the field is missing after write-back, emit a warning:
+
+   ```text
+   WARNING: acceptanceTestCases missing after write-back for story {sequence}: {summary}.
+   Recovery source: specs/{folder}/reviews/acceptance-review.html
+   Re-run from Step 6 using the approved scenarios in that file.
+   ```
+
+   Do not silently continue past a missing field — surface it explicitly so the operator can recover without re-running the full skill.
+
 The scenario object shape is defined in `shared/scenario-schema.md` — keep both consumers
 (`successScenarios`, `acceptanceTestCases`) aligned with that schema.
 
