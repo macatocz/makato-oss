@@ -1,0 +1,285 @@
+{
+  "version": "2.0",
+  "slug": "makato-harness-independence",
+  "created": "2026-08-09",
+  "status": "draft",
+  "epic": {
+    "summary": "makato suite harness independence — makato-oss fork on the oh-my-pi runtime",
+    "objective": "Make the makato suite harness- and vendor-independent by forking it onto the open-source oh-my-pi runtime (makato-oss), running primarily open models cross-platform on Linux/Vast.ai, while the production Claude Code makato stays untouched as version fallback.",
+    "labels": ["makato"],
+    "testTopology": "Claude Code on the Mac is only the EDITOR used to author/commit makato-oss — it is NOT the test target. makato-oss is exercised by running the oh-my-pi (omp) runtime, which is cross-platform (D6). Three test targets: (T1) Mac local — omp on macOS against a cloud open-model API, fast dev loop, no GPU; (T2) no-GPU Linux VM — Lima/UTM on the Mac or a cheap Vast.ai CPU instance, for OS-portability + persistent-volume + systemd + network-partition work; (T3) Vast.ai A6000 GPU instance — the ONLY GPU-required target, for the on-instance vLLM + co-located sagibeast + Langfuse stack. Each story carries a description.testTarget naming which of T1/T2/T3 applies."
+  },
+  "stories": [
+    {
+      "sequence": 1,
+      "phase": "foundation",
+      "summary": "Fork bootstrap + Phase-0 spike: headless omp dispatch on an open model",
+      "storyPoints": 8,
+      "teams": ["makato-oss"],
+      "labels": ["makato", "type:feat"],
+      "githubIssue": null,
+      "description": {
+        "background": "makato-oss is a point-in-time fork of makato into a new repo + GitHub project (D3, big-bang on copy). The walking skeleton proves the oh-my-pi harness can drive makato skills headlessly on an open model before any dispatch rewrite commits. It also resolves the three open questions the whole dispatch design hangs on: the phase-detection contract (D16/Q-spike), the empirical skill-migration scope (Q5), and the filterBrowser MCP caveat (Q8).",
+        "scope": "Create the makato-oss fork (repo + GitHub project) as the entry-point enabler. Stand up a minimal single-open-endpoint models.yml. Run omp --yolo -p headless against 3 representative skills (prompt-only / MCP-calling / sub-agent-dispatch). Capture the omp --mode rpc terminal-event shape AND the resume-handle equivalent, then commit a decision doc that flips Decision 3 (D16) from PENDING to a fixed contract (Option A RPC-adapter vs Option B state-file-only). Measure how many of the ~25 agent files need harness-specific change beyond a modelRole substitution. Explicitly verify Playwright MCP resolves from a sub-agent (filterBrowser gate, Q8). State an explicit pass/fail gate: if oh-my-pi fails the headless/sub-agent/MCP contract, the Hermes fallback (D2) is triggered before S2–S4 commit.",
+        "testTarget": "T1 Mac (omp local, cloud open-model API) for the 3-skill smoke + RPC-shape capture, then a confirming headless run on a T2 no-GPU Linux VM. No GPU and no Vast.ai instance needed — the spike is about the harness contract, not the model host.",
+        "featureToggle": {"alreadyInPlace": false, "newNeeded": false, "longTermUsage": false, "name": "", "defaultState": ""},
+        "successScenarios": [
+          {"title": "Three representative skills dispatch headless on an open-model endpoint", "given": "the makato-oss fork exists, omp is installed, a local open-model endpoint is reachable, and .claude/.mcp.json contains Context7/GitHub/Playwright servers", "when": "the operator runs omp --yolo -p against a prompt-only skill, an MCP-calling skill, and a sub-agent-dispatch skill in sequence", "then": "all three skills complete with no approval-prompt stall, each LLM call routes to the open endpoint, and MCP tools resolve from sub-agents", "and": ["Playwright MCP resolves from a sub-agent, or the filterBrowser caveat is confirmed and the filterBrowser:false workaround is documented"], "verificationCommand": "grep -rE 'model:\\s*(haiku|sonnet|opus)' plugins/*/agents/ | wc -l  # baseline count before migration; inspect omp --mode rpc output for the terminal event line"},
+          {"title": "omp RPC terminal-event shape and resume-handle captured; phase-detection contract fixed", "given": "omp runs in --mode rpc against one of the spike skills", "when": "the skill completes normally, then again when killed mid-run", "then": "the terminal NDJSON event line is captured to a committed artefact and a resume-handle equivalent (session id or path) is confirmed usable for --resume", "and": ["the committed decision doc states whether Option A (RPC-adapter) or Option B (state-file-only) phase detection was chosen, flipping D16 from PENDING to RESOLVED"]},
+          {"title": "Skill-migration scope bounded by .claude/ auto-discovery", "given": "the makato-oss fork is a point-in-time copy of makato", "when": "each of the three spike skills is loaded by omp from .claude/skills/", "then": "no CC-specific path fails to resolve, and any skill requiring CC-specific semantics is listed in a committed migration-scope doc that counts the agent files needing harness-specific change"}
+        ],
+        "solutionApproach": "", "acceptanceTestCases": [], "wikiDocumentation": "",
+        "outOfScope": ["Full 25-agent modelRole rewrite (that is sequence 3)", "loop.sh dispatch-seam rewrite (that is sequence 2)", "Any production makato change"]
+      },
+      "definitionOfDone": ["omp dispatches all 3 representative skills headless on an open endpoint with no approval-prompt stall (sub-agents included)", "The phase-detection contract (D16) is committed as RESOLVED with the captured omp RPC terminal-event shape and resume-handle equivalent", "The empirical skill-migration scope (Q5) and the filterBrowser resolution (Q8) are documented in the fork repo", "An explicit pass/fail gate is recorded: on failure the Hermes fallback (D2) is triggered before S2–S4 commit"],
+      "dependencies": {"blockedBy": [], "blocks": [2, 3, 4]},
+      "externalDependencies": [{"team": "can1357 (oh-my-pi upstream)", "description": "oh-my-pi headless/sub-agent/MCP contract must hold as its source claims", "status": "active"}]
+    },
+    {
+      "sequence": 2,
+      "phase": "foundation",
+      "summary": "loop.sh dispatches the po-agent via oh-my-pi instead of claude -p",
+      "storyPoints": 8,
+      "teams": ["makato-oss"],
+      "labels": ["makato", "type:feat"],
+      "githubIssue": null,
+      "description": {
+        "background": "The deepest Claude Code coupling is the dispatch invocation. loop.sh must launch the po-agent through the oh-my-pi headless contract instead of claude -p, using the phase-detection contract fixed in sequence 1.",
+        "scope": "Rename MAKATO_CLAUDE_BIN -> MAKATO_HARNESS_BIN (loop.sh:264) and re-point it to omp. Replace the claude -p --dangerously-skip-permissions --output-format stream-json invocation (loop.sh:5208) with omp --yolo -p. Re-express _parse_dispatch_result (loop.sh:2450) and _extract_session_id per the D16 contract from sequence 1. Preserve the watchdog liveness check and the MAKATO_HEADLESS=1 guard. Resume-handle contingency: if sequence 1 shows omp has no session-resume analogue, stall-recovery is replaced by watchdog-timeout + reconcile with no resume (state-file path only) and this story is re-scoped and re-estimated accordingly.",
+        "testTarget": "T1 Mac (omp local, cloud open endpoint) — a bash-level dispatch change; grep audit + one live dispatch is OS-independent, no GPU.",
+        "featureToggle": {"alreadyInPlace": false, "newNeeded": false, "longTermUsage": false, "name": "", "defaultState": ""},
+        "successScenarios": [
+          {"title": "loop.sh dispatches the po-agent via omp, not claude", "given": "MAKATO_HARNESS_BIN is set to omp, the phase-detection contract from sequence 1 is committed, and one Ready issue exists on the board", "when": "the operator runs loop.sh", "then": "loop.sh invokes omp --yolo -p (not claude -p), the po-agent runs, and workflow-state-<N>.json is written to the config-driven state root", "and": ["no reference to MAKATO_CLAUDE_BIN or claude -p remains in the dispatch code path"], "verificationCommand": "grep -n 'MAKATO_CLAUDE_BIN\\|claude -p' plugins/makato-orchestrate/scripts/loop.sh | wc -l  # expect 0 in the dispatch path"},
+          {"title": "Phase detection reads completion from the omp output contract", "given": "omp completes a dispatch with the sequence-1 phase-detection contract applied", "when": "_parse_dispatch_result is called on the omp output", "then": "the function returns complete, errored, or incomplete correctly and loop.sh advances workflow-state accordingly"},
+          {"title": "Stalled dispatch triggers reconcile via the watchdog", "given": "a po-agent dispatch is running and the omp process is killed mid-run", "when": "the watchdog detects no terminal RPC result line within the timeout", "then": "loop.sh invokes reconcile and the issue either resumes via the session-handle analogue or board-resets to Ready"}
+        ],
+        "solutionApproach": "", "acceptanceTestCases": [], "wikiDocumentation": "",
+        "outOfScope": ["modelRole config (sequence 3)", "OS-portability remediation (sequence 4)"]
+      },
+      "definitionOfDone": ["loop.sh invokes omp --yolo -p and no claude -p / MAKATO_CLAUDE_BIN reference remains in the dispatch path", "Phase/completion detection returns correct tokens from omp output per the D16 contract", "A stalled dispatch is detected by the watchdog and routed to reconcile (resume or board-reset)", "The MAKATO_HEADLESS=1 guard and watchdog liveness are preserved"],
+      "dependencies": {"blockedBy": [1], "blocks": [5]},
+      "externalDependencies": []
+    },
+    {
+      "sequence": 3,
+      "phase": "foundation",
+      "summary": "modelRoles config; drop haiku/sonnet/opus across all agents",
+      "storyPoints": 8,
+      "teams": ["makato-oss"],
+      "labels": ["makato", "type:feat"],
+      "githubIssue": null,
+      "description": {
+        "background": "Vendor independence means no provider name in code. Every makato-oss LLM step must select its endpoint via config modelRoles (D4/D15), all 10 roles pointing at the open endpoint at Phase-1 start (the LLM-judge is the only closed role, added later in sequence 11). This story blocks the MVP proof (sequence 5) whose acceptance requires every step on an open endpoint — so it is foundation-tier despite being config work.",
+        "scope": "Author models.yml mapping all 10 oh-my-pi roles (default/task/smol/tiny/plan/advisor/designer/commit/slow/vision) to the open baseUrl per the D15 role->tier table. Rewrite the ~25 agent frontmatter files to use modelRoles, removing every haiku/sonnet/opus reference. Verify the harness routes each role to the open endpoint (subset live-dispatch smoke per role type). Confirm the per-step modelRole->endpoint tag is emittable (integration point needed by sequence 10).",
+        "testTarget": "T1 Mac (omp local, cloud open endpoint) — grep audit is OS-independent; role-routing smoke against the cloud open endpoint, no GPU.",
+        "featureToggle": {"alreadyInPlace": false, "newNeeded": false, "longTermUsage": false, "name": "", "defaultState": ""},
+        "successScenarios": [
+          {"title": "No haiku/sonnet/opus reference remains in any agent frontmatter", "given": "all 25 agent files in makato-oss have been updated to use modelRoles", "when": "a grep audit runs across the makato-oss agent directory", "then": "zero results are returned for any haiku, sonnet, or opus string in agent frontmatter", "verificationCommand": "grep -rE 'model:\\s*(haiku|sonnet|opus|claude)' plugins/*/agents/ | wc -l  # expect 0"},
+          {"title": "Each modelRole resolves to the open endpoint at Phase-1 start", "given": "models.yml is committed with all 10 oh-my-pi roles mapped to the open baseUrl", "when": "the harness is dispatched for each tier (smol/tiny scouts, default/task coder, plan planner, advisor reviewers, designer, commit doc-agent)", "then": "each LLM call hits the open endpoint and no call reaches a closed-provider URL", "and": ["no models.yml role points at a closed endpoint at Phase-1 start (the LLM-judge closed role arrives in sequence 11)"]}
+        ],
+        "solutionApproach": "", "acceptanceTestCases": [], "wikiDocumentation": "",
+        "outOfScope": ["The manual open->closed model-switch and the LLM-judge closed role (sequence 11)", "Standing up the on-instance vLLM engine (sequence 8)"]
+      },
+      "definitionOfDone": ["models.yml maps all 10 roles to the open endpoint per the D15 table", "Zero haiku/sonnet/opus references remain across all ~25 agent files", "A subset live-dispatch smoke confirms each role type routes to the open endpoint", "The per-step modelRole->endpoint tag is confirmed emittable for downstream metrics"],
+      "dependencies": {"blockedBy": [1], "blocks": [5, 11]},
+      "externalDependencies": []
+    },
+    {
+      "sequence": 4,
+      "phase": "happy-path",
+      "summary": "Cross-platform portability remediation + state/transcript path re-homing",
+      "storyPoints": 5,
+      "teams": ["makato-oss"],
+      "labels": ["makato", "type:feat"],
+      "githubIssue": null,
+      "description": {
+        "background": "makato-oss is cross-platform (macOS + Linux), not a macOS->Linux port (D6). The runtime path must carry zero unguarded darwin-isms — detect-and-branch, not swap — and re-home the hardcoded session-transcript path the Langfuse hook reads.",
+        "scope": "Detect-and-branch the osascript HALT notifier (loop-halt-watch.sh:43); keep the portable flock/mutex, readlink -f python fallback, stat -c/-f branch, _guarded_sleep, and BSD-safe sed (already cross-platform). Add a new MAKATO_TRANSCRIPT_PATH env override + an oh-my-pi transcript-path adapter for the one hardcoded path (loop.sh:4711) so the Langfuse hook can consume it. Re-home HALT/state/specs/config via the existing env overrides; interim default is a local state dir (the persistent-volume target is provisioned in sequence 6). The transcript adapter depends on how omp stores transcripts (confirmed by the sequence-1 spike).",
+        "testTarget": "T1 Mac AND T2 no-GPU Linux VM (Lima/UTM or Vast.ai CPU) — the darwin-ism grep audit and the loop cycle MUST run on the Linux VM to prove portability; macOS side confirms detect-and-branch no-ops correctly. No GPU.",
+        "featureToggle": {"alreadyInPlace": false, "newNeeded": false, "longTermUsage": false, "name": "", "defaultState": ""},
+        "successScenarios": [
+          {"title": "Runtime path executes on Linux with zero unguarded darwin-isms", "given": "makato-oss is deployed on a Linux host with no macOS tools available", "when": "the full loop.sh runtime path runs through one dispatch cycle", "then": "no command fails due to a macOS-only tool and the detect-and-branch notifier no-ops gracefully on Linux", "verificationCommand": "grep -rn 'osascript' plugins/makato-orchestrate/scripts/loop*.sh | grep -v 'command -v\\|detect\\|fallback\\|case ' | wc -l  # expect 0 unguarded"},
+          {"title": "State paths resolve via env overrides, none defaulting to $HOME/.claude", "given": "MAKATO_HALT_FILE, MAKATO_LOOP_STATE_DIR, SPECS_DIR, and MAKATO_LOOP_CONFIG are set to a config-driven root", "when": "loop.sh initializes and the po-agent writes workflow-state", "then": "all state reads and writes land under the configured root; no path defaults to $HOME/.claude or $REPO_ROOT"},
+          {"title": "New session-transcript env override is read by the Langfuse hook", "given": "MAKATO_TRANSCRIPT_PATH is set and the transcript adapter is in place", "when": "the harness runs a dispatch and the Langfuse hook fires post-session", "then": "the Langfuse hook reads the transcript from the configured path and emits a trace, accessing no hardcoded $HOME/.claude/projects path"}
+        ],
+        "solutionApproach": "", "acceptanceTestCases": [], "wikiDocumentation": "",
+        "outOfScope": ["Provisioning the persistent volume (sequence 6)", "The systemd/launchd supervisor unit (sequence 6)"]
+      },
+      "definitionOfDone": ["The runtime path runs on both macOS and Linux with zero unguarded darwin-isms (detect-and-branch verified)", "MAKATO_TRANSCRIPT_PATH override + transcript adapter let the Langfuse hook read the transcript with no hardcoded path", "HALT/state/specs/config paths resolve via env overrides; interim default is an explicit local state dir", "A grep audit of the runtime path on Linux returns zero unguarded macOS-only tool calls"],
+      "dependencies": {"blockedBy": [1], "blocks": [5]},
+      "externalDependencies": []
+    },
+    {
+      "sequence": 5,
+      "phase": "happy-path",
+      "summary": "One Ready issue -> merged PR, headless, open model (MVP independence proof)",
+      "storyPoints": 5,
+      "teams": ["makato-oss"],
+      "labels": ["makato", "type:feat"],
+      "githubIssue": null,
+      "description": {
+        "background": "The Phase-1 exit milestone and the PRD independence proof: makato-oss autonomously drives a real issue to a merged PR on an open model with no human present. Composes the dispatch seam (sequence 2), model config (sequence 3), and portability (sequence 4).",
+        "scope": "Run the full loop against one Status=Ready issue and confirm build -> review -> PR -> merge with no approval-prompt stall (sub-agents included) and the board advancing to Done. Open-endpoint dependency (resolves the vLLM circularity): sequence 5 runs against an open-model endpoint that need not be the on-instance vLLM — a cloud open-model API is acceptable for the MVP proof, since on-instance vLLM provisioning lives in sequence 8. Verify the production Claude Code makato is untouched and still functional (version fallback intact, DoD).",
+        "testTarget": "T1 Mac OR T2 no-GPU Linux VM via omp against a cloud open-model API. Vast.ai GPU is NOT required — cross-platform (D6) means the MVP proof runs anywhere omp runs. The version-fallback smoke-test runs on the macOS host (production makato lives there). The on-instance-vLLM production topology is proven separately in sequence 8.",
+        "featureToggle": {"alreadyInPlace": false, "newNeeded": false, "longTermUsage": false, "name": "", "defaultState": ""},
+        "successScenarios": [
+          {"title": "One Ready issue driven to a merged PR headless on an open model (MVP E2E)", "given": "makato-oss runs via omp (Mac or no-GPU Linux VM), one issue is Status=Ready, all modelRoles point to the open endpoint, and no human is watching", "when": "the loop dispatches the po-agent for that issue", "then": "the issue is built, reviewed, and a PR is created and merged with no approval-prompt stall, and the board Status advances to Done", "and": ["the loop log contains no approval / HALT-004 (AskUserQuestion) entries", "every LLM call in the trace is tagged with an open-endpoint modelRole"], "verificationCommand": "gh pr view <PR_NUMBER> --json state | jq -r '.state'  # expect MERGED"},
+          {"title": "Production Claude Code makato remains fully functional (version fallback intact)", "given": "the production makato repo and Claude Code install are untouched on the macOS host", "when": "the operator runs the existing makato loop smoke-test", "then": "the smoke-test passes with the same result as pre-fork; no shared config or state path was mutated by makato-oss", "verificationCommand": "bash plugins/makato-orchestrate/scripts/loop-smoke-tests.sh  # expect green"},
+          {"title": "Sub-agents never block on approval prompts under headless dispatch", "given": "a build skill dispatches at least one sub-agent (coder or reviewer) during the run", "when": "the sub-agent hits a tool that would normally require approval under Claude Code", "then": "the sub-agent proceeds without blocking; yolo runtime-enforcement covers sub-agents as well as the po-agent"}
+        ],
+        "solutionApproach": "", "acceptanceTestCases": [], "wikiDocumentation": "",
+        "outOfScope": ["On-instance vLLM provisioning (sequence 8) — MVP may use a cloud open endpoint", "Crash-recovery and offline continuation (sequences 6, 7)"]
+      },
+      "definitionOfDone": ["One Ready issue is autonomously driven to a merged PR on an open model, headless, via omp (Mac or Linux VM), with the board reaching Done", "No approval-prompt / HALT-004 entry appears in the loop log for the run (sub-agents included)", "The production Claude Code makato is verified untouched and its smoke-test passes green", "Every LLM call in the run trace is tagged with an open-endpoint modelRole"],
+      "dependencies": {"blockedBy": [2, 3, 4], "blocks": [6, 7, 8, 10]},
+      "externalDependencies": []
+    },
+    {
+      "sequence": 6,
+      "phase": "edge-cases",
+      "summary": "Survive Vast.ai preemption: persistent volume + reconcile-before-resume",
+      "storyPoints": 8,
+      "teams": ["makato-oss"],
+      "labels": ["makato", "type:feat"],
+      "githubIssue": null,
+      "description": {
+        "background": "A Vast.ai spot preemption or a destroy+recreate GPU upgrade can kill the instance mid-run. Non-regenerable state (workflow-state, worktrees, uncommitted branches) must survive on a persistent volume, and reconcile must run against GitHub before resuming (D7).",
+        "scope": "Provision the persistent-volume layout for non-regenerable state and point the config-driven paths at it. Add the supervisor unit (systemd on Linux, launchd on macOS) with Restart=always and boot-time auto-resume. Implement the D7 reconcile decision table before resume: PR+CI green->resume from merge; PR+CI red->resume from fix; PR+CI running->bounded-timeout wait then degrade; PR absent/ambiguous->abort + board-reset to Ready (reuse issue-to-project reconcile + _reset_board_card_to_ready). Enforce the poison-pill invariant: an ambiguous phase=pr never permanently blocks the queue. The bounded-timeout value is a concrete build-phase parameter. Note: the destroy+recreate volume-reattach case (A4) must be drilled once manually before Phase 2 closes; kill-9 + supervisor restart approximates the common preemption case.",
+        "testTarget": "T2 no-GPU Linux VM with a persistent volume + systemd — the common preemption case is simulated via process kill + supervisor restart (no GPU, no real spot interruption). ONE manual destroy+recreate + volume-reattach drill on an actual Vast.ai instance (T3-class, but any small persistent-volume instance) is required before Phase 2 closes to prove A4.",
+        "featureToggle": {"alreadyInPlace": false, "newNeeded": false, "longTermUsage": false, "name": "", "defaultState": ""},
+        "successScenarios": [
+          {"title": "Simulated mid-build preemption resumes and completes in-flight work", "given": "a po-agent is mid-build with uncommitted changes in a worktree on the persistent volume and the supervisor is configured Restart=always", "when": "the omp process is killed and the instance reboots", "then": "the supervisor restarts the loop, reconcile runs the D7 table, the in-flight work resumes, and the PR is eventually merged", "and": ["the worktree and uncommitted branch files are intact on the persistent volume post-restart"]},
+          {"title": "Ambiguous phase=pr board-resets; the queue is never permanently blocked", "given": "workflow-state contains phase=pr but no matching open PR exists on GitHub (API-stall poison-pill)", "when": "reconcile runs the D7 table on boot", "then": "reconcile selects abort + board-reset, the issue Status returns to Ready, and the next tick picks it up", "and": ["the loop log confirms the poison-pill was detected and reset, not skipped indefinitely"]},
+          {"title": "Uncommitted worktree work survives a persistent-volume round-trip", "given": "the po-agent has staged but not committed changes in a worktree on the persistent volume", "when": "the instance is destroyed and recreated with the volume reattached", "then": "the worktree directory and staged changes are accessible at the same config-driven path after recreate"}
+        ],
+        "solutionApproach": "", "acceptanceTestCases": [], "wikiDocumentation": "",
+        "outOfScope": ["Network-partition / offline continuation (sequence 7 — a different failure mode)", "Co-located dev stack sizing (sequence 8)"]
+      },
+      "definitionOfDone": ["A simulated preemption resumes on reboot via the supervisor and either completes the work or safely board-resets per the D7 table", "Uncommitted worktree work survives on the persistent volume across the preemption", "An ambiguous phase=pr state never permanently blocks the queue (poison-pill invariant holds)", "The destroy+recreate volume-reattach case is drilled once before Phase 2 closes"],
+      "dependencies": {"blockedBy": [5], "blocks": []},
+      "externalDependencies": [{"team": "Vast.ai", "description": "Persistent volume must survive spot preemption and destroy+recreate (A4)", "status": "active"}]
+    },
+    {
+      "sequence": 7,
+      "phase": "edge-cases",
+      "summary": "Offline continuation: local board mirror + bidirectional sync daemon",
+      "storyPoints": 8,
+      "teams": ["makato-oss"],
+      "labels": ["makato", "type:feat"],
+      "githubIssue": null,
+      "description": {
+        "background": "The loop reads the board live every tick; with no connectivity outside the container it stalls. A local board-Status mirror lets the loop keep dispatching offline; a sync daemon reconciles both directions on reconnect (D18). This is a distinct failure mode from sequence 6 (partition of a running instance vs a crash) and maps to design.md Critical Test Scenario #4.",
+        "scope": "Add the mirror file (board item-Status snapshot on the persistent volume) and route loop.sh board reads through it, sharing the gh board-read primitives with reconcile. Add the sync daemon: GitHub->mirror refresh plus queued mirror-write->GitHub push of status transitions, last-writer-wins (single operator). Sync cadence + conflict rule are a tracked build-phase item (Q-mirror); the no-Status-lost assertion is locked once that is set.",
+        "testTarget": "T2 no-GPU Linux VM — the partition is simulated via iptables -A OUTPUT -d github.com -j DROP; reconnect via iptables -D. No GPU, no Vast.ai needed.",
+        "featureToggle": {"alreadyInPlace": false, "newNeeded": false, "longTermUsage": false, "name": "", "defaultState": ""},
+        "successScenarios": [
+          {"title": "Loop dispatches from the local board mirror during a full network partition", "given": "the local mirror is populated, the loop is running, and all outbound GitHub connectivity is blocked", "when": "the loop attempts its next board-poll tick", "then": "the loop reads from the local mirror (not GitHub) and dispatches the next Ready issue; no board-poll error halts the queue", "and": ["loop-status.json shows the dispatch count incrementing during the partition"]},
+          {"title": "Sync daemon reconciles both directions and no board Status is lost on reconnect", "given": "status writes were queued during the partition and the GitHub board is stale", "when": "connectivity is restored", "then": "the sync daemon pushes queued writes to GitHub, the board Status matches what the mirror recorded, and no update is silently dropped"},
+          {"title": "Stale mirror is corrected within one sync cycle", "given": "an issue moved to Done on GitHub during the partition while the mirror still shows Ready", "when": "the sync daemon runs its first reconcile after reconnect", "then": "the mirror updates to Done and the loop does not re-dispatch the already-done issue"}
+        ],
+        "solutionApproach": "", "acceptanceTestCases": [], "wikiDocumentation": "",
+        "outOfScope": ["Crash/preemption recovery (sequence 6)", "Conflict resolution beyond single-operator last-writer-wins"]
+      },
+      "definitionOfDone": ["During a simulated partition the loop keeps dispatching from the local mirror and queues status writes", "On reconnect the sync daemon reconciles both directions with no board Status lost", "A stale mirror entry is corrected within one sync cycle (no re-dispatch of a Done issue)", "The sync cadence + last-writer-wins conflict rule (Q-mirror) are decided and recorded"],
+      "dependencies": {"blockedBy": [5], "blocks": []},
+      "externalDependencies": []
+    },
+    {
+      "sequence": 8,
+      "phase": "happy-path",
+      "summary": "Co-located dev stack + on-instance vLLM + unified Langfuse (one container, two projects)",
+      "storyPoints": 5,
+      "teams": ["makato-oss"],
+      "labels": ["makato", "type:feat"],
+      "githubIssue": null,
+      "description": {
+        "background": "One Vast.ai A6000 instance hosts makato-oss, the sagibeast dev stack, and the open-LLM engine within separate VRAM/RAM budgets (D8). A single Langfuse container with two projects (makato + sagibeast) eliminates the current devVM:3333 vs testbox:3000 port/tunnel collision (D10). This story also stands up the on-instance vLLM engine that becomes the production open endpoint, resolving the vLLM dependency that sequence 5 deferred to a cloud endpoint. It has no external dependency (distinct from sequence 9).",
+        "scope": "Provision the co-located instance; stand up the open-LLM engine (vLLM AWQ, serving config, health-check) and wire its endpoint into models.yml. Deploy one Langfuse container with two projects and OTLP config; provision and inject each project's OTLP ingest key into the omp dispatch env. Verify the three services coexist within the separate VRAM (A6000 48GB) and RAM (>=32GB sagibeast) budgets. No end-to-end Playwright run here (that is sequence 9).",
+        "testTarget": "T3 Vast.ai A6000 GPU instance — the ONLY GPU-required story. This is where the on-instance vLLM production endpoint is first proven and where the co-located sagibeast + unified Langfuse live. After this lands, the T1/T2 cloud-endpoint stand-in from earlier stories can be re-pointed at the on-instance vLLM.",
+        "featureToggle": {"alreadyInPlace": false, "newNeeded": false, "longTermUsage": false, "name": "", "defaultState": ""},
+        "successScenarios": [
+          {"title": "All three co-located services stay within VRAM/RAM budgets on the A6000 instance", "given": "makato-oss, the sagibeast dev stack, and the vLLM engine are all started on one A6000 instance", "when": "a full makato dispatch cycle runs while all three services are active", "then": "VRAM stays within the vLLM budget, sagibeast RAM stays within 32 GB, and no OOM kill occurs", "verificationCommand": "nvidia-smi --query-gpu=memory.used,memory.free --format=csv && free -h  # inspect during active dispatch"},
+          {"title": "Both makato and sagibeast traces land in one Langfuse under separate projects", "given": "one Langfuse container runs with two projects configured: makato and sagibeast", "when": "a makato dispatch and a sagibeast operation both emit OTLP traces", "then": "makato traces appear under the makato project and sagibeast traces under the sagibeast project in the same instance, with no port/tunnel collision"}
+        ],
+        "solutionApproach": "", "acceptanceTestCases": [], "wikiDocumentation": "",
+        "outOfScope": ["Playwright E2E against live sagibeast (sequence 9)", "Per-step success metrics and the LLM-judge (sequences 10, 11)"]
+      },
+      "definitionOfDone": ["makato-oss, sagibeast dev stack, and the vLLM engine coexist on one A6000 instance within the separate VRAM/RAM budgets with no OOM", "The on-instance vLLM endpoint is wired into models.yml and serves the open roles", "One Langfuse container with two projects (makato + sagibeast) ingests traces with no port/tunnel collision", "Each project's OTLP ingest key is provisioned and injected into the omp dispatch env"],
+      "dependencies": {"blockedBy": [5], "blocks": [9, 10]},
+      "externalDependencies": [{"team": "Vast.ai", "description": "A6000 48GB instance + persistent volume for the co-located stack", "status": "active"}]
+    },
+    {
+      "sequence": 9,
+      "phase": "edge-cases",
+      "summary": "Real Playwright E2E against the live sagibeast dev copy",
+      "storyPoints": 3,
+      "teams": ["makato-oss"],
+      "labels": ["makato", "type:feat"],
+      "githubIssue": null,
+      "description": {
+        "background": "With the co-located stack up (sequence 8), a makato agent does real end-to-end work: a Playwright E2E against the live sagibeast dev copy, traced in Langfuse. Split from sequence 8 because it carries the sagibeast external dependency — if sagibeast is in an inconsistent state this story blocks while sequence 8 does not.",
+        "scope": "Configure Playwright MCP against the live sagibeast dev copy (resolve the filterBrowser caveat from sequence 1). Dispatch a build skill whose runtime-QA step drives a Playwright E2E against seeded sagibeast, and record the pass/fail result in Langfuse. Dev DB is an ephemeral fresh seed per run.",
+        "testTarget": "T3 Vast.ai A6000 GPU instance (the same co-located instance as sequence 8) — the live sagibeast dev copy runs there.",
+        "featureToggle": {"alreadyInPlace": false, "newNeeded": false, "longTermUsage": false, "name": "", "defaultState": ""},
+        "successScenarios": [
+          {"title": "A makato agent completes a real Playwright E2E against live sagibeast", "given": "the sagibeast dev stack runs with a seeded dev database, Playwright MCP is configured, and the filterBrowser caveat is resolved", "when": "the po-agent dispatches a build skill with a Playwright E2E step targeting sagibeast", "then": "Playwright MCP resolves from the sub-agent, the E2E runs against the live sagibeast endpoint, and a pass/fail result is recorded in Langfuse"}
+        ],
+        "solutionApproach": "", "acceptanceTestCases": [], "wikiDocumentation": "",
+        "outOfScope": ["Provisioning the co-located stack / Langfuse (sequence 8)"]
+      },
+      "definitionOfDone": ["Playwright MCP resolves from a sub-agent against the live sagibeast dev copy (filterBrowser resolved)", "A makato agent completes a real Playwright E2E against seeded sagibeast", "The E2E pass/fail result is recorded as a Langfuse trace under the makato project"],
+      "dependencies": {"blockedBy": [8], "blocks": []},
+      "externalDependencies": [{"team": "sagibeast (Zdenek-owned)", "description": "Live sagibeast dev stack as the E2E target", "status": "active"}]
+    },
+    {
+      "sequence": 10,
+      "phase": "happy-path",
+      "summary": "Per-step success metrics across an open-only run",
+      "storyPoints": 5,
+      "teams": ["makato-oss"],
+      "labels": ["makato", "type:feat"],
+      "githubIssue": null,
+      "description": {
+        "background": "The manual model-switch decision (D5) and the phase quality decision (D9) both rest on measurable per-step success. This story instruments the D11 hard signals (A) and the indirect plan measurement (B) into Langfuse across an open-only run, plus the per-step modelRole->endpoint tag so open-vs-closed coverage is countable.",
+        "scope": "Emit per-step hard-signal flags to Langfuse: build-verify gate result, CI green/red, review CRITICAL count, coder retry count, resolve-pr-conflict HALT rate, PR merged-without-override. Tag each step with its modelRole and endpoint. Derive the indirect plan-success signal (did the plan lead to a first-pass CI-green PR?). Requires the Langfuse container from sequence 8.",
+        "testTarget": "T3 Vast.ai A6000 instance — runs where sequence 8 stood up Langfuse; an open-only run is measured there. (The instrumentation code is authored/unit-tested on T1 Mac, but the open-only metrics run producing the acceptance data happens on the co-located instance.)",
+        "featureToggle": {"alreadyInPlace": false, "newNeeded": false, "longTermUsage": false, "name": "", "defaultState": ""},
+        "successScenarios": [
+          {"title": "Langfuse records the hard-signal success flags per step across an open-only run", "given": "makato-oss completed a full open-only run (one issue -> merged PR) with Langfuse OTLP export enabled", "when": "the operator queries Langfuse for the run's traces", "then": "each workflow-step trace carries the verify-gate result, CI green/red, review-CRITICAL count, coder-retry count, resolve-pr-conflict-HALT rate, and merged-without-override flag"},
+          {"title": "Per-step modelRole->endpoint tag makes open-vs-closed coverage countable", "given": "the open-only run completed with all steps on open endpoints", "when": "the operator counts step traces by endpoint tag", "then": "every step trace carries a modelRole and endpoint tag and open-tagged steps are >= 80% of total steps"},
+          {"title": "Indirect plan-success signal is traceable per issue", "given": "the Langfuse trace for a completed issue includes the CI-green hard signal", "when": "the operator filters by first-attempt CI-green", "then": "Langfuse shows whether the plan led to a first-attempt CI-green PR, countable across issues without manual PR-timeline inspection"}
+        ],
+        "solutionApproach": "", "acceptanceTestCases": [], "wikiDocumentation": "",
+        "outOfScope": ["The LLM-judge and the manual model-switch (sequence 11)"]
+      },
+      "definitionOfDone": ["Every workflow step of an open-only run emits its six hard-signal flags to Langfuse", "Each step trace carries a modelRole->endpoint tag so open-vs-closed coverage is countable", "The indirect plan-success (first-pass CI-green) signal is derivable per issue in Langfuse"],
+      "dependencies": {"blockedBy": [5, 8], "blocks": [11]},
+      "externalDependencies": []
+    },
+    {
+      "sequence": 11,
+      "phase": "edge-cases",
+      "summary": "Closed-model LLM-judge + manual model-switch of one role",
+      "storyPoints": 5,
+      "teams": ["makato-oss"],
+      "labels": ["makato", "type:feat"],
+      "githubIssue": null,
+      "description": {
+        "background": "The trustworthy quality layer: a Langfuse native LLM-judge scores step outputs on a closed model (D12), and the operator manually switches one modelRole open->closed based on the metrics (D5 revised — a manual, metrics-driven decision, NOT automatic runtime escalation).",
+        "scope": "Configure a Langfuse native LLM-judge evaluator on a closed-model endpoint (with its API key as an instance secret) and surface its score per trace. Verify the manual model-switch: editing one role's baseUrl in models.yml to a closed endpoint routes only that role to the closed endpoint on the next dispatch, with every other role unaffected and the switch visible in workflow-state and the Langfuse trace.",
+        "testTarget": "T3 Vast.ai A6000 instance for the judge (needs the sequence-8 Langfuse + the sequence-10 baseline). The model-switch config flip itself is verifiable anywhere omp runs (T1 Mac included) — the closed endpoint is a remote API, so no GPU is needed for that half.",
+        "featureToggle": {"alreadyInPlace": false, "newNeeded": false, "longTermUsage": false, "name": "", "defaultState": ""},
+        "successScenarios": [
+          {"title": "Closed-model LLM-judge score is visible per trace", "given": "a Langfuse native LLM-judge evaluator is configured with a closed-model endpoint and at least one completed makato-oss trace exists", "when": "the evaluator runs against the trace", "then": "a judge score is visible on the trace attributed to the closed-model evaluator, not to any open-model step"},
+          {"title": "Flipping one modelRole open->closed re-routes only that step on next dispatch", "given": "models.yml has all roles on the open endpoint", "when": "the operator edits exactly one role's baseUrl to a closed endpoint and the next dispatch runs", "then": "only that role's LLM calls hit the closed endpoint, all other roles stay on the open endpoint, and the switch shows in workflow-state and the Langfuse trace"},
+          {"title": "A closed endpoint unavailable for one role does not affect other roles", "given": "one modelRole points at an unreachable closed endpoint", "when": "a dispatch exercises that role", "then": "only that step fails or falls back per error-handling; all other steps complete on the open endpoint and the loop does not halt the queue"}
+        ],
+        "solutionApproach": "", "acceptanceTestCases": [], "wikiDocumentation": "",
+        "outOfScope": ["Automatic runtime open->closed escalation (rejected, D5 revised)", "Version fallback to the whole Claude Code makato (D3 — a different level than model-switch)"]
+      },
+      "definitionOfDone": ["A Langfuse LLM-judge on a closed model scores step outputs and the score is visible per trace", "Switching one modelRole open->closed re-routes only that step on the next dispatch, no other step affected", "An unreachable closed endpoint for one role degrades only that step and never halts the queue"],
+      "dependencies": {"blockedBy": [10, 3], "blocks": []},
+      "externalDependencies": [{"team": "closed-model provider", "description": "Closed-model API key for the LLM-judge and any switched role", "status": "active"}]
+    }
+  ]
+}
