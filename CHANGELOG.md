@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.145.0](https://github.com/macatocz/makato/compare/v0.144.4...v0.145.0) (2026-08-09)
+
+
+### ✨ Features
+
+* **makato-change:** add build.jsonl audit emission to analyze and execute skills ([ed31482](https://github.com/macatocz/makato/commit/ed314820322a60973508bf65e9a438da331709e3))
+* **makato-change:** resolve 4 feature-audit gaps (analyze/execute JSONL, loop.sh MAKATO_ORCHESTRATE_SHARED, resolve-review note) ([79adad3](https://github.com/macatocz/makato/commit/79adad337995283708871e0aa12435ed71e04a77))
+* **makato-change:** resolve 4 feature-audit gaps (analyze/execute JSONL, loop.sh MAKATO_ORCHESTRATE_SHARED, resolve-review note) ([79adad3](https://github.com/macatocz/makato/commit/79adad337995283708871e0aa12435ed71e04a77))
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** export MAKATO_ORCHESTRATE_SHARED in loop.sh dispatch ([14ad054](https://github.com/macatocz/makato/commit/14ad054e0abde0700eb1287f9370ca5e01d8d262))
+
 ## [0.144.4](https://github.com/macatocz/makato/compare/v0.144.3...v0.144.4) (2026-08-09)
 
 
