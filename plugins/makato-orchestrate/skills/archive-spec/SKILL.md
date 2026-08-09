@@ -50,8 +50,8 @@ proceeding. Attempt in order — stop at the first hit:
 ISSUE=<issue-number>
 
 # 1. PO-agent workflow-state (most reliable when the loop has run)
-grep -o '"spec_folder":\s*"[^"]*"' \
-  "$(git rev-parse --show-toplevel)/.claude/state/workflow-state.json" 2>/dev/null
+grep -rl "\"issue_number\":\s*$ISSUE\b\|\"github_pr_number\":\s*$ISSUE\b" \
+  "$(git rev-parse --show-toplevel)/specs/"*/workflow-state-*.json 2>/dev/null | head -1
 
 # 2. to-issues provenance footer in the issue body
 gh issue view $ISSUE --json body \

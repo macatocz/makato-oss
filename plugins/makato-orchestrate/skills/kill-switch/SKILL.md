@@ -73,6 +73,30 @@ The `hooks/check-halt.sh` PreToolUse hook fires on every `Bash` tool call. A non
 `HALT` file blocks the next tool call entirely. PO-agent sees the failed tool result, runs
 `kill-switch poll` at the next loop boundary, writes HALT-000 to `halt_audit`, exits.
 
+Wire `check-halt.sh` in the consumer repo's `.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [{
+          "type": "command",
+          "command": "${CLAUDE_PLUGIN_ROOT}/hooks/check-halt.sh",
+          "blocking": true,
+          "timeout": 5000
+        }]
+      }
+    ]
+  }
+}
+```
+
+This wiring is **required**. Without it, the PO-agent's `Bash` tool calls proceed even when
+the operator has dropped a HALT file — HALT-000 fires only at outer-loop `poll` boundaries
+(every ~60 s), not instantly. The hook makes the stop nearly instant.
+
 **Resumption**: `rm ~/.claude/HALT && plugins/makato-orchestrate/scripts/loop.sh run` — invoke the loop entry point (which threads the po-agent delegation prompt); do not invoke `claude -p` directly with an ad-hoc prompt (see #160).
 
 ### Lever 2 — Apply the `claude-halt` GitHub label

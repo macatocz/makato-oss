@@ -149,6 +149,7 @@ See `agents/po-agent.md` § *Progress comment* for the per-skill agent/goal map.
 |------|---------|---------|
 | [check-halt.sh](hooks/check-halt.sh) | PreToolUse(Bash) | Block any Bash tool call when ~/.claude/HALT (or $MAKATO_HALT_FILE) exists — universal operator kill-switch (HALT-000). Exits non-zero to block the tool call so the PO-agent observes the HALT at the next outer-loop boundary. |
 | [session-status.sh](hooks/session-status.sh) | SessionStart | Scan specs/\*/workflow-state.json and print a one-line banner per active workflow (issue, phase, budget %, HALT count, updated_at, stale marker). Prints HALT ACTIVE first if ~/.claude/HALT exists. Read-only — never mutates state. |
+| [clock-out.sh](hooks/clock-out.sh) | manual operator call | Human-session clock-out: appends a `lessons_learned` entry to `workflow-state.json` via `workflow-state.sh append-lesson`, patches `resume_point` so the next session has a plain-English pointer to where work left off, and prints the git commit command the operator should paste. Does NOT commit automatically — the operator stays in control. Not wired in settings.json. See [clock-out-smoke-tests.sh](hooks/clock-out-smoke-tests.sh). |
 | [session-status-smoke-tests.sh](hooks/session-status-smoke-tests.sh) | Smoke test | Validates session-status.sh output shape on synthetic workflow-state.json fixtures. |
 
 ## Scripts
@@ -216,7 +217,7 @@ External prerequisites:
 - specs/\<key\>-\<slug\>/ folder with plan.md or decompose artifacts and machine-readable acceptance criteria
 - bash, jq, python3 + jsonschema available on the execution host
 - claude binary available as $MAKATO_CLAUDE_BIN (default: claude)
-- Consumer repo .claude/settings.json wired with check-halt.sh (PreToolUse) and session-status.sh (SessionStart) hooks
+- Consumer repo .claude/settings.json wired with check-halt.sh (PreToolUse/Bash hook — required, see kill-switch SKILL.md § Lever 1 for the exact JSON block) and session-status.sh (SessionStart) hooks
 
 ## Installation
 

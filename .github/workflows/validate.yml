@@ -99,6 +99,9 @@ jobs:
       - name: loop smoke tests (#231/#232)
         run: ./plugins/makato-orchestrate/scripts/loop-smoke-tests.sh
 
+      - name: kill-switch poll and record-budget smoke tests (#706)
+        run: ./plugins/makato-orchestrate/scripts/kill-switch-smoke-tests.sh
+
       - name: loop change-dispatch integration tests (#717)
         run: ./plugins/makato-orchestrate/scripts/loop-change-dispatch-integration-tests.sh
 
