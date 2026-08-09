@@ -14,7 +14,7 @@ One JSON object per line, UTF-8, newline-terminated. Append-only — skills must
 | Field | Type | Description |
 |-------|------|-------------|
 | `ts` | string | ISO 8601 timestamp with milliseconds: `2026-05-22T10:30:00.123Z` |
-| `skill` | string | Skill or agent that emitted this entry: `refine`, `implement-tdd`, `coder`, `simplify`, `review`, `verify`, `push-to-git`, `create-pr`, `address-pr-comments` |
+| `skill` | string | Skill or agent that emitted this entry: `build-implement-tdd`, `build-implement-goal`, `build-refine`, `build-simplify`, `build-review`, `build-verify`, `build-push-to-git`, `build-create-pr`, `build-address-pr-comments` |
 | `story` | string | Work item key: `ISSUE-1234` |
 | `step` | string | Step identifier within the skill (see Step Values below) |
 | `status` | string | Enum: `start` \| `ok` \| `warn` \| `error` |
@@ -40,20 +40,20 @@ Common intermediate steps (examples — not exhaustive):
 
 | Skill | Step examples |
 |-------|--------------|
-| `implement-tdd` | `baseline`, `load-context`, `load-knowledge-graph`, `tracer-stub`, `tracer-test`, `tracer-verify`, `red`, `green`, `integrate`, `verify-task`, `final-verify` |
-| `coder` (agent) | `red`, `green`, `integrate`, `verify-task` |
-| `refine` | `explore-codebase`, `load-knowledge-graph` |
-| `review` | `mechanical-fixes`, `analyze`, `fix-critical`, `zero-findings-recheck` |
-| `verify` | `gate-build`, `gate-lint`, `gate-unit`, `gate-integration`, `gate-coverage` |
+| `build-implement-tdd` | `baseline`, `load-context`, `load-knowledge-graph`, `tracer-stub`, `tracer-test`, `tracer-verify`, `red`, `green`, `integrate`, `verify-task`, `final-verify` |
+| `build-coder` (agent) | `red`, `green`, `integrate`, `verify-task` |
+| `build-refine` | `explore-codebase`, `load-knowledge-graph` |
+| `build-review` | `mechanical-fixes`, `analyze`, `fix-critical`, `zero-findings-recheck` |
+| `build-verify` | `gate-build`, `gate-lint`, `gate-unit`, `gate-integration`, `gate-coverage` |
 
 ## Example Entries
 
 ```json
-{"ts":"2026-05-22T10:30:00.123Z","skill":"implement-tdd","story":"ISSUE-1234","step":"session","status":"start","data":{"tdd_tasks":3,"goal_tasks_skipped":0}}
-{"ts":"2026-05-22T10:30:01.456Z","skill":"implement-tdd","story":"ISSUE-1234","step":"baseline","status":"ok","data":{"pre_existing_failures":0}}
-{"ts":"2026-05-22T10:30:05.789Z","skill":"coder","story":"ISSUE-1234","step":"red","task":1,"status":"ok","data":{"unit_tests":3,"integration_tests":2}}
-{"ts":"2026-05-22T10:30:10.012Z","skill":"coder","story":"ISSUE-1234","step":"verify-task","task":1,"status":"error","error":"Compilation failed: cannot find symbol OrderStatus"}
-{"ts":"2026-05-22T10:31:00.345Z","skill":"verify","story":"ISSUE-1234","step":"session","status":"ok","data":{"all_gates_passed":true,"conditional_coverage":"87%"}}
+{"ts":"2026-05-22T10:30:00.123Z","skill":"build-implement-tdd","story":"ISSUE-1234","step":"session","status":"start","data":{"tdd_tasks":3,"goal_tasks_skipped":0}}
+{"ts":"2026-05-22T10:30:01.456Z","skill":"build-implement-tdd","story":"ISSUE-1234","step":"baseline","status":"ok","data":{"pre_existing_failures":0}}
+{"ts":"2026-05-22T10:30:05.789Z","skill":"build-coder","story":"ISSUE-1234","step":"red","task":1,"status":"ok","data":{"unit_tests":3,"integration_tests":2}}
+{"ts":"2026-05-22T10:30:10.012Z","skill":"build-coder","story":"ISSUE-1234","step":"verify-task","task":1,"status":"error","error":"Compilation failed: cannot find symbol OrderStatus"}
+{"ts":"2026-05-22T10:31:00.345Z","skill":"build-verify","story":"ISSUE-1234","step":"session","status":"ok","data":{"all_gates_passed":true,"conditional_coverage":"87%"}}
 ```
 
 ## Invariants

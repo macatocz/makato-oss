@@ -1,7 +1,7 @@
 <!-- markdownlint-disable MD013 -->
 # Tech Plugins — Installable makato Toolkits
 
-All 10 installable plugins are listed below. Each entry includes a one-line
+All 12 installable plugins are listed below. Each entry includes a one-line
 description and the command to install it from a local clone of the makato repo.
 
 ---
@@ -18,6 +18,8 @@ description and the command to install it from a local clone of the makato repo.
 | 8 | `makato-database` | Database management — schema design, migrations, query optimisation, and PostgreSQL administration for AI-native application backends. | `claude --plugin-dir ./plugins/makato-database` |
 | 9 | `makato-ux` | Frontend and UX toolkit — E2E testing patterns, frontend design, Penpot UI/UX design, and web app verification with Playwright. | `claude --plugin-dir ./plugins/makato-ux` |
 | 10 | `makato-observability` | Observability instrumentation — Langfuse tracing setup, enrichment, and operations for tracking LLM calls and agent runs. | `claude --plugin-dir ./plugins/makato-observability` |
+| 11 | `makato-doc` | Documentation authoring skills — library reference lookup via Context7, README crafting, markdown authoring/linting, and prose editing. Cross-cutting obligation for every code-producing agent. | `claude --plugin-dir ./plugins/makato-doc` |
+| 12 | `makato-sagibeast` | Sagibeast platform skills — Word template schema extraction, PDF and Excel processing, testbox VM provisioning, and CMAI environment connectivity. | `claude --plugin-dir ./plugins/makato-sagibeast` |
 
 ---
 

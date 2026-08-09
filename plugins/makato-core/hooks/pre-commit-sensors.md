@@ -32,4 +32,4 @@ The 30 s `timeout` is a hard ceiling — if your fast lane regularly approaches 
 
 ## 4. Configurable env: emergency bypass
 
-`SENSOR_HARNESS_DISABLE=1` short-circuits the hook to **allow** unconditionally. Every bypass is appended to the harness JSONL audit log with `reason: "manual-bypass"`. Do not set this variable globally in shell profiles.
+`SENSOR_HARNESS_DISABLE=1` short-circuits the hook to **allow** unconditionally. The bypass is silent — no audit log is emitted; the hook exits 0 without running sensors. Do not set this variable globally in shell profiles.

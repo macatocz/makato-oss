@@ -72,3 +72,17 @@ Add to `permissions.deny` to prevent bypass:
 ```
 
 **Prerequisites:** Node.js and `pre-commit` must be available on `PATH`.
+
+## Bypass Prevention
+
+Add the following entry to the consumer repo's `.claude/settings.json` (or the user-level `~/.claude/settings.json`) to block `--no-verify` at the permission layer before the hook ever runs:
+
+```json
+{
+  "permissions": {
+    "deny": ["Bash(git push --no-verify *)"]
+  }
+}
+```
+
+This prevents agents from issuing `git push --no-verify` regardless of hook configuration. Adding this entry is the **consumer repo's responsibility** at setup time — the makato-core hook documentation describes what to add, but does not write the file automatically.
