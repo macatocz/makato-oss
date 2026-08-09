@@ -5110,6 +5110,19 @@ cmd_dispatch() {
   # guard") HALTs with MISSING_INPUT instead of hanging on
   # AskUserQuestion. This is the #163 fix; the #160 fix (delegation
   # prompt) remains the primary defence.
+
+  # Export MAKATO_ORCHESTRATE_SHARED so child sessions (po-agent,
+  # change-orchestrate) can locate shared scripts (worktree.sh, etc.)
+  # without relying on CWD. The child's CWD is the makato repo root, which
+  # is the same as the loop's CWD — but making it explicit avoids breakage
+  # if the child ever cd's into a worktree or target repo.
+  MAKATO_ORCHESTRATE_SHARED="$(git rev-parse --show-toplevel)/plugins/makato-orchestrate/shared"
+  if [[ -d "$MAKATO_ORCHESTRATE_SHARED" ]]; then
+    export MAKATO_ORCHESTRATE_SHARED
+  else
+    echo "[loop WARN] MAKATO_ORCHESTRATE_SHARED path not found: $MAKATO_ORCHESTRATE_SHARED" >&2
+  fi
+
   local dispatch_prompt
   if [[ "$issue_type" == "type:change" ]]; then
     # Route to makato-change:orchestrate --autonomous. No plan.md required —
