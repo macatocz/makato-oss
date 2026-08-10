@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.147.3](https://github.com/macatocz/makato/compare/v0.147.2...v0.147.3) (2026-08-10)
+
+
+### ♻️ Refactors
+
+* **makato-orchestrate:** split loop.sh into main flow + functions + config ([#813](https://github.com/macatocz/makato/issues/813)) ([7624e59](https://github.com/macatocz/makato/commit/7624e598cc66a9923c96de84a276b0eee819433a))
+
 ## [0.147.2](https://github.com/macatocz/makato/compare/v0.147.1...v0.147.2) (2026-08-10)
 
 
