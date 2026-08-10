@@ -45,7 +45,7 @@ def ssl_legacy_protocol() -> ssl.SSLContext:
 
     ssl.PROTOCOL_TLSv1 deprecated and insecure — fix is ssl.PROTOCOL_TLS_CLIENT.
     """
-    ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1)  # noqa
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)  # noqa
     return ctx
 
 
