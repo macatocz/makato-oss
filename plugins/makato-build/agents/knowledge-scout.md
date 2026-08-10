@@ -1,6 +1,6 @@
 ---
 name: knowledge-scout
-model: haiku
+modelRole: smol
 description: >-
   Discover the project specs knowledge graph for a target repository and return
   Hard Constraints (golden rules, anti-patterns) and Standards (naming, API,

@@ -8,7 +8,7 @@ description: >-
   on the second failure for the same finding (NOT yet wired — see Phase 1
   note); writes JSONL audit to specs/<key>/build.jsonl.
   Triggered by build-sensors on non-zero pre-commit exit.
-model: claude-sonnet-latest[1m]
+modelRole: task
 maxTurns: 30
 ---
 

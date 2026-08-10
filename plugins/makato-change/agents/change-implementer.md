@@ -1,6 +1,6 @@
 ---
 name: change-implementer
-model: sonnet
+modelRole: task
 version: "1.0.0"
 description: >-
   Implement the file modifications for a change request in an isolated

@@ -1,6 +1,6 @@
 ---
 name: code-reviewer
-model: sonnet
+modelRole: advisor
 description: >-
   Review implementation changes for change requests before PR creation.
   Check alignment with design, identify bugs, security issues, and code

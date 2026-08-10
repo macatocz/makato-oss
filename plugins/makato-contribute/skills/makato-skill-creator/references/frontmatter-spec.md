@@ -27,7 +27,7 @@
 name: my-skill-name
 description: One-line description with trigger words inline. Use when user wants to do X or says Y.
 version: "1.0.0"
-model: opus
+modelRole: advisor
 argument-hint: "[target]"
 ---
 ```

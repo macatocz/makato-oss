@@ -1,6 +1,6 @@
 ---
 name: diff-reviewer
-model: sonnet
+modelRole: advisor
 description: >-
   Adversarially review a branch diff against acceptance criteria — finds
   correctness bugs, edge cases, security issues, and contract violations.

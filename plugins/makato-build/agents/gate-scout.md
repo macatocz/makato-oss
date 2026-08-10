@@ -1,6 +1,6 @@
 ---
 name: gate-scout
-model: haiku
+modelRole: smol
 version: "1.3.0"
 description: >-
   Discover build, lint, unit test, integration test, and coverage commands

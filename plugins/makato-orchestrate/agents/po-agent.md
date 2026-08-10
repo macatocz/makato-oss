@@ -1,6 +1,6 @@
 ---
 name: po-agent
-model: sonnet
+modelRole: default
 description: >-
   Autonomous outer-loop driver for a board-Ready GitHub Issue (Status=Ready,
   no `needs-human-review`). Reads its `specs/<key>-<slug>/` folder, dispatches

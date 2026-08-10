@@ -1,6 +1,6 @@
 ---
 name: coder
-model: sonnet
+modelRole: task
 description: >-
   Execute a single TDD task (RED→GREEN→INTEGRATE→VERIFY) from a refined
   implementation plan. Produce working, tested code that passes all four
