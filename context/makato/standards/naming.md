@@ -27,7 +27,12 @@ makato-ux
 
 ## Skill Directory Names
 
-Pattern: `<verb>-<noun>` (kebab-case verb-noun). Skills live under `plugins/<plugin>/skills/`.
+Pattern: kebab-case. Two conventions coexist across the suite:
+
+- **Plugin-prefixed** — `<plugin-prefix>-<descriptor>` (e.g. `build-*`, `langgraph-*`, `sagibeast-*`). Common in `makato-build`, `makato-orchestrate`, and the reference-skill plugins.
+- **Descriptive** — a plain kebab-case (often verb-noun) name (e.g. `brainstorming`, `decompose`, `definition-of-done`, `context7`).
+
+Skills live under `plugins/<plugin>/skills/`. The `<verb>-<noun>` shape is a strong convention for the `makato-build` / `makato-orchestrate` families but is not enforced suite-wide.
 
 Examples:
 
@@ -55,6 +60,8 @@ Every skill's `SKILL.md` must include these frontmatter fields (YAML front matte
 | `version` | yes | Semantic version string, e.g. `"1.0.0"` |
 | `model` | no | Override model (`opus`, `sonnet`). Omit to inherit from context. |
 | `argument-hint` | no | CLI argument hint shown in help, e.g. `"[work-item-key] [--autonomous]"` |
+| `allowed-tools` | no | Tool allowlist (inline or array), e.g. `Bash(git *) Read`. Present in most skills. |
+| `metadata` | no | Structured block with sub-keys such as `authors`, `last_updated`, `mcp_server`. |
 
 Example:
 
@@ -75,6 +82,8 @@ argument-hint: "[work-item-key] [--autonomous]"
 Pattern: `<noun>.md` or `<adjective>-<noun>.md` (kebab-case). Agent files live under `plugins/<plugin>/agents/`.
 
 Examples: `coder.md`, `diff-reviewer.md`, `gate-scout.md`, `knowledge-scout.md`, `plan-analyst.md`, `sensor-fixer.md`.
+
+The `agents/` directory may also hold shared specification files that are **not** agent descriptors — e.g. `plugins/makato-build/agents/RETURN-CONTRACT.md` (the suite-wide R1 return contract). These use `SCREAMING-KEBAB.md` to distinguish them from agent files.
 
 ## R1 `agent` Field
 
@@ -111,14 +120,16 @@ Examples:
 131-repo-wide-feat-f5-domain-tagged-skill
 ```
 
-The spec folder lives under `specs/` (gitignored except `specs/**/build.jsonl`).
+Exceptions in the repo: bare-number folders (e.g. `specs/150`) exist for some legacy or transient specs, and multi-issue specs may use a compound prefix (e.g. `specs/231-232-non-to-issues-loop-entry`).
+
+The spec folder lives under `specs/` — gitignored except the committed artifacts `build.jsonl`, `spec.md`, `stories.json`, and `created-issues.json`.
 
 ## Conventional Commit Prefix Format
 
 Pattern: `type(plugin-name): description` where:
 
 - `type` is one of: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `perf`, `ci`
-- `plugin-name` is the bare plugin folder name without the `makato-` prefix: `build`, `change`, `orchestrate`, `plan`, `core`, `observability`, etc.
+- `plugin-name` is the **full** plugin folder name including the `makato-` prefix: `makato-build`, `makato-change`, `makato-orchestrate`, `makato-plan`, etc. Repo-level scopes such as `scripts` (no `makato-` prefix) are also used for cross-cutting changes.
 - `description` is a lowercase, imperative-mood summary (no period at end)
 
 Examples:
