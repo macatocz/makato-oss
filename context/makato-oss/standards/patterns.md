@@ -14,12 +14,12 @@ Skills are self-contained directories under `plugins/<plugin>/skills/<skill-name
 
 ### Skill directory layout (canonical)
 
-```
+```text
 plugins/<plugin>/skills/<skill-name>/
 ├── SKILL.md              # Required: skill entry point
 ├── references/           # Optional: templates, rules, smoke-test scripts
 │   ├── *.md             # Rule files loaded at point of use
-│   └── *-smoke-tests.sh # Smoke-test scripts
+│   └── *smoke-tests.sh   # Smoke-test scripts (prefixed `<name>-smoke-tests.sh` or bare `smoke-tests.sh`)
 └── (no ../  paths beyond ../shared/)
 ```
 
@@ -53,7 +53,7 @@ Every agent that emits structured output emits an R1 JSON block as the **last fe
 
 ## JSONL Audit Log Pattern
 
-Every skill appends structured JSONL to `specs/<key>-<slug>/build.jsonl` via `shared/build-log.sh`. This file is the only spec artifact committed to the repo (`specs/**/build.jsonl` is git-tracked; everything else under `specs/` is gitignored).
+Every skill appends structured JSONL to `specs/<key>-<slug>/build.jsonl` via `shared/build-log.sh`. Four spec artifacts are git-tracked and committed to the repo — `build.jsonl`, `spec.md`, `stories.json`, and `created-issues.json` (see the `!specs/**/…` negations in `.gitignore`). `stories.json` in particular must be committed for the autonomous build-refine materialize gate to fire (#527). Everything else under `specs/` is gitignored.
 
 ### Minimum required events
 
@@ -88,11 +88,11 @@ Log every deviation from the happy path with `status:"decision"` or `status:"war
 A story enters the lightweight lane when `seed-manifest.json` carries `spec_tier:"plan-only"`. In this mode:
 
 - `build-refine` Step 3 detects `spec_tier == "plan-only"` and **skips the `design.md`-missing guard** — no `MISSING_ACCEPTANCE` halt for an absent `design.md`.
-- Acceptance criteria are sourced from `plan.md` `## Acceptance criteria` (not from `stories.json` successScenarios). The section **must be non-empty** — an absent or empty section halts with `MISSING_ACCEPTANCE`.
-- `build-create-pr`'s "How to Test" section is sourced from `plan.md` `## Acceptance criteria` when `stories.json` is absent (D11).
+- Acceptance criteria are sourced from `plan-<ISSUE_NUMBER>.md` `## Acceptance criteria` (not from `stories.json` successScenarios). The section **must be non-empty** — an absent or empty section halts with `MISSING_ACCEPTANCE`. Legacy fallback: a bare `plan.md` is accepted when the per-issue file is absent.
+- `build-create-pr`'s "How to Test" section is sourced from `plan-<ISSUE_NUMBER>.md` `## Acceptance criteria` when `stories.json` is absent (D11).
 - An absent `spec_tier` field preserves legacy behavior byte-for-byte (existing full-tier stories are unaffected).
 
-This lane is for small, well-scoped features where a `plan.md` alone is sufficient — no `stories.json`, `prd.md`, or `design.md` required. Validated by `shared/plan-only-tier-smoke-tests.sh`.
+This lane is for small, well-scoped features where a `plan-<ISSUE_NUMBER>.md` alone is sufficient — no `stories.json`, `prd.md`, or `design.md` required. Validated by `shared/plan-only-tier-smoke-tests.sh`.
 
 ## `{repo}` Token Substitution in `context-bundles.yml`
 

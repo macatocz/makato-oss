@@ -1,17 +1,22 @@
 # makato Python Standards
 
 > **Scope**: All Python files in the makato repo (`plugins/*/shared/*.py`, `scripts/*.py`, `tests/*.py`).
-> **Enforced by**: ruff (lint + format), pyright (type-checking), unittest (test runner).
+> **Enforced by**: ruff (lint + format), pyright (type-checking), pytest (test runner).
 
 ## Test framework
 
-**Use stdlib `unittest` exclusively.** No pytest. Discovery command:
+**pytest is the test runner** (declared in `pyproject.toml → [tool.pytest.ini_options]` with `--import-mode=importlib`). It runs in CI (`.github/workflows/validate.yml`) and via the `pytest-fast` / `pytest-slow` pre-commit hooks. Run the full suite with:
 
 ```bash
-python3 -m unittest discover plugins/makato-build/shared -p 'test_*.py'
+python3 -m pytest
 ```
 
-Test classes inherit from `unittest.TestCase`. Test method names are prefixed `test_`. The skip idiom uses `@unittest.skip` or `@unittest.skipIf`, never `pytest.mark`. See `plugins/makato-build/shared/test_inject_context.py` as the canonical example.
+Two test styles coexist and are both collected by pytest:
+
+- **`unittest.TestCase` classes** — the established style in `plugins/makato-build/shared/`. Methods are prefixed `test_`; skip with `@unittest.skip` / `@unittest.skipIf` / `@unittest.skipUnless`. See `plugins/makato-build/shared/test_inject_context.py` as the canonical example. Do not rewrite these into native pytest.
+- **Native pytest functions** — used in `plugins/makato-orchestrate/scripts/tests/` (e.g. `test_mark_ac_checkboxes.py` uses `pytest.raises`). Acceptable for new test directories added to `testpaths`.
+
+`testpaths` in `pyproject.toml` is authoritative for what gets collected — add a new directory there when introducing tests outside the existing paths.
 
 ## Module structure
 

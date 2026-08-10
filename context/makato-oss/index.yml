@@ -1,0 +1,60 @@
+# context-scout navigation index for the makato-oss repo.
+#
+# context-scout reads this file first (Step 2) to narrow scope before scanning:
+# it matches a feature's KEYWORDS against each entry's `keywords`, then reads
+# only the `path` files whose entry matched. Absent this index, the scout falls
+# back to scanning every directory. Keep `keywords` broad enough to catch
+# synonyms; keep `tier` aligned with context-scout's relevance tiers
+# (critical | high | medium).
+
+repo: makato-oss
+
+entries:
+  - path: product/vision.md
+    type: product
+    tier: critical
+    summary: >-
+      Suite mission, spec-driven + autonomous-by-default themes, skill-routing,
+      harness-independence direction. Always relevant for brainstorming/PRD.
+    keywords: [product, vision, mission, roadmap, strategy, autonomous, spec-driven, skill-routing, harness]
+
+  - path: harness/golden-rules.md
+    type: harness
+    tier: critical
+    summary: >-
+      Non-negotiable boundaries: plugin isolation (no cross-plugin ../.. paths),
+      autonomous loop safety (HALT check, sole workflow-state writer), provenance
+      routing, skill-routing default-on.
+    keywords: [golden rule, hard constraint, boundary, halt, workflow-state, plugin isolation, cross-plugin, provenance, routing, skill-routing, safety]
+
+  - path: codebase/architecture.md
+    type: codebase
+    tier: high
+    summary: >-
+      Monorepo shape, plugin anatomy, the plan→build→orchestrate pipeline, and
+      shared-helper conventions. Relevant when a feature touches existing code.
+    keywords: [architecture, monorepo, plugin, pipeline, plan, build, orchestrate, po-agent, shared helper, structure, marketplace]
+
+  - path: standards/naming.md
+    type: standards
+    tier: medium
+    summary: >-
+      Naming conventions: plugin dirs (makato-<domain>), skill dirs (<verb>-<noun>),
+      agent files, SKILL.md frontmatter, JSONL fields, spec slugs, commit prefixes.
+    keywords: [naming, convention, plugin name, skill name, slug, commit prefix, frontmatter, kebab-case]
+
+  - path: standards/patterns.md
+    type: standards
+    tier: medium
+    summary: >-
+      Structural patterns: shell skill authoring, R1 envelope contract, JSONL audit
+      logging, spec_tier:plan-only lightweight lane, {repo} token substitution.
+    keywords: [pattern, skill authoring, r1 envelope, return contract, jsonl, audit log, plan-only, lightweight lane, context-bundles, token substitution]
+
+  - path: standards/python.md
+    type: standards
+    tier: medium
+    summary: >-
+      Python standards: pytest runner (unittest.TestCase + native pytest coexist),
+      stdlib-only libs, inject_context.py reference, ruff + pyright enforcement.
+    keywords: [python, pytest, unittest, test, ruff, pyright, type annotation, stdlib, inject_context, halt_code, yaml]
