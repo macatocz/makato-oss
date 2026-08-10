@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.149.1](https://github.com/macatocz/makato-oss/compare/v0.149.0...v0.149.1) (2026-08-10)
+
+
+### 🤖 CI
+
+* **makato-oss:** pin release-please-action to commit SHA (fixes code-scanning [#4](https://github.com/macatocz/makato-oss/issues/4)) ([cfec9fd](https://github.com/macatocz/makato-oss/commit/cfec9fd0566b675fdc7faae2f5bc2c64bc09b814))
+
 ## [0.149.0](https://github.com/macatocz/makato-oss/compare/v0.148.0...v0.149.0) (2026-08-10)
 
 
