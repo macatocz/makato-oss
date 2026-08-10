@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.148.0](https://github.com/macatocz/makato/compare/v0.147.3...v0.148.0) (2026-08-10)
+
+
+### ✨ Features
+
+* classify plan-tier by decomposition signal, not body length ([#815](https://github.com/macatocz/makato/issues/815)) ([2d39d05](https://github.com/macatocz/makato/commit/2d39d051a22c04ecc9f9e9cad4e87a597a1b94fe))
+
 ## [0.147.3](https://github.com/macatocz/makato/compare/v0.147.2...v0.147.3) (2026-08-10)
 
 
