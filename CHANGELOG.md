@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.147.2](https://github.com/macatocz/makato/compare/v0.147.1...v0.147.2) (2026-08-10)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** loop bg-session guard + --status passthrough ([#743](https://github.com/macatocz/makato/issues/743)); demote folderless-Ready to Todo ([#783](https://github.com/macatocz/makato/issues/783)) ([#804](https://github.com/macatocz/makato/issues/804)) ([f6c197c](https://github.com/macatocz/makato/commit/f6c197c81a6d2abeda7cef27d9841707fdfc9cb1))
+
 ## [0.147.1](https://github.com/macatocz/makato/compare/v0.147.0...v0.147.1) (2026-08-09)
 
 
