@@ -32,6 +32,9 @@ on:
       - 'CLAUDE.md'
       - 'CONTRIBUTING.md'
 
+permissions:
+  contents: read
+
 jobs:
   validate-structure:
     runs-on: ubuntu-latest
