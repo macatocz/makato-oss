@@ -37,7 +37,7 @@ Files a structured issue against the makato repo. Enforces title prefix, body te
 
 **NEVER auto-create `bug`, `enhancement`, or `documentation` type labels** — these three are fixture labels with exact color codes expected by `issue-to-project` board-field queries. A near-duplicate (wrong color, mismatched casing, typo) creates a label the board query won't match, silently blocking Status promotion for every issue that inherits it. If a type label is missing from the repo, surface it to the user.
 
-**NEVER infer `plan-tier:full` from body length or subjective complexity** — `plan-tier` is a dispatch-routing signal; an incorrect `full` tier forces a multi-phase planning run for a single-story task, unnecessarily blocking autonomous dispatch. Use only the keyword list from Step 5.5 (`architecture`, `migration`, `breaking`, `multi-phase`, `epic`, `multiple stories`).
+**NEVER infer `plan-tier:full` from body length or subjective complexity** — `plan-tier` is a dispatch-routing signal; an incorrect `full` tier forces a multi-phase planning run for a single-story task, silently blocking the card on `needs-human-review`. `full` requires a concrete decomposition signal: an epic-scale sizing label (`effort:xl` / `points:>=13`) or an epic-intent keyword from Step 5.5 (`architecture`, `migration`, `breaking`, `multi-phase`, `epic`, `multiple stories`). A long, well-written description of a single story is `light`, not `full`.
 
 **NEVER pass taxonomy labels to `gh issue create`** — pass only `type-label` and `plugin-label` at create time. Taxonomy labels (`type:feat`, `priority:p1`, `plan-tier:light`, etc.) must flow through `gh issue edit` in Step 7. Applying them at create risks a partial label set if the GitHub API commits the issue before the second mutation lands.
 
@@ -157,11 +157,29 @@ Log resolved values: `[create-issue] taxonomy: priority=$PRIORITY_VALUE effort=$
 
 ### Step 5.5: Infer and apply plan-tier label
 
+`plan-tier` answers one question: **does this issue split into multiple
+vertically-sliced stories and need the human makato-plan cycle (full), or is it
+a single story a machine can plan and build autonomously (light)?** It is a
+*decomposition* signal, never a description-length signal. This mirrors the CI
+classifier `.github/scripts/classify-plan-tier.sh`, which reads only explicit
+sizing/epic labels (never body length). A human-set label here becomes the
+authoritative D8 override — the CI classifier will preserve it — so keep the two
+decisions aligned.
+
 Infer the plan tier in priority order (NEVER use body length as a signal — see Anti-patterns):
 
 1. `type=bug` → `plan-tier:change`
-2. `type=feature` or `type=docs`, and the body contains any of: `architecture`, `migration`, `breaking`, `multi-phase`, `epic`, `multiple stories` → `plan-tier:full`
-3. All other `feature`/`docs` → `plan-tier:light`
+2. **Decomposition signal → `plan-tier:full`**, when EITHER:
+   - the resolved effort/points sizing says the work is epic-scale:
+     `effort:xl` OR `points:>=13` (the repo's Fibonacci split point, #554), OR
+   - the body names explicit multi-story / epic intent — any of:
+     `architecture`, `migration`, `breaking`, `multi-phase`, `epic`,
+     `multiple stories`. These are epic-intent keywords (they describe *shape*,
+     not length), not a prose-length heuristic.
+3. All other `feature`/`docs` → `plan-tier:light` (the safe default — a wrong
+   light self-corrects when the light-planner's thin-body or scope-excess guard
+   re-tiers it to full; a wrong full silently blocks the card on
+   `needs-human-review`).
 
 Create the label if it does not exist in the repo (color `FBCA04`, description `Plan tier for autonomous dispatch`):
 

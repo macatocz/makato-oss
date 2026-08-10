@@ -144,8 +144,10 @@ jobs:
 
           # ---- Classify plan-tier (deterministic bash/jq — D5/D8) ----------
           # ISSUE_LABELS arrives as a JSON array (toJSON of label names); the
-          # classifier wants newline-separated names. body_full is measured by
-          # the classifier itself for the length signal.
+          # classifier wants newline-separated names. The classifier reads only
+          # the labels + a keyword scan of title/body-snippet (for the change
+          # lane) — it does NOT use body length; `full` is a decomposition
+          # signal carried by effort:xl / points:>=13 / epic:* / phase:*.
           LABELS="$(printf '%s' "$ISSUE_LABELS" | jq -r '.[]?' 2>/dev/null || true)"
           decision="$(TITLE="$ISSUE_TITLE" BODY="$ISSUE_BODY" LABELS="$LABELS" \
             .github/scripts/classify-plan-tier.sh)"

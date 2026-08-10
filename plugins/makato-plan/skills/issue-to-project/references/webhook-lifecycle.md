@@ -91,10 +91,13 @@ Consult the lifecycle transition map. Any event/action combination not listed in
 > (`.github/scripts/classify-plan-tier.sh`) that stamps exactly one
 > `plan-tier:{light|full|change}` label at onboard time. Precedence (D8): a
 > human-set `plan-tier:*` label always wins; else `type:change`/change
-> keywords → `change`; else `effort:l|xl`/`epic:*`/`phase:*`/long body →
-> `full`; else `effort:xs|s`/short `type:feature` → `light`; else `full`.
-> No LLM, no new secret (D5/SC-4). Promotion `Todo → Ready` is a separate
-> gate owned by `seed-issue` (#212), not this workflow.
+> keywords → `change`; else a **decomposition signal**
+> (`effort:xl` / `points:>=13` / `epic:*` / `phase:*`) → `full`; else
+> `light` (the safe default). The classifier reads **no body length** — `full`
+> means "splits into multiple stories", a structural fact carried by sizing/epic
+> labels, not a property of description length (the prior >1500-char signal was
+> removed). No LLM, no new secret (D5/SC-4). Promotion `Todo → Ready` is a
+> separate gate owned by `seed-issue` (#212), not this workflow.
 
 ```python
 label_name = (payload.get("label") or {}).get("name", "")

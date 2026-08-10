@@ -542,9 +542,15 @@ the Task tool with this bundle:
 
 The agent runs locally under the operator's Claude (D3 — free, reviewable in
 git). It either overwrites the stub `plan-<ISSUE_NUMBER>.md` with a full plan and returns
-`status:"success"`, or (thin body) leaves the stub untouched and returns
-`status:"failure"` with `data.thin_body:true`. Parse its R1 envelope per
-`plugins/makato-build/agents/RETURN-CONTRACT.md`.
+`status:"success"`, or refuses and returns `status:"failure"` with either
+`data.thin_body:true` (body too thin to plan) or `data.scope_excess:true`
+(work too large for one build session — a genuine multi-story feature that
+classified `light` only because it lacked sizing labels). Parse its R1 envelope
+per `plugins/makato-build/agents/RETURN-CONTRACT.md`. **Both refusal reasons
+take the identical fallback path** (8.5c invalid branch): no plan is written,
+so the deterministic guard sees the untouched stub and returns `invalid`,
+which drives the re-tier to `full`. The `thin_body` / `scope_excess` flags only
+select the operator message and audit reason — they do not change control flow.
 
 #### 8.5b — Validate the plan with the deterministic guard
 
@@ -591,8 +597,8 @@ and any hollow plan return `invalid`.
    and `spec_tier` are already written; the card can be moved by hand.
 3. Log: `[seed-issue] plan lane — plan.md valid, promoted #N to Ready` (add `spec_tier:plan-only set` when PLAN_TIER=light).
 
-**If `GUARD_VERDICT=invalid`** (thin body, or the agent produced a hollow plan
-— the fallback path):
+**If `GUARD_VERDICT=invalid`** (thin body, scope excess, or the agent produced
+a hollow plan — the fallback path):
 
 1. Write **no** `spec_tier` (leave the manifest without it — the item is NOT a
    plan-only item).
@@ -608,11 +614,11 @@ and any hollow plan return `invalid`.
    If `PLAN_TIER=full` or absent, skip this sub-step — the label is already
    correct.
 
-4. Ensure the board card is NOT at Status=Ready — a thin-body item must
-   stay at `Todo` (or `Blocked`) until a human shapes it:
+4. Ensure the board card is NOT at Status=Ready — a declined item must
+   stay at `Todo` until a human shapes or decomposes it:
 
    Leave the board card at its current status. If it was promoted to Ready in a
-   prior step, move it back to `Todo` via `gh project item-edit`. A thin-body
+   prior step, move it back to `Todo` via `gh project item-edit`. A declined
    item is NOT ready for autonomous dispatch.
 
 5. Call `shared/post-halt-comment.sh HALT-006 "$ISSUE_NUMBER" "$REPO"` (best-effort)
@@ -623,13 +629,24 @@ and any hollow plan return `invalid`.
    ```
 
    Then print a clear, actionable message and exit **0** (fallback is a valid,
-   documented outcome — not a HALT):
+   documented outcome — not a HALT). Tailor the message to the refusal reason:
+
+   For a **thin body** (`data.thin_body:true`):
 
    ```
    [seed-issue] Plan generation declined for #N — issue body too thin to
    generate a plan (reason: <agent summary or guard reason>). The issue has been
    left at Status=Todo. Shape it via the full cycle (brainstorm → PRD →
    decompose) or expand the issue body and re-run seed-issue.
+   ```
+
+   For **scope excess** (`data.scope_excess:true`):
+
+   ```
+   [seed-issue] Plan generation declined for #N — scope exceeds one autonomous
+   build session (reason: <agent summary>). Re-tiered to plan-tier:full and
+   left at Status=Todo. Decompose it via the full cycle (brainstorm → PRD →
+   architecture → decompose) into vertically-sliced stories.
    ```
 
 #### 8.5d — Partial-write recovery
@@ -650,7 +667,7 @@ Append one JSONL line to `specs/$SLUG/orchestrate.jsonl` recording the outcome
 (via `plugins/makato-build/shared/build-log.sh "$SLUG"`):
 
 ```json
-{"ts":"<ISO-8601-ms>","skill":"seed-issue","story":"<SLUG>","step":"light-plan","status":"<ok|fallback>","data":{"plan_tier":"light","guard":"<valid|invalid>","thin_body":<true|false>,"promoted":<true|false>,"spec_tier":"<plan-only|none>"}}
+{"ts":"<ISO-8601-ms>","skill":"seed-issue","story":"<SLUG>","step":"light-plan","status":"<ok|fallback>","data":{"plan_tier":"light","guard":"<valid|invalid>","thin_body":<true|false>,"scope_excess":<true|false>,"promoted":<true|false>,"spec_tier":"<plan-only|none>"}}
 ```
 
 ### Step 9 — Print confirmation summary

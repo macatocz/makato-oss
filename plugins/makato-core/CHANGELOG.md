@@ -5,6 +5,15 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+- **Changed** `create-issue` Step 5.5 — `plan-tier:full` inference is now a
+  *decomposition* signal, aligned with the CI classifier
+  (`.github/scripts/classify-plan-tier.sh`). `full` fires on an epic-scale
+  sizing label (`effort:xl` / `points:>=13`) OR an epic-intent keyword
+  (`architecture`, `migration`, `breaking`, `multi-phase`, `epic`,
+  `multiple stories`); everything else feature/docs defaults to `light`. The
+  anti-pattern note is updated: a long, well-written description of a single
+  story is `light`, not `full`.
+
 - **Added** `init` skill (v1.0.0, #566) — guided 3-phase onboarding wizard that
   installs `makato-core`, authenticates the GitHub CLI, and writes
   `.claude/config.json` with a `project` key (Phase 1 mandatory); presents a

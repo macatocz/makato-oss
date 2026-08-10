@@ -35,7 +35,7 @@ big_body() { head -c "$1" /dev/zero | tr '\0' 'x'; }
 TEST_NAME="T1 override wins over conflicting effort:xs"
 run "full override" "small thing" "" "plan-tier:full" "effort:xs" "type:feature"
 
-TEST_NAME="T2 override light preserved"
+TEST_NAME="T2 override light preserved despite effort:xl"
 run "light override" "anything" "$(big_body 5000)" "plan-tier:light" "effort:xl"
 
 TEST_NAME="T3 type:change → change"
@@ -53,13 +53,13 @@ run "light classified" "add a prefix option" "" "effort:xs"
 TEST_NAME="T7 word-boundary: 'debugging' does NOT match 'bug'"
 run "light classified" "improve debugging output" "" "type:feature"
 
-TEST_NAME="T7b canonical type:feat (enum) → light (rule 4, alongside legacy type:feature)"
+TEST_NAME="T7b canonical type:feat (enum) → light"
 run "light classified" "add a prefix option" "" "type:feat"
 
-TEST_NAME="T8 effort:l → full"
-run "full classified" "medium feature" "" "effort:l" "type:feature"
+TEST_NAME="T8 effort:l → light (a ~week story fits one build session; NOT a decomposition signal)"
+run "light classified" "medium feature" "" "effort:l" "type:feature"
 
-TEST_NAME="T9 effort:xl → full"
+TEST_NAME="T9 effort:xl → full (>1 week ⇒ decomposition candidate)"
 run "full classified" "big feature" "" "effort:xl"
 
 TEST_NAME="T10 epic:* label → full"
@@ -68,38 +68,53 @@ run "full classified" "part of an epic" "" "epic:planning-lane" "type:feature"
 TEST_NAME="T11 phase:* label → full"
 run "full classified" "phase work" "" "phase:2" "type:feature"
 
-TEST_NAME="T12 body_full > threshold → full (measures full body, not snippet)"
-run "full classified" "long spec" "$(big_body 1600)" "type:feature"
+TEST_NAME="T12 points:13 → full (at Fibonacci split threshold)"
+run "full classified" "large story" "" "points:13" "type:feat"
 
-TEST_NAME="T13 body exactly at threshold (1500) → not full by length"
-run "light classified" "at threshold" "$(big_body 1500)" "type:feature"
+TEST_NAME="T12b points:21 → full (above threshold)"
+run "full classified" "huge story" "" "points:21" "type:feat"
 
-TEST_NAME="T14 effort:xs → light"
-run "light classified" "tiny tweak" "" "effort:xs"
+TEST_NAME="T13 points:8 → light (below threshold; fits one build session)"
+run "light classified" "sizable but single story" "" "points:8" "type:feat"
 
-TEST_NAME="T15 effort:s → light"
-run "light classified" "small tweak" "" "effort:s"
+TEST_NAME="T13b points:12 → light (just below threshold)"
+run "light classified" "just under" "" "points:12" "type:feat"
+
+TEST_NAME="T13c multiple points:* labels → max value decides (5 + 13 ⇒ full)"
+run "full classified" "conflicting estimates" "" "points:5" "points:13"
+
+TEST_NAME="T14 long well-written body, no size label → light (body length is NOT a signal)"
+run "light classified" "long spec" "$(big_body 3000)" "type:feat"
+
+TEST_NAME="T14b very long body alone (no labels) → light (default), body length ignored"
+run "light classified" "sprawling description" "$(big_body 5000)" ""
+
+TEST_NAME="T15 epic-child shape (type:feat + effort:m + points:5) → light"
+run "light classified" "add admin console widget" "" "type:feat" "tier:foundation" "effort:m" "points:5"
 
 TEST_NAME="T16 type:feature + short body → light"
 run "light classified" "a feature" "short description here" "type:feature"
 
-TEST_NAME="T17 ambiguous (no signals) → full default"
-run "full classified" "mysterious issue" "" "priority:p2"
+TEST_NAME="T17 ambiguous (no signals) → light default (flipped from full)"
+run "light classified" "mysterious issue" "" "priority:p2"
 
-TEST_NAME="T18 empty everything → full default"
-run "full classified" "" "" ""
+TEST_NAME="T18 empty everything → light default (flipped from full)"
+run "light classified" "" "" ""
 
-TEST_NAME="T19 change precedence beats effort:xs (rule 2 before rule 4)"
-run "change classified" "fix the thing" "" "effort:xs" "type:feature"
+TEST_NAME="T19 change precedence beats effort:xl (rule 2 before rule 3)"
+run "change classified" "fix the thing" "" "effort:xl" "epic:foo"
 
-TEST_NAME="T20 custom threshold via env"
-got="$(TITLE="t" BODY="$(big_body 300)" LABELS="type:feature" \
-  PLAN_TIER_BODY_THRESHOLD=200 bash "$CLASSIFY")"
+TEST_NAME="T20 custom points threshold via env (points:8 below default is full when threshold=8)"
+got="$(TITLE="t" BODY="" LABELS="points:8" \
+  PLAN_TIER_POINTS_THRESHOLD=8 bash "$CLASSIFY")"
 if [ "$got" = "full classified" ]; then
   pass=$((pass + 1)); printf '  ✓ %s → %s\n' "$TEST_NAME" "$got"
 else
   fail=$((fail + 1)); printf '  ✗ %s: expected [full classified] got [%s]\n' "$TEST_NAME" "$got"
 fi
+
+TEST_NAME="T20b body length has no env knob any more — huge body stays light regardless"
+run "light classified" "no length knob" "$(big_body 9000)" "type:feat"
 
 TEST_NAME="T21 SC-4: classifier references no ANTHROPIC_API_KEY / no LLM egress"
 if grep -qiE 'ANTHROPIC_API_KEY|api\.anthropic|claude ' "$CLASSIFY"; then
