@@ -5,87 +5,123 @@
 # preserved byte-for-byte. Runtime-derived paths (REPO_ROOT, SPECS_DIR, STATE_DIR,
 # PIDFILE) stay in loop.sh — they depend on `git`/`$HOME` and are not tunables.
 #
-# Each entry:
+# Schema: top-level mapping with two keys:
+#   vars     list of {var, env, default, export?} entries — loop.sh tunables
+#   models   mapping of role -> {base_url} — LLM endpoint routing (issue #5)
+#
+# Each vars entry:
 #   var      bash variable name loop.sh consumes
 #   env      environment variable that overrides it (omit/null = fixed value)
 #   default  value used when env is unset
-#   export   true = emit `export` so `claude -p` subprocesses inherit it
+#   export   true = emit `export` so subprocess inherits it
+#
+# Each models entry:
+#   base_url  LLM endpoint base URL for this role; points to the open (local)
+#             endpoint at Phase-1 start. No closed-provider URL appears here —
+#             the LLM-judge closed role (sequence 11) is added later.
 #
 # Full prose docs, per-parameter, live in config.md.
 
-# --- Poll cadence ---
-- { var: DEFAULT_INTERVAL,        env: MAKATO_LOOP_INTERVAL,          default: "300" }
-- { var: DEFAULT_STATUS,          env: MAKATO_LOOP_STATUS,            default: "Ready" }
-- { var: MAKATO_LOOP_ALLOW_TODO,  env: MAKATO_LOOP_ALLOW_TODO,        default: "" }
+vars:
+  # --- Poll cadence ---
+  - { var: DEFAULT_INTERVAL,        env: MAKATO_LOOP_INTERVAL,          default: "300" }
+  - { var: DEFAULT_STATUS,          env: MAKATO_LOOP_STATUS,            default: "Ready" }
+  - { var: MAKATO_LOOP_ALLOW_TODO,  env: MAKATO_LOOP_ALLOW_TODO,        default: "" }
 
-# --- Adaptive idle backoff (#516) ---
-- { var: IDLE_BACKOFF_MAX,        env: MAKATO_LOOP_IDLE_MAX,          default: "1800" }
-- { var: IDLE_BACKOFF_FACTOR,     env: MAKATO_LOOP_IDLE_FACTOR,       default: "2" }
+  # --- Adaptive idle backoff (#516) ---
+  - { var: IDLE_BACKOFF_MAX,        env: MAKATO_LOOP_IDLE_MAX,          default: "1800" }
+  - { var: IDLE_BACKOFF_FACTOR,     env: MAKATO_LOOP_IDLE_FACTOR,       default: "2" }
 
-# --- Assign-on-dispatch board sync (#33) ---
-- { var: ASSIGN_ON_DISPATCH,      env: MAKATO_LOOP_ASSIGN_ON_DISPATCH, default: "1" }
-- { var: ASSIGNEE,                env: MAKATO_LOOP_ASSIGNEE,          default: "@me" }
+  # --- Assign-on-dispatch board sync (#33) ---
+  - { var: ASSIGN_ON_DISPATCH,      env: MAKATO_LOOP_ASSIGN_ON_DISPATCH, default: "1" }
+  - { var: ASSIGNEE,                env: MAKATO_LOOP_ASSIGNEE,          default: "@me" }
 
-# --- Board CAS claim (#259) ---
-- { var: CLAIM_ON_DISPATCH,       env: MAKATO_LOOP_CLAIM_ON_DISPATCH, default: "1" }
+  # --- Board CAS claim (#259) ---
+  - { var: CLAIM_ON_DISPATCH,       env: MAKATO_LOOP_CLAIM_ON_DISPATCH, default: "1" }
 
-# --- Dispatch gate (#318/#355) ---
-- { var: GATE_DISABLE,            env: MAKATO_LOOP_GATE_DISABLE,      default: "0" }
+  # --- Dispatch gate (#318/#355) ---
+  - { var: GATE_DISABLE,            env: MAKATO_LOOP_GATE_DISABLE,      default: "0" }
 
-# --- Liveness watchdog (#164) ---
-- { var: STALL_WARN_SECS,         env: MAKATO_LOOP_STALL_WARN,        default: "900" }
-- { var: STALL_KILL_SECS,         env: MAKATO_LOOP_STALL_KILL,        default: "3600" }
-- { var: STALL_POLL_SECS,         env: MAKATO_LOOP_STALL_POLL,        default: "60" }
-- { var: STALL_TERM_GRACE_SECS,   env: MAKATO_LOOP_STALL_TERM_GRACE,  default: "30" }
+  # --- Liveness watchdog (#164) ---
+  - { var: STALL_WARN_SECS,         env: MAKATO_LOOP_STALL_WARN,        default: "900" }
+  - { var: STALL_KILL_SECS,         env: MAKATO_LOOP_STALL_KILL,        default: "3600" }
+  - { var: STALL_POLL_SECS,         env: MAKATO_LOOP_STALL_POLL,        default: "60" }
+  - { var: STALL_TERM_GRACE_SECS,   env: MAKATO_LOOP_STALL_TERM_GRACE,  default: "30" }
 
-# --- Stall recovery (#444) ---
-- { var: STALL_THRESHOLD_SECS,    env: MAKATO_LOOP_STALL_THRESHOLD,   default: "300" }
-- { var: MAX_STALL_RESTARTS,      env: MAKATO_MAX_STALL_RESTARTS,     default: "3" }
-- { var: STALL_BACKOFF_BASE_SECS, env: MAKATO_STALL_BACKOFF_BASE,     default: "60" }
+  # --- Stall recovery (#444) ---
+  - { var: STALL_THRESHOLD_SECS,    env: MAKATO_LOOP_STALL_THRESHOLD,   default: "300" }
+  - { var: MAX_STALL_RESTARTS,      env: MAKATO_MAX_STALL_RESTARTS,     default: "3" }
+  - { var: STALL_BACKOFF_BASE_SECS, env: MAKATO_STALL_BACKOFF_BASE,     default: "60" }
 
-# --- Headless CLI resilience (#531/#532) ---
-- { var: CLAUDE_CODE_RETRY_WATCHDOG, env: CLAUDE_CODE_RETRY_WATCHDOG, default: "1", export: true }
-- { var: API_TIMEOUT_MS,          env: API_TIMEOUT_MS,                default: "1200000", export: true }
+  # --- Headless CLI resilience (#531/#532) ---
+  - { var: CLAUDE_CODE_RETRY_WATCHDOG, env: CLAUDE_CODE_RETRY_WATCHDOG, default: "1", export: true }
+  - { var: API_TIMEOUT_MS,          env: API_TIMEOUT_MS,                default: "1200000", export: true }
 
-# --- Run-mutex force reclaim (#172) ---
-- { var: FORCE_GRACE_SECS,        env: MAKATO_LOOP_FORCE_GRACE,       default: "10" }
+  # --- Run-mutex force reclaim (#172) ---
+  - { var: FORCE_GRACE_SECS,        env: MAKATO_LOOP_FORCE_GRACE,       default: "10" }
 
-# --- Merged/stale worktree reaper (#265/#320) ---
-- { var: REAP_ON_POLL,            env: MAKATO_LOOP_REAP_ON_POLL,      default: "1" }
-- { var: REAP_INTERVAL_SECS,      env: MAKATO_LOOP_REAP_INTERVAL,     default: "3600" }
-- { var: REAP_STALE_AGE_SECS,     env: MAKATO_LOOP_REAP_STALE_AGE,    default: "86400" }
-- { var: REAP_STALE_FORCE,        env: MAKATO_LOOP_REAP_STALE_FORCE,  default: "0" }
-- { var: REAP_SPECS,              env: MAKATO_LOOP_REAP_SPECS,        default: "1" }
+  # --- Merged/stale worktree reaper (#265/#320) ---
+  - { var: REAP_ON_POLL,            env: MAKATO_LOOP_REAP_ON_POLL,      default: "1" }
+  - { var: REAP_INTERVAL_SECS,      env: MAKATO_LOOP_REAP_INTERVAL,     default: "3600" }
+  - { var: REAP_STALE_AGE_SECS,     env: MAKATO_LOOP_REAP_STALE_AGE,    default: "86400" }
+  - { var: REAP_STALE_FORCE,        env: MAKATO_LOOP_REAP_STALE_FORCE,  default: "0" }
+  - { var: REAP_SPECS,              env: MAKATO_LOOP_REAP_SPECS,        default: "1" }
 
-# --- Orphaned In-progress reconciliation (#368/#616) ---
-- { var: RECONCILE_ON_POLL,       env: MAKATO_LOOP_RECONCILE_ON_POLL, default: "1" }
-- { var: RECONCILE_DRYRUN,        env: MAKATO_LOOP_RECONCILE_DRYRUN,  default: "0" }
-- { var: ORPHAN_STALE_SECS,       env: MAKATO_ORPHAN_STALE_SECS,      default: "3600" }
-- { var: ORPHAN_DETECT_DISABLE,   env: MAKATO_ORPHAN_DETECT_DISABLE,  default: "0" }
+  # --- Orphaned In-progress reconciliation (#368/#616) ---
+  - { var: RECONCILE_ON_POLL,       env: MAKATO_LOOP_RECONCILE_ON_POLL, default: "1" }
+  - { var: RECONCILE_DRYRUN,        env: MAKATO_LOOP_RECONCILE_DRYRUN,  default: "0" }
+  - { var: ORPHAN_STALE_SECS,       env: MAKATO_ORPHAN_STALE_SECS,      default: "3600" }
+  - { var: ORPHAN_DETECT_DISABLE,   env: MAKATO_ORPHAN_DETECT_DISABLE,  default: "0" }
 
-# --- workflow-state prune pass (#597) ---
-- { var: MAKATO_LOOP_PRUNE_ON_RUN, env: MAKATO_LOOP_PRUNE_ON_RUN,     default: "0" }
-- { var: MAKATO_LOOP_PRUNE_AGE_DAYS, env: MAKATO_LOOP_PRUNE_AGE_DAYS, default: "30" }
+  # --- workflow-state prune pass (#597) ---
+  - { var: MAKATO_LOOP_PRUNE_ON_RUN, env: MAKATO_LOOP_PRUNE_ON_RUN,     default: "0" }
+  - { var: MAKATO_LOOP_PRUNE_AGE_DAYS, env: MAKATO_LOOP_PRUNE_AGE_DAYS, default: "30" }
 
-# --- Sleep-wake / idempotent-dispatch guards (#171) ---
-- { var: SLEEP_MAX_STEP_SECS,     env: MAKATO_LOOP_SLEEP_MAX_STEP,    default: "30" }
-- { var: MIN_DISPATCH_GAP_SECS,   env: MAKATO_LOOP_MIN_DISPATCH_GAP,  default: "30" }
-- { var: LAST_DISPATCH_GAP_SECS,  env: MAKATO_LOOP_LAST_DISPATCH_GAP, default: "30" }
+  # --- Sleep-wake / idempotent-dispatch guards (#171) ---
+  - { var: SLEEP_MAX_STEP_SECS,     env: MAKATO_LOOP_SLEEP_MAX_STEP,    default: "30" }
+  - { var: MIN_DISPATCH_GAP_SECS,   env: MAKATO_LOOP_MIN_DISPATCH_GAP,  default: "30" }
+  - { var: LAST_DISPATCH_GAP_SECS,  env: MAKATO_LOOP_LAST_DISPATCH_GAP, default: "30" }
 
-# --- Board-poll resilience (#289) ---
-- { var: POLL_RETRIES,            env: MAKATO_LOOP_POLL_RETRIES,      default: "3" }
-- { var: POLL_BACKOFF_BASE_SECS,  env: MAKATO_LOOP_POLL_BACKOFF_BASE, default: "2" }
+  # --- Board-poll resilience (#289) ---
+  - { var: POLL_RETRIES,            env: MAKATO_LOOP_POLL_RETRIES,      default: "3" }
+  - { var: POLL_BACKOFF_BASE_SECS,  env: MAKATO_LOOP_POLL_BACKOFF_BASE, default: "2" }
 
-# --- GraphQL rate-limit guard (#556/#683) ---
-- { var: GRAPHQL_MIN_REMAINING,   env: MAKATO_LOOP_GRAPHQL_MIN_REMAINING, default: "1000" }
-- { var: RATE_GUARD,              env: MAKATO_LOOP_RATE_GUARD,        default: "1" }
-- { var: RATE_SKIP_THRESHOLD,     env: MAKATO_LOOP_RATE_SKIP_THRESHOLD, default: "3" }
-- { var: RATE_SKIP_BACKOFF,       env: MAKATO_LOOP_RATE_SKIP_BACKOFF, default: "600" }
-- { var: BOARD_LIMIT,             env: MAKATO_LOOP_BOARD_LIMIT,       default: "500" }
+  # --- GraphQL rate-limit guard (#556/#683) ---
+  - { var: GRAPHQL_MIN_REMAINING,   env: MAKATO_LOOP_GRAPHQL_MIN_REMAINING, default: "1000" }
+  - { var: RATE_GUARD,              env: MAKATO_LOOP_RATE_GUARD,        default: "1" }
+  - { var: RATE_SKIP_THRESHOLD,     env: MAKATO_LOOP_RATE_SKIP_THRESHOLD, default: "3" }
+  - { var: RATE_SKIP_BACKOFF,       env: MAKATO_LOOP_RATE_SKIP_BACKOFF, default: "600" }
+  - { var: BOARD_LIMIT,             env: MAKATO_LOOP_BOARD_LIMIT,       default: "500" }
 
-# --- Critical-call REST fallback (#447) ---
-- { var: FALLBACK_RETRIES,        env: MAKATO_LOOP_FALLBACK_RETRIES,  default: "2" }
-- { var: FALLBACK_BACKOFF_BASE_SECS, env: MAKATO_LOOP_FALLBACK_BACKOFF_BASE, default: "2" }
+  # --- Critical-call REST fallback (#447) ---
+  - { var: FALLBACK_RETRIES,        env: MAKATO_LOOP_FALLBACK_RETRIES,  default: "2" }
+  - { var: FALLBACK_BACKOFF_BASE_SECS, env: MAKATO_LOOP_FALLBACK_BACKOFF_BASE, default: "2" }
 
-# --- Promote-ready exclusion set (fixed, no env override) ---
-- { var: _PROMOTE_EXCLUSION_LABELS, default: "triage experimental status:blocked autonomous:halt needs-human-review needs-reshape" }
+  # --- Promote-ready exclusion set (fixed, no env override) ---
+  - { var: _PROMOTE_EXCLUSION_LABELS, default: "triage experimental status:blocked autonomous:halt needs-human-review needs-reshape" }
+
+# --- LLM endpoint routing (issue #5, Phase-1 start) ---
+# All 10 oh-my-pi roles point to the open (local) endpoint.
+# The LLM-judge closed role arrives in sequence 11 — not here.
+# Override individual roles by setting MAKATO_MODEL_<ROLE>_BASE_URL env vars.
+models:
+  default:
+    base_url: "http://localhost:8000/v1"
+  task:
+    base_url: "http://localhost:8000/v1"
+  smol:
+    base_url: "http://localhost:8000/v1"
+  tiny:
+    base_url: "http://localhost:8000/v1"
+  plan:
+    base_url: "http://localhost:8000/v1"
+  advisor:
+    base_url: "http://localhost:8000/v1"
+  designer:
+    base_url: "http://localhost:8000/v1"
+  commit:
+    base_url: "http://localhost:8000/v1"
+  slow:
+    base_url: "http://localhost:8000/v1"
+  vision:
+    base_url: "http://localhost:8000/v1"
