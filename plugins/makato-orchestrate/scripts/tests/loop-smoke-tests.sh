@@ -3,7 +3,7 @@
 # (GAP-007 / #33). Run from the makato repo root.
 #
 # Usage:
-#   plugins/makato-orchestrate/scripts/loop-smoke-tests.sh
+#   plugins/makato-orchestrate/scripts/tests/loop-smoke-tests.sh
 #
 # Scenarios (per issue #33 AC):
 #   T1: check-halt returns 0 when HALT file absent

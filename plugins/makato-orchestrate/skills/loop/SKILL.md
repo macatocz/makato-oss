@@ -208,7 +208,7 @@ WHY: The merged-worktree reaper and orphaned-specs pruner operate on git worktre
   this by default). To use a different option name, pass
   `--status <NAME>` or export `MAKATO_LOOP_STATUS`.
 - **Needs Planning board Status (one-time migration):** The
-  `emit-needs-planning-signal.sh` script sets a board card's Status to
+  `emit_needs_planning_signal.py` script sets a board card's Status to
   "Needs Planning" when `structural_halt_cycles` reaches the threshold
   (`MAKATO_STRUCTURAL_RESHAPE_THRESHOLD`, default 2). Before this signal
   can write the board, a "Needs Planning" option must exist on the board's
@@ -847,7 +847,7 @@ State directory anchor: all paths under `.claude/state/` resolve from the repo r
 Run all core scenarios:
 
 ```bash
-plugins/makato-orchestrate/scripts/loop-smoke-tests.sh
+plugins/makato-orchestrate/scripts/tests/loop-smoke-tests.sh
 ```
 
 The harness uses `MAKATO_LOOP_GH_OVERRIDE` to inject a canned
@@ -856,8 +856,8 @@ The harness uses `MAKATO_LOOP_GH_OVERRIDE` to inject a canned
 Fleet and supervisor scenarios have their own harnesses:
 
 ```bash
-plugins/makato-orchestrate/scripts/loop-fleet-smoke-tests.sh
-plugins/makato-orchestrate/scripts/loop-supervisor-smoke-tests.sh
+plugins/makato-orchestrate/scripts/tests/loop-fleet-smoke-tests.sh
+plugins/makato-orchestrate/scripts/tests/loop-supervisor-smoke-tests.sh
 ```
 
 ## Fleet mode — N parallel workers (#546)
@@ -932,7 +932,7 @@ Use `MAKATO_FLEET_TICK_SECS` to tune the restart latency.
 ### Smoke tests
 
 ```bash
-plugins/makato-orchestrate/scripts/loop-fleet-smoke-tests.sh
+plugins/makato-orchestrate/scripts/tests/loop-fleet-smoke-tests.sh
 ```
 
 Six scenarios: N=2 distinct state dirs (T-FLEET-1), CAS fail-closed
@@ -1039,7 +1039,7 @@ Every tick appends one JSON line to `$STATE_DIR/supervisor-audit.jsonl`:
 ### Smoke tests
 
 ```bash
-plugins/makato-orchestrate/scripts/loop-supervisor-smoke-tests.sh
+plugins/makato-orchestrate/scripts/tests/loop-supervisor-smoke-tests.sh
 ```
 
 Seven offline scenarios covering all four plan-specified cases plus edge variants

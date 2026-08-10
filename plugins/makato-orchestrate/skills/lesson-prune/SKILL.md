@@ -12,7 +12,7 @@ description: >-
   any read-only memory operation.
 version: "1.1.0"
 argument-hint: "[MEMORY_DIR] [--non-interactive]"
-allowed-tools: Bash(plugins/makato-orchestrate/scripts/lesson-prune.sh *) Bash(python3 *) Read
+allowed-tools: Bash(python3 plugins/makato-orchestrate/scripts/lesson_prune.py *) Bash(python3 *) Read
 ---
 
 <!-- markdownlint-disable MD013 -->
@@ -69,7 +69,7 @@ of a false positive (keeping an old-but-relevant one).
 
 ```bash
 MEMORY_DIR="${1:-.makato/memory}"
-CLASSIFICATION="$(bash plugins/makato-orchestrate/scripts/lesson-prune.sh "$MEMORY_DIR")"
+CLASSIFICATION="$(python3 plugins/makato-orchestrate/scripts/lesson_prune.py "$MEMORY_DIR")"
 ```
 
 The helper reads both `procedural.jsonl` and `semantic.jsonl` and emits one JSON
@@ -77,7 +77,7 @@ line per record: `{"key":"…","action":"KEEP|…","reason":"…","target":"…"
 
 **Error paths — Step 1:**
 
-- **`lesson-prune.sh` exits non-zero**: print its stderr verbatim, then exit the
+- **`lesson_prune.py` exits non-zero**: print its stderr verbatim, then exit the
   skill without touching any file. Do not attempt to parse partial output.
 - **Malformed JSONL** (a line that does not parse as JSON): print the offending
   line number and the raw content, then exit without touching any file. Do NOT
@@ -219,13 +219,13 @@ plugins/makato-orchestrate/skills/lesson-prune/SKILL.md
 ### Dry-run (classification only, no approval prompt)
 
 ```bash
-bash plugins/makato-orchestrate/scripts/lesson-prune.sh .makato/memory
+python3 plugins/makato-orchestrate/scripts/lesson_prune.py .makato/memory
 ```
 
 ## Smoke tests
 
 ```bash
-plugins/makato-orchestrate/scripts/lesson-prune-smoke-tests.sh
+python3 -m pytest plugins/makato-orchestrate/scripts/tests/test_lesson_prune.py -v
 ```
 
 Covers: each classification class, operator rejection (byte-identical), all-KEEP
@@ -233,7 +233,7 @@ no-mutation exit-0, GRADUATED with two AGENTS.md layouts.
 
 ## See also
 
-- `scripts/lesson-prune.sh` — classification helper (pure read, no mutation)
-- `scripts/lesson-prune-smoke-tests.sh` — offline smoke tests (real git fixture for STALE)
+- `scripts/lesson_prune.py` — classification helper (pure read, no mutation)
+- `scripts/tests/test_lesson_prune.py` — pytest suite (14 scenarios, real git fixture for STALE)
 - `scripts/promote-lessons.sh` — the write counterpart (adds new lessons at merge time)
 - `.makato/memory/procedural.jsonl`, `.makato/memory/semantic.jsonl` — the stores this skill curates

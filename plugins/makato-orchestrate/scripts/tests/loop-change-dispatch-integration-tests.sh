@@ -4,7 +4,7 @@
 # (issue #717)
 #
 # Run from the makato repo root:
-#   bash plugins/makato-orchestrate/scripts/loop-change-dispatch-integration-tests.sh
+#   bash plugins/makato-orchestrate/scripts/tests/loop-change-dispatch-integration-tests.sh
 #
 # All tests are OFFLINE — no live `gh` calls.
 # Exit non-zero on first assertion failure.

@@ -36,9 +36,9 @@ skill_routing: disabled
   - `CHANGELOG.md` (repository root)
   - `README.md` (repository root) — only when the public-API heuristic in Step 4 triggers
   - `specs/<key>-<slug>/build.jsonl` (append-only, via the build-log helper or direct append)
-  - `docs/**` — when the diff modifies docs files and the agent amends cross-references, AND when Step 4c writes a living-spec update to `docs/specs/<capability>.md` via `sync-living-specs.sh`
-  - `specs/master/*-quality.md` — Step 7.6 updates the domain quality scorecard via `generate-quality-doc.sh` (write is performed by the script, not directly by the agent)
-  - `PROGRESS.md` (repository root) — Step 7.5 updates the epic roadmap via `generate-progress.sh` (write is performed by the script, not directly by the agent)
+  - `docs/**` — when the diff modifies docs files and the agent amends cross-references, AND when Step 4c writes a living-spec update to `docs/specs/<capability>.md` via `sync_living_specs.py`
+  - `specs/master/*-quality.md` — Step 7.6 updates the domain quality scorecard via `generate_quality_doc.py` (write is performed by the script, not directly by the agent)
+  - `PROGRESS.md` (repository root) — Step 7.5 updates the epic roadmap via `generate_progress.py` (write is performed by the script, not directly by the agent)
 - **Issue-body edits are GitHub state, not files.** Step 4a marks verified AC
   checkboxes via `gh issue edit --body` — a GitHub API mutation, not a
   filesystem write, so it is outside the `Write`/`Edit` allow-list above. It is
@@ -222,13 +222,13 @@ every run:
 ```bash
 printf '%s' "$AC_VERDICTS" > /tmp/ac-verdicts-${PR_NUMBER}.json
 printf '%s' "$ISSUE_BODY"  > /tmp/issue-body-${PR_NUMBER}.md
-NEW_BODY="$(plugins/makato-orchestrate/scripts/mark-ac-checkboxes.sh \
+NEW_BODY="$(python3 plugins/makato-orchestrate/scripts/mark_ac_checkboxes.py \
   /tmp/ac-verdicts-${PR_NUMBER}.json /tmp/issue-body-${PR_NUMBER}.md \
   2>/tmp/ac-summary-${PR_NUMBER}.json)"
 AC_SUMMARY="$(cat /tmp/ac-summary-${PR_NUMBER}.json)"   # {mode, boxes_checked, verdicts_total, verified}
 ```
 
-The helper's policy (see `scripts/mark-ac-checkboxes.sh` and its smoke tests):
+The helper's policy (see `scripts/mark_ac_checkboxes.py` and its tests):
 
 1. **Granular path (≥ 1 verified verdict matched a box):** flip only the matched
    `- [ ]` → `- [x]` lines. It matches on a **normalized** comparison — lowercase,
@@ -309,13 +309,13 @@ DELTA="$SPEC_DIR/spec-delta.md"
 if [[ -f "$DELTA" ]]; then
   REPO_ROOT="$(git rev-parse --show-toplevel)"
   DOCS_SPECS_DIR="$REPO_ROOT/docs/specs"
-  plugins/makato-orchestrate/scripts/sync-living-specs.sh "$DELTA" "$DOCS_SPECS_DIR" \
+  python3 plugins/makato-orchestrate/scripts/sync_living_specs.py "$DELTA" "$DOCS_SPECS_DIR" \
     2>>/tmp/living-spec-sync-${PR_NUMBER}.warn \
     && SYNC_EXIT=0 || SYNC_EXIT=$?
 fi
 ```
 
-**`sync-living-specs.sh` behaviour (see `scripts/sync-living-specs.sh`):**
+**`sync_living_specs.py` behaviour (see `scripts/sync_living_specs.py`):**
 
 - Derives the capability name from the parent directory of `spec-delta.md`
   (e.g. `specs/openspec-transfer-features/spec-delta.md` → capability
@@ -329,7 +329,7 @@ fi
 
 **Include the updated `docs/specs/<capability>.md` in the documentation commit** (Step 3)
 when `$SYNC_EXIT == 0` and the file was actually modified. If the step is skipped or
-`sync-living-specs.sh` exits non-zero, degrade to `partial` (log warn, continue —
+`sync_living_specs.py` exits non-zero, degrade to `partial` (log warn, continue —
 never HALT on a documentation side-effect).
 
 **Log the outcome** (always one line, guarded on `$DELTA` existence):
@@ -430,15 +430,15 @@ reads its own inputs from `.claude/state/loop-status.json` and `gh`).
 
 ```bash
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-if [[ -x "$REPO_ROOT/plugins/makato-orchestrate/scripts/generate-progress.sh" ]]; then
-  bash "$REPO_ROOT/plugins/makato-orchestrate/scripts/generate-progress.sh" 2>/dev/null || {
+if [[ -f "$REPO_ROOT/plugins/makato-orchestrate/scripts/generate_progress.py" ]]; then
+  python3 "$REPO_ROOT/plugins/makato-orchestrate/scripts/generate_progress.py" 2>/dev/null || {
     plugins/makato-build/shared/build-log.sh "${KEY:-unknown}" \
       "$(jq -nc --arg pr "${PR_NUMBER:-0}" \
         '{"ts":"'"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"'","skill":"documentation-agent","step":"progress-md","status":"warn","data":{"event":"progress_md_failed","pr":($pr|tonumber)}}')" \
     2>/dev/null || true
   }
 else
-  echo "generate-progress: script not found at $REPO_ROOT/plugins/makato-orchestrate/scripts/generate-progress.sh, skipping" >&2
+  echo "generate-progress: script not found at $REPO_ROOT/plugins/makato-orchestrate/scripts/generate_progress.py, skipping" >&2
 fi
 ```
 
@@ -456,7 +456,7 @@ Derive the domain for the merged issue using the same `detect_domain` logic as
 Then call:
 
 ```bash
-bash plugins/makato-orchestrate/scripts/generate-quality-doc.sh \
+python3 plugins/makato-orchestrate/scripts/generate_quality_doc.py \
   --domain "<domain>"
 ```
 
@@ -465,8 +465,8 @@ bash plugins/makato-orchestrate/scripts/generate-quality-doc.sh \
 continue — this step MUST NOT HALT the agent:
 
 ```bash
-if [[ -x "plugins/makato-orchestrate/scripts/generate-quality-doc.sh" ]]; then
-  bash plugins/makato-orchestrate/scripts/generate-quality-doc.sh \
+if [[ -f "plugins/makato-orchestrate/scripts/generate_quality_doc.py" ]]; then
+  python3 plugins/makato-orchestrate/scripts/generate_quality_doc.py \
     --domain "$DOMAIN" 2>/dev/null || {
     plugins/makato-build/shared/build-log.sh "$KEY" \
       "$(jq -nc --arg pr "$PR_NUMBER" --arg domain "$DOMAIN" \
@@ -597,6 +597,6 @@ inspection of the action's logs.
 - `plugins/makato-build/shared/build-log.sh` — the audit-log helper used in Step 7.
 - `plugins/makato-build/agents/diff-reviewer.md` § *Per-AC verdict* — the upstream producer of the `ac_verdicts[]` this agent transcribes into checkboxes (Step 4a).
 - `plugins/makato-build/skills/build-create-pr/SKILL.md` § *AC Verification block* — renders the `makato:ac-verdicts` PR-body block this agent reads.
-- `plugins/makato-orchestrate/scripts/mark-ac-checkboxes.sh` — the deterministic matcher Step 4a shells out to (granular + all-or-nothing fallback); smoke-tested by `mark-ac-checkboxes-smoke-tests.sh`.
-- `plugins/makato-orchestrate/scripts/sync-living-specs.sh` — the delta-sync helper Step 4c shells out to (ADDED/MODIFIED/REMOVED operations on `docs/specs/<capability>.md`); smoke-tested by `sync-living-specs-smoke-tests.sh`.
+- `plugins/makato-orchestrate/scripts/mark_ac_checkboxes.py` — the deterministic matcher Step 4a calls (granular + all-or-nothing fallback); tested by `scripts/tests/test_mark_ac_checkboxes.py`.
+- `plugins/makato-orchestrate/scripts/sync_living_specs.py` — the delta-sync helper Step 4c calls (ADDED/MODIFIED/REMOVED operations on `docs/specs/<capability>.md`); tested by `scripts/tests/test_sync_living_specs.py`.
 - <https://keepachangelog.com> — the changelog format Step 3 emits.

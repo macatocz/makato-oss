@@ -4,7 +4,7 @@
 # and gh mutations are injected via the script's test hooks.
 #
 # Usage:
-#   plugins/makato-orchestrate/scripts/archive-spec-smoke-tests.sh
+#   plugins/makato-orchestrate/scripts/tests/archive-spec-smoke-tests.sh
 #
 # Scenarios:
 #   T1: derive slug from to-issues footer, archive folder, close issue
@@ -19,7 +19,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ARCHIVE="$SCRIPT_DIR/archive-spec.sh"
+ARCHIVE="$SCRIPT_DIR/../archive-spec.sh"
 
 PASS=0
 FAIL=0

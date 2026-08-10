@@ -4,7 +4,7 @@
 # so no real notification fires and no `terminal-notifier`/`osascript` is invoked.
 #
 # Usage:
-#   plugins/makato-orchestrate/scripts/loop-halt-watch-smoke-tests.sh
+#   plugins/makato-orchestrate/scripts/tests/loop-halt-watch-smoke-tests.sh
 #
 # Scenarios:
 #   T1: baseline poll against a live loop with clean state → no notification
@@ -18,7 +18,7 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WATCHER="$SCRIPT_DIR/loop-halt-watch.sh"
+WATCHER="$SCRIPT_DIR/../loop-halt-watch.sh"
 
 PASS=0
 FAIL=0

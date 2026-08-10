@@ -2,7 +2,7 @@
 # Smoke tests for scripts/resolve-append-only-conflict.sh (append-only union merge).
 #
 # Run from the makato repo root:
-#   plugins/makato-orchestrate/scripts/resolve-append-only-conflict-smoke-tests.sh
+#   plugins/makato-orchestrate/scripts/tests/resolve-append-only-conflict-smoke-tests.sh
 #
 # Scenarios:
 #   T1: missing args exits 1

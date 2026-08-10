@@ -3,7 +3,7 @@
 # Run from the makato repo root.
 #
 # Usage:
-#   plugins/makato-orchestrate/scripts/loop-fleet-smoke-tests.sh
+#   plugins/makato-orchestrate/scripts/tests/loop-fleet-smoke-tests.sh
 #
 # Scenarios (per issue #546 AC):
 #   T-FLEET-1: N=2 spawns 2 workers with distinct MAKATO_LOOP_STATE_DIR

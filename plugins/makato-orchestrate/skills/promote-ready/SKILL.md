@@ -256,7 +256,7 @@ captured via `MAKATO_PROMOTE_EDIT_TEST_FILE` — `gh` is never invoked):
 15. `plan --json` with a slug-collision graph populates `deferred_collision` with the higher issue number; the lower appears in `ready[]`.
 
 ```bash
-plugins/makato-orchestrate/scripts/promote-ready-smoke-tests.sh
+plugins/makato-orchestrate/scripts/tests/promote-ready-smoke-tests.sh
 ```
 
 Run in CI via `.github/workflows/validate.yml`.

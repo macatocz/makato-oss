@@ -159,7 +159,7 @@ single-machine guard; the board CAS is the cross-machine guard.
 ## 5 — Test coverage
 
 The integration test at
-`plugins/makato-orchestrate/scripts/loop-change-dispatch-integration-tests.sh`
+`plugins/makato-orchestrate/scripts/tests/loop-change-dispatch-integration-tests.sh`
 exercises all four properties described above:
 
 | Test | Property verified |

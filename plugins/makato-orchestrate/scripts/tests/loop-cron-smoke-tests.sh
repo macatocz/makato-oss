@@ -3,7 +3,7 @@
 # Run from the makato repo root.
 #
 # Usage:
-#   plugins/makato-orchestrate/scripts/loop-cron-smoke-tests.sh
+#   plugins/makato-orchestrate/scripts/tests/loop-cron-smoke-tests.sh
 #
 # Scenarios:
 #   T-CRON-1: schedule: trigger present

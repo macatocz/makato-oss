@@ -38,6 +38,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+
+      - name: Install pytest + jsonschema
+        run: python3 -m pip install --quiet pytest jsonschema
+
       - name: Check root structure
         run: ./scripts/check-root-structure.sh
 
@@ -73,10 +81,10 @@ jobs:
         run: ./.github/scripts/classify-plan-tier-smoke-tests.sh
 
       - name: plan-body promotion guard smoke tests (#212)
-        run: ./plugins/makato-orchestrate/scripts/validate-plan-body-smoke-tests.sh
+        run: ./plugins/makato-orchestrate/scripts/tests/validate-plan-body-smoke-tests.sh
 
       - name: HALT-006 auto-materialize gate smoke tests (#200)
-        run: ./plugins/makato-orchestrate/scripts/should-materialize-spec-smoke-tests.sh
+        run: ./plugins/makato-orchestrate/scripts/tests/should-materialize-spec-smoke-tests.sh
 
       - name: seed-issue lightweight-lane smoke tests (#212)
         run: ./plugins/makato-orchestrate/skills/seed-issue/references/lightweight-lane-smoke-tests.sh
@@ -94,31 +102,31 @@ jobs:
         run: ./plugins/makato-build/shared/build-verify-gate-commands-smoke-tests.sh
 
       - name: loop smoke tests (#231/#232)
-        run: ./plugins/makato-orchestrate/scripts/loop-smoke-tests.sh
+        run: ./plugins/makato-orchestrate/scripts/tests/loop-smoke-tests.sh
 
       - name: kill-switch poll and record-budget smoke tests (#706)
-        run: ./plugins/makato-orchestrate/scripts/kill-switch-smoke-tests.sh
+        run: ./plugins/makato-orchestrate/scripts/tests/kill-switch-smoke-tests.sh
 
       - name: loop change-dispatch integration tests (#717)
-        run: ./plugins/makato-orchestrate/scripts/loop-change-dispatch-integration-tests.sh
+        run: ./plugins/makato-orchestrate/scripts/tests/loop-change-dispatch-integration-tests.sh
 
       - name: write-promote-lessons end-to-end integration tests (#719)
         run: ./tests/integration/write-promote-lessons-e2e.sh
 
       - name: loop HALT notifier smoke tests
-        run: ./plugins/makato-orchestrate/scripts/loop-halt-watch-smoke-tests.sh
+        run: ./plugins/makato-orchestrate/scripts/tests/loop-halt-watch-smoke-tests.sh
 
       - name: dependency-aware promote-ready smoke tests (#268)
-        run: ./plugins/makato-orchestrate/scripts/promote-ready-smoke-tests.sh
+        run: ./plugins/makato-orchestrate/scripts/tests/promote-ready-smoke-tests.sh
 
       - name: workflow-state smoke tests (#173/#284/#317/#347)
         run: ./plugins/makato-orchestrate/skills/workflow-state/references/smoke-tests.sh
 
-      - name: AC-checkbox matcher smoke tests (AC-verification)
-        run: ./plugins/makato-orchestrate/scripts/mark-ac-checkboxes-smoke-tests.sh
+      - name: Python port unit tests (pytest — sync-living-specs, mark-ac, generate-progress/quality-doc, emit-needs-planning/reshape, lesson-prune)
+        run: python3 -m pytest plugins/makato-orchestrate/scripts/tests/ -q
 
       - name: append-only conflict union-merge smoke tests (resolve-pr-conflict)
-        run: ./plugins/makato-orchestrate/scripts/resolve-append-only-conflict-smoke-tests.sh
+        run: ./plugins/makato-orchestrate/scripts/tests/resolve-append-only-conflict-smoke-tests.sh
 
       - name: makato-flow diagram drift check (#428)
         run: python3 scripts/generate-flow-diagram.py --check

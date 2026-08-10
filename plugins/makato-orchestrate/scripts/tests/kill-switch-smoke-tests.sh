@@ -3,7 +3,7 @@
 # (GAP-004 / #30). Run from the makato repo root.
 #
 # Usage:
-#   plugins/makato-orchestrate/scripts/kill-switch-smoke-tests.sh
+#   plugins/makato-orchestrate/scripts/tests/kill-switch-smoke-tests.sh
 #
 # Design note:
 #   The kill-switch skill is a Claude invocation (not a standalone shell

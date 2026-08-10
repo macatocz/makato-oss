@@ -443,7 +443,7 @@ config["github_project"] = {
     "project_node_id": PROJECT_NODE_ID,
     "fields": fields_dict,
     # Flat options shorthand — mirrors fields.status.options for dual-read compat
-    # (e.g. emit-needs-planning-signal.sh reads both paths). Only written when found.
+    # (e.g. emit_needs_planning_signal.py reads both paths). Only written when found.
     "options": {
         **({} if "ready" not in options else {"ready": options["ready"]}),
         **({} if "in_review" not in options else {"in_review": options["in_review"]}),

@@ -2,7 +2,7 @@
 # Smoke tests for scripts/generate-layer-report.sh — HALT-by-layer aggregation
 # across issues (#593). Run from the makato repo root:
 #
-#   plugins/makato-orchestrate/scripts/generate-layer-report-smoke-tests.sh
+#   plugins/makato-orchestrate/scripts/tests/generate-layer-report-smoke-tests.sh
 #
 # Scenarios (issue #593 AC-2, AC-3):
 #   T1: single HALT-006 event → bottleneck_layer:"task-spec", halt_events_found:1

@@ -5,7 +5,7 @@ Referenced by the process step numbers in SKILL.md.
 
 Run all tests:
 ```bash
-plugins/makato-orchestrate/scripts/loop-smoke-tests.sh
+plugins/makato-orchestrate/scripts/tests/loop-smoke-tests.sh
 ```
 
 The harness uses `MAKATO_LOOP_GH_OVERRIDE` to inject a canned `item-list` fixture — fully offline, no GitHub access required.
@@ -94,7 +94,7 @@ The harness uses `MAKATO_LOOP_GH_OVERRIDE` to inject a canned `item-list` fixtur
 Six scenarios: N=2 distinct state dirs (T-FLEET-1), CAS fail-closed (T-FLEET-2), no double-dispatch (T-FLEET-3), same-folder guard (T-FLEET-4), N=1 serial compat (T-FLEET-5), HALT-file blocks spawn (T-FLEET-6). All run offline with a stub `loop.sh`.
 
 ```bash
-plugins/makato-orchestrate/scripts/loop-fleet-smoke-tests.sh
+plugins/makato-orchestrate/scripts/tests/loop-fleet-smoke-tests.sh
 ```
 
 ## Supervisor Scenarios (`loop-supervisor-smoke-tests.sh`)
@@ -102,5 +102,5 @@ plugins/makato-orchestrate/scripts/loop-fleet-smoke-tests.sh
 Nine offline scenarios covering all four plan-specified cases plus edge variants (dead-pid empty board, missing pidfile, alive+stale dispatch, alive mid-dispatch no-action, alive stalled dispatch restart).
 
 ```bash
-plugins/makato-orchestrate/scripts/loop-supervisor-smoke-tests.sh
+plugins/makato-orchestrate/scripts/tests/loop-supervisor-smoke-tests.sh
 ```

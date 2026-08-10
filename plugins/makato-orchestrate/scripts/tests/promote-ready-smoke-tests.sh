@@ -2,7 +2,7 @@
 # Smoke tests for scripts/promote-ready.sh — dependency-aware Ready
 # promotion (#268). Run from the makato repo root:
 #
-#   plugins/makato-orchestrate/scripts/promote-ready-smoke-tests.sh
+#   plugins/makato-orchestrate/scripts/tests/promote-ready-smoke-tests.sh
 #
 # Scenarios (issue #268 AC):
 #   T1: loads the dependency graph from created-issues.json and reports it.

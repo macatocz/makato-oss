@@ -477,7 +477,7 @@ Both strategies failed. The conflict requires human judgment.
 To validate the union-merge helper used in Step 4 interactively:
 
 ```bash
-plugins/makato-orchestrate/scripts/resolve-append-only-conflict-smoke-tests.sh
+plugins/makato-orchestrate/scripts/tests/resolve-append-only-conflict-smoke-tests.sh
 ```
 
 8 scenarios (T1–T8) covering clean union, single-side additions, both-sides prepend, and malformed-marker edge cases. Exits non-zero on any failure.

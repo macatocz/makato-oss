@@ -13,7 +13,7 @@
 #
 # Uses Python 3 stdlib only (yaml via pyyaml is NOT used — we parse the
 # restricted YAML subset with a hand-written parser matching the pattern
-# established in mark-ac-checkboxes.sh / sync-living-specs.sh).
+# established in mark_ac_checkboxes.py / sync_living_specs.py).
 #
 # Usage:
 #   workflow-schema-loader.sh <repo-root>

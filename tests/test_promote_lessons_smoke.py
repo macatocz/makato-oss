@@ -9,6 +9,7 @@ SMOKE_SCRIPT = (
     / "plugins"
     / "makato-orchestrate"
     / "scripts"
+    / "tests"
     / "promote-lessons-smoke-tests.sh"
 )
 

@@ -1,6 +1,6 @@
 # build.jsonl Field Reference for quality-doc
 
-This is the machine-readable contract between `generate-quality-doc.sh` and the
+This is the machine-readable contract between `generate_quality_doc.py` and the
 `build.jsonl` log written by `makato-build` build steps. Load this reference when
 writing downstream tools that parse the same log or when the Column Semantics table
 in SKILL.md needs to be verified against the actual log format.
@@ -20,7 +20,7 @@ Each line is a valid JSON object:
 
 `step` and `status` are always present. `data` keys vary by step.
 
-## Fields consumed by generate-quality-doc.sh
+## Fields consumed by generate_quality_doc.py
 
 ### Tests Passing
 

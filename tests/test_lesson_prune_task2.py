@@ -1,4 +1,4 @@
-"""Tests for scripts/lesson-prune.sh Task 2 — GRADUATED and STALE detection.
+"""Tests for scripts/lesson_prune.py Task 2 — GRADUATED and STALE detection.
 
 GRADUATED: record text already encoded in an AGENTS.md (verbatim or strong token match).
 STALE: repo_sha not reachable from HEAD AND date >90 days old.
@@ -15,14 +15,14 @@ import subprocess
 from pathlib import Path
 
 WORKTREE = Path(__file__).parent.parent
-SCRIPT = WORKTREE / "plugins" / "makato-orchestrate" / "scripts" / "lesson-prune.sh"
+SCRIPT = WORKTREE / "plugins" / "makato-orchestrate" / "scripts" / "lesson_prune.py"
 
 
 def _run(memory_dir: Path, **extra_env) -> subprocess.CompletedProcess:
     env = {**os.environ, "MAKATO_PRUNE_REPO_OVERRIDE": "macatocz/makato-test"}
     env.update(extra_env)
     return subprocess.run(
-        ["bash", str(SCRIPT), str(memory_dir)],
+        ["python3", str(SCRIPT), str(memory_dir)],
         capture_output=True,
         text=True,
         env=env,
@@ -243,7 +243,7 @@ class TestLessonPruneStale:
             ],
         )
         result = subprocess.run(
-            ["bash", str(SCRIPT), str(memory_dir)],
+            ["python3", str(SCRIPT), str(memory_dir)],
             capture_output=True,
             text=True,
             env={
@@ -278,7 +278,7 @@ class TestLessonPruneStale:
             ],
         )
         result = subprocess.run(
-            ["bash", str(SCRIPT), str(memory_dir)],
+            ["python3", str(SCRIPT), str(memory_dir)],
             capture_output=True,
             text=True,
             env={
@@ -315,7 +315,7 @@ class TestLessonPruneStale:
             ],
         )
         result = subprocess.run(
-            ["bash", str(SCRIPT), str(memory_dir)],
+            ["python3", str(SCRIPT), str(memory_dir)],
             capture_output=True,
             text=True,
             env={
@@ -352,7 +352,7 @@ class TestLessonPruneStale:
             ],
         )
         result = subprocess.run(
-            ["bash", str(SCRIPT), str(memory_dir)],
+            ["python3", str(SCRIPT), str(memory_dir)],
             capture_output=True,
             text=True,
             env={

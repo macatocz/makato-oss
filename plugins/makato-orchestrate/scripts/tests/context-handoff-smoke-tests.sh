@@ -3,7 +3,7 @@
 # handoff path (GAP-004 / #30). Run from the makato repo root.
 #
 # Usage:
-#   plugins/makato-orchestrate/scripts/context-handoff-smoke-tests.sh
+#   plugins/makato-orchestrate/scripts/tests/context-handoff-smoke-tests.sh
 #
 # Test scenarios (per issue #30 AC):
 #   T1: below threshold → no-op (exit 0, no state mutation)

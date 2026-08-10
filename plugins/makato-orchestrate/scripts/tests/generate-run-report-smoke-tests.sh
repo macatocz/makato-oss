@@ -2,7 +2,7 @@
 # Smoke tests for scripts/generate-run-report.sh — per-issue final-envelope
 # aggregation into a run report (#448). Run from the makato repo root:
 #
-#   plugins/makato-orchestrate/scripts/generate-run-report-smoke-tests.sh
+#   plugins/makato-orchestrate/scripts/tests/generate-run-report-smoke-tests.sh
 #
 # Scenarios (issue #448 AC):
 #   T1: mixed batch — one merged issue (github_pr_number) + one halted issue

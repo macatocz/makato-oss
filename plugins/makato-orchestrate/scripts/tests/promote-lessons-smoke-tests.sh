@@ -2,7 +2,7 @@
 # Smoke tests for scripts/promote-lessons.sh.
 #
 # Run from the makato repo root:
-#   plugins/makato-orchestrate/scripts/promote-lessons-smoke-tests.sh
+#   plugins/makato-orchestrate/scripts/tests/promote-lessons-smoke-tests.sh
 #
 # Scenarios:
 #   T1: generalizable record from workflow-state is promoted

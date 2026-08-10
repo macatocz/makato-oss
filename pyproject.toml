@@ -38,6 +38,7 @@ minversion = "8.0"
 testpaths = [
   "tests",
   "plugins/makato-build/shared",
+  "plugins/makato-orchestrate/scripts/tests",
   "plugins/makato-sagibeast/skills/dotx-schema-extractor/tests",
 ]
 python_files = ["test_*.py"]
@@ -58,6 +59,7 @@ addopts = [
   "-ra",
   "--strict-markers",
   "--strict-config",
+  "--import-mode=importlib",
 ]
 
 # ---------------------------------------------------------------------------
@@ -96,3 +98,9 @@ select = ["E", "F", "W", "I"]
 "tests/test_langfuse_hook_trace_id.py" = ["E402", "I001"]
 # test_build_verify_spec.py uses conditional sys.path.insert before imports.
 "plugins/makato-build/shared/test_build_verify_spec.py" = ["E402"]
+# Generated test files for ported orchestrate scripts: sys.path.insert before import,
+# E741 (l var name in list comprehensions), unused pytest import, unsorted imports.
+"plugins/makato-orchestrate/scripts/tests/test_generate_progress.py" = ["E402", "I001"]
+"plugins/makato-orchestrate/scripts/tests/test_generate_quality_doc.py" = ["E402", "I001", "E741"]
+"plugins/makato-orchestrate/scripts/tests/test_emit_needs_planning_signal.py" = ["E402", "I001", "F401"]
+# generate_quality_doc.py uses manual arg parsing for exit-64 parity (no argparse needed).

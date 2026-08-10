@@ -3,7 +3,7 @@
 # (issue #532). Fully offline: no real loop.sh, no gh invocations.
 #
 # Usage:
-#   plugins/makato-orchestrate/scripts/loop-supervisor-smoke-tests.sh
+#   plugins/makato-orchestrate/scripts/tests/loop-supervisor-smoke-tests.sh
 #
 # Scenarios:
 #   T1: live loop with recent dispatch + queued items → no action
@@ -15,7 +15,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SUPERVISOR="$SCRIPT_DIR/loop-supervisor.sh"
+SUPERVISOR="$SCRIPT_DIR/../loop-supervisor.sh"
 
 PASS=0
 FAIL=0

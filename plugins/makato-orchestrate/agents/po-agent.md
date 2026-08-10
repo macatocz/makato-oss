@@ -1129,7 +1129,7 @@ sibling story #348.
 and before the session-end JSONL append, call:
 
 ```bash
-scripts/emit-reshape-request.sh <KEY> <ISSUE_NUMBER>
+python3 scripts/emit_reshape_request.py <KEY> <ISSUE_NUMBER>
 ```
 
 This applies to all structural HALT exits: HALT-003, HALT-STRUCTURAL,
@@ -1142,13 +1142,13 @@ If the script exits non-zero, log a warn to `orchestrate.jsonl`:
 ```
 
 **Do NOT block termination** — the HALT path must always terminate cleanly
-regardless of whether `emit-reshape-request.sh` succeeds.
+regardless of whether `emit_reshape_request.py` succeeds.
 
 **Needs Planning signal (#348, epic #319).** Immediately after
-`bump-structural-halt` and before `emit-reshape-request.sh`, call:
+`bump-structural-halt` and before `emit_reshape_request.py`, call:
 
 ```bash
-scripts/emit-needs-planning-signal.sh <KEY> <ISSUE_NUMBER>
+scripts/emit_needs_planning_signal.py <KEY> <ISSUE_NUMBER>
 ```
 
 The script reads `structural_halt_cycles` from state and compares it to
@@ -1161,7 +1161,7 @@ the loop SKILL.md Prerequisites §*Needs Planning board Status*). The script
 degrades gracefully to label-only when the board option ID is absent or the
 `gh` call fails, and records a WARN in `orchestrate.jsonl`. The call is
 unconditional on the HALT path — the script's own threshold guard keeps it a
-no-op below the threshold. This call is distinct from `emit-reshape-request.sh`
+no-op below the threshold. This call is distinct from `emit_reshape_request.py`
 (serialises the planning context packet); both MUST run on every structural HALT.
 
 If the script exits non-zero (unrecoverable input error only), log a warn to
@@ -1172,7 +1172,7 @@ If the script exits non-zero (unrecoverable input error only), log a warn to
 ```
 
 **Do NOT block termination** — the HALT path must always terminate cleanly
-regardless of whether `emit-needs-planning-signal.sh` succeeds.
+regardless of whether `emit_needs_planning_signal.py` succeeds.
 
 Append session-end to `orchestrate.jsonl` (JSONL `status` maps R1
 status: `success`→`ok`, `partial`→`warn`, `failure`→`error`):
@@ -1276,13 +1276,13 @@ session-end JSONL and R1 `failure`:
    `summarise-lessons` JSONL with `data.terminal_state: "failure"`.
 4a. **Structural HALTs only** (HALT-003, HALT-STRUCTURAL, HALT-010, HALT-008 with
    `data.origin == "outer_iteration"`): call
-   `scripts/emit-needs-planning-signal.sh <KEY> <ISSUE_NUMBER>` and then
-   `scripts/emit-reshape-request.sh <KEY> <ISSUE_NUMBER>`. Both calls apply to
-   all structural HALT exits. `emit-needs-planning-signal.sh` applies the
+   `scripts/emit_needs_planning_signal.py <KEY> <ISSUE_NUMBER>` and then
+   `python3 scripts/emit_reshape_request.py <KEY> <ISSUE_NUMBER>`. Both calls apply to
+   all structural HALT exits. `emit_needs_planning_signal.py` applies the
    `needs-reshape` label and optionally sets board Status to Needs Planning when
    `structural_halt_cycles >= MAKATO_STRUCTURAL_RESHAPE_THRESHOLD` (default 2);
    it exits 0 as a no-op below the threshold so the call is unconditional.
-   `emit-reshape-request.sh` writes `specs/<key>-<slug>/reshape-request.json` —
+   `emit_reshape_request.py` writes `specs/<key>-<slug>/reshape-request.json` —
    the sole orchestrate→plan data contract serializing the failure evidence
    (structural halt_audit entries, structural-trigger lessons_learned trail, last
    CRITICAL coder errors) for `makato-plan` to reshape the story. If either

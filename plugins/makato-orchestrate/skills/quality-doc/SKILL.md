@@ -66,14 +66,14 @@ Run from `REPO_ROOT`:
 
 ```bash
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-bash "$REPO_ROOT/plugins/makato-orchestrate/scripts/generate-quality-doc.sh" \
+python3 "$REPO_ROOT/plugins/makato-orchestrate/scripts/generate_quality_doc.py" \
   --domain <name>
 ```
 
 Optional: override the specs directory (defaults to `$REPO_ROOT/specs`):
 
 ```bash
-bash "$REPO_ROOT/plugins/makato-orchestrate/scripts/generate-quality-doc.sh" \
+python3 "$REPO_ROOT/plugins/makato-orchestrate/scripts/generate_quality_doc.py" \
   --domain <name> --specs-dir /path/to/specs
 ```
 
@@ -82,7 +82,7 @@ carries no `domain:` frontmatter field.
 
 ### Post-merge trigger (automated)
 
-`documentation-agent` Step 7.6 calls `generate-quality-doc.sh --domain
+`documentation-agent` Step 7.6 calls `generate_quality_doc.py --domain
 <domain>` automatically after every PR merge. The domain is derived from the
 merged issue's `plan.md` frontmatter using the same `detect_domain` logic as
 `archive-spec.sh`. This call is **best-effort**: a non-zero exit or a missing
@@ -103,11 +103,11 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 for domain in $(grep -rh '^domain:' "$REPO_ROOT/specs"/*/plan.md 2>/dev/null \
     | sed 's/^domain:[[:space:]]*//' | sort -u); do
   echo "=== domain: $domain ==="
-  bash "$REPO_ROOT/plugins/makato-orchestrate/scripts/generate-quality-doc.sh" \
+  python3 "$REPO_ROOT/plugins/makato-orchestrate/scripts/generate_quality_doc.py" \
     --domain "$domain"
 done
 # Issues with no domain: frontmatter fall under 'general'
-bash "$REPO_ROOT/plugins/makato-orchestrate/scripts/generate-quality-doc.sh" \
+python3 "$REPO_ROOT/plugins/makato-orchestrate/scripts/generate_quality_doc.py" \
   --domain general
 ```
 
@@ -229,8 +229,8 @@ and HALTs columns together to assess overall build health.
 ## Test hook
 
 `MAKATO_QUALITY_SPECS_DIR` overrides the specs directory for offline tests
-(mirrors `MAKATO_REPORT_SPECS_DIR` in `generate-run-report.sh`). The 6 smoke
-tests in `generate-quality-doc-smoke-tests.sh` cover: empty domain (T1),
+(mirrors `MAKATO_REPORT_SPECS_DIR` in `generate-run-report.sh`). The 6 pytest
+scenarios in `tests/test_generate_quality_doc.py` cover: empty domain (T1),
 full happy-path row (T2), sensor findings (T3), halt_audit entries (T4),
 idempotency with preserved Evolution Log (T5), and absent `build.jsonl` (T6).
 
@@ -252,6 +252,6 @@ idempotency with preserved Evolution Log (T5), and absent `build.jsonl` (T6).
 
 ## See also
 
-- `plugins/makato-orchestrate/scripts/generate-quality-doc.sh` — the script this skill documents.
-- `plugins/makato-orchestrate/scripts/generate-quality-doc-smoke-tests.sh` — 6 offline smoke-test scenarios.
+- `plugins/makato-orchestrate/scripts/generate_quality_doc.py` — the script this skill documents.
+- `plugins/makato-orchestrate/scripts/tests/test_generate_quality_doc.py` — 6 offline pytest scenarios.
 - `references/build-jsonl-fields.md` — exact field names, key aliases, and halt_audit structure consumed by the script.

@@ -1,9 +1,9 @@
-"""Tests for scripts/lesson-prune.sh (Task 1 — DUPLICATE/CONSOLIDATE/KEEP classification).
+"""Tests for scripts/lesson_prune.py (Task 1 — DUPLICATE/CONSOLIDATE/KEEP classification).
 
-Tests call the shell script via subprocess with a temp directory as MEMORY_DIR.
+Tests call the Python module via subprocess with a temp directory as MEMORY_DIR.
 Fully offline — no git remote access required.
 
-The script reads .makato/memory/procedural.jsonl and semantic.jsonl, classifies
+The module reads .makato/memory/procedural.jsonl and semantic.jsonl, classifies
 each record, and emits one JSON line per record on stdout:
   {key, action, reason, target}
 
@@ -19,15 +19,15 @@ import subprocess
 from pathlib import Path
 
 WORKTREE = Path(__file__).parent.parent
-SCRIPT = WORKTREE / "plugins" / "makato-orchestrate" / "scripts" / "lesson-prune.sh"
+SCRIPT = WORKTREE / "plugins" / "makato-orchestrate" / "scripts" / "lesson_prune.py"
 
 
 def _run(memory_dir: Path, **extra_env) -> subprocess.CompletedProcess:
-    """Invoke lesson-prune.sh with MEMORY_DIR as the positional argument."""
+    """Invoke lesson_prune.py with MEMORY_DIR as the positional argument."""
     env = {**os.environ, "MAKATO_PRUNE_REPO_OVERRIDE": "macatocz/makato-test"}
     env.update(extra_env)
     return subprocess.run(
-        ["bash", str(SCRIPT), str(memory_dir)],
+        ["python3", str(SCRIPT), str(memory_dir)],
         capture_output=True,
         text=True,
         env=env,

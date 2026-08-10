@@ -1,35 +1,36 @@
-"""RED test for Task 4: lesson-prune-smoke-tests.sh must exist and pass all 12 scenarios."""
+"""Test for Task 4: test_lesson_prune.py must exist and pytest passes all scenarios."""
 
 import subprocess
 from pathlib import Path
 
 WORKTREE = Path(__file__).parent.parent
-SMOKE_SCRIPT = (
+PYTEST_TEST = (
     WORKTREE
     / "plugins"
     / "makato-orchestrate"
     / "scripts"
-    / "lesson-prune-smoke-tests.sh"
+    / "tests"
+    / "test_lesson_prune.py"
 )
 
 
 def test_smoke_script_exists():
-    assert SMOKE_SCRIPT.exists(), f"Smoke test script not found: {SMOKE_SCRIPT}"
+    assert PYTEST_TEST.exists(), f"Pytest test file not found: {PYTEST_TEST}"
 
 
 def test_smoke_script_all_scenarios_pass():
-    """Run the smoke test script — must exit 0 (all 12 scenarios pass)."""
+    """Run the pytest suite — must exit 0 (all scenarios pass)."""
     result = subprocess.run(
-        ["bash", str(SMOKE_SCRIPT)],
+        ["python3", "-m", "pytest", str(PYTEST_TEST), "-v", "--tb=short"],
         capture_output=True,
         text=True,
         cwd=str(WORKTREE),
         timeout=90,
     )
     assert result.returncode == 0, (
-        f"Smoke tests failed (exit {result.returncode}).\n"
+        f"Pytest failed (exit {result.returncode}).\n"
         f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
     )
-    assert "All lesson-prune-smoke-tests passed" in result.stdout, (
-        f"Expected success banner not found.\nSTDOUT:\n{result.stdout}"
+    assert "passed" in result.stdout, (
+        f"Expected 'passed' banner not found.\nSTDOUT:\n{result.stdout}"
     )
