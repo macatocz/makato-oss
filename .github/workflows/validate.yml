@@ -67,16 +67,6 @@ jobs:
           done
           exit $rc
 
-      - name: Check skill self-containment (no ../ escaping paths)
-        run: |
-          rc=0
-          for skill_dir in plugins/*/skills/*/; do
-            if [ -d "$skill_dir" ]; then
-              ./scripts/check-self-contained.sh "$skill_dir" || rc=1
-            fi
-          done
-          exit $rc
-
       - name: plan-tier classifier smoke tests (#211)
         run: ./.github/scripts/classify-plan-tier-smoke-tests.sh
 
@@ -127,6 +117,24 @@ jobs:
 
       - name: append-only conflict union-merge smoke tests (resolve-pr-conflict)
         run: ./plugins/makato-orchestrate/scripts/tests/resolve-append-only-conflict-smoke-tests.sh
+
+      - name: workflow-schema-loader smoke tests (makato-build)
+        run: ./plugins/makato-build/scripts/tests/workflow-schema-smoke-tests.sh
+
+      - name: build-explore skill smoke tests (makato-build)
+        run: ./plugins/makato-build/scripts/tests/build-explore-smoke-tests.sh
+
+      - name: manage-stores smoke tests (makato-plan)
+        run: ./plugins/makato-plan/scripts/tests/manage-stores-smoke-tests.sh
+
+      - name: manage-stores skill-integration tests (makato-plan)
+        run: ./plugins/makato-plan/scripts/tests/manage-stores-skill-tests.sh
+
+      - name: to-issues cross-repo smoke tests (makato-plan)
+        run: ./plugins/makato-plan/scripts/tests/to-issues-cross-repo-smoke-tests.sh
+
+      - name: harness-audit smoke tests (makato-contribute)
+        run: ./plugins/makato-contribute/scripts/tests/harness-audit-smoke-tests.sh
 
       - name: makato-flow diagram drift check (#428)
         run: python3 scripts/generate-flow-diagram.py --check

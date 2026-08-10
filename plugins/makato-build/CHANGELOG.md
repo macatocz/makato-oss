@@ -7,6 +7,14 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Changed — script smoke tests relocated to `scripts/tests/` + wired into CI
+
+Moved `scripts/workflow-schema-smoke-tests.sh` and `scripts/build-explore-smoke-tests.sh`
+into `scripts/tests/` (matching the makato-orchestrate `scripts/tests/` convention) and
+added CI steps in `.github/workflows/validate.yml` — these bash smoke suites previously
+ran in no workflow. Fixed the co-located target resolvers (`$SCRIPT_DIR/../…`). No
+production-script or test-logic changes.
+
 ### `gate-scout` + `build-verify` — Gate 6 runtime health-check (#580)
 
 Adds discovery and execution of a project-level health or smoke command so the verify

@@ -21,7 +21,7 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOADER="$SCRIPT_DIR/workflow-schema-loader.sh"
+LOADER="$SCRIPT_DIR/../workflow-schema-loader.sh"
 FAIL=0
 
 _pass() { printf '  ok  %s\n' "$1"; }

@@ -5,6 +5,10 @@ Changes are grouped by skill/agent/component. Within each group, latest version 
 
 ## [Unreleased]
 
+### Changed
+
+- **Script smoke tests relocated to `scripts/tests/` + wired into CI** — moved `manage-stores-smoke-tests.sh`, `manage-stores-skill-tests.sh`, and `to-issues-cross-repo-smoke-tests.sh` into `scripts/tests/` (matching the makato-orchestrate convention) and added CI steps in `.github/workflows/validate.yml`; these bash suites previously ran in no workflow. Move-safe resolvers (`git rev-parse`) unchanged; no test-logic changes.
+
 ### Fixed
 
 - **`issue-to-project` skill** — Step 3 FIELD_NOT_FOUND check now uses a dedicated `gh project field-list` call instead of reading a non-existent `fields` key from the `item-list` payload (#648).

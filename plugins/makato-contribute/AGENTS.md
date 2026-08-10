@@ -64,7 +64,8 @@ makato-contribute/
 │       └── references/
 ├── scripts/
 │   ├── harness-audit.sh          # Pure classifier: AGENTS.md sections + agent frontmatter (no mutation)
-│   └── harness-audit-smoke-tests.sh  # 8 scenarios T1–T8
+│   └── tests/
+│       └── harness-audit-smoke-tests.sh  # 8 scenarios T1–T8
 ├── shared/             # Cross-skill references (optional)
 ├── CLAUDE.md
 ├── AGENTS.md
