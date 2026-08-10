@@ -1,4 +1,4 @@
-# context-scout navigation index for the makato repo.
+# context-scout navigation index for the makato-oss repo.
 #
 # context-scout reads this file first (Step 2) to narrow scope before scanning:
 # it matches a feature's KEYWORDS against each entry's `keywords`, then reads
