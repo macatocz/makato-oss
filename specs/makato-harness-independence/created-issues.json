@@ -1,0 +1,196 @@
+{
+  "schema_version": "1",
+  "slug": "makato-harness-independence",
+  "issues": [
+    {
+      "issue_number": 3,
+      "url": "https://github.com/macatocz/makato-oss/issues/3",
+      "title": "[makato-oss] Fork bootstrap + Phase-0 spike: headless omp dispatch on an open model",
+      "labels": [
+        "type:feat",
+        "tier:foundation",
+        "tech:harness",
+        "tech:skill",
+        "effort:l",
+        "points:8",
+        "priority:p0"
+      ],
+      "blocked_by": []
+    },
+    {
+      "issue_number": 4,
+      "url": "https://github.com/macatocz/makato-oss/issues/4",
+      "title": "[makato-oss] loop.sh dispatches the po-agent via oh-my-pi instead of claude -p",
+      "labels": [
+        "type:feat",
+        "tier:foundation",
+        "tech:harness",
+        "tech:gh-cli",
+        "effort:l",
+        "points:8",
+        "priority:p0",
+        "blocked-by:3"
+      ],
+      "blocked_by": [
+        3
+      ]
+    },
+    {
+      "issue_number": 5,
+      "url": "https://github.com/macatocz/makato-oss/issues/5",
+      "title": "[makato-oss] modelRoles config; drop haiku/sonnet/opus across all agents",
+      "labels": [
+        "type:feat",
+        "tier:foundation",
+        "tech:harness",
+        "effort:l",
+        "points:8",
+        "priority:p0",
+        "blocked-by:3"
+      ],
+      "blocked_by": [
+        3
+      ]
+    },
+    {
+      "issue_number": 6,
+      "url": "https://github.com/macatocz/makato-oss/issues/6",
+      "title": "[makato-oss] Cross-platform portability remediation + state/transcript path re-homing",
+      "labels": [
+        "type:feat",
+        "tier:happy-path",
+        "tech:python",
+        "tech:harness",
+        "effort:m",
+        "points:5",
+        "priority:p1",
+        "blocked-by:3"
+      ],
+      "blocked_by": [
+        3
+      ]
+    },
+    {
+      "issue_number": 7,
+      "url": "https://github.com/macatocz/makato-oss/issues/7",
+      "title": "[makato-oss] One Ready issue -> merged PR, headless, open model (MVP independence proof)",
+      "labels": [
+        "type:feat",
+        "tier:happy-path",
+        "effort:m",
+        "points:5",
+        "priority:p1",
+        "blocked-by:4",
+        "blocked-by:5",
+        "blocked-by:6"
+      ],
+      "blocked_by": [
+        4,
+        5,
+        6
+      ]
+    },
+    {
+      "issue_number": 8,
+      "url": "https://github.com/macatocz/makato-oss/issues/8",
+      "title": "[makato-oss] Survive Vast.ai preemption: persistent volume + reconcile-before-resume",
+      "labels": [
+        "type:feat",
+        "tier:edge-cases",
+        "effort:l",
+        "points:8",
+        "priority:p3",
+        "blocked-by:7"
+      ],
+      "blocked_by": [
+        7
+      ]
+    },
+    {
+      "issue_number": 9,
+      "url": "https://github.com/macatocz/makato-oss/issues/9",
+      "title": "[makato-oss] Offline continuation: local board mirror + bidirectional sync daemon",
+      "labels": [
+        "type:feat",
+        "tier:edge-cases",
+        "tech:gh-cli",
+        "effort:l",
+        "points:8",
+        "priority:p3",
+        "blocked-by:7"
+      ],
+      "blocked_by": [
+        7
+      ]
+    },
+    {
+      "issue_number": 10,
+      "url": "https://github.com/macatocz/makato-oss/issues/10",
+      "title": "[makato-oss] Co-located dev stack + on-instance vLLM + unified Langfuse (one container, two projects)",
+      "labels": [
+        "type:feat",
+        "tier:happy-path",
+        "effort:m",
+        "points:5",
+        "priority:p1",
+        "blocked-by:7"
+      ],
+      "blocked_by": [
+        7
+      ]
+    },
+    {
+      "issue_number": 11,
+      "url": "https://github.com/macatocz/makato-oss/issues/11",
+      "title": "[makato-oss] Real Playwright E2E against the live sagibeast dev copy",
+      "labels": [
+        "type:feat",
+        "tier:edge-cases",
+        "tech:skill",
+        "effort:m",
+        "points:3",
+        "priority:p3",
+        "blocked-by:10"
+      ],
+      "blocked_by": [
+        10
+      ]
+    },
+    {
+      "issue_number": 12,
+      "url": "https://github.com/macatocz/makato-oss/issues/12",
+      "title": "[makato-oss] Per-step success metrics across an open-only run",
+      "labels": [
+        "type:feat",
+        "tier:happy-path",
+        "effort:m",
+        "points:5",
+        "priority:p1",
+        "blocked-by:7",
+        "blocked-by:10"
+      ],
+      "blocked_by": [
+        7,
+        10
+      ]
+    },
+    {
+      "issue_number": 13,
+      "url": "https://github.com/macatocz/makato-oss/issues/13",
+      "title": "[makato-oss] Closed-model LLM-judge + manual model-switch of one role",
+      "labels": [
+        "type:feat",
+        "tier:edge-cases",
+        "effort:m",
+        "points:5",
+        "priority:p3",
+        "blocked-by:12",
+        "blocked-by:5"
+      ],
+      "blocked_by": [
+        12,
+        5
+      ]
+    }
+  ]
+}
