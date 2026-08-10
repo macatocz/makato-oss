@@ -2,7 +2,7 @@
 # harness-audit.sh — classify AGENTS.md sections and agent frontmatter
 #
 # Pure classification helper — no file mutation, stdout-only.
-# Analogous to plugins/makato-orchestrate/scripts/lesson-prune.sh.
+# Analogous to plugins/makato-orchestrate/scripts/lesson_prune.py.
 #
 # Usage:
 #   harness-audit.sh [REPO_ROOT]
@@ -26,7 +26,7 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
-# Resolve REPO_ROOT (mirrors lesson-prune.sh logic).
+# Resolve REPO_ROOT (mirrors lesson_prune.py logic).
 # ---------------------------------------------------------------------------
 if [[ -n "${1:-}" && "$1" != "--non-interactive" ]]; then
   REPO_ROOT="$1"

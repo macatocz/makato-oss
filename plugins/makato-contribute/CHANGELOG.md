@@ -14,6 +14,7 @@ Changes are grouped by skill/agent/component. Within each group, latest version 
 ## harness-audit skill
 
 **1.0.0**
+- Updated two source-comment references in `scripts/harness-audit.sh` (`lesson-prune.sh` → `lesson_prune.py`) to track the makato-orchestrate Python port. Comments only — no behaviour change.
 - Added `skills/harness-audit/SKILL.md` — operator-gated audit skill that scans all `plugins/*/AGENTS.md` for line-count bloat (threshold: >150 lines) and sections lacking a `#NNN` or `specs/` cross-reference; classifies sections as `KEEP`, `BLOAT`, `REDUNDANT`, or `MOVE-TO-SKILL`. Also scans all `plugins/*/agents/*.md` frontmatter for `permissionMode`/`disallowedTools` inconsistencies, classifying each agent as `OK`, `MISSING_PM`, or `READ_WRITE_MISMATCH`. Human-gated (`[y/N]` approval before any report is expanded); `--non-interactive` flag exits 0 safely. Never mutates files.
 - Added `scripts/harness-audit.sh` — pure classification helper (no mutation, stdout-only); accepts optional `REPO_ROOT` argument; emits one JSON finding per stdout line.
 - Added `scripts/harness-audit-smoke-tests.sh` — 8 scenarios covering KEEP/BLOAT/OK/MISSING_PM/READ_WRITE_MISMATCH, known write-capable whitelist, `--non-interactive` flag, and empty-plugins-dir no-op.
