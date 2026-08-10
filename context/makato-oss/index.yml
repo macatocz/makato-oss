@@ -7,7 +7,7 @@
 # synonyms; keep `tier` aligned with context-scout's relevance tiers
 # (critical | high | medium).
 
-repo: makato
+repo: makato-oss
 
 entries:
   - path: product/vision.md
