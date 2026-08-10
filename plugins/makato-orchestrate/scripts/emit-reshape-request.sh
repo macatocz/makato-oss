@@ -45,8 +45,6 @@ fi
 # Resolve repo root via --git-common-dir so the script works from a worktree.
 # Mirrors the pattern in workflow-state.sh and build-log.sh.
 # ---------------------------------------------------------------------------
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 GIT_COMMON_DIR="$(git rev-parse --git-common-dir 2>/dev/null || true)"
 if [[ -n "$GIT_COMMON_DIR" ]]; then
   REPO_ROOT="$(cd "$GIT_COMMON_DIR/.." && pwd)"
@@ -56,7 +54,6 @@ fi
 
 SPECS_DIR="${MAKATO_EMIT_RESHAPE_SPECS_DIR:-$REPO_ROOT/specs}"
 WS="$REPO_ROOT/plugins/makato-orchestrate/shared/workflow-state.sh"
-BUILD_LOG="$REPO_ROOT/plugins/makato-build/shared/build-log.sh"
 SCHEMA="$REPO_ROOT/plugins/makato-orchestrate/scripts/emit-reshape-request.schema.json"
 
 # ---------------------------------------------------------------------------

@@ -145,6 +145,7 @@ _worker_status() {
 # in-flight (current_phase != done). Returns 1 (safe) otherwise.
 # Read-only: never mutates workflow-state or board.
 # ---------------------------------------------------------------------------
+# shellcheck disable=SC2329  # not yet wired into _spawn_worker; retained with test coverage pending the co-schedule guard (see loop-fleet-smoke-tests.sh)
 _is_same_folder_inflight() {
   local target_issue="$1"
   [[ -d "$SPECS_DIR" ]] || return 1

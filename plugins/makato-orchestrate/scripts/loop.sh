@@ -447,6 +447,9 @@ STALL_TERM_GRACE_SECS="${MAKATO_LOOP_STALL_TERM_GRACE:-30}"
 #   STALL_BACKOFF_BASE_SECS — base interval for exponential backoff
 #     between restart attempts.
 # All defaults leave existing behavior unchanged when the vars are unset.
+# shellcheck disable=SC2034  # documented #444 stall threshold; sibling vars are
+# wired (MAX_STALL_RESTARTS/STALL_BACKOFF_BASE_SECS), this one is retained as the
+# canonical default and asserted by loop-smoke-tests T-STALL-5.
 STALL_THRESHOLD_SECS="${MAKATO_LOOP_STALL_THRESHOLD:-300}"
 MAX_STALL_RESTARTS="${MAKATO_MAX_STALL_RESTARTS:-3}"
 STALL_BACKOFF_BASE_SECS="${MAKATO_STALL_BACKOFF_BASE:-60}"
@@ -742,6 +745,7 @@ _read_project_config() {
 # repository/labels for Issues and PullRequests. DraftIssues carry no number
 # and are dropped by the remap (cmd_poll filters to Issue anyway).
 # ---------------------------------------------------------------------------
+# shellcheck disable=SC2016  # jq/GraphQL program: $-tokens are query variables, not shell expansions
 BOARD_QUERY='query($pid:ID!,$cursor:String){
   rateLimit { cost remaining }
   node(id:$pid){ ... on ProjectV2 {
@@ -843,6 +847,7 @@ _board_via_graphql() {
 # place of the real `gh api graphql` call and must echo a GraphQL-shaped
 # response (same contract as MAKATO_LOOP_GRAPHQL_TEST_CMD).
 # ---------------------------------------------------------------------------
+# shellcheck disable=SC2016  # jq/GraphQL program: $-tokens are query variables, not shell expansions
 _ITEM_ID_QUERY='query($owner:String!,$repo:String!,$num:Int!){
   repository(owner:$owner,name:$repo){
     issue(number:$num){
@@ -4554,7 +4559,7 @@ _reap_merged_worktrees() {
     # worth preserving and must not pin a worktree forever, so `--porcelain`
     # `??` lines are filtered out. Staged/modified/deleted TRACKED paths still
     # veto removal (that is real uncommitted work).
-    if [[ -n "$(git -C "$rp" status --porcelain 2>/dev/null | grep -v '^??')" ]]; then
+    if git -C "$rp" status --porcelain 2>/dev/null | grep -qv '^??'; then
       echo "loop: reap skip $rp (dirty working tree — tracked changes)" >&2; return 0
     fi
     # Guard 7: retained via workflow-state.
@@ -4849,7 +4854,7 @@ _reap_orphan_specs() {
       # promote step fails (non-zero — a genuine I/O error), we KEEP the folder
       # so the lessons are never lost; a clean exit (promoted or nothing to
       # promote) authorises removal.
-      local promote_sh="$(dirname "$0")/promote-lessons.sh"
+      local promote_sh; promote_sh="$(dirname "$0")/promote-lessons.sh"
       if [[ -f "$promote_sh" ]]; then
         if ! bash "$promote_sh" "$issue_num" "$spec_root" \
                "${REPO_ROOT}/.makato/memory/procedural.jsonl" >/dev/null 2>&1; then
@@ -5330,6 +5335,7 @@ cmd_dispatch() {
     # dispatch regardless of orphan status.
     local gate_veto_label=""
     if [[ -n "$gate_labels_json" ]]; then
+      # shellcheck disable=SC2086  # intentional word-split: space-separated labels → one per line for jq -R (mirrors line ~3515)
       gate_veto_label="$(jq -r \
         --argjson excl "$(printf '%s\n' $_PROMOTE_EXCLUSION_LABELS | jq -R . | jq -s .)" \
         '[.labels[].name] as $lbls | $excl[] | select(. as $e | $lbls | any(. == $e)) | .' \
