@@ -5,6 +5,31 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Changed
+- **`loop.sh` refactor — main flow + split-out functions/config (spaghetti cleanup)**: `loop.sh` shrank from ~6990 to ~750 lines. Behaviour unchanged; every parameter keeps its original environment-variable override.
+  - `scripts/functions.sh` (new) — all helper and `cmd_*` functions except `cmd_run`. Sourced by `loop.sh` at startup. Override its path via `MAKATO_LOOP_FUNCTIONS`.
+  - `config/config.yml` (new) — declarative source of truth for every tunable parameter. `config/parse-config.py` emits bash `NAME="${ENV:-default}"` assignments (PyYAML when present, stdlib fallback otherwise). Override paths via `MAKATO_LOOP_CONFIG_YML` / `MAKATO_LOOP_CONFIG_PARSER`.
+  - `config/config.md` (new) — full per-parameter documentation with env overrides and defaults.
+  - `loop.sh -h | --help | help` (new) — short subcommand + flag overview; short-circuits before any git/config work so it runs from anywhere.
+  - Long inline comments trimmed to 1–2 lines. The incident history they carried is summarised below and in `config/config.md`; issue numbers are retained inline as references.
+
+<!-- markdownlint-disable-next-line MD024 -->
+### loop.sh incident-history digest (was inline comments)
+- **#171** — macOS suspend/resume makes `sleep` return early; `_guarded_sleep` re-enters raw sleep in ≤`SLEEP_MAX_STEP_SECS` chunks until wall-clock elapses. Idempotent-dispatch guard refuses re-dispatch of an in-flight/just-dispatched issue.
+- **#172** — a second `loop.sh` against the same state dir double-dispatches; run-mutex pidfile + startup audit record process identity. `--force` reclaims a live incumbent (SIGTERM→SIGKILL after `FORCE_GRACE_SECS`).
+- **#259** — cross-worktree double-dispatch race; synchronous board CAS claim (Ready→In progress) makes the board the shared lock. Forward-only, best-effort.
+- **#265 / #320** — merged and stale-crash worktrees pile up on local disk; pre-poll reaper removes them (throttled by `REAP_INTERVAL_SECS`). Orphaned untracked `specs/` folders pruned in the same pass.
+- **#289** — a rate-limited board poll used to masquerade as an empty queue; `_gh_project_item_list` retries with backoff and propagates failure distinctly from an empty result.
+- **#318 / #355** — read-only pre-dispatch gate refuses issues whose PR already merged or whose workflow-state is non-done.
+- **#368 / #616** — In-progress cards with no live workflow-state (or a dead/stale one) are reconciled to Blocked + needs-human-review.
+- **#444 / #531 / #532** — stall recovery: classify a no-output PO-agent, bounded restart with backoff, resume an exited-incomplete run, escalate to the watchdog kill.
+- **#447** — critical `gh` reads fall back to REST and treat unparseable JSON as failure, never as an empty result.
+- **#516** — GraphQL board poll (flat 1 point/page) replaces `item-list --limit 9999`; adaptive idle backoff grows the interval when the queue is empty.
+- **#556 / #683** — GraphQL rate-limit guard sleeps until reset below `GRAPHQL_MIN_REMAINING`; circuit-breaker after repeated skips.
+- **#587** — pre-flight tool-dependency + `gh` auth check before the mutex.
+- **#597** — optional prune pass removes done+stale `workflow-state-*.json`.
+- **#743** — session-safety guard aborts when the loop is a descendant of a bg/headless session that would SIGTERM it.
+
 ### Breaking Changes
 - **Board Status=Ready as sole dispatch condition (#688)**: `status:ready-for-dev` is no longer the dispatch signal. Board Status=Ready is now authoritative end-to-end.
   - `_promote_labelled_ready` function removed from `loop.sh` — no more pre-poll label→board bridge.

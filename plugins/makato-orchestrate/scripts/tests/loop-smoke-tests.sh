@@ -5090,14 +5090,15 @@ echo "  ✓ no origin (legacy): needs-human-review applied (backward-compat)"
 # still pass (no behavior change with default values -- regression guard).
 # ---------------------------------------------------------------------------
 echo "=== T-STALL-5: stall-recovery config vars resolve to defaults ==="
-# Extract the three assignment lines from loop.sh and evaluate them in an
-# isolated subshell with the MAKATO_* env vars unset.  This avoids sourcing
-# the full script (which has top-level mkdir/git calls that require a real
-# git repo and writable state dir) while still testing that the lines
-# actually exist and produce the correct default values.
-t_stall5_lines="$(grep -E '^(STALL_THRESHOLD_SECS|MAX_STALL_RESTARTS|STALL_BACKOFF_BASE_SECS)=' "$LOOP")"
+# The three vars are now emitted by config/parse-config.py from config.yml
+# (relocated out of loop.sh). Run the parser and eval its output in an isolated
+# subshell with the MAKATO_* env vars unset — still testing that the assignments
+# exist and produce the correct defaults, without sourcing the full script.
+t_stall5_config_dir="$(cd "$(dirname "$LOOP")/../config" && pwd)"
+t_stall5_lines="$(python3 "$t_stall5_config_dir/parse-config.py" "$t_stall5_config_dir/config.yml" \
+  | grep -E '^(STALL_THRESHOLD_SECS|MAX_STALL_RESTARTS|STALL_BACKOFF_BASE_SECS)=')"
 [[ -n "$t_stall5_lines" ]] \
-  || fail "T-STALL-5: none of the three stall-recovery vars found in loop.sh"
+  || fail "T-STALL-5: none of the three stall-recovery vars found in config.yml/parse-config.py"
 t_stall5_out="$(
   unset MAKATO_LOOP_STALL_THRESHOLD MAKATO_MAX_STALL_RESTARTS MAKATO_STALL_BACKOFF_BASE
   eval "$t_stall5_lines"
@@ -6144,13 +6145,18 @@ cat > "$T83_SPECS/88-no-validate-feature/plan.md" << 'PLANEOF'
 PLANEOF
 
 # Run loop from a temp dir that has no validate-plan-body.sh alongside it.
+# loop.sh is copied alone; point it at the real functions.sh + config.yml so
+# the split-file layout still resolves from the temp dir (#relocate).
 t83_loop_copy="$T83_DIR/loop.sh"
 cp "$LOOP" "$t83_loop_copy"
 chmod +x "$t83_loop_copy"
+t83_scripts_dir="$(cd "$(dirname "$LOOP")" && pwd)"
 # $0 inside the subshell will be t83_loop_copy; dirname $0 = T83_DIR — no validate-plan-body.sh there.
 
 t83_verdict="$(
   MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_FUNCTIONS="$t83_scripts_dir/functions.sh" \
+  MAKATO_LOOP_CONFIG_YML="$t83_scripts_dir/../config/config.yml" \
   SPECS_DIR="$T83_SPECS" REPO_ROOT="$T83_DIR" \
     "$t83_loop_copy" _test-pre-dispatch-plan-guard '88-no-validate-feature'
 )" 2>/dev/null

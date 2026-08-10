@@ -112,10 +112,12 @@ makato-orchestrate hosts the top-level orchestrator and supporting read-only sco
 makato-orchestrate/
 ├── .claude-plugin/plugin.json
 ├── agents/       context-summariser, documentation-agent, light-planner, po-agent, task-file-scout
+├── config/       config.yml (loop.sh tunables), parse-config.py, config.md, skill-bundles.yml
 ├── hooks/        check-halt, clock-out, session-status (+ *-smoke-tests.sh)
-├── scripts/      loop, promote-ready, context-handoff, should-materialize-spec, validate-plan-body,
-│                 emit-reshape-request, mark-ac-checkboxes, sync-living-specs, resolve-append-only-conflict,
-│                 generate-{run,layer,progress}-report, generate-quality-doc
+├── scripts/      loop (main flow), functions.sh (loop helpers), promote-ready, context-handoff,
+│                 should-materialize-spec, validate-plan-body, emit-reshape-request, mark-ac-checkboxes,
+│                 sync-living-specs, resolve-append-only-conflict, generate-{run,layer,progress}-report,
+│                 generate-quality-doc
 │   └── tests/    *-smoke-tests.sh and *-integration-tests.sh twins for all scripts/
 ├── skills/       workflow-state, kill-switch, loop, promote-ready, resolve-pr-conflict,
 │                 session-status, quality-doc, archive-spec, lesson-prune
