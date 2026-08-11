@@ -66,6 +66,8 @@ fi
 STATE_DIR="${MAKATO_LOOP_STATE_DIR:-$REPO_ROOT/.claude/state}"
 PIDFILE="${MAKATO_LOOP_PIDFILE:-$STATE_DIR/loop.pid}"
 STATUS_FILE="$STATE_DIR/loop-status.json"
+# HALT_FILE is intentionally operator-global (HALT-000) — the documented
+# exception to issue #6 path re-homing. Do NOT default it under STATE_DIR.
 HALT_FILE="${MAKATO_HALT_FILE:-$HOME/.claude/HALT}"
 STALE_SECS="${SUPERVISOR_STALE_SECS:-600}"
 AUDIT_LOG="${MAKATO_SUPERVISOR_AUDIT:-$STATE_DIR/supervisor-audit.jsonl}"

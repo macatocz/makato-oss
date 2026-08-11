@@ -62,6 +62,10 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 SPECS_DIR="${SPECS_DIR:-$REPO_ROOT/specs}"
 STATE_DIR="${MAKATO_LOOP_STATE_DIR:-$REPO_ROOT/.claude/state}"
 STATUS_FILE="$STATE_DIR/loop-status.json"
+# HALT_FILE is intentionally operator-global (HALT-000): one file stops every
+# loop/fleet/supervisor on the host. It is the documented exception to issue #6
+# path re-homing — do NOT move its default under STATE_DIR. Override per-run
+# with MAKATO_HALT_FILE.
 HALT_FILE="${MAKATO_HALT_FILE:-$HOME/.claude/HALT}"
 CLAUDE_BIN="${MAKATO_HARNESS_BIN:-omp}"
 CONFIG_FILE="${MAKATO_LOOP_CONFIG:-$REPO_ROOT/.claude/config.json}"
