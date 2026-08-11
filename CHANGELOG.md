@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.153.2](https://github.com/macatocz/makato-oss/compare/v0.153.1...v0.153.2) (2026-08-11)
+
+
+### 🐛 Bug Fixes
+
+* finish harness-independence [#5](https://github.com/macatocz/makato-oss/issues/5)/[#6](https://github.com/macatocz/makato-oss/issues/6) acceptance tests + repo-wide pytest collection ([7130fb7](https://github.com/macatocz/makato-oss/commit/7130fb7599452f82fdede263a1a1cfdadc0e2e13))
+* **makato-orchestrate:** declare models: block in config.yml for 10 modelRoles ([#5](https://github.com/macatocz/makato-oss/issues/5)) ([950687a](https://github.com/macatocz/makato-oss/commit/950687a78c3f4a99d45106d4a86538b7797df9cc))
+* **makato-sagibeast:** make dotx-schema-extractor tests collectable at repo root ([022a71c](https://github.com/macatocz/makato-oss/commit/022a71c2217343250384d844251c63ee6cb8f4ae))
+
 ## [0.153.1](https://github.com/macatocz/makato-oss/compare/v0.153.0...v0.153.1) (2026-08-11)
 
 
