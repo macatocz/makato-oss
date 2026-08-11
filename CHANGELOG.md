@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.153.1](https://github.com/macatocz/makato-oss/compare/v0.153.0...v0.153.1) (2026-08-11)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** add &lt;/dev/null to _auto_seed_dispatch_light to prevent TSV pipe drain ([b4e2213](https://github.com/macatocz/makato-oss/commit/b4e221378ebaf21f7b167f14d2386fdec431898d))
+* **makato-orchestrate:** add &lt;/dev/null to _auto_seed_dispatch_light to prevent TSV pipe drain ([7df56f9](https://github.com/macatocz/makato-oss/commit/7df56f96eb18adbaea29488c5e5ea82be9aa60ec))
+* **makato-orchestrate:** remove Claude Code-specific CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS from harness-independent dispatch ([5c811b4](https://github.com/macatocz/makato-oss/commit/5c811b4c7011620afc7583770619a6bebd51c42f))
+
 ## [0.153.0](https://github.com/macatocz/makato-oss/compare/v0.152.0...v0.153.0) (2026-08-11)
 
 
