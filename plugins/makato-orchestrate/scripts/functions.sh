@@ -2321,7 +2321,6 @@ _auto_seed_dispatch_light() {
     # explicit stdin redirect the child process drains the TSV pipe, causing
     # subsequent loop iterations to receive EOF and silently drop candidates.
     MAKATO_HEADLESS=1 \
-    CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 \
     ISSUE_NUMBER="$issue" \
     REPO="$repo" \
     REPO_ROOT="$REPO_ROOT" \
@@ -2329,7 +2328,6 @@ _auto_seed_dispatch_light() {
   else
     # Production path: mirror the belt-and-braces invocation cmd_dispatch uses.
     # </dev/null: same TSV-pipe guard as the test-hook path above.
-    CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 \
     MAKATO_HEADLESS=1 \
     ISSUE_NUMBER="$issue" \
     REPO="$repo" \
@@ -3704,9 +3702,8 @@ cmd_dispatch() {
       $child_cmd >"$log_file" 2>&1 &
       local child_pid=$!
     else
-      # Production path: omp --yolo keeps log mtime alive for watchdog (#146); CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 prevents 600s kill of background po-agent.
-      CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 \
-        MAKATO_HEADLESS=1 "$CLAUDE_BIN" --yolo \
+      # Production path: omp --yolo keeps log mtime alive for watchdog (#146).
+      MAKATO_HEADLESS=1 "$CLAUDE_BIN" --yolo \
         -p "$dispatch_prompt" >"$log_file" 2>&1 &
       local child_pid=$!
     fi
@@ -3803,8 +3800,7 @@ cmd_dispatch() {
       # shellcheck disable=SC2086
       $child_cmd || rc=$?
     else
-      CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 \
-        MAKATO_HEADLESS=1 "$CLAUDE_BIN" --yolo \
+      MAKATO_HEADLESS=1 "$CLAUDE_BIN" --yolo \
         -p "$dispatch_prompt" || rc=$?
     fi
   fi
