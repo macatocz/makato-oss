@@ -19,5 +19,13 @@ import os
 import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
+# Skill root (parent of tests/) — makes the sibling `scripts` package importable
+# (`from scripts.curation_* import ...`). Inserted at position 0 so it wins over
+# the many other `scripts/` dirs across the monorepo that share the bare name and
+# would otherwise satisfy the import first (pytest prepend importmode collision).
+_SKILL_ROOT = os.path.dirname(_HERE)
+if _SKILL_ROOT not in sys.path:
+    sys.path.insert(0, _SKILL_ROOT)
+# tests/ dir — makes the `fixtures` package (under tests/) importable.
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
