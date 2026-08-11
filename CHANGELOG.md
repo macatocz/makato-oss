@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.153.0](https://github.com/macatocz/makato-oss/compare/v0.152.0...v0.153.0) (2026-08-11)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** add persistent-volume config and provision script ([318dac8](https://github.com/macatocz/makato-oss/commit/318dac807a47502d2d9d5b2913c1311f1d055db1))
+* **makato-orchestrate:** add Restart=always supervisor templates for macOS and Linux ([a402846](https://github.com/macatocz/makato-oss/commit/a40284664869a4cc4b0c2cfcf22005ff8e84bc78))
+* **makato-orchestrate:** implement reconcile-before-resume.sh with D7 decision table ([4c59f11](https://github.com/macatocz/makato-oss/commit/4c59f119d51f4001850d54c0c48533fb9d2b3b28))
+* **makato-orchestrate:** preemption survival — persistent volume + reconcile-before-resume ([#8](https://github.com/macatocz/makato-oss/issues/8)) ([e3a7469](https://github.com/macatocz/makato-oss/commit/e3a7469b72ceea0659ba38685d8ac2384a3b07c9))
+* **makato-orchestrate:** wire reconcile-before-resume into loop-supervisor Step 4 ([42f711f](https://github.com/macatocz/makato-oss/commit/42f711ff4470d1c97a7cbb01f8eb23292be5341c))
+
 ## [0.152.0](https://github.com/macatocz/makato-oss/compare/v0.151.0...v0.152.0) (2026-08-11)
 
 
