@@ -643,11 +643,14 @@ _reconcile_blocked_by_labels() {
       --jq '[.labels[].name | select(startswith("blocked-by:"))] | length' \
       2>/dev/null || echo '1')"
     if [[ "$remaining" -eq 0 ]]; then
-      # Forward-only promotion — only promote if currently at Todo/Blocked/off-board
+      # Board-only authority (#688): clear the stale status:blocked label but do NOT
+      # stamp status:ready-for-dev — that label bridge was removed. Promotion to board
+      # Status=Ready is owned by the wave-promotion pass / webhook sync, not a label.
+      # Stamping it here only re-created a label-board conflict (functions.sh
+      # _label_board_conflict) that HALTed the card on the next dispatch.
       gh issue edit "$dep" --repo "$repo_name" \
-        --remove-label "status:blocked" \
-        --add-label "status:ready-for-dev" 2>/dev/null || true
-      _log "reconcile: promoted #${dep} to status:ready-for-dev (all blockers closed)"
+        --remove-label "status:blocked" 2>/dev/null || true
+      _log "reconcile: cleared stale status:blocked from #${dep} (all blockers closed)"
     fi
   done < <(printf '%s' "$issues_json" | jq -r '.[].number' 2>/dev/null || true)
 
