@@ -39,7 +39,7 @@ notify() {
   elif command -v terminal-notifier >/dev/null 2>&1; then
     terminal-notifier -title "$title" -subtitle "makato loop" -message "$msg" \
       -sound Basso -group "makato-loop-halt" >/dev/null 2>&1
-  else
+  elif [[ "$(uname)" == "Darwin" ]]; then
     /usr/bin/osascript -e "display notification \"${msg//\"/\\\"}\" with title \"${title//\"/\\\"}\" sound name \"Basso\"" >/dev/null 2>&1
   fi
   printf '%s [loop-halt-watch] %s — %s\n' "$(date '+%H:%M:%S')" "$title" "$msg"

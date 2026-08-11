@@ -62,7 +62,7 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 SPECS_DIR="${SPECS_DIR:-$REPO_ROOT/specs}"
 STATE_DIR="${MAKATO_LOOP_STATE_DIR:-$REPO_ROOT/.claude/state}"
 STATUS_FILE="$STATE_DIR/loop-status.json"
-HALT_FILE="${MAKATO_HALT_FILE:-$HOME/.claude/HALT}"
+HALT_FILE="${MAKATO_HALT_FILE:-$STATE_DIR/HALT}"
 CLAUDE_BIN="${MAKATO_CLAUDE_BIN:-claude}"
 CONFIG_FILE="${MAKATO_LOOP_CONFIG:-$REPO_ROOT/.claude/config.json}"
 
