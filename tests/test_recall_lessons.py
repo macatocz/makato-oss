@@ -13,14 +13,10 @@ from pathlib import Path
 
 WORKTREE = Path(__file__).parent.parent
 WS = WORKTREE / "plugins" / "makato-orchestrate" / "shared" / "workflow-state.sh"
-REPO_ROOT = (
-    WORKTREE  # workflow-state.sh uses git --git-common-dir which resolves to main
-)
+REPO_ROOT = WORKTREE  # workflow-state.sh uses git --git-common-dir which resolves to main
 
 
-def _run_ws(
-    *args: str, env: dict | None = None, cwd: str | None = None
-) -> subprocess.CompletedProcess:
+def _run_ws(*args: str, env: dict | None = None, cwd: str | None = None) -> subprocess.CompletedProcess:
     merged = {**os.environ}
     if env:
         merged.update(env)
@@ -119,9 +115,7 @@ class TestRecallLessonsMalformedLine:
         descriptions = [d["description"] for d in data]
         assert "Good lesson 1" in descriptions, f"Good lesson 1 missing: {data}"
         assert "Good lesson 2" in descriptions, f"Good lesson 2 missing: {data}"
-        assert len(data) == 2, (
-            f"Expected 2 lessons (malformed skipped), got {len(data)}: {data}"
-        )
+        assert len(data) == 2, f"Expected 2 lessons (malformed skipped), got {len(data)}: {data}"
 
 
 class TestRecallLessonsBundleFilter:
@@ -166,9 +160,7 @@ class TestRecallLessonsBundleFilter:
         data = json.loads(result.stdout)
         descriptions = [d["description"] for d in data]
         assert "Python-tagged lesson" in descriptions
-        assert "Infra-only lesson" not in descriptions, (
-            f"Infra lesson should be excluded: {data}"
-        )
+        assert "Infra-only lesson" not in descriptions, f"Infra lesson should be excluded: {data}"
 
     def test_bundle_filter_order_scope_then_occurrences_then_recency(self, tmp_path):
         """Order: scope asc (general before specific), then occurrences DESC, then ts DESC."""
@@ -218,18 +210,12 @@ class TestRecallLessonsBundleFilter:
         data = json.loads(result.stdout)
         assert len(data) == 3, f"Expected 3 results, got {len(data)}: {data}"
         # generalizable scope lessons must precede local
-        general_indices = [
-            i for i, d in enumerate(data) if d["scope"] == "generalizable"
-        ]
+        general_indices = [i for i, d in enumerate(data) if d["scope"] == "generalizable"]
         specific_indices = [i for i, d in enumerate(data) if d["scope"] == "local"]
-        assert max(general_indices) < min(specific_indices), (
-            f"generalizable lessons must all precede local: {[d['description'] for d in data]}"
-        )
+        assert max(general_indices) < min(specific_indices), f"generalizable lessons must all precede local: {[d['description'] for d in data]}"
         # Within generalizable: higher occurrences first
         general_lessons = [d for d in data if d["scope"] == "generalizable"]
-        assert general_lessons[0]["occurrences"] >= general_lessons[1]["occurrences"], (
-            f"Within general scope, occurrences not DESC: {general_lessons}"
-        )
+        assert general_lessons[0]["occurrences"] >= general_lessons[1]["occurrences"], f"Within general scope, occurrences not DESC: {general_lessons}"
 
     def test_no_bundle_filter_returns_all_bundles(self, tmp_path):
         """2-arg call (no bundle filter) returns lessons from all bundles (AC-2)."""
@@ -308,9 +294,7 @@ class TestRecallLessonsBundleFilter:
         data = json.loads(result.stdout)
         descriptions = [d["description"] for d in data]
         assert "Testing-labeled lesson" in descriptions
-        assert "Deploy-labeled lesson" not in descriptions, (
-            f"Deploy lesson should be filtered: {data}"
-        )
+        assert "Deploy-labeled lesson" not in descriptions, f"Deploy lesson should be filtered: {data}"
 
 
 class TestRecallLessonsCommittedStore:
@@ -338,9 +322,7 @@ class TestRecallLessonsCommittedStore:
         )
         assert result.returncode == 0, f"stderr: {result.stderr}"
         data = json.loads(result.stdout)
-        assert any(d["description"] == "From semantic store" for d in data), (
-            f"semantic store lesson not found: {data}"
-        )
+        assert any(d["description"] == "From semantic store" for d in data), f"semantic store lesson not found: {data}"
 
     def test_reads_from_memory_root_procedural(self, tmp_path):
         """Lessons in procedural.jsonl under MAKATO_MEMORY_ROOT are returned."""
@@ -364,6 +346,4 @@ class TestRecallLessonsCommittedStore:
         )
         assert result.returncode == 0, f"stderr: {result.stderr}"
         data = json.loads(result.stdout)
-        assert any(d["description"] == "From procedural store" for d in data), (
-            f"procedural store lesson not found: {data}"
-        )
+        assert any(d["description"] == "From procedural store" for d in data), f"procedural store lesson not found: {data}"

@@ -529,9 +529,7 @@ class TestRefinementEscalation(unittest.TestCase):
         )
         # note recorded despite tracker failure
         self.assertTrue(anomaly_path.exists())
-        self.assertIn(
-            "makato-build".split(":")[0] if False else "s", anomaly_path.read_text()
-        )
+        self.assertIn("makato-build".split(":")[0] if False else "s", anomaly_path.read_text())
         # operator warned
         self.assertIn("warn", stderr.getvalue().lower())
 
@@ -708,9 +706,7 @@ class TestGenerateDashboardAdaptiveIntegration(unittest.TestCase):
         log_path.write_text("\n".join(lines))
         output_path = self.tmp / "skill-adoption.md"
         state_path = self.tmp / "audit-state.json"
-        anomaly_path = (
-            self.tmp / "skill-audit-notes.md"
-        )  # keep base D15 write inside tmp
+        anomaly_path = self.tmp / "skill-audit-notes.md"  # keep base D15 write inside tmp
 
         result = _mod.generate_dashboard(
             log_path=log_path,

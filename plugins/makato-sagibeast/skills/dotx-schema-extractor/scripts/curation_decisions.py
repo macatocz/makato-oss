@@ -84,9 +84,7 @@ def save_manifest(manifest: Manifest, path: Path) -> None:
     tmp.replace(path)
 
 
-def next_pending(
-    manifest: Manifest, raw_fields: list[dict[str, Any]]
-) -> tuple[int, dict[str, Any] | None]:
+def next_pending(manifest: Manifest, raw_fields: list[dict[str, Any]]) -> tuple[int, dict[str, Any] | None]:
     """Return ``(index, field)`` of the first raw field not yet decided.
 
     Decisions are matched by ``raw_key`` only — the assumption is that

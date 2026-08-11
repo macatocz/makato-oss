@@ -127,7 +127,7 @@ def write_passport(dir: Path, node: dict) -> None:
         # Attempt non-blocking exclusive lock
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError, OSError:
+        except (BlockingIOError, OSError):  # fmt: skip
             # Lock held by another process — skip gracefully
             return
 

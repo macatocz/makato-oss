@@ -1,1 +1,1 @@
-{"mcpServers":{"plugin:playwright":{"command":"npx","args":["@playwright/mcp@latest"]}}}
+{"mcpServers":{"plugin:playwright":{"command":"npx","args":["@playwright/mcp@latest","--browser","chromium"]}}}

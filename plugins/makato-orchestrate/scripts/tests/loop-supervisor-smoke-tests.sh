@@ -254,6 +254,36 @@ echo "T9: alive + active_workflow.stalled=true + stale dispatch + queued items â
 }
 
 # ---------------------------------------------------------------------------
+# T10: HALT_FILE default re-homed to STATE_DIR (issue #6 / AC-2)
+# Sources the path-init block from loop.sh with MAKATO_LOOP_STATE_DIR set to a
+# temp dir and MAKATO_HALT_FILE unset. Asserts HALT_FILE does NOT contain $HOME.
+# RED test: fails when HALT_FILE still defaults to $HOME/.claude/HALT.
+# ---------------------------------------------------------------------------
+echo "T10: HALT_FILE default re-homed to STATE_DIR, not \$HOME"
+{
+  sb="$(new_sandbox)"
+  LOOP_SH="$SCRIPT_DIR/../loop.sh"
+
+  # Extract the path-init block (lines between "Runtime-derived paths" and the
+  # next "# ---" comment) and source it with a controlled env, explicitly
+  # unset MAKATO_HALT_FILE to exercise the default-path branch.
+  path_init_result=$(
+    cd "$SCRIPT_DIR/../../../.."   # repo root for git rev-parse
+    unset MAKATO_HALT_FILE
+    export MAKATO_LOOP_STATE_DIR="$sb/state"
+    eval "$(awk '/Runtime-derived paths/{found=1;next} found && /^# ---/{exit} found{print}' "$LOOP_SH")"
+    echo "$HALT_FILE"
+  )
+
+  if [[ "$path_init_result" != *"$HOME"* ]]; then
+    pass "T10 HALT_FILE default does not contain \$HOME (re-homed to STATE_DIR)"
+  else
+    fail "T10" "HALT_FILE still defaults to HOME path: $path_init_result"
+  fi
+  rm -rf "$sb"
+}
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo ""

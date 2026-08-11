@@ -13,9 +13,7 @@ import os
 import subprocess
 import sys
 
-_CONFIG_DIR = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "..", "config")
-)
+_CONFIG_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "config"))
 _PARSER = os.path.join(_CONFIG_DIR, "parse-config.py")
 _CONFIG_YML = os.path.join(_CONFIG_DIR, "config.yml")
 
@@ -64,10 +62,7 @@ def test_export_only_where_declared():
 def test_fixed_value_without_env():
     """_PROMOTE_EXCLUSION_LABELS has no env key → literal assignment, no expansion."""
     out = _emit_via_subprocess()
-    assert (
-        '_PROMOTE_EXCLUSION_LABELS="triage experimental status:blocked '
-        'autonomous:halt needs-human-review needs-reshape"' in out
-    )
+    assert '_PROMOTE_EXCLUSION_LABELS="triage experimental status:blocked autonomous:halt needs-human-review needs-reshape"' in out
 
 
 def test_stdlib_fallback_matches_pyyaml():
@@ -99,7 +94,5 @@ def test_default_applies_when_env_unset():
     lines = _emit_via_subprocess()
     script = f'{lines}\necho "$DEFAULT_INTERVAL"'
     env = {k: v for k, v in os.environ.items() if k != "MAKATO_LOOP_INTERVAL"}
-    r = subprocess.run(
-        ["bash", "-c", script], capture_output=True, text=True, env=env, check=True
-    )
+    r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env, check=True)
     assert r.stdout.strip() == "300"

@@ -302,4 +302,3 @@ Top-level R1 envelope fields follow `plugins/makato-build/agents/RETURN-CONTRACT
 ### HALT Codes
 
 The HALT codes emitted by this skill (`MISSING_INPUT`, `MISSING_PLAN`, `PLAN_ANALYST_FAILED`) are registered with their PO-agent recovery routes in `plugins/makato-build/halt-codes.md`.
-

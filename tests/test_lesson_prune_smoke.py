@@ -4,14 +4,7 @@ import subprocess
 from pathlib import Path
 
 WORKTREE = Path(__file__).parent.parent
-PYTEST_TEST = (
-    WORKTREE
-    / "plugins"
-    / "makato-orchestrate"
-    / "scripts"
-    / "tests"
-    / "test_lesson_prune.py"
-)
+PYTEST_TEST = WORKTREE / "plugins" / "makato-orchestrate" / "scripts" / "tests" / "test_lesson_prune.py"
 
 
 def test_smoke_script_exists():
@@ -27,10 +20,5 @@ def test_smoke_script_all_scenarios_pass():
         cwd=str(WORKTREE),
         timeout=90,
     )
-    assert result.returncode == 0, (
-        f"Pytest failed (exit {result.returncode}).\n"
-        f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
-    )
-    assert "passed" in result.stdout, (
-        f"Expected 'passed' banner not found.\nSTDOUT:\n{result.stdout}"
-    )
+    assert result.returncode == 0, f"Pytest failed (exit {result.returncode}).\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+    assert "passed" in result.stdout, f"Expected 'passed' banner not found.\nSTDOUT:\n{result.stdout}"

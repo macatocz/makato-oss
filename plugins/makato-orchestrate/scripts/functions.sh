@@ -3370,10 +3370,17 @@ _emit_langfuse_trace() {
   session_id="$(_extract_session_id "$log_file")"
   [[ -n "$session_id" ]] || return 0
 
-  # Derive transcript path: ~/.claude/projects/<hash>/<session_id>.jsonl
+  # Derive transcript path: honour MAKATO_TRANSCRIPT_PATH when set (caller or config
+  # supplies the full path including session suffix); fall back to the legacy
+  # ~/.claude/projects/<hash>/<session_id>.jsonl derivation for backward compatibility.
   local project_hash
   project_hash="$(echo -n "$REPO_ROOT" | sed 's|/|-|g' | sed 's|^-||')"
-  local transcript="$HOME/.claude/projects/${project_hash}/${session_id}.jsonl"
+  local transcript
+  if [[ -n "${MAKATO_TRANSCRIPT_PATH:-}" ]]; then
+    transcript="$MAKATO_TRANSCRIPT_PATH"
+  else
+    transcript="$HOME/.claude/projects/${project_hash}/${session_id}.jsonl"
+  fi
   [[ -f "$transcript" ]] || return 0
 
   # Read issue_trace_id from workflow-state when available.

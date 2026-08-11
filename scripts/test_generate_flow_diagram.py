@@ -50,12 +50,7 @@ def _make_agent(repo: Path, plugin: str, name: str) -> None:
 
 def _html_with_blob(data: dict) -> str:
     blob = json.dumps(data, separators=(",", ":"), ensure_ascii=False)
-    return (
-        "<html><body>\n"
-        f"{_mod.OPEN_TAG}\n{blob}\n{_mod.CLOSE_TAG}\n"
-        "<script>const DATA = JSON.parse(...);</script>\n"
-        "</body></html>\n"
-    )
+    return f"<html><body>\n{_mod.OPEN_TAG}\n{blob}\n{_mod.CLOSE_TAG}\n<script>const DATA = JSON.parse(...);</script>\n</body></html>\n"
 
 
 class TestGenerateFlowDiagram(unittest.TestCase):
@@ -103,21 +98,15 @@ class TestGenerateFlowDiagram(unittest.TestCase):
         html_path, data_path, inv_path = self._paths()
         findings = _mod.detect_drift(self.data, self.inventory, self.repo)
         self.assertTrue(any("[missing]" in f and "gamma" in f for f in findings))
-        self.assertEqual(
-            _mod.run(self.repo, html_path, data_path, inv_path, check=True), 1
-        )
+        self.assertEqual(_mod.run(self.repo, html_path, data_path, inv_path, check=True), 1)
 
     def test_orphan_skill_detected(self):
         """A skill node referencing a deleted skill → [orphan] reported, exit 1."""
-        self.data["nodes"].append(
-            {"id": "ghost", "label": "ghost", "kind": "skill", "lane": "l1"}
-        )
+        self.data["nodes"].append({"id": "ghost", "label": "ghost", "kind": "skill", "lane": "l1"})
         html_path, data_path, inv_path = self._paths()
         findings = _mod.detect_drift(self.data, self.inventory, self.repo)
         self.assertTrue(any("[orphan]" in f and "ghost" in f for f in findings))
-        self.assertEqual(
-            _mod.run(self.repo, html_path, data_path, inv_path, check=True), 1
-        )
+        self.assertEqual(_mod.run(self.repo, html_path, data_path, inv_path, check=True), 1)
 
     def test_stale_edge_detected(self):
         """An edge with an unknown `to` id → [stale-edge] reported, exit 1."""
@@ -125,9 +114,7 @@ class TestGenerateFlowDiagram(unittest.TestCase):
         html_path, data_path, inv_path = self._paths()
         findings = _mod.detect_drift(self.data, self.inventory, self.repo)
         self.assertTrue(any("[stale-edge]" in f and "nowhere" in f for f in findings))
-        self.assertEqual(
-            _mod.run(self.repo, html_path, data_path, inv_path, check=True), 1
-        )
+        self.assertEqual(_mod.run(self.repo, html_path, data_path, inv_path, check=True), 1)
 
     def test_stale_flow_seq_detected(self):
         """A flow seq id absent from nodes → [stale-edge] reported."""
@@ -138,9 +125,7 @@ class TestGenerateFlowDiagram(unittest.TestCase):
     def test_cluster_endpoint_accepted(self):
         """An edge from a valid `cluster:<name>` anchor is not flagged stale."""
         self.data["nodes"][0]["cluster"] = "makato-core"
-        self.data["edges"].append(
-            {"from": "cluster:makato-core", "to": "beta", "kind": "flow"}
-        )
+        self.data["edges"].append({"from": "cluster:makato-core", "to": "beta", "kind": "flow"})
         findings = _mod.detect_drift(self.data, self.inventory, self.repo)
         self.assertEqual(
             [f for f in findings if "[stale-edge]" in f],
@@ -150,15 +135,10 @@ class TestGenerateFlowDiagram(unittest.TestCase):
 
     def test_unknown_cluster_endpoint_detected(self):
         """A `cluster:<name>` whose name no node carries → [stale-edge] with hint."""
-        self.data["edges"].append(
-            {"from": "cluster:nonexistent", "to": "beta", "kind": "flow"}
-        )
+        self.data["edges"].append({"from": "cluster:nonexistent", "to": "beta", "kind": "flow"})
         findings = _mod.detect_drift(self.data, self.inventory, self.repo)
         self.assertTrue(
-            any(
-                "[stale-edge]" in f and "cluster:nonexistent" in f and "no node" in f
-                for f in findings
-            ),
+            any("[stale-edge]" in f and "cluster:nonexistent" in f and "no node" in f for f in findings),
             f"expected stale-edge for unknown cluster, got {findings}",
         )
 
@@ -175,21 +155,15 @@ class TestGenerateFlowDiagram(unittest.TestCase):
         html_path, data_path, inv_path = self._paths()
         # Corrupt the committed blob.
         html_path.write_text(_html_with_blob({"stale": True}), encoding="utf-8")
-        self.assertEqual(
-            _mod.run(self.repo, html_path, data_path, inv_path, check=True), 1
-        )
+        self.assertEqual(_mod.run(self.repo, html_path, data_path, inv_path, check=True), 1)
         _mod.run(self.repo, html_path, data_path, inv_path, check=False)
-        self.assertEqual(
-            _mod.run(self.repo, html_path, data_path, inv_path, check=True), 0
-        )
+        self.assertEqual(_mod.run(self.repo, html_path, data_path, inv_path, check=True), 0)
 
     def test_composite_node_covers_multiple_skills(self):
         """A nodeSources composite node covers several disk skills without drift."""
         _make_skill(self.repo, "makato-build", "impl-tdd")
         _make_skill(self.repo, "makato-build", "impl-goal")
-        self.data["nodes"].append(
-            {"id": "impl", "label": "impl-tdd / goal", "kind": "skill", "lane": "l1"}
-        )
+        self.data["nodes"].append({"id": "impl", "label": "impl-tdd / goal", "kind": "skill", "lane": "l1"})
         self.inventory["nodeSources"] = {"impl-tdd / goal": ["impl-tdd", "impl-goal"]}
         findings = _mod.detect_drift(self.data, self.inventory, self.repo)
         self.assertEqual(findings, [], f"expected no drift, got {findings}")
@@ -203,9 +177,7 @@ class TestGenerateFlowDiagram(unittest.TestCase):
 
     def test_conceptual_node_suppresses_orphan(self):
         """A skill node declared conceptual is not reported as orphan."""
-        self.data["nodes"].append(
-            {"id": "cn", "label": "auto-seed", "kind": "skill", "lane": "l1"}
-        )
+        self.data["nodes"].append({"id": "cn", "label": "auto-seed", "kind": "skill", "lane": "l1"})
         self.inventory["conceptualNodes"] = {"auto-seed": "loop pass, not a skill dir"}
         findings = _mod.detect_drift(self.data, self.inventory, self.repo)
         self.assertFalse(any("auto-seed" in f for f in findings))

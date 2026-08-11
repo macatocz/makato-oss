@@ -24,17 +24,13 @@ def _load_paragraphs():
 class TestFindHighlightSpan(unittest.TestCase):
     def test_locates_cyan_run_in_first_paragraph(self):
         paragraphs = _load_paragraphs()
-        run_indices = find_highlight_span(
-            paragraphs[0], label="Název stavby zde", color="cyan"
-        )
+        run_indices = find_highlight_span(paragraphs[0], label="Název stavby zde", color="cyan")
         assert run_indices is not None
         self.assertEqual(len(run_indices), 1)
 
     def test_locates_yellow_run_in_second_paragraph(self):
         paragraphs = _load_paragraphs()
-        run_indices = find_highlight_span(
-            paragraphs[1], label="DD.MM.RRRR", color="yellow"
-        )
+        run_indices = find_highlight_span(paragraphs[1], label="DD.MM.RRRR", color="yellow")
         self.assertIsNotNone(run_indices)
 
     def test_returns_none_when_label_missing(self):
@@ -44,9 +40,7 @@ class TestFindHighlightSpan(unittest.TestCase):
 
     def test_returns_none_when_color_mismatch(self):
         paragraphs = _load_paragraphs()
-        result = find_highlight_span(
-            paragraphs[0], label="Název stavby zde", color="yellow"
-        )
+        result = find_highlight_span(paragraphs[0], label="Název stavby zde", color="yellow")
         self.assertIsNone(result)
 
 

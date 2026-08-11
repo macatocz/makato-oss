@@ -45,10 +45,7 @@ def _check_ignore(path: str) -> tuple[bool, str]:
         check=False,
     )
     if result.returncode not in (0, 1):
-        raise RuntimeError(
-            f"git check-ignore failed for {path!r}: rc={result.returncode} "
-            f"stderr={result.stderr!r}"
-        )
+        raise RuntimeError(f"git check-ignore failed for {path!r}: rc={result.returncode} stderr={result.stderr!r}")
     if result.returncode == 1:
         # No pattern matched — path is not ignored by any rule.
         return False, ""
@@ -62,34 +59,23 @@ def _check_ignore(path: str) -> tuple[bool, str]:
 def test_build_jsonl_is_tracked() -> None:
     """``specs/**/build.jsonl`` MUST be re-included by the negation rule."""
     ignored, rule = _check_ignore("specs/ISSUE-58-smoke/build.jsonl")
-    assert not ignored, (
-        "specs/<key>/build.jsonl should ship in-repo (#99); .gitignore matched "
-        f"rule: {rule}"
-    )
+    assert not ignored, f"specs/<key>/build.jsonl should ship in-repo (#99); .gitignore matched rule: {rule}"
 
 
 def test_build_jsonl_in_deep_subdir_is_tracked() -> None:
     """The negation must hold at any depth — ``find`` resolves nested folders."""
     ignored, rule = _check_ignore("specs/some-key/subdir/build.jsonl")
-    assert not ignored, (
-        "specs/**/build.jsonl must be tracked at any depth (#99); .gitignore "
-        f"matched rule: {rule}"
-    )
+    assert not ignored, f"specs/**/build.jsonl must be tracked at any depth (#99); .gitignore matched rule: {rule}"
 
 
 def test_plan_md_stays_ignored() -> None:
     """Personal artefacts under ``specs/`` must stay local (#99 § Proposed fix Option 1)."""
     ignored, rule = _check_ignore("specs/ISSUE-58-smoke/plan.md")
-    assert ignored, (
-        "specs/<key>/plan.md must stay gitignored (#99); .gitignore did not match"
-    )
+    assert ignored, "specs/<key>/plan.md must stay gitignored (#99); .gitignore did not match"
     assert "specs/" in rule, f"unexpected matching rule: {rule}"
 
 
 def test_nested_fixture_stays_ignored() -> None:
     """Nested non-``build.jsonl`` files (fixtures, dumps, sketches) stay local."""
     ignored, rule = _check_ignore("specs/some-key/fixtures/anything.json")
-    assert ignored, (
-        "Nested fixtures under specs/<key>/ must stay gitignored (#99); "
-        ".gitignore did not match"
-    )
+    assert ignored, "Nested fixtures under specs/<key>/ must stay gitignored (#99); .gitignore did not match"

@@ -32,9 +32,7 @@ from typing import IO
 
 # ── Regex constants ───────────────────────────────────────────────────────────
 
-_SECTION_RE = re.compile(
-    r"^##\s+(ADDED Requirements|MODIFIED Requirements|REMOVED Requirements)\s*$"
-)
+_SECTION_RE = re.compile(r"^##\s+(ADDED Requirements|MODIFIED Requirements|REMOVED Requirements)\s*$")
 _REQ_RE = re.compile(r"^###\s+(.+?)\s*$")
 _H2_RE = re.compile(r"^##\s+")
 _H3_RE = re.compile(r"^###\s+(.+?)\s*$")
@@ -67,11 +65,7 @@ def parse_delta(text: str) -> dict[str, list[tuple[str, list[str]]]]:
 
     def flush_req() -> None:
         if current_section and current_req is not None:
-            stripped = [
-                line
-                for line in current_body
-                if line.strip() and not line.strip().startswith("<!--")
-            ]
+            stripped = [line for line in current_body if line.strip() and not line.strip().startswith("<!--")]
             if stripped:
                 result[current_section].append((current_req, current_body[:]))
 
@@ -243,8 +237,7 @@ def apply_delta(
             target_lines = join_chunks(new_chunks)
         else:
             print(
-                f'WARN: sync-living-specs: dangling MODIFIED ref "{req_name}" in '
-                f"{capability}.md — no matching heading found; skipping",
+                f'WARN: sync-living-specs: dangling MODIFIED ref "{req_name}" in {capability}.md — no matching heading found; skipping',
                 file=stderr,
             )
 

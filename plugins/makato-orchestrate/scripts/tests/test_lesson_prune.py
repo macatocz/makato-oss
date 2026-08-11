@@ -44,6 +44,7 @@ from lesson_prune import (  # noqa: E402
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _write_jsonl(path: str, records: list[dict]) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as fh:
@@ -79,6 +80,7 @@ def _classify(
 # Bootstrap a real git repo for STALE tests (class-level, shared across T5–T7).
 # Creates two commits; HEAD is on main; side-branch sha is unreachable from main.
 # ---------------------------------------------------------------------------
+
 
 class _GitFixture:
     """Shared git fixture for stale-detection tests."""
@@ -147,6 +149,7 @@ def tearDownModule() -> None:
 # Tests
 # ---------------------------------------------------------------------------
 
+
 class TestNormalize(unittest.TestCase):
     """normalize_text and compute_key unit tests."""
 
@@ -168,10 +171,7 @@ class TestKeepDefault(unittest.TestCase):
     """T1: single record → KEEP."""
 
     def test_single_record_is_keep(self) -> None:
-        records = [
-            {"key": "keep-1", "text": "unique lesson with no match", "tags": ["solo"],
-             "occurrences": 1, "date": "2026-07-01", "repo_sha": "abc"}
-        ]
+        records = [{"key": "keep-1", "text": "unique lesson with no match", "tags": ["solo"], "occurrences": 1, "date": "2026-07-01", "repo_sha": "abc"}]
         results = classify_records(records, [])
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["action"], "KEEP")
@@ -182,10 +182,8 @@ class TestDuplicate(unittest.TestCase):
 
     def setUp(self) -> None:
         self.records = [
-            {"key": "dup-low", "text": "use atomic writes for file operations",
-             "tags": ["io", "safety"], "occurrences": 1, "date": "2026-07-01", "repo_sha": "abc"},
-            {"key": "dup-high", "text": "use atomic writes for file operations",
-             "tags": ["io", "safety"], "occurrences": 5, "date": "2026-07-02", "repo_sha": "abc"},
+            {"key": "dup-low", "text": "use atomic writes for file operations", "tags": ["io", "safety"], "occurrences": 1, "date": "2026-07-01", "repo_sha": "abc"},
+            {"key": "dup-high", "text": "use atomic writes for file operations", "tags": ["io", "safety"], "occurrences": 5, "date": "2026-07-02", "repo_sha": "abc"},
         ]
         self.results = classify_records(self.records, [])
 
@@ -211,10 +209,8 @@ class TestConsolidate(unittest.TestCase):
 
     def test_shared_tag_cluster_both_consolidate(self) -> None:
         records = [
-            {"key": "cons-a", "text": "configure ruff for python linting rules",
-             "tags": ["python", "linting"], "occurrences": 1, "date": "2026-07-01", "repo_sha": "abc"},
-            {"key": "cons-b", "text": "use pre-commit hooks for linting checks",
-             "tags": ["linting", "hooks"], "occurrences": 1, "date": "2026-07-02", "repo_sha": "abc"},
+            {"key": "cons-a", "text": "configure ruff for python linting rules", "tags": ["python", "linting"], "occurrences": 1, "date": "2026-07-01", "repo_sha": "abc"},
+            {"key": "cons-b", "text": "use pre-commit hooks for linting checks", "tags": ["linting", "hooks"], "occurrences": 1, "date": "2026-07-02", "repo_sha": "abc"},
         ]
         results = classify_records(records, [])
         actions = [r["action"] for r in results]
@@ -231,20 +227,14 @@ class TestGraduated(unittest.TestCase):
         phrase = "PO-agent is the sole writer of workflow-state.json"
         norm = normalize_text(phrase)
         agents_content = norm  # guaranteed substring match
-        records = [
-            {"key": "grad-1",
-             "text": phrase,
-             "tags": ["agents"], "occurrences": 1, "date": "2026-07-01", "repo_sha": "abc"}
-        ]
+        records = [{"key": "grad-1", "text": phrase, "tags": ["agents"], "occurrences": 1, "date": "2026-07-01", "repo_sha": "abc"}]
         results = classify_records(records, [agents_content])
         self.assertEqual(results[0]["action"], "GRADUATED")
 
     def test_phrase_from_real_agents_md_is_graduated(self) -> None:
         """T4: phrase from real makato-orchestrate AGENTS.md → GRADUATED."""
         repo_root = _find_repo_root()
-        agents_path = os.path.join(
-            repo_root, "plugins", "makato-orchestrate", "AGENTS.md"
-        )
+        agents_path = os.path.join(repo_root, "plugins", "makato-orchestrate", "AGENTS.md")
         if not os.path.isfile(agents_path):
             self.skipTest(f"AGENTS.md not found at {agents_path}")
 
@@ -252,26 +242,18 @@ class TestGraduated(unittest.TestCase):
         if not phrase:
             self.skipTest("Could not extract phrase from AGENTS.md")
 
-        records = [
-            {"key": "grad-real", "text": phrase,
-             "tags": ["agents"], "occurrences": 1, "date": "2026-07-01", "repo_sha": "abc"}
-        ]
+        records = [{"key": "grad-real", "text": phrase, "tags": ["agents"], "occurrences": 1, "date": "2026-07-01", "repo_sha": "abc"}]
         # agents_contents must include the normalized content of the real AGENTS.md.
         with open(agents_path, encoding="utf-8") as fh:
             agents_contents = [normalize_text(fh.read())]
 
         results = classify_records(records, agents_contents)
-        self.assertEqual(
-            results[0]["action"], "GRADUATED",
-            f"Expected GRADUATED for phrase: {phrase!r}"
-        )
+        self.assertEqual(results[0]["action"], "GRADUATED", f"Expected GRADUATED for phrase: {phrase!r}")
 
     def test_graduated_tolerates_two_agents_md_layouts(self) -> None:
         """T10: same phrase classified GRADUATED regardless of AGENTS.md structure."""
         repo_root = _find_repo_root()
-        agents_path = os.path.join(
-            repo_root, "plugins", "makato-orchestrate", "AGENTS.md"
-        )
+        agents_path = os.path.join(repo_root, "plugins", "makato-orchestrate", "AGENTS.md")
         if not os.path.isfile(agents_path):
             self.skipTest(f"AGENTS.md not found at {agents_path}")
 
@@ -283,27 +265,18 @@ class TestGraduated(unittest.TestCase):
             agents_contents = [normalize_text(fh.read())]
 
         # Layout A: phrase from real AGENTS.md (under heading)
-        records_a = [
-            {"key": "layout-a", "text": phrase,
-             "tags": ["compat"], "occurrences": 1, "date": "2026-07-01", "repo_sha": "abc"}
-        ]
+        records_a = [{"key": "layout-a", "text": phrase, "tags": ["compat"], "occurrences": 1, "date": "2026-07-01", "repo_sha": "abc"}]
         results_a = classify_records(records_a, agents_contents)
         self.assertEqual(results_a[0]["action"], "GRADUATED", "Layout A must be GRADUATED")
 
         # Layout B: same phrase, classified against same AGENTS.md content
-        records_b = [
-            {"key": "layout-b", "text": phrase,
-             "tags": ["compat2"], "occurrences": 1, "date": "2026-07-01", "repo_sha": "abc"}
-        ]
+        records_b = [{"key": "layout-b", "text": phrase, "tags": ["compat2"], "occurrences": 1, "date": "2026-07-01", "repo_sha": "abc"}]
         results_b = classify_records(records_b, agents_contents)
         self.assertEqual(results_b[0]["action"], "GRADUATED", "Layout B must be GRADUATED")
 
     def test_unknown_text_not_graduated(self) -> None:
         agents_content = "some other content about different things"
-        records = [
-            {"key": "no-grad", "text": "completely unrelated lesson about something else entirely",
-             "tags": ["misc"], "occurrences": 1, "date": "2026-07-01", "repo_sha": "abc"}
-        ]
+        records = [{"key": "no-grad", "text": "completely unrelated lesson about something else entirely", "tags": ["misc"], "occurrences": 1, "date": "2026-07-01", "repo_sha": "abc"}]
         results = classify_records(records, [agents_content])
         self.assertNotEqual(results[0]["action"], "GRADUATED")
 
@@ -313,11 +286,7 @@ class TestStale(unittest.TestCase):
 
     def test_stale_unreachable_sha_and_old_date(self) -> None:
         """T5: unreachable sha + date >90 days → STALE with false-positive note."""
-        records = [
-            {"key": "stale-1", "text": "very old lesson from a rebased branch",
-             "tags": ["old"], "occurrences": 1, "date": "2020-01-01",
-             "repo_sha": _GIT.unreachable_sha}
-        ]
+        records = [{"key": "stale-1", "text": "very old lesson from a rebased branch", "tags": ["old"], "occurrences": 1, "date": "2020-01-01", "repo_sha": _GIT.unreachable_sha}]
         # Change cwd to git fixture so git merge-base works.
         original_cwd = os.getcwd()
         try:
@@ -335,11 +304,7 @@ class TestStale(unittest.TestCase):
 
     def test_stale_reason_documents_false_positive_risk(self) -> None:
         """T14: STALE reason mentions human judgment / false-positive."""
-        records = [
-            {"key": "stale-2", "text": "old lesson",
-             "tags": ["old"], "occurrences": 1, "date": "2020-01-01",
-             "repo_sha": _GIT.unreachable_sha}
-        ]
+        records = [{"key": "stale-2", "text": "old lesson", "tags": ["old"], "occurrences": 1, "date": "2020-01-01", "repo_sha": _GIT.unreachable_sha}]
         original_cwd = os.getcwd()
         try:
             os.chdir(_GIT.fixture_dir)
@@ -353,18 +318,11 @@ class TestStale(unittest.TestCase):
             os.chdir(original_cwd)
 
         reason = results[0].get("reason", "").lower()
-        self.assertTrue(
-            any(kw in reason for kw in ("human", "false", "judgment", "rebase")),
-            f"STALE reason should document false-positive risk: {reason}"
-        )
+        self.assertTrue(any(kw in reason for kw in ("human", "false", "judgment", "rebase")), f"STALE reason should document false-positive risk: {reason}")
 
     def test_not_stale_sha_reachable_even_if_old_date(self) -> None:
         """T6: reachable sha → not STALE even if date is old."""
-        records = [
-            {"key": "not-stale-1", "text": "lesson on the main branch ancestor",
-             "tags": ["main"], "occurrences": 1, "date": "2020-01-01",
-             "repo_sha": _GIT.reachable_sha}
-        ]
+        records = [{"key": "not-stale-1", "text": "lesson on the main branch ancestor", "tags": ["main"], "occurrences": 1, "date": "2020-01-01", "repo_sha": _GIT.reachable_sha}]
         original_cwd = os.getcwd()
         try:
             os.chdir(_GIT.fixture_dir)
@@ -381,11 +339,7 @@ class TestStale(unittest.TestCase):
 
     def test_not_stale_unreachable_sha_but_recent_date(self) -> None:
         """T7: unreachable sha + recent date → not STALE."""
-        records = [
-            {"key": "not-stale-2", "text": "recent lesson from a rebased branch",
-             "tags": ["recent"], "occurrences": 1, "date": "2026-07-01",
-             "repo_sha": _GIT.unreachable_sha}
-        ]
+        records = [{"key": "not-stale-2", "text": "recent lesson from a rebased branch", "tags": ["recent"], "occurrences": 1, "date": "2026-07-01", "repo_sha": _GIT.unreachable_sha}]
         original_cwd = os.getcwd()
         try:
             os.chdir(_GIT.fixture_dir)
@@ -416,16 +370,19 @@ class TestNoMutation(unittest.TestCase):
         """T8: files byte-identical after classification."""
         proc_file = os.path.join(self.memory_dir, "procedural.jsonl")
         sem_file = os.path.join(self.memory_dir, "semantic.jsonl")
-        _write_jsonl(proc_file, [
-            {"key": "a1", "text": "lesson one", "tags": ["tag1"],
-             "occurrences": 1, "date": "2020-01-01", "repo_sha": "xxx"},
-            {"key": "a2", "text": "lesson one", "tags": ["tag1"],
-             "occurrences": 2, "date": "2020-01-02", "repo_sha": "xxx"},
-        ])
-        _write_jsonl(sem_file, [
-            {"key": "s1", "text": "semantic lesson", "tags": ["sem"],
-             "occurrences": 1, "date": "2026-01-01", "repo_sha": "abc"},
-        ])
+        _write_jsonl(
+            proc_file,
+            [
+                {"key": "a1", "text": "lesson one", "tags": ["tag1"], "occurrences": 1, "date": "2020-01-01", "repo_sha": "xxx"},
+                {"key": "a2", "text": "lesson one", "tags": ["tag1"], "occurrences": 2, "date": "2020-01-02", "repo_sha": "xxx"},
+            ],
+        )
+        _write_jsonl(
+            sem_file,
+            [
+                {"key": "s1", "text": "semantic lesson", "tags": ["sem"], "occurrences": 1, "date": "2026-01-01", "repo_sha": "abc"},
+            ],
+        )
         sha_proc_before = _sha256(proc_file)
         sha_sem_before = _sha256(sem_file)
 
@@ -439,12 +396,13 @@ class TestNoMutation(unittest.TestCase):
     def test_all_keep_run_is_no_mutation_exit_0(self) -> None:
         """T9: all-KEEP run — no mutation, all results are KEEP."""
         proc_file = os.path.join(self.memory_dir, "procedural.jsonl")
-        _write_jsonl(proc_file, [
-            {"key": "u1", "text": "distinct lesson alpha with unique phrasing",
-             "tags": ["alpha"], "occurrences": 1, "date": "2026-07-01", "repo_sha": "abc"},
-            {"key": "u2", "text": "distinct lesson beta with unique content",
-             "tags": ["beta"], "occurrences": 1, "date": "2026-07-02", "repo_sha": "abc"},
-        ])
+        _write_jsonl(
+            proc_file,
+            [
+                {"key": "u1", "text": "distinct lesson alpha with unique phrasing", "tags": ["alpha"], "occurrences": 1, "date": "2026-07-01", "repo_sha": "abc"},
+                {"key": "u2", "text": "distinct lesson beta with unique content", "tags": ["beta"], "occurrences": 1, "date": "2026-07-02", "repo_sha": "abc"},
+            ],
+        )
         sha_before = _sha256(proc_file)
 
         records = load_records(proc_file, "")
@@ -462,10 +420,7 @@ class TestSemanticFile(unittest.TestCase):
             memory_dir = os.path.join(tmpdir, "memory")
             os.makedirs(memory_dir)
             sem_file = os.path.join(memory_dir, "semantic.jsonl")
-            _write_jsonl(sem_file, [
-                {"key": "sem-only", "text": "semantic only lesson", "tags": ["sem-only"],
-                 "occurrences": 1, "date": "2026-07-01", "repo_sha": "abc"}
-            ])
+            _write_jsonl(sem_file, [{"key": "sem-only", "text": "semantic only lesson", "tags": ["sem-only"], "occurrences": 1, "date": "2026-07-01", "repo_sha": "abc"}])
             records = load_records("", sem_file)
             self.assertEqual(len(records), 1)
             results = classify_records(records, [])
@@ -497,6 +452,7 @@ class TestEmptyMemoryDir(unittest.TestCase):
             os.makedirs(memory_dir)
             # Point main() to an empty memory dir via positional arg.
             from lesson_prune import main
+
             rc = main([memory_dir])
             self.assertEqual(rc, 0)
 
@@ -504,6 +460,7 @@ class TestEmptyMemoryDir(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Helpers for test fixture extraction
 # ---------------------------------------------------------------------------
+
 
 def _find_repo_root() -> str:
     """Walk up from _HERE to find the repo root (contains pyproject.toml)."""
@@ -525,11 +482,7 @@ def _extract_phrase_from_agents_md(path: str) -> str:
             for line in fh:
                 stripped = line.strip().lstrip("#").strip()
                 words = stripped.split()
-                if (
-                    len(words) >= 8
-                    and not stripped.startswith("<!--")
-                    and not stripped.startswith("|")
-                ):
+                if len(words) >= 8 and not stripped.startswith("<!--") and not stripped.startswith("|"):
                     return stripped
     except Exception:
         pass

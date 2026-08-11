@@ -8,6 +8,7 @@ key), preserving loop.sh's historical env-override contract byte-for-byte. Entri
 with `export: true` are prefixed `export`. Stdlib-only when PyYAML is absent — the
 config.yml grammar is restricted to one flow-style mapping per line.
 """
+
 import re
 import sys
 
@@ -44,6 +45,7 @@ def load(path):
         text = fh.read()
     try:
         import yaml  # noqa: PLC0415
+
         data = yaml.safe_load(text)
         return [e for e in (data or []) if isinstance(e, dict)]
     except ImportError:
