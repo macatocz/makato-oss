@@ -1,0 +1,89 @@
+# Langfuse unified observability stack — co-located on the A6000 instance.
+#
+# Single Langfuse container hosting TWO projects:
+#   - makato   (makato-oss traces)
+#   - sagibeast (sagibeast dev traces)
+#
+# Both projects share the same host port (3000) eliminating the devVM:3333 vs
+# testbox:3000 port/tunnel collision that blocked harness independence (#10).
+#
+# OTLP/HTTP ingestion is enabled via the LANGFUSE_OTLP_ENDPOINT env var.
+# Each project is identified by its OTLP resource attribute `langfuse.projectId`.
+#
+# Usage:
+#   docker compose -f infra/docker-compose.langfuse.yml up -d
+#   docker compose -f infra/docker-compose.langfuse.yml down
+#
+# Environment variables expected (supply via .env or shell exports):
+#   LANGFUSE_SECRET_KEY       — server secret (min 32 chars)
+#   LANGFUSE_PUBLIC_KEY       — server public key
+#   LANGFUSE_DATABASE_URL     — postgres DSN (e.g. postgresql://user:pass@host/langfuse)
+#   NEXTAUTH_URL              — canonical URL, e.g. http://localhost:3000
+#   NEXTAUTH_SECRET           — random 32-char string
+#   MAKATO_INIT_PROJECT_NAME  — display name for the makato project (default: makato)
+#   SAGIBEAST_INIT_PROJECT_NAME — display name for the sagibeast project (default: sagibeast)
+
+version: "3.9"
+
+services:
+  langfuse:
+    image: langfuse/langfuse:latest
+    container_name: langfuse
+    restart: unless-stopped
+    ports:
+      # Single deterministic host port. Override with LANGFUSE_PORT env var
+      # if the default 3000 is already taken (e.g. another service on the host).
+      - "${LANGFUSE_PORT:-3000}:3000"
+    environment:
+      # ── Auth / security ──────────────────────────────────────────────────
+      LANGFUSE_SECRET_KEY: "${LANGFUSE_SECRET_KEY}"
+      LANGFUSE_PUBLIC_KEY: "${LANGFUSE_PUBLIC_KEY}"
+      NEXTAUTH_URL: "${NEXTAUTH_URL:-http://localhost:3000}"
+      NEXTAUTH_SECRET: "${NEXTAUTH_SECRET}"
+
+      # ── Database ─────────────────────────────────────────────────────────
+      DATABASE_URL: "${LANGFUSE_DATABASE_URL}"
+      # Run migrations automatically on startup so the container is self-contained.
+      LANGFUSE_AUTO_MIGRATE: "true"
+
+      # ── OTLP ingestion ───────────────────────────────────────────────────
+      # Enables the /api/public/otel/v1/traces endpoint consumed by
+      # inject-otlp-keys.sh and the omp dispatch env.
+      LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "true"
+
+      # ── Seed projects ────────────────────────────────────────────────────
+      # Langfuse supports seeding initial projects via env vars (≥ v2.x).
+      # The makato project is seeded automatically at startup.
+      LANGFUSE_INIT_PROJECT_NAME: "${MAKATO_INIT_PROJECT_NAME:-makato}"
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: "${MAKATO_PROJECT_PUBLIC_KEY:-pk-lf-makato-seed}"
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: "${MAKATO_PROJECT_SECRET_KEY:-sk-lf-makato-seed}"
+      # The sagibeast project is NOT auto-seeded by Langfuse (v2 seeds one project only).
+      # inject-otlp-keys.sh creates it on first run via the Langfuse Admin API
+      # (requires LANGFUSE_ADMIN_SECRET_KEY), or supply SAGIBEAST_LANGFUSE_KEY directly.
+      LANGFUSE_SAGIBEAST_PROJECT_NAME: "${SAGIBEAST_INIT_PROJECT_NAME:-sagibeast}"
+
+      # ── Telemetry ────────────────────────────────────────────────────────
+      # Disable anonymous usage telemetry in air-gapped / on-premise deployments.
+      LANGFUSE_TELEMETRY_ENABLED: "${LANGFUSE_TELEMETRY_ENABLED:-false}"
+
+    healthcheck:
+      # Poll the liveness endpoint. Langfuse exposes /api/public/health since v2.
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/api/public/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+    volumes:
+      # Persist uploaded assets (screenshots, attachments) across restarts.
+      - langfuse_uploads:/app/uploads
+
+volumes:
+  langfuse_uploads:
+    driver: local
+
+# ── Usage notes ─────────────────────────────────────────────────────────────
+# 1. Copy infra/.env.langfuse.example to infra/.env.langfuse and fill in values.
+# 2. Run: docker compose -f infra/docker-compose.langfuse.yml --env-file infra/.env.langfuse up -d
+# 3. Run: bash scripts/inject-otlp-keys.sh  to provision project OTLP keys.
+# 4. OTLP endpoint: http://localhost:${LANGFUSE_PORT:-3000}/api/public/otel/v1/traces
