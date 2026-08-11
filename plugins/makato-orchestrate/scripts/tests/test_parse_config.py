@@ -96,3 +96,30 @@ def test_default_applies_when_env_unset():
     env = {k: v for k, v in os.environ.items() if k != "MAKATO_LOOP_INTERVAL"}
     r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env, check=True)
     assert r.stdout.strip() == "300"
+
+
+def test_open_endpoint_url_emitted_with_export():
+    """MAKATO_OPEN_ENDPOINT_URL is emitted with export prefix and empty default (issue #7)."""
+    out = _emit_via_subprocess()
+    assert 'export MAKATO_OPEN_ENDPOINT_URL="${MAKATO_OPEN_ENDPOINT_URL:-}"' in out
+
+
+def test_open_model_roles_emitted_without_export():
+    """MAKATO_OPEN_MODEL_ROLES is emitted without export, with correct default (issue #7)."""
+    out = _emit_via_subprocess()
+    assert 'MAKATO_OPEN_MODEL_ROLES="${MAKATO_OPEN_MODEL_ROLES:-sonnet,haiku,opus}"' in out
+    assert "export MAKATO_OPEN_MODEL_ROLES" not in out
+
+
+def test_open_endpoint_url_override_propagated():
+    """Setting MAKATO_OPEN_ENDPOINT_URL env var before eval makes it available as the var (issue #7)."""
+    lines = _emit_via_subprocess()
+    script = f'{lines}\necho "$MAKATO_OPEN_ENDPOINT_URL"'
+    r = subprocess.run(
+        ["bash", "-c", script],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "MAKATO_OPEN_ENDPOINT_URL": "https://api.openai.com/v1"},
+        check=True,
+    )
+    assert r.stdout.strip() == "https://api.openai.com/v1"

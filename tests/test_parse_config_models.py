@@ -16,19 +16,13 @@ import importlib.util
 import pathlib
 import textwrap
 
-import pytest
-
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
-PARSE_CONFIG = (
-    REPO_ROOT / "plugins" / "makato-orchestrate" / "config" / "parse-config.py"
-)
+PARSE_CONFIG = REPO_ROOT / "plugins" / "makato-orchestrate" / "config" / "parse-config.py"
 
 
 def _load_module():
     spec = importlib.util.spec_from_file_location("parse_config", PARSE_CONFIG)
-    assert spec is not None and spec.loader is not None, (
-        f"Could not create ModuleSpec for {PARSE_CONFIG}"
-    )
+    assert spec is not None and spec.loader is not None, f"Could not create ModuleSpec for {PARSE_CONFIG}"
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)  # type: ignore[union-attr]
     return mod
