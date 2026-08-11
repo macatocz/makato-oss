@@ -89,3 +89,11 @@
 
 # --- Promote-ready exclusion set (fixed, no env override) ---
 - { var: _PROMOTE_EXCLUSION_LABELS, default: "triage experimental status:blocked autonomous:halt needs-human-review needs-reshape" }
+
+# --- LLM-judge evaluator (issue #13 / sequence 11) ---
+# Name of the Langfuse native LLM-as-a-judge evaluator that scores step outputs.
+# The closed-model endpoint URL and its API key are Langfuse instance secrets — not
+# stored here. The modelRole→endpoint table (routing one role to the closed endpoint)
+# lands in the models: block added by issue #5.
+- { var: LANGFUSE_JUDGE_EVALUATOR_NAME, env: LANGFUSE_JUDGE_EVALUATOR_NAME, default: "" }
+- { var: LANGFUSE_JUDGE_SCORE_NAME,     env: LANGFUSE_JUDGE_SCORE_NAME,     default: "quality" }
