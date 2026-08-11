@@ -114,7 +114,8 @@ makato-orchestrate/
 ├── agents/       context-summariser, documentation-agent, light-planner, po-agent, task-file-scout
 ├── config/       config.yml (loop.sh tunables), parse-config.py, config.md, skill-bundles.yml
 ├── hooks/        check-halt, clock-out, session-status (+ *-smoke-tests.sh)
-├── scripts/      loop (main flow), functions.sh (loop helpers), promote-ready, context-handoff,
+├── scripts/      loop (main flow), functions.sh (loop helpers), board-mirror (offline mirror #9),
+│                 promote-ready, context-handoff,
 │                 should-materialize-spec, validate-plan-body, emit-reshape-request, mark-ac-checkboxes,
 │                 sync-living-specs, resolve-append-only-conflict, generate-{run,layer,progress}-report,
 │                 generate-quality-doc

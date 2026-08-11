@@ -131,6 +131,16 @@ vars:
 - { var: MAKATO_PV_WORKFLOW_STATE_DIR,   env: MAKATO_PV_WORKFLOW_STATE_DIR,   default: "~/.makato-pv/workflow-state" }
 - { var: MAKATO_PV_WORKTREES_DIR,        env: MAKATO_PV_WORKTREES_DIR,        default: "~/.makato-pv/worktrees" }
 
+# --- Offline board mirror + per-tick sync (issue #9) ---
+# When the board poll fails (GitHub partition) the loop serves the last-known
+# board from a local snapshot and queues status transitions it could not push,
+# flushing them on the next successful poll. Sync cadence is per poll tick (no
+# separate daemon); conflict rule is last-writer-wins. Set to 0 to disable.
+# Snapshot/queue paths derive from STATE_DIR (override MAKATO_LOOP_MIRROR_FILE /
+# MAKATO_LOOP_MIRROR_QUEUE; point them at MAKATO_PERSISTENT_VOLUME_ROOT to
+# survive a Vast.ai preemption).
+- { var: MAKATO_LOOP_MIRROR,       env: MAKATO_LOOP_MIRROR,       default: "1" }
+
 # --- Model-role → endpoint routing (issue #5) ---
 # The ten canonical oh-my-pi modelRole tiers. Each carries the base_url its
 # LLM calls route through. At Phase-1 start every role points at the open

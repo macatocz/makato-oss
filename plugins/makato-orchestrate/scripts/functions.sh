@@ -2,6 +2,10 @@
 # functions.sh — helper + subcommand functions for loop.sh. Sourced by loop.sh after config parsing.
 # Not standalone: relies on config vars and runtime paths loop.sh defines.
 
+# --- Offline board mirror (#9) — sibling module providing mirror_* helpers. ---
+# shellcheck source=board-mirror.sh
+source "${MAKATO_LOOP_BOARD_MIRROR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/board-mirror.sh}"
+
 # ISO-8601 timestamp with milliseconds (UTC). Matches workflow-state.sh.
 _now() {
   python3 -c "from datetime import datetime, timezone
@@ -648,7 +652,20 @@ cmd_poll() {
     if [[ $_item_list_rc -eq 76 ]]; then
       return 76
     elif [[ $_item_list_rc -ne 0 ]]; then
-      return 75
+      # #9: a failed poll no longer halts the queue when a local mirror exists —
+      # serve the last-known board so dispatch continues across a GitHub partition.
+      local _mirror_board
+      if _mirror_board="$(mirror_read)"; then
+        echo "loop: WARN — board poll failed; serving from offline mirror (#9)" >&2
+        raw="$_mirror_board"
+      else
+        return 75
+      fi
+    else
+      # Online: refresh the mirror with the fresh board and flush any queued
+      # local writes back to GitHub (per-tick bidirectional sync, #9).
+      mirror_refresh "$raw"
+      mirror_flush "$host"
     fi
   fi
   # Build a list of accepted status names from the comma-separated input.
@@ -1985,15 +2002,23 @@ _claim_board_card() {
 
   # Re-poll: fetch board item (current Status + item id). Closes TOCTOU window.
   # MAKATO_LOOP_GH_OVERRIDE: offline fixture keeps DRY_DISPATCH smoke path (T9) offline.
-  local board item_line cur_status item_id
+  local board item_line cur_status item_id _claim_offline=""
   if [[ -n "${MAKATO_LOOP_GH_OVERRIDE:-}" ]]; then
     board="$(cat "$MAKATO_LOOP_GH_OVERRIDE" 2>/dev/null || echo '{"items":[]}')"
   else
     # #289: CAS re-poll uses retrying wrapper. Failed read → SKIP (not warn-proceed):
     # proceeding on an unreadable board re-opens the pre-#259 double-dispatch race.
     if ! board="$(_gh_project_item_list "$host" "$number" "$owner")"; then
-      echo "loop: skip #$issue — board re-poll failed (rate-limit/transient); NOT claiming to avoid double-dispatch (#289)" >&2
-      return 1
+      # #9: offline fallback — CAS against the last-known mirror and queue the
+      # transition for push on reconnect. Single operator, so no reachable
+      # competing session can race the claim while GitHub is unreachable.
+      if _mirror_enabled && board="$(mirror_read)"; then
+        echo "loop: claim #$issue — board re-poll failed; using offline mirror (#9)" >&2
+        _claim_offline=1
+      else
+        echo "loop: skip #$issue — board re-poll failed (rate-limit/transient); NOT claiming to avoid double-dispatch (#289)" >&2
+        return 1
+      fi
     fi
   fi
   item_line="$(jq -c --argjson i "$issue" \
@@ -2019,6 +2044,14 @@ _claim_board_card() {
   # Export CAS-observed Status for the tier 3/4 label-board conflict gate (#356).
   LOOP_LAST_CLAIMED_STATUS="$cur_status"
 
+  # #9: offline claim — GitHub is unreachable; record the transition locally and
+  # queue it for push on reconnect rather than a network write that would hang.
+  if [[ "${_claim_offline:-}" == "1" ]]; then
+    mirror_apply_local "$issue" "In progress"
+    echo "loop: claimed #$issue offline — queued 'In progress' for sync (#9)" >&2
+    return 0
+  fi
+
   # Forward-only write: Ready → In progress. Failed write still proceeds —
   # Ready already observed; async webhook is the backstop.
   if GH_HOST="$host" gh project item-edit --id "$item_id" \
@@ -2027,6 +2060,8 @@ _claim_board_card() {
       --single-select-option-id "$in_progress_option_id" >/dev/null 2>&1; then
     echo "loop: claimed #$issue (board $dispatch_status → In progress)" >&2
   else
+    # #9: keep the mirror truthful and retry the push on the next tick.
+    mirror_apply_local "$issue" "In progress"
     echo "loop: WARN — claim #$issue: item-edit failed after observing $dispatch_status; proceeding (assign→webhook backstop)" >&2
   fi
   return 0
