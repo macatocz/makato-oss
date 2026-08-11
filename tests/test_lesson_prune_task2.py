@@ -70,16 +70,10 @@ class TestLessonPruneGraduated:
         for line in content.splitlines():
             stripped = line.strip().lstrip("#").strip()
             words = stripped.split()
-            if (
-                len(words) >= 8
-                and not stripped.startswith("<!--")
-                and not stripped.startswith("|")
-            ):
+            if len(words) >= 8 and not stripped.startswith("<!--") and not stripped.startswith("|"):
                 phrase = stripped
                 break
-        assert phrase is not None, (
-            "Could not extract a long enough phrase from AGENTS.md"
-        )
+        assert phrase is not None, "Could not extract a long enough phrase from AGENTS.md"
 
         memory_dir = tmp_path / "memory"
         _write_records(
@@ -100,10 +94,7 @@ class TestLessonPruneGraduated:
         assert result.returncode == 0, f"stderr: {result.stderr}"
         records = _parse_output(result)
         assert len(records) == 1
-        assert records[0]["action"] == "GRADUATED", (
-            f"Expected GRADUATED for phrase in AGENTS.md, got: {records[0]}. "
-            f"Phrase was: {phrase!r}"
-        )
+        assert records[0]["action"] == "GRADUATED", f"Expected GRADUATED for phrase in AGENTS.md, got: {records[0]}. Phrase was: {phrase!r}"
 
     def test_non_graduated_text_is_not_graduated(self, tmp_path):
         """A record whose text does NOT appear in any AGENTS.md is NOT GRADUATED."""
@@ -127,9 +118,7 @@ class TestLessonPruneGraduated:
         assert result.returncode == 0, f"stderr: {result.stderr}"
         records = _parse_output(result)
         assert len(records) == 1
-        assert records[0]["action"] != "GRADUATED", (
-            f"Unexpected GRADUATED for nonsense phrase: {records[0]}"
-        )
+        assert records[0]["action"] != "GRADUATED", f"Unexpected GRADUATED for nonsense phrase: {records[0]}"
 
     def test_graduated_tolerates_two_agents_md_layouts(self, tmp_path):
         """GRADUATED detection works regardless of AGENTS.md heading structure."""
@@ -140,11 +129,7 @@ class TestLessonPruneGraduated:
         for line in content.splitlines():
             stripped = line.strip().lstrip("#").strip().lstrip("-").strip()
             words = stripped.split()
-            if (
-                len(words) >= 8
-                and not stripped.startswith("<!--")
-                and not stripped.startswith("|")
-            ):
+            if len(words) >= 8 and not stripped.startswith("<!--") and not stripped.startswith("|"):
                 phrase = stripped
                 break
         assert phrase is not None, "Could not extract a phrase from AGENTS.md"
@@ -167,9 +152,7 @@ class TestLessonPruneGraduated:
         result = _run(memory_dir)
         assert result.returncode == 0, f"stderr: {result.stderr}"
         records = _parse_output(result)
-        assert records[0]["action"] == "GRADUATED", (
-            f"Expected GRADUATED regardless of heading layout: {records[0]}"
-        )
+        assert records[0]["action"] == "GRADUATED", f"Expected GRADUATED regardless of heading layout: {records[0]}"
 
 
 # ---------------------------------------------------------------------------
@@ -292,9 +275,7 @@ class TestLessonPruneStale:
         assert result.returncode == 0, f"stderr: {result.stderr}"
         records = _parse_output(result)
         assert len(records) == 1
-        assert records[0]["action"] != "STALE", (
-            f"Should NOT be STALE when sha is reachable: {records[0]}"
-        )
+        assert records[0]["action"] != "STALE", f"Should NOT be STALE when sha is reachable: {records[0]}"
 
     def test_not_stale_when_date_recent(self, tmp_path):
         """Record with unreachable sha but recent date → NOT STALE."""
@@ -329,9 +310,7 @@ class TestLessonPruneStale:
         assert result.returncode == 0, f"stderr: {result.stderr}"
         records = _parse_output(result)
         assert len(records) == 1
-        assert records[0]["action"] != "STALE", (
-            f"Should NOT be STALE when date is recent: {records[0]}"
-        )
+        assert records[0]["action"] != "STALE", f"Should NOT be STALE when date is recent: {records[0]}"
 
     def test_stale_reason_contains_false_positive_note(self, tmp_path):
         """STALE reason text mentions human judgment / false-positive."""
@@ -368,7 +347,4 @@ class TestLessonPruneStale:
         assert records[0]["action"] == "STALE"
         # The reason must mention human judgment / false-positive per AC.
         reason = records[0]["reason"].lower()
-        assert any(
-            phrase in reason
-            for phrase in ["human", "false-positive", "judgment", "rebase"]
-        ), f"STALE reason should document false-positive risk: {records[0]['reason']}"
+        assert any(phrase in reason for phrase in ["human", "false-positive", "judgment", "rebase"]), f"STALE reason should document false-positive risk: {records[0]['reason']}"

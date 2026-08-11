@@ -196,7 +196,7 @@ def check_correctness(stories_text: str | None, diff_text: str) -> CorrectnessRe
 
     try:
         stories_data = json.loads(stories_text)
-    except (json.JSONDecodeError, ValueError):
+    except (json.JSONDecodeError, ValueError):  # fmt: skip
         # Treat as gap — malformed stories.json
         v = ScenarioVerdict(title="(malformed stories.json)", verdict="GAP")
         return CorrectnessResult(verdicts=[v], gap_count=1)
@@ -204,11 +204,7 @@ def check_correctness(stories_text: str | None, diff_text: str) -> CorrectnessRe
     if not isinstance(stories_data, dict):
         return CorrectnessResult(skipped=True)
 
-    all_scenarios = [
-        scenario
-        for story in stories_data.get("stories", [])
-        for scenario in (story.get("description") if isinstance(story.get("description"), dict) else {}).get("successScenarios", [])
-    ]
+    all_scenarios = [scenario for story in stories_data.get("stories", []) for scenario in (story.get("description") if isinstance(story.get("description"), dict) else {}).get("successScenarios", [])]
 
     result = CorrectnessResult()
     for scenario in all_scenarios:
@@ -226,9 +222,7 @@ def check_correctness(stories_text: str | None, diff_text: str) -> CorrectnessRe
             verdict = "GAP"
             result.gap_count += 1
 
-        result.verdicts.append(
-            ScenarioVerdict(title=title or descriptor[:60], verdict=verdict)
-        )
+        result.verdicts.append(ScenarioVerdict(title=title or descriptor[:60], verdict=verdict))
 
     return result
 
@@ -311,9 +305,7 @@ def check_coherence(delta_text: str | None, diff_text: str) -> CoherenceResult:
                 verdict = "SUGGESTION"
                 result.suggestion_count += 1
 
-        result.verdicts.append(
-            RequirementVerdict(name=name, verdict=verdict, shall=shall_stmt)
-        )
+        result.verdicts.append(RequirementVerdict(name=name, verdict=verdict, shall=shall_stmt))
 
     return result
 
@@ -354,9 +346,7 @@ def format_report(
         lines.append("stories.json: absent — skipped")
         lines.append("OK")
     else:
-        lines.append(
-            f"stories.json successScenarios: {len(correctness.verdicts)} scenario(s)"
-        )
+        lines.append(f"stories.json successScenarios: {len(correctness.verdicts)} scenario(s)")
         for v in correctness.verdicts:
             lines.append(f"  {v.verdict}: {v.title}")
         if correctness.gap_count > 0:
@@ -378,9 +368,7 @@ def format_report(
             if v.verdict == "GAP":
                 lines.append(f"  GAP: {v.name} — SHALL: {v.shall[:80]}")
             elif v.verdict == "SUGGESTION":
-                lines.append(
-                    f"  SUGGESTION: {v.name} — partial evidence, review recommended"
-                )
+                lines.append(f"  SUGGESTION: {v.name} — partial evidence, review recommended")
             elif v.verdict == "CONFIRMED":
                 lines.append(f"  CONFIRMED: {v.name}")
             else:
@@ -389,9 +377,7 @@ def format_report(
             lines.append(f"CRITICAL: {coherence.gap_count} COHERENCE GAP finding(s)")
             exit_code = 1
         elif coherence.suggestion_count > 0:
-            lines.append(
-                f"SUGGESTION: {coherence.suggestion_count} low-confidence match(es) — non-blocking"
-            )
+            lines.append(f"SUGGESTION: {coherence.suggestion_count} low-confidence match(es) — non-blocking")
         else:
             lines.append("OK")
 
@@ -413,8 +399,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if len(args) < 2:
         print(
-            "usage: build_verify_spec.py <plan_file> <diff_file>"
-            " [<stories_file>] [<delta_file>]",
+            "usage: build_verify_spec.py <plan_file> <diff_file> [<stories_file>] [<delta_file>]",
             file=sys.stderr,
         )
         return 2

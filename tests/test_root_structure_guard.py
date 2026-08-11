@@ -24,7 +24,4 @@ def test_makato_entry_is_inside_allowed_block() -> None:
     start = content.index("ALLOWED=(")
     end = content.index(")", start)
     allowed_block = content[start:end]
-    assert '".makato"' in allowed_block, (
-        '".makato" must appear inside the ALLOWED=(...) array block, '
-        f"but it was not found there.\nBlock content:\n{allowed_block}"
-    )
+    assert '".makato"' in allowed_block, f'".makato" must appear inside the ALLOWED=(...) array block, but it was not found there.\nBlock content:\n{allowed_block}'

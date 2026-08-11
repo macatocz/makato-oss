@@ -56,6 +56,7 @@ from pathlib import Path
 # Public helper functions (match promote-lessons.sh exactly — Q6 contract)
 # ---------------------------------------------------------------------------
 
+
 def normalize_text(text: str) -> str:
     """Lowercase, collapse whitespace, strip non-alphanumeric."""
     t = text.lower()
@@ -76,6 +77,7 @@ def compute_key(text: str, tags: list) -> str:
 # GRADUATED detection
 # ---------------------------------------------------------------------------
 
+
 def load_agents_contents(repo_root: str) -> list[str]:
     """Return normalized text content from all AGENTS.md files in the repo.
 
@@ -94,7 +96,7 @@ def load_agents_contents(repo_root: str) -> list[str]:
     plugins_dir = os.path.join(repo_root, "plugins")
     if os.path.isdir(plugins_dir):
         for root, dirs, files in os.walk(plugins_dir):
-            depth = root[len(plugins_dir):].count(os.sep)
+            depth = root[len(plugins_dir) :].count(os.sep)
             if depth > 3:
                 dirs.clear()
                 continue
@@ -137,6 +139,7 @@ def is_graduated(text: str, agents_contents: list[str]) -> bool:
 # ---------------------------------------------------------------------------
 # STALE detection
 # ---------------------------------------------------------------------------
+
 
 def get_today(today_override: str = "") -> datetime.date:
     """Return today's date, respecting MAKATO_PRUNE_TODAY_OVERRIDE."""
@@ -195,6 +198,7 @@ def is_stale(
 # Record loading
 # ---------------------------------------------------------------------------
 
+
 def load_records(procedural_file: str, semantic_file: str) -> list[dict]:
     """Read all records from both JSONL input files."""
     all_records: list[dict] = []
@@ -213,8 +217,7 @@ def load_records(procedural_file: str, semantic_file: str) -> list[dict]:
                             all_records.append(rec)
                     except json.JSONDecodeError:
                         print(
-                            f"lesson-prune: WARNING malformed line in {filepath}: "
-                            f"{line_item!r}",
+                            f"lesson-prune: WARNING malformed line in {filepath}: {line_item!r}",
                             file=sys.stderr,
                         )
         except Exception as exc:
@@ -228,6 +231,7 @@ def load_records(procedural_file: str, semantic_file: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 # Classification pipeline
 # ---------------------------------------------------------------------------
+
 
 def classify_records(
     all_records: list[dict],
@@ -351,18 +355,21 @@ def classify_records(
     results: list[dict] = []
     for idx, rec in enumerate(all_records):
         info = action_map[idx]
-        results.append({
-            "key": rec.get("key", ""),
-            "action": info["action"],
-            "reason": info["reason"],
-            "target": info["target"],
-        })
+        results.append(
+            {
+                "key": rec.get("key", ""),
+                "action": info["action"],
+                "reason": info["reason"],
+                "target": info["target"],
+            }
+        )
     return results
 
 
 # ---------------------------------------------------------------------------
 # Repo root resolution (mirrors workflow-state.sh logic)
 # ---------------------------------------------------------------------------
+
 
 def resolve_repo_root() -> str:
     """Resolve REPO_ROOT from the common git dir (works from worktrees)."""
@@ -396,6 +403,7 @@ def resolve_repo_root() -> str:
 # ---------------------------------------------------------------------------
 # main entry point
 # ---------------------------------------------------------------------------
+
 
 def main(argv: list[str] | None = None) -> int:
     """Classify lesson records and emit one JSON line per record to stdout.

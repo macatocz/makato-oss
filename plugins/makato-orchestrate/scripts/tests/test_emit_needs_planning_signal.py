@@ -13,9 +13,7 @@ import subprocess
 import sys
 
 # Allow imports from scripts/ directory.
-_SCRIPTS = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..")
-)
+_SCRIPTS = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _SCRIPTS not in sys.path:
     sys.path.insert(0, _SCRIPTS)
 
@@ -38,6 +36,7 @@ ISSUE_NUM = "348"
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
 # ---------------------------------------------------------------------------
+
 
 def _write_state(spec_dir: str, issue: str, cycles: int, repo: str = "macatocz/makato") -> None:
     """Write a workflow-state-<issue>.json fixture."""
@@ -137,15 +136,16 @@ def _run_in_sandbox(
     env["MAKATO_EMIT_NPS_GH_DRY_RUN"] = "1"
     env["MAKATO_STRUCTURAL_RESHAPE_THRESHOLD"] = threshold
     # Remove any stale test hooks from parent env.
-    for hook in ["MAKATO_EMIT_NPS_GH_ITEM_ID", "MAKATO_EMIT_NPS_GH_ITEM_ADD_RESULT",
-                 "MAKATO_EMIT_NPS_GH_ITEM_ADD_FAIL"]:
+    for hook in ["MAKATO_EMIT_NPS_GH_ITEM_ID", "MAKATO_EMIT_NPS_GH_ITEM_ADD_RESULT", "MAKATO_EMIT_NPS_GH_ITEM_ADD_FAIL"]:
         env.pop(hook, None)
     if env_extra:
         env.update(env_extra)
 
     result = subprocess.run(
         [sys.executable, script, KEY, ISSUE_NUM],
-        capture_output=True, text=True, env=env,
+        capture_output=True,
+        text=True,
+        env=env,
     )
     return result.returncode, result.stdout
 
@@ -153,6 +153,7 @@ def _run_in_sandbox(
 # ---------------------------------------------------------------------------
 # T1: Below threshold → no-op; exits 0
 # ---------------------------------------------------------------------------
+
 
 class TestT1BelowThreshold:
     """T1: cycles=1, threshold=2 → no-op, exits 0."""
@@ -167,6 +168,7 @@ class TestT1BelowThreshold:
 # ---------------------------------------------------------------------------
 # T2: At threshold → label applied, board path exercised
 # ---------------------------------------------------------------------------
+
 
 class TestT2AtThreshold:
     """T2: cycles=2, threshold=2 → label applied + item-add + item-edit echoed."""
@@ -191,6 +193,7 @@ class TestT2AtThreshold:
 # T3: Above threshold → same as T2
 # ---------------------------------------------------------------------------
 
+
 class TestT3AboveThreshold:
     """T3: cycles=5, threshold=2 → label + item-add + item-edit echoed."""
 
@@ -214,6 +217,7 @@ class TestT3AboveThreshold:
 # T4: Degrade-label-only when needs_planning option ID is null
 # ---------------------------------------------------------------------------
 
+
 class TestT4DegradeLabelOnly:
     """T4: needs_planning=null → label applied, board skipped."""
 
@@ -231,6 +235,7 @@ class TestT4DegradeLabelOnly:
 # ---------------------------------------------------------------------------
 # T5: Idempotent — item already on board
 # ---------------------------------------------------------------------------
+
 
 class TestT5Idempotent:
     """T5: Item already on board (ITEM_ID set) → exit 0, item-edit echoed, no item-add."""
@@ -254,6 +259,7 @@ class TestT5Idempotent:
 # T6: Board item not found → item-add succeeds → board_applied=true
 # ---------------------------------------------------------------------------
 
+
 class TestT6ItemAddFallbackSuccess:
     """T6: No item on board → item-add succeeds → board path exercised."""
 
@@ -276,6 +282,7 @@ class TestT6ItemAddFallbackSuccess:
 # T7: Board item not found → item-add also fails → exit 0 (graceful warn)
 # ---------------------------------------------------------------------------
 
+
 class TestT7ItemAddFallbackFail:
     """T7: item-add fails → graceful warn, no item-edit, exit 0."""
 
@@ -296,6 +303,7 @@ class TestT7ItemAddFallbackFail:
 # ---------------------------------------------------------------------------
 # Exit code tests
 # ---------------------------------------------------------------------------
+
 
 class TestExitCodes:
     """Test exit codes from main()."""
@@ -320,6 +328,7 @@ class TestExitCodes:
 # ---------------------------------------------------------------------------
 # Unit tests for read_needs_planning_option
 # ---------------------------------------------------------------------------
+
 
 class TestReadNeedsPlanningOption:
     """Unit tests for read_needs_planning_option."""
@@ -350,6 +359,7 @@ class TestReadNeedsPlanningOption:
 # Unit tests for get_item_id (test hook behaviour)
 # ---------------------------------------------------------------------------
 
+
 class TestGetItemId:
     """Unit tests for get_item_id with MAKATO_EMIT_NPS_GH_ITEM_ID hook."""
 
@@ -367,6 +377,7 @@ class TestGetItemId:
 # ---------------------------------------------------------------------------
 # Unit tests for item_add (dry-run mode)
 # ---------------------------------------------------------------------------
+
 
 class TestItemAdd:
     """Unit tests for item_add dry-run mode."""

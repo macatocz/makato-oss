@@ -53,7 +53,9 @@ def _repo_root() -> str:
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--git-common-dir"],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         )
         git_common_dir = result.stdout.strip()
         if git_common_dir:
@@ -66,7 +68,9 @@ def _repo_root() -> str:
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         )
         return result.stdout.strip()
     except Exception:
@@ -78,9 +82,7 @@ def _resolve_spec_folder(specs_dir: str, key: str) -> str:
     if os.path.isdir(specs_dir):
         try:
             for entry in os.listdir(specs_dir):
-                if entry.startswith(key + "-") and os.path.isdir(
-                    os.path.join(specs_dir, entry)
-                ):
+                if entry.startswith(key + "-") and os.path.isdir(os.path.join(specs_dir, entry)):
                     return os.path.join(specs_dir, entry)
         except OSError:
             pass
@@ -105,7 +107,8 @@ def read_workflow_state(spec_folder: str, issue: str, ws_script: str) -> dict:
         try:
             result = subprocess.run(
                 [ws_script, "read", os.path.basename(spec_folder), issue],
-                capture_output=True, text=True,
+                capture_output=True,
+                text=True,
             )
             text = result.stdout.strip()
             if text and text != "{}":
@@ -147,11 +150,7 @@ def read_needs_planning_option(config_file: str) -> tuple[str, str, str, str]:
 
     owner = str(gp.get("owner") or "")
     number = str(gp.get("number") or "")
-    sf_id = str(
-        gp.get("status_field_id")
-        or (fields.get("status") or {}).get("id")
-        or ""
-    )
+    sf_id = str(gp.get("status_field_id") or (fields.get("status") or {}).get("id") or "")
     return np_id, owner, number, sf_id
 
 
@@ -165,9 +164,14 @@ def apply_label(issue: str, repo: str, dry_run: bool) -> bool:
     # Ensure label exists.
     subprocess.run(
         [
-            "gh", "label", "create", "needs-reshape",
-            "--repo", repo,
-            "--color", "0075ca",
+            "gh",
+            "label",
+            "create",
+            "needs-reshape",
+            "--repo",
+            repo,
+            "--color",
+            "0075ca",
             "--description",
             "Issue has hit the structural-HALT recurrence threshold; needs planning pass",
         ],
@@ -197,12 +201,19 @@ def get_item_id(
     try:
         result = subprocess.run(
             [
-                "gh", "project", "item-list", project_number,
-                "--owner", project_owner,
-                "--format", "json",
-                "--jq", f".items[] | select(.content.number == {issue_number}) | .id",
+                "gh",
+                "project",
+                "item-list",
+                project_number,
+                "--owner",
+                project_owner,
+                "--format",
+                "json",
+                "--jq",
+                f".items[] | select(.content.number == {issue_number}) | .id",
             ],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         lines = result.stdout.strip().splitlines()
         return lines[0].strip() if lines else ""
@@ -223,20 +234,24 @@ def item_add(
             return ""
         add_result = os.environ.get("MAKATO_EMIT_NPS_GH_ITEM_ADD_RESULT", "")
         if add_result:
-            print(
-                f"gh project item-add {project_number} --owner {project_owner} "
-                f"--url https://github.com/{repo}/issues/{issue_number}"
-            )
+            print(f"gh project item-add {project_number} --owner {project_owner} --url https://github.com/{repo}/issues/{issue_number}")
         return add_result
     try:
         result = subprocess.run(
             [
-                "gh", "project", "item-add", project_number,
-                "--owner", project_owner,
-                "--url", f"https://github.com/{repo}/issues/{issue_number}",
-                "--format", "json",
+                "gh",
+                "project",
+                "item-add",
+                project_number,
+                "--owner",
+                project_owner,
+                "--url",
+                f"https://github.com/{repo}/issues/{issue_number}",
+                "--format",
+                "json",
             ],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         if result.returncode == 0:
             data = json.loads(result.stdout)
@@ -256,23 +271,24 @@ def set_board_status(
 ) -> bool:
     """Set board item Status to Needs Planning. Returns True on success."""
     if dry_run:
-        print(
-            f"gh project item-edit --id {item_id} "
-            f"--project-id {project_number} "
-            f"--owner {project_owner} "
-            f"--field-id {status_field_id} "
-            f"--single-select-option-id {option_id}"
-        )
+        print(f"gh project item-edit --id {item_id} --project-id {project_number} --owner {project_owner} --field-id {status_field_id} --single-select-option-id {option_id}")
         return True
     try:
         result = subprocess.run(
             [
-                "gh", "project", "item-edit",
-                "--id", item_id,
-                "--project-id", project_number,
-                "--owner", project_owner,
-                "--field-id", status_field_id,
-                "--single-select-option-id", option_id,
+                "gh",
+                "project",
+                "item-edit",
+                "--id",
+                item_id,
+                "--project-id",
+                project_number,
+                "--owner",
+                project_owner,
+                "--field-id",
+                status_field_id,
+                "--single-select-option-id",
+                option_id,
             ],
             capture_output=True,
         )
@@ -295,20 +311,22 @@ def emit_log_entry(
         return
     ts = _now()
     status = "warn" if warn_reason else "ok"
-    entry = json.dumps({
-        "ts": ts,
-        "skill": "emit-needs-planning-signal",
-        "story": key,
-        "step": "emit-needs-planning",
-        "status": status,
-        "data": {
-            "structural_halt_cycles": structural_halt_cycles,
-            "threshold": threshold,
-            "label_applied": label_applied,
-            "board_applied": board_applied,
-            "warn_reason": warn_reason,
-        },
-    })
+    entry = json.dumps(
+        {
+            "ts": ts,
+            "skill": "emit-needs-planning-signal",
+            "story": key,
+            "step": "emit-needs-planning",
+            "status": status,
+            "data": {
+                "structural_halt_cycles": structural_halt_cycles,
+                "threshold": threshold,
+                "label_applied": label_applied,
+                "board_applied": board_applied,
+                "warn_reason": warn_reason,
+            },
+        }
+    )
     try:
         subprocess.run([build_log_script, key, entry], capture_output=True)
     except Exception:
@@ -331,12 +349,8 @@ def run(key: str, issue_number: str) -> int:
     except ValueError:
         threshold = 2
 
-    ws_script = os.path.join(
-        repo_root, "plugins", "makato-orchestrate", "shared", "workflow-state.sh"
-    )
-    build_log_script = os.path.join(
-        repo_root, "plugins", "makato-build", "shared", "build-log.sh"
-    )
+    ws_script = os.path.join(repo_root, "plugins", "makato-orchestrate", "shared", "workflow-state.sh")
+    build_log_script = os.path.join(repo_root, "plugins", "makato-build", "shared", "build-log.sh")
 
     spec_folder = _resolve_spec_folder(specs_dir, key)
 
@@ -348,8 +362,7 @@ def run(key: str, issue_number: str) -> int:
 
     if not state:
         print(
-            f"emit-needs-planning-signal: workflow-state-{issue_number}.json "
-            f"not found for KEY={key}",
+            f"emit-needs-planning-signal: workflow-state-{issue_number}.json not found for KEY={key}",
             file=sys.stderr,
         )
         return 1
@@ -357,7 +370,7 @@ def run(key: str, issue_number: str) -> int:
     structural_halt_cycles = state.get("structural_halt_cycles", 0)
     try:
         structural_halt_cycles = int(structural_halt_cycles)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError):  # fmt: skip
         structural_halt_cycles = 0
 
     # Threshold check: no-op when below threshold.
@@ -388,9 +401,7 @@ def run(key: str, issue_number: str) -> int:
                 item_id = item_add(project_number, project_owner, repo, issue_number, dry_run)
 
             if item_id:
-                if set_board_status(
-                    item_id, project_number, project_owner, status_field_id, np_id, dry_run
-                ):
+                if set_board_status(item_id, project_number, project_owner, status_field_id, np_id, dry_run):
                     board_applied = True
                 else:
                     warn_reasons.append("board-status-failed")
@@ -405,8 +416,13 @@ def run(key: str, issue_number: str) -> int:
 
     # (c) Emit JSONL log entry.
     emit_log_entry(
-        build_log_script, key, structural_halt_cycles, threshold,
-        label_applied, board_applied, warn_reason,
+        build_log_script,
+        key,
+        structural_halt_cycles,
+        threshold,
+        label_applied,
+        board_applied,
+        warn_reason,
     )
 
     # Always exit 0 — board/label failures are WARN only.

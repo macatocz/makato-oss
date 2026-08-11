@@ -136,15 +136,9 @@ class TestLessonPruneDuplicate:
         records = _parse_output(result)
         assert len(records) == 2
         by_key = {rec["key"]: rec for rec in records}
-        assert by_key["key-high"]["action"] == "KEEP", (
-            f"Expected KEEP for key-high, got: {by_key['key-high']}"
-        )
-        assert by_key["key-low"]["action"] == "DUPLICATE", (
-            f"Expected DUPLICATE for key-low, got: {by_key['key-low']}"
-        )
-        assert by_key["key-low"]["target"] == "key-high", (
-            f"Expected target=key-high, got: {by_key['key-low']['target']}"
-        )
+        assert by_key["key-high"]["action"] == "KEEP", f"Expected KEEP for key-high, got: {by_key['key-high']}"
+        assert by_key["key-low"]["action"] == "DUPLICATE", f"Expected DUPLICATE for key-low, got: {by_key['key-low']}"
+        assert by_key["key-low"]["target"] == "key-high", f"Expected target=key-high, got: {by_key['key-low']['target']}"
 
     def test_duplicate_keeps_newer_date_on_tie(self, tmp_path):
         """Two records with same text+tags and equal occurrences: newer date → KEEP."""
@@ -207,9 +201,7 @@ class TestLessonPruneConsolidate:
         assert result.returncode == 0, f"stderr: {result.stderr}"
         records = _parse_output(result)
         assert len(records) == 2
-        assert all(rec["action"] == "CONSOLIDATE" for rec in records), (
-            f"Expected all CONSOLIDATE, got: {[rec['action'] for rec in records]}"
-        )
+        assert all(rec["action"] == "CONSOLIDATE" for rec in records), f"Expected all CONSOLIDATE, got: {[rec['action'] for rec in records]}"
 
 
 class TestLessonPruneSemanticFile:
@@ -362,9 +354,7 @@ class TestLessonPruneEmptyInputs:
         memory_dir = tmp_path / "empty_memory"
         memory_dir.mkdir()
         result = _run(memory_dir)
-        assert result.returncode == 0, (
-            f"Expected exit 0, got {result.returncode}. stderr: {result.stderr}"
-        )
+        assert result.returncode == 0, f"Expected exit 0, got {result.returncode}. stderr: {result.stderr}"
         assert result.stdout.strip() == ""
 
     def test_empty_memory_file_exits_zero(self, tmp_path):

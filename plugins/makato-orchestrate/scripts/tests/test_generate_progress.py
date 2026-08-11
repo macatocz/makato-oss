@@ -12,9 +12,7 @@ import os
 import sys
 
 # Allow imports from scripts/ directory.
-_SCRIPTS = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..")
-)
+_SCRIPTS = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _SCRIPTS not in sys.path:
     sys.path.insert(0, _SCRIPTS)
 
@@ -29,6 +27,7 @@ from generate_progress import (  # noqa: E402,I001
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
 # ---------------------------------------------------------------------------
+
 
 def _write_loop_status(state_dir: str, active: int | None, queue: list[int]) -> None:
     """Write a minimal loop-status.json fixture."""
@@ -57,6 +56,7 @@ def _epics_file(sandbox: str, name: str, epics: list[dict]) -> str:
 # T1: No epics found → all sections empty-placeholder but present; exit 0
 # ---------------------------------------------------------------------------
 
+
 class TestT1NoEpics:
     """T1: No epics found — all sections present with placeholder text."""
 
@@ -79,11 +79,14 @@ class TestT1NoEpics:
         assert "## In Progress" in content
         assert "## Not Started" in content
         # At least one empty-placeholder line.
-        assert any(phrase in content for phrase in [
-            "_No closed epics found._",
-            "_No epics currently in progress._",
-            "_No open epics outside the loop queue._",
-        ])
+        assert any(
+            phrase in content
+            for phrase in [
+                "_No closed epics found._",
+                "_No epics currently in progress._",
+                "_No open epics outside the loop queue._",
+            ]
+        )
         assert "Last updated:" in content
 
 
@@ -91,15 +94,14 @@ class TestT1NoEpics:
 # T2: Single closed epic → appears under ## Done
 # ---------------------------------------------------------------------------
 
+
 class TestT2ClosedEpic:
     """T2: Single closed epic → classified under Done."""
 
     def test_closed_epic_under_done(self, tmp_path):
         state_dir = str(tmp_path / "state")
         out_file = str(tmp_path / "PROGRESS.md")
-        epics = [
-            {"number": 42, "title": "Epic: Roadmap foundation", "state": "CLOSED", "closedAt": "2026-07-20T12:00:00Z"}
-        ]
+        epics = [{"number": 42, "title": "Epic: Roadmap foundation", "state": "CLOSED", "closedAt": "2026-07-20T12:00:00Z"}]
         gh_override = _epics_file(str(tmp_path), "epics.json", epics)
         _write_loop_status(state_dir, None, [])
 
@@ -132,6 +134,7 @@ class TestT2ClosedEpic:
 # T3: Active workflow issue → ## In Progress
 # ---------------------------------------------------------------------------
 
+
 class TestT3ActiveWorkflowIssue:
     """T3: Open epic matching active_workflow.issue → In Progress."""
 
@@ -163,6 +166,7 @@ class TestT3ActiveWorkflowIssue:
 # T4: Open epic not in loop queue → ## Not Started
 # ---------------------------------------------------------------------------
 
+
 class TestT4NotStartedEpic:
     """T4: Open epic not in loop queue → Not Started."""
 
@@ -193,6 +197,7 @@ class TestT4NotStartedEpic:
 # ---------------------------------------------------------------------------
 # T5: loop-status.json absent → falls back to gh data alone; exits 0
 # ---------------------------------------------------------------------------
+
 
 class TestT5MissingLoopStatus:
     """T5: Absent loop-status.json → graceful fallback, warning comment, exit 0."""
@@ -226,6 +231,7 @@ class TestT5MissingLoopStatus:
 # T6: gh unavailable → PROGRESS.md written with warning; exits 0
 # ---------------------------------------------------------------------------
 
+
 class TestT6GhUnavailable:
     """T6: gh CLI unavailable → PROGRESS.md written with warning comment, exit 0."""
 
@@ -255,6 +261,7 @@ class TestT6GhUnavailable:
 # ---------------------------------------------------------------------------
 # Unit tests for individual functions
 # ---------------------------------------------------------------------------
+
 
 class TestReadLoopStatus:
     """Unit tests for read_loop_status."""

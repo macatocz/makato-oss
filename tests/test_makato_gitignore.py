@@ -27,10 +27,7 @@ def _check_ignore(path: str) -> tuple[bool, str]:
         check=False,
     )
     if result.returncode not in (0, 1):
-        raise RuntimeError(
-            f"git check-ignore failed for {path!r}: rc={result.returncode} "
-            f"stderr={result.stderr!r}"
-        )
+        raise RuntimeError(f"git check-ignore failed for {path!r}: rc={result.returncode} stderr={result.stderr!r}")
     if result.returncode == 1:
         # No pattern matched — path is not ignored by any rule.
         return False, ""
@@ -44,33 +41,22 @@ def _check_ignore(path: str) -> tuple[bool, str]:
 def test_semantic_jsonl_is_committed() -> None:
     """.makato/memory/semantic.jsonl must NOT be ignored (AC-5)."""
     ignored, rule = _check_ignore(".makato/memory/semantic.jsonl")
-    assert not ignored, (
-        ".makato/memory/semantic.jsonl should be committed, not ignored; "
-        f".gitignore matched rule: {rule}"
-    )
+    assert not ignored, f".makato/memory/semantic.jsonl should be committed, not ignored; .gitignore matched rule: {rule}"
 
 
 def test_procedural_jsonl_is_committed() -> None:
     """.makato/memory/procedural.jsonl must NOT be ignored (AC-5)."""
     ignored, rule = _check_ignore(".makato/memory/procedural.jsonl")
-    assert not ignored, (
-        ".makato/memory/procedural.jsonl should be committed, not ignored; "
-        f".gitignore matched rule: {rule}"
-    )
+    assert not ignored, f".makato/memory/procedural.jsonl should be committed, not ignored; .gitignore matched rule: {rule}"
 
 
 def test_episodic_jsonl_stays_ignored() -> None:
     """Episodic *.jsonl files under .makato/ must stay gitignored (AC-5)."""
     ignored, _rule = _check_ignore(".makato/memory/episode-2026-07-19.jsonl")
-    assert ignored, (
-        "Episodic .makato/memory/*.jsonl files must stay gitignored (AC-5); "
-        "got not-ignored"
-    )
+    assert ignored, "Episodic .makato/memory/*.jsonl files must stay gitignored (AC-5); got not-ignored"
 
 
 def test_other_makato_jsonl_stays_ignored() -> None:
     """Any non-committed .makato/**/*.jsonl must stay gitignored."""
     ignored, _rule = _check_ignore(".makato/cache/something.jsonl")
-    assert ignored, (
-        "Non-committed .makato/**/*.jsonl must stay gitignored; got not-ignored"
-    )
+    assert ignored, "Non-committed .makato/**/*.jsonl must stay gitignored; got not-ignored"

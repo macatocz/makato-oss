@@ -31,9 +31,7 @@ def typevar_target(items: list[int]) -> int:
 
 
 _a = typevar_target([1, 2, 3])
-_b = typevar_target(
-    ["a", "b"]
-)  # INTENTIONAL: triggers reportArgumentType for Branch 3 fixture
+_b = typevar_target(["a", "b"])  # INTENTIONAL: triggers reportArgumentType for Branch 3 fixture
 
 
 class _MissingStubLib:

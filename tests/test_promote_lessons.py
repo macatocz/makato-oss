@@ -44,9 +44,7 @@ def _run(
     )
 
 
-def _make_workflow_state(
-    specs_dir: Path, issue_number: int, lessons: list[dict]
-) -> Path:
+def _make_workflow_state(specs_dir: Path, issue_number: int, lessons: list[dict]) -> Path:
     """Create a minimal workflow-state-<N>.json in a matching spec folder.
 
     Lessons use the workflow-state schema: {ts, cycle, trigger, description, files_affected}.
@@ -59,9 +57,7 @@ def _make_workflow_state(
     return ws
 
 
-def _make_change_lessons(
-    specs_dir: Path, issue_number: int, records: list[dict]
-) -> Path:
+def _make_change_lessons(specs_dir: Path, issue_number: int, records: list[dict]) -> Path:
     """Create a change-lessons.jsonl in the matching spec folder.
 
     Records use the change-lane format: {text, tags, scope, ...}.
@@ -140,9 +136,7 @@ class TestPromoteLessonsGeneralizable:
         assert len(record["repo_sha"]) >= 7, f"repo_sha too short: {record['repo_sha']}"
 
         assert "date" in record, "Missing date field"
-        assert re.match(r"^\d{4}-\d{2}-\d{2}$", record["date"]), (
-            f"Bad date format: {record['date']}"
-        )
+        assert re.match(r"^\d{4}-\d{2}-\d{2}$", record["date"]), f"Bad date format: {record['date']}"
 
 
 class TestPromoteLessonsLocalSkipped:
@@ -217,27 +211,17 @@ class TestPromoteLessonsDuplicateBumpsOccurrences:
         result = _run("471", str(specs_dir), str(memory_file))
         assert result.returncode == 0, f"First run stderr: {result.stderr}"
 
-        lines_after_first = [
-            line for line in memory_file.read_text().splitlines() if line.strip()
-        ]
-        assert len(lines_after_first) == 1, (
-            f"Expected 1 line after first run: {lines_after_first}"
-        )
+        lines_after_first = [line for line in memory_file.read_text().splitlines() if line.strip()]
+        assert len(lines_after_first) == 1, f"Expected 1 line after first run: {lines_after_first}"
 
         # Second promotion of same lesson
         result = _run("471", str(specs_dir), str(memory_file))
         assert result.returncode == 0, f"Second run stderr: {result.stderr}"
 
-        lines_after_second = [
-            line for line in memory_file.read_text().splitlines() if line.strip()
-        ]
-        assert len(lines_after_second) == 1, (
-            f"Expected still 1 line (dedup) after second run, got {len(lines_after_second)}: {lines_after_second}"
-        )
+        lines_after_second = [line for line in memory_file.read_text().splitlines() if line.strip()]
+        assert len(lines_after_second) == 1, f"Expected still 1 line (dedup) after second run, got {len(lines_after_second)}: {lines_after_second}"
         record = json.loads(lines_after_second[0])
-        assert record["occurrences"] == 2, (
-            f"Expected occurrences=2, got {record['occurrences']}"
-        )
+        assert record["occurrences"] == 2, f"Expected occurrences=2, got {record['occurrences']}"
 
 
 class TestPromoteLessonsChangeLearnSource:
@@ -282,9 +266,7 @@ class TestPromoteLessonsNoOp:
         memory_file.touch()
 
         result = _run("471", str(specs_dir), str(memory_file))
-        assert result.returncode == 0, (
-            f"Expected exit 0, got {result.returncode}. stderr: {result.stderr}"
-        )
+        assert result.returncode == 0, f"Expected exit 0, got {result.returncode}. stderr: {result.stderr}"
 
         lines = [line for line in memory_file.read_text().splitlines() if line.strip()]
         assert len(lines) == 0, f"Expected memory file untouched, got: {lines}"
@@ -324,9 +306,7 @@ class TestPromoteLessonsNoOp:
         # Do NOT create tmp_path/new_dir — script must create it.
 
         result = _run("471", str(specs_dir), str(memory_file))
-        assert result.returncode == 0, (
-            f"Expected exit 0, got {result.returncode}. stderr: {result.stderr}"
-        )
+        assert result.returncode == 0, f"Expected exit 0, got {result.returncode}. stderr: {result.stderr}"
 
 
 class TestPromoteLessonsSemanticTier:
@@ -357,9 +337,7 @@ class TestPromoteLessonsSemanticTier:
         assert result.returncode == 0, f"stderr: {result.stderr}"
 
         sem_lines = [line for line in semantic.read_text().splitlines() if line.strip()]
-        proc_lines = [
-            line for line in procedural.read_text().splitlines() if line.strip()
-        ]
+        proc_lines = [line for line in procedural.read_text().splitlines() if line.strip()]
         assert len(sem_lines) == 1, f"Expected 1 semantic record, got {sem_lines}"
         assert len(proc_lines) == 0, f"Procedural must stay empty, got {proc_lines}"
         rec = json.loads(sem_lines[0])
@@ -397,9 +375,7 @@ class TestPromoteLessonsSemanticTier:
         result = _run("494", str(specs_dir), str(procedural), str(semantic))
         assert result.returncode == 0, f"stderr: {result.stderr}"
 
-        proc_lines = [
-            line for line in procedural.read_text().splitlines() if line.strip()
-        ]
+        proc_lines = [line for line in procedural.read_text().splitlines() if line.strip()]
         sem_lines = [line for line in semantic.read_text().splitlines() if line.strip()]
         assert len(proc_lines) == 2, f"Expected 2 procedural records, got {proc_lines}"
         assert len(sem_lines) == 0, f"Semantic must stay empty, got {sem_lines}"
@@ -428,9 +404,7 @@ class TestPromoteLessonsSemanticTier:
         assert r2.returncode == 0, f"stderr: {r2.stderr}"
 
         sem_lines = [line for line in semantic.read_text().splitlines() if line.strip()]
-        assert len(sem_lines) == 1, (
-            f"Expected 1 deduped semantic record, got {sem_lines}"
-        )
+        assert len(sem_lines) == 1, f"Expected 1 deduped semantic record, got {sem_lines}"
         assert json.loads(sem_lines[0])["occurrences"] == 2
 
     def test_default_semantic_file_when_arg_omitted(self, tmp_path):
@@ -455,7 +429,5 @@ class TestPromoteLessonsSemanticTier:
         # No 4th arg — the script defaults SEMANTIC_MEMORY_FILE; procedural still works.
         result = _run("494", str(specs_dir), str(procedural))
         assert result.returncode == 0, f"stderr: {result.stderr}"
-        proc_lines = [
-            line for line in procedural.read_text().splitlines() if line.strip()
-        ]
+        proc_lines = [line for line in procedural.read_text().splitlines() if line.strip()]
         assert len(proc_lines) == 1

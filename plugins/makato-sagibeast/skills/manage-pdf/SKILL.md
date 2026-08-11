@@ -51,8 +51,8 @@ Is the PDF scanned (image-only, no embedded text layer)?
                           NO  → pdftotext CLI  (fastest plain-text dump)
 ```
 
-Key rule: **never mix pdfplumber and pypdf in the same write operation.** 
-pdfplumber is read-only; pypdf is the write layer. Attempting to save a 
+Key rule: **never mix pdfplumber and pypdf in the same write operation.**
+pdfplumber is read-only; pypdf is the write layer. Attempting to save a
 pdfplumber object via pypdf produces a corrupt file with no error.
 
 ---
