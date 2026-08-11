@@ -2289,9 +2289,8 @@ while [[ $# -gt 0 ]]; do
     shift
   fi
 done
-printf 'ISSUE_NUMBER=%s REPO=%s MAKATO_HEADLESS=%s BG_CEILING=%s\n' \
+printf 'ISSUE_NUMBER=%s REPO=%s MAKATO_HEADLESS=%s\n' \
   "${ISSUE_NUMBER:-}" "${REPO:-}" "${MAKATO_HEADLESS:-}" \
-  "${CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS:-UNSET}" \
   >"${T59_ENV_CAPTURE}"
 exit 0
 STUB
@@ -2313,9 +2312,6 @@ grep -q "301" "$T59_PROMPT_CAPTURE" \
 # Assert MAKATO_HEADLESS=1 was exported to the stub.
 grep -q "MAKATO_HEADLESS=1" "$T59_ENV_CAPTURE" \
   || fail "T59: MAKATO_HEADLESS=1 should be set; got: $(cat "$T59_ENV_CAPTURE" 2>/dev/null)"
-# Assert CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 was exported.
-grep -q "BG_CEILING=0" "$T59_ENV_CAPTURE" \
-  || fail "T59: CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 should be set; got: $(cat "$T59_ENV_CAPTURE" 2>/dev/null)"
 # Assert REPO is threaded into env from MAKATO_LOOP_DISPATCH_REPO.
 grep -q "REPO=macatocz/makato" "$T59_ENV_CAPTURE" \
   || fail "T59: REPO should be macatocz/makato; got: $(cat "$T59_ENV_CAPTURE" 2>/dev/null)"
