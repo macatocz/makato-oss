@@ -80,6 +80,12 @@ eval "$(python3 "$_LOOP_CONFIG_PARSER" "$_LOOP_CONFIG_YML")"
 if [[ -n "${API_FORCE_IDLE_TIMEOUT:-}" ]]; then
   export API_FORCE_IDLE_TIMEOUT
 fi
+# Open-model endpoint (issue #7): forward MAKATO_OPEN_ENDPOINT_URL as
+# ANTHROPIC_BASE_URL so omp / Claude Code routes every dispatch through the
+# configured cloud open-model API. A no-op when the var is empty (default).
+if [[ -n "${MAKATO_OPEN_ENDPOINT_URL:-}" ]]; then
+  export ANTHROPIC_BASE_URL="$MAKATO_OPEN_ENDPOINT_URL"
+fi
 PIDFILE="${MAKATO_LOOP_PIDFILE:-$STATE_DIR/loop.pid}"
 
 # --- Floor guards: clamp hostile/non-numeric overrides to safe values ---

@@ -106,3 +106,16 @@
 # lands in the models: block added by issue #5.
 - { var: LANGFUSE_JUDGE_EVALUATOR_NAME, env: LANGFUSE_JUDGE_EVALUATOR_NAME, default: "" }
 - { var: LANGFUSE_JUDGE_SCORE_NAME,     env: LANGFUSE_JUDGE_SCORE_NAME,     default: "quality" }
+
+# --- Open-model endpoint (issue #7) ---
+# MAKATO_OPEN_ENDPOINT_URL: base URL for the cloud open-model API (e.g.
+#   https://api.openai.com/v1 or an openai-compatible endpoint). When non-empty,
+#   loop.sh exports it as ANTHROPIC_BASE_URL so every omp / Claude Code dispatch
+#   routes through this endpoint. Empty string = use harness default (closed API).
+#   Set via env: MAKATO_OPEN_ENDPOINT_URL=https://... loop.sh run
+# MAKATO_OPEN_MODEL_ROLES: comma-separated list of oh-my-pi modelRole tiers that
+#   should route through MAKATO_OPEN_ENDPOINT_URL. Informational in Phase 1 —
+#   the roles are already wired by issue #5 frontmatter changes; this var documents
+#   the expected set and can gate role-specific routing helpers added later.
+- { var: MAKATO_OPEN_ENDPOINT_URL, env: MAKATO_OPEN_ENDPOINT_URL, default: "", export: true }
+- { var: MAKATO_OPEN_MODEL_ROLES,  env: MAKATO_OPEN_MODEL_ROLES,  default: "sonnet,haiku,opus" }

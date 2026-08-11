@@ -9,7 +9,6 @@ with `export: true` are prefixed `export`. Stdlib-only when PyYAML is absent —
 config.yml grammar is restricted to one flow-style mapping per line.
 """
 
-import re
 import sys
 
 
@@ -25,8 +24,9 @@ def _parse_flow_mappings(text):
             continue
         inner = body[1:-1].strip()
         entry = {}
-        # Split on commas that separate key: value pairs.
-        for pair in re.split(r",\s*(?=[A-Za-z_])", inner):
+        # Split on commas that separate key: value pairs, but NOT commas inside
+        # quoted strings (e.g. default: "sonnet,haiku,opus").
+        for pair in _split_flow_pairs(inner):
             if ":" not in pair:
                 continue
             key, val = pair.split(":", 1)
@@ -38,6 +38,37 @@ def _parse_flow_mappings(text):
         if entry:
             entries.append(entry)
     return entries
+
+
+def _split_flow_pairs(inner: str) -> list:
+    """Split a YAML flow-mapping body on key-separating commas, ignoring quoted ones.
+
+    A comma is a key separator only when it appears outside a quoted string and
+    the next non-space character is an identifier start (letter or underscore).
+    This avoids splitting on commas that are part of a quoted default value
+    such as ``default: "sonnet,haiku,opus"``.
+    """
+    pairs: list = []
+    in_quote = False
+    q_char = ""
+    start = 0
+    i = 0
+    while i < len(inner):
+        ch = inner[i]
+        if in_quote:
+            if ch == q_char and (i == 0 or inner[i - 1] != "\\"):
+                in_quote = False
+        elif ch in ('"', "'"):
+            in_quote = True
+            q_char = ch
+        elif ch == "," and not in_quote:
+            rest = inner[i + 1 :].lstrip()
+            if rest and (rest[0].isalpha() or rest[0] == "_"):
+                pairs.append(inner[start:i])
+                start = i + 1
+        i += 1
+    pairs.append(inner[start:])
+    return pairs
 
 
 def _expand_models(models):

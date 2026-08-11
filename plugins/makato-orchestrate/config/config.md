@@ -177,3 +177,27 @@ Many `MAKATO_LOOP_*_TEST_*` / `*_OVERRIDE` env vars keep the smoke suite offline
 (canned `gh` payloads, eval'd command stubs). They are consumed directly in
 `functions.sh` and are **not** operator-facing tunables — see the `_test-*` hook
 block in `loop.sh` and the per-function docstrings.
+
+## Open-model endpoint (issue #7)
+
+Routes every `omp` / Claude Code dispatch through a cloud open-model API so
+makato-oss runs fully headless on an open endpoint without any closed-provider
+dependency. Part of the Phase-1 harness-independence milestone.
+
+| Variable | Env override | Default | Meaning |
+| --- | --- | --- | --- |
+| `MAKATO_OPEN_ENDPOINT_URL` | `MAKATO_OPEN_ENDPOINT_URL` | *(empty)* | Base URL of the cloud open-model API (e.g. `https://api.openai.com/v1` or any OpenAI-compatible endpoint). When non-empty, `loop.sh` exports it as `ANTHROPIC_BASE_URL` so the harness CLI routes all LLM calls through this endpoint. Empty = use harness default (closed API). |
+| `MAKATO_OPEN_MODEL_ROLES` | `MAKATO_OPEN_MODEL_ROLES` | `sonnet,haiku,opus` | Comma-separated list of oh-my-pi modelRole tiers expected to route through `MAKATO_OPEN_ENDPOINT_URL`. Informational in Phase 1 (the roles are wired via issue #5 frontmatter); reserved for role-specific routing helpers added in later sequences. |
+
+**Runtime behaviour:** `loop.sh` evaluates the config after `parse-config.py` and then runs:
+
+```bash
+if [[ -n "${MAKATO_OPEN_ENDPOINT_URL:-}" ]]; then
+  export ANTHROPIC_BASE_URL="$MAKATO_OPEN_ENDPOINT_URL"
+fi
+```
+
+Every `$CLAUDE_BIN` subprocess (po-agent, seed-issue, refine) inherits
+`ANTHROPIC_BASE_URL`, which the harness respects as its API base. No changes
+to sub-agent frontmatter are required — the modelRole wiring from issue #5 is
+the only other half of this composition.
