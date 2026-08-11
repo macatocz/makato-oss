@@ -356,8 +356,11 @@ def test_config_yml_judge_score_name_default_is_quality():
     import yaml  # noqa: PLC0415
 
     config_path = Path(__file__).parent.parent / "plugins" / "makato-orchestrate" / "config" / "config.yml"
-    entries = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    assert isinstance(entries, list), "config.yml must be a YAML list"
+    data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    # config.yml is a top-level mapping ({vars: [...], models: {...}}, issue #5).
+    # A bare list is tolerated for backward compatibility.
+    entries = data.get("vars", []) if isinstance(data, dict) else data
+    assert isinstance(entries, list), "config.yml vars section must be a YAML list"
     score_entry = next(
         (e for e in entries if isinstance(e, dict) and e.get("var") == "LANGFUSE_JUDGE_SCORE_NAME"),
         None,
