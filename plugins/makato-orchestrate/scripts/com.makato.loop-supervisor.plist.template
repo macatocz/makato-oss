@@ -85,9 +85,20 @@
   <key>StandardErrorPath</key>
   <string>{{HOME}}/.claude/state/supervisor.log</string>
 
-  <!-- Do not launch immediately at load time — wait for the first interval -->
+  <!-- Restart the supervisor if it crashes (launchd Restart=always equivalent). -->
+  <!-- Combined with StartInterval this ensures the loop is restarted on boot   -->
+  <!-- and re-checked every 300 s even after an unexpected exit.                -->
+  <key>KeepAlive</key>
+  <dict>
+    <key>Crashed</key>
+    <true/>
+  </dict>
+
+  <!-- Start the supervisor immediately at login/boot, not just on the first    -->
+  <!-- interval tick. This covers the boot-time reconcile-before-resume path    -->
+  <!-- (reconcile-before-resume.sh is called from loop-supervisor.sh Step 4).  -->
   <key>RunAtLoad</key>
-  <false/>
+  <true/>
 
 </dict>
 </plist>

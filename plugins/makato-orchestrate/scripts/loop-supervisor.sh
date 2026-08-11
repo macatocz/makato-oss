@@ -22,12 +22,24 @@
 #
 # Audit log:
 #   Appends one JSON line per supervisor tick to supervisor-audit.jsonl:
-#   {"ts":"<ISO8601>","action":"<no_action|restart|halt_skip>","reason":"<why>",
+#   {"ts":"<ISO8601>","action":"<no_action|restart|halt_skip|reconcile_abort>","reason":"<why>",
 #    "pid_status":"<alive|dead|missing>","stale_secs":<int-or-null>}
 #
-# Exit codes:
-#   0 — supervisor ran to completion (action taken or no-op)
-#   1 — usage/config error (REPO_ROOT missing, loop.sh not found)
+#   reconcile-before-resume.sh appends its own entries with the reconcile_result / poison_pill_detected
+#   action keys. See scripts/reconcile-before-resume.sh for that schema.
+#
+# Environment overrides:
+#   MAKATO_LOOP_STATE_DIR     State directory (default: REPO_ROOT/.claude/state)
+#   MAKATO_LOOP_PIDFILE       Pidfile path override (default: STATE_DIR/loop.pid)
+#   MAKATO_HALT_FILE          HALT-file path (default: ~/.claude/HALT)
+#   SUPERVISOR_STALE_SECS     Staleness threshold in seconds (default: 600)
+#   MAKATO_REPO_ROOT          Repository root (default: derived from script location)
+#   MAKATO_LOOP_SCRIPT        Path to loop.sh (default: resolved from REPO_ROOT)
+#   MAKATO_RECONCILE_SCRIPT   Path to reconcile-before-resume.sh (default: resolved from REPO_ROOT)
+#                             Set to a stub path in tests to inject a canned reconcile exit code.
+#   MAKATO_SUPERVISOR_AUDIT   Supervisor audit log (default: STATE_DIR/supervisor-audit.jsonl)
+#   MAKATO_SUPERVISOR_DRY_RUN Set to 1 to skip the actual restart (dry-run / test mode)
+#   MAKATO_SUPERVISOR_GH_CMD  Override the gh command used for autonomous:halt label check
 
 set -euo pipefail
 
@@ -61,6 +73,7 @@ DRY_RUN="${MAKATO_SUPERVISOR_DRY_RUN:-0}"
 GH_CMD="${MAKATO_SUPERVISOR_GH_CMD:-gh}"
 
 LOOP_SCRIPT="${MAKATO_LOOP_SCRIPT:-$REPO_ROOT/plugins/makato-orchestrate/scripts/loop.sh}"
+RECONCILE_SCRIPT="${MAKATO_RECONCILE_SCRIPT:-$REPO_ROOT/plugins/makato-orchestrate/scripts/reconcile-before-resume.sh}"
 
 if [[ ! -f "$LOOP_SCRIPT" ]]; then
   echo "loop-supervisor: ERROR — loop.sh not found at '$LOOP_SCRIPT'" >&2
@@ -225,6 +238,49 @@ if [[ "${_do_restart:-0}" == "1" ]]; then
   AUDIT_STALE="null"
   if [[ -n "${STALE_ELAPSED:-}" && "$STALE_ELAPSED" != "null" ]]; then
     AUDIT_STALE="$STALE_ELAPSED"
+  fi
+
+  # ---------------------------------------------------------------------------
+  # Reconcile-before-resume: run the D7 decision table before restarting.
+  # Exit 0 (CI green) or 2 (CI failed/timeout) → proceed with restart.
+  # Exit 1 (poison-pill: no open PR) → board-reset already done; skip restart.
+  # Runs before the DRY_RUN check so the abort path is exercisable in tests.
+  # ---------------------------------------------------------------------------
+  if [[ -f "$RECONCILE_SCRIPT" ]]; then
+    RECONCILE_REPO=""
+    if [[ -n "${REPO_SLUG:-}" && "$REPO_SLUG" != "/" ]]; then
+      RECONCILE_REPO="$REPO_SLUG"
+    fi
+
+    # Locate the active workflow-state file (most recently modified)
+    WF_STATE_PATH=""
+    if command -v find >/dev/null 2>&1; then
+      WF_STATE_PATH="$(find "$STATE_DIR/.." -maxdepth 4 \
+        -name "workflow-state-*.json" -newer "$PIDFILE" \
+        -print 2>/dev/null | head -1 || true)"
+      # Fallback: any workflow-state that exists
+      if [[ -z "$WF_STATE_PATH" ]]; then
+        WF_STATE_PATH="$(find "$STATE_DIR/.." -maxdepth 4 \
+          -name "workflow-state-*.json" \
+          -print 2>/dev/null | head -1 || true)"
+      fi
+    fi
+
+    RECONCILE_ARGS=()
+    [[ -n "$WF_STATE_PATH" ]] && RECONCILE_ARGS+=(--workflow-state "$WF_STATE_PATH")
+    [[ -n "$RECONCILE_REPO" ]] && RECONCILE_ARGS+=(--repo "$RECONCILE_REPO")
+
+    RECONCILE_EXIT=0
+    MAKATO_LOOP_STATE_DIR="$STATE_DIR" \
+    MAKATO_SUPERVISOR_AUDIT="$AUDIT_LOG" \
+      bash "$RECONCILE_SCRIPT" "${RECONCILE_ARGS[@]}" 2>>"$STATE_DIR/supervisor.log" || RECONCILE_EXIT=$?
+
+    if [[ "$RECONCILE_EXIT" -eq 1 ]]; then
+      echo "loop-supervisor: reconcile-before-resume exited 1 (poison-pill board-reset) — skipping restart" >&2
+      _append_audit "reconcile_abort" "reconcile_poison_pill" "$PID_STATUS" "$AUDIT_STALE"
+      exit 0
+    fi
+    # Exit 0 (CI green) or 2 (CI failed) → fall through to restart
   fi
 
   if [[ "$DRY_RUN" == "1" ]]; then

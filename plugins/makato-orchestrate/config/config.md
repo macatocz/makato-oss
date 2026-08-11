@@ -171,13 +171,6 @@ directly in `functions.sh`).
 | --- | --- | --- | --- |
 | `_PROMOTE_EXCLUSION_LABELS` | *(none)* | `triage experimental status:blocked autonomous:halt needs-human-review needs-reshape` | Labels that veto auto-seed promotion/dispatch even when board Status matches (#286). |
 
-## Test-only overrides
-
-Many `MAKATO_LOOP_*_TEST_*` / `*_OVERRIDE` env vars keep the smoke suite offline
-(canned `gh` payloads, eval'd command stubs). They are consumed directly in
-`functions.sh` and are **not** operator-facing tunables — see the `_test-*` hook
-block in `loop.sh` and the per-function docstrings.
-
 ## Open-model endpoint (issue #7)
 
 Routes every `omp` / Claude Code dispatch through a cloud open-model API so
@@ -201,3 +194,10 @@ Every `$CLAUDE_BIN` subprocess (po-agent, seed-issue, refine) inherits
 `ANTHROPIC_BASE_URL`, which the harness respects as its API base. No changes
 to sub-agent frontmatter are required — the modelRole wiring from issue #5 is
 the only other half of this composition.
+
+## Persistent volume (issue #8 — Vast.ai preemption survival)
+
+Many `MAKATO_LOOP_*_TEST_*` / `*_OVERRIDE` env vars keep the smoke suite offline
+(canned `gh` payloads, eval'd command stubs). They are consumed directly in
+`functions.sh` and are **not** operator-facing tunables — see the `_test-*` hook
+block in `loop.sh` and the per-function docstrings.

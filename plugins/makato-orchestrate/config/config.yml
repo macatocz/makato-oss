@@ -119,3 +119,12 @@
 #   the expected set and can gate role-specific routing helpers added later.
 - { var: MAKATO_OPEN_ENDPOINT_URL, env: MAKATO_OPEN_ENDPOINT_URL, default: "", export: true }
 - { var: MAKATO_OPEN_MODEL_ROLES,  env: MAKATO_OPEN_MODEL_ROLES,  default: "sonnet,haiku,opus" }
+
+# --- Persistent volume (issue #8 — Vast.ai preemption survival) ---
+# Non-regenerable state (workflow-state, worktrees, staged branches) is stored
+# under this root so it survives a destroy+recreate volume-reattach cycle.
+# Sub-paths are expressed relative to MAKATO_PERSISTENT_VOLUME_ROOT so the
+# entire non-regenerable state moves atomically when the volume is remounted.
+- { var: MAKATO_PERSISTENT_VOLUME_ROOT,  env: MAKATO_PERSISTENT_VOLUME_ROOT,  default: "~/.makato-pv" }
+- { var: MAKATO_PV_WORKFLOW_STATE_DIR,   env: MAKATO_PV_WORKFLOW_STATE_DIR,   default: "~/.makato-pv/workflow-state" }
+- { var: MAKATO_PV_WORKTREES_DIR,        env: MAKATO_PV_WORKTREES_DIR,        default: "~/.makato-pv/worktrees" }
