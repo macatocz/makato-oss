@@ -45,20 +45,27 @@ MAX_CHARS = int(os.environ.get("CC_LANGFUSE_MAX_CHARS", "20000"))
 
 SENSITIVE_KEYS = frozenset(
     {
-        "password", "secret", "token", "api_key", "apikey",
-        "credential", "private_key", "secret_key", "access_key", "webhook",
+        "password",
+        "secret",
+        "token",
+        "api_key",
+        "apikey",
+        "credential",
+        "private_key",
+        "secret_key",
+        "access_key",
+        "webhook",
     }
 )
 SENSITIVE_PREFIXES = ("sk-", "pk-lf-", "sk-lf-", "AKIA", "ghp_", "ghs_")
 _MAX_SANITIZE_DEPTH = 5
-_SENSITIVE_VALUE_RE = re.compile(
-    r"(sk-[a-zA-Z0-9]{10,}|pk-lf-[a-f0-9-]+|AKIA[A-Z0-9]{12,}|ghp_[a-zA-Z0-9]{30,})"
-)
+_SENSITIVE_VALUE_RE = re.compile(r"(sk-[a-zA-Z0-9]{10,}|pk-lf-[a-f0-9-]+|AKIA[A-Z0-9]{12,}|ghp_[a-zA-Z0-9]{30,})")
 
 
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
+
 
 def _log(level: str, message: str) -> None:
     try:
@@ -87,6 +94,7 @@ def error(msg: str) -> None:
 # Sanitisation
 # ---------------------------------------------------------------------------
 
+
 def sanitize_value(val: str) -> str:
     if not val:
         return val
@@ -100,11 +108,7 @@ def sanitize_dict(d: Any, depth: int = 0) -> Any:
     if depth > _MAX_SANITIZE_DEPTH:
         return d
     if isinstance(d, dict):
-        return {
-            k: "***REDACTED***" if any(sk in k.lower() for sk in SENSITIVE_KEYS)
-            else sanitize_dict(v, depth + 1)
-            for k, v in d.items()
-        }
+        return {k: "***REDACTED***" if any(sk in k.lower() for sk in SENSITIVE_KEYS) else sanitize_dict(v, depth + 1) for k, v in d.items()}
     if isinstance(d, list):
         return [sanitize_dict(item, depth + 1) for item in d]
     if isinstance(d, str):
@@ -115,6 +119,7 @@ def sanitize_dict(d: Any, depth: int = 0) -> Any:
 # ---------------------------------------------------------------------------
 # Credential resolution — env → .env file → ~/.zshrc managed block
 # ---------------------------------------------------------------------------
+
 
 def _parse_dotenv(path: Path) -> dict[str, str]:
     """Parse a simple KEY=value .env file. Ignores comments and blank lines."""
@@ -166,11 +171,7 @@ def _resolve_credentials() -> tuple[str | None, str | None, str]:
     # Priority 1: environment
     public_key = os.environ.get("CC_LANGFUSE_PUBLIC_KEY") or os.environ.get("LANGFUSE_PUBLIC_KEY")
     secret_key = os.environ.get("CC_LANGFUSE_SECRET_KEY") or os.environ.get("LANGFUSE_SECRET_KEY")
-    host = (
-        os.environ.get("CC_LANGFUSE_BASE_URL")
-        or os.environ.get("LANGFUSE_BASE_URL")
-        or ""
-    )
+    host = os.environ.get("CC_LANGFUSE_BASE_URL") or os.environ.get("LANGFUSE_BASE_URL") or ""
 
     # Priority 2: .env file
     if not public_key or not secret_key:
@@ -212,6 +213,7 @@ def _resolve_trace_flag() -> bool:
 # Makato-specific context enrichment
 # ---------------------------------------------------------------------------
 
+
 def _get_loop_phase() -> str | None:
     """Read current_phase from the most recent workflow-state-*.json under specs/."""
     cwd = Path(os.environ.get("PWD", "")) or Path.cwd()
@@ -248,6 +250,7 @@ def _get_makato_version() -> str | None:
 # Token usage
 # ---------------------------------------------------------------------------
 
+
 def get_usage(msg: dict[str, Any]) -> dict[str, int] | None:
     m = msg.get("message")
     if not isinstance(m, dict):
@@ -271,6 +274,7 @@ def get_usage(msg: dict[str, Any]) -> dict[str, int] | None:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def get_user_id() -> str | None:
     return os.environ.get("CC_LANGFUSE_USER_ID") or os.environ.get("USER") or os.environ.get("LOGNAME") or None
@@ -344,7 +348,9 @@ def truncate_text(s: str, max_chars: int = MAX_CHARS) -> tuple[str, dict[str, An
         return s, {"truncated": False, "orig_len": orig_len}
     head = s[:max_chars]
     return head, {
-        "truncated": True, "orig_len": orig_len, "kept_len": len(head),
+        "truncated": True,
+        "orig_len": orig_len,
+        "kept_len": len(head),
         "sha256": hashlib.sha256(s.encode("utf-8")).hexdigest(),
     }
 
@@ -437,6 +443,7 @@ def _extract_skill_agent_tags(assistant_msgs: list[dict[str, Any]]) -> tuple[lis
 # File locking & state
 # ---------------------------------------------------------------------------
 
+
 class FileLock:
     def __init__(self, path: Path, timeout_s: float = 2.0):
         self.path = path
@@ -494,6 +501,7 @@ def state_key(session_id: str, transcript_path: str) -> str:
 # Hook payload & transcript parsing
 # ---------------------------------------------------------------------------
 
+
 def read_hook_payload() -> dict[str, Any]:
     try:
         data = sys.stdin.read()
@@ -503,16 +511,8 @@ def read_hook_payload() -> dict[str, Any]:
 
 
 def extract_session_and_transcript(payload: dict[str, Any]) -> tuple[str | None, Path | None]:
-    session_id = (
-        payload.get("sessionId")
-        or payload.get("session_id")
-        or payload.get("session", {}).get("id")
-    )
-    transcript = (
-        payload.get("transcriptPath")
-        or payload.get("transcript_path")
-        or payload.get("transcript", {}).get("path")
-    )
+    session_id = payload.get("sessionId") or payload.get("session_id") or payload.get("session", {}).get("id")
+    transcript = payload.get("transcriptPath") or payload.get("transcript_path") or payload.get("transcript", {}).get("path")
     transcript_path = None
     if transcript:
         with contextlib.suppress(Exception):
@@ -579,6 +579,7 @@ def read_new_jsonl(transcript_path: Path, ss: SessionState) -> tuple[list[dict[s
 # Turn building
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class Turn:
     user_msg: dict[str, Any]
@@ -619,16 +620,18 @@ def build_turns(messages: list[dict[str, Any]]) -> list[Turn]:
         if current_user is None or not assistant_latest:
             return
         assistants = [assistant_latest[mid] for mid in assistant_order if mid in assistant_latest]
-        turns.append(Turn(
-            user_msg=current_user,
-            assistant_msgs=assistants,
-            tool_results_by_id=dict(tool_results_by_id),
-            start_time=_parse_ts(current_user),
-            end_time=last_assistant_ts,
-            tool_use_timestamps=dict(tool_use_timestamps),
-            tool_result_timestamps=dict(tool_result_timestamps),
-            tool_errors_by_id=dict(tool_errors_by_id),
-        ))
+        turns.append(
+            Turn(
+                user_msg=current_user,
+                assistant_msgs=assistants,
+                tool_results_by_id=dict(tool_results_by_id),
+                start_time=_parse_ts(current_user),
+                end_time=last_assistant_ts,
+                tool_use_timestamps=dict(tool_use_timestamps),
+                tool_result_timestamps=dict(tool_result_timestamps),
+                tool_errors_by_id=dict(tool_errors_by_id),
+            )
+        )
 
     for msg in messages:
         role = get_role(msg)
@@ -678,6 +681,7 @@ def build_turns(messages: list[dict[str, Any]]) -> list[Turn]:
 # Trace emission
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class TraceContext:
     session_id: str
@@ -687,6 +691,12 @@ class TraceContext:
     makato_version: str | None
     loop_phase: str | None
     issue_trace_id: str | None = None
+    # Model-routing fields (forward-compatible with issue #5 modelRoles infrastructure).
+    # Set via CC_MODEL_ROLE and CC_MODEL_ENDPOINT env vars injected by the dispatch system.
+    # When issue #5 lands, loop.sh / po-agent will populate these per-dispatch so every
+    # trace is tagged with the role name and the endpoint it was routed to.
+    model_role: str | None = None
+    model_endpoint: str | None = None
 
 
 _PLUGIN_NAMES = {
@@ -707,8 +717,18 @@ _PLUGIN_NAMES = {
 }
 
 _LOOP_PHASES = {
-    "seed", "plan", "implement", "review", "verify", "push", "pr", "done",
-    "resolve-conflict", "address-pr-comments", "merge", "blocked",
+    "seed",
+    "plan",
+    "implement",
+    "review",
+    "verify",
+    "push",
+    "pr",
+    "done",
+    "resolve-conflict",
+    "address-pr-comments",
+    "merge",
+    "blocked",
 }
 
 
@@ -751,6 +771,15 @@ def _build_trace_tags(ctx: TraceContext, turn: Turn) -> list[str]:
     entrypoint = turn.user_msg.get("entrypoint")
     if entrypoint and isinstance(entrypoint, str):
         tags.append(f"entrypoint:{entrypoint}")
+
+    # Model-routing tags — populated by the dispatch system once issue #5 ships.
+    # Allows filtering Langfuse traces by which model role ran (e.g. "task", "smol")
+    # and which endpoint it was routed to (open vs closed).
+    if ctx.model_role:
+        tags.append(f"model_role:{ctx.model_role}")
+    if ctx.model_endpoint:
+        tags.append(f"endpoint:{ctx.model_endpoint}")
+
     return tags
 
 
@@ -774,11 +803,7 @@ def _tool_calls_from_assistants(assistant_msgs: list[dict[str, Any]]) -> list[di
         for tu in iter_tool_uses(get_content(am)):
             tid = tu.get("id") or ""
             raw_input = tu.get("input")
-            sanitized = (
-                sanitize_dict(raw_input)
-                if isinstance(raw_input, (dict, list, str, int, float, bool))
-                else {}
-            )
+            sanitized = sanitize_dict(raw_input) if isinstance(raw_input, (dict, list, str, int, float, bool)) else {}
             calls.append({"id": str(tid), "name": tu.get("name") or "unknown", "input": sanitized})
     return calls
 
@@ -821,6 +846,10 @@ def emit_turn(langfuse: Langfuse, turn_num: int, turn: Turn, ctx: TraceContext) 
         trace_metadata["loop_phase"] = ctx.loop_phase
     if ctx.issue_trace_id:
         trace_metadata["issue_trace_id"] = ctx.issue_trace_id
+    if ctx.model_role:
+        trace_metadata["model_role"] = ctx.model_role
+    if ctx.model_endpoint:
+        trace_metadata["model_endpoint"] = ctx.model_endpoint
     if turn.start_time:
         trace_metadata["start_time"] = turn.start_time.isoformat()
     if turn.end_time:
@@ -843,9 +872,7 @@ def emit_turn(langfuse: Langfuse, turn_num: int, turn: Turn, ctx: TraceContext) 
         gen_meta: dict[str, Any] = {
             "tool_count": len(tool_calls),
             "tool_names": [tc["name"] for tc in tool_calls],
-            "tool_error_count": sum(
-                1 for tc in tool_calls if (turn.tool_errors_by_id or {}).get(tc["id"], False)
-            ),
+            "tool_error_count": sum(1 for tc in tool_calls if (turn.tool_errors_by_id or {}).get(tc["id"], False)),
         }
         gen_kwargs: dict[str, Any] = {
             "name": "Claude Response",
@@ -889,6 +916,7 @@ def emit_turn(langfuse: Langfuse, turn_num: int, turn: Turn, ctx: TraceContext) 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
 
 def _clear_localhost_proxy(host: str) -> None:
     if "localhost" not in host and "127.0.0.1" not in host:
@@ -950,6 +978,8 @@ def main() -> int:
         makato_version=_get_makato_version(),
         loop_phase=_get_loop_phase(),
         issue_trace_id=issue_trace_id,
+        model_role=os.environ.get("CC_MODEL_ROLE", "").strip() or None,
+        model_endpoint=os.environ.get("CC_MODEL_ENDPOINT", "").strip() or None,
     )
 
     try:
