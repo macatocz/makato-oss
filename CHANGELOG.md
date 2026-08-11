@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.150.0](https://github.com/macatocz/makato-oss/compare/v0.149.1...v0.150.0) (2026-08-11)
+
+
+### ✨ Features
+
+* **makato-observability:** add E2E result emitter to Langfuse ([29415a7](https://github.com/macatocz/makato-oss/commit/29415a7e827a406728575ce0bd9e23b8ee861a65))
+* **makato-orchestrate:** cross-platform portability remediation + transcript path re-homing ([#6](https://github.com/macatocz/makato-oss/issues/6)) ([ae09bf5](https://github.com/macatocz/makato-oss/commit/ae09bf5694713b6dcd7c71ae9d30cd7ef6c0f5ee))
+* **makato-orchestrate:** cross-platform portability remediation + transcript path re-homing ([#6](https://github.com/macatocz/makato-oss/issues/6)) ([a811748](https://github.com/macatocz/makato-oss/commit/a81174851495049e367588b6e3d2ffa94b6d23e0))
+* **makato-orchestrate:** dispatch po-agent via omp --yolo instead of claude -p ([#4](https://github.com/macatocz/makato-oss/issues/4)) ([10d1b00](https://github.com/macatocz/makato-oss/commit/10d1b00c6cb9e793db810cf9aa05965d06d2f9ad))
+* **makato-orchestrate:** dispatch po-agent via omp --yolo instead of claude -p ([#4](https://github.com/macatocz/makato-oss/issues/4)) ([3c5429e](https://github.com/macatocz/makato-oss/commit/3c5429e177f25b7e8763a66c05b23a4c91dffc2d))
+* **makato-ux:** add ephemeral sagibeast dev DB seed script ([72143c4](https://github.com/macatocz/makato-oss/commit/72143c4f8701f3b45dad02624627ff4033421d44))
+* **makato-ux:** add Playwright E2E spec for sagibeast live endpoint ([5653799](https://github.com/macatocz/makato-oss/commit/565379918e8952e90b40519646950bf0f4b86c02))
+* **makato-ux:** fix Playwright MCP filterBrowser caveat with --browser chromium ([a09b70f](https://github.com/macatocz/makato-oss/commit/a09b70fd481bf17327543e870fd8544d8d82d487))
+* **observability:** add BuildSignals dataclass and _read_build_signals() to langfuse_hook ([#12](https://github.com/macatocz/makato-oss/issues/12)) ([7f2b7b5](https://github.com/macatocz/makato-oss/commit/7f2b7b52c6b2e300195beda94e2d07775ad95c32))
+* **observability:** forward-compatible model-role trace enrichment ([#13](https://github.com/macatocz/makato-oss/issues/13)) ([#24](https://github.com/macatocz/makato-oss/issues/24)) ([5417e46](https://github.com/macatocz/makato-oss/commit/5417e4682c7c67653b0eddfafae3afa74219a8f1))
+* **observability:** per-step success metrics for open-only run ([#12](https://github.com/macatocz/makato-oss/issues/12)) ([ae50209](https://github.com/macatocz/makato-oss/commit/ae502094fa73c2fc5e22279a5993f19acd56f34d))
+* **observability:** per-step success metrics for open-only run ([#12](https://github.com/macatocz/makato-oss/issues/12)) ([ae50209](https://github.com/macatocz/makato-oss/commit/ae502094fa73c2fc5e22279a5993f19acd56f34d))
+* Real Playwright E2E against live sagibeast dev copy ([#11](https://github.com/macatocz/makato-oss/issues/11)) ([4a7857d](https://github.com/macatocz/makato-oss/commit/4a7857d84c733284da507e115b8d7389e9da9853))
+
 ## [0.149.1](https://github.com/macatocz/makato-oss/compare/v0.149.0...v0.149.1) (2026-08-10)
 
 
