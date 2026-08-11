@@ -10,6 +10,7 @@ Covered:
 
 No live Langfuse credentials are required.
 """
+
 from __future__ import annotations
 
 import json
@@ -37,7 +38,6 @@ from langfuse_hook import (  # noqa: E402
     _read_build_signals,
     emit_turn,
 )
-
 
 # ---------------------------------------------------------------------------
 # Shared fixture helpers
@@ -108,15 +108,11 @@ class TestReadBuildSignals:
         assert signals.merged_without_override is True
 
     def test_verify_gate_failed(self, tmp_path: Path) -> None:
-        specs = _write_build_jsonl(
-            tmp_path, "KEY-VF", json.dumps({"step": "verify", "status": "error", "data": {}})
-        )
+        specs = _write_build_jsonl(tmp_path, "KEY-VF", json.dumps({"step": "verify", "status": "error", "data": {}}))
         assert _read_build_signals("KEY-VF", specs).verify_gate_passed is False
 
     def test_ci_failed(self, tmp_path: Path) -> None:
-        specs = _write_build_jsonl(
-            tmp_path, "KEY-CF", json.dumps({"step": "ci", "status": "error", "data": {}})
-        )
+        specs = _write_build_jsonl(tmp_path, "KEY-CF", json.dumps({"step": "ci", "status": "error", "data": {}}))
         assert _read_build_signals("KEY-CF", specs).ci_green is False
 
     def test_merge_with_override_sets_flag_false(self, tmp_path: Path) -> None:
@@ -217,9 +213,7 @@ class TestDerivePlanSuccess:
         )
         assert _derive_plan_success("PS-T", specs) is True
 
-    def test_returns_false_when_first_verify_after_implement_is_error(
-        self, tmp_path: Path
-    ) -> None:
+    def test_returns_false_when_first_verify_after_implement_is_error(self, tmp_path: Path) -> None:
         specs = self._specs(
             tmp_path,
             "PS-F",
@@ -433,9 +427,7 @@ def test_build_trace_tags_endpoint_fallback_open_for_llama_model() -> None:
     ctx = _minimal_ctx(model_role=None, model_endpoint=None)
     turn = Turn(
         user_msg={},
-        assistant_msgs=[
-            {"message": {"role": "assistant", "model": "meta-llama-3-8b-instruct"}}
-        ],
+        assistant_msgs=[{"message": {"role": "assistant", "model": "meta-llama-3-8b-instruct"}}],
         tool_results_by_id={},
     )
     tags = _build_trace_tags(ctx, turn)
@@ -448,9 +440,7 @@ def test_build_trace_tags_endpoint_fallback_closed_for_claude_model() -> None:
     ctx = _minimal_ctx(model_role=None, model_endpoint=None)
     turn = Turn(
         user_msg={},
-        assistant_msgs=[
-            {"message": {"role": "assistant", "model": "claude-3-5-sonnet-20241022"}}
-        ],
+        assistant_msgs=[{"message": {"role": "assistant", "model": "claude-3-5-sonnet-20241022"}}],
         tool_results_by_id={},
     )
     tags = _build_trace_tags(ctx, turn)
@@ -464,9 +454,7 @@ def test_build_trace_tags_explicit_endpoint_overrides_fallback() -> None:
     # the explicit endpoint value must win.
     turn = Turn(
         user_msg={},
-        assistant_msgs=[
-            {"message": {"role": "assistant", "model": "claude-3-sonnet"}}
-        ],
+        assistant_msgs=[{"message": {"role": "assistant", "model": "claude-3-sonnet"}}],
         tool_results_by_id={},
     )
     tags = _build_trace_tags(ctx, turn)
