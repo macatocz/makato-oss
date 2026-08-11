@@ -28,6 +28,8 @@ _spec = importlib.util.spec_from_file_location(
     "parse_sarif",
     os.path.join(_SHARED_DIR, "parse-sarif.py"),
 )
+assert _spec is not None
+assert _spec.loader is not None
 _mod = importlib.util.module_from_spec(_spec)
 sys.modules["parse_sarif"] = _mod
 _spec.loader.exec_module(_mod)
@@ -45,14 +47,9 @@ class TestStaleArtifactLabelMapping(unittest.TestCase):
 
         Scenario 1 (maps to AC-1): stale-artifact sensor flags console.log in staged diff.
         """
-        pre_commit_output = (
-            "stale-artifact check (debug leftovers).....Failed\n"
-            "src/index.js:3: [stale-artifact/console-log] console.log( found in addition\n"
-        )
+        pre_commit_output = "stale-artifact check (debug leftovers).....Failed\nsrc/index.js:3: [stale-artifact/console-log] console.log( found in addition\n"
         findings = parse_pre_commit(pre_commit_output)
-        self.assertEqual(
-            len(findings), 1, f"Expected 1 finding, got {len(findings)}: {findings}"
-        )
+        self.assertEqual(len(findings), 1, f"Expected 1 finding, got {len(findings)}: {findings}")
         f = findings[0]
         self.assertEqual(f.tool, "stale-artifact")
         self.assertEqual(f.rule, "console-log")

@@ -47,10 +47,7 @@ def _para_text(para: ET.Element) -> str:
 def _verify_template_sha(dotx_in: Path, manifest: Manifest) -> None:
     actual = hashlib.sha256(dotx_in.read_bytes()).hexdigest()
     if manifest.template_sha256 and manifest.template_sha256 != actual:
-        raise ValueError(
-            f"template_sha256 mismatch: manifest={manifest.template_sha256[:12]}…, "
-            f"actual={actual[:12]}…"
-        )
+        raise ValueError(f"template_sha256 mismatch: manifest={manifest.template_sha256[:12]}…, actual={actual[:12]}…")
 
 
 def _apply_one_decision(paragraph: ET.Element, decision: Decision) -> ET.Element | None:
@@ -66,12 +63,8 @@ def _apply_one_decision(paragraph: ET.Element, decision: Decision) -> ET.Element
             return None
         if decision.verdict in ("slot", "enum"):
             if not decision.key:
-                raise ValueError(
-                    f"slot/enum verdict requires a key (raw_key={decision.raw_key})"
-                )
-            return replace_with_jinja_tag(
-                paragraph, run_indices=run_indices, key=decision.key
-            )
+                raise ValueError(f"slot/enum verdict requires a key (raw_key={decision.raw_key})")
+            return replace_with_jinja_tag(paragraph, run_indices=run_indices, key=decision.key)
         if decision.verdict == "prose_keep":
             return strip_highlight(paragraph, run_indices=run_indices)
         if decision.verdict in ("prose_drop", "toss"):
@@ -190,9 +183,7 @@ def run_apply(
             body_children = list(body)
             body[body_children.index(original)] = mutated
 
-    parts["word/document.xml"] = ET.tostring(
-        doc_root, xml_declaration=True, encoding="utf-8"
-    )
+    parts["word/document.xml"] = ET.tostring(doc_root, xml_declaration=True, encoding="utf-8")
 
     dotx_out.parent.mkdir(parents=True, exist_ok=True)
     buf = io.BytesIO()

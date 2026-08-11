@@ -13,7 +13,7 @@ import os
 import sys
 import textwrap
 
-import pytest
+import pytest  # type: ignore[import]
 
 # ---------------------------------------------------------------------------
 # sys.path wiring — allow ``from sync_living_specs import …`` whether pytest
@@ -250,9 +250,7 @@ class TestApplyDelta:
         assert "Bar Requirement" in content  # unrelated preserved
 
     # T6: dangling MODIFIED emits WARN, exits 0, target unchanged
-    def test_T6_dangling_modified_warns_but_does_not_fail(
-        self, tmp_path: pytest.TempPathFactory, capsys: pytest.CaptureFixture
-    ) -> None:
+    def test_T6_dangling_modified_warns_but_does_not_fail(self, tmp_path: pytest.TempPathFactory, capsys: pytest.CaptureFixture) -> None:
         cap_dir, docs_dir, target = self._setup_cap(tmp_path)
         before = _read(target)
         delta = os.path.join(cap_dir, "spec-delta.md")

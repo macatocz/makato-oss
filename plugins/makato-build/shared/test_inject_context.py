@@ -281,9 +281,7 @@ class IntegrationTests(unittest.TestCase):
         data = self._load()
 
         names = {b["name"] for b in data["bundles"]}
-        self.assertGreaterEqual(
-            len(data["bundles"]), 4, "must define at least 4 bundles"
-        )
+        self.assertGreaterEqual(len(data["bundles"]), 4, "must define at least 4 bundles")
         self.assertEqual(
             names & {"typescript", "python", "sql", "default"},
             {"typescript", "python", "sql", "default"},
@@ -325,13 +323,9 @@ class IntegrationTests(unittest.TestCase):
         default_rule_set = set(default_bundle["rules"])
         # Every default rule that survived dedup must appear in the output.
         default_indices = [i for i, r in enumerate(rules) if r in default_rule_set]
-        self.assertGreater(
-            len(default_indices), 0, "default rules must appear in output"
-        )
+        self.assertGreater(len(default_indices), 0, "default rules must appear in output")
         last_default_index = max(default_indices)
-        non_default_indices = [
-            i for i, r in enumerate(rules) if r not in default_rule_set
-        ]
+        non_default_indices = [i for i, r in enumerate(rules) if r not in default_rule_set]
         self.assertTrue(
             all(i < last_default_index for i in non_default_indices),
             "default rules must be after all bundle-specific rules",

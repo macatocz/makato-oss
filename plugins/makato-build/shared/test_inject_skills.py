@@ -139,9 +139,7 @@ class SubsetFilterTests(unittest.TestCase):
             installed_skills={"langgraph-fundamentals"},  # persistence NOT installed
         )
         self.assertEqual(skills, ["langgraph-fundamentals"])
-        self.assertEqual(
-            warnings, [{"code": "missing-skills", "skills": ["langgraph-persistence"]}]
-        )
+        self.assertEqual(warnings, [{"code": "missing-skills", "skills": ["langgraph-persistence"]}])
 
     def test_all_installed_no_warning(self) -> None:
         skills, warnings = resolve_skills(
@@ -197,9 +195,7 @@ class EmptyAndDedupTests(unittest.TestCase):
         self.assertEqual(skills, ["langgraph-fundamentals", "shared-skill"])
 
     def test_non_python_file_falls_to_default_no_warning(self) -> None:
-        skills, warnings = resolve_skills(
-            ["README.md"], _CONFIG, file_texts={"README.md": "hello"}
-        )
+        skills, warnings = resolve_skills(["README.md"], _CONFIG, file_texts={"README.md": "hello"})
         self.assertEqual(skills, [])
         self.assertEqual(warnings, [])  # default's **/* covers it
 
@@ -361,9 +357,7 @@ class FileAndTaskCombinationTests(unittest.TestCase):
             task_text="A keyword driven task.",
         )
         # shared-sk must appear exactly once, coming from the higher-specificity file bundle
-        self.assertEqual(
-            skills.count("shared-sk"), 1, "shared-sk must not be duplicated"
-        )
+        self.assertEqual(skills.count("shared-sk"), 1, "shared-sk must not be duplicated")
         self.assertIn("file-only-sk", skills)
         self.assertIn("task-only-sk", skills)
         # file bundle (higher specificity) comes first, so file-only-sk precedes task-only-sk
@@ -389,9 +383,7 @@ class FileAndTaskCombinationTests(unittest.TestCase):
             config,
             task_text="kw",
         )
-        self.assertEqual(
-            skills[-1], "default-sk", "default-sk must be the last skill in the list"
-        )
+        self.assertEqual(skills[-1], "default-sk", "default-sk must be the last skill in the list")
 
 
 class ValidatorTaskContainsTests(unittest.TestCase):
@@ -406,9 +398,7 @@ class ValidatorTaskContainsTests(unittest.TestCase):
         import subprocess
         import tempfile
 
-        validator = (
-            _REPO_ROOT / "plugins/makato-langgraph/pre-commit/validate-skill-bundles.sh"
-        )
+        validator = _REPO_ROOT / "plugins/makato-langgraph/pre-commit/validate-skill-bundles.sh"
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yml", delete=False) as f:
             f.write(yaml_content)
             tmp_path = f.name
@@ -427,26 +417,13 @@ class ValidatorTaskContainsTests(unittest.TestCase):
 
     def test_wide_glob_with_task_contains_passes(self) -> None:
         """A wide-glob bundle with task_contains (no contains) must pass the validator."""
-        rc, _ = self._run_validator(
-            "version: '1.0'\nbundles:\n"
-            "  - name: test-task\n"
-            "    globs:\n      - '**/*.py'\n"
-            "    task_contains:\n      - 'some keyword'\n"
-            "    skills:\n      - some-skill\n"
-        )
+        rc, _ = self._run_validator("version: '1.0'\nbundles:\n  - name: test-task\n    globs:\n      - '**/*.py'\n    task_contains:\n      - 'some keyword'\n    skills:\n      - some-skill\n")
         self.assertEqual(rc, 0, "wide-glob + task_contains should pass the validator")
 
     def test_wide_glob_without_any_filter_fails(self) -> None:
         """A wide-glob bundle with neither contains nor task_contains must fail."""
-        rc, stderr = self._run_validator(
-            "version: '1.0'\nbundles:\n"
-            "  - name: bad-bundle\n"
-            "    globs:\n      - '**/*.py'\n"
-            "    skills:\n      - some-skill\n"
-        )
-        self.assertEqual(
-            rc, 1, "wide-glob without any filter should fail the validator"
-        )
+        rc, stderr = self._run_validator("version: '1.0'\nbundles:\n  - name: bad-bundle\n    globs:\n      - '**/*.py'\n    skills:\n      - some-skill\n")
+        self.assertEqual(rc, 1, "wide-glob without any filter should fail the validator")
         self.assertIn(
             "task_contains",
             stderr,
@@ -474,6 +451,7 @@ class TaskContainsBundleDataTests(unittest.TestCase):
         cfg = _REPO_ROOT / "plugins/makato-langgraph/config/skill-bundles.yml"
         bundle = self._load_bundle_by_name(cfg, "langgraph")
         self.assertIsNotNone(bundle, "langgraph bundle not found")
+        assert bundle is not None
         task_contains = bundle.get("task_contains") or []
         self.assertGreater(
             len(task_contains),
@@ -491,11 +469,7 @@ class TaskContainsBundleDataTests(unittest.TestCase):
 
         data = yaml.safe_load(cfg.read_text(encoding="utf-8")) or {}
         # Any bundle named database-* should carry task_contains
-        db_bundles = [
-            b
-            for b in data.get("bundles", [])
-            if str(b.get("name", "")).startswith("database-") and b.get("skills")
-        ]
+        db_bundles = [b for b in data.get("bundles", []) if str(b.get("name", "")).startswith("database-") and b.get("skills")]
         # At least one database bundle must carry task_contains
         bundles_with_task = [b for b in db_bundles if b.get("task_contains")]
         self.assertGreater(
@@ -508,6 +482,7 @@ class TaskContainsBundleDataTests(unittest.TestCase):
         cfg = _REPO_ROOT / "plugins/makato-observability/config/skill-bundles.yml"
         bundle = self._load_bundle_by_name(cfg, "observability-otel")
         self.assertIsNotNone(bundle, "observability-otel bundle not found")
+        assert bundle is not None
         task_contains = bundle.get("task_contains") or []
         self.assertGreater(
             len(task_contains),
@@ -541,23 +516,15 @@ class TaskTextForRepoTests(unittest.TestCase):
 
     def test_task_text_none_default_behaviour_unchanged(self) -> None:
         """resolve_skills_for_repo(task_text=None) is identical to omitting it."""
-        skills_without, warns_without = resolve_skills_for_repo(
-            [], _REPO_ROOT, apply_subset_filter=False
-        )
-        skills_with_none, warns_with_none = resolve_skills_for_repo(
-            [], _REPO_ROOT, apply_subset_filter=False, task_text=None
-        )
+        skills_without, warns_without = resolve_skills_for_repo([], _REPO_ROOT, apply_subset_filter=False)
+        skills_with_none, warns_with_none = resolve_skills_for_repo([], _REPO_ROOT, apply_subset_filter=False, task_text=None)
         self.assertEqual(skills_without, skills_with_none)
         self.assertEqual(warns_without, warns_with_none)
 
     def test_task_text_empty_string_default_behaviour_unchanged(self) -> None:
         """resolve_skills_for_repo(task_text='') is identical to omitting it."""
-        skills_without, _ = resolve_skills_for_repo(
-            [], _REPO_ROOT, apply_subset_filter=False
-        )
-        skills_with_empty, _ = resolve_skills_for_repo(
-            [], _REPO_ROOT, apply_subset_filter=False, task_text=""
-        )
+        skills_without, _ = resolve_skills_for_repo([], _REPO_ROOT, apply_subset_filter=False)
+        skills_with_empty, _ = resolve_skills_for_repo([], _REPO_ROOT, apply_subset_filter=False, task_text="")
         self.assertEqual(skills_without, skills_with_empty)
 
     def test_task_text_forwarded_to_resolve_skills(self) -> None:

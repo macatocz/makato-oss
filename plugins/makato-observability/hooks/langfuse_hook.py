@@ -20,7 +20,7 @@ import re
 import sys
 import time
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -45,20 +45,27 @@ MAX_CHARS = int(os.environ.get("CC_LANGFUSE_MAX_CHARS", "20000"))
 
 SENSITIVE_KEYS = frozenset(
     {
-        "password", "secret", "token", "api_key", "apikey",
-        "credential", "private_key", "secret_key", "access_key", "webhook",
+        "password",
+        "secret",
+        "token",
+        "api_key",
+        "apikey",
+        "credential",
+        "private_key",
+        "secret_key",
+        "access_key",
+        "webhook",
     }
 )
 SENSITIVE_PREFIXES = ("sk-", "pk-lf-", "sk-lf-", "AKIA", "ghp_", "ghs_")
 _MAX_SANITIZE_DEPTH = 5
-_SENSITIVE_VALUE_RE = re.compile(
-    r"(sk-[a-zA-Z0-9]{10,}|pk-lf-[a-f0-9-]+|AKIA[A-Z0-9]{12,}|ghp_[a-zA-Z0-9]{30,})"
-)
+_SENSITIVE_VALUE_RE = re.compile(r"(sk-[a-zA-Z0-9]{10,}|pk-lf-[a-f0-9-]+|AKIA[A-Z0-9]{12,}|ghp_[a-zA-Z0-9]{30,})")
 
 
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
+
 
 def _log(level: str, message: str) -> None:
     try:
@@ -87,6 +94,7 @@ def error(msg: str) -> None:
 # Sanitisation
 # ---------------------------------------------------------------------------
 
+
 def sanitize_value(val: str) -> str:
     if not val:
         return val
@@ -100,11 +108,7 @@ def sanitize_dict(d: Any, depth: int = 0) -> Any:
     if depth > _MAX_SANITIZE_DEPTH:
         return d
     if isinstance(d, dict):
-        return {
-            k: "***REDACTED***" if any(sk in k.lower() for sk in SENSITIVE_KEYS)
-            else sanitize_dict(v, depth + 1)
-            for k, v in d.items()
-        }
+        return {k: "***REDACTED***" if any(sk in k.lower() for sk in SENSITIVE_KEYS) else sanitize_dict(v, depth + 1) for k, v in d.items()}
     if isinstance(d, list):
         return [sanitize_dict(item, depth + 1) for item in d]
     if isinstance(d, str):
@@ -115,6 +119,7 @@ def sanitize_dict(d: Any, depth: int = 0) -> Any:
 # ---------------------------------------------------------------------------
 # Credential resolution — env → .env file → ~/.zshrc managed block
 # ---------------------------------------------------------------------------
+
 
 def _parse_dotenv(path: Path) -> dict[str, str]:
     """Parse a simple KEY=value .env file. Ignores comments and blank lines."""
@@ -166,11 +171,7 @@ def _resolve_credentials() -> tuple[str | None, str | None, str]:
     # Priority 1: environment
     public_key = os.environ.get("CC_LANGFUSE_PUBLIC_KEY") or os.environ.get("LANGFUSE_PUBLIC_KEY")
     secret_key = os.environ.get("CC_LANGFUSE_SECRET_KEY") or os.environ.get("LANGFUSE_SECRET_KEY")
-    host = (
-        os.environ.get("CC_LANGFUSE_BASE_URL")
-        or os.environ.get("LANGFUSE_BASE_URL")
-        or ""
-    )
+    host = os.environ.get("CC_LANGFUSE_BASE_URL") or os.environ.get("LANGFUSE_BASE_URL") or ""
 
     # Priority 2: .env file
     if not public_key or not secret_key:
@@ -212,21 +213,35 @@ def _resolve_trace_flag() -> bool:
 # Makato-specific context enrichment
 # ---------------------------------------------------------------------------
 
-def _get_loop_phase() -> str | None:
-    """Read current_phase from the most recent workflow-state-*.json under specs/."""
+
+def _get_loop_context() -> tuple[str | None, str | None, Path | None]:
+    """Return (loop_phase, issue_key, specs_dir) from the most-recently-modified workflow-state file.
+
+    ``issue_key`` is the parent directory name of the workflow-state file
+    (e.g. ``"makato-harness-independence"`` from
+    ``specs/makato-harness-independence/workflow-state-12.json``), which is the
+    same prefix used by :func:`_find_build_jsonl` to locate ``build.jsonl``.
+    """
     cwd = Path(os.environ.get("PWD", "")) or Path.cwd()
     specs_dir = cwd / "specs"
     if not specs_dir.exists():
-        return None
+        return None, None, None
     try:
         candidates = list(specs_dir.rglob("workflow-state*.json"))
         if not candidates:
-            return None
+            return None, None, None
         latest = max(candidates, key=lambda p: p.stat().st_mtime)
         data = json.loads(latest.read_text(encoding="utf-8"))
-        return str(data.get("current_phase", "")) or None
+        loop_phase = str(data.get("current_phase", "")) or None
+        issue_key = latest.parent.name  # e.g. "makato-harness-independence"
+        return loop_phase, issue_key, specs_dir
     except Exception:
-        return None
+        return None, None, None
+
+
+def _get_loop_phase() -> str | None:
+    """Read current_phase from the most recent workflow-state-*.json under specs/."""
+    return _get_loop_context()[0]
 
 
 def _get_makato_version() -> str | None:
@@ -245,8 +260,161 @@ def _get_makato_version() -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# Build-signal extraction (issue #12 — per-step success metrics)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class BuildSignals:
+    """Hard-signal snapshot extracted from build.jsonl for a single issue run.
+
+    Each field is ``None`` when the corresponding signal has not yet been
+    emitted into the build log (e.g. the run has not reached the verify or
+    merge phase).  Zero-filled instances are returned when the build log is
+    absent or unreadable.
+    """
+
+    verify_gate_passed: bool | None = None
+    ci_green: bool | None = None
+    review_critical_count: int | None = None
+    coder_retry_count: int | None = None
+    conflict_halt_count: int | None = None
+    merged_without_override: bool | None = None
+
+
+def _find_build_jsonl(issue_key: str, specs_dir: Path) -> "Path | None":
+    """Return the first build.jsonl found under specs/<issue_key>*/ or None."""
+    try:
+        matches = sorted(specs_dir.glob(f"{issue_key}*/build.jsonl"))
+        return matches[0] if matches else None
+    except Exception:
+        return None
+
+
+def _read_build_signals(issue_key: str, specs_dir: Path) -> BuildSignals:
+    """Populate :class:`BuildSignals` from the ``build.jsonl`` for *issue_key*.
+
+    Globs ``specs/<key>*/build.jsonl``, streams every JSONL line, and maps
+    ``step``/``status``/``data`` entries to the six signal fields.  Returns a
+    zero-filled :class:`BuildSignals` when the file is absent or unreadable.
+
+    Signal mapping:
+    - ``step:"verify"`` → ``verify_gate_passed`` (first occurrence only)
+    - ``step:"ci"`` → ``ci_green`` (first occurrence only)
+    - ``step:"review"`` with ``data.critical_count`` → ``review_critical_count`` (accumulated)
+    - ``step:"coder-retry"`` → ``coder_retry_count`` (counted)
+    - ``step:"resolve-conflict"`` + ``status:"halt"`` → ``conflict_halt_count`` (counted)
+    - ``step:"merge"`` with ``data.override`` → ``merged_without_override``
+    """
+    signals = BuildSignals()
+    jsonl_path = _find_build_jsonl(issue_key, specs_dir)
+    if jsonl_path is None:
+        return signals
+
+    retry_count = 0
+    halt_count = 0
+
+    try:
+        with open(jsonl_path, encoding="utf-8") as fh:
+            for raw in fh:
+                raw = raw.strip()
+                if not raw:
+                    continue
+                try:
+                    entry = json.loads(raw)
+                except Exception:
+                    continue
+                step = entry.get("step", "")
+                status = entry.get("status", "")
+                data: dict[str, Any] = entry.get("data") or {}
+
+                if step == "verify" and signals.verify_gate_passed is None:
+                    if status == "ok":
+                        signals.verify_gate_passed = True
+                    elif status == "error":
+                        signals.verify_gate_passed = False
+
+                elif step == "ci" and signals.ci_green is None:
+                    if status == "ok":
+                        signals.ci_green = True
+                    elif status == "error":
+                        signals.ci_green = False
+
+                elif step == "review":
+                    if "critical_count" in data:
+                        try:
+                            count = int(data["critical_count"])
+                        except (TypeError, ValueError):  # fmt: skip
+                            count = 0
+                        signals.review_critical_count = (signals.review_critical_count or 0) + count
+
+                elif step == "coder-retry":
+                    retry_count += 1
+
+                elif step == "resolve-conflict" and status == "halt":
+                    halt_count += 1
+
+                elif step == "merge":
+                    override = data.get("override")
+                    if override is not None:
+                        signals.merged_without_override = not bool(override)
+
+    except Exception:
+        return BuildSignals()
+
+    if retry_count:
+        signals.coder_retry_count = retry_count
+    if halt_count:
+        signals.conflict_halt_count = halt_count
+
+    return signals
+
+
+def _derive_plan_success(issue_key: str, specs_dir: Path) -> "bool | None":
+    """Return whether the plan produced a first-attempt CI-green result.
+
+    Scans ``build.jsonl`` for the first ``step:"verify"`` entry that appears
+    *after* at least one ``step:"implement"`` entry.
+
+    Returns:
+        ``True``  — first verify after implement has ``status:"ok"``
+        ``False`` — first verify after implement has ``status:"error"``
+        ``None``  — undetermined (no implement entry, or no subsequent verify)
+    """
+    jsonl_path = _find_build_jsonl(issue_key, specs_dir)
+    if jsonl_path is None:
+        return None
+
+    seen_implement = False
+    try:
+        with open(jsonl_path, encoding="utf-8") as fh:
+            for raw in fh:
+                raw = raw.strip()
+                if not raw:
+                    continue
+                try:
+                    entry = json.loads(raw)
+                except Exception:
+                    continue
+                step = entry.get("step", "")
+                if step == "implement":
+                    seen_implement = True
+                elif step == "verify" and seen_implement:
+                    status = entry.get("status", "")
+                    if status == "ok":
+                        return True
+                    if status == "error":
+                        return False
+    except Exception:
+        return None
+
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Token usage
 # ---------------------------------------------------------------------------
+
 
 def get_usage(msg: dict[str, Any]) -> dict[str, int] | None:
     m = msg.get("message")
@@ -271,6 +439,7 @@ def get_usage(msg: dict[str, Any]) -> dict[str, int] | None:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def get_user_id() -> str | None:
     return os.environ.get("CC_LANGFUSE_USER_ID") or os.environ.get("USER") or os.environ.get("LOGNAME") or None
@@ -344,7 +513,9 @@ def truncate_text(s: str, max_chars: int = MAX_CHARS) -> tuple[str, dict[str, An
         return s, {"truncated": False, "orig_len": orig_len}
     head = s[:max_chars]
     return head, {
-        "truncated": True, "orig_len": orig_len, "kept_len": len(head),
+        "truncated": True,
+        "orig_len": orig_len,
+        "kept_len": len(head),
         "sha256": hashlib.sha256(s.encode("utf-8")).hexdigest(),
     }
 
@@ -437,6 +608,7 @@ def _extract_skill_agent_tags(assistant_msgs: list[dict[str, Any]]) -> tuple[lis
 # File locking & state
 # ---------------------------------------------------------------------------
 
+
 class FileLock:
     def __init__(self, path: Path, timeout_s: float = 2.0):
         self.path = path
@@ -494,6 +666,7 @@ def state_key(session_id: str, transcript_path: str) -> str:
 # Hook payload & transcript parsing
 # ---------------------------------------------------------------------------
 
+
 def read_hook_payload() -> dict[str, Any]:
     try:
         data = sys.stdin.read()
@@ -503,16 +676,8 @@ def read_hook_payload() -> dict[str, Any]:
 
 
 def extract_session_and_transcript(payload: dict[str, Any]) -> tuple[str | None, Path | None]:
-    session_id = (
-        payload.get("sessionId")
-        or payload.get("session_id")
-        or payload.get("session", {}).get("id")
-    )
-    transcript = (
-        payload.get("transcriptPath")
-        or payload.get("transcript_path")
-        or payload.get("transcript", {}).get("path")
-    )
+    session_id = payload.get("sessionId") or payload.get("session_id") or payload.get("session", {}).get("id")
+    transcript = payload.get("transcriptPath") or payload.get("transcript_path") or payload.get("transcript", {}).get("path")
     transcript_path = None
     if transcript:
         with contextlib.suppress(Exception):
@@ -579,6 +744,7 @@ def read_new_jsonl(transcript_path: Path, ss: SessionState) -> tuple[list[dict[s
 # Turn building
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class Turn:
     user_msg: dict[str, Any]
@@ -619,16 +785,18 @@ def build_turns(messages: list[dict[str, Any]]) -> list[Turn]:
         if current_user is None or not assistant_latest:
             return
         assistants = [assistant_latest[mid] for mid in assistant_order if mid in assistant_latest]
-        turns.append(Turn(
-            user_msg=current_user,
-            assistant_msgs=assistants,
-            tool_results_by_id=dict(tool_results_by_id),
-            start_time=_parse_ts(current_user),
-            end_time=last_assistant_ts,
-            tool_use_timestamps=dict(tool_use_timestamps),
-            tool_result_timestamps=dict(tool_result_timestamps),
-            tool_errors_by_id=dict(tool_errors_by_id),
-        ))
+        turns.append(
+            Turn(
+                user_msg=current_user,
+                assistant_msgs=assistants,
+                tool_results_by_id=dict(tool_results_by_id),
+                start_time=_parse_ts(current_user),
+                end_time=last_assistant_ts,
+                tool_use_timestamps=dict(tool_use_timestamps),
+                tool_result_timestamps=dict(tool_result_timestamps),
+                tool_errors_by_id=dict(tool_errors_by_id),
+            )
+        )
 
     for msg in messages:
         role = get_role(msg)
@@ -678,6 +846,7 @@ def build_turns(messages: list[dict[str, Any]]) -> list[Turn]:
 # Trace emission
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class TraceContext:
     session_id: str
@@ -687,6 +856,16 @@ class TraceContext:
     makato_version: str | None
     loop_phase: str | None
     issue_trace_id: str | None = None
+    # Model-routing fields (forward-compatible with issue #5 modelRoles infrastructure).
+    # Set via CC_MODEL_ROLE and CC_MODEL_ENDPOINT env vars injected by the dispatch system.
+    # When issue #5 lands, loop.sh / po-agent will populate these per-dispatch so every
+    # trace is tagged with the role name and the endpoint it was routed to.
+    model_role: str | None = None
+    model_endpoint: str | None = None
+    # Build-signal snapshot (issue #12) — populated once per hook invocation from the
+    # issue's build.jsonl.  When set, every turn trace carries the run-level hard-signal
+    # snapshot in its metadata under the "build_signals" key.
+    build_signals: BuildSignals | None = None
 
 
 _PLUGIN_NAMES = {
@@ -707,9 +886,38 @@ _PLUGIN_NAMES = {
 }
 
 _LOOP_PHASES = {
-    "seed", "plan", "implement", "review", "verify", "push", "pr", "done",
-    "resolve-conflict", "address-pr-comments", "merge", "blocked",
+    "seed",
+    "plan",
+    "implement",
+    "review",
+    "verify",
+    "push",
+    "pr",
+    "done",
+    "resolve-conflict",
+    "address-pr-comments",
+    "merge",
+    "blocked",
 }
+
+# Model-identifier substrings that indicate an open-weight model.
+# Used as a fallback when CC_MODEL_ENDPOINT is not set by the dispatch system.
+_OPEN_WEIGHT_PATTERNS = (
+    "llama",
+    "mistral",
+    "mixtral",
+    "qwen",
+    "gemma",
+    "falcon",
+    "phi-",
+    "deepseek",
+    "solar",
+    "openchat",
+    "vicuna",
+    "codellama",
+    "yi-",
+    "orca",
+)
 
 
 def _plugin_from_skill_tag(tag: str) -> str | None:
@@ -751,6 +959,23 @@ def _build_trace_tags(ctx: TraceContext, turn: Turn) -> list[str]:
     entrypoint = turn.user_msg.get("entrypoint")
     if entrypoint and isinstance(entrypoint, str):
         tags.append(f"entrypoint:{entrypoint}")
+
+    # Model-routing tags — issue #12 task 3.
+    # modelRole: always emitted when CC_MODEL_ROLE is set (camelCase per Langfuse convention).
+    # endpoint: always emitted; falls back to open-weight pattern detection when
+    # CC_MODEL_ENDPOINT is not provided by the dispatch system.
+    if ctx.model_role:
+        tags.append(f"modelRole:{ctx.model_role}")
+
+    endpoint = ctx.model_endpoint
+    if not endpoint:
+        model_str = get_model(turn.assistant_msgs).lower()
+        if any(pat in model_str for pat in _OPEN_WEIGHT_PATTERNS):
+            endpoint = "open"
+        else:
+            endpoint = "closed"
+    tags.append(f"endpoint:{endpoint}")
+
     return tags
 
 
@@ -774,11 +999,7 @@ def _tool_calls_from_assistants(assistant_msgs: list[dict[str, Any]]) -> list[di
         for tu in iter_tool_uses(get_content(am)):
             tid = tu.get("id") or ""
             raw_input = tu.get("input")
-            sanitized = (
-                sanitize_dict(raw_input)
-                if isinstance(raw_input, (dict, list, str, int, float, bool))
-                else {}
-            )
+            sanitized = sanitize_dict(raw_input) if isinstance(raw_input, (dict, list, str, int, float, bool)) else {}
             calls.append({"id": str(tid), "name": tu.get("name") or "unknown", "input": sanitized})
     return calls
 
@@ -821,6 +1042,17 @@ def emit_turn(langfuse: Langfuse, turn_num: int, turn: Turn, ctx: TraceContext) 
         trace_metadata["loop_phase"] = ctx.loop_phase
     if ctx.issue_trace_id:
         trace_metadata["issue_trace_id"] = ctx.issue_trace_id
+    if ctx.model_role:
+        trace_metadata["model_role"] = ctx.model_role
+    if ctx.model_endpoint:
+        trace_metadata["model_endpoint"] = ctx.model_endpoint
+    if ctx.build_signals is not None:
+        # Merge only the non-None signal fields so the sub-key stays sparse until
+        # the signals are actually observed (e.g. verify_gate_passed is absent
+        # until the verify phase has completed).
+        signals_dict = {k: v for k, v in asdict(ctx.build_signals).items() if v is not None}
+        if signals_dict:
+            trace_metadata["build_signals"] = signals_dict
     if turn.start_time:
         trace_metadata["start_time"] = turn.start_time.isoformat()
     if turn.end_time:
@@ -843,9 +1075,7 @@ def emit_turn(langfuse: Langfuse, turn_num: int, turn: Turn, ctx: TraceContext) 
         gen_meta: dict[str, Any] = {
             "tool_count": len(tool_calls),
             "tool_names": [tc["name"] for tc in tool_calls],
-            "tool_error_count": sum(
-                1 for tc in tool_calls if (turn.tool_errors_by_id or {}).get(tc["id"], False)
-            ),
+            "tool_error_count": sum(1 for tc in tool_calls if (turn.tool_errors_by_id or {}).get(tc["id"], False)),
         }
         gen_kwargs: dict[str, Any] = {
             "name": "Claude Response",
@@ -889,6 +1119,7 @@ def emit_turn(langfuse: Langfuse, turn_num: int, turn: Turn, ctx: TraceContext) 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
 
 def _clear_localhost_proxy(host: str) -> None:
     if "localhost" not in host and "127.0.0.1" not in host:
@@ -948,9 +1179,18 @@ def main() -> int:
         user_id=get_user_id(),
         project_name=get_project_name(),
         makato_version=_get_makato_version(),
-        loop_phase=_get_loop_phase(),
+        loop_phase=_get_loop_context()[0],
         issue_trace_id=issue_trace_id,
+        model_role=os.environ.get("CC_MODEL_ROLE", "").strip() or None,
+        model_endpoint=os.environ.get("CC_MODEL_ENDPOINT", "").strip() or None,
     )
+    # Populate build-signal snapshot from the issue's build.jsonl (issue #12).
+    # _get_loop_context() re-scans the same workflow-state file we just used for
+    # loop_phase, so we call it a second time to get the sibling issue_key/specs_dir
+    # without changing the already-constructed ctx.loop_phase.
+    _, _issue_key, _specs_dir = _get_loop_context()
+    if _issue_key is not None and _specs_dir is not None:
+        ctx.build_signals = _read_build_signals(_issue_key, _specs_dir)
 
     try:
         with FileLock(LOCK_FILE):

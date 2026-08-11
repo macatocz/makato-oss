@@ -65,6 +65,7 @@ def filter_structural_halts(halt_audit: list) -> list:
 # Lessons trail filter
 # ---------------------------------------------------------------------------
 
+
 def filter_lessons_trail(lessons_learned: list) -> list:
     """Return only lessons with trigger == 'halt'."""
     return [e for e in lessons_learned if e.get("trigger") == "halt"]
@@ -73,6 +74,7 @@ def filter_lessons_trail(lessons_learned: list) -> list:
 # ---------------------------------------------------------------------------
 # Last CRITICAL errors extraction
 # ---------------------------------------------------------------------------
+
 
 def extract_last_critical_errors(sub_tasks: list) -> list[str]:
     """Extract CRITICAL error strings from the last sub_task with a non-null agent_result.
@@ -86,10 +88,7 @@ def extract_last_critical_errors(sub_tasks: list) -> list[str]:
         if agent_result is None:
             continue
         errors = agent_result.get("errors") or []
-        critical = [
-            e for e in errors
-            if isinstance(e, str) and re.search(r"critical", e, re.IGNORECASE)
-        ]
+        critical = [e for e in errors if isinstance(e, str) and re.search(r"critical", e, re.IGNORECASE)]
         return critical
     return []
 
@@ -97,6 +96,7 @@ def extract_last_critical_errors(sub_tasks: list) -> list[str]:
 # ---------------------------------------------------------------------------
 # Repo root resolution (mirrors workflow-state.sh logic)
 # ---------------------------------------------------------------------------
+
 
 def resolve_repo_root() -> str:
     """Resolve REPO_ROOT from the common git dir (works from worktrees)."""
@@ -131,6 +131,7 @@ def resolve_repo_root() -> str:
 # Spec folder resolution
 # ---------------------------------------------------------------------------
 
+
 def resolve_spec_folder(specs_dir: str, key: str) -> str:
     """Return the spec folder path for a given KEY.
 
@@ -150,6 +151,7 @@ def resolve_spec_folder(specs_dir: str, key: str) -> str:
 # Timestamp helper
 # ---------------------------------------------------------------------------
 
+
 def now_iso() -> str:
     """Return current UTC timestamp in ISO-8601 with milliseconds."""
     n = datetime.now(timezone.utc)
@@ -160,6 +162,7 @@ def now_iso() -> str:
 # Schema validation (stdlib or jsonschema when available)
 # ---------------------------------------------------------------------------
 
+
 def _minimal_schema_check(data: dict, schema_path: str) -> tuple[bool, str]:
     """Minimal stdlib schema check: validates required fields and types only.
 
@@ -169,6 +172,7 @@ def _minimal_schema_check(data: dict, schema_path: str) -> tuple[bool, str]:
     """
     try:
         import jsonschema  # type: ignore
+
         try:
             schema = json.loads(Path(schema_path).read_text(encoding="utf-8"))
             jsonschema.validate(data, schema)
@@ -177,14 +181,17 @@ def _minimal_schema_check(data: dict, schema_path: str) -> tuple[bool, str]:
             return False, f"schema validation failed: {e.message}"
     except ImportError:
         # Degraded: run minimal required-field check without jsonschema.
-        sys.stderr.write(
-            "emit-reshape-request: WARN — jsonschema not installed; "
-            "degraded: schema-unvalidated (install jsonschema to enable full validation)\n"
-        )
+        sys.stderr.write("emit-reshape-request: WARN — jsonschema not installed; degraded: schema-unvalidated (install jsonschema to enable full validation)\n")
         required = [
-            "schema_version", "issue_key", "issue_number", "issue_slug",
-            "structural_halt_cycles", "reshape_cycles",
-            "halt_history", "lessons_trail", "emitted_at",
+            "schema_version",
+            "issue_key",
+            "issue_number",
+            "issue_slug",
+            "structural_halt_cycles",
+            "reshape_cycles",
+            "halt_history",
+            "lessons_trail",
+            "emitted_at",
         ]
         for field in required:
             if field not in data:
@@ -199,6 +206,7 @@ def _minimal_schema_check(data: dict, schema_path: str) -> tuple[bool, str]:
 # ---------------------------------------------------------------------------
 # Build reshape-request payload
 # ---------------------------------------------------------------------------
+
 
 def build_reshape_request(
     key: str,
@@ -245,6 +253,7 @@ def build_reshape_request(
 # orchestrate.jsonl append
 # ---------------------------------------------------------------------------
 
+
 def append_orchestrate_log(
     spec_folder: str,
     key: str,
@@ -274,16 +283,14 @@ def append_orchestrate_log(
 # main entry point
 # ---------------------------------------------------------------------------
 
+
 def main(argv: list[str] | None = None) -> int:
     """Emit reshape-request.json for a structural HALT event.
 
     Returns 0 on success, 1 on error.
     """
     parser = argparse.ArgumentParser(
-        description=(
-            "Emit specs/<key>-<slug>/reshape-request.json after a structural "
-            "HALT fires on a PO-agent run."
-        ),
+        description=("Emit specs/<key>-<slug>/reshape-request.json after a structural HALT fires on a PO-agent run."),
         prog="emit_reshape_request",
     )
     parser.add_argument(
@@ -302,8 +309,7 @@ def main(argv: list[str] | None = None) -> int:
     # Validate ISSUE_NUMBER is a positive integer.
     if not re.match(r"^[1-9][0-9]*$", issue_number_str):
         print(
-            f"emit-reshape-request: ISSUE_NUMBER must be a positive integer "
-            f"(got {issue_number_str!r})",
+            f"emit-reshape-request: ISSUE_NUMBER must be a positive integer (got {issue_number_str!r})",
             file=sys.stderr,
         )
         return 1
@@ -311,9 +317,7 @@ def main(argv: list[str] | None = None) -> int:
 
     repo_root = resolve_repo_root()
 
-    specs_dir = os.environ.get("MAKATO_EMIT_RESHAPE_SPECS_DIR") or os.path.join(
-        repo_root, "specs"
-    )
+    specs_dir = os.environ.get("MAKATO_EMIT_RESHAPE_SPECS_DIR") or os.path.join(repo_root, "specs")
     schema_path = os.path.join(
         repo_root,
         "plugins",
@@ -321,9 +325,7 @@ def main(argv: list[str] | None = None) -> int:
         "scripts",
         "emit-reshape-request.schema.json",
     )
-    ws_script = os.path.join(
-        repo_root, "plugins", "makato-orchestrate", "shared", "workflow-state.sh"
-    )
+    ws_script = os.path.join(repo_root, "plugins", "makato-orchestrate", "shared", "workflow-state.sh")
 
     # Resolve spec folder.
     spec_folder = resolve_spec_folder(specs_dir, key)
@@ -351,8 +353,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if not state_json or state_json == "{}":
         print(
-            f"emit-reshape-request: workflow-state-{issue_number}.json not found "
-            f"for KEY={key}",
+            f"emit-reshape-request: workflow-state-{issue_number}.json not found for KEY={key}",
             file=sys.stderr,
         )
         return 1

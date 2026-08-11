@@ -1524,7 +1524,8 @@ _stall_restart() {
 
 # ---------------------------------------------------------------------------
 # _parse_dispatch_result <log-file> (#531)
-# Classifies stream-json dispatch outcome: complete / errored / incomplete.
+# Classifies omp stream-json dispatch outcome per D16 contract: complete / errored / incomplete.
+# omp emits {"type":"result","is_error":false|true,...} — same shape as claude stream-json.
 # Guard: MAKATO_LOOP_STALL_DISABLE=1 → returns "complete". Missing file → "incomplete".
 # ---------------------------------------------------------------------------
 _parse_dispatch_result() {
@@ -1568,7 +1569,7 @@ _parse_dispatch_result() {
 
 # ---------------------------------------------------------------------------
 # _stall_resume <issue> <key> <spec-folder> <log-file> (#531)
-# Resumes a crashed dispatch via `claude --resume`. Shares stall_restart_count
+# Resumes a crashed dispatch via `omp --yolo -p --resume`. Shares stall_restart_count
 # with _stall_restart; budget exhaustion → HALT-014. Guard: MAKATO_LOOP_STALL_DISABLE=1 → skip.
 # ---------------------------------------------------------------------------
 _stall_resume() {
@@ -1690,8 +1691,7 @@ _stall_resume() {
   local resume_prompt="Use the Task tool to dispatch the makato-orchestrate:po-agent subagent to resume driving GitHub issue #${issue} to a merged PR. The po-agent owns the outer loop, workflow-state, and all makato-build --autonomous dispatch; do not invoke makato-build or makato-plan skills directly from this session. Return the po-agent's final R1 envelope verbatim."
   (
     cd "$worktree_dir" 2>/dev/null || true
-    MAKATO_HEADLESS=1 "$CLAUDE_BIN" --dangerously-skip-permissions \
-      --output-format stream-json --verbose \
+    MAKATO_HEADLESS=1 "$CLAUDE_BIN" --yolo \
       --resume "$_resume_sid" \
       -p "$resume_prompt" >>"$log_file" 2>&1 || true
   )
@@ -2330,7 +2330,7 @@ _auto_seed_dispatch_light() {
     ISSUE_NUMBER="$issue" \
     REPO="$repo" \
     REPO_ROOT="$REPO_ROOT" \
-      "$CLAUDE_BIN" --dangerously-skip-permissions \
+      "$CLAUDE_BIN" --yolo \
       -p "$dispatch_prompt" >/dev/null 2>&1 || rc=$?
   fi
 
@@ -3309,7 +3309,7 @@ _pre_dispatch_plan_guard() {
   local refine_prompt="Use the Skill tool to invoke the makato-build:build-refine skill with args '${key} --autonomous'. REPO_ROOT=${REPO_ROOT}. MAKATO_HEADLESS=1 is already exported. Return R1 envelope verbatim."
   local refine_exit=0
   MAKATO_HEADLESS=1 REPO_ROOT="$REPO_ROOT" \
-    "$CLAUDE_BIN" --dangerously-skip-permissions -p "$refine_prompt" \
+    "$CLAUDE_BIN" --yolo -p "$refine_prompt" \
     >/dev/null 2>&1 || refine_exit=$?
 
   if [[ $refine_exit -eq 127 ]]; then
@@ -3339,7 +3339,7 @@ _pre_dispatch_plan_guard() {
 }
 
 # _emit_langfuse_trace <log_file> <issue> — pipe stop-hook payload to langfuse_hook.py after dispatch; skipped when TRACE_TO_LANGFUSE!=true or session_id absent.
-# _extract_session_id <log_file> — extract Claude session UUID from stream-json result line; sole source of truth for session-id extraction (#616).
+# _extract_session_id <log_file> — extract omp session UUID from stream-json result line per D16 contract; sole source of truth for session-id extraction (#616).
 _extract_session_id() {
   local log_file="${1:-}"
   [[ -f "$log_file" ]] || return 0
@@ -3370,10 +3370,17 @@ _emit_langfuse_trace() {
   session_id="$(_extract_session_id "$log_file")"
   [[ -n "$session_id" ]] || return 0
 
-  # Derive transcript path: ~/.claude/projects/<hash>/<session_id>.jsonl
+  # Derive transcript path: honour MAKATO_TRANSCRIPT_PATH when set (caller or config
+  # supplies the full path including session suffix); fall back to the legacy
+  # ~/.claude/projects/<hash>/<session_id>.jsonl derivation for backward compatibility.
   local project_hash
   project_hash="$(echo -n "$REPO_ROOT" | sed 's|/|-|g' | sed 's|^-||')"
-  local transcript="$HOME/.claude/projects/${project_hash}/${session_id}.jsonl"
+  local transcript
+  if [[ -n "${MAKATO_TRANSCRIPT_PATH:-}" ]]; then
+    transcript="$MAKATO_TRANSCRIPT_PATH"
+  else
+    transcript="$HOME/.claude/projects/${project_hash}/${session_id}.jsonl"
+  fi
   [[ -f "$transcript" ]] || return 0
 
   # Read issue_trace_id from workflow-state when available.
@@ -3528,9 +3535,9 @@ cmd_dispatch() {
 
   if [[ "$dry_run" == "--dry-run" ]]; then
     if [[ "$issue_type" == "type:change" ]]; then
-      echo "loop: --dry-run — would exec: $CLAUDE_BIN --dangerously-skip-permissions -p \"<dispatch makato-change:orchestrate --autonomous for issue #${issue} KEY=${key} REPO=${MAKATO_LOOP_DISPATCH_REPO:-} REPO_ROOT=${REPO_ROOT}>\"" >&2
+      echo "loop: --dry-run — would exec: $CLAUDE_BIN --yolo -p \"<dispatch makato-change:orchestrate --autonomous for issue #${issue} KEY=${key} REPO=${MAKATO_LOOP_DISPATCH_REPO:-} REPO_ROOT=${REPO_ROOT}>\"" >&2
     else
-      echo "loop: --dry-run — would exec: $CLAUDE_BIN --dangerously-skip-permissions -p \"<dispatch makato-orchestrate:po-agent for issue #${issue} KEY=${key} REPO=${MAKATO_LOOP_DISPATCH_REPO:-} BRANCH=${branch} REPO_ROOT=${REPO_ROOT}>\"" >&2
+      echo "loop: --dry-run — would exec: $CLAUDE_BIN --yolo -p \"<dispatch makato-orchestrate:po-agent for issue #${issue} KEY=${key} REPO=${MAKATO_LOOP_DISPATCH_REPO:-} BRANCH=${branch} REPO_ROOT=${REPO_ROOT}>\"" >&2
     fi
     echo "loop: --dry-run — would claim #${issue} (board Ready → In progress, CAS)" >&2
     echo "loop: --dry-run — would assign #${issue} to ${ASSIGNEE} (board → In progress)" >&2
@@ -3693,10 +3700,9 @@ cmd_dispatch() {
       $child_cmd >"$log_file" 2>&1 &
       local child_pid=$!
     else
-      # Production path: stream-json --verbose keeps log mtime alive for watchdog (#146); CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 prevents 600s kill of background po-agent.
+      # Production path: omp --yolo keeps log mtime alive for watchdog (#146); CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 prevents 600s kill of background po-agent.
       CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 \
-        MAKATO_HEADLESS=1 "$CLAUDE_BIN" --dangerously-skip-permissions \
-        --output-format stream-json --verbose \
+        MAKATO_HEADLESS=1 "$CLAUDE_BIN" --yolo \
         -p "$dispatch_prompt" >"$log_file" 2>&1 &
       local child_pid=$!
     fi
@@ -3794,8 +3800,7 @@ cmd_dispatch() {
       $child_cmd || rc=$?
     else
       CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 \
-        MAKATO_HEADLESS=1 "$CLAUDE_BIN" --dangerously-skip-permissions \
-        --output-format text \
+        MAKATO_HEADLESS=1 "$CLAUDE_BIN" --yolo \
         -p "$dispatch_prompt" || rc=$?
     fi
   fi
@@ -4019,7 +4024,7 @@ _reshape_pass() {
       decompose_prompt="Use the Skill tool to invoke makato-plan:decompose for issue #${n} in Refine mode. ISSUE_NUMBER=${n} KEY=${key} REPO=${repo} REPO_ROOT=${REPO_ROOT} RESHAPE_REQUEST=${reshape_request_path}. --autonomous. Return R1 envelope verbatim."
       REPO_ROOT="$REPO_ROOT" \
       MAKATO_HEADLESS=1 \
-        "$CLAUDE_BIN" --dangerously-skip-permissions -p "$decompose_prompt" \
+        "$CLAUDE_BIN" --yolo -p "$decompose_prompt" \
         >/dev/null 2>&1 || dispatch_rc=$?
 
       # Step 2: to-issues (only when decompose succeeded).
@@ -4028,7 +4033,7 @@ _reshape_pass() {
         to_issues_prompt="Use the Skill tool to invoke makato-plan:to-issues for issue #${n}. ISSUE_NUMBER=${n} KEY=${key} REPO=${repo} REPO_ROOT=${REPO_ROOT}. --autonomous. Return R1 envelope verbatim."
         REPO_ROOT="$REPO_ROOT" \
         MAKATO_HEADLESS=1 \
-          "$CLAUDE_BIN" --dangerously-skip-permissions -p "$to_issues_prompt" \
+          "$CLAUDE_BIN" --yolo -p "$to_issues_prompt" \
           >/dev/null 2>&1 || dispatch_rc=$?
       fi
     fi

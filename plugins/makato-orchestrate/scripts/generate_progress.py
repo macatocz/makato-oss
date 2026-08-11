@@ -54,7 +54,9 @@ def _repo_root() -> str:
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         )
         return result.stdout.strip()
     except Exception:
@@ -73,10 +75,7 @@ def read_loop_status(status_file: str) -> tuple[str, list[int], list[str]]:
     queue: list[int] = []
 
     if not os.path.isfile(status_file):
-        warnings.append(
-            f"loop-status.json absent at {status_file} — "
-            "in-progress classification unavailable"
-        )
+        warnings.append(f"loop-status.json absent at {status_file} — in-progress classification unavailable")
         _log(f"WARN: loop-status.json not found at {status_file} — falling back to gh data only")
         return active_issue, queue, warnings
 
@@ -96,7 +95,7 @@ def read_loop_status(status_file: str) -> tuple[str, list[int], list[str]]:
                 num = int(issue_val)
                 if num > 0:
                     active_issue = str(num)
-            except (ValueError, TypeError):
+            except (ValueError, TypeError):  # fmt: skip
                 pass
 
     raw_queue = data.get("queue", [])
@@ -106,7 +105,7 @@ def read_loop_status(status_file: str) -> tuple[str, list[int], list[str]]:
                 n = int(item)
                 if n > 0:
                     queue.append(n)
-            except (ValueError, TypeError):
+            except (ValueError, TypeError):  # fmt: skip
                 pass
 
     return active_issue, queue, warnings
@@ -140,13 +139,20 @@ def fetch_epics(gh_override: str | None) -> tuple[list[dict], list[str], bool]:
     try:
         result = subprocess.run(
             [
-                "gh", "issue", "list",
-                "--label", "type:epic",
-                "--state", "all",
-                "--json", "number,title,state,closedAt",
-                "--limit", "200",
+                "gh",
+                "issue",
+                "list",
+                "--label",
+                "type:epic",
+                "--state",
+                "all",
+                "--json",
+                "number,title,state,closedAt",
+                "--limit",
+                "200",
             ],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         if result.returncode != 0:
             raise subprocess.CalledProcessError(result.returncode, "gh")
@@ -299,10 +305,7 @@ def run(
     with open(out_file, "w", encoding="utf-8") as fh:
         fh.write(content)
 
-    _log(
-        f"PROGRESS.md written to {out_file} "
-        f"(done={len(done)}, in-progress={len(in_progress)}, not-started={len(not_started)})"
-    )
+    _log(f"PROGRESS.md written to {out_file} (done={len(done)}, in-progress={len(in_progress)}, not-started={len(not_started)})")
     return 0
 
 

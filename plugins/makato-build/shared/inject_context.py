@@ -164,18 +164,13 @@ def resolve_bundles(
     for i, bundle in enumerate(bundles):
         if "name" not in bundle:
             raise BundleResolutionError(
-                f"context-bundles config: bundle entry at index {i} is missing "
-                "the required `name` field. Every bundle must declare `name`, "
-                "`globs`, and `rules`.",
+                f"context-bundles config: bundle entry at index {i} is missing the required `name` field. Every bundle must declare `name`, `globs`, and `rules`.",
                 halt_code="HALT-006",
             )
         name = bundle["name"]
         if name in seen_names:
             raise BundleResolutionError(
-                f"context-bundles config: bundle name `{name}` is declared "
-                f"more than once (index {i}). Bundle names must be unique — "
-                "duplicates would silently alias and discard earlier "
-                "definitions.",
+                f"context-bundles config: bundle name `{name}` is declared more than once (index {i}). Bundle names must be unique — duplicates would silently alias and discard earlier definitions.",
                 halt_code="HALT-006",
             )
         seen_names.add(name)
@@ -184,9 +179,7 @@ def resolve_bundles(
 
     if "default" not in by_name:
         raise BundleResolutionError(
-            "context-bundles config is missing the required `default` bundle; "
-            "every config must define a `default` so the resolver always has a "
-            "fallback. Add a bundle named `default` and retry.",
+            "context-bundles config is missing the required `default` bundle; every config must define a `default` so the resolver always has a fallback. Add a bundle named `default` and retry.",
             halt_code="HALT-006",
         )
 

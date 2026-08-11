@@ -90,8 +90,7 @@ def _parse_log(
             if missing:
                 malformed_count += 1
                 print(
-                    f"[audit-skill-adoption] malformed line {lineno}: "
-                    f"missing required fields {missing}",
+                    f"[audit-skill-adoption] malformed line {lineno}: missing required fields {missing}",
                     file=stderr,
                 )
                 continue
@@ -121,10 +120,7 @@ def _build_markdown(
     if not valid:
         lines.append("## No Invocation Data Available")
         lines.append("")
-        lines.append(
-            "> No invocation data available. "
-            "The F4 log is empty or has not been written yet."
-        )
+        lines.append("> No invocation data available. The F4 log is empty or has not been written yet.")
         lines.append("")
         if malformed_count:
             lines.append(f"**Malformed lines skipped:** {malformed_count}")
@@ -186,7 +182,7 @@ def _check_d15_anomaly(
             ts = datetime.fromisoformat(entry["ts"].replace("Z", "+00:00"))
             if ts >= cutoff:
                 skill_7d[skill] += 1
-        except (ValueError, AttributeError):
+        except (ValueError, AttributeError):  # fmt: skip
             pass
 
     anomalies: dict[str, float] = {}
@@ -211,10 +207,7 @@ def _write_anomaly_notes(
     lines.append("")
     lines.append(f"_Generated: {generated_at}_")
     lines.append("")
-    lines.append(
-        f"Skills with rolling 7-day rate < {int(_D15_RATE_THRESHOLD * 100)}% "
-        f"AND >= {_D15_MIN_SESSIONS} total sessions:"
-    )
+    lines.append(f"Skills with rolling 7-day rate < {int(_D15_RATE_THRESHOLD * 100)}% AND >= {_D15_MIN_SESSIONS} total sessions:")
     lines.append("")
     lines.append("| Skill | 7-day Rate |")
     lines.append("|---|---|")
@@ -256,7 +249,7 @@ def _load_state(state_path: Path) -> dict:
         return {}
     try:
         return json.loads(state_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, OSError):  # fmt: skip
         return {}
 
 
@@ -266,9 +259,7 @@ def _save_state(state: dict, state_path: Path) -> None:
     import tempfile
 
     state_path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(
-        dir=str(state_path.parent), prefix=".audit-state-", suffix=".tmp"
-    )
+    fd, tmp_name = tempfile.mkstemp(dir=str(state_path.parent), prefix=".audit-state-", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(state, fh, indent=2, sort_keys=True)
@@ -313,7 +304,7 @@ def _evaluate_windows(
             ts = datetime.fromisoformat(entry["ts"].replace("Z", "+00:00"))
             if ts >= cutoff:
                 skill_7d[skill] += 1
-        except (ValueError, AttributeError):
+        except (ValueError, AttributeError):  # fmt: skip
             pass
 
     new_state = dict(prior_state)
@@ -395,8 +386,10 @@ def _open_refinement_issue(
     if issue_runner is None:
         import subprocess
 
-        def issue_runner(cmd):  # noqa: E731
+        def _default_issue_runner(cmd):
             return subprocess.run(cmd, capture_output=True, text=True, check=False)
+
+        issue_runner = _default_issue_runner
 
     title = f"[audit-refinement] Low adoption for {skill}"
     body = (
@@ -438,20 +431,8 @@ def _append_adaptive_note(
     if header_needed:
         lines.append("# Skill Audit Notes (adaptive)")
         lines.append("")
-    escalated = (
-        " — **escalated** (issue opened)"
-        if issue_opened
-        else (
-            " — **escalation attempted, tracker unreachable**"
-            if result.get("escalate")
-            else ""
-        )
-    )
-    lines.append(
-        f"- {generated_at} · `{skill}` · 7-day rate {result['rate']:.1%} · "
-        f"{result['sessions_7d']} sessions · sample {sample_size} · "
-        f"dirty×{result['consecutive_dirty']}{escalated}"
-    )
+    escalated = " — **escalated** (issue opened)" if issue_opened else (" — **escalation attempted, tracker unreachable**" if result.get("escalate") else "")
+    lines.append(f"- {generated_at} · `{skill}` · 7-day rate {result['rate']:.1%} · {result['sessions_7d']} sessions · sample {sample_size} · dirty×{result['consecutive_dirty']}{escalated}")
     with anomaly_path.open("a", encoding="utf-8") as fh:
         fh.write("\n".join(lines) + "\n")
 
@@ -491,9 +472,7 @@ def run_adaptive_audit(
         for skill in sorted(dirty):
             r = results[skill]
             print(
-                f"[audit] SIGNAL {skill}: 7-day rate {r['rate']:.1%} "
-                f"({r['sessions_7d']} sessions, dirty×{r['consecutive_dirty']})"
-                f"{' [would escalate]' if r.get('escalate') else ''}",
+                f"[audit] SIGNAL {skill}: 7-day rate {r['rate']:.1%} ({r['sessions_7d']} sessions, dirty×{r['consecutive_dirty']}){' [would escalate]' if r.get('escalate') else ''}",
                 file=stdout,
             )
         return {
@@ -508,15 +487,12 @@ def run_adaptive_audit(
         r = results[skill]
         issue_opened = False
         if r.get("escalate"):
-            issue_opened = _open_refinement_issue(
-                skill, r["rate"], issue_runner=issue_runner
-            )
+            issue_opened = _open_refinement_issue(skill, r["rate"], issue_runner=issue_runner)
             if issue_opened:
                 issues_opened += 1
             else:
                 print(
-                    f"[audit] warn: could not open refinement issue for "
-                    f"{skill} (tracker unreachable); note still recorded.",
+                    f"[audit] warn: could not open refinement issue for {skill} (tracker unreachable); note still recorded.",
                     file=stderr,
                 )
         _append_adaptive_note(
