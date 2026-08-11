@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.154.0](https://github.com/macatocz/makato-oss/compare/v0.153.2...v0.154.0) (2026-08-11)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** offline board mirror + per-tick bidirectional sync ([#9](https://github.com/macatocz/makato-oss/issues/9)) ([a73d335](https://github.com/macatocz/makato-oss/commit/a73d335e2fcd2804bcd3cee8ca4bae76d9896e96))
+* **makato-orchestrate:** offline board mirror + per-tick bidirectional sync ([#9](https://github.com/macatocz/makato-oss/issues/9)) ([705c781](https://github.com/macatocz/makato-oss/commit/705c781ae3b0b37a00e1fed862a45d7328f4c8cd))
+
 ## [0.153.2](https://github.com/macatocz/makato-oss/compare/v0.153.1...v0.153.2) (2026-08-11)
 
 
