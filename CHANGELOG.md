@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.152.0](https://github.com/macatocz/makato-oss/compare/v0.151.0...v0.152.0) (2026-08-11)
+
+
+### ✨ Features
+
+* **makato-orchestrate:** add assert-no-approval-stall.sh for headless E2E assertion ([3b5b3c1](https://github.com/macatocz/makato-oss/commit/3b5b3c1b518fa4539d3163e0cc3d25d3c2697121))
+* **makato-orchestrate:** add e2e-mvp-proof.sh end-to-end validation script ([0c2828d](https://github.com/macatocz/makato-oss/commit/0c2828dbd8755fa37314ebcd62693b0168a6a96a))
+* **makato-orchestrate:** add open-model endpoint config and ANTHROPIC_BASE_URL export ([e7ffa15](https://github.com/macatocz/makato-oss/commit/e7ffa15b5fa3de73dfd4a98d9cd213ab41c93633))
+* **makato-orchestrate:** add open-model proof scripts ([#7](https://github.com/macatocz/makato-oss/issues/7)) ([8106cdb](https://github.com/macatocz/makato-oss/commit/8106cdbc17c8baee08501e6a701d9367e3af1844))
+* **makato-orchestrate:** add verify-production-isolation.sh for DoD isolation check ([6b63438](https://github.com/macatocz/makato-oss/commit/6b63438e551220a22904b00602e6151c843629e9))
+
+
+### 🤖 CI
+
+* **makato-oss:** pin release-please-action to commit SHA (fixes code-s… ([9c473f4](https://github.com/macatocz/makato-oss/commit/9c473f431a408c783744951532a87fbd5b5ded25))
+
 ## [0.151.0](https://github.com/macatocz/makato-oss/compare/v0.150.0...v0.151.0) (2026-08-11)
 
 
