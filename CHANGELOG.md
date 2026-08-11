@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.151.0](https://github.com/macatocz/makato-oss/compare/v0.150.0...v0.151.0) (2026-08-11)
+
+
+### ✨ Features
+
+* **harness:** modelRoles config; drop haiku/sonnet/opus across agents ([#5](https://github.com/macatocz/makato-oss/issues/5)) ([00a522a](https://github.com/macatocz/makato-oss/commit/00a522abcdd0cce0f5c9e5cc8b7d5819a4975f85))
+* **infra:** add co-located dev stack with vLLM and Langfuse ([#10](https://github.com/macatocz/makato-oss/issues/10)) ([7329279](https://github.com/macatocz/makato-oss/commit/732927919fdf15a309d58bea48488f4f567e6968))
+
 ## [0.150.0](https://github.com/macatocz/makato-oss/compare/v0.149.1...v0.150.0) (2026-08-11)
 
 
