@@ -1,0 +1,67 @@
+# makato-loop-supervisor.service.template
+# =========================================
+# Linux systemd unit for the makato loop supervisor (issue #8).
+#
+# INSTALL INSTRUCTIONS:
+# =====================
+# 1. Copy this template and substitute {{MAKATO_REPO_ROOT}} and {{HOME}}:
+#
+#    cp plugins/makato-orchestrate/scripts/makato-loop-supervisor.service.template \
+#       ~/.config/systemd/user/makato-loop-supervisor.service
+#
+#    Then edit the copied file and replace:
+#      {{MAKATO_REPO_ROOT}}  with e.g. /home/yourname/makato
+#      {{HOME}}              with e.g. /home/yourname
+#
+# 2. Reload the user daemon and enable/start:
+#
+#    systemctl --user daemon-reload
+#    systemctl --user enable --now makato-loop-supervisor.service
+#
+# 3. To stop and disable:
+#
+#    systemctl --user disable --now makato-loop-supervisor.service
+#
+# 4. Logs:
+#    journalctl --user -u makato-loop-supervisor.service -f
+#    Per-tick structured audit: ~/.claude/state/supervisor-audit.jsonl
+#
+# NOTES:
+# ======
+# - ExecStartPre calls provision-persistent-volume.sh at every restart so the
+#   persistent-volume layout is guaranteed before loop-supervisor.sh runs.
+# - The reconcile-before-resume.sh call is wired in loop-supervisor.sh Step 4,
+#   not in this unit file — the unit only boots the supervisor process.
+# - Restart=always with RestartSec=10s means the supervisor is re-run 10 s after
+#   any exit (clean, crash, or signal). The supervisor itself is short-lived
+#   (one tick, then exits), so systemd restarts it on the configured cadence.
+#   Use OnCalendar= in a companion .timer unit for a precise schedule if needed.
+
+[Unit]
+Description=Makato loop supervisor — restarts loop.sh when it goes dead
+After=network.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=no
+
+# Provision the persistent-volume layout before each supervisor tick.
+ExecStartPre={{MAKATO_REPO_ROOT}}/plugins/makato-orchestrate/scripts/provision-persistent-volume.sh
+
+# Run one supervisor tick (loop-supervisor.sh is short-lived by design).
+ExecStart=/bin/bash {{MAKATO_REPO_ROOT}}/plugins/makato-orchestrate/scripts/loop-supervisor.sh
+
+# Restart=always: systemd re-invokes the unit after every exit, crash, or signal.
+Restart=always
+RestartSec=10s
+
+# Environment forwarded to both ExecStartPre and ExecStart.
+Environment="MAKATO_REPO_ROOT={{MAKATO_REPO_ROOT}}"
+Environment="MAKATO_LOOP_STATE_DIR={{HOME}}/.claude/state"
+
+# Redirect output to the supervisor log so boot-time output is captured.
+StandardOutput=append:{{HOME}}/.claude/state/supervisor.log
+StandardError=append:{{HOME}}/.claude/state/supervisor.log
+
+[Install]
+WantedBy=default.target
