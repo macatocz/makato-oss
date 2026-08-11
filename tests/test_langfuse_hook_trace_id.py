@@ -19,7 +19,7 @@ HOOK_PATH = Path(__file__).parent.parent / "plugins" / "makato-observability" / 
 if str(HOOK_PATH) not in sys.path:
     sys.path.insert(0, str(HOOK_PATH))
 
-import langfuse_hook as lh  # noqa: E402
+import langfuse_hook as lh  # noqa: E402  # type: ignore[import]
 
 
 # ---------------------------------------------------------------------------
@@ -99,9 +99,7 @@ def test_emit_turn_includes_issue_trace_id_when_set():
         mock_langfuse.start_as_current_observation.side_effect = capture_saco
         lh.emit_turn(mock_langfuse, 1, turn, ctx)
 
-    assert "issue_trace_id" in captured_metadata, (
-        "issue_trace_id should be present in trace_metadata when set on ctx"
-    )
+    assert "issue_trace_id" in captured_metadata, "issue_trace_id should be present in trace_metadata when set on ctx"
     assert captured_metadata["issue_trace_id"] == trace_id
 
 
@@ -141,9 +139,7 @@ def test_emit_turn_excludes_issue_trace_id_when_none():
         mock_langfuse.start_as_current_observation.side_effect = capture_saco
         lh.emit_turn(mock_langfuse, 1, turn, ctx)
 
-    assert "issue_trace_id" not in captured_metadata, (
-        "issue_trace_id should be absent from trace_metadata when ctx.issue_trace_id is None"
-    )
+    assert "issue_trace_id" not in captured_metadata, "issue_trace_id should be absent from trace_metadata when ctx.issue_trace_id is None"
 
 
 # ---------------------------------------------------------------------------
@@ -182,12 +178,8 @@ def test_emit_turn_loop_phase_and_session_id_still_present():
         mock_langfuse.start_as_current_observation.side_effect = capture_saco
         lh.emit_turn(mock_langfuse, 1, turn, ctx)
 
-    assert captured_metadata.get("loop_phase") == "implement", (
-        "loop_phase should still be present in trace_metadata"
-    )
-    assert captured_metadata.get("session_id") == "sess-abc", (
-        "session_id should still be present in trace_metadata"
-    )
+    assert captured_metadata.get("loop_phase") == "implement", "loop_phase should still be present in trace_metadata"
+    assert captured_metadata.get("session_id") == "sess-abc", "session_id should still be present in trace_metadata"
 
 
 # ---------------------------------------------------------------------------
@@ -216,9 +208,7 @@ def test_main_extracts_issue_trace_id_from_payload(tmp_path):
 
     with (
         patch.object(lh, "_resolve_trace_flag", return_value=True),
-        patch.object(
-            lh, "_resolve_credentials", return_value=("pk", "sk", "http://localhost")
-        ),
+        patch.object(lh, "_resolve_credentials", return_value=("pk", "sk", "http://localhost")),
         patch.object(lh, "read_hook_payload", return_value=payload),
         patch.object(lh, "_clear_localhost_proxy"),
         patch.object(lh, "_check_langfuse_reachable", return_value=True),
