@@ -66,14 +66,23 @@ def test_fixed_value_without_env():
 
 
 def test_stdlib_fallback_matches_pyyaml():
-    """The flow-mapping fallback parser emits the same lines as the PyYAML path."""
+    """The flow-mapping fallback emits the same vars: lines as the PyYAML path.
+
+    The PyYAML path additionally emits MAKATO_MODEL_*_BASE_URL lines from the
+    top-level models: block (issue #5); the stdlib flow parser cannot see a
+    mapping schema, so it omits them by design. The vars portion must remain
+    byte-for-byte identical between the two paths.
+    """
     mod = _load_module()
     with open(_CONFIG_YML, encoding="utf-8") as fh:
         text = fh.read()
     stdlib_out = mod.emit(mod._parse_flow_mappings(text))
     # PyYAML path (mod.load uses yaml when importable).
     pyyaml_out = mod.emit(mod.load(_CONFIG_YML))
-    assert stdlib_out == pyyaml_out
+    pyyaml_vars_only = "\n".join(
+        line for line in pyyaml_out.splitlines() if not line.startswith("MAKATO_MODEL_")
+    )
+    assert stdlib_out == pyyaml_vars_only
 
 
 def test_env_override_wins_when_evaluated():

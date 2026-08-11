@@ -254,12 +254,14 @@ echo "T9: alive + active_workflow.stalled=true + stale dispatch + queued items â
 }
 
 # ---------------------------------------------------------------------------
-# T10: HALT_FILE default re-homed to STATE_DIR (issue #6 / AC-2)
-# Sources the path-init block from loop.sh with MAKATO_LOOP_STATE_DIR set to a
-# temp dir and MAKATO_HALT_FILE unset. Asserts HALT_FILE does NOT contain $HOME.
-# RED test: fails when HALT_FILE still defaults to $HOME/.claude/HALT.
+# T10: path re-homing contract (issue #6 / AC-2) with the HALT_FILE carve-out.
+# STATE_DIR MUST honour MAKATO_LOOP_STATE_DIR (re-homed off $HOME). HALT_FILE is
+# the documented exception: it stays operator-global (~/.claude/HALT) so a single
+# HALT file stops every loop/fleet/supervisor on the host (HALT-000). Sources the
+# path-init block from loop.sh with MAKATO_LOOP_STATE_DIR set and MAKATO_HALT_FILE
+# unset, then asserts both halves of the contract.
 # ---------------------------------------------------------------------------
-echo "T10: HALT_FILE default re-homed to STATE_DIR, not \$HOME"
+echo "T10: STATE_DIR re-homed under configured root; HALT_FILE stays operator-global"
 {
   sb="$(new_sandbox)"
   LOOP_SH="$SCRIPT_DIR/../loop.sh"
@@ -267,18 +269,18 @@ echo "T10: HALT_FILE default re-homed to STATE_DIR, not \$HOME"
   # Extract the path-init block (lines between "Runtime-derived paths" and the
   # next "# ---" comment) and source it with a controlled env, explicitly
   # unset MAKATO_HALT_FILE to exercise the default-path branch.
-  path_init_result=$(
+  read -r state_result halt_result < <(
     cd "$SCRIPT_DIR/../../../.."   # repo root for git rev-parse
     unset MAKATO_HALT_FILE
     export MAKATO_LOOP_STATE_DIR="$sb/state"
     eval "$(awk '/Runtime-derived paths/{found=1;next} found && /^# ---/{exit} found{print}' "$LOOP_SH")"
-    echo "$HALT_FILE"
+    echo "$STATE_DIR $HALT_FILE"
   )
 
-  if [[ "$path_init_result" != *"$HOME"* ]]; then
-    pass "T10 HALT_FILE default does not contain \$HOME (re-homed to STATE_DIR)"
+  if [[ "$state_result" == "$sb/state" && "$halt_result" == *"/.claude/HALT" ]]; then
+    pass "T10 STATE_DIR re-homed to configured root; HALT_FILE remains operator-global (HALT-000 carve-out)"
   else
-    fail "T10" "HALT_FILE still defaults to HOME path: $path_init_result"
+    fail "T10" "expected STATE_DIR=$sb/state and global HALT_FILE; got STATE_DIR='$state_result' HALT_FILE='$halt_result'"
   fi
   rm -rf "$sb"
 }

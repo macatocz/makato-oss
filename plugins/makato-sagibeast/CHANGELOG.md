@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- **`dotx-schema-extractor` tests are collectable again from the repo-level `pytest` run.** `tests/conftest.py` now inserts the skill root (parent of `tests/`) at `sys.path[0]` so the sibling `scripts` package resolves (`from scripts.curation_* import ...`) — the previous conftest only added the `tests/` dir (for `fixtures`), leaving five test modules failing collection with `ModuleNotFoundError: No module named 'scripts.curation_*'` and interrupting the whole repo suite. Position-0 insertion wins over the many other bare `scripts/` dirs across the monorepo under pytest's prepend import mode.
+
 ### Added
 - `config/skill-bundles.yml` (#145) — bundles `sagibeast-skills`, `sagibeast-word-templates`, `sagibeast-excel`, `sagibeast-pdf`, `sagibeast-testbox` route Word/PDF/Excel/YAML/SH files to the appropriate Sagibeast skills via the inject-skills resolver.
 - `sagibeast-connect-testbox` skill — connect, port-forward, credential sync, k3d on existing testbox

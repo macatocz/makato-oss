@@ -88,6 +88,8 @@ fi
 # Configuration
 # ---------------------------------------------------------------------------
 FLEET_STATE_DIR="${MAKATO_FLEET_STATE_DIR:-$REPO_ROOT/.claude/state/fleet}"
+# HALT_FILE is intentionally operator-global (HALT-000) — the documented
+# exception to issue #6 path re-homing. Do NOT default it under STATE_DIR.
 HALT_FILE="${MAKATO_HALT_FILE:-$HOME/.claude/HALT}"
 CAS_STRICT="${MAKATO_FLEET_CAS_STRICT:-1}"
 TICK_SECS="${MAKATO_FLEET_TICK_SECS:-5}"

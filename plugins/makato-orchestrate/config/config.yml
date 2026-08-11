@@ -22,6 +22,8 @@
 #
 # Full prose docs, per-parameter, live in config.md.
 
+vars:
+
 # --- Poll cadence ---
 - { var: DEFAULT_INTERVAL,        env: MAKATO_LOOP_INTERVAL,          default: "300" }
 - { var: DEFAULT_STATUS,          env: MAKATO_LOOP_STATUS,            default: "Ready" }
@@ -128,3 +130,21 @@
 - { var: MAKATO_PERSISTENT_VOLUME_ROOT,  env: MAKATO_PERSISTENT_VOLUME_ROOT,  default: "~/.makato-pv" }
 - { var: MAKATO_PV_WORKFLOW_STATE_DIR,   env: MAKATO_PV_WORKFLOW_STATE_DIR,   default: "~/.makato-pv/workflow-state" }
 - { var: MAKATO_PV_WORKTREES_DIR,        env: MAKATO_PV_WORKTREES_DIR,        default: "~/.makato-pv/worktrees" }
+
+# --- Model-role → endpoint routing (issue #5) ---
+# The ten canonical oh-my-pi modelRole tiers. Each carries the base_url its
+# LLM calls route through. At Phase-1 start every role points at the open
+# (local) vLLM endpoint — no closed-provider URL appears here. The LLM-judge
+# closed role (issue #13 / sequence 11) is layered on later by re-pointing one
+# role's base_url. parse-config.py emits MAKATO_MODEL_<ROLE>_BASE_URL per role.
+models:
+  default:  { base_url: "http://127.0.0.1:8000/v1" }
+  task:     { base_url: "http://127.0.0.1:8000/v1" }
+  smol:     { base_url: "http://127.0.0.1:8000/v1" }
+  tiny:     { base_url: "http://127.0.0.1:8000/v1" }
+  plan:     { base_url: "http://127.0.0.1:8000/v1" }
+  advisor:  { base_url: "http://127.0.0.1:8000/v1" }
+  designer: { base_url: "http://127.0.0.1:8000/v1" }
+  commit:   { base_url: "http://127.0.0.1:8000/v1" }
+  slow:     { base_url: "http://127.0.0.1:8000/v1" }
+  vision:   { base_url: "http://127.0.0.1:8000/v1" }
