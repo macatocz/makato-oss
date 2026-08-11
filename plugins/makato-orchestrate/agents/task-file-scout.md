@@ -1,6 +1,6 @@
 ---
 name: task-file-scout
-model: haiku
+modelRole: tiny
 description: >-
   Per-task read-only file scout. Given a sub-task's predicted changed
   files plus the bundle-resolved rule files from `inject-context`,

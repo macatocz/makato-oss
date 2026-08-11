@@ -1,6 +1,6 @@
 ---
 name: quality-guard
-model: haiku
+modelRole: smol
 description: >-
   Run quality checks (lint, format, tests, coverage) after implementation.
   Discovers commands from project config, executes them, and reports pass/fail

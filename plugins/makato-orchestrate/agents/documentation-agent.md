@@ -1,6 +1,6 @@
 ---
 name: documentation-agent
-model: sonnet
+modelRole: commit
 description: >-
   Post-merge documentation agent. Triggered by `workflows/post-merge.yml`
   (GHA) once per merged PR to the default branch. Reads the merged diff and

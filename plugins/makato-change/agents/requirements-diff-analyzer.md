@@ -1,6 +1,6 @@
 ---
 name: requirements-diff-analyzer
-model: sonnet
+modelRole: advisor
 description: >-
   Compare current behavior against requested changes to produce a structured
   requirements diff with side-by-side comparison, identified gaps, open

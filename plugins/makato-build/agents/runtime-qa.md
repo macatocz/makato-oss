@@ -7,7 +7,7 @@ description: >-
   Emits a severity-classified scored report to `build.jsonl`. CRITICAL findings
   block build-push-to-git; all other findings are advisory. No-op (logged SKIP)
   when the build has no runtime surface.
-model: claude-haiku-4-5-20251001
+modelRole: default
 maxTurns: 30
 allowedTools:
   - mcp__plugin_makato-ux_plugin_playwright__browser_navigate

@@ -1,6 +1,6 @@
 ---
 name: plan-analyst
-model: haiku
+modelRole: smol
 description: >-
   Read an implementation plan and return a structured context object —
   task list, architectural layer classification, glossary constraints,

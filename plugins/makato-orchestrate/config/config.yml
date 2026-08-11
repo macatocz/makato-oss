@@ -5,11 +5,20 @@
 # preserved byte-for-byte. Runtime-derived paths (REPO_ROOT, SPECS_DIR, STATE_DIR,
 # PIDFILE) stay in loop.sh — they depend on `git`/`$HOME` and are not tunables.
 #
-# Each entry:
+# Schema: top-level mapping with two keys:
+#   vars     list of {var, env, default, export?} entries — loop.sh tunables
+#   models   mapping of role -> {base_url} — LLM endpoint routing (issue #5)
+#
+# Each vars entry:
 #   var      bash variable name loop.sh consumes
 #   env      environment variable that overrides it (omit/null = fixed value)
 #   default  value used when env is unset
-#   export   true = emit `export` so `claude -p` subprocesses inherit it
+#   export   true = emit `export` so subprocess inherits it
+#
+# Each models entry:
+#   base_url  LLM endpoint base URL for this role; points to the open (local)
+#             endpoint at Phase-1 start. No closed-provider URL appears here —
+#             the LLM-judge closed role (sequence 11) is added later.
 #
 # Full prose docs, per-parameter, live in config.md.
 

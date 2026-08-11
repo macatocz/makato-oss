@@ -96,20 +96,33 @@ def test_q5_documents_makato_harness_bin_seam():
 
 
 def test_q5_count_matches_grep_audit():
-    """Verify the grep audit matches the documented count: 25 agent files."""
+    """Verify the modelRole migration is complete: 0 model: remain, 25 modelRole: present.
+
+    Pre-migration (Phase-0 spike): 25 agent .md files had ``model:`` frontmatter.
+    Post-migration (issue #5): all 25 use ``modelRole:`` — no provider name in code.
+    AC-1: grep audit must return zero results for model: in agent frontmatter.
+    """
     import subprocess
 
-    result = subprocess.run(
+    # AC-1: zero model: haiku/sonnet/opus/claude- in any agent frontmatter
+    old_result = subprocess.run(
         ["grep", "-r", "^model:", "plugins/", "--include=*.md", "-l"],
         capture_output=True,
         text=True,
         cwd=REPO_ROOT,
     )
-    all_files = [f for f in result.stdout.strip().splitlines() if f]
-    agent_files = [f for f in all_files if "/agents/" in f]
-    # RETURN-CONTRACT.md is excluded (no model: line — it just lives in agents/)
-    agent_files_with_model = [f for f in agent_files if "RETURN-CONTRACT" not in f]
-    assert len(agent_files_with_model) == 25, f"Expected 25 agent .md files with model: frontmatter, found {len(agent_files_with_model)}: {agent_files_with_model}"
+    old_agent_files = [f for f in old_result.stdout.strip().splitlines() if "/agents/" in f and "RETURN-CONTRACT" not in f]
+    assert len(old_agent_files) == 0, f"Expected 0 agent .md files with model: frontmatter after migration, found {len(old_agent_files)}: {old_agent_files}"
+
+    # Positive check: all 25 agents now carry modelRole:
+    new_result = subprocess.run(
+        ["grep", "-r", "^modelRole:", "plugins/", "--include=*.md", "-l"],
+        capture_output=True,
+        text=True,
+        cwd=REPO_ROOT,
+    )
+    new_agent_files = [f for f in new_result.stdout.strip().splitlines() if "/agents/" in f and "RETURN-CONTRACT" not in f]
+    assert len(new_agent_files) == 25, f"Expected 25 agent .md files with modelRole: frontmatter, found {len(new_agent_files)}: {new_agent_files}"
 
 
 # ---------------------------------------------------------------------------

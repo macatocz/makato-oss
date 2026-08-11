@@ -1,6 +1,6 @@
 ---
 name: qa-reviewer
-model: sonnet
+modelRole: advisor
 description: >-
   QA Engineer perspective for Three Amigos story review.
   Challenges testability, identifies edge cases, produces draft Gherkin scenarios.

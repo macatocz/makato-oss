@@ -1,6 +1,6 @@
 ---
 name: context-summariser
-model: haiku
+modelRole: tiny
 description: >-
   Produce a ≤ 500-token session summary for a HALT-007B context-ceiling
   handoff. Input is workflow-state.json plus the current task's description

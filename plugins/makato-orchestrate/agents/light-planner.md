@@ -1,6 +1,6 @@
 ---
 name: light-planner
-model: sonnet
+modelRole: plan
 description: >-
   Lightweight planning-lane agent (#212). Given a `plan-tier:light` GitHub
   issue's body plus its target-repo context, generates a full `plan-<ISSUE_NUMBER>.md` with

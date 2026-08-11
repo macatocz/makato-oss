@@ -40,6 +40,26 @@ def _parse_flow_mappings(text):
     return entries
 
 
+def _expand_models(models):
+    """Convert a models: dict into flat-list entries for emit().
+
+    Each role key becomes a MAKATO_MODEL_<ROLE>_BASE_URL entry.  Missing or
+    non-dict role values are tolerated — base_url defaults to an empty string.
+
+    Only reachable via the yaml.safe_load path; the stdlib fallback
+    (_parse_flow_mappings) cannot handle a top-level dict schema.
+    """
+    entries = []
+    if not isinstance(models, dict):
+        return entries
+    for role, cfg in models.items():
+        base_url = ""
+        if isinstance(cfg, dict):
+            base_url = cfg.get("base_url") or ""
+        entries.append({"var": f"MAKATO_MODEL_{role.upper()}_BASE_URL", "default": base_url})
+    return entries
+
+
 def load(path):
     with open(path, encoding="utf-8") as fh:
         text = fh.read()
@@ -47,8 +67,21 @@ def load(path):
         import yaml  # noqa: PLC0415
 
         data = yaml.safe_load(text)
-        return [e for e in (data or []) if isinstance(e, dict)]
+        if isinstance(data, list):
+            # Existing flat-list path — byte-for-byte identical behaviour.
+            return [e for e in (data or []) if isinstance(e, dict)]
+        if isinstance(data, dict):
+            # New schema branch: top-level mapping may carry a vars: list and/or
+            # a models: dict.  The stdlib fallback cannot reach this branch.
+            entries = []
+            for e in data.get("vars") or []:
+                if isinstance(e, dict):
+                    entries.append(e)
+            entries.extend(_expand_models(data.get("models")))
+            return entries
+        return []
     except ImportError:
+        # stdlib fallback — flat-list only; models: dict schema requires PyYAML.
         return _parse_flow_mappings(text)
 
 
