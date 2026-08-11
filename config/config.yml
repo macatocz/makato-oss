@@ -1,0 +1,61 @@
+# Makato-OSS runtime configuration
+#
+# This file is the canonical config for the makato-oss harness.
+# Sensitive values (api_key, secrets) are resolved from environment variables
+# at runtime — never hard-code credentials here.
+#
+# See docs/configuration.md for field reference.
+
+# ── Models ───────────────────────────────────────────────────────────────────
+# Configures LLM backend providers available to the makato agent framework.
+#
+# The `open` provider wires the on-instance vLLM AWQ endpoint so all agents
+# default to the local GPU rather than an external API, supporting harness
+# independence from cloud LLM services.
+#
+# vLLM is started via:  vllm serve --config infra/vllm-serve.yaml
+# Health check:         curl -sf http://localhost:8000/health
+models:
+  open:
+    # Display / routing name — matches `served_model_name` in infra/vllm-serve.yaml.
+    model_name: "open"
+
+    # Base URL for the vLLM serving endpoint (without /v1 path suffix).
+    # Callers append API-path components (e.g. /v1/chat/completions).
+    # AC-2 health check: curl -sf <api_base>/health → http://localhost:8000/health
+    # (vLLM exposes /health at the root, not under /v1)
+    # Override via VLLM_API_BASE env var for non-default host/port.
+    api_base: "${VLLM_API_BASE:-http://localhost:8000}"
+
+    # vLLM accepts any non-empty string as the API key when running locally
+    # without authentication. In production or when vLLM is configured with
+    # --api-key, set VLLM_API_KEY in the environment.
+    api_key: "${VLLM_API_KEY:-EMPTY}"
+
+    # Optional: set a request timeout (seconds) for long-context completions.
+    timeout: 120
+
+    # Model capabilities declaration (used by skill-routing to filter eligible models).
+    capabilities:
+      - chat
+      - function_calling
+      - tool_use
+
+# ── Observability ─────────────────────────────────────────────────────────────
+# Langfuse OTLP tracing for the makato project.
+# Keys are injected at dispatch time by scripts/inject-otlp-keys.sh.
+observability:
+  langfuse:
+    otlp_endpoint: "${LANGFUSE_OTLP_ENDPOINT:-http://localhost:3000/api/public/otel/v1/traces}"
+    project_key: "${MAKATO_LANGFUSE_KEY:-}"  # populated by inject-otlp-keys.sh
+
+# ── Budget ────────────────────────────────────────────────────────────────────
+# Resource budget thresholds enforced by scripts/budget-check.sh.
+budget:
+  vllm:
+    # Maximum fraction of GPU VRAM vLLM may use — must match
+    # gpu_memory_utilization in infra/vllm-serve.yaml.
+    gpu_memory_utilization: 0.85
+  sagibeast:
+    # Minimum free RAM (GB) that must remain available for sagibeast's dev stack.
+    min_free_ram_gb: 32

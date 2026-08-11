@@ -1,0 +1,52 @@
+# vLLM AWQ serving configuration for the A6000 on-instance GPU.
+#
+# Consumed by: vllm serve <model-path> --config infra/vllm-serve.yaml
+# (requires vLLM ≥ 0.4.0 which accepts --config / YAML config files)
+#
+# The A6000 has 48 GB VRAM. With sagibeast's dev stack co-resident we cap
+# vLLM to gpu_memory_utilization: 0.85 (≈ 40.8 GB) leaving ≈ 7.2 GB for
+# the OS, CUDA context, and sagibeast GPU tasks.
+#
+# See: https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html
+
+# ── Model ────────────────────────────────────────────────────────────────────
+# vLLM YAML config is loaded by Python (yaml.safe_load) — shell ${} variable
+# substitution is NOT performed. Set the model path here directly.
+# To override at runtime, pass the model as a CLI argument instead:
+#   vllm serve /custom/path/to/model --config infra/vllm-serve.yaml
+model: "/models/qwen2-72b-instruct-awq"
+
+# quantization: AWQ weights — vLLM auto-detects from model config.json.
+# Explicit declaration prevents accidental full-precision load if the
+# auto-detect heuristic fails on a custom model repo layout.
+quantization: awq
+
+# ── Context / memory ─────────────────────────────────────────────────────────
+# AWQ 72B model at 4-bit requires ≈ 36 GB for weights; remaining GPU memory
+# is KV cache. A 32 k token context fits within the 40.8 GB budget.
+max_model_len: 32768
+
+# Fraction of TOTAL GPU VRAM vLLM may use for weights + KV cache combined.
+# budget-check.sh asserts that measured VRAM usage stays below this ceiling.
+gpu_memory_utilization: 0.85
+
+# ── Serving ──────────────────────────────────────────────────────────────────
+host: "0.0.0.0"
+port: 8000
+
+# Tensor-parallel degree. Set to 1 for a single-GPU A6000; raise for multi-GPU.
+tensor_parallel_size: 1
+
+# ── Health endpoint ──────────────────────────────────────────────────────────
+# vLLM exposes GET /health returning {"status":"ok"} when the model is loaded
+# and ready. This endpoint is polled by the runtime-verification command:
+#   curl -sf http://localhost:8000/health | grep -q '"status"'
+# No extra config is needed — vLLM enables /health unconditionally.
+# Documented here for operator clarity.
+#
+# Additional readiness endpoint: GET /v1/models returns the loaded model list.
+
+# ── API compatibility ─────────────────────────────────────────────────────────
+# Expose the OpenAI-compatible /v1/* API so config/config.yml can point an
+# OpenAI-SDK client at http://localhost:8000/v1 with api_key: "EMPTY".
+served_model_name: "open"   # matches config/config.yml model_name field
