@@ -1945,9 +1945,11 @@ rm -rf "$T_LBC3_SPECS"
 rm -f "$T_LBC3_LABELS" "$T_LBC3_REAP" "$T_LBC3_BODY" "$T_LBC3_CLAIM"
 
 # ---------------------------------------------------------------------------
-echo "=== T_LBC4: conflict — status:ready-for-dev label + board Ready → dispatch skipped (AC-5) ==="
-# After #688: the status:ready-for-dev exemption is removed. Any status:* label
-# with board=Ready is now a conflict → gate_skips_total >= 1.
+echo "=== T_LBC4: status:ready-for-dev + board Ready → tolerated, NOT a conflict (#688 residual) ==="
+# status:ready-for-dev is a benign residual of the removed label bridge (#688):
+# promote-ready.sh's reconcile pass no longer stamps it, but pre-existing cards may
+# still carry it. It must NOT trigger a label-board conflict on its own →
+# gate_skips_total stays 0 and the dispatch proceeds.
 rm -f "$STATE_DIR/loop-status.json"
 T_LBC4_LABELS="$STATE_DIR/tlbc4-labels-$$.json"
 T_LBC4_REAP="$STATE_DIR/tlbc4-reap-$$.json"
@@ -1973,12 +1975,9 @@ SPECS_DIR="$T_LBC4_SPECS" \
   MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
   "$LOOP" dispatch 101 2>/dev/null
 tlbc4_skips="$(jq -r '.gate_skips_total // 0' "$STATE_DIR/loop-status.json" 2>/dev/null || echo 0)"
-[[ "$tlbc4_skips" -ge 1 ]] \
-  || fail "T_LBC4: status:ready-for-dev with board Ready IS a conflict (AC-5); gate_skips_total should be >= 1; got $tlbc4_skips"
-jq -e '.last_dispatch_issue != 101 or .last_dispatch_issue == null' "$STATE_DIR/loop-status.json" >/dev/null 2>&1 \
-  || jq -e 'has("last_dispatch_issue") | not' "$STATE_DIR/loop-status.json" >/dev/null 2>&1 \
-  || true  # skip if last_dispatch_issue is absent (skipped dispatch doesn't write it)
-echo "  ✓ conflict: status:ready-for-dev + board Ready → dispatch skipped (gate_skips_total=$tlbc4_skips)"
+[[ "$tlbc4_skips" -eq 0 ]] \
+  || fail "T_LBC4: status:ready-for-dev must be tolerated (#688), not a conflict; gate_skips_total should be 0; got $tlbc4_skips"
+echo "  ✓ tolerated: status:ready-for-dev + board Ready → no conflict, dispatch proceeds (gate_skips_total=$tlbc4_skips)"
 rm -rf "$T_LBC4_SPECS"
 rm -f "$T_LBC4_LABELS" "$T_LBC4_REAP" "$T_LBC4_BODY" "$T_LBC4_CLAIM"
 

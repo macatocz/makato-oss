@@ -469,22 +469,27 @@ _is_orphan_issue() {
 # _label_board_conflict <labels_json> <board_status> — tier 3/4 gate (#356).
 # Returns 0 (conflict) when any status:* label contradicts the observed board Status;
 # returns 1 (no conflict) when no status:* labels are present (board is authoritative).
-# AC-5: status:ready-for-dev exemption removed — any status:* label at Ready = conflict.
+# AC-5: any status:* label at Ready = conflict, EXCEPT status:ready-for-dev, which is
+# tolerated as a benign residual of the removed label bridge (#688) — the reconcile
+# pass in promote-ready.sh historically stamped it and pre-existing cards still carry
+# it; treating it as a conflict HALTed otherwise-dispatchable cards.
 _label_board_conflict() {
   local labels_json="$1"
   local board_status="$2"
   local dispatch_status="${MAKATO_LOOP_DISPATCH_STATUS:-Ready}"
 
-  # Extract status:* labels from the candidates JSON.
+  # Extract status:* labels from the candidates JSON, EXCLUDING status:ready-for-dev.
+  # status:ready-for-dev is tolerated (#688 residual — see header): it must never
+  # trigger a conflict on its own, so it is filtered out here. Other status:* labels
+  # (status:blocked, status:in-review, …) still contradict a board-only Ready.
   local status_labels
-  status_labels="$(jq -r '[.labels[].name | select(startswith("status:"))] | .[]' \
+  status_labels="$(jq -r '[.labels[].name | select(startswith("status:")) | select(. != "status:ready-for-dev")] | .[]' \
     <<<"$labels_json" 2>/dev/null || true)"
 
-  # No status:* labels at all — board is authoritative; no conflict.
+  # No conflicting status:* labels — board is authoritative; no conflict.
   [[ -z "$status_labels" ]] && return 1
 
-  # Any status:* label present when the board says dispatch_status → conflict.
-  # The former "status:ready-for-dev is aligned" exemption is removed (AC-5).
+  # A conflicting status:* label present when the board says dispatch_status → conflict.
   if [[ "$board_status" == "$dispatch_status" ]]; then
     return 0  # conflict — any status:* label contradicts the board-only authority
   fi
