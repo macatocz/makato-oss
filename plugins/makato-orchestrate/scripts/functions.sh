@@ -2317,21 +2317,25 @@ _auto_seed_dispatch_light() {
   local rc=0
   if [[ -n "${MAKATO_LOOP_SEED_TEST_CMD:-}" ]]; then
     # Test-hook path: run the stub instead of the real claude -p.
+    # </dev/null: caller iterates via `while ... done < <(jq ...)` — without
+    # explicit stdin redirect the child process drains the TSV pipe, causing
+    # subsequent loop iterations to receive EOF and silently drop candidates.
     MAKATO_HEADLESS=1 \
     CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 \
     ISSUE_NUMBER="$issue" \
     REPO="$repo" \
     REPO_ROOT="$REPO_ROOT" \
-      ${MAKATO_LOOP_SEED_TEST_CMD} -p "$dispatch_prompt" >/dev/null 2>&1 || rc=$?
+      ${MAKATO_LOOP_SEED_TEST_CMD} -p "$dispatch_prompt" </dev/null >/dev/null 2>&1 || rc=$?
   else
     # Production path: mirror the belt-and-braces invocation cmd_dispatch uses.
+    # </dev/null: same TSV-pipe guard as the test-hook path above.
     CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 \
     MAKATO_HEADLESS=1 \
     ISSUE_NUMBER="$issue" \
     REPO="$repo" \
     REPO_ROOT="$REPO_ROOT" \
       "$CLAUDE_BIN" --yolo \
-      -p "$dispatch_prompt" >/dev/null 2>&1 || rc=$?
+      -p "$dispatch_prompt" </dev/null >/dev/null 2>&1 || rc=$?
   fi
 
   if [[ "$rc" -ne 0 ]]; then
