@@ -158,8 +158,84 @@ t6() {
   rm -rf "$d"
 }
 
+# ---- T7: Darwin guard present in source + behavioral trace on Linux -----------
+# Part A (structural): the guard `[[ "$(uname)" == "Darwin" ]]` MUST appear in the
+#   notify_halt function in loop-halt-watch.sh. This is the RED test: it fails before
+#   the guard is added and passes after.
+# Part B (behavioral): on hosts without terminal-notifier, stubs uname=Linux and uses
+#   bash -x trace to confirm /usr/bin/osascript is not executed. Skipped when
+#   terminal-notifier is present in PATH (it takes priority over the osascript branch,
+#   so osascript is unreachable regardless — the guard is still verified by Part A).
+t7_linux_noop() {
+  # Part A: structural — guard must be present in the source.
+  if grep -q 'uname.*Darwin\|Darwin.*uname' "$WATCHER"; then
+    pass "T7a Darwin guard present in loop-halt-watch.sh source"
+  else
+    fail "T7a" "no Darwin/uname guard found around osascript in loop-halt-watch.sh"
+    return
+  fi
+
+  # Part B: behavioral trace — only meaningful when terminal-notifier is absent.
+  if command -v terminal-notifier >/dev/null 2>&1; then
+    echo "  skip  T7b terminal-notifier present — bash -x trace skipped (guard verified by T7a)"
+    return 0
+  fi
+
+  local d; d="$(new_sandbox)"
+  local fake_bin="$d/bin"
+  mkdir -p "$fake_bin"
+  # Fake uname returns "Linux" so the Darwin guard evaluates false.
+  printf '#!/bin/sh\necho Linux\n' > "$fake_bin/uname"; chmod +x "$fake_bin/uname"
+
+  echo "999999" > "$d/.claude/state/loop.pid"   # dead PID → triggers crash notification
+  echo '{"queue_depth":5,"last_halt_at":null,"last_watchdog_kill":null}' \
+    > "$d/.claude/state/loop-status.json"
+
+  local trace_log="$d/trace.log"
+  MAKATO_WATCH_ONCE=1 MAKATO_HALT_FILE="$d/NO_HALT" \
+    PATH="$fake_bin:$PATH" \
+    bash -x "$WATCHER" "$d" >/dev/null 2>"$trace_log" || true
+
+  if grep -qF '/usr/bin/osascript' "$trace_log"; then
+    fail "T7b" "osascript in bash -x trace on Linux (guard absent or not reached)"
+  else
+    pass "T7b Linux uname → osascript not in execution trace"
+  fi
+  rm -rf "$d"
+}
+
+# ---- T8: uname=Darwin + MAKATO_WATCH_NOTIFY_CMD → notification fires --------
+# Regression: ensures the Darwin-guarded path still produces a notification when
+# another mechanism (MAKATO_WATCH_NOTIFY_CMD) handles it — the guard must not
+# suppress the whole notify_halt function, only the bare osascript call.
+t8_darwin_notify_fires() {
+  local d; d="$(new_sandbox)"
+  local fake_bin="$d/bin"
+  mkdir -p "$fake_bin"
+  # Fake uname returns "Darwin".
+  printf '#!/bin/sh\necho Darwin\n' > "$fake_bin/uname"; chmod +x "$fake_bin/uname"
+
+  echo "999999" > "$d/.claude/state/loop.pid"
+  echo '{"queue_depth":5,"last_halt_at":null,"last_watchdog_kill":null}' \
+    > "$d/.claude/state/loop-status.json"
+  local nl="$d/notify.log"; : > "$nl"
+
+  # Use MAKATO_WATCH_NOTIFY_CMD (stub) so no real macOS notification fires.
+  MAKATO_WATCH_ONCE=1 MAKATO_HALT_FILE="$d/NO_HALT" MAKATO_WATCH_NOTIFY_CMD="$nl" \
+    PATH="$fake_bin:$PATH" \
+    bash "$WATCHER" "$d" >/dev/null 2>&1 || true
+
+  if grep -qi "spadl\|crash\|neběží" "$nl"; then
+    pass "T8 Darwin uname → crash notification fires via stub"
+  else
+    fail "T8" "no crash notification on Darwin; log=$(cat "$nl")"
+  fi
+  rm -rf "$d"
+}
+
 echo "== loop-halt-watch smoke tests =="
 t1; t2; t3; t4; t5_baseline; t5_runtime; t6
+t7_linux_noop; t8_darwin_notify_fires
 
 echo ""
 echo "Passed: $PASS   Failed: $FAIL"
