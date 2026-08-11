@@ -134,6 +134,7 @@ def _check_langfuse_reachable(host: str, timeout: float = 3.0) -> bool:
 # build.jsonl discovery
 # ---------------------------------------------------------------------------
 
+
 def _find_repo_root() -> Path:
     """Resolve the repository root by walking up from this script."""
     here = Path(__file__).resolve()
@@ -183,6 +184,7 @@ def _read_last_runtime_qa_finding(build_jsonl: Path) -> dict[str, Any] | None:
 # ---------------------------------------------------------------------------
 # Trace emission
 # ---------------------------------------------------------------------------
+
 
 def _emit_trace(
     public_key: str,
@@ -247,6 +249,7 @@ def _emit_trace(
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)

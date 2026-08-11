@@ -12,7 +12,6 @@ tests document and lock the achieved state.
 
 from __future__ import annotations
 
-import importlib.util
 import pathlib
 import re
 import subprocess
@@ -33,14 +32,23 @@ _CLOSED_MODEL_RE = re.compile(
 
 # All 10 canonical model roles for the harness-independence story.
 EXPECTED_ROLES = {
-    "default", "task", "smol", "tiny", "plan",
-    "advisor", "designer", "commit", "slow", "vision",
+    "default",
+    "task",
+    "smol",
+    "tiny",
+    "plan",
+    "advisor",
+    "designer",
+    "commit",
+    "slow",
+    "vision",
 }
 
 
 # ---------------------------------------------------------------------------
 # (a) Zero closed-model references in agent frontmatter
 # ---------------------------------------------------------------------------
+
 
 def test_no_closed_model_in_agent_frontmatter() -> None:
     """No plugins/*/agents/*.md file may carry a `model: <provider>` frontmatter line.
@@ -65,20 +73,15 @@ def test_no_closed_model_in_agent_frontmatter() -> None:
             if in_frontmatter and stripped == "---":
                 break  # End of frontmatter
             if in_frontmatter and _CLOSED_MODEL_RE.match(stripped):
-                violations.append(
-                    f"{md_file.relative_to(REPO_ROOT)}:{lineno}: {stripped!r}"
-                )
+                violations.append(f"{md_file.relative_to(REPO_ROOT)}:{lineno}: {stripped!r}")
 
-    assert not violations, (
-        "Closed-model references found in agent frontmatter — "
-        "replace with modelRole: <role>:\n"
-        + "\n".join(violations)
-    )
+    assert not violations, "Closed-model references found in agent frontmatter — replace with modelRole: <role>:\n" + "\n".join(violations)
 
 
 # ---------------------------------------------------------------------------
 # (b) All 10 roles present in config.yml with non-empty base_url
 # ---------------------------------------------------------------------------
+
 
 def test_config_yml_has_all_ten_roles() -> None:
     """plugins/makato-orchestrate/config/config.yml must declare all 10 model roles.
@@ -90,16 +93,14 @@ def test_config_yml_has_all_ten_roles() -> None:
 
     try:
         import yaml  # noqa: PLC0415
+
         data = yaml.safe_load(CONFIG_YML.read_text(encoding="utf-8"))
     except ImportError:
         pytest.skip("PyYAML not installed — cannot parse config.yml models block")
 
     assert isinstance(data, dict), "config.yml must parse as a YAML mapping"
     models = data.get("models")
-    assert isinstance(models, dict), (
-        "config.yml must have a top-level `models:` mapping — "
-        f"found: {type(models).__name__}"
-    )
+    assert isinstance(models, dict), f"config.yml must have a top-level `models:` mapping — found: {type(models).__name__}"
 
     missing_roles: list[str] = []
     empty_url_roles: list[str] = []
@@ -124,6 +125,7 @@ def test_config_yml_has_all_ten_roles() -> None:
 # (c) parse-config.py emits MAKATO_MODEL_DEFAULT_BASE_URL
 # ---------------------------------------------------------------------------
 
+
 def test_parse_config_emits_default_base_url_var() -> None:
     """Invoking parse-config.py against config.yml must emit MAKATO_MODEL_DEFAULT_BASE_URL.
 
@@ -140,10 +142,5 @@ def test_parse_config_emits_default_base_url_var() -> None:
         text=True,
         timeout=10,
     )
-    assert result.returncode == 0, (
-        f"parse-config.py exited {result.returncode}; stderr: {result.stderr!r}"
-    )
-    assert "MAKATO_MODEL_DEFAULT_BASE_URL" in result.stdout, (
-        "Expected MAKATO_MODEL_DEFAULT_BASE_URL in parse-config.py output.\n"
-        f"Actual stdout:\n{result.stdout}"
-    )
+    assert result.returncode == 0, f"parse-config.py exited {result.returncode}; stderr: {result.stderr!r}"
+    assert "MAKATO_MODEL_DEFAULT_BASE_URL" in result.stdout, f"Expected MAKATO_MODEL_DEFAULT_BASE_URL in parse-config.py output.\nActual stdout:\n{result.stdout}"

@@ -19,10 +19,10 @@ sys.path.insert(0, str(_SCRIPTS_DIR))
 
 import emit_e2e_result as mod  # noqa: E402  (after path manipulation)
 
-
 # ---------------------------------------------------------------------------
 # _parse_dotenv
 # ---------------------------------------------------------------------------
+
 
 def test_parse_dotenv_simple(tmp_path: Path) -> None:
     env_file = tmp_path / ".env"
@@ -47,6 +47,7 @@ def test_parse_dotenv_missing_file() -> None:
 # ---------------------------------------------------------------------------
 # _resolve_credentials — env-var priority
 # ---------------------------------------------------------------------------
+
 
 def test_resolve_credentials_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk_env")
@@ -73,6 +74,7 @@ def test_resolve_credentials_missing_returns_none(monkeypatch: pytest.MonkeyPatc
 # ---------------------------------------------------------------------------
 # _check_langfuse_reachable
 # ---------------------------------------------------------------------------
+
 
 def test_check_langfuse_reachable_ok() -> None:
     mock_resp = MagicMock()
@@ -101,6 +103,7 @@ def test_check_langfuse_reachable_missing_status_field() -> None:
 # _find_build_jsonl
 # ---------------------------------------------------------------------------
 
+
 def test_find_build_jsonl_with_key(tmp_path: Path) -> None:
     specs = tmp_path / "specs"
     spec_dir = specs / "mykey-some-feature"
@@ -122,7 +125,9 @@ def test_find_build_jsonl_no_key_picks_most_recent(tmp_path: Path) -> None:
     old_jsonl.write_text("")
     new_jsonl.write_text("")
     # Touch new_jsonl to make it newer
-    import time; time.sleep(0.01)
+    import time
+
+    time.sleep(0.01)
     new_jsonl.touch()
     result = mod._find_build_jsonl(None, specs)
     assert result == new_jsonl
@@ -137,6 +142,7 @@ def test_find_build_jsonl_returns_none_when_absent(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # _read_last_runtime_qa_finding
 # ---------------------------------------------------------------------------
+
 
 def test_read_last_runtime_qa_finding_returns_last(tmp_path: Path) -> None:
     jsonl_path = tmp_path / "build.jsonl"
@@ -160,9 +166,7 @@ def test_read_last_runtime_qa_finding_returns_none_when_absent(tmp_path: Path) -
 
 def test_read_last_runtime_qa_finding_skips_malformed_lines(tmp_path: Path) -> None:
     jsonl_path = tmp_path / "build.jsonl"
-    jsonl_path.write_text(
-        'not-json\n{"step":"runtime-qa-findings","data":{"outcome":"pass"}}\n'
-    )
+    jsonl_path.write_text('not-json\n{"step":"runtime-qa-findings","data":{"outcome":"pass"}}\n')
     result = mod._read_last_runtime_qa_finding(jsonl_path)
     assert result is not None
     assert result["data"]["outcome"] == "pass"
@@ -171,6 +175,7 @@ def test_read_last_runtime_qa_finding_skips_malformed_lines(tmp_path: Path) -> N
 # ---------------------------------------------------------------------------
 # _emit_trace (dry-run path)
 # ---------------------------------------------------------------------------
+
 
 def test_emit_trace_dry_run_prints_payload(capsys: pytest.CaptureFixture[str]) -> None:
     finding = {
@@ -203,8 +208,6 @@ def test_emit_trace_live_calls_langfuse(monkeypatch: pytest.MonkeyPatch) -> None
     with patch.dict(sys.modules, {"langfuse": MagicMock(Langfuse=mock_langfuse_cls)}):
         mod._emit_trace("pk", "sk", "http://langfuse.example.com", finding, dry_run=False)
 
-    mock_langfuse_cls.assert_called_once_with(
-        public_key="pk", secret_key="sk", host="http://langfuse.example.com"
-    )
+    mock_langfuse_cls.assert_called_once_with(public_key="pk", secret_key="sk", host="http://langfuse.example.com")
     mock_client.trace.assert_called_once()
     mock_client.flush.assert_called_once()
