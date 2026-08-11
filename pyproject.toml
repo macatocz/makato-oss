@@ -39,6 +39,7 @@ testpaths = [
   "tests",
   "plugins/makato-build/shared",
   "plugins/makato-observability/hooks",
+  "plugins/makato-observability/scripts",
   "plugins/makato-orchestrate/scripts/tests",
   "plugins/makato-sagibeast/skills/dotx-schema-extractor/tests",
 ]
