@@ -145,11 +145,7 @@ def compute_structural_metrics(
     passports_found, builds_observed = passport_result
 
     # ── bundle_coverage ──────────────────────────────────────────────────────
-    bundle_verdict = (
-        "PASS"
-        if covered_count == _BUNDLE_REQUIRED_COUNT and not missing_plugin_names
-        else "FAIL"
-    )
+    bundle_verdict = "PASS" if covered_count == _BUNDLE_REQUIRED_COUNT and not missing_plugin_names else "FAIL"
     bundle_coverage = {
         "covered": covered_count,
         "missing": list(missing_plugin_names),
@@ -196,10 +192,7 @@ def compute_structural_metrics(
     }
 
     # ── overall ───────────────────────────────────────────────────────────────
-    all_pass = all(
-        sub["verdict"] == "PASS"
-        for sub in (bundle_coverage, passport_rate, audit_active)
-    )
+    all_pass = all(sub["verdict"] == "PASS" for sub in (bundle_coverage, passport_rate, audit_active))
     overall = "PASS" if all_pass else "FAIL"
 
     return {
@@ -262,7 +255,7 @@ def compute_adoption_metrics(
             continue
         try:
             ts = datetime.fromisoformat(str(ts_raw))
-        except (ValueError, TypeError):
+        except (ValueError, TypeError):  # fmt: skip
             continue
         if ts.tzinfo is None:
             ts = ts.replace(tzinfo=timezone.utc)
@@ -392,9 +385,7 @@ def generate_report(
     ts_now = _now.isoformat(timespec="seconds")
     today_str = _now.date().isoformat()
 
-    overall_pass = (
-        structural.get("overall") == "PASS" and adoption.get("verdict") == "PASS"
-    )
+    overall_pass = structural.get("overall") == "PASS" and adoption.get("verdict") == "PASS"
 
     if overall_pass:
         overall_status = "PASS"
@@ -440,22 +431,14 @@ def generate_report(
 
     days_remaining_line = ""
     if adoption_verdict == "INSUFFICIENT-DATA" and days_remaining is not None:
-        days_remaining_line = (
-            f"\n*{days_remaining} days remaining before 4-week window is complete.*"
-        )
+        days_remaining_line = f"\n*{days_remaining} days remaining before 4-week window is complete.*"
 
     # ── overall verdict section ──────────────────────────────────────────────
     f5_link = "https://github.com/macatocz/makato/issues/131"
     if overall_pass:
-        overall_text = (
-            f"BOTH CRITERIA PASS — maintenance mode begins. "
-            f"See [#131 (F5)]({f5_link}) for next steps."
-        )
+        overall_text = f"BOTH CRITERIA PASS — maintenance mode begins. See [#131 (F5)]({f5_link}) for next steps."
     else:
-        overall_text = (
-            f"One or more criteria did not PASS — see above for details. "
-            f"[#131 (F5)]({f5_link}) remains blocked."
-        )
+        overall_text = f"One or more criteria did not PASS — see above for details. [#131 (F5)]({f5_link}) remains blocked."
 
     # ── assemble markdown ────────────────────────────────────────────────────
     md = f"""# Skill Adoption Audit Report
@@ -558,9 +541,7 @@ def main(argv=None):
     log_entries = read_invocations_log(Path(args.log_path))
     passport_result = read_skill_passports(Path(args.specs_root))
     bundle_result = read_bundle_coverage(Path(args.plugins_root))
-    structural = compute_structural_metrics(
-        bundle_result, passport_result, Path(args.notes_path)
-    )
+    structural = compute_structural_metrics(bundle_result, passport_result, Path(args.notes_path))
     adoption = compute_adoption_metrics(log_entries)
     generate_report(
         structural,

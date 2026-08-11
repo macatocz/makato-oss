@@ -46,7 +46,7 @@ sudo apt-get install tesseract-ocr-ces tesseract-ocr-slk
 
 ## Pre-processing for Degraded Scans
 
-Deskewing and binarization significantly improve accuracy on fax-quality or 
+Deskewing and binarization significantly improve accuracy on fax-quality or
 low-contrast scans. Apply before passing to pytesseract:
 
 ```python

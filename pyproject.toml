@@ -38,6 +38,7 @@ minversion = "8.0"
 testpaths = [
   "tests",
   "plugins/makato-build/shared",
+  "plugins/makato-observability/hooks",
   "plugins/makato-orchestrate/scripts/tests",
   "plugins/makato-sagibeast/skills/dotx-schema-extractor/tests",
 ]

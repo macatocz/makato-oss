@@ -59,10 +59,7 @@ def parse_skill_routing(path: Path | str) -> SkillRoutingState:
         return SkillRoutingState.DISABLED
     if value == "enabled":
         return SkillRoutingState.ENABLED
-    raise ValueError(
-        f"{path}: invalid skill_routing value {value!r}. "
-        "Only 'disabled' and 'enabled' are accepted (lowercase)."
-    )
+    raise ValueError(f"{path}: invalid skill_routing value {value!r}. Only 'disabled' and 'enabled' are accepted (lowercase).")
 
 
 def is_skill_routing_disabled(path: Path | str) -> bool:

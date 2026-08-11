@@ -44,9 +44,7 @@ from skill_routing import should_emit_f4_log  # noqa: E402
 # ---------------------------------------------------------------------------
 
 
-def _make_node(
-    agent: str, task: str, skills: list[str], children: list
-) -> PassportNode:
+def _make_node(agent: str, task: str, skills: list[str], children: list) -> PassportNode:
     return PassportNode(
         agent_name=agent,
         task_id=task,
@@ -80,9 +78,7 @@ class TestPassportNode(unittest.TestCase):
 
     def test_ts_field_is_optional_defaults_empty(self):
         """PassportNode.ts defaults to empty string when not supplied."""
-        node = PassportNode(
-            agent_name="scout", task_id="", skills_invoked=[], children=[]
-        )
+        node = PassportNode(agent_name="scout", task_id="", skills_invoked=[], children=[])
         self.assertIsInstance(node.ts, str)
 
 
@@ -121,9 +117,7 @@ class TestSkillsInvokedTransitively(unittest.TestCase):
 
     def test_five_level_tree(self):
         """5-level deep tree — rollup unifies all direct skills."""
-        nodes = [
-            _make_node(f"agent-{i}", f"t{i}", [f"skill-{i}"], []) for i in range(5)
-        ]
+        nodes = [_make_node(f"agent-{i}", f"t{i}", [f"skill-{i}"], []) for i in range(5)]
         # build 5 levels: 4 wraps 3 wraps 2 wraps 1 wraps 0
         tree = nodes[0]
         for n in nodes[1:]:
@@ -138,9 +132,7 @@ class TestSkillsInvokedTransitively(unittest.TestCase):
         child = _make_node("coder", "t2", ["shared-skill", "child-only"], [])
         root = _make_node("po-agent", "t1", ["shared-skill", "root-only"], [child])
         result = skills_invoked_transitively(root)
-        self.assertEqual(
-            sorted(result), sorted(["shared-skill", "child-only", "root-only"])
-        )
+        self.assertEqual(sorted(result), sorted(["shared-skill", "child-only", "root-only"]))
 
 
 # ---------------------------------------------------------------------------
@@ -258,6 +250,7 @@ class TestComputeRollup(unittest.TestCase):
         node = _node_dict("coder", "t1", ["s1"], [])
         write_passport(self.tmp, node)
         passport = read_passport(self.tmp)
+        assert passport is not None
         original_on_disk = (self.tmp / "skill-passport.json").read_bytes()
         compute_rollup(copy.deepcopy(passport))  # read-only transform
         self.assertEqual(
@@ -287,9 +280,7 @@ class TestRollupLatency(unittest.TestCase):
             if depth == 0:
                 return _node_dict(f"agent-{depth}", f"t{depth}", [f"skill-{depth}"], [])
             child = _build_level(depth - 1)
-            return _node_dict(
-                f"agent-{depth}", f"t{depth}", [f"skill-{depth}"], [child]
-            )
+            return _node_dict(f"agent-{depth}", f"t{depth}", [f"skill-{depth}"], [child])
 
         tree = _build_level(4)  # depth 0..4 = 5 levels
         passport = {"schema_version": "1", "sessions": [tree]}
@@ -324,8 +315,7 @@ class TestSkillRoutingOptOutIntegration(unittest.TestCase):
 
     def _opt_out_agents(self) -> list[Path]:
         return [
-            self._REPO_ROOT
-            / "plugins/makato-orchestrate/agents/documentation-agent.md",
+            self._REPO_ROOT / "plugins/makato-orchestrate/agents/documentation-agent.md",
             self._REPO_ROOT / "plugins/makato-orchestrate/agents/context-summariser.md",
         ]
 

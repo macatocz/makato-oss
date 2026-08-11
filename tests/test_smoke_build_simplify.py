@@ -33,7 +33,7 @@ import shutil
 import subprocess
 from typing import Any
 
-import pytest
+import pytest  # type: ignore[import]
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 BUILD_LOG_SH = REPO_ROOT / "plugins" / "makato-build" / "shared" / "build-log.sh"
@@ -295,15 +295,10 @@ def test_full_arc_no_test_runner_autonomous_mode(temp_repo: pathlib.Path) -> Non
 
     # AC3 — Step 7a autonomous_bypass entry present with the right gate name
     decisions = [r for r in rows if r["step"] == "decision"]
-    unverified_bypass = [
-        r for r in decisions if r["data"].get("gate") == "unverified-code-changes"
-    ]
+    unverified_bypass = [r for r in decisions if r["data"].get("gate") == "unverified-code-changes"]
     assert len(unverified_bypass) == 1, "missing Step 7a autonomous_bypass row"
     assert unverified_bypass[0]["data"]["bypassed"] is True
-    assert (
-        unverified_bypass[0]["data"]["default_taken"]
-        == "proceed-with-degraded-confidence"
-    )
+    assert unverified_bypass[0]["data"]["default_taken"] == "proceed-with-degraded-confidence"
 
     # AC4 — session:end carries both flags in data
     session_end = [r for r in rows if r["step"] == "session" and r["status"] == "ok"][0]
@@ -408,15 +403,8 @@ def test_full_arc_doc_only_touch_is_status_success(temp_repo: pathlib.Path) -> N
 
     # No Step 7a autonomous_bypass row this time — only doc/config touched.
     rows = _read_jsonl(temp_repo / "specs" / SPEC_SLUG / "build.jsonl")
-    unverified_bypass = [
-        r
-        for r in rows
-        if r["step"] == "decision"
-        and r["data"].get("gate") == "unverified-code-changes"
-    ]
-    assert unverified_bypass == [], (
-        "Step 7a must be a no-op when only doc/config files were touched"
-    )
+    unverified_bypass = [r for r in rows if r["step"] == "decision" and r["data"].get("gate") == "unverified-code-changes"]
+    assert unverified_bypass == [], "Step 7a must be a no-op when only doc/config files were touched"
 
     # Per status-mapping in SKILL.md: success + degraded_confidence:true is valid.
     r1 = _r1_envelope(
@@ -529,10 +517,7 @@ def test_full_arc_runner_discovered_emits_baseline_cmd(temp_repo: pathlib.Path) 
     baseline = next(r for r in rows if r["step"] == "baseline")
     assert baseline["status"] == "ok"
     assert baseline["data"]["test_suite_present"] is True
-    assert baseline["data"]["cmd"] == BASELINE_CMD, (
-        "Step 3 baseline:ok row MUST carry data.cmd populated verbatim from "
-        "gate-scout's data.unit per SKILL.md § Step 3 (#97 AC#1)"
-    )
+    assert baseline["data"]["cmd"] == BASELINE_CMD, "Step 3 baseline:ok row MUST carry data.cmd populated verbatim from gate-scout's data.unit per SKILL.md § Step 3 (#97 AC#1)"
     assert "passing" in baseline["data"] and "failing" in baseline["data"]
 
     # AC#2 (proxy) — Step 7 verify gate ran against the same baseline_cmd:
@@ -544,15 +529,8 @@ def test_full_arc_runner_discovered_emits_baseline_cmd(temp_repo: pathlib.Path) 
 
     # Step 7a no-op — autonomous bypass for unverified code changes never
     # fires when the verify gate ran.
-    unverified_bypass = [
-        r
-        for r in rows
-        if r["step"] == "decision"
-        and r["data"].get("gate") == "unverified-code-changes"
-    ]
-    assert unverified_bypass == [], (
-        "Step 7a is a no-op when test_suite_present:true — verify gate ran"
-    )
+    unverified_bypass = [r for r in rows if r["step"] == "decision" and r["data"].get("gate") == "unverified-code-changes"]
+    assert unverified_bypass == [], "Step 7a is a no-op when test_suite_present:true — verify gate ran"
 
     # R1 envelope for the runner-discovered case: status:"success", both
     # flags telling the PO-agent no scrutiny route is needed.
@@ -628,9 +606,7 @@ def _assert_r1_schema(envelope: dict[str, Any]) -> None:
     # test_suite_present is false (verify gate was skipped). The converse
     # is allowed for future Step 7 short-circuits (runner present, crashes).
     if envelope["data"]["test_suite_present"] is False:
-        assert envelope["data"]["degraded_confidence"] is True, (
-            "test_suite_present=False MUST imply degraded_confidence=True per SKILL.md"
-        )
+        assert envelope["data"]["degraded_confidence"] is True, "test_suite_present=False MUST imply degraded_confidence=True per SKILL.md"
 
 
 def _r1_envelope(

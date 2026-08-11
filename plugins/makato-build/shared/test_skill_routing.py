@@ -222,15 +222,9 @@ class TestBooleanHelpers(unittest.TestCase):
         return p
 
     def test_is_disabled_true_only_for_explicit_disabled(self):
-        self.assertTrue(
-            is_skill_routing_disabled(self._agent("skill_routing: disabled"))
-        )
-        self.assertFalse(
-            is_skill_routing_disabled(self._agent("skill_routing: enabled"))
-        )
-        self.assertFalse(
-            is_skill_routing_disabled(self._agent())
-        )  # absent → default-on
+        self.assertTrue(is_skill_routing_disabled(self._agent("skill_routing: disabled")))
+        self.assertFalse(is_skill_routing_disabled(self._agent("skill_routing: enabled")))
+        self.assertFalse(is_skill_routing_disabled(self._agent()))  # absent → default-on
 
     def test_should_inject_recommendations_negates_is_disabled(self):
         disabled = self._agent("skill_routing: disabled")
@@ -270,9 +264,7 @@ class TestRealAgentOptOut(unittest.TestCase):
     _REPO_ROOT = Path(__file__).parent.parent.parent.parent.resolve()
 
     def test_documentation_agent_is_disabled(self):
-        path = (
-            self._REPO_ROOT / "plugins/makato-orchestrate/agents/documentation-agent.md"
-        )
+        path = self._REPO_ROOT / "plugins/makato-orchestrate/agents/documentation-agent.md"
         self.assertTrue(
             path.exists(),
             f"Agent file not found: {path}",
@@ -283,9 +275,7 @@ class TestRealAgentOptOut(unittest.TestCase):
         )
 
     def test_context_summariser_is_disabled(self):
-        path = (
-            self._REPO_ROOT / "plugins/makato-orchestrate/agents/context-summariser.md"
-        )
+        path = self._REPO_ROOT / "plugins/makato-orchestrate/agents/context-summariser.md"
         self.assertTrue(
             path.exists(),
             f"Agent file not found: {path}",

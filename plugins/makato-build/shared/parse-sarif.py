@@ -231,9 +231,7 @@ def parse_sarif(file_or_dict: Any) -> list[Finding]:
             rule_id = result.get("ruleId") or result.get("rule", {}).get("id") or ""
             rule_def = rule_index.get(rule_id, {})
 
-            level = result.get("level") or rule_def.get("defaultConfiguration", {}).get(
-                "level"
-            )
+            level = result.get("level") or rule_def.get("defaultConfiguration", {}).get("level")
             severity = _norm_sarif_severity(level, result.get("kind"))
 
             msg_obj = result.get("message") or {}
@@ -258,9 +256,7 @@ def parse_sarif(file_or_dict: Any) -> list[Finding]:
             # Resolution order: result.properties.category → rule tags → rule_id heuristic.
             routed_rule = rule_id
             if is_semgrep and rule_id:
-                routed_rule = (
-                    _semgrep_category(rule_id, result, rule_def) + "." + rule_id
-                )
+                routed_rule = _semgrep_category(rule_id, result, rule_def) + "." + rule_id
 
             findings.append(
                 Finding(
@@ -461,9 +457,7 @@ _PRECOMMIT_HOOK_RE = re.compile(r"^([a-z][a-z0-9_-]+)\.{3,}.*(Failed|Passed)\s*$
 # Hook header text → canonical tool name. Used when the dotted-prefix hook line
 # uses a human-readable label instead of the hook id (e.g. "Detect hardcoded
 # secrets" for gitleaks).
-_PRECOMMIT_HOOK_LABEL_RE = re.compile(
-    r"^(?P<label>[A-Za-z][A-Za-z0-9 _()\[\].-]*?)\.{3,}.*(Failed|Passed)\s*$"
-)
+_PRECOMMIT_HOOK_LABEL_RE = re.compile(r"^(?P<label>[A-Za-z][A-Za-z0-9 _()\[\].-]*?)\.{3,}.*(Failed|Passed)\s*$")
 _PRECOMMIT_HOOK_LABEL_TO_TOOL = {
     "detect hardcoded secrets": "gitleaks",
     # biome's pre-commit hook header is "biome check" (with a space), which the
@@ -487,9 +481,7 @@ _MODIFIED_SIGNAL_TOOLS = frozenset({"biome"})
 
 # pre-commit prints this when a hook (biome, ruff format, …) rewrote files.
 #   - files were modified by this hook
-_PRECOMMIT_FILES_MODIFIED_RE = re.compile(
-    r"^\s*-?\s*files were modified by this hook\s*$", re.IGNORECASE
-)
+_PRECOMMIT_FILES_MODIFIED_RE = re.compile(r"^\s*-?\s*files were modified by this hook\s*$", re.IGNORECASE)
 
 # gitleaks block parser. Each finding is a multi-line block starting with
 # "Finding:" and exposing File:/Line:/RuleID:/Secret: rows. Blocks are
@@ -636,10 +628,7 @@ def parse_pre_commit_output(text: str) -> list[Finding]:
         # tool's autofix route) and commit the result. The synthetic
         # `files-modified` rule resolves against a dedicated exact route
         # (e.g. "biome:files-modified"), which beats the catch-all glob.
-        if (
-            current_tool in _MODIFIED_SIGNAL_TOOLS
-            and _PRECOMMIT_FILES_MODIFIED_RE.match(line)
-        ):
+        if current_tool in _MODIFIED_SIGNAL_TOOLS and _PRECOMMIT_FILES_MODIFIED_RE.match(line):
             findings.append(
                 Finding(
                     tool=current_tool,
@@ -720,12 +709,7 @@ def parse_pre_commit_output(text: str) -> list[Finding]:
             # Continuation rule line: backfill the most recent pyright finding
             # if we haven't picked up a rule yet.
             rule_m = _PRECOMMIT_PYRIGHT_RULE_RE.search(stripped_line)
-            if (
-                rule_m
-                and findings
-                and findings[-1].tool == "pyright"
-                and not findings[-1].rule
-            ):
+            if rule_m and findings and findings[-1].tool == "pyright" and not findings[-1].rule:
                 findings[-1].rule = rule_m.group("rule")
                 continue
 
@@ -913,9 +897,7 @@ def _selftest() -> int:
         f"SARIF[0] line/col (got {f0.line}/{f0.column})",
     )
     _check(f0.severity == "warning", f"SARIF[0].severity (got {f0.severity!r})")
-    _check(
-        f0.autofix_available is True, "SARIF[0] has fixes[] → autofix_available=True"
-    )
+    _check(f0.autofix_available is True, "SARIF[0] has fixes[] → autofix_available=True")
     f1 = sarif_findings[1]
     _check(f1.severity == "error", f"SARIF[1].severity (got {f1.severity!r})")
     _check(
@@ -975,9 +957,7 @@ def _selftest() -> int:
     )
     _check(py[0].rule == "reportGeneralTypeIssues", "pyright rule preserved")
     _check(py[1].severity == "warning", f"pyright[1].severity (got {py[1].severity!r})")
-    _check(
-        py[2].severity == "note", f"pyright information→note (got {py[2].severity!r})"
-    )
+    _check(py[2].severity == "note", f"pyright information→note (got {py[2].severity!r})")
     _check(all(f.autofix_available is False for f in py), "pyright never autofixable")
 
     # --- Bonus: autofix allowlist sanity-check -----------------------------
@@ -1021,11 +1001,7 @@ def _selftest() -> int:
     # it rewrote 2 files and pre-commit reports the modification. There are no
     # `path:line:` diagnostic rows — the modification line IS the signal.
     biome_modified_fixture = (
-        "biome check..............................................................Failed\n"
-        "- hook id: biome-check\n"
-        "- files were modified by this hook\n"
-        "\n"
-        "Checked 25 files in 66ms. Fixed 2 files.\n"
+        "biome check..............................................................Failed\n- hook id: biome-check\n- files were modified by this hook\n\nChecked 25 files in 66ms. Fixed 2 files.\n"
     )
     bm_findings = parse_pre_commit_output(biome_modified_fixture)
     _check(
@@ -1046,11 +1022,7 @@ def _selftest() -> int:
             "biome modified finding is autofix_available",
         )
     # A non-allowlisted tool emitting the same line must NOT yield a finding.
-    other_modified_fixture = (
-        "some-formatter...........................................................Failed\n"
-        "- hook id: some-formatter\n"
-        "- files were modified by this hook\n"
-    )
+    other_modified_fixture = "some-formatter...........................................................Failed\n- hook id: some-formatter\n- files were modified by this hook\n"
     _check(
         len(parse_pre_commit_output(other_modified_fixture)) == 0,
         "non-allowlisted 'files were modified' tool yields no finding",
@@ -1249,8 +1221,7 @@ foo.py:42:3 - warning: Type partially unknown (reportUnknownMemberType)
     )
     if len(sg_findings) == 3:
         _check(
-            sg_findings[0].rule
-            == "security.python.lang.security.deserialization.use-of-pickle",
+            sg_findings[0].rule == "security.python.lang.security.deserialization.use-of-pickle",
             f"semgrep[0].rule should have 'security.' prefix (got {sg_findings[0].rule!r})",
         )
         _check(
@@ -1287,8 +1258,7 @@ foo.py:42:3 - warning: Type partially unknown (reportUnknownMemberType)
         repair_hint="WHAT: unused import\nWHY: ...\nFIX: Remove it",
     )
     _check(
-        f_with_hint.to_dict().get("repair_hint")
-        == "WHAT: unused import\nWHY: ...\nFIX: Remove it",
+        f_with_hint.to_dict().get("repair_hint") == "WHAT: unused import\nWHY: ...\nFIX: Remove it",
         "repair_hint present in to_dict() when set",
     )
 

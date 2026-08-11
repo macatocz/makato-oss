@@ -20,7 +20,7 @@ HOOK_PATH = Path(__file__).parent.parent / "plugins" / "makato-observability" / 
 if str(HOOK_PATH) not in sys.path:
     sys.path.insert(0, str(HOOK_PATH))
 
-import langfuse_hook as lh  # noqa: E402
+import langfuse_hook as lh  # noqa: E402  # type: ignore[import]
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -108,11 +108,11 @@ def test_tracecontext_model_endpoint_defaults_to_none():
 
 
 def test_build_trace_tags_emits_model_role_tag():
-    """_build_trace_tags adds model_role:<value> when ctx.model_role is set."""
+    """_build_trace_tags adds modelRole:<value> (camelCase per issue #12 task 3) when ctx.model_role is set."""
     ctx = _make_ctx(model_role="task")
     turn = _make_turn()
     tags = lh._build_trace_tags(ctx, turn)
-    assert "model_role:task" in tags, f"Expected model_role:task in {tags}"
+    assert "modelRole:task" in tags, f"Expected modelRole:task in {tags}"
 
 
 def test_build_trace_tags_emits_endpoint_tag():
@@ -133,20 +133,24 @@ def test_build_trace_tags_omits_model_role_when_none():
 
 
 def test_build_trace_tags_omits_endpoint_when_none():
-    """_build_trace_tags does NOT emit endpoint: tag when ctx.model_endpoint is None."""
+    """When ctx.model_endpoint is None, _build_trace_tags() must still emit an endpoint: tag
+    via the open-weight fallback — 'endpoint:closed' for non-open-weight models (issue #12 task 3).
+    The endpoint tag is always present on every turn trace."""
     ctx = _make_ctx(model_endpoint=None)
     turn = _make_turn()
     tags = lh._build_trace_tags(ctx, turn)
     endpoint_tags = [t for t in tags if t.startswith("endpoint:")]
-    assert endpoint_tags == [], f"Expected no endpoint tags, got {endpoint_tags}"
+    assert len(endpoint_tags) == 1, f"Expected exactly one endpoint tag, got {endpoint_tags}"
+    # The assistant message has no model field, so get_model() returns 'claude' → closed.
+    assert endpoint_tags[0] == "endpoint:closed", f"Expected endpoint:closed, got {endpoint_tags}"
 
 
 def test_build_trace_tags_both_fields_set():
-    """Both model_role and endpoint appear together in the tag list."""
+    """Both modelRole (camelCase) and endpoint appear together in the tag list."""
     ctx = _make_ctx(model_role="smol", model_endpoint="https://open.example.com")
     turn = _make_turn()
     tags = lh._build_trace_tags(ctx, turn)
-    assert "model_role:smol" in tags
+    assert "modelRole:smol" in tags
     assert "endpoint:https://open.example.com" in tags
 
 

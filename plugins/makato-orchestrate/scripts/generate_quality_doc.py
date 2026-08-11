@@ -64,7 +64,9 @@ def _repo_root() -> str:
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         )
         return result.stdout.strip()
     except Exception:
@@ -155,7 +157,7 @@ def aggregate_build_jsonl(build_file: str) -> tuple[str, str, int]:
             if findings is not None:
                 try:
                     sensor_clean = "Yes" if int(findings) == 0 else "No"
-                except (ValueError, TypeError):
+                except (ValueError, TypeError):  # fmt: skip
                     sensor_clean = "-"
             break
 
@@ -206,10 +208,7 @@ def aggregate_halt(folder: str, issue: str) -> tuple[int, str]:
 def build_scorecard_block(domain: str, rows: list[str], timestamp: str) -> str:
     """Build the ## Quality Scorecard markdown block."""
     header = "## Quality Scorecard"
-    table = (
-        "| Issue | Story | Tests Passing | Sensor Clean | HALTs | Last HALT | Structural Failures |\n"
-        "|-------|-------|---------------|--------------|-------|-----------|---------------------|"
-    )
+    table = "| Issue | Story | Tests Passing | Sensor Clean | HALTs | Last HALT | Structural Failures |\n|-------|-------|---------------|--------------|-------|-----------|---------------------|"
     if rows:
         table += "\n" + "\n".join(rows)
     footer = f"_Last updated: {timestamp}. Source: build.jsonl + workflow-state._"
@@ -303,15 +302,10 @@ def generate_quality_doc(domain: str, specs_dir: str) -> int:
             continue
         slug_title = _slug_title(base)
 
-        tests_passing, sensor_clean, structural_failures = aggregate_build_jsonl(
-            os.path.join(folder, "build.jsonl")
-        )
+        tests_passing, sensor_clean, structural_failures = aggregate_build_jsonl(os.path.join(folder, "build.jsonl"))
         halts, last_halt = aggregate_halt(folder, issue)
 
-        rows.append(
-            f"| #{issue} | {slug_title} | {tests_passing} | "
-            f"{sensor_clean} | {halts} | {last_halt} | {structural_failures} |"
-        )
+        rows.append(f"| #{issue} | {slug_title} | {tests_passing} | {sensor_clean} | {halts} | {last_halt} | {structural_failures} |")
 
     timestamp = _now()
     scorecard = build_scorecard_block(domain, rows, timestamp)

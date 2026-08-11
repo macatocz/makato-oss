@@ -299,9 +299,7 @@ def _flush_highlight(
             label=truncate(span, MAX_LABEL_CHARS),
             kind="instruction",
             source="highlight",
-            description=(
-                f"{current_color} highlight: {truncate(span, MAX_DESCRIPTION_CHARS)}"
-            ),
+            description=(f"{current_color} highlight: {truncate(span, MAX_DESCRIPTION_CHARS)}"),
             first_paragraph_text=truncate(para_text),
         )
     )
@@ -353,9 +351,7 @@ def _load_comments_map(zf: zipfile.ZipFile) -> dict[str, str]:
     return out
 
 
-def _anchored_text(
-    para: ET.Element, start: ET.Element, ranges: dict[str, ET.Element]
-) -> str:
+def _anchored_text(para: ET.Element, start: ET.Element, ranges: dict[str, ET.Element]) -> str:
     """Concatenate text between commentRangeStart and matching End in para."""
     cid = start.get(f"{{{W}}}id")
     end = ranges.get(cid or "")
@@ -385,9 +381,7 @@ def extract_comments(root: ET.Element, comments_map: dict[str, str]) -> list[Fie
         starts = list(para.iter(f"{{{W}}}commentRangeStart"))
         if not starts:
             continue
-        ends_by_id = {
-            e.get(f"{{{W}}}id") or "": e for e in para.iter(f"{{{W}}}commentRangeEnd")
-        }
+        ends_by_id = {e.get(f"{{{W}}}id") or "": e for e in para.iter(f"{{{W}}}commentRangeEnd")}
         for start in starts:
             cid = start.get(f"{{{W}}}id") or ""
             if cid not in comments_map:
@@ -414,10 +408,7 @@ def extract_comments(root: ET.Element, comments_map: dict[str, str]) -> list[Fie
 
 def _row_signature(row: ET.Element) -> tuple[bool, ...]:
     """Tuple capturing the SDT shape of a table row."""
-    return tuple(
-        sdt.find(f"{{{W}}}sdtPr/{{{W}}}tag") is not None
-        for sdt in row.iter(f"{{{W}}}sdt")
-    )
+    return tuple(sdt.find(f"{{{W}}}sdtPr/{{{W}}}tag") is not None for sdt in row.iter(f"{{{W}}}sdt"))
 
 
 def detect_table_repeats(root: ET.Element) -> list[dict[str, Any]]:
@@ -478,10 +469,7 @@ def _build_warnings(fields: list[Field], repeats: list[dict[str, Any]]) -> list[
     warnings: list[str] = []
     instructions = sum(1 for f in fields if f.kind == "instruction")
     if instructions:
-        warnings.append(
-            f"{instructions} instruction-kind fields need human review — "
-            "decide concrete keys and types before handing to the agent"
-        )
+        warnings.append(f"{instructions} instruction-kind fields need human review — decide concrete keys and types before handing to the agent")
     if repeats:
         warnings.append(f"{len(repeats)} repeat groups inferred heuristically — verify")
     return warnings
@@ -548,17 +536,12 @@ def write_summary_md(schema: dict[str, Any], path: Path) -> None:
         "|---|---|---|---|",
     ]
     for f in schema["fields"]:
-        lines.append(
-            f"|`{f['key']}`|{f['kind']}|{f['source']}|{truncate(f['label'], 60)}|"
-        )
+        lines.append(f"|`{f['key']}`|{f['kind']}|{f['source']}|{truncate(f['label'], 60)}|")
     lines.append("")
     if schema["repeats"]:
         lines += [f"## Repeats ({len(schema['repeats'])})", ""]
         for r in schema["repeats"]:
-            lines.append(
-                f"- `{r['key']}` — {len(r['row_template'])} fields per row "
-                f"({r['evidence']})"
-            )
+            lines.append(f"- `{r['key']}` — {len(r['row_template'])} fields per row ({r['evidence']})")
         lines.append("")
     if schema["warnings"]:
         lines += ["## Warnings", ""]
@@ -578,9 +561,7 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=True,
     )
-    parser.add_argument(
-        "--no-instructions", dest="include_instructions", action="store_false"
-    )
+    parser.add_argument("--no-instructions", dest="include_instructions", action="store_false")
     parser.add_argument(
         "--detect-repeats",
         dest="detect_repeats",
@@ -600,11 +581,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--highlight-colors",
         type=str,
         default=",".join(DEFAULT_HIGHLIGHT_COLORS),
-        help=(
-            "Comma-separated <w:highlight> values to treat as instruction "
-            "markers. Default: cyan,yellow. Other valid Word values include "
-            "green, red, magenta, blue, darkYellow, lightGray, etc."
-        ),
+        help=("Comma-separated <w:highlight> values to treat as instruction markers. Default: cyan,yellow. Other valid Word values include green, red, magenta, blue, darkYellow, lightGray, etc."),
     )
     return parser
 
@@ -644,11 +621,7 @@ def main() -> int:
     controls = sum(1 for f in schema["fields"] if f["source"] == "sdt")
     comments_count = sum(1 for f in schema["fields"] if f["source"] == "comment")
     repeats_count = len(schema["repeats"])
-    print(
-        f"fields={fields_count} controls={controls} "
-        f"comments={comments_count} repeats={repeats_count} "
-        f"warnings={len(schema['warnings'])}"
-    )
+    print(f"fields={fields_count} controls={controls} comments={comments_count} repeats={repeats_count} warnings={len(schema['warnings'])}")
     return 0
 
 

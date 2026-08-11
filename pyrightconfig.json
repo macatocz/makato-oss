@@ -1,0 +1,7 @@
+{
+  "exclude": [
+    "plugins/*/skills/*/test-fixtures",
+    "plugins/*/skills/*/templates",
+    ".claude"
+  ]
+}

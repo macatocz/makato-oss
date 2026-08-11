@@ -20,7 +20,7 @@ import re
 import sys
 import time
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -214,21 +214,34 @@ def _resolve_trace_flag() -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _get_loop_phase() -> str | None:
-    """Read current_phase from the most recent workflow-state-*.json under specs/."""
+def _get_loop_context() -> tuple[str | None, str | None, Path | None]:
+    """Return (loop_phase, issue_key, specs_dir) from the most-recently-modified workflow-state file.
+
+    ``issue_key`` is the parent directory name of the workflow-state file
+    (e.g. ``"makato-harness-independence"`` from
+    ``specs/makato-harness-independence/workflow-state-12.json``), which is the
+    same prefix used by :func:`_find_build_jsonl` to locate ``build.jsonl``.
+    """
     cwd = Path(os.environ.get("PWD", "")) or Path.cwd()
     specs_dir = cwd / "specs"
     if not specs_dir.exists():
-        return None
+        return None, None, None
     try:
         candidates = list(specs_dir.rglob("workflow-state*.json"))
         if not candidates:
-            return None
+            return None, None, None
         latest = max(candidates, key=lambda p: p.stat().st_mtime)
         data = json.loads(latest.read_text(encoding="utf-8"))
-        return str(data.get("current_phase", "")) or None
+        loop_phase = str(data.get("current_phase", "")) or None
+        issue_key = latest.parent.name  # e.g. "makato-harness-independence"
+        return loop_phase, issue_key, specs_dir
     except Exception:
-        return None
+        return None, None, None
+
+
+def _get_loop_phase() -> str | None:
+    """Read current_phase from the most recent workflow-state-*.json under specs/."""
+    return _get_loop_context()[0]
 
 
 def _get_makato_version() -> str | None:
@@ -243,6 +256,158 @@ def _get_makato_version() -> str | None:
                 return m.group(1)
     except Exception:
         pass
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Build-signal extraction (issue #12 — per-step success metrics)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class BuildSignals:
+    """Hard-signal snapshot extracted from build.jsonl for a single issue run.
+
+    Each field is ``None`` when the corresponding signal has not yet been
+    emitted into the build log (e.g. the run has not reached the verify or
+    merge phase).  Zero-filled instances are returned when the build log is
+    absent or unreadable.
+    """
+
+    verify_gate_passed: bool | None = None
+    ci_green: bool | None = None
+    review_critical_count: int | None = None
+    coder_retry_count: int | None = None
+    conflict_halt_count: int | None = None
+    merged_without_override: bool | None = None
+
+
+def _find_build_jsonl(issue_key: str, specs_dir: Path) -> "Path | None":
+    """Return the first build.jsonl found under specs/<issue_key>*/ or None."""
+    try:
+        matches = sorted(specs_dir.glob(f"{issue_key}*/build.jsonl"))
+        return matches[0] if matches else None
+    except Exception:
+        return None
+
+
+def _read_build_signals(issue_key: str, specs_dir: Path) -> BuildSignals:
+    """Populate :class:`BuildSignals` from the ``build.jsonl`` for *issue_key*.
+
+    Globs ``specs/<key>*/build.jsonl``, streams every JSONL line, and maps
+    ``step``/``status``/``data`` entries to the six signal fields.  Returns a
+    zero-filled :class:`BuildSignals` when the file is absent or unreadable.
+
+    Signal mapping:
+    - ``step:"verify"`` → ``verify_gate_passed`` (first occurrence only)
+    - ``step:"ci"`` → ``ci_green`` (first occurrence only)
+    - ``step:"review"`` with ``data.critical_count`` → ``review_critical_count`` (accumulated)
+    - ``step:"coder-retry"`` → ``coder_retry_count`` (counted)
+    - ``step:"resolve-conflict"`` + ``status:"halt"`` → ``conflict_halt_count`` (counted)
+    - ``step:"merge"`` with ``data.override`` → ``merged_without_override``
+    """
+    signals = BuildSignals()
+    jsonl_path = _find_build_jsonl(issue_key, specs_dir)
+    if jsonl_path is None:
+        return signals
+
+    retry_count = 0
+    halt_count = 0
+
+    try:
+        with open(jsonl_path, encoding="utf-8") as fh:
+            for raw in fh:
+                raw = raw.strip()
+                if not raw:
+                    continue
+                try:
+                    entry = json.loads(raw)
+                except Exception:
+                    continue
+                step = entry.get("step", "")
+                status = entry.get("status", "")
+                data: dict[str, Any] = entry.get("data") or {}
+
+                if step == "verify" and signals.verify_gate_passed is None:
+                    if status == "ok":
+                        signals.verify_gate_passed = True
+                    elif status == "error":
+                        signals.verify_gate_passed = False
+
+                elif step == "ci" and signals.ci_green is None:
+                    if status == "ok":
+                        signals.ci_green = True
+                    elif status == "error":
+                        signals.ci_green = False
+
+                elif step == "review":
+                    if "critical_count" in data:
+                        try:
+                            count = int(data["critical_count"])
+                        except (TypeError, ValueError):  # fmt: skip
+                            count = 0
+                        signals.review_critical_count = (signals.review_critical_count or 0) + count
+
+                elif step == "coder-retry":
+                    retry_count += 1
+
+                elif step == "resolve-conflict" and status == "halt":
+                    halt_count += 1
+
+                elif step == "merge":
+                    override = data.get("override")
+                    if override is not None:
+                        signals.merged_without_override = not bool(override)
+
+    except Exception:
+        return BuildSignals()
+
+    if retry_count:
+        signals.coder_retry_count = retry_count
+    if halt_count:
+        signals.conflict_halt_count = halt_count
+
+    return signals
+
+
+def _derive_plan_success(issue_key: str, specs_dir: Path) -> "bool | None":
+    """Return whether the plan produced a first-attempt CI-green result.
+
+    Scans ``build.jsonl`` for the first ``step:"verify"`` entry that appears
+    *after* at least one ``step:"implement"`` entry.
+
+    Returns:
+        ``True``  — first verify after implement has ``status:"ok"``
+        ``False`` — first verify after implement has ``status:"error"``
+        ``None``  — undetermined (no implement entry, or no subsequent verify)
+    """
+    jsonl_path = _find_build_jsonl(issue_key, specs_dir)
+    if jsonl_path is None:
+        return None
+
+    seen_implement = False
+    try:
+        with open(jsonl_path, encoding="utf-8") as fh:
+            for raw in fh:
+                raw = raw.strip()
+                if not raw:
+                    continue
+                try:
+                    entry = json.loads(raw)
+                except Exception:
+                    continue
+                step = entry.get("step", "")
+                if step == "implement":
+                    seen_implement = True
+                elif step == "verify" and seen_implement:
+                    status = entry.get("status", "")
+                    if status == "ok":
+                        return True
+                    if status == "error":
+                        return False
+    except Exception:
+        return None
+
     return None
 
 
@@ -697,6 +862,10 @@ class TraceContext:
     # trace is tagged with the role name and the endpoint it was routed to.
     model_role: str | None = None
     model_endpoint: str | None = None
+    # Build-signal snapshot (issue #12) — populated once per hook invocation from the
+    # issue's build.jsonl.  When set, every turn trace carries the run-level hard-signal
+    # snapshot in its metadata under the "build_signals" key.
+    build_signals: BuildSignals | None = None
 
 
 _PLUGIN_NAMES = {
@@ -730,6 +899,25 @@ _LOOP_PHASES = {
     "merge",
     "blocked",
 }
+
+# Model-identifier substrings that indicate an open-weight model.
+# Used as a fallback when CC_MODEL_ENDPOINT is not set by the dispatch system.
+_OPEN_WEIGHT_PATTERNS = (
+    "llama",
+    "mistral",
+    "mixtral",
+    "qwen",
+    "gemma",
+    "falcon",
+    "phi-",
+    "deepseek",
+    "solar",
+    "openchat",
+    "vicuna",
+    "codellama",
+    "yi-",
+    "orca",
+)
 
 
 def _plugin_from_skill_tag(tag: str) -> str | None:
@@ -772,13 +960,21 @@ def _build_trace_tags(ctx: TraceContext, turn: Turn) -> list[str]:
     if entrypoint and isinstance(entrypoint, str):
         tags.append(f"entrypoint:{entrypoint}")
 
-    # Model-routing tags — populated by the dispatch system once issue #5 ships.
-    # Allows filtering Langfuse traces by which model role ran (e.g. "task", "smol")
-    # and which endpoint it was routed to (open vs closed).
+    # Model-routing tags — issue #12 task 3.
+    # modelRole: always emitted when CC_MODEL_ROLE is set (camelCase per Langfuse convention).
+    # endpoint: always emitted; falls back to open-weight pattern detection when
+    # CC_MODEL_ENDPOINT is not provided by the dispatch system.
     if ctx.model_role:
-        tags.append(f"model_role:{ctx.model_role}")
-    if ctx.model_endpoint:
-        tags.append(f"endpoint:{ctx.model_endpoint}")
+        tags.append(f"modelRole:{ctx.model_role}")
+
+    endpoint = ctx.model_endpoint
+    if not endpoint:
+        model_str = get_model(turn.assistant_msgs).lower()
+        if any(pat in model_str for pat in _OPEN_WEIGHT_PATTERNS):
+            endpoint = "open"
+        else:
+            endpoint = "closed"
+    tags.append(f"endpoint:{endpoint}")
 
     return tags
 
@@ -850,6 +1046,13 @@ def emit_turn(langfuse: Langfuse, turn_num: int, turn: Turn, ctx: TraceContext) 
         trace_metadata["model_role"] = ctx.model_role
     if ctx.model_endpoint:
         trace_metadata["model_endpoint"] = ctx.model_endpoint
+    if ctx.build_signals is not None:
+        # Merge only the non-None signal fields so the sub-key stays sparse until
+        # the signals are actually observed (e.g. verify_gate_passed is absent
+        # until the verify phase has completed).
+        signals_dict = {k: v for k, v in asdict(ctx.build_signals).items() if v is not None}
+        if signals_dict:
+            trace_metadata["build_signals"] = signals_dict
     if turn.start_time:
         trace_metadata["start_time"] = turn.start_time.isoformat()
     if turn.end_time:
@@ -976,11 +1179,18 @@ def main() -> int:
         user_id=get_user_id(),
         project_name=get_project_name(),
         makato_version=_get_makato_version(),
-        loop_phase=_get_loop_phase(),
+        loop_phase=_get_loop_context()[0],
         issue_trace_id=issue_trace_id,
         model_role=os.environ.get("CC_MODEL_ROLE", "").strip() or None,
         model_endpoint=os.environ.get("CC_MODEL_ENDPOINT", "").strip() or None,
     )
+    # Populate build-signal snapshot from the issue's build.jsonl (issue #12).
+    # _get_loop_context() re-scans the same workflow-state file we just used for
+    # loop_phase, so we call it a second time to get the sibling issue_key/specs_dir
+    # without changing the already-constructed ctx.loop_phase.
+    _, _issue_key, _specs_dir = _get_loop_context()
+    if _issue_key is not None and _specs_dir is not None:
+        ctx.build_signals = _read_build_signals(_issue_key, _specs_dir)
 
     try:
         with FileLock(LOCK_FILE):

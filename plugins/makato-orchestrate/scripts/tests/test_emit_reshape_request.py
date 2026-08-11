@@ -45,6 +45,7 @@ from emit_reshape_request import (  # noqa: E402
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _find_repo_root() -> str:
     """Walk up from _HERE to find the repo root (contains pyproject.toml)."""
     cur = _HERE
@@ -95,11 +96,7 @@ def _make_workflow_state(issue_number: int = 349, with_critical: bool = True) ->
                     "summary": "structural blocker",
                     "files_changed": [],
                     "tests_written": [],
-                    "errors": (
-                        ["CRITICAL: some fatal error", "another error without keyword"]
-                        if with_critical
-                        else ["some warning", "another note"]
-                    ),
+                    "errors": (["CRITICAL: some fatal error", "another error without keyword"] if with_critical else ["some warning", "another note"]),
                     "tool_calls_used": 10,
                     "data": {},
                 },
@@ -173,17 +170,13 @@ class TestStructuralHaltFilter(unittest.TestCase):
         self.assertTrue(is_structural_halt({"code": "HALT-010", "ts": "t", "data": {}}))
 
     def test_halt_008_outer_iteration_is_structural(self) -> None:
-        self.assertTrue(is_structural_halt(
-            {"code": "HALT-008", "ts": "t", "data": {"origin": "outer_iteration"}}
-        ))
+        self.assertTrue(is_structural_halt({"code": "HALT-008", "ts": "t", "data": {"origin": "outer_iteration"}}))
 
     def test_halt_007_is_not_structural(self) -> None:
         self.assertFalse(is_structural_halt({"code": "HALT-007", "ts": "t", "data": {}}))
 
     def test_halt_008_merge_conflict_is_not_structural(self) -> None:
-        self.assertFalse(is_structural_halt(
-            {"code": "HALT-008", "ts": "t", "data": {"origin": "merge_conflict"}}
-        ))
+        self.assertFalse(is_structural_halt({"code": "HALT-008", "ts": "t", "data": {"origin": "merge_conflict"}}))
 
     def test_filter_structural_halts_count(self) -> None:
         """T4/T5: filter keeps 4 structural entries, drops HALT-007 and HALT-008/merge_conflict."""
@@ -210,8 +203,7 @@ class TestStructuralHaltFilter(unittest.TestCase):
         """T5: HALT-008/merge_conflict must not appear in halt_history."""
         halt_audit = _make_workflow_state()["halt_audit"]
         structural = filter_structural_halts(halt_audit)
-        merge_008 = [e for e in structural if e["code"] == "HALT-008" and
-                     e.get("data", {}).get("origin") == "merge_conflict"]
+        merge_008 = [e for e in structural if e["code"] == "HALT-008" and e.get("data", {}).get("origin") == "merge_conflict"]
         self.assertEqual(len(merge_008), 0)
 
 
@@ -248,10 +240,7 @@ class TestCriticalErrors(unittest.TestCase):
         sub_tasks = _make_workflow_state(with_critical=True)["sub_tasks"]
         errors = extract_last_critical_errors(sub_tasks)
         # "another error without keyword" must not be in results.
-        self.assertFalse(
-            any("another error" in e for e in errors),
-            "non-CRITICAL error must not appear in last_critical_errors"
-        )
+        self.assertFalse(any("another error" in e for e in errors), "non-CRITICAL error must not appear in last_critical_errors")
 
     def test_no_critical_errors_returns_empty(self) -> None:
         """T8: returns empty list when no CRITICAL errors."""
@@ -323,10 +312,7 @@ class TestBuildReshapeRequest(unittest.TestCase):
             reshape_cycles=0,
             emitted_at=_now(),
         )
-        self.assertNotIn(
-            "last_critical_errors", payload,
-            "last_critical_errors should be absent when no CRITICAL errors"
-        )
+        self.assertNotIn("last_critical_errors", payload, "last_critical_errors should be absent when no CRITICAL errors")
 
 
 class TestMainIntegration(unittest.TestCase):
@@ -438,15 +424,22 @@ class TestMainIntegration(unittest.TestCase):
 
         try:
             import jsonschema  # type: ignore
+
             schema = json.loads(Path(_SCHEMA_PATH).read_text())
             # Should not raise.
             jsonschema.validate(data, schema)
         except ImportError:
             # Without jsonschema, just verify required fields present.
             required = [
-                "schema_version", "issue_key", "issue_number", "issue_slug",
-                "structural_halt_cycles", "reshape_cycles",
-                "halt_history", "lessons_trail", "emitted_at",
+                "schema_version",
+                "issue_key",
+                "issue_number",
+                "issue_slug",
+                "structural_halt_cycles",
+                "reshape_cycles",
+                "halt_history",
+                "lessons_trail",
+                "emitted_at",
             ]
             for field in required:
                 self.assertIn(field, data, f"required field missing: {field}")
@@ -471,13 +464,11 @@ class TestMainIntegration(unittest.TestCase):
         self.assertIn("HALT-003", codes)
         self.assertIn("HALT-STRUCTURAL", codes)
         self.assertIn("HALT-010", codes)
-        outer_008 = [e for e in data["halt_history"]
-                     if e["code"] == "HALT-008" and e["data"].get("origin") == "outer_iteration"]
+        outer_008 = [e for e in data["halt_history"] if e["code"] == "HALT-008" and e["data"].get("origin") == "outer_iteration"]
         self.assertEqual(len(outer_008), 1)
         # Non-structural must be absent.
         self.assertNotIn("HALT-007", codes)
-        merge_008 = [e for e in data["halt_history"]
-                     if e["code"] == "HALT-008" and e["data"].get("origin") == "merge_conflict"]
+        merge_008 = [e for e in data["halt_history"] if e["code"] == "HALT-008" and e["data"].get("origin") == "merge_conflict"]
         self.assertEqual(len(merge_008), 0)
         self.assertEqual(len(data["halt_history"]), 4)
 
@@ -524,10 +515,7 @@ class TestMainIntegration(unittest.TestCase):
         data = json.loads(Path(reshape_path).read_text())
         # last_critical_errors should be absent, null, or empty.
         val = data.get("last_critical_errors", None)
-        self.assertTrue(
-            val is None or val == [],
-            f"last_critical_errors should be absent/null/empty, got: {val!r}"
-        )
+        self.assertTrue(val is None or val == [], f"last_critical_errors should be absent/null/empty, got: {val!r}")
 
 
 class TestResolveSpecFolder(unittest.TestCase):

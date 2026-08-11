@@ -17,9 +17,7 @@ def _runs(para: ET.Element) -> list[ET.Element]:
     return list(para.findall(f"{{{W}}}r"))
 
 
-def replace_with_jinja_tag(
-    paragraph: ET.Element, run_indices: list[int], key: str
-) -> ET.Element:
+def replace_with_jinja_tag(paragraph: ET.Element, run_indices: list[int], key: str) -> ET.Element:
     """Replace runs at ``run_indices`` with one run containing ``{{ key }}``.
 
     The replacement run carries no formatting beyond the paragraph's

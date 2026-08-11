@@ -111,12 +111,8 @@ class TestReadersTask1(unittest.TestCase):
         plugin_b = self.tmp / "plugin-b"
         (plugin_a / "config").mkdir(parents=True)
         (plugin_b / "config").mkdir(parents=True)
-        (plugin_a / "config" / "skill-bundles.yml").write_text(
-            "bundles:\n  - name: default\n", encoding="utf-8"
-        )
-        (plugin_b / "config" / "skill-bundles.yml").write_text(
-            "bundles:\n  - name: default\n", encoding="utf-8"
-        )
+        (plugin_a / "config" / "skill-bundles.yml").write_text("bundles:\n  - name: default\n", encoding="utf-8")
+        (plugin_b / "config" / "skill-bundles.yml").write_text("bundles:\n  - name: default\n", encoding="utf-8")
         covered, missing = _mod.read_bundle_coverage(self.tmp)
         self.assertEqual(covered, 2)
         self.assertEqual(missing, [])
@@ -127,9 +123,7 @@ class TestReadersTask1(unittest.TestCase):
         plugin_b = self.tmp / "plugin-b"
         (plugin_a / "config").mkdir(parents=True)
         plugin_b.mkdir()
-        (plugin_a / "config" / "skill-bundles.yml").write_text(
-            "bundles:\n  - name: default\n", encoding="utf-8"
-        )
+        (plugin_a / "config" / "skill-bundles.yml").write_text("bundles:\n  - name: default\n", encoding="utf-8")
         # plugin_b has no config/skill-bundles.yml
         covered, missing = _mod.read_bundle_coverage(self.tmp)
         self.assertEqual(covered, 1)
@@ -636,9 +630,7 @@ class TestScenario1AllPass(unittest.TestCase):
         for i in range(12):
             plugin_dir = plugins_root / f"makato-plugin-{i}"
             (plugin_dir / "config").mkdir(parents=True)
-            (plugin_dir / "config" / "skill-bundles.yml").write_text(
-                f"bundles:\n  - name: plugin-{i}-default\n", encoding="utf-8"
-            )
+            (plugin_dir / "config" / "skill-bundles.yml").write_text(f"bundles:\n  - name: plugin-{i}-default\n", encoding="utf-8")
 
         # -- specs: 2 tasks each with passport + build.jsonl --
         specs_root = self.tmpdir / "specs"
@@ -650,18 +642,14 @@ class TestScenario1AllPass(unittest.TestCase):
                 encoding="utf-8",
             )
             (task_dir / "build.jsonl").write_text(
-                json.dumps(
-                    {"step": "session", "status": "ok", "ts": "2026-07-01T00:00:00Z"}
-                ),
+                json.dumps({"step": "session", "status": "ok", "ts": "2026-07-01T00:00:00Z"}),
                 encoding="utf-8",
             )
 
         # -- docs/skill-audit-notes.md: recent entry --
         docs_dir = self.tmpdir / "docs"
         docs_dir.mkdir(parents=True)
-        (docs_dir / "skill-audit-notes.md").write_text(
-            "## 2026-07-10\nRecent audit entry.\n", encoding="utf-8"
-        )
+        (docs_dir / "skill-audit-notes.md").write_text("## 2026-07-10\nRecent audit entry.\n", encoding="utf-8")
 
         # -- .claude/skill-invocations.log: 4 weeks (28 days), one entry per day --
         log_dir = self.tmpdir / ".claude"
@@ -676,21 +664,15 @@ class TestScenario1AllPass(unittest.TestCase):
                 "skill": "test-skill",
             }
             log_lines.append(json.dumps(entry))
-        (log_dir / "skill-invocations.log").write_text(
-            "\n".join(log_lines) + "\n", encoding="utf-8"
-        )
+        (log_dir / "skill-invocations.log").write_text("\n".join(log_lines) + "\n", encoding="utf-8")
 
     def _run_pipeline(self):
         """Run the full pipeline and return (structural, adoption, report_markdown)."""
-        log_entries = _mod.read_invocations_log(
-            self.tmpdir / ".claude" / "skill-invocations.log"
-        )
+        log_entries = _mod.read_invocations_log(self.tmpdir / ".claude" / "skill-invocations.log")
         passport_result = _mod.read_skill_passports(self.tmpdir / "specs")
         bundle_result = _mod.read_bundle_coverage(self.tmpdir / "plugins")
         notes_path = self.tmpdir / "docs" / "skill-audit-notes.md"
-        structural = _mod.compute_structural_metrics(
-            bundle_result, passport_result, notes_path
-        )
+        structural = _mod.compute_structural_metrics(bundle_result, passport_result, notes_path)
         adoption = _mod.compute_adoption_metrics(log_entries, now=self.now)
         output_path = self.tmpdir / "docs" / "skill-adoption-audit-report.md"
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -733,9 +715,7 @@ class TestScenario2AdoptionShortfall(unittest.TestCase):
         for i in range(12):
             plugin_dir = plugins_root / f"makato-plugin-{i}"
             (plugin_dir / "config").mkdir(parents=True)
-            (plugin_dir / "config" / "skill-bundles.yml").write_text(
-                f"bundles:\n  - name: plugin-{i}-default\n", encoding="utf-8"
-            )
+            (plugin_dir / "config" / "skill-bundles.yml").write_text(f"bundles:\n  - name: plugin-{i}-default\n", encoding="utf-8")
 
         # -- specs: 2 tasks each with passport + build.jsonl --
         specs_root = self.tmpdir / "specs"
@@ -747,18 +727,14 @@ class TestScenario2AdoptionShortfall(unittest.TestCase):
                 encoding="utf-8",
             )
             (task_dir / "build.jsonl").write_text(
-                json.dumps(
-                    {"step": "session", "status": "ok", "ts": "2026-07-01T00:00:00Z"}
-                ),
+                json.dumps({"step": "session", "status": "ok", "ts": "2026-07-01T00:00:00Z"}),
                 encoding="utf-8",
             )
 
         # -- docs/skill-audit-notes.md: recent entry --
         docs_dir = self.tmpdir / "docs"
         docs_dir.mkdir(parents=True)
-        (docs_dir / "skill-audit-notes.md").write_text(
-            "## 2026-07-10\nRecent audit entry.\n", encoding="utf-8"
-        )
+        (docs_dir / "skill-audit-notes.md").write_text("## 2026-07-10\nRecent audit entry.\n", encoding="utf-8")
 
         # -- .claude/skill-invocations.log: only 2 weeks (14 days) --
         log_dir = self.tmpdir / ".claude"
@@ -773,21 +749,15 @@ class TestScenario2AdoptionShortfall(unittest.TestCase):
                 "skill": "test-skill",
             }
             log_lines.append(json.dumps(entry))
-        (log_dir / "skill-invocations.log").write_text(
-            "\n".join(log_lines) + "\n", encoding="utf-8"
-        )
+        (log_dir / "skill-invocations.log").write_text("\n".join(log_lines) + "\n", encoding="utf-8")
 
     def _run_pipeline(self):
         """Run the full pipeline and return (structural, adoption, report_markdown)."""
-        log_entries = _mod.read_invocations_log(
-            self.tmpdir / ".claude" / "skill-invocations.log"
-        )
+        log_entries = _mod.read_invocations_log(self.tmpdir / ".claude" / "skill-invocations.log")
         passport_result = _mod.read_skill_passports(self.tmpdir / "specs")
         bundle_result = _mod.read_bundle_coverage(self.tmpdir / "plugins")
         notes_path = self.tmpdir / "docs" / "skill-audit-notes.md"
-        structural = _mod.compute_structural_metrics(
-            bundle_result, passport_result, notes_path
-        )
+        structural = _mod.compute_structural_metrics(bundle_result, passport_result, notes_path)
         adoption = _mod.compute_adoption_metrics(log_entries, now=self.now)
         output_path = self.tmpdir / "docs" / "skill-adoption-audit-report.md"
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -831,9 +801,7 @@ class TestScenario3StructuralGap(unittest.TestCase):
         for i in range(10):
             plugin_dir = plugins_root / f"makato-plugin-{i}"
             (plugin_dir / "config").mkdir(parents=True)
-            (plugin_dir / "config" / "skill-bundles.yml").write_text(
-                f"bundles:\n  - name: plugin-{i}-default\n", encoding="utf-8"
-            )
+            (plugin_dir / "config" / "skill-bundles.yml").write_text(f"bundles:\n  - name: plugin-{i}-default\n", encoding="utf-8")
         # This plugin has NO skill-bundles.yml
         missing_dir = plugins_root / "makato-missing"
         missing_dir.mkdir(parents=True)
@@ -848,18 +816,14 @@ class TestScenario3StructuralGap(unittest.TestCase):
                 encoding="utf-8",
             )
             (task_dir / "build.jsonl").write_text(
-                json.dumps(
-                    {"step": "session", "status": "ok", "ts": "2026-07-01T00:00:00Z"}
-                ),
+                json.dumps({"step": "session", "status": "ok", "ts": "2026-07-01T00:00:00Z"}),
                 encoding="utf-8",
             )
 
         # -- docs/skill-audit-notes.md: recent entry --
         docs_dir = self.tmpdir / "docs"
         docs_dir.mkdir(parents=True)
-        (docs_dir / "skill-audit-notes.md").write_text(
-            "## 2026-07-10\nRecent audit entry.\n", encoding="utf-8"
-        )
+        (docs_dir / "skill-audit-notes.md").write_text("## 2026-07-10\nRecent audit entry.\n", encoding="utf-8")
 
         # -- .claude/skill-invocations.log: 4 weeks (28 days) --
         log_dir = self.tmpdir / ".claude"
@@ -874,21 +838,15 @@ class TestScenario3StructuralGap(unittest.TestCase):
                 "skill": "test-skill",
             }
             log_lines.append(json.dumps(entry))
-        (log_dir / "skill-invocations.log").write_text(
-            "\n".join(log_lines) + "\n", encoding="utf-8"
-        )
+        (log_dir / "skill-invocations.log").write_text("\n".join(log_lines) + "\n", encoding="utf-8")
 
     def _run_pipeline(self):
         """Run the full pipeline and return (structural, adoption, report_markdown)."""
-        log_entries = _mod.read_invocations_log(
-            self.tmpdir / ".claude" / "skill-invocations.log"
-        )
+        log_entries = _mod.read_invocations_log(self.tmpdir / ".claude" / "skill-invocations.log")
         passport_result = _mod.read_skill_passports(self.tmpdir / "specs")
         bundle_result = _mod.read_bundle_coverage(self.tmpdir / "plugins")
         notes_path = self.tmpdir / "docs" / "skill-audit-notes.md"
-        structural = _mod.compute_structural_metrics(
-            bundle_result, passport_result, notes_path
-        )
+        structural = _mod.compute_structural_metrics(bundle_result, passport_result, notes_path)
         adoption = _mod.compute_adoption_metrics(log_entries, now=self.now)
         output_path = self.tmpdir / "docs" / "skill-adoption-audit-report.md"
         output_path.parent.mkdir(parents=True, exist_ok=True)

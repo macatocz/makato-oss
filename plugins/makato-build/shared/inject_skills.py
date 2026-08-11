@@ -200,9 +200,7 @@ def _task_hint_ok(bundle: dict, task_text: str | None) -> bool:
     return any(substr in task_text for substr in task_contains)
 
 
-def _bundle_matches_file(
-    bundle: dict, file_path: str, file_text: str | None
-) -> tuple[bool, int]:
+def _bundle_matches_file(bundle: dict, file_path: str, file_text: str | None) -> tuple[bool, int]:
     """Return (matched, best_specificity_score) for a single bundle vs file.
 
     A bundle matches when any of its globs matches AND its content-hint
@@ -233,9 +231,7 @@ def _validate_bundles(bundles: list[dict]) -> dict:
     for i, bundle in enumerate(bundles):
         if "name" not in bundle:
             raise BundleResolutionError(
-                f"skill-bundles config: bundle entry at index {i} is missing "
-                "the required `name` field. Every bundle must declare `name`, "
-                "`globs`, and `skills`.",
+                f"skill-bundles config: bundle entry at index {i} is missing the required `name` field. Every bundle must declare `name`, `globs`, and `skills`.",
                 halt_code="HALT-006",
             )
         name = bundle["name"]
@@ -353,9 +349,7 @@ def resolve_skills(
         for file_path in files:
             if file_path in matched_files:
                 continue
-            default_match, _ = _bundle_matches_file(
-                default_bundle, file_path, texts.get(file_path)
-            )
+            default_match, _ = _bundle_matches_file(default_bundle, file_path, texts.get(file_path))
             if not default_match:
                 unmatched.append(file_path)
         if unmatched:
@@ -407,7 +401,7 @@ def aggregate_bundles(makato_root: Path | str) -> dict:
     for cfg_path in config_paths:
         try:
             raw = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
-        except OSError, yaml.YAMLError:
+        except (OSError, yaml.YAMLError):  # fmt: skip
             continue
         for bundle in raw.get("bundles", []) or []:
             if bundle.get("name") == "default":
@@ -438,9 +432,7 @@ def discover_installed_skills(makato_root: Path | str) -> set[str]:
     D10 subset filter for ``resolve_skills``.
     """
     root = Path(makato_root)
-    return {
-        skill_md.parent.name for skill_md in root.glob("plugins/*/skills/*/SKILL.md")
-    }
+    return {skill_md.parent.name for skill_md in root.glob("plugins/*/skills/*/SKILL.md")}
 
 
 def resolve_skills_for_repo(
@@ -478,9 +470,7 @@ def resolve_skills_for_repo(
         candidate = root / file_path
         try:
             if candidate.is_file():
-                file_texts[file_path] = candidate.read_text(
-                    encoding="utf-8", errors="replace"
-                )
+                file_texts[file_path] = candidate.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
 

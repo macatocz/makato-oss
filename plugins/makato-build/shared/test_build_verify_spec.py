@@ -20,10 +20,7 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 REPO_ROOT = Path(__file__).parent.parent.parent.parent  # makato/
 SRC = REPO_ROOT / "plugins/makato-build/shared/build_verify_spec.py"
-SCRIPT = (
-    REPO_ROOT
-    / "plugins/makato-build/skills/build-verify-spec/references/build-verify-spec.sh"
-)
+SCRIPT = REPO_ROOT / "plugins/makato-build/skills/build-verify-spec/references/build-verify-spec.sh"
 
 # Import module under test
 sys.path.insert(0, str(SRC.parent))
@@ -230,9 +227,7 @@ class TestCorrectness:
         stories = {
             "version": "2.0",
             "slug": "test",
-            "stories": [
-                {"sequence": 1, "summary": "s", "description": "plain string value"}
-            ],
+            "stories": [{"sequence": 1, "summary": "s", "description": "plain string value"}],
         }
         result = check_correctness(json.dumps(stories), DIFF_WITH_WIDGET)
         assert result.skipped or result.ok  # no scenarios extracted → ok/skipped, never error
@@ -397,9 +392,7 @@ class TestBashWrapper:
         assert rc == 2
 
     def test_missing_args_exits_nonzero(self):
-        result = subprocess.run(
-            ["bash", str(SCRIPT)], capture_output=True, text=True, check=False
-        )
+        result = subprocess.run(["bash", str(SCRIPT)], capture_output=True, text=True, check=False)
         assert result.returncode != 0
 
     def test_plan_outside_tasks_not_counted(self):

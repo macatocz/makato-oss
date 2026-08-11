@@ -158,10 +158,7 @@ def detect_drift(data: dict, inventory: dict, repo_root: Path) -> list[str]:
             f"to unmappedSkills in makato-flow.inventory.json)"
         )
     for name in sorted(covered_skills - disk_skills - conceptual):
-        findings.append(
-            f"ERROR: [orphan] skill node '{name}' has no matching skill on disk "
-            f"(rename/remove the node, or declare it under conceptualNodes)"
-        )
+        findings.append(f"ERROR: [orphan] skill node '{name}' has no matching skill on disk (rename/remove the node, or declare it under conceptualNodes)")
 
     # --- Agents ---
     disk_agents = discover_agents(repo_root)
@@ -169,15 +166,9 @@ def detect_drift(data: dict, inventory: dict, repo_root: Path) -> list[str]:
     covered_agents = covered_names(agent_labels, node_sources)
 
     for name in sorted(disk_agents - covered_agents - unmapped_agents):
-        findings.append(
-            f"ERROR: [missing] agent '{name}' exists on disk but no diagram node covers "
-            f"it (add a node or add it to unmappedAgents in makato-flow.inventory.json)"
-        )
+        findings.append(f"ERROR: [missing] agent '{name}' exists on disk but no diagram node covers it (add a node or add it to unmappedAgents in makato-flow.inventory.json)")
     for name in sorted(covered_agents - disk_agents - conceptual):
-        findings.append(
-            f"ERROR: [orphan] agent node '{name}' has no matching agent on disk "
-            f"(rename/remove the node, or declare it under conceptualNodes)"
-        )
+        findings.append(f"ERROR: [orphan] agent node '{name}' has no matching agent on disk (rename/remove the node, or declare it under conceptualNodes)")
 
     # --- Stale edges / flows ---
     node_ids = {n.get("id") for n in data.get("nodes", [])}
@@ -185,32 +176,20 @@ def detect_drift(data: dict, inventory: dict, repo_root: Path) -> list[str]:
     # renderer resolves it to the dashed plugin bounding-box built from every node
     # carrying that `cluster`. Valid cluster names are the distinct `cluster` fields
     # present on the nodes, so a typo'd "cluster:foo" is still caught.
-    cluster_ids = {
-        "cluster:" + n["cluster"] for n in data.get("nodes", []) if n.get("cluster")
-    }
+    cluster_ids = {"cluster:" + n["cluster"] for n in data.get("nodes", []) if n.get("cluster")}
     valid_edge_ids = node_ids | cluster_ids
     for edge in data.get("edges", []):
         for end in ("from", "to"):
             ref = edge.get(end)
             if ref is not None and ref not in valid_edge_ids:
-                hint = (
-                    " (no node has this cluster)"
-                    if isinstance(ref, str) and ref.startswith("cluster:")
-                    else ""
-                )
-                findings.append(
-                    f"ERROR: [stale-edge] edge {end}='{ref}' is not a known node id"
-                    f"{hint}"
-                )
+                hint = " (no node has this cluster)" if isinstance(ref, str) and ref.startswith("cluster:") else ""
+                findings.append(f"ERROR: [stale-edge] edge {end}='{ref}' is not a known node id{hint}")
     flows = data.get("flows", {})
     flow_items = flows.items() if isinstance(flows, dict) else enumerate(flows)
     for scope, flow in flow_items:
         for ref in flow.get("seq", []):
             if ref not in node_ids:
-                findings.append(
-                    f"ERROR: [stale-edge] flow '{scope}' seq id '{ref}' is not a known "
-                    f"node id"
-                )
+                findings.append(f"ERROR: [stale-edge] flow '{scope}' seq id '{ref}' is not a known node id")
 
     return findings
 
@@ -235,9 +214,7 @@ def splice_html(html_text: str, data: dict) -> str:
     return new_text
 
 
-def run(
-    repo_root: Path, html_path: Path, data_path: Path, inventory_path: Path, check: bool
-) -> int:
+def run(repo_root: Path, html_path: Path, data_path: Path, inventory_path: Path, check: bool) -> int:
     """Execute the generator. Returns a process exit code (0 clean, 1 drift/stale)."""
     data = read_json(data_path)
     inventory = read_json(inventory_path) if inventory_path.exists() else {}
@@ -249,11 +226,7 @@ def run(
     if check:
         stale = spliced != html_text
         if stale:
-            findings.append(
-                "ERROR: [stale-html] committed makato-flow.html graph-data differs from "
-                "makato-flow.data.json — run `python3 scripts/generate-flow-diagram.py` "
-                "and commit the result"
-            )
+            findings.append("ERROR: [stale-html] committed makato-flow.html graph-data differs from makato-flow.data.json — run `python3 scripts/generate-flow-diagram.py` and commit the result")
         if findings:
             print("makato-flow drift check: FAIL")
             for f in findings:
@@ -277,9 +250,7 @@ def run(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        description="Validate + regenerate the makato-flow diagram graph-data blob."
-    )
+    parser = argparse.ArgumentParser(description="Validate + regenerate the makato-flow diagram graph-data blob.")
     parser.add_argument(
         "--check",
         action="store_true",

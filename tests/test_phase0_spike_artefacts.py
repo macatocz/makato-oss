@@ -23,23 +23,17 @@ DOCS_DIR = REPO_ROOT / "docs" / "harness-independence"
 
 def test_phase0_spike_results_exists():
     """phase-0-spike-results.md must be committed."""
-    assert (DOCS_DIR / "phase-0-spike-results.md").exists(), (
-        "phase-0-spike-results.md is missing from docs/harness-independence/"
-    )
+    assert (DOCS_DIR / "phase-0-spike-results.md").exists(), "phase-0-spike-results.md is missing from docs/harness-independence/"
 
 
 def test_d16_phase_detection_contract_exists():
     """d16-phase-detection-contract.md must be committed."""
-    assert (DOCS_DIR / "d16-phase-detection-contract.md").exists(), (
-        "d16-phase-detection-contract.md is missing from docs/harness-independence/"
-    )
+    assert (DOCS_DIR / "d16-phase-detection-contract.md").exists(), "d16-phase-detection-contract.md is missing from docs/harness-independence/"
 
 
 def test_q5_migration_scope_exists():
     """q5-migration-scope.md must be committed."""
-    assert (DOCS_DIR / "q5-migration-scope.md").exists(), (
-        "q5-migration-scope.md is missing from docs/harness-independence/"
-    )
+    assert (DOCS_DIR / "q5-migration-scope.md").exists(), "q5-migration-scope.md is missing from docs/harness-independence/"
 
 
 # ---------------------------------------------------------------------------
@@ -51,34 +45,26 @@ def test_d16_is_resolved():
     """D16 must declare RESOLVED status (not PENDING)."""
     content = (DOCS_DIR / "d16-phase-detection-contract.md").read_text()
     assert "RESOLVED" in content, "d16 document must show RESOLVED status"
-    assert "PENDING" not in content or "PENDING" not in content.split("RESOLVED")[0], (
-        "D16 still reads as PENDING — it must be flipped to RESOLVED"
-    )
+    assert "PENDING" not in content or "PENDING" not in content.split("RESOLVED")[0], "D16 still reads as PENDING — it must be flipped to RESOLVED"
 
 
 def test_d16_chooses_option_b():
     """D16 must document Option B (state-file-only) as the chosen option."""
     content = (DOCS_DIR / "d16-phase-detection-contract.md").read_text()
     assert "Option B" in content, "D16 must explicitly choose Option B"
-    assert "state-file-only" in content.lower() or "state-file" in content.lower(), (
-        "D16 must describe the state-file-only detection approach"
-    )
+    assert "state-file-only" in content.lower() or "state-file" in content.lower(), "D16 must describe the state-file-only detection approach"
 
 
 def test_d16_documents_session_id_resume_handle():
     """D16 must document the omp resume handle (session_id)."""
     content = (DOCS_DIR / "d16-phase-detection-contract.md").read_text()
-    assert "session_id" in content, (
-        "D16 must document the session_id field as the resume handle"
-    )
+    assert "session_id" in content, "D16 must document the session_id field as the resume handle"
 
 
 def test_d16_documents_terminal_event_shape():
     """D16 must capture the terminal NDJSON event shape."""
     content = (DOCS_DIR / "d16-phase-detection-contract.md").read_text()
-    assert '"type"' in content and '"result"' in content, (
-        "D16 must include the terminal event shape with type:result"
-    )
+    assert '"type"' in content and '"result"' in content, "D16 must include the terminal event shape with type:result"
 
 
 # ---------------------------------------------------------------------------
@@ -90,21 +76,15 @@ def test_q5_documents_agent_file_count():
     """q5 must document the number of agent files needing modelRole substitution."""
     content = (DOCS_DIR / "q5-migration-scope.md").read_text()
     # The confirmed count is 25 agent .md files (grep -r "^model:" plugins/ | grep "/agents/")
-    assert "25" in content, (
-        "q5 must document 25 agent .md files requiring modelRole substitution"
-    )
+    assert "25" in content, "q5 must document 25 agent .md files requiring modelRole substitution"
 
 
 def test_q5_documents_shell_script_count():
     """q5 must document shell scripts requiring targeted harness rewrite."""
     content = (DOCS_DIR / "q5-migration-scope.md").read_text()
-    assert "5" in content, (
-        "q5 must document 5 shell scripts requiring targeted rewrite"
-    )
+    assert "5" in content, "q5 must document 5 shell scripts requiring targeted rewrite"
     assert "functions.sh" in content, "q5 must name functions.sh as a rewrite target"
-    assert "context-handoff.sh" in content, (
-        "q5 must name context-handoff.sh as a rewrite target"
-    )
+    assert "context-handoff.sh" in content, "q5 must name context-handoff.sh as a rewrite target"
 
 
 def test_q5_documents_makato_harness_bin_seam():
@@ -112,9 +92,7 @@ def test_q5_documents_makato_harness_bin_seam():
     q5 = (DOCS_DIR / "q5-migration-scope.md").read_text()
     phase0 = (DOCS_DIR / "phase-0-spike-results.md").read_text()
     combined = q5 + phase0
-    assert "MAKATO_HARNESS_BIN" in combined or "MAKATO_CLAUDE_BIN" in combined, (
-        "The dispatch seam rename (MAKATO_CLAUDE_BIN → MAKATO_HARNESS_BIN) must be documented"
-    )
+    assert "MAKATO_HARNESS_BIN" in combined or "MAKATO_CLAUDE_BIN" in combined, "The dispatch seam rename (MAKATO_CLAUDE_BIN → MAKATO_HARNESS_BIN) must be documented"
 
 
 def test_q5_count_matches_grep_audit():
@@ -130,14 +108,8 @@ def test_q5_count_matches_grep_audit():
     all_files = [f for f in result.stdout.strip().splitlines() if f]
     agent_files = [f for f in all_files if "/agents/" in f]
     # RETURN-CONTRACT.md is excluded (no model: line — it just lives in agents/)
-    agent_files_with_model = [
-        f for f in agent_files
-        if "RETURN-CONTRACT" not in f
-    ]
-    assert len(agent_files_with_model) == 25, (
-        f"Expected 25 agent .md files with model: frontmatter, found {len(agent_files_with_model)}: "
-        f"{agent_files_with_model}"
-    )
+    agent_files_with_model = [f for f in agent_files if "RETURN-CONTRACT" not in f]
+    assert len(agent_files_with_model) == 25, f"Expected 25 agent .md files with model: frontmatter, found {len(agent_files_with_model)}: {agent_files_with_model}"
 
 
 # ---------------------------------------------------------------------------
@@ -148,18 +120,14 @@ def test_q5_count_matches_grep_audit():
 def test_phase0_documents_omp_absence():
     """phase-0 must document that omp is not installed in this environment."""
     content = (DOCS_DIR / "phase-0-spike-results.md").read_text()
-    assert "not installed" in content.lower() or "not available" in content.lower(), (
-        "phase-0 must document that omp is not installed on the development machine"
-    )
+    assert "not installed" in content.lower() or "not available" in content.lower(), "phase-0 must document that omp is not installed on the development machine"
 
 
 def test_phase0_documents_hermes_fallback_not_triggered():
     """phase-0 must state that the Hermes fallback (D2) is NOT triggered."""
     content = (DOCS_DIR / "phase-0-spike-results.md").read_text()
     assert "Hermes" in content, "phase-0 must address the Hermes fallback gate"
-    assert "NOT triggered" in content or "not triggered" in content.lower(), (
-        "phase-0 must explicitly state the Hermes fallback is not triggered"
-    )
+    assert "NOT triggered" in content or "not triggered" in content.lower(), "phase-0 must explicitly state the Hermes fallback is not triggered"
 
 
 # ---------------------------------------------------------------------------
@@ -170,9 +138,5 @@ def test_phase0_documents_hermes_fallback_not_triggered():
 def test_phase0_documents_filter_browser():
     """phase-0 must document the filterBrowser caveat and workaround."""
     content = (DOCS_DIR / "phase-0-spike-results.md").read_text()
-    assert "filterBrowser" in content or "filter_browser" in content.lower(), (
-        "phase-0 must document the filterBrowser Playwright MCP caveat (Q8)"
-    )
-    assert "false" in content.lower() or "workaround" in content.lower(), (
-        "phase-0 must document the filterBrowser:false workaround"
-    )
+    assert "filterBrowser" in content or "filter_browser" in content.lower(), "phase-0 must document the filterBrowser Playwright MCP caveat (Q8)"
+    assert "false" in content.lower() or "workaround" in content.lower(), "phase-0 must document the filterBrowser:false workaround"

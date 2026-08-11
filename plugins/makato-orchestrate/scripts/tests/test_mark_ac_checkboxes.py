@@ -14,7 +14,7 @@ import json
 import os
 import sys
 
-import pytest
+import pytest  # type: ignore[import]
 
 # ---------------------------------------------------------------------------
 # sys.path wiring — allow ``from mark_ac_checkboxes import …`` whether pytest
@@ -35,17 +35,9 @@ from mark_ac_checkboxes import (  # noqa: E402
 # Helpers
 # ---------------------------------------------------------------------------
 
-_BODY3 = (
-    "## Definition of Done\n"
-    "\n"
-    "- [ ] Alpha behaviour works\n"
-    "- [ ] Beta behaviour works"
-)
+_BODY3 = "## Definition of Done\n\n- [ ] Alpha behaviour works\n- [ ] Beta behaviour works"
 
-_BODY7 = (
-    "- [ ] Completely different wording one\n"
-    "- [ ] Completely different wording two"
-)
+_BODY7 = "- [ ] Completely different wording one\n- [ ] Completely different wording two"
 
 
 def _write(path: str, content: str) -> None:
@@ -130,9 +122,7 @@ class TestMarkCheckboxes:
 
     # T6: normalization pairs AC-N-prefixed text with plain issue line
     def test_T6_normalization_strips_ac_prefix(self) -> None:
-        verdicts = [
-            {"ac_id": "AC-1", "ac_text": "AC-1: Alpha behaviour works.", "verified": True}
-        ]
+        verdicts = [{"ac_id": "AC-1", "ac_text": "AC-1: Alpha behaviour works.", "verified": True}]
         body, summary = mark_checkboxes(verdicts, _BODY3)
         assert "- [x] Alpha behaviour works" in body
         assert summary["mode"] == "granular"
@@ -167,9 +157,7 @@ class TestMarkCheckboxes:
     # T10: indentation and label text preserved byte-for-byte except marker
     def test_T10_indent_and_spacing_preserved(self) -> None:
         body10 = "  - [ ]   Indented alpha with spacing"
-        verdicts = [
-            {"ac_id": "AC-1", "ac_text": "Indented alpha with spacing", "verified": True}
-        ]
+        verdicts = [{"ac_id": "AC-1", "ac_text": "Indented alpha with spacing", "verified": True}]
         body, _ = mark_checkboxes(verdicts, body10)
         assert "  - [x]   Indented alpha with spacing" in body
 

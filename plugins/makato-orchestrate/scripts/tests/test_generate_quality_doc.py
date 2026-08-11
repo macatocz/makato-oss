@@ -12,9 +12,7 @@ import os
 import sys
 
 # Allow imports from scripts/ directory.
-_SCRIPTS = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..")
-)
+_SCRIPTS = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _SCRIPTS not in sys.path:
     sys.path.insert(0, _SCRIPTS)
 
@@ -32,6 +30,7 @@ from generate_quality_doc import (  # noqa: E402,I001
 # Fixtures / helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_issue_folder(specs_dir: str, base: str, domain: str) -> str:
     """Create an issue folder with a plan.md declaring the given domain."""
     folder = os.path.join(specs_dir, base)
@@ -45,20 +44,24 @@ def _make_issue_folder(specs_dir: str, base: str, domain: str) -> str:
 def _write_build_jsonl(folder: str, tests_passing: int, sensor_findings: int) -> None:
     """Write a build.jsonl with test + sensor entries."""
     lines = [
-        json.dumps({
-            "ts": "2026-08-01T10:00:00.000Z",
-            "skill": "build-implement-tdd",
-            "step": "task",
-            "status": "green",
-            "data": {"tests_passing": tests_passing},
-        }),
-        json.dumps({
-            "ts": "2026-08-01T10:05:00.000Z",
-            "skill": "build-sensors",
-            "step": "gate-sensors",
-            "status": "ok",
-            "data": {"findings": sensor_findings},
-        }),
+        json.dumps(
+            {
+                "ts": "2026-08-01T10:00:00.000Z",
+                "skill": "build-implement-tdd",
+                "step": "task",
+                "status": "green",
+                "data": {"tests_passing": tests_passing},
+            }
+        ),
+        json.dumps(
+            {
+                "ts": "2026-08-01T10:05:00.000Z",
+                "skill": "build-sensors",
+                "step": "gate-sensors",
+                "status": "ok",
+                "data": {"findings": sensor_findings},
+            }
+        ),
     ]
     with open(os.path.join(folder, "build.jsonl"), "w") as fh:
         fh.write("\n".join(lines) + "\n")
@@ -80,6 +83,7 @@ def _write_workflow_state(folder: str, issue: int, halt_audit: list) -> None:
 # T1: No issues in domain → empty table body, exit 0
 # ---------------------------------------------------------------------------
 
+
 class TestT1NoDomainIssues:
     """T1: No issues in domain → scorecard written with empty table body, exit 0."""
 
@@ -100,6 +104,7 @@ class TestT1NoDomainIssues:
 # ---------------------------------------------------------------------------
 # T2: tests_passing=42, findings=0, no halts → 42/Yes/0/-/0
 # ---------------------------------------------------------------------------
+
 
 class TestT2FullMetrics:
     """T2: Single issue with full metrics → row shows 42/Yes/0/-/0."""
@@ -126,6 +131,7 @@ class TestT2FullMetrics:
 # T3: gate-sensors findings=3 → sensor_clean = No
 # ---------------------------------------------------------------------------
 
+
 class TestT3SensorFindings:
     """T3: findings=3 → sensor_clean=No."""
 
@@ -149,6 +155,7 @@ class TestT3SensorFindings:
 # T4: two halt_audit entries → HALTs=2, Last HALT=HALT-003
 # ---------------------------------------------------------------------------
 
+
 class TestT4HaltAudit:
     """T4: Two halt_audit entries → HALTs=2, Last HALT=HALT-003."""
 
@@ -156,10 +163,14 @@ class TestT4HaltAudit:
         specs_dir = str(tmp_path / "specs")
         folder = _make_issue_folder(specs_dir, "400-feat-gamma", "t4test")
         _write_build_jsonl(folder, 10, 0)
-        _write_workflow_state(folder, 400, [
-            {"code": "HALT-007", "ts": "2026-08-01T11:00:00.000Z"},
-            {"code": "HALT-003", "ts": "2026-08-01T12:00:00.000Z"},
-        ])
+        _write_workflow_state(
+            folder,
+            400,
+            [
+                {"code": "HALT-007", "ts": "2026-08-01T11:00:00.000Z"},
+                {"code": "HALT-003", "ts": "2026-08-01T12:00:00.000Z"},
+            ],
+        )
 
         rc = generate_quality_doc("t4test", specs_dir)
         assert rc == 0
@@ -175,6 +186,7 @@ class TestT4HaltAudit:
 # ---------------------------------------------------------------------------
 # T5: Re-run preserves Evolution Log, updates scorecard without duplication
 # ---------------------------------------------------------------------------
+
 
 class TestT5EvolutionLogPreserved:
     """T5: Re-run preserves Evolution Log section, updates scorecard, no duplication."""
@@ -192,12 +204,7 @@ class TestT5EvolutionLogPreserved:
 
         # Inject Evolution Log section.
         with open(master, "a") as fh:
-            fh.write(
-                "\n## Evolution Log\n\n"
-                "| Date | Story | Action |\n"
-                "|------|-------|--------|\n"
-                "| 2026-08-01 | 500-feat-delta | archived |\n"
-            )
+            fh.write("\n## Evolution Log\n\n| Date | Story | Action |\n|------|-------|--------|\n| 2026-08-01 | 500-feat-delta | archived |\n")
 
         # Second run with updated metrics.
         _write_build_jsonl(folder, 99, 0)
@@ -219,6 +226,7 @@ class TestT5EvolutionLogPreserved:
 # ---------------------------------------------------------------------------
 # T6: build.jsonl absent → all metrics dash, exit 0
 # ---------------------------------------------------------------------------
+
 
 class TestT6MissingBuildJsonl:
     """T6: Absent build.jsonl → all metrics dash, exit 0."""
@@ -244,6 +252,7 @@ class TestT6MissingBuildJsonl:
 # ---------------------------------------------------------------------------
 # Unit tests for individual functions
 # ---------------------------------------------------------------------------
+
 
 class TestDetectDomain:
     """Unit tests for detect_domain."""
@@ -367,10 +376,7 @@ class TestUpdateOrCreateScorecard:
 
     def test_preserves_content_after_section(self, tmp_path):
         output_file = str(tmp_path / "quality.md")
-        initial = (
-            "## Quality Scorecard\n\nold table\n\n_Last updated: old_\n\n"
-            "## Evolution Log\n\nlog content here\n"
-        )
+        initial = "## Quality Scorecard\n\nold table\n\n_Last updated: old_\n\n## Evolution Log\n\nlog content here\n"
         with open(output_file, "w") as fh:
             fh.write(initial)
         update_or_create_scorecard(output_file, "## Quality Scorecard\n\nnew table\n\n_Last updated: new_")
