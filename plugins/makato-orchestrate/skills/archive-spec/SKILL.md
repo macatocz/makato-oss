@@ -6,7 +6,7 @@ description: >-
   and closes the linked GitHub Issue. Use when: PR merged, feature complete, spec
   superseded, or spec abandoned. Triggers: "archive spec", "archive feature",
   "spec done", "close feature", "mark obsolete", "merge to master spec".
-version: 1.2.1
+version: 1.3.0
 argument-hint: '<spec-folder-name or issue-number>'
 allowed-tools: [Bash]
 ---
@@ -235,9 +235,15 @@ Append a row:
 branch — but the runner path is a **deterministic bash port**, not this LLM skill.
 `scripts/archive-spec.sh` performs the mechanical ARCHIVE steps (derive slug → move
 folder → append an Evolution Log row → close the issue) with no Claude CLI on the
-runner, consistent with the D5 "no LLM in the runner" constraint (#221). Copy
-`workflows/archive-spec.yml` from this plugin into `.github/workflows/` in your consumer
-repo and vendor `scripts/archive-spec.sh` alongside it — no API-key secret required.
+runner, consistent with the D5 "no LLM in the runner" constraint (#221). When the
+folder has **no** `spec-delta.md` (a `to-issues`-born feature never produces one), the
+port first synthesises Current Requirements into `docs/specs/<capability>.md` from
+`plan.md` acceptance criteria / `stories.json` success scenarios via
+`scripts/synthesize_living_spec.py` — so archival never leaves the living index empty
+(#33, honouring the NEVER rule below). When a `spec-delta.md` IS present, synthesis is
+skipped: the `documentation-agent`'s `sync_living_specs.py` delta path owns that case.
+Copy `workflows/archive-spec.yml` from this plugin into `.github/workflows/` in your
+consumer repo and vendor `scripts/archive-spec.sh` alongside it — no API-key secret required.
 
 This SKILL remains the source of truth for the **interactive / model-driven** path:
 the full retrospective spec check, semantic requirement extraction (ADDED / MODIFIED /
