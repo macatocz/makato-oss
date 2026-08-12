@@ -35,6 +35,7 @@
 #   MAKATO_ARCHIVE_DATE                 YYYY-MM-DD → deterministic date prefix
 #   MAKATO_ARCHIVE_SKIP_PUSH            1 → skip `git commit`/`git push`
 #   MAKATO_ARCHIVE_SPECS_ROOT           dir → override the specs/ root (tests)
+#   MAKATO_ARCHIVE_DOCS_DIR             dir → override docs/specs/ (living-spec synthesis)
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
@@ -77,6 +78,17 @@ specs_root() {
     printf '%s\n' "$MAKATO_ARCHIVE_SPECS_ROOT"
   else
     printf '%s/specs\n' "$(repo_root)"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# docs_dir — override-aware docs/specs/ directory (living-spec target).
+# ---------------------------------------------------------------------------
+docs_dir() {
+  if [[ -n "${MAKATO_ARCHIVE_DOCS_DIR:-}" ]]; then
+    printf '%s\n' "$MAKATO_ARCHIVE_DOCS_DIR"
+  else
+    printf '%s/docs/specs\n' "$(repo_root)"
   fi
 }
 
@@ -162,6 +174,38 @@ resolve_folder() {
 
   # No disambiguation hit — fall back to the first sorted match (deterministic).
   printf '%s\n' "${candidates[0]}"
+}
+
+# ---------------------------------------------------------------------------
+# synthesize_living_spec_if_needed <folder>
+# When the folder has NO spec-delta.md, synthesise Current Requirements into
+# docs/specs/<capability>.md from plan.md / stories.json before the folder is
+# moved (#33) — a `to-issues`-born feature never produces a spec-delta.md, so
+# without this its requirements would be entombed in specs/archive/ and a later
+# makato-change would start from an empty living baseline. When spec-delta.md IS
+# present, synthesis is skipped: the documentation-agent's sync_living_specs.py
+# delta path owns that case. Failures are tolerated — archival must not block.
+# ---------------------------------------------------------------------------
+synthesize_living_spec_if_needed() {
+  local folder="$1"
+
+  if [[ -f "$folder/spec-delta.md" ]]; then
+    log notice "spec-delta.md present in $(basename "$folder") — living-spec sync handled by documentation-agent; skipping synthesis"
+    return 0
+  fi
+
+  local script; script="$(dirname "$0")/synthesize_living_spec.py"
+  if [[ ! -f "$script" ]]; then
+    log warning "synthesize_living_spec.py not found next to archive-spec.sh — skipping living-spec synthesis"
+    return 0
+  fi
+
+  local dd; dd="$(docs_dir)"
+  if python3 "$script" "$folder" "$dd" 2>/dev/null; then
+    log notice "synthesised living spec for $(basename "$folder") → ${dd}/$(basename "$folder").md"
+  else
+    log warning "living-spec synthesis failed for $(basename "$folder") — continuing archive"
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -306,6 +350,7 @@ commit_and_push() {
   [[ "${MAKATO_ARCHIVE_SKIP_PUSH:-}" == "1" ]] && { log info "push skipped (MAKATO_ARCHIVE_SKIP_PUSH=1)"; return 0; }
 
   git add -A specs 2>/dev/null || true
+  git add -A docs/specs 2>/dev/null || true
   if git diff --cached --quiet 2>/dev/null; then
     log notice "no tracked spec changes to commit (specs/ likely gitignored) — skipping commit/push"
     return 0
@@ -418,6 +463,8 @@ main() {
   local dest="$root/archive/${date}-${folder_base}"
 
   log notice "archiving '${folder_base}' → archive/${date}-${folder_base} (domain: ${domain})"
+
+  synthesize_living_spec_if_needed "$folder"
 
   append_evolution_log "$master" "$date" "$folder_base" "$summary"
 

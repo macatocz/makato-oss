@@ -16,6 +16,8 @@
 #   T7: epic collision — two folders share a slug, disambiguate by issue number
 #   T8: Evolution Log row appended to an existing master spec
 #   T9: master spec created from template when absent
+#   T10: no spec-delta.md → synthesise docs/specs/<slug>.md before the folder move
+#   T11: spec-delta.md present → synthesis skipped (documentation-agent owns that path)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -39,6 +41,7 @@ new_sandbox() {
 run_archive() {
   local sandbox="$1"; shift
   MAKATO_ARCHIVE_SPECS_ROOT="$sandbox/specs" \
+  MAKATO_ARCHIVE_DOCS_DIR="$sandbox/docs/specs" \
   MAKATO_ARCHIVE_DATE="2026-07-10" \
   MAKATO_ARCHIVE_SKIP_PUSH=1 \
   MAKATO_ARCHIVE_GH_TEST_FILE="$sandbox/gh.log" \
@@ -248,6 +251,81 @@ EOF
   grep -q "# Master Spec: reporting" "$sb/specs/master/reporting.md" 2>/dev/null || { ok=0; err="template heading missing"; }
   grep -q "fresh-feature | Archived" "$sb/specs/master/reporting.md" 2>/dev/null || { ok=0; err="evolution row missing in new master"; }
   [[ "$ok" == 1 ]] && pass "T9" || fail "T9" "${err:-unknown}"
+  rm -rf "$sb"
+}
+
+# ---------------------------------------------------------------------------
+echo "T10: no spec-delta.md → synthesise living spec before folder move"
+{
+  sb="$(new_sandbox)"
+  mkdir -p "$sb/specs/t10-synth-feature"
+  cat >"$sb/specs/t10-synth-feature/plan.md" <<'EOF'
+domain: workflows
+# Implementation Plan: t10-synth-feature
+
+## Story
+**Title:** T10 synthesise living spec on archival
+
+## Acceptance criteria
+
+- Archiving a to-issues folder SHALL synthesise a living spec.
+- The living spec SHALL be non-empty afterwards.
+EOF
+  cat >"$sb/body.txt" <<'EOF'
+*Feature slug: `t10-synth-feature` — produced by to-issues v3.4.0.*
+EOF
+  MAKATO_ARCHIVE_ISSUE_BODY_OVERRIDE="$sb/body.txt" \
+  MAKATO_ARCHIVE_ISSUE_STATE_OVERRIDE=OPEN \
+    run_archive "$sb" --issue 33 || fail "T10" "non-zero exit"
+  ok=1
+  target="$sb/docs/specs/t10-synth-feature.md"
+  # (a) living spec synthesised with at least one ### requirement section
+  [[ -f "$target" ]] || { ok=0; err="living spec not synthesised"; }
+  grep -q '^### ' "$target" 2>/dev/null || { ok=0; err="no ### requirement section in living spec"; }
+  grep -q '\*\*SHALL\*\*: Archiving a to-issues folder' "$target" 2>/dev/null || { ok=0; err="AC not rendered as SHALL bullet"; }
+  # (b) spec folder still moved to archive
+  [[ -d "$sb/specs/archive/2026-07-10-t10-synth-feature" ]] || { ok=0; err="spec folder not archived"; }
+  [[ ! -d "$sb/specs/t10-synth-feature" ]] || { ok=0; err="source folder still present"; }
+  # (c) Evolution Log row still appended
+  grep -q "t10-synth-feature | Archived" "$sb/specs/master/workflows.md" 2>/dev/null || { ok=0; err="evolution log row missing"; }
+  [[ "$ok" == 1 ]] && pass "T10" || fail "T10" "${err:-unknown}"
+  rm -rf "$sb"
+}
+
+# ---------------------------------------------------------------------------
+echo "T11: spec-delta.md present → synthesis skipped"
+{
+  sb="$(new_sandbox)"
+  mkdir -p "$sb/specs/t11-delta-feature"
+  cat >"$sb/specs/t11-delta-feature/plan.md" <<'EOF'
+domain: workflows
+# Implementation Plan: t11-delta-feature
+
+## Acceptance criteria
+
+- This AC SHALL NOT be synthesised because a spec-delta.md exists.
+EOF
+  # A spec-delta.md is present → the documentation-agent delta path owns sync.
+  cat >"$sb/specs/t11-delta-feature/spec-delta.md" <<'EOF'
+## ADDED Requirements
+
+### Delta-owned requirement
+
+**SHALL**: handled by sync_living_specs, not archive-spec.
+EOF
+  cat >"$sb/body.txt" <<'EOF'
+*Feature slug: `t11-delta-feature` — produced by to-issues v3.4.0.*
+EOF
+  MAKATO_ARCHIVE_ISSUE_BODY_OVERRIDE="$sb/body.txt" \
+  MAKATO_ARCHIVE_ISSUE_STATE_OVERRIDE=OPEN \
+    run_archive "$sb" --issue 34 || fail "T11" "non-zero exit"
+  ok=1
+  # archive-spec must NOT synthesise when spec-delta.md is present.
+  [[ ! -f "$sb/docs/specs/t11-delta-feature.md" ]] || { ok=0; err="living spec synthesised despite spec-delta.md present"; }
+  grep -q "skipping synthesis" "$sb/stderr.log" 2>/dev/null || { ok=0; err="skip notice missing from stderr"; }
+  # folder still archived normally
+  [[ -d "$sb/specs/archive/2026-07-10-t11-delta-feature" ]] || { ok=0; err="spec folder not archived"; }
+  [[ "$ok" == 1 ]] && pass "T11" || fail "T11" "${err:-unknown}"
   rm -rf "$sb"
 }
 
