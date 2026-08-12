@@ -74,6 +74,10 @@ vars:
 - { var: ORPHAN_STALE_SECS,       env: MAKATO_ORPHAN_STALE_SECS,      default: "3600" }
 - { var: ORPHAN_DETECT_DISABLE,   env: MAKATO_ORPHAN_DETECT_DISABLE,  default: "0" }
 
+# --- Stale status:blocked reconciliation + anti-starvation (#32) ---
+- { var: RECONCILE_BLOCKED_ON_POLL,   env: MAKATO_LOOP_RECONCILE_BLOCKED_ON_POLL,   default: "1" }
+- { var: STALE_BLOCKED_ESCALATE_AFTER, env: MAKATO_LOOP_STALE_BLOCKED_ESCALATE_AFTER, default: "3" }
+
 # --- workflow-state prune pass (#597) ---
 - { var: MAKATO_LOOP_PRUNE_ON_RUN, env: MAKATO_LOOP_PRUNE_ON_RUN,     default: "0" }
 - { var: MAKATO_LOOP_PRUNE_AGE_DAYS, env: MAKATO_LOOP_PRUNE_AGE_DAYS, default: "30" }
