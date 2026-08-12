@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.154.2](https://github.com/macatocz/makato-oss/compare/v0.154.1...v0.154.2) (2026-08-12)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** heal stale status:blocked so a merged-blocker card can't starve the loop queue ([#32](https://github.com/macatocz/makato-oss/issues/32)) ([c8e12a0](https://github.com/macatocz/makato-oss/commit/c8e12a0e5e0536feaaf6b95cbc0b60b5eca3cb49))
+* **makato-orchestrate:** heal stale status:blocked so a merged-blocker card can't starve the loop queue ([#32](https://github.com/macatocz/makato-oss/issues/32)) ([0bd96c2](https://github.com/macatocz/makato-oss/commit/0bd96c257a76803e524800595f78e77feec4da79))
+
 ## [0.154.1](https://github.com/macatocz/makato-oss/compare/v0.154.0...v0.154.1) (2026-08-11)
 
 
