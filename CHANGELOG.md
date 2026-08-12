@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.154.1](https://github.com/macatocz/makato-oss/compare/v0.154.0...v0.154.1) (2026-08-11)
+
+
+### 🐛 Bug Fixes
+
+* **orchestrate:** reconcile stops stamping status:ready-for-dev; gate tolerates it ([253244a](https://github.com/macatocz/makato-oss/commit/253244a3f912703d1bb4318b67517e0d66be9807))
+
 ## [0.154.0](https://github.com/macatocz/makato-oss/compare/v0.153.2...v0.154.0) (2026-08-11)
 
 
