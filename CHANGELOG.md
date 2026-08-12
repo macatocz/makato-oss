@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.154.3](https://github.com/macatocz/makato-oss/compare/v0.154.2...v0.154.3) (2026-08-12)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** synthesize living spec on archival for to-issues features ([#33](https://github.com/macatocz/makato-oss/issues/33)) ([0b56f1c](https://github.com/macatocz/makato-oss/commit/0b56f1c63020cc8e967bfe1be76fab22e064534c))
+
 ## [0.154.2](https://github.com/macatocz/makato-oss/compare/v0.154.1...v0.154.2) (2026-08-12)
 
 
