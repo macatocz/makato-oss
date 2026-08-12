@@ -612,6 +612,97 @@ _label_conflict_stamp() {
   _post_halt_comment "HALT-006" "$issue" "${MAKATO_LOOP_DISPATCH_REPO:-}" || true
 }
 
+# _gate_label_remove <issue> <repo> <label> — best-effort label removal that
+# honours MAKATO_LOOP_LABEL_TEST_FILE for offline capture (#32).
+_gate_label_remove() {
+  local issue="$1" repo="$2" label="$3"
+  if [[ -n "${MAKATO_LOOP_LABEL_TEST_FILE:-}" ]]; then
+    echo "unlabel #${issue} ${label}" >>"$MAKATO_LOOP_LABEL_TEST_FILE"
+    return 0
+  fi
+  local -a rf=(); [[ -n "$repo" ]] && rf=(--repo "$repo")
+  gh issue edit "$issue" "${rf[@]}" --remove-label "$label" >/dev/null 2>&1 || true
+}
+
+# _gate_stamp_needs_human_review <issue> <repo> — best-effort needs-human-review
+# stamp for the #32 anti-starvation escalation. Distinct from _label_conflict_stamp:
+# no HALT-006 comment (this is a starvation escalation, not a missing spec).
+# Honours MAKATO_LOOP_LABEL_TEST_FILE for offline capture.
+_gate_stamp_needs_human_review() {
+  local issue="$1" repo="$2"
+  if [[ -n "${MAKATO_LOOP_LABEL_TEST_FILE:-}" ]]; then
+    echo "label #${issue} needs-human-review" >>"$MAKATO_LOOP_LABEL_TEST_FILE"
+    return 0
+  fi
+  local -a rf=(); [[ -n "$repo" ]] && rf=(--repo "$repo")
+  if ! gh label list "${rf[@]}" 2>/dev/null | grep -q "^needs-human-review"; then
+    gh label create "needs-human-review" "${rf[@]}" \
+      --color "E4E669" --description "Requires human review" >/dev/null 2>&1 || true
+  fi
+  if gh issue edit "$issue" "${rf[@]}" --add-label "needs-human-review" >/dev/null 2>&1; then
+    echo "loop: gate — applied 'needs-human-review' to #$issue (stale-blocked starvation)" >&2
+  else
+    echo "loop: WARN — gate: could not stamp needs-human-review on #$issue (best-effort)" >&2
+  fi
+}
+
+# _reset_stale_blocked_skips <issue> — clear the per-issue consecutive-skip
+# counter after a successful self-heal or dispatch (#32).
+_reset_stale_blocked_skips() { _patch_status ".stale_blocked_skips.\"${1}\"" '0'; }
+
+# _check_and_heal_stale_blocked <ISSUE_NUMBER> <REPO> <LABELS_JSON> — #32 gate
+# anti-starvation. Reads the issue's blocked-by:N labels from the already-fetched
+# LABELS_JSON (no extra fetch). If EVERY listed blocker is resolved (state CLOSED
+# or stateReason COMPLETED — the merged-PR signal), strips the stale blocked-by:*
+# and status:blocked labels and returns 1 (self-healed → caller lets dispatch
+# proceed). Otherwise increments a per-issue consecutive-skip counter in
+# loop-status.json (.stale_blocked_skips."<n>"); once it reaches
+# STALE_BLOCKED_ESCALATE_AFTER (default 3) it stamps needs-human-review, and
+# returns 0 (caller skips as before) so one stale card cannot starve the queue
+# forever. Blocker state is read via gh, or from MAKATO_LOOP_BLOCKER_STATE_OVERRIDE
+# (test seam: JSON { "<n>": {"state":..,"stateReason":..} }).
+_check_and_heal_stale_blocked() {
+  local issue="$1" repo="$2" labels_json="$3"
+
+  local blockers
+  blockers="$(jq -r '[.labels[].name | select(startswith("blocked-by:")) | ltrimstr("blocked-by:")] | .[]' \
+    <<<"$labels_json" 2>/dev/null || true)"
+
+  local all_resolved=1 have_blockers=0 bn bjson bstate breason
+  for bn in $blockers; do
+    have_blockers=1
+    if [[ -n "${MAKATO_LOOP_BLOCKER_STATE_OVERRIDE:-}" ]]; then
+      bjson="$(jq -c --arg n "$bn" '.[$n] // {}' "$MAKATO_LOOP_BLOCKER_STATE_OVERRIDE" 2>/dev/null || echo '{}')"
+    else
+      local -a bf=(); [[ -n "$repo" ]] && bf=(--repo "$repo")
+      bjson="$(gh issue view "$bn" "${bf[@]}" --json state,stateReason 2>/dev/null || echo '{}')"
+    fi
+    bstate="$(jq -r '.state // ""' <<<"$bjson" 2>/dev/null || echo '')"
+    breason="$(jq -r '.stateReason // ""' <<<"$bjson" 2>/dev/null || echo '')"
+    [[ "$bstate" != "CLOSED" && "$breason" != "COMPLETED" ]] && all_resolved=0
+  done
+
+  if [[ "$have_blockers" == "1" && "$all_resolved" == "1" ]]; then
+    for bn in $blockers; do
+      _gate_label_remove "$issue" "$repo" "blocked-by:${bn}"
+    done
+    _gate_label_remove "$issue" "$repo" "status:blocked"
+    echo "loop: gate — #${issue} status:blocked was stale (all blockers resolved); self-healed → dispatching" >&2
+    return 1
+  fi
+
+  local skips threshold
+  skips="$(_read_status | jq -r --arg i "$issue" '(.stale_blocked_skips[$i] // 0)' 2>/dev/null || echo 0)"
+  skips=$(( skips + 1 ))
+  _patch_status ".stale_blocked_skips.\"${issue}\"" "$skips"
+  threshold="${STALE_BLOCKED_ESCALATE_AFTER:-3}"
+  if [[ "$skips" -ge "$threshold" ]]; then
+    echo "loop: gate — #${issue} status:blocked skipped ${skips}× (>= ${threshold}) with unresolved blockers; escalating to needs-human-review" >&2
+    _gate_stamp_needs_human_review "$issue" "$repo"
+  fi
+  return 0
+}
+
 # cmd_check_halt — exit 0 if HALT_FILE absent, exit 1 if present.
 cmd_check_halt() {
   if [[ -e "$HALT_FILE" ]]; then
@@ -3629,6 +3720,22 @@ cmd_dispatch() {
         --argjson excl "$(printf '%s\n' $_PROMOTE_EXCLUSION_LABELS | jq -R . | jq -s .)" \
         '[.labels[].name] as $lbls | $excl[] | select(. as $e | $lbls | any(. == $e)) | .' \
         <<<"$gate_labels_json" 2>/dev/null | head -1 || true)"
+    fi
+    if [[ -n "$gate_veto_label" ]]; then
+      # #32 anti-starvation — a status:blocked veto may be STALE (every
+      # blocked-by:N predecessor already merged/closed). Self-heal and dispatch
+      # instead of skipping this head-of-queue card forever; if the blockers are
+      # genuinely unresolved, count the skip and escalate to needs-human-review
+      # after STALE_BLOCKED_ESCALATE_AFTER consecutive skips. Returns 1 when it
+      # healed → clear the veto and let dispatch fall through.
+      if [[ "$gate_veto_label" == "status:blocked" ]]; then
+        if _check_and_heal_stale_blocked "$issue" "$repo" "$gate_labels_json"; then
+          : # still blocked (or just escalated) → keep veto, skip below
+        else
+          _reset_stale_blocked_skips "$issue"
+          gate_veto_label=""
+        fi
+      fi
     fi
     if [[ -n "$gate_veto_label" ]]; then
       echo "loop: gate — #${issue} carries exclusion label '${gate_veto_label}'; skip dispatch" >&2

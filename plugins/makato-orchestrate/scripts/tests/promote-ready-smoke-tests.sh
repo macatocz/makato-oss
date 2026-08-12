@@ -477,5 +477,92 @@ grep -q "_reconcile_blocked_by_labels$" "$PR" \
   || fail "T-reconcile-3: _reconcile_blocked_by_labels is not called (no bare call line found)"
 pass "_reconcile_blocked_by_labels called from cmd_run"
 
+# ---------------------------------------------------------------------------
+# T-SB-1/2/3: reconcile-blocked functional tests (#32) — stale-blocked heal,
+# merged-PR (stateReason=COMPLETED) signal, and rate-limit retry + WARN.
+# Fully offline via a stateful PATH gh stub that records removed labels so the
+# reconciler's "fully unblocked?" re-check sees them gone.
+# ---------------------------------------------------------------------------
+SB_BIN="$SANDBOX/sbbin"
+mkdir -p "$SB_BIN"
+cat > "$SB_BIN/gh" <<'STUB'
+#!/usr/bin/env bash
+# Minimal stateful gh stub for reconcile-blocked smoke tests (#32).
+args=("$@"); sub="$1 $2"
+emit() { # $1=json ; applies a trailing --jq filter if present
+  local json="$1" i jqf=""
+  for ((i=0;i<${#args[@]};i++)); do [[ "${args[$i]}" == "--jq" ]] && jqf="${args[$((i+1))]}"; done
+  if [[ -n "$jqf" ]]; then jq -r "$jqf" <<<"$json"; else echo "$json"; fi
+}
+case "$sub" in
+  "repo view") emit '{"nameWithOwner":"test/repo"}' ;;
+  "issue list") emit "${GH_STUB_ISSUE_LIST:-[]}" ;;
+  "issue view")
+    n="$3"
+    if [[ "$n" == "${GH_STUB_DEP:-564}" ]]; then
+      json="${GH_STUB_DEP_JSON}"
+      if [[ -s "${GH_STUB_REMOVED:-/dev/null}" ]]; then
+        while IFS= read -r rl; do
+          [[ -z "$rl" ]] && continue
+          json="$(jq --arg l "$rl" '.labels |= map(select(.name != $l))' <<<"$json")"
+        done < "${GH_STUB_REMOVED}"
+      fi
+      emit "$json"
+    else
+      emit "$(jq -n --arg s "${GH_STUB_BLOCKER_STATE:-OPEN}" --arg r "${GH_STUB_BLOCKER_REASON:-}" \
+        '{state:$s, stateReason:(if $r=="" then null else $r end)}')"
+    fi
+    ;;
+  "issue edit")
+    ex="${GH_STUB_EDIT_EXIT:-0}"
+    echo "edit $*" >> "${GH_STUB_EDIT_LOG:-/dev/null}"
+    if [[ "$ex" == "0" ]]; then
+      for ((i=0;i<${#args[@]};i++)); do
+        [[ "${args[$i]}" == "--remove-label" ]] && echo "${args[$((i+1))]}" >> "${GH_STUB_REMOVED:-/dev/null}"
+      done
+    fi
+    exit "$ex"
+    ;;
+  "label list") echo "" ;;
+  *) : ;;
+esac
+STUB
+chmod +x "$SB_BIN/gh"
+
+SB_LIST='[{"number":564,"labels":[{"name":"blocked-by:563"},{"name":"status:blocked"}]}]'
+SB_DEP_JSON='{"labels":[{"name":"blocked-by:563"},{"name":"status:blocked"}]}'
+
+echo "=== T-SB-1: reconcile-blocked heals a stale status:blocked (blocker CLOSED) ==="
+SB_LOG="$SANDBOX/sb1-edit.log"; SB_REMOVED="$SANDBOX/sb1-removed"; : >"$SB_LOG"; : >"$SB_REMOVED"
+PATH="$SB_BIN:$PATH" MAKATO_RECONCILE_RETRY_SLEEP=0 \
+  GH_STUB_ISSUE_LIST="$SB_LIST" GH_STUB_DEP=564 GH_STUB_DEP_JSON="$SB_DEP_JSON" \
+  GH_STUB_EDIT_LOG="$SB_LOG" GH_STUB_REMOVED="$SB_REMOVED" GH_STUB_BLOCKER_STATE=CLOSED \
+  bash "$PR" reconcile-blocked >/dev/null 2>&1 || fail "T-SB-1: reconcile-blocked exited non-zero"
+grep -q -- "--remove-label blocked-by:563" "$SB_LOG" || fail "T-SB-1: blocked-by:563 not removed: $(cat "$SB_LOG")"
+grep -q -- "--remove-label status:blocked"  "$SB_LOG" || fail "T-SB-1: status:blocked not removed: $(cat "$SB_LOG")"
+pass "stale status:blocked healed (both labels removed) when blocker CLOSED"
+
+echo "=== T-SB-2: merged-PR signal — stateReason=COMPLETED counts as resolved ==="
+SB_LOG="$SANDBOX/sb2-edit.log"; SB_REMOVED="$SANDBOX/sb2-removed"; : >"$SB_LOG"; : >"$SB_REMOVED"
+PATH="$SB_BIN:$PATH" MAKATO_RECONCILE_RETRY_SLEEP=0 \
+  GH_STUB_ISSUE_LIST="$SB_LIST" GH_STUB_DEP=564 GH_STUB_DEP_JSON="$SB_DEP_JSON" \
+  GH_STUB_EDIT_LOG="$SB_LOG" GH_STUB_REMOVED="$SB_REMOVED" GH_STUB_BLOCKER_STATE=OPEN GH_STUB_BLOCKER_REASON=COMPLETED \
+  bash "$PR" reconcile-blocked >/dev/null 2>&1 || fail "T-SB-2: reconcile-blocked exited non-zero"
+grep -q -- "--remove-label blocked-by:563" "$SB_LOG" || fail "T-SB-2: blocked-by:563 not removed on COMPLETED: $(cat "$SB_LOG")"
+grep -q -- "--remove-label status:blocked"  "$SB_LOG" || fail "T-SB-2: status:blocked not removed on COMPLETED: $(cat "$SB_LOG")"
+pass "merged-PR (stateReason=COMPLETED) treated as resolved"
+
+echo "=== T-SB-3: rate-limit during removal → bounded retry + WARN, no silent swallow ==="
+SB_LOG="$SANDBOX/sb3-edit.log"; SB_REMOVED="$SANDBOX/sb3-removed"; SB_ERR="$SANDBOX/sb3-stderr.log"
+: >"$SB_LOG"; : >"$SB_REMOVED"; : >"$SB_ERR"
+PATH="$SB_BIN:$PATH" MAKATO_RECONCILE_RETRY_SLEEP=0 MAKATO_RECONCILE_LABEL_RETRIES=3 \
+  GH_STUB_ISSUE_LIST="$SB_LIST" GH_STUB_DEP=564 GH_STUB_DEP_JSON="$SB_DEP_JSON" \
+  GH_STUB_EDIT_LOG="$SB_LOG" GH_STUB_REMOVED="$SB_REMOVED" GH_STUB_BLOCKER_STATE=CLOSED GH_STUB_EDIT_EXIT=1 \
+  bash "$PR" reconcile-blocked >/dev/null 2>"$SB_ERR" || fail "T-SB-3: reconcile-blocked aborted on label-remove failure (should continue best-effort)"
+grep -q "reconcile: WARN — could not remove label" "$SB_ERR" || fail "T-SB-3: no WARN logged on retry exhaustion: $(cat "$SB_ERR")"
+[[ "$(grep -c -- "--remove-label blocked-by:563" "$SB_LOG")" -ge 3 ]] \
+  || fail "T-SB-3: expected >=3 retry attempts, got $(grep -c -- '--remove-label blocked-by:563' "$SB_LOG")"
+pass "rate-limit triggers bounded retry and logs WARN on exhaustion (no silent swallow)"
+
 echo
-echo "=== ALL PROMOTE-READY SMOKE TESTS PASSED (T1–T13, T-pjson-valid, T-pjson-collision, T-VCR-6–T-VCR-9, T-reconcile-1–T-reconcile-3, T-PROMOTE-CLOSED-SKIP, T-PROMOTE-CLOSED-SKIP-TODO) ==="
+echo "=== ALL PROMOTE-READY SMOKE TESTS PASSED (T1–T13, T-pjson-valid, T-pjson-collision, T-VCR-6–T-VCR-9, T-reconcile-1–T-reconcile-3, T-SB-1–T-SB-3, T-PROMOTE-CLOSED-SKIP, T-PROMOTE-CLOSED-SKIP-TODO) ==="

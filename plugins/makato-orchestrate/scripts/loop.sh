@@ -277,6 +277,30 @@ cmd_run() {
       _reconcile_orphaned_stale || true
     fi
 
+    # Pre-poll stale status:blocked reconciliation (#32): heal issues whose only
+    # blocked-by:N predecessor is already merged/closed but whose stale
+    # status:blocked label still vetoes them in the dispatch gate — silently
+    # starving the queue. The safety-net (_reconcile_blocked_by_labels) lived
+    # only in promote-ready.sh's promote mode, so a plain `run --status Ready`
+    # never triggered it. Run it every tick as a standalone pass, independent of
+    # ALLOW_TODO. Best-effort — a non-zero exit is logged and the tick continues.
+    # Skipped under --dry-run. Toggle via MAKATO_LOOP_RECONCILE_BLOCKED_ON_POLL.
+    if [[ "${RECONCILE_BLOCKED_ON_POLL}" != "0" && -z "$dry_run" ]]; then
+      local _rb_bin="${MAKATO_PROMOTE_PATH:-}"
+      if [[ -z "$_rb_bin" ]]; then
+        _rb_bin="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/promote-ready.sh"
+      fi
+      if [[ -x "$_rb_bin" ]]; then
+        local _rb_rc=0
+        "$_rb_bin" reconcile-blocked 2>&1 | while IFS= read -r _line; do
+          echo "loop: reconcile-blocked: $_line" >&2
+        done || _rb_rc=$?
+        if [[ "$_rb_rc" -ne 0 ]]; then
+          echo "loop: reconcile-blocked: promote-ready.sh exited $_rb_rc (logged, tick continues)" >&2
+        fi
+      fi
+    fi
+
     # Pre-poll reshape pass (#350, epic #319): detect issues at board Status=Needs
     # Planning and drive a bounded makato-plan re-shape. Runs before auto-seed so
     # a reshaped issue can be seeded in the same tick. Feature-flagged off by
@@ -547,6 +571,12 @@ if [[ "$SUBCMD" == _test-* ]]; then
     # _test-gh-json-valid <json> — exercise _gh_json_valid directly; exits 0 on
     # parseable JSON, 1 otherwise. (#447).
     _test-gh-json-valid) _gh_json_valid "$@" ;;
+    # _test-check-heal-stale-blocked <issue> <repo> <labels_json> — exercise the
+    # #32 gate anti-starvation helper. Blocker state comes from
+    # MAKATO_LOOP_BLOCKER_STATE_OVERRIDE; label writes go to MAKATO_LOOP_LABEL_TEST_FILE;
+    # the per-issue skip counter persists in loop-status.json under MAKATO_LOOP_STATE_DIR.
+    # Exits 1 when self-healed (dispatch proceeds), 0 when skipped/escalated.
+    _test-check-heal-stale-blocked) _check_and_heal_stale_blocked "$@" ;;
     # _test-auto-seed-candidates — exercise _auto_seed_candidates deterministically
     # using MAKATO_LOOP_AUTOSEED_OVERRIDE fixture. Returns JSON array to stdout.
     # (#369, epic #367 S1).

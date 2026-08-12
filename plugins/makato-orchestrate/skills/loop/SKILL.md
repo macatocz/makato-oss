@@ -14,7 +14,7 @@ description: >-
   or running a single dispatch cycle with --once. Trigger keywords:
   autonomous, polling, board, Ready, unattended, GAP-007, loop run,
   dispatch queue.
-version: "2.3.0"
+version: "2.4.0"
 argument-hint: "[--status <NAME>] [--interval <S>] [--dry-run] [--once] [--force]"
 allowed-tools: [Bash]
 metadata:

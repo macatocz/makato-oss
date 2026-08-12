@@ -15,7 +15,7 @@ description: >-
   `plan.md` collision, #173). `--dry-run` / `plan` prints the
   recommendation without touching the board. `--json` emits machine-readable
   plan output consumed by `loop`'s `_dependency_order` helper.
-version: "1.2.0"
+version: "1.3.0"
 argument-hint: "[SLUG] [--dry-run] [--yes] [--json]"
 allowed-tools: Bash(plugins/makato-orchestrate/scripts/promote-ready.sh *) Bash(gh project *) Bash(jq *) Bash(python3 *) Read
 metadata:

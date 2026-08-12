@@ -125,6 +125,8 @@ directly in `functions.sh`).
 | `RECONCILE_DRYRUN` | `MAKATO_LOOP_RECONCILE_DRYRUN` | `0` | `1` = report only. |
 | `ORPHAN_STALE_SECS` | `MAKATO_ORPHAN_STALE_SECS` | `3600` | Age before a present-but-dead workflow-state is a stale orphan. |
 | `ORPHAN_DETECT_DISABLE` | `MAKATO_ORPHAN_DETECT_DISABLE` | `0` | `1` disables stale-orphan detection. |
+| `RECONCILE_BLOCKED_ON_POLL` | `MAKATO_LOOP_RECONCILE_BLOCKED_ON_POLL` | `1` | `0` disables the pre-poll `reconcile-blocked` pass that heals stale `blocked-by:N` / `status:blocked` labels every tick (#32). |
+| `STALE_BLOCKED_ESCALATE_AFTER` | `MAKATO_LOOP_STALE_BLOCKED_ESCALATE_AFTER` | `3` | Consecutive gate skips of the same `status:blocked` card with unresolved blockers before it is escalated to `needs-human-review` (anti-starvation, #32). |
 
 ## workflow-state prune pass (#597)
 

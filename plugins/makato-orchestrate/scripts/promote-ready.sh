@@ -598,6 +598,28 @@ _promote_one() {
 # FORWARD-ONLY: only promotes issues whose current Status ∈ {Todo, Blocked,
 # off-board} — never demotes an issue that has already advanced.
 # ---------------------------------------------------------------------------
+# _gh_label_remove_with_retry <issue> <repo> <label> — remove a label with
+# bounded retry + backoff (#32, Fix 2). Replaces the silent `2>/dev/null || true`
+# swallow so a GitHub rate-limit (403/429) hit during removal is retried rather
+# than vanishing. On exhaustion it logs a WARN (the stuck label is now visible)
+# and returns 1 — but never aborts the caller's reconcile loop. Backoff base is
+# MAKATO_RECONCILE_RETRY_SLEEP seconds (default 2 → 2s then 4s; set 0 in tests).
+_gh_label_remove_with_retry() {
+  local issue="$1" repo="$2" label="$3"
+  local attempts="${MAKATO_RECONCILE_LABEL_RETRIES:-3}"
+  local base="${MAKATO_RECONCILE_RETRY_SLEEP:-2}"
+  local i=1
+  while (( i <= attempts )); do
+    if gh issue edit "$issue" --repo "$repo" --remove-label "$label" >/dev/null 2>&1; then
+      return 0
+    fi
+    (( i < attempts )) && sleep "$(( base * i ))"
+    i=$(( i + 1 ))
+  done
+  _log "reconcile: WARN — could not remove label ${label} from #${issue} after ${attempts} retries (rate-limit?)"
+  return 1
+}
+
 _reconcile_blocked_by_labels() {
   local repo_name
   repo_name="$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null || true)"
@@ -625,13 +647,18 @@ _reconcile_blocked_by_labels() {
       --jq '[.labels[].name | select(startswith("blocked-by:")) | ltrimstr("blocked-by:")] | .[]' \
       2>/dev/null || true)"
 
-    local blocker_num blocker_state
+    local blocker_num blocker_json blocker_state blocker_reason
     for blocker_num in $blockers; do
-      blocker_state="$(gh issue view "$blocker_num" --repo "$repo_name" \
-        --json state --jq '.state' 2>/dev/null || echo '')"
-      if [[ "$blocker_state" == "CLOSED" ]]; then
-        gh issue edit "$dep" --repo "$repo_name" \
-          --remove-label "blocked-by:${blocker_num}" 2>/dev/null || true
+      # #32 Fix 2 — a blocker counts as resolved when it is CLOSED *or* when its
+      # stateReason is COMPLETED (the signal GitHub stamps when a merged PR
+      # closed it). Fetching both in one view call keeps the merged-PR case from
+      # being missed just because the issue node still reads state=OPEN briefly.
+      blocker_json="$(gh issue view "$blocker_num" --repo "$repo_name" \
+        --json state,stateReason 2>/dev/null || echo '{}')"
+      blocker_state="$(jq -r '.state // ""' <<<"$blocker_json" 2>/dev/null || echo '')"
+      blocker_reason="$(jq -r '.stateReason // ""' <<<"$blocker_json" 2>/dev/null || echo '')"
+      if [[ "$blocker_state" == "CLOSED" || "$blocker_reason" == "COMPLETED" ]]; then
+        _gh_label_remove_with_retry "$dep" "$repo_name" "blocked-by:${blocker_num}" || true
         _log "reconcile: removed stale blocked-by:${blocker_num} from #${dep}"
       fi
     done
@@ -648,8 +675,7 @@ _reconcile_blocked_by_labels() {
       # Status=Ready is owned by the wave-promotion pass / webhook sync, not a label.
       # Stamping it here only re-created a label-board conflict (functions.sh
       # _label_board_conflict) that HALTed the card on the next dispatch.
-      gh issue edit "$dep" --repo "$repo_name" \
-        --remove-label "status:blocked" 2>/dev/null || true
+      _gh_label_remove_with_retry "$dep" "$repo_name" "status:blocked" || true
       _log "reconcile: cleared stale status:blocked from #${dep} (all blockers closed)"
     fi
   done < <(printf '%s' "$issues_json" | jq -r '.[].number' 2>/dev/null || true)
@@ -759,6 +785,12 @@ cmd_run() {
 # ---------------------------------------------------------------------------
 cmd_plan() { cmd_run "$@" --dry-run; }
 
+# cmd_reconcile_blocked — standalone entry point (#32) that runs ONLY the stale
+# blocked-by / status:blocked safety-net, with no wave-promotion pass. Invoked
+# by loop.sh's pre-poll reconcile-blocked pass every tick so the heal runs in
+# plain `run --status Ready` mode, not just when ALLOW_TODO promotes.
+cmd_reconcile_blocked() { _reconcile_blocked_by_labels; }
+
 usage() {
   cat >&2 <<'EOF'
 Usage: promote-ready.sh <command> [SLUG] [options]
@@ -772,6 +804,12 @@ Commands:
   plan [SLUG] [--json]     Recommendation only; never mutates the board
                            (alias for `run --dry-run`). Pass --json to
                            print the raw plan JSON instead of the report.
+  reconcile-blocked        Run only the stale blocked-by / status:blocked
+                           safety-net (no wave-promotion). Removes
+                           blocked-by:N once N is closed or its stateReason
+                           is COMPLETED (merged PR), and clears status:blocked
+                           when no blockers remain. Used by loop.sh's pre-poll
+                           pass (#32).
 
 Options:
   --dry-run   Print the recommendation; make no board change.
@@ -792,6 +830,7 @@ main() {
   case "$cmd" in
     run)  cmd_run "$@" ;;
     plan) cmd_plan "$@" ;;
+    reconcile-blocked) cmd_reconcile_blocked "$@" ;;
     -h|--help|help|"") usage; [[ -n "$cmd" ]] && return 0 || return 2 ;;
     *) _log "unknown command: $cmd"; usage; return 2 ;;
   esac
