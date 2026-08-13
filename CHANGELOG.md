@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.154.4](https://github.com/macatocz/makato-oss/compare/v0.154.3...v0.154.4) (2026-08-13)
+
+
+### 🐛 Bug Fixes
+
+* **repo-wide:** repair broken pre-push hooks (pytest-slow, bandit) ([#48](https://github.com/macatocz/makato-oss/issues/48)) ([4d6b650](https://github.com/macatocz/makato-oss/commit/4d6b6509fd8d26f133e43e7eb831995e7db55c80))
+* **repo-wide:** repair broken pre-push hooks (pytest-slow, bandit) ([#48](https://github.com/macatocz/makato-oss/issues/48)) ([30f4234](https://github.com/macatocz/makato-oss/commit/30f42345b356d78411fe56eeb304fea3eccc180b))
+* serve ThinkingCap-Qwen3.6-27B FP8 as the open vLLM model (§1.3) ([2c47c4e](https://github.com/macatocz/makato-oss/commit/2c47c4e006c9b3f2b94854e168a17076ff2ef533))
+* serve ThinkingCap-Qwen3.6-27B FP8 as the open vLLM model (§1.3) ([fbfe20a](https://github.com/macatocz/makato-oss/commit/fbfe20ac815d98184d6383f7437e0b8aae688938))
+
 ## [0.154.3](https://github.com/macatocz/makato-oss/compare/v0.154.2...v0.154.3) (2026-08-12)
 
 
