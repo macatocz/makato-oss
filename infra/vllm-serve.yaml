@@ -84,7 +84,7 @@ tensor_parallel_size: 1
 # ── Health endpoint ──────────────────────────────────────────────────────────
 # vLLM exposes GET /health returning 200 when the model is loaded and ready.
 # Polled by the runtime-verification command:
-#   curl -sf http://localhost:8000/health
+#   curl -sf http://localhost:8100/health
 # GET /v1/models returns the loaded model list (both served names below).
 # No extra config is needed — vLLM enables /health unconditionally.
 
@@ -95,7 +95,7 @@ tensor_parallel_size: 1
 #                        D4); matches config/config.yml → models.open.model_name.
 #   - "qwen3-reasoning" — concrete name used by the SAGIBEAST runtime ModelProfile
 #                        (dev_local.model_name) per §1.4 of the deployment plan.
-# Clients point an OpenAI SDK at http://localhost:8000/v1 with api_key "EMPTY".
+# Clients point an OpenAI SDK at http://localhost:8100/v1 with api_key "EMPTY".
 served_model_name:
   - "open"
   - "qwen3-reasoning"

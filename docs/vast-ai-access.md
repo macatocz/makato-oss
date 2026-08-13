@@ -53,18 +53,19 @@ commands from a network that allows it.
 
 ## Reaching the stack services
 
-The SAGIBEAST dev stack binds inside the VM on `:8080` (backend console), `:3000` (Langfuse), and
-`:8000` is reserved for the vLLM OpenAI endpoint. Those are published to per-instance host ports
-by vast.ai (see the `ports` map). Prefer an **SSH tunnel** — it avoids the firewall and lets you
-use the canonical localhost ports in a browser:
+The SAGIBEAST dev stack binds inside the VM on `:8080` (backend console), `:3000` (Langfuse). The
+vLLM OpenAI endpoint is on `:8100` (port 8000 is taken by the SAGIBEAST fastapi-brain container).
+Those are published to per-instance host ports by vast.ai (see the `ports` map). Prefer an **SSH
+tunnel** — it avoids the firewall and lets you use the canonical localhost ports in a browser:
 
 ```bash
 ssh -i ~/.ssh/vast_makato -p <DIRECT_SSH_PORT> \
     -L 8080:localhost:8080 \
     -L 3000:localhost:3000 \
-    -L 8000:localhost:8000 \
+    -L 8100:localhost:8100 \
     root@<IP>
 # then open http://localhost:8080/console/health  and  http://localhost:3000  (Langfuse)
+# vLLM health: curl -sf http://localhost:8100/health
 ```
 
 ## Current dev instance (example — verify before use)
@@ -80,7 +81,7 @@ change on every re-provision:
 | Direct SSH port (→ `22/tcp`) | `10825` |
 | Console `:8080` → host port | `11940` |
 | Langfuse `:3000` → host port | `10488` |
-| vLLM `:8000` → host port | `12125` |
+| vLLM `:8100` → host port | `12125` |
 
 ```bash
 # direct SSH to the current instance

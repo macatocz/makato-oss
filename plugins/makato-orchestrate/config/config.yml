@@ -118,12 +118,13 @@ vars:
 #   https://api.openai.com/v1 or an openai-compatible endpoint). When non-empty,
 #   loop.sh exports it as ANTHROPIC_BASE_URL so every omp / Claude Code dispatch
 #   routes through this endpoint. Empty string = use harness default (closed API).
-#   Set via env: MAKATO_OPEN_ENDPOINT_URL=https://... loop.sh run
+#   Default points at the vast.ai vLLM instance on port 8100 (port 8000 is taken
+#   by the SAGIBEAST fastapi-brain container). Override via env to switch endpoints.
 # MAKATO_OPEN_MODEL_ROLES: comma-separated list of oh-my-pi modelRole tiers that
 #   should route through MAKATO_OPEN_ENDPOINT_URL. Informational in Phase 1 —
 #   the roles are already wired by issue #5 frontmatter changes; this var documents
 #   the expected set and can gate role-specific routing helpers added later.
-- { var: MAKATO_OPEN_ENDPOINT_URL, env: MAKATO_OPEN_ENDPOINT_URL, default: "", export: true }
+- { var: MAKATO_OPEN_ENDPOINT_URL, env: MAKATO_OPEN_ENDPOINT_URL, default: "http://localhost:8100/v1", export: true }
 - { var: MAKATO_OPEN_MODEL_ROLES,  env: MAKATO_OPEN_MODEL_ROLES,  default: "sonnet,haiku,opus" }
 
 # --- Persistent volume (issue #8 — Vast.ai preemption survival) ---
@@ -152,13 +153,13 @@ vars:
 # closed role (issue #13 / sequence 11) is layered on later by re-pointing one
 # role's base_url. parse-config.py emits MAKATO_MODEL_<ROLE>_BASE_URL per role.
 models:
-  default:  { base_url: "http://127.0.0.1:8000/v1" }
-  task:     { base_url: "http://127.0.0.1:8000/v1" }
-  smol:     { base_url: "http://127.0.0.1:8000/v1" }
-  tiny:     { base_url: "http://127.0.0.1:8000/v1" }
-  plan:     { base_url: "http://127.0.0.1:8000/v1" }
-  advisor:  { base_url: "http://127.0.0.1:8000/v1" }
-  designer: { base_url: "http://127.0.0.1:8000/v1" }
-  commit:   { base_url: "http://127.0.0.1:8000/v1" }
-  slow:     { base_url: "http://127.0.0.1:8000/v1" }
-  vision:   { base_url: "http://127.0.0.1:8000/v1" }
+  default:  { base_url: "http://127.0.0.1:8100/v1" }
+  task:     { base_url: "http://127.0.0.1:8100/v1" }
+  smol:     { base_url: "http://127.0.0.1:8100/v1" }
+  tiny:     { base_url: "http://127.0.0.1:8100/v1" }
+  plan:     { base_url: "http://127.0.0.1:8100/v1" }
+  advisor:  { base_url: "http://127.0.0.1:8100/v1" }
+  designer: { base_url: "http://127.0.0.1:8100/v1" }
+  commit:   { base_url: "http://127.0.0.1:8100/v1" }
+  slow:     { base_url: "http://127.0.0.1:8100/v1" }
+  vision:   { base_url: "http://127.0.0.1:8100/v1" }
