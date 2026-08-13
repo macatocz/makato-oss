@@ -1,8 +1,15 @@
 # vLLM serving configuration for the open reasoning model on a 48 GB GPU.
 #
 # Consumed by: vllm serve --config infra/vllm-serve.yaml
-# (requires vLLM ≥ 0.4.0 which accepts --config / YAML config files; the
-#  optional MTP speculative-decoding block below needs vLLM ≥ 0.24.0)
+# In production it is launched by infra/vllm-serve.sh (via the vllm.service systemd
+# unit); infra/bootstrap-vllm.sh stands the whole thing up on a fresh box. See the full
+# runbook and hard requirements in docs/vast-ai-llm-deployment.md.
+#
+# Runtime floor (NOT negotiable — the model arch is `qwen3_5`, a hybrid Mamba model):
+#   vLLM 0.27.1 · Python 3.12 · CUDA 13 wheels · NVIDIA driver ≥ 580.
+# Older vLLM cannot inspect `qwen3_5`; every vLLM that can is a CUDA 13 build, so the
+# box's stock driver 535 (CUDA 12.2) must be upgraded to 580 first. Python 3.10 is ruled
+# out by FlashInfer's 3.11+-only syntax. The MTP block below needs vLLM ≥ 0.24.0.
 #
 # Model: bottlecapai/ThinkingCap-Qwen3.6-27B — dense 27B reasoning/thinking
 # fine-tune (Apache 2.0, 262K native context). We serve the official FP8 build
@@ -17,9 +24,11 @@
 #
 # Hardware: the deployment-plan baseline is an RTX A6000 48 GB; the current
 # vast.ai dev box is an RTX 4090 48 GB (see docs/vast-ai-access.md) — both 48 GB,
-# so the budget below holds. The SAGIBEAST dev stack (Postgres/Temporal/Langfuse/
-# FastAPI) runs on CPU+RAM and does NOT consume VRAM; only BGE-M3 embeddings may
-# co-reside on this GPU (~2–4 GB) — that headroom is why utilisation is 0.75.
+# so the budget below holds. The box runs NVIDIA driver 580 / CUDA 13 (upgraded from
+# the stock 535; see docs/vast-ai-llm-deployment.md). The SAGIBEAST dev stack
+# (Postgres/Temporal/Langfuse/FastAPI) runs on CPU+RAM and does NOT consume VRAM; only
+# BGE-M3 embeddings may co-reside on this GPU (~2–4 GB) — that headroom is why
+# utilisation is 0.75.
 #
 # See: https://huggingface.co/bottlecapai/ThinkingCap-Qwen3.6-27B
 #      https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html

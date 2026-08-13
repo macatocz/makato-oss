@@ -1,0 +1,39 @@
+# systemd unit for the makato-oss open LLM (vLLM) endpoint.
+#
+# Purpose: auto-start the vLLM server on every VM boot so a vast.ai stop/start cycle
+# brings the endpoint back within a few minutes with no manual steps. The instance disk
+# (venv, model cache, NVIDIA driver) survives a stop, so on start only the process must
+# be relaunched — which is exactly what a `WantedBy=multi-user.target` unit does.
+#
+# Installed and enabled by infra/bootstrap-vllm.sh, which copies this file to
+# /etc/systemd/system/vllm.service. Edit here (in the repo) and re-run the bootstrap to
+# propagate; do not hand-edit the installed copy.
+#
+# Manage:  systemctl {status,restart,stop} vllm
+# Logs:    journalctl -u vllm -f   (also appended to /var/log/vllm-serve.log)
+
+[Unit]
+Description=makato-oss open LLM endpoint (vLLM, ThinkingCap-Qwen3.6-27B-FP8)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+# Match the paths the bootstrap uses; override per-instance with a systemd drop-in if needed.
+Environment=MAKATO_HOME=/root/makato-oss
+Environment=VLLM_VENV=/root/vllm-venv
+# Port 8100, not the canonical 8000: on the shared dev box the SAGIBEAST stack's
+# fastapi-brain container publishes 8000/8001/8080. makato-oss reaches this endpoint via
+# VLLM_API_BASE=http://localhost:8100 (config/config.yml supports that override).
+Environment=VLLM_PORT=8100
+ExecStart=/root/makato-oss/infra/vllm-serve.sh
+# Weight load + kernel JIT can take a couple of minutes on first start after a reboot.
+TimeoutStartSec=900
+Restart=on-failure
+RestartSec=15
+StandardOutput=append:/var/log/vllm-serve.log
+StandardError=append:/var/log/vllm-serve.log
+
+[Install]
+WantedBy=multi-user.target
