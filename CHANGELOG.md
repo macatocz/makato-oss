@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.155.2](https://github.com/macatocz/makato-oss/compare/v0.155.1...v0.155.2) (2026-08-13)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** set vLLM port to 8100 and default MAKATO_OPEN_ENDPOINT_URL ([82c8ff6](https://github.com/macatocz/makato-oss/commit/82c8ff68f0324fc097321cc13756eca3bbc2555b))
+
 ## [0.155.1](https://github.com/macatocz/makato-oss/compare/v0.155.0...v0.155.1) (2026-08-13)
 
 
