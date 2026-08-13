@@ -106,3 +106,9 @@ select = ["E", "F", "W", "I"]
 "plugins/makato-orchestrate/scripts/tests/test_generate_quality_doc.py" = ["E402", "I001", "E741"]
 "plugins/makato-orchestrate/scripts/tests/test_emit_needs_planning_signal.py" = ["E402", "I001", "F401"]
 # generate_quality_doc.py uses manual arg parsing for exit-64 parity (no argparse needed).
+
+[tool.bandit]
+# B101 (assert_used) is suppressed globally — bare `assert` is the pytest
+# idiom throughout this repo and is not used as a security guard in
+# production code.
+skips = ["B101"]
