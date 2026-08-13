@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.155.1](https://github.com/macatocz/makato-oss/compare/v0.155.0...v0.155.1) (2026-08-13)
+
+
+### 🐛 Bug Fixes
+
+* **makato-build:** replace gawk-only 3-arg match() with portable sub()+split() in stale-artifact-check ([e9ed238](https://github.com/macatocz/makato-oss/commit/e9ed2383331e8491a5dfb11dac1e0757f67046dc))
+* **makato-build:** replace gawk-only 3-arg match() with portable sub()+split() in stale-artifact-check ([935884b](https://github.com/macatocz/makato-oss/commit/935884bab3c3a3e8d7603328706a20c80351e82c)), closes [#47](https://github.com/macatocz/makato-oss/issues/47)
+
 ## [0.155.0](https://github.com/macatocz/makato-oss/compare/v0.154.4...v0.155.0) (2026-08-13)
 
 
