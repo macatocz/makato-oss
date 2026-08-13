@@ -161,8 +161,8 @@ assert 'api_key' in m, "api_key missing"
 print("  PASS: models.open has model_name, api_base, api_key") if False else None
 PYEOF
 
-# api_base references localhost:8000 (the vLLM port from vllm-serve.yaml)
-assert_contains "api_base points to vLLM localhost:8000" "$(cat "$CONFIG_FILE")" "8000"
+# api_base references localhost:8100 (vllm-serve.sh overrides vllm-serve.yaml's port: 8000 via --port $VLLM_PORT=8100)
+assert_contains "api_base points to vLLM localhost:8100" "$(cat "$CONFIG_FILE")" "8100"
 
 # api_key uses env-var reference (never hard-coded)
 assert_contains "api_key is env-var reference" "$(cat "$CONFIG_FILE")" 'VLLM_API_KEY'
@@ -202,7 +202,7 @@ assert_contains "LANGFUSE_OTLP_ENDPOINT in env file" "$(cat "$TMPDIR_TEST/dispat
 # Idempotency: re-running with different keys overwrites, does not duplicate
 MAKATO_LANGFUSE_KEY="pk-lf-makato-v2" SAGIBEAST_LANGFUSE_KEY="pk-lf-sagibeast-v2" \
   bash "$INJECT_SCRIPT" --env-file "$TMPDIR_TEST/dispatch.env" >/dev/null 2>&1
-LINE_COUNT=$(wc -l < "$TMPDIR_TEST/dispatch.env")
+LINE_COUNT=$(wc -l < "$TMPDIR_TEST/dispatch.env" | tr -d ' ')
 assert_eq "idempotency: env file has exactly 3 lines after re-run" "3" "$LINE_COUNT"
 assert_contains "idempotency: updated MAKATO key present" "$(cat "$TMPDIR_TEST/dispatch.env")" "pk-lf-makato-v2"
 
