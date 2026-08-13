@@ -47,9 +47,11 @@ for f in "$@"; do
     # Track current line number in new file from hunk headers
     /^@@ / {
       # Extract new-file start line from "@@ -old +new[,count] @@"
-      match($0, /\+([0-9]+)/, arr)
-      new_line = arr[1]
-      hunk_line = new_line - 1
+      # sub()+split() is POSIX; 3-arg match() is gawk-only and fails on BSD awk
+      tmp = $0
+      sub(/^@@ [^+]*\+/, "", tmp)
+      split(tmp, a, /[ ,]/)
+      hunk_line = a[1] + 0 - 1
       next
     }
     # Deletion lines and context lines: advance counter for context only
