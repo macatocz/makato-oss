@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# budget-check.sh — Co-located resource budget enforcer for the A6000 instance.
+# budget-check.sh — Co-located resource budget enforcer for the 48 GB GPU instance.
 #
 # Checks that all three co-located services (makato-oss, sagibeast dev stack,
-# vLLM AWQ engine) stay within their resource budgets:
+# vLLM engine serving ThinkingCap-Qwen3.6-27B FP8) stay within their budgets:
 #
 #   1. vLLM VRAM consumption <= configured gpu_memory_utilization fraction
 #   2. Sagibeast free RAM headroom >= 32 GB
@@ -16,7 +16,7 @@
 #   bash scripts/budget-check.sh --json   # emit JSON result to stdout
 #
 # Environment variables:
-#   VLLM_GPU_BUDGET_FRACTION  — max allowed GPU memory fraction (default: 0.85)
+#   VLLM_GPU_BUDGET_FRACTION  — max allowed GPU memory fraction (default: 0.75)
 #   SAGIBEAST_MIN_FREE_RAM_GB — min sagibeast RAM headroom in GB (default: 32)
 #   BUDGET_OOM_LOOKBACK_MIN   — minutes to look back for OOM events (default: 60)
 #
@@ -28,7 +28,7 @@
 set -euo pipefail
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-GPU_BUDGET_FRACTION="${VLLM_GPU_BUDGET_FRACTION:-0.85}"
+GPU_BUDGET_FRACTION="${VLLM_GPU_BUDGET_FRACTION:-0.75}"
 MIN_FREE_RAM_GB="${SAGIBEAST_MIN_FREE_RAM_GB:-32}"
 OOM_LOOKBACK_MIN="${BUDGET_OOM_LOOKBACK_MIN:-60}"
 
