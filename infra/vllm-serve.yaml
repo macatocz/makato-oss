@@ -1,52 +1,92 @@
-# vLLM AWQ serving configuration for the A6000 on-instance GPU.
+# vLLM serving configuration for the open reasoning model on a 48 GB GPU.
 #
-# Consumed by: vllm serve <model-path> --config infra/vllm-serve.yaml
-# (requires vLLM ≥ 0.4.0 which accepts --config / YAML config files)
+# Consumed by: vllm serve --config infra/vllm-serve.yaml
+# (requires vLLM ≥ 0.4.0 which accepts --config / YAML config files; the
+#  optional MTP speculative-decoding block below needs vLLM ≥ 0.24.0)
 #
-# The A6000 has 48 GB VRAM. With sagibeast's dev stack co-resident we cap
-# vLLM to gpu_memory_utilization: 0.85 (≈ 40.8 GB) leaving ≈ 7.2 GB for
-# the OS, CUDA context, and sagibeast GPU tasks.
+# Model: bottlecapai/ThinkingCap-Qwen3.6-27B — dense 27B reasoning/thinking
+# fine-tune (Apache 2.0, 262K native context). We serve the official FP8 build
+# (…-FP8): near-lossless, ~27 GB weights (MTP head kept in bf16), which is the
+# vLLM-native quant for this model. Upstream publishes FP8 and GGUF only — there
+# is NO AWQ build, so the plan's `--quantization awq_marlin` does not apply here.
 #
-# See: https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html
+# Download the weights once (cached under $HF_HOME; see §2 of the deployment
+# plan — persist this on a vast.ai volume or re-download on instance start):
+#   hf download bottlecapai/ThinkingCap-Qwen3.6-27B-FP8
+# (older CLIs: `huggingface-cli download bottlecapai/ThinkingCap-Qwen3.6-27B-FP8`)
+#
+# Hardware: the deployment-plan baseline is an RTX A6000 48 GB; the current
+# vast.ai dev box is an RTX 4090 48 GB (see docs/vast-ai-access.md) — both 48 GB,
+# so the budget below holds. The SAGIBEAST dev stack (Postgres/Temporal/Langfuse/
+# FastAPI) runs on CPU+RAM and does NOT consume VRAM; only BGE-M3 embeddings may
+# co-reside on this GPU (~2–4 GB) — that headroom is why utilisation is 0.75.
+#
+# See: https://huggingface.co/bottlecapai/ThinkingCap-Qwen3.6-27B
+#      https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html
 
 # ── Model ────────────────────────────────────────────────────────────────────
 # vLLM YAML config is loaded by Python (yaml.safe_load) — shell ${} variable
-# substitution is NOT performed. Set the model path here directly.
-# To override at runtime, pass the model as a CLI argument instead:
+# substitution is NOT performed. Set the model here directly (HF repo id; vLLM
+# resolves it from the HF cache). To override at runtime, pass the model as a CLI
+# argument instead:
 #   vllm serve /custom/path/to/model --config infra/vllm-serve.yaml
-model: "/models/qwen2-72b-instruct-awq"
+model: "bottlecapai/ThinkingCap-Qwen3.6-27B-FP8"
 
-# quantization: AWQ weights — vLLM auto-detects from model config.json.
-# Explicit declaration prevents accidental full-precision load if the
-# auto-detect heuristic fails on a custom model repo layout.
-quantization: awq
+# quantization: fp8 — the checkpoint ships pre-quantised to FP8. vLLM auto-detects
+# this from config.json, but declaring it explicitly prevents an accidental
+# full-precision (BF16 ~54 GB) load that would OOM a 48 GB card if auto-detect
+# fails on a custom repo layout.
+quantization: fp8
 
 # ── Context / memory ─────────────────────────────────────────────────────────
-# AWQ 72B model at 4-bit requires ≈ 36 GB for weights; remaining GPU memory
-# is KV cache. A 32 k token context fits within the 40.8 GB budget.
+# max_model_len is the CONTEXT WINDOW (input + output tokens), NOT the per-request
+# output cap (that is `max_tokens`, set client-side in the ModelProfile).
+#
+# 32 K is the safe, bootable context on 48 GB with the FP8 build: FP8 weights
+# (~27 GB) leave ≈ 9 GB of the 0.75 budget for KV cache — a single 128 K sequence
+# alone would need far more than that, so vLLM would refuse to start at 131072.
+# To reach the plan's 128 K (§1.3) either serve the GGUF Q4_K_M build (~16 GB
+# weights → more KV headroom; vLLM GGUF support is experimental and slower) or
+# move to an A100/H100 80 GB card. Lower this further for higher concurrency.
 max_model_len: 32768
 
 # Fraction of TOTAL GPU VRAM vLLM may use for weights + KV cache combined.
-# budget-check.sh asserts that measured VRAM usage stays below this ceiling.
-gpu_memory_utilization: 0.85
+# 0.75 leaves ≈ 12 GB (of 48) for BGE-M3 co-residence, the CUDA context, and the
+# OS. scripts/budget-check.sh asserts measured VRAM stays below this ceiling and
+# config/config.yml (budget.vllm.gpu_memory_utilization) must match this value.
+gpu_memory_utilization: 0.75
 
 # ── Serving ──────────────────────────────────────────────────────────────────
 host: "0.0.0.0"
 port: 8000
 
-# Tensor-parallel degree. Set to 1 for a single-GPU A6000; raise for multi-GPU.
+# Tensor-parallel degree. 1 for a single 48 GB card; raise on multi-GPU tiers
+# (A100/H100 upgrade ladder, §2 of the deployment plan).
 tensor_parallel_size: 1
 
+# ── Optional: MTP self-speculative decoding (vLLM ≥ 0.24.0) ────────────────────
+# ThinkingCap ships an MTP head for self-speculative decoding — a throughput win
+# with no quality loss. Enable once the serving vLLM is confirmed ≥ 0.24.0;
+# leaving it off keeps this config bootable on older vLLM.
+# speculative_config:
+#   method: mtp
+#   num_speculative_tokens: 3
+
 # ── Health endpoint ──────────────────────────────────────────────────────────
-# vLLM exposes GET /health returning {"status":"ok"} when the model is loaded
-# and ready. This endpoint is polled by the runtime-verification command:
-#   curl -sf http://localhost:8000/health | grep -q '"status"'
+# vLLM exposes GET /health returning 200 when the model is loaded and ready.
+# Polled by the runtime-verification command:
+#   curl -sf http://localhost:8000/health
+# GET /v1/models returns the loaded model list (both served names below).
 # No extra config is needed — vLLM enables /health unconditionally.
-# Documented here for operator clarity.
-#
-# Additional readiness endpoint: GET /v1/models returns the loaded model list.
 
 # ── API compatibility ─────────────────────────────────────────────────────────
-# Expose the OpenAI-compatible /v1/* API so config/config.yml can point an
-# OpenAI-SDK client at http://localhost:8000/v1 with api_key: "EMPTY".
-served_model_name: "open"   # matches config/config.yml model_name field
+# Expose the OpenAI-compatible /v1/* API. vLLM accepts multiple served names for
+# one model, so a single endpoint serves both consumers without a second process:
+#   - "open"           — makato-oss neutral routing alias (vendor independence,
+#                        D4); matches config/config.yml → models.open.model_name.
+#   - "qwen3-reasoning" — concrete name used by the SAGIBEAST runtime ModelProfile
+#                        (dev_local.model_name) per §1.4 of the deployment plan.
+# Clients point an OpenAI SDK at http://localhost:8000/v1 with api_key "EMPTY".
+served_model_name:
+  - "open"
+  - "qwen3-reasoning"

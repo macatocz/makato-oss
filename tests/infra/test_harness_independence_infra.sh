@@ -118,18 +118,29 @@ assert_yaml_valid  "file is valid YAML" "$VLLM_FILE"
 assert_contains "model field present"                   "$(cat "$VLLM_FILE")" "^model:"
 assert_contains "gpu_memory_utilization present"        "$(cat "$VLLM_FILE")" "gpu_memory_utilization:"
 assert_contains "max_model_len present"                 "$(cat "$VLLM_FILE")" "max_model_len:"
-assert_contains "quantization: awq declared"            "$(cat "$VLLM_FILE")" "quantization: awq"
+assert_contains "quantization: fp8 declared"            "$(cat "$VLLM_FILE")" "quantization: fp8"
 assert_contains "port: 8000 (OpenAI-compat endpoint)"  "$(cat "$VLLM_FILE")" "port: 8000"
-assert_contains "served_model_name wires open provider" "$(cat "$VLLM_FILE")" 'served_model_name: "open"'
 
-# GPU budget: fraction must be <= 0.85 (A6000 co-location budget)
+# served_model_name exposes both the neutral makato-oss alias ("open") and the
+# concrete SAGIBEAST ModelProfile name ("qwen3-reasoning") on one endpoint.
+python3 - "$VLLM_FILE" <<'PYEOF' && PASS=$((PASS + 1)) || { FAIL=$((FAIL + 1)); echo "  FAIL: served_model_name exposes 'open' and 'qwen3-reasoning'"; }
+import yaml, sys
+d = yaml.safe_load(open(sys.argv[1]))
+names = d.get("served_model_name")
+names = [names] if isinstance(names, str) else (names or [])
+assert "open" in names, f"neutral alias 'open' missing from served_model_name: {names!r}"
+assert "qwen3-reasoning" in names, f"'qwen3-reasoning' missing from served_model_name: {names!r}"
+PYEOF
+
+# GPU budget: fraction must be <= 0.85 (hard co-location ceiling for a 48 GB card;
+# the working target is 0.75, leaving VRAM headroom for co-resident BGE-M3).
 UTIL=$(python3 -c "import yaml; d=yaml.safe_load(open('$VLLM_FILE')); print(d.get('gpu_memory_utilization', 0))" 2>/dev/null || echo "0")
 if python3 -c "import sys; sys.exit(0 if float('$UTIL') <= 0.85 else 1)" 2>/dev/null; then
   PASS=$((PASS + 1))
   $VERBOSE && echo "  PASS: gpu_memory_utilization <= 0.85"
 else
   FAIL=$((FAIL + 1))
-  echo "  FAIL: gpu_memory_utilization ($UTIL) exceeds A6000 budget (0.85)"
+  echo "  FAIL: gpu_memory_utilization ($UTIL) exceeds 48 GB co-location ceiling (0.85)"
 fi
 
 # ── Suite 3: config/config.yml models section ─────────────────────────────────

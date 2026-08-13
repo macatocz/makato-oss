@@ -9,9 +9,10 @@
 # ── Models ───────────────────────────────────────────────────────────────────
 # Configures LLM backend providers available to the makato agent framework.
 #
-# The `open` provider wires the on-instance vLLM AWQ endpoint so all agents
-# default to the local GPU rather than an external API, supporting harness
-# independence from cloud LLM services.
+# The `open` provider wires the on-instance vLLM endpoint (ThinkingCap-Qwen3.6-27B
+# FP8, served under the neutral alias "open") so all agents default to the local
+# GPU rather than an external API, supporting harness independence from cloud LLM
+# services.
 #
 # vLLM is started via:  vllm serve --config infra/vllm-serve.yaml
 # Health check:         curl -sf http://localhost:8000/health
@@ -55,7 +56,7 @@ budget:
   vllm:
     # Maximum fraction of GPU VRAM vLLM may use — must match
     # gpu_memory_utilization in infra/vllm-serve.yaml.
-    gpu_memory_utilization: 0.85
+    gpu_memory_utilization: 0.75
   sagibeast:
     # Minimum free RAM (GB) that must remain available for sagibeast's dev stack.
     min_free_ram_gb: 32
