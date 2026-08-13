@@ -177,15 +177,14 @@ repos:
 
   # -----------------------------------------------------------------------
   # Python security — slow lane (pre-push only)
-  # Default config (no -c pyproject.toml) since the makato repo root has no
-  # pyproject.toml yet (will land via #64 Part B). When that lands, switch
-  # to `args: [-c, pyproject.toml]` and `additional_dependencies: ["bandit[toml]"]`.
   # -----------------------------------------------------------------------
   - repo: https://github.com/PyCQA/bandit
     rev: 1.8.0
     hooks:
       - id: bandit
         stages: [pre-push]
+        args: [-c, pyproject.toml]
+        additional_dependencies: ["bandit[toml]"]
 
   # -----------------------------------------------------------------------
   # Cross-language SAST — slow lane (pre-push only)
@@ -249,7 +248,7 @@ repos:
     hooks:
       - id: pytest-slow
         name: pytest slow lane (unit + property + integration)
-        entry: bash -c 'if [ -d tests ] && find tests -name "test_*.py" -print -quit | grep -q .; then pytest tests/unit tests/property tests/integration -q --no-header; fi'
+        entry: bash -c 'if [ -d tests ] && find tests -name "test_*.py" -print -quit | grep -q .; then pytest -q --no-header; fi'
         language: system
         pass_filenames: false
         stages: [pre-push]
