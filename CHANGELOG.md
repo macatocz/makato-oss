@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.155.0](https://github.com/macatocz/makato-oss/compare/v0.154.4...v0.155.0) (2026-08-13)
+
+
+### ✨ Features
+
+* automate open-model vLLM deployment on vast.ai (systemd auto-start) ([f65cc5b](https://github.com/macatocz/makato-oss/commit/f65cc5b82453a6d3effe04b474f45337c76dbf36))
+* **infra:** automate open-model vLLM deployment on vast.ai (systemd auto-start) ([92bddbe](https://github.com/macatocz/makato-oss/commit/92bddbe362908d5a00d4161140600f4c0fa10fe9))
+
 ## [0.154.4](https://github.com/macatocz/makato-oss/compare/v0.154.3...v0.154.4) (2026-08-13)
 
 
