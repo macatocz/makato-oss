@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.156.0](https://github.com/macatocz/makato-oss/compare/v0.155.2...v0.156.0) (2026-08-14)
+
+
+### ✨ Features
+
+* **infra:** omp model config + vLLM tool-calling for open-model harness ([#61](https://github.com/macatocz/makato-oss/issues/61)) ([623086f](https://github.com/macatocz/makato-oss/commit/623086fa5f78a77ab74387128241f6a55362c456))
+
 ## [0.155.2](https://github.com/macatocz/makato-oss/compare/v0.155.1...v0.155.2) (2026-08-13)
 
 
