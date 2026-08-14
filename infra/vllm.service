@@ -27,6 +27,10 @@ Environment=VLLM_VENV=/root/vllm-venv
 # fastapi-brain container publishes 8000/8001/8080. makato-oss reaches this endpoint via
 # VLLM_API_BASE=http://localhost:8100 (config/config.yml supports that override).
 Environment=VLLM_PORT=8100
+# Prevent transformers from fetching missing files (chat_template.json) from HF
+# when tool_call_parser loads the chat template. All needed files are cached locally.
+Environment=TRANSFORMERS_OFFLINE=1
+Environment=HF_DATASETS_OFFLINE=1
 ExecStart=/root/makato-oss/infra/vllm-serve.sh
 # Weight load + kernel JIT can take a couple of minutes on first start after a reboot.
 TimeoutStartSec=900
