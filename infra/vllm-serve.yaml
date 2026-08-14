@@ -57,7 +57,7 @@ quantization: fp8
 # To reach the plan's 128 K (§1.3) either serve the GGUF Q4_K_M build (~16 GB
 # weights → more KV headroom; vLLM GGUF support is experimental and slower) or
 # move to an A100/H100 80 GB card. Lower this further for higher concurrency.
-max_model_len: 32768
+max_model_len: 65536
 
 # Fraction of TOTAL GPU VRAM vLLM may use for weights + KV cache combined.
 # 0.75 leaves ≈ 12 GB (of 48) for BGE-M3 co-residence, the CUDA context, and the
@@ -81,6 +81,13 @@ tensor_parallel_size: 1
 #   method: mtp
 #   num_speculative_tokens: 3
 
+# ── Tool use ─────────────────────────────────────────────────────────────────
+# Required for omp/claude-code to use tools via the OpenAI-compatible API.
+# TRANSFORMERS_OFFLINE=1 in vllm.service prevents hermes parser from trying
+# to fetch chat_template.json from HF (the model only has chat_template.jinja).
+enable_auto_tool_choice: true
+tool_call_parser: qwen3_xml
+
 # ── Health endpoint ──────────────────────────────────────────────────────────
 # vLLM exposes GET /health returning 200 when the model is loaded and ready.
 # Polled by the runtime-verification command:
@@ -99,3 +106,8 @@ tensor_parallel_size: 1
 served_model_name:
   - "open"
   - "qwen3-reasoning"
+  # Claude model aliases so omp/claude-code can route to the local model
+  # without a proxy by sending their native model names.
+  - "claude-opus-4-8"
+  - "claude-sonnet-4-5"
+  - "claude-haiku-4-5-20251001"

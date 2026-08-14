@@ -15,6 +15,8 @@
 #   3. Python 3.12 venv + pinned vLLM (cu13 wheels via uv --torch-backend=auto).
 #   4. Model weights (~27 GB FP8) into the HF cache — skipped if already present.
 #   5. systemd unit install + enable, so the endpoint auto-starts on every boot.
+#   6. omp model config — installs infra/omp-models.yml to ~/.omp/agent/ when the
+#      oh-my-pi harness is present (skipped otherwise).
 #
 # The full "why" behind the version pins and workarounds is in
 # docs/vast-ai-llm-deployment.md.
@@ -109,6 +111,19 @@ EOF
 chmod +x "$MAKATO_HOME/infra/vllm-serve.sh"
 systemctl daemon-reload
 systemctl enable vllm.service
+
+# ── Phase 6: omp (oh-my-pi) model config ──────────────────────────────────────
+# The harness binary is provisioned separately (not by this script), but its
+# model config is version-controlled here so a re-provision restores the correct
+# endpoint/model/token-budget instead of an ad-hoc hand-edited file. Guarded on
+# omp being present so boxes that only serve vLLM are unaffected.
+OMP_MODELS_DEST="${OMP_MODELS_DEST:-/root/.omp/agent/models.yml}"
+if command -v omp >/dev/null 2>&1; then
+    log "omp phase: installing $OMP_MODELS_DEST from infra/omp-models.yml"
+    install -D -m 0644 "$MAKATO_HOME/infra/omp-models.yml" "$OMP_MODELS_DEST"
+else
+    log "omp phase: omp not installed — skip (install the harness, then re-run to provision $OMP_MODELS_DEST)"
+fi
 
 if [ "$reboot_needed" = "1" ]; then
     log "DONE (driver installed). Rebooting now; vllm.service will auto-start after boot."
