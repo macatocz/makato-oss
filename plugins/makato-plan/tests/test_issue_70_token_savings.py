@@ -3,7 +3,6 @@ Tests for issue #70: makato-plan P0 token savings.
 Verifies that all four token-saving mechanisms are present in the correct SKILL.md files.
 """
 
-import re
 from pathlib import Path
 
 PLUGIN_ROOT = Path(__file__).parent.parent
