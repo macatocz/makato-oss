@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.158.0](https://github.com/macatocz/makato-oss/compare/v0.157.0...v0.158.0) (2026-08-15)
+
+
+### ✨ Features
+
+* **makato-build:** add DoR gate and In Review board transitions ([#67](https://github.com/macatocz/makato-oss/issues/67)) ([#78](https://github.com/macatocz/makato-oss/issues/78)) ([2638816](https://github.com/macatocz/makato-oss/commit/263881682980fb4e7f3bb96d2ac608a66d5f6e02))
+* **makato-plan:** add Pre-Round Coverage Scan before each round in create-prd Step 3 ([143a5de](https://github.com/macatocz/makato-oss/commit/143a5de50e5cc8a968f375a38a4c232181e045ba))
+* **makato-plan:** add question-planner.md with 4 lenses and rotation plans ([a55a2cf](https://github.com/macatocz/makato-oss/commit/a55a2cf58c153672bfe26c33c2e6daa508fdadc7))
+* **makato-plan:** add Step 2.0 pre-planning protocol and [T] deferral write-back to stress-test-artifact ([3ba0a22](https://github.com/macatocz/makato-oss/commit/3ba0a22588247de2dbb91998e9437c787f1c2718))
+* **makato-plan:** makato-plan quality improvements ([#69](https://github.com/macatocz/makato-oss/issues/69)) ([6b0c71c](https://github.com/macatocz/makato-oss/commit/6b0c71cf787b2fbf09d2e2767d23605b99b202d7))
+* **makato-plan:** makato-plan quality improvements ([#69](https://github.com/macatocz/makato-oss/issues/69)) ([6b0c71c](https://github.com/macatocz/makato-oss/commit/6b0c71cf787b2fbf09d2e2767d23605b99b202d7))
+* **makato-plan:** replace per-story gherkin-quality-rules load with inline 6-rule checklist ([119bce1](https://github.com/macatocz/makato-oss/commit/119bce18c5752995b6c88a19155328ce159c2c58)), closes [#69](https://github.com/macatocz/makato-oss/issues/69)
+
 ## [0.157.0](https://github.com/macatocz/makato-oss/compare/v0.156.0...v0.157.0) (2026-08-15)
 
 
