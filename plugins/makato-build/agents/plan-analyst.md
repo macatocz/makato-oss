@@ -95,7 +95,7 @@ In `REPO_ROOT`, look for:
 - Test framework and conventions (read one existing test file to confirm naming pattern and base class)
 - Build tool and dependency management (identify from config files: `package.json`, `pom.xml`, `build.gradle`, `pyproject.toml`)
 
-Keep this brief — 3–5 bullet points maximum.
+Keep this brief — 3 entries maximum.
 
 ## Output format
 
@@ -114,12 +114,8 @@ Emit this prose block **before** the R1 envelope:
 **knowledge_context_source**: local | none
 
 ## Task List
-1. [tdd|goal] <title>
-   Files: <file1>, <file2>
-   ACs: <AC-1>, <AC-2>
-2. [tdd|goal] <title>
-   Files: <file1>
-   ACs: <AC-3>
+1. [tdd|goal] <title> | Files: <file1>,<file2> | ACs: <AC-1>,<AC-2>
+2. [tdd|goal] <title> | Files: <file1> | ACs: <AC-3>
 
 ## Glossary Constraints
 - Spec term `<X>` → codebase term `<Y>` (use `<Y>` in all naming)
@@ -145,7 +141,7 @@ Then <then>
 And <and[i]>
 ```
 
-If glossary is not loaded, omit the Glossary Constraints section. If `knowledge_context_loaded: false`, omit the Hard Constraints, Standards, and Architecture Context sections. If no reusable patterns are found, write "None identified." **If the plan has no `## Acceptance Test Oracle` section, omit the Acceptance Test Oracle section from this output entirely** — do not invent scenarios. When present, copy each scenario verbatim, including its `(maps to AC-N)` annotation; the `coder` filters these by its task's AC links.
+If glossary is not loaded, omit the Glossary Constraints section. If `knowledge_context_loaded: false`, omit the Hard Constraints, Standards, and Architecture Context sections. If no reusable patterns are found, omit the `## Reusable Patterns` section header entirely; any section whose content would be empty must have its header omitted — do not emit placeholder text. **If the plan has no `## Acceptance Test Oracle` section, omit the Acceptance Test Oracle section from this output entirely** — do not invent scenarios. When present, copy each scenario verbatim, including its `(maps to AC-N)` annotation; the `coder` filters these by its task's AC links.
 
 ## R1 return envelope
 
