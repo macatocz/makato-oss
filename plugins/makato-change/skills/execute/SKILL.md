@@ -184,6 +184,54 @@ Mark the issue as In Progress on the GitHub Projects board immediately — befor
    On success: log `execute: marked #$ISSUE_NUMBER as In Progress on project board`.
    On failure: log `execute: WARN — could not set In Progress on board; continuing` (best-effort).
 
+### Step 1.7: Cross-ticket branch guard
+
+Immediately after the board In Progress transition and before any code is written, verify that
+the working branch belongs to this ticket.
+
+**1. Determine expected branch name** — derive from `ISSUE_KEY`:
+`feat/<ISSUE_KEY>-change` (the same convention Step 6 uses when creating the branch).
+
+**2. Detect current branch:**
+```bash
+ACTUAL_BRANCH="$(git -C <REPO_ROOT> branch --show-current)"
+```
+
+**3. Apply 3-way logic:**
+
+- **Same ticket, expected branch** (`ACTUAL_BRANCH == feat/<ISSUE_KEY>-change` OR
+  `ACTUAL_BRANCH == main` / `ACTUAL_BRANCH == master` — i.e., on the default branch before
+  the feature branch has been created): **proceed** — no log entry needed.
+
+- **Same ticket, unexpected branch** (branch name contains `ISSUE_KEY` but does not match
+  `feat/<ISSUE_KEY>-change` exactly): **warn** — emit the following message and continue:
+  ```
+  execute: WARN — on branch <ACTUAL_BRANCH> for issue <ISSUE_KEY>; expected feat/<ISSUE_KEY>-change. Proceeding.
+  ```
+  Log a `warn` entry to `build.jsonl` with `data.actual_branch: <ACTUAL_BRANCH>` and
+  `data.expected_branch: feat/<ISSUE_KEY>-change`.
+
+- **Different ticket** (branch is a feature branch whose name references a different issue key
+  — i.e., contains a numeric or slug identifier that does NOT match `ISSUE_KEY`): **block**.
+
+  **Interactive mode:** emit the following message and exit gracefully without writing any files:
+  ```
+  execute: HALT — branch <ACTUAL_BRANCH> belongs to a different ticket. Stash your changes,
+  switch to the correct branch for <ISSUE_KEY>, and re-run execute.
+  ```
+
+  **Autonomous mode (`MAKATO_HEADLESS=1`):** emit a HALT-CH-005 R1 and exit:
+  ```json
+  {
+    "status": "blocked",
+    "data": {
+      "halt_code": "HALT-CH-005",
+      "actual_branch": "<ACTUAL_BRANCH>",
+      "expected_branch": "feat/<ISSUE_KEY>-change"
+    }
+  }
+  ```
+
 ### Step 2: Implement Changes Following Design
 
 The file modifications are performed by a write-capable **`change-implementer`** subagent, not
