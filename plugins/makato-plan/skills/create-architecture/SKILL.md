@@ -4,7 +4,7 @@ description: >-
   Create Architecture Design Documents from PRD output — architecture, technical
   design, system context, component design, API design, data model, security,
   deployment, test strategy. Use after PRD is approved.
-version: "1.0.5"
+version: "1.0.6"
 model: opus
 argument-hint: "[slug]"
 allowed-tools: Bash
@@ -62,6 +62,12 @@ WHY: the architecture interview drives multi-round synthesis across all three in
 
 ---
 
+## Constants
+
+- **CONTEXT_SCOUT_TOKEN_BUDGET: 2000** — Maximum tokens returned by a single context-scout dispatch.
+
+---
+
 ## Workflow
 
 ### Step 1: Resolve Spec Folder & Load Artifacts
@@ -90,8 +96,7 @@ Read from the resolved spec folder:
 3. **`repositories.yml`** — if already identified (from PRD phase or earlier).
    See plan: read `shared/repositories-yml-schema.md` now only if `repositories.yml`
    exists and needs schema validation — Do NOT load if no repo file is present yet.
-4. **`reference/`** folder — scan for technical documents (architecture diagrams,
-   T-shirt sizings, API specs, DB schemas)
+4. **`reference/`** folder — catalogue file names and types only (architecture diagrams, T-shirt sizings, API specs, DB schemas). **Do not load their content yet — catalogue file names and types only. Conversion is eager; loading is lazy.**
 
 **Missing PRD handling**: If `prd.md` is absent or still in Draft status:
 
@@ -193,6 +198,12 @@ The AI MUST NOT generate content for a section without explicit input.
 
 Conduct the three rounds in `references/interview-rounds.md` in order (System Context,
 Design Decisions, Operations). All rounds always run; Round 3 depth varies by scope.
+
+**Round 1 (System Context):** Before asking Round 1 questions, load any architecture diagrams and system context documents catalogued from `reference/` in Step 1.2 — these inform integration point and boundary questions.
+
+**Round 2 (Design Decisions):** Before asking Round 2 questions, load any API specs, DB schemas, and T-shirt sizing documents catalogued from `reference/` in Step 1.2 — these ground technical decision questions in existing constraints.
+
+**Round 3 (Operations):** Before asking Round 3 questions, load any deployment specs and infrastructure documents catalogued from `reference/` in Step 1.2 — these surface operational constraints and SLA baselines.
 
 #### Expert Heuristics (non-obvious practitioner rules applied across all rounds)
 

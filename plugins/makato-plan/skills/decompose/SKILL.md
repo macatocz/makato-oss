@@ -4,7 +4,7 @@ description: >-
   Decompose shaped features into vertically-sliced stories with acceptance
   criteria — decompose, vertical slice, story slicing, break down feature,
   split into stories. Use after PRD and architecture are approved.
-version: "1.4.0"
+version: "1.4.1"
 model: opus
 argument-hint: "[slug]"
 metadata:
@@ -78,6 +78,12 @@ the epic story row. The objective cannot be patched after publish without rewrit
 WHY: Freeform questions cannot be handled by the autonomous loop's headless mode. Enum options
 let the loop apply a predictable default (first option) without a human present, enabling
 unattended dispatch. Freeform blocks the loop silently.
+
+---
+
+## Constants
+
+- **CONTEXT_SCOUT_TOKEN_BUDGET: 2000** — Maximum tokens returned by a single context-scout dispatch.
 
 ---
 
@@ -349,6 +355,39 @@ Do not let the user skip this round.
 
 ---
 
+### Step 4.5: Pre-Amigos Compression
+
+Before dispatching the three parallel Three Amigos agents, produce compressed excerpts of
+the primary input artifacts. This saves ~24 k tokens per decompose run by replacing full
+file content (~11 k tokens combined) with targeted summaries (~1 k tokens each) in every
+agent dispatch bundle.
+
+Produce the following three excerpts:
+
+**PRD_EXCERPT** (~1 k tokens): A focused summary of `prd.md` containing:
+- Feature goal and user problem (2-3 sentences)
+- Key functional requirements as a bullet list (top 5-7 items)
+- NFRs and constraints that directly affect story scoping (2-4 items)
+- Any explicitly out-of-scope items relevant to story boundaries
+
+**DESIGN_EXCERPT** (~1 k tokens): A focused summary of `design.md` containing:
+- Architecture approach and key components (2-3 sentences)
+- Service boundaries and integration points that affect story slicing
+- Technical decisions (D# entries) referenced in the proposed stories
+- Any data model or API contract details relevant to feasibility review
+
+**DECISIONS_SUMMARY** (~1 k tokens): A focused summary of `decisions.md` containing:
+- All ADR-format decisions (accepted and rejected options, rationale) referenced by the stories
+- Open questions (Q# entries) with High or Medium priority
+- Any decisions that constrain story scope or acceptance criteria
+
+Pass `PRD_EXCERPT`, `DESIGN_EXCERPT`, and `DECISIONS_SUMMARY` to the three parallel agents
+in Step 5 **in place of the full `prd.md`, `design.md`, and `decisions.md` files**.
+The full files remain available in the spec folder; the agents do not need them — the excerpts
+contain all context required for value, feasibility, and testability review.
+
+---
+
 ### Step 5: Three Amigos Simulation
 
 Run three dedicated agents **in parallel** against the proposed stories:
@@ -396,6 +435,8 @@ Generate interactive HTML review using `@templates/stories-review.html`:
   - Phase board view (3 columns: foundation / happy-path / edge-cases)
 
 Write to: `specs/{folder}/reviews/three-amigos-review.html`
+
+> **MAKATO_PLAN_NO_HTML guard**: Check `MAKATO_PLAN_NO_HTML` env var. If set, skip this browser-open call entirely and proceed to the next step.
 
 Open in browser:
 
@@ -594,6 +635,8 @@ For EACH parked question:
 ---
 
 ### Step 10: Final HTML Review & Approval
+
+> **MAKATO_PLAN_NO_HTML guard**: Check `MAKATO_PLAN_NO_HTML` env var. If set, skip this HTML generation step entirely and proceed to Step 11.
 
 Generate the definitive review HTML using `@templates/stories-final-review.html`
 (distinct from three-amigos review in Step 6):

@@ -41,6 +41,7 @@ testpaths = [
   "plugins/makato-observability/hooks",
   "plugins/makato-observability/scripts",
   "plugins/makato-orchestrate/scripts/tests",
+  "plugins/makato-plan/tests",
   "plugins/makato-sagibeast/skills/dotx-schema-extractor/tests",
 ]
 python_files = ["test_*.py"]
