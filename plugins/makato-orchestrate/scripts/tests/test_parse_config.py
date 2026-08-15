@@ -79,9 +79,7 @@ def test_stdlib_fallback_matches_pyyaml():
     stdlib_out = mod.emit(mod._parse_flow_mappings(text))
     # PyYAML path (mod.load uses yaml when importable).
     pyyaml_out = mod.emit(mod.load(_CONFIG_YML))
-    pyyaml_vars_only = "\n".join(
-        line for line in pyyaml_out.splitlines() if not line.startswith("MAKATO_MODEL_")
-    )
+    pyyaml_vars_only = "\n".join(line for line in pyyaml_out.splitlines() if not line.startswith("MAKATO_MODEL_"))
     assert stdlib_out == pyyaml_vars_only
 
 
