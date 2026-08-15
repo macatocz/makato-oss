@@ -36,7 +36,7 @@ Analyze change request requirements by comparing current system behavior against
 
 **Three non-obvious principles shape this skill's sequencing:**
 
-**1. Scope is a gate, not a label.** The scope estimate at Step 7 is not metadata — it decides whether to continue this workflow or terminate and recommend makato-plan. If code-explorer returns 16+ primary affected files OR signals a new subsystem is required, short-circuit immediately: skip Steps 3.5 and 4, compute scope from code-explorer alone, and emit the Large recommendation. Running test-analyzer and requirements-diff-analyzer against a clearly-large scope wastes agent budget and produces artifacts that will not be used.
+**1. Scope is a gate, not a label.** The scope estimate at Step 6 is not metadata — it decides whether to continue this workflow or terminate and recommend makato-plan. If requirements-diff-analyzer signals a large estimated file count (16+) or a new subsystem is required, emit the Large recommendation immediately. Running further analysis against a clearly-large scope wastes agent budget and produces artifacts that will not be used.
 
 **2. Blocking vs clarifying questions are NOT the same triage axis as blocking vs deferrable.** A blocking question (agent `blocking: true`) is one whose answer changes WHICH files need to change or WHETHER a behavior is correct. A clarifying question only determines HOW to implement something already decided. In headless mode: block on blocking questions. In interactive mode: ask all questions — the user usually knows answers even if they're not in the written requirements. Never silently assume an answer to a blocking question in either mode.
 
@@ -50,11 +50,10 @@ Analyze change request requirements by comparing current system behavior against
 
 | Reference | Load When |
 |-----------|-----------|
-| `@references/exploration-strategy.md` | **MANDATORY at Step 3** — before dispatching code-explorer |
-| `@references/requirements-comparison-pattern.md` | **MANDATORY at Step 4** — before dispatching requirements-diff-analyzer |
-| `@references/question-identification-guide.md` | At Step 5 — only when supplementing agent questions |
-| `@references/scope-estimation-criteria.md` | **MANDATORY at Step 7** — before scope decision |
-| `@templates/analysis.md` | At Step 9 — before writing the artifact |
+| `@references/requirements-comparison-pattern.md` | **MANDATORY at Step 3** — before dispatching requirements-diff-analyzer |
+| `@references/question-identification-guide.md` | At Step 4 — only when supplementing agent questions |
+| `@references/scope-estimation-criteria.md` | **MANDATORY at Step 6** — before scope decision |
+| `@templates/analysis.md` | At Step 8 — before writing the artifact |
 | `@references/jira-update-format.md` | At Step 10 — tone and section structure only (see note in Step 10) |
 
 ---
@@ -88,6 +87,28 @@ Response handling:
 - Extract: summary, description, acceptance criteria, comments, current status
 - If issue type is not Story or Activity, inform user and exit
 - If MCP tool fails, report the error — do not fall back to CLI
+
+### Step 1.2: Fetch Supporting Documentation
+
+Scan the issue body (from Step 1) for any `http://` or `https://` URLs.
+
+**If no URLs found:** Set `SUPPORTING_DOCS_CONTEXT = ""` and continue silently to Step 2 — no log entry needed.
+
+**If URLs found:** Fetch each URL via `WebFetch` in a best-effort, non-blocking loop:
+
+```
+for each URL in extracted_urls:
+    result = WebFetch(url=URL, prompt="Return the full page content as plain text")
+    if result succeeds:
+        append result to SUPPORTING_DOCS_CONTEXT
+    else:
+        log warning: "[analyze] WebFetch failed for <URL>: <error> — skipping"
+        continue
+```
+
+A fetch failure is logged as a warning, not a HALT. A partial fetch (some URLs succeed, some fail) is acceptable — use what was retrieved.
+
+**Store:** `SUPPORTING_DOCS_CONTEXT` (string, may be empty). This value is forwarded to `requirements-diff-analyzer` in Step 3 as optional context.
 
 ### Step 2: Establish Artifact Location
 
@@ -238,88 +259,18 @@ fi
 
 **Store:** `PRIOR_LESSONS` (JSON array, may be `[]`).
 
-### Step 3: Discover Affected Code and Current Behavior
+### Step 3: Generate Requirements Comparison
 
-**MANDATORY: Load `@references/exploration-strategy.md` now** — it contains discovery patterns for code files, test files, E2E frameworks, and project specs that the code-explorer agent applies. Do NOT load it before this step.
-
-**Dispatch `code-explorer` agent** to discover affected files, dependencies, and patterns.
-
-**Agent input:**
-```
-REPO_ROOT: <from Step 2.5: repositories.yml primary repo path>
-REPO_NAME: <from Step 2.5: repositories.yml primary repo name>
-FEATURE_KEYWORDS: <extract from GitHub Issues summary/description>
-REQUESTED_CHANGES: <brief summary from GitHub Issues>
-```
-
-Extract FEATURE_KEYWORDS by identifying key terms from GitHub Issues summary and description:
-- Feature names (e.g., "user registration", "password validation")
-- Component names (e.g., "checkout", "order service")
-- Technical terms (e.g., "authentication", "payment processing")
-
-**Agent will return:**
-- Primary affected files and their roles
-- Dependencies (inbound/outbound)
-- Code patterns and conventions
-- Project specs context (if available)
-
-**Store result** in working memory as CODE_EXPLORATION_RESULT.
-
-```bash
-plugins/makato-build/shared/build-log.sh "<KEY>" \
-  '{"step":"code-explorer","status":"ok","data":{"skill":"analyze","agent":"code-explorer"}}'
-```
-
-**Early large-scope shortcut:** If CODE_EXPLORATION_RESULT shows **16+ primary affected files** OR explicitly signals a new subsystem is required, skip Steps 3.5 and 4 entirely and jump to Step 7. A change this large should not consume test-analyzer and requirements-diff-analyzer budget — the scope verdict is already clear from code exploration.
-
-**Document current behavior** from agent findings:
-- What the system does now (from file analysis)
-- How it does it (key files, functions, data flow)
-- What constraints exist (from project specs or code patterns)
-
-### Step 3.5: Analyze Test Coverage
-
-**Dispatch `test-analyzer` agent** to discover all affected tests.
-
-**Agent input:**
-```
-REPO_ROOT: <from Step 2.5: repositories.yml primary repo path>
-AFFECTED_FILES: <from code-explorer results>
-FEATURE_KEYWORDS: <same as Step 3>
-REQUESTED_CHANGES: <brief summary from GitHub Issues>
-```
-
-**Agent will return:**
-- Unit tests found and their coverage
-- Integration tests found
-- E2E tests found with scenario details
-- Coverage gaps identified
-
-**Store result** in working memory as TEST_ANALYSIS_RESULT.
-
-```bash
-plugins/makato-build/shared/build-log.sh "<KEY>" \
-  '{"step":"test-analyzer","status":"ok","data":{"skill":"analyze","agent":"test-analyzer"}}'
-```
-
-**Extract for analysis:**
-- Existing E2E test scenarios (IDs and names)
-- What user workflows are currently validated
-- What test updates will be needed
-
-### Step 4: Generate Requirements Comparison
-
-**MANDATORY: Load `@references/requirements-comparison-pattern.md` now** — it defines the three-column comparison table format, gap analysis structure, and ambiguity annotation conventions. Do NOT load it before code-explorer results are available; the pattern requires knowing actual current behavior before the diff is meaningful.
+**MANDATORY: Load `@references/requirements-comparison-pattern.md` now** — it defines the three-column comparison table format, gap analysis structure, and ambiguity annotation conventions.
 
 **Dispatch `requirements-diff-analyzer` agent** to compare current vs requested behavior.
 
 **Agent input:**
 ```
 ISSUE_KEY: <issue-key>
-CURRENT_BEHAVIOR: <synthesized from code-explorer results>
+ISSUE_BODY: <full issue body from Step 1: description + acceptance criteria>
 REQUESTED_CHANGES: <from GitHub Issues: summary + description + ACs>
-CODE_EXPLORATION_RESULT: <full output from code-explorer>
-EXISTING_TESTS: <from test-analyzer: unit and E2E test list>
+SUPPORTING_DOCS_CONTEXT: <from Step 1.2: WebFetch aggregate content, may be empty string>
 ```
 
 **Agent will return:**
@@ -328,6 +279,7 @@ EXISTING_TESTS: <from test-analyzer: unit and E2E test list>
 - Open questions (blocking and clarifying)
 - Inconsistencies and conflicts
 - Completeness assessment (ready_for_design | needs_clarification | resolve_conflicts)
+- Estimated file count and scope signal (used in Step 6)
 
 **Store result** in working memory as REQUIREMENTS_DIFF_RESULT.
 
@@ -340,9 +292,9 @@ plugins/makato-build/shared/build-log.sh "<KEY>" \
 - Comparison table
 - Open questions list
 - Inconsistencies list
-- E2E scenarios affected (from test-analyzer + requirements-diff-analyzer synthesis)
+- Estimated file count and new-subsystem signal (for scope estimation in Step 6)
 
-### Step 5: Identify Open Questions
+### Step 4: Identify Open Questions
 
 **Extract from REQUIREMENTS_DIFF_RESULT:**
 - Load open questions identified by requirements-diff-analyzer
@@ -351,15 +303,14 @@ plugins/makato-build/shared/build-log.sh "<KEY>" \
 
 **Supplement if needed:**
 - Load @references/question-identification-guide.md for additional patterns
-- Review CODE_EXPLORATION_RESULT for technical constraints that raise questions
-- Review TEST_ANALYSIS_RESULT for test coverage gaps that need clarification
+- Review REQUIREMENTS_DIFF_RESULT for technical constraints that raise questions
 
 **Consolidate questions:**
 - Merge agent findings with any additional questions discovered
 - Remove duplicates, prioritize by blocking impact
 - For each question: what's unclear, why it matters, who can answer
 
-### Step 6: Check for Inconsistencies
+### Step 5: Check for Inconsistencies
 
 **Extract from REQUIREMENTS_DIFF_RESULT:**
 - Load inconsistencies and conflicts identified by requirements-diff-analyzer
@@ -367,30 +318,30 @@ plugins/makato-build/shared/build-log.sh "<KEY>" \
 - Agent provides completeness assessment: ready_for_design | needs_clarification | resolve_conflicts
 
 **Supplement if needed:**
-- Review CODE_EXPLORATION_RESULT for technical constraints that create conflicts
-- Check if requested changes conflict with existing patterns or architecture
+- Review REQUIREMENTS_DIFF_RESULT for technical constraints that create conflicts
+- Check if requested changes conflict with existing patterns described in the issue body
 - Identify risks: performance concerns, security implications, breaking changes
 
 **Consolidate inconsistencies:**
 - Merge agent findings with any additional conflicts discovered
 - For each inconsistency: describe conflict, explain impact, suggest resolution if obvious
 
-### Step 7: Estimate Scope
+### Step 6: Estimate Scope
 
 **MANDATORY: Load `@references/scope-estimation-criteria.md` now** — it contains the full 6-dimension decision tree (file count, architectural impact, new components, test impact, uncertainty, coordination) with thresholds and edge-case guidance for borderline medium/large calls.
 
 **Use agent results for sizing:**
-- **File count**: From CODE_EXPLORATION_RESULT (primary affected files + dependencies)
-- **Test impact**: From TEST_ANALYSIS_RESULT (number of test files affected)
+- **File count**: From REQUIREMENTS_DIFF_RESULT (estimated affected files from requirements analysis)
 - **Requirements complexity**: From REQUIREMENTS_DIFF_RESULT (number of gaps, questions, conflicts)
+- **New-subsystem signal**: From REQUIREMENTS_DIFF_RESULT (agent flags when a new subsystem is required)
 
 **Decision:**
 - Small/Medium (≤15 files, isolated or shallow cross-cutting) → proceed with makato-change workflow
 - Large (16+ files, new subsystem, or deep architectural impact) → recommend makato-plan workflow, explain why
 
-### Step 8: Resolve Open Questions Interactively
+### Step 7: Resolve Open Questions Interactively
 
-**Extract open questions from Step 5 (consolidated from REQUIREMENTS_DIFF_RESULT).**
+**Extract open questions from Step 4 (consolidated from REQUIREMENTS_DIFF_RESULT).**
 
 **If no open questions exist:**
 - Skip to Step 9 (Generate Analysis Artifact)
@@ -445,7 +396,7 @@ Options:
 - RESOLVED_QUESTIONS: list of questions with answers
 - OPEN_QUESTIONS: remaining questions needing stakeholder clarification
 
-### Step 9: Generate Analysis Artifact
+### Step 8: Generate Analysis Artifact
 
 Load @templates/analysis.md for structure.
 
@@ -459,23 +410,21 @@ Write complete analysis to `specs/<issue-key>/analysis.md`:
 
 2. **Requirements** — What the issue requests (from Step 1: GitHub Issues summary + description + ACs)
 
-3. **Current Behavior** — How the feature works now (from CODE_EXPLORATION_RESULT: synthesis of file analysis, data flow, constraints)
+3. **Current Behavior** — How the feature works now (from REQUIREMENTS_DIFF_RESULT: current-state synthesis derived from issue body and requested changes)
 
 4. **Requested Changes** — What should change (from Step 1 GitHub Issues + REQUIREMENTS_DIFF_RESULT interpretation)
 
 5. **Comparison** — Side-by-side table (from REQUIREMENTS_DIFF_RESULT: current vs requested comparison)
 
-6. **Resolved Questions** — Questions answered during Step 8 with answers (if any were resolved)
+6. **Resolved Questions** — Questions answered during Step 7 with answers (if any were resolved)
 
-7. **Open Questions** — Remaining questions needing stakeholder clarification (from Step 8: unresolved questions, or from Step 5 if Step 8 was skipped)
+7. **Open Questions** — Remaining questions needing stakeholder clarification (from Step 7: unresolved questions, or from Step 4 if Step 7 was skipped)
 
-8. **Inconsistencies** — Conflicts and risks (from Step 6: consolidated from REQUIREMENTS_DIFF_RESULT + supplemental findings)
+8. **Inconsistencies** — Conflicts and risks (from Step 5: consolidated from REQUIREMENTS_DIFF_RESULT + supplemental findings)
 
-9. **E2E Test Impact** — Affected scenarios with IDs (from TEST_ANALYSIS_RESULT: E2E scenarios found + REQUIREMENTS_DIFF_RESULT: test update needs)
+9. **Scope Estimate** — Small/medium/large with justification (from Step 6: based on REQUIREMENTS_DIFF_RESULT estimated file count and complexity)
 
-10. **Scope Estimate** — Small/medium/large with justification (from Step 7: based on CODE_EXPLORATION_RESULT file count + TEST_ANALYSIS_RESULT test count + REQUIREMENTS_DIFF_RESULT complexity)
-
-11. **Prior Lessons** — Emit the recalled lessons from Step 2.7 as a fenced block at the end of `analysis.md` so the execute lane can read it back without re-running recall:
+10. **Prior Lessons** — Emit the recalled lessons from Step 2.7 as a fenced block at the end of `analysis.md` so the execute lane can read it back without re-running recall:
 
     ```
     <!-- prior_lessons: <PRIOR_LESSONS JSON array, verbatim> -->
@@ -484,13 +433,43 @@ Write complete analysis to `specs/<issue-key>/analysis.md`:
     When `PRIOR_LESSONS` is `[]`, write `<!-- prior_lessons: [] -->` as a stable sentinel
     so the execute lane does not need to special-case a missing marker.
 
-12. **Recommendation** — Next step:
-   - If open questions remain after Step 8 → "Resolve N remaining questions before design"
-   - If inconsistencies exist from Step 6 → "Resolve inconsistencies before design"
+11. **Recommendation** — Next step:
+   - If open questions remain after Step 7 → "Resolve N remaining questions before design"
+   - If inconsistencies exist from Step 5 → "Resolve inconsistencies before design"
    - If all questions resolved AND no inconsistencies AND scope = small/medium → "Ready to proceed to design skill"
    - If scope = large → "Escalate to makato-plan workflow"
 
 Make the artifact self-contained. The design skill will load this file without access to the GitHub Issues issue or conversation context.
+
+### Step 9: Write code-exploration.md Stub
+
+After `analysis.md` is written, capture the current HEAD SHA of the target repository and
+write a stub `code-exploration.md` into the spec folder. The design skill reads this stub at
+Step 2.5 to gate its code-explorer dispatch — a fresh stub signals "pending, always re-scan"
+on first design run, while a stub with a matching SHA signals a cache hit on subsequent runs.
+
+```bash
+GIT_SHA="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo "unknown")"
+TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+```
+
+Write `specs/<issue-key>/code-exploration.md`:
+
+```yaml
+---
+git_sha: <GIT_SHA>
+timestamp: <TIMESTAMP>
+status: pending
+---
+```
+
+Leave the body below the frontmatter empty. The design skill overwrites this file with the
+full exploration output after the code-explorer agent runs (cache miss or forced re-scan).
+
+```bash
+plugins/makato-build/shared/build-log.sh "<KEY>" \
+  '{"step":"code-exploration-stub","status":"ok","data":{"skill":"analyze","git_sha":"<GIT_SHA>"}}'
+```
 
 ### Step 10: Update GitHub Issues Issue
 
@@ -544,7 +523,7 @@ Add label `makato-change-analyzed` using `gh issue edit --add-label`.
 
 Show a brief summary of findings:
 - Scope estimate (small/medium/large)
-- Number of questions resolved in Step 8 (if any)
+- Number of questions resolved in Step 7 (if any)
 - Number of open questions remaining (if any)
 - Critical inconsistencies (if any)
 - Recommendation for next step
@@ -581,6 +560,6 @@ plugins/makato-build/shared/build-log.sh "<KEY>" \
 
 **NEVER post Jira Wiki Markup (`h2.`, `h3.`, `*bold*`, `#` for lists, `{{code}}`) in a GitHub Issues comment.** That syntax renders as literal text in GitHub Issues — reviewers see raw markup noise instead of structured content. Use `##`, `**bold**`, `1.`/`-` and backticks. (The `jira-update-format.md` reference uses Jira syntax in its examples; override those examples with the Markdown structure in Step 10.)
 
-**NEVER load `references/exploration-strategy.md` or `references/requirements-comparison-pattern.md` at skill start or before their designated steps.** Eager loading inflates the context window before agent outputs are available, and the exploration-strategy guidance is meaningless without the feature keywords and codebase context produced in Steps 1–2.
+**NEVER load `references/requirements-comparison-pattern.md` at skill start or before Step 3.** Eager loading inflates the context window before agent outputs are available, and the comparison-pattern guidance is meaningless without the issue body and context produced in Steps 1–2.
 
 **NEVER write `analysis.md` without the `<!-- prior_lessons: ... -->` sentinel**, even when `PRIOR_LESSONS` is `[]`. The execute lane reads this marker unconditionally to avoid re-running recall. A missing sentinel forces execute to re-dispatch the recall script mid-phase, potentially reading stale lessons if the lesson store was updated between analyze and execute.
