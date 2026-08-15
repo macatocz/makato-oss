@@ -143,6 +143,8 @@ test -d "$REPO_ROOT/.git"
 
 ### Step 2: Verify Prerequisites
 
+**MANDATORY: Load `@shared/branch-guard.md`** and run the branch check before any code-explorer dispatch. Record the current branch in working memory as `CURRENT_BRANCH` for reuse by later steps.
+
 Check if critical open questions from the analysis are resolved:
 - If the analysis flagged "Critical (Block Design)" questions that are still unanswered, inform the user
 - Explain why design cannot proceed without answers
@@ -314,7 +316,19 @@ From CODE_EXPLORATION_RESULT and TEST_ANALYSIS_RESULT, determine if:
 
 **If new scenarios OR updates are needed:**
 
-Write `specs/<issue-key>/test-scenarios.md` documenting:
+Dispatch the `gherkin-scenario-elaborator` agent with:
+
+```
+ISSUE_KEY: <issue-key>
+TERSE_SCENARIOS: <titles / partial outlines from CODE_EXPLORATION_RESULT and TEST_ANALYSIS_RESULT>
+DOMAIN_CONTEXT: <brief description of the feature from analysis.md>
+```
+
+Write the agent's `# Elaborated Scenarios` output directly into `specs/<issue-key>/test-scenarios.md`,
+replacing the inline manual-writing step.
+
+**Fallback:** If the `gherkin-scenario-elaborator` agent is unavailable or returns an error,
+fall back to writing the scenarios manually using the following template:
 
 ```markdown
 # Test Scenarios: <issue-key>
