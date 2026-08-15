@@ -7,6 +7,14 @@ Changes are grouped by skill/agent/component. Within each group, latest version 
 
 ### Changed
 
+- **`create-acceptance-tests` skill v1.4.0** — Step 3 no longer loads the full `references/gherkin-quality-rules.md` file (~2 k tokens) per story dispatch; replaced with an inline 6-rule condensed checklist (~250 tokens) embedded directly in the agent prompt. Step 4 self-review references the inline checklist. Saves ~14 k tokens on an 8-story feature run (#69).
+- **`stress-test-artifact` skill v1.5.0** — added `## Step 2.0: Pre-Planning Protocol` block immediately before the grill that loads `references/question-planner.md`, selects a lens rotation plan (Plan A/B/C by artifact type), and prepares the opening lens sequence before Q1. Added `[T]` deferral write-back mechanism: topics deferred during the grill are recorded in `decisions.md` Open Questions with a `[T]` prefix tag so later sessions can surface them explicitly (#69).
+- **`create-prd` skill v1.2.0** — Step 3 now opens with a Pre-Round Coverage Scan that classifies each interview question as `covered` / `needs-confirmation` / `needs-answer` before Round 1 fires; covered topics collapse to brief confirmation checks. Round 2 and Round 3 carry a reference note directing the same scan before each round. Well-brainstormed features now collapse 2–3 rounds to confirmation checks, reducing context accumulation (#69).
+
+### Added
+
+- **`stress-test-artifact/references/question-planner.md`** — new reference document with four named lenses (User, Tech, Risk, Business), 3–5 example question prompts per lens, and three lens rotation plans (Plan A PRD/brainstorm, Plan B design/architecture, Plan C spec/story) with selection guide (#69).
+
 - **`plan-tier` classifier docs updated for the decomposition metric** — `to-issues` `references/label-taxonomy.md` and `issue-to-project` `references/webhook-lifecycle.md` now describe the D8 precedence without the removed body-length signal: `full` fires on `effort:xl` / `points:>=13` / `epic:*` / `phase:*` (a "splits into multiple stories" signal), everything else defaults to `light`. No skill-logic change — `to-issues` never set `plan-tier`; the CI classifier owns it.
 - **Script smoke tests relocated to `scripts/tests/` + wired into CI** — moved `manage-stores-smoke-tests.sh`, `manage-stores-skill-tests.sh`, and `to-issues-cross-repo-smoke-tests.sh` into `scripts/tests/` (matching the makato-orchestrate convention) and added CI steps in `.github/workflows/validate.yml`; these bash suites previously ran in no workflow. Move-safe resolvers (`git rev-parse`) unchanged; no test-logic changes.
 
