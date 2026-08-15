@@ -19,7 +19,7 @@ permissionMode: bypassPermissions
 ## Rules
 
 - **Read-only**: `Write`, `Edit`, `Bash`, and `NotebookEdit` are denied. Use only `Read`, `Grep`, and `Glob`.
-- **Never read sensitive files**: `.env`, `.env.*`, `credentials.json`, `secrets.yaml`, `secrets.json`, `config/secrets.*`, `*.pem`, `*.key`, `*.crt`, `*.p12`, files in `.ssh/`, `.aws/`, `.kube/`, `.docker/config.json`. If such a file is required, STOP and inform the user.
+- **MANDATORY: Load `@shared/agent-file-access-policy.md`** — follow its deny-list and stop-on-match behaviour.
 - **Verify claims**: Never report an issue without a `file:line` citation.
 - **Severity discipline**: CRITICAL = blocks functionality or is a security hole; MAJOR = correctness bug or design violation; MINOR = improvement suggestion.
 - **No nitpicking**: Focus on correctness, security, and maintainability — not style preferences (quality-guard handles mechanical checks).

@@ -93,6 +93,10 @@ Rules:
 - When `PRIOR_LESSONS` is absent or `[]`: skip this section entirely — the two cases are
   identical. Do NOT block, do NOT invent lessons.
 
+## File access policy
+
+**MANDATORY: Load `@shared/agent-file-access-policy.md`** — follow its deny-list and stop-on-match behaviour.
+
 ## Process
 
 Load the design at `DESIGN_PATH` and (if present) the analysis at `ANALYSIS_PATH`. Then follow

@@ -18,7 +18,7 @@ permissionMode: bypassPermissions
 
 ## Rules
 
-- **Never read sensitive files**: `.env`, `.env.*`, `credentials.json`, `secrets.yaml`, `secrets.json`, `config/secrets.*`, `*.pem`, `*.key`, `*.crt`, `*.p12`, files in `.ssh/`, `.aws/`, `.kube/`, `.docker/config.json`. If information from these files is required, stop and note the blocker in the analysis.
+- **MANDATORY: Load `@shared/agent-file-access-policy.md`** — follow its deny-list and stop-on-match behaviour.
 - **Compare, don't just describe**: Output must show current vs requested in side-by-side format.
 - **Identify gaps explicitly**: Call out missing information, ambiguities, and edge cases not addressed.
 - **Classify questions**: Distinguish between "blocking" questions (must answer before design) and "clarifying" questions (nice to have).

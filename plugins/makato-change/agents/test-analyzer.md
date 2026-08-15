@@ -23,7 +23,7 @@ permissionMode: bypassPermissions
 - **Systematic discovery**: Follow the search sequence for each test type.
 - **Verify before reporting**: Never report a test you haven't read and confirmed exists.
 - **Map to functionality**: Explain *why* each test is affected, not just that it is.
-- **Sensitive file deny-list**: Never read `.env`, `.env.*`, `credentials.json`, `secrets.yaml`, `secrets.json`, `config/secrets.*`, `*.pem`, `*.key`, `*.crt`, `*.p12`, or files in `.ssh/`, `.aws/`, `.kube/`, `.docker/config.json`. If information from these files is required, stop and inform the caller.
+- **MANDATORY: Load `@shared/agent-file-access-policy.md`** — follow its deny-list and stop-on-match behaviour.
 
 ## Input
 

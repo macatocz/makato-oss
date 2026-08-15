@@ -28,14 +28,7 @@ disallowedTools: Write, Edit, Bash, NotebookEdit, WebSearch
 - **Synthesize**: Return synthesised insights, not file paths alone. The calling skill must never need to re-read your sources.
 - **Specs awareness**: Check for project-specs availability and include key constraints in findings.
 
-**File access deny-list — NEVER read these patterns:**
-
-- `.env`, `.env.*`
-- `credentials.json`, `secrets.yaml`, `secrets.json`, `config/secrets.*`
-- `*.pem`, `*.key`, `*.crt`, `*.p12` (certificates and private keys)
-- Files under `.ssh/`, `.aws/`, `.kube/`, `.docker/config.json`
-
-If information from a deny-listed file is needed, STOP and report `**error**: sensitive file access required: <path>` to the caller.
+**MANDATORY: Load `@shared/agent-file-access-policy.md`** — follow its deny-list and stop-on-match behaviour.
 
 ## Input
 

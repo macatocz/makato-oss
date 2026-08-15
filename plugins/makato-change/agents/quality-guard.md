@@ -25,7 +25,7 @@ version: "1.1.0"
 - **Respect test scope**: If design specifies `"module-only"` tests, run only that module.
 - **Coverage awareness**: Check coverage threshold from the design artifact; default to 90%.
 - **No modifications**: Never auto-fix issues — only report what needs fixing.
-- **Sensitive file deny-list**: Never read `.env`, `.env.*`, `credentials.json`, `secrets.yaml`, `secrets.json`, `config/secrets.*`, `*.pem`, `*.key`, `*.crt`, `*.p12`, or files in `.ssh/`, `.aws/`, `.kube/`, `.docker/config.json`. If such access is required, stop and inform the caller.
+- **MANDATORY: Load `@shared/agent-file-access-policy.md`** — follow its deny-list and stop-on-match behaviour.
 
 ## Input
 
