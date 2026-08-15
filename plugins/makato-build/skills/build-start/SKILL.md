@@ -6,11 +6,11 @@ description: >-
   kicks off /build-refine. Use when starting a new story build, beginning the
   makato-build workflow, running build-start on a work item, or starting local
   work without a ticket.
-version: "1.6.0"
+version: "1.7.0"
 argument-hint: "[work-item-key]"
 allowed-tools: [Bash]
 metadata:
-  last_updated: "2026-08-05"
+  last_updated: "2026-08-15"
 ---
 
 # build-start
@@ -60,6 +60,51 @@ for local work without a ticket)"* — or use the argument passed directly.
 - If no key (user pressed Enter or passed nothing): ask for a short kebab-case
   slug describing the work (e.g. `fix-auth-bug`, `refactor-invoice-mapper`).
   Set `key = "local-<slug>"`. Set `local_work = true`.
+
+### Step 1b — DoR gate
+
+Only when `local_work = false`. Check the board item's Status before git pre-flight to confirm the issue is Ready — ensuring the PO has shaped and approved the work before tokens are spent on planning and implementation.
+
+**Read project config** from `.claude/config.json`. If the `github_project` block is absent (or missing any of `fields.status.id`, `fields.status.options.ready`, `project_node_id`, `host`, `owner`, `number`), skip the gate with:
+> `build-start: WARN — no github_project config — DoR gate skipped`
+
+Log the skip and continue to Step 2 unchanged:
+```bash
+shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"dor-gate","status":"warn","data":{"reason":"no-github-project-config"}}'
+```
+
+**When `github_project` is present:**
+
+Resolve `ISSUE_NUMBER` using the same two-step lookup as Step 2d (manifest first, then integer-key direct). If `ISSUE_NUMBER` is empty, skip the gate silently and continue.
+
+Read the item's current Status:
+```bash
+ITEM_LINE="$(GH_HOST="$HOST" gh project item-list "$PROJECT_NUMBER" \
+  --owner "$OWNER" --format json --limit 9999 \
+  --jq ".items[] | select(.content.number == $ISSUE_NUMBER)" 2>/dev/null \
+  | head -1)"
+ITEM_ID="$(jq -r '.id // empty' <<<"$ITEM_LINE")"
+CUR_STATUS="$(jq -r '.status // empty' <<<"$ITEM_LINE")"
+```
+
+If `ITEM_ID` is empty: log `build-start: WARN — issue #$ISSUE_NUMBER not found on board; DoR gate skipped` and continue.
+
+**When `CUR_STATUS == "Ready"`:** log and continue to Step 2:
+```bash
+shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"dor-gate","status":"ok","data":{"issue":<ISSUE_NUMBER>,"board_status":"Ready"}}'
+```
+
+**When `CUR_STATUS != "Ready"` (e.g. Todo, Blocked, In Progress):**
+
+In **interactive mode**: stop immediately with an actionable message:
+> "Issue #$ISSUE_NUMBER board Status is '$CUR_STATUS' — not Ready. Move the item to Ready on the board before starting a build session."
+
+Log:
+```bash
+shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"dor-gate","status":"error","data":{"halt_code":"DOR_NOT_READY","issue":<ISSUE_NUMBER>,"board_status":"<CUR_STATUS>"}}'
+```
+
+In **autonomous mode** (`--autonomous`): log the same entry above, then return R1 `status: "failure"` with `data.halt_code: "DOR_NOT_READY"` and `errors: ["DOR_NOT_READY: issue #<ISSUE_NUMBER> board Status is '<CUR_STATUS>' — expected Ready"]`.
 
 ### Step 2 — Git pre-flight
 
@@ -197,6 +242,7 @@ This skill registers one skill-level halt code. See `plugins/makato-build/halt-c
 
 | Code | Step | Route | Description |
 |------|------|-------|-------------|
+| `DOR_NOT_READY` | Step 1b | operator-escalation | Board item Status is not Ready (e.g. Todo, Blocked, In Progress). The issue must be moved to Ready before starting a build session. In autonomous mode returns R1 `status:"failure"` with `data.halt_code:"DOR_NOT_READY"`. |
 | `CANARY_FAILED` | Step 2e | operator-escalation | Unit command exited non-zero or timed out before `build-refine` was dispatched. See `halt-codes.md` for recovery instructions. |
 
 ### Step 3 — Validate or create spec
