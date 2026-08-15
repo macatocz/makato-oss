@@ -72,7 +72,7 @@ makato-oss connects via `VLLM_API_BASE=http://localhost:8100` (see `config/confi
 
 | File | Role |
 | --- | --- |
-| `infra/vllm-serve.yaml` | vLLM model/serving config (model, fp8, ctx 32k, gpu-util 0.75, served names) |
+| `infra/vllm-serve.yaml` | vLLM model/serving config (model, fp8, ctx 65k (≥ 65536 min for po-agent), gpu-util 0.75, served names) |
 | `infra/vllm-serve.sh` | launch wrapper — resolves `CUDA_HOME`, sets the workaround env, execs `vllm serve` |
 | `infra/vllm.service` | systemd unit — auto-starts the wrapper on every boot |
 | `infra/bootstrap-vllm.sh` | idempotent one-time setup: driver → venv → model → systemd |
@@ -80,6 +80,7 @@ makato-oss connects via `VLLM_API_BASE=http://localhost:8100` (see `config/confi
 ## Runbook
 
 ### Cold start (fresh or re-provisioned instance)
+
 ```bash
 # 1. Get the repo onto the box (rsync from a laptop, or git clone).
 # 2. Install uv if absent:
@@ -91,6 +92,7 @@ curl -sf http://localhost:8100/health
 ```
 
 ### Daily start (box was stopped overnight)
+
 ```bash
 vastai start instance <ID>     # from your laptop; disk (driver+venv+model) is intact
 # nothing else — vllm.service starts on boot. Verify:
@@ -98,6 +100,7 @@ curl -sf http://localhost:8100/health && curl -s http://localhost:8100/v1/models
 ```
 
 ### Manage / debug
+
 ```bash
 systemctl status vllm            # state
 journalctl -u vllm -f            # live log (also /var/log/vllm-serve.log)
@@ -106,14 +109,26 @@ sudo bash infra/bootstrap-vllm.sh   # re-run after repo changes; idempotent
 ```
 
 ### Smoke test the endpoint
+
 ```bash
 curl -s http://localhost:8100/v1/chat/completions \
   -H 'Content-Type: application/json' \
   -d '{"model":"open","messages":[{"role":"user","content":"Řekni ahoj česky."}],"max_tokens":64}'
 ```
 
+Run `scripts/preflight-omp-context.sh` as a pre-dispatch sanity check to confirm the model's
+context window meets the 65536 minimum before starting the po-agent.
+
 ## Gotchas
 
+- **po-agent requires max_model_len ≥ 65536** — `max_model_len: 32768` overflows on the first
+  request (prompt hits ~16 385 tokens from issue #42); `max_model_len: 40960` overflows after
+  the first tool-call round (~24 577 tokens). `max_model_len: 65536` is the confirmed minimum.
+  Root cause: omp requests `max_model_len / 2` output tokens, and makato skill files push the
+  accumulated context past the window midpoint quickly in multi-turn exchanges. Additionally,
+  `tool_call_parser: qwen3_xml` is required — `hermes` fetches `chat_template.json` from a
+  gated Hugging Face repo at startup and fails offline. Set `TRANSFORMERS_OFFLINE=1` in
+  `vllm.service` to prevent that HF fetch when the chat template is loaded.
 - **Do not `pkill -f "vllm serve"`** — the pattern matches the shell running the command and
   kills your own SSH session. Use `systemctl stop vllm` or `tmux kill-session`.
 - **The model is multimodal** (vision encoder present). We serve it as text; that is fine and
