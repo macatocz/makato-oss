@@ -2333,6 +2333,30 @@ _auto_seed_demote_to_todo() {
 }
 
 # ---------------------------------------------------------------------------
+# _auto_seed_ready_numbers — issue numbers already at board Status=Ready, one per line.
+# Implements the "not yet at board Status=Ready" filter the SKILL documents but the
+# candidate discovery never enforced: a seed-only issue never gains a created-issues.json,
+# so _is_orphan_issue keeps classifying it as orphan forever and auto-seed re-dispatched a
+# headless seed-issue for it every tick even though it was already Ready — wasteful churn
+# that also amplifies queue starvation. Reuses cmd_poll so it honours MAKATO_LOOP_GH_OVERRIDE,
+# the offline mirror, and the GraphQL board path. Best-effort: on any board-read failure it
+# prints nothing → the caller's exclusion set is empty → behaviour degrades to the pre-fix
+# no-skip path (never seeds LESS than before).
+# Test hook: MAKATO_LOOP_AUTOSEED_READY_OVERRIDE (newline-separated numbers); under
+# MAKATO_LOOP_TEST_HOOK the live board poll is skipped entirely to preserve the offline
+# smoke-test contract.
+# ---------------------------------------------------------------------------
+_auto_seed_ready_numbers() {
+  if [[ -n "${MAKATO_LOOP_AUTOSEED_READY_OVERRIDE:-}" ]]; then
+    printf '%s\n' "${MAKATO_LOOP_AUTOSEED_READY_OVERRIDE}"
+    return 0
+  fi
+  [[ -n "${MAKATO_LOOP_TEST_HOOK:-}" ]] && return 0
+  local status="${MAKATO_LOOP_DISPATCH_STATUS:-${DEFAULT_STATUS:-Ready}}"
+  cmd_poll "$status" 2>/dev/null | jq -r '.[].issue // empty' 2>/dev/null || true
+}
+
+# ---------------------------------------------------------------------------
 # _auto_seed_candidates — discover open issues needing seeding and classify plan-tier (#369, epic #367 S1).
 # Returns a JSON array of {number, plan_tier} objects.
 # Test hook: MAKATO_LOOP_AUTOSEED_OVERRIDE.
@@ -2349,15 +2373,27 @@ _auto_seed_candidates() {
   fi
   [[ -n "$raw" ]] || raw='[]'
 
-  # Start with all open issues; board-Ready exclusion applied per-candidate in T3.5.
+  # Start with all open issues; per-candidate guards below filter them down.
   local candidates="$raw"
   [[ -n "$candidates" ]] || candidates='[]'
+
+  # T1: board-Ready exclusion — issues already at Status=Ready are already in the
+  # dispatch queue; re-seeding them is wasteful churn. Precomputed once per pass;
+  # empty on board-read failure (degrades to pre-fix no-skip behaviour).
+  local ready_set
+  ready_set="$(_auto_seed_ready_numbers)"
 
   # Iterate per candidate, apply T2 exclusion labels, T3 bot veto, T4 plan-tier
   local result='[]'
   local n labels author_login excluded lbl plan_tier
   while IFS= read -r n; do
     [[ -n "$n" ]] || continue
+
+    # T1: board-Ready exclusion — already queued for dispatch; do not re-seed.
+    if [[ -n "$ready_set" ]] && grep -qxF "$n" <<<"$ready_set"; then
+      echo "loop: auto-seed — skip #$n (already at board Status=Ready)" >&2
+      continue
+    fi
 
     labels="$(jq -r --argjson i "$n" \
       '.[] | select(.number == $i) | [.labels[].name] | join(" ")' \

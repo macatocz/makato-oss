@@ -2204,6 +2204,38 @@ grep -qF "demote #302" "$T77_DEMOTE" \
 rm -rf "$T77_SPECS" "$T77_FIXTURE" "$T77_DEMOTE"
 echo "  ✓ folderless non-orphan #301 demoted Ready → Todo; folder-backed #302 left untouched"
 
+# ---------------------------------------------------------------------------
+# T78: board-Ready exclusion — a candidate already at Status=Ready is skipped so
+# auto-seed stops re-seeding already-queued issues every tick. Seed-only issues
+# never gain a created-issues.json, so _is_orphan_issue keeps them "orphan"
+# forever; without this filter they were re-dispatched to seed-issue on every
+# poll. MAKATO_LOOP_AUTOSEED_READY_OVERRIDE injects the Ready set offline.
+echo "=== T78: board-Ready candidate excluded; non-Ready candidate passes ==="
+T78_FIXTURE="$STATE_DIR/t78-autoseed-$$.json"
+cat >"$T78_FIXTURE" <<'EOF'
+[
+  {"number": 401, "labels": [{"name": "type:feature"}, {"name": "plan-tier:light"}], "author": {"login": "user1"}},
+  {"number": 402, "labels": [{"name": "type:feature"}, {"name": "plan-tier:light"}], "author": {"login": "user2"}}
+]
+EOF
+t78_out="$(MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_AUTOSEED_OVERRIDE="$T78_FIXTURE" \
+  MAKATO_LOOP_AUTOSEED_READY_OVERRIDE="401" \
+  "$LOOP" _test-auto-seed-candidates 2>/dev/null)"
+echo "$t78_out" | jq -e '[.[] | select(.number == 401)] | length == 0' >/dev/null \
+  || fail "T78: issue 401 (already Ready) must be excluded; got: $t78_out"
+echo "$t78_out" | jq -e '[.[] | select(.number == 402)] | length == 1' >/dev/null \
+  || fail "T78: issue 402 (not Ready) must remain a candidate; got: $t78_out"
+# Fail-open: with no Ready-set (empty override under the test hook), nothing is
+# skipped — behaviour degrades to the pre-fix no-skip path.
+t78b_out="$(MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_AUTOSEED_OVERRIDE="$T78_FIXTURE" \
+  "$LOOP" _test-auto-seed-candidates 2>/dev/null)"
+echo "$t78b_out" | jq -e '[.[] | select(.number == 401 or .number == 402)] | length == 2' >/dev/null \
+  || fail "T78: fail-open — both candidates must pass when Ready set is empty; got: $t78b_out"
+rm -f "$T78_FIXTURE"
+echo "  ✓ already-Ready #401 excluded; #402 passes; empty Ready set skips nothing (fail-open)"
+
 
 # ---------------------------------------------------------------------------
 # T_BG1/T_BG2: session-safety guard (#743). cmd_run must abort when it is a
