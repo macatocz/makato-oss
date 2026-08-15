@@ -4,7 +4,7 @@ description: >-
   Create Product Requirements Documents from brainstorming output — PRD,
   requirements, product requirements, feature requirements, user stories,
   acceptance criteria. Use after brainstorming and grilling.
-version: "1.2.0"
+version: "1.2.1"
 model: opus
 argument-hint: "[slug]"
 allowed-tools: Bash
@@ -442,6 +442,8 @@ acceptance criteria and refined stories come later.
 
 #### 5.2: Write PRD
 
+> **MAKATO_PLAN_NO_HTML guard**: Check `MAKATO_PLAN_NO_HTML` env var. If set, skip this doc-writer dispatch entirely and proceed to the next step.
+
 Dispatch the `doc-writer` agent to write `specs/{folder}/prd.md`.
 
 **MANDATORY — Load @references/prd-quality.md now** (measurable criteria standards,
@@ -576,6 +578,8 @@ skill's output format:
 
 ### Step 8: HTML Review & Approval
 
+> **MAKATO_PLAN_NO_HTML guard**: Check `MAKATO_PLAN_NO_HTML` env var. If set, skip this HTML generation step entirely and proceed to the next step.
+
 Dispatch the `doc-writer` agent to generate an interactive HTML review.
 
 Include in the prompt:
@@ -633,6 +637,8 @@ PRD again.
 
 For **first-time PRD creation** (not update mode): skip change highlighting entirely —
 all content is new by definition.
+
+> **MAKATO_PLAN_NO_HTML guard**: Check `MAKATO_PLAN_NO_HTML` env var. If set, skip this browser-open call entirely and proceed to the next step.
 
 Open in browser (use the command for the user's OS):
 

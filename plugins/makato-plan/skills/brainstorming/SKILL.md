@@ -4,7 +4,7 @@ description: >-
   Structured divergent-convergent ideation on a feature — brainstorm, explore ideas, ideate,
   creative exploration, explore feature angles. Use when starting a new feature that needs
   ideation before PRD.
-version: "1.3.0"
+version: "1.3.1"
 model: opus
 allowed-tools: [Bash]
 mcp_server: github
@@ -77,6 +77,12 @@ Why: The parking lot persists open questions across sessions for exactly this re
 over a question that is already parked generates ideas that collapse when the unknown resolves.
 Users forget they parked a question; the startup check is the only guard against re-diverging into
 an already-identified unknown.
+
+---
+
+## Constants
+
+- **CONTEXT_SCOUT_TOKEN_BUDGET: 2000** — Maximum tokens returned by a single context-scout dispatch.
 
 ---
 
@@ -384,6 +390,8 @@ Rank final concepts by recommendation strength.
 
 ### Step 7: HTML Review & Approval Gate
 
+> **MAKATO_PLAN_NO_HTML guard**: Check `MAKATO_PLAN_NO_HTML` env var. If set, skip this HTML generation step entirely and proceed to Step 8.
+
 Dispatch the `doc-writer` agent to generate the HTML review. Include in the prompt:
 
 - **MODE**: html-review
@@ -436,6 +444,8 @@ Resolve the repo root before dispatching — sub-agents inherit an unpredictable
 ```bash
 REPO_ROOT=$(git rev-parse --show-toplevel)
 ```
+
+> **MAKATO_PLAN_NO_HTML guard**: Check `MAKATO_PLAN_NO_HTML` env var. If set, skip this doc-writer dispatch entirely and proceed to the next step.
 
 Dispatch the `doc-writer` agent to write the canonical files. Include in the prompt:
 
