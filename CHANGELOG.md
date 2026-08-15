@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.157.0](https://github.com/macatocz/makato-oss/compare/v0.156.0...v0.157.0) (2026-08-15)
+
+
+### ✨ Features
+
+* **makato-build:** compact plan-analyst Task List to single-line pipe format ([#68](https://github.com/macatocz/makato-oss/issues/68)) ([#77](https://github.com/macatocz/makato-oss/issues/77)) ([629b4a5](https://github.com/macatocz/makato-oss/commit/629b4a5f1fe10dcfff4749327a046f23c1ba5191))
+* **makato-orchestrate:** omp config min max_model_len 65536 for po-agent ([#66](https://github.com/macatocz/makato-oss/issues/66)) ([#73](https://github.com/macatocz/makato-oss/issues/73)) ([7feecb9](https://github.com/macatocz/makato-oss/commit/7feecb97efbc5481646ee18d9b985d401625faf4))
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** skip already-Ready issues in auto-seed candidate discovery ([#76](https://github.com/macatocz/makato-oss/issues/76)) ([d9d3c5e](https://github.com/macatocz/makato-oss/commit/d9d3c5e776f638d56da10cde61dd739f68b2a943))
+
 ## [0.156.0](https://github.com/macatocz/makato-oss/compare/v0.155.2...v0.156.0) (2026-08-14)
 
 
