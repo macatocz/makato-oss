@@ -5,13 +5,13 @@ description: >-
   (3-5 per foundation/happy-path story, 1-3 per edge-case story). Use after
   decompose to create acceptance tests, generate Gherkin scenarios, or refine
   test cases.
-version: "1.3.0"
+version: "1.4.0"
 model: sonnet
 argument-hint: "[slug]"
 allowed-tools: [Read, Write, Agent, Bash]
 metadata:
   authors: [makato-plan]
-  last_updated: "2026-08-05"
+  last_updated: "2026-08-15"
 ---
 
 # Create Acceptance Tests
@@ -169,9 +169,6 @@ Refining acceptance tests for each story
 
 ### Step 3: Dispatch Acceptance Writer Agent (Per Story)
 
-**MANDATORY: Load `references/gherkin-quality-rules.md` at this step and include its full
-content in the agent prompt. Do NOT load this reference before reaching Step 3.**
-
 For each story in `stories.json`, dispatch the `acceptance-writer` agent with:
 
 ```text
@@ -189,8 +186,24 @@ Agent({
     Definition of Done: {story.definitionOfDone}
     {if design.md present: Architecture context: {designContextExcerpt}}
 
-    ## GUIDELINES
-    {gherkin quality rules — full content of references/gherkin-quality-rules.md}
+    ## GUIDELINES — Gherkin Quality Rules (6-rule condensed checklist)
+
+    Reject any scenario that violates one of these six rules. Fix inline before returning.
+
+    1. **No implementation leaks** — steps must not mention APIs, endpoints, SQL, HTTP
+       verbs, error codes, or internal component/class names. Rewrite in business language.
+    2. **No generic titles** — title must not contain "test", "check", "verify", "handle",
+       "it should", or "make sure". Rewrite as an outcome statement.
+    3. **No vague language** — steps must not use "correct", "appropriate", "valid",
+       "properly", "successfully", or "as expected" without specifying the concrete
+       observable behavior.
+    4. **Single When step** — one triggering action per scenario. Split multi-action
+       scenarios into separate scenarios.
+    5. **No over-detailed steps** — steps must not mention specific field names, exact
+       API payloads, database columns, config keys, or environment variables. Describe
+       user-level intent only.
+    6. **Scenario count** — 3–5 scenarios for foundation/happy-path stories; 1–3 for
+       edge-case stories. Minor variations belong in automated unit tests, not here.
   "
 })
 ```
@@ -229,7 +242,7 @@ output (fallback to `successScenarios[]`).
 
 ### Step 4: Quality Self-Review
 
-Validate each scenario against the 6 anti-patterns in `references/gherkin-quality-rules.md`.
+Validate each scenario against the 6 rules in the Step 3 condensed checklist.
 For each violation found: fix inline. Track fixes for the review summary.
 
 Also validate structural constraints:
