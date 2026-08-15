@@ -4,13 +4,13 @@ description: >-
   Adversarial interview that stress-tests phase artifacts — grill decisions,
   challenge assumptions, review critically. Use after any artifact is drafted
   and needs scrutiny before committing to the next phase.
-version: "1.4.0"
+version: "1.5.0"
 model: opus
 argument-hint: "[slug] [artifact]"
 allowed-tools: Bash
 metadata:
   authors: ["makato-plan"]
-  last_updated: "2026-08-05"
+  last_updated: "2026-08-15"
 ---
 
 # Stress-Test Artifact
@@ -76,6 +76,44 @@ Answer each question freely — agree, disagree, elaborate, or say
 ```
 
 Confirm before starting.
+
+---
+
+## Step 2.0: Pre-Planning Protocol
+
+Before the first question, load `references/question-planner.md` and prepare a lens
+rotation plan for this session.
+
+```bash
+# Resolve path via git so it works in both normal checkout and git worktree
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || git -C "$PWD" rev-parse --git-common-dir | sed 's|/\.git.*||')
+cat "${REPO_ROOT}/plugins/makato-plan/skills/stress-test-artifact/references/question-planner.md"
+```
+
+1. **Identify the artifact type** from Step 1's resolution (brainstorm, prd, design,
+   spec, or story).
+2. **Select the rotation plan** from the question-planner's table (Plan A for PRD/brainstorm,
+   Plan B for design/architecture, Plan C for spec/story).
+3. **Prepare the opening lens sequence** for the first four questions — note which lens
+   opens Q1–Q4 before asking Q1.
+4. **Do NOT tell the user** which plan was selected or which lens each question uses —
+   the rotation is an internal structuring device, not a visible prompt.
+
+### `[T]` Deferral Write-back
+
+When the user says "don't know", "skip", or explicitly defers a topic during the grill
+(Step 2), record it as a `[T]`-tagged open question in `decisions.md` so later rounds
+can pick it up explicitly rather than losing it to the session record.
+
+**Format for a deferred item in the Open Questions table of `decisions.md`:**
+
+```markdown
+| [T] Q{N} | {topic summary — one sentence} | {High/Medium/Low} | open |
+```
+
+The `[T]` prefix signals that this item was explicitly deferred, not merely skipped.
+When a subsequent grill session opens `decisions.md`, all `[T]`-tagged rows are surfaced
+first at Step 1 (Open Questions Startup Check) so no deferred topic silently expires.
 
 ---
 
@@ -192,7 +230,8 @@ After all branches are resolved, update artifacts:
 
 - **decisions.md**: Add new decisions discovered during the grill (with next
   available ID). Mark any overturned decisions as `**Status**: Revised` with the
-  new decision inline. Park "don't know" items in the Open Questions table.
+  new decision inline. Park "don't know" items in the Open Questions table with
+  the `[T]` prefix tag (per Step 2.0 deferral write-back format).
 - **glossary.md**: See Step 3a.
 - **Do NOT** modify the grill target itself — decisions.md is the canonical record of outcomes; the HTML review (Step 4) is the per-session snapshot.
 - **Do NOT** duplicate decision content into other artifacts — reference by ID only
