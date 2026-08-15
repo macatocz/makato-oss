@@ -4,7 +4,7 @@ description: >-
   Create Product Requirements Documents from brainstorming output — PRD,
   requirements, product requirements, feature requirements, user stories,
   acceptance criteria. Use after brainstorming and grilling.
-version: "1.1.0"
+version: "1.2.0"
 model: opus
 argument-hint: "[slug]"
 allowed-tools: Bash
@@ -192,6 +192,32 @@ The interview is structured in rounds. Every PRD section MUST trace back to eith
 brainstorm.md/decisions.md that the user already confirmed.
 The AI MUST NOT generate content for a section without explicit user input.
 
+#### Pre-Round Coverage Scan (run before Round 1; repeat the same logic before Round 2 and Round 3)
+
+Before each round fires, scan all available sources against that round's question list and
+classify each question as one of three states:
+
+| State | Meaning | Action in the round |
+|-------|---------|---------------------|
+| `covered` | A direct answer already exists in `brainstorm.md`, `decisions.md`, or a prior round's response | Collapse to a one-sentence confirmation: "brainstorm already recorded X — confirm Y/N?" Do NOT re-ask the full question. |
+| `needs-confirmation` | A partial or implicit answer exists but was not explicitly confirmed by the user | Ask a short confirmation question (one sentence) rather than the full open-ended prompt. |
+| `needs-answer` | No prior coverage found | Ask the full question as specified in the round. |
+
+**Scan procedure** (internal — not shown to the user):
+
+1. List every topic in the upcoming round.
+2. For each topic, search `brainstorm.md` and `decisions.md` for a direct answer.
+   If this is Round 2 or Round 3, also check whether a prior round already captured it.
+3. Assign one of the three states above.
+4. When `covered` topics would reduce a round to confirmation checks only, the round
+   may collapse entirely to a brief "Confirming a few points from our brainstorm" block
+   rather than a full interview sequence.
+
+Do NOT skip the scan — even if brainstorm.md is rich, always verify which questions
+were explicitly confirmed vs. implied.
+
+---
+
 #### Round 1 — Core Strategy (always ask)
 
 - **Success criteria** — 3-5 measurable KPIs. Reject vague qualifiers:
@@ -210,6 +236,9 @@ The AI MUST NOT generate content for a section without explicit user input.
 
 #### Round 2 — Context & Ownership (always ask)
 
+> **Pre-round:** Run the Pre-Round Coverage Scan (see above) against the Round 2 topics
+> before asking any questions. Collapse already-covered topics to confirmation checks.
+
 - **Background & Context** — "Why are we building this NOW? What's the market
   driver, customer signal, or strategic initiative?" Distill from brainstorm if
   available, but confirm with user. 3-5 sentences max.
@@ -222,6 +251,9 @@ The AI MUST NOT generate content for a section without explicit user input.
 - **Dependencies** — "What are we waiting on or need from other teams?"
 
 #### Round 3 — Conditional (ask based on feature characteristics)
+
+> **Pre-round:** Run the Pre-Round Coverage Scan (see above) against the Round 3 topics
+> before asking any questions. Collapse already-covered topics to confirmation checks.
 
 | Topic | Trigger Condition | Minimum Data Required |
 |-------|-------------------|-----------------------|
