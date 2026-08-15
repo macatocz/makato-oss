@@ -152,6 +152,52 @@ Check if critical open questions from the analysis are resolved:
 
 If questions are resolved or there were none, proceed.
 
+### Step 2.5: Check code-exploration.md Cache Staleness
+
+Before dispatching the code-explorer agent in Step 4 Option B, gate the dispatch on a
+3-way staleness check against the `code-exploration.md` stub written by the analyze skill.
+
+```bash
+CACHE_FILE="specs/<issue-key>/code-exploration.md"
+CURRENT_SHA="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo "")"
+```
+
+**Read the cache file** using `Read` on `$CACHE_FILE`. Extract frontmatter fields
+`git_sha`, `timestamp`, and `status`. If the file cannot be parsed as valid YAML frontmatter,
+treat it as absent.
+
+**Route:**
+
+| Condition | Action |
+|-----------|--------|
+| `$CACHE_FILE` absent, unreadable, or frontmatter parse error | **Auto re-scan** — set `CACHE_VERDICT=miss`. Proceed to Step 4 Option B (code-explorer dispatch). |
+| `timestamp` age ≥ 24 h (compare against current UTC time) | **Auto re-scan** — set `CACHE_VERDICT=stale`. Proceed to Step 4 Option B. |
+| `git_sha` matches `$CURRENT_SHA` AND `status != "pending"` | **Cache hit** — set `CACHE_VERDICT=hit`. Log `cache_hit: true` to `build.jsonl` (see below), load `code-exploration.md` body as `CODE_EXPLORATION_RESULT`, and **skip code-explorer dispatch** in Step 4 Option B. Jump directly to Step 4.5. |
+| `git_sha` differs from `$CURRENT_SHA` AND timestamp age < 24 h | **Prompt user** (headless: auto re-scan) — see below. |
+
+**Prompt branch (interactive only, SHA mismatch + age < 24 h):**
+
+Use AskUserQuestion:
+
+**Question:** "The cached code exploration is from a different commit (`<cached_sha>` vs current `<current_sha>`), but it is less than 24 hours old. Re-scan or use cached?"
+
+**Options:**
+1. **Re-scan** — dispatch code-explorer against the current commit
+2. **Use cached** — skip code-explorer; load the cached body as-is
+
+Headless (`MAKATO_HEADLESS=1`): auto-select **Re-scan** and log a bypass:
+```bash
+shared/log-bypass.sh makato-change:design "<ISSUE_KEY>" cache-staleness re-scan cli_flag
+```
+
+**On cache hit — log entry:**
+```bash
+plugins/makato-build/shared/build-log.sh "<KEY>" \
+  '{"step":"cache-check","status":"ok","data":{"skill":"design","cache_hit":true,"git_sha":"<CACHED_SHA>"}}'
+```
+
+**Store:** `CACHE_VERDICT` (`hit` | `miss` | `stale`) for use in Step 4.
+
 ### Step 3: Ask User for Code Discovery Preference
 
 **MANDATORY: Load @references/code-discovery-strategies.md** to understand the two approaches before presenting options.
@@ -225,6 +271,30 @@ Extract FEATURE_KEYWORDS by identifying key terms from analysis artifact:
 - Project specs context (if available)
 
 **Store result** in working memory as CODE_EXPLORATION_RESULT.
+
+**After code-explorer returns** (cache miss or forced re-scan), overwrite `specs/<issue-key>/code-exploration.md` with the updated SHA, timestamp, and full agent output:
+
+```bash
+GIT_SHA="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo "unknown")"
+TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+```
+
+Write `specs/<issue-key>/code-exploration.md`:
+
+```
+---
+git_sha: <GIT_SHA>
+timestamp: <TIMESTAMP>
+status: fresh
+---
+
+<full CODE_EXPLORATION_RESULT output>
+```
+
+```bash
+plugins/makato-build/shared/build-log.sh "<KEY>" \
+  '{"step":"code-exploration-write","status":"ok","data":{"skill":"design","git_sha":"<GIT_SHA>","cache_verdict":"<CACHE_VERDICT>"}}'
+```
 
 **Extract for design:**
 - List of files to modify (with descriptions)

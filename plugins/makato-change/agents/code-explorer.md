@@ -5,7 +5,7 @@ description: >-
   Read-only codebase discovery agent for change requests. Given REPO_ROOT,
   FEATURE_KEYWORDS, and REQUESTED_CHANGES, discovers affected files,
   dependencies, code conventions, and project-specs context, then returns
-  synthesised findings the analyze and design skills can use without
+  synthesised findings the design skill can use without
   re-reading sources.
 maxTurns: 20
 permissionMode: bypassPermissions
@@ -204,7 +204,7 @@ Return findings using this structure:
 ## See also
 
 - `plugins/makato-change/AGENTS.md` — agent roster and design principles for this plugin.
-- `plugins/makato-change/skills/analyze/SKILL.md` — primary dispatching skill.
-- `plugins/makato-change/skills/design/SKILL.md` — secondary dispatching skill.
+- `plugins/makato-change/skills/analyze/SKILL.md` — no longer dispatches this agent; exploration moved to design.
+- `plugins/makato-change/skills/design/SKILL.md` — primary dispatching skill (Step 4 Option B, staleness-gated by Step 2.5).
 - `plugins/makato-change/shared/path-resolution.md` — algorithm for resolving `REPO_ROOT` from `repositories.yml`.
 - `plugins/makato-change/agents/test-analyzer.md` — companion agent for deep test-coverage discovery.
