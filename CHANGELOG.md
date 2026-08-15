@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.159.0](https://github.com/macatocz/makato-oss/compare/v0.158.0...v0.159.0) (2026-08-15)
+
+
+### ✨ Features
+
+* **makato-change:** add shared guards and gherkin-elaborator ([#71](https://github.com/macatocz/makato-oss/issues/71)) ([#83](https://github.com/macatocz/makato-oss/issues/83)) ([fccf4cb](https://github.com/macatocz/makato-oss/commit/fccf4cbe14315dbc04e2b2ae659691a5f35a5288))
+* **makato-change:** move code-explorer to design, add code-exploration.md cache validation ([#84](https://github.com/macatocz/makato-oss/issues/84)) ([2fd46d5](https://github.com/macatocz/makato-oss/commit/2fd46d51c658f3873210f24cccf33bf23f6c99aa)), closes [#72](https://github.com/macatocz/makato-oss/issues/72)
+* **makato-plan:** P0 token savings for plan plugin ([#70](https://github.com/macatocz/makato-oss/issues/70)) ([#81](https://github.com/macatocz/makato-oss/issues/81)) ([5fca11c](https://github.com/macatocz/makato-oss/commit/5fca11c62915a7b8d4144a3b3a31231c80ee9ec9))
+
 ## [0.158.0](https://github.com/macatocz/makato-oss/compare/v0.157.0...v0.158.0) (2026-08-15)
 
 
