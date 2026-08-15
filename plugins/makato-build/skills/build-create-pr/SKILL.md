@@ -6,7 +6,7 @@ description: >-
   to How to Test, design decisions surface in the description, Jira
   story is linked. Presents draft for user approval before opening.
   Interactive. Use after push-to-git, before address-pr-comments.
-version: "1.9.0"
+version: "1.10.0"
 argument-hint: "[work-item-key] [--autonomous]"
 allowed-tools:
   - Bash
@@ -231,6 +231,23 @@ GH_RC=$?
 
 ```bash
 shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-create-pr","story":"<key>","step":"pr_created","status":"ok","data":{"pr_url":"<url>","pr_number":<N>}}'
+```
+
+**Board Status — In Review (best-effort):** after a successful PR creation, update the board card Status to In Review. Read `in_review` option ID from `.claude/config.json` `github_project` block. If the block is absent or `in_review` is missing, skip silently. Otherwise:
+
+```bash
+GH_HOST="$HOST" gh project item-edit \
+  --id "$ITEM_ID" \
+  --project-id "$PROJECT_NODE_ID" \
+  --field-id "$STATUS_FIELD_ID" \
+  --single-select-option-id "$IN_REVIEW_OPTION_ID"
+```
+
+On success: log `build-create-pr: marked #$ISSUE_NUMBER as In Review on project board`.
+On failure: log `build-create-pr: WARN — could not set In Review on board; continuing` (best-effort — never blocks PR creation or subsequent steps).
+
+```bash
+shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-create-pr","story":"<key>","step":"board-in-review","status":"<ok|warn>","data":{"issue":<ISSUE_NUMBER>,"reason":"<omit-on-ok|error-description-on-warn>"}}'
 ```
 
 Proceed to Step 6.
