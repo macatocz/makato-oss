@@ -7,7 +7,7 @@ description: >-
   approved and the user is ready to write code. Trigger keywords:
   implementation, coding changes, test updates, PR creation, execute change,
   apply design, implement change request.
-version: "1.5.0"
+version: "1.6.0"
 argument-hint: "[ISSUE-KEY]"
 allowed-tools: Bash
 metadata:
@@ -445,6 +445,11 @@ TEST_SCOPE: <from design: module-only | full-suite>
 MODULE_PATH: <if module-only, the module/package path>
 CHANGED_FILES: <list of modified/created files, relative to REPO_ROOT>
 ```
+
+The agent scopes its checks to the stacks `CHANGED_FILES` actually touches: a
+frontend-only change runs vitest + biome and skips backend pytest/ruff (and vice
+versa); when the change spans two or more code stacks it runs everything. Pass an
+accurate `CHANGED_FILES` list so the scoping is correct.
 
 **Agent will return:**
 - Lint status (pass/fail with errors)

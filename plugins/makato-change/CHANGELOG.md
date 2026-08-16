@@ -1,6 +1,30 @@
 <!-- markdownlint-disable MD012 MD013 -->
 # Changelog
 
+## quality-guard scopes checks to touched stacks (changed-files scoping)
+
+Scopes the `quality-guard` quality gate to the stacks a change actually touches.
+Previously, in a polyglot repo the agent ran every discovered check regardless of
+what changed — a frontend-only change paid for the full backend pytest suite. Now
+the agent classifies `CHANGED_FILES` by stack and, when only one code stack is
+touched, runs only that stack's checks (frontend → vitest + biome; backend →
+pytest + ruff) and marks the rest `skipped: stack-not-touched`. When two or more
+code stacks are touched — or the change is only stack-neutral files — it runs every
+discovered check, preserving prior behaviour with no regression.
+
+**Changes:**
+
+- **`plugins/makato-change/agents/quality-guard.md`** (`v1.1.0 → v1.2.0`) — adds
+  a scope-to-touched-stacks rule, polyglot multi-stack command discovery (Step 2),
+  a new **Step 2.5: Scope Checks to Touched Stacks** (file-bucket classification →
+  `scoped_to_stack` decision), a scope gate on the run steps (3–8), `scoped_to_stack`
+  and `stack_buckets` fields in the report, and edge-case rows for empty/neutral/
+  multi-stack `CHANGED_FILES`.
+
+- **`plugins/makato-change/skills/execute/SKILL.md`** (`v1.5.0 → v1.6.0`) — Step 5.5.2
+  documents that `quality-guard` scopes checks to the stacks `CHANGED_FILES` touches
+  and stresses passing an accurate changed-file list.
+
 ## spec-delta.md generation and binding constraint propagation (v1.4.0)
 
 Adds `spec-delta.md` awareness to the change request pipeline so that the
