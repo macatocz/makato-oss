@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.160.0](https://github.com/macatocz/makato-oss/compare/v0.159.0...v0.160.0) (2026-08-16)
+
+
+### ✨ Features
+
+* **makato-change:** scope quality-guard to changed files ([#85](https://github.com/macatocz/makato-oss/issues/85)) ([7a778d3](https://github.com/macatocz/makato-oss/commit/7a778d3c205750162c829d98475c0cb4083dc556))
+
 ## [0.159.0](https://github.com/macatocz/makato-oss/compare/v0.158.0...v0.159.0) (2026-08-15)
 
 
