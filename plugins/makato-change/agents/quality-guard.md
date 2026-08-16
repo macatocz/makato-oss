@@ -8,7 +8,7 @@ description: >-
 maxTurns: 25
 permissionMode: bypassPermissions
 disallowedTools: Write, Edit, NotebookEdit, WebSearch
-version: "1.1.0"
+version: "1.2.0"
 ---
 
 <!-- markdownlint-disable MD013 -->
@@ -20,7 +20,8 @@ version: "1.1.0"
 ## Rules
 
 - **Discover then execute**: Find commands in config files first, then run them.
-- **Complete picture**: Run all checks even if early ones fail — do not fail fast.
+- **Scope to touched stacks**: Classify `CHANGED_FILES` by stack (frontend JS/TS vs backend Python vs other). When only one code stack is touched, run only that stack's checks and mark the rest `skipped` (reason `stack-not-touched`). A frontend-only change runs vitest + biome, never backend pytest — and vice versa.
+- **Complete picture within scope**: Run all in-scope checks even if early ones fail — do not fail fast.
 - **Actionable output**: Include error excerpts and fix suggestions, not just pass/fail.
 - **Respect test scope**: If design specifies `"module-only"` tests, run only that module.
 - **Coverage awareness**: Check coverage threshold from the design artifact; default to 90%.
@@ -113,11 +114,38 @@ Scan `REPO_ROOT` for config files:
 
 **Makefile**: Read targets — look for `build`, `lint`, `format`, `test`, `integration-test`, `coverage`, `typecheck`.
 
-**Record** all discovered commands verbatim from config.
+**Polyglot repos**: Detect **every** stack present, not just the first. A repo with both `package.json` and `pyproject.toml` has a frontend and a backend stack — discover commands for both. Tag each discovered command with its owning stack (`frontend` for JS/TS/Biome/vitest commands, `backend` for Python/ruff/pytest, or the relevant language name for others). Step 2.5 uses these tags to decide which commands actually run.
+
+**Record** all discovered commands verbatim from config, each tagged with its stack.
 
 **If no commands found**: Set `commands_found: 0`, report "No lint/test commands found in project config", skip to Step 9.
 
+### Step 2.5: Scope Checks to Touched Stacks
+
+Classify each entry in `CHANGED_FILES` into a stack bucket by extension and path, then restrict Steps 3–8 to the stacks that were actually touched. This prevents running a full backend suite for a frontend-only change (and vice versa).
+
+**2.5a. Bucket each changed file:**
+
+| Bucket | Matches |
+|---|---|
+| `frontend` | `.js`, `.jsx`, `.ts`, `.tsx`, `.mjs`, `.cjs`, `.vue`, `.svelte`, `.css`, `.scss`, `.less`, `.html`; config `package.json`, `tsconfig*.json`, `biome.json`, `biome.jsonc`, `vitest.config.*`, `vite.config.*` |
+| `backend` | `.py`, `.pyi`; config `pyproject.toml`, `setup.py`, `setup.cfg`, `pytest.ini`, `tox.ini`, `ruff.toml` |
+| `other-code` | any other source extension (`.java`, `.kt`, `.go`, `.rs`, …) |
+| `neutral` | stack-agnostic files: `.md`, `.txt`, docs, root `.gitignore`, CI YAML, images |
+
+**2.5b. Determine the touched code stacks** — the set of distinct buckets other than `neutral` that contain ≥1 file.
+
+**2.5c. Decide scope:**
+
+- **Exactly one code stack touched** → set `scoped_to_stack: <stack>`. In Steps 3–8, run only commands tagged with that stack. Every command tagged with a different stack is recorded as `<check>_status: skipped` with `reason: stack-not-touched`. Example: only `.ts`/`.tsx` files changed → run biome (lint+format), tsc (typecheck), vitest (unit + coverage); mark ruff/pytest/mypy skipped.
+- **Two or more code stacks touched** → set `scoped_to_stack: none`. Run every discovered command (no regression from prior behaviour).
+- **Only `neutral` files touched** (no code stack) → set `scoped_to_stack: none`. Run every discovered command — the safe default when stack cannot be inferred.
+
+**Record**: `scoped_to_stack`, and the per-bucket file counts (`stack_buckets: {frontend: N, backend: N, other-code: N, neutral: N}`).
+
 ### Step 3: Run Linter (if found)
+
+**Scope gate (applies to Steps 3–8):** When `scoped_to_stack` is a specific stack, skip any command whose stack tag differs — record it as `<check>_status: skipped`, `reason: stack-not-touched`, and do not execute it. When `scoped_to_stack` is `none`, run every discovered command as before.
 
 ```bash
 cd <REPO_ROOT> && <lint-command>
@@ -220,6 +248,10 @@ Compile results into the output format below.
 **checks_passed**: <N>
 **checks_failed**: <N>
 **project_type**: <node | maven | gradle | python | make>
+**scoped_to_stack**: <frontend | backend | other-code | none>
+**stack_buckets**: frontend=<N>, backend=<N>, other-code=<N>, neutral=<N>
+
+<When scoped_to_stack is a specific stack, note which stacks were skipped, e.g.: "Scoped to **frontend** (only `.ts`/`.tsx` touched) — backend checks (ruff, pytest) skipped: stack-not-touched.">
 
 ## Check Results
 
@@ -388,6 +420,8 @@ No quality check commands found in project configuration.
 | Required input field missing | Stop; report "Missing required input: `<field>`". Do not run any checks. |
 | Sensitive file access required to proceed | Stop; report which file/pattern was blocked and why it was needed. Never read the file. |
 | No commands found in project config | Set `commands_found: 0`; skip to Step 9 and report `overall_status: skipped`. |
+| `CHANGED_FILES` empty or all `neutral` (no code stack) | Set `scoped_to_stack: none`; run every discovered command (safe default — do not skip any stack). |
+| Two or more code stacks in `CHANGED_FILES` | Set `scoped_to_stack: none`; run every discovered command (no scoping). |
 | A shell command exits non-zero | Record the failure for that check; continue running remaining checks. |
 | `DESIGN_PATH` not readable | Proceed with default thresholds (90% coverage, all test types required); note the fallback in the report. |
 
