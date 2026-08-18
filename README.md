@@ -99,6 +99,27 @@ or a HALT fires.
 | [`makato-sagibeast`](plugins/makato-sagibeast/)         | Word template extraction, PDF/Excel processing, testbox VM tooling.                                     |
 | [`makato-observability`](plugins/makato-observability/) | Trace and debug LangGraph agents via OpenTelemetry → Langfuse. Vendor-neutral.                         |
 
+## Infrastructure
+
+makato's autonomous skills call an open LLM endpoint served by **vLLM** on a vast.ai GPU box.
+See [`docs/vast-ai-llm-deployment.md`](docs/vast-ai-llm-deployment.md) for the full runbook —
+version pins, gotchas, and why the setup is the way it is.
+
+To bring up a fresh or migrated box in one command:
+
+```bash
+# full run — LLM + sagibeast stack + Cloudflare tunnel on your domain:
+HF_TOKEN=hf_xxx ./scripts/vast-provision-all.sh <IP>
+
+# stack only (no LLM, no tunnel):
+./scripts/vast-provision-all.sh <IP> --no-llm --no-tunnel
+```
+
+The script auto-detects the SSH port from the vast.ai API, repairs the box, rsyncs the repos,
+bootstraps the vLLM endpoint (driver → reboot → venv → model → systemd), brings up the
+sagibeast compose stack, and prints the connection cheat-sheet. Run it any time — it is
+idempotent.
+
 ## Contributing
 
 This repo is a monorepo of Claude Code plugins. Each plugin under `plugins/` owns its own
