@@ -53,10 +53,22 @@ else
     log "driver phase: installing nvidia-driver-$MIN_DRIVER_MAJOR (current major: ${driver_major:-none})"
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq
-    # DKMS needs headers for the running kernel to build the driver module.
-    apt-get install -y "linux-headers-$(uname -r)" "nvidia-driver-$MIN_DRIVER_MAJOR"
+    # DKMS needs headers for the running kernel to build the driver module. We also pull
+    # build-essential (Phase 2's toolchain) in this SAME apt pass so the post-reboot re-run
+    # needs no apt at all — some re-provisioned vast.ai boxes ship a broken /etc/environment
+    # that makes apt fail (see docs/vast-ai-llm-deployment.md → "gotchas").
+    apt-get install -y "linux-headers-$(uname -r)" "nvidia-driver-$MIN_DRIVER_MAJOR" build-essential
     reboot_needed=1
-    log "driver phase: installed — a reboot is required to load the new kernel module"
+    # Reboot NOW, before building the venv. If we let Phases 3+ run on the still-loaded old
+    # driver, `uv --torch-backend=auto` detects the OLD CUDA version and installs a torch that
+    # mismatches vLLM's CUDA-13 binary → a broken venv that a later re-run will not repair.
+    # Exiting here guarantees the venv is only ever built against the CUDA 13 driver.
+    log "driver phase: installed. Rebooting now to load the new kernel module."
+    log "IMPORTANT: RE-RUN this script once the box is back — it will skip the driver and"
+    log "           build the venv + model + systemd against the correct CUDA 13 runtime."
+    sleep 3
+    reboot
+    exit 0
 fi
 
 # ── Phase 2: build toolchain (nvcc host compiler + linker for kernel JIT) ──────
@@ -91,7 +103,14 @@ if compgen -G "$cache_root/$model_dir/snapshots/*/*.safetensors" >/dev/null 2>&1
     log "model phase: $MODEL already cached — skip"
 else
     log "model phase: downloading $MODEL (~27 GB FP8) — this is the long pole on a cold box"
-    "$VLLM_VENV/bin/hf" download "$MODEL"
+    # The repo is GATED: you must request access on its HF page AND provide an HF token with
+    # that access. `hf` reads HF_TOKEN from the env or ~/.cache/huggingface/token. Fail early
+    # with an actionable message instead of vLLM later dying on missing weights.
+    if ! "$VLLM_VENV/bin/hf" download "$MODEL"; then
+        die "model download failed. $MODEL is gated — request access at
+        https://huggingface.co/$MODEL then re-run with an approved token:
+            HF_TOKEN=hf_xxx sudo -E MAKATO_HOME=$MAKATO_HOME bash infra/bootstrap-vllm.sh"
+    fi
     log "model phase: download complete"
 fi
 
@@ -125,14 +144,9 @@ else
     log "omp phase: omp not installed — skip (install the harness, then re-run to provision $OMP_MODELS_DEST)"
 fi
 
-if [ "$reboot_needed" = "1" ]; then
-    log "DONE (driver installed). Rebooting now; vllm.service will auto-start after boot."
-    log "After reboot verify with:  curl -sf http://localhost:$VLLM_PORT/health"
-    sleep 3
-    reboot
-else
-    log "systemd phase: (re)starting vllm.service now"
-    systemctl restart vllm.service
-    log "DONE. Weights load + kernel JIT take a couple of minutes on first start."
-    log "Verify with:  curl -sf http://localhost:$VLLM_PORT/health && curl -s http://localhost:$VLLM_PORT/v1/models"
-fi
+# Phase 1 reboots-and-exits when it installs the driver, so by the time control reaches
+# here the driver is already CUDA 13 capable and the venv/model/systemd are all in place.
+log "systemd phase: (re)starting vllm.service now"
+systemctl restart vllm.service
+log "DONE. Weights load + kernel JIT take a couple of minutes on first start."
+log "Verify with:  curl -sf http://localhost:$VLLM_PORT/health && curl -s http://localhost:$VLLM_PORT/v1/models"
