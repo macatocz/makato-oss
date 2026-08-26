@@ -783,6 +783,12 @@ if [[ "$SUBCMD" == _test-* ]]; then
     _test-reset-board-card-to-ready)
       _reset_board_card_to_ready "${1:?issue required}"
       ;;
+    # _test-init-progress-comment <issue> — exercise _init_progress_comment
+    # deterministically. Caller sets MAKATO_LOOP_PROGRESS_COMMENT_TEST_FILE
+    # so no real gh call is made. Returns stub comment id on stdout. (#64).
+    _test-init-progress-comment)
+      _init_progress_comment "${1:?issue required}"
+      ;;
     *) echo "loop: unknown test hook: $SUBCMD" >&2; exit 64 ;;
   esac
   exit 0
