@@ -135,7 +135,8 @@
       "Bash(aws codebuild list-*)",
       "Bash(pre-commit run *)",
       "Bash(sqlfluff lint *)",
-      "Bash(git worktree *)"
+      "Bash(git worktree *)",
+      "Bash(rm -rf */.claude/rules/*)"
     ],
     "deny": [
       "Bash(shred *)",
@@ -231,7 +232,8 @@
       "Bash(rmdir **/.github/**)",
       "Bash(git rm **/.github/**)",
       "Write(**/.github/**)",
-      "Edit(**/.github/**)"
+      "Edit(**/.github/**)",
+      "Bash(git push *)"
     ],
     "defaultMode": "bypassPermissions"
   },
@@ -370,7 +372,19 @@
     "playwright@claude-plugins-official": true,
     "figma@claude-plugins-official": true,
     "playground@claude-plugins-official": true,
-    "typescript-lsp@claude-plugins-official": true
+    "typescript-lsp@claude-plugins-official": true,
+    "code-simplifier@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": true,
+    "hookify@claude-plugins-official": true,
+    "ralph-loop@claude-plugins-official": true,
+    "security-guidance@claude-plugins-official": true,
+    "code-review@claude-plugins-official": true,
+    "feature-dev@claude-plugins-official": true,
+    "pr-review-toolkit@claude-plugins-official": true,
+    "plugin-dev@claude-plugins-official": true,
+    "general@impact-claude-market": true,
+    "impact-concur@impact-claude-market": true,
+    "impact-python@impact-claude-market": true
   },
   "extraKnownMarketplaces": {
     "makato-suite": {

@@ -193,22 +193,15 @@ specs/**
 # except settings.json which captures project-level plugin configuration (enabledPlugins).
 .claude/*
 !.claude/settings.json
-!.claude/config.json
 
 # Project-level MCP override (machine-specific; not part of plugin distribution)
 .mcp.json
-# Plugin-level .mcp.json declares required MCP servers — part of plugin distribution
-!plugins/*/.mcp.json
 
 # AGENTS.md is regenerated each session from plugin templates
 AGENTS.md
 
 # CLAUDE.md is a symlink → AGENTS.md; recreated by plugin on each install
 CLAUDE.md
-
-# Plugin-level AGENTS.md and CLAUDE.md are part of plugin distribution — track them
-!plugins/*/AGENTS.md
-!plugins/*/CLAUDE.md
 
 # .clinerules/00-shared.md is a symlink → ../AGENTS.md; recreated by plugin
 .clinerules/00-shared.md
@@ -308,17 +301,7 @@ Thumbs.db
 .env.development.local
 .env.test.local
 .env.production.local
-
-# makato runtime state (session data, orchestrator caches) — machine-local
-.local/
 thycotic-secrets.json
-.loop-owner.pid
-
-# .makato committed memory store — ignore all *.jsonl under .makato/ by default,
-# then re-include only the two persistent committed files (AC-5 / #470).
-.makato/**/*.jsonl
-!.makato/memory/semantic.jsonl
-!.makato/memory/procedural.jsonl
 
 # Testing
 htmlcov/
@@ -345,3 +328,29 @@ extras/
 
 # Playwright MCP session artifacts
 .playwright-mcp/
+
+# Spec runtime artifacts (per-run logs, session state, throwaway scripts)
+specs/**/build.jsonl
+specs/**/orchestrate.jsonl
+specs/**/workflow-state*.json
+specs/**/lessons-*.md
+specs/**/*.r2bak
+specs/**/*.r3bak
+specs/**/*.rbak
+specs/**/refine*.py
+specs/**/render*.py
+
+# >>> claude-plugin:impact-concur:gitignore:start <<<
+# Managed by claude-plugin 'impact-concur' — do not edit manually
+
+# MCP server configs (machine-specific paths); recreated by plugin on each install
+.mcp-servers/
+
+# Jira config symlink → plugin reference; recreated by plugin on each install
+.jira-config
+# >>> claude-plugin:impact-concur:gitignore:end <<<
+
+# >>> claude-plugin:impact-python:gitignore:start <<<
+# Managed by claude-plugin 'impact-python' — do not edit manually
+# (no plugin-specific ignores — .claude/* in the general block covers this plugin's rules)
+# >>> claude-plugin:impact-python:gitignore:end <<<

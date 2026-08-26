@@ -10,7 +10,6 @@ version: "1.1.0"
 metadata:
   last_updated: "2026-08-05"
 ---
-
 # e2e-testing-patterns
 
 ## When to Use
@@ -87,12 +86,12 @@ What is the target test environment?
 
 Set values based on the answer:
 
-| Setting | Local | CI |
-|---------|-------|----|
-| `retries` | `0` | `2` |
-| `workers` | `'auto'` | `4` (or `os.cpus().length / 2`) |
-| `reporter` | `['html']` | `['html', 'junit']` |
-| `fullyParallel` | `true` if tests are isolated | `true` if tests are isolated |
+| Setting           | Local                          | CI                                  |
+| ----------------- | ------------------------------ | ----------------------------------- |
+| `retries`       | `0`                          | `2`                               |
+| `workers`       | `'auto'`                     | `4` (or `os.cpus().length / 2`) |
+| `reporter`      | `['html']`                   | `['html', 'junit']`               |
+| `fullyParallel` | `true` if tests are isolated | `true` if tests are isolated      |
 
 Never set `retries` above 2 — it masks genuinely broken tests (see Anti-patterns).
 
@@ -173,6 +172,7 @@ script, a one-off smoke test, or a test with one locator and one assertion —
 the overhead of a class adds no value.
 
 Decision: when NOT to use POM:
+
 - Spike scripts (run once, delete)
 - Tests that serve as living documentation — inline selectors sometimes communicate the flow better
 - Trivial tests with < 3 actions — wrapping adds indirection with no gain
@@ -209,6 +209,7 @@ diagnosing flaky tests or writing any wait or assertion logic.
 (static pages, pre-rendered HTML with no loading states).
 
 Core rules:
+
 - Never use `page.waitForTimeout(N)` — creates timing-dependent flakiness
 - Use `expect(locator).toBeVisible()` — auto-waits up to the configured timeout
 - For network-dependent state: `page.waitForResponse(urlPattern)` before the
@@ -331,6 +332,7 @@ Commit baseline screenshots alongside the tests. Regenerate with
 ## Anti-patterns
 
 ### NEVER share a single storageState file across parallel workers
+
 WHY: Workers run in separate OS processes and will race to read/write the same
 session file. A token refresh or logout from one worker silently invalidates
 another worker's active session mid-test. The failure is non-deterministic,
@@ -338,6 +340,7 @@ disappears on serial rerun, and is almost impossible to diagnose without knowing
 this is the cause. Each worker must own its auth file (indexed by `workerIndex`).
 
 ### NEVER use `waitForTimeout` to stabilize a flaky test
+
 WHY: A hardcoded delay is a guess at timing that bets on the slowest environment
 you have ever tested on. It will be too short on an overloaded CI runner and
 unnecessarily slow locally. It does not fix the root cause — it hides it. Use
@@ -345,30 +348,35 @@ unnecessarily slow locally. It does not fix the root cause — it hides it. Use
 the actual condition the test needs.
 
 ### NEVER exceed `retries: 2` in CI
+
 WHY: A test that requires 3 retries to pass is a broken test. High retry counts
 let flaky tests accumulate invisibly — the suite reports green while a growing
 fraction of the coverage is unreliable. Cap at 2; investigate failures rather
 than retry them away.
 
 ### NEVER write test ordering dependencies
+
 WHY: If test B depends on side effects from test A, the suite fails
 non-deterministically in parallel mode or when test A is filtered. The failure
 cannot be reproduced by running the failing test alone. Each test must set up
 and tear down its own required state via `beforeEach`.
 
 ### NEVER mock network in tests that validate API integration
+
 WHY: Mocking turns the test into a tautology — you assert that your mock returns
 what you told it to return, not that the real service works. Keep integration
 tests network-real; use mocking only for tests that are deliberately validating
 UI behaviour in isolation from the backend.
 
 ### NEVER use nth-child or positional selectors
+
 WHY: Positional selectors break when any sibling element is added, removed, or
 reordered — a CSS refactor unrelated to your feature will silently break the
 test. The failure gives no signal about what actually changed. Use `getByRole`,
 `getByLabel`, or `data-testid`.
 
 ### NEVER regenerate screenshot baselines on macOS when CI runs Linux
+
 WHY: macOS uses Core Text for font rendering; Linux CI typically uses FreeType
 with Noto fonts. Even at the same viewport and scale factor, character spacing
 and antialiasing differ enough to produce pixel-level mismatches. Baselines
@@ -379,10 +387,10 @@ the visual suite permanently broken until rebuilt from the right environment.
 
 ## References
 
-| File | Load When |
-|------|-----------|
-| [playwright-config.md](references/playwright-config.md) | Writing or editing `playwright.config.ts`; auth project dependencies; visual regression setup |
-| [page-object-model.md](references/page-object-model.md) | Writing or refactoring page object classes; fixture-scoped POM pattern |
-| [waiting-strategies.md](references/waiting-strategies.md) | Diagnosing flakiness; writing any wait or assertion logic |
-| [network-mocking.md](references/network-mocking.md) | Writing `page.route()` handlers; simulating error states; partial mocking |
-| [accessibility-testing.md](references/accessibility-testing.md) | Adding axe-core assertions; configuring WCAG level or exclusion rules |
+| File                                                           | Load When                                                                                      |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| [playwright-config.md](references/playwright-config.md)         | Writing or editing`playwright.config.ts`; auth project dependencies; visual regression setup |
+| [page-object-model.md](references/page-object-model.md)         | Writing or refactoring page object classes; fixture-scoped POM pattern                         |
+| [waiting-strategies.md](references/waiting-strategies.md)       | Diagnosing flakiness; writing any wait or assertion logic                                      |
+| [network-mocking.md](references/network-mocking.md)             | Writing`page.route()` handlers; simulating error states; partial mocking                     |
+| [accessibility-testing.md](references/accessibility-testing.md) | Adding axe-core assertions; configuring WCAG level or exclusion rules                          |

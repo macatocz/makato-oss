@@ -22,14 +22,14 @@ makato-oss connects via `VLLM_API_BASE=http://localhost:8100` (see `config/confi
 
 ## What runs
 
-| Piece | Value |
-| --- | --- |
-| Model | `bottlecapai/ThinkingCap-Qwen3.6-27B-FP8` (arch `Qwen3_5ForConditionalGeneration`) |
-| Serving engine | vLLM **0.27.1**, Python **3.12**, CUDA **13** wheels |
-| GPU / driver | RTX 4090 48 GB, NVIDIA driver **≥ 580** (CUDA 13.0) |
-| Port | **8100** (not 8000 — see below) |
-| Served names | `open`, `qwen3-reasoning` |
-| Auto-start | `systemd` unit `vllm.service` (`WantedBy=multi-user.target`) |
+| Piece          | Value                                                                                  |
+| -------------- | -------------------------------------------------------------------------------------- |
+| Model          | `bottlecapai/ThinkingCap-Qwen3.6-27B-FP8` (arch `Qwen3_5ForConditionalGeneration`) |
+| Serving engine | vLLM**0.27.1**, Python **3.12**, CUDA **13** wheels                  |
+| GPU / driver   | RTX 4090 48 GB, NVIDIA driver**≥ 580** (CUDA 13.0)                              |
+| Port           | **8100** (not 8000 — see below)                                                 |
+| Served names   | `open`, `qwen3-reasoning`                                                          |
+| Auto-start     | `systemd` unit `vllm.service` (`WantedBy=multi-user.target`)                     |
 
 ## The five things that made this hard (and how the automation handles them)
 
@@ -37,22 +37,20 @@ makato-oss connects via `VLLM_API_BASE=http://localhost:8100` (see `config/confi
    Its architecture is `Qwen3_5ForConditionalGeneration` (`model_type: qwen3_5`), a
    GatedDeltaNet + attention hybrid. Only vLLM new enough to register `qwen3_5` can serve it
    (≈ 0.24+). Older vLLM fails at load with *"architectures … failed to be inspected"*.
-
 2. **Every vLLM that knows `qwen3_5` is a CUDA 13 build.**
    Its compiled extension links `libcudart.so.13`. `uv --torch-backend=cu128` only changes
    *torch*, not vLLM's own binary, and there is no cu12 vLLM wheel for these versions
    (`wheels.vllm.ai/cu128` → 404). CUDA 13 needs **driver ≥ 580**; the stock box shipped
    driver 535 (CUDA 12.2). → **Bootstrap Phase 1 installs `nvidia-driver-580` and reboots.**
    The driver persists on the instance disk across stop/start, so this is one-time.
-
 3. **FlashInfer is not Python-3.10-safe.**
    `flashinfer/comm/fd_exchange.py` uses `array.array[int]` runtime annotations that raise
    `TypeError: 'type' object is not subscriptable` on 3.10. → **We run on Python 3.12**, where
    the import works natively (no source patch — the earlier `from __future__ import annotations`
    hack is obsolete and must not be reintroduced).
-
 4. **The model JIT-compiles CUDA kernels at startup**, which needs a toolchain that the base
    image lacks:
+
    - a C compiler + headers → `build-essential` (Phase 2);
    - `ninja` → installed into the venv (Phase 3);
    - **`nvcc` + `CUDA_HOME`** → the only CUDA 13 toolkit present is the one bundled by the pip
@@ -62,7 +60,6 @@ makato-oss connects via `VLLM_API_BASE=http://localhost:8100` (see `config/confi
      (*"CUDA compiler and CUDA toolkit headers are incompatible"*). → `vllm-serve.sh` sets
      `VLLM_USE_FLASHINFER_SAMPLER=0` (native PyTorch sampler) and `--enforce-eager` (skips
      torch.compile capture, which triggers more fragile runtime compilation).
-
 5. **Port 8000 is taken.** The co-resident SAGIBEAST dev stack's `fastapi-brain` container
    publishes 8000/8001/8080. vLLM therefore serves on **8100**, and makato-oss points at it via
    `VLLM_API_BASE=http://localhost:8100`. To reclaim 8000, stop that container's 8000 publish
@@ -70,12 +67,12 @@ makato-oss connects via `VLLM_API_BASE=http://localhost:8100` (see `config/confi
 
 ## Files
 
-| File | Role |
-| --- | --- |
-| `infra/vllm-serve.yaml` | vLLM model/serving config (model, fp8, ctx 65k (≥ 65536 min for po-agent), gpu-util 0.75, served names) |
-| `infra/vllm-serve.sh` | launch wrapper — resolves `CUDA_HOME`, sets the workaround env, execs `vllm serve` |
-| `infra/vllm.service` | systemd unit — auto-starts the wrapper on every boot |
-| `infra/bootstrap-vllm.sh` | idempotent one-time setup: driver → venv → model → systemd |
+| File                        | Role                                                                                                     |
+| --------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `infra/vllm-serve.yaml`   | vLLM model/serving config (model, fp8, ctx 65k (≥ 65536 min for po-agent), gpu-util 0.75, served names) |
+| `infra/vllm-serve.sh`     | launch wrapper — resolves`CUDA_HOME`, sets the workaround env, execs `vllm serve`                   |
+| `infra/vllm.service`      | systemd unit — auto-starts the wrapper on every boot                                                    |
+| `infra/bootstrap-vllm.sh` | idempotent one-time setup: driver → venv → model → systemd                                            |
 
 ## Runbook
 
