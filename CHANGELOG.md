@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.161.0](https://github.com/macatocz/makato-oss/compare/v0.160.0...v0.161.0) (2026-08-26)
+
+
+### ✨ Features
+
+* **infra:** one-command vast.ai provisioning + cold-start fixes ([#87](https://github.com/macatocz/makato-oss/issues/87)) ([21d27fd](https://github.com/macatocz/makato-oss/commit/21d27fdf854140a71227baf5523a8762812a4cfa))
+
+
+### 🐛 Bug Fixes
+
+* **makato-observability:** fix import sort and pyright excludes for worktree test ([02c5477](https://github.com/macatocz/makato-oss/commit/02c547707675a6135037b56df2b82aa91c5fd63e))
+
 ## [0.160.0](https://github.com/macatocz/makato-oss/compare/v0.159.0...v0.160.0) (2026-08-16)
 
 
