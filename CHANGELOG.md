@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.161.1](https://github.com/macatocz/makato-oss/compare/v0.161.0...v0.161.1) (2026-08-27)
+
+
+### 🐛 Bug Fixes
+
+* **orchestrate:** enforce pre-dispatch progress comments ([#64](https://github.com/macatocz/makato-oss/issues/64)) ([b8ec636](https://github.com/macatocz/makato-oss/commit/b8ec6362081993b65b7ee29b5d319aa2e90dcb68))
+
 ## [0.161.0](https://github.com/macatocz/makato-oss/compare/v0.160.0...v0.161.0) (2026-08-26)
 
 
