@@ -1,16 +1,15 @@
 # oh-my-pi (omp) model configuration for the makato-oss open-model harness.
 #
-# omp reads this from ~/.omp/agent/models.yml at startup and uses it to resolve
-# every modelRole to a concrete provider/model. infra/bootstrap-vllm.sh Phase 6
-# installs this file onto the box, so the config is version-controlled and
-# survives a re-provision instead of living only in the instance home dir.
+# omp reads provider definitions from ~/.omp/agent/models.yml at startup.
+# Role routing and tool formatting are settings and live in the separate
+# infra/omp-config.yml file installed to ~/.omp/agent/config.yml.
 #
 # Contract with the local vLLM endpoint (infra/vllm-serve.yaml):
 #   - baseUrl points at the OpenAI-compatible server; api: openai-completions
 #     (NOT anthropic — the box's ANTHROPIC_BASE_URL env is legacy and unused,
 #     since every role below resolves to the `local` provider).
 #   - `open` is one of vLLM's served_model_name aliases.
-#   - context matches vLLM `max_model_len` (65536); maxOutput is the per-turn
+#   - contextWindow matches vLLM `max_model_len` (65536); maxTokens is the per-turn
 #     completion budget. ThinkingCap emits a long plaintext reasoning phase
 #     before its answer/tool call (~1.4 K tokens even for a trivial edit), so a
 #     small budget truncates the turn mid-thought (finish_reason: length) before
@@ -23,18 +22,6 @@ providers:
     apiKey: EMPTY
     models:
       - id: open
-        context: 65536
-        maxOutput: 8192
+        contextWindow: 65536
+        maxTokens: 8192
         api: openai-completions
-
-modelRoles:
-  default: local/open
-  opus:    local/open
-  sonnet:  local/open
-  haiku:   local/open
-  smol:    local/open
-  slow:    local/open
-  plan:    local/open
-
-tools:
-  format: qwen3

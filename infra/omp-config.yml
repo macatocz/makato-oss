@@ -1,0 +1,15 @@
+# oh-my-pi (omp) settings for the makato-oss open-model harness.
+#
+# omp v18 reads role routing and tool formatting from ~/.omp/agent/config.yml,
+# separately from provider definitions in ~/.omp/agent/models.yml.
+modelRoles:
+  default: local/open
+  opus: local/open
+  sonnet: local/open
+  haiku: local/open
+  smol: local/open
+  slow: local/open
+  plan: local/open
+
+tools:
+  format: qwen3

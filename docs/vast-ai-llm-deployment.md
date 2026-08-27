@@ -1,221 +1,581 @@
-# Deploying the open LLM on vast.ai (automated)
+# Install OMP and an open-model vLLM workstation on Vast.ai
 
-The makato-oss "open" model is served by **vLLM** on the vast.ai dev GPU box. This document
-is the runbook for standing it up and the record of *why* the setup is the way it is — the
-first manual bring-up took hours of dead ends, and none of that should ever be repeated.
+Use this guide when you receive a new Vast.ai GPU instance and need to turn it
+into a persistent Makato development workstation. The result is:
 
-For how to *reach* the instance (SSH, ports, lifecycle) see [`vast-ai-access.md`](./vast-ai-access.md).
+- A gated open model served locally through vLLM.
+- [oh-my-pi (OMP)](https://github.com/can1357/oh-my-pi) configured to use that
+  model for every agent role.
+- The complete Makato plugin suite installed in OMP.
+- A Git-backed target repository ready for interactive or autonomous work.
+- An optional systemd-managed Makato board loop that survives instance restarts.
 
-> **A migrated / re-provisioned instance is a FRESH box.** vast.ai persists the instance disk
-> across **stop/start**, so the driver, venv and model survive an overnight stop. It does
-> **not** persist across a **migration or re-create** (new host, new SSH port) — the disk is
-> reset to the base image. After a migration you must run the full cold-start below again.
-> This is the #1 reason "the box was working yesterday" stops being true.
+This is an installation guide, not an inventory of a specific machine. Replace
+all angle-bracket placeholders before running commands. For general Vast.ai
+access and port guidance, see [`vast-ai-access.md`](./vast-ai-access.md).
 
-## TL;DR
+## Supported configuration
+
+The following versions form one tested compatibility set. Upgrade them together
+and repeat all validation steps when changing any member.
+
+| Component | Setting |
+| --- | --- |
+| Operating system | Ubuntu 22.04 |
+| GPU | NVIDIA GPU with at least 48 GiB VRAM |
+| NVIDIA driver | Major version 580 or newer |
+| Model | `bottlecapai/ThinkingCap-Qwen3.6-27B-FP8` |
+| vLLM | `0.27.1`, Python 3.12, CUDA 13 PyTorch build |
+| vLLM endpoint | `http://localhost:8100/v1` |
+| Context window | 65,536 tokens |
+| OMP | `18.0.6` |
+| Node.js | 24 |
+| vLLM tool parser | `qwen3_xml` |
+| OMP tool format | `qwen3` |
+| OMP completion budget | 8,192 tokens |
+
+Port 8100 is intentionally host-local. Do not publish it through Vast.ai: the
+endpoint has no meaningful authentication.
+
+## Required inputs
+
+Collect these values before starting:
+
+- Vast.ai host, SSH port, and private-key path.
+- A GitHub account with repository, issue, pull-request, workflow, organization,
+  and Projects v2 access.
+- Access to the gated Hugging Face model and an approved read token.
+- The target development repository, for example `macatocz/sagibeast`.
+- The GitHub Projects v2 configuration committed in the target repository's
+  `.claude/config.json`.
+- At least 45 GiB of free disk space. Keep at least 20 GiB free after setup for
+  worktrees, package caches, and model revisions.
+
+Set local connection variables:
 
 ```bash
-# On the instance, from the makato-oss repo root, on a fresh/migrated box:
-#   The repo is PRIVATE — clone with credentials or rsync it from a laptop first (see Runbook).
-curl -LsSf https://astral.sh/uv/install.sh | sh          # if uv is absent
-export PATH="$HOME/.local/bin:$PATH"                     # uv installs here; not on root's PATH
+export VAST_HOST="<HOST>"
+export VAST_SSH_PORT="<PORT>"
+export VAST_SSH_KEY="<PATH_TO_PRIVATE_KEY>"
 
-# Pass 1 — installs the CUDA-13 driver + toolchain, then reboots and exits:
-sudo -E MAKATO_HOME="$PWD" bash infra/bootstrap-vllm.sh
-
-# … box reboots. Reconnect once it is back, then Pass 2 — builds venv + model + systemd.
-# The model is GATED: supply an approved Hugging Face token (see gotchas):
-export PATH="$HOME/.local/bin:$PATH"
-HF_TOKEN=hf_xxx sudo -E MAKATO_HOME="$PWD" bash infra/bootstrap-vllm.sh
-
-curl -sf http://localhost:8100/health                    # 200 when ready (a few min after start)
+ssh -p "$VAST_SSH_PORT" -i "$VAST_SSH_KEY" "root@$VAST_HOST"
 ```
 
-On a box that is **already on driver ≥ 580**, the two passes collapse into one — the driver
-phase is skipped and the single invocation does venv + model + systemd with no reboot.
+The remaining commands run on the remote instance unless stated otherwise.
 
-Every subsequent vast.ai **stop/start** needs nothing: `systemd` auto-starts vLLM on boot.
-makato-oss connects via `VLLM_API_BASE=http://localhost:8100` (see `config/config.yml` →
-`models.open.api_base`).
+## 1. Inspect the new instance
 
-## What runs
-
-| Piece          | Value                                                                                  |
-| -------------- | -------------------------------------------------------------------------------------- |
-| Model          | `bottlecapai/ThinkingCap-Qwen3.6-27B-FP8` (arch `Qwen3_5ForConditionalGeneration`) |
-| Serving engine | vLLM **0.27.1**, Python **3.12**, CUDA **13** wheels (torch `…+cu13x`)     |
-| GPU / driver   | RTX 4090, NVIDIA driver **≥ 580** (CUDA 13.0)                                    |
-| Port           | **8100** (not 8000 — see below)                                                 |
-| Served names   | `open`, `qwen3-reasoning`                                                          |
-| Auto-start     | `systemd` unit `vllm.service` (`WantedBy=multi-user.target`)                     |
-
-## The things that made this hard (and how the automation handles them)
-
-1. **The model is a hybrid Mamba model, not a plain Qwen3.**
-   Its architecture is `Qwen3_5ForConditionalGeneration` (`model_type: qwen3_5`), a
-   GatedDeltaNet + attention hybrid. Only vLLM new enough to register `qwen3_5` can serve it
-   (≈ 0.24+). Older vLLM fails at load with *"architectures … failed to be inspected"*.
-2. **Every vLLM that knows `qwen3_5` is a CUDA 13 build.**
-   Its compiled extension links `libcudart.so.13`. `uv --torch-backend=cu128` only changes
-   *torch*, not vLLM's own binary, and there is no cu12 vLLM wheel for these versions
-   (`wheels.vllm.ai/cu128` → 404). CUDA 13 needs **driver ≥ 580**; a fresh box ships driver
-   535 (CUDA 12.2). → **Bootstrap Phase 1 installs `nvidia-driver-580`.**
-3. **Order matters: install the driver and REBOOT *before* building the venv.**
-   `uv --torch-backend=auto` picks torch's CUDA build from the *currently loaded* driver. If
-   the venv is built while the box still runs the old 535 module (driver installed but not yet
-   rebooted into), uv installs a **cu12 torch** that mismatches vLLM's cu13 binary — a broken
-   venv that a later re-run will not repair. → **Phase 1 now reboots and exits immediately
-   after installing the driver.** The venv is only ever built on Pass 2, against CUDA 13.
-   This is why cold start is two passes on a fresh box.
-4. **FlashInfer is not Python-3.10-safe.**
-   `flashinfer/comm/fd_exchange.py` uses `array.array[int]` runtime annotations that raise
-   `TypeError: 'type' object is not subscriptable` on 3.10. → **We run on Python 3.12**, where
-   the import works natively (no source patch — the earlier `from __future__ import annotations`
-   hack is obsolete and must not be reintroduced).
-5. **The model JIT-compiles CUDA kernels at startup**, which needs a toolchain the base image
-   lacks:
-
-   - a C compiler + headers → `build-essential` (installed in the Phase 1 apt pass);
-   - `ninja` → installed into the venv (Phase 3);
-   - **`nvcc` + `CUDA_HOME`** → the only CUDA 13 toolkit present is the one bundled by the pip
-     `nvidia-*-cu13` wheels under `…/site-packages/nvidia/cu13`. `vllm-serve.sh` discovers it
-     via the bundled `nvcc` and exports `CUDA_HOME`/`PATH`.
-   - **FlashInfer's sampler** JIT-compile fails against that pip toolkit
-     (*"CUDA compiler and CUDA toolkit headers are incompatible"*). → `vllm-serve.sh` sets
-     `VLLM_USE_FLASHINFER_SAMPLER=0` (native PyTorch sampler) and `--enforce-eager` (skips
-     torch.compile capture, which triggers more fragile runtime compilation).
-6. **The model repo is GATED.** `bottlecapai/ThinkingCap-Qwen3.6-27B-FP8` now requires
-   approval — `hf download` returns *"Access denied. This repository requires approval."*
-   without an approved token. → **Provide `HF_TOKEN` on Pass 2** (see gotchas).
-7. **Port 8000 is taken.** The co-resident SAGIBEAST dev stack's `fastapi-brain` container
-   publishes 8000/8001/8080. vLLM therefore serves on **8100**, and makato-oss points at it via
-   `VLLM_API_BASE=http://localhost:8100`. To reclaim 8000, stop that container's 8000 publish
-   and set `VLLM_PORT=8000` in the systemd drop-in.
-
-## Files
-
-| File                        | Role                                                                                                     |
-| --------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `infra/vllm-serve.yaml`   | vLLM model/serving config (model, fp8, ctx 65k (≥ 65536 min for po-agent), gpu-util 0.75, served names) |
-| `infra/vllm-serve.sh`     | launch wrapper — resolves `CUDA_HOME`, sets the workaround env, execs `vllm serve`                   |
-| `infra/vllm.service`      | systemd unit — auto-starts the wrapper on every boot                                                    |
-| `infra/bootstrap-vllm.sh` | idempotent setup: driver → reboot → venv → model → systemd                                          |
-
-## Runbook
-
-### Cold start (fresh, migrated, or re-provisioned instance)
+Confirm the operating system, GPU, disk, memory, and occupied ports before
+installing anything:
 
 ```bash
-# 1. Get the repo onto the box. It is PRIVATE, so either:
-#    (a) rsync from a laptop that has it checked out —
-#        rsync -az --exclude .git --exclude node_modules \
-#          -e "ssh -p <PORT> -i ~/.ssh/vast_makato" \
-#          ~/GITHUB/makato-oss/ root@<HOST>:/root/makato-oss/
-#    (b) or `git clone` with a token / deploy key configured on the box.
+cat /etc/os-release
+uname -r
+nvidia-smi
+df -h /
+free -h
+ss -lntp
+docker version || true
+docker ps || true
+```
 
-# 2. Install uv if absent and put it on PATH (it installs to ~/.local/bin, not root's PATH):
+Stop if the GPU is absent or the disk does not have the required headroom.
+Choose a maintenance window if an existing workload is already running: the
+driver installation performs one reboot.
+
+Vast.ai images can contain repeated entries in `/etc/environment`. If sourcing
+the file fails, normalize it before using `apt`:
+
+```bash
+cp -a /etc/environment "/etc/environment.bak.$(date +%s)"
+python3 - <<'PY'
+seen = set()
+out = []
+for line in open("/etc/environment", encoding="utf-8").read().splitlines():
+    if "=" not in line:
+        continue
+    key, value = line.split("=", 1)
+    if key in seen:
+        continue
+    seen.add(key)
+    if len(value) >= 2 and value[0] == value[-1] == '"':
+        value = value[1:-1]
+    rendered = f'{key}="{value}"' if " " in value else f"{key}={value}"
+    out.append(rendered)
+open("/etc/environment", "w", encoding="utf-8").write("\n".join(out) + "\n")
+PY
+sh -c '. /etc/environment && echo ENV-OK'
+```
+
+## 2. Install host tools
+
+Install baseline packages and GitHub CLI from GitHub's maintained repository:
+
+```bash
+apt-get update
+apt-get install -y ca-certificates curl gnupg git jq tmux build-essential
+
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+  -o /etc/apt/keyrings/githubcli-archive-keyring.gpg
+chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+printf '%s\n' \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+  > /etc/apt/sources.list.d/github-cli.list
+apt-get update
+apt-get install -y gh
+```
+
+Install Node.js 24, uv, and the pinned OMP release:
+
+```bash
+curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
+apt-get install -y nodejs
+
 curl -LsSf https://astral.sh/uv/install.sh | sh
-export PATH="$HOME/.local/bin:$PATH"
+export PATH="/root/.local/bin:$PATH"
+grep -qxF 'export PATH="$HOME/.local/bin:$PATH"' /root/.profile ||
+  printf '%s\n' 'export PATH="$HOME/.local/bin:$PATH"' >> /root/.profile
 
-# 3. Pass 1 — driver + toolchain, then auto-reboot (skipped if already on driver >= 580):
+curl -fsSL https://omp.sh/install |
+  sh -s -- --binary --ref v18.0.6
+
+node --version
+npm --version
+uv --version
+omp --version
+gh --version
+jq --version
+```
+
+## 3. Authenticate GitHub and clone the repositories
+
+Authenticate interactively. Do not put a personal access token in shell
+history, an environment file, or a repository:
+
+```bash
+gh auth login --hostname github.com --git-protocol https --web
+gh auth refresh --hostname github.com \
+  --scopes repo,project,workflow,read:org
+gh auth setup-git
+gh auth status --hostname github.com
+```
+
+Clone Makato and the target repository into real Git working directories:
+
+```bash
+export TARGET_REPO="<OWNER>/<REPOSITORY>"
+export TARGET_ROOT="/workspace/<REPOSITORY>"
+
+install -d -m 0755 /workspace
+gh repo clone macatocz/makato-oss /root/makato-oss
+gh repo clone "$TARGET_REPO" "$TARGET_ROOT"
+
+git -C /root/makato-oss status --short --branch
+git -C "$TARGET_ROOT" status --short --branch
+test -f "$TARGET_ROOT/.claude/config.json"
+```
+
+Configure a GitHub-compatible commit identity:
+
+```bash
+GH_LOGIN="$(gh api user --jq .login)"
+GH_ID="$(gh api user --jq .id)"
+git config --global user.name "$GH_LOGIN"
+git config --global user.email \
+  "${GH_ID}+${GH_LOGIN}@users.noreply.github.com"
+unset GH_LOGIN GH_ID
+```
+
+Verify that `.claude/config.json` references the intended Projects v2 board and
+target repository:
+
+```bash
+jq '{
+  owner: .github_project.owner,
+  number: .github_project.number,
+  status_field: .github_project.status_field_name,
+  known_repos: .github_project.known_repos
+}' "$TARGET_ROOT/.claude/config.json"
+```
+
+## 4. Install Makato plugins in OMP
+
+Register the local Makato checkout as an OMP marketplace and install every
+catalog entry at user scope:
+
+```bash
+export PATH="/root/.local/bin:$PATH"
+omp plugin marketplace add /root/makato-oss
+
+jq -r '.plugins[].name' /root/makato-oss/.claude-plugin/marketplace.json |
+while IFS= read -r plugin; do
+  omp plugin install --scope user "${plugin}@makato-suite"
+done
+
+omp plugin list
+omp plugin doctor
+```
+
+Compare the installed plugin names with the current marketplace rather than
+hard-coding an inventory count:
+
+```bash
+jq -r '.plugins[].name' \
+  /root/makato-oss/.claude-plugin/marketplace.json | sort \
+  > /tmp/makato-marketplace-plugins
+omp plugin list | sed -nE 's/^  ([^@]+)@makato-suite.*/\1/p' | sort \
+  > /tmp/makato-installed-plugins
+diff -u /tmp/makato-marketplace-plugins /tmp/makato-installed-plugins
+rm -f /tmp/makato-marketplace-plugins /tmp/makato-installed-plugins
+```
+
+After updating the Makato checkout, refresh the OMP cache before starting new
+sessions:
+
+```bash
+git -C /root/makato-oss pull --ff-only
+omp plugin marketplace update makato-suite
+omp plugin upgrade --scope user
+omp plugin doctor
+```
+
+## 5. Store Hugging Face credentials
+
+Request access to the gated model first. Store the token without exposing it in
+process arguments or shell history:
+
+```bash
+install -d -m 0700 /root/.cache/huggingface
+read -rsp 'Hugging Face token: ' HF_TOKEN
+printf '\n'
+umask 077
+printf '%s' "$HF_TOKEN" > /root/.cache/huggingface/token
+unset HF_TOKEN
+chmod 0600 /root/.cache/huggingface/token
+```
+
+## 6. Bootstrap the NVIDIA driver and vLLM
+
+The bootstrap is idempotent and intentionally uses two passes when the driver
+must be upgraded.
+
+### Pass 1: driver installation
+
+```bash
+export PATH="/root/.local/bin:$PATH"
 cd /root/makato-oss
-sudo -E MAKATO_HOME="$PWD" bash infra/bootstrap-vllm.sh
-#    Run long/heavy passes under tmux so an SSH drop can't kill them:
-#      tmux new -s mkboot 'cd /root/makato-oss && export PATH=$HOME/.local/bin:$PATH && \
-#        HF_TOKEN=hf_xxx sudo -E MAKATO_HOME=$PWD bash infra/bootstrap-vllm.sh 2>&1 | tee /var/log/makato-bootstrap.log'
+MAKATO_HOME="$PWD" bash infra/bootstrap-vllm.sh
+```
 
-# 4. Reconnect after the reboot, then Pass 2 — venv + model + systemd (needs the gated token):
-export PATH="$HOME/.local/bin:$PATH"
+If the loaded driver is older than major version 580, the script installs the
+driver and build toolchain, reboots, and exits before creating the Python
+environment. This ordering prevents uv from selecting a PyTorch CUDA build for
+the old driver.
+
+### Pass 2: model and services
+
+Reconnect after the instance returns:
+
+```bash
+export PATH="/root/.local/bin:$PATH"
+sh -c '. /etc/environment && echo ENV-OK'
+nvidia-smi --query-gpu=name,driver_version,memory.total \
+  --format=csv,noheader
+
+tmux new-session -d -s vllm-bootstrap \
+  'cd /root/makato-oss &&
+   export PATH=/root/.local/bin:$PATH &&
+   export HF_HUB_DISABLE_XET=1 &&
+   MAKATO_HOME=/root/makato-oss bash infra/bootstrap-vllm.sh \
+     2>&1 | tee /var/log/makato-bootstrap.log'
+tmux attach -t vllm-bootstrap
+```
+
+`HF_HUB_DISABLE_XET=1` uses Hugging Face's resumable HTTP transfer when Xet is
+unreliable. The bootstrap always asks Hugging Face to resolve the complete
+snapshot, so one cached shard cannot be mistaken for a complete model.
+
+The second pass:
+
+1. Creates `/root/vllm-venv` with Python 3.12 and vLLM 0.27.1.
+2. Downloads the complete gated model snapshot.
+3. Installs and enables `vllm.service`.
+4. Installs `infra/omp-models.yml` as `/root/.omp/agent/models.yml`.
+5. Installs `infra/omp-config.yml` as `/root/.omp/agent/config.yml`.
+
+OMP v18 reads only provider definitions from `models.yml`. It reads
+`modelRoles` and `tools.format` from `config.yml`; putting those settings in
+`models.yml` silently leaves role routing and tool formatting inactive.
+
+## 7. Verify vLLM and OMP
+
+Wait for model loading and CUDA kernel compilation:
+
+```bash
+systemctl is-enabled vllm
+systemctl status vllm --no-pager
+journalctl -u vllm -n 100 --no-pager
+
+curl -sf http://localhost:8100/health
+curl -s http://localhost:8100/v1/models | jq
+
 cd /root/makato-oss
-HF_TOKEN=hf_xxx sudo -E MAKATO_HOME="$PWD" bash infra/bootstrap-vllm.sh
-
-# 5. Verify (weights ~27 GB load + kernel JIT take a few minutes on first start):
-curl -sf http://localhost:8100/health && curl -s http://localhost:8100/v1/models
+scripts/preflight-omp-context.sh
 ```
 
-> `sudo -E` preserves `HF_TOKEN` and `PATH` into the root environment — without `-E`, `sudo`
-> strips them and the model download fails on the gate again.
+The preflight must confirm:
 
-### Daily start (box was stopped overnight, disk intact)
+- vLLM reports a 65,536-token context.
+- OMP uses `contextWindow: 65536` and `maxTokens: 8192`.
+- Every OMP role maps to `local/open`.
+- `tools.format` is `qwen3`.
+
+The parser pair is vLLM `qwen3_xml` and OMP `qwen3`. Do not switch vLLM to the
+Hermes parser: that path can require a gated chat template not present in an
+offline deployment.
+
+Start a new OMP process after installing or upgrading plugins:
 
 ```bash
-vastai start instance <ID>     # from your laptop; disk (driver+venv+model) is intact
-# nothing else — vllm.service starts on boot. Verify:
-curl -sf http://localhost:8100/health && curl -s http://localhost:8100/v1/models
+cd "$TARGET_ROOT"
+
+omp --yolo -p \
+  'Read skill://makato-guide and reply with exactly MAKATO_SKILL_OK.'
+
+omp --yolo -p \
+  'Use the task tool to ask one read-only subagent to reply exactly SUBAGENT_OK, then return exactly SUBAGENT_OK.'
+
+omp --yolo -p \
+  'Use a filesystem read tool to read the first heading in AGENTS.md and return only that heading.'
 ```
 
-### Manage / debug
+The first two commands must return their exact markers. The third must show an
+actual filesystem tool call rather than a prose-only guess.
+
+## 8. Prepare the target development repository
+
+Install the target repository's declared development dependencies. For
+SAGIBEAST:
 
 ```bash
-systemctl status vllm            # state
-journalctl -u vllm -f            # live log (also /var/log/vllm-serve.log)
-systemctl restart vllm           # bounce
-sudo -E MAKATO_HOME=/root/makato-oss bash infra/bootstrap-vllm.sh   # re-run after repo changes; idempotent
+export PATH="/root/.local/bin:$PATH"
+uv python install 3.14
+uv tool install pre-commit
+
+cd /workspace/sagibeast
+make dev-setup
+npm --prefix frontend ci
+npm --prefix frontend run e2e:install
+
+uv run pytest tests/unit -q --no-header
+npm --prefix frontend run typecheck
+npm --prefix frontend test
 ```
 
-### Smoke test the endpoint
+If an existing deployment uses fixed Compose project names or published ports,
+do not run destructive Compose lifecycle targets from the development checkout.
+Use host-side unit, property, lint, typecheck, and frontend tests until the
+Compose project name and ports are parameterized per worktree.
+
+## 9. Validate the autonomous loop
+
+Run read-only and dry-run checks first:
 
 ```bash
-curl -s http://localhost:8100/v1/chat/completions \
-  -H 'Content-Type: application/json' \
-  -d '{"model":"open","messages":[{"role":"user","content":"Řekni ahoj česky."}],"max_tokens":64}'
+export PATH="/root/.local/bin:$PATH"
+export MAKATO_HARNESS_BIN=/root/.local/bin/omp
+export MAKATO_LOOP_DISPATCH_REPO="$TARGET_REPO"
+
+cd "$TARGET_ROOT"
+bash /root/makato-oss/plugins/makato-orchestrate/scripts/loop.sh poll Ready
+bash /root/makato-oss/plugins/makato-orchestrate/scripts/loop.sh run \
+  --once --dry-run
 ```
 
-Run `scripts/preflight-omp-context.sh` as a pre-dispatch sanity check to confirm the model's
-context window meets the 65536 minimum before starting the po-agent.
+For a specific disposable Ready issue, validate routing without starting work:
 
-## Gotchas
+```bash
+bash /root/makato-oss/plugins/makato-orchestrate/scripts/loop.sh \
+  dispatch <ISSUE_NUMBER> --repo "$TARGET_REPO" --dry-run
+```
 
-- **Migration ≠ stop/start.** See the note at the top: a migrated/re-created instance loses
-  the whole disk (driver, venv, 27 GB model, systemd unit) and needs a full cold start. Only a
-  plain stop/start keeps them.
-- **Gated model → `HF_TOKEN` required.** Request access at
-  `https://huggingface.co/bottlecapai/ThinkingCap-Qwen3.6-27B-FP8`, then pass an approved token
-  on Pass 2: `HF_TOKEN=hf_xxx sudo -E … bash infra/bootstrap-vllm.sh`. `hf` also reads
-  `~/.cache/huggingface/token` if you `hf auth login` first. `sudo` without `-E` drops the token.
-- **A re-provisioned box may have a broken `/etc/environment` that breaks apt.** vast.ai injects
-  container env into `/etc/environment` as bare `KEY=VALUE` lines, but writes the SSH public key
-  **unquoted and with spaces** (`PUBLIC_KEY=ssh-ed25519 AAAA… label`) and often **duplicates the
-  whole block**. Because `/etc/environment` is `.`-sourced by some dpkg post-install scripts
-  (`update-info-dir`), the space-split value is executed as a command → *"AAAA…: not found"* →
-  exit 127 → **`apt-get` aborts mid-configure**. It is re-injected on **every boot**. Fix before
-  any apt use (quotes values with spaces, de-dupes keys):
+Before enabling a persistent loop, perform one controlled real acceptance run
+against an issue that is safe to claim:
 
-  ```bash
-  cp -a /etc/environment /etc/environment.bak.$(date +%s)
-  python3 - <<'PY'
-  seen=set(); out=[]
-  for ln in open('/etc/environment').read().splitlines():
-      if '=' not in ln: continue
-      k,v=ln.split('=',1)
-      if k in seen: continue
-      seen.add(k)
-      if len(v)>=2 and v[0]=='"' and v[-1]=='"': v=v[1:-1]
-      out.append('%s="%s"'%(k,v) if ' ' in v else '%s=%s'%(k,v))
-  open('/etc/environment','w').write('\n'.join(out)+'\n')
-  PY
-  sh -c '. /etc/environment && echo ENV-OK'
-  ```
+```bash
+bash /root/makato-oss/plugins/makato-orchestrate/scripts/loop.sh run --once
+```
 
-  The bootstrap does all its apt work (driver + `build-essential`) in one Phase-1 pass and then
-  reboots, so as long as you fix `/etc/environment` **before** Pass 1, Pass 2 needs no apt and is
-  unaffected by the re-injection. The running `vllm.service` is also unaffected — bash and
-  systemd do not source `/etc/environment` (only PAM login + some apt hooks do).
-- **`uv` is not on root's PATH.** The installer drops it at `~/.local/bin/uv`; export
-  `PATH="$HOME/.local/bin:$PATH"` before the bootstrap or it dies with *"uv not found"*.
-- **po-agent requires max_model_len ≥ 65536** — `max_model_len: 32768` overflows on the first
-  request (prompt hits ~16 385 tokens from issue #42); `max_model_len: 40960` overflows after
-  the first tool-call round (~24 577 tokens). `max_model_len: 65536` is the confirmed minimum.
-  Root cause: omp requests `max_model_len / 2` output tokens, and makato skill files push the
-  accumulated context past the window midpoint quickly in multi-turn exchanges. Additionally,
-  `tool_call_parser: qwen3_xml` is required — `hermes` fetches `chat_template.json` from a
-  gated Hugging Face repo at startup and fails offline. Set `TRANSFORMERS_OFFLINE=1` in
-  `vllm.service` to prevent that HF fetch when the chat template is loaded.
-- **Do not `pkill -f "vllm serve"`** — the pattern matches the shell running the command and
-  kills your own SSH session. Use `systemctl stop vllm` or `tmux kill-session`.
-- **The model is multimodal** (vision encoder present). We serve it as text; that is fine and
-  needs no `--trust-remote-code`.
-- **First start after a reboot is slow** (weights ~28 GiB + kernel JIT): allow a few minutes.
-  `TimeoutStartSec=900` in the unit covers this.
-- **Bumping `VLLM_VERSION`** in `bootstrap-vllm.sh` is a tested change, not a casual one — newer
-  vLLM has repeatedly moved the CUDA/Python floor and broken this box.
+Verify that:
+
+- The selected card moves from Ready to In progress.
+- The issue receives a live autonomous-progress comment.
+- Its workflow state contains a non-null integer `progress_comment_id`.
+- The process tree contains `omp --yolo -p`.
+- Only one loop process owns the repository state directory.
+
+## 10. Install the autonomous loop service
+
+Replace every placeholder in the following files with values for the target
+repository.
+
+Create a root-owned environment file:
+
+```bash
+install -d -m 0755 /etc/makato
+cat > /etc/makato/target-loop.env <<'EOF'
+HOME=/root
+PATH=/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+VLLM_API_BASE=http://localhost:8100
+MAKATO_HARNESS_BIN=/root/.local/bin/omp
+MAKATO_LOOP_DISPATCH_REPO=<OWNER>/<REPOSITORY>
+MAKATO_LOOP_CONFIG=/workspace/<REPOSITORY>/.claude/config.json
+MAKATO_LOOP_STATE_DIR=/workspace/<REPOSITORY>/.claude/state
+MAKATO_HALT_FILE=/root/.claude/HALT
+SPECS_DIR=/workspace/<REPOSITORY>/specs
+EOF
+chmod 0600 /etc/makato/target-loop.env
+```
+
+Install the systemd unit:
+
+```bash
+cat > /etc/systemd/system/makato-target-loop.service <<'EOF'
+[Unit]
+Description=Makato autonomous development loop
+Wants=network-online.target
+After=network-online.target vllm.service
+Requires=vllm.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/workspace/<REPOSITORY>
+EnvironmentFile=/etc/makato/target-loop.env
+ExecStartPre=/usr/bin/test -d /workspace/<REPOSITORY>/.git
+ExecStartPre=/root/makato-oss/scripts/preflight-omp-context.sh
+ExecStart=/bin/bash /root/makato-oss/plugins/makato-orchestrate/scripts/loop.sh run
+Restart=on-failure
+RestartSec=30
+KillMode=control-group
+TimeoutStopSec=90
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now makato-target-loop.service
+systemctl status makato-target-loop.service --no-pager
+journalctl -u makato-target-loop.service -n 100 --no-pager
+```
+
+`Restart=on-failure` is required. `loop.sh` exits successfully after observing a
+HALT, so systemd does not immediately restart it and defeat the kill switch.
+While vLLM is warming after boot, the preflight can fail and systemd retries
+after 30 seconds.
+
+## 11. Operations and safety
+
+Inspect the loop:
+
+```bash
+cd "$TARGET_ROOT"
+bash /root/makato-oss/plugins/makato-orchestrate/scripts/loop.sh status
+journalctl -u makato-target-loop.service -f
+```
+
+Stop all new autonomous dispatch:
+
+```bash
+install -d -m 0700 /root/.claude
+touch /root/.claude/HALT
+systemctl stop makato-target-loop.service
+```
+
+Resume only after inspecting the active workflow and logs:
+
+```bash
+rm /root/.claude/HALT
+systemctl start makato-target-loop.service
+```
+
+Never run a second loop against the same repository and state directory.
+
+## 12. Reboot verification
+
+Perform one planned reboot after all checks pass:
+
+```bash
+reboot
+```
+
+Reconnect and verify persistence:
+
+```bash
+nvidia-smi
+systemctl is-active vllm
+curl -sf http://localhost:8100/health
+cd /root/makato-oss && scripts/preflight-omp-context.sh
+systemctl is-active makato-target-loop.service
+```
+
+A normal Vast.ai stop/start should not require reinstallation. A migration or
+instance recreation creates a new disk and requires the complete procedure.
+
+## Troubleshooting
+
+### Model download stalls
+
+Set `HF_HUB_DISABLE_XET=1` and rerun the bootstrap. Hugging Face resumes verified
+files and downloads missing shards over HTTP.
+
+### vLLM reports missing model shards
+
+Rerun `infra/bootstrap-vllm.sh`. Do not use the presence of one
+`.safetensors` file as proof that a sharded snapshot is complete.
+
+### OMP requests more than the 65,536-token context
+
+Check both files:
+
+```bash
+grep -E 'contextWindow|maxTokens' /root/.omp/agent/models.yml
+grep -E 'default: local/open|format: qwen3' \
+  /root/.omp/agent/config.yml
+```
+
+OMP v18 requires `contextWindow` and `maxTokens`; the older `context` and
+`maxOutput` keys are ignored.
+
+### OMP ignores model roles or tool format
+
+Confirm `modelRoles` and `tools.format` are in
+`/root/.omp/agent/config.yml`, not `models.yml`. Rerun the bootstrap to install
+the version-controlled files.
+
+### vLLM does not start after a driver change
+
+Confirm the loaded driver is major version 580 or newer. Delete and rebuild
+`/root/vllm-venv` only if it was created before rebooting into the new driver.
+
+### Docker commands report an API mismatch
+
+Some images temporarily run an older daemon than the installed client. Use a
+shell-local `DOCKER_API_VERSION` override only long enough to inspect or stop
+the workload. Remove the override after reboot and never persist it without
+checking the daemon's minimum API.
+
+## Repository files
+
+| File | Purpose |
+| --- | --- |
+| `infra/bootstrap-vllm.sh` | Driver, vLLM, complete model snapshot, OMP config, and systemd bootstrap |
+| `infra/vllm-serve.yaml` | Model, context, GPU memory, aliases, and tool parser |
+| `infra/vllm-serve.sh` | CUDA discovery and vLLM launch wrapper |
+| `infra/vllm.service` | Boot-persistent vLLM endpoint |
+| `infra/omp-models.yml` | OMP local provider and model limits |
+| `infra/omp-config.yml` | OMP role routing and qwen3 tool format |
+| `scripts/preflight-omp-context.sh` | Runtime gate before autonomous dispatch |

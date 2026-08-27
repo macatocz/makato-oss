@@ -15,8 +15,8 @@
 #   3. Python 3.12 venv + pinned vLLM (cu13 wheels via uv --torch-backend=auto).
 #   4. Model weights (~27 GB FP8) into the HF cache — skipped if already present.
 #   5. systemd unit install + enable, so the endpoint auto-starts on every boot.
-#   6. omp model config — installs infra/omp-models.yml to ~/.omp/agent/ when the
-#      oh-my-pi harness is present (skipped otherwise).
+#   6. omp provider + settings config — installs infra/omp-{models,config}.yml
+#      to ~/.omp/agent/ when the oh-my-pi harness is present (skipped otherwise).
 #
 # The full "why" behind the version pins and workarounds is in
 # docs/vast-ai-llm-deployment.md.
@@ -42,7 +42,6 @@ MODEL="$(sed -nE 's/^model:[[:space:]]*"?([^"[:space:]]+)"?.*/\1/p' "$MAKATO_HOM
 [ -n "$MODEL" ] || die "could not read model: from infra/vllm-serve.yaml"
 
 # ── Phase 1: NVIDIA driver >= CUDA 13 ─────────────────────────────────────────
-reboot_needed=0
 driver_major=0
 if command -v nvidia-smi >/dev/null && nvidia-smi >/dev/null 2>&1; then
     driver_major="$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1 | cut -d. -f1)"
@@ -58,7 +57,6 @@ else
     # needs no apt at all — some re-provisioned vast.ai boxes ship a broken /etc/environment
     # that makes apt fail (see docs/vast-ai-llm-deployment.md → "gotchas").
     apt-get install -y "linux-headers-$(uname -r)" "nvidia-driver-$MIN_DRIVER_MAJOR" build-essential
-    reboot_needed=1
     # Reboot NOW, before building the venv. If we let Phases 3+ run on the still-loaded old
     # driver, `uv --torch-backend=auto` detects the OLD CUDA version and installs a torch that
     # mismatches vLLM's CUDA-13 binary → a broken venv that a later re-run will not repair.
@@ -96,23 +94,19 @@ else
 fi
 
 # ── Phase 4: model weights ────────────────────────────────────────────────────
-cache_root="${HF_HOME:-$HOME/.cache/huggingface}/hub"
-# HF cache encodes the repo id as models--<org>--<name> (each '/' becomes '--').
-model_dir="models--$(printf '%s' "$MODEL" | sed 's|/|--|g')"
-if compgen -G "$cache_root/$model_dir/snapshots/*/*.safetensors" >/dev/null 2>&1; then
-    log "model phase: $MODEL already cached — skip"
-else
-    log "model phase: downloading $MODEL (~27 GB FP8) — this is the long pole on a cold box"
-    # The repo is GATED: you must request access on its HF page AND provide an HF token with
-    # that access. `hf` reads HF_TOKEN from the env or ~/.cache/huggingface/token. Fail early
-    # with an actionable message instead of vLLM later dying on missing weights.
-    if ! "$VLLM_VENV/bin/hf" download "$MODEL"; then
-        die "model download failed. $MODEL is gated — request access at
+# Always ask huggingface_hub to resolve the complete repository. It reuses verified cache
+# entries, while a glob for one safetensors file can mistake an interrupted sharded-model
+# download for a complete snapshot.
+log "model phase: ensuring the complete $MODEL snapshot is cached (~27 GB on a cold box)"
+# The repo is GATED: you must request access on its HF page AND provide an HF token with
+# that access. `hf` reads HF_TOKEN from the env or ~/.cache/huggingface/token. Fail early
+# with an actionable message instead of vLLM later dying on missing weights.
+if ! "$VLLM_VENV/bin/hf" download "$MODEL"; then
+    die "model download failed. $MODEL is gated — request access at
         https://huggingface.co/$MODEL then re-run with an approved token:
             HF_TOKEN=hf_xxx sudo -E MAKATO_HOME=$MAKATO_HOME bash infra/bootstrap-vllm.sh"
-    fi
-    log "model phase: download complete"
 fi
+log "model phase: complete snapshot available"
 
 # ── Phase 5: systemd service ──────────────────────────────────────────────────
 log "systemd phase: installing and enabling vllm.service (auto-start on boot)"
@@ -137,11 +131,14 @@ systemctl enable vllm.service
 # endpoint/model/token-budget instead of an ad-hoc hand-edited file. Guarded on
 # omp being present so boxes that only serve vLLM are unaffected.
 OMP_MODELS_DEST="${OMP_MODELS_DEST:-/root/.omp/agent/models.yml}"
+OMP_CONFIG_DEST="${OMP_CONFIG_DEST:-/root/.omp/agent/config.yml}"
 if command -v omp >/dev/null 2>&1; then
-    log "omp phase: installing $OMP_MODELS_DEST from infra/omp-models.yml"
+    log "omp phase: installing provider config at $OMP_MODELS_DEST"
     install -D -m 0644 "$MAKATO_HOME/infra/omp-models.yml" "$OMP_MODELS_DEST"
+    log "omp phase: installing role/tool settings at $OMP_CONFIG_DEST"
+    install -D -m 0644 "$MAKATO_HOME/infra/omp-config.yml" "$OMP_CONFIG_DEST"
 else
-    log "omp phase: omp not installed — skip (install the harness, then re-run to provision $OMP_MODELS_DEST)"
+    log "omp phase: omp not installed — skip (install the harness, then re-run to provision OMP config)"
 fi
 
 # Phase 1 reboots-and-exits when it installs the driver, so by the time control reaches

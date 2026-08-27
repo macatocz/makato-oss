@@ -8,9 +8,12 @@
 set -euo pipefail
 
 REQUIRED=65536
+MAX_OUTPUT=8192
 BASE="${VLLM_API_BASE:-http://localhost:8100}"
 MODELS_URL="${BASE}/v1/models"
 CONFIG_FILE="infra/vllm-serve.yaml"
+OMP_MODELS_FILE="${OMP_MODELS_FILE:-${HOME:-/root}/.omp/agent/models.yml}"
+OMP_CONFIG_FILE="${OMP_CONFIG_FILE:-${HOME:-/root}/.omp/agent/config.yml}"
 
 response=$(curl -sf --max-time 10 "$MODELS_URL" 2>&1) || {
   echo "ERROR: endpoint unreachable — ${MODELS_URL}" >&2
@@ -47,12 +50,50 @@ print(ctx)
 PYEOF
 ) || exit 1
 
-if [ "$context_length" -ge "$REQUIRED" ]; then
-  echo "OK: context_length=${context_length} >= ${REQUIRED} — po-agent dispatch is safe"
-  exit 0
-else
+if [ "$context_length" -lt "$REQUIRED" ]; then
   echo "ERROR: context_length=${context_length} is below the required minimum of ${REQUIRED}" >&2
   echo "  Fix: set max_model_len: ${REQUIRED} (or higher) in ${CONFIG_FILE}" >&2
   echo "  Then restart the service: sudo systemctl restart vllm" >&2
   exit 1
 fi
+
+if [ ! -f "$OMP_MODELS_FILE" ]; then
+  echo "ERROR: OMP model configuration not found at ${OMP_MODELS_FILE}" >&2
+  exit 1
+fi
+if [ ! -f "$OMP_CONFIG_FILE" ]; then
+  echo "ERROR: OMP settings configuration not found at ${OMP_CONFIG_FILE}" >&2
+  exit 1
+fi
+
+omp_context=$(sed -nE 's/^[[:space:]]*contextWindow:[[:space:]]*([0-9]+).*/\1/p' "$OMP_MODELS_FILE" | head -1)
+omp_output=$(sed -nE 's/^[[:space:]]*maxTokens:[[:space:]]*([0-9]+).*/\1/p' "$OMP_MODELS_FILE" | head -1)
+
+if [ -z "$omp_context" ] || [ -z "$omp_output" ]; then
+  echo "ERROR: ${OMP_MODELS_FILE} must define OMP v18 fields contextWindow and maxTokens" >&2
+  exit 1
+fi
+if [ "$omp_context" -lt "$REQUIRED" ]; then
+  echo "ERROR: OMP contextWindow=${omp_context} is below ${REQUIRED}" >&2
+  exit 1
+fi
+if [ "$omp_output" -gt "$MAX_OUTPUT" ]; then
+  echo "ERROR: OMP maxTokens=${omp_output} exceeds the safe ${MAX_OUTPUT}-token output budget" >&2
+  exit 1
+fi
+
+for role in default opus sonnet haiku smol slow plan; do
+  role_model=$(sed -nE "s/^[[:space:]]*${role}:[[:space:]]*([^#[:space:]]+).*/\\1/p" "$OMP_CONFIG_FILE" | head -1)
+  if [ "$role_model" != "local/open" ]; then
+    echo "ERROR: OMP role ${role} must map to local/open in ${OMP_CONFIG_FILE} (got '${role_model:-missing}')" >&2
+    exit 1
+  fi
+done
+
+tool_format=$(sed -nE 's/^[[:space:]]*format:[[:space:]]*([^#[:space:]]+).*/\1/p' "$OMP_CONFIG_FILE" | head -1)
+if [ "$tool_format" != "qwen3" ]; then
+  echo "ERROR: OMP tools.format must be qwen3 in ${OMP_CONFIG_FILE} (got '${tool_format:-missing}')" >&2
+  exit 1
+fi
+
+echo "OK: context_length=${context_length}; OMP contextWindow=${omp_context}, maxTokens=${omp_output}, roles=local/open, tools.format=${tool_format} — po-agent dispatch is safe"
