@@ -102,18 +102,18 @@ Per-phase input/output summary:
 
 The PO-agent's machine audit trail (`orchestrate.jsonl` / `build.jsonl`) lives
 under gitignored `specs/`, so anyone watching the issue on GitHub sees nothing
-about the autonomous run. To close that gap, the PO-agent mirrors the START and
-DONE of every skill it dispatches into a **single, continuously-edited GitHub
-issue comment**, written in plain English so a non-expert can follow along. Every
-entry begins with a timestamp; a START entry names the skill, its input, the
-sub-agent used, and a one-line goal; a DONE entry gives the result and a short
-summary.
+about the autonomous run. To close that gap, the autonomous loop structurally
+initializes or updates a **single, continuously-edited GitHub issue comment**
+before starting the OMP harness. The PO-agent then mirrors the START and DONE of
+every skill it dispatches into that comment. Entries use plain English so a
+non-expert can follow along; each begins with a timestamp, and names the skill,
+input, sub-agent, goal, result, or short summary as applicable.
 
 - **One entry point:** `shared/progress-comment.sh` (`start` / `done` / `note`).
   It creates the comment on first call, appends on later calls, persists only
-  `.progress_comment_id` in workflow-state (via `workflow-state.sh`, so the
-  PO-agent stays the sole writer of state), and rolls over to a fresh comment
-  near GitHub's 65 536-char limit.
+  `.progress_comment_id` in workflow-state via `workflow-state.sh`, preserving
+  the single-writer state contract for both the loop guard and PO-agent, and
+  rolls over to a fresh comment near GitHub's 65 536-char limit.
 - **Best-effort, never fatal:** any `gh`/state failure logs a WARN, emits a
   `step:"progress-comment"` JSONL row, and exits 0. It never triggers a HALT and
   never blocks a dispatch.
@@ -161,6 +161,7 @@ See `agents/po-agent.md` § *Progress comment* for the per-skill agent/goal map.
 - **config/config.yml** + **config/parse-config.py** — Declarative source of truth for every `loop.sh` tunable; the parser emits `NAME="${ENV:-default}"` bash assignments (PyYAML when present, stdlib fallback otherwise) so each parameter keeps its original env override. Paths overridable via `MAKATO_LOOP_CONFIG_YML` / `MAKATO_LOOP_CONFIG_PARSER`. Full docs in **config/config.md**.
 - **scripts/tests/test_parse_config.py** — pytest coverage for `parse-config.py`: known-default emission, empty-default and fixed-value handling, export-only-where-declared, stdlib/PyYAML parity, and env-override round-trip through bash. Run in CI via the `scripts/tests/` pytest step.
 - **scripts/tests/loop-smoke-tests.sh** — Smoke tests for loop.sh — offline scenarios (T1–T42) covering HALT-file detection, dry-run dispatch, in-flight filtering, board Status filtering, non-Issue exclusion, KEY derivation incl. the #232 title fallback (T27), the #231 label→board promotion pass with its exclusion guard (T28), the #259 synchronous board-claim CAS (T30), the #265 merged-worktree reaper (T31–T38), the #289 board-poll rate-limit resilience (T39–T42: retry-then-succeed, exhaustion returns non-zero, cmd_poll rc 75, transient-error state), the orphaned-specs pruning pass (T84–T90: done→prune, closed→prune, open→skip, tracked→skip, dryrun→keep, disabled→skip, promote-before-prune), the #531 stall-resume paths (T-RESUME-1..5) plus the #616 skip-on-missing-UUID (T-RESUME-616), and the #616 orphan-stale detection (T-STALE-1..4: dead+stale→reconcile, fresh→skip, alive-owner→skip, disabled→skip). Uses MAKATO_LOOP_GH_OVERRIDE / MAKATO_LOOP_ISSUE_BODY_OVERRIDE / MAKATO_LOOP_ISSUE_TITLE_OVERRIDE / MAKATO_LOOP_PROMOTE_OVERRIDE / MAKATO_LOOP_POLL_TEST_CMD / MAKATO_LOOP_REAP_SPECS_GH_OVERRIDE for offline fixture injection. Run in CI via .github/workflows/validate.yml.
+- **scripts/tests/loop-progress-comment-smoke-tests.sh** — Offline fake-GitHub/fake-harness coverage for the structural pre-dispatch progress-comment guard: the integer comment id is persisted before the harness starts, and GitHub failure warns without blocking dispatch.
 - **scripts/promote-ready.sh** — Implementation of the promote-ready skill (#268) — dependency-aware Ready promotion. Loads the cross-issue dependency graph from specs/\<slug\>/created-issues.json (issues[].blocked_by[]; fallback stories.json dependencies.blockedBy translated via sequence→githubIssue), reads live board Status via `GH_HOST=<host> gh project item-list`, computes right-now-unblocked issues (every blocked_by predecessor Done), arranges topological waves, applies the plan.md single-folder collision guard (#173), and — after interactive approval (or --yes) — promotes selected issues to Status=Ready via gh project item-edit (idempotent, forward-only, warn-not-fail). `plan` / `--dry-run` prints the recommendation without mutating the board. Reads .claude/config.json → github_project (no hardcoded IDs). Exposes run / plan subcommands.
 - **scripts/tests/promote-ready-smoke-tests.sh** — Smoke tests for promote-ready.sh — thirteen offline scenarios (T1–T13) covering graph load, unblocked/wave computation, non-Done blocker stays blocked, the plan.md collision guard, --dry-run no-mutation (isolated via --yes), forward-only skip of Ready/In progress/In review/Done, live promote of exactly the recommended set, the stories.json sequence→githubIssue fallback (with missing-githubIssue warning), off-board promotability, an unfiled stories.json blocker keeping the dependent issue blocked, dependency-cycle termination, the empty-graph "(no issues in graph)" message, and a clean no-such-slug run on bash 3.2. Uses MAKATO_PROMOTE_GH_OVERRIDE / MAKATO_PROMOTE_EDIT_TEST_FILE for offline fixture injection — `gh` is never invoked. Run in CI via .github/workflows/validate.yml.
 - **scripts/loop-halt-watch.sh** — Operator-side macOS HALT notifier. Runs **independently of `loop.sh`** (surviving a loop crash) and polls a watched repo's `.claude/state/` every 30s (`MAKATO_WATCH_INTERVAL`), firing a macOS notification (via `terminal-notifier`, falling back to `osascript`) on three latched transitions so an unattended run never fails silently: (1) **HALT-000** — `~/.claude/HALT` appears or `.last_halt_at` in `loop-status.json` advances (clean HALT exit); (2) **process death** — the PID in `loop.pid` stops responding to `kill -0` while `queue_depth > 0`; (3) **watchdog kill** — `.last_watchdog_kill` in `loop-status.json` changes. State at startup is the baseline, so pre-existing events never fire — only genuine transitions do. Each transition notifies exactly once (latched, re-armed on recovery). Opt-in and **not** started by `loop run`; deploy per-repo via `com.makato.loop-halt-watch.plist.template` (below) or run by hand with `MAKATO_WATCH_ONCE=1` for a single poll. Notifications are stubbable via `MAKATO_WATCH_NOTIFY_CMD` for offline tests.

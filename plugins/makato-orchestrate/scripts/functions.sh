@@ -2039,6 +2039,34 @@ _assign_issue() {
   fi
   return 0
 }
+# ---------------------------------------------------------------------------
+# _start_progress_comment_guard <KEY> <ISSUE> <REPO> <BRANCH>
+# Initialise or update the shared live progress comment before OMP starts.
+# The shared helper owns GitHub I/O and workflow-state persistence; all failures
+# remain best-effort and must not prevent dispatch.
+# ---------------------------------------------------------------------------
+_start_progress_comment_guard() {
+  local key="$1" issue="$2" repo="$3" branch="$4"
+  local progress_comment
+  progress_comment="$(cd "$(dirname "${BASH_SOURCE[0]}")/../shared" && pwd)/progress-comment.sh"
+
+  if [[ -z "$key" || -z "$repo" ]]; then
+    echo "loop: WARN — progress-comment guard missing KEY or REPO for #${issue}; dispatch continues" >&2
+    return 0
+  fi
+  if [[ ! -x "$progress_comment" ]]; then
+    echo "loop: WARN — progress-comment helper not executable at $progress_comment; dispatch continues" >&2
+    return 0
+  fi
+
+  "$progress_comment" start "$key" "$issue" "$repo" \
+    --skill "makato-orchestrate:po-agent" --agent "po-agent" \
+    --input "issue #${issue} on branch ${branch}" \
+    --goal "drive the autonomous build through completion" >/dev/null || {
+      echo "loop: WARN — progress-comment guard failed for #${issue}; dispatch continues" >&2
+      return 0
+    }
+}
 
 # ---------------------------------------------------------------------------
 # _claim_board_card <ISSUE_NUMBER> — synchronous CAS board claim (#259).
@@ -3844,6 +3872,8 @@ cmd_dispatch() {
     _patch_status '.active_workflow' 'null'
     return 0
   fi
+  # Structural guard (#64): the live comment exists before the OMP harness starts.
+  _start_progress_comment_guard "$key" "$issue" "${MAKATO_LOOP_DISPATCH_REPO:-}" "$branch"
 
   # Test hook — spawn hung subprocess for watchdog tests (T12–T14); value is command to exec.
   local child_cmd=""
