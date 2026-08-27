@@ -22,8 +22,9 @@
 # - Best-effort, NEVER fatal. Any gh / state failure logs a WARN to stderr,
 #   emits a `progress-comment` JSONL row with status "warn", and exits 0. This
 #   layer must never block a run or trip a HALT.
-# - State is still mutated ONLY through workflow-state.sh (the PO-agent remains
-#   the sole writer of workflow-state.json — this helper is a thin caller).
+# - State is still mutated ONLY through workflow-state.sh. Both the loop's
+#   structural pre-dispatch guard and the PO-agent use this helper as a thin
+#   caller, so no second workflow-state writer is introduced.
 #
 # USAGE
 #   progress-comment.sh start <KEY> <ISSUE> <REPO> \

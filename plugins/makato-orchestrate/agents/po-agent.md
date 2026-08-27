@@ -82,13 +82,14 @@ posture is constrained by four safeguards — see `AGENTS.md` §
   `build-implement-tdd` (or `build-implement-goal`) dispatch per outer
   iteration; the skill walks the full task list in topological order
   itself.
-- **Narrate progress into the issue, best-effort.** At each skill
-  dispatch boundary, mirror a plain-English, human-readable line into a
-  single "live" GitHub issue comment via
+- **Narrate progress into the issue, best-effort.** The autonomous loop
+  structurally initializes or updates the live comment before it starts
+  this agent. At each subsequent skill dispatch boundary, mirror a
+  plain-English, human-readable line into that single GitHub issue comment via
   `shared/progress-comment.sh` (see § *Progress comment*). This is a
   convenience layer that persists only `.progress_comment_id`, and does so
-  **through** `shared/workflow-state.sh` — so the PO-agent stays the sole
-  writer of `workflow-state.json`. It is **best-effort and NEVER fatal**:
+  **through** `shared/workflow-state.sh` — so both the loop guard and the
+  PO-agent preserve the single-writer state contract. It is **best-effort and NEVER fatal**:
   any `gh` failure logs a WARN and the run continues. It NEVER triggers a
   HALT and NEVER blocks a dispatch.
 

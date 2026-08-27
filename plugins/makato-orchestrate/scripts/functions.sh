@@ -2040,41 +2040,32 @@ _assign_issue() {
   return 0
 }
 # ---------------------------------------------------------------------------
-# _init_progress_comment <ISSUE_NUMBER> — create live progress comment (#64).
-# Creates a single GitHub issue comment that will be continuously updated
-# throughout the build lifecycle. Returns the comment id on stdout (empty on failure).
-# Best-effort: any failure logs WARN to stderr and returns empty string.
-# Test hook: MAKATO_LOOP_PROGRESS_COMMENT_TEST_FILE (records call; returns stub id).
+# _start_progress_comment_guard <KEY> <ISSUE> <REPO> <BRANCH>
+# Initialise or update the shared live progress comment before OMP starts.
+# The shared helper owns GitHub I/O and workflow-state persistence; all failures
+# remain best-effort and must not prevent dispatch.
 # ---------------------------------------------------------------------------
-_init_progress_comment() {
-  local issue="$1"
+_start_progress_comment_guard() {
+  local key="$1" issue="$2" repo="$3" branch="$4"
+  local progress_comment
+  progress_comment="$(cd "$(dirname "${BASH_SOURCE[0]}")/../shared" && pwd)/progress-comment.sh"
 
-  # Test hook: offline stub for smoke tests.
-  if [[ -n "${MAKATO_LOOP_PROGRESS_COMMENT_TEST_FILE:-}" ]]; then
-    echo "progress_comment #${issue}" >>"${MAKATO_LOOP_PROGRESS_COMMENT_TEST_FILE}"
-    echo "stub-comment-id-$$"
+  if [[ -z "$key" || -z "$repo" ]]; then
+    echo "loop: WARN — progress-comment guard missing KEY or REPO for #${issue}; dispatch continues" >&2
+    return 0
+  fi
+  if [[ ! -x "$progress_comment" ]]; then
+    echo "loop: WARN — progress-comment helper not executable at $progress_comment; dispatch continues" >&2
     return 0
   fi
 
-  local comment_body="**Build in progress** — dispatching autonomous pipeline for #${issue}."
-
-  local -a repo_flag=()
-  [[ -n "${MAKATO_LOOP_DISPATCH_REPO:-}" ]] && repo_flag=(--repo "${MAKATO_LOOP_DISPATCH_REPO}")
-
-  local response=""
-  if response=$(gh issue comment "$issue" "${repo_flag[@]}" --body "$comment_body" --json id 2>/dev/null); then
-    local comment_id=""
-    comment_id=$(printf '%s' "$response" | jq -r '.id // empty' 2>/dev/null) || true
-    if [[ -n "$comment_id" ]]; then
-      echo "loop: created progress comment #${issue} (id=${comment_id})" >&2
-      printf '%s' "$comment_id"
-    else
-      echo "loop: WARN — progress comment #${issue}: could not parse comment id" >&2
-    fi
-  else
-    echo "loop: WARN — progress comment #${issue}: could not create comment (dispatch continues)" >&2
-  fi
-  return 0
+  "$progress_comment" start "$key" "$issue" "$repo" \
+    --skill "makato-orchestrate:po-agent" --agent "po-agent" \
+    --input "issue #${issue} on branch ${branch}" \
+    --goal "drive the autonomous build through completion" >/dev/null || {
+      echo "loop: WARN — progress-comment guard failed for #${issue}; dispatch continues" >&2
+      return 0
+    }
 }
 
 # ---------------------------------------------------------------------------
@@ -3881,16 +3872,8 @@ cmd_dispatch() {
     _patch_status '.active_workflow' 'null'
     return 0
   fi
-  # Pre-build progress-comment guard (#64): create live progress comment before dispatch.
-  # Best-effort — failure logs warning, does not block the build.
-  local _progress_comment_id=""
-  if [[ -n "$key" ]]; then
-    _progress_comment_id="$(_init_progress_comment "$issue")"
-    if [[ -n "$_progress_comment_id" ]]; then
-      "$MAKATO_ORCHESTRATE_SHARED/workflow-state.sh" patch "$key" "$issue" '.progress_comment_id' "\"$_progress_comment_id\"" || \
-        echo "loop: WARN — failed to persist progress_comment_id for #${issue}" >&2
-    fi
-  fi
+  # Structural guard (#64): the live comment exists before the OMP harness starts.
+  _start_progress_comment_guard "$key" "$issue" "${MAKATO_LOOP_DISPATCH_REPO:-}" "$branch"
 
   # Test hook — spawn hung subprocess for watchdog tests (T12–T14); value is command to exec.
   local child_cmd=""
