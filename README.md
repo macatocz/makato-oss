@@ -190,8 +190,8 @@ jq '.active_workflow = null' .claude/state/loop-status.json \
 
 ## Plugins
 
-| Plugin                                                 | Purpose                                                                                                 |
-| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| Plugin                                                   | Purpose                                                                                                 |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | [`makato-core`](plugins/makato-core/)                   | Shared utilities: codebase navigation, README authoring, GitHub issue filing, library reference lookup. |
 | [`makato-contribute`](plugins/makato-contribute/)       | Scaffold new plugins and skills, resolve PR bot feedback, sync from upstream repos.                     |
 | [`makato-plan`](plugins/makato-plan/)                   | Turn feature requests into shaped GitHub issues with acceptance criteria.                               |
