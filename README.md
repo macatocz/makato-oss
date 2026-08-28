@@ -79,9 +79,114 @@ A typical end-to-end flow for a new feature:
    implement → verify → PR.
 3. `/address-pr-comments` resolves reviewer feedback until the PR merges.
 
-For an unattended run, install `makato-orchestrate` and point its poller at a GitHub Projects v2
-board — it will pick up "Ready" issues one at a time and drive them autonomously until they merge
-or a HALT fires.
+## Running skills
+
+### Interactively (Claude Code session)
+
+Open Claude Code in the repo and type the skill name directly:
+
+```text
+/makato-build:build-start
+/makato-plan:brainstorming My new feature idea
+/makato-change:orchestrate
+```
+
+### Headlessly via OMP
+
+On a provisioned vast.ai box, `omp` routes every agent role through the local vLLM endpoint
+(configured by `infra/omp-config.yml` and `infra/omp-models.yml` — no AWS Bedrock token
+required):
+
+```bash
+MAKATO_HEADLESS=1 omp --yolo -p "/makato-build:build-start"
+```
+
+On a local machine without a vLLM endpoint, use `claude` directly:
+
+```bash
+MAKATO_HEADLESS=1 claude --dangerously-skip-permissions -p "/makato-build:build-start"
+```
+
+`MAKATO_HEADLESS=1` is mandatory for every non-interactive invocation — omitting it causes
+`MISSING_INPUT: headless-without-autonomous`.
+
+## Autonomous loop
+
+The `makato-orchestrate:loop` skill polls a GitHub Projects v2 board for `Status=Ready` issues and
+drives each one to a merged PR unattended.
+
+### Loop prerequisites
+
+```bash
+# One-time setup: initialise board sync (populates .claude/config.json → github_project)
+/makato-plan:issue-to-project --init
+```
+
+### Start the loop
+
+The loop dispatches each issue by calling `$MAKATO_HARNESS_BIN --yolo`. On a provisioned
+vast.ai box, set `MAKATO_HARNESS_BIN` to `omp` — it supports `--yolo` natively:
+
+```bash
+MAKATO_HARNESS_BIN="/root/.local/bin/omp" \
+  nohup /root/makato-oss/plugins/makato-orchestrate/scripts/loop.sh run --status Ready \
+  > ~/.claude/state/loop.log 2>&1 &
+disown
+```
+
+On a local machine where `claude` is the harness, use the `claude-harness` shim that
+translates `--yolo` → `--dangerously-skip-permissions`:
+
+```bash
+MAKATO_HARNESS_BIN="$HOME/.claude/bin/claude-harness" \
+  nohup plugins/makato-orchestrate/scripts/loop.sh run --status Ready \
+  > ~/.claude/state/loop.log 2>&1 &
+disown
+```
+
+The `nohup`+`disown` detaches the loop so a background-session reap does not kill it mid-dispatch.
+
+### Monitor
+
+```bash
+# Live status (refreshes every 5 s)
+watch -n 5 plugins/makato-orchestrate/scripts/loop.sh status
+
+# Tail the dispatch log
+tail -f ~/.claude/state/loop.log
+```
+
+### Stop the loop
+
+```bash
+# Graceful stop after the current issue finishes
+touch ~/.claude/HALT
+
+# Remove the HALT file to allow the next run
+rm ~/.claude/HALT
+```
+
+### One-shot run (smoke test / manual dispatch)
+
+```bash
+# Inspect the queue without dispatching anything
+MAKATO_HARNESS_BIN="$HOME/.claude/bin/claude-harness" \
+  plugins/makato-orchestrate/scripts/loop.sh run --dry-run --once
+
+# Dispatch exactly one Ready issue and exit
+MAKATO_HARNESS_BIN="$HOME/.claude/bin/claude-harness" \
+  plugins/makato-orchestrate/scripts/loop.sh run --once
+```
+
+### Recover from a stale active_workflow
+
+If the loop was killed mid-dispatch, `loop-status.json` may have a stale `active_workflow` entry
+that prevents the next dispatch. Clear it with:
+
+```bash
+jq '.active_workflow = null' .claude/state/loop-status.json \
+  | sponge .claude/state/loop-status.json
+```
 
 ## Plugins
 
