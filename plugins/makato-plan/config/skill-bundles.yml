@@ -27,6 +27,7 @@ bundles:
       - create-ux
       - create-prototype
       - excalidraw
+      - excalidraw-diagram-generator
 
   # Triggered when working on PRD or architecture documents in specs.
   # Literal segment: specs → specificity = 1; contains scopes to planning artifacts.
