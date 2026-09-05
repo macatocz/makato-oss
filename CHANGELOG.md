@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.162.0](https://github.com/macatocz/makato-oss/compare/v0.161.2...v0.162.0) (2026-09-05)
+
+
+### ✨ Features
+
+* **makato-plan:** add Excalidraw diagram generator skill ([#94](https://github.com/macatocz/makato-oss/issues/94)) ([#95](https://github.com/macatocz/makato-oss/issues/95)) ([1ecda4e](https://github.com/macatocz/makato-oss/commit/1ecda4ebf2da76a10b1ca13e8a860330b75d9446))
+
 ## [0.161.2](https://github.com/macatocz/makato-oss/compare/v0.161.1...v0.161.2) (2026-08-27)
 
 
