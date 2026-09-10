@@ -90,6 +90,20 @@ fi
 if [[ -n "${MAKATO_OPEN_ENDPOINT_URL:-}" ]]; then
   export ANTHROPIC_BASE_URL="$MAKATO_OPEN_ENDPOINT_URL"
 fi
+# Provider-neutral profile/harness-mode propagation (Task 3,
+# local-openai-gpt-macos-compatibility): forward the caller's selected model
+# profile (config/model-profiles.yml, scripts/resolve-model-profile.py) and
+# harness mode (plugins/makato-orchestrate/scripts/harness-command.sh) into
+# every dispatched/resumed child process's environment. Neither var carries a
+# credential — profile installation and credential handling remain the
+# caller's responsibility via scripts/select-model-profile.sh. No-op when
+# either var is unset (default: whatever OMP/Claude Code already has active).
+if [[ -n "${MAKATO_MODEL_PROFILE:-}" ]]; then
+  export MAKATO_MODEL_PROFILE
+fi
+if [[ -n "${MAKATO_HARNESS_MODE:-}" ]]; then
+  export MAKATO_HARNESS_MODE
+fi
 PIDFILE="${MAKATO_LOOP_PIDFILE:-$STATE_DIR/loop.pid}"
 
 # --- Floor guards: clamp hostile/non-numeric overrides to safe values ---

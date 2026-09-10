@@ -22,6 +22,24 @@
 # docs/vast-ai-llm-deployment.md.
 set -euo pipefail
 
+# ── Platform guard ────────────────────────────────────────────────────────────
+# This script provisions a Linux/NVIDIA CUDA toolchain and is remote-Linux-only.
+# macOS/Apple Silicon clients use scripts/macos-setup.sh instead, which never
+# attempts CUDA/vLLM installation locally.
+OS_NAME="$(uname -s)"
+if [ "$OS_NAME" != "Linux" ]; then
+    echo "[bootstrap ERROR] infra/bootstrap-vllm.sh provisions a Linux/NVIDIA CUDA toolchain and only runs on Linux — detected '$OS_NAME'." >&2
+    echo "[bootstrap ERROR] On macOS/Apple Silicon, use scripts/macos-setup.sh (no CUDA/vLLM is installed locally there)." >&2
+    exit 1
+fi
+# When lspci is available, fail fast on a Linux box with no NVIDIA GPU at all
+# instead of wasting time apt-installing a driver that has nothing to bind to.
+# Skipped (not a hard requirement) when lspci itself is not installed.
+if command -v lspci >/dev/null 2>&1 && ! lspci 2>/dev/null | grep -qi nvidia; then
+    echo "[bootstrap ERROR] no NVIDIA GPU detected via lspci — this script requires a Linux/NVIDIA GPU instance." >&2
+    exit 1
+fi
+
 MAKATO_HOME="${MAKATO_HOME:-/root/makato-oss}"
 VLLM_VENV="${VLLM_VENV:-/root/vllm-venv}"
 VLLM_PORT="${VLLM_PORT:-8100}"

@@ -33,12 +33,23 @@ Semantics:
 
 **Why an explicit env var and not tty auto-detection:** inside a Claude Code Bash tool `stdin`/`stdout` are always pipes, even in a fully interactive human-driven session. A `[[ ! -t 0 ]]` auto-detector would false-positive and kill legitimate interactive runs. `MAKATO_HEADLESS=1` is the caller's declaration; the skill trusts it.
 
-**Callers that MUST export `MAKATO_HEADLESS=1`:** any script that spawns `claude --dangerously-skip-permissions -p …`. Currently:
+**Callers that MUST export `MAKATO_HEADLESS=1`:** any script that dispatches through
+`plugins/makato-orchestrate/scripts/harness-command.sh`, the shared harness-neutral
+command adapter (Task 3, local-openai-gpt-macos-compatibility) that builds the
+permission flag from the explicit `MAKATO_HARNESS_MODE` switch — `omp` (default)
+resolves to `--yolo`; `claude` resolves to `--dangerously-skip-permissions`. Mode
+selection is never inferred from `MAKATO_HARNESS_BIN`'s name/path. Currently:
 
-- `plugins/makato-orchestrate/scripts/loop.sh` — `cmd_dispatch`
-- `plugins/makato-orchestrate/scripts/context-handoff.sh` — `_emit_resume`
+- `plugins/makato-orchestrate/scripts/loop.sh` — `cmd_dispatch` (normal dispatch and stall-resume re-entry)
+- `plugins/makato-orchestrate/scripts/context-handoff.sh` — `_emit_resume` (HALT-007B proactive handoff restart)
 
-Both call sites belong to the makato-orchestrate plugin and are the only headless entry points into build-* skills today. Any new headless caller must export the variable on its side of the boundary.
+Both call sites belong to the makato-orchestrate plugin and are the only headless entry
+points into build-* skills today. Neither call site's `MAKATO_HEADLESS` contract depends
+on which model profile is active (`config/model-profiles.yml`: `openai` | `qwen-vllm` |
+`apple-ollama`, selected via `MAKATO_MODEL_PROFILE`) — the profile only changes
+provider/model routing, and `loop.sh` forwards it unchanged alongside `MAKATO_HEADLESS=1`
+into every dispatched/resumed child process. Any new headless caller must export both
+variables on its side of the boundary.
 
 Skill-side detection lives in the `build-*` skill's Step 1b (see `build-refine/SKILL.md` § *Step 1b — Headless-context defensive guard* for the canonical shape). Other `build-*` skills that fire `AskUserQuestion` in Step 1 or later gates SHOULD add an equivalent Step 1b when they are dispatched by a headless caller — track via the skill's own PR when the need arises.
 

@@ -127,6 +127,13 @@ vars:
 - { var: MAKATO_OPEN_ENDPOINT_URL, env: MAKATO_OPEN_ENDPOINT_URL, default: "http://localhost:8100/v1", export: true }
 - { var: MAKATO_OPEN_MODEL_ROLES,  env: MAKATO_OPEN_MODEL_ROLES,  default: "sonnet,haiku,opus" }
 
+# --- Provider-neutral model profile selection (issue #43 / AC-1) ---
+# MAKATO_MODEL_PROFILE names the config/model-profiles.yml profile
+# (openai | qwen-vllm | apple-ollama) installed by
+# scripts/select-model-profile.sh. Defaults to qwen-vllm to preserve the
+# checked-in local-vLLM behavior (infra/omp-models.yml, infra/omp-config.yml).
+- { var: MAKATO_MODEL_PROFILE, env: MAKATO_MODEL_PROFILE, default: "qwen-vllm" }
+
 # --- Persistent volume (issue #8 — Vast.ai preemption survival) ---
 # Non-regenerable state (workflow-state, worktrees, staged branches) is stored
 # under this root so it survives a destroy+recreate volume-reattach cycle.

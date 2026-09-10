@@ -6,7 +6,7 @@ description: >-
   config, or migration work, or when implement-goal tasks remain
   from a mixed plan.
 version: "1.5.0"
-model: opus
+modelRole: task
 argument-hint: "[work-item-key]"
 allowed-tools: [Bash]
 metadata:

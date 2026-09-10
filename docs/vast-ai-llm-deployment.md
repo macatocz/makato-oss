@@ -14,6 +14,32 @@ This is an installation guide, not an inventory of a specific machine. Replace
 all angle-bracket placeholders before running commands. For general Vast.ai
 access and port guidance, see [`vast-ai-access.md`](./vast-ai-access.md).
 
+## Provider profile contract
+
+This box's endpoint and OMP configuration are the checked-in `qwen-vllm` profile
+declared in [`config/model-profiles.yml`](../config/model-profiles.yml) (`base_url:
+http://localhost:8100/v1`, no credential, `tool_format: qwen3`) — the same profile
+`scripts/select-model-profile.sh` and `scripts/resolve-model-profile.py` validate
+elsewhere in the suite. `infra/omp-models.yml` / `infra/omp-config.yml` (installed by
+`infra/bootstrap-vllm.sh` below) mirror that profile's provider/role documents verbatim,
+so there is nothing extra to run here to "activate" the profile.
+
+To point a client (including a Mac) at this box instead of running everything on it, see
+[`docs/macos-openai-qwen.md`](./macos-openai-qwen.md) § *Remote Linux/Qwen (client-side
+from a Mac)* — set `VLLM_API_BASE`/`MAKATO_OPEN_ENDPOINT_URL` to this instance's tunneled
+or public address and run the same `qwen-vllm` profile preflight from the client:
+
+```bash
+MAKATO_MODEL_PROFILE=qwen-vllm VLLM_API_BASE=http://localhost:8100 \
+  bash scripts/preflight-omp-context.sh
+```
+
+If you instead want this box to serve as an autonomous *orchestrator* against `api.openai.com`
+or a local profile, install a different profile with `scripts/select-model-profile.sh
+<profile>` — see the root [`README.md`](../README.md#provider-switching) for the full
+profile-switch command set. Nothing below this section assumes a profile other than
+`qwen-vllm`.
+
 ## Supported configuration
 
 The following versions form one tested compatibility set. Upgrade them together
@@ -321,7 +347,17 @@ curl -sf http://localhost:8100/health
 curl -s http://localhost:8100/v1/models | jq
 
 cd /root/makato-oss
-scripts/preflight-omp-context.sh
+MAKATO_MODEL_PROFILE=qwen-vllm bash scripts/preflight-omp-context.sh
+```
+
+`MAKATO_MODEL_PROFILE` defaults to `qwen-vllm` when unset, so omitting it is equivalent —
+setting it explicitly documents which profile (`config/model-profiles.yml`) the check is
+validating against. The same profile-aware check is also what Gate 6
+(`scripts/preflight-model-runtime.sh`, run by `build-verify` before any autonomous PR/merge)
+calls before dispatching the PO-agent:
+
+```bash
+MAKATO_MODEL_PROFILE=qwen-vllm bash scripts/preflight-model-runtime.sh
 ```
 
 The preflight must confirm:
@@ -429,10 +465,12 @@ HOME=/root
 PATH=/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 VLLM_API_BASE=http://localhost:8100
 MAKATO_HARNESS_BIN=/root/.local/bin/omp
+MAKATO_MODEL_PROFILE=qwen-vllm
 MAKATO_LOOP_DISPATCH_REPO=<OWNER>/<REPOSITORY>
 MAKATO_LOOP_CONFIG=/workspace/<REPOSITORY>/.claude/config.json
 MAKATO_LOOP_STATE_DIR=/workspace/<REPOSITORY>/.claude/state
 MAKATO_HALT_FILE=/root/.claude/HALT
+MAKATO_SKIP_OPTIONAL_PREFLIGHT=1
 SPECS_DIR=/workspace/<REPOSITORY>/specs
 EOF
 chmod 0600 /etc/makato/target-loop.env
@@ -454,7 +492,7 @@ User=root
 WorkingDirectory=/workspace/<REPOSITORY>
 EnvironmentFile=/etc/makato/target-loop.env
 ExecStartPre=/usr/bin/test -d /workspace/<REPOSITORY>/.git
-ExecStartPre=/root/makato-oss/scripts/preflight-omp-context.sh
+ExecStartPre=/root/makato-oss/scripts/preflight-model-runtime.sh
 ExecStart=/bin/bash /root/makato-oss/plugins/makato-orchestrate/scripts/loop.sh run
 Restart=on-failure
 RestartSec=30
@@ -518,7 +556,7 @@ Reconnect and verify persistence:
 nvidia-smi
 systemctl is-active vllm
 curl -sf http://localhost:8100/health
-cd /root/makato-oss && scripts/preflight-omp-context.sh
+cd /root/makato-oss && MAKATO_MODEL_PROFILE=qwen-vllm bash scripts/preflight-omp-context.sh
 systemctl is-active makato-target-loop.service
 ```
 
@@ -556,6 +594,19 @@ Confirm `modelRoles` and `tools.format` are in
 `/root/.omp/agent/config.yml`, not `models.yml`. Rerun the bootstrap to install
 the version-controlled files.
 
+### Switching this box to a different provider profile
+
+`scripts/preflight-omp-context.sh` / `scripts/preflight-model-runtime.sh` validate
+whichever profile `MAKATO_MODEL_PROFILE` names (default `qwen-vllm`) against
+`config/model-profiles.yml` — they do not themselves install a profile. If you
+repoint this box at `openai` or `apple-ollama` with `scripts/select-model-profile.sh
+<profile>`, update `MAKATO_MODEL_PROFILE` in `/etc/makato/target-loop.env` to match,
+or the loop's Gate 6 preflight will report a role/tool-format mismatch against the
+still-installed `qwen-vllm` OMP config. See the root
+[`README.md`](../README.md#provider-switching) for the full profile-switch commands
+and [`docs/macos-openai-qwen.md`](./macos-openai-qwen.md) for the Mac-client
+counterpart of this box.
+
 ### vLLM does not start after a driver change
 
 Confirm the loaded driver is major version 580 or newer. Delete and rebuild
@@ -578,4 +629,10 @@ checking the daemon's minimum API.
 | `infra/vllm.service` | Boot-persistent vLLM endpoint |
 | `infra/omp-models.yml` | OMP local provider and model limits |
 | `infra/omp-config.yml` | OMP role routing and qwen3 tool format |
-| `scripts/preflight-omp-context.sh` | Runtime gate before autonomous dispatch |
+| `config/model-profiles.yml` | Canonical `openai` \| `qwen-vllm` \| `apple-ollama` profile declarations this box's OMP config mirrors |
+| `scripts/resolve-model-profile.py` | Structural profile validation (never emits a credential value) |
+| `scripts/select-model-profile.sh` | Installs (or `--dry-run` previews) a profile into `~/.omp/agent/{models,config}.yml` |
+| `scripts/preflight-omp-context.sh` | Profile-aware endpoint/auth/tool-format runtime gate |
+| `scripts/preflight-model-runtime.sh` | Gate 6 — wraps `preflight-omp-context.sh` + the advisory optional-service checks |
+| `scripts/preflight-optional-services.sh` | Advisory Playwright MCP / Langfuse / Postgres / Temporal / Sagibeast checks (PASS/SKIP/WARN, never blocks) |
+| `docs/macos-openai-qwen.md` | Mac-client counterpart: Apple-local profile, native OpenAI, and pointing a Mac at this remote endpoint |

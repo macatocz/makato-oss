@@ -2,7 +2,7 @@
 name: build-grill-with-docs
 description: Align implementation plan terminology to the codebase domain model — grill plan, terminology conflicts, glossary.md enrichment, ADR decisions. Use after /refine, before /implement-tdd or /implement-goal. Optional but recommended for complex stories.
 version: "1.5.0"
-model: opus
+modelRole: advisor
 argument-hint: "[work-item-key]"
 allowed-tools: [Bash]
 metadata:

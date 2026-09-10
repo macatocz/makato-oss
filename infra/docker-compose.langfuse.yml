@@ -1,4 +1,6 @@
-# Langfuse unified observability stack — co-located on the A6000 instance.
+# Langfuse unified observability stack — co-located on the A6000 instance for
+# the remote-Linux/vLLM path, and runnable unchanged under Docker Desktop for
+# local macOS (Apple Silicon or Intel) client development.
 #
 # Single Langfuse container hosting TWO projects:
 #   - makato   (makato-oss traces)
@@ -10,11 +12,26 @@
 # OTLP/HTTP ingestion is enabled via the LANGFUSE_OTLP_ENDPOINT env var.
 # Each project is identified by its OTLP resource attribute `langfuse.projectId`.
 #
+# Architecture: `langfuse/langfuse:latest` publishes a multi-arch manifest
+# (linux/amd64 + linux/arm64), so this file needs NO `platform:` override —
+# Docker Desktop on Apple Silicon pulls the native linux/arm64 image inside
+# its Linux VM, and the remote Linux/NVIDIA instance pulls linux/amd64. Do
+# not pin `platform: linux/amd64` here; that would force emulation on
+# Apple Silicon and slow every local Docker Desktop run.
+#
 # Usage:
 #   docker compose -f infra/docker-compose.langfuse.yml up -d
 #   docker compose -f infra/docker-compose.langfuse.yml down
 #
-# Environment variables expected (supply via .env or shell exports):
+# Port: override LANGFUSE_PORT if 3000 is already bound on the host (a
+# common conflict on a macOS client already running another local service).
+# scripts/preflight-optional-services.sh reports this endpoint's reachability
+# (PASS/SKIP/WARN — never silently healthy) via LANGFUSE_OTLP_ENDPOINT.
+#
+# Credentials — runtime inputs only, NEVER committed to this file, an env
+# file checked into git, or any log/fixture. Supply via `infra/.env.langfuse`
+# (untracked; see infra/.env.langfuse.example) or shell exports on whichever
+# host (Docker Desktop or remote Linux) runs `docker compose`:
 #   LANGFUSE_SECRET_KEY       — server secret (min 32 chars)
 #   LANGFUSE_PUBLIC_KEY       — server public key
 #   LANGFUSE_DATABASE_URL     — postgres DSN (e.g. postgresql://user:pass@host/langfuse)
@@ -30,6 +47,11 @@ services:
     image: langfuse/langfuse:latest
     container_name: langfuse
     restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
     ports:
       # Single deterministic host port. Override with LANGFUSE_PORT env var
       # if the default 3000 is already taken (e.g. another service on the host).

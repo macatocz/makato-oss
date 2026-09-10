@@ -5,7 +5,7 @@ description: >-
   requirements, product requirements, feature requirements, user stories,
   acceptance criteria. Use after brainstorming and grilling.
 version: "1.2.1"
-model: opus
+modelRole: plan
 argument-hint: "[slug]"
 allowed-tools: Bash
 ---

@@ -8,7 +8,7 @@ description: >-
   verify. Trigger keywords: review, adversarial, diff-review, code-review,
   quality-gate, build-review, check implementation.
 version: "1.5.0"
-model: opus
+modelRole: advisor
 argument-hint: "[work-item-key]"
 allowed-tools:
   - Bash

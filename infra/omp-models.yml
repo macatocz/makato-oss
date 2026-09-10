@@ -25,3 +25,42 @@ providers:
         contextWindow: 65536
         maxTokens: 8192
         api: openai-completions
+
+  # Native OpenAI API (api.openai.com). OPENAI_API_KEY is a runtime secret —
+  # it never enters this checked-in file. scripts/select-model-profile.sh
+  # substitutes the ${OPENAI_API_KEY} placeholder with the real value only
+  # when installing this profile onto ~/.omp/agent/models.yml, and never
+  # prints it. See config/model-profiles.yml (profile: openai) for the
+  # canonical role mapping and tool-format declaration.
+  openai:
+    baseUrl: https://api.openai.com/v1
+    apiKey: ${OPENAI_API_KEY}
+    models:
+      - id: gpt-4o
+        contextWindow: 128000
+        maxTokens: 16384
+        api: openai-completions
+      - id: gpt-4o-mini
+        contextWindow: 128000
+        maxTokens: 16384
+        api: openai-completions
+      - id: o1
+        contextWindow: 128000
+        maxTokens: 16384
+        api: openai-completions
+
+  # Apple Silicon local OpenAI-compatible backend (e.g. `ollama serve`). No
+  # credential required — EMPTY mirrors the local vLLM provider above. See
+  # config/model-profiles.yml (profile: apple-ollama).
+  apple-ollama:
+    baseUrl: http://localhost:11434/v1
+    apiKey: EMPTY
+    models:
+      - id: llama3.1
+        contextWindow: 32768
+        maxTokens: 8192
+        api: openai-completions
+      - id: llama3.2
+        contextWindow: 32768
+        maxTokens: 8192
+        api: openai-completions

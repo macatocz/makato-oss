@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### ✨ Features
+
+* **provider compatibility:** add configurable native OpenAI GPT and Qwen/vLLM model profiles (`config/model-profiles.yml`: `openai`, `qwen-vllm`, `apple-ollama`), a harness-neutral OMP/Claude Code dispatch adapter (`plugins/makato-orchestrate/scripts/harness-command.sh`), Apple Silicon client setup (`scripts/macos-setup.sh`), and provider-aware Gate 6 preflight (`scripts/preflight-model-runtime.sh`, `scripts/preflight-omp-context.sh`, `scripts/preflight-optional-services.sh`) so the autonomous issue-to-PR/merge loop runs unattended against native OpenAI, a local Apple-Silicon Ollama endpoint, or a remote Linux/NVIDIA vLLM endpoint, with optional Playwright MCP/Langfuse/Postgres/Temporal/Sagibeast services reported as explicit PASS/SKIP/WARN. See [`docs/macos-openai-qwen.md`](docs/macos-openai-qwen.md) for the quick-start and troubleshooting matrix.
+
 ## [0.162.0](https://github.com/macatocz/makato-oss/compare/v0.161.2...v0.162.0) (2026-09-05)
 
 

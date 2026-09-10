@@ -6,7 +6,7 @@ description: >-
   strategy, acceptance mapping. Use to start a build session before
   implement-tdd or implement-goal.
 version: "1.11.0"
-model: opus
+modelRole: plan
 argument-hint: "[work-item-key] [--autonomous]"
 allowed-tools:
   - Bash

@@ -45,8 +45,17 @@
 #
 # Environment variables:
 #   MAKATO_MAX_HANDOFFS         — cap on session_count (default 5).
-#   MAKATO_CLAUDE_BIN           — path to the claude binary (default: `claude`
-#                                 on PATH). Tests set this to a stub script.
+#   MAKATO_HARNESS_BIN          — path to the coding-agent harness binary
+#                                 (default: `omp` on PATH). Tests set this to
+#                                 a stub script.
+#   MAKATO_HARNESS_MODE         — explicit harness-adapter mode: omp (default)
+#                                 or claude. Selects the permission flag baked
+#                                 into the emitted resume script via the
+#                                 shared plugins/makato-orchestrate/scripts/
+#                                 harness-command.sh adapter (Task 3) —
+#                                 --yolo for omp, --dangerously-skip-permissions
+#                                 for claude. Never inferred from
+#                                 MAKATO_HARNESS_BIN's name.
 #   MAKATO_HANDOFF_ACK_TIMEOUT  — seconds check-pid waits for the resumed
 #                                 session to write resume_ack before firing the
 #                                 HALT-007 fallback (default 120). A dead PID
@@ -84,8 +93,15 @@ WS="$REPO_ROOT/plugins/makato-orchestrate/shared/workflow-state.sh"
 STATE_DIR="$REPO_ROOT/.claude/state"
 RESUME_SCRIPT="$STATE_DIR/resume-${KEY}-${ISSUE_NUMBER}.sh"
 MAX_HANDOFFS="${MAKATO_MAX_HANDOFFS:-5}"
-CLAUDE_BIN="${MAKATO_CLAUDE_BIN:-claude}"
+CLAUDE_BIN="${MAKATO_HARNESS_BIN:-omp}"
 ACK_TIMEOUT="${MAKATO_HANDOFF_ACK_TIMEOUT:-120}"
+
+# Shared harness-neutral command adapter (Task 3) — resolves the permission
+# flag (--yolo for omp, --dangerously-skip-permissions for claude) baked into
+# the emitted resume script below, controlled by the explicit
+# MAKATO_HARNESS_MODE switch (never inferred from CLAUDE_BIN's name).
+# shellcheck source=harness-command.sh
+source "${MAKATO_HANDOFF_HARNESS_COMMAND:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/harness-command.sh}"
 
 mkdir -p "$STATE_DIR"
 
@@ -180,6 +196,14 @@ _emit_resume() {
     worktree_path="$(jq -r '.worktree_path // ""' "$change_state_file" 2>/dev/null || true)"
   fi
 
+  # Task 3: resolve the harness permission flag ONCE at emit time via the
+  # shared adapter and bake the literal flag into the generated script — the
+  # resumed process may run in an environment where MAKATO_HARNESS_MODE is
+  # unset, so the mode active for THIS session must be captured now, not
+  # re-evaluated later.
+  local resume_perm_flag
+  resume_perm_flag="$(_harness_permission_flag)"
+
   if [[ -n "$change_state_file" ]]; then
     # type:change resume — dispatch makato-change:orchestrate, NOT po-agent.
     cat > "$RESUME_SCRIPT" <<EOF
@@ -201,7 +225,7 @@ if [[ "\$STATE_PHASE" == "done" ]]; then
   exit 0
 fi
 
-exec env MAKATO_HEADLESS=1 WORKTREE_PATH="\$WORKTREE_PATH" "$CLAUDE_BIN" --dangerously-skip-permissions --resume "\$SESSION_ID" -p "Use the Skill tool to invoke the makato-change:orchestrate skill with args '\$KEY --autonomous'. Context: ISSUE_NUMBER=\$ISSUE ISSUE_KEY=\$KEY WORKTREE_PATH=\$WORKTREE_PATH REPO_ROOT=$REPO_ROOT. MAKATO_HEADLESS=1 is already exported. Resume from the current phase recorded in change-state — do NOT restart from analyze, and perform all edits/commits inside WORKTREE_PATH. Return the skill's final R1 envelope verbatim."
+exec env MAKATO_HEADLESS=1 WORKTREE_PATH="\$WORKTREE_PATH" "$CLAUDE_BIN" $resume_perm_flag --resume "\$SESSION_ID" -p "Use the Skill tool to invoke the makato-change:orchestrate skill with args '\$KEY --autonomous'. Context: ISSUE_NUMBER=\$ISSUE ISSUE_KEY=\$KEY WORKTREE_PATH=\$WORKTREE_PATH REPO_ROOT=$REPO_ROOT. MAKATO_HEADLESS=1 is already exported. Resume from the current phase recorded in change-state — do NOT restart from analyze, and perform all edits/commits inside WORKTREE_PATH. Return the skill's final R1 envelope verbatim."
 EOF
   else
     # Default (non-change issue) — po-agent resume.
@@ -225,7 +249,7 @@ if [[ "\$STATE_PHASE" == "done" ]]; then
   exit 0
 fi
 
-exec env MAKATO_HEADLESS=1 "$CLAUDE_BIN" --dangerously-skip-permissions --resume "\$SESSION_ID" -p "Use the Task tool to dispatch the makato-orchestrate:po-agent subagent to resume driving GitHub issue #\$ISSUE to a merged PR. The po-agent owns the outer loop, workflow-state, and all makato-build --autonomous dispatch; do not invoke makato-build or makato-plan skills directly from this session. Return the po-agent's final R1 envelope verbatim."
+exec env MAKATO_HEADLESS=1 "$CLAUDE_BIN" $resume_perm_flag --resume "\$SESSION_ID" -p "Use the Task tool to dispatch the makato-orchestrate:po-agent subagent to resume driving GitHub issue #\$ISSUE to a merged PR. The po-agent owns the outer loop, workflow-state, and all makato-build --autonomous dispatch; do not invoke makato-build or makato-plan skills directly from this session. Return the po-agent's final R1 envelope verbatim."
 EOF
   fi
   chmod +x "$RESUME_SCRIPT"
@@ -346,10 +370,11 @@ _check() {
   # Emit the resume script.
   _emit_resume
 
-  # Verify the claude binary is reachable. Tests use MAKATO_CLAUDE_BIN
-  # pointing at a stub script; production uses `claude` on PATH.
+  # Verify the harness binary is reachable. Tests use MAKATO_HARNESS_BIN
+  # pointing at a stub script; production uses `omp` on PATH (or `claude`
+  # when MAKATO_HARNESS_BIN is set explicitly for the Claude Code adapter).
   if ! command -v "$CLAUDE_BIN" >/dev/null 2>&1 && ! [[ -x "$CLAUDE_BIN" ]]; then
-    _halt_007_fallback "claude binary not found at: $CLAUDE_BIN"
+    _halt_007_fallback "harness binary not found at: $CLAUDE_BIN"
   fi
 
   # Dry-run mode — do the state mutations but skip the detached restart.

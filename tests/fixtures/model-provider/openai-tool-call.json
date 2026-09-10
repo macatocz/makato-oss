@@ -1,0 +1,32 @@
+{
+  "_comment": "Sanitized, deterministic fixture — native OpenAI chat-completions tool_calls response shape (api: openai-completions, tool_format: openai; see config/model-profiles.yml). Consumed by tests/integration/model-provider-dispatch-e2e.sh. Contains no real credentials, endpoints, or model provider account data.",
+  "id": "chatcmpl-fixture0000000000000000000000",
+  "object": "chat.completion",
+  "created": 1730000000,
+  "model": "gpt-4o-mini",
+  "choices": [
+    {
+      "index": 0,
+      "finish_reason": "tool_calls",
+      "message": {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_fixture0001",
+            "type": "function",
+            "function": {
+              "name": "read_file",
+              "arguments": "{\"path\": \"specs/local-openai-gpt-macos-compatibility/plan.md\"}"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 128,
+    "completion_tokens": 24,
+    "total_tokens": 152
+  }
+}

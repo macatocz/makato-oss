@@ -43,7 +43,8 @@ The outer loop is entered via the `loop` skill and exits on a merged PR or a doc
 ```
   operator terminal              loop-cron.yml (GHA, every 10 min)
   loop --autonomous              loop.sh run --once
-        │                        [requires ANTHROPIC_API_KEY secret]
+        │                        [requires the active model profile's credential, if any —
+        │                         see § Provider profiles and harness selection below]
         └────────────┬───────────────────────┘
                      │ cross-machine mutex: board CAS claim (Status → In Progress)
                      ▼
@@ -122,6 +123,64 @@ input, sub-agent, goal, result, or short summary as applicable.
 
 See `agents/po-agent.md` § *Progress comment* for the per-skill agent/goal map.
 
+## Provider profiles and harness selection
+
+The loop's PO-agent dispatch is **harness-neutral** and **provider-neutral**. Two
+independent settings control it — neither one ever carries a credential:
+
+- **`MAKATO_MODEL_PROFILE`** selects which provider/model routing is active, from
+  [`config/model-profiles.yml`](../../config/model-profiles.yml): `openai` (native
+  `api.openai.com`, needs `OPENAI_API_KEY`), `qwen-vllm` (local or remote
+  OpenAI-compatible vLLM — the checked-in default, no credential), or `apple-ollama`
+  (Apple Silicon local OpenAI-compatible Ollama, no credential). `loop.sh` forwards it
+  unchanged into every dispatched/resumed child process's environment; it never
+  installs a profile itself — run
+  [`scripts/select-model-profile.sh`](../../scripts/select-model-profile.sh) (or, on a
+  Mac, [`scripts/macos-setup.sh`](../../scripts/macos-setup.sh)) first. See the root
+  [`README.md`](../../README.md#provider-switching) and
+  [`docs/macos-openai-qwen.md`](../../docs/macos-openai-qwen.md) for the full
+  profile-switch commands and Mac quick-start.
+- **`MAKATO_HARNESS_MODE`** selects which coding-agent CLI the dispatch permission flag
+  targets, resolved by the shared adapter
+  [`scripts/harness-command.sh`](scripts/harness-command.sh): `omp` (default) →
+  `--yolo`; explicit `claude` → `--dangerously-skip-permissions`. Mode selection is
+  **explicit only** — never inferred from `MAKATO_HARNESS_BIN`'s name/path, so a Claude
+  binary at a path containing "claude" is never accidentally selected when OMP is
+  configured (and vice versa). `MAKATO_HARNESS_BIN` only names the binary to `exec`.
+
+Every dispatch, watchdog restart, resume, and terminal-result site in `loop.sh` /
+`functions.sh` / `context-handoff.sh` builds its argument vector through this single
+adapter (`_harness_mode`, `_harness_permission_flag`, `_harness_dispatch_args`) — there
+is no separate Claude-only code path and no shim binary to install.
+
+### Session resume
+
+A crashed dispatch (stall-resume) or a HALT-007B context-ceiling handoff re-enters the
+**same** session rather than starting a fresh one. `functions.sh` persists the coding
+agent's session UUID as `last_session_id` in `workflow-state.json` after every dispatch
+(`_extract_session_id`, reading the terminal `{"type":"result",...}` stream-json line);
+`_harness_dispatch_args <prompt> [<resume_session_id>]` then builds
+`<permission-flag> [--resume <resume_session_id>] -p <prompt>` — both supported
+harnesses accept `--resume <session_id>` and `-p <prompt>` identically, so resume works
+the same way regardless of `MAKATO_HARNESS_MODE`. If no `last_session_id` was ever
+captured, stall-resume skips with `reason:"no_session_id"` in `orchestrate.jsonl` and a
+fresh dispatch starts instead of failing.
+
+### Autonomous PR/merge loop, credentials, and preflight
+
+The full unattended path is: board `Status=Ready` claim (CAS) → PO-agent dispatch →
+build-refine → per-task build-implement-tdd/-goal → resolve-pr-conflict (on push
+reject) → build-verify → build-push-to-git → build-create-pr → build-address-pr-comments
+→ merged PR → `workflows/post-merge.yml` → documentation-agent → board `Done`. It
+requires: `gh` CLI authenticated with `repo,project,workflow` scopes against the target
+repository (§ *Prerequisites / MCP Servers* below), the active model profile's
+credential if it declares one (only `openai` does), and `MAKATO_HEADLESS=1` exported by
+every headless caller (see `plugins/makato-build/AUTONOMOUS-MODE.md` § *Defensive-headless
+guard*). Before every dispatch, `scripts/preflight-model-runtime.sh` (Gate 6) validates
+the active profile's structure, endpoint reachability, credential presence, and OMP
+role/tool-format match, and reports (never blocks on) optional Playwright MCP / Langfuse
+/ Postgres / Temporal / Sagibeast connectivity via `scripts/preflight-optional-services.sh`.
+
 ## Skills
 
 | Skill | Description | Input | Output | Version |
@@ -154,9 +213,9 @@ See `agents/po-agent.md` § *Progress comment* for the per-skill agent/goal map.
 
 ## Scripts
 
-- **scripts/context-handoff.sh** — HALT-007B proactive context-ceiling handoff lifecycle: check budget vs context_warn_tokens, enforce handoff cap (MAKATO_MAX_HANDOFFS), checkpoint workflow-state, dispatch context-summariser, emit .claude/state/resume-{KEY}.sh, and detached self-restart. The emitted resume script invokes `claude --resume <session-UUID>` using the `last_session_id` persisted by loop.sh (#616) — NOT the spec KEY, which `--resume` rejects. Falls back to HALT-007 when restart fails, the handoff cap is exceeded, or no `last_session_id` was captured (resume impossible → human needed).
+- **scripts/context-handoff.sh** — HALT-007B proactive context-ceiling handoff lifecycle: check budget vs context_warn_tokens, enforce handoff cap (MAKATO_MAX_HANDOFFS), checkpoint workflow-state, dispatch context-summariser, emit .claude/state/resume-{KEY}.sh, and detached self-restart. The emitted resume script invokes the shared `scripts/harness-command.sh` adapter's dispatch args (`--resume <session-UUID>` using the `last_session_id` persisted by loop.sh, #616) with the permission flag resolved from `MAKATO_HARNESS_MODE` (`--yolo` for omp, `--dangerously-skip-permissions` for explicit claude, #Task-3) — NOT the spec KEY, which `--resume` rejects. Falls back to HALT-007 when restart fails, the handoff cap is exceeded, or no `last_session_id` was captured (resume impossible → human needed).
 - **scripts/tests/context-handoff-smoke-tests.sh** — Smoke tests for context-handoff.sh covering the check/cap/checkpoint/emit/restart lifecycle paths.
-- **scripts/loop.sh** — Implementation of the loop skill — polls GitHub Projects v2 board for Ready items (board Status=Ready is the sole dispatch signal; the pre-poll status:ready-for-dev → board Ready promotion pass is removed as of #688, via `_gh_project_item_list`, a bounded exponential-backoff retry wrapper that distinguishes a failed poll from an empty queue so a rate-limit/429 never masquerades as no-work — #289), applies in-flight filter against specs/\*/workflow-state.json, dispatches PO-agent serially via `claude --dangerously-skip-permissions -p` (KEY derived from to-issues provenance or, failing that, \<issue\>-\<title-slug\> per #232), writes .claude/state/loop-status.json (including a `poll_healthy`/`last_poll_error` transient-error state on poll failure). After every dispatch it persists the Claude session UUID as `last_session_id` in workflow-state so the stall-recovery and HALT-007B handoff paths can `claude --resume <UUID>` correctly (#616). Two per-tick orphan-recovery passes run before polling: `_reconcile_orphaned_in_progress` (#368) recovers board cards In progress with NO local workflow-state, and `_reconcile_orphaned_stale` (#616) recovers a run whose workflow-state IS present (`current_phase != done`) but whose owning process is dead (`.loop-owner.pid` fails `kill -0`) and whose `updated_at` is older than `MAKATO_ORPHAN_STALE_SECS` (default 3600s; `MAKATO_ORPHAN_DETECT_DISABLE=1` to disable) — both route to Blocked + needs-human-review. The pre-poll reap pass (#265) removes merged worktrees and, via `_reap_orphan_specs`, prunes orphaned untracked `specs/<slug>/` folders for done/closed issues (`MAKATO_LOOP_REAP_SPECS=0` to disable; audit in `last_reap_specs_count`/`reap_specs_pruned`). Exposes run/poll/next/status/dispatch/auto-seed/check-halt/remove-worktrees subcommands, plus `-h`/`--help` for a subcommand + flag overview. Helper and `cmd_*` functions live in `scripts/functions.sh` (sourced at startup); tunable parameters and their environment-variable overrides live in `config/config.yml` (parsed by `config/parse-config.py`) and are documented in `config/config.md`.
+- **scripts/loop.sh** — Implementation of the loop skill — polls GitHub Projects v2 board for Ready items (board Status=Ready is the sole dispatch signal; the pre-poll status:ready-for-dev → board Ready promotion pass is removed as of #688, via `_gh_project_item_list`, a bounded exponential-backoff retry wrapper that distinguishes a failed poll from an empty queue so a rate-limit/429 never masquerades as no-work — #289), applies in-flight filter against specs/\*/workflow-state.json, dispatches PO-agent serially via the shared `scripts/harness-command.sh` adapter (`$MAKATO_HARNESS_BIN` + the permission flag resolved from `MAKATO_HARNESS_MODE` — `--yolo` for omp default, `--dangerously-skip-permissions` for explicit claude, #Task-3) (KEY derived from to-issues provenance or, failing that, \<issue\>-\<title-slug\> per #232), writes .claude/state/loop-status.json (including a `poll_healthy`/`last_poll_error` transient-error state on poll failure). After every dispatch it persists the harness session UUID as `last_session_id` in workflow-state so the stall-recovery and HALT-007B handoff paths can `--resume <UUID>` correctly regardless of harness mode (#616). Also forwards `MAKATO_MODEL_PROFILE` (config/model-profiles.yml) and `MAKATO_HARNESS_MODE` unchanged into every dispatched/resumed child process's environment — neither var carries a credential. Two per-tick orphan-recovery passes run before polling: `_reconcile_orphaned_in_progress` (#368) recovers board cards In progress with NO local workflow-state, and `_reconcile_orphaned_stale` (#616) recovers a run whose workflow-state IS present (`current_phase != done`) but whose owning process is dead (`.loop-owner.pid` fails `kill -0`) and whose `updated_at` is older than `MAKATO_ORPHAN_STALE_SECS` (default 3600s; `MAKATO_ORPHAN_DETECT_DISABLE=1` to disable) — both route to Blocked + needs-human-review. The pre-poll reap pass (#265) removes merged worktrees and, via `_reap_orphan_specs`, prunes orphaned untracked `specs/<slug>/` folders for done/closed issues (`MAKATO_LOOP_REAP_SPECS=0` to disable; audit in `last_reap_specs_count`/`reap_specs_pruned`). Exposes run/poll/next/status/dispatch/auto-seed/check-halt/remove-worktrees subcommands, plus `-h`/`--help` for a subcommand + flag overview. Helper and `cmd_*` functions live in `scripts/functions.sh` (sourced at startup); tunable parameters and their environment-variable overrides live in `config/config.yml` (parsed by `config/parse-config.py`) and are documented in `config/config.md`.
 - **scripts/functions.sh** — All `loop.sh` helper and `cmd_*` functions except `cmd_run`. Sourced by `loop.sh`; not run standalone. Path overridable via `MAKATO_LOOP_FUNCTIONS`.
 - **config/config.yml** + **config/parse-config.py** — Declarative source of truth for every `loop.sh` tunable; the parser emits `NAME="${ENV:-default}"` bash assignments (PyYAML when present, stdlib fallback otherwise) so each parameter keeps its original env override. Paths overridable via `MAKATO_LOOP_CONFIG_YML` / `MAKATO_LOOP_CONFIG_PARSER`. Full docs in **config/config.md**.
 - **scripts/tests/test_parse_config.py** — pytest coverage for `parse-config.py`: known-default emission, empty-default and fixed-value handling, export-only-where-declared, stdlib/PyYAML parity, and env-override round-trip through bash. Run in CI via the `scripts/tests/` pytest step.
@@ -173,7 +232,7 @@ See `agents/po-agent.md` § *Progress comment* for the per-skill agent/goal map.
 | Workflow | Purpose |
 |----------|---------|
 | [workflows/post-merge.yml](workflows/post-merge.yml) | Triggered on pull_request.closed where merged=true targeting the default branch. Dispatches documentation-agent with the merged PR number to produce post-merge artefacts: CHANGELOG entry, README update, Issue closure, Projects v2 board advance to Done, docs-coverage retrospective. Consumers copy this file to .github/workflows/. |
-| [workflows/loop-cron.yml](../../.github/workflows/loop-cron.yml) | Fires `loop.sh run --once` on the `[self-hosted, makato]` runner every 10 minutes — "loop survives machine-off" fallback when the operator's local terminal is not running. Requires `ANTHROPIC_API_KEY` and `GH_TOKEN`/`MAKATO_TOKEN` secrets. Without `ANTHROPIC_API_KEY` the cron ticks fail silently (auth error in `claude` subprocess) but **do not affect the local `loop run`** path. Disable temporarily with `gh workflow disable loop-cron.yml`; re-enable with `gh workflow enable loop-cron.yml`. Cross-machine double-dispatch is prevented by the board CAS claim (Status → In Progress). Smoke tests: `scripts/tests/loop-cron-smoke-tests.sh` (T-CRON-1 to T-CRON-5). |
+| [workflows/loop-cron.yml](../../.github/workflows/loop-cron.yml) | Fires `loop.sh run --once` on the `[self-hosted, makato]` runner every 10 minutes — "loop survives machine-off" fallback when the operator's local terminal is not running. Requires `ANTHROPIC_API_KEY` and `GH_TOKEN`/`MAKATO_TOKEN` secrets on this specific runner; it does not yet set `MAKATO_HARNESS_BIN`/`MAKATO_HARNESS_MODE`/`MAKATO_MODEL_PROFILE`, so it inherits whatever profile is already installed on that self-hosted runner (default `omp` harness, default `qwen-vllm` profile — see § *Provider profiles and harness selection* above). Without `ANTHROPIC_API_KEY` the cron ticks fail on this runner but **do not affect the local `loop run`** path, which does not require it. Disable temporarily with `gh workflow disable loop-cron.yml`; re-enable with `gh workflow enable loop-cron.yml`. Cross-machine double-dispatch is prevented by the board CAS claim (Status → In Progress). Smoke tests: `scripts/tests/loop-cron-smoke-tests.sh` (T-CRON-1 to T-CRON-5). |
 
 ## Shared Resources
 
@@ -220,7 +279,8 @@ External prerequisites:
 - GitHub Projects v2 board with a Status single-select field containing a Ready option
 - specs/\<key\>-\<slug\>/ folder with plan.md or decompose artifacts and machine-readable acceptance criteria
 - bash, jq, python3 + jsonschema available on the execution host
-- claude binary available as $MAKATO_CLAUDE_BIN (default: claude)
+- A coding-agent harness binary available as `$MAKATO_HARNESS_BIN` (default: `omp`) — `MAKATO_HARNESS_MODE=claude` opts into Claude Code compatibility instead; see § *Provider profiles and harness selection* above
+- A model profile installed for the active `$MAKATO_MODEL_PROFILE` (default `qwen-vllm`) via `scripts/select-model-profile.sh`, with its credential set if it declares one (only `openai` does)
 - Consumer repo .claude/settings.json wired with check-halt.sh (PreToolUse/Bash hook — required, see kill-switch SKILL.md § Lever 1 for the exact JSON block) and session-status.sh (SessionStart) hooks
 
 ## Installation
