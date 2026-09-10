@@ -29,10 +29,19 @@ If none of those hold the skill runs in **interactive mode**, exactly as it did 
 - `MAKATO_HEADLESS=1` SET AND no autonomous trigger fired → HALT with `MISSING_INPUT: headless-without-autonomous` before the first `AskUserQuestion`. Write R1 `status:"failure"` envelope. Do NOT auto-fall-back to autonomous mode — the caller violated the contract.
 - `MAKATO_HEADLESS` unset → normal interactive path, no guard fires.
 
-**Callers that MUST export `MAKATO_HEADLESS=1`:** any script that spawns `claude --dangerously-skip-permissions -p …` targeting a `makato-change` skill. Currently:
+**Callers that MUST export `MAKATO_HEADLESS=1`:** any script that dispatches through
+`plugins/makato-orchestrate/scripts/harness-command.sh` (the shared harness-neutral
+command adapter — `omp` default resolves to `--yolo`, explicit `MAKATO_HARNESS_MODE=claude`
+resolves to `--dangerously-skip-permissions`; never inferred from `MAKATO_HARNESS_BIN`'s
+name) targeting a `makato-change` skill. Currently:
 
 - `plugins/makato-orchestrate/scripts/loop.sh` — `cmd_dispatch` (when dispatching change-request issues)
 - Any future orchestrate scripts that headlessly invoke `makato-change:orchestrate`
+
+This contract does not depend on which model profile is active (`config/model-profiles.yml`:
+`openai` | `qwen-vllm` | `apple-ollama`, selected via `MAKATO_MODEL_PROFILE`) — see
+`plugins/makato-build/AUTONOMOUS-MODE.md` § *Defensive-headless guard* for the full
+harness-adapter/profile-propagation contract this mirrors.
 
 ## HALT codes
 

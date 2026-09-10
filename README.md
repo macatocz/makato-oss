@@ -26,6 +26,13 @@ Each plugin owns one phase of that workflow. Install the ones you need; skip the
 - **Python 3.14+** — only if you plan to run the repo's smoke tests or contribute to plugins that
   ship pytest fixtures (`makato-build`, `makato-sagibeast`). Pinned in `pyproject.toml`
   (`requires-python = ">=3.14"`) and in the audit CI workflows.
+- **A selected model profile** — every agent role routes through one of three provider profiles
+  declared in [`config/model-profiles.yml`](config/model-profiles.yml): `qwen-vllm` (local or
+  remote OpenAI-compatible vLLM — the checked-in default, no credential), `openai` (native
+  `api.openai.com`, requires `OPENAI_API_KEY`), or `apple-ollama` (Apple Silicon local
+  OpenAI-compatible Ollama, no credential). See [Provider switching](#provider-switching) below.
+  Apple Silicon (macOS/arm64) clients should also run `scripts/macos-setup.sh` — see
+  [`docs/macos-openai-qwen.md`](docs/macos-openai-qwen.md) for the full quick-start.
 
 Individual plugins may add their own requirements (for example, `makato-database` expects a
 reachable Postgres instance). See each plugin's `README.md` for its specifics.
@@ -93,15 +100,15 @@ Open Claude Code in the repo and type the skill name directly:
 
 ### Headlessly via OMP
 
-On a provisioned vast.ai box, `omp` routes every agent role through the local vLLM endpoint
-(configured by `infra/omp-config.yml` and `infra/omp-models.yml` — no AWS Bedrock token
-required):
+`omp` routes every agent role through whichever model profile is currently installed
+(configured by `~/.omp/agent/config.yml` and `~/.omp/agent/models.yml` — see
+[Provider switching](#provider-switching) below; no AWS Bedrock token required):
 
 ```bash
 MAKATO_HEADLESS=1 omp --yolo -p "/makato-build:build-start"
 ```
 
-On a local machine without a vLLM endpoint, use `claude` directly:
+On a local machine without OMP installed, use `claude` directly:
 
 ```bash
 MAKATO_HEADLESS=1 claude --dangerously-skip-permissions -p "/makato-build:build-start"
@@ -109,6 +116,77 @@ MAKATO_HEADLESS=1 claude --dangerously-skip-permissions -p "/makato-build:build-
 
 `MAKATO_HEADLESS=1` is mandatory for every non-interactive invocation — omitting it causes
 `MISSING_INPUT: headless-without-autonomous`.
+
+## Provider switching
+
+makato's autonomous roles route through one of three provider profiles declared in
+[`config/model-profiles.yml`](config/model-profiles.yml):
+
+| Profile | Endpoint | Credential | Tool format |
+| --- | --- | --- | --- |
+| `qwen-vllm` (default) | Local or remote OpenAI-compatible vLLM (`http://localhost:8100/v1`; override via `MAKATO_OPEN_ENDPOINT_URL`/`VLLM_API_BASE`) | none | `qwen3` |
+| `openai` | `https://api.openai.com/v1` | `OPENAI_API_KEY` | `openai` |
+| `apple-ollama` | Local Apple Silicon `ollama serve` (`http://localhost:11434/v1`) | none | `openai` |
+
+Preview a profile — structural validation only, never touches disk, never requires a
+credential:
+
+```bash
+python3 scripts/resolve-model-profile.py openai --emit summary
+bash scripts/select-model-profile.sh openai --dry-run
+bash scripts/select-model-profile.sh qwen-vllm --dry-run
+bash scripts/select-model-profile.sh apple-ollama --dry-run
+```
+
+Install a profile for real — writes `~/.omp/agent/{models,config}.yml`. `OPENAI_API_KEY` is
+required only here, only for `openai`, and its value is never echoed to stdout/stderr/logs:
+
+```bash
+OPENAI_API_KEY=sk-... bash scripts/select-model-profile.sh openai
+bash scripts/select-model-profile.sh qwen-vllm       # no credential needed
+bash scripts/select-model-profile.sh apple-ollama    # no credential needed
+```
+
+Before dispatching the PO-agent, run the mandatory Gate 6 runtime preflight for the active
+profile — endpoint reachability, credential presence, and OMP role/tool-format match; never
+prints a credential value:
+
+```bash
+MAKATO_MODEL_PROFILE=openai bash scripts/preflight-model-runtime.sh
+MAKATO_MODEL_PROFILE=qwen-vllm bash scripts/preflight-model-runtime.sh
+MAKATO_MODEL_PROFILE=apple-ollama bash scripts/preflight-model-runtime.sh
+```
+
+`MAKATO_SKIP_OPTIONAL_PREFLIGHT=1` skips the advisory Playwright MCP / Langfuse / Postgres /
+Temporal / Sagibeast checks (`scripts/preflight-optional-services.sh`) that otherwise run
+alongside Gate 6 for visibility only — a missing or unreachable optional service is always
+reported as `SKIP`/`WARN`, never as silently healthy, and never blocks Gate 6.
+
+On Apple Silicon, `scripts/macos-setup.sh` reports (or, with `--install`, installs) every
+client-side tool a profile needs — Homebrew Bash ≥5, Python 3.14, Node.js, `gh`, `jq`, OMP,
+Docker Desktop — then checks/installs the selected profile. It never installs CUDA/vLLM:
+
+```bash
+bash scripts/macos-setup.sh --dry-run --profile qwen-vllm
+bash scripts/macos-setup.sh --install --profile openai
+```
+
+See [`docs/macos-openai-qwen.md`](docs/macos-openai-qwen.md) for the full Mac quick-start,
+optional-service setup, and a troubleshooting matrix.
+
+## Support boundaries
+
+- **Mac (Apple Silicon) client** — orchestrates the autonomous loop and runs OMP/Claude Code
+  locally. It can route inference through the local `apple-ollama` profile (Apple
+  Silicon-native, OpenAI-compatible, no credential), the native `openai` profile
+  (`api.openai.com`), or a remote `qwen-vllm` endpoint served on Linux. It never runs
+  CUDA/vLLM itself — `scripts/macos-setup.sh` refuses to install it.
+- **Remote Linux/NVIDIA** — serves the `qwen-vllm` profile via `infra/bootstrap-vllm.sh` +
+  `infra/vllm-serve.sh` (both refuse to run on Darwin). See
+  [`docs/vast-ai-llm-deployment.md`](docs/vast-ai-llm-deployment.md) for the full runbook.
+- **Optional services** (Playwright MCP, Langfuse, Postgres, Temporal, Sagibeast/testbox) are
+  never required for the core loop. `scripts/preflight-optional-services.sh` reports each as
+  an explicit `PASS`/`SKIP`/`WARN` and never blocks dispatch.
 
 ## Autonomous loop
 
@@ -124,8 +202,16 @@ drives each one to a merged PR unattended.
 
 ### Start the loop
 
-The loop dispatches each issue by calling `$MAKATO_HARNESS_BIN --yolo`. On a provisioned
-vast.ai box, set `MAKATO_HARNESS_BIN` to `omp` — it supports `--yolo` natively:
+The loop dispatches each issue through
+[`plugins/makato-orchestrate/scripts/harness-command.sh`](plugins/makato-orchestrate/scripts/harness-command.sh),
+the shared harness-neutral command adapter. It resolves the permission flag from the
+**explicit** `MAKATO_HARNESS_MODE` switch — never inferred from `MAKATO_HARNESS_BIN`'s name:
+`omp` (default) → `--yolo`; `claude` → `--dangerously-skip-permissions`. `MAKATO_HARNESS_BIN`
+only names the binary to exec; `MAKATO_MODEL_PROFILE` (see
+[Provider switching](#provider-switching)) selects the provider profile. Neither variable
+ever carries a credential.
+
+On a provisioned vast.ai box (or any host with `omp` on `PATH`):
 
 ```bash
 MAKATO_HARNESS_BIN="/root/.local/bin/omp" \
@@ -134,17 +220,23 @@ MAKATO_HARNESS_BIN="/root/.local/bin/omp" \
 disown
 ```
 
-On a local machine where `claude` is the harness, use the `claude-harness` shim that
-translates `--yolo` → `--dangerously-skip-permissions`:
+On a local machine where Claude Code is the harness, opt in explicitly with
+`MAKATO_HARNESS_MODE=claude` — no separate shim binary is needed:
 
 ```bash
-MAKATO_HARNESS_BIN="$HOME/.claude/bin/claude-harness" \
+MAKATO_HARNESS_BIN="claude" MAKATO_HARNESS_MODE=claude \
   nohup plugins/makato-orchestrate/scripts/loop.sh run --status Ready \
   > ~/.claude/state/loop.log 2>&1 &
 disown
 ```
 
 The `nohup`+`disown` detaches the loop so a background-session reap does not kill it mid-dispatch.
+
+A crashed or context-ceiling dispatch resumes the same session via its captured
+`last_session_id` and `--resume <session_id>` — both supported harnesses accept the same
+`--resume <session_id> -p <prompt>` shape, so there is no Claude-only resume fallback. See
+[`plugins/makato-orchestrate/README.md`](plugins/makato-orchestrate/README.md) for the full
+harness/profile/resume contract.
 
 ### Monitor
 
@@ -170,11 +262,11 @@ rm ~/.claude/HALT
 
 ```bash
 # Inspect the queue without dispatching anything
-MAKATO_HARNESS_BIN="$HOME/.claude/bin/claude-harness" \
+MAKATO_HARNESS_BIN="omp" \
   plugins/makato-orchestrate/scripts/loop.sh run --dry-run --once
 
 # Dispatch exactly one Ready issue and exit
-MAKATO_HARNESS_BIN="$HOME/.claude/bin/claude-harness" \
+MAKATO_HARNESS_BIN="omp" \
   plugins/makato-orchestrate/scripts/loop.sh run --once
 ```
 

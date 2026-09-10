@@ -7,6 +7,20 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Docs — provider-neutral autonomous compatibility (`AUTONOMOUS-MODE.md`)
+
+`AUTONOMOUS-MODE.md` § *Defensive-headless guard* now documents the harness-neutral
+dispatch adapter (`plugins/makato-orchestrate/scripts/harness-command.sh`,
+local-openai-gpt-macos-compatibility Task 3) instead of a literal
+`claude --dangerously-skip-permissions -p …` invocation — both `loop.sh`'s
+`cmd_dispatch` and `context-handoff.sh`'s `_emit_resume` build their permission flag
+from the explicit `MAKATO_HARNESS_MODE` switch (`omp` default → `--yolo`; `claude` →
+`--dangerously-skip-permissions`), never inferred from `MAKATO_HARNESS_BIN`'s name. Also
+clarifies that the `MAKATO_HEADLESS=1` headless-caller contract is independent of which
+model profile (`config/model-profiles.yml`: `openai` | `qwen-vllm` | `apple-ollama`,
+selected via `MAKATO_MODEL_PROFILE`) is active. Documentation only — no skill/script
+behavior change.
+
 ### Changed — script smoke tests relocated to `scripts/tests/` + wired into CI
 
 Moved `scripts/workflow-schema-smoke-tests.sh` and `scripts/build-explore-smoke-tests.sh`
