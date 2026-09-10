@@ -2,14 +2,33 @@
 #
 # omp v18 reads role routing and tool formatting from ~/.omp/agent/config.yml,
 # separately from provider definitions in ~/.omp/agent/models.yml.
+#
+# modelRoles declares every one of Makato's 10 canonical model roles (see
+# tests/test_model_roles_config.py EXPECTED_ROLES), all routed to the
+# checked-in local-vLLM default (local/open) so this file continues to work
+# unchanged for infra/bootstrap-vllm.sh's unconditional remote-Linux install.
+# The legacy opus/sonnet/haiku aliases are retained so existing consumers
+# that still read those Claude-tier names directly keep working — see
+# tests/test_model_roles_config.py::test_omp_config_yml_has_all_ten_roles.
+#
+# To route a different provider (OpenAI, Apple/Ollama, remote Qwen), use
+# scripts/select-model-profile.sh <profile> to regenerate this file from
+# config/model-profiles.yml instead of hand-editing it.
 modelRoles:
   default: local/open
+  task: local/open
+  smol: local/open
+  tiny: local/open
+  plan: local/open
+  advisor: local/open
+  designer: local/open
+  commit: local/open
+  slow: local/open
+  vision: local/open
+  # Legacy Claude-tier aliases retained for backward compatibility (issue #5).
   opus: local/open
   sonnet: local/open
   haiku: local/open
-  smol: local/open
-  slow: local/open
-  plan: local/open
 
 tools:
   format: qwen3

@@ -1,0 +1,95 @@
+# config/model-profiles.yml — canonical provider profiles for Makato's
+# provider-neutral model routing (AC-1, local-openai-gpt-macos-compatibility).
+#
+# scripts/resolve-model-profile.py validates and resolves entries here.
+# scripts/select-model-profile.sh installs the resolved profile into OMP's
+# runtime configuration (~/.omp/agent/{models,config}.yml, overridable via
+# OMP_MODELS_FILE / OMP_CONFIG_FILE).
+#
+# Credential contract: `api_key_env` names the environment variable a profile
+# needs at INSTALL time — never at parse/validate time, and its VALUE never
+# appears in this file, in resolver output, or in any --dry-run document.
+# scripts/select-model-profile.sh substitutes the real value directly into the
+# on-disk ~/.omp/agent/models.yml only during a real (non---dry-run) install;
+# it is never echoed to stdout, stderr, or any log. An empty `api_key_env`
+# means the profile needs no credential (local/offline endpoints).
+#
+# Every profile MUST declare all ten canonical Makato model roles (mirrors
+# tests/test_model_roles_config.py EXPECTED_ROLES): default, task, smol,
+# tiny, plan, advisor, designer, commit, slow, vision. Selecting a different
+# profile changes provider/model routing ONLY — role names and skill/agent
+# permissions live in plugins/*/agents/*.md and plugins/*/skills/*/SKILL.md
+# and are never touched by this file or the resolver/selector scripts.
+
+default_profile: qwen-vllm
+
+profiles:
+  # Local or remote OpenAI-compatible vLLM endpoint (Qwen3 tool format).
+  # This is the checked-in default — infra/omp-models.yml and
+  # infra/omp-config.yml already ship this routing verbatim for the remote
+  # Linux/vast.ai deployment path (infra/bootstrap-vllm.sh); this profile
+  # entry mirrors that same contract for scripts/select-model-profile.sh.
+  qwen-vllm:
+    provider: local
+    description: "Local or remote OpenAI-compatible vLLM endpoint. No credentials required."
+    base_url: "http://localhost:8100/v1"
+    api_key_env: ""
+    api: openai-completions
+    tool_format: qwen3
+    context_window: 65536
+    max_tokens: 8192
+    roles:
+      default: open
+      task: open
+      smol: open
+      tiny: open
+      plan: open
+      advisor: open
+      designer: open
+      commit: open
+      slow: open
+      vision: open
+
+  # Native OpenAI API (api.openai.com).
+  openai:
+    provider: openai
+    description: "Native OpenAI API. Requires OPENAI_API_KEY to be set before a real (non-dry-run) install."
+    base_url: "https://api.openai.com/v1"
+    api_key_env: OPENAI_API_KEY
+    api: openai-completions
+    tool_format: openai
+    context_window: 128000
+    max_tokens: 16384
+    roles:
+      default: gpt-4o
+      task: gpt-4o
+      smol: gpt-4o-mini
+      tiny: gpt-4o-mini
+      plan: gpt-4o
+      advisor: gpt-4o
+      designer: gpt-4o
+      commit: gpt-4o-mini
+      slow: o1
+      vision: gpt-4o
+
+  # Apple Silicon local OpenAI-compatible backend (e.g. `ollama serve`).
+  apple-ollama:
+    provider: ollama
+    description: "Apple Silicon local OpenAI-compatible backend. No credentials required."
+    base_url: "http://localhost:11434/v1"
+    api_key_env: ""
+    api: openai-completions
+    tool_format: openai
+    context_window: 32768
+    max_tokens: 8192
+    roles:
+      default: llama3.1
+      task: llama3.1
+      smol: llama3.2
+      tiny: llama3.2
+      plan: llama3.1
+      advisor: llama3.1
+      designer: llama3.1
+      commit: llama3.2
+      slow: llama3.1
+      vision: llama3.2

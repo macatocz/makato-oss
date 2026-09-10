@@ -12,7 +12,7 @@
 
 | Field | Type | Rules |
 |-------|------|-------|
-| `model` | string | Model override (e.g., `opus`, `sonnet`, `haiku`) |
+| `modelRole` | string | Canonical provider-neutral model role — one of `default`, `task`, `smol`, `tiny`, `plan`, `advisor`, `designer`, `commit`, `slow`, `vision`. Routing from role to a concrete model is resolved at runtime by `config/model-profiles.yml` + `scripts/resolve-model-profile.py`, so the same skill works unchanged across the `openai`, `qwen-vllm`, and `apple-ollama` profiles. Do NOT use the legacy Claude-only `model: opus\|sonnet\|haiku` field — it hard-codes a single closed-model provider (see `tests/test_model_roles_config.py`). |
 | `argument-hint` | string | Hint shown in autocomplete (e.g., `[issue-number]`) |
 | `disable-model-invocation` | boolean | Prevent Claude from auto-invoking |
 | `user-invocable` | boolean | Hide from `/` menu if false |

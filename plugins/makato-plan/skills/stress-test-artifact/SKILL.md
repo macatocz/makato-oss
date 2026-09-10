@@ -5,7 +5,7 @@ description: >-
   challenge assumptions, review critically. Use after any artifact is drafted
   and needs scrutiny before committing to the next phase.
 version: "1.5.0"
-model: opus
+modelRole: advisor
 argument-hint: "[slug] [artifact]"
 allowed-tools: Bash
 metadata:

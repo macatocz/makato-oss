@@ -5,7 +5,7 @@ description: >-
   criteria — decompose, vertical slice, story slicing, break down feature,
   split into stories. Use after PRD and architecture are approved.
 version: "1.4.1"
-model: opus
+modelRole: plan
 argument-hint: "[slug]"
 metadata:
   authors: ["makato-plan"]

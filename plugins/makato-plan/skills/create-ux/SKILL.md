@@ -6,7 +6,7 @@ description: >-
   figma, user-testing, developer-handoff. Use when PRD has "UI Required: Yes", designing
   user flows, documenting screen states, or preparing developer handoff.
 version: "1.2.0"
-model: opus
+modelRole: designer
 argument-hint: "[slug]"
 allowed-tools: [Write, Read, Skill]
 metadata:

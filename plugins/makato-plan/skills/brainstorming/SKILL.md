@@ -5,7 +5,7 @@ description: >-
   creative exploration, explore feature angles. Use when starting a new feature that needs
   ideation before PRD.
 version: "1.3.1"
-model: opus
+modelRole: designer
 allowed-tools: [Bash]
 mcp_server: github
 metadata:

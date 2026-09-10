@@ -7,7 +7,7 @@ description: >-
   after refine to implement-tdd a story plan, implement tdd tasks, or
   run the core build loop.
 version: "1.11.0"
-model: sonnet
+modelRole: task
 argument-hint: "[work-item-key]"
 allowed-tools: ["Bash", "Read"]
 metadata:
