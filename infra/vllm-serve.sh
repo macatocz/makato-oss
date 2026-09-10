@@ -13,6 +13,23 @@
 # See docs/vast-ai-llm-deployment.md for the full rationale behind every flag here.
 set -euo pipefail
 
+# ── Platform guard ────────────────────────────────────────────────────────────
+# This wrapper launches a CUDA-JIT-compiling vLLM build and only runs on
+# Linux/NVIDIA. It never attempts CUDA setup on Apple Silicon — macOS clients
+# use an OpenAI-compatible profile (apple-ollama or openai) instead; see
+# scripts/macos-setup.sh and config/model-profiles.yml.
+OS_NAME="$(uname -s)"
+if [ "$OS_NAME" != "Linux" ]; then
+    echo "vllm-serve: this wrapper provisions a Linux/NVIDIA CUDA runtime and only runs on Linux — detected '$OS_NAME'." >&2
+    echo "vllm-serve: on macOS/Apple Silicon, select the 'apple-ollama' or 'openai' model profile instead (scripts/select-model-profile.sh)." >&2
+    exit 1
+fi
+if ! command -v nvidia-smi >/dev/null 2>&1 || ! nvidia-smi >/dev/null 2>&1; then
+    echo "vllm-serve: nvidia-smi not found or no NVIDIA GPU responding — this wrapper requires a Linux/NVIDIA GPU instance." >&2
+    echo "vllm-serve: run infra/bootstrap-vllm.sh first if the driver has not been installed yet." >&2
+    exit 1
+fi
+
 MAKATO_HOME="${MAKATO_HOME:-/root/makato-oss}"
 VLLM_VENV="${VLLM_VENV:-/root/vllm-venv}"
 VLLM_PORT="${VLLM_PORT:-8100}"
