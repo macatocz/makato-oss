@@ -15,9 +15,12 @@
 #       handoff_reason mutation, halt_audit[HALT-007])
 #
 # Plus three contract-detail tests:
-#   T5: emit-resume produces an idempotent, executable resume script
-#   T6: emit-resume's idempotency guard fires when current_phase == done
-#   T7: missing session_summary triggers HALT-007 fallback (NEVER 6)
+#   T5:  emit-resume produces an idempotent, executable resume script
+#        (default OMP mode bakes in --yolo, never the Claude-only flag)
+#   T5b: MAKATO_HARNESS_MODE=claude — the explicit compatibility mode —
+#        bakes in --dangerously-skip-permissions instead (Task 3)
+#   T6:  emit-resume's idempotency guard fires when current_phase == done
+#   T7:  missing session_summary triggers HALT-007 fallback (NEVER 6)
 #
 # Plus three #281 delta-baseline tests (HALT-007B evaluates the per-session
 # delta, not the cumulative total, so a resumed session does not restart-storm):
@@ -107,7 +110,7 @@ echo "=== T2: threshold crossed, restart succeeds (dry-run) → HANDOFF ==="
 # recording is exercised by T11 (the only test that runs the real fork).
 _init_state 160000 0 yes
 set +e
-MAKATO_CLAUDE_BIN="$STUB_CLAUDE" MAKATO_HANDOFF_DRY_RUN=1 \
+MAKATO_HARNESS_BIN="$STUB_CLAUDE" MAKATO_HANDOFF_DRY_RUN=1 \
   "$HANDOFF" check "$KEY" "$ISSUE"
 RC=$?
 set -e
@@ -128,7 +131,7 @@ echo "  ✓ exit 2, session_count→1, handoff_reason=context_ceiling, baseline�
 echo "=== T3: threshold crossed, claude binary missing → HALT-007 ==="
 _init_state 160000 0 yes
 set +e
-MAKATO_CLAUDE_BIN="/does/not/exist/claude" "$HANDOFF" check "$KEY" "$ISSUE" 2>/dev/null
+MAKATO_HARNESS_BIN="/does/not/exist/claude" "$HANDOFF" check "$KEY" "$ISSUE" 2>/dev/null
 RC=$?
 set -e
 [[ $RC -eq 1 ]]                                                              || { echo "  ✗ FAIL: expected exit 1, got $RC"; exit 1; }
@@ -139,7 +142,7 @@ echo "  ✓ exit 1, restart_failed=true, HALT-007 audited"
 echo "=== T4: session_count >= MAKATO_MAX_HANDOFFS → HALT-007 ==="
 _init_state 160000 5 yes
 set +e
-MAKATO_MAX_HANDOFFS=5 MAKATO_CLAUDE_BIN="$STUB_CLAUDE" \
+MAKATO_MAX_HANDOFFS=5 MAKATO_HARNESS_BIN="$STUB_CLAUDE" \
   "$HANDOFF" check "$KEY" "$ISSUE" 2>/dev/null
 RC=$?
 set -e
@@ -150,23 +153,36 @@ set -e
 [[ "$("$WS" read "$KEY" "$ISSUE" | jq -r '.session_count')" == "5" ]]                 || { echo "  ✗ FAIL: session_count mutated on cap-fallback"; exit 1; }
 echo "  ✓ exit 1, HALT-007 audited, handoff_reason untouched, session_count untouched"
 
-echo "=== T5: emit-resume produces idempotent executable script ==="
+echo "=== T5: emit-resume produces idempotent executable script (default OMP mode) ==="
 _init_state 160000 0 yes
 "$HANDOFF" emit-resume "$KEY" "$ISSUE"
 [[ -x "$RESUME_SCRIPT" ]]                                                  || { echo "  ✗ FAIL: resume script not executable"; exit 1; }
-grep -qE 'claude["[:space:]]+.*--dangerously-skip-permissions.*--resume'    "$RESUME_SCRIPT"   || { echo "  ✗ FAIL: resume script missing dispatch command"; exit 1; }
+# Default mode (no MAKATO_HARNESS_MODE at emit time) must bake in --yolo (OMP),
+# NEVER the Claude-only --dangerously-skip-permissions flag (Task 3: harness-neutral
+# dispatch/resume — "no selection of Claude when OMP is configured").
+grep -qE -- '--yolo.*--resume'    "$RESUME_SCRIPT"   || { echo "  ✗ FAIL: resume script missing --yolo dispatch command"; exit 1; }
+grep -qE -- '--dangerously-skip-permissions' "$RESUME_SCRIPT" && { echo "  ✗ FAIL: default-mode resume script must not bake in --dangerously-skip-permissions"; exit 1; } || true
 grep -qE 'current_phase[[:space:]]*=.*done'                    "$RESUME_SCRIPT"   || { echo "  ✗ FAIL: resume script missing idempotency guard"; exit 1; }
 # #616: --resume must receive the session UUID, NOT the spec KEY. Assert the
 # UUID is baked in and the KEY is NOT the --resume argument.
 grep -q 'SESSION_ID="11111111-2222-3333-4444-555555555555"' "$RESUME_SCRIPT" || { echo "  ✗ FAIL: resume script did not bake in last_session_id UUID"; exit 1; }
 grep -qE -- '--resume "\$SESSION_ID"' "$RESUME_SCRIPT"                        || { echo "  ✗ FAIL: resume script does not pass \$SESSION_ID to --resume"; exit 1; }
 grep -qE -- '--resume "\$KEY"' "$RESUME_SCRIPT"                               && { echo "  ✗ FAIL: resume script still passes KEY to --resume (#616 regression)"; exit 1; } || true
-echo "  ✓ resume script executable, dispatch + idempotency guard, --resume uses SESSION_ID (not KEY)"
+echo "  ✓ resume script executable, --yolo dispatch + idempotency guard, --resume uses SESSION_ID (not KEY)"
+
+echo "=== T5b: emit-resume with MAKATO_HARNESS_MODE=claude bakes in --dangerously-skip-permissions ==="
+_init_state 160000 0 yes
+rm -f "$RESUME_SCRIPT"
+MAKATO_HARNESS_MODE=claude "$HANDOFF" emit-resume "$KEY" "$ISSUE"
+[[ -x "$RESUME_SCRIPT" ]]                                                  || { echo "  ✗ FAIL: resume script not executable (claude mode)"; exit 1; }
+grep -qE -- '--dangerously-skip-permissions.*--resume' "$RESUME_SCRIPT"    || { echo "  ✗ FAIL: MAKATO_HARNESS_MODE=claude resume script missing --dangerously-skip-permissions"; exit 1; }
+grep -qE -- '--yolo' "$RESUME_SCRIPT"                                       && { echo "  ✗ FAIL: claude-mode resume script must not also bake in --yolo"; exit 1; } || true
+echo "  ✓ MAKATO_HARNESS_MODE=claude → resume script bakes in --dangerously-skip-permissions, not --yolo"
 
 echo "=== T6: resume script no-ops when current_phase == done ==="
 "$WS" patch "$KEY" "$ISSUE" '.current_phase' '"done"'
 set +e
-MAKATO_CLAUDE_BIN="$STUB_CLAUDE" bash "$RESUME_SCRIPT" >/dev/null 2>&1
+MAKATO_HARNESS_BIN="$STUB_CLAUDE" bash "$RESUME_SCRIPT" >/dev/null 2>&1
 RC=$?
 set -e
 [[ $RC -eq 0 ]]                                                            || { echo "  ✗ FAIL: resume script returned $RC instead of 0"; exit 1; }
@@ -176,7 +192,7 @@ echo "  ✓ resume script no-ops when phase=done; stub claude not invoked"
 echo "=== T7: missing session_summary triggers HALT-007 fallback (NEVER 6) ==="
 _init_state 160000 0 no
 set +e
-MAKATO_CLAUDE_BIN="$STUB_CLAUDE" MAKATO_HANDOFF_DRY_RUN=1 \
+MAKATO_HARNESS_BIN="$STUB_CLAUDE" MAKATO_HANDOFF_DRY_RUN=1 \
   "$HANDOFF" check "$KEY" "$ISSUE" 2>/dev/null
 RC=$?
 set -e
@@ -193,7 +209,7 @@ echo "=== T8: #281 — resumed session below the delta threshold does NOT re-han
 _init_state 320000 1 yes 300000   # consumed=320k, baseline=300k → delta=20k < 150k
 rm -f "$RESUME_SCRIPT"             # clear any script emitted by earlier tests
 set +e
-MAKATO_CLAUDE_BIN="$STUB_CLAUDE" MAKATO_HANDOFF_DRY_RUN=1 \
+MAKATO_HARNESS_BIN="$STUB_CLAUDE" MAKATO_HANDOFF_DRY_RUN=1 \
   "$HANDOFF" check "$KEY" "$ISSUE"
 RC=$?
 set -e
@@ -209,7 +225,7 @@ echo "=== T9: #281 — delta above threshold still hands off (baseline honoured)
 # NB (#284): dry-run again — no fork, so spawned_pid stays null (see T11).
 _init_state 480000 1 yes 300000
 set +e
-MAKATO_CLAUDE_BIN="$STUB_CLAUDE" MAKATO_HANDOFF_DRY_RUN=1 \
+MAKATO_HARNESS_BIN="$STUB_CLAUDE" MAKATO_HANDOFF_DRY_RUN=1 \
   "$HANDOFF" check "$KEY" "$ISSUE"
 RC=$?
 set -e
@@ -228,7 +244,7 @@ LEGACY_STATE="$("$WS" read "$KEY" "$ISSUE" | jq 'del(.session_baseline_tokens)')
 "$WS" write "$KEY" "$ISSUE" "$LEGACY_STATE"
 [[ "$("$WS" read "$KEY" "$ISSUE" | jq 'has("session_baseline_tokens")')" == "false" ]] || { echo "  ✗ FAIL: could not strip session_baseline_tokens for the legacy fixture"; exit 1; }
 set +e
-MAKATO_CLAUDE_BIN="$STUB_CLAUDE" MAKATO_HANDOFF_DRY_RUN=1 \
+MAKATO_HARNESS_BIN="$STUB_CLAUDE" MAKATO_HANDOFF_DRY_RUN=1 \
   "$HANDOFF" check "$KEY" "$ISSUE"
 RC=$?
 set -e
@@ -243,7 +259,7 @@ echo "=== T11: #284 — live fork (non-dry-run) records spawned_pid in state ===
 _init_state 160000 0 yes
 rm -f "$RESUME_SCRIPT"
 set +e
-MAKATO_CLAUDE_BIN="$STUB_CLAUDE" "$HANDOFF" check "$KEY" "$ISSUE" 2>/dev/null
+MAKATO_HARNESS_BIN="$STUB_CLAUDE" "$HANDOFF" check "$KEY" "$ISSUE" 2>/dev/null
 RC=$?
 set -e
 [[ $RC -eq 2 ]]                                                                     || { echo "  ✗ FAIL: expected exit 2 (HANDOFF), got $RC"; exit 1; }
@@ -431,4 +447,4 @@ rm -f "$SANDBOX/change-state-${ISSUE}.json"
 echo "  ✓ change-state resume uses SESSION_ID (not KEY)"
 
 echo
-echo "All 19 context-handoff smoke tests passed."
+echo "All 20 context-handoff smoke tests passed."

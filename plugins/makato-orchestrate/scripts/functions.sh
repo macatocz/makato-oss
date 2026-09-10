@@ -6,6 +6,13 @@
 # shellcheck source=board-mirror.sh
 source "${MAKATO_LOOP_BOARD_MIRROR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/board-mirror.sh}"
 
+# --- Shared harness-neutral command adapter (Task 3) — every dispatch,
+# watchdog restart, and stall-resume site below builds its argv via
+# _harness_dispatch_args instead of hardcoding a permission flag, so an
+# explicit MAKATO_HARNESS_MODE=claude switch is honoured everywhere.
+# shellcheck source=harness-command.sh
+source "${MAKATO_LOOP_HARNESS_COMMAND:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/harness-command.sh}"
+
 # ISO-8601 timestamp with milliseconds (UTC). Matches workflow-state.sh.
 _now() {
   python3 -c "from datetime import datetime, timezone
@@ -1804,9 +1811,8 @@ _stall_resume() {
   local resume_prompt="Use the Task tool to dispatch the makato-orchestrate:po-agent subagent to resume driving GitHub issue #${issue} to a merged PR. The po-agent owns the outer loop, workflow-state, and all makato-build --autonomous dispatch; do not invoke makato-build or makato-plan skills directly from this session. Return the po-agent's final R1 envelope verbatim."
   (
     cd "$worktree_dir" 2>/dev/null || true
-    MAKATO_HEADLESS=1 "$CLAUDE_BIN" --yolo \
-      --resume "$_resume_sid" \
-      -p "$resume_prompt" >>"$log_file" 2>&1 || true
+    _harness_dispatch_args "$resume_prompt" "$_resume_sid"
+    MAKATO_HEADLESS=1 "$CLAUDE_BIN" "${HARNESS_DISPATCH_ARGS[@]}" >>"$log_file" 2>&1 || true
   )
   return 0
 }
@@ -2523,12 +2529,12 @@ _auto_seed_dispatch_light() {
   else
     # Production path: mirror the belt-and-braces invocation cmd_dispatch uses.
     # </dev/null: same TSV-pipe guard as the test-hook path above.
+    _harness_dispatch_args "$dispatch_prompt"
     MAKATO_HEADLESS=1 \
     ISSUE_NUMBER="$issue" \
     REPO="$repo" \
     REPO_ROOT="$REPO_ROOT" \
-      "$CLAUDE_BIN" --yolo \
-      -p "$dispatch_prompt" </dev/null >/dev/null 2>&1 || rc=$?
+      "$CLAUDE_BIN" "${HARNESS_DISPATCH_ARGS[@]}" </dev/null >/dev/null 2>&1 || rc=$?
   fi
 
   if [[ "$rc" -ne 0 ]]; then
@@ -3505,8 +3511,9 @@ _pre_dispatch_plan_guard() {
 
   local refine_prompt="Use the Skill tool to invoke the makato-build:build-refine skill with args '${key} --autonomous'. REPO_ROOT=${REPO_ROOT}. MAKATO_HEADLESS=1 is already exported. Return R1 envelope verbatim."
   local refine_exit=0
+  _harness_dispatch_args "$refine_prompt"
   MAKATO_HEADLESS=1 REPO_ROOT="$REPO_ROOT" \
-    "$CLAUDE_BIN" --yolo -p "$refine_prompt" \
+    "$CLAUDE_BIN" "${HARNESS_DISPATCH_ARGS[@]}" \
     >/dev/null 2>&1 || refine_exit=$?
 
   if [[ $refine_exit -eq 127 ]]; then
@@ -3731,10 +3738,12 @@ cmd_dispatch() {
       '{verdict: $verdict, refine_attempted: $refine_attempted, refine_outcome: $refine_outcome}')"
 
   if [[ "$dry_run" == "--dry-run" ]]; then
+    local _dry_run_flag
+    _dry_run_flag="$(_harness_permission_flag)"
     if [[ "$issue_type" == "type:change" ]]; then
-      echo "loop: --dry-run — would exec: $CLAUDE_BIN --yolo -p \"<dispatch makato-change:orchestrate --autonomous for issue #${issue} KEY=${key} REPO=${MAKATO_LOOP_DISPATCH_REPO:-} REPO_ROOT=${REPO_ROOT}>\"" >&2
+      echo "loop: --dry-run — would exec: $CLAUDE_BIN $_dry_run_flag -p \"<dispatch makato-change:orchestrate --autonomous for issue #${issue} KEY=${key} REPO=${MAKATO_LOOP_DISPATCH_REPO:-} REPO_ROOT=${REPO_ROOT}>\"" >&2
     else
-      echo "loop: --dry-run — would exec: $CLAUDE_BIN --yolo -p \"<dispatch makato-orchestrate:po-agent for issue #${issue} KEY=${key} REPO=${MAKATO_LOOP_DISPATCH_REPO:-} BRANCH=${branch} REPO_ROOT=${REPO_ROOT}>\"" >&2
+      echo "loop: --dry-run — would exec: $CLAUDE_BIN $_dry_run_flag -p \"<dispatch makato-orchestrate:po-agent for issue #${issue} KEY=${key} REPO=${MAKATO_LOOP_DISPATCH_REPO:-} BRANCH=${branch} REPO_ROOT=${REPO_ROOT}>\"" >&2
     fi
     echo "loop: --dry-run — would claim #${issue} (board Ready → In progress, CAS)" >&2
     echo "loop: --dry-run — would assign #${issue} to ${ASSIGNEE} (board → In progress)" >&2
@@ -3915,9 +3924,11 @@ cmd_dispatch() {
       $child_cmd >"$log_file" 2>&1 &
       local child_pid=$!
     else
-      # Production path: omp --yolo keeps log mtime alive for watchdog (#146).
-      MAKATO_HEADLESS=1 "$CLAUDE_BIN" --yolo \
-        -p "$dispatch_prompt" >"$log_file" 2>&1 &
+      # Production path: the harness process keeps log mtime alive for the
+      # watchdog (#146); permission flag + argv come from the shared adapter
+      # (Task 3) so MAKATO_HARNESS_MODE=claude is honoured here too.
+      _harness_dispatch_args "$dispatch_prompt"
+      MAKATO_HEADLESS=1 "$CLAUDE_BIN" "${HARNESS_DISPATCH_ARGS[@]}" >"$log_file" 2>&1 &
       local child_pid=$!
     fi
     # Spawn watchdog against the child's PID.
@@ -4013,8 +4024,8 @@ cmd_dispatch() {
       # shellcheck disable=SC2086
       $child_cmd || rc=$?
     else
-      MAKATO_HEADLESS=1 "$CLAUDE_BIN" --yolo \
-        -p "$dispatch_prompt" || rc=$?
+      _harness_dispatch_args "$dispatch_prompt"
+      MAKATO_HEADLESS=1 "$CLAUDE_BIN" "${HARNESS_DISPATCH_ARGS[@]}" || rc=$?
     fi
   fi
   _emit_langfuse_trace "$log_file" "$issue"
@@ -4232,21 +4243,23 @@ _reshape_pass() {
       # Test hook: subshell prevents `exit N` from escaping to caller.
       ( eval "${MAKATO_LOOP_RESHAPE_TEST_CMD}" ) >/dev/null 2>&1 || dispatch_rc=$?
     else
-      # Production path: dispatch Claude headlessly — Step 1: decompose in Refine mode.
+      # Production path: dispatch the configured harness headlessly — Step 1: decompose in Refine mode.
       local decompose_prompt
       decompose_prompt="Use the Skill tool to invoke makato-plan:decompose for issue #${n} in Refine mode. ISSUE_NUMBER=${n} KEY=${key} REPO=${repo} REPO_ROOT=${REPO_ROOT} RESHAPE_REQUEST=${reshape_request_path}. --autonomous. Return R1 envelope verbatim."
+      _harness_dispatch_args "$decompose_prompt"
       REPO_ROOT="$REPO_ROOT" \
       MAKATO_HEADLESS=1 \
-        "$CLAUDE_BIN" --yolo -p "$decompose_prompt" \
+        "$CLAUDE_BIN" "${HARNESS_DISPATCH_ARGS[@]}" \
         >/dev/null 2>&1 || dispatch_rc=$?
 
       # Step 2: to-issues (only when decompose succeeded).
       if [[ "$dispatch_rc" -eq 0 ]]; then
         local to_issues_prompt
         to_issues_prompt="Use the Skill tool to invoke makato-plan:to-issues for issue #${n}. ISSUE_NUMBER=${n} KEY=${key} REPO=${repo} REPO_ROOT=${REPO_ROOT}. --autonomous. Return R1 envelope verbatim."
+        _harness_dispatch_args "$to_issues_prompt"
         REPO_ROOT="$REPO_ROOT" \
         MAKATO_HEADLESS=1 \
-          "$CLAUDE_BIN" --yolo -p "$to_issues_prompt" \
+          "$CLAUDE_BIN" "${HARNESS_DISPATCH_ARGS[@]}" \
           >/dev/null 2>&1 || dispatch_rc=$?
       fi
     fi

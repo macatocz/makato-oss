@@ -15,11 +15,20 @@
 #        autonomous trigger fired.
 #   T3 — build-refine Step 1b documents the "autonomous trigger wins over
 #        MAKATO_HEADLESS" precedence (guard is a strict AND).
-#   T4 — plugins/makato-orchestrate/scripts/loop.sh cmd_dispatch exports
-#        MAKATO_HEADLESS=1 alongside the po-agent delegation prompt.
+#   T4 — plugins/makato-orchestrate/scripts/functions.sh cmd_dispatch's
+#        production dispatch site exports MAKATO_HEADLESS=1 alongside the
+#        shared harness-command.sh adapter's HARNESS_DISPATCH_ARGS (#Task 3:
+#        the actual dispatch seam lives in functions.sh, sourced by loop.sh).
 #   T5 — plugins/makato-orchestrate/scripts/context-handoff.sh
 #        _emit_resume exports MAKATO_HEADLESS=1 in the emitted resume
 #        script (belt-and-braces after HALT-007B handoff).
+#   T6 — plugins/makato-orchestrate/scripts/harness-command.sh resolves
+#        both supported harness modes (default OMP --yolo; explicit
+#        MAKATO_HARNESS_MODE=claude --dangerously-skip-permissions)
+#        without invoking a real model.
+#   T7 — the default (OMP-configured) dispatch-args never select the
+#        Claude-only permission flag — "no selection of Claude when OMP
+#        is configured" holds at the command-construction seam.
 #
 # The tests are pure grep against committed prose/code. There is no
 # subprocess-level execution here because the skill guard runs inside a
@@ -93,13 +102,14 @@ else
   _fail "Step 1b does not document precedence (autonomous trigger + MAKATO_HEADLESS)"
 fi
 
-# ----- T4: loop.sh cmd_dispatch exports MAKATO_HEADLESS=1 -----
-echo "T4: loop.sh cmd_dispatch exports MAKATO_HEADLESS=1"
-LOOP_SH="$REPO_ROOT/plugins/makato-orchestrate/scripts/loop.sh"
-if grep -qE 'MAKATO_HEADLESS=1[[:space:]]+"\$CLAUDE_BIN"' "$LOOP_SH"; then
-  _pass "loop.sh cmd_dispatch line exports MAKATO_HEADLESS=1"
+# ----- T4: functions.sh cmd_dispatch exports MAKATO_HEADLESS=1 alongside the
+#           shared harness-command.sh adapter's arg vector (#Task 3) -----
+echo "T4: functions.sh cmd_dispatch exports MAKATO_HEADLESS=1 via the shared harness adapter"
+FUNCTIONS_SH="$REPO_ROOT/plugins/makato-orchestrate/scripts/functions.sh"
+if grep -qE 'MAKATO_HEADLESS=1[[:space:]]+"\$CLAUDE_BIN"[[:space:]]+"\$\{HARNESS_DISPATCH_ARGS\[@\]\}"' "$FUNCTIONS_SH"; then
+  _pass "functions.sh cmd_dispatch production line exports MAKATO_HEADLESS=1 via HARNESS_DISPATCH_ARGS"
 else
-  _fail "loop.sh cmd_dispatch does NOT export MAKATO_HEADLESS=1 on the claude invocation"
+  _fail "functions.sh cmd_dispatch does NOT export MAKATO_HEADLESS=1 via the shared harness adapter"
 fi
 
 # ----- T5: context-handoff.sh _emit_resume exports MAKATO_HEADLESS=1 -----
@@ -113,9 +123,42 @@ else
   _fail "context-handoff.sh resume script does NOT export MAKATO_HEADLESS=1"
 fi
 
+# ----- T6: harness-command.sh resolves both supported modes, no model call -----
+echo "T6: harness-command.sh resolves both harness modes without invoking a model"
+HARNESS_CMD_SH="$REPO_ROOT/plugins/makato-orchestrate/scripts/harness-command.sh"
+if [[ -f "$HARNESS_CMD_SH" ]]; then
+  omp_flag="$(bash "$HARNESS_CMD_SH" permission-flag 2>/dev/null)"
+  claude_flag="$(MAKATO_HARNESS_MODE=claude bash "$HARNESS_CMD_SH" permission-flag 2>/dev/null)"
+  if [[ "$omp_flag" == "--yolo" ]]; then
+    _pass "default mode (no MAKATO_HARNESS_MODE) resolves to --yolo (OMP)"
+  else
+    _fail "default mode did not resolve to --yolo; got '$omp_flag'"
+  fi
+  if [[ "$claude_flag" == "--dangerously-skip-permissions" ]]; then
+    _pass "MAKATO_HARNESS_MODE=claude resolves to --dangerously-skip-permissions"
+  else
+    _fail "MAKATO_HARNESS_MODE=claude did not resolve to --dangerously-skip-permissions; got '$claude_flag'"
+  fi
+else
+  _fail "harness-command.sh not found at $HARNESS_CMD_SH"
+fi
+
+# ----- T7: default (OMP-configured) dispatch never selects the Claude flag -----
+echo "T7: default dispatch-args never select the Claude-only permission flag"
+if [[ -f "$HARNESS_CMD_SH" ]]; then
+  default_args="$(bash "$HARNESS_CMD_SH" dispatch-args "test prompt" 2>/dev/null)"
+  if grep -q -- '--dangerously-skip-permissions' <<<"$default_args"; then
+    _fail "default dispatch-args unexpectedly include --dangerously-skip-permissions"
+  else
+    _pass "default dispatch-args never select the Claude-only permission flag"
+  fi
+else
+  _fail "harness-command.sh not found at $HARNESS_CMD_SH"
+fi
+
 echo
 if (( FAIL == 0 )); then
-  echo "All 5 headless-guard smoke tests passed."
+  echo "All 7 headless-guard smoke tests passed."
   exit 0
 else
   echo "$FAIL headless-guard smoke test(s) failed."
