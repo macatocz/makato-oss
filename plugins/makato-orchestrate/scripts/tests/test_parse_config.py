@@ -106,9 +106,9 @@ def test_default_applies_when_env_unset():
 
 
 def test_open_endpoint_url_emitted_with_export():
-    """MAKATO_OPEN_ENDPOINT_URL is emitted with export prefix and empty default (issue #7)."""
+    """MAKATO_OPEN_ENDPOINT_URL uses the checked-in local-vLLM default (issue #7)."""
     out = _emit_via_subprocess()
-    assert 'export MAKATO_OPEN_ENDPOINT_URL="${MAKATO_OPEN_ENDPOINT_URL:-}"' in out
+    assert 'export MAKATO_OPEN_ENDPOINT_URL="${MAKATO_OPEN_ENDPOINT_URL:-http://localhost:8100/v1}"' in out
 
 
 def test_open_model_roles_emitted_without_export():

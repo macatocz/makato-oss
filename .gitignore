@@ -170,6 +170,11 @@ npm-debug.log*
 thinking/
 docs-design/
 evaluation/
+# Persist only the two canonical long-term memory streams; episodic and cache
+# JSONL files remain local runtime state.
+.makato/**/*.jsonl
+!.makato/memory/semantic.jsonl
+!.makato/memory/procedural.jsonl
 # Design specs written by superpowers brainstorming are part of the repo
 docs/superpowers/specs/
 specs/**
@@ -330,7 +335,6 @@ extras/
 .playwright-mcp/
 
 # Spec runtime artifacts (per-run logs, session state, throwaway scripts)
-specs/**/build.jsonl
 specs/**/orchestrate.jsonl
 specs/**/workflow-state*.json
 specs/**/lessons-*.md
