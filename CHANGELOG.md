@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.164.0](https://github.com/macatocz/makato-oss/compare/v0.163.0...v0.164.0) (2026-09-11)
+
+
+### ✨ Features
+
+* add build logs for various specifications including analysis, implementation, and progress tracking ([369be21](https://github.com/macatocz/makato-oss/commit/369be2159a8052828cb17801a0cf0c3da22a5cdc))
+
 ## [0.163.0](https://github.com/macatocz/makato-oss/compare/v0.162.0...v0.163.0) (2026-09-10)
 
 
