@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.163.0](https://github.com/macatocz/makato-oss/compare/v0.162.0...v0.163.0) (2026-09-10)
+
+
+### ✨ Features
+
+* add OpenAI GPT and Qwen macOS compatibility ([#97](https://github.com/macatocz/makato-oss/issues/97)) ([0b3466d](https://github.com/macatocz/makato-oss/commit/0b3466d4a1e4382b560c0b7c9c68492edad7f08f))
+
 ## [Unreleased]
 
 ### ✨ Features
