@@ -331,14 +331,14 @@ MAKATO_LOOP_TEST_HOOK=1 MAKATO_LOOP_SLEEP_CMD=true \
   || fail "T-RG-1: guard should return 0 when remaining=1200 >= 1000; got rc=$trg1_rc"
 echo "  ✓ remaining=1200 >= threshold → guard returns 0, poll proceeds"
 
-echo "=== T-RG-2: guard returns 2 when remaining=200 (below threshold 500); cmd_run stamps poll_skipped_rate_budget:true ==="
+echo "=== T-RG-2: guard returns 2 when remaining=200 (below threshold 1000); cmd_run stamps poll_skipped_rate_budget:true ==="
 trg2_rc=0
 MAKATO_LOOP_TEST_HOOK=1 MAKATO_LOOP_SLEEP_CMD=true \
   MAKATO_LOOP_GRAPHQL_TEST_CMD='echo "{\"resources\":{\"graphql\":{\"remaining\":200,\"reset\":9999999999}}}"' \
   "$LOOP" _test-check-graphql-rate-budget github.com \
   || trg2_rc=$?
 [[ $trg2_rc -eq 2 ]] \
-  || fail "T-RG-2: guard should return 2 when remaining=200 < 500; got rc=$trg2_rc"
+  || fail "T-RG-2: guard should return 2 when remaining=200 < 1000; got rc=$trg2_rc"
 # Also verify _gh_project_item_list propagates exit 76 and cmd_run stamps the state.
 TRG2_STATE="$STATE_DIR/trg2"; mkdir -p "$TRG2_STATE"
 TRG2_CFG="$STATE_DIR/trg2-config.json"
@@ -2839,18 +2839,16 @@ cat >"$T67c_SPEC_ROOT/555-footer-slug/plan-555.md" <<'PLAN'
 
 - AC1: widget loads
 PLAN
-t67c_stderr="$(
-  MAKATO_LOOP_TEST_HOOK=1 \
-  MAKATO_LOOP_CONFIG="$T67c_CONFIG" \
-  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
-  MAKATO_LOOP_BLOCK_TEST_FILE="$T67c_BLOCK_FILE" \
-  MAKATO_LOOP_LABEL_TEST_FILE="$T67c_LABEL_FILE" \
-  MAKATO_LOOP_COMMENT_TEST_FILE="$T67c_COMMENT_FILE" \
-  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T67c_BODY" \
-  MAKATO_LOOP_AUTOSEED_SPEC_ROOT="$T67c_SPEC_ROOT" \
-  MAKATO_SPEC_STORIES_TRACKED=0 \
-    "$LOOP" _test-auto-seed-block-full 555 full 2>&1 >/dev/null
-)"
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_LOOP_CONFIG="$T67c_CONFIG" \
+MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+MAKATO_LOOP_BLOCK_TEST_FILE="$T67c_BLOCK_FILE" \
+MAKATO_LOOP_LABEL_TEST_FILE="$T67c_LABEL_FILE" \
+MAKATO_LOOP_COMMENT_TEST_FILE="$T67c_COMMENT_FILE" \
+MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T67c_BODY" \
+MAKATO_LOOP_AUTOSEED_SPEC_ROOT="$T67c_SPEC_ROOT" \
+MAKATO_SPEC_STORIES_TRACKED=0 \
+  "$LOOP" _test-auto-seed-block-full 555 full >/dev/null 2>&1
 # No block, no comment — gate saw valid plan-555.md and emitted 'proceed'.
 [[ ! -f "$T67c_BLOCK_FILE" ]] \
   || fail "T67c: block file must NOT be written when plan-N.md is valid; got: $(cat "$T67c_BLOCK_FILE" 2>/dev/null)"
@@ -2950,13 +2948,11 @@ mkdir -p "$T69_JSONL_ROOT"
 # No orchestrate.jsonl for this seed key; label fixture shows plan-tier:full.
 printf 'plan-tier:full\nenhancement\n' >"$T69_LABEL_FIXTURE"
 t69_rc=0
-t69_stderr="$(
-  MAKATO_LOOP_TEST_HOOK=1 \
-  MAKATO_LOOP_RECONCILE_JSONL_DIR="$T69_JSONL_ROOT" \
-  MAKATO_LOOP_RECONCILE_LABEL_FILE="$T69_LABEL_FIXTURE" \
-  MAKATO_LOOP_LABEL_TEST_FILE="$T69_LABEL_FILE" \
-    "$LOOP" _test-auto-seed-reconcile-thin-body 502 502-thin-no-jsonl 2>&1 >/dev/null
-)" || t69_rc=$?
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_LOOP_RECONCILE_JSONL_DIR="$T69_JSONL_ROOT" \
+MAKATO_LOOP_RECONCILE_LABEL_FILE="$T69_LABEL_FIXTURE" \
+MAKATO_LOOP_LABEL_TEST_FILE="$T69_LABEL_FILE" \
+  "$LOOP" _test-auto-seed-reconcile-thin-body 502 502-thin-no-jsonl >/dev/null 2>&1 || t69_rc=$?
 [[ "$t69_rc" -eq 0 ]] \
   || fail "T69: plan-tier:full with no jsonl should return exit code 0 (Signal 2 removed); got rc=$t69_rc"
 [[ ! -f "$T69_LABEL_FILE" ]] || [[ ! -s "$T69_LABEL_FILE" ]] \
@@ -3081,7 +3077,7 @@ MAKATO_LOOP_TEST_HOOK=1 \
 MAKATO_LOOP_AUTOSEED_OVERRIDE="$TB_FIXTURE" \
 MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
 MAKATO_LOOP_SEED_TEST_CMD="$TB_STUB_FILE" \
-  "$LOOP" _test-auto-seed-unprepared 2>&1 >/dev/null || tb_seed_rc=$?
+  "$LOOP" _test-auto-seed-unprepared >/dev/null 2>&1 || tb_seed_rc=$?
 [[ "$tb_seed_rc" -eq 0 ]] \
   || fail "Tb: _auto_seed_unprepared must return 0 (best-effort) even on thin-body; got rc=$tb_seed_rc"
 [[ -f "$TB_SEED_FLAG" ]] \
@@ -4265,15 +4261,13 @@ exit 0
 GHSTUB
 chmod +x "$TLG2_BIN/gh"
 tlg2_rc=0
-tlg2_stderr="$(
-  PATH="$TLG2_BIN:$PATH" \
-  MAKATO_LOOP_TEST_HOOK=1 \
-  MAKATO_ORPHAN_STALE_SECS=3600 \
-  MAKATO_LOOP_RECONCILE_SPECS_DIR="$TLG2_SPECS" \
-  MAKATO_LOOP_CONFIG="$TLG2_CONFIG" \
-  MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE="$TLG2_LABEL" \
-    "$LOOP" _test-reconcile-stale >/dev/null 2>&1
-)" || tlg2_rc=$?
+PATH="$TLG2_BIN:$PATH" \
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_ORPHAN_STALE_SECS=3600 \
+MAKATO_LOOP_RECONCILE_SPECS_DIR="$TLG2_SPECS" \
+MAKATO_LOOP_CONFIG="$TLG2_CONFIG" \
+MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE="$TLG2_LABEL" \
+  "$LOOP" _test-reconcile-stale >/dev/null 2>&1 || tlg2_rc=$?
 [[ "$tlg2_rc" -eq 0 ]] \
   || fail "T-RECON-LABELGATE-2: function must return 0; got rc=$tlg2_rc"
 # Label must NOT have been applied when board edit failed.

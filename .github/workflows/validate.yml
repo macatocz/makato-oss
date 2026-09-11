@@ -166,8 +166,8 @@ jobs:
         with:
           python-version: '3.14'
 
-      - name: Install pytest + observability test dependencies
-        run: python3 -m pip install --quiet pytest jsonschema pyyaml langfuse
+      - name: Install pytest + optional test dependencies
+        run: python3 -m pip install --quiet pytest jsonschema pyyaml langfuse defusedxml
 
       - name: Python unit tests (pytest)
         run: python3 -m pytest -q

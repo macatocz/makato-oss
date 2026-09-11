@@ -67,7 +67,9 @@ STATUS_FILE="$STATE_DIR/loop-status.json"
 # path re-homing — do NOT move its default under STATE_DIR. Override per-run
 # with MAKATO_HALT_FILE.
 HALT_FILE="${MAKATO_HALT_FILE:-$HOME/.claude/HALT}"
-CLAUDE_BIN="${MAKATO_HARNESS_BIN:-omp}"
+# Keep the legacy MAKATO_CLAUDE_BIN override for existing offline smoke
+# fixtures while preferring the provider-neutral harness variable.
+CLAUDE_BIN="${MAKATO_HARNESS_BIN:-${MAKATO_CLAUDE_BIN:-omp}}"
 CONFIG_FILE="${MAKATO_LOOP_CONFIG:-$REPO_ROOT/.claude/config.json}"
 
 # --- Tunable parameters — sourced from config/config.yml (see config.md) ---
