@@ -1,13 +1,13 @@
 ---
 name: gate-scout
 modelRole: smol
-version: "1.3.0"
+version: "1.4.0"
 description: >-
   Discover build, lint, unit test, integration test, and coverage commands
   by scanning project config files. Returns a structured command map for
   the verify skill. Read-only.
 maxTurns: 10
-permissionMode: bypassPermissions
+permissionMode: default
 disallowedTools: Write, Edit, Bash, NotebookEdit
 ---
 
@@ -40,13 +40,18 @@ Scan `REPO_ROOT` for config files in this order:
 
 | File | Project type |
 |---|---|
-| `package.json` | Node.js / JavaScript / TypeScript |
+| `package.json` or a workspace package manifest such as `frontend/package.json` | Node.js / JavaScript / TypeScript |
 | `pom.xml` | Maven (Java) |
 | `build.gradle` or `build.gradle.kts` | Gradle (Java/Kotlin) |
 | `pyproject.toml` or `setup.py` | Python |
 | `Makefile` | Make-based (any language) |
 | `Cargo.toml` | Rust |
 | `go.mod` | Go |
+| `*.ps1`, `*.psm1`, or `*.psd1` | PowerShell |
+| `Dockerfile` or `docker-compose.yml` / `docker-compose.yaml` | Docker |
+| `deploy/helm/` or another directory containing `Chart.yaml` | Helm |
+| `*.sh` | Shell |
+| `.github/workflows/` | GitHub Actions |
 
 Multiple files may coexist — report all project types found.
 
@@ -85,6 +90,11 @@ authoritative evidence the tool is in use, even when `pyproject.toml` has no mat
 | `.sqlfluff` | SQLFluff | SQL lint via `sqlfluff lint` |
 | `mypy.ini` or `.mypy.ini` | mypy | type-check / build gate via `mypy .` |
 | `.flake8` or `setup.cfg` `[flake8]` | flake8 | lint via `flake8 .` |
+| `.black.toml` or `black.toml` | Black | lint/format gate via `black --check .` |
+| `.cfnlintrc.yaml` or `.cfnlintrc.yml` | cfn-lint | CloudFormation lint via `cfn-lint --config-file <file>` |
+| `.markdownlint.json` or `.markdownlint.jsonc` | markdownlint | Markdown lint via `markdownlint-cli2 .` |
+| `.markdownlintignore` | markdownlint | Markdown ignore rules; evidence when paired with config or hook |
+| `pytest.ini` | pytest | pytest configuration and test discovery |
 
 A standalone `ruff.toml` and a `[tool.ruff]` block are equivalent evidence — either one means
 Ruff is the linter. When both a `ruff.toml` and `[tool.ruff]` exist, they configure the same
@@ -96,7 +106,8 @@ When `REPO_ROOT/.pre-commit-config.yaml` exists, parse it (YAML read — no shel
 and scan all hook entries for IDs matching the following categories:
 
 - **Type-check hooks**: hook IDs containing `pyright` or `mypy`
-- **Lint hooks**: hook IDs containing `ruff`, `flake8`, or `pylint`
+- **Lint hooks**: hook IDs containing `ruff`, `flake8`, `pylint`, `black`, `cfn-lint`,
+  `markdownlint`, `biome`, `sqlfluff`, or `powershell`
 
 For each matched hook, construct the canonical gating command:
 
@@ -176,6 +187,19 @@ For each detected config file, extract:
 - `biome.json` / `biome.jsonc` → `lint_js: biome check .`
 - `.sqlfluff` → `lint_sql: sqlfluff lint` (read `dialect` from the `[sqlfluff]` section and, if present, append `--dialect <value>`).
 
+**Additional cross-language linters:** report these as separate lint commands when their
+standalone config or source evidence is present:
+
+- `.black.toml` or `black.toml` → `lint_black: black --check .`
+- `.cfnlintrc.yaml` or `.cfnlintrc.yml` → `lint_cfn: cfn-lint --config-file <matched-file>`
+- `.markdownlint.json`, `.markdownlint.jsonc`, or `.markdownlintignore` → `lint_markdown: markdownlint-cli2 .`
+- PowerShell source (`*.ps1`, `*.psm1`, or `*.psd1`) → include `powershell` in `project_type`.
+  Report `lint_powershell: Invoke-ScriptAnalyzer -Path . -Recurse` only when
+  `PSScriptAnalyzerSettings.psd1` or a matching pre-commit hook confirms the tool.
+
+`pytest.ini` is authoritative pytest evidence even when `pyproject.toml` is absent. Use it for
+the same unit/integration command selection described in Step 2.
+
 Apply the `python_runner_prefix` from Step 1b to every command above when it is non-empty.
 
 ### Step 2b — JVM version detection (Maven / Gradle projects only)
@@ -246,6 +270,10 @@ Emit this prose block as part of your message (before the R1 block):
 **lint**: `<exact command>` | not found
 **lint_js**: `<exact command>` | not found
 **lint_sql**: `<exact command>` | not found
+**lint_black**: `<exact command>` | not found
+**lint_cfn**: `<exact command>` | not found
+**lint_markdown**: `<exact command>` | not found
+**lint_powershell**: `<exact command>` | not found
 **unit**: `<exact command>` | not found
 **integration**: `<exact command>` | not found
 **coverage**: `<exact command>` — threshold: <X>% | not found
@@ -256,7 +284,7 @@ Emit this prose block as part of your message (before the R1 block):
 
 The final element of your message MUST be a fenced ` ```json ` block containing the R1 envelope defined in `plugins/makato-build/agents/RETURN-CONTRACT.md`. Callers parse the last `json`-fenced block via `JSON.parse()` — no prose parsing.
 
-`data` shape: `{ "project_type": "...", "config_files_read": N, "python_runner_prefix": "...", "build": "...", "lint": "...", "lint_js": "...", "lint_sql": "...", "unit": "...", "integration": "...", "coverage": "...", "java_version_required": "...", "lint_ci_divergence": true|false, "lint_ci_command": "...", "build_hook_cmd": "...|null", "lint_hook_cmd": "...|null", "pyright_env": "hook|raw", "build_hook_missing": true|false, "lint_hook_missing": true|false, "health_check_cmd": "...|null" }`. Use the string `"not found"` for any command not discovered, and `"none"` for `python_runner_prefix` when no lockfile matches. `lint_js` / `lint_sql` are `"not found"` for projects without Biome / SQLFluff. `build_hook_cmd` / `lint_hook_cmd` are `null` (not the string `"null"`) when no matching hook is found. `health_check_cmd` is `null` (not the string `"null"`) when no health/smoke command is discovered.
+`data` shape: `{ "project_type": "...", "config_files_read": N, "python_runner_prefix": "...", "build": "...", "lint": "...", "lint_js": "...", "lint_sql": "...", "lint_black": "...", "lint_cfn": "...", "lint_markdown": "...", "lint_powershell": "...", "unit": "...", "integration": "...", "coverage": "...", "java_version_required": "...", "lint_ci_divergence": true|false, "lint_ci_command": "...", "build_hook_cmd": "...|null", "lint_hook_cmd": "...|null", "pyright_env": "hook|raw", "build_hook_missing": true|false, "lint_hook_missing": true|false, "health_check_cmd": "...|null" }`. Use the string `"not found"` for any command not discovered, and `"none"` for `python_runner_prefix` when no lockfile matches. `lint_js`, `lint_sql`, `lint_black`, `lint_cfn`, `lint_markdown`, and `lint_powershell` are `"not found"` when their tool evidence is absent. `build_hook_cmd` / `lint_hook_cmd` are `null` (not the string `"null"`) when no matching hook is found. `health_check_cmd` is `null` (not the string `"null"`) when no health/smoke command is discovered.
 
 ### Success
 
@@ -278,6 +306,10 @@ The final element of your message MUST be a fenced ` ```json ` block containing 
     "lint": "uv run ruff check .",
     "lint_js": "biome check .",
     "lint_sql": "sqlfluff lint --dialect postgres",
+    "lint_black": "not found",
+    "lint_cfn": "not found",
+    "lint_markdown": "markdownlint-cli2 .",
+    "lint_powershell": "not found",
     "unit": "uv run pytest tests/unit",
     "integration": "uv run pytest tests/integration",
     "coverage": "uv run pytest --cov=src/brain --cov=src/body --cov=src/shared — threshold: 0%",
