@@ -7,6 +7,17 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Changed — external consumer-repository runtime and spec resolution
+
+Build skills now resolve installed plugin roots through OMP/Claude runner
+variables instead of assuming the target repository CWD is the plugin root.
+The shared spec resolver maps numeric issue keys to slug folders emitted by
+`makato-plan:to-issues`, rejects ambiguous matches, and keeps audit logs in the
+resolved folder. Gate-scout command maps are forwarded to implementation/test
+phases, optional passport/cross-plugin artifacts degrade explicitly, and
+`build-log.sh` repairs malformed timestamps with a warning. Added external-CWD,
+numeric-issue, and runtime-reference smoke coverage.
+
 ### Docs — provider-neutral autonomous compatibility (`AUTONOMOUS-MODE.md`)
 
 `AUTONOMOUS-MODE.md` § *Defensive-headless guard* now documents the harness-neutral

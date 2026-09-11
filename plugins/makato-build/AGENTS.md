@@ -88,9 +88,14 @@ The `coder` agent runs with `permissionMode: bypassPermissions`. This is the onl
 - No `../` paths outside skill dir (except `../shared/` within this plugin)
 - References loaded at point of use, not front-loaded
 - Frontmatter required: name, description, version
-  - Every skill MUST append JSONL log entries to `specs/<story-key>-<slug>/build.jsonl` via `shared/build-log.sh` — minimum: session start, each major step, session end. See the Logging section in README.md for the schema.
+  - Every skill MUST append JSONL log entries to `specs/<story-key>-<slug>/build.jsonl` via the resolved plugin-root helper — minimum: session start, each major step, session end. See the Logging section in README.md for the schema.
   - Log every agent decision that deviates from the happy path using `status: "decision"` or `status: "warn"` — classification choices (fixable vs structural), escalations, gate retries, workarounds, and baseline-gate user choices. A future session reading `build.jsonl` must be able to reconstruct what went wrong and why.
-  - Call `shared/build-log.sh` as a bare relative path — Claude resolves it from the plugin root context. Do not use `../shared/build-log.sh` or an absolute path.
+  - Resolve the installed plugin root before invoking helpers. Use the runner-provided
+    `CLAUDE_PLUGIN_ROOT`, `OMP_PLUGIN_ROOT`, or `PLUGIN_ROOT` (or the explicit
+    `MAKATO_BUILD_ROOT` context field) and invoke
+    `<MAKATO_BUILD_ROOT>/shared/build-log.sh`; never assume the consumer repository's
+    CWD is the plugin root. The source-checkout fallback is
+    `REPO_ROOT/plugins/makato-build`.
   - **`build.jsonl` is the only file under `specs/` that ships in-repo** (#99). The repo-root `.gitignore` excludes `specs/**/*` but re-includes `specs/**/build.jsonl` so the audit trail of every skill run is reviewable from a fresh checkout. Plan, stories, project-sync, fixtures, and every other artefact under `specs/<key>/` stay local. Treat `build.jsonl` as a committed evidence file: do not log secrets, credentials, file paths outside the repo, or any content you would not paste into a public PR.
 
 ## File Structure
@@ -106,7 +111,8 @@ makato-build/
 │              build-simplify, build-verify, build-sensors, build-resolve-finding,
 │              build-fix-{types,security}, build-push-to-git, build-create-pr,
 │              build-address-pr-comments, definition-of-done, inject-context
-├── shared/    build-log.sh (suite-wide JSONL helper), context-bundles.yml, finding-routes.json,
+├── shared/    build-log.sh (suite-wide JSONL helper), runtime-context.sh,
+│              spec_folder.py, context-bundles.yml, finding-routes.json,
 │              inject_context.py (+ tests), parse-sarif.py, smoke-test scripts
 ├── CLAUDE.md, AGENTS.md, AUTONOMOUS-MODE.md, CHANGELOG.md, README.md
 ```

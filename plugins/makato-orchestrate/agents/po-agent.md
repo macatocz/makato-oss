@@ -104,6 +104,9 @@ Your dispatch prompt provides:
 | `REPO`                 | yes      | `owner/name` form                                                                                                                                                                                                                                                                                                                                                                    |
 | `BRANCH`               | yes      | Feature branch. May not yet exist — Step 2b probes`git ls-remote origin <BRANCH>` and dispatches `shared/worktree.sh create --new-branch` when missing (see #170). When it exists (interactively kicked off via `build-start`), the standard `create` path checks it out. Either way the main-repo working tree is NEVER touched.                                             |
 | `REPO_ROOT`            | yes      | Absolute path to the target repository root                                                                                                                                                                                                                                                                                                                                            |
+| `MAKATO_BUILD_ROOT`    | yes      | Absolute installed makato-build plugin root; resolved by the orchestrator/runtime, never from the target repository CWD                                                                                                                                                                                                                                                                                         |
+| `MAKATO_ORCHESTRATE_ROOT` | yes   | Absolute installed makato-orchestrate plugin root for optional workflow-state/scout helpers                                                                                                                                                                                                                                                                                                                    |
+| `MAKATO_PLAN_ROOT`     | no       | Absolute installed makato-plan plugin root for optional schema/artifact validation                                                                                                                                                                                                                                                                                                                               |
 | `BUDGET_LIMIT_TOKENS`  | no       | Per-task ceiling; default`500000` (HALT-007 fires here)                                                                                                                                                                                                                                                                                                                              |
 | `MAX_OUTER_ITERATIONS` | no       | Default`3` (HALT-008 fires here)                                                                                                                                                                                                                                                                                                                                                     |
 
@@ -278,8 +281,10 @@ engine), do NOT retry — fall through to the `halt` path. No unbounded loop.
    activates autonomous mode across the subprocess boundary (§ *Cross-skill
    propagation* in `plugins/makato-build/AUTONOMOUS-MODE.md`) — Step 1
    work-item-key uses the arg, Step 11 plan-review is skipped, and the Step 4
-   key-miss branch HALTs instead of prompting. Forward `WORKTREE_PATH`
-   (resolve via `shared/worktree.sh path <KEY>` — but note the plan write
+   key-miss branch HALTs instead of prompting. Forward `WORKTREE_PATH`,
+   `MAKATO_BUILD_ROOT`, `MAKATO_ORCHESTRATE_ROOT`, and `MAKATO_PLAN_ROOT`
+   (when present). Resolve `WORKTREE_PATH` via `shared/worktree.sh path <KEY>`
+   — but note the plan write
    targets `$REPO_ROOT/specs/<KEY>-*/plan-<N>.md` in the MAIN checkout, since
    `specs/` is gitignored in the worktree; `WORKTREE_PATH` is forwarded to
    satisfy the mandatory-in-autonomous falsy-check). Parse the skill's R1 per
@@ -603,6 +608,9 @@ Every dispatch context bundle carries:
 - `WORKTREE_PATH` — resolve via `shared/worktree.sh path <KEY>`.
   Consumers `cd` into it before any file operation. See § *Worktree
   lifecycle*.
+- `MAKATO_BUILD_ROOT` — absolute installed build-plugin root.
+- `MAKATO_ORCHESTRATE_ROOT` — absolute installed orchestrate-plugin root.
+- `MAKATO_PLAN_ROOT` — optional absolute installed plan-plugin root.
 - `PRIOR_LESSONS` — the Step 2c JSON array (may be `[]`). Advisory
   context; never triggers HALT, never overrides `plan-<ISSUE_NUMBER>.md`.
 

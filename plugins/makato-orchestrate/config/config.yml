@@ -92,7 +92,7 @@ vars:
 - { var: POLL_BACKOFF_BASE_SECS,  env: MAKATO_LOOP_POLL_BACKOFF_BASE, default: "2" }
 
 # --- GraphQL rate-limit guard (#556/#683) ---
-- { var: GRAPHQL_MIN_REMAINING,   env: MAKATO_LOOP_GRAPHQL_MIN_REMAINING, default: "200" }
+- { var: GRAPHQL_MIN_REMAINING,   env: MAKATO_LOOP_GRAPHQL_MIN_REMAINING, default: "1000" }
 - { var: RATE_GUARD,              env: MAKATO_LOOP_RATE_GUARD,        default: "1" }
 - { var: RATE_SKIP_THRESHOLD,     env: MAKATO_LOOP_RATE_SKIP_THRESHOLD, default: "3" }
 - { var: RATE_SKIP_BACKOFF,       env: MAKATO_LOOP_RATE_SKIP_BACKOFF, default: "600" }

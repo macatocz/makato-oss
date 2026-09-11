@@ -6,6 +6,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 ALLOWED=(
   ".claude"
+  ".claire"
   ".claude-plugin"
   ".devcontainer"
   ".github"
@@ -14,7 +15,9 @@ ALLOWED=(
   "plugins"
   "packages"
   "context"
+  "config"
   "docs"
+  "infra"
   "scripts"
   "specs"
   "tests"
@@ -38,6 +41,7 @@ ALLOWED_FILES=(
   ".git"
   ".pre-commit-config.yaml"
   "pyproject.toml"
+  "pyrightconfig.json"
   "ruff.toml"
   "renovate.json"
 )
