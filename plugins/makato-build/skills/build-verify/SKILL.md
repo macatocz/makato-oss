@@ -162,7 +162,10 @@ Python/JS/TS with populated hook commands, skip the reference.
 
 **Python runner prefix**: if `python_runner_prefix` is present and not `"none"` (e.g. `uv run`, `poetry run`), the gate-scout commands already include it. Run them verbatim — do NOT strip the prefix and do NOT re-add it. A bare `pytest`/`ruff` invocation in a lockfile-managed project resolves against the system Python and fails with `ModuleNotFoundError`.
 
-**Extra linters**: if `lint_js` or `lint_sql` are present and not `"not found"`, run them as additional LINT-gate commands alongside the primary `lint` command. Each must pass independently; a failure in any is a LINT-gate failure. Log each under its own `data.linter` key.
+**Extra linters**: if any of `lint_js`, `lint_sql`, `lint_black`, `lint_cfn`, `lint_markdown`, or
+`lint_powershell` is present and not `"not found"`, run it as an additional LINT-gate command
+alongside the primary `lint` command. Each must pass independently; a failure in any is a
+LINT-gate failure. Log each under its own `data.linter` key.
 
 **JVM version check** (Maven/Gradle projects only): if `java_version_required` is present in the gate-scout output, run `java -version` and compare the major version. If they differ, emit a WARNING:
 
