@@ -39,7 +39,11 @@ Interactive mode: `WORKTREE_PATH` is optional; fall back to `git rev-parse --sho
 
 ### Workspace-isolation entry guard
 
-Apply the workspace-isolation entry guard from `@../../AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract* and § *Falsy-check pattern* before Step 1. In autonomous mode an empty `WORKTREE_PATH` is a HALT with `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`; in interactive mode the guard falls back to `git rev-parse --show-toplevel`.
+Apply the workspace-isolation entry guard from
+`$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` before Step 1. In autonomous mode an
+empty `WORKTREE_PATH` is a HALT with
+`errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`; in
+interactive mode the guard falls back to `git rev-parse --show-toplevel`.
 
 Spec-artefact reads + plan writes go to `$REPO_ROOT/specs/<key>-*/`:
 
@@ -57,15 +61,18 @@ Accept any identifier: Jira key (`DCP-1234`), GitHub issue (`#123` or `gh-123`),
 
 ### Step 1a — Mode detection
 
-Load `@../../AUTONOMOUS-MODE.md` for the activation contract (§ *Activation triggers*) and the per-gate default table.
+Read `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` for the activation contract (§
+*Activation triggers*) and the per-gate default table.
 
-The skill runs in `--interactive` mode by default; the canonical activation triggers for `--autonomous` mode are listed in `@../../AUTONOMOUS-MODE.md` § *Activation triggers*.
+The skill runs in `--interactive` mode by default; the canonical activation
+triggers for `--autonomous` mode are listed in
+`$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` § *Activation triggers*.
 
 In autonomous mode, the work-item-key `AskUserQuestion` above is replaced by:
 - If an argument was passed: use it.
 - If no argument: HALT with `MISSING_INPUT: build-refine in --autonomous mode requires a work-item-key argument`. Write `build.jsonl` entry `{step:"session", status:"error", data:{halt_code:"MISSING_INPUT"}}` and return an R1 `status:"failure"` envelope. The PO-agent's responsibility is to supply the key from workflow-state — this skill does not prompt.
 
-Log the bypass via `shared/log-bypass.sh build-refine "<key>" work-item-key use-arg "<agent_id|cli_flag|task_id_bundle>"` when bypassed.
+Log the bypass via `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-refine "<key>" work-item-key use-arg "<agent_id|cli_flag|task_id_bundle>"` when bypassed.
 
 ### Step 1b — Headless-context defensive guard
 
@@ -85,15 +92,22 @@ The three autonomous triggers in Step 1a are opt-in signals from the caller. But
 
 ### Step 2 — Log session start and prepare workspace
 
-Check that a spec folder exists using the following two-step resolution order:
+Resolve `MAKATO_BUILD_ROOT` using the installed-plugin-root contract in
+`AUTONOMOUS-MODE.md`. Then resolve the spec folder with the installed
+`shared/spec_folder.py` helper; do not run relative `ls specs/...` lookups from
+the consumer repository.
 
 ```
-Resolution order:
-1. `ls specs/<key>-*/ 2>/dev/null | head -1`   (prefix-match, canonical)
-2. `[[ -d specs/<key>/ ]]`                       (exact-match fallback)
+SPEC_FOLDER="$(
+  python3 "$MAKATO_BUILD_ROOT/shared/spec_folder.py" "$REPO_ROOT" "<key>"
+)"
 ```
 
-Step 1 matches the canonical `specs/<N>-<slug>/` naming used by `to-issues`. Step 2 matches bare `specs/<slug>/` folders from makato-plan and `specs/<issue-key>/` folders from makato-change. Use whichever resolves first; the resolved path becomes the spec folder for all subsequent reads and writes.
+The resolver preserves canonical prefix/exact folders and maps numeric issue
+keys to a unique `plan-<N>.md`, `seed-manifest.json`,
+`created-issues.json`, or `workflow-state-N.json` match. It rejects
+ambiguous matches instead of selecting the first result. The resolved absolute
+path becomes the spec folder for all subsequent reads and writes.
 
 If neither matches, stop immediately and tell the user:
 
@@ -104,7 +118,7 @@ Do not proceed past this step until the directory exists.
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO-8601-ms>","skill":"build-refine","story":"<key>","step":"session","status":"start","data":{}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO-8601-ms>","skill":"build-refine","story":"<key>","step":"session","status":"start","data":{}}'
 ```
 
 ### Step 3 — Load spec artifacts
@@ -127,7 +141,7 @@ this skill read no manifest. Treat an absent file, an absent field, or an unpars
 manifest as "no tier" (legacy behavior — never HALT on manifest read):
 
 ```bash
-MANIFEST="$(ls specs/<key>-*/seed-manifest.json 2>/dev/null | head -1)"
+MANIFEST="$SPEC_FOLDER/seed-manifest.json"
 SPEC_TIER="$(jq -r '.spec_tier // ""' "$MANIFEST" 2>/dev/null || echo "")"
 ```
 
@@ -138,7 +152,7 @@ A work item enters the **lightweight path** when EITHER of these is true:
 
 On the `spec_tier:plan-only` path, the plan file is `plan-<ISSUE_NUMBER>.md` (per-issue name).
 Resolve `ISSUE_NUMBER` from the work-item KEY (the leading numeric segment) and look for
-`specs/<key>-*/plan-<ISSUE_NUMBER>.md`. Legacy fallback: if the per-issue file is absent but
+`$SPEC_FOLDER/plan-<ISSUE_NUMBER>.md`. Legacy fallback: if the per-issue file is absent but
 `plan.md` exists in the folder, accept it and log
 `[build-refine] legacy-pass: found plan.md; per-issue file plan-<N>.md absent`.
 
@@ -166,7 +180,7 @@ reference them.
 makato-plan first or confirm the correct spec path. Append an `"status":"error"` entry to
 `build.jsonl` before stopping.
 
-Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-refine","story":"<key>","step":"load-artifacts","status":"ok","data":{"path":"<ticket|lightweight>","spec_tier":"<plan-only|none>","trigger":"<local-prefix|plan-only|both|none>"}}'` — the `data.path` and `data.spec_tier` fields make the plan-only branch entry auditable in `build.jsonl` (design.md Observability § *build-refine plan-only entries*).
+Run: `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-refine","story":"<key>","step":"load-artifacts","status":"ok","data":{"path":"<ticket|lightweight>","spec_tier":"<plan-only|none>","trigger":"<local-prefix|plan-only|both|none>"}}'` — the `data.path` and `data.spec_tier` fields make the plan-only branch entry auditable in `build.jsonl` (design.md Observability § *build-refine plan-only entries*).
 
 ### Step 4 — Extract story details
 
@@ -181,13 +195,14 @@ If the key is not found in stories.json:
 
 - **Interactive mode**: report it and ask the user to confirm the key
   (`AskUserQuestion`).
-- **Autonomous mode** (per `@../../AUTONOMOUS-MODE.md` § *Activation triggers*):
+- **Autonomous mode** (per `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` §
+  *Activation triggers*):
   do NOT prompt — the po-agent's `materialize-refine` dispatch (#527) supplies
   the key it resolved, and a key-miss here means the committed `stories.json`
   has no matching story. HALT with `MISSING_ARTIFACTS`: append
   `{"ts":"…","skill":"build-refine","story":"<key>","step":"extract-story","status":"error","data":{"halt_code":"MISSING_ARTIFACTS","reason":"unknown-key"}}`
   to `build.jsonl`, log the bypass via
-  `shared/log-bypass.sh build-refine "<key>" confirm-key halt "<agent_id|cli_flag|task_id_bundle>"`,
+  `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-refine "<key>" confirm-key halt "<agent_id|cli_flag|task_id_bundle>"`,
   and return an R1 `status:"failure"` envelope with
   `data.halt_code:"MISSING_ARTIFACTS"` and
   `errors: ["MISSING_ARTIFACTS: key <key> not found in stories.json"]`. The
@@ -224,7 +239,7 @@ to `build.jsonl` and return an R1 `status:"failure"` envelope with
 `data.halt_code:"MISSING_ACCEPTANCE"`. Never proceed to Step 5 with zero ACs on the
 plan-only path — a silent zero-AC plan is the failure this guard prevents.
 
-Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-refine","story":"<key>","step":"extract-story","status":"ok","data":{"ac_count":<N>,"oracle_scenarios":<M>}}'`
+Run: `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-refine","story":"<key>","step":"extract-story","status":"ok","data":{"ac_count":<N>,"oracle_scenarios":<M>}}'`
 
 ### Step 5 — Read domain and architecture context
 
@@ -234,7 +249,7 @@ From `design.md`: identify which components are involved, API contracts, data mo
 
 From `decisions.md` (if present): note constraints from prior decisions that bound the implementation. Treat every decision record as a fixed constraint — do not re-open decisions here.
 
-Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-refine","story":"<key>","step":"load-artifacts","status":"ok","data":{"files_read":[…]}}'`
+Run: `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-refine","story":"<key>","step":"load-artifacts","status":"ok","data":{"files_read":[…]}}'`
 
 ### Step 5.5 — Load knowledge graph (conditional)
 
@@ -249,7 +264,7 @@ Receive the Knowledge Scout Findings and:
 - Apply `## Standards` as naming and pattern conventions for all tasks, file targets, and interfaces
 - Use `## Architecture Context` to inform layer structure and file placement decisions
 
-Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-refine","story":"<key>","step":"load-knowledge-graph","status":"ok","data":{"loaded":<true|false>,"source":"<local|none>","constraints":<N>}}'`
+Run: `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-refine","story":"<key>","step":"load-knowledge-graph","status":"ok","data":{"loaded":<true|false>,"source":"<local|none>","constraints":<N>}}'`
 
 If the agent returns `loaded: false`: log and continue to Step 6 without change.
 
@@ -284,7 +299,7 @@ Using the story description and architecture context as a guide, read the target
 4. Where tests live and what framework and assertion style is used.
 5. Any existing code that partially implements this story (reuse vs replace).
 
-Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-refine","story":"<key>","step":"explore-codebase","status":"ok","data":{"files_explored":<N>,"patterns_noted":<N>,"reusable_deps":<N>,"agents_md_found":<true|false>,"context_used":<true|false>}}'`
+Run: `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-refine","story":"<key>","step":"explore-codebase","status":"ok","data":{"files_explored":<N>,"patterns_noted":<N>,"reusable_deps":<N>,"agents_md_found":<true|false>,"context_used":<true|false>}}'`
 
 ### Step 7 — Determine implementation mode
 
@@ -326,7 +341,7 @@ The full task list must be completable in a single autonomous session (target 2�
   Copy the provided command (if any) verbatim into a `## Runtime verification` fenced code block in `plan-<ISSUE_NUMBER>.md` per `@references/plan-schema.md` § *Runtime Verification Schema*.
   In **autonomous mode**: skip the prompt — do NOT add a `## Runtime verification` section unless the story spec (`prd.md` or `design.md`) explicitly declares a health-check command. If one is found in the spec, extract it and write the section. Log the bypass:
   ```bash
-  shared/log-bypass.sh build-refine "<key>" runtime-verification-elicitation skip "<agent_id|cli_flag|task_id_bundle>"
+  "$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-refine "<key>" runtime-verification-elicitation skip "<agent_id|cli_flag|task_id_bundle>"
   ```
 
 - **Non-service/non-API story** (pure library, config, doc, refactor with no service boundary): skip this elicitation step entirely — do NOT add a `## Runtime verification` section.
@@ -351,7 +366,7 @@ Derive `ISSUE_NUMBER` from the numeric leading segment of the work-item key (e.g
 - Read its content and check whether the `## Tasks` section is substantive: it is considered substantive if it is non-empty AND does not contain only stub placeholder text (patterns: `_To be filled in`, `_To be enriched by build-refine`, `<!-- to-issues:auto`-only with no real task items).
 - If substantive: use **enrichment mode** — treat the existing file's `## Tasks` and `## Acceptance criteria` content as the starting point. Merge by rewriting the file with the refined output from Steps 7-9, keeping the existing structure but replacing or extending individual sections with the refined analysis. Do not overwrite the `## Story` metadata block. Log the decision:
   ```bash
-  shared/build-log.sh "<key>" '{"ts":"…","skill":"build-refine","story":"<key>","step":"write-plan","status":"ok","data":{"tasks":<N>,"oracle_scenarios":<M>,"plan_file":"<path>","enriched_existing":true}}'
+  "$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-refine","story":"<key>","step":"write-plan","status":"ok","data":{"tasks":<N>,"oracle_scenarios":<M>,"plan_file":"<path>","enriched_existing":true}}'
   ```
 - If the file does not exist, or is a stub (empty `## Tasks`, or placeholder-only content): proceed with the normal write (existing behavior). `enriched_existing` is `false` in the JSONL.
 
@@ -363,11 +378,11 @@ Write `plan-<ISSUE_NUMBER>.md` in the resolved spec folder with all fields popul
 
 **Runtime verification pass-through rule**: when the Step 8 elicitation produced a runtime command (user-provided in interactive mode, or extracted from `prd.md`/`design.md` in autonomous mode), write a `## Runtime verification` section into `plan-<ISSUE_NUMBER>.md` per `@references/plan-schema.md` § *Runtime Verification Schema*. The command goes into a single fenced code block. When no command was elicited and none was found in the spec, do NOT emit the section — omit it entirely (the default for non-service stories).
 
-Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-refine","story":"<key>","step":"write-plan","status":"ok","data":{"tasks":<N>,"oracle_scenarios":<M>,"runtime_cmd":<true|false>,"plan_file":"<resolved-spec-folder>/plan-<ISSUE_NUMBER>.md","enriched_existing":<bool>}}'`
+Run: `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-refine","story":"<key>","step":"write-plan","status":"ok","data":{"tasks":<N>,"oracle_scenarios":<M>,"runtime_cmd":<true|false>,"plan_file":"<resolved-spec-folder>/plan-<ISSUE_NUMBER>.md","enriched_existing":<bool>}}'`
 
 ### Step 11 — Present plan and iterate
 
-In **autonomous mode**, skip this step entirely: write `plan-<ISSUE_NUMBER>.md` (already done in Step 10), log the bypass via `shared/log-bypass.sh build-refine "<key>" plan-review approve "<agent_id|cli_flag|task_id_bundle>"`, and proceed to Step 12.
+In **autonomous mode**, skip this step entirely: write `plan-<ISSUE_NUMBER>.md` (already done in Step 10), log the bypass via `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-refine "<key>" plan-review approve "<agent_id|cli_flag|task_id_bundle>"`, and proceed to Step 12.
 
 In **interactive mode**, use the `AskUserQuestion` tool to ask: "The plan is ready. How would you like to review it before implementation starts?" with two options:
 - **In chat** — description: "Show the plan as markdown in this conversation. You can reply with feedback or edits."
@@ -394,7 +409,7 @@ Repeat until the user approves.
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO-8601-ms>","skill":"build-refine","story":"<key>","step":"session","status":"ok","data":{"tasks":<N>,"mode":"<tdd|goal|mixed>","plan":"<resolved-spec-folder>/plan-<ISSUE_NUMBER>.md"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO-8601-ms>","skill":"build-refine","story":"<key>","step":"session","status":"ok","data":{"tasks":<N>,"mode":"<tdd|goal|mixed>","plan":"<resolved-spec-folder>/plan-<ISSUE_NUMBER>.md"}}'
 ```
 
 Tell the user: "Plan written to `plan-<ISSUE_NUMBER>.md` in the spec folder. Next: run `/grill-with-docs` to validate terminology against the codebase, or proceed directly with `/implement-tdd` or `/implement-goal`."
@@ -430,12 +445,15 @@ Skip `/build-grill-with-docs` for infra/config-only changes (no domain-model fil
 
 ## Autonomous Execution
 
-Autonomous mode is activated per `@../../AUTONOMOUS-MODE.md` § *Activation triggers*.
+Autonomous mode is activated per `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` §
+*Activation triggers*.
 
 In autonomous mode:
 
 - **Never prompt the user** — the Step 1 work-item-key gate and the Step 11 plan-review gate are bypassed per the rules above.
-- **Log every bypass** to `build.jsonl` via `shared/build-log.sh` with the `autonomous_bypass` event schema documented in `@../../AUTONOMOUS-MODE.md`.
+- **Log every bypass** to `build.jsonl` via
+  `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh"` with the `autonomous_bypass`
+  event schema documented in `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md`.
 - **Emit an R1 envelope** as the final `json`-fenced block of the skill's output (schema: `plugins/makato-build/agents/RETURN-CONTRACT.md`).
 
 **Defensive-headless guard (#163):** if `MAKATO_HEADLESS=1` is set AND no autonomous trigger fired, the skill HALTs before Step 2 per Step 1b rather than proceeding interactively — the headless subprocess would otherwise deadlock on `AskUserQuestion`. See Step 1b for the full contract.

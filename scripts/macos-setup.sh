@@ -17,7 +17,8 @@
 #   bash scripts/macos-setup.sh --install         # brew-install missing tools + install the model profile
 #   bash scripts/macos-setup.sh --profile openai  # check/install a specific profile (default: qwen-vllm)
 #
-# Env overrides: MAKATO_MODEL_PROFILE, MODEL_PROFILES_FILE, MAKATO_PYTHON_BIN.
+# Env overrides: MAKATO_MODEL_PROFILE, MODEL_PROFILES_FILE, MAKATO_PYTHON_BIN,
+# MAKATO_MACOS_CI=1 (treat client-only Bash/OMP/Docker gaps as advisory).
 #
 # Exit codes:
 #   0  all required tools present (dry-run) / installed successfully (--install),
@@ -32,6 +33,7 @@ SELECT_PROFILE="${REPO_ROOT}/scripts/select-model-profile.sh"
 
 MODE="dry-run"
 PROFILE="${MAKATO_MODEL_PROFILE:-qwen-vllm}"
+CI_MODE="${MAKATO_MACOS_CI:-0}"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -117,6 +119,10 @@ check_tool() {
   else
     echo "MISSING: ${name} — no brew formula tracked here; see its own installation docs" >&2
   fi
+  if [ "$CI_MODE" = "1" ] && { [ "$name" = "OMP (oh-my-pi)" ] || [ "$name" = "Docker Desktop" ]; }; then
+    echo "WARN: ${name} is a client-only dependency unavailable on the hosted CI runner"
+    return 0
+  fi
   FAIL=$((FAIL + 1))
   return 1
 }
@@ -131,11 +137,17 @@ echo "PASS: Homebrew found at $(command -v brew)"
 # ── Bash >= 4 (macOS ships /bin/bash 3.2) ─────────────────────────────────────
 BASH_BIN="$(command -v bash || true)"
 if [ -z "$BASH_BIN" ]; then
-  echo "MISSING: Bash — install with: brew install bash" >&2
-  FAIL=$((FAIL + 1))
+  if [ "$CI_MODE" = "1" ]; then
+    echo "WARN: Bash is unavailable on the hosted CI runner; client setup is advisory in CI mode"
+  else
+    echo "MISSING: Bash — install with: brew install bash" >&2
+    FAIL=$((FAIL + 1))
+  fi
 else
   BASH_MAJOR="$("$BASH_BIN" -c 'echo "${BASH_VERSINFO[0]}"')"
-  if [ "$BASH_MAJOR" -ge 4 ]; then
+  if [ "$CI_MODE" = "1" ]; then
+    echo "WARN: Bash on PATH is ${BASH_MAJOR}.x (need >=4); client setup is advisory in CI mode"
+  elif [ "$BASH_MAJOR" -ge 4 ]; then
     echo "PASS: Bash ${BASH_MAJOR}.x found at ${BASH_BIN}"
   elif [ "$MODE" = "install" ]; then
     echo "INSTALLING: Bash via 'brew install bash'"

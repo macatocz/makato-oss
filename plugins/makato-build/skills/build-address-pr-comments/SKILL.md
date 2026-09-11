@@ -38,13 +38,21 @@ When dispatched by the PO-agent (`--autonomous` mode):
 
 - `<work-item-key>` — positional argument.
 - `WORKTREE_PATH` — absolute filesystem path to the per-run git worktree. **Mandatory in autonomous mode** (see `plugins/makato-build/AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract*). `gh pr` calls and per-comment fix applies operate from `WORKTREE_PATH` so commits land on the right branch.
+- `MAKATO_BUILD_ROOT` — absolute installed build-plugin root, resolved from
+  runner plugin-root variables when not supplied.
 - `--autonomous` — activation flag.
 
 Interactive mode: `WORKTREE_PATH` is optional; fall back to `git rev-parse --show-toplevel` of the current `$PWD`.
 
 ### Workspace-isolation entry guard
 
-Apply the workspace-isolation entry guard from `@../../AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract* and § *Falsy-check pattern* before Step 1. In autonomous mode an empty `WORKTREE_PATH` is a HALT with `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`; in interactive mode the guard falls back to `git rev-parse --show-toplevel`. After resolution, `cd "$WORKTREE_PATH"`.
+Resolve `MAKATO_BUILD_ROOT` from the runner plugin-root variables, then apply
+the workspace-isolation entry guard from
+`$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` before Step 1. In autonomous mode an
+empty `WORKTREE_PATH` is a HALT with
+`errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`; in
+interactive mode the guard falls back to `git rev-parse --show-toplevel`. After
+resolution, `cd "$WORKTREE_PATH"`.
 
 Spec-artefact reads use `$REPO_ROOT/specs/<key>-*/`:
 
@@ -67,13 +75,17 @@ Run `git branch --show-current` to confirm we are on the story branch. If on `ma
 
 ### Step 1a — Mode detection
 
-**MANDATORY: Load `@../../AUTONOMOUS-MODE.md`** at this step and no later — it defines the activation contract (§ *Activation triggers*) and the per-gate default table. Do NOT load it before Step 1a; you do not need it during fetch or workspace setup. Do NOT load it again later in the workflow — it is session-global once loaded here.
+**MANDATORY: Read `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md`** at this step and
+no later — it defines the activation contract (§ *Activation triggers*) and
+the per-gate default table. Do NOT read it before Step 1a; you do not need it
+during fetch or workspace setup. Do NOT read it again later in the workflow —
+it is session-global once loaded here.
 
 In autonomous mode, the Step 1 work-item-key prompt is replaced by:
 - If an argument was passed: use it.
 - If no argument: HALT with `MISSING_INPUT: build-address-pr-comments in --autonomous mode requires a work-item-key argument`, write `{step:"session", status:"error", data:{halt_code:"MISSING_INPUT"}}`, and return R1 `status:"failure"`.
 
-Log the bypass via `shared/log-bypass.sh build-address-pr-comments "<key>" work-item-key use-arg "<agent_id|cli_flag|task_id_bundle>"` when bypassed.
+Log the bypass via `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-address-pr-comments "<key>" work-item-key use-arg "<agent_id|cli_flag|task_id_bundle>"` when bypassed.
 
 ---
 
@@ -82,7 +94,7 @@ Log the bypass via `shared/log-bypass.sh build-address-pr-comments "<key>" work-
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-address-pr-comments","story":"<key>","step":"session","status":"start","data":{"pr_url":"<url>"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-address-pr-comments","story":"<key>","step":"session","status":"start","data":{"pr_url":"<url>"}}'
 ```
 
 ---
@@ -145,14 +157,14 @@ Wait for the user to confirm or adjust classifications. User can: promote/demote
 
 In **autonomous mode**, skip the interactive prompts and apply this fixed policy:
 
-- **SENSOR-BOT** — delegate to `sensor-fixer`: parse the comment body for `tool:rule:path:line` findings (already parsed in Step 4), emit a `sensor-delegated` row to `specs/<key>-*/build.jsonl` (`{"ts":"<ISO>","skill":"build-address-pr-comments","step":"fix","action":"sensor-delegated","key":"<key>","dispatched_by":"build-address-pr-comments","comment_id":"<id>"}`), dispatch `sensor-fixer(REPO_ROOT, FINDINGS=[parsed], SPEC_KEY=<key>)`. On R1 `failure`, revert to MUST-FIX tier and re-apply via Step 6. Log bypass: `shared/log-bypass.sh build-address-pr-comments "<key>" sensor-bot-classification delegate "<agent_id|cli_flag|task_id_bundle>"`.
+- **SENSOR-BOT** — delegate to `sensor-fixer`: parse the comment body for `tool:rule:path:line` findings (already parsed in Step 4), emit a `sensor-delegated` row to the resolved spec folder's `build.jsonl` (`{"ts":"<ISO>","skill":"build-address-pr-comments","step":"fix","action":"sensor-delegated","key":"<key>","dispatched_by":"build-address-pr-comments","comment_id":"<id>"}`), dispatch `sensor-fixer(REPO_ROOT, FINDINGS=[parsed], SPEC_KEY=<key>)`. On R1 `failure`, revert to MUST-FIX tier and re-apply via Step 6. Log bypass: `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-address-pr-comments "<key>" sensor-bot-classification delegate "<agent_id|cli_flag|task_id_bundle>"`.
 - **MUST-FIX (non-STRUCTURAL)** — auto-apply in Step 6. Logged as `autonomous_bypass` with `gate: "comment-classification"`, `default_taken: "auto-apply"` (AC1).
 - **SHOULD-FIX** — apply ONLY if every file the comment touches is already inside this task's diff scope (the file list captured by Step 3 of the most recent `build-implement-tdd` / `build-implement-goal` session, recoverable from `specs/<key>-<slug>/plan.md` `task[].Files[]`). If any touched file is outside that set, the comment is marked **DEFERRED**: the skill does NOT implement it, posts a `[DEFERRED]` reply (template `pr-comment-replies.md` § *SHOULD-FIX (deferred — autonomous-only)*), and logs `autonomous_bypass` with `gate: "should-fix-scope-guard"`, `default_taken: "defer"`, and `data.comment_id` + `data.out_of_scope_files[]`. The PO-agent reads the R1 envelope and decides whether to open a follow-up issue (AC2).
 - **CONSIDER** — skip (do not implement). Reply with `pr-comment-replies.md` § *CONSIDER (deferred — interactive choice)* autonomous variant.
 - **OUT-OF-SCOPE** — skip implementation, then **open a follow-up GitHub issue** via `gh issue create` with the comment text as the issue body, applying the `makato-carry-over` label (label is auto-created with `gh label create` if missing — non-destructive, no-op on existing). Post the reply using `pr-comment-replies.md` § *OUT-OF-SCOPE* autonomous variant with the new issue URL substituted in. Log `autonomous_bypass` with `gate: "out-of-scope-carry-over"`, `default_taken: "open-followup-issue"`, `data.follow_up_issue: "<url>"`, `data.comment_id`. If `gh issue create` fails, HALT with `HALT-005` rather than posting a half-rendered reply (AC4).
 - **MUST-FIX flagged STRUCTURAL** — do NOT auto-apply. Apply the AC3 flow described in *§ Step 5a — STRUCTURAL HALT-003 (autonomous only)* below.
 
-Log the bypass via `shared/log-bypass.sh build-address-pr-comments "<key>" comment-classification auto-apply "<agent_id|cli_flag|task_id_bundle>" '{"counts":{"must_fix":<N>,"should_fix":<N>,"should_fix_deferred":<N>,"consider":<N>,"out_of_scope":<N>,"structural":<N>}}'`.
+Log the bypass via `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-address-pr-comments "<key>" comment-classification auto-apply "<agent_id|cli_flag|task_id_bundle>" '{"counts":{"must_fix":<N>,"should_fix":<N>,"should_fix_deferred":<N>,"consider":<N>,"out_of_scope":<N>,"structural":<N>}}'`.
 
 The per-finding `autonomous_bypass` entries for `should-fix-scope-guard` and `out-of-scope-carry-over` are written from Step 6 (when each finding is acted on), not aggregated in Step 5 — operators reading `build.jsonl` need the finding-level granularity to reconstruct each decision (AC1, AGENTS.md Design Principle 4).
 
@@ -171,7 +183,7 @@ This step fires once per autonomous session when Step 4 flagged one or more MUST
    ```
 
    The label is created on demand if absent (`gh label create needs-human-review --color FBCA04 --description "Autonomous run halted; operator action required"`). `$ISSUE_NUMBER` is read from `workflow-state.json` (`issue_number`); if missing, only the PR is labelled and `data.event: "missing_issue_number"` is logged.
-3. **Log a STRUCTURAL decision entry** per STRUCTURAL comment plus a single summary entry. Per-comment: `shared/log-bypass.sh build-address-pr-comments "<key>" structural-must-fix halt "<agent_id|cli_flag|task_id_bundle>" '{"comment_id":"<id>","summary":"<comment-summary>"}'`. Summary: `shared/log-bypass.sh build-address-pr-comments "<key>" structural-halt-summary halt "<agent_id|cli_flag|task_id_bundle>" '{"count":<N>}'`.
+3. **Log a STRUCTURAL decision entry** per STRUCTURAL comment plus a single summary entry. Per-comment: `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-address-pr-comments "<key>" structural-must-fix halt "<agent_id|cli_flag|task_id_bundle>" '{"comment_id":"<id>","summary":"<comment-summary>"}'`. Summary: `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-address-pr-comments "<key>" structural-halt-summary halt "<agent_id|cli_flag|task_id_bundle>" '{"count":<N>}'`.
 4. **Exit with `HALT-003`.** Return R1 `status: "failure"` with `errors: ["STRUCTURAL_BLOCKER: <first comment-summary>"]` and `data.halt_code: "HALT-003"` plus `data.structural_blockers: <N>`. The PO-agent reads the R1 envelope; the `halt_audit[]` entry is written by the PO-agent per `plugins/makato-orchestrate/agents/po-agent.md` § *Label application* — but in this case the label has already been applied at sub-step 2, so the PO-agent's idempotent `gh issue edit --add-label` is a no-op (AGENTS.md Design Principle 1 — single source of truth is preserved because the label set is, not the writer count).
 
 This step is **autonomous-only**. Interactive STRUCTURAL handling stays in Step 5's user-choice flow (A/B/C above) and never auto-applies the label.
@@ -202,7 +214,7 @@ For each resolved MUST-FIX comment (derived from Step 4 classification):
 2. Write a generalizable procedural lesson record:
 
 ```bash
-plugins/makato-build/shared/write-lessons.sh \
+"$MAKATO_BUILD_ROOT/shared/write-lessons.sh" \
   "$KEY" "procedural" "generalizable" \
   "MUST-FIX resolved: $CATEGORY in PR review" \
   "must-fix,category:$CATEGORY"
@@ -228,7 +240,7 @@ In **autonomous mode**, additional per-finding actions fire here (the Step 5 pol
 - **SHOULD-FIX scope guard.** Before implementing each SHOULD-FIX, compute `out_of_scope_files = comment.files - task.Files` (set difference against the task diff captured in `plan.md`). If non-empty, skip implementation, mark the comment DEFERRED, post the `[DEFERRED]` reply (template § *SHOULD-FIX (deferred — autonomous-only)*) in Step 9, and log:
 
   ```bash
-  shared/log-bypass.sh build-address-pr-comments "<key>" should-fix-scope-guard defer "<agent_id|cli_flag|task_id_bundle>" \
+  "$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-address-pr-comments "<key>" should-fix-scope-guard defer "<agent_id|cli_flag|task_id_bundle>" \
     '{"comment_id":"<id>","out_of_scope_files":["<path>","..."]}'
   ```
 - **OUT-OF-SCOPE carry-over.** For each OUT-OF-SCOPE comment, open a follow-up issue:
@@ -254,7 +266,7 @@ In **autonomous mode**, additional per-finding actions fire here (the Step 5 pol
   Use `$FOLLOWUP_URL` to render the `[OUT-OF-SCOPE]` reply (template § *OUT-OF-SCOPE* autonomous variant) in Step 9. Log:
 
   ```bash
-  shared/log-bypass.sh build-address-pr-comments "<key>" out-of-scope-carry-over open-followup-issue "<agent_id|cli_flag|task_id_bundle>" \
+  "$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-address-pr-comments "<key>" out-of-scope-carry-over open-followup-issue "<agent_id|cli_flag|task_id_bundle>" \
     '{"comment_id":"<id>","follow_up_issue":"<url>"}'
   ```
 
@@ -288,7 +300,7 @@ if [ -f "$REPO_ROOT/.makato/memory/procedural.jsonl" ]; then
     'select(.repo == $repo and (.tags // [] | contains([$cat])))' \
     "$REPO_ROOT/.makato/memory/procedural.jsonl" 2>/dev/null | wc -l)
 else
-  shared/build-log.sh "$KEY" \
+  "$MAKATO_BUILD_ROOT/shared/build-log.sh" "$KEY" \
     "{\"step\":\"step-6a\",\"status\":\"warn\",\"data\":{\"msg\":\"procedural.jsonl absent — PRIOR=0\",\"category\":\"$CATEGORY\"}}"
 fi
 ```
@@ -348,7 +360,7 @@ On success: record `HARNESS_URL`.
 **7. Log bypass (autonomous mode only):**
 
 ```bash
-shared/log-bypass.sh build-address-pr-comments "$KEY" recurring-pattern-check \
+"$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-address-pr-comments "$KEY" recurring-pattern-check \
   open-harness-issue "$TRIGGER" \
   "{\"category\":\"$CATEGORY\",\"prior\":$PRIOR,\"harness_url\":\"$HARNESS_URL\"}"
 ```
@@ -380,7 +392,7 @@ If fixes span multiple logical themes (e.g. a CI build fix plus several readabil
 
 In **interactive mode**, show the user the staged diff and ask: *"Ready to push `<N>` fix commits to `origin/<branch>`?"* Wait for confirmation before pushing. Run `git push` on approval.
 
-In **autonomous mode**, skip the prompt: run `git push` immediately (pre-push hook still fires per the cross-skill propagation rule in `@../../AUTONOMOUS-MODE.md`). Log `shared/log-bypass.sh build-address-pr-comments "<key>" push-fix-confirm push "<agent_id|cli_flag|task_id_bundle>"`.
+In **autonomous mode**, skip the prompt: run `git push` immediately (pre-push hook still fires per the cross-skill propagation rule in `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md`). Log `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-address-pr-comments "<key>" push-fix-confirm push "<agent_id|cli_flag|task_id_bundle>"`.
 
 ---
 
@@ -424,7 +436,7 @@ Keep replies factual and brief. Quote the original comment only if needed for cl
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-address-pr-comments","story":"<key>","step":"session","status":"ok","data":{"must_fix":<N>,"should_fix":<N>,"consider":<N>,"out_of_scope":<N>,"commits":<N>}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-address-pr-comments","story":"<key>","step":"session","status":"ok","data":{"must_fix":<N>,"should_fix":<N>,"consider":<N>,"out_of_scope":<N>,"commits":<N>}}'
 ```
 
 Tell the user: *"`<N>` comments addressed, `<N>` commits pushed. PR is ready for re-review."*

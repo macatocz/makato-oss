@@ -36,6 +36,11 @@ Gate-0 sensor loop: run pre-commit, normalise findings to `list[Finding]`, dispa
 | `spec_key` | string | yes | — | Used to locate `specs/<key>/build.jsonl`. |
 | `max_loops` | integer | no | `5` | Hard cap on fix-and-rerun iterations. |
 
+Before executing helper commands, resolve `MAKATO_BUILD_ROOT` from
+`CLAUDE_PLUGIN_ROOT`, `OMP_PLUGIN_ROOT`, or `PLUGIN_ROOT` (with the
+source-checkout fallback under `REPO_ROOT/plugins/makato-build`). Do not search
+the consumer repository for installed plugin files.
+
 ---
 
 ## Steps
@@ -88,7 +93,7 @@ Execute the matching script block:
 
 - **`changed-vs-main`:**
   ```bash
-  DEFAULT_REF="$(shared/default-branch.sh 2>/dev/null || echo main)"
+  DEFAULT_REF="$("$MAKATO_BUILD_ROOT/shared/default-branch.sh" 2>/dev/null || echo main)"
   mapfile -t FILES < <(git diff "$DEFAULT_REF" --name-only)
   [ "${#FILES[@]}" -eq 0 ] && return_clean "no files changed vs main" && exit 0
   pre-commit run --hook-stage pre-push --files "${FILES[@]}"
@@ -112,9 +117,8 @@ Return `{ok: true, loops: <n>, resolved: [], residual: [], jsonl_path: "specs/<s
 shape before parsing. Do NOT load it before Step 5 — the schema is only needed at this point.
 
 Gather every SARIF artefact written under `.pre-commit-trash/` plus stdout for hooks that
-do not emit SARIF. Pipe each artefact through `shared/parse-sarif.py`
-(resolved at runtime as `${REPO_ROOT}/<plugin-root>/shared/parse-sarif.py`; locate
-`<plugin-root>` by searching for `shared/parse-sarif.py` from `REPO_ROOT`).
+do not emit SARIF. Pipe each artefact through
+`"$MAKATO_BUILD_ROOT/shared/parse-sarif.py"`.
 
 The parser normalises everything to `list[Finding]` with the canonical shape:
 `{tool, rule, path, line, column, message, severity, autofix_available, raw}`.

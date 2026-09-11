@@ -23,7 +23,7 @@ metadata:
 ## Autonomous Mode
 
 This skill is invoked by the PO-agent with `--autonomous`. All `AskUserQuestion`
-gates are bypassed per `@../../AUTONOMOUS-MODE.md`. An empty `WORKTREE_PATH` in
+gates are bypassed per `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md`. An empty `WORKTREE_PATH` in
 autonomous mode is a `MISSING_INPUT` HALT.
 
 ## Decision Framework
@@ -47,13 +47,14 @@ Two non-obvious routing choices govern this skill:
 | `<work-item-key>` | yes | Positional argument (e.g. `123-add-feature`) |
 | `WORKTREE_PATH` | yes (autonomous) | Absolute path to the per-run git worktree |
 | `REPO_ROOT` | yes | Absolute path to the main checkout |
+| `MAKATO_BUILD_ROOT` | yes | Absolute installed build-plugin root |
 | `--autonomous` | flag | Activation flag for headless mode |
 
 ## Steps
 
 ### Step 0 — Workspace-isolation entry guard
 
-Apply the workspace-isolation entry guard per `@../../AUTONOMOUS-MODE.md` §
+Apply the workspace-isolation entry guard per `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` §
 *WORKTREE_PATH — workspace-isolation contract*:
 
 ```bash
@@ -91,7 +92,7 @@ from the most recent `build.jsonl` `step:"gate-scout"` entry.
 If still empty — log SKIP and return `status: "success"` with `data.skipped: true`:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO>","skill":"build-runtime-qa","story":"<key>","step":"session","status":"ok","data":{"skipped":true,"reason":"no-runtime-surface"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO>","skill":"build-runtime-qa","story":"<key>","step":"session","status":"ok","data":{"skipped":true,"reason":"no-runtime-surface"}}'
 ```
 
 Log session end and return R1 immediately. **Do NOT proceed to Step 2.**
@@ -109,7 +110,7 @@ AC_LIST="$(awk '/^## Acceptance criteria/{found=1; next} found && /^## /{exit} f
 Log session start:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO>","skill":"build-runtime-qa","story":"<key>","step":"session","status":"start","data":{"runtime_cmd":"<cmd>","ac_count":<N>}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO>","skill":"build-runtime-qa","story":"<key>","step":"session","status":"start","data":{"runtime_cmd":"<cmd>","ac_count":<N>}}'
 ```
 
 ### Step 3 — Dispatch `runtime-qa` agent
@@ -121,12 +122,12 @@ shared/build-log.sh "<key>" '{"ts":"<ISO>","skill":"build-runtime-qa","story":"<
 > Do NOT load this reference for other skills — it is specific to the
 > runtime-qa contract.
 
-Dispatch the `runtime-qa` agent (from `plugins/makato-build/agents/runtime-qa.md`)
-with the following bundle:
+Dispatch the registered `runtime-qa` agent (do not read an agent path relative
+to the consumer repository) with the following bundle:
 
 | Field | Value |
 |-------|-------|
-| `PLAN_PATH` | `$REPO_ROOT/specs/<key>-*/plan-<ISSUE_NUMBER>.md` |
+| `PLAN_PATH` | `$SPEC_FOLDER/plan-<ISSUE_NUMBER>.md` |
 | `RUNTIME_CMD` | discovered in Step 1 |
 | `AC_LIST` | JSON array from Step 2 |
 | `WORKTREE_PATH` | `$WORKTREE_PATH` |
@@ -152,7 +153,7 @@ return R1 `success` (advisory — a parse failure is not a CRITICAL finding; see
 ### Step 5 — Log session end and emit R1
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO>","skill":"build-runtime-qa","story":"<key>","step":"session","status":"<ok|error>","data":{"skipped":<bool>,"paths_exercised":<N>,"findings_critical":<C>}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO>","skill":"build-runtime-qa","story":"<key>","step":"session","status":"<ok|error>","data":{"skipped":<bool>,"paths_exercised":<N>,"findings_critical":<C>}}'
 ```
 
 Also append the R1 envelope to `build.jsonl` per `agents/RETURN-CONTRACT.md §

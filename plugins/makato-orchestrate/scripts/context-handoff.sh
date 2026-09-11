@@ -89,7 +89,8 @@ KEY="${2:?key required}"
 ISSUE_NUMBER="${3:?issue_number required (per-issue state file, #173)}"
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-WS="$REPO_ROOT/plugins/makato-orchestrate/shared/workflow-state.sh"
+MAKATO_ORCHESTRATE_ROOT="${MAKATO_ORCHESTRATE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+WS="$MAKATO_ORCHESTRATE_ROOT/shared/workflow-state.sh"
 STATE_DIR="$REPO_ROOT/.claude/state"
 RESUME_SCRIPT="$STATE_DIR/resume-${KEY}-${ISSUE_NUMBER}.sh"
 MAX_HANDOFFS="${MAKATO_MAX_HANDOFFS:-5}"
@@ -249,7 +250,7 @@ if [[ "\$STATE_PHASE" == "done" ]]; then
   exit 0
 fi
 
-exec env MAKATO_HEADLESS=1 "$CLAUDE_BIN" $resume_perm_flag --resume "\$SESSION_ID" -p "Use the Task tool to dispatch the makato-orchestrate:po-agent subagent to resume driving GitHub issue #\$ISSUE to a merged PR. The po-agent owns the outer loop, workflow-state, and all makato-build --autonomous dispatch; do not invoke makato-build or makato-plan skills directly from this session. Return the po-agent's final R1 envelope verbatim."
+exec env MAKATO_HEADLESS=1 MAKATO_ORCHESTRATE_ROOT="$MAKATO_ORCHESTRATE_ROOT" MAKATO_BUILD_ROOT="${MAKATO_BUILD_ROOT:-}" MAKATO_PLAN_ROOT="${MAKATO_PLAN_ROOT:-}" "$CLAUDE_BIN" $resume_perm_flag --resume "\$SESSION_ID" -p "Use the Task tool to dispatch the makato-orchestrate:po-agent subagent to resume driving GitHub issue #\$ISSUE to a merged PR. Pass MAKATO_ORCHESTRATE_ROOT=$MAKATO_ORCHESTRATE_ROOT MAKATO_BUILD_ROOT=${MAKATO_BUILD_ROOT:-} MAKATO_PLAN_ROOT=${MAKATO_PLAN_ROOT:-}. The po-agent owns the outer loop, workflow-state, and all makato-build --autonomous dispatch; do not invoke makato-build or makato-plan skills directly from this session. Return the po-agent's final R1 envelope verbatim."
 EOF
   fi
   chmod +x "$RESUME_SCRIPT"

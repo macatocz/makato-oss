@@ -31,6 +31,10 @@ When dispatched by the PO-agent (`--autonomous` mode), this skill receives a con
 
 - `<work-item-key>` — positional argument.
 - `WORKTREE_PATH` — absolute filesystem path to the per-run git worktree the PO-agent owns. **Mandatory in autonomous mode** (see `plugins/makato-build/AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract*). The skill MUST `cd "$WORKTREE_PATH"` before any file edit, build, or test command.
+- `MAKATO_BUILD_ROOT` — absolute installed build-plugin root, resolved from
+  the runner plugin-root variables when not supplied.
+- `GATE_COMMANDS` — optional gate-scout command map. When absent, dispatch
+  gate-scout once before the baseline and use its commands verbatim.
 - `--autonomous` — activation flag.
 - `RECOMMENDED_SKILLS` *(optional)* — JSON array of `"plugin:skill-id"` strings. When present at skill entry, apply the **skill consultation prepend** rule: before the BUILD phase of the *first* goal task, invoke each listed skill sequentially and apply any hard constraints or conventions surfaced. This field is also available per-task via the task's `recommended_skills[]` field in `plan.md` — per-task values override the skill-level bundle. Per-task rule: before the BUILD phase of each goal task, check the task's `recommended_skills` field from `plan.md`; if present and non-empty, invoke those skills before BUILD (agent-skill-routing #146). If absent on the task — proceed to BUILD directly.
 
@@ -38,7 +42,13 @@ When invoked by a developer interactively, `WORKTREE_PATH` is optional. If unset
 
 ### Workspace-isolation entry guard
 
-Apply the workspace-isolation entry guard from `@../../AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract* and § *Falsy-check pattern* before Step 1 — Step 1 in interactive mode calls `AskUserQuestion` for the work-item-key prompt and in autonomous mode that prompt is bypassed, so the falsy-check must run at skill entry to prevent a deadlock against a prompt that can never resolve. In autonomous mode an empty `WORKTREE_PATH` is a HALT with `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`; in interactive mode the guard falls back to `git rev-parse --show-toplevel`. After resolution, `cd "$WORKTREE_PATH"` so every BUILD / VERIFY RUNTIME / TEST / VERIFY command runs in the correct worktree.
+Apply the workspace-isolation entry guard from
+`$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` before Step 1. In autonomous mode
+an empty `WORKTREE_PATH` is a HALT with
+`errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`; in
+interactive mode the guard falls back to `git rev-parse --show-toplevel`.
+After resolution, `cd "$WORKTREE_PATH"` so every BUILD / VERIFY RUNTIME / TEST
+/ VERIFY command runs in the correct worktree.
 
 Spec-folder reads (`plan.md`, `prototype.html`, `design.md`) operate on the MAIN checkout, not the worktree (`specs/` is gitignored). Resolve `REPO_ROOT` once at entry:
 
@@ -60,7 +70,10 @@ Load `@references/goal-driven-rules.md`. These rules govern all decisions in the
 for this session.
 **Do NOT load `references/goal-driven-rules.md` more than once per session.**
 
-Read `plan.md` from the resolved spec folder (`specs/<key>-*/`). If the plan does not exist, stop and tell the user to run `/refine` first.
+Resolve `SPEC_FOLDER` with
+`python3 "$MAKATO_BUILD_ROOT/shared/spec_folder.py" "$REPO_ROOT" "<key>"`,
+then read `plan.md` from that folder. If the plan does not exist, stop and tell
+the user to run `/refine` first.
 
 Extract all tasks where `mode: goal`. If none exist, stop and tell the user:
 *"All tasks in this plan are tdd-mode. Run `/implement-tdd` instead."*
@@ -77,14 +90,16 @@ If the plan is mixed mode, note the tdd-mode tasks and present scope to the user
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-implement-goal","story":"<key>","step":"session","status":"start","data":{"goal_tasks":<N>,"tdd_tasks_skipped":<N>}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-implement-goal","story":"<key>","step":"session","status":"start","data":{"goal_tasks":<N>,"tdd_tasks_skipped":<N>}}'
 ```
 
 ---
 
 ### Step 3 — Establish test baseline
 
-Load @shared/baseline-guide.md. Follow its instructions to establish the baseline and handle the broken baseline gate.
+Load @shared/baseline-guide.md. Before running it, dispatch gate-scout when
+`GATE_COMMANDS` is absent and pass the discovered `unit` command (including its
+runner prefix). Never substitute a bare system-Python test command.
 **Do NOT load `shared/baseline-guide.md` more than once per session.**
 
 **Flakey test rule**: if a test fails but no source code was changed between runs, re-run that single test once before classifying. If it passes on the second run, log it as flakey and continue. If it fails again, classify normally.
@@ -221,7 +236,7 @@ Log:
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-implement-goal","story":"<key>","step":"session","status":"ok","data":{"goal_tasks":<N>,"tdd_tasks_pending":<N>}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-implement-goal","story":"<key>","step":"session","status":"ok","data":{"goal_tasks":<N>,"tdd_tasks_pending":<N>}}'
 ```
 
 **Session summary**: read `build.jsonl` for this story and collect all entries where `status` is `"warn"` or `"decision"`. Print a compact summary:
@@ -270,12 +285,15 @@ WHY: `build-implement-goal` is intentionally excluded from the `TEST_ORACLE` pro
 
 ## Autonomous Execution
 
-Autonomous mode is activated per `@../../AUTONOMOUS-MODE.md` § *Activation triggers*.
+Autonomous mode is activated per `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` §
+*Activation triggers*.
 
 In autonomous mode:
 
 - **Never prompt the user** — work-item-key, coverage check, and session-end gates are bypassed per the rules above.
-- **Log every bypass** to `build.jsonl` via `shared/build-log.sh` with the `autonomous_bypass` event schema.
+- **Log every bypass** to `build.jsonl` via
+  `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh"` with the `autonomous_bypass`
+  event schema.
 - **Emit an R1 envelope** as the final `json`-fenced block of the skill's output.
 
 ### Return Format (R1)

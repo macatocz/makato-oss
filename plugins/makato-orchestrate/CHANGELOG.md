@@ -5,6 +5,13 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Changed — installed-plugin roots in autonomous dispatch
+
+`loop.sh`, `functions.sh`, and `context-handoff.sh` now forward absolute
+makato-build/orchestrate/plan plugin roots and resolve shared helpers from the
+installed plugin location. Headless dispatch no longer assumes the consumer
+repository vendors `plugins/makato-orchestrate`.
+
 ### Docs — provider profiles, harness adapter, and resume documentation (local-openai-gpt-macos-compatibility, Task 6)
 - **README.md** gains a new § *Provider profiles and harness selection* documenting the
   three selectable model profiles (`openai`, `qwen-vllm`, `apple-ollama` —

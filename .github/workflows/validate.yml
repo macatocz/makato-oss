@@ -39,9 +39,6 @@ on:
       - 'CLAUDE.md'
       - 'CONTRIBUTING.md'
 
-permissions:
-  contents: read
-
 jobs:
   validate-structure:
     runs-on: ubuntu-latest
@@ -97,6 +94,9 @@ jobs:
 
       - name: gate-scout hook-commands smoke tests (#450)
         run: ./plugins/makato-build/shared/gate-scout-hook-commands-smoke-tests.sh
+
+      - name: makato-build runtime path smoke tests
+        run: ./plugins/makato-build/shared/runtime-path-smoke-tests.sh
 
       - name: build-verify gate-commands smoke tests (#450)
         run: ./plugins/makato-build/shared/build-verify-gate-commands-smoke-tests.sh
@@ -166,8 +166,8 @@ jobs:
         with:
           python-version: '3.14'
 
-      - name: Install pytest + jsonschema
-        run: python3 -m pip install --quiet pytest jsonschema pyyaml
+      - name: Install pytest + optional test dependencies
+        run: python3 -m pip install --quiet pytest jsonschema pyyaml langfuse defusedxml
 
       - name: Python unit tests (pytest)
         run: python3 -m pytest -q
@@ -185,6 +185,8 @@ jobs:
           done
 
       - name: macos-setup.sh --dry-run (tool + profile readiness report)
+        env:
+          MAKATO_MACOS_CI: '1'
         run: bash scripts/macos-setup.sh --dry-run
 
       - name: preflight-model-runtime.sh — qwen-vllm profile (offline, mocked endpoint)
@@ -245,6 +247,8 @@ jobs:
           [ "$rc" -ne 0 ] || { echo "::error::vllm-serve.sh must refuse to run on Darwin"; exit 1; }
 
       - name: macOS/remote-profile matrix smoke tests (#Task 5)
+        env:
+          MAKATO_MACOS_CI: '1'
         run: bash tests/infra/test_macos_remote_profiles.sh --verbose
 
       - name: harness-independence infra smoke tests (extended, #Task 5)
