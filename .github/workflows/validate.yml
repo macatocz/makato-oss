@@ -185,6 +185,8 @@ jobs:
           done
 
       - name: macos-setup.sh --dry-run (tool + profile readiness report)
+        env:
+          MAKATO_MACOS_CI: '1'
         run: bash scripts/macos-setup.sh --dry-run
 
       - name: preflight-model-runtime.sh — qwen-vllm profile (offline, mocked endpoint)
