@@ -510,7 +510,7 @@
       "kind": "skill",
       "detail": "main",
       "kicker": "makato-build · skill",
-      "desc": "Full quality-gate pipeline: build, lint, unit tests, integration tests, conditional coverage. Each gate runs separately so failures are attributable.",
+      "desc": "Full quality-gate pipeline: Gate 0 runs build-sensors internally, followed by build, lint, unit tests, integration tests, and conditional coverage. Each gate runs separately so failures are attributable.",
       "inp": "Feature branch + Definition of Done",
       "out": "Pass, fix-and-rerun, or escalate to refine",
       "ctx": "",
@@ -536,23 +536,6 @@
       "color": ""
     },
     {
-      "id": "build_sensors",
-      "label": "build-sensors",
-      "lane": "build",
-      "col": 10,
-      "subrow": 1,
-      "kind": "skill",
-      "detail": "all",
-      "kicker": "makato-build · skill",
-      "desc": "Runs pre-commit sensors, parses findings, dispatches sensor-fixer until clean or MAX_LOOPS=5.",
-      "inp": "Staged/changed files",
-      "out": "Clean commit, or HALT-001 / HALT-004",
-      "ctx": "",
-      "meta": "",
-      "cluster": "",
-      "color": ""
-    },
-    {
       "id": "sensorfixer",
       "label": "sensor-fixer",
       "lane": "build",
@@ -561,10 +544,10 @@
       "kind": "agent",
       "detail": "all",
       "kicker": "makato-build · agent",
-      "desc": "Reads parsed sensor findings, runs a deterministic-autofix pre-pass, then dispatches build-resolve-finding per residual finding; escalates sonnet->opus on repeat failure.",
+      "desc": "Handles parsed Gate 0 sensor findings, runs a deterministic-autofix pre-pass, then dispatches build-resolve-finding per residual finding; escalates sonnet->opus on repeat failure.",
       "inp": "Parsed sensor findings",
       "out": "Fixed files + specs/&lt;key&gt;/build.jsonl audit",
-      "ctx": "Outer fixer loop. Tier-escalates model on the second failure for the same finding.",
+      "ctx": "Internal fixer loop for build-verify Gate 0. Tier-escalates model on the second failure for the same finding.",
       "meta": "",
       "cluster": "",
       "color": ""
@@ -2005,11 +1988,6 @@
     },
     {
       "from": "build_verify",
-      "to": "build_sensors",
-      "kind": "dispatch"
-    },
-    {
-      "from": "build_sensors",
       "to": "sensorfixer",
       "kind": "dispatch"
     },
@@ -2030,11 +2008,6 @@
     },
     {
       "from": "build_verify",
-      "to": "build_push",
-      "kind": "flow"
-    },
-    {
-      "from": "build_sensors",
       "to": "build_push",
       "kind": "flow"
     },
@@ -2105,7 +2078,7 @@
     },
     {
       "from": "hook_commit",
-      "to": "build_sensors",
+      "to": "sensorfixer",
       "kind": "hook"
     },
     {
@@ -2372,7 +2345,6 @@
         "build_simplify",
         "build_review",
         "build_verify",
-        "build_sensors",
         "build_push",
         "build_pr",
         "ci_poll",
@@ -2409,7 +2381,6 @@
         "build_simplify",
         "build_review",
         "build_verify",
-        "build_sensors",
         "build_push",
         "build_pr"
       ]
@@ -2457,7 +2428,6 @@
     "diffreviewer": "makato-build: diff-reviewer",
     "build_verify": "build-verify runs the full quality gate",
     "gatescout": "makato-build: gate-scout",
-    "build_sensors": "pre-commit sensors run and auto-fix",
     "sensorfixer": "makato-build: sensor-fixer",
     "resolvefinding": "makato-build: build-resolve-finding",
     "fixtypes": "makato-build: build-fix-types",

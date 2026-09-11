@@ -25,7 +25,8 @@
     "manage-stores": "standalone operator utility for managing cross-repo stores[] in .claude/config.json; intentionally not drawn on the pipeline flow diagram",
     "build-verify-spec": "spec-level quality gate invoked as a sub-step inside po-agent Step 6 between build-verify and build-push-to-git; rendered as part of the build-verify flow node, not a separate node",
     "quality-doc": "operator-on-demand and post-merge scorecard generator invoked by documentation-agent Step 7.6; not a pipeline dispatch step, intentionally not drawn on the pipeline flow diagram (#598)",
-    "build-runtime-qa": "runtime-QA gate invoked as a sub-step inside po-agent Step 6 #1b between build-verify-spec and build-push-to-git; rendered as part of the build-verify flow node, not a separate node"
+    "build-runtime-qa": "runtime-QA gate invoked as a sub-step inside po-agent Step 6 #1b between build-verify-spec and build-push-to-git; rendered as part of the build-verify flow node, not a separate node",
+    "build-sensors": "pre-commit sensor loop invoked as Gate 0 inside build-verify; rendered as part of the build-verify flow node, not a separate node"
   },
   "unmappedAgents": {
     "runtime-qa": "dispatched by build-runtime-qa skill as an inner sub-agent; not a standalone diagram node (same pattern as coder, gate-scout, sensor-fixer which are also not drawn as separate nodes)"

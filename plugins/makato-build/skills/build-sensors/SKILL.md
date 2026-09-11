@@ -8,7 +8,7 @@ description: >-
   pre-commit hook fails, verifying gate-0 on a build, or an autonomous fixer
   needs to re-run sensors after edits. Trigger keywords: run sensors, verify
   sensors, gate-0, pre-commit, sensor loop.
-version: "1.2.0"
+version: "1.2.1"
 argument-hint: "scope=[staged|all|changed-vs-main] spec_key=<story-key>"
 tools: Bash, Read, Edit, Write, Agent
 metadata:
@@ -88,8 +88,8 @@ Execute the matching script block:
 
 - **`changed-vs-main`:**
   ```bash
-  DEFAULT_BRANCH="$(shared/default-branch.sh 2>/dev/null || echo main)"
-  mapfile -t FILES < <(git diff "origin/${DEFAULT_BRANCH}" --name-only)
+  DEFAULT_REF="$(shared/default-branch.sh 2>/dev/null || echo main)"
+  mapfile -t FILES < <(git diff "$DEFAULT_REF" --name-only)
   [ "${#FILES[@]}" -eq 0 ] && return_clean "no files changed vs main" && exit 0
   pre-commit run --hook-stage pre-push --files "${FILES[@]}"
   ```
