@@ -3992,7 +3992,7 @@ MAKATO_LOOP_RECONCILE_TEST_FILE="$TSP1_RECON" \
 MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE="$TSP1_LABEL" \
 MAKATO_LOOP_PR_STATE_OVERRIDE="$TSP1_PR_STATE" \
 MAKATO_LOOP_STALL_DISABLE=1 \
-MAKATO_CLAUDE_BIN=true \
+MAKATO_HARNESS_BIN=true \
 SPECS_DIR="$TSP1_SPECS" \
   "$LOOP" _test-reconcile-stale >/dev/null 2>&1 || tsp1_rc=$?
 [[ $tsp1_rc -eq 0 ]] || fail "T-STALE-PR-1: expected rc 0; got $tsp1_rc"
@@ -5603,7 +5603,7 @@ MAKATO_LOOP_STATE_DIR="$T_R2_STATE" \
 SPECS_DIR="$T_R2_SPECS" \
 MAKATO_LOOP_STALL_DISABLE=0 \
 MAKATO_LOOP_SLEEP_CMD=true \
-MAKATO_CLAUDE_BIN=true \
+MAKATO_HARNESS_BIN=true \
   "$LOOP" _test-stall-resume 44421 "resume2-slug" "$T_R2_SPEC_DIR" "$T_R2_LOG" \
   >/dev/null 2>&1 || t_r2_rc=$?
 [[ $t_r2_rc -eq 0 ]] \
@@ -5657,7 +5657,7 @@ MAKATO_LOOP_STATE_DIR="$T_R3_STATE" \
 SPECS_DIR="$T_R3_SPECS" \
 MAKATO_LOOP_STALL_DISABLE=0 \
 MAKATO_LOOP_SLEEP_CMD=true \
-MAKATO_CLAUDE_BIN=true \
+MAKATO_HARNESS_BIN=true \
   "$LOOP" _test-stall-resume 44422 "resume3-slug" "$T_R3_SPEC_DIR" "$T_R3_LOG" \
   >/dev/null 2>&1 || t_r3_rc=$?
 [[ $t_r3_rc -eq 0 ]] \
@@ -5776,7 +5776,7 @@ MAKATO_LOOP_STATE_DIR="$T_R616_STATE" \
 SPECS_DIR="$T_R616_SPECS" \
 MAKATO_LOOP_STALL_DISABLE=0 \
 MAKATO_LOOP_SLEEP_CMD=true \
-MAKATO_CLAUDE_BIN=false \
+MAKATO_HARNESS_BIN=false \
   "$LOOP" _test-stall-resume 44616 "resume616-slug" "$T_R616_SPEC_DIR" "$T_R616_LOG" \
   >/dev/null 2>&1 || t_r616_rc=$?
 [[ $t_r616_rc -eq 0 ]] \
@@ -5944,7 +5944,7 @@ echo "  ✓ empty-key regression: new gate skipped, original WARN preserved"
 #
 # Design note: this test does NOT use MAKATO_LOOP_DRY_DISPATCH=1 — that flag
 # itself suppresses the gate for all types and would mask a regression of the
-# type:change bypass condition.  Instead we use a sentinel MAKATO_CLAUDE_BIN
+# type:change bypass condition.  Instead we use a sentinel MAKATO_HARNESS_BIN
 # that exits 0 immediately so the fork never spawns a real subprocess, while
 # the gate (and all intervening code) runs normally.
 #
@@ -5976,7 +5976,7 @@ t75_stderr="$(
   MAKATO_LOOP_GATE_DISABLE=1 \
   MAKATO_LOOP_ASSIGN_ON_DISPATCH=0 \
   MAKATO_LOOP_STALL_DISABLE=1 \
-  MAKATO_CLAUDE_BIN="$t75_sentinel" \
+  MAKATO_HARNESS_BIN="$t75_sentinel" \
   SPECS_DIR="$T75_SPECS" \
     "$LOOP" dispatch 703 2>&1 >/dev/null
 )" || fail "T75: cmd_dispatch should return 0 for type:change on miss path"
@@ -6075,7 +6075,7 @@ chmod +x "$t80_fake_claude"
 
 t80_verdict="$(
   MAKATO_LOOP_TEST_HOOK=1 \
-  SPECS_DIR="$T80_SPECS" REPO_ROOT="$T80_DIR" MAKATO_CLAUDE_BIN="$t80_fake_claude" \
+  SPECS_DIR="$T80_SPECS" REPO_ROOT="$T80_DIR" MAKATO_HARNESS_BIN="$t80_fake_claude" \
     "$LOOP" _test-pre-dispatch-plan-guard '99-thin-feature'
 )" 2>/dev/null
 
@@ -6107,7 +6107,7 @@ chmod +x "$t81_fake_claude"
 
 t81_output="$(
   MAKATO_LOOP_TEST_HOOK=1 \
-  SPECS_DIR="$T81_SPECS" REPO_ROOT="$T81_DIR" MAKATO_CLAUDE_BIN="$t81_fake_claude" \
+  SPECS_DIR="$T81_SPECS" REPO_ROOT="$T81_DIR" MAKATO_HARNESS_BIN="$t81_fake_claude" \
     "$LOOP" _test-pre-dispatch-plan-guard '55-bad-feature' 2>/tmp/t81_stderr_$$
 )"
 
@@ -6932,7 +6932,7 @@ chmod +x "$t127_fake_claude"
 t127_stderr_file="/tmp/t127_stderr_$$"
 t127_verdict="$(
   MAKATO_LOOP_TEST_HOOK=1 \
-  SPECS_DIR="$T127_SPECS" REPO_ROOT="$T127_DIR" MAKATO_CLAUDE_BIN="$t127_fake_claude" \
+  SPECS_DIR="$T127_SPECS" REPO_ROOT="$T127_DIR" MAKATO_HARNESS_BIN="$t127_fake_claude" \
     "$LOOP" _test-pre-dispatch-plan-guard '127-bad-skill' 2>"$t127_stderr_file"
 )"
 t127_stderr="$(cat "$t127_stderr_file")"
