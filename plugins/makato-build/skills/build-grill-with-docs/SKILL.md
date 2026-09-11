@@ -20,11 +20,19 @@ Use after `/refine` (plan.md exists) and before `/implement-tdd` or `/implement-
 
 ## Workflow
 
+This skill is a terminology/alignment pass, not a quality gate. Do not run the
+target project's full test suite while probing symbols. Test execution belongs
+to `build-start`, implementation, and `build-verify`, which obtain the
+authoritative gate-scout command map and runner prefix.
+
 ### Step 1 — Resolve work item, load glossary, locate ADR path
 
 Ask: *"Which work item are we aligning? (e.g. DCP-1234)"* — or use the passed argument.
 
-Read `plan.md` from the resolved spec folder (`specs/<key>-*/`) (required). If missing, stop:
+Resolve `MAKATO_BUILD_ROOT` from the runner plugin-root variables and resolve
+`SPEC_FOLDER` with
+`python3 "$MAKATO_BUILD_ROOT/shared/spec_folder.py" "$REPO_ROOT" "<key>"`.
+Read `plan.md` from that folder (required). If missing, stop:
 
 > "Run `/refine` first — `plan.md` is required."
 
@@ -52,7 +60,7 @@ Wait for the user's numbered choice before continuing. Record the resolved path 
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-grill-with-docs","story":"<key>","step":"session","status":"start","data":{"has_glossary":true|false,"adr_path":"<path>|skip"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-grill-with-docs","story":"<key>","step":"session","status":"start","data":{"has_glossary":true|false,"adr_path":"<path>|skip"}}'
 ```
 
 ---
@@ -127,11 +135,19 @@ Load `@references/adr-criteria.md`. Do NOT reload if already loaded in Step 1 �
 
 For each decision surfaced during the interview, apply the three-criteria test and routing rule from `adr-criteria.md`. Present each proposed ADR to the user before writing. Skip this step entirely if the ADR path resolved to `skip` in Step 1.
 
-**After routing each decision** (whether written to an ADR file, appended to `decisions.md`, or marked `[ADR-PENDING]`), check whether a `workflow-state.json` exists for the current KEY. Use the spec-folder glob from Step 1 (`specs/<KEY>-*/`) to find `workflow-state-*.json`; if multiple issue-scoped files exist, write to all of them (one call per file):
+**After routing each decision** (whether written to an ADR file, appended to
+`decisions.md`, or marked `[ADR-PENDING]`), check for
+`workflow-state-*.json` under `SPEC_FOLDER`. Only perform the best-effort
+append when `MAKATO_ORCHESTRATE_ROOT` is supplied; otherwise record
+`decisions_persisted_to_state: 0` and continue without probing the consumer
+repository:
 
 ```bash
 # Find all per-issue workflow-state files for this KEY
-WS_FILES="$(ls specs/<KEY>-*/workflow-state-*.json 2>/dev/null || true)"
+WS_FILES=""
+if [[ -n "${MAKATO_ORCHESTRATE_ROOT:-}" ]]; then
+  WS_FILES="$(ls "$SPEC_FOLDER"/workflow-state-*.json 2>/dev/null || true)"
+fi
 
 if [[ -n "$WS_FILES" ]]; then
   for WS_FILE in $WS_FILES; do
@@ -139,7 +155,7 @@ if [[ -n "$WS_FILES" ]]; then
     ISSUE_NUMBER="${WS_FILE##*workflow-state-}"
     ISSUE_NUMBER="${ISSUE_NUMBER%.json}"
     SPEC_KEY="$(basename "$(dirname "$WS_FILE")")"
-    plugins/makato-orchestrate/shared/workflow-state.sh append-decision \
+    "$MAKATO_ORCHESTRATE_ROOT/shared/workflow-state.sh" append-decision \
       "$SPEC_KEY" "$ISSUE_NUMBER" \
       "$(jq -n \
         --arg title "<decision title>" \
@@ -164,7 +180,7 @@ Replace `<decision title>`, `<chosen approach>`, `<rejected alternatives>`, `<ra
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-grill-with-docs","story":"<key>","step":"session","status":"ok","data":{"terms_resolved":<N>,"terms_skipped":<M>,"adrs_written":<K>,"decisions_updated":<J>,"decisions_persisted_to_state":<P>}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-grill-with-docs","story":"<key>","step":"session","status":"ok","data":{"terms_resolved":<N>,"terms_skipped":<M>,"adrs_written":<K>,"decisions_updated":<J>,"decisions_persisted_to_state":<P>}}'
 ```
 
 `decisions_persisted_to_state` is the count of decisions successfully written to `workflow-state.json` via `append-decision` in Step 7. Zero is a valid value when no workflow-state file exists for the KEY or all writes failed.

@@ -534,7 +534,7 @@ _post_halt_comment() {
   local phc_script
   phc_script="$(dirname "$(dirname "${BASH_SOURCE[0]}")")/shared/post-halt-comment.sh"
   if [[ ! -x "$phc_script" ]]; then
-    phc_script="$REPO_ROOT/plugins/makato-orchestrate/shared/post-halt-comment.sh"
+    phc_script="${MAKATO_ORCHESTRATE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}/shared/post-halt-comment.sh"
   fi
   [[ -x "$phc_script" ]] || return 0
 
@@ -905,7 +905,7 @@ _dependency_order() {
 # the HALT-007 fallback. Best-effort — any error is swallowed.
 _check_pending_handoffs() {
   [[ -d "$SPECS_DIR" ]] || return 0
-  local handoff_script="$REPO_ROOT/plugins/makato-orchestrate/scripts/context-handoff.sh"
+  local handoff_script="${MAKATO_ORCHESTRATE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}/scripts/context-handoff.sh"
   [[ -x "$handoff_script" ]] || return 0
   find "$SPECS_DIR" -maxdepth 2 \
     \( -name 'workflow-state-*.json' -o -name 'workflow-state.json' \) \
@@ -3900,8 +3900,9 @@ cmd_dispatch() {
   # Single-threaded: blocks until PO-agent exits. Delegates to po-agent via Task tool (#160/#163):
   # MAKATO_HEADLESS=1 guards against interactive-mode fallback (MISSING_INPUT instead of deadlock).
 
-  # Export MAKATO_ORCHESTRATE_SHARED so child sessions can locate shared scripts without relying on CWD.
-  MAKATO_ORCHESTRATE_SHARED="$(git rev-parse --show-toplevel)/plugins/makato-orchestrate/shared"
+  # Export installed plugin roots so child sessions can locate shared scripts
+  # without relying on the consumer repository CWD.
+  MAKATO_ORCHESTRATE_SHARED="${MAKATO_ORCHESTRATE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}/shared"
   if [[ -d "$MAKATO_ORCHESTRATE_SHARED" ]]; then
     export MAKATO_ORCHESTRATE_SHARED
   else
@@ -3913,7 +3914,7 @@ cmd_dispatch() {
     # Route to makato-change:orchestrate --autonomous; change pipeline owns its own spec-folder lifecycle.
     dispatch_prompt="Use the Skill tool to invoke the makato-change:orchestrate skill with args '${key} --autonomous'. Required env: ISSUE_NUMBER=${issue} ISSUE_KEY=${key} REPO=${MAKATO_LOOP_DISPATCH_REPO:-} REPO_ROOT=${REPO_ROOT}. MAKATO_HEADLESS=1 is already exported. The skill owns the analyze→design→execute→resolve-review loop and writes change-state-${issue}.json + a workflow-state-${issue}.json loop-compat stub. Return R1 envelope verbatim."
   else
-    dispatch_prompt="Use the Task tool to dispatch the makato-orchestrate:po-agent subagent to drive GitHub issue #${issue} to a merged PR. Pass the po-agent's required inputs verbatim: ISSUE_NUMBER=${issue} KEY=${key} REPO=${MAKATO_LOOP_DISPATCH_REPO:-} BRANCH=${branch} REPO_ROOT=${REPO_ROOT}. The po-agent owns the outer loop, workflow-state, and all makato-build --autonomous dispatch; do not invoke makato-build or makato-plan skills directly from this session. Return the po-agent's final R1 envelope verbatim."
+    dispatch_prompt="Use the Task tool to dispatch the makato-orchestrate:po-agent subagent to drive GitHub issue #${issue} to a merged PR. Pass the po-agent's required inputs verbatim: ISSUE_NUMBER=${issue} KEY=${key} REPO=${MAKATO_LOOP_DISPATCH_REPO:-} BRANCH=${branch} REPO_ROOT=${REPO_ROOT} MAKATO_BUILD_ROOT=${MAKATO_BUILD_ROOT:-} MAKATO_ORCHESTRATE_ROOT=${MAKATO_ORCHESTRATE_ROOT:-} MAKATO_PLAN_ROOT=${MAKATO_PLAN_ROOT:-}. The po-agent owns the outer loop, workflow-state, and all makato-build --autonomous dispatch; do not invoke makato-build or makato-plan skills directly from this session. Return the po-agent's final R1 envelope verbatim."
   fi
 
   if [[ -n "$log_file" ]]; then
@@ -4432,7 +4433,7 @@ _log_reshape_result() {
 _emit_run_report() {
   local -a issues=("$@")
   [[ "${#issues[@]}" -gt 0 ]] || return 0
-  local report_script="$REPO_ROOT/plugins/makato-orchestrate/scripts/generate-run-report.sh"
+  local report_script="${MAKATO_ORCHESTRATE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}/scripts/generate-run-report.sh"
   if [[ ! -x "$report_script" ]]; then
     echo "loop: WARN — run-report script not found/executable at $report_script; skipping report (#448)" >&2
     return 0

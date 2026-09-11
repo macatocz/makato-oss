@@ -70,7 +70,7 @@ Only when `local_work = false`. Check the board item's Status before git pre-fli
 
 Log the skip and continue to Step 2 unchanged:
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"dor-gate","status":"warn","data":{"reason":"no-github-project-config"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"dor-gate","status":"warn","data":{"reason":"no-github-project-config"}}'
 ```
 
 **When `github_project` is present:**
@@ -91,7 +91,7 @@ If `ITEM_ID` is empty: log `build-start: WARN — issue #$ISSUE_NUMBER not found
 
 **When `CUR_STATUS == "Ready"`:** log and continue to Step 2:
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"dor-gate","status":"ok","data":{"issue":<ISSUE_NUMBER>,"board_status":"Ready"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"dor-gate","status":"ok","data":{"issue":<ISSUE_NUMBER>,"board_status":"Ready"}}'
 ```
 
 **When `CUR_STATUS != "Ready"` (e.g. Todo, Blocked, In Progress):**
@@ -101,7 +101,7 @@ In **interactive mode**: stop immediately with an actionable message:
 
 Log:
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"dor-gate","status":"error","data":{"halt_code":"DOR_NOT_READY","issue":<ISSUE_NUMBER>,"board_status":"<CUR_STATUS>"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"dor-gate","status":"error","data":{"halt_code":"DOR_NOT_READY","issue":<ISSUE_NUMBER>,"board_status":"<CUR_STATUS>"}}'
 ```
 
 In **autonomous mode** (`--autonomous`): log the same entry above, then return R1 `status: "failure"` with `data.halt_code: "DOR_NOT_READY"` and `errors: ["DOR_NOT_READY: issue #<ISSUE_NUMBER> board Status is '<CUR_STATUS>' — expected Ready"]`.
@@ -109,6 +109,11 @@ In **autonomous mode** (`--autonomous`): log the same entry above, then return R
 ### Step 2 — Git pre-flight
 
 Run these checks before touching any spec files:
+
+Resolve `MAKATO_BUILD_ROOT` using the installed-plugin-root contract in
+`AUTONOMOUS-MODE.md`. All helper commands in this skill use the resulting
+absolute path; the consumer repository is not assumed to contain the makato
+plugin checkout.
 
 **2a — Clean working tree**
 
@@ -157,11 +162,11 @@ Only when `local_work = false`. This is the earliest safe moment to claim the is
 **Determine the GitHub issue number:**
 
 1. If `key` is a plain integer (e.g., `450`): use it directly as `ISSUE_NUMBER`.
-2. Otherwise: look for `specs/<key>-*/seed-manifest.json` or `specs/<key>/seed-manifest.json` and read `.issue_number` from it:
+2. Otherwise: resolve `SPEC_FOLDER` with
+   `python3 "$MAKATO_BUILD_ROOT/shared/spec_folder.py" "$REPO_ROOT" "$key"`
+   and read `.issue_number` from its manifest:
    ```bash
-   ISSUE_NUMBER="$(jq -r '.issue_number // empty' specs/${key}-*/seed-manifest.json 2>/dev/null | head -1)"
-   # fallback: exact-match folder
-   [[ -z "$ISSUE_NUMBER" ]] && ISSUE_NUMBER="$(jq -r '.issue_number // empty' specs/${key}/seed-manifest.json 2>/dev/null || true)"
+   ISSUE_NUMBER="$(jq -r '.issue_number // empty' "$SPEC_FOLDER/seed-manifest.json" 2>/dev/null || true)"
    ```
 3. If `ISSUE_NUMBER` remains empty: skip this step silently (Jira-only key with no manifest — cannot resolve to a board item).
 
@@ -201,7 +206,7 @@ Run a single canary test to verify the test framework is operational before disp
 **Discover the unit command** by dispatching the `gate-scout` agent (same agent used by `/build-verify`). If no unit command is discovered (no test framework present in the project), log a skip entry and proceed to Step 3 unchanged:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO>","skill":"build-start","story":"<key>","step":"canary-skipped","status":"ok","data":{"reason":"no-unit-command"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO>","skill":"build-start","story":"<key>","step":"canary-skipped","status":"ok","data":{"reason":"no-unit-command"}}'
 ```
 
 Append one `build.jsonl` entry with step `"canary"`, `status: "ok"`, `data.event: "CANARY_SKIPPED"` so the audit trail records the skip:
@@ -249,19 +254,28 @@ This skill registers one skill-level halt code. See `plugins/makato-build/halt-c
 
 **Ticket path** (`local_work = false`):
 
-Locate the spec folder using a two-step resolution:
+Run the installed resolver:
 
-1. **Prefix-match**: find `specs/<key>-*/` (e.g. `specs/DCP-1234-feature-name/`). Use the first match. This aligns with makato-plan's naming convention of `specs/{KEY}-{slug}/`.
-2. **Exact-match fallback**: if no prefix-match exists, check for `specs/<key>/` (exact folder name). This covers issues seeded directly without a slug suffix.
+```bash
+SPEC_FOLDER="$(
+  python3 "$MAKATO_BUILD_ROOT/shared/spec_folder.py" "$REPO_ROOT" "$key"
+)"
+```
 
-Resolution order: (1) `specs/<key>-*/` prefix-match; (2) `specs/<key>/` exact-match fallback.
+The resolver preserves direct prefix and exact-key matches. For a numeric
+GitHub key (`N` or `#N`) it additionally finds a unique folder containing
+`plan-N.md`, a matching `seed-manifest.json`, `created-issues.json`, or
+`workflow-state-N.json`. `to-issues`'s `specs/<slug>/plan-N.md` shape is
+therefore supported without renaming the spec.
 
-**Multiple prefix-matches:** if step 1 finds more than one folder (e.g. `specs/DCP-1234-feat-a/` and `specs/DCP-1234-feat-b/`), do NOT silently use the first — this indicates a corrupted spec state. Stop and report:
+**Multiple matches:** the resolver never selects the first directory. Stop and
+report:
 
 > "Multiple spec folders found for `<key>`: `<list>`. Disambiguate by passing the full folder name as the key, e.g. `build-start DCP-1234-feat-a`."
 
-- If no `specs/<key>-*/` folder exists → stop: *"No spec folder found for `<key>`.
-  Run makato-plan first to produce shaped artifacts in `specs/<key>-<slug>/`."*
+- If no resolver match exists → stop: *"No spec folder found for `<key>`.
+  Run makato-plan first to produce shaped artifacts, or pass the full spec
+  slug."*
 - If `stories.json` is missing → check whether `prd.md` and `design.md`
   both exist in the spec folder. If they do — stop:
 
@@ -354,7 +368,7 @@ Run `workflow-schema-loader.sh` passing the repository root as the first argumen
 
 ```bash
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-ARTIFACT_LIST="$(bash scripts/workflow-schema-loader.sh "$REPO_ROOT" 2>/tmp/schema-loader-err)"
+ARTIFACT_LIST="$(bash "$MAKATO_BUILD_ROOT/scripts/workflow-schema-loader.sh" "$REPO_ROOT" 2>/tmp/schema-loader-err)"
 SCHEMA_EXIT=$?
 ```
 
@@ -368,7 +382,7 @@ SCHEMA_SOURCE="custom"   # or "default" — readable from first loader stderr li
 if [[ ! -f "$REPO_ROOT/.claude/workflow-schema.yml" ]]; then
   SCHEMA_SOURCE="default"
 fi
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"schema-resolved","status":"ok","data":{"source":"<default|custom>","artifact_count":<N>}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"schema-resolved","status":"ok","data":{"source":"<default|custom>","artifact_count":<N>}}'
 ```
 
 **On exit 1 or 2:** The schema is invalid (parse error, cycle detected, or missing
@@ -382,7 +396,7 @@ arg). Do NOT continue — stop and report:
 Log the error:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"schema-resolved","status":"error","error":"<loader stderr>"}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"schema-resolved","status":"error","error":"<loader stderr>"}'
 ```
 
 ### Step 5 — Initialize build log
@@ -390,7 +404,7 @@ shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<k
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"session-start","status":"start","data":{"mode":"<tdd|goal>","local_work":<true|false>,"spec_artifacts":[...],"schema_source":"<default|custom>"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"session-start","status":"start","data":{"mode":"<tdd|goal>","local_work":<true|false>,"spec_artifacts":[...],"schema_source":"<default|custom>"}}'
 ```
 
 List every artifact file found in the resolved `specs/<key>-*/` folder in the `spec_artifacts` array.
@@ -406,7 +420,7 @@ questions before finalizing the plan.
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"session-end","status":"ok","data":{"next":"build-refine"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"session-end","status":"ok","data":{"next":"build-refine"}}'
 ```
 
 Invoke `/build-refine <key>`.

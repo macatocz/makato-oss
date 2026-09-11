@@ -80,6 +80,39 @@ _LOOP_CONFIG_YML="${MAKATO_LOOP_CONFIG_YML:-$_LOOP_SCRIPT_DIR/../config/config.y
 _LOOP_FUNCTIONS="${MAKATO_LOOP_FUNCTIONS:-$_LOOP_SCRIPT_DIR/functions.sh}"
 _LOOP_CONFIG_PARSER="${MAKATO_LOOP_CONFIG_PARSER:-$(dirname "$_LOOP_CONFIG_YML")/parse-config.py}"
 eval "$(python3 "$_LOOP_CONFIG_PARSER" "$_LOOP_CONFIG_YML")"
+
+# Installed plugin roots are separate from the consumer repository. Resolve
+# sibling makato plugins once so every headless child receives absolute paths
+# instead of probing "$REPO_ROOT/plugins/..." from an external checkout.
+_resolve_plugin_root() {
+  local plugin="$1" candidate
+  case "$plugin" in
+    makato-orchestrate)
+      candidate="$(cd "$_LOOP_SCRIPT_DIR/.." && pwd)"
+      [[ -f "$candidate/.claude-plugin/plugin.json" ]] && {
+        printf '%s\n' "$candidate"
+        return 0
+      }
+      ;;
+  esac
+
+  local plugin_cache_parent
+  plugin_cache_parent="$(cd "$_LOOP_SCRIPT_DIR/../.." && pwd)"
+  for candidate in \
+    "$REPO_ROOT/plugins/$plugin" \
+    "$plugin_cache_parent"/makato-suite___"$plugin"___*; do
+    if [[ -f "$candidate/.claude-plugin/plugin.json" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+}
+
+MAKATO_ORCHESTRATE_ROOT="${MAKATO_ORCHESTRATE_ROOT:-$(_resolve_plugin_root makato-orchestrate)}"
+MAKATO_BUILD_ROOT="${MAKATO_BUILD_ROOT:-$(_resolve_plugin_root makato-build)}"
+MAKATO_PLAN_ROOT="${MAKATO_PLAN_ROOT:-$(_resolve_plugin_root makato-plan)}"
+export MAKATO_ORCHESTRATE_ROOT MAKATO_BUILD_ROOT MAKATO_PLAN_ROOT
 # API_FORCE_IDLE_TIMEOUT is opt-in (see config.md); export only when set.
 if [[ -n "${API_FORCE_IDLE_TIMEOUT:-}" ]]; then
   export API_FORCE_IDLE_TIMEOUT

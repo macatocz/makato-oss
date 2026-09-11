@@ -8,6 +8,8 @@
 #   T4 — --batch skips blank lines
 #   T5 — --batch skips malformed JSON lines (audit-log "never crashes" invariant)
 #   T6 — --batch is idempotent on empty stdin (no rows appended)
+#   T7 — malformed timestamps are repaired to ISO-8601 milliseconds
+#   T8 — numeric issue keys append to an existing slug folder
 #
 # Exit: number of failures; 0 = all green.
 
@@ -23,7 +25,7 @@ _fail() { printf '  ✗ %s\n' "$1"; FAIL=$((FAIL + 1)); }
 _setup() {
   unset TMPDIR
   WORKDIR="$(mktemp -d)"
-  cd "$WORKDIR"
+  cd "$WORKDIR" || exit 1
   git init -q
   mkdir -p specs/TEST-001-x
 }
@@ -114,6 +116,33 @@ else
   LINES=0
 fi
 [[ "$LINES" == "0" ]] && _pass "0 lines appended on empty stdin" || _fail "expected 0, got $LINES"
+_teardown
+
+# ----- T7: malformed timestamp repair ----------------------------------------
+echo "T7: malformed timestamps are repaired"
+_setup
+"$HELPER" TEST-001 '{"ts":"2026-09-11T05:17:52.884198000Z'\''","skill":"s","story":"TEST-001","step":"x","status":"ok"}' 2>"$WORKDIR/stderr"
+TS="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["ts"])' specs/TEST-001-x/build.jsonl)"
+if [[ "$TS" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z$ ]] &&
+   grep -q "repaired invalid ts" "$WORKDIR/stderr"; then
+  _pass "invalid timestamp repaired and warning emitted"
+else
+  _fail "invalid timestamp was not repaired: $TS"
+fi
+_teardown
+
+# ----- T8: numeric issue-to-slug resolution -------------------------------
+echo "T8: numeric issue key resolves existing slug folder"
+_setup
+rm -rf specs/TEST-001-x
+mkdir -p specs/db-schema-redesign
+printf '%s\n' '# plan' > specs/db-schema-redesign/plan-995.md
+"$HELPER" 995 '{"step":"numeric","status":"ok"}'
+if [[ -f specs/db-schema-redesign/build.jsonl && ! -e specs/995 ]]; then
+  _pass "numeric issue appended to slug folder"
+else
+  _fail "numeric issue created the wrong audit folder"
+fi
 _teardown
 
 echo ""

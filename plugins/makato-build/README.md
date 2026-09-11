@@ -152,6 +152,8 @@ makato-build closes the loop from ideation to merged code.
 ## Scripts
 
 - `shared/build-log.sh` — Append a JSONL entry (or batch of entries via --batch stdin mode) to specs/\<key\>-\*/build.jsonl. Worktree-aware: derives REPO_ROOT from the common git directory so entries always land on the main checkout.
+- `shared/runtime-context.sh` — Resolve the installed makato plugin root from OMP/Claude runner variables or source-checkout fallbacks; sibling roots can be supplied explicitly.
+- `shared/spec_folder.py` — Resolve canonical, legacy, and numeric issue-to-slug spec folders deterministically.
 - `shared/default-branch.sh` — Resolve the remote-tracking ref of the repository's default branch (e.g. origin/main). Used by build-review, build-simplify, and build-sensors to diff against the correct integration target, avoiding stale local branch issues.
 - `shared/log-bypass.sh` — Append a canonical autonomous_bypass JSONL entry to build.jsonl when a skill takes an autonomous default instead of prompting the user.
 - `shared/inject_context.py` — Python implementation of the inject-context bundle resolver — given changed file paths and context-bundles.yml, returns ordered rule-file paths for knowledge-scout.
@@ -163,6 +165,7 @@ makato-build closes the loop from ideation to merged code.
 - `shared/finding-schema-smoke-test.sh` — Contract test guarding the Finding schema: asserts parse-sarif.py's emitted keys equal the documented canonical set, the loop docs carry no forbidden field names (rule_id/fixable/Finding-level file), and the reference doc is linked from every artefact. Wired into validate.yml (#230).
 - `shared/autonomous-propagation-smoke-tests.sh` — Smoke tests verifying that --autonomous flag propagates correctly across cross-skill dispatches.
 - `shared/build-log-batch-smoke-tests.sh` — Smoke tests for build-log.sh --batch mode.
+- `shared/runtime-path-smoke-tests.sh` — External-CWD and installed-plugin path contract checks.
 - `shared/default-branch-smoke-tests.sh` — Smoke tests for default-branch.sh resolution logic.
 - `shared/halt-codes-smoke-tests.sh` — Smoke tests verifying HALT code emission from build skills.
 - `shared/log-bypass-smoke-tests.sh` — Smoke tests for log-bypass.sh.

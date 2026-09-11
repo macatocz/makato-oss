@@ -39,9 +39,6 @@ on:
       - 'CLAUDE.md'
       - 'CONTRIBUTING.md'
 
-permissions:
-  contents: read
-
 jobs:
   validate-structure:
     runs-on: ubuntu-latest
@@ -97,6 +94,9 @@ jobs:
 
       - name: gate-scout hook-commands smoke tests (#450)
         run: ./plugins/makato-build/shared/gate-scout-hook-commands-smoke-tests.sh
+
+      - name: makato-build runtime path smoke tests
+        run: ./plugins/makato-build/shared/runtime-path-smoke-tests.sh
 
       - name: build-verify gate-commands smoke tests (#450)
         run: ./plugins/makato-build/shared/build-verify-gate-commands-smoke-tests.sh

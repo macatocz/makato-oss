@@ -86,11 +86,21 @@ def _collect_skills(node, acc: set) -> None:
 
 
 def read_passport(dir: Path) -> dict | None:
-    """Return parsed skill-passport.json dict, or None when file absent."""
+    """Return a valid passport dict, or None for absent/malformed artifacts.
+
+    Passport telemetry is advisory. A partially-written or legacy file must
+    not turn the quality gate into a hard failure.
+    """
     passport_path = Path(dir) / "skill-passport.json"
     if not passport_path.exists():
         return None
-    return json.loads(passport_path.read_text(encoding="utf-8"))
+    try:
+        passport = json.loads(passport_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):  # fmt: skip
+        return None
+    if not isinstance(passport, dict) or not isinstance(passport.get("sessions"), list):
+        return None
+    return passport
 
 
 # ---------------------------------------------------------------------------

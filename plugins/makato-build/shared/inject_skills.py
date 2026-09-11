@@ -78,7 +78,10 @@ plugins/makato-build/AGENTS.md § Skill Authoring.
 
 from __future__ import annotations
 
+import argparse
 import fnmatch
+import json
+import sys
 from pathlib import Path
 from typing import Iterable
 
@@ -491,3 +494,24 @@ __all__ = [
     "discover_installed_skills",
     "resolve_skills_for_repo",
 ]
+
+
+def _main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--root", required=True, type=Path, help="makato suite checkout root")
+    parser.add_argument("--files", required=True, type=Path, help="newline-delimited changed-file list")
+    parser.add_argument("--no-subset-filter", action="store_true")
+    args = parser.parse_args(argv)
+
+    changed_files = [line.strip() for line in args.files.read_text(encoding="utf-8").splitlines() if line.strip()]
+    skills, warnings = resolve_skills_for_repo(
+        changed_files,
+        args.root,
+        apply_subset_filter=not args.no_subset_filter,
+    )
+    print(json.dumps({"skills_expected": skills, "warnings": warnings}))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main(sys.argv[1:]))
