@@ -77,9 +77,14 @@ Run:
 
 ---
 
-### Step 3 — Establish test baseline
-
-Dispatch the `gate-scout` agent (`agents/gate-scout.md`) with the same dispatch contract `build-verify` uses — this is the **single canonical source** of the project's unit-test command. Do not infer the test command independently, do not pick one manually, and do not consult `baseline-guide.md` for discovery (that guide only documents the broken-baseline gate; runner discovery is `gate-scout`'s job — #97). The dispatch prompt passes:
+Dispatch the registered `gate-scout` agent by name (never by a relative
+agent-file path) with the same dispatch contract `build-verify` uses. The agent
+is suite-owned and is resolved by the installed plugin runtime; do not read it
+relative to this skill or the consumer repository. This is the **single
+canonical source** of the project's unit-test command. Do not infer
+the test command independently, do not pick one manually, and do not consult
+`baseline-guide.md` for discovery (that guide only documents the broken-baseline
+gate; runner discovery is `gate-scout`'s job — #97). The dispatch prompt passes:
 
 - `REPO_ROOT` — absolute path to the target repository root (`"$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)"`).
 - `COVERAGE_HINT` — empty string (coverage is `build-verify`'s concern, not this skill's).

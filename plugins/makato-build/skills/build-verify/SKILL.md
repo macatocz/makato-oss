@@ -9,7 +9,7 @@ description: >-
   Use after review, before push-to-git. Triggers: verify, quality-gate,
   all-gates, build-pass, tests-pass, lint-clean, coverage-check,
   gate-pipeline, run-verify.
-version: "1.10.0"
+version: "1.11.0"
 argument-hint: "[work-item-key]"
 allowed-tools: Bash
 ---
@@ -413,7 +413,31 @@ Log:
 
 ### Step 8 — Gate 5: COVERAGE
 
-Run the coverage tool against the combined unit + integration results.
+Run the exact `gate-scout.data.coverage` command against the combined unit +
+integration results. The discovered command is authoritative: preserve its runner prefix
+(`uv run`, `poetry run`, `pdm run`, or `pipenv run`) and all configured flags verbatim. Do
+not reconstruct a bare `pytest`/`coverage` command from `python_runner_prefix`, and do not
+append options that were not present in the discovered command.
+
+For Python coverage, branch measurement belongs in the project configuration or in the
+collection/run command (for example `[tool.coverage.run] branch = true` or pytest-cov's
+supported collection flag). The report subcommand is only for rendering the already
+collected data; never attach a branch option to that report subcommand, because supported
+Coverage.py report options vary by version. If the discovered command uses a supported
+report invocation, run it unchanged.
+
+If `gate-scout.data.coverage` is `"not found"`:
+
+- Without a declared threshold, emit a degraded-confidence warning and record Gate 5 as
+  `skipped` (advisory). Do not guess a `coverage`, `pytest`, or system-Python command.
+- With a declared threshold, record Gate 5 as `error` with an explicit
+  `"coverage tooling/command unavailable"` reason and apply the existing `HALT-002`
+  coverage-gate route. Do not treat an unavailable tool as passing.
+
+If the report does not contain a conditional/branch metric, do not substitute line
+coverage. Without a declared threshold, record a degraded-confidence warning and continue;
+with a declared threshold, record Gate 5 as `error` with
+`"conditional coverage unavailable"` and apply `HALT-002`.
 
 Check **conditional coverage** (branch/condition coverage, not line coverage): every
 branch of every conditional in the new code must be exercised by at least one test.
@@ -432,7 +456,7 @@ If no threshold was declared:
 
 Log:
 ```
-{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-coverage","status":"ok"|"warn"|"error","data":{"conditional_coverage":"<X>%","threshold":"<Y>%|none","threshold_met":true|false}}
+{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-coverage","status":"ok"|"warn"|"error"|"skipped","data":{"coverage_command":"<exact gate-scout command>|not found","conditional_coverage":"<X>%|unavailable","threshold":"<Y>%|none","threshold_met":true|false|null,"degraded":true|false}}
 ```
 
 ---
@@ -483,8 +507,9 @@ This gate is **advisory only** — it never fails the build (NFR-R2).
 Resolve the final git diff using `skill-bundles.yml` / `inject-skills`:
 
 ```bash
-# collect changed files on the branch
-git diff --name-only origin/main...HEAD > /tmp/changed_files.txt
+# collect changed files on the branch against the resolved integration target
+DEFAULT_REF="$("$MAKATO_BUILD_ROOT/shared/default-branch.sh")"
+git diff --name-only "$DEFAULT_REF...HEAD" > /tmp/changed_files.txt
 # resolve expected skills via the registered inject-skills helper when the
 # caller supplied a suite checkout root; otherwise record an advisory skip.
 if [[ -n "${MAKATO_SUITE_ROOT:-}" ]]; then

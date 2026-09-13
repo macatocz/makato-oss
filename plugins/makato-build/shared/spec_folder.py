@@ -64,7 +64,6 @@ def _manifest_matches(folder: Path, issue_number: str) -> bool:
         return False
     return str(data.get("issue_number", "")) == issue_number
 
-
 def _created_issues_matches(folder: Path, issue_number: str) -> bool:
     artifact = folder / "created-issues.json"
     if not artifact.is_file():
@@ -81,13 +80,39 @@ def _created_issues_matches(folder: Path, issue_number: str) -> bool:
     return any(str(item.get("issue_number", "")) == issue_number for item in issues if isinstance(item, dict))
 
 
+def _stories_matches(folder: Path, issue_number: str) -> bool:
+    """Match issue-backed stories produced by makato-plan."""
+    artifact = folder / "stories.json"
+    if not artifact.is_file():
+        return False
+    try:
+        data = json.loads(artifact.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):  # fmt: skip
+        return False
+
+    def contains_issue(value: object) -> bool:
+        if isinstance(value, dict):
+            for key in ("githubIssue", "issue_number", "issueNumber"):
+                if str(value.get(key, "")) == issue_number:
+                    return True
+            return any(contains_issue(child) for child in value.values())
+        if isinstance(value, list):
+            return any(contains_issue(child) for child in value)
+        return False
+
+    return contains_issue(data)
+
+
 def _issue_matches(folder: Path, issue_number: str) -> bool:
     return (
         (folder / f"plan-{issue_number}.md").is_file()
         or _manifest_matches(folder, issue_number)
         or _created_issues_matches(folder, issue_number)
+        or _stories_matches(folder, issue_number)
         or (folder / f"workflow-state-{issue_number}.json").is_file()
     )
+
+
 
 
 def resolve_spec_folder(repo_root: Path, key: str, issue_number: str | None = None) -> Path:

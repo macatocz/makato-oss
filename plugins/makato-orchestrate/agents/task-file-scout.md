@@ -56,8 +56,10 @@ Your dispatch prompt provides:
 |---|---|---|
 | `TASK_DESCRIPTION` | string | The task's `title` (+ optional one-line elaboration) verbatim from `plan.md`. Used only to disambiguate which neighbour patterns are relevant when several exist. |
 | `CHANGED_FILES` | `list[str]` | Repo-relative paths the sub-task will create or modify, predicted from the task's `**Files:**` field. May be empty (treated as a no-scope case — only `BUNDLE_RULES` paths are pre-read; emit `key_patterns: []`). |
-| `BUNDLE_RULES` | `list[str]` | The ordered rule paths returned by `inject-context.resolve_bundles(...)`. Most-specific bundle first; `default` bundle paths last. The scout pre-reads these for naming/test-file conventions but does NOT re-resolve them. |
-| `REPO_ROOT` | string | Absolute path to the target repository root. |
+| `BUNDLE_RULES` | `list[str]` | The ordered rule paths returned by `inject-context.resolve_bundles(...)`. Most-specific bundle first; `default` bundle paths last. The scout pre-reads these for naming/test-file conventions but does NOT re-resolve them. Relative rule paths belong to the target repository, never to this agent or its plugin. |
+| `REPO_ROOT` | string | Absolute path to the target repository's main checkout. |
+| `WORKTREE_PATH` | string | Optional absolute path to the target repository worktree. When supplied, changed-file probes resolve beneath this path; otherwise they resolve beneath `REPO_ROOT`. |
+| `MAKATO_BUILD_ROOT` | string | Absolute installed build-plugin root. Use it for suite-owned contract references; never probe `REPO_ROOT/plugins/makato-build`. |
 
 You MUST NOT request additional files or invoke `inject-context` yourself
 — the calling skill has already resolved bundles. If the dispatch bundle
@@ -80,14 +82,18 @@ exist yet" is the expected state for greenfield tasks.
 
 ### Step 2 — Read
 
-For each path in the pre-read list:
+Resolve each relative `CHANGED_FILES` path beneath `WORKTREE_PATH` when
+provided, otherwise beneath `REPO_ROOT`. Resolve each relative `BUNDLE_RULES`
+path beneath `REPO_ROOT`. Absolute paths are accepted only when they remain
+inside the corresponding root. Read a path only when it is a regular file.
+If a target file is absent, skip it silently (greenfield/advisory miss); do not
+fall back to the agent's current directory, the skill directory, or a
+consumer-repository `plugins/makato-*` path.
 
-- Use `Read` to open the file. If `Read` fails because the file does not
-  exist, skip silently (greenfield).
-- For each `BUNDLE_RULES` path that does not exist on disk, skip
-  silently. The registry references aspirational `context/{repo}/` paths
-  per `plugins/makato-build/skills/inject-context/SKILL.md` § 6; missing
-  rule files are part of the contract.
+For each `BUNDLE_RULES` path that does not exist on disk, skip
+silently. The registry references aspirational `context/{repo}/` paths
+per `plugins/makato-build/skills/inject-context/SKILL.md` § 6; missing
+rule files are part of the contract.
 
 You MAY use `Grep` to confirm a symbol exists in a module before listing
 it in `existing_exports`, but do NOT use `Grep` to widen the file set
@@ -125,15 +131,15 @@ From the files you read, populate:
 
 The R1 envelope is the **last** fenced ` ```json ` block of your
 message. Caller (`build-implement-tdd`) parses it per
-`plugins/makato-build/agents/RETURN-CONTRACT.md` § Caller parsing rule.
+`"$MAKATO_BUILD_ROOT/agents/RETURN-CONTRACT.md"` § Caller parsing rule.
 
 Status mapping:
 
 | Condition | `status` |
 |---|---|
 | The agent read at least one file and produced a non-empty summary. | `success` |
-| Some pre-read files could not be read AND the resulting summary covers fewer than half of `CHANGED_FILES`. | `partial` |
-| The dispatch bundle is missing a required field, OR every pre-read attempt failed (no readable files at all). | `failure` |
+| One or more target files are absent, or some pre-read files could not be read, and the resulting summary covers fewer than half of `CHANGED_FILES`. Missing predicted files are normal greenfield/advisory misses, so this is never a path-not-found failure. | `partial` |
+| The dispatch bundle is missing a required field, or a present file fails for a reason other than ordinary absence (for example, permissions). | `failure` |
 
 ### Step 5 — Audit-log integration
 

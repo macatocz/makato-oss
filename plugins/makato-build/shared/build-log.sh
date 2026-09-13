@@ -65,20 +65,30 @@ if [[ "$ENTRY_OR_FLAG" == "--trace-id" ]]; then
   ENTRY_OR_FLAG="${4:?json entry or --batch flag required after --trace-id}"
 fi
 
-# Resolve to the MAIN checkout's repo root. From a worktree,
-# `git rev-parse --git-common-dir` echoes the main repo's `.git`; its parent is
-# the main checkout. From the main checkout the same call echoes `.git` and the
-# parent is the checkout itself — behaviour is identical for non-worktree callers.
-GIT_COMMON_DIR="$(git rev-parse --git-common-dir 2>/dev/null || true)"
-if [[ -n "$GIT_COMMON_DIR" ]]; then
-  # `--git-common-dir` may be relative to CWD; absolutise via the parent dir.
-  REPO_ROOT="$(cd "$GIT_COMMON_DIR/.." && pwd)"
+# Resolve the target repository explicitly when the suite is orchestrating a
+# checkout from a different directory. This is intentionally opt-in so local
+# callers retain the existing git-derived behaviour.
+if [[ -n "${MAKATO_TARGET_REPO_ROOT:-}" ]]; then
+  REPO_ROOT="$(cd "$MAKATO_TARGET_REPO_ROOT" 2>/dev/null && pwd -P)" || {
+    echo "build-log: target repository root is not a directory: $MAKATO_TARGET_REPO_ROOT" >&2
+    exit 1
+  }
+  git -C "$REPO_ROOT" rev-parse --show-toplevel >/dev/null 2>&1 || {
+    echo "build-log: target repository root is not a git checkout: $REPO_ROOT" >&2
+    exit 1
+  }
 else
-  # Outside a git repo entirely — degrade to the legacy behaviour so the
-  # script never crashes in test fixtures or scratch dirs.
-  REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+  GIT_COMMON_DIR="$(git rev-parse --git-common-dir 2>/dev/null || true)"
+  if [[ -n "$GIT_COMMON_DIR" ]]; then
+    # `--git-common-dir` may be relative to CWD; absolutise via the parent dir.
+    REPO_ROOT="$(cd "$GIT_COMMON_DIR/.." && pwd)"
+  else
+    # Outside a git repo entirely — degrade to the legacy behaviour so the
+    # script never crashes in test fixtures or scratch dirs.
+    REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+  fi
 fi
-SPECS_DIR="$REPO_ROOT/specs"
+SPECS_DIR="${MAKATO_SPECS_DIR:-$REPO_ROOT/specs}"
 
 # Resolve spec folder through the shared resolver. It supports the canonical
 # key-prefix shape, legacy exact folders, and numeric issue-to-slug lookup.

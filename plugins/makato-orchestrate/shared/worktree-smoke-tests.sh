@@ -284,25 +284,56 @@ EVENT_T15="$(echo "$OUT_T15" | head -1)"
 [[ "$EVENT_T15" == "worktree_resumed" ]] || { echo "  ✗ second --new-branch call should have resumed, got: $EVENT_T15"; exit 1; }
 echo "  ✓ second call is a resume (--new-branch is idempotent when the worktree already exists)"
 
-echo "=== T16: create (without --new-branch) on a non-existent branch fails loudly ==="
-KEY_T16="gap-170-no-new"
-BRANCH_T16="feat/170-does-not-exist"
-ISSUE_T16=171
+echo "=== T16: create --new-branch follows an arbitrary remote default branch ==="
+KEY_T16="gap-170-remote-default"
+BRANCH_T16="feat/170-from-develop"
+ISSUE_T16=172
 mkdir -p "$SANDBOX/repo/specs/$KEY_T16"
 "$WS_LOCAL" init "$KEY_T16" "$REPO_NAME" "$BRANCH_T16" "$ISSUE_T16"
 
+# Publish a develop-only commit and make the bare remote advertise develop as
+# HEAD. Delete the local origin/HEAD symref so the helper must query the
+# remote's HEAD rather than silently assuming origin/main.
+DEVELOP_SEED="$SANDBOX/develop-seed"
+git -C "$SANDBOX/repo" worktree add -q -b develop "$DEVELOP_SEED" main
+echo "develop-base" >"$DEVELOP_SEED/DEVELOP_ONLY"
+git -C "$DEVELOP_SEED" add DEVELOP_ONLY
+git -C "$DEVELOP_SEED" commit -q -m "develop base"
+git -C "$DEVELOP_SEED" push -q origin develop
+git -C "$SANDBOX/repo" worktree remove --force "$DEVELOP_SEED" >/dev/null
+git -C "$BARE" symbolic-ref HEAD refs/heads/develop
+git -C "$SANDBOX/repo" fetch origin --quiet
+git -C "$SANDBOX/repo" symbolic-ref --delete refs/remotes/origin/HEAD 2>/dev/null || true
+
+OUT_T16="$("$WT_LOCAL" create --new-branch "$KEY_T16" "$ISSUE_T16" "$REPO_NAME" "$BRANCH_T16")"
+EVENT_T16="$(echo "$OUT_T16" | head -1)"
+WT_T16="$(echo "$OUT_T16" | tail -1)"
+[[ "$EVENT_T16" == "worktree_created" ]] || { echo "  ✗ expected worktree_created, got: $EVENT_T16"; exit 1; }
+test -f "$WT_T16/DEVELOP_ONLY" \
+  || { echo "  ✗ new branch did not start from remote default branch develop"; exit 1; }
+MAIN_HEAD_T16="$(git -C "$SANDBOX/repo" rev-parse --abbrev-ref HEAD)"
+[[ "$MAIN_HEAD_T16" == "main" ]] || { echo "  ✗ main checkout drifted to $MAIN_HEAD_T16"; exit 1; }
+echo "  ✓ remote HEAD develop selected without moving main checkout"
+"$WT_LOCAL" cleanup "$KEY_T16" "$ISSUE_T16" >/dev/null
+
+echo "=== T17: create (without --new-branch) on a non-existent branch fails loudly ==="
+KEY_T17="gap-170-no-new"
+BRANCH_T17="feat/170-does-not-exist"
+ISSUE_T17=171
+mkdir -p "$SANDBOX/repo/specs/$KEY_T17"
+"$WS_LOCAL" init "$KEY_T17" "$REPO_NAME" "$BRANCH_T17" "$ISSUE_T17"
+
 set +e
-"$WT_LOCAL" create "$KEY_T16" "$ISSUE_T16" "$REPO_NAME" "$BRANCH_T16" >/dev/null 2>"$SANDBOX/t16.stderr"
-RC_T16=$?
+"$WT_LOCAL" create "$KEY_T17" "$ISSUE_T17" "$REPO_NAME" "$BRANCH_T17" >/dev/null 2>"$SANDBOX/t17.stderr"
+RC_T17=$?
 set -e
-[[ $RC_T16 -ne 0 ]] || { echo "  ✗ create on non-existent branch should have failed (rc=$RC_T16)"; exit 1; }
-grep -q "$BRANCH_T16" "$SANDBOX/t16.stderr" \
-  || { echo "  ✗ error message missing branch name"; cat "$SANDBOX/t16.stderr"; exit 1; }
-# State must NOT have been patched — the invariant is that a failed create
-# leaves state clean, no fabricated .worktree_path.
-"$WS_LOCAL" read "$KEY_T16" "$ISSUE_T16" | jq -e '.worktree_path == null' >/dev/null \
+[[ $RC_T17 -ne 0 ]] || { echo "  ✗ create on non-existent branch should have failed (rc=$RC_T17)"; exit 1; }
+grep -q "$BRANCH_T17" "$SANDBOX/t17.stderr" \
+  || { echo "  ✗ error message missing branch name"; cat "$SANDBOX/t17.stderr"; exit 1; }
+"$WS_LOCAL" read "$KEY_T17" "$ISSUE_T17" | jq -e '.worktree_path == null' >/dev/null \
   || { echo "  ✗ .worktree_path was patched despite create failure"; exit 1; }
 echo "  ✓ create failed with clear diagnostic, state left null"
+
 
 # ----------------------------------------------------------------------------
 # #170 Fix 3 — workflow-state.sh patch refuses .worktree_path writes to any
@@ -381,5 +412,82 @@ test ! -f "$WT_STATE" \
   || { echo "  ✗ #282 regression: state leaked into worktree specs/ at $WT_STATE"; exit 1; }
 echo "  ✓ state resolves to main checkout from within a worktree (no split trees)"
 
+echo "=== T20: installed helper works from a consumer repo with no makato files ==="
+CONSUMER="$SANDBOX/consumer-no-makato"
+mkdir -p "$CONSUMER"
+git -C "$CONSUMER" init -q -b main .
+git -C "$CONSUMER" config user.email "smoke@example.com"
+git -C "$CONSUMER" config user.name "smoke test"
+echo "consumer" >"$CONSUMER/README.md"
+git -C "$CONSUMER" add README.md
+git -C "$CONSUMER" commit -q -m "seed"
+CONSUMER_KEY="consumer-root-smoke"
+CONSUMER_REPO="owner/consumer"
+CONSUMER_BRANCH="auto/consumer-root-20"
+CONSUMER_ISSUE=220
+CONSUMER_ORCH="$REPO_ROOT/plugins/makato-orchestrate"
+CONSUMER_WS="$CONSUMER_ORCH/shared/workflow-state.sh"
+CONSUMER_WT="$CONSUMER_ORCH/shared/worktree.sh"
+git -C "$CONSUMER" branch "$CONSUMER_BRANCH"
+(
+  cd "$CONSUMER"
+  MAKATO_ORCHESTRATE_ROOT="$CONSUMER_ORCH" \
+    SCHEMA_PATH="$CONSUMER_ORCH/skills/workflow-state/references/workflow-state.schema.json" \
+    "$CONSUMER_WS" init "$CONSUMER_KEY" "$CONSUMER_REPO" "$CONSUMER_BRANCH" "$CONSUMER_ISSUE" >/dev/null
+)
+CONSUMER_OUT="$(
+  cd "$CONSUMER"
+  MAKATO_ORCHESTRATE_ROOT="$CONSUMER_ORCH" \
+    MAKATO_WORKTREE_ROOT="$CONSUMER/.claude/worktrees" \
+    "$CONSUMER_WT" create "$CONSUMER_KEY" "$CONSUMER_ISSUE" "$CONSUMER_REPO" "$CONSUMER_BRANCH"
+)"
+CONSUMER_PATH="$(echo "$CONSUMER_OUT" | tail -1)"
+CONSUMER_REAL="$(cd "$CONSUMER" && pwd -P)"
+[[ "$CONSUMER_PATH" == "$CONSUMER_REAL/.claude/worktrees/"* ]] \
+  || { echo "  ✗ installed helper did not create path under consumer repo: $CONSUMER_PATH"; exit 1; }
+test ! -d "$CONSUMER/plugins" \
+  || { echo "  ✗ consumer unexpectedly acquired suite-owned plugin files"; exit 1; }
+echo "  ✓ installed root resolved suite helpers without consumer plugins"
+(
+  cd "$CONSUMER"
+  MAKATO_ORCHESTRATE_ROOT="$CONSUMER_ORCH" \
+    "$CONSUMER_WT" cleanup "$CONSUMER_KEY" "$CONSUMER_ISSUE" >/dev/null
+)
+
+echo "=== T21: explicit target root isolates a dispatch launched from another checkout ==="
+EXTERNAL_KEY="consumer-root-external"
+EXTERNAL_REPO="owner/consumer"
+EXTERNAL_BRANCH="auto/consumer-root-external"
+EXTERNAL_ISSUE=221
+git -C "$CONSUMER" branch "$EXTERNAL_BRANCH"
+(
+  cd "$REPO_ROOT"
+  MAKATO_TARGET_REPO_ROOT="$CONSUMER" \
+    MAKATO_ORCHESTRATE_ROOT="$CONSUMER_ORCH" \
+    SCHEMA_PATH="$CONSUMER_ORCH/skills/workflow-state/references/workflow-state.schema.json" \
+    "$CONSUMER_WS" init "$EXTERNAL_KEY" "$EXTERNAL_REPO" "$EXTERNAL_BRANCH" "$EXTERNAL_ISSUE" >/dev/null
+)
+EXTERNAL_OUT="$(
+  cd "$REPO_ROOT"
+  MAKATO_TARGET_REPO_ROOT="$CONSUMER" \
+    MAKATO_ORCHESTRATE_ROOT="$CONSUMER_ORCH" \
+    MAKATO_WORKTREE_ROOT="$CONSUMER/.claude/worktrees" \
+    "$CONSUMER_WT" create "$EXTERNAL_KEY" "$EXTERNAL_ISSUE" "$EXTERNAL_REPO" "$EXTERNAL_BRANCH"
+)"
+EXTERNAL_PATH="$(echo "$EXTERNAL_OUT" | tail -1)"
+EXTERNAL_REAL="$(cd "$CONSUMER" && pwd -P)"
+MAIN_BRANCH="$(git -C "$CONSUMER" branch --show-current)"
+[[ "$EXTERNAL_PATH" == "$EXTERNAL_REAL/.claude/worktrees/"* ]] \
+  || { echo "  ✗ explicit target root ignored: $EXTERNAL_PATH"; exit 1; }
+[[ "$MAIN_BRANCH" == "main" ]] \
+  || { echo "  ✗ target main checkout moved to '$MAIN_BRANCH'"; exit 1; }
+echo "  ✓ suite-launched helper used target repo and preserved main branch"
+(
+  cd "$REPO_ROOT"
+  MAKATO_TARGET_REPO_ROOT="$CONSUMER" \
+    MAKATO_ORCHESTRATE_ROOT="$CONSUMER_ORCH" \
+    "$CONSUMER_WT" cleanup "$EXTERNAL_KEY" "$EXTERNAL_ISSUE" >/dev/null
+)
+
 echo
-echo "All 19 worktree-lifecycle smoke tests passed."
+echo "All 22 worktree-lifecycle smoke tests passed."

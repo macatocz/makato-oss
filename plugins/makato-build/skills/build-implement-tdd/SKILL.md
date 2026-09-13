@@ -144,7 +144,7 @@ Ask: "Which work item are you implementing? (e.g. #123, or pass it directly: `/m
 Load @references/tdd-cycle-rules.md. These rules govern all decisions in the TDD loop for this session.
 
 Resolve `MAKATO_BUILD_ROOT` from the installed-plugin-root contract in
-`AUTONOMOUS-MODE.md`, then resolve `SPEC_FOLDER` with
+`$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md`, then resolve `SPEC_FOLDER` with
 `"$MAKATO_BUILD_ROOT/shared/spec_folder.py" "$REPO_ROOT" "<key>"`. Read
 `plan.md` from that resolved folder. If it does not exist: stop and tell the
 user to run `/refine` first.
@@ -185,7 +185,7 @@ Dispatch the `plan-analyst` agent with:
 - `PLAN_PATH`: absolute path to `plan.md` in the resolved spec folder
 - `GLOSSARY_PATH`: absolute path to `glossary.md` in the resolved spec folder
 - `REPO_ROOT`: absolute path to the target repository root
-
+- `MAKATO_BUILD_ROOT`: absolute installed build-plugin root
 The agent returns a structured Plan Analysis containing: task list with tdd/goal mode, layers detected, `tracer_required` flag, glossary constraints, and reusable codebase patterns. Use this output for all subsequent steps — do not re-read plan.md or glossary.md independently.
 
 **plan-analyst failure branch:** if the plan-analyst agent returns R1 `status:"failure"` or
@@ -263,28 +263,42 @@ For each `mode: tdd` task in topological order, dispatch the per-task `task-file
 
 Before each `coder` dispatch, resolve the task's bundle rules via the
 `inject-context` skill and dispatch the registered `task-file-scout` agent by
-name when `MAKATO_ORCHESTRATE_ROOT` is available. Do not read an agent file
-relative to the skill directory or consumer repository.
-The scout is **advisory**, not a gate — a scout failure must never block
-the coder dispatch.
+name only when the optional `MAKATO_ORCHESTRATE_ROOT` is an existing installed
+plugin root and
+`"$MAKATO_ORCHESTRATE_ROOT/agents/task-file-scout.md"` exists. Never read an
+agent file relative to this skill directory, the consumer repository, or the
+current working directory. The scout is **advisory**, not a gate — a scout
+failure must never block the coder dispatch.
 
-1. **Resolve bundles.** Call the `inject-context` Python helper:
-   `import sys; sys.path.insert(0, MAKATO_BUILD_ROOT + '/shared'); from inject_context import resolve_bundles; rules, warning = resolve_bundles(task['files'], yaml.safe_load(open(MAKATO_BUILD_ROOT + '/config/context-bundles.yml')))` .
-   On `BundleResolutionError` with `halt_code == "HALT-006"`: skip the
-   scout entirely, log a `warn` JSONL entry (`step: "scout-skipped"`,
+1. **Resolve bundles.** Call the `inject-context` Python helper using only
+   installed build-plugin paths:
+   ```python
+   import sys
+   sys.path.insert(0, MAKATO_BUILD_ROOT + '/shared')
+   from inject_context import resolve_bundles
+   rules, warning = resolve_bundles(
+       task['files'],
+       yaml.safe_load(open(MAKATO_BUILD_ROOT + '/config/context-bundles.yml')),
+   )
+   ```
+   The returned relative `rules` are target-repository paths; the scout
+   resolves them beneath `REPO_ROOT` and only reads existing files. On
+   `BundleResolutionError` with `halt_code == "HALT-006"`: skip the scout
+   entirely, log a `warn` JSONL entry (`step: "scout-skipped"`,
    `reason: "halt-006-bundle-config"`), and dispatch `coder` without
    `SCOUT_SUMMARY`. The HALT-006 propagates to the PO-agent through
-   `knowledge-scout`'s pre-existing Step 0 path; this skill does not
-   re-emit it.
+   `knowledge-scout`'s pre-existing Step 0 path; this skill does not re-emit it.
 2. **Dispatch scout** with: `TASK_DESCRIPTION` (the task's title +
    one-line elaboration verbatim from `plan.md`), `CHANGED_FILES` (the
    task's `**Files:**` list), `BUNDLE_RULES` (the `rules` list from step 1,
    with `{repo}` substituted), `REPO_ROOT`, `WORKTREE_PATH` (forwarded
-   verbatim — the scout is read-only but resolves `CHANGED_FILES` relative
-   to the worktree).
-3. **Parse the scout R1 envelope** per `RETURN-CONTRACT.md` § Caller
-   parsing rule (last fenced ` ```json ` block, `JSON.parse()`, assert
-   `schema == "r1"`).
+   verbatim — the scout resolves target files beneath this worktree), and
+   `MAKATO_BUILD_ROOT` (forwarded so suite-owned contract references remain
+   installed-root absolute). Missing predicted files are greenfield/advisory
+   misses, not dispatch failures.
+3. **Parse the scout R1 envelope** per
+   `"$MAKATO_BUILD_ROOT/agents/RETURN-CONTRACT.md"` § Caller parsing rule
+   (last fenced ` ```json ` block, `JSON.parse()`, assert `schema == "r1"`).
 4. **Map scout R1 to coder input:**
    - `r1.status == "success"` — forward `r1.data` to coder as
      `SCOUT_SUMMARY`. Mirror the scout R1 to `build.jsonl` with
@@ -299,11 +313,12 @@ the coder dispatch.
      `schema != "r1"`) — treat as `failure` per the table above. Per
      NEVER 6, do not retry the scout dispatch.
 
-When `MAKATO_ORCHESTRATE_ROOT` is absent (the build pipeline is running
-standalone without the orchestrator), skip Step 6's scout dispatch entirely
-and proceed straight to the coder dispatch without `SCOUT_SUMMARY`. No
-consumer-repository plugin path is probed; the build pipeline remains
-operable in a developer's hands without the orchestrate plugin.
+When `MAKATO_ORCHESTRATE_ROOT` is absent, is not a valid installed
+orchestrate-plugin root, or lacks `agents/task-file-scout.md`, skip Step 6's
+scout dispatch entirely and proceed straight to the coder dispatch without
+`SCOUT_SUMMARY`. No consumer-repository plugin path is probed; the build
+pipeline remains operable in a developer's hands without the orchestrate
+plugin.
 
 The coder agent runs the full RED→GREEN→INTEGRATE→VERIFY cycle for the task and appends JSONL entries directly to JSONL_PATH.
 

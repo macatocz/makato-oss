@@ -122,7 +122,7 @@ Dispatch the `plan-analyst` agent with:
 - `PLAN_PATH`: absolute path to `plan.md` in the resolved spec folder
 - `GLOSSARY_PATH`: absolute path to `glossary.md` in the resolved spec folder
 - `REPO_ROOT`: absolute path to the target repository root
-
+- `MAKATO_BUILD_ROOT`: absolute installed build-plugin root
 The agent returns a structured Plan Analysis containing: task list with tdd/goal mode, layers detected, `tracer_required` flag, glossary constraints, and reusable codebase patterns. Use this output for all subsequent steps — do not re-read plan.md or glossary.md independently.
 
 If the plan-analyst agent returns an error or empty task list: HALT with `errors: ["PLAN_ANALYST_FAILED: <agent error message>"]`. Do not attempt to infer task structure from plan.md directly — a failed analysis means the plan structure is ambiguous and the session must not proceed.
