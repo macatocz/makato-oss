@@ -31,8 +31,9 @@ class SpecFolderResolutionTests(unittest.TestCase):
         )
 
         self.assertEqual(resolve_spec_folder(self.root, "#995"), folder.resolve())
+
     def test_numeric_issue_resolves_from_stories_artifact(self) -> None:
-        folder = self.root / "specification-slug"
+        folder = self.root / "specs" / "specification-slug"
         folder.mkdir()
         (folder / "stories.json").write_text(
             json.dumps({"stories": [{"githubIssue": 995}]}),
@@ -40,7 +41,6 @@ class SpecFolderResolutionTests(unittest.TestCase):
         )
 
         self.assertEqual(resolve_spec_folder(self.root, "995"), folder.resolve())
-
 
     def test_numeric_issue_resolves_from_seed_manifest(self) -> None:
         folder = self.root / "specs" / "db-schema-redesign"
