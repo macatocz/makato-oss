@@ -5,7 +5,7 @@ description: >-
   runtime, write tests after. Autonomous. Use after refine for UI,
   config, or migration work, or when implement-goal tasks remain
   from a mixed plan.
-version: "1.5.0"
+version: "1.5.1"
 modelRole: task
 argument-hint: "[work-item-key]"
 allowed-tools: [Bash]
@@ -30,9 +30,9 @@ for goal-mode tasks and `/implement-tdd` for tdd-mode tasks, in the order the pl
 When dispatched by the PO-agent (`--autonomous` mode), this skill receives a context bundle containing at minimum:
 
 - `<work-item-key>` — positional argument.
-- `WORKTREE_PATH` — absolute filesystem path to the per-run git worktree the PO-agent owns. **Mandatory in autonomous mode** (see `plugins/makato-build/AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract*). The skill MUST `cd "$WORKTREE_PATH"` before any file edit, build, or test command.
-- `MAKATO_BUILD_ROOT` — absolute installed build-plugin root, resolved from
-  the runner plugin-root variables when not supplied.
+- `WORKTREE_PATH` — absolute filesystem path to the per-run git worktree the PO-agent owns. **Mandatory in autonomous mode** (see `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract*). The skill MUST `cd "$WORKTREE_PATH"` before any file edit, build, or test command.
+- `MAKATO_BUILD_ROOT` — absolute installed build-plugin root. Resolve it from the
+  runner plugin-root variables or the `omp` plugin registry when not supplied.
 - `GATE_COMMANDS` — optional gate-scout command map. When absent, dispatch
   gate-scout once before the baseline and use its commands verbatim.
 - `--autonomous` — activation flag.
@@ -65,10 +65,9 @@ Spec-artefact paths below resolve to `$REPO_ROOT/specs/<key>-*/...`.
 If no `<work-item-key>` argument was passed (interactive mode): use `AskUserQuestion` with:
 - question: `"Which work item are you implementing?"`
 - options: `["Pass it directly, e.g. #123", "Run /build-implement-goal #123 to skip this prompt"]`
-
-Load `@references/goal-driven-rules.md`. These rules govern all decisions in the goal loop
-for this session.
-**Do NOT load `references/goal-driven-rules.md` more than once per session.**
+Load `"$MAKATO_BUILD_ROOT/skills/build-implement-goal/references/goal-driven-rules.md"`.
+These rules govern all decisions in the goal loop for this session.
+**Do NOT load this file more than once per session.**
 
 Resolve `SPEC_FOLDER` with
 `python3 "$MAKATO_BUILD_ROOT/shared/spec_folder.py" "$REPO_ROOT" "<key>"`,
@@ -97,10 +96,11 @@ Run:
 
 ### Step 3 — Establish test baseline
 
-Load @shared/baseline-guide.md. Before running it, dispatch gate-scout when
-`GATE_COMMANDS` is absent and pass the discovered `unit` command (including its
-runner prefix). Never substitute a bare system-Python test command.
-**Do NOT load `shared/baseline-guide.md` more than once per session.**
+Load `"$MAKATO_BUILD_ROOT/shared/baseline-guide.md"`. Before running it,
+dispatch gate-scout when `GATE_COMMANDS` is absent and pass the discovered `unit`
+command (including its runner prefix). Never substitute a bare system-Python test
+command.
+**Do NOT load this file more than once per session.**
 
 **Flakey test rule**: if a test fails but no source code was changed between runs, re-run that single test once before classifying. If it passes on the second run, log it as flakey and continue. If it fails again, classify normally.
 
@@ -123,7 +123,7 @@ Dispatch the `plan-analyst` agent with:
 - `GLOSSARY_PATH`: absolute path to `glossary.md` in the resolved spec folder
 - `REPO_ROOT`: absolute path to the target repository root
 - `MAKATO_BUILD_ROOT`: absolute installed build-plugin root
-The agent returns a structured Plan Analysis containing: task list with tdd/goal mode, layers detected, `tracer_required` flag, glossary constraints, and reusable codebase patterns. Use this output for all subsequent steps — do not re-read plan.md or glossary.md independently.
+- `MAKATO_SUITE_ROOT`: optional suite checkout or installed registry root, when available
 
 If the plan-analyst agent returns an error or empty task list: HALT with `errors: ["PLAN_ANALYST_FAILED: <agent error message>"]`. Do not attempt to infer task structure from plan.md directly — a failed analysis means the plan structure is ambiguous and the session must not proceed.
 
@@ -177,8 +177,8 @@ Log:
 
 #### ✎ TEST
 
-Load `@references/post-impl-test-guide.md`.
-**Do NOT load `references/post-impl-test-guide.md` more than once per session.**
+Load `"$MAKATO_BUILD_ROOT/skills/build-implement-goal/references/post-impl-test-guide.md"`.
+**Do NOT load this file more than once per session.**
 
 Write tests that document the observed behavior of the implementation. Tests must describe
 what the implementation actually does — not what was hoped, and not internal implementation

@@ -12,7 +12,7 @@ description: >-
   Called by knowledge-scout at Step 0. Never invoke directly — programmatic use
   only. Trigger keywords: skill routing, inject skills, recommend skills,
   knowledge-scout dispatch, skill-bundles.yml.
-version: "1.1.0"
+version: "1.2.0"
 argument-hint: "[--changed-files <file1> <file2> ...] [--target-repo <path>] [--task-text <text>]"
 ---
 
@@ -40,20 +40,24 @@ assembling task context rather than an agent dispatch bundle.
 > skills to appear in recommendations, that plugin must ship at least one bundle
 > in its own `config/skill-bundles.yml` (or `shared/skill-bundles.yml`). Without
 > a bundle file, `inject-skills` has no mapping and produces no recommendations
-> for that plugin's skill identifiers, regardless of what files change. See
-> `plugins/makato-build/shared/skill-bundles.yml` for a worked example.
+> for that plugin's skill identifiers, regardless of what files change. The
+> installed `makato-build` registry always supplies the mandatory `default`
+> fallback when no suite checkout is available.
 
 ## Input
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `changed_files` | `List[str]` | yes | Repo-relative paths to files the target agent will read or write. May be empty (`[]`) — the skill must not error for an empty list. |
-| `target_repo` | `str` | yes | Absolute filesystem path to the makato checkout being built. Used to aggregate every `plugins/*/config/skill-bundles.yml` and to discover the installed skill set. |
-| `task_text` | `str` | no | Optional task description / issue body for task-text routing. When provided, bundles that declare `task_contains` are also matched against this text (OR-semantics). When absent or empty, behaviour is identical to file-only mode. |
+| `registry_root` | `str` | yes | Absolute installed plugin root or makato suite checkout. Used to aggregate skill-bundle registries and discover installed skills. |
+| `target_repo_root` | `str` | yes | Absolute consumer checkout root. Used only to read changed-file contents for content hints. |
+| `fallback_registry_root` | `str` | no | Optional installed `makato-build` plugin root. Its bundles and installed skills are added when the primary registry is a partial suite registry, ensuring the mandatory `default` bundle remains available. |
+| `task_text` | `str` | no | Optional task description / issue body for task-text routing. When provided, bundles that declare `task_contains` are also matched against this text (OR-semantics). |
 
-Both required fields are validated at entry. If either is missing or
-`target_repo` is not a string, return a `warnings` entry describing the problem
-and an empty `recommended_skills` list — do NOT raise an exception.
+Both required root fields are validated at entry. If either is missing or not a
+string, return a `warnings` entry describing the problem and an empty
+`recommended_skills` list — do NOT raise.
+
 
 ## Output
 
@@ -68,15 +72,15 @@ and an empty `recommended_skills` list — do NOT raise an exception.
 |-------|------|-------------|
 | `recommended_skills` | `List[str]` | Ordered, deduplicated skill identifiers to inject. Empty when nothing matches. |
 | `warnings` | `List[dict]` | Structured diagnostics. Each has a `code`: `no-match-fallback` (`{unmatched_files: [...]}`) or `missing-skills` (`{skills: [...]}`). Empty when no issues. |
-
 ## Behavior
 
 The reference implementation lives at
-`plugins/makato-build/shared/inject_skills.py`. It — and this document — are the
+`$MAKATO_BUILD_ROOT/shared/inject_skills.py`. It — and this document — are the
 authoritative source for matching semantics. The full-path entry point is
-`resolve_skills_for_repo(changed_files, target_repo, *, task_text=None)`; the
-pure core is
-`resolve_skills(changed_files, config, *, file_texts, installed_skills, task_text=None)`.
+`resolve_skills_for_repo(changed_files, registry_root, target_repo_root=...,
+fallback_registry_root=..., task_text=...)`; the pure core is
+`resolve_skills(changed_files, config, *, file_texts, installed_skills,
+task_text=None)`.
 
 **Terminology used in the algorithm below:**
 - **Glob-specificity**: count of literal path segments (segments with no `*` or
@@ -89,37 +93,38 @@ pure core is
   specificity score 0; never adds files to the `no-match-fallback` warning.
 
 ### 7-step resolution algorithm
-
-1. **Aggregate the registry (cross-plugin).** `aggregate_bundles(target_repo)`
-   merges every `plugins/*/config/skill-bundles.yml` in sorted-path order into
-   one config. Each plugin contributes its non-`default` bundles; exactly one
-   `default` bundle is retained (the first encountered) so the merged registry
-   always has a single unambiguous fallback. If no plugin ships a `default`
-   bundle, `BundleResolutionError` (HALT-006) is raised.
+1. **Aggregate the registry.** `aggregate_bundles(registry_root,
+   fallback_root=fallback_registry_root)` merges every plugin registry when
+   `registry_root` is a suite checkout, or the installed plugin's own registry
+   when it is a plugin root. The optional fallback adds the installed
+   `makato-build` registry when the primary suite is partial. Exactly one
+   `default` bundle is retained; if neither root supplies one,
+   `BundleResolutionError` (HALT-006) is raised.
 2. **Match each changed file.** A bundle matches a file when any of its `globs`
-   matches **and** its content-hint predicate is satisfied: a bundle with
-   a `contains` list matches only if at least one substring appears in the
+   matches **and** its content-hint predicate is satisfied: a bundle with a
+   `contains` list matches only if at least one substring appears in the
    file's text (OR-semantics); a bundle with no `contains` is glob-only. A file
    that is not on disk or unreadable cannot satisfy a `contains` predicate.
 3. **Task-text routing.** Independently of file matching, a bundle that
-   declares a non-empty `task_contains` list is also selected when **at least
-   one** substring in that list appears in `task_text` (OR-semantics, case-
+   declares a non-empty `task_contains` list is also selected when **at least**
+   one substring in that list appears in `task_text` (OR-semantics, case-
    sensitive substring match — the same rule as `contains`). A task-only
    selection contributes specificity score **0** and does NOT add any file to
    the `no-match-fallback` warning (that warning is file-scoped). When
    `task_text` is absent or empty, all `task_contains` predicates are ignored —
    resolution is byte-for-byte identical to file-only mode.
 4. **Order by specificity.** Bundles are applied in decreasing order of
-   glob specificity. A bundle's rank is the MAX score it achieved on
-   any file (or 0 for a task-only match). Ties break by declaration order, then
-   by config-file path. The `default` bundle is always appended last.
+   glob specificity. A bundle's rank is the MAX score it achieved on any file
+   (or 0 for a task-only match). Ties break by declaration order, then by
+   config-file path. The `default` bundle is always appended last.
 5. **Deduplicate.** Skill identifiers are deduplicated preserving the FIRST
    occurrence.
-6. **Filter to installed skills.** `discover_installed_skills(target_repo)`
-   enumerates `plugins/*/skills/*/` directory names. Resolved skills not in that
-   set are dropped from `recommended_skills` and reported via a `missing-skills`
-   warning — never an exception. This lets a bundle reference a skill that
-   a given repo has not installed without breaking resolution.
+6. **Filter to installed skills.** `discover_installed_skills(registry_root,
+   fallback_root=fallback_registry_root)` enumerates skills across both roots.
+   Resolved skills not in that set are dropped from `recommended_skills` and
+   reported via a `missing-skills` warning — never an exception. This lets a
+   bundle reference a skill that a given installation has not adopted without
+   breaking resolution.
 7. **Warn on no-match fallback.** If a changed file matches no non-`default`
    bundle and `default`'s own globs don't cover it either, the file is recorded
    in a `no-match-fallback` warning. With the canonical `default.globs == ["**/*"]`

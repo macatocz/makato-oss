@@ -373,47 +373,54 @@ def resolve_skills(
 
 
 # ---------------------------------------------------------------------------
-# Orchestration helpers — filesystem + PyYAML (not exercised by pure unit tests)
+# Filesystem aggregation helpers — PyYAML + installed-plugin discovery.
 # ---------------------------------------------------------------------------
 
 
-def aggregate_bundles(makato_root: Path | str) -> dict:
-    """Merge every ``plugins/*/config/skill-bundles.yml`` into one config.
+def _config_paths(root: Path) -> list[Path]:
+    """Return skill-bundle registries for a suite checkout or one plugin."""
+    plugin_manifest = root / ".claude-plugin" / "plugin.json"
+    if plugin_manifest.is_file():
+        return [root / "config" / "skill-bundles.yml"]
+    return sorted(root.glob("plugins/*/config/skill-bundles.yml"))
 
-    Cross-plugin aggregation (F1 baseline for S3): each plugin owns its own
-    ``skill-bundles.yml`` and contributes its non-``default`` bundles to a single
-    merged registry. Exactly one ``default`` bundle is retained — the first one
-    encountered in path-sorted order — so the merged config always satisfies the
-    HALT-006 default-present contract without duplicate-name collisions.
 
-    Config files are visited in sorted path order for determinism; that order
-    is also the cross-plugin tie-break for equally-specific bundles.
+def aggregate_bundles(
+    makato_root: Path | str,
+    *,
+    fallback_root: Path | str | None = None,
+) -> dict:
+    """Merge registries, retaining the first default bundle.
 
-    Raises BundleResolutionError (HALT-006) if no plugin ships a ``default``
-    bundle. A single plugin's own duplicate bundle names surface later in
-    ``resolve_skills`` validation; cross-plugin duplicate names likewise raise
-    there, which is the intended strictness.
+    ``makato_root`` is normally the suite registry. ``fallback_root`` is the
+    installed makato-build plugin and guarantees that the resolver still has a
+    default bundle when a partial suite registry omits one.
     """
     import yaml  # type: ignore[import-untyped]
 
-    root = Path(makato_root)
-    merged: list[dict] = []
-    seen_default = False
+    roots = [Path(makato_root)]
+    if fallback_root is not None and Path(fallback_root) not in roots:
+        roots.append(Path(fallback_root))
 
-    config_paths = sorted(root.glob("plugins/*/config/skill-bundles.yml"))
-    for cfg_path in config_paths:
-        try:
-            raw = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
-        except (OSError, yaml.YAMLError):  # fmt: skip
-            continue
-        for bundle in raw.get("bundles", []) or []:
-            if bundle.get("name") == "default":
-                # Keep only the first default; drop the rest so the merged
-                # registry has a single unambiguous fallback.
-                if seen_default:
+    merged: list[dict] = []
+    seen_names: set[str] = set()
+    seen_default = False
+    for root_index, root in enumerate(roots):
+        for cfg_path in _config_paths(root):
+            try:
+                raw = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+            except (OSError, yaml.YAMLError):  # fmt: skip
+                continue
+            for bundle in raw.get("bundles", []) or []:
+                name = bundle.get("name")
+                if root_index > 0 and name in seen_names:
                     continue
-                seen_default = True
-            merged.append(bundle)
+                if name == "default":
+                    if seen_default:
+                        continue
+                    seen_default = True
+                seen_names.add(name)
+                merged.append(bundle)
 
     if not seen_default:
         raise BundleResolutionError(
@@ -427,15 +434,24 @@ def aggregate_bundles(makato_root: Path | str) -> dict:
     return {"version": "1.0", "bundles": merged}
 
 
-def discover_installed_skills(makato_root: Path | str) -> set[str]:
-    """Return the set of skill identifiers installed under ``plugins/*/skills/``.
+def discover_installed_skills(
+    makato_root: Path | str,
+    *,
+    fallback_root: Path | str | None = None,
+) -> set[str]:
+    """Return installed skill identifiers across primary and fallback roots."""
+    roots = [Path(makato_root)]
+    if fallback_root is not None and Path(fallback_root) not in roots:
+        roots.append(Path(fallback_root))
 
-    A skill's identifier is its directory name — the same token used in a
-    bundle's ``skills`` list (e.g. ``langgraph-fundamentals``). Used to build the
-    D10 subset filter for ``resolve_skills``.
-    """
-    root = Path(makato_root)
-    return {skill_md.parent.name for skill_md in root.glob("plugins/*/skills/*/SKILL.md")}
+    installed: set[str] = set()
+    for root in roots:
+        if (root / ".claude-plugin" / "plugin.json").is_file():
+            paths = root.glob("skills/*/SKILL.md")
+        else:
+            paths = root.glob("plugins/*/skills/*/SKILL.md")
+        installed.update(skill_md.parent.name for skill_md in paths)
+    return installed
 
 
 def resolve_skills_for_repo(
@@ -444,40 +460,29 @@ def resolve_skills_for_repo(
     *,
     apply_subset_filter: bool = True,
     task_text: str | None = None,
+    target_repo_root: Path | str | None = None,
+    fallback_registry_root: Path | str | None = None,
 ) -> tuple[list[str], list[dict]]:
-    """End-to-end resolution against a makato checkout.
-
-    Aggregates every plugin's ``skill-bundles.yml`` (cross-plugin), reads the
-    text of each changed file that exists for D19 content hints, discovers the
-    installed skill set for the D10 subset filter, and delegates to the pure
-    ``resolve_skills``. This is the entry point knowledge-scout's Step 0 calls.
-
-    Args:
-        changed_files: paths the target agent will read or write.
-        makato_root: absolute path to the makato checkout root.
-        apply_subset_filter: when True (default), resolved skills are filtered
-            to those installed under ``plugins/*/skills/*/SKILL.md`` (D10).
-        task_text: optional task description / issue body for F5 task-hint
-            matching. Forwarded verbatim to ``resolve_skills`` as ``task_text``.
-            When None or empty (the default), task-hint routing is inactive and
-            resolution is byte-for-byte identical to the pre-F5 behaviour.
-            The caller (PO-agent, build-implement-tdd) assembles the string from
-            the issue body + plan.md; no filesystem reads happen here.
-    """
-    root = Path(makato_root)
-    config = aggregate_bundles(root)
+    """Resolve skills with separate registry, fallback, and content roots."""
+    registry_root = Path(makato_root)
+    content_root = Path(target_repo_root) if target_repo_root is not None else registry_root
+    config = aggregate_bundles(registry_root, fallback_root=fallback_registry_root)
 
     files = list(changed_files)
     file_texts: dict[str, str] = {}
     for file_path in files:
-        candidate = root / file_path
+        candidate = content_root / file_path
         try:
             if candidate.is_file():
                 file_texts[file_path] = candidate.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
 
-    installed = discover_installed_skills(root) if apply_subset_filter else None
+    installed = (
+        discover_installed_skills(registry_root, fallback_root=fallback_registry_root)
+        if apply_subset_filter
+        else None
+    )
     return resolve_skills(
         files,
         config,
@@ -485,6 +490,7 @@ def resolve_skills_for_repo(
         installed_skills=installed,
         task_text=task_text,
     )
+
 
 
 __all__ = [
@@ -495,10 +501,24 @@ __all__ = [
     "resolve_skills_for_repo",
 ]
 
-
 def _main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", required=True, type=Path, help="makato suite checkout root")
+    parser.add_argument(
+        "--root",
+        required=True,
+        type=Path,
+        help="makato suite checkout or installed plugin root",
+    )
+    parser.add_argument(
+        "--fallback-root",
+        type=Path,
+        help="optional installed build-plugin root used as a registry fallback",
+    )
+    parser.add_argument(
+        "--target-repo-root",
+        type=Path,
+        help="consumer checkout root used to read changed-file contents",
+    )
     parser.add_argument("--files", required=True, type=Path, help="newline-delimited changed-file list")
     parser.add_argument("--no-subset-filter", action="store_true")
     args = parser.parse_args(argv)
@@ -508,9 +528,12 @@ def _main(argv: list[str]) -> int:
         changed_files,
         args.root,
         apply_subset_filter=not args.no_subset_filter,
+        target_repo_root=args.target_repo_root,
+        fallback_registry_root=args.fallback_root,
     )
     print(json.dumps({"skills_expected": skills, "warnings": warnings}))
     return 0
+
 
 
 if __name__ == "__main__":

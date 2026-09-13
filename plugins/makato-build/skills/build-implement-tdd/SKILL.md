@@ -6,7 +6,7 @@ description: >-
   Tracer bullet phase for multi-layer stories. Autonomous loop. Use
   after refine to implement-tdd a story plan, implement tdd tasks, or
   run the core build loop.
-version: "1.11.0"
+version: "1.11.1"
 modelRole: task
 argument-hint: "[work-item-key]"
 allowed-tools: ["Bash", "Read"]
@@ -30,11 +30,10 @@ Use after `/refine` has produced `plan.md` in the spec folder and the plan conta
 When dispatched by the PO-agent (`--autonomous` mode), this skill receives a context bundle containing at minimum:
 
 - `<work-item-key>` — positional argument (e.g. `#123`, `GAP-085`).
-- `WORKTREE_PATH` — absolute filesystem path to the per-run git worktree the PO-agent owns. **Mandatory in autonomous mode** (see `plugins/makato-build/AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract*). The skill MUST `cd "$WORKTREE_PATH"` before any `git`, `pytest`, or file-edit operation, and forward this value to every nested `coder` dispatch in Step 6.
+- `WORKTREE_PATH` — absolute filesystem path to the per-run git worktree the PO-agent owns. **Mandatory in autonomous mode** (see `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract*). The skill MUST `cd "$WORKTREE_PATH"` before any `git`, `pytest`, or file-edit operation, and forward this value to every nested `coder` dispatch in Step 6.
 - `ISSUE_NUMBER` — GitHub issue number (integer, no leading zeros). Used by the workflow-state patch call at the end of Step 6 (`workflow-state-<issue>.json`). **Mandatory in autonomous mode** when `makato-orchestrate` is present; ignored in interactive mode.
-- `MAKATO_BUILD_ROOT` — absolute installed build-plugin root. Resolve from
-  `CLAUDE_PLUGIN_ROOT`, `OMP_PLUGIN_ROOT`, or `PLUGIN_ROOT` when the caller does
-  not supply it; never infer it from the target repository CWD.
+- `MAKATO_BUILD_ROOT` — absolute installed build-plugin root. Resolve it from
+  the runner plugin-root variables or the `omp` plugin registry when not supplied.
 - `MAKATO_ORCHESTRATE_ROOT` — optional absolute orchestrate-plugin root supplied
   by the PO-agent. When absent, skip optional scout/workflow-state integration
   without probing `$REPO_ROOT/plugins/...`.
@@ -133,15 +132,17 @@ a task that hasn't run yet. Topo-sort first, enforce strictly.
 `partial`/`failure` would record false task completion in the PO-agent's state machine,
 causing the outer loop to skip the failed task on the next dispatch.
 
-**Do NOT Load `references/test-writing-guide.md` unless dispatching a coder in Step 6 for
-a story with no established test conventions.** Do NOT Load `references/tdd-cycle-rules.md`
-outside Steps 1 and 5. Do NOT Load `@shared/baseline-guide.md` outside Step 3.
+**Do NOT Load** `references/test-writing-guide.md` unless dispatching a coder in
+Step 6 for a story with no established test conventions. **Do NOT Load**
+`references/tdd-cycle-rules.md` outside Steps 1 and 5. **Do NOT Load**
+`"$MAKATO_BUILD_ROOT/shared/baseline-guide.md"` outside Step 3.
 
 ### Step 1 — Ask for work item key and load plan
 
 Ask: "Which work item are you implementing? (e.g. #123, or pass it directly: `/makato-build:build-implement-tdd #123`)" — or use the passed argument directly.
 
-Load @references/tdd-cycle-rules.md. These rules govern all decisions in the TDD loop for this session.
+Load `"$MAKATO_BUILD_ROOT/skills/build-implement-tdd/references/tdd-cycle-rules.md"`.
+These rules govern all decisions in the TDD loop for this session.
 
 Resolve `MAKATO_BUILD_ROOT` from the installed-plugin-root contract in
 `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md`, then resolve `SPEC_FOLDER` with
@@ -163,7 +164,8 @@ Run:
 
 ### Step 3 — Establish test baseline
 
-Load @shared/baseline-guide.md. Follow its instructions to establish the baseline and handle the broken baseline gate.
+Load `"$MAKATO_BUILD_ROOT/shared/baseline-guide.md"`. Follow its instructions
+to establish the baseline and handle the broken baseline gate.
 
 If `GATE_COMMANDS` was not supplied, dispatch the registered `gate-scout`
 agent once with `REPO_ROOT` and `COVERAGE_HINT`, parse its R1 `data`, and store
@@ -186,7 +188,7 @@ Dispatch the `plan-analyst` agent with:
 - `GLOSSARY_PATH`: absolute path to `glossary.md` in the resolved spec folder
 - `REPO_ROOT`: absolute path to the target repository root
 - `MAKATO_BUILD_ROOT`: absolute installed build-plugin root
-The agent returns a structured Plan Analysis containing: task list with tdd/goal mode, layers detected, `tracer_required` flag, glossary constraints, and reusable codebase patterns. Use this output for all subsequent steps — do not re-read plan.md or glossary.md independently.
+- `MAKATO_SUITE_ROOT`: optional suite checkout or installed registry root, when available
 
 **plan-analyst failure branch:** if the plan-analyst agent returns R1 `status:"failure"` or
 its envelope cannot be parsed, stop immediately. Do not attempt to read `plan.md` directly

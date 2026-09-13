@@ -5,7 +5,7 @@ description: >-
   implementation plan — tasks, file targets, unit/integration test
   strategy, acceptance mapping. Use to start a build session before
   implement-tdd or implement-goal.
-version: "1.11.0"
+version: "1.11.1"
 modelRole: plan
 argument-hint: "[work-item-key] [--autonomous]"
 allowed-tools:
@@ -32,10 +32,14 @@ Use at the start of every build session, after a story has been shaped by makato
 When dispatched by the PO-agent on a re-plan cycle (`--autonomous` mode):
 
 - `<work-item-key>` — positional argument.
-- `WORKTREE_PATH` — absolute filesystem path to the per-run git worktree. **Mandatory in autonomous mode** (see `plugins/makato-build/AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract*). Plan-file writes target `$REPO_ROOT/specs/<key>-*/plan-<ISSUE_NUMBER>.md` (main checkout — `specs/` is gitignored in worktrees); the worktree path is captured so the falsy-check is symmetric across the pipeline.
+- `WORKTREE_PATH` — absolute filesystem path to the per-run git worktree. **Mandatory in autonomous mode** (see `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract*). Plan-file writes target `$REPO_ROOT/specs/<key>-*/plan-<ISSUE_NUMBER>.md` (main checkout — `specs/` is gitignored).
+- `MAKATO_BUILD_ROOT` — absolute installed build-plugin root. Resolve it from
+  the runner plugin-root variables or the `omp` plugin registry when not supplied.
+- `MAKATO_SUITE_ROOT` — optional absolute makato suite checkout or installed registry root for cross-plugin skill-bundle aggregation. When absent, knowledge-scout falls back to `MAKATO_BUILD_ROOT`.
 - `--autonomous` — activation flag.
 
-Interactive mode: `WORKTREE_PATH` is optional; fall back to `git rev-parse --show-toplevel` of the current `$PWD`.
+Interactive mode: `WORKTREE_PATH` is optional; fall back to
+`git rev-parse --show-toplevel` of the current `$PWD`.
 
 ### Workspace-isolation entry guard
 
@@ -253,14 +257,13 @@ Run: `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"bui
 
 ### Step 5.5 — Load knowledge graph (conditional)
 
-Before exploring the local `context/` directory, attempt to load knowledge from the project specs repository:
-
-Derive REPO_NAME from the last path segment of the target repo root. Extract 5–10 key terms from the story title and description (from `stories.json`) as KEYWORDS.
-
 Dispatch the `knowledge-scout` agent with `REPO_ROOT`, `MAKATO_BUILD_ROOT`,
-`REPO_NAME`, and `KEYWORDS`. The agent handles project specs discovery
-internally (makato.config.json → in-repo `specs/` → skip) and reads suite-owned
-configuration only from the installed build-plugin root.
+`MAKATO_SUITE_ROOT` when available, `REPO_NAME`, `KEYWORDS`, the story or
+active-task text as `TASK_TEXT` when available, and the predicted
+`CHANGED_FILES` list (which MAY be empty before task decomposition).
+The agent handles project specs discovery internally and reads suite-owned
+configuration only from the installed registry root. It uses `MAKATO_BUILD_ROOT`
+as the mandatory default-bundle fallback when `MAKATO_SUITE_ROOT` is absent.
 
 Receive the Knowledge Scout Findings and:
 - Apply every item in `## Hard Constraints` as a mandatory rule in the implementation plan — note these in the plan header so the user sees them
