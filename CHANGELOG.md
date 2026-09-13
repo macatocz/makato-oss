@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.165.0](https://github.com/macatocz/makato-oss/compare/v0.164.1...v0.165.0) (2026-09-13)
+
+
+### ✨ Features
+
+* **build-verify:** add spec verification, Playwright runtime QA, and frontend boot ([#104](https://github.com/macatocz/makato-oss/issues/104)) ([e1bf542](https://github.com/macatocz/makato-oss/commit/e1bf5424329cafed1406a8bb265b44eaa46c7290))
+
+
+### 🐛 Bug Fixes
+
+* **makato-build:** resolve installed plugin paths ([#107](https://github.com/macatocz/makato-oss/issues/107)) ([f14b562](https://github.com/macatocz/makato-oss/commit/f14b562d132b616c6bd864266a5f75e8bdc6f516))
+
 ## [0.164.1](https://github.com/macatocz/makato-oss/compare/v0.164.0...v0.164.1) (2026-09-13)
 
 
