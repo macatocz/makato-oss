@@ -2,14 +2,15 @@
 name: build-verify
 description: >-
   Run the full quality gate pipeline — build, lint, unit tests,
-  integration tests, conditional coverage check. Each gate runs
-  separately so failures are attributable. Fixable failures are
-  fixed and gates re-run; structural failures escalate to refine.
-  Autonomous (--autonomous, dispatched by PO-agent) or interactive.
-  Use after review, before push-to-git. Triggers: verify, quality-gate,
-  all-gates, build-pass, tests-pass, lint-clean, coverage-check,
-  gate-pipeline, run-verify.
-version: "1.11.0"
+  integration tests, conditional coverage check, spec verification,
+  and optional Playwright runtime QA. Each gate runs separately so
+  failures are attributable. Fixable failures are fixed and gates
+  re-run; structural failures escalate to refine. Boots the frontend
+  when a UX surface is detected. Autonomous (--autonomous, dispatched
+  by PO-agent) or interactive. Use after review, before push-to-git.
+  Triggers: verify, quality-gate, all-gates, build-pass, tests-pass,
+  lint-clean, coverage-check, gate-pipeline, run-verify.
+version: "1.12.0"
 argument-hint: "[work-item-key]"
 allowed-tools: Bash
 ---
@@ -131,6 +132,8 @@ autonomous mode and the failure is structural.
 | 12 | PR description contains `Closes #N` | `build-create-pr` description draft | interactive review catches omission before PR is opened |
 | 13 | Skill-provenance recorded and complete | Step 9 (skill-provenance advisory gate) in this skill | advisory only — never fails the build (NFR-R2) |
 | — | Runtime health-check passes | Step 8b (Gate 6: advisory) in this skill | advisory only — non-zero exit logged, build continues |
+| — | Playwright runtime QA passes (UX changes) | Step 8c (Gate 7: conditional) in this skill | advisory only — skipped when no UX change or no Playwright |
+| — | Spec verification passes | Step 10a in this skill | HALT-011 when CRITICAL finding — spec not satisfied |
 
 A failure to satisfy any item in this table **MUST** trigger the corresponding HALT code
 at the gate that enforces it; the autonomous loop does not proceed past an unmet item.
@@ -195,6 +198,61 @@ Run:
 ```bash
 "$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"session","status":"start","data":{"coverage_threshold":"<X>%|none"}}'
 ```
+
+---
+
+### Step 2.5 — Boot frontend (conditional)
+
+Start the project's frontend dev server **only when a UX surface is detected** — the
+runtime-QA gate (Step 8c) and the health-check gate (Step 8b) both benefit from a running
+app. Detect UX changes by scanning the diff file list from Step 1:
+
+```bash
+DEFAULT_REF="$("$MAKATO_BUILD_ROOT/shared/default-branch.sh")"
+UX_CHANGED=$(git diff "$DEFAULT_REF...HEAD" --name-only | grep -cE '\.(tsx?|jsx?|vue|svelte|html|css|scss|less)$' || true)
+```
+
+**If `UX_CHANGED` > 0:**
+
+1. Read `gate-scout.data.dev_server_cmd` (e.g. `npm run dev`, `yarn dev`, `pnpm dev`).
+   If gate-scout does not provide a `dev_server_cmd`, scan `package.json` for a `dev` or
+   `start` script and construct the command from the detected package manager.
+
+2. Start the dev server as a background process with a readiness probe:
+
+   ```bash
+   DEV_SERVER_PID=""
+   if [[ -n "$DEV_SERVER_CMD" ]]; then
+     $DEV_SERVER_CMD &
+     DEV_SERVER_PID=$!
+     # Wait up to 30 seconds for the server to become ready
+     BOOT_TIMEOUT=${FRONTEND_BOOT_TIMEOUT_SECONDS:-30}
+     for i in $(seq 1 "$BOOT_TIMEOUT"); do
+       if curl -s -o /dev/null -w '%{http_code}' http://localhost:${DEV_PORT:-3000} | grep -qE '^(200|301|302|304)'; then
+         break
+       fi
+       sleep 1
+     done
+   fi
+   ```
+
+3. Record the PID for cleanup in Step 11 (session end).
+
+**If `UX_CHANGED` == 0:** skip this step entirely. Log:
+
+```
+{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"frontend-boot","status":"ok","data":{"skipped":true,"reason":"no-ux-changes"}}
+```
+
+When started, log:
+
+```
+{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"frontend-boot","status":"ok","data":{"skipped":false,"dev_server_cmd":"<cmd>","pid":<N>,"boot_seconds":<N>}}
+```
+
+**Cleanup contract:** the dev server process MUST be killed at the end of the skill run
+(Step 11), regardless of success or failure. Use `kill $DEV_SERVER_PID` in a trap or
+finally block.
 
 ---
 
@@ -495,6 +553,65 @@ Log:
 
 ---
 
+### Step 8c — Gate 7: PLAYWRIGHT RUNTIME QA (conditional, advisory)
+
+Run the `build-runtime-qa` skill via Playwright to exercise acceptance criteria against the
+running frontend — **only when all three preconditions are met:**
+
+1. **UX was changed** — `UX_CHANGED > 0` (computed in Step 2.5).
+2. **Playwright is available** — the `webapp-testing` skill exists AND the Playwright MCP
+   server is connected. Detect by checking for the skill directory and probing the MCP:
+
+   ```bash
+   PLAYWRIGHT_AVAILABLE=false
+   WEBAPP_TESTING_SKILL="$MAKATO_BUILD_ROOT/../../skills/webapp-testing/SKILL.md"
+   if [[ -f "$WEBAPP_TESTING_SKILL" ]] || [[ -d "$HOME/.joule/skills/webapp-testing" ]]; then
+     # Probe Playwright MCP availability by checking if browser_navigate tool exists
+     # In autonomous mode, check PLAYWRIGHT_MCP_URL env var or the connected-servers manifest
+     PLAYWRIGHT_AVAILABLE=true
+   fi
+   ```
+
+3. **Frontend is running** — `DEV_SERVER_PID` from Step 2.5 is non-empty and the process
+   is still alive (`kill -0 $DEV_SERVER_PID` succeeds).
+
+**If any precondition is unmet:** skip Gate 7 and log:
+
+```
+{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-runtime-qa","status":"ok","data":{"skipped":true,"reason":"<no-ux-changes|no-playwright|no-frontend>","ux_changed":<N>,"playwright_available":<bool>,"frontend_running":<bool>}}
+```
+
+**If all preconditions are met:**
+
+Dispatch `build-runtime-qa` with:
+
+| Field | Value |
+|-------|-------|
+| `<work-item-key>` | the resolved key from Step 1 |
+| `WORKTREE_PATH` | `$WORKTREE_PATH` (or cwd in interactive mode) |
+| `REPO_ROOT` | `$REPO_ROOT` |
+| `MAKATO_BUILD_ROOT` | `$MAKATO_BUILD_ROOT` |
+| `--headless` | always set — Playwright runs in headless mode |
+
+The `build-runtime-qa` skill reads the `## Runtime verification` section from the plan and
+exercises the app via the `webapp-testing` skill's Playwright MCP tools (`browser_navigate`,
+`browser_snapshot`, `browser_take_screenshot`, `browser_click`, `browser_type`, etc.) in
+**headless mode**.
+
+**Gate result mapping:**
+
+- `build-runtime-qa` returns R1 `status: "success"` → gate status `ok`.
+- `build-runtime-qa` returns R1 `status: "success"` with `data.skipped: true` → gate status `skipped` (no runtime surface in plan — this is normal, not an error).
+- `build-runtime-qa` returns R1 `status: "failure"` with CRITICAL findings → gate status `warn`. Surface findings in the gate summary table. **This gate is advisory** — CRITICAL runtime findings are logged and surfaced but do not block the interactive pipeline. In autonomous mode, the po-agent applies its own HALT logic.
+
+Log:
+
+```
+{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-runtime-qa","status":"ok"|"warn"|"skipped","data":{"ux_changed":<N>,"playwright_available":true,"headless":true,"paths_exercised":<N>,"findings_critical":<C>,"findings_major":<M>}}
+```
+
+---
+
 ### Step 9 — Skill-provenance advisory gate
 
 **This step is fully automated — no judgment or user interaction required.** Execute sub-steps 9a–9c mechanically. The only conditional branches are whether the passport file is valid (9b) and whether expected skills are covered (9c). Do not prompt the user at any point in this step.
@@ -567,7 +684,52 @@ table (Step 10) but do not block the pipeline.
 
 ---
 
-### Step 10 — Present gate results and hand off
+### Step 10 — Spec verification (build-verify-spec)
+
+After all quality gates pass (Gates 0–7), run `build-verify-spec` to confirm the
+implementation satisfies the plan artifacts. This closes the gap between "code is
+mechanically correct" (gates) and "code does what the spec promised" (spec verification).
+
+**Precondition check:** run spec verification when the spec folder contains at least one of
+`plan-<N>.md` (or `plan.md`), `stories.json`, or `spec-delta.md`. If none exist, skip:
+
+```bash
+SPEC_FOLDER="$(python3 "$MAKATO_BUILD_ROOT/shared/spec_folder.py" "$REPO_ROOT" "<key>")"
+HAS_SPEC_ARTIFACTS=false
+if ls "$SPEC_FOLDER"/plan*.md "$SPEC_FOLDER/stories.json" "$SPEC_FOLDER/spec-delta.md" 2>/dev/null | head -1 | grep -q .; then
+  HAS_SPEC_ARTIFACTS=true
+fi
+```
+
+**If `HAS_SPEC_ARTIFACTS` is false:** skip and log:
+
+```
+{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"spec-verify","status":"ok","data":{"skipped":true,"reason":"no-spec-artifacts"}}
+```
+
+**If `HAS_SPEC_ARTIFACTS` is true:** invoke `build-verify-spec`:
+
+```bash
+"$MAKATO_BUILD_ROOT/skills/build-verify-spec/references/build-verify-spec.sh" "<key>"
+```
+
+**Exit code handling:**
+
+| Exit code | Meaning | Action |
+|---|---|---|
+| 0 | All checks pass (COMPLETENESS OK, CORRECTNESS OK, COHERENCE OK or absent) | Record `status: "ok"`, proceed to Step 10b |
+| 1 | CRITICAL finding — unchecked task, CORRECTNESS GAP, or COHERENCE GAP | In **autonomous mode**: HALT-011 — stop before push. In **interactive mode**: surface findings as WARNING, advise user to address before push, but do not block |
+| 2 | Usage/environment error (missing spec folder, unreadable plan) | Log `status: "warn"`, proceed (configuration issue, not a spec failure) |
+
+Log:
+
+```
+{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"spec-verify","status":"ok"|"warn"|"error","data":{"exit_code":<N>,"completeness":"<OK|CRITICAL>","correctness":"<OK|CRITICAL|skipped>","coherence":"<OK|CRITICAL|skipped>"}}
+```
+
+---
+
+### Step 10b — Present gate results and hand off
 
 Every Automated-tier DoD item (1–13) above must be satisfied before this step prints
 PASS. Items 1–5 are this skill's direct responsibility (Gates 0–5); item 13
@@ -580,19 +742,22 @@ of this workflow.
 Present the gate summary table:
 
 ```
+Gate 0  SENSORS           ✓ PASS   clean after N loops
 Gate 1  BUILD             ✓ PASS   0 errors, N warnings
 Gate 2  LINT              ✓ PASS   0 errors
 Gate 3  UNIT              ✓ PASS   N passed, 0 failed
 Gate 4  INTEGRATION       ✓ PASS   N passed, 0 failed
 Gate 5  COVERAGE          ✓ PASS   N% conditional (threshold: N%)
 Gate 6  RUNTIME HEALTH    ✓ PASS   exit 0 in Ns  (advisory — warn does not block)
+Gate 7  PLAYWRIGHT QA     — SKIP   no UX changes  (conditional — runs only when UX changed + Playwright available)
+Verify  SPEC              ✓ PASS   COMPLETENESS OK, CORRECTNESS OK, COHERENCE OK
 Advisory  SKILL-PROVENANCE  ⚠ WARN   N skills expected, M invoked (advisory only, never blocks)
 ```
 
 Run:
 
 ```bash
-"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"session","status":"ok","data":{"all_gates_passed":true,"conditional_coverage":"<X>%"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"session","status":"ok","data":{"all_gates_passed":true,"conditional_coverage":"<X>%","spec_verified":<bool>,"runtime_qa_run":<bool>}}'
 ```
 
 **(Optional) Lesson write (#473):** if this session produced a noteworthy lesson — a
@@ -615,3 +780,25 @@ there is nothing notable to record — it is optional and each call is an indepe
 Tell the user: *"All gates passed.*
 *Pipeline remaining: `/build-push-to-git` → `/build-create-pr`*
 *Next: run `/build-push-to-git` to commit and push."*
+
+---
+
+### Step 11 — Cleanup
+
+Kill the frontend dev server if it was started in Step 2.5:
+
+```bash
+if [[ -n "${DEV_SERVER_PID:-}" ]]; then
+  kill "$DEV_SERVER_PID" 2>/dev/null || true
+  wait "$DEV_SERVER_PID" 2>/dev/null || true
+fi
+```
+
+Log:
+
+```
+{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"cleanup","status":"ok","data":{"frontend_killed":<bool>}}
+```
+
+**This step MUST run regardless of success or failure** — use a trap or finally block to
+ensure the dev server is not left running after the skill exits.
