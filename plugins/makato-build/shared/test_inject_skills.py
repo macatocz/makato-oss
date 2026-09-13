@@ -378,6 +378,53 @@ bundles:
         self.assertIn("langgraph-persistence", skills)
         self.assertEqual(warnings, [])
 
+    def test_installed_cache_registry_reads_content_from_target_repo(self) -> None:
+        """Installed sibling bundles route target-repo files without path mixing."""
+        import yaml
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_plugins = Path(tmp) / "plugins"
+            build_root = cache_plugins / "makato-suite___makato-build___0.0.0"
+            langgraph_root = cache_plugins / "makato-suite___makato-langgraph___0.0.0"
+            target_root = Path(tmp) / "consumer"
+            (build_root / "config").mkdir(parents=True)
+            (build_root / ".claude-plugin").mkdir()
+            (build_root / ".claude-plugin/plugin.json").write_text('{"name": "makato-build"}', encoding="utf-8")
+            (langgraph_root / "config").mkdir(parents=True)
+            (langgraph_root / "skills/langgraph-fundamentals").mkdir(parents=True)
+            (target_root / "src").mkdir(parents=True)
+
+            (build_root / "config/skill-bundles.yml").write_text(
+                yaml.safe_dump({"bundles": [{"name": "default", "globs": ["**/*"], "skills": []}]}),
+                encoding="utf-8",
+            )
+            (langgraph_root / "config/skill-bundles.yml").write_text(
+                yaml.safe_dump(
+                    {
+                        "bundles": [
+                            {
+                                "name": "cache-langgraph",
+                                "globs": ["**/*graph*.py"],
+                                "contains": ["from langgraph"],
+                                "skills": ["langgraph-fundamentals"],
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (langgraph_root / "skills/langgraph-fundamentals/SKILL.md").write_text("# skill\n", encoding="utf-8")
+            (target_root / "src/agent_graph.py").write_text("from langgraph.graph import StateGraph\n", encoding="utf-8")
+
+            skills, warnings = resolve_skills_for_repo(
+                ["src/agent_graph.py"],
+                build_root,
+                target_repo=target_root,
+            )
+
+        self.assertEqual(skills, ["langgraph-fundamentals"])
+        self.assertEqual(warnings, [])
+
 
 # ---------------------------------------------------------------------------
 # Task 1 — task_contains matching (D19-sibling, issue #131 AC-1, AC-2, AC-3).

@@ -246,23 +246,19 @@ elif command -v omp >/dev/null 2>&1; then
   MAKATO_BUILD_ROOT="$(
     omp plugin list --json 2>/dev/null |
       python3 -c 'import json,sys
-try:
-    data=json.load(sys.stdin)
-except json.JSONDecodeError:
-    raise SystemExit(1)
+data=json.load(sys.stdin)
 for item in data.get("marketplace", []):
     if item.get("id", "").split("@", 1)[0] == "makato-build":
         entries=item.get("entries", [])
-        if entries and entries[0].get("installPath"):
-            print(entries[0]["installPath"])
-            break
-'
+        if entries:
+            print(entries[0].get("installPath", ""))
+        break'
   )"
-elif [[ -f "$REPO_ROOT/plugins/makato-build/.claude-plugin/plugin.json" ]]; then
-  MAKATO_BUILD_ROOT="$REPO_ROOT/plugins/makato-build"
 else
-  MAKATO_BUILD_ROOT=""
+  MAKATO_BUILD_ROOT="$REPO_ROOT/plugins/makato-build"
 fi
+[[ -f "$MAKATO_BUILD_ROOT/.claude-plugin/plugin.json" ]] ||
+  { echo "makato-build plugin root not found: $MAKATO_BUILD_ROOT" >&2; exit 2; }
 ```
 
 Use `"$MAKATO_BUILD_ROOT/shared/build-log.sh"`,

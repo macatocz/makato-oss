@@ -310,20 +310,33 @@ automatically, not only when a human hand-writes `recommended_skills[]` in desig
 
 **Resolution:**
 
-1. Resolve the makato checkout root — the directory whose `plugins/` subtree contains the
-   installed plugins. When the skill is running inside a git worktree the root is:
+1. Resolve the skill registry root. Prefer the installed `MAKATO_BUILD_ROOT`
+   supplied by the runner; otherwise use the makato source checkout whose
+   `plugins/` subtree contains the registries:
    ```bash
-   MAKATO_ROOT="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)"
+   export MAKATO_REGISTRY_ROOT="${MAKATO_BUILD_ROOT:-$MAKATO_ROOT}"
    ```
-   Fallback: `$(git rev-parse --show-toplevel)` if the common-dir strategy fails.
 
-2. Call the inject-skills resolver on the **affected-file paths from Step 4** (project-relative
-   paths, same form `knowledge-scout` passes):
+2. Call the inject-skills resolver on the **affected-file paths from Step 4**
+   (project-relative paths, same form `knowledge-scout` passes). Keep registry
+   discovery separate from target-repository content reads:
    ```python
+   import os
    import sys
-   sys.path.insert(0, f"{MAKATO_ROOT}/plugins/makato-build/shared")
+   MAKATO_REGISTRY_ROOT = os.environ["MAKATO_REGISTRY_ROOT"]
+   BUILD_SHARED_ROOT = (
+       f"{os.environ['MAKATO_BUILD_ROOT']}/shared"
+       if os.environ.get("MAKATO_BUILD_ROOT")
+       else f"{MAKATO_ROOT}/plugins/makato-build/shared"
+   )
+   sys.path.insert(0, BUILD_SHARED_ROOT)
    from inject_skills import resolve_skills_for_repo
-   recommended_skills, warnings = resolve_skills_for_repo(AFFECTED_FILES, MAKATO_ROOT)
+   recommended_skills, warnings = resolve_skills_for_repo(
+       AFFECTED_FILES,
+       MAKATO_REGISTRY_ROOT,
+       target_repo=REPO_ROOT,
+   )
+
    ```
 
 3. Capture the ordered, deduplicated `recommended_skills` list. Store it in working memory

@@ -82,8 +82,8 @@ import argparse
 import fnmatch
 import json
 import sys
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 # ---------------------------------------------------------------------------
 # Glob matching — identical semantics to inject_context._match_glob.
@@ -373,16 +373,34 @@ def resolve_skills(
 
 
 # ---------------------------------------------------------------------------
-# Filesystem aggregation helpers — PyYAML + installed-plugin discovery.
+# Orchestration helpers — filesystem + PyYAML (not exercised by pure unit tests)
 # ---------------------------------------------------------------------------
 
 
-def _config_paths(root: Path) -> list[Path]:
-    """Return skill-bundle registries for a suite checkout or one plugin."""
-    plugin_manifest = root / ".claude-plugin" / "plugin.json"
-    if plugin_manifest.is_file():
-        return [root / "config" / "skill-bundles.yml"]
-    return sorted(root.glob("plugins/*/config/skill-bundles.yml"))
+def _skill_bundle_paths(makato_root: Path | str) -> list[Path]:
+    """Return skill-bundle registries for a checkout or installed cache.
+
+    The source checkout has one ``plugins/`` directory. Installed OMP plugins
+    instead live as sibling directories under the cache's ``plugins/`` parent,
+    so a single plugin root must discover those siblings to preserve the
+    cross-plugin registry contract.
+    """
+    root = Path(makato_root)
+    if (root / "plugins").is_dir():
+        candidates = root.glob("plugins/*/config/skill-bundles.yml")
+    elif (root / ".claude-plugin/plugin.json").is_file():
+        candidates = [root / "config/skill-bundles.yml"] + list(root.parent.glob("*/config/skill-bundles.yml"))
+    elif root.name == "plugins":
+        candidates = root.glob("*/config/skill-bundles.yml")
+    else:
+        candidates = root.glob("plugins/*/config/skill-bundles.yml")
+
+    return sorted({path for path in candidates if path.is_file()})
+
+
+def _installed_plugin_roots(makato_root: Path | str) -> list[Path]:
+    """Return plugin roots corresponding to the bundle registries."""
+    return [path.parent.parent for path in _skill_bundle_paths(makato_root)]
 
 
 def aggregate_bundles(
@@ -390,39 +408,34 @@ def aggregate_bundles(
     *,
     fallback_root: Path | str | None = None,
 ) -> dict:
-    """Merge registries, retaining the first default bundle.
+    """Merge skill-bundle registries from primary and fallback plugin roots.
 
-    ``makato_root`` is normally the suite registry. ``fallback_root`` is the
-    installed makato-build plugin and guarantees that the resolver still has a
-    default bundle when a partial suite registry omits one.
+    ``makato_root`` is normally the suite registry. ``fallback_root`` is an
+    installed makato-build plugin that guarantees a ``default`` bundle when
+    the primary registry is partial.
     """
     import yaml  # type: ignore[import-untyped]
 
     roots = [Path(makato_root)]
     if fallback_root is not None and Path(fallback_root) not in roots:
         roots.append(Path(fallback_root))
+    config_paths = sorted({path for root in roots for path in _skill_bundle_paths(root)})
 
     merged: list[dict] = []
     seen_names: set[str] = set()
-    seen_default = False
-    for root_index, root in enumerate(roots):
-        for cfg_path in _config_paths(root):
-            try:
-                raw = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
-            except (OSError, yaml.YAMLError):  # fmt: skip
+    for cfg_path in config_paths:
+        try:
+            raw = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError):  # fmt: skip
+            continue
+        for bundle in raw.get("bundles", []) or []:
+            name = bundle.get("name")
+            if name in seen_names:
                 continue
-            for bundle in raw.get("bundles", []) or []:
-                name = bundle.get("name")
-                if root_index > 0 and name in seen_names:
-                    continue
-                if name == "default":
-                    if seen_default:
-                        continue
-                    seen_default = True
-                seen_names.add(name)
-                merged.append(bundle)
+            seen_names.add(name)
+            merged.append(bundle)
 
-    if not seen_default:
+    if not any(bundle.get("name") == "default" for bundle in merged):
         raise BundleResolutionError(
             "no plugin ships a `default` skill bundle; the merged registry must "
             "define exactly one `default` bundle as the resolver fallback. Add a "
@@ -439,18 +452,17 @@ def discover_installed_skills(
     *,
     fallback_root: Path | str | None = None,
 ) -> set[str]:
-    """Return installed skill identifiers across primary and fallback roots."""
+    """Return skill identifiers available in primary and fallback roots."""
     roots = [Path(makato_root)]
     if fallback_root is not None and Path(fallback_root) not in roots:
         roots.append(Path(fallback_root))
 
     installed: set[str] = set()
     for root in roots:
-        if (root / ".claude-plugin" / "plugin.json").is_file():
-            paths = root.glob("skills/*/SKILL.md")
-        else:
-            paths = root.glob("plugins/*/skills/*/SKILL.md")
-        installed.update(skill_md.parent.name for skill_md in paths)
+        for plugin_root in _installed_plugin_roots(root):
+            installed.update(
+                skill_md.parent.name for skill_md in plugin_root.glob("skills/*/SKILL.md")
+            )
     return installed
 
 
@@ -458,14 +470,20 @@ def resolve_skills_for_repo(
     changed_files: Iterable[str],
     makato_root: Path | str,
     *,
-    apply_subset_filter: bool = True,
-    task_text: str | None = None,
+    target_repo: Path | str | None = None,
     target_repo_root: Path | str | None = None,
     fallback_registry_root: Path | str | None = None,
+    apply_subset_filter: bool = True,
+    task_text: str | None = None,
 ) -> tuple[list[str], list[dict]]:
-    """Resolve skills with separate registry, fallback, and content roots."""
+    """Resolve skills with separate registry, fallback, and content roots.
+
+    ``target_repo`` is retained as a compatibility alias for callers that
+    predate the explicit ``target_repo_root`` name.
+    """
     registry_root = Path(makato_root)
-    content_root = Path(target_repo_root) if target_repo_root is not None else registry_root
+    content_root_value = target_repo_root if target_repo_root is not None else target_repo
+    content_root = Path(content_root_value) if content_root_value is not None else registry_root
     config = aggregate_bundles(registry_root, fallback_root=fallback_registry_root)
 
     files = list(changed_files)
@@ -493,6 +511,9 @@ def resolve_skills_for_repo(
 
 
 
+
+
+
 __all__ = [
     "BundleResolutionError",
     "resolve_skills",
@@ -501,25 +522,26 @@ __all__ = [
     "resolve_skills_for_repo",
 ]
 
+
 def _main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--root",
         required=True,
         type=Path,
-        help="makato suite checkout or installed plugin root",
+        help="skill registry checkout or installed plugin root",
     )
     parser.add_argument(
-        "--fallback-root",
+        "--target-repo",
         type=Path,
-        help="optional installed build-plugin root used as a registry fallback",
+        help="target repo root used to read changed-file contents",
     )
     parser.add_argument(
-        "--target-repo-root",
+        "--files",
+        required=True,
         type=Path,
-        help="consumer checkout root used to read changed-file contents",
+        help="newline-delimited changed-file list",
     )
-    parser.add_argument("--files", required=True, type=Path, help="newline-delimited changed-file list")
     parser.add_argument("--no-subset-filter", action="store_true")
     args = parser.parse_args(argv)
 
@@ -527,13 +549,11 @@ def _main(argv: list[str]) -> int:
     skills, warnings = resolve_skills_for_repo(
         changed_files,
         args.root,
+        target_repo=args.target_repo,
         apply_subset_filter=not args.no_subset_filter,
-        target_repo_root=args.target_repo_root,
-        fallback_registry_root=args.fallback_root,
     )
     print(json.dumps({"skills_expected": skills, "warnings": warnings}))
     return 0
-
 
 
 if __name__ == "__main__":
