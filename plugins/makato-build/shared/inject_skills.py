@@ -403,32 +403,39 @@ def _installed_plugin_roots(makato_root: Path | str) -> list[Path]:
     return [path.parent.parent for path in _skill_bundle_paths(makato_root)]
 
 
-def aggregate_bundles(makato_root: Path | str) -> dict:
-    """Merge skill-bundle registries from a checkout or installed cache.
+def aggregate_bundles(
+    makato_root: Path | str,
+    *,
+    fallback_root: Path | str | None = None,
+) -> dict:
+    """Merge skill-bundle registries from primary and fallback plugin roots.
 
-    Cross-plugin aggregation (F1 baseline for S3): each plugin owns its own
-    ``skill-bundles.yml`` and contributes its non-``default`` bundles to a
-    single merged registry. Exactly one ``default`` bundle is retained — the
-    first one encountered in path-sorted order.
+    ``makato_root`` is normally the suite registry. ``fallback_root`` is an
+    installed makato-build plugin that guarantees a ``default`` bundle when
+    the primary registry is partial.
     """
     import yaml  # type: ignore[import-untyped]
 
-    merged: list[dict] = []
-    seen_default = False
+    roots = [Path(makato_root)]
+    if fallback_root is not None and Path(fallback_root) not in roots:
+        roots.append(Path(fallback_root))
+    config_paths = sorted({path for root in roots for path in _skill_bundle_paths(root)})
 
-    for cfg_path in _skill_bundle_paths(makato_root):
+    merged: list[dict] = []
+    seen_names: set[str] = set()
+    for cfg_path in config_paths:
         try:
             raw = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
         except (OSError, yaml.YAMLError):  # fmt: skip
             continue
         for bundle in raw.get("bundles", []) or []:
-            if bundle.get("name") == "default":
-                if seen_default:
-                    continue
-                seen_default = True
+            name = bundle.get("name")
+            if name in seen_names:
+                continue
+            seen_names.add(name)
             merged.append(bundle)
 
-    if not seen_default:
+    if not any(bundle.get("name") == "default" for bundle in merged):
         raise BundleResolutionError(
             "no plugin ships a `default` skill bundle; the merged registry must "
             "define exactly one `default` bundle as the resolver fallback. Add a "
@@ -440,11 +447,22 @@ def aggregate_bundles(makato_root: Path | str) -> dict:
     return {"version": "1.0", "bundles": merged}
 
 
-def discover_installed_skills(makato_root: Path | str) -> set[str]:
-    """Return skill identifiers available in a checkout or installed cache."""
+def discover_installed_skills(
+    makato_root: Path | str,
+    *,
+    fallback_root: Path | str | None = None,
+) -> set[str]:
+    """Return skill identifiers available in primary and fallback roots."""
+    roots = [Path(makato_root)]
+    if fallback_root is not None and Path(fallback_root) not in roots:
+        roots.append(Path(fallback_root))
+
     installed: set[str] = set()
-    for plugin_root in _installed_plugin_roots(makato_root):
-        installed.update(skill_md.parent.name for skill_md in plugin_root.glob("skills/*/SKILL.md"))
+    for root in roots:
+        for plugin_root in _installed_plugin_roots(root):
+            installed.update(
+                skill_md.parent.name for skill_md in plugin_root.glob("skills/*/SKILL.md")
+            )
     return installed
 
 
@@ -453,31 +471,36 @@ def resolve_skills_for_repo(
     makato_root: Path | str,
     *,
     target_repo: Path | str | None = None,
+    target_repo_root: Path | str | None = None,
+    fallback_registry_root: Path | str | None = None,
     apply_subset_filter: bool = True,
     task_text: str | None = None,
 ) -> tuple[list[str], list[dict]]:
-    """Resolve skills using a registry root and a separate target-repo root.
+    """Resolve skills with separate registry, fallback, and content roots.
 
-    ``makato_root`` identifies either the makato source checkout or an
-    installed plugin/cache containing the cross-plugin registries. ``target_repo``
-    is where changed-file content is read; it defaults to ``makato_root`` for
-    backwards compatibility with source-checkout callers.
+    ``target_repo`` is retained as a compatibility alias for callers that
+    predate the explicit ``target_repo_root`` name.
     """
     registry_root = Path(makato_root)
-    file_root = Path(target_repo) if target_repo is not None else registry_root
-    config = aggregate_bundles(registry_root)
+    content_root_value = target_repo_root if target_repo_root is not None else target_repo
+    content_root = Path(content_root_value) if content_root_value is not None else registry_root
+    config = aggregate_bundles(registry_root, fallback_root=fallback_registry_root)
 
     files = list(changed_files)
     file_texts: dict[str, str] = {}
     for file_path in files:
-        candidate = file_root / file_path
+        candidate = content_root / file_path
         try:
             if candidate.is_file():
                 file_texts[file_path] = candidate.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
 
-    installed = discover_installed_skills(registry_root) if apply_subset_filter else None
+    installed = (
+        discover_installed_skills(registry_root, fallback_root=fallback_registry_root)
+        if apply_subset_filter
+        else None
+    )
     return resolve_skills(
         files,
         config,
@@ -485,6 +508,10 @@ def resolve_skills_for_repo(
         installed_skills=installed,
         task_text=task_text,
     )
+
+
+
+
 
 
 __all__ = [

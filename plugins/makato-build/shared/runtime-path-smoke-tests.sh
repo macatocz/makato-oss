@@ -32,8 +32,28 @@ if [[ "$ORCH_RESULT" == "$REPO_ROOT/plugins/makato-orchestrate" ]]; then
 else
   fail "resolved sibling root was '$ORCH_RESULT'"
 fi
+echo "T3: runtime-context discovers an installed build plugin via omp"
+TMP_ROOT="$(mktemp -d)"
+mkdir -p "$TMP_ROOT/bin" "$TMP_ROOT/helper/shared"
+cp "$PLUGIN_ROOT/shared/runtime-context.sh" "$TMP_ROOT/helper/shared/runtime-context.sh"
+cat >"$TMP_ROOT/bin/omp" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' '{"marketplace":[{"id":"makato-build@makato-suite","entries":[{"installPath":"'"$PLUGIN_ROOT"'"}]}]}'
+EOF
+chmod +x "$TMP_ROOT/bin/omp"
+OMP_RESULT="$(
+  PATH="$TMP_ROOT/bin:$PATH" \
+    "$TMP_ROOT/helper/shared/runtime-context.sh" plugin-root makato-build
+)"
+if [[ "$OMP_RESULT" == "$PLUGIN_ROOT" ]]; then
+  pass "omp registry resolves makato-build without runner env vars"
+else
+  fail "omp registry resolved '$OMP_RESULT', expected '$PLUGIN_ROOT'"
+fi
+rm -rf "$TMP_ROOT"
 
-echo "T3: build skills do not execute bare plugin helpers"
+
+echo "T4: build skills do not execute bare plugin helpers"
 if rg -n --glob 'SKILL.md' \
   '^[[:space:]]*(shared/(build-log|log-bypass|default-branch|write-lessons)\.sh|plugins/makato-(build|orchestrate)/)' \
   "$PLUGIN_ROOT/skills" >/tmp/makato-build-runtime-paths.txt 2>/dev/null; then
@@ -43,7 +63,7 @@ else
   pass "helper commands use an explicit installed root"
 fi
 
-echo "T4: root autonomous-mode references are runner-neutral"
+echo "T5: root autonomous-mode references are runner-neutral"
 if rg -n --glob 'SKILL.md' '@\.\./\.\./AUTONOMOUS-MODE\.md' "$PLUGIN_ROOT/skills" >/tmp/makato-build-autonomous-refs.txt 2>/dev/null; then
   cat /tmp/makato-build-autonomous-refs.txt
   fail "found an escaping @ reference to AUTONOMOUS-MODE.md"
@@ -51,7 +71,7 @@ else
   pass "skills read AUTONOMOUS-MODE.md through the runtime root"
 fi
 
-echo "T5: build skills do not resolve suite-owned agents from skill-relative paths"
+echo "T6: build skills do not resolve suite-owned agents from skill-relative paths"
 if rg -n --glob 'SKILL.md' 'agents/gate-scout\.md|@[^` ]*gate-scout\.md' \
   "$PLUGIN_ROOT/skills" >/tmp/makato-build-relative-agent-paths.txt 2>/dev/null; then
   cat /tmp/makato-build-relative-agent-paths.txt
@@ -60,7 +80,7 @@ else
   pass "gate-scout is dispatched by registry name, not a skill-relative path"
 fi
 
-echo "T6: build skills never probe consumer-repository plugin siblings"
+echo "T7: build skills never probe consumer-repository plugin siblings"
 if rg -n 'REPO_ROOT/plugins/makato-' \
   "$PLUGIN_ROOT/skills/build-refine/SKILL.md" \
   "$PLUGIN_ROOT/skills/build-implement-tdd/SKILL.md" \
@@ -71,7 +91,8 @@ if rg -n 'REPO_ROOT/plugins/makato-' \
 else
   pass "suite-owned files are resolved through installed roots"
 fi
-echo "T7: optional orchestrate scout dispatch checks installed root and agent"
+
+echo "T8: optional orchestrate scout dispatch checks installed root and agent"
 if grep -q 'MAKATO_ORCHESTRATE_ROOT' \
   "$PLUGIN_ROOT/skills/build-implement-tdd/SKILL.md" &&
    grep -q 'agents/task-file-scout\.md' \

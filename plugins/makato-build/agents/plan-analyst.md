@@ -38,6 +38,7 @@ Your dispatch prompt provides:
 | `GLOSSARY_PATH` | yes | Absolute path to `glossary.md` in the resolved spec folder (may not exist — check first) |
 | `REPO_ROOT` | yes | Absolute path to the repository root |
 | `MAKATO_BUILD_ROOT` | yes | Absolute installed build-plugin root. Use it for suite-owned agent/config/reference files; never probe `REPO_ROOT/plugins/makato-build`. |
+| `MAKATO_SUITE_ROOT` | no | Absolute makato suite checkout or installed registry root. Forward to knowledge-scout when available; otherwise knowledge-scout uses `MAKATO_BUILD_ROOT`. |
 ## Process
 
 ### Step 0 — Load knowledge graph (conditional)
@@ -46,12 +47,18 @@ Extract `REPO_NAME` from `REPO_ROOT` (last path segment, e.g. `ldm-deals`).
 
 Extract keywords from the plan: read the task titles and any `**Files:**` paths to identify key domain terms (5–10 words that describe what the plan touches).
 
+Extract `CHANGED_FILES` from all task `**Files:**` fields. This list may be
+empty when the plan does not yet name concrete targets.
+
 Dispatch the `knowledge-scout` agent with:
 
 - `REPO_ROOT`: REPO_ROOT
 - `MAKATO_BUILD_ROOT`: MAKATO_BUILD_ROOT
+- `MAKATO_SUITE_ROOT`: MAKATO_SUITE_ROOT when supplied
 - `REPO_NAME`: REPO_NAME
 - `KEYWORDS`: extracted key terms
+- `CHANGED_FILES`: extracted predicted file paths
+
 Receive the Knowledge Scout Findings. Include the `## Hard Constraints`, `## Standards`, and `## Architecture Context` sections verbatim in this Plan Analysis output if `loaded: true`. Record `knowledge_context_loaded` and `knowledge_context_source` from the findings metadata.
 
 If the agent returns `loaded: false`: set `knowledge_context_loaded: false`, `knowledge_context_source: none`, and omit the Hard Constraints and Standards sections from output.
