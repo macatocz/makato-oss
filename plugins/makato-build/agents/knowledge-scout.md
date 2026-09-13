@@ -34,10 +34,11 @@ Your dispatch prompt provides:
 |---|---|---|
 | `REPO_ROOT` | yes | Absolute path to the target repository |
 | `MAKATO_BUILD_ROOT` | yes | Absolute installed `makato-build` plugin root. Use this root for every suite-owned config, helper, or reference file; never resolve suite files from `REPO_ROOT` or the agent's current directory. |
+| `MAKATO_SUITE_ROOT` | no | Absolute makato suite checkout or installed registry root. When absent, use `MAKATO_BUILD_ROOT` as the registry root so the mandatory build-plugin `default` bundle remains available. |
 | `REPO_NAME` | yes | Last path segment of REPO_ROOT (e.g. `ldm-deals`, `dcp-commerce-ui`) |
 | `KEYWORDS` | yes | Key terms from the plan/story (used to filter index entries) |
-| `CHANGED_FILES` | no | List of project-relative file paths the task will create or modify, predicted from the plan's `**Files:**` fields. Empty list treated as no-scope — only `default` bundle rules are pre-read. Used in Step 0 to resolve context bundles via `inject-context` (0a–0d) and recommended skills via `inject-skills` (0e). |
-
+| `CHANGED_FILES` | no | List of project-relative file paths the task will create or modify, predicted from the plan's `**Files:**` fields. Empty list treated as no-scope — only `default` bundle rules are pre-read. Used in Step 0 to resolve context bundles (0a–0d) and recommended skills (0e). |
+| `TASK_TEXT` | no | Issue body, story description, or active plan task text for `task_contains` routing. When absent, only file-based routing applies. |
 ## Process
 
 ### Step 0 — Resolve context bundles (via `inject-context`)
@@ -81,11 +82,19 @@ turn a missing predicted target file into a suite path lookup or a hard failure.
 
 **0e. Resolve recommended skills (via `inject-skills`).**
 
-After resolving context rules, resolve the recommended skills for the same CHANGED_FILES via the `inject-skills` skill (`plugins/makato-build/skills/inject-skills/SKILL.md`; reference implementation `plugins/makato-build/shared/inject_skills.py`). Call `resolve_skills_for_repo(CHANGED_FILES, REPO_ROOT)`, which aggregates every plugin's `config/skill-bundles.yml`, evaluates D19 content hints against each changed file's text, and applies the D10 installed-skill subset filter.
+After resolving context rules, resolve the recommended skills for the same
+`CHANGED_FILES` via the `inject-skills` skill. Set
+`SKILL_REGISTRY_ROOT="${MAKATO_SUITE_ROOT:-$MAKATO_BUILD_ROOT}"` and call
+`resolve_skills_for_repo(CHANGED_FILES, SKILL_REGISTRY_ROOT,
+fallback_registry_root=MAKATO_BUILD_ROOT, target_repo_root=REPO_ROOT,
+task_text=TASK_TEXT)`. The registry root owns skill-bundle configuration and
+installed skill discovery; `REPO_ROOT` owns changed-file contents. Never pass
+`REPO_ROOT` as the registry root: consumer repositories do not contain the
+installed makato plugin registry.
 
-**F5 task-text routing (opt-in).** When the caller has access to the issue body or
-`plan.md` text — for example, after the PO-agent has assembled `task_text` from the
-issue body and the active task's description — pass it as `resolve_skills_for_repo(CHANGED_FILES, REPO_ROOT, task_text=task_text)`. Bundles that declare a `task_contains` list are then matched against this text (OR-semantics, case-sensitive substring), enabling skill routing for green-field tasks where the relevant library files are not yet in the diff. When `task_text` is absent or empty, task-text routing is inactive and resolution is byte-for-byte identical to the file-only behaviour.
+When `CHANGED_FILES` is empty, this call remains valid and resolves the
+registry's `default` bundle (plus any task-text matches) without a fallback
+warning. Predicted green-field files may not exist yet; this is expected.
 
 - The call returns `(recommended_skills: list[str], warnings: list[dict])`.
 - On `BundleResolutionError` with `halt_code == "HALT-006"` (no plugin ships a `default` skill bundle): treat identically to the Step 0c context HALT-006 — set `loaded: false`, `source: "halt-006"`, emit R1 `status: "failure"`, `data.escalation: "halt-006"`, and stop. Do NOT proceed to Step 1.

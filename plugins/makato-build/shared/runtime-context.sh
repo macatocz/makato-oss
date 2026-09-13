@@ -97,9 +97,10 @@ if [[ -n "$REPO_ROOT" && -z "${MAKATO_TARGET_REPO_ROOT:-}" ]]; then
   fi
 fi
 
-# OMP keeps sibling plugin roots in its registry. This fallback is deliberately
-# runner-specific and only runs when an explicit sibling root was not supplied.
-if [[ "$PLUGIN_NAME" != "makato-build" ]] && command -v omp >/dev/null 2>&1; then
+# OMP keeps installed plugin roots in its registry. This fallback is used when
+# the runner did not export a plugin-root variable (for example, a direct
+# `claude -p` invocation from a consumer repository).
+if command -v omp >/dev/null 2>&1; then
   install_path="$(
     omp plugin list --json 2>/dev/null |
       python3 -c 'import json,sys

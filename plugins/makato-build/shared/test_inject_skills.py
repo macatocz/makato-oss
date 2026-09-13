@@ -16,10 +16,9 @@ The four acceptance scenarios from issue #144 map to test classes:
   Scenario 4 (missing-skill graceful)    -> SubsetFilterTests
 """
 
-from __future__ import annotations
-
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -252,6 +251,14 @@ class AggregationIntegrationTests(unittest.TestCase):
         default_count = sum(1 for b in config["bundles"] if b["name"] == "default")
         self.assertEqual(default_count, 1)
 
+    def test_fallback_does_not_duplicate_full_suite_bundles(self) -> None:
+        config = aggregate_bundles(
+            _REPO_ROOT,
+            fallback_root=_REPO_ROOT / "plugins" / "makato-build",
+        )
+        names = [bundle["name"] for bundle in config["bundles"]]
+        self.assertEqual(len(names), len(set(names)))
+
     def test_discover_installed_skills_includes_langgraph(self) -> None:
         installed = discover_installed_skills(_REPO_ROOT)
         self.assertIn("langgraph-fundamentals", installed)
@@ -266,6 +273,94 @@ class AggregationIntegrationTests(unittest.TestCase):
         skills, warnings = resolve_skills_for_repo([fixture_rel], _REPO_ROOT)
         self.assertIsInstance(skills, list)
         self.assertIsInstance(warnings, list)
+
+    def test_installed_plugin_registry_reads_consumer_file_contents(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plugin = root / "plugin"
+            (plugin / ".claude-plugin").mkdir(parents=True)
+            (plugin / "config").mkdir()
+            (plugin / "skills" / "consumer-skill").mkdir(parents=True)
+            (plugin / "skills" / "consumer-skill" / "SKILL.md").write_text(
+                "---\nname: consumer-skill\n---\n", encoding="utf-8"
+            )
+            (plugin / ".claude-plugin" / "plugin.json").write_text(
+                '{"name": "makato-build"}', encoding="utf-8"
+            )
+            (plugin / "config" / "skill-bundles.yml").write_text(
+                """
+version: "1.0"
+bundles:
+  - name: default
+    globs: ["**/*"]
+    skills: ["consumer-skill"]
+""",
+                encoding="utf-8",
+            )
+            consumer = root / "consumer"
+            (consumer / "src").mkdir(parents=True)
+            (consumer / "src" / "new.py").write_text("print('new')\n", encoding="utf-8")
+
+            skills, warnings = resolve_skills_for_repo(
+                ["src/new.py"],
+                plugin,
+                target_repo_root=consumer,
+            )
+
+        self.assertEqual(skills, ["consumer-skill"])
+        self.assertEqual(warnings, [])
+
+    def test_partial_suite_uses_build_fallback_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            suite = root / "suite"
+            (suite / "plugins" / "optional" / "config").mkdir(parents=True)
+            (suite / "plugins" / "optional" / "config" / "skill-bundles.yml").write_text(
+                """
+version: "1.0"
+bundles:
+  - name: optional
+    globs: ["**/*.py"]
+    skills: []
+""",
+                encoding="utf-8",
+            )
+
+            build = root / "build"
+            (build / ".claude-plugin").mkdir(parents=True)
+            (build / "config").mkdir()
+            (build / "skills" / "fallback-skill").mkdir(parents=True)
+            (build / "skills" / "fallback-skill" / "SKILL.md").write_text(
+                "---\nname: fallback-skill\n---\n", encoding="utf-8"
+            )
+            (build / ".claude-plugin" / "plugin.json").write_text(
+                '{"name": "makato-build"}', encoding="utf-8"
+            )
+            (build / "config" / "skill-bundles.yml").write_text(
+                """
+version: "1.0"
+bundles:
+  - name: default
+    globs: ["**/*"]
+    skills: ["fallback-skill"]
+""",
+                encoding="utf-8",
+            )
+
+            consumer = root / "consumer"
+            (consumer / "src").mkdir(parents=True)
+            (consumer / "src" / "new.py").write_text("print('new')\n", encoding="utf-8")
+
+            skills, warnings = resolve_skills_for_repo(
+                ["src/new.py"],
+                suite,
+                fallback_registry_root=build,
+                target_repo_root=consumer,
+            )
+
+        self.assertEqual(skills, ["fallback-skill"])
+        self.assertEqual(warnings, [])
+
 
     def test_end_to_end_synthetic_graph_import_matches(self) -> None:
         # Point at an in-repo path that ends in *graph*.py and contains a
