@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.165.1](https://github.com/macatocz/makato-oss/compare/v0.165.0...v0.165.1) (2026-09-13)
+
+
+### 🐛 Bug Fixes
+
+* **makato-build:** resolve installed plugin paths ([#106](https://github.com/macatocz/makato-oss/issues/106)) ([6b9aa3a](https://github.com/macatocz/makato-oss/commit/6b9aa3a29865e4856800c7452075800f320ed931))
+
 ## [0.165.0](https://github.com/macatocz/makato-oss/compare/v0.164.1...v0.165.0) (2026-09-13)
 
 
