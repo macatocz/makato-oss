@@ -242,6 +242,18 @@ elif [[ -n "${OMP_PLUGIN_ROOT:-}" ]]; then
   MAKATO_BUILD_ROOT="$OMP_PLUGIN_ROOT"
 elif [[ -n "${PLUGIN_ROOT:-}" ]]; then
   MAKATO_BUILD_ROOT="$PLUGIN_ROOT"
+elif command -v omp >/dev/null 2>&1; then
+  MAKATO_BUILD_ROOT="$(
+    omp plugin list --json 2>/dev/null |
+      python3 -c 'import json,sys
+data=json.load(sys.stdin)
+for item in data.get("marketplace", []):
+    if item.get("id", "").split("@", 1)[0] == "makato-build":
+        entries=item.get("entries", [])
+        if entries:
+            print(entries[0].get("installPath", ""))
+        break'
+  )"
 else
   MAKATO_BUILD_ROOT="$REPO_ROOT/plugins/makato-build"
 fi

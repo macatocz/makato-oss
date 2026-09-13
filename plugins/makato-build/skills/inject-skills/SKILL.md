@@ -48,12 +48,13 @@ assembling task context rather than an agent dispatch bundle.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `changed_files` | `List[str]` | yes | Repo-relative paths to files the target agent will read or write. May be empty (`[]`) — the skill must not error for an empty list. |
-| `target_repo` | `str` | yes | Absolute filesystem path to the makato checkout being built. Used to aggregate every `plugins/*/config/skill-bundles.yml` and to discover the installed skill set. |
+| `registry_root` | `str` | yes | Absolute path to the makato source checkout or an installed build-plugin root. The resolver aggregates source plugins or sibling OMP cache plugins and discovers their installed skill set. |
+| `target_repo` | `str` | yes | Absolute filesystem path to the consumer checkout. Changed-file content is read here for D19 predicates; predicted files may not exist yet. |
 | `task_text` | `str` | no | Optional task description / issue body for task-text routing. When provided, bundles that declare `task_contains` are also matched against this text (OR-semantics). When absent or empty, behaviour is identical to file-only mode. |
 
-Both required fields are validated at entry. If either is missing or
-`target_repo` is not a string, return a `warnings` entry describing the problem
-and an empty `recommended_skills` list — do NOT raise an exception.
+Both required root fields are validated at entry. If either is missing,
+return a `warnings` entry describing the problem and an empty
+`recommended_skills` list — do NOT raise an exception.
 
 ## Output
 
@@ -74,8 +75,8 @@ and an empty `recommended_skills` list — do NOT raise an exception.
 The reference implementation lives at
 `plugins/makato-build/shared/inject_skills.py`. It — and this document — are the
 authoritative source for matching semantics. The full-path entry point is
-`resolve_skills_for_repo(changed_files, target_repo, *, task_text=None)`; the
-pure core is
+`resolve_skills_for_repo(changed_files, registry_root, *, target_repo=None,
+task_text=None)`; the pure core is
 `resolve_skills(changed_files, config, *, file_texts, installed_skills, task_text=None)`.
 
 **Terminology used in the algorithm below:**
@@ -90,12 +91,12 @@ pure core is
 
 ### 7-step resolution algorithm
 
-1. **Aggregate the registry (cross-plugin).** `aggregate_bundles(target_repo)`
-   merges every `plugins/*/config/skill-bundles.yml` in sorted-path order into
-   one config. Each plugin contributes its non-`default` bundles; exactly one
-   `default` bundle is retained (the first encountered) so the merged registry
-   always has a single unambiguous fallback. If no plugin ships a `default`
-   bundle, `BundleResolutionError` (HALT-006) is raised.
+1. **Aggregate the registry (cross-plugin).** `aggregate_bundles(registry_root)`
+   merges every plugin registry in a source checkout or an installed OMP plugin
+   cache into one config. Each plugin contributes its non-`default` bundles;
+   exactly one `default` bundle is retained (the first encountered) so the
+   merged registry always has a single unambiguous fallback. If no plugin ships
+   a `default` bundle, `BundleResolutionError` (HALT-006) is raised.
 2. **Match each changed file.** A bundle matches a file when any of its `globs`
    matches **and** its content-hint predicate is satisfied: a bundle with
    a `contains` list matches only if at least one substring appears in the

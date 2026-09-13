@@ -133,9 +133,10 @@ a task that hasn't run yet. Topo-sort first, enforce strictly.
 `partial`/`failure` would record false task completion in the PO-agent's state machine,
 causing the outer loop to skip the failed task on the next dispatch.
 
-**Do NOT Load `references/test-writing-guide.md` unless dispatching a coder in Step 6 for
-a story with no established test conventions.** Do NOT Load `references/tdd-cycle-rules.md`
-outside Steps 1 and 5. Do NOT Load `@shared/baseline-guide.md` outside Step 3.
+**Do NOT load `references/test-writing-guide.md` unless dispatching a coder in Step 6 for
+a story with no established test conventions.** Do NOT load
+`references/tdd-cycle-rules.md` outside Steps 1 and 5. Do NOT load the baseline
+guide outside Step 3.
 
 ### Step 1 — Ask for work item key and load plan
 
@@ -163,7 +164,8 @@ Run:
 
 ### Step 3 — Establish test baseline
 
-Load @shared/baseline-guide.md. Follow its instructions to establish the baseline and handle the broken baseline gate.
+Load `$MAKATO_BUILD_ROOT/shared/baseline-guide.md`. Follow its instructions to
+establish the baseline and handle the broken baseline gate.
 
 If `GATE_COMMANDS` was not supplied, dispatch the registered `gate-scout`
 agent once with `REPO_ROOT` and `COVERAGE_HINT`, parse its R1 `data`, and store

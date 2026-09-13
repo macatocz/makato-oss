@@ -97,10 +97,10 @@ Run:
 
 ### Step 3 — Establish test baseline
 
-Load @shared/baseline-guide.md. Before running it, dispatch gate-scout when
-`GATE_COMMANDS` is absent and pass the discovered `unit` command (including its
-runner prefix). Never substitute a bare system-Python test command.
-**Do NOT load `shared/baseline-guide.md` more than once per session.**
+Load `$MAKATO_BUILD_ROOT/shared/baseline-guide.md`. Before running it, dispatch
+gate-scout when `GATE_COMMANDS` is absent and pass the discovered `unit` command
+(including its runner prefix). Never substitute a bare system-Python test command.
+**Do NOT load the baseline guide more than once per session.**
 
 **Flakey test rule**: if a test fails but no source code was changed between runs, re-run that single test once before classifying. If it passes on the second run, log it as flakey and continue. If it fails again, classify normally.
 

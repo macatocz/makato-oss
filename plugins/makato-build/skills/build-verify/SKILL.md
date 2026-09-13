@@ -69,9 +69,9 @@ When dispatched by the PO-agent (`--autonomous` mode), this skill receives:
 - `<work-item-key>` — positional argument.
 - `WORKTREE_PATH` — absolute filesystem path to the per-run git worktree. **Mandatory in autonomous mode** (see `plugins/makato-build/AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract*). The skill MUST `cd "$WORKTREE_PATH"` before any build/lint/test/coverage gate command — gates that run from the wrong checkout produce nonsense pass/fail signals.
 - `MAKATO_BUILD_ROOT` — absolute installed build-plugin root, resolved from
-  the runner plugin-root variables when not supplied.
-- `MAKATO_SUITE_ROOT` — optional suite checkout root for cross-plugin
-  skill-provenance aggregation; when absent, that advisory sub-check skips.
+  the runner plugin-root variables or the OMP plugin registry when not supplied.
+- `MAKATO_SUITE_ROOT` — optional source checkout root for skill-provenance
+  aggregation; when absent, the installed plugin cache is used.
 - `--autonomous` — activation flag.
 
 Interactive mode: `WORKTREE_PATH` is optional; fall back to `git rev-parse --show-toplevel` of the current `$PWD`.
@@ -627,14 +627,13 @@ Resolve the final git diff using `skill-bundles.yml` / `inject-skills`:
 # collect changed files on the branch against the resolved integration target
 DEFAULT_REF="$("$MAKATO_BUILD_ROOT/shared/default-branch.sh")"
 git diff --name-only "$DEFAULT_REF...HEAD" > /tmp/changed_files.txt
-# resolve expected skills via the registered inject-skills helper when the
-# caller supplied a suite checkout root; otherwise record an advisory skip.
-if [[ -n "${MAKATO_SUITE_ROOT:-}" ]]; then
-  python3 "$MAKATO_BUILD_ROOT/shared/inject_skills.py" \
-    --root "$MAKATO_SUITE_ROOT" --files /tmp/changed_files.txt
-else
-  echo "skill-provenance: MAKATO_SUITE_ROOT unavailable; advisory check skipped" >&2
-fi
+# The installed plugin root discovers sibling OMP cache plugins. A source
+# checkout may be supplied explicitly for deterministic local provenance.
+SKILL_REGISTRY_ROOT="${MAKATO_SUITE_ROOT:-$MAKATO_BUILD_ROOT}"
+python3 "$MAKATO_BUILD_ROOT/shared/inject_skills.py" \
+  --root "$SKILL_REGISTRY_ROOT" \
+  --target-repo "$REPO_ROOT" \
+  --files /tmp/changed_files.txt
 ```
 
 The result is `skills_expected`: the ordered, deduplicated list of skills the changed

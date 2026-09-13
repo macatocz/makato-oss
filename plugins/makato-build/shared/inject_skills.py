@@ -82,8 +82,8 @@ import argparse
 import fnmatch
 import json
 import sys
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 # ---------------------------------------------------------------------------
 # Glob matching — identical semantics to inject_context._match_glob.
@@ -377,39 +377,52 @@ def resolve_skills(
 # ---------------------------------------------------------------------------
 
 
+def _skill_bundle_paths(makato_root: Path | str) -> list[Path]:
+    """Return skill-bundle registries for a checkout or installed cache.
+
+    The source checkout has one ``plugins/`` directory. Installed OMP plugins
+    instead live as sibling directories under the cache's ``plugins/`` parent,
+    so a single plugin root must discover those siblings to preserve the
+    cross-plugin registry contract.
+    """
+    root = Path(makato_root)
+    if (root / "plugins").is_dir():
+        candidates = root.glob("plugins/*/config/skill-bundles.yml")
+    elif (root / ".claude-plugin/plugin.json").is_file():
+        candidates = [root / "config/skill-bundles.yml"] + list(root.parent.glob("*/config/skill-bundles.yml"))
+    elif root.name == "plugins":
+        candidates = root.glob("*/config/skill-bundles.yml")
+    else:
+        candidates = root.glob("plugins/*/config/skill-bundles.yml")
+
+    return sorted({path for path in candidates if path.is_file()})
+
+
+def _installed_plugin_roots(makato_root: Path | str) -> list[Path]:
+    """Return plugin roots corresponding to the bundle registries."""
+    return [path.parent.parent for path in _skill_bundle_paths(makato_root)]
+
+
 def aggregate_bundles(makato_root: Path | str) -> dict:
-    """Merge every ``plugins/*/config/skill-bundles.yml`` into one config.
+    """Merge skill-bundle registries from a checkout or installed cache.
 
     Cross-plugin aggregation (F1 baseline for S3): each plugin owns its own
-    ``skill-bundles.yml`` and contributes its non-``default`` bundles to a single
-    merged registry. Exactly one ``default`` bundle is retained — the first one
-    encountered in path-sorted order — so the merged config always satisfies the
-    HALT-006 default-present contract without duplicate-name collisions.
-
-    Config files are visited in sorted path order for determinism; that order
-    is also the cross-plugin tie-break for equally-specific bundles.
-
-    Raises BundleResolutionError (HALT-006) if no plugin ships a ``default``
-    bundle. A single plugin's own duplicate bundle names surface later in
-    ``resolve_skills`` validation; cross-plugin duplicate names likewise raise
-    there, which is the intended strictness.
+    ``skill-bundles.yml`` and contributes its non-``default`` bundles to a
+    single merged registry. Exactly one ``default`` bundle is retained — the
+    first one encountered in path-sorted order.
     """
     import yaml  # type: ignore[import-untyped]
 
-    root = Path(makato_root)
     merged: list[dict] = []
     seen_default = False
 
-    config_paths = sorted(root.glob("plugins/*/config/skill-bundles.yml"))
-    for cfg_path in config_paths:
+    for cfg_path in _skill_bundle_paths(makato_root):
         try:
             raw = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
         except (OSError, yaml.YAMLError):  # fmt: skip
             continue
         for bundle in raw.get("bundles", []) or []:
             if bundle.get("name") == "default":
-                # Keep only the first default; drop the rest so the merged
-                # registry has a single unambiguous fallback.
                 if seen_default:
                     continue
                 seen_default = True
@@ -428,56 +441,43 @@ def aggregate_bundles(makato_root: Path | str) -> dict:
 
 
 def discover_installed_skills(makato_root: Path | str) -> set[str]:
-    """Return the set of skill identifiers installed under ``plugins/*/skills/``.
-
-    A skill's identifier is its directory name — the same token used in a
-    bundle's ``skills`` list (e.g. ``langgraph-fundamentals``). Used to build the
-    D10 subset filter for ``resolve_skills``.
-    """
-    root = Path(makato_root)
-    return {skill_md.parent.name for skill_md in root.glob("plugins/*/skills/*/SKILL.md")}
+    """Return skill identifiers available in a checkout or installed cache."""
+    installed: set[str] = set()
+    for plugin_root in _installed_plugin_roots(makato_root):
+        installed.update(skill_md.parent.name for skill_md in plugin_root.glob("skills/*/SKILL.md"))
+    return installed
 
 
 def resolve_skills_for_repo(
     changed_files: Iterable[str],
     makato_root: Path | str,
     *,
+    target_repo: Path | str | None = None,
     apply_subset_filter: bool = True,
     task_text: str | None = None,
 ) -> tuple[list[str], list[dict]]:
-    """End-to-end resolution against a makato checkout.
+    """Resolve skills using a registry root and a separate target-repo root.
 
-    Aggregates every plugin's ``skill-bundles.yml`` (cross-plugin), reads the
-    text of each changed file that exists for D19 content hints, discovers the
-    installed skill set for the D10 subset filter, and delegates to the pure
-    ``resolve_skills``. This is the entry point knowledge-scout's Step 0 calls.
-
-    Args:
-        changed_files: paths the target agent will read or write.
-        makato_root: absolute path to the makato checkout root.
-        apply_subset_filter: when True (default), resolved skills are filtered
-            to those installed under ``plugins/*/skills/*/SKILL.md`` (D10).
-        task_text: optional task description / issue body for F5 task-hint
-            matching. Forwarded verbatim to ``resolve_skills`` as ``task_text``.
-            When None or empty (the default), task-hint routing is inactive and
-            resolution is byte-for-byte identical to the pre-F5 behaviour.
-            The caller (PO-agent, build-implement-tdd) assembles the string from
-            the issue body + plan.md; no filesystem reads happen here.
+    ``makato_root`` identifies either the makato source checkout or an
+    installed plugin/cache containing the cross-plugin registries. ``target_repo``
+    is where changed-file content is read; it defaults to ``makato_root`` for
+    backwards compatibility with source-checkout callers.
     """
-    root = Path(makato_root)
-    config = aggregate_bundles(root)
+    registry_root = Path(makato_root)
+    file_root = Path(target_repo) if target_repo is not None else registry_root
+    config = aggregate_bundles(registry_root)
 
     files = list(changed_files)
     file_texts: dict[str, str] = {}
     for file_path in files:
-        candidate = root / file_path
+        candidate = file_root / file_path
         try:
             if candidate.is_file():
                 file_texts[file_path] = candidate.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
 
-    installed = discover_installed_skills(root) if apply_subset_filter else None
+    installed = discover_installed_skills(registry_root) if apply_subset_filter else None
     return resolve_skills(
         files,
         config,
@@ -498,8 +498,23 @@ __all__ = [
 
 def _main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", required=True, type=Path, help="makato suite checkout root")
-    parser.add_argument("--files", required=True, type=Path, help="newline-delimited changed-file list")
+    parser.add_argument(
+        "--root",
+        required=True,
+        type=Path,
+        help="skill registry checkout or installed plugin root",
+    )
+    parser.add_argument(
+        "--target-repo",
+        type=Path,
+        help="target repo root used to read changed-file contents",
+    )
+    parser.add_argument(
+        "--files",
+        required=True,
+        type=Path,
+        help="newline-delimited changed-file list",
+    )
     parser.add_argument("--no-subset-filter", action="store_true")
     args = parser.parse_args(argv)
 
@@ -507,6 +522,7 @@ def _main(argv: list[str]) -> int:
     skills, warnings = resolve_skills_for_repo(
         changed_files,
         args.root,
+        target_repo=args.target_repo,
         apply_subset_filter=not args.no_subset_filter,
     )
     print(json.dumps({"skills_expected": skills, "warnings": warnings}))

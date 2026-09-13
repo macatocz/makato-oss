@@ -81,16 +81,38 @@ turn a missing predicted target file into a suite path lookup or a hard failure.
 
 **0e. Resolve recommended skills (via `inject-skills`).**
 
-After resolving context rules, resolve the recommended skills for the same CHANGED_FILES via the `inject-skills` skill (`plugins/makato-build/skills/inject-skills/SKILL.md`; reference implementation `plugins/makato-build/shared/inject_skills.py`). Call `resolve_skills_for_repo(CHANGED_FILES, REPO_ROOT)`, which aggregates every plugin's `config/skill-bundles.yml`, evaluates D19 content hints against each changed file's text, and applies the D10 installed-skill subset filter.
+After resolving context rules, resolve the recommended skills for the same
+CHANGED_FILES via the `inject-skills` skill
+(`plugins/makato-build/skills/inject-skills/SKILL.md`; reference implementation
+`plugins/makato-build/shared/inject_skills.py`). Use the installed build-plugin
+root as the registry root and the target repository as the content root:
+`resolve_skills_for_repo(CHANGED_FILES, MAKATO_BUILD_ROOT, target_repo=REPO_ROOT)`.
+The resolver discovers sibling installed plugins from the OMP cache, while
+`target_repo` ensures D19 content hints are read from the consumer checkout.
 
 **F5 task-text routing (opt-in).** When the caller has access to the issue body or
-`plan.md` text — for example, after the PO-agent has assembled `task_text` from the
-issue body and the active task's description — pass it as `resolve_skills_for_repo(CHANGED_FILES, REPO_ROOT, task_text=task_text)`. Bundles that declare a `task_contains` list are then matched against this text (OR-semantics, case-sensitive substring), enabling skill routing for green-field tasks where the relevant library files are not yet in the diff. When `task_text` is absent or empty, task-text routing is inactive and resolution is byte-for-byte identical to the file-only behaviour.
+`plan.md` text — for example, after the PO-agent has assembled `task_text` from
+the issue body and the active task's description — pass it as
+`resolve_skills_for_repo(CHANGED_FILES, MAKATO_BUILD_ROOT,
+target_repo=REPO_ROOT, task_text=task_text)`. Bundles that declare a
+`task_contains` list are then matched against this text (OR-semantics, case-sensitive
+substring), enabling skill routing for green-field tasks where the relevant library
+files are not yet in the diff. When `task_text` is absent or empty, task-text
+routing is inactive and resolution is byte-for-byte identical to the file-only
+behaviour.
 
 - The call returns `(recommended_skills: list[str], warnings: list[dict])`.
-- On `BundleResolutionError` with `halt_code == "HALT-006"` (no plugin ships a `default` skill bundle): treat identically to the Step 0c context HALT-006 — set `loaded: false`, `source: "halt-006"`, emit R1 `status: "failure"`, `data.escalation: "halt-006"`, and stop. Do NOT proceed to Step 1.
-- For each returned warning, append a `build.jsonl` entry of the form `{"…","skill":"knowledge-scout","step":"resolve-skills","status":"warn","data":<warning>}` and continue. A `missing-skills` warning (a bundle named a skill not installed here) is expected and non-fatal.
-- Carry `recommended_skills` through to the R1 envelope's `data` block (see below). This is **additive** — it does not affect the constraint/standard synthesis or the `rule_paths` from Step 0c.
+- On `BundleResolutionError` with `halt_code == "HALT-006"` (no plugin ships a
+  `default` skill bundle): treat identically to the Step 0c context HALT-006 —
+  set `loaded: false`, `source: "halt-006"`, emit R1 `status: "failure"`,
+  `data.escalation: "halt-006"`, and stop. Do NOT proceed to Step 1.
+- For each returned warning, append a `build.jsonl` entry of the form
+  `{"…","skill":"knowledge-scout","step":"resolve-skills","status":"warn","data":<warning>}`
+  and continue. A `missing-skills` warning (a bundle named a skill not installed
+  here) is expected and non-fatal.
+- Carry `recommended_skills` through to the R1 envelope's `data` block (see
+  below). This is **additive** — it does not affect the constraint/standard
+  synthesis or the `rule_paths` from Step 0c.
 
 ### Step 1 — Discover SPECS_ROOT
 
