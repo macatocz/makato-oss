@@ -93,9 +93,9 @@ The three autonomous triggers in Step 1a are opt-in signals from the caller. But
 ### Step 2 — Log session start and prepare workspace
 
 Resolve `MAKATO_BUILD_ROOT` using the installed-plugin-root contract in
-`AUTONOMOUS-MODE.md`. Then resolve the spec folder with the installed
-`shared/spec_folder.py` helper; do not run relative `ls specs/...` lookups from
-the consumer repository.
+`$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md`. Then resolve the spec folder with the
+installed `shared/spec_folder.py` helper; do not run relative `ls specs/...`
+lookups from the consumer repository.
 
 ```
 SPEC_FOLDER="$(
@@ -257,7 +257,10 @@ Before exploring the local `context/` directory, attempt to load knowledge from 
 
 Derive REPO_NAME from the last path segment of the target repo root. Extract 5–10 key terms from the story title and description (from `stories.json`) as KEYWORDS.
 
-Dispatch the `knowledge-scout` agent with REPO_ROOT, REPO_NAME, and KEYWORDS. The agent handles project specs discovery internally (makato.config.json → in-repo `specs/` → skip).
+Dispatch the `knowledge-scout` agent with `REPO_ROOT`, `MAKATO_BUILD_ROOT`,
+`REPO_NAME`, and `KEYWORDS`. The agent handles project specs discovery
+internally (makato.config.json → in-repo `specs/` → skip) and reads suite-owned
+configuration only from the installed build-plugin root.
 
 Receive the Knowledge Scout Findings and:
 - Apply every item in `## Hard Constraints` as a mandatory rule in the implementation plan — note these in the plan header so the user sees them
@@ -271,9 +274,11 @@ If the agent returns `loaded: false`: log and continue to Step 6 without change.
 When constraints are found, include a summary line in the plan header presented to the user:
 > "Knowledge graph: {N} hard constraints loaded from project specs ({source}). Applied to all tasks."
 
-### Step 6 — Explore the codebase
-
-Before exploring code files, locate `AGENTS.md` and `CLAUDE.md` at the root of the target codebase (run `git rev-parse --show-toplevel` from any file target in `design.md`). Read whichever exist.
+Before exploring code files, probe the target repository root directly for
+`"$REPO_ROOT/AGENTS.md"` and `"$REPO_ROOT/CLAUDE.md"` and read whichever regular
+files exist. Do not run `git rev-parse --show-toplevel` from a predicted file
+path: a planned file may be greenfield or absent, and a missing target must not
+become a path-not-found failure.
 
 Extract:
 - Project goal and decision test ("Does X belong here?")

@@ -1,7 +1,7 @@
 ---
 name: gate-scout
 modelRole: smol
-version: "1.4.0"
+version: "1.5.0"
 description: >-
   Discover build, lint, unit test, integration test, and coverage commands
   by scanning project config files. Returns a structured command map for
@@ -43,7 +43,7 @@ Scan `REPO_ROOT` for config files in this order:
 | `package.json` or a workspace package manifest such as `frontend/package.json` | Node.js / JavaScript / TypeScript |
 | `pom.xml` | Maven (Java) |
 | `build.gradle` or `build.gradle.kts` | Gradle (Java/Kotlin) |
-| `pyproject.toml` or `setup.py` | Python |
+| `pyproject.toml`, `setup.py`, `pytest.ini`, or a Python lockfile (`uv.lock`, `poetry.lock`, `pdm.lock`, `Pipfile.lock`) | Python |
 | `Makefile` | Make-based (any language) |
 | `Cargo.toml` | Rust |
 | `go.mod` | Go |
@@ -60,8 +60,9 @@ Multiple files may coexist — report all project types found.
 Modern Python projects are frequently driven by a lockfile-backed package manager
 that installs dependencies into a project-local virtualenv. Commands MUST be run
 through that manager's runner, or the tooling resolves against the system Python and
-fails with `ModuleNotFoundError`. When a `pyproject.toml` or `setup.py` was detected,
-probe `REPO_ROOT` for a lockfile and set `python_runner_prefix` accordingly:
+fails with `ModuleNotFoundError`. When Python project evidence is present
+(`pyproject.toml`, `setup.py`, `pytest.ini`, or one of the lockfiles below), probe
+`REPO_ROOT` for a lockfile and set `python_runner_prefix` accordingly:
 
 | Lockfile present | `python_runner_prefix` |
 |---|---|
@@ -73,8 +74,11 @@ probe `REPO_ROOT` for a lockfile and set `python_runner_prefix` accordingly:
 
 When `python_runner_prefix` is non-empty, **prefix every extracted Python command**
 (build, lint, unit, integration, coverage) with it — e.g. `uv run pytest -m "not integration"`,
-not bare `pytest`. First lockfile match wins; report only one prefix. This prefix is
-Python-only — it never applies to Node/Maven/Gradle/Rust/Go commands.
+not bare `pytest`. Apply the prefix exactly once: if a command already starts with the
+discovered prefix, preserve it verbatim rather than prepending a duplicate. First lockfile
+match wins; report only one prefix. This prefix is Python-only — it never applies to
+Node/Maven/Gradle/Rust/Go commands or to `pre-commit` hook commands, whose isolated
+environment is authoritative.
 
 ### Step 1c — Detect standalone tool configs (not just `pyproject.toml` sections)
 
@@ -180,7 +184,7 @@ For each detected config file, extract:
 - Lint: `ruff check .` when Ruff is configured via `[tool.ruff]` **or** a standalone `ruff.toml` (Step 1c); else `flake8` when a flake8 config is present.
 - Unit: **directory split takes precedence over markers.** If a `tests/unit/` directory exists, the unit command is `pytest tests/unit`. Otherwise, check `[tool.pytest.ini_options]` `markers`; if an `integration` marker is defined, unit is `pytest -m "not integration"`; else `pytest`.
 - Integration: if a `tests/integration/` directory exists, integration is `pytest tests/integration`. Otherwise `pytest -m integration` when the marker is defined; else `"not found"`. When both `tests/unit/` and `tests/integration/` exist, report them as separate directory-scoped commands.
-- Coverage: `pytest --cov`. Read the coverage source packages from `[tool.coverage.run]` `source` if present (e.g. `--cov=src/brain --cov=src/body`); otherwise default to `--cov=src`. See Step 3 for the threshold.
+- Coverage: report `pytest --cov` only when coverage evidence is present in `pyproject.toml` (`[tool.coverage.run]`, `[tool.coverage.report]`, a pytest `addopts` entry containing `--cov`, or a declared `coverage`/`pytest-cov` dependency). Read coverage source packages from `[tool.coverage.run]` `source` if present (e.g. `--cov=src/brain --cov=src/body`); otherwise default to `--cov=src`. Preserve the project's coverage configuration (including `[tool.coverage.run] branch = true`) rather than appending report-only flags. Never attach a branch flag to the `coverage report` subcommand: Coverage.py accepts branch measurement configuration at collection/run time, not as a report option. If no coverage evidence is confirmed, return `"not found"` instead of guessing a `coverage` or `pytest` invocation. See Step 3 for the threshold.
 
 **Additional Python linters (report as separate lint commands, not folded into the primary lint):** when Step 1c detects a `biome.json`/`biome.jsonc` or `.sqlfluff`, these are independent linters that run alongside Ruff. Surface them in the output:
 
@@ -201,6 +205,10 @@ standalone config or source evidence is present:
 the same unit/integration command selection described in Step 2.
 
 Apply the `python_runner_prefix` from Step 1b to every command above when it is non-empty.
+The final `data.unit`, `data.integration`, and `data.coverage` strings are the commands callers
+execute; callers MUST consume them verbatim and MUST NOT rebuild them from the unprefixed tool
+name. If no coverage command is discoverable, return `"not found"` rather than guessing a
+`coverage` or `pytest` invocation.
 
 ### Step 2b — JVM version detection (Maven / Gradle projects only)
 

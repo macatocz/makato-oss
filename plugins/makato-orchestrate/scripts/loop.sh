@@ -47,6 +47,9 @@ SUBCOMMANDS
   --promote-unblocked        Promote unblocked Todo/Blocked issues to Ready each tick.
 
 CONFIG
+  MAKATO_TARGET_REPO_ROOT optionally selects a consumer checkout when the
+  installed orchestrator is launched from another repository or directory.
+  Otherwise the current checkout is used.
   Tunable parameters + env overrides live in ../config/config.yml
   and are documented in ../config/config.md.
 HELP
@@ -57,8 +60,20 @@ case "${1:-}" in
   -h|--help|help) _print_help; exit 0 ;;
 esac
 
-# --- Runtime-derived paths (depend on git/$HOME — not tunables, stay here) ---
-REPO_ROOT="$(git rev-parse --show-toplevel)"
+# `MAKATO_TARGET_REPO_ROOT` is set by the suite runner when the installed
+# orchestrator is dispatching a consumer repository from another CWD.
+if [[ -n "${MAKATO_TARGET_REPO_ROOT:-}" ]]; then
+  REPO_ROOT="$(cd "$MAKATO_TARGET_REPO_ROOT" 2>/dev/null && pwd -P)" || {
+    echo "loop: target repository root is not a directory: $MAKATO_TARGET_REPO_ROOT" >&2
+    exit 1
+  }
+  git -C "$REPO_ROOT" rev-parse --show-toplevel >/dev/null 2>&1 || {
+    echo "loop: target repository root is not a git checkout: $REPO_ROOT" >&2
+    exit 1
+  }
+else
+  REPO_ROOT="$(git rev-parse --show-toplevel)"
+fi
 SPECS_DIR="${SPECS_DIR:-$REPO_ROOT/specs}"
 STATE_DIR="${MAKATO_LOOP_STATE_DIR:-$REPO_ROOT/.claude/state}"
 STATUS_FILE="$STATE_DIR/loop-status.json"
@@ -81,9 +96,6 @@ _LOOP_FUNCTIONS="${MAKATO_LOOP_FUNCTIONS:-$_LOOP_SCRIPT_DIR/functions.sh}"
 _LOOP_CONFIG_PARSER="${MAKATO_LOOP_CONFIG_PARSER:-$(dirname "$_LOOP_CONFIG_YML")/parse-config.py}"
 eval "$(python3 "$_LOOP_CONFIG_PARSER" "$_LOOP_CONFIG_YML")"
 
-# Installed plugin roots are separate from the consumer repository. Resolve
-# sibling makato plugins once so every headless child receives absolute paths
-# instead of probing "$REPO_ROOT/plugins/..." from an external checkout.
 _resolve_plugin_root() {
   local plugin="$1" candidate
   case "$plugin" in
@@ -100,13 +112,13 @@ _resolve_plugin_root() {
   plugin_cache_parent="$(cd "$_LOOP_SCRIPT_DIR/../.." && pwd)"
   for candidate in \
     "$REPO_ROOT/plugins/$plugin" \
+    "$plugin_cache_parent/$plugin" \
     "$plugin_cache_parent"/makato-suite___"$plugin"___*; do
     if [[ -f "$candidate/.claude-plugin/plugin.json" ]]; then
       printf '%s\n' "$candidate"
       return 0
     fi
   done
-
 }
 
 MAKATO_ORCHESTRATE_ROOT="${MAKATO_ORCHESTRATE_ROOT:-$(_resolve_plugin_root makato-orchestrate)}"

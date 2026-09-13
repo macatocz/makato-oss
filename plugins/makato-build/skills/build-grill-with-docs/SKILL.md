@@ -25,20 +25,43 @@ target project's full test suite while probing symbols. Test execution belongs
 to `build-start`, implementation, and `build-verify`, which obtain the
 authoritative gate-scout command map and runner prefix.
 
-### Step 1 — Resolve work item, load glossary, locate ADR path
+### Step 1 — Resolve work item, workspace, glossary, locate ADR path
 
 Ask: *"Which work item are we aligning? (e.g. DCP-1234)"* — or use the passed argument.
 
-Resolve `MAKATO_BUILD_ROOT` from the runner plugin-root variables and resolve
-`SPEC_FOLDER` with
-`python3 "$MAKATO_BUILD_ROOT/shared/spec_folder.py" "$REPO_ROOT" "<key>"`.
-Read `plan.md` from that folder (required). If missing, stop:
+Resolve `MAKATO_BUILD_ROOT` from the runner plugin-root variables and validate
+`WORKTREE_PATH` before reading any artifact:
+
+```bash
+if [[ -z "${WORKTREE_PATH:-}" ]]; then
+  if [[ -n "${AGENT_ID:-}" || "${AUTONOMOUS_MODE:-}" == "1" || "${MAKATO_HEADLESS:-}" == "1" ]]; then
+    # Return R1 failure: MISSING_INPUT: WORKTREE_PATH required in autonomous mode.
+    exit 1
+  fi
+  WORKTREE_PATH="$(git rev-parse --show-toplevel)"
+fi
+cd "$WORKTREE_PATH"
+REPO_ROOT="$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)"
+```
+
+`WORKTREE_PATH` is mandatory for autonomous invocations. All codebase probes
+run from that worktree; spec artifacts remain under the main checkout
+`$REPO_ROOT/specs/` because `specs/` is gitignored in linked worktrees.
+Resolve `SPEC_FOLDER` with:
+
+```bash
+SPEC_FOLDER="$(
+  python3 "$MAKATO_BUILD_ROOT/shared/spec_folder.py" "$REPO_ROOT" "<key>"
+)"
+```
+
+Read `plan.md` from `SPEC_FOLDER` (required). If missing, stop:
 
 > "Run `/refine` first — `plan.md` is required."
 
-Read `prd.md`, `design.md`, `decisions.md` from the resolved spec folder if they exist.
+Read `prd.md`, `design.md`, `decisions.md` from `SPEC_FOLDER` if they exist.
 
-Load `glossary.md` from the resolved spec folder as baseline if present — this is the feature vocabulary written by `/makato-plan:stress-test-artifact`. Terms already there are established: do not re-ask their meaning unless a codebase probe reveals a conflict. If `glossary.md` does not exist it will be created in Step 6.
+Load `glossary.md` from `SPEC_FOLDER` as baseline if present — this is the feature vocabulary written by `/makato-plan:stress-test-artifact`. Terms already there are established: do not re-ask their meaning unless a codebase probe reveals a conflict. If `glossary.md` does not exist it will be created in Step 6.
 
 **ADR path lookup** — load `@references/adr-criteria.md` for the probe order. Do NOT load this reference before reaching this step. Scan the primary repo root and use the first match. If none found, present the following numbered options to the user:
 
@@ -69,9 +92,10 @@ Run:
 
 Scan `plan.md` and spec artifacts for domain-specific nouns: entities, states, actions, relationships. Build a candidate list. Skip any term already present in `glossary.md` with no codebase conflict detected — it is already established. Do not ask the user about it again.
 
-Dispatch the `knowledge-scout` agent with REPO_ROOT (the target codebase root), REPO_NAME (last path segment of REPO_ROOT), and the candidate term list as KEYWORDS. This is best-effort — proceed normally if the agent returns `loaded: false`.
-
-If the agent returns findings: inject any `## Hard Constraints`, `## Standards`, and learnings-based findings as additional conflict evidence in the candidate list. A term already documented as resolved in `learnings/` does not need to be raised in the alignment interview — mark it as confirmed and note the source. Only re-raise a learnings/-confirmed term if fresh codebase evidence directly contradicts the learnings/ record.
+Dispatch the `knowledge-scout` agent with `REPO_ROOT` (the target codebase root),
+`MAKATO_BUILD_ROOT` (the absolute installed build-plugin root), `REPO_NAME` (last
+path segment of REPO_ROOT), and the candidate term list as KEYWORDS. This is
+best-effort — proceed normally if the agent returns `loaded: false`.
 
 ---
 

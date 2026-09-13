@@ -14,8 +14,8 @@
 #       <BRANCH>. Reuses an existing worktree at the target path (resume case)
 #       and prints the canonical event marker (worktree_resumed vs
 #       worktree_created) on the first line of stdout; the absolute worktree
-#       path on the second line. Patches workflow-state-<ISSUE>.json:.worktree_path to
-#       the absolute path.
+#       path on the second line. Patches workflow-state-<ISSUE>.json:.worktree_path
+#       to the absolute path.
 #
 #       Default mode assumes <BRANCH> already exists on the remote (upstream
 #       `build-start` created it); `git worktree add <path> <branch>` checks
@@ -24,11 +24,11 @@
 #
 #       `--new-branch` mode (#170 fix): the branch is created atomically as
 #       part of the worktree add via `git worktree add -b <BRANCH> <path>
-#       origin/main`, then the new branch is pushed with `-u` from inside
-#       the fresh worktree — so the main repo working tree is NEVER
-#       touched. This is the callable path for a fresh autonomous issue
-#       where no upstream step created the branch. On failure state is not
-#       mutated and the caller sees the git diagnostic verbatim.
+#       <remote-default>`, then the new branch is pushed with `-u` from inside
+#       the fresh worktree — so the main repo working tree is NEVER touched.
+#       This is the callable path for a fresh autonomous issue where no
+#       upstream step created the branch. On failure state is not mutated and
+#       the caller sees the git diagnostic verbatim.
 #
 #   path <KEY> <ISSUE_NUMBER>
 #       Print the .worktree_path field from workflow-state-<ISSUE>.json, or
@@ -65,6 +65,10 @@
 #     worktree_noop             — cleanup called with no worktree_path set
 #
 # Environment variables:
+#   MAKATO_ORCHESTRATE_ROOT
+#       Absolute installed makato-orchestrate plugin root. When set, all
+#       suite-owned helpers and schemas are resolved from this root rather than
+#       from the target repository (which need not contain makato files).
 #   MAKATO_WORKTREE_ROOT
 #       Override the default .claude/worktrees/ directory (tests only).
 #       Absolutised via realpath before use so a relative override does not
@@ -73,6 +77,7 @@
 # Conventions: matches shared/workflow-state.sh — `set -euo pipefail`,
 # python3 for ISO-8601 ms timestamps (delegated to workflow-state.sh patch),
 # atomic state mutations via the existing helper.
+#
 set -euo pipefail
 
 SUBCMD="${1:?subcommand required: create|path|cleanup|retain}"
@@ -94,8 +99,40 @@ shift || true
 ISSUE_NUMBER="${1:?issue_number required (per-issue workflow-state, #173)}"
 shift || true
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
-WS="$REPO_ROOT/plugins/makato-orchestrate/shared/workflow-state.sh"
+# Prefer an explicit target checkout when the orchestrator is launched from a
+# different repository (for example, an installed suite dispatching a consumer
+# repo). Otherwise preserve the worktree-aware git-derived behaviour.
+if [[ -n "${MAKATO_TARGET_REPO_ROOT:-}" ]]; then
+  REPO_ROOT="$(cd "$MAKATO_TARGET_REPO_ROOT" 2>/dev/null && pwd -P)" || {
+    echo "worktree: target repository root is not a directory: $MAKATO_TARGET_REPO_ROOT" >&2
+    exit 1
+  }
+  git -C "$REPO_ROOT" rev-parse --show-toplevel >/dev/null 2>&1 || {
+    echo "worktree: target repository root is not a git checkout: $REPO_ROOT" >&2
+    exit 1
+  }
+else
+  GIT_COMMON_DIR="$(git rev-parse --git-common-dir 2>/dev/null || true)"
+  if [[ -n "$GIT_COMMON_DIR" ]]; then
+    REPO_ROOT="$(cd "$GIT_COMMON_DIR/.." && pwd -P)"
+  else
+    REPO_ROOT="$(git rev-parse --show-toplevel)"
+  fi
+fi
+
+# This helper is installed with makato-orchestrate and may be invoked from an
+# arbitrary consumer repository. Never look for suite-owned files under the
+# target repo; prefer the explicit installed root and otherwise derive the
+# root from this script's installation path (source-checkout fallback).
+ORCHESTRATE_ROOT="${MAKATO_ORCHESTRATE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)}"
+WS="$ORCHESTRATE_ROOT/shared/workflow-state.sh"
+if [[ ! -f "$WS" ]]; then
+  echo "worktree: workflow-state.sh not found under installed root $ORCHESTRATE_ROOT" >&2
+  exit 1
+fi
+if [[ -z "${SCHEMA_PATH:-}" && -f "$ORCHESTRATE_ROOT/skills/workflow-state/references/workflow-state.schema.json" ]]; then
+  export SCHEMA_PATH="$ORCHESTRATE_ROOT/skills/workflow-state/references/workflow-state.schema.json"
+fi
 WORKTREE_ROOT_RAW="${MAKATO_WORKTREE_ROOT:-$REPO_ROOT/.claude/worktrees}"
 
 # ---------------------------------------------------------------------------
@@ -192,18 +229,46 @@ _is_registered_worktree() {
   return 1
 }
 
+# Resolve the default branch without assuming `main`. A local
+# refs/remotes/origin/HEAD is preferred, then the remote's HEAD symref is
+# queried directly (some clones do not configure origin/HEAD). A repository
+# without an origin still gets an isolated branch from its current HEAD.
+_remote_base_ref() {
+  local symbolic remote_branch
+  symbolic="$(git -C "$REPO_ROOT" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null || true)"
+  if [[ "$symbolic" == refs/remotes/origin/* ]]; then
+    printf '%s\n' "${symbolic#refs/remotes/}"
+    return 0
+  fi
+
+  remote_branch="$(
+    git -C "$REPO_ROOT" ls-remote --symref origin HEAD 2>/dev/null |
+      awk '$1 == "ref:" && $2 ~ /^refs\/heads\// {sub(/^refs\/heads\//, "", $2); print $2; exit}' ||
+      true
+  )"
+  if [[ -n "$remote_branch" ]]; then
+    printf 'origin/%s\n' "$remote_branch"
+  else
+    printf 'HEAD\n'
+  fi
+}
+
+_push_new_branch() {
+  # A local-only target has no origin to push to; this is still a valid
+  # isolated developer run, so leave the branch/worktree in place.
+  git -C "$REPO_ROOT" remote get-url origin >/dev/null 2>&1 || return 0
+  git -C "$WT_PATH" push -u origin "$BRANCH"
+}
+
+
 case "$SUBCMD" in
 
   # -------------------------------------------------------------------------
-  # create [--new-branch] <KEY> <REPO> <BRANCH> <ISSUE_NUMBER>
+  # create [--new-branch] <KEY> <ISSUE_NUMBER> <REPO> <BRANCH>
   # -------------------------------------------------------------------------
   create)
     REPO="${1:?repo required (owner/name form)}"
     BRANCH="${2:?branch required}"
-    # ISSUE_NUMBER was already required at the top of the script for every
-    # subcommand (per-issue workflow-state, #173); no additional positional
-    # consumed here. Preserve the local for path composition below.
-
     SAFE_REPO="$(_sanitise_repo "$REPO")"
     WT_PATH="$WORKTREE_ROOT/${SAFE_REPO}-${ISSUE_NUMBER}"
 
@@ -217,57 +282,43 @@ case "$SUBCMD" in
       # branch-existence knowledge.
       EVENT="worktree_resumed"
     elif (( NEW_BRANCH_MODE == 1 )); then
-      # New-branch mode (#170 fix). The branch does NOT yet exist —
-      # atomically create it as part of `git worktree add -b` off
-      # origin/main. This keeps the main-repo working tree ON `main`;
-      # no `git checkout -b` is ever executed against the main checkout.
-      # After the atomic create, push the new branch with -u from INSIDE
-      # the worktree so upstream tracking is established without ever
-      # `cd`-ing to the main repo.
-      local_stderr="$(mktemp)"
+      # New-branch mode (#170 fix). Create the branch and worktree atomically
+      # from the remote's configured default branch, keeping the caller's
+      # checkout on its original branch.
+      stderr_file="$(mktemp)"
 
-      # Refresh remote refs so `origin/main` is current. Silent on success;
-      # a fetch failure is not fatal here because git worktree add will
-      # surface it with a clearer diagnostic. `|| true` prevents set -e
-      # from aborting the create on transient network issues that the
-      # subsequent worktree add can still recover from.
-      git -C "$REPO_ROOT" fetch origin --quiet 2>/dev/null || true
+      # Refresh remote refs when an origin exists. A fetch failure is not
+      # fatal here because worktree add emits the useful base diagnostic.
+      if git -C "$REPO_ROOT" remote get-url origin >/dev/null 2>&1; then
+        git -C "$REPO_ROOT" fetch origin --quiet 2>/dev/null || true
+      fi
 
-      # Resolve the default remote base. The bare literal `origin/main` is
-      # correct for macatocz/makato but not universal (some target repos
-      # use master/develop). Read HEAD off the remote to stay generic.
-      REMOTE_HEAD_REF="$(git -C "$REPO_ROOT" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null || echo 'refs/remotes/origin/main')"
-      REMOTE_HEAD="${REMOTE_HEAD_REF#refs/remotes/}"  # e.g. origin/main
+      REMOTE_HEAD="$(_remote_base_ref)"
 
-      if ! git -C "$REPO_ROOT" worktree add -b "$BRANCH" "$WT_PATH" "$REMOTE_HEAD" >/dev/null 2>"$local_stderr"; then
+      if ! git -C "$REPO_ROOT" worktree add -b "$BRANCH" "$WT_PATH" "$REMOTE_HEAD" >/dev/null 2>"$stderr_file"; then
         {
           echo "worktree: failed to create $WT_PATH on new branch $BRANCH (base $REMOTE_HEAD)"
           echo "worktree: git stderr follows ---"
-          cat "$local_stderr"
+          cat "$stderr_file"
           echo "worktree: --- end git stderr"
           echo "worktree: hint — if the branch already exists locally or on the remote, drop --new-branch"
         } >&2
-        rm -f "$local_stderr"
+        rm -f "$stderr_file"
         exit 1
       fi
 
-      # Push the new branch upstream from inside the worktree. If the push
-      # fails we still keep the local worktree — a retry with `git push`
-      # from inside the worktree is straightforward. Push failure is NOT
-      # a state-corrupting condition and does NOT roll back the worktree
-      # create.
-      if ! git -C "$WT_PATH" push -u origin "$BRANCH" >/dev/null 2>"$local_stderr"; then
+      # Push from inside the new worktree. A local-only repository has no
+      # origin, so leave its valid isolated branch in place without warning.
+      if ! _push_new_branch >/dev/null 2>"$stderr_file"; then
         {
           echo "worktree: warning — push -u origin $BRANCH failed after worktree create"
           echo "worktree: git stderr follows ---"
-          cat "$local_stderr"
+          cat "$stderr_file"
           echo "worktree: --- end git stderr"
           echo "worktree: worktree is on disk; retry the push from inside $WT_PATH"
         } >&2
-        # Fall through — state patch below records the local worktree so
-        # a caller can resume; the upstream is missing but recoverable.
       fi
-      rm -f "$local_stderr"
+      rm -f "$stderr_file"
       EVENT="worktree_created"
     else
       # Existing-branch mode. `<BRANCH>` must already exist locally or on
@@ -277,19 +328,19 @@ case "$SUBCMD" in
       # conflict on resume of a half-failed earlier run). Capture git's
       # stderr to a tmp file so the failure path can echo the actual git
       # diagnostic, not a generic hint (C23 fix).
-      local_stderr="$(mktemp)"
-      if ! git -C "$REPO_ROOT" worktree add "$WT_PATH" "$BRANCH" >/dev/null 2>"$local_stderr"; then
+      stderr_file="$(mktemp)"
+      if ! git -C "$REPO_ROOT" worktree add "$WT_PATH" "$BRANCH" >/dev/null 2>"$stderr_file"; then
         {
           echo "worktree: failed to create $WT_PATH on branch $BRANCH"
           echo "worktree: git stderr follows ---"
-          cat "$local_stderr"
+          cat "$stderr_file"
           echo "worktree: --- end git stderr"
           echo "worktree: hint — verify the branch exists ('git rev-parse --verify $BRANCH'); if the branch does not exist yet pass --new-branch (#170)"
         } >&2
-        rm -f "$local_stderr"
+        rm -f "$stderr_file"
         exit 1
       fi
-      rm -f "$local_stderr"
+      rm -f "$stderr_file"
       EVENT="worktree_created"
     fi
 

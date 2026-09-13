@@ -37,7 +37,7 @@ Your dispatch prompt provides:
 | `PLAN_PATH` | yes | Absolute path to `plan.md` in the resolved spec folder |
 | `GLOSSARY_PATH` | yes | Absolute path to `glossary.md` in the resolved spec folder (may not exist — check first) |
 | `REPO_ROOT` | yes | Absolute path to the repository root |
-
+| `MAKATO_BUILD_ROOT` | yes | Absolute installed build-plugin root. Use it for suite-owned agent/config/reference files; never probe `REPO_ROOT/plugins/makato-build`. |
 ## Process
 
 ### Step 0 — Load knowledge graph (conditional)
@@ -49,9 +49,9 @@ Extract keywords from the plan: read the task titles and any `**Files:**` paths 
 Dispatch the `knowledge-scout` agent with:
 
 - `REPO_ROOT`: REPO_ROOT
+- `MAKATO_BUILD_ROOT`: MAKATO_BUILD_ROOT
 - `REPO_NAME`: REPO_NAME
 - `KEYWORDS`: extracted key terms
-
 Receive the Knowledge Scout Findings. Include the `## Hard Constraints`, `## Standards`, and `## Architecture Context` sections verbatim in this Plan Analysis output if `loaded: true`. Record `knowledge_context_loaded` and `knowledge_context_source` from the findings metadata.
 
 If the agent returns `loaded: false`: set `knowledge_context_loaded: false`, `knowledge_context_source: none`, and omit the Hard Constraints and Standards sections from output.
@@ -87,13 +87,16 @@ Additive-only plans (all files `modify`) default to `tracer_required = false` re
 
 Check if `GLOSSARY_PATH` exists. If it does, read it and extract all `_Code_:` entries — these are the canonical codebase terms that override spec terminology during implementation.
 
-### Step 4 — Identify reusable patterns
-
-In `REPO_ROOT`, look for:
+In `REPO_ROOT`, probe only regular files that exist for:
 
 - Existing utility classes or helpers relevant to the task domains (grep for common patterns: `@Repository`, `@Service`, `BaseEntity`, `AbstractController`, common test base classes)
 - Test framework and conventions (read one existing test file to confirm naming pattern and base class)
 - Build tool and dependency management (identify from config files: `package.json`, `pom.xml`, `build.gradle`, `pyproject.toml`)
+
+Predicted `**Files:**` targets such as `tools/cmai_lint/d001.py` or
+`tests/tools/test_cmai_d001.py` may be greenfield. Missing target files are
+normal advisory misses: skip them without trying a skill-relative path,
+`REPO_ROOT/plugins/makato-*`, or a hard path-not-found failure.
 
 Keep this brief — 3 entries maximum.
 

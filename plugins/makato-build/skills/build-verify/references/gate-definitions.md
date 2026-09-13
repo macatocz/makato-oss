@@ -18,7 +18,9 @@ dependencies live in a project-local venv that bare invocations cannot see:
 | `Pipfile.lock` | `pipenv run` |
 
 E.g. `uv run pytest -m "not integration"`, `uv run ruff check .`, `uv run pyright`. The prefix
-applies to Python commands only.
+applies to Python commands only. Gate-scout's command strings are authoritative and must be
+executed verbatim; never strip a prefix, prepend it a second time, or fall back to a bare
+system-Python command when a lockfile is present.
 
 ### Build / Compile Commands
 
@@ -90,13 +92,16 @@ Gate 4, logging it as not-applicable.
 | Jest | `jest --coverage --coverageReporters=json-summary` |
 | Maven + JaCoCo | `mvn verify` (JaCoCo report in `target/site/jacoco/`) |
 | Gradle + JaCoCo | `./gradlew jacocoTestReport` |
-| Pytest + coverage | `pytest --cov=src --cov-branch --cov-report=term-missing` |
+| Pytest + coverage | `pytest --cov=src --cov-report=term-missing` |
 | Go | `go test ./... -coverprofile=coverage.out -covermode=atomic` then `go tool cover -func=coverage.out` |
 | Rust | `cargo tarpaulin --engine llvm --out Stdout` |
 
-Always use **branch coverage** flags where available (`--cov-branch` in pytest,
-`-covermode=atomic` in Go, branch coverage in JaCoCo config). Line coverage alone
-does not satisfy the conditional coverage requirement.
+Always measure branches where the project tool supports it (`branch = true` in Coverage.py
+configuration, pytest-cov's supported collection flag, `-covermode=atomic` in Go, or branch
+coverage in JaCoCo config). Do not add a branch flag to a report-only invocation: branch
+measurement is configured while collecting/running tests, and report subcommands should be
+kept to the options supported by the installed tool version. When gate-scout discovers an
+explicit project command, use that command verbatim instead of constructing a fallback.
 
 ## What Counts as a Gate Failure vs. a Warning
 

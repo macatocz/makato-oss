@@ -61,6 +61,12 @@ for local work without a ticket)"* — or use the argument passed directly.
   slug describing the work (e.g. `fix-auth-bug`, `refactor-invoice-mapper`).
   Set `key = "local-<slug>"`. Set `local_work = true`.
 
+Before any board-gate logging or helper invocation, resolve
+`MAKATO_BUILD_ROOT` from the runner-provided installed-plugin root contract
+(`CLAUDE_PLUGIN_ROOT`, `OMP_PLUGIN_ROOT`, or `PLUGIN_ROOT`). All suite-owned
+helpers below use this absolute path; never assume the consumer repository
+contains `plugins/makato-build`.
+
 ### Step 1b — DoR gate
 
 Only when `local_work = false`. Check the board item's Status before git pre-flight to confirm the issue is Ready — ensuring the PO has shaped and approved the work before tokens are spent on planning and implementation.
@@ -110,10 +116,29 @@ In **autonomous mode** (`--autonomous`): log the same entry above, then return R
 
 Run these checks before touching any spec files:
 
-Resolve `MAKATO_BUILD_ROOT` using the installed-plugin-root contract in
-`AUTONOMOUS-MODE.md`. All helper commands in this skill use the resulting
-absolute path; the consumer repository is not assumed to contain the makato
-plugin checkout.
+The `MAKATO_BUILD_ROOT` resolved before Step 1b remains in force. All helper
+commands in this skill use that absolute path; the consumer repository is not
+assumed to contain the makato plugin checkout.
+
+Resolve the workspace before running any pre-flight command so `git status`,
+fetches, comparisons, and later edits all target the isolated checkout:
+
+```bash
+# WORKTREE_PATH is supplied by the autonomous orchestrator. In interactive
+# mode it may be the current checkout (a developer can start on a feature
+# worktree); it is never silently changed to a new ambient branch.
+if [[ -z "${WORKTREE_PATH:-}" ]]; then
+  if [[ -n "${AGENT_ID:-}" || -n "${TASK_ID:-}" || "${AUTONOMOUS_MODE:-}" == "1" ]]; then
+    # Return R1 failure: MISSING_INPUT: WORKTREE_PATH required in autonomous mode.
+    exit 1
+  fi
+  WORKTREE_PATH="$(git rev-parse --show-toplevel)"
+fi
+cd "$WORKTREE_PATH"
+REPO_ROOT="$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)"
+```
+
+Only after this resolution, run the following checks:
 
 **2a — Clean working tree**
 
@@ -145,15 +170,52 @@ Compare local vs remote:
 4. If the count is > 0: warn *"Your branch base is `<N>` commit(s) behind `upstream/main`. Consider rebasing before starting work to avoid merge conflicts at PR time: `git rebase upstream/main`. Continue anyway? [Y/n]"*. If no: stop. If yes: continue.
 5. If no `upstream` remote: skip this check silently.
 
-**2c — Branch check**
+**2c — Branch/worktree check**
 
-If current branch is `main` or `master`: ask *"You're on main. Create a new
-branch for this work? [Y/n]"*. If yes, prompt for a branch name (default:
-`<key>` lowercased, e.g. `dcp-1234` or `local-fix-auth-bug`). Run:
+`build-start` MUST NOT create a branch by mutating the caller's checkout. The
+workspace guard above already changed into `WORKTREE_PATH` and derived
+`REPO_ROOT`; this step only validates the checked-out branch and resolves the
+protected/default integration branch.
 
+Resolve the protected/default integration branch before deciding whether this
+checkout is safe. `development` is a valid default branch and MUST be treated
+the same as `main`/`master`:
+
+```bash
+DEFAULT_REF="$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null || true)"
+if [[ -z "$DEFAULT_REF" ]]; then
+  DEFAULT_REF="$(
+    git ls-remote --symref origin HEAD 2>/dev/null |
+      awk '$1 == "ref:" && $2 ~ /^refs\/heads\// {sub(/^refs\/heads\//, "", $2); print "origin/" $2; exit}' ||
+      true
+  )"
+fi
+if [[ -z "$DEFAULT_REF" && -x "$MAKATO_BUILD_ROOT/shared/default-branch.sh" ]]; then
+  DEFAULT_REF="$("$MAKATO_BUILD_ROOT/shared/default-branch.sh" 2>/dev/null || true)"
+fi
+DEFAULT_BRANCH="${DEFAULT_REF#refs/remotes/origin/}"
+DEFAULT_BRANCH="${DEFAULT_BRANCH#origin/}"
+CURRENT_BRANCH="$(git branch --show-current)"
 ```
-git checkout -b <branch-name>
-```
+
+If `CURRENT_BRANCH` equals the resolved `DEFAULT_BRANCH` (or, when no remote
+default can be resolved, equals `main` or `master`), do **not** run a
+branch-creation checkout (or any other branch-creation command) here:
+
+- In autonomous mode this is a lifecycle violation. Stop with
+  `MISSING_INPUT: WORKTREE_PATH required in autonomous mode`; the PO-agent must
+  create/resume the registered worktree through
+  `shared/worktree.sh create [--new-branch] <KEY> <ISSUE_NUMBER> <REPO> <BRANCH>`
+  before dispatching `build-start`.
+- In interactive mode, hand off instead of changing the ambient checkout:
+  > "`build-start` does not create branches in the caller checkout. Create or
+  > resume an isolated worktree through the makato-orchestrate lifecycle
+  > (or run `git worktree add -b <branch> <path> <base>`), then rerun
+  > `build-start <key>` from that worktree with `WORKTREE_PATH=<path>`."
+When `WORKTREE_PATH` is already a registered feature worktree, continue the
+pre-flight checks and pass both `WORKTREE_PATH` and `REPO_ROOT` to every
+downstream build skill. This makes source edits, tests, commits, and pushes
+stay in the isolated worktree while specs and audit logs remain in `REPO_ROOT`.
 
 ### Step 2d — Mark In Progress on project board
 
@@ -345,7 +407,6 @@ Tell the user: *"No stories.json will be created. `/build-refine` will read
 | Story primarily involves… | Default mode |
 |---|---|
 | Business logic, API endpoints, data processing, event handling, validators | **TDD** |
-| UI components (must render before tests can assert) | **Goal** |
 | Database migrations (must run before tests verify schema) | **Goal** |
 | Config changes, CLI scripts where behavior is observed by running | **Goal** |
 | A mix of the above | **TDD** — let `/build-refine` override per-task |
@@ -367,7 +428,7 @@ The schema determines which skill artifacts are assembled into the pipeline.
 Run `workflow-schema-loader.sh` passing the repository root as the first argument:
 
 ```bash
-REPO_ROOT="$(git rev-parse --show-toplevel)"
+REPO_ROOT="$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)"
 ARTIFACT_LIST="$(bash "$MAKATO_BUILD_ROOT/scripts/workflow-schema-loader.sh" "$REPO_ROOT" 2>/tmp/schema-loader-err)"
 SCHEMA_EXIT=$?
 ```
@@ -382,7 +443,6 @@ SCHEMA_SOURCE="custom"   # or "default" — readable from first loader stderr li
 if [[ ! -f "$REPO_ROOT/.claude/workflow-schema.yml" ]]; then
   SCHEMA_SOURCE="default"
 fi
-"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"schema-resolved","status":"ok","data":{"source":"<default|custom>","artifact_count":<N>}}'
 ```
 
 **On exit 1 or 2:** The schema is invalid (parse error, cycle detected, or missing
@@ -413,17 +473,30 @@ Include `schema_source` from Step 4a.
 ### Step 6 — Hand off to build-refine
 
 Tell the user what to expect from `/build-refine`: it will read spec artifacts,
-inspect the codebase, and produce `plan.md` in the spec folder — a task list with file
-targets, test strategy, and acceptance mapping. It is interactive and will ask
+inspect the codebase, and produce `plan.md` in the spec folder — a task list with
+file targets, test strategy, and acceptance mapping. It is interactive and will ask
 questions before finalizing the plan.
+
+Dispatch `/build-refine <key>` with the resolved workspace context:
+
+```text
+WORKTREE_PATH=<absolute registered worktree path>
+REPO_ROOT=<absolute main checkout path>
+MAKATO_BUILD_ROOT=<absolute installed makato-build root>
+```
+
+`build-refine` uses `WORKTREE_PATH` for source inspection and `REPO_ROOT` for
+gitignored spec artifacts. Never omit or replace these fields with the ambient
+checkout path.
 
 Run:
 
 ```bash
-"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"session-end","status":"ok","data":{"next":"build-refine"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"session-end","status":"ok","data":{"next":"build-refine","worktree_path":"<WORKTREE_PATH>","repo_root":"<REPO_ROOT>"}}'
 ```
 
-Invoke `/build-refine <key>`.
+Invoke `/build-refine <key>` with the same `WORKTREE_PATH`, `REPO_ROOT`, and
+`MAKATO_BUILD_ROOT` fields.
 
 ## Anti-Patterns
 

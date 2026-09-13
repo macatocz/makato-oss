@@ -62,12 +62,34 @@ if [[ "$PLUGIN_NAME" == "makato-build" ]]; then
   done
 fi
 
-# Source-checkout fallback: useful for makato-oss development and CI fixtures.
-REPO_ROOT="${REPO_ROOT:-}"
-if [[ -z "$REPO_ROOT" ]] && git_root="$(git rev-parse --show-toplevel 2>/dev/null)"; then
-  REPO_ROOT="$git_root"
+# Source-checkout fallback: resolve suite-owned siblings from this helper's
+# installation path before inspecting any target-repository plugins. A consumer
+# may vendor stale `plugins/makato-*` files; those are never authoritative.
+SUITE_PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+if [[ "$PLUGIN_NAME" == "makato-build" ]]; then
+  candidate="$SUITE_PLUGIN_ROOT"
+else
+  candidate="$(cd "$SUITE_PLUGIN_ROOT/.." && pwd -P)/$PLUGIN_NAME"
 fi
+if _is_plugin_root "$candidate"; then
+  printf '%s\n' "$(cd "$candidate" && pwd)"
+  exit 0
+fi
+
+# An orchestrator may invoke the helper from a suite checkout while targeting
+# another repository, so honor the explicit target root before git discovery.
+REPO_ROOT="${MAKATO_TARGET_REPO_ROOT:-${REPO_ROOT:-}}"
 if [[ -n "$REPO_ROOT" ]]; then
+  REPO_ROOT="$(cd "$REPO_ROOT" 2>/dev/null && pwd -P)" || {
+    echo "runtime-context: target repository root is not a directory: $REPO_ROOT" >&2
+    exit 1
+  }
+  git -C "$REPO_ROOT" rev-parse --show-toplevel >/dev/null 2>&1 || {
+    echo "runtime-context: target repository root is not a git checkout: $REPO_ROOT" >&2
+    exit 1
+  }
+fi
+if [[ -n "$REPO_ROOT" && -z "${MAKATO_TARGET_REPO_ROOT:-}" ]]; then
   candidate="$REPO_ROOT/plugins/$PLUGIN_NAME"
   if _is_plugin_root "$candidate"; then
     printf '%s\n' "$(cd "$candidate" && pwd)"

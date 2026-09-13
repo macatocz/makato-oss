@@ -88,7 +88,21 @@ SUBCMD="${1:?subcommand required: check|emit-resume|check-pid}"
 KEY="${2:?key required}"
 ISSUE_NUMBER="${3:?issue_number required (per-issue state file, #173)}"
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
+# The handoff may be emitted by a session whose CWD is the installed suite or
+# a linked worktree. Prefer the explicit target checkout so state and resume
+# scripts remain attached to the consumer repository.
+if [[ -n "${MAKATO_TARGET_REPO_ROOT:-}" ]]; then
+  REPO_ROOT="$(cd "$MAKATO_TARGET_REPO_ROOT" 2>/dev/null && pwd -P)" || {
+    echo "context-handoff: target repository root is not a directory: $MAKATO_TARGET_REPO_ROOT" >&2
+    exit 1
+  }
+  git -C "$REPO_ROOT" rev-parse --show-toplevel >/dev/null 2>&1 || {
+    echo "context-handoff: target repository root is not a git checkout: $REPO_ROOT" >&2
+    exit 1
+  }
+else
+  REPO_ROOT="$(git rev-parse --show-toplevel)"
+fi
 MAKATO_ORCHESTRATE_ROOT="${MAKATO_ORCHESTRATE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 WS="$MAKATO_ORCHESTRATE_ROOT/shared/workflow-state.sh"
 STATE_DIR="$REPO_ROOT/.claude/state"
@@ -226,7 +240,7 @@ if [[ "\$STATE_PHASE" == "done" ]]; then
   exit 0
 fi
 
-exec env MAKATO_HEADLESS=1 WORKTREE_PATH="\$WORKTREE_PATH" "$CLAUDE_BIN" $resume_perm_flag --resume "\$SESSION_ID" -p "Use the Skill tool to invoke the makato-change:orchestrate skill with args '\$KEY --autonomous'. Context: ISSUE_NUMBER=\$ISSUE ISSUE_KEY=\$KEY WORKTREE_PATH=\$WORKTREE_PATH REPO_ROOT=$REPO_ROOT. MAKATO_HEADLESS=1 is already exported. Resume from the current phase recorded in change-state — do NOT restart from analyze, and perform all edits/commits inside WORKTREE_PATH. Return the skill's final R1 envelope verbatim."
+exec env MAKATO_HEADLESS=1 MAKATO_TARGET_REPO_ROOT="$REPO_ROOT" WORKTREE_PATH="\$WORKTREE_PATH" "$CLAUDE_BIN" $resume_perm_flag --resume "\$SESSION_ID" -p "Use the Skill tool to invoke the makato-change:orchestrate skill with args '\$KEY --autonomous'. Context: ISSUE_NUMBER=\$ISSUE ISSUE_KEY=\$KEY WORKTREE_PATH=\$WORKTREE_PATH REPO_ROOT=$REPO_ROOT MAKATO_TARGET_REPO_ROOT=$REPO_ROOT. MAKATO_HEADLESS=1 is already exported. Resume from the current phase recorded in change-state — do NOT restart from analyze, and perform all edits/commits inside WORKTREE_PATH. Return the skill's final R1 envelope verbatim."
 EOF
   else
     # Default (non-change issue) — po-agent resume.
@@ -250,7 +264,7 @@ if [[ "\$STATE_PHASE" == "done" ]]; then
   exit 0
 fi
 
-exec env MAKATO_HEADLESS=1 MAKATO_ORCHESTRATE_ROOT="$MAKATO_ORCHESTRATE_ROOT" MAKATO_BUILD_ROOT="${MAKATO_BUILD_ROOT:-}" MAKATO_PLAN_ROOT="${MAKATO_PLAN_ROOT:-}" "$CLAUDE_BIN" $resume_perm_flag --resume "\$SESSION_ID" -p "Use the Task tool to dispatch the makato-orchestrate:po-agent subagent to resume driving GitHub issue #\$ISSUE to a merged PR. Pass MAKATO_ORCHESTRATE_ROOT=$MAKATO_ORCHESTRATE_ROOT MAKATO_BUILD_ROOT=${MAKATO_BUILD_ROOT:-} MAKATO_PLAN_ROOT=${MAKATO_PLAN_ROOT:-}. The po-agent owns the outer loop, workflow-state, and all makato-build --autonomous dispatch; do not invoke makato-build or makato-plan skills directly from this session. Return the po-agent's final R1 envelope verbatim."
+exec env MAKATO_HEADLESS=1 MAKATO_TARGET_REPO_ROOT="$REPO_ROOT" MAKATO_ORCHESTRATE_ROOT="$MAKATO_ORCHESTRATE_ROOT" MAKATO_BUILD_ROOT="${MAKATO_BUILD_ROOT:-}" MAKATO_PLAN_ROOT="${MAKATO_PLAN_ROOT:-}" "$CLAUDE_BIN" $resume_perm_flag --resume "\$SESSION_ID" -p "Use the Task tool to dispatch the makato-orchestrate:po-agent subagent to resume driving GitHub issue #\$ISSUE to a merged PR. Pass MAKATO_TARGET_REPO_ROOT=$REPO_ROOT MAKATO_ORCHESTRATE_ROOT=$MAKATO_ORCHESTRATE_ROOT MAKATO_BUILD_ROOT=${MAKATO_BUILD_ROOT:-} MAKATO_PLAN_ROOT=${MAKATO_PLAN_ROOT:-}. The po-agent owns the outer loop, workflow-state, and all makato-build --autonomous dispatch; do not invoke makato-build or makato-plan skills directly from this session. Return the po-agent's final R1 envelope verbatim."
 EOF
   fi
   chmod +x "$RESUME_SCRIPT"

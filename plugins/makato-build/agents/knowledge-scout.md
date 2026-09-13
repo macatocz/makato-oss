@@ -33,6 +33,7 @@ Your dispatch prompt provides:
 | Field | Required | Description |
 |---|---|---|
 | `REPO_ROOT` | yes | Absolute path to the target repository |
+| `MAKATO_BUILD_ROOT` | yes | Absolute installed `makato-build` plugin root. Use this root for every suite-owned config, helper, or reference file; never resolve suite files from `REPO_ROOT` or the agent's current directory. |
 | `REPO_NAME` | yes | Last path segment of REPO_ROOT (e.g. `ldm-deals`, `dcp-commerce-ui`) |
 | `KEYWORDS` | yes | Key terms from the plan/story (used to filter index entries) |
 | `CHANGED_FILES` | no | List of project-relative file paths the task will create or modify, predicted from the plan's `**Files:**` fields. Empty list treated as no-scope — only `default` bundle rules are pre-read. Used in Step 0 to resolve context bundles via `inject-context` (0a–0d) and recommended skills via `inject-skills` (0e). |
@@ -47,11 +48,17 @@ The `inject-context` skill (`plugins/makato-build/skills/inject-context/SKILL.md
 
 **0a. Parse the bundle registry.**
 
-Read `plugins/makato-build/config/context-bundles.yml` (relative to the makato repo root) and parse it via PyYAML. The file lists at least four canonical bundles — `typescript`, `python`, `sql`, and `default` — and may list more.
+Read `$MAKATO_BUILD_ROOT/config/context-bundles.yml` and parse it via PyYAML. Never
+probe `REPO_ROOT/plugins/makato-build` or resolve this file relative to the
+agent/skill directory. The file lists at least four canonical bundles — `typescript`,
+`python`, `sql`, and `default` — and may list more.
 
 **0b. Substitute `{repo}` placeholders.**
 
-For each rule path in each bundle, replace the literal token `{repo}` with REPO_NAME. This lets a single config reference per-repo context directories (e.g. `context/{repo}/standards/python.md` resolves to `context/ldm-deals/standards/python.md` for the `ldm-deals` repo).
+For each rule path in each bundle, replace the literal token `{repo}` with REPO_NAME.
+These paths are target-repository-relative (for example,
+`context/ldm-deals/standards/python.md`), not paths inside the installed plugin.
+Suite-owned files are loaded only from `$MAKATO_BUILD_ROOT`.
 
 **0c. Resolve.**
 
@@ -62,9 +69,15 @@ Call `resolve_bundles(CHANGED_FILES, config)`. The resolver returns a 2-tuple: `
 
 **0d. Pre-read the resolved rule files.**
 
-For each path in `rules`, read the file if it exists. Missing rule paths are tolerated silently — the registry references aspirational `context/{repo}/` paths that may not exist in every target repo. Cap the total pre-read at 8 files; if the resolver returned more, take the first 8 in order (the most-specific bundles come first per the specificity-precedence rule).
+For each path in `rules`, resolve it as `"$REPO_ROOT/<rule>"` unless it is already
+absolute, and read it only when that regular file exists. Missing target-repository
+rules are normal (the registry intentionally names aspirational `context/{repo}/`
+files) and MUST NOT become a path-not-found failure. Cap the total pre-read at 8
+files; if the resolver returned more, take the first 8 in order (the most-specific
+bundles come first per the specificity-precedence rule).
 
-The contents of these files form the **bundle context** that supplements (does NOT replace) the specs synthesis in the remaining steps.
+The contents of these files form the **bundle context** that supplements (does NOT replace) the specs synthesis in the remaining steps. The caller must never
+turn a missing predicted target file into a suite path lookup or a hard failure.
 
 **0e. Resolve recommended skills (via `inject-skills`).**
 

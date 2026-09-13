@@ -51,6 +51,39 @@ else
   pass "skills read AUTONOMOUS-MODE.md through the runtime root"
 fi
 
+echo "T5: build skills do not resolve suite-owned agents from skill-relative paths"
+if rg -n --glob 'SKILL.md' 'agents/gate-scout\.md|@[^` ]*gate-scout\.md' \
+  "$PLUGIN_ROOT/skills" >/tmp/makato-build-relative-agent-paths.txt 2>/dev/null; then
+  cat /tmp/makato-build-relative-agent-paths.txt
+  fail "found a skill-relative gate-scout agent path"
+else
+  pass "gate-scout is dispatched by registry name, not a skill-relative path"
+fi
+
+echo "T6: build skills never probe consumer-repository plugin siblings"
+if rg -n 'REPO_ROOT/plugins/makato-' \
+  "$PLUGIN_ROOT/skills/build-refine/SKILL.md" \
+  "$PLUGIN_ROOT/skills/build-implement-tdd/SKILL.md" \
+  "$PLUGIN_ROOT/skills/build-simplify/SKILL.md" \
+  >/tmp/makato-build-consumer-plugin-paths.txt 2>/dev/null; then
+  cat /tmp/makato-build-consumer-plugin-paths.txt
+  fail "found a consumer-repository plugin path probe"
+else
+  pass "suite-owned files are resolved through installed roots"
+fi
+echo "T7: optional orchestrate scout dispatch checks installed root and agent"
+if grep -q 'MAKATO_ORCHESTRATE_ROOT' \
+  "$PLUGIN_ROOT/skills/build-implement-tdd/SKILL.md" &&
+   grep -q 'agents/task-file-scout\.md' \
+  "$PLUGIN_ROOT/skills/build-implement-tdd/SKILL.md"; then
+  pass "task-file-scout dispatch has an explicit optional-root guard"
+else
+  fail "task-file-scout dispatch lacks installed-root/agent availability guard"
+fi
+
+rm -f /tmp/makato-build-relative-agent-paths.txt \
+  /tmp/makato-build-consumer-plugin-paths.txt /tmp/makato-build-scout-guard.txt
+
 rm -f /tmp/makato-build-runtime-paths.txt /tmp/makato-build-autonomous-refs.txt
 
 echo
