@@ -1,11 +1,13 @@
 ---
 name: gate-scout
 modelRole: smol
-version: "1.3.0"
+version: "1.4.0"
 description: >-
-  Discover build, lint, unit test, integration test, and coverage commands
-  by scanning project config files. Returns a structured command map for
-  the verify skill. Read-only.
+  Discover the repository's build, lint, unit test, integration, coverage, and
+  runtime-health commands without executing them. Returns a structured command
+  map for the verify skill. Commands returned for later execution must be
+  executable strings, with metadata (such as thresholds) emitted in separate
+  output fields.
 maxTurns: 10
 permissionMode: bypassPermissions
 disallowedTools: Write, Edit, Bash, NotebookEdit
@@ -169,7 +171,13 @@ For each detected config file, extract:
 - Lint: `ruff check .` when Ruff is configured via `[tool.ruff]` **or** a standalone `ruff.toml` (Step 1c); else `flake8` when a flake8 config is present.
 - Unit: **directory split takes precedence over markers.** If a `tests/unit/` directory exists, the unit command is `pytest tests/unit`. Otherwise, check `[tool.pytest.ini_options]` `markers`; if an `integration` marker is defined, unit is `pytest -m "not integration"`; else `pytest`.
 - Integration: if a `tests/integration/` directory exists, integration is `pytest tests/integration`. Otherwise `pytest -m integration` when the marker is defined; else `"not found"`. When both `tests/unit/` and `tests/integration/` exist, report them as separate directory-scoped commands.
-- Coverage: `pytest --cov`. Read the coverage source packages from `[tool.coverage.run]` `source` if present (e.g. `--cov=src/brain --cov=src/body`); otherwise default to `--cov=src`. See Step 3 for the threshold.
+- Coverage: if `pytest-cov` is declared in the project/development/test
+  dependencies, use `pytest --cov` and read the source packages from
+  `[tool.coverage.run]` `source` (e.g. `--cov=src/brain --cov=src/body`);
+  otherwise, if the `coverage` package is declared, use
+  `coverage run -m pytest && coverage report`; otherwise return `"not found"`.
+  Never synthesize `pytest --cov` merely because a `[tool.coverage]` section
+  exists: without the `pytest-cov` plugin pytest rejects `--cov`.
 
 **Additional Python linters (report as separate lint commands, not folded into the primary lint):** when Step 1c detects a `biome.json`/`biome.jsonc` or `.sqlfluff`, these are independent linters that run alongside Ruff. Surface them in the output:
 
@@ -222,6 +230,12 @@ Resolve the coverage threshold in this precedence order:
 
 The verify skill reads `design.md` separately and passes any story threshold via `COVERAGE_HINT`; a story-specific threshold overrides the `pyproject.toml` value, which in turn overrides the default.
 
+**Coverage command/metadata separation (regression guard):** `coverage` is the
+exact executable command string only. Never append a threshold, explanatory
+text, or any other metadata to it (for example, never emit
+`uv run pytest --cov=src/brain --cov=src/body --cov=src/shared — threshold: 95%`).
+Emit a declared threshold separately as `coverage_threshold`.
+
 ## Output Format
 
 Emit this prose block as part of your message (before the R1 block):
@@ -248,7 +262,8 @@ Emit this prose block as part of your message (before the R1 block):
 **lint_sql**: `<exact command>` | not found
 **unit**: `<exact command>` | not found
 **integration**: `<exact command>` | not found
-**coverage**: `<exact command>` — threshold: <X>% | not found
+**coverage**: `<exact executable command> | not found`
+**coverage_threshold**: `<declared threshold, e.g. 95%> | none`
 **health_check_cmd**: `<exact command>` | null
 ```
 
@@ -256,7 +271,7 @@ Emit this prose block as part of your message (before the R1 block):
 
 The final element of your message MUST be a fenced ` ```json ` block containing the R1 envelope defined in `plugins/makato-build/agents/RETURN-CONTRACT.md`. Callers parse the last `json`-fenced block via `JSON.parse()` — no prose parsing.
 
-`data` shape: `{ "project_type": "...", "config_files_read": N, "python_runner_prefix": "...", "build": "...", "lint": "...", "lint_js": "...", "lint_sql": "...", "unit": "...", "integration": "...", "coverage": "...", "java_version_required": "...", "lint_ci_divergence": true|false, "lint_ci_command": "...", "build_hook_cmd": "...|null", "lint_hook_cmd": "...|null", "pyright_env": "hook|raw", "build_hook_missing": true|false, "lint_hook_missing": true|false, "health_check_cmd": "...|null" }`. Use the string `"not found"` for any command not discovered, and `"none"` for `python_runner_prefix` when no lockfile matches. `lint_js` / `lint_sql` are `"not found"` for projects without Biome / SQLFluff. `build_hook_cmd` / `lint_hook_cmd` are `null` (not the string `"null"`) when no matching hook is found. `health_check_cmd` is `null` (not the string `"null"`) when no health/smoke command is discovered.
+`data` shape: `{"project_type":"...","config_files_read":N,"python_runner_prefix":"...","build":"...","lint":"...","lint_js":"...","lint_sql":"...","unit":"...","integration":"...","coverage":"<exact executable command>|not found","coverage_threshold":"<declared threshold>|none","java_version_required":"...","lint_ci_divergence":true|false,"lint_ci_command":"...","build_hook_cmd":"...|null","lint_hook_cmd":"...|null","pyright_env":"hook|raw","build_hook_missing":true|false,"lint_hook_missing":true|false,"health_check_cmd":"...|null"}`. Use the string `"not found"` for any command not discovered, and `"none"` for `python_runner_prefix` when no lockfile matches. `coverage_threshold` is metadata only and must never be concatenated into `coverage`.
 
 ### Success
 
@@ -265,7 +280,7 @@ The final element of your message MUST be a fenced ` ```json ` block containing 
   "schema": "r1",
   "agent": "gate-scout",
   "status": "success",
-  "summary": "python (uv) project: pyright build gate, ruff + biome + sqlfluff lint, directory-split test lanes; coverage threshold 0% from pyproject fail_under.",
+  "summary": "python (uv) project: pyright build gate, ruff + biome + sqlfluff lint, directory-split test lanes; coverage uses the declared coverage runner with a 90% threshold.",
   "files_changed": [],
   "tests_written": [],
   "errors": [],
@@ -280,7 +295,8 @@ The final element of your message MUST be a fenced ` ```json ` block containing 
     "lint_sql": "sqlfluff lint --dialect postgres",
     "unit": "uv run pytest tests/unit",
     "integration": "uv run pytest tests/integration",
-    "coverage": "uv run pytest --cov=src/brain --cov=src/body --cov=src/shared — threshold: 0%",
+    "coverage": "uv run coverage run -m pytest && uv run coverage report",
+    "coverage_threshold": "90%",
     "java_version_required": "not applicable",
     "lint_ci_divergence": false,
     "lint_ci_command": "not found",

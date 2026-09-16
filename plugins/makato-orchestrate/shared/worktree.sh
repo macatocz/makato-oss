@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# worktree.sh — git worktree lifecycle for the PO-agent (GAP-017 / #46).
+# worktree.sh — git worktree lifecycle for the PO-agent and interactive builds.
 #
 # Implements the four mechanisms § *Worktree Lifecycle* in po-agent.md
 # specifies: create, resume, cleanup-on-success, retain-on-HALT. The PO-agent
-# invokes this helper at known outer-loop boundaries; sub-agents inherit the
-# resolved path via the dispatch context bundle and never run `git worktree`
-# commands themselves.
+# invokes this helper at known outer-loop boundaries; the interactive build
+# bootstrap invokes the same helper for developer-started sessions. Sub-agents
+# inherit the resolved path via the dispatch context bundle and never run
+# `git worktree` commands themselves.
 #
 # Subcommands (all take <KEY> AND <ISSUE_NUMBER> positional args because
 # workflow-state is per-issue since #173):
@@ -17,18 +18,11 @@
 #       path on the second line. Patches workflow-state-<ISSUE>.json:.worktree_path to
 #       the absolute path.
 #
-#       Default mode assumes <BRANCH> already exists on the remote (upstream
-#       `build-start` created it); `git worktree add <path> <branch>` checks
-#       out the existing branch. If the branch does not exist the call fails
-#       loudly.
-#
-#       `--new-branch` mode (#170 fix): the branch is created atomically as
-#       part of the worktree add via `git worktree add -b <BRANCH> <path>
-#       origin/main`, then the new branch is pushed with `-u` from inside
-#       the fresh worktree — so the main repo working tree is NEVER
-#       touched. This is the callable path for a fresh autonomous issue
-#       where no upstream step created the branch. On failure state is not
-#       mutated and the caller sees the git diagnostic verbatim.
+#       Default mode assumes <BRANCH> already exists on the remote or locally.
+#       `git worktree add <path> <branch>` checks out the existing branch. If the
+#       branch does not exist, `--new-branch` creates it atomically from the
+#       selected base and pushes it after creation. The main repo working tree is
+#       never checked out or mutated by this helper.
 #
 #   path <KEY> <ISSUE_NUMBER>
 #       Print the .worktree_path field from workflow-state-<ISSUE>.json, or
@@ -75,6 +69,8 @@
 # atomic state mutations via the existing helper.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 SUBCMD="${1:?subcommand required: create|path|cleanup|retain}"
 shift
 
@@ -95,7 +91,10 @@ ISSUE_NUMBER="${1:?issue_number required (per-issue workflow-state, #173)}"
 shift || true
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-WS="$REPO_ROOT/plugins/makato-orchestrate/shared/workflow-state.sh"
+WS="${MAKATO_WORKFLOW_STATE_HELPER:-$SCRIPT_DIR/workflow-state.sh}"
+if [[ ! -x "$WS" ]]; then
+  WS="$REPO_ROOT/plugins/makato-orchestrate/shared/workflow-state.sh"
+fi
 WORKTREE_ROOT_RAW="${MAKATO_WORKTREE_ROOT:-$REPO_ROOT/.claude/worktrees}"
 
 # ---------------------------------------------------------------------------
@@ -195,7 +194,7 @@ _is_registered_worktree() {
 case "$SUBCMD" in
 
   # -------------------------------------------------------------------------
-  # create [--new-branch] <KEY> <REPO> <BRANCH> <ISSUE_NUMBER>
+#   create [--new-branch] KEY ISSUE_NUMBER REPO BRANCH
   # -------------------------------------------------------------------------
   create)
     REPO="${1:?repo required (owner/name form)}"
@@ -236,8 +235,8 @@ case "$SUBCMD" in
       # Resolve the default remote base. The bare literal `origin/main` is
       # correct for macatocz/makato but not universal (some target repos
       # use master/develop). Read HEAD off the remote to stay generic.
-      REMOTE_HEAD_REF="$(git -C "$REPO_ROOT" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null || echo 'refs/remotes/origin/main')"
-      REMOTE_HEAD="${REMOTE_HEAD_REF#refs/remotes/}"  # e.g. origin/main
+      REMOTE_HEAD_REF="${MAKATO_WORKTREE_BASE_REF:-$(git -C "$REPO_ROOT" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null || echo 'refs/remotes/origin/main')}"
+      REMOTE_HEAD="${REMOTE_HEAD_REF#refs/remotes/}"  # e.g. origin/main or HEAD
 
       if ! git -C "$REPO_ROOT" worktree add -b "$BRANCH" "$WT_PATH" "$REMOTE_HEAD" >/dev/null 2>"$local_stderr"; then
         {

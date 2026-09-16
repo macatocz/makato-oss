@@ -21,6 +21,8 @@
 # T8 — plan-schema.md documents Runtime Verification Schema section
 # T9 — build-verify SKILL.md Gate 6 Step 8b references runtime_cmd_source field
 # T10 — build-verify SKILL.md Step 1 references reading plan for the runtime command
+# T11 — gate-scout separates the executable coverage command from its threshold
+# T12 — gate-scout's example coverage command contains no human-readable suffix
 #
 # All assertions are grep-based doc-contract checks.
 # No mutation, no network.
@@ -32,6 +34,7 @@ PLUGIN_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 FAIL=0
 
 SKILL_MD="$PLUGIN_DIR/skills/build-verify/SKILL.md"
+GATE_SCOUT_MD="$PLUGIN_DIR/agents/gate-scout.md"
 GATE_DEFS_MD="$PLUGIN_DIR/skills/build-verify/references/gate-definitions.md"
 PLAN_TEMPLATE_MD="$PLUGIN_DIR/skills/build-refine/templates/plan-template.md"
 PLAN_SCHEMA_MD="$PLUGIN_DIR/skills/build-refine/references/plan-schema.md"
@@ -122,6 +125,24 @@ else
   _fail "build-verify SKILL.md missing PLAN_RUNTIME_CMD — Step 1 plan-read not documented"
 fi
 
+
+# ---- T11: gate-scout separates coverage command from threshold ---------------
+echo "T11: gate-scout separates coverage command from threshold"
+if grep -qF 'coverage_threshold' "$GATE_SCOUT_MD" && \
+   grep -qF '"coverage":"<exact executable command>|not found"' "$GATE_SCOUT_MD"; then
+  _pass "gate-scout emits coverage_threshold separately from coverage"
+else
+  _fail "gate-scout coverage output contract does not separate command and threshold"
+fi
+
+# ---- T12: example coverage command is executable-only ------------------------
+echo "T12: gate-scout example coverage command is executable-only"
+if grep -qF '"coverage": "uv run coverage run -m pytest && uv run coverage report",' "$GATE_SCOUT_MD" && \
+   ! grep -qF '"coverage": "uv run pytest --cov=src/brain --cov=src/body --cov=src/shared — threshold:' "$GATE_SCOUT_MD"; then
+  _pass "gate-scout example coverage command has no threshold suffix"
+else
+  _fail "gate-scout example coverage command still contains metadata"
+fi
 echo
 if (( FAIL == 0 )); then
   echo "All build-verify gate-commands smoke tests passed."

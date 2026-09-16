@@ -15,6 +15,17 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 WS="$REPO_ROOT/plugins/makato-orchestrate/shared/workflow-state.sh"
 WT="$REPO_ROOT/plugins/makato-orchestrate/shared/worktree.sh"
 
+# Contract guard for the PO-agent integration: the helper's positional order
+# is KEY, ISSUE_NUMBER, REPO, BRANCH. This catches the #634 regression where
+# REPO and ISSUE_NUMBER were swapped and no worktree was created.
+PO_AGENT="$REPO_ROOT/plugins/makato-orchestrate/agents/po-agent.md"
+echo "=== T0: PO-agent passes worktree arguments in helper order (#634) ==="
+grep -qF '"$WORKTREE_HELPER" create "$KEY" "$ISSUE_NUMBER" "$REPO" "$BRANCH"' "$PO_AGENT" \
+  || { echo "  ✗ PO-agent create call has wrong positional argument order"; exit 1; }
+grep -qF '"$WORKTREE_HELPER" create --new-branch "$KEY" "$ISSUE_NUMBER" "$REPO" "$BRANCH"' "$PO_AGENT" \
+  || { echo "  ✗ PO-agent --new-branch call has wrong positional argument order"; exit 1; }
+echo "  ✓ PO-agent passes KEY, ISSUE_NUMBER, REPO, BRANCH"
+
 # All smoke tests run inside a disposable temp git repo so worktree-create
 # does not pollute the makato repo's own .claude/worktrees/.
 SANDBOX="$(mktemp -d -t makato-gap017-XXXXXX)"

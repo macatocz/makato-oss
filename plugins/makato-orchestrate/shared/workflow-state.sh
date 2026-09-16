@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Manage specs/<key>-<slug>/workflow-state-<issue>.json for the PO-agent outer loop.
+# Manage specs/<key>-<slug>/workflow-state-<issue>.json for the PO-agent outer
+# loop and interactive build sessions.
 #
 # Per-issue file layout — see #173. Multiple GitHub issues can share a single
 # story-level spec folder (e.g. `specs/agent-skill-routing/` covers #143–#147).
@@ -67,6 +68,8 @@
 # precedent.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 SUBCMD="${1:?subcommand required: init|read|write|patch|append-lesson|append-halt|bump-structural-halt|recall-lessons|summarise-lessons|append-decision}"
 # recall-lessons takes REPO as positional #2 (not KEY) — every other subcommand
 # takes KEY. Resolve generically and have each subcommand re-bind the variable.
@@ -95,7 +98,11 @@ fi
 # MAKATO_MEMORY_ROOT override in recall-lessons). Production callers
 # must NOT set this — REPO_ROOT/specs is the canonical location.
 SPECS_DIR="${SPECS_DIR:-$REPO_ROOT/specs}"
-SCHEMA_PATH="${SCHEMA_PATH:-$REPO_ROOT/plugins/makato-orchestrate/skills/workflow-state/references/workflow-state.schema.json}"
+DEFAULT_SCHEMA_PATH="$SCRIPT_DIR/../skills/workflow-state/references/workflow-state.schema.json"
+if [[ ! -f "$DEFAULT_SCHEMA_PATH" ]]; then
+  DEFAULT_SCHEMA_PATH="$REPO_ROOT/plugins/makato-orchestrate/skills/workflow-state/references/workflow-state.schema.json"
+fi
+SCHEMA_PATH="${SCHEMA_PATH:-$DEFAULT_SCHEMA_PATH}"
 
 # ---------------------------------------------------------------------------
 # Spec-folder resolution (duplicated from build-log.sh — intentional).

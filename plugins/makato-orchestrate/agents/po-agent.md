@@ -424,22 +424,22 @@ mutation** (#170 hard ban — see § *Rules*):
 ```bash
 if git ls-remote --exit-code origin "$BRANCH" >/dev/null 2>&1; then
   # Branch already exists on the remote (build-start interactive path).
-  shared/worktree.sh create "$KEY" "$REPO" "$BRANCH" "$ISSUE_NUMBER"
+  "$WORKTREE_HELPER" create "$KEY" "$ISSUE_NUMBER" "$REPO" "$BRANCH" 2>&1
 else
   # Branch does not exist. Do NOT `git checkout -b` or `git branch`
   # against the main repo — that destroys workspace isolation (#170).
   # Delegate to the atomic --new-branch mode, which runs
   # `git worktree add -b $BRANCH <path> origin/main` and pushes -u
   # from inside the fresh worktree.
-  shared/worktree.sh create --new-branch "$KEY" "$REPO" "$BRANCH" "$ISSUE_NUMBER"
+  "$WORKTREE_HELPER" create --new-branch "$KEY" "$ISSUE_NUMBER" "$REPO" "$BRANCH" 2>&1
 fi
 ```
 
 The helper emits the event marker (`worktree_created` |
 `worktree_resumed`) on line 1 and the absolute worktree path on line 2,
 and patches `.worktree_path` in state. The `--new-branch` variant also
-pushes the ndew branch with `-u` from inside the worktree so no
-subsequent step ever needs to `cd` into the main repo.
+creates and pushes the branch. No subsequent step ever needs to `cd` into the
+main repo.
 
 Emit one JSONL entry:
 

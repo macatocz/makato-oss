@@ -9,9 +9,9 @@ description: >-
   Use after review, before push-to-git. Triggers: verify, quality-gate,
   all-gates, build-pass, tests-pass, lint-clean, coverage-check,
   gate-pipeline, run-verify.
-version: "1.10.0"
+version: "1.12.0"
 argument-hint: "[work-item-key]"
-allowed-tools: Bash
+allowed-tools: [Bash, Read]
 ---
 
 ## When to Use
@@ -154,6 +154,18 @@ Dispatch the `gate-scout` agent with:
 - `COVERAGE_HINT`: the coverage threshold extracted from `design.md` (or empty string if none declared)
 
 The agent scans config files (`package.json`, `pom.xml`, `Makefile`, `build.gradle`, `pyproject.toml`, etc.) and returns a structured command map with the exact build, lint, unit, integration, and coverage commands, and a `java_version_required` field for JVM projects. Use this command map for all subsequent gates — do not infer commands independently.
+
+**Artifact handoff guard:** Read `local://` or `artifact://` only when that
+exact URI was emitted by a preceding tool or agent in this run. Never invent a
+placeholder such as `local://no-such`. If no URI was emitted, use the canonical
+repository path already resolved in Step 1; if that path is missing, report the
+missing artifact and stop the affected gate rather than probing guessed URIs.
+
+**Coverage command contract:** use `coverage` from the command map as an
+executable string only, and use `coverage_threshold` as separate metadata. Never
+execute a command containing a human-readable suffix such as
+`— threshold: 95%`. If a legacy gate-scout response contains that suffix, remove
+the suffix before execution and log the threshold separately.
 
 **MANDATORY: load `references/gate-definitions.md`** if gate-scout returns a toolchain
 (Maven, Gradle, Go, Rust, Biome, sqlfluff) for which the three-path command selection in
@@ -397,13 +409,16 @@ Log:
 
 ### Step 8 — Gate 5: COVERAGE
 
-Run the coverage tool against the combined unit + integration results.
+Run the exact executable string from `gate-scout.data.coverage` against the
+combined unit + integration results. `coverage_threshold` is metadata only and
+must never be part of the shell command.
 
 Check **conditional coverage** (branch/condition coverage, not line coverage): every
 branch of every conditional in the new code must be exercised by at least one test.
 
-If a threshold was declared in `design.md`:
-- Compare the measured conditional coverage against the threshold
+If `coverage_threshold` is declared by gate-scout (or a story threshold was
+declared in `design.md`), compare the measured conditional coverage against the
+applicable threshold:
 - Below threshold → identify the specific uncovered branches, add targeted tests, re-run
   from UNIT
 - If filling the coverage gap requires rethinking the implementation structure → STRUCTURAL
