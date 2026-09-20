@@ -292,7 +292,7 @@ engine), do NOT retry — fall through to the `halt` path. No unbounded loop.
    caught here):
 
    ```bash
-   GUARD_OUT="$(scripts/validate-plan-body.sh "$PLAN_PATH" 2>/dev/null || true)"
+   GUARD_OUT="$(scripts/validate-plan-body.sh "$PLAN_PATH" "$ISSUE_NUMBER" 2>/dev/null || true)"
    GUARD_VERDICT="${GUARD_OUT%% *}"   # valid | invalid
    ```
 
@@ -359,7 +359,7 @@ engine), do NOT retry — fall through to the `halt` path. No unbounded loop.
    plan is caught here):
 
    ```bash
-   GUARD_OUT="$(scripts/validate-plan-body.sh "$PLAN_PATH" 2>/dev/null || true)"
+   GUARD_OUT="$(scripts/validate-plan-body.sh "$PLAN_PATH" "$ISSUE_NUMBER" 2>/dev/null || true)"
    GUARD_VERDICT="${GUARD_OUT%% *}"   # valid | invalid
    ```
 

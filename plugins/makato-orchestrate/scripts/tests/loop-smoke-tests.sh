@@ -331,28 +331,28 @@ MAKATO_LOOP_TEST_HOOK=1 MAKATO_LOOP_SLEEP_CMD=true \
   || fail "T-RG-1: guard should return 0 when remaining=1200 >= 1000; got rc=$trg1_rc"
 echo "  ✓ remaining=1200 >= threshold → guard returns 0, poll proceeds"
 
-echo "=== T-RG-2: guard returns 2 when remaining=200 (below threshold 500); cmd_run stamps poll_skipped_rate_budget:true ==="
+echo "=== T-RG-2: guard returns 2 when remaining=100 (below configured threshold 200); cmd_run stamps poll_skipped_rate_budget:true ==="
 trg2_rc=0
 MAKATO_LOOP_TEST_HOOK=1 MAKATO_LOOP_SLEEP_CMD=true \
-  MAKATO_LOOP_GRAPHQL_TEST_CMD='echo "{\"resources\":{\"graphql\":{\"remaining\":200,\"reset\":9999999999}}}"' \
+  MAKATO_LOOP_GRAPHQL_TEST_CMD='echo "{\"resources\":{\"graphql\":{\"remaining\":100,\"reset\":9999999999}}}"' \
   "$LOOP" _test-check-graphql-rate-budget github.com \
   || trg2_rc=$?
 [[ $trg2_rc -eq 2 ]] \
-  || fail "T-RG-2: guard should return 2 when remaining=200 < 500; got rc=$trg2_rc"
+  || fail "T-RG-2: guard should return 2 when remaining=100 < 200; got rc=$trg2_rc"
 # Also verify _gh_project_item_list propagates exit 76 and cmd_run stamps the state.
 TRG2_STATE="$STATE_DIR/trg2"; mkdir -p "$TRG2_STATE"
 TRG2_CFG="$STATE_DIR/trg2-config.json"
 jq -n '{github_project:{owner:"macatocz",number:4,host:"github.com",project_node_id:"PVT_x"}}' >"$TRG2_CFG"
 trg2_run_out="$(MAKATO_LOOP_GH_OVERRIDE='' MAKATO_LOOP_STATE_DIR="$TRG2_STATE" \
   MAKATO_LOOP_CONFIG="$TRG2_CFG" MAKATO_LOOP_SLEEP_CMD=true \
-  MAKATO_LOOP_GRAPHQL_TEST_CMD='echo "{\"resources\":{\"graphql\":{\"remaining\":200,\"reset\":9999999999}}}"' \
+  MAKATO_LOOP_GRAPHQL_TEST_CMD='echo "{\"resources\":{\"graphql\":{\"remaining\":100,\"reset\":9999999999}}}"' \
   "$LOOP" run --once --status Ready 2>&1)" \
   || fail "T-RG-2: run --once should exit 0 when guard skips the tick; out: $trg2_run_out"
 jq -e '.poll_skipped_rate_budget == true' "$TRG2_STATE/loop-status.json" >/dev/null \
   || fail "T-RG-2: loop-status.json must record poll_skipped_rate_budget=true; got: $(cat "$TRG2_STATE/loop-status.json" 2>/dev/null)"
 jq -e '.last_poll_skip_reason == "rate_budget"' "$TRG2_STATE/loop-status.json" >/dev/null \
   || fail "T-RG-2: loop-status.json must record last_poll_skip_reason=rate_budget; got: $(cat "$TRG2_STATE/loop-status.json" 2>/dev/null)"
-echo "  ✓ remaining=200 < threshold → guard returns 2, poll_skipped_rate_budget:true stamped"
+echo "  ✓ remaining=100 < configured threshold → guard returns 2, poll_skipped_rate_budget:true"
 
 echo "=== T-RG-3: MAKATO_LOOP_RATE_GUARD=0 bypasses guard even with remaining=0 ==="
 trg3_rc=0
@@ -6019,6 +6019,8 @@ T79_SPECS="$T79_DIR/specs"
 mkdir -p "$T79_SPECS/472-some-feature"
 cat > "$T79_SPECS/472-some-feature/plan.md" << 'PLANEOF'
 # Plan: Some Feature
+<!-- issue: #472 -->
+
 
 ## Tasks
 
@@ -6032,7 +6034,7 @@ PLANEOF
 t79_verdict="$(
   MAKATO_LOOP_TEST_HOOK=1 \
   SPECS_DIR="$T79_SPECS" REPO_ROOT="$T79_DIR" \
-    "$LOOP" _test-pre-dispatch-plan-guard '472-some-feature'
+    "$LOOP" _test-pre-dispatch-plan-guard '472-some-feature' '472'
 )" 2>/dev/null
 
 [[ "$t79_verdict" == "valid:false:n/a" ]] \
@@ -6193,6 +6195,42 @@ t83_verdict="$(
 
 rm -rf "$T83_DIR"
 echo "T83 passed"
+
+# ---------------------------------------------------------------------------
+# Plan ownership regression: a valid plan fingerprinted for another issue must
+# not be accepted by the pre-dispatch guard.
+# ---------------------------------------------------------------------------
+echo "=== T-plan-owner: pre-dispatch guard rejects foreign plan fingerprint ==="
+T_PLAN_OWNER_DIR="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-plan-owner"
+T_PLAN_OWNER_SPECS="$T_PLAN_OWNER_DIR/specs"
+mkdir -p "$T_PLAN_OWNER_SPECS/147-foreign-feature"
+cat >"$T_PLAN_OWNER_SPECS/147-foreign-feature/plan.md" <<'PLANEOF'
+# Plan: Foreign Feature
+
+<!-- issue: #147 -->
+
+## Tasks
+
+- Task 1: implement the foreign feature
+
+## Acceptance criteria
+
+- The foreign feature works
+PLANEOF
+T_PLAN_OWNER_CLAUDE="$T_PLAN_OWNER_DIR/fake-claude"
+mkdir -p "$T_PLAN_OWNER_DIR"
+printf '#!/usr/bin/env bash\nexit 1\n' >"$T_PLAN_OWNER_CLAUDE"
+chmod +x "$T_PLAN_OWNER_CLAUDE"
+T_PLAN_OWNER_VERDICT="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  SPECS_DIR="$T_PLAN_OWNER_SPECS" REPO_ROOT="$T_PLAN_OWNER_DIR" \
+  MAKATO_HARNESS_BIN="$T_PLAN_OWNER_CLAUDE" \
+    "$LOOP" _test-pre-dispatch-plan-guard '147-foreign-feature' '148'
+)" 2>/dev/null
+[[ "$T_PLAN_OWNER_VERDICT" == "invalid:true:error" ]] \
+  || fail "T-plan-owner: foreign plan fingerprint was accepted: '$T_PLAN_OWNER_VERDICT'"
+rm -rf "$T_PLAN_OWNER_DIR"
+echo "T-plan-owner passed"
 
 # ---------------------------------------------------------------------------
 # T84–T89: orphaned specs/ folder pruning (_reap_orphan_specs)
@@ -7442,7 +7480,7 @@ jq -n '{github_project:{owner:"macatocz",number:4,host:"github.com",project_node
 # Tick 1: rate-budget exhausted → poll_skipped_rate_budget:true stamped
 MAKATO_LOOP_GH_OVERRIDE='' MAKATO_LOOP_STATE_DIR="$TRG5_STATE" \
   MAKATO_LOOP_CONFIG="$TRG5_CFG" MAKATO_LOOP_SLEEP_CMD=true \
-  MAKATO_LOOP_GRAPHQL_TEST_CMD='echo "{\"resources\":{\"graphql\":{\"remaining\":200,\"reset\":9999999999}}}"' \
+  MAKATO_LOOP_GRAPHQL_TEST_CMD='echo "{\"resources\":{\"graphql\":{\"remaining\":100,\"reset\":9999999999}}}"' \
   "$LOOP" run --once --status Ready 2>/dev/null || true
 jq -e '.poll_skipped_rate_budget == true' "$TRG5_STATE/loop-status.json" >/dev/null \
   || fail "T-RG-5: precondition: poll_skipped_rate_budget must be true after rate-skip tick"
@@ -7469,7 +7507,7 @@ jq -n '{github_project:{owner:"macatocz",number:4,host:"github.com",project_node
 for _i in 1 2 3; do
   MAKATO_LOOP_GH_OVERRIDE='' MAKATO_LOOP_STATE_DIR="$TCB1_STATE" \
     MAKATO_LOOP_CONFIG="$TCB1_CFG" MAKATO_LOOP_SLEEP_CMD=true \
-    MAKATO_LOOP_GRAPHQL_TEST_CMD='echo "{\"resources\":{\"graphql\":{\"remaining\":200,\"reset\":9999999999}}}"' \
+    MAKATO_LOOP_GRAPHQL_TEST_CMD='echo "{\"resources\":{\"graphql\":{\"remaining\":100,\"reset\":9999999999}}}"' \
     MAKATO_LOOP_RATE_SKIP_THRESHOLD=3 MAKATO_LOOP_RATE_SKIP_BACKOFF=0 \
     "$LOOP" run --once --status Ready 2>/tmp/tcb1_err_$_i || true
 done
@@ -7491,7 +7529,7 @@ jq -n '{github_project:{owner:"macatocz",number:4,host:"github.com",project_node
 for _i in 1 2; do
   MAKATO_LOOP_GH_OVERRIDE='' MAKATO_LOOP_STATE_DIR="$TCB2_STATE" \
     MAKATO_LOOP_CONFIG="$TCB2_CFG" MAKATO_LOOP_SLEEP_CMD=true \
-    MAKATO_LOOP_GRAPHQL_TEST_CMD='echo "{\"resources\":{\"graphql\":{\"remaining\":200,\"reset\":9999999999}}}"' \
+    MAKATO_LOOP_GRAPHQL_TEST_CMD='echo "{\"resources\":{\"graphql\":{\"remaining\":100,\"reset\":9999999999}}}"' \
     MAKATO_LOOP_RATE_SKIP_THRESHOLD=3 MAKATO_LOOP_RATE_SKIP_BACKOFF=0 \
     "$LOOP" run --once --status Ready 2>/dev/null || true
 done
@@ -7534,7 +7572,7 @@ print(json.dumps({'schema':'workflow-state','version':'1.0','issue_number':9901,
 TSTALE_ERR="$(MAKATO_LOOP_GH_OVERRIDE='' MAKATO_LOOP_STATE_DIR="$TSTALE_STATE" \
   MAKATO_LOOP_CONFIG="$TSTALE_CFG" MAKATO_LOOP_SLEEP_CMD=true \
   MAKATO_LOOP_SPECS_DIR="$TSTALE_STATE/specs" \
-  MAKATO_LOOP_GRAPHQL_TEST_CMD='echo "{\"resources\":{\"graphql\":{\"remaining\":200,\"reset\":9999999999}}}"' \
+  MAKATO_LOOP_GRAPHQL_TEST_CMD='echo "{\"resources\":{\"graphql\":{\"remaining\":100,\"reset\":9999999999}}}"' \
   MAKATO_LOOP_POLL_TEST_CMD='echo "{\"items\":[]}"' \
   MAKATO_LOOP_STALE_REAP_TEST_CMD='echo "STALE-ITEM-LIST-REACHED"' \
   "$LOOP" run --once --status Ready 2>&1 >/dev/null || true)"

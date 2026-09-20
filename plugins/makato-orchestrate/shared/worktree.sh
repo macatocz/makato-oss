@@ -190,6 +190,58 @@ _is_registered_worktree() {
 
   return 1
 }
+# Verify that a resumed worktree is on the branch requested by the caller.
+# Reusing a path that was left registered for another branch silently mixes
+# two issues' changes; fail before touching workflow-state instead.
+_assert_expected_branch() {
+  local target="$1" expected="$2" actual
+  actual="$(git -C "$target" branch --show-current 2>/dev/null || true)"
+  if [[ "$actual" != "$expected" ]]; then
+    {
+      echo "worktree: refusing to resume $target"
+      echo "worktree: expected branch '$expected', found '${actual:-detached HEAD}'"
+      echo "worktree: remove or repair the registered worktree before retrying"
+    } >&2
+    return 1
+  fi
+}
+
+# A resumed worktree must not carry changes from a previous run. The owner PID
+# marker is deliberately ignored because this helper rewrites it on every
+# resume; all other tracked and untracked changes remain a hard veto.
+_assert_clean_worktree() {
+  local target="$1" line dirty=""
+  while IFS= read -r line; do
+    if [[ "$line" == "?? .loop-owner.pid" ]]; then
+      continue
+    fi
+    dirty+="${dirty:+$'\n'}$line"
+  done < <(git -C "$target" status --porcelain --untracked-files=all 2>/dev/null || true)
+  if [[ -n "$dirty" ]]; then
+    {
+      echo "worktree: refusing to resume $target — worktree is not clean"
+      echo "$dirty"
+      echo "worktree: commit or remove the changes before retrying"
+    } >&2
+    return 1
+  fi
+}
+
+_assert_worktree_isolation() {
+  local target="$1"
+  local target_real root_real
+  target_real="$(_realpath "$target")"
+  root_real="$(_realpath "$REPO_ROOT")"
+  if [[ "$target_real" == "$root_real" ]]; then
+    echo "worktree: refusing to use the main checkout as a run worktree (#170)" >&2
+    return 1
+  fi
+  [[ "$target_real" == "$WORKTREE_ROOT/"* ]] || {
+    echo "worktree: refusing worktree outside MAKATO_WORKTREE_ROOT: $target_real" >&2
+    return 1
+  }
+}
+
 
 case "$SUBCMD" in
 
@@ -205,12 +257,14 @@ case "$SUBCMD" in
 
     SAFE_REPO="$(_sanitise_repo "$REPO")"
     WT_PATH="$WORKTREE_ROOT/${SAFE_REPO}-${ISSUE_NUMBER}"
+    _assert_worktree_isolation "$WT_PATH"
 
     if _is_registered_worktree "$WT_PATH"; then
+      _assert_expected_branch "$WT_PATH" "$BRANCH"
+      _assert_clean_worktree "$WT_PATH"
       # Resume case — reuse the existing worktree without `git worktree add`.
-      # We do NOT touch its HEAD; the PO-agent's caller is responsible for
-      # checking out the right branch if needed. In practice the worktree's
-      # branch is already <BRANCH> from the original create call.
+      # The branch and cleanliness checks above are mandatory: an existing
+      # path is only resumable when it is the exact expected checkout.
       # --new-branch on an already-registered path is a no-op resume, not
       # an error — resume must be idempotent regardless of the caller's
       # branch-existence knowledge.
