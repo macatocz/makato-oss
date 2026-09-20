@@ -107,6 +107,34 @@ WT_PATH2="$(echo "$OUT2" | tail -1)"
 [[ "$WT_PATH2" == "$WT_PATH" ]] || { echo "  ✗ resume returned a different path"; exit 1; }
 echo "  ✓ resume detected via git worktree list"
 
+echo "=== T4a: resume refuses a dirty worktree ==="
+printf 'leftover\n' >"$WT_PATH/.resume-dirty"
+set +e
+"$WT_LOCAL" create "$KEY" "$ISSUE" "$REPO_NAME" "$BRANCH" \
+  >/dev/null 2>"$SANDBOX/t4a.stderr"
+RC_T4A=$?
+set -e
+rm -f "$WT_PATH/.resume-dirty"
+[[ $RC_T4A -ne 0 ]] || { echo "  ✗ dirty worktree was resumed"; exit 1; }
+grep -q "worktree is not clean" "$SANDBOX/t4a.stderr" \
+  || { echo "  ✗ dirty-worktree diagnostic missing"; cat "$SANDBOX/t4a.stderr"; exit 1; }
+echo "  ✓ dirty worktree rejected before resume"
+
+echo "=== T4b: resume refuses a worktree on the wrong branch ==="
+WRONG_BRANCH="auto/test-repo-wrong-46"
+git -C "$WT_PATH" switch -q -c "$WRONG_BRANCH"
+set +e
+"$WT_LOCAL" create "$KEY" "$ISSUE" "$REPO_NAME" "$BRANCH" \
+  >/dev/null 2>"$SANDBOX/t4b.stderr"
+RC_T4B=$?
+set -e
+git -C "$WT_PATH" switch -q "$BRANCH"
+git -C "$SANDBOX/repo" branch -D "$WRONG_BRANCH" >/dev/null 2>&1 || true
+[[ $RC_T4B -ne 0 ]] || { echo "  ✗ wrong-branch worktree was resumed"; exit 1; }
+grep -q "expected branch '$BRANCH'" "$SANDBOX/t4b.stderr" \
+  || { echo "  ✗ wrong-branch diagnostic missing"; cat "$SANDBOX/t4b.stderr"; exit 1; }
+echo "  ✓ wrong-branch worktree rejected before resume"
+
 echo "=== T5: retain flips both state flags without removing the worktree ==="
 "$WT_LOCAL" retain "$KEY" "$ISSUE" "HALT-003" > /dev/null
 "$WS_LOCAL" read "$KEY" "$ISSUE" | jq -e '.worktree_retained == true' > /dev/null
