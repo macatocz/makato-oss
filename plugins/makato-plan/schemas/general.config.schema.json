@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "makato-plan General Config",
-  "description": "Central configuration for the makato-plan plugin. Controls skill execution behavior, review output, agent settings, and behavioral modes (TeamSize, Status). LLM-agnostic — no model selection here. Loaded by skills at runtime from config/general.yml.",
+  "description": "Central configuration for the makato-plan plugin. Controls skill execution behavior, review output, agent settings, and behavioral modes (TeamSize, Status). LLM-agnostic — no model selection here. Loaded by skills at runtime from config/general.json.",
   "type": "object",
   "properties": {
     "$schema": {
