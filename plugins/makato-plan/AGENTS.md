@@ -122,7 +122,7 @@ makato-plan/
 │   ├── issue-to-project/
 │   └── to-issues/
 ├── config/
-│   ├── general.json               ← central plugin config (TeamSize, Status, models, agents, …)
+│   ├── general.json               ← central plugin config (TeamSize, Status, agents, …)
 │   ├── skill-bundles.yml
 │   └── task-skill-map.json
 ├── schemas/
