@@ -122,12 +122,12 @@ makato-plan/
 │   ├── issue-to-project/
 │   └── to-issues/
 ├── config/
-│   ├── general.json               ← central plugin config (TeamSize, Status, agents, …)
+│   ├── general.yml                ← central plugin config with inline comments (TeamSize, Status, agents, …)
 │   ├── skill-bundles.yml
 │   └── task-skill-map.json
 ├── schemas/
 │   ├── config.schema.json
-│   └── general.config.schema.json ← JSON Schema for config/general.json
+│   └── general.config.schema.json ← JSON Schema for config/general.yml
 ├── shared/
 │   ├── refinement-contract.md
 │   ├── repositories-yml-schema.md
@@ -139,11 +139,11 @@ makato-plan/
 └── README.md
 ```
 
-## General Config — `config/general.json`
+## General Config — `config/general.yml`
 
 Central configuration file for all makato-plan runtime behavior. Schema: `schemas/general.config.schema.json`.
 
-**Loading contract:** Skills read `config/general.json` at the start of execution. Changes take effect on the next skill invocation. If the file is absent or unreadable, skills fall back to hardcoded defaults (equivalent to: `TeamSize=Solo`, `Status=Development`).
+**Loading contract:** Skills read `config/general.yml` at the start of execution. Changes take effect on the next skill invocation. If the file is absent or unreadable, skills fall back to hardcoded defaults (equivalent to: `TeamSize=Solo`, `Status=Development`).
 
 ### TeamSize — `"Solo"` (default) | `"Team"`
 
@@ -174,7 +174,7 @@ Controls whether deployment, rollout, and release-planning sections are included
 
 ### Other settings
 
-See `schemas/general.config.schema.json` for full documentation of all properties: `agents`, `brainstorming`, `toIssues`, `issueToProject`, `storyConstraints`, `excalidraw`.
+See `config/general.yml` for inline comments on every property, and `schemas/general.config.schema.json` for the full validation schema.
 
 **Note:** Model selection (which LLM to use per skill/agent) is NOT part of this config. makato-plan is LLM-agnostic — model assignment is handled by the runtime environment, not by the plugin config.
 

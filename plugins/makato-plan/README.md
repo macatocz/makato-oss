@@ -154,9 +154,9 @@ Feature request / work item description
 | Complements | makato-contribute | makato-contribute's makato-skill-creator and makato-plugin-creator skills scaffold new skills and plugins within the suite; makato-plan does not perform this — it defers to makato-contribute. |
 | Complements | makato-change | makato-change's analyze and design phases may re-invoke makato-plan skills (e.g. stress-test-artifact, create-prd, decompose) when a change request requires full reshaping rather than targeted code modification. |
 
-## Configuration — `config/general.json`
+## Configuration — `config/general.yml`
 
-Central config file controlling all runtime behavior. Schema: `schemas/general.config.schema.json`.
+Central config file controlling all runtime behavior. Every property has inline `#` comments explaining the valid values and their effects. Schema: `schemas/general.config.schema.json`.
 
 | Property | Values | Default | Effect |
 |----------|--------|---------|--------|
