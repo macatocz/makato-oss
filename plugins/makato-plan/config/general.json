@@ -1,0 +1,80 @@
+{
+  "$schema": "../schemas/general.config.schema.json",
+  "_comment": "General configuration for makato-plan plugin. All settings that influence skill execution and review output. Loaded by skills at runtime — changes take effect on next skill invocation.",
+
+  "TeamSize": "Solo",
+  "Status": "Development",
+
+  "htmlReviews": true,
+  "reviewFormat": "html",
+
+  "models": {
+    "brainstorming": "opus",
+    "create-prd": "opus",
+    "create-architecture": "opus",
+    "create-ux": "opus",
+    "create-prototype": "opus",
+    "decompose": "opus",
+    "stress-test-artifact": "opus",
+    "create-acceptance-tests": "sonnet"
+  },
+
+  "agents": {
+    "context-scout": {
+      "model": "haiku",
+      "tokenBudget": 2000
+    },
+    "doc-writer": {
+      "model": "sonnet",
+      "maxTurns": 25
+    },
+    "dev-reviewer": {
+      "model": "sonnet",
+      "maxTurns": 10,
+      "maxFindings": 3
+    },
+    "po-reviewer": {
+      "model": "sonnet",
+      "maxTurns": 10,
+      "maxFindings": 3
+    },
+    "qa-reviewer": {
+      "model": "sonnet",
+      "maxTurns": 10,
+      "maxFindings": 3,
+      "maxGherkinScenarios": 3
+    },
+    "prototype-builder": {
+      "model": "opus",
+      "maxTurns": 30,
+      "fileSizeWarningKB": 500
+    }
+  },
+
+  "brainstorming": {
+    "defaultSessionDepth": "standard"
+  },
+
+  "toIssues": {
+    "mode": "interactive",
+    "dryRun": false,
+    "ghHost": "github.com"
+  },
+
+  "issueToProject": {
+    "readyQueueMode": "manual",
+    "skipVerify": false,
+    "webhookStrictLink": false,
+    "unknownRepoBehavior": "warn",
+    "autoReinit": true
+  },
+
+  "storyConstraints": {
+    "maxStoryPoints": 13,
+    "validPointValues": [1, 2, 3, 5, 8, 13]
+  },
+
+  "excalidraw": {
+    "defaultOutputMode": "obsidian"
+  }
+}

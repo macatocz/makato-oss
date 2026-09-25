@@ -154,6 +154,24 @@ Feature request / work item description
 | Complements | makato-contribute | makato-contribute's makato-skill-creator and makato-plugin-creator skills scaffold new skills and plugins within the suite; makato-plan does not perform this — it defers to makato-contribute. |
 | Complements | makato-change | makato-change's analyze and design phases may re-invoke makato-plan skills (e.g. stress-test-artifact, create-prd, decompose) when a change request requires full reshaping rather than targeted code modification. |
 
+## Configuration — `config/general.json`
+
+Central config file controlling all runtime behavior. Schema: `schemas/general.config.schema.json`.
+
+| Property | Values | Default | Effect |
+|----------|--------|---------|--------|
+| **TeamSize** | `Solo`, `Team` | `Solo` | **Solo**: skips ownership/team questions, forces MD-only numbered reviews (§1, §1.1 …), no HTML reviews. **Team**: full team identification, HTML interactive reviews. |
+| **Status** | `Development` / `Dev`, `Production` / `Prod` | `Development` | **Development**: skips deployment, rollout, migration, and feature toggle sections — focuses on technical solution planning only. **Production**: full pipeline with all deployment and release planning. |
+| htmlReviews | `true`, `false` | `true` | Master toggle for HTML review generation. Forced `false` when TeamSize=Solo. |
+| reviewFormat | `html`, `md` | `html` | Review output format. Forced `md` when TeamSize=Solo. |
+| models | object | (see file) | Model assignment per skill (e.g. `brainstorming: opus`). |
+| agents | object | (see file) | Per-agent settings: model, maxTurns, maxFindings, tokenBudget. |
+| brainstorming | object | `{ defaultSessionDepth: "standard" }` | Brainstorming session defaults. |
+| toIssues | object | `{ mode: "interactive", dryRun: false }` | to-issues skill defaults. |
+| issueToProject | object | `{ readyQueueMode: "manual" }` | issue-to-project skill defaults. |
+| storyConstraints | object | `{ maxStoryPoints: 13, validPointValues: [1,2,3,5,8,13] }` | Story point validation rules. |
+| excalidraw | object | `{ defaultOutputMode: "obsidian" }` | Excalidraw output format default. |
+
 ## Prerequisites / MCP Servers
 
 | Server | Purpose | Required |
