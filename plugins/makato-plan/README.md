@@ -160,12 +160,9 @@ Central config file controlling all runtime behavior. Schema: `schemas/general.c
 
 | Property | Values | Default | Effect |
 |----------|--------|---------|--------|
-| **TeamSize** | `Solo`, `Team` | `Solo` | **Solo**: skips ownership/team questions, forces MD-only numbered reviews (§1, §1.1 …), no HTML reviews. **Team**: full team identification, HTML interactive reviews. |
+| **TeamSize** | `Solo`, `Team` | `Solo` | **Solo**: skips ownership/team questions, MD-only numbered reviews (§1, §1.1 …), no HTML. **Team**: full team identification, HTML interactive reviews. |
 | **Status** | `Development` / `Dev`, `Production` / `Prod` | `Development` | **Development**: skips deployment, rollout, migration, and feature toggle sections — focuses on technical solution planning only. **Production**: full pipeline with all deployment and release planning. |
-| htmlReviews | `true`, `false` | `true` | Master toggle for HTML review generation. Forced `false` when TeamSize=Solo. |
-| reviewFormat | `html`, `md` | `html` | Review output format. Forced `md` when TeamSize=Solo. |
-| models | object | (see file) | Model assignment per skill (e.g. `brainstorming: opus`). |
-| agents | object | (see file) | Per-agent settings: model, maxTurns, maxFindings, tokenBudget. |
+| agents | object | (see file) | Per-agent settings: maxTurns, maxFindings, tokenBudget. |
 | brainstorming | object | `{ defaultSessionDepth: "standard" }` | Brainstorming session defaults. |
 | toIssues | object | `{ mode: "interactive", dryRun: false }` | to-issues skill defaults. |
 | issueToProject | object | `{ readyQueueMode: "manual" }` | issue-to-project skill defaults. |

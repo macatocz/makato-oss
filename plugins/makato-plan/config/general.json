@@ -5,47 +5,27 @@
   "TeamSize": "Solo",
   "Status": "Development",
 
-  "htmlReviews": true,
-  "reviewFormat": "html",
-
-  "models": {
-    "brainstorming": "opus",
-    "create-prd": "opus",
-    "create-architecture": "opus",
-    "create-ux": "opus",
-    "create-prototype": "opus",
-    "decompose": "opus",
-    "stress-test-artifact": "opus",
-    "create-acceptance-tests": "sonnet"
-  },
-
   "agents": {
     "context-scout": {
-      "model": "haiku",
       "tokenBudget": 2000
     },
     "doc-writer": {
-      "model": "sonnet",
       "maxTurns": 25
     },
     "dev-reviewer": {
-      "model": "sonnet",
       "maxTurns": 10,
       "maxFindings": 3
     },
     "po-reviewer": {
-      "model": "sonnet",
       "maxTurns": 10,
       "maxFindings": 3
     },
     "qa-reviewer": {
-      "model": "sonnet",
       "maxTurns": 10,
       "maxFindings": 3,
       "maxGherkinScenarios": 3
     },
     "prototype-builder": {
-      "model": "opus",
       "maxTurns": 30,
       "fileSizeWarningKB": 500
     }

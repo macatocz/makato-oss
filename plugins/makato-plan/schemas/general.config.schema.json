@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "makato-plan General Config",
-  "description": "Central configuration for the makato-plan plugin. Controls skill execution behavior, review output, model assignments, agent settings, and behavioral modes (TeamSize, Status). Loaded by skills at runtime from config/general.json.",
+  "description": "Central configuration for the makato-plan plugin. Controls skill execution behavior, review output, agent settings, and behavioral modes (TeamSize, Status). LLM-agnostic — no model selection here. Loaded by skills at runtime from config/general.json.",
   "type": "object",
   "properties": {
     "$schema": {
@@ -12,50 +12,26 @@
       "type": "string",
       "description": "Human-readable description (ignored at runtime)."
     },
-
     "TeamSize": {
       "type": "string",
-      "enum": ["Solo", "Team"],
+      "enum": [
+        "Solo",
+        "Team"
+      ],
       "default": "Solo",
-      "description": "Solo = single-person project. Team = multi-person team.\n\nWhen Solo:\n  - Skills do NOT ask ownership/assignment questions (who will do X, who owns Y, who is the lead PO, which team works on this).\n  - decompose: teams[] field defaults to [\"solo\"], not asked.\n  - create-prd: Stakeholder identification questions are skipped.\n  - Review output is Markdown only (no HTML). reviewFormat is forced to \"md\".\n  - Review MD files use numbered sections (§1, §1.1, §1.2 ...) so the reviewer can reference specific parts by number when requesting changes.\n\nWhen Team:\n  - All ownership, assignment, and team questions are active.\n  - Review output follows the reviewFormat setting (html or md).\n  - HTML interactive reviews with feedback textareas are generated."
+      "description": "Solo = single-person project. Team = multi-person team.\n\nWhen Solo:\n  - Skills do NOT ask ownership/assignment questions (who will do X, who owns Y, who is the lead PO, which team works on this).\n  - decompose: teams[] field defaults to [\"solo\"], not asked.\n  - create-prd: Stakeholder identification questions are skipped.\n  - HTML reviews are NOT generated (equivalent to MAKATO_PLAN_NO_HTML=1).\n  - Review output is Markdown only. MD review files use numbered sections (\u00a71, \u00a71.1, \u00a71.2 ...) so the reviewer can reference specific parts by number when requesting changes.\n\nWhen Team:\n  - All ownership, assignment, and team questions are active.\n  - HTML interactive reviews with feedback textareas are generated and opened in browser.\n  - doc-writer agent operates in html-review mode."
     },
-
     "Status": {
       "type": "string",
-      "enum": ["Development", "Dev", "Production", "Prod"],
+      "enum": [
+        "Development",
+        "Dev",
+        "Production",
+        "Prod"
+      ],
       "default": "Development",
-      "description": "Project lifecycle status.\n\nDevelopment (or Dev):\n  - Skills focus on technical solution planning only.\n  - create-architecture: Deployment section (strategy, environments, rollback, infra) and Migration section are SKIPPED.\n  - create-prd: Phased Rollout section and Delivery Recommendations section are SKIPPED.\n  - decompose: Feature toggle capture (Round 2.5) is SKIPPED. Deployment-related story labels are not emitted.\n  - to-issues: plan-template.md deployment fields are left empty.\n  - Rationale: during development phase you are iterating on the technical design; deployment planning is premature.\n\nProduction (or Prod):\n  - Full pipeline — all deployment, rollout, migration, and feature toggle sections are active.\n  - create-architecture emits full Deployment + Migration sections.\n  - create-prd emits Phased Rollout + Delivery Recommendations.\n  - decompose captures feature toggles and deployment dependencies."
+      "description": "Project lifecycle status.\n\nDevelopment (or Dev):\n  - Skills focus on technical solution planning only.\n  - create-architecture: Deployment section (strategy, environments, rollback, infra) and Migration section are SKIPPED.\n  - create-prd: Phased Rollout section and Delivery Recommendations section are SKIPPED.\n  - decompose: Feature toggle capture (Round 2.5) is SKIPPED. Deployment-related story labels are not emitted.\n  - to-issues: plan-template.md deployment fields are left empty.\n  - Rationale: during development phase you are iterating on the technical design; deployment planning is premature.\n\nProduction (or Prod):\n  - Full pipeline \u2014 all deployment, rollout, migration, and feature toggle sections are active.\n  - create-architecture emits full Deployment + Migration sections.\n  - create-prd emits Phased Rollout + Delivery Recommendations.\n  - decompose captures feature toggles and deployment dependencies."
     },
-
-    "htmlReviews": {
-      "type": "boolean",
-      "default": true,
-      "description": "Master toggle for HTML review generation. When false, equivalent to MAKATO_PLAN_NO_HTML=1. Overridden to false when TeamSize=Solo (Solo forces MD-only reviews). When true, skills generate interactive HTML reviews and open them in the browser."
-    },
-
-    "reviewFormat": {
-      "type": "string",
-      "enum": ["html", "md"],
-      "default": "html",
-      "description": "Review output format. When TeamSize=Solo, this is forced to 'md' regardless of the value set here.\n\nhtml: Interactive HTML review documents with feedback textarea and copy button. Opened in browser.\nmd: Numbered Markdown review documents (§1, §1.1, §1.2 ...) written to specs/{slug}/reviews/. Reviewer references section numbers when requesting changes."
-    },
-
-    "models": {
-      "type": "object",
-      "description": "Model assignment per skill. Keys are skill IDs, values are model names. Changing these affects interview quality — see AGENTS.md anti-pattern on model downgrade.",
-      "properties": {
-        "brainstorming": { "type": "string", "default": "opus" },
-        "create-prd": { "type": "string", "default": "opus" },
-        "create-architecture": { "type": "string", "default": "opus" },
-        "create-ux": { "type": "string", "default": "opus" },
-        "create-prototype": { "type": "string", "default": "opus" },
-        "decompose": { "type": "string", "default": "opus" },
-        "stress-test-artifact": { "type": "string", "default": "opus" },
-        "create-acceptance-tests": { "type": "string", "default": "sonnet" }
-      },
-      "additionalProperties": { "type": "string" }
-    },
-
     "agents": {
       "type": "object",
       "description": "Per-agent runtime settings. Keys are agent IDs.",
@@ -63,80 +39,138 @@
         "context-scout": {
           "type": "object",
           "properties": {
-            "model": { "type": "string", "default": "haiku" },
-            "tokenBudget": { "type": "integer", "default": 2000, "minimum": 500, "maximum": 10000, "description": "Max tokens per context-scout dispatch." }
+            "tokenBudget": {
+              "type": "integer",
+              "default": 2000,
+              "minimum": 500,
+              "maximum": 10000,
+              "description": "Max tokens per context-scout dispatch."
+            }
           },
           "additionalProperties": false
         },
         "doc-writer": {
           "type": "object",
           "properties": {
-            "model": { "type": "string", "default": "sonnet" },
-            "maxTurns": { "type": "integer", "default": 25, "minimum": 5, "maximum": 50 }
+            "maxTurns": {
+              "type": "integer",
+              "default": 25,
+              "minimum": 5,
+              "maximum": 50
+            }
           },
           "additionalProperties": false
         },
         "dev-reviewer": {
           "type": "object",
           "properties": {
-            "model": { "type": "string", "default": "sonnet" },
-            "maxTurns": { "type": "integer", "default": 10, "minimum": 3, "maximum": 25 },
-            "maxFindings": { "type": "integer", "default": 3, "minimum": 1, "maximum": 10, "description": "Max findings per story in Three Amigos review." }
+            "maxTurns": {
+              "type": "integer",
+              "default": 10,
+              "minimum": 3,
+              "maximum": 25
+            },
+            "maxFindings": {
+              "type": "integer",
+              "default": 3,
+              "minimum": 1,
+              "maximum": 10,
+              "description": "Max findings per story in Three Amigos review."
+            }
           },
           "additionalProperties": false
         },
         "po-reviewer": {
           "type": "object",
           "properties": {
-            "model": { "type": "string", "default": "sonnet" },
-            "maxTurns": { "type": "integer", "default": 10, "minimum": 3, "maximum": 25 },
-            "maxFindings": { "type": "integer", "default": 3, "minimum": 1, "maximum": 10 }
+            "maxTurns": {
+              "type": "integer",
+              "default": 10,
+              "minimum": 3,
+              "maximum": 25
+            },
+            "maxFindings": {
+              "type": "integer",
+              "default": 3,
+              "minimum": 1,
+              "maximum": 10
+            }
           },
           "additionalProperties": false
         },
         "qa-reviewer": {
           "type": "object",
           "properties": {
-            "model": { "type": "string", "default": "sonnet" },
-            "maxTurns": { "type": "integer", "default": 10, "minimum": 3, "maximum": 25 },
-            "maxFindings": { "type": "integer", "default": 3, "minimum": 1, "maximum": 10 },
-            "maxGherkinScenarios": { "type": "integer", "default": 3, "minimum": 1, "maximum": 10, "description": "Max draft Gherkin scenarios per story." }
+            "maxTurns": {
+              "type": "integer",
+              "default": 10,
+              "minimum": 3,
+              "maximum": 25
+            },
+            "maxFindings": {
+              "type": "integer",
+              "default": 3,
+              "minimum": 1,
+              "maximum": 10
+            },
+            "maxGherkinScenarios": {
+              "type": "integer",
+              "default": 3,
+              "minimum": 1,
+              "maximum": 10,
+              "description": "Max draft Gherkin scenarios per story."
+            }
           },
           "additionalProperties": false
         },
         "prototype-builder": {
           "type": "object",
           "properties": {
-            "model": { "type": "string", "default": "opus" },
-            "maxTurns": { "type": "integer", "default": 30, "minimum": 10, "maximum": 60 },
-            "fileSizeWarningKB": { "type": "integer", "default": 500, "minimum": 100, "maximum": 2000, "description": "File size threshold (KB) that triggers a warning during prototype generation." }
+            "maxTurns": {
+              "type": "integer",
+              "default": 30,
+              "minimum": 10,
+              "maximum": 60
+            },
+            "fileSizeWarningKB": {
+              "type": "integer",
+              "default": 500,
+              "minimum": 100,
+              "maximum": 2000,
+              "description": "File size threshold (KB) that triggers a warning during prototype generation."
+            }
           },
           "additionalProperties": false
         }
       },
       "additionalProperties": false
     },
-
     "brainstorming": {
       "type": "object",
       "properties": {
         "defaultSessionDepth": {
           "type": "string",
-          "enum": ["quick", "standard", "deep"],
+          "enum": [
+            "quick",
+            "standard",
+            "deep"
+          ],
           "default": "standard",
           "description": "Default brainstorming session depth. quick=15min/1 technique, standard=30min/2-3 techniques, deep=60min+/multiple techniques."
         }
       },
       "additionalProperties": false
     },
-
     "toIssues": {
       "type": "object",
       "description": "Defaults for the to-issues skill. CLI flags override these at runtime.",
       "properties": {
         "mode": {
           "type": "string",
-          "enum": ["interactive", "autonomous"],
+          "enum": [
+            "interactive",
+            "autonomous"
+          ],
           "default": "interactive",
           "description": "interactive = user confirms labels before creation. autonomous = silent, no prompts."
         },
@@ -153,14 +187,16 @@
       },
       "additionalProperties": false
     },
-
     "issueToProject": {
       "type": "object",
       "description": "Defaults for the issue-to-project skill.",
       "properties": {
         "readyQueueMode": {
           "type": "string",
-          "enum": ["manual", "autonomous"],
+          "enum": [
+            "manual",
+            "autonomous"
+          ],
           "default": "manual",
           "description": "manual = issues stay in Todo until explicitly moved. autonomous = no-label issues auto-promote to Ready."
         },
@@ -176,7 +212,10 @@
         },
         "unknownRepoBehavior": {
           "type": "string",
-          "enum": ["warn", "error"],
+          "enum": [
+            "warn",
+            "error"
+          ],
           "default": "warn",
           "description": "warn = log warning on unknown repos during reconcile. error = HALT with UNKNOWN_REPO."
         },
@@ -188,7 +227,6 @@
       },
       "additionalProperties": false
     },
-
     "storyConstraints": {
       "type": "object",
       "description": "Story point validation rules enforced by decompose and to-issues.",
@@ -202,20 +240,33 @@
         },
         "validPointValues": {
           "type": "array",
-          "items": { "type": "integer", "minimum": 1 },
-          "default": [1, 2, 3, 5, 8, 13],
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "default": [
+            1,
+            2,
+            3,
+            5,
+            8,
+            13
+          ],
           "description": "Valid Fibonacci story point values. Off-scale values trigger immediate BLOCK."
         }
       },
       "additionalProperties": false
     },
-
     "excalidraw": {
       "type": "object",
       "properties": {
         "defaultOutputMode": {
           "type": "string",
-          "enum": ["obsidian", "standard", "animated"],
+          "enum": [
+            "obsidian",
+            "standard",
+            "animated"
+          ],
           "default": "obsidian",
           "description": "Default Excalidraw output mode. obsidian=.md, standard=.excalidraw, animated=.excalidraw with animations."
         }
@@ -223,6 +274,9 @@
       "additionalProperties": false
     }
   },
-  "required": ["TeamSize", "Status"],
+  "required": [
+    "TeamSize",
+    "Status"
+  ],
   "additionalProperties": false
 }

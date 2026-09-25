@@ -143,7 +143,7 @@ makato-plan/
 
 Central configuration file for all makato-plan runtime behavior. Schema: `schemas/general.config.schema.json`.
 
-**Loading contract:** Skills read `config/general.json` at the start of execution. Changes take effect on the next skill invocation. If the file is absent or unreadable, skills fall back to hardcoded defaults (equivalent to: `TeamSize=Solo`, `Status=Development`, `htmlReviews=true`, etc.).
+**Loading contract:** Skills read `config/general.json` at the start of execution. Changes take effect on the next skill invocation. If the file is absent or unreadable, skills fall back to hardcoded defaults (equivalent to: `TeamSize=Solo`, `Status=Development`).
 
 ### TeamSize — `"Solo"` (default) | `"Team"`
 
@@ -154,8 +154,7 @@ Controls team/ownership behavior across the entire pipeline.
 | Ownership questions (who is the lead PO, who owns delivery, which team) | **Skipped** — all questions about people and team assignment are suppressed | Active — full stakeholder and team identification |
 | `teams[]` in stories.json | Defaults to `["solo"]`, not asked | Mandatory per-story, asked in decompose Round 1 |
 | Team-repository mapping | Skipped (decompose does not load `references/team-repository-mapping.md`) | Loaded and applied at Step 2.2 |
-| Review output format | **Markdown only** — `reviewFormat` is forced to `"md"` regardless of setting. Sections are numbered (§1, §1.1, §1.2 …) so reviewer can reference by number. | Follows `reviewFormat` setting (default: HTML interactive reviews) |
-| HTML reviews | **Not generated** — `htmlReviews` is forced to `false` | Generated and opened in browser |
+| Review output | **Markdown only** — numbered sections (§1, §1.1, §1.2 …) so reviewer can reference by number. No HTML generated. | HTML interactive reviews generated and opened in browser |
 | doc-writer agent MODE | `md-review` — generates numbered MD review | `html-review` — generates interactive HTML |
 
 ### Status — `"Development"` (default) | `"Production"`
@@ -175,7 +174,9 @@ Controls whether deployment, rollout, and release-planning sections are included
 
 ### Other settings
 
-See `schemas/general.config.schema.json` for full documentation of all properties: `models`, `agents`, `brainstorming`, `toIssues`, `issueToProject`, `storyConstraints`, `excalidraw`.
+See `schemas/general.config.schema.json` for full documentation of all properties: `agents`, `brainstorming`, `toIssues`, `issueToProject`, `storyConstraints`, `excalidraw`.
+
+**Note:** Model selection (which LLM to use per skill/agent) is NOT part of this config. makato-plan is LLM-agnostic — model assignment is handled by the runtime environment, not by the plugin config.
 
 ## Versioning
 
