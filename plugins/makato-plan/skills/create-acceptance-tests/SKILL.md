@@ -6,7 +6,7 @@ description: >-
   decompose to create acceptance tests, generate Gherkin scenarios, or refine
   test cases.
 version: "1.4.0"
-model: sonnet
+modelRole: commit
 argument-hint: "[slug]"
 allowed-tools: [Read, Write, Agent, Bash]
 metadata:

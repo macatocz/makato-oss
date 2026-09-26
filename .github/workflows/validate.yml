@@ -9,7 +9,9 @@ on:
     paths:
       - 'plugins/**'
       - 'scripts/**'
+      - 'infra/**'
       - 'tests/integration/**'
+      - 'tests/infra/**'
       - '.github/scripts/**'
       - '.github/workflows/validate.yml'
       - '.github/workflows/project-board-sync.yml'
@@ -24,7 +26,9 @@ on:
     paths:
       - 'plugins/**'
       - 'scripts/**'
+      - 'infra/**'
       - 'tests/integration/**'
+      - 'tests/infra/**'
       - '.github/scripts/**'
       - '.github/workflows/validate.yml'
       - '.github/workflows/project-board-sync.yml'
@@ -35,22 +39,19 @@ on:
       - 'CLAUDE.md'
       - 'CONTRIBUTING.md'
 
-permissions:
-  contents: read
-
 jobs:
   validate-structure:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.14'
 
       - name: Install pytest + jsonschema
-        run: python3 -m pip install --quiet pytest jsonschema
+        run: python3 -m pip install --quiet pytest jsonschema pyyaml
 
       - name: Check root structure
         run: ./scripts/check-root-structure.sh
@@ -93,6 +94,9 @@ jobs:
 
       - name: gate-scout hook-commands smoke tests (#450)
         run: ./plugins/makato-build/shared/gate-scout-hook-commands-smoke-tests.sh
+
+      - name: makato-build runtime path smoke tests
+        run: ./plugins/makato-build/shared/runtime-path-smoke-tests.sh
 
       - name: build-verify gate-commands smoke tests (#450)
         run: ./plugins/makato-build/shared/build-verify-gate-commands-smoke-tests.sh
@@ -147,6 +151,108 @@ jobs:
 
       - name: makato-flow generator unit tests (#428)
         run: python3 -m unittest scripts.test_generate_flow_diagram -v
+
+  macos-compat:
+    # local-openai-gpt-macos-compatibility (Task 5): macOS/Apple Silicon
+    # compatibility job. Uses the GitHub-hosted macos-latest runner and its
+    # already-provisioned tools only (no new tooling is installed). Runs
+    # fully offline/mocked — no live provider network call, no credential.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.14'
+
+      - name: Install pytest + optional test dependencies
+        run: python3 -m pip install --quiet pytest jsonschema pyyaml langfuse defusedxml
+
+      - name: Python unit tests (pytest)
+        run: python3 -m pytest -q
+
+      - name: model-profiles resolver — structural validation for every profile
+        run: |
+          for profile in openai qwen-vllm apple-ollama; do
+            python3 scripts/resolve-model-profile.py "$profile" --emit summary
+          done
+
+      - name: select-model-profile.sh --dry-run for every profile
+        run: |
+          for profile in openai qwen-vllm apple-ollama; do
+            bash scripts/select-model-profile.sh "$profile" --dry-run
+          done
+
+      - name: macos-setup.sh --dry-run (tool + profile readiness report)
+        env:
+          MAKATO_MACOS_CI: '1'
+        run: bash scripts/macos-setup.sh --dry-run
+
+      - name: preflight-model-runtime.sh — qwen-vllm profile (offline, mocked endpoint)
+        run: |
+          mkdir -p "$RUNNER_TEMP/omp"
+          cat > "$RUNNER_TEMP/omp/models.yml" <<'EOF'
+          providers:
+            local:
+              models:
+                - id: open
+                  contextWindow: 65536
+                  maxTokens: 8192
+          EOF
+          cat > "$RUNNER_TEMP/omp/config.yml" <<'EOF'
+          modelRoles:
+            default: local/open
+            task: local/open
+            smol: local/open
+            tiny: local/open
+            plan: local/open
+            advisor: local/open
+            designer: local/open
+            commit: local/open
+            slow: local/open
+            vision: local/open
+          tools:
+            format: qwen3
+          EOF
+          mkdir -p "$RUNNER_TEMP/bin"
+          cat > "$RUNNER_TEMP/bin/curl" <<'EOF'
+          #!/usr/bin/env bash
+          echo '{"data":[{"id":"open","max_model_len":65536}]}'
+          EOF
+          chmod +x "$RUNNER_TEMP/bin/curl"
+          PATH="$RUNNER_TEMP/bin:$PATH" \
+            OMP_MODELS_FILE="$RUNNER_TEMP/omp/models.yml" \
+            OMP_CONFIG_FILE="$RUNNER_TEMP/omp/config.yml" \
+            MAKATO_SKIP_OPTIONAL_PREFLIGHT=1 \
+            bash scripts/preflight-model-runtime.sh
+
+      - name: preflight-optional-services.sh — offline (no services configured)
+        run: SAGIBEAST_SSH_CONFIG=/dev/null bash scripts/preflight-optional-services.sh
+
+      - name: infra bootstrap-vllm.sh — refuses to run on Darwin
+        run: |
+          set +e
+          bash infra/bootstrap-vllm.sh
+          rc=$?
+          set -e
+          [ "$rc" -ne 0 ] || { echo "::error::bootstrap-vllm.sh must refuse to run on Darwin"; exit 1; }
+
+      - name: infra vllm-serve.sh — refuses to run on Darwin
+        run: |
+          set +e
+          bash infra/vllm-serve.sh
+          rc=$?
+          set -e
+          [ "$rc" -ne 0 ] || { echo "::error::vllm-serve.sh must refuse to run on Darwin"; exit 1; }
+
+      - name: macOS/remote-profile matrix smoke tests (#Task 5)
+        env:
+          MAKATO_MACOS_CI: '1'
+        run: bash tests/infra/test_macos_remote_profiles.sh --verbose
+
+      - name: harness-independence infra smoke tests (extended, #Task 5)
+        run: bash tests/infra/test_harness_independence_infra.sh --verbose
 
   pr-title:
     if: github.event_name == 'pull_request'

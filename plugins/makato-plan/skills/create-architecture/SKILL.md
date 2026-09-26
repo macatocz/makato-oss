@@ -5,7 +5,7 @@ description: >-
   design, system context, component design, API design, data model, security,
   deployment, test strategy. Use after PRD is approved.
 version: "1.0.6"
-model: opus
+modelRole: plan
 argument-hint: "[slug]"
 allowed-tools: Bash
 metadata:

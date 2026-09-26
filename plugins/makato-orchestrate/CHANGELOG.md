@@ -5,6 +5,29 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Changed — installed-plugin roots in autonomous dispatch
+
+`loop.sh`, `functions.sh`, and `context-handoff.sh` now forward absolute
+makato-build/orchestrate/plan plugin roots and resolve shared helpers from the
+installed plugin location. Headless dispatch no longer assumes the consumer
+repository vendors `plugins/makato-orchestrate`.
+
+### Docs — provider profiles, harness adapter, and resume documentation (local-openai-gpt-macos-compatibility, Task 6)
+- **README.md** gains a new § *Provider profiles and harness selection* documenting the
+  three selectable model profiles (`openai`, `qwen-vllm`, `apple-ollama` —
+  `config/model-profiles.yml`), the shared `scripts/harness-command.sh` adapter that
+  resolves the dispatch permission flag from `MAKATO_HARNESS_MODE` (never inferred from
+  `MAKATO_HARNESS_BIN`'s name), the `last_session_id` + `--resume <session_id>` recovery
+  contract shared by stall-resume and HALT-007B handoff, and the full autonomous
+  issue-to-PR/merge loop's credential/preflight requirements
+  (`scripts/preflight-model-runtime.sh` → `scripts/preflight-omp-context.sh` +
+  `scripts/preflight-optional-services.sh`). Replaces stale `claude`-only wording
+  (`claude --resume <UUID>`, `claude --dangerously-skip-permissions -p`,
+  `$MAKATO_CLAUDE_BIN`) in the workflow diagram, the `scripts/loop.sh` /
+  `scripts/context-handoff.sh` entries, the `loop-cron.yml` workflow row, and the
+  Prerequisites list with the harness-neutral equivalents. Documentation only — no
+  script changes.
+
 ### Added
 - **Offline board mirror + per-tick bidirectional sync (issue #9).** New `scripts/board-mirror.sh` module lets the loop survive a GitHub partition. On each successful poll `cmd_poll` refreshes a local snapshot (`board-mirror.json`) and flushes any queued status transitions back to GitHub; when the poll fails it serves the last-known board from the snapshot instead of halting the queue, so dispatch continues offline (`loop-status.json` dispatch count keeps incrementing). `_claim_board_card` gains an offline fallback: when the CAS re-poll fails it claims against the mirror and queues the `In progress` transition (`board-mirror-queue.jsonl`) for push on reconnect. **Sync cadence** is per poll tick — no separate daemon, shares `loop.sh`'s interval (Q-mirror decision A). **Conflict rule** is last-writer-wins, whole-record, by timestamp (Q-mirror decision A): a queued local write overlays the fetched board on refresh, and the flush pushes only the latest status per issue. Feature-flagged with `MAKATO_LOOP_MIRROR` (default `1`; set `0` to disable — every mirror path becomes a no-op and pre-#9 behaviour is restored). Snapshot/queue paths derive from `STATE_DIR` (override `MAKATO_LOOP_MIRROR_FILE` / `MAKATO_LOOP_MIRROR_QUEUE`; point them at `MAKATO_PERSISTENT_VOLUME_ROOT` to survive a Vast.ai preemption). Covered by `scripts/tests/board-mirror-smoke-tests.sh` (8 offline scenarios).
 

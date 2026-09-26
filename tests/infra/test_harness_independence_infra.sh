@@ -27,7 +27,7 @@ assert_eq() {
   local desc="$1" expected="$2" actual="$3"
   if [[ "$expected" == "$actual" ]]; then
     PASS=$((PASS + 1))
-    $VERBOSE && echo "  PASS: $desc"
+    $VERBOSE && echo "  PASS: $desc" || true
   else
     FAIL=$((FAIL + 1))
     echo "  FAIL: $desc"
@@ -40,10 +40,21 @@ assert_contains() {
   local desc="$1" haystack="$2" needle="$3"
   if echo "$haystack" | grep -q "$needle"; then
     PASS=$((PASS + 1))
-    $VERBOSE && echo "  PASS: $desc"
+    $VERBOSE && echo "  PASS: $desc" || true
   else
     FAIL=$((FAIL + 1))
     echo "  FAIL: $desc (needle '$needle' not found)"
+  fi
+}
+
+assert_not_contains() {
+  local desc="$1" haystack="$2" needle="$3"
+  if echo "$haystack" | grep -qi "$needle"; then
+    FAIL=$((FAIL + 1))
+    echo "  FAIL: $desc (forbidden needle '$needle' WAS found)"
+  else
+    PASS=$((PASS + 1))
+    $VERBOSE && echo "  PASS: $desc" || true
   fi
 }
 
@@ -51,7 +62,7 @@ assert_file_exists() {
   local desc="$1" path="$2"
   if [[ -f "$path" ]]; then
     PASS=$((PASS + 1))
-    $VERBOSE && echo "  PASS: $desc"
+    $VERBOSE && echo "  PASS: $desc" || true
   else
     FAIL=$((FAIL + 1))
     echo "  FAIL: $desc (file not found: $path)"
@@ -62,7 +73,7 @@ assert_yaml_valid() {
   local desc="$1" path="$2"
   if python3 -c "import yaml; yaml.safe_load(open('$path'))" 2>/dev/null; then
     PASS=$((PASS + 1))
-    $VERBOSE && echo "  PASS: $desc"
+    $VERBOSE && echo "  PASS: $desc" || true
   else
     FAIL=$((FAIL + 1))
     echo "  FAIL: $desc (YAML parse error)"
@@ -71,7 +82,7 @@ assert_yaml_valid() {
 
 skip_test() {
   SKIP=$((SKIP + 1))
-  $VERBOSE && echo "  SKIP: $1"
+  $VERBOSE && echo "  SKIP: $1" || true
 }
 
 run_suite() {
@@ -137,7 +148,7 @@ PYEOF
 UTIL=$(python3 -c "import yaml; d=yaml.safe_load(open('$VLLM_FILE')); print(d.get('gpu_memory_utilization', 0))" 2>/dev/null || echo "0")
 if python3 -c "import sys; sys.exit(0 if float('$UTIL') <= 0.85 else 1)" 2>/dev/null; then
   PASS=$((PASS + 1))
-  $VERBOSE && echo "  PASS: gpu_memory_utilization <= 0.85"
+  $VERBOSE && echo "  PASS: gpu_memory_utilization <= 0.85" || true
 else
   FAIL=$((FAIL + 1))
   echo "  FAIL: gpu_memory_utilization ($UTIL) exceeds 48 GB co-location ceiling (0.85)"
@@ -185,7 +196,7 @@ MAKATO_LANGFUSE_KEY="pk-test-1" SAGIBEAST_LANGFUSE_KEY="pk-test-2" \
   bash "$INJECT_SCRIPT" --dry-run --env-file "$TMPDIR_TEST/test.env" >/dev/null 2>&1 || _dry_exit=$?
 assert_eq "dry-run exit code is 0" "0" "$_dry_exit"
 if [[ ! -f "$TMPDIR_TEST/test.env" ]]; then
-  PASS=$((PASS + 1)); $VERBOSE && echo "  PASS: dry-run does not write env file"
+  PASS=$((PASS + 1)); $VERBOSE && echo "  PASS: dry-run does not write env file" || true
 else
   FAIL=$((FAIL + 1)); echo "  FAIL: dry-run should not write env file but it did"
 fi
@@ -241,6 +252,70 @@ bash "$BUDGET_SCRIPT" --unknown-flag >/dev/null 2>&1 && { FAIL=$((FAIL + 1)); ec
 CONFIG_UTIL=$(python3 -c "import yaml; d=yaml.safe_load(open('$CONFIG_FILE')); print(d.get('budget',{}).get('vllm',{}).get('gpu_memory_utilization','0'))" 2>/dev/null || echo "0")
 VLLM_UTIL=$(python3 -c "import yaml; d=yaml.safe_load(open('$VLLM_FILE')); print(d.get('gpu_memory_utilization','0'))" 2>/dev/null || echo "0")
 assert_eq "config.yml vllm budget matches vllm-serve.yaml utilization" "$VLLM_UTIL" "$CONFIG_UTIL"
+
+# ── Suite 6: OpenAI / Apple-local / remote-Linux profile independence ────────
+# (local-openai-gpt-macos-compatibility, Task 5 — extends this file per the
+# plan's Task 5 file list). Asserts the three provider profiles resolve
+# independently of one another and of any Claude-specific assumption, and
+# that the macOS/remote-Linux guard scripts Task 5 adds/modifies are present
+# and structurally sound.
+run_suite "provider/platform independence (Task 5)"
+
+MODEL_PROFILES_FILE="$REPO_ROOT/config/model-profiles.yml"
+RESOLVE_PROFILE="$REPO_ROOT/scripts/resolve-model-profile.py"
+assert_file_exists "config/model-profiles.yml exists" "$MODEL_PROFILES_FILE"
+assert_file_exists "scripts/resolve-model-profile.py exists" "$RESOLVE_PROFILE"
+
+# The checked-in credential-free local-vLLM default must be preserved.
+DEFAULT_PROFILE=$(sed -nE 's/^default_profile:[[:space:]]*"?([^"[:space:]]+)"?.*/\1/p' "$MODEL_PROFILES_FILE" | head -1)
+assert_eq "default_profile is still the checked-in qwen-vllm default" "qwen-vllm" "$DEFAULT_PROFILE"
+
+# Each profile resolves independently (no cross-provider leakage) — provider
+# field must match the profile's own declared provider, never another
+# profile's, and never a Claude-specific value.
+for pair in "openai:openai" "qwen-vllm:local" "apple-ollama:ollama"; do
+  profile="${pair%%:*}"
+  expected_provider="${pair##*:}"
+  summary_json=$(python3 "$RESOLVE_PROFILE" "$profile" --config "$MODEL_PROFILES_FILE" --emit summary 2>/dev/null) \
+    && { PASS=$((PASS + 1)); $VERBOSE && echo "  PASS: profile '$profile' resolves cleanly" || true; } \
+    || { FAIL=$((FAIL + 1)); echo "  FAIL: profile '$profile' failed to resolve"; }
+  actual_provider=$(printf '%s' "$summary_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("provider",""))' 2>/dev/null || echo "")
+  assert_eq "profile '$profile' provider is independent ('$expected_provider')" "$expected_provider" "$actual_provider"
+  assert_not_contains "profile '$profile' summary has no Claude-specific field" "$summary_json" "claude"
+done
+
+# The Task 5 macOS/remote-Linux scripts must exist and never hardcode a
+# Claude-only harness assumption (this story's harness adapter is
+# provider-neutral — see plugins/makato-orchestrate/scripts/harness-command.sh).
+for script in "scripts/macos-setup.sh" "scripts/preflight-model-runtime.sh" \
+              "scripts/preflight-omp-context.sh" "scripts/preflight-optional-services.sh"; do
+  full_path="$REPO_ROOT/$script"
+  assert_file_exists "$script exists" "$full_path"
+  if [[ -f "$full_path" ]]; then
+    if grep -qi "claude" "$full_path"; then
+      FAIL=$((FAIL + 1))
+      echo "  FAIL: $script contains a Claude-specific reference (should be provider-neutral)"
+    else
+      PASS=$((PASS + 1))
+      $VERBOSE && echo "  PASS: $script has no Claude-specific reference" || true
+    fi
+  fi
+done
+
+# scripts/preflight-omp-context.sh and scripts/preflight-model-runtime.sh must
+# honour MAKATO_MODEL_PROFILE (not hardcode a single provider).
+assert_contains "preflight-omp-context.sh honours MAKATO_MODEL_PROFILE" \
+  "$(cat "$REPO_ROOT/scripts/preflight-omp-context.sh")" "MAKATO_MODEL_PROFILE"
+assert_contains "preflight-model-runtime.sh honours MAKATO_MODEL_PROFILE" \
+  "$(cat "$REPO_ROOT/scripts/preflight-model-runtime.sh")" "MAKATO_MODEL_PROFILE"
+
+# infra/bootstrap-vllm.sh and infra/vllm-serve.sh must guard against running
+# on a non-Linux (Darwin/Apple Silicon) host — Task 5's explicit Linux/NVIDIA
+# guard, kept separate from the macOS setup path.
+assert_contains "bootstrap-vllm.sh guards against non-Linux hosts" \
+  "$(cat "$REPO_ROOT/infra/bootstrap-vllm.sh")" 'uname -s'
+assert_contains "vllm-serve.sh guards against non-Linux hosts" \
+  "$(cat "$REPO_ROOT/infra/vllm-serve.sh")" 'uname -s'
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""

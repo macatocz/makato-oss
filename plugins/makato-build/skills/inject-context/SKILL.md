@@ -37,10 +37,11 @@ The caller passes:
 | Field | Type | Description |
 |-------|------|-------------|
 | `changed_files` | `list[str]` | Project-relative paths the task will create or modify. May be empty (treated as a valid no-scope case — see § 4 contract item 5). |
-| `config` | `dict` | Parsed `context-bundles.yml`. The caller is responsible for the YAML parse. |
+| `config` | `dict` | Parsed `context-bundles.yml`. The caller loads this from the installed `MAKATO_BUILD_ROOT`, never from the target repository or the skill's current directory. |
 
-The production config lives at `plugins/makato-build/config/context-bundles.yml`. Its
-schema is:
+The production config lives at `$MAKATO_BUILD_ROOT/config/context-bundles.yml`
+at runtime (source checkouts may use `REPO_ROOT/plugins/makato-build` only as
+the documented development fallback). Its schema is:
 
 ```yaml
 version: "1.0"
@@ -134,10 +135,12 @@ The resolver is implemented in `plugins/makato-build/shared/inject_context.py`. 
 API:
 
 ```python
+import os
 import yaml
 from inject_context import resolve_bundles, BundleResolutionError
 
-with open("plugins/makato-build/config/context-bundles.yml") as fh:
+plugin_root = os.environ["MAKATO_BUILD_ROOT"]
+with open(os.path.join(plugin_root, "config", "context-bundles.yml")) as fh:
     config = yaml.safe_load(fh)
 
 rules, warning = resolve_bundles(
@@ -162,8 +165,8 @@ real `context-bundles.yml` and exercises a mixed file workload.
 `knowledge-scout` invokes the resolver in its Step 0 (before SPECS_ROOT discovery). The
 canonical call shape is:
 
-1. Parse `plugins/makato-build/config/context-bundles.yml` (PyYAML — already a project
-   dependency).
+1. Parse `$MAKATO_BUILD_ROOT/config/context-bundles.yml` (PyYAML — already a project
+   dependency). Do not probe `REPO_ROOT/plugins/makato-build`.
 2. Substitute the `{repo}` token in each rule path with the value of the agent's
    `REPO_NAME` input.
 3. Call `resolve_bundles(changed_files, config)`.
@@ -171,9 +174,9 @@ canonical call shape is:
    return.
 5. On `warning is not None`: append the warning to `build.jsonl` as `status: "warn"` and
    continue with the returned `rules` list.
-6. Pre-read every rule path that exists on disk. Missing rule files are tolerated
-   silently (the registry references aspirational `context/{repo}/` paths that may not
-   exist in every target repo).
+6. Resolve each relative rule beneath `REPO_ROOT` and pre-read only regular files
+   that exist. Missing target rules are normal greenfield/advisory misses and are
+   tolerated silently; suite-owned files are never resolved from this list.
 
 ### Caller decision tree for response states
 

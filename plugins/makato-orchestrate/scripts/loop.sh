@@ -47,6 +47,9 @@ SUBCOMMANDS
   --promote-unblocked        Promote unblocked Todo/Blocked issues to Ready each tick.
 
 CONFIG
+  MAKATO_TARGET_REPO_ROOT optionally selects a consumer checkout when the
+  installed orchestrator is launched from another repository or directory.
+  Otherwise the current checkout is used.
   Tunable parameters + env overrides live in ../config/config.yml
   and are documented in ../config/config.md.
 HELP
@@ -57,8 +60,20 @@ case "${1:-}" in
   -h|--help|help) _print_help; exit 0 ;;
 esac
 
-# --- Runtime-derived paths (depend on git/$HOME — not tunables, stay here) ---
-REPO_ROOT="$(git rev-parse --show-toplevel)"
+# `MAKATO_TARGET_REPO_ROOT` is set by the suite runner when the installed
+# orchestrator is dispatching a consumer repository from another CWD.
+if [[ -n "${MAKATO_TARGET_REPO_ROOT:-}" ]]; then
+  REPO_ROOT="$(cd "$MAKATO_TARGET_REPO_ROOT" 2>/dev/null && pwd -P)" || {
+    echo "loop: target repository root is not a directory: $MAKATO_TARGET_REPO_ROOT" >&2
+    exit 1
+  }
+  git -C "$REPO_ROOT" rev-parse --show-toplevel >/dev/null 2>&1 || {
+    echo "loop: target repository root is not a git checkout: $REPO_ROOT" >&2
+    exit 1
+  }
+else
+  REPO_ROOT="$(git rev-parse --show-toplevel)"
+fi
 SPECS_DIR="${SPECS_DIR:-$REPO_ROOT/specs}"
 STATE_DIR="${MAKATO_LOOP_STATE_DIR:-$REPO_ROOT/.claude/state}"
 STATUS_FILE="$STATE_DIR/loop-status.json"
@@ -80,6 +95,36 @@ _LOOP_CONFIG_YML="${MAKATO_LOOP_CONFIG_YML:-$_LOOP_SCRIPT_DIR/../config/config.y
 _LOOP_FUNCTIONS="${MAKATO_LOOP_FUNCTIONS:-$_LOOP_SCRIPT_DIR/functions.sh}"
 _LOOP_CONFIG_PARSER="${MAKATO_LOOP_CONFIG_PARSER:-$(dirname "$_LOOP_CONFIG_YML")/parse-config.py}"
 eval "$(python3 "$_LOOP_CONFIG_PARSER" "$_LOOP_CONFIG_YML")"
+
+_resolve_plugin_root() {
+  local plugin="$1" candidate
+  case "$plugin" in
+    makato-orchestrate)
+      candidate="$(cd "$_LOOP_SCRIPT_DIR/.." && pwd)"
+      [[ -f "$candidate/.claude-plugin/plugin.json" ]] && {
+        printf '%s\n' "$candidate"
+        return 0
+      }
+      ;;
+  esac
+
+  local plugin_cache_parent
+  plugin_cache_parent="$(cd "$_LOOP_SCRIPT_DIR/../.." && pwd)"
+  for candidate in \
+    "$REPO_ROOT/plugins/$plugin" \
+    "$plugin_cache_parent/$plugin" \
+    "$plugin_cache_parent"/makato-suite___"$plugin"___*; do
+    if [[ -f "$candidate/.claude-plugin/plugin.json" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+}
+
+MAKATO_ORCHESTRATE_ROOT="${MAKATO_ORCHESTRATE_ROOT:-$(_resolve_plugin_root makato-orchestrate)}"
+MAKATO_BUILD_ROOT="${MAKATO_BUILD_ROOT:-$(_resolve_plugin_root makato-build)}"
+MAKATO_PLAN_ROOT="${MAKATO_PLAN_ROOT:-$(_resolve_plugin_root makato-plan)}"
+export MAKATO_ORCHESTRATE_ROOT MAKATO_BUILD_ROOT MAKATO_PLAN_ROOT
 # API_FORCE_IDLE_TIMEOUT is opt-in (see config.md); export only when set.
 if [[ -n "${API_FORCE_IDLE_TIMEOUT:-}" ]]; then
   export API_FORCE_IDLE_TIMEOUT
@@ -89,6 +134,20 @@ fi
 # configured cloud open-model API. A no-op when the var is empty (default).
 if [[ -n "${MAKATO_OPEN_ENDPOINT_URL:-}" ]]; then
   export ANTHROPIC_BASE_URL="$MAKATO_OPEN_ENDPOINT_URL"
+fi
+# Provider-neutral profile/harness-mode propagation (Task 3,
+# local-openai-gpt-macos-compatibility): forward the caller's selected model
+# profile (config/model-profiles.yml, scripts/resolve-model-profile.py) and
+# harness mode (plugins/makato-orchestrate/scripts/harness-command.sh) into
+# every dispatched/resumed child process's environment. Neither var carries a
+# credential — profile installation and credential handling remain the
+# caller's responsibility via scripts/select-model-profile.sh. No-op when
+# either var is unset (default: whatever OMP/Claude Code already has active).
+if [[ -n "${MAKATO_MODEL_PROFILE:-}" ]]; then
+  export MAKATO_MODEL_PROFILE
+fi
+if [[ -n "${MAKATO_HARNESS_MODE:-}" ]]; then
+  export MAKATO_HARNESS_MODE
 fi
 PIDFILE="${MAKATO_LOOP_PIDFILE:-$STATE_DIR/loop.pid}"
 

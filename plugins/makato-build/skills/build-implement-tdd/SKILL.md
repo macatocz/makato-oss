@@ -7,7 +7,7 @@ description: >-
   after refine to implement-tdd a story plan, implement tdd tasks, or
   run the core build loop.
 version: "1.11.0"
-model: sonnet
+modelRole: task
 argument-hint: "[work-item-key]"
 allowed-tools: ["Bash", "Read"]
 metadata:
@@ -32,12 +32,21 @@ When dispatched by the PO-agent (`--autonomous` mode), this skill receives a con
 - `<work-item-key>` — positional argument (e.g. `#123`, `GAP-085`).
 - `WORKTREE_PATH` — absolute filesystem path to the per-run git worktree the PO-agent owns. **Mandatory in autonomous mode** (see `plugins/makato-build/AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract*). The skill MUST `cd "$WORKTREE_PATH"` before any `git`, `pytest`, or file-edit operation, and forward this value to every nested `coder` dispatch in Step 6.
 - `ISSUE_NUMBER` — GitHub issue number (integer, no leading zeros). Used by the workflow-state patch call at the end of Step 6 (`workflow-state-<issue>.json`). **Mandatory in autonomous mode** when `makato-orchestrate` is present; ignored in interactive mode.
+- `MAKATO_BUILD_ROOT` — absolute installed build-plugin root. Resolve from
+  `CLAUDE_PLUGIN_ROOT`, `OMP_PLUGIN_ROOT`, or `PLUGIN_ROOT` when the caller does
+  not supply it; never infer it from the target repository CWD.
+- `MAKATO_ORCHESTRATE_ROOT` — optional absolute orchestrate-plugin root supplied
+  by the PO-agent. When absent, skip optional scout/workflow-state integration
+  without probing `$REPO_ROOT/plugins/...`.
 - `--autonomous` — activation flag (also activated by `$AGENT_ID` or `task_id` bundle).
 
 Optional fields (autonomous mode):
 
 - `CI_FAILURE_LOG` — tail of `gh run view --log-failed` (≤ 4000 chars), forwarded by the PO-agent's CI-failure fix loop (Step 6a of `plugins/makato-orchestrate/agents/po-agent.md`). When present, activates *CI-failure recovery mode* — see § *CI-failure recovery mode* below. Absent on a normal first-pass dispatch.
 - `PRIOR_LESSONS` — JSON array of top-3 lessons recalled by the PO-agent (GAP-015 / #37). May be empty; consumers MUST tolerate `[]` and a missing key identically. Forwarded verbatim to each per-task `coder` dispatch in Step 6 as advisory context.
+- `GATE_COMMANDS` — optional gate-scout R1 `data` command map. When absent,
+  dispatch gate-scout once before the baseline and use its `unit`,
+  `integration`, `coverage`, and `python_runner_prefix` fields verbatim.
 
 When invoked by a developer at the prompt (interactive mode), `WORKTREE_PATH` is optional. If unset, the skill falls back to `git rev-parse --show-toplevel` of the current `$PWD` — the original developer-driven behaviour, unchanged. `CI_FAILURE_LOG` is never set in interactive mode.
 
@@ -50,14 +59,22 @@ When `CI_FAILURE_LOG` is present in the input bundle, the skill is being re-ente
 3. Forward `CI_FAILURE_LOG` to each selected coder dispatch as an additional input field of the same name. The coder reads it as advisory diagnostic context — it does not override the per-task `description` or test specs from `plan.md`.
 4. Log a `decision` JSONL entry on entry so the audit trail records that this dispatch is a recovery rather than a fresh implementation walk:
    ```bash
-   shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"ci-failure-recovery","status":"decision","data":{"log_tail_chars":<N>,"tasks_selected":[<indices>]}}'
+   "$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"ci-failure-recovery","status":"decision","data":{"log_tail_chars":<N>,"tasks_selected":[<indices>]}}'
    ```
 
 All other contracts (workspace-isolation guard, baseline gate, blockedBy graph check, scout pre-flight, R1 envelope, workflow-state carve-out) are unchanged. The recovery mode is a subset of the normal walk, not a parallel path.
 
 ### Workspace-isolation entry guard
 
-Apply the workspace-isolation entry guard from `@../../AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract* and § *Falsy-check pattern* before Step 1 — Step 1 in interactive mode calls `AskUserQuestion` for the work-item-key prompt and in autonomous mode that prompt is bypassed, so the falsy-check must run at skill entry (before either branch of Step 1 begins) to prevent a deadlock against a prompt that can never resolve. In autonomous mode an empty `WORKTREE_PATH` is a HALT with `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`; in interactive mode the guard falls back to `git rev-parse --show-toplevel`. After resolution, `cd "$WORKTREE_PATH"` so every subsequent `git`/`pytest`/file-edit lands in the correct working tree.
+Apply the workspace-isolation entry guard from
+`$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` before Step 1 — Step 1 in interactive
+mode calls `AskUserQuestion` for the work-item-key prompt and in autonomous
+mode that prompt is bypassed, so the falsy-check must run at skill entry.
+In autonomous mode an empty `WORKTREE_PATH` is a HALT with
+`errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`; in
+interactive mode the guard falls back to `git rev-parse --show-toplevel`. After
+resolution, `cd "$WORKTREE_PATH"` so every subsequent git/test/file-edit lands
+in the correct working tree.
 
 Spec-folder reads (`plan.md`, `build.jsonl` audit appends) operate on the MAIN checkout, not the worktree (`specs/` is gitignored). Resolve `REPO_ROOT` once at entry:
 
@@ -116,9 +133,10 @@ a task that hasn't run yet. Topo-sort first, enforce strictly.
 `partial`/`failure` would record false task completion in the PO-agent's state machine,
 causing the outer loop to skip the failed task on the next dispatch.
 
-**Do NOT Load `references/test-writing-guide.md` unless dispatching a coder in Step 6 for
-a story with no established test conventions.** Do NOT Load `references/tdd-cycle-rules.md`
-outside Steps 1 and 5. Do NOT Load `@shared/baseline-guide.md` outside Step 3.
+**Do NOT load `references/test-writing-guide.md` unless dispatching a coder in Step 6 for
+a story with no established test conventions.** Do NOT load
+`references/tdd-cycle-rules.md` outside Steps 1 and 5. Do NOT load the baseline
+guide outside Step 3.
 
 ### Step 1 — Ask for work item key and load plan
 
@@ -126,7 +144,11 @@ Ask: "Which work item are you implementing? (e.g. #123, or pass it directly: `/m
 
 Load @references/tdd-cycle-rules.md. These rules govern all decisions in the TDD loop for this session.
 
-Read `plan.md` from the resolved spec folder (`specs/<key>-*/`). If the plan does not exist: stop and tell the user to run `/refine` first.
+Resolve `MAKATO_BUILD_ROOT` from the installed-plugin-root contract in
+`$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md`, then resolve `SPEC_FOLDER` with
+`"$MAKATO_BUILD_ROOT/shared/spec_folder.py" "$REPO_ROOT" "<key>"`. Read
+`plan.md` from that resolved folder. If it does not exist: stop and tell the
+user to run `/refine` first.
 
 Extract all tasks where `mode: tdd`. If none exist: stop and tell the user all tasks are goal-mode — run `/implement-goal` instead.
 
@@ -137,19 +159,27 @@ If the plan is mixed mode: note the goal-mode tasks and confirm scope with the u
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO-8601-ms>","skill":"build-implement-tdd","story":"<key>","step":"session","status":"start","data":{"tdd_tasks":<N>,"goal_tasks_skipped":<N>}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO-8601-ms>","skill":"build-implement-tdd","story":"<key>","step":"session","status":"start","data":{"tdd_tasks":<N>,"goal_tasks_skipped":<N>}}'
 ```
 
 ### Step 3 — Establish test baseline
 
-Load @shared/baseline-guide.md. Follow its instructions to establish the baseline and handle the broken baseline gate.
+Load `$MAKATO_BUILD_ROOT/shared/baseline-guide.md`. Follow its instructions to
+establish the baseline and handle the broken baseline gate.
+
+If `GATE_COMMANDS` was not supplied, dispatch the registered `gate-scout`
+agent once with `REPO_ROOT` and `COVERAGE_HINT`, parse its R1 `data`, and store
+the command map for this session. Run the exact `data.unit` command (including
+`python_runner_prefix`) for the baseline. If `data.unit` is `"not found"`,
+record a degraded-confidence skip; never substitute a bare `pytest` command.
+Forward the same map to every coder dispatch.
 
 **Flakey test rule**: if a test fails but no source code was changed between runs, re-run that single test once before classifying. If it passes on the second run, log it as flakey and continue. If it fails again, classify normally.
 
-Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"baseline","status":"ok","data":{"pre_existing_failures":<N>,"baseline_mode":"<proceed|halted>"}}'`
+Run: `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"baseline","status":"ok","data":{"pre_existing_failures":<N>,"baseline_mode":"<proceed|halted>"}}'`
 
 If `pre_existing_failures > 0` and user chose continue, also log a decision entry:
-`shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"baseline-gate","status":"decision","data":{"pre_existing_failures":<N>,"user_choice":"continue"}}'`
+`"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"baseline-gate","status":"decision","data":{"pre_existing_failures":<N>,"user_choice":"continue"}}'`
 
 ### Step 4 — Read implementation context (via plan-analyst agent)
 
@@ -157,7 +187,7 @@ Dispatch the `plan-analyst` agent with:
 - `PLAN_PATH`: absolute path to `plan.md` in the resolved spec folder
 - `GLOSSARY_PATH`: absolute path to `glossary.md` in the resolved spec folder
 - `REPO_ROOT`: absolute path to the target repository root
-
+- `MAKATO_BUILD_ROOT`: absolute installed build-plugin root
 The agent returns a structured Plan Analysis containing: task list with tdd/goal mode, layers detected, `tracer_required` flag, glossary constraints, and reusable codebase patterns. Use this output for all subsequent steps — do not re-read plan.md or glossary.md independently.
 
 **plan-analyst failure branch:** if the plan-analyst agent returns R1 `status:"failure"` or
@@ -168,10 +198,10 @@ the user and recommend re-running `/build-refine` to produce a fresh `plan.md` b
 retrying this skill. Log:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"load-context","status":"error","data":{"reason":"<r1.errors[0]>"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"load-context","status":"error","data":{"reason":"<r1.errors[0]>"}}'
 ```
 
-Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"load-context","status":"ok","data":{"grill_context":<true|false>,"tracer_required":<true|false>}}'`
+Run: `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"load-context","status":"ok","data":{"grill_context":<true|false>,"tracer_required":<true|false>}}'`
 
 ### Step 5 — Build tracer bullet (conditional: tracer_required = true)
 
@@ -185,21 +215,21 @@ Identify the topmost layer in the plan. Tie-break order: ui > controller > servi
 
 For each non-topmost layer (working bottom-up), write a stub at the exact file path listed in that layer's task `**Files:**` field. Follow stub rules from `tdd-cycle-rules.md` (compiles, returns hardcoded valid value, carries `// TRACER STUB — replaced by Task <N> implementation`, no logic).
 
-Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"tracer-stub","status":"ok","data":{"stubs_written":<N>}}'`
+Run: `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"tracer-stub","status":"ok","data":{"stubs_written":<N>}}'`
 
 #### TRACER TEST — Write one end-to-end integration test
 
 Write one integration test in the topmost layer's test file following the tracer integration test rules from `tdd-cycle-rules.md`. Run the test — it must pass before proceeding. Apply the fix-vs-escalate threshold from `tdd-cycle-rules.md`.
 
-Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"tracer-test","status":"ok","data":{"tracer_test_file":"<path>","tracer_test_name":"<name>","layers_covered":<N>}}'`
+Run: `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"tracer-test","status":"ok","data":{"tracer_test_file":"<path>","tracer_test_name":"<name>","layers_covered":<N>}}'`
 
 #### TRACER VERIFY — Full suite gate
 
 Run the full suite. Zero new failures allowed vs. the baseline from Step 3.
 
-Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"tracer-verify","status":"ok","data":{"new_failures":0}}'`
+Run: `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"tracer-verify","status":"ok","data":{"new_failures":0}}'`
 
-**Optional batched flush** (#118 / `AUTONOMOUS-MODE.md` § *Batched logging*): the three Step 5 rows (`tracer-stub` → `tracer-test` → `tracer-verify`) emit in tight succession at the end of the tracer phase. Skills MAY accumulate them into a heredoc and flush once via `shared/build-log.sh "<key>" --batch` instead of three separate single-entry calls — that swaps three `bash` + `git rev-parse` + `find specs/` chains for one. The cross-step batching rule applies: do NOT carry rows past the next step boundary; a Step 5 failure before the flush would lose the audit trail.
+**Optional batched flush** (#118 / `AUTONOMOUS-MODE.md` § *Batched logging*): the three Step 5 rows (`tracer-stub` → `tracer-test` → `tracer-verify`) emit in tight succession at the end of the tracer phase. Skills MAY accumulate them into a heredoc and flush once via `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" --batch` instead of three separate single-entry calls — that swaps three `bash` + `git rev-parse` + `find specs/` chains for one. The cross-step batching rule applies: do NOT carry rows past the next step boundary; a Step 5 failure before the flush would lose the audit trail.
 
 ### Step 6 — Execute RED → GREEN → INTEGRATE → VERIFY for each tdd task (via coder agent)
 
@@ -219,39 +249,58 @@ For each `mode: tdd` task in topological order, dispatch the per-task `task-file
 - `TRACER_TEST_NAME`: name of the tracer integration test if `tracer_required = true` and it was written in Step 5; otherwise omit
 - `BASELINE_FAILURES`: pre-existing failure count from Step 3
 - `REPO_ROOT`: absolute path to the target repository root
+- `MAKATO_BUILD_ROOT`: absolute installed build-plugin root
 - `WORKTREE_PATH`: absolute filesystem path to the per-run git worktree (forwarded verbatim from this skill's input — see § *Input* and `AUTONOMOUS-MODE.md` § *WORKTREE_PATH*). The `coder` agent `cd`s into this path before its RED→GREEN→INTEGRATE→VERIFY cycle. In interactive mode without an enclosing PO-agent, forward the resolved `$(git rev-parse --show-toplevel)` so the agent's contract is identical in both modes.
 - `CI_FAILURE_LOG`: forwarded verbatim when present in this skill's input bundle (see § *CI-failure recovery mode*). Omit when absent — the coder treats it as optional advisory diagnostic context, not a gate.
 - `RECOMMENDED_SKILLS`: forwarded verbatim when the task object from `plan.md` carries a `recommended_skills[]` field (agent-skill-routing #146). When present and non-empty, the coder agent invokes each skill before Phase 1 RED (see `coder.md` § *Skill consultation prepend*). Omit this field from the dispatch bundle when the task's `recommended_skills` is absent — do NOT pass an empty array.
 - `TEST_ORACLE`: forwarded verbatim when the Plan Analysis (from `plan-analyst`, Step 4) carries a non-empty `## Acceptance Test Oracle` section. Pass the whole section (all scenarios with their `(maps to AC-N)` annotations); the coder filters it to the task's own `**Satisfies:**` AC links and implements the matching scenarios as its RED tests (see `coder.md` § *Test oracle*). Omit this field from the dispatch bundle when the plan has no Acceptance Test Oracle section — do NOT pass an empty value. Source is the Plan Analysis output, never a re-read of `plan.md` or `stories.json`.
 - `PRIOR_LESSONS`: forwarded verbatim when present in this skill's input bundle (see § *Input* and `plugins/makato-orchestrate/agents/po-agent.md`). A JSON array of the top-3 lessons recalled by the PO-agent (GAP-015 / #37). The coder reads them as advisory context, equal in weight to `SCOUT_SUMMARY` — they never override `PLAN_CONTEXT.Hard Constraints` (see `coder.md` § *Prior lessons*). Omit this field from the dispatch bundle when it is absent or `[]` — do NOT pass an empty array. Consumers tolerate a missing key and `[]` identically.
+- `GATE_COMMANDS`: the authoritative gate-scout command map, including the
+  runner prefix. Forward it verbatim so coder phases never fall back to
+  system-Python commands.
 
 **blockedBy enforcement**: before dispatching a task, check its `blockedBy` list. Do not dispatch a task concurrently with any task whose index appears in its `blockedBy` list. A task blocked by Task N must wait until Task N's coder agent returns `status: complete` before being dispatched.
 
 #### Pre-flight scout dispatch (GAP-013 / #29)
 
 Before each `coder` dispatch, resolve the task's bundle rules via the
-`inject-context` skill (`plugins/makato-build/skills/inject-context/SKILL.md`)
-and dispatch the per-task `task-file-scout` agent (`plugins/makato-orchestrate/agents/task-file-scout.md`).
-The scout is **advisory**, not a gate — a scout failure must never block
-the coder dispatch.
+`inject-context` skill and dispatch the registered `task-file-scout` agent by
+name only when the optional `MAKATO_ORCHESTRATE_ROOT` is an existing installed
+plugin root and
+`"$MAKATO_ORCHESTRATE_ROOT/agents/task-file-scout.md"` exists. Never read an
+agent file relative to this skill directory, the consumer repository, or the
+current working directory. The scout is **advisory**, not a gate — a scout
+failure must never block the coder dispatch.
 
-1. **Resolve bundles.** Call the `inject-context` Python helper:
-   `from inject_context import resolve_bundles; rules, warning = resolve_bundles(task['files'], yaml.safe_load(open('plugins/makato-build/config/context-bundles.yml')))`.
-   On `BundleResolutionError` with `halt_code == "HALT-006"`: skip the
-   scout entirely, log a `warn` JSONL entry (`step: "scout-skipped"`,
+1. **Resolve bundles.** Call the `inject-context` Python helper using only
+   installed build-plugin paths:
+   ```python
+   import sys
+   sys.path.insert(0, MAKATO_BUILD_ROOT + '/shared')
+   from inject_context import resolve_bundles
+   rules, warning = resolve_bundles(
+       task['files'],
+       yaml.safe_load(open(MAKATO_BUILD_ROOT + '/config/context-bundles.yml')),
+   )
+   ```
+   The returned relative `rules` are target-repository paths; the scout
+   resolves them beneath `REPO_ROOT` and only reads existing files. On
+   `BundleResolutionError` with `halt_code == "HALT-006"`: skip the scout
+   entirely, log a `warn` JSONL entry (`step: "scout-skipped"`,
    `reason: "halt-006-bundle-config"`), and dispatch `coder` without
    `SCOUT_SUMMARY`. The HALT-006 propagates to the PO-agent through
-   `knowledge-scout`'s pre-existing Step 0 path; this skill does not
-   re-emit it.
+   `knowledge-scout`'s pre-existing Step 0 path; this skill does not re-emit it.
 2. **Dispatch scout** with: `TASK_DESCRIPTION` (the task's title +
    one-line elaboration verbatim from `plan.md`), `CHANGED_FILES` (the
    task's `**Files:**` list), `BUNDLE_RULES` (the `rules` list from step 1,
    with `{repo}` substituted), `REPO_ROOT`, `WORKTREE_PATH` (forwarded
-   verbatim — the scout is read-only but resolves `CHANGED_FILES` relative
-   to the worktree).
-3. **Parse the scout R1 envelope** per `RETURN-CONTRACT.md` § Caller
-   parsing rule (last fenced ` ```json ` block, `JSON.parse()`, assert
-   `schema == "r1"`).
+   verbatim — the scout resolves target files beneath this worktree), and
+   `MAKATO_BUILD_ROOT` (forwarded so suite-owned contract references remain
+   installed-root absolute). Missing predicted files are greenfield/advisory
+   misses, not dispatch failures.
+3. **Parse the scout R1 envelope** per
+   `"$MAKATO_BUILD_ROOT/agents/RETURN-CONTRACT.md"` § Caller parsing rule
+   (last fenced ` ```json ` block, `JSON.parse()`, assert `schema == "r1"`).
 4. **Map scout R1 to coder input:**
    - `r1.status == "success"` — forward `r1.data` to coder as
      `SCOUT_SUMMARY`. Mirror the scout R1 to `build.jsonl` with
@@ -260,29 +309,18 @@ the coder dispatch.
      `warn` JSONL entry: `{"…","skill":"build-implement-tdd","story":"<key>","step":"scout-partial","status":"warn","data":{"task":<N>,"errors":<r1.errors>}}`.
    - `r1.status == "failure"` — do NOT forward `SCOUT_SUMMARY`. Log a
      `warn` JSONL entry: `{"…","skill":"build-implement-tdd","story":"<key>","step":"scout-skipped","status":"warn","data":{"task":<N>,"reason":<r1.errors[0]>}}`.
-     The coder dispatch proceeds without scout context — this matches
-     the GAP-013 fallback contract (`plugins/makato-orchestrate/agents/task-file-scout.md`
-     § *Caller fallback contract*).
+     The coder dispatch proceeds without scout context — this matches the
+     GAP-013 fallback contract for the registered `task-file-scout` agent.
    - **R1 contract violation** (missing block, parse failure,
      `schema != "r1"`) — treat as `failure` per the table above. Per
      NEVER 6, do not retry the scout dispatch.
 
-The scout dispatch is conditional on the `makato-orchestrate` plugin
-being installed (the scout agent lives there). Detect via:
-
-```bash
-MAKATO_ORCH="$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)/plugins/makato-orchestrate"
-if [[ ! -f "$MAKATO_ORCH/agents/task-file-scout.md" ]]; then
-  scout_dispatched=false  # consumer repo without makato-orchestrate; skip scout silently
-fi
-```
-
-When the scout file is absent (the build pipeline is running standalone
-without the orchestrator), skip Step 6's scout dispatch entirely and
-proceed straight to the coder dispatch without `SCOUT_SUMMARY`. No
-warning is logged — the build pipeline must remain operable in a
-developer's hands without the orchestrate plugin present (mirrors the
-guarded `workflow-state.sh patch` pattern at § Step 6 end of this skill).
+When `MAKATO_ORCHESTRATE_ROOT` is absent, is not a valid installed
+orchestrate-plugin root, or lacks `agents/task-file-scout.md`, skip Step 6's
+scout dispatch entirely and proceed straight to the coder dispatch without
+`SCOUT_SUMMARY`. No consumer-repository plugin path is probed; the build
+pipeline remains operable in a developer's hands without the orchestrate
+plugin.
 
 The coder agent runs the full RED→GREEN→INTEGRATE→VERIFY cycle for the task and appends JSONL entries directly to JSONL_PATH.
 
@@ -307,7 +345,7 @@ If the R1 envelope cannot be parsed (missing block, invalid JSON, `schema != "r1
 After every coder dispatch (success or otherwise), mirror the R1 envelope into `build.jsonl` so the audit trail captures the full machine contract verbatim:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO-8601-ms>","skill":"build-implement-tdd","story":"<key>","step":"r1","status":"<r1.status>","task":<TASK_INDEX>,"data":<entire-r1-envelope-object>}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO-8601-ms>","skill":"build-implement-tdd","story":"<key>","step":"r1","status":"<r1.status>","task":<TASK_INDEX>,"data":<entire-r1-envelope-object>}'
 ```
 
 #### Cross-task regression sweep
@@ -329,16 +367,16 @@ After a successful coder R1 and after mirroring it to `build.jsonl`, run the acc
    ```
    Count the sweep failure count. Compare against `BASELINE_FAILURES` (from Step 3):
    - **Zero new failures** (`sweep_failures − BASELINE_FAILURES == 0`): sweep passes.
-     Flush to `build.jsonl` via `shared/build-log.sh`:
+     Flush to `build.jsonl` via `"$MAKATO_BUILD_ROOT/shared/build-log.sh"`:
      ```bash
-     shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"cross-task-verify","status":"ok","task":<TASK_INDEX>,"data":{"sweep_tests":<N>,"new_failures":0}}'
+     "$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"cross-task-verify","status":"ok","task":<TASK_INDEX>,"data":{"sweep_tests":<N>,"new_failures":0}}'
      ```
-     You may batch-flush the `r1` mirror entry and this `cross-task-verify` entry together using `shared/build-log.sh "<key>" --batch` (see `AUTONOMOUS-MODE.md` § *Batched logging*) to minimize overhead.
+     You may batch-flush the `r1` mirror entry and this `cross-task-verify` entry together using `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" --batch` (see `AUTONOMOUS-MODE.md` § *Batched logging*) to minimize overhead.
    - **New failures detected** (`sweep_failures > BASELINE_FAILURES`): apply the fix-vs-escalate threshold:
      - *Fixable*: the regression is a straightforward consequence of the current task's changes. Fix the code in place, re-run the sweep, emit the JSONL on pass. Do not proceed until the sweep clears.
      - *Structural*: cannot fix without changing the implementation approach. Emit:
        ```bash
-       shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"cross-task-verify","status":"error","task":<TASK_INDEX>,"data":{"sweep_tests":<N>,"new_failures":<M>}}'
+       "$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"cross-task-verify","status":"error","task":<TASK_INDEX>,"data":{"sweep_tests":<N>,"new_failures":<M>}}'
        ```
        Stop the outer loop. Return R1 `status:"failure"` with `summary:"Cross-task regression detected at task <TASK_INDEX>: <M> new failure(s) in prior-task tests"`. Recommend `/refine`.
 
@@ -357,10 +395,10 @@ After a successful coder R1 and after mirroring it to `build.jsonl`, run the acc
 When `r1.status == "success"`, also patch workflow-state so the PO-agent (GAP-006) can resume from accurate task state without re-parsing `build.jsonl`. The call is guarded — it skips silently when running in a consumer repo without the `makato-orchestrate` plugin present:
 
 ```bash
-MAKATO_ROOT="$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)/plugins/makato-orchestrate"
-if [[ -x "$MAKATO_ROOT/shared/workflow-state.sh" ]]; then
-  "$MAKATO_ROOT/shared/workflow-state.sh" patch "<key>" "<issue>" ".sub_tasks[$((TASK_INDEX-1))].status" '"complete"'
-  "$MAKATO_ROOT/shared/workflow-state.sh" patch "<key>" "<issue>" ".sub_tasks[$((TASK_INDEX-1))].agent_result" '<r1-envelope-as-json-literal>'
+if [[ -n "${MAKATO_ORCHESTRATE_ROOT:-}" ]] &&
+   [[ -x "$MAKATO_ORCHESTRATE_ROOT/shared/workflow-state.sh" ]]; then
+  "$MAKATO_ORCHESTRATE_ROOT/shared/workflow-state.sh" patch "<key>" "<issue>" ".sub_tasks[$((TASK_INDEX-1))].status" '"complete"'
+  "$MAKATO_ORCHESTRATE_ROOT/shared/workflow-state.sh" patch "<key>" "<issue>" ".sub_tasks[$((TASK_INDEX-1))].agent_result" '<r1-envelope-as-json-literal>'
 fi
 ```
 
@@ -371,7 +409,7 @@ fi
 **Note:** unconditional on autonomous mode (per `AUTONOMOUS-MODE.md` § Skills NOT in scope this skill always runs autonomously); conditional only on `r1.status == "success"`. On `partial` or `failure` the PO-agent reads the R1 envelope from `build.jsonl` and applies its own state mutation — that path lands in GAP-006 (#32).
 
 For backward compatibility, also emit the existing step-specific log entry on escalation:
-- `r1.status == "failure"` — `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"task-escalate","status":"warn","data":{"task":<N>,"reason":"<r1.errors[0] or r1.summary>"}}'`
+- `r1.status == "failure"` — `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"task-escalate","status":"warn","data":{"task":<N>,"reason":"<r1.errors[0] or r1.summary>"}}'`
 
 If the coder agent applied a fix within the RED→GREEN cycle (a decision to fix rather than escalate), the coder appends its own decision entry to JSONL_PATH. The orchestrating skill does not need to re-log those decisions.
 
@@ -388,25 +426,25 @@ If conditional coverage is below threshold, first attempt to close the gap: iden
 - **Autonomous mode** (`--autonomous`, `task_id` in the dispatch bundle, or `$AGENT_ID` exported — see `plugins/makato-build/AUTONOMOUS-MODE.md` § *Activation triggers*): a coverage miss CANNOT be "acknowledged" — no human is at the prompt to own the risk. Do NOT invent an acknowledgement. Log the miss with `threshold_met:false` (below) and hand off; the terminal coverage gate is **Gate 5** in `build-verify`, which enforces `HALT-002` on `threshold_met:false` before `build-push-to-git`. Step 7 defers to Gate 5 authoritatively — it neither blocks the intra-build flow itself nor waves the miss through. To make the deferral explicit rather than implied, also emit the audit marker:
 
   ```bash
-  shared/log-bypass.sh build-implement-tdd "<key>" coverage-floor defer-to-gate5 "$TRIGGER"
+  "$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-implement-tdd "<key>" coverage-floor defer-to-gate5 "$TRIGGER"
   ```
 
 - **Interactive mode**: the gap may proceed only as an **explicitly acknowledged risk**, recorded as a structured entry — not a free-form "logged as known risk" note. Capture who acknowledged it and why, so the acknowledgement is auditable:
 
   ```bash
-  shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"coverage-acknowledged","status":"decision","data":{"conditional_coverage":"<X>%","threshold":"<Y>%","acknowledged_by":"<user>","reason":"<one-line justification>"}}'
+  "$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"coverage-acknowledged","status":"decision","data":{"conditional_coverage":"<X>%","threshold":"<Y>%","acknowledged_by":"<user>","reason":"<one-line justification>"}}'
   ```
 
   An interactive acknowledgement is local to this build session; Gate 5 in `build-verify` still re-checks coverage independently and will HALT-002 if the miss is real.
 
-Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"final-verify","status":"ok","data":{"tdd_tasks_complete":<N>,"conditional_coverage":"<X>%","threshold_met":<true|false>}}'`
+Run: `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"final-verify","status":"ok","data":{"tdd_tasks_complete":<N>,"conditional_coverage":"<X>%","threshold_met":<true|false>}}'`
 
 ### Step 8 — Log session end and hand off
 
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO-8601-ms>","skill":"build-implement-tdd","story":"<key>","step":"session","status":"ok","data":{"tdd_tasks":<N>,"goal_tasks_pending":<N>}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO-8601-ms>","skill":"build-implement-tdd","story":"<key>","step":"session","status":"ok","data":{"tdd_tasks":<N>,"goal_tasks_pending":<N>}}'
 ```
 
 **Session summary**: read `build.jsonl` for this story and collect all entries where `status` is `"warn"` or `"decision"`. Print a compact summary:

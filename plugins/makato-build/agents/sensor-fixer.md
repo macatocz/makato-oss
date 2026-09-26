@@ -41,14 +41,15 @@ Your dispatch prompt provides:
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `REPO_ROOT` | string (absolute path) | yes | Repository root. All file paths are resolved against this. |
+| `REPO_ROOT` | string (absolute path) | yes | Repository root. All target file paths and audit paths are resolved against this. |
+| `MAKATO_BUILD_ROOT` | string (absolute path) | yes | Absolute installed `makato-build` plugin root. Resolve suite-owned routes, parsers, and references from this root; never probe `REPO_ROOT/plugins/makato-build`. |
 | `FINDINGS` | `list[Finding]` | yes | Parsed sensor findings from `parse-sarif.py`. Each finding carries the canonical shape `{tool, rule, path, line, column, message, severity, autofix_available, raw}` — see [`../shared/finding-schema.md`](../shared/finding-schema.md) for the full contract. `fingerprint` is NOT a field on an incoming finding — the agent *derives* it per finding for deduplication (see below). |
 | `SPEC_KEY` | string | no | Spec key under `specs/`. Defaults to `sensor-harness-v1`. |
-| `MAX_LOOPS` | integer | no | Hard cap on Phase 1 outer iterations. Defaults to `5`. |
+| `MAX_LOOPS` | integer | no | Hard cap for Phase 1 outer iterations. Defaults to `5`. |
 | `RECOMMENDED_SKILLS` | `list[string]` | no | Array of `"plugin:skill-id"` strings forwarded from the parent task's `recommended_skills[]` field (agent-skill-routing #146). When present and non-empty, invoke each skill before Phase 0 to surface domain conventions relevant to the finding set. Forward to each `build-resolve-finding` dispatch as an additional input field so repair skills can benefit from the same context. Omit when absent — do NOT forward an empty array. |
 | `CI_CONTEXT` | `object \| null` | no | Advisory context from the caller when sensor-fixer is dispatched from a CI failure path (e.g. po-agent Step 6a). Fields: `check_name` (string), `run_id` (string), `ci_failure_type` (string). When `ci_failure_type == "sensor"` is set, sensor-fixer **skips `reparse_after_autofix`** after Phase 0 and instead re-invokes each distinct `FINDINGS[].tool` binary directly against the working tree to verify fixes (CI environments may not have pre-commit hooks installed). When absent or `null`, existing Phase 0 behaviour is byte-for-byte unchanged. Include in `build.jsonl` Phase 0 row when present (see § Audit log). |
 
-Missing `REPO_ROOT` or `FINDINGS` → R1 `failure` with `errors: ["missing input: <field>"]`.
+Missing `REPO_ROOT`, `MAKATO_BUILD_ROOT`, or `FINDINGS` → R1 `failure` with `errors: ["missing input: <field>"]`.
 
 ## Process
 
@@ -77,9 +78,13 @@ Phase 0 is purely deterministic — no LLM round-trip. A cmd failure is non-fata
 # Pseudocode — sensor-fixer Phase 0
 SPEC_KEY="${SPEC_KEY:-sensor-harness-v1}"
 MAX_LOOPS="${MAX_LOOPS:-5}"
-AUDIT_LOG="${REPO_ROOT}/specs/${SPEC_KEY}/build.jsonl"
-ROUTES="${REPO_ROOT}/plugins/makato-build/shared/finding-routes.json"
-mkdir -p "${REPO_ROOT}/specs/${SPEC_KEY}"
+SPEC_FOLDER="$(
+  python3 "$MAKATO_BUILD_ROOT/shared/spec_folder.py" "$REPO_ROOT" "$SPEC_KEY" 2>/dev/null ||
+    printf '%s/%s' "$REPO_ROOT/specs" "${SPEC_KEY#\#}"
+)"
+AUDIT_LOG="${SPEC_FOLDER}/build.jsonl"
+ROUTES="${MAKATO_BUILD_ROOT}/shared/finding-routes.json"
+mkdir -p "$SPEC_FOLDER"
 
 skills_used=()
 resolved=0
@@ -233,8 +238,11 @@ Notes on Phase 1:
 
 ### Audit log
 
-Path: `${REPO_ROOT}/specs/${SPEC_KEY}/build.jsonl`. Create `specs/${SPEC_KEY}/` with `mkdir -p` before the first append. The log is **append-only** — never truncate or rewrite prior entries; downstream tools and PR reviewers rely on the full chronology.
-
+Path: `${SPEC_FOLDER}/build.jsonl`, where `SPEC_FOLDER` is resolved with the
+installed `shared/spec_folder.py` helper. If the spec is not materialized yet,
+fall back to `${REPO_ROOT}/specs/${SPEC_KEY#\#}`. The log is **append-only** —
+never truncate or rewrite prior entries; downstream tools and PR reviewers rely
+on the full chronology.
 Two row shapes:
 
 **Phase 0 (batched autofix) — `loop: 0`:**

@@ -45,11 +45,13 @@ Your dispatch prompt provides:
 | `TASK` | yes | Task object from `plan.md`: title, files, unit test spec, integration test spec, AC links, mode |
 | `TASK_INDEX` | yes | Integer index of this task within the plan (1-based); used in JSONL `task` field |
 | `STORY_KEY` | yes | Work item key (e.g. `DCP-1234`); used in JSONL entries |
-| `JSONL_PATH` | yes | Absolute path to `build.jsonl` in the resolved spec folder; append all log entries here |
+| `JSONL_PATH` | yes | Absolute path to `build.jsonl` in the resolved spec folder; identifies the audit destination. Do not append to this path directly. |
 | `PLAN_CONTEXT` | yes | Full Plan Analysis output from `plan-analyst` (see below) |
 | `TRACER_TEST_NAME` | yes | Name of the tracer integration test (if `tracer_required=true` and it was written); must continue to pass after GREEN and INTEGRATE |
 | `BASELINE_FAILURES` | yes | Pre-existing failure count recorded before this session started |
 | `REPO_ROOT` | yes | Absolute path to the repository root |
+| `MAKATO_BUILD_ROOT` | yes | Absolute installed build-plugin root; use `$MAKATO_BUILD_ROOT/shared/build-log.sh` for every `build.jsonl` entry and `$MAKATO_BUILD_ROOT` for suite-owned references |
+| `GATE_COMMANDS` | yes | Gate-scout command map; use its `unit`, `integration`, `coverage`, and runner-prefix fields verbatim |
 | `SCOUT_SUMMARY` | no | Per-task scout's `data` payload (see below) |
 | `WORKTREE_PATH` | no | Absolute filesystem path to the per-run git worktree owned by the PO-agent |
 | `RECOMMENDED_SKILLS` | no | Array of `"plugin:skill-id"` strings from `plan.md` task's `recommended_skills[]` field (agent-skill-routing #146). When present and non-empty, invoke these skills BEFORE Phase 1 RED — see § *Skill consultation prepend* below. |
@@ -76,6 +78,12 @@ Your dispatch prompt provides:
 The dispatching skill (`build-implement-tdd` Step 6) resolves bundles via `inject-context` and dispatches the scout once per task before invoking this agent. When `SCOUT_SUMMARY` is absent (scout returned `failure`, the `makato-orchestrate` plugin is not installed, or the scout dispatch was skipped for any reason), proceed without it — `PLAN_CONTEXT` remains the binding context. Scout output is **advisory**: it never overrides `PLAN_CONTEXT.Hard Constraints` or `PLAN_CONTEXT.Standards`.
 
 `WORKTREE_PATH` *(optional)* — absolute filesystem path to the per-run git worktree owned by the PO-agent. When present (every PO-agent dispatch sets it; see `plugins/makato-build/AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract*), `cd "$WORKTREE_PATH"` BEFORE Phase 1 RED and every subsequent phase, so all file edits, `git`, and test invocations land in the worktree's branch instead of the main checkout. When absent (developer-hands invocation outside the orchestrator), fall back to `$(git rev-parse --show-toplevel)` of the current `$PWD`. Two concurrent PO-agent runs each pass a distinct `WORKTREE_PATH`; honouring it is what keeps their HEADs from racing.
+
+`GATE_COMMANDS` is authoritative for every test phase. Run the exact command
+provided for the current phase, including `uv run`, `poetry run`, `pdm run`, or
+`pipenv run` prefixes. If a command is `"not found"`, record a skipped or
+degraded phase in `build.jsonl`; do not invent a bare `pytest`, `coverage`, or
+system-Python replacement.
 
 `TEST_ORACLE` *(optional)* — the plan's `## Acceptance Test Oracle` section: QA-refined acceptance scenarios (`create-acceptance-tests` output, sourced from the story's `acceptanceTestCases[]`), each a Gherkin block annotated `(maps to AC-N)`. When present, it defines the exact tests this task's RED phase must produce — see § *Test oracle*. When absent, derive RED tests as usual from `TASK`'s unit/integration test specs, AC links, and `SCOUT_SUMMARY`. Like `SCOUT_SUMMARY`, the oracle is **advisory**: it never overrides `PLAN_CONTEXT.Hard Constraints` or `PLAN_CONTEXT.Standards`.
 
@@ -219,10 +227,10 @@ Write the unit test file and integration test file for the task. Follow naming c
 
 Run only the new tests. Confirm they fail (compilation failure counts as failure — tests must at minimum compile before proceeding to GREEN). If a test passes vacuously: rewrite it until it fails for the expected reason.
 
-Append to `JSONL_PATH`:
+Append to `build.jsonl` via the installed helper (never `>> JSONL_PATH`):
 
-```
-{"ts":"<ISO-8601-ms>","skill":"coder","story":"<STORY_KEY>","step":"red","task":<TASK_INDEX>,"status":"ok","data":{"unit_tests":<N>,"integration_tests":<N>}}
+```bash
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "$STORY_KEY" '{"ts":"<ISO-8601-ms>","skill":"coder","story":"<STORY_KEY>","step":"red","task":<TASK_INDEX>,"status":"ok","data":{"unit_tests":<N>,"integration_tests":<N>}}'
 ```
 
 ### Phase 2 — GREEN
@@ -231,10 +239,10 @@ Write production code for the task's file targets. Minimum code to pass unit tes
 
 Run unit tests only. Iterate until all pass. Do not run integration tests yet. If `TRACER_TEST_NAME` is set, confirm it still passes after GREEN.
 
-Append to `JSONL_PATH`:
+Append to `build.jsonl` via the installed helper (never `>> JSONL_PATH`):
 
-```
-{"ts":"<ISO-8601-ms>","skill":"coder","story":"<STORY_KEY>","step":"green","task":<TASK_INDEX>,"status":"ok","data":{"unit_passing":<N>}}
+```bash
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "$STORY_KEY" '{"ts":"<ISO-8601-ms>","skill":"coder","story":"<STORY_KEY>","step":"green","task":<TASK_INDEX>,"status":"ok","data":{"unit_passing":<N>}}'
 ```
 
 ### Phase 3 — INTEGRATE
@@ -245,10 +253,10 @@ If integration tests reveal the unit-level design is wrong: fix implementation a
 
 Run integration tests only. Iterate until all pass.
 
-Append to `JSONL_PATH`:
+Append to `build.jsonl` via the installed helper (never `>> JSONL_PATH`):
 
-```
-{"ts":"<ISO-8601-ms>","skill":"coder","story":"<STORY_KEY>","step":"integrate","task":<TASK_INDEX>,"status":"ok","data":{"integration_passing":<N>}}
+```bash
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "$STORY_KEY" '{"ts":"<ISO-8601-ms>","skill":"coder","story":"<STORY_KEY>","step":"integrate","task":<TASK_INDEX>,"status":"ok","data":{"integration_passing":<N>}}'
 ```
 
 ### Phase 4 — VERIFY
@@ -259,16 +267,17 @@ Count new failures: current failures minus `BASELINE_FAILURES`. Zero new failure
 
 The complete VERIFY checklist is the **Automated tier** of `plugins/makato-build/skills/definition-of-done/SKILL.md` (12 items). Within this agent's run, item 1 (tests pass, zero new failures) is verified in this phase; item 10 (`build.jsonl` entry written) is enforced at every phase boundary (RED, GREEN, INTEGRATE, VERIFY); item 11 (R1 envelope emitted) is enforced at the agent's final message. Items 2–9 and 12 are enforced downstream by `build-verify`, `build-sensors`, `build-push-to-git`, and `build-create-pr` — do not preempt their gates, but do not declare this phase complete unless item 1 is satisfied and items 10, 11 will be honored at their respective points.
 
-Append to `JSONL_PATH`:
+Append to `build.jsonl` via the installed helper (never `>> JSONL_PATH`):
 
-```
-{"ts":"<ISO-8601-ms>","skill":"coder","story":"<STORY_KEY>","step":"verify-task","task":<TASK_INDEX>,"status":"ok","data":{"new_failures":0}}
+```bash
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "$STORY_KEY" '{"ts":"<ISO-8601-ms>","skill":"coder","story":"<STORY_KEY>","step":"verify-task","task":<TASK_INDEX>,"status":"ok","data":{"new_failures":0}}'
 ```
 
-On structural escalation, append:
+On structural escalation, append via the installed helper (which repairs any
+non-conforming timestamp):
 
-```
-{"ts":"<ISO-8601-ms>","skill":"coder","story":"<STORY_KEY>","step":"verify-task","task":<TASK_INDEX>,"status":"error","error":"<structural reason>"}
+```bash
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "$STORY_KEY" '{"ts":"<ISO-8601-ms>","skill":"coder","story":"<STORY_KEY>","step":"verify-task","task":<TASK_INDEX>,"status":"error","error":"<structural reason>"}'
 ```
 
 ## R1 return envelope

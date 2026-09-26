@@ -108,5 +108,5 @@ After routing the R1 result in Step 4, append the full envelope as a JSONL line 
 `agents/RETURN-CONTRACT.md § Audit-log integration`:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO>","skill":"build-runtime-qa","story":"<key>","step":"r1","status":"<r1.status>","data":<entire-r1-envelope>}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO>","skill":"build-runtime-qa","story":"<key>","step":"r1","status":"<r1.status>","data":<entire-r1-envelope>}'
 ```

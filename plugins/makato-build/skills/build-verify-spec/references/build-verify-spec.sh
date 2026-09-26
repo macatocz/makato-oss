@@ -38,18 +38,16 @@ if [[ -z "${REPO_ROOT:-}" ]]; then
         || { echo "build-verify-spec: cannot determine REPO_ROOT — set REPO_ROOT env or run from a git repo" >&2; exit 2; })"
 fi
 
-# ---- Python module path --------------------------------------------------
+# ---- Plugin and Python module paths ---------------------------------------
+# Resolve paths from this installed plugin, not from the consumer repository.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PLUGIN_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+
 # Locate build_verify_spec.py.
-# Priority: PY_MODULE env var (tests), then relative to this script
-# (skills/build-verify-spec/references/ → ../../shared/ = skills/shared/
-# but the shared/ dir is at plugin level: skills/../shared/ = plugin/shared/).
-# So we go three levels up from this script: references/ → build-verify-spec/
-# → skills/ → plugin root, then into shared/.
+# Priority: PY_MODULE env var (tests), then the installed plugin's shared dir.
 if [[ -n "${PY_MODULE:-}" ]]; then
     : # already set by caller (test env)
 else
-    SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-    PLUGIN_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
     PY_MODULE="$PLUGIN_ROOT/shared/build_verify_spec.py"
 fi
 
@@ -64,21 +62,13 @@ if [[ ! -f "$PY_MODULE" ]]; then
 fi
 
 # ---- Resolve spec folder -------------------------------------------------
-SPEC_DIR=""
-# Primary: prefix-match glob (specs/<SPEC_KEY>-*)
-for d in "$REPO_ROOT/specs/${SPEC_KEY}-"*; do
-    if [[ -d "$d" ]]; then
-        SPEC_DIR="$d"
-        break
-    fi
-done
-# Fallback: exact match (specs/<SPEC_KEY>)
-if [[ -z "$SPEC_DIR" && -d "$REPO_ROOT/specs/${SPEC_KEY}" ]]; then
-    SPEC_DIR="$REPO_ROOT/specs/${SPEC_KEY}"
+SPEC_RESOLVER="$PLUGIN_ROOT/shared/spec_folder.py"
+if [[ ! -f "$SPEC_RESOLVER" ]]; then
+    echo "build-verify-spec: spec resolver not found at '$SPEC_RESOLVER'" >&2
+    exit 2
 fi
-
-if [[ -z "$SPEC_DIR" ]]; then
-    echo "build-verify-spec: spec folder not found for key '${SPEC_KEY}' under '$REPO_ROOT/specs/'" >&2
+if ! SPEC_DIR="$(python3 "$SPEC_RESOLVER" "$REPO_ROOT" "$SPEC_KEY" 2>&1)"; then
+    echo "build-verify-spec: $SPEC_DIR" >&2
     exit 2
 fi
 

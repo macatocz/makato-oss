@@ -170,7 +170,7 @@ session — confirm the argument order and any env-var overrides in effect. Do N
 it for verdict interpretation; the SKILL.md body covers all semantics.
 
 ```bash
-plugins/makato-build/skills/build-verify-spec/references/build-verify-spec.sh \
+"$MAKATO_BUILD_ROOT/skills/build-verify-spec/references/build-verify-spec.sh" \
   <SPEC_KEY> [<diff-file>]
 ```
 

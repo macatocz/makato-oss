@@ -7,6 +7,12 @@ Each config entry emits `NAME="${ENV:-default}"` (or `NAME="default"` when no en
 key), preserving loop.sh's historical env-override contract byte-for-byte. Entries
 with `export: true` are prefixed `export`. Stdlib-only when PyYAML is absent — the
 config.yml grammar is restricted to one flow-style mapping per line.
+
+Provider-neutral model profile metadata (issue #43 / AC-1): MAKATO_MODEL_PROFILE
+is a plain `vars:` entry in config.yml — no credential ever flows through this
+emitter. Profile resolution/validation and credential handling live in
+config/model-profiles.yml and scripts/resolve-model-profile.py; this module only
+ever sees the profile name, which is non-secret.
 """
 
 import sys

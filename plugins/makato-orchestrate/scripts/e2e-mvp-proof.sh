@@ -11,6 +11,15 @@
 #   MAKATO_LOOP_DISPATCH_REPO  — owner/repo of the target repository (required)
 #   MAKATO_PRODUCTION_ROOT     — path to the production makato install (optional;
 #                                enables production-isolation drift detection)
+#   MAKATO_MODEL_PROFILE       — provider-neutral model profile to select
+#                                (config/model-profiles.yml — openai | qwen-vllm |
+#                                apple-ollama; default: qwen-vllm, the checked-in
+#                                credential-free profile). Validated via
+#                                scripts/resolve-model-profile.py before every run
+#                                (Task 4, local-openai-gpt-macos-compatibility).
+#                                When the resolved profile declares a non-empty
+#                                api_key_env, that variable must be SET (never its
+#                                value inspected or echoed) before dispatch.
 #
 # Usage:
 #   e2e-mvp-proof.sh [--dry-run]
@@ -18,7 +27,8 @@
 # Exit codes:
 #   0   all four DoD rows PASS
 #   1   one or more rows FAIL or TIMEOUT; or a prerequisite check failed
-#   2   usage error (missing required env var, script dependency not found)
+#       (missing env var, unsupported model profile, missing provider credential)
+#   2   usage error (unknown flag, script dependency not found)
 #
 # DoD table rows:
 #   1. Loop dispatch completes — issue reaches Status=Done on the board
@@ -29,9 +39,13 @@
 set -euo pipefail
 
 _SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_REPO_ROOT="$(cd "$_SCRIPT_DIR/../../.." && pwd)"
 _VERIFY_ISOLATION="$_SCRIPT_DIR/verify-production-isolation.sh"
 _ASSERT_NO_STALL="$_SCRIPT_DIR/tests/assert-no-approval-stall.sh"
 _LOOP_SCRIPT="$_SCRIPT_DIR/loop.sh"
+_RESOLVE_PROFILE="${MAKATO_RESOLVE_PROFILE_SCRIPT:-$_REPO_ROOT/scripts/resolve-model-profile.py}"
+_PROFILES_FILE="${MODEL_PROFILES_FILE:-$_REPO_ROOT/config/model-profiles.yml}"
+_PYTHON_BIN="${MAKATO_PYTHON_BIN:-python3}"
 
 DRY_RUN=""
 while [[ $# -gt 0 ]]; do
@@ -58,7 +72,47 @@ _check_required_env() {
   fi
 }
 
+# ---------------------------------------------------------------------------
+# (a2) Guard: select + validate model profile, require provider auth presence.
+#
+# Resolution is structural only (unsupported profile, missing role, bad
+# tool_format, malformed endpoint) — resolve-model-profile.py never reads or
+# prints credential values (see its module docstring). This guard adds one
+# more check on top: when the resolved profile declares a non-empty
+# api_key_env, that variable must be present in the environment before
+# dispatch. Only presence is checked — the value itself is never read,
+# echoed, or forwarded by this script, so a set credential can never leak
+# into stdout/stderr/logs here.
+# ---------------------------------------------------------------------------
+_check_model_profile() {
+  MAKATO_MODEL_PROFILE="${MAKATO_MODEL_PROFILE:-qwen-vllm}"
+  export MAKATO_MODEL_PROFILE
+
+  if [[ ! -f "$_RESOLVE_PROFILE" ]]; then
+    echo "e2e-mvp-proof: ERROR — profile resolver not found: $_RESOLVE_PROFILE" >&2
+    exit 2
+  fi
+
+  local summary_json
+  if ! summary_json="$("$_PYTHON_BIN" "$_RESOLVE_PROFILE" "$MAKATO_MODEL_PROFILE" --config "$_PROFILES_FILE" --emit summary 2>&1)"; then
+    echo "e2e-mvp-proof: ERROR — $summary_json" >&2
+    echo "e2e-mvp-proof: set MAKATO_MODEL_PROFILE to a profile defined in $_PROFILES_FILE" >&2
+    exit 1
+  fi
+
+  # Presence-only credential check (never the value — see docstring above).
+  local api_key_env
+  api_key_env="$("$_PYTHON_BIN" -c 'import json, sys; d = json.load(sys.stdin); v = d.get("api_key_env"); print(v or "")' <<<"$summary_json")"
+  if [[ -n "$api_key_env" ]]; then
+    if ! "$_PYTHON_BIN" -c 'import os, sys; sys.exit(0 if os.environ.get(sys.argv[1]) else 1)' "$api_key_env"; then
+      echo "e2e-mvp-proof: ERROR — profile '$MAKATO_MODEL_PROFILE' requires credential env var $api_key_env to be set before running (value not shown)" >&2
+      exit 1
+    fi
+  fi
+}
+
 _check_required_env
+_check_model_profile
 
 # Validate script dependencies exist
 for dep in "$_VERIFY_ISOLATION" "$_ASSERT_NO_STALL" "$_LOOP_SCRIPT"; do
@@ -73,9 +127,10 @@ if [[ -n "$DRY_RUN" ]]; then
   echo ""
   echo "Planned steps:"
   echo "  (a) [guard]   validate env vars: MAKATO_OPEN_ENDPOINT_URL, MAKATO_E2E_ISSUE, MAKATO_LOOP_DISPATCH_REPO"
+  echo "  (a2)[guard]   resolve + validate model profile: MAKATO_MODEL_PROFILE=$MAKATO_MODEL_PROFILE (config/model-profiles.yml); require provider credential presence when declared (value never shown)"
   echo "  (b) [capture] run verify-production-isolation.sh --capture"
   echo "  (c) [dispatch] export ANTHROPIC_BASE_URL=$MAKATO_OPEN_ENDPOINT_URL"
-  echo "                 MAKATO_HEADLESS=1 loop.sh dispatch $MAKATO_E2E_ISSUE --repo $MAKATO_LOOP_DISPATCH_REPO"
+  echo "                 MAKATO_HEADLESS=1 MAKATO_MODEL_PROFILE=$MAKATO_MODEL_PROFILE loop.sh dispatch $MAKATO_E2E_ISSUE --repo $MAKATO_LOOP_DISPATCH_REPO"
   echo "                 → log: ~/.claude/state/e2e-proof-<date>.log"
   echo "  (d) [assert]  run assert-no-approval-stall.sh on dispatch log"
   echo "  (e) [poll]    gh project item-list until Status=Done or 30-min timeout"

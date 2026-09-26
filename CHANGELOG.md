@@ -1,5 +1,59 @@
 # Changelog
 
+## [0.165.1](https://github.com/macatocz/makato-oss/compare/v0.165.0...v0.165.1) (2026-09-13)
+
+
+### 🐛 Bug Fixes
+
+* **makato-build:** resolve installed plugin paths ([#106](https://github.com/macatocz/makato-oss/issues/106)) ([6b9aa3a](https://github.com/macatocz/makato-oss/commit/6b9aa3a29865e4856800c7452075800f320ed931))
+
+## [0.165.0](https://github.com/macatocz/makato-oss/compare/v0.164.1...v0.165.0) (2026-09-13)
+
+
+### ✨ Features
+
+* **build-verify:** add spec verification, Playwright runtime QA, and frontend boot ([#104](https://github.com/macatocz/makato-oss/issues/104)) ([e1bf542](https://github.com/macatocz/makato-oss/commit/e1bf5424329cafed1406a8bb265b44eaa46c7290))
+
+
+### 🐛 Bug Fixes
+
+* **makato-build:** resolve installed plugin paths ([#107](https://github.com/macatocz/makato-oss/issues/107)) ([f14b562](https://github.com/macatocz/makato-oss/commit/f14b562d132b616c6bd864266a5f75e8bdc6f516))
+
+## [0.164.1](https://github.com/macatocz/makato-oss/compare/v0.164.0...v0.164.1) (2026-09-13)
+
+
+### 🐛 Bug Fixes
+
+* make makato-build workflow runner-portable ([#101](https://github.com/macatocz/makato-oss/issues/101)) ([96a4755](https://github.com/macatocz/makato-oss/commit/96a47555d5d2e14f47e63680f7ce1f378333521a))
+* make makato-build workflows repository-portable ([#103](https://github.com/macatocz/makato-oss/issues/103)) ([b9dcd6d](https://github.com/macatocz/makato-oss/commit/b9dcd6d86dd7b877d19ec4b9b0aee8275ddacfae))
+
+## [0.164.0](https://github.com/macatocz/makato-oss/compare/v0.163.0...v0.164.0) (2026-09-11)
+
+
+### ✨ Features
+
+* add build logs for various specifications including analysis, implementation, and progress tracking ([369be21](https://github.com/macatocz/makato-oss/commit/369be2159a8052828cb17801a0cf0c3da22a5cdc))
+
+## [0.163.0](https://github.com/macatocz/makato-oss/compare/v0.162.0...v0.163.0) (2026-09-10)
+
+
+### ✨ Features
+
+* add OpenAI GPT and Qwen macOS compatibility ([#97](https://github.com/macatocz/makato-oss/issues/97)) ([0b3466d](https://github.com/macatocz/makato-oss/commit/0b3466d4a1e4382b560c0b7c9c68492edad7f08f))
+
+## [Unreleased]
+
+### ✨ Features
+
+* **provider compatibility:** add configurable native OpenAI GPT and Qwen/vLLM model profiles (`config/model-profiles.yml`: `openai`, `qwen-vllm`, `apple-ollama`), a harness-neutral OMP/Claude Code dispatch adapter (`plugins/makato-orchestrate/scripts/harness-command.sh`), Apple Silicon client setup (`scripts/macos-setup.sh`), and provider-aware Gate 6 preflight (`scripts/preflight-model-runtime.sh`, `scripts/preflight-omp-context.sh`, `scripts/preflight-optional-services.sh`) so the autonomous issue-to-PR/merge loop runs unattended against native OpenAI, a local Apple-Silicon Ollama endpoint, or a remote Linux/NVIDIA vLLM endpoint, with optional Playwright MCP/Langfuse/Postgres/Temporal/Sagibeast services reported as explicit PASS/SKIP/WARN. See [`docs/macos-openai-qwen.md`](docs/macos-openai-qwen.md) for the quick-start and troubleshooting matrix.
+
+## [0.162.0](https://github.com/macatocz/makato-oss/compare/v0.161.2...v0.162.0) (2026-09-05)
+
+
+### ✨ Features
+
+* **makato-plan:** add Excalidraw diagram generator skill ([#94](https://github.com/macatocz/makato-oss/issues/94)) ([#95](https://github.com/macatocz/makato-oss/issues/95)) ([1ecda4e](https://github.com/macatocz/makato-oss/commit/1ecda4ebf2da76a10b1ca13e8a860330b75d9446))
+
 ## [0.161.2](https://github.com/macatocz/makato-oss/compare/v0.161.1...v0.161.2) (2026-08-27)
 
 

@@ -5,7 +5,7 @@ description: >-
   artifacts — prototype, mockup, UI preview, UX validation. Use after architecture
   design is complete for features with user-facing interfaces.
 version: "1.1.0"
-model: opus
+modelRole: designer
 argument-hint: "[slug]"
 allowed-tools: WebFetch Bash(open *) Bash(xdg-open *) Bash(start *) Bash(uname *) Bash(git *) Read Write
 ---

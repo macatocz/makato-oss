@@ -1,1 +1,1 @@
-{"mcpServers":{"plugin:playwright":{"command":"npx","args":["@playwright/mcp@latest","--browser","chromium"]}}}
+{"mcpServers":{"plugin:playwright":{"type":"stdio","command":"npx","args":["@playwright/mcp@latest","--browser","chromium","--headless","--isolated"]}}}

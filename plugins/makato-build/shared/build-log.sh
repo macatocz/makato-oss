@@ -24,6 +24,34 @@
 # checkout has `.git` as a directory.
 set -euo pipefail
 
+_normalize_entry() {
+  local entry="$1"
+  python3 - "$entry" <<'PY'
+import datetime
+import json
+import re
+import sys
+
+entry = sys.argv[1]
+try:
+    value = json.loads(entry)
+except json.JSONDecodeError:
+    raise SystemExit(2)
+if not isinstance(value, dict):
+    raise SystemExit(3)
+
+timestamp = value.get("ts")
+pattern = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$")
+if timestamp is not None and not (isinstance(timestamp, str) and pattern.fullmatch(timestamp)):
+    now = datetime.datetime.now(datetime.timezone.utc)
+    value["ts"] = now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
+    print("build-log: repaired invalid ts; expected ISO-8601 milliseconds", file=sys.stderr)
+    print(json.dumps(value, separators=(",", ":"), ensure_ascii=False))
+else:
+    print(entry)
+PY
+}
+
 KEY="${1:?key required}"
 ENTRY_OR_FLAG="${2:?json entry or --batch flag required}"
 
@@ -37,35 +65,50 @@ if [[ "$ENTRY_OR_FLAG" == "--trace-id" ]]; then
   ENTRY_OR_FLAG="${4:?json entry or --batch flag required after --trace-id}"
 fi
 
-# Resolve to the MAIN checkout's repo root. From a worktree,
-# `git rev-parse --git-common-dir` echoes the main repo's `.git`; its parent is
-# the main checkout. From the main checkout the same call echoes `.git` and the
-# parent is the checkout itself — behaviour is identical for non-worktree callers.
-GIT_COMMON_DIR="$(git rev-parse --git-common-dir 2>/dev/null || true)"
-if [[ -n "$GIT_COMMON_DIR" ]]; then
-  # `--git-common-dir` may be relative to CWD; absolutise via the parent dir.
-  REPO_ROOT="$(cd "$GIT_COMMON_DIR/.." && pwd)"
+# Resolve the target repository explicitly when the suite is orchestrating a
+# checkout from a different directory. This is intentionally opt-in so local
+# callers retain the existing git-derived behaviour.
+if [[ -n "${MAKATO_TARGET_REPO_ROOT:-}" ]]; then
+  REPO_ROOT="$(cd "$MAKATO_TARGET_REPO_ROOT" 2>/dev/null && pwd -P)" || {
+    echo "build-log: target repository root is not a directory: $MAKATO_TARGET_REPO_ROOT" >&2
+    exit 1
+  }
+  git -C "$REPO_ROOT" rev-parse --show-toplevel >/dev/null 2>&1 || {
+    echo "build-log: target repository root is not a git checkout: $REPO_ROOT" >&2
+    exit 1
+  }
 else
-  # Outside a git repo entirely — degrade to the legacy behaviour so the
-  # script never crashes in test fixtures or scratch dirs.
-  REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+  GIT_COMMON_DIR="$(git rev-parse --git-common-dir 2>/dev/null || true)"
+  if [[ -n "$GIT_COMMON_DIR" ]]; then
+    # `--git-common-dir` may be relative to CWD; absolutise via the parent dir.
+    REPO_ROOT="$(cd "$GIT_COMMON_DIR/.." && pwd)"
+  else
+    # Outside a git repo entirely — degrade to the legacy behaviour so the
+    # script never crashes in test fixtures or scratch dirs.
+    REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+  fi
 fi
-SPECS_DIR="$REPO_ROOT/specs"
+SPECS_DIR="${MAKATO_SPECS_DIR:-$REPO_ROOT/specs}"
 
-# Resolve spec folder: find the first directory matching specs/<key>-*/
+# Resolve spec folder through the shared resolver. It supports the canonical
+# key-prefix shape, legacy exact folders, and numeric issue-to-slug lookup.
 SPEC_FOLDER=""
-if [[ -d "$SPECS_DIR" ]]; then
-  SPEC_FOLDER="$(find "$SPECS_DIR" -maxdepth 1 -type d -name "${KEY}-*" | head -1)"
-fi
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RESOLVE_ERROR="$(mktemp "${TMPDIR:-/tmp}/makato-spec-resolve.XXXXXX")"
+trap 'rm -f "$RESOLVE_ERROR"' EXIT
 
-# Fall back to local-work path (no slug suffix)
-if [[ -z "$SPEC_FOLDER" ]] && [[ -d "$SPECS_DIR/$KEY" ]]; then
-  SPEC_FOLDER="$SPECS_DIR/$KEY"
-fi
-
-# If still not found, create a placeholder directory so logging never fails
-if [[ -z "$SPEC_FOLDER" ]]; then
-  SPEC_FOLDER="$SPECS_DIR/$KEY"
+if [[ -d "$SPECS_DIR" ]] && SPEC_FOLDER="$(python3 "$HERE/spec_folder.py" "$REPO_ROOT" "$KEY" 2>"$RESOLVE_ERROR")"; then
+  :
+else
+  RESOLVE_STATUS=$?
+  if [[ "$RESOLVE_STATUS" -eq 3 ]]; then
+    cat "$RESOLVE_ERROR" >&2
+    exit 2
+  fi
+  # Preserve the historical ability to create a first audit row before a
+  # spec is materialized, but never shadow an existing issue-backed folder.
+  SAFE_KEY="${KEY#\#}"
+  SPEC_FOLDER="$SPECS_DIR/$SAFE_KEY"
 fi
 
 LOG_FILE="$SPEC_FOLDER/build.jsonl"
@@ -117,7 +160,10 @@ if [[ "$ENTRY_OR_FLAG" == "--batch" ]]; then
     # Skip lines that don't parse as JSON objects. `jq -e .` exits non-zero on
     # parse failure; redirect stderr so a malformed line doesn't pollute the
     # caller's stderr.
-    if ! jq -e . >/dev/null 2>&1 <<<"$line"; then
+    if ! jq -e 'type == "object"' >/dev/null 2>&1 <<<"$line"; then
+      continue
+    fi
+    if ! line="$(_normalize_entry "$line")"; then
       continue
     fi
     # Merge issue_trace_id when --trace-id was supplied.
@@ -129,7 +175,11 @@ if [[ "$ENTRY_OR_FLAG" == "--batch" ]]; then
   exit 0
 fi
 
-# Single-entry mode: merge issue_trace_id when --trace-id was supplied.
+# Single-entry mode: repair malformed timestamps without changing otherwise
+# valid caller JSON, then merge issue_trace_id when --trace-id was supplied.
+if normalized="$(_normalize_entry "$ENTRY_OR_FLAG")"; then
+  ENTRY_OR_FLAG="$normalized"
+fi
 if [[ -n "$TRACE_ID" ]]; then
   ENTRY_OR_FLAG="$(jq --arg tid "$TRACE_ID" '. + {issue_trace_id: $tid}' <<<"$ENTRY_OR_FLAG")"
 fi

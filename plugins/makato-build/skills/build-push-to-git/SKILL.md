@@ -44,17 +44,33 @@ Interactive mode: `WORKTREE_PATH` is optional; fall back to `git rev-parse --sho
 
 ### Workspace-isolation entry guard
 
-**MANDATORY: Load `@../../AUTONOMOUS-MODE.md`** before applying this guard — sections *WORKTREE_PATH — workspace-isolation contract*, *Falsy-check pattern*, and *Two roots, one contract* define the derivation formulas used in every step below. Do NOT skip this load even in interactive mode; the REPO_ROOT bash formula is defined there.
+**MANDATORY: Read `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md`** before applying
+this guard — sections *WORKTREE_PATH — workspace-isolation contract*,
+*Falsy-check pattern*, and *Two roots, one contract* define the derivation
+formulas used in every step below.
 
-Apply the workspace-isolation entry guard from `@../../AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract* and § *Falsy-check pattern* before Step 1's `git status`. In autonomous mode an empty `WORKTREE_PATH` is a HALT with `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`; in interactive mode the guard falls back to `git rev-parse --show-toplevel`. After resolution, `cd "$WORKTREE_PATH"` — every `git`/`gh` command below runs from this CWD.
+Resolve `MAKATO_BUILD_ROOT` from the runner plugin-root variables, then apply
+the workspace-isolation entry guard from
+`$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` before Step 1's `git status`. In
+autonomous mode an empty `WORKTREE_PATH` is a HALT with
+`errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`; in
+interactive mode the guard falls back to `git rev-parse --show-toplevel`. After
+resolution, `cd "$WORKTREE_PATH"` — every `git`/`gh` command below runs from
+this CWD.
 
 **Spec-artefact reads use `REPO_ROOT`, not `WORKTREE_PATH`.** `specs/<key>-*/` is gitignored at the repo root and exists only on the main checkout — a fresh `git worktree add` produces a worktree with NO `specs/` content. Resolve `REPO_ROOT` once at entry alongside the worktree:
 
 ```bash
 REPO_ROOT="$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)"
+SPEC_FOLDER="$(
+  python3 "$MAKATO_BUILD_ROOT/shared/spec_folder.py" "$REPO_ROOT" "<key>"
+)"
 ```
 
-Reading `plan.md` in Step 1 below means `$REPO_ROOT/specs/<key>-*/plan.md`, never `$WORKTREE_PATH/specs/...`. See `AUTONOMOUS-MODE.md` § *Two roots, one contract* for the full rationale.
+Reading `plan.md` in Step 1 below means the `SPEC_FOLDER` returned by
+`python3 "$MAKATO_BUILD_ROOT/shared/spec_folder.py" "$REPO_ROOT" "<key>"`,
+never `$WORKTREE_PATH/specs/...`. See `AUTONOMOUS-MODE.md` § *Two roots, one
+contract* for the full rationale.
 
 ## Workflow
 
@@ -62,7 +78,9 @@ Reading `plan.md` in Step 1 below means `$REPO_ROOT/specs/<key>-*/plan.md`, neve
 
 Ask: *"Which work item are we pushing? (e.g. DCP-1234, or pass it directly: `/makato-build:build-push-to-git DCP-1234`)"* — or use the passed argument.
 
-Read `plan.md` from the resolved spec folder under `$REPO_ROOT` (`$REPO_ROOT/specs/<key>-*/plan.md`, NOT under `$WORKTREE_PATH`). Extract the task list — task titles and their file targets. This defines the commit grouping.
+Resolve `SPEC_FOLDER` with the shared resolver, then read `plan.md` from that
+folder (NOT under `$WORKTREE_PATH`). Extract the task list — task titles and
+their file targets. This defines the commit grouping.
 
 Run `git status` and `git branch --show-current`. Verify the current branch is NOT `main` or `master`. If on a protected branch, stop and tell the user:
 
@@ -70,13 +88,16 @@ Run `git status` and `git branch --show-current`. Verify the current branch is N
 
 ### Step 1a — Mode detection
 
-**MANDATORY: Load `@../../AUTONOMOUS-MODE.md`** when `--autonomous` is present in the dispatch bundle — sections *Activation triggers* and the per-gate default table apply throughout. Do NOT load this section at runtime in a pure interactive session (no dispatch bundle, no `--autonomous` flag).
+**MANDATORY: Read `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md`** when
+`--autonomous` is present in the dispatch bundle — sections *Activation
+triggers* and the per-gate default table apply throughout. Do NOT read this
+section in a pure interactive session.
 
 In autonomous mode, the Step 1 work-item-key prompt is replaced by:
 - If an argument was passed: use it.
 - If no argument: HALT with `MISSING_INPUT: build-push-to-git in --autonomous mode requires a work-item-key argument`, write `{step:"session", status:"error", data:{halt_code:"MISSING_INPUT"}}`, and return R1 `status:"failure"`.
 
-Log the bypass via `shared/log-bypass.sh build-push-to-git "<key>" work-item-key use-arg "$AGENT_ID"` when bypassed.
+Log the bypass via `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-push-to-git "<key>" work-item-key use-arg "$AGENT_ID"` when bypassed.
 
 ---
 
@@ -85,7 +106,7 @@ Log the bypass via `shared/log-bypass.sh build-push-to-git "<key>" work-item-key
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-push-to-git","story":"<key>","step":"session","status":"start","data":{"branch":"<name>","tasks":<N>}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-push-to-git","story":"<key>","step":"session","status":"start","data":{"branch":"<name>","tasks":<N>}}'
 ```
 
 ---
@@ -123,7 +144,7 @@ Commit 2: feat(invoice): add InvoiceStatusService with transition logic
 
 In **interactive mode**, wait for the user to confirm or adjust the grouping and commit messages before proceeding to Step 5.
 
-In **autonomous mode**, skip the confirmation: use each task's `commitMessage` field from `plan.md` verbatim, apply the grouping rules above, log `shared/log-bypass.sh build-push-to-git "<key>" commit-grouping plan-as-drafted "$AGENT_ID"`, and proceed to Step 5.
+In **autonomous mode**, skip the confirmation: use each task's `commitMessage` field from `plan.md` verbatim, apply the grouping rules above, log `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-push-to-git "<key>" commit-grouping plan-as-drafted "$AGENT_ID"`, and proceed to Step 5.
 
 ---
 
@@ -147,16 +168,18 @@ Log each commit:
 
 ### Step 6 — Confirm push to remote
 
-Show the user the commits that will be pushed (resolve the integration target via `shared/default-branch.sh` so a stale local `main` does not include commits from already-merged PRs — #98):
+Show the user the commits that will be pushed (resolve the integration target via
+`"$MAKATO_BUILD_ROOT/shared/default-branch.sh"` so a stale local `main` does not
+include commits from already-merged PRs — #98):
 ```
-DEFAULT_REF="$(shared/default-branch.sh)"
+DEFAULT_REF="$("$MAKATO_BUILD_ROOT/shared/default-branch.sh")"
 git fetch origin --quiet
 git log "$DEFAULT_REF..HEAD" --oneline
 ```
 
 In **interactive mode**, ask: *"Ready to push `<N>` commits to `origin/<branch>`? This will trigger CI and be visible to the team."* Wait for explicit confirmation. If the user declines, the commits are local — they can push manually when ready. Stop here without error.
 
-In **autonomous mode**, skip the prompt: proceed directly to Step 7 (the pre-push hook still fires — autonomous mode does not bypass git hooks). Log `shared/log-bypass.sh build-push-to-git "<key>" push-confirm push "$AGENT_ID"`.
+In **autonomous mode**, skip the prompt: proceed directly to Step 7 (the pre-push hook still fires — autonomous mode does not bypass git hooks). Log `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-push-to-git "<key>" push-confirm push "$AGENT_ID"`.
 
 ---
 
@@ -180,7 +203,7 @@ Log:
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-push-to-git","story":"<key>","step":"session","status":"ok","data":{"commits":<N>,"branch":"<name>"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-push-to-git","story":"<key>","step":"session","status":"ok","data":{"commits":<N>,"branch":"<name>"}}'
 ```
 
 **(Optional) Lesson write (#473):** if this session produced a noteworthy lesson — a
@@ -190,7 +213,7 @@ append it to the per-issue store so the po-agent's local-lane promote step
 lift `generalizable` records into `.makato/memory/`:
 
 ```bash
-shared/write-lessons.sh "<key>" "<tier>" "<scope>" "<text>" "[tags]"
+"$MAKATO_BUILD_ROOT/shared/write-lessons.sh" "<key>" "<tier>" "<scope>" "<text>" "[tags]"
 #   tier  = procedural | semantic
 #   scope = generalizable | local   (generalizable → eligible for promotion)
 #   tags  = optional comma-separated list
@@ -212,7 +235,7 @@ In **interactive mode**, then ask using `AskUserQuestion`:
 If option A: invoke `/build-create-pr <key>` directly.
 If option B: tell the user: "Run `/makato-build:build-create-pr <key>` when ready."
 
-In **autonomous mode**, skip the prompt: invoke `/build-create-pr <key>` directly. Autonomous mode signals through the inherited `$AGENT_ID` env var (see `@../../AUTONOMOUS-MODE.md` § *Cross-skill propagation*); the `--autonomous` CLI flag is NOT forwarded on cross-skill dispatch. The downstream context bundle MUST still carry the `WORKTREE_PATH` field verbatim from this skill's input — `build-create-pr` runs its own entry-guard falsy-check and HALTs `MISSING_INPUT` if the field is absent in autonomous mode. The hand-off prompt that dispatches `/build-create-pr` therefore includes `WORKTREE_PATH=<absolute path>` and any other documented bundle fields. Log `shared/log-bypass.sh build-push-to-git "<key>" create-pr-handoff invoke-create-pr "$AGENT_ID" '{"forwarded":["WORKTREE_PATH"]}'`.
+In **autonomous mode**, skip the prompt: invoke `/build-create-pr <key>` directly. Autonomous mode signals through the inherited `$AGENT_ID` env var (see `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` § *Cross-skill propagation*); the `--autonomous` CLI flag is NOT forwarded on cross-skill dispatch. The downstream context bundle MUST still carry `WORKTREE_PATH`, `MAKATO_BUILD_ROOT`, and any optional sibling roots verbatim from this skill's input. Log `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-push-to-git "<key>" create-pr-handoff invoke-create-pr "$AGENT_ID" '{"forwarded":["WORKTREE_PATH","MAKATO_BUILD_ROOT","MAKATO_PLAN_ROOT"]}'`.
 
 ## Anti-patterns
 
@@ -233,14 +256,15 @@ WHY: `$AGENT_ID` is the cross-dispatch signal for autonomous mode. Forwarding `-
 
 ## Autonomous Execution
 
-Autonomous mode is activated per `@../../AUTONOMOUS-MODE.md` § *Activation triggers*.
+Autonomous mode is activated per `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` §
+*Activation triggers*.
 
 In autonomous mode:
 
 - **Never prompt the user** — work-item-key, commit-grouping, push-confirm, and create-pr-handoff gates are bypassed per the rules above.
 - **Pre-push hook still fires** — autonomous mode bypasses *user* approval, not *infrastructure* checks. If the pre-push hook rejects, return R1 `status:"failure"` with the hook output in `errors[]`.
-- **Log every bypass** to `build.jsonl` via `shared/build-log.sh` with the `autonomous_bypass` event schema documented in `@../../AUTONOMOUS-MODE.md`.
-- **Do NOT forward `--autonomous`** when invoking `/build-create-pr` at hand-off — `$AGENT_ID` carries the signal across the dispatch boundary (see `@../../AUTONOMOUS-MODE.md` § *Cross-skill propagation*). `WORKTREE_PATH` is still forwarded in the context bundle.
+- **Log every bypass** to `build.jsonl` via `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh"` with the `autonomous_bypass` event schema documented in `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md`.
+- **Do NOT forward `--autonomous`** when invoking `/build-create-pr` at hand-off — `$AGENT_ID` carries the signal across the dispatch boundary (see `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` § *Cross-skill propagation*). `WORKTREE_PATH` and plugin-root fields are forwarded in the context bundle.
 - **Emit an R1 envelope** as the final `json`-fenced block of the skill's output.
 
 ### Return Format (R1, when called as a sub-skill)

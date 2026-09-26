@@ -79,7 +79,7 @@ def test_stdlib_fallback_matches_pyyaml():
     stdlib_out = mod.emit(mod._parse_flow_mappings(text))
     # PyYAML path (mod.load uses yaml when importable).
     pyyaml_out = mod.emit(mod.load(_CONFIG_YML))
-    pyyaml_vars_only = "\n".join(line for line in pyyaml_out.splitlines() if not line.startswith("MAKATO_MODEL_"))
+    pyyaml_vars_only = "\n".join(line for line in pyyaml_out.splitlines() if line.startswith("MAKATO_MODEL_PROFILE=") or not line.startswith("MAKATO_MODEL_"))
     assert stdlib_out == pyyaml_vars_only
 
 
@@ -106,9 +106,9 @@ def test_default_applies_when_env_unset():
 
 
 def test_open_endpoint_url_emitted_with_export():
-    """MAKATO_OPEN_ENDPOINT_URL is emitted with export prefix and empty default (issue #7)."""
+    """MAKATO_OPEN_ENDPOINT_URL uses the checked-in local-vLLM default (issue #7)."""
     out = _emit_via_subprocess()
-    assert 'export MAKATO_OPEN_ENDPOINT_URL="${MAKATO_OPEN_ENDPOINT_URL:-}"' in out
+    assert 'export MAKATO_OPEN_ENDPOINT_URL="${MAKATO_OPEN_ENDPOINT_URL:-http://localhost:8100/v1}"' in out
 
 
 def test_open_model_roles_emitted_without_export():
@@ -116,6 +116,26 @@ def test_open_model_roles_emitted_without_export():
     out = _emit_via_subprocess()
     assert 'MAKATO_OPEN_MODEL_ROLES="${MAKATO_OPEN_MODEL_ROLES:-sonnet,haiku,opus}"' in out
     assert "export MAKATO_OPEN_MODEL_ROLES" not in out
+
+
+def test_model_profile_emitted_with_local_vllm_default():
+    """MAKATO_MODEL_PROFILE defaults to qwen-vllm — preserves the checked-in default (task 2)."""
+    out = _emit_via_subprocess()
+    assert 'MAKATO_MODEL_PROFILE="${MAKATO_MODEL_PROFILE:-qwen-vllm}"' in out
+
+
+def test_model_profile_override_propagated():
+    """Setting MAKATO_MODEL_PROFILE env var before eval makes it available as the var (task 2)."""
+    lines = _emit_via_subprocess()
+    script = f'{lines}\necho "$MAKATO_MODEL_PROFILE"'
+    r = subprocess.run(
+        ["bash", "-c", script],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "MAKATO_MODEL_PROFILE": "openai"},
+        check=True,
+    )
+    assert r.stdout.strip() == "openai"
 
 
 def test_open_endpoint_url_override_propagated():

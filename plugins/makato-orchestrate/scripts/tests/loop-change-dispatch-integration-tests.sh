@@ -22,6 +22,11 @@
 #   T_CD4: when the stub claude writes a workflow-state-N.json with
 #          current_phase:"done", in_flight_issues does not list the issue
 #          as in-flight, confirming loop advancement.
+#   T_CD5: default (no MAKATO_HARNESS_MODE) dispatch argv carries --yolo
+#          and never --dangerously-skip-permissions — "no Claude selection
+#          when OMP is configured" holds at the real dispatch call site.
+#   T_CD6: MAKATO_HARNESS_MODE=claude — the explicit compatibility mode —
+#          flips the dispatched argv to --dangerously-skip-permissions.
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
@@ -119,7 +124,7 @@ chmod +x "$T_CD2_STUB"
 t_cd2_rc=0
 MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$CHANGE_BODY_FILE" \
 MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="type:change" \
-MAKATO_CLAUDE_BIN="$T_CD2_STUB" \
+MAKATO_HARNESS_BIN="$T_CD2_STUB" \
   "$LOOP" dispatch 42 2>/dev/null || t_cd2_rc=$?
 
 # Dispatch must exit 0.
@@ -196,7 +201,7 @@ MAKATO_LOOP_ASSIGN_ON_DISPATCH=0 \
 MAKATO_LOOP_STALL_DISABLE=1 \
 MAKATO_LOOP_GATE_DISABLE=1 \
 SPECS_DIR="$T_CD3_SPECS" \
-MAKATO_CLAUDE_BIN="$T_CD3_STUB" \
+MAKATO_HARNESS_BIN="$T_CD3_STUB" \
   "$LOOP" dispatch 43 2>/dev/null || t_cd3_first_rc=$?
 
 [[ $t_cd3_first_rc -eq 0 ]] \
@@ -229,7 +234,7 @@ MAKATO_LOOP_ASSIGN_ON_DISPATCH=0 \
 MAKATO_LOOP_STALL_DISABLE=1 \
 MAKATO_LOOP_GATE_DISABLE=0 \
 SPECS_DIR="$T_CD3_SPECS" \
-MAKATO_CLAUDE_BIN="$T_CD3_STUB2" \
+MAKATO_HARNESS_BIN="$T_CD3_STUB2" \
   "$LOOP" dispatch 43 2>/dev/null || t_cd3_second_rc=$?
 
 [[ $t_cd3_second_rc -eq 0 ]] \
@@ -314,7 +319,7 @@ MAKATO_LOOP_ASSIGN_ON_DISPATCH=0 \
 MAKATO_LOOP_STALL_DISABLE=1 \
 MAKATO_LOOP_GATE_DISABLE=1 \
 SPECS_DIR="$T_CD4_SPECS" \
-MAKATO_CLAUDE_BIN="$T_CD4_STUB" \
+MAKATO_HARNESS_BIN="$T_CD4_STUB" \
   "$LOOP" dispatch 44 2>/dev/null || t_cd4_rc=$?
 
 [[ $t_cd4_rc -eq 0 ]] \
@@ -327,5 +332,78 @@ CALL_COUNT_CD4="$(cat "$T_CD4_COUNTER")"
 echo "  ✓ T_CD4: current_phase:done does NOT block dispatch — stub was called (loop advances)"
 
 # ---------------------------------------------------------------------------
+echo "=== T_CD5: default (OMP) dispatch argv carries --yolo, never --dangerously-skip-permissions ==="
+# ---------------------------------------------------------------------------
+rm -f "$STATE_DIR/loop-status.json"
+
+T_CD5_DIR="$SANDBOX_DIR/t_cd5"
+mkdir -p "$T_CD5_DIR"
+T_CD5_CAPTURED="$T_CD5_DIR/captured-argv.txt"
+T_CD5_STUB="$T_CD5_DIR/stub-harness.sh"
+cat >"$T_CD5_STUB" <<STUBEOF
+#!/usr/bin/env bash
+printf '%s\n' "\$@" > "$T_CD5_CAPTURED"
+exit 0
+STUBEOF
+chmod +x "$T_CD5_STUB"
+
+t_cd5_rc=0
+MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$CHANGE_BODY_FILE" \
+MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="type:change" \
+MAKATO_HARNESS_BIN="$T_CD5_STUB" \
+  "$LOOP" dispatch 42 2>/dev/null || t_cd5_rc=$?
+
+[[ $t_cd5_rc -eq 0 ]] \
+  || fail "T_CD5: dispatch should exit 0 with stub harness; rc=$t_cd5_rc"
+[[ -f "$T_CD5_CAPTURED" ]] \
+  || fail "T_CD5: stub harness was not invoked (captured-argv.txt missing)"
+
+T_CD5_ARGV="$(cat "$T_CD5_CAPTURED")"
+grep -q -- "--yolo" <<<"$T_CD5_ARGV" \
+  || fail "T_CD5: default dispatch argv missing --yolo; got: $T_CD5_ARGV"
+if grep -q -- "--dangerously-skip-permissions" <<<"$T_CD5_ARGV"; then
+  fail "T_CD5: default (OMP-configured) dispatch argv must NEVER include --dangerously-skip-permissions; got: $T_CD5_ARGV"
+fi
+
+echo "  ✓ T_CD5: default dispatch argv carries --yolo, never the Claude-only flag"
+
+# ---------------------------------------------------------------------------
+echo "=== T_CD6: MAKATO_HARNESS_MODE=claude flips dispatch argv to --dangerously-skip-permissions ==="
+# ---------------------------------------------------------------------------
+rm -f "$STATE_DIR/loop-status.json"
+
+T_CD6_DIR="$SANDBOX_DIR/t_cd6"
+mkdir -p "$T_CD6_DIR"
+T_CD6_CAPTURED="$T_CD6_DIR/captured-argv.txt"
+T_CD6_STUB="$T_CD6_DIR/stub-harness.sh"
+cat >"$T_CD6_STUB" <<STUBEOF
+#!/usr/bin/env bash
+printf '%s\n' "\$@" > "$T_CD6_CAPTURED"
+exit 0
+STUBEOF
+chmod +x "$T_CD6_STUB"
+
+t_cd6_rc=0
+MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$CHANGE_BODY_FILE" \
+MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="type:change" \
+MAKATO_HARNESS_BIN="$T_CD6_STUB" \
+MAKATO_HARNESS_MODE="claude" \
+  "$LOOP" dispatch 42 2>/dev/null || t_cd6_rc=$?
+
+[[ $t_cd6_rc -eq 0 ]] \
+  || fail "T_CD6: dispatch should exit 0 with stub harness; rc=$t_cd6_rc"
+[[ -f "$T_CD6_CAPTURED" ]] \
+  || fail "T_CD6: stub harness was not invoked (captured-argv.txt missing)"
+
+T_CD6_ARGV="$(cat "$T_CD6_CAPTURED")"
+grep -q -- "--dangerously-skip-permissions" <<<"$T_CD6_ARGV" \
+  || fail "T_CD6: MAKATO_HARNESS_MODE=claude dispatch argv missing --dangerously-skip-permissions; got: $T_CD6_ARGV"
+if grep -q -- "--yolo" <<<"$T_CD6_ARGV"; then
+  fail "T_CD6: MAKATO_HARNESS_MODE=claude dispatch argv must not also carry --yolo; got: $T_CD6_ARGV"
+fi
+
+echo "  ✓ T_CD6: MAKATO_HARNESS_MODE=claude flips dispatch argv to --dangerously-skip-permissions"
+
+# ---------------------------------------------------------------------------
 echo
-echo "=== ALL T_CD TESTS PASSED (T_CD1–T_CD4) ==="
+echo "=== ALL T_CD TESTS PASSED (T_CD1–T_CD6) ==="

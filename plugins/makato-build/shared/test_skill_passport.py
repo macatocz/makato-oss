@@ -154,6 +154,14 @@ class TestReadPassport(unittest.TestCase):
         result = read_passport(self.tmp)
         self.assertEqual(result, passport)
 
+    def test_returns_none_for_malformed_json(self):
+        (self.tmp / "skill-passport.json").write_text("{not-json")
+        self.assertIsNone(read_passport(self.tmp))
+
+    def test_returns_none_for_invalid_shape(self):
+        (self.tmp / "skill-passport.json").write_text(json.dumps({"sessions": "no"}))
+        self.assertIsNone(read_passport(self.tmp))
+
 
 # ---------------------------------------------------------------------------
 # write_passport

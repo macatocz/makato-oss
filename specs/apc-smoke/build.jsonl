@@ -1,0 +1,2 @@
+{"ts":"2026-08-14T20:26:16.455Z","skill":"progress-comment","issue":998,"step":"progress-comment","status":"ok","data":{"event":"create","detail":"created live comment id=1001"}}
+{"ts": "2026-08-14T20:26:16.531Z", "skill": "po-agent", "issue": 998, "step": "progress-assert", "status": "warn", "data": {"key": "apc-smoke", "reason": "progress_comment_id was null \u2014 model skipped Step 2 init call"}}
