@@ -7,7 +7,7 @@ description: >-
   testing conventions). Implements a 4-step process: resolve context bundles
   via inject-context (Step 0) → locate SPECS_ROOT → read index → synthesize
   constraints. Read-only. Dispatched by plan-analyst, refine, and grill-with-docs.
-maxTurns: 15
+maxTurns: 10
 permissionMode: bypassPermissions
 disallowedTools: Write, Edit, NotebookEdit
 ---

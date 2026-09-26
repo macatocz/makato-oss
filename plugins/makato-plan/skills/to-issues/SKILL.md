@@ -235,6 +235,13 @@ For each story in `stories.json.stories[]`, apply the algorithm in `references/l
    When an explicit `stories[].labels` value contradicts inference (e.g. the operator wrote `status:todo` on a story that would otherwise infer `status:blocked`), the explicit value wins; log `[to-issues:auto] story <n>: status inference (<inferred>) overridden by explicit label (<explicit>)`.
    `status:in-progress` and `status:done` are taxonomy values but are **never** auto-emitted by this skill — lifecycle transitions belong to a future `manage-github-project` skill.
 
+8. **QARefinement label (S5 safety net)**: before finalizing the label set, check each story's
+   `successScenarios` and `acceptanceTestCases` arrays. If either is non-empty and `QARefinement`
+   is not already in `labels[]`, add it. If both are empty and `QARefinement` IS in `labels[]`,
+   remove it. This is a safety net for legacy `stories.json` files that predate the `decompose`
+   auto-apply in Step 7.5. In autonomous mode log `[to-issues:auto] story <n>: QARefinement
+   label <added|removed> (safety net)`.
+
 In `--interactive` mode, after inference for **all** stories (not story-by-story — reduce round-trips), present a numbered table of proposed label sets and use **AskUserQuestion** with the question:
 
 > "Story labels are ready. For each story below, choose: confirm all / edit <story-N> <label>=<value> / skip <story-N>."

@@ -48,6 +48,19 @@ Technical enablers (infrastructure, scaffolding, shared libraries) are NEVER sta
 | Entity-driven (by data model) | Optimizes for data, not for user | Slice by workflow instead |
 | Component team split (FE/BE) | Forces integration later, blocks teams | Each story crosses layers |
 
+## Decomposition Anti-Patterns (S6 Guardrails)
+
+These 5 patterns produce fundamentally unsound stories that cause `makato-build` to HALT.
+They fire as hard-reject rules in Step 3 before Three Amigos simulation.
+
+| Anti-Pattern | Example | Action |
+|---|---|---|
+| **test-only** | "Add integration tests for auth module" (no feature code) | Merge into the feature story that introduces the code under test |
+| **value-conditional dependency** | "Set up Redis cache" only matters if "Cache user sessions" ships | Merge with the blocker — the enabler has no standalone value |
+| **spike-as-story** | "Investigate OAuth provider options" | Move to `decisions.md` as a time-boxed open question, not a story |
+| **capability-driven** | "Implement caching layer" (no user workflow outcome) | Reframe: "User sees sub-200ms response on product search" |
+| **pure-refactor** | "Refactor auth module to use new pattern" (no new functionality) | Remove from feature scope — refactors belong in tech-debt backlogs |
+
 ## Each Story Is Independently Shippable
 
 A story behind a feature toggle can ship to production without other stories. If a story requires another story to be useful, they should be merged or sequenced with explicit dependencies.

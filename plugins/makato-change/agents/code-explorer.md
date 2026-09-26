@@ -7,7 +7,7 @@ description: >-
   dependencies, code conventions, and project-specs context, then returns
   synthesised findings the design skill can use without
   re-reading sources.
-maxTurns: 20
+maxTurns: 10
 permissionMode: bypassPermissions
 disallowedTools: Write, Edit, Bash, NotebookEdit, WebSearch
 ---

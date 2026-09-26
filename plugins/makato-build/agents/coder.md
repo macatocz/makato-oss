@@ -5,7 +5,7 @@ description: >-
   Execute a single TDD task (RED→GREEN→INTEGRATE→VERIFY) from a refined
   implementation plan. Produce working, tested code that passes all four
   cycle phases. Dispatched by build-implement-tdd per task.
-maxTurns: 50
+maxTurns: 30
 permissionMode: bypassPermissions
 ---
 

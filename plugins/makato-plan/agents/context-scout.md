@@ -5,7 +5,7 @@ description: >-
   Scan context/{REPO_NAME}/ directories for files relevant to a given feature.
   Read-only discovery agent reusable across all makato-plan skills.
 disallowedTools: Write, Edit, Bash, NotebookEdit
-maxTurns: 15
+maxTurns: 10
 permissionMode: bypassPermissions
 ---
 
