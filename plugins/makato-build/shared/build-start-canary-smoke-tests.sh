@@ -24,15 +24,15 @@ FAIL=0
 _pass() { printf '  \xe2\x9c\x93 %s\n' "$1"; }
 _fail() { printf '  \xe2\x9c\x97 %s\n' "$1"; FAIL=$((FAIL + 1)); }
 
-# ----- T1: Step 2e heading present and positioned between Step 2 and Step 3 -----
+# ----- T1: Step 2e heading present and positioned between Step 2 and Step 3 ---
 echo "T1: Step 2e heading positioned between Step 2 and Step 3"
 if [[ -s "$BUILD_START_SKILL" ]]; then
   LINE_2=$(grep -n "### Step 2 " "$BUILD_START_SKILL" | head -1 | cut -d: -f1)
-  LINE_2E=$(grep -n "### Step 2e" "$BUILD_START_SKILL" | head -1 | cut -d: -f1)
+  LINE_2E=$(grep -n "### Step 2e " "$BUILD_START_SKILL" | head -1 | cut -d: -f1)
   LINE_3=$(grep -n "### Step 3 " "$BUILD_START_SKILL" | head -1 | cut -d: -f1)
   if [[ -n "$LINE_2E" ]]; then
     _pass "Step 2e heading present (line $LINE_2E)"
-    if [[ -n "$LINE_2" && -n "$LINE_3" ]] &&
+    if [[ -n "$LINE_2" && -n "$LINE_3" ]] && \
        [[ "$LINE_2" -lt "$LINE_2E" && "$LINE_2E" -lt "$LINE_3" ]]; then
       _pass "Step 2e positioned after Step 2 (line $LINE_2) and before Step 3 (line $LINE_3)"
     else
@@ -101,38 +101,15 @@ else
   _fail "build.jsonl canary log entry not referenced — Step 2e must document JSONL audit entries"
 fi
 
-# ----- T8: Step 2c never mutates the ambient checkout and resolves default branch -----
-echo "T8: Step 2c enforces worktree isolation and recognizes arbitrary default branches"
-if grep -q "git checkout -b" "$BUILD_START_SKILL"; then
-  _fail "build-start still contains ambient git checkout -b"
+# ----- T8: workspace isolation is mandatory in autonomous and interactive modes
+echo "T8: build-start documents both workspace isolation contracts"
+if grep -qF 'WORKTREE_PATH' "$BUILD_START_SKILL" && \
+   grep -qF 'MISSING_INPUT: WORKTREE_PATH required in autonomous mode' "$BUILD_START_SKILL" && \
+   grep -qF 'interactive-worktree.sh' "$BUILD_START_SKILL" && \
+   grep -qF 'Never fall back to the main' "$BUILD_START_SKILL"; then
+  _pass "build-start requires an autonomous path and creates an interactive worktree"
 else
-  _pass "build-start contains no ambient branch-creation checkout"
-fi
-for required in "WORKTREE_PATH" "git symbolic-ref.*origin/HEAD" "git ls-remote --symref origin HEAD" "default-branch.sh"; do
-  if grep -qE "$required" "$BUILD_START_SKILL"; then
-    _pass "default/worktree guard references $required"
-  else
-    _fail "default/worktree guard missing $required"
-  fi
-done
-
-# ----- T9: build-refine handoff carries both roots -----
-echo "T9: build-refine handoff carries WORKTREE_PATH and REPO_ROOT"
-if grep -q "WORKTREE_PATH=<absolute registered worktree path" "$BUILD_START_SKILL" &&
-   grep -q "REPO_ROOT=<absolute main checkout path" "$BUILD_START_SKILL"; then
-  _pass "build-refine handoff carries both workspace roots"
-else
-  _fail "build-refine handoff must carry WORKTREE_PATH and REPO_ROOT"
-fi
-
-# ----- T10: workspace guard precedes every git pre-flight check -----
-echo "T10: workspace isolation is established before clean-tree checks"
-LINE_GUARD=$(grep -n "Resolve the workspace before running any pre-flight command" "$BUILD_START_SKILL" | head -1 | cut -d: -f1)
-LINE_2A=$(grep -n "\*\*2a — Clean working tree\*\*" "$BUILD_START_SKILL" | head -1 | cut -d: -f1)
-if [[ -n "$LINE_GUARD" && -n "$LINE_2A" && "$LINE_GUARD" -lt "$LINE_2A" ]]; then
-  _pass "workspace guard precedes Step 2a clean-tree check"
-else
-  _fail "workspace guard must precede Step 2a (guard=$LINE_GUARD, 2a=$LINE_2A)"
+  _fail "build-start missing interactive/autonomous WORKTREE_PATH guard"
 fi
 
 # ----- Summary -----

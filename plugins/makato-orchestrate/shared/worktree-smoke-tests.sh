@@ -15,6 +15,17 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 WS="$REPO_ROOT/plugins/makato-orchestrate/shared/workflow-state.sh"
 WT="$REPO_ROOT/plugins/makato-orchestrate/shared/worktree.sh"
 
+# Contract guard for the PO-agent integration: the helper's positional order
+# is KEY, ISSUE_NUMBER, REPO, BRANCH. This catches the #634 regression where
+# REPO and ISSUE_NUMBER were swapped and no worktree was created.
+PO_AGENT="$REPO_ROOT/plugins/makato-orchestrate/agents/po-agent.md"
+echo "=== T0: PO-agent passes worktree arguments in helper order (#634) ==="
+grep -qF '"$WORKTREE_HELPER" create "$KEY" "$ISSUE_NUMBER" "$REPO" "$BRANCH"' "$PO_AGENT" \
+  || { echo "  ✗ PO-agent create call has wrong positional argument order"; exit 1; }
+grep -qF '"$WORKTREE_HELPER" create --new-branch "$KEY" "$ISSUE_NUMBER" "$REPO" "$BRANCH"' "$PO_AGENT" \
+  || { echo "  ✗ PO-agent --new-branch call has wrong positional argument order"; exit 1; }
+echo "  ✓ PO-agent passes KEY, ISSUE_NUMBER, REPO, BRANCH"
+
 # All smoke tests run inside a disposable temp git repo so worktree-create
 # does not pollute the makato repo's own .claude/worktrees/.
 SANDBOX="$(mktemp -d -t makato-gap017-XXXXXX)"
@@ -95,6 +106,34 @@ WT_PATH2="$(echo "$OUT2" | tail -1)"
 [[ "$EVENT2" == "worktree_resumed" ]] || { echo "  ✗ expected worktree_resumed, got: $EVENT2"; exit 1; }
 [[ "$WT_PATH2" == "$WT_PATH" ]] || { echo "  ✗ resume returned a different path"; exit 1; }
 echo "  ✓ resume detected via git worktree list"
+
+echo "=== T4a: resume refuses a dirty worktree ==="
+printf 'leftover\n' >"$WT_PATH/.resume-dirty"
+set +e
+"$WT_LOCAL" create "$KEY" "$ISSUE" "$REPO_NAME" "$BRANCH" \
+  >/dev/null 2>"$SANDBOX/t4a.stderr"
+RC_T4A=$?
+set -e
+rm -f "$WT_PATH/.resume-dirty"
+[[ $RC_T4A -ne 0 ]] || { echo "  ✗ dirty worktree was resumed"; exit 1; }
+grep -q "worktree is not clean" "$SANDBOX/t4a.stderr" \
+  || { echo "  ✗ dirty-worktree diagnostic missing"; cat "$SANDBOX/t4a.stderr"; exit 1; }
+echo "  ✓ dirty worktree rejected before resume"
+
+echo "=== T4b: resume refuses a worktree on the wrong branch ==="
+WRONG_BRANCH="auto/test-repo-wrong-46"
+git -C "$WT_PATH" switch -q -c "$WRONG_BRANCH"
+set +e
+"$WT_LOCAL" create "$KEY" "$ISSUE" "$REPO_NAME" "$BRANCH" \
+  >/dev/null 2>"$SANDBOX/t4b.stderr"
+RC_T4B=$?
+set -e
+git -C "$WT_PATH" switch -q "$BRANCH"
+git -C "$SANDBOX/repo" branch -D "$WRONG_BRANCH" >/dev/null 2>&1 || true
+[[ $RC_T4B -ne 0 ]] || { echo "  ✗ wrong-branch worktree was resumed"; exit 1; }
+grep -q "expected branch '$BRANCH'" "$SANDBOX/t4b.stderr" \
+  || { echo "  ✗ wrong-branch diagnostic missing"; cat "$SANDBOX/t4b.stderr"; exit 1; }
+echo "  ✓ wrong-branch worktree rejected before resume"
 
 echo "=== T5: retain flips both state flags without removing the worktree ==="
 "$WT_LOCAL" retain "$KEY" "$ISSUE" "HALT-003" > /dev/null

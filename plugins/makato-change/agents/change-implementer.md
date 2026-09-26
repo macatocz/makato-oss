@@ -8,7 +8,7 @@ description: >-
   recommended skills, applies the code changes per the design, and returns a
   structured summary. Write-capable analogue of makato-build's coder — keeps
   the write phase out of the execute skill's accumulated main context.
-maxTurns: 40
+maxTurns: 30
 permissionMode: bypassPermissions
 ---
 

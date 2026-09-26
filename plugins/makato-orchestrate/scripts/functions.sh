@@ -3473,10 +3473,13 @@ cmd_remove_worktrees() {
   _reap_merged_worktrees
 }
 
-# _pre_dispatch_plan_guard <KEY> — validate plan.md; if invalid, attempt build-refine --autonomous recovery, then re-validate.
-# Emits "<verdict>:<refine_attempted>:<refine_outcome>" on stdout. Never blocks dispatch.
+# _pre_dispatch_plan_guard <KEY> <ISSUE_NUMBER> — validate plan.md ownership and
+# structure; if invalid, attempt build-refine --autonomous recovery, then
+# re-validate. Emits "<verdict>:<refine_attempted>:<refine_outcome>" on stdout.
+# Never blocks dispatch.
 _pre_dispatch_plan_guard() {
   local key="$1"
+  local issue="${2:-}"
   local validate_sh
   validate_sh="$(dirname "$0")/validate-plan-body.sh"
 
@@ -3496,8 +3499,12 @@ _pre_dispatch_plan_guard() {
     return 0
   fi
 
+  local -a guard_args=("$plan_path")
+  if [[ -n "$issue" ]]; then
+    guard_args+=("$issue")
+  fi
   local guard_out guard_verdict
-  guard_out="$(bash "$validate_sh" "$plan_path" 2>/dev/null || true)"
+  guard_out="$(bash "$validate_sh" "${guard_args[@]}" 2>/dev/null || true)"
   guard_verdict="${guard_out%% *}"
 
   if [[ "$guard_verdict" == "valid" ]]; then
@@ -3530,7 +3537,7 @@ _pre_dispatch_plan_guard() {
 
   # Re-validate after refine — this is the single authoritative post-refine check.
   local guard_out2 guard_verdict2
-  guard_out2="$(bash "$validate_sh" "$plan_path" 2>/dev/null || true)"
+  guard_out2="$(bash "$validate_sh" "${guard_args[@]}" 2>/dev/null || true)"
   guard_verdict2="${guard_out2%% *}"
 
   if [[ "$guard_verdict2" == "valid" ]]; then
@@ -3724,7 +3731,7 @@ cmd_dispatch() {
         && "${MAKATO_LOOP_DRY_DISPATCH:-0}" != "1" \
         && -n "$key" ]]; then
     # Guard returns tuple — parse in one shot to avoid redundant validate-plan-body.sh invocation.
-    _pdpg_tuple="$(_pre_dispatch_plan_guard "$key")"
+    _pdpg_tuple="$(_pre_dispatch_plan_guard "$key" "$issue")"
   fi
   local _pdpg_verdict="${_pdpg_tuple%%:*}"
   local _pdpg_rest="${_pdpg_tuple#*:}"

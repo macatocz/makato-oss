@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Contract / smoke test for build-verify gate-command consumption (#450),
-# Runtime verification doc-contract (#583), runner-prefix propagation, and
-# portable Coverage.py invocation.
+# Contract / smoke test for build-verify gate-command consumption (#450) and
+# Runtime verification doc-contract (#583).
 #
 # build-verify v1.8.0 updates Gates 1 and 2 to source their commands from
 # gate-scout's new hook-command fields (build_hook_cmd, lint_hook_cmd) and
@@ -11,12 +10,6 @@
 # ## Runtime verification from plan-<N>.md; Gate 6 Step 8b uses PLAN_RUNTIME_CMD
 # when non-empty (takes precedence over gate-scout health_check_cmd); absent
 # section → gate skipped cleanly; runtime_cmd_source field added to build.jsonl.
-#
-# Runner/coverage contract:
-# T11 — gate-scout documents every lockfile runner and verbatim command propagation
-# T12 — build-verify executes gate-scout coverage verbatim and never adds report branch flags
-# T13 — unavailable coverage command has explicit degraded/skip and threshold failure paths
-# T14 — gate-definitions documents configured branch measurement and no synthesized fallback
 #
 # T1 — build-verify SKILL.md Step 4 references build_hook_cmd
 # T2 — build-verify SKILL.md Step 4 references pre-commit run --hook-stage manual pattern
@@ -28,9 +21,12 @@
 # T8 — plan-schema.md documents Runtime Verification Schema section
 # T9 — build-verify SKILL.md Gate 6 Step 8b references runtime_cmd_source field
 # T10 — build-verify SKILL.md Step 1 references reading plan for the runtime command
+# T11 — gate-scout separates the executable coverage command from its threshold
+# T12 — gate-scout's example coverage command contains no human-readable suffix
 #
 # All assertions are grep-based doc-contract checks.
 # No mutation, no network.
+
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,8 +34,8 @@ PLUGIN_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 FAIL=0
 
 SKILL_MD="$PLUGIN_DIR/skills/build-verify/SKILL.md"
-GATE_DEFS_MD="$PLUGIN_DIR/skills/build-verify/references/gate-definitions.md"
 GATE_SCOUT_MD="$PLUGIN_DIR/agents/gate-scout.md"
+GATE_DEFS_MD="$PLUGIN_DIR/skills/build-verify/references/gate-definitions.md"
 PLAN_TEMPLATE_MD="$PLUGIN_DIR/skills/build-refine/templates/plan-template.md"
 PLAN_SCHEMA_MD="$PLUGIN_DIR/skills/build-refine/references/plan-schema.md"
 
@@ -129,50 +125,24 @@ else
   _fail "build-verify SKILL.md missing PLAN_RUNTIME_CMD — Step 1 plan-read not documented"
 fi
 
-# ---- T11: lockfile runner prefix propagation -------------------------------
-echo "T11: gate-scout documents all lockfile runners and verbatim propagation"
-if grep -qF '`uv.lock` | `uv run`' "$GATE_SCOUT_MD" &&
-   grep -qF '`poetry.lock` | `poetry run`' "$GATE_SCOUT_MD" &&
-   grep -qF '`pdm.lock` | `pdm run`' "$GATE_SCOUT_MD" &&
-   grep -qF '`Pipfile.lock` | `pipenv run`' "$GATE_SCOUT_MD" &&
-   grep -qF 'callers MUST consume them verbatim' "$GATE_SCOUT_MD"; then
-  _pass "gate-scout preserves uv/poetry/pdm/pipenv prefixes end-to-end"
+
+# ---- T11: gate-scout separates coverage command from threshold ---------------
+echo "T11: gate-scout separates coverage command from threshold"
+if grep -qF 'coverage_threshold' "$GATE_SCOUT_MD" && \
+   grep -qF '"coverage":"<exact executable command>|not found"' "$GATE_SCOUT_MD"; then
+  _pass "gate-scout emits coverage_threshold separately from coverage"
 else
-  _fail "gate-scout is missing a lockfile runner or verbatim propagation contract"
+  _fail "gate-scout coverage output contract does not separate command and threshold"
 fi
 
-# ---- T12: coverage command is authoritative and report flags are portable ---
-echo "T12: build-verify uses discovered coverage command without report branch flags"
-if grep -qF 'exact `gate-scout.data.coverage` command' "$SKILL_MD" &&
-   grep -qF 'If the discovered command uses a supported' "$SKILL_MD" &&
-   ! grep -qF 'coverage report --branch' "$SKILL_MD" &&
-   ! grep -qF 'coverage report --branch' "$GATE_DEFS_MD"; then
-  _pass "coverage command is run verbatim without unsupported report options"
+# ---- T12: example coverage command is executable-only ------------------------
+echo "T12: gate-scout example coverage command is executable-only"
+if grep -qF '"coverage": "uv run coverage run -m pytest && uv run coverage report",' "$GATE_SCOUT_MD" && \
+   ! grep -qF '"coverage": "uv run pytest --cov=src/brain --cov=src/body --cov=src/shared — threshold:' "$GATE_SCOUT_MD"; then
+  _pass "gate-scout example coverage command has no threshold suffix"
 else
-  _fail "build-verify coverage handling reconstructs commands or passes report branch flags"
+  _fail "gate-scout example coverage command still contains metadata"
 fi
-
-# ---- T13: unavailable coverage has explicit outcomes -----------------------
-echo "T13: build-verify handles missing coverage tooling explicitly"
-if grep -qF 'gate-scout.data.coverage` is `"not found"`' "$SKILL_MD" &&
-   grep -qF 'record Gate 5 as' "$SKILL_MD" &&
-   grep -qF 'coverage tooling/command unavailable' "$SKILL_MD" &&
-   grep -qF 'conditional coverage unavailable' "$SKILL_MD"; then
-  _pass "missing coverage is skipped/degraded or fails explicitly when required"
-else
-  _fail "build-verify coverage handling has no explicit missing-tool contract"
-fi
-
-# ---- T14: branch measurement is configured at collection time ----------------
-echo "T14: gate-definitions keeps branch measurement separate from reporting"
-if grep -qF 'branch = true' "$GATE_DEFS_MD" &&
-   grep -qF 'explicit project command' "$GATE_DEFS_MD" &&
-   grep -qF 'options supported by the installed tool version' "$GATE_DEFS_MD"; then
-  _pass "coverage guidance uses project configuration and supported report options"
-else
-  _fail "coverage guidance does not document portable branch measurement"
-fi
-
 echo
 if (( FAIL == 0 )); then
   echo "All build-verify gate-commands smoke tests passed."

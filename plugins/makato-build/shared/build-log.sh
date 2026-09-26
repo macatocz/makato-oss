@@ -114,6 +114,41 @@ fi
 LOG_FILE="$SPEC_FOLDER/build.jsonl"
 mkdir -p "$(dirname "$LOG_FILE")"
 
+# --- Model auto-injection (S4) ---
+# On session start, cache the model value. On subsequent calls, inject it
+# if absent. This eliminates hardcoded "model":"sonnet" from agent templates.
+MODEL_CACHE_KEY="$(printf '%s%s' "$REPO_ROOT" "$KEY" | md5sum 2>/dev/null | cut -d' ' -f1 || printf '%s%s' "$REPO_ROOT" "$KEY" | md5 2>/dev/null || echo "default")"
+MODEL_CACHE_FILE="/tmp/makato-log-model-${MODEL_CACHE_KEY}"
+
+_inject_model() {
+  local entry="$1"
+  # If entry already has a model field, check if this is a session start to cache it
+  local has_model
+  has_model="$(jq -r 'if .model then "yes" else "no" end' 2>/dev/null <<<"$entry" || echo "no")"
+  local step status
+  step="$(jq -r '.step // ""' 2>/dev/null <<<"$entry" || echo "")"
+  status="$(jq -r '.status // ""' 2>/dev/null <<<"$entry" || echo "")"
+
+  if [[ "$has_model" == "yes" ]]; then
+    # Cache model on session start
+    if [[ "$step" == "session" && "$status" == "start" ]]; then
+      jq -r '.model' <<<"$entry" > "$MODEL_CACHE_FILE" 2>/dev/null || true
+    fi
+    printf '%s' "$entry"
+  else
+    # Inject cached model if available
+    if [[ -f "$MODEL_CACHE_FILE" ]]; then
+      local cached_model
+      cached_model="$(cat "$MODEL_CACHE_FILE" 2>/dev/null || echo "")"
+      if [[ -n "$cached_model" ]]; then
+        jq --arg m "$cached_model" '. + {model: $m}' <<<"$entry" 2>/dev/null || printf '%s' "$entry"
+        return
+      fi
+    fi
+    printf '%s' "$entry"
+  fi
+}
+
 # Batch mode: read NDJSON entries from stdin, append them all. Lines that are
 # blank or do not parse as JSON are skipped silently (the audit trail must not
 # fail because a caller emitted a stray newline). This preserves the "logging
@@ -148,4 +183,6 @@ fi
 if [[ -n "$TRACE_ID" ]]; then
   ENTRY_OR_FLAG="$(jq --arg tid "$TRACE_ID" '. + {issue_trace_id: $tid}' <<<"$ENTRY_OR_FLAG")"
 fi
+# Auto-inject model field (S4)
+ENTRY_OR_FLAG="$(_inject_model "$ENTRY_OR_FLAG")"
 printf '%s\n' "$ENTRY_OR_FLAG" >> "$LOG_FILE"

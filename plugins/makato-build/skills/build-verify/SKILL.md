@@ -2,17 +2,16 @@
 name: build-verify
 description: >-
   Run the full quality gate pipeline — build, lint, unit tests,
-  integration tests, conditional coverage check, spec verification,
-  and optional Playwright runtime QA. Each gate runs separately so
-  failures are attributable. Fixable failures are fixed and gates
-  re-run; structural failures escalate to refine. Boots the frontend
-  when a UX surface is detected. Autonomous (--autonomous, dispatched
-  by PO-agent) or interactive. Use after review, before push-to-git.
-  Triggers: verify, quality-gate, all-gates, build-pass, tests-pass,
-  lint-clean, coverage-check, gate-pipeline, run-verify.
+  integration tests, conditional coverage check. Each gate runs
+  separately so failures are attributable. Fixable failures are
+  fixed and gates re-run; structural failures escalate to refine.
+  Autonomous (--autonomous, dispatched by PO-agent) or interactive.
+  Use after review, before push-to-git. Triggers: verify, quality-gate,
+  all-gates, build-pass, tests-pass, lint-clean, coverage-check,
+  gate-pipeline, run-verify.
 version: "1.12.0"
 argument-hint: "[work-item-key]"
-allowed-tools: Bash
+allowed-tools: [Bash, Read]
 ---
 
 ## When to Use
@@ -68,24 +67,13 @@ When dispatched by the PO-agent (`--autonomous` mode), this skill receives:
 
 - `<work-item-key>` — positional argument.
 - `WORKTREE_PATH` — absolute filesystem path to the per-run git worktree. **Mandatory in autonomous mode** (see `plugins/makato-build/AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract*). The skill MUST `cd "$WORKTREE_PATH"` before any build/lint/test/coverage gate command — gates that run from the wrong checkout produce nonsense pass/fail signals.
-- `MAKATO_BUILD_ROOT` — absolute installed build-plugin root, resolved from
-  the runner plugin-root variables or the OMP plugin registry when not supplied.
-- `MAKATO_SUITE_ROOT` — optional source checkout root for skill-provenance
-  aggregation; when absent, the installed plugin cache is used.
 - `--autonomous` — activation flag.
 
 Interactive mode: `WORKTREE_PATH` is optional; fall back to `git rev-parse --show-toplevel` of the current `$PWD`.
 
 ### Workspace-isolation entry guard
 
-Apply the workspace-isolation entry guard from
-`$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` before Gate 0. Resolve the installed
-plugin root before any helper call. In autonomous mode an empty
-`WORKTREE_PATH` is a HALT with
-`errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`; in
-interactive mode the guard falls back to `git rev-parse --show-toplevel`.
-After resolution, `cd "$WORKTREE_PATH"` — every gate command below runs from
-this CWD.
+Apply the workspace-isolation entry guard from `@../../AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract* and § *Falsy-check pattern* before Gate 0. In autonomous mode an empty `WORKTREE_PATH` is a HALT with `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`; in interactive mode the guard falls back to `git rev-parse --show-toplevel`. After resolution, `cd "$WORKTREE_PATH"` — every gate command below runs from this CWD.
 
 ## Workflow
 
@@ -127,13 +115,11 @@ autonomous mode and the failure is structural.
 | 7 | Rebased on `origin/main` | `build-push-to-git` push deny-list | denied push → HALT-005 |
 | 8 | No `TODO`/`FIXME` without tracking issue; no debug/stale artifacts introduced | sensors `todo-check` + `stale-artifact-check` | HALT-001 family |
 | 9 | No hard-coded credentials | sensors `gitleaks` / `detect-secrets` | HALT-001 family |
-| 10 | `build.jsonl` entry per skill step | every skill via the resolved build-log helper | contract — caller treats omission as agent failure |
+| 10 | `build.jsonl` entry per skill step | every skill via `shared/build-log.sh` | contract — caller treats omission as agent failure |
 | 11 | R1 JSON block as last fenced ` ```json ` in agent return | `plugins/makato-build/agents/RETURN-CONTRACT.md` | caller treats missing/invalid R1 as `status: "failure"` |
 | 12 | PR description contains `Closes #N` | `build-create-pr` description draft | interactive review catches omission before PR is opened |
 | 13 | Skill-provenance recorded and complete | Step 9 (skill-provenance advisory gate) in this skill | advisory only — never fails the build (NFR-R2) |
 | — | Runtime health-check passes | Step 8b (Gate 6: advisory) in this skill | advisory only — non-zero exit logged, build continues |
-| — | Playwright runtime QA passes (UX changes) | Step 8c (Gate 7: conditional) in this skill | advisory only — skipped when no UX change or no Playwright |
-| — | Spec verification passes | Step 10a in this skill | HALT-011 when CRITICAL finding — spec not satisfied |
 
 A failure to satisfy any item in this table **MUST** trigger the corresponding HALT code
 at the gate that enforces it; the autonomous loop does not proceed past an unmet item.
@@ -150,17 +136,15 @@ skill / agent boundary in the session, including by this skill on itself.
 
 **Autonomous mode** (`--autonomous`): use the passed `<work-item-key>` argument directly — do not prompt.
 
-Resolve `SPEC_FOLDER` with
-`python3 "$MAKATO_BUILD_ROOT/shared/spec_folder.py" "$REPO_ROOT" "<key>"`,
-then read `design.md` from that folder if it exists and look for a declared coverage threshold.
+Read `design.md` from the resolved spec folder (`specs/<key>-*/`) if it exists and look for a declared coverage threshold.
 If none is declared, the coverage gate is advisory — it reports figures but does not block.
 
 **Runtime verification — read from plan**: read `plan-<N>.md` from the resolved spec folder (match `plan-<ISSUE_NUMBER>.md` where `ISSUE_NUMBER` is the leading numeric segment of the work-item key, or fallback to `plan.md` if the per-issue file is absent). Look for a `## Runtime verification` section. Extract the shell command from the first fenced code block inside that section and set `PLAN_RUNTIME_CMD` to that value. When the section is absent, empty, or contains no fenced code block, set `PLAN_RUNTIME_CMD` to empty string. This extraction is the only place plan-command reading happens — `gate-scout` MUST NOT be modified to read `plan.md`.
 
 ```bash
 # Example extraction (pseudo-code):
-PLAN_FILE="$SPEC_FOLDER/plan-${ISSUE_NUMBER}.md"
-[[ -f "$PLAN_FILE" ]] || PLAN_FILE="$SPEC_FOLDER/plan.md"
+PLAN_FILE="$(ls specs/<key>-*/plan-<ISSUE_NUMBER>.md 2>/dev/null | head -1)"
+PLAN_FILE="${PLAN_FILE:-$(ls specs/<key>-*/plan.md 2>/dev/null | head -1)}"
 # Extract the command inside the fenced block that follows ## Runtime verification
 PLAN_RUNTIME_CMD="$(awk '/^## Runtime verification/{found=1} found && /^```/{if(++fence==1){next} else {exit}} found && fence==1{print}' "$PLAN_FILE" 2>/dev/null | head -1)"
 ```
@@ -171,6 +155,18 @@ Dispatch the `gate-scout` agent with:
 
 The agent scans config files (`package.json`, `pom.xml`, `Makefile`, `build.gradle`, `pyproject.toml`, etc.) and returns a structured command map with the exact build, lint, unit, integration, and coverage commands, and a `java_version_required` field for JVM projects. Use this command map for all subsequent gates — do not infer commands independently.
 
+**Artifact handoff guard:** Read `local://` or `artifact://` only when that
+exact URI was emitted by a preceding tool or agent in this run. Never invent a
+placeholder such as `local://no-such`. If no URI was emitted, use the canonical
+repository path already resolved in Step 1; if that path is missing, report the
+missing artifact and stop the affected gate rather than probing guessed URIs.
+
+**Coverage command contract:** use `coverage` from the command map as an
+executable string only, and use `coverage_threshold` as separate metadata. Never
+execute a command containing a human-readable suffix such as
+`— threshold: 95%`. If a legacy gate-scout response contains that suffix, remove
+the suffix before execution and log the threshold separately.
+
 **MANDATORY: load `references/gate-definitions.md`** if gate-scout returns a toolchain
 (Maven, Gradle, Go, Rust, Biome, sqlfluff) for which the three-path command selection in
 Steps 4–5 does not cover the exact hook IDs, split flags, or runner conventions. For
@@ -178,10 +174,7 @@ Python/JS/TS with populated hook commands, skip the reference.
 
 **Python runner prefix**: if `python_runner_prefix` is present and not `"none"` (e.g. `uv run`, `poetry run`), the gate-scout commands already include it. Run them verbatim — do NOT strip the prefix and do NOT re-add it. A bare `pytest`/`ruff` invocation in a lockfile-managed project resolves against the system Python and fails with `ModuleNotFoundError`.
 
-**Extra linters**: if any of `lint_js`, `lint_sql`, `lint_black`, `lint_cfn`, `lint_markdown`, or
-`lint_powershell` is present and not `"not found"`, run it as an additional LINT-gate command
-alongside the primary `lint` command. Each must pass independently; a failure in any is a
-LINT-gate failure. Log each under its own `data.linter` key.
+**Extra linters**: if `lint_js` or `lint_sql` are present and not `"not found"`, run them as additional LINT-gate commands alongside the primary `lint` command. Each must pass independently; a failure in any is a LINT-gate failure. Log each under its own `data.linter` key.
 
 **JVM version check** (Maven/Gradle projects only): if `java_version_required` is present in the gate-scout output, run `java -version` and compare the major version. If they differ, emit a WARNING:
 
@@ -196,63 +189,8 @@ Resolve the correct `JAVA_HOME` path for the required version (e.g. via `$(dirna
 Run:
 
 ```bash
-"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"session","status":"start","data":{"coverage_threshold":"<X>%|none"}}'
+shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"session","status":"start","data":{"coverage_threshold":"<X>%|none"}}'
 ```
-
----
-
-### Step 2.5 — Boot frontend (conditional)
-
-Start the project's frontend dev server **only when a UX surface is detected** — the
-runtime-QA gate (Step 8c) and the health-check gate (Step 8b) both benefit from a running
-app. Detect UX changes by scanning the diff file list from Step 1:
-
-```bash
-DEFAULT_REF="$("$MAKATO_BUILD_ROOT/shared/default-branch.sh")"
-UX_CHANGED=$(git diff "$DEFAULT_REF...HEAD" --name-only | grep -cE '\.(tsx?|jsx?|vue|svelte|html|css|scss|less)$' || true)
-```
-
-**If `UX_CHANGED` > 0:**
-
-1. Read `gate-scout.data.dev_server_cmd` (e.g. `npm run dev`, `yarn dev`, `pnpm dev`).
-   If gate-scout does not provide a `dev_server_cmd`, scan `package.json` for a `dev` or
-   `start` script and construct the command from the detected package manager.
-
-2. Start the dev server as a background process with a readiness probe:
-
-   ```bash
-   DEV_SERVER_PID=""
-   if [[ -n "$DEV_SERVER_CMD" ]]; then
-     $DEV_SERVER_CMD &
-     DEV_SERVER_PID=$!
-     # Wait up to 30 seconds for the server to become ready
-     BOOT_TIMEOUT=${FRONTEND_BOOT_TIMEOUT_SECONDS:-30}
-     for i in $(seq 1 "$BOOT_TIMEOUT"); do
-       if curl -s -o /dev/null -w '%{http_code}' http://localhost:${DEV_PORT:-3000} | grep -qE '^(200|301|302|304)'; then
-         break
-       fi
-       sleep 1
-     done
-   fi
-   ```
-
-3. Record the PID for cleanup in Step 11 (session end).
-
-**If `UX_CHANGED` == 0:** skip this step entirely. Log:
-
-```
-{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"frontend-boot","status":"ok","data":{"skipped":true,"reason":"no-ux-changes"}}
-```
-
-When started, log:
-
-```
-{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"frontend-boot","status":"ok","data":{"skipped":false,"dev_server_cmd":"<cmd>","pid":<N>,"boot_seconds":<N>}}
-```
-
-**Cleanup contract:** the dev server process MUST be killed at the end of the skill run
-(Step 11), regardless of success or failure. Use `kill $DEV_SERVER_PID` in a trap or
-finally block.
 
 ---
 
@@ -471,37 +409,16 @@ Log:
 
 ### Step 8 — Gate 5: COVERAGE
 
-Run the exact `gate-scout.data.coverage` command against the combined unit +
-integration results. The discovered command is authoritative: preserve its runner prefix
-(`uv run`, `poetry run`, `pdm run`, or `pipenv run`) and all configured flags verbatim. Do
-not reconstruct a bare `pytest`/`coverage` command from `python_runner_prefix`, and do not
-append options that were not present in the discovered command.
-
-For Python coverage, branch measurement belongs in the project configuration or in the
-collection/run command (for example `[tool.coverage.run] branch = true` or pytest-cov's
-supported collection flag). The report subcommand is only for rendering the already
-collected data; never attach a branch option to that report subcommand, because supported
-Coverage.py report options vary by version. If the discovered command uses a supported
-report invocation, run it unchanged.
-
-If `gate-scout.data.coverage` is `"not found"`:
-
-- Without a declared threshold, emit a degraded-confidence warning and record Gate 5 as
-  `skipped` (advisory). Do not guess a `coverage`, `pytest`, or system-Python command.
-- With a declared threshold, record Gate 5 as `error` with an explicit
-  `"coverage tooling/command unavailable"` reason and apply the existing `HALT-002`
-  coverage-gate route. Do not treat an unavailable tool as passing.
-
-If the report does not contain a conditional/branch metric, do not substitute line
-coverage. Without a declared threshold, record a degraded-confidence warning and continue;
-with a declared threshold, record Gate 5 as `error` with
-`"conditional coverage unavailable"` and apply `HALT-002`.
+Run the exact executable string from `gate-scout.data.coverage` against the
+combined unit + integration results. `coverage_threshold` is metadata only and
+must never be part of the shell command.
 
 Check **conditional coverage** (branch/condition coverage, not line coverage): every
 branch of every conditional in the new code must be exercised by at least one test.
 
-If a threshold was declared in `design.md`:
-- Compare the measured conditional coverage against the threshold
+If `coverage_threshold` is declared by gate-scout (or a story threshold was
+declared in `design.md`), compare the measured conditional coverage against the
+applicable threshold:
 - Below threshold → identify the specific uncovered branches, add targeted tests, re-run
   from UNIT
 - If filling the coverage gap requires rethinking the implementation structure → STRUCTURAL
@@ -514,7 +431,7 @@ If no threshold was declared:
 
 Log:
 ```
-{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-coverage","status":"ok"|"warn"|"error"|"skipped","data":{"coverage_command":"<exact gate-scout command>|not found","conditional_coverage":"<X>%|unavailable","threshold":"<Y>%|none","threshold_met":true|false|null,"degraded":true|false}}
+{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-coverage","status":"ok"|"warn"|"error","data":{"conditional_coverage":"<X>%","threshold":"<Y>%|none","threshold_met":true|false}}
 ```
 
 ---
@@ -553,65 +470,6 @@ Log:
 
 ---
 
-### Step 8c — Gate 7: PLAYWRIGHT RUNTIME QA (conditional, advisory)
-
-Run the `build-runtime-qa` skill via Playwright to exercise acceptance criteria against the
-running frontend — **only when all three preconditions are met:**
-
-1. **UX was changed** — `UX_CHANGED > 0` (computed in Step 2.5).
-2. **Playwright is available** — the `webapp-testing` skill exists AND the Playwright MCP
-   server is connected. Detect by checking for the skill directory and probing the MCP:
-
-   ```bash
-   PLAYWRIGHT_AVAILABLE=false
-   WEBAPP_TESTING_SKILL="$MAKATO_BUILD_ROOT/../../skills/webapp-testing/SKILL.md"
-   if [[ -f "$WEBAPP_TESTING_SKILL" ]] || [[ -d "$HOME/.joule/skills/webapp-testing" ]]; then
-     # Probe Playwright MCP availability by checking if browser_navigate tool exists
-     # In autonomous mode, check PLAYWRIGHT_MCP_URL env var or the connected-servers manifest
-     PLAYWRIGHT_AVAILABLE=true
-   fi
-   ```
-
-3. **Frontend is running** — `DEV_SERVER_PID` from Step 2.5 is non-empty and the process
-   is still alive (`kill -0 $DEV_SERVER_PID` succeeds).
-
-**If any precondition is unmet:** skip Gate 7 and log:
-
-```
-{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-runtime-qa","status":"ok","data":{"skipped":true,"reason":"<no-ux-changes|no-playwright|no-frontend>","ux_changed":<N>,"playwright_available":<bool>,"frontend_running":<bool>}}
-```
-
-**If all preconditions are met:**
-
-Dispatch `build-runtime-qa` with:
-
-| Field | Value |
-|-------|-------|
-| `<work-item-key>` | the resolved key from Step 1 |
-| `WORKTREE_PATH` | `$WORKTREE_PATH` (or cwd in interactive mode) |
-| `REPO_ROOT` | `$REPO_ROOT` |
-| `MAKATO_BUILD_ROOT` | `$MAKATO_BUILD_ROOT` |
-| `--headless` | always set — Playwright runs in headless mode |
-
-The `build-runtime-qa` skill reads the `## Runtime verification` section from the plan and
-exercises the app via the `webapp-testing` skill's Playwright MCP tools (`browser_navigate`,
-`browser_snapshot`, `browser_take_screenshot`, `browser_click`, `browser_type`, etc.) in
-**headless mode**.
-
-**Gate result mapping:**
-
-- `build-runtime-qa` returns R1 `status: "success"` → gate status `ok`.
-- `build-runtime-qa` returns R1 `status: "success"` with `data.skipped: true` → gate status `skipped` (no runtime surface in plan — this is normal, not an error).
-- `build-runtime-qa` returns R1 `status: "failure"` with CRITICAL findings → gate status `warn`. Surface findings in the gate summary table. **This gate is advisory** — CRITICAL runtime findings are logged and surfaced but do not block the interactive pipeline. In autonomous mode, the po-agent applies its own HALT logic.
-
-Log:
-
-```
-{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-runtime-qa","status":"ok"|"warn"|"skipped","data":{"ux_changed":<N>,"playwright_available":true,"headless":true,"paths_exercised":<N>,"findings_critical":<C>,"findings_major":<M>}}
-```
-
----
-
 ### Step 9 — Skill-provenance advisory gate
 
 **This step is fully automated — no judgment or user interaction required.** Execute sub-steps 9a–9c mechanically. The only conditional branches are whether the passport file is valid (9b) and whether expected skills are covered (9c). Do not prompt the user at any point in this step.
@@ -624,16 +482,10 @@ This gate is **advisory only** — it never fails the build (NFR-R2).
 Resolve the final git diff using `skill-bundles.yml` / `inject-skills`:
 
 ```bash
-# collect changed files on the branch against the resolved integration target
-DEFAULT_REF="$("$MAKATO_BUILD_ROOT/shared/default-branch.sh")"
-git diff --name-only "$DEFAULT_REF...HEAD" > /tmp/changed_files.txt
-# The installed plugin root discovers sibling OMP cache plugins. A source
-# checkout may be supplied explicitly for deterministic local provenance.
-SKILL_REGISTRY_ROOT="${MAKATO_SUITE_ROOT:-$MAKATO_BUILD_ROOT}"
-python3 "$MAKATO_BUILD_ROOT/shared/inject_skills.py" \
-  --root "$SKILL_REGISTRY_ROOT" \
-  --target-repo "$REPO_ROOT" \
-  --files /tmp/changed_files.txt
+# collect changed files on the branch
+git diff --name-only origin/main...HEAD > /tmp/changed_files.txt
+# resolve expected skills via inject-skills
+python3 plugins/makato-build/shared/inject_skills.py --files /tmp/changed_files.txt
 ```
 
 The result is `skills_expected`: the ordered, deduplicated list of skills the changed
@@ -641,8 +493,8 @@ files should have triggered.
 
 #### 9b — Read the skill passport and compute `skills_invoked_transitively`
 
-Read `$SPEC_FOLDER/skill-passport.json` only when it exists. Call `compute_rollup`
-from `$MAKATO_BUILD_ROOT/shared/skill_passport.py` to compute `skills_invoked_transitively`
+Read `specs/<key>-*/skill-passport.json` for the current run. Call `compute_rollup` from
+`plugins/makato-build/shared/skill_passport.py` to compute `skills_invoked_transitively`
 — the flat union of all skill nodes in the passport tree.
 
 **When no passport exists** (the session predates F3, or the agent opted out of F4
@@ -683,52 +535,7 @@ table (Step 10) but do not block the pipeline.
 
 ---
 
-### Step 10 — Spec verification (build-verify-spec)
-
-After all quality gates pass (Gates 0–7), run `build-verify-spec` to confirm the
-implementation satisfies the plan artifacts. This closes the gap between "code is
-mechanically correct" (gates) and "code does what the spec promised" (spec verification).
-
-**Precondition check:** run spec verification when the spec folder contains at least one of
-`plan-<N>.md` (or `plan.md`), `stories.json`, or `spec-delta.md`. If none exist, skip:
-
-```bash
-SPEC_FOLDER="$(python3 "$MAKATO_BUILD_ROOT/shared/spec_folder.py" "$REPO_ROOT" "<key>")"
-HAS_SPEC_ARTIFACTS=false
-if ls "$SPEC_FOLDER"/plan*.md "$SPEC_FOLDER/stories.json" "$SPEC_FOLDER/spec-delta.md" 2>/dev/null | head -1 | grep -q .; then
-  HAS_SPEC_ARTIFACTS=true
-fi
-```
-
-**If `HAS_SPEC_ARTIFACTS` is false:** skip and log:
-
-```
-{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"spec-verify","status":"ok","data":{"skipped":true,"reason":"no-spec-artifacts"}}
-```
-
-**If `HAS_SPEC_ARTIFACTS` is true:** invoke `build-verify-spec`:
-
-```bash
-"$MAKATO_BUILD_ROOT/skills/build-verify-spec/references/build-verify-spec.sh" "<key>"
-```
-
-**Exit code handling:**
-
-| Exit code | Meaning | Action |
-|---|---|---|
-| 0 | All checks pass (COMPLETENESS OK, CORRECTNESS OK, COHERENCE OK or absent) | Record `status: "ok"`, proceed to Step 10b |
-| 1 | CRITICAL finding — unchecked task, CORRECTNESS GAP, or COHERENCE GAP | In **autonomous mode**: HALT-011 — stop before push. In **interactive mode**: surface findings as WARNING, advise user to address before push, but do not block |
-| 2 | Usage/environment error (missing spec folder, unreadable plan) | Log `status: "warn"`, proceed (configuration issue, not a spec failure) |
-
-Log:
-
-```
-{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"spec-verify","status":"ok"|"warn"|"error","data":{"exit_code":<N>,"completeness":"<OK|CRITICAL>","correctness":"<OK|CRITICAL|skipped>","coherence":"<OK|CRITICAL|skipped>"}}
-```
-
----
-
-### Step 10b — Present gate results and hand off
+### Step 10 — Present gate results and hand off
 
 Every Automated-tier DoD item (1–13) above must be satisfied before this step prints
 PASS. Items 1–5 are this skill's direct responsibility (Gates 0–5); item 13
@@ -741,22 +548,19 @@ of this workflow.
 Present the gate summary table:
 
 ```
-Gate 0  SENSORS           ✓ PASS   clean after N loops
 Gate 1  BUILD             ✓ PASS   0 errors, N warnings
 Gate 2  LINT              ✓ PASS   0 errors
 Gate 3  UNIT              ✓ PASS   N passed, 0 failed
 Gate 4  INTEGRATION       ✓ PASS   N passed, 0 failed
 Gate 5  COVERAGE          ✓ PASS   N% conditional (threshold: N%)
 Gate 6  RUNTIME HEALTH    ✓ PASS   exit 0 in Ns  (advisory — warn does not block)
-Gate 7  PLAYWRIGHT QA     — SKIP   no UX changes  (conditional — runs only when UX changed + Playwright available)
-Verify  SPEC              ✓ PASS   COMPLETENESS OK, CORRECTNESS OK, COHERENCE OK
 Advisory  SKILL-PROVENANCE  ⚠ WARN   N skills expected, M invoked (advisory only, never blocks)
 ```
 
 Run:
 
 ```bash
-"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"session","status":"ok","data":{"all_gates_passed":true,"conditional_coverage":"<X>%","spec_verified":<bool>,"runtime_qa_run":<bool>}}'
+shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"session","status":"ok","data":{"all_gates_passed":true,"conditional_coverage":"<X>%"}}'
 ```
 
 **(Optional) Lesson write (#473):** if this session produced a noteworthy lesson — a
@@ -766,7 +570,7 @@ local-lane promote step (`promote-lessons.sh`, run at the merge-success terminal
 Step 6 item 7) can lift `generalizable` records into `.makato/memory/`:
 
 ```bash
-"$MAKATO_BUILD_ROOT/shared/write-lessons.sh" "<key>" "<tier>" "<scope>" "<text>" "[tags]"
+shared/write-lessons.sh "<key>" "<tier>" "<scope>" "<text>" "[tags]"
 #   tier  = procedural | semantic
 #   scope = generalizable | local   (generalizable → eligible for promotion)
 #   tags  = optional comma-separated list
@@ -779,25 +583,3 @@ there is nothing notable to record — it is optional and each call is an indepe
 Tell the user: *"All gates passed.*
 *Pipeline remaining: `/build-push-to-git` → `/build-create-pr`*
 *Next: run `/build-push-to-git` to commit and push."*
-
----
-
-### Step 11 — Cleanup
-
-Kill the frontend dev server if it was started in Step 2.5:
-
-```bash
-if [[ -n "${DEV_SERVER_PID:-}" ]]; then
-  kill "$DEV_SERVER_PID" 2>/dev/null || true
-  wait "$DEV_SERVER_PID" 2>/dev/null || true
-fi
-```
-
-Log:
-
-```
-{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"cleanup","status":"ok","data":{"frontend_killed":<bool>}}
-```
-
-**This step MUST run regardless of success or failure** — use a trap or finally block to
-ensure the dev server is not left running after the skill exits.

@@ -18,6 +18,7 @@ One JSON object per line, UTF-8, newline-terminated. Append-only — skills must
 | `story` | string | Work item key: `ISSUE-1234` |
 | `step` | string | Step identifier within the skill (see Step Values below) |
 | `status` | string | Enum: `start` \| `ok` \| `warn` \| `error` |
+| `model` | string | Model name used for this entry (e.g. `sonnet`, `opus`, `haiku`). Auto-injected by `build-log.sh` from session-start cache when absent. |
 
 ## Optional Fields
 

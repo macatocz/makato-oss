@@ -59,7 +59,7 @@ for skill in build-implement-tdd build-implement-goal build-verify build-push-to
   assert_grep 'Workspace-isolation entry guard' \
     "plugins/makato-build/skills/$skill/SKILL.md" \
     "$skill has a Workspace-isolation entry guard"
-  assert_grep 'Mandatory in autonomous mode' \
+  assert_grep '[Mm]andatory in autonomous' \
     "plugins/makato-build/skills/$skill/SKILL.md" \
     "$skill declares the field mandatory in autonomous mode"
   assert_grep 'git rev-parse --show-toplevel' \

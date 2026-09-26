@@ -33,26 +33,7 @@ No external side-effects.
 
 ## Anti-patterns
 
-**NEVER generate content for a PRD section without explicit user input or confirmed brainstorm content.**
-WHY: PRDs shape every downstream artifact — architecture, decomposition, acceptance tests, GitHub issues. AI-assumed content silently bakes in wrong scope, phantom user needs, or unmeasured success criteria that teams discover only after sprint work is done. Step 6 exists to catch this, but prevention (tracing every section back to a user answer or confirmed brainstorm) eliminates the failure class entirely.
-
-**NEVER allow vague success metrics ("fast", "easy to use", "intuitive") to survive into the PRD.**
-WHY: Vague metrics make the Definition of Done untestable. QA cannot write acceptance tests against "fast"; product cannot sign off a release against "intuitive". The PRD gates all downstream QA work — a vague metric propagates into Gherkin scenarios that cannot be automated, acceptance tests that fail peer review, and sprint demos where "done" is permanently disputed.
-
-**NEVER use time-based phases ("Sprint 1", "Q3", "next quarter") in the phased rollout.**
-WHY: Time-based phases divorce the roadmap from technical dependencies. A "Sprint 2" label carries no semantic content about what must be true before Sprint 2 can start. Dependency-based phases with explicit exit criteria are what decompose and build-refine use to gate story ordering. Time phases produce sprint-split artifacts — stories that can't be independently shipped because a hidden predecessor wasn't named.
-
-**NEVER slice stories by technical layer (UI, middle tier, DB) in the story sketches.**
-WHY: Layer slices produce zero user-observable value until the final slice ships. A UI-only story can't be demoed end-to-end; a DB-only story can't be tested by the PO. Horizontally-sliced PRDs reach decompose and produce unshippable tasks masquerading as stories, which then fail the "independently deployable" check in build-verify. Every story sketch must be a vertical cut through all layers the feature scope requires.
-
-**NEVER duplicate decision content from decisions.md into the PRD body.**
-WHY: When a decision changes, duplicate content produces contradictory artifacts. Architecture, decompose, and build-refine all read both files; a stale PRD copy overrides the updated decisions.md record silently. Reference decisions by ID only (e.g., "per D3") — the PRD stays current whenever decisions.md is updated without a separate PRD edit.
-
-**NEVER skip the Step 5.0 slot-consolidation checkpoint before sketching stories.**
-WHY: Later interview answers routinely contradict earlier ones in the same slot. A late Round 2 answer may narrow scope that was established in Round 1 or a grill may add a new phase that changes persona coverage. Sketching stories directly from un-consolidated interview state produces slices derived from stale inputs. The slot table is an internal-only pass — it is never written to disk, but it MUST be built before story sketching reads from interview state.
-
-**Do NOT Load `references/vertical-slicing.md` or `references/prd-quality.md` before their designated steps (5.1 and 5.2 respectively).**
-WHY: Front-loading these references consumes context budget before the interview rounds that generate the input they need to evaluate. Load them at the point of use — they are contextual quality checks, not framing material.
+Load @references/anti-patterns.md — failure modes to avoid during PRD creation.
 
 ---
 
@@ -192,105 +173,8 @@ The interview is structured in rounds. Every PRD section MUST trace back to eith
 brainstorm.md/decisions.md that the user already confirmed.
 The AI MUST NOT generate content for a section without explicit user input.
 
-#### Pre-Round Coverage Scan (run before Round 1; repeat the same logic before Round 2 and Round 3)
-
-Before each round fires, scan all available sources against that round's question list and
-classify each question as one of three states:
-
-| State | Meaning | Action in the round |
-|-------|---------|---------------------|
-| `covered` | A direct answer already exists in `brainstorm.md`, `decisions.md`, or a prior round's response | Collapse to a one-sentence confirmation: "brainstorm already recorded X — confirm Y/N?" Do NOT re-ask the full question. |
-| `needs-confirmation` | A partial or implicit answer exists but was not explicitly confirmed by the user | Ask a short confirmation question (one sentence) rather than the full open-ended prompt. |
-| `needs-answer` | No prior coverage found | Ask the full question as specified in the round. |
-
-**Scan procedure** (internal — not shown to the user):
-
-1. List every topic in the upcoming round.
-2. For each topic, search `brainstorm.md` and `decisions.md` for a direct answer.
-   If this is Round 2 or Round 3, also check whether a prior round already captured it.
-3. Assign one of the three states above.
-4. When `covered` topics would reduce a round to confirmation checks only, the round
-   may collapse entirely to a brief "Confirming a few points from our brainstorm" block
-   rather than a full interview sequence.
-
-Do NOT skip the scan — even if brainstorm.md is rich, always verify which questions
-were explicitly confirmed vs. implied.
-
----
-
-#### Round 1 — Core Strategy (always ask)
-
-- **Success criteria** — 3-5 measurable KPIs. Reject vague qualifiers:
-  "What does 'fast' mean? Give me a number." / "What does 'easy to use' mean?
-  Give me a testable condition." Never accept "fast", "easy to use", or "intuitive"
-  without measurable thresholds.
-- **Scope boundaries** — explicit In-Scope list AND Non-Goals section
-  (mandatory — undefined boundaries cause scope creep).
-  "What are we explicitly NOT building?"
-- **User personas** — who benefits, what's their primary need.
-  Sharpen from brainstorm's broad categories into concrete persona descriptions.
-- **Priority** — critical/high/medium/low with rationale for the choice.
-- **Phased rollout** — what's MVP vs. enrichment? Use dependency-based phases
-  (Phase 1 enables Phase 2), NEVER time-based ("Sprint 1", "Q3").
-- **UI scope** — Yes (UI feature) / Minimal UI / No (backend only).
-
-#### Round 2 — Context & Ownership (always ask)
-
-> **Pre-round:** Run the Pre-Round Coverage Scan (see above) against the Round 2 topics
-> before asking any questions. Collapse already-covered topics to confirmation checks.
-
-- **Background & Context** — "Why are we building this NOW? What's the market
-  driver, customer signal, or strategic initiative?" Distill from brainstorm if
-  available, but confirm with user. 3-5 sentences max.
-- **Stakeholders** — "Who is the lead PO? Who is responsible for delivery? Who is
-  the business owner?" Named people, not generic titles. These own the PRD sign-off
-  and decisions.
-- **Constraints** — hard product-level limits. "What's non-negotiable? Budget ceiling,
-  regulatory deadline, team size, platform mandates, data residency?"
-  NOT technical constraints (those go in architecture doc).
-- **Dependencies** — "What are we waiting on or need from other teams?"
-
-#### Round 3 — Conditional (ask based on feature characteristics)
-
-> **Pre-round:** Run the Pre-Round Coverage Scan (see above) against the Round 3 topics
-> before asking any questions. Collapse already-covered topics to confirmation checks.
-
-| Topic | Trigger Condition | Minimum Data Required |
-|-------|-------------------|-----------------------|
-| **Assumptions** | Always (after constraints) | At least 1 believed-true condition with validation method |
-| **User Journeys** | UI Required = Yes or Minimal | 1-2 end-to-end narratives with decision points |
-| **Non-Functional Reqs** | Compliance, accessibility, i18n, or perf flagged | Category + target per relevant area |
-| **Definition of Done** | Always | 3-5 conditions that signal "the whole feature can ship" |
-
-**Assumptions**: "What are we believing to be true that we haven't verified?
-What happens if we're wrong?" Each assumption needs: the belief, how to validate it,
-and the impact if wrong.
-
-**User Journeys** (UI features only): "Walk me through the main flow end-to-end.
-Where does the user start? What decisions do they make? Where do they end up?"
-1-2 narratives with decision points and edge case notes.
-
-**Non-Functional Requirements** (when triggered): "What quality targets must this
-feature meet? Accessibility standard? Performance from the user's perspective?
-Language support? Compliance mandates?" These are PRODUCT decisions that shape scope
-and cost. The implementation approach goes in the architecture doc.
-
-**Definition of Done**: "What must be true for the ENTIRE feature to be considered
-shippable? Not per-story — the overall completion gate." Push for testable conditions.
-If the user can't answer yet, park as open questions but note that PRD cannot be
-Approved without a Definition of Done.
-
-#### Parking Unanswerable Questions
-
-When the user says "I don't know" or "we'd need to check with {person}":
-
-1. Acknowledge: "Good question — let's park that for now."
-2. Assign sequential ID (Q1, Q2, Q3...) continuing from any existing Qs in decisions.md.
-3. Note the question with minimal context.
-4. Continue without dwelling.
-
-If a parked question leaves a PRD section empty, mark it `[PENDING: Q#]` — the section
-stays in the PRD but is clearly flagged as incomplete.
+**MANDATORY — Load @references/interview-rounds.md now** (Pre-Round Coverage Scan, Round 1-3
+question banks, parking rules). Do NOT load before this step.
 
 ---
 

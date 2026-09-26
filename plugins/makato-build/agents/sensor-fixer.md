@@ -9,7 +9,7 @@ description: >-
   note); writes JSONL audit to specs/<key>/build.jsonl.
   Triggered by build-sensors on non-zero pre-commit exit.
 modelRole: task
-maxTurns: 30
+maxTurns: 20
 ---
 
 <!-- markdownlint-disable MD013 -->

@@ -37,47 +37,7 @@ understanding.
 
 ## Anti-Patterns
 
-Non-obvious failure modes. Each NEVER is grounded in a downstream contract or sprint failure
-mode — not generic advice.
-
-**NEVER create a standalone technical enabler story.**
-WHY: Produces a story with zero user-observable outcome — cannot be demoed or independently
-tested against a Definition of Done. The enabler is only useful when paired with the
-user-facing story it enables; splitting it out creates two stories where neither can ship
-alone, defeating the vertical-slice contract and poisoning sprint velocity.
-
-**NEVER accept a single-layer or single-repository story.**
-WHY: A layer-cut story (UI-only, API-only, DB schema-only) delivers no standalone value and
-cannot be tested in a running environment without the other layers. It creates a hidden
-"must combine to demo" dependency between board items that appear independent but aren't.
-
-**NEVER write `storyPoints > 13` without recording a BLOCK error.**
-WHY: 13 SP is the schema hard cap (enforced in Step 8). An oversized story routinely crosses
-sprint boundaries, corrupts velocity measurement, and almost always hides a safe split — the
-BLOCK forces re-examination before `to-issues` creates an issue that the team cannot realistically
-close in a sprint.
-
-**NEVER emit `tier:`, `points:`, `module:`, `tech:`, or `status:` into `stories[].labels[]`.**
-WHY: Each label is owned by a different authoritative source. `tier:` derives from `phase`;
-`points:` from `storyPoints`; `module:` from the target repo's ADR folder structure (only
-`to-issues` knows this at publish time); `tech:` from `to-issues` text-match; `status:` from
-the dependency topo-sort. Emitting them here creates a drift vector: decompose's guess can
-conflict with `to-issues`'s derivation, producing mismatched labels on the GitHub issue.
-
-**NEVER mutate `stories.json` after `to-issues` has run.**
-WHY: GitHub issues are anchored to story sequence numbers in `created-issues.json`. A sequence
-shift after publish breaks the audit trail between each issue and its originating story.
-Re-running `to-issues` after mutation creates duplicate issues with no link to the originals.
-
-**NEVER omit `epic.objective` from `stories.json`.**
-WHY: `to-issues` validates its presence before rendering the GitHub epic tracking issue title.
-A missing objective is a hard publish failure — `to-issues` blocks the entire run, not just
-the epic story row. The objective cannot be patched after publish without rewriting the issue.
-
-**NEVER solicit a user choice with freeform prose — always use AskUserQuestion with enum options.**
-WHY: Freeform questions cannot be handled by the autonomous loop's headless mode. Enum options
-let the loop apply a predictable default (first option) without a human present, enabling
-unattended dispatch. Freeform blocks the loop silently.
+Load @references/anti-patterns.md — failure modes to avoid during decomposition.
 
 ---
 
@@ -237,6 +197,20 @@ in story creation. Present brief summary:
 ---
 
 ### Step 3: Story Sketch Analysis
+
+**3.0: Hard-reject guardrails (S6) — apply BEFORE Three Amigos simulation.**
+
+For each candidate story, apply these 5 rules. Any match triggers immediate action:
+
+| Rule | Condition | Action |
+|---|---|---|
+| **test-only** | Story contains only test additions, no feature code | Merge into parent feature story |
+| **value-conditional dependency** | Removing `blockedBy` makes story pointless | Merge with blocker |
+| **spike-as-story** | Story is an investigation, not a deliverable | Move to `decisions.md` as open question |
+| **capability-driven** | No user workflow outcome | Reframe as user outcome or absorb into adjacent story |
+| **pure-refactor** | No new functionality, no bug fix | Remove from feature scope |
+
+Log each triggered rule: `[decompose] story "<title>" rejected: <rule> — <action taken>`.
 
 1. Load PRD story sketches (the 3-5 rough vertical slices from create-prd)
 2. Load architecture component design from design.md
@@ -470,6 +444,10 @@ Tell the user:
 3. **Set `epic.objective`** from Round 3 of the Step 4 interview.
    This is mandatory — do not write stories.json without it.
 4. **Copy qa-reviewer drafts into `description.successScenarios[]`**:
+5. **Auto-apply `QARefinement` label (S5)**: After copying qa-reviewer Gherkin drafts to
+   `successScenarios[]`, set `story.labels[] += "QARefinement"` for any story with non-empty
+   `successScenarios`. Remove `QARefinement` for stories where `successScenarios` becomes empty
+   (handles refinement-mode re-runs).
    For each story, take the 1-3 draft Gherkin scenarios that the `qa-reviewer` agent
    produced in Step 5 (after any user edits from the three-amigos review in Step 6) and
    write them into the story's `description.successScenarios[]` array using the shared

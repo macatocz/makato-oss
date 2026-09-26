@@ -5,7 +5,7 @@ description: >-
   Run quality checks (lint, format, tests, coverage) after implementation.
   Discovers commands from project config, executes them, and reports pass/fail
   status with actionable feedback. Mechanical quality gate before code review.
-maxTurns: 25
+maxTurns: 10
 permissionMode: bypassPermissions
 disallowedTools: Write, Edit, NotebookEdit, WebSearch
 version: "1.2.0"

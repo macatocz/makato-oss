@@ -331,28 +331,28 @@ MAKATO_LOOP_TEST_HOOK=1 MAKATO_LOOP_SLEEP_CMD=true \
   || fail "T-RG-1: guard should return 0 when remaining=1200 >= 1000; got rc=$trg1_rc"
 echo "  ✓ remaining=1200 >= threshold → guard returns 0, poll proceeds"
 
-echo "=== T-RG-2: guard returns 2 when remaining=200 (below threshold 1000); cmd_run stamps poll_skipped_rate_budget:true ==="
+echo "=== T-RG-2: guard returns 2 when remaining=100 (below configured threshold 200); cmd_run stamps poll_skipped_rate_budget:true ==="
 trg2_rc=0
 MAKATO_LOOP_TEST_HOOK=1 MAKATO_LOOP_SLEEP_CMD=true \
-  MAKATO_LOOP_GRAPHQL_TEST_CMD='echo "{\"resources\":{\"graphql\":{\"remaining\":200,\"reset\":9999999999}}}"' \
+  MAKATO_LOOP_GRAPHQL_TEST_CMD='echo "{\"resources\":{\"graphql\":{\"remaining\":100,\"reset\":9999999999}}}"' \
   "$LOOP" _test-check-graphql-rate-budget github.com \
   || trg2_rc=$?
 [[ $trg2_rc -eq 2 ]] \
-  || fail "T-RG-2: guard should return 2 when remaining=200 < 1000; got rc=$trg2_rc"
+  || fail "T-RG-2: guard should return 2 when remaining=100 < 200; got rc=$trg2_rc"
 # Also verify _gh_project_item_list propagates exit 76 and cmd_run stamps the state.
 TRG2_STATE="$STATE_DIR/trg2"; mkdir -p "$TRG2_STATE"
 TRG2_CFG="$STATE_DIR/trg2-config.json"
 jq -n '{github_project:{owner:"macatocz",number:4,host:"github.com",project_node_id:"PVT_x"}}' >"$TRG2_CFG"
 trg2_run_out="$(MAKATO_LOOP_GH_OVERRIDE='' MAKATO_LOOP_STATE_DIR="$TRG2_STATE" \
   MAKATO_LOOP_CONFIG="$TRG2_CFG" MAKATO_LOOP_SLEEP_CMD=true \
-  MAKATO_LOOP_GRAPHQL_TEST_CMD='echo "{\"resources\":{\"graphql\":{\"remaining\":200,\"reset\":9999999999}}}"' \
+  MAKATO_LOOP_GRAPHQL_TEST_CMD='echo "{\"resources\":{\"graphql\":{\"remaining\":100,\"reset\":9999999999}}}"' \
   "$LOOP" run --once --status Ready 2>&1)" \
   || fail "T-RG-2: run --once should exit 0 when guard skips the tick; out: $trg2_run_out"
 jq -e '.poll_skipped_rate_budget == true' "$TRG2_STATE/loop-status.json" >/dev/null \
   || fail "T-RG-2: loop-status.json must record poll_skipped_rate_budget=true; got: $(cat "$TRG2_STATE/loop-status.json" 2>/dev/null)"
 jq -e '.last_poll_skip_reason == "rate_budget"' "$TRG2_STATE/loop-status.json" >/dev/null \
   || fail "T-RG-2: loop-status.json must record last_poll_skip_reason=rate_budget; got: $(cat "$TRG2_STATE/loop-status.json" 2>/dev/null)"
-echo "  ✓ remaining=200 < threshold → guard returns 2, poll_skipped_rate_budget:true stamped"
+echo "  ✓ remaining=100 < configured threshold → guard returns 2, poll_skipped_rate_budget:true"
 
 echo "=== T-RG-3: MAKATO_LOOP_RATE_GUARD=0 bypasses guard even with remaining=0 ==="
 trg3_rc=0
@@ -2839,16 +2839,18 @@ cat >"$T67c_SPEC_ROOT/555-footer-slug/plan-555.md" <<'PLAN'
 
 - AC1: widget loads
 PLAN
-MAKATO_LOOP_TEST_HOOK=1 \
-MAKATO_LOOP_CONFIG="$T67c_CONFIG" \
-MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
-MAKATO_LOOP_BLOCK_TEST_FILE="$T67c_BLOCK_FILE" \
-MAKATO_LOOP_LABEL_TEST_FILE="$T67c_LABEL_FILE" \
-MAKATO_LOOP_COMMENT_TEST_FILE="$T67c_COMMENT_FILE" \
-MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T67c_BODY" \
-MAKATO_LOOP_AUTOSEED_SPEC_ROOT="$T67c_SPEC_ROOT" \
-MAKATO_SPEC_STORIES_TRACKED=0 \
-  "$LOOP" _test-auto-seed-block-full 555 full >/dev/null 2>&1
+t67c_stderr="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_CONFIG="$T67c_CONFIG" \
+  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+  MAKATO_LOOP_BLOCK_TEST_FILE="$T67c_BLOCK_FILE" \
+  MAKATO_LOOP_LABEL_TEST_FILE="$T67c_LABEL_FILE" \
+  MAKATO_LOOP_COMMENT_TEST_FILE="$T67c_COMMENT_FILE" \
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T67c_BODY" \
+  MAKATO_LOOP_AUTOSEED_SPEC_ROOT="$T67c_SPEC_ROOT" \
+  MAKATO_SPEC_STORIES_TRACKED=0 \
+    "$LOOP" _test-auto-seed-block-full 555 full 2>&1 >/dev/null
+)"
 # No block, no comment — gate saw valid plan-555.md and emitted 'proceed'.
 [[ ! -f "$T67c_BLOCK_FILE" ]] \
   || fail "T67c: block file must NOT be written when plan-N.md is valid; got: $(cat "$T67c_BLOCK_FILE" 2>/dev/null)"
@@ -2948,11 +2950,13 @@ mkdir -p "$T69_JSONL_ROOT"
 # No orchestrate.jsonl for this seed key; label fixture shows plan-tier:full.
 printf 'plan-tier:full\nenhancement\n' >"$T69_LABEL_FIXTURE"
 t69_rc=0
-MAKATO_LOOP_TEST_HOOK=1 \
-MAKATO_LOOP_RECONCILE_JSONL_DIR="$T69_JSONL_ROOT" \
-MAKATO_LOOP_RECONCILE_LABEL_FILE="$T69_LABEL_FIXTURE" \
-MAKATO_LOOP_LABEL_TEST_FILE="$T69_LABEL_FILE" \
-  "$LOOP" _test-auto-seed-reconcile-thin-body 502 502-thin-no-jsonl >/dev/null 2>&1 || t69_rc=$?
+t69_stderr="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_LOOP_RECONCILE_JSONL_DIR="$T69_JSONL_ROOT" \
+  MAKATO_LOOP_RECONCILE_LABEL_FILE="$T69_LABEL_FIXTURE" \
+  MAKATO_LOOP_LABEL_TEST_FILE="$T69_LABEL_FILE" \
+    "$LOOP" _test-auto-seed-reconcile-thin-body 502 502-thin-no-jsonl 2>&1 >/dev/null
+)" || t69_rc=$?
 [[ "$t69_rc" -eq 0 ]] \
   || fail "T69: plan-tier:full with no jsonl should return exit code 0 (Signal 2 removed); got rc=$t69_rc"
 [[ ! -f "$T69_LABEL_FILE" ]] || [[ ! -s "$T69_LABEL_FILE" ]] \
@@ -3077,7 +3081,7 @@ MAKATO_LOOP_TEST_HOOK=1 \
 MAKATO_LOOP_AUTOSEED_OVERRIDE="$TB_FIXTURE" \
 MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
 MAKATO_LOOP_SEED_TEST_CMD="$TB_STUB_FILE" \
-  "$LOOP" _test-auto-seed-unprepared >/dev/null 2>&1 || tb_seed_rc=$?
+  "$LOOP" _test-auto-seed-unprepared 2>&1 >/dev/null || tb_seed_rc=$?
 [[ "$tb_seed_rc" -eq 0 ]] \
   || fail "Tb: _auto_seed_unprepared must return 0 (best-effort) even on thin-body; got rc=$tb_seed_rc"
 [[ -f "$TB_SEED_FLAG" ]] \
@@ -3992,7 +3996,7 @@ MAKATO_LOOP_RECONCILE_TEST_FILE="$TSP1_RECON" \
 MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE="$TSP1_LABEL" \
 MAKATO_LOOP_PR_STATE_OVERRIDE="$TSP1_PR_STATE" \
 MAKATO_LOOP_STALL_DISABLE=1 \
-MAKATO_HARNESS_BIN=true \
+MAKATO_CLAUDE_BIN=true \
 SPECS_DIR="$TSP1_SPECS" \
   "$LOOP" _test-reconcile-stale >/dev/null 2>&1 || tsp1_rc=$?
 [[ $tsp1_rc -eq 0 ]] || fail "T-STALE-PR-1: expected rc 0; got $tsp1_rc"
@@ -4261,13 +4265,15 @@ exit 0
 GHSTUB
 chmod +x "$TLG2_BIN/gh"
 tlg2_rc=0
-PATH="$TLG2_BIN:$PATH" \
-MAKATO_LOOP_TEST_HOOK=1 \
-MAKATO_ORPHAN_STALE_SECS=3600 \
-MAKATO_LOOP_RECONCILE_SPECS_DIR="$TLG2_SPECS" \
-MAKATO_LOOP_CONFIG="$TLG2_CONFIG" \
-MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE="$TLG2_LABEL" \
-  "$LOOP" _test-reconcile-stale >/dev/null 2>&1 || tlg2_rc=$?
+tlg2_stderr="$(
+  PATH="$TLG2_BIN:$PATH" \
+  MAKATO_LOOP_TEST_HOOK=1 \
+  MAKATO_ORPHAN_STALE_SECS=3600 \
+  MAKATO_LOOP_RECONCILE_SPECS_DIR="$TLG2_SPECS" \
+  MAKATO_LOOP_CONFIG="$TLG2_CONFIG" \
+  MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE="$TLG2_LABEL" \
+    "$LOOP" _test-reconcile-stale >/dev/null 2>&1
+)" || tlg2_rc=$?
 [[ "$tlg2_rc" -eq 0 ]] \
   || fail "T-RECON-LABELGATE-2: function must return 0; got rc=$tlg2_rc"
 # Label must NOT have been applied when board edit failed.
@@ -5603,7 +5609,7 @@ MAKATO_LOOP_STATE_DIR="$T_R2_STATE" \
 SPECS_DIR="$T_R2_SPECS" \
 MAKATO_LOOP_STALL_DISABLE=0 \
 MAKATO_LOOP_SLEEP_CMD=true \
-MAKATO_HARNESS_BIN=true \
+MAKATO_CLAUDE_BIN=true \
   "$LOOP" _test-stall-resume 44421 "resume2-slug" "$T_R2_SPEC_DIR" "$T_R2_LOG" \
   >/dev/null 2>&1 || t_r2_rc=$?
 [[ $t_r2_rc -eq 0 ]] \
@@ -5657,7 +5663,7 @@ MAKATO_LOOP_STATE_DIR="$T_R3_STATE" \
 SPECS_DIR="$T_R3_SPECS" \
 MAKATO_LOOP_STALL_DISABLE=0 \
 MAKATO_LOOP_SLEEP_CMD=true \
-MAKATO_HARNESS_BIN=true \
+MAKATO_CLAUDE_BIN=true \
   "$LOOP" _test-stall-resume 44422 "resume3-slug" "$T_R3_SPEC_DIR" "$T_R3_LOG" \
   >/dev/null 2>&1 || t_r3_rc=$?
 [[ $t_r3_rc -eq 0 ]] \
@@ -5776,7 +5782,7 @@ MAKATO_LOOP_STATE_DIR="$T_R616_STATE" \
 SPECS_DIR="$T_R616_SPECS" \
 MAKATO_LOOP_STALL_DISABLE=0 \
 MAKATO_LOOP_SLEEP_CMD=true \
-MAKATO_HARNESS_BIN=false \
+MAKATO_CLAUDE_BIN=false \
   "$LOOP" _test-stall-resume 44616 "resume616-slug" "$T_R616_SPEC_DIR" "$T_R616_LOG" \
   >/dev/null 2>&1 || t_r616_rc=$?
 [[ $t_r616_rc -eq 0 ]] \
@@ -5944,7 +5950,7 @@ echo "  ✓ empty-key regression: new gate skipped, original WARN preserved"
 #
 # Design note: this test does NOT use MAKATO_LOOP_DRY_DISPATCH=1 — that flag
 # itself suppresses the gate for all types and would mask a regression of the
-# type:change bypass condition.  Instead we use a sentinel MAKATO_HARNESS_BIN
+# type:change bypass condition.  Instead we use a sentinel MAKATO_CLAUDE_BIN
 # that exits 0 immediately so the fork never spawns a real subprocess, while
 # the gate (and all intervening code) runs normally.
 #
@@ -5976,7 +5982,7 @@ t75_stderr="$(
   MAKATO_LOOP_GATE_DISABLE=1 \
   MAKATO_LOOP_ASSIGN_ON_DISPATCH=0 \
   MAKATO_LOOP_STALL_DISABLE=1 \
-  MAKATO_HARNESS_BIN="$t75_sentinel" \
+  MAKATO_CLAUDE_BIN="$t75_sentinel" \
   SPECS_DIR="$T75_SPECS" \
     "$LOOP" dispatch 703 2>&1 >/dev/null
 )" || fail "T75: cmd_dispatch should return 0 for type:change on miss path"
@@ -6013,6 +6019,8 @@ T79_SPECS="$T79_DIR/specs"
 mkdir -p "$T79_SPECS/472-some-feature"
 cat > "$T79_SPECS/472-some-feature/plan.md" << 'PLANEOF'
 # Plan: Some Feature
+<!-- issue: #472 -->
+
 
 ## Tasks
 
@@ -6026,7 +6034,7 @@ PLANEOF
 t79_verdict="$(
   MAKATO_LOOP_TEST_HOOK=1 \
   SPECS_DIR="$T79_SPECS" REPO_ROOT="$T79_DIR" \
-    "$LOOP" _test-pre-dispatch-plan-guard '472-some-feature'
+    "$LOOP" _test-pre-dispatch-plan-guard '472-some-feature' '472'
 )" 2>/dev/null
 
 [[ "$t79_verdict" == "valid:false:n/a" ]] \
@@ -6075,7 +6083,7 @@ chmod +x "$t80_fake_claude"
 
 t80_verdict="$(
   MAKATO_LOOP_TEST_HOOK=1 \
-  SPECS_DIR="$T80_SPECS" REPO_ROOT="$T80_DIR" MAKATO_HARNESS_BIN="$t80_fake_claude" \
+  SPECS_DIR="$T80_SPECS" REPO_ROOT="$T80_DIR" MAKATO_CLAUDE_BIN="$t80_fake_claude" \
     "$LOOP" _test-pre-dispatch-plan-guard '99-thin-feature'
 )" 2>/dev/null
 
@@ -6107,7 +6115,7 @@ chmod +x "$t81_fake_claude"
 
 t81_output="$(
   MAKATO_LOOP_TEST_HOOK=1 \
-  SPECS_DIR="$T81_SPECS" REPO_ROOT="$T81_DIR" MAKATO_HARNESS_BIN="$t81_fake_claude" \
+  SPECS_DIR="$T81_SPECS" REPO_ROOT="$T81_DIR" MAKATO_CLAUDE_BIN="$t81_fake_claude" \
     "$LOOP" _test-pre-dispatch-plan-guard '55-bad-feature' 2>/tmp/t81_stderr_$$
 )"
 
@@ -6187,6 +6195,42 @@ t83_verdict="$(
 
 rm -rf "$T83_DIR"
 echo "T83 passed"
+
+# ---------------------------------------------------------------------------
+# Plan ownership regression: a valid plan fingerprinted for another issue must
+# not be accepted by the pre-dispatch guard.
+# ---------------------------------------------------------------------------
+echo "=== T-plan-owner: pre-dispatch guard rejects foreign plan fingerprint ==="
+T_PLAN_OWNER_DIR="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-plan-owner"
+T_PLAN_OWNER_SPECS="$T_PLAN_OWNER_DIR/specs"
+mkdir -p "$T_PLAN_OWNER_SPECS/147-foreign-feature"
+cat >"$T_PLAN_OWNER_SPECS/147-foreign-feature/plan.md" <<'PLANEOF'
+# Plan: Foreign Feature
+
+<!-- issue: #147 -->
+
+## Tasks
+
+- Task 1: implement the foreign feature
+
+## Acceptance criteria
+
+- The foreign feature works
+PLANEOF
+T_PLAN_OWNER_CLAUDE="$T_PLAN_OWNER_DIR/fake-claude"
+mkdir -p "$T_PLAN_OWNER_DIR"
+printf '#!/usr/bin/env bash\nexit 1\n' >"$T_PLAN_OWNER_CLAUDE"
+chmod +x "$T_PLAN_OWNER_CLAUDE"
+T_PLAN_OWNER_VERDICT="$(
+  MAKATO_LOOP_TEST_HOOK=1 \
+  SPECS_DIR="$T_PLAN_OWNER_SPECS" REPO_ROOT="$T_PLAN_OWNER_DIR" \
+  MAKATO_HARNESS_BIN="$T_PLAN_OWNER_CLAUDE" \
+    "$LOOP" _test-pre-dispatch-plan-guard '147-foreign-feature' '148'
+)" 2>/dev/null
+[[ "$T_PLAN_OWNER_VERDICT" == "invalid:true:error" ]] \
+  || fail "T-plan-owner: foreign plan fingerprint was accepted: '$T_PLAN_OWNER_VERDICT'"
+rm -rf "$T_PLAN_OWNER_DIR"
+echo "T-plan-owner passed"
 
 # ---------------------------------------------------------------------------
 # T84–T89: orphaned specs/ folder pruning (_reap_orphan_specs)
@@ -6932,7 +6976,7 @@ chmod +x "$t127_fake_claude"
 t127_stderr_file="/tmp/t127_stderr_$$"
 t127_verdict="$(
   MAKATO_LOOP_TEST_HOOK=1 \
-  SPECS_DIR="$T127_SPECS" REPO_ROOT="$T127_DIR" MAKATO_HARNESS_BIN="$t127_fake_claude" \
+  SPECS_DIR="$T127_SPECS" REPO_ROOT="$T127_DIR" MAKATO_CLAUDE_BIN="$t127_fake_claude" \
     "$LOOP" _test-pre-dispatch-plan-guard '127-bad-skill' 2>"$t127_stderr_file"
 )"
 t127_stderr="$(cat "$t127_stderr_file")"
@@ -7436,7 +7480,7 @@ jq -n '{github_project:{owner:"macatocz",number:4,host:"github.com",project_node
 # Tick 1: rate-budget exhausted → poll_skipped_rate_budget:true stamped
 MAKATO_LOOP_GH_OVERRIDE='' MAKATO_LOOP_STATE_DIR="$TRG5_STATE" \
   MAKATO_LOOP_CONFIG="$TRG5_CFG" MAKATO_LOOP_SLEEP_CMD=true \
-  MAKATO_LOOP_GRAPHQL_TEST_CMD='echo "{\"resources\":{\"graphql\":{\"remaining\":200,\"reset\":9999999999}}}"' \
+  MAKATO_LOOP_GRAPHQL_TEST_CMD='echo "{\"resources\":{\"graphql\":{\"remaining\":100,\"reset\":9999999999}}}"' \
   "$LOOP" run --once --status Ready 2>/dev/null || true
 jq -e '.poll_skipped_rate_budget == true' "$TRG5_STATE/loop-status.json" >/dev/null \
   || fail "T-RG-5: precondition: poll_skipped_rate_budget must be true after rate-skip tick"
@@ -7463,7 +7507,7 @@ jq -n '{github_project:{owner:"macatocz",number:4,host:"github.com",project_node
 for _i in 1 2 3; do
   MAKATO_LOOP_GH_OVERRIDE='' MAKATO_LOOP_STATE_DIR="$TCB1_STATE" \
     MAKATO_LOOP_CONFIG="$TCB1_CFG" MAKATO_LOOP_SLEEP_CMD=true \
-    MAKATO_LOOP_GRAPHQL_TEST_CMD='echo "{\"resources\":{\"graphql\":{\"remaining\":200,\"reset\":9999999999}}}"' \
+    MAKATO_LOOP_GRAPHQL_TEST_CMD='echo "{\"resources\":{\"graphql\":{\"remaining\":100,\"reset\":9999999999}}}"' \
     MAKATO_LOOP_RATE_SKIP_THRESHOLD=3 MAKATO_LOOP_RATE_SKIP_BACKOFF=0 \
     "$LOOP" run --once --status Ready 2>/tmp/tcb1_err_$_i || true
 done
@@ -7485,7 +7529,7 @@ jq -n '{github_project:{owner:"macatocz",number:4,host:"github.com",project_node
 for _i in 1 2; do
   MAKATO_LOOP_GH_OVERRIDE='' MAKATO_LOOP_STATE_DIR="$TCB2_STATE" \
     MAKATO_LOOP_CONFIG="$TCB2_CFG" MAKATO_LOOP_SLEEP_CMD=true \
-    MAKATO_LOOP_GRAPHQL_TEST_CMD='echo "{\"resources\":{\"graphql\":{\"remaining\":200,\"reset\":9999999999}}}"' \
+    MAKATO_LOOP_GRAPHQL_TEST_CMD='echo "{\"resources\":{\"graphql\":{\"remaining\":100,\"reset\":9999999999}}}"' \
     MAKATO_LOOP_RATE_SKIP_THRESHOLD=3 MAKATO_LOOP_RATE_SKIP_BACKOFF=0 \
     "$LOOP" run --once --status Ready 2>/dev/null || true
 done
@@ -7528,7 +7572,7 @@ print(json.dumps({'schema':'workflow-state','version':'1.0','issue_number':9901,
 TSTALE_ERR="$(MAKATO_LOOP_GH_OVERRIDE='' MAKATO_LOOP_STATE_DIR="$TSTALE_STATE" \
   MAKATO_LOOP_CONFIG="$TSTALE_CFG" MAKATO_LOOP_SLEEP_CMD=true \
   MAKATO_LOOP_SPECS_DIR="$TSTALE_STATE/specs" \
-  MAKATO_LOOP_GRAPHQL_TEST_CMD='echo "{\"resources\":{\"graphql\":{\"remaining\":200,\"reset\":9999999999}}}"' \
+  MAKATO_LOOP_GRAPHQL_TEST_CMD='echo "{\"resources\":{\"graphql\":{\"remaining\":100,\"reset\":9999999999}}}"' \
   MAKATO_LOOP_POLL_TEST_CMD='echo "{\"items\":[]}"' \
   MAKATO_LOOP_STALE_REAP_TEST_CMD='echo "STALE-ITEM-LIST-REACHED"' \
   "$LOOP" run --once --status Ready 2>&1 >/dev/null || true)"

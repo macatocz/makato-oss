@@ -6,7 +6,7 @@ description: >-
   requirements diff with side-by-side comparison, identified gaps, open
   questions, and inconsistencies. Dispatched by analyze skill.
 disallowedTools: Write, Edit, Bash, NotebookEdit, WebSearch
-maxTurns: 30
+maxTurns: 20
 permissionMode: bypassPermissions
 ---
 

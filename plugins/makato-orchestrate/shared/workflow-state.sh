@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Manage specs/<key>-<slug>/workflow-state-<issue>.json for the PO-agent outer loop.
+# Manage specs/<key>-<slug>/workflow-state-<issue>.json for the PO-agent outer
+# loop and interactive build sessions.
 #
 # Per-issue file layout — see #173. Multiple GitHub issues can share a single
 # story-level spec folder (e.g. `specs/agent-skill-routing/` covers #143–#147).
@@ -67,54 +68,41 @@
 # precedent.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 SUBCMD="${1:?subcommand required: init|read|write|patch|append-lesson|append-halt|bump-structural-halt|recall-lessons|summarise-lessons|append-decision}"
 # recall-lessons takes REPO as positional #2 (not KEY) — every other subcommand
 # takes KEY. Resolve generically and have each subcommand re-bind the variable.
 ARG2="${2:?second arg required (KEY for most subcommands, REPO for recall-lessons)}"
 KEY="$ARG2"
 
-# Resolve the target repository explicitly when the orchestrator is launched
-# from a suite checkout or another directory. Without this override,
-# worktree-local callers resolve state relative to the ambient git checkout.
-if [[ -n "${MAKATO_TARGET_REPO_ROOT:-}" ]]; then
-  REPO_ROOT="$(cd "$MAKATO_TARGET_REPO_ROOT" 2>/dev/null && pwd -P)" || {
-    echo "workflow-state: target repository root is not a directory: $MAKATO_TARGET_REPO_ROOT" >&2
-    exit 1
-  }
-  git -C "$REPO_ROOT" rev-parse --show-toplevel >/dev/null 2>&1 || {
-    echo "workflow-state: target repository root is not a git checkout: $REPO_ROOT" >&2
-    exit 1
-  }
+# Resolve to the MAIN checkout's repo root — NOT the per-run worktree. The
+# entire autonomous run lives in a git worktree (NEVER 10), and specs/ is
+# gitignored, so a fresh `git worktree add` has no specs/ content. A bare
+# `git rev-parse --show-toplevel` here would resolve state files under the
+# worktree copy of specs/, while the sibling build-log.sh (which uses
+# --git-common-dir) writes build.jsonl under the main checkout — splitting the
+# state and audit trail across two disconnected trees (#282). Mirror
+# build-log.sh:34-42 exactly: derive REPO_ROOT from the COMMON git dir, which
+# always points at the main repo's .git regardless of the caller's CWD.
+GIT_COMMON_DIR="$(git rev-parse --git-common-dir 2>/dev/null || true)"
+if [[ -n "$GIT_COMMON_DIR" ]]; then
+  # `--git-common-dir` may be relative to CWD; absolutise via the parent dir.
+  REPO_ROOT="$(cd "$GIT_COMMON_DIR/.." && pwd)"
 else
-  GIT_COMMON_DIR="$(git rev-parse --git-common-dir 2>/dev/null || true)"
-  if [[ -n "$GIT_COMMON_DIR" ]]; then
-    # `--git-common-dir` may be relative to CWD; absolutise via the parent dir.
-    REPO_ROOT="$(cd "$GIT_COMMON_DIR/.." && pwd)"
-  else
-    # Outside a git repo entirely — degrade to the legacy behaviour so the
-    # script never crashes in test fixtures or scratch dirs.
-    REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-  fi
+  # Outside a git repo entirely — degrade to the legacy behaviour so the
+  # script never crashes in test fixtures or scratch dirs.
+  REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 fi
 # Allow SPECS_DIR env override for offline smoke tests (mirrors the
-# MAKATO_MEMORY_ROOT override in recall-lessons). Production callers must not
-# set this — REPO_ROOT/specs is the canonical location.
+# MAKATO_MEMORY_ROOT override in recall-lessons). Production callers
+# must NOT set this — REPO_ROOT/specs is the canonical location.
 SPECS_DIR="${SPECS_DIR:-$REPO_ROOT/specs}"
-
-# Resolve suite-owned files from this installed plugin, never from the
-# consumer repository. The helper may be invoked directly outside a source
-# checkout, so its own installation path is the reliable schema fallback.
-ORCHESTRATE_ROOT="${MAKATO_ORCHESTRATE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)}"
-SCHEMA_PATH="${SCHEMA_PATH:-$ORCHESTRATE_ROOT/skills/workflow-state/references/workflow-state.schema.json}"
-
-# build-log.sh is optional for direct orchestrate use. Prefer the explicit
-# installed build root; source-checkout sibling fallback is development-only.
-BUILD_LOG_PATH=""
-if [[ -n "${MAKATO_BUILD_ROOT:-}" && -x "$MAKATO_BUILD_ROOT/shared/build-log.sh" ]]; then
-  BUILD_LOG_PATH="$MAKATO_BUILD_ROOT/shared/build-log.sh"
-elif [[ -x "$ORCHESTRATE_ROOT/../makato-build/shared/build-log.sh" ]]; then
-  BUILD_LOG_PATH="$ORCHESTRATE_ROOT/../makato-build/shared/build-log.sh"
+DEFAULT_SCHEMA_PATH="$SCRIPT_DIR/../skills/workflow-state/references/workflow-state.schema.json"
+if [[ ! -f "$DEFAULT_SCHEMA_PATH" ]]; then
+  DEFAULT_SCHEMA_PATH="$REPO_ROOT/plugins/makato-orchestrate/skills/workflow-state/references/workflow-state.schema.json"
 fi
+SCHEMA_PATH="${SCHEMA_PATH:-$DEFAULT_SCHEMA_PATH}"
 
 # ---------------------------------------------------------------------------
 # Spec-folder resolution (duplicated from build-log.sh — intentional).
@@ -748,7 +736,7 @@ case "$SUBCMD" in
     # never fail the state mutation). Mirrors the dual-write convention in
     # halt-conditions.md: halt_audit[] for live state, orchestrate.jsonl for
     # the cross-session audit trail.
-    if [[ -n "$BUILD_LOG_PATH" ]]; then
+    if [[ -x "$REPO_ROOT/plugins/makato-build/shared/build-log.sh" ]]; then
       LOG_ENTRY="$(jq -n \
         --arg ts "$NOW" \
         --argjson issue "$ISSUE_NUMBER" \
@@ -760,7 +748,7 @@ case "$SUBCMD" in
           status: "warn",
           data: {halt_code: $code, origin: (if $origin == "" then null else $origin end),
                  structural_halt_cycles_before: $before, structural_halt_cycles: $after}}')"
-      "$BUILD_LOG_PATH" "$KEY" "$LOG_ENTRY" 2>/dev/null || true
+      "$REPO_ROOT/plugins/makato-build/shared/build-log.sh" "$KEY" "$LOG_ENTRY" 2>/dev/null || true
     fi
 
     echo "$NEXT"

@@ -104,10 +104,6 @@ Your dispatch prompt provides:
 | `REPO`                 | yes      | `owner/name` form                                                                                                                                                                                                                                                                                                                                                                    |
 | `BRANCH`               | yes      | Feature branch. May not yet exist — Step 2b probes`git ls-remote origin <BRANCH>` and dispatches `shared/worktree.sh create --new-branch` when missing (see #170). When it exists (interactively kicked off via `build-start`), the standard `create` path checks it out. Either way the main-repo working tree is NEVER touched.                                             |
 | `REPO_ROOT`            | yes      | Absolute path to the target repository root                                                                                                                                                                                                                                                                                                                                            |
-| `MAKATO_BUILD_ROOT`    | yes      | Absolute installed makato-build plugin root; resolved by the orchestrator/runtime, never from the target repository CWD                                                                                                                                                                                                                                                                                         |
-| `MAKATO_ORCHESTRATE_ROOT` | yes   | Absolute installed makato-orchestrate plugin root for optional workflow-state/scout helpers                                                                                                                                                                                                                                                                                                                    |
-| `MAKATO_PLAN_ROOT`     | no       | Absolute installed makato-plan plugin root for optional schema/artifact validation                                                                                                                                                                                                                                                                                                                               |
-| `MAKATO_TARGET_REPO_ROOT` | no | Same absolute path as `REPO_ROOT` when supplied; Step 0 defaults it to `REPO_ROOT` so installed-suite dispatches remain pinned to the target checkout. |
 | `BUDGET_LIMIT_TOKENS`  | no       | Per-task ceiling; default`500000` (HALT-007 fires here)                                                                                                                                                                                                                                                                                                                              |
 | `MAX_OUTER_ITERATIONS` | no       | Default`3` (HALT-008 fires here)                                                                                                                                                                                                                                                                                                                                                     |
 
@@ -116,50 +112,25 @@ with `errors: ["missing input: <field>"]`. Issue carrying
 `needs-human-review` → R1 `failure` with
 `errors: ["issue has needs-human-review"]`. Neither condition is a HALT.
 
-### Installed-root helper rule
-
-The command examples below use `shared/...` as shorthand only. Before executing
-any helper, expand it to the installed plugin root:
-
-```bash
-ORCH_HELPERS="$MAKATO_ORCHESTRATE_ROOT/shared"
-BUILD_HELPERS="$MAKATO_BUILD_ROOT/shared"
-```
-
-Run orchestrate helpers as `"$ORCH_HELPERS/<name>.sh"` and build helpers as
-`"$BUILD_HELPERS/<name>.sh"`. Run suite scripts from
-`"$MAKATO_BUILD_ROOT/..."` or `"$MAKATO_ORCHESTRATE_ROOT/..."` respectively.
-Never resolve these files from `REPO_ROOT`, the current working directory, or a
-consumer repository's `plugins/` directory.
-
 ## Process
 
-1. Pin the session to the target repository before any relative path or git
-   operation:
+### Step 0 — Pre-flight
 
-   ```bash
-   cd "$REPO_ROOT"
-   export MAKATO_TARGET_REPO_ROOT="$REPO_ROOT"
-   ```
-
-   The orchestrator may be installed in a different checkout. Every
-   target-repository command MUST run from `REPO_ROOT`; never inspect or mutate
-   the suite checkout's current branch.
-
-2. Read state via `"$ORCH_HELPERS/workflow-state.sh" read <KEY> <ISSUE_NUMBER>` and capture
+1. Read state via `shared/workflow-state.sh read <KEY> <ISSUE_NUMBER>` and capture
    whether `workflow-state.json` already existed (used for the
    `resumed` flag).
-3. Append the session-start entry to `orchestrate.jsonl`:
+2. Append the session-start entry to `orchestrate.jsonl`:
 
    ```json
    {"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"session","status":"start","data":{"key":"<KEY>","repo":"<REPO>","branch":"<BRANCH>","resumed":<bool>,"session_count":<S>}}
    ```
 
-4. Run `kill-switch poll <KEY>`. Non-zero exit means the operator
+3. Run `kill-switch poll <KEY>`. Non-zero exit means the operator
    dropped a HALT before dispatch — read `halt_audit[-1]`, emit
    session-end JSONL (Step 7), return R1 `failure`. The kill-switch has
    already written the audit and applied `needs-human-review` where
    applicable.
+
 ### Step 1 — Resolve the spec folder
 
 Prefix-match `specs/<KEY>-*/`. A missing folder or a missing / stub
@@ -266,7 +237,7 @@ tier-based fallback (`materialize` for `plan-tier:light`, else `halt`).
 before continuing to Step 2 (best-effort):
 
 ```bash
-  "$ORCH_HELPERS/progress-comment.sh" note "$KEY" "$ISSUE_NUMBER" "$REPO" \
+shared/progress-comment.sh note "$KEY" "$ISSUE_NUMBER" "$REPO" \
   --text "Plan validated — proceeding to build-refine" 2>/dev/null || \
   echo "[po-agent WARN] progress-comment failed; continuing"
 ```
@@ -297,7 +268,7 @@ engine), do NOT retry — fall through to the `halt` path. No unbounded loop.
 3. **Narrate the materialize attempt** into the live issue comment (best-effort, must not gate the dispatch):
 
    ```bash
-     "$ORCH_HELPERS/progress-comment.sh" note "$KEY" "$ISSUE_NUMBER" "$REPO" \
+   shared/progress-comment.sh note "$KEY" "$ISSUE_NUMBER" "$REPO" \
      --text "No plan found — materialising via build-refine (HALT-006 path)" 2>/dev/null || \
      echo "[po-agent WARN] progress-comment failed; continuing"
    ```
@@ -307,10 +278,8 @@ engine), do NOT retry — fall through to the `halt` path. No unbounded loop.
    activates autonomous mode across the subprocess boundary (§ *Cross-skill
    propagation* in `plugins/makato-build/AUTONOMOUS-MODE.md`) — Step 1
    work-item-key uses the arg, Step 11 plan-review is skipped, and the Step 4
-   key-miss branch HALTs instead of prompting. Forward `WORKTREE_PATH`,
-   `MAKATO_BUILD_ROOT`, `MAKATO_ORCHESTRATE_ROOT`, and `MAKATO_PLAN_ROOT`
-   (when present). Resolve `WORKTREE_PATH` via `shared/worktree.sh path <KEY>`
-   — but note the plan write
+   key-miss branch HALTs instead of prompting. Forward `WORKTREE_PATH`
+   (resolve via `shared/worktree.sh path <KEY>` — but note the plan write
    targets `$REPO_ROOT/specs/<KEY>-*/plan-<N>.md` in the MAIN checkout, since
    `specs/` is gitignored in the worktree; `WORKTREE_PATH` is forwarded to
    satisfy the mandatory-in-autonomous falsy-check). Parse the skill's R1 per
@@ -323,7 +292,7 @@ engine), do NOT retry — fall through to the `halt` path. No unbounded loop.
    caught here):
 
    ```bash
-   GUARD_OUT="$(scripts/validate-plan-body.sh "$PLAN_PATH" 2>/dev/null || true)"
+   GUARD_OUT="$(scripts/validate-plan-body.sh "$PLAN_PATH" "$ISSUE_NUMBER" 2>/dev/null || true)"
    GUARD_VERDICT="${GUARD_OUT%% *}"   # valid | invalid
    ```
 
@@ -361,7 +330,7 @@ engine), do NOT retry — fall through to the `halt` path. No unbounded loop.
 3. **Narrate the materialize attempt** into the live issue comment (best-effort, must not gate the dispatch):
 
    ```bash
-   "$ORCH_HELPERS/progress-comment.sh" note "$KEY" "$ISSUE_NUMBER" "$REPO" \
+   shared/progress-comment.sh note "$KEY" "$ISSUE_NUMBER" "$REPO" \
      --text "No plan found — materialising via light-planner (HALT-006 path)" 2>/dev/null || \
      echo "[po-agent WARN] progress-comment failed; continuing"
    ```
@@ -390,7 +359,7 @@ engine), do NOT retry — fall through to the `halt` path. No unbounded loop.
    plan is caught here):
 
    ```bash
-   GUARD_OUT="$(scripts/validate-plan-body.sh "$PLAN_PATH" 2>/dev/null || true)"
+   GUARD_OUT="$(scripts/validate-plan-body.sh "$PLAN_PATH" "$ISSUE_NUMBER" 2>/dev/null || true)"
    GUARD_VERDICT="${GUARD_OUT%% *}"   # valid | invalid
    ```
 
@@ -443,7 +412,7 @@ On a fresh run (not a resume), open the live issue comment with a
 first note (best-effort — see § *Progress comment*):
 
 ```bash
-  "$ORCH_HELPERS/progress-comment.sh" note <KEY> <ISSUE_NUMBER> <REPO> \
+shared/progress-comment.sh note <KEY> <ISSUE_NUMBER> <REPO> \
   --text "Autonomous run started for issue #<N> — the agent will now walk the plan step by step and log what it does here."
 ```
 
@@ -453,24 +422,24 @@ Probe the remote for the feature branch **without any local git-branch
 mutation** (#170 hard ban — see § *Rules*):
 
 ```bash
-if git -C "$REPO_ROOT" ls-remote --exit-code origin "$BRANCH" >/dev/null 2>&1; then
+if git ls-remote --exit-code origin "$BRANCH" >/dev/null 2>&1; then
   # Branch already exists on the remote (build-start interactive path).
-  "$ORCH_HELPERS/worktree.sh" create "$KEY" "$ISSUE_NUMBER" "$REPO" "$BRANCH"
+  "$WORKTREE_HELPER" create "$KEY" "$ISSUE_NUMBER" "$REPO" "$BRANCH" 2>&1
 else
   # Branch does not exist. Do NOT `git checkout -b` or `git branch`
   # against the main repo — that destroys workspace isolation (#170).
   # Delegate to the atomic --new-branch mode, which runs
-  # `git worktree add -b $BRANCH <path> <remote-default>` and pushes -u
+  # `git worktree add -b $BRANCH <path> origin/main` and pushes -u
   # from inside the fresh worktree.
-  "$ORCH_HELPERS/worktree.sh" create --new-branch "$KEY" "$ISSUE_NUMBER" "$REPO" "$BRANCH"
+  "$WORKTREE_HELPER" create --new-branch "$KEY" "$ISSUE_NUMBER" "$REPO" "$BRANCH" 2>&1
 fi
 ```
 
 The helper emits the event marker (`worktree_created` |
 `worktree_resumed`) on line 1 and the absolute worktree path on line 2,
 and patches `.worktree_path` in state. The `--new-branch` variant also
-pushes the new branch with `-u` from inside the fresh worktree so no
-subsequent step ever needs to `cd` into the main repo.
+creates and pushes the branch. No subsequent step ever needs to `cd` into the
+main repo.
 
 Emit one JSONL entry:
 
@@ -483,11 +452,11 @@ After the worktree helper returns, narrate the event into the live issue comment
 
 ```bash
 if [[ "$WORKTREE_EVENT" == "worktree_created" ]]; then
-  "$ORCH_HELPERS/progress-comment.sh" note "$KEY" "$ISSUE_NUMBER" "$REPO" \
+  shared/progress-comment.sh note "$KEY" "$ISSUE_NUMBER" "$REPO" \
     --text "Worktree ready (branch: $BRANCH)" 2>/dev/null || \
     echo "[po-agent WARN] progress-comment failed; continuing"
 else
-  "$ORCH_HELPERS/progress-comment.sh" note "$KEY" "$ISSUE_NUMBER" "$REPO" \
+  shared/progress-comment.sh note "$KEY" "$ISSUE_NUMBER" "$REPO" \
     --text "Resumed existing worktree (branch: $BRANCH)" 2>/dev/null || \
     echo "[po-agent WARN] progress-comment failed; continuing"
 fi
@@ -518,9 +487,9 @@ compat: omitting `--bundles` means no filter):
 
 ```bash
 if [[ -n "$BUNDLES_CSV" ]]; then
-  PRIOR_LESSONS="$("$ORCH_HELPERS/workflow-state.sh" recall-lessons <REPO> 3 --bundles "$BUNDLES_CSV")"
+  PRIOR_LESSONS="$(shared/workflow-state.sh recall-lessons <REPO> 3 --bundles "$BUNDLES_CSV")"
 else
-  PRIOR_LESSONS="$("$ORCH_HELPERS/workflow-state.sh" recall-lessons <REPO> 3)"
+  PRIOR_LESSONS="$(shared/workflow-state.sh recall-lessons <REPO> 3)"
 fi
 ```
 
@@ -541,11 +510,11 @@ After emitting the JSONL, narrate the recall into the live issue comment (best-e
 
 ```bash
 if [[ -n "$BUNDLES_CSV" ]]; then
-  "$ORCH_HELPERS/progress-comment.sh" note "$KEY" "$ISSUE_NUMBER" "$REPO" \
+  shared/progress-comment.sh note "$KEY" "$ISSUE_NUMBER" "$REPO" \
     --text "Recalling prior lessons for tech: $BUNDLES_CSV" 2>/dev/null || \
     echo "[po-agent WARN] progress-comment failed; continuing"
 else
-  "$ORCH_HELPERS/progress-comment.sh" note "$KEY" "$ISSUE_NUMBER" "$REPO" \
+  shared/progress-comment.sh note "$KEY" "$ISSUE_NUMBER" "$REPO" \
     --text "Recalling prior lessons (no tech-label filter)" 2>/dev/null || \
     echo "[po-agent WARN] progress-comment failed; continuing"
 fi
@@ -634,9 +603,6 @@ Every dispatch context bundle carries:
 - `WORKTREE_PATH` — resolve via `shared/worktree.sh path <KEY>`.
   Consumers `cd` into it before any file operation. See § *Worktree
   lifecycle*.
-- `MAKATO_BUILD_ROOT` — absolute installed build-plugin root.
-- `MAKATO_ORCHESTRATE_ROOT` — absolute installed orchestrate-plugin root.
-- `MAKATO_PLAN_ROOT` — optional absolute installed plan-plugin root.
 - `PRIOR_LESSONS` — the Step 2c JSON array (may be `[]`). Advisory
   context; never triggers HALT, never overrides `plan-<ISSUE_NUMBER>.md`.
 
@@ -648,7 +614,7 @@ degrades to a coder dispatch without `SCOUT_SUMMARY` — never a HALT.
 (best-effort — see § *Progress comment*):
 
 ```bash
-  "$ORCH_HELPERS/progress-comment.sh" start <KEY> <ISSUE_NUMBER> <REPO> \
+shared/progress-comment.sh start <KEY> <ISSUE_NUMBER> <REPO> \
   --skill "build-implement-tdd" --agent "coder" \
   --input "task plan (plan-<ISSUE_NUMBER>.md), working copy on branch <BRANCH>" \
   --goal "write and test the code per the plan (test-driven)"
@@ -731,7 +697,7 @@ JSONL per dispatch (JSONL `status` maps R1 status: `success`→`ok`,
 from `r1.summary`:
 
 ```bash
-  "$ORCH_HELPERS/progress-comment.sh" done <KEY> <ISSUE_NUMBER> <REPO> \
+shared/progress-comment.sh done <KEY> <ISSUE_NUMBER> <REPO> \
   --skill "build-implement-tdd" \
   --result "<K>/<N> tasks complete" \
   --summary "<r1.summary in plain English>"
@@ -822,7 +788,7 @@ row). The `gh`-only polls (CI, review) are narrated with a single
    Step 4f (`build-refine` + increment `outer_iteration`), re-enter
    Step 4.
 1a. **Spec-level verify.** After `build-verify` succeeds, dispatch
-   `"$MAKATO_BUILD_ROOT/skills/build-verify-spec/references/build-verify-spec.sh" <KEY>`
+   `plugins/makato-build/skills/build-verify-spec/references/build-verify-spec.sh <KEY>`
    (narrate START with `--skill "build-verify-spec" --agent "(script)"
    --goal "confirm implementation satisfies plan.md and stories.json"`).
    The script reads `plan-<N>.md` checkboxes (COMPLETENESS), `stories.json`
@@ -997,7 +963,7 @@ row). The `gh`-only polls (CI, review) are narrated with a single
 
    ```bash
    MAIN_ROOT="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)"
-   "$MAKATO_ORCHESTRATE_ROOT/scripts/promote-lessons.sh" \
+   plugins/makato-orchestrate/scripts/promote-lessons.sh \
      "<ISSUE_NUMBER>" \
      "${MAIN_ROOT}/specs" \
      "${MAIN_ROOT}/.makato/memory/procedural.jsonl"
@@ -1141,7 +1107,7 @@ the session-end entry, if this run is terminating on a HALT (`data.halt_code`
 is set on the failure R1), call:
 
 ```bash
-"$ORCH_HELPERS/workflow-state.sh" \
+plugins/makato-orchestrate/shared/workflow-state.sh \
   bump-structural-halt <KEY> <ISSUE_NUMBER> <HALT_CODE> [<ORIGIN>]
 ```
 

@@ -121,6 +121,13 @@ makato-plan/
 │   ├── stress-test-artifact/
 │   ├── issue-to-project/
 │   └── to-issues/
+├── config/
+│   ├── general.yml                ← central plugin config with inline comments (TeamSize, Status, agents, …)
+│   ├── skill-bundles.yml
+│   └── task-skill-map.json
+├── schemas/
+│   ├── config.schema.json
+│   └── general.config.schema.json ← JSON Schema for config/general.yml
 ├── shared/
 │   ├── refinement-contract.md
 │   ├── repositories-yml-schema.md
@@ -131,6 +138,45 @@ makato-plan/
 ├── CHANGELOG.md
 └── README.md
 ```
+
+## General Config — `config/general.yml`
+
+Central configuration file for all makato-plan runtime behavior. Schema: `schemas/general.config.schema.json`.
+
+**Loading contract:** Skills read `config/general.yml` at the start of execution. Changes take effect on the next skill invocation. If the file is absent or unreadable, skills fall back to hardcoded defaults (equivalent to: `TeamSize=Solo`, `Status=Development`).
+
+### TeamSize — `"Solo"` (default) | `"Team"`
+
+Controls team/ownership behavior across the entire pipeline.
+
+| Aspect | Solo | Team |
+|--------|------|------|
+| Ownership questions (who is the lead PO, who owns delivery, which team) | **Skipped** — all questions about people and team assignment are suppressed | Active — full stakeholder and team identification |
+| `teams[]` in stories.json | Defaults to `["solo"]`, not asked | Mandatory per-story, asked in decompose Round 1 |
+| Team-repository mapping | Skipped (decompose does not load `references/team-repository-mapping.md`) | Loaded and applied at Step 2.2 |
+| Review output | **Markdown only** — numbered sections (§1, §1.1, §1.2 …) so reviewer can reference by number. No HTML generated. | HTML interactive reviews generated and opened in browser |
+| doc-writer agent MODE | `md-review` — generates numbered MD review | `html-review` — generates interactive HTML |
+
+### Status — `"Development"` (default) | `"Production"`
+
+Controls whether deployment, rollout, and release-planning sections are included.
+
+| Aspect | Development (Dev) | Production (Prod) |
+|--------|-------------------|-------------------|
+| create-architecture: Deployment section | **Skipped** (strategy, environments, rollback, infra) | Full section generated |
+| create-architecture: Migration section | **Skipped** (data migration, backwards compat, rollback steps) | Full section generated |
+| create-prd: Phased Rollout section | **Skipped** | Full phase planning with exit criteria |
+| create-prd: Delivery Recommendations | **Skipped** | Scope estimation emitted |
+| decompose: Feature Toggle capture (Round 2.5) | **Skipped** | Active — toggle name, default state, gating stories |
+| to-issues: plan-template deployment fields | Left empty | Fully populated |
+
+**Aliases:** `"Dev"` = `"Development"`, `"Prod"` = `"Production"`.
+
+### Other settings
+
+See `config/general.yml` for inline comments on every property, and `schemas/general.config.schema.json` for the full validation schema.
+
+**Note:** Model selection (which LLM to use per skill/agent) is NOT part of this config. makato-plan is LLM-agnostic — model assignment is handled by the runtime environment, not by the plugin config.
 
 ## Versioning
 

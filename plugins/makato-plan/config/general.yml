@@ -1,0 +1,141 @@
+# =============================================================================
+# makato-plan — General Plugin Configuration
+# =============================================================================
+# All settings that influence skill execution and review output.
+# Loaded by skills at runtime. Changes take effect on next skill invocation.
+# Schema: ../schemas/general.config.schema.json
+# =============================================================================
+
+
+# --- Core behavioral modes ---------------------------------------------------
+
+# Who is working on this project?
+#   Solo  → skip all ownership/team questions (who is PO, who owns delivery,
+#           which team works on this); generate numbered Markdown reviews only
+#           (§1, §1.1 …), no HTML reviews.
+#   Team  → full stakeholder + team identification; HTML interactive reviews
+#           with feedback textarea opened in the browser.
+TeamSize: Solo
+
+# What lifecycle stage is the project in?
+#   Development (Dev)  → focus on technical solution planning only.
+#                         Deployment, rollout, migration, and feature-toggle
+#                         sections are SKIPPED in all skills.
+#   Production (Prod)  → full pipeline: all deployment, phased rollout,
+#                         migration, and feature-toggle sections are active.
+Status: Development
+
+
+# --- Agent runtime limits ----------------------------------------------------
+# Controls how much work each sub-agent can do per invocation.
+# These are hard caps — agents stop and return whatever they have when reached.
+
+agents:
+
+  # Read-only agent: scans context/ folders for files relevant to the feature.
+  context-scout:
+    tokenBudget: 2000   # Max tokens returned per dispatch. Range: 500–10000.
+
+  # Writes review documents (MD or HTML) and final markdown artifacts.
+  doc-writer:
+    maxTurns: 25        # Max LLM round-trips to finish writing. Range: 5–50.
+
+  # Three Amigos reviewer: Lead Developer perspective.
+  # Challenges technical feasibility, dependencies, estimates.
+  dev-reviewer:
+    maxTurns: 10        # Max LLM round-trips per review session. Range: 3–25.
+    maxFindings: 3      # Max issues raised per story. Keeps reviews focused. Range: 1–10.
+
+  # Three Amigos reviewer: Product Owner perspective.
+  # Challenges value delivery, scope boundaries, user outcomes.
+  po-reviewer:
+    maxTurns: 10        # Range: 3–25.
+    maxFindings: 3      # Range: 1–10.
+
+  # Three Amigos reviewer: QA Engineer perspective.
+  # Challenges testability, finds edge cases, drafts Gherkin scenarios.
+  qa-reviewer:
+    maxTurns: 10          # Range: 3–25.
+    maxFindings: 3        # Range: 1–10.
+    maxGherkinScenarios: 3  # Max draft Gherkin scenarios written per story. Range: 1–10.
+
+  # Generates interactive single-file HTML prototypes from UX/design context.
+  prototype-builder:
+    maxTurns: 30          # Higher because generation uses an N+3 iterative pass strategy. Range: 10–60.
+    fileSizeWarningKB: 500  # Warn when prototype file exceeds this size in KB. Range: 100–2000.
+
+
+# --- Brainstorming defaults --------------------------------------------------
+
+brainstorming:
+  # Default session depth when the user does not specify.
+  #   quick    → ~15 min, 1 technique
+  #   standard → ~30 min, 2–3 techniques
+  #   deep     → 60+ min, multiple techniques
+  defaultSessionDepth: standard
+
+
+# --- to-issues defaults ------------------------------------------------------
+# Skill that creates GitHub issues from stories.json.
+# CLI flags (--dry-run, --autonomous) override these at runtime.
+
+toIssues:
+  # interactive  → user confirms label table before each issue is created.
+  # autonomous   → no prompts; all decisions applied silently with [to-issues:auto] log prefix.
+  mode: interactive
+
+  # false → real GitHub issues are created.
+  # true  → dry run: no gh issue create calls, synthetic issue numbers assigned.
+  #          Equivalent to DRY_RUN=1 env var. Useful for previewing output.
+  dryRun: false
+
+  # Only github.com is supported. Enterprise GitHub hosts are blocked in to-issues v3.
+  ghHost: github.com
+
+
+# --- issue-to-project defaults -----------------------------------------------
+# Skill that syncs created-issues.json to a GitHub Projects v2 board.
+
+issueToProject:
+  # manual      → issues stay in Todo column until explicitly moved by a human.
+  # autonomous  → issues with no status label are auto-promoted to Ready column.
+  readyQueueMode: manual
+
+  # false → board ID is verified on first call (recommended).
+  # true  → skip the board probe. Use only if the probe causes errors. Equiv: ITP_SKIP_VERIFY=1.
+  skipVerify: false
+
+  # false → non-actionable webhook events exit with code 0 (default, safe).
+  # true  → non-actionable webhook events exit with code 1. Equiv: ITP_WEBHOOK_STRICT_LINK=1.
+  webhookStrictLink: false
+
+  # warn   → log a warning when an unknown repo is encountered during reconcile.
+  # error  → HALT with UNKNOWN_REPO error. Use when you want strict repo enforcement.
+  unknownRepoBehavior: warn
+
+  # true  → automatically re-initialize project config when a stale config is detected.
+  # false → skip auto-reinit; user must run --init manually.
+  autoReinit: true
+
+
+# --- Story constraints -------------------------------------------------------
+# Enforced by decompose (at write time) and to-issues (at publish time).
+
+storyConstraints:
+  # Stories exceeding this point value with no safe vertical split trigger a BLOCK error.
+  # Development teams cannot start work on oversized stories. Range: 1–21.
+  maxStoryPoints: 13
+
+  # Only Fibonacci values are valid. Off-scale values (e.g. 18, 21) trigger an
+  # immediate BLOCK regardless of whether a split exists.
+  validPointValues: [1, 2, 3, 5, 8, 13]
+
+
+# --- Excalidraw defaults -----------------------------------------------------
+
+excalidraw:
+  # Default output format when the user does not specify one.
+  #   obsidian  → .md file (Obsidian-compatible, default)
+  #   standard  → .excalidraw JSON file
+  #   animated  → .excalidraw JSON file with embedded animations
+  defaultOutputMode: obsidian

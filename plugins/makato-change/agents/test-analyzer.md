@@ -6,7 +6,7 @@ description: >-
   affected by change request. Map tests to affected functionality, classify
   impact severity, and identify coverage gaps. Read-only discovery agent.
 disallowedTools: Write, Edit, Bash, NotebookEdit
-maxTurns: 20
+maxTurns: 10
 permissionMode: bypassPermissions
 ---
 

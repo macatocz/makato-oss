@@ -34,7 +34,7 @@
   "summary": "User outcome title",
   "storyPoints": 3,
   "teams": ["team-name"],
-  "labels": ["makato", "type:feat"],
+  "labels": ["makato", "type:feat", "QARefinement"],
   "githubIssue": null,
   "description": {
     "background": "Why this story exists, context...",

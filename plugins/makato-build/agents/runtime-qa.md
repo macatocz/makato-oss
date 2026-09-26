@@ -8,7 +8,7 @@ description: >-
   block build-push-to-git; all other findings are advisory. No-op (logged SKIP)
   when the build has no runtime surface.
 modelRole: default
-maxTurns: 30
+maxTurns: 15
 allowedTools:
   - mcp__plugin_makato-ux_plugin_playwright__browser_navigate
   - mcp__plugin_makato-ux_plugin_playwright__browser_snapshot

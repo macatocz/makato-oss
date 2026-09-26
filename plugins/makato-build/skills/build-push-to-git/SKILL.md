@@ -278,7 +278,8 @@ Top-level R1 envelope fields follow `plugins/makato-build/agents/RETURN-CONTRACT
     "commits": "<N>",
     "remote_branch": "origin/<name>",
     "pre_push_hook_fired": "<true|false>",
-    "next_skill_invoked": "build-create-pr | null"
+    "next_skill_invoked": "build-create-pr | build-coordinate-repos | null",
+    "repos_pushed": "<N>"
   }
 }
 ```
@@ -286,5 +287,7 @@ Top-level R1 envelope fields follow `plugins/makato-build/agents/RETURN-CONTRACT
 `agent` is `"build-push-to-git"`. `summary` is `"Pushed N commits to origin/<branch>"` on success.
 
 ### HALT Codes
+
+The HALT codes emitted by this skill (`MISSING_INPUT`, `PROTECTED_BRANCH`, `NOTHING_TO_COMMIT`, `COMMIT_FAILED`, `PUSH_REJECTED`) are registered with their PO-agent recovery routes in `plugins/makato-build/halt-codes.md`.
 
 The HALT codes emitted by this skill (`MISSING_INPUT`, `PROTECTED_BRANCH`, `NOTHING_TO_COMMIT`, `COMMIT_FAILED`, `PUSH_REJECTED`) are registered with their PO-agent recovery routes in `plugins/makato-build/halt-codes.md`.

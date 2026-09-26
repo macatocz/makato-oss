@@ -1,0 +1,170 @@
+{
+  "Resource URI Templates": [
+    {
+      "uri": "github://readme",
+      "description": "Get the GitHub MCP Server README documentation",
+      "parameters": []
+    },
+    {
+      "uri": "github://user",
+      "description": "Get authenticated user details",
+      "parameters": []
+    },
+    {
+      "uri": "github://users/{username}",
+      "description": "Get user details by username",
+      "parameters": [
+        "username"
+      ]
+    },
+    {
+      "uri": "github://repos/{owner}",
+      "description": "List repositories for a user or organization",
+      "parameters": [
+        "owner"
+      ]
+    },
+    {
+      "uri": "github://repos/{owner}/{repo}",
+      "description": "Get repository details",
+      "parameters": [
+        "owner",
+        "repo"
+      ]
+    },
+    {
+      "uri": "github://repos/{owner}/{repo}/issues",
+      "description": "List issues in a repository",
+      "parameters": [
+        "owner",
+        "repo"
+      ]
+    },
+    {
+      "uri": "github://repos/{owner}/{repo}/issues/{issue_number}",
+      "description": "Get issue details",
+      "parameters": [
+        "owner",
+        "repo",
+        "issue_number"
+      ]
+    },
+    {
+      "uri": "github://repos/{owner}/{repo}/issues/{issue_number}/comments",
+      "description": "List comments on an issue",
+      "parameters": [
+        "owner",
+        "repo",
+        "issue_number"
+      ]
+    },
+    {
+      "uri": "github://repos/{owner}/{repo}/pulls",
+      "description": "List pull requests in a repository",
+      "parameters": [
+        "owner",
+        "repo"
+      ]
+    },
+    {
+      "uri": "github://repos/{owner}/{repo}/pulls/{pull_number}",
+      "description": "Get pull request details",
+      "parameters": [
+        "owner",
+        "repo",
+        "pull_number"
+      ]
+    },
+    {
+      "uri": "github://repos/{owner}/{repo}/pulls/{pull_number}/files",
+      "description": "List files in a pull request",
+      "parameters": [
+        "owner",
+        "repo",
+        "pull_number"
+      ]
+    },
+    {
+      "uri": "github://repos/{owner}/{repo}/pulls/{pull_number}/commits",
+      "description": "List commits in a pull request",
+      "parameters": [
+        "owner",
+        "repo",
+        "pull_number"
+      ]
+    },
+    {
+      "uri": "github://repos/{owner}/{repo}/commits",
+      "description": "List commits in a repository",
+      "parameters": [
+        "owner",
+        "repo"
+      ]
+    },
+    {
+      "uri": "github://repos/{owner}/{repo}/commits/{sha}",
+      "description": "Get commit details",
+      "parameters": [
+        "owner",
+        "repo",
+        "sha"
+      ]
+    },
+    {
+      "uri": "github://orgs/{org}",
+      "description": "Get organization details",
+      "parameters": [
+        "org"
+      ]
+    },
+    {
+      "uri": "github://orgs/{org}/repos",
+      "description": "List organization repositories",
+      "parameters": [
+        "org"
+      ]
+    },
+    {
+      "uri": "github://repos/{owner}/{repo}/branches",
+      "description": "List branches in a repository",
+      "parameters": [
+        "owner",
+        "repo"
+      ]
+    },
+    {
+      "uri": "github://repos/{owner}/{repo}/branches/{branch}",
+      "description": "Get branch details",
+      "parameters": [
+        "owner",
+        "repo",
+        "branch"
+      ]
+    },
+    {
+      "uri": "github://repos/{owner}/{repo}/releases",
+      "description": "List releases in a repository",
+      "parameters": [
+        "owner",
+        "repo"
+      ]
+    },
+    {
+      "uri": "github://repos/{owner}/{repo}/releases/{release_id}",
+      "description": "Get release details",
+      "parameters": [
+        "owner",
+        "repo",
+        "release_id"
+      ]
+    },
+    {
+      "uri": "github://repos/{owner}/{repo}/releases/latest",
+      "description": "Get latest release",
+      "parameters": [
+        "owner",
+        "repo"
+      ]
+    }
+  ]
+}

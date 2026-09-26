@@ -36,6 +36,7 @@ Content never flows from ADR back into decisions.md.
 Probe in this order in the target repo root:
 
 ```
+specs/ADR                 ← SAGIBEAST/CMAI convention; probe this first
 docs/governance/adr/    ← makato repo convention (hardcoded for makato repo)
 docs/adr/
 adr/

@@ -1,22 +1,10 @@
 ---
 name: issue-to-project
 description: >-
-  Use when issues created by `to-issues` need to land on a GitHub Projects v2 board, or after
-  any `to-issues` run when the operator wants Status=Blocked reflected on the board for issues
-  tagged `status:blocked`. The natural workflow successor to `to-issues`. Reads `.claude/config.json`
-  → `github_project` for cached project/field IDs, snapshots existing board items once,
-  then adds each not-yet-on-board issue and conditionally sets Status=Blocked. Emits
-  `specs/{slug}/project-sync.json` as a machine-readable audit. Run `issue-to-project --init` once
-  per repo to set up project board sync. Use `issue-to-project sync-lifecycle [<slug>]` to
-  automatically advance board Status to `In Progress`, `In review`, or `Done` as linked PRs open or merge.
-  Use `issue-to-project --from-webhook <event-json-path>` for push-mode lifecycle sync driven by
-  GitHub Actions webhook events (issues.opened, issues.labeled, pull_request.opened/closed).
-  Use `issue-to-project reconcile [<slug>]` to diff the live board snapshot against expected state
-  and detect/repair board drift without mutating by default.
-  Use `issue-to-project --board-audit` for a read-only board-wide snapshot across all known repos
-  feeding a shared GitHub Projects v2 board (cross-repo pattern, v2.3.0+).
-  Use `issue-to-project --fields-only [<slug>]` to backfill non-Status field values (Priority,
-  Iteration, Estimate, Date Target) for issues already on the board without re-adding them (v2.4.0+).
+  Use when syncing GitHub issues to a GitHub Projects v2 board. Add issues, route them by status labels,
+  update lifecycle status from linked pull requests or webhook events, reconcile board drift,
+  audit boards, and backfill non-Status field values. Use `--init` to configure project sync
+  for a repository.
 license: MIT
 version: "2.8.0"
 argument-hint: "[optional: feature slug] | --init | --retry-blocked-edits [<slug>] [--from <path>] | sync-lifecycle [<slug>] [--dry-run] | --from-webhook <event-json-path> | reconcile [<slug>] [--repair-additive | --repair-aggressive [--yes-i-know]] | --board-audit | --fields-only [<slug>] | --auto-reinit | --no-auto-reinit"

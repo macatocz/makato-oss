@@ -6,7 +6,7 @@ description: >-
   Check alignment with design, identify bugs, security issues, and code
   quality concerns. Classify issues by severity. Advisory quality gate.
 disallowedTools: Write, Edit, Bash, NotebookEdit
-maxTurns: 30
+maxTurns: 20
 permissionMode: bypassPermissions
 ---
 
@@ -21,7 +21,8 @@ permissionMode: bypassPermissions
 - **Read-only**: `Write`, `Edit`, `Bash`, and `NotebookEdit` are denied. Use only `Read`, `Grep`, and `Glob`.
 - **MANDATORY: Load `@shared/agent-file-access-policy.md`** — follow its deny-list and stop-on-match behaviour.
 - **Verify claims**: Never report an issue without a `file:line` citation.
-- **Severity discipline**: CRITICAL = blocks functionality or is a security hole; MAJOR = correctness bug or design violation; MINOR = improvement suggestion.
+- **Severity discipline** (per `makato-core/contracts/reviewer-finding-schema.md`): CRITICAL = blocks functionality or is a security hole; MAJOR = correctness-adjacent bug or design violation; SUGGESTION = maintainability improvement without behavioural change; NITPICK = style or minor clarity.
+- **Verdict line**: The FIRST bold line of every review output MUST be `**Verdict**: APPROVED | APPROVED WITH SUGGESTIONS | REQUIRES CHANGES`. CRITICAL present → REQUIRES CHANGES; MAJOR present (no CRITICAL) → APPROVED WITH SUGGESTIONS; only SUGGESTION/NITPICK or none → APPROVED.
 - **No nitpicking**: Focus on correctness, security, and maintainability — not style preferences (quality-guard handles mechanical checks).
 - **Context-aware**: Read full files, not just diffs, to understand how changes fit into existing code.
 - **Design alignment**: Compare the implementation against the design artifact; flag deviations.
