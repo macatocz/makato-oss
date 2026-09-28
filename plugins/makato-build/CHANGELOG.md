@@ -10,6 +10,28 @@ here on merge to main; release-please will date and version them at the next rel
 
 ## [Unreleased]
 
+### Fixed — build-create-pr: JSON Parse error from broken path references (v1.11.0)
+
+- Replaced all `@../../AUTONOMOUS-MODE.md` OMP eager-load references with
+  `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` explicit reads. The `@../../` syntax
+  caused OMP's JS cell generator to receive unexpected context, producing the
+  recurring `SyntaxError: JSON Parse error: Property name must be a string
+  literal` during the "Extract PR template, acceptance criteria, goal, and
+  issue links" cell execution.
+- Added explicit `SPEC_FOLDER` resolution block via
+  `python3 "$MAKATO_BUILD_ROOT/shared/spec_folder.py"`. Previously `$SPEC_FOLDER`
+  was used in the `created-issues.json` validation script but never defined,
+  causing the validation to silently read `/created-issues.json` (filesystem
+  root) or fail with a path error.
+- Fixed all bare `shared/build-log.sh`, `shared/log-bypass.sh`, and
+  `shared/default-branch.sh` calls to use `"$MAKATO_BUILD_ROOT/shared/..."`.
+  Bare names resolve correctly only when `$PWD` is the plugin root, which is
+  not guaranteed in worktree or autonomous mode.
+- Made `created-issues.json` schema validation conditional on
+  `MAKATO_PLAN_ROOT` being set. Consumer repos that do not install
+  `makato-plan` no longer fail because the schema file is absent.
+- Documented `MAKATO_BUILD_ROOT` and `MAKATO_PLAN_ROOT` as explicit inputs.
+
 ### Fixed — ADR lookup, artifact handoff, and coverage command contracts
 
 - `build-grill-with-docs` now loads `references/adr-criteria.md` exactly once at Step 1, resolves
