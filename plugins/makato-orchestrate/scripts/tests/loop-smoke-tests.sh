@@ -764,36 +764,48 @@ fi
 echo "  ✓ fresh same-issue timestamp fired the guard; dispatch refused; body skipped"
 
 # ---------------------------------------------------------------------------
-echo "=== T22: spec-folder resolution accepts all three naming shapes (#233) ==="
-# Verifies the two-step resolver extracted from po-agent.md Step 1:
-#   1. prefix-match specs/<KEY>-*/
-#   2. exact-match fallback specs/<KEY>/
-# Each of the three naming conventions used by makato-plan/build/change must
-# resolve without HALT-006.
+echo "=== T22: exact-first and unique-prefix spec-folder resolution (#233) ==="
+# Verifies the resolver contract documented in po-agent.md Step 1:
+#   1. exact specs/<KEY>/ wins
+#   2. otherwise exactly one specs/<KEY>-*/ is accepted
+#   3. multiple prefix matches are rejected
 t22_tmpdir="$(mktemp -d)"
 mkdir -p \
   "$t22_tmpdir/specs/test-bare-slug" \
+  "$t22_tmpdir/specs/test-bare-slug-shadow" \
   "$t22_tmpdir/specs/42-test-foo" \
-  "$t22_tmpdir/specs/ISSUE-42"
+  "$t22_tmpdir/specs/ISSUE-42" \
+  "$t22_tmpdir/specs/43-first" \
+  "$t22_tmpdir/specs/43-second"
 
 resolve_spec_folder() {
-  local key="$1"
-  local specs_dir="$2"
-  # Step 1: prefix-match
-  local match
-  match="$(ls -d "$specs_dir/${key}"-*/ 2>/dev/null | head -1)"
-  [[ -n "$match" ]] && { echo "$match"; return 0; }
-  # Step 2: exact-match fallback
-  [[ -d "$specs_dir/${key}/" ]] && { echo "$specs_dir/${key}/"; return 0; }
+  local key="$1" specs_dir="$2" candidate exact count=0 match=""
+  exact="$specs_dir/$key"
+  if [[ -d "$exact" ]]; then
+    printf "%s/\n" "$exact"
+    return 0
+  fi
+  for candidate in "$specs_dir/$key"-*/; do
+    [[ -d "$candidate" ]] || continue
+    count=$((count + 1))
+    match="$candidate"
+  done
+  if [[ "$count" -gt 1 ]]; then
+    echo "ambiguous spec folder for key $key" >&2
+    return 2
+  fi
+  if [[ "$count" -eq 1 ]]; then
+    printf "%s\n" "$match"
+    return 0
+  fi
   return 1
 }
 
-# Assertion 1 — bare slug (makato-plan:decompose style): exact-match fallback.
+# Assertion 1 — exact bare slug wins even when a prefix folder also exists.
 r1="$(resolve_spec_folder "test-bare-slug" "$t22_tmpdir/specs")"
-[[ -n "$r1" ]] || fail "T22: bare slug 'test-bare-slug' did not resolve"
-[[ "$r1" == *"test-bare-slug"* ]] \
-  || fail "T22: bare slug resolved to wrong path: $r1"
-echo "  ✓ bare slug (makato-plan style) resolves via exact-match fallback"
+[[ "$r1" == "$t22_tmpdir/specs/test-bare-slug/" ]] \
+  || fail "T22: exact folder must win over prefix; got: $r1"
+echo "  ✓ exact bare slug wins over a matching prefix folder"
 
 # Assertion 2 — <N>-<slug> (seed-issue / to-issues style): prefix-match.
 r2="$(resolve_spec_folder "42" "$t22_tmpdir/specs")"
@@ -802,14 +814,20 @@ r2="$(resolve_spec_folder "42" "$t22_tmpdir/specs")"
   || fail "T22: prefix-match resolved to wrong path: $r2"
 echo "  ✓ <N>-<slug> (seed-issue / to-issues style) resolves via prefix-match"
 
-# Assertion 3 — ISSUE-42 (makato-change style): exact-match fallback.
+# Assertion 3 — ISSUE-42 (makato-change style): exact match.
 r3="$(resolve_spec_folder "ISSUE-42" "$t22_tmpdir/specs")"
 [[ -n "$r3" ]] || fail "T22: ISSUE key 'ISSUE-42' did not resolve"
 [[ "$r3" == *"ISSUE-42"* ]] \
   || fail "T22: ISSUE key resolved to wrong path: $r3"
 echo "  ✓ ISSUE-<N> (makato-change style) resolves via exact-match fallback"
 
-# Assertion 4 — nonexistent key returns 1.
+# Assertion 4 — multiple prefixes without an exact folder are ambiguous.
+rc=0
+resolve_spec_folder "43" "$t22_tmpdir/specs" >/dev/null 2>&1 || rc=$?
+[[ "$rc" -eq 2 ]] || fail "T22: ambiguous prefix must return 2; got $rc"
+echo "  ✓ ambiguous prefix is rejected"
+
+# Assertion 5 — nonexistent key returns 1.
 rc=0
 resolve_spec_folder "nonexistent" "$t22_tmpdir/specs" >/dev/null 2>&1 || rc=$?
 [[ $rc -ne 0 ]] \
@@ -1090,24 +1108,40 @@ echo "  ✓ type:change dispatch routes to change-orchestrate and threads REPO_R
 echo
 echo "=== ALL TESTS PASSED ==="
 
-echo "=== T29: spec-folder resolution accepts all three naming shapes (#233) ==="
+echo "=== T29: exact-first and unique-prefix spec-folder resolution (#233) ==="
 t29_tmp="$(mktemp -d)"
-mkdir -p "$t29_tmp/specs/test-bare-slug"
+mkdir -p "$t29_tmp/specs/test-bare-slug" "$t29_tmp/specs/test-bare-slug-shadow"
 mkdir -p "$t29_tmp/specs/42-test-foo"
 mkdir -p "$t29_tmp/specs/ISSUE-42"
+mkdir -p "$t29_tmp/specs/43-first" "$t29_tmp/specs/43-second"
 
 resolve_spec_folder() {
-  local key="$1" specs_dir="$2" match
-  match="$(ls -d "${specs_dir}/${key}"-*/ 2>/dev/null | head -1)"
-  [[ -n "$match" ]] && { echo "$match"; return 0; }
-  [[ -d "${specs_dir}/${key}/" ]] && { echo "${specs_dir}/${key}/"; return 0; }
+  local key="$1" specs_dir="$2" candidate exact count=0 match=""
+  exact="$specs_dir/$key"
+  if [[ -d "$exact" ]]; then
+    printf "%s/\n" "$exact"
+    return 0
+  fi
+  for candidate in "$specs_dir/$key"-*/; do
+    [[ -d "$candidate" ]] || continue
+    count=$((count + 1))
+    match="$candidate"
+  done
+  if [[ "$count" -gt 1 ]]; then
+    echo "ambiguous spec folder for key $key" >&2
+    return 2
+  fi
+  if [[ "$count" -eq 1 ]]; then
+    printf "%s\n" "$match"
+    return 0
+  fi
   return 1
 }
 
 r1="$(resolve_spec_folder "test-bare-slug" "$t29_tmp/specs")" \
-  && [[ "$r1" == *"test-bare-slug"* ]] \
-  || fail "T29: bare-slug folder not resolved; got: $r1"
-echo "  ✓ bare slug specs/test-bare-slug/ resolved via exact-match fallback"
+  && [[ "$r1" == "$t29_tmp/specs/test-bare-slug/" ]] \
+  || fail "T29: exact folder must win over prefix; got: $r1"
+echo "  ✓ exact bare slug wins over matching prefix folder"
 
 r2="$(resolve_spec_folder "42" "$t29_tmp/specs")" \
   && [[ "$r2" == *"42-test-foo"* ]] \
@@ -1117,7 +1151,12 @@ echo "  ✓ canonical specs/42-test-foo/ resolved via prefix-match"
 r3="$(resolve_spec_folder "ISSUE-42" "$t29_tmp/specs")" \
   && [[ "$r3" == *"ISSUE-42"* ]] \
   || fail "T29: issue-key folder not resolved; got: $r3"
-echo "  ✓ issue-key specs/ISSUE-42/ resolved via exact-match fallback"
+echo "  ✓ exact issue-key folder resolves"
+
+ambiguous_rc=0
+resolve_spec_folder "43" "$t29_tmp/specs" 2>/dev/null || ambiguous_rc=$?
+[[ "$ambiguous_rc" -eq 2 ]] || fail "T29: ambiguous prefix must return 2, got $ambiguous_rc"
+echo "  ✓ multiple prefix folders are rejected"
 
 resolve_spec_folder "nonexistent" "$t29_tmp/specs" 2>/dev/null \
   && fail "T29: nonexistent key should return 1" || true
@@ -2839,18 +2878,16 @@ cat >"$T67c_SPEC_ROOT/555-footer-slug/plan-555.md" <<'PLAN'
 
 - AC1: widget loads
 PLAN
-t67c_stderr="$(
-  MAKATO_LOOP_TEST_HOOK=1 \
-  MAKATO_LOOP_CONFIG="$T67c_CONFIG" \
-  MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
-  MAKATO_LOOP_BLOCK_TEST_FILE="$T67c_BLOCK_FILE" \
-  MAKATO_LOOP_LABEL_TEST_FILE="$T67c_LABEL_FILE" \
-  MAKATO_LOOP_COMMENT_TEST_FILE="$T67c_COMMENT_FILE" \
-  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T67c_BODY" \
-  MAKATO_LOOP_AUTOSEED_SPEC_ROOT="$T67c_SPEC_ROOT" \
-  MAKATO_SPEC_STORIES_TRACKED=0 \
-    "$LOOP" _test-auto-seed-block-full 555 full 2>&1 >/dev/null
-)"
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_LOOP_CONFIG="$T67c_CONFIG" \
+MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+MAKATO_LOOP_BLOCK_TEST_FILE="$T67c_BLOCK_FILE" \
+MAKATO_LOOP_LABEL_TEST_FILE="$T67c_LABEL_FILE" \
+MAKATO_LOOP_COMMENT_TEST_FILE="$T67c_COMMENT_FILE" \
+MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T67c_BODY" \
+MAKATO_LOOP_AUTOSEED_SPEC_ROOT="$T67c_SPEC_ROOT" \
+MAKATO_SPEC_STORIES_TRACKED=0 \
+  "$LOOP" _test-auto-seed-block-full 555 full >/dev/null 2>&1
 # No block, no comment — gate saw valid plan-555.md and emitted 'proceed'.
 [[ ! -f "$T67c_BLOCK_FILE" ]] \
   || fail "T67c: block file must NOT be written when plan-N.md is valid; got: $(cat "$T67c_BLOCK_FILE" 2>/dev/null)"
@@ -2950,13 +2987,11 @@ mkdir -p "$T69_JSONL_ROOT"
 # No orchestrate.jsonl for this seed key; label fixture shows plan-tier:full.
 printf 'plan-tier:full\nenhancement\n' >"$T69_LABEL_FIXTURE"
 t69_rc=0
-t69_stderr="$(
-  MAKATO_LOOP_TEST_HOOK=1 \
-  MAKATO_LOOP_RECONCILE_JSONL_DIR="$T69_JSONL_ROOT" \
-  MAKATO_LOOP_RECONCILE_LABEL_FILE="$T69_LABEL_FIXTURE" \
-  MAKATO_LOOP_LABEL_TEST_FILE="$T69_LABEL_FILE" \
-    "$LOOP" _test-auto-seed-reconcile-thin-body 502 502-thin-no-jsonl 2>&1 >/dev/null
-)" || t69_rc=$?
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_LOOP_RECONCILE_JSONL_DIR="$T69_JSONL_ROOT" \
+MAKATO_LOOP_RECONCILE_LABEL_FILE="$T69_LABEL_FIXTURE" \
+MAKATO_LOOP_LABEL_TEST_FILE="$T69_LABEL_FILE" \
+  "$LOOP" _test-auto-seed-reconcile-thin-body 502 502-thin-no-jsonl >/dev/null 2>&1 || t69_rc=$?
 [[ "$t69_rc" -eq 0 ]] \
   || fail "T69: plan-tier:full with no jsonl should return exit code 0 (Signal 2 removed); got rc=$t69_rc"
 [[ ! -f "$T69_LABEL_FILE" ]] || [[ ! -s "$T69_LABEL_FILE" ]] \
@@ -3081,7 +3116,7 @@ MAKATO_LOOP_TEST_HOOK=1 \
 MAKATO_LOOP_AUTOSEED_OVERRIDE="$TB_FIXTURE" \
 MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
 MAKATO_LOOP_SEED_TEST_CMD="$TB_STUB_FILE" \
-  "$LOOP" _test-auto-seed-unprepared 2>&1 >/dev/null || tb_seed_rc=$?
+  "$LOOP" _test-auto-seed-unprepared >/dev/null 2>&1 || tb_seed_rc=$?
 [[ "$tb_seed_rc" -eq 0 ]] \
   || fail "Tb: _auto_seed_unprepared must return 0 (best-effort) even on thin-body; got rc=$tb_seed_rc"
 [[ -f "$TB_SEED_FLAG" ]] \
@@ -3996,7 +4031,7 @@ MAKATO_LOOP_RECONCILE_TEST_FILE="$TSP1_RECON" \
 MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE="$TSP1_LABEL" \
 MAKATO_LOOP_PR_STATE_OVERRIDE="$TSP1_PR_STATE" \
 MAKATO_LOOP_STALL_DISABLE=1 \
-MAKATO_CLAUDE_BIN=true \
+MAKATO_HARNESS_BIN=true \
 SPECS_DIR="$TSP1_SPECS" \
   "$LOOP" _test-reconcile-stale >/dev/null 2>&1 || tsp1_rc=$?
 [[ $tsp1_rc -eq 0 ]] || fail "T-STALE-PR-1: expected rc 0; got $tsp1_rc"
@@ -4265,15 +4300,13 @@ exit 0
 GHSTUB
 chmod +x "$TLG2_BIN/gh"
 tlg2_rc=0
-tlg2_stderr="$(
-  PATH="$TLG2_BIN:$PATH" \
-  MAKATO_LOOP_TEST_HOOK=1 \
-  MAKATO_ORPHAN_STALE_SECS=3600 \
-  MAKATO_LOOP_RECONCILE_SPECS_DIR="$TLG2_SPECS" \
-  MAKATO_LOOP_CONFIG="$TLG2_CONFIG" \
-  MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE="$TLG2_LABEL" \
-    "$LOOP" _test-reconcile-stale >/dev/null 2>&1
-)" || tlg2_rc=$?
+PATH="$TLG2_BIN:$PATH" \
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_ORPHAN_STALE_SECS=3600 \
+MAKATO_LOOP_RECONCILE_SPECS_DIR="$TLG2_SPECS" \
+MAKATO_LOOP_CONFIG="$TLG2_CONFIG" \
+MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE="$TLG2_LABEL" \
+  "$LOOP" _test-reconcile-stale >/dev/null 2>&1 || tlg2_rc=$?
 [[ "$tlg2_rc" -eq 0 ]] \
   || fail "T-RECON-LABELGATE-2: function must return 0; got rc=$tlg2_rc"
 # Label must NOT have been applied when board edit failed.
@@ -5609,7 +5642,7 @@ MAKATO_LOOP_STATE_DIR="$T_R2_STATE" \
 SPECS_DIR="$T_R2_SPECS" \
 MAKATO_LOOP_STALL_DISABLE=0 \
 MAKATO_LOOP_SLEEP_CMD=true \
-MAKATO_CLAUDE_BIN=true \
+MAKATO_HARNESS_BIN=true \
   "$LOOP" _test-stall-resume 44421 "resume2-slug" "$T_R2_SPEC_DIR" "$T_R2_LOG" \
   >/dev/null 2>&1 || t_r2_rc=$?
 [[ $t_r2_rc -eq 0 ]] \
@@ -5663,7 +5696,7 @@ MAKATO_LOOP_STATE_DIR="$T_R3_STATE" \
 SPECS_DIR="$T_R3_SPECS" \
 MAKATO_LOOP_STALL_DISABLE=0 \
 MAKATO_LOOP_SLEEP_CMD=true \
-MAKATO_CLAUDE_BIN=true \
+MAKATO_HARNESS_BIN=true \
   "$LOOP" _test-stall-resume 44422 "resume3-slug" "$T_R3_SPEC_DIR" "$T_R3_LOG" \
   >/dev/null 2>&1 || t_r3_rc=$?
 [[ $t_r3_rc -eq 0 ]] \
@@ -5782,7 +5815,7 @@ MAKATO_LOOP_STATE_DIR="$T_R616_STATE" \
 SPECS_DIR="$T_R616_SPECS" \
 MAKATO_LOOP_STALL_DISABLE=0 \
 MAKATO_LOOP_SLEEP_CMD=true \
-MAKATO_CLAUDE_BIN=false \
+MAKATO_HARNESS_BIN=false \
   "$LOOP" _test-stall-resume 44616 "resume616-slug" "$T_R616_SPEC_DIR" "$T_R616_LOG" \
   >/dev/null 2>&1 || t_r616_rc=$?
 [[ $t_r616_rc -eq 0 ]] \
@@ -5950,9 +5983,8 @@ echo "  ✓ empty-key regression: new gate skipped, original WARN preserved"
 #
 # Design note: this test does NOT use MAKATO_LOOP_DRY_DISPATCH=1 — that flag
 # itself suppresses the gate for all types and would mask a regression of the
-# type:change bypass condition.  Instead we use a sentinel MAKATO_CLAUDE_BIN
-# that exits 0 immediately so the fork never spawns a real subprocess, while
-# the gate (and all intervening code) runs normally.
+# type:change bypass condition. Use the local `omp` PATH stub below so the
+# gate runs normally without starting a real agent.
 #
 # Paired negative-control sub-assertion: type:feature + same miss path must
 # still trigger the gate WARN (regression guard for the non-change path).
@@ -5967,14 +5999,21 @@ t75_body="$T75_DIR/body.txt"
 printf '%s\n' '*Feature slug: `t75-some-change` — produced by to-issues v3.x.*' >"$t75_body"
 # Deliberately NO folder named t75-some-change* in T75_SPECS.
 
-# Sentinel CLAUDE_BIN: exits 0 immediately — lets dispatch reach the fork
-# without spawning real claude.  Disable side-effects that need live GitHub:
-# CAS claim, dispatch gate (merged-PR / in-flight), assign, watchdog.
-t75_sentinel="$T75_DIR/sentinel.sh"
-printf '#!/usr/bin/env bash\nexit 0\n' >"$t75_sentinel"
-chmod +x "$t75_sentinel"
+# Stub subprocess paths so this acceptance check never starts a real agent.
+# The type:change route invokes `omp`; its local PATH stub records the call.
+# Disable side-effects that need live GitHub: CAS claim, dispatch gate
+# (merged-PR / in-flight), assign, watchdog.
+# MAKATO_HARNESS_BIN=omp below resolves to this PATH stub.
+cat >"$T75_DIR/omp" <<'OMPSTUB'
+#!/usr/bin/env bash
+: >"${MAKATO_LOOP_OMP_MARKER:?}"
+exit 0
+OMPSTUB
+chmod +x "$T75_DIR/omp"
 
 t75_stderr="$(
+  PATH="$T75_DIR:$PATH" \
+  MAKATO_LOOP_OMP_MARKER="$T75_DIR/omp-called" \
   MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$t75_body" \
   MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="type:change" \
   MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
@@ -5982,10 +6021,12 @@ t75_stderr="$(
   MAKATO_LOOP_GATE_DISABLE=1 \
   MAKATO_LOOP_ASSIGN_ON_DISPATCH=0 \
   MAKATO_LOOP_STALL_DISABLE=1 \
-  MAKATO_CLAUDE_BIN="$t75_sentinel" \
+  MAKATO_HARNESS_BIN=omp \
   SPECS_DIR="$T75_SPECS" \
     "$LOOP" dispatch 703 2>&1 >/dev/null
 )" || fail "T75: cmd_dispatch should return 0 for type:change on miss path"
+[[ -f "$T75_DIR/omp-called" ]] \
+  || fail "T75: type:change dispatch should invoke the omp stub"
 
 # Gate must NOT fire for type:change — the bypass condition is what we're testing.
 if grep -qi "no specs/ folder" <<<"$t75_stderr"; then
@@ -5993,8 +6034,8 @@ if grep -qi "no specs/ folder" <<<"$t75_stderr"; then
 fi
 
 # Negative control: type:feature + same miss path → gate MUST fire.
-# Gate returns 0 directly (calls _auto_seed_unprepared best-effort, returns before fork)
-# so no sentinel needed; the missing-folder error from _auto_seed_unprepared is suppressed.
+# Gate returns 0 directly (calls _auto_seed_unprepared best-effort, returns before fork);
+# the missing-folder error from _auto_seed_unprepared is suppressed.
 t75_nc_stderr="$(
   MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$t75_body" \
   MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="type:feature" \
@@ -6063,7 +6104,7 @@ STUBEOF
 t80_fake_claude="$T80_DIR/fake-claude"
 cat > "$t80_fake_claude" << 'FAKEEOF'
 #!/usr/bin/env bash
-PLAN="$(find "${SPECS_DIR:-${REPO_ROOT}/specs}" -name plan.md -path '*99-thin*' 2>/dev/null | head -1)"
+PLAN="${SPECS_DIR:-${REPO_ROOT}/specs}/99-thin-feature/plan.md"
 if [[ -n "$PLAN" ]]; then
   cat > "$PLAN" << 'REALPLAN'
 # Plan: Thin Feature
@@ -6083,7 +6124,7 @@ chmod +x "$t80_fake_claude"
 
 t80_verdict="$(
   MAKATO_LOOP_TEST_HOOK=1 \
-  SPECS_DIR="$T80_SPECS" REPO_ROOT="$T80_DIR" MAKATO_CLAUDE_BIN="$t80_fake_claude" \
+  SPECS_DIR="$T80_SPECS" REPO_ROOT="$T80_DIR" MAKATO_HARNESS_BIN="$t80_fake_claude" \
     "$LOOP" _test-pre-dispatch-plan-guard '99-thin-feature'
 )" 2>/dev/null
 
@@ -6115,7 +6156,7 @@ chmod +x "$t81_fake_claude"
 
 t81_output="$(
   MAKATO_LOOP_TEST_HOOK=1 \
-  SPECS_DIR="$T81_SPECS" REPO_ROOT="$T81_DIR" MAKATO_CLAUDE_BIN="$t81_fake_claude" \
+  SPECS_DIR="$T81_SPECS" REPO_ROOT="$T81_DIR" MAKATO_HARNESS_BIN="$t81_fake_claude" \
     "$LOOP" _test-pre-dispatch-plan-guard '55-bad-feature' 2>/tmp/t81_stderr_$$
 )"
 
@@ -6275,6 +6316,10 @@ _reapspecs_fixtures() {
   # T87: TRACKED (critical safety) — gh says closed but the folder is committed.
   mkdir -p "$sp/87-tracked"
   echo '{"issue_number":87001}' >"$sp/87-tracked/seed-manifest.json"
+  # T87b: multiple issue states without a manifest must not select one for pruning.
+  mkdir -p "$sp/88-multi-state"
+  echo '{"current_phase":"done"}' >"$sp/88-multi-state/workflow-state-88001.json"
+  echo '{"current_phase":"implement"}' >"$sp/88-multi-state/workflow-state-88002.json"
   git -C "$REAPSPECS_ROOT" add specs/87-tracked/seed-manifest.json >/dev/null 2>&1 || true
   # `--allow-empty`: on the 2nd/3rd fixture rebuild the blob is identical, so a
   # plain commit would exit 1 ("nothing to commit") and trip `set -e`.
@@ -6325,6 +6370,11 @@ grep -q "reap-specs skip .*/87-tracked (has tracked files" <<<"$t84_out" \
 [[ -d "$REAPSPECS_ROOT/specs/87-tracked" ]] \
   || fail "T87: tracked folder must NEVER be deleted by the reaper"
 echo "T87 passed"
+grep -q "multiple workflow-state files without seed-manifest" <<<"$t84_out" \
+  || fail "T87b: multiple state files must be treated as ambiguous; got: $t84_out"
+[[ -d "$REAPSPECS_ROOT/specs/88-multi-state" ]] \
+  || fail "T87b: ambiguous shared-state folder must survive pruning"
+echo "  ✓ multiple per-issue state files without an owner manifest are not reaped"
 
 echo
 echo "=== T88: MAKATO_LOOP_REAP_DRYRUN=1 → logs intent, deletes nothing ==="
@@ -6976,7 +7026,7 @@ chmod +x "$t127_fake_claude"
 t127_stderr_file="/tmp/t127_stderr_$$"
 t127_verdict="$(
   MAKATO_LOOP_TEST_HOOK=1 \
-  SPECS_DIR="$T127_SPECS" REPO_ROOT="$T127_DIR" MAKATO_CLAUDE_BIN="$t127_fake_claude" \
+  SPECS_DIR="$T127_SPECS" REPO_ROOT="$T127_DIR" MAKATO_HARNESS_BIN="$t127_fake_claude" \
     "$LOOP" _test-pre-dispatch-plan-guard '127-bad-skill' 2>"$t127_stderr_file"
 )"
 t127_stderr="$(cat "$t127_stderr_file")"
@@ -7828,5 +7878,88 @@ grep -q "label #564 needs-human-review" "$TSB4_LABELS" \
 rm -rf "$TSB4_STATE" "$TSB4_LABELS" "$TSB4_BLK"
 echo "  ✓ stale-blocked card escalated to needs-human-review after 3 skips (anti-starvation)"
 # ---------------------------------------------------------------------------
+echo "=== T-reshape-ambiguous-spec-folder: ambiguous prefixes skip without dispatch ==="
+TAMB_SPECS="$STATE_DIR/tamb-specs-$$"
+TAMB_SPEC_FOLDER="927-reshape-ambiguous"
+TAMB_OVERRIDE="$STATE_DIR/tamb-queue-$$.json"
+TAMB_DISPATCH="$STATE_DIR/tamb-dispatch-$$.txt"
+TAMB_LOG="$TAMB_SPECS/${TAMB_SPEC_FOLDER}-first/orchestrate.jsonl"
+TAMB_STDERR="$STATE_DIR/tamb-stderr-$$.txt"
+mkdir -p "$TAMB_SPECS/${TAMB_SPEC_FOLDER}-first" "$TAMB_SPECS/${TAMB_SPEC_FOLDER}-second"
+jq -n --arg key "$TAMB_SPEC_FOLDER" '[{"number":927,"key":$key}]' >"$TAMB_OVERRIDE"
+tamb_rc=0
+MAKATO_LOOP_TEST_HOOK=1 \
+MAKATO_LOOP_RESHAPE_ENABLED=1 \
+MAKATO_LOOP_RESHAPE_OVERRIDE="$TAMB_OVERRIDE" \
+MAKATO_LOOP_RESHAPE_TEST_CMD="touch '$TAMB_DISPATCH'" \
+MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+SPECS_DIR="$TAMB_SPECS" \
+  "$LOOP" _test-reshape-pass 2>"$TAMB_STDERR" >/dev/null || tamb_rc=$?
+[[ "$tamb_rc" -eq 0 ]] || fail "T-reshape-ambiguous-spec-folder: pass should skip cleanly; got rc=$tamb_rc"
+grep -q "ambiguous spec folder" "$TAMB_STDERR" \
+  || fail "T-reshape-ambiguous-spec-folder: expected ambiguity diagnostic"
+[[ ! -e "$TAMB_DISPATCH" && ! -e "$TAMB_LOG" ]] \
+  || fail "T-reshape-ambiguous-spec-folder: must not dispatch or write into either prefix folder"
+rm -rf "$TAMB_SPECS" "$TAMB_OVERRIDE" "$TAMB_DISPATCH" "$TAMB_STDERR"
+echo "  ✓ ambiguous spec folder skips the candidate without dispatch or log writes"
+# ---------------------------------------------------------------------------
+
+echo "=== T-PREPLAN-RESOLVER: exact folder wins; ambiguous prefixes skip ==="
+TPD_DIR="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-preplan-resolver"
+TPD_SPECS="${TPD_DIR}/specs"
+TPD_MARKER="${TPD_DIR}/claude-called"
+TPD_CLAUDE="${TPD_DIR}/fake-claude"
+TPD_ERR="${TPD_DIR}/stderr"
+mkdir -p "${TPD_SPECS}/124" "${TPD_SPECS}/124-first" "${TPD_SPECS}/124-second" "${TPD_SPECS}/125-first" "${TPD_SPECS}/125-second"
+cat >"${TPD_SPECS}/124/plan.md" <<'PLAN'
+# Plan
+
+## Tasks
+- Implement it.
+
+## Acceptance criteria
+- It works.
+PLAN
+for folder in 124-first 124-second 125-first 125-second; do
+  cat >"${TPD_SPECS}/${folder}/plan.md" <<'STUB'
+# Stub
+
+## Acceptance criteria
+_To be filled in._
+STUB
+done
+cat >"${TPD_CLAUDE}" <<'FAKE'
+#!/usr/bin/env bash
+: >"${MAKATO_LOOP_CLAUDE_MARKER}"
+exit 0
+FAKE
+chmod +x "${TPD_CLAUDE}"
+tplan_exact="$(MAKATO_LOOP_TEST_HOOK=1 SPECS_DIR="${TPD_SPECS}" REPO_ROOT="${TPD_DIR}" MAKATO_HARNESS_BIN="${TPD_CLAUDE}" MAKATO_LOOP_CLAUDE_MARKER="${TPD_MARKER}" "${LOOP}" _test-pre-dispatch-plan-guard 124 2>"${TPD_ERR}")"
+[[ "${tplan_exact}" == "valid:false:n/a" ]] || fail "T-PREPLAN-RESOLVER: exact plan should win, got '$tplan_exact'"
+[[ ! -e "${TPD_MARKER}" ]] || fail "T-PREPLAN-RESOLVER: exact valid plan unexpectedly invoked refine"
+tplan_ambiguous="$(MAKATO_LOOP_TEST_HOOK=1 SPECS_DIR="${TPD_SPECS}" REPO_ROOT="${TPD_DIR}" MAKATO_HARNESS_BIN="${TPD_CLAUDE}" MAKATO_LOOP_CLAUDE_MARKER="${TPD_MARKER}" "${LOOP}" _test-pre-dispatch-plan-guard 125 2>"${TPD_ERR}")"
+[[ "${tplan_ambiguous}" == "skipped:false:n/a" ]] || fail "T-PREPLAN-RESOLVER: ambiguous plan should skip, got '$tplan_ambiguous'"
+grep -q "ambiguous spec folder" "${TPD_ERR}" || fail "T-PREPLAN-RESOLVER: missing ambiguity diagnostic"
+[[ ! -e "${TPD_MARKER}" ]] || fail "T-PREPLAN-RESOLVER: ambiguous plan unexpectedly invoked refine"
+rm -rf "${TPD_DIR}"
+echo "  ✓ exact plan selected and ambiguous prefixes skipped"
+
+echo "=== T-WORKFLOW-STATE-AMBIGUOUS: duplicate state files are rejected ==="
+TWS_DIR="${CLAUDE_JOB_DIR:-/tmp}/loop-smoke-$$-workflow-state-ambiguous"
+TWS_SPECS="${TWS_DIR}/specs"
+TWS_ERR="${TWS_DIR}/stderr"
+mkdir -p "${TWS_SPECS}/901-one"
+touch "${TWS_SPECS}/901-one/workflow-state-901.json"
+tws_unique="$(MAKATO_LOOP_TEST_HOOK=1 SPECS_DIR="${TWS_SPECS}" REPO_ROOT="${TWS_DIR}" "${LOOP}" _test-workflow-state-for-issue 901)"
+[[ "${tws_unique}" == "${TWS_SPECS}/901-one/workflow-state-901.json" ]] || fail "T-WORKFLOW-STATE-AMBIGUOUS: unique state path not returned"
+mkdir -p "${TWS_SPECS}/901-two"
+touch "${TWS_SPECS}/901-two/workflow-state-901.json"
+if tws_ambiguous="$(MAKATO_LOOP_TEST_HOOK=1 SPECS_DIR="${TWS_SPECS}" REPO_ROOT="${TWS_DIR}" "${LOOP}" _test-workflow-state-for-issue 901 2>"${TWS_ERR}")"; then
+  fail "T-WORKFLOW-STATE-AMBIGUOUS: duplicate state unexpectedly resolved"
+fi
+[[ -z "${tws_ambiguous}" ]] || fail "T-WORKFLOW-STATE-AMBIGUOUS: emitted arbitrary state path"
+grep -q "ambiguous workflow-state" "${TWS_ERR}" || fail "T-WORKFLOW-STATE-AMBIGUOUS: missing ambiguity diagnostic"
+rm -rf "${TWS_DIR}"
+echo "  ✓ unique state resolves; duplicate state is refused"
 
 echo "=== ALL TESTS PASSED (incl. T31–T38 worktree reaper, #265; T39–T42 board-poll rate-limit, #289; T-RG-1–T-RG-4 GraphQL rate-limit guard, #556; T43 watchdog ownership guard, #312; T44–T48 stale-crash reaper, #320; T49–T53 dispatch gate, #318; T54–T58 auto-seed candidates, #369; T59–T62 auto-seed dispatch light, #370; T63–T67 auto-seed block full, #372; T68–T71 thin-body reconciliation, #371; Ta–Tk auto-seed composition, #373; T-needs-reshape-excluded, T-needs-reshape-autoseed-excluded needs-reshape exclusion, #348; Tl–Tp orphaned-In-progress reconciliation, #368; T-reshape-disabled, T-reshape-halt-preempts, T-reshape-happy-path, T-reshape-decompose-fails, T-reshape-cycle-ceiling, T-reshape-label-fallback, T-reshape-toggle-position reshape pass, #350; T-reshape-halt013-ceiling, T-reshape-halt013-below-ceiling HALT-013 boundary, #351; T-orphan-1–T-orphan-8 orphan degraded gate, #357; T-A–T-D halt-classification gate, #446; T-STALL-5 stall-recovery config defaults, #444; T-STALL-1a stall_cause=transient, T-STALL-2a stall_cause=no_progress, T-STALL-3a stall_cause=halt_emitted stall-cause classifier, #444; T-STALL-1 transient attempt, T-STALL-2 no_progress escalate, T-STALL-3 halt_emitted skip, T-STALL-4 STALL_DISABLE no-op stall-restart helper, #444; T-RESUME-1 complete result no-op, T-RESUME-2 incomplete triggers attempt, T-RESUME-3 errored triggers attempt, T-RESUME-4 budget-exhausted HALT-014, T-RESUME-5 STALL_DISABLE skip detect+resume, #531; T72–T74 pre-dispatch spec-folder gate, #445; T66b plan-tier:change no-op, T75 type:change gate bypass, #466; T-fb-json/T-fb-1–T-fb-5 gh-REST fallback, #447; T79–T83 pre-dispatch plan guard, #470; T84–T89 orphaned-specs pruning; T90 promote-before-prune; T-GQL1–T-GQL5 GraphQL board poll + item-list rollback, #516; T-IDLE1–T-IDLE2 adaptive idle backoff, #516; T91 plan-tier:change routing, #539; T-wave-order, T-promote-on, T-promote-off, T-fifo-fallback wave-ordered dispatch + promote-unblocked, #548; T-PREDISPATCH-127 exit-127 log demotion, T-REAP-NUMBERLESS numberless-folder reap-specs demotion, #558; T-loop-prune-1–T-loop-prune-3 workflow-state prune wiring, #597; T-VCR-1–T-VCR-5 _compute_vcr helper, #585; T-TOOLDEP-1–T-TOOLDEP-4 tool-dependency pre-flight, #587 #656; T-RECON-LABELGATE-1–T-RECON-LABELGATE-2 reconcile label gate; T-RECON-ARGSHAPE-1–T-RECON-ARGSHAPE-2 reconcile item-edit argv shape, #697; T-RG-5 poll_skipped_rate_budget reset, T-CB-1–T-CB-2 circuit-breaker poll_skip_count, T-STALE-RG-1 reconcile-stale rate-guard, #683; T-RC-1–T-RC-3 api_error board-reset recovery, T-RC-PROMOTE ac2-confirmation alias, #687 #723; T-FM1-derive-key-disambig shared-slug disambiguation, #724; T-FM2-stories-provenance-no-footer stories.json-only KEY derivation, #724; T-PHC-EMPTY-REPO post-halt-comment empty-repo derive, #450; T-SEED-PARITY-1, T-SEED-PARITY-2 KEY third-fallback word-boundary, T-FM2-dispatch-doc-example doc-example body no KEY=-slug-, T-PHASE-PR-1, T-PHASE-PR-DRYRUN, T-PHASE-PR-DISABLE phase=pr orphan reconcile, T-PARK-LABELS-1, T-PARK-LABELS-ABSENT park-label skip guard, #721; T77 folderless-Ready demote-to-Todo, #783; T_BG1, T_BG2 session-safety guard, T_STATUS_PASSTHROUGH multi-status passthrough, #743) ==="

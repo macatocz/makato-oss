@@ -105,19 +105,40 @@ fi
 SCHEMA_PATH="${SCHEMA_PATH:-$DEFAULT_SCHEMA_PATH}"
 
 # ---------------------------------------------------------------------------
-# Spec-folder resolution (duplicated from build-log.sh — intentional).
+# Spec-folder resolution (duplicated from build-log.sh — intentional). An exact
+# folder name is authoritative; a slug-prefix lookup must have one owner.
 # ---------------------------------------------------------------------------
 SPEC_FOLDER=""
-if [[ -d "$SPECS_DIR" ]]; then
-  SPEC_FOLDER="$(find "$SPECS_DIR" -maxdepth 1 -type d -name "${KEY}-*" | head -1)"
-fi
+if [[ "$SUBCMD" != "recall-lessons" ]]; then
+  if [[ -d "$SPECS_DIR/$KEY" ]]; then
+    SPEC_FOLDER="$SPECS_DIR/$KEY"
+  elif [[ -d "$SPECS_DIR" ]]; then
+    if ! SPEC_CANDIDATES="$(find "$SPECS_DIR" -mindepth 1 -maxdepth 1 -type d -print | LC_ALL=C sort)"; then
+      echo "workflow-state: unable to inspect spec folders in $SPECS_DIR" >&2
+      exit 1
+    fi
+    SPEC_MATCH_COUNT=0
+    SPEC_MATCHES=""
+    while IFS= read -r candidate; do
+      [[ -z "$candidate" ]] && continue
+      if [[ "${candidate##*/}" == "${KEY}-"* ]]; then
+        SPEC_MATCH_COUNT=$((SPEC_MATCH_COUNT + 1))
+        SPEC_MATCHES="${SPEC_MATCHES:+$'\n'}$candidate"
+      fi
+    done <<<"$SPEC_CANDIDATES"
+    if ((SPEC_MATCH_COUNT > 1)); then
+      echo "workflow-state: refusing ambiguous spec folders for key '$KEY'; pass an exact spec-folder name" >&2
+      printf '%s\n' "$SPEC_MATCHES" >&2
+      exit 1
+    fi
+    if ((SPEC_MATCH_COUNT == 1)); then
+      SPEC_FOLDER="$SPEC_MATCHES"
+    fi
+  fi
 
-if [[ -z "$SPEC_FOLDER" ]] && [[ -d "$SPECS_DIR/$KEY" ]]; then
-  SPEC_FOLDER="$SPECS_DIR/$KEY"
-fi
-
-if [[ -z "$SPEC_FOLDER" ]]; then
-  SPEC_FOLDER="$SPECS_DIR/$KEY"
+  if [[ -z "$SPEC_FOLDER" ]]; then
+    SPEC_FOLDER="$SPECS_DIR/$KEY"
+  fi
 fi
 
 # STATE_FILE is now issue-scoped and populated per-subcommand once ISSUE_NUMBER

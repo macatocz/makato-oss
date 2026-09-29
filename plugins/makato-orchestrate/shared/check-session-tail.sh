@@ -99,15 +99,20 @@ else
   fi
   SPECS_DIR="$REPO_ROOT/specs"
 
-  SPEC_FOLDER=""
-  if [[ -d "$SPECS_DIR" ]]; then
-    SPEC_FOLDER="$(find "$SPECS_DIR" -maxdepth 1 -type d -name "${KEY}-*" | head -1)"
-  fi
-  if [[ -z "$SPEC_FOLDER" ]] && [[ -d "$SPECS_DIR/$KEY" ]]; then
-    SPEC_FOLDER="$SPECS_DIR/$KEY"
-  fi
-  if [[ -z "$SPEC_FOLDER" ]]; then
-    SPEC_FOLDER="$SPECS_DIR/$KEY"
+  SPEC_FOLDER="$SPECS_DIR/$KEY"
+  if [[ ! -d "$SPEC_FOLDER" && -d "$SPECS_DIR" ]]; then
+    SPEC_MATCHES=()
+    for candidate in "$SPECS_DIR/${KEY}"-*/; do
+      [[ -d "$candidate" ]] && SPEC_MATCHES+=("${candidate%/}")
+    done
+    if ((${#SPEC_MATCHES[@]} > 1)); then
+      echo "check-session-tail: ambiguous spec folder for key '$KEY' under $SPECS_DIR (${#SPEC_MATCHES[@]} matches)" >&2
+      printf '%s\n' '{"verdict":"no-log","halt_code":null,"last_step":null,"last_status":null,"session_start_present":false}'
+      exit 0
+    fi
+    if ((${#SPEC_MATCHES[@]} == 1)); then
+      SPEC_FOLDER="${SPEC_MATCHES[0]}"
+    fi
   fi
 
   LOG_FILE="$SPEC_FOLDER/build.jsonl"

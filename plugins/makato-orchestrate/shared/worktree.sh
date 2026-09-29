@@ -210,13 +210,15 @@ _assert_expected_branch() {
 # marker is deliberately ignored because this helper rewrites it on every
 # resume; all other tracked and untracked changes remain a hard veto.
 _assert_clean_worktree() {
-  local target="$1" line dirty=""
+  local target="$1" line dirty="" status
+  if ! status="$(git -C "$target" status --porcelain --untracked-files=all 2>/dev/null)"; then
+    echo "worktree: could not verify cleanliness for $target" >&2
+    return 1
+  fi
   while IFS= read -r line; do
-    if [[ "$line" == "?? .loop-owner.pid" ]]; then
-      continue
-    fi
+    [[ "$line" == "?? .loop-owner.pid" ]] && continue
     dirty+="${dirty:+$'\n'}$line"
-  done < <(git -C "$target" status --porcelain --untracked-files=all 2>/dev/null || true)
+  done <<<"$status"
   if [[ -n "$dirty" ]]; then
     {
       echo "worktree: refusing to resume $target — worktree is not clean"

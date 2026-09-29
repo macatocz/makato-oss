@@ -151,4 +151,20 @@ jq -e '.run_id == "my-custom-run"' "$report_path" >/dev/null \
   || fail "T8: report run_id should be my-custom-run"
 pass "--run-id override names the report file + stamps run_id"
 
-echo "=== ALL TESTS PASSED (T1–T8 run-report aggregation, #448) ==="
+echo "=== T9: duplicate per-issue state files produce unknown, not arbitrary data ==="
+mkdir -p "$SPECS/50-first" "$SPECS/50-second"
+jq -n '{issue_number:50,current_phase:"done",github_pr_number:5050,halt_audit:[]}' \
+  >"$SPECS/50-first/workflow-state-50.json"
+jq -n '{issue_number:50,current_phase:"implement",github_pr_number:null,
+        halt_audit:[{code:"HALT-050",ts:"2026-07-17T13:00:00.000Z",origin:"human",data:{}}]}' \
+  >"$SPECS/50-second/workflow-state-50.json"
+report_err="$SANDBOX/t9.stderr"
+report_path="$("$RR" 50 --run-id t9 2>"$report_err")" \
+  || fail "T9: script should emit a report for ambiguous state"
+jq -e '.issues[] | select(.issue == 50) | .verdict == "unknown" and .pr_number == null and .halt_code == null' "$report_path" >/dev/null \
+  || fail "T9: ambiguous state must not produce merged/halted data"
+grep -q 'ambiguous workflow-state for issue #50' "$report_err" \
+  || fail "T9: ambiguous state warning missing"
+pass "duplicate issue state files are reported as unknown"
+
+echo "=== ALL TESTS PASSED (T1–T9 run-report aggregation, #448) ==="

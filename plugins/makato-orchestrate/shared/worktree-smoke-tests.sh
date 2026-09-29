@@ -135,6 +135,27 @@ grep -q "expected branch '$BRANCH'" "$SANDBOX/t4b.stderr" \
   || { echo "  ✗ wrong-branch diagnostic missing"; cat "$SANDBOX/t4b.stderr"; exit 1; }
 echo "  ✓ wrong-branch worktree rejected before resume"
 
+echo "=== T4c: resume fails closed when git status cannot run ==="
+REAL_GIT="$(command -v git)"
+GIT_SHIM_DIR="$SANDBOX/git-status-fail-bin"
+mkdir -p "$GIT_SHIM_DIR"
+cat >"$GIT_SHIM_DIR/git" <<EOF
+#!/usr/bin/env bash
+if [[ "\$1" == "-C" && "\$2" == "$WT_PATH" && "\$3" == "status" ]]; then
+  exit 128
+fi
+exec "$REAL_GIT" "\$@"
+EOF
+chmod +x "$GIT_SHIM_DIR/git"
+set +e
+PATH="$GIT_SHIM_DIR:$PATH" "$WT_LOCAL" create "$KEY" "$ISSUE" "$REPO_NAME" "$BRANCH" >/dev/null 2>"$SANDBOX/t4c.stderr"
+RC_T4C=$?
+set -e
+rm -rf "$GIT_SHIM_DIR"
+[[ $RC_T4C -ne 0 ]] || { echo "  ✗ git status failure was treated as clean"; exit 1; }
+grep -q "could not verify cleanliness" "$SANDBOX/t4c.stderr" || { echo "  ✗ status-failure diagnostic missing"; cat "$SANDBOX/t4c.stderr"; exit 1; }
+echo "  ✓ status failure rejected before resume"
+
 echo "=== T5: retain flips both state flags without removing the worktree ==="
 "$WT_LOCAL" retain "$KEY" "$ISSUE" "HALT-003" > /dev/null
 "$WS_LOCAL" read "$KEY" "$ISSUE" | jq -e '.worktree_retained == true' > /dev/null
