@@ -98,19 +98,19 @@ makato-build closes the loop from ideation to merged code.
                                         merged PR
 ```
 
-| Phase                                      | Input                                                        | Output                                                                     |
-| ------------------------------------------ | ------------------------------------------------------------ | -------------------------------------------------------------------------- |
-| build-start                                | Work item key or local design.md                             | Validated session state; hands off to build-refine                         |
-| build-refine                               | GitHub Issue + spec folder (prd.md, design.md, decisions.md) | plan.md with tasks, file targets, test strategy                            |
-| build-grill-with-docs (optional)           | plan.md + spec folder + codebase                             | Enriched glossary.md; ADRs for hard-to-reverse decisions                   |
-| build-implement-tdd / build-implement-goal | plan.md with tasks                                           | Working code + tests; build.jsonl entries                                  |
-| build-simplify                             | Branch diff vs main + plan.md                                | Simplified working tree                                                    |
-| build-review                               | Branch diff vs origin/main + plan.md                         | CRITICAL (+ MAJOR in autonomous) findings fixed; SUGGESTION/NITPICK report |
-| build-verify                               | Working tree + gate commands                                 | PASS/FAIL per gate; coverage report                                        |
-| build-sensors                              | staged/all/changed files                                     | Clean pre-commit run; residual findings carried over                       |
-| build-push-to-git                          | Verified working tree + plan.md                              | Feature branch on remote; commits map to plan tasks                        |
-| build-create-pr                            | Pushed branch + spec artifacts                               | GitHub PR URL with spec-derived description                                |
-| build-address-pr-comments                  | PR with unresolved review comments                           | Fixes committed; reply comments posted; carry-over issues logged           |
+| Phase                                      | Input                                                         | Output                                                                     |
+| ------------------------------------------ | ------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| build-start                                | Work item key or local design.md                              | Validated session state; hands off to build-refine                         |
+| build-refine                               | Issue + spec folder (`stories.json` or `created-issues.json`) | plan.md with tasks, file targets, test strategy                            |
+| build-grill-with-docs (optional)           | plan.md + spec folder + codebase                              | Enriched glossary.md; ADRs for hard-to-reverse decisions                   |
+| build-implement-tdd / build-implement-goal | plan.md with tasks                                            | Working code + tests; build.jsonl entries                                  |
+| build-simplify                             | Branch diff vs main + plan.md                                 | Simplified working tree                                                    |
+| build-review                               | Branch diff vs origin/main + plan.md                          | CRITICAL (+ MAJOR in autonomous) findings fixed; SUGGESTION/NITPICK report |
+| build-verify                               | Working tree + gate commands                                  | PASS/FAIL per gate; coverage report                                        |
+| build-sensors                              | staged/all/changed files                                      | Clean pre-commit run; residual findings carried over                       |
+| build-push-to-git                          | Verified working tree + plan.md                               | Feature branch on remote; commits map to plan tasks                        |
+| build-create-pr                            | Pushed branch + spec artifacts                                | GitHub PR URL with spec-derived description                                |
+| build-address-pr-comments                  | PR with unresolved review comments                            | Fixes committed; reply comments posted; carry-over issues logged           |
 
 ## Skills
 
