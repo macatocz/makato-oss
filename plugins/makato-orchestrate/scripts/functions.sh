@@ -1471,8 +1471,7 @@ _watchdog_poll() {
       local stall_cause
       local _wf_halt_code=""
       local _wf_file
-      _wf_file="$(find "${SPECS_DIR:-$REPO_ROOT/specs}" -maxdepth 2 \
-        -name "workflow-state-${issue}.json" 2>/dev/null | head -1)"
+      _wf_file="$(_workflow_state_for_issue "$issue" || true)"
       if [[ -f "$_wf_file" ]]; then
         _wf_halt_code="$(jq -r '(.halt_audit // []) | last | .code // empty' "$_wf_file" 2>/dev/null || true)"
       fi
@@ -1616,8 +1615,7 @@ _stall_restart() {
       # Read resume_point from workflow-state file (best-effort).
       local resume_pt="null"
       local _wf_file
-      _wf_file="$(find "${SPECS_DIR:-$REPO_ROOT/specs}" -maxdepth 2 \
-        -name "workflow-state-${issue}.json" 2>/dev/null | head -1)"
+      _wf_file="$(_workflow_state_for_issue "$issue" || true)"
       if [[ -f "$_wf_file" ]]; then
         resume_pt="$(jq -r '.resume_point // "null"' "$_wf_file" 2>/dev/null || echo "null")"
       fi
@@ -1768,8 +1766,7 @@ _stall_resume() {
   # Resolve the worktree directory from workflow-state (best-effort).
   local worktree_dir=""
   local _wf_file
-  _wf_file="$(find "${SPECS_DIR:-$REPO_ROOT/specs}" -maxdepth 2 \
-    -name "workflow-state-${issue}.json" 2>/dev/null | head -1)"
+  _wf_file="$(_workflow_state_for_issue "$issue" || true)"
   if [[ -f "$_wf_file" ]]; then
     worktree_dir="$(jq -r '.worktree_path // ""' "$_wf_file" 2>/dev/null || true)"
   fi
@@ -1996,24 +1993,19 @@ _derive_key_for_issue() {
 }
 
 # ---------------------------------------------------------------------------
-# _spec_folder_for_key <KEY> — binary existence check for specs/<KEY>*/ folder.
-# Returns 0 and prints the matching basename; returns 1 when no folder matches.
+# _spec_folder_for_key <KEY> — exact folder first, then one unique prefix.
+# Returns 0 and prints the basename; returns 1 when no unique folder matches.
 # Uses SPECS_DIR env override as offline test seam (same as loop.sh broadly).
 # Distinct from _derive_key_for_issue's multi-candidate disambiguation block.
 # ---------------------------------------------------------------------------
 _spec_folder_for_key() {
   local key="$1"
   local spec_root="${SPECS_DIR:-${REPO_ROOT}/specs}"
-  local match
-  match="$(find "$spec_root" -maxdepth 1 -type d -name "${key}*" -print0 2>/dev/null \
-    | tr '\0' '\n' | head -1)"
-  if [[ -n "$match" ]]; then
-    printf '%s\n' "$(basename "$match")"
-    return 0
-  fi
-  return 1
+  local resolved
+  resolved="$(_resolve_spec_folder "$spec_root" "$key")" || return 1
+  [[ -d "$resolved" ]] || return 1
+  basename "$resolved"
 }
-
 # ---------------------------------------------------------------------------
 # _assign_issue <ISSUE_NUMBER> — assign issue to dispatch actor via `gh issue edit --add-assignee` (#33).
 # Best-effort: non-zero `gh` exit is logged and swallowed. Repo from MAKATO_LOOP_DISPATCH_REPO.
@@ -3304,7 +3296,7 @@ _reap_stamp() {
 }
 
 # _reap_orphan_specs — prune local specs/<slug>/ for completed/closed issues (#265); shares REAP_ON_POLL + throttle.
-# Per folder: skip if tracked files, derive issue#, check phase=done or gh CLOSED, shared-epic guard, promote lessons then rm. Always returns 0.
+# Per folder: skip tracked files and ambiguous unmanifested state, check done/closed + shared-epic guard, promote lessons then rm. Always returns 0.
 _reap_orphan_specs() {
   [[ "$REAP_SPECS" == "1" ]] || return 0
 
@@ -3325,16 +3317,24 @@ _reap_orphan_specs() {
       continue
     fi
 
-    # Derive the issue number: seed-manifest first, workflow-state filename fallback.
-    local issue_num=""
+    # Derive the issue number: seed-manifest first, otherwise exactly one
+    # workflow-state filename. A shared folder without a manifest is ambiguous
+    # when it contains multiple per-issue state files; never choose one to reap.
+    local issue_num="" wf_file
+    local -a wf_files=()
     if [[ -f "$slug_dir/seed-manifest.json" ]]; then
       issue_num="$(jq -r '.issue_number // empty' "$slug_dir/seed-manifest.json" 2>/dev/null || true)"
     fi
+    while IFS= read -r -d '' wf_file; do
+      wf_files+=("$wf_file")
+    done < <(find "$slug_dir" -maxdepth 1 -name 'workflow-state-*.json' -print0 2>/dev/null)
     if [[ -z "$issue_num" ]]; then
-      local wf_file
-      wf_file="$(find "$slug_dir" -maxdepth 1 -name 'workflow-state-*.json' 2>/dev/null | head -1)"
-      if [[ -n "$wf_file" ]]; then
-        issue_num="$(basename "$wf_file" | sed -E 's/^workflow-state-([0-9]+)\.json$/\1/')"
+      if ((${#wf_files[@]} > 1)); then
+        echo "loop: reap-specs WARN $slug_dir — multiple workflow-state files without seed-manifest, skipping" >&2
+        continue
+      fi
+      if ((${#wf_files[@]} == 1)); then
+        issue_num="$(basename "${wf_files[0]}" | sed -E 's/^workflow-state-([0-9]+)\.json$/\1/')"
       fi
     fi
     if [[ -z "$issue_num" || ! "$issue_num" =~ ^[0-9]+$ ]]; then
@@ -3343,7 +3343,7 @@ _reap_orphan_specs() {
       slug_basename="$(basename "$slug_dir")"
       if [[ ! "$slug_basename" =~ ^[0-9] ]] \
           && [[ ! -f "$slug_dir/seed-manifest.json" ]] \
-          && [[ -z "$(find "$slug_dir" -maxdepth 1 -name 'workflow-state-*.json' 2>/dev/null | head -1)" ]]; then
+          && ((${#wf_files[@]} == 0)); then
         echo "loop: reap-specs skip $slug_dir (no issue prefix, treating as design-doc folder)" >&2
       else
         echo "loop: reap-specs WARN $slug_dir — cannot derive issue number, skipping" >&2
@@ -3477,13 +3477,16 @@ _pre_dispatch_plan_guard() {
   local validate_sh
   validate_sh="$(dirname "$0")/validate-plan-body.sh"
 
-  # Locate plan.md via the same glob _spec_folder_for_key uses.
+  # Resolve plan.md through the exact-first, unique-prefix folder resolver.
   local spec_root="${SPECS_DIR:-${REPO_ROOT}/specs}"
-  local plan_path
-  plan_path="$(find "$spec_root" -maxdepth 2 -name "plan.md" \
-    -path "*/${key}*" 2>/dev/null | head -1)"
+  local spec_folder
+  if ! spec_folder="$(_resolve_spec_folder "$spec_root" "$key")"; then
+    echo "skipped:false:n/a"
+    return 0
+  fi
+  local plan_path="$spec_folder/plan.md"
 
-  if [[ -z "$plan_path" ]]; then
+  if [[ ! -f "$plan_path" ]]; then
     echo "skipped:false:n/a"
     return 0
   fi
@@ -3591,8 +3594,7 @@ _emit_langfuse_trace() {
   local issue_trace_id=""
   if [[ -n "${issue:-}" ]]; then
     local wf_file
-    wf_file="$(find "${SPECS_DIR:-$REPO_ROOT/specs}" -maxdepth 2 \
-      -name "workflow-state-${issue}.json" 2>/dev/null | head -1)"
+    wf_file="$(_workflow_state_for_issue "$issue" || true)"
     if [[ -n "$wf_file" ]]; then
       issue_trace_id="$(jq -r '.issue_trace_id // empty' "$wf_file" 2>/dev/null || true)"
     fi
@@ -3971,8 +3973,7 @@ cmd_dispatch() {
         # Derive spec folder from SPECS_DIR + issue's workflow-state file.
         local _spec_dir=""
         local _wf
-        _wf="$(find "${SPECS_DIR:-$REPO_ROOT/specs}" -maxdepth 2 \
-          -name "workflow-state-${issue}.json" 2>/dev/null | head -1)"
+        _wf="$(_workflow_state_for_issue "$issue" || true)"
         if [[ -n "$_wf" ]]; then
           _spec_dir="$(dirname "$_wf")"
         fi
@@ -3985,8 +3986,7 @@ cmd_dispatch() {
           # Skip resume when HALT code already emitted — HALT classification path owns the issue.
           local _spec_dir_r=""
           local _wf_r
-          _wf_r="$(find "${SPECS_DIR:-$REPO_ROOT/specs}" -maxdepth 2 \
-            -name "workflow-state-${issue}.json" 2>/dev/null | head -1)"
+          _wf_r="$(_workflow_state_for_issue "$issue" || true)"
           if [[ -n "$_wf_r" ]]; then
             _spec_dir_r="$(dirname "$_wf_r")"
           fi
@@ -4002,9 +4002,7 @@ cmd_dispatch() {
             if [[ "$rc" -ne 0 ]]; then
               local _wf_absent="true"
               local _wf_check
-              _wf_check="$(find "${SPECS_DIR:-$REPO_ROOT/specs}" -maxdepth 2 \
-                -name "workflow-state-${issue}.json" 2>/dev/null | head -1)"
-              [[ -n "$_wf_check" ]] && _wf_absent="false"
+              _workflow_state_exists_for_issue "$issue" && _wf_absent="false"
               if [[ "$_wf_absent" == "true" ]]; then
                 echo "loop: api-error: #$issue exited rc=$rc with no workflow-state — resetting board to Ready" >&2
                 _reset_board_card_to_ready "$issue" || true
@@ -4100,6 +4098,53 @@ _stamp_startup_audit() {
   _patch_status '.startup_audit' "$audit"
 }
 
+# _resolve_spec_folder <SPECS_DIR> <KEY> — exact folder first, then one unique prefix.
+# A missing folder resolves to the conventional bare path for best-effort log writes.
+_resolve_spec_folder() {
+  local specs_dir="$1" key="$2" candidate exact="$1/$2"
+  local -a matches=()
+  if [[ -d "$exact" ]]; then
+    printf '%s\n' "$exact"
+    return 0
+  fi
+  for candidate in "$specs_dir/${key}"-*/; do
+    [[ -d "$candidate" ]] && matches+=("${candidate%/}")
+  done
+  if ((${#matches[@]} > 1)); then
+    printf 'loop: ambiguous spec folder for key %q under %s (%s matches)\n' \
+      "$key" "$specs_dir" "${#matches[@]}" >&2
+    return 1
+  fi
+  if ((${#matches[@]} == 1)); then
+    exact="${matches[0]}"
+  fi
+  printf '%s\n' "$exact"
+}
+# _workflow_state_for_issue <ISSUE> — return a state path only when exactly one
+# matching issue-scoped file exists; duplicate state is ambiguous.
+_workflow_state_for_issue() {
+  local issue="${1}" spec_root="${SPECS_DIR:-${REPO_ROOT}/specs}" candidate
+  local -a matches=()
+  [[ -n "${issue}" ]] || return 1
+  while IFS= read -r -d '' candidate; do
+    matches+=("${candidate}")
+  done < <(find "${spec_root}" -maxdepth 2 -type f -name "workflow-state-${issue}.json" -print0 2>/dev/null)
+  if ((${#matches[@]} > 1)); then
+    printf 'loop: ambiguous workflow-state for issue #%s under %s (%s matches)\n' "${issue}" "${spec_root}" "${#matches[@]}" >&2
+    return 1
+  fi
+  ((${#matches[@]} == 1)) || return 1
+  printf '%s\n' "${matches[0]}"
+}
+
+# Existence-only check: multiple matches still mean a state was emitted, but
+# callers must not read one arbitrarily.
+_workflow_state_exists_for_issue() {
+  local issue="${1}" spec_root="${SPECS_DIR:-${REPO_ROOT}/specs}"
+  [[ -n "${issue}" ]] || return 1
+  [[ -n "$(find "${spec_root}" -maxdepth 2 -type f -name "workflow-state-${issue}.json" -print -quit 2>/dev/null)" ]]
+}
+
 # _reshape_pass — pre-poll reshape pass (#350, epic #319). Dispatches decompose+to-issues for
 # "Needs Planning" board items; fires HALT-013 at ceiling; feature-flagged via MAKATO_LOOP_RESHAPE_ENABLED.
 _reshape_pass() {
@@ -4176,12 +4221,13 @@ _reshape_pass() {
       continue
     fi
 
-    # Read reshape_cycles from workflow-state directly (SPECS_DIR override for tests).
+    # Read reshape_cycles from the issue's uniquely resolved workflow-state folder.
     local state_file=""
     local spec_folder
-    spec_folder="$(find "$SPECS_DIR" -maxdepth 1 -type d -name "${key}-*" 2>/dev/null | head -1)"
-    [[ -z "$spec_folder" ]] && [[ -d "$SPECS_DIR/$key" ]] && spec_folder="$SPECS_DIR/$key"
-    [[ -z "$spec_folder" ]] && spec_folder="$SPECS_DIR/$key"
+    if ! spec_folder="$(_resolve_spec_folder "$SPECS_DIR" "$key")"; then
+      echo "loop: WARN — reshape-pass #$n: spec folder is ambiguous; skipping" >&2
+      continue
+    fi
     state_file="$spec_folder/workflow-state-${n}.json"
     local wf_json reshape_cycles
     wf_json="$([[ -f "$state_file" ]] && cat "$state_file" 2>/dev/null || echo '{}')"
@@ -4214,10 +4260,7 @@ _reshape_pass() {
       fi
 
       # Step 3: write step:"halt" orchestrate.jsonl line.
-      local spec_folder_halt=""
-      spec_folder_halt="$(find "$SPECS_DIR" -maxdepth 1 -type d -name "${key}-*" 2>/dev/null | head -1 || true)"
-      [[ -z "$spec_folder_halt" && -d "$SPECS_DIR/$key" ]] && spec_folder_halt="$SPECS_DIR/$key"
-      [[ -z "$spec_folder_halt" ]] && spec_folder_halt="$SPECS_DIR/$key"
+      local spec_folder_halt="$spec_folder"
       mkdir -p "$spec_folder_halt" 2>/dev/null || true
       printf '%s\n' "$(jq -cn \
         --arg ts "$halt_ts" \
@@ -4346,8 +4389,7 @@ _apply_needs_human_review_reshape() {
     gate_key="$(_derive_key_for_issue "$issue" "${MAKATO_LOOP_DISPATCH_REPO:-}" 2>/dev/null || true)"
     if [[ -n "$gate_key" ]]; then
       local gate_spec_folder=""
-      gate_spec_folder="$(find "${SPECS_DIR:-specs}" -maxdepth 1 -type d -name "${gate_key}-*" 2>/dev/null | head -1 || true)"
-      [[ -z "$gate_spec_folder" && -d "${SPECS_DIR:-specs}/$gate_key" ]] && gate_spec_folder="${SPECS_DIR:-specs}/$gate_key"
+      gate_spec_folder="$(_resolve_spec_folder "${SPECS_DIR:-specs}" "$gate_key" 2>/dev/null || true)"
       if [[ -n "$gate_spec_folder" ]]; then
         local gate_state_file="$gate_spec_folder/workflow-state-${issue}.json"
         if [[ -f "$gate_state_file" ]]; then
@@ -4414,9 +4456,10 @@ _log_reshape_result() {
   # Write directly via SPECS_DIR, not build-log.sh: in a worktree, build-log.sh resolves
   # via git --git-common-dir (main checkout) and would mismatch loop's SPECS_DIR.
   local spec_folder=""
-  spec_folder="$(find "$SPECS_DIR" -maxdepth 1 -type d -name "${key}-*" 2>/dev/null | head -1 || true)"
-  [[ -z "$spec_folder" && -d "$SPECS_DIR/$key" ]] && spec_folder="$SPECS_DIR/$key"
-  [[ -z "$spec_folder" ]] && spec_folder="$SPECS_DIR/$key"
+  if ! spec_folder="$(_resolve_spec_folder "$SPECS_DIR" "$key")"; then
+    echo "loop: WARN — reshape-pass #$issue: ambiguous spec folder; result log skipped" >&2
+    return 0
+  fi
   mkdir -p "$spec_folder" 2>/dev/null || true
   printf '%s\n' "$entry" >> "$spec_folder/orchestrate.jsonl" 2>/dev/null || true
 }

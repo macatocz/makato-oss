@@ -109,7 +109,7 @@ complexity) and proceed with enhanced attention to alignment depth.
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-grill-with-docs","story":"<key>","step":"session","status":"start","data":{"has_glossary":true|false,"adr_path":"<path>|skip"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-grill-with-docs","story":"<key>","step":"session","status":"start","data":{"has_glossary":true|false,"adr_path":"<path>|skip"}}'
 ```
 
 ---
@@ -271,7 +271,7 @@ convenience; the ADR file or `decisions.md` entry is the primary record.
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-grill-with-docs","story":"<key>","step":"session","status":"ok","data":{"terms_resolved":<N>,"terms_skipped":<M>,"adrs_written":<K>,"decisions_updated":<J>,"decisions_persisted_to_state":<P>}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-grill-with-docs","story":"<key>","step":"session","status":"ok","data":{"terms_resolved":<N>,"terms_skipped":<M>,"adrs_written":<K>,"decisions_updated":<J>,"decisions_persisted_to_state":<P>}}'
 ```
 
 `decisions_persisted_to_state` is the count of decisions successfully written to

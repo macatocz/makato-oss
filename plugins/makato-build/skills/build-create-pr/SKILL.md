@@ -6,7 +6,7 @@ description: >-
   to How to Test, design decisions surface in the description, Jira
   story is linked. Presents draft for user approval before opening.
   Interactive. Use after push-to-git, before address-pr-comments.
-version: "1.10.0"
+version: "1.11.0"
 argument-hint: "[work-item-key] [--autonomous]"
 allowed-tools:
   - Bash
@@ -18,7 +18,7 @@ allowed-tools:
 | Reference | MANDATORY trigger | Do NOT Load |
 |-----------|-------------------|-------------|
 | `@references/pr-description-guide.md` | Load at Step 3 before drafting the PR description body | Do NOT load before Step 3 — the guide is section-filling detail, not entry context |
-| `@../../AUTONOMOUS-MODE.md` | Load at Step 1a when `--autonomous` flag is present, to read activation contract and bypass-log schema | Do NOT load in interactive-only sessions — the reference is autonomous-contract detail that adds noise when running interactively |
+| `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` | Read at Step 1a when `--autonomous` flag is present, to read activation contract and bypass-log schema | Do NOT read in interactive-only sessions — the reference is autonomous-contract detail that adds noise when running interactively |
 
 ---
 
@@ -32,13 +32,25 @@ When dispatched by the PO-agent (`--autonomous` mode):
 
 - `<work-item-key>` — positional argument (optional; see Step 1a fallback).
 - `WORKTREE_PATH` — absolute filesystem path to the per-run git worktree. **Mandatory in autonomous mode** (see `plugins/makato-build/AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract*). `gh pr create` and any `git` invocation MUST run from `WORKTREE_PATH` so the PR resolves the correct branch — running from the main checkout would open a PR against the wrong (or no) branch.
+- `MAKATO_BUILD_ROOT` — absolute installed build-plugin root, resolved from
+  the runner plugin-root variables when not supplied.
+- `MAKATO_PLAN_ROOT` — optional absolute makato-plan root for validating
+  `created-issues.json`; if absent, artifact validation is advisory and must
+  not probe the consumer repository.
 - `--autonomous` — activation flag.
 
 Interactive mode: `WORKTREE_PATH` is optional; fall back to `git rev-parse --show-toplevel` of the current `$PWD`.
 
 ### Workspace-isolation entry guard
 
-Apply the workspace-isolation entry guard from `@../../AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract* and § *Falsy-check pattern* before Step 1's `git status -sb`. In autonomous mode an empty `WORKTREE_PATH` is a HALT with `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`; in interactive mode the guard falls back to `git rev-parse --show-toplevel`. After resolution, `cd "$WORKTREE_PATH"` — every `git`/`gh pr create` command below runs from this CWD.
+Resolve `MAKATO_BUILD_ROOT` from the runner plugin-root variables, then apply
+the workspace-isolation entry guard from
+`$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` before Step 1's `git status -sb`. In
+autonomous mode an empty `WORKTREE_PATH` is a HALT with
+`errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`; in
+interactive mode the guard falls back to `git rev-parse --show-toplevel`. After
+resolution, `cd "$WORKTREE_PATH"` — every `git`/`gh pr create` command below
+runs from this CWD.
 
 **Spec-artefact reads use `REPO_ROOT`, not `WORKTREE_PATH`.** `specs/<key>-*/` is gitignored at the repo root; a fresh `git worktree add` produces a worktree with NO `specs/` content. Resolve `REPO_ROOT` once at entry alongside the worktree:
 
@@ -46,7 +58,12 @@ Apply the workspace-isolation entry guard from `@../../AUTONOMOUS-MODE.md` § *W
 REPO_ROOT="$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)"
 ```
 
-Every spec-artefact path resolved in Step 1 below (`stories.json`, `prd.md`, `plan.md`, `created-issues.json`) is `$REPO_ROOT/specs/<key>-*/<file>`. `.github/PULL_REQUEST_TEMPLATE.md` lives in the tracked `.github/` directory and resolves correctly under either root, but for consistency the prose below references `$REPO_ROOT/.github/PULL_REQUEST_TEMPLATE.md`. See `AUTONOMOUS-MODE.md` § *Two roots, one contract*.
+Every spec-artefact path resolved in Step 1 below (`stories.json`, `prd.md`,
+`plan.md`, `created-issues.json`) is under the `SPEC_FOLDER` returned by
+`python3 "$MAKATO_BUILD_ROOT/shared/spec_folder.py" "$REPO_ROOT" "<key>"`.
+`.github/PULL_REQUEST_TEMPLATE.md` lives in the tracked `.github/` directory
+and resolves correctly under either root. See `AUTONOMOUS-MODE.md` § *Two
+roots, one contract*.
 
 ## Workflow
 
@@ -65,16 +82,34 @@ Verify the branch is pushed: run `git status -sb` and check that the upstream tr
 
 ### Step 1a — Mode detection
 
-The skill runs in `--interactive` mode by default; autonomous mode opts in per dispatch. When `--autonomous` is present, load `@../../AUTONOMOUS-MODE.md` (MANDATORY — see References table) to read the activation contract (§ *Activation triggers*) and the per-gate default table.
+The skill runs in `--interactive` mode by default; autonomous mode opts in per dispatch. When `--autonomous` is present, read
+`$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` (MANDATORY — see References table) to
+read the activation contract (§ *Activation triggers*) and the per-gate default
+table.
 
 In autonomous mode, the Step 1 work-item-key prompt is replaced by:
 1. If an argument was passed: use it.
-2. Otherwise, read the most-recent `build.jsonl` session entry in the resolved spec folder (`specs/*/build.jsonl`, last entry where `step:"session"` and `status:"start"`) and extract the top-level `story` field as the key. Do NOT use `data.issue` or `data.story` (those fields do not exist in the build.jsonl schema) and do NOT rely on `data.branch` for key recovery — that field is only written by push-to-git and may be absent at this point.
+2. Otherwise, inspect the most-recent `$REPO_ROOT/specs/*/build.jsonl`
+   session entry (last entry where `step:"session"` and `status:"start"`) and
+   extract the top-level `story` field as the key. Do NOT use `data.issue` or
+   `data.story` (those fields do not exist in the build.jsonl schema) and do
+   NOT rely on `data.branch` for key recovery — that field is only written by
+   push-to-git and may be absent at this point.
 3. If neither step yields a key: HALT with `MISSING_INPUT: build-create-pr in --autonomous mode requires a work-item-key argument or a populated build.jsonl session entry`, write `{step:"session", status:"error", data:{halt_code:"MISSING_INPUT"}}`, and return R1 `status:"failure"`.
 
-Log the bypass via `shared/log-bypass.sh build-create-pr "<key>" work-item-key "<use-arg|read-build-jsonl>" "<agent_id|cli_flag|task_id_bundle>"` when bypassed.
+Log the bypass via `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-create-pr "<key>" work-item-key "<use-arg|read-build-jsonl>" "<agent_id|cli_flag|task_id_bundle>"` when bypassed.
 
-Read from the resolved spec folder under `$REPO_ROOT` (NOT under `$WORKTREE_PATH` — see the entry guard above): `$REPO_ROOT/specs/<key>-*/`:
+Resolve `SPEC_FOLDER` with:
+
+```bash
+SPEC_FOLDER="$(
+  python3 "$MAKATO_BUILD_ROOT/shared/spec_folder.py" "$REPO_ROOT" "<key>"
+)"
+export SPEC_FOLDER
+```
+
+Read from `SPEC_FOLDER` (NOT under `$WORKTREE_PATH` — see the entry guard
+above):
 - `stories.json` — acceptance criteria for this work item (if key was provided and file exists)
 - `seed-manifest.json` — optional; when `.spec_tier == "plan-only"` and no `stories.json`, `plan.md` `## Acceptance criteria` is the How-to-Test source (see Step 3)
 - `prd.md` — goals, scope, motivation (if exists)
@@ -83,19 +118,34 @@ Read from the resolved spec folder under `$REPO_ROOT` (NOT under `$WORKTREE_PATH
 
 - `created-issues.json` — handoff artifact emitted by `/makato-plan:to-issues` (optional)
 
-When `created-issues.json` exists in the spec folder, validate it against the schema at `$REPO_ROOT/plugins/makato-plan/skills/to-issues/references/created-issues.schema.json`:
+When `created-issues.json` exists and `MAKATO_PLAN_ROOT` is available, validate
+it against `$MAKATO_PLAN_ROOT/skills/to-issues/references/created-issues.schema.json`.
+When the optional plan root is unavailable, skip schema validation (advisory
+only — the file is still read for `Closes #N` injection).
 
 ```bash
 python3 - <<PY
-import json, sys
+import json, sys, os
+spec_folder = os.environ.get('SPEC_FOLDER', '')
+if not spec_folder:
+    print('[build-create-pr] WARNING: SPEC_FOLDER is empty — skipping created-issues.json validation')
+    sys.exit(0)
+art_path = spec_folder + '/created-issues.json'
+plan_root = os.environ.get('MAKATO_PLAN_ROOT', '')
 try:
-    import jsonschema
-except ImportError:
-    import subprocess; subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--quiet', 'jsonschema'])
-    import jsonschema
-SCHEMA = json.load(open('plugins/makato-plan/skills/to-issues/references/created-issues.schema.json'))
-ART = json.load(open('$SPEC_FOLDER/created-issues.json'))
-jsonschema.validate(ART, SCHEMA)
+    ART = json.load(open(art_path))
+except Exception as e:
+    print('[build-create-pr] WARNING: created-issues.json unreadable (%s) — skipping' % e)
+    sys.exit(0)
+if plan_root:
+    schema_path = plan_root + '/skills/to-issues/references/created-issues.schema.json'
+    try:
+        import jsonschema
+    except ImportError:
+        import subprocess; subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--quiet', 'jsonschema'])
+        import jsonschema
+    SCHEMA = json.load(open(schema_path))
+    jsonschema.validate(ART, SCHEMA)
 print('[build-create-pr] artifact valid: %d issues' % len(ART['issues']))
 PY
 ```
@@ -104,7 +154,7 @@ If validation fails (invalid JSON or schema mismatch), log a single warning:
 `[build-create-pr] WARNING: specs/<slug>/created-issues.json is malformed (<error>) — continuing without Closes injection`
 …and proceed with the current v1.2.0 behavior. Never block PR creation on artifact problems (D21).
 
-Resolve the integration target with `DEFAULT_REF="$(shared/default-branch.sh)"` (returns e.g. `origin/main`); run `git fetch origin --quiet` first so the comparison reflects the latest integration tip. Then run `git log "$DEFAULT_REF..HEAD" --oneline` to see the commits included in this PR. Never compare against the bare local `main` — a stale local `main` reports commits from already-merged PRs (#98).
+Resolve the integration target with `DEFAULT_REF="$("$MAKATO_BUILD_ROOT/shared/default-branch.sh")"` (returns e.g. `origin/main`); run `git fetch origin --quiet` first so the comparison reflects the latest integration tip. Then run `git log "$DEFAULT_REF..HEAD" --oneline` to see the commits included in this PR. Never compare against the bare local `main` — a stale local `main` reports commits from already-merged PRs (#98).
 
 ---
 
@@ -113,7 +163,7 @@ Resolve the integration target with `DEFAULT_REF="$(shared/default-branch.sh)"` 
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-create-pr","story":"<key>","step":"session","status":"start","data":{"branch":"<name>","commits":<N>}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-create-pr","story":"<key>","step":"session","status":"start","data":{"branch":"<name>","commits":<N>}}'
 ```
 
 ---
@@ -185,7 +235,7 @@ Use **AskUserQuestion** with selectable options:
 
 Apply any edits the user requests. Re-present if edits alter the title or more than one section. Do not open the PR until the user selects "Approved".
 
-In **autonomous mode**, skip the prompt: proceed directly to Step 5 with the draft as-rendered. Log `shared/log-bypass.sh build-create-pr "<key>" pr-draft-approval open-pr-as-drafted "<agent_id|cli_flag|task_id_bundle>"`. The PR body is populated entirely from spec artifacts (`stories.json`, `prd.md`, `plan.md`) and workflow-state (`build.jsonl`) — no human authoring is required and the `created-issues.json` auto-`Closes` injection in Step 6 Case 4 is the canonical issue-link source.
+In **autonomous mode**, skip the prompt: proceed directly to Step 5 with the draft as-rendered. Log `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-create-pr "<key>" pr-draft-approval open-pr-as-drafted "<agent_id|cli_flag|task_id_bundle>"`. The PR body is populated entirely from spec artifacts (`stories.json`, `prd.md`, `plan.md`) and workflow-state (`build.jsonl`) — no human authoring is required and the `created-issues.json` auto-`Closes` injection in Step 6 Case 4 is the canonical issue-link source.
 
 ---
 
@@ -202,7 +252,7 @@ Extract the hostname from the URL (e.g. `github.tools.sap` from `https://github.
 **Before** invoking `gh pr create`, append a `pr_created status:"start"` line so a subsequent silent process death is attributable to this step:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-create-pr","story":"<key>","step":"pr_created","status":"start","data":{"branch":"<name>","gh_host":"<hostname>","title_len":<N>}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-create-pr","story":"<key>","step":"pr_created","status":"start","data":{"branch":"<name>","gh_host":"<hostname>","title_len":<N>}}'
 ```
 
 This event is required in **every** mode (interactive AND autonomous). Skipping it violates the SKILL.md audit contract — see § *Audit invariant* below.
@@ -230,7 +280,7 @@ GH_RC=$?
 **On success (`GH_RC == 0`):** capture the PR URL from stdout, then append:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-create-pr","story":"<key>","step":"pr_created","status":"ok","data":{"pr_url":"<url>","pr_number":<N>}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-create-pr","story":"<key>","step":"pr_created","status":"ok","data":{"pr_url":"<url>","pr_number":<N>}}'
 ```
 
 **Board Status — In Review (best-effort):** after a successful PR creation, update the board card Status to In Review. Read `in_review` option ID from `.claude/config.json` `github_project` block. If the block is absent or `in_review` is missing, skip silently. Otherwise:
@@ -247,7 +297,7 @@ On success: log `build-create-pr: marked #$ISSUE_NUMBER as In Review on project 
 On failure: log `build-create-pr: WARN — could not set In Review on board; continuing` (best-effort — never blocks PR creation or subsequent steps).
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-create-pr","story":"<key>","step":"board-in-review","status":"<ok|warn>","data":{"issue":<ISSUE_NUMBER>,"reason":"<omit-on-ok|error-description-on-warn>"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-create-pr","story":"<key>","step":"board-in-review","status":"<ok|warn>","data":{"issue":<ISSUE_NUMBER>,"reason":"<omit-on-ok|error-description-on-warn>"}}'
 ```
 
 Proceed to Step 6.
@@ -260,13 +310,13 @@ Proceed to Step 6.
 2. Append the finding line **verbatim** (do not paraphrase the `gh` error):
 
    ```bash
-   shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-create-pr","story":"<key>","step":"pr_created","status":"error","data":{"halt_code":"<code>","exit_code":<GH_RC>,"stderr":"<first 500 chars, JSON-escaped>"}}'
+   "$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-create-pr","story":"<key>","step":"pr_created","status":"error","data":{"halt_code":"<code>","exit_code":<GH_RC>,"stderr":"<first 500 chars, JSON-escaped>"}}'
    ```
 
 3. Append the **terminal session-error** event (see § *Audit invariant* — this is the "either ok or error, never neither" guarantee):
 
    ```bash
-   shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-create-pr","story":"<key>","step":"session","status":"error","data":{"halt_code":"<code>","branch":"<name>"}}'
+   "$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-create-pr","story":"<key>","step":"session","status":"error","data":{"halt_code":"<code>","branch":"<name>"}}'
    ```
 
 4. Emit the R1 failure envelope (see § *Return Format*) as the final `json`-fenced block and return. Do NOT retry `gh pr create` silently, and do NOT fall through to Step 6.
@@ -306,7 +356,7 @@ For each entry in `issues[]`, add `Closes #<issue_number>` to the PR body's Link
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-create-pr","story":"<key>","step":"session","status":"ok","data":{"pr_url":"<url>","issue_linked":true|false,"issue_type":"jira"|"github"|"none","closes_injected":<N>,"artifact_status":"valid"|"missing"|"malformed"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-create-pr","story":"<key>","step":"session","status":"ok","data":{"pr_url":"<url>","issue_linked":true|false,"issue_type":"jira"|"github"|"none","closes_injected":<N>,"artifact_status":"valid"|"missing"|"malformed"}}'
 ```
 
 Tell the user: *"PR open: `<URL>`. Next: wait for review, then use `/address-pr-comments` to handle feedback."*
@@ -321,7 +371,8 @@ These are production-derived failure modes — most were silent bugs before expl
 WHY: those fields do not exist in the build.jsonl schema. `build-log.sh` writes the key at the top-level `story` field; the `data` sub-object is free-form payload per skill. Reading a non-existent field silently produces `null` and creates a PR with no issue link and an incorrect session key that later breaks the audit trail search.
 
 **NEVER compare the commit range against bare local `main`.**
-WHY: a stale local `main` includes commits from already-merged PRs that happened between your last `git fetch` and now. Those commits appear in `git log main..HEAD` as if they are part of this PR, inflating the "What changed" section with unrelated history. Always resolve via `shared/default-branch.sh` after a `git fetch origin --quiet` so the tip is `origin/main` (or the true remote default).
+WHY: a stale local `main` includes commits from already-merged PRs that happened between your last `git fetch` and now. Those commits appear in `git log main..HEAD` as if they are part of this PR, inflating the "What changed" section with unrelated history. Always resolve via `"$MAKATO_BUILD_ROOT/shared/default-branch.sh"` after a
+`git fetch origin --quiet` so the tip is `origin/main` (or the true remote default).
 
 **NEVER rely on `data.branch` in `build.jsonl` for key recovery.**
 WHY: `data.branch` is written only by `build-push-to-git` and is absent if that skill has not run yet (e.g., the agent is re-dispatched after a partial session). Treating an absent field as the key silently falls through to an empty string, producing a MISSING_INPUT halt that looks like a missing argument bug, not a schema misread.
@@ -342,7 +393,8 @@ WHY: in the autonomous loop each story runs in a dedicated `git worktree add` at
 
 ## Autonomous Execution
 
-Autonomous mode is activated per `@../../AUTONOMOUS-MODE.md` § *Activation triggers*.
+Autonomous mode is activated per `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` §
+*Activation triggers*.
 
 In autonomous mode:
 
@@ -351,7 +403,9 @@ In autonomous mode:
 - **PR body is fully autogenerated** from spec artifacts (`stories.json`, `prd.md`, `plan.md`, `.github/PULL_REQUEST_TEMPLATE.md`) and workflow-state. No human authoring.
 - **Auto-inject `Closes #<n>`** lines from `created-issues.json` per Step 6 Case 4 — this is the canonical issue-link source in autonomous mode.
 - **Render the AC Verification block** from the last `build.jsonl` `step:"ac-verification"` entry (Step 3) so the post-merge `documentation-agent` can flip verified AC checkboxes. Omit the block entirely when no such entry exists.
-- **Log every bypass** to `build.jsonl` via `shared/build-log.sh` with the `autonomous_bypass` event schema documented in `@../../AUTONOMOUS-MODE.md`.
+- **Log every bypass** to `build.jsonl` via
+  `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh"` with the `autonomous_bypass`
+  event schema documented in `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md`.
 - **Emit an R1 envelope** as the final `json`-fenced block of the skill's output.
 
 ### Return Format (R1, when called as a sub-skill)

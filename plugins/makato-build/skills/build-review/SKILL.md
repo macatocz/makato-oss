@@ -51,7 +51,7 @@ If no argument was passed, invoke `AskUserQuestion`:
 Read `plan.md` from the resolved spec folder (`specs/<key>-*/`) if it exists. Extract the acceptance criteria and task list —
 these are the correctness contract. Every AC must be demonstrably covered by the diff.
 
-Resolve the integration target with `DEFAULT_REF="$(shared/default-branch.sh)"` (returns e.g. `origin/main`). Fetch the remote first — `git fetch origin --quiet` — so the diff reflects the latest integration tip; if `origin` is unreachable, fall back to the local default branch and continue. Then run `git diff "$DEFAULT_REF...HEAD" --name-only` to get the list of changed files. Never diff against the bare local `main` — when local `main` lags `origin/main` the diff pulls in commits from already-merged PRs (#98).
+Resolve the integration target with `DEFAULT_REF="$("$MAKATO_BUILD_ROOT/shared/default-branch.sh")"` (returns e.g. `origin/main`). Fetch the remote first — `git fetch origin --quiet` — so the diff reflects the latest integration tip; if `origin` is unreachable, fall back to the local default branch and continue. Then run `git diff "$DEFAULT_REF...HEAD" --name-only` to get the list of changed files. Never diff against the bare local `main` — when local `main` lags `origin/main` the diff pulls in commits from already-merged PRs (#98).
 
 ---
 
@@ -60,7 +60,7 @@ Resolve the integration target with `DEFAULT_REF="$(shared/default-branch.sh)"` 
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"session","status":"start","data":{"files_changed":<N>,"pass":1}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"session","status":"start","data":{"files_changed":<N>,"pass":1}}'
 ```
 
 ---
@@ -142,7 +142,7 @@ Log each fix:
 
 In autonomous mode, also emit an `autonomous_bypass` audit entry the first time a MAJOR is auto-fixed on a pass (the interactive path would have deferred the decision to the user):
 ```bash
-shared/log-bypass.sh build-review "<key>" major-autofix apply-in-loop "$TRIGGER"
+"$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-review "<key>" major-autofix apply-in-loop "$TRIGGER"
 ```
 
 Return to Step 4. Increment the pass counter.
@@ -194,7 +194,7 @@ Present the clean-run findings to the user:
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"session","status":"ok","data":{"passes":<N>,"criticals_fixed":<N>,"majors_fixed":<N>,"majors_open":<N>,"suggestions":<N>,"nitpicks":<N>}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"session","status":"ok","data":{"passes":<N>,"criticals_fixed":<N>,"majors_fixed":<N>,"majors_open":<N>,"suggestions":<N>,"nitpicks":<N>}}'
 ```
 
 Tell the user:

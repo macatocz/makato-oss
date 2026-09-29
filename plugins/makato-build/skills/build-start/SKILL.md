@@ -87,7 +87,7 @@ missing any of `fields.status.id`, `fields.status.options.ready`, `project_node_
 Log the skip and continue to Step 2 unchanged:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"dor-gate","status":"warn","data":{"reason":"no-github-project-config"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"dor-gate","status":"warn","data":{"reason":"no-github-project-config"}}'
 ```
 
 **When `github_project` is present:**
@@ -112,7 +112,7 @@ If `ITEM_ID` is empty: log
 **When `CUR_STATUS == "Ready"`:** log and continue to Step 2:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"dor-gate","status":"ok","data":{"issue":<ISSUE_NUMBER>,"board_status":"Ready"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"dor-gate","status":"ok","data":{"issue":<ISSUE_NUMBER>,"board_status":"Ready"}}'
 ```
 
 **When `CUR_STATUS != "Ready"` (e.g. Todo, Blocked, In Progress):**
@@ -125,7 +125,7 @@ In **interactive mode**: stop immediately with an actionable message:
 Log:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"dor-gate","status":"error","data":{"halt_code":"DOR_NOT_READY","issue":<ISSUE_NUMBER>,"board_status":"<CUR_STATUS>"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"dor-gate","status":"error","data":{"halt_code":"DOR_NOT_READY","issue":<ISSUE_NUMBER>,"board_status":"<CUR_STATUS>"}}'
 ```
 
 In **autonomous mode** (`--autonomous`): log the same entry above, then return R1
@@ -202,16 +202,30 @@ issue concurrently.
 
 **Determine the GitHub issue number:**
 
-1. If `key` is a plain integer (e.g., `450`): use it directly as `ISSUE_NUMBER`.
-2. Otherwise: look for `specs/<key>-*/seed-manifest.json` or `specs/<key>/seed-manifest.json` and
-   read `.issue_number` from it:
+1. If `key` is a plain integer (e.g., `450`), use it directly as `ISSUE_NUMBER`; otherwise preserve
+   any supplied `ISSUE_NUMBER`.
+2. Resolve `SPEC_FOLDER` with the shared helper. Numeric issue keys can resolve through the
+   owning feature spec recorded in `created-issues.json`:
    ```bash
-   ISSUE_NUMBER="$(jq -r '.issue_number // empty' specs/${key}-*/seed-manifest.json 2>/dev/null | head -1)"
-   # fallback: exact-match folder
-   [[ -z "$ISSUE_NUMBER" ]] && ISSUE_NUMBER="$(jq -r '.issue_number // empty' specs/${key}/seed-manifest.json 2>/dev/null || true)"
+   ISSUE_NUMBER="${ISSUE_NUMBER:-}"
+   if [[ "$key" =~ ^[0-9]+$ ]]; then ISSUE_NUMBER="$key"; fi
+   SPEC_RESOLVER="$MAKATO_BUILD_ROOT/shared/resolve-spec-folder.sh"
+   if ! SPEC_FOLDER="$(bash "$SPEC_RESOLVER" "$REPO_ROOT/specs" "$key")"; then
+     echo "build-start: cannot continue without a unique spec folder for $key." >&2
+     exit 1
+   fi
    ```
-3. If `ISSUE_NUMBER` remains empty: skip this step silently (Jira-only key with no manifest — cannot
-   resolve to a board item).
+   On failure, show the helper diagnostic and stop. If no folder is found, tell the user to run
+   makato-plan; do not select another spec.
+3. If `ISSUE_NUMBER` is empty and `SPEC_FOLDER/seed-manifest.json` exists, read `.issue_number`
+   from that file only:
+   ```bash
+   if [[ -z "$ISSUE_NUMBER" && -n "$SPEC_FOLDER" && -f "$SPEC_FOLDER/seed-manifest.json" ]]; then
+     ISSUE_NUMBER="$(jq -r '.issue_number // empty' "$SPEC_FOLDER/seed-manifest.json" 2>/dev/null || true)"
+   fi
+   ```
+   If it remains empty, skip board lookup silently (Jira-only key with no manifest — cannot resolve
+   to a board item).
 
 **Read project config** from `.claude/config.json`. If the `github_project` block is absent, or any
 of `fields.status.id`, `fields.status.options.in_progress`, `project_node_id`, `host`, `owner`,
@@ -260,7 +274,7 @@ red foundation.
 skip entry and proceed to Step 3 unchanged:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO>","skill":"build-start","story":"<key>","step":"canary-skipped","status":"ok","data":{"reason":"no-unit-command"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO>","skill":"build-start","story":"<key>","step":"canary-skipped","status":"ok","data":{"reason":"no-unit-command"}}'
 ```
 
 Append one `build.jsonl` entry with step `"canary"`, `status: "ok"`, `data.event: "CANARY_SKIPPED"`
@@ -330,24 +344,19 @@ full registry.
 
 **Ticket path** (`local_work = false`):
 
-Locate the spec folder using a two-step resolution:
+Use `SPEC_FOLDER` resolved in Step 2d under the main checkout `specs/`. The shared resolver uses an
+exact folder first. For a numeric issue key, it next selects the unique folder whose
+`created-issues.json` lists that issue. If there is no manifest owner, it accepts one unique
+`specs/<key>-*/` folder. Multiple owners or prefix matches are errors. Passing a full folder name
+selects its exact folder.
 
-1. **Prefix-match**: find `specs/<key>-*/` (e.g. `specs/DCP-1234-feature-name/`). Use the first
-   match. This aligns with makato-plan's naming convention of `specs/{KEY}-{slug}/`.
-2. **Exact-match fallback**: if no prefix-match exists, check for `specs/<key>/` (exact folder
-   name). This covers issues seeded directly without a slug suffix.
+**Ambiguous ownership:** if multiple `created-issues.json` files list a numeric issue, or the helper
+finds multiple key-prefix folders and no manifest owner exists, do NOT choose the first result.
+Stop and show its diagnostic. Passing a full folder name selects its exact folder; duplicate issue
+ownership must be corrected in the manifests.
 
-Resolution order: (1) `specs/<key>-*/` prefix-match; (2) `specs/<key>/` exact-match fallback.
-
-**Multiple prefix-matches:** if step 1 finds more than one folder (e.g. `specs/DCP-1234-feat-a/` and
-`specs/DCP-1234-feat-b/`), do NOT silently use the first — this indicates a corrupted spec state.
-Stop and report:
-
-> "Multiple spec folders found for `<key>`: `<list>`. Disambiguate by passing the full folder name
-> as the key, e.g. `build-start DCP-1234-feat-a`."
-
-- If no `specs/<key>-*/` folder exists → stop: _"No spec folder found for `<key>`. Run makato-plan
-  first to produce shaped artifacts in `specs/<key>-<slug>/`."_
+- If no exact folder, manifest owner, or unique prefix exists → stop and tell the user to run
+  makato-plan to create the shaped spec before starting the build.
 - If `stories.json` is missing → check whether `prd.md` and `design.md` both exist in the spec
   folder. If they do — stop:
 
@@ -465,7 +474,7 @@ SCHEMA_SOURCE="custom"   # or "default" — readable from first loader stderr li
 if [[ ! -f "$REPO_ROOT/.claude/workflow-schema.yml" ]]; then
   SCHEMA_SOURCE="default"
 fi
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"schema-resolved","status":"ok","data":{"source":"<default|custom>","artifact_count":<N>}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"schema-resolved","status":"ok","data":{"source":"<default|custom>","artifact_count":<N>}}'
 ```
 
 **On exit 1 or 2:** The schema is invalid (parse error, cycle detected, or missing arg). Do NOT
@@ -479,7 +488,7 @@ continue — stop and report:
 Log the error:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"schema-resolved","status":"error","error":"<loader stderr>"}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"schema-resolved","status":"error","error":"<loader stderr>"}'
 ```
 
 ### Step 5 — Initialize build log
@@ -487,7 +496,7 @@ shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<k
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"session-start","status":"start","data":{"mode":"<tdd|goal>","local_work":<true|false>,"spec_artifacts":[...],"schema_source":"<default|custom>","worktree_path":"<absolute-worktree-path>"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"session-start","status":"start","data":{"mode":"<tdd|goal>","local_work":<true|false>,"spec_artifacts":[...],"schema_source":"<default|custom>","worktree_path":"<absolute-worktree-path>"}}'
 ```
 
 List every artifact file found in the resolved `specs/<key>-*/` folder in the `spec_artifacts`
@@ -503,7 +512,7 @@ Continue with `WORKTREE_PATH=<absolute-worktree-path>`; do not switch back to th
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"session-end","status":"ok","data":{"next":"build-refine","worktree_path":"<absolute-worktree-path>"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"session-end","status":"ok","data":{"next":"build-refine","worktree_path":"<absolute-worktree-path>"}}'
 ```
 
 Invoke `/build-refine <key>` with the resolved `WORKTREE_PATH`.

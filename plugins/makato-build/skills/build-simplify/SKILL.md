@@ -34,7 +34,7 @@ Interactive mode: `WORKTREE_PATH` is optional; fall back to `git rev-parse --sho
 
 ### Workspace-isolation entry guard
 
-Apply the workspace-isolation entry guard from `@../../AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract* and § *Falsy-check pattern* before Step 1. In autonomous mode an empty `WORKTREE_PATH` is a HALT with `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`; in interactive mode the guard falls back to `git rev-parse --show-toplevel`. After resolution, `cd "$WORKTREE_PATH"` — every `git diff` and fix-apply below runs from this CWD.
+Apply the workspace-isolation entry guard from `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract* and § *Falsy-check pattern* before Step 1. In autonomous mode an empty `WORKTREE_PATH` is a HALT with `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`; in interactive mode the guard falls back to `git rev-parse --show-toplevel`. After resolution, `cd "$WORKTREE_PATH"` — every `git diff` and fix-apply below runs from this CWD.
 
 Spec-artefact reads use `$REPO_ROOT/specs/<key>-*/`:
 
@@ -51,7 +51,7 @@ Ask: *"Which work item are we simplifying? (e.g. DCP-1234)"* — or use the pass
 Read `plan.md` from the resolved spec folder under `$REPO_ROOT` (`$REPO_ROOT/specs/<key>-*/plan.md`) if it exists. Extract the acceptance criteria for each task —
 these define "complexity that serves the ACs." If no plan exists, proceed without one.
 
-Resolve the integration target with `DEFAULT_REF="$(shared/default-branch.sh)"` (returns e.g. `origin/main`). Fetch the remote first — `git fetch origin --quiet` — so the diff is taken against the latest integration tip; if `origin` is unreachable in this environment, fall back to the local default branch and continue. Then run `git diff "$DEFAULT_REF...HEAD" --name-only` to identify all changed files in this branch. Never diff against the bare local `main` — when local `main` lags `origin/main` the diff pulls in commits from already-merged PRs and this skill would "simplify" code it did not author (#98).
+Resolve the integration target with `DEFAULT_REF="$("$MAKATO_BUILD_ROOT/shared/default-branch.sh")"` (returns e.g. `origin/main`). Fetch the remote first — `git fetch origin --quiet` — so the diff is taken against the latest integration tip; if `origin` is unreachable in this environment, fall back to the local default branch and continue. Then run `git diff "$DEFAULT_REF...HEAD" --name-only` to identify all changed files in this branch. Never diff against the bare local `main` — when local `main` lags `origin/main` the diff pulls in commits from already-merged PRs and this skill would "simplify" code it did not author (#98).
 
 ---
 
@@ -66,7 +66,7 @@ This skill follows `plugins/makato-build/AUTONOMOUS-MODE.md` § *Activation trig
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-simplify","story":"<key>","step":"session","status":"start","data":{"files_changed":<N>}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-simplify","story":"<key>","step":"session","status":"start","data":{"files_changed":<N>}}'
 ```
 
 ---
@@ -160,16 +160,16 @@ For each ESCALATE finding, present separately and recommend `/refine`.
 - Every `ESCALATE` finding is **NOT auto-applied**. The finding is preserved for the R1 envelope (`data.escalated`) so the PO-agent can surface it for re-planning. ESCALATE includes both structural over-complexity AND security-guard removals from Step 4.
 - Zero SIMPLIFY findings is acceptable — proceed without confirmation. Zero findings AND any ESCALATE findings means the session returns R1 `status: "partial"` (work remains for the PO-agent); zero ESCALATE means `status: "success"`.
 
-Emit one `autonomous_bypass` log row per bypassed gate via `shared/log-bypass.sh` (per AUTONOMOUS-MODE.md § Logging contract):
+Emit one `autonomous_bypass` log row per bypassed gate via `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh"` (per AUTONOMOUS-MODE.md § Logging contract):
 
 ```bash
-shared/log-bypass.sh build-simplify "<key>" per-finding-approval auto-approve-simplify "<agent_id|cli_flag|task_id_bundle>"
+"$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-simplify "<key>" per-finding-approval auto-approve-simplify "<agent_id|cli_flag|task_id_bundle>"
 ```
 
 If zero SIMPLIFY findings:
 
 ```bash
-shared/log-bypass.sh build-simplify "<key>" zero-findings-confirm proceed "<agent_id|cli_flag|task_id_bundle>"
+"$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-simplify "<key>" zero-findings-confirm proceed "<agent_id|cli_flag|task_id_bundle>"
 ```
 
 Then emit the standard review log:
@@ -247,7 +247,7 @@ If the user answers `y`, continue to Step 8. Log the decision:
 
 Emit a bypass entry per AUTONOMOUS-MODE.md § Logging contract:
 ```bash
-shared/log-bypass.sh build-simplify "<key>" unverified-code-changes proceed-with-degraded-confidence "<agent_id|cli_flag|task_id_bundle>"
+"$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-simplify "<key>" unverified-code-changes proceed-with-degraded-confidence "<agent_id|cli_flag|task_id_bundle>"
 ```
 
 If `test_suite_present == false` AND **only** doc/config files were touched, Step 7a is a no-op in both modes — the changes are auditable from the diff and the user gate is unnecessary.
@@ -259,7 +259,7 @@ If `test_suite_present == false` AND **only** doc/config files were touched, Ste
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-simplify","story":"<key>","step":"session","status":"ok","data":{"findings_applied":<N>,"escalated":<N>,"lines_removed":<N>,"test_suite_present":<bool>,"degraded_confidence":<bool>}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-simplify","story":"<key>","step":"session","status":"ok","data":{"findings_applied":<N>,"escalated":<N>,"lines_removed":<N>,"test_suite_present":<bool>,"degraded_confidence":<bool>}}'
 ```
 
 **Interactive mode** — tell the user:
@@ -339,7 +339,7 @@ Each NEVER below encodes a failure mode learned from production runs. The WHY is
 
 ### NEVER diff against the bare local `main` branch
 
-**WHY:** When local `main` lags `origin/main`, a diff against it pulls in commits from already-merged PRs that were not authored in this branch. This skill would then "simplify" code it did not write — removing correct patterns introduced by the merged work and producing a diff that conflicts on the next rebase (#98). Always fetch `origin` first and diff against `origin/main` (or the `DEFAULT_REF` from `shared/default-branch.sh`).
+**WHY:** When local `main` lags `origin/main`, a diff against it pulls in commits from already-merged PRs that were not authored in this branch. This skill would then "simplify" code it did not write — removing correct patterns introduced by the merged work and producing a diff that conflicts on the next rebase (#98). Always fetch `origin` first and diff against `origin/main` (or the `DEFAULT_REF` from `"$MAKATO_BUILD_ROOT/shared/default-branch.sh"`).
 
 ### NEVER infer the test command independently
 

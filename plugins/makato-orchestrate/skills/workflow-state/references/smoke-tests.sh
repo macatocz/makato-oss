@@ -892,6 +892,26 @@ if SCHEMA_PATH="$DECISION_SCHEMA" "$WS" append-decision "$KEY_603" 603 \
 fi
 echo "  ✓ non-JSON input rejected"
 
+echo "=== T73: exact spec folder owns state despite a longer prefix ==="
+SPEC_OWNER_ROOT="$SANDBOX_603/spec-folder-resolution"
+EXACT_KEY="local-spec-owner-exact"
+mkdir -p "$SPEC_OWNER_ROOT/$EXACT_KEY" "$SPEC_OWNER_ROOT/$EXACT_KEY-slug"
+SCHEMA_PATH="$DECISION_SCHEMA" SPECS_DIR="$SPEC_OWNER_ROOT" "$WS" init "$EXACT_KEY" owner/repo feat/exact 990601 >/dev/null
+[[ -s "$SPEC_OWNER_ROOT/$EXACT_KEY/workflow-state-990601.json" ]] || { echo "  ✗ state not written to exact folder"; rm -rf "$SANDBOX_603"; exit 1; }
+[[ ! -e "$SPEC_OWNER_ROOT/$EXACT_KEY-slug/workflow-state-990601.json" ]] || { echo "  ✗ state written to prefix folder"; rm -rf "$SANDBOX_603"; exit 1; }
+echo "  ✓ exact folder selected"
+
+echo "=== T74: ambiguous spec folders refuse state creation ==="
+AMBIG_KEY="local-spec-owner-ambiguous"
+mkdir -p "$SPEC_OWNER_ROOT/$AMBIG_KEY-one" "$SPEC_OWNER_ROOT/$AMBIG_KEY-two"
+if SCHEMA_PATH="$DECISION_SCHEMA" SPECS_DIR="$SPEC_OWNER_ROOT" "$WS" init "$AMBIG_KEY" owner/repo feat/ambiguous 990602 > /dev/null 2>"$SPEC_OWNER_ROOT/ambiguous.stderr"; then
+  echo "  ✗ ambiguous spec folders accepted"
+  rm -rf "$SANDBOX_603"
+  exit 1
+fi
+grep -q "ambiguous spec folders" "$SPEC_OWNER_ROOT/ambiguous.stderr" || { echo "  ✗ ambiguity diagnostic missing"; cat "$SPEC_OWNER_ROOT/ambiguous.stderr"; rm -rf "$SANDBOX_603"; exit 1; }
+[[ ! -e "$SPEC_OWNER_ROOT/$AMBIG_KEY-one/workflow-state-990602.json" && ! -e "$SPEC_OWNER_ROOT/$AMBIG_KEY-two/workflow-state-990602.json" ]] || { echo "  ✗ state written despite ambiguity"; rm -rf "$SANDBOX_603"; exit 1; }
+echo "  ✓ ambiguous folder selection rejected without writes"
 rm -rf "$SANDBOX_603"
 
-echo "All 72 smoke tests passed."
+echo "All 74 smoke tests passed."

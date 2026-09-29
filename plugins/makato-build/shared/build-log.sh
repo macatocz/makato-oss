@@ -52,18 +52,36 @@ else
 fi
 SPECS_DIR="$REPO_ROOT/specs"
 
-# Resolve spec folder: find the first directory matching specs/<key>-*/
+# Resolve to the exact key folder first. Otherwise accept a slug-prefix match
+# only when it has one owner; never append logs to an arbitrary spec folder.
 SPEC_FOLDER=""
-if [[ -d "$SPECS_DIR" ]]; then
-  SPEC_FOLDER="$(find "$SPECS_DIR" -maxdepth 1 -type d -name "${KEY}-*" | head -1)"
-fi
-
-# Fall back to local-work path (no slug suffix)
-if [[ -z "$SPEC_FOLDER" ]] && [[ -d "$SPECS_DIR/$KEY" ]]; then
+if [[ -d "$SPECS_DIR/$KEY" ]]; then
   SPEC_FOLDER="$SPECS_DIR/$KEY"
+elif [[ -d "$SPECS_DIR" ]]; then
+  if ! SPEC_CANDIDATES="$(find "$SPECS_DIR" -mindepth 1 -maxdepth 1 -type d -print | LC_ALL=C sort)"; then
+    echo "build-log: unable to inspect spec folders in $SPECS_DIR" >&2
+    exit 1
+  fi
+  SPEC_MATCH_COUNT=0
+  SPEC_MATCHES=""
+  while IFS= read -r candidate; do
+    [[ -z "$candidate" ]] && continue
+    if [[ "${candidate##*/}" == "${KEY}-"* ]]; then
+      SPEC_MATCH_COUNT=$((SPEC_MATCH_COUNT + 1))
+      SPEC_MATCHES="${SPEC_MATCHES:+$'\n'}$candidate"
+    fi
+  done <<<"$SPEC_CANDIDATES"
+  if ((SPEC_MATCH_COUNT > 1)); then
+    echo "build-log: refusing ambiguous spec folders for key '$KEY'; pass an exact spec-folder name" >&2
+    printf '%s\n' "$SPEC_MATCHES" >&2
+    exit 1
+  fi
+  if ((SPEC_MATCH_COUNT == 1)); then
+    SPEC_FOLDER="$SPEC_MATCHES"
+  fi
 fi
 
-# If still not found, create a placeholder directory so logging never fails
+# Preserve placeholder logging when no spec folder exists.
 if [[ -z "$SPEC_FOLDER" ]]; then
   SPEC_FOLDER="$SPECS_DIR/$KEY"
 fi

@@ -185,9 +185,59 @@ rm -f "$SANDBOX/t10-missing.jsonl"
 assert_verdict "$SANDBOX/t10-missing.jsonl" build-create-pr no-log null \
   "T10 — missing build.jsonl yields verdict:no-log (early exit)"
 
+# ---------------------------------------------------------------------------
+# T11-T13 — default spec resolution is exact-first, unique-prefix-only, and
+# fails closed rather than reading either log when the prefix is ambiguous.
+# ---------------------------------------------------------------------------
+RESOLVER_REPO="$SANDBOX/resolver-repo"
+mkdir -p "$RESOLVER_REPO"
+git -C "$RESOLVER_REPO" init -q
+RESOLVER_KEY="fixture-key"
+cat >"$SANDBOX/resolver-ok.jsonl" <<'EOF'
+{"ts":"2026-07-09T10:00:00.000Z","skill":"build-create-pr","story":"fixture","step":"session","status":"start","data":{}}
+{"ts":"2026-07-09T10:00:01.000Z","skill":"build-create-pr","story":"fixture","step":"session","status":"ok","data":{}}
+EOF
+cat >"$SANDBOX/resolver-error.jsonl" <<'EOF'
+{"ts":"2026-07-09T10:00:00.000Z","skill":"build-create-pr","story":"fixture","step":"session","status":"start","data":{}}
+{"ts":"2026-07-09T10:00:01.000Z","skill":"build-create-pr","story":"fixture","step":"session","status":"error","data":{}}
+EOF
+mkdir -p "$RESOLVER_REPO/specs/$RESOLVER_KEY" "$RESOLVER_REPO/specs/${RESOLVER_KEY}-one" "$RESOLVER_REPO/specs/${RESOLVER_KEY}-two"
+cp "$SANDBOX/resolver-ok.jsonl" "$RESOLVER_REPO/specs/$RESOLVER_KEY/build.jsonl"
+cp "$SANDBOX/resolver-error.jsonl" "$RESOLVER_REPO/specs/${RESOLVER_KEY}-one/build.jsonl"
+cp "$SANDBOX/resolver-error.jsonl" "$RESOLVER_REPO/specs/${RESOLVER_KEY}-two/build.jsonl"
+RESOLVED="$(cd "$RESOLVER_REPO" && "$GUARD" "$RESOLVER_KEY" build-create-pr 2>"$SANDBOX/resolver-exact.err")"
+if [[ "$(jq -r '.verdict' <<<"$RESOLVED")" == "ok" ]]; then
+  PASS=$((PASS + 1))
+  echo "  ✓ T11 — exact spec folder wins over multiple prefix folders"
+else
+  FAIL=$((FAIL + 1))
+  printf '  ✗ T11 — exact spec-folder verdict: %s\n' "$RESOLVED" >&2
+fi
+rm -rf "$RESOLVER_REPO/specs/$RESOLVER_KEY" "$RESOLVER_REPO/specs/${RESOLVER_KEY}-two"
+RESOLVED="$(cd "$RESOLVER_REPO" && "$GUARD" "$RESOLVER_KEY" build-create-pr 2>"$SANDBOX/resolver-unique.err")"
+if [[ "$(jq -r '.verdict' <<<"$RESOLVED")" == "error" ]]; then
+  PASS=$((PASS + 1))
+  echo "  ✓ T12 — single prefix folder is used when no exact folder exists"
+else
+  FAIL=$((FAIL + 1))
+  printf '  ✗ T12 — unique prefix should read its log: %s\n' "$RESOLVED" >&2
+fi
+mkdir -p "$RESOLVER_REPO/specs/${RESOLVER_KEY}-two"
+cp "$SANDBOX/resolver-ok.jsonl" "$RESOLVER_REPO/specs/${RESOLVER_KEY}-two/build.jsonl"
+RESOLVER_ERR="$SANDBOX/resolver-ambiguous.err"
+RESOLVED="$(cd "$RESOLVER_REPO" && "$GUARD" "$RESOLVER_KEY" build-create-pr 2>"$RESOLVER_ERR")"
+if [[ "$(jq -r '.verdict' <<<"$RESOLVED")" == "no-log" ]] \
+  && grep -q 'ambiguous spec folder' "$RESOLVER_ERR"; then
+  PASS=$((PASS + 1))
+  echo "  ✓ T13 — ambiguous prefixes return no-log without selecting a file"
+else
+  FAIL=$((FAIL + 1))
+  printf '  ✗ T13 — ambiguous prefix was not rejected: %s\n' "$RESOLVED" >&2
+fi
+
 echo ""
 echo "check-session-tail smoke tests: $PASS passed, $FAIL failed."
 if [[ "$FAIL" -gt 0 ]]; then
   exit 1
 fi
-echo "All 10 tests passed."
+echo "All 13 tests passed."

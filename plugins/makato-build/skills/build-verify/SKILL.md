@@ -73,7 +73,7 @@ Interactive mode: `WORKTREE_PATH` is optional; fall back to `git rev-parse --sho
 
 ### Workspace-isolation entry guard
 
-Apply the workspace-isolation entry guard from `@../../AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract* and § *Falsy-check pattern* before Gate 0. In autonomous mode an empty `WORKTREE_PATH` is a HALT with `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`; in interactive mode the guard falls back to `git rev-parse --show-toplevel`. After resolution, `cd "$WORKTREE_PATH"` — every gate command below runs from this CWD.
+Apply the workspace-isolation entry guard from `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract* and § *Falsy-check pattern* before Gate 0. In autonomous mode an empty `WORKTREE_PATH` is a HALT with `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`; in interactive mode the guard falls back to `git rev-parse --show-toplevel`. After resolution, `cd "$WORKTREE_PATH"` — every gate command below runs from this CWD.
 
 ## Workflow
 
@@ -115,7 +115,7 @@ autonomous mode and the failure is structural.
 | 7 | Rebased on `origin/main` | `build-push-to-git` push deny-list | denied push → HALT-005 |
 | 8 | No `TODO`/`FIXME` without tracking issue; no debug/stale artifacts introduced | sensors `todo-check` + `stale-artifact-check` | HALT-001 family |
 | 9 | No hard-coded credentials | sensors `gitleaks` / `detect-secrets` | HALT-001 family |
-| 10 | `build.jsonl` entry per skill step | every skill via `shared/build-log.sh` | contract — caller treats omission as agent failure |
+| 10 | `build.jsonl` entry per skill step | every skill via `"$MAKATO_BUILD_ROOT/shared/build-log.sh"` | contract — caller treats omission as agent failure |
 | 11 | R1 JSON block as last fenced ` ```json ` in agent return | `plugins/makato-build/agents/RETURN-CONTRACT.md` | caller treats missing/invalid R1 as `status: "failure"` |
 | 12 | PR description contains `Closes #N` | `build-create-pr` description draft | interactive review catches omission before PR is opened |
 | 13 | Skill-provenance recorded and complete | Step 9 (skill-provenance advisory gate) in this skill | advisory only — never fails the build (NFR-R2) |
@@ -136,15 +136,29 @@ skill / agent boundary in the session, including by this skill on itself.
 
 **Autonomous mode** (`--autonomous`): use the passed `<work-item-key>` argument directly — do not prompt.
 
-Read `design.md` from the resolved spec folder (`specs/<key>-*/`) if it exists and look for a declared coverage threshold.
-If none is declared, the coverage gate is advisory — it reports figures but does not block.
+Resolve the spec folder exact-first: use `specs/<key>/` when present;
+otherwise accept exactly one `specs/<key>-*/` match. Multiple prefix matches
+without an exact folder are an error. Read `design.md` from that resolved
+`SPEC_FOLDER` if it exists and look for a declared coverage threshold. If none
+is declared, the coverage gate is advisory — it reports figures but does not
+block.
 
-**Runtime verification — read from plan**: read `plan-<N>.md` from the resolved spec folder (match `plan-<ISSUE_NUMBER>.md` where `ISSUE_NUMBER` is the leading numeric segment of the work-item key, or fallback to `plan.md` if the per-issue file is absent). Look for a `## Runtime verification` section. Extract the shell command from the first fenced code block inside that section and set `PLAN_RUNTIME_CMD` to that value. When the section is absent, empty, or contains no fenced code block, set `PLAN_RUNTIME_CMD` to empty string. This extraction is the only place plan-command reading happens — `gate-scout` MUST NOT be modified to read `plan.md`.
+**Runtime verification — read from plan**: read `plan-<ISSUE_NUMBER>.md` from
+the resolved `SPEC_FOLDER`, where `ISSUE_NUMBER` is the leading numeric segment
+of the work-item key. Fall back to `plan.md` in that same folder if the
+per-issue file is absent. Look for a `## Runtime verification` section. Extract
+the shell command from the first fenced code block inside that section and set
+`PLAN_RUNTIME_CMD` to that value. When the section is absent, empty, or contains
+no fenced code block, set `PLAN_RUNTIME_CMD` to empty string. This extraction
+is the only place plan-command reading happens — `gate-scout` MUST NOT be
+modified to read `plan.md`.
 
 ```bash
-# Example extraction (pseudo-code):
-PLAN_FILE="$(ls specs/<key>-*/plan-<ISSUE_NUMBER>.md 2>/dev/null | head -1)"
-PLAN_FILE="${PLAN_FILE:-$(ls specs/<key>-*/plan.md 2>/dev/null | head -1)}"
+# SPEC_FOLDER has already been resolved exact-first, with a unique-prefix fallback.
+PLAN_FILE="$SPEC_FOLDER/plan-<ISSUE_NUMBER>.md"
+if [[ ! -f "$PLAN_FILE" && -f "$SPEC_FOLDER/plan.md" ]]; then
+  PLAN_FILE="$SPEC_FOLDER/plan.md"
+fi
 # Extract the command inside the fenced block that follows ## Runtime verification
 PLAN_RUNTIME_CMD="$(awk '/^## Runtime verification/{found=1} found && /^```/{if(++fence==1){next} else {exit}} found && fence==1{print}' "$PLAN_FILE" 2>/dev/null | head -1)"
 ```
@@ -189,7 +203,7 @@ Resolve the correct `JAVA_HOME` path for the required version (e.g. via `$(dirna
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"session","status":"start","data":{"coverage_threshold":"<X>%|none"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"session","status":"start","data":{"coverage_threshold":"<X>%|none"}}'
 ```
 
 ---
@@ -560,7 +574,7 @@ Advisory  SKILL-PROVENANCE  ⚠ WARN   N skills expected, M invoked (advisory on
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"session","status":"ok","data":{"all_gates_passed":true,"conditional_coverage":"<X>%"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"session","status":"ok","data":{"all_gates_passed":true,"conditional_coverage":"<X>%"}}'
 ```
 
 **(Optional) Lesson write (#473):** if this session produced a noteworthy lesson — a
@@ -570,7 +584,7 @@ local-lane promote step (`promote-lessons.sh`, run at the merge-success terminal
 Step 6 item 7) can lift `generalizable` records into `.makato/memory/`:
 
 ```bash
-shared/write-lessons.sh "<key>" "<tier>" "<scope>" "<text>" "[tags]"
+"$MAKATO_BUILD_ROOT/shared/write-lessons.sh" "<key>" "<tier>" "<scope>" "<text>" "[tags]"
 #   tier  = procedural | semantic
 #   scope = generalizable | local   (generalizable → eligible for promotion)
 #   tags  = optional comma-separated list

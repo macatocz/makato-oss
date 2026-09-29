@@ -8,6 +8,8 @@
 #   T4 — --batch skips blank lines
 #   T5 — --batch skips malformed JSON lines (audit-log "never crashes" invariant)
 #   T6 — --batch is idempotent on empty stdin (no rows appended)
+#   T7 — exact spec folder wins over longer prefix folders
+#   T8 — ambiguous prefix folders are rejected before writing
 #
 # Exit: number of failures; 0 = all green.
 
@@ -23,7 +25,7 @@ _fail() { printf '  ✗ %s\n' "$1"; FAIL=$((FAIL + 1)); }
 _setup() {
   unset TMPDIR
   WORKDIR="$(mktemp -d)"
-  cd "$WORKDIR"
+  cd "$WORKDIR" || exit
   git init -q
   mkdir -p specs/TEST-001-x
 }
@@ -114,6 +116,33 @@ else
   LINES=0
 fi
 [[ "$LINES" == "0" ]] && _pass "0 lines appended on empty stdin" || _fail "expected 0, got $LINES"
+_teardown
+
+# ----- T7: exact spec folder owns its log -----
+echo "T7: exact spec folder wins over longer prefix folders"
+_setup
+mkdir -p specs/TEST-001
+"$HELPER" TEST-001 '{"step":"ownership","status":"ok"}'
+if [[ -s specs/TEST-001/build.jsonl && ! -e specs/TEST-001-x/build.jsonl ]]; then
+  _pass "log appended to exact folder"
+else
+  _fail "log was not isolated to exact folder"
+fi
+_teardown
+
+# ----- T8: ambiguous prefix folder refusal -----
+echo "T8: ambiguous prefix folders are rejected before writing"
+_setup
+rm -rf specs/TEST-001-x
+mkdir -p specs/TEST-001-a specs/TEST-001-b
+if "$HELPER" TEST-001 '{"step":"ambiguous","status":"ok"}' > /dev/null 2>"$WORKDIR/ambiguous.stderr"; then
+  _fail "ambiguous prefix was accepted"
+elif grep -q "ambiguous spec folders" "$WORKDIR/ambiguous.stderr" &&
+  [[ ! -e specs/TEST-001-a/build.jsonl && ! -e specs/TEST-001-b/build.jsonl ]]; then
+  _pass "ambiguous spec selection refused without writes"
+else
+  _fail "ambiguity diagnostic or no-write guard missing"
+fi
 _teardown
 
 echo ""

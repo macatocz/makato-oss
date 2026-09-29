@@ -88,7 +88,7 @@ Execute the matching script block:
 
 - **`changed-vs-main`:**
   ```bash
-  DEFAULT_BRANCH="$(shared/default-branch.sh 2>/dev/null || echo main)"
+  DEFAULT_BRANCH="$("$MAKATO_BUILD_ROOT/shared/default-branch.sh" 2>/dev/null || echo main)"
   mapfile -t FILES < <(git diff "origin/${DEFAULT_BRANCH}" --name-only)
   [ "${#FILES[@]}" -eq 0 ] && return_clean "no files changed vs main" && exit 0
   pre-commit run --hook-stage pre-push --files "${FILES[@]}"

@@ -18,10 +18,12 @@ if _SCRIPTS not in sys.path:
     sys.path.insert(0, _SCRIPTS)
 
 from emit_needs_planning_signal import (  # noqa: E402,I001
+    _resolve_spec_folder,
     get_item_id,
     item_add,
     main,
     read_needs_planning_option,
+    run,
 )
 
 
@@ -31,6 +33,26 @@ from emit_needs_planning_signal import (  # noqa: E402,I001
 
 KEY = "348-makato-orchestrate-emit-a-durable-needs"
 ISSUE_NUM = "348"
+
+
+class TestSpecFolderResolution:
+    def test_exact_folder_wins_over_prefixed_folders(self, tmp_path):
+        specs = tmp_path / "specs"
+        exact = specs / "348"
+        exact.mkdir(parents=True)
+        (specs / "348-first").mkdir()
+        (specs / "348-second").mkdir()
+
+        assert _resolve_spec_folder(str(specs), "348") == str(exact)
+
+    def test_run_rejects_ambiguous_prefixes(self, tmp_path, monkeypatch, capsys):
+        specs = tmp_path / "specs"
+        _write_state(str(specs / "348-first"), ISSUE_NUM, cycles=0)
+        _write_state(str(specs / "348-second"), ISSUE_NUM, cycles=0)
+        monkeypatch.setenv("MAKATO_EMIT_NPS_SPECS_DIR", str(specs))
+
+        assert run("348", ISSUE_NUM) == 1
+        assert "ambiguous spec folder" in capsys.readouterr().err
 
 
 # ---------------------------------------------------------------------------

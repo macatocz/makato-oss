@@ -30,7 +30,7 @@ Test hooks (all optional — names MUST match bash script exactly):
 
 Exit codes:
   0  success or no-op (below threshold; board/label soft failures are WARN)
-  1  unrecoverable input error (missing KEY or ISSUE_NUMBER, invalid integer)
+  1  unrecoverable input error (missing KEY, ISSUE_NUMBER, invalid integer, or ambiguous spec folder)
 """
 
 from __future__ import annotations
@@ -78,17 +78,24 @@ def _repo_root() -> str:
 
 
 def _resolve_spec_folder(specs_dir: str, key: str) -> str:
-    """Resolve spec folder: find specs/<KEY>-*/ then fall back to specs/<KEY>/."""
-    if os.path.isdir(specs_dir):
-        try:
-            for entry in os.listdir(specs_dir):
-                if entry.startswith(key + "-") and os.path.isdir(os.path.join(specs_dir, entry)):
-                    return os.path.join(specs_dir, entry)
-        except OSError:
-            pass
+    """Resolve exact folder first, otherwise require one KEY-prefix match."""
     direct = os.path.join(specs_dir, key)
     if os.path.isdir(direct):
         return direct
+
+    matches: list[str] = []
+    if os.path.isdir(specs_dir):
+        try:
+            for entry in sorted(os.listdir(specs_dir)):
+                candidate = os.path.join(specs_dir, entry)
+                if entry.startswith(key + "-") and os.path.isdir(candidate):
+                    matches.append(candidate)
+        except OSError:
+            pass
+    if len(matches) > 1:
+        raise ValueError(f"ambiguous spec folder for key {key!r}: {len(matches)} matches")
+    if matches:
+        return matches[0]
     return direct  # Return even if absent — callers handle missing state.
 
 
@@ -352,7 +359,11 @@ def run(key: str, issue_number: str) -> int:
     ws_script = os.path.join(repo_root, "plugins", "makato-orchestrate", "shared", "workflow-state.sh")
     build_log_script = os.path.join(repo_root, "plugins", "makato-build", "shared", "build-log.sh")
 
-    spec_folder = _resolve_spec_folder(specs_dir, key)
+    try:
+        spec_folder = _resolve_spec_folder(specs_dir, key)
+    except ValueError as exc:
+        print(f"emit-needs-planning-signal: {exc}", file=sys.stderr)
+        return 1
 
     # Read workflow state.
     try:

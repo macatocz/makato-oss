@@ -100,7 +100,7 @@ Your dispatch prompt provides:
 | Field                    | Required | Description                                                                                                                                                                                                                                                                                                                                                                            |
 | ------------------------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ISSUE_NUMBER`         | yes      | GitHub Issue number ≥ 1; must be at board Status=Ready with no `needs-human-review` label                                                                                                                                                                                                                                                                                                                           |
-| `KEY`                  | yes      | Short slug (e.g.`gap-006`); resolves the spec folder via a two-step order: `specs/<KEY>-*/` prefix-match first (canonical — seed-issue new-work, to-issues output), then `specs/<KEY>/` exact-match fallback (makato-plan bare slug, makato-change issue-key, seed-issue bare). All three folder shapes resolve correctly — see § *Spec folder resolution order* in Step 1. |
+| `KEY`                  | yes      | Short slug (e.g.`gap-006`); resolves exact `specs/<KEY>/` first, otherwise accepts one unique `specs/<KEY>-*/` match. Multiple prefix matches without an exact folder are ambiguous and HALT-006; see § *Spec folder resolution order* in Step 1. |
 | `REPO`                 | yes      | `owner/name` form                                                                                                                                                                                                                                                                                                                                                                    |
 | `BRANCH`               | yes      | Feature branch. May not yet exist — Step 2b probes`git ls-remote origin <BRANCH>` and dispatches `shared/worktree.sh create --new-branch` when missing (see #170). When it exists (interactively kicked off via `build-start`), the standard `create` path checks it out. Either way the main-repo working tree is NEVER touched.                                             |
 | `REPO_ROOT`            | yes      | Absolute path to the target repository root                                                                                                                                                                                                                                                                                                                                            |
@@ -133,35 +133,53 @@ with `errors: ["missing input: <field>"]`. Issue carrying
 
 ### Step 1 — Resolve the spec folder
 
-Prefix-match `specs/<KEY>-*/`. A missing folder or a missing / stub
-`plan-<N>.md` is a **HALT-006 sub-cause** — but before halting, run the
-Step 1a auto-materialize gate below. `created-issues.json` and
+Resolve exact `specs/<KEY>/` first; otherwise accept only one matching
+`specs/<KEY>-*/` folder. Multiple prefix matches without an exact folder are
+ambiguous and HALT-006. A missing folder or a missing / stub `plan-<N>.md` is
+a **HALT-006 sub-cause** — but before halting, run the Step 1a
+auto-materialize gate below. `created-issues.json` and
 `acceptance-criteria.md` are enforced by downstream skills — do NOT
 pre-validate them here.
 
 #### Spec folder resolution order
 
-The resolver tries two patterns in order and stops at the first match:
+The resolver prefers the exact bare-slug folder, then accepts one unique
+canonical prefix folder. If neither exists, it retains the conventional bare
+path so Step 1a can materialize there; multiple prefix matches are an error.
 
-| Step          | Pattern                                | When it matches                                                                                                                              |
-| ------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1 — primary  | `specs/<KEY>-*/` (prefix-match glob) | Canonical folders created by`seed-issue` (new-work path) and `to-issues` output — e.g. `specs/gap-006-improve-retry-logic/`           |
-| 2 — fallback | `specs/<KEY>/` (exact-match)         | Bare slug folders created by`makato-plan`, `makato-change` (issue-key form), or `seed-issue` bare-slug mode — e.g. `specs/gap-006/` |
+| Step | Pattern | When it matches |
+| --- | --- | --- |
+| 1 — primary | `specs/<KEY>/` (exact match) | Bare slug folders created by `makato-plan`, `makato-change` (issue-key form), or `seed-issue` bare-slug mode — e.g. `specs/gap-006/` |
+| 2 — fallback | one `specs/<KEY>-*/` (unique prefix match) | Canonical folders created by `seed-issue` (new-work path) and `to-issues` output — e.g. `specs/gap-006-improve-retry-logic/` |
 
-The bash code in Step 1a reflects this order:
+Step 1a uses the resolved `SPEC_FOLDER` and never chooses an arbitrary glob
+match:
 
 ```bash
-PLAN_PATH="$(ls specs/<KEY>-*/plan-<ISSUE_NUMBER>.md 2>/dev/null | head -1)"
-# Legacy-pass: if the per-issue file is absent but the singleton plan.md exists, accept it.
-if [ -z "$PLAN_PATH" ] && [ -f "specs/<KEY>-*/plan.md" 2>/dev/null ]; then
-  PLAN_PATH="$(ls specs/<KEY>-*/plan.md 2>/dev/null | head -1)"
-  echo "[po-agent] legacy-pass: found plan.md; per-issue file plan-<ISSUE_NUMBER>.md absent"
+SPEC_FOLDER="specs/$KEY"
+if [ ! -d "$SPEC_FOLDER" ]; then
+  SPEC_MATCHES=()
+  for candidate in "specs/$KEY"-*/; do
+    [ -d "$candidate" ] && SPEC_MATCHES+=("${candidate%/}")
+  done
+  if [ "${#SPEC_MATCHES[@]}" -gt 1 ]; then
+    echo "[po-agent] ambiguous spec folder for KEY=$KEY" >&2
+    exit 1
+  elif [ "${#SPEC_MATCHES[@]}" -eq 1 ]; then
+    SPEC_FOLDER="${SPEC_MATCHES[0]}"
+  fi
 fi
-# Fallback: exact-match bare slug (makato-plan, makato-change, seed-issue bare).
-[ -z "$PLAN_PATH" ] && PLAN_PATH="specs/<KEY>/plan-<ISSUE_NUMBER>.md"
+PLAN_PATH="$SPEC_FOLDER/plan-$ISSUE_NUMBER.md"
+# Legacy-pass: if the per-issue file is absent but the singleton plan.md exists, accept it.
+if [ ! -f "$PLAN_PATH" ] && [ -f "$SPEC_FOLDER/plan.md" ]; then
+  PLAN_PATH="$SPEC_FOLDER/plan.md"
+  echo "[po-agent] legacy-pass: found plan.md; per-issue file plan-$ISSUE_NUMBER.md absent"
+fi
 ```
 
-All three folder shapes (`specs/<KEY>-<slug>/`, `specs/<KEY>-*/` multi-match, `specs/<KEY>/`) resolve correctly. Only a folder that matches neither pattern triggers HALT-006.
+An exact folder always wins. Without one, precisely one prefix folder is
+required; an ambiguous prefix or a folder matching neither pattern triggers
+HALT-006 (with the missing-folder bare path reserved for Step 1a materialization).
 
 The materializable sub-cause is narrow (issue #200 point 4): only a
 **missing spec folder** or a **stub / hollow `plan-<N>.md`** (the seed-issue
@@ -195,19 +213,13 @@ Resolve the candidate plan path and read the issue's labels, then call
 the deterministic gate:
 
 ```bash
-PLAN_PATH="$(ls specs/<KEY>-*/plan-<ISSUE_NUMBER>.md 2>/dev/null | head -1)"
+# Use the exact-first, unique-prefix SPEC_FOLDER resolved in Step 1.
+PLAN_PATH="$SPEC_FOLDER/plan-$ISSUE_NUMBER.md"
 # Legacy-pass: if the per-issue file is absent but the singleton plan.md exists, accept it.
-if [ -z "$PLAN_PATH" ]; then
-  LEGACY="$(ls specs/<KEY>-*/plan.md 2>/dev/null | head -1)"
-  if [ -n "$LEGACY" ]; then
-    PLAN_PATH="$LEGACY"
-    echo "[po-agent] legacy-pass: found plan.md; per-issue file plan-<ISSUE_NUMBER>.md absent"
-  fi
+if [ ! -f "$PLAN_PATH" ] && [ -f "$SPEC_FOLDER/plan.md" ]; then
+  PLAN_PATH="$SPEC_FOLDER/plan.md"
+  echo "[po-agent] legacy-pass: found plan.md; per-issue file plan-$ISSUE_NUMBER.md absent"
 fi
-# Fallback (step 2 of the two-step resolution order): exact-match bare slug.
-# When the prefix-match finds nothing, PLAN_PATH is empty — fall back to the
-# conventional bare-slug path so the gate reports `missing-file` accurately.
-[ -z "$PLAN_PATH" ] && PLAN_PATH="specs/<KEY>/plan-<ISSUE_NUMBER>.md"
 mapfile -t LABELS < <(gh issue view <ISSUE_NUMBER> --repo <REPO> \
   --json labels --jq '.labels[].name' 2>/dev/null || true)
 

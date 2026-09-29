@@ -23,7 +23,7 @@ metadata:
 ## Autonomous Mode
 
 This skill is invoked by the PO-agent with `--autonomous`. All `AskUserQuestion`
-gates are bypassed per `@../../AUTONOMOUS-MODE.md`. An empty `WORKTREE_PATH` in
+gates are bypassed per `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md`. An empty `WORKTREE_PATH` in
 autonomous mode is a `MISSING_INPUT` HALT.
 
 ## Decision Framework
@@ -53,7 +53,7 @@ Two non-obvious routing choices govern this skill:
 
 ### Step 0 — Workspace-isolation entry guard
 
-Apply the workspace-isolation entry guard per `@../../AUTONOMOUS-MODE.md` §
+Apply the workspace-isolation entry guard per `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` §
 *WORKTREE_PATH — workspace-isolation contract*:
 
 ```bash
@@ -73,11 +73,26 @@ REPO_ROOT="$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pw
 ### Step 1 — Detect runtime surface
 
 Resolve `ISSUE_NUMBER` from the numeric leading segment of `<work-item-key>`.
-Read `$REPO_ROOT/specs/<key>-*/plan-<ISSUE_NUMBER>.md` and check for a
-`## Runtime verification` section:
+Resolve `SPEC_FOLDER` as exact `$REPO_ROOT/specs/<key>` first; otherwise
+accept exactly one `$REPO_ROOT/specs/<key>-*/` folder. Multiple prefix matches
+without an exact folder are an error, not a skipped runtime surface. Read the
+issue-specific plan from that resolved folder:
 
 ```bash
-PLAN_PATH="$(ls "$REPO_ROOT/specs/<key>-*/plan-<ISSUE_NUMBER>.md" 2>/dev/null | head -1)"
+SPEC_FOLDER="$REPO_ROOT/specs/<key>"
+if [[ ! -d "$SPEC_FOLDER" ]]; then
+  SPEC_MATCHES=()
+  for candidate in "$REPO_ROOT/specs/<key>"-*/; do
+    [[ -d "$candidate" ]] && SPEC_MATCHES+=("${candidate%/}")
+  done
+  if ((${#SPEC_MATCHES[@]} > 1)); then
+    echo "ambiguous spec folder for <key>" >&2
+    exit 1
+  elif ((${#SPEC_MATCHES[@]} == 1)); then
+    SPEC_FOLDER="${SPEC_MATCHES[0]}"
+  fi
+fi
+PLAN_PATH="$SPEC_FOLDER/plan-<ISSUE_NUMBER>.md"
 RUNTIME_CMD=""
 if grep -q "^## Runtime verification" "$PLAN_PATH" 2>/dev/null; then
   # Extract the command from the fenced code block following the heading
@@ -91,7 +106,7 @@ from the most recent `build.jsonl` `step:"gate-scout"` entry.
 If still empty — log SKIP and return `status: "success"` with `data.skipped: true`:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO>","skill":"build-runtime-qa","story":"<key>","step":"session","status":"ok","data":{"skipped":true,"reason":"no-runtime-surface"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO>","skill":"build-runtime-qa","story":"<key>","step":"session","status":"ok","data":{"skipped":true,"reason":"no-runtime-surface"}}'
 ```
 
 Log session end and return R1 immediately. **Do NOT proceed to Step 2.**
@@ -109,7 +124,7 @@ AC_LIST="$(awk '/^## Acceptance criteria/{found=1; next} found && /^## /{exit} f
 Log session start:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO>","skill":"build-runtime-qa","story":"<key>","step":"session","status":"start","data":{"runtime_cmd":"<cmd>","ac_count":<N>}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO>","skill":"build-runtime-qa","story":"<key>","step":"session","status":"start","data":{"runtime_cmd":"<cmd>","ac_count":<N>}}'
 ```
 
 ### Step 3 — Dispatch `runtime-qa` agent
@@ -152,7 +167,7 @@ return R1 `success` (advisory — a parse failure is not a CRITICAL finding; see
 ### Step 5 — Log session end and emit R1
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO>","skill":"build-runtime-qa","story":"<key>","step":"session","status":"<ok|error>","data":{"skipped":<bool>,"paths_exercised":<N>,"findings_critical":<C>}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO>","skill":"build-runtime-qa","story":"<key>","step":"session","status":"<ok|error>","data":{"skipped":<bool>,"paths_exercised":<N>,"findings_critical":<C>}}'
 ```
 
 Also append the R1 envelope to `build.jsonl` per `agents/RETURN-CONTRACT.md §

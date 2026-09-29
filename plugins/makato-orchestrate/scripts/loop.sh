@@ -708,13 +708,17 @@ if [[ "$SUBCMD" == _test-* ]]; then
       _parse_dispatch_result "$_test_logfile"
       ;;
     # _test-pre-dispatch-plan-guard <key> [issue] — exercise
-    # _pre_dispatch_plan_guard deterministically. SPECS_DIR and CLAUDE_BIN are
-    # consumed from the environment; the caller sets them to ephemeral test
-    # fixtures so no real claude process or GitHub calls are needed.
+    # _pre_dispatch_plan_guard deterministically. SPECS_DIR and
+    # MAKATO_HARNESS_BIN are consumed from the environment; the caller sets
+    # them to ephemeral test fixtures so no real claude process or GitHub calls are needed.
     _test-pre-dispatch-plan-guard)
       _test_pdpg_key="${1:?key required}"
       _test_pdpg_issue="${2:-}"
       _pre_dispatch_plan_guard "$_test_pdpg_key" "$_test_pdpg_issue"
+      ;;
+    # _test-workflow-state-for-issue <issue> — require a unique state file.
+    _test-workflow-state-for-issue)
+      _workflow_state_for_issue "${1:?issue required}"
       ;;
     # _test-compute-vcr — exercise _compute_vcr deterministically.
     # Reads SPECS_DIR from the environment (caller sets it to an ephemeral

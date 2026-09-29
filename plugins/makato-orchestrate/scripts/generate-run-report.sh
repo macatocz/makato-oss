@@ -13,8 +13,9 @@
 # Behaviour (issue #448):
 #   1. Accept a space-separated list of issue numbers as positional args, or
 #      via a repeatable `--issues "<n> <n> …"` flag (both may be combined).
-#   2. For each issue, locate `specs/*/workflow-state-<issue>.json` (the
-#      per-issue state file — #173) under SPECS_DIR and read, READ-ONLY:
+#   2. For each issue, read a unique `specs/*/workflow-state-<issue>.json`
+#      (the per-issue state file — #173) under SPECS_DIR, READ-ONLY. Multiple
+#      matches are treated as missing rather than selecting arbitrary state:
 #        - current_phase       (terminal-state confirmation; "done" ⇒ merged)
 #        - github_pr_number    (populated once build-create-pr merged the PR)
 #        - halt_audit[-1]       (last HALT entry — carries `code` and `origin`)
@@ -42,9 +43,9 @@
 # workflow-state.json or orchestrate.jsonl. It reads per-issue state and emits
 # a derived artefact under .claude/state/. It is not a second source of truth.
 #
-# Exit codes: 0 on success (including a missing workflow-state for a given
-# issue → that issue gets verdict:"unknown", not an error); non-zero only on a
-# fatal condition (SPECS_DIR unreadable, cannot write the report file).
+# Exit codes: 0 on success (including missing or ambiguous workflow-state for
+# an issue → that issue gets verdict:"unknown", not an error); non-zero only on
+# a fatal condition (SPECS_DIR unreadable, cannot write the report file).
 #
 # Environment / test hooks:
 #   MAKATO_LOOP_STATE_DIR        Override `.claude/state/` output location.
@@ -119,14 +120,24 @@ RUN_ID="${RUN_ID:-$(_run_id_slug)}"
 GENERATED_AT="$(_now)"
 
 # ---------------------------------------------------------------------------
-# _find_state_file <issue> — path to specs/*/workflow-state-<issue>.json, or
-# empty if none. Mirrors loop.sh's `find … -maxdepth 2 -name
-# workflow-state-<issue>.json` per-issue-state resolution (#173).
+# _find_state_file <issue> — path to the unique per-issue state file, or
+# empty if none or more than one exists. Never picks arbitrary state.
 # ---------------------------------------------------------------------------
 _find_state_file() {
-  local issue="$1"
+  local issue="$1" candidate
+  local -a matches=()
   [[ -d "$SPECS_DIR" ]] || return 0
-  find "$SPECS_DIR" -maxdepth 2 -name "workflow-state-${issue}.json" 2>/dev/null | head -1
+  for candidate in "$SPECS_DIR"/*/workflow-state-"${issue}".json; do
+    [[ -f "$candidate" ]] && matches+=("$candidate")
+  done
+  if ((${#matches[@]} > 1)); then
+    _log "WARN — ambiguous workflow-state for issue #$issue; reporting unknown"
+    return 0
+  fi
+  if ((${#matches[@]} == 1)); then
+    printf '%s\n' "${matches[0]}"
+  fi
+  return 0
 }
 
 # --- Build one report entry per issue --------------------------------------
