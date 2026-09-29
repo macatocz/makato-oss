@@ -41,7 +41,7 @@ assembling task context rather than an agent dispatch bundle.
 > in its own `config/skill-bundles.yml` (or `shared/skill-bundles.yml`). Without
 > a bundle file, `inject-skills` has no mapping and produces no recommendations
 > for that plugin's skill identifiers, regardless of what files change. See
-> `plugins/makato-build/shared/skill-bundles.yml` for a worked example.
+> `$MAKATO_BUILD_ROOT/shared/skill-bundles.yml` for a worked example.
 
 ## Input
 
@@ -73,7 +73,7 @@ return a `warnings` entry describing the problem and an empty
 ## Behavior
 
 The reference implementation lives at
-`plugins/makato-build/shared/inject_skills.py`. It — and this document — are the
+`$MAKATO_BUILD_ROOT/shared/inject_skills.py`. It — and this document — are the
 authoritative source for matching semantics. The full-path entry point is
 `resolve_skills_for_repo(changed_files, registry_root, *, target_repo=None,
 task_text=None)`; the pure core is
@@ -245,7 +245,7 @@ example (the first F1 bundle). Key rules for authors:
 
 Load the resources below at the exact point of need described — not up-front.
 
-- `plugins/makato-build/shared/inject_skills.py` — reference implementation.
+- `$MAKATO_BUILD_ROOT/shared/inject_skills.py` — reference implementation.
   **MANDATORY** when diagnosing a resolver mismatch, extending resolution logic
   (specificity algorithm, content hints, task hints), or verifying that a new
   edge case is handled correctly.

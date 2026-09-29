@@ -9,7 +9,7 @@ description: >-
   mapping, and PO-agent board transition to Done. Trigger keywords: DoD, done
   criteria, task-complete, all-items-satisfied, board-transition-Done,
   workflow-state assertion.
-version: "2.3.0"
+version: "2.4.0"
 metadata:
   authors: [makato-build]
   last_updated: "2026-08-05"
@@ -116,8 +116,8 @@ gate log entry in `specs/<key>-<slug>/build.jsonl`.
 10. **`build.jsonl` entry written for every skill step in the session.** Required fields
     per `plugins/makato-build/AGENTS.md` § Skill Authoring: `ts`, `skill`, `story`,
     `step`, `status`. Append-only.
-    _Enforced by:_ every makato-build skill via `shared/build-log.sh` (bare relative
-    path).
+    _Enforced by:_ every makato-build skill via
+    `"$MAKATO_BUILD_ROOT/shared/build-log.sh"` (the installed build-plugin root).
 
 11. **R1 JSON block present as the last fenced ` ```json ` block in every agent return.**
     Schema and parsing rules per `plugins/makato-build/agents/RETURN-CONTRACT.md`.

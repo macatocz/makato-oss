@@ -7,7 +7,7 @@ description: >-
   `pyright:*` or `mypy:*` finding routed here in `shared/finding-routes.json`.
   Never invoked directly by the user. Trigger keywords: pyright, mypy, type error,
   reportOptionalMemberAccess, union-attr, no-untyped-def, finding-routes.json.
-version: "1.1.0"
+version: "1.2.0"
 argument-hint: "<finding-json>"
 tools: Read, Edit, Bash
 metadata:
@@ -20,7 +20,8 @@ metadata:
 ## 1. Overview
 
 This skill is the **type-error repair engine** invoked by `build-resolve-finding` whenever
-a pyright or mypy finding is routed here through `plugins/makato-build/shared/finding-routes.json`.
+a pyright or mypy finding is routed here through
+`$MAKATO_BUILD_ROOT/shared/finding-routes.json`.
 It receives a single normalized finding, classifies it into one of six fix branches,
 loads the branch reference, applies the code edit in place, and returns a structured outcome.
 
@@ -42,6 +43,10 @@ The six branches, **ordered from least invasive to most invasive**:
 
 The caller passes a single finding object (canonical shape from
 [`shared/finding-schema.md`](../../shared/finding-schema.md)):
+
+The caller also supplies `MAKATO_BUILD_ROOT`, the absolute installed
+makato-build plugin root. Use it for suite-owned helpers and references; do
+not resolve helpers from the consumer repository's current directory.
 
 ```json
 {
@@ -229,8 +234,9 @@ Field semantics:
 
 ## 7. Logging
 
-Append JSONL entries to `specs/<story-key>/build.jsonl` via `shared/build-log.sh` (bare path —
-Claude resolves from plugin root; do not prefix with `../`).
+Append JSONL entries to `specs/<story-key>/build.jsonl` via
+`"$MAKATO_BUILD_ROOT/shared/build-log.sh"`; do not rely on the consumer
+repository's current directory.
 
 Required entries:
 

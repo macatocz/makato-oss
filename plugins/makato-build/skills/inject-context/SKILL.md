@@ -85,7 +85,7 @@ entry of the form:
 
 ## 4. Resolution Contract
 
-The contract is enforced by `plugins/makato-build/shared/inject_context.py`. Any
+The contract is enforced by `$MAKATO_BUILD_ROOT/shared/inject_context.py`. Any
 behavioural change here is a contract change for `knowledge-scout` and must bump this
 skill's `version`.
 
@@ -131,7 +131,7 @@ skill's `version`.
 
 ## 5. Reference Implementation
 
-The resolver is implemented in `plugins/makato-build/shared/inject_context.py`. Public
+The resolver is implemented in `$MAKATO_BUILD_ROOT/shared/inject_context.py`. Public
 API:
 
 ```python
@@ -149,11 +149,11 @@ rules, warning = resolve_bundles(
 )
 ```
 
-Tests live in `plugins/makato-build/shared/test_inject_context.py` and run via stdlib
+Tests live in `$MAKATO_BUILD_ROOT/shared/test_inject_context.py` and run via stdlib
 `unittest` (no pytest dependency) from the repo root:
 
 ```sh
-python3 -m unittest discover plugins/makato-build/shared -p 'test_*.py'
+python3 -m unittest discover "$MAKATO_BUILD_ROOT/shared" -p 'test_*.py'
 ```
 
 Test coverage: single-match, multi-match + dedup, specificity precedence, empty input,

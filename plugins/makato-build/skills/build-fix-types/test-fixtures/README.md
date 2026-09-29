@@ -78,7 +78,7 @@ type-error route:
 ```bash
 jq -r '.routes["pyright:langgraph-reducer-mismatch"].skill,
        .routes["pyright:asyncpg-*"].skill' \
-  plugins/makato-build/shared/finding-routes.json
+  "$MAKATO_BUILD_ROOT/shared/finding-routes.json"
 ```
 
 Expected:

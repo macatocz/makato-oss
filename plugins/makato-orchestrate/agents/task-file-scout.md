@@ -76,9 +76,10 @@ If the truncation drops any `CHANGED_FILES` entry, record that in the
 `warnings` array (Step 4) — bundle paths landing in the dropped tail
 are silently truncated (the bundle is the lower-priority signal).
 
-A `CHANGED_FILES` entry that does not yet exist (the sub-task will
-create it) is tolerated: skip it with no warning, since "file does not
-exist yet" is the expected state for greenfield tasks.
+A `CHANGED_FILES` entry that does not yet exist (the sub-task will create it)
+is tolerated: skip it and append a short `warnings` entry such as
+`planned create target absent: <path>`. This records the greenfield target
+without treating its expected absence as a failure.
 
 ### Step 2 — Read
 
@@ -86,9 +87,16 @@ Resolve each relative `CHANGED_FILES` path beneath `WORKTREE_PATH` when
 provided, otherwise beneath `REPO_ROOT`. Resolve each relative `BUNDLE_RULES`
 path beneath `REPO_ROOT`. Absolute paths are accepted only when they remain
 inside the corresponding root. Read a path only when it is a regular file.
-If a target file is absent, skip it silently (greenfield/advisory miss); do not
-fall back to the agent's current directory, the skill directory, or a
+If a `CHANGED_FILES` target is absent, append the planned-target warning and
+continue; if a `BUNDLE_RULES` target is absent, skip it as an advisory miss.
+Do not fall back to the agent's current directory, the skill directory, or a
 consumer-repository `plugins/makato-*` path.
+
+The existence check is a required preflight, not a fallback after a failed
+read. In OMP JavaScript cells, filter the list to confirmed regular files
+before mapping it to `tool.read`; never call `Promise.all` over raw
+`CHANGED_FILES` or `BUNDLE_RULES` paths. One absent `create` target must not
+abort reads for the remaining files.
 
 For each `BUNDLE_RULES` path that does not exist on disk, skip
 silently. The registry references aspirational `context/{repo}/` paths
