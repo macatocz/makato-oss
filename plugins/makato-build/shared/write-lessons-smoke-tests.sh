@@ -282,10 +282,31 @@ else
   _fail "write-lessons.sh call-site missing from build-address-pr-comments SKILL.md"
 fi
 
+# ===========================================================================
+# T14 — ambiguous prefix matches are rejected without writing to either folder
+# ===========================================================================
+echo "T14: ambiguous spec folders are rejected without appending"
+KEY="473-makato-build-lane-lesson-and-fact-write"
+SB="$(_mk_sandbox "$KEY")"
+mkdir -p "$SB/specs/${KEY}-another-slug"
+RC=0
+(
+  cd "$SB" || exit 1
+  bash "$WRITE_LESSONS" "$KEY" procedural local "must not be misrouted" "shell" >/dev/null 2>&1
+) || RC=$?
+FIRST="$SB/specs/${KEY}-some-slug/change-lessons.jsonl"
+SECOND="$SB/specs/${KEY}-another-slug/change-lessons.jsonl"
+if [[ "$RC" -ne 0 && ! -e "$FIRST" && ! -e "$SECOND" ]]; then
+  _pass "ambiguous prefix rejected (rc=$RC), no folder receives a record"
+else
+  _fail "ambiguous prefix not rejected safely: rc=$RC, files=$FIRST $SECOND"
+fi
+rm -rf "$SB"
+
 # ---------------------------------------------------------------------------
 echo ""
 if [[ "$FAIL" -eq 0 ]]; then
-  echo "All 13 tests passed."
+  echo "All 14 tests passed."
 else
   echo "$FAIL test(s) failed."
 fi

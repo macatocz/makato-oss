@@ -50,14 +50,14 @@ When `CI_FAILURE_LOG` is present in the input bundle, the skill is being re-ente
 3. Forward `CI_FAILURE_LOG` to each selected coder dispatch as an additional input field of the same name. The coder reads it as advisory diagnostic context — it does not override the per-task `description` or test specs from `plan.md`.
 4. Log a `decision` JSONL entry on entry so the audit trail records that this dispatch is a recovery rather than a fresh implementation walk:
    ```bash
-   shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"ci-failure-recovery","status":"decision","data":{"log_tail_chars":<N>,"tasks_selected":[<indices>]}}'
+   "$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"ci-failure-recovery","status":"decision","data":{"log_tail_chars":<N>,"tasks_selected":[<indices>]}}'
    ```
 
 All other contracts (workspace-isolation guard, baseline gate, blockedBy graph check, scout pre-flight, R1 envelope, workflow-state carve-out) are unchanged. The recovery mode is a subset of the normal walk, not a parallel path.
 
 ### Workspace-isolation entry guard
 
-Apply the workspace-isolation entry guard from `@../../AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract* and § *Falsy-check pattern* before Step 1 — Step 1 in interactive mode calls `AskUserQuestion` for the work-item-key prompt and in autonomous mode that prompt is bypassed, so the falsy-check must run at skill entry (before either branch of Step 1 begins) to prevent a deadlock against a prompt that can never resolve. In autonomous mode an empty `WORKTREE_PATH` is a HALT with `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`; in interactive mode the guard falls back to `git rev-parse --show-toplevel`. After resolution, `cd "$WORKTREE_PATH"` so every subsequent `git`/`pytest`/file-edit lands in the correct working tree.
+Apply the workspace-isolation entry guard from `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract* and § *Falsy-check pattern* before Step 1 — Step 1 in interactive mode calls `AskUserQuestion` for the work-item-key prompt and in autonomous mode that prompt is bypassed, so the falsy-check must run at skill entry (before either branch of Step 1 begins) to prevent a deadlock against a prompt that can never resolve. In autonomous mode an empty `WORKTREE_PATH` is a HALT with `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`; in interactive mode the guard falls back to `git rev-parse --show-toplevel`. After resolution, `cd "$WORKTREE_PATH"` so every subsequent `git`/`pytest`/file-edit lands in the correct working tree.
 
 Spec-folder reads (`plan.md`, `build.jsonl` audit appends) operate on the MAIN checkout, not the worktree (`specs/` is gitignored). Resolve `REPO_ROOT` once at entry:
 
@@ -65,7 +65,7 @@ Spec-folder reads (`plan.md`, `build.jsonl` audit appends) operate on the MAIN c
 REPO_ROOT="$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)"
 ```
 
-`plan.md` and `build.jsonl` paths below resolve to `$REPO_ROOT/specs/<key>-*/...`. The `shared/build-log.sh` helper handles this for JSONL appends automatically; spec-artefact reads use `REPO_ROOT` explicitly.
+`plan.md` and `build.jsonl` paths below resolve to `$REPO_ROOT/specs/<key>-*/...`. The `"$MAKATO_BUILD_ROOT/shared/build-log.sh"` helper handles this for JSONL appends automatically; spec-artefact reads use `REPO_ROOT` explicitly.
 
 ## Anti-patterns
 
@@ -137,7 +137,7 @@ If the plan is mixed mode: note the goal-mode tasks and confirm scope with the u
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO-8601-ms>","skill":"build-implement-tdd","story":"<key>","step":"session","status":"start","data":{"tdd_tasks":<N>,"goal_tasks_skipped":<N>}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO-8601-ms>","skill":"build-implement-tdd","story":"<key>","step":"session","status":"start","data":{"tdd_tasks":<N>,"goal_tasks_skipped":<N>}}'
 ```
 
 ### Step 3 — Establish test baseline
@@ -146,10 +146,10 @@ Load @shared/baseline-guide.md. Follow its instructions to establish the baselin
 
 **Flakey test rule**: if a test fails but no source code was changed between runs, re-run that single test once before classifying. If it passes on the second run, log it as flakey and continue. If it fails again, classify normally.
 
-Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"baseline","status":"ok","data":{"pre_existing_failures":<N>,"baseline_mode":"<proceed|halted>"}}'`
+Run: `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"baseline","status":"ok","data":{"pre_existing_failures":<N>,"baseline_mode":"<proceed|halted>"}}'`
 
 If `pre_existing_failures > 0` and user chose continue, also log a decision entry:
-`shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"baseline-gate","status":"decision","data":{"pre_existing_failures":<N>,"user_choice":"continue"}}'`
+`"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"baseline-gate","status":"decision","data":{"pre_existing_failures":<N>,"user_choice":"continue"}}'`
 
 ### Step 4 — Read implementation context (via plan-analyst agent)
 
@@ -168,10 +168,10 @@ the user and recommend re-running `/build-refine` to produce a fresh `plan.md` b
 retrying this skill. Log:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"load-context","status":"error","data":{"reason":"<r1.errors[0]>"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"load-context","status":"error","data":{"reason":"<r1.errors[0]>"}}'
 ```
 
-Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"load-context","status":"ok","data":{"grill_context":<true|false>,"tracer_required":<true|false>}}'`
+Run: `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"load-context","status":"ok","data":{"grill_context":<true|false>,"tracer_required":<true|false>}}'`
 
 ### Step 5 — Build tracer bullet (conditional: tracer_required = true)
 
@@ -185,21 +185,21 @@ Identify the topmost layer in the plan. Tie-break order: ui > controller > servi
 
 For each non-topmost layer (working bottom-up), write a stub at the exact file path listed in that layer's task `**Files:**` field. Follow stub rules from `tdd-cycle-rules.md` (compiles, returns hardcoded valid value, carries `// TRACER STUB — replaced by Task <N> implementation`, no logic).
 
-Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"tracer-stub","status":"ok","data":{"stubs_written":<N>}}'`
+Run: `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"tracer-stub","status":"ok","data":{"stubs_written":<N>}}'`
 
 #### TRACER TEST — Write one end-to-end integration test
 
 Write one integration test in the topmost layer's test file following the tracer integration test rules from `tdd-cycle-rules.md`. Run the test — it must pass before proceeding. Apply the fix-vs-escalate threshold from `tdd-cycle-rules.md`.
 
-Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"tracer-test","status":"ok","data":{"tracer_test_file":"<path>","tracer_test_name":"<name>","layers_covered":<N>}}'`
+Run: `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"tracer-test","status":"ok","data":{"tracer_test_file":"<path>","tracer_test_name":"<name>","layers_covered":<N>}}'`
 
 #### TRACER VERIFY — Full suite gate
 
 Run the full suite. Zero new failures allowed vs. the baseline from Step 3.
 
-Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"tracer-verify","status":"ok","data":{"new_failures":0}}'`
+Run: `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"tracer-verify","status":"ok","data":{"new_failures":0}}'`
 
-**Optional batched flush** (#118 / `AUTONOMOUS-MODE.md` § *Batched logging*): the three Step 5 rows (`tracer-stub` → `tracer-test` → `tracer-verify`) emit in tight succession at the end of the tracer phase. Skills MAY accumulate them into a heredoc and flush once via `shared/build-log.sh "<key>" --batch` instead of three separate single-entry calls — that swaps three `bash` + `git rev-parse` + `find specs/` chains for one. The cross-step batching rule applies: do NOT carry rows past the next step boundary; a Step 5 failure before the flush would lose the audit trail.
+**Optional batched flush** (#118 / `AUTONOMOUS-MODE.md` § *Batched logging*): the three Step 5 rows (`tracer-stub` → `tracer-test` → `tracer-verify`) emit in tight succession at the end of the tracer phase. Skills MAY accumulate them into a heredoc and flush once via `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" --batch` instead of three separate single-entry calls — that swaps three `bash` + `git rev-parse` + `find specs/` chains for one. The cross-step batching rule applies: do NOT carry rows past the next step boundary; a Step 5 failure before the flush would lose the audit trail.
 
 ### Step 6 — Execute RED → GREEN → INTEGRATE → VERIFY for each tdd task (via coder agent)
 
@@ -307,7 +307,7 @@ If the R1 envelope cannot be parsed (missing block, invalid JSON, `schema != "r1
 After every coder dispatch (success or otherwise), mirror the R1 envelope into `build.jsonl` so the audit trail captures the full machine contract verbatim:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO-8601-ms>","skill":"build-implement-tdd","story":"<key>","step":"r1","status":"<r1.status>","task":<TASK_INDEX>,"data":<entire-r1-envelope-object>}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO-8601-ms>","skill":"build-implement-tdd","story":"<key>","step":"r1","status":"<r1.status>","task":<TASK_INDEX>,"data":<entire-r1-envelope-object>}'
 ```
 
 #### Cross-task regression sweep
@@ -329,16 +329,16 @@ After a successful coder R1 and after mirroring it to `build.jsonl`, run the acc
    ```
    Count the sweep failure count. Compare against `BASELINE_FAILURES` (from Step 3):
    - **Zero new failures** (`sweep_failures − BASELINE_FAILURES == 0`): sweep passes.
-     Flush to `build.jsonl` via `shared/build-log.sh`:
+     Flush to `build.jsonl` via `"$MAKATO_BUILD_ROOT/shared/build-log.sh"`:
      ```bash
-     shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"cross-task-verify","status":"ok","task":<TASK_INDEX>,"data":{"sweep_tests":<N>,"new_failures":0}}'
+     "$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"cross-task-verify","status":"ok","task":<TASK_INDEX>,"data":{"sweep_tests":<N>,"new_failures":0}}'
      ```
-     You may batch-flush the `r1` mirror entry and this `cross-task-verify` entry together using `shared/build-log.sh "<key>" --batch` (see `AUTONOMOUS-MODE.md` § *Batched logging*) to minimize overhead.
+     You may batch-flush the `r1` mirror entry and this `cross-task-verify` entry together using `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" --batch` (see `AUTONOMOUS-MODE.md` § *Batched logging*) to minimize overhead.
    - **New failures detected** (`sweep_failures > BASELINE_FAILURES`): apply the fix-vs-escalate threshold:
      - *Fixable*: the regression is a straightforward consequence of the current task's changes. Fix the code in place, re-run the sweep, emit the JSONL on pass. Do not proceed until the sweep clears.
      - *Structural*: cannot fix without changing the implementation approach. Emit:
        ```bash
-       shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"cross-task-verify","status":"error","task":<TASK_INDEX>,"data":{"sweep_tests":<N>,"new_failures":<M>}}'
+       "$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"cross-task-verify","status":"error","task":<TASK_INDEX>,"data":{"sweep_tests":<N>,"new_failures":<M>}}'
        ```
        Stop the outer loop. Return R1 `status:"failure"` with `summary:"Cross-task regression detected at task <TASK_INDEX>: <M> new failure(s) in prior-task tests"`. Recommend `/refine`.
 
@@ -371,7 +371,7 @@ fi
 **Note:** unconditional on autonomous mode (per `AUTONOMOUS-MODE.md` § Skills NOT in scope this skill always runs autonomously); conditional only on `r1.status == "success"`. On `partial` or `failure` the PO-agent reads the R1 envelope from `build.jsonl` and applies its own state mutation — that path lands in GAP-006 (#32).
 
 For backward compatibility, also emit the existing step-specific log entry on escalation:
-- `r1.status == "failure"` — `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"task-escalate","status":"warn","data":{"task":<N>,"reason":"<r1.errors[0] or r1.summary>"}}'`
+- `r1.status == "failure"` — `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"task-escalate","status":"warn","data":{"task":<N>,"reason":"<r1.errors[0] or r1.summary>"}}'`
 
 If the coder agent applied a fix within the RED→GREEN cycle (a decision to fix rather than escalate), the coder appends its own decision entry to JSONL_PATH. The orchestrating skill does not need to re-log those decisions.
 
@@ -388,25 +388,25 @@ If conditional coverage is below threshold, first attempt to close the gap: iden
 - **Autonomous mode** (`--autonomous`, `task_id` in the dispatch bundle, or `$AGENT_ID` exported — see `plugins/makato-build/AUTONOMOUS-MODE.md` § *Activation triggers*): a coverage miss CANNOT be "acknowledged" — no human is at the prompt to own the risk. Do NOT invent an acknowledgement. Log the miss with `threshold_met:false` (below) and hand off; the terminal coverage gate is **Gate 5** in `build-verify`, which enforces `HALT-002` on `threshold_met:false` before `build-push-to-git`. Step 7 defers to Gate 5 authoritatively — it neither blocks the intra-build flow itself nor waves the miss through. To make the deferral explicit rather than implied, also emit the audit marker:
 
   ```bash
-  shared/log-bypass.sh build-implement-tdd "<key>" coverage-floor defer-to-gate5 "$TRIGGER"
+  "$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-implement-tdd "<key>" coverage-floor defer-to-gate5 "$TRIGGER"
   ```
 
 - **Interactive mode**: the gap may proceed only as an **explicitly acknowledged risk**, recorded as a structured entry — not a free-form "logged as known risk" note. Capture who acknowledged it and why, so the acknowledgement is auditable:
 
   ```bash
-  shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"coverage-acknowledged","status":"decision","data":{"conditional_coverage":"<X>%","threshold":"<Y>%","acknowledged_by":"<user>","reason":"<one-line justification>"}}'
+  "$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"coverage-acknowledged","status":"decision","data":{"conditional_coverage":"<X>%","threshold":"<Y>%","acknowledged_by":"<user>","reason":"<one-line justification>"}}'
   ```
 
   An interactive acknowledgement is local to this build session; Gate 5 in `build-verify` still re-checks coverage independently and will HALT-002 if the miss is real.
 
-Run: `shared/build-log.sh "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"final-verify","status":"ok","data":{"tdd_tasks_complete":<N>,"conditional_coverage":"<X>%","threshold_met":<true|false>}}'`
+Run: `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"final-verify","status":"ok","data":{"tdd_tasks_complete":<N>,"conditional_coverage":"<X>%","threshold_met":<true|false>}}'`
 
 ### Step 8 — Log session end and hand off
 
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO-8601-ms>","skill":"build-implement-tdd","story":"<key>","step":"session","status":"ok","data":{"tdd_tasks":<N>,"goal_tasks_pending":<N>}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO-8601-ms>","skill":"build-implement-tdd","story":"<key>","step":"session","status":"ok","data":{"tdd_tasks":<N>,"goal_tasks_pending":<N>}}'
 ```
 
 **Session summary**: read `build.jsonl` for this story and collect all entries where `status` is `"warn"` or `"decision"`. Print a compact summary:

@@ -17,6 +17,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KEY="${1:?key required}"
 ISSUE_NUMBER="${2:-}"
 BRANCH="${3:-}"
+REQUESTED_BRANCH="$BRANCH"
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 
 if [[ -z "$ISSUE_NUMBER" ]]; then
@@ -31,9 +32,9 @@ if [[ "$COMMON_DIR" != /* ]]; then
   COMMON_DIR="$REPO_ROOT/$COMMON_DIR"
 fi
 MAIN_ROOT="$(cd "$COMMON_DIR/.." && pwd)"
+FROM_WORKTREE=0
 if [[ "$REPO_ROOT" != "$MAIN_ROOT" ]]; then
-  printf 'worktree_resumed\n%s\n' "$REPO_ROOT"
-  exit 0
+  FROM_WORKTREE=1
 fi
 
 _resolve_repo_name() {
@@ -99,6 +100,65 @@ WORKTREE_HELPER="$SHARED/worktree.sh"
 REPO_NAME="$(_resolve_repo_name)"
 
 STATE_JSON="$($STATE_HELPER read "$KEY" "$ISSUE_NUMBER" 2>/dev/null || printf '{}')"
+
+_assert_current_worktree_owner() {
+  local state_path state_branch state_repo state_issue current_path registered_path actual_branch status line dirty=""
+  state_path="$(jq -r '.worktree_path // empty' <<<"$STATE_JSON")"
+  state_branch="$(jq -r '.branch // empty' <<<"$STATE_JSON")"
+  state_repo="$(jq -r '.repo // empty' <<<"$STATE_JSON")"
+  state_issue="$(jq -r '.issue_number // empty' <<<"$STATE_JSON")"
+
+  if [[ -z "$state_path" || "$state_path" != /* || ! -d "$state_path" ||
+    -z "$state_branch" || "$state_repo" != "$REPO_NAME" ||
+    "$state_issue" != "$ISSUE_NUMBER" ]]; then
+    echo "interactive-worktree: refusing current worktree; workflow state does not own it for '$KEY' issue $ISSUE_NUMBER" >&2
+    return 1
+  fi
+  if ! current_path="$(cd "$REPO_ROOT" && pwd -P)" ||
+    ! registered_path="$(cd "$state_path" && pwd -P)"; then
+    echo "interactive-worktree: could not resolve current worktree paths" >&2
+    return 1
+  fi
+  if [[ "$current_path" != "$registered_path" ]]; then
+    echo "interactive-worktree: refusing current worktree; workflow state points at '$state_path'" >&2
+    return 1
+  fi
+  if [[ -n "$REQUESTED_BRANCH" && "$REQUESTED_BRANCH" != "$state_branch" ]]; then
+    echo "interactive-worktree: refusing branch '$REQUESTED_BRANCH'; workflow state owns '$state_branch'" >&2
+    return 1
+  fi
+  if ! actual_branch="$(git -C "$REPO_ROOT" branch --show-current 2>/dev/null)"; then
+    echo "interactive-worktree: could not verify the current worktree branch" >&2
+    return 1
+  fi
+  if [[ "$actual_branch" != "$state_branch" ]]; then
+    echo "interactive-worktree: refusing branch '${actual_branch:-detached HEAD}'; workflow state owns '$state_branch'" >&2
+    return 1
+  fi
+  if ! status="$(git -C "$REPO_ROOT" status --porcelain --untracked-files=all 2>/dev/null)"; then
+    echo "interactive-worktree: could not verify current worktree cleanliness" >&2
+    return 1
+  fi
+  while IFS= read -r line; do
+    if [[ "$line" == "?? .loop-owner.pid" ]]; then
+      continue
+    fi
+    dirty+="${dirty:+$'\n'}$line"
+  done <<<"$status"
+  if [[ -n "$dirty" ]]; then
+    printf 'interactive-worktree: refusing dirty current worktree:\n%s\n' "$dirty" >&2
+    return 1
+  fi
+}
+
+if ((FROM_WORKTREE)); then
+  if ! _assert_current_worktree_owner; then
+    exit 1
+  fi
+  printf 'worktree_resumed\n%s\n' "$REPO_ROOT"
+  exit 0
+fi
+
 if [[ "$(jq -r '.repo // empty' <<<"$STATE_JSON")" == "" ]]; then
   "$STATE_HELPER" init "$KEY" "$REPO_NAME" "$BRANCH" "$ISSUE_NUMBER" >&2
 fi

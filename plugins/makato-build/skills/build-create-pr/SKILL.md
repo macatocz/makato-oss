@@ -105,6 +105,7 @@ Resolve `SPEC_FOLDER` with:
 SPEC_FOLDER="$(
   python3 "$MAKATO_BUILD_ROOT/shared/spec_folder.py" "$REPO_ROOT" "<key>"
 )"
+export SPEC_FOLDER
 ```
 
 Read from `SPEC_FOLDER` (NOT under `$WORKTREE_PATH` — see the entry guard
@@ -125,7 +126,11 @@ only — the file is still read for `Closes #N` injection).
 ```bash
 python3 - <<PY
 import json, sys, os
-art_path = os.environ.get('SPEC_FOLDER', '') + '/created-issues.json'
+spec_folder = os.environ.get('SPEC_FOLDER', '')
+if not spec_folder:
+    print('[build-create-pr] WARNING: SPEC_FOLDER is empty — skipping created-issues.json validation')
+    sys.exit(0)
+art_path = spec_folder + '/created-issues.json'
 plan_root = os.environ.get('MAKATO_PLAN_ROOT', '')
 try:
     ART = json.load(open(art_path))

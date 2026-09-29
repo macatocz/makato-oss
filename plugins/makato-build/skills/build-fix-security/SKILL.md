@@ -426,7 +426,7 @@ Field semantics:
 
 ## 8. Logging
 
-Append JSONL entries to `specs/<story-key>/build.jsonl` via `shared/build-log.sh`
+Append JSONL entries to `specs/<story-key>/build.jsonl` via `"$MAKATO_BUILD_ROOT/shared/build-log.sh"`
 (bare path — no `../`).
 
 ```jsonl

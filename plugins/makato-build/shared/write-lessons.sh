@@ -113,17 +113,24 @@ fi
 SPECS_DIR="$REPO_ROOT/specs"
 
 # ---------------------------------------------------------------------------
-# Resolve the spec folder: prefix-match specs/<key>-*/ (canonical to-issues
-# naming), falling back to the exact specs/<key>/ folder.
+# Resolve exact specs/<key>/ first, otherwise require a unique canonical
+# specs/<key>-*/ match. Never append a lesson to an arbitrary prefix match.
 # ---------------------------------------------------------------------------
-SPEC_FOLDER=""
-if [[ -d "$SPECS_DIR" ]]; then
-  SPEC_FOLDER="$(find "$SPECS_DIR" -maxdepth 1 -type d -name "${KEY}-*" 2>/dev/null | sort | head -1)"
+SPEC_FOLDER="$SPECS_DIR/$KEY"
+if [[ ! -d "$SPEC_FOLDER" && -d "$SPECS_DIR" ]]; then
+  SPEC_MATCHES=()
+  for candidate in "$SPECS_DIR/${KEY}"-*/; do
+    [[ -d "$candidate" ]] && SPEC_MATCHES+=("${candidate%/}")
+  done
+  if ((${#SPEC_MATCHES[@]} > 1)); then
+    echo "write-lessons: ambiguous spec folder for key '$KEY' under $SPECS_DIR (${#SPEC_MATCHES[@]} matches)" >&2
+    exit 2
+  fi
+  if ((${#SPEC_MATCHES[@]} == 1)); then
+    SPEC_FOLDER="${SPEC_MATCHES[0]}"
+  fi
 fi
-if [[ -z "$SPEC_FOLDER" && -d "$SPECS_DIR/$KEY" ]]; then
-  SPEC_FOLDER="$SPECS_DIR/$KEY"
-fi
-if [[ -z "$SPEC_FOLDER" ]]; then
+if [[ ! -d "$SPEC_FOLDER" ]]; then
   echo "write-lessons: no spec folder for key '$KEY' under $SPECS_DIR" >&2
   exit 2
 fi
