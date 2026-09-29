@@ -55,7 +55,7 @@ rm -rf "$TMP_ROOT"
 
 echo "T4: build skills do not execute bare plugin helpers"
 if rg -n --glob 'SKILL.md' \
-  '^[[:space:]]*(shared/(build-log|log-bypass|default-branch|write-lessons)\.sh|plugins/makato-(build|orchestrate)/)' \
+  '^[[:space:]]*(shared/(build-log|log-bypass|default-branch|write-lessons|interactive-worktree|spec_folder)\.sh|plugins/makato-(build|orchestrate)/)' \
   "$PLUGIN_ROOT/skills" >/tmp/makato-build-runtime-paths.txt 2>/dev/null; then
   cat /tmp/makato-build-runtime-paths.txt
   fail "found consumer-CWD-relative helper command"
@@ -100,6 +100,31 @@ if grep -q 'MAKATO_ORCHESTRATE_ROOT' \
   pass "task-file-scout dispatch has an explicit optional-root guard"
 else
   fail "task-file-scout dispatch lacks installed-root/agent availability guard"
+fi
+
+echo "T9: exploration skips planned files before parallel reads"
+if grep -q 'create.*target' "$PLUGIN_ROOT/skills/build-refine/SKILL.md" &&
+   grep -q 'Promise\.all' "$PLUGIN_ROOT/skills/build-refine/SKILL.md" &&
+   grep -q 'Promise\.all' "$PLUGIN_ROOT/skills/build-explore/SKILL.md" &&
+   grep -q 'Promise\.all' "$REPO_ROOT/plugins/makato-orchestrate/agents/task-file-scout.md" &&
+   grep -q 'confirmed regular files' "$REPO_ROOT/plugins/makato-orchestrate/agents/task-file-scout.md"; then
+  pass "exploration paths are filtered before OMP parallel reads"
+else
+  fail "missing-file preflight contract is incomplete"
+fi
+
+echo "T10: PR artifact validation uses explicit portable paths"
+if grep -q 'ARTIFACT_PATH="\$SPEC_FOLDER/created-issues.json"' \
+   "$PLUGIN_ROOT/skills/build-create-pr/SKILL.md" &&
+   grep -q 'SCHEMA_PATH=' "$PLUGIN_ROOT/skills/build-create-pr/SKILL.md" &&
+   grep -q 'MAKATO_PLAN_ROOT' "$PLUGIN_ROOT/skills/build-create-pr/SKILL.md" &&
+   ! grep -q 'SCHEMA_PATH=.*REPO_ROOT/plugins/makato-plan' \
+     "$PLUGIN_ROOT/skills/build-create-pr/SKILL.md" &&
+   ! grep -q "open('\$SPEC_FOLDER/" \
+     "$PLUGIN_ROOT/skills/build-create-pr/SKILL.md"; then
+  pass "PR artifact and schema paths are explicit and consumer-repo safe"
+else
+  fail "PR artifact validation still uses an undefined or consumer-relative path"
 fi
 
 rm -f /tmp/makato-build-relative-agent-paths.txt \

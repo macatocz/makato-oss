@@ -10,6 +10,25 @@ here on merge to main; release-please will date and version them at the next rel
 
 ## [Unreleased]
 
+### Fixed — runner-neutral helper paths and greenfield exploration
+
+- `build-create-pr` now resolves `SPEC_FOLDER` explicitly and validates
+  `created-issues.json` only against an available `MAKATO_PLAN_ROOT` schema;
+  unreadable or malformed artifacts remain advisory and never probe
+  `"$REPO_ROOT/plugins/makato-plan"`.
+- Active makato-build skills use `MAKATO_BUILD_ROOT` for suite-owned logging,
+  worktree, default-branch, and lesson helpers. `build-grill-with-docs` uses
+  the optional `MAKATO_ORCHESTRATE_ROOT` for workflow-state updates instead of
+  a consumer-CWD-relative cross-plugin path.
+- Removed legacy OMP two-level eager-load references to
+  `AUTONOMOUS-MODE.md` and documented the installed plugin roots used by build
+  skills.
+- `build-refine`, `build-explore`, and `task-file-scout` now filter planned
+  `create` targets and absent paths before `Read`/`tool.read` batches, avoiding
+  unchecked OMP `Promise.all` failures when greenfield files are not present.
+- Runtime path smoke coverage now checks the missing-file preflight contract and
+  additional suite-owned helper paths.
+
 ### Fixed — ADR lookup, artifact handoff, and coverage command contracts
 
 - `build-grill-with-docs` now loads `references/adr-criteria.md` exactly once at Step 1, resolves

@@ -6,7 +6,7 @@ description: >-
   to How to Test, design decisions surface in the description, Jira
   story is linked. Presents draft for user approval before opening.
   Interactive. Use after push-to-git, before address-pr-comments.
-version: "1.10.0"
+version: "1.11.0"
 argument-hint: "[work-item-key] [--autonomous]"
 allowed-tools:
   - Bash
@@ -119,22 +119,63 @@ above):
 
 When `created-issues.json` exists and `MAKATO_PLAN_ROOT` is available, validate
 it against `$MAKATO_PLAN_ROOT/skills/to-issues/references/created-issues.schema.json`.
-When the optional plan root is unavailable, log an advisory
-`artifact-schema-unavailable` warning and continue without validation.
+When the optional plan root is unavailable, parse the artifact for issue-link
+injection, log an advisory `artifact-schema-unavailable` warning, and continue
+without schema validation. Never probe `$REPO_ROOT/plugins/makato-plan` as a
+fallback.
 
 ```bash
-python3 - <<PY
-import json, sys
+ARTIFACT_PATH="$SPEC_FOLDER/created-issues.json"
+SCHEMA_PATH=""
+if [[ -n "${MAKATO_PLAN_ROOT:-}" ]]; then
+  SCHEMA_PATH="$MAKATO_PLAN_ROOT/skills/to-issues/references/created-issues.schema.json"
+fi
+
+if [[ -f "$ARTIFACT_PATH" ]]; then
+  python3 - "$ARTIFACT_PATH" "$SCHEMA_PATH" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+artifact_path = Path(sys.argv[1])
+schema_path = Path(sys.argv[2]) if sys.argv[2] else None
+
+def warn(error):
+    print(
+        "[build-create-pr] WARNING: %s — continuing without Closes injection"
+        % error
+    )
+    raise SystemExit(0)
+
+try:
+    with artifact_path.open(encoding="utf-8") as artifact_file:
+        artifact = json.load(artifact_file)
+except (OSError, json.JSONDecodeError) as error:
+    warn("created-issues.json is unreadable (%s)" % error)
+
+if schema_path is None:
+    warn("artifact-schema-unavailable")
+
 try:
     import jsonschema
 except ImportError:
-    import subprocess; subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--quiet', 'jsonschema'])
-    import jsonschema
-SCHEMA = json.load(open('$MAKATO_PLAN_ROOT/skills/to-issues/references/created-issues.schema.json'))
-ART = json.load(open('$SPEC_FOLDER/created-issues.json'))
-jsonschema.validate(ART, SCHEMA)
-print('[build-create-pr] artifact valid: %d issues' % len(ART['issues']))
+    warn("jsonschema is unavailable")
+
+try:
+    with schema_path.open(encoding="utf-8") as schema_file:
+        schema = json.load(schema_file)
+    jsonschema.validate(artifact, schema)
+except (
+    OSError,
+    json.JSONDecodeError,
+    jsonschema.exceptions.SchemaError,
+    jsonschema.exceptions.ValidationError,
+) as error:
+    warn("created-issues.json failed schema validation (%s)" % error)
+
+print("[build-create-pr] artifact valid: %d issues" % len(artifact["issues"]))
 PY
+fi
 ```
 
 If validation fails (invalid JSON or schema mismatch), log a single warning:
@@ -440,7 +481,7 @@ The PO-agent reads `data.halt_code` and routes per `plugins/makato-build/halt-co
 
 `build-create-pr` MUST emit **exactly one** terminal `step:"session"` line per invocation — either `status:"ok"` (Step 7 happy path) or `status:"error"` (Step 5c failure branch). Any other exit — silent process death, uncaught exception, model-turn drift, context ceiling mid-skill — is a contract violation and appears in `build.jsonl` as an unclosed session (last event is not `step:"session"` with terminal status).
 
-Fixed by v1.7.0 (#169): earlier versions had no mandatory error-branch logging, so an autonomous session that failed inside `gh pr create` left the audit trail ending on `pr-draft-approval bypass` and the PO-agent had no `halt_code` to route on. See `plugins/makato-build/shared/audit-contract-smoke-tests.sh` — the smoke test scans this file for the mandatory audit events (`pr_created status:"start"`, per-branch `status:"ok"` and `status:"error"`, terminal `session` closes) and CI fails when any regress out.
+Fixed by v1.7.0 (#169): earlier versions had no mandatory error-branch logging, so an autonomous session that failed inside `gh pr create` left the audit trail ending on `pr-draft-approval bypass` and the PO-agent had no `halt_code` to route on. See `"$MAKATO_BUILD_ROOT/shared/audit-contract-smoke-tests.sh"` — the smoke test scans this file for the mandatory audit events (`pr_created status:"start"`, per-branch `status:"ok"` and `status:"error"`, terminal `session` closes) and CI fails when any regress out.
 
 ### HALT Codes
 

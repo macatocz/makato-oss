@@ -239,10 +239,10 @@ If `schema != "r1"` or the JSON does not parse: the caller MUST treat the dispat
 
 ## Audit-log integration
 
-After emitting the R1 block, the agent (or, where the agent does not have Bash, the dispatching skill) MUST also append the envelope as a single JSONL line to `specs/<key>-*/build.jsonl` via `shared/build-log.sh`, with `step: "r1"`:
+After emitting the R1 block, the agent (or, where the agent does not have Bash, the dispatching skill) MUST also append the envelope as a single JSONL line to `specs/<key>-*/build.jsonl` via `"$MAKATO_BUILD_ROOT/shared/build-log.sh"`, with `step: "r1"`:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO>","skill":"<dispatching-skill>","story":"<key>","step":"r1","status":"<r1.status>","data":<entire-r1-envelope>}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO>","skill":"<dispatching-skill>","story":"<key>","step":"r1","status":"<r1.status>","data":<entire-r1-envelope>}'
 ```
 
 This keeps the existing JSONL audit shape (`ts`/`skill`/`story`/`step`/`status`/`data`) while preserving the full R1 envelope verbatim under `data`. Downstream tooling that already reads `build.jsonl` does not need to be re-taught the line format.

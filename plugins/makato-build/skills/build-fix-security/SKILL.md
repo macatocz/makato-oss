@@ -6,7 +6,7 @@ description: >-
   carry-over) to resolve each finding deterministically. Dispatched by build-resolve-finding;
   never invoked directly by the user. Keywords: bandit, safety, pip-audit, CVE, CWE,
   nosec, security finding, sensor-fixer repair.
-version: "1.0.0"
+version: "1.1.0"
 allowed-tools: [Read, Edit, Write, Bash]
 metadata:
   authors: [makato-build]
@@ -20,7 +20,7 @@ metadata:
 
 Security-finding repair engine invoked by `build-resolve-finding` whenever a bandit,
 safety, or pip-audit finding is routed here through
-`plugins/makato-build/shared/finding-routes.json`.
+`$MAKATO_BUILD_ROOT/shared/finding-routes.json`.
 
 Receives one normalized finding, classifies it via the CWE table (Section 3), applies
 the fix, and returns a structured outcome. **Classification lives here — the orchestrator
@@ -42,6 +42,10 @@ The four branches, ordered least-invasive → most-invasive:
 The caller passes a single finding object — the same shape used everywhere else in the
 sensor-fixer pipeline. The canonical Finding contract is
 [`../../shared/finding-schema.md`](../../shared/finding-schema.md):
+
+The caller also supplies `MAKATO_BUILD_ROOT`, the absolute installed
+makato-build plugin root. Use it for suite-owned helpers and references; do
+not resolve helpers from the consumer repository's current directory.
 
 ```json
 {
@@ -426,7 +430,8 @@ Field semantics:
 
 ## 8. Logging
 
-Append JSONL entries to `specs/<story-key>/build.jsonl` via `shared/build-log.sh`
+Append JSONL entries to `specs/<story-key>/build.jsonl` via
+`"$MAKATO_BUILD_ROOT/shared/build-log.sh"`
 (bare path — no `../`).
 
 ```jsonl

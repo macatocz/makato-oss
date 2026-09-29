@@ -5,7 +5,7 @@ description: >-
   implementation mode, initializes the build log, and kicks off /build-refine. Use when starting a
   new story build, beginning the makato-build workflow, running build-start on a work item, or
   starting local work without a ticket.
-version: "1.9.0"
+version: "1.10.0"
 argument-hint: "[work-item-key]"
 allowed-tools: [Bash]
 metadata:
@@ -45,11 +45,21 @@ then hands off to `/build-refine`.
 
 - Resuming mid-session — each skill in the pipeline is invocable directly
 
+## Input
+
+- `<work-item-key>` — Jira key, GitHub issue, or local-work slug.
+- `WORKTREE_PATH` — optional in interactive mode and mandatory in autonomous
+  mode once the worktree is established.
+- `MAKATO_BUILD_ROOT` — absolute installed build-plugin root. Resolve from
+  `CLAUDE_PLUGIN_ROOT`, `OMP_PLUGIN_ROOT`, or `PLUGIN_ROOT` when the caller
+  does not supply it; use it for suite-owned helpers.
+
 ## Workflow
 
 ### Workspace-isolation entry guard
 
-Before Step 1, apply the `WORKTREE_PATH` contract from `AUTONOMOUS-MODE.md`.
+Before Step 1, resolve `MAKATO_BUILD_ROOT` and apply the `WORKTREE_PATH`
+contract from `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md`.
 
 - In autonomous mode (`--autonomous`, an `AGENT_ID`, or a `task_id` context), `WORKTREE_PATH` is
   mandatory. If it is empty, return R1 failure with
@@ -87,7 +97,7 @@ missing any of `fields.status.id`, `fields.status.options.ready`, `project_node_
 Log the skip and continue to Step 2 unchanged:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"dor-gate","status":"warn","data":{"reason":"no-github-project-config"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"dor-gate","status":"warn","data":{"reason":"no-github-project-config"}}'
 ```
 
 **When `github_project` is present:**
@@ -112,7 +122,7 @@ If `ITEM_ID` is empty: log
 **When `CUR_STATUS == "Ready"`:** log and continue to Step 2:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"dor-gate","status":"ok","data":{"issue":<ISSUE_NUMBER>,"board_status":"Ready"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"dor-gate","status":"ok","data":{"issue":<ISSUE_NUMBER>,"board_status":"Ready"}}'
 ```
 
 **When `CUR_STATUS != "Ready"` (e.g. Todo, Blocked, In Progress):**
@@ -125,7 +135,7 @@ In **interactive mode**: stop immediately with an actionable message:
 Log:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"dor-gate","status":"error","data":{"halt_code":"DOR_NOT_READY","issue":<ISSUE_NUMBER>,"board_status":"<CUR_STATUS>"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"dor-gate","status":"error","data":{"halt_code":"DOR_NOT_READY","issue":<ISSUE_NUMBER>,"board_status":"<CUR_STATUS>"}}'
 ```
 
 In **autonomous mode** (`--autonomous`): log the same entry above, then return R1
@@ -183,8 +193,8 @@ resolves the sibling `makato-orchestrate` helpers, initialises per-issue workflo
 and creates the worktree without changing the main checkout:
 
 ```bash
-BUILD_ROOT="${CLAUDE_PLUGIN_ROOT:-$(git rev-parse --show-toplevel)/plugins/makato-build}"
-WORKTREE_OUTPUT="$(bash "$BUILD_ROOT/shared/interactive-worktree.sh" \
+MAKATO_BUILD_ROOT="${MAKATO_BUILD_ROOT:-${CLAUDE_PLUGIN_ROOT:-${OMP_PLUGIN_ROOT:-${PLUGIN_ROOT:-$(git rev-parse --show-toplevel)/plugins/makato-build}}}}"
+WORKTREE_OUTPUT="$(bash "$MAKATO_BUILD_ROOT/shared/interactive-worktree.sh" \
   "$key" "" "${REQUESTED_BRANCH:-}")"
 WORKTREE_PATH="$(printf '%s\n' "$WORKTREE_OUTPUT" | tail -n 1)"
 test -n "$WORKTREE_PATH" && test -d "$WORKTREE_PATH"
@@ -260,7 +270,7 @@ red foundation.
 skip entry and proceed to Step 3 unchanged:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO>","skill":"build-start","story":"<key>","step":"canary-skipped","status":"ok","data":{"reason":"no-unit-command"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO>","skill":"build-start","story":"<key>","step":"canary-skipped","status":"ok","data":{"reason":"no-unit-command"}}'
 ```
 
 Append one `build.jsonl` entry with step `"canary"`, `status: "ok"`, `data.event: "CANARY_SKIPPED"`
@@ -465,7 +475,7 @@ SCHEMA_SOURCE="custom"   # or "default" — readable from first loader stderr li
 if [[ ! -f "$REPO_ROOT/.claude/workflow-schema.yml" ]]; then
   SCHEMA_SOURCE="default"
 fi
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"schema-resolved","status":"ok","data":{"source":"<default|custom>","artifact_count":<N>}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"schema-resolved","status":"ok","data":{"source":"<default|custom>","artifact_count":<N>}}'
 ```
 
 **On exit 1 or 2:** The schema is invalid (parse error, cycle detected, or missing arg). Do NOT
@@ -479,7 +489,7 @@ continue — stop and report:
 Log the error:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"schema-resolved","status":"error","error":"<loader stderr>"}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"schema-resolved","status":"error","error":"<loader stderr>"}'
 ```
 
 ### Step 5 — Initialize build log
@@ -487,7 +497,7 @@ shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<k
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"session-start","status":"start","data":{"mode":"<tdd|goal>","local_work":<true|false>,"spec_artifacts":[...],"schema_source":"<default|custom>","worktree_path":"<absolute-worktree-path>"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"session-start","status":"start","data":{"mode":"<tdd|goal>","local_work":<true|false>,"spec_artifacts":[...],"schema_source":"<default|custom>","worktree_path":"<absolute-worktree-path>"}}'
 ```
 
 List every artifact file found in the resolved `specs/<key>-*/` folder in the `spec_artifacts`
@@ -503,7 +513,7 @@ Continue with `WORKTREE_PATH=<absolute-worktree-path>`; do not switch back to th
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"session-end","status":"ok","data":{"next":"build-refine","worktree_path":"<absolute-worktree-path>"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"session-end","status":"ok","data":{"next":"build-refine","worktree_path":"<absolute-worktree-path>"}}'
 ```
 
 Invoke `/build-refine <key>` with the resolved `WORKTREE_PATH`.

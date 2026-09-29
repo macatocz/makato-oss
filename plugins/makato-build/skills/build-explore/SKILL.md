@@ -10,7 +10,7 @@ description: >-
   area. Trigger keywords: explore, survey, options, approach, trade-offs,
   orient me, what are the ways. Do NOT use when an approach is already
   decided and implementation is ready to begin.
-version: "1.1.0"
+version: "1.2.0"
 argument-hint: "[topic, file path, GitHub issue #NNN, or issue URL]"
 allowed-tools: Read Glob Bash(grep *) Bash(find *) Bash(ls *) Bash(cat *) Bash(head *) Bash(tail *)
 metadata:
@@ -88,6 +88,14 @@ Argument provided?
 Use `Glob`, `Bash(find *)`, `Bash(grep *)`, and `Read` to locate and read
 the relevant files. Apply the **makato-specific survey signals** below before
 falling back to generic grep.
+
+**Missing-file guard:** resolve candidate paths with `Glob`, `find`, or an
+equivalent existence check before calling `Read`. Plan entries marked `create`
+are future files and must be skipped, not read. In OMP JavaScript cells, never
+map raw candidate paths directly to `tool.read` inside `Promise.all`; filter to
+confirmed regular files first and continue when a candidate is absent. Report
+missing existing targets as an exploration warning rather than aborting the
+whole survey.
 
 #### makato-specific survey signals (read these first)
 

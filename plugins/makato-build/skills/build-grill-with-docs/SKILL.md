@@ -4,7 +4,7 @@ description:
   Align implementation plan terminology to the codebase domain model — grill plan, terminology
   conflicts, glossary.md enrichment, ADR decisions. Use after /refine, before /implement-tdd or
   /implement-goal. Optional but recommended for complex stories.
-version: "1.7.0"
+version: "1.8.0"
 model: opus
 argument-hint: "[work-item-key]"
 allowed-tools: [Bash, Read, Glob]
@@ -29,6 +29,16 @@ owns the canonical domain vocabulary; this one maps that vocabulary to live code
 comes from comparing spec language to live code symbols. With no code to search, every proposed term
 is an unverifiable assumption, not a codebase alignment.
 
+## Input
+
+- `<work-item-key>` — work item whose plan and glossary are being aligned.
+- `MAKATO_BUILD_ROOT` — absolute installed build-plugin root. Resolve from
+  `CLAUDE_PLUGIN_ROOT`, `OMP_PLUGIN_ROOT`, or `PLUGIN_ROOT` when the caller
+  does not supply it; use it for suite-owned helpers.
+- `MAKATO_ORCHESTRATE_ROOT` — optional absolute installed orchestrate-plugin
+  root. When absent, skip the best-effort workflow-state update without
+  probing the consumer repository.
+
 ## Workflow
 
 ### Step 1 — Resolve work item, load glossary, locate ADR path
@@ -37,6 +47,7 @@ Ask: _"Which work item are we aligning? (e.g. DCP-1234)"_ — or use the passed 
 Resolve the target repository root before reading any spec artifact:
 
 ```bash
+MAKATO_BUILD_ROOT="${MAKATO_BUILD_ROOT:-${CLAUDE_PLUGIN_ROOT:-${OMP_PLUGIN_ROOT:-${PLUGIN_ROOT:-$(git rev-parse --show-toplevel)/plugins/makato-build}}}}"
 if [[ -n "${WORKTREE_PATH:-}" ]]; then
   REPO_ROOT="$(git -C "$WORKTREE_PATH" rev-parse --show-toplevel)"
 else
@@ -109,7 +120,7 @@ complexity) and proceed with enhanced attention to alignment depth.
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-grill-with-docs","story":"<key>","step":"session","status":"start","data":{"has_glossary":true|false,"adr_path":"<path>|skip"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-grill-with-docs","story":"<key>","step":"session","status":"start","data":{"has_glossary":true|false,"adr_path":"<path>|skip"}}'
 ```
 
 ---
@@ -232,15 +243,17 @@ issue-scoped files exist, write to all of them (one call per file):
 
 ```bash
 # Find all per-issue workflow-state files for this KEY
-WS_FILES="$(ls specs/<KEY>-*/workflow-state-*.json 2>/dev/null || true)"
+WS_FILES="$(ls "$REPO_ROOT"/specs/<KEY>-*/workflow-state-*.json 2>/dev/null || true)"
 
-if [[ -n "$WS_FILES" ]]; then
+if [[ -n "$WS_FILES" ]] &&
+   [[ -n "${MAKATO_ORCHESTRATE_ROOT:-}" ]] &&
+   [[ -x "$MAKATO_ORCHESTRATE_ROOT/shared/workflow-state.sh" ]]; then
   for WS_FILE in $WS_FILES; do
     # Derive ISSUE_NUMBER from the filename (workflow-state-<N>.json)
     ISSUE_NUMBER="${WS_FILE##*workflow-state-}"
     ISSUE_NUMBER="${ISSUE_NUMBER%.json}"
     SPEC_KEY="$(basename "$(dirname "$WS_FILE")")"
-    plugins/makato-orchestrate/shared/workflow-state.sh append-decision \
+    "$MAKATO_ORCHESTRATE_ROOT/shared/workflow-state.sh" append-decision \
       "$SPEC_KEY" "$ISSUE_NUMBER" \
       "$(jq -n \
         --arg title "<decision title>" \
@@ -271,7 +284,7 @@ convenience; the ADR file or `decisions.md` entry is the primary record.
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-grill-with-docs","story":"<key>","step":"session","status":"ok","data":{"terms_resolved":<N>,"terms_skipped":<M>,"adrs_written":<K>,"decisions_updated":<J>,"decisions_persisted_to_state":<P>}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-grill-with-docs","story":"<key>","step":"session","status":"ok","data":{"terms_resolved":<N>,"terms_skipped":<M>,"adrs_written":<K>,"decisions_updated":<J>,"decisions_persisted_to_state":<P>}}'
 ```
 
 `decisions_persisted_to_state` is the count of decisions successfully written to

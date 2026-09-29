@@ -9,7 +9,7 @@ description: >-
   Use after review, before push-to-git. Triggers: verify, quality-gate,
   all-gates, build-pass, tests-pass, lint-clean, coverage-check,
   gate-pipeline, run-verify.
-version: "1.12.0"
+version: "1.13.0"
 argument-hint: "[work-item-key]"
 allowed-tools: [Bash, Read]
 ---
@@ -67,13 +67,16 @@ When dispatched by the PO-agent (`--autonomous` mode), this skill receives:
 
 - `<work-item-key>` — positional argument.
 - `WORKTREE_PATH` — absolute filesystem path to the per-run git worktree. **Mandatory in autonomous mode** (see `plugins/makato-build/AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract*). The skill MUST `cd "$WORKTREE_PATH"` before any build/lint/test/coverage gate command — gates that run from the wrong checkout produce nonsense pass/fail signals.
+- `MAKATO_BUILD_ROOT` — absolute installed build-plugin root. Resolve from
+  `CLAUDE_PLUGIN_ROOT`, `OMP_PLUGIN_ROOT`, or `PLUGIN_ROOT` when the caller does
+  not supply it; use it for suite-owned helpers and contract references.
 - `--autonomous` — activation flag.
 
 Interactive mode: `WORKTREE_PATH` is optional; fall back to `git rev-parse --show-toplevel` of the current `$PWD`.
 
 ### Workspace-isolation entry guard
 
-Apply the workspace-isolation entry guard from `@../../AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract* and § *Falsy-check pattern* before Gate 0. In autonomous mode an empty `WORKTREE_PATH` is a HALT with `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`; in interactive mode the guard falls back to `git rev-parse --show-toplevel`. After resolution, `cd "$WORKTREE_PATH"` — every gate command below runs from this CWD.
+Apply the workspace-isolation entry guard from `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract* and § *Falsy-check pattern* before Gate 0. In autonomous mode an empty `WORKTREE_PATH` is a HALT with `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`; in interactive mode the guard falls back to `git rev-parse --show-toplevel`. After resolution, `cd "$WORKTREE_PATH"` — every gate command below runs from this CWD.
 
 ## Workflow
 
@@ -115,7 +118,7 @@ autonomous mode and the failure is structural.
 | 7 | Rebased on `origin/main` | `build-push-to-git` push deny-list | denied push → HALT-005 |
 | 8 | No `TODO`/`FIXME` without tracking issue; no debug/stale artifacts introduced | sensors `todo-check` + `stale-artifact-check` | HALT-001 family |
 | 9 | No hard-coded credentials | sensors `gitleaks` / `detect-secrets` | HALT-001 family |
-| 10 | `build.jsonl` entry per skill step | every skill via `shared/build-log.sh` | contract — caller treats omission as agent failure |
+| 10 | `build.jsonl` entry per skill step | every skill via `"$MAKATO_BUILD_ROOT/shared/build-log.sh"` | contract — caller treats omission as agent failure |
 | 11 | R1 JSON block as last fenced ` ```json ` in agent return | `plugins/makato-build/agents/RETURN-CONTRACT.md` | caller treats missing/invalid R1 as `status: "failure"` |
 | 12 | PR description contains `Closes #N` | `build-create-pr` description draft | interactive review catches omission before PR is opened |
 | 13 | Skill-provenance recorded and complete | Step 9 (skill-provenance advisory gate) in this skill | advisory only — never fails the build (NFR-R2) |
@@ -189,7 +192,7 @@ Resolve the correct `JAVA_HOME` path for the required version (e.g. via `$(dirna
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"session","status":"start","data":{"coverage_threshold":"<X>%|none"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"session","status":"start","data":{"coverage_threshold":"<X>%|none"}}'
 ```
 
 ---
@@ -485,7 +488,7 @@ Resolve the final git diff using `skill-bundles.yml` / `inject-skills`:
 # collect changed files on the branch
 git diff --name-only origin/main...HEAD > /tmp/changed_files.txt
 # resolve expected skills via inject-skills
-python3 plugins/makato-build/shared/inject_skills.py --files /tmp/changed_files.txt
+python3 "$MAKATO_BUILD_ROOT/shared/inject_skills.py" --files /tmp/changed_files.txt
 ```
 
 The result is `skills_expected`: the ordered, deduplicated list of skills the changed
@@ -494,7 +497,7 @@ files should have triggered.
 #### 9b — Read the skill passport and compute `skills_invoked_transitively`
 
 Read `specs/<key>-*/skill-passport.json` for the current run. Call `compute_rollup` from
-`plugins/makato-build/shared/skill_passport.py` to compute `skills_invoked_transitively`
+`"$MAKATO_BUILD_ROOT/shared/skill_passport.py"` to compute `skills_invoked_transitively`
 — the flat union of all skill nodes in the passport tree.
 
 **When no passport exists** (the session predates F3, or the agent opted out of F4
@@ -560,7 +563,7 @@ Advisory  SKILL-PROVENANCE  ⚠ WARN   N skills expected, M invoked (advisory on
 Run:
 
 ```bash
-shared/build-log.sh "<key>" '{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"session","status":"ok","data":{"all_gates_passed":true,"conditional_coverage":"<X>%"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"session","status":"ok","data":{"all_gates_passed":true,"conditional_coverage":"<X>%"}}'
 ```
 
 **(Optional) Lesson write (#473):** if this session produced a noteworthy lesson — a
@@ -570,7 +573,7 @@ local-lane promote step (`promote-lessons.sh`, run at the merge-success terminal
 Step 6 item 7) can lift `generalizable` records into `.makato/memory/`:
 
 ```bash
-shared/write-lessons.sh "<key>" "<tier>" "<scope>" "<text>" "[tags]"
+"$MAKATO_BUILD_ROOT/shared/write-lessons.sh" "<key>" "<tier>" "<scope>" "<text>" "[tags]"
 #   tier  = procedural | semantic
 #   scope = generalizable | local   (generalizable → eligible for promotion)
 #   tags  = optional comma-separated list

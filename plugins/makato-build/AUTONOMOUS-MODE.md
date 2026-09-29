@@ -6,6 +6,13 @@
 > decision via `AskUserQuestion`, autonomous mode replaces that decision with the documented
 > default. Interactive runs are unaffected.
 
+## Runtime root input
+
+All `build-*` skills receive or resolve `MAKATO_BUILD_ROOT`, the absolute
+installed makato-build plugin root. Suite-owned helpers in this document must
+be invoked through that root; never assume the consumer repository's current
+directory is the plugin root.
+
 ## Why this exists
 
 Every `build-*` skill that transitions between pipeline phases calls `AskUserQuestion` for approval.
@@ -267,7 +274,8 @@ checkout.
   `status: "failure"` and `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]` —
   silently falling back to the main checkout defeats Layer 1 workspace isolation.
 - Interactive `build-start` and `build-refine` are worktree-producing entry points. When
-  `WORKTREE_PATH` is unset they MUST create or resume one with `shared/interactive-worktree.sh`;
+  `WORKTREE_PATH` is unset they MUST create or resume one with
+  `"$MAKATO_BUILD_ROOT/shared/interactive-worktree.sh"`;
   they MUST NOT use the main checkout as the implementation checkout.
 - Other non-autonomous skills consume the path created by those entry points. When invoked
   standalone, their existing interactive fallback to `git rev-parse --show-toplevel` remains
@@ -319,7 +327,7 @@ Worktree isolation has a non-obvious consequence: not every read or write belong
 |----------|----------|-----|
 | Source-tree edits, `git commit`, `git push`, test runs | `WORKTREE_PATH` | The branch HEAD only moves in the worktree; commits to the main checkout would target the wrong branch. |
 | `specs/<key>-*/plan.md`, `stories.json`, `prd.md`, `.github/PULL_REQUEST_TEMPLATE.md`, `created-issues.json` | Main checkout (`REPO_ROOT`) | `specs/` is gitignored and exists only on the main checkout. A worktree-relative read returns nothing or an error. |
-| `specs/<key>-*/build.jsonl`, `orchestrate.jsonl` | Main checkout (`REPO_ROOT`) | The audit trail is single-writer across all worktrees of a run; `shared/build-log.sh` resolves `REPO_ROOT` from `git rev-parse --git-common-dir` so logs land in one place. |
+| `specs/<key>-*/build.jsonl`, `orchestrate.jsonl` | Main checkout (`REPO_ROOT`) | The audit trail is single-writer across all worktrees of a run; `"$MAKATO_BUILD_ROOT/shared/build-log.sh"` resolves `REPO_ROOT` from `git rev-parse --git-common-dir` so logs land in one place. |
 | `.github/PULL_REQUEST_TEMPLATE.md` | Whichever checkout has it tracked — both, in this repo's setup | Tracked file; `git -C "$WORKTREE_PATH"` reads it fine. The point is that *reading the spec artefact next to it (`plan.md`)* still requires `REPO_ROOT`. |
 
 **Resolving the two roots:**
@@ -336,7 +344,7 @@ fi
 REPO_ROOT="$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)"
 ````
 
-`shared/build-log.sh` already encapsulates the `REPO_ROOT` derivation and is the single point that
+`"$MAKATO_BUILD_ROOT/shared/build-log.sh"` already encapsulates the `REPO_ROOT` derivation and is the single point that
 resolves `specs/<key>-*/build.jsonl` correctly from either checkout. Skills that read spec artefacts
 directly (e.g. `build-push-to-git` and `build-create-pr` reading `plan.md` in Step 1) MUST resolve
 `REPO_ROOT` via the snippet above and read `$REPO_ROOT/specs/<key>-*/...` — never via
@@ -359,7 +367,7 @@ The second cohort also reads spec artefacts and therefore resolves `REPO_ROOT` s
   `created-issues.json`) via `REPO_ROOT`.
 - `build-refine` — produces `plan.md`; reads spec folder via `REPO_ROOT`. Honours the falsy-check
   when dispatched by the PO-agent on a re-plan cycle (Step 4f of `po-agent`).
-- `build-simplify` — runs `git diff "$(shared/default-branch.sh)...HEAD"` (resolves
+- `build-simplify` — runs `git diff "$("$MAKATO_BUILD_ROOT/shared/default-branch.sh")...HEAD"` (resolves
   `origin/<default-branch>` to avoid stale-main pull-in — #98) and applies fixes in `WORKTREE_PATH`.
   Plan reads via `REPO_ROOT`.
 - `build-address-pr-comments` — `gh pr` calls + per-comment fix-apply operate from `WORKTREE_PATH`.
@@ -390,15 +398,15 @@ to mirror the same marker conventions.
 ## Logging contract
 
 Every gate that the skill bypasses in autonomous mode MUST emit a `build.jsonl` entry by invoking
-`shared/log-bypass.sh` (which assembles the canonical 5-field shape and delegates the actual file
-append to `shared/build-log.sh`). The helper is the single source of truth for the schema; inline
+`"$MAKATO_BUILD_ROOT/shared/log-bypass.sh"` (which assembles the canonical 5-field shape and delegates the actual file
+append to `"$MAKATO_BUILD_ROOT/shared/build-log.sh"`). The helper is the single source of truth for the schema; inline
 JSON literals are a contract violation.
 
 ```bash
-shared/log-bypass.sh <skill> <key> <gate> <default_taken> <trigger> [extra-json-object]
+"$MAKATO_BUILD_ROOT/shared/log-bypass.sh" <skill> <key> <gate> <default_taken> <trigger> [extra-json-object]
 ```
 
-Run `shared/log-bypass.sh --help` for the full signature.
+Run `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh" --help` for the full signature.
 
 The emitted entry has this shape (which audit consumers should grep for):
 
@@ -439,7 +447,7 @@ as the 6th positional argument to `log-bypass.sh`. It is merged into `data` alon
 5 fields.
 
 ```bash
-shared/log-bypass.sh build-address-pr-comments "$KEY" out-of-scope-carry-over open-followup-issue cli_flag \
+"$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-address-pr-comments "$KEY" out-of-scope-carry-over open-followup-issue cli_flag \
   '{"comment_id":"42","follow_up_issue":"https://github.com/o/r/issues/99"}'
 ```
 
@@ -467,16 +475,16 @@ overhead.
 
 ```bash
 {
-  shared/build-log.sh "<KEY>" '{"ts":"…","step":"a","status":"ok"}'
-  shared/build-log.sh "<KEY>" '{"ts":"…","step":"b","status":"ok"}'
-  shared/build-log.sh "<KEY>" '{"ts":"…","step":"c","status":"ok"}'
+  "$MAKATO_BUILD_ROOT/shared/build-log.sh" "<KEY>" '{"ts":"…","step":"a","status":"ok"}'
+  "$MAKATO_BUILD_ROOT/shared/build-log.sh" "<KEY>" '{"ts":"…","step":"b","status":"ok"}'
+  "$MAKATO_BUILD_ROOT/shared/build-log.sh" "<KEY>" '{"ts":"…","step":"c","status":"ok"}'
 }
 ```
 
 becomes
 
 ```bash
-cat <<NDJSON | shared/build-log.sh "<KEY>" --batch
+cat <<NDJSON | "$MAKATO_BUILD_ROOT/shared/build-log.sh" "<KEY>" --batch
 {"ts":"…","step":"a","status":"ok"}
 {"ts":"…","step":"b","status":"ok"}
 {"ts":"…","step":"c","status":"ok"}
