@@ -58,6 +58,18 @@ Invocation order (typical session):
 > For documentation authoring (`context7` before writing code, `crafting-effective-readmes`,
 > `markdown`, `writing-clearly-and-concisely`), see the **[`makato-doc`](../makato-doc/README.md)** plugin.
 
+## Shared Hooks
+
+makato-core provides an advisory post-push hook that reports when a push has no current
+`build-verify` pass. It does not block `git commit` or `git push` and does not run repository-wide
+checks at either boundary.
+
+Validation belongs to the build workflow and CI:
+
+- `build-sensors` checks the files changed by the current work.
+- `build-verify` runs the configured project gates.
+- GitHub Actions provides the authoritative remote validation result.
+
 ## Skills
 
 | Skill | Description | Input | Output | Version |

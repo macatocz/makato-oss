@@ -5,6 +5,20 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Hook migration
+
+- **Removed** `hooks/pre-commit-sensors.md`. Core no longer documents a mandatory
+  `PreToolUse` sensor gate that blocks `git commit`.
+- **Changed** `hooks/pre-push.md` to retain only the advisory `Stop` notification
+  for pushes without current verify evidence. The documented blocking pre-push
+  all-files check and `--no-verify` deny rule were removed.
+- **Migration** remove the legacy `PreToolUse` entries for `git commit` and
+  `git push` from consumer settings; do not replace them with an all-files hook.
+  Keep the optional post-push `Stop` notification. Use `build-sensors` for
+  changed-file validation, `build-verify` for project gates, and GitHub Actions
+  as the authoritative remote result. Configure E2E execution for the project's
+  local or remote runtime surface.
+
 - **Changed** `create-issue` Step 5.5 — `plan-tier:full` inference is now a
   *decomposition* signal, aligned with the CI classifier
   (`.github/scripts/classify-plan-tier.sh`). `full` fires on an epic-scale
@@ -52,8 +66,8 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## `hooks/` directory — shared Claude Code hooks
 
-- **Added** `hooks/pre-commit-sensors.md` — PreToolUse gate blocking `git commit` on sensor failure
-- **Added** `hooks/pre-push.md` — PreToolUse blocking gate for `git push` + Stop advisory
+- **Changed** hook policy from blocking commit and push gates to an advisory
+  post-push verify notification.
 - **Added** `hooks/post-implement.md` — Stop hook auto-continuing to `/build-simplify`
 - AGENTS.md updated: `hooks/` added to What Belongs Here and File Structure
 

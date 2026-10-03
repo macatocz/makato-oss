@@ -300,28 +300,6 @@
     "writing-shape": "off"
   },
   "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash(git commit*)",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "pre-commit run --hook-stage pre-commit --from-ref HEAD --to-ref HEAD --files $(git diff --cached --name-only | tr '\\n' ' ')",
-            "timeout": 30000
-          }
-        ]
-      },
-      {
-        "matcher": "Bash(git push*)",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "pre-commit run --hook-stage pre-push --all-files",
-            "timeout": 120000
-          }
-        ]
-      }
-    ],
     "Stop": [
       {
         "hooks": [

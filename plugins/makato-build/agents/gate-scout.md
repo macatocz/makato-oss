@@ -1,13 +1,13 @@
 ---
 name: gate-scout
 modelRole: smol
-version: "1.4.0"
+version: "1.6.0"
 description: >-
   Discover the repository's build, lint, unit test, integration, coverage, and
-  runtime-health commands without executing them. Returns a structured command
-  map for the verify skill. Commands returned for later execution must be
-  executable strings, with metadata (such as thresholds) emitted in separate
-  output fields.
+  full-E2E configuration plus runtime-health commands without executing them.
+  Returns a structured command map for the verify skill. Commands returned for
+  later execution must be executable strings, with metadata (such as
+  thresholds) emitted in separate output fields.
 maxTurns: 10
 permissionMode: bypassPermissions
 disallowedTools: Write, Edit, Bash, NotebookEdit
@@ -17,7 +17,9 @@ disallowedTools: Write, Edit, Bash, NotebookEdit
 
 # gate-scout
 
-> **Mission**: Discover the project's build, lint, unit test, integration test, and coverage commands by reading config files. Return a structured command map ready for the verify skill to execute — without running any commands.
+> **Mission**: Discover the project's build, lint, unit test, integration test, coverage,
+> runtime-health, and full-E2E commands by reading config files. Return a structured command
+> map ready for the verify skill to execute — without running any commands.
 
 ## Rules
 
@@ -100,18 +102,34 @@ and scan all hook entries for IDs matching the following categories:
 - **Type-check hooks**: hook IDs containing `pyright` or `mypy`
 - **Lint hooks**: hook IDs containing `ruff`, `flake8`, or `pylint`
 
-For each matched hook, construct the canonical gating command:
+For each matched hook, substitute its ID for `<hook-id>` in this canonical
+changed-file gating command. Preserve the command as one executable string in
+the return envelope; encode its newlines when serialising JSON.
 
+```bash
+BASE_REF="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || printf '%s\n' origin/main)"
+git rev-parse --verify "$BASE_REF" >/dev/null 2>&1 || BASE_REF="${BASE_REF#origin/}"
+git rev-parse --verify "$BASE_REF" >/dev/null 2>&1 || exit 1
+{
+  git diff --name-only --diff-filter=ACMR -z "${BASE_REF}...HEAD"
+  git diff --name-only --diff-filter=ACMR -z HEAD
+  git ls-files --others --exclude-standard -z
+} | xargs -0 sh -c \
+  'hook_id=$1; shift; [ "$#" -eq 0 ] || pre-commit run --hook-stage manual "$hook_id" --files "$@"' \
+  sh <hook-id>
 ```
-pre-commit run --hook-stage manual <hook-id> --all-files
-```
+
+The three sources cover committed branch changes, staged and unstaged tracked
+changes, and untracked non-ignored files. NUL delimiters plus positional shell
+arguments preserve unusual filenames. The empty-input guard prevents
+pre-commit from falling back to an implicit file scope.
 
 Populate the following fields (always emit explicit `null` rather than omitting when not found):
 
 | Field | Type | Value |
 |---|---|---|
-| `build_hook_cmd` | string\|null | `pre-commit run --hook-stage manual pyright --all-files` — or `null` when no type-check hook found |
-| `lint_hook_cmd` | string\|null | `pre-commit run --hook-stage manual ruff --all-files` — or `null` when no lint hook found. When multiple lint hooks match, use the first match (`ruff` takes precedence over `flake8` / `pylint`); stop on first. |
+| `build_hook_cmd` | string\|null | Changed-file command above with `pyright` or `mypy` substituted for `<hook-id>`; otherwise `null`. |
+| `lint_hook_cmd` | string\|null | Changed-file command above with the selected lint hook substituted for `<hook-id>`; otherwise `null`. Ruff takes precedence over flake8 and pylint. |
 | `pyright_env` | string | `"hook"` when `build_hook_cmd` is non-null; `"raw"` otherwise. Signals to build-verify that a raw pyright run is non-authoritative. |
 | `build_hook_missing` | boolean | `true` when no type-check hook found in `.pre-commit-config.yaml`; `false` when one is found |
 | `lint_hook_missing` | boolean | `true` when no lint hook found; `false` when one is found |
@@ -139,6 +157,23 @@ When none of the three probes finds a match: `health_check_cmd` is `null`.
 
 Emit the discovered value verbatim — do not paraphrase or construct a command that was not
 confirmed by the file scan.
+
+### Step 1f — Detect canonical full-E2E configuration
+
+Read `REPO_ROOT/config/config.yml` when it exists. Confirm that it contains a top-level
+`MAKATO_E2E` mapping before treating it as E2E configuration.
+
+- When the mapping exists, set `e2e_config` to the repository-relative path
+  `config/config.yml`.
+- Read the mapping's two-space-indented `command` scalar. Remove only matching outer YAML
+  quote delimiters and emit its exact content as `e2e_cmd`.
+- When the mapping exists without a non-empty `command`, set `e2e_cmd` to `null` while
+  retaining `e2e_config: "config/config.yml"`.
+- When the file or mapping is absent, set both `e2e_cmd` and `e2e_config` to `null`.
+
+Do not reuse `health_check_cmd`, `integration`, or a similarly named test as full E2E.
+These fields drive separate gates with different failure semantics. Count
+`config/config.yml` in `config_files_read` when it is read.
 
 ### Step 2 — Extract commands
 
@@ -250,8 +285,8 @@ Emit this prose block as part of your message (before the R1 block):
 **lint_ci_divergence**: true | false
 **lint_ci_command**: `<exact command from CI>` | not found  _(Deprecated — use `lint_hook_cmd`. Will be removed in next major version.)_
 
-**build_hook_cmd**: `<pre-commit run --hook-stage manual pyright --all-files>` | null
-**lint_hook_cmd**: `<pre-commit run --hook-stage manual ruff --all-files>` | null
+**build_hook_cmd**: `<executable changed-file command from Step 1d>` | null
+**lint_hook_cmd**: `<executable changed-file command from Step 1d>` | null
 **pyright_env**: hook | raw
 **build_hook_missing**: true | false
 **lint_hook_missing**: true | false
@@ -265,13 +300,15 @@ Emit this prose block as part of your message (before the R1 block):
 **coverage**: `<exact executable command> | not found`
 **coverage_threshold**: `<declared threshold, e.g. 95%> | none`
 **health_check_cmd**: `<exact command>` | null
+**e2e_cmd**: `<exact MAKATO_E2E.command>` | null
+**e2e_config**: `config/config.yml` | null
 ```
 
 ## R1 return envelope
 
 The final element of your message MUST be a fenced ` ```json ` block containing the R1 envelope defined in `plugins/makato-build/agents/RETURN-CONTRACT.md`. Callers parse the last `json`-fenced block via `JSON.parse()` — no prose parsing.
 
-`data` shape: `{"project_type":"...","config_files_read":N,"python_runner_prefix":"...","build":"...","lint":"...","lint_js":"...","lint_sql":"...","unit":"...","integration":"...","coverage":"<exact executable command>|not found","coverage_threshold":"<declared threshold>|none","java_version_required":"...","lint_ci_divergence":true|false,"lint_ci_command":"...","build_hook_cmd":"...|null","lint_hook_cmd":"...|null","pyright_env":"hook|raw","build_hook_missing":true|false,"lint_hook_missing":true|false,"health_check_cmd":"...|null"}`. Use the string `"not found"` for any command not discovered, and `"none"` for `python_runner_prefix` when no lockfile matches. `coverage_threshold` is metadata only and must never be concatenated into `coverage`.
+`data` shape: `{"project_type":"...","config_files_read":N,"python_runner_prefix":"...","build":"...","lint":"...","lint_js":"...","lint_sql":"...","unit":"...","integration":"...","coverage":"<exact executable command>|not found","coverage_threshold":"<declared threshold>|none","java_version_required":"...","lint_ci_divergence":true|false,"lint_ci_command":"...","build_hook_cmd":"...|null","lint_hook_cmd":"...|null","pyright_env":"hook|raw","build_hook_missing":true|false,"lint_hook_missing":true|false,"health_check_cmd":"...|null","e2e_cmd":"...|null","e2e_config":"config/config.yml|null"}`. Use the string `"not found"` for any command not discovered, and `"none"` for `python_runner_prefix` when no lockfile matches. Use JSON `null`, not the string `"null"`, for absent health and E2E fields. `coverage_threshold` is metadata only and must never be concatenated into `coverage`.
 
 ### Success
 
@@ -280,14 +317,14 @@ The final element of your message MUST be a fenced ` ```json ` block containing 
   "schema": "r1",
   "agent": "gate-scout",
   "status": "success",
-  "summary": "python (uv) project: pyright build gate, ruff + biome + sqlfluff lint, directory-split test lanes; coverage uses the declared coverage runner with a 90% threshold.",
+  "summary": "python (uv) project: build, lint, split test lanes, coverage, and configured full E2E discovered.",
   "files_changed": [],
   "tests_written": [],
   "errors": [],
   "tool_calls_used": 7,
   "data": {
     "project_type": "python",
-    "config_files_read": 5,
+    "config_files_read": 6,
     "python_runner_prefix": "uv run",
     "build": "uv run pyright",
     "lint": "uv run ruff check .",
@@ -300,17 +337,21 @@ The final element of your message MUST be a fenced ` ```json ` block containing 
     "java_version_required": "not applicable",
     "lint_ci_divergence": false,
     "lint_ci_command": "not found",
-    "build_hook_cmd": "pre-commit run --hook-stage manual pyright --all-files",
-    "lint_hook_cmd": "pre-commit run --hook-stage manual ruff --all-files",
+    "build_hook_cmd": "b=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null||echo origin/main);{ git diff --name-only --diff-filter=ACMR -z \"$b...HEAD\";git diff --name-only --diff-filter=ACMR -z HEAD;git ls-files -oz --exclude-standard;}|xargs -0 sh -c 'h=$1;shift;[ \"$#\" = 0 ]||pre-commit run --hook-stage manual \"$h\" --files \"$@\"' sh pyright",
+    "lint_hook_cmd": "b=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null||echo origin/main);{ git diff --name-only --diff-filter=ACMR -z \"$b...HEAD\";git diff --name-only --diff-filter=ACMR -z HEAD;git ls-files -oz --exclude-standard;}|xargs -0 sh -c 'h=$1;shift;[ \"$#\" = 0 ]||pre-commit run --hook-stage manual \"$h\" --files \"$@\"' sh ruff",
     "pyright_env": "hook",
     "build_hook_missing": false,
     "lint_hook_missing": false,
-    "health_check_cmd": null
+    "health_check_cmd": null,
+    "e2e_cmd": "python3 -m pytest tests/integration",
+    "e2e_config": "config/config.yml"
   }
 }
 ```
 
-A minimal Node project (no Python toolchain) sets `python_runner_prefix: "none"`, `lint_js`/`lint_sql`: `"not found"`, and reports npm scripts verbatim as before — the new fields never alter non-Python output.
+A minimal Node project without `config/config.yml` sets `python_runner_prefix: "none"`,
+`lint_js`/`lint_sql`: `"not found"`, `e2e_cmd: null`, and `e2e_config: null`; the E2E
+fields never alter non-Python command discovery.
 
 ## Error modes
 

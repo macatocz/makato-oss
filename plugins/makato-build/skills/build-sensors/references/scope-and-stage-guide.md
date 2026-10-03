@@ -1,33 +1,29 @@
-# Scope and hook-stage selection guide
+## Scope and hook-stage selection guide
 
-MANDATORY: load at Step 1 when the caller provides no explicit `scope`, or when choosing which scope is ambiguous.
-Do NOT load this reference for other purposes.
+MANDATORY: load at Step 2 when the caller provides no explicit `scope`, or when
+choosing which scope is ambiguous. Do NOT load this reference for other purposes.
 
 ## When to use each scope
 
 | Scope | Hook stage | File source | Use when |
 |-------|-----------|-------------|----------|
-| `staged` | `pre-commit` | `git diff --cached --name-only` | Running gate-0 immediately before a commit. Only checks what the committer is about to land — fastest path. |
-| `all` | `manual` | `git ls-files` + intent-to-add | Validating an entire branch mid-session when no staged set exists, or when `sensor-fixer` finishes and you want a global clean confirmation. Scans all tracked files + any untracked files registered with `git add -N`. |
-| `changed-vs-main` | `pre-push` | `git diff origin/<default> --name-only` | Final pre-push gate: everything the PR will add to the default branch. Catches cross-file regressions introduced by the full feature diff but not visible in a single commit's staged set. |
+| `staged` | `manual` | Cached diff | Quick feedback on files currently staged in the index. |
+| `changed-vs-main` | `manual` | Branch diff + tracked worktree diff + untracked files | Default gate for everything the branch or current worktree could contribute. |
 
-## Non-obvious failure mode: CI/local mismatch on new files
+## Changed-vs-main composition
 
-`git ls-files` returns **tracked + intent-to-add only**. A new file that has never been
-added to the index does not appear in `--all-files` scope. This means:
+The default scope combines these NUL-delimited sources and de-duplicates their
+results before invoking pre-commit with a quoted Bash array:
 
-- Session creates `app/tools/new_helper.py`, never runs `git add`
-- Local `all` scope: hook does not touch `new_helper.py` → passes
-- CI: file is tracked after commit → hook flags it → pipeline red
+- `git diff --name-only --diff-filter=ACMR -z <base>...HEAD` for committed
+  branch changes.
+- `git diff --name-only --diff-filter=ACMR -z HEAD` for staged and unstaged
+  tracked changes.
+- `git ls-files --others --exclude-standard -z` for untracked, non-ignored
+  files.
 
-Fix: register untracked files before running `all` scope:
-
-```bash
-UNTRACKED="$(git ls-files --others --exclude-standard)"
-[ -n "$UNTRACKED" ] && git add -N -- ${UNTRACKED}
-```
-
-`git add -N` marks files intent-to-add without staging content. Reversible with `git restore --staged <file>`.
+This avoids index mutation and preserves spaces and newlines in filenames.
+Deleted files are omitted because file-oriented hooks cannot inspect them.
 
 ## Non-convergence: when fixer loops produce new findings
 

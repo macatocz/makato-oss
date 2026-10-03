@@ -98,6 +98,24 @@ Always use **branch coverage** flags where available (`--cov-branch` in pytest,
 `-covermode=atomic` in Go, branch coverage in JaCoCo config). Line coverage alone
 does not satisfy the conditional coverage requirement.
 
+### Full E2E Commands
+
+Gate-scout returns E2E discovery separately from runtime health:
+
+- `e2e_cmd` — the exact project E2E command, or `null`.
+- `e2e_config` — the path to a YAML file containing a top-level `MAKATO_E2E`
+  mapping, or `null`.
+
+When both fields exist, pass `e2e_cmd` through `MAKATO_E2E_COMMAND` to
+`scripts/run-e2e.sh --config "$E2E_CONFIG"`. This preserves the project's discovered
+command while applying the configured placement, transport, SSH forwarding, isolated
+workspace, cleanup, and artifact retrieval. A configuration without a discovered command
+uses `MAKATO_E2E.command`. A command without configuration runs directly in the current
+worktree. When neither exists, skip the full-E2E gate.
+
+Runtime health and full E2E are never interchangeable: health is advisory liveness
+verification; configured full E2E is a blocking workflow-verification gate.
+
 ## What Counts as a Gate Failure vs. a Warning
 
 ### BUILD
@@ -122,6 +140,14 @@ does not satisfy the conditional coverage requirement.
 - **Warning**: no threshold declared — any coverage figure is advisory only
 - A branch that is genuinely unreachable (documented as such in the code) may be excluded
   from the denominator — do not manufacture tests to reach dead code
+
+### FULL E2E
+
+- **Failure**: the configured command returns non-zero, transport setup fails, snapshot
+  transfer fails, or configured artifact handling prevents execution.
+- **Skipped**: gate-scout returns both `e2e_cmd: null` and `e2e_config: null`.
+- **Artifact warning**: retrieval failure after command completion is reported, but the
+  executor preserves the command's exit code.
 
 ## Pre-commit Hook Commands
 

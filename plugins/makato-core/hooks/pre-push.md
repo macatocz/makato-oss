@@ -2,21 +2,26 @@
 name: pre-push
 trigger: Stop
 action: inject
-version: "1.1.1"
+version: "2.0.0"
 ---
-# Pre-Push Hook
+## Post-Push Verify Advisory
 
-> **Mission**: After a git push is detected in the session, warn if the verify gate has not been run since the last implementation. Advisory — does not block the push but surfaces the gap so the user can act.
+After a git push is detected in the session, this hook warns when the verify gate has not run
+since the last implementation. The notification is advisory: it does not block commits or pushes.
 
 ## Trigger
 
-Claude Code's `Stop` event fires after every Claude turn. This hook checks whether a `build-push-to-git` session or a raw `git push` was recently completed by scanning `build.jsonl`. If a push is detected and no verify pass exists after the last implementation session, the hook injects a warning message.
+Claude Code's `Stop` event fires after every Claude turn. This hook scans `build.jsonl` for a
+recently completed `build-push-to-git` session. If a push is detected and no verify pass exists
+after the last implementation session, the hook injects a warning message.
 
 ## Recency Check
 
-A verify pass is considered valid only if it appears **after** the most recent `implement-tdd`, `implement-goal`, `simplify`, or `review` session-end entry in the same file. A verify pass from a prior session does not satisfy this gate.
+A verify pass is current only when it appears after the most recent `implement-tdd`,
+`implement-goal`, `simplify`, or `review` session-end entry in the same file. A verify pass from
+a prior implementation does not suppress the advisory.
 
-## Settings.json Wiring
+## Settings Wiring
 
 Add the following to `.claude/settings.json` in the target project:
 
@@ -37,52 +42,10 @@ Add the following to `.claude/settings.json` in the target project:
 }
 ```
 
-## Pre-Push Blocking Gate (PreToolUse)
+Node.js must be available on `PATH`.
 
-Blocks `git push` at the tool-call boundary unless the project's `pre-commit` pre-push hook stage passes.
+## Validation Authority
 
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash(git push*)",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "pre-commit run --hook-stage pre-push --all-files",
-            "blocking": true,
-            "timeout": 120000
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-Add to `permissions.deny` to prevent bypass:
-
-```json
-{
-  "permissions": {
-    "deny": ["Bash(git push --no-verify *)"]
-  }
-}
-```
-
-**Prerequisites:** Node.js and `pre-commit` must be available on `PATH`.
-
-## Bypass Prevention
-
-Add the following entry to the consumer repo's `.claude/settings.json` (or the user-level `~/.claude/settings.json`) to block `--no-verify` at the permission layer before the hook ever runs:
-
-```json
-{
-  "permissions": {
-    "deny": ["Bash(git push --no-verify *)"]
-  }
-}
-```
-
-This prevents agents from issuing `git push --no-verify` regardless of hook configuration. Adding this entry is the **consumer repo's responsibility** at setup time — the makato-core hook documentation describes what to add, but does not write the file automatically.
+This hook reports missing evidence; it does not perform validation. `build-sensors` validates the
+changed files, `build-verify` runs the project gates, and GitHub Actions provides the authoritative
+remote result. Projects may configure E2E execution for local or remote placement.
