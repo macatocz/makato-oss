@@ -10,6 +10,17 @@ here on merge to main; release-please will date and version them at the next rel
 
 ## [Unreleased]
 
+### Added — build-verify: Configurable full-E2E executor (v1.13.0)
+
+- Added the canonical `MAKATO_E2E` configuration with independent placement and transport,
+  environment-overridable SSH, forwarding, command, temporary-root, and artifact settings.
+- Added a direct/SSH executor that transfers tracked and unignored files to an isolated workspace,
+  runs the configured command, retrieves artifacts, preserves its exit code, and safely cleans up.
+- Added fake-SSH/rsync smoke coverage and a distinct blocking full-E2E gate that consumes
+  gate-scout's `e2e_cmd` and `e2e_config` without conflating advisory runtime health.
+- Gate-scout v1.6.0 now discovers those fields from `config/config.yml`; Gate 0 uses the
+  attributable `changed-vs-main` scope; SSH forwarding fails closed before E2E execution.
+
 ### Added — build-refine: Resolve mapped published GitHub issues (v1.13.0)
 
 - Preserve raw GitHub issue keys while normalizing `#N`, `gh-N`, and bare `N` before spec-folder

@@ -281,6 +281,13 @@ smoke tests at `scripts/auto-merge-decide-smoke-tests.sh` so the classification
 (merge / abort / wait / zero-checks-detected) has a unit-test surface separate from the
 GitHub Actions runtime.
 
+### Validation model
+
+Local commit and push hooks are not mandatory validation gates. Routine sensor validation covers
+only files changed by the current work, while `build-verify` runs the project-level build, lint,
+and test gates. E2E execution can be configured for local or remote placement to match the
+project's runtime surface. GitHub Actions remains the authoritative remote result and merge gate.
+
 ### Smoke tests
 
 The repo ships a small **pytest harness** scoped narrowly to skill smoke tests and existing

@@ -5,11 +5,11 @@
 - **Only suite-wide utilities belong here.** Skills serving a single toolkit go in that toolkit. If it solves a concern for only one plugin, it is in the wrong place.
 - **Contracts are design-time definitions, not runtime imports.** Consuming skills use local templates; they must not import from core at runtime.
 - **No `bypassPermissions` agents in this plugin.** Core utilities run at the default permission level.
-- **Pre-commit hooks in `makato-core/pre-commit/` must be repo-path-agnostic.** Use `git -C "$SCRIPT_DIR" rev-parse --show-toplevel` to resolve the repo root — never hardcode paths.
 - **`create-issue` must use canonical templates and the 10-dimension label taxonomy**, and must check for duplicates before filing.
 - **`makato-guide` and `map-codebase-context` are read-only.** They must never write or modify files.
 - **`skill-judge` is advisory only.** Its scores never block a PR — they inform the author and are not a merge gate.
-- **Hooks defined here are shared infrastructure.** Breaking changes to `pre-commit-sensors.md`, `pre-push.md`, or `post-implement.md` require a CHANGELOG entry and a migration note.
+- **Hooks defined here are shared infrastructure.** Breaking changes to `pre-push.md` or `post-implement.md` require a CHANGELOG entry and a migration note.
+- **The post-push verify hook is advisory only.** Validation authority belongs to `build-sensors`, `build-verify`, and GitHub Actions.
 - **Never hard-code repository URLs, project IDs, or GitHub token values** in skills; read them from `.claude/config.json` or environment variables.
 
 ## Goal
@@ -25,7 +25,7 @@ Provide the shared developer utilities and suite infrastructure every makato plu
 - Mandatory MCP server declarations
 - Guide/help skills for suite users
 - Diagnostics and validation utilities
-- Hooks shared across consumer repos (pre-commit gate, pre-push gate, post-implement continuation)
+- Hooks shared across consumer repos (post-push verify advisory, post-implement continuation)
 
 ## What Does NOT Belong Here
 
@@ -60,8 +60,7 @@ makato-core/
 ├── .claude-plugin/plugin.json
 ├── contracts/          # Shared schemas
 ├── hooks/
-│   ├── pre-commit-sensors.md  # PreToolUse: block git commit on sensor failure
-│   ├── pre-push.md            # PreToolUse: block git push on pre-push gate; Stop: warn on missing verify
+│   ├── pre-push.md            # Stop: advise when a push lacks current verify evidence
 │   └── post-implement.md      # Stop: auto-continue to /build-simplify after implement session
 ├── skills/
 │   ├── create-issue/                  # File a structured issue against the makato repo

@@ -2,14 +2,15 @@
 name: build-verify
 description: >-
   Run the full quality gate pipeline — build, lint, unit tests,
-  integration tests, conditional coverage check. Each gate runs
+  integration tests, conditional coverage, runtime health, and
+  configurable full E2E. Each gate runs
   separately so failures are attributable. Fixable failures are
   fixed and gates re-run; structural failures escalate to refine.
   Autonomous (--autonomous, dispatched by PO-agent) or interactive.
   Use after review, before push-to-git. Triggers: verify, quality-gate,
   all-gates, build-pass, tests-pass, lint-clean, coverage-check,
-  gate-pipeline, run-verify.
-version: "1.12.0"
+  full-e2e, gate-pipeline, run-verify.
+version: "1.13.0"
 argument-hint: "[work-item-key]"
 allowed-tools: [Bash, Read]
 ---
@@ -32,10 +33,10 @@ bare `pytest` or `ruff` invocation uses the system Python, which lacks the locke
 dependencies → `ModuleNotFoundError` or a different package version produces a spurious
 pass or fail signal that does not reproduce in CI.
 
-**NEVER substitute `pre-commit run --files <subset>` for `--all-files` in Gate 0.**
-WHY: staged-subset scans miss repo-wide formatter nits and pre-existing debt that
-`--all-files` (the exact CI command) surfaces. The silent consequence is a CI-only
-failure — the build passes locally and goes red only after the PR is opened.
+**NEVER expand Gate 0 beyond the `changed-vs-main` sensor scope.**
+WHY: scanning the full repository mixes unrelated pre-existing debt into the current
+change and makes the failure signal unattributable. The branch, worktree, and untracked
+file union is the authoritative surface for this verification run.
 
 **NEVER treat exit code 0 as a gate pass without error-count parsing (Gates 1 and 2).**
 WHY: pyright and ruff both have known exit-code bugs where errors are printed but exit
@@ -48,6 +49,11 @@ WHY: the project may use a lockfile runner prefix (uv/poetry), CI-divergent flag
 non-standard hook ID. Independent inference produces commands that differ from what CI
 runs. Gate-scout's runtime discovery (config scan + hook probe) is the only authoritative
 source.
+
+**NEVER treat runtime health and full E2E as the same gate.**
+WHY: runtime health is a short advisory liveness signal, while full E2E executes the
+configured workflow in an isolated local or remote workspace and is blocking when
+configured. Combining them can let a failed user journey pass as a health warning.
 
 **NEVER run integration tests against an environment that failed setup.**
 WHY: a partial environment causes tests to either skip silently or fail for infrastructure
@@ -120,10 +126,12 @@ autonomous mode and the failure is structural.
 | 12 | PR description contains `Closes #N` | `build-create-pr` description draft | interactive review catches omission before PR is opened |
 | 13 | Skill-provenance recorded and complete | Step 9 (skill-provenance advisory gate) in this skill | advisory only — never fails the build (NFR-R2) |
 | — | Runtime health-check passes | Step 8b (Gate 6: advisory) in this skill | advisory only — non-zero exit logged, build continues |
+| — | Configured full E2E passes | Step 8c (Gate 7: blocking) in this skill | fix-then-retry; structural → `/build-refine` |
 
 A failure to satisfy any item in this table **MUST** trigger the corresponding HALT code
 at the gate that enforces it; the autonomous loop does not proceed past an unmet item.
-When this skill runs, gates 0–5 cover items 1–5; items 6–9 and 12 are enforced by
+When this skill runs, gates 0–7 cover items 1–5 plus runtime and E2E verification;
+items 6–9 and 12 are enforced by
 sibling skills called later in the pipeline; items 10 and 11 are enforced at every
 skill / agent boundary in the session, including by this skill on itself.
 
@@ -167,7 +175,12 @@ Dispatch the `gate-scout` agent with:
 - `REPO_ROOT`: absolute path to the target repository root
 - `COVERAGE_HINT`: the coverage threshold extracted from `design.md` (or empty string if none declared)
 
-The agent scans config files (`package.json`, `pom.xml`, `Makefile`, `build.gradle`, `pyproject.toml`, etc.) and returns a structured command map with the exact build, lint, unit, integration, and coverage commands, and a `java_version_required` field for JVM projects. Use this command map for all subsequent gates — do not infer commands independently.
+The agent scans config files (`package.json`, `pom.xml`, `Makefile`, `build.gradle`,
+`pyproject.toml`, etc.) and returns a structured command map with the exact build, lint,
+unit, integration, coverage, and E2E commands; the E2E configuration path; and a
+`java_version_required` field for JVM projects. Consume `e2e_cmd` and `e2e_config` in
+Gate 7 exactly as described in Step 8c. Use this command map for all subsequent gates —
+do not infer commands independently.
 
 **Artifact handoff guard:** Read `local://` or `artifact://` only when that
 exact URI was emitted by a preceding tool or agent in this run. Never invent a
@@ -210,16 +223,12 @@ Run:
 
 ### Step 3 — Gate 0: SENSORS
 
-Run: `/makato-build:build-sensors all <key>`
+Run: `/makato-build:build-sensors changed-vs-main <key>`
 
-**CI parity — always `all`, never a staged/changed subset.** The `all` scope maps
-`build-sensors` onto `pre-commit run --hook-stage manual --all-files` — the *exact*
-command CI runs. A local pre-commit hook typically lints only staged/changed files, so a
-repo-wide lint finding (a formatter nit in a file the diff touched, or pre-existing debt in
-an untouched file that a repo-wide `--all-files` pass surfaces) passes locally and only goes
-red in CI. Gate 0 exists to close that gap: run it with `all` so `/build-verify` reproduces
-the CI lint surface **before** the PR is opened. Do NOT substitute a hand-run
-`pre-commit run --files …` here — that is the subset that lets CI-only failures through.
+**Change attribution — use `changed-vs-main`.** This scope covers committed branch
+changes against the default branch, staged and unstaged tracked changes, and untracked
+non-ignored files. It keeps Gate 0 attributable to the current work while matching the
+changed-file command surface discovered by gate-scout. Do not widen or narrow this scope.
 
 Thread the resolved `<key>` (the work-item key from Step 1) as the `spec_key` positional
 argument — `build-sensors` marks it **required** and uses it to locate
@@ -484,11 +493,53 @@ Log:
 
 ---
 
+### Step 8c — Gate 7: FULL E2E
+
+Run full E2E independently from Gate 6. Runtime health remains advisory; this gate is
+blocking whenever gate-scout discovered an E2E command or configuration.
+
+**Command selection:**
+
+1. When `gate-scout.data.e2e_config` and `gate-scout.data.e2e_cmd` are both non-null,
+   run the Makato executor with the discovered command as an environment override:
+
+   ```bash
+   MAKATO_E2E_COMMAND="$E2E_CMD" \
+     "$MAKATO_BUILD_ROOT/scripts/run-e2e.sh" --config "$E2E_CONFIG"
+   ```
+
+2. When only `e2e_config` is non-null, run
+   `"$MAKATO_BUILD_ROOT/scripts/run-e2e.sh" --config "$E2E_CONFIG"`. The canonical
+   `MAKATO_E2E.command` value supplies the command.
+3. When only `e2e_cmd` is non-null, run that exact executable string from the current
+   worktree without inventing transport settings.
+4. When both fields are null, record Gate 7 as `skipped`; absence of a configured full
+   E2E surface is not a failure.
+
+Do not print the resolved configuration or environment. The executor validates placement,
+transport, SSH inputs, forwarding, artifact paths, and cleanup boundaries; copies tracked
+and unignored files into an isolated workspace; retrieves configured artifacts; and
+returns the E2E command's exact exit code.
+
+- Exit code 0 → gate status `ok`.
+- Non-zero exit code → gate status `error`; classify as Fixable or Structural, then retry
+  Gate 7 after a test/config-only fix or restart from Gate 1 after a production-code fix.
+- A Structural failure blocks handoff and escalates to `/build-refine`.
+
+Log:
+
+```text
+{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-e2e","status":"ok"|"error"|"skipped","data":{"e2e_command_source":"gate-scout+config"|"config"|"gate-scout"|"none","placement":"local"|"remote"|null,"transport":"direct"|"ssh"|null,"exit_code":<N|null>}}
+```
+
+---
+
 ### Step 9 — Skill-provenance advisory gate
 
 **This step is fully automated — no judgment or user interaction required.** Execute sub-steps 9a–9c mechanically. The only conditional branches are whether the passport file is valid (9b) and whether expected skills are covered (9c). Do not prompt the user at any point in this step.
 
-After all quality gates pass (Gates 0–5), compute the skill-provenance diff for the run.
+After all blocking quality gates pass (Gates 0–5 and Gate 7), compute the
+skill-provenance diff for the run.
 This gate is **advisory only** — it never fails the build (NFR-R2).
 
 #### 9a — Compute `skills_expected`
@@ -568,6 +619,7 @@ Gate 3  UNIT              ✓ PASS   N passed, 0 failed
 Gate 4  INTEGRATION       ✓ PASS   N passed, 0 failed
 Gate 5  COVERAGE          ✓ PASS   N% conditional (threshold: N%)
 Gate 6  RUNTIME HEALTH    ✓ PASS   exit 0 in Ns  (advisory — warn does not block)
+Gate 7  FULL E2E          ✓ PASS   remote/ssh, exit 0
 Advisory  SKILL-PROVENANCE  ⚠ WARN   N skills expected, M invoked (advisory only, never blocks)
 ```
 

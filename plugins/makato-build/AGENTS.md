@@ -12,6 +12,7 @@
 - **No hotfixes or ad-hoc changes.** Route defect fixes to `makato-change`; route new shaping work to `makato-plan`.
 - **Skill files must not use `../` paths outside their skill directory** (except `../shared/` within this plugin).
 - **`build-implement-goal` does not participate in the `TEST_ORACLE` chain.** That chain is TDD-only; do not add oracle propagation to goal-mode flows.
+- **Sensor validation is explicit and changed-file-only.** Use `changed-vs-main` by default or `staged` for quick index feedback; never require all-files commit or push gates.
 
 ## Goal
 
@@ -78,7 +79,7 @@ The `coder` agent runs with `permissionMode: bypassPermissions`. This is the onl
 - `coder` is dispatched only by `build-implement-tdd`, never invoked directly by the user
 - File targets it writes to are relative paths validated by `build-refine` before plan approval
 - All other agents (`diff-reviewer`, `gate-scout`, `knowledge-scout`, `plan-analyst`) use read-only permission modes
-- `sensor-fixer` is dispatched only by the `build-sensors` skill after pre-commit returns non-zero; it reads parsed sensor findings and routes each one through `build-resolve-finding` (which in turn calls the deterministic autofix pre-pass or per-tech repair skills like `build-fix-types` / `build-fix-security`). It has Edit/Write permissions for repair but never edits files outside the changed-files set captured at dispatch time.
+- `sensor-fixer` is dispatched only by the `build-sensors` skill after explicit pre-commit validation returns non-zero; it reads parsed sensor findings and routes each one through `build-resolve-finding` (which in turn calls the deterministic autofix pre-pass or per-tech repair skills like `build-fix-types` / `build-fix-security`). It has Edit/Write permissions for repair but never edits files outside the changed-files set captured at dispatch time.
 
 **Contributor rule:** Do not add `bypassPermissions` to any other agent. If a new agent requires elevated permissions, document the reason in this section and in README.md before shipping.
 
@@ -101,7 +102,7 @@ makato-build/
 ├── agents/    coder, diff-reviewer, gate-scout, knowledge-scout, plan-analyst, runtime-qa, sensor-fixer
 │              runtime-qa: autonomous Playwright MCP QA agent — exercises built app against ACs, scores CRITICAL/MAJOR/ADVISORY findings, blocks push on CRITICAL
 │              (+ RETURN-CONTRACT.md — R1 envelope spec shared by all build agents)
-├── hooks/     pre-commit / testing hooks
+├── hooks/     advisory post-push / testing hooks
 ├── skills/    build-start, build-refine, build-grill-with-docs, build-implement-{tdd,goal},
 │              build-simplify, build-verify, build-sensors, build-resolve-finding,
 │              build-fix-{types,security}, build-push-to-git, build-create-pr,

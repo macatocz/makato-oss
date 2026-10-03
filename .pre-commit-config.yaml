@@ -12,17 +12,13 @@
 #   .js/.ts 0    dropped biome (no tracked JS/TS in the repo)
 #   dependency lockfiles 0   dropped trivy fs (nothing to scan for CVEs yet)
 #
-# Lane discipline (from plugins/makato-build/hooks/pre-commit-sensors.md):
-#   pre-commit (fast lane, < 5 s): linters, formatters, hygiene, secret scans
-#   pre-push   (slow lane):        type checks, security SAST, test suites
-#
-# Greenfield-friendly: pytest hooks are guarded to no-op until #64 Part B
-# scaffolds the tests/ tree.
+# Validation is invoked explicitly with a changed-file list. No hook runs
+# automatically on git commit or git push; build-verify and CI own test suites.
 
 default_language_version:
   python: python3.14
 
-default_stages: [pre-commit]
+default_stages: [manual]
 
 repos:
   # -----------------------------------------------------------------------
@@ -47,9 +43,9 @@ repos:
           )$
 
   # -----------------------------------------------------------------------
-  # Stale-artifact sensor — fast lane (debug leftovers + temp files, #596)
+  # Stale-artifact sensor — debug leftovers + temp files (#596)
   # Flags console.log(, debugger, pdb.set_trace(), breakpoint() in additions
-  # and staged *.log / *.tmp / tmp_* / temp_* files.
+  # and changed *.log / *.tmp / tmp_* / temp_* files.
   # -----------------------------------------------------------------------
   - repo: local
     hooks:
@@ -58,10 +54,10 @@ repos:
         entry: plugins/makato-build/pre-commit/stale-artifact-check.sh
         language: system
         pass_filenames: true
-        stages: [pre-commit]
+        stages: [manual]
 
   # -----------------------------------------------------------------------
-  # Python — fast lane (lint + format only; type-check is slow lane)
+  # Python lint + format
   # 16 .py files in repo: parse-sarif.py + makato-sagibeast extractor.
   # -----------------------------------------------------------------------
   - repo: https://github.com/astral-sh/ruff-pre-commit
@@ -69,12 +65,12 @@ repos:
     hooks:
       - id: ruff
         args: [--fix, --exit-non-zero-on-fix]
-        stages: [pre-commit, manual]
+        stages: [manual]
       - id: ruff-format
-        stages: [pre-commit, manual]
+        stages: [manual]
 
   # -----------------------------------------------------------------------
-  # Markdown — fast lane (matches makato-doc:markdown skill expectations)
+  # Markdown (matches makato-doc:markdown skill expectations)
   # .markdownlintignore already excludes plugins/, prompts/, docs/superpowers,
   # and .claude/{agents,skills}/ — so this lints only root .md and tracked
   # docs that don't carry skill frontmatter.
@@ -85,7 +81,7 @@ repos:
       - id: markdownlint
 
   # -----------------------------------------------------------------------
-  # Shell scripts — fast lane (shellcheck on the 13 .sh files)
+  # Shell scripts (shellcheck on the 13 .sh files)
   # makato-build/shared/build-log.sh, makato-orchestrate/{shared,scripts,hooks},
   # repo-level scripts/*.sh — all currently un-linted in the inherited config.
   #
@@ -99,11 +95,9 @@ repos:
         entry: shellcheck --severity=warning
         language: system
         types: [shell]
-        # bash -c hook bodies (e.g. pytest-fast below) get inlined into this
-        # config, not into a .sh file — types: [shell] won't match them.
 
   # -----------------------------------------------------------------------
-  # GitHub Actions — fast lane (lints .github/workflows/*.yml syntax & best
+  # GitHub Actions (lints .github/workflows/*.yml syntax & best
   # practices). 2 workflow files: release.yml, validate.yml.
   # -----------------------------------------------------------------------
   - repo: https://github.com/rhysd/actionlint
@@ -112,11 +106,11 @@ repos:
       - id: actionlint
 
   # -----------------------------------------------------------------------
-  # Skill-bundles authoring gate — fast lane (#144)
+  # Skill-bundles authoring gate (#144)
   # Rejects any skill-bundles.yml bundle that pairs a wide glob (zero literal
   # path segments) with skill recommendations but omits a `contains:` content
-  # filter. Runs only on staged skill-bundles.yml files. Requires python3 +
-  # PyYAML (already assumed by the inject_context/inject_skills resolvers).
+  # filter. Runs only when a selected skill-bundles.yml changes. Requires
+  # python3 + PyYAML (already assumed by the resolvers).
   # -----------------------------------------------------------------------
   - repo: local
     hooks:
@@ -128,9 +122,9 @@ repos:
         pass_filenames: true
 
   # -----------------------------------------------------------------------
-  # AGENTS.md Hard Constraints gate — fast lane (#589)
-  # Rejects any staged AGENTS.md that is missing a '## Hard Constraints'
-  # section or has it after line 30. Runs only on staged AGENTS.md files.
+  # AGENTS.md Hard Constraints gate (#589)
+  # Rejects any selected AGENTS.md that is missing a '## Hard Constraints'
+  # section or has it after line 30.
   # -----------------------------------------------------------------------
   - repo: local
     hooks:
@@ -145,7 +139,7 @@ repos:
   # Context-bundles authoring gate — fast lane (#324)
   # Rejects any context-bundles.yml missing the required `default` bundle
   # (or with duplicate bundle names / missing name fields). Surfaces HALT-006
-  # conditions at commit time rather than at runtime.
+  # conditions during explicit validation rather than at runtime.
   # -----------------------------------------------------------------------
   - repo: local
     hooks:
@@ -157,7 +151,7 @@ repos:
         pass_filenames: true
 
   # -----------------------------------------------------------------------
-  # Secret scanning — fast lane (every commit)
+  # Secret scanning
   # -----------------------------------------------------------------------
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.21.2
@@ -165,7 +159,7 @@ repos:
       - id: gitleaks
 
   # -----------------------------------------------------------------------
-  # Python type checking — slow lane (pre-push only)
+  # Python type checking
   # Only meaningful for the 16 .py files. Greenfield-tolerant: pyright will
   # report 0 errors when no .py files are touched by the push.
   # -----------------------------------------------------------------------
@@ -173,21 +167,21 @@ repos:
     rev: v1.1.389
     hooks:
       - id: pyright
-        stages: [pre-push, manual]
+        stages: [manual]
 
   # -----------------------------------------------------------------------
-  # Python security — slow lane (pre-push only)
+  # Python security
   # -----------------------------------------------------------------------
   - repo: https://github.com/PyCQA/bandit
     rev: 1.8.0
     hooks:
       - id: bandit
-        stages: [pre-push]
+        stages: [manual]
         args: [-c, pyproject.toml]
         additional_dependencies: ["bandit[toml]"]
 
   # -----------------------------------------------------------------------
-  # Cross-language SAST — slow lane (pre-push only)
+  # Cross-language SAST
   # Useful coverage for .py + .sh + .yml even without explicit deps.
   # Shells out to pipx-installed semgrep because pre-commit's hook-env install
   # of semgrep 1.97 fails on py3.14 (protobuf metaclass) and py3.13
@@ -200,7 +194,7 @@ repos:
         entry: semgrep --config auto --error
         language: system
         pass_filenames: true
-        stages: [pre-push, manual]
+        stages: [manual]
 
   # -----------------------------------------------------------------------
   # DROPPED HOOKS (intentional, with rationale)
@@ -225,30 +219,3 @@ repos:
   # arrive, also update the rationale block at the top of this file so
   # future contributors see the trade-offs that justified each hook's
   # presence.
-
-  # -----------------------------------------------------------------------
-  # Pytest fast lane (pre-commit, guarded no-op for greenfield)
-  # context/standards/testing.md:154-159
-  # Becomes meaningful when #64 Part B scaffolds tests/unit/.
-  # -----------------------------------------------------------------------
-  - repo: local
-    hooks:
-      - id: pytest-fast
-        name: pytest fast lane (unit only)
-        entry: bash -c 'if [ -d tests/unit ] && find tests/unit -name "test_*.py" -print -quit | grep -q .; then pytest tests/unit -q --no-header; fi'
-        language: system
-        pass_filenames: false
-        stages: [pre-commit]
-
-  # -----------------------------------------------------------------------
-  # Pytest slow lane (pre-push, guarded no-op for greenfield)
-  # context/standards/testing.md:160-164
-  # -----------------------------------------------------------------------
-  - repo: local
-    hooks:
-      - id: pytest-slow
-        name: pytest slow lane (unit + property + integration)
-        entry: bash -c 'if [ -d tests ] && find tests -name "test_*.py" -print -quit | grep -q .; then pytest -q --no-header; fi'
-        language: system
-        pass_filenames: false
-        stages: [pre-push]

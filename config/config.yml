@@ -60,3 +60,29 @@ budget:
   sagibeast:
     # Minimum free RAM (GB) that must remain available for sagibeast's dev stack.
     min_free_ram_gb: 32
+
+# ── End-to-end verification ──────────────────────────────────────────────────
+# Canonical full-E2E execution settings. Every scalar may be overridden by the
+# same-named environment variable, for example MAKATO_E2E_TRANSPORT=direct.
+# MAKATO_E2E_FORWARD and MAKATO_E2E_ARTIFACTS accept comma-separated values.
+MAKATO_E2E:
+  # Placement describes where the workload belongs; transport describes how
+  # this executor reaches it. Direct transport supports local execution and
+  # execution by an agent already running on the remote cloud host.
+  placement: "remote"
+  transport: "ssh"
+
+  # SSH settings are unused by direct transport. An empty identity delegates
+  # key selection to ssh-agent and the user's SSH configuration.
+  host: "root@76.71.203.193"
+  port: 44220
+  identity: ""
+  forward:
+    - "8080:localhost:8080"
+
+  command: "python3 -m pytest tests/integration"
+  remote_temp_root: "/tmp"
+  artifacts:
+    - "artifacts/e2e"
+    - "playwright-report"
+  artifact_destination: ".makato/e2e-artifacts"

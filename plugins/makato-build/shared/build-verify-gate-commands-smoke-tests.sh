@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Contract / smoke test for build-verify gate-command consumption (#450) and
-# Runtime verification doc-contract (#583).
+# Runtime verification doc-contract (#583) and full-E2E gate contract.
 #
 # build-verify v1.8.0 updates Gates 1 and 2 to source their commands from
 # gate-scout's new hook-command fields (build_hook_cmd, lint_hook_cmd) and
@@ -23,6 +23,12 @@
 # T10 — build-verify SKILL.md Step 1 references reading plan for the runtime command
 # T11 — gate-scout separates the executable coverage command from its threshold
 # T12 — gate-scout's example coverage command contains no human-readable suffix
+# T13 — build-verify has a distinct Gate 7 FULL E2E stage
+# T14 — build-verify consumes gate-scout e2e_cmd and e2e_config
+# T15 — gate definitions distinguish runtime health from full E2E
+# T16 — canonical config contains MAKATO_E2E remote/SSH defaults
+# T17 — executor uses accept-new host keys and safe tracked/unignored snapshots
+# T18 — Gate 0 dispatches changed-vs-main without stale full-repository scope
 #
 # All assertions are grep-based doc-contract checks.
 # No mutation, no network.
@@ -38,6 +44,8 @@ GATE_SCOUT_MD="$PLUGIN_DIR/agents/gate-scout.md"
 GATE_DEFS_MD="$PLUGIN_DIR/skills/build-verify/references/gate-definitions.md"
 PLAN_TEMPLATE_MD="$PLUGIN_DIR/skills/build-refine/templates/plan-template.md"
 PLAN_SCHEMA_MD="$PLUGIN_DIR/skills/build-refine/references/plan-schema.md"
+EXECUTOR="$PLUGIN_DIR/scripts/run-e2e.sh"
+CONFIG_YML="$PLUGIN_DIR/../../config/config.yml"
 
 _pass() { printf '  \xe2\x9c\x93 %s\n' "$1"; }
 _fail() { printf '  \xe2\x9c\x97 %s\n' "$1"; FAIL=$((FAIL + 1)); }
@@ -142,6 +150,64 @@ if grep -qF '"coverage": "uv run coverage run -m pytest && uv run coverage repor
   _pass "gate-scout example coverage command has no threshold suffix"
 else
   _fail "gate-scout example coverage command still contains metadata"
+fi
+
+# ---- T13: full E2E is a distinct gate ---------------------------------------
+echo "T13: build-verify defines a distinct Gate 7 FULL E2E stage"
+if grep -qF 'Step 8c — Gate 7: FULL E2E' "$SKILL_MD" &&
+   grep -qF '"step":"gate-e2e"' "$SKILL_MD"; then
+  _pass "build-verify defines and logs distinct full E2E"
+else
+  _fail "build-verify missing distinct Gate 7 full-E2E contract"
+fi
+
+# ---- T14: consume gate-scout E2E fields -------------------------------------
+echo "T14: build-verify consumes gate-scout e2e_cmd and e2e_config"
+if grep -qF 'gate-scout.data.e2e_config' "$SKILL_MD" &&
+   grep -qF 'gate-scout.data.e2e_cmd' "$SKILL_MD"; then
+  _pass "build-verify consumes both gate-scout E2E fields"
+else
+  _fail "build-verify does not consume both gate-scout E2E fields"
+fi
+
+# ---- T15: runtime health remains separate -----------------------------------
+echo "T15: gate definitions distinguish runtime health from full E2E"
+if grep -qF 'Runtime health and full E2E are never interchangeable' "$GATE_DEFS_MD"; then
+  _pass "runtime health and full E2E have separate contracts"
+else
+  _fail "gate definitions conflate runtime health with full E2E"
+fi
+
+# ---- T16: canonical MAKATO_E2E defaults -------------------------------------
+echo "T16: canonical config contains remote SSH E2E defaults"
+if grep -qF 'MAKATO_E2E:' "$CONFIG_YML" &&
+   grep -qF 'host: "root@76.71.203.193"' "$CONFIG_YML" &&
+   grep -qF 'port: 44220' "$CONFIG_YML" &&
+   grep -qF '"8080:localhost:8080"' "$CONFIG_YML"; then
+  _pass "canonical MAKATO_E2E remote SSH defaults are present"
+else
+  _fail "canonical MAKATO_E2E defaults are incomplete"
+fi
+
+# ---- T17: hardened SSH and snapshot contract --------------------------------
+echo "T17: executor hardens SSH and snapshots tracked plus unignored files"
+if grep -qF 'StrictHostKeyChecking=accept-new' "$EXECUTOR" &&
+   grep -qF 'ExitOnForwardFailure=yes' "$EXECUTOR" &&
+   grep -qF 'ls-files --cached --others --exclude-standard -z' "$EXECUTOR" &&
+   grep -qF 'declare -a SSH_BASE=()' "$EXECUTOR"; then
+  _pass "executor hardens forwarding, filters snapshots, and uses command arrays"
+else
+  _fail "executor missing hardened SSH or safe snapshot contract"
+fi
+
+# ---- T18: Gate 0 changed-vs-main scope --------------------------------------
+echo "T18: build-verify Gate 0 dispatches changed-vs-main only"
+if grep -qF '/makato-build:build-sensors changed-vs-main <key>' "$SKILL_MD" &&
+   ! grep -qF '/makato-build:build-sensors all <key>' "$SKILL_MD" &&
+   ! grep -qF -- '--all-files' "$SKILL_MD"; then
+  _pass "Gate 0 uses changed-vs-main without stale full-repository prose"
+else
+  _fail "Gate 0 scope is stale or still documents a full-repository scan"
 fi
 echo
 if (( FAIL == 0 )); then
