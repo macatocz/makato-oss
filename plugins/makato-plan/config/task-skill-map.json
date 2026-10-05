@@ -534,6 +534,7 @@
   ],
   "integrate-llm": [
     "makato-langgraph:langgraph-fundamentals",
+    "makato-typesafeai:building-with-jev-skill",
     "makato-build:build-implement-goal"
   ],
   "integrate-database": [
@@ -1146,6 +1147,7 @@
   ],
   "calibrate-llm-judge": [
     "makato-observability:langfuse-ops",
+    "makato-typesafeai:building-with-jev-skill",
     "makato-build:build-implement-tdd"
   ],
   "setup-experiment-gate": [
@@ -1158,5 +1160,8 @@
   ],
   "query-langfuse-data": [
     "makato-observability:langfuse-ops"
+  ],
+  "implement-typesafe-judgment": [
+    "makato-typesafeai:building-with-jev-skill"
   ]
 }
