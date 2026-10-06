@@ -7,7 +7,7 @@ description: >-
   frontend behaviour in a running app. Triggers: verify UI, screenshot, check
   rendering, debug frontend, console errors, visual regression, DOM inspection,
   browser check, webapp test.
-version: "1.1.0"
+version: "1.2.0"
 metadata:
   last_updated: "2026-08-05"
 mcp_server: plugin:playwright
@@ -120,12 +120,47 @@ npm run dev       # or: yarn dev, pnpm dev, npx serve
 Do NOT guess the port. A wrong port produces "connection refused" — identical
 to a server-not-started failure, wasting a full diagnostic cycle.
 
-### Step 2: Navigate and Wait for Render
+### Step 2: Resolve the browser URL and navigate
+
+Use an explicitly supplied `MAKATO_RUNTIME_URL` (scheme, host and port)
+first; otherwise use the app's documented URL. The shell and Playwright MCP
+browser may run in different network namespaces: localhost is only valid in
+the browser after it reaches the expected app there.
+
+When a public URL times out from a remote VM, check whether it is a provider
+hairpin-NAT limitation before declaring the app down. Replace it with a local
+URL **only after** all of these checks succeed:
+
+1. The URL's public IPv4 matches this VM's observed public IP (for example
+   `curl -4fsS --max-time 3 https://api.ipify.org`). Egress IP alone is
+   not proof of a matching inbound mapping; if ambiguous, keep the supplied
+   URL and ask for `MAKATO_RUNTIME_URL`.
+2. On Vast, the public port equals exactly one `VAST_TCP_PORT_<LOCAL_PORT>`
+   value in this process's environment. On another provider, use its verified
+   port mapping, or an explicit local URL; never guess the local port.
+3. A request to the local socket succeeds at the expected path. For HTTPS,
+   preserve the public Host and SNI while proving the mapping:
+
+```bash
+curl -kfsS --connect-to <PUBLIC_HOST>:<PUBLIC_PORT>:127.0.0.1:<LOCAL_PORT> \
+  'https://<PUBLIC_HOST>:<PUBLIC_PORT>/<PATH>' >/dev/null
+```
+
+`-k` here is a **diagnostic-only** exception for a dev certificate; use
+the trusted CA for normal verification. Now navigate Playwright to the local
+URL with the original path/query and confirm it renders the expected app.
+Local HTTPS may have a certificate hostname mismatch in the browser: serve a
+certificate valid for localhost and trust its CA, or use a dedicated local-only
+browser context that ignores HTTPS errors.
+Do not disable TLS verification globally for public sites. If this
+browser cannot reach localhost, try the public URL from its own network;
+if neither browser route works, report the transport/TLS limitation and
+the local probe result, not an app failure. Never log URL auth tokens.
 
 Navigate, then wait for a known element — NOT a fixed time:
 
 ```
-browser_navigate → http://localhost:<PORT>/path
+browser_navigate → <resolved URL and path (local only if verified)>
 browser_wait_for text="<text only present when the page has rendered>"
 ```
 

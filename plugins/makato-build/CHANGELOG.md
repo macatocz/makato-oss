@@ -10,6 +10,14 @@ here on merge to main; release-please will date and version them at the next rel
 
 ## [Unreleased]
 
+### Changed — build-runtime-qa: Verified local runtime origin (v1.0.2)
+
+- Pass an optional `MAKATO_RUNTIME_URL` to runtime-qa; verify the provider
+  port map and local response before using localhost, avoiding false app-down
+  findings when the public address has no hairpin route.
+- Record inaccessible browser transport/TLS as an explicit unverified skip,
+  without disabling TLS verification globally or claiming AC coverage.
+
 ### Fixed — runner-neutral helper paths and greenfield exploration
 
 - `build-create-pr` now resolves `SPEC_FOLDER` explicitly and validates
