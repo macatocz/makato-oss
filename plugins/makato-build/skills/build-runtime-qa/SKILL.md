@@ -8,7 +8,7 @@ description: >-
   Dispatched by the PO-agent after build-verify-spec succeeds and before
   build-push-to-git. Keywords: runtime-qa, playwright, acceptance-criteria,
   build-verify, runtime-verification, health-check.
-version: "1.0.1"
+version: "1.0.2"
 argument-hint: "<work-item-key> [--autonomous]"
 tools: Bash, Read, Agent
 metadata:
@@ -129,6 +129,7 @@ to the consumer repository) with the following bundle:
 |-------|-------|
 | `PLAN_PATH` | `$SPEC_FOLDER/plan-<ISSUE_NUMBER>.md` |
 | `RUNTIME_CMD` | discovered in Step 1 |
+| `MAKATO_RUNTIME_URL` | optional configured URL (environment or runtime plan); pass through unchanged when present |
 | `AC_LIST` | JSON array from Step 2 |
 | `WORKTREE_PATH` | `$WORKTREE_PATH` |
 | `REPO_ROOT` | `$REPO_ROOT` |

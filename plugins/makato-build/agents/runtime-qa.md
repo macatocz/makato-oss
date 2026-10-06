@@ -114,8 +114,11 @@ APP_PID=$!
 ```
 
 Wait up to `${HEALTH_CHECK_TIMEOUT_SECONDS:-30}` seconds for the app to become
-responsive (poll at 1-second intervals). If the app does not respond within the
-timeout, log a CRITICAL finding: `"App failed to start within timeout"`.
+responsive (poll at 1-second intervals). Probe the actual local listener/health
+endpoint first, not a public URL that may lack hairpin routing on this VM.
+If that local health check fails within the timeout, log a CRITICAL finding:
+`"App failed to start within timeout"`. A public-IP timeout when the
+local app responds is a network-path problem, **not** an app-start failure.
 
 Log:
 
@@ -123,7 +126,37 @@ Log:
 {"ts":"<ISO>","skill":"runtime-qa","story":"<SPEC_KEY>","step":"launch","status":"ok","data":{"runtime_cmd":"<cmd>","pid":<pid>}}
 ```
 
-### Step 3 — Exercise critical paths from AC list
+### Step 3 — Resolve the browser URL and exercise critical paths
+
+Prefer `MAKATO_RUNTIME_URL` from the dispatch bundle when set, otherwise
+the URL documented by the app/plan. For any public URL, configured or
+documented, use a local origin **only after** verifying co-location and the
+port mapping: match the URL's public IPv4 to this VM's observed public IP
+(e.g. `curl -4fsS --max-time 3 https://api.ipify.org`), match its public
+port to exactly one `VAST_TCP_PORT_<LOCAL_PORT>` value on Vast (or a verified
+provider mapping elsewhere), and probe the expected path on the local socket.
+Public egress IP alone is not proof of ingress; without a verified mapping,
+do not invent a localhost URL. For HTTPS dev certificates, diagnose without
+changing the public Host/SNI:
+
+```bash
+curl -kfsS --connect-to <PUBLIC_HOST>:<PUBLIC_PORT>:127.0.0.1:<LOCAL_PORT> \
+  'https://<PUBLIC_HOST>:<PUBLIC_PORT>/<PATH>' >/dev/null
+```
+
+`-k` is only for a diagnostic dev-cert probe; keep TLS verification
+enabled normally. Navigate Playwright to the verified local origin with the
+original path/query, and confirm the **browser** reaches the expected app:
+the MCP browser may run on another host. If local HTTPS fails because of
+certificate trust/hostname, serve a certificate valid for localhost and trust
+its CA, or use a dedicated local-only browser context ignoring HTTPS errors;
+never weaken TLS globally. Try the public origin from the browser if localhost
+is inaccessible. If neither browser route works but the local probe succeeds,
+stop the app process, log a `browser-transport-unavailable` warning to
+`build.jsonl`, and return R1 `status: "success"` with `data.skipped: true`,
+`data.skip_reason: "browser-transport-unavailable"` and
+`data.paths_exercised: 0`. Do not record an AC pass or a CRITICAL app
+finding: no browser path was verified. Never log URL auth tokens.
 
 For each acceptance criterion in `AC_LIST`, derive the critical path(s) to exercise:
 

@@ -4,6 +4,10 @@
 
 ### Changed
 
+- `webapp-testing` v1.2.0 selects localhost only after verifying a co-located
+  public-to-local port mapping and app response; keeps an explicit runtime URL
+  override and distinguishes browser TLS/network limitations from app failure.
+
 - `frontend-design` skill updated to v1.1.0 — merged studio-lead framing and anti-default
   design guidance into the existing production-UI workflow. Added subject-grounding (name
   the concrete subject when the brief leaves it open), a named catalogue of the three AI
