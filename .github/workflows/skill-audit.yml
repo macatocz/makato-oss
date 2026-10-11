@@ -19,7 +19,7 @@ jobs:
 
       - uses: actions/setup-python@v7
         with:
-          python-version: '3.14'  # scripts require >=3.14 (see pyproject.toml)
+          python-version: '3.15'  # scripts require >=3.14 (see pyproject.toml)
 
       - name: Generate skill adoption dashboard
         run: python3 scripts/audit_skill_adoption.py
