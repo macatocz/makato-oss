@@ -1,5 +1,8 @@
 {
   "_comment": "Task archetype → recommended skill IDs. Schema: { '<archetype>': ['<plugin>:<skill-id>', ...] }. Used by decompose to emit recommended_skills[] per sub-task. Maintained manually; auto-generation from F1 aggregate is out of scope (see #146). 11 plugin domains covered. ≥200 entries required.",
+  "refresh-sagibeast-runtime": [
+    "makato-sagibeast:sagibeast-refresh-runtime"
+  ],
   "write-unit-test": [
     "makato-build:build-implement-tdd",
     "makato-build:definition-of-done"
