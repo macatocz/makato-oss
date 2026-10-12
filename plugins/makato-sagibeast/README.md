@@ -78,6 +78,17 @@ Testbox environment management
 
 ## Skills
 
+### Runtime refresh
+
+Use `/sagibeast-refresh-runtime [host] [revision] [--check-only]` to apply the latest
+Sagibeast code to an existing Compose deployment. It discovers the deployed checkout and
+upstream, preserves local changes and data, rebuilds images, recreates application services
+and network dependents, and verifies freshness and behavior. Version: 1.0.0.
+
+See [the refresh workflow](skills/sagibeast-refresh-runtime/SKILL.md).
+
+### Skill catalog
+
 | Skill | Description | Input | Output | Version |
 |-------|-------------|-------|--------|---------|
 | [`dotx-schema-extractor`](skills/dotx-schema-extractor/SKILL.md) | Extract a JSON schema from a Word `.dotx` or `.docx` template by inventorying every variable field — content controls (SDT), MERGEFIELDs, DOCPROPERTY, plain-text placeholder patterns (`{{var}}`, `[VAR]`, `<VAR>`), colored-highlighted instructions, and Word comments. (interactive) | A `.dotx` or `.docx` Word template file path | JSON schema (`schema.json`) listing all fillable variable fields with key, label, kind, and optional repeats; plus an optional human-readable summary markdown | 1.0.0 |

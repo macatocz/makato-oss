@@ -21,6 +21,19 @@ bundles:
       - manage-pdf
       - sagibeast-create-testbox
       - sagibeast-connect-testbox
+      - sagibeast-refresh-runtime
+
+  - name: sagibeast-runtime-refresh
+    globs:
+      - "scripts/vast-*.sh"
+      - "scripts/testbox-deploy.sh"
+      - "infra/docker-compose*.yml"
+    task_contains:
+      - "refresh sagibeast"
+      - "redeploy sagibeast"
+      - "restart stale containers"
+    skills:
+      - sagibeast-refresh-runtime
 
   # Triggered when working on Word template files (.dotx, .docx).
   # Wide glob — requires contains predicate.
