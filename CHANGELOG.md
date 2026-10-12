@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.166.0](https://github.com/macatocz/makato-oss/compare/v0.165.2...v0.166.0) (2026-10-12)
+
+
+### ✨ Features
+
+* **makato-sagibeast:** add runtime refresh skill ([#120](https://github.com/macatocz/makato-oss/issues/120)) ([b9b34c3](https://github.com/macatocz/makato-oss/commit/b9b34c37325b50ebecba5e8dcc2b5104c71d3508))
+
 ## [0.165.2](https://github.com/macatocz/makato-oss/compare/v0.165.1...v0.165.2) (2026-10-12)
 
 
