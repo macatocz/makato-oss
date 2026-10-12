@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.165.2](https://github.com/macatocz/makato-oss/compare/v0.165.1...v0.165.2) (2026-10-12)
+
+
+### 🐛 Bug Fixes
+
+* **makato-build:** harden runtime paths and file reads ([#115](https://github.com/macatocz/makato-oss/issues/115)) ([9689307](https://github.com/macatocz/makato-oss/commit/968930761ad6c6976c6443fd7836f9327889f3bb))
+* **runtime-qa:** resolve local port mappings on remote hosts ([#118](https://github.com/macatocz/makato-oss/issues/118)) ([532e29c](https://github.com/macatocz/makato-oss/commit/532e29c1693feac84f0f84d1b4c706ac84d03891))
+
 ## [0.165.1](https://github.com/macatocz/makato-oss/compare/v0.165.0...v0.165.1) (2026-09-13)
 
 
