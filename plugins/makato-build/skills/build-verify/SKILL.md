@@ -10,7 +10,7 @@ description: >-
   Use after review, before push-to-git. Triggers: verify, quality-gate,
   all-gates, build-pass, tests-pass, lint-clean, coverage-check,
   full-e2e, gate-pipeline, run-verify.
-version: "1.13.0"
+version: "1.13.1"
 argument-hint: "[work-item-key]"
 allowed-tools: [Bash, Read]
 ---
@@ -629,11 +629,15 @@ Run:
 "$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"session","status":"ok","data":{"all_gates_passed":true,"conditional_coverage":"<X>%"}}'
 ```
 
-**(Optional) Lesson write (#473):** if this session produced a noteworthy lesson — a
-bugfix/gotcha pattern (`tier:procedural`) or a durable technical fact (`tier:semantic`,
-e.g. a dimension or socket override) — append it to the per-issue store so the po-agent's
-local-lane promote step (`promote-lessons.sh`, run at the merge-success terminal, po-agent
-Step 6 item 7) can lift `generalizable` records into `.makato/memory/`:
+**Required learning review:** before handing off (including a failed or paused run),
+review discoveries and persist every evidence-backed reusable procedure or technical
+fact. Record each discovery once; do not invent lessons to fill a quota. If none
+qualify, log `learning-review` with `status: ok` and a concrete `no_new_lessons` reason.
+The writer immediately promotes `generalizable` records into the main checkout’s
+`.makato/memory/`; it does not wait for a merge or CI. Run from the consumer repo,
+not the plugin checkout. Pass `--issue <N>` for shared feature spec folders.
+A nonzero write is a persistence failure: retain the raw source and report it,
+not a successful or empty learning review.
 
 ```bash
 "$MAKATO_BUILD_ROOT/shared/write-lessons.sh" "<key>" "<tier>" "<scope>" "<text>" "[tags]"
@@ -642,9 +646,10 @@ Step 6 item 7) can lift `generalizable` records into `.makato/memory/`:
 #   tags  = optional comma-separated list
 ```
 
-This appends one record to `specs/<key>-*/change-lessons.jsonl`; it never writes to
-`.makato/memory/` (promotion is `documentation-agent`'s job). Omit the call entirely when
-there is nothing notable to record — it is optional and each call is an independent append.
+This retains the source in `specs/<key>/change-lessons.jsonl` and persists reusable
+records in `.makato/memory/{procedural,semantic}.jsonl`. `local` records stay only
+in the spec. Optional `--bundle` and `--label` preserve filtered recall metadata.
+Verify the captured record using `workflow-state.sh recall-lessons <owner/repo>`.
 
 Tell the user: *"All gates passed.*
 *Pipeline remaining: `/build-push-to-git` → `/build-create-pr`*

@@ -7,7 +7,7 @@ description: >-
   approved and the user is ready to write code. Trigger keywords:
   implementation, coding changes, test updates, PR creation, execute change,
   apply design, implement change request.
-version: "1.6.0"
+version: "1.6.1"
 argument-hint: "[ISSUE-KEY]"
 allowed-tools: Bash
 metadata:
@@ -714,10 +714,21 @@ plugins/makato-build/shared/build-log.sh "<KEY>" \
 
 ### Step 11: Record Lessons
 
-After successful PR creation, record one JSONL entry per noteworthy lesson discovered during execution — only if genuinely useful for a future session. Skip entirely if nothing noteworthy arose.
+**Required learning review:** before handing off (including a failed or paused run),
+review discoveries and persist every evidence-backed reusable procedure or technical
+fact. Record each discovery once; do not invent lessons to fill a quota. If none
+qualify, log `learning-review` with `status: ok` and a concrete `no_new_lessons` reason.
+The writer immediately promotes `generalizable` records into the main checkout’s
+`.makato/memory/`; it does not wait for a merge or CI. Run from the consumer repo,
+not the plugin checkout. Pass `--issue <N>` for shared feature spec folders.
+A nonzero write is a persistence failure: retain the raw source and report it,
+not a successful or empty learning review.
+
+Resolve `MAKATO_BUILD_ROOT` to the installed makato-build plugin root (the directory
+containing this skill’s shared helper), not the consumer repository root.
 
 ```bash
-plugins/makato-build/shared/write-lessons.sh \
+"$MAKATO_BUILD_ROOT/shared/write-lessons.sh" \
   "<issue-key>" \
   "<tier: procedural | semantic>" \
   "<scope: generalizable | local>" \
@@ -725,7 +736,9 @@ plugins/makato-build/shared/write-lessons.sh \
   "[tags_csv]"
 ```
 
-Appends to `specs/<issue-key>-*/change-lessons.jsonl`. Record shape: `{ts, tier, text, tags, scope, key, repo}` — the seven fields `promote-lessons.sh` reads when lifting generalizable records into `.makato/memory/`.
+Appends source evidence to `specs/<issue-key>/change-lessons.jsonl` and immediately
+promotes generalizable records into the main checkout’s `.makato/memory/`.
+Use `--issue <N>` when multiple issues share the feature spec.
 
 **Record when:**
 - A non-obvious integration issue affected this change and could recur

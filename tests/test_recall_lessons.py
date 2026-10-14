@@ -347,3 +347,50 @@ class TestRecallLessonsCommittedStore:
         assert result.returncode == 0, f"stderr: {result.stderr}"
         data = json.loads(result.stdout)
         assert any(d["description"] == "From procedural store" for d in data), f"procedural store lesson not found: {data}"
+
+
+class TestRecallLessonsMetadataSources:
+    """Captured tier stores remain visible through their persisted filter metadata."""
+
+    def test_url_repo_argument_filters_procedural_and_semantic_sources(self, tmp_path):
+        memory_dir = tmp_path / ".makato" / "memory"
+        memory_dir.mkdir(parents=True)
+        records = {
+            "procedural.jsonl": {
+                "repo": "macatocz/makato",
+                "bundle": "shell",
+                "label": "ops",
+                "scope": "generalizable",
+                "description": "Procedural captured lesson",
+                "source_events": [{"bundle": "python", "label": "runtime"}],
+            },
+            "semantic.jsonl": {
+                "repo": "macatocz/makato",
+                "bundle": "go",
+                "label": "ci",
+                "scope": "generalizable",
+                "description": "Semantic captured fact",
+                "source_events": [{"bundle": "python", "label": "runtime"}],
+            },
+        }
+        for filename, record in records.items():
+            (memory_dir / filename).write_text(json.dumps(record) + "\n", encoding="utf-8")
+
+        for repo, filter_name, filter_value in (
+            ("https://github.com/macatocz/makato.git", "--bundles", "python"),
+            ("git@github.com:macatocz/makato.git", "--labels", "runtime"),
+        ):
+            result = _run_ws(
+                "recall-lessons",
+                repo,
+                "5",
+                filter_name,
+                filter_value,
+                env={"MAKATO_MEMORY_ROOT": str(tmp_path)},
+            )
+
+            assert result.returncode == 0, result.stderr
+            assert {record["description"] for record in json.loads(result.stdout)} == {
+                "Procedural captured lesson",
+                "Semantic captured fact",
+            }

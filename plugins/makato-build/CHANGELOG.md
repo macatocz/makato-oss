@@ -10,6 +10,14 @@ here on merge to main; release-please will date and version them at the next rel
 
 ## [Unreleased]
 
+### Fixed — durable project learning
+
+- Capture now immediately persists generalizable procedures and facts into the main
+  checkout’s `.makato/memory/`, including interactive worktree sessions. Preserve
+  issue/filter metadata; report promotion failures while retaining raw evidence.
+- Require an evidence-based learning review at completion/handoff and repair the
+  malformed PR-review capture command. Replace source-text tests with real CLI coverage.
+
 ### Added — build-verify: Configurable full-E2E executor (v1.13.0)
 
 - Added the canonical `MAKATO_E2E` configuration with independent placement and transport,

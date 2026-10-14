@@ -13,7 +13,7 @@ description: >-
   over `build.jsonl` — the audit log captures forensics, this skill
   captures live loop state (sub-task graph, current phase, budget, HALT
   audit, structured lessons learned).
-version: "1.6.0"
+version: "1.7.0"
 argument-hint: "<subcommand> <key|repo> [<issue>] [args…]"
 allowed-tools: []
 ---
@@ -100,7 +100,7 @@ Top-level fields:
 
 **halt_audit[] item:** `code` (e.g. `HALT-007B`, `HALT-008`), `ts` (ISO-8601 ms), `data` (object, schema varies per code — consumers tolerate unknown keys).
 
-**lessons_learned[] item:** `ts` (ISO-8601 ms, helper-injected), `cycle` (integer ≥ 0, mirrors `outer_iteration`), `trigger` (`ci_failure` | `halt` | `review_comment` | `sensor` | `merge_conflict`), `description` (non-empty, ≤ 200 chars — helper truncates with `…` suffix), `files_affected` (array of repo-relative paths, may be empty). The structured shape lands per GAP-015 / #37. The schema is strict (`additionalProperties: false` at the item level): a legacy `{ts, text}` entry in a pre-existing `workflow-state.json` will halt the next mutating call with `HALT: INVALID_STATE`. There is no automatic migration — operators upgrading mid-flight must either re-`init` the spec folder (losing in-flight state) or hand-edit `workflow-state.json` to drop the legacy entries before resuming. This is a one-time hazard: every fresh run from `init` writes the new shape from the start.
+**lessons_learned[] item:** `ts` (ISO-8601 ms), `cycle` (integer ≥ 0), `trigger` (schema enum), `description` (non-empty, ≤ 200 chars), `files_affected` (repo-relative paths). Optional `tier`, `scope`, `tags`, `bundle`, `label`, and `occurrences` retain capture classification for recall and promotion. `scope: generalizable` triggers immediate promotion to the selected persistent memory tier; local entries remain in workflow state. The schema is strict (`additionalProperties: false`): legacy `{ts, text}` entries are not auto-migrated.
 
 ## Operations
 
@@ -166,14 +166,14 @@ shared/workflow-state.sh patch gap-003 26 .outer_iteration '2'
 shared/workflow-state.sh patch gap-003 26 .github_pr_number '42'
 ```
 
-### `append-lesson <KEY> <ISSUE_NUMBER> <CYCLE> <TRIGGER> <DESCRIPTION> [FILE…]`
+### `append-lesson <KEY> <ISSUE_NUMBER> <CYCLE> <TRIGGER> <DESCRIPTION> [FILE…] [OPTIONS]`
 
-Append a structured lesson to `lessons_learned[]` (GAP-015 / #37). `ts` is helper-injected. `CYCLE` mirrors the current `outer_iteration`. `TRIGGER` must match the schema enum: `ci_failure`, `halt`, `review_comment`, `sensor`, `merge_conflict`. `DESCRIPTION` is auto-truncated at 200 chars with a `…` suffix. Remaining positional args become `files_affected[]` (variadic; may be zero).
+Append a structured lesson to `lessons_learned[]` (GAP-015 / #37). `ts` is helper-injected; `CYCLE` mirrors `outer_iteration`. `TRIGGER` uses the schema enum, and `DESCRIPTION` is truncated at 200 chars. Remaining positional paths become `files_affected[]`.
+
+Optional flags may follow the description and may be interspersed with file paths: `--tier procedural|semantic`, `--scope generalizable|local`, `--tags tag1,tag2`, `--bundle name`, and `--label name`. A `generalizable` lesson is immediately promoted: semantic tier routes to `.makato/memory/semantic.jsonl`; procedural or omitted tier routes to `.makato/memory/procedural.jsonl`. Local or unclassified entries remain in workflow state.
 
 ```bash
-shared/workflow-state.sh append-lesson gap-003 26 1 ci_failure \
-  "ruff F401 unused import in tracer test" \
-  tests/test_tracer.py src/tracer/__init__.py
+shared/workflow-state.sh append-lesson gap-003 26 1 review_comment "Keep tenant identity bound to the verified issuer" body/auth.py --tier semantic --scope generalizable --tags identity,security --bundle python --label auth
 ```
 
 ### `append-halt <KEY> <ISSUE_NUMBER> <CODE> <JSON-DATA>`
@@ -203,14 +203,16 @@ shared/workflow-state.sh bump-structural-halt gap-003 26 HALT-008 ci_failure
 
 Called by the PO-agent **exactly once per run** at its terminal state (Step 7) so the counter measures cross-run recurrence of structural failure on the same issue — the property epic #319's AC-epic-1 needs to detect "repeated" structural HALT. It is **never** reset on a HALT-007B context handoff: the resumed session must read the same value the prior session persisted. Backward-compatible with pre-#347 in-flight state files — an absent field is treated as 0 and backfilled on the first structural increment. This counter drives the Needs Planning signal in sibling story #348.
 
-### `recall-lessons <REPO> [N] [--bundles b1,b2,...] [--labels l1,l2,...]`
+### `recall-lessons <REPO|GIT-URL> [N] [--bundles b1,b2,...] [--labels l1,l2,...]`
 
 Aggregate lessons from two sources for the given repo:
 
 1. `lessons_learned[]` arrays across every `specs/*/workflow-state-*.json` whose `.repo`
-   matches `<REPO>` (existing path, widened for #173).
+   matches the canonical `owner/name` slug.
 2. JSONL records in `.makato/memory/*.jsonl` in the main checkout whose `repo` field
-   matches `<REPO>` (committed persistent store, #470).
+   matches that slug (committed persistent store, #470).
+
+A slug, HTTPS remote URL, or SSH Git remote URL is accepted and normalized to `owner/name` before matching.
 
 Returns the top-`N` (default 3) lessons as a JSON array, sorted by **scope asc**
 (`generalizable` before `local`), then **occurrences DESC**, then **recency DESC**
@@ -220,13 +222,13 @@ tiebreaker within otherwise equal groups.
 
 Optional filters (both default to no-filter when omitted — **AC-2 backward compat**):
 
-- `--bundles b1,b2,...` — restrict results to lessons whose `bundle` field matches
-  one of the comma-separated values. Lessons without a `bundle` field never match a
-  bundle filter.
-- `--labels l1,l2,...` — restrict by `label` field (complementary to bundle).
+- `--bundles b1,b2,...` — restrict results to lessons whose top-level `bundle` or
+  any `source_events[].bundle` matches one of the comma-separated values.
+- `--labels l1,l2,...` — similarly match top-level `label` or
+  `source_events[].label`; this preserves retrieval metadata when duplicate captures
+  merge and the consolidated top-level fields represent only one source event.
 
-When both `--bundles` and `--labels` are provided, a lesson passes the filter if it
-matches either (OR semantics).
+When both filters are provided, a lesson passes if either filter matches (OR semantics).
 
 ```bash
 # Original 2-arg call — returns top-3 for repo, no filter (AC-2 backward compat)
@@ -237,6 +239,9 @@ shared/workflow-state.sh recall-lessons macatocz/my-app 5 --bundles python
 
 # Multiple bundles
 shared/workflow-state.sh recall-lessons macatocz/my-app 3 --bundles python,infra
+
+# SSH remote URLs work too
+shared/workflow-state.sh recall-lessons git@github.com:macatocz/my-app.git 3 --labels auth
 ```
 
 Returns `[]` when no matching repo is found, `specs/` does not exist, and
@@ -246,7 +251,7 @@ override the committed store root in tests.
 
 ### `summarise-lessons <KEY> <ISSUE_NUMBER>`
 
-Render `lessons_learned[]` for the given issue as `specs/<key>-<slug>/lessons-YYYYMMDD-issue-<ISSUE_NUMBER>.md` (GAP-015 / #37 AC4). Idempotent: a same-day re-run overwrites in place. Writes a minimal stub file when `lessons_learned[]` is empty so the audit trail records that no lessons were captured. Prints the absolute output path to stdout. The filename now carries the issue number so multiple issues sharing a spec folder do not overwrite each other's summaries (#173).
+Render the requested issue’s `lessons_learned[]` entries together with matching `change-lessons.jsonl` captures as `specs/<key>-<slug>/lessons-YYYYMMDD-issue-<ISSUE_NUMBER>.md`. Raw captures require explicit issue metadata or an unambiguous legacy issue owner; ambiguous/unreadable input fails without replacing an existing report. If valid sources contain no lessons, the report records that fact. Writes atomically, overwrites idempotently on the same day, and prints the output path.
 
 ```bash
 shared/workflow-state.sh summarise-lessons gap-003 26
@@ -326,3 +331,5 @@ The script covers init/read/write/patch/append-lesson/append-halt/bump-structura
 The `recall-lessons` extension (#470) is covered by @references/recall-extension-smoke-tests.sh (T59–T64): backward-compat 2-arg call, `--bundles` filter, scope/occurrences/recency sort order, `[]` on missing committed store, malformed-JSONL skip, and committed-store integration.
 Load MANDATORY when: after any change to `recall-lessons` logic or the committed memory store format.
 Do NOT Load unless debugging the recall/filter/sort pipeline.
+
+Focused behavior tests in `tests/test_workflow_lessons.py` cover mixed-source reports, issue attribution, failure preservation, and immediate durable promotion; `tests/test_recall_lessons.py` covers Git remote normalization and filtering from `source_events` metadata.

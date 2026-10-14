@@ -1,4 +1,6 @@
 {
+  "venvPath": ".",
+  "venv": ".venv",
   "exclude": [
     "plugins/*/skills/*/test-fixtures",
     "plugins/*/skills/*/templates",

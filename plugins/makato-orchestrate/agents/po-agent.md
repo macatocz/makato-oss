@@ -962,20 +962,15 @@ row). The `gh`-only polls (CI, review) are narrated with a single
    {"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"review-poll","status":"<ok|warn>","data":{"pr":<PR>,"review_decision":"<decision>","human_review_cycles":<N>,"waited_secs":<S>}}
    ```
 
-7. Patch `current_phase: "done"`. **Promote generalizable lessons to the
-   committed store** while the per-issue sources still exist in the main
-   checkout — this is the reliable local-lane promotion hook. The GHA
-   post-merge path cannot see the gitignored sources
-   (`workflow-state-<N>.json` / `change-lessons.jsonl` under `specs/**`), and
-   the `loop` orphan-specs reaper only promotes *fully-untracked* folders
-   (its Guard 1 skips any folder with a tracked `build.jsonl`), so a standard
-   build-lane merge would otherwise promote nothing. `write-lessons.sh` writes
-   the sources to the **main checkout** (resolved via `git rev-parse
-   --git-common-dir`), so read from that same root:
+7. Patch `current_phase: "done"`. **Replay promotion as an idempotent recovery
+   pass** while source evidence remains in the main checkout. Normal capture
+   already persists generalizable learning immediately. Resolve
+   `MAKATO_ORCHESTRATE_ROOT` from the installed orchestrate plugin location,
+   not from the consumer repository, and invoke from the consumer checkout:
 
    ```bash
    MAIN_ROOT="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)"
-   plugins/makato-orchestrate/scripts/promote-lessons.sh \
+   "$MAKATO_ORCHESTRATE_ROOT/scripts/promote-lessons.sh" \
      "<ISSUE_NUMBER>" \
      "${MAIN_ROOT}/specs" \
      "${MAIN_ROOT}/.makato/memory/procedural.jsonl"
@@ -985,8 +980,10 @@ row). The `gh`-only polls (CI, review) are narrated with a single
    `status: warn` and degrades the run to `partial` — it does **not** HALT
    (mirrors documentation-agent's old Step 4b contract and the reaper's
    `|| true`). This promote fires **only** on the success terminal; the
-   failure/HALT path (below) must not promote, since no merge means the
-   lessons are not yet durable. Then run `shared/worktree.sh cleanup <KEY>`
+   failure/HALT path must also review and capture verified reusable learning.
+   Capture already persists generalizable records immediately; this terminal
+   promotion is an idempotent recovery pass, not a merge prerequisite.
+   Then run `shared/worktree.sh cleanup <KEY>`
    (`git worktree remove --force` + patch `.worktree_path` to `null`;
    emit `worktree_removed` JSONL). Then run
    `shared/workflow-state.sh summarise-lessons <KEY> <ISSUE_NUMBER>` — writes

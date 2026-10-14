@@ -1,3 +1,7 @@
+# Runtime memory locks; durable JSONL remains tracked.
+.makato/memory/*.lock
+.makato/memory/.promote-lessons-*.tmp
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

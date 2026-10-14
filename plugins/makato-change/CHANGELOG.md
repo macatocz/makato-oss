@@ -1,6 +1,13 @@
 <!-- markdownlint-disable MD012 MD013 -->
 # Changelog
 
+## Durable project learning
+
+- Require learning review and capture before completion or handoff. Use the
+  installed build helper rather than a nonexistent consumer `plugins/` path.
+- Generalizable captures persist immediately to the main checkout’s `.makato/`;
+  no merge or post-merge documentation agent is required.
+
 ## quality-guard scopes checks to touched stacks (changed-files scoping)
 
 Scopes the `quality-guard` quality gate to the stacks a change actually touches.
