@@ -58,7 +58,7 @@ def _sha256(path: str) -> str:
 
 def _classify(
     memory_dir: str,
-    today_override: str = "",
+    today_override: str = "2026-07-20",
     head_override: str = "",
     agents_contents: list[str] | None = None,
 ) -> list[dict]:
@@ -172,7 +172,7 @@ class TestKeepDefault(unittest.TestCase):
 
     def test_single_record_is_keep(self) -> None:
         records = [{"key": "keep-1", "text": "unique lesson with no match", "tags": ["solo"], "occurrences": 1, "date": "2026-07-01", "repo_sha": "abc"}]
-        results = classify_records(records, [])
+        results = classify_records(records, [], today_override="2026-07-20")
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["action"], "KEEP")
 
@@ -185,7 +185,7 @@ class TestDuplicate(unittest.TestCase):
             {"key": "dup-low", "text": "use atomic writes for file operations", "tags": ["io", "safety"], "occurrences": 1, "date": "2026-07-01", "repo_sha": "abc"},
             {"key": "dup-high", "text": "use atomic writes for file operations", "tags": ["io", "safety"], "occurrences": 5, "date": "2026-07-02", "repo_sha": "abc"},
         ]
-        self.results = classify_records(self.records, [])
+        self.results = classify_records(self.records, [], today_override="2026-07-20")
 
     def test_one_keep_one_duplicate(self) -> None:
         actions = [r["action"] for r in self.results]
@@ -212,7 +212,7 @@ class TestConsolidate(unittest.TestCase):
             {"key": "cons-a", "text": "configure ruff for python linting rules", "tags": ["python", "linting"], "occurrences": 1, "date": "2026-07-01", "repo_sha": "abc"},
             {"key": "cons-b", "text": "use pre-commit hooks for linting checks", "tags": ["linting", "hooks"], "occurrences": 1, "date": "2026-07-02", "repo_sha": "abc"},
         ]
-        results = classify_records(records, [])
+        results = classify_records(records, [], today_override="2026-07-20")
         actions = [r["action"] for r in results]
         self.assertEqual(actions.count("CONSOLIDATE"), 2)
 
@@ -228,7 +228,7 @@ class TestGraduated(unittest.TestCase):
         norm = normalize_text(phrase)
         agents_content = norm  # guaranteed substring match
         records = [{"key": "grad-1", "text": phrase, "tags": ["agents"], "occurrences": 1, "date": "2026-07-01", "repo_sha": "abc"}]
-        results = classify_records(records, [agents_content])
+        results = classify_records(records, [agents_content], today_override="2026-07-20")
         self.assertEqual(results[0]["action"], "GRADUATED")
 
     def test_phrase_from_real_agents_md_is_graduated(self) -> None:
@@ -247,7 +247,7 @@ class TestGraduated(unittest.TestCase):
         with open(agents_path, encoding="utf-8") as fh:
             agents_contents = [normalize_text(fh.read())]
 
-        results = classify_records(records, agents_contents)
+        results = classify_records(records, agents_contents, today_override="2026-07-20")
         self.assertEqual(results[0]["action"], "GRADUATED", f"Expected GRADUATED for phrase: {phrase!r}")
 
     def test_graduated_tolerates_two_agents_md_layouts(self) -> None:
@@ -266,18 +266,18 @@ class TestGraduated(unittest.TestCase):
 
         # Layout A: phrase from real AGENTS.md (under heading)
         records_a = [{"key": "layout-a", "text": phrase, "tags": ["compat"], "occurrences": 1, "date": "2026-07-01", "repo_sha": "abc"}]
-        results_a = classify_records(records_a, agents_contents)
+        results_a = classify_records(records_a, agents_contents, today_override="2026-07-20")
         self.assertEqual(results_a[0]["action"], "GRADUATED", "Layout A must be GRADUATED")
 
         # Layout B: same phrase, classified against same AGENTS.md content
         records_b = [{"key": "layout-b", "text": phrase, "tags": ["compat2"], "occurrences": 1, "date": "2026-07-01", "repo_sha": "abc"}]
-        results_b = classify_records(records_b, agents_contents)
+        results_b = classify_records(records_b, agents_contents, today_override="2026-07-20")
         self.assertEqual(results_b[0]["action"], "GRADUATED", "Layout B must be GRADUATED")
 
     def test_unknown_text_not_graduated(self) -> None:
         agents_content = "some other content about different things"
         records = [{"key": "no-grad", "text": "completely unrelated lesson about something else entirely", "tags": ["misc"], "occurrences": 1, "date": "2026-07-01", "repo_sha": "abc"}]
-        results = classify_records(records, [agents_content])
+        results = classify_records(records, [agents_content], today_override="2026-07-20")
         self.assertNotEqual(results[0]["action"], "GRADUATED")
 
 
@@ -388,7 +388,7 @@ class TestNoMutation(unittest.TestCase):
 
         # Run classification (no mutation expected).
         records = load_records(proc_file, sem_file)
-        classify_records(records, [])
+        classify_records(records, [], today_override="2026-07-20")
 
         self.assertEqual(_sha256(proc_file), sha_proc_before, "procedural.jsonl must not be mutated")
         self.assertEqual(_sha256(sem_file), sha_sem_before, "semantic.jsonl must not be mutated")
@@ -406,7 +406,7 @@ class TestNoMutation(unittest.TestCase):
         sha_before = _sha256(proc_file)
 
         records = load_records(proc_file, "")
-        results = classify_records(records, [])
+        results = classify_records(records, [], today_override="2026-07-20")
 
         self.assertEqual(_sha256(proc_file), sha_before, "file must not be mutated")
         self.assertTrue(all(r["action"] == "KEEP" for r in results), "all records must be KEEP")
@@ -423,7 +423,7 @@ class TestSemanticFile(unittest.TestCase):
             _write_jsonl(sem_file, [{"key": "sem-only", "text": "semantic only lesson", "tags": ["sem-only"], "occurrences": 1, "date": "2026-07-01", "repo_sha": "abc"}])
             records = load_records("", sem_file)
             self.assertEqual(len(records), 1)
-            results = classify_records(records, [])
+            results = classify_records(records, [], today_override="2026-07-20")
             self.assertEqual(len(results), 1)
             self.assertEqual(results[0]["action"], "KEEP")
 
@@ -440,7 +440,7 @@ class TestEmptyMemoryDir(unittest.TestCase):
                 os.path.join(memory_dir, "semantic.jsonl"),
             )
             self.assertEqual(records, [])
-            results = classify_records(records, [])
+            results = classify_records(records, [], today_override="2026-07-20")
             self.assertEqual(results, [])
 
     def test_main_exits_0_on_empty_dir(self) -> None:
