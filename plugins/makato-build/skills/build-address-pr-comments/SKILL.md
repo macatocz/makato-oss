@@ -11,7 +11,7 @@ description: >-
   OUT-OF-SCOPE carry-over issue). Review-feedback promotion — codifies recurring
   MUST-FIX categories as permanent pre-commit checks (Step 5a + Step 6a).
   Interactive by default. Use after create-pr when review comments arrive.
-version: "1.6.0"
+version: "1.6.1"
 argument-hint: "[work-item-key] [--autonomous]"
 allowed-tools: ["Bash", "Read", "Edit", "Write"]
 ---
@@ -202,7 +202,7 @@ For each resolved MUST-FIX comment (derived from Step 4 classification):
 2. Write a generalizable procedural lesson record:
 
 ```bash
-plugins/makato-build/"$MAKATO_BUILD_ROOT/shared/write-lessons.sh" \
+"$MAKATO_BUILD_ROOT/shared/write-lessons.sh" \
   "$KEY" "procedural" "generalizable" \
   "MUST-FIX resolved: $CATEGORY in PR review" \
   "must-fix,category:$CATEGORY"

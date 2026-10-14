@@ -12,10 +12,15 @@ Schema note (confirmed from workflow-state.sh):
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import subprocess
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).parent.parent
 SCRIPT = REPO_ROOT / "plugins" / "makato-orchestrate" / "scripts" / "promote-lessons.sh"
@@ -23,8 +28,8 @@ SCRIPT = REPO_ROOT / "plugins" / "makato-orchestrate" / "scripts" / "promote-les
 
 def _run(
     issue_number: str,
-    specs_dir: str,
-    memory_file: str,
+    specs_dir: str | None = None,
+    memory_file: str | None = None,
     semantic_memory_file: str | None = None,
     **kwargs,
 ) -> subprocess.CompletedProcess:
@@ -32,7 +37,11 @@ def _run(
     env = {**os.environ}
     env["MAKATO_PROMOTE_REPO_OVERRIDE"] = "macatocz/makato-test"
     env.update(kwargs.get("extra_env", {}))
-    argv = ["bash", str(SCRIPT), issue_number, specs_dir, memory_file]
+    argv = ["bash", str(SCRIPT), issue_number]
+    if specs_dir is not None:
+        argv.append(specs_dir)
+    if memory_file is not None:
+        argv.append(memory_file)
     if semantic_memory_file is not None:
         argv.append(semantic_memory_file)
     return subprocess.run(
@@ -40,7 +49,7 @@ def _run(
         capture_output=True,
         text=True,
         env=env,
-        cwd=str(REPO_ROOT),
+        cwd=kwargs.get("cwd", str(REPO_ROOT)),
     )
 
 
@@ -187,11 +196,10 @@ class TestPromoteLessonsLocalSkipped:
         assert len(lines) == 0, f"Expected no lines, got: {lines}"
 
 
-class TestPromoteLessonsDuplicateBumpsOccurrences:
-    """AC-3: when the same lesson is promoted twice, occurrences is incremented."""
+class TestPromoteLessonsOccurrences:
+    """Occurrences count source events, not invocations of the promoter."""
 
-    def test_duplicate_bumps_occurrences(self, tmp_path):
-        """Promoting the same generalizable lesson twice results in occurrences=2."""
+    def test_replaying_source_is_idempotent_and_new_event_counts(self, tmp_path):
         specs_dir = tmp_path / "specs"
         memory_file = tmp_path / "procedural.jsonl"
         memory_file.touch()
@@ -205,7 +213,7 @@ class TestPromoteLessonsDuplicateBumpsOccurrences:
             "scope": "generalizable",
             "tags": ["testing", "tdd"],
         }
-        _make_workflow_state(specs_dir, 471, [lesson])
+        state = _make_workflow_state(specs_dir, 471, [lesson])
 
         # First promotion
         result = _run("471", str(specs_dir), str(memory_file))
@@ -221,7 +229,13 @@ class TestPromoteLessonsDuplicateBumpsOccurrences:
         lines_after_second = [line for line in memory_file.read_text().splitlines() if line.strip()]
         assert len(lines_after_second) == 1, f"Expected still 1 line (dedup) after second run, got {len(lines_after_second)}: {lines_after_second}"
         record = json.loads(lines_after_second[0])
-        assert record["occurrences"] == 2, f"Expected occurrences=2, got {record['occurrences']}"
+        assert record["occurrences"] == 1
+        assert lines_after_first == lines_after_second
+
+        state.write_text(json.dumps({"lessons_learned": [lesson, {**lesson, "ts": "2026-07-21T10:00:00Z"}]}))
+        result = _run("471", str(specs_dir), str(memory_file))
+        assert result.returncode == 0, result.stderr
+        assert json.loads(memory_file.read_text())["occurrences"] == 2
 
 
 class TestPromoteLessonsChangeLearnSource:
@@ -298,16 +312,6 @@ class TestPromoteLessonsNoOp:
         lines = [line for line in memory_file.read_text().splitlines() if line.strip()]
         assert len(lines) == 0, f"Expected empty memory file, got: {lines}"
 
-    def test_memory_dir_is_created_if_missing(self, tmp_path):
-        """If the MEMORY_FILE parent directory doesn't exist, script creates it."""
-        specs_dir = tmp_path / "specs"
-        specs_dir.mkdir()
-        memory_file = tmp_path / "new_dir" / "procedural.jsonl"
-        # Do NOT create tmp_path/new_dir — script must create it.
-
-        result = _run("471", str(specs_dir), str(memory_file))
-        assert result.returncode == 0, f"Expected exit 0, got {result.returncode}. stderr: {result.stderr}"
-
 
 class TestPromoteLessonsSemanticTier:
     """#494: generalizable records route by `tier` — semantic → semantic.jsonl."""
@@ -382,8 +386,7 @@ class TestPromoteLessonsSemanticTier:
         for line in proc_lines:
             assert json.loads(line)["tier"] == "procedural"
 
-    def test_semantic_dedup_is_per_file(self, tmp_path):
-        """Promoting the same semantic record twice bumps occurrences in semantic.jsonl only."""
+    def test_semantic_replay_is_idempotent_and_independent_of_procedural(self, tmp_path):
         specs_dir = tmp_path / "specs"
         procedural = tmp_path / "procedural.jsonl"
         semantic = tmp_path / "semantic.jsonl"
@@ -405,7 +408,8 @@ class TestPromoteLessonsSemanticTier:
 
         sem_lines = [line for line in semantic.read_text().splitlines() if line.strip()]
         assert len(sem_lines) == 1, f"Expected 1 deduped semantic record, got {sem_lines}"
-        assert json.loads(sem_lines[0])["occurrences"] == 2
+        assert json.loads(sem_lines[0])["occurrences"] == 1
+        assert procedural.read_text() == ""
 
     def test_default_semantic_file_when_arg_omitted(self, tmp_path):
         """3-arg back-compat: omitting the semantic arg still promotes procedural records."""
@@ -431,3 +435,199 @@ class TestPromoteLessonsSemanticTier:
         assert result.returncode == 0, f"stderr: {result.stderr}"
         proc_lines = [line for line in procedural.read_text().splitlines() if line.strip()]
         assert len(proc_lines) == 1
+
+
+def _write_raw(folder, records):
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / "change-lessons.jsonl"
+    path.write_text("".join(json.dumps(record) + "\n" for record in records))
+    return path
+
+
+def _records(path):
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+def test_exact_slug_preserves_capture_identity_and_recall_metadata(tmp_path):
+    specs = tmp_path / "specs"
+    memory = tmp_path / "memory" / "procedural.jsonl"
+    lesson = {
+        "event_id": "capture-887",
+        "ts": "2026-10-14T10:00:00Z",
+        "text": "Keep tenant authorization inside the service boundary",
+        "description": "Keep tenant authorization inside the service boundary",
+        "tags": ["authorization"],
+        "scope": "generalizable",
+        "tier": "procedural",
+        "key": "admin-console",
+        "repo": "macatocz/sagibeast",
+        "issue_number": 887,
+        "bundle": "python",
+        "label": "security",
+        "files_affected": ["body/auth.py"],
+    }
+    _write_raw(specs / "admin-console", [lesson])
+    _write_raw(specs / "admin-console-extra", [{**lesson, "text": "Unrelated sibling", "event_id": "other"}])
+
+    result = _run("admin-console", str(specs), str(memory))
+    assert result.returncode == 0, result.stderr
+    records = _records(memory)
+    assert [record["text"] for record in records] == [lesson["text"]]
+    record = records[0]
+    for field in ("repo", "tier", "scope", "bundle", "label", "ts", "files_affected"):
+        assert record[field] == lesson[field]
+    assert record["source_key"] == "admin-console"
+    assert record["source_issue"] == 887
+    assert len(record["key"]) == 64
+    assert record["source_events"][0]["event_id"] == "capture-887"
+
+
+def test_numeric_lookup_finds_slug_state_and_filters_shared_raw_issues(tmp_path):
+    specs = tmp_path / "specs"
+    folder = specs / "admin-console"
+    memory = tmp_path / "procedural.jsonl"
+    folder.mkdir(parents=True)
+    for issue in (887, 888):
+        (folder / f"workflow-state-{issue}.json").write_text(json.dumps({"issue_number": issue, "lessons_learned": [{"scope": "generalizable", "description": f"State lesson {issue}"}]}))
+    _write_raw(folder, [{"scope": "generalizable", "text": f"Raw lesson {issue}", "issue_number": issue, "key": "admin-console"} for issue in (887, 888)])
+
+    result = _run("887", str(specs), str(memory))
+    assert result.returncode == 0, result.stderr
+    records = _records(memory)
+    assert {record["text"] for record in records} == {"State lesson 887", "Raw lesson 887"}
+    assert {record["source_issue"] for record in records} == {887}
+
+    result = _run("admin-console", str(specs), str(memory))
+    assert result.returncode == 0, result.stderr
+    assert {record["text"] for record in _records(memory)} == {"State lesson 887", "Raw lesson 887", "State lesson 888", "Raw lesson 888"}
+    assert {record["occurrences"] for record in _records(memory)} == {1}
+
+
+def test_ambiguous_shared_raw_source_is_not_attributed_or_discarded(tmp_path):
+    specs = tmp_path / "specs"
+    folder = specs / "admin-console"
+    memory = tmp_path / "procedural.jsonl"
+    raw = _write_raw(folder, [{"scope": "generalizable", "text": "Owner is unknown", "key": "admin-console"}])
+    for issue in (887, 888):
+        (folder / f"workflow-state-{issue}.json").write_text(json.dumps({"issue_number": issue, "lessons_learned": []}))
+    before = raw.read_bytes()
+    result = _run("887", str(specs), str(memory))
+    assert result.returncode != 0
+    assert "issue_number" in result.stderr
+    assert raw.read_bytes() == before
+    assert not memory.exists() or memory.read_text() == ""
+
+
+def test_default_paths_use_main_checkout_from_worktree_subdirectory(tmp_path):
+    main = tmp_path / "main"
+    main.mkdir()
+    subprocess.run(["git", "init", "-q", str(main)], check=True)
+    subprocess.run(["git", "-C", str(main), "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-qm", "fixture"], check=True)
+    worktree = tmp_path / "worktree"
+    subprocess.run(["git", "-C", str(main), "worktree", "add", "--detach", "-q", str(worktree)], check=True)
+    cwd = worktree / "nested"
+    cwd.mkdir()
+    _write_raw(main / "specs" / "471-example", [{"scope": "generalizable", "tier": tier, "text": f"Main checkout {tier}"} for tier in ("procedural", "semantic")])
+
+    result = _run("471", cwd=cwd)
+    assert result.returncode == 0, result.stderr
+    for tier in ("procedural", "semantic"):
+        records = _records(main / ".makato" / "memory" / f"{tier}.jsonl")
+        assert [record["text"] for record in records] == [f"Main checkout {tier}"]
+    assert not (worktree / ".makato").exists()
+    assert not (cwd / ".makato").exists()
+
+
+def test_explicit_procedural_path_keeps_semantic_store_beside_it(tmp_path):
+    specs = tmp_path / "specs"
+    procedural = tmp_path / "durable" / "procedural.jsonl"
+    _make_change_lessons(specs, 471, [{"scope": "generalizable", "tier": "semantic", "text": "A durable semantic fact"}])
+    result = _run("471", str(specs), str(procedural), cwd=tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert [record["text"] for record in _records(procedural.with_name("semantic.jsonl"))] == ["A durable semantic fact"]
+    assert not (tmp_path / ".makato").exists()
+
+
+@pytest.mark.parametrize("source_kind", ["raw", "state", "store"])
+def test_malformed_json_fails_without_changing_sources_or_either_store(tmp_path, source_kind):
+    specs = tmp_path / "specs"
+    folder = specs / "471-example"
+    procedural = tmp_path / "procedural.jsonl"
+    semantic = tmp_path / "semantic.jsonl"
+    raw = _write_raw(folder, [{"scope": "generalizable", "tier": "semantic", "text": "Valid new lesson"}])
+    state = folder / "workflow-state-471.json"
+    state.write_text(json.dumps({"lessons_learned": []}))
+    procedural.write_text(json.dumps({"key": "legacy", "text": "Keep existing metadata", "bundle": "python"}) + "\n")
+    semantic.write_text("[]\n" if source_kind == "store" else "")
+    if source_kind == "raw":
+        raw.write_text(raw.read_text() + "{broken json\n")
+    elif source_kind == "state":
+        state.write_text("{broken json")
+    before = {path: path.read_bytes() for path in (raw, state, procedural, semantic)}
+
+    result = _run("471", str(specs), str(procedural), str(semantic))
+    assert result.returncode != 0, result.stderr
+    assert {path: path.read_bytes() for path in before} == before
+
+
+def test_event_id_survives_source_reordering_and_new_identical_event_counts(tmp_path):
+    specs = tmp_path / "specs"
+    memory = tmp_path / "procedural.jsonl"
+    base = {"scope": "generalizable", "text": "Use service-owned authorization", "issue_number": 471}
+    raw = _write_raw(specs / "471-example", [{**base, "event_id": "first"}])
+    result = _run("471", str(specs), str(memory))
+    assert result.returncode == 0, result.stderr
+    raw.write_text(json.dumps({**base, "event_id": "second"}) + "\n" + raw.read_text())
+    for _ in range(2):
+        result = _run("471", str(specs), str(memory))
+        assert result.returncode == 0, result.stderr
+    record = _records(memory)[0]
+    assert record["occurrences"] == 2
+    assert {source["event_id"] for source in record["source_events"]} == {"first", "second"}
+
+
+def test_concurrent_promotions_wait_for_store_lock_and_preserve_all_events(tmp_path):
+    specs = tmp_path / "specs"
+    memory = tmp_path / "procedural.jsonl"
+    for issue in (471, 472):
+        _make_change_lessons(specs, issue, [{"scope": "generalizable", "text": "Concurrent recurring lesson", "event_id": f"event-{issue}"}])
+    lock_path = memory.with_name(memory.name + ".lock")
+    with lock_path.open("a") as lock, ThreadPoolExecutor(max_workers=2) as pool:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        futures = [pool.submit(_run, str(issue), str(specs), str(memory)) for issue in (471, 472)]
+        try:
+            time.sleep(0.3)
+            assert not any(future.done() for future in futures), "Promotion must not read or replace a store while its lock is held"
+            memory.write_text(json.dumps({"key": "retained", "text": "Existing durable lesson", "occurrences": 4, "bundle": "python"}) + "\n")
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+        results = [future.result(timeout=15) for future in futures]
+    assert [result.returncode for result in results] == [0, 0], [result.stderr for result in results]
+    records = {record["text"]: record for record in _records(memory)}
+    assert records["Existing durable lesson"]["occurrences"] == 4
+    assert records["Existing durable lesson"]["bundle"] == "python"
+    assert records["Concurrent recurring lesson"]["occurrences"] == 2
+    assert {source["issue_number"] for source in records["Concurrent recurring lesson"]["source_events"]} == {471, 472}
+
+
+def test_raw_capture_lock_prevents_reading_a_partial_append(tmp_path):
+    specs = tmp_path / "specs"
+    memory = tmp_path / "procedural.jsonl"
+    raw = _write_raw(specs / "471-example", [{"scope": "generalizable", "text": "Existing capture", "event_id": "first"}])
+    pending = json.dumps({"scope": "generalizable", "text": "Concurrent capture", "event_id": "second"}) + "\n"
+    split = len(pending) // 2
+    with raw.open("a") as writer, ThreadPoolExecutor(max_workers=1) as pool:
+        fcntl.flock(writer, fcntl.LOCK_EX)
+        writer.write(pending[:split])
+        writer.flush()
+        future = pool.submit(_run, "471", str(specs), str(memory))
+        try:
+            time.sleep(0.3)
+            assert not future.done(), "Promotion must wait for an in-progress raw capture"
+            writer.write(pending[split:])
+            writer.flush()
+        finally:
+            fcntl.flock(writer, fcntl.LOCK_UN)
+        result = future.result(timeout=15)
+    assert result.returncode == 0, result.stderr
+    assert {record["text"] for record in _records(memory)} == {"Existing capture", "Concurrent capture"}

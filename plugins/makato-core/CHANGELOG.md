@@ -5,6 +5,12 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Fixed — durable project learning
+
+- Onboarding now installs the project learning contract into the consumer’s agent
+  instructions: read `.makato/memory/`, review learning before handoff, persist
+  verified discoveries immediately, and distinguish an empty review from failure.
+
 ### Hook migration
 
 - **Removed** `hooks/pre-commit-sensors.md`. Core no longer documents a mandatory

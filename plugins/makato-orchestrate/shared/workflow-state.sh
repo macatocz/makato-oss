@@ -17,11 +17,12 @@
 #   patch <KEY> <ISSUE_NUMBER> <JQ-PATH> <VALUE>
 #       Apply a jq-style field update. JQ-PATH like .current_phase or .sub_tasks[0].status.
 #       VALUE is a JSON literal: '"implement"', '3', 'true', '{...}'.
-#   append-lesson <KEY> <ISSUE_NUMBER> <CYCLE> <TRIGGER> <DESCRIPTION> [FILE…]
-#       Append {ts, cycle, trigger, description, files_affected} to lessons_learned[].
-#       CYCLE: outer_iteration integer ≥ 0.
-#       TRIGGER: ci_failure|halt|review_comment|sensor|merge_conflict (schema enum).
-#       DESCRIPTION: ≤ 200 chars (auto-truncated with '…').
+#   append-lesson <KEY> <ISSUE_NUMBER> <CYCLE> <TRIGGER> <DESCRIPTION> [FILE…] [OPTIONS]
+#       Append a structured entry; optional --tier procedural|semantic,
+#       --scope generalizable|local, --tags <csv>, --bundle <name>, --label <name>.
+#       A generalizable lesson promotes immediately; procedural is the default
+#       tier, and --tier semantic selects the semantic store.
+#       CYCLE / TRIGGER / DESCRIPTION retain their schema constraints.
 #       FILE…: zero or more repo-relative paths (variadic).
 #   append-halt <KEY> <ISSUE_NUMBER> <CODE> <JSON-DATA>
 #       Append {code, ts, data} to halt_audit[].
@@ -35,21 +36,18 @@
 #       command exits 0. Called by the PO-agent EXACTLY ONCE per run at its
 #       terminal state (Step 7), so the counter measures cross-run recurrence,
 #       never within-run retries. Prints the resulting counter value to stdout.
-#   recall-lessons <REPO> [N] [--bundles <b1,b2,...>] [--labels <l1,l2,...>]
-#       Print the top-N lessons across every specs/*/workflow-state-*.json whose
-#       .repo == REPO (default N=3) PLUS every line in
-#       $MAKATO_MEMORY_ROOT/.makato/memory/*.jsonl (the committed persistent store,
-#       defaulting to the main-checkout REPO_ROOT when the env var is unset).
+#   recall-lessons <REPO|GIT-URL> [N] [--bundles <b1,b2,...>] [--labels <l1,l2,...>]
+#       Print top-N lessons for the repository slug or remote URL across every
+#       specs/*/workflow-state-*.json and every committed .makato/memory/*.jsonl.
 #       Ordered by scope asc, occurrences DESC, ts DESC. Malformed JSONL lines in
 #       the committed store are skipped without aborting (AC-4 / #470).
-#       --bundles <csv>  Filter to lessons whose .bundle field is in the list.
-#       --labels  <csv>  Filter to lessons whose .label  field is in the list.
-#       Empty (or absent) filter means no-filter — preserves the existing
-#       2-arg recall-lessons <REPO> [N] call byte-for-byte (AC-2 / #470).
+#       Filters match top-level bundle/label or captured source_events metadata.
+#       Empty filters mean no-filter; the 2-arg call remains backward compatible.
 #   summarise-lessons <KEY> <ISSUE_NUMBER>
-#       Write specs/<key>-<slug>/lessons-YYYYMMDD.md from lessons_learned[]. Used by
-#       the PO-agent at terminal states (success and HALT) per GAP-015 / #37 AC4.
-#       Idempotent: re-running on the same day overwrites the file in place.
+#       Combine workflow-state lessons with issue-attributed change-lessons.jsonl
+#       captures in lessons-YYYYMMDD-issue-<ISSUE_NUMBER>.md. Ambiguous legacy
+#       captures fail rather than being assigned to an arbitrary issue.
+#       Idempotent: re-running on the same day replaces the report atomically.
 #
 # Backward compatibility: on the first read/mutate for a given (KEY, ISSUE_NUMBER),
 # if a legacy specs/<KEY>/workflow-state.json exists and the per-issue file does
@@ -538,13 +536,9 @@ case "$SUBCMD" in
     ;;
 
   # -------------------------------------------------------------------------
-  # append-lesson <KEY> <ISSUE_NUMBER> <CYCLE> <TRIGGER> <DESCRIPTION> [FILE…]
-  #
-  # Schema (GAP-015 / #37): {ts, cycle, trigger, description, files_affected}.
-  # The helper:
-  #   - injects ts automatically (caller never supplies it)
-  #   - truncates description at 200 chars with '…' suffix (schema cap)
-  #   - accepts zero or more files_affected as variadic positional args
+  # append-lesson <KEY> <ISSUE_NUMBER> <CYCLE> <TRIGGER> <DESCRIPTION> [FILE…] [OPTIONS]
+  # Optional metadata stays absent unless the caller supplies it, preserving
+  # the legacy local-workflow recall contract.
   # -------------------------------------------------------------------------
   append-lesson)
     ISSUE_NUMBER="${3:?issue_number required}"
@@ -552,6 +546,45 @@ case "$SUBCMD" in
     TRIGGER="${5:?trigger required (ci_failure|halt|review_comment|sensor|merge_conflict)}"
     DESCRIPTION="${6:?description required (≤ 200 chars)}"
     shift 6 || true
+    LESSON_TIER=""
+    LESSON_SCOPE=""
+    TAGS_CSV=""
+    BUNDLE=""
+    LABEL=""
+    HAS_TAGS=false
+    FILE_ARGS=()
+    while (( $# > 0 )); do
+      case "$1" in
+        --tier | --scope | --tags | --bundle | --label)
+          option="$1"
+          if (( $# < 2 )) || [[ "$2" == --* ]]; then
+            echo "workflow-state: $option requires a value" >&2
+            exit 1
+          fi
+          case "$option" in
+            --tier) LESSON_TIER="$2" ;;
+            --scope) LESSON_SCOPE="$2" ;;
+            --tags) TAGS_CSV="$2"; HAS_TAGS=true ;;
+            --bundle) BUNDLE="$2" ;;
+            --label) LABEL="$2" ;;
+          esac
+          shift 2
+          ;;
+        --)
+          shift
+          FILE_ARGS+=("$@")
+          break
+          ;;
+        --*)
+          echo "workflow-state: append-lesson unrecognised option '$1'" >&2
+          exit 1
+          ;;
+        *)
+          FILE_ARGS+=("$1")
+          shift
+          ;;
+      esac
+    done
     _prepare_state_file "$ISSUE_NUMBER"
     NOW="$(_now)"
 
@@ -559,32 +592,45 @@ case "$SUBCMD" in
       echo "workflow-state: $STATE_FILE not found — run 'init' first" >&2
       exit 1
     fi
-
-    # Cycle must be a non-negative integer literal — refuse jq-injection via
-    # a regex gate so we can pass it as a numeric argjson.
     if [[ ! "$CYCLE" =~ ^[0-9]+$ ]]; then
       echo "workflow-state: cycle must be a non-negative integer (got '$CYCLE')" >&2
       exit 1
     fi
-
-    # Trigger enum must match the schema. Validate at the shell level too so
-    # the guard holds even when jsonschema is not installed (validation is
-    # fail-open in that case — see _validate).
     if [[ ! "$TRIGGER" =~ ^(ci_failure|halt|review_comment|sensor|merge_conflict)$ ]]; then
       echo "workflow-state: trigger must be one of ci_failure|halt|review_comment|sensor|merge_conflict (got '$TRIGGER')" >&2
       exit 1
     fi
-
-    # Truncate at 200 chars (the schema's maxLength). Append a '…' suffix when
-    # the input exceeds the cap so the audit trail shows truncation occurred.
+    if [[ -n "$LESSON_TIER" && ! "$LESSON_TIER" =~ ^(procedural|semantic)$ ]]; then
+      echo "workflow-state: tier must be procedural or semantic (got '$LESSON_TIER')" >&2
+      exit 1
+    fi
+    if [[ -n "$LESSON_SCOPE" && ! "$LESSON_SCOPE" =~ ^(generalizable|local)$ ]]; then
+      echo "workflow-state: scope must be generalizable or local (got '$LESSON_SCOPE')" >&2
+      exit 1
+    fi
+    if [[ -n "$BUNDLE" && ! "$BUNDLE" =~ ^[^,]+$ ]]; then
+      echo "workflow-state: bundle must be one non-empty value" >&2
+      exit 1
+    fi
+    if [[ -n "$LABEL" && ! "$LABEL" =~ ^[^,]+$ ]]; then
+      echo "workflow-state: label must be one non-empty value" >&2
+      exit 1
+    fi
     if (( ${#DESCRIPTION} > 200 )); then
       DESCRIPTION="${DESCRIPTION:0:199}…"
     fi
 
-    # Build files_affected JSON array from the remaining variadic args.
     FILES_JSON='[]'
-    if (( $# > 0 )); then
-      FILES_JSON="$(printf '%s\n' "$@" | jq -R . | jq -s .)"
+    if (( ${#FILE_ARGS[@]} > 0 )); then
+      FILES_JSON="$(printf '%s\n' "${FILE_ARGS[@]}" | jq -R . | jq -s .)"
+    fi
+    TAGS_JSON='[]'
+    if [[ "$HAS_TAGS" == true && -n "$TAGS_CSV" ]]; then
+      TAGS_JSON="$(TAGS_CSV="$TAGS_CSV" python3 - <<'PYEOF'
+import json, os
+print(json.dumps([tag.strip() for tag in os.environ["TAGS_CSV"].split(",") if tag.strip()]))
+PYEOF
+)"
     fi
 
     PATCHED="$(jq \
@@ -593,17 +639,32 @@ case "$SUBCMD" in
       --arg trigger "$TRIGGER" \
       --arg description "$DESCRIPTION" \
       --argjson files "$FILES_JSON" \
+      --arg tier "$LESSON_TIER" \
+      --arg scope "$LESSON_SCOPE" \
+      --arg bundle "$BUNDLE" \
+      --arg label "$LABEL" \
+      --argjson tags "$TAGS_JSON" \
+      --argjson has_tags "$HAS_TAGS" \
       '.lessons_learned += [{
          ts: $ts,
          cycle: $cycle,
          trigger: $trigger,
          description: $description,
          files_affected: $files
-       }] | .updated_at = $ts' \
+       } + (if $tier == "" then {} else {tier: $tier} end)
+         + (if $scope == "" then {} else {scope: $scope} end)
+         + (if $bundle == "" then {} else {bundle: $bundle} end)
+         + (if $label == "" then {} else {label: $label} end)
+         + (if $has_tags then {tags: $tags} else {} end)]
+       | .updated_at = $ts' \
       "$STATE_FILE")"
 
     _validate "$PATCHED"
     _atomic_write "$PATCHED"
+    if [[ "$LESSON_SCOPE" == "generalizable" ]]; then
+      SPEC_KEY="${SPEC_FOLDER##*/}"
+      "$SCRIPT_DIR/../scripts/promote-lessons.sh" "$SPEC_KEY" "$SPECS_DIR" "$REPO_ROOT/.makato/memory/procedural.jsonl" "$REPO_ROOT/.makato/memory/semantic.jsonl"
+    fi
     ;;
 
   # -------------------------------------------------------------------------
@@ -784,6 +845,13 @@ case "$SUBCMD" in
   # -------------------------------------------------------------------------
   recall-lessons)
     REPO="$ARG2"
+    case "$REPO" in
+      *://*) REPO="${REPO#*://}"; REPO="${REPO#*/}" ;;
+      *@*:*/*) REPO="${REPO#*:}" ;;
+    esac
+    REPO="${REPO%.git}"
+    REPO="${REPO#/}"
+    REPO="${REPO%/}"
 
     # Parse positional N and optional --bundles / --labels flags.
     # Supports both:
@@ -850,6 +918,7 @@ case "$SUBCMD" in
       # xargs -0 with no input is a no-op; guard for empty find result.
       MATCH_FILES="$(find "$SPECS_DIR" -mindepth 2 -maxdepth 2 -type f -name 'workflow-state-*.json' 2>/dev/null || true)"
       if [[ -n "$MATCH_FILES" ]]; then
+        # shellcheck disable=SC2016 # $repo is a jq variable, not a shell variable.
         WS_LESSONS="$(echo "$MATCH_FILES" | tr '\n' '\0' | xargs -0 jq -s \
           --arg repo "$REPO" \
           '[.[] | select(.repo == $repo) | (.lessons_learned // [])[]]' \
@@ -911,15 +980,18 @@ PYEOF
       --argjson labels  "$LABELS_JSON" \
       --argjson n       "$LIMIT" \
       '
+      def matches_filter($values; $field):
+        ([.[$field]] + [(.source_events // [])[]? | .[$field]]) as $candidates
+        | any($candidates[]; . as $candidate | $candidate != null and ($values | index($candidate)) != null);
       ($ws + $store)
       | map(
           if ($bundles == null and $labels == null) then
             .
           else
             select(
-              ($bundles != null and ((.bundle // "") as $b | $bundles | index($b) != null))
+              ($bundles != null and matches_filter($bundles; "bundle"))
               or
-              ($labels  != null and ((.label  // "") as $l | $labels  | index($l) != null))
+              ($labels != null and matches_filter($labels; "label"))
             )
           end
         )
@@ -943,54 +1015,130 @@ PYEOF
   # -------------------------------------------------------------------------
   # summarise-lessons <KEY> <ISSUE_NUMBER>
   #
-  # Render lessons_learned[] as specs/<key>-<slug>/lessons-YYYYMMDD.md per
-  # GAP-015 / #37 AC4. Idempotent: a second call on the same day overwrites.
-  # No-op (and zero-row file with a stub header) when lessons_learned is empty
-  # — the file's existence is the audit signal.
+  # Render both capture sources without attributing another issue's lessons
+  # to this run. Validate before replacing a previous report.
   # -------------------------------------------------------------------------
   summarise-lessons)
     ISSUE_NUMBER="${3:?issue_number required}"
     _prepare_state_file "$ISSUE_NUMBER"
-
-    if [[ ! -f "$STATE_FILE" ]]; then
-      echo "workflow-state: $STATE_FILE not found — nothing to summarise" >&2
-      exit 1
-    fi
-
     DATE_STAMP="$(date -u +%Y%m%d)"
     LESSONS_FILE="$SPEC_FOLDER/lessons-${DATE_STAMP}-issue-${ISSUE_NUMBER}.md"
-    REPO="$(jq -r '.repo' "$STATE_FILE")"
-    ISSUE="$(jq -r '.issue_number' "$STATE_FILE")"
-    BRANCH="$(jq -r '.branch' "$STATE_FILE")"
+    python3 - "$STATE_FILE" "$LESSONS_FILE" "$ISSUE_NUMBER" "$KEY" "$DATE_STAMP" <<'PYEOF'
+import datetime
+import json
+import os
+import pathlib
+import re
+import sys
+import tempfile
 
-    {
-      echo "# Lessons learned — ${KEY} #${ISSUE} (${DATE_STAMP})"
-      echo
-      echo "- **Repo**: \`${REPO}\`"
-      echo "- **Issue**: #${ISSUE}"
-      echo "- **Branch**: \`${BRANCH}\`"
-      echo "- **Source**: \`specs/${SPEC_FOLDER##*/}/workflow-state-${ISSUE}.json\`"
-      echo
-      LESSON_COUNT="$(jq '.lessons_learned | length' "$STATE_FILE")"
-      if (( LESSON_COUNT == 0 )); then
-        echo "_No lessons recorded for this run._"
-      else
-        echo "## Lessons (${LESSON_COUNT}, newest first)"
-        echo
-        jq -r '
-          .lessons_learned
-          | sort_by([.cycle, .ts])
-          | reverse
-          | .[]
-          | "### Cycle \(.cycle) — \(.trigger) — \(.ts)\n\n\(.description)\n" +
-            (if (.files_affected | length) > 0
-               then "\n**Files**: " + (.files_affected | map("`" + . + "`") | join(", ")) + "\n"
-               else "" end)
-        ' "$STATE_FILE"
-      fi
-    } > "$LESSONS_FILE"
+state_path, output_path = map(pathlib.Path, sys.argv[1:3])
+issue = int(sys.argv[3])
+key, date_stamp = sys.argv[4:6]
+raw_path = state_path.parent / "change-lessons.jsonl"
 
-    echo "$LESSONS_FILE"
+
+def nonempty_string(value):
+    return isinstance(value, str) and bool(value.strip())
+
+
+def validate_lesson(entry, source, raw=False):
+    if not isinstance(entry, dict):
+        raise ValueError(f"{source}: lesson must be an object")
+    body = entry.get("text", entry.get("description")) if raw else entry.get("description")
+    if not nonempty_string(body) or not nonempty_string(entry.get("ts")):
+        raise ValueError(f"{source}: lesson requires non-empty text and ts")
+    datetime.datetime.fromisoformat(entry["ts"].replace("Z", "+00:00"))
+    for field in ("tags", "files_affected"):
+        values = entry.get(field, [])
+        if not isinstance(values, list) or not all(nonempty_string(value) for value in values):
+            raise ValueError(f"{source}: {field} must be an array of non-empty strings")
+    if raw:
+        if entry.get("tier") not in ("procedural", "semantic") or entry.get("scope") not in ("generalizable", "local"):
+            raise ValueError(f"{source}: invalid lesson tier or scope")
+        if not all(nonempty_string(entry.get(field)) for field in ("key", "repo")):
+            raise ValueError(f"{source}: lesson requires key and repo")
+    elif type(entry.get("cycle")) is not int or entry["cycle"] < 0 or not nonempty_string(entry.get("trigger")):
+        raise ValueError(f"{source}: invalid workflow lesson cycle or trigger")
+    return dict(entry, description=body, source=source)
+
+
+try:
+    lessons = []
+    sources = []
+    state = {}
+    if state_path.exists() or state_path.is_symlink():
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        if not isinstance(state, dict) or type(state.get("issue_number")) is not int or state["issue_number"] != issue:
+            raise ValueError(f"{state_path}: issue_number does not match #{issue}")
+        if not isinstance(state.get("lessons_learned"), list):
+            raise ValueError(f"{state_path}: lessons_learned must be an array")
+        if not all(nonempty_string(state.get(field)) for field in ("repo", "branch")):
+            raise ValueError(f"{state_path}: repo and branch are required")
+        sources.append(state_path.name)
+        lessons.extend(validate_lesson(entry, state_path.name) for entry in state["lessons_learned"])
+    if raw_path.exists() or raw_path.is_symlink():
+        sources.append(raw_path.name)
+        state_issues = {int(match.group(1)) for path in state_path.parent.glob("workflow-state-*.json")
+                        if (match := re.fullmatch(r"workflow-state-([1-9][0-9]*)\.json", path.name))}
+        for line_number, line in enumerate(raw_path.read_text(encoding="utf-8").splitlines(), 1):
+            if not line.strip():
+                continue
+            source = f"{raw_path.name}:{line_number}"
+            entry = validate_lesson(json.loads(line), source, raw=True)
+            owner = entry.get("issue_number")
+            if "issue_number" in entry:
+                if type(owner) is not int or owner < 1:
+                    raise ValueError(f"{source}: issue_number must be a positive integer")
+            else:
+                key_issues = {int(match.group(1)) for pattern in (r"^([1-9][0-9]*)(?:-|$)", r"(?:^|-)([1-9][0-9]*)$")
+                              if (match := re.search(pattern, entry["key"]))}
+                owners = key_issues or state_issues
+                if len(owners) != 1:
+                    raise ValueError(f"{source}: cannot attribute legacy lesson to one issue; add issue_number using verified provenance")
+                owner = next(iter(owners))
+            if owner == issue:
+                if state and entry["repo"] != state["repo"]:
+                    raise ValueError(f"{source}: repo does not match workflow state")
+                lessons.append(entry)
+    if not sources:
+        raise ValueError(f"no lesson sources for issue #{issue} in {state_path.parent}")
+
+    lines = [f"# Lessons learned — {key} #{issue} ({date_stamp})", "", f"- **Issue**: #{issue}"]
+    repo = state.get("repo") or next((lesson["repo"] for lesson in lessons if lesson.get("repo")), None)
+    if repo:
+        lines.append(f"- **Repo**: {repo}")
+    if state.get("branch"):
+        lines.append(f"- **Branch**: {state['branch']}")
+    lines.extend(["- **Sources**: " + ", ".join(f"specs/{state_path.parent.name}/{source}" for source in sources), ""])
+    if not lessons:
+        lines.append("_No lessons recorded for this issue in the inspected sources._")
+    else:
+        lines.extend([f"## Lessons ({len(lessons)}, newest first)", ""])
+        for lesson in sorted(lessons, key=lambda item: (item.get("cycle", 0), item["ts"]), reverse=True):
+            title = f"Cycle {lesson['cycle']} — {lesson['trigger']}" if "cycle" in lesson else lesson["tier"]
+            lines.extend([f"### {title} — {lesson['ts']}", "", lesson["description"], "", f"**Source**: {lesson['source']}", ""])
+            if lesson.get("files_affected"):
+                lines.extend(["**Files**: " + ", ".join(lesson["files_affected"]), ""])
+            metadata = [f"{field}: {lesson[field]}" for field in ("tier", "scope", "bundle", "label") if lesson.get(field)]
+            if lesson.get("tags"):
+                metadata.append("tags: " + ", ".join(lesson["tags"]))
+            if metadata:
+                lines.extend(["**Classification**: " + "; ".join(metadata), ""])
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=output_path.parent, prefix=output_path.name + ".", delete=False) as handle:
+            temporary = pathlib.Path(handle.name)
+            handle.write("\n".join(lines) + "\n")
+        os.replace(temporary, output_path)
+    finally:
+        if temporary is not None and temporary.exists():
+            temporary.unlink()
+except (OSError, ValueError, TypeError) as exc:
+    print(f"workflow-state: unable to summarise lessons: {exc}", file=sys.stderr)
+    sys.exit(1)
+print(output_path)
+PYEOF
     ;;
 
   # -------------------------------------------------------------------------

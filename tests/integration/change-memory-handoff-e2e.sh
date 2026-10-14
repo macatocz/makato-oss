@@ -1,56 +1,7 @@
 #!/usr/bin/env bash
-# End-to-end integration test for the change-lane write → promote → recall chain (#720).
-#
-# This test exercises the full cross-plugin seam between three components:
-#   1. write-lessons.sh (makato-build)   — appends a JSONL record to
-#      specs/<key>-*/change-lessons.jsonl with tier, scope, key, and repo stamps.
-#      PURE WRITER: must never touch .makato/memory/.
-#   2. promote-lessons.sh (makato-orchestrate) — lifts scope:generalizable records
-#      from change-lessons.jsonl into .makato/memory/, routing by tier:
-#        tier==semantic   → .makato/memory/semantic.jsonl
-#        tier==procedural → .makato/memory/procedural.jsonl
-#   3. workflow-state.sh recall-lessons (makato-orchestrate) — reads from
-#      .makato/memory/*.jsonl (via MAKATO_MEMORY_ROOT override) and returns
-#      lessons filtered by repo.
-#
-# Shared JSONL record contract at the boundary (write-lessons → promote-lessons):
-#
-#   Field   Type    Required  Description
-#   ------  ------  --------  --------------------------------------------------
-#   ts      string  yes       ISO-8601 timestamp written by write-lessons.sh
-#   tier    string  yes       "procedural" | "semantic"
-#   scope   string  yes       "generalizable" | "local"
-#   text    string  yes       lesson/fact body (same as `description`)
-#   tags    array   no        comma-split CSV → JSON array
-#   key     string  yes       story key (spec folder name)
-#   repo    string  yes       normalized owner/repo slug from git remote origin
-#
-# NOTE: write-lessons.sh normalises the git remote URL to an owner/repo slug
-# (strips "https://github.com/" / "git@github.com:" prefix and ".git" suffix).
-# recall-lessons performs exact string matching against the `repo` field, so the
-# REPO argument passed to it must use the same normalized slug form.
-#
-# Hard Constraints exercised:
-#   HC-5 — write-lessons.sh is a PURE WRITER; must never touch .makato/memory/
-#   HC-3 — MAKATO_MEMORY_ROOT must be set when calling recall-lessons in tests
-#   HC-2 — MAKATO_PROMOTE_REPO_OVERRIDE must be set when calling promote-lessons.sh
-#           in tests to bypass `git remote get-url` resolution
-#
-# Scenarios:
-#   A — happy path: full write → promote → recall chain.
-#       write-lessons.sh writes a procedural+generalizable record.
-#       promote-lessons.sh routes it to procedural.jsonl.
-#       recall-lessons returns the record. Pure-writer invariant asserted.
-#
-#   B — broken-seam guard: promote skipped → recall must return no matching record.
-#       write-lessons.sh writes a record but promote-lessons.sh is NOT called.
-#       recall-lessons must return [] or a list that does not contain the record.
-#       Proves the test catches a broken seam rather than passing vacuously.
-#
-# Exit code: 0 all pass; non-zero (equal to FAIL count) if any scenario fails.
-#
-# Run from repo root:
-#   bash tests/integration/change-memory-handoff-e2e.sh
+# Real capture-time persistence → idempotent promotion replay → recall.
+# A failed promoter retains raw evidence but must never claim durable success.
+# Run: bash tests/integration/change-memory-handoff-e2e.sh
 
 set -euo pipefail
 
@@ -114,7 +65,7 @@ SB_A=""
 SB_A="$(_mk_sandbox "720-e2e-change")"
 trap '_cleanup_sandbox "$SB_A"' EXIT
 
-(
+if (
   cd "$SB_A" || exit 1
 
   # Step A — write.
@@ -145,15 +96,13 @@ trap '_cleanup_sandbox "$SB_A"' EXIT
     exit 1
   fi
 
-  # HC-5 pure-writer invariant: both memory files must still be empty after write.
-  if [[ -s ".makato/memory/procedural.jsonl" ]]; then
-    echo "  BROKEN HC-5: write-lessons.sh wrote to .makato/memory/procedural.jsonl" >&2
-    exit 1
-  fi
-  if [[ -s ".makato/memory/semantic.jsonl" ]]; then
-    echo "  BROKEN HC-5: write-lessons.sh wrote to .makato/memory/semantic.jsonl" >&2
-    exit 1
-  fi
+  # Capture must be durable before any merge/recovery replay.
+  python3 - <<'PY'
+import json
+with open(".makato/memory/procedural.jsonl") as source:
+    records = [json.loads(line) for line in source]
+assert [record["text"] for record in records] == ["change-lane write-lessons verified"]
+PY
 
   # Step B — promote.
   MAKATO_PROMOTE_REPO_OVERRIDE="$REPO_SLUG" \
@@ -206,35 +155,36 @@ trap '_cleanup_sandbox "$SB_A"' EXIT
     echo "  recall output: $RECALL_OUT" >&2
     exit 1
   fi
-) && _pass "full write→promote→recall chain (HC-5 pure-writer + recall match)" \
-  || _fail "full write→promote→recall chain broken (see above)"
+); then
+  _pass "capture-time persistence, promotion replay, and recall match"
+else
+  _fail "full write→promote→recall chain broken (see above)"
+fi
 
 trap - EXIT
 _cleanup_sandbox "$SB_A"
 SB_A=""
 
 # ===========================================================================
-# Scenario B — broken-seam guard: promote skipped → recall must return no match
+# Scenario B — broken-seam guard: promotion fails → recall must return no match
 #   Proves the test catches a broken cross-plugin seam rather than passing
 #   vacuously on an empty store.
 # ===========================================================================
 echo ""
-echo "=== Scenario B: broken-seam guard (promote skipped → recall returns no record) ==="
+echo "=== Scenario B: failed promotion preserves source, not durable recall ==="
 
 SB_B=""
 SB_B="$(_mk_sandbox "720-e2e-broken")"
 trap '_cleanup_sandbox "$SB_B"' EXIT
 
-(
+if (
   cd "$SB_B" || exit 1
 
-  # Step A — write only (do NOT call promote-lessons.sh).
-  bash "$WRITE_LESSONS" "720-e2e-broken" procedural generalizable \
-    "this lesson must not reach recall" "e2e,broken" 2>/dev/null
-  EXIT_WL=$?
-
-  if [[ $EXIT_WL -ne 0 ]]; then
-    echo "  write-lessons.sh exited $EXIT_WL" >&2
+  # Simulate an unavailable installed promoter, not an omitted required call.
+  if MAKATO_ORCHESTRATE_ROOT="$SB_B/missing-plugin" \
+    bash "$WRITE_LESSONS" "720-e2e-broken" procedural generalizable \
+      "this lesson must not reach recall" "e2e,broken" 2>/dev/null; then
+    echo "capture incorrectly reported durable success without its promoter" >&2
     exit 1
   fi
 
@@ -245,13 +195,13 @@ trap '_cleanup_sandbox "$SB_B"' EXIT
   fi
 
   # Confirm the record was written (so this scenario cannot pass vacuously due
-  # to a write failure rather than a genuine promote-skip).
+  # to a source-write failure rather than the missing promoter).
   if ! grep -q '"text":"this lesson must not reach recall"' "$CL_FILE"; then
     echo "  write-lessons.sh did not write the expected record" >&2
     exit 1
   fi
 
-  # Step B — skip promote (the broken-seam condition).
+  # The capture-time promoter was unavailable; do not repair it before recall.
 
   # Step C — recall from the unpromoted sandbox.
   # .makato/memory/ files are still empty — the lesson was never promoted.
@@ -269,8 +219,11 @@ trap '_cleanup_sandbox "$SB_B"' EXIT
     echo "  recall output: $RECALL_OUT" >&2
     exit 1
   fi
-) && _pass "broken-seam guard: recall returns no record when promote skipped" \
-  || _fail "broken-seam guard broken — recall returned un-promoted lesson (see above)"
+); then
+  _pass "broken-seam guard: failed promotion preserves raw evidence without durable recall"
+else
+  _fail "broken-seam guard broken — recall returned un-promoted lesson (see above)"
+fi
 
 trap - EXIT
 _cleanup_sandbox "$SB_B"
