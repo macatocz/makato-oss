@@ -22,6 +22,8 @@ here on merge to main; release-please will date and version them at the next rel
   and carry-over paths cannot turn unresolved CI failures into success.
 - The stdlib inspector supports Python 3.10 and private logs under normal-clone
   git metadata; caller audits project sanitized fields instead of private paths.
+- Resolve inspector test fixture roots before path comparisons so macOS symlinked
+  temporary directories retain the same private-log containment checks as Linux.
 - Replaced the fixed three-round CI ceiling with progress-based termination and
   an optional explicit cap; private checkpoints preserve interrupted work.
 - Reconcile completed child results before resuming stale running checkpoints;

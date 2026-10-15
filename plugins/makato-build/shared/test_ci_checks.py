@@ -200,7 +200,7 @@ class InspectorTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.root = Path(self.tmp.name)
+        self.root = Path(self.tmp.name).resolve()
         self.worktree = self.root / "worktree"
         self.worktree.mkdir()
         REAL_RUN(["git", "init", "-q", "--initial-branch=feature", str(self.worktree)], check=True)
