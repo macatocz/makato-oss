@@ -145,6 +145,49 @@ else
 fi
 _teardown
 
+# ----- T9: every valid object remains one physical JSONL record -----
+echo "T9: pretty JSON, Unicode and metadata injection remain readable line-by-line"
+_setup
+"$HELPER" TEST-001 '{
+  "ts": "2026-06-30T00:00:00.000Z",
+  "step": "session", "status": "start", "model": "test-model", "message": "one\u2028two\u2029three"
+}'
+TRACE="$(printf 'a%.0s' {1..64})"
+"$HELPER" TEST-001 --trace-id "$TRACE" '{"step":"injected","status":"ok","message":"one\u2028two\u2029three"}'
+printf '%s\n' '{"step":"batch","status":"ok","message":"one\u2028two\u2029three"}' | "$HELPER" TEST-001 --trace-id "$TRACE" --batch
+if python3 - <<'PY'
+import json
+from pathlib import Path
+rows = [json.loads(line) for line in Path("specs/TEST-001-x/build.jsonl").read_text().splitlines()]
+assert [row["step"] for row in rows] == ["session", "injected", "batch"]
+assert rows[0]["ts"] == "2026-06-30T00:00:00.000Z"
+assert rows[1]["model"] == "test-model"
+assert rows[1]["issue_trace_id"] == rows[2]["issue_trace_id"] == "a" * 64
+assert all(row["message"] == "one\u2028two\u2029three" for row in rows)
+PY
+then
+  _pass "all events and metadata preserved as JSONL"
+else
+  _fail "audit events were lost or split across physical lines"
+fi
+_teardown
+
+# ----- T10: invalid single events cannot corrupt an existing audit -----
+echo "T10: malformed single-entry JSON fails without changing the audit"
+_setup
+"$HELPER" TEST-001 '{"step":"valid","status":"ok"}'
+BEFORE="$(cat specs/TEST-001-x/build.jsonl)"
+STATUS=0
+"$HELPER" TEST-001 '{ts:broken,reason:Sensor' 2>/dev/null || STATUS=$?
+if [[ "$STATUS" -ne 0 && "$(cat specs/TEST-001-x/build.jsonl)" == "$BEFORE" ]]; then
+  _pass "invalid event rejected and existing audit preserved"
+else
+  _fail "malformed event was accepted or changed the audit"
+fi
+_teardown
+
+
+
 echo ""
 if [[ $FAIL -eq 0 ]]; then
   echo "All build-log batch-mode smoke tests passed."

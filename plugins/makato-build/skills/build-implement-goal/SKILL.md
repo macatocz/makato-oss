@@ -5,7 +5,7 @@ description: >-
   runtime, write tests after. Autonomous. Use after refine for UI,
   config, or migration work, or when implement-goal tasks remain
   from a mixed plan.
-version: "1.6.0"
+version: "1.7.0"
 argument-hint: "[work-item-key]"
 allowed-tools: [Bash]
 metadata:
@@ -36,6 +36,9 @@ When dispatched by the PO-agent (`--autonomous` mode), this skill receives a con
   gate-scout once before the baseline and use its commands verbatim.
 - `--autonomous` — activation flag.
 - `RECOMMENDED_SKILLS` *(optional)* — JSON array of `"plugin:skill-id"` strings. When present at skill entry, apply the **skill consultation prepend** rule: before the BUILD phase of the *first* goal task, invoke each listed skill sequentially and apply any hard constraints or conventions surfaced. This field is also available per-task via the task's `recommended_skills[]` field in `plan.md` — per-task values override the skill-level bundle. Per-task rule: before the BUILD phase of each goal task, check the task's `recommended_skills` field from `plan.md`; if present and non-empty, invoke those skills before BUILD (agent-skill-routing #146). If absent on the task — proceed to BUILD directly.
+- `CI_FAILURES` — optional structured failed checks from `build-fix-ci` (head SHA, run/job/attempt, summary, full private log path).
+- `CI_TASK_INDICES` — affected goal task indices, including completed tasks needing repair.
+- `CI_RECOVERY_TASK` — optional scoped CI-configuration/metadata task supplied by `build-fix-ci` when no original task covers the diagnosed failure; contains concrete diagnosis, files, constraints and verification command, never a new product requirement.
 
 When invoked by a developer interactively, `WORKTREE_PATH` is optional. If unset, the skill falls back to `git rev-parse --show-toplevel` of the current `$PWD`.
 
@@ -57,6 +60,14 @@ REPO_ROOT="$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pw
 
 Spec-artefact paths below resolve to `$REPO_ROOT/specs/<key>-*/...`.
 
+### CI-failure recovery mode
+
+When `CI_FAILURES` is supplied, load `$MAKATO_BUILD_ROOT/shared/ci-recovery.md` before the baseline. Select `CI_TASK_INDICES` even if those tasks are complete, or use the supplied `CI_RECOVERY_TASK` for a concrete CI-configuration/metadata repair. No selection means unresolved, never successful no-op.
+
+For a supplied recovery task, retain the plan's hard constraints but do not require an original `mode: goal` task or alter `sub_tasks[]`. Run the existing BUILD → VERIFY RUNTIME → TEST → VERIFY phases against the diagnosed command; for docs/config/metadata, exercise the affected command or check rather than inventing source-wording tests. Existing goal tasks use plan-analyst as normal. In autonomous mixed-mode recovery, select only assigned goal tasks without a prompt.
+
+Targeted CI failures are repair obligations, not an acceptable broken baseline. Read complete diagnostic files as needed. Leave source repairs uncommitted, return `data.resolved_checks`, `data.unresolved_checks` and local verification evidence; success requires every assigned failure resolved. The caller owns independent review, verification, push and remote CI confirmation. For a metadata-only repair, report the exact metadata mutation and its verification; never commit an empty change.
+
 ## Workflow
 
 ### Step 1 — Ask for work item key and load plan
@@ -74,13 +85,14 @@ Resolve `SPEC_FOLDER` with
 then read `plan.md` from that folder. If the plan does not exist, stop and tell
 the user to run `/refine` first.
 
-Extract all tasks where `mode: goal`. If none exist, stop and tell the user:
-*"All tasks in this plan are tdd-mode. Run `/implement-tdd` instead."*
+Unless `CI_RECOVERY_TASK` is supplied, extract assigned tasks where `mode: goal`.
+If that selection is empty, recovery mode returns failure with its unresolved
+CI failures; ordinary mode stops with "All tasks in this plan are tdd-mode.
+Run /implement-tdd instead." A nonempty selection continues below.
 
-If the plan is mixed mode, note the tdd-mode tasks and present scope to the user with
-`AskUserQuestion`:
-- question: `"Tasks [N, M] are tdd-mode and will be skipped here. Proceed with goal tasks only?"`
-- options: `["Yes — implement goal tasks now, I will run /implement-tdd separately", "No — cancel"]`
+In a mixed plan, autonomous mode selects only assigned goal tasks and logs the
+selection without prompting. Interactive mode asks whether to proceed with goal
+tasks only. A supplied `CI_RECOVERY_TASK` is the explicit selection for this pass.
 
 ---
 
@@ -101,7 +113,7 @@ gate-scout when `GATE_COMMANDS` is absent and pass the discovered `unit` command
 (including its runner prefix). Never substitute a bare system-Python test command.
 **Do NOT load the baseline guide more than once per session.**
 
-**Flakey test rule**: if a test fails but no source code was changed between runs, re-run that single test once before classifying. If it passes on the second run, log it as flakey and continue. If it fails again, classify normally.
+**Flakey test rule (ordinary implementation only)**: if a test fails but no source code was changed between runs, re-run that single test once before classifying. In CI recovery, follow ci-recovery.md instead: targeted failures remain obligations, and the coordinator owns any diagnosed transient rerun.
 
 Log:
 ```
@@ -117,7 +129,10 @@ If `pre_existing_failures > 0` and user chose continue, also log:
 
 ### Step 4 — Read implementation context (via plan-analyst agent)
 
-Dispatch the `plan-analyst` agent with:
+When `CI_RECOVERY_TASK` is supplied, use that exact diagnosed task and read its
+target files/conventions; do not require plan-analyst to invent a goal task or
+reject a plan containing only completed TDD tasks. Otherwise dispatch the
+`plan-analyst` agent with:
 - `PLAN_PATH`: absolute path to `plan.md` in the resolved spec folder
 - `GLOSSARY_PATH`: absolute path to `glossary.md` in the resolved spec folder
 - `REPO_ROOT`: absolute path to the target repository root

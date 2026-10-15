@@ -33,6 +33,7 @@ maxTurns: 20
 - **NEVER** put shell metacharacters in a route `cmd` string. Route `cmd` values are split into an argv array by `read -ra` and invoked directly — `|`, `;`, `$()`, `>`, `<`, `&`, and backticks WILL break Phase 0. Routes are command + flags only. If a tool requires shell composition, write a wrapper script and put the wrapper path in `cmd`.
 - **NEVER** rely on `jq '.routes[$key]'` literal lookup for route matching. The route table contains glob keys (`ruff:UP*`, `markdownlint:MD0*`, `semgrep:*`, …). Always use `lookup_route` from § Helper functions — exact-then-glob, first-match-wins.
 - **Never edit files outside the `FINDINGS[].path` union** captured at dispatch time. This is the file-scope boundary enforced by contract.
+- With `CI_CONTEXT`, carry-over is not CI approval: preserve every residual finding in R1 and never mark a failed check resolved or create another PR on behalf of the coordinator. `build-fix-ci` owns the remote gate.
 - The audit log is the source of truth for what the harness did. Every dispatch — Phase 0 cmd or Phase 1 finding — MUST produce an audit row, even on failure.
 
 ## Input
@@ -48,6 +49,8 @@ Your dispatch prompt provides:
 | `MAX_LOOPS` | integer | no | Hard cap for Phase 1 outer iterations. Defaults to `5`. |
 | `RECOMMENDED_SKILLS` | `list[string]` | no | Array of `"plugin:skill-id"` strings forwarded from the parent task's `recommended_skills[]` field (agent-skill-routing #146). When present and non-empty, invoke each skill before Phase 0 to surface domain conventions relevant to the finding set. Forward to each `build-resolve-finding` dispatch as an additional input field so repair skills can benefit from the same context. Omit when absent — do NOT forward an empty array. |
 | `CI_CONTEXT` | `object \| null` | no | Advisory context from the caller when sensor-fixer is dispatched from a CI failure path (e.g. po-agent Step 6a). Fields: `check_name` (string), `run_id` (string), `ci_failure_type` (string). When `ci_failure_type == "sensor"` is set, sensor-fixer **skips `reparse_after_autofix`** after Phase 0 and instead re-invokes each distinct `FINDINGS[].tool` binary directly against the working tree to verify fixes (CI environments may not have pre-commit hooks installed). When absent or `null`, existing Phase 0 behaviour is byte-for-byte unchanged. Include in `build.jsonl` Phase 0 row when present (see § Audit log). |
+| `WORKTREE_PATH` | string | no | CI caller's isolated worktree. When supplied, require `REPO_ROOT == WORKTREE_PATH` and run all commands/edits there. |
+| `SPEC_FOLDER` / `JSONL_PATH` | absolute path | no | CI caller's resolved spec/audit destination in the common checkout. Preserve it rather than resolving specs beneath the worktree. |
 
 Missing `REPO_ROOT`, `MAKATO_BUILD_ROOT`, or `FINDINGS` → R1 `failure` with `errors: ["missing input: <field>"]`.
 
@@ -78,11 +81,10 @@ Phase 0 is purely deterministic — no LLM round-trip. A cmd failure is non-fata
 # Pseudocode — sensor-fixer Phase 0
 SPEC_KEY="${SPEC_KEY:-sensor-harness-v1}"
 MAX_LOOPS="${MAX_LOOPS:-5}"
-SPEC_FOLDER="$(
-  python3 "$MAKATO_BUILD_ROOT/shared/spec_folder.py" "$REPO_ROOT" "$SPEC_KEY" 2>/dev/null ||
-    printf '%s/%s' "$REPO_ROOT/specs" "${SPEC_KEY#\#}"
-)"
-AUDIT_LOG="${SPEC_FOLDER}/build.jsonl"
+if [[ -z "${SPEC_FOLDER:-}" ]]; then
+  SPEC_FOLDER="$(python3 "$MAKATO_BUILD_ROOT/shared/spec_folder.py" "$REPO_ROOT" "$SPEC_KEY" 2>/dev/null || printf '%s/%s' "$REPO_ROOT/specs" "${SPEC_KEY#\#}")"
+fi
+AUDIT_LOG="${JSONL_PATH:-$SPEC_FOLDER/build.jsonl}"
 ROUTES="${MAKATO_BUILD_ROOT}/shared/finding-routes.json"
 mkdir -p "$SPEC_FOLDER"
 
@@ -160,6 +162,11 @@ fi
 
 For each residual finding, dispatch `build-resolve-finding`. On success remove the finding from the queue. On failure at loop 2, the pseudocode below *intends* to tier-escalate to opus and retry. Continue until `pre-commit run --files "${touched_files[@]}"` exits 0 or `MAX_LOOPS` is exhausted. Route remaining residuals to draft PR carry-over.
 
+With `CI_CONTEXT`, forward it and the resolved worktree/audit roots to every
+repair skill. Re-run the originating tools instead of assuming pre-commit is
+installed. Residuals return non-success to `build-fix-ci` without carry-over;
+this CI-specific rule overrides the local-commit carry-over policy above.
+
 > **⚠ Not yet wired (#287).** The sonnet→opus tier escalation is documented intent, not live
 > behaviour. `build-resolve-finding` is invoked via the **Skill tool**, which has no `model`
 > parameter — a skill cannot switch models mid-invocation — so the `--model "opus"` argument in
@@ -177,6 +184,11 @@ for loop in $(seq 1 ${MAX_LOOPS}); do
     # Build the dispatch bundle. Include repair_hint when the finding carries it;
     # omit entirely when absent — never forward as null.
     dispatch_bundle=(--finding "${finding}" --repo-root "${REPO_ROOT}" --attempt "${loop}")
+    dispatch_bundle+=(--makato-build-root "${MAKATO_BUILD_ROOT}")
+    if [[ -n "${CI_CONTEXT:-}" ]]; then
+      dispatch_bundle+=(--ci-context "${CI_CONTEXT}" --worktree-path "${WORKTREE_PATH}")
+      dispatch_bundle+=(--spec-folder "${SPEC_FOLDER}" --jsonl-path "${AUDIT_LOG}")
+    fi
     if [[ -n "${finding.repair_hint:-}" ]]; then
       dispatch_bundle+=(--repair-hint "${finding.repair_hint}")
     fi
@@ -218,7 +230,7 @@ for loop in $(seq 1 ${MAX_LOOPS}); do
 done
 
 # Carry-over: residuals after MAX_LOOPS go to a draft PR, never block the user
-if [[ ${#findings[@]} -gt 0 ]]; then
+if [[ ${#findings[@]} -gt 0 && -z "${CI_CONTEXT:-}" ]]; then
   dispatch build-resolve-finding \
     --carry-over \
     --residuals "${findings[@]}" \

@@ -88,7 +88,7 @@ makato-build closes the loop from ideation to merged code.
                                  ┌──────────────────────┐
                                  │   build-create-pr    │
                                  └──────────┬───────────┘
-                                            │ PR URL
+                                            │ autonomous: build-fix-ci → current-head green
                                             ▼
                           ┌─────────────────────────────────┐
                           │  build-address-pr-comments      │
@@ -109,7 +109,8 @@ makato-build closes the loop from ideation to merged code.
 | build-verify                               | Working tree + gate commands                                 | PASS/FAIL per gate; coverage report                                        |
 | build-sensors                              | staged/all/changed files                                     | Clean pre-commit run; residual findings carried over                       |
 | build-push-to-git                          | Verified working tree + plan.md                              | Feature branch on remote; commits map to plan tasks                        |
-| build-create-pr                            | Pushed branch + spec artifacts                               | GitHub PR URL with spec-derived description                                |
+| build-create-pr | Pushed branch + spec artifacts | PR URL; autonomous calls also wait for current-head CI or return a blocker |
+| build-fix-ci | Existing PR + isolated worktree + plan | All actionable CI failures repaired, reviewed, verified and pushed; current-head green or explicit blocker |
 | build-address-pr-comments                  | PR with unresolved review comments                           | Fixes committed; reply comments posted; carry-over issues logged           |
 
 ## Skills
@@ -134,6 +135,31 @@ makato-build closes the loop from ideation to merged code.
 | [definition-of-done](skills/definition-of-done/SKILL.md)               | Canonical, versioned, machine-checkable Definition of Done — 13 automated items enforced by build-verify/build-sensors/build-push-to-git/coder agent; 6 manual items asserted by the PO-agent. Single source of truth referenced across the pipeline.                                                                                                                                     | `MAKATO_BUILD_ROOT` context for suite-owned helper references; consumed by coder VERIFY phase, build-verify gate mapping, and PO-agent task-completion logic. | Authoritative DoD checklist (19 items total) returned as structured reference.                                                                              | 2.4.0   |
 | [inject-context](skills/inject-context/SKILL.md)                       | Resolve a list of changed file paths against config/context-bundles.yml and return a deterministic, deduplicated, ordered list of rule-file paths for knowledge-scout to pre-read. Glob-specificity-first ordering; raises HALT-006 when default bundle is absent. (autonomous)                                                                                                           | List of predicted changed file paths from the current task; config/context-bundles.yml registry.                                                               | Ordered list of rule-file paths for knowledge-scout to pre-read; no-match warning surfaced when applicable.                                                 | 1.0.0   |
 | [inject-skills](skills/inject-skills/SKILL.md)                         | Resolve a list of changed file paths against the cross-plugin merged skill-bundles.yml registry and return an ordered, deduplicated list of recommended skills. Glob-specificity ordering (D9), OR-substring content hints (D19), target-repo installed-skill subset filter (D10), graceful missing-skill skip (D18); raises HALT-006 when no plugin ships a default bundle. (autonomous) | List of predicted changed file paths from the current task; every plugin's config/skill-bundles.yml registry; target repo path.                                | Ordered list of recommended skill identifiers for the dispatching agent; no-match and missing-skills warnings surfaced when applicable.                     | 1.0.0   |
+| [build-fix-ci](skills/build-fix-ci/SKILL.md) | Shared autonomous CI repair loop; SHA-bound inspection, all-job diagnostics, TDD/goal/sensor routing, review/verify before repair push, resumable private checkpoint. | PR number, repo, worktree, plugin roots, work-item key and spec context | R1 with current head, CI status, repair rounds and unresolved checks | 1.0.0 |
+
+### Autonomous CI recovery
+
+Autonomous `build-create-pr` creates or reuses the branch's PR, then runs
+`build-fix-ci` without another prompt. To resume an existing PR directly:
+
+```text
+/makato-build:build-fix-ci <work-item-key> --autonomous
+```
+
+Supply `PR_NUMBER`, `REPO`, `WORKTREE_PATH`, `REPO_ROOT` and
+`MAKATO_BUILD_ROOT` in the dispatch context. The skill never merges. Source
+repairs pass review and verification, then update the same PR. A new push
+invalidates prior CI approval. Metadata-only fixes do not create empty commits.
+The configured OMP roles must be available under lowercase aliases (for example,
+`REVIEW` uses `modelRoles.review`). Missing role configuration blocks dispatch;
+the coordinator does not choose replacement models or edit OMP configuration.
+
+`MAKATO_MAX_CI_FAILURE_CYCLES=0` (default) keeps repairing while progress is
+verified; set a positive ceiling to cap repair rounds. No-progress, permissions,
+missing secrets, operator cancellation and pending timeout are explicit blockers,
+not green results. `MAKATO_CI_WAIT_SECS=600` and `MAKATO_CI_POLL_INTERVAL=60`
+control waits. Private checkpoint/logs live under the worktree's git metadata.
+Manual PR creation still returns after opening the PR.
 
 ## Agents
 

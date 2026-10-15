@@ -4,10 +4,11 @@ modelRole: default
 description: >-
   Autonomous outer-loop driver for a board-Ready GitHub Issue (Status=Ready,
   no `needs-human-review`). Reads its `specs/<key>-<slug>/` folder, dispatches
-  `makato-build` autonomous skills, polls CI and review decisions, routes merge
-  conflicts through `resolve-pr-conflict`, and terminates on a merged PR or a
-  documented HALT code. Sole writer of `workflow-state.json`. Owns the per-run
-  git worktree lifecycle. Never edits target-repo source files — orchestrates only.
+  `makato-build` autonomous skills, delegates CI to `build-fix-ci`, polls
+  review decisions, routes merge conflicts through `resolve-pr-conflict`, and
+  terminates on a merged PR or documented HALT code. Sole writer of
+  `workflow-state.json`. Owns the per-run worktree; never edits target source.
+version: "1.1.0"
 maxTurns: 100
 permissionMode: bypassPermissions
 disallowedTools: NotebookEdit
@@ -76,11 +77,14 @@ posture is constrained by four safeguards — see `AGENTS.md` §
 - **Sole writer of `workflow-state.json`.** Every mutation goes through
   `shared/workflow-state.sh`. Sub-agents patch `sub_tasks[]` only via
   the documented cross-plugin caller carve-out.
-- **Never dispatch `coder` directly.** Every code path — fresh
-  implementation, CI-failure recovery, re-plan — goes through
-  `build-implement-tdd` / `build-implement-goal` so the scout
-  pre-flight, blockedBy check, baseline-failure gate, and
-  `WORKTREE_PATH` propagation stay in one entry point.
+- **Never dispatch `coder` directly.** Fresh implementation and re-plans go
+  through `build-implement-tdd` / `build-implement-goal`; CI recovery goes
+  through `build-fix-ci`, which owns routing structured `CI_FAILURES` into
+  the selected implementation skill. Preserve scout/gate and workspace context.
+- **One CI owner.** Consume the `build-fix-ci` R1 returned through
+  `build-create-pr` / `build-push-to-git`, or dispatch that same skill on
+  resume/new HEAD/repair push. Never implement another CI poll/repair sub-loop,
+  run failed jobs here, or mutate the CI skill's private checkpoint.
 - **Never cache kill-switch results.** Poll fresh at every outer-loop
   boundary.
 - **Never run `git checkout -b`, `git branch <name>`, or any other
@@ -136,6 +140,13 @@ with `errors: ["missing input: <field>"]`. Issue carrying
 1. Read state via `shared/workflow-state.sh read <KEY> <ISSUE_NUMBER>` and capture
    whether `workflow-state.json` already existed (used for the
    `resumed` flag).
+   Before any patch or resume acknowledgement, migrate an existing document
+   containing `flake_rerun_pending`: remove only that obsolete property with
+   `jq 'del(.flake_rerun_pending)'` and submit the complete resulting document
+   through `workflow-state.sh write <KEY> <ISSUE_NUMBER> '<JSON>'`. Preserve
+   every other field, including the PR identity and repair count. The helper
+   validates and atomically replaces it; migration failure blocks resume.
+   Never re-add the old flake probe or bypass schema validation.
 2. Append the session-start entry to `orchestrate.jsonl`:
 
    ```json
@@ -425,6 +436,17 @@ On resume, check three flags before continuing:
 | `handoff_reason == "context_ceiling"`                      | Read`session_summary` (≤ 500 tokens). **First, acknowledge the restart (#284):** write `resume_ack` with the current timestamp via `workflow-state.sh patch <KEY> <ISSUE_NUMBER> .resume_ack "\"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)\""` — this signals the `check-pid` liveness watchdog that the detached resume subprocess started successfully and reached this resume path. **`resume_ack` MUST be written BEFORE clearing `handoff_reason`** — the watchdog detects a pending handoff by `handoff_reason == "context_ceiling" AND spawned_pid != null AND no fresh resume_ack`; clearing the reason first would blind it to a subsequent crash before the ack lands. Then clear the flag via `workflow-state.sh patch <KEY> <ISSUE_NUMBER> .handoff_reason 'null'`. Continue from `resume_point`. Do NOT touch `budget_consumed_tokens` or `session_baseline_tokens` — `context-handoff.sh` already advanced the baseline to the cumulative total, so HALT-007B now measures this session's delta from 0 (#281). Resetting the cumulative counter here would silently disable the HALT-007 cost ceilings. |
 | `restart_failed == true`                                   | Return R1`failure` with `errors: ["restart_failed=true on prior session"]`.                                                                                      |
 
+**PR resume routing:** after restoring the worktree and lesson context in
+Steps 2b/2c, an existing `github_pr_number` with phase `pr`/review or
+`resume_point` `ci-poll`, `review-poll`, or `pr-comments` resumes at
+Step 6 #4's shared CI gate, not initial verification/push/PR creation. In
+particular `resume_point:"ci-poll"` re-dispatches `build-fix-ci` for the
+same PR so its private checkpoint resumes the in-flight repair. Review-poll
+resume must revalidate CI for the current HEAD before polling reviews. If PR
+identity is missing, recover it with an exact-current-branch open-PR lookup,
+not an unrelated historical R1; failed/ambiguous lookups block with HALT-005.
+Never replace a known missing/closed/mismatched PR with a new one.
+
 On a fresh run (not a resume), open the live issue comment with a
 first note (best-effort — see § *Progress comment*):
 
@@ -645,8 +667,8 @@ After R1 returns, run
 #### Step 4d.1 — Post-dispatch audit-tail guard (#175)
 
 Immediately after any `build-*` dispatch returns — including
-`build-verify`, `build-push-to-git`, `build-create-pr`, and
-`build-address-pr-comments` invoked from Step 6 — cross-check the tail
+`build-review`, `build-verify`, `build-push-to-git`, `build-create-pr`,
+`build-fix-ci`, and `build-address-pr-comments` invoked from Step 6 — cross-check the tail
 of `specs/<key>-*/build.jsonl` via
 `shared/check-session-tail.sh <KEY> <dispatched-skill>`. The helper
 returns a single JSON object with `verdict ∈ {ok, error, silent, no-log}`.
@@ -777,13 +799,13 @@ re-plan attempts:
 | HALT path                    | No. Terminates the run.                      |
 | HANDOFF (Step 4b exit 2)     | No. Fresh session resumes at same iteration. |
 
-`outer_iteration` counts **re-plan attempts only**. The CI-failure fix
-loop (Step 6a) and the merge-conflict sub-loop (Step 6) each own an
-independent counter — `ci_failure_cycles` (#288) and
-`merge_conflict_cycles` (GAP-016 / #45) respectively — so a transient CI
-failure or an irreconcilable merge conflict never consumes the re-plan
-budget. All three fire HALT-008 at their own ceiling; the `halt_audit[]`
-`data.origin` field distinguishes them.
+`outer_iteration` counts **re-plan attempts only**. CI recovery is owned by
+`build-fix-ci`; after its result, copy `data.repair_cycles` to
+`.ci_failure_cycles` for reporting, never increment or cap it here. Its
+default has no fixed repair-cycle ceiling; no-progress/external-blocker/wait
+outcomes and any opt-in ceiling come back as explicit CI halt codes. The
+merge-conflict sub-loop retains its own `merge_conflict_cycles` ceiling.
+Neither recovery path consumes the re-plan budget.
 
 ### Step 6 — PR pipeline
 
@@ -791,9 +813,14 @@ Triggered when all `sub_tasks[].status == "complete"`.
 
 Each skill dispatch in this pipeline is bracketed by a
 `progress-comment.sh start` before and `progress-comment.sh done` after
-(best-effort — see § *Progress comment* for the per-skill agent/GOAL
-row). The `gh`-only polls (CI, review) are narrated with a single
-`progress-comment.sh note` on their outcome, not per poll round.
+(best-effort — see § *Progress comment*). `build-fix-ci` owns its CI wait;
+the PO-agent only consumes its outcome. Review polls are narrated with an
+outcome note, not a note on every round. Resolve `SPEC_FOLDER` from
+`REPO_ROOT` with the shared spec-folder resolver and set
+`JSONL_PATH="$SPEC_FOLDER/build.jsonl"` for all downstream bundles.
+
+Fresh builds execute #0–#3. Existing-PR resumes and later repairs enter #4,
+without repeating commit/push operations already owned by a repair skill.
 
 0. **Mandatory blocking review.** Patch `current_phase: "verify"`. Narrate START
    (`--skill "build-review" --agent "diff-reviewer + coder" --goal "repair all
@@ -807,8 +834,9 @@ row). The `gh`-only polls (CI, review) are narrated with a single
    `partial`, `failure`, missing counts, or nonzero counts block the pipeline:
    HALT-003, apply `needs-human-review`, post the HALT comment best-effort, and
    return R1 failure with the unresolved findings/blocker. Do not dispatch
-   build-verify, push, or PR creation on that path. This gate runs on every
-   entry to Step 6, including after code repairs; task completion is not review approval.
+   build-verify, push, or PR creation on that path. Every newly edited source
+   tree must pass this review and then verification before its owning skill
+   pushes; comments and CI repairs enforce these gates inside their own flows.
 1. Patch `current_phase: "verify"`. Narrate START
    (`--skill "build-verify" --agent "review agent" --goal "run all
    quality checks and tests"`), dispatch
@@ -843,83 +871,82 @@ row). The `gh`-only polls (CI, review) are narrated with a single
    `build.jsonl` `step:"runtime-qa-findings"` entry identifies the CRITICAL
    finding so the coder can fix before re-dispatching). R1 `status: "success"`
    with findings → proceed (MAJOR/ADVISORY are advisory). Narrate DONE after R1.
-2. Patch `current_phase: "pr"`. Narrate START
-   (`--skill "build-push-to-git" --goal "save the finished changes, push
-   to the remote and open a pull request"`), dispatch
-   `/makato-build:build-push-to-git <KEY> --autonomous` (auto-invokes
-   `build-create-pr` per AUTONOMOUS-MODE cross-skill propagation), then
-   narrate DONE. On
-   R1 `failure`, classify BEFORE HALTing:
+2. Patch `current_phase:"pr"`. Narrate START and dispatch
+   `/makato-build:build-push-to-git <KEY> --autonomous` through the skill
+   launcher with `WORKTREE_PATH`, `REPO_ROOT`, `REPO`,
+   `MAKATO_BUILD_ROOT`, optional sibling roots, `SPEC_FOLDER`, and
+   `JSONL_PATH`. Its normal handoff invokes idempotent `build-create-pr`,
+   which waits for `build-fix-ci`. Wait for the complete chain and narrate
+   DONE. Do not separately launch another CI loop while it runs.
+3. Parse that live R1, including non-success outcomes. Persist a validated
+   known `data.github_pr_number` via `workflow-state.sh` **before** routing
+   an error, so an existing PR survives a failed follow-on CI gate. Preserve
+   URL/HEAD/CI diagnostics in the final R1 too. Never replace a missing live
+   result with a historical success from `build.jsonl`.
 
-   - **Merge-conflict signals** in `r1.errors[]` (case-insensitive
-     substring match on `conflict`, `cannot be rebased automatically`,
-     `non-fast-forward`) → enter conflict sub-loop (below).
-   - **Deny-list failure** → HALT-005, apply `needs-human-review`, also call `shared/post-halt-comment.sh HALT-005 $ISSUE_NUMBER $REPO` (best-effort).
-3. Read `github_pr_number` from R1 `data.github_pr_number`. Fallback:
-   read the most recent `build-create-pr` R1 from
-   `specs/<key>-*/build.jsonl`. Both null → HALT-005, apply `needs-human-review`, also call `shared/post-halt-comment.sh HALT-005 $ISSUE_NUMBER $REPO` (best-effort). Patch
-   `.github_pr_number` on state.
-4. **Step 6a — CI poll.** Wait 30 s, then run
-   `gh pr checks <PR> --json name,state,conclusion` every 60 s for up
-   to 10 rounds (~10 minutes).
+   - An outcome carrying a real shared result (`ci_status` is
+     `green|blocked|pending`, not a push-only null) proceeds to #4 for
+     consumption even when `failure`/`partial`; #4 cannot convert it to success.
+   - A real push rejection (`PUSH_REJECTED`) with conflict/non-fast-forward
+     evidence enters the conflict sub-loop. Do not misroute a CI blocker just
+     because a log contains the word "conflict".
+   - Other push/create failure, invalid/missing R1, or missing PR identity →
+     route its halt code per `makato-build/halt-codes.md` (HALT-005 fallback),
+     apply the required label/comment, retain the worktree, and return failure.
+     `partial` is not permission to continue to review.
+4. **Shared CI gate — consume or dispatch `build-fix-ci`.** If #2 returned a
+   complete shared result in this live invocation, consume it; do not repeat
+   its repair work. On resume, changed HEAD, post-review fix push, or successful
+   conflict repair, dispatch `makato-build:build-fix-ci <KEY>` through the
+   OMP/native skill boundary and wait. Pass `PR_NUMBER` from state,
+   `REPO` (`OWNER/REPO`), `WORKTREE_PATH`, `REPO_ROOT`,
+   `MAKATO_BUILD_ROOT`, optional sibling roots, `SPEC_FOLDER`,
+   `JSONL_PATH`, and the work-item-key. Preserve inherited role/harness
+   selection; no inline fallback or direct `coder`/`sensor-fixer` CI repair.
+   Before a direct gate dispatch, patch `current_phase:"pr"` and
+   `resume_point:"ci-poll"`. `build-fix-ci` owns its checkpoint in the
+   worktree git directory; it does not write workflow-state.
 
-   - All `conclusion == "success"` (or mixed success/skipped) →
-     advance to sub-step 5.
-   - Any `conclusion == "failure"` → classify:
-     - Failed check name matches `(?i)(rebase|merge.?conflict)` →
-       route through the conflict sub-loop (below); the CI-failure fix
-       loop is SKIPPED.
-     - Otherwise → **flake probe first** (see below), then, only if the
-       failure reproduces, enter the CI-failure fix loop.
-   - 10-poll timeout → append `trigger: ci_failure` lesson, enter the
-     CI-failure fix loop.
+   Require a valid R1 with `data.github_pr_number` matching this PR,
+   a full `head_sha`, `ci_status` (`green|blocked|pending`), nonnegative
+   integer `repair_cycles`, array `unresolved_checks`, and `halt_code`.
+   Copy `repair_cycles` to `.ci_failure_cycles` via `workflow-state.sh`
+   (assignment, not addition); never reset the shared repair checkpoint or
+   restore an old PO-agent flake flag. Keep all CI fields in the returned R1.
 
-   **Flake probe (#312) — run BEFORE consuming a `ci_failure_cycle`.**
-   A red check is not proof of a real regression: a content-independent
-   flaky test (a background-process race, a timing-sensitive assertion)
-   fails once and passes on re-run. Feeding such a failure into the
-   CI-failure fix loop wastes cycles — `build-implement-tdd` cannot fix a
-   test the PR never touched and that passes locally — and eventually
-   HALT-008s a human for a non-issue. So, on the FIRST non-conflict failure
-   only (guarded by `flake_rerun_pending`):
+   **Advance only** on R1 `status:"success"`, `ci_status:"green"`,
+   `unresolved_checks:[]`, `halt_code:null`, and returned `head_sha`
+   matching both current PR `headRefOid` and
+   `git -C "$WORKTREE_PATH" rev-parse HEAD`. Record that SHA as this
+   session's successful CI HEAD and patch `resume_point:"review-poll"`.
+   A HEAD change invalidates the result: invoke the same gate for the new HEAD,
+   never accept the previous SHA's green.
 
-   1. Read `flake_rerun_pending` from state (default `false`). If already
-      `true`, the probe has run once this PR — skip it and enter the
-      CI-failure fix loop directly (a failure that survived one re-run is
-      treated as real).
-   2. Otherwise set `flake_rerun_pending = true`, capture the failed run id
-      (`gh pr checks <PR> --json name,state,conclusion,link` → the run id
-      of the first `failure`), and re-run only the failed jobs:
-      `gh run rerun <run_id> --failed`. Emit a JSONL `ci-flake-probe`
-      entry (`data.run_id`, `data.checks_failed`). Do **not** increment
-      `ci_failure_cycles`. Return to the top of the Step 6a poll loop
-      (reset the poll-round counter).
-   3. On re-poll: **all green** → clear `flake_rerun_pending`, log the
-      probe outcome as `flake_confirmed: true`, advance to sub-step 5 as a
-      normal pass. The flake cost one extra CI wait and zero fix cycles.
-   4. On re-poll: **still failing** → clear `flake_rerun_pending`, log
-      `flake_confirmed: false` (reproducible), and enter the CI-failure
-      fix loop, which now legitimately consumes a `ci_failure_cycle`.
+   Non-green, `failure`, `partial`, launcher failure, or missing/malformed
+   CI data cannot enter review. Propagate `CI_NO_PROGRESS`, `CI_BLOCKED`,
+   `CI_WAIT_TIMEOUT`, `CI_REPAIR_LIMIT`, `CI_PR_CLOSED`, or another
+   returned halt code per the build registry. Keep CI_* in the R1 and CI-gate
+   log; use the operator-escalation audit mapping in § Error modes, retain the
+   worktree, and return failure with the PR and CI diagnostics. An actual
+   context handoff remains R1 `partial` with no human-review label and
+   `resume_point:"ci-poll"`; it still cannot advance. Missing CI-result
+   context uses `CI_BLOCKED`, never a fabricated green or an automatic re-plan.
 
-   `flake_rerun_pending` lives in `workflow-state.json` alongside
-   `ci_failure_cycles`; it is a per-PR one-shot, reset on both probe
-   outcomes and on PR merge. No new HALT code — the ceiling design (#288)
-   is unchanged; the probe only defers cycle consumption until a failure is
-   known to be reproducible. Disable with
-   `MAKATO_LOOP_CI_FLAKE_PROBE=0` (legacy straight-to-fix-loop behaviour).
-
-   Emit JSONL after each poll:
+   Emit one outcome row per result, not a local poll loop:
 
    ```json
-   {"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"ci-poll","status":"<ok|warn>","data":{"poll_round":<I>,"pr":<PR>,"all_passing":<bool>,"ci_failure_type":"sensor|test|build|unknown"}}
+   {"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"ci-gate","status":"<ok|error>","data":{"github_pr_number":<PR>,"head_sha":"<sha>","ci_status":"green|blocked|pending","repair_cycles":<N>,"unresolved_checks":[],"halt_code":null}}
    ```
 
-   The `ci_failure_type` field is only present when `all_passing` is
-   `false` and the CI-failure fix loop was entered.
-5. Optional: dispatch
-   `/makato-build:build-address-pr-comments <KEY> --autonomous` IFF
-   `gh pr view <PR> --json comments,reviews` reports pre-existing
-   unresolved feedback (e.g. re-used draft PR). Skipped on fresh PR.
+   Initial green continues to #5. Post-comments/conflict/new-HEAD green returns
+   to #6 (review poll); never re-run a successful comments commit/push.
+5. If the reused/current PR has pre-existing unresolved feedback, dispatch
+   `/makato-build:build-address-pr-comments <KEY> --autonomous` with
+   `PR_NUMBER`, `REPO`, `WORKTREE_PATH`, `REPO_ROOT`,
+   `MAKATO_BUILD_ROOT`, optional sibling roots, `SPEC_FOLDER`, and
+   `JSONL_PATH`. Apply the comment-repair result handoff below. Successful
+   source repairs return to #4's shared gate before #6, not another push.
+   If no unresolved feedback exists, continue to #6.
 6. **Step 6b — Review poll.** Record the wait start time and set
    `REVIEW_WAIT_SECS = ${MAKATO_REVIEW_WAIT_SECS:-3600}` — the wall-clock
    ceiling on the first-review wait (external-actor timeout; default 60 min,
@@ -938,14 +965,18 @@ row). The `gh`-only polls (CI, review) are narrated with a single
      applied `needs-human-review` where applicable. Retain the worktree,
      emit session-end JSONL, return R1 `failure` with that `data.halt_code`.
    - `kill-switch handoff <KEY>` — exit `2` → HANDOFF: patch
-     `resume_point: "review-poll"` (so the fresh session re-enters this poll,
-     not the top of the PR pipeline — `github_pr_number` is already on state),
-     emit the handoff JSONL, return R1 `partial` with `data.handoff: true`
-     (NO `needs-human-review`). Exit `1` → HALT-007 fallback, R1 `failure`.
+     `resume_point:"review-poll"` (the fresh session revalidates CI at #4
+     before returning here; `github_pr_number` is already on state), emit
+     handoff JSONL, return R1 `partial` with `data.handoff:true` and no
+     human-review label. Exit `1` → HALT-007 fallback, R1 failure.
 
-   Then run `gh pr view <PR> --json reviewDecision,state`:
+   Then run `gh pr view <PR> --repo "$REPO" --json reviewDecision,state,headRefOid`.
+   If an open PR's HEAD differs from the last successful CI SHA, re-enter #4
+   before interpreting its review decision. Lookup/parse failure blocks;
+   missing HEAD is never an unchanged-HEAD success.
 
-   - `state != "OPEN"` → PR resolved (merged/closed). Exit → sub-step 7.
+   - `state == "CLOSED"` → return `CI_PR_CLOSED` through #4's non-success route; closure without merge is not completion.
+   - `state == "MERGED"` → sub-step 7 only when its HEAD matches this run's confirmed green SHA; otherwise return `CI_BLOCKED` rather than invent CI evidence from the merge.
    - `reviewDecision == ""` (empty string) → **review is not required** by
      the repo — GitHub returns an empty `reviewDecision` only when the base
      branch has no protection rule mandating approvals (verify with
@@ -981,7 +1012,15 @@ row). The `gh`-only polls (CI, review) are narrated with a single
    {"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"review-poll","status":"<ok|warn>","data":{"pr":<PR>,"review_decision":"<decision>","human_review_cycles":<N>,"waited_secs":<S>}}
    ```
 
-7. Patch `current_phase: "done"`. **Promote generalizable lessons to the
+7. **Final freshness gate before completion.** For an open PR, dispatch
+   `build-fix-ci` once more with the same context and apply #4's exact R1/SHA
+   success validation here, without looping through #4's initial handoff path.
+   This catches same-SHA reruns started during review. Non-green results retain
+   the worktree and return non-success. If repair pushed a new SHA, return to
+   #6 for its review decision; otherwise re-read that decision and require it
+   still permits completion. A merged PR uses only the already-confirmed,
+   matching green evidence described in #6; a closed-unmerged PR never succeeds.
+   Only then patch `current_phase: "done"`. **Promote generalizable lessons to the
    committed store** while the per-issue sources still exist in the main
    checkout — this is the reliable local-lane promotion hook. The GHA
    post-merge path cannot see the gitignored sources
@@ -1017,7 +1056,7 @@ row). The `gh`-only polls (CI, review) are narrated with a single
    Emit session-end JSONL (Step 7). Return R1 `success` with
    `data.github_pr_number`.
 
-#### Conflict sub-loop (from Step 6 #2 or 6a rebase-check)
+#### Conflict sub-loop (from a real push rejection)
 
 1. Read `merge_conflict_cycles`. Already
    `>= MAKATO_MAX_MERGE_CONFLICT_CYCLES` (default 3) → HALT-008
@@ -1025,14 +1064,22 @@ row). The `gh`-only polls (CI, review) are narrated with a single
    `shared/post-halt-comment.sh HALT-008 $ISSUE_NUMBER $REPO` (best-effort),
    `worktree.sh retain <KEY> HALT-008`, session-end JSONL, R1 `failure`
    with `data.halt_code: "HALT-008"`.
-2. Dispatch `/makato-orchestrate:resolve-pr-conflict <KEY> --autonomous`.
-   The skill `cd`s into the worktree, attempts `git rebase origin/main`
-   with a `git merge -X ours` fallback, force-pushes on a clean tree,
-   writes its own `build.jsonl` events, and patches
-   `.merge_conflict_cycles` on the HALT path.
-3. Parse the skill's R1:
+2. Dispatch `/makato-orchestrate:resolve-pr-conflict <KEY> --autonomous`
+   with both workspace roots, `REPO`, the known PR number when available,
+   `MAKATO_BUILD_ROOT`, optional sibling roots, and artifact paths. The
+   resolver owns its rebase/partitioned-merge strategy and
+   `--force-with-lease` push; preserve its safety and cycle contracts.
+3. Parse the resolver's R1:
 
-   - `success` → re-dispatch `build-push-to-git`, re-enter Step 6 #3.
+   - `success` → it already pushed. Do **not** dispatch
+     `build-push-to-git` or duplicate that push. With a known open PR,
+     invalidate the previous green SHA and enter #4's shared CI gate directly.
+     If the first push failed before any PR existed, use the exact-branch
+     open-PR lookup: reuse its one match and enter #4; a successful zero-match
+     lookup dispatches idempotent `build-create-pr`, which waits for the same
+     gate, then consume its R1 at #3/#4. Failed/ambiguous lookup blocks.
+   - `partial` or missing/malformed R1 → no success handoff; retain the
+     worktree and return non-success (HALT-005 unless a specific code exists).
    - `failure` with `data.halt_code: "HALT-008"` → skill has already
      labelled, retained, and appended the lesson. Emit session-end
      JSONL, propagate the failure R1 with the same `data.halt_code`.
@@ -1047,69 +1094,21 @@ row). The `gh`-only polls (CI, review) are narrated with a single
    {"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"merge_conflict_detected","status":"warn","data":{"pr_push_errors":[...],"merge_conflict_cycles_before":<N>}}
    ```
 
-#### CI-failure fix loop (Step 6a test-failure path)
+#### Comment-repair result handoff
 
-1. Read `ci_failure_cycles`. Already `>= MAKATO_MAX_CI_FAILURE_CYCLES`
-   (default 3) → HALT-008 immediately: apply `needs-human-review`, also call
-   `shared/post-halt-comment.sh HALT-008 $ISSUE_NUMBER $REPO` (best-effort),
-   append `halt_audit[]` (`code: "HALT-008"`,
-   `data: {origin: "ci_failure", ci_failure_cycles}`, `retryable: false, origin: "human"` — see `halt-conditions.md ## HALT classification table`),
-   `worktree.sh retain <KEY> HALT-008`, session-end JSONL, R1 `failure`
-   with `data.halt_code: "HALT-008"`. This ceiling is checked directly
-   here — NOT via `kill-switch poll`, which enforces only the
-   `outer_iteration` re-plan budget. `ci_failure_cycles` is independent
-   of `outer_iteration` (#288) so a transient CI failure never consumes
-   the re-plan budget.
-2. Fetch the failed job log: `gh run view --log-failed` (truncate to
-   ≤ 4000 chars from tail). Append `trigger: ci_failure` lesson
-   (description truncated at 200 chars). `files_affected: []`.
-2.5. **Classify `ci_failure_type`** from the failed check name (from
-   `gh pr checks <PR> --json name,state,conclusion`, first failing entry)
-   and the CI log:
+`build-address-pr-comments` owns review → verify → commit → push for its
+source repairs. The PO-agent never repeats these operations after that skill.
+Require a valid R1 `status:"success"`, the same `github_pr_number`, and
+full `head_sha` matching both worktree HEAD and the current PR HEAD. Any
+`partial`, `failure`, launcher error, or missing/malformed result blocks
+review/merge progression; preserve the specific halt code (STRUCTURAL remains
+HALT-003), otherwise use HALT-002, retain the worktree, and return non-success.
+Keep the known PR and SHA on that path.
 
-   | Priority | Condition | `ci_failure_type` |
-   |----------|-----------|-------------------|
-   | 1 | Check name matches `(?i)(ruff\|pyright\|bandit\|biome\|sqlfluff\|markdownlint\|semgrep\|trivy\|gitleaks\|helm)` OR `parse-sarif.py --tool sarif < ci_log` exits 0 with ≥ 1 Finding | `"sensor"` |
-   | 2 | Check name matches `(?i)(pytest\|jest\|test\|coverage)` AND not already `"sensor"` | `"test"` |
-   | 3 | Check name matches `(?i)(build\|compile\|type.?check)` AND not already `"sensor"` | `"build"` |
-   | 4 | Fallback | `"unknown"` |
-
-   Emit `ci_failure_type` in the `ci-poll` JSONL row (see below).
-
-3. `ci_failure_cycles += 1`.
-4. **Route by `ci_failure_type`:**
-
-   **If `ci_failure_type == "sensor"`:**
-   1. Parse CI log into FINDINGS: `parse-sarif.py --tool sarif < ci_log`
-      (or `--tool pre-commit` if the log is pre-commit text format).
-      On parse failure (empty FINDINGS), fall through to the
-      `build-implement-tdd` path below.
-   2. Emit `sensor-delegated` row to `specs/<KEY>-*/build.jsonl`:
-
-      ```json
-      {"ts":"<ISO>","skill":"po-agent","step":"ci-poll","action":"sensor-delegated","key":"<KEY>","ci_failure_type":"sensor","dispatched_by":"po-agent"}
-      ```
-
-   3. Dispatch `sensor-fixer` agent with: `REPO_ROOT`, `FINDINGS`,
-      `SPEC_KEY=<KEY>`,
-      `CI_CONTEXT={"check_name":"<failed-check-name>","run_id":"<run-id>","ci_failure_type":"sensor"}`.
-   4. R1 `success` or `partial` → dispatch `build-push-to-git`, re-poll
-      CI from Step 6a top (reset poll counter).
-   5. R1 `failure` (residuals exhausted) → fall through to
-      `build-implement-tdd` dispatch below (escalation path).
-
-   **Otherwise (`"test"` | `"build"` | `"unknown"`):**
-   Dispatch `/makato-build:build-implement-tdd <KEY> --autonomous` with
-   `CI_FAILURE_LOG` added to the context bundle (alongside normal
-   fields). The skill identifies failing task(s) from the log, skips
-   the tracer bullet, and runs scout + RED/GREEN/INTEGRATE/VERIFY on
-   affected task(s).
-
-5. R1 `success` → dispatch `build-push-to-git`, re-poll CI from
-   Step 6a top (reset poll counter).
-6. R1 `failure` → HALT-STRUCTURAL, apply `needs-human-review`, also call
-   `shared/post-halt-comment.sh HALT-STRUCTURAL $ISSUE_NUMBER $REPO` (best-effort),
-   `worktree.sh retain <KEY> HALT-STRUCTURAL`, R1 `failure`.
+On success, preserve `pushed` and the SHA, invalidate the previous CI result,
+and enter Step 6 #4 for a fresh `build-fix-ci` invocation before returning to
+review polling. Do not trust a pre-comments green, infer current CI from local
+verification, invoke `build-push-to-git`, or create a second PR.
 
 #### Human-review fix loop (Step 6b CHANGES_REQUESTED)
 
@@ -1123,13 +1122,15 @@ row). The `gh`-only polls (CI, review) are narrated with a single
 3. Collect reviewer-flagged files from
    `gh pr view <PR> --json reviews --jq '[.reviews[].comments[]?.path | select(. != null)] | unique | .[]'`.
    Append `trigger: review_comment` lesson with those files.
-4. Dispatch `/makato-build:build-address-pr-comments <KEY> --autonomous`.
-   R1 `failure` → HALT-002 (label, also call `shared/post-halt-comment.sh HALT-002 $ISSUE_NUMBER $REPO` (best-effort), retain, R1 `failure`).
-5. R1 `success` → dispatch `build-push-to-git`, re-poll from Step 6b
-   top.
+4. Dispatch `/makato-build:build-address-pr-comments <KEY> --autonomous`
+   with the complete PR/worktree/plugin/artifact bundle from Step 6 #5.
+5. Apply the comment-repair result handoff above. A successful already-pushed
+   repair re-enters #4's shared CI gate and only then returns to the review
+   poll. Failure/partial is not approval, and does not trigger a redundant
+   commit, push, PR creation, or another source-repair loop here.
 
-The loop is bounded by HALT-010; it exits only on PR merge/close,
-APPROVED, or HALT-010.
+The review loop remains bounded by HALT-010. Shared CI failures propagate
+their own halt codes; they never consume a human-review or re-plan retry.
 
 ### Step 7 — Session-end JSONL and R1
 
@@ -1238,6 +1239,11 @@ Sub-agent totals are captured in each sub-task's
   "data": {
     "issue_number": <N>,
     "github_pr_number": <M>,
+    "head_sha": "<last-confirmed-green-head-sha>",
+    "ci_status": "green",
+    "repair_cycles": <N>,
+    "unresolved_checks": [],
+    "halt_code": null,
     "sub_tasks_complete": <K>,
     "outer_iterations": <I>,
     "session_count": <S>
@@ -1259,9 +1265,10 @@ Sub-agent totals are captured in each sub-task's
   "tool_calls_used": <int>,
   "data": {
     "issue_number": <N>,
+    "github_pr_number": <M-or-null>,
     "handoff": true,
     "session_count": <S+1>,
-    "resume_point": "<task:N | build-verify | pr-comments>"
+    "resume_point": "<task:N | build-verify | ci-poll | review-poll | pr-comments>"
   }
 }
 ```
@@ -1280,13 +1287,29 @@ Sub-agent totals are captured in each sub-task's
   "tool_calls_used": <int>,
   "data": {
     "issue_number": <N>,
-    "halt_code": "<HALT-XXX>",
+    "github_pr_number": <M-or-null>,
+    "head_sha": "<known-head-sha-or-null>",
+    "ci_status": "blocked" | "pending" | null,
+    "repair_cycles": <N-or-null>,
+    "unresolved_checks": [ /* exact shared diagnostics when present */ ],
+    "halt_code": "<HALT-XXX-or-CI_CODE>",
     "halt_data": { /* halt_audit[-1].data payload */ }
   }
 }
 ```
 
 ## Error modes
+
+**Shared CI operator escalation:** preserve the exact `CI_*` code in R1
+`data.halt_code` and the `ci-gate`/terminal JSONL. These build-skill codes
+are not valid numeric orchestration audit codes: apply the existing
+operator-escalation route using `HALT-005` for `append-halt`, retain, and
+halt-comment helpers, with `data.source_halt_code` carrying the original CI
+code plus sanitized PR/SHA/check names and redacted errors. Never copy full CI
+logs, credentials, or unsanitized diagnostic text into public audit/comments. Classify the audit
+`origin:"human",retryable:false`; do not emit planning/reshape signals or
+map CI outcomes to HALT-008. Return the original CI code, not HALT-005, in
+the PO-agent's R1. The helper protocol below applies to that mapped audit code.
 
 Every terminal HALT path (except HALT-007B) MUST run in order before
 session-end JSONL and R1 `failure`:
@@ -1354,7 +1377,8 @@ fires — the audit log records every HALT code.
 | HALT-007                  | budget (`kill-switch poll`)                                                                                                                                                                                                                                                                                                           | `kill-switch poll`                                      |
 | HALT-007B                 | context ceiling (`kill-switch handoff`)                                                                                                                                                                                                                                                                                               | nobody — R1`partial`, no label                         |
 | HALT-008 (outer-iter)     | `outer_iteration >= 3` (`kill-switch poll`)                                                                                                                                                                                                                                                                                         | `kill-switch poll`                                      |
-| HALT-008 (merge-conflict) | `merge_conflict_cycles >= MAX` (`resolve-pr-conflict`)                                                                                                                                                                                                                                                                              | `resolve-pr-conflict`                                   |
+| HALT-008 (merge-conflict) | `merge_conflict_cycles >= MAX` (`resolve-pr-conflict`) | `resolve-pr-conflict` |
+| HALT-005 (shared CI) | Shared `build-fix-ci` operator-escalation result; preserve returned CI_* in R1 and audit it as `source_halt_code` | **PO-agent** |
 | HALT-009                  | `claude-halt` label on issue                                                                                                                                                                                                                                                                                                          | `kill-switch poll`                                      |
 | HALT-010                  | `human_review_cycles >= MAX`                                                                                                                                                                                                                                                                                                          | **PO-agent**                                        |
 | HALT-011                  | `check-session-tail.sh` verdict `silent` — sub-skill exited without a terminal `step:"session"` line (#175)                                                                                                                                                                                                                      | **PO-agent**                                        |
@@ -1373,7 +1397,7 @@ label directly without checking the current label set.
 | Required input field missing                                                                                  | R1`failure` with `errors: ["missing input: <field>"]`; no HALT                                                                                             |
 | `gh` CLI not authenticated                                                                                  | HALT-006 (issue cannot be read); R1`failure`                                                                                                                 |
 | `kill-switch` skill missing                                                                                 | HALT-006 (plugin partially installed); R1`failure`                                                                                                           |
-| Sub-agent R1 unparseable                                                                                      | Treat as`failure`; route to Step 4f. Second failure on same outer attempt → HALT-STRUCTURAL.                                                                |
+| Sub-agent R1 unparseable | Treat as `failure`. PR/push/CI pipeline outcomes preserve known PR metadata and block via Step 6 #3/#4; never re-plan or start review. Other sub-agent failures route to Step 4f; second failure on the same outer attempt → HALT-STRUCTURAL. |
 | Sub-agent R1`failure` with build-skill code (`MISSING_INPUT`, `BASELINE_BROKEN`, `PUSH_REJECTED`, …) | Read`data.halt_code` first, then fall back to parsing the `[A-Z_]+:` prefix from `errors[0]`. Recovery route per `plugins/makato-build/halt-codes.md`. |
 
 ## Progress comment
@@ -1424,12 +1448,13 @@ state), and rolls over to a fresh comment near GitHub's 65 536-char limit.
 | Step 6 #1a | `build-verify-spec` | `(script)` | confirm implementation satisfies plan.md and stories.json |
 | Step 6 #1b | `build-runtime-qa` | `runtime-qa` | exercise the built app via Playwright MCP and score against acceptance criteria |
 | Step 6 #2 | `build-push-to-git` | *(no sub-agent)* | save the finished changes, push to the remote and open a pull request |
+| Step 6 #4 | `build-fix-ci` | `CI repair skill` | inspect the current PR HEAD and repair CI until green or explicitly blocked |
 | Step 6 #5 / 6b | `build-address-pr-comments` | `fix agent` | resolve the review comments on the pull request |
 | Conflict sub-loop | `resolve-pr-conflict` | *(no sub-agent)* | resolve the merge conflict between branches |
 
-For CI-failure and human-review fix loops, reuse the row for the
-re-dispatched skill; add a `note` describing why the loop was entered
-(e.g. "CI tests failed — the agent will try to fix the problem.").
+For a repeated shared CI gate or human-review repair, reuse its row and add
+a `note` describing the trigger (resume, changed HEAD, or review-fix push).
+Never duplicate the CI skill's internal polling/repair narration.
 
 **Setup-phase notes** (fired via `progress-comment.sh note` before any skill dispatch):
 
@@ -1507,9 +1532,9 @@ caller.
   `build-implement-tdd` / `build-implement-goal`.
 - **Per-task dispatch** — the outer loop is plan-level; one
   implementation-skill dispatch per outer iteration.
-- **Direct `coder` invocation** — CI-failure recovery, re-plan, and
-  fresh implementation all go through `build-implement-tdd` /
-  `build-implement-goal`.
+- **Direct `coder` invocation** — fresh/re-plan work goes through the
+  implementation skills; CI source recovery is delegated to `build-fix-ci`
+  and its structured `CI_FAILURES` routing.
 - **Issue decomposition or planning** — `plan-<ISSUE_NUMBER>.md` must exist at
   dispatch time; `makato-plan` and `build-refine` are the operator's
   responsibility upstream. **Narrow exception (#200, #527):** for an issue
@@ -1541,6 +1566,8 @@ caller.
 - `plugins/makato-orchestrate/skills/resolve-pr-conflict/SKILL.md` —
   the conflict-resolution subroutine dispatched on push and
   rebase-check failures.
+- `plugins/makato-build/skills/build-fix-ci/SKILL.md` — shared SHA-bound CI
+  inspection/repair owner, invoked on creation, resume, and repair pushes.
 - `plugins/makato-orchestrate/shared/workflow-state.sh`,
   `shared/worktree.sh` — orchestration helpers.
 - `plugins/makato-build/agents/RETURN-CONTRACT.md` — the R1 envelope

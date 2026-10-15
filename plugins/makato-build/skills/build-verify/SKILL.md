@@ -20,6 +20,15 @@ Use after `/review` and before `/push-to-git`. The code has been reviewed and si
 This step answers: *"Does it actually work?"* — build succeeds, lint passes, all tests
 pass, coverage is met.
 
+All audit writes use `"$MAKATO_BUILD_ROOT/shared/build-log.sh"`. Construct dynamic
+JSON with `jq -cn` and pass `"$ENTRY"` as one argument without another shell-parsing
+layer; never interpolate JSON inside an outer quoted `bash -c` command. Check the
+helper exit code and fix rejected quoting instead of appending raw text.
+
+Each child must read the R1 return contract and end with its fenced JSON envelope,
+including `tool_calls_used`. Preserve already measured gate evidence when fixing a
+return-format error; never invent a child result or count invalid returns as passes.
+
 ## Anti-patterns
 
 These failure modes are only learnable from production incidents — they are non-obvious

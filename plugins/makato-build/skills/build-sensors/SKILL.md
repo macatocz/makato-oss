@@ -41,6 +41,16 @@ Before executing helper commands, resolve `MAKATO_BUILD_ROOT` from
 source-checkout fallback under `REPO_ROOT/plugins/makato-build`). Do not search
 the consumer repository for installed plugin files.
 
+Read `$MAKATO_BUILD_ROOT/agents/RETURN-CONTRACT.md` before execution. Every exit,
+including clean short-circuits and setup failures, uses the final fenced JSON R1
+envelope below, with every required field including `tool_calls_used`. Never return
+the legacy bare sensor payload or an unfenced JSON object.
+
+Write audit events only through `"$MAKATO_BUILD_ROOT/shared/build-log.sh"`. Build
+JSON with `jq -cn` and pass the resulting variable as one quoted argument. Do not
+interpolate JSON into an outer quoted `bash -c` command or append raw/pretty JSON
+directly to `build.jsonl`; fix a rejected logging invocation before continuing.
+
 ---
 
 ## Steps
@@ -51,11 +61,11 @@ the consumer repository for installed plugin files.
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 ```
 
-Abort with `{ok: false, error: "not-a-git-repo"}` if this fails.
+If this fails, return R1 `status: "failure"` with `errors: ["not-a-git-repo"]`.
 
-Confirm `pre-commit` is installed: `pre-commit --version`. If not found, abort with
-`{ok: false, error: "pre-commit-not-installed"}` — do NOT install it silently, as
-the hook configuration is repo-managed.
+Confirm `pre-commit` is installed: `pre-commit --version`. If not found, return R1
+`status: "failure"` with `errors: ["pre-commit-not-installed"]`. Do not install it
+silently, as the hook configuration is repo-managed.
 
 ### Step 2 — Resolve scope → hook stage + file list
 
@@ -105,11 +115,12 @@ Persist stdout+stderr to `$REPO_ROOT/.pre-commit-trash/run-<ts>.log`.
 
 ### Step 4 — Short-circuit on clean run
 
-If exit code == 0, append to `specs/<spec_key>/build.jsonl`:
+If exit code == 0, emit this event through the build-log helper:
 ```json
 {"ts": "<ISO-8601>", "action": "sensors-clean", "scope": "<scope>", "loops": <n>}
 ```
-Return `{ok: true, loops: <n>, resolved: [], residual: [], jsonl_path: "specs/<spec_key>/build.jsonl"}`.
+Return the Output R1 envelope with `data.ok: true`, the actual loop count, empty
+resolved/residual arrays and the repo-relative audit path.
 
 ### Step 5 — Collect and normalise findings
 
@@ -140,6 +151,8 @@ Re-run pre-commit with the same scope (Steps 3–7) until:
 
 ### Step 8 — Write outcome to build log
 
+Emit the outcome through the same build-log helper, never direct file appends.
+
 ```json
 {"ts": "<ISO-8601>", "action": "sensors-loop-complete", "scope": "<scope>",
  "loops": <n>, "resolved": [...], "residual": [...]}
@@ -149,18 +162,34 @@ Re-run pre-commit with the same scope (Steps 3–7) until:
 
 ## Output
 
+The final content must be a fenced `json` block conforming to R1. Put the sensor
+payload under `data`; callers read `data.ok` and `data.residual`, not top-level
+legacy fields. Use actual measured values in place of the example counts.
+
 ```json
 {
-  "ok": true | false,
-  "loops": <int>,
-  "resolved": [<Finding>, ...],
-  "residual": [<Finding>, ...],
-  "jsonl_path": "specs/<spec_key>/build.jsonl"
+  "schema": "r1",
+  "agent": "build-sensors",
+  "status": "success",
+  "summary": "All selected sensor hooks passed.",
+  "files_changed": [],
+  "tests_written": [],
+  "errors": [],
+  "tool_calls_used": 0,
+  "data": {
+    "ok": true,
+    "loops": 0,
+    "resolved": [],
+    "residual": [],
+    "jsonl_path": "specs/<spec_key>/build.jsonl"
+  }
 }
 ```
 
-`ok` is `true` when the final pre-commit run exits 0. `ok: false` with `residual` populated
-means the loop hit `MAX_LOOPS` — report and hand off; do not retry.
+`data.ok` is true only when the final pre-commit run exits 0. Setup or execution
+failures return `status: "failure"`, `data.ok: false` and non-empty `errors`.
+Residual findings at `MAX_LOOPS` return `partial` in ordinary sensor mode, or
+`failure` during CI repair; include every residual and never claim success.
 
 ---
 

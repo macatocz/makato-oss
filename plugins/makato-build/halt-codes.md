@@ -24,11 +24,15 @@ The PO-agent reads each skill's R1 envelope and selects a recovery route from th
 
 Routes are advisory for the PO-agent — operators can override per-issue. The table below documents the **default** route; deviations belong in the issue's lessons-learned audit, not in this registry.
 
+For CI operator escalation, numeric orchestration helpers receive HALT-005.
+Keep the original CI_* token in R1 and in audit data.source_halt_code, with
+sanitized check names and outcomes only; private diagnostic logs stay private.
+
 ## Registry
 
 | Code | Origin skills | Route | Description |
 |------|---------------|-------|-------------|
-| `MISSING_INPUT` | `build-refine`, `build-implement-tdd`, `build-implement-goal`, `build-simplify`, `build-review`, `build-verify`, `build-push-to-git`, `build-create-pr`, `build-address-pr-comments` (Step 1a / entry guard) | refine | A required input field (`<work-item-key>`, `WORKTREE_PATH`, etc.) is absent from the autonomous dispatch bundle. Caller must re-dispatch with the missing field populated. |
+| `MISSING_INPUT` | `build-refine`, `build-implement-tdd`, `build-implement-goal`, `build-simplify`, `build-review`, `build-verify`, `build-push-to-git`, `build-create-pr`, `build-address-pr-comments`, `build-fix-ci` (entry guard) | refine | Required dispatch input is absent. Caller must supply it; a CI recovery invocation must preserve the existing PR rather than create or re-plan one. |
 | `DOR_NOT_READY` | `build-start` (Step 1b) | operator-escalation | The board item's Status is not Ready (e.g. Todo, Blocked, In Progress). The PO must move the issue to Ready before a build session can start. In autonomous mode the skill returns R1 `status:"failure"` with `data.halt_code:"DOR_NOT_READY"` rather than a warn-and-continue. |
 | `MISSING_PLAN` | `build-refine` (Step 3, plan-only path), `build-simplify`, `build-implement-tdd`, `build-implement-goal` (Step 1) | refine | `plan.md` not found in `specs/<key>-*/`. On the `spec_tier:plan-only` path, `plan.md` is the sole acceptance source — caller must run the light-planner / `seed-issue` that materializes it. |
 | `MISSING_ACCEPTANCE` | `build-refine` (Step 4, plan-only path) | refine | The work item is `spec_tier:plan-only` but `plan.md`'s `## Acceptance criteria` section is absent or empty (placeholder/whitespace treated identically to missing). Caller must add at least one concrete acceptance criterion to `plan.md` before re-dispatch. |
@@ -41,7 +45,7 @@ Routes are advisory for the PO-agent — operators can override per-issue. The t
 | `UNVERIFIED_HALT` | `build-simplify` (Step 7a, interactive only) | operator-escalation | Interactive prompt answered `n` — user rejected hand-off of unverified code-file changes (no test runner available to confirm). Applied diffs are reverted before exit. Autonomous mode does not emit this code; it emits `degraded_confidence: true` in the R1 `data` instead. |
 | `BUILD_FAILED` | `build-address-pr-comments` (Step 7) | refine | Applying PR-review fixes broke the build or unit tests beyond what the fix-vs-escalate decision tree can recover. |
 | `PROTECTED_BRANCH` | `build-push-to-git` (Step 1), `build-address-pr-comments` (Step 1) | operator-escalation | The branch is `main` or `master`. Commits and pushes must happen on a feature branch. |
-| `NOTHING_TO_COMMIT` | `build-push-to-git` (Step 3) | operator-escalation | The working tree is clean. The dispatcher's mental model of "there are changes to ship" diverges from disk; the operator must reconcile. |
+| `NOTHING_TO_COMMIT` | `build-push-to-git` (Step 3) | operator-escalation | Normal push found a clean working tree. Existing-PR repair mode instead pushes already-created commits and returns the real HEAD; it never creates an empty commit. |
 | `COMMIT_FAILED` | `build-push-to-git` (Step 5) | operator-escalation | `git commit` returned non-zero. Causes include pre-commit hook failures the sensor harness already failed to repair (so this code typically appears alongside `HALT-001`). |
 | `PUSH_REJECTED` | `build-push-to-git` (Step 7), `build-address-pr-comments` (Step 8) | operator-escalation | `git push` rejected by the remote. Causes: pre-push hook denial, diverged remote requiring rebase (route through `resolve-pr-conflict` separately), auth failure. Surfaces as `HALT-005` at the PO-agent level. |
 | `UNPUSHED_COMMITS` | `build-create-pr` (Step 1) | operator-escalation | Local commits ahead of the upstream tracking branch. Run `/makato-build:build-push-to-git` first. |
@@ -54,6 +58,11 @@ Routes are advisory for the PO-agent — operators can override per-issue. The t
 | `RUNTIME_QA_BLOCKED` | `build-runtime-qa` (Step 4) | operator-escalation | The `runtime-qa` agent found at least one CRITICAL finding when exercising the built app. The build is blocked from being pushed until the CRITICAL issue is resolved. Operator must inspect the `build.jsonl` `step:"runtime-qa-findings"` entry for the classified findings and fix before re-dispatching. |
 | `PLAN_ANALYST_FAILED` | `build-implement-tdd` (Step 4), `build-implement-goal` (Step 4) | operator-escalation | plan-analyst agent returned an error or empty task list; plan structure is ambiguous, session cannot proceed. Caller must verify `plan.md` contains well-formed tasks with explicit `mode:` fields before re-dispatch. |
 | `CANARY_FAILED` | `build-start` (Step 2.75) | operator-escalation | The canary test run (a single execution of the project's unit command with `--timeout 30` or equivalent) failed before `build-refine` was dispatched. Indicates the test framework itself is broken or the baseline is already red — `build-refine` would plan on a broken foundation. Operator must restore a green baseline before re-dispatching `build-start`. |
+| `CI_BLOCKED` | `build-fix-ci` | operator-escalation | CI inspection, diagnostics, repair or verification cannot proceed safely; preserve unresolved checks and concrete prerequisite. |
+| `CI_WAIT_TIMEOUT` | `build-fix-ci` | operator-escalation | Pending/missing CI exceeded its wall-clock deadline; not a source-code failure. |
+| `CI_NO_PROGRESS` | `build-fix-ci` | operator-escalation | Two completed repairs leave identical diagnosed root causes without verified improvement. |
+| `CI_REPAIR_LIMIT` | `build-fix-ci` | operator-escalation | Operator-configured positive repair limit exhausted; the default is no fixed limit. |
+| `CI_PR_CLOSED` | `build-fix-ci` | operator-escalation | PR closed or merged during inspection; do not mutate it or equate closure with CI success. |
 
 ## Caller contract
 

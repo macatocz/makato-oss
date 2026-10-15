@@ -5,6 +5,16 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Changed — delegate CI recovery to the shared coordinator
+
+- PO-agent consumes `build-fix-ci` results instead of duplicating the CI poll and
+  TDD-only repair loop. Review/conflict pushes and `ci-poll` resume re-enter the
+  current-head gate before approval or completion.
+- Preserve the PR number on failed CI handoffs and mirror returned repair counts.
+  CI blockers retain their source token through the existing HALT-005 audit route.
+- Removed obsolete flake-probe state and prompt-wording CI classification tests.
+  In-flight state upgrades must remove `flake_rerun_pending` before resumption.
+
 ### Fixed — mandatory blocking review before verification
 
 - PO-agent now dispatches `build-review` before `build-verify` and accepts only

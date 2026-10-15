@@ -5,7 +5,7 @@ description: >-
   autofix (targeted CLI retry), tech-skill route (action `skill` or `autofix-then-skill`
   fallback), safe-automated action (redact/upgrade/suppress), or carry-over to draft PR.
   Use when sensor-fixer dispatches a finding for repair.
-version: "1.1.0"
+version: "1.2.0"
 argument-hint: "{finding JSON object from sensor-fixer}"
 allowed-tools: all
 metadata:
@@ -80,6 +80,14 @@ The caller passes a single finding object. The canonical Finding contract is doc
 in effect. **Reserved/inert (#287):** no runtime consumes `model_override` yet — this skill is
 invoked via the Skill tool, which has no `model` parameter, so the field is documented for a
 future Agent-tool-based dispatch but currently has no effect.
+
+Optional `CI_CONTEXT` from `sensor-fixer` activates remote-CI recovery.
+Preserve it across nested skill dispatches. In this mode, do not use suppressions,
+ignore lists or carry-over to resolve a finding: if a genuine source/dependency
+repair is unavailable, return `outcome:"failed"` with the concrete reason.
+Branch 4 returns this failure without editing PR bodies or creating carry-over
+artifacts. This overrides local-commit carry-over and suppression defaults below.
+Use the supplied worktree and audit destination, never the common checkout for edits.
 
 The route lookup key is `"<tool>:<rule>"` — concatenation of `tool` and `rule`.
 
@@ -172,13 +180,16 @@ call had a non-fatal failure on an unrelated file that aborted before reaching t
                                          (Phase 0 already ran route.cmd)
 3. Load skill: skill_name (e.g. "makato-build:build-fix-types",
    "makato-doc:markdown", "makato-build:build-simplify").
-4. Pass {finding, repo_root} to that skill.
+4. Pass {finding, repo_root, MAKATO_BUILD_ROOT}; when CI_CONTEXT is present,
+   explicitly add {CI_CONTEXT, WORKTREE_PATH, SPEC_FOLDER, JSONL_PATH} unchanged.
+   Never rely on ambient context to activate nested CI safety policy.
 5. Skill applies pattern in-place. ONE fix attempt only.
 6. Re-run originating hook on <path>.
 7. If outcome == "resolved": report resolved, set skill_used = skill_name.
    If outcome == "failed":   report failed.
    If called skill itself HALTs (returns a HALT code): do NOT re-invoke.
-        Record the HALT code + skill_name in Branch 4 carry-over as
+        In CI_CONTEXT: report outcome="failed" with the concrete code; no carry-over.
+        Otherwise record the code + skill_name in Branch 4 carry-over as
         "skill-halted: <code>" reason. outcome = "carry-over".
 ```
 
