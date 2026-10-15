@@ -10,6 +10,14 @@ here on merge to main; release-please will date and version them at the next rel
 
 ## [Unreleased]
 
+### Changed — lightweight skill model roles
+
+- Set makato-build:build-push-to-git and makato-build:build-create-pr to the built-in OMP
+  `COMMIT` role (`@commit`), retaining inherited effort.
+- Set makato-build:build-sensors, makato-build:inject-context, makato-build:inject-skills,
+  makato-plan:issue-to-project, and makato-plan:manage-stores to the OMP `TINY` role (`@tiny`),
+  retaining inherited effort.
+
 ### Added — autonomous current-head CI repair
 
 - Added `build-fix-ci` and executable all-check inspection with exact run/job/attempt
