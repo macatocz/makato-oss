@@ -1,0 +1,23 @@
+name: CI repair sandbox
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tests/fixtures/ci-repair-sandbox/**'
+      - '.github/workflows/ci-repair-sandbox.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  invoice-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - run: python3 -m unittest discover -s tests/fixtures/ci-repair-sandbox -p test_invoice.py
+  service-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - run: python3 -m unittest discover -s tests/fixtures/ci-repair-sandbox -p test_config.py
