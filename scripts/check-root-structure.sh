@@ -10,6 +10,7 @@ ALLOWED=(
   ".claude-plugin"
   ".devcontainer"
   ".github"
+  ".joule"
   ".makato"
   ".git"
   "plugins"

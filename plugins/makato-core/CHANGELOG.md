@@ -5,6 +5,10 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Fixed — Root structure validation
+
+- Allow the tracked `.joule/` directory in the repository-root directory allowlist.
+
 ### Added — Workflow skill execution configuration
 
 - The workflow-schema wizard and field reference preserve and document `skill_execution`
