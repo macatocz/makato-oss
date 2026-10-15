@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.167.0](https://github.com/macatocz/makato-oss/compare/v0.166.0...v0.167.0) (2026-10-15)
+
+
+### ✨ Features
+
+* configure per-skill model roles and reasoning effort ([#124](https://github.com/macatocz/makato-oss/issues/124)) ([c6732a0](https://github.com/macatocz/makato-oss/commit/c6732a01ebe8b91cd58f02224e476b4d33204ce8))
+
 ## [0.166.0](https://github.com/macatocz/makato-oss/compare/v0.165.2...v0.166.0) (2026-10-12)
 
 
