@@ -1,6 +1,14 @@
 <!-- markdownlint-disable MD012 MD013 -->
 # Changelog
 
+## [Unreleased]
+
+### Added — Role-based workflow dispatch
+
+- Route analyze, design, execute, and resolve-review through the public skill launcher,
+  preserving the full context bundle between separate OMP processes. Resolve role and
+  effort from workflow-schema.yml and concrete model providers from OMP `modelRoles`.
+
 ## quality-guard scopes checks to touched stacks (changed-files scoping)
 
 Scopes the `quality-guard` quality gate to the stacks a change actually touches.

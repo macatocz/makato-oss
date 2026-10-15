@@ -7,8 +7,7 @@ description: >-
   SUGGESTION and NITPICK findings. Autonomous. Use after simplify, before
   verify. Trigger keywords: review, adversarial, diff-review, code-review,
   quality-gate, build-review, check implementation.
-version: "1.5.0"
-modelRole: advisor
+version: "1.6.0"
 argument-hint: "[work-item-key]"
 allowed-tools:
   - Bash

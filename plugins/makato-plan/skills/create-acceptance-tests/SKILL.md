@@ -5,8 +5,7 @@ description: >-
   (3-5 per foundation/happy-path story, 1-3 per edge-case story). Use after
   decompose to create acceptance tests, generate Gherkin scenarios, or refine
   test cases.
-version: "1.4.0"
-modelRole: commit
+version: "1.5.0"
 argument-hint: "[slug]"
 allowed-tools: [Read, Write, Agent, Bash]
 metadata:

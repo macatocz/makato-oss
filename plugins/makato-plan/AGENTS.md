@@ -9,9 +9,17 @@
 - **All output artifacts (`stories.json`, `prd.md`, `design.md`, `created-issues.json`) are the authoritative inputs for `makato-build`.** Do not bypass them by writing plan-tier content directly into source trees.
 - **`to-issues` is the canonical bridge to GitHub and must be idempotent.** Do not write ad-hoc issue-creation code; re-running must not create duplicates.
 - **`decompose` output (`stories.json`) must not be mutated after `to-issues` has run.** It is the authoritative contract between shaping and development.
-- **Opus-model skills must not be downgraded without a quality experiment.** Interview quality is the dominant cost driver — do not change a skill's model to save tokens without measurement.
+- **Planning and review role assignments are quality-sensitive.** Choose their concrete models deliberately; evaluate quality when changing them.
 - **`acceptanceTestCases[]` is QA-refined, not PO opinion.** Never substitute `successScenarios[]` for the test oracle — they serve distinct roles.
-- **Cross-skill resources must live in `shared/` via symlink**, never via `../` paths. Cross-plugin sharing is not permitted.
+- **Cross-skill resources must live in `shared/` via symlink**, never via `../` paths. Cross-plugin sharing is limited to documented public contracts, including the skill launcher.
+
+## Role-based skill execution (OMP)
+
+**OMP only:** apply this boundary when the resolved `MAKATO_HARNESS_MODE` is `omp`; other harnesses retain their native skill invocation behavior.
+Execute workflow skills through `python3 "$MAKATO_SKILL_RUNNER" --repo-root "$REPO_ROOT" --cwd "${WORKTREE_PATH:-$REPO_ROOT}" --context-file "$CONTEXT_FILE" <plugin:skill> -- <args>`. Resolve the launcher from `$MAKATO_BUILD_ROOT/scripts/run-skill.py` when unset.
+This public cross-plugin contract applies to follow-on skills and retries, not reference reads or ordinary helper agents. Run the current selected skill inline; never self-dispatch.
+Forward the full context bundle, wait for the result, and propagate failure without inline fallback. Use `--interactive` before the skill name for human interviews; headless missing input returns to the coordinator.
+Policy: `skill_execution` in workflow-schema.yml; concrete model mapping: OMP `modelRoles`. Bare OMP skill reads/slash commands do not switch models. See `docs/workflow-schema.md`.
 
 ## Goal
 
@@ -64,7 +72,7 @@ Development teams own that next step.
 - No `../` paths in skill files. Cross-skill content is exposed via a `shared/` symlink at the skill root that targets `../../shared` (the plugin-level `shared/` directory).
 - References loaded at point of use, not front-loaded
 - Frontmatter required: name, description, version
-- **Model selection:** long-form skills that drive multi-round interviews, run sub-agents in parallel, or make judgment-heavy slicing/architecture decisions declare `model: opus` (currently: brainstorming, grill, create-prd, create-architecture, create-prototype, create-ux, decompose). Short, structure-bound skills (to-issues, issue-to-project, create-acceptance-tests, excalidraw) inherit the session default. Don't change a skill's model without an explicit quality experiment — interview quality is the dominant cost, not token spend.
+- **Model selection:** configure provider-neutral roles and effort in `skill_execution` in the workflow schema. Concrete provider/model choices belong to the runtime role mapping, not skill frontmatter.
 - **Cross-skill resources** live in `shared/` at the plugin root. Each consuming skill carries a symlink `skills/<name>/shared` → `../../shared`, so skill files reference resources as plain `shared/<file>.md` (no `../`). Claude Code's plugin cache preserves symlinks that resolve within the plugin's own directory ([docs](https://code.claude.com/docs/en/plugins-reference#share-files-within-a-marketplace-with-symlinks)) — no env-var dance needed. To add a new consumer: `cd plugins/makato-plan/skills/<name> && ln -s ../../shared shared`.
   - **Windows contributors:** ensure `git config --global core.symlinks true` (default on modern installs). To create the symlink without git, use `mklink /D shared ..\..\shared` from an elevated Command Prompt, or enable Developer Mode for unprivileged symlink creation.
   - Current contracts:
@@ -97,45 +105,20 @@ makato-plan dispatches read-only specialists for context discovery, multi-perspe
 
 ## File Structure
 
-```
+```text
 makato-plan/
-├── .claude-plugin/
-│   └── plugin.json
-├── agents/
-│   ├── acceptance-writer.md
-│   ├── context-scout.md
-│   ├── dev-reviewer.md
-│   ├── doc-writer.md
-│   ├── po-reviewer.md
-│   ├── prototype-builder.md
-│   └── qa-reviewer.md
-├── skills/
-│   ├── brainstorming/
-│   ├── create-acceptance-tests/
-│   ├── create-architecture/
-│   ├── create-prd/
-│   ├── create-prototype/
-│   ├── create-ux/
-│   ├── decompose/
-│   ├── excalidraw/
-│   ├── stress-test-artifact/
-│   ├── issue-to-project/
-│   └── to-issues/
-├── config/
-│   ├── general.yml                ← central plugin config with inline comments (TeamSize, Status, agents, …)
-│   ├── skill-bundles.yml
-│   └── task-skill-map.json
-├── schemas/
-│   ├── config.schema.json
-│   └── general.config.schema.json ← JSON Schema for config/general.yml
-├── shared/
-│   ├── refinement-contract.md
-│   ├── repositories-yml-schema.md
-│   ├── scenario-schema.md
-│   └── terminology.md
-├── CLAUDE.md
-├── AGENTS.md
-├── CHANGELOG.md
+├── .claude-plugin/plugin.json
+├── agents/    acceptance-writer.md, context-scout.md, dev-reviewer.md, doc-writer.md,
+│              po-reviewer.md, prototype-builder.md, qa-reviewer.md
+├── skills/    brainstorming, create-acceptance-tests, create-architecture, create-prd,
+│              create-prototype, create-ux, decompose, excalidraw, stress-test-artifact,
+│              issue-to-project, to-issues
+├── config/    general.yml (central config: TeamSize, Status, agents, …),
+│              skill-bundles.yml, task-skill-map.json
+├── schemas/   config.schema.json, general.config.schema.json (config/general.yml schema)
+├── shared/    refinement-contract.md, repositories-yml-schema.md, scenario-schema.md,
+│              terminology.md
+├── CLAUDE.md, AGENTS.md, CHANGELOG.md
 └── README.md
 ```
 
@@ -176,7 +159,7 @@ Controls whether deployment, rollout, and release-planning sections are included
 
 See `config/general.yml` for inline comments on every property, and `schemas/general.config.schema.json` for the full validation schema.
 
-**Note:** Model selection (which LLM to use per skill/agent) is NOT part of this config. makato-plan is LLM-agnostic — model assignment is handled by the runtime environment, not by the plugin config.
+**Note:** Skill role and effort policy lives in the workflow-schema `skill_execution` section. Concrete models remain runtime configuration; helper-agent model routing is independent.
 
 ## Versioning
 

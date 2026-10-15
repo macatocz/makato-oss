@@ -4,8 +4,7 @@ description: >-
   Decompose shaped features into vertically-sliced stories with acceptance
   criteria — decompose, vertical slice, story slicing, break down feature,
   split into stories. Use after PRD and architecture are approved.
-version: "1.4.1"
-modelRole: plan
+version: "1.5.0"
 argument-hint: "[slug]"
 metadata:
   authors: ["makato-plan"]

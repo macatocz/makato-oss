@@ -7,7 +7,7 @@ description: >-
   interactive coordination. Keywords: orchestrate change request, resume CR
   workflow, which phase next, coordinate change workflow, guided change,
   autonomous change dispatch.
-version: "1.5.0"
+version: "1.6.0"
 argument-hint: "[ISSUE-KEY] [--autonomous]"
 allowed-tools: Bash, Skill
 metadata:
@@ -17,6 +17,35 @@ metadata:
 # orchestrate
 
 Entry-point coordinator for the complete change request workflow. Coordinates four phases — analyze, design, execute, resolve-review — tracking state in `specs/<ISSUE_KEY>/` artifacts and the project board, and optionally operating headless in autonomous mode.
+
+## OMP skill dispatch boundary
+
+This boundary applies only when the resolved `MAKATO_HARNESS_MODE` is `omp`.
+For `claude` and other non-OMP harnesses, keep the native invocations below unchanged.
+
+Execute workflow skills from makato-build, makato-plan and makato-change in separate
+OMP runs through `python3 "$MAKATO_SKILL_RUNNER"`, not inline Skill/Task calls.
+Resolve the runner from `$MAKATO_BUILD_ROOT/scripts/run-skill.py` if not already
+exported; if neither path is available, report the missing makato-build runtime.
+This rule applies to every skill dispatch below, including retries and follow-on
+skills. It does not replace ordinary helper-agent dispatch or reference reads.
+
+For each invocation, write a context file containing the complete current bundle
+(REPO_ROOT, WORKTREE_PATH, issue/key, artifact paths, decisions, and step-specific
+inputs). The new session has no parent conversation history. Run:
+
+```bash
+python3 "$MAKATO_SKILL_RUNNER" --repo-root "$REPO_ROOT" \
+  --cwd "${WORKTREE_PATH:-$REPO_ROOT}" --context-file "$CONTEXT_FILE" \
+  makato-build:build-refine -- "$KEY" --autonomous
+```
+
+Replace the skill and its arguments for the selected phase. Wait for completion,
+then apply the existing result/artifact checks. Nonzero exit is a dispatch failure;
+never silently fall back to inline execution. Human-driven interviews use
+`--interactive` before the skill name. The selected current skill executes its own
+body inline; it must not launch itself again merely to apply this policy.
+
 
 ## When to Use
 

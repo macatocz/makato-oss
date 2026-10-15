@@ -21,6 +21,7 @@ modelRoles:
   tiny: local/open
   plan: local/open
   advisor: local/open
+  review: "@advisor" # per-skill REVIEW role; follows the configured reviewer model
   designer: local/open
   commit: local/open
   slow: local/open

@@ -4,8 +4,7 @@ description: >-
   Adversarial interview that stress-tests phase artifacts — grill decisions,
   challenge assumptions, review critically. Use after any artifact is drafted
   and needs scrutiny before committing to the next phase.
-version: "1.5.0"
-modelRole: advisor
+version: "1.6.0"
 argument-hint: "[slug] [artifact]"
 allowed-tools: Bash
 metadata:

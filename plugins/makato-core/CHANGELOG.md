@@ -5,6 +5,11 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Added — Workflow skill execution configuration
+
+- The workflow-schema wizard and field reference preserve and document `skill_execution`
+  independently of artifact configuration, including roles, effort, and project overrides.
+
 - **Changed** `create-issue` Step 5.5 — `plan-tier:full` inference is now a
   *decomposition* signal, aligned with the CI classifier
   (`.github/scripts/classify-plan-tier.sh`). `full` fires on an epic-scale

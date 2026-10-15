@@ -9,6 +9,55 @@
 
 version: "1.0"
 
+# Model execution policy is separate from the artifact DAG below.
+# OMP resolves DEFAULT/PLAN/REVIEW through modelRoles.default/plan/review.
+# Override individual fields in <repo-root>/.claude/workflow-schema.yml.
+skill_execution:
+  defaults:
+    role: DEFAULT
+    effort: inherit
+  skills:
+    makato-build:build-start: {role: DEFAULT, effort: inherit}
+    makato-build:build-explore: {role: PLAN, effort: high}
+    makato-build:build-refine: {role: PLAN, effort: high}
+    makato-build:build-grill-with-docs: {role: PLAN, effort: high}
+    makato-build:build-implement-tdd: {role: DEFAULT, effort: high}
+    makato-build:build-implement-goal: {role: DEFAULT, effort: high}
+    makato-build:build-simplify: {role: REVIEW, effort: high}
+    makato-build:build-review: {role: REVIEW, effort: xhigh}
+    makato-build:build-verify: {role: DEFAULT, effort: inherit}
+    makato-build:build-verify-spec: {role: REVIEW, effort: high}
+    makato-build:build-runtime-qa: {role: REVIEW, effort: high}
+    makato-build:build-sensors: {role: DEFAULT, effort: inherit}
+    makato-build:build-resolve-finding: {role: DEFAULT, effort: high}
+    makato-build:build-fix-security: {role: DEFAULT, effort: high}
+    makato-build:build-fix-types: {role: DEFAULT, effort: high}
+    makato-build:build-push-to-git: {role: DEFAULT, effort: inherit}
+    makato-build:build-create-pr: {role: DEFAULT, effort: inherit}
+    makato-build:build-coordinate-repos: {role: DEFAULT, effort: inherit}
+    makato-build:build-address-pr-comments: {role: REVIEW, effort: high}
+    makato-build:definition-of-done: {role: REVIEW, effort: high}
+    makato-build:inject-context: {role: DEFAULT, effort: inherit}
+    makato-build:inject-skills: {role: DEFAULT, effort: inherit}
+    makato-plan:brainstorming: {role: PLAN, effort: high}
+    makato-plan:create-prd: {role: PLAN, effort: high}
+    makato-plan:create-architecture: {role: PLAN, effort: high}
+    makato-plan:create-ux: {role: PLAN, effort: high}
+    makato-plan:create-prototype: {role: PLAN, effort: high}
+    makato-plan:decompose: {role: PLAN, effort: high}
+    makato-plan:create-acceptance-tests: {role: PLAN, effort: medium}
+    makato-plan:stress-test-artifact: {role: REVIEW, effort: xhigh}
+    makato-plan:to-issues: {role: DEFAULT, effort: inherit}
+    makato-plan:issue-to-project: {role: DEFAULT, effort: inherit}
+    makato-plan:manage-stores: {role: DEFAULT, effort: inherit}
+    makato-plan:excalidraw: {role: DEFAULT, effort: inherit}
+    makato-plan:excalidraw-diagram-generator: {role: DEFAULT, effort: inherit}
+    makato-change:orchestrate: {role: DEFAULT, effort: xhigh}
+    makato-change:analyze: {role: PLAN, effort: xhigh}
+    makato-change:design: {role: PLAN, effort: xhigh}
+    makato-change:execute: {role: DEFAULT, effort: xhigh}
+    makato-change:resolve-review: {role: REVIEW, effort: xhigh}
+
 artifacts:
   - id: refine
     skill: build-refine

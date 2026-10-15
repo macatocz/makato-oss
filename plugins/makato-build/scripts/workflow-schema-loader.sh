@@ -11,9 +11,8 @@
 # artifact list to stdout (exit 0). On parse error or cycle: prints a clear
 # error message to stderr and exits 1.
 #
-# Uses Python 3 stdlib only (yaml via pyyaml is NOT used — we parse the
-# restricted YAML subset with a hand-written parser matching the pattern
-# established in mark_ac_checkboxes.py / sync_living_specs.py).
+# Artifact lists use a restricted hand-written YAML parser. Skill execution
+# settings are resolved by shared/skill_execution.py, which requires PyYAML.
 #
 # Usage:
 #   workflow-schema-loader.sh <repo-root>
@@ -21,11 +20,11 @@
 #   repo-root   Absolute path to the repository root. Required.
 #
 # Output (stdout, one per line):
-#   Each line is a JSON object: {"id":"<id>","skill":"<skill>","required":<bool>}
+#   Each line is a JSON object with artifact fields plus resolved "role" and "effort".
 #
 # Exit codes:
 #   0   success — artifact list printed to stdout
-#   1   error   — cycle detected, parse error, or invalid schema (details on stderr)
+#   1   error   — cycle, parse/execution-config error, or invalid schema (details on stderr)
 #   2   usage   — missing required argument
 #
 # Issue: #563
@@ -65,29 +64,37 @@ if [[ ! -s "$SCHEMA_FILE" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Parse YAML and validate DAG using embedded Python 3 (stdlib only).
-#
-# The YAML format is a restricted subset:
-#   - top-level key: artifacts (list)
-#   - each list item has: id, skill, required, description (opt), after (opt)
-# We parse this with a line-by-line state machine rather than a full YAML
-# parser to stay stdlib-only, matching the project's existing pattern.
+# Parse artifacts and validate DAG using embedded Python 3. The parser stops at
+# top-level section boundaries so skill_execution and later sections are ignored.
+# Artifacts retain their restricted hand-written YAML subset; execution settings
+# are resolved with the shared PyYAML-backed resolver.
 # ---------------------------------------------------------------------------
-python3 - "$SCHEMA_FILE" "$SCHEMA_SOURCE" <<'PYEOF'
+python3 - "$SCHEMA_FILE" "$SCHEMA_SOURCE" "$REPO_ROOT" "$DEFAULT_SCHEMA" "$SCRIPT_DIR/../shared" <<'PYEOF'
 import sys
 import json
+from pathlib import Path
 
 schema_file = sys.argv[1]
 schema_source = sys.argv[2]
+repo_root = Path(sys.argv[3])
+default_schema = Path(sys.argv[4])
+sys.path.insert(0, sys.argv[5])
+
+try:
+    from skill_execution import resolve_execution
+except Exception as e:
+    print(f"workflow-schema-loader: execution config error: cannot load resolver: {e}", file=sys.stderr)
+    sys.exit(1)
 
 def parse_schema(path):
-    """Parse the restricted YAML schema format into a list of artifact dicts."""
+    """Parse artifact YAML only; return artifact-section metadata."""
     artifacts = []
     current = None
     in_artifacts = False
     in_after = False
     in_item = False
-
+    has_artifacts = False
+    has_skill_execution = False
     with open(path, "r") as f:
         lines = f.readlines()
 
@@ -103,9 +110,27 @@ def parse_schema(path):
         if not stripped or stripped.startswith('#'):
             continue
 
-        # Top-level section detection
-        if stripped == 'artifacts:':
-            in_artifacts = True
+        # A new top-level key ends artifacts parsing. Record execution-only
+        # project schemas so the built-in artifact list can still be used.
+        if line and not line[0].isspace():
+            key = stripped.partition(':')[0].strip().strip('"').strip("'")
+            if key == 'artifacts' and stripped.partition(':')[2].strip() == '':
+                if current is not None:
+                    artifacts.append(current)
+                    current = None
+                in_artifacts = True
+                in_after = False
+                in_item = False
+                has_artifacts = True
+                continue
+            if in_artifacts and current is not None:
+                artifacts.append(current)
+                current = None
+            in_artifacts = False
+            in_after = False
+            in_item = False
+            if key == 'skill_execution':
+                has_skill_execution = True
             continue
 
         if not in_artifacts:
@@ -163,7 +188,7 @@ def parse_schema(path):
     if current is not None:
         artifacts.append(current)
 
-    return artifacts
+    return artifacts, has_artifacts, has_skill_execution
 
 
 def _parse_kv(item, kv):
@@ -260,7 +285,9 @@ def topological_sort(artifacts):
 # Main
 # ---------------------------------------------------------------------------
 try:
-    artifacts = parse_schema(schema_file)
+    artifacts, has_artifacts, has_skill_execution = parse_schema(schema_file)
+    if schema_source == 'custom' and not has_artifacts and has_skill_execution:
+        artifacts, has_artifacts, _ = parse_schema(default_schema)
 except Exception as e:
     print(f"workflow-schema-loader: parse error: {e}", file=sys.stderr)
     sys.exit(1)
@@ -287,11 +314,24 @@ if has_cycle:
 # Sort topologically and emit
 sorted_artifacts = topological_sort(artifacts)
 for a in sorted_artifacts:
+    try:
+        execution = resolve_execution(
+            repo_root,
+            a['skill'],
+            default_schema=default_schema,
+            allow_unknown=True,
+        )
+    except Exception as e:
+        print(f"workflow-schema-loader: execution config error: {e}", file=sys.stderr)
+        sys.exit(1)
+
     print(json.dumps({
         "id": a['id'],
         "skill": a['skill'],
         "required": a['required'],
-        "description": a.get('description', '')
+        "description": a.get('description', ''),
+        "role": execution['role'],
+        "effort": execution['effort'],
     }))
 
 PYEOF

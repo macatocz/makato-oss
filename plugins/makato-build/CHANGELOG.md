@@ -10,6 +10,18 @@ here on merge to main; release-please will date and version them at the next rel
 
 ## [Unreleased]
 
+### Added — Per-skill roles and reasoning effort
+
+- Use `xhigh` for build-review, stress-test-artifact, and all five makato-change skills.
+- Added provider-neutral `skill_execution` defaults and overrides for all skills in
+  makato-build, makato-plan, and makato-change, separate from the artifact DAG.
+- Added `scripts/run-skill.py` to launch a fresh OMP process using `@default`, `@plan`,
+  or `@review`, with explicit effort or inherited model-role thinking settings.
+- Project overrides merge field by field; workflow-schema loading accepts execution-only
+  configuration while preserving the built-in pipeline. Concrete providers stay in OMP.
+- Removed Claude-specific skill model hints and documented the cross-plugin launcher,
+  explicit context handoff, interactive interviews, and installed-plugin root overrides.
+
 ### Changed — build-runtime-qa: Verified local runtime origin (v1.0.2)
 
 - Pass an optional `MAKATO_RUNTIME_URL` to runtime-qa; verify the provider

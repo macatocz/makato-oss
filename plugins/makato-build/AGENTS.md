@@ -13,6 +13,14 @@
 - **Skill files must not use `../` paths outside their skill directory** (except `../shared/` within this plugin).
 - **`build-implement-goal` does not participate in the `TEST_ORACLE` chain.** That chain is TDD-only; do not add oracle propagation to goal-mode flows.
 
+## Role-based skill execution (OMP)
+
+**OMP only:** apply this boundary when the resolved `MAKATO_HARNESS_MODE` is `omp`; other harnesses retain their native skill invocation behavior.
+Execute workflow skills through `python3 "$MAKATO_SKILL_RUNNER" --repo-root "$REPO_ROOT" --cwd "${WORKTREE_PATH:-$REPO_ROOT}" --context-file "$CONTEXT_FILE" <plugin:skill> -- <args>`. Resolve the launcher from `$MAKATO_BUILD_ROOT/scripts/run-skill.py` when unset.
+This public cross-plugin contract applies to follow-on skills and retries, not reference reads or ordinary helper agents. Run the current selected skill inline; never self-dispatch.
+Forward the full context bundle, wait for the result, and propagate failure without inline fallback. Use `--interactive` before the skill name for human interviews; headless missing input returns to the coordinator.
+Policy: `skill_execution` in workflow-schema.yml; concrete model mapping: OMP `modelRoles`. Bare OMP skill reads/slash commands do not switch models. See `docs/workflow-schema.md`.
+
 ## Goal
 
 Transforms decomposed, vertically-sliced stories into tested, reviewed, merged code.

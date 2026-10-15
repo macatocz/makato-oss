@@ -5,6 +5,12 @@ Changes are grouped by skill/agent/component. Within each group, latest version 
 
 ## [Unreleased]
 
+### Changed — Provider-neutral skill execution
+
+- Planning and review skills now use `skill_execution` roles and effort in the shared
+  workflow schema instead of Claude-specific `model` frontmatter. Each OMP skill runs
+  in its own process; human interviews use the launcher's `--interactive` mode.
+
 ### Changed
 
 - **`brainstorming` skill v1.3.1** — added `## Constants` block with `CONTEXT_SCOUT_TOKEN_BUDGET: 2000` cap on context-scout dispatch output (saves 3–10 k tokens per scout); added `MAKATO_PLAN_NO_HTML` guard before doc-writer HTML dispatch and browser-open calls to skip HTML generation entirely in the autonomous loop (#70).

@@ -5,6 +5,15 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Added — Per-skill OMP dispatch
+
+- PO-agent dispatches workflow skills through the shared role/effort launcher.
+- The change entry wrapper preserves the loop's session/watchdog lifecycle while
+  launching its selected skill separately; reshape runs decompose and to-issues with
+  their own resolved policies. Existing autonomous permission opt-in is explicit.
+- Dispatch state integration tests use the current harness override and retain
+  in-flight/completed transition checks rather than prompt-text echo assertions.
+
 ### Changed — installed-plugin roots in autonomous dispatch
 
 `loop.sh`, `functions.sh`, and `context-handoff.sh` now forward absolute

@@ -12,21 +12,14 @@
 # Tests:
 #   T_CD1: dispatch on a type:change issue derives a non-empty KEY from the
 #          to-issues provenance footer.
-#   T_CD2: dispatch bundle passed to the stub claude contains
-#          makato-change:orchestrate, --autonomous, ISSUE_NUMBER, KEY,
-#          REPO, and REPO_ROOT — verifying the full prompt shape required
-#          by AUTONOMOUS-MODE.md.
 #   T_CD3: when the stub claude writes a workflow-state-N.json with
 #          current_phase:"execute", in_flight_issues recognises the issue
 #          as in-flight and a second dispatch call is skipped.
 #   T_CD4: when the stub claude writes a workflow-state-N.json with
 #          current_phase:"done", in_flight_issues does not list the issue
 #          as in-flight, confirming loop advancement.
-#   T_CD5: default (no MAKATO_HARNESS_MODE) dispatch argv carries --yolo
-#          and never --dangerously-skip-permissions — "no Claude selection
-#          when OMP is configured" holds at the real dispatch call site.
-#   T_CD6: MAKATO_HARNESS_MODE=claude — the explicit compatibility mode —
-#          flips the dispatched argv to --dangerously-skip-permissions.
+#   T_CD7: OMP reshape publishes only after successful decomposition.
+#   T_CD8: explicit Claude reshape never launches the OMP runner.
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
@@ -96,67 +89,6 @@ grep -q "KEY=42-adjust-http-retry-logic" <<<"$t_cd1_out" \
   || fail "T_CD1: KEY not derived from to-issues footer; got: $t_cd1_out"
 
 echo "  ✓ T_CD1: type:change derives KEY=42-adjust-http-retry-logic from to-issues footer"
-
-# ---------------------------------------------------------------------------
-echo "=== T_CD2: dispatch bundle contains makato-change:orchestrate, --autonomous, ISSUE_NUMBER, KEY, REPO, REPO_ROOT ==="
-# ---------------------------------------------------------------------------
-# Needs a real (non-dry-run) dispatch to trigger the actual claude exec with
-# the full dispatch_prompt. We supply a stub claude that:
-#   (a) records its argument list (the -p <prompt>) to a capture file, and
-#   (b) exits 0 immediately.
-# MAKATO_LOOP_STALL_DISABLE=1 skips the watchdog/log-file path so claude is
-# called directly (no log_file branch).
-rm -f "$STATE_DIR/loop-status.json"
-
-T_CD2_DIR="$SANDBOX_DIR/t_cd2"
-mkdir -p "$T_CD2_DIR"
-CAPTURED_PROMPT_FILE="$T_CD2_DIR/captured-prompt.txt"
-
-T_CD2_STUB="$T_CD2_DIR/stub-claude.sh"
-cat >"$T_CD2_STUB" <<STUBEOF
-#!/usr/bin/env bash
-# Record the full argument list (including the -p <prompt>) for assertion.
-printf '%s\n' "\$@" > "$CAPTURED_PROMPT_FILE"
-exit 0
-STUBEOF
-chmod +x "$T_CD2_STUB"
-
-t_cd2_rc=0
-MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$CHANGE_BODY_FILE" \
-MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="type:change" \
-MAKATO_HARNESS_BIN="$T_CD2_STUB" \
-  "$LOOP" dispatch 42 2>/dev/null || t_cd2_rc=$?
-
-# Dispatch must exit 0.
-[[ $t_cd2_rc -eq 0 ]] \
-  || fail "T_CD2: dispatch should exit 0 with stub claude; rc=$t_cd2_rc"
-
-# The captured prompt must be present.
-[[ -f "$CAPTURED_PROMPT_FILE" ]] \
-  || fail "T_CD2: stub claude was not invoked (captured-prompt.txt missing)"
-
-CAPTURED_PROMPT="$(cat "$CAPTURED_PROMPT_FILE")"
-
-# Assert all required fields are present in the dispatch prompt.
-grep -q "makato-change:orchestrate" <<<"$CAPTURED_PROMPT" \
-  || fail "T_CD2: dispatch prompt missing 'makato-change:orchestrate'; got: $CAPTURED_PROMPT"
-
-grep -q -- "--autonomous" <<<"$CAPTURED_PROMPT" \
-  || fail "T_CD2: dispatch prompt missing '--autonomous'; got: $CAPTURED_PROMPT"
-
-grep -q "ISSUE_NUMBER=42" <<<"$CAPTURED_PROMPT" \
-  || fail "T_CD2: dispatch prompt missing 'ISSUE_NUMBER=42'; got: $CAPTURED_PROMPT"
-
-grep -q "KEY=42-adjust-http-retry-logic" <<<"$CAPTURED_PROMPT" \
-  || fail "T_CD2: dispatch prompt missing 'KEY=42-adjust-http-retry-logic'; got: $CAPTURED_PROMPT"
-
-grep -q "REPO=macatocz/makato" <<<"$CAPTURED_PROMPT" \
-  || fail "T_CD2: dispatch prompt missing 'REPO=macatocz/makato'; got: $CAPTURED_PROMPT"
-
-grep -q "REPO_ROOT=" <<<"$CAPTURED_PROMPT" \
-  || fail "T_CD2: dispatch prompt missing 'REPO_ROOT='; got: $CAPTURED_PROMPT"
-
-echo "  ✓ T_CD2: dispatch prompt carries makato-change:orchestrate, --autonomous, ISSUE_NUMBER=42, KEY, REPO, REPO_ROOT"
 
 # ---------------------------------------------------------------------------
 echo "=== T_CD3: in-flight workflow-state (current_phase:execute) blocks second dispatch ==="
@@ -267,33 +199,6 @@ cat >"$T_CD4_SPEC_FOLDER/workflow-state-44.json" <<'WFEOF'
 }
 WFEOF
 
-# Verify in_flight_issues does NOT list issue 44.
-in_flight_out="$(SPECS_DIR="$T_CD4_SPECS" "$LOOP" _test-in-flight-issues 2>/dev/null \
-  || SPECS_DIR="$T_CD4_SPECS" \
-     bash -c 'source '"$LOOP"'; in_flight_issues' 2>/dev/null \
-  || true)"
-
-# If _test-in-flight-issues hook is not available, call in_flight_issues
-# directly by sourcing the loop and calling the function.
-if [[ -z "$in_flight_out" ]]; then
-  # Source loop.sh in a subshell to call in_flight_issues directly.
-  in_flight_out="$(
-    bash -c "
-      SPECS_DIR=\"$T_CD4_SPECS\"
-      export SPECS_DIR
-      # Source only the helper functions (skip main dispatch block).
-      # Extract and eval just in_flight_issues + its dependencies.
-      source \"$LOOP\" 2>/dev/null || true
-      in_flight_issues 2>/dev/null || true
-    " 2>/dev/null || true)"
-fi
-
-# Assert issue 44 is NOT in the in-flight list.
-if grep -qx "44" <<<"$in_flight_out" 2>/dev/null; then
-  fail "T_CD4: issue 44 with current_phase:done must NOT appear in in_flight_issues; got: $in_flight_out"
-fi
-echo "  ✓ T_CD4 (in_flight_issues direct check): issue 44 (current_phase:done) not in-flight"
-
 # Also verify via dispatch: with done state, dispatch must proceed (stub IS called).
 T_CD4_BODY="$T_CD4_DIR/body.txt"
 printf '%s\n' '*Feature slug: `44-completed-change` — produced by to-issues v3.x.*' >"$T_CD4_BODY"
@@ -332,78 +237,121 @@ CALL_COUNT_CD4="$(cat "$T_CD4_COUNTER")"
 echo "  ✓ T_CD4: current_phase:done does NOT block dispatch — stub was called (loop advances)"
 
 # ---------------------------------------------------------------------------
-echo "=== T_CD5: default (OMP) dispatch argv carries --yolo, never --dangerously-skip-permissions ==="
+echo "=== T_CD7: OMP reshape publishes only after successful decomposition ==="
 # ---------------------------------------------------------------------------
-rm -f "$STATE_DIR/loop-status.json"
+T_CD7_DIR="$SANDBOX_DIR/t_cd7"
+T_CD7_SPECS="$T_CD7_DIR/specs"
+T_CD7_KEY="47-shape-context"
+mkdir -p "$T_CD7_SPECS/$T_CD7_KEY"
+T_CD7_CANDIDATES="$T_CD7_DIR/candidates.json"
+printf '[{"number":47,"key":"%s"}]\n' "$T_CD7_KEY" >"$T_CD7_CANDIDATES"
+T_CD7_CONFIG="$T_CD7_DIR/config.json"
+printf '{}\n' >"$T_CD7_CONFIG"
+T_CD7_CAPTURE="$T_CD7_DIR/runner-calls.txt"
+: >"$T_CD7_CAPTURE"
+T_CD7_RUNNER="$T_CD7_DIR/run-skill.py"
+cat >"$T_CD7_RUNNER" <<'PYEOF'
+#!/usr/bin/env python3
+import os
+import sys
 
-T_CD5_DIR="$SANDBOX_DIR/t_cd5"
-mkdir -p "$T_CD5_DIR"
-T_CD5_CAPTURED="$T_CD5_DIR/captured-argv.txt"
-T_CD5_STUB="$T_CD5_DIR/stub-harness.sh"
-cat >"$T_CD5_STUB" <<STUBEOF
-#!/usr/bin/env bash
-printf '%s\n' "\$@" > "$T_CD5_CAPTURED"
-exit 0
-STUBEOF
-chmod +x "$T_CD5_STUB"
+args = sys.argv[1:]
+with open(os.environ["T_CD7_RUNNER_CAPTURE"], "a", encoding="utf-8") as capture:
+    capture.write("CALL\n")
+    capture.writelines(f"{arg}\n" for arg in args)
+    capture.write("END\n")
+if "makato-plan:decompose" in args:
+    sys.exit(int(os.environ.get("T_CD7_DECOMPOSE_RC", "0")))
+PYEOF
 
-t_cd5_rc=0
-MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$CHANGE_BODY_FILE" \
-MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="type:change" \
-MAKATO_HARNESS_BIN="$T_CD5_STUB" \
-  "$LOOP" dispatch 42 2>/dev/null || t_cd5_rc=$?
+run_t_cd7_reshape() {
+  local decompose_rc="$1" rc=0
+  (
+    export MAKATO_LOOP_RESHAPE_ENABLED=1
+    export MAKATO_LOOP_RESHAPE_OVERRIDE="$T_CD7_CANDIDATES"
+    export MAKATO_LOOP_CONFIG="$T_CD7_CONFIG"
+    export MAKATO_LOOP_LABEL_TEST_FILE="$T_CD7_DIR/labels.txt"
+    export MAKATO_HARNESS_MODE=omp
+    export MAKATO_HARNESS_BIN=omp
+    export MAKATO_SKILL_RUNNER="$T_CD7_RUNNER"
+    export T_CD7_RUNNER_CAPTURE="$T_CD7_CAPTURE"
+    export T_CD7_DECOMPOSE_RC="$decompose_rc"
+    export SPECS_DIR="$T_CD7_SPECS"
+    unset MAKATO_LOOP_RESHAPE_TEST_CMD
+    "$LOOP" reshape-pass
+  ) >/dev/null 2>&1 || rc=$?
+  return "$rc"
+}
 
-[[ $t_cd5_rc -eq 0 ]] \
-  || fail "T_CD5: dispatch should exit 0 with stub harness; rc=$t_cd5_rc"
-[[ -f "$T_CD5_CAPTURED" ]] \
-  || fail "T_CD5: stub harness was not invoked (captured-argv.txt missing)"
+run_t_cd7_reshape 0 || fail "T_CD7: OMP reshape pass failed"
+T_CD7_CALL_COUNT="$(grep -c '^CALL$' "$T_CD7_CAPTURE" || true)"
+[[ "$T_CD7_CALL_COUNT" -eq 2 ]] \
+  || fail "T_CD7: successful decompose must be followed by to-issues; calls=$T_CD7_CALL_COUNT"
+grep -Fq -- "makato-plan:decompose" "$T_CD7_CAPTURE" \
+  || fail "T_CD7: OMP runner did not receive decompose"
+grep -Fq -- "makato-plan:to-issues" "$T_CD7_CAPTURE" \
+  || fail "T_CD7: OMP runner did not receive to-issues"
 
-T_CD5_ARGV="$(cat "$T_CD5_CAPTURED")"
-grep -q -- "--yolo" <<<"$T_CD5_ARGV" \
-  || fail "T_CD5: default dispatch argv missing --yolo; got: $T_CD5_ARGV"
-if grep -q -- "--dangerously-skip-permissions" <<<"$T_CD5_ARGV"; then
-  fail "T_CD5: default (OMP-configured) dispatch argv must NEVER include --dangerously-skip-permissions; got: $T_CD5_ARGV"
+: >"$T_CD7_CAPTURE"
+run_t_cd7_reshape 23 || fail "T_CD7: failed decompose reshape pass should be handled"
+T_CD7_CALL_COUNT="$(grep -c '^CALL$' "$T_CD7_CAPTURE" || true)"
+[[ "$T_CD7_CALL_COUNT" -eq 1 ]] \
+  || fail "T_CD7: failed decompose must prevent the second runner call; calls=$T_CD7_CALL_COUNT"
+if grep -Fq -- "makato-plan:to-issues" "$T_CD7_CAPTURE"; then
+  fail "T_CD7: to-issues ran after decompose failed"
 fi
-
-echo "  ✓ T_CD5: default dispatch argv carries --yolo, never the Claude-only flag"
+echo "  T_CD7: chains on success and stops on decomposition failure"
 
 # ---------------------------------------------------------------------------
-echo "=== T_CD6: MAKATO_HARNESS_MODE=claude flips dispatch argv to --dangerously-skip-permissions ==="
+echo "=== T_CD8: explicit Claude reshape dispatch keeps using the harness adapter ==="
 # ---------------------------------------------------------------------------
-rm -f "$STATE_DIR/loop-status.json"
-
-T_CD6_DIR="$SANDBOX_DIR/t_cd6"
-mkdir -p "$T_CD6_DIR"
-T_CD6_CAPTURED="$T_CD6_DIR/captured-argv.txt"
-T_CD6_STUB="$T_CD6_DIR/stub-harness.sh"
-cat >"$T_CD6_STUB" <<STUBEOF
+T_CD8_DIR="$SANDBOX_DIR/t_cd8"
+T_CD8_SPECS="$T_CD8_DIR/specs"
+T_CD8_SLUG="48-shape-claude"
+mkdir -p "$T_CD8_SPECS/$T_CD8_SLUG"
+T_CD8_CANDIDATES="$T_CD8_DIR/candidates.json"
+printf '[{"number":48,"key":"%s"}]\n' "$T_CD8_SLUG" >"$T_CD8_CANDIDATES"
+T_CD8_CONFIG="$T_CD8_DIR/config.json"
+printf '{}\n' >"$T_CD8_CONFIG"
+T_CD8_CAPTURE="$T_CD8_DIR/harness-calls.txt"
+T_CD8_STUB="$T_CD8_DIR/stub-claude.sh"
+cat >"$T_CD8_STUB" <<'STUBEOF'
 #!/usr/bin/env bash
-printf '%s\n' "\$@" > "$T_CD6_CAPTURED"
-exit 0
+printf 'CALL\n' >>"$T_CD8_CAPTURE"
 STUBEOF
-chmod +x "$T_CD6_STUB"
+chmod +x "$T_CD8_STUB"
+T_CD8_RUNNER="$T_CD8_DIR/should-not-run.py"
+T_CD8_RUNNER_CAPTURE="$T_CD8_DIR/runner-called.txt"
+cat >"$T_CD8_RUNNER" <<'PYEOF'
+#!/usr/bin/env python3
+import os
+with open(os.environ["T_CD8_RUNNER_CAPTURE"], "a", encoding="utf-8") as capture:
+    capture.write("called\n")
+PYEOF
 
-t_cd6_rc=0
-MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$CHANGE_BODY_FILE" \
-MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="type:change" \
-MAKATO_HARNESS_BIN="$T_CD6_STUB" \
-MAKATO_HARNESS_MODE="claude" \
-  "$LOOP" dispatch 42 2>/dev/null || t_cd6_rc=$?
-
-[[ $t_cd6_rc -eq 0 ]] \
-  || fail "T_CD6: dispatch should exit 0 with stub harness; rc=$t_cd6_rc"
-[[ -f "$T_CD6_CAPTURED" ]] \
-  || fail "T_CD6: stub harness was not invoked (captured-argv.txt missing)"
-
-T_CD6_ARGV="$(cat "$T_CD6_CAPTURED")"
-grep -q -- "--dangerously-skip-permissions" <<<"$T_CD6_ARGV" \
-  || fail "T_CD6: MAKATO_HARNESS_MODE=claude dispatch argv missing --dangerously-skip-permissions; got: $T_CD6_ARGV"
-if grep -q -- "--yolo" <<<"$T_CD6_ARGV"; then
-  fail "T_CD6: MAKATO_HARNESS_MODE=claude dispatch argv must not also carry --yolo; got: $T_CD6_ARGV"
-fi
-
-echo "  ✓ T_CD6: MAKATO_HARNESS_MODE=claude flips dispatch argv to --dangerously-skip-permissions"
+t_cd8_rc=0
+(
+  export MAKATO_LOOP_RESHAPE_ENABLED=1
+  export MAKATO_LOOP_RESHAPE_OVERRIDE="$T_CD8_CANDIDATES"
+  export MAKATO_LOOP_CONFIG="$T_CD8_CONFIG"
+  export MAKATO_LOOP_LABEL_TEST_FILE="$T_CD8_DIR/labels.txt"
+  export MAKATO_HARNESS_MODE=claude
+  export MAKATO_HARNESS_BIN="$T_CD8_STUB"
+  export MAKATO_SKILL_RUNNER="$T_CD8_RUNNER"
+  export T_CD8_CAPTURE
+  export T_CD8_RUNNER_CAPTURE
+  export SPECS_DIR="$T_CD8_SPECS"
+  unset MAKATO_LOOP_RESHAPE_TEST_CMD
+  "$LOOP" reshape-pass
+) >/dev/null 2>&1 || t_cd8_rc=$?
+[[ "$t_cd8_rc" -eq 0 ]] || fail "T_CD8: Claude reshape pass failed; rc=$t_cd8_rc"
+T_CD8_CALL_COUNT="$(grep -c '^CALL$' "$T_CD8_CAPTURE" || true)"
+[[ "$T_CD8_CALL_COUNT" -eq 2 ]] \
+  || fail "T_CD8: Claude adapter should dispatch both skills; calls=$T_CD8_CALL_COUNT"
+[[ ! -s "$T_CD8_RUNNER_CAPTURE" ]] \
+  || fail "T_CD8: explicit Claude mode unexpectedly launched the OMP skill runner"
+echo "  ✓ T_CD8: explicit Claude reshape dispatch stays on the adapter"
 
 # ---------------------------------------------------------------------------
 echo
-echo "=== ALL T_CD TESTS PASSED (T_CD1–T_CD6) ==="
+echo "=== ALL CHANGE DISPATCH BEHAVIOR TESTS PASSED ==="

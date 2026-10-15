@@ -4,8 +4,7 @@ description: >-
   Create Architecture Design Documents from PRD output — architecture, technical
   design, system context, component design, API design, data model, security,
   deployment, test strategy. Use after PRD is approved.
-version: "1.0.6"
-modelRole: plan
+version: "1.1.0"
 argument-hint: "[slug]"
 allowed-tools: Bash
 metadata:
