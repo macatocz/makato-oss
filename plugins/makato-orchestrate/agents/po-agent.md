@@ -22,6 +22,23 @@ disallowedTools: NotebookEdit
 > Exit only on a merged PR or a documented HALT code, leaving the audit trail
 > and worktree in a state a human can pick up.
 
+## OMP skill dispatch boundary
+
+This boundary applies when `MAKATO_HARNESS_MODE` is unset or is not `claude` (the OMP mode selected by `harness-command.sh`). When `MAKATO_HARNESS_MODE=claude`, preserve the existing Claude-native skill dispatch path; this OMP launcher rule does not apply.
+
+In OMP mode, execute workflow skills from makato-build, makato-plan, and makato-change in separate OMP runs through `python3 "$MAKATO_SKILL_RUNNER"`, not inline Skill/Task calls. Resolve the runner from `$MAKATO_BUILD_ROOT/scripts/run-skill.py` if it is not already exported; if neither path is available, report the missing makato-build runtime. This applies to every workflow skill dispatch below, including retries and follow-on skills, but not ordinary helper-agent dispatch or reference reads.
+
+For each invocation, write a context file containing the complete current bundle (repository/worktree roots, issue/key, artifact paths, decisions, and step-specific inputs). The new session has no parent conversation history. Run:
+
+```bash
+python3 "$MAKATO_SKILL_RUNNER" --repo-root "$REPO_ROOT" \
+  --cwd "${WORKTREE_PATH:-$REPO_ROOT}" --context-file "$CONTEXT_FILE" \
+  --harness "$CLAUDE_BIN" --approval-mode yolo \
+  makato-build:build-refine -- "$KEY" --autonomous
+```
+
+Replace the skill and its arguments for the selected phase. Wait for completion, then apply the existing result/artifact checks. Nonzero exit is a dispatch failure; never silently fall back to inline execution. Human-driven interviews use `--interactive` before the skill name. The selected current skill executes its own body inline; it must not launch itself again merely to apply this policy.
+
 ## Why this agent exists
 
 `makato-build` lands tested code per story. `makato-plan` shapes stories.

@@ -5,8 +5,7 @@ description: >-
   runtime, write tests after. Autonomous. Use after refine for UI,
   config, or migration work, or when implement-goal tasks remain
   from a mixed plan.
-version: "1.5.0"
-modelRole: task
+version: "1.6.0"
 argument-hint: "[work-item-key]"
 allowed-tools: [Bash]
 metadata:

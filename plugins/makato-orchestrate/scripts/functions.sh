@@ -13,6 +13,11 @@ source "${MAKATO_LOOP_BOARD_MIRROR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd
 # shellcheck source=harness-command.sh
 source "${MAKATO_LOOP_HARNESS_COMMAND:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/harness-command.sh}"
 
+# Public skill-runtime location, also inherited by PO-agent child sessions.
+MAKATO_BUILD_ROOT="${MAKATO_BUILD_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/makato-build}"
+MAKATO_SKILL_RUNNER="${MAKATO_SKILL_RUNNER:-$MAKATO_BUILD_ROOT/scripts/run-skill.py}"
+export MAKATO_BUILD_ROOT MAKATO_SKILL_RUNNER
+
 # ISO-8601 timestamp with milliseconds (UTC). Matches workflow-state.sh.
 _now() {
   python3 -c "from datetime import datetime, timezone
@@ -3920,8 +3925,25 @@ cmd_dispatch() {
 
   local dispatch_prompt
   if [[ "$issue_type" == "type:change" ]]; then
-    # Route to makato-change:orchestrate --autonomous; change pipeline owns its own spec-folder lifecycle.
-    dispatch_prompt="Use the Skill tool to invoke the makato-change:orchestrate skill with args '${key} --autonomous'. Required env: ISSUE_NUMBER=${issue} ISSUE_KEY=${key} REPO=${MAKATO_LOOP_DISPATCH_REPO:-} REPO_ROOT=${REPO_ROOT} MAKATO_TARGET_REPO_ROOT=${REPO_ROOT}. First cd to REPO_ROOT; all target-repository paths and git commands must run there. The skill owns the analyze→design→execute→resolve-review loop and writes change-state-${issue}.json + a workflow-state-${issue}.json loop-compat stub. Return R1 envelope verbatim."
+    if [[ "$(_harness_mode)" == "omp" ]]; then
+      # Keep the outer OMP session as the watchdog-visible child; launch the
+      # role/effort-aware change skill only from its prompt.
+      local skill_context="$STATE_DIR/skill-input-${issue}.txt" skill_command
+      printf '%s\n' \
+        "ISSUE_NUMBER=${issue}" "ISSUE_KEY=${key}" "KEY=${key}" \
+        "REPO=${MAKATO_LOOP_DISPATCH_REPO:-}" "REPO_ROOT=${REPO_ROOT}" \
+        "MAKATO_TARGET_REPO_ROOT=${REPO_ROOT}" \
+        "MAKATO_BUILD_ROOT=${MAKATO_BUILD_ROOT}" \
+        "MAKATO_SKILL_RUNNER=${MAKATO_SKILL_RUNNER}" >"$skill_context"
+      printf -v skill_command '%q ' python3 "$MAKATO_SKILL_RUNNER" \
+        --repo-root "$REPO_ROOT" --cwd "$REPO_ROOT" --context-file "$skill_context" \
+        --harness "$CLAUDE_BIN" --approval-mode yolo \
+        makato-change:orchestrate -- "$key" --autonomous
+      dispatch_prompt="Run this exact command through Bash and wait: ${skill_command}. It starts makato-change:orchestrate in a separate OMP run with configured role and effort. Do not invoke the skill inline. MAKATO_HEADLESS=1 is already exported. Return the command output and R1 envelope verbatim; report nonzero exit as failure."
+    else
+      # Preserve Claude's native skill dispatch when explicitly selected.
+      dispatch_prompt="Use the Skill tool to invoke the makato-change:orchestrate skill with args '${key} --autonomous'. Required env: ISSUE_NUMBER=${issue} ISSUE_KEY=${key} REPO=${MAKATO_LOOP_DISPATCH_REPO:-} REPO_ROOT=${REPO_ROOT} MAKATO_TARGET_REPO_ROOT=${REPO_ROOT}. First cd to REPO_ROOT; all target-repository paths and git commands must run there. The skill owns the analyze→design→execute→resolve-review loop and writes change-state-${issue}.json + a workflow-state-${issue}.json loop-compat stub. Return R1 envelope verbatim."
+    fi
   else
     dispatch_prompt="Use the Task tool to dispatch the makato-orchestrate:po-agent subagent to drive GitHub issue #${issue} to a merged PR. Pass the po-agent's required inputs verbatim: ISSUE_NUMBER=${issue} KEY=${key} REPO=${MAKATO_LOOP_DISPATCH_REPO:-} BRANCH=${branch} REPO_ROOT=${REPO_ROOT} MAKATO_TARGET_REPO_ROOT=${REPO_ROOT} MAKATO_BUILD_ROOT=${MAKATO_BUILD_ROOT:-} MAKATO_ORCHESTRATE_ROOT=${MAKATO_ORCHESTRATE_ROOT:-} MAKATO_PLAN_ROOT=${MAKATO_PLAN_ROOT:-}. The po-agent owns the outer loop, workflow-state, and all makato-build --autonomous dispatch; do not invoke makato-build or makato-plan skills directly from this session. Return the po-agent's final R1 envelope verbatim."
   fi
@@ -4253,24 +4275,44 @@ _reshape_pass() {
       # Test hook: subshell prevents `exit N` from escaping to caller.
       ( eval "${MAKATO_LOOP_RESHAPE_TEST_CMD}" ) >/dev/null 2>&1 || dispatch_rc=$?
     else
-      # Production path: dispatch the configured harness headlessly — Step 1: decompose in Refine mode.
-      local decompose_prompt
-      decompose_prompt="Use the Skill tool to invoke makato-plan:decompose for issue #${n} in Refine mode. ISSUE_NUMBER=${n} KEY=${key} REPO=${repo} REPO_ROOT=${REPO_ROOT} RESHAPE_REQUEST=${reshape_request_path}. --autonomous. Return R1 envelope verbatim."
-      _harness_dispatch_args "$decompose_prompt"
-      REPO_ROOT="$REPO_ROOT" \
-      MAKATO_HEADLESS=1 \
-        "$CLAUDE_BIN" "${HARNESS_DISPATCH_ARGS[@]}" \
-        >/dev/null 2>&1 || dispatch_rc=$?
-
-      # Step 2: to-issues (only when decompose succeeded).
-      if [[ "$dispatch_rc" -eq 0 ]]; then
-        local to_issues_prompt
-        to_issues_prompt="Use the Skill tool to invoke makato-plan:to-issues for issue #${n}. ISSUE_NUMBER=${n} KEY=${key} REPO=${repo} REPO_ROOT=${REPO_ROOT}. --autonomous. Return R1 envelope verbatim."
-        _harness_dispatch_args "$to_issues_prompt"
-        REPO_ROOT="$REPO_ROOT" \
+      if [[ "$(_harness_mode)" == "omp" ]]; then
+        # Share one closed context across the ordered OMP skill runs.
+        local skill_context="$STATE_DIR/reshape-input-${n}.txt"
+        printf '%s\n' "ISSUE_NUMBER=${n}" "KEY=${key}" "REPO=${repo}" \
+          "REPO_ROOT=${REPO_ROOT}" "RESHAPE_REQUEST=${reshape_request_path}" \
+          "MODE=Refine" >"$skill_context"
         MAKATO_HEADLESS=1 \
+          python3 "$MAKATO_SKILL_RUNNER" --repo-root "$REPO_ROOT" --cwd "$REPO_ROOT" \
+          --context-file "$skill_context" --harness "$CLAUDE_BIN" --approval-mode yolo \
+          makato-plan:decompose -- "$key" --autonomous \
+          >/dev/null 2>&1 || dispatch_rc=$?
+
+        # Publish only after decomposition succeeds.
+        if [[ "$dispatch_rc" -eq 0 ]]; then
+          MAKATO_HEADLESS=1 \
+            python3 "$MAKATO_SKILL_RUNNER" --repo-root "$REPO_ROOT" --cwd "$REPO_ROOT" \
+            --context-file "$skill_context" --harness "$CLAUDE_BIN" --approval-mode yolo \
+            makato-plan:to-issues -- "$key" --autonomous \
+            >/dev/null 2>&1 || dispatch_rc=$?
+        fi
+      else
+        # Preserve Claude's existing native skill dispatch through the adapter.
+        local decompose_prompt
+        decompose_prompt="Use the Skill tool to invoke makato-plan:decompose for issue #${n} in Refine mode. ISSUE_NUMBER=${n} KEY=${key} REPO=${repo} REPO_ROOT=${REPO_ROOT} RESHAPE_REQUEST=${reshape_request_path}. --autonomous. Return R1 envelope verbatim."
+        _harness_dispatch_args "$decompose_prompt"
+        REPO_ROOT="$REPO_ROOT" MAKATO_HEADLESS=1 \
           "$CLAUDE_BIN" "${HARNESS_DISPATCH_ARGS[@]}" \
           >/dev/null 2>&1 || dispatch_rc=$?
+
+        # Step 2: to-issues (only when decompose succeeded).
+        if [[ "$dispatch_rc" -eq 0 ]]; then
+          local to_issues_prompt
+          to_issues_prompt="Use the Skill tool to invoke makato-plan:to-issues for issue #${n}. ISSUE_NUMBER=${n} KEY=${key} REPO=${repo} REPO_ROOT=${REPO_ROOT}. --autonomous. Return R1 envelope verbatim."
+          _harness_dispatch_args "$to_issues_prompt"
+          REPO_ROOT="$REPO_ROOT" MAKATO_HEADLESS=1 \
+            "$CLAUDE_BIN" "${HARNESS_DISPATCH_ARGS[@]}" \
+            >/dev/null 2>&1 || dispatch_rc=$?
+        fi
       fi
     fi
 

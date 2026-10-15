@@ -5,6 +5,15 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Added — Per-skill OMP dispatch
+
+- PO-agent dispatches workflow skills through the shared role/effort launcher.
+- The change entry wrapper preserves the loop's session/watchdog lifecycle while
+  launching its selected skill separately; reshape runs decompose and to-issues with
+  their own resolved policies. Existing autonomous permission opt-in is explicit.
+- Dispatch state integration tests use the current harness override and retain
+  in-flight/completed transition checks rather than prompt-text echo assertions.
+
 ### Changed — installed-plugin roots in autonomous dispatch
 
 `loop.sh`, `functions.sh`, and `context-handoff.sh` now forward absolute
@@ -32,6 +41,12 @@ repository vendors `plugins/makato-orchestrate`.
 - **Offline board mirror + per-tick bidirectional sync (issue #9).** New `scripts/board-mirror.sh` module lets the loop survive a GitHub partition. On each successful poll `cmd_poll` refreshes a local snapshot (`board-mirror.json`) and flushes any queued status transitions back to GitHub; when the poll fails it serves the last-known board from the snapshot instead of halting the queue, so dispatch continues offline (`loop-status.json` dispatch count keeps incrementing). `_claim_board_card` gains an offline fallback: when the CAS re-poll fails it claims against the mirror and queues the `In progress` transition (`board-mirror-queue.jsonl`) for push on reconnect. **Sync cadence** is per poll tick — no separate daemon, shares `loop.sh`'s interval (Q-mirror decision A). **Conflict rule** is last-writer-wins, whole-record, by timestamp (Q-mirror decision A): a queued local write overlays the fetched board on refresh, and the flush pushes only the latest status per issue. Feature-flagged with `MAKATO_LOOP_MIRROR` (default `1`; set `0` to disable — every mirror path becomes a no-op and pre-#9 behaviour is restored). Snapshot/queue paths derive from `STATE_DIR` (override `MAKATO_LOOP_MIRROR_FILE` / `MAKATO_LOOP_MIRROR_QUEUE`; point them at `MAKATO_PERSISTENT_VOLUME_ROOT` to survive a Vast.ai preemption). Covered by `scripts/tests/board-mirror-smoke-tests.sh` (8 offline scenarios).
 
 ### Fixed
+- Migrate loop smoke-test executables to `MAKATO_HARNESS_BIN`, keeping dispatch,
+  resume, and plan-recovery scenarios offline after the harness-neutral cutover.
+- Compare completion rates numerically rather than depending on jq decimal
+  formatting, and retain captured stderr in smoke-test failure diagnostics.
+- Pin lesson-prune test clocks to their fixture date so records do not unexpectedly
+  become STALE after 90 days. Production aging and Git-reachability rules are unchanged.
 - **PO-agent worktree creation now passes the helper's positional contract (#634).**
   Both existing-branch and `--new-branch` paths pass `KEY`, `ISSUE_NUMBER`,
   `REPO`, and `BRANCH` in the required order; the worktree smoke suite now

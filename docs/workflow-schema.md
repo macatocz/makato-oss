@@ -1,11 +1,12 @@
 # Workflow Schema Format
 
-The makato-build workflow schema lets teams customise the skill pipeline that
-`build-start` assembles for each story session. When `.claude/workflow-schema.yml`
-is present in the repository root, `workflow-schema-loader.sh` parses it and
-returns the ordered artifact list. When the file is absent, the built-in default
-schema in `plugins/makato-build/config/default-workflow-schema.yml` is used and
-the pipeline is identical to the current hardcoded behaviour.
+The makato-build workflow schema controls two separate concerns for build dispatch: the `artifacts`
+DAG that `build-start` assembles for a story session, and optional per-skill execution role/effort
+settings. When `.claude/workflow-schema.yml` is present, `workflow-schema-loader.sh` returns the
+topologically ordered artifacts with resolved `role` and `effort` fields. When no local schema is
+present, the built-in defaults in `plugins/makato-build/config/default-workflow-schema.yml` are
+used. A local file containing only `skill_execution` overrides still uses the built-in artifact
+list.
 
 Issue: #563
 
@@ -17,29 +18,102 @@ Issue: #563
 <repo-root>/.claude/workflow-schema.yml
 ```
 
-The loader searches for this path. Absence is not an error — the built-in default
-is returned silently.
+The loader searches for this path. Absence is not an error — the built-in default is returned
+silently.
 
 ---
 
 ## Top-level fields
 
-| Field      | Type   | Required | Description |
-|-----------|--------|----------|-------------|
-| `version` | string | yes      | Schema format version. Currently `"1.0"`. |
-| `artifacts` | list | yes      | Ordered list of pipeline artifacts. At least one entry is required. |
+| Field             | Type    | Required              | Description                                                                                                           |
+| ----------------- | ------- | --------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `version`         | string  | yes                   | Schema format version. Currently "1.0".                                                                               |
+| `artifacts`       | list    | for a custom pipeline | Pipeline artifacts. Omit only for an execution-only override; the loader then retains the built-in default artifacts. |
+| `skill_execution` | mapping | no                    | Per-skill OMP role and thinking-effort defaults/overrides. May appear before or after `artifacts`.                    |
+
+---
+
+## `skill_execution`: provider-neutral role and effort
+
+This top-level mapping controls **skill dispatch only**. It does not set concrete model selectors;
+OMP's `modelRoles` remains the authority that maps a role alias to one or more available models.
+Built-in defaults are field-wise merged in this order:
+
+1. Built-in `skill_execution.defaults`
+2. Built-in `skill_execution.skills[plugin:skill]`
+3. Project `skill_execution.defaults`
+4. Project `skill_execution.skills[plugin:skill]`
+
+A later value overrides only the field it supplies; role and effort are resolved independently. The
+defaults are `role: DEFAULT` and `effort: inherit`. Skill keys are plugin-qualified and should be
+quoted in YAML because they contain a colon:
+
+```yaml
+version: "1.0"
+skill_execution:
+  defaults:
+    role: DEFAULT
+    effort: inherit
+  skills:
+    "makato-plan:create-prd":
+      role: PLAN
+      effort: high
+    "makato-change:resolve-review":
+      role: REVIEW
+      effort: medium
+    "makato-build:build-review":
+      role: REVIEW
+      effort: high
+```
+
+- `role` is a provider-neutral OMP role name. The loader emits it uppercase; the launcher passes its
+  lowercase alias (`PLAN` → `@plan`). Any valid configured role is allowed. `DEFAULT` uses
+  `@default`; `PLAN` uses the built-in `@plan` role. `REVIEW` is a custom role: users must configure
+  `modelRoles.review` themselves. Makato does not create or change global OMP configuration.
+- `effort` accepts `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `auto`, and `inherit`.
+  `inherit` omits the thinking flag; other values are passed as the per-run thinking selection.
+- A project may contain only `skill_execution` to adjust execution without copying the artifact
+  list. If it contains artifacts too, the two sections may be in either order. Execution-only
+  schemas retain all built-in artifacts.
+- The loader accepts any artifact skill name, including unregistered custom skills. Such skills
+  receive the merged defaults and any exact project override; custom artifacts remain valid without
+  registering a skill in the built-in catalog.
+
+Configure concrete models separately in OMP's `config.yml`:
+
+```yaml
+modelRoles:
+  default: openai/gpt-4.1-mini
+  plan: anthropic/claude-sonnet-4-5
+  review: anthropic/claude-sonnet-4-5 # custom role; configure explicitly
+```
+
+`modelRoles.review` is not a built-in alias. Choose model selectors supported by your OMP
+installation and save this yourself (for example, through `/models` or the intended global/project
+config). The skill resolver never writes global or project OMP model settings. Existing per-agent
+settings such as `modelRole` in agent frontmatter remain separate: per-skill settings select the
+outer skill's model and do not rewrite the models used for agents that skill dispatches.
+
+A normal file read or direct slash-skill invocation does not inspect this schema or switch the
+current conversation's model. Use the `run-skill.py` launcher for a schema-aware skill dispatch; it
+resolves the skill's role/effort and runs OMP with `--model @role`, optional `--thinking LEVEL`,
+`--plugin-dir PATH`, `--cwd PATH`, and `--print`. The launcher's own invocation syntax is shown in
+the runtime section below.
+
+The loader uses a restricted parser for `artifacts`; the shared execution resolver uses PyYAML.
+Python 3 and the PyYAML package are runtime dependencies.
 
 ---
 
 ## `artifacts[]` entry fields
 
-| Field         | Type         | Required | Description |
-|--------------|-------------|----------|-------------|
-| `id`          | string       | yes      | Unique identifier for this artifact within the schema. Used in `after:` dependency references. |
-| `skill`       | string       | yes      | The makato-build skill invoked for this artifact (e.g. `build-refine`, `build-verify`). Custom artifacts may name any skill path. |
-| `required`    | boolean      | yes      | When `true`, the skill MUST be run; when `false`, the skill is optional and may be skipped by the runner. |
-| `description` | string       | no       | Human-readable summary of what this artifact produces. |
-| `after`       | list[string] | no       | IDs of artifacts that must complete before this one may start. Omit or leave empty for the entry point. Forms the dependency edges of the DAG. |
+| Field         | Type         | Required | Description                                                                                                                                                        |
+| ------------- | ------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `id`          | string       | yes      | Unique identifier for this artifact within the schema. Used in `after:` dependency references.                                                                     |
+| `skill`       | string       | yes      | The makato-build skill invoked for this artifact (e.g. `build-refine`, `build-verify`). Custom artifacts may name any skill path.                                  |
+| `required`    | boolean      | yes      | When `true`, the skill MUST be run; when `false`, the skill is optional and may be skipped by the runner.                                                          |
+| `description` | string       | no       | Human-readable summary of what this artifact produces.                                                                                                             |
+| `after`       | list[string] | no       | IDs of artifacts that must complete before this one may start. Omit entirely for the entry point; do not write `after: []`. Forms the dependency edges of the DAG. |
 
 ### Dependency syntax (`after:`)
 
@@ -57,23 +131,22 @@ after:
   - implement-goal
 ```
 
-The loader validates the `after:` list for cycles (both direct and transitive).
-A circular dependency causes the loader to exit 1 with the full cycle path in the
-error message.
+The loader validates the `after:` list for cycles (both direct and transitive). A circular
+dependency causes the loader to exit 1 with the full cycle path in the error message.
 
 ### `required` vs optional artifacts
 
 - `required: true` — the skill MUST appear in every pipeline execution.
-- `required: false` — the skill is optional. The caller decides whether to invoke
-  it based on context (e.g. `grill-with-docs` is optional; `address-pr-comments`
-  is only needed after review feedback arrives).
+- `required: false` — the skill is optional. The caller decides whether to invoke it based on
+  context (e.g. `grill-with-docs` is optional; `address-pr-comments` is only needed after review
+  feedback arrives).
 
 ---
 
 ## Annotated example
 
-The following schema adds a custom `security-audit` artifact between `verify` and
-`sensors`, and marks `grill-with-docs` as required for this repo:
+The following schema adds a custom `security-audit` artifact between `verify` and `sensors`, and
+marks `grill-with-docs` as required for this repo:
 
 ```yaml
 version: "1.0"
@@ -86,7 +159,7 @@ artifacts:
 
   - id: grill-with-docs
     skill: build-grill-with-docs
-    required: true            # overridden to required for this repo
+    required: true # overridden to required for this repo
     description: "Align plan vocabulary to domain model"
     after: [refine]
 
@@ -117,7 +190,7 @@ artifacts:
     required: true
     after: [review]
 
-  - id: security-audit           # custom artifact not in the built-in default
+  - id: security-audit # custom artifact not in the built-in default
     skill: security-audit
     required: true
     description: "Internal security scan before pre-commit sensors"
@@ -126,7 +199,7 @@ artifacts:
   - id: sensors
     skill: build-sensors
     required: true
-    after: [security-audit]     # now depends on the custom step
+    after: [security-audit] # now depends on the custom step
 
   - id: push-to-git
     skill: build-push-to-git
@@ -148,8 +221,8 @@ artifacts:
 
 ## Cycle detection
 
-The loader uses depth-first search to detect circular dependencies before
-returning the ordered artifact list.
+The loader uses depth-first search to detect circular dependencies before returning the ordered
+artifact list.
 
 **Direct cycle** (`A → B → A`):
 
@@ -201,13 +274,63 @@ The loader exits 1 on any cycle. Fix the schema before running `build-start`.
 
 ## Creating a schema interactively
 
-Run `/makato-core:create-workflow-schema` to launch an interactive wizard that
-guides you through artifact selection and generates `.claude/workflow-schema.yml`.
+Run `/makato-core:create-workflow-schema` to launch the interactive wizard. It shows the built-in
+artifact list and, separately, all built-in skill-execution entries grouped by plugin. When
+regenerating, the wizard preserves the complete project-local `skill_execution` block verbatim; it
+omits a local block when none was present so built-in settings remain active.
+
+---
+
+## Running skills with resolved settings
+
+Use `plugins/makato-build/scripts/run-skill.py` for a schema-aware skill dispatch. Reading a
+`SKILL.md` or invoking a slash skill directly does not inspect the schema or switch the current
+conversation model.
+
+```bash
+python3 "$MAKATO_BUILD_ROOT/scripts/run-skill.py" \
+  --repo-root "$REPO_ROOT" \
+  --cwd "${WORKTREE_PATH:-$REPO_ROOT}" \
+  --context-file "$CONTEXT_FILE" \
+  makato-build:build-review -- "$WORK_ITEM_KEY"
+```
+
+`--repo-root PATH` is required. Optional launcher flags, all before the positional `plugin:skill`,
+are `--cwd PATH`, `--context-file PATH`, `--interactive`, `--dry-run`, `--harness OMP_BINARY`,
+repeatable `--config PATH` overlays, and explicit `--approval-mode always-ask|write|yolo`. Skill
+arguments follow `--` and are passed as data. By default the runner starts OMP with `--print`;
+`--interactive` omits it. OMP sessions are fresh and ephemeral (`--no-session` is applied by the
+launcher). `--approval-mode` is not set unless explicitly requested; the runner does not silently
+broaden permissions. A config overlay does not override the schema's role or effort.
+
+The launcher resolves the role and effort, then starts OMP using `--model @role`, adds
+`--thinking LEVEL` unless effort is `inherit`, and supplies `--plugin-dir PATH`, `--cwd PATH`, and
+`--print` in default non-interactive mode. Concrete model selectors remain in the user's OMP
+`modelRoles` config; the runner does not edit global/project OMP settings. A `REVIEW` entry maps to
+`@review` only when the user has configured that custom role. Existing per-agent `modelRole`
+settings remain separate from the outer skill's per-skill settings.
+
+`MAKATO_BUILD_ROOT` identifies the installed makato-build plugin directory, not the target
+project. The launcher infers sibling makato-plan/makato-change directories in a checkout;
+for separately cached installations, set `MAKATO_PLAN_ROOT` and `MAKATO_CHANGE_ROOT`
+explicitly. Child runs inherit these roots and `MAKATO_SKILL_RUNNER`.
+
+A fresh process has no parent conversation. Pass a complete UTF-8 context file containing
+the issue/key, repository/worktree paths, artifact paths, decisions, and step-specific inputs.
+The launcher includes the selected skill verbatim and tells subsequent workflow skills to use
+the same launcher with another complete context bundle. Reference reads and ordinary helper
+agents are not new workflow dispatches. In non-interactive mode, missing decisions are
+reported to the coordinator rather than invented; use `--interactive` for human interviews.
+
+Repository artifacts and logs persist, but the ephemeral skill conversation cannot be resumed.
+The autonomous change entry wrapper retains its own existing session/watchdog lifecycle.
 
 ---
 
 ## See also
 
 - `plugins/makato-build/config/default-workflow-schema.yml` — built-in default
-- `plugins/makato-build/scripts/workflow-schema-loader.sh` — the resolver
-- `plugins/makato-build/skills/build-start/SKILL.md` — the consumer
+- `plugins/makato-build/scripts/workflow-schema-loader.sh` — parses and orders artifacts
+- `plugins/makato-build/shared/skill_execution.py` — resolves role and effort
+- `plugins/makato-build/scripts/run-skill.py` — starts a schema-aware skill run
+- `plugins/makato-build/skills/build-start/SKILL.md` — the pipeline consumer

@@ -5,7 +5,7 @@ description: >-
   implementation mode, initializes the build log, and kicks off /build-refine. Use when starting a
   new story build, beginning the makato-build workflow, running build-start on a work item, or
   starting local work without a ticket.
-version: "1.10.0"
+version: "1.11.0"
 argument-hint: "[work-item-key]"
 allowed-tools: [Bash]
 metadata:
@@ -13,6 +13,35 @@ metadata:
 ---
 
 # build-start
+
+## OMP skill dispatch boundary
+
+This boundary applies only when the resolved `MAKATO_HARNESS_MODE` is `omp`.
+For `claude` and other non-OMP harnesses, keep the native invocations below unchanged.
+
+Execute workflow skills from makato-build, makato-plan and makato-change in separate
+OMP runs through `python3 "$MAKATO_SKILL_RUNNER"`, not inline Skill/Task calls.
+Resolve the runner from `$MAKATO_BUILD_ROOT/scripts/run-skill.py` if not already
+exported; if neither path is available, report the missing makato-build runtime.
+This rule applies to every skill dispatch below, including retries and follow-on
+skills. It does not replace ordinary helper-agent dispatch or reference reads.
+
+For each invocation, write a context file containing the complete current bundle
+(REPO_ROOT, WORKTREE_PATH, issue/key, artifact paths, decisions, and step-specific
+inputs). The new session has no parent conversation history. Run:
+
+```bash
+python3 "$MAKATO_SKILL_RUNNER" --repo-root "$REPO_ROOT" \
+  --cwd "${WORKTREE_PATH:-$REPO_ROOT}" --context-file "$CONTEXT_FILE" \
+  makato-build:build-refine -- "$KEY" --autonomous
+```
+
+Replace the skill and its arguments for the selected phase. Wait for completion,
+then apply the existing result/artifact checks. Nonzero exit is a dispatch failure;
+never silently fall back to inline execution. Human-driven interviews use
+`--interactive` before the skill name. The selected current skill executes its own
+body inline; it must not launch itself again merely to apply this policy.
+
 
 ## Mindset
 
@@ -460,14 +489,14 @@ determines which skill artifacts are assembled into the pipeline.
 Run `workflow-schema-loader.sh` passing the repository root as the first argument:
 
 ```bash
-REPO_ROOT="$(git -C "$WORKTREE_PATH" rev-parse --show-toplevel)"
-ARTIFACT_LIST="$(bash "$REPO_ROOT/scripts/workflow-schema-loader.sh" "$REPO_ROOT" 2>/tmp/schema-loader-err)"
+# Keep REPO_ROOT as the configuration/spec root supplied by the coordinator.
+ARTIFACT_LIST="$(bash "$MAKATO_BUILD_ROOT/scripts/workflow-schema-loader.sh" "$REPO_ROOT" 2>/tmp/schema-loader-err)"
 SCHEMA_EXIT=$?
 ```
 
 **On exit 0:** `ARTIFACT_LIST` contains one JSON object per line, each with fields `id`, `skill`,
-`required`, `description`. Use this list to assemble the pipeline order for Step 6. Log the resolved
-schema source:
+`required`, `description`, `role` and `effort`. Use this list to assemble the pipeline order for Step 6.
+Log the resolved schema source:
 
 ```bash
 SCHEMA_SOURCE="custom"   # or "default" — readable from first loader stderr line or infer:

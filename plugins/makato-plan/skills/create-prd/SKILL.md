@@ -4,8 +4,7 @@ description: >-
   Create Product Requirements Documents from brainstorming output — PRD,
   requirements, product requirements, feature requirements, user stories,
   acceptance criteria. Use after brainstorming and grilling.
-version: "1.2.1"
-modelRole: plan
+version: "1.3.0"
 argument-hint: "[slug]"
 allowed-tools: Bash
 ---

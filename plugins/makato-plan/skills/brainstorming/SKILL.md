@@ -4,8 +4,7 @@ description: >-
   Structured divergent-convergent ideation on a feature — brainstorm, explore ideas, ideate,
   creative exploration, explore feature angles. Use when starting a new feature that needs
   ideation before PRD.
-version: "1.3.1"
-modelRole: designer
+version: "1.4.0"
 allowed-tools: [Bash]
 mcp_server: github
 metadata:

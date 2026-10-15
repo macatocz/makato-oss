@@ -5,8 +5,7 @@ description: >-
   ux-design, wireframe, user-flow, screen-states, information-architecture, accessibility,
   figma, user-testing, developer-handoff. Use when PRD has "UI Required: Yes", designing
   user flows, documenting screen states, or preparing developer handoff.
-version: "1.2.0"
-modelRole: designer
+version: "1.3.0"
 argument-hint: "[slug]"
 allowed-tools: [Write, Read, Skill]
 metadata:

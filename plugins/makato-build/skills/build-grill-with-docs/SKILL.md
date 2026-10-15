@@ -4,8 +4,7 @@ description:
   Align implementation plan terminology to the codebase domain model — grill plan, terminology
   conflicts, glossary.md enrichment, ADR decisions. Use after /refine, before /implement-tdd or
   /implement-goal. Optional but recommended for complex stories.
-version: "1.8.0"
-model: opus
+version: "1.9.0"
 argument-hint: "[work-item-key]"
 allowed-tools: [Bash, Read, Glob]
 metadata:

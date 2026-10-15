@@ -4,8 +4,7 @@ description: >-
   Bridge a shaped Jira story, GitHub issue, or any work unit to an implementation plan — tasks, file
   targets, unit/integration test strategy, acceptance mapping. Use to start a build session before
   implement-tdd or implement-goal.
-version: "1.13.0"
-model: opus
+version: "1.14.0"
 argument-hint: "[work-item-key] [--autonomous]"
 allowed-tools:
   - Bash

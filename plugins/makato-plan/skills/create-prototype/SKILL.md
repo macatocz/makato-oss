@@ -4,8 +4,7 @@ description: >-
   Create interactive HTML prototypes of new UI surfaces from PRD and architecture
   artifacts — prototype, mockup, UI preview, UX validation. Use after architecture
   design is complete for features with user-facing interfaces.
-version: "1.1.0"
-modelRole: designer
+version: "1.2.0"
 argument-hint: "[slug]"
 allowed-tools: WebFetch Bash(open *) Bash(xdg-open *) Bash(start *) Bash(uname *) Bash(git *) Read Write
 ---

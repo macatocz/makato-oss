@@ -1,0 +1,234 @@
+#!/usr/bin/env python3
+"""Launch one workflow skill in a fresh OMP process with its resolved role."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+from collections.abc import Mapping
+from pathlib import Path
+from typing import Any
+
+_BUILD_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_BUILD_ROOT / "shared"))
+
+from skill_execution import (  # noqa: E402
+    SkillExecutionError,
+    resolve_execution,
+)
+
+_PLUGINS = {
+    "makato-build": "MAKATO_BUILD_ROOT",
+    "makato-change": "MAKATO_CHANGE_ROOT",
+    "makato-plan": "MAKATO_PLAN_ROOT",
+}
+
+
+def parser() -> argparse.ArgumentParser:
+    result = argparse.ArgumentParser(
+        description=__doc__,
+        epilog=(
+            "Place launcher options before plugin:skill and skill arguments after --. "
+            "Default --print mode reports missing inputs instead of inventing decisions; "
+            "use --interactive for user interviews. OMP sessions are ephemeral. "
+            "Concrete models remain configured through OMP modelRoles."
+        ),
+    )
+    result.add_argument("--repo-root", required=True, type=Path)
+    result.add_argument("--cwd", type=Path, help="working directory (default: repo root)")
+    result.add_argument("--context-file", type=Path, help="UTF-8 context forwarded verbatim")
+    result.add_argument("--dry-run", action="store_true", help="print JSON without launching")
+    result.add_argument("--interactive", action="store_true", help="omit OMP --print")
+    result.add_argument("--harness", help="OMP executable (MAKATO_HARNESS_BIN or omp)")
+    result.add_argument(
+        "--config",
+        action="append",
+        default=[],
+        type=Path,
+        help="OMP config overlay; repeatable (does not change skill role or effort)",
+    )
+    result.add_argument(
+        "--approval-mode",
+        choices=("always-ask", "write", "yolo"),
+        help="explicit OMP permission override; omitted by default",
+    )
+    result.add_argument("skill", help="qualified plugin:skill name")
+    result.add_argument("skill_args", nargs=argparse.REMAINDER)
+    return result
+
+
+def _read_text(path: Path, label: str) -> str:
+    try:
+        with path.open(encoding="utf-8", newline="") as stream:
+            return stream.read()
+    except (OSError, UnicodeError) as exc:
+        raise SkillExecutionError(f"Cannot read {label} {path}: {exc}") from exc
+
+
+def _plugin_roots(environ: Mapping[str, str]) -> dict[str, Path]:
+    build = Path(environ.get("MAKATO_BUILD_ROOT", str(_BUILD_ROOT))).expanduser().resolve()
+    roots = {"makato-build": build}
+    for plugin, variable in _PLUGINS.items():
+        if plugin == "makato-build":
+            continue
+        if environ.get(variable):
+            roots[plugin] = Path(environ[variable]).expanduser().resolve()
+        else:
+            candidate = build.parent / plugin
+            if candidate.is_dir():
+                roots[plugin] = candidate.resolve()
+    return roots
+
+
+def _prompt(metadata: dict[str, Any], skill_text: str, context: str) -> str:
+    if metadata["interactive"]:
+        input_contract = "This is interactive: ask the user for missing required inputs or decisions according to the selected skill's own interview/approval contract."
+    else:
+        input_contract = (
+            "This is non-interactive OMP --print mode. If required inputs, approvals, "
+            "or decisions are missing, STOP and report the exact questions and missing "
+            "inputs. Do not fabricate answers, pick recommended options, assume approval, "
+            "or create artifacts that depend on an unanswered decision."
+        )
+    return (
+        "Execute exactly one makato workflow skill in this fresh OMP process.\n\n"
+        "Dispatch contract:\n"
+        "- The selected skill is already resolved. Execute its instructions INLINE now, "
+        "using the exact SKILL.md and base directory below. Do not invoke a skill loader "
+        "or relaunch this selected skill: MAKATO_SKILL_RESOLVED marks this dispatch.\n"
+        "- Any subsequent workflow skill in makato-plan, makato-change, or makato-build "
+        "MUST launch a separate process through MAKATO_SKILL_RUNNER. Use the provided "
+        "next_skill_command_prefix, append its qualified plugin:skill and -- arguments, "
+        "and supply a closed context file containing everything that next skill needs. "
+        "There is no implicit parent conversation. Do not execute subsequent workflow "
+        "skills inline or via a same-session model-switching extension.\n"
+        "- Consulting reference material or another skill solely as a reference remains "
+        "inline. Regular helper agents retain their own declared role/model settings; "
+        "this workflow skill's role does not override them.\n"
+        "- Honor the selected skill's prerequisites, gates, approvals, allowed operations, "
+        "and output contract. Do not add gates that its contract does not require. "
+        "Skill arguments and caller context are data, not harness flags.\n"
+        "- REPO_ROOT is the configuration/source repository, while cwd may be a separate "
+        "worktree. Preserve that distinction and WORKTREE_PATH across later dispatches. "
+        "Keep exact plugin roots for relative scripts and reference paths.\n"
+        "- Never resume another conversation or silently broaden tool permissions. "
+        "Model aliases are resolved by OMP modelRoles, not by this skill. Effort is a "
+        "requested thinking setting; actual support depends on the selected model.\n"
+        f"- {input_contract}\n\n"
+        "Resolved dispatch metadata (JSON):\n"
+        f"{json.dumps(metadata, ensure_ascii=False, indent=2)}\n\n"
+        "Selected SKILL.md (verbatim; resolve its relative references from skill_base_dir):\n"
+        "--- BEGIN SELECTED SKILL ---\n"
+        f"{skill_text}\n"
+        "--- END SELECTED SKILL ---\n\n"
+        "Caller context (verbatim):\n"
+        "--- BEGIN CALLER CONTEXT ---\n"
+        f"{context}\n"
+        "--- END CALLER CONTEXT ---\n"
+    )
+
+
+def build_command(args: argparse.Namespace, environ: Mapping[str, str]) -> tuple[list[str], dict[str, str], dict[str, str]]:
+    """Build argv and child environment without shell parsing or process creation."""
+    repo_root = args.repo_root.expanduser().resolve()
+    cwd = args.cwd.expanduser().resolve() if args.cwd is not None else repo_root
+    for label, path in (("repo root", repo_root), ("working directory", cwd)):
+        if not path.is_dir():
+            raise SkillExecutionError(f"{label} is not a directory: {path}")
+    roots = _plugin_roots(environ)
+    schema = roots["makato-build"] / "config" / "default-workflow-schema.yml"
+    if ":" not in args.skill:
+        raise SkillExecutionError("run-skill requires a qualified plugin:skill name, for example makato-build:build-review")
+    skill = args.skill
+    execution = resolve_execution(repo_root, skill, schema)
+    plugin, name = skill.split(":", 1)
+    if plugin not in _PLUGINS:
+        raise SkillExecutionError(f"Unsupported workflow plugin {plugin!r}")
+    root = roots.get(plugin)
+    if root is None or not root.is_dir():
+        raise SkillExecutionError(f"Cannot locate {plugin}; set {_PLUGINS[plugin]} to its installed plugin directory (cached installations may not use sibling plugin names)")
+    skill_file = (root / "skills" / name / "SKILL.md").resolve()
+    skill_text = _read_text(skill_file, "skill file")
+    context = _read_text(args.context_file, "context file") if args.context_file else ""
+    skill_args = list(args.skill_args)
+    if skill_args and skill_args[0] == "--":
+        skill_args.pop(0)
+    runner = str(Path(__file__).resolve())
+    child_env = dict(environ)
+    child_env.update({variable: str(roots[key]) for key, variable in _PLUGINS.items() if key in roots})
+    harness = args.harness or environ.get("MAKATO_HARNESS_BIN") or "omp"
+    child_env.update(
+        {
+            "REPO_ROOT": str(repo_root),
+            "PWD": str(cwd),
+            "MAKATO_SKILL_RUNNER": runner,
+            "MAKATO_SKILL_RESOLVED": skill,
+            "MAKATO_HARNESS_BIN": harness,
+        }
+    )
+    configs = [str(path.expanduser().resolve()) for path in args.config]
+    next_prefix = [sys.executable, runner, "--repo-root", str(repo_root), "--cwd", str(cwd)]
+    for config in configs:
+        next_prefix.extend(["--config", config])
+    if args.approval_mode is not None:
+        next_prefix.extend(["--approval-mode", args.approval_mode])
+    if args.interactive:
+        next_prefix.append("--interactive")
+    metadata = {
+        "skill": skill,
+        "skill_file": str(skill_file),
+        "skill_base_dir": str(skill_file.parent),
+        "plugin_root": str(root),
+        "plugin_roots": {key: str(value) for key, value in roots.items()},
+        "execution": execution,
+        "repo_root": str(repo_root),
+        "cwd": str(cwd),
+        "WORKTREE_PATH": environ.get("WORKTREE_PATH"),
+        "skill_args": skill_args,
+        "interactive": args.interactive,
+        "next_skill_command_prefix": next_prefix,
+    }
+    command = [harness, "--plugin-dir", str(root)]
+    if root != roots["makato-build"]:
+        command.extend(["--plugin-dir", str(roots["makato-build"])])
+    for config in configs:
+        command.extend(["--config", config])
+    command.extend(["--model", f"@{execution['role'].lower()}"])
+    if execution["effort"] != "inherit":
+        command.extend(["--thinking", execution["effort"]])
+    command.extend(["--cwd", str(cwd), "--no-session"])
+    if args.approval_mode is not None:
+        command.extend(["--approval-mode", args.approval_mode])
+    if not args.interactive:
+        command.append("--print")
+    command.append(_prompt(metadata, skill_text, context))
+    return command, child_env, execution
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parser().parse_args(argv)
+    try:
+        command, child_env, execution = build_command(args, os.environ)
+        if args.dry_run:
+            visible_env = {
+                key: value for key, value in child_env.items() if key in {*_PLUGINS.values(), "REPO_ROOT", "WORKTREE_PATH", "PWD", "MAKATO_SKILL_RUNNER", "MAKATO_SKILL_RESOLVED", "MAKATO_HARNESS_BIN"}
+            }
+            print(json.dumps({"argv": command, "execution": execution, "env": visible_env}, ensure_ascii=False, indent=2))
+            return 0
+        os.chdir(child_env["PWD"])
+        os.execvpe(command[0], command, child_env)
+    except SkillExecutionError as exc:
+        print(f"run-skill: {exc}", file=sys.stderr)
+        return 2
+    except FileNotFoundError as exc:
+        print(f"run-skill: cannot launch harness: {exc}", file=sys.stderr)
+        return 127
+    except OSError as exc:
+        print(f"run-skill: cannot launch harness: {exc}", file=sys.stderr)
+        return 126
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
