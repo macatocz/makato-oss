@@ -2853,7 +2853,7 @@ t67c_stderr="$(
 )"
 # No block, no comment — gate saw valid plan-555.md and emitted 'proceed'.
 [[ ! -f "$T67c_BLOCK_FILE" ]] \
-  || fail "T67c: block file must NOT be written when plan-N.md is valid; got: $(cat "$T67c_BLOCK_FILE" 2>/dev/null)"
+  || fail "T67c: block file must NOT be written when plan-N.md is valid; got: $(cat "$T67c_BLOCK_FILE" 2>/dev/null); stderr: $t67c_stderr"
 [[ ! -f "$T67c_COMMENT_FILE" ]] \
   || fail "T67c: comment file must NOT be written when plan-N.md is valid; got: $(cat "$T67c_COMMENT_FILE" 2>/dev/null)"
 rm -f "$T67c_CONFIG" "$T67c_BLOCK_FILE" "$T67c_LABEL_FILE" "$T67c_COMMENT_FILE" "$T67c_BODY"
@@ -2958,7 +2958,7 @@ t69_stderr="$(
     "$LOOP" _test-auto-seed-reconcile-thin-body 502 502-thin-no-jsonl 2>&1 >/dev/null
 )" || t69_rc=$?
 [[ "$t69_rc" -eq 0 ]] \
-  || fail "T69: plan-tier:full with no jsonl should return exit code 0 (Signal 2 removed); got rc=$t69_rc"
+  || fail "T69: plan-tier:full with no jsonl should return exit code 0 (Signal 2 removed); got rc=$t69_rc; stderr: $t69_stderr"
 [[ ! -f "$T69_LABEL_FILE" ]] || [[ ! -s "$T69_LABEL_FILE" ]] \
   || fail "T69: no needs-human-review should be applied (no thin-body detected); label file: $(cat "$T69_LABEL_FILE" 2>/dev/null)"
 rm -f "$T69_LABEL_FIXTURE" "$T69_LABEL_FILE"
@@ -3081,7 +3081,7 @@ MAKATO_LOOP_TEST_HOOK=1 \
 MAKATO_LOOP_AUTOSEED_OVERRIDE="$TB_FIXTURE" \
 MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
 MAKATO_LOOP_SEED_TEST_CMD="$TB_STUB_FILE" \
-  "$LOOP" _test-auto-seed-unprepared 2>&1 >/dev/null || tb_seed_rc=$?
+  "$LOOP" _test-auto-seed-unprepared >/dev/null 2>&1 || tb_seed_rc=$?
 [[ "$tb_seed_rc" -eq 0 ]] \
   || fail "Tb: _auto_seed_unprepared must return 0 (best-effort) even on thin-body; got rc=$tb_seed_rc"
 [[ -f "$TB_SEED_FLAG" ]] \
@@ -3996,7 +3996,7 @@ MAKATO_LOOP_RECONCILE_TEST_FILE="$TSP1_RECON" \
 MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE="$TSP1_LABEL" \
 MAKATO_LOOP_PR_STATE_OVERRIDE="$TSP1_PR_STATE" \
 MAKATO_LOOP_STALL_DISABLE=1 \
-MAKATO_CLAUDE_BIN=true \
+MAKATO_HARNESS_BIN=true \
 SPECS_DIR="$TSP1_SPECS" \
   "$LOOP" _test-reconcile-stale >/dev/null 2>&1 || tsp1_rc=$?
 [[ $tsp1_rc -eq 0 ]] || fail "T-STALE-PR-1: expected rc 0; got $tsp1_rc"
@@ -4272,10 +4272,10 @@ tlg2_stderr="$(
   MAKATO_LOOP_RECONCILE_SPECS_DIR="$TLG2_SPECS" \
   MAKATO_LOOP_CONFIG="$TLG2_CONFIG" \
   MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE="$TLG2_LABEL" \
-    "$LOOP" _test-reconcile-stale >/dev/null 2>&1
+    "$LOOP" _test-reconcile-stale 2>&1 >/dev/null
 )" || tlg2_rc=$?
 [[ "$tlg2_rc" -eq 0 ]] \
-  || fail "T-RECON-LABELGATE-2: function must return 0; got rc=$tlg2_rc"
+  || fail "T-RECON-LABELGATE-2: function must return 0; got rc=$tlg2_rc; stderr: $tlg2_stderr"
 # Label must NOT have been applied when board edit failed.
 if [[ -s "$TLG2_LABEL" ]]; then
   fail "T-RECON-LABELGATE-2: label must NOT be applied when board edit failed; got: $(cat "$TLG2_LABEL")"
@@ -5609,7 +5609,7 @@ MAKATO_LOOP_STATE_DIR="$T_R2_STATE" \
 SPECS_DIR="$T_R2_SPECS" \
 MAKATO_LOOP_STALL_DISABLE=0 \
 MAKATO_LOOP_SLEEP_CMD=true \
-MAKATO_CLAUDE_BIN=true \
+MAKATO_HARNESS_BIN=true \
   "$LOOP" _test-stall-resume 44421 "resume2-slug" "$T_R2_SPEC_DIR" "$T_R2_LOG" \
   >/dev/null 2>&1 || t_r2_rc=$?
 [[ $t_r2_rc -eq 0 ]] \
@@ -5663,7 +5663,7 @@ MAKATO_LOOP_STATE_DIR="$T_R3_STATE" \
 SPECS_DIR="$T_R3_SPECS" \
 MAKATO_LOOP_STALL_DISABLE=0 \
 MAKATO_LOOP_SLEEP_CMD=true \
-MAKATO_CLAUDE_BIN=true \
+MAKATO_HARNESS_BIN=true \
   "$LOOP" _test-stall-resume 44422 "resume3-slug" "$T_R3_SPEC_DIR" "$T_R3_LOG" \
   >/dev/null 2>&1 || t_r3_rc=$?
 [[ $t_r3_rc -eq 0 ]] \
@@ -5782,7 +5782,7 @@ MAKATO_LOOP_STATE_DIR="$T_R616_STATE" \
 SPECS_DIR="$T_R616_SPECS" \
 MAKATO_LOOP_STALL_DISABLE=0 \
 MAKATO_LOOP_SLEEP_CMD=true \
-MAKATO_CLAUDE_BIN=false \
+MAKATO_HARNESS_BIN=false \
   "$LOOP" _test-stall-resume 44616 "resume616-slug" "$T_R616_SPEC_DIR" "$T_R616_LOG" \
   >/dev/null 2>&1 || t_r616_rc=$?
 [[ $t_r616_rc -eq 0 ]] \
@@ -5950,8 +5950,8 @@ echo "  ✓ empty-key regression: new gate skipped, original WARN preserved"
 #
 # Design note: this test does NOT use MAKATO_LOOP_DRY_DISPATCH=1 — that flag
 # itself suppresses the gate for all types and would mask a regression of the
-# type:change bypass condition.  Instead we use a sentinel MAKATO_CLAUDE_BIN
-# that exits 0 immediately so the fork never spawns a real subprocess, while
+# type:change bypass condition. Instead we use a sentinel MAKATO_HARNESS_BIN
+# that exits 0 immediately so no real model harness is launched, while
 # the gate (and all intervening code) runs normally.
 #
 # Paired negative-control sub-assertion: type:feature + same miss path must
@@ -5982,10 +5982,10 @@ t75_stderr="$(
   MAKATO_LOOP_GATE_DISABLE=1 \
   MAKATO_LOOP_ASSIGN_ON_DISPATCH=0 \
   MAKATO_LOOP_STALL_DISABLE=1 \
-  MAKATO_CLAUDE_BIN="$t75_sentinel" \
+  MAKATO_HARNESS_BIN="$t75_sentinel" \
   SPECS_DIR="$T75_SPECS" \
     "$LOOP" dispatch 703 2>&1 >/dev/null
-)" || fail "T75: cmd_dispatch should return 0 for type:change on miss path"
+)" || fail "T75: cmd_dispatch should return 0 for type:change on miss path; got: $t75_stderr"
 
 # Gate must NOT fire for type:change — the bypass condition is what we're testing.
 if grep -qi "no specs/ folder" <<<"$t75_stderr"; then
@@ -6083,7 +6083,7 @@ chmod +x "$t80_fake_claude"
 
 t80_verdict="$(
   MAKATO_LOOP_TEST_HOOK=1 \
-  SPECS_DIR="$T80_SPECS" REPO_ROOT="$T80_DIR" MAKATO_CLAUDE_BIN="$t80_fake_claude" \
+  SPECS_DIR="$T80_SPECS" REPO_ROOT="$T80_DIR" MAKATO_HARNESS_BIN="$t80_fake_claude" \
     "$LOOP" _test-pre-dispatch-plan-guard '99-thin-feature'
 )" 2>/dev/null
 
@@ -6115,7 +6115,7 @@ chmod +x "$t81_fake_claude"
 
 t81_output="$(
   MAKATO_LOOP_TEST_HOOK=1 \
-  SPECS_DIR="$T81_SPECS" REPO_ROOT="$T81_DIR" MAKATO_CLAUDE_BIN="$t81_fake_claude" \
+  SPECS_DIR="$T81_SPECS" REPO_ROOT="$T81_DIR" MAKATO_HARNESS_BIN="$t81_fake_claude" \
     "$LOOP" _test-pre-dispatch-plan-guard '55-bad-feature' 2>/tmp/t81_stderr_$$
 )"
 
@@ -6976,7 +6976,7 @@ chmod +x "$t127_fake_claude"
 t127_stderr_file="/tmp/t127_stderr_$$"
 t127_verdict="$(
   MAKATO_LOOP_TEST_HOOK=1 \
-  SPECS_DIR="$T127_SPECS" REPO_ROOT="$T127_DIR" MAKATO_CLAUDE_BIN="$t127_fake_claude" \
+  SPECS_DIR="$T127_SPECS" REPO_ROOT="$T127_DIR" MAKATO_HARNESS_BIN="$t127_fake_claude" \
     "$LOOP" _test-pre-dispatch-plan-guard '127-bad-skill' 2>"$t127_stderr_file"
 )"
 t127_stderr="$(cat "$t127_stderr_file")"
@@ -7326,9 +7326,7 @@ OUT="$(MAKATO_LOOP_STATE_DIR="$T_VCR4_STATE" SPECS_DIR="$T_VCR4_SPECS" \
 echo "$OUT" | jq empty 2>/dev/null || fail "T-VCR-4: output not valid JSON: $OUT"
 [[ "$(echo "$OUT" | jq '.activated')" == "3" ]] || fail "T-VCR-4: expected activated=3: $OUT"
 [[ "$(echo "$OUT" | jq '.verified')" == "3" ]] || fail "T-VCR-4: expected verified=3: $OUT"
-# rate should be 1.00 (python3 '%.2f' % 1.0)
-RATE4="$(echo "$OUT" | jq -r '.rate')"
-[[ "$RATE4" == "1.0" || "$RATE4" == "1.00" ]] || fail "T-VCR-4: expected rate=1.00, got: $RATE4"
+echo "$OUT" | jq -e ' .rate == 1 ' >/dev/null 2>&1 || fail "T-VCR-4: expected full completion rate: $OUT"
 rm -rf "$T_VCR4_SPECS" "$T_VCR4_STATE"
 echo "T-VCR-4 passed"
 
