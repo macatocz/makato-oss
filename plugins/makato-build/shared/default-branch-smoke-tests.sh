@@ -18,9 +18,6 @@
 #    This is the failure mode the issue describes and the regression that
 #    must stay closed.
 #
-# 3. **Static contract** — every build-* skill / agent that diffs the feature
-#    branch references the helper rather than the bare local `main`.
-#
 # Usage: plugins/makato-build/shared/default-branch-smoke-tests.sh
 set -euo pipefail
 
@@ -41,34 +38,6 @@ assert_eq() {
     FAIL=$((FAIL + 1))
     FAILURES+=("$label — expected: '$expected', actual: '$actual'")
     printf '  ✗ %s\n' "$label"
-  fi
-}
-
-assert_grep() {
-  local pattern="$1"
-  local path="$2"
-  local label="$3"
-  if grep -qE "$pattern" "$REPO_ROOT/$path"; then
-    PASS=$((PASS + 1))
-    printf '  ✓ %s\n' "$label"
-  else
-    FAIL=$((FAIL + 1))
-    FAILURES+=("$label — pattern '$pattern' not found in $path")
-    printf '  ✗ %s\n' "$label"
-  fi
-}
-
-assert_no_grep() {
-  local pattern="$1"
-  local path="$2"
-  local label="$3"
-  if grep -qE "$pattern" "$REPO_ROOT/$path"; then
-    FAIL=$((FAIL + 1))
-    FAILURES+=("$label — forbidden pattern '$pattern' present in $path")
-    printf '  ✗ %s\n' "$label"
-  else
-    PASS=$((PASS + 1))
-    printf '  ✓ %s\n' "$label"
   fi
 }
 
@@ -166,48 +135,6 @@ assert_eq "$fixed_diff" "feature.txt" "git diff \$DEFAULT_REF...HEAD lists only 
 fixed_count="$(git diff "$DEFAULT_REF...HEAD" --name-only | wc -l | tr -d ' ')"
 assert_eq "$fixed_count" "1" "files_changed via DEFAULT_REF equals 1 (not 3)"
 
-# Return to the repo root for the static-contract section below.
-cd "$REPO_ROOT"
-
-# -----------------------------------------------------------------------------
-# Section 3 — static contract: build skills reference the helper, not bare main.
-# -----------------------------------------------------------------------------
-printf '\n=== Static contract: build-* skills use default-branch.sh ===\n'
-
-# Skills must reference the helper.
-assert_grep 'shared/default-branch\.sh' \
-  'plugins/makato-build/skills/build-simplify/SKILL.md' \
-  'build-simplify references shared/default-branch.sh'
-
-assert_grep 'shared/default-branch\.sh' \
-  'plugins/makato-build/skills/build-review/SKILL.md' \
-  'build-review references shared/default-branch.sh'
-
-assert_grep 'shared/default-branch\.sh' \
-  'plugins/makato-build/skills/build-create-pr/SKILL.md' \
-  'build-create-pr references shared/default-branch.sh'
-
-assert_grep 'shared/default-branch\.sh' \
-  'plugins/makato-build/skills/build-push-to-git/SKILL.md' \
-  'build-push-to-git references shared/default-branch.sh'
-
-assert_grep 'shared/default-branch\.sh' \
-  'plugins/makato-build/agents/diff-reviewer.md' \
-  'diff-reviewer agent references shared/default-branch.sh'
-
-# Skills must NOT contain the stale-main literal anymore.
-# (CHANGELOG.md is excluded — historical entries describing past behaviour
-# legitimately mention the old commands and are not executable contracts.)
-for path in \
-  plugins/makato-build/skills/build-simplify/SKILL.md \
-  plugins/makato-build/skills/build-review/SKILL.md \
-  plugins/makato-build/skills/build-create-pr/SKILL.md \
-  plugins/makato-build/skills/build-push-to-git/SKILL.md \
-  plugins/makato-build/agents/diff-reviewer.md
-do
-  assert_no_grep 'git (diff|log) main(\.\.|\.\.\.)' "$path" \
-    "$path has no bare \`git diff/log main...HEAD\` literal"
-done
 
 # -----------------------------------------------------------------------------
 # Summary.

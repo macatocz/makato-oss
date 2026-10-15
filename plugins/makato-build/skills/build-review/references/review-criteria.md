@@ -157,7 +157,10 @@ Decision order, applied in sequence:
 3. Else, would a future developer have to work harder to maintain it? → **SUGGESTION**
 4. Else → **NITPICK**
 
-When in doubt between CRITICAL and MAJOR, ask: *"Would I block a PR over this even with a human reviewing?"* If yes: CRITICAL. When in doubt between MAJOR and SUGGESTION, ask: *"Does this touch correctness, security, or a real failure path?"* If yes: MAJOR — never downgrade a correctness concern to SUGGESTION because it is "unlikely."
+Distinguish CRITICAL from MAJOR by the impact and reachability described above, not
+by whether a human is present: **both block verify/push in both modes**. Between
+MAJOR and SUGGESTION, ask whether correctness, security, or a real failure path is
+involved. If yes, use MAJOR or CRITICAL, never SUGGESTION because it is "unlikely".
 
 ## The Adversarial Stance
 

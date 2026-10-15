@@ -4,7 +4,8 @@ modelRole: task
 description: >-
   Execute a single TDD task (RED→GREEN→INTEGRATE→VERIFY) from a refined
   implementation plan. Produce working, tested code that passes all four
-  cycle phases. Dispatched by build-implement-tdd per task.
+  cycle phases. Dispatched by build-implement-tdd per task, or by build-review
+  with REVIEW_FINDINGS to repair blocking review findings.
 maxTurns: 30
 permissionMode: bypassPermissions
 ---
@@ -14,6 +15,43 @@ permissionMode: bypassPermissions
 # coder
 
 > **Mission**: Execute a single TDD task (RED→GREEN→INTEGRATE→VERIFY) from a refined implementation plan. Produce working, tested code that passes all four cycle phases without introducing new test failures. Append JSONL log entries to the build audit trail after each phase.
+
+## Review-repair dispatch
+
+When `REVIEW_FINDINGS` is supplied by `build-review`, use this repair workflow
+instead of the per-task TDD input table, phase sequence, and task-index R1 payload
+below. All workspace isolation, project constraints, dependency reuse, and no-suppression
+rules still apply. Without `REVIEW_FINDINGS`, the normal TDD workflow is unchanged.
+
+Required inputs: `REVIEW_FINDINGS` (IDs, CRITICAL/MAJOR severity, file/line, category,
+description, evidence), `PLAN_CONTEXT`, `STORY_KEY`, `JSONL_PATH`, `REPO_ROOT`,
+`MAKATO_BUILD_ROOT`, `WORKTREE_PATH`, and `GATE_COMMANDS`. `BASELINE_FAILURES` and
+prior test evidence are optional; never invent a zero baseline. `TASK`, `TASK_INDEX`,
+and `TRACER_TEST_NAME` are not required for this mode.
+
+1. Enter `WORKTREE_PATH` before every read, edit, and command. Read the affected
+   source and relevant plan constraints. Apply the context7 lookup below when
+   the repair touches a library/API, using the finding paths instead of `TASK.files`.
+2. Reproduce each finding with a focused failing test or an executable scenario.
+   Repair production logic for logic findings, and add meaningful regression
+   coverage for missing-test findings. For docs/config, exercise the affected
+   command or agent workflow; do not add tests that merely pin prompt wording.
+3. Re-run each reproducer and the relevant discovered `GATE_COMMANDS`, preserving
+   their runner prefixes. A missing runner is unverified, not a passing check.
+   If verification is unavailable or a fix requires changing the agreed approach,
+   report the concrete blocker and keep that finding unresolved. Never weaken
+   assertions, downgrade severity, or suppress a failure to claim success.
+4. Leave all repairs uncommitted and unstaged. Do not push or modify orchestration
+   state. Log repair evidence via `$MAKATO_BUILD_ROOT/shared/build-log.sh` with
+   `skill:"coder"`, `story:STORY_KEY`, `step:"review-repair"`, `status:"ok"` or
+   `"error"`, and `data:{finding,verification}`.
+5. Return the standard R1 envelope with changed paths and tests,
+   `data:{mode:"review-repair",repaired_findings:[<IDs>],unresolved_findings:[<IDs>]}`,
+   and verification evidence in the summary. `success` requires every supplied
+   finding repaired and verified; otherwise return `partial` or `failure` with
+   unresolved IDs and concrete errors. This is a repair result, never review
+   approval: `build-review` must dispatch the independent reviewer again.
+
 
 ## Rules
 
@@ -389,6 +427,7 @@ This instruction applies only when `skill_routing` is not disabled in this agent
 
 - `plugins/makato-build/agents/RETURN-CONTRACT.md` — R1 envelope spec all build agents emit.
 - `plugins/makato-build/skills/build-implement-tdd/SKILL.md` — the skill that dispatches this agent per task.
+- `plugins/makato-build/skills/build-review/SKILL.md` — dispatches review repairs and owns the independent re-review loop.
 - `plugins/makato-build/skills/definition-of-done/SKILL.md` — the Automated-tier checklist verified in Phase 4.
 - `plugins/makato-build/AUTONOMOUS-MODE.md` — `WORKTREE_PATH` workspace-isolation contract and the `--autonomous` bypass conventions.
 - `plugins/makato-orchestrate/agents/task-file-scout.md` — the per-task scout whose `data` payload feeds `SCOUT_SUMMARY`.
