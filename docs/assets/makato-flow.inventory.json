@@ -16,6 +16,8 @@
     "analyze-log": "operator-on-demand build.jsonl audit report; intentionally not drawn on the pipeline flow diagram",
     "build-coordinate-repos": "optional multi-repository PR coordination instead of the single-repository build-create-pr path shown in the diagram",
     "sagibeast-refresh-runtime": "operator-driven Docker Compose refresh for an existing deployment; intentionally not drawn on the build pipeline flow diagram",
+    "building-with-jev-skill": "makato-typesafeai reference skill for the Jev/TypeSafe API; not a pipeline step, intentionally not drawn on the flow diagram",
+    "how-to-typesafe-ai": "makato-typesafeai reference skill for TypeSafe AI application patterns; not a pipeline step, intentionally not drawn on the flow diagram",
     "workflow-state": "rendered as data node 'workflow-state.json' (id=state), not a skill node",
     "definition-of-done": "rendered as data node 'definition-of-done' (id=dod), not a skill node",
     "archive-spec": "rendered as GHA node 'archive-spec.yml' (id=gha_archive), not a skill node",

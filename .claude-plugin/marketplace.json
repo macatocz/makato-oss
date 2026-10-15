@@ -74,6 +74,11 @@
       "name": "makato-fastapi",
       "source": "./plugins/makato-fastapi",
       "description": "Provide FastAPI-specific reference skills and conventions for building correct, production-ready Python HTTP APIs with the FastAPI framework."
+    },
+    {
+      "name": "makato-typesafeai",
+      "source": "./plugins/makato-typesafeai",
+      "description": "Provide reference skills and patterns for building AI-powered applications with TypeSafe's System One model API."
     }
   ]
 }

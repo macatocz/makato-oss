@@ -1,0 +1,27 @@
+version: "1.0"
+
+bundles:
+  - name: typesafeai-jev
+    globs:
+      - "**/*.py"
+      - "**/*.ts"
+      - "**/*.js"
+    contains:
+      - "typesafe_sdk"
+      - "TypeSafeClient"
+      - "from typesafe"
+      - "typesafe-ai"
+    task_contains:
+      - "TypeSafe"
+      - "Jev"
+      - "System One"
+      - "judgment"
+    skills:
+      - building-with-jev-skill
+
+  - name: typesafeai-skills
+    globs:
+      - "plugins/makato-typesafeai/skills/**/*.md"
+    skills:
+      - building-with-jev-skill
+      - how-to-typesafe-ai
