@@ -5,6 +5,13 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Fixed — mandatory blocking review before verification
+
+- PO-agent now dispatches `build-review` before `build-verify` and accepts only
+  an independent zero-CRITICAL/zero-MAJOR result from the repair/re-review loop.
+- Blocked or incomplete review stops the pipeline with HALT-003 instead of
+  allowing verify, push, or PR creation; updated the HALT registry accordingly.
+
 ### Added — Per-skill OMP dispatch
 
 - PO-agent dispatches workflow skills through the shared role/effort launcher.

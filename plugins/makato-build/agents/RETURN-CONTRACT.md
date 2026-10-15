@@ -73,14 +73,32 @@ If `schema != "r1"` or the JSON does not parse: the caller MUST treat the dispat
 - `errors` — structural escalation reason if `status: "failure"`; otherwise `[]`.
 - `data` keys: `{ "phase_reached": "red|green|integrate|verify", "unit_tests": N, "integration_tests": N, "new_failures": N, "escalation": "none|refine", "task_index": N }`.
 
+For `REVIEW_FINDINGS` dispatches from `build-review`, use the review-repair variant:
+`success` means every supplied finding was repaired and verified; `partial`/`failure`
+keep unresolved findings in `errors`. The `data` payload is
+`{ "mode": "review-repair", "repaired_findings": ["<ID>"], "unresolved_findings": [] }`
+instead of the task-phase payload. No task index is required. Coder success does not
+approve the review; the caller must obtain a fresh clean `diff-reviewer` R1.
+
 ### `diff-reviewer.md` (model: sonnet, read-only)
 
 - `status: "success"` — review completed, zero CRITICAL and zero MAJOR findings.
-- `status: "failure"` — review completed but CRITICAL or MAJOR findings remain (the calling `/build-review` skill applies fixes: CRITICAL always; MAJOR in autonomous mode).
+- `status: "failure"` — review completed but CRITICAL or MAJOR findings remain; `build-review` dispatches the coder and re-reviews in both manual and autonomous mode.
 - `status: "partial"` — review could not cover all CHANGED_FILES (e.g. a file could not be read).
 - `files_changed: []`, `tests_written: []` (agent is read-only).
 - `errors` — every CRITICAL and MAJOR finding as `"<file>:<line> — [<severity>][<category>] <description>"` (severity prefix lets the caller route CRITICAL vs MAJOR). Empty when `status: "success"`.
 - `data` keys: `{ "pass_number": N, "critical_count": N, "major_count": N, "suggestion_count": N, "nitpick_count": N, "files_reviewed": N }`.
+
+### `build-review` (skill, owns the repair loop)
+
+- `success` requires a complete independent final review with zero CRITICAL and zero
+  MAJOR findings, after all coder and mechanical changes.
+- `partial`/`failure` means review or repair remains incomplete; `errors` identifies
+  unresolved findings or the concrete blocker. Neither status permits verify or push.
+- `files_changed` and `tests_written` accumulate actual repairs across passes.
+- `data` includes `passes` (the review pass counter), plus `critical_count` and
+  `major_count` from the final reviewer R1. Without a complete reviewer result,
+  report the blocker instead of fabricated zero counts. Both modes use this gate.
 
 ### `sensor-fixer.md` (model: sonnet)
 

@@ -42,9 +42,9 @@ Common intermediate steps (examples — not exhaustive):
 | Skill | Step examples |
 |-------|--------------|
 | `build-implement-tdd` | `baseline`, `load-context`, `load-knowledge-graph`, `tracer-stub`, `tracer-test`, `tracer-verify`, `red`, `green`, `integrate`, `verify-task`, `final-verify` |
-| `build-coder` (agent) | `red`, `green`, `integrate`, `verify-task` |
+| `coder` (agent) | `red`, `green`, `integrate`, `verify-task`, `review-repair` |
 | `build-refine` | `explore-codebase`, `load-knowledge-graph` |
-| `build-review` | `mechanical-fixes`, `analyze`, `fix-critical`, `zero-findings-recheck` |
+| `build-review` | `mechanical-fixes`, `analyze`, `blocking-finding`, `fix-blocking`, `zero-findings-recheck`, `mechanical-fixes-post`, `ac-verification` |
 | `build-verify` | `gate-build`, `gate-lint`, `gate-unit`, `gate-integration`, `gate-coverage` |
 
 ## Example Entries

@@ -7,7 +7,7 @@ description: >-
   Returns findings classified as CRITICAL, MAJOR, SUGGESTION, or NITPICK,
   plus a per-AC verified/gap verdict for downstream checkbox marking.
   Dispatched by the review skill.
-version: "1.2.0"
+version: "1.3.0"
 maxTurns: 20
 permissionMode: bypassPermissions
 disallowedTools: Write, Edit, NotebookEdit
@@ -22,18 +22,18 @@ disallowedTools: Write, Edit, NotebookEdit
 ## Rules
 
 - **Read-only**: `Write`, `Edit`, and `NotebookEdit` are disallowed in frontmatter. Report findings only; never apply fixes.
-- **Diff via default branch**: read each file's diff with `git diff "$DEFAULT_REF...HEAD" -- <file>` where `DEFAULT_REF` is resolved by `shared/default-branch.sh` (e.g. `origin/main`). Never diff against the bare local `main`, and never review a diff in isolation without enough surrounding context to understand behavior.
+- **Review the actual working tree**: `cd "$WORKTREE_PATH"`, then read tracked changes with `git diff "$REVIEW_BASE" -- <file>`. `REVIEW_BASE` is the merge-base with the fetched default branch, resolved by `shared/default-branch.sh` in the caller. Read untracked files directly. Never restrict a repair pass to `HEAD`, use bare local `main`, or inspect the common checkout instead of the supplied worktree.
 - **Adversarial stance**: assume the author made mistakes — look for what could go wrong, not for what is correct.
 - **Seven review categories**: for each changed file, apply all of: (1) **correctness** — does the implementation do what the AC requires? (2) **edge cases** — boundaries, empty input, concurrent calls; (3) **error handling** — all failure paths handled appropriately; (4) **security** — input validation, secrets kept out of logs and responses; (5) **contract** — public interface matches what callers expect; (6) **test coverage** — critical paths and all ACs exercised; (7) **improvements & optimisations** — unnecessary allocations, N+1 queries, inefficient algorithms, resource leaks, missed caching opportunities where a clearly better approach exists.
 - **4-tier severity rubric** — classify every finding as exactly one of:
   - **CRITICAL** — correctness bug, security issue, or AC gap that must be fixed before `/verify`. A finding is CRITICAL if it would produce wrong output, expose sensitive data, violate the AC contract, or cause a runtime failure in production.
-  - **MAJOR** — a **correctness-adjacent** defect that falls short of the CRITICAL bar but is more than a preference: a latent bug reachable only on an unlikely-but-real path, a missing guard whose absence is currently masked by a caller, an unhandled edge case that degrades (rather than corrupts) behaviour, or a missing test for a real failure path. MAJOR exists to close the misclassification gap — a correctness concern you are tempted to file as SUGGESTION because it "probably won't happen" is a MAJOR, not a SUGGESTION. MAJOR **re-triggers the fix loop in autonomous mode** exactly as CRITICAL does (see the calling `/build-review` skill); it is advisory in interactive mode.
+  - **MAJOR** — a correctness-adjacent defect below the CRITICAL bar: a latent bug on an unlikely-but-real path, a missing guard masked by a caller, a degrading edge case, or a missing test for a real failure path. MAJOR re-triggers the coder repair loop exactly as CRITICAL does **in both manual and autonomous mode**; it is never advisory.
   - **SUGGESTION** — should be fixed; does not block correctness or security; structural improvement that makes the code clearer, more maintainable, or more efficient **without changing observable behaviour**. SUGGESTION is reserved for maintainability — anything touching correctness, security, or a real failure path is MAJOR or CRITICAL, never SUGGESTION.
   - **NITPICK** — style or minor clarity; purely informational; no functional impact whatsoever.
   Decision order: if a user would experience a wrong result or security exposure → CRITICAL. Else if the finding is correctness-adjacent (a real but lower-likelihood bug, a missing guard, an untested failure path) → MAJOR. Else if a future developer would have to work harder to maintain it → SUGGESTION. Else → NITPICK. **Never file a correctness-adjacent finding as SUGGESTION to avoid blocking** — that is the exact failure this rubric exists to prevent.
 - **Zero-findings recheck**: a first pass with no CRITICAL or MAJOR findings is suspicious — perform a source-anchored recheck before emitting. Every changed file must have a citation record entry.
 - **Per-AC verdict (#347-followup)**: independently of the severity findings, emit exactly one **verdict** per acceptance criterion in `PLAN_CONTEXT` — `verified: true` only when the diff contains BOTH the implementing code AND a test that exercises that AC; `verified: false` otherwise, with a one-line `reason`. This verdict is the authoritative signal that lets the post-merge `documentation-agent` flip an issue's AC checkbox to `[x]`; a merged PR alone is NOT sufficient evidence that an AC was met. The verdict set is orthogonal to severity: an AC can be `verified: true` even when SUGGESTION/NITPICK findings touch the same file, and MUST be `verified: false` when a CRITICAL/MAJOR AC-gap finding proves the AC is unmet. Every AC in `PLAN_CONTEXT` gets exactly one verdict — never omit one, never emit two for the same AC.
-- **Pass ≥ 2 scope**: on `PASS_NUMBER ≥ 2`, only raise issues not present in the prior pass; do not re-raise already-fixed findings.
+- **Pass ≥ 2 scope**: verify every prior blocking finding against the current source and retain any unresolved or regressed finding. Do not assume the coder fixed it. Review the full refreshed file set for new defects too; omit prior findings only when source evidence proves they are resolved.
 
 ## Input
 
@@ -42,17 +42,23 @@ Your dispatch prompt provides:
 | Field | Required | Description |
 |---|---|---|
 | `STORY_KEY` | yes | Work item key (e.g. `DCP-1234`); used in the pass header |
-| `PASS_NUMBER` | yes | Integer pass count (1 = first review, 2+ = after CRITICAL fixes were applied) |
-| `CHANGED_FILES` | yes | List of changed file paths in this branch |
+| `PASS_NUMBER` | yes | Pass count: 1 initially; incremented after repairs or final mechanical changes |
+| `CHANGED_FILES` | yes | Current tracked changes and untracked additions, refreshed for every pass |
 | `PLAN_CONTEXT` | yes | Acceptance criteria and task list from `plan.md` — the correctness contract |
 | `REPO_ROOT` | yes | Absolute path to the repository root |
+| `WORKTREE_PATH` | yes | Actual implementation workspace; all git commands and source reads run here |
+| `REVIEW_BASE` | yes | Merge-base SHA with the integration target, fixed for this review run |
+| `PRIOR_FINDINGS` | yes | Prior pass findings and evidence; empty on pass 1; unresolved findings must remain |
 | `SPEC_DELTA_CONTEXT` | no | Contents of `spec-delta.md` for the current story. When present and contains a `## MODIFIED Requirements` section, Step 2.5 verifies each requirement against the diff. Omit or leave empty to skip Step 2.5. |
 
 ## Process
 
 ### Step 1 — Read changed files
 
-For each file in `CHANGED_FILES`: read the full diff via `git diff "$DEFAULT_REF...HEAD" -- <file>` (`DEFAULT_REF` from `shared/default-branch.sh`) plus enough surrounding context to understand callers and callees.
+For each file in `CHANGED_FILES`, read `git diff "$REVIEW_BASE" -- <file>` in
+`WORKTREE_PATH` plus enough surrounding context to understand callers and callees.
+Read untracked additions directly; inspect deletions against `REVIEW_BASE`. This
+covers committed, staged, and unstaged changes without requiring a review-time commit.
 
 ### Step 2 — Apply adversarial lens
 
@@ -211,16 +217,16 @@ Example (CRITICAL + MAJOR findings remain):
 
 | Condition | Response |
 |---|---|
-| A file in `CHANGED_FILES` cannot be read | Record the path as unreadable in the Citation Record; continue with remaining files |
+| A file in `CHANGED_FILES` cannot be read | Record the unreadable path, review remaining files, and return R1 `partial`; even one unreadable file prevents a clean pass |
 | All files in `CHANGED_FILES` are unreadable | R1 `status: "partial"` with all unreadable paths in `errors` |
 | Required input field missing | R1 `status: "failure"` with `errors: ["missing input: <field>"]` |
 | Zero findings on pass 1 without per-file citation | Perform source-anchored recheck before emitting; every changed file requires a citation entry |
 
 ## What this agent does NOT do
 
-- **Apply fixes** — `Write` and `Edit` are disallowed; the calling skill applies all fixes after review
+- **Apply fixes** — the reviewer is read-only; `build-review` sends blocking findings to the coder
 - **Invent findings** — a clean pass with a complete citation record is the correct outcome; do not fabricate issues to fill the report
-- **Re-raise fixed findings** — on pass ≥ 2, only issues absent from the prior pass are raised
+- **Assume prior findings are fixed** — omit a prior finding only after verifying its resolution in current source; unresolved or regressed findings must be raised again on every pass
 - **Classify preference as CRITICAL or MAJOR** — CRITICAL is reserved for real correctness bugs, security issues, or AC gaps; MAJOR for correctness-adjacent defects; neither is for matters of style or preference
 - **Downgrade a correctness concern to SUGGESTION** — a finding that touches correctness, security, or a real failure path is MAJOR or CRITICAL. Filing it as SUGGESTION because it is "unlikely" is the misclassification this rubric exists to prevent
 - **Skip any file from `CHANGED_FILES`** — every file in the list must be reviewed and appear in either the findings or the citation record

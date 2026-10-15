@@ -10,6 +10,18 @@ here on merge to main; release-please will date and version them at the next rel
 
 ## [Unreleased]
 
+### Fixed — blocking review repair in both execution modes
+
+- `build-review` now sends every CRITICAL and MAJOR finding to the coder in manual
+  and autonomous runs, then independently re-reviews until both counts are zero.
+  Incomplete reviews and blocked repairs never permit verify/push.
+- Review the merge-base-to-working-tree diff and untracked additions on every pass;
+  retain unresolved findings instead of suppressing them on subsequent passes.
+- Added the coder review-repair dispatch contract; final mechanical edits also
+  require re-review before per-AC verdicts are persisted.
+- Removed prompt-wording assertions from the default-branch smoke suite while
+  retaining its executable stale-main regression and helper checks.
+
 ### Added — Per-skill roles and reasoning effort
 
 - Use `xhigh` for build-review, stress-test-artifact, and all five makato-change skills.

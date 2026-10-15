@@ -795,6 +795,20 @@ Each skill dispatch in this pipeline is bracketed by a
 row). The `gh`-only polls (CI, review) are narrated with a single
 `progress-comment.sh note` on their outcome, not per poll round.
 
+0. **Mandatory blocking review.** Patch `current_phase: "verify"`. Narrate START
+   (`--skill "build-review" --agent "diff-reviewer + coder" --goal "repair all
+   critical and major findings and independently re-review the working tree"`),
+   then dispatch `/makato-build:build-review <KEY> --autonomous` through the
+   shared skill launcher with `WORKTREE_PATH`, `REPO_ROOT`, `MAKATO_BUILD_ROOT`,
+   and available implementation gate/test context. The skill owns the coder
+   repair → reviewer loop; do not route ordinary findings back to planning.
+   Parse its R1 and narrate DONE. Advance only on `status:"success"` with
+   `data.critical_count == 0` AND `data.major_count == 0`. Missing/malformed R1,
+   `partial`, `failure`, missing counts, or nonzero counts block the pipeline:
+   HALT-003, apply `needs-human-review`, post the HALT comment best-effort, and
+   return R1 failure with the unresolved findings/blocker. Do not dispatch
+   build-verify, push, or PR creation on that path. This gate runs on every
+   entry to Step 6, including after code repairs; task completion is not review approval.
 1. Patch `current_phase: "verify"`. Narrate START
    (`--skill "build-verify" --agent "review agent" --goal "run all
    quality checks and tests"`), dispatch
@@ -1333,8 +1347,8 @@ fires — the audit log records every HALT code.
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
 | HALT-000                  | operator HALT file (`kill-switch poll`)                                                                                                                                                                                                                                                                                               | nobody — operator-initiated                              |
 | HALT-001                  | `sensor-fixer` retry exhaustion                                                                                                                                                                                                                                                                                                       | `sensor-fixer`                                          |
-| HALT-002                  | `build-verify` R1 `failure`                                                                                                                                                                                                                                                                                                         | **PO-agent**                                        |
-| HALT-003                  | `build-implement-tdd` R1 `failure`, or `build-address-pr-comments` STRUCTURAL                                                                                                                                                                                                                                                     | sub-skill applies first (idempotent) or**PO-agent** |
+| HALT-002 | `build-verify` R1 `failure` | **PO-agent** |
+| HALT-003 | `build-implement-tdd` R1 `failure`, mandatory `build-review` blocked/incomplete, or `build-address-pr-comments` STRUCTURAL | sub-skill applies first (idempotent) or **PO-agent** |
 | HALT-005                  | `build-push-to-git` deny-list, cleanup failure, missing PR number                                                                                                                                                                                                                                                                     | **PO-agent**                                        |
 | HALT-006                  | malformed plan / spec folder / dispatch bundle.**Note:** for a *missing spec folder or stub plan-<N>.md*, Step 1a first attempts to auto-materialize `plan-<N>.md` and retry once — via `build-refine --autonomous` when a committed `stories.json` is present (any tier, #527), else via the `light-planner` agent on a `plan-tier:light` issue (#200). HALT-006 fires only if that single attempt does not yield a guard-valid plan. A pre-migration singleton `plan.md` is accepted via legacy-pass and does not trigger HALT-006. | **PO-agent**                                        |
 | HALT-007                  | budget (`kill-switch poll`)                                                                                                                                                                                                                                                                                                           | `kill-switch poll`                                      |
@@ -1405,6 +1419,7 @@ state), and rolls over to a fresh comment near GitHub's 65 536-char limit.
 | Step 4d (tdd) | `build-implement-tdd` | `coder` | write and test the code per the plan (test-driven) |
 | Step 4d (goal) | `build-implement-goal` | `coder` | build the code per the plan and verify it runs |
 | Step 4f | `build-refine` | `planning agent` | re-plan the task list after a failure |
+| Step 6 #0 | `build-review` | `diff-reviewer + coder` | repair critical and major findings and independently re-review the working tree |
 | Step 6 #1 | `build-verify` | `review agent` | run all quality checks and tests |
 | Step 6 #1a | `build-verify-spec` | `(script)` | confirm implementation satisfies plan.md and stories.json |
 | Step 6 #1b | `build-runtime-qa` | `runtime-qa` | exercise the built app via Playwright MCP and score against acceptance criteria |
