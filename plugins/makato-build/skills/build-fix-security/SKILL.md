@@ -6,7 +6,7 @@ description: >-
   carry-over) to resolve each finding deterministically. Dispatched by build-resolve-finding;
   never invoked directly by the user. Keywords: bandit, safety, pip-audit, CVE, CWE,
   nosec, security finding, sensor-fixer repair.
-version: "1.1.0"
+version: "1.2.0"
 allowed-tools: [Read, Edit, Write, Bash]
 metadata:
   authors: [makato-build]
@@ -46,6 +46,14 @@ sensor-fixer pipeline. The canonical Finding contract is
 The caller also supplies `MAKATO_BUILD_ROOT`, the absolute installed
 makato-build plugin root. Use it for suite-owned helpers and references; do
 not resolve helpers from the consumer repository's current directory.
+
+Optional `CI_CONTEXT` activates the caller's strict CI-recovery policy before
+classification: load `$MAKATO_BUILD_ROOT/shared/ci-recovery.md`. In this mode,
+Branch 3 suppression, dependency ignore/skip entries and Branch 4 carry-over
+artifacts are forbidden. Apply a genuine safe repair and re-run the originating
+check, or return `status:"error", fix_applied:false` with the concrete blocker.
+Never claim green from a suppression or a future repair. Ordinary sensor mode
+retains the classification and false-positive policy below.
 
 ```json
 {

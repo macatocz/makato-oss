@@ -5,7 +5,7 @@ description: >-
   and push the feature branch to remote. One commit per logical task,
   individually bisectable. Confirms push before affecting remote.
   Use after verify, before create-pr.
-version: "1.6.0"
+version: "1.7.0"
 argument-hint: "[work-item-key] [--autonomous]"
 allowed-tools: [Bash]
 metadata:
@@ -38,6 +38,15 @@ When dispatched by the PO-agent (`--autonomous` mode):
 
 - `<work-item-key>` — positional argument.
 - `WORKTREE_PATH` — absolute filesystem path to the per-run git worktree. **Mandatory in autonomous mode** (see `plugins/makato-build/AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract*). All `git` invocations below run with `git -C "$WORKTREE_PATH"` (or after `cd "$WORKTREE_PATH"`) so the commit lands on the worktree's branch and `git push` targets the right ref. Pushing from the main checkout would push the wrong branch — a contract violation.
+- `REPO` — target `OWNER/REPO`; forward unchanged (resolve from origin
+  when absent).
+- `MAKATO_BUILD_ROOT` and optional sibling roots — installed plugin paths;
+  preserve them at every dispatch, never probe the consumer repo for plugins.
+- `SPEC_FOLDER` / `JSONL_PATH` — main-checkout spec folder and build log.
+- `EXISTING_PR_NUMBER` — known open PR for this worktree branch.
+- `CI_REPAIR_ACTIVE=true` — the caller owns the shared CI gate. Requires
+  `EXISTING_PR_NUMBER` and selects **push-only** behavior: create the repair
+  commits and push, but never create/reopen a PR or dispatch `build-fix-ci`.
 - `--autonomous` — activation flag.
 
 Interactive mode: `WORKTREE_PATH` is optional; fall back to `git rev-parse --show-toplevel` of the current `$PWD`.
@@ -71,6 +80,35 @@ Reading `plan.md` in Step 1 below means the `SPEC_FOLDER` returned by
 `python3 "$MAKATO_BUILD_ROOT/shared/spec_folder.py" "$REPO_ROOT" "<key>"`,
 never `$WORKTREE_PATH/specs/...`. See `AUTONOMOUS-MODE.md` § *Two roots, one
 contract* for the full rationale.
+
+### Existing-PR repair guard
+
+Before staging or committing, if `CI_REPAIR_ACTIVE=true`, require a
+positive `EXISTING_PR_NUMBER`. Resolve `REPO` from the supplied
+`OWNER/REPO` or, when absent, from
+`gh repo view "$(git remote get-url origin)" --json nameWithOwner --jq .nameWithOwner`
+with origin's `GH_HOST`, then inspect that PR with explicit
+`--repo "$REPO"`. It must be open and identify this worktree's branch and
+origin repository. Missing repair inputs → `MISSING_INPUT`; failed lookup
+or identity mismatch → `CI_BLOCKED` (or `GH_AUTH_FAILED` for auth errors).
+Return terminal R1 failure without push, PR creation, or CI dispatch. Keep
+the repair-ownership flag intact until the caller receives the result. This
+flag suppresses only follow-on PR/CI dispatch, never review/verification
+requirements or git hooks. Normal interactive push is unchanged.
+
+### Downstream skill dispatch
+
+In OMP mode (`MAKATO_HARNESS_MODE` unset or not `claude`), invoke workflow
+skills with `python3 "${MAKATO_SKILL_RUNNER:-$MAKATO_BUILD_ROOT/scripts/run-skill.py}"`
+using `--repo-root "$REPO_ROOT" --cwd "$WORKTREE_PATH"` and a complete
+`--context-file`; inherit the configured harness/role selection. Do not
+inline Skill/Task workflow execution or choose a different model. Claude mode
+keeps native skill dispatch. Wait for completion and parse the final R1;
+launcher errors or missing/malformed R1 block success. If autonomous mode was
+activated only by its CLI flag and `AGENT_ID` is absent, put
+`AUTONOMOUS_MODE:true` plus `task_id` (the work-item key when no dispatch id
+exists) in the child context; do not accidentally revert standalone runs to
+interactive mode.
 
 ## Workflow
 
@@ -113,7 +151,12 @@ Run:
 
 ### Step 3 — Verify there is something to commit
 
-Run `git diff --stat HEAD` to confirm there are uncommitted changes. If the working tree is clean (nothing to commit), stop and tell the user — there is nothing to push.
+Run `git diff --stat HEAD` and inspect untracked implementation files to
+identify changes. In the normal flow, a clean tree retains the existing
+`NOTHING_TO_COMMIT` behavior. In existing-PR repair mode, a clean tree may
+contain already-created, unpushed repair commits: skip empty commit creation
+and continue to Step 7. Return the actual pushed HEAD; the CI owner, not this
+skill, decides whether a no-change repair made progress.
 
 Check for untracked files in source or test directories. Any untracked file that should be part of the implementation is a candidate — do not silently skip it. Report untracked source/test files to the user before proceeding.
 
@@ -187,7 +230,10 @@ In **autonomous mode**, skip the prompt: proceed directly to Step 7 (the pre-pus
 
 Run `git push -u origin HEAD`.
 
-On success: record the remote branch name from the push output.
+On success: record the remote branch name and full
+`HEAD_SHA="$(git -C "$WORKTREE_PATH" rev-parse HEAD)"`. In existing-PR mode,
+read that PR's `headRefOid` using explicit `--repo "$REPO"` and require it
+to match `HEAD_SHA` before reporting the push as successful.
 
 On failure (rejected, no upstream, auth error): report the exact git error verbatim. Do not retry automatically — a push rejection may indicate the remote has diverged and requires a human decision.
 
@@ -200,11 +246,10 @@ Log:
 
 ### Step 8 — Log session end and hand off
 
-Run:
-
-```bash
-"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-push-to-git","story":"<key>","step":"session","status":"ok","data":{"commits":<N>,"branch":"<name>"}}'
-```
+Do not emit a terminal success yet: the normal autonomous handoff includes
+`build-create-pr` and its shared CI gate. Close the session only after the
+selected path below finishes. A commit/push failure closes with
+`step:"session",status:"error"` and returns R1 failure with the exact error.
 
 **(Optional) Lesson write (#473):** if this session produced a noteworthy lesson — a
 bugfix/gotcha pattern (`tier:procedural`) or a durable technical fact (`tier:semantic`) —
@@ -227,6 +272,13 @@ If both `build-verify` and `build-push-to-git` run in one session, record each l
 
 Tell the user: *"`<N>` commits pushed to `<branch>`."*
 
+**Existing-PR repair mode (`CI_REPAIR_ACTIVE=true`):** stop the pipeline here.
+Return R1 success for the push only, with `github_pr_number=EXISTING_PR_NUMBER`,
+`head_sha=HEAD_SHA`, `pushed:true`, and `next_skill_invoked:null`. Log the
+terminal session `status:"ok"` with those fields. Do not run either PR creation
+or the shared CI gate; the waiting `build-fix-ci` caller resumes inspection
+of this SHA. This path is not a green-CI claim.
+
 In **interactive mode**, then ask using `AskUserQuestion`:
 - Question: "Branch is on remote. Create the pull request now?"
 - Option A: **Yes, create PR now** — description: "Draft and open the PR using `/build-create-pr` — generates description from spec artifacts"
@@ -235,7 +287,30 @@ In **interactive mode**, then ask using `AskUserQuestion`:
 If option A: invoke `/build-create-pr <key>` directly.
 If option B: tell the user: "Run `/makato-build:build-create-pr <key>` when ready."
 
-In **autonomous mode**, skip the prompt: invoke `/build-create-pr <key>` directly. Autonomous mode signals through the inherited `$AGENT_ID` env var (see `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` § *Cross-skill propagation*); the `--autonomous` CLI flag is NOT forwarded on cross-skill dispatch. The downstream context bundle MUST still carry `WORKTREE_PATH`, `MAKATO_BUILD_ROOT`, and any optional sibling roots verbatim from this skill's input. Log `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-push-to-git "<key>" create-pr-handoff invoke-create-pr "$AGENT_ID" '{"forwarded":["WORKTREE_PATH","MAKATO_BUILD_ROOT","MAKATO_PLAN_ROOT"]}'`.
+In **normal autonomous mode**, skip the prompt and dispatch
+`makato-build:build-create-pr` with the work-item-key through the downstream
+skill boundary above. `AGENT_ID` carries activation; do not forward the
+`--autonomous` CLI flag. Forward `WORKTREE_PATH`, `REPO_ROOT`, `REPO`,
+`MAKATO_BUILD_ROOT`, optional sibling roots, `SPEC_FOLDER`, `JSONL_PATH`,
+and any known `EXISTING_PR_NUMBER` verbatim. Log
+`"$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-push-to-git "<key>" create-pr-handoff invoke-create-pr "$AGENT_ID"`.
+
+Wait for `build-create-pr`, which itself waits for `build-fix-ci`. Copy
+its `github_pr_number`, `pr_url`, `head_sha`, `ci_status`,
+`repair_cycles`, `unresolved_checks`, and `halt_code` into this skill's R1.
+Preserve any actual context-handoff/resume data alongside a partial result.
+The CI repair may have advanced HEAD after the initial push: return that final
+SHA, never the initial `HEAD_SHA` in place of it. Preserve this PR metadata
+and diagnostics on failure/partial too; never lose the existing PR when a
+follow-on gate blocks. Normal autonomous success requires child
+`status:"success"` and `ci_status:"green"`; any non-success, malformed
+result, or launcher failure returns non-success without another PR/CI loop.
+
+After the interactive choice or normal autonomous result, emit exactly one
+terminal session event with `status:"ok"` only for the selected path's
+success; otherwise `status:"error"`. Include known PR/HEAD/CI fields and
+`halt_code` alongside `commits` and `branch` in its data. Do not overwrite
+child errors or partial status with a generic "pushed" success.
 
 ## Anti-patterns
 
@@ -264,7 +339,11 @@ In autonomous mode:
 - **Never prompt the user** — work-item-key, commit-grouping, push-confirm, and create-pr-handoff gates are bypassed per the rules above.
 - **Pre-push hook still fires** — autonomous mode bypasses *user* approval, not *infrastructure* checks. If the pre-push hook rejects, return R1 `status:"failure"` with the hook output in `errors[]`.
 - **Log every bypass** to `build.jsonl` via `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh"` with the `autonomous_bypass` event schema documented in `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md`.
-- **Do NOT forward `--autonomous`** when invoking `/build-create-pr` at hand-off — `$AGENT_ID` carries the signal across the dispatch boundary (see `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` § *Cross-skill propagation*). `WORKTREE_PATH` and plugin-root fields are forwarded in the context bundle.
+- **Do NOT forward `--autonomous`** on cross-skill dispatch; forward the
+  explicit roots/artifact/PR context instead, with inherited `AGENT_ID`.
+- **Existing-PR repairs are push-only** when `CI_REPAIR_ACTIVE=true`;
+  `build-fix-ci` remains the sole owner of CI inspection and repair.
+- **Wait for the normal create-pr/CI handoff** and propagate its full R1 outcome.
 - **Emit an R1 envelope** as the final `json`-fenced block of the skill's output.
 
 ### Return Format (R1, when called as a sub-skill)
@@ -278,16 +357,27 @@ Top-level R1 envelope fields follow `plugins/makato-build/agents/RETURN-CONTRACT
     "commits": "<N>",
     "remote_branch": "origin/<name>",
     "pre_push_hook_fired": "<true|false>",
-    "next_skill_invoked": "build-create-pr | build-coordinate-repos | null",
-    "repos_pushed": "<N>"
+    "next_skill_invoked": "build-create-pr" | null,
+    "repos_pushed": <N>,
+    "github_pr_number": <N-or-null>,
+    "pr_url": "<url-or-null>",
+    "head_sha": "<full-final-pushed-sha>",
+    "pushed": true,
+    "ci_status": "green" | "blocked" | "pending" | null,
+    "repair_cycles": <N-or-null>,
+    "unresolved_checks": [],
+    "halt_code": "<child-or-push-halt-code>" | null
   }
 }
 ```
 
-`agent` is `"build-push-to-git"`. `summary` is `"Pushed N commits to origin/<branch>"` on success.
+`agent` is `"build-push-to-git"`. Normal autonomous success includes
+confirmed green CI on the returned SHA. Existing-PR repair success confirms
+only the push: `ci_status:null`, `repair_cycles:null`, and
+`next_skill_invoked:null`; the caller must run/continue the shared CI gate.
+On child non-success preserve the child's status, errors, and CI fields even
+when `pushed:true`.
 
 ### HALT Codes
-
-The HALT codes emitted by this skill (`MISSING_INPUT`, `PROTECTED_BRANCH`, `NOTHING_TO_COMMIT`, `COMMIT_FAILED`, `PUSH_REJECTED`) are registered with their PO-agent recovery routes in `plugins/makato-build/halt-codes.md`.
 
 The HALT codes emitted by this skill (`MISSING_INPUT`, `PROTECTED_BRANCH`, `NOTHING_TO_COMMIT`, `COMMIT_FAILED`, `PUSH_REJECTED`) are registered with their PO-agent recovery routes in `plugins/makato-build/halt-codes.md`.

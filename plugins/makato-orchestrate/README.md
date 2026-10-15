@@ -170,8 +170,9 @@ fresh dispatch starts instead of failing.
 
 The full unattended path is: board `Status=Ready` claim (CAS) → PO-agent dispatch →
 build-refine → per-task build-implement-tdd/-goal → resolve-pr-conflict (on push
-reject) → build-verify → build-push-to-git → build-create-pr → build-address-pr-comments
-→ merged PR → `workflows/post-merge.yml` → documentation-agent → board `Done`. It
+reject) → build-review → build-verify → build-push-to-git → build-create-pr →
+build-fix-ci → build-address-pr-comments → build-fix-ci after repair pushes →
+merged PR → `workflows/post-merge.yml` → documentation-agent → board `Done`. It
 requires: `gh` CLI authenticated with `repo,project,workflow` scopes against the target
 repository (§ *Prerequisites / MCP Servers* below), the active model profile's
 credential if it declares one (only `openai` does), and `MAKATO_HEADLESS=1` exported by
@@ -180,6 +181,12 @@ guard*). Before every dispatch, `scripts/preflight-model-runtime.sh` (Gate 6) va
 the active profile's structure, endpoint reachability, credential presence, and OMP
 role/tool-format match, and reports (never blocks on) optional Playwright MCP / Langfuse
 / Postgres / Temporal / Sagibeast connectivity via `scripts/preflight-optional-services.sh`.
+
+CI has one owner: `makato-build:build-fix-ci`. The PO-agent requires its fresh
+current-head green result, preserves PR/checkpoint information on failure, and
+resumes `ci-poll` without creating another PR. Progressing repairs have no fixed
+three-attempt ceiling; an explicit positive `MAKATO_MAX_CI_FAILURE_CYCLES` caps
+them. Missing checks and pending timeout are never routed as invented code bugs.
 
 ## Skills
 

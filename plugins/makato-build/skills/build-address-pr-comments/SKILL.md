@@ -11,7 +11,7 @@ description: >-
   OUT-OF-SCOPE carry-over issue). Review-feedback promotion — codifies recurring
   MUST-FIX categories as permanent pre-commit checks (Step 5a + Step 6a).
   Interactive by default. Use after create-pr when review comments arrive.
-version: "1.6.0"
+version: "1.7.0"
 argument-hint: "[work-item-key] [--autonomous]"
 allowed-tools: ["Bash", "Read", "Edit", "Write"]
 ---
@@ -40,6 +40,11 @@ When dispatched by the PO-agent (`--autonomous` mode):
 - `WORKTREE_PATH` — absolute filesystem path to the per-run git worktree. **Mandatory in autonomous mode** (see `plugins/makato-build/AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract*). `gh pr` calls and per-comment fix applies operate from `WORKTREE_PATH` so commits land on the right branch.
 - `MAKATO_BUILD_ROOT` — absolute installed build-plugin root, resolved from
   runner plugin-root variables when not supplied.
+- `PR_NUMBER` / `REPO` — known PR and target `OWNER/REPO`; use them
+  explicitly when supplied, validating the PR belongs to this worktree branch.
+- `REPO_ROOT`, `SPEC_FOLDER`, `JSONL_PATH` — main-checkout artifacts;
+  resolve missing spec/log paths with the shared spec-folder resolver.
+- Optional sibling plugin roots — preserve verbatim in downstream context.
 - `--autonomous` — activation flag.
 
 Interactive mode: `WORKTREE_PATH` is optional; fall back to `git rev-parse --show-toplevel` of the current `$PWD`.
@@ -60,6 +65,23 @@ Spec-artefact reads use `$REPO_ROOT/specs/<key>-*/`:
 REPO_ROOT="$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)"
 ```
 
+### Downstream skill dispatch
+
+In OMP mode (`MAKATO_HARNESS_MODE` unset or not `claude`), dispatch
+`build-review` and `build-verify` using
+`python3 "${MAKATO_SKILL_RUNNER:-$MAKATO_BUILD_ROOT/scripts/run-skill.py}"`
+with `--repo-root "$REPO_ROOT" --cwd "$WORKTREE_PATH"`, a complete
+`--context-file`, and the inherited harness/role selection. Do not inline
+Skill/Task workflow execution or force a model. Claude mode keeps native
+skill dispatch. Forward the work-item-key, activation context, `PR_NUMBER`,
+`REPO`, both workspace roots, `MAKATO_BUILD_ROOT`, optional sibling roots,
+`SPEC_FOLDER`, `JSONL_PATH`, and available gate/test context explicitly.
+Do not forward the `--autonomous` CLI flag on cross-skill handoffs. If it
+was the only activation signal and `AGENT_ID` is absent, include
+`AUTONOMOUS_MODE:true` and `task_id` (the work-item key when no dispatch id
+exists) in the child context. Wait for each final R1 before continuing;
+launcher failure or malformed/missing R1 is a blocking failure.
+
 ## Workflow
 
 ### Step 1 — Ask for work item key and PR URL
@@ -72,6 +94,11 @@ gh pr list --head $(git branch --show-current) --json url -q '.[0].url'
 ```
 
 Run `git branch --show-current` to confirm we are on the story branch. If on `main` or `master`, stop — fixes must go on the feature branch.
+Resolve `REPO` from origin when absent; retain the `OWNER/REPO` form.
+Capture the PR number, URL, and `headRefOid` from an explicit
+`gh pr view <PR-or-URL> --repo "$REPO"` lookup, and require the open PR's
+head branch/repository to match the worktree. Initialize `pushed:false`.
+Keep the known PR number/URL in all subsequent R1 outcomes.
 
 ### Step 1a — Mode detection
 
@@ -112,7 +139,10 @@ Exclude only comments already marked as resolved in the PR review thread.
 
 Note the author type for each comment (human vs bot) — this informs the classification default in Step 4 but does not exclude anything.
 
-If there are no unresolved comments: tell the user and stop.
+If there are no unresolved comments, continue directly to Step 10 with zero
+counts, `pushed:false`, the known `github_pr_number`, and the full current
+worktree `head_sha`. Do not silently exit without a terminal session/R1,
+create an empty commit, or claim a push or green CI.
 
 ---
 
@@ -157,7 +187,15 @@ Wait for the user to confirm or adjust classifications. User can: promote/demote
 
 In **autonomous mode**, skip the interactive prompts and apply this fixed policy:
 
-- **SENSOR-BOT** — delegate to `sensor-fixer`: parse the comment body for `tool:rule:path:line` findings (already parsed in Step 4), emit a `sensor-delegated` row to the resolved spec folder's `build.jsonl` (`{"ts":"<ISO>","skill":"build-address-pr-comments","step":"fix","action":"sensor-delegated","key":"<key>","dispatched_by":"build-address-pr-comments","comment_id":"<id>"}`), dispatch `sensor-fixer(REPO_ROOT, FINDINGS=[parsed], SPEC_KEY=<key>)`. On R1 `failure`, revert to MUST-FIX tier and re-apply via Step 6. Log bypass: `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-address-pr-comments "<key>" sensor-bot-classification delegate "<agent_id|cli_flag|task_id_bundle>"`.
+- **SENSOR-BOT** — parse `tool:rule:path:line` findings, emit the existing
+  `sensor-delegated` build-log row, then dispatch `sensor-fixer` with
+  `REPO_ROOT`, `WORKTREE_PATH`, `MAKATO_BUILD_ROOT`, optional sibling
+  roots, `SPEC_FOLDER`, `JSONL_PATH`, PR/repository identity, activation
+  context, `FINDINGS=[parsed]`, and `SPEC_KEY=<key>`. Source edits must
+  stay in the worktree, not the main checkout. Any non-success (including partial
+  or invalid/missing R1) leaves unresolved findings as MUST-FIX for Step 6;
+  never treat partial delegation as completed fixes. Log
+  `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-address-pr-comments "<key>" sensor-bot-classification delegate "<agent_id|cli_flag|task_id_bundle>"`.
 - **MUST-FIX (non-STRUCTURAL)** — auto-apply in Step 6. Logged as `autonomous_bypass` with `gate: "comment-classification"`, `default_taken: "auto-apply"` (AC1).
 - **SHOULD-FIX** — apply ONLY if every file the comment touches is already inside this task's diff scope (the file list captured by Step 3 of the most recent `build-implement-tdd` / `build-implement-goal` session, recoverable from `specs/<key>-<slug>/plan.md` `task[].Files[]`). If any touched file is outside that set, the comment is marked **DEFERRED**: the skill does NOT implement it, posts a `[DEFERRED]` reply (template `pr-comment-replies.md` § *SHOULD-FIX (deferred — autonomous-only)*), and logs `autonomous_bypass` with `gate: "should-fix-scope-guard"`, `default_taken: "defer"`, and `data.comment_id` + `data.out_of_scope_files[]`. The PO-agent reads the R1 envelope and decides whether to open a follow-up issue (AC2).
 - **CONSIDER** — skip (do not implement). Reply with `pr-comment-replies.md` § *CONSIDER (deferred — interactive choice)* autonomous variant.
@@ -282,11 +320,13 @@ Log each fix:
 
 ### Step 6a — Recurrence check and harness promotion
 
-Runs once per PR run after all fixes are committed and pushed (Step 6), before verify gates (Step 7). De-duplicates by category within the run.
+Runs once per PR run after all fixes are implemented (Step 6), before review
+and verify gates (Step 7). De-duplicates by category within the run; it does
+not commit or push source fixes.
 
 ```bash
 RECURRENCE_THRESHOLD=2
-REPO="$(git remote get-url origin | sed 's/\.git$//')"
+LESSON_REPO="$(git remote get-url origin | sed 's/\.git$//')"
 ```
 
 For each unique resolved MUST-FIX category in this run:
@@ -296,7 +336,7 @@ For each unique resolved MUST-FIX category in this run:
 ```bash
 PRIOR=0
 if [ -f "$REPO_ROOT/.makato/memory/procedural.jsonl" ]; then
-  PRIOR=$(jq -c --arg repo "$REPO" --arg cat "category:$CATEGORY" \
+  PRIOR=$(jq -c --arg repo "$LESSON_REPO" --arg cat "category:$CATEGORY" \
     'select(.repo == $repo and (.tags // [] | contains([$cat])))' \
     "$REPO_ROOT/.makato/memory/procedural.jsonl" 2>/dev/null | wc -l)
 else
@@ -367,23 +407,37 @@ On success: record `HARNESS_URL`.
 
 ---
 
-### Step 7 — Re-run verify gates
+### Step 7 — Review, then verify source repairs before pushing
 
-Run the project's build and unit test suite to confirm fixes did not break anything:
-- **Build** (compile / type-check) — must pass
-- **Unit tests** — zero new failures vs. pre-session baseline
+When repository files changed (including sensor-delegated fixes), dispatch
+these gates in order through the downstream boundary above:
 
-On failure: classify.
-- **Fixable** → fix and re-run from BUILD
-- **Structural** → stop, report, recommend `/refine`
+1. `makato-build:build-review <key>` — require R1 `status:"success"` with
+   `data.critical_count == 0` and `data.major_count == 0`. The skill owns
+   repairing/re-reviewing ordinary findings. Missing counts, nonzero counts,
+   `failure`, `partial`, or an invalid/missing result blocks Step 8:
+   close the session with `status:"error"`, return R1 failure with
+   `data.halt_code:"HALT-003"` and the review blocker. Do not commit, push,
+   or post an "applied" reply on this path.
+2. Only after that review succeeds, dispatch `makato-build:build-verify <key>`
+   for the same repaired worktree. Require a valid R1 `status:"success"`.
+   Any `failure`, `partial`, or missing/malformed result closes the session
+   with `status:"error"` and returns R1 failure with
+   `data.halt_code:"HALT-002"`, `BUILD_FAILED`, and verification errors.
 
-Full integration test suite is optional here — defer to the CI run triggered by the push unless the fixes touched integration-boundary code.
+Do not substitute a hand-picked build/unit-test subset for these shared gates
+or defer required tests to CI. If another source edit is needed after either
+gate, repeat review → verify on the final edits before pushing. Reply-only,
+deferred-only, and carry-over-only runs without repository-file changes skip
+these gates and empty commits; they do not claim new source verification.
 
 ---
 
 ### Step 8 — Commit and push fixes
 
-Stage and commit the fixes. Commit message:
+After Step 7 succeeds, stage only the intended changed files and commit the
+fixes. This skill owns the commit/push; its caller must not repeat them.
+Commit message:
 ```
 fix(<scope>): address PR review feedback for <key>
 ```
@@ -392,7 +446,17 @@ If fixes span multiple logical themes (e.g. a CI build fix plus several readabil
 
 In **interactive mode**, show the user the staged diff and ask: *"Ready to push `<N>` fix commits to `origin/<branch>`?"* Wait for confirmation before pushing. Run `git push` on approval.
 
-In **autonomous mode**, skip the prompt: run `git push` immediately (pre-push hook still fires per the cross-skill propagation rule in `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md`). Log `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-address-pr-comments "<key>" push-fix-confirm push "<agent_id|cli_flag|task_id_bundle>"`.
+In **autonomous mode**, skip the prompt: push after Step 7 succeeds
+(pre-push hooks still fire). Log
+`"$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-address-pr-comments "<key>" push-fix-confirm push "<agent_id|cli_flag|task_id_bundle>"`.
+Never invoke `build-push-to-git` for a second commit/push or auto-create a PR.
+On commit/push failure, close with `status:"error"` and return R1 failure
+with the exact error and `halt_code:"PUSH_REJECTED"`; do not report the
+fixes as applied. On success, set `pushed:true`, capture full
+`head_sha="$(git -C "$WORKTREE_PATH" rev-parse HEAD)"`, and require it to
+match this PR's `headRefOid` from an explicit `--repo "$REPO"` lookup.
+If no source changes or new commits exist, skip the push and keep
+`pushed:false`; still return the actual current SHA.
 
 ---
 
@@ -433,13 +497,17 @@ Keep replies factual and brief. Quote the original comment only if needed for cl
 
 ### Step 10 — Log session end and hand off
 
-Run:
+Select the R1 status using the outcome table below before closing the session.
+Emit exactly one terminal `step:"session"` event: `status:"ok"` for R1
+success only, `status:"error"` for failure/partial. Its data includes the
+comment counts, commits, `github_pr_number`, full `head_sha`, `pushed`,
+and any `halt_code`. Preserve the known PR and SHA on non-success too.
 
-```bash
-"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-address-pr-comments","story":"<key>","step":"session","status":"ok","data":{"must_fix":<N>,"should_fix":<N>,"consider":<N>,"out_of_scope":<N>,"commits":<N>}}'
-```
-
-Tell the user: *"`<N>` comments addressed, `<N>` commits pushed. PR is ready for re-review."*
+Return to the caller without another commit/push. **Autonomous mode:** a
+successful comments result is not a green-CI result. The caller must dispatch
+the shared `build-fix-ci` gate for the returned SHA before resuming review;
+`partial`/`failure` must not advance that pipeline. Interactive mode retains
+its existing re-review handoff after a successful push.
 
 ## Anti-patterns
 
@@ -498,7 +566,10 @@ Top-level R1 envelope fields follow `plugins/makato-build/agents/RETURN-CONTRACT
     "out_of_scope_skipped": <N>,
     "carry_over_issues": ["<url>", "..."],
     "structural_blockers": <N>,
-    "halt_code": "HALT-003" | null,
+    "halt_code": "<gate-or-push-halt-code>" | null,
+    "github_pr_number": <N>,
+    "head_sha": "<full-current-worktree-sha>",
+    "pushed": <true|false>,
     "commits": <N>,
     "replies_posted": <N>,
     "harness_issues_opened": <N>,
@@ -513,9 +584,9 @@ Top-level R1 envelope fields follow `plugins/makato-build/agents/RETURN-CONTRACT
 
 | Outcome | `status` |
 |---|---|
-| All actionable comments handled, no STRUCTURAL items | `success` |
-| At least one SHOULD-FIX deferred OR at least one CONSIDER/OUT-OF-SCOPE skip resulted in a carry-over issue but no STRUCTURAL | `partial` |
-| Any STRUCTURAL item, or any HALT fired | `failure` |
+| All actionable comments handled, no STRUCTURAL items, and all required review/verify/commit/push/reply steps succeeded | `success` |
+| At least one SHOULD-FIX deferred OR at least one CONSIDER/OUT-OF-SCOPE skip resulted in a carry-over issue but no blocking failure | `partial` — caller must not advance as success |
+| Any STRUCTURAL item, review/verification/commit/push failure, invalid required R1, or any HALT fired | `failure` |
 
 ### HALT Codes
 

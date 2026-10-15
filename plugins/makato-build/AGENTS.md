@@ -4,12 +4,12 @@
 ## Hard Constraints
 
 - **`coder` is the only `bypassPermissions` agent.** Never grant elevated permissions to any other agent without explicit documentation and code-review approval in this section.
-- **`coder` dispatched only by `build-implement-tdd` or `build-implement-goal`.** Never invoke it directly from user prompts or other skills.
+- **`coder` is dispatched only by implementation skills or `build-review`'s blocking-finding repair.** `build-fix-ci` routes through those skills, never directly to coder.
 - **`sensor-fixer` must never edit files outside the changed-files set** captured at dispatch time. File targets are validated by `build-refine` before plan approval.
 - **`diff-reviewer` is the sole AC-verdict judge.** `build-review` and `build-create-pr` are transport-only — they copy verdicts, never re-evaluate them.
 - **`build.jsonl` is the only `specs/` artefact committed to the repo.** Never log secrets, credentials, file paths outside the repo, or any content you would not paste into a public PR.
 - **`PLAN_CONTEXT.Hard Constraints` always overrides advisory inputs.** `RECOMMENDED_SKILLS`, `SCOUT_SUMMARY`, and `TEST_ORACLE` are advisory and never override hard constraints.
-- **No hotfixes or ad-hoc changes.** Route defect fixes to `makato-change`; route new shaping work to `makato-plan`.
+- **No ad-hoc product changes.** New shaping goes to makato-plan; new change requests go to makato-change. Diagnosed existing-PR CI failures use build-fix-ci's scoped recovery contract.
 - **Skill files must not use `../` paths outside their skill directory** (except `../shared/` within this plugin).
 - **`build-implement-goal` does not participate in the `TEST_ORACLE` chain.** That chain is TDD-only; do not add oracle propagation to goal-mode flows.
 
@@ -25,7 +25,7 @@ Policy: `skill_execution` in workflow-schema.yml; concrete model mapping: OMP `m
 
 Transforms decomposed, vertically-sliced stories into tested, reviewed, merged code.
 
-**How:** Provides a sequential skill pipeline anchored by `build-start` as the entry point, then `build-refine` → (optional `build-grill-with-docs`) → `build-implement-tdd` *or* `build-implement-goal` → `build-simplify` → `build-review` → `build-verify` → `build-sensors` (with per-finding repair via `build-resolve-finding`) → `build-push-to-git` → `build-create-pr` → `build-address-pr-comments`. Takes planned specs and produces production-ready pull requests in a single session.
+**How:** Sequential pipeline: build-start → build-refine → optional build-grill-with-docs → build-implement-tdd/goal → build-simplify → build-review → build-verify → build-sensors → build-push-to-git → build-create-pr → autonomous build-fix-ci → build-address-pr-comments. Every later repair push re-enters the shared current-head CI gate.
 
 **Why:** Closes the loop from ideation to merged code — planned stories become shippable features without manual orchestration overhead.
 
@@ -62,7 +62,7 @@ The /refine step bridges that gap — producing a plan small enough to execute a
 - Hotfixes, small defects, or ad-hoc code changes (out of scope — no dedicated plugin yet)
 - Shaping work (PRDs, architecture, prototypes, decomposition — that's makato-plan)
 - Plugin/skill scaffolding (that's makato-contribute)
-- CI/CD pipeline configuration or deployment automation
+- New CI/CD pipeline configuration or deployment automation (diagnosed existing-PR CI configuration failures are repaired through build-fix-ci)
 - Project management or issue tracker state machine transitions
 
 ## Decision Test
@@ -117,7 +117,7 @@ makato-build/
 ├── hooks/     pre-commit / testing hooks
 ├── skills/    build-start, build-refine, build-grill-with-docs, build-implement-{tdd,goal},
 │              build-simplify, build-verify, build-sensors, build-resolve-finding,
-│              build-fix-{types,security}, build-push-to-git, build-create-pr,
+│              build-fix-{types,security,ci}, build-push-to-git, build-create-pr,
 │              build-address-pr-comments, definition-of-done, inject-context
 ├── shared/    build-log.sh (suite-wide JSONL helper), runtime-context.sh,
 │              spec_folder.py, context-bundles.yml, finding-routes.json,

@@ -80,6 +80,22 @@ keep unresolved findings in `errors`. The `data` payload is
 instead of the task-phase payload. No task index is required. Coder success does not
 approve the review; the caller must obtain a fresh clean `diff-reviewer` R1.
 
+CI recovery via either implementation skill supplies `CI_FAILURES`. Its result
+adds `resolved_checks`, `unresolved_checks` and `verification` to `data`.
+Success requires all assigned failures repaired and locally verified, not merely
+zero new failures relative to an already-red baseline.
+
+### `build-fix-ci` (skill, owns remote CI repair)
+
+`data` contains `github_pr_number`, `head_sha`, `ci_status`
+(`green|pending|blocked`), `repair_cycles`, `unresolved_checks`, and `halt_code`.
+Only fresh current-head green with no unresolved checks permits `success`.
+An interrupted wait/handoff is `partial`; blockers/timeouts/stalled repairs are
+`failure`. PR creation and initial push propagate these fields and non-success
+without losing the existing PR number. The PO-agent mirrors progress but never
+runs a second CI loop. Existing-PR repair pushes return their head SHA without
+invoking PR creation or nesting another CI coordinator.
+
 ### `diff-reviewer.md` (model: sonnet, read-only)
 
 - `status: "success"` — review completed, zero CRITICAL and zero MAJOR findings.

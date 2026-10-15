@@ -6,7 +6,7 @@ description: >-
   Tracer bullet phase for multi-layer stories. Autonomous loop. Use
   after refine to implement-tdd a story plan, implement tdd tasks, or
   run the core build loop.
-version: "1.12.0"
+version: "1.13.0"
 argument-hint: "[work-item-key]"
 allowed-tools: ["Bash", "Read"]
 metadata:
@@ -41,27 +41,25 @@ When dispatched by the PO-agent (`--autonomous` mode), this skill receives a con
 
 Optional fields (autonomous mode):
 
-- `CI_FAILURE_LOG` — tail of `gh run view --log-failed` (≤ 4000 chars), forwarded by the PO-agent's CI-failure fix loop (Step 6a of `plugins/makato-orchestrate/agents/po-agent.md`). When present, activates *CI-failure recovery mode* — see § *CI-failure recovery mode* below. Absent on a normal first-pass dispatch.
+- `CI_FAILURES` — structured failed-check diagnostics from `build-fix-ci`: head SHA, check identity, run/job/attempt, summary and private full-log path. Activates CI recovery; never replace these with a truncated log tail.
+- `CI_TASK_INDICES` — selected task indices in this skill's mode, including previously completed tasks that now require repair.
 - `PRIOR_LESSONS` — JSON array of top-3 lessons recalled by the PO-agent (GAP-015 / #37). May be empty; consumers MUST tolerate `[]` and a missing key identically. Forwarded verbatim to each per-task `coder` dispatch in Step 6 as advisory context.
 - `GATE_COMMANDS` — optional gate-scout R1 `data` command map. When absent,
   dispatch gate-scout once before the baseline and use its `unit`,
   `integration`, `coverage`, and `python_runner_prefix` fields verbatim.
 
-When invoked by a developer at the prompt (interactive mode), `WORKTREE_PATH` is optional. If unset, the skill falls back to `git rev-parse --show-toplevel` of the current `$PWD` — the original developer-driven behaviour, unchanged. `CI_FAILURE_LOG` is never set in interactive mode.
+When invoked interactively, `WORKTREE_PATH` is optional and defaults to the current repository. CI recovery inputs are supplied by `build-fix-ci`, not inferred from ordinary task completion.
 
 ### CI-failure recovery mode
 
-When `CI_FAILURE_LOG` is present in the input bundle, the skill is being re-entered to fix a CI failure on a PR that was already pushed by a prior dispatch. The skill MUST:
+When `CI_FAILURES` is supplied, load `$MAKATO_BUILD_ROOT/shared/ci-recovery.md` before the baseline. It overrides the ordinary broken-baseline and completed-task rules only for the supplied CI failures.
 
-1. Parse the failing test name(s) from `CI_FAILURE_LOG` (typical pytest/unittest patterns: `FAILED <path>::<test>`, `AssertionError`, `Traceback`). When the failing test maps to a known `mode: tdd` task in `plan.md` (match by `**Unit Test:**`/`**Integration Test:**` or `**Files:**` paths), restrict Step 6 to that task plus any task it blocks (transitively). When the log is ambiguous or matches no task, fall through to the full task walk — the baseline-failure gate in Step 3 will still bound work to actual failures.
-2. Skip Step 5 (tracer bullet) entirely — the tracer is a multi-layer scaffold for greenfield stories, not for incremental CI fixes. A `warn` JSONL entry is logged: `{"…","skill":"build-implement-tdd","story":"<key>","step":"tracer-skipped","status":"warn","data":{"reason":"ci-failure-recovery"}}`.
-3. Forward `CI_FAILURE_LOG` to each selected coder dispatch as an additional input field of the same name. The coder reads it as advisory diagnostic context — it does not override the per-task `description` or test specs from `plan.md`.
-4. Log a `decision` JSONL entry on entry so the audit trail records that this dispatch is a recovery rather than a fresh implementation walk:
-   ```bash
-   "$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"ci-failure-recovery","status":"decision","data":{"log_tail_chars":<N>,"tasks_selected":[<indices>]}}'
-   ```
+1. Use `CI_TASK_INDICES` to select affected TDD tasks, even when already complete. If absent, map the full diagnostics to the plan through `plan-analyst`; do not silently walk unrelated tasks or claim success for an empty selection. Return unresolved failures to `build-fix-ci` if none map to this mode.
+2. Skip Step 5 (tracer bullet). Log `step:"tracer-skipped", status:"warn", data:{reason:"ci-failure-recovery"}`; existing implementation must never be replaced with a fresh scaffold.
+3. Forward `CI_FAILURES` to each selected coder alongside the unchanged task, scout, constraints and gate commands. Read full diagnostic files when summaries are insufficient. Do not treat CI failures as an acceptable pre-existing baseline.
+4. Log `step:"ci-recovery", status:"start"` with selected indices and check identities (no raw logs). Finish with `data.resolved_checks`, `data.unresolved_checks` and actual local verification evidence. Only every assigned failure repaired and locally verified permits success; the caller independently verifies remote CI.
 
-All other contracts (workspace-isolation guard, baseline gate, blockedBy graph check, scout pre-flight, R1 envelope, workflow-state carve-out) are unchanged. The recovery mode is a subset of the normal walk, not a parallel path.
+All workspace, blockedBy, scout and R1 contracts still apply. This skill leaves repairs uncommitted; `build-fix-ci` owns review, verification and push.
 
 ### Workspace-isolation entry guard
 
@@ -173,7 +171,7 @@ the command map for this session. Run the exact `data.unit` command (including
 record a degraded-confidence skip; never substitute a bare `pytest` command.
 Forward the same map to every coder dispatch.
 
-**Flakey test rule**: if a test fails but no source code was changed between runs, re-run that single test once before classifying. If it passes on the second run, log it as flakey and continue. If it fails again, classify normally.
+**Flakey test rule (ordinary implementation only)**: if a test fails but no source code was changed between runs, re-run that single test once before classifying. In CI recovery, follow ci-recovery.md instead: targeted failures remain obligations, and the coordinator owns any diagnosed transient rerun.
 
 Run: `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"baseline","status":"ok","data":{"pre_existing_failures":<N>,"baseline_mode":"<proceed|halted>"}}'`
 
@@ -250,7 +248,7 @@ For each `mode: tdd` task in topological order, dispatch the per-task `task-file
 - `REPO_ROOT`: absolute path to the target repository root
 - `MAKATO_BUILD_ROOT`: absolute installed build-plugin root
 - `WORKTREE_PATH`: absolute filesystem path to the per-run git worktree (forwarded verbatim from this skill's input — see § *Input* and `AUTONOMOUS-MODE.md` § *WORKTREE_PATH*). The `coder` agent `cd`s into this path before its RED→GREEN→INTEGRATE→VERIFY cycle. In interactive mode without an enclosing PO-agent, forward the resolved `$(git rev-parse --show-toplevel)` so the agent's contract is identical in both modes.
-- `CI_FAILURE_LOG`: forwarded verbatim when present in this skill's input bundle (see § *CI-failure recovery mode*). Omit when absent — the coder treats it as optional advisory diagnostic context, not a gate.
+- `CI_FAILURES`: forward the assigned structured diagnostics and full-log paths verbatim when present. The shared recovery contract makes every assigned failure a repair obligation, never an acceptable baseline.
 - `RECOMMENDED_SKILLS`: forwarded verbatim when the task object from `plan.md` carries a `recommended_skills[]` field (agent-skill-routing #146). When present and non-empty, the coder agent invokes each skill before Phase 1 RED (see `coder.md` § *Skill consultation prepend*). Omit this field from the dispatch bundle when the task's `recommended_skills` is absent — do NOT pass an empty array.
 - `TEST_ORACLE`: forwarded verbatim when the Plan Analysis (from `plan-analyst`, Step 4) carries a non-empty `## Acceptance Test Oracle` section. Pass the whole section (all scenarios with their `(maps to AC-N)` annotations); the coder filters it to the task's own `**Satisfies:**` AC links and implements the matching scenarios as its RED tests (see `coder.md` § *Test oracle*). Omit this field from the dispatch bundle when the plan has no Acceptance Test Oracle section — do NOT pass an empty value. Source is the Plan Analysis output, never a re-read of `plan.md` or `stories.json`.
 - `PRIOR_LESSONS`: forwarded verbatim when present in this skill's input bundle (see § *Input* and `plugins/makato-orchestrate/agents/po-agent.md`). A JSON array of the top-3 lessons recalled by the PO-agent (GAP-015 / #37). The coder reads them as advisory context, equal in weight to `SCOUT_SUMMARY` — they never override `PLAN_CONTEXT.Hard Constraints` (see `coder.md` § *Prior lessons*). Omit this field from the dispatch bundle when it is absent or `[]` — do NOT pass an empty array. Consumers tolerate a missing key and `[]` identically.

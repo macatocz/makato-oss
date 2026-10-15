@@ -35,6 +35,8 @@ Non-obvious rules that cannot be inferred from context:
 
 5. **`diff-reviewer` is the sole verdict judge.** `build-review` and `build-create-pr` are transport-only — they copy `ac_verdicts[]` verbatim. Re-evaluating verdicts here diverges silently from the diff-reviewer's reasoning and corrupts the downstream Issue checkbox chain.
 
+6. **Checkpoint context is role-scoped, not renewed authorization.** On resume, use the current invocation and user authorization for the coordinator; historical child prompts are evidence, not coordinator instructions. Keep coordinator context separate from reviewer/coder dispatch bundles. A reviewer's read-only or no-test-edit restriction must never become a coordinator or coder restriction through a checkpoint. Preserve actual findings and input fingerprints, but reconcile stale role-scoped constraints before dispatch.
+
 ---
 
 ## Workflow

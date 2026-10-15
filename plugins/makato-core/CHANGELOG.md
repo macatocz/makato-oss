@@ -5,6 +5,12 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Changed — CI recovery audit contract
+
+- Documented `build-fix-ci` poll/repair boundaries and implementation recovery
+  events. Full diagnostic logs remain private; public audit entries identify
+  checks, head SHAs and sanitized outcomes.
+
 ### Fixed — Root structure validation
 
 - Allow the tracked `.joule/` directory in the repository-root directory allowlist.

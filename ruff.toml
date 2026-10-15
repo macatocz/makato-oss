@@ -8,6 +8,11 @@
 # contains long auto-generated lines (skill docs, JSONL payloads, etc.).
 line-length = 200
 
+[per-file-target-version]
+# Distributed CLI runs with the target repository's python3, not our test venv.
+"plugins/makato-build/shared/ci_checks.py" = "py310"
+"plugins/makato-build/shared/test_ci_checks.py" = "py310"
+
 [lint]
 select = ["E", "F", "W", "I"]
 

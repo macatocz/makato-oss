@@ -10,6 +10,44 @@ here on merge to main; release-please will date and version them at the next rel
 
 ## [Unreleased]
 
+### Added — autonomous current-head CI repair
+
+- Added `build-fix-ci` and executable all-check inspection with exact run/job/attempt
+  diagnostics. Unknown, missing, pending and inaccessible checks never pass silently.
+- Autonomous PR creation waits for CI repair; existing-PR repair pushes do not
+  recreate PRs or recurse. Review/comment repairs are reviewed and verified first.
+- Added structured CI recovery to TDD and goal mode, including completed-task,
+  configuration and metadata repair. Sensor residuals remain blocking in CI.
+- Nested security/type repair receives explicit CI context: suppression, ignore
+  and carry-over paths cannot turn unresolved CI failures into success.
+- The stdlib inspector supports Python 3.10 and private logs under normal-clone
+  git metadata; caller audits project sanitized fields instead of private paths.
+- Resolve inspector test fixture roots before path comparisons so macOS symlinked
+  temporary directories retain the same private-log containment checks as Linux.
+- Replaced the fixed three-round CI ceiling with progress-based termination and
+  an optional explicit cap; private checkpoints preserve interrupted work.
+- Reconcile completed child results before resuming stale running checkpoints;
+  consume host completion events instead of global waits, and return headless
+  permission/configuration blockers without waiting for impossible prompt updates.
+  Source-child restrictions remain role-scoped rather than leaking to the coordinator.
+- Restore reproducible repository type checking with declared test dependencies,
+  `.venv` and shared-module resolution, accurate `tmp_path` annotations, and
+  explicit narrowing of optional build signals before assertions.
+- Keep intentionally vulnerable security fixtures under a dedicated expected-findings
+  gate, with missing/extra/incomplete scans rejected; use explicit synthetic values
+  in parser redaction tests rather than realistic secret strings.
+- Pin existing action versions to verified immutable commits and apply the mechanical
+  formatting required by repository-wide verification.
+- Serialize build audit entries compactly after timestamp, model and trace metadata
+  handling, escaping Unicode separators so line-oriented consumers retain every
+  event; add regression coverage for pretty JSON and metadata injection. Preserve authorized test-repair scope
+  when constructing child contexts instead of inventing blanket editing bans.
+- Keep saved reviewer/coder context separate from coordinator authorization on
+  resume, so a historical read-only review prompt cannot prohibit authorized repairs.
+- Reject malformed single-event audit input instead of appending corrupt records;
+  preserve prior events and cover the failure path with a regression. Require sensor
+  results to use the full fenced R1 contract, and avoid nested-shell JSON quoting.
+
 ### Fixed — blocking review repair in both execution modes
 
 - `build-review` now sends every CRITICAL and MAJOR finding to the coder in manual

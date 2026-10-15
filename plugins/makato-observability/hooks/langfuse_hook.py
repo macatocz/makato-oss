@@ -19,6 +19,7 @@ import os
 import re
 import sys
 import time
+import urllib.parse
 import urllib.request
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -1129,12 +1130,54 @@ def _clear_localhost_proxy(host: str) -> None:
 
 
 def _check_langfuse_reachable(host: str, timeout: float = 3.0) -> bool:
-    health_url = host.rstrip("/") + "/api/public/health"
     try:
-        with urllib.request.urlopen(health_url, timeout=timeout) as resp:  # noqa: S310
-            return '"status"' in resp.read().decode("utf-8", errors="replace")
+        health_url = host.rstrip("/") + "/api/public/health"
+        origin = _http_origin(health_url)
+        if origin is None:
+            return False
+
+        request = urllib.request.Request(health_url, method="GET")
+        opener = urllib.request.build_opener(_SameOriginRedirectHandler())
+        with opener.open(request, timeout=timeout) as resp:
+            return 200 <= resp.status < 300 and '"status"' in resp.read().decode("utf-8", errors="replace")
     except Exception:
         return False
+
+
+def _http_origin(url: str) -> tuple[str, str, int] | None:
+    """Return a normalized HTTP(S) origin, or None for an unsafe URL."""
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        scheme = parsed.scheme.lower()
+        hostname = parsed.hostname
+        port = parsed.port
+    except ValueError:
+        return None
+
+    if scheme not in {"http", "https"} or hostname is None:
+        return None
+    if parsed.username is not None or parsed.password is not None:
+        return None
+    default_port = 443 if scheme == "https" else 80
+    return scheme, hostname.lower(), port if port is not None else default_port
+
+
+class _SameOriginRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Allow health-check redirects only when they stay on the same origin."""
+
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> urllib.request.Request | None:
+        origin = _http_origin(req.full_url)
+        if origin is None or _http_origin(newurl) != origin:
+            return None
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 def main() -> int:

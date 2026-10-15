@@ -460,9 +460,7 @@ def discover_installed_skills(
     installed: set[str] = set()
     for root in roots:
         for plugin_root in _installed_plugin_roots(root):
-            installed.update(
-                skill_md.parent.name for skill_md in plugin_root.glob("skills/*/SKILL.md")
-            )
+            installed.update(skill_md.parent.name for skill_md in plugin_root.glob("skills/*/SKILL.md"))
     return installed
 
 
@@ -496,11 +494,7 @@ def resolve_skills_for_repo(
         except OSError:
             continue
 
-    installed = (
-        discover_installed_skills(registry_root, fallback_root=fallback_registry_root)
-        if apply_subset_filter
-        else None
-    )
+    installed = discover_installed_skills(registry_root, fallback_root=fallback_registry_root) if apply_subset_filter else None
     return resolve_skills(
         files,
         config,
@@ -508,10 +502,6 @@ def resolve_skills_for_repo(
         installed_skills=installed,
         task_text=task_text,
     )
-
-
-
-
 
 
 __all__ = [

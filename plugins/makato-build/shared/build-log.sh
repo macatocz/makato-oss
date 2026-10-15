@@ -46,9 +46,8 @@ if timestamp is not None and not (isinstance(timestamp, str) and pattern.fullmat
     now = datetime.datetime.now(datetime.timezone.utc)
     value["ts"] = now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
     print("build-log: repaired invalid ts; expected ISO-8601 milliseconds", file=sys.stderr)
-    print(json.dumps(value, separators=(",", ":"), ensure_ascii=False))
-else:
-    print(entry)
+# Keep Unicode line separators escaped for JSONL consumers using splitlines().
+print(json.dumps(value, separators=(",", ":"), ensure_ascii=True))
 PY
 }
 
@@ -141,7 +140,7 @@ _inject_model() {
       local cached_model
       cached_model="$(cat "$MODEL_CACHE_FILE" 2>/dev/null || echo "")"
       if [[ -n "$cached_model" ]]; then
-        jq --arg m "$cached_model" '. + {model: $m}' <<<"$entry" 2>/dev/null || printf '%s' "$entry"
+        jq -ac --arg m "$cached_model" '. + {model: $m}' <<<"$entry" 2>/dev/null || printf '%s' "$entry"
         return
       fi
     fi
@@ -168,20 +167,18 @@ if [[ "$ENTRY_OR_FLAG" == "--batch" ]]; then
     fi
     # Merge issue_trace_id when --trace-id was supplied.
     if [[ -n "$TRACE_ID" ]]; then
-      line="$(jq --arg tid "$TRACE_ID" '. + {issue_trace_id: $tid}' <<<"$line")"
+      line="$(jq -ac --arg tid "$TRACE_ID" '. + {issue_trace_id: $tid}' <<<"$line")"
     fi
     printf '%s\n' "$line" >> "$LOG_FILE"
   done
   exit 0
 fi
 
-# Single-entry mode: repair malformed timestamps without changing otherwise
-# valid caller JSON, then merge issue_trace_id when --trace-id was supplied.
-if normalized="$(_normalize_entry "$ENTRY_OR_FLAG")"; then
-  ENTRY_OR_FLAG="$normalized"
-fi
+# Single-entry mode: normalize each object to one physical line and repair
+# malformed timestamps, then merge issue_trace_id when supplied.
+ENTRY_OR_FLAG="$(_normalize_entry "$ENTRY_OR_FLAG")" || exit $?
 if [[ -n "$TRACE_ID" ]]; then
-  ENTRY_OR_FLAG="$(jq --arg tid "$TRACE_ID" '. + {issue_trace_id: $tid}' <<<"$ENTRY_OR_FLAG")"
+  ENTRY_OR_FLAG="$(jq -ac --arg tid "$TRACE_ID" '. + {issue_trace_id: $tid}' <<<"$ENTRY_OR_FLAG")"
 fi
 # Auto-inject model field (S4)
 ENTRY_OR_FLAG="$(_inject_model "$ENTRY_OR_FLAG")"

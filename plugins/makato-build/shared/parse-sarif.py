@@ -1051,7 +1051,7 @@ def _selftest() -> int:
 - exit code: 1
 
     Finding:     AWS_ACCESS_KEY_ID = "AKIAQ******************"
-    Secret:      AKIAQYLPMN5HCNRTBVPK
+    Secret:      test-only-access-key
     RuleID:      aws-access-token
     Entropy:     3.781
     File:        smoke/test.py
@@ -1059,7 +1059,7 @@ def _selftest() -> int:
     Fingerprint: smoke/test.py:aws-access-token:4
 
     Finding:     AWS_SECRET_ACCESS_KEY = "9P****"
-    Secret:      9Pq6Z7wXrK2bN8tFcVhA1mLs5dRgYjUiXeBoCv3T
+    Secret:      test-only-secret-value
     RuleID:      generic-api-key
     Entropy:     5.123
     File:        smoke/test.py
@@ -1088,7 +1088,7 @@ def _selftest() -> int:
             f"gitleaks[0].line (got {gitleaks[0].line!r})",
         )
         _check(
-            "AKIAQYLPMN5HCNRTBVPK" not in gitleaks[0].message,
+            "test-only-access-key" not in gitleaks[0].message,
             f"gitleaks[0] secret value redacted (got {gitleaks[0].message!r})",
         )
         _check(

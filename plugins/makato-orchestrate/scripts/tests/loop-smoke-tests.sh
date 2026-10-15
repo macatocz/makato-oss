@@ -4469,7 +4469,7 @@ jq -n '{
   "session_summary": null, "session_count": 1,
   "session_baseline_tokens": 0, "spawned_pid": null,
   "handoff_reason": null, "restart_failed": false,
-  "resume_ack": null, "flake_rerun_pending": false,
+  "resume_ack": null,
   "structural_halt_cycles": 2, "reshape_cycles": 0,
   "updated_at": "2026-07-01T00:00:00.000Z", "created_at": "2026-07-01T00:00:00.000Z"
 }' >"$TRHAPPY_SPEC_FOLDER/workflow-state-921.json"
@@ -4530,7 +4530,7 @@ jq -n '{
   "session_summary": null, "session_count": 1,
   "session_baseline_tokens": 0, "spawned_pid": null,
   "handoff_reason": null, "restart_failed": false,
-  "resume_ack": null, "flake_rerun_pending": false,
+  "resume_ack": null,
   "structural_halt_cycles": 2, "reshape_cycles": 0,
   "updated_at": "2026-07-01T00:00:00.000Z", "created_at": "2026-07-01T00:00:00.000Z"
 }' >"$TRFAIL_SPEC_FOLDER/workflow-state-922.json"
@@ -4594,7 +4594,7 @@ jq -n '{
   "session_summary": null, "session_count": 1,
   "session_baseline_tokens": 0, "spawned_pid": null,
   "handoff_reason": null, "restart_failed": false,
-  "resume_ack": null, "flake_rerun_pending": false,
+  "resume_ack": null,
   "structural_halt_cycles": 3, "reshape_cycles": 3,
   "updated_at": "2026-07-01T00:00:00.000Z", "created_at": "2026-07-01T00:00:00.000Z"
 }' >"$TRCEIL_SPEC_FOLDER/workflow-state-923.json"
@@ -4651,7 +4651,7 @@ jq -n '{
   "session_summary": null, "session_count": 1,
   "session_baseline_tokens": 0, "spawned_pid": null,
   "handoff_reason": null, "restart_failed": false,
-  "resume_ack": null, "flake_rerun_pending": false,
+  "resume_ack": null,
   "structural_halt_cycles": 2, "reshape_cycles": 0,
   "updated_at": "2026-07-01T00:00:00.000Z", "created_at": "2026-07-01T00:00:00.000Z"
 }' >"$TRLF_SPEC_FOLDER/workflow-state-924.json"
@@ -4738,7 +4738,7 @@ jq -n '{
   "session_summary": null, "session_count": 1,
   "session_baseline_tokens": 0, "spawned_pid": null,
   "handoff_reason": null, "restart_failed": false,
-  "resume_ack": null, "flake_rerun_pending": false,
+  "resume_ack": null,
   "structural_halt_cycles": 2, "reshape_cycles": 2,
   "updated_at": "2026-07-01T00:00:00.000Z", "created_at": "2026-07-01T00:00:00.000Z"
 }' >"$TR13_SPEC_FOLDER/workflow-state-925.json"
@@ -4804,7 +4804,7 @@ jq -n '{
   "session_summary": null, "session_count": 1,
   "session_baseline_tokens": 0, "spawned_pid": null,
   "handoff_reason": null, "restart_failed": false,
-  "resume_ack": null, "flake_rerun_pending": false,
+  "resume_ack": null,
   "structural_halt_cycles": 1, "reshape_cycles": 1,
   "updated_at": "2026-07-01T00:00:00.000Z", "created_at": "2026-07-01T00:00:00.000Z"
 }' >"$TR13B_SPEC_FOLDER/workflow-state-926.json"

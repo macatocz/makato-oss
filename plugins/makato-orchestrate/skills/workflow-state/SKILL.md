@@ -13,7 +13,7 @@ description: >-
   over `build.jsonl` — the audit log captures forensics, this skill
   captures live loop state (sub-task graph, current phase, budget, HALT
   audit, structured lessons learned).
-version: "1.6.0"
+version: "1.7.0"
 argument-hint: "<subcommand> <key|repo> [<issue>] [args…]"
 allowed-tools: []
 ---
@@ -61,6 +61,12 @@ Do **not** call from sub-agents (`coder`, `diff-reviewer`, `gate-scout`, `plan-a
 ## Schema Reference
 
 The full contract lives at @references/workflow-state.schema.json (draft-07, `additionalProperties: false` at top level).
+
+On CI-repair cutover, PO-agent reads the full existing state, removes only
+`flake_rerun_pending` via `jq 'del(.flake_rerun_pending)'`, and calls
+`write` with that complete document before any patch/resume acknowledgement.
+This one-time schema migration preserves all other fields and remains subject
+to normal validation; never reintroduce the obsolete flake probe.
 Load MANDATORY when: modifying `workflow-state.sh`, adding a new top-level field, or writing a new HALT-audit shape.
 Do NOT Load unless you need to inspect the field-level JSON Schema constraints (the table below covers all caller needs).
 
@@ -76,18 +82,18 @@ Top-level fields:
 | `issue_number` | integer ≥ 1 | GitHub Issue number |
 | `sub_tasks` | array | ordered; see *sub_tasks shape* |
 | `current_phase` | string \| null | `refine` \| `implement` \| `verify` \| `pr` \| `done` |
-| `resume_point` | string \| null | opaque hint for session-status hook |
+| `resume_point` | string \| null | Resume hint; `ci-poll` re-enters the shared CI gate for the saved PR, never PR creation. |
 | `budget_consumed_tokens` | integer ≥ 0 | cumulative; updated after each dispatch; never reset (HALT-007 cost ceilings evaluate this total) |
 | `session_baseline_tokens` | integer ≥ 0 | `budget_consumed_tokens` at the current session's start (#281); HALT-007B evaluates the delta `consumed - baseline` and sets this to `consumed` on each handoff so a resumed session's context budget restarts at 0. Optional for pre-#281 in-flight state (readers default 0) |
 | `budget_limit_tokens` | integer ≥ 1 | HALT-007 fires at ceiling (cost control) |
 | `context_warn_tokens` | integer ≥ 1 | HALT-007B fires when the session delta reaches this threshold (quality control; default 150000) |
 | `outer_iteration` | integer ≥ 0 | HALT-008 fires at 3 |
 | `merge_conflict_cycles` | integer ≥ 0 | count of merge-conflict resolution attempts; HALT-008 fires independently at `MAKATO_MAX_MERGE_CONFLICT_CYCLES` (default 3) |
-| `ci_failure_cycles` | integer ≥ 0 | count of CI-failure fix attempts (#288); HALT-008 fires independently at `MAKATO_MAX_CI_FAILURE_CYCLES` (default 3) — kept separate from `outer_iteration` so transient CI noise does not consume the re-plan budget |
+| `ci_failure_cycles` | integer ≥ 0 | PO-agent mirror of `build-fix-ci` R1 `repair_cycles`; polling does not consume repairs. `MAKATO_MAX_CI_FAILURE_CYCLES=0` disables an arbitrary cap; a positive operator limit is enforced by the CI coordinator. |
 | `structural_halt_cycles` | integer ≥ 0 | **durable cross-run** count of PO-agent runs on this issue that terminated on a structural HALT (#347, epic #319) — HALT-003, HALT-STRUCTURAL, HALT-010, HALT-008/origin=outer_iteration. Distinct from `outer_iteration` (within-run); never reset on a HALT-007B handoff. Written only via `bump-structural-halt`. Optional for pre-#347 in-flight state (readers default 0) |
 | `halt_audit` | array | append-only; see *halt_audit shape* |
 | `human_review_cycles` | integer ≥ 0 | count of `needs-human-review` labellings |
-| `github_pr_number` | integer \| null | set after `build-create-pr` succeeds |
+| `github_pr_number` | integer \| null | Persist as soon as a PR exists, including when its subsequent CI gate returns non-success. |
 | `lessons_learned` | array | append-only; see *lessons_learned shape* |
 | `session_summary` | string \| null | ≤ 500-token handoff payload from context-summariser (GAP-004 / #30) |
 | `session_count` | integer ≥ 0 | handoff-cycle counter; HALT-007 fires at `MAKATO_MAX_HANDOFFS` (default 5) |

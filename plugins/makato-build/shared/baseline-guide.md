@@ -17,6 +17,12 @@ Establishing a test baseline before any code changes ensures this session's fail
 distinguishable from pre-existing ones. The contract: zero **new** failures introduced.
 Pre-existing failures are not this session's responsibility.
 
+**CI recovery exception:** when `CI_FAILURES` is supplied, load
+`$MAKATO_BUILD_ROOT/shared/ci-recovery.md`. The identified failures are repair
+obligations, even if compilation currently fails; do not prompt to accept them
+as pre-existing or subtract them from the completion gate. Compare failure
+identities as well as counts, and retain real environment/permission blockers.
+
 ## How to Establish the Baseline
 
 Run the full existing test suite. Record the count of passing and failing tests.

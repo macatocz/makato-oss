@@ -200,6 +200,15 @@ repos:
         entry: semgrep --config auto --error
         language: system
         pass_filenames: true
+        # Intentionally vulnerable input is checked by the expected-findings gate.
+        exclude: ^plugins/makato-build/skills/build-fix-security/test-fixtures/bandit-sample\.py$
+        stages: [pre-push, manual]
+      - id: security-negative-fixture
+        name: verify expected security fixture findings
+        entry: python3 scripts/check-security-fixtures.py
+        language: system
+        pass_filenames: false
+        files: ^(plugins/makato-build/skills/build-fix-security/test-fixtures/bandit-sample\.py|scripts/check-security-fixtures\.py|\.pre-commit-config\.yaml)$
         stages: [pre-push, manual]
 
   # -----------------------------------------------------------------------

@@ -34,6 +34,7 @@ skill_execution:
     makato-build:build-fix-types: {role: DEFAULT, effort: high}
     makato-build:build-push-to-git: {role: DEFAULT, effort: inherit}
     makato-build:build-create-pr: {role: DEFAULT, effort: inherit}
+    makato-build:build-fix-ci: {role: DEFAULT, effort: high}
     makato-build:build-coordinate-repos: {role: DEFAULT, effort: inherit}
     makato-build:build-address-pr-comments: {role: REVIEW, effort: high}
     makato-build:definition-of-done: {role: REVIEW, effort: high}

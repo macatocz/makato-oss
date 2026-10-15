@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Approved CI repair skill plan</title></head>
+<body>
+<h1>build-fix-ci: approved implementation plan</h1>
+<p>Approved by the user's instruction to implement the analyzed CI repair plan.</p>
+<h2>Goal alignment</h2>
+<p>makato-build transforms planned stories into tested, reviewed code. This skill closes the remote CI feedback loop after an existing PR is created or updated.</p>
+<h2>Inputs and result</h2>
+<p>Work-item key, PR number, repository, isolated worktree, plugin roots and spec context. Result: current-head green or an explicit non-success with unresolved checks and resumable progress.</p>
+<h2>Workflow</h2>
+<ol>
+<li>Open audit and recover the private PR-scoped checkpoint.</li>
+<li>Inspect all checks and required contexts for the exact PR head; retrieve exact run/job/attempt diagnostics.</li>
+<li>Route all actionable failures through sensor, TDD, goal-mode or metadata recovery.</li>
+<li>Independently review and verify source repairs, then push to the existing PR without recursion.</li>
+<li>Re-inspect new-head CI until green, blocked, cancelled, timed out or stalled.</li>
+</ol>
+<h2>Routing</h2>
+<p>This is a PR phase coordinator, not a mid-task coding reference. Both glob-bundle and task-archetype injection are intentionally skipped. Autonomous create-pr and the PO-agent explicitly dispatch the skill through the existing role-aware runner.</p>
+<h2>Validation</h2>
+<p>Behavioral GitHub API boundary tests, live read-only inspection, an isolated draft sandbox PR with failing then passing CI, skill frontmatter/self-containment, state and workflow checks.</p>
+</body>
+</html>

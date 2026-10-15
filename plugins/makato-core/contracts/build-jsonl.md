@@ -14,7 +14,7 @@ One JSON object per line, UTF-8, newline-terminated. Append-only — skills must
 | Field | Type | Description |
 |-------|------|-------------|
 | `ts` | string | ISO 8601 timestamp with milliseconds: `2026-05-22T10:30:00.123Z` |
-| `skill` | string | Skill or agent that emitted this entry: `build-implement-tdd`, `build-implement-goal`, `build-refine`, `build-simplify`, `build-review`, `build-verify`, `build-push-to-git`, `build-create-pr`, `build-address-pr-comments` |
+| `skill` | string | Emitting skill or agent, including `build-implement-tdd`, `build-implement-goal`, `build-refine`, `build-simplify`, `build-review`, `build-verify`, `build-push-to-git`, `build-create-pr`, `build-fix-ci`, `build-address-pr-comments` |
 | `story` | string | Work item key: `ISSUE-1234` |
 | `step` | string | Step identifier within the skill (see Step Values below) |
 | `status` | string | Enum: `start` \| `ok` \| `warn` \| `error` |
@@ -46,6 +46,8 @@ Common intermediate steps (examples — not exhaustive):
 | `build-refine` | `explore-codebase`, `load-knowledge-graph` |
 | `build-review` | `mechanical-fixes`, `analyze`, `blocking-finding`, `fix-blocking`, `zero-findings-recheck`, `mechanical-fixes-post`, `ac-verification` |
 | `build-verify` | `gate-build`, `gate-lint`, `gate-unit`, `gate-integration`, `gate-coverage` |
+| `build-fix-ci` | `ci-poll` (head SHA, status, counts), `ci-recovery` (repair/review/verify/push boundaries and sanitized evidence) |
+| `build-implement-tdd` / `build-implement-goal` (CI recovery) | `ci-recovery` with affected checks/tasks, never raw diagnostic logs |
 
 ## Example Entries
 

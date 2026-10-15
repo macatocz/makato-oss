@@ -381,11 +381,16 @@ distribution remains via Claude Code's plugin marketplace. The harness exists so
 skills (`build-simplify`'s no-test-runner handling, `inject_context.resolve_bundles`, the
 `dotx-schema-extractor` curation pipeline) regress on every change.
 
-Run from the repo root:
+Install the declared development dependencies and run from the repo root:
 
 ```bash
-python3 -m pytest
+uv sync
+uv run pytest
+pre-commit run pyright --hook-stage manual --all-files
 ```
+
+Pyright resolves dependencies from `.venv` and the launcher's shared-module import
+directory. Keep `.venv` synchronized before running repository-wide gates.
 
 The harness discovers tests in three locations declared in `pyproject.toml` →
 `[tool.pytest.ini_options].testpaths`:

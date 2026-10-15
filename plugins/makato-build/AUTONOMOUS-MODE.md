@@ -87,9 +87,9 @@ by a headless caller — track via the skill's own PR when the need arises.
 | `build-refine`              | Step 11 — plan-review (in-chat vs in-browser)                                                        | Asks how to review                                                   | Write `plan.md`, skip review entirely, proceed to hand-off.                                                                                                                                                                                                                                                                                                                |
 | `build-push-to-git`         | Step 4 — commit-grouping confirmation                                                                | Asks user to confirm grouping & messages                             | Use plan task `commitMessage` fields verbatim; no confirmation.                                                                                                                                                                                                                                                                                                            |
 | `build-push-to-git`         | Step 6 — push confirmation                                                                           | Asks "Ready to push N commits?"                                      | Push immediately. Pre-push hook still fires.                                                                                                                                                                                                                                                                                                                               |
-| `build-push-to-git`         | Step 8 — hand-off to create-pr                                                                       | Asks A/B                                                             | Auto-invoke `/build-create-pr <key>`; autonomous mode is signalled via `$AGENT_ID` (the env propagates implicitly across the dispatch — no explicit `--autonomous` flag forwarding, per § _Cross-skill propagation_).                                                                                                                                                      |
+| `build-push-to-git` | Step 8 — hand-off | Ask whether to create a PR | Initial push invokes create-pr; EXISTING_PR_NUMBER + CI_REPAIR_ACTIVE updates that PR only, without nesting creation or another CI loop. |
 | `build-create-pr`           | Step 1 — work-item-key prompt                                                                        | Asks for key (optional)                                              | Use arg if passed; otherwise read `issue_number`/`branch` from most-recent `build.jsonl` session in the spec folder. HALT `MISSING_INPUT` only if neither yields a value.                                                                                                                                                                                                  |
-| `build-create-pr`           | Step 4 — draft approval                                                                              | Asks "Does this PR description look correct?"                        | Open PR as drafted. PR body is rendered from spec artifacts and workflow-state (no human authoring).                                                                                                                                                                                                                                                                       |
+| `build-create-pr` | Draft approval and post-create gate | Approve draft, create PR and return | Create/reuse PR, then wait for build-fix-ci; preserve PR number and propagate non-green results. |
 | `build-address-pr-comments` | Step 5 — classification approval                                                                     | Asks user to confirm/adjust classification + handles STRUCTURAL flow | Auto-apply MUST-FIX (non-STRUCTURAL). SHOULD-FIX is **scope-guarded** (apply only if all touched files are inside the task diff; otherwise mark DEFERRED with a `[DEFERRED]` reply). Skip CONSIDER. OUT-OF-SCOPE: open a follow-up issue via `gh issue create` with the `makato-carry-over` label and reply with the new issue URL. STRUCTURAL MUST-FIX: HALT (see below). |
 | `build-address-pr-comments` | Step 5a — STRUCTURAL handling                                                                        | Asks user A/B/C and waits                                            | Post a single summary reply on the PR (template § _STRUCTURAL MUST-FIX_), apply `needs-human-review` to PR + linked issue, log per-comment + summary `autonomous_bypass`, return R1 `failure` with `data.halt_code: "HALT-003"`. The skill applies the label itself — see _Label-application exception_ below.                                                             |
 | `build-address-pr-comments` | Step 8 — push-fix confirmation                                                                       | Asks before push                                                     | Push immediately.                                                                                                                                                                                                                                                                                                                                                          |
@@ -99,6 +99,45 @@ by a headless caller — track via the skill's own PR when the need arises.
 | `build-simplify`            | Step 7a — unverified-code-changes prompt (no test runner discovered AND ≥1 code-file change applied) | Prompts y/n before hand-off                                          | Skip prompt entirely; emit R1 with `data.test_suite_present: false` + `data.degraded_confidence: true` so the PO-agent routes the run for elevated scrutiny. See § _No-test-runner handling in `build-simplify` is a degraded-confidence path, not a HALT_.                                                                                                                |
 | `build-review`              | Step 5 — CRITICAL/MAJOR repair loop                                                                  | Dispatch coder and re-review until both blocking counts are zero     | Identical to interactive mode; no approval bypass. See § _CRITICAL and MAJOR block both review modes_.                                                                                                                                                                                                                                                                     |
 | `build-implement-tdd`       | Step 7 — coverage-floor acknowledgement                                                              | May proceed on a structured, human-owned "acknowledged risk" entry   | No acknowledgement is possible — no human owns the risk. Log `threshold_met:false`, emit `log-bypass.sh … coverage-floor defer-to-gate5`, and defer authoritatively to `build-verify` Gate 5 (HALT-002). Never wave the miss through. See § _Coverage-floor acknowledgement is human-only; autonomous defers to Gate 5_.                                                   |
+
+### Current-head CI repair ownership
+
+`build-fix-ci` is the single shared CI coordinator. Autonomous create-pr waits
+for it; PO-agent delegates to it after later repair pushes and on `ci-poll`
+resume. Manual PR creation stays unchanged. Standalone autonomous contexts carry
+`AUTONOMOUS_MODE:true` and a stable `task_id` when no inherited `AGENT_ID` exists.
+
+Long-running role-runner calls use managed background jobs without a short shell
+deadline. Prefer host-delivered completion events without polling; otherwise
+observe only the owned job/result at intervals of at most 60 seconds. Never
+globally wait for a coordinator that is itself waiting on that child. Read
+and validate terminal R1, persist its outcome and clear the running-child marker
+before advancing. On resume, reconcile saved results before dispatching again.
+On a tool interruption, settle the owned child before resuming the checkpoint;
+never launch a concurrent replacement or treat partial output as a skill outcome.
+A headless permission/configuration blocker returns terminal R1 immediately: an
+immutable prompt cannot receive later approvals. The caller may resume with an
+amended context after the previous process exits. This applies throughout the
+autonomous push → create-pr → CI-repair dispatch chain.
+
+The executable `shared/ci_checks.py` inspects all current-head check/status
+contexts and required-check rules, retrieves exact failed run/job/attempt logs,
+and fails closed on unknown requirements or inaccessible diagnostics. Optional
+skips may pass; required skips do not. Empty/missing checks are not green.
+TDD and goal-mode receive structured `CI_FAILURES`, not truncated log tails.
+Targeted CI failures must be repaired rather than accepted into a broken baseline.
+Source repairs pass blocking review and verification before the existing-PR push.
+
+The default `MAKATO_MAX_CI_FAILURE_CYCLES=0` removes the arbitrary three-round
+ceiling. Positive values opt into a cap. No-progress, external blockers, operator
+cancellation and pending timeout remain non-success exits. Poll interval defaults
+to 60 seconds; `MAKATO_CI_WAIT_SECS` defaults to 600. Full diagnostics and the
+atomic PR-scoped checkpoint live under the worktree's git metadata; public logs
+contain only sanitized outcomes. PO-agent alone writes workflow-state and mirrors
+returned repair counts. Old `flake_rerun_pending` is removed; when upgrading an
+in-flight state file, remove that obsolete key before schema validation/resume.
+No PR merge, protection-rule change, workflow disabling or failure suppression is
+authorized by this gate.
 
 ### `build-refine` is the engine of the po-agent `materialize-refine` verdict (#527)
 

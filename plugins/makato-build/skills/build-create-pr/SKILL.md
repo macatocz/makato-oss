@@ -5,8 +5,8 @@ description: >-
   the PR description from spec artifacts — acceptance criteria map
   to How to Test, design decisions surface in the description, Jira
   story is linked. Presents draft for user approval before opening.
-  Interactive. Use after push-to-git, before address-pr-comments.
-version: "1.11.0"
+  Autonomous runs reuse an open PR and wait for build-fix-ci before handoff.
+version: "1.12.0"
 argument-hint: "[work-item-key] [--autonomous]"
 allowed-tools:
   - Bash
@@ -37,6 +37,15 @@ When dispatched by the PO-agent (`--autonomous` mode):
 - `MAKATO_PLAN_ROOT` — optional absolute makato-plan root for validating
   `created-issues.json`; if absent, artifact validation is advisory and must
   not probe the consumer repository.
+- `REPO` — GitHub `OWNER/REPO`; resolve from the worktree's origin with
+  `gh repo view "$(git remote get-url origin)" --json nameWithOwner --jq .nameWithOwner` when absent.
+- `SPEC_FOLDER` / `JSONL_PATH` — resolved main-checkout spec folder and
+  build log; forward both to downstream skills.
+- `EXISTING_PR_NUMBER` — optional known open PR. It must belong to the current
+  worktree branch; never replace a missing/closed/mismatched PR with a new one.
+- `CI_REPAIR_ACTIVE` — repair-ownership guard. When true, do not run this skill:
+  return R1 failure with `PR_CREATE_FAILED` and direct the caller to the
+  existing-PR push-only path in `build-push-to-git`. Never nest a CI repair gate.
 - `--autonomous` — activation flag.
 
 Interactive mode: `WORKTREE_PATH` is optional; fall back to `git rev-parse --show-toplevel` of the current `$PWD`.
@@ -64,6 +73,24 @@ Every spec-artefact path resolved in Step 1 below (`stories.json`, `prd.md`,
 `.github/PULL_REQUEST_TEMPLATE.md` lives in the tracked `.github/` directory
 and resolves correctly under either root. See `AUTONOMOUS-MODE.md` § *Two
 roots, one contract*.
+
+### Downstream skill dispatch
+
+In OMP mode (`MAKATO_HARNESS_MODE` unset or not `claude`), dispatch the
+selected downstream skill through
+`python3 "${MAKATO_SKILL_RUNNER:-$MAKATO_BUILD_ROOT/scripts/run-skill.py}"`
+with `--repo-root "$REPO_ROOT" --cwd "$WORKTREE_PATH"`, a complete
+`--context-file`, and the inherited harness/role configuration. Do not inline
+Skill/Task workflow execution or replace the role-selected model. Claude mode
+keeps its native skill invocation. Wait for the final R1; a nonzero launcher
+exit, missing/malformed envelope, `failure`, or `partial` is not success.
+Forward the work-item-key, `AGENT_ID` activation context, both workspace roots,
+`MAKATO_BUILD_ROOT`, optional sibling roots, `REPO`, `SPEC_FOLDER`, and
+`JSONL_PATH` explicitly. Do not forward the `--autonomous` CLI flag on
+cross-skill handoffs. If this invocation was activated only by that flag and
+`AGENT_ID` is absent, include `AUTONOMOUS_MODE:true` and a `task_id` in
+the child context (use the work-item key when no dispatch id exists), so
+standalone autonomous execution remains headless.
 
 ## Workflow
 
@@ -194,6 +221,32 @@ Run:
 "$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-create-pr","story":"<key>","step":"session","status":"start","data":{"branch":"<name>","commits":<N>}}'
 ```
 
+### Step 2a — Reuse the current branch's open PR (autonomous only)
+
+Before drafting or opening anything, resolve `GH_HOST` as in Step 5 and
+`REPO` from the supplied context or worktree origin. Set
+`JSONL_PATH="$SPEC_FOLDER/build.jsonl"` when it was not supplied. Query:
+
+```bash
+BRANCH="$(git -C "$WORKTREE_PATH" branch --show-current)"
+gh pr list --repo "$REPO" --state open --head "$BRANCH" \
+  --json number,url,headRefName,headRefOid,headRepository
+```
+
+Require a nonempty branch and successful, valid API output. Filter to the exact
+head branch and head repository matching the worktree's origin, not a fork's
+same-named branch. If `EXISTING_PR_NUMBER` is supplied, validate that exact PR
+with `gh pr view` and require it to be open and match this branch/repository.
+A failed lookup, mismatch, or multiple matching PRs closes the session with
+`PR_CREATE_FAILED` (authentication errors use `GH_AUTH_FAILED`); do not
+interpret a lookup error as "no PR".
+
+Exactly one matching open PR → capture `PR_NUMBER`, URL, and full head SHA,
+log `step:"pr-reused",status:"ok"` with those fields, and skip Steps 3–6.
+Continue at Step 7, including the shared CI gate. Do not overwrite the existing
+PR title/body or create a second PR. Zero matches and no supplied existing PR
+→ continue to Step 3. Interactive mode keeps its current approval/create flow.
+
 ---
 
 ### Step 3 — Draft the PR description
@@ -275,6 +328,11 @@ git remote get-url origin
 ```
 Extract the hostname from the URL (e.g. `github.tools.sap` from `https://github.tools.sap/org/repo.git`). If the hostname differs from `github.com`, prefix all subsequent `gh` commands with `GH_HOST=<hostname>`. Emit an informational note: "Using `GH_HOST=<hostname>` — remote is not github.com."
 
+Resolve `REPO` for interactive creation too when absent, using
+`gh repo view "$(git remote get-url origin)" --json nameWithOwner --jq .nameWithOwner`
+after host detection. Lookup failure follows Step 5c's failure path; never
+create with an empty or guessed repository identity.
+
 #### Step 5a — Mandatory pre-call audit event
 
 **Before** invoking `gh pr create`, append a `pr_created status:"start"` line so a subsequent silent process death is attributable to this step:
@@ -286,6 +344,11 @@ Extract the hostname from the URL (e.g. `github.tools.sap` from `https://github.
 This event is required in **every** mode (interactive AND autonomous). Skipping it violates the SKILL.md audit contract — see § *Audit invariant* below.
 
 #### Step 5b — Invoke `gh pr create`
+
+In autonomous mode, repeat Step 2a's exact-branch lookup immediately before
+creation. A newly discovered matching PR is reused and proceeds to Step 7;
+lookup failure still blocks. Only a successful zero-match lookup permits
+`gh pr create`.
 
 Run:
 ```
@@ -311,7 +374,11 @@ GH_RC=$?
 "$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-create-pr","story":"<key>","step":"pr_created","status":"ok","data":{"pr_url":"<url>","pr_number":<N>}}'
 ```
 
-**Board Status — In Review (best-effort):** after a successful PR creation, update the board card Status to In Review. Read `in_review` option ID from `.claude/config.json` `github_project` block. If the block is absent or `in_review` is missing, skip silently. Otherwise:
+**Board Status — In Review (best-effort):** interactive mode performs this
+update after successful creation. Autonomous mode defers this entire board
+update until Step 7 confirms green CI (including reused PRs); a blocked or
+partial CI result must not advance the card. Read `in_review` from
+`.claude/config.json` `github_project`; skip silently if absent. Otherwise:
 
 ```bash
 GH_HOST="$HOST" gh project item-edit \
@@ -328,7 +395,9 @@ On failure: log `build-create-pr: WARN — could not set In Review on board; con
 "$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-create-pr","story":"<key>","step":"board-in-review","status":"<ok|warn>","data":{"issue":<ISSUE_NUMBER>,"reason":"<omit-on-ok|error-description-on-warn>"}}'
 ```
 
-Proceed to Step 6.
+Capture the PR number and full `headRefOid` with
+`gh pr view <URL> --repo "$REPO" --json number,url,headRefOid`; preserve these
+as `PR_NUMBER`, `PR_URL`, and `HEAD_SHA`. Proceed to Step 6.
 
 **On failure (`GH_RC != 0`):** the skill MUST NOT exit silently. Classify and log:
 
@@ -379,15 +448,56 @@ For each entry in `issues[]`, add `Closes #<issue_number>` to the PR body's Link
 
 ---
 
-### Step 7 — Log session end and hand off
+### Step 7 — Await the shared CI gate, then close the session
 
-Run:
+**Autonomous mode, whether standalone or called by the PO-agent:** dispatch
+`makato-build:build-fix-ci` for the created/reused PR and wait. Pass
+`PR_NUMBER`, `REPO` (`OWNER/REPO`), `WORKTREE_PATH`, `REPO_ROOT`,
+`MAKATO_BUILD_ROOT`, optional sibling roots, `SPEC_FOLDER`, `JSONL_PATH`,
+and the work-item-key through the downstream dispatch boundary above. The
+shared skill owns inspection, repairs, pushes, and waiting; do not poll checks,
+re-run jobs, dispatch a second repair loop, or return "ready for review" here.
+
+Propagate its R1 status, errors, and `data.github_pr_number`, `head_sha`,
+`ci_status`, `repair_cycles`, `unresolved_checks`, and `halt_code` into
+this skill's R1 alongside the PR metadata. Preserve any handoff/resume data
+on an actual context handoff too. Success requires a valid R1
+`status:"success"`, matching PR number, `ci_status:"green"`, a nonnegative
+integer `repair_cycles`, `unresolved_checks:[]`, `halt_code:null`, and
+`head_sha` matching both the current PR `headRefOid` and worktree
+`git rev-parse HEAD`. If HEAD changed after the result, dispatch the same
+shared gate for the new HEAD before handing off. Never trust an older SHA's
+green result. A failed/malformed dispatch, non-green result, `partial`, or
+`failure` closes this session with `status:"error"` and returns non-success;
+preserve the known PR number/URL and all returned CI diagnostics on that path.
+A missing/malformed result uses `halt_code:"CI_BLOCKED"`, never green.
+Do not create another PR on re-entry. After green, perform the deferred
+best-effort In Review board update from Step 5c.
+
+**Interactive mode:** do not invoke the CI gate or change the existing
+review handoff.
+
+Emit exactly one terminal session event after this decision. On success:
 
 ```bash
-"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-create-pr","story":"<key>","step":"session","status":"ok","data":{"pr_url":"<url>","issue_linked":true|false,"issue_type":"jira"|"github"|"none","closes_injected":<N>,"artifact_status":"valid"|"missing"|"malformed"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-create-pr","story":"<key>","step":"session","status":"ok","data":{"pr_url":"<url>","github_pr_number":<N>,"head_sha":"<full-sha>","ci_status":<CI_STATUS_JSON>,"repair_cycles":<N-or-null>,"unresolved_checks":[],"halt_code":null,"issue_linked":true|false,"issue_type":"jira"|"github"|"none","closes_injected":<N>,"artifact_status":"valid"|"missing"|"malformed"}}'
 ```
 
-Tell the user: *"PR open: `<URL>`. Next: wait for review, then use `/address-pr-comments` to handle feedback."*
+Use actual JSON `"green"` for `CI_STATUS_JSON` on autonomous success;
+interactive success uses JSON `null` for both CI status and repair cycles.
+
+For a reused PR, retain existing link metadata when known; do not claim links
+were newly injected. On a CI-blocked/failed result, log the same known PR/CI
+fields in the terminal `status:"error"` event with the returned halt code.
+Project child results into audit events explicitly; never serialize the child's
+entire data object. Public audit may contain PR number/URL, SHA, CI status,
+repair count, halt code and sanitized unresolved check names/run/job/attempt IDs.
+Checkpoint locations, absolute private paths, log_path, raw log summaries and
+unsanitized child errors stay private. Retaining diagnostics in private R1
+handoff context is not permission to publish them in build.jsonl or comments.
+Autonomous success: report the PR URL and confirmed green SHA. Interactive
+success: *"PR open: `<URL>`. Next: wait for review, then use
+`/address-pr-comments` to handle feedback."*
 
 ---
 
@@ -434,6 +544,9 @@ In autonomous mode:
 - **Log every bypass** to `build.jsonl` via
   `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh"` with the `autonomous_bypass`
   event schema documented in `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md`.
+- **Await `build-fix-ci`** for both created and reused PRs; propagate its
+  SHA-bound CI result, including failures, instead of declaring PR creation
+  alone a successful autonomous handoff.
 - **Emit an R1 envelope** as the final `json`-fenced block of the skill's output.
 
 ### Return Format (R1, when called as a sub-skill)
@@ -446,7 +559,12 @@ Top-level R1 envelope fields follow `plugins/makato-build/agents/RETURN-CONTRACT
 {
   "data": {
     "pr_url": "<url>",
-    "pr_number": <N>,
+    "github_pr_number": <N>,
+    "head_sha": "<full-current-head-sha>",
+    "ci_status": "green" | null,
+    "repair_cycles": <N>,
+    "unresolved_checks": [],
+    "halt_code": null,
     "issue_linked": <true|false>,
     "issue_type": "jira" | "github" | "none",
     "closes_injected": <N>,
@@ -456,9 +574,15 @@ Top-level R1 envelope fields follow `plugins/makato-build/agents/RETURN-CONTRACT
 }
 ```
 
-`agent` is `"build-create-pr"`. `summary` is `"Opened PR <url>"` on success.
+`agent` is `"build-create-pr"`. Autonomous success means the current PR
+HEAD is green, not merely that a PR exists. Interactive mode uses
+`ci_status:null` and `repair_cycles:0` because no CI gate ran.
 
-**On failure (`gh pr create` non-zero exit — Step 5c error branch):**
+**On CI-gate non-success:** keep the known `github_pr_number`, `pr_url`, and
+all returned CI fields in `data`; propagate the shared skill's errors and
+halt code. Missing/malformed R1 is a failure, never a fallback success.
+
+**On failure (lookup or `gh pr create` non-zero exit — Step 5c error branch):**
 
 ```json
 {
@@ -479,12 +603,16 @@ The PO-agent reads `data.halt_code` and routes per `plugins/makato-build/halt-co
 
 ### Audit invariant
 
-`build-create-pr` MUST emit **exactly one** terminal `step:"session"` line per invocation — either `status:"ok"` (Step 7 happy path) or `status:"error"` (Step 5c failure branch). Any other exit — silent process death, uncaught exception, model-turn drift, context ceiling mid-skill — is a contract violation and appears in `build.jsonl` as an unclosed session (last event is not `step:"session"` with terminal status).
-
-Fixed by v1.7.0 (#169): earlier versions had no mandatory error-branch logging, so an autonomous session that failed inside `gh pr create` left the audit trail ending on `pr-draft-approval bypass` and the PO-agent had no `halt_code` to route on. See `"$MAKATO_BUILD_ROOT/shared/audit-contract-smoke-tests.sh"` — the smoke test scans this file for the mandatory audit events (`pr_created status:"start"`, per-branch `status:"ok"` and `status:"error"`, terminal `session` closes) and CI fails when any regress out.
+`build-create-pr` MUST emit **exactly one** terminal `step:"session"` line
+per invocation: `status:"ok"` after a successful Step 7, or
+`status:"error"` on input/lookup/create/CI-gate non-success. An existing PR
+must still be included in the terminal event and R1 when its CI gate fails.
+Never close with success before a downstream skill returns. A silent exit or
+an unclosed session remains a contract violation.
 
 ### HALT Codes
 
-The HALT codes emitted by this skill (`MISSING_INPUT`, `UNPUSHED_COMMITS`, `GH_AUTH_FAILED`, `PR_CREATE_FAILED`) are registered with their PO-agent recovery routes in `plugins/makato-build/halt-codes.md`.
-
-Skill-specific behavioural note: `MISSING_INPUT` here fires only when neither the positional argument NOR a recoverable `build.jsonl` session entry yields a work-item-key — see Step 1a for the two-step resolution order.
+Local failure codes (`MISSING_INPUT`, `UNPUSHED_COMMITS`, `GH_AUTH_FAILED`,
+`PR_CREATE_FAILED`) and propagated shared CI halt codes use the recovery
+routes in `plugins/makato-build/halt-codes.md`. Missing required workspace
+inputs also use `MISSING_INPUT`; Step 1a defines work-item-key fallback.

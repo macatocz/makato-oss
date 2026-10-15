@@ -7,7 +7,7 @@ description: >-
   `pyright:*` or `mypy:*` finding routed here in `shared/finding-routes.json`.
   Never invoked directly by the user. Trigger keywords: pyright, mypy, type error,
   reportOptionalMemberAccess, union-attr, no-untyped-def, finding-routes.json.
-version: "1.2.0"
+version: "1.3.0"
 argument-hint: "<finding-json>"
 tools: Read, Edit, Bash
 metadata:
@@ -47,6 +47,13 @@ The caller passes a single finding object (canonical shape from
 The caller also supplies `MAKATO_BUILD_ROOT`, the absolute installed
 makato-build plugin root. Use it for suite-owned helpers and references; do
 not resolve helpers from the consumer repository's current directory.
+
+Optional `CI_CONTEXT` activates the caller's strict CI-recovery policy before
+classification: load `$MAKATO_BUILD_ROOT/shared/ci-recovery.md`. Branch 6 ignores,
+checker suppression/config weakening and carry-over are forbidden in this mode.
+Use a genuine safe repair from branches 1–5 and re-run the originating check;
+if none applies, return `status:"error", fix_applied:false` with the concrete
+blocker. Ordinary sensor mode retains the classification policy below.
 
 ```json
 {
