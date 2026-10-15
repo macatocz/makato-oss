@@ -10,6 +10,14 @@ here on merge to main; release-please will date and version them at the next rel
 
 ## [Unreleased]
 
+### Fixed — Unicode-safe build audit records
+
+- Keep Unicode line separators escaped during JSON normalization, single/batch
+  trace metadata injection, and cached-model injection so line-based consumers
+  retain complete records without changing decoded JSON values or event order.
+- Reject malformed single-event audit input without changing existing records;
+  regression coverage reproduces the broken-shell-quoting failure path.
+
 ### Fixed — blocking review repair in both execution modes
 
 - `build-review` now sends every CRITICAL and MAJOR finding to the coder in manual

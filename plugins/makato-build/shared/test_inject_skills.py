@@ -281,12 +281,8 @@ class AggregationIntegrationTests(unittest.TestCase):
             (plugin / ".claude-plugin").mkdir(parents=True)
             (plugin / "config").mkdir()
             (plugin / "skills" / "consumer-skill").mkdir(parents=True)
-            (plugin / "skills" / "consumer-skill" / "SKILL.md").write_text(
-                "---\nname: consumer-skill\n---\n", encoding="utf-8"
-            )
-            (plugin / ".claude-plugin" / "plugin.json").write_text(
-                '{"name": "makato-build"}', encoding="utf-8"
-            )
+            (plugin / "skills" / "consumer-skill" / "SKILL.md").write_text("---\nname: consumer-skill\n---\n", encoding="utf-8")
+            (plugin / ".claude-plugin" / "plugin.json").write_text('{"name": "makato-build"}', encoding="utf-8")
             (plugin / "config" / "skill-bundles.yml").write_text(
                 """
 version: "1.0"
@@ -330,12 +326,8 @@ bundles:
             (build / ".claude-plugin").mkdir(parents=True)
             (build / "config").mkdir()
             (build / "skills" / "fallback-skill").mkdir(parents=True)
-            (build / "skills" / "fallback-skill" / "SKILL.md").write_text(
-                "---\nname: fallback-skill\n---\n", encoding="utf-8"
-            )
-            (build / ".claude-plugin" / "plugin.json").write_text(
-                '{"name": "makato-build"}', encoding="utf-8"
-            )
+            (build / "skills" / "fallback-skill" / "SKILL.md").write_text("---\nname: fallback-skill\n---\n", encoding="utf-8")
+            (build / ".claude-plugin" / "plugin.json").write_text('{"name": "makato-build"}', encoding="utf-8")
             (build / "config" / "skill-bundles.yml").write_text(
                 """
 version: "1.0"
@@ -360,7 +352,6 @@ bundles:
 
         self.assertEqual(skills, ["fallback-skill"])
         self.assertEqual(warnings, [])
-
 
     def test_end_to_end_synthetic_graph_import_matches(self) -> None:
         # Point at an in-repo path that ends in *graph*.py and contains a

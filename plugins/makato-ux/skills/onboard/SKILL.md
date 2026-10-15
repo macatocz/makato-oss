@@ -194,7 +194,7 @@ Every empty state needs:
 ### What Will Be Here
 "Your recent projects will appear here"
 
-### Why It Matters  
+### Why It Matters
 "Projects help you organize your work and collaborate with your team"
 
 ### How to Get Started

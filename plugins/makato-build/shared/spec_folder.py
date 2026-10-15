@@ -64,6 +64,7 @@ def _manifest_matches(folder: Path, issue_number: str) -> bool:
         return False
     return str(data.get("issue_number", "")) == issue_number
 
+
 def _created_issues_matches(folder: Path, issue_number: str) -> bool:
     artifact = folder / "created-issues.json"
     if not artifact.is_file():
@@ -111,8 +112,6 @@ def _issue_matches(folder: Path, issue_number: str) -> bool:
         or _stories_matches(folder, issue_number)
         or (folder / f"workflow-state-{issue_number}.json").is_file()
     )
-
-
 
 
 def resolve_spec_folder(repo_root: Path, key: str, issue_number: str | None = None) -> Path:

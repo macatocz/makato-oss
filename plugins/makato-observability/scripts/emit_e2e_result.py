@@ -31,6 +31,7 @@ import json
 import os
 import re
 import sys
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -122,12 +123,54 @@ def _resolve_credentials() -> tuple[str | None, str | None, str]:
 
 def _check_langfuse_reachable(host: str, timeout: float = 3.0) -> bool:
     """Return True if the Langfuse health endpoint responds with a status field."""
-    health_url = host.rstrip("/") + "/api/public/health"
     try:
-        with urllib.request.urlopen(health_url, timeout=timeout) as resp:  # noqa: S310
-            return '"status"' in resp.read().decode("utf-8", errors="replace")
+        health_url = host.rstrip("/") + "/api/public/health"
+        origin = _http_origin(health_url)
+        if origin is None:
+            return False
+
+        request = urllib.request.Request(health_url, method="GET")
+        opener = urllib.request.build_opener(_SameOriginRedirectHandler())
+        with opener.open(request, timeout=timeout) as resp:
+            return 200 <= resp.status < 300 and '"status"' in resp.read().decode("utf-8", errors="replace")
     except Exception:
         return False
+
+
+def _http_origin(url: str) -> tuple[str, str, int] | None:
+    """Return a normalized HTTP(S) origin, or None for an unsafe URL."""
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        scheme = parsed.scheme.lower()
+        hostname = parsed.hostname
+        port = parsed.port
+    except ValueError:
+        return None
+
+    if scheme not in {"http", "https"} or hostname is None:
+        return None
+    if parsed.username is not None or parsed.password is not None:
+        return None
+    default_port = 443 if scheme == "https" else 80
+    return scheme, hostname.lower(), port if port is not None else default_port
+
+
+class _SameOriginRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Allow health-check redirects only when they stay on the same origin."""
+
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> urllib.request.Request | None:
+        origin = _http_origin(req.full_url)
+        if origin is None or _http_origin(newurl) != origin:
+            return None
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 # ---------------------------------------------------------------------------
@@ -195,7 +238,7 @@ def _emit_trace(
 ) -> None:
     """Emit a Langfuse trace for the runtime-qa-findings entry."""
     try:
-        from langfuse import Langfuse  # type: ignore[import-untyped]
+        from langfuse import Langfuse, propagate_attributes
     except ImportError:
         print("[emit_e2e_result] ERROR: langfuse package not installed; run `pip install langfuse`", file=sys.stderr)
         sys.exit(1)
@@ -226,14 +269,26 @@ def _emit_trace(
         print(json.dumps(trace_payload, indent=2))
         return
 
-    client = Langfuse(  # type: ignore[reportAttributeAccessIssue]
+    client = Langfuse(
         public_key=public_key,
         secret_key=secret_key,
         host=host,
     )
-    trace = client.trace(**trace_payload)  # type: ignore[reportAttributeAccessIssue]
-    client.flush()
-    print(f"[emit_e2e_result] Trace emitted: id={trace.id} story={story} outcome={outcome}", file=sys.stderr)
+    try:
+        with (
+            propagate_attributes(trace_name=trace_payload["name"], tags=trace_payload["tags"]),
+            client.start_as_current_observation(
+                name=trace_payload["name"],
+                input=trace_payload["input"],
+                output=trace_payload["output"],
+                metadata=trace_payload["metadata"],
+            ) as observation,
+        ):
+            trace_id = observation.trace_id
+        client.flush()
+    finally:
+        client.shutdown()
+    print(f"[emit_e2e_result] Trace emitted: id={trace_id} story={story} outcome={outcome}", file=sys.stderr)
     # Emit JSONL audit entry to stderr for integration with build.jsonl consumers
     audit = {
         "ts": datetime.now(tz=timezone.utc).isoformat(),
@@ -241,7 +296,7 @@ def _emit_trace(
         "story": story,
         "step": "trace-emitted",
         "status": "ok",
-        "data": {"trace_id": trace.id, "outcome": outcome, "critical_count": critical_count},
+        "data": {"trace_id": trace_id, "outcome": outcome, "critical_count": critical_count},
     }
     print(json.dumps(audit), file=sys.stderr)
 
