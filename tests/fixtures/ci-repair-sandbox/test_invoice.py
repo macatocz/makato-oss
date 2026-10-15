@@ -1,6 +1,11 @@
+import importlib
+import sys
 import unittest
+from pathlib import Path
 
-from invoice import total_with_tax
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+total_with_tax = importlib.import_module("invoice").total_with_tax
 
 
 class InvoiceTests(unittest.TestCase):
