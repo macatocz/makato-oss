@@ -19,7 +19,12 @@ SCRIPT = WORKTREE / "plugins" / "makato-orchestrate" / "scripts" / "lesson_prune
 
 
 def _run(memory_dir: Path, **extra_env) -> subprocess.CompletedProcess:
-    env = {**os.environ, "MAKATO_PRUNE_REPO_OVERRIDE": "macatocz/makato-test"}
+    # Keep the July fixture records recent regardless of the CI runner clock.
+    env = {
+        **os.environ,
+        "MAKATO_PRUNE_REPO_OVERRIDE": "macatocz/makato-test",
+        "MAKATO_PRUNE_TODAY_OVERRIDE": "2026-07-20",
+    }
     env.update(extra_env)
     return subprocess.run(
         ["python3", str(SCRIPT), str(memory_dir)],
