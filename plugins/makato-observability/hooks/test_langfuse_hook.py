@@ -16,6 +16,10 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +38,7 @@ from langfuse_hook import (  # noqa: E402
     TraceContext,
     Turn,
     _build_trace_tags,
+    _check_langfuse_reachable,
     _derive_plan_success,
     _read_build_signals,
     emit_turn,
@@ -297,6 +302,7 @@ class TestTraceContextBuildSignals:
         """Only the fields that were set in BuildSignals are non-None."""
         signals = BuildSignals(verify_gate_passed=False)
         ctx = _minimal_ctx(build_signals=signals)
+        assert ctx.build_signals is not None
         assert ctx.build_signals.verify_gate_passed is False
         assert ctx.build_signals.ci_green is None
         assert ctx.build_signals.review_critical_count is None
@@ -499,3 +505,129 @@ def test_build_trace_tags_model_role_uses_camel_case_modelRole(
     # Checks for camelCase format as specified by task 3 (goal-mode, issue #12).
     assert "modelRole:coder" in tags
     assert "endpoint:open" in tags
+
+
+# ---------------------------------------------------------------------------
+# Health endpoint security boundaries
+# ---------------------------------------------------------------------------
+
+
+@contextmanager
+def _health_server(
+    *,
+    status: int = 200,
+    body: bytes = b'{"status":"ok"}',
+    location: str | None = None,
+    paths: list[str] | None = None,
+) -> Iterator[str]:
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            if paths is not None:
+                paths.append(self.path)
+            if self.path == "/api/public/health" and location is not None:
+                self.send_response(302)
+                self.send_header("Location", location)
+                self.end_headers()
+                return
+            self.send_response(status)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format: str, *_args: Any) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
+def test_check_langfuse_reachable_http_success() -> None:
+    with _health_server() as host:
+        assert _check_langfuse_reachable(host, timeout=1) is True
+
+
+def test_check_langfuse_reachable_http_failure_and_missing_status() -> None:
+    with _health_server(status=503) as host:
+        assert _check_langfuse_reachable(host, timeout=1) is False
+    with _health_server(body=b'{"error":"unhealthy"}') as host:
+        assert _check_langfuse_reachable(host, timeout=1) is False
+
+
+def test_check_langfuse_reachable_rejects_file_and_ftp_schemes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    health_file = tmp_path / "api" / "public" / "health"
+    health_file.parent.mkdir(parents=True)
+    health_file.write_text('{"status":"ok"}', encoding="utf-8")
+    attempts: list[object] = []
+
+    def record_opener(*args: object) -> object:
+        attempts.append(args)
+        return object()
+
+    monkeypatch.setattr("urllib.request.build_opener", record_opener)
+
+    assert _check_langfuse_reachable(tmp_path.as_uri()) is False
+    assert _check_langfuse_reachable("ftp://127.0.0.1:0") is False
+    assert attempts == []
+
+
+def test_check_langfuse_reachable_accepts_https(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Response:
+        status = 200
+
+        def __enter__(self) -> Response:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b'{"status":"ok"}'
+
+    class Opener:
+        def open(self, _request: object, timeout: float) -> Response:
+            assert timeout == 0.25
+            return Response()
+
+    monkeypatch.setattr("urllib.request.build_opener", lambda _handler: Opener())
+    assert _check_langfuse_reachable("https://langfuse.example", timeout=0.25) is True
+
+
+def test_check_langfuse_reachable_passes_timeout_and_fails_open(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class TimedOutOpener:
+        def open(self, _request: object, timeout: float) -> None:
+            assert timeout == 0.01
+            raise TimeoutError("timeout")
+
+    monkeypatch.setattr("urllib.request.build_opener", lambda _handler: TimedOutOpener())
+    assert _check_langfuse_reachable("http://langfuse.example", timeout=0.01) is False
+
+
+def test_check_langfuse_reachable_allows_same_origin_redirect() -> None:
+    with _health_server(location="/health-redirect-target") as host:
+        assert _check_langfuse_reachable(host, timeout=1) is True
+
+
+def test_check_langfuse_reachable_rejects_cross_origin_redirect() -> None:
+    target_paths: list[str] = []
+    with _health_server(paths=target_paths) as target:
+        with _health_server(location=f"{target}/api/public/health") as source:
+            assert _check_langfuse_reachable(source, timeout=1) is False
+    assert target_paths == []
+
+
+def test_check_langfuse_reachable_rejects_file_redirect(tmp_path: Path) -> None:
+    health_file = tmp_path / "redirect-health.json"
+    health_file.write_text('{"status":"ok"}', encoding="utf-8")
+    with _health_server(location=health_file.as_uri()) as host:
+        assert _check_langfuse_reachable(host, timeout=1) is False

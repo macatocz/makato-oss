@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Health probes accept only HTTP/HTTPS endpoints and same-origin redirects,
+  preserving fail-open behavior and timeouts without allowing local-file or
+  cross-origin redirect access. Added protocol-boundary regression coverage.
+- E2E result emission uses the supported observation API and propagates tags,
+  replacing the removed `client.trace` call. A real SDK-to-local-OTLP regression
+  verifies exported outcome data and audit trace identity.
+
 ### Added
 
 - `langfuse-enrich` skill — layers Langfuse enrichment onto already-OTel-instrumented LangGraph agents (sessions, users, environments, tags, metadata, log levels, cross-service distributed tracing, user-feedback scores, `mask_otel_spans` PII masking, token/cost tracking). 7 references under `skills/langfuse-enrich/references/`: `session-and-user-propagation.md`, `environment-and-tags.md`, `metadata-and-log-levels.md`, `distributed-tracing.md`, `user-feedback.md`, `masking.md`, `token-and-cost.md`. OTel-native `span.set_attribute` path primary; Langfuse-SDK convenience APIs documented as an optional alternative.

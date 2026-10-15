@@ -1,4 +1,7 @@
 {
+  "venvPath": ".",
+  "venv": ".venv",
+  "extraPaths": ["plugins/makato-build/shared"],
   "exclude": [
     "plugins/*/skills/*/test-fixtures",
     "plugins/*/skills/*/templates",

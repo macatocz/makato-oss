@@ -13,6 +13,7 @@ import io
 import json
 import os
 import sys
+from pathlib import Path
 
 import pytest  # type: ignore[import]
 
@@ -49,7 +50,7 @@ def _write(path: str, content: str) -> None:
 def _run_process(
     verdicts: list[dict] | str,
     body: str,
-    tmp_path: pytest.TempPathFactory,
+    tmp_path: Path,
 ) -> tuple[str, dict]:
     """Run process_files with string/list inputs; return (body_out, summary_dict)."""
     v_path = str(tmp_path / "v.json")
@@ -168,7 +169,7 @@ class TestMarkCheckboxes:
 
 
 class TestProcessFiles:
-    def test_happy_path_granular(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_happy_path_granular(self, tmp_path: Path) -> None:
         body, summary = _run_process(
             [{"ac_id": "AC-1", "ac_text": "Alpha behaviour works", "verified": True}],
             _BODY3,
@@ -177,7 +178,7 @@ class TestProcessFiles:
         assert "- [x] Alpha behaviour works" in body
         assert summary["mode"] == "granular"
 
-    def test_malformed_json_raises_system_exit_1(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_malformed_json_raises_system_exit_1(self, tmp_path: Path) -> None:
         v_path = str(tmp_path / "bad.json")
         b_path = str(tmp_path / "b.md")
         _write(v_path, "{not json")
@@ -186,7 +187,7 @@ class TestProcessFiles:
             process_files(v_path, b_path)
         assert exc.value.code == 1
 
-    def test_non_array_verdict_raises_system_exit_1(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_non_array_verdict_raises_system_exit_1(self, tmp_path: Path) -> None:
         v_path = str(tmp_path / "obj.json")
         b_path = str(tmp_path / "b.md")
         _write(v_path, '{"ac_id": "AC-1"}')
@@ -209,7 +210,7 @@ class TestMainExitCodes:
         assert exc.value.code == 1
 
     # T2: malformed verdict JSON → exit 1
-    def test_T2_malformed_json_exits_1(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_T2_malformed_json_exits_1(self, tmp_path: Path) -> None:
         v_path = str(tmp_path / "bad.json")
         b_path = str(tmp_path / "b.md")
         _write(v_path, "{not json")
@@ -219,21 +220,21 @@ class TestMainExitCodes:
         assert exc.value.code == 1
 
     # verdicts file not found → exit 1
-    def test_missing_verdicts_file_exits_1(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_missing_verdicts_file_exits_1(self, tmp_path: Path) -> None:
         b_path = str(tmp_path / "b.md")
         _write(b_path, "body")
         rc = main([str(tmp_path / "missing.json"), b_path])
         assert rc == 1
 
     # body file not found → exit 1
-    def test_missing_body_file_exits_1(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_missing_body_file_exits_1(self, tmp_path: Path) -> None:
         v_path = str(tmp_path / "v.json")
         _write(v_path, "[]")
         rc = main([v_path, str(tmp_path / "missing.md")])
         assert rc == 1
 
     # exit 0: happy path
-    def test_exit_0_success(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_exit_0_success(self, tmp_path: Path) -> None:
         v_path = str(tmp_path / "v.json")
         b_path = str(tmp_path / "b.md")
         _write(v_path, json.dumps([]))

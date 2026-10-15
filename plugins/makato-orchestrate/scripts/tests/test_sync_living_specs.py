@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import sys
 import textwrap
+from pathlib import Path
 
 import pytest  # type: ignore[import]
 
@@ -173,7 +174,7 @@ class TestSplitJoin:
 class TestApplyDelta:
     """Integration-level tests for apply_delta using tmp_path fixtures."""
 
-    def _setup_cap(self, tmp_path: pytest.TempPathFactory, cap: str = "test-cap") -> tuple[str, str, str]:
+    def _setup_cap(self, tmp_path: Path, cap: str = "test-cap") -> tuple[str, str, str]:
         """Return (cap_dir, docs_dir, target_path)."""
         cap_dir = str(tmp_path / cap)
         docs_dir = str(tmp_path / "docs" / "specs")
@@ -184,7 +185,7 @@ class TestApplyDelta:
         return cap_dir, docs_dir, target
 
     # T3: ADDED requirement appended to existing file
-    def test_T3_added_appended_to_existing_file(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_T3_added_appended_to_existing_file(self, tmp_path: Path) -> None:
         cap_dir, docs_dir, target = self._setup_cap(tmp_path)
         delta = os.path.join(cap_dir, "spec-delta.md")
         _write(
@@ -206,7 +207,7 @@ class TestApplyDelta:
         assert "Existing Heading" in content  # pre-existing preserved
 
     # T4: MODIFIED replaces matching heading; others untouched
-    def test_T4_modified_replaces_matching_heading(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_T4_modified_replaces_matching_heading(self, tmp_path: Path) -> None:
         cap_dir, docs_dir, target = self._setup_cap(tmp_path)
         delta = os.path.join(cap_dir, "spec-delta.md")
         _write(
@@ -228,7 +229,7 @@ class TestApplyDelta:
         assert "Existing Heading" in content  # unrelated preserved
 
     # T5: REMOVED replaced with tombstone comment
-    def test_T5_removed_becomes_tombstone(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_T5_removed_becomes_tombstone(self, tmp_path: Path) -> None:
         cap_dir, docs_dir, target = self._setup_cap(tmp_path)
         delta = os.path.join(cap_dir, "spec-delta.md")
         _write(
@@ -250,7 +251,7 @@ class TestApplyDelta:
         assert "Bar Requirement" in content  # unrelated preserved
 
     # T6: dangling MODIFIED emits WARN, exits 0, target unchanged
-    def test_T6_dangling_modified_warns_but_does_not_fail(self, tmp_path: pytest.TempPathFactory, capsys: pytest.CaptureFixture) -> None:
+    def test_T6_dangling_modified_warns_but_does_not_fail(self, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
         cap_dir, docs_dir, target = self._setup_cap(tmp_path)
         before = _read(target)
         delta = os.path.join(cap_dir, "spec-delta.md")
@@ -275,7 +276,7 @@ class TestApplyDelta:
         assert _read(target) == before  # target unchanged
 
     # T7: ADDED creates target from scratch
-    def test_T7_added_creates_file_from_scratch(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_T7_added_creates_file_from_scratch(self, tmp_path: Path) -> None:
         cap_dir = str(tmp_path / "new-cap")
         os.makedirs(cap_dir)
         docs_dir = str(tmp_path / "docs" / "specs")
@@ -301,7 +302,7 @@ class TestApplyDelta:
         assert "satisfy the first requirement" in content
 
     # T8: empty spec-delta is a clean no-op
-    def test_T8_empty_spec_delta_is_noop(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_T8_empty_spec_delta_is_noop(self, tmp_path: Path) -> None:
         cap_dir, docs_dir, target = self._setup_cap(tmp_path)
         before = _read(target)
         delta = os.path.join(cap_dir, "spec-delta.md")
@@ -342,12 +343,12 @@ class TestMainExitCodes:
         assert exc.value.code == 1
 
     # T2: missing spec-delta file → return 1 (not SystemExit — main returns int)
-    def test_T2_missing_delta_file_returns_1(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_T2_missing_delta_file_returns_1(self, tmp_path: Path) -> None:
         rc = main([str(tmp_path / "nonexistent" / "spec-delta.md"), str(tmp_path / "docs")])
         assert rc == 1
 
     # exit 0: happy path
-    def test_exit_0_success(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_exit_0_success(self, tmp_path: Path) -> None:
         cap_dir = str(tmp_path / "my-cap")
         os.makedirs(cap_dir)
         delta = os.path.join(cap_dir, "spec-delta.md")

@@ -8,6 +8,7 @@ Covered:
 
 No live Langfuse credentials are required.
 """
+
 from __future__ import annotations
 
 import json
@@ -104,15 +105,11 @@ class TestReadBuildSignals:
         assert signals.merged_without_override is True
 
     def test_verify_gate_failed(self, tmp_path: Path) -> None:
-        specs = _write_build_jsonl(
-            tmp_path, "KEY-VF", json.dumps({"step": "verify", "status": "error", "data": {}})
-        )
+        specs = _write_build_jsonl(tmp_path, "KEY-VF", json.dumps({"step": "verify", "status": "error", "data": {}}))
         assert _read_build_signals("KEY-VF", specs).verify_gate_passed is False
 
     def test_ci_failed(self, tmp_path: Path) -> None:
-        specs = _write_build_jsonl(
-            tmp_path, "KEY-CF", json.dumps({"step": "ci", "status": "error", "data": {}})
-        )
+        specs = _write_build_jsonl(tmp_path, "KEY-CF", json.dumps({"step": "ci", "status": "error", "data": {}}))
         assert _read_build_signals("KEY-CF", specs).ci_green is False
 
     def test_merge_with_override_sets_flag_false(self, tmp_path: Path) -> None:

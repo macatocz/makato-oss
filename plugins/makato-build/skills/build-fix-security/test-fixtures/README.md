@@ -3,6 +3,13 @@
 Manual verification recipe for the `build-fix-security` skill.
 Mirrors the pattern from `build-fix-types/test-fixtures/README.md`.
 
+This is deliberately unsafe test input, not production code. The repository
+security gate scans it separately with `python3 scripts/check-security-fixtures.py`.
+That check requires all four expected Semgrep findings (unsafe YAML, shell
+execution, pickle and eval), rejecting missing, extra or incomplete results.
+The production scan excludes only this exact fixture; no production finding is
+suppressed, and making the fixture safe would fail its dedicated check.
+
 ## Prerequisites
 
 ```bash
