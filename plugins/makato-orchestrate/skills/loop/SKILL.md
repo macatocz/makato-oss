@@ -14,7 +14,7 @@ description: >-
   or running a single dispatch cycle with --once. Trigger keywords:
   autonomous, polling, board, Ready, unattended, GAP-007, loop run,
   dispatch queue.
-version: "2.4.0"
+version: "2.4.1"
 argument-hint: "[--status <NAME>] [--interval <S>] [--dry-run] [--once] [--force]"
 allowed-tools: [Bash]
 metadata:
@@ -784,18 +784,24 @@ combined stdout+stderr to `.claude/state/dispatch-<issue>.log` and spawns
 `_watchdog_poll` in the background. Every `MAKATO_LOOP_STALL_POLL` seconds
 (default 60) the watchdog `stat`s the log file:
 
-- **WARN** (`idle ≥ MAKATO_LOOP_STALL_WARN`, default 900 s = 15 min):
+- **WARN** (`idle ≥ MAKATO_LOOP_STALL_WARN`, default 21600 s = 6 h):
   stamp `active_workflow.stalled = true` and `active_workflow.stalled_since
   = <iso>` in `loop-status.json`. Operator visibility only — no signal is
   sent to the child. A single-shot latch: warning is stamped at most once
   per dispatch.
-- **KILL** (`idle ≥ MAKATO_LOOP_STALL_KILL`, default 3600 s = 60 min):
+- **KILL** (`idle ≥ MAKATO_LOOP_STALL_KILL`, default 43200 s = 12 h):
   snapshot the audit to `last_watchdog_kill` (survives the
   `active_workflow=null` clear that `cmd_dispatch` does on return), stamp
   `active_workflow.killed_by_watchdog = true`, then `kill -TERM` the
   child. If the child is still alive after `MAKATO_LOOP_STALL_TERM_GRACE`
   seconds (default 30), `kill -KILL`. `cmd_dispatch`'s `wait "$child_pid"`
   then unblocks and the outer loop resumes on the next tick.
+
+The defaults are long because the default OMP harness (`omp --yolo -p`, text
+output) writes nothing to the dispatch log until the session ends, so the log
+mtime stays frozen for the whole healthy PO-agent run. A genuinely hung
+dispatch is therefore reaped only after 12 h; use `~/.claude/HALT` or
+`kill -TERM <loop-pid>` to stop one sooner.
 
 **Non-goals.** The watchdog is a coarse liveness proxy, not a semantic
 progress meter — a busy-loop that prints a heartbeat every 10 seconds
@@ -831,7 +837,7 @@ The intentional design split:
 Key groupings for quick orientation:
 
 - **Dispatch control**: `MAKATO_LOOP_INTERVAL`, `MAKATO_LOOP_STATUS`, `MAKATO_CLAUDE_BIN`, `MAKATO_HALT_FILE`
-- **Watchdog thresholds**: `MAKATO_LOOP_STALL_WARN` (900 s), `MAKATO_LOOP_STALL_KILL` (3600 s), `MAKATO_LOOP_STALL_DISABLE`
+- **Watchdog thresholds**: `MAKATO_LOOP_STALL_WARN` (21600 s), `MAKATO_LOOP_STALL_KILL` (43200 s), `MAKATO_LOOP_STALL_DISABLE`
 - **Board CAS claim**: `MAKATO_LOOP_CLAIM_ON_DISPATCH` (default `1` — leave enabled in multi-worktree setups)
 - **Reaper**: `MAKATO_LOOP_REAP_ON_POLL`, `MAKATO_LOOP_REAP_INTERVAL` (3600 s), `MAKATO_LOOP_REAP_SPECS`
 - **Escape hatches (debug/test only)**: `MAKATO_LOOP_GATE_DISABLE`, `MAKATO_LOOP_STALL_DISABLE`, `MAKATO_LOOP_DRY_DISPATCH`

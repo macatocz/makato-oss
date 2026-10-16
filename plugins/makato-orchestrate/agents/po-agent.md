@@ -8,7 +8,7 @@ description: >-
   review decisions, routes merge conflicts through `resolve-pr-conflict`, and
   terminates on a merged PR or documented HALT code. Sole writer of
   `workflow-state.json`. Owns the per-run worktree; never edits target source.
-version: "1.1.0"
+version: "1.1.1"
 maxTurns: 100
 permissionMode: bypassPermissions
 disallowedTools: NotebookEdit
@@ -950,7 +950,7 @@ without repeating commit/push operations already owned by a repair skill.
 6. **Step 6b — Review poll.** Record the wait start time and set
    `REVIEW_WAIT_SECS = ${MAKATO_REVIEW_WAIT_SECS:-3600}` — the wall-clock
    ceiling on the first-review wait (external-actor timeout; default 60 min,
-   coherent with `loop.sh`'s `MAKATO_LOOP_STALL_KILL` / `STALL_KILL_SECS`).
+   well inside `loop.sh`'s 12 h `MAKATO_LOOP_STALL_KILL` / `STALL_KILL_SECS`).
    Set `REVIEW_WAIT_SECS=0` to disable the ceiling (legacy unbounded
    behaviour). Then loop every `MAKATO_REVIEW_POLL_INTERVAL` seconds
    (default 300).

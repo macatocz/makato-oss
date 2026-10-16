@@ -44,8 +44,8 @@ vars:
 - { var: GATE_DISABLE,            env: MAKATO_LOOP_GATE_DISABLE,      default: "0" }
 
 # --- Liveness watchdog (#164) ---
-- { var: STALL_WARN_SECS,         env: MAKATO_LOOP_STALL_WARN,        default: "900" }
-- { var: STALL_KILL_SECS,         env: MAKATO_LOOP_STALL_KILL,        default: "3600" }
+- { var: STALL_WARN_SECS,         env: MAKATO_LOOP_STALL_WARN,        default: "21600" }
+- { var: STALL_KILL_SECS,         env: MAKATO_LOOP_STALL_KILL,        default: "43200" }
 - { var: STALL_POLL_SECS,         env: MAKATO_LOOP_STALL_POLL,        default: "60" }
 - { var: STALL_TERM_GRACE_SECS,   env: MAKATO_LOOP_STALL_TERM_GRACE,  default: "30" }
 

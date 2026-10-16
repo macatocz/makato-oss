@@ -5,6 +5,18 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Fixed — loop watchdog no longer reaps healthy OMP dispatches
+
+- **`loop` skill v2.4.1** — raised the liveness-watchdog defaults to
+  `MAKATO_LOOP_STALL_WARN=21600` (6 h) and `MAKATO_LOOP_STALL_KILL=43200` (12 h),
+  from 900 s and 3600 s. The default OMP harness (`omp --yolo -p`, text output)
+  writes nothing to `dispatch-<issue>.log` until the session ends, so the log
+  mtime stayed frozen and the watchdog SIGTERMed healthy PO-agent runs after
+  60 min. Trade-off: a genuinely hung dispatch is now reaped only after 12 h;
+  `~/.claude/HALT` and `kill -TERM <loop-pid>` still stop it sooner.
+- **`po-agent` v1.1.1** — the Step 6b review-wait note now states that its
+  60 min ceiling sits well inside the 12 h watchdog kill.
+
 ### Fixed — host-qualified gh project-scope remediation
 
 - **`seed-issue` skill v1.4.1** — the Status=Ready board step keeps `gh project item-list` stderr.
