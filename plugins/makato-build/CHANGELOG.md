@@ -10,6 +10,27 @@ here on merge to main; release-please will date and version them at the next rel
 
 ## [Unreleased]
 
+### Changed — build-refine: per-task budget (v1.14.0)
+
+- Step 8 and `references/task-sizing-guide.md` now cap each task at what one `coder` dispatch can
+  finish: 4 production files, 1 new module, 3 routes/commands in one concern, 2 integration scenario
+  groups, 2 ACs and 2 external boundaries. Oversized tasks are split along tested concern
+  boundaries, with shared groundwork first; splitting outranks the 2–6 task-count target.
+
+### Changed — coder agent: turn budget 30 → 100
+
+- Raise `agents/coder.md` `maxTurns` from 30 to 100 (matching `po-agent`). A full
+  RED→GREEN→INTEGRATE→VERIFY task spanning schema, storage, routes and integration tests
+  exhausted its budget before writing its first failing test (sagibeast #1274 Task 3).
+
+### Fixed — build-implement-tdd: installed task-file-scout discovery (v1.13.1)
+
+- When `MAKATO_ORCHESTRATE_ROOT` is unset, resolve the orchestrate plugin with
+  `shared/runtime-context.sh plugin-root makato-orchestrate` (source sibling or OMP registry)
+  instead of skipping the scout. Interactive sessions never set the variable, so the scout was
+  never dispatched there. An absent orchestrate plugin still skips the scout without a
+  `scout-skipped` warning.
+
 ### Fixed — host-qualified gh project-scope remediation
 
 - **`build-start` skill v1.11.1** and **`build-create-pr` skill v1.12.1** — when a board update fails
