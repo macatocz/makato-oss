@@ -6,11 +6,11 @@ description: >-
   Tracer bullet phase for multi-layer stories. Autonomous loop. Use
   after refine to implement-tdd a story plan, implement tdd tasks, or
   run the core build loop.
-version: "1.13.0"
+version: "1.13.1"
 argument-hint: "[work-item-key]"
 allowed-tools: ["Bash", "Read"]
 metadata:
-  last_updated: "2026-08-05"
+  last_updated: "2026-10-16"
 ---
 
 # implement-tdd
@@ -35,8 +35,8 @@ When dispatched by the PO-agent (`--autonomous` mode), this skill receives a con
   `CLAUDE_PLUGIN_ROOT`, `OMP_PLUGIN_ROOT`, or `PLUGIN_ROOT` when the caller does
   not supply it; never infer it from the target repository CWD.
 - `MAKATO_ORCHESTRATE_ROOT` — optional absolute orchestrate-plugin root supplied
-  by the PO-agent. When absent, skip optional scout/workflow-state integration
-  without probing `$REPO_ROOT/plugins/...`.
+  by the PO-agent. When absent, skip workflow-state integration; the scout root
+  is resolved separately in Step 6 without probing `$REPO_ROOT/plugins/...`.
 - `--autonomous` — activation flag (also activated by `$AGENT_ID` or `task_id` bundle).
 
 Optional fields (autonomous mode):
@@ -262,9 +262,8 @@ For each `mode: tdd` task in topological order, dispatch the per-task `task-file
 
 Before each `coder` dispatch, resolve the task's bundle rules via the
 `inject-context` skill and dispatch the registered `task-file-scout` agent by
-name only when the optional `MAKATO_ORCHESTRATE_ROOT` is an existing installed
-plugin root and
-`"$MAKATO_ORCHESTRATE_ROOT/agents/task-file-scout.md"` exists. Never read an
+name only when `SCOUT_ORCH_ROOT` (resolved below) is an existing installed
+plugin root and `"$SCOUT_ORCH_ROOT/agents/task-file-scout.md"` exists. Never read an
 agent file relative to this skill directory, the consumer repository, or the
 current working directory. The scout is **advisory**, not a gate — a scout
 failure must never block the coder dispatch.
@@ -312,12 +311,26 @@ failure must never block the coder dispatch.
      `schema != "r1"`) — treat as `failure` per the table above. Per
      NEVER 6, do not retry the scout dispatch.
 
-When `MAKATO_ORCHESTRATE_ROOT` is absent, is not a valid installed
-orchestrate-plugin root, or lacks `agents/task-file-scout.md`, skip Step 6's
-scout dispatch entirely and proceed straight to the coder dispatch without
-`SCOUT_SUMMARY`. No consumer-repository plugin path is probed; the build
-pipeline remains operable in a developer's hands without the orchestrate
-plugin.
+Resolve `SCOUT_ORCH_ROOT` from `MAKATO_ORCHESTRATE_ROOT`, or — when that is
+unset, as in interactive sessions — with the canonical runtime resolver, which
+checks the suite source sibling and the runner's plugin registry, never the
+consumer repository's `plugins/`. Keep it a separate variable: the
+workflow-state patch at the end of this step stays gated on the caller-supplied
+`MAKATO_ORCHESTRATE_ROOT` only.
+
+```bash
+SCOUT_ORCH_ROOT="${MAKATO_ORCHESTRATE_ROOT:-}"
+if [[ -z "$SCOUT_ORCH_ROOT" ]]; then
+  SCOUT_ORCH_ROOT="$("$MAKATO_BUILD_ROOT/shared/runtime-context.sh" plugin-root makato-orchestrate 2>/dev/null || true)"
+fi
+```
+
+When `SCOUT_ORCH_ROOT` is empty, is not a valid installed orchestrate-plugin
+root, or lacks `agents/task-file-scout.md`, skip Step 6's scout dispatch
+entirely and proceed straight to the coder dispatch without `SCOUT_SUMMARY`.
+No warning is logged — absence is not a scout failure, and the build pipeline
+remains operable without the orchestrate plugin. Reserve `scout-skipped` for
+the HALT-006 and scout R1 `failure` paths above.
 
 The coder agent runs the full RED→GREEN→INTEGRATE→VERIFY cycle for the task and appends JSONL entries directly to JSONL_PATH.
 

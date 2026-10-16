@@ -5,6 +5,7 @@ description: >-
   targets, unit/integration test strategy, acceptance mapping. Use to start a build session before
   implement-tdd or implement-goal.
 version: "1.14.0"
+
 argument-hint: "[work-item-key] [--autonomous]"
 allowed-tools:
   - Bash
@@ -471,9 +472,15 @@ If present and non-empty, copy it verbatim into the corresponding plan task unde
 `recommended_skills`. The downstream coder then prepends skill consultation instructions before
 implementing the task. If absent — do NOT add an empty array; omit the field.
 
+**Per-task budget**: every task must fit one `coder` dispatch. Check each task against the limits
+in `task-sizing-guide.md` § _Per-Task Budget_ (at most 4 production files, 1 new module, 3 routes or
+commands in one concern, 2 integration scenario groups, 2 ACs and 2 external boundaries) and split
+any task that exceeds one before continuing. Splitting takes precedence over the task-count target.
+
 The full task list must be completable in a single autonomous session (target 2–6 tasks). If more
 tasks are needed than fit in one session, flag it before proceeding — ask the user to confirm scope
-or split the story.
+or split the story. In autonomous mode, do not prompt and do not re-merge tasks over the per-task
+limits: record the scope risk in the plan's decisions.
 
 **File target validation**: before writing the plan, verify every `files` entry across all tasks is
 a relative path that resolves within the repository root. Reject any path that begins with `/` or

@@ -6,7 +6,7 @@ description: >-
   implementation plan. Produce working, tested code that passes all four
   cycle phases. Dispatched by build-implement-tdd per task, or by build-review
   with REVIEW_FINDINGS to repair blocking review findings.
-maxTurns: 30
+maxTurns: 100
 permissionMode: bypassPermissions
 ---
 
