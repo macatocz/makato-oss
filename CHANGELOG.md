@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.168.0](https://github.com/macatocz/makato-oss/compare/v0.167.0...v0.168.0) (2026-10-15)
+
+
+### ✨ Features
+
+* **build:** add reliable autonomous current-head CI repair ([#128](https://github.com/macatocz/makato-oss/issues/128)) ([d2747e0](https://github.com/macatocz/makato-oss/commit/d2747e0a0af5b9482f3c9a094e43a47d883318a4))
+* **makato-build:** route lightweight skills to commit and tiny roles ([#130](https://github.com/macatocz/makato-oss/issues/130)) ([3b9653e](https://github.com/macatocz/makato-oss/commit/3b9653e66b98d2cb8f2144e974262ba9b8398eec))
+* **makato-typesafeai:** add TypeSafe/Jev reference skills plugin to makato-suite ([5b4de9b](https://github.com/macatocz/makato-oss/commit/5b4de9bb6f077010937a913e19c9755b5fb14a2c))
+
 ## [0.167.0](https://github.com/macatocz/makato-oss/compare/v0.166.0...v0.167.0) (2026-10-15)
 
 
