@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.168.3](https://github.com/macatocz/makato-oss/compare/v0.168.2...v0.168.3) (2026-10-16)
+
+
+### 🐛 Bug Fixes
+
+* **loop:** raise watchdog stall defaults to 6 h warn / 12 h kill ([#135](https://github.com/macatocz/makato-oss/issues/135)) ([16ec2f1](https://github.com/macatocz/makato-oss/commit/16ec2f191e8eb3fb475a657d045133d767237aa7))
+* **makato-orchestrate:** honour MAKATO_TARGET_REPO_ROOT for workflow state and lessons ([#137](https://github.com/macatocz/makato-oss/issues/137)) ([#140](https://github.com/macatocz/makato-oss/issues/140)) ([d88436f](https://github.com/macatocz/makato-oss/commit/d88436f2cd9133da0f7d91be594e3da27f7c22d3))
+* **makato-orchestrate:** resolve plugin-owned assets from the installed plugin ([#136](https://github.com/macatocz/makato-oss/issues/136)) ([#139](https://github.com/macatocz/makato-oss/issues/139)) ([396edd6](https://github.com/macatocz/makato-oss/commit/396edd6c4a9cc0f54febeb1bde8731829d29029a))
+
 ## [0.168.2](https://github.com/macatocz/makato-oss/compare/v0.168.1...v0.168.2) (2026-10-16)
 
 
