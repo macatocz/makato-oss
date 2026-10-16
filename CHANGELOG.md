@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.168.1](https://github.com/macatocz/makato-oss/compare/v0.168.0...v0.168.1) (2026-10-16)
+
+
+### 🐛 Bug Fixes
+
+* show host-qualified gh project-scope refresh command ([#131](https://github.com/macatocz/makato-oss/issues/131)) ([3f7dcc4](https://github.com/macatocz/makato-oss/commit/3f7dcc491f154d62c0e5c95275fbbfb6712d0b5b))
+
 ## [0.168.0](https://github.com/macatocz/makato-oss/compare/v0.167.0...v0.168.0) (2026-10-15)
 
 
