@@ -5,6 +5,14 @@ Changes are grouped by skill/agent/component. Within each group, latest version 
 
 ## [Unreleased]
 
+### Fixed — host-qualified gh project-scope remediation
+
+- **`issue-to-project` skill v2.8.1** — pre-flight check 4 now prints
+  `gh auth refresh --hostname <host> --scopes project,read:project` plus the device-login URL.
+  The previous hostless command exits with `--hostname required when not running
+  interactively` in agent and CI shells. The scope trap also matches gh's
+  `missing required scopes` stderr.
+
 ### Changed — Provider-neutral skill execution
 
 - Planning and review skills now use `skill_execution` roles and effort in the shared

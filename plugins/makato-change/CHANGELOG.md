@@ -3,6 +3,13 @@
 
 ## [Unreleased]
 
+### Fixed — host-qualified gh project-scope remediation
+
+- **`execute` skill v1.6.1** — the In Progress and In Review board updates keep `gh project
+  item-list` stderr. When the token lacks the `project` scope they log
+  `gh auth refresh --hostname $HOST --scopes project,read:project` and the device-login URL instead
+  of reporting the issue as missing from the board.
+
 ### Added — Role-based workflow dispatch
 
 - Route analyze, design, execute, and resolve-review through the public skill launcher,

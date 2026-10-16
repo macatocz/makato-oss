@@ -155,7 +155,7 @@ A `--repair-aggressive` reconcile run is the only mode that overrides rule 2 —
 
 | Symptom | First check | Recovery |
 | --- | --- | --- |
-| `HALT: PREFLIGHT_FAILED` | `gh auth status` | Run `gh auth refresh -s project,read:project` |
+| `HALT: PREFLIGHT_FAILED` | `gh auth status` | Follow the HALT message. Missing `project` scope: run `gh auth refresh --hostname <host> --scopes project,read:project` (`--hostname` is required outside an interactive terminal), then approve the one-time code at `https://<host>/login/device` within 15 minutes |
 | `HALT: STALE_CONFIG` | Project archived/deleted/renamed? | Re-run `--init`. v2.5+ supports `--auto-reinit` opt-in. |
 | `needs_status_retry: true` rows in artifact | `item-add` succeeded but `item-edit` failed | Run `--retry-blocked-edits <slug>` |
 | `HALT: RATE_LIMIT_EXCEEDED` | GitHub returned 429 | Wait for the `Retry-After` window and re-run |

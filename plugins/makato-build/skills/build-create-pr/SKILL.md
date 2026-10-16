@@ -6,7 +6,7 @@ description: >-
   to How to Test, design decisions surface in the description, Jira
   story is linked. Presents draft for user approval before opening.
   Autonomous runs reuse an open PR and wait for build-fix-ci before handoff.
-version: "1.12.0"
+version: "1.12.1"
 argument-hint: "[work-item-key] [--autonomous]"
 allowed-tools:
   - Bash
@@ -389,7 +389,14 @@ GH_HOST="$HOST" gh project item-edit \
 ```
 
 On success: log `build-create-pr: marked #$ISSUE_NUMBER as In Review on project board`.
-On failure: log `build-create-pr: WARN — could not set In Review on board; continuing` (best-effort — never blocks PR creation or subsequent steps).
+On a missing-scope failure (any `gh project` stderr containing `missing required scopes`,
+`has not been granted the required scopes`, or `requires the 'project' scope`): log
+`build-create-pr: WARN — gh token lacks the project scope; run 'gh auth refresh --hostname $HOST --scopes project,read:project' and approve the one-time code at https://$HOST/login/device — board not updated; continuing`
+and use that remediation as the `reason`. Keep `--hostname`: without it, a
+non-interactive `gh auth refresh` exits with
+`--hostname required when not running interactively`, so never relay gh's own
+hostless hint. The device code expires after 15 minutes.
+On any other failure: log `build-create-pr: WARN — could not set In Review on board; continuing` (best-effort — never blocks PR creation or subsequent steps).
 
 ```bash
 "$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-create-pr","story":"<key>","step":"board-in-review","status":"<ok|warn>","data":{"issue":<ISSUE_NUMBER>,"reason":"<omit-on-ok|error-description-on-warn>"}}'

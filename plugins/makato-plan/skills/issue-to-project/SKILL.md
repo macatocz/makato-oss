@@ -6,7 +6,7 @@ description: >-
   audit boards, and backfill non-Status field values. Use `--init` to configure project sync
   for a repository.
 license: MIT
-version: "2.8.0"
+version: "2.8.1"
 argument-hint: "[optional: feature slug] | --init | --retry-blocked-edits [<slug>] [--from <path>] | sync-lifecycle [<slug>] [--dry-run] | --from-webhook <event-json-path> | reconcile [<slug>] [--repair-additive | --repair-aggressive [--yes-i-know]] | --board-audit | --fields-only [<slug>] | --auto-reinit | --no-auto-reinit"
 allowed-tools: Bash(gh *) Bash(git *) Bash(python3 *) Bash(timeout *) Read Write Grep Glob
 hooks: ["sync issues to project", "land issues on board", "push issues to GitHub Projects", "update project board", "project board sync", "issue-to-project", "follow up to-issues with project sync", "set status on board", "init project board sync", "retry blocked edits", "recover blocked status", "route issues by status label", "route status:ready", "route status:in-review", "autonomous auto-promote"]
@@ -107,9 +107,11 @@ Run these four checks in order. ANY failure exits `1` with HALT `PREFLIGHT_FAILE
 | 1 | `gh` binary on PATH | `command -v gh` | `"issue-to-project: 'gh' CLI not found. Install: https://cli.github.com/"` |
 | 2 | `gh` authenticated (for resolved host) | `gh --hostname <resolved_host> auth status` | `"issue-to-project: 'gh' is not authenticated for host <host>. Run 'gh auth login --hostname <host>' then retry."` |
 | 3 | `gh` ≥ v2.13.0 (`project` subcommand exists) | `gh project --help >/dev/null 2>&1` | `"issue-to-project: installed 'gh' does not support the 'project' subcommand. Upgrade to ≥ v2.13.0: https://github.com/cli/cli/releases"` |
-| 4 | `project` OAuth scope (deferred) | First real `gh project` call; trap stderr containing `requires the 'project' scope` or `Your token has not been granted the required scopes` | `"issue-to-project: token is missing the 'project' scope. Run 'gh auth refresh -s project,read:project' then retry."` |
+| 4 | `project` OAuth scope (deferred) | First real `gh project` call; trap stderr containing `missing required scopes`, `has not been granted the required scopes`, or `requires the 'project' scope` | `"issue-to-project: token is missing the 'project' scope. Run 'gh auth refresh --hostname <host> --scopes project,read:project', approve the one-time code at https://<host>/login/device, then retry."` |
 
 Check 4 cannot be pre-flighted directly (`gh auth status` doesn't report scopes uniformly). The first `gh project list` (in `--init`) or `gh project item-list` (in normal-run) is wrapped: on a scope-error stderr match, surface message #4 verbatim and exit with HALT `PREFLIGHT_FAILED` instead of the generic step abort.
+
+Message #4 MUST keep `--hostname`: outside an interactive terminal (agent shells, CI, editor-embedded commands) `gh auth refresh` without it exits with `--hostname required when not running interactively`. Do not relay gh's own hint (`gh auth refresh -s project,read:project`), which omits the host. With `--hostname`, gh prints a one-time device code and polls until it is approved in a browser; the code expires after 15 minutes, after which the command fails with `expired_token` and must be re-run.
 
 **Pre-flight check 5 — Verify-on-first-call (v2.3.0+, normal-run only)**
 

@@ -5,7 +5,7 @@ description: >-
   implementation mode, initializes the build log, and kicks off /build-refine. Use when starting a
   new story build, beginning the makato-build workflow, running build-start on a work item, or
   starting local work without a ticket.
-version: "1.11.0"
+version: "1.11.1"
 argument-hint: "[work-item-key]"
 allowed-tools: [Bash]
 metadata:
@@ -263,15 +263,23 @@ of `fields.status.id`, `fields.status.options.in_progress`, `project_node_id`, `
 1. Find the board item and its current status:
 
    ```bash
+   BOARD_ERR="$(mktemp)"
    ITEM_LINE="$(GH_HOST="$HOST" gh project item-list "$PROJECT_NUMBER" \
      --owner "$OWNER" --format json --limit 9999 \
-     --jq ".items[] | select(.content.number == $ISSUE_NUMBER)" 2>/dev/null \
+     --jq ".items[] | select(.content.number == $ISSUE_NUMBER)" 2>"$BOARD_ERR" \
      | head -1)"
    ITEM_ID="$(jq -r '.id // empty' <<<"$ITEM_LINE")"
    CUR_STATUS="$(jq -r '.status // empty' <<<"$ITEM_LINE")"
    ```
 
-   If `ITEM_ID` is empty: log
+   If `$BOARD_ERR` contains `missing required scopes`, `has not been granted the required scopes`,
+   or `requires the 'project' scope`: log
+   `build-start: WARN — gh token lacks the project scope; run 'gh auth refresh --hostname $HOST --scopes project,read:project' and approve the one-time code at https://$HOST/login/device — board status not updated`
+   and continue. Keep `--hostname`: without it, a non-interactive `gh auth refresh` exits with
+   `--hostname required when not running interactively`, so never relay gh's own hostless hint.
+   The device code expires after 15 minutes.
+
+   Otherwise, if `ITEM_ID` is empty: log
    `build-start: WARN — issue #$ISSUE_NUMBER not found on board; skipping In Progress update` and
    continue.
 
@@ -284,8 +292,10 @@ of `fields.status.id`, `fields.status.options.in_progress`, `project_node_id`, `
      --field-id "$STATUS_FIELD_ID" \
      --single-select-option-id "$IN_PROGRESS_OPTION_ID"
    ```
-   On success: log `build-start: marked #$ISSUE_NUMBER as In Progress on project board`. On failure:
-   log `build-start: WARN — could not set In Progress on board; continuing` (best-effort — never
+   On success: log `build-start: marked #$ISSUE_NUMBER as In Progress on project board`. On a
+   missing-scope failure (same stderr match as sub-step 1): log the project-scope WARN from
+   sub-step 1 and continue. On any other failure: log
+   `build-start: WARN — could not set In Progress on board; continuing` (best-effort — never
    block the build session).
 
 ### Step 2e — Canary test-framework pre-flight

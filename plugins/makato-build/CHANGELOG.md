@@ -10,6 +10,14 @@ here on merge to main; release-please will date and version them at the next rel
 
 ## [Unreleased]
 
+### Fixed — host-qualified gh project-scope remediation
+
+- **`build-start` skill v1.11.1** and **`build-create-pr` skill v1.12.1** — when a board update fails
+  because the gh token lacks the `project` scope, log
+  `gh auth refresh --hostname $HOST --scopes project,read:project` and the device-login URL
+  instead of a generic WARN. `build-start` no longer discards `gh project item-list` stderr, so a
+  scope failure is no longer reported as "issue not found on board".
+
 ### Changed — lightweight skill model roles
 
 - Set makato-build:build-push-to-git and makato-build:build-create-pr to the built-in OMP

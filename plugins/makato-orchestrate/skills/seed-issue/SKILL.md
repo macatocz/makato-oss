@@ -11,7 +11,7 @@ description: >-
   plan materializes (lightweight planning lane).
   Use for any issue that was filed manually — bypassing to-issues — and
   needs to enter the autonomous loop queue.
-version: "1.4.0"
+version: "1.4.1"
 argument-hint: "<ISSUE_NUMBER> [--repo <owner/name>] [--type new-work|change] [--blocked-by N,M,...]"
 allowed-tools: ["Bash", "Task", "Read", "Write"]
 metadata:
@@ -398,15 +398,25 @@ and skip to Step 8.
 1. Find the board item ID for this issue:
 
    ```bash
+   BOARD_ERR="$(mktemp)"
    ITEM_ID="$(GH_HOST="$HOST" gh project item-list "$PROJECT_NUMBER" \
      --owner "$OWNER" \
      --format json \
      --limit 9999 \
-     --jq ".items[] | select(.content.number == $ISSUE_NUMBER) | .id" 2>/dev/null \
+     --jq ".items[] | select(.content.number == $ISSUE_NUMBER) | .id" 2>"$BOARD_ERR" \
      | head -1)"
    ```
 
-   If `ITEM_ID` is empty, the issue is not yet on the board. Add it first:
+   If `$BOARD_ERR` contains `missing required scopes`,
+   `has not been granted the required scopes`, or
+   `requires the 'project' scope`, log:
+   `[seed-issue] WARN: gh token lacks the project scope; run 'gh auth refresh --hostname $HOST --scopes project,read:project' and approve the one-time code at https://$HOST/login/device — skipping Status write`
+   and skip the item-add and item-edit calls. Keep `--hostname`: without it, a
+   non-interactive `gh auth refresh` exits with
+   `--hostname required when not running interactively`, so never relay gh's
+   own hostless hint. The device code expires after 15 minutes.
+
+   Otherwise, if `ITEM_ID` is empty, the issue is not yet on the board. Add it first:
 
    ```bash
    ISSUE_URL="$(gh issue view "$ISSUE_NUMBER" --repo "$REPO" --json url --jq '.url')"
@@ -435,8 +445,9 @@ and skip to Step 8.
      --single-select-option-id "$READY_OPTION_ID"
    ```
 
-   On failure, log:
-   `[seed-issue] WARN: could not set Status=Ready on board item $ITEM_ID — check gh auth and project scope`
+   On a missing-scope failure (the sub-step 1 stderr match), log the
+   sub-step 1 project-scope WARN. On any other failure, log:
+   `[seed-issue] WARN: could not set Status=Ready on board item $ITEM_ID — check gh auth`
    and continue (the label stamp and provenance footer are already written;
    the issue can be manually moved on the board).
 
