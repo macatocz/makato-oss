@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.168.2](https://github.com/macatocz/makato-oss/compare/v0.168.1...v0.168.2) (2026-10-16)
+
+
+### 🐛 Bug Fixes
+
+* **makato-build:** smaller tdd tasks, larger coder budget, installed scout discovery ([#133](https://github.com/macatocz/makato-oss/issues/133)) ([6e1b2d1](https://github.com/macatocz/makato-oss/commit/6e1b2d1b4de0bd2fd24de1c06b7f300a633913b4))
+
 ## [0.168.1](https://github.com/macatocz/makato-oss/compare/v0.168.0...v0.168.1) (2026-10-16)
 
 
