@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -516,6 +517,48 @@ class TestMainIntegration(unittest.TestCase):
         # last_critical_errors should be absent, null, or empty.
         val = data.get("last_critical_errors", None)
         self.assertTrue(val is None or val == [], f"last_critical_errors should be absent/null/empty, got: {val!r}")
+
+
+class TestInstalledPluginPaths(unittest.TestCase):
+    """Integration coverage when the installed plugin runs in a consumer repo."""
+
+    def test_emits_schema_valid_request_without_target_plugins_directory(self) -> None:
+        import jsonschema
+
+        with tempfile.TemporaryDirectory(prefix="emit-reshape-consumer-") as tmpdir:
+            repo = Path(tmpdir) / "consumer"
+            repo.mkdir()
+            subprocess.run(["git", "init", "--quiet", str(repo)], check=True)
+
+            key = "913-consumer-repo"
+            issue_number = 913
+            spec_dir = repo / "specs" / key
+            spec_dir.mkdir(parents=True)
+            state = _make_workflow_state(issue_number=issue_number)
+            (spec_dir / f"workflow-state-{issue_number}.json").write_text(
+                json.dumps(state), encoding="utf-8"
+            )
+
+            script = (Path(_SCRIPTS_DIR) / "emit_reshape_request.py").resolve()
+            env = os.environ.copy()
+            env.pop("MAKATO_EMIT_RESHAPE_SPECS_DIR", None)
+            result = subprocess.run(
+                [sys.executable, str(script), key, str(issue_number)],
+                cwd=repo,
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse((repo / "plugins").exists())
+            request_path = spec_dir / "reshape-request.json"
+            self.assertTrue(request_path.is_file())
+            schema_path = script.parent / "emit-reshape-request.schema.json"
+            jsonschema.validate(
+                json.loads(request_path.read_text(encoding="utf-8")),
+                json.loads(schema_path.read_text(encoding="utf-8")),
+            )
 
 
 class TestResolveSpecFolder(unittest.TestCase):

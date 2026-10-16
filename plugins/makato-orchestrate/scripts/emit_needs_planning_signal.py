@@ -17,7 +17,7 @@ What it does:
         using the `needs_planning` option ID from .claude/config.json.
         Degrades gracefully to label-only when the option ID is absent or null
         or when the `gh` call fails.
-     c) Emits a JSONL entry to orchestrate.jsonl via build-log.sh.
+     c) Emits a JSONL entry to build.jsonl via build-log.sh.
 
 Test hooks (all optional — names MUST match bash script exactly):
   MAKATO_EMIT_NPS_SPECS_DIR           Override specs/ root.
@@ -40,6 +40,7 @@ import os
 import subprocess
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
 
 def _now() -> str:
@@ -75,6 +76,34 @@ def _repo_root() -> str:
         return result.stdout.strip()
     except Exception:
         return os.getcwd()
+
+
+def _resolve_build_plugin_root(repo_root: str) -> Path | None:
+    """Find the build plugin from the installed orchestrate plugin or target repo."""
+    script_plugin_root = Path(__file__).resolve().parent.parent
+    configured_orchestrate_root = os.environ.get("MAKATO_ORCHESTRATE_ROOT")
+    source_plugin_root = (
+        Path(configured_orchestrate_root) if configured_orchestrate_root else script_plugin_root
+    )
+    cache_parent = script_plugin_root.parent
+    candidates = []
+
+    configured_build_root = os.environ.get("MAKATO_BUILD_ROOT")
+    if configured_build_root:
+        candidates.append(Path(configured_build_root))
+    candidates.extend(
+        (
+            source_plugin_root.parent / "makato-build",
+            cache_parent / "makato-build",
+            *cache_parent.glob("makato-suite___makato-build___*"),
+            Path(repo_root) / "plugins" / "makato-build",
+        )
+    )
+
+    for candidate in candidates:
+        if (candidate / ".claude-plugin" / "plugin.json").is_file():
+            return candidate
+    return None
 
 
 def _resolve_spec_folder(specs_dir: str, key: str) -> str:
@@ -306,7 +335,7 @@ def emit_log_entry(
     board_applied: bool,
     warn_reason: str,
 ) -> None:
-    """Emit JSONL entry to orchestrate.jsonl via build-log.sh."""
+    """Emit JSONL entry to build.jsonl via build-log.sh."""
     if not os.path.isfile(build_log_script):
         return
     ts = _now()
@@ -349,8 +378,10 @@ def run(key: str, issue_number: str) -> int:
     except ValueError:
         threshold = 2
 
-    ws_script = os.path.join(repo_root, "plugins", "makato-orchestrate", "shared", "workflow-state.sh")
-    build_log_script = os.path.join(repo_root, "plugins", "makato-build", "shared", "build-log.sh")
+    script_dir = Path(__file__).resolve().parent
+    ws_script = str(script_dir.parent / "shared" / "workflow-state.sh")
+    build_root = _resolve_build_plugin_root(repo_root)
+    build_log_script = str(build_root / "shared" / "build-log.sh") if build_root else ""
 
     spec_folder = _resolve_spec_folder(specs_dir, key)
 

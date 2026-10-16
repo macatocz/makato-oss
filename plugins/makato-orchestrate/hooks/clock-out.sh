@@ -24,7 +24,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-WS="$REPO_ROOT/plugins/makato-orchestrate/shared/workflow-state.sh"
+WS="$SCRIPT_DIR/../shared/workflow-state.sh"
 
 # ---------------------------------------------------------------------------
 # Argument validation — exit 1 when required args are absent or malformed.
