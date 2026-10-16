@@ -85,17 +85,28 @@ if [[ ! "$TAIL_LIMIT" =~ ^[1-9][0-9]*$ ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Resolve build.jsonl. Mirror the resolution used by build-log.sh so this
-# helper never disagrees with the writer about which file to inspect.
+# Use the explicitly selected target checkout when present; otherwise resolve
+# build.jsonl from the same common git directory as build-log.sh.
 # ---------------------------------------------------------------------------
 if [[ -n "${MAKATO_BUILD_JSONL_OVERRIDE:-}" ]]; then
   LOG_FILE="$MAKATO_BUILD_JSONL_OVERRIDE"
 else
-  GIT_COMMON_DIR="$(git rev-parse --git-common-dir 2>/dev/null || true)"
-  if [[ -n "$GIT_COMMON_DIR" ]]; then
-    REPO_ROOT="$(cd "$GIT_COMMON_DIR/.." && pwd)"
+  if [[ -n "${MAKATO_TARGET_REPO_ROOT:-}" ]]; then
+    REPO_ROOT="$(cd "$MAKATO_TARGET_REPO_ROOT" 2>/dev/null && pwd -P)" || {
+      echo "check-session-tail: target repository root is not a directory: $MAKATO_TARGET_REPO_ROOT" >&2
+      exit 1
+    }
+    git -C "$REPO_ROOT" rev-parse --show-toplevel >/dev/null 2>&1 || {
+      echo "check-session-tail: target repository root is not a git checkout: $REPO_ROOT" >&2
+      exit 1
+    }
   else
-    REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+    GIT_COMMON_DIR="$(git rev-parse --git-common-dir 2>/dev/null || true)"
+    if [[ -n "$GIT_COMMON_DIR" ]]; then
+      REPO_ROOT="$(cd "$GIT_COMMON_DIR/.." && pwd)"
+    else
+      REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+    fi
   fi
   SPECS_DIR="$REPO_ROOT/specs"
 

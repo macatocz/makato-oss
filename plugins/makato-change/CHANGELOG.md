@@ -3,6 +3,14 @@
 
 ## [Unreleased]
 
+### Fixed — linked target root for change state and specs
+
+- **`orchestrate` skill v1.6.1** reads and updates change-state files under
+  `MAKATO_TARGET_REPO_ROOT` when supplied; its unset-override `show-toplevel`
+  fallback is unchanged.
+- **`design` skill v1.5.1** uses the target root for spec artifacts when set,
+  preserving the existing common-dir fallback otherwise.
+
 ### Fixed — host-qualified gh project-scope remediation
 
 - **`execute` skill v1.6.1** — the In Progress and In Review board updates keep `gh project

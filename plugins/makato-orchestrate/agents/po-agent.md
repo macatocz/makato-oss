@@ -8,7 +8,7 @@ description: >-
   review decisions, routes merge conflicts through `resolve-pr-conflict`, and
   terminates on a merged PR or documented HALT code. Sole writer of
   `workflow-state.json`. Owns the per-run worktree; never edits target source.
-version: "1.1.1"
+version: "1.1.2"
 maxTurns: 100
 permissionMode: bypassPermissions
 disallowedTools: NotebookEdit
@@ -1021,18 +1021,17 @@ without repeating commit/push operations already owned by a repair skill.
    still permits completion. A merged PR uses only the already-confirmed,
    matching green evidence described in #6; a closed-unmerged PR never succeeds.
    Only then patch `current_phase: "done"`. **Promote generalizable lessons to the
-   committed store** while the per-issue sources still exist in the main
-   checkout — this is the reliable local-lane promotion hook. The GHA
-   post-merge path cannot see the gitignored sources
+   committed store** while the per-issue sources still exist in the selected
+   target checkout (or the main checkout when no target override was supplied).
+   The GHA post-merge path cannot see the gitignored sources
    (`workflow-state-<N>.json` / `change-lessons.jsonl` under `specs/**`), and
    the `loop` orphan-specs reaper only promotes *fully-untracked* folders
    (its Guard 1 skips any folder with a tracked `build.jsonl`), so a standard
-   build-lane merge would otherwise promote nothing. `write-lessons.sh` writes
-   the sources to the **main checkout** (resolved via `git rev-parse
-   --git-common-dir`), so read from that same root:
+   build-lane merge would otherwise promote nothing. Read from the same
+   `MAKATO_TARGET_REPO_ROOT` used by `write-lessons.sh` and `workflow-state.sh`:
 
    ```bash
-   MAIN_ROOT="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)"
+   MAIN_ROOT="${MAKATO_TARGET_REPO_ROOT:-$(cd "$(git rev-parse --git-common-dir)/.." && pwd)}"
    plugins/makato-orchestrate/scripts/promote-lessons.sh \
      "<ISSUE_NUMBER>" \
      "${MAIN_ROOT}/specs" \

@@ -142,8 +142,20 @@ if [[ -z "$PR_NUMBER" ]]; then
   fi
 
   # Board-reset to Ready via gh project item-edit (best-effort; requires project config)
-  CLAUDE_CONFIG="$(cd "$(git rev-parse --git-common-dir 2>/dev/null || echo '.')/.." 2>/dev/null && \
-    cat .claude/config.json 2>/dev/null || true)"
+  if [[ -n "${MAKATO_TARGET_REPO_ROOT:-}" ]]; then
+    TARGET_ROOT="$(cd "$MAKATO_TARGET_REPO_ROOT" 2>/dev/null && pwd -P)" || {
+      echo "reconcile-before-resume: target repository root is not a directory: $MAKATO_TARGET_REPO_ROOT" >&2
+      exit 1
+    }
+    git -C "$TARGET_ROOT" rev-parse --show-toplevel >/dev/null 2>&1 || {
+      echo "reconcile-before-resume: target repository root is not a git checkout: $TARGET_ROOT" >&2
+      exit 1
+    }
+    CLAUDE_CONFIG="$(cat "$TARGET_ROOT/.claude/config.json" 2>/dev/null || true)"
+  else
+    CLAUDE_CONFIG="$(cd "$(git rev-parse --git-common-dir 2>/dev/null || echo '.')/.." 2>/dev/null && \
+      cat .claude/config.json 2>/dev/null || true)"
+  fi
   if [[ -n "$CLAUDE_CONFIG" ]]; then
     PROJECT_ID="$(printf '%s' "$CLAUDE_CONFIG" | jq -r '.github_project.project_id // empty' 2>/dev/null || true)"
     READY_OPTION_ID="$(printf '%s' "$CLAUDE_CONFIG" | jq -r '.github_project.status_options.ready // empty' 2>/dev/null || true)"

@@ -99,7 +99,35 @@ def extract_last_critical_errors(sub_tasks: list) -> list[str]:
 
 
 def resolve_repo_root() -> str:
-    """Resolve REPO_ROOT from the common git dir (works from worktrees)."""
+    """Resolve the target root first, then preserve common-dir and cwd fallbacks."""
+    target_repo_root = os.environ.get("MAKATO_TARGET_REPO_ROOT")
+    if target_repo_root:
+        try:
+            target_root = Path(target_repo_root).resolve(strict=True)
+        except (OSError, RuntimeError):
+            raise SystemExit(
+                f"emit-reshape-request: target repository root is not a directory: {target_repo_root}"
+            )
+        if not target_root.is_dir():
+            raise SystemExit(
+                f"emit-reshape-request: target repository root is not a directory: {target_repo_root}"
+            )
+        try:
+            target_repo = subprocess.run(
+                ["git", "-C", str(target_root), "rev-parse", "--show-toplevel"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except Exception:
+            raise SystemExit(
+                f"emit-reshape-request: target repository root is not a git checkout: {target_root}"
+            )
+        if target_repo.returncode != 0:
+            raise SystemExit(
+                f"emit-reshape-request: target repository root is not a git checkout: {target_root}"
+            )
+        return str(target_root)
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--git-common-dir"],

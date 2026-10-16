@@ -5,7 +5,7 @@ description: >-
   plan solution, produce design.md + spec-delta.md, and update GitHub issue.
   Use when analysis.md exists and requirements are clear. Triggers: technical
   design, solution planning, code discovery, implementation approach, design CR.
-version: "1.5.0"
+version: "1.5.1"
 argument-hint: "[ISSUE-KEY]"
 metadata:
   authors: ["makato-change"]
@@ -61,10 +61,8 @@ warning — leaving it without context for framework-specific code. The rule: if
 `RECOMMENDED_SKILLS_RESULT` is empty, omit the section entirely.
 
 **NEVER resolve REPO_ROOT using `pwd` or relative paths.**
-WHY: The skill often runs inside a git worktree whose CWD does not match the target
-repository. `pwd` returns the makato checkout, not the project under change. Always derive
-REPO_ROOT via the path-resolution algorithm in Step 1.5, which tries sibling-of-CWD and
-git-basename strategies before failing with a clear error message.
+WHY: In loop-dispatched runs, use `MAKATO_TARGET_REPO_ROOT` when set; otherwise
+Step 1.5 preserves the common-dir fallback.
 
 **NEVER write spec-delta.md as a section inside design.md.**
 WHY: `execute` reads these two artifacts separately. Merging them breaks the execute
@@ -111,9 +109,9 @@ affected:
 
 **Resolve path** using @shared/path-resolution.md algorithm:
 
-Determine base search directory using a stable root anchor — never `pwd`:
+Determine the base search directory using a stable root anchor — never an implicit `pwd`:
 ```bash
-MAKATO_ROOT="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)"
+MAKATO_ROOT="${MAKATO_TARGET_REPO_ROOT:-$(cd "$(git rev-parse --git-common-dir)/.." && pwd)}"
 SPECS_ROOT="${MAKATO_ROOT}/specs"
 ```
 

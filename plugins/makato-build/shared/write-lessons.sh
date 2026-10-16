@@ -96,19 +96,28 @@ case "$SCOPE" in
 esac
 
 # ---------------------------------------------------------------------------
-# Resolve to the MAIN checkout's repo root. From a worktree,
-# `git rev-parse --git-common-dir` echoes the main repo's `.git`; its parent is
-# the main checkout. specs/ is gitignored, so a per-run worktree has no specs/
-# content — the per-issue store must live in the main checkout so promote-lessons.sh
-# (which also resolves via the common dir) reads the same file. Identical
-# behaviour for non-worktree callers. Mirrors shared/build-log.sh.
+# Use the explicitly selected target checkout when the suite is orchestrating
+# from another repository or directory. With no target override, preserve the
+# existing common-dir behaviour so per-run worktrees share their lesson store
+# with the checkout the loop scans.
 # ---------------------------------------------------------------------------
-GIT_COMMON_DIR="$(git rev-parse --git-common-dir 2>/dev/null || true)"
-if [[ -n "$GIT_COMMON_DIR" ]]; then
-  REPO_ROOT="$(cd "$GIT_COMMON_DIR/.." && pwd)"
+if [[ -n "${MAKATO_TARGET_REPO_ROOT:-}" ]]; then
+  REPO_ROOT="$(cd "$MAKATO_TARGET_REPO_ROOT" 2>/dev/null && pwd -P)" || {
+    echo "write-lessons: target repository root is not a directory: $MAKATO_TARGET_REPO_ROOT" >&2
+    exit 1
+  }
+  git -C "$REPO_ROOT" rev-parse --show-toplevel >/dev/null 2>&1 || {
+    echo "write-lessons: target repository root is not a git checkout: $REPO_ROOT" >&2
+    exit 1
+  }
 else
-  # Outside a git repo (test fixtures / scratch) — degrade gracefully.
-  REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+  GIT_COMMON_DIR="$(git rev-parse --git-common-dir 2>/dev/null || true)"
+  if [[ -n "$GIT_COMMON_DIR" ]]; then
+    REPO_ROOT="$(cd "$GIT_COMMON_DIR/.." && pwd)"
+  else
+    # Outside a git repo (test fixtures / scratch) — degrade gracefully.
+    REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+  fi
 fi
 SPECS_DIR="$REPO_ROOT/specs"
 

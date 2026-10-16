@@ -185,9 +185,51 @@ rm -f "$SANDBOX/t10-missing.jsonl"
 assert_verdict "$SANDBOX/t10-missing.jsonl" build-create-pr no-log null \
   "T10 — missing build.jsonl yields verdict:no-log (early exit)"
 
+# ---------------------------------------------------------------------------
+# T11 — an explicit linked target root wins; unset env preserves common-dir.
+# ---------------------------------------------------------------------------
+ROOT_CASE="$SANDBOX/target-root"
+ROOT_CASE_MAIN="$ROOT_CASE/main"
+ROOT_CASE_TARGET="$ROOT_CASE/target"
+mkdir -p "$ROOT_CASE_MAIN"
+git -C "$ROOT_CASE_MAIN" init -q -b main
+git -C "$ROOT_CASE_MAIN" config user.email "session-tail-test@example.com"
+git -C "$ROOT_CASE_MAIN" config user.name "Session Tail Test"
+printf 'seed\n' > "$ROOT_CASE_MAIN/README.md"
+git -C "$ROOT_CASE_MAIN" add README.md
+git -C "$ROOT_CASE_MAIN" commit -q -m seed
+git -C "$ROOT_CASE_MAIN" worktree add -q -b target "$ROOT_CASE_TARGET" HEAD
+mkdir -p "$ROOT_CASE_TARGET/.claude/worktrees"
+ROOT_CASE_RUN="$ROOT_CASE_TARGET/.claude/worktrees/x"
+git -C "$ROOT_CASE_TARGET" worktree add -q --detach "$ROOT_CASE_RUN" HEAD
+
+ROOT_CASE_KEY="session-tail-target-root-137"
+ROOT_CASE_TARGET_SPEC="$ROOT_CASE_TARGET/specs/$ROOT_CASE_KEY-some-slug"
+ROOT_CASE_MAIN_SPEC="$ROOT_CASE_MAIN/specs/$ROOT_CASE_KEY-some-slug"
+mkdir -p "$ROOT_CASE_TARGET_SPEC" "$ROOT_CASE_MAIN_SPEC"
+cp "$SANDBOX/t1.jsonl" "$ROOT_CASE_TARGET_SPEC/build.jsonl"
+cp "$SANDBOX/t2.jsonl" "$ROOT_CASE_MAIN_SPEC/build.jsonl"
+
+ROOT_TARGET_OUTPUT="$(cd "$ROOT_CASE_RUN" && env -u MAKATO_BUILD_JSONL_OVERRIDE \
+  MAKATO_TARGET_REPO_ROOT="$ROOT_CASE_TARGET" \
+  "$GUARD" "$ROOT_CASE_KEY" build-create-pr)"
+ROOT_FALLBACK_OUTPUT="$(cd "$ROOT_CASE_RUN" && env -u MAKATO_BUILD_JSONL_OVERRIDE \
+  -u MAKATO_TARGET_REPO_ROOT \
+  "$GUARD" "$ROOT_CASE_KEY" build-create-pr)"
+ROOT_TARGET_VERDICT="$(jq -r '.verdict' <<<"$ROOT_TARGET_OUTPUT")"
+ROOT_FALLBACK_VERDICT="$(jq -r '.verdict' <<<"$ROOT_FALLBACK_OUTPUT")"
+if [[ "$ROOT_TARGET_VERDICT" == "ok" && "$ROOT_FALLBACK_VERDICT" == "error" ]]; then
+  PASS=$((PASS + 1))
+  echo "  ✓ T11 — explicit target root wins; unset env still reads common-dir main"
+else
+  FAIL=$((FAIL + 1))
+  printf '  ✗ T11 — target verdict=%s (expected ok), fallback=%s (expected error)\n' \
+    "$ROOT_TARGET_VERDICT" "$ROOT_FALLBACK_VERDICT" >&2
+fi
+
 echo ""
 echo "check-session-tail smoke tests: $PASS passed, $FAIL failed."
 if [[ "$FAIL" -gt 0 ]]; then
   exit 1
 fi
-echo "All 10 tests passed."
+echo "All 11 tests passed."

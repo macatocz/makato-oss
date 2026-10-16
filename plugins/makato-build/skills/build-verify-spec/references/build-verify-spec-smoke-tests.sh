@@ -46,7 +46,7 @@ run_smoke() {
     [[ -n "$delta"   ]] && printf '%s' "$delta"   > "$spec_dir/spec-delta.md"
 
     set +e
-    OUT="$(REPO_ROOT="$SANDBOX" PY_MODULE="$PY_MODULE" \
+    OUT="$(env -u MAKATO_TARGET_REPO_ROOT REPO_ROOT="$SANDBOX" PY_MODULE="$PY_MODULE" \
         bash "$SCRIPT" "$key" "$SANDBOX/diff.txt" 2>&1)"
     RC=$?
     set -e
@@ -121,5 +121,35 @@ echo "$OUT" | grep -q "GAP"    || fail "S3: GAP verdict not shown"
 echo "$OUT" | grep -q "CRITICAL" || fail "S3: CRITICAL not present"
 pass "S3: GAP scenario detected, exit 1"
 
+# ---- S4: loop-selected target root wins over an inherited REPO_ROOT ---------
+echo "=== S4: target root selects spec artifacts from a nested run worktree ==="
+ROOT_MAIN="$SANDBOX/root-main"
+ROOT_TARGET="$SANDBOX/root-target"
+ROOT_RUN="$ROOT_TARGET/.claude/worktrees/x"
+mkdir -p "$ROOT_MAIN"
+git -C "$ROOT_MAIN" init -q -b main
+git -C "$ROOT_MAIN" config user.email "verify-spec-test@example.com"
+git -C "$ROOT_MAIN" config user.name "Verify Spec Test"
+printf 'seed\n' > "$ROOT_MAIN/README.md"
+git -C "$ROOT_MAIN" add README.md
+git -C "$ROOT_MAIN" commit -q -m seed
+git -C "$ROOT_MAIN" worktree add -q -b target "$ROOT_TARGET" HEAD
+mkdir -p "$ROOT_TARGET/.claude/worktrees"
+git -C "$ROOT_TARGET" worktree add -q --detach "$ROOT_RUN" HEAD
+ROOT_SPEC="$ROOT_TARGET/specs/target-root-smoke"
+mkdir -p "$ROOT_SPEC"
+printf '%s' "$PLAN_PASS" > "$ROOT_SPEC/plan-1.md"
+printf '%s' "$STORIES_PASS" > "$ROOT_SPEC/stories.json"
+printf '%s' "$DIFF_PASS" > "$SANDBOX/root-diff.txt"
+set +e
+OUT="$(cd "$ROOT_RUN" && REPO_ROOT="$ROOT_MAIN" MAKATO_TARGET_REPO_ROOT="$ROOT_TARGET" \
+    PY_MODULE="$PY_MODULE" bash "$SCRIPT" target-root-smoke "$SANDBOX/root-diff.txt" 2>&1)"
+RC=$?
+set -e
+[[ $RC -eq 0 ]] || fail "S4: target-root spec lookup failed, got $RC. Output: $OUT"
+[[ ! -e "$ROOT_MAIN/specs/target-root-smoke" ]] || fail "S4: wrote/used a main-checkout spec folder"
+pass "S4: target root wins over inherited REPO_ROOT from a nested run worktree"
+
 echo ""
-echo "All smoke tests passed."
+echo "All 4 smoke tests passed."
+

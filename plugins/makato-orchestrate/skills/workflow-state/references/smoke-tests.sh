@@ -6,7 +6,8 @@
 #
 # T1–T34: existing coverage — updated for the per-issue file layout (#173).
 # T35–T42: new coverage for the per-issue file layout.
-# T67–T72: append-decision subcommand (#603).
+# T67–T72: append-decision subcommand (#603); T73: consumer-repo structural-halt audit (#136);
+# T74–T75: target-root override (#137).
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
@@ -916,5 +917,66 @@ fi
 echo "  ✓ non-JSON input rejected"
 
 rm -rf "$SANDBOX_603"
+echo
+# ---------------------------------------------------------------------------
+# T74–T75: linked target worktree root selection (#137).
+# ---------------------------------------------------------------------------
+ROOT_CASE_TMP="$(mktemp -d)"
+trap 'cleanup; rm -rf "$ROOT_CASE_TMP"' EXIT
+ROOT_CASE_MAIN="$ROOT_CASE_TMP/main"
+ROOT_CASE_TARGET="$ROOT_CASE_TMP/target"
+ROOT_CASE_ALIAS="$ROOT_CASE_TMP/target-alias"
+mkdir -p "$ROOT_CASE_MAIN"
+git -C "$ROOT_CASE_MAIN" init -q -b main
+git -C "$ROOT_CASE_MAIN" config user.email "workflow-state-test@example.com"
+git -C "$ROOT_CASE_MAIN" config user.name "Workflow State Test"
+printf 'seed\n' > "$ROOT_CASE_MAIN/README.md"
+git -C "$ROOT_CASE_MAIN" add README.md
+git -C "$ROOT_CASE_MAIN" commit -q -m seed
+git -C "$ROOT_CASE_MAIN" worktree add -q -b target "$ROOT_CASE_TARGET" HEAD
+mkdir -p "$ROOT_CASE_TARGET/.claude/worktrees"
+ROOT_CASE_RUN="$ROOT_CASE_TARGET/.claude/worktrees/x"
+git -C "$ROOT_CASE_TARGET" worktree add -q --detach "$ROOT_CASE_RUN" HEAD
+ln -s "$ROOT_CASE_TARGET" "$ROOT_CASE_ALIAS"
 
-echo "All 73 smoke tests passed."
+ROOT_KEY="target-root-137-smoke"
+ROOT_ISSUE=13701
+echo "=== T74: target root wins from a nested per-run worktree; unset env keeps main checkout ==="
+(cd "$ROOT_CASE_RUN" && env -u SPECS_DIR \
+  MAKATO_TARGET_REPO_ROOT="$ROOT_CASE_ALIAS" \
+  "$WS" init "$ROOT_KEY" macatocz/test feat/target-root 13701 >/dev/null)
+ROOT_TARGET_STATE="$ROOT_CASE_TARGET/specs/$ROOT_KEY/workflow-state-$ROOT_ISSUE.json"
+ROOT_MAIN_STATE="$ROOT_CASE_MAIN/specs/$ROOT_KEY/workflow-state-$ROOT_ISSUE.json"
+test -f "$ROOT_TARGET_STATE"
+test ! -e "$ROOT_MAIN_STATE"
+ROOT_STATE_JSON="$(cd "$ROOT_CASE_RUN" && env -u SPECS_DIR \
+  MAKATO_TARGET_REPO_ROOT="$ROOT_CASE_TARGET" \
+  "$WS" read "$ROOT_KEY" "$ROOT_ISSUE")"
+jq -e '.repo == "macatocz/test"' <<<"$ROOT_STATE_JSON" >/dev/null
+
+ROOT_FALLBACK_KEY="fallback-root-137-smoke"
+ROOT_FALLBACK_ISSUE=13702
+(cd "$ROOT_CASE_RUN" && env -u SPECS_DIR -u MAKATO_TARGET_REPO_ROOT \
+  "$WS" init "$ROOT_FALLBACK_KEY" macatocz/test feat/fallback 13702 >/dev/null)
+ROOT_FALLBACK_MAIN="$ROOT_CASE_MAIN/specs/$ROOT_FALLBACK_KEY/workflow-state-$ROOT_FALLBACK_ISSUE.json"
+ROOT_FALLBACK_TARGET="$ROOT_CASE_TARGET/specs/$ROOT_FALLBACK_KEY/workflow-state-$ROOT_FALLBACK_ISSUE.json"
+test -f "$ROOT_FALLBACK_MAIN"
+test ! -e "$ROOT_FALLBACK_TARGET"
+ROOT_FALLBACK_JSON="$(cd "$ROOT_CASE_RUN" && env -u SPECS_DIR -u MAKATO_TARGET_REPO_ROOT \
+  "$WS" read "$ROOT_FALLBACK_KEY" "$ROOT_FALLBACK_ISSUE")"
+jq -e '.repo == "macatocz/test"' <<<"$ROOT_FALLBACK_JSON" >/dev/null
+echo "  ✓ explicit target root writes/reads target specs; unset env still writes/reads main specs"
+
+echo "=== T75: non-directory target root fails clearly ==="
+ROOT_NOT_DIR="$ROOT_CASE_TMP/not-a-directory"
+printf 'not a directory\n' > "$ROOT_NOT_DIR"
+if (cd "$ROOT_CASE_RUN" && env -u SPECS_DIR \
+  MAKATO_TARGET_REPO_ROOT="$ROOT_NOT_DIR" \
+  "$WS" init invalid-target-root macatocz/test feat/invalid 13703 >/dev/null 2>"$ROOT_CASE_TMP/error"); then
+  echo "  ✗ FAIL: invalid target root was accepted"
+  exit 1
+fi
+grep -F "workflow-state: target repository root is not a directory:" "$ROOT_CASE_TMP/error" >/dev/null
+echo "  ✓ invalid target root rejected with a clear diagnostic"
+
+echo "All 75 smoke tests passed."

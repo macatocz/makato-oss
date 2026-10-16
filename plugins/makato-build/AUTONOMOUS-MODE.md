@@ -358,16 +358,15 @@ The skill-level guard is the more important enforcement point: a skill running i
 
 ### Two roots, one contract — `WORKTREE_PATH` vs `REPO_ROOT`
 
-Worktree isolation has a non-obvious consequence: not every read or write belongs in the worktree. `specs/<key>-*/` is `.gitignore`d at the repo root (see the repo-level `.gitignore`), so a fresh `git worktree add` produces a worktree with NO `specs/` content. Two artefacts therefore have distinct correct homes:
+Spec files under `specs/<key>-*/` are gitignored, so spec/audit artifacts use
+`MAKATO_TARGET_REPO_ROOT` when set and the common-dir main checkout otherwise.
 
 | Artefact | Lives in | Why |
 |----------|----------|-----|
 | Source-tree edits, `git commit`, `git push`, test runs | `WORKTREE_PATH` | The branch HEAD only moves in the worktree; commits to the main checkout would target the wrong branch. |
-| `specs/<key>-*/plan.md`, `stories.json`, `prd.md`, `.github/PULL_REQUEST_TEMPLATE.md`, `created-issues.json` | Main checkout (`REPO_ROOT`) | `specs/` is gitignored and exists only on the main checkout. A worktree-relative read returns nothing or an error. |
-| `specs/<key>-*/build.jsonl`, `orchestrate.jsonl` | Main checkout (`REPO_ROOT`) | The audit trail is single-writer across all worktrees of a run; `"$MAKATO_BUILD_ROOT/shared/build-log.sh"` resolves `REPO_ROOT` from `git rev-parse --git-common-dir` so logs land in one place. |
+| `specs/<key>-*/plan.md`, `stories.json`, `prd.md`, `created-issues.json` | Selected target checkout (`REPO_ROOT`) when `MAKATO_TARGET_REPO_ROOT` is set; otherwise the main checkout | The target override keeps state with the root scanned by the loop; the common-dir fallback shares gitignored specs across per-run worktrees. |
+| `specs/<key>-*/build.jsonl`, `orchestrate.jsonl` | Selected target checkout (`REPO_ROOT`) when `MAKATO_TARGET_REPO_ROOT` is set; otherwise the main checkout | The audit trail is single-writer across all worktrees of a run; `build-log.sh` uses the target override first, then `git rev-parse --git-common-dir`. |
 | `.github/PULL_REQUEST_TEMPLATE.md` | Whichever checkout has it tracked — both, in this repo's setup | Tracked file; `git -C "$WORKTREE_PATH"` reads it fine. The point is that *reading the spec artefact next to it (`plan.md`)* still requires `REPO_ROOT`. |
-
-**Resolving the two roots:**
 
 ```bash
 # Worktree path — workspace isolation (file edits, git ops, test runs).
@@ -376,16 +375,11 @@ if [[ -z "${WORKTREE_PATH:-}" ]]; then
   WORKTREE_PATH="$(git rev-parse --show-toplevel)"
 fi
 # Repo root — spec/audit-trail reads (plan.md, stories.json, build.jsonl).
-# `--git-common-dir` echoes the main repo's .git from inside a worktree;
-# its parent is the main checkout. From the main checkout it echoes `.git`.
-REPO_ROOT="$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)"
+REPO_ROOT="${MAKATO_TARGET_REPO_ROOT:-$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)}"
 ````
 
-`"$MAKATO_BUILD_ROOT/shared/build-log.sh"` already encapsulates the `REPO_ROOT` derivation and is the single point that
-resolves `specs/<key>-*/build.jsonl` correctly from either checkout. Skills that read spec artefacts
-directly (e.g. `build-push-to-git` and `build-create-pr` reading `plan.md` in Step 1) MUST resolve
-`REPO_ROOT` via the snippet above and read `$REPO_ROOT/specs/<key>-*/...` — never via
-`$WORKTREE_PATH/specs/...`.
+`build-log.sh` uses the target override or common-dir fallback; direct spec readers MUST use
+`$REPO_ROOT/specs/<key>-*/...`, not `$WORKTREE_PATH/specs/...`.
 
 **Skills that consume this contract:**
 

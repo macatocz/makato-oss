@@ -6,7 +6,7 @@ description: >-
   to How to Test, design decisions surface in the description, Jira
   story is linked. Presents draft for user approval before opening.
   Autonomous runs reuse an open PR and wait for build-fix-ci before handoff.
-version: "1.12.1"
+version: "1.12.2"
 argument-hint: "[work-item-key] [--autonomous]"
 allowed-tools:
   - Bash
@@ -61,10 +61,11 @@ interactive mode the guard falls back to `git rev-parse --show-toplevel`. After
 resolution, `cd "$WORKTREE_PATH"` — every `git`/`gh pr create` command below
 runs from this CWD.
 
-**Spec-artefact reads use `REPO_ROOT`, not `WORKTREE_PATH`.** `specs/<key>-*/` is gitignored at the repo root; a fresh `git worktree add` produces a worktree with NO `specs/` content. Resolve `REPO_ROOT` once at entry alongside the worktree:
+**Spec-artefact reads use `REPO_ROOT`, not `WORKTREE_PATH`; `MAKATO_TARGET_REPO_ROOT`
+selects the root when set, otherwise the common-dir fallback selects the main checkout.**
 
 ```bash
-REPO_ROOT="$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)"
+REPO_ROOT="${MAKATO_TARGET_REPO_ROOT:-$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)}"
 ```
 
 Every spec-artefact path resolved in Step 1 below (`stories.json`, `prd.md`,

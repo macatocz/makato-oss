@@ -5,7 +5,7 @@ description: >-
   runtime, write tests after. Autonomous. Use after refine for UI,
   config, or migration work, or when implement-goal tasks remain
   from a mixed plan.
-version: "1.7.0"
+version: "1.7.1"
 argument-hint: "[work-item-key]"
 allowed-tools: [Bash]
 metadata:
@@ -52,10 +52,10 @@ interactive mode the guard falls back to `git rev-parse --show-toplevel`.
 After resolution, `cd "$WORKTREE_PATH"` so every BUILD / VERIFY RUNTIME / TEST
 / VERIFY command runs in the correct worktree.
 
-Spec-folder reads (`plan.md`, `prototype.html`, `design.md`) operate on the MAIN checkout, not the worktree (`specs/` is gitignored). Resolve `REPO_ROOT` once at entry:
+Spec-folder reads use `MAKATO_TARGET_REPO_ROOT` when set and the common-dir fallback otherwise.
 
 ```bash
-REPO_ROOT="$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)"
+REPO_ROOT="${MAKATO_TARGET_REPO_ROOT:-$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)}"
 ```
 
 Spec-artefact paths below resolve to `$REPO_ROOT/specs/<key>-*/...`.
@@ -286,7 +286,8 @@ WHY: The fix-vs-escalate threshold exists precisely because the temptation is to
 WHY: The plan-analyst agent is the sole reader of `plan.md` during a session. Re-reading it independently creates a divergence risk when `plan.md` is updated mid-session (rare but possible in concurrent PO-agent runs), and bypasses the glossary-constraint enrichment that only the agent applies.
 
 **NEVER use `pwd` to derive `REPO_ROOT` in a worktree session.**
-WHY: `pwd` inside a git worktree returns the worktree directory (e.g. `.claude/worktrees/<branch>`), not the main checkout. `specs/` is gitignored and lives only in the main checkout. Using `pwd` silently produces a path where `specs/<key>-*/plan.md` does not exist, causing a false "plan not found" error that wastes a full session before the root cause is discovered. Always use `git -C "$WORKTREE_PATH" rev-parse --git-common-dir` to derive `REPO_ROOT`.
+WHY: A per-run worktree is not always the selected target checkout; use
+`MAKATO_TARGET_REPO_ROOT` when set or preserve common-dir sharing otherwise.
 
 **NEVER skip the WORKTREE_PATH falsy-check in autonomous mode.**
 WHY: In autonomous mode there is no user present to answer `AskUserQuestion`. If `WORKTREE_PATH` is empty and the falsy-check is skipped, Step 1 will invoke `AskUserQuestion` for the work-item-key, which blocks forever — the session deadlocks and the PO-agent loop stalls until the kill-switch TTL expires. The check must run before Step 1, not at Step 1.

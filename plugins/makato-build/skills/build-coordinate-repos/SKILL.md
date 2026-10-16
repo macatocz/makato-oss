@@ -3,7 +3,7 @@ name: build-coordinate-repos
 description: >-
   Coordinate multi-repo story PRs — pre-flight each repo, open cross-linked PRs,
   link to Jira, post coordination comment. Use when a story spans multiple repositories.
-version: "1.0.0"
+version: "1.0.1"
 argument-hint: "[story-key]"
 allowed-tools: Bash(git *) Bash(gh *) Read Write Grep Glob
 metadata:
@@ -37,7 +37,7 @@ comment. Replaces manual multi-repo PR coordination.
 Read `build.jsonl` for the current story key and identify all repos that have been pushed:
 
 ```bash
-REPO_ROOT=$(git rev-parse --show-toplevel)
+REPO_ROOT="${MAKATO_TARGET_REPO_ROOT:-$(git rev-parse --show-toplevel)}"
 ```
 
 Extract unique repository paths from `build.jsonl` entries with `repo` field or from

@@ -18,7 +18,7 @@ SANDBOX="$REPO_ROOT/specs/${KEY}"
 GH_STUB="$(mktemp -d)"
 export MAKATO_PC_GH_STUB="$GH_STUB"
 
-cleanup() { rm -rf "$SANDBOX" "$GH_STUB"; }
+cleanup() { rm -rf "$SANDBOX" "$GH_STUB"; [[ -z "${ROOT_CASE_TMP:-}" ]] || rm -rf "$ROOT_CASE_TMP"; }
 trap cleanup EXIT
 cleanup 2>/dev/null || true
 mkdir -p "$SANDBOX" "$GH_STUB"
@@ -138,6 +138,39 @@ echo "=== T11: plan-validated note appears with clock ==="
 PV_BODY="$(stub_body "$(state_id)")"
 check "T11: plan-validated text present"       grep -q "Plan validated — proceeding to build-refine" <<<"$PV_BODY"
 check "T11: note line starts with HH:MM:SS"   grep -qE '^- [0-9]{2}:[0-9]{2}:[0-9]{2} \| Plan validated' <<<"$PV_BODY"
+
+echo "=== T12: comment id persists in a linked target root without WARN ==="
+ROOT_CASE_TMP="$(mktemp -d)"
+ROOT_CASE_MAIN="$ROOT_CASE_TMP/main"
+ROOT_CASE_TARGET="$ROOT_CASE_TMP/target"
+mkdir -p "$ROOT_CASE_MAIN"
+git -C "$ROOT_CASE_MAIN" init -q -b main
+git -C "$ROOT_CASE_MAIN" config user.email "progress-comment-test@example.com"
+git -C "$ROOT_CASE_MAIN" config user.name "Progress Comment Test"
+printf 'seed\n' > "$ROOT_CASE_MAIN/README.md"
+git -C "$ROOT_CASE_MAIN" add README.md
+git -C "$ROOT_CASE_MAIN" commit -q -m seed
+git -C "$ROOT_CASE_MAIN" worktree add -q -b target "$ROOT_CASE_TARGET" HEAD
+mkdir -p "$ROOT_CASE_TARGET/.claude/worktrees"
+ROOT_CASE_RUN="$ROOT_CASE_TARGET/.claude/worktrees/x"
+git -C "$ROOT_CASE_TARGET" worktree add -q --detach "$ROOT_CASE_RUN" HEAD
+
+ROOT_KEY="progress-comment-target-root-137"
+ROOT_ISSUE=13701
+(cd "$ROOT_CASE_RUN" && env SPECS_DIR="$ROOT_CASE_TARGET/specs" \
+  MAKATO_TARGET_REPO_ROOT="$ROOT_CASE_TARGET" \
+  "$WS" init "$ROOT_KEY" "$REPO" feat/target-progress "$ROOT_ISSUE" >/dev/null)
+(cd "$ROOT_CASE_RUN" && env -u SPECS_DIR MAKATO_TARGET_REPO_ROOT="$ROOT_CASE_TARGET" \
+  "$PC" start "$ROOT_KEY" "$ROOT_ISSUE" "$REPO" --skill build-verify \
+  --goal "persist progress comment" >/dev/null 2>"$ROOT_CASE_TMP/stderr")
+ROOT_STATE="$ROOT_CASE_TARGET/specs/$ROOT_KEY/workflow-state-$ROOT_ISSUE.json"
+ROOT_MAIN_STATE="$ROOT_CASE_MAIN/specs/$ROOT_KEY/workflow-state-$ROOT_ISSUE.json"
+ROOT_COMMENT_ID="$(jq -r '.progress_comment_id // empty' "$ROOT_STATE" 2>/dev/null || true)"
+check "T12: progress_comment_id persisted under target specs" test -n "$ROOT_COMMENT_ID"
+check "T12: main checkout received no duplicate state file" test ! -e "$ROOT_MAIN_STATE"
+check "T12: root split produced no progress-comment WARN" \
+  bash -c '! grep -q "WARN.*could not persist progress_comment_id" "$1"' _ "$ROOT_CASE_TMP/stderr"
+check "T12: associated comment was created" test -f "$GH_STUB/comment-$ROOT_COMMENT_ID.md"
 
 echo ""
 echo "progress-comment smoke: $pass passed, $fail failed"

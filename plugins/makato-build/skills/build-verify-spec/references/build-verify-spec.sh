@@ -33,7 +33,16 @@ SPEC_KEY="${1:?usage: build-verify-spec.sh <SPEC_KEY> [<diff-file>]}"
 DIFF_ARG="${2:-}"
 
 # ---- Resolve repo root ---------------------------------------------------
-if [[ -z "${REPO_ROOT:-}" ]]; then
+if [[ -n "${MAKATO_TARGET_REPO_ROOT:-}" ]]; then
+    REPO_ROOT="$(cd "$MAKATO_TARGET_REPO_ROOT" 2>/dev/null && pwd -P)" || {
+        echo "build-verify-spec: target repository root is not a directory: $MAKATO_TARGET_REPO_ROOT" >&2
+        exit 2
+    }
+    git -C "$REPO_ROOT" rev-parse --show-toplevel >/dev/null 2>&1 || {
+        echo "build-verify-spec: target repository root is not a git checkout: $REPO_ROOT" >&2
+        exit 2
+    }
+elif [[ -z "${REPO_ROOT:-}" ]]; then
     REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null \
         || { echo "build-verify-spec: cannot determine REPO_ROOT — set REPO_ROOT env or run from a git repo" >&2; exit 2; })"
 fi

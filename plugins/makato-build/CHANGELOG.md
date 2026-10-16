@@ -10,6 +10,23 @@ here on merge to main; release-please will date and version them at the next rel
 
 ## [Unreleased]
 
+### Fixed — target-checkout roots for worktree-dispatched skills and lessons
+
+- **`shared/write-lessons.sh`** now writes per-issue lesson summaries under
+  `MAKATO_TARGET_REPO_ROOT` when set and preserves common-dir sharing otherwise;
+  a nested linked/per-run worktree regression covers both cases.
+- **`build-verify-spec.sh`** resolves spec artifacts from the selected target root even when
+  `REPO_ROOT` is already inherited, with linked/per-run worktree regression coverage.
+- **`build-address-pr-comments` v1.7.1**, **`build-coordinate-repos` v1.0.1**,
+  **`build-create-pr` v1.12.2**, **`build-grill-with-docs` v1.9.1**,
+  **`build-implement-goal` v1.7.1**, **`build-implement-tdd` v1.13.2**,
+  **`build-push-to-git` v1.7.1**, **`build-refine` v1.14.1**,
+  **`build-review` v1.7.1**, **`build-runtime-qa` v1.0.3**, and
+  **`build-simplify` v1.4.3** — spec/audit root instructions honor the
+  override while preserving each skill's existing fallback behavior.
+- `AUTONOMOUS-MODE.md` now documents the selected target root and its unchanged
+  unset-override sharing fallback.
+
 ### Changed — build-refine: per-task budget (v1.14.0)
 
 - Step 8 and `references/task-sizing-guide.md` now cap each task at what one `coder` dispatch can

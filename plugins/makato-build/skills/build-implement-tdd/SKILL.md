@@ -6,7 +6,7 @@ description: >-
   Tracer bullet phase for multi-layer stories. Autonomous loop. Use
   after refine to implement-tdd a story plan, implement tdd tasks, or
   run the core build loop.
-version: "1.13.1"
+version: "1.13.2"
 argument-hint: "[work-item-key]"
 allowed-tools: ["Bash", "Read"]
 metadata:
@@ -73,10 +73,11 @@ interactive mode the guard falls back to `git rev-parse --show-toplevel`. After
 resolution, `cd "$WORKTREE_PATH"` so every subsequent git/test/file-edit lands
 in the correct working tree.
 
-Spec-folder reads (`plan.md`, `build.jsonl` audit appends) operate on the MAIN checkout, not the worktree (`specs/` is gitignored). Resolve `REPO_ROOT` once at entry:
+Spec-folder reads and audit appends use the selected target root when
+`MAKATO_TARGET_REPO_ROOT` is set, otherwise the common-dir fallback.
 
 ```bash
-REPO_ROOT="$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)"
+REPO_ROOT="${MAKATO_TARGET_REPO_ROOT:-$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)}"
 ```
 
 `plan.md` and `build.jsonl` paths below resolve to `$REPO_ROOT/specs/<key>-*/...`. The `shared/build-log.sh` helper handles this for JSONL appends automatically; spec-artefact reads use `REPO_ROOT` explicitly.

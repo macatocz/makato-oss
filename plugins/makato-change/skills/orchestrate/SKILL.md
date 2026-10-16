@@ -7,7 +7,7 @@ description: >-
   interactive coordination. Keywords: orchestrate change request, resume CR
   workflow, which phase next, coordinate change workflow, guided change,
   autonomous change dispatch.
-version: "1.6.0"
+version: "1.6.1"
 argument-hint: "[ISSUE-KEY] [--autonomous]"
 allowed-tools: Bash, Skill
 metadata:
@@ -306,7 +306,7 @@ Based on user selection (or autonomous phase recommendation), invoke the appropr
 Re-read the current worktree path from state immediately before each phase dispatch:
 
 ```bash
-REPO_ROOT="$(git rev-parse --show-toplevel)"
+REPO_ROOT="${MAKATO_TARGET_REPO_ROOT:-$(git rev-parse --show-toplevel)}"
 WORKTREE_PATH="$(jq -r '.worktree_path // ""' \
   "${REPO_ROOT}/specs/<ISSUE_KEY>/change-state-<N>.json")"
 ```
@@ -361,7 +361,7 @@ After the invoked skill completes:
 
    ```bash
    PHASE_DONE="analyze"  # substitute current phase
-   REPO_ROOT="$(git rev-parse --show-toplevel)"
+   REPO_ROOT="${MAKATO_TARGET_REPO_ROOT:-$(git rev-parse --show-toplevel)}"
    STATE="${REPO_ROOT}/specs/<ISSUE_KEY>/change-state-<N>.json"
    jq --arg p "$PHASE_DONE" '.phases_complete += [$p] | .updated_at = (now | todate)' \
      "$STATE" > tmp.json && mv tmp.json "$STATE"
