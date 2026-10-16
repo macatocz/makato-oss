@@ -5,6 +5,13 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Fixed — host-qualified gh project-scope remediation
+
+- **`seed-issue` skill v1.4.1** — the Status=Ready board step keeps `gh project item-list` stderr.
+  When the token lacks the `project` scope it logs
+  `gh auth refresh --hostname $HOST --scopes project,read:project` and the device-login URL, then
+  skips the item-add and item-edit calls instead of trying to add the issue to the board.
+
 ### Changed — delegate CI recovery to the shared coordinator
 
 - PO-agent consumes `build-fix-ci` results instead of duplicating the CI poll and

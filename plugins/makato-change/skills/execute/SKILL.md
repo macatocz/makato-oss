@@ -7,7 +7,7 @@ description: >-
   approved and the user is ready to write code. Trigger keywords:
   implementation, coding changes, test updates, PR creation, execute change,
   apply design, implement change request.
-version: "1.6.0"
+version: "1.6.1"
 argument-hint: "[ISSUE-KEY]"
 allowed-tools: Bash
 metadata:
@@ -162,14 +162,17 @@ Mark the issue as In Progress on the GitHub Projects board immediately — befor
 
 1. Find the board item and its current status:
    ```bash
+   BOARD_ERR="$(mktemp)"
    ITEM_LINE="$(GH_HOST="$HOST" gh project item-list "$PROJECT_NUMBER" \
      --owner "$OWNER" --format json --limit 9999 \
-     --jq ".items[] | select(.content.number == $ISSUE_NUMBER)" 2>/dev/null \
+     --jq ".items[] | select(.content.number == $ISSUE_NUMBER)" 2>"$BOARD_ERR" \
      | head -1)"
    ITEM_ID="$(jq -r '.id // empty' <<<"$ITEM_LINE")"
    CUR_STATUS="$(jq -r '.status // empty' <<<"$ITEM_LINE")"
    ```
-   If `ITEM_ID` is empty: log `execute: WARN — issue #$ISSUE_NUMBER not found on board; skipping In Progress update` and continue.
+   If `$BOARD_ERR` contains `missing required scopes`, `has not been granted the required scopes`, or `requires the 'project' scope`: log `execute: WARN — gh token lacks the project scope; run 'gh auth refresh --hostname $HOST --scopes project,read:project' and approve the one-time code at https://$HOST/login/device — board status not updated` and continue. Keep `--hostname`: without it, a non-interactive `gh auth refresh` exits with `--hostname required when not running interactively`, so never relay gh's own hostless hint. The device code expires after 15 minutes.
+
+   Otherwise, if `ITEM_ID` is empty: log `execute: WARN — issue #$ISSUE_NUMBER not found on board; skipping In Progress update` and continue.
 
 2. Set Status = In Progress (only if not already set):
    If `CUR_STATUS` is already `"In progress"`: log `execute: #$ISSUE_NUMBER is already In Progress — skipping` and continue.
@@ -182,7 +185,8 @@ Mark the issue as In Progress on the GitHub Projects board immediately — befor
      --single-select-option-id "$IN_PROGRESS_OPTION_ID"
    ```
    On success: log `execute: marked #$ISSUE_NUMBER as In Progress on project board`.
-   On failure: log `execute: WARN — could not set In Progress on board; continuing` (best-effort).
+   On a missing-scope failure (same stderr match as sub-step 1): log the project-scope WARN from sub-step 1 and continue.
+   On any other failure: log `execute: WARN — could not set In Progress on board; continuing` (best-effort).
 
 ### Step 1.7: Cross-ticket branch guard
 
@@ -656,15 +660,18 @@ Read project config from `.claude/config.json` (`github_project` block). Extract
 Otherwise, find the board item and advance its Status (same `gh project item-edit` pattern as Step 1.6 — never `gh issue edit --state`, which sets open/closed, not board column):
 
 ```bash
+BOARD_ERR="$(mktemp)"
 ITEM_LINE="$(GH_HOST="$HOST" gh project item-list "$PROJECT_NUMBER" \
   --owner "$OWNER" --format json --limit 9999 \
-  --jq ".items[] | select(.content.number == $ISSUE_NUMBER)" 2>/dev/null \
+  --jq ".items[] | select(.content.number == $ISSUE_NUMBER)" 2>"$BOARD_ERR" \
   | head -1)"
 ITEM_ID="$(jq -r '.id // empty' <<<"$ITEM_LINE")"
 CUR_STATUS="$(jq -r '.status // empty' <<<"$ITEM_LINE")"
 ```
 
-If `ITEM_ID` is empty: log `execute: WARN — issue not found on board; skipping In Review update` and continue.
+If `$BOARD_ERR` reports a missing scope (the Step 1.6 stderr match): log the Step 1.6 project-scope WARN and continue.
+
+Otherwise, if `ITEM_ID` is empty: log `execute: WARN — issue not found on board; skipping In Review update` and continue.
 
 If `CUR_STATUS` is already `"In review"`: log `execute: already In Review — skipping` and continue.
 
@@ -677,7 +684,8 @@ GH_HOST="$HOST" gh project item-edit \
   --single-select-option-id "$IN_REVIEW_OPTION_ID"
 ```
 
-On failure: log `execute: WARN — could not set In Review on board; continuing` (best-effort).
+On a missing-scope failure (the Step 1.6 stderr match): log the Step 1.6 project-scope WARN and continue.
+On any other failure: log `execute: WARN — could not set In Review on board; continuing` (best-effort).
 
 ### Step 10: Present Summary to User
 
