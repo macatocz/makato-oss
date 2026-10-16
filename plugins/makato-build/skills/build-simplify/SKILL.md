@@ -8,7 +8,7 @@ description: >-
   auto-approves SIMPLIFY findings and surfaces ESCALATE findings via R1.
   Use after implement-tdd or implement-goal, before review; also invoked
   by sensor-fixer / build-resolve-finding for code-complexity findings.
-version: "1.4.2"
+version: "1.4.3"
 argument-hint: "[work-item-key] [--autonomous]"
 allowed-tools: [Bash]
 ---
@@ -43,7 +43,7 @@ runs from this CWD.
 Spec-artefact reads use `$REPO_ROOT/specs/<key>-*/`:
 
 ```bash
-REPO_ROOT="$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)"
+REPO_ROOT="${MAKATO_TARGET_REPO_ROOT:-$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)}"
 ```
 
 ## Workflow
@@ -86,7 +86,7 @@ the test command independently, do not pick one manually, and do not consult
 `baseline-guide.md` for discovery (that guide only documents the broken-baseline
 gate; runner discovery is `gate-scout`'s job — #97). The dispatch prompt passes:
 
-- `REPO_ROOT` — absolute path to the target repository root (`"$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)"`).
+- `REPO_ROOT` — absolute target root from `MAKATO_TARGET_REPO_ROOT` or the common-dir fallback when unset.
 - `COVERAGE_HINT` — empty string (coverage is `build-verify`'s concern, not this skill's).
 
 The agent returns the structured Gate Commands map — `data.unit` is the unit-test command. Two outcomes:

@@ -4,7 +4,7 @@ description:
   Align implementation plan terminology to the codebase domain model — grill plan, terminology
   conflicts, glossary.md enrichment, ADR decisions. Use after /refine, before /implement-tdd or
   /implement-goal. Optional but recommended for complex stories.
-version: "1.9.0"
+version: "1.9.1"
 argument-hint: "[work-item-key]"
 allowed-tools: [Bash, Read, Glob]
 metadata:
@@ -48,9 +48,9 @@ Resolve the target repository root before reading any spec artifact:
 ```bash
 MAKATO_BUILD_ROOT="${MAKATO_BUILD_ROOT:-${CLAUDE_PLUGIN_ROOT:-${OMP_PLUGIN_ROOT:-${PLUGIN_ROOT:-$(git rev-parse --show-toplevel)/plugins/makato-build}}}}"
 if [[ -n "${WORKTREE_PATH:-}" ]]; then
-  REPO_ROOT="$(git -C "$WORKTREE_PATH" rev-parse --show-toplevel)"
+  REPO_ROOT="${MAKATO_TARGET_REPO_ROOT:-$(git -C "$WORKTREE_PATH" rev-parse --show-toplevel)}"
 else
-  REPO_ROOT="$(git rev-parse --show-toplevel)"
+  REPO_ROOT="${MAKATO_TARGET_REPO_ROOT:-$(git rev-parse --show-toplevel)}"
 fi
 ```
 

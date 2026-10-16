@@ -11,7 +11,7 @@ description: >-
   OUT-OF-SCOPE carry-over issue). Review-feedback promotion — codifies recurring
   MUST-FIX categories as permanent pre-commit checks (Step 5a + Step 6a).
   Interactive by default. Use after create-pr when review comments arrive.
-version: "1.7.0"
+version: "1.7.1"
 argument-hint: "[work-item-key] [--autonomous]"
 allowed-tools: ["Bash", "Read", "Edit", "Write"]
 ---
@@ -42,7 +42,7 @@ When dispatched by the PO-agent (`--autonomous` mode):
   runner plugin-root variables when not supplied.
 - `PR_NUMBER` / `REPO` — known PR and target `OWNER/REPO`; use them
   explicitly when supplied, validating the PR belongs to this worktree branch.
-- `REPO_ROOT`, `SPEC_FOLDER`, `JSONL_PATH` — main-checkout artifacts;
+- `REPO_ROOT`, `SPEC_FOLDER`, `JSONL_PATH` — target-checkout artifacts;
   resolve missing spec/log paths with the shared spec-folder resolver.
 - Optional sibling plugin roots — preserve verbatim in downstream context.
 - `--autonomous` — activation flag.
@@ -62,7 +62,7 @@ resolution, `cd "$WORKTREE_PATH"`.
 Spec-artefact reads use `$REPO_ROOT/specs/<key>-*/`:
 
 ```bash
-REPO_ROOT="$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)"
+REPO_ROOT="${MAKATO_TARGET_REPO_ROOT:-$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)}"
 ```
 
 ### Downstream skill dispatch

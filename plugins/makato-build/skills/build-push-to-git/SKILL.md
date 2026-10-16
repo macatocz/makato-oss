@@ -5,7 +5,7 @@ description: >-
   and push the feature branch to remote. One commit per logical task,
   individually bisectable. Confirms push before affecting remote.
   Use after verify, before create-pr.
-version: "1.7.0"
+version: "1.7.1"
 argument-hint: "[work-item-key] [--autonomous]"
 allowed-tools: [Bash]
 metadata:
@@ -67,10 +67,11 @@ interactive mode the guard falls back to `git rev-parse --show-toplevel`. After
 resolution, `cd "$WORKTREE_PATH"` — every `git`/`gh` command below runs from
 this CWD.
 
-**Spec-artefact reads use `REPO_ROOT`, not `WORKTREE_PATH`.** `specs/<key>-*/` is gitignored at the repo root and exists only on the main checkout — a fresh `git worktree add` produces a worktree with NO `specs/` content. Resolve `REPO_ROOT` once at entry alongside the worktree:
+**Spec-artefact reads use `REPO_ROOT`, not `WORKTREE_PATH`; `MAKATO_TARGET_REPO_ROOT`
+selects the root when set, otherwise the common-dir fallback.**
 
 ```bash
-REPO_ROOT="$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)"
+REPO_ROOT="${MAKATO_TARGET_REPO_ROOT:-$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)}"
 SPEC_FOLDER="$(
   python3 "$MAKATO_BUILD_ROOT/shared/spec_folder.py" "$REPO_ROOT" "<key>"
 )"
@@ -290,9 +291,9 @@ If option B: tell the user: "Run `/makato-build:build-create-pr <key>` when read
 In **normal autonomous mode**, skip the prompt and dispatch
 `makato-build:build-create-pr` with the work-item-key through the downstream
 skill boundary above. `AGENT_ID` carries activation; do not forward the
-`--autonomous` CLI flag. Forward `WORKTREE_PATH`, `REPO_ROOT`, `REPO`,
-`MAKATO_BUILD_ROOT`, optional sibling roots, `SPEC_FOLDER`, `JSONL_PATH`,
-and any known `EXISTING_PR_NUMBER` verbatim. Log
+`--autonomous` CLI flag. `WORKTREE_PATH` must be forwarded verbatim in the
+context bundle with `REPO_ROOT`, `REPO`, `MAKATO_BUILD_ROOT`, optional sibling
+roots, `SPEC_FOLDER`, `JSONL_PATH`, and any known `EXISTING_PR_NUMBER`. Log
 `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-push-to-git "<key>" create-pr-handoff invoke-create-pr "$AGENT_ID"`.
 
 Wait for `build-create-pr`, which itself waits for `build-fix-ci`. Copy

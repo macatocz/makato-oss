@@ -5,6 +5,20 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Fixed — honour linked target roots for workflow state and lessons
+
+- **`shared/workflow-state.sh`**, **`shared/check-session-tail.sh`**, the state-root
+  resolvers in `emit_reshape_request.py`, `emit_needs_planning_signal.py`, and
+  `lesson_prune.py`, and **`po-agent` v1.1.2** now use the canonical
+  `MAKATO_TARGET_REPO_ROOT` when supplied. With it unset, existing common-dir and
+  fallback behavior is preserved.
+- **`scripts/reconcile-before-resume.sh`** reads project configuration from the
+  selected target root; its unset-override path remains unchanged.
+- Added linked-worktree regression coverage for target-root selection, unset-env
+  main-checkout sharing, and invalid roots. The warning when saving a progress
+  comment ID was caused by `workflow-state.sh` looking for state in the wrong
+  checkout; resolving state through the target root fixes that call path.
+
 ### Fixed — installed plugin asset resolution outside the target repo
 
 - `emit_reshape_request.py` loads its schema beside the script; both emitters

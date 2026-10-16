@@ -7,7 +7,7 @@ description: >-
   Reports SUGGESTION and NITPICK findings. Use after simplify, before
   verify. Trigger keywords: review, adversarial, diff-review, code-review,
   quality-gate, build-review, check implementation.
-version: "1.7.0"
+version: "1.7.1"
 argument-hint: "[work-item-key]"
 allowed-tools:
   - Bash
@@ -56,7 +56,7 @@ workspace returns R1 failure, never a fallback to the main checkout.
 
 ```bash
 cd "$WORKTREE_PATH"
-REPO_ROOT="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)"
+REPO_ROOT="${MAKATO_TARGET_REPO_ROOT:-$(cd "$(git rev-parse --git-common-dir)/.." && pwd)}"
 SPEC_FOLDER="$(python3 "$MAKATO_BUILD_ROOT/shared/spec_folder.py" "$REPO_ROOT" "<key>")"
 ```
 
@@ -70,7 +70,7 @@ once for this run. Before **every** review pass, refresh `CHANGED_FILES` as the 
 union of `git diff --name-only "$REVIEW_BASE"` and `git ls-files --others --exclude-standard`.
 Use NUL-delimited output when processing paths programmatically. Read untracked files directly;
 `git diff` does not include them. All code reads and commands run in `WORKTREE_PATH`;
-only spec reads and audit writes use the common-root `SPEC_FOLDER`.
+only spec reads and audit writes use the selected `REPO_ROOT`-rooted `SPEC_FOLDER`.
 
 ---
 

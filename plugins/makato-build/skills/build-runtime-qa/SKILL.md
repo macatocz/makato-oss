@@ -8,7 +8,7 @@ description: >-
   Dispatched by the PO-agent after build-verify-spec succeeds and before
   build-push-to-git. Keywords: runtime-qa, playwright, acceptance-criteria,
   build-verify, runtime-verification, health-check.
-version: "1.0.2"
+version: "1.0.3"
 argument-hint: "<work-item-key> [--autonomous]"
 tools: Bash, Read, Agent
 metadata:
@@ -46,7 +46,7 @@ Two non-obvious routing choices govern this skill:
 |-------|----------|-------------|
 | `<work-item-key>` | yes | Positional argument (e.g. `123-add-feature`) |
 | `WORKTREE_PATH` | yes (autonomous) | Absolute path to the per-run git worktree |
-| `REPO_ROOT` | yes | Absolute path to the main checkout |
+| `REPO_ROOT` | yes | Absolute path to the selected target checkout |
 | `MAKATO_BUILD_ROOT` | yes | Absolute installed build-plugin root |
 | `--autonomous` | flag | Activation flag for headless mode |
 
@@ -68,7 +68,7 @@ else
   WORKTREE_PATH="$(git rev-parse --show-toplevel)"
 fi
 cd "$WORKTREE_PATH"
-REPO_ROOT="$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)"
+REPO_ROOT="${MAKATO_TARGET_REPO_ROOT:-$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)}"
 ```
 
 ### Step 1 — Detect runtime surface

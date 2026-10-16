@@ -4,7 +4,7 @@ description: >-
   Bridge a shaped Jira story, GitHub issue, or any work unit to an implementation plan — tasks, file
   targets, unit/integration test strategy, acceptance mapping. Use to start a build session before
   implement-tdd or implement-goal.
-version: "1.14.0"
+version: "1.14.1"
 
 argument-hint: "[work-item-key] [--autonomous]"
 allowed-tools:
@@ -37,17 +37,17 @@ When dispatched by the PO-agent on a re-plan cycle (`--autonomous` mode):
 - `<work-item-key>` — positional argument.
 - `WORKTREE_PATH` — absolute filesystem path to the per-run git worktree. **Mandatory in autonomous
   mode** (see `plugins/makato-build/AUTONOMOUS-MODE.md` § _WORKTREE_PATH — workspace-isolation
-  contract_). Plan-file writes target `$REPO_ROOT/specs/<key>-*/plan-<ISSUE_NUMBER>.md` (main
-  checkout — `specs/` is gitignored in worktrees); the worktree path is captured so the falsy-check
-  is symmetric across the pipeline.
+  contract_). Plan writes use the target root selected by
+  `MAKATO_TARGET_REPO_ROOT`, or the common-dir fallback when unset; `WORKTREE_PATH`
+  remains the implementation workspace.
 - `MAKATO_BUILD_ROOT` — absolute installed build-plugin root. Resolve from
   `CLAUDE_PLUGIN_ROOT`, `OMP_PLUGIN_ROOT`, or `PLUGIN_ROOT` when the caller does
   not supply it; use it for all suite-owned helpers and contract references.
 - `--autonomous` — activation flag.
 
 Interactive mode: `WORKTREE_PATH` may be supplied to resume the worktree created by `build-start`.
-If it is unset, this skill creates the worktree after resolving the spec folder in Step 2. The main
-checkout is used only as the control plane for `specs/` artifacts; never use it as the
+If it is unset, this skill creates the worktree after resolving the spec folder in Step 2.
+`MAKATO_TARGET_REPO_ROOT` selects the specs root; `WORKTREE_PATH` remains the
 implementation checkout.
 
 ### Workspace-isolation entry guard
@@ -61,7 +61,9 @@ existing path must be valid, while an unset path is created in Step 2.
 Spec-artefact reads + plan writes go to `$REPO_ROOT/specs/<key>-*/`:
 
 ```bash
-if [[ -n "${WORKTREE_PATH:-}" ]]; then
+if [[ -n "${MAKATO_TARGET_REPO_ROOT:-}" ]]; then
+  REPO_ROOT="$MAKATO_TARGET_REPO_ROOT"
+elif [[ -n "${WORKTREE_PATH:-}" ]]; then
   REPO_ROOT="$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)"
 else
   REPO_ROOT="$(git rev-parse --show-toplevel)"
@@ -176,9 +178,10 @@ test -n "$WORKTREE_PATH" && test -d "$WORKTREE_PATH"
 ```
 
 If the wrapper fails or returns an invalid path, stop immediately. Never continue against the main
-checkout. If `WORKTREE_PATH` was supplied, validate that it is a registered worktree and use it
-unchanged. Keep `REPO_ROOT` pointing at the common main checkout for spec reads and plan writes;
-pass `WORKTREE_PATH` to all implementation/codebase consumers.
+checkout. If `WORKTREE_PATH` was supplied, validate that it is a registered worktree and use it unchanged.
+
+Keep `REPO_ROOT` at `MAKATO_TARGET_REPO_ROOT` or the common-dir root when unset;
+pass `WORKTREE_PATH` to code consumers.
 
 Log the resolved absolute path:
 
@@ -686,11 +689,8 @@ coverage-blind implementation.
 
 ### NEVER use `pwd` or relative paths for REPO_ROOT in autonomous mode
 
-**WHY:** Claude Code dispatches build skills into git worktrees. `pwd` inside a worktree resolves to
-the worktree directory, not the main checkout where `specs/` lives. Plan-file writes to
-`specs/<key>-*/plan-<N>.md` must target the main checkout. Use
-`git -C "$WORKTREE_PATH" rev-parse --git-common-dir` and derive REPO_ROOT from it (Step 2 workspace
-guard).
+**WHY:** A per-run worktree is not always the target checkout; use
+`MAKATO_TARGET_REPO_ROOT` when set or preserve common-dir sharing otherwise.
 
 ## Autonomous Execution
 

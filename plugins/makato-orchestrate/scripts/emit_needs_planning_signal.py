@@ -50,7 +50,39 @@ def _now() -> str:
 
 
 def _repo_root() -> str:
-    """Return repo root via git --git-common-dir (worktree-aware), falling back to cwd."""
+    """Return the selected target root, else preserve git/cwd fallback behaviour."""
+    target_repo_root = os.environ.get("MAKATO_TARGET_REPO_ROOT")
+    if target_repo_root:
+        try:
+            target_root = Path(target_repo_root).resolve(strict=True)
+        except (OSError, RuntimeError):
+            raise SystemExit(
+                "emit-needs-planning-signal: target repository root is not a directory: "
+                f"{target_repo_root}"
+            )
+        if not target_root.is_dir():
+            raise SystemExit(
+                "emit-needs-planning-signal: target repository root is not a directory: "
+                f"{target_repo_root}"
+            )
+        try:
+            target_repo = subprocess.run(
+                ["git", "-C", str(target_root), "rev-parse", "--show-toplevel"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except Exception:
+            raise SystemExit(
+                "emit-needs-planning-signal: target repository root is not a git checkout: "
+                f"{target_root}"
+            )
+        if target_repo.returncode != 0:
+            raise SystemExit(
+                "emit-needs-planning-signal: target repository root is not a git checkout: "
+                f"{target_root}"
+            )
+        return str(target_root)
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--git-common-dir"],

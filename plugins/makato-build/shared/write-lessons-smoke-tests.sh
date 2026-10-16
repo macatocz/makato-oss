@@ -7,8 +7,8 @@
 # fields {ts, tier, text, tags, scope, key, repo}. The writer NEVER touches
 # .makato/memory/ — promotion is documentation-agent's job (via promote-lessons.sh).
 #
-# The tests build a throwaway git sandbox so the script's git-common-dir REPO_ROOT
-# resolution and `git remote get-url origin` repo derivation exercise real git plumbing.
+# The tests build a throwaway git sandbox so the script's target-root override,
+# common-dir fallback, and `git remote get-url origin` resolution use real plumbing.
 #
 # Coverage:
 #   T1  — script exists at expected path
@@ -23,7 +23,9 @@
 #   T10 — invalid scope (global) exits non-zero and appends nothing
 #   T11 — build-verify SKILL.md documents the write-lessons.sh call-site
 #   T12 — build-push-to-git SKILL.md documents the write-lessons.sh call-site
-#
+#   T13 — build-address-pr-comments SKILL.md documents the write-lessons.sh call-site
+#   T14 — target override writes in linked target; unset env preserves main
+#   T15 — invalid MAKATO_TARGET_REPO_ROOT fails clearly
 # Exit code: number of failures; 0 = all green.
 
 set -u
@@ -282,10 +284,88 @@ else
   _fail "write-lessons.sh call-site missing from build-address-pr-comments SKILL.md"
 fi
 
+# ===========================================================================
+# T14 — target-root override and common-dir fallback from a nested worktree
+# ===========================================================================
+echo "T14: target-root override writes lessons to selected linked checkout"
+ROOT_CASE_TMP="$(mktemp -d)"
+trap 'rm -rf "$ROOT_CASE_TMP"' EXIT
+ROOT_CASE_MAIN="$ROOT_CASE_TMP/main"
+ROOT_CASE_TARGET="$ROOT_CASE_TMP/target"
+mkdir -p "$ROOT_CASE_MAIN"
+git -C "$ROOT_CASE_MAIN" init -q -b main
+git -C "$ROOT_CASE_MAIN" config user.email "write-lessons-test@example.com"
+git -C "$ROOT_CASE_MAIN" config user.name "Write Lessons Test"
+git -C "$ROOT_CASE_MAIN" remote add origin "https://github.com/macatocz/makato.git"
+printf 'seed\n' > "$ROOT_CASE_MAIN/README.md"
+git -C "$ROOT_CASE_MAIN" add README.md
+git -C "$ROOT_CASE_MAIN" commit -q -m seed
+git -C "$ROOT_CASE_MAIN" worktree add -q -b target "$ROOT_CASE_TARGET" HEAD
+mkdir -p "$ROOT_CASE_TARGET/.claude/worktrees"
+ROOT_CASE_RUN="$ROOT_CASE_TARGET/.claude/worktrees/x"
+git -C "$ROOT_CASE_TARGET" worktree add -q --detach "$ROOT_CASE_RUN" HEAD
+
+ROOT_TARGET_KEY="137-target-root-lessons"
+ROOT_FALLBACK_KEY="137-fallback-root-lessons"
+mkdir -p "$ROOT_CASE_MAIN/specs/$ROOT_TARGET_KEY-some-slug" \
+  "$ROOT_CASE_TARGET/specs/$ROOT_TARGET_KEY-some-slug" \
+  "$ROOT_CASE_MAIN/specs/$ROOT_FALLBACK_KEY-some-slug" \
+  "$ROOT_CASE_TARGET/specs/$ROOT_FALLBACK_KEY-some-slug"
+
+ROOT_TARGET_RC=0
+(
+  cd "$ROOT_CASE_RUN" || exit 1
+  env -u SPECS_DIR MAKATO_TARGET_REPO_ROOT="$ROOT_CASE_TARGET" \
+    bash "$WRITE_LESSONS" "$ROOT_TARGET_KEY" procedural local \
+    "target-root lesson" "root:target" >/dev/null 2>&1
+) || ROOT_TARGET_RC=$?
+ROOT_TARGET_FILE="$ROOT_CASE_TARGET/specs/$ROOT_TARGET_KEY-some-slug/change-lessons.jsonl"
+ROOT_TARGET_WRONG="$ROOT_CASE_MAIN/specs/$ROOT_TARGET_KEY-some-slug/change-lessons.jsonl"
+if [[ "$ROOT_TARGET_RC" -eq 0 ]] && [[ -s "$ROOT_TARGET_FILE" ]] && [[ ! -e "$ROOT_TARGET_WRONG" ]]; then
+  _pass "selected target receives the lesson; main checkout remains untouched"
+else
+  _fail "target-root lesson split: rc=$ROOT_TARGET_RC target=$ROOT_TARGET_FILE main=$ROOT_TARGET_WRONG"
+fi
+
+ROOT_FALLBACK_RC=0
+(
+  cd "$ROOT_CASE_RUN" || exit 1
+  env -u SPECS_DIR -u MAKATO_TARGET_REPO_ROOT \
+    bash "$WRITE_LESSONS" "$ROOT_FALLBACK_KEY" procedural local \
+    "fallback lesson" "root:fallback" >/dev/null 2>&1
+) || ROOT_FALLBACK_RC=$?
+ROOT_FALLBACK_MAIN="$ROOT_CASE_MAIN/specs/$ROOT_FALLBACK_KEY-some-slug/change-lessons.jsonl"
+ROOT_FALLBACK_TARGET="$ROOT_CASE_TARGET/specs/$ROOT_FALLBACK_KEY-some-slug/change-lessons.jsonl"
+if [[ "$ROOT_FALLBACK_RC" -eq 0 ]] && [[ -s "$ROOT_FALLBACK_MAIN" ]] && [[ ! -e "$ROOT_FALLBACK_TARGET" ]]; then
+  _pass "unset target root preserves git-common-dir main-checkout sharing"
+else
+  _fail "common-dir fallback changed: rc=$ROOT_FALLBACK_RC main=$ROOT_FALLBACK_MAIN target=$ROOT_FALLBACK_TARGET"
+fi
+
+# ===========================================================================
+# T15 — an invalid explicit target is rejected before lesson lookup
+# ===========================================================================
+echo "T15: invalid MAKATO_TARGET_REPO_ROOT fails clearly"
+ROOT_NOT_DIR="$ROOT_CASE_TMP/not-a-directory"
+printf 'not a directory\n' > "$ROOT_NOT_DIR"
+ROOT_INVALID_RC=0
+(
+  cd "$ROOT_CASE_RUN" || exit 1
+  env -u SPECS_DIR MAKATO_TARGET_REPO_ROOT="$ROOT_NOT_DIR" \
+    bash "$WRITE_LESSONS" invalid-target-root procedural local \
+    "must not append" "root:invalid" >/dev/null 2>"$ROOT_CASE_TMP/error"
+) || ROOT_INVALID_RC=$?
+if [[ "$ROOT_INVALID_RC" -ne 0 ]] \
+   && grep -Fq "write-lessons: target repository root is not a directory:" "$ROOT_CASE_TMP/error"; then
+  _pass "invalid target root rejected with a clear diagnostic"
+else
+  _fail "invalid target root was not clearly rejected (rc=$ROOT_INVALID_RC)"
+fi
+
 # ---------------------------------------------------------------------------
 echo ""
 if [[ "$FAIL" -eq 0 ]]; then
-  echo "All 13 tests passed."
+  echo "All 15 tests passed."
 else
   echo "$FAIL test(s) failed."
 fi
