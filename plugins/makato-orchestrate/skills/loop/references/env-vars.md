@@ -18,8 +18,8 @@ Full variable table for `loop.sh`, `loop-fleet.sh`, and `loop-supervisor.sh`.
 | `MAKATO_LOOP_ISSUE_TITLE_OVERRIDE` | unset | Test-only: use this string as the issue title instead of `gh issue view --json title` in the `_derive_key_for_issue` third fallback (#232). Keeps the T27 no-provenance KEY test offline. |
 | `MAKATO_LOOP_PROMOTE_OVERRIDE` | unset | **Removed in #688.** No-op — `_promote_labelled_ready` no longer exists. |
 | `MAKATO_LOOP_PROMOTE_DRYRUN` | unset | **Removed in #688.** No-op — `_promote_labelled_ready` no longer exists. |
-| `MAKATO_LOOP_STALL_WARN` | `900` | Seconds of no output before the watchdog stamps `active_workflow.stalled = true`. |
-| `MAKATO_LOOP_STALL_KILL` | `3600` | Seconds of no output before the watchdog `SIGTERM`s the PO-agent. |
+| `MAKATO_LOOP_STALL_WARN` | `21600` | Seconds of no output before the watchdog stamps `active_workflow.stalled = true`. |
+| `MAKATO_LOOP_STALL_KILL` | `43200` | Seconds of no output before the watchdog `SIGTERM`s the PO-agent. |
 | `MAKATO_LOOP_STALL_POLL` | `60` | Watchdog poll cadence in seconds (small values used in smoke tests). |
 | `MAKATO_LOOP_STALL_TERM_GRACE` | `30` | Seconds between `SIGTERM` and the follow-up `SIGKILL` if the child hasn't exited. |
 | `MAKATO_LOOP_STALL_DISABLE` | unset | Set to `1` to disable the watchdog entirely (no log capture, no background poller, no status stamps). |

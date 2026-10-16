@@ -68,8 +68,8 @@ Seconds of no PO-agent output before the watchdog escalates.
 
 | Variable | Env override | Default | Meaning |
 | --- | --- | --- | --- |
-| `STALL_WARN_SECS` | `MAKATO_LOOP_STALL_WARN` | `900` | Stamp `stalled=true` (warn only). |
-| `STALL_KILL_SECS` | `MAKATO_LOOP_STALL_KILL` | `3600` | SIGTERM the PO-agent (SIGKILL after grace). |
+| `STALL_WARN_SECS` | `MAKATO_LOOP_STALL_WARN` | `21600` | Stamp `stalled=true` (warn only). |
+| `STALL_KILL_SECS` | `MAKATO_LOOP_STALL_KILL` | `43200` | SIGTERM the PO-agent (SIGKILL after grace). |
 | `STALL_POLL_SECS` | `MAKATO_LOOP_STALL_POLL` | `60` | Watchdog poll cadence. |
 | `STALL_TERM_GRACE_SECS` | `MAKATO_LOOP_STALL_TERM_GRACE` | `30` | Seconds between SIGTERM and SIGKILL. |
 
