@@ -98,10 +98,36 @@ fi
 # MAKATO_MEMORY_ROOT override in recall-lessons). Production callers
 # must NOT set this — REPO_ROOT/specs is the canonical location.
 SPECS_DIR="${SPECS_DIR:-$REPO_ROOT/specs}"
+
+_resolve_build_plugin_root() {
+  local candidate source_orchestrate_root cache_parent
+  if [[ -n "${MAKATO_BUILD_ROOT:-}" ]]; then
+    candidate="$MAKATO_BUILD_ROOT"
+    if [[ -f "$candidate/.claude-plugin/plugin.json" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  fi
+
+  source_orchestrate_root="${MAKATO_ORCHESTRATE_ROOT:-$SCRIPT_DIR/..}"
+  cache_parent="$(cd "$SCRIPT_DIR/../.." && pwd)"
+  for candidate in \
+    "$(dirname "$source_orchestrate_root")/makato-build" \
+    "$cache_parent/makato-build" \
+    "$cache_parent"/makato-suite___makato-build___* \
+    "$REPO_ROOT/plugins/makato-build"; do
+    if [[ -f "$candidate/.claude-plugin/plugin.json" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+BUILD_ROOT="$(_resolve_build_plugin_root || true)"
+BUILD_LOG_SCRIPT="${BUILD_ROOT:+$BUILD_ROOT/shared/build-log.sh}"
+
 DEFAULT_SCHEMA_PATH="$SCRIPT_DIR/../skills/workflow-state/references/workflow-state.schema.json"
-if [[ ! -f "$DEFAULT_SCHEMA_PATH" ]]; then
-  DEFAULT_SCHEMA_PATH="$REPO_ROOT/plugins/makato-orchestrate/skills/workflow-state/references/workflow-state.schema.json"
-fi
 SCHEMA_PATH="${SCHEMA_PATH:-$DEFAULT_SCHEMA_PATH}"
 
 # ---------------------------------------------------------------------------
@@ -732,11 +758,10 @@ case "$SUBCMD" in
     _validate "$PATCHED"
     _atomic_write "$PATCHED"
 
-    # Audit the increment to orchestrate.jsonl (best-effort — logging must
-    # never fail the state mutation). Mirrors the dual-write convention in
-    # halt-conditions.md: halt_audit[] for live state, orchestrate.jsonl for
-    # the cross-session audit trail.
-    if [[ -x "$REPO_ROOT/plugins/makato-build/shared/build-log.sh" ]]; then
+    # Audit the increment to build.jsonl (best-effort — logging must never fail
+    # the state mutation). Mirrors the dual-write convention: halt_audit[] for
+    # live state and build.jsonl for the cross-session audit trail.
+    if [[ -x "$BUILD_LOG_SCRIPT" ]]; then
       LOG_ENTRY="$(jq -n \
         --arg ts "$NOW" \
         --argjson issue "$ISSUE_NUMBER" \
@@ -748,7 +773,7 @@ case "$SUBCMD" in
           status: "warn",
           data: {halt_code: $code, origin: (if $origin == "" then null else $origin end),
                  structural_halt_cycles_before: $before, structural_halt_cycles: $after}}')"
-      "$REPO_ROOT/plugins/makato-build/shared/build-log.sh" "$KEY" "$LOG_ENTRY" 2>/dev/null || true
+      "$BUILD_LOG_SCRIPT" "$KEY" "$LOG_ENTRY" 2>/dev/null || true
     fi
 
     echo "$NEXT"

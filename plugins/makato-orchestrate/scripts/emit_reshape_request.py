@@ -318,14 +318,9 @@ def main(argv: list[str] | None = None) -> int:
     repo_root = resolve_repo_root()
 
     specs_dir = os.environ.get("MAKATO_EMIT_RESHAPE_SPECS_DIR") or os.path.join(repo_root, "specs")
-    schema_path = os.path.join(
-        repo_root,
-        "plugins",
-        "makato-orchestrate",
-        "scripts",
-        "emit-reshape-request.schema.json",
-    )
-    ws_script = os.path.join(repo_root, "plugins", "makato-orchestrate", "shared", "workflow-state.sh")
+    script_dir = Path(__file__).resolve().parent
+    schema_path = str(script_dir / "emit-reshape-request.schema.json")
+    ws_script = str(script_dir.parent / "shared" / "workflow-state.sh")
 
     # Resolve spec folder.
     spec_folder = resolve_spec_folder(specs_dir, key)

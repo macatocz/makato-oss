@@ -150,6 +150,49 @@ def _run_in_sandbox(
     return result.returncode, result.stdout
 
 
+def test_consumer_repo_uses_installed_workflow_and_build_log_helpers(tmp_path):
+    repo = tmp_path / "consumer"
+    repo.mkdir()
+    subprocess.run(["git", "init", "--quiet", str(repo)], check=True)
+
+    key = "348-consumer"
+    specs_dir = repo / "specs"
+    _write_state(str(specs_dir / key), ISSUE_NUM, cycles=2)
+    config_file = repo / ".claude" / "config.json"
+    _write_config_null_option(str(config_file))
+
+    # Force the emitter to use workflow-state.sh for its read while the helper
+    # uses the consumer repo's canonical specs/ tree.
+    script = os.path.join(_SCRIPTS, "emit_needs_planning_signal.py")
+    env = os.environ.copy()
+    env["MAKATO_EMIT_NPS_SPECS_DIR"] = str(repo / "empty-specs")
+    env["MAKATO_EMIT_NPS_CONFIG_FILE"] = str(config_file)
+    env["MAKATO_EMIT_NPS_GH_DRY_RUN"] = "1"
+    env["MAKATO_STRUCTURAL_RESHAPE_THRESHOLD"] = "2"
+    for name in (
+        "MAKATO_BUILD_ROOT",
+        "MAKATO_ORCHESTRATE_ROOT",
+        "MAKATO_TARGET_REPO_ROOT",
+        "MAKATO_SPECS_DIR",
+        "SPECS_DIR",
+    ):
+        env.pop(name, None)
+
+    result = subprocess.run(
+        [sys.executable, script, key, ISSUE_NUM],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert not (repo / "plugins").exists()
+    log_path = specs_dir / key / "build.jsonl"
+    entries = [json.loads(line) for line in log_path.read_text().splitlines()]
+    assert any(entry.get("step") == "emit-needs-planning" for entry in entries)
+
+
 # ---------------------------------------------------------------------------
 # T1: Below threshold → no-op; exits 0
 # ---------------------------------------------------------------------------

@@ -5,6 +5,14 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Fixed — installed plugin asset resolution outside the target repo
+
+- `emit_reshape_request.py` loads its schema beside the script; both emitters
+  and `clock-out.sh` locate `workflow-state.sh` relative to the installed plugin.
+- The planning-signal emitter and structural-halt audit resolve `build-log.sh`
+  from `MAKATO_BUILD_ROOT` or an installed sibling before the target-repository
+  development fallback.
+
 ### Fixed — loop watchdog no longer reaps healthy OMP dispatches
 
 - **`loop` skill v2.4.1** — raised the liveness-watchdog defaults to

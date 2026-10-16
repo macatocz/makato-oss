@@ -615,6 +615,29 @@ fi
 echo "  ✓ malformed code rejected; non-structural code logs no increment"
 rm -rf "$SANDBOX_347"
 
+echo "=== T73: structural-halt audit logs with no target plugins directory ==="
+(
+  CONSUMER_REPO="$(mktemp -d)"
+  trap 'rm -rf "$CONSUMER_REPO"' EXIT
+  git -C "$CONSUMER_REPO" init --quiet
+  CONSUMER_KEY="issue-136-consumer-audit"
+  unset MAKATO_TARGET_REPO_ROOT MAKATO_SPECS_DIR SPECS_DIR
+  (
+    cd "$CONSUMER_REPO"
+    MAKATO_BUILD_ROOT="$REPO_ROOT/plugins/makato-build" \
+      "$WS" init "$CONSUMER_KEY" macatocz/test feat/136 136 >/dev/null
+    MAKATO_BUILD_ROOT="$REPO_ROOT/plugins/makato-build" \
+      "$WS" bump-structural-halt "$CONSUMER_KEY" 136 HALT-STRUCTURAL >/dev/null
+  )
+  [[ ! -e "$CONSUMER_REPO/plugins" ]] \
+    || { echo "  ✗ FAIL: consumer repo unexpectedly contains plugins/"; exit 1; }
+  jq -e '.step == "structural_halt_increment" and .data.halt_code == "HALT-STRUCTURAL" and .data.structural_halt_cycles == 1' \
+    "$CONSUMER_REPO/specs/$CONSUMER_KEY/build.jsonl" >/dev/null \
+    || { echo "  ✗ FAIL: structural halt increment audit entry was not written"; exit 1; }
+)
+echo "  ✓ structural halt audit written through MAKATO_BUILD_ROOT"
+
+
 
 # ---------------------------------------------------------------------------
 # T55–T58: #446 — halt_audit[] retryable/origin classification fields
@@ -894,4 +917,4 @@ echo "  ✓ non-JSON input rejected"
 
 rm -rf "$SANDBOX_603"
 
-echo "All 72 smoke tests passed."
+echo "All 73 smoke tests passed."
