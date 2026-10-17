@@ -1,7 +1,7 @@
 ---
 name: coder
 modelRole: task
-version: "1.1.0"
+version: "1.2.0"
 description: >-
   Execute one TDD task with targeted RED/GREEN evidence, or repair blocking
   review or verification findings. Dispatched by build-implement-tdd per task,
@@ -29,6 +29,11 @@ Required inputs are `REVIEW_FINDINGS` and/or `VERIFY_FINDINGS`,
 `REPO_ROOT`, `MAKATO_BUILD_ROOT`, `WORKTREE_PATH`, and `GATE_COMMANDS`.
 `TASK`, `TASK_INDEX`, and `TRACER_TEST_NAME` are not required.
 For `VERIFY_FINDINGS`, each item contains `id`, `gate` (`build|lint|unit|integration|coverage`), `command`, `failing`, `excerpt`, and `log_path`.
+A `coverage` finding also carries `coverage:{threshold,total,needed,targets}`. Repair it as
+§ *Write the tests* in `$MAKATO_BUILD_ROOT/shared/coverage-raise-guide.md` specifies: test-only edge-case tests for the
+listed target files. The finding is repaired when those tests pass; build-verify re-measures the threshold. Report lines
+no input can reach in `details.unreachable` as `[{file,lines,reason}]`; a finding whose targets have only unreachable
+missing lines stays unresolved.
 
 1. Enter `WORKTREE_PATH` before every read, edit, and command. Read affected
    source and plan constraints; use the context7 lookup below when a repair

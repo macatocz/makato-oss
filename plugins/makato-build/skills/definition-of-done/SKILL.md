@@ -9,7 +9,7 @@ description: >-
   build-verify gate mapping, and PO-agent board transition to Done. Trigger
   keywords: DoD, done criteria, task-complete, all-items-satisfied,
   board-transition-Done, workflow-state assertion.
-version: "2.6.0"
+version: "2.7.0"
 metadata:
   authors: [makato-build]
   last_updated: "2026-10-17"
@@ -77,7 +77,9 @@ gate log entry in `specs/<key>-<slug>/build.jsonl`.
    threshold is overridable per-story in `specs/<key>-<slug>/design.md`. `build-verify`
    Gate 5 blocks on it only when the integration lane ran locally; when Gate 4 is
    CI-owned, the local unit-lane figure is advisory and a CI coverage gate
-   (`coverage_ci`) owns the threshold when one exists.
+   (`coverage_ci`) owns the threshold when one exists. A miss is repaired with
+   edge-case tests for the lowest-covered files: by build-verify when it enforces
+   the threshold, by `build-fix-ci` when the CI gate fails.
    _Enforced by:_ `skills/build-verify/SKILL.md` Gate 5 (ownership matrix).
 
 3. **Zero lint errors.** Warnings are noted but do not fail the gate; errors do.

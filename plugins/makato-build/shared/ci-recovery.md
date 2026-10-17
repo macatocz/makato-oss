@@ -25,10 +25,13 @@ Re-enter affected completed tasks using `CI_TASK_INDICES`; do not replay the who
 plan or replace implemented code with a tracer. Preserve the original requirements,
 plan constraints and dependency order. For mixed plans, return failures owned by
 another mode to the coordinator. Goal-mode may receive `CI_RECOVERY_TASK` for a
-concrete CI-configuration or PR-metadata defect outside an original task's files;
-it must identify the failing command, diagnosis, exact repair targets and how to
-verify the repair. It does not authorize unrelated functionality or rewriting the
-plan. Missing planning context is an explicit blocker, not an invented plan.
+concrete CI-configuration or PR-metadata defect outside an original task's files,
+or for a coverage-raise task from a failed CI coverage threshold. It must identify
+the failing command, diagnosis, exact repair targets and how to verify the repair.
+A coverage-raise task is test-only and follows
+`$MAKATO_BUILD_ROOT/shared/coverage-raise-guide.md`. A recovery task does not authorize
+unrelated functionality or rewriting the plan. Missing planning context is an
+explicit blocker, not an invented plan.
 
 Do not disable a workflow, loosen a threshold/assertion, add a suppression, skip a
 failing test, edit protection rules or carry a failing CI check into another issue
