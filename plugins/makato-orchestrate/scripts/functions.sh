@@ -825,6 +825,47 @@ in_flight_issues() {
     done | sort -u
 }
 
+# _resume_allowed <issue> — for `dispatch --resume` (#156): return 0 when the
+# issue's non-done workflow-state may be resumed; otherwise print the reason and
+# return non-zero (any failure refuses). Resumable = exactly one non-done state
+# file, no live owner, no pending context-ceiling handoff (HALT-007B owns that
+# resume), restart_failed unset.
+_resume_allowed() {
+  local issue="$1" f state="" count=0
+  while IFS= read -r -d '' f; do
+    if jq -e --argjson n "$issue" '.issue_number == $n and .current_phase != "done"' \
+        "$f" >/dev/null 2>&1; then
+      state="$f"
+      count=$((count + 1))
+    fi
+  done < <(find "$SPECS_DIR" -maxdepth 2 \
+    \( -name 'workflow-state-*.json' -o -name 'workflow-state.json' \) -print0 2>/dev/null)
+  if [[ "$count" -ne 1 ]]; then
+    echo "expected one non-done workflow-state, found ${count}"
+    return 1
+  fi
+  local fields handoff restart wt
+  if ! fields="$(jq -r \
+      '[.handoff_reason, .restart_failed, .worktree_path] | map(if . == null or . == "" then "-" else tostring end) | @tsv' \
+      "$state" 2>/dev/null)"; then
+    echo "unreadable workflow-state ${state}"
+    return 1
+  fi
+  IFS=$'\t' read -r handoff restart wt <<<"$fields"
+  if [[ "$handoff" == "context_ceiling" ]]; then
+    echo "context-ceiling handoff pending (HALT-007B owns the resume)"
+    return 1
+  fi
+  if [[ "$restart" == "true" ]]; then
+    echo "restart_failed=true (diagnose HALT-007 and clear it first)"
+    return 1
+  fi
+  if [[ "$wt" != "-" ]] && _reap_owner_pid_alive "$wt"; then
+    echo "owner pid $(cat "$wt/.loop-owner.pid") is alive"
+    return 1
+  fi
+}
+
 # _compute_vcr — compute Verified-to-Completed Rate for loop-status.json .vcr field.
 # "Verified" = current_phase=="done" in a workflow-state file (dispatch throughput metric,
 # not AC pass rate). Output: {"activated":<n>,"verified":<n>,"rate":<f>}.
@@ -3621,15 +3662,17 @@ _emit_langfuse_trace() {
   python3 "$hook_py" <<< "$payload_json" 2>/dev/null || true
 }
 
-# dispatch <ISSUE_NUMBER> [--repo owner/repo] [--dry-run] — drive one issue to a merged PR; --repo required outside cmd_run.
+# dispatch <ISSUE_NUMBER> [--repo owner/repo] [--dry-run] [--resume] — drive one issue to a merged PR; --repo required outside cmd_run.
+# --resume (#156): operator resume of a HALTed or orphaned run from its kept workflow-state (see _resume_allowed).
 cmd_dispatch() {
   local issue="${1:?issue number required}"
   shift
-  local dry_run=""
+  local dry_run="" resume=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --repo)    MAKATO_LOOP_DISPATCH_REPO="${2:?--repo requires owner/repo}"; shift 2 ;;
       --dry-run) dry_run="--dry-run"; shift ;;
+      --resume)  resume="1"; shift ;;
       *) echo "loop: dispatch: unknown flag: $1" >&2; return 64 ;;
     esac
   done
@@ -3849,10 +3892,15 @@ cmd_dispatch() {
     local gate_inflight=""
     gate_inflight="$(in_flight_issues 2>/dev/null | grep -x "$issue" || true)"
     if [[ -n "$gate_inflight" ]]; then
-      echo "loop: gate — #${issue} has a non-done workflow-state (in-flight); skip dispatch" >&2
-      _increment_gate_skips
-      _patch_status '.active_workflow' 'null'
-      return 0
+      local resume_refusal=""
+      if [[ -n "$resume" ]] && resume_refusal="$(_resume_allowed "$issue")"; then
+        echo "loop: gate — #${issue} resuming its non-done workflow-state (operator --resume)" >&2
+      else
+        echo "loop: gate — #${issue} has a non-done workflow-state (in-flight); skip dispatch${resume_refusal:+ — --resume refused: ${resume_refusal}}" >&2
+        _increment_gate_skips
+        _patch_status '.active_workflow' 'null'
+        return 0
+      fi
     fi
 
     # Degraded gate path (D6, #357): orphan proceeds after tiers 1+2; skip tiers 3/4 (no created-issues.json context).

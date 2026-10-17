@@ -5,6 +5,19 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Added — operator resume of a HALTed run (#156)
+
+- **`loop` v2.5.0** adds `loop.sh dispatch <ISSUE> --resume`. Tier 2 of the
+  dispatch gate lets a non-done workflow-state through only on this explicit
+  operator flag, and only when `_resume_allowed` finds exactly one non-done
+  state, no live `.loop-owner.pid` owner, no pending context-ceiling handoff
+  (HALT-007B) and `restart_failed` unset. Every other gate tier still applies;
+  `run` never resumes on its own. The PO resumes the kept state with
+  `sub_tasks[]` and its durable counters, so operators no longer archive the
+  state file (which redid accepted tasks and reset `structural_halt_cycles`).
+- **`halt-conditions.md`** HALT-008/HALT-STRUCTURAL and HALT-015 recoveries
+  now name the `--resume` command instead of an unreachable "resume".
+
 ### Changed — bounded review and verify repair loops (#148)
 
 - **`po-agent` v1.2.0** narrates `build-verify` as gates plus a bounded coder

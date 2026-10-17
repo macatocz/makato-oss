@@ -30,7 +30,9 @@ SUBCOMMANDS
   poll [STATUS]              Print the board queue as JSON.
   next [STATUS]              Print the next issue number that would be dispatched.
   status                     Pretty-print .claude/state/loop-status.json.
-  dispatch <ISSUE> [--dry-run]  Dispatch one issue (needs MAKATO_LOOP_DISPATCH_REPO).
+  dispatch <ISSUE> [--dry-run] [--resume]
+                             Dispatch one issue (needs MAKATO_LOOP_DISPATCH_REPO);
+                             --resume continues a HALTed/orphaned run from its kept workflow-state.
   auto-seed                  Run one pre-poll auto-seed pass over unprepared issues.
   reconcile-orphaned         Move orphaned In-progress cards to Blocked+needs-human-review.
   reshape-pass               Run one Needs-Planning reshape pass.
