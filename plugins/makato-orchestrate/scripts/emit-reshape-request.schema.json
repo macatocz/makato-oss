@@ -69,6 +69,20 @@
             "type": "object",
             "additionalProperties": true,
             "description": "HALT-code-specific context payload. Shape varies per code — consumers must tolerate unknown keys. For HALT-008 entries, data.origin must equal 'outer_iteration' to qualify as structural."
+          },
+          "retryable": {
+            "type": "boolean",
+            "description": "Copied from halt_audit[].retryable: whether the loop can auto-retry once the triggering condition resolves. Absent on legacy entries."
+          },
+          "origin": {
+            "type": "string",
+            "enum": ["auto", "human", "transient"],
+            "description": "Copied from halt_audit[].origin: who must act to unblock this HALT. Absent on legacy entries."
+          },
+          "retry_after_secs": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Copied from halt_audit[].retry_after_secs: suggested wait before a re-attempt when retryable. Absent when not applicable."
           }
         }
       }
