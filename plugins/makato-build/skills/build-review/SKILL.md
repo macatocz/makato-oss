@@ -15,7 +15,6 @@ allowed-tools:
 metadata:
   last_updated: "2026-08-05"
 ---
-
 **Do NOT load this skill when:** reviewing human PR comments (use `build-address-pr-comments`); simplifying complexity without correctness review (use `build-simplify`). Load this skill when the implementation loop has completed and a full adversarial review + CRITICAL fix loop is needed before verify.
 
 Use after `/simplify` and before `/verify`. The implementation is working, tested, and
@@ -27,13 +26,9 @@ and improvements, not to confirm correctness.
 Non-obvious rules that cannot be inferred from context:
 
 1. **Three-dot diff, not two-dot.** `git diff "$DEFAULT_REF...HEAD"` (three dots) diffs the branch tip against the merge-base with the integration target. Two-dot (`..`) diffs against the *current local tip* — if local `main` lags `origin/main`, you import commits from already-merged PRs as if they are changes on this branch, producing false findings on code the author never touched (#98). Always `git fetch origin` first.
-
 2. **Zero-findings suspicion threshold: 50 LOC.** For diffs > 50 changed lines, zero CRITICAL/MAJOR findings on a first pass is statistically improbable. Require the citation-record recheck (Step 5). For diffs ≤ 50 LOC, a clean first pass is plausible but the citation record still applies.
-
 3. **`ac_verdicts[]` transport: `build.jsonl` is the only durable record.** `workflow-state.json` is gitignored and never reaches the post-merge GHA runner. `build.jsonl` is the only cross-environment path the `build-create-pr` PR-body renderer and the `documentation-agent` checkpoint flipper can read. Write the verdict entry on the final clean pass — not on intermediate passes, not to any other file.
-
 4. **MAJOR is mode-gated, not severity-downgraded.** In autonomous mode, a MAJOR finding that reaches a PR without human review is a gating failure (#290). In interactive mode, MAJOR is advisory. Never silently drop a MAJOR or reclassify it as SUGGESTION to avoid triggering the fix loop.
-
 5. **`diff-reviewer` is the sole verdict judge.** `build-review` and `build-create-pr` are transport-only — they copy `ac_verdicts[]` verbatim. Re-evaluating verdicts here diverges silently from the diff-reviewer's reasoning and corrupts the downstream Issue checkbox chain.
 
 ---
@@ -45,6 +40,7 @@ Non-obvious rules that cannot be inferred from context:
 ### Step 1 — Ask for work item key and load context
 
 If no argument was passed, invoke `AskUserQuestion`:
+
 - question: *"Which work item are we reviewing?"*
 - hint: `e.g. #123 — or pass directly: /makato-build:build-review #123`
 
@@ -70,11 +66,13 @@ Run:
 Load `@references/mechanical-fixes.md`.
 
 Apply all applicable fixes silently — these are never findings:
+
 - Formatting drift (indentation, spacing) — run the project's formatter if one is configured
 - Import ordering and unused import removal
 - Trailing whitespace
 
 Log:
+
 ```
 {"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"mechanical-fixes","status":"ok","data":{"fixes_applied":<N>}}
 ```
@@ -86,6 +84,7 @@ Log:
 **MANDATORY: Load `@references/review-criteria.md` before dispatching the diff-reviewer agent.** The severity classification decision tree (CRITICAL / MAJOR / SUGGESTION / NITPICK) and the adversarial stance live in that reference and govern how the diff-reviewer rates every finding. Incorrect classification at this step misroutes the entire fix loop — a MAJOR rated SUGGESTION bypasses the autonomous fix loop entirely.
 
 Dispatch the `diff-reviewer` agent with:
+
 - `STORY_KEY`: the work item key
 - `PASS_NUMBER`: current pass number (starts at 1; increment on each re-dispatch after CRITICAL fixes)
 - `CHANGED_FILES`: list of changed file paths from `git diff "$DEFAULT_REF...HEAD" --name-only` (with `DEFAULT_REF` from Step 1)
@@ -95,6 +94,7 @@ Dispatch the `diff-reviewer` agent with:
 The agent applies the adversarial lens across all seven categories (correctness, edge cases, error handling, security, contract, test coverage, optimizations) and returns findings classified as CRITICAL, MAJOR, SUGGESTION, or NITPICK with source-anchored evidence. As of diff-reviewer v1.1.0 it also returns `data.ac_verdicts[]` — one `{ac_id, ac_text, verified, evidence, reason}` per acceptance criterion in `PLAN_CONTEXT`.
 
 Log:
+
 ```
 {"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"analyze","status":"ok","data":{"pass":<N>,"critical":<N>,"major":<N>,"suggestion":<N>,"nitpick":<N>}}
 ```
@@ -121,8 +121,9 @@ fallback rather than silently skipping checkbox marking.
 ### Step 5 — Blocking-findings loop and zero-findings gate
 
 **What counts as blocking** depends on mode:
+
 - **CRITICAL findings are always blocking** — in both interactive and autonomous mode.
-- **MAJOR findings are blocking in autonomous mode only.** With no human at the prompt, a correctness-adjacent MAJOR would otherwise reach the PR ungated (issue #290). In autonomous mode MAJOR re-triggers the fix loop exactly as CRITICAL does. In interactive mode MAJOR is advisory — reported in Step 6 alongside SUGGESTION so the user decides.
+- **MAJOR findings are blocking .** With no human at the prompt, a correctness-adjacent MAJOR would otherwise reach the PR ungated (issue #290). In autonomous mode MAJOR re-triggers the fix loop exactly as CRITICAL does. In interactive mode MAJOR is advisory — reported in Step 6 alongside SUGGESTION so the user decides.
 
 Autonomous mode is detected via the standard triggers in `plugins/makato-build/AUTONOMOUS-MODE.md` § *Activation triggers* (`--autonomous`, `task_id` in the dispatch bundle, or `$AGENT_ID` exported).
 
@@ -131,16 +132,19 @@ Fix each one. For logic issues, fix the production code. For missing test covera
 the test.
 
 Before fixing each blocking finding, log it:
+
 ```
 {"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"blocking-finding","status":"warn","data":{"pass":<N>,"severity":"CRITICAL"|"MAJOR","finding":<id>,"file":"<path>","category":"<type>","description":"<one line>"}}
 ```
 
 Log each fix:
+
 ```
 {"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"fix-blocking","data":{"severity":"CRITICAL"|"MAJOR","finding":<id>,"file":"<path>"}}
 ```
 
 In autonomous mode, also emit an `autonomous_bypass` audit entry the first time a MAJOR is auto-fixed on a pass (the interactive path would have deferred the decision to the user):
+
 ```bash
 "$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-review "<key>" major-autofix apply-in-loop "$TRIGGER"
 ```
@@ -159,6 +163,7 @@ Every changed file must have a citation. A file without one is not reviewed — 
 and read it. *"Reviewed and found nothing"* is not acceptable evidence.
 
 Log:
+
 ```
 {"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"zero-findings-recheck","status":"start","data":{"files_to_cite":<N>}}
 {"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"zero-findings-recheck","status":"ok","data":{"files_cited":<N>}}
@@ -176,6 +181,7 @@ Proceed to Step 5.5.
 CRITICAL fixes can introduce formatting drift (e.g. a multi-line fix that the formatter would rewrite). Re-apply the same mechanical fix pass from Step 3 — formatter, unused imports, trailing whitespace — before the final report. This ensures the working tree is clean when `/build-push-to-git` stages files. (MAJOR fixes applied in autonomous mode are subject to the same re-run.)
 
 Log:
+
 ```
 {"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"mechanical-fixes-post","status":"ok","data":{"fixes_applied":<N>}}
 ```
