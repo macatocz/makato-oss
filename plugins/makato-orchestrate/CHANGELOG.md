@@ -5,6 +5,19 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Fixed — durable project learning (port of #123 from `development`)
+
+- Fix slug-only spec discovery and main-checkout destinations for both memory tiers.
+  Make promotion replay-idempotent and lock concurrent store updates; preserve
+  provenance and fail without replacing data on malformed input.
+- Include raw captures in per-issue summaries, support classified workflow lessons,
+  and normalize/filter recall consistently with captured metadata.
+- **`scripts/promote-lessons.sh`** honours `MAKATO_TARGET_REPO_ROOT` for its default
+  stores and provenance (`repo_sha`), matching `write-lessons.sh` and
+  `workflow-state.sh`; **`po-agent` v1.1.3** replays promotion as an idempotent
+  recovery pass after its final freshness gate. **`workflow-state` skill v1.7.1** and
+  **`documentation-agent` v1.1.1** document immediate persistence.
+
 ### Fixed — honour linked target roots for workflow state and lessons
 
 - **`shared/workflow-state.sh`**, **`shared/check-session-tail.sh`**, the state-root

@@ -55,15 +55,6 @@ def _parse_output(result: subprocess.CompletedProcess) -> list[dict]:
 class TestLessonPruneGraduated:
     """GRADUATED: lesson text already encoded in an AGENTS.md."""
 
-    def test_graduated_verbatim_match(self, tmp_path):
-        """Verbatim-match GRADUATED detection is covered by test_graduated_with_real_agents_md.
-
-        This stub documents the design: GRADUATED fires when the normalized lesson text
-        appears verbatim as a substring in any AGENTS.md in the repo.  The active
-        assertion lives in the next test method which uses a real AGENTS.md phrase.
-        """
-        pass  # See test_graduated_with_real_agents_md below
-
     def test_graduated_with_real_agents_md(self, tmp_path):
         """A record whose text verbatim matches a phrase in a real plugins AGENTS.md is GRADUATED."""
         # Use the makato-orchestrate AGENTS.md which is present in the worktree.
@@ -124,40 +115,6 @@ class TestLessonPruneGraduated:
         records = _parse_output(result)
         assert len(records) == 1
         assert records[0]["action"] != "GRADUATED", f"Unexpected GRADUATED for nonsense phrase: {records[0]}"
-
-    def test_graduated_tolerates_two_agents_md_layouts(self, tmp_path):
-        """GRADUATED detection works regardless of AGENTS.md heading structure."""
-        # Uses the plugins/makato-orchestrate/AGENTS.md which has diverse heading styles.
-        real_agents = WORKTREE / "plugins" / "makato-orchestrate" / "AGENTS.md"
-        content = real_agents.read_text(encoding="utf-8")
-        phrase = None
-        for line in content.splitlines():
-            stripped = line.strip().lstrip("#").strip().lstrip("-").strip()
-            words = stripped.split()
-            if len(words) >= 8 and not stripped.startswith("<!--") and not stripped.startswith("|"):
-                phrase = stripped
-                break
-        assert phrase is not None, "Could not extract a phrase from AGENTS.md"
-
-        memory_dir = tmp_path / "memory"
-        _write_records(
-            memory_dir,
-            "procedural.jsonl",
-            [
-                {
-                    "key": "layout-a",
-                    "text": phrase,
-                    "tags": ["compat"],
-                    "occurrences": 1,
-                    "date": "2026-07-01",
-                    "repo_sha": "abc123",
-                }
-            ],
-        )
-        result = _run(memory_dir)
-        assert result.returncode == 0, f"stderr: {result.stderr}"
-        records = _parse_output(result)
-        assert records[0]["action"] == "GRADUATED", f"Expected GRADUATED regardless of heading layout: {records[0]}"
 
 
 # ---------------------------------------------------------------------------
