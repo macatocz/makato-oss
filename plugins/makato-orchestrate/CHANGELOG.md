@@ -5,6 +5,14 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Fixed — headless OMP dispatches start a fresh session (#143)
+
+- **`scripts/harness-command.sh`** now passes `--config config/omp-dispatch.yml`
+  (`autoResume: false`) on every OMP dispatch. Previously, `omp -p` honoured
+  `autoResume` and continued the cwd's latest session, so loop dispatches from an
+  operator checkout inherited the operator's interactive conversation. Session files are
+  still saved; explicit `--resume` and Claude mode are unchanged.
+
 ### Fixed — honour linked target roots for workflow state and lessons
 
 - **`shared/workflow-state.sh`**, **`shared/check-session-tail.sh`**, the state-root
