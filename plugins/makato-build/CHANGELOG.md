@@ -22,6 +22,30 @@ here on merge to main; release-please will date and version them at the next rel
 - **`build-verify` v1.13.1** and **`build-push-to-git` v1.7.2** require an
   evidence-based learning review at completion/handoff. Replace source-text tests
   with real CLI coverage.
+### Fixed — coder verification ownership and unverified-result continuation (#141)
+
+- **`agents/coder.md`** now owns every phase command it reports. Edit-only or
+  "skip tests mid-flight" dispatch instructions no longer narrow its contract,
+  and commands that cannot run return `failure` `VERIFICATION_UNAVAILABLE`
+  instead of `partial`. The R1 now reports `data.phases_executed`. A new optional
+  `PRIOR_R1` input adopts an earlier unverified attempt's edits and re-proves RED
+  by temporarily stashing that task's production paths.
+- **`build-implement-tdd` v1.14.0** dispatches coders one at a time per
+  worktree and forbids suppressing coder verification. An unverified coder R1
+  gets exactly one fresh-coder continuation (`PRIOR_R1`) instead of halting with
+  CODER_PARTIAL; a second unverified result fails as `CODER_UNVERIFIED`.
+  Coordinator test runs are never promoted to coder success.
+- **`agents/RETURN-CONTRACT.md`** and **`references/tdd-cycle-rules.md`** document
+  the same ownership rule.
+- **`scripts/run-skill.py`** appends the new `config/verification-ownership.md`
+  policy to every workflow-skill OMP run's system prompt
+  (`--append-system-prompt`), and fails before launch if the file is missing.
+  OMP's Task-tool guidance ("skip build/lint/tests mid-flight") is
+  system-level, while the selected SKILL.md is user prompt. On sagibeast#994
+  the fresh `build-implement-tdd` coordinator therefore dispatched coders
+  edit-only, and after the text fixes it refused with
+  `DISPATCH_CONTRACT_CONFLICT`. The coordinator copies the policy into each
+  coder's Task context, which OMP also renders at system level.
 
 ### Fixed — target-checkout roots for worktree-dispatched skills and lessons
 

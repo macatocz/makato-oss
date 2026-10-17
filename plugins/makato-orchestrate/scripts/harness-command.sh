@@ -29,8 +29,9 @@
 #   _harness_permission_flag                        → prints "--yolo" | "--dangerously-skip-permissions"
 #   _harness_dispatch_args <prompt> [<resume_session_id>]
 #       Populates the global array HARNESS_DISPATCH_ARGS with the full
-#       argument vector (permission flag, optional `--resume <id>`, `-p
-#       <prompt>`) ready to pass to `"$CLAUDE_BIN" "${HARNESS_DISPATCH_ARGS[@]}"`.
+#       argument vector (permission flag, OMP-only `--config` fresh-session
+#       overlay, optional `--resume <id>`, `-p <prompt>`) ready to pass to
+#       `"$CLAUDE_BIN" "${HARNESS_DISPATCH_ARGS[@]}"`.
 #
 # Usage (standalone CLI — shell-stub unit tests exercise this path so command
 # construction can be asserted WITHOUT invoking a real model):
@@ -75,17 +76,24 @@ _harness_permission_flag() {
 # _harness_dispatch_args <prompt> [<resume_session_id>]
 # Populates the global array HARNESS_DISPATCH_ARGS with the full argument
 # vector for a dispatch/resume invocation:
-#   <permission-flag> [--resume <resume_session_id>] -p <prompt>
+#   omp    → --yolo --config <omp-dispatch.yml> [--resume <id>] -p <prompt>
+#   claude → --dangerously-skip-permissions [--resume <id>] -p <prompt>
 # Both supported harnesses accept `--resume <session_id>` and `-p <prompt>`
 # identically, so a single arg-vector shape covers normal dispatch, watchdog
-# restart, and stall-resume re-entry.
+# restart, and stall-resume re-entry. The OMP overlay disables autoResume:
+# without it `omp -p` continues the cwd's latest session (the operator's).
 # ---------------------------------------------------------------------------
+_HARNESS_OMP_DISPATCH_CONFIG="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/config/omp-dispatch.yml"
+
 _harness_dispatch_args() {
   local prompt="${1:?_harness_dispatch_args: prompt required}"
   local resume_sid="${2:-}"
   local flag
   flag="$(_harness_permission_flag)"
   HARNESS_DISPATCH_ARGS=("$flag")
+  if [[ "$(_harness_mode)" == "omp" ]]; then
+    HARNESS_DISPATCH_ARGS+=(--config "$_HARNESS_OMP_DISPATCH_CONFIG")
+  fi
   if [[ -n "$resume_sid" ]]; then
     HARNESS_DISPATCH_ARGS+=(--resume "$resume_sid")
   fi

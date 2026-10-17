@@ -65,13 +65,14 @@ If `schema != "r1"` or the JSON does not parse: the caller MUST treat the dispat
 
 ### `coder.md` (model: sonnet, mutates files)
 
-- `status: "success"` — RED, GREEN, INTEGRATE, VERIFY all completed; new failures vs `BASELINE_FAILURES` = 0.
-- `status: "partial"` — agent reached at least GREEN but did not complete VERIFY cleanly (some new failures remain). Caller should re-dispatch or escalate.
-- `status: "failure"` — structural blocker hit; agent escalates to `/refine`.
+- `status: "success"` — RED, GREEN, INTEGRATE, VERIFY all executed by this coder dispatch; new failures vs `BASELINE_FAILURES` = 0.
+- `status: "partial"` — agent executed at least GREEN but VERIFY was not executed or shows new failures. Caller applies the build-implement-tdd partial handling (one fresh-coder continuation for unverified results).
+- `status: "failure"` — structural blocker hit (escalates to `/refine`), or `VERIFICATION_UNAVAILABLE` when phase commands could not run.
 - `files_changed` — every production-code path the coder edited or created.
 - `tests_written` — every new or extended test file path.
-- `errors` — structural escalation reason if `status: "failure"`; otherwise `[]`.
-- `data` keys: `{ "phase_reached": "red|green|integrate|verify", "unit_tests": N, "integration_tests": N, "new_failures": N, "escalation": "none|refine", "task_index": N }`.
+- `errors` — failure reason if `status: "failure"`; otherwise `[]`.
+- `data` keys: `{ "phase_reached": "red|green|integrate|verify", "phases_executed": ["red|green|integrate|verify", …], "unit_tests": N, "integration_tests": N, "new_failures": N, "escalation": "none|refine", "task_index": N }`; `continued_from_partial: true` when dispatched with `PRIOR_R1`.
+- Verification ownership: only phases whose commands this coder ran count toward `phases_executed` and `success`. A caller never promotes its own test runs, or an earlier coder's claims, into coder success.
 
 For `REVIEW_FINDINGS` dispatches from `build-review`, use the review-repair variant:
 `success` means every supplied finding was repaired and verified; `partial`/`failure`

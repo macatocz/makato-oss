@@ -103,6 +103,12 @@ posture is constrained by four safeguards — see `AGENTS.md` §
   `build-implement-tdd` (or `build-implement-goal`) dispatch per outer
   iteration; the skill walks the full task list in topological order
   itself.
+- **Never suppress per-task verification.** Context for
+  `build-implement-tdd` / `build-implement-goal` must not tell the skill or
+  its coders to act edit-only, skip builds/tests/linters mid-flight, or leave
+  verification to the caller. Coder phase gates are mandatory (`coder.md`
+  § *Verification ownership*). Avoiding redundant verification applies only to
+  the PO-agent's own runs.
 - **Narrate progress into the issue, best-effort.** The autonomous loop
   structurally initializes or updates the live comment before it starts
   this agent. At each subsequent skill dispatch boundary, mirror a
