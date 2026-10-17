@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.169.0](https://github.com/macatocz/makato-oss/compare/v0.168.5...v0.169.0) (2026-10-17)
+
+
+### ✨ Features
+
+* **build:** coders run targeted RED/GREEN; bounded review/verify repair loops ([#148](https://github.com/macatocz/makato-oss/issues/148)) ([#149](https://github.com/macatocz/makato-oss/issues/149)) ([bd46934](https://github.com/macatocz/makato-oss/commit/bd4693443667594fd8f23df5cfc9d31b3660af4c))
+
 ## [0.168.5](https://github.com/macatocz/makato-oss/compare/v0.168.4...v0.168.5) (2026-10-17)
 
 
