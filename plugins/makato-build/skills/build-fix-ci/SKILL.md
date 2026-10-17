@@ -1,7 +1,7 @@
 ---
 name: build-fix-ci
 description: "Wait for PR checks, repair all actionable CI failures, review and verify repairs, and push until the current head is green or explicitly blocked. Use after autonomous PR creation or repair pushes."
-version: "1.0.0"
+version: "1.1.0"
 argument-hint: "[work-item-key] [--autonomous]"
 allowed-tools: [Bash, Read, Edit, Write, Task]
 ---
@@ -184,13 +184,28 @@ Before a repair, persist `phase:"repair"` and its diagnosed identities. Route:
    `build-implement-tdd` and/or `build-implement-goal` with `CI_FAILURES` and
    `CI_TASK_INDICES`. Preserve blockedBy order; mixed-mode plans require both
    owners when both are affected. Forward full diagnostic paths, not log tails.
-3. **CI configuration or PR metadata:** dispatch `build-implement-goal` with a
+3. **Coverage threshold:** a check whose log shows the coverage tool's own
+   threshold failure, such as Coverage.py `fail-under`. When a test lane that
+   feeds the measurement also failed in this snapshot, repair that lane first
+   and re-inspect: its missing data may be the whole gap. Otherwise build the
+   per-file data from CI's combined measurement, never from a local unit-only
+   run. Prefer the run's uploaded coverage data or report artifacts: download
+   them into `CI_DIR`, then report them from `WORKTREE_PATH` with the
+   repository's own coverage configuration and a data file inside `CI_DIR`.
+   With Coverage.py, `coverage combine --keep --data-file=<CI_DIR file> <files>`
+   followed by `coverage report -m --sort=cover --skip-covered --data-file=<CI_DIR file>`.
+   Without artifacts, use the per-file table in the job log; `missing` is then
+   `null`. Select targets with `$MAKATO_BUILD_ROOT/shared/coverage-raise-guide.md`.
+   Dispatch `build-implement-goal` with `CI_FAILURES` and a coverage-raise
+   `CI_RECOVERY_TASK`: the guide's record, the check identity, the test-only
+   constraint, and the new test files as its verification.
+4. **CI configuration or PR metadata:** dispatch `build-implement-goal` with a
    concrete `CI_RECOVERY_TASK` containing diagnosis, file/field targets, inherited
    constraints and verification command. A title-format failure permits changing
    that PR title, not its acceptance criteria, labels or protection rules. Missing
    original task mapping must not force all work through TDD. Missing plan context
    is a blocker, not permission to invent product requirements.
-4. **Merge conflict:** when the installed orchestrate resolver is available,
+5. **Merge conflict:** when the installed orchestrate resolver is available,
    dispatch `resolve-pr-conflict` with the same worktree/PR context, then verify
    the changed head through Step 4; otherwise return a concrete `CI_BLOCKED`.
 
@@ -232,7 +247,8 @@ pending polls or API failures.
 
 Compare diagnosed identities and verification evidence between repair rounds.
 If the same root causes remain after two consecutive completed repairs with no
-verified improvement, return `CI_NO_PROGRESS`. A new SHA alone is not progress;
+verified improvement, return `CI_NO_PROGRESS`. For a coverage threshold, a
+higher CI total is verified improvement. A new SHA alone is not progress;
 fewer checks alone is not progress if jobs were removed. Conversely, a new root
 cause in the same job is not identical failure. Persist this comparison and its
 evidence in the checkpoint before deciding. Safety exits are never success.

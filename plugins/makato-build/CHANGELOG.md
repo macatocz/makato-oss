@@ -24,12 +24,23 @@ here on merge to main; release-please will date and version them at the next rel
   otherwise only tests exercising the touched files, with backup-based attribution of
   pre-existing failures. Step 3 regains its heading.
 - **`gate-scout` v1.5.0** — new `sensors_ci_scope`, `integration_ci`, `coverage_ci`, and split
-  `unit_coverage` / `integration_coverage` / `coverage_report` commands (`coverage` stays the
-  fallback).
+  `unit_coverage` / `integration_coverage` / `coverage_append` / `coverage_report` commands
+  (`coverage` stays the fallback). `coverage_report` lists files lowest coverage first with
+  missing lines. Coverage.py `parallel = true` gets no split commands, because sequential runs
+  erase each other's data and `--append` is rejected.
 - **`build-verify` v1.15.0** — Gate 0 uses CI's pre-commit scope; Gates 1/2 take hook results
   from Gate 0's final run and re-run a hook only after repair; Gate 3 collects coverage; Gate 4
   is skipped locally (`owner:"ci"`) when CI runs the integration lane; Gate 5 reports the
   collected data without re-running tests and blocks only when the integration lane ran locally.
+- **Coverage raise** — new `shared/coverage-raise-guide.md`: below the threshold on data that
+  covers every lane, each round ranks files lowest coverage first and selects up to 5 to close
+  the gap. The repair adds test-only edge-case tests that assert behavior, and reports
+  unreachable lines rather than suppressing them.
+  - **Where it runs:** build-verify Gate 5 when it enforces the threshold (coder verify-repair,
+    then an append-only re-measure of the new test files); **`build-fix-ci` v1.1.0** when CI's
+    coverage gate fails, ranking from the run's combined coverage data (goal-mode recovery task).
+  - **Never from unit-only data:** on CI-owned integration that data ranks integration-covered
+    code lowest. **`coder` v1.2.0** accepts `coverage` findings.
 - **`build-sensors` v1.3.0** — new `branch` scope (merge-base diff plus untracked files, manual
   stage); `max_loops` is one repair budget shared by every sensor-fixer dispatch; R1 adds
   `scope`, `hooks` and `final_run_log`. **`sensor-fixer` v1.0.0** consumes the remaining budget.

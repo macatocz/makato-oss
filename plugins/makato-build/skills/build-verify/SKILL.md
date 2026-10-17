@@ -140,7 +140,7 @@ including bounded repair exhaustion.
 | # | DoD item | Enforced by | HALT on unmet (autonomous mode) |
 |---|----------|-------------|---------------------------------|
 | 1 | All tests pass | Gate 3 (Unit) + Gate 4 (Integration; local or required CI check) | bounded coder verify-repair for local new failures; CI failures → `build-fix-ci`; exhaustion → HALT-002 |
-| 2 | Coverage ≥ threshold | Gate 5 (local threshold or required CI threshold) | bounded coder verify-repair for blocking local coverage gaps; CI-owned threshold is advisory locally; exhaustion → HALT-002 |
+| 2 | Coverage ≥ threshold | Gate 5 (local threshold or required CI threshold) | coverage-raise repair rounds (edge-case tests for the lowest-covered files) when the local data covers every lane; CI-owned threshold is advisory locally and `build-fix-ci` raises it; exhaustion → HALT-002 |
 | 3 | Lint clean | Gate 2 (Lint) | deterministic gate-scout autofix, then bounded coder verify-repair; exhaustion → HALT-002 |
 | 4 | Type-check clean | Gate 1 (Build) | bounded coder verify-repair; exhaustion → HALT-002; structural escalation → `/build-refine` |
 | 5 | No CRITICAL sensor findings | Gate 0 (Sensors) | HALT-001 (sensor-fixer exhausted) / HALT-004 (same finding 5×) |
@@ -195,7 +195,8 @@ repository path already resolved in Step 1; if that path is missing, report the
 missing artifact and stop the affected gate rather than probing guessed URIs.
 
 **Coverage command contract:** use `unit_coverage` for fresh unit collection,
-`integration_coverage` to append local integration coverage, and `coverage_report`
+`integration_coverage` to append local integration coverage, `coverage_append`
+to append named test files during a coverage-raise round, and `coverage_report`
 to report collected data without running tests. Use `coverage` only as the legacy
 all-in-one fallback when the split commands are absent. Treat each command as an
 executable string and `coverage_threshold` as separate metadata; never execute a
@@ -263,7 +264,9 @@ shape:
 Use one stable ID per finding; `gate` is exactly `build`, `lint`, `unit`,
 `integration`, or `coverage`; `command` is the exact executable gate-scout
 command, including its runner prefix. `failing` contains test IDs, file:line
-locations, or uncovered branch identifiers as applicable. Retain each gate's
+locations, or uncovered branch identifiers as applicable; for a coverage finding
+it lists the target files, and the finding adds a `coverage` object with the
+guide's `{threshold,total,needed,targets}` record. Retain each gate's
 raw output in a per-run file under `$SPEC_FOLDER` and set `log_path` to that
 file's actual path; never invent an excerpt, failure, or path. Compare UNIT and
 INTEGRATION failures against `BASELINE_FAILURES`. A UNIT test or mandatory
@@ -328,7 +331,8 @@ For each repair round:
    test-data, or config-only, start at the first affected gate and run applicable
    downstream gates. Any re-check that includes Gate 5 MUST start at Gate 3 to
    collect fresh coverage data, then run the applicable Gate 4 lane before the
-   report. Coverage-driven test changes start at Gate 3. Apply the single
+   report. Exception: a coverage-raise round re-measures as § *Re-measure* in
+   `$MAKATO_BUILD_ROOT/shared/coverage-raise-guide.md` specifies. Apply the single
    flaky-test re-run rule again. Never count coder targeted tests as a
    substitute for these gates.
 5. Log each completed independent re-check:
@@ -529,7 +533,8 @@ replace the fresh full-unit coverage data.
 production code changed. For test-only or config-only repair, start at the
 first affected gate and run applicable downstream gates; BUILD and LINT need
 not re-run for test-file-only changes. If Gate 5 must be checked again, start
-at Gate 3 to collect a fresh coverage data set.
+at Gate 3 to collect a fresh coverage data set, except after a coverage-raise
+round (Gate 5 below).
 
 Log:
 ```
@@ -593,29 +598,35 @@ of a shell command. Select the action from this matrix ("split" = both
 
 | Split | Gate 4 owner | `coverage_ci` | Action | Threshold result |
 |---|---|---|---|---|
-| yes | local | any | `coverage_report` over unit + integration data | blocking (`enforced:true`) |
+| yes | local or none | any | `coverage_report` over unit + integration data | blocking (`enforced:true`) |
 | yes | ci | found | `coverage_report` over unit data | advisory; the required CI threshold check blocks |
 | yes | ci | not found | `coverage_report` over unit data | advisory; a miss logs `warn` — the local data lacks the CI-owned integration lane |
-| no | local | any | legacy all-in-one `coverage` command | blocking (`enforced:true`) |
+| no | local or none | any | legacy all-in-one `coverage` command | blocking (`enforced:true`) |
 | no | ci | any | skip — never run the all-in-one command, it would run integration tests locally | not measured |
 
-Check **conditional coverage** (branch/condition coverage, not line coverage):
-every branch of every conditional in the new code must be exercised by at least
-one test. An advisory result reports the local figure, the measured `lanes`, and
-uncovered branches, but adds nothing to `VERIFY_FINDINGS`; a red CI threshold
-check is repaired by `build-fix-ci`. A blocking below-threshold result
-identifies uncovered branches and adds them to `VERIFY_FINDINGS` as
-`gate:"coverage"`; enter Step 2a. If the coder reports that filling the gap
-requires rethinking the implementation structure, return `partial` with
-`data.escalation:"refine"` → `/build-refine`.
+Compare the report's total (branch-inclusive when the project measures branches)
+with the threshold. A non-zero exit caused by the tool's own fail-under check is
+a below-threshold result, not a command failure.
 
-If no threshold was declared, report coverage and uncovered branches as
-advisory. Any re-check that includes Gate 5 MUST start at Gate 3 to ensure the
-report uses fresh data after repair.
+An advisory result reports the local figure and the measured `lanes`, and adds
+nothing to `VERIFY_FINDINGS`. Unit-only data never selects files for new tests.
+A red CI threshold check is raised by `build-fix-ci` from CI's combined data.
+
+A blocking below-threshold result starts a coverage-raise round. Load
+`$MAKATO_BUILD_ROOT/shared/coverage-raise-guide.md` and select up to 5
+lowest-coverage files from this report. Add one `gate:"coverage"` finding with
+the selected files in `failing` and the guide's record in `coverage`, then enter
+Step 2a. Each later round re-measures as the guide specifies and selects again
+from the new report. Rounds share `MAX_REPAIR_ROUNDS` with the other gate
+findings; a threshold still unmet after the final round fails closed
+(HALT-002). List the target files and any lines the coder reported unreachable
+in `unresolved_findings`.
+
+If no threshold was declared, report coverage as advisory and add no finding.
 
 Log:
 ```
-{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-coverage","status":"ok"|"warn"|"error"|"skipped","data":{"owner":"local|ci","ci_ref":"<repo-relative CI file>:<line>|null","lanes":["unit","integration"],"enforced":true|false,"conditional_coverage":"<X>%|not measured","threshold":"<Y>%|none","threshold_met":true|false|null,"junit_report":"<repo-relative path>|null"}}
+{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-coverage","status":"ok"|"warn"|"error"|"skipped","data":{"owner":"local|ci","ci_ref":"<repo-relative CI file>:<line>|null","lanes":["unit","integration"],"enforced":true|false,"conditional_coverage":"<X>%|not measured","threshold":"<Y>%|none","threshold_met":true|false|null,"raise_round":<N>|null,"targets":["<file>"],"junit_report":"<repo-relative path>|null"}}
 ```
 
 ---
