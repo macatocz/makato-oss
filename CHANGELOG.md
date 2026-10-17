@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.168.5](https://github.com/macatocz/makato-oss/compare/v0.168.4...v0.168.5) (2026-10-17)
+
+
+### 🐛 Bug Fixes
+
+* port issue-scoped lesson capture and immediate promotion to main ([#123](https://github.com/macatocz/makato-oss/issues/123)) ([#147](https://github.com/macatocz/makato-oss/issues/147)) ([f463fc6](https://github.com/macatocz/makato-oss/commit/f463fc61cedc548748fb57e10abcd527d128abd8))
+
 ## [0.168.4](https://github.com/macatocz/makato-oss/compare/v0.168.3...v0.168.4) (2026-10-17)
 
 
