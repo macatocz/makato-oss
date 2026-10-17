@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.170.0](https://github.com/macatocz/makato-oss/compare/v0.169.0...v0.170.0) (2026-10-17)
+
+
+### ✨ Features
+
+* **orchestrate:** dependency-aware mixed-mode task scheduling ([#153](https://github.com/macatocz/makato-oss/issues/153)) ([#157](https://github.com/macatocz/makato-oss/issues/157)) ([608936d](https://github.com/macatocz/makato-oss/commit/608936ddd6d79512c4028814c4fd855585dba72e))
+
 ## [0.169.0](https://github.com/macatocz/makato-oss/compare/v0.168.5...v0.169.0) (2026-10-17)
 
 
