@@ -6,7 +6,7 @@ description: >-
   to How to Test, design decisions surface in the description, Jira
   story is linked. Presents draft for user approval before opening.
   Autonomous runs reuse an open PR and wait for build-fix-ci before handoff.
-version: "1.12.2"
+version: "1.12.3"
 argument-hint: "[work-item-key] [--autonomous]"
 allowed-tools:
   - Bash
@@ -68,8 +68,9 @@ selects the root when set, otherwise the common-dir fallback selects the main ch
 REPO_ROOT="${MAKATO_TARGET_REPO_ROOT:-$(cd "$(git -C "$WORKTREE_PATH" rev-parse --git-common-dir)/.." && pwd)}"
 ```
 
-Every spec-artefact path resolved in Step 1 below (`stories.json`, `prd.md`,
-`plan.md`, `created-issues.json`) is under the `SPEC_FOLDER` returned by
+Every spec-artefact path resolved in Step 1 below (`stories.json`,
+`seed-manifest.json`, `prd.md`, `design.md`, `plan.md`, `created-issues.json`)
+is under the `SPEC_FOLDER` returned by
 `python3 "$MAKATO_BUILD_ROOT/shared/spec_folder.py" "$REPO_ROOT" "<key>"`.
 `.github/PULL_REQUEST_TEMPLATE.md` lives in the tracked `.github/` directory
 and resolves correctly under either root. See `AUTONOMOUS-MODE.md` § *Two
@@ -77,21 +78,23 @@ roots, one contract*.
 
 ### Downstream skill dispatch
 
-In OMP mode (`MAKATO_HARNESS_MODE` unset or not `claude`), dispatch the
-selected downstream skill through
-`python3 "${MAKATO_SKILL_RUNNER:-$MAKATO_BUILD_ROOT/scripts/run-skill.py}"`
+For headless/autonomous OMP runs, keep the existing downstream-skill dispatch
+through `python3 "${MAKATO_SKILL_RUNNER:-$MAKATO_BUILD_ROOT/scripts/run-skill.py}"`
 with `--repo-root "$REPO_ROOT" --cwd "$WORKTREE_PATH"`, a complete
-`--context-file`, and the inherited harness/role configuration. Do not inline
-Skill/Task workflow execution or replace the role-selected model. Claude mode
-keeps its native skill invocation. Wait for the final R1; a nonzero launcher
-exit, missing/malformed envelope, `failure`, or `partial` is not success.
-Forward the work-item-key, `AGENT_ID` activation context, both workspace roots,
-`MAKATO_BUILD_ROOT`, optional sibling roots, `REPO`, `SPEC_FOLDER`, and
-`JSONL_PATH` explicitly. Do not forward the `--autonomous` CLI flag on
-cross-skill handoffs. If this invocation was activated only by that flag and
-`AGENT_ID` is absent, include `AUTONOMOUS_MODE:true` and a `task_id` in
-the child context (use the work-item key when no dispatch id exists), so
+`--context-file`, and the inherited harness/role configuration. Wait for the
+final R1; a nonzero launcher exit, missing/malformed envelope, `failure`, or
+`partial` is not success. Forward the work-item-key, activation context, both
+workspace roots, `MAKATO_BUILD_ROOT`, optional sibling roots, `REPO`,
+`SPEC_FOLDER`, and `JSONL_PATH` explicitly. Do not forward the `--autonomous`
+CLI flag on cross-skill handoffs. If this invocation was activated only by that
+flag and `AGENT_ID` is absent, include `AUTONOMOUS_MODE:true` and a `task_id`
+in the child context (use the work-item key when no dispatch id exists), so
 standalone autonomous execution remains headless.
+
+In a human-driven OMP interactive run, do not launch a follow-on workflow skill
+through `run-skill.py` or a same-session Skill call. Complete this skill's own
+PR approval/create work, then provide any later workflow step as an explicit
+clean-context instruction. Claude mode keeps its native skill invocation.
 
 ## Workflow
 
@@ -133,17 +136,65 @@ Resolve `SPEC_FOLDER` with:
 SPEC_FOLDER="$(
   python3 "$MAKATO_BUILD_ROOT/shared/spec_folder.py" "$REPO_ROOT" "<key>"
 )"
+JSONL_PATH="${JSONL_PATH:-$SPEC_FOLDER/build.jsonl}"
 ```
 
-Read from `SPEC_FOLDER` (NOT under `$WORKTREE_PATH` — see the entry guard
-above):
-- `stories.json` — acceptance criteria for this work item (if key was provided and file exists)
-- `seed-manifest.json` — optional; when `.spec_tier == "plan-only"` and no `stories.json`, `plan.md` `## Acceptance criteria` is the How-to-Test source (see Step 3)
-- `prd.md` — goals, scope, motivation (if exists)
-- `plan.md` — completed tasks, for "What changed" bullets; also the plan-only How-to-Test source (if exists)
-- `$REPO_ROOT/.github/PULL_REQUEST_TEMPLATE.md` — the project's required PR template
+If `stories.json` exists, select exactly one entry using the work-item key or
+issue number; never read/print the module-wide JSON array into context. The
+schema's canonical identifier is the selected record's `.key`:
 
-- `created-issues.json` — handoff artifact emitted by `/makato-plan:to-issues` (optional)
+```bash
+ISSUE_NUMBER=""
+if [[ -n "$KEY" && "$KEY" =~ ^([[:alpha:]][[:alnum:]]*[-#])?#?([0-9]+)$ ]]; then
+  ISSUE_NUMBER="${BASH_REMATCH[2]}"
+fi
+STORY_JSON=""
+STORY_KEY="$KEY"
+if [[ -f "$SPEC_FOLDER/stories.json" ]]; then
+  STORY_MATCHES="$(jq -c --arg key "$KEY" --arg issue "$ISSUE_NUMBER" '
+    if $key == "" and length == 1 then . else
+      [ .[] | select(
+          .key == $key
+          or ($issue != "" and ((.key | tostring | endswith("-" + $issue))
+                                or (.key | tostring | endswith("#" + $issue))))
+          or ($issue != "" and (((.issue_number // .number // "") | tostring) == $issue))
+        )
+      ]
+    end' "$SPEC_FOLDER/stories.json")"
+  MATCH_COUNT="$(jq 'length' <<<"$STORY_MATCHES")"
+fi
+```
+
+If there is no work-item key and `stories.json` contains multiple entries, ask
+for the exact key, then repeat the selection. A single-story file remains usable
+without an issue link. If jq fails, or the selected key/issue number matches
+zero or multiple entries, log a terminal `session` error with
+`halt_code:"MISSING_INPUT"`, return R1 `status:"failure"`, and do not draft a
+PR or guess another story. With exactly one match, set:
+
+```bash
+STORY_JSON="$(jq -c '.[0]' <<<"$STORY_MATCHES")"
+STORY_KEY="$(jq -r '.key' <<<"$STORY_JSON")"
+```
+
+When `stories.json` is absent, `STORY_KEY="$KEY"`; this keeps the existing
+plan-only fallback. Do not change the `created-issues.json` Case 4 issue-link
+behavior.
+
+Read only the selected story's inputs from `SPEC_FOLDER` (NOT under
+`$WORKTREE_PATH` — see the entry guard above):
+- `stories.json` — use `STORY_JSON` only (selected by key/issue number above).
+- `seed-manifest.json` — query only `.spec_tier`; when it is `plan-only` and
+  there is no `stories.json`, `plan.md` `## Acceptance criteria` remains the
+  How-to-Test source (see Step 3).
+- `plan.md` — read only the current story's plan/task slice; if the plan is for
+  one story, the whole plan is that slice.
+- `prd.md` and `design.md` — read only the H2 sections that the selected story
+  or its plan explicitly references, including their nested content. If neither
+  references a section in one of these files, do not read that file. Never read
+  either module-wide document in full.
+- `$REPO_ROOT/.github/PULL_REQUEST_TEMPLATE.md` — the project's required PR template.
+- `created-issues.json` — handoff artifact emitted by `/makato-plan:to-issues` (optional).
 
 When `created-issues.json` exists and `MAKATO_PLAN_ROOT` is available, validate
 it against `$MAKATO_PLAN_ROOT/skills/to-issues/references/created-issues.schema.json`.
@@ -254,20 +305,27 @@ PR title/body or create a second PR. Zero matches and no supplied existing PR
 
 Load `@references/pr-description-guide.md` (MANDATORY — see References table). Use `.github/PULL_REQUEST_TEMPLATE.md` (already read in Step 1) as the body structure — populate each of its sections from spec artifacts. This ensures the produced PR matches the template enforced by the project rather than a free-form body.
 
-**PR title**: `feat: <story title>` — title from `stories.json` or `plan.md`; if no spec, derive from commit messages. Append ` (DCP-1234)` or ` (#42)` when a work item key is available. The full title must fit on one line in GitHub's PR list view: keep it under 72 characters total. Truncate or rephrase the story title if needed; never truncate the issue reference.
+**PR title**: `feat: <story title>` — use `STORY_JSON.title` from the selected
+story, or the current story's `plan.md` slice when no story record exists; if no
+spec exists, derive from commit messages. Append ` (DCP-1234)` or ` (#42)` when a work item key is available. The full title must fit on one line in GitHub's PR list view: keep it under 72 characters total. Truncate or rephrase the story title if needed; never truncate the issue reference.
 
 **Title format rule**: the title MUST match `^(feat|fix|docs|refactor|test|chore|ci|build|perf|style|revert)(\([a-z0-9-]+\))?: .+$` — the same regex enforced by the CI `pr-title` check. Scope is optional; when present it must be a single `[a-z0-9-]` identifier (no commas, no slashes). For cross-plugin or repo-wide changes, omit the scope entirely (`fix: description`, not `fix(a,b,c): description`). Validate the title against this regex **before** calling `gh pr create` and fail with a clear error if it does not match — do not let CI catch it first.
 
 Fill each template section as follows:
 
-**Description of Changes > What changed**: one bullet per plan task — task title + one sentence on what was changed. If no `plan.md` exists, derive from commit messages.
+**Description of Changes > What changed**: one bullet per completed task in
+the current story's `plan.md` slice — task title + one sentence on what changed.
+Do not include tasks from another story. If no `plan.md` exists, derive from the
+current story's commit messages.
 
 **Goal Alignment**: plugin name, goal statement (read `AGENTS.md` in the target repo), one sentence connecting this story to the goal.
 
 **Links**: see Step 6 for issue tracker handling. When `created-issues.json` is present and valid, the Links section receives an auto-injected `Closes #N` line per artifact entry (in artifact order), deduped against any user-supplied `GH#N` reference — see Step 6 Case 4.
 
 **How to Test**: one numbered step per acceptance criterion, in this precedence order:
-1. **`stories.json` present** → one step per acceptance criterion from `stories.json`.
+1. **`stories.json` present** → one step per `acceptance_criteria` item in
+   `STORY_JSON` (the selected entry only). Keep the complete AC list and its
+   order; do not mix criteria from sibling stories.
 2. **No `stories.json`, but `spec_tier:plan-only`** (D11 enabler) → read `seed-manifest.json`
    `.spec_tier`; when it is `"plan-only"`, source the steps from `plan.md`
    `## Acceptance criteria` — one numbered step per non-empty acceptance item. This is the
@@ -278,7 +336,18 @@ Fill each template section as follows:
 
 Make each step concrete (name the command, the input, the expected output).
 
-**AC Verification block (machine-readable, #347-followup)**: append a fenced block to the PR body carrying the per-AC verdicts produced by `build-review` (diff-reviewer v1.1.0+). This block is the **sole durable transport** of the verdict to the post-merge `documentation-agent` — `workflow-state.json` is gitignored and `build.jsonl` is not staged into the PR, so the PR body is the only artifact that survives to the GHA runner. Source it from the **last** `step:"ac-verification"` entry in the resolved spec folder's `build.jsonl`:
+**Build log and gate evidence**: load only rows for this story, while retaining
+all of those rows (including existing gate/session results) for the current PR
+quality checks:
+
+```bash
+STORY_LOG_ROWS="$(jq -c --arg key "$STORY_KEY" \
+  'select(.story == $key)' "$JSONL_PATH")"
+```
+
+Do not replace this with a whole-file read or narrow the rows to AC entries only.
+
+**AC Verification block (machine-readable, #347-followup)**: append a fenced block to the PR body carrying the per-AC verdicts produced by `build-review` (diff-reviewer v1.1.0+). This block is the **sole durable transport** of the verdict to the post-merge `documentation-agent` — `workflow-state.json` is gitignored and `build.jsonl` is not staged into the PR, so the PR body is the only artifact that survives to the GHA runner. Source it from the **last** `step:"ac-verification"` entry among `STORY_LOG_ROWS` (not another story's rows):
 
 ````markdown
 ## AC Verification
@@ -292,7 +361,11 @@ Make each step concrete (name the command, the input, the expected output).
 ````
 
 Rules:
-- Emit the block **only** when a `step:"ac-verification"` entry exists in `build.jsonl`. When none exists (interactive build, or diff-reviewer predates v1.1.0), **omit the entire section** — do NOT emit an empty block. Its absence signals the documentation-agent to skip checkbox marking (no false `[x]`).
+- Emit the block **only** when a `step:"ac-verification"` entry exists in
+  `STORY_LOG_ROWS`. When none exists (interactive build, or diff-reviewer
+  predates v1.1.0), **omit the entire section** — do NOT emit an empty block.
+  Its absence signals the documentation-agent to skip checkbox marking (no
+  false `[x]`).
 - Copy `ac_verdicts[]` verbatim from the last such entry — do NOT re-derive verdicts here. This skill is a transport, not a judge.
 - The HTML comment marker `makato:ac-verdicts` is the anchor the documentation-agent greps for; keep it exact.
 
@@ -302,7 +375,10 @@ Rules:
 
 **PR Checklist**: pre-check all items that are verifiably true (conventional commit title ✓, CHANGELOG updated ✓, self-contained skills ✓, version bumped if behavior changed).
 
-**Additional Changelog Entries**: leave empty — this is a single-story PR.
+**Additional Changelog Entries**: leave empty unless the PR contains a distinct
+logical change not covered by its title; when present, add one conventional
+changelog title per additional change. Do not infer extra entries from sibling
+stories or module-wide artifacts.
 
 ---
 
@@ -317,7 +393,10 @@ Use **AskUserQuestion** with selectable options:
 
 Apply any edits the user requests. Re-present if edits alter the title or more than one section. Do not open the PR until the user selects "Approved".
 
-In **autonomous mode**, skip the prompt: proceed directly to Step 5 with the draft as-rendered. Log `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-create-pr "<key>" pr-draft-approval open-pr-as-drafted "<agent_id|cli_flag|task_id_bundle>"`. The PR body is populated entirely from spec artifacts (`stories.json`, `prd.md`, `plan.md`) and workflow-state (`build.jsonl`) — no human authoring is required and the `created-issues.json` auto-`Closes` injection in Step 6 Case 4 is the canonical issue-link source.
+In **autonomous mode**, skip the prompt: proceed directly to Step 5 with the draft as-rendered. Log `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-create-pr "<key>" pr-draft-approval open-pr-as-drafted "<agent_id|cli_flag|task_id_bundle>"`. The PR body is populated from the selected story/plan slice, only referenced
+`prd.md`/`design.md` sections, the project template, and the current story's
+`build.jsonl` rows — no human authoring is required. The `created-issues.json`
+auto-`Closes` injection in Step 6 Case 4 remains the canonical issue-link source.
 
 ---
 
@@ -504,8 +583,12 @@ Checkpoint locations, absolute private paths, log_path, raw log summaries and
 unsanitized child errors stay private. Retaining diagnostics in private R1
 handoff context is not permission to publish them in build.jsonl or comments.
 Autonomous success: report the PR URL and confirmed green SHA. Interactive
-success: *"PR open: `<URL>`. Next: wait for review, then use
-`/address-pr-comments` to handle feedback."*
+success: report the PR URL and current SHA without claiming a CI gate ran, then
+finish with: *"PR open: `<URL>`. After review comments arrive, continue in a
+clean context: `/handoff` (or `/new`), then
+`/skill:build-address-pr-comments <KEY>`. The PR and comments are in GitHub;
+reuse this feature worktree, or include `WORKTREE_PATH=<absolute path>` if the
+new session is not already in it."*
 
 ---
 
@@ -546,7 +629,9 @@ In autonomous mode:
 
 - **Never prompt the user** — work-item-key and draft-approval gates are bypassed per the rules above.
 - **Read workflow-state from `build.jsonl`** when the work-item-key argument is missing — Step 1a documents the lookup order.
-- **PR body is fully autogenerated** from spec artifacts (`stories.json`, `prd.md`, `plan.md`, `.github/PULL_REQUEST_TEMPLATE.md`) and workflow-state. No human authoring.
+- **PR body is fully autogenerated** from the selected story/plan slice,
+  referenced `prd.md`/`design.md` sections, `.github/PULL_REQUEST_TEMPLATE.md`,
+  and this story's workflow-state rows. No human authoring.
 - **Auto-inject `Closes #<n>`** lines from `created-issues.json` per Step 6 Case 4 — this is the canonical issue-link source in autonomous mode.
 - **Render the AC Verification block** from the last `build.jsonl` `step:"ac-verification"` entry (Step 3) so the post-merge `documentation-agent` can flip verified AC checkboxes. Omit the block entirely when no such entry exists.
 - **Log every bypass** to `build.jsonl` via

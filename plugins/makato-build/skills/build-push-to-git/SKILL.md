@@ -5,12 +5,12 @@ description: >-
   and push the feature branch to remote. One commit per logical task,
   individually bisectable. Confirms push before affecting remote.
   Use after verify, before create-pr.
-version: "1.7.2"
+version: "1.7.3"
 argument-hint: "[work-item-key] [--autonomous]"
 allowed-tools: [Bash]
 metadata:
   authors: [makato-build]
-  last_updated: "2026-08-05"
+  last_updated: "2026-10-17"
 ---
 
 ## When to Use
@@ -99,17 +99,20 @@ requirements or git hooks. Normal interactive push is unchanged.
 
 ### Downstream skill dispatch
 
-In OMP mode (`MAKATO_HARNESS_MODE` unset or not `claude`), invoke workflow
-skills with `python3 "${MAKATO_SKILL_RUNNER:-$MAKATO_BUILD_ROOT/scripts/run-skill.py}"`
+For headless/autonomous OMP runs, keep the existing workflow-skill dispatch
+through `python3 "${MAKATO_SKILL_RUNNER:-$MAKATO_BUILD_ROOT/scripts/run-skill.py}"`
 using `--repo-root "$REPO_ROOT" --cwd "$WORKTREE_PATH"` and a complete
-`--context-file`; inherit the configured harness/role selection. Do not
-inline Skill/Task workflow execution or choose a different model. Claude mode
-keeps native skill dispatch. Wait for completion and parse the final R1;
-launcher errors or missing/malformed R1 block success. If autonomous mode was
-activated only by its CLI flag and `AGENT_ID` is absent, put
+`--context-file`; inherit the configured harness/role selection. Wait for the
+final R1; launcher errors or missing/malformed R1 block success. If autonomous
+mode was activated only by its CLI flag and `AGENT_ID` is absent, put
 `AUTONOMOUS_MODE:true` plus `task_id` (the work-item key when no dispatch id
 exists) in the child context; do not accidentally revert standalone runs to
 interactive mode.
+
+In a human-driven OMP interactive run, do not invoke the next workflow skill via
+`run-skill.py` or a same-session Skill call. Finish this skill's push/approval
+work, then give the user a clean-context next step. Claude mode keeps its native
+skill dispatch. This boundary does not replace ordinary helper-agent dispatch.
 
 ## Workflow
 
@@ -287,11 +290,20 @@ of this SHA. This path is not a green-CI claim.
 
 In **interactive mode**, then ask using `AskUserQuestion`:
 - Question: "Branch is on remote. Create the pull request now?"
-- Option A: **Yes, create PR now** — description: "Draft and open the PR using `/build-create-pr` — generates description from spec artifacts"
+- Option A: **Yes, create PR now** — description: "Continue in a clean context with `/skill:build-create-pr <key>` — generates description from spec artifacts"
 - Option B: **No, I'll do it later** — description: "Run `/build-create-pr <key>` manually when ready"
 
-If option A: invoke `/build-create-pr <key>` directly.
-If option B: tell the user: "Run `/makato-build:build-create-pr <key>` when ready."
+If option A, do not invoke `build-create-pr` in this session. Finish with:
+
+> Next (clean context): `/handoff` (or `/new`), then `/skill:build-create-pr <key>`.
+
+Reuse the pushed feature worktree. The work-item key, branch, commit, and build
+record remain available in the spec folder and GitHub; if the new session is not
+already in this worktree, include `WORKTREE_PATH=<absolute path>`.
+
+If option B, tell the user to run `/skill:build-create-pr <key>` in a fresh
+context when ready, with the same `WORKTREE_PATH` note. Do not execute the skill
+inline or through the runner.
 
 In **normal autonomous mode**, skip the prompt and dispatch
 `makato-build:build-create-pr` with the work-item-key through the downstream

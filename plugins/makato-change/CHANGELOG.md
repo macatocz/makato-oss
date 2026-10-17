@@ -3,6 +3,13 @@
 
 ## [Unreleased]
 
+### Fixed — interactive orchestrate handoffs use clean contexts
+
+- **`orchestrate` skill v1.6.2** persists the selected phase and returns an explicit
+  `/handoff`/`/new` plus `/skill:<phase>` instruction in human-driven OMP sessions,
+  instead of invoking the next phase in the same session. The headless/autonomous
+  phase workflow and Claude-native invocation remain available.
+
 ### Fixed — durable project learning (port of #123 from `development`)
 
 - **`execute` skill v1.6.2** and **`resolve-review` skill v1.0.5** require learning

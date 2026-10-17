@@ -11,7 +11,7 @@ description: >-
   OUT-OF-SCOPE carry-over issue). Review-feedback promotion — codifies recurring
   MUST-FIX categories as permanent pre-commit checks (Step 5a + Step 6a).
   Interactive by default. Use after create-pr when review comments arrive.
-version: "1.7.1"
+version: "1.7.2"
 argument-hint: "[work-item-key] [--autonomous]"
 allowed-tools: ["Bash", "Read", "Edit", "Write"]
 ---
@@ -67,20 +67,24 @@ REPO_ROOT="${MAKATO_TARGET_REPO_ROOT:-$(cd "$(git -C "$WORKTREE_PATH" rev-parse 
 
 ### Downstream skill dispatch
 
-In OMP mode (`MAKATO_HARNESS_MODE` unset or not `claude`), dispatch
-`build-review` and `build-verify` using
+For headless/autonomous OMP runs, keep the existing `build-review` and
+`build-verify` dispatch through
 `python3 "${MAKATO_SKILL_RUNNER:-$MAKATO_BUILD_ROOT/scripts/run-skill.py}"`
 with `--repo-root "$REPO_ROOT" --cwd "$WORKTREE_PATH"`, a complete
-`--context-file`, and the inherited harness/role selection. Do not inline
-Skill/Task workflow execution or force a model. Claude mode keeps native
-skill dispatch. Forward the work-item-key, activation context, `PR_NUMBER`,
-`REPO`, both workspace roots, `MAKATO_BUILD_ROOT`, optional sibling roots,
-`SPEC_FOLDER`, `JSONL_PATH`, and available gate/test context explicitly.
-Do not forward the `--autonomous` CLI flag on cross-skill handoffs. If it
-was the only activation signal and `AGENT_ID` is absent, include
-`AUTONOMOUS_MODE:true` and `task_id` (the work-item key when no dispatch id
-exists) in the child context. Wait for each final R1 before continuing;
-launcher failure or malformed/missing R1 is a blocking failure.
+`--context-file`, and the inherited harness/role selection. Forward the
+work-item-key, activation context, `PR_NUMBER`, `REPO`, both workspace roots,
+`MAKATO_BUILD_ROOT`, optional sibling roots, `SPEC_FOLDER`, `JSONL_PATH`, and
+available gate/test context explicitly. Do not forward the `--autonomous` CLI
+flag on cross-skill handoffs. If it was the only activation signal and
+`AGENT_ID` is absent, include `AUTONOMOUS_MODE:true` and `task_id` (the
+work-item key when no dispatch id exists) in the child context. Wait for each
+final R1; launcher failure or malformed/missing R1 is a blocking failure.
+
+In a human-driven OMP interactive run, do not launch either gate skill through
+the runner or a same-session Skill call. Persist the comment decisions and
+worktree changes, then return the clean-context gate sequence specified in
+Step 7. Claude mode keeps its native skill dispatch. This does not replace
+ordinary helper-agent dispatch such as `sensor-fixer`.
 
 ## Workflow
 
@@ -118,11 +122,63 @@ Log the bypass via `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-address-pr-c
 
 ### Step 2 — Log session start
 
-Run:
+Resolve `SPEC_FOLDER` with the shared spec-folder resolver and set
+`JSONL_PATH="${JSONL_PATH:-$SPEC_FOLDER/build.jsonl}"`. Then run:
 
 ```bash
 "$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-address-pr-comments","story":"<key>","step":"session","status":"start","data":{"pr_url":"<url>"}}'
 ```
+
+---
+
+### Step 2a — Resume an interactive gate handoff
+
+Before fetching or classifying comments, inspect only this work item's
+`JSONL_PATH` for a pending interactive checkpoint. A checkpoint is pending when
+the latest `build-address-pr-comments` `interactive-handoff` event for this
+story/PR has `status:"warn"` and no later `build-address-pr-comments`
+`step:"session"` event has `status:"ok"`:
+
+```bash
+PENDING_HANDOFF="$(jq -sc --arg key "$KEY" --arg pr "$PR_NUMBER" '
+  [.[] | select(.skill == "build-address-pr-comments"
+    and .story == $key and .step == "interactive-handoff"
+    and .status == "warn"
+    and ((.data.github_pr_number | tostring) == $pr))] | last // empty
+' "$JSONL_PATH")"
+```
+
+If one exists, compare its `ts` to the latest `build-review` and
+`build-verify` `step:"session"` rows for this story in this same log. Each gate
+is complete only when its latest session row after the checkpoint has
+`status:"ok"`. If either gate is missing or non-success, do not fetch comments,
+reclassify, edit, commit, push, or reply. Close this invocation with terminal
+session `status:"warn"` and R1 `status:"partial"`, preserving the known PR and
+checkpoint details. Tell the user to run the missing gates in order, then resume
+this skill:
+
+> Next (clean context): run each still-missing gate in order. If the latest
+> post-checkpoint `build-review` session is not `status:"ok"`, start a clean
+> context with `/handoff` (or `/new`), then
+> `/skill:build-review <KEY>`. After review succeeds, if the latest
+> post-checkpoint `build-verify` session is not `status:"ok"`, start another
+> clean context with `/handoff` (or `/new`), then
+> `/skill:build-verify <KEY>`. After both gates succeed, start a clean context
+> with `/handoff` (or `/new`), then
+> `/skill:build-address-pr-comments <KEY>` to finish the saved checkpoint.
+
+If the next session is not already in the same feature worktree, include
+`WORKTREE_PATH=<absolute path>`; `KEY`, PR number, and repository can be recovered
+from this spec log and GitHub. Do not use `--interactive` from an agent tool shell
+to try to make a child visible to the user.
+
+If both gate sessions succeeded after the checkpoint, set
+`RESUME_HANDOFF=true`, restore the saved comment IDs/classifications/counts and
+PR metadata, skip Steps 3–7, and continue at Step 8. Do not re-apply fixes or
+re-fetch the checkpointed comments; any newly arrived comments can be handled in
+a later pass after this checkpoint completes. If a later successful address
+session already exists after the checkpoint, ignore it and start a normal new
+pass at Step 3.
 
 ---
 
@@ -177,11 +233,11 @@ If any STRUCTURAL comment was found, present it clearly and define the flow:
 
 > "This MUST-FIX requires changing the implementation approach. Recommended handling:
 >
-> **(A) Pause on structural item, continue non-structural** — address all non-structural MUST-FIX and SHOULD-FIX comments now. After the non-structural pass is complete, open a new `/build-refine` session to re-plan the structural change.
+> **(A) Pause on structural item, continue non-structural** — address all non-structural MUST-FIX and SHOULD-FIX comments now. After the non-structural pass is complete, re-plan the structural change in a clean context with `/skill:build-refine <key>`.
 > **(B) Stop entirely** — address the structural change before any other comments.
 > **(C) Override** — treat as a regular MUST-FIX and implement inline (only if you are confident the structural concern can be resolved without a new plan)."
 
-Wait for the user to choose. If (A): continue implementing non-structural comments in this session; after the commit-and-push step, prompt the user: "Structural item outstanding — ready to open `/build-refine` for re-planning?" If (B): stop here. If (C): proceed as a regular MUST-FIX.
+Wait for the user to choose. If (A): continue implementing non-structural comments in this session; after the commit-and-push step, ask whether the user wants to re-plan the outstanding structural item. On approval in OMP interactive mode, finish with `Next (clean context): /handoff (or /new), then /skill:build-refine <key>`; do not launch that skill in this session. If (B): stop here. If (C): proceed as a regular MUST-FIX.
 
 Wait for the user to confirm or adjust classifications. User can: promote/demote tiers, mark a SHOULD-FIX as skip with a reason, or override the STRUCTURAL call.
 
@@ -409,8 +465,8 @@ On success: record `HARNESS_URL`.
 
 ### Step 7 — Review, then verify source repairs before pushing
 
-When repository files changed (including sensor-delegated fixes), dispatch
-these gates in order through the downstream boundary above:
+If repository files changed (including sensor-delegated fixes), the shared
+gates remain mandatory and run in this order:
 
 1. `makato-build:build-review <key>` — require R1 `status:"success"` with
    `data.critical_count == 0` and `data.major_count == 0`. The skill owns
@@ -419,24 +475,58 @@ these gates in order through the downstream boundary above:
    close the session with `status:"error"`, return R1 failure with
    `data.halt_code:"HALT-003"` and the review blocker. Do not commit, push,
    or post an "applied" reply on this path.
-2. Only after that review succeeds, dispatch `makato-build:build-verify <key>`
-   for the same repaired worktree. Require a valid R1 `status:"success"`.
-   Any `failure`, `partial`, or missing/malformed result closes the session
-   with `status:"error"` and returns R1 failure with
-   `data.halt_code:"HALT-002"`, `BUILD_FAILED`, and verification errors.
+2. Only after that review succeeds, run `makato-build:build-verify <key>` for
+   the same repaired worktree. Require a valid R1 `status:"success"`. Any
+   `failure`, `partial`, or missing/malformed result closes the session with
+   `status:"error"` and returns R1 failure with `data.halt_code:"HALT-002"`,
+   `BUILD_FAILED`, and verification errors.
 
-Do not substitute a hand-picked build/unit-test subset for these shared gates
-or defer required tests to CI. If another source edit is needed after either
-gate, repeat review → verify on the final edits before pushing. Reply-only,
-deferred-only, and carry-over-only runs without repository-file changes skip
-these gates and empty commits; they do not claim new source verification.
+**Headless/autonomous OMP:** dispatch both gates through the separate-process
+boundary above and wait for each result. **Claude mode:** keep the existing
+native skill dispatch. **Human-driven OMP interactive:** do not launch either
+workflow skill through `run-skill.py` or a same-session Skill call. Leave the
+source edits in the feature worktree and persist the checkpoint before stopping.
+
+The interactive checkpoint is one `build.jsonl` row:
+
+```json
+{"ts":"<ISO8601>","skill":"build-address-pr-comments","story":"<key>","step":"interactive-handoff","status":"warn","data":{"github_pr_number":<N>,"pr_url":"<url>","head_sha":"<current HEAD before commit>","source_changes":true,"counts":{"must_fix":<N>,"should_fix":<N>,"consider":<N>,"out_of_scope":<N>,"structural":<N>},"comments":[{"comment_id":"<id>","tier":"<tier>","action":"<implemented|deferred|carry-over|reply-only>","summary":"<short public-safe summary>","reason":"<required only for a deferral>"}],"files_changed":["<repo-relative path>"]}}
+```
+
+Store every comment that needs a later reply with its ID, approved tier/action,
+short summary, and any deferral reason; do not store raw private data or
+absolute paths. Then emit one terminal `session` event with `status:"warn"`
+and return R1 `status:"partial"`, `pushed:false`, the known PR/HEAD, changed
+files, and `data.handoff_required:true`. Do not commit, push, or reply yet.
+
+Finish with this exact clean-context sequence:
+
+> Next (clean context): `/handoff` (or `/new`), then
+> `/skill:build-review <key>`. After review succeeds, start another clean
+> context with `/handoff` (or `/new`), then
+> `/skill:build-verify <key>`. After verify succeeds, start a third clean
+> context with `/handoff` (or `/new`), then
+> `/skill:build-address-pr-comments <key>` to finish the saved checkpoint.
+
+Reuse the same feature worktree. If a new session is not already in it, include
+`WORKTREE_PATH=<absolute path>`; the key and PR identity are recoverable from
+`build.jsonl` and GitHub. Step 2a resumes only after successful review and verify
+rows later than this checkpoint. Newly arrived comments can be processed after
+this checkpoint completes. No-source-change runs (reply-only, deferred-only, or
+carry-over-only) continue to Step 8 without these gates or an empty commit.
+
+Do not substitute a hand-picked build/unit-test subset for the shared gates or
+defer required tests to CI. If another source edit is needed after either gate,
+repeat review → verify on the final edits before pushing.
 
 ---
 
 ### Step 8 — Commit and push fixes
 
-After Step 7 succeeds, stage only the intended changed files and commit the
-fixes. This skill owns the commit/push; its caller must not repeat them.
+After Step 7 succeeds — or Step 2a resumes a checkpoint whose review and
+verify sessions both succeeded — stage only the intended changed files and
+commit the fixes. On a resumed checkpoint, use its saved comment list and do not
+re-apply fixes. This skill owns the commit/push; its caller must not repeat them.
 Commit message:
 ```
 fix(<scope>): address PR review feedback for <key>
@@ -462,7 +552,7 @@ If no source changes or new commits exist, skip the push and keep
 
 ### Step 9 — Reply to PR comments
 
-For each addressed comment, prefer `mcp__github-tools__add_reply_to_pull_request_comment` when the `github-tools` MCP is configured — it requires only the comment ID and body.
+For each addressed comment, prefer `mcp__github-tools__add_reply_to_pull_request_comment` when the `github-tools` MCP is configured — it requires only the comment ID and body. When `RESUME_HANDOFF=true`, use the saved comment IDs, approved tiers/actions, summaries, and deferral reasons from the `interactive-handoff` row; do not fetch or reply to unrelated new comments in this pass.
 
 If the `github-tools` MCP is not available, fall back to `gh api`:
 
@@ -497,17 +587,19 @@ Keep replies factual and brief. Quote the original comment only if needed for cl
 
 ### Step 10 — Log session end and hand off
 
-Select the R1 status using the outcome table below before closing the session.
-Emit exactly one terminal `step:"session"` event: `status:"ok"` for R1
-success only, `status:"error"` for failure/partial. Its data includes the
-comment counts, commits, `github_pr_number`, full `head_sha`, `pushed`,
-and any `halt_code`. Preserve the known PR and SHA on non-success too.
+Emit exactly one terminal `step:"session"` event and return the matching R1:
+`status:"ok"` only for completed success, `status:"warn"` with R1
+`status:"partial"` for the intentional interactive OMP gate handoff, or
+`status:"error"` for failure. Its data includes
+the comment counts, commits, `github_pr_number`, full `head_sha`, `pushed`, and
+any `halt_code`. Preserve the known PR and SHA on non-success too.
 
 Return to the caller without another commit/push. **Autonomous mode:** a
 successful comments result is not a green-CI result. The caller must dispatch
 the shared `build-fix-ci` gate for the returned SHA before resuming review;
-`partial`/`failure` must not advance that pipeline. Interactive mode retains
-its existing re-review handoff after a successful push.
+`partial`/`failure` must not advance that pipeline. **Interactive OMP:** when
+source changed, the saved gate handoff is completed before commit/push; after
+the resumed pass succeeds, report the pushed SHA and completed comment replies.
 
 ## Anti-patterns
 
@@ -520,7 +612,7 @@ WHY: `git push` from the main branch overwrites the protected default branch wit
 WHY: the scope guard exists because `plan.md Files[]` defines the blast radius that `build-refine` validated. Applying a SHOULD-FIX to an out-of-scope file silently expands the diff, invalidating the diff-reviewer's prior AC verdict and potentially shipping unreviewed changes to unrelated modules.
 
 **NEVER auto-apply a STRUCTURAL MUST-FIX.**
-WHY: STRUCTURAL means the current implementation plan is wrong at the architecture level. Implementing it inline without re-planning creates code that satisfies the reviewer's wording but breaks internal consistency (e.g. implementing an API contract reversal mid-task produces orphaned callers). The correct path — HALT-003 → `/build-refine` re-plan — costs one session but prevents compound debt.
+WHY: STRUCTURAL means the current implementation plan is wrong at the architecture level. Implementing it inline without re-planning creates code that satisfies the reviewer's wording but breaks internal consistency (e.g. implementing an API contract reversal mid-task produces orphaned callers). The correct path is a clean-context `/skill:build-refine <key>` re-plan (or autonomous HALT-003), which prevents compound debt.
 
 **NEVER post a reply containing an unsubstituted `<placeholder>` token.**
 WHY: the PR reply is the public record of what was done. A `<commit-sha>` or `<follow-up-issue>` placeholder left in the reply provides zero traceability and signals to reviewers that the automation misfired. HALT-005 (`RENDER_FAILED`) is the correct response — it keeps the audit trail honest.
