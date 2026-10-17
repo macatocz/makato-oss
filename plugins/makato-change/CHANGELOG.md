@@ -3,6 +3,15 @@
 
 ## [Unreleased]
 
+### Fixed — durable project learning (port of #123 from `development`)
+
+- **`execute` skill v1.6.2** and **`resolve-review` skill v1.0.5** require learning
+  review and capture before completion or handoff. Use the installed build helper
+  rather than a nonexistent consumer `plugins/` path; pass `--issue N` when issues
+  share a feature spec.
+- Generalizable captures persist immediately to the main checkout’s `.makato/`;
+  no merge or post-merge documentation agent is required.
+
 ### Fixed — linked target root for change state and specs
 
 - **`orchestrate` skill v1.6.1** reads and updates change-state files under

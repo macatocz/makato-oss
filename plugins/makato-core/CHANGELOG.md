@@ -5,6 +5,12 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Fixed — durable project learning (port of #123 from `development`)
+
+- **`init` skill v1.1.1** — onboarding now installs the project learning contract into the consumer’s agent
+  instructions: read `.makato/memory/`, review learning before handoff, persist
+  verified discoveries immediately, and distinguish an empty review from failure.
+
 ### Changed — CI recovery audit contract
 
 - Documented `build-fix-ci` poll/repair boundaries and implementation recovery

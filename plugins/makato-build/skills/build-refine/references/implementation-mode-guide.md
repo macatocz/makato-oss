@@ -4,12 +4,16 @@
 
 ### implement-tdd
 
-TDD cycle per task: **RED → GREEN → INTEGRATE → VERIFY**
+TDD cycle per task: **RED → GREEN** with targeted test files.
 
-- **RED**: Write failing unit tests AND failing integration tests
-- **GREEN**: Implement until unit tests pass
-- **INTEGRATE**: Make integration tests pass against real dependencies
-- **VERIFY**: Full suite (unit + integration + pre-existing) passes before next task
+- **RED**: Write or extend this task's unit and integration tests, then run only
+  those changed test files; confirm new tests fail for the intended reason.
+- **GREEN**: Implement the minimum code and rerun the same targeted command until
+  every locally runnable task test passes.
+
+Integration tests stay in the task's targeted test set; they are not a separate
+whole-suite coder gate. `build-verify` owns the full unit and integration suites,
+coverage, lint, and other whole-change gates.
 
 **Use for:**
 - Backend service logic, business rule validation

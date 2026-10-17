@@ -16,7 +16,8 @@
   controller ↔ service)
 - Dependencies: real — use real test DB, real in-process services; mock only external
   systems that cannot be run locally (third-party SaaS, payment providers)
-- Speed: slower than unit tests; run once per INTEGRATE phase and at VERIFY
+- Speed: slower than unit tests; run in targeted RED and GREEN commands when
+  this task's integration test file changes; `build-verify` owns whole-suite integration checks
 - Assertion style: assert on observable outcomes at the boundary (persisted state, HTTP
   response shape, emitted events)
 - File location: follow the existing project convention (e.g., `test/integration/…`,

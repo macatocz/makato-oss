@@ -243,6 +243,16 @@
               "minLength": 1
             }
           },
+          "tier": {
+            "type": "string",
+            "enum": ["procedural", "semantic"],
+            "description": "Optional persistence tier for a captured lesson. Semantic facts route to semantic memory; procedural patterns route to procedural memory."
+          },
+          "tags": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 },
+            "description": "Optional tags retained with this lesson in durable memory."
+          },
           "bundle": {
             "type": "string",
             "minLength": 1,
@@ -251,17 +261,17 @@
           "scope": {
             "type": "string",
             "enum": ["generalizable", "local"],
-            "description": "Optional breadth classification: 'generalizable' = applicable across issues; 'local' = specific to this issue's context. Used by recall-lessons sort order (#470, AC-1): generalizable sorts before local."
+            "description": "Optional breadth classification: generalizable applies across issues; local is specific to this issue. Used by recall-lessons sorting."
           },
           "occurrences": {
             "type": "integer",
             "minimum": 1,
-            "description": "Optional count of how many times this pattern has been observed. Higher values sort earlier within the same scope level (AC-1 ordering: scope asc, occurrences DESC, recency DESC). Defaults to 1 when absent."
+            "description": "Optional count of how many times this pattern has been observed. Higher values sort earlier within the same scope level."
           },
           "label": {
             "type": "string",
             "minLength": 1,
-            "description": "Optional free-form label tag complementary to bundle (e.g. a GitHub label name). Used by recall-lessons --labels filter (#470). Absent on most entries."
+            "description": "Optional free-form label tag complementary to bundle (e.g. a GitHub label name). Used by recall-lessons --labels filter (#470)."
           }
         }
       }

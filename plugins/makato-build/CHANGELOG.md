@@ -16,6 +16,44 @@ here on merge to main; release-please will date and version them at the next rel
   option such as `--junitxml=results.xml`, build-verify rewrites the path to
   `specs/<key>-<slug>/<stem>-<N>.xml` before running it, so verify no longer creates or
   overwrites a report in the checkout root. Gates 4 and 5 log the path as `junit_report`.
+### Changed — coders run targeted RED/GREEN; review and verify own testing with bounded repair loops (#148)
+
+- **`agents/coder.md`** TDD mode runs only RED and GREEN, on only the test files
+  the task added or changed (plus the tracer test). INTEGRATE, full-suite
+  VERIFY, coverage and repo-wide lint move to `build-verify`. Every R1 must carry
+  `data.details` (changes, tests, commands with exit codes and results,
+  assumptions, risks, `deferred_to_verify`). Repair mode accepts
+  `REVIEW_FINDINGS` or `VERIFY_FINDINGS` with `REPAIR_ROUND`/`MAX_REPAIR_ROUNDS`
+  and reports per-finding root cause, change and verification.
+- **`build-implement-tdd` v1.15.0** drops the per-task cross-task regression
+  sweep and the final full-suite run, hands the baseline and changed-file set
+  to `build-verify`, and re-asks the coder once (`DETAILS_REQUEST`) when R1
+  details or RED/GREEN command evidence are missing.
+- **`build-review` v1.8.0** caps coder repair → independent re-review at
+  `MAKATO_MAX_REPAIR_ROUNDS` (default 3); unresolved CRITICAL/MAJOR findings fail
+  closed (HALT-003).
+- **`build-verify` v1.14.0** no longer edits source for code-level gate failures:
+  it sends `VERIFY_FINDINGS` to the coder, re-reviews the repair delta with
+  `diff-reviewer`, re-runs the scoped gates, and fails closed (HALT-002) after
+  `MAKATO_MAX_REPAIR_ROUNDS` rounds.
+- **`config/verification-ownership.md`**, **`agents/RETURN-CONTRACT.md`**,
+  `definition-of-done`, `AUTONOMOUS-MODE.md`, the README and the TDD reference
+  guides describe the same contract. On sagibeast#994 each serial coder ran the
+  complete verification suite for its own task (10–15 min per task, 26 tasks).
+
+### Fixed — durable project learning (port of #123 from `development`)
+
+- **`shared/write-lessons.sh`** accepts `--issue N` (plus `--bundle`/`--label` recall
+  metadata) and immediately persists generalizable procedures and facts into the
+  selected checkout’s `.makato/memory/`, including interactive worktree sessions. Pass
+  `--issue N` when several issues share one spec folder. Preserve issue/filter
+  metadata; report promotion failures (exit 3) while retaining raw evidence.
+- **`shared/write-lessons.sh`** resolves an exact `specs/<key>/` first, then a unique
+  `specs/<key>-*/` match; ambiguous keys exit 2 instead of appending to the first match.
+- **`build-verify` v1.13.1** and **`build-push-to-git` v1.7.2** require an
+  evidence-based learning review at completion/handoff. Replace source-text tests
+  with real CLI coverage.
+
 ### Fixed — coder verification ownership and unverified-result continuation (#141)
 
 - **`agents/coder.md`** now owns every phase command it reports. Edit-only or

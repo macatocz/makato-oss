@@ -11,7 +11,7 @@ description: >-
   `gh issue close`, advances the Projects v2 board to Done via
   `issue-to-project sync-lifecycle`, and emits a docs-coverage warning when
   source diff outpaces docs diff by 2x. Never edits source files.
-version: "1.1.0"
+version: "1.1.1"
 maxTurns: 30
 permissionMode: bypassPermissions
 disallowedTools: NotebookEdit
@@ -268,21 +268,13 @@ when a spec folder is present; otherwise surface the line in the R1 `warnings` a
 
 ### Step 4b — Lesson promotion (no-op on the GHA runner)
 
-**Intentionally a no-op here.** Lesson promotion now happens in the po-agent
-local lane (po-agent Step 6 item 7), which runs `promote-lessons.sh` at the
-merge-success terminal while the gitignored per-issue sources
-(`workflow-state-<N>.json` / `change-lessons.jsonl` under `specs/**`) are still
-present in the operator's main checkout. The GHA post-merge runner uses a fresh
-`actions/checkout` where those sources are absent (`.gitignore` tracks only
-`build.jsonl` / `spec.md` under `specs/**`), so a promote call from this agent
-could only ever be a silent no-op. It has therefore been removed to avoid
-implying promotion happens at merge on the runner. Do **not** call
-`promote-lessons.sh` from this step. Proceed directly to Step 5.
-
-> **Consumer note:** a repo that relies *solely* on this post-merge workflow —
-> with no local `loop`/po-agent driving merges — will not get generalizable
-> lessons promoted. That is the accepted trade-off of the local-lane design;
-> the makato repo runs the local loop, so it is unaffected.
+**Intentionally a no-op here.** Generalizable lessons are persisted locally when
+`write-lessons.sh` or `workflow-state.sh append-lesson --scope generalizable`
+captures them. The merge terminal and reaper replay promotion idempotently as a
+safety net. A fresh CI checkout cannot recover gitignored source records.
+Do not imply that a successful post-merge docs run captured or promoted lessons;
+verify the local capture result instead. This applies equally to interactive and
+autonomous sessions.
 
 ### Step 4c — Living spec delta sync
 

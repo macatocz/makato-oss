@@ -9,7 +9,7 @@
 # Scenarios:
 #   C1 — Happy path: change-lane key, scope=generalizable, tier=procedural
 #        Full chain write → promote → recall; entry MUST appear in recall output.
-#   C2 — Broken-seam: promote step is skipped between write and recall;
+#   C2 — Broken-seam: capture cannot locate its promoter;
 #        entry MUST NOT appear in recall output (test exits non-zero if it does).
 #   C3 — Negative/gate: scope=local entry is written then promoted;
 #        entry MUST NOT appear in .makato/memory/ or recall output after promotion.
@@ -88,7 +88,7 @@ SB_C1=""
 SB_C1="$(_mk_sandbox "my-feature-720")"
 trap '_cleanup "$SB_C1"' EXIT
 
-(
+if (
   cd "$SB_C1" || exit 1
 
   ISSUE_NUMBER="720"
@@ -157,41 +157,47 @@ sys.exit(0 if found else 1)
     echo "  recall output: $RECALL_OUT" >&2
     exit 1
   fi
-) && _pass "C1: write → promote → recall returns the entry" \
-  || _fail "C1: happy path broken (see above)"
+); then
+  _pass "C1: write → promote → recall returns the entry"
+else
+  _fail "C1: happy path broken (see above)"
+fi
 
 trap - EXIT
 _cleanup "$SB_C1"
 SB_C1=""
 
 # ===========================================================================
-# Scenario C2 — Broken-seam: promote step is skipped
+# Scenario C2 — Broken-seam: capture-time promoter is unavailable
 #
-# When promote-lessons.sh is NOT called, the entry must NOT appear in recall.
+# Failed promotion must retain raw evidence without claiming durable recall.
 # This proves the test is a genuine watchdog for the seam — not a tautology
 # that would pass even if recall reads directly from change-lessons.jsonl.
 # ===========================================================================
 echo ""
-echo "=== Scenario C2: promote step skipped — recall must NOT return the entry ==="
+echo "=== Scenario C2: promoter unavailable — recall must NOT return the entry ==="
 
 SB_C2=""
 SB_C2="$(_mk_sandbox "my-feature-720")"
 trap '_cleanup "$SB_C2"' EXIT
 
-(
+if (
   cd "$SB_C2" || exit 1
 
   KEY="my-feature-720"
   LESSON_TEXT="change-lane recall integration: always call promote before recall"
   REPO_SLUG="macatocz/makato"
 
-  # Step 1: write the lesson — same as C1.
-  bash "$WRITE_LESSONS" "$KEY" procedural generalizable "$LESSON_TEXT" "change-lane,recall"
-  EXIT_WL=$?
-  if [[ $EXIT_WL -ne 0 ]]; then
-    echo "  write-lessons.sh exited $EXIT_WL" >&2
+  if MAKATO_ORCHESTRATE_ROOT="$SB_C2/missing-plugin" \
+    bash "$WRITE_LESSONS" "$KEY" procedural generalizable "$LESSON_TEXT" "change-lane,recall"; then
+    echo "capture must report a failed durable promotion" >&2
     exit 1
   fi
+  python3 - "$SB_C2/specs/$KEY/change-lessons.jsonl" "$LESSON_TEXT" <<'PY'
+import json, sys
+with open(sys.argv[1]) as source:
+    assert [json.loads(line)["text"] for line in source] == [sys.argv[2]]
+PY
 
   # Step 2: deliberately SKIP promote-lessons.sh.
   # The .makato/memory/procedural.jsonl was created empty by _mk_sandbox.
@@ -203,7 +209,7 @@ trap '_cleanup "$SB_C2"' EXIT
     bash "$WORKFLOW_STATE" recall-lessons "$REPO_SLUG" 5
   )"
 
-  # Assert: the entry does NOT appear in recall output (promote was skipped).
+  # Assert: the entry does NOT appear in recall output (promotion failed).
   if echo "$RECALL_OUT" | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
@@ -214,8 +220,11 @@ sys.exit(0 if found else 1)
     echo "  recall output: $RECALL_OUT" >&2
     exit 1
   fi
-) && _pass "C2: skipping promote means recall returns nothing (seam is real)" \
-  || _fail "C2: broken-seam check failed (see above)"
+); then
+  _pass "C2: promotion failure is explicit and raw capture survives"
+else
+  _fail "C2: broken-seam check failed (see above)"
+fi
 
 trap - EXIT
 _cleanup "$SB_C2"
@@ -234,7 +243,7 @@ SB_C3=""
 SB_C3="$(_mk_sandbox "my-local-feature-720")"
 trap '_cleanup "$SB_C3"' EXIT
 
-(
+if (
   cd "$SB_C3" || exit 1
 
   ISSUE_NUMBER="720"
@@ -303,8 +312,11 @@ sys.exit(0 if found else 1)
     echo "  recall output: $RECALL_OUT" >&2
     exit 1
   fi
-) && _pass "C3: scope=local entry not promoted and not recalled (gate is real)" \
-  || _fail "C3: negative gate check failed (see above)"
+); then
+  _pass "C3: scope=local entry not promoted and not recalled (gate is real)"
+else
+  _fail "C3: negative gate check failed (see above)"
+fi
 
 trap - EXIT
 _cleanup "$SB_C3"
