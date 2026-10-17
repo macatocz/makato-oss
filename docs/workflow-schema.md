@@ -95,10 +95,11 @@ settings such as `modelRole` in agent frontmatter remain separate: per-skill set
 outer skill's model and do not rewrite the models used for agents that skill dispatches.
 
 A normal file read or direct slash-skill invocation does not inspect this schema or switch the
-current conversation's model. Use the `run-skill.py` launcher for a schema-aware skill dispatch; it
-resolves the skill's role/effort and runs OMP with `--model @role`, optional `--thinking LEVEL`,
-`--plugin-dir PATH`, `--cwd PATH`, and `--print`. The launcher's own invocation syntax is shown in
-the runtime section below.
+current conversation's model. For headless/autonomous OMP workflow dispatches, use `run-skill.py`;
+it resolves the skill's role/effort and runs OMP with `--model @role`, optional `--thinking LEVEL`,
+`--plugin-dir PATH`, `--cwd PATH`, and (by default) `--print`. A human-driven interactive workflow
+uses an explicit clean-context slash-skill handoff instead of launching a child from an agent tool
+shell. The launcher's own invocation syntax is shown in the runtime section below.
 
 The loader uses a restricted parser for `artifacts`; the shared execution resolver uses PyYAML.
 Python 3 and the PyYAML package are runtime dependencies.
@@ -294,9 +295,10 @@ python3 "$MAKATO_BUILD_ROOT/scripts/run-skill.py" \
 are `--cwd PATH`, `--context-file PATH`, `--interactive`, `--dry-run`, `--harness OMP_BINARY`,
 repeatable `--config PATH` overlays, and explicit `--approval-mode always-ask|write|yolo`. Skill
 arguments follow `--` and are passed as data. By default the runner starts OMP with `--print`;
-`--interactive` omits it. OMP sessions are fresh and ephemeral (`--no-session` is applied by the
-launcher). `--approval-mode` is not set unless explicitly requested; the runner does not silently
-broaden permissions. A config overlay does not override the schema's role or effort.
+`--interactive` only omits it and does not connect a child started from an agent tool shell to a
+user-facing TTY. OMP sessions are fresh and ephemeral (`--no-session` is applied by the launcher).
+`--approval-mode` is not set unless explicitly requested; the runner does not silently broaden
+permissions. A config overlay does not override the schema's role or effort.
 
 The launcher resolves the role and effort, then starts OMP using `--model @role`, adds
 `--thinking LEVEL` unless effort is `inherit`, and supplies `--plugin-dir PATH`, `--cwd PATH`, and
@@ -312,10 +314,14 @@ explicitly. Child runs inherit these roots and `MAKATO_SKILL_RUNNER`.
 
 A fresh process has no parent conversation. Pass a complete UTF-8 context file containing
 the issue/key, repository/worktree paths, artifact paths, decisions, and step-specific inputs.
-The launcher includes the selected skill verbatim and tells subsequent workflow skills to use
-the same launcher with another complete context bundle. Reference reads and ordinary helper
-agents are not new workflow dispatches. In non-interactive mode, missing decisions are
-reported to the coordinator rather than invented; use `--interactive` for human interviews.
+In default `--print` mode, the launcher includes the selected skill verbatim and tells any
+subsequent workflow skill to use the same launcher with another complete context bundle. In
+`--interactive` mode, the selected skill runs inline but must not launch a subsequent workflow
+skill; it persists the required next-step inputs and returns a clean-context `/handoff`/`/new`
+plus `/skill:<name>` instruction. Reference reads and ordinary helper agents are not new workflow
+dispatches. Non-interactive missing decisions are reported to the coordinator rather than
+invented. Interactive questions are appropriate only when the user can answer directly; `--interactive`
+does not make an agent tool-shell child visible to the user.
 
 Repository artifacts and logs persist, but the ephemeral skill conversation cannot be resumed.
 The autonomous change entry wrapper retains its own existing session/watchdog lifecycle.

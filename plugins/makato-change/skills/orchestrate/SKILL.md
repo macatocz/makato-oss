@@ -7,12 +7,12 @@ description: >-
   interactive coordination. Keywords: orchestrate change request, resume CR
   workflow, which phase next, coordinate change workflow, guided change,
   autonomous change dispatch.
-version: "1.6.1"
+version: "1.6.2"
 argument-hint: "[ISSUE-KEY] [--autonomous]"
 allowed-tools: Bash, Skill
 metadata:
   Authors: makato-change team
-  last_updated: "2026-08-05"
+  last_updated: "2026-10-17"
 ---
 # orchestrate
 
@@ -23,28 +23,21 @@ Entry-point coordinator for the complete change request workflow. Coordinates fo
 This boundary applies only when the resolved `MAKATO_HARNESS_MODE` is `omp`.
 For `claude` and other non-OMP harnesses, keep the native invocations below unchanged.
 
-Execute workflow skills from makato-build, makato-plan and makato-change in separate
-OMP runs through `python3 "$MAKATO_SKILL_RUNNER"`, not inline Skill/Task calls.
-Resolve the runner from `$MAKATO_BUILD_ROOT/scripts/run-skill.py` if not already
-exported; if neither path is available, report the missing makato-build runtime.
-This rule applies to every skill dispatch below, including retries and follow-on
-skills. It does not replace ordinary helper-agent dispatch or reference reads.
+For headless/autonomous OMP runs, keep downstream phase skills in separate
+processes through `python3 "$MAKATO_SKILL_RUNNER"`; resolve the launcher from
+`$MAKATO_BUILD_ROOT/scripts/run-skill.py` when needed. Forward the complete
+context (repo/worktree roots, issue key/number, selected phase, and state/spec
+paths), wait for the final result, and preserve the current autonomous activation
+and result checks. Do not turn `MAKATO_HEADLESS=1` into an autonomous trigger.
+This rule does not replace ordinary helper-agent dispatch or reference reads.
 
-For each invocation, write a context file containing the complete current bundle
-(REPO_ROOT, WORKTREE_PATH, issue/key, artifact paths, decisions, and step-specific
-inputs). The new session has no parent conversation history. Run:
-
-```bash
-python3 "$MAKATO_SKILL_RUNNER" --repo-root "$REPO_ROOT" \
-  --cwd "${WORKTREE_PATH:-$REPO_ROOT}" --context-file "$CONTEXT_FILE" \
-  makato-build:build-refine -- "$KEY" --autonomous
-```
-
-Replace the skill and its arguments for the selected phase. Wait for completion,
-then apply the existing result/artifact checks. Nonzero exit is a dispatch failure;
-never silently fall back to inline execution. Human-driven interviews use
-`--interactive` before the skill name. The selected current skill executes its own
-body inline; it must not launch itself again merely to apply this policy.
+In a human-driven OMP interactive run, execute `orchestrate` inline but do not
+launch the selected phase through `run-skill.py` or a same-session `Skill(...)`
+call. Persist the selected phase and required context in `change-state-<N>.json`
+and finish with an explicit clean-context `/skill:<phase> <ISSUE_KEY>` command.
+If `WORKTREE_PATH` is not persisted or cannot be recovered, name the exact value
+the user must pass. The new session has no parent-conversation state. Claude and
+other non-OMP harnesses keep their native skill invocations.
 
 
 ## When to Use
@@ -282,14 +275,43 @@ State the recommendation clearly based on phase detection:
 - Skip to execute (only if analyze + design complete, warn about skipping)
 - Skip to resolve-review (only if PR exists in GitHub Issues, warn about skipping)
 
-### Step 5: Invoke Selected Skill
+### Step 5: Hand off or invoke the selected phase
 
-> **MANDATORY — Load `@references/skill-invocation-guide.md` at this step, only when dispatching a phase skill.**
-> **Do NOT Load** before reaching Step 5 — it is only relevant at dispatch time.
+> **Load `@references/skill-invocation-guide.md` only for a real Skill-tool dispatch** (Claude mode). Do not load it for the OMP interactive handoff.
 
-Based on user selection (or autonomous phase recommendation), invoke the appropriate phase skill.
+Based on user selection (or autonomous phase recommendation), resolve the phase skill name: Analyze → `analyze`; Design → `design`; Execute → `execute`; Resolve Review → `resolve-review`. `resolve-review` remains unavailable in autonomous mode.
 
-**Before dispatch**, narrate the START into the live issue comment (best-effort):
+Re-read the current worktree path from state before any phase dispatch:
+
+```bash
+REPO_ROOT="${MAKATO_TARGET_REPO_ROOT:-$(git rev-parse --show-toplevel)}"
+STATE="${REPO_ROOT}/specs/<ISSUE_KEY>/change-state-<N>.json"
+WORKTREE_PATH="$(jq -r '.worktree_path // ""' "$STATE")"
+```
+
+**Human-driven OMP interactive:** do not call `Skill(...)` and do not run
+`run-skill.py`, even with `--interactive`. Before stopping, update the existing
+`change-state-<N>.json` with the selected phase and `updated_at` (do not mark the
+phase complete):
+
+```bash
+PHASE_NAME="<selected-phase>" # analyze | design | execute | resolve-review
+STATE_TMP="${STATE}.tmp"
+jq --arg phase "$PHASE_NAME"   '.current_phase = $phase | .updated_at = (now | todate)'   "$STATE" > "$STATE_TMP" && mv "$STATE_TMP" "$STATE"
+```
+
+Do not post a phase-start note; the phase has not started. Finish with:
+
+> Next (clean context): `/handoff` (or `/new`), then
+> `/skill:<selected-phase> <ISSUE_KEY>`.
+
+The new phase reads its inputs from `specs/<ISSUE_KEY>/` and the recorded change
+state. Reuse the persisted `WORKTREE_PATH`; if the next OMP session is not
+already in that worktree, pass `WORKTREE_PATH=<path from change-state-<N>.json>`
+(and `REPO_ROOT=<target repo root>` only when it cannot be derived). Do not
+continue into Step 6 in this session.
+
+Before a real phase dispatch, narrate START into the live issue comment (best-effort):
 
 ```bash
 "${MAKATO_ORCHESTRATE_SHARED}/progress-comment.sh" start <KEY> <ISSUE_NUMBER> <REPO> \
@@ -298,44 +320,19 @@ Based on user selection (or autonomous phase recommendation), invoke the appropr
   --goal "<goal from per-phase narration table>"
 ```
 
-**In autonomous mode**, update `change-state-<N>.json` before dispatch:
+**Headless/autonomous OMP:** preserve the existing phase workflow, activation,
+`--autonomous` arguments, and result/artifact checks, but launch the selected
+phase in a separate runner process. Write a complete context file including
+`REPO_ROOT`, `WORKTREE_PATH`, `ISSUE_KEY`, `ISSUE_NUMBER`, `REPO`, the state/spec
+paths, selected phase, and decision inputs; then run the matching
+`makato-change:<phase>` with `--repo-root "$REPO_ROOT"`,
+`--cwd "${WORKTREE_PATH:-$REPO_ROOT}"`, that context file, and the same
+`<ISSUE_KEY> --autonomous` arguments as before. Wait for and validate its final
+result. Do not inline-fallback on dispatch failure.
 
-- Set `current_phase` to the phase being dispatched
-- Set `updated_at` to now
-
-Re-read the current worktree path from state immediately before each phase dispatch:
-
-```bash
-REPO_ROOT="${MAKATO_TARGET_REPO_ROOT:-$(git rev-parse --show-toplevel)}"
-WORKTREE_PATH="$(jq -r '.worktree_path // ""' \
-  "${REPO_ROOT}/specs/<ISSUE_KEY>/change-state-<N>.json")"
-```
-
-When `WORKTREE_PATH` is non-empty, prepend this context preamble to each `Skill(...)` invocation:
-
-```
-Context:
-WORKTREE_PATH=<worktree_path from change-state-<N>.json>
-REPO_ROOT=<REPO_ROOT from context bundle>
-ISSUE_KEY=<ISSUE_KEY>
-ISSUE_NUMBER=<N>
-```
-
-**Interactive mode skill invocations** (bare names, no `makato-change:` prefix):
-
-- Analyze → `Skill(skill="analyze", args="<ISSUE_KEY>")`
-- Design → `Skill(skill="design", args="<ISSUE_KEY>")`
-- Execute → `Skill(skill="execute", args="<ISSUE_KEY>")`
-- Resolve Review → `Skill(skill="resolve-review", args="<ISSUE_KEY>")`
-
-**Autonomous mode skill invocations** (append `--autonomous`; forward `WORKTREE_PATH` via context preamble):
-
-- Analyze → `Skill(skill="analyze", args="<ISSUE_KEY> --autonomous")`
-- Design → `Skill(skill="design", args="<ISSUE_KEY> --autonomous")`
-- Execute → `Skill(skill="execute", args="<ISSUE_KEY> --autonomous")`
-- `resolve-review` is NOT invoked in autonomous mode (see Anti-Patterns)
-
-Wait for the skill to complete before continuing.
+**Claude/non-OMP mode:** keep the existing bare-name `Skill(...)` invocation
+and context preamble from `skill-invocation-guide.md`; append `--autonomous` to
+the three autonomous invocations as before. Wait for the skill before continuing.
 
 ### Step 6: Post-Phase Check
 

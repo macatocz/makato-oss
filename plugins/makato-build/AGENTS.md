@@ -15,11 +15,9 @@
 
 ## Role-based skill execution (OMP)
 
-**OMP only:** apply this boundary when the resolved `MAKATO_HARNESS_MODE` is `omp`; other harnesses retain their native skill invocation behavior.
-Execute workflow skills through `python3 "$MAKATO_SKILL_RUNNER" --repo-root "$REPO_ROOT" --cwd "${WORKTREE_PATH:-$REPO_ROOT}" --context-file "$CONTEXT_FILE" <plugin:skill> -- <args>`. Resolve the launcher from `$MAKATO_BUILD_ROOT/scripts/run-skill.py` when unset.
-This public cross-plugin contract applies to follow-on skills and retries, not reference reads or ordinary helper agents. Run the current selected skill inline; never self-dispatch.
-Forward the full context bundle, wait for the result, and propagate failure without inline fallback. Use `--interactive` before the skill name for human interviews; headless missing input returns to the coordinator.
-Policy: `skill_execution` in workflow-schema.yml; concrete model mapping: OMP `modelRoles`. Bare OMP skill reads/slash commands do not switch models. See `docs/workflow-schema.md`.
+**OMP only:** this boundary applies when the resolved `MAKATO_HARNESS_MODE` is `omp`; Claude and other non-OMP harnesses keep their native invocation behavior. For a headless/autonomous OMP run whose selected skill's existing trigger is active (`AGENT_ID`, `AUTONOMOUS_MODE:true`/`task_id`, explicit `--autonomous`, or PO-agent dispatch), run follow-on workflow skills through `python3 "$MAKATO_SKILL_RUNNER" --repo-root "$REPO_ROOT" --cwd "${WORKTREE_PATH:-$REPO_ROOT}" --context-file "$CONTEXT_FILE" <plugin:skill> -- <args>`; preserve context, await the result, and propagate failure without inline fallback. `WORKTREE_PATH` alone is workspace metadata; `MAKATO_HEADLESS=1` is only a caller assertion, not an autonomy trigger, and its defensive guard halts if no existing trigger is active. `--print` children of valid headless/autonomous dispatches use the runner contract.
+
+In human-driven OMP interactive mode (no autonomous trigger, `MAKATO_HEADLESS` unset, and not a `--print` child), run the selected skill inline; **do not launch follow-on skills through the runner or a same-session `Skill(...)` call**, including from a `--interactive` runner child. Persist next-step state/inputs and finish with `/handoff` or `/new` plus `/skill:<name>`; name any unpersisted input. Do not infer mode from `WORKTREE_PATH` or TTY. This contract covers workflow skills/retries, not references/helpers. Policy: `skill_execution` in workflow-schema.yml; OMP `modelRoles` select concrete models. Bare OMP slash skills do not switch models; see `docs/workflow-schema.md`.
 
 ## Goal
 

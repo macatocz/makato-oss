@@ -41,6 +41,27 @@ here on merge to main; release-please will date and version them at the next rel
 - Tests: removed `test_full_arc_runner_discovered_emits_baseline_cmd` and the
   verify-sensors-spec-key T2/T3 wording assertions; the schema smoke test no longer requires
   `sensors`.
+### Fixed — interactive OMP skill handoffs use clean contexts
+
+- `AGENTS.md`, `scripts/run-skill.py`, and `docs/workflow-schema.md` distinguish
+  human-driven interactive runs from headless `--print` dispatch: interactive prompts
+  never launch the next workflow skill; the headless runner contract and existing
+  autonomous activation remain unchanged.
+- **`build-start` v1.11.2**, **`build-push-to-git` v1.7.3**, and
+  **`build-address-pr-comments` v1.7.2** finish interactive handoffs with explicit
+  `/handoff`/`/new` plus `/skill:` instructions. Address-comments records a resumable
+  gate checkpoint, so review and verify run in clean contexts before the saved work is pushed.
+
+### Changed — build-create-pr loads story-scoped spec context
+
+- **`build-create-pr` v1.12.3** selects one `stories.json` story by work-item key or issue
+  number — legacy `key` arrays, and decompose v2.0 `stories[]` matched through the
+  `created-issues.json` title — filters `build.jsonl` to that story while retaining its
+  gate/AC evidence, and reads only referenced `prd.md`/`design.md` sections and the
+  matching plan slice. The single-story and `plan-only` fallbacks and `created-issues.json`
+  Case 4 injection remain.
+- **`test_skill_execution.py`** covers the interactive clean-context prompt and the unchanged
+  headless runner-dispatch prompt.
 
 ### Fixed — build-verify: test reports stay in the spec folder (v1.14.0)
 
