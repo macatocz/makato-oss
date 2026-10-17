@@ -9,7 +9,7 @@ description: >-
   through `resolve-pr-conflict`, and terminates on a merged PR or documented
   HALT code. Sole writer of `workflow-state.json`. Owns the per-run worktree;
   never edits target source.
-version: "1.2.0"
+version: "1.3.0"
 maxTurns: 100
 permissionMode: bypassPermissions
 disallowedTools: NotebookEdit
@@ -100,10 +100,10 @@ posture is constrained by four safeguards — see `AGENTS.md` §
 - **Never request additional inputs.** The dispatch bundle is closed;
   missing/invalid input → immediate R1 `failure` (dispatch error, not
   runtime HALT).
-- **Outer loop is plan-level, not task-level.** One
-  `build-implement-tdd` (or `build-implement-goal`) dispatch per outer
-  iteration; the skill walks the full task list in topological order
-  itself.
+- **Outer loop is plan-level, not task-level.** Each Step 4 pass dispatches
+  one `build-implement-tdd` or `build-implement-goal` run for the next
+  dependency-ready mode group chosen by `scripts/task_schedule.py` (#153);
+  the skill walks its assigned tasks in topological order itself.
 - **Preserve mode-specific verification ownership.** TDD coders run only targeted
   RED/GREEN tests for their task; `build-verify` owns whole-change gates, including
   integration and full-suite verification. Goal-mode coder phase gates remain as
@@ -572,20 +572,24 @@ fi
 
 ### Step 3 — Build the sub-task list (fresh run only)
 
-Skip on resume. Read `plan-<ISSUE_NUMBER>.md` and extract every task under `## Tasks`:
+Skip on resume. Align `sub_tasks[]` with `plan-<ISSUE_NUMBER>.md` through the
+scheduler helper (#153), which reads every `### Task N:` entry under `## Tasks`:
 
-- `id` — 1-based index in plan order
-- `description` — task title verbatim
-- `phase` — `tdd` (default) or `goal` per the task's `mode:` field
-- `status: "pending"`, `agent_result: null`
+```bash
+SUB_TASKS="$(shared/workflow-state.sh read <KEY> <ISSUE_NUMBER> \
+  | python3 scripts/task_schedule.py sync --plan "<SPEC_FOLDER>/plan-<ISSUE_NUMBER>.md" --state -)"
+shared/workflow-state.sh patch <KEY> <ISSUE_NUMBER> .sub_tasks "$SUB_TASKS"
+```
 
-Persist via `workflow-state.sh patch <KEY> <ISSUE_NUMBER> .sub_tasks '<array-json>'`.
-Patch `current_phase: "implement"`.
+Each row carries `id` (1-based index in plan order), `description` (task title
+verbatim), `phase` (`tdd` | `goal` per the task's `**Mode:**`), `status:
+"pending"` and `agent_result: null`. Exit 2 means the plan graph is invalid →
+HALT-006 exactly as in Step 4c. Patch `current_phase: "implement"`.
 
 ### Step 4 — Outer loop (plan-level retry)
 
-Each iteration dispatches ONE implementation skill (not one task). The
-skill walks the full list internally.
+Each pass dispatches ONE implementation skill for ONE dependency-ready mode
+group (#153); the skill walks only its assigned tasks.
 
 ```text
 outer_iteration = current value (resumed) or 0 (fresh).
@@ -593,10 +597,10 @@ outer_iteration = current value (resumed) or 0 (fresh).
 repeat:
     Step 4a: kill-switch poll <KEY>          # HALT gate
     Step 4b: kill-switch handoff <KEY>       # context-ceiling gate
-    Step 4c: validate plan graph             # pre-flight
-    Step 4d: dispatch implement skill
+    Step 4c: sync sub_tasks, validate graph  # pre-flight
+    Step 4d: next group; complete → break → Step 6; else dispatch its skill
     Step 4e: apply R1 to state
-    if all sub_tasks complete: break → Step 6
+    if r1 success: continue                   # next group, same outer_iteration
     else if r1 escalates to refine: Step 4f → increment outer_iteration
     else: break → HALT
 ```
@@ -633,26 +637,43 @@ loop.
    `in_progress` row whose `agent_result` is still `null` to `pending`
    (patch via
    `workflow-state.sh patch <KEY> <ISSUE_NUMBER> '.sub_tasks[<idx>].status' '"pending"'`).
-2. **Dependency sanity.** Topologically sort `sub_tasks[]` by
-   `blockedBy`. Cycle → HALT-006, apply `needs-human-review`, also call
+2. **Plan sync and graph validation.** Run Step 3's `sync` command and patch
+   `.sub_tasks` with its output on every pass, so modes or titles changed by
+   `build-refine` reach state while accepted rows stay verbatim. Exit 2 (cycle,
+   unknown or self dependency, missing `**Mode:**` or `**blockedBy:**`,
+   non-contiguous numbering, or a plan that drops an accepted task) → HALT-006,
+   apply `needs-human-review`, also call
    `shared/post-halt-comment.sh HALT-006 $ISSUE_NUMBER $REPO` (best-effort), R1
    `failure`.
 
-#### Step 4d — Dispatch the implementation skill
+#### Step 4d — Dispatch the next task group
 
-Read `plan-<ISSUE_NUMBER>.md` once. Skill selection:
+Select the group with the scheduler helper (#153):
 
-| Task modes present | Dispatch                                                                                           |
-| ------------------ | -------------------------------------------------------------------------------------------------- |
-| any`mode: tdd`   | `/makato-build:build-implement-tdd <KEY> --autonomous`                                           |
-| pure`mode: goal` | `/makato-build:build-implement-goal <KEY> --autonomous`                                          |
-| mixed              | `build-implement-tdd` (skips `goal` tasks) THEN `build-implement-goal`, same outer iteration |
+```bash
+GROUP="$(shared/workflow-state.sh read <KEY> <ISSUE_NUMBER> \
+  | python3 scripts/task_schedule.py next --plan "<SPEC_FOLDER>/plan-<ISSUE_NUMBER>.md" --state -)"
+```
+
+- `{"status":"complete"}` — every plan task is complete; go to Step 6.
+- `{"status":"ready","mode":…,"skill":…,"task_ids":[…]}` — dispatch
+  `/makato-build:<skill> <KEY> --autonomous` with `ASSIGNED_TASK_IDS` set to
+  `task_ids`.
+
+The group is the ready closure of the first `runOrder` mode that has a
+dependency-ready task: same-mode chains run in one pass and every cross-mode
+`blockedBy` becomes a pass boundary, so a pure-mode plan is still one pass.
+Never hand-pick, merge or reorder groups, and never count a task skipped by
+another mode's pass as complete.
 
 Every dispatch context bundle carries:
 
 - `WORKTREE_PATH` — resolve via `shared/worktree.sh path <KEY>`.
   Consumers `cd` into it before any file operation. See § *Worktree
   lifecycle*.
+- `ASSIGNED_TASK_IDS` — the group's `task_ids` (JSON array of 1-based plan
+  indices). The skill runs exactly these tasks and reports them in
+  `data.completed_task_ids`.
 - `PRIOR_LESSONS` — the Step 2c JSON array (may be `[]`). Advisory
   context; never triggers HALT, never overrides `plan-<ISSUE_NUMBER>.md`.
 
@@ -724,12 +745,13 @@ or parse failure → treat as `failure`, route to Step 4f. A second
 contract violation on the same outer attempt terminates with
 HALT-STRUCTURAL on the next `kill-switch poll`.
 
-The skill has already patched `sub_tasks[N].status` for every task it
-completed (the carve-out). Aggregate handling:
+`build-implement-tdd` has already patched `sub_tasks[N].status` for every
+task it completed (the carve-out); goal-task completion is recorded here.
+Aggregate handling:
 
 | `r1.status`                                    | Action                                                                                                |
 | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
-| `success`                                      | All tasks complete. Advance to Step 6.                                                                |
+| `success`                                      | Group complete only when `data.completed_task_ids` equals `ASSIGNED_TASK_IDS` as a set; otherwise handle as `partial`. For each listed ID whose row is not yet `complete`, patch `.sub_tasks[<id-1>].status` to `"complete"` and `.agent_result` to the R1 envelope. Re-enter Step 4 for the next group without incrementing `outer_iteration`. |
 | `partial`                                      | At least one task incomplete. Go to Step 4f (Step 4c handles stuck`in_progress` on next iteration). |
 | `failure` with `data.escalation == "refine"` | Go to Step 4f.                                                                                        |
 | `failure` (other)                              | HALT-003, apply`needs-human-review`, also call `shared/post-halt-comment.sh HALT-003 $ISSUE_NUMBER $REPO` (best-effort), R1 `failure`.                                                |
@@ -738,7 +760,7 @@ JSONL per dispatch (JSONL `status` maps R1 status: `success`→`ok`,
 `partial`→`warn`, `failure`→`error`):
 
 ```json
-{"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"dispatch","status":"<ok|warn|error>","data":{"skill":"<dispatched>","r1_status":"<r1.status>","outer_iteration":<I>}}
+{"ts":"<ISO>","skill":"po-agent","issue":<N>,"step":"dispatch","status":"<ok|warn|error>","data":{"skill":"<dispatched>","task_ids":[<ASSIGNED_TASK_IDS>],"r1_status":"<r1.status>","outer_iteration":<I>}}
 ```
 
 **After applying R1**, narrate the DONE into the live issue comment
