@@ -258,9 +258,10 @@ threshold (as `COVERAGE_HINT`) to `build-verify`. Gate 5 reports coverage from t
 collected — it never re-runs the suites when gate-scout finds the split coverage commands — and
 enforces `HALT-002` on `threshold_met:false` only when the integration lane ran locally, so the data
 covers every lane. When CI owns the integration lane, the local unit-lane figure is advisory: a CI
-coverage gate (repaired by `build-fix-ci`) owns the threshold when one exists. With no
-implementation-time acknowledgement in either mode, autonomous mode has nothing to bypass and no
-`coverage-floor` bypass event exists.
+coverage gate (repaired by `build-fix-ci`) owns the threshold when one exists. Below the threshold,
+either owner adds edge-case tests for the lowest-covered files of its complete data, as
+`shared/coverage-raise-guide.md` specifies. With no implementation-time acknowledgement in either
+mode, autonomous mode has nothing to bypass and no `coverage-floor` bypass event exists.
 
 ## Cross-skill propagation
 

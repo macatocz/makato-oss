@@ -1,7 +1,7 @@
 ---
 name: gate-scout
 modelRole: smol
-version: "1.5.0"
+version: "1.6.0"
 description: >-
   Discover the repository's build, lint, unit test, integration, coverage, CI
   ownership, sensor-scope, and runtime-health commands without executing them.
@@ -73,7 +73,7 @@ probe `REPO_ROOT` for a lockfile and set `python_runner_prefix` accordingly:
 
 When `python_runner_prefix` is non-empty, **prefix every extracted Python command**
 (build, lint, unit, integration, coverage, unit_coverage, integration_coverage,
-coverage_report) with it — e.g. `uv run pytest -m "not integration"`, not bare
+coverage_append, coverage_report) with it — e.g. `uv run pytest -m "not integration"`, not bare
 `pytest`. First lockfile match wins; report only one prefix. This prefix is
 Python-only — it never applies to Node/Maven/Gradle/Rust/Go commands.
 
@@ -257,17 +257,24 @@ already discovered in Step 2:
   `coverage run --append -m pytest <integration selector>`; with pytest-cov use
   `pytest <integration selector> --cov=<configured source> --cov-append
   --cov-report=`.
-- `coverage_report`: a report-only command such as `coverage report`; it must
-  not invoke a test runner.
+- `coverage_append`: a command prefix that runs only the test files appended
+  after it and APPENDS their coverage to the collected data without reporting.
+  It carries no lane selector or marker filter. With Coverage.py use
+  `coverage run --append -m pytest`; with pytest-cov use `pytest
+  --cov=<configured source> --cov-append --cov-report=`.
+- `coverage_report`: a report-only command; it must not invoke a test runner.
+  It must list per-file rows lowest coverage first, with missing lines, when
+  the tool supports it. With Coverage.py use
+  `coverage report -m --sort=cover --skip-covered`.
 
 Apply the Python runner prefix when applicable. Do not invent a split command
 when the configured tool cannot collect/report in separate invocations; emit
 `"not found"` for that field. Keep `coverage` as the existing all-in-one
-fallback command. A split unit command must leave a fresh data set, and an
-integration append command must not clear it. When the Coverage.py config sets
-`parallel = true`, each run writes a suffixed data file instead: prefix
-`unit_coverage` with `coverage erase &&` and make `coverage_report`
-`coverage combine && coverage report`.
+fallback command. A split unit command must leave a fresh data set, and the
+append commands must not clear it. When the Coverage.py configuration sets
+`parallel = true`, emit all four split commands as `"not found"`. In that mode
+`coverage run --append` is rejected, and each plain `coverage run` erases the
+earlier runs' data files.
 
 ### Step 3 — Check for threshold
 
@@ -314,7 +321,8 @@ Emit this prose block as part of your message (before the R1 block):
 **coverage**: `<exact all-in-one fallback command> | not found`
 **unit_coverage**: `<fresh unit collection command> | not found`
 **integration_coverage**: `<append integration collection command> | not found`
-**coverage_report**: `<report-only command> | not found`
+**coverage_append**: `<append-only command prefix for named test files> | not found`
+**coverage_report**: `<report-only command, lowest coverage first with missing lines> | not found`
 **coverage_threshold**: `<declared threshold, e.g. 95%> | none`
 **sensors_ci_scope**: changed | all-files | not found
 **integration_ci**: `<repo-relative CI file>:<line> | not found`
@@ -326,7 +334,7 @@ Emit this prose block as part of your message (before the R1 block):
 
 The final element of your message MUST be a fenced ` ```json ` block containing the R1 envelope defined in `plugins/makato-build/agents/RETURN-CONTRACT.md`. Callers parse the last `json`-fenced block via `JSON.parse()` — no prose parsing.
 
-`data` shape: `{"project_type":"...","config_files_read":N,"python_runner_prefix":"...","build":"...","lint":"...","lint_js":"...","lint_sql":"...","unit":"...","integration":"...","coverage":"<exact executable command>|not found","unit_coverage":"<fresh unit collection command>|not found","integration_coverage":"<append integration collection command>|not found","coverage_report":"<report-only command>|not found","coverage_threshold":"<declared threshold>|none","sensors_ci_scope":"changed|all-files|not found","integration_ci":"<repo-relative CI file>:<line>|not found","coverage_ci":"<repo-relative CI file>:<line>|not found","java_version_required":"...","lint_ci_divergence":true|false,"lint_ci_command":"...","build_hook_cmd":"...|null","lint_hook_cmd":"...|null","pyright_env":"hook|raw","build_hook_missing":true|false,"lint_hook_missing":true|false,"health_check_cmd":"...|null"}`. Use the string `"not found"` for any command or CI location not discovered, and `"none"` for `python_runner_prefix` when no lockfile matches. `coverage_threshold` is metadata only and must never be concatenated into `coverage`.
+`data` shape: `{"project_type":"...","config_files_read":N,"python_runner_prefix":"...","build":"...","lint":"...","lint_js":"...","lint_sql":"...","unit":"...","integration":"...","coverage":"<exact executable command>|not found","unit_coverage":"<fresh unit collection command>|not found","integration_coverage":"<append integration collection command>|not found","coverage_append":"<append-only command prefix>|not found","coverage_report":"<report-only command>|not found","coverage_threshold":"<declared threshold>|none","sensors_ci_scope":"changed|all-files|not found","integration_ci":"<repo-relative CI file>:<line>|not found","coverage_ci":"<repo-relative CI file>:<line>|not found","java_version_required":"...","lint_ci_divergence":true|false,"lint_ci_command":"...","build_hook_cmd":"...|null","lint_hook_cmd":"...|null","pyright_env":"hook|raw","build_hook_missing":true|false,"lint_hook_missing":true|false,"health_check_cmd":"...|null"}`. Use the string `"not found"` for any command or CI location not discovered, and `"none"` for `python_runner_prefix` when no lockfile matches. `coverage_threshold` is metadata only and must never be concatenated into `coverage`.
 ### Success
 
 ```json
@@ -352,7 +360,8 @@ The final element of your message MUST be a fenced ` ```json ` block containing 
     "coverage": "uv run coverage run -m pytest && uv run coverage report",
     "unit_coverage": "uv run coverage run -m pytest tests/unit",
     "integration_coverage": "uv run coverage run --append -m pytest tests/integration",
-    "coverage_report": "uv run coverage report",
+    "coverage_append": "uv run coverage run --append -m pytest",
+    "coverage_report": "uv run coverage report -m --sort=cover --skip-covered",
     "coverage_threshold": "90%",
     "sensors_ci_scope": "changed",
     "integration_ci": ".github/workflows/sensors.yml:469",

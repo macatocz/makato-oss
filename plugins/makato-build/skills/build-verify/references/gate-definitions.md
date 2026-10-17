@@ -100,6 +100,7 @@ These are fallback commands and may execute tests. When gate-scout reports
 `unit_coverage`, `integration_coverage`, and `coverage_report`, build-verify
 collects fresh unit data, appends local integration data when applicable, and
 runs only the report command at Gate 5. The report command MUST NOT re-run tests.
+A coverage-raise round appends only its new test files with `coverage_append`.
 Use the exact gate-scout commands when present instead of constructing a fallback.
 
 ## What Counts as a Gate Failure vs. a Warning
@@ -122,12 +123,13 @@ Use the exact gate-scout commands when present instead of constructing a fallbac
   tests (tests that were running before) is treated as a failure
 
 ### COVERAGE
-- **Failure**: measured conditional coverage is below the declared threshold in `design.md`
-  and Gate 5 enforces it (the data covers every locally owned lane; see the Gate 5 ownership matrix)
+- **Failure**: the report's total is below the declared threshold and Gate 5 enforces it (the data
+  covers every locally owned lane; see the Gate 5 ownership matrix). It starts coverage-raise rounds:
+  edge-case tests for the lowest-covered files (`shared/coverage-raise-guide.md`)
 - **Warning**: no threshold declared, or the threshold is CI-owned / measured over the unit lane
-  only — the local figure is advisory
-- A branch that is genuinely unreachable (documented as such in the code) may be excluded
-  from the denominator — do not manufacture tests to reach dead code
+  only — the local figure is advisory and selects no files
+- A line no input can reach is reported as unreachable, never suppressed or covered by a
+  manufactured test
 
 ## Pre-commit Hook Commands
 

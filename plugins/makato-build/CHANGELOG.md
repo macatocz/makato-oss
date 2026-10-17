@@ -10,6 +10,26 @@ here on merge to main; release-please will date and version them at the next rel
 
 ## [Unreleased]
 
+### Added — coverage raise: edge-case tests for the lowest-covered files (#164)
+
+- **New `shared/coverage-raise-guide.md`** — below the threshold on data that covers every lane,
+  each round ranks files lowest coverage first and selects up to 5 to close the gap. The repair
+  adds test-only edge-case tests that assert behavior, and reports unreachable lines rather than
+  suppressing them. It never ranks from unit-only data: when CI owns integration, that data ranks
+  integration-covered code lowest.
+- **`build-verify` v1.16.0** — when Gate 5 enforces the threshold, a miss runs coverage-raise
+  rounds (coder verify-repair) within `MAKATO_MAX_REPAIR_ROUNDS`, re-measuring by appending only
+  the new test files; exhaustion → HALT-002. Coverage misses no longer escalate to refine.
+- **`build-fix-ci` v1.1.0** — new coverage-threshold route: when CI's coverage gate fails, rank
+  from the run's combined coverage data and dispatch a goal-mode coverage-raise recovery task
+  (`shared/ci-recovery.md`, **`build-implement-goal` v1.10.0**).
+- **`coder` v1.2.0** — accepts `coverage` findings and reports unreachable lines.
+- **`gate-scout` v1.6.0** — new `coverage_append`; `coverage_report` lists files lowest coverage
+  first with missing lines. Fixed: Coverage.py `parallel = true` gets no split commands, because
+  sequential runs erase each other's data and `--append` is rejected.
+- **`definition-of-done` v2.7.0**, `gate-definitions.md`, `AUTONOMOUS-MODE.md`,
+  `verification-ownership.md` and README describe the raise.
+
 ### Changed — verification cost: targeted implementation tests, CI-owned integration (#164)
 
 - **`build-implement-goal` v1.9.0** — per-task VERIFY runs only the task's tests plus existing tests
