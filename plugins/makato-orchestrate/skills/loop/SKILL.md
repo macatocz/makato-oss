@@ -14,7 +14,7 @@ description: >-
   or running a single dispatch cycle with --once. Trigger keywords:
   autonomous, polling, board, Ready, unattended, GAP-007, loop run,
   dispatch queue.
-version: "2.4.1"
+version: "2.5.0"
 argument-hint: "[--status <NAME>] [--interval <S>] [--dry-run] [--once] [--force]"
 allowed-tools: [Bash]
 metadata:
@@ -298,7 +298,7 @@ The driver also exposes lower-level subcommands for diagnostics:
 | `poll [STATUS_NAME]` | Print the board queue as JSON (wraps `gh project item-list`); filters to `Issue` content at the requested Status. |
 | `next [STATUS_NAME]` | Print the issue number that would be dispatched next, or empty if none. |
 | `status` | Pretty-print `.claude/state/loop-status.json`. |
-| `dispatch <ISSUE> [--dry-run]` | Manually dispatch one issue. |
+| `dispatch <ISSUE> [--dry-run] [--resume]` | Manually dispatch one issue. `--resume` continues a HALTed or orphaned run from its kept workflow-state (#156). |
 | `remove-worktrees` | Remove local worktrees under `.claude/worktrees/` whose branch has a merged PR (#265); skips main/dirty/locked/retained/detached/nested. Also prunes orphaned untracked `specs/<slug>/` folders for done/closed issues (`MAKATO_LOOP_REAP_SPECS=0` to disable). Also a pre-poll pass in `run`. One-shot: `MAKATO_LOOP_REAP_INTERVAL=0 loop remove-worktrees` (`MAKATO_LOOP_REAP_DRYRUN=1` to inspect). |
 | `promote-ready` | **Removed in #688.** Exits with an error message. Use `seed-issue` to move a card to Status=Ready. |
 | `auto-seed` | Run the pre-poll auto-seed pass (`_auto_seed_unprepared`) once and exit (#373, epic #367 S5). Seeds or blocks every open issue not yet at board Status=Ready: light-tier issues → headless `seed-issue` dispatch + thin-body reconciliation; change-tier → no-op (change-orchestrate owns them); full/untiered → spec-folder stub + board `Blocked` + `needs-human-review`. Best-effort: a failure per candidate logs a WARN and the pass always returns 0. |
@@ -488,7 +488,12 @@ Each outer iteration of `run` performs the following steps in order:
         skip dispatch and apply `needs-human-review`.
      4. **Tier 2 — in-flight workflow-state check.** Re-assert `in_flight_issues`
         for the direct `dispatch <n>` entry point. If a non-done
-        `workflow-state-<issue>.json` exists, skip.
+        `workflow-state-<issue>.json` exists, skip — unless the operator passed
+        `--resume` (#156) and `_resume_allowed` confirms exactly one non-done
+        state, no live `.loop-owner.pid` owner, no pending context-ceiling
+        handoff and `restart_failed` unset. The other tiers still apply, so the
+        operator clears `needs-human-review` and sets the card to Ready first;
+        `run` never resumes on its own.
      5. **Tier 3/4 — label-board conflict (#356).** Non-orphan only. After the
         board CAS claim, check for a `status:*` label that contradicts the
         observed board Status (`Ready`). Skip and apply `needs-human-review` on

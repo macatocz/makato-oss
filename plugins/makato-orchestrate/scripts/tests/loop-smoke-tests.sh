@@ -1788,6 +1788,61 @@ echo "  ✓ in-flight workflow-state: tier-2 skip, counter +1, no dispatch"
 rm -f "$T52_REAP" "$T52_LABELS" "$T52_BODY"
 
 # ---------------------------------------------------------------------------
+echo "=== T52a–T52e: dispatch --resume continues only an unowned non-done state (#156) ==="
+T52R_REAP="$STATE_DIR/t52r-reap-$$.json"
+T52R_LABELS="$STATE_DIR/t52r-labels-$$.json"
+T52R_BODY="$STATE_DIR/t52r-body-$$.txt"
+T52R_SPEC="$REPO_ROOT/specs/gap-007-loop-smoke-gate-t52r-$$"
+T52R_SPEC2="$REPO_ROOT/specs/gap-007-loop-smoke-gate-t52r2-$$"
+T52R_WT="$STATE_DIR/t52r-wt-$$"
+mkdir -p "$T52R_SPEC" "$T52R_WT"
+printf '%s\n' '*Feature slug: `gate-test-key` — produced by to-issues v3.x.*' >"$T52R_BODY"
+printf '{}' >"$T52R_REAP"
+printf '{"labels":[],"title":"Issue 101"}' >"$T52R_LABELS"
+( : ) &
+t52r_dead_pid=$!
+wait "$t52r_dead_pid" || true
+# _t52r_skips <extra-state-json> <owner-pid> — write a HALTed implement-phase
+# state owned by <owner-pid>, run `dispatch 101 --resume`, print gate_skips_total.
+_t52r_skips() {
+  rm -f "$STATE_DIR/loop-status.json"
+  jq -nc --arg wt "$T52R_WT" --argjson extra "$1" \
+    '{issue_number: 101, current_phase: "implement", worktree_path: $wt,
+      resume_point: "build-refine", halt_audit: [{code: "HALT-STRUCTURAL"}]} + $extra' \
+    >"$T52R_SPEC/workflow-state-101.json"
+  printf '%s\n' "$2" >"$T52R_WT/.loop-owner.pid"
+  MAKATO_LOOP_ISSUE_BODY_OVERRIDE="$T52R_BODY" \
+    MAKATO_LOOP_REAP_GH_OVERRIDE="$T52R_REAP" \
+    MAKATO_LOOP_GATE_LABELS_OVERRIDE="$T52R_LABELS" \
+    MAKATO_LOOP_ISSUE_TYPE_OVERRIDE="type:feature" \
+    MAKATO_LOOP_CLAIM_ON_DISPATCH=0 \
+    MAKATO_LOOP_DRY_DISPATCH=1 \
+    MAKATO_LOOP_ASSIGN_ON_DISPATCH=0 \
+    MAKATO_LOOP_DISPATCH_REPO="macatocz/makato" \
+    "$LOOP" dispatch 101 --resume 2>/dev/null
+  jq -r '.gate_skips_total // 0' "$STATE_DIR/loop-status.json" 2>/dev/null || echo 0
+}
+t52r="$(_t52r_skips '{}' "$t52r_dead_pid")"
+[[ "$t52r" -eq 0 ]] || fail "T52a: --resume with dead owner should pass tier 2; gate_skips_total=$t52r"
+echo "  ✓ T52a: HALTed state, dead owner → --resume passes tier 2"
+t52r="$(_t52r_skips '{}' "$$")"
+[[ "$t52r" -eq 1 ]] || fail "T52b: --resume must refuse a live owner; gate_skips_total=$t52r"
+echo "  ✓ T52b: live owner pid → --resume refused"
+t52r="$(_t52r_skips '{"handoff_reason": "context_ceiling", "spawned_pid": 1}' "$t52r_dead_pid")"
+[[ "$t52r" -eq 1 ]] || fail "T52c: --resume must refuse a pending context-ceiling handoff; gate_skips_total=$t52r"
+echo "  ✓ T52c: pending HALT-007B handoff → --resume refused"
+t52r="$(_t52r_skips '{"restart_failed": true}' "$t52r_dead_pid")"
+[[ "$t52r" -eq 1 ]] || fail "T52d: --resume must refuse restart_failed=true; gate_skips_total=$t52r"
+echo "  ✓ T52d: restart_failed=true → --resume refused"
+mkdir -p "$T52R_SPEC2"
+printf '{"issue_number": 101, "current_phase": "verify"}' >"$T52R_SPEC2/workflow-state-101.json"
+t52r="$(_t52r_skips '{}' "$t52r_dead_pid")"
+[[ "$t52r" -eq 1 ]] || fail "T52e: --resume must refuse ambiguous duplicate states; gate_skips_total=$t52r"
+echo "  ✓ T52e: two non-done states for one issue → --resume refused"
+rm -rf "$T52R_SPEC" "$T52R_SPEC2" "$T52R_WT"
+rm -f "$T52R_REAP" "$T52R_LABELS" "$T52R_BODY"
+
+# ---------------------------------------------------------------------------
 echo "=== T53: read failure degrades gracefully (best-effort proceed) ==="
 rm -f "$STATE_DIR/loop-status.json"
 T53_BODY="$STATE_DIR/t53-body-$$.txt"
