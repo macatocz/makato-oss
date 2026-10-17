@@ -166,6 +166,12 @@ the same way regardless of `MAKATO_HARNESS_MODE`. If no `last_session_id` was ev
 captured, stall-resume skips with `reason:"no_session_id"` in `orchestrate.jsonl` and a
 fresh dispatch starts instead of failing.
 
+In OMP mode every dispatch also passes `--config config/omp-dispatch.yml`, an overlay
+that sets `autoResume: false`. Without it, `omp -p` honours the operator's
+`autoResume` setting and continues the most recent session for the cwd — usually the
+operator's interactive conversation — instead of starting the dispatch fresh. Session
+files are still saved, and explicit `--resume` is unaffected.
+
 ### Autonomous PR/merge loop, credentials, and preflight
 
 The full unattended path is: board `Status=Ready` claim (CAS) → PO-agent dispatch →
