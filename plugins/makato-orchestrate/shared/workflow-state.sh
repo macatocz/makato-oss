@@ -653,7 +653,7 @@ PYEOF
       --arg tier "$LESSON_TIER" \
       --arg scope "$LESSON_SCOPE" \
       --arg bundle "$BUNDLE" \
-      --arg label "$LABEL" \
+      --arg lesson_label "$LABEL" \
       --argjson tags "$TAGS_JSON" \
       --argjson has_tags "$HAS_TAGS" \
       '.lessons_learned += [{
@@ -665,7 +665,7 @@ PYEOF
        } + (if $tier == "" then {} else {tier: $tier} end)
          + (if $scope == "" then {} else {scope: $scope} end)
          + (if $bundle == "" then {} else {bundle: $bundle} end)
-         + (if $label == "" then {} else {label: $label} end)
+         + (if $lesson_label == "" then {} else {"label": $lesson_label} end)
          + (if $has_tags then {tags: $tags} else {} end)]
        | .updated_at = $ts' \
       "$STATE_FILE")"
