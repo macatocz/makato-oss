@@ -10,6 +10,37 @@ here on merge to main; release-please will date and version them at the next rel
 
 ## [Unreleased]
 
+### Changed — verification cost: targeted implementation tests, CI-owned integration (#164)
+
+- **`build-implement-goal` v1.9.0** — per-task VERIFY runs only the task's tests plus existing tests
+  that exercise its changed production files; Step 6 hands baseline, `CHANGED_FILES` and
+  `COVERAGE_HINT` to build-verify instead of running the full suite and coverage. The autonomous
+  coverage bypass is gone.
+- **`shared/baseline-guide.md`**, **`build-implement-tdd` v1.17.0** — one baseline per branch base:
+  rows record `branch`, `base_sha` and failing test IDs (`failures`), and later passes reuse a
+  matching `proceed` row (`reused:true`, `source_ts`) instead of re-running the unit suite.
+  `BASELINE_FAILURES` is that row's `data.failures`.
+- **`build-simplify` v1.5.0** — no upfront suite run; zero applied simplifications run no tests;
+  otherwise only tests exercising the touched files, with backup-based attribution of
+  pre-existing failures. Step 3 regains its heading.
+- **`gate-scout` v1.5.0** — new `sensors_ci_scope`, `integration_ci`, `coverage_ci`, and split
+  `unit_coverage` / `integration_coverage` / `coverage_report` commands (`coverage` stays the
+  fallback).
+- **`build-verify` v1.15.0** — Gate 0 uses CI's pre-commit scope; Gates 1/2 take hook results
+  from Gate 0's final run and re-run a hook only after repair; Gate 3 collects coverage; Gate 4
+  is skipped locally (`owner:"ci"`) when CI runs the integration lane; Gate 5 reports the
+  collected data without re-running tests and blocks only when the integration lane ran locally.
+- **`build-sensors` v1.3.0** — new `branch` scope (merge-base diff plus untracked files, manual
+  stage); `max_loops` is one repair budget shared by every sensor-fixer dispatch; R1 adds
+  `scope`, `hooks` and `final_run_log`. **`sensor-fixer` v1.0.0** consumes the remaining budget.
+- **`config/default-workflow-schema.yml`** — the post-verify `sensors` artifact is removed;
+  `push-to-git` follows `verify` (Gate 0 is the sensor sweep).
+- **`config/verification-ownership.md`**, **`definition-of-done` v2.6.0**, `AUTONOMOUS-MODE.md`,
+  README, AGENTS.md and `docs/workflow-schema.md` describe the same ownership. Removed the
+  stale TDD coverage-floor gate description.
+- Tests: removed `test_full_arc_runner_discovered_emits_baseline_cmd` and the
+  verify-sensors-spec-key T2/T3 wording assertions; the schema smoke test no longer requires
+  `sensors`.
 ### Fixed — interactive OMP skill handoffs use clean contexts
 
 - `AGENTS.md`, `scripts/run-skill.py`, and `docs/workflow-schema.md` distinguish

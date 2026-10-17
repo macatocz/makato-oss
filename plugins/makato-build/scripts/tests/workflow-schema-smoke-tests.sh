@@ -84,7 +84,7 @@ if [[ "$EXIT_CODE" == "0" ]]; then
 import sys, json
 lines = [l for l in sys.stdin.read().splitlines() if l.strip()]
 ids = [json.loads(l)['id'] for l in lines]
-required = {'refine', 'verify', 'push-to-git', 'create-pr', 'sensors'}
+required = {'refine', 'verify', 'push-to-git', 'create-pr'}
 missing = required - set(ids)
 sys.exit(1 if missing else 0)
 " 2>/dev/null; then

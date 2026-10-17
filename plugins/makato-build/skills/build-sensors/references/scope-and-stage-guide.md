@@ -1,6 +1,6 @@
 # Scope and hook-stage selection guide
 
-MANDATORY: load at Step 1 when the caller provides no explicit `scope`, or when choosing which scope is ambiguous.
+MANDATORY: load at Step 2 when the caller provides no explicit `scope`, or when choosing which scope is ambiguous.
 Do NOT load this reference for other purposes.
 
 ## When to use each scope
@@ -10,6 +10,7 @@ Do NOT load this reference for other purposes.
 | `staged` | `pre-commit` | `git diff --cached --name-only` | Running gate-0 immediately before a commit. Only checks what the committer is about to land — fastest path. |
 | `all` | `manual` | `git ls-files` + intent-to-add | Validating an entire branch mid-session when no staged set exists, or when `sensor-fixer` finishes and you want a global clean confirmation. Scans all tracked files + any untracked files registered with `git add -N`. |
 | `changed-vs-main` | `pre-push` | `git diff origin/<default> --name-only` | Final pre-push gate: everything the PR will add to the default branch. Catches cross-file regressions introduced by the full feature diff but not visible in a single commit's staged set. |
+| `branch` | `manual` | `git diff --name-only --diff-filter=d "$(git merge-base HEAD "$DEFAULT_REF")"` ∪ untracked registered with `git add -N` | Gate 0 when CI pre-commit sensors use changed-file scope; checks the branch diff plus uncommitted work. |
 
 ## Non-obvious failure mode: CI/local mismatch on new files
 

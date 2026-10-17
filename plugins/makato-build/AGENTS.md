@@ -23,7 +23,7 @@ In human-driven OMP interactive mode (no autonomous trigger, `MAKATO_HEADLESS` u
 
 Transforms decomposed, vertically-sliced stories into tested, reviewed, merged code.
 
-**How:** Sequential pipeline: build-start → build-refine → optional build-grill-with-docs → build-implement-tdd/goal → build-simplify → build-review → build-verify → build-sensors → build-push-to-git → build-create-pr → autonomous build-fix-ci → build-address-pr-comments. Every later repair push re-enters the shared current-head CI gate.
+**How:** Sequential pipeline: build-start → build-refine → optional build-grill-with-docs → build-implement-tdd/goal → build-simplify → build-review → build-verify (Gate 0 runs build-sensors) → build-push-to-git → build-create-pr → autonomous build-fix-ci → build-address-pr-comments. Every later repair push re-enters the shared current-head CI gate.
 
 **Why:** Closes the loop from ideation to merged code — planned stories become shippable features without manual orchestration overhead.
 
@@ -73,7 +73,7 @@ The /refine step bridges that gap — producing a plan small enough to execute a
 
 1. **Single-session execution.** AI agents complete a full story in one session. No /resume skill — /build-refine produces a plan small enough to execute end-to-end.
 2. **Fail-forward with re-plan.** Quality gates loop differently: /build-review loops on itself (fix → re-review until clean). /build-simplify and /build-verify escalate structural failures back to /build-refine — re-plan rather than accumulate fixes on broken foundations.
-3. **Two implementation modes.** TDD for logic-heavy work (RED → GREEN → INTEGRATE → VERIFY — unit tests first, then integration tests against real dependencies). Goal-driven for UI/config. Choose per story, not per plugin.
+3. **Two implementation modes.** TDD for logic-heavy work (task-scoped RED → GREEN). Goal-driven for UI/config (BUILD → VERIFY RUNTIME → TEST → targeted VERIFY). Both run targeted tests only; build-verify owns whole-change gates and leaves integration tests and the coverage threshold to CI when the repo's CI runs them. Choose per story, not per plugin.
 4. **Structured logging at every step.** Every skill appends JSONL to `specs/<story-key>-<slug>/build.jsonl`. Required fields: `ts`, `skill`, `story`, `step`, `status` (`start`|`ok`|`warn`|`error`). Optional: `task`, `data`, `error`. Log at minimum: session start, each major step start/end, every error.
 
 ## Security Model

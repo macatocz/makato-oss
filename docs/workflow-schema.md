@@ -146,8 +146,8 @@ dependency causes the loader to exit 1 with the full cycle path in the error mes
 
 ## Annotated example
 
-The following schema adds a custom `security-audit` artifact between `verify` and `sensors`, and
-marks `grill-with-docs` as required for this repo:
+The following schema adds a custom `security-audit` artifact between `verify` and `push-to-git`,
+and marks `grill-with-docs` as required for this repo:
 
 ```yaml
 version: "1.0"
@@ -194,18 +194,13 @@ artifacts:
   - id: security-audit # custom artifact not in the built-in default
     skill: security-audit
     required: true
-    description: "Internal security scan before pre-commit sensors"
+    description: "Internal security scan before commit and push"
     after: [verify]
-
-  - id: sensors
-    skill: build-sensors
-    required: true
-    after: [security-audit] # now depends on the custom step
 
   - id: push-to-git
     skill: build-push-to-git
     required: true
-    after: [sensors]
+    after: [security-audit] # now depends on the custom step
 
   - id: create-pr
     skill: build-create-pr

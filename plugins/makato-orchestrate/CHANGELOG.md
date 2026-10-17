@@ -5,6 +5,12 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Changed — verify baseline comes from either implementation mode (#164)
+
+- **`po-agent` v1.3.1** — `BASELINE_FAILURES` forwarded to `build-verify` is `data.failures` of
+  the branch's recorded implementation baseline row (implement-tdd or implement-goal Step 3),
+  which makato-build now reuses across passes while the branch base is unchanged.
+
 ### Added — operator resume of a HALTed run (#156)
 
 - **`loop` v2.5.0** adds `loop.sh dispatch <ISSUE> --resume`. Tier 2 of the

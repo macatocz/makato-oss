@@ -2,14 +2,14 @@
 
 ## Scope
 
-This guide is about **what to do once the test command is known** — record
-pre-existing failure counts, decide whether the baseline is broken, and how to
-log the decision. It is intentionally **not** a discovery algorithm: discovering
-the project's unit-test command is `gate-scout`'s job (`agents/gate-scout.md`),
-dispatched by every consuming skill (`build-simplify`, `build-implement-tdd`,
-`build-implement-goal`, `build-verify`). If you arrived here looking for "how
-do I find the test command on this repo", see `gate-scout.md` Step 1–2 — this
-file does not duplicate that map (#97).
+This guide is about what to do once the unit-test command is known: record
+pre-existing failure identities, decide whether the baseline is broken, and
+log the decision. It is intentionally not a discovery algorithm: `gate-scout`
+discovers the command (`agents/gate-scout.md`), dispatched by the consuming
+implementation and verification skills (`build-implement-tdd`,
+`build-implement-goal`, `build-verify`). `build-simplify` uses gate-scout only
+to discover the command for targeted verification; it does not load this guide
+or run a baseline suite.
 
 ## Purpose
 
@@ -23,50 +23,61 @@ obligations, even if compilation currently fails; do not prompt to accept them
 as pre-existing or subtract them from the completion gate. Compare failure
 identities as well as counts, and retain real environment/permission blockers.
 
-## How to Establish the Baseline
+## How to Establish or Reuse the Baseline
 
-Run the full existing test suite. Record the count of passing and failing tests.
+A branch base has one fresh baseline; later implementation passes reuse it.
 
-If the test environment is unrunnable (build fails, test runner crashes, missing deps):
-stop and report. Do not proceed without a working baseline.
+Before running tests, read this spec folder's `build.jsonl`. Set
+`DEFAULT_REF="$("$MAKATO_BUILD_ROOT/shared/default-branch.sh")"`, get the
+current branch name, and compute
+`base_sha="$(git merge-base HEAD "$DEFAULT_REF")"`.
+
+Find the latest `step:"baseline", status:"ok"` row from either
+`build-implement-tdd` or `build-implement-goal`. If it has the same `branch`
+and `base_sha`, a `failures` array, and `baseline_mode:"proceed"`, reuse it
+instead of running tests: copy its `failures`, `pre_existing_failures`, and
+`cmd`, record `reused:true`, and set `source_ts` to that row's `ts`. Otherwise
+(no such row, a different base, or a `"halted"` row) run gate-scout's exact
+`unit` command once and record its failing test IDs in `failures`, with
+`pre_existing_failures` equal to that array's length, `reused:false`, and
+`source_ts:null`. Never replace a reusable baseline with a later run: the
+baseline describes the branch base, and a run over this branch's changes would
+absorb earlier passes' regressions into the pre-existing set.
 
 ## Broken Baseline Gate
 
-If `pre_existing_failures > 0`, do not silently proceed. Present the user with a choice:
+The gate runs only after a fresh baseline run. If `pre_existing_failures > 0`,
+present the user with a choice:
 
 > "`<N>` pre-existing test failure(s) detected.
 >
-> **(A) Continue with broken baseline** — new failures will be tracked separately against
-> this count. Any new failure introduced by this session must be fixed before completion.
-> **(B) Fix baseline first** — pause this session; fix the pre-existing failures, re-run
-> the suite, then restart this step."
+> **(A) Continue with broken baseline** — new failures will be tracked by
+> test identity against this failure set. Any new failure introduced by this
+> session must be fixed before completion.
+> **(B) Fix baseline first** — pause this session; fix the pre-existing failures,
+> re-run the unit command, then restart this step."
 
-Wait for the user's choice. If (B): stop here. If (A): continue, tracking new failures
-as `current_failures - pre_existing_failures` throughout the session.
+Autonomous mode proceeds on a fresh broken baseline. Record the resulting mode
+as `baseline_mode:"proceed"` or `"halted"`. A reused row is not a fresh run:
+do not repeat the gate; continue with `baseline_mode:"proceed"`.
 
 ## Logging
 
-Minimum log entries:
+Every `baseline` row from `build-implement-tdd` or `build-implement-goal`
+includes:
 
 ```
-{"ts":"…","skill":"<skill>","story":"<key>","step":"baseline","status":"ok","data":{"pre_existing_failures":<N>,"baseline_mode":"<proceed|halted>"}}
+{"ts":"…","skill":"<skill>","story":"<key>","step":"baseline","status":"ok","data":{"pre_existing_failures":<N>,"failures":["<test id>",...],"branch":"<git branch>","base_sha":"<git merge-base HEAD $DEFAULT_REF>","cmd":"<exact unit command>","reused":<bool>,"source_ts":"<source row ts>"|null,"baseline_mode":"<proceed|halted>"}}
 ```
 
-If `pre_existing_failures > 0` and user chose continue:
-```
-{"ts":"…","skill":"<skill>","story":"<key>","step":"baseline-gate","status":"decision","data":{"pre_existing_failures":<N>,"user_choice":"continue"}}
-```
-
-For skills that only track pass/fail count (not the broken baseline gate):
-```
-{"ts":"…","skill":"<skill>","story":"<key>","step":"baseline","status":"ok","data":{"passing":<N>,"failing":<N>}}
-```
+The `failures` array is the baseline failure set; `pre_existing_failures` is
+its size. `source_ts` is the timestamp of the baseline row whose failures were
+reused, or `null` when this row ran the command.
 
 ## New Failure Check
 
-Throughout the session, when comparing test results to baseline:
-- New failures = current failure count − pre_existing_failures
-- Zero new failures is the gate at each VERIFY step
-- A simplification or fix that introduces even one new failure must be reverted before proceeding
-
-Cross-task sweep: the outer loop in `build-implement-tdd` Step 6 applies the same `current_failures − pre_existing_failures == 0` gate to the accumulated prior-task test set after each task. See `build-implement-tdd/SKILL.md` § *Cross-task regression sweep*.
+For each targeted verification run, compare failed test identities with
+`BASELINE_FAILURES` (the row's `data.failures`), not aggregate failure counts.
+A selected test failing outside that baseline failure set is a new failure.
+Zero new failures in the selected tests is the gate. A simplification or fix
+that introduces even one new failure must be reverted before proceeding.

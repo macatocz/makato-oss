@@ -5,6 +5,11 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Changed — default pipeline has no post-verify sensors artifact (#164)
+
+- **`create-workflow-schema` v1.3.1** — guidance and the field-reference example place custom
+  artifacts before `push-to-git`; `build-verify` Gate 0 is the only default sensor sweep.
+
 ### Fixed — durable project learning (port of #123 from `development`)
 
 - **`init` skill v1.1.1** — onboarding now installs the project learning contract into the consumer’s agent

@@ -1,13 +1,13 @@
 ---
 name: gate-scout
 modelRole: smol
-version: "1.4.0"
+version: "1.5.0"
 description: >-
-  Discover the repository's build, lint, unit test, integration, coverage, and
-  runtime-health commands without executing them. Returns a structured command
-  map for the verify skill. Commands returned for later execution must be
-  executable strings, with metadata (such as thresholds) emitted in separate
-  output fields.
+  Discover the repository's build, lint, unit test, integration, coverage, CI
+  ownership, sensor-scope, and runtime-health commands without executing them.
+  Returns a structured command map for the verify skill. Commands returned for
+  later execution must be executable strings, with metadata (such as thresholds)
+  emitted in separate output fields.
 maxTurns: 10
 permissionMode: bypassPermissions
 disallowedTools: Write, Edit, Bash, NotebookEdit
@@ -17,7 +17,10 @@ disallowedTools: Write, Edit, Bash, NotebookEdit
 
 # gate-scout
 
-> **Mission**: Discover the project's build, lint, unit test, integration test, and coverage commands by reading config files. Return a structured command map ready for the verify skill to execute — without running any commands.
+> **Mission**: Discover the project's build, lint, unit test, integration test, coverage,
+> CI ownership, sensor-scope, and runtime-health commands by reading config files. Return
+> a structured command map ready for the verify skill to execute — without running any
+> commands.
 
 ## Rules
 
@@ -69,8 +72,9 @@ probe `REPO_ROOT` for a lockfile and set `python_runner_prefix` accordingly:
 | none of the above | *(empty string)* |
 
 When `python_runner_prefix` is non-empty, **prefix every extracted Python command**
-(build, lint, unit, integration, coverage) with it — e.g. `uv run pytest -m "not integration"`,
-not bare `pytest`. First lockfile match wins; report only one prefix. This prefix is
+(build, lint, unit, integration, coverage, unit_coverage, integration_coverage,
+coverage_report) with it — e.g. `uv run pytest -m "not integration"`, not bare
+`pytest`. First lockfile match wins; report only one prefix. This prefix is
 Python-only — it never applies to Node/Maven/Gradle/Rust/Go commands.
 
 ### Step 1c — Detect standalone tool configs (not just `pyproject.toml` sections)
@@ -220,6 +224,51 @@ Extract the exact lint command or invocation found. Compare it to the locally-di
 
 Flag divergence only when commands are materially different — additional `--max-warnings 0` flags or a different config path count as divergence. Cosmetic differences (quoting, whitespace) do not.
 
+### Step 2d — CI test lanes and sensor scope
+
+Read the same CI files from Step 2c and identify the CI steps that run the
+integration lane, enforce a coverage threshold, and run the pre-commit sensor
+lane. Emit each source as `<repo-relative CI file>:<line>` for the step's
+command; use `"not found"` when absent. Use line numbers from the source file,
+not a guessed workflow/job number.
+
+- `integration_ci`: the CI step that runs the integration lane identified in
+  Step 2. Match its actual command, directory, marker, or test-runner task.
+- `coverage_ci`: the CI step that enforces a coverage threshold, such as
+  `--fail-under`, `--cov-fail-under`, or a configured coverage-threshold action.
+  A report-only step without threshold enforcement does not qualify.
+- `sensors_ci_scope`: inspect the CI pre-commit invocation for the sensor lane.
+  Emit `"changed"` when it uses `--from-ref`/`--to-ref`, or `--files` populated
+  from a diff; emit `"all-files"` when it uses `--all-files`; otherwise emit
+  `"not found"`. Do not infer a scope from the CI trigger alone.
+
+### Step 2e — Split coverage collection and reporting commands
+
+When the configured coverage tool supports separate collection and reporting,
+emit these commands separately. Use the unit and integration lane selectors
+already discovered in Step 2:
+
+- `unit_coverage`: a command that runs the unit lane and starts a FRESH coverage
+  data set without reporting. With Coverage.py use `coverage run -m pytest
+  <unit selector>`; with pytest-cov use `pytest <unit selector> --cov=<configured
+  source> --cov-report=`. Do not include `--append` / `--cov-append`.
+- `integration_coverage`: a command that runs the integration lane and APPENDS
+  to the collected data without reporting. With Coverage.py use
+  `coverage run --append -m pytest <integration selector>`; with pytest-cov use
+  `pytest <integration selector> --cov=<configured source> --cov-append
+  --cov-report=`.
+- `coverage_report`: a report-only command such as `coverage report`; it must
+  not invoke a test runner.
+
+Apply the Python runner prefix when applicable. Do not invent a split command
+when the configured tool cannot collect/report in separate invocations; emit
+`"not found"` for that field. Keep `coverage` as the existing all-in-one
+fallback command. A split unit command must leave a fresh data set, and an
+integration append command must not clear it. When the Coverage.py config sets
+`parallel = true`, each run writes a suffixed data file instead: prefix
+`unit_coverage` with `coverage erase &&` and make `coverage_report`
+`coverage combine && coverage report`.
+
 ### Step 3 — Check for threshold
 
 Resolve the coverage threshold in this precedence order:
@@ -262,8 +311,14 @@ Emit this prose block as part of your message (before the R1 block):
 **lint_sql**: `<exact command>` | not found
 **unit**: `<exact command>` | not found
 **integration**: `<exact command>` | not found
-**coverage**: `<exact executable command> | not found`
+**coverage**: `<exact all-in-one fallback command> | not found`
+**unit_coverage**: `<fresh unit collection command> | not found`
+**integration_coverage**: `<append integration collection command> | not found`
+**coverage_report**: `<report-only command> | not found`
 **coverage_threshold**: `<declared threshold, e.g. 95%> | none`
+**sensors_ci_scope**: changed | all-files | not found
+**integration_ci**: `<repo-relative CI file>:<line> | not found`
+**coverage_ci**: `<repo-relative CI file>:<line> | not found`
 **health_check_cmd**: `<exact command>` | null
 ```
 
@@ -271,8 +326,7 @@ Emit this prose block as part of your message (before the R1 block):
 
 The final element of your message MUST be a fenced ` ```json ` block containing the R1 envelope defined in `plugins/makato-build/agents/RETURN-CONTRACT.md`. Callers parse the last `json`-fenced block via `JSON.parse()` — no prose parsing.
 
-`data` shape: `{"project_type":"...","config_files_read":N,"python_runner_prefix":"...","build":"...","lint":"...","lint_js":"...","lint_sql":"...","unit":"...","integration":"...","coverage":"<exact executable command>|not found","coverage_threshold":"<declared threshold>|none","java_version_required":"...","lint_ci_divergence":true|false,"lint_ci_command":"...","build_hook_cmd":"...|null","lint_hook_cmd":"...|null","pyright_env":"hook|raw","build_hook_missing":true|false,"lint_hook_missing":true|false,"health_check_cmd":"...|null"}`. Use the string `"not found"` for any command not discovered, and `"none"` for `python_runner_prefix` when no lockfile matches. `coverage_threshold` is metadata only and must never be concatenated into `coverage`.
-
+`data` shape: `{"project_type":"...","config_files_read":N,"python_runner_prefix":"...","build":"...","lint":"...","lint_js":"...","lint_sql":"...","unit":"...","integration":"...","coverage":"<exact executable command>|not found","unit_coverage":"<fresh unit collection command>|not found","integration_coverage":"<append integration collection command>|not found","coverage_report":"<report-only command>|not found","coverage_threshold":"<declared threshold>|none","sensors_ci_scope":"changed|all-files|not found","integration_ci":"<repo-relative CI file>:<line>|not found","coverage_ci":"<repo-relative CI file>:<line>|not found","java_version_required":"...","lint_ci_divergence":true|false,"lint_ci_command":"...","build_hook_cmd":"...|null","lint_hook_cmd":"...|null","pyright_env":"hook|raw","build_hook_missing":true|false,"lint_hook_missing":true|false,"health_check_cmd":"...|null"}`. Use the string `"not found"` for any command or CI location not discovered, and `"none"` for `python_runner_prefix` when no lockfile matches. `coverage_threshold` is metadata only and must never be concatenated into `coverage`.
 ### Success
 
 ```json
@@ -280,7 +334,7 @@ The final element of your message MUST be a fenced ` ```json ` block containing 
   "schema": "r1",
   "agent": "gate-scout",
   "status": "success",
-  "summary": "python (uv) project: pyright build gate, ruff + biome + sqlfluff lint, directory-split test lanes; coverage uses the declared coverage runner with a 90% threshold.",
+  "summary": "python (uv) project: pyright build gate, ruff + biome + sqlfluff lint, directory-split test lanes; unit and integration coverage are collected separately and CI owns integration and threshold checks.",
   "files_changed": [],
   "tests_written": [],
   "errors": [],
@@ -296,7 +350,13 @@ The final element of your message MUST be a fenced ` ```json ` block containing 
     "unit": "uv run pytest tests/unit",
     "integration": "uv run pytest tests/integration",
     "coverage": "uv run coverage run -m pytest && uv run coverage report",
+    "unit_coverage": "uv run coverage run -m pytest tests/unit",
+    "integration_coverage": "uv run coverage run --append -m pytest tests/integration",
+    "coverage_report": "uv run coverage report",
     "coverage_threshold": "90%",
+    "sensors_ci_scope": "changed",
+    "integration_ci": ".github/workflows/sensors.yml:469",
+    "coverage_ci": ".github/workflows/sensors.yml:596",
     "java_version_required": "not applicable",
     "lint_ci_divergence": false,
     "lint_ci_command": "not found",
@@ -310,7 +370,8 @@ The final element of your message MUST be a fenced ` ```json ` block containing 
 }
 ```
 
-A minimal Node project (no Python toolchain) sets `python_runner_prefix: "none"`, `lint_js`/`lint_sql`: `"not found"`, and reports npm scripts verbatim as before — the new fields never alter non-Python output.
+A minimal Node project (no Python toolchain) sets `python_runner_prefix: "none"`, `lint_js`/`lint_sql`: `"not found"`, and reports npm scripts verbatim as before — the new fields are `"not found"` when their CI or split-coverage behavior is not configured.
+
 
 ## Error modes
 

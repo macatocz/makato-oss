@@ -5,12 +5,12 @@ description: >-
   runtime, write tests after. Autonomous. Use after refine for UI,
   config, or migration work, or when implement-goal tasks remain
   from a mixed plan.
-version: "1.8.0"
+version: "1.9.0"
 argument-hint: "[work-item-key]"
 allowed-tools: [Bash]
 metadata:
   authors: [makato-build]
-  last_updated: "2026-08-05"
+  last_updated: "2026-10-17"
 ---
 
 ## When to Use
@@ -116,21 +116,33 @@ Run:
 
 ---
 
-### Step 3 — Establish test baseline
+### Step 3 — Establish or reuse test baseline
 
-Load `$MAKATO_BUILD_ROOT/shared/baseline-guide.md`. Before running it, dispatch
-gate-scout when `GATE_COMMANDS` is absent and pass the discovered `unit` command
-(including its runner prefix). Never substitute a bare system-Python test command.
+Load `$MAKATO_BUILD_ROOT/shared/baseline-guide.md`. Before establishing a
+baseline, dispatch gate-scout when `GATE_COMMANDS` is absent and retain its
+exact `unit` command (including its runner prefix). Compute `branch` and
+`base_sha` as specified in the guide. Reuse the latest matching implementation
+baseline row when available; otherwise run the exact `unit` command once. Never
+substitute a bare system-Python test command.
+
 **Do NOT load the baseline guide more than once per session.**
 
-**Flakey test rule (ordinary implementation only)**: if a test fails but no source code was changed between runs, re-run that single test once before classifying. In CI recovery, follow ci-recovery.md instead: targeted failures remain obligations, and the coordinator owns any diagnosed transient rerun.
+If `unit` is `"not found"`, record a degraded-confidence skip and do not run a
+test command. `BASELINE_FAILURES` is `data.failures` from the baseline row.
+
+**Flakey test rule (ordinary implementation only)**: if a selected test fails
+but no source code was changed between runs, re-run that single test once
+before classifying. In CI recovery, follow ci-recovery.md instead: targeted
+failures remain obligations, and the coordinator owns any diagnosed transient
+rerun.
 
 Log:
 ```
-{"ts":"<ISO8601>","skill":"build-implement-goal","story":"<key>","step":"baseline","status":"ok","data":{"pre_existing_failures":<N>,"baseline_mode":"<proceed|halted>"}}
+{"ts":"<ISO8601>","skill":"build-implement-goal","story":"<key>","step":"baseline","status":"ok","data":{"pre_existing_failures":<N>,"failures":["<test id>",...],"branch":"<git branch>","base_sha":"<git merge-base HEAD $DEFAULT_REF>","cmd":"<exact unit command>","reused":<bool>,"source_ts":"<source row ts>"|null,"baseline_mode":"<proceed|halted>"}}
 ```
 
-If `pre_existing_failures > 0` and user chose continue, also log:
+If a fresh baseline has pre-existing failures and the user chooses continue,
+also log:
 ```
 {"ts":"<ISO8601>","skill":"build-implement-goal","story":"<key>","step":"baseline-gate","status":"decision","data":{"pre_existing_failures":<N>,"user_choice":"continue"}}
 ```
@@ -218,40 +230,36 @@ Log:
 
 #### ✓ VERIFY
 
-Run the full suite: new tests + all pre-existing. Compare failure count to the baseline
-recorded in Step 3. Zero new failures is the gate.
+Run only the targeted tests: tests written in TEST plus existing test files
+that directly exercise the task's changed production files. Use gate-scout's
+`unit` command restricted to those paths, or its `integration` command
+restricted to those paths for the task's own integration-lane tests (for
+example, a migration test requiring the test database). A selected test
+failing outside `BASELINE_FAILURES` is a new failure; zero new failures is the
+gate.
 
-Apply the same fix-vs-escalate threshold as in VERIFY RUNTIME. If fixing a failure requires
-changing the implementation approach — escalate to the user and recommend `/refine`.
+Apply the same fix-vs-escalate threshold as in VERIFY RUNTIME. If fixing a
+failure requires changing the implementation approach, escalate to the user
+and recommend `/refine`.
 
 Log:
 ```
-{"ts":"<ISO8601>","skill":"build-implement-goal","story":"<key>","step":"verify-task","task":<N>,"status":"ok","data":{"new_failures":0}}
+{"ts":"<ISO8601>","skill":"build-implement-goal","story":"<key>","step":"verify-task","task":<N>,"status":"ok","data":{"selected_tests":<N>,"new_failures":0}}
 ```
 
 ---
 
-### Step 6 — Final suite verification and conditional coverage check
+### Step 6 — Hand off to build-verify
 
-Run the full suite one final time after all goal tasks complete.
+Do not run a suite or coverage check here. If `design.md` in the resolved spec
+folder specifies a coverage threshold, forward it as `COVERAGE_HINT`; otherwise
+pass an empty string. `build-verify` owns whole-change verification and
+coverage Gate 5.
 
-If `design.md` in the resolved spec folder specifies a coverage threshold: check **conditional coverage**
-(branch/condition coverage, not line coverage). Every branch of every conditional in the
-new code must be exercised by at least one test.
-
-Identify uncovered branches and add targeted tests. Do not proceed until the threshold is
-met or the gap is explicitly acknowledged: use `AskUserQuestion` with
-- question: `"Coverage threshold not met (<X>% vs required <Y>%). Acknowledge and log as known exception?"`
-- options: `["Acknowledge — log as known exception and proceed", "Add more tests to meet threshold"]`
-
-**Autonomous mode:** When running with `--autonomous`, skip the interactive coverage check. Log the bypass and proceed with available coverage.
-
-A "yes" answer is logged as `status: "decision"` in `build.jsonl` and execution continues.
-
-Log:
-```
-{"ts":"<ISO8601>","skill":"build-implement-goal","story":"<key>","step":"final-verify","status":"ok","data":{"goal_tasks_complete":<N>,"conditional_coverage":"<X>%","threshold_met":<true|false>}}
-```
+Build a deduplicated `CHANGED_FILES` set from production files changed and test
+files written by the selected goal tasks. Pass the Step 3 baseline result,
+`BASELINE_FAILURES`, `CHANGED_FILES`, and `COVERAGE_HINT` to the downstream
+`build-verify` dispatch.
 
 ---
 
@@ -267,15 +275,18 @@ Run:
 
 ```
 ## Session Summary — <key>
+
 Tasks completed: <N>/<total>
+Targeted tests: 0 new failures
 Decisions & warnings: <count>
 <for each warn/decision entry: "  ⚠ <step>: <data summary in one line>">
+
 ```
 
 If no warn/decision entries exist: print "No decisions or warnings logged — clean run."
 
 Tell the user:
-*"&lt;N&gt; goal tasks implemented. Full suite passing.*
+*"<N> goal tasks implemented; 0 new failures in targeted tests.*
 *Pipeline remaining: `/build-simplify` → `/build-review` → `/build-verify` → `/build-push-to-git` → `/build-create-pr`*
 *Next: run `/build-simplify` to check for unnecessary complexity."*
 
@@ -288,6 +299,12 @@ If tdd-mode tasks remain in the plan:
 
 **NEVER write tests during the BUILD phase.**
 WHY: Tests written before VERIFY RUNTIME will document broken behavior. Once a test is in the codebase asserting on a broken state, fixing the implementation causes a test failure — the test now appears to "fail the fix" and creates artificial pressure to weaken the acceptance criterion instead of completing the runtime fix.
+
+**NEVER run the full suite, integration suite, or coverage inside goal tasks.**
+WHY: Each task owns only its targeted tests; whole-change gates belong to
+`build-verify`. Repeating broad test and coverage runs for every implementation
+pass wastes CI-equivalent work, and running the complete integration lane
+locally duplicates the consumer CI lane when CI owns it.
 
 **NEVER loosen an acceptance criterion to avoid a VERIFY RUNTIME failure.**
 WHY: The fix-vs-escalate threshold exists precisely because the temptation is to redefine success around what compiles. If the spec requires X and X is technically problematic, the plan is wrong — not the spec. Silently delivering Y while the AC still reads X creates an unfixable audit divergence that `diff-reviewer` will surface as a gap verdict, blocking the PR.
@@ -315,7 +332,7 @@ Autonomous mode is activated per `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` §
 
 In autonomous mode:
 
-- **Never prompt the user** — work-item-key, coverage check, and session-end gates are bypassed per the rules above.
+- **Never prompt the user** — work-item-key and session-end gates are bypassed per the rules above.
 - **Log every bypass** to `build.jsonl` via
   `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh"` with the `autonomous_bypass`
   event schema.
@@ -341,7 +358,11 @@ Top-level R1 envelope fields follow `plugins/makato-build/agents/RETURN-CONTRACT
 }
 ```
 
-`agent` is `"build-implement-goal"`. `summary` is `"N goal tasks complete; 0 new failures."` on success. `data.completed_task_ids` lists the plan IDs whose four phases passed in this pass; `status: "success"` requires it to cover the whole selection (`ASSIGNED_TASK_IDS` when supplied).
+`agent` is `"build-implement-goal"`. On success, `summary` is
+`"N goal tasks complete; 0 new failures in targeted tests."`.
+`data.completed_task_ids` lists the plan IDs whose four phases passed in this
+pass; `status: "success"` requires it to cover the whole selection
+(`ASSIGNED_TASK_IDS` when supplied).
 
 ### HALT Codes
 

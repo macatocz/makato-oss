@@ -9,7 +9,7 @@ description: >-
   through `resolve-pr-conflict`, and terminates on a merged PR or documented
   HALT code. Sole writer of `workflow-state.json`. Owns the per-run worktree;
   never edits target source.
-version: "1.3.0"
+version: "1.3.1"
 maxTurns: 100
 permissionMode: bypassPermissions
 disallowedTools: NotebookEdit
@@ -877,8 +877,9 @@ without repeating commit/push operations already owned by a repair skill.
    quality gates; return failures to the coder (bounded repair loop)"`),
    then dispatch `/makato-build:build-verify <KEY> --autonomous` through the
    shared skill launcher with `WORKTREE_PATH`, `REPO_ROOT`, `MAKATO_BUILD_ROOT`,
-   `PLAN_CONTEXT`, and the exact `BASELINE_FAILURES` from implement-tdd Step 3
-   when present; never synthesize or overwrite that baseline. Narrate DONE.
+   `PLAN_CONTEXT`, and the exact `BASELINE_FAILURES` (`data.failures` of the
+   branch's recorded implementation baseline row, implement-tdd or implement-goal
+   Step 3) when present; never synthesize or overwrite that baseline. Narrate DONE.
    `failure`, including verify-repair-round exhaustion →
    HALT-002 (apply `needs-human-review`, also call
    `shared/post-halt-comment.sh HALT-002 $ISSUE_NUMBER $REPO` (best-effort)).

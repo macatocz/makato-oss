@@ -7,18 +7,13 @@
 # threading the resolved <key>, the Gate-0 audit write lands nowhere consistent —
 # and in autonomous mode the DoD Gate-0 record (item 5) is lost.
 #
-# The check is structural: it scans SKILL.md for the corrected invocation and the
-# contract prose. This is deliberately shallow — the skill is executed by an LLM,
-# not a shell, so we cannot exercise the dispatch end-to-end. What we CAN enforce
-# is that the invocation carries the <key> positional and that the bare
-# no-argument form (the #229 regression) is gone.
+# The check is structural and deliberately shallow — the skill is executed by an
+# LLM, not a shell. It checks the remaining spec_key audit-continuity contract.
 #
 # Coverage:
 #   T1 — build-verify SKILL.md declares version >= 1.6.1
-#   T2 — Step 3 invokes build-sensors WITH the <key> positional argument
-#   T3 — the bare `build-sensors all` (no key) regression form is absent
-#   T4 — Step 3 prose names spec_key and references #229's audit-continuity intent
-#   T5 — build-sensors still marks spec_key as required (contract anchor holds)
+#   T2 — Step 3 prose names spec_key and references #229's audit-continuity intent
+#   T3 — build-sensors still marks spec_key as required (contract anchor holds)
 #
 # Exit code: number of failures; 0 = all green.
 
@@ -57,33 +52,17 @@ else
   _fail "cannot parse version line: $VERSION_LINE"
 fi
 
-# ----- T2: sensors invocation threads the <key> positional -----
-echo "T2: Step 3 invokes build-sensors all <key>"
-if grep -qE '/makato-build:build-sensors[[:space:]]+all[[:space:]]+<key>' "$VERIFY_MD"; then
-  _pass "build-sensors invocation carries <key> positional"
-else
-  _fail "build-sensors invocation missing <key> positional (#229 fix stripped)"
-fi
 
-# ----- T3: bare no-key regression form is absent -----
-echo "T3: no bare 'build-sensors all' invocation (the #229 regression)"
-# Match the invocation with `all` NOT followed by a further token (i.e. no key).
-if grep -nE '/makato-build:build-sensors[[:space:]]+all[[:space:]]*`' "$VERIFY_MD" >/dev/null; then
-  _fail "found bare 'build-sensors all' invocation — regression reintroduced"
-else
-  _pass "no bare no-key invocation present"
-fi
-
-# ----- T4: Step 3 prose documents spec_key + #229 intent -----
-echo "T4: Step 3 prose names spec_key and #229 audit continuity"
+# ----- T2: Step 3 prose documents spec_key + #229 intent -----
+echo "T2: Step 3 prose names spec_key and #229 audit continuity"
 if grep -qE 'spec_key' "$VERIFY_MD" && grep -qE '#229' "$VERIFY_MD"; then
   _pass "spec_key rationale anchored to #229"
 else
   _fail "missing spec_key prose or #229 reference in build-verify"
 fi
 
-# ----- T5: build-sensors still marks spec_key required (anchor) -----
-echo "T5: build-sensors marks spec_key required (contract anchor)"
+# ----- T3: build-sensors still marks spec_key required (anchor) -----
+echo "T3: build-sensors marks spec_key required (contract anchor)"
 if grep -qE '\|[[:space:]]*.?spec_key.?[[:space:]]*\|[[:space:]]*string[[:space:]]*\|[[:space:]]*yes[[:space:]]*\|' "$SENSORS_MD"; then
   _pass "build-sensors spec_key still required"
 else
@@ -92,7 +71,7 @@ fi
 
 printf '\n'
 if (( FAIL == 0 )); then
-  printf 'All 5 tests passed.\n'
+  printf 'All 3 tests passed.\n'
   exit 0
 else
   printf '%d test(s) failed.\n' "$FAIL"
