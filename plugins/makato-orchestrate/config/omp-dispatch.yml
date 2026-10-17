@@ -1,0 +1,5 @@
+# OMP config overlay applied to every headless loop dispatch (harness-command.sh).
+# `omp -p` honours autoResume, which would continue the most recent session for the
+# cwd — usually the operator's interactive conversation. Dispatches must start fresh;
+# explicit `--resume <session_id>` (stall-resume, HALT-007B) is unaffected.
+autoResume: false

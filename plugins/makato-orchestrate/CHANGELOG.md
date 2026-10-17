@@ -5,13 +5,13 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
-### Fixed — reshape requests accept classified HALT entries (#142)
+### Fixed — headless OMP dispatches start a fresh session (#143)
 
-- **`scripts/emit-reshape-request.schema.json`** `halt_history` items now allow the
-  `retryable`, `origin`, and `retry_after_secs` fields that `halt_audit[]` entries carry.
-  Previously, any structural HALT recorded with the po-agent's required classification
-  failed validation, so no `reshape-request.json` was written. A parity test keeps the
-  two item shapes aligned.
+- **`scripts/harness-command.sh`** now passes `--config config/omp-dispatch.yml`
+  (`autoResume: false`) on every OMP dispatch. Previously, `omp -p` honoured
+  `autoResume` and continued the cwd's latest session, so loop dispatches from an
+  operator checkout inherited the operator's interactive conversation. Session files are
+  still saved; explicit `--resume` and Claude mode are unchanged.
 
 ### Fixed — honour linked target roots for workflow state and lessons
 
