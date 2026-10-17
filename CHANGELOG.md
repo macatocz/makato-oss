@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.168.4](https://github.com/macatocz/makato-oss/compare/v0.168.3...v0.168.4) (2026-10-17)
+
+
+### 🐛 Bug Fixes
+
+* **makato-build:** make coders own verification and continue unverified results ([#146](https://github.com/macatocz/makato-oss/issues/146)) ([1c19c86](https://github.com/macatocz/makato-oss/commit/1c19c86b3e3185b8440e5e3e34ed537d788ee3a4))
+* **makato-orchestrate:** accept classified HALT entries in reshape requests ([#142](https://github.com/macatocz/makato-oss/issues/142)) ([#144](https://github.com/macatocz/makato-oss/issues/144)) ([a5cd4b4](https://github.com/macatocz/makato-oss/commit/a5cd4b4a60484cfd354cf032c3813cfb5756ef04))
+* **makato-orchestrate:** start headless OMP dispatches in a fresh session ([#143](https://github.com/macatocz/makato-oss/issues/143)) ([#145](https://github.com/macatocz/makato-oss/issues/145)) ([5dd1cb1](https://github.com/macatocz/makato-oss/commit/5dd1cb1a79365046cc056ebb4b6dcc1ede2412cc))
+
 ## [0.168.3](https://github.com/macatocz/makato-oss/compare/v0.168.2...v0.168.3) (2026-10-16)
 
 
