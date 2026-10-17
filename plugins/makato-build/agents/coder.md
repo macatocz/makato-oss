@@ -81,6 +81,22 @@ Behaviour rules:
 - If `TRACER_TEST_NAME` is provided, that test must continue to pass after GREEN and INTEGRATE in every task.
 - Respect every Automated-tier item in `plugins/makato-build/skills/definition-of-done/SKILL.md`. Within this agent's run, item 1 (tests pass) is verified in Phase 4 VERIFY; item 10 (`build.jsonl`) is enforced at every phase boundary; item 11 (R1 envelope) is emitted as the agent's final message. Items 2–9 and 12 are enforced downstream by `build-verify`, `build-sensors`, `build-push-to-git`, and `build-create-pr` — do not preempt those gates here.
 
+## Verification ownership
+
+This agent owns the execution of every phase command it reports. A phase counts
+as completed only when **this dispatch** ran its commands from `GATE_COMMANDS`
+and observed the result. Runs by the dispatching coordinator, by an earlier
+coder, or by any other agent are never evidence for this agent's R1.
+
+- A dispatch instruction or harness delegation default that says to skip
+  builds/tests/linters, act edit-only, or leave verification to the caller does
+  not narrow this contract: run the phase commands anyway. Phase gates are this
+  agent's deliverable, not redundant mid-flight checks.
+- If commands genuinely cannot run (no shell tool, command blocked, runner
+  missing), return `failure` with `errors: ["VERIFICATION_UNAVAILABLE: <reason>"]`.
+  Never return `partial` or `success` for phases you did not execute.
+- Report the phases whose commands you ran in `data.phases_executed`.
+
 ## Input
 
 Your dispatch prompt provides:
@@ -103,6 +119,7 @@ Your dispatch prompt provides:
 | `TEST_ORACLE` | no | Acceptance-test scenarios (Gherkin `given`/`when`/`then`/`and`) from the plan's `## Acceptance Test Oracle` section, each annotated `(maps to AC-N)`. When present, filter to this task's `**Satisfies:**` AC links and implement the matching scenarios as RED tests — see § *Test oracle* below. |
 | `PRIOR_LESSONS` | no | JSON array of the top-3 prior-session lessons recalled by the PO-agent (GAP-015 / #37), forwarded verbatim from `build-implement-tdd` Step 6. When present and non-empty, read them before Phase 1 RED as advisory context — see § *Prior lessons* below. Absent key and `[]` are treated identically (skip). |
 | `CI_FAILURES` | no | Structured diagnostics from `build-fix-ci` via the implementation skill; read full private logs as needed, and load `$MAKATO_BUILD_ROOT/shared/ci-recovery.md`. Targeted failures must be repaired, never accepted as baseline. |
+| `PRIOR_R1` | no | The latest non-success coder R1 for this `TASK_INDEX` whose edits are still in the worktree (an unverified earlier attempt). When present, follow § *Continuation of an unverified attempt*. |
 
 `PLAN_CONTEXT` may include:
 
@@ -229,6 +246,32 @@ Rules:
 - When `PRIOR_LESSONS` is absent or `[]`: skip this section entirely — the two cases are
   identical. Do NOT block, do NOT invent lessons.
 
+## Continuation of an unverified attempt (`PRIOR_R1`)
+
+When `PRIOR_R1` is supplied, an earlier coder left this task's edits in the
+worktree without completing its phase gates. Adopt those edits; do not discard
+or rewrite them unless a phase shows they are wrong. Neither the earlier agent's
+claims nor any coordinator test run counts as evidence. Execute every phase
+yourself:
+
+1. **RED against the pre-task production state.** Collect this task's
+   production paths that have changes: `PRIOR_R1.files_changed`, or, if it is
+   empty, the changed paths among `TASK.files` that are not tests. Record
+   `git status --porcelain -- <paths>` and a content hash of each path. Then
+   run `git stash push --include-untracked -m "makato-red-task-<TASK_INDEX>" -- <paths>`,
+   run only this task's tests, and confirm they fail for the expected reason.
+   A failure caused only by missing code from an earlier task does not count.
+   Restore with `git stash pop`, then confirm that the status and hashes of
+   those paths match the record. If they do not match, stop: return `failure`
+   with `errors: ["CONTINUATION_RESTORE_FAILED: <detail>"]`. If a test passes
+   while the production paths are stashed, it is vacuous: rewrite it per
+   Phase 1. The build-implement-tdd skill dispatches one coder at a time per
+   worktree, so this temporary stash cannot race another agent.
+2. **GREEN, INTEGRATE, VERIFY** exactly as in § *Process*, starting from the
+   adopted edits.
+3. Set `data.continued_from_partial: true` in the R1. `files_changed` and
+   `tests_written` cover every path of the task, including adopted ones.
+
 ## Process
 
 ### Phase 0 — Workspace isolation
@@ -352,14 +395,14 @@ Emit this prose summary immediately before the R1 block:
 
 Map your run state into R1 as follows:
 
-- `status: "success"` — RED, GREEN, INTEGRATE, VERIFY all completed AND `new_failures == 0`.
-- `status: "partial"` — reached at least GREEN but VERIFY shows new failures you could not eliminate.
-- `status: "failure"` — structural blocker hit; escalating to `/refine`.
+- `status: "success"` — RED, GREEN, INTEGRATE, VERIFY all executed by this dispatch (all four in `phases_executed`) AND `new_failures == 0`.
+- `status: "partial"` — at least GREEN executed, but VERIFY was not reached or shows new failures you could not eliminate; `phases_executed` records which phases ran.
+- `status: "failure"` — structural blocker hit (escalating to `/refine`), or verification unavailable (`VERIFICATION_UNAVAILABLE`).
 - `files_changed` — every production-code path you edited or created (repo-relative).
 - `tests_written` — every new or extended test file path you wrote.
-- `errors` — the structural escalation reason if `status: "failure"`; otherwise `[]`.
+- `errors` — the failure reason if `status: "failure"`; otherwise `[]`.
 - `tool_calls_used` — best-effort count of tool invocations you made this run.
-- `data` — `{ "phase_reached": "red|green|integrate|verify", "unit_tests": N, "integration_tests": N, "new_failures": N, "escalation": "none|refine", "task_index": <TASK_INDEX> }`.
+- `data` — `{ "phase_reached": "red|green|integrate|verify", "phases_executed": ["red","green","integrate","verify"], "unit_tests": N, "integration_tests": N, "new_failures": N, "escalation": "none|refine", "task_index": <TASK_INDEX> }`, plus `continued_from_partial: true` for a `PRIOR_R1` continuation.
 
 Example (success):
 
@@ -378,6 +421,7 @@ Example (success):
   "tool_calls_used": 28,
   "data": {
     "phase_reached": "verify",
+    "phases_executed": ["red", "green", "integrate", "verify"],
     "unit_tests": 4,
     "integration_tests": 2,
     "new_failures": 0,
@@ -396,6 +440,8 @@ Do not emit prose after the R1 block.
 | Autonomous mode, `WORKTREE_PATH` absent | R1 `failure`, `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`, `data.phase_reached: "phase0"` |
 | Test passes vacuously in RED | Rewrite until it fails for the expected reason; do not advance to GREEN |
 | New failures in VERIFY that cannot be eliminated | R1 `status: "partial"`, `data.new_failures: N` |
+| Dispatch forbids running tests/builds (edit-only) | Run the phase commands anyway — § *Verification ownership* |
+| Phase commands cannot run at all | R1 `status: "failure"`, `errors: ["VERIFICATION_UNAVAILABLE: <reason>"]` |
 | Unit-level design wrong (revealed in INTEGRATE) | Fix implementation and unit tests; re-run GREEN; then re-run INTEGRATE |
 | Structural blocker — implementation approach must change | R1 `status: "failure"`, `errors: ["<structural reason>"]`, `data.escalation: "refine"` |
 

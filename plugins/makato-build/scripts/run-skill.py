@@ -151,6 +151,11 @@ def build_command(args: argparse.Namespace, environ: Mapping[str, str]) -> tuple
         raise SkillExecutionError(f"Cannot locate {plugin}; set {_PLUGINS[plugin]} to its installed plugin directory (cached installations may not use sibling plugin names)")
     skill_file = (root / "skills" / name / "SKILL.md").resolve()
     skill_text = _read_text(skill_file, "skill file")
+    # OMP's main-session Task-tool guidance ("skip build/lint/tests mid-flight")
+    # is system-level; the skill text below is user-level and loses to it, so
+    # coordinators dispatched coders edit-only (#141). Append the policy at the
+    # same level for every workflow-skill run.
+    verification_policy = _read_text(roots["makato-build"] / "config" / "verification-ownership.md", "verification ownership policy")
     context = _read_text(args.context_file, "context file") if args.context_file else ""
     skill_args = list(args.skill_args)
     if skill_args and skill_args[0] == "--":
@@ -195,6 +200,7 @@ def build_command(args: argparse.Namespace, environ: Mapping[str, str]) -> tuple
         command.extend(["--plugin-dir", str(roots["makato-build"])])
     for config in configs:
         command.extend(["--config", config])
+    command.extend(["--append-system-prompt", verification_policy])
     command.extend(["--model", f"@{execution['role'].lower()}"])
     if execution["effort"] != "inherit":
         command.extend(["--thinking", execution["effort"]])
