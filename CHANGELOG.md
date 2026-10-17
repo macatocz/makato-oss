@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.170.1](https://github.com/macatocz/makato-oss/compare/v0.170.0...v0.170.1) (2026-10-17)
+
+
+### 🐛 Bug Fixes
+
+* **orchestrate:** keep append-lesson compatible with jq 1.6 ([#161](https://github.com/macatocz/makato-oss/issues/161)) ([b3c530a](https://github.com/macatocz/makato-oss/commit/b3c530aca78701b48c1adb6e873c2d6afa1a7830))
+
 ## [0.170.0](https://github.com/macatocz/makato-oss/compare/v0.169.0...v0.170.0) (2026-10-17)
 
 
