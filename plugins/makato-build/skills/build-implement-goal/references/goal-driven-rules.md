@@ -58,16 +58,21 @@ Tests must NOT be:
 - Trivially happy-path only: cover the error paths and edge cases from the acceptance
   criteria
 
-### VERIFY — Full Suite, Zero New Failures
+### VERIFY — Targeted Tests, Zero New Failures
 
-**Gate:** All new tests pass. Pre-existing failure count has not increased.
+**Gate:** the selected tests pass, except for failures already recorded in the
+baseline failure set.
 
-Run unit + integration + all pre-existing tests. Compare failure count to the baseline
-recorded at session start. Any new failure blocks progression to the next task.
+Run only tests written in TEST plus existing test files that directly exercise
+the task's changed production files. Use gate-scout's `unit` command restricted
+to those paths, or its `integration` command restricted to those paths for the
+task's own integration-lane tests. A selected test failing outside
+`BASELINE_FAILURES` is a new failure. Any new failure blocks progression to
+the next task.
 
-Apply the same fix-vs-escalate threshold as VERIFY RUNTIME. If a failing test reveals a
-design flaw that cannot be fixed without changing the approach: escalate to the user,
-recommend `/refine`.
+Apply the same fix-vs-escalate threshold as VERIFY RUNTIME. If a failure
+reveals a design flaw that cannot be fixed without changing the approach,
+escalate to the user and recommend `/refine`.
 
 ## Fix vs. Escalate Threshold
 
@@ -82,12 +87,8 @@ Structural issues that warrant escalation:
 - The prototype.html specifies behavior that cannot be achieved with the target tech stack
 - Any fix that would require changing more than the task's planned file targets
 
-## Conditional Coverage (Final Gate)
+## Conditional Coverage (build-verify Gate 5)
 
-Coverage check at session end uses **conditional coverage** (branch/condition coverage).
-
-Every branch of every conditional in the new code must be exercised by at least one test.
-Line coverage is insufficient — a line can execute without exercising all its branches.
-
-If a branch is genuinely unreachable: document it as such (comment in the test file noting
-the unreachable branch) rather than contorting the system to reach it.
+Coverage is a whole-change check owned by `build-verify` Gate 5. Forward any
+threshold in `design.md` as `COVERAGE_HINT`; do not run coverage checks in the
+goal implementation pass.

@@ -8,7 +8,7 @@ description: >-
   auto-approves SIMPLIFY findings and surfaces ESCALATE findings via R1.
   Use after implement-tdd or implement-goal, before review; also invoked
   by sensor-fixer / build-resolve-finding for code-complexity findings.
-version: "1.4.3"
+version: "1.5.0"
 argument-hint: "[work-item-key] [--autonomous]"
 allowed-tools: [Bash]
 ---
@@ -77,30 +77,33 @@ Run:
 
 ---
 
+### Step 3 — Discover the test runner
+
 Dispatch the registered `gate-scout` agent by name (never by a relative
 agent-file path) with the same dispatch contract `build-verify` uses. The agent
 is suite-owned and is resolved by the installed plugin runtime; do not read it
 relative to this skill or the consumer repository. This is the **single
 canonical source** of the project's unit-test command. Do not infer
 the test command independently, do not pick one manually, and do not consult
-`baseline-guide.md` for discovery (that guide only documents the broken-baseline
-gate; runner discovery is `gate-scout`'s job — #97). The dispatch prompt passes:
+`baseline-guide.md` for discovery (that guide documents baseline reuse and the
+broken-baseline gate; runner discovery is gate-scout's job). The dispatch prompt passes:
 
 - `REPO_ROOT` — absolute target root from `MAKATO_TARGET_REPO_ROOT` or the common-dir fallback when unset.
 - `COVERAGE_HINT` — empty string (coverage is `build-verify`'s concern, not this skill's).
 
 The agent returns the structured Gate Commands map — `data.unit` is the unit-test command. Two outcomes:
 
-**(a) Test runner discovered** (`data.unit != "not found"`). Run the **exact** `data.unit` command verbatim — do not paraphrase, do not substitute alternatives. Record the **pre-simplification baseline** (passing and failing counts). Set `test_suite_present = true` and `baseline_cmd = data.unit` in the session context.
+**(a) Test runner discovered** (`data.unit != "not found"`). Do not run it
+here. Set `test_suite_present = true` and `baseline_cmd = data.unit` in the
+session context; Step 7 will run only the selected tests.
 
-Pre-existing failures do not gate this session — Step 7 only blocks on *new* failures introduced during simplification.
-
-Log:
+Log the lazy baseline:
 ```
-{"ts":"<ISO8601>","skill":"build-simplify","story":"<key>","step":"baseline","status":"ok","data":{"passing":<N>,"failing":<N>,"test_suite_present":true,"cmd":"<data.unit verbatim>"}}
+{"ts":"<ISO8601>","skill":"build-simplify","story":"<key>","step":"baseline","status":"skip","data":{"test_suite_present":true,"cmd":"<data.unit verbatim>","reason":"lazy"}}
 ```
 
-The `data.cmd` field is the audit-trail anchor: a reviewer reading `build.jsonl` from a fresh checkout can reproduce the baseline run without re-deriving the command (#97 AC#1).
+`data.cmd` records gate-scout's exact unit command; it is the starting point
+for the targeted command logged in Step 7.
 
 **(b) No test runner discovered** (`data.unit == "not found"`, e.g. docs-only repo, freshly scaffolded project, monorepo with no root-level config). This is a **degraded-confidence** path, not an error — proceed without a baseline. Set `test_suite_present = false` in the session context and **skip baseline capture entirely**. Do NOT attempt to run any test command.
 
@@ -198,6 +201,11 @@ Apply each approved finding. Do not change any test files — production code on
 Do not introduce new behavior. The goal is reduction: fewer lines, fewer abstraction layers,
 clearer intent aligned with local conventions.
 
+Before applying any approved findings, create a temporary backup of every
+production file the findings will edit. Preserve each file's exact
+pre-simplification bytes and its repository-relative path; keep backups outside
+the repository until verification and failure attribution are complete.
+
 After all changes verify: (a) no new imports or dependencies were introduced, (b) no public
 method signatures changed. If signatures changed, flag this as a potential API change before
 proceeding.
@@ -214,24 +222,39 @@ For each finding classified ESCALATE (not applied), log:
 
 ---
 
-### Step 7 — Verify: run full test suite
+### Step 7 — Verify targeted tests
 
-**Short-circuit when no test runner is present.** If `test_suite_present == false` from Step 3, do NOT attempt to run any test command. The session proceeds with **reduced confidence** in behavior-neutrality; the R1 envelope's `data.degraded_confidence: true` flag is the contract the PO-agent reads to route this run for elevated scrutiny.
+**No applied simplifications:** do not run tests. Log:
+```
+{"ts":"<ISO8601>","skill":"build-simplify","story":"<key>","step":"verify","status":"skip","data":{"reason":"no-simplifications","test_suite_present":<bool>,"degraded_confidence":false,"new_failures":0,"lines_removed_total":0}}
+```
 
-Log and proceed to Step 7a:
+**No test runner discovered:** when `test_suite_present == false` and changes
+were applied, do NOT attempt to run a test command. Keep the existing
+degraded-confidence path and proceed to Step 7a:
 ```
 {"ts":"<ISO8601>","skill":"build-simplify","story":"<key>","step":"verify","status":"skip","data":{"test_suite_present":false,"degraded_confidence":true,"new_failures":0,"lines_removed_total":<N>}}
 ```
 
-**Otherwise** (`test_suite_present == true`), re-run the **same** `baseline_cmd` captured in Step 3 — not a reinterpretation, the same string verbatim. Compare against the baseline pass/fail counts from Step 3.
+**Runner discovered and changes applied:** select existing test files that
+directly exercise the touched production files. Run gate-scout's `unit`
+command restricted to those paths. If no such test files exist, run the exact
+`baseline_cmd` once. `selected_tests` is the count of tests executed; when the
+full command is used, count its executed tests.
 
-Zero new failures is the gate. If any test broke, the simplification was not
-behavior-neutral. Revert the failing change, re-run to confirm recovery, and remove that
-finding from the applied list.
+On a failure, copy the simplified versions of the touched files aside, restore
+all files from the pre-simplification backups, and rerun only the failing
+tests. A test that still fails on restored files is pre-existing: put the
+simplified versions back and do not count that failure as new. A test that
+passes on restored files exposes a regression: keep the restored file(s) for
+the finding(s) whose production files it exercises, put the remaining
+simplified versions back, rerun the affected test(s) to confirm recovery, and
+remove those findings from the applied list.
 
-Log:
+Log the exact command used, the number of selected tests, and remaining new
+failures:
 ```
-{"ts":"<ISO8601>","skill":"build-simplify","story":"<key>","step":"verify","status":"ok","data":{"test_suite_present":true,"degraded_confidence":false,"new_failures":0,"lines_removed_total":<N>}}
+{"ts":"<ISO8601>","skill":"build-simplify","story":"<key>","step":"verify","status":"ok","data":{"test_suite_present":true,"degraded_confidence":false,"cmd":"<targeted command or exact baseline_cmd fallback>","selected_tests":<N>,"new_failures":0,"lines_removed_total":<N>}}
 ```
 
 ---
@@ -284,7 +307,7 @@ If any ESCALATE findings were flagged:
 *"Note: \<N\> structural finding(s) require re-planning. Run `/build-refine` to address them
 before proceeding to `/build-review`."*
 
-If `test_suite_present == false`:
+If `test_suite_present == false` and at least one simplification was applied:
 *"Note: no test runner discovered — applied changes were NOT verified for behavior-neutrality.
 Audit the diff manually before proceeding, or add a test runner and re-run this skill."*
 
@@ -301,8 +324,10 @@ This skill supports dual-mode execution per `plugins/makato-build/AUTONOMOUS-MOD
 | Gate | Interactive | Autonomous default |
 |---|---|---|
 | Step 1 work-item-key prompt | Asks for key | Use arg if passed; otherwise read it from the dispatching context bundle's `story` / `task_id` field. HALT `MISSING_INPUT` only if neither yields a value. |
+| Step 3 test-runner discovery | Discovers the runner; runs no tests. | Discover `data.unit` only; log a lazy baseline and run no tests. |
 | Step 5 per-finding approval | Asks per SIMPLIFY finding | Auto-approve every SIMPLIFY finding. ESCALATE findings are logged + surfaced in R1, never auto-applied. |
 | Step 5 zero-findings confirmation | Asks user to confirm | Proceed without confirmation. |
+| Step 7 verification | Runs targeted tests for changed files; uses the full command only when none exist. | Skip when no simplification was applied; otherwise run only tests for touched production files, using the full command only when no such test files exist. |
 | Step 7a unverified-code-changes gate | Prompts y/n when no test runner AND code files touched | Skip prompt; proceed with `data.degraded_confidence: true` in R1 so the PO-agent decides upstream. |
 
 Every bypassed gate emits an `autonomous_bypass` JSONL entry per AUTONOMOUS-MODE.md § Logging contract.
@@ -330,11 +355,21 @@ Top-level R1 envelope fields follow `plugins/makato-build/agents/RETURN-CONTRACT
 
 `agent` is `"build-simplify"`. Status mapping:
 
-- `status: "success"` — session completed cleanly: zero ESCALATE findings AND Step 7 verify gate green (no new test failures). The SIMPLIFY count may be zero. `degraded_confidence` MAY be `true` if `test_suite_present == false` and only doc/config files were touched (Step 7a no-op) — the verify gate was skipped but no manual scrutiny is needed.
-- `status: "partial"` — session completed BUT one or more ESCALATE findings remain unresolved (they were logged for the PO-agent). Also returned when `test_suite_present == false` AND code files were touched in autonomous mode — `data.degraded_confidence: true` signals the PO-agent to route for elevated scrutiny. The caller decides whether to open `/build-refine` for re-planning.
-- `status: "failure"` — Step 7 verify gate failed (new test failures introduced) AND could not be cleanly reverted, OR a Hard prerequisite (no plan, no diff) blocked the session entirely, OR Step 7a interactive prompt was answered `n` (`UNVERIFIED_HALT`).
+- `status: "success"` — session completed cleanly: zero ESCALATE findings and
+  Step 7 is green (no new test failures). Zero applied simplifications is
+  allowed; `degraded_confidence` is false for that no-op skip.
+- `status: "partial"` — one or more ESCALATE findings remain unresolved, or
+  the runner was absent and an applied simplification touched code files in
+  autonomous mode; `data.degraded_confidence: true` routes the latter for
+  elevated scrutiny.
+- `status: "failure"` — targeted verification found new test failures that
+  could not be cleanly reverted, a hard prerequisite blocked the session, or
+  the interactive Step 7a prompt was answered `n` (`UNVERIFIED_HALT`).
 
-`data.test_suite_present` is the boolean from Step 3 (`true` when gate-scout discovered a runnable test command; `false` when no runner was found). `data.degraded_confidence` is `true` whenever the verify gate was skipped — i.e. whenever `test_suite_present == false`. The two flags are tightly coupled today, but kept separate in the envelope because future Step 7 short-circuits (e.g. test runner present but crash-on-startup) will need to set `degraded_confidence: true` while `test_suite_present: true`.
+`data.test_suite_present` records whether gate-scout discovered a runnable
+command in Step 3; it does not mean a baseline run occurred. `data.degraded_confidence`
+is `true` when verification was skipped because no runner was found after
+simplifications were applied. It is `false` for the zero-simplifications skip.
 
 `data.escalated` is the array of ESCALATE finding descriptors (file:line + reason) so the PO-agent can dispatch each one to `/build-refine` independently.
 
@@ -356,7 +391,7 @@ Each NEVER below encodes a failure mode learned from production runs. The WHY is
 
 ### NEVER infer the test command independently
 
-**WHY:** Every project has subtle test configuration — environment variables, flags, working-directory dependencies, wrapper scripts — that differ from the obvious invocation. Inferring the command produces a different pass/fail count than the canonical baseline captured by `gate-scout`, silently breaking the Step 7 comparison. The `data.cmd` field in the baseline log entry is the audit anchor: a reviewer reading `build.jsonl` must be able to reproduce the exact run from a fresh checkout (#97 AC#1). Use `gate-scout` as the single canonical source; the exact returned string is what Step 7 re-runs.
+**WHY:** Every project has subtle test configuration — environment variables, flags, working-directory dependencies, wrapper scripts — that differ from the obvious invocation. Inferring the command produces a different result than gate-scout's canonical command. Step 3 records the exact `data.unit` string without running it; Step 7 restricts it to selected test paths, or runs that exact string only when no directly exercising test files exist.
 
 ### NEVER auto-approve removal of security-related guards — always ESCALATE
 

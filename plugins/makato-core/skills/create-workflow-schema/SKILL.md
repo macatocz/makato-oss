@@ -6,12 +6,12 @@ description: >-
   reordering build steps, inserting custom artifacts, or generating the local workflow schema.
   Triggers: workflow-schema, pipeline steps, build pipeline, customize build, add build step, remove
   build step, reorder pipeline, skill execution settings, skill role, skill effort.
-version: "1.3.0"
+version: "1.3.1"
 argument-hint: ""
 allowed-tools: [Bash]
 metadata:
   Authors: [makato-core]
-  last_updated: "2026-10-15"
+  last_updated: "2026-10-17"
 ---
 
 # create-workflow-schema
@@ -62,14 +62,14 @@ topologically sorts them before dispatch; the YAML order in the file is irreleva
 semantics, not position.
 
 **`required: true/false` answers one question:** "Will the pipeline be in a meaningful unchecked
-state if this artifact is skipped?" Artifacts that gate correctness (`verify`, `sensors`,
-`push-to-git`) are always `required: true`. Artifacts that add quality but whose absence is safe
+state if this artifact is skipped?" Artifacts that gate correctness (`verify`, `push-to-git`) are
+always `required: true`. Artifacts that add quality but whose absence is safe
 (`grill-with-docs`, `address-pr-comments`) default to `required: false` — flip them to
 `required: true` only when team policy mandates them for every build.
 
 **Custom artifact placement:** Insert after the artifact whose output you consume, before the
 artifact that depends on your output. A `security-audit` that reads source code goes after
-`implement-tdd`/`implement-goal` and before `sensors` — not after `create-pr` where the code is
+`implement-tdd`/`implement-goal` and before `push-to-git` — not after `create-pr` where the code is
 already pushed.
 
 **YAML parsing boundaries:** `workflow-schema-loader.sh` uses its restricted hand-written parser

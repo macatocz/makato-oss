@@ -98,20 +98,14 @@ artifacts:
   - id: verify
     skill: build-verify
     required: true
-    description: "Full quality-gate pipeline (build, lint, unit, integration, coverage)"
+    description: "Whole-change quality gates (sensors, build, lint, unit, CI-aware integration and coverage)"
     after: [review]
-
-  - id: sensors
-    skill: build-sensors
-    required: true
-    description: "Run pre-commit sensors; dispatch sensor-fixer per finding"
-    after: [verify]
 
   - id: push-to-git
     skill: build-push-to-git
     required: true
     description: "Create atomic conventional commits and push the feature branch"
-    after: [sensors]
+    after: [verify]
 
   - id: create-pr
     skill: build-create-pr

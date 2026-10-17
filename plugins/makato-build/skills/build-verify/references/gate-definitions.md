@@ -87,7 +87,7 @@ Gate 4, logging it as not-applicable.
 
 ### Coverage Commands
 
-| Toolchain | Coverage command |
+| Toolchain | Legacy all-in-one fallback (runs tests) |
 |---|---|
 | Jest | `jest --coverage --coverageReporters=json-summary` |
 | Maven + JaCoCo | `mvn verify` (JaCoCo report in `target/site/jacoco/`) |
@@ -96,12 +96,11 @@ Gate 4, logging it as not-applicable.
 | Go | `go test ./... -coverprofile=coverage.out -covermode=atomic` then `go tool cover -func=coverage.out` |
 | Rust | `cargo tarpaulin --engine llvm --out Stdout` |
 
-Always measure branches where the project tool supports it (`branch = true` in Coverage.py
-configuration, pytest-cov's supported collection flag, `-covermode=atomic` in Go, or branch
-coverage in JaCoCo config). Do not add a branch flag to a report-only invocation: branch
-measurement is configured while collecting/running tests, and report subcommands should be
-kept to the options supported by the installed tool version. When gate-scout discovers an
-explicit project command, use that command verbatim instead of constructing a fallback.
+These are fallback commands and may execute tests. When gate-scout reports
+`unit_coverage`, `integration_coverage`, and `coverage_report`, build-verify
+collects fresh unit data, appends local integration data when applicable, and
+runs only the report command at Gate 5. The report command MUST NOT re-run tests.
+Use the exact gate-scout commands when present instead of constructing a fallback.
 
 ## What Counts as a Gate Failure vs. a Warning
 
@@ -124,21 +123,27 @@ explicit project command, use that command verbatim instead of constructing a fa
 
 ### COVERAGE
 - **Failure**: measured conditional coverage is below the declared threshold in `design.md`
-- **Warning**: no threshold declared — any coverage figure is advisory only
+  and Gate 5 enforces it (the data covers every locally owned lane; see the Gate 5 ownership matrix)
+- **Warning**: no threshold declared, or the threshold is CI-owned / measured over the unit lane
+  only — the local figure is advisory
 - A branch that is genuinely unreachable (documented as such in the code) may be excluded
   from the denominator — do not manufacture tests to reach dead code
 
 ## Pre-commit Hook Commands
 
-When `.pre-commit-config.yaml` defines hooks for a tool, Gates 1 and 2 use the hook as the
-authoritative command instead of a raw tool invocation:
+When `.pre-commit-config.yaml` defines hooks for a tool, Gate 0 runs the sensor
+scope selected from gate-scout: `branch` for CI's changed-file scope, otherwise
+`all`. On the first pass Gates 1 and 2 derive hook results from Gate 0's final
+run log rather than invoking those hooks again. After a coder repair, or when a
+hook ID is missing from that log, rerun the hook at the same scope:
 
-```
+```bash
 pre-commit run --hook-stage manual <hook-id> --all-files
 ```
 
-This is the same command CI runs and is the only form that guarantees environment parity with
-the CI pipeline.
+For `branch`, replace `--all-files` with `--files <branch file set>` from the
+same merge-base-plus-untracked scope used by Gate 0. This preserves CI sensor
+scope while checking the repair; do not substitute a narrower staged subset.
 
 **Requirements:**
 

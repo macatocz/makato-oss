@@ -73,9 +73,6 @@ is testing the wrong thing.
 
 ## Coverage Threshold
 
-If the design.md specifies a coverage threshold, check **conditional coverage**
-(branch/condition coverage, not line coverage). Every branch of every conditional added
-by this task must be exercised by at least one test.
-
-The goal is not to manufacture tests to hit a number — it is to ensure that every decision
-point in the new code has been exercised and its behavior documented.
+Coverage is a whole-change check owned by `build-verify` Gate 5. Forward any
+threshold in `design.md` as `COVERAGE_HINT`; do not run coverage checks as
+part of goal-task implementation.

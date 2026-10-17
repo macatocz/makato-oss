@@ -1,13 +1,15 @@
 ---
 name: sensor-fixer
+version: "1.0.0"
 description: >-
   Outer loop that reads parsed sensor findings, runs a batched
   deterministic-autofix pre-pass (Phase 0) for routes with action
   `autofix` or `autofix-then-skill`, then dispatches build-resolve-finding
-  per residual finding; documents an *intended* sonnet→opus tier escalation
-  on the second failure for the same finding (NOT yet wired — see Phase 1
-  note); writes JSONL audit to specs/<key>/build.jsonl.
-  Triggered by build-sensors on non-zero pre-commit exit.
+  per residual finding within the remaining shared Phase 1 repair budget;
+  documents an *intended* sonnet→opus tier escalation on the second failure
+  for the same finding (NOT yet wired — see Phase 1 note); writes JSONL audit
+  to specs/<key>/build.jsonl. Triggered by build-sensors on non-zero
+  pre-commit exit.
 modelRole: task
 maxTurns: 20
 ---
@@ -18,16 +20,16 @@ maxTurns: 20
 
 > **Mission**: Receive a parsed sensor-findings list from `build-sensors`,
 > collapse cheap deterministic fixes via Phase 0 batched autofix, then drive
-> each residual finding through `build-resolve-finding` in Phase 1 (up to
-> `MAX_LOOPS = 5` iterations), emitting a JSONL audit row per dispatch. Exit
-> with a carry-over draft PR on exhausted residuals — never block the
-> developer's local commit.
+> each residual finding through `build-resolve-finding` in Phase 1 within the
+> supplied `MAX_LOOPS` budget (default `5` when dispatched alone), emitting a
+> JSONL audit row per dispatch. Exit with a carry-over draft PR only when the
+> supplied budget is exhausted — never block the developer's local commit.
 
 ## Rules
 
 - **NEVER** call `git commit --no-verify`. The harness exists precisely so the developer does not need this escape hatch.
 - **NEVER** use `git push --force` or any `--force*` variant.
-- **NEVER** block the developer. If `MAX_LOOPS` exhausts with residuals, route them to a **draft PR carry-over** via branch 4 of `build-resolve-finding`. The local commit proceeds; the residuals travel with the change.
+- **NEVER** block the developer. Route residuals to a **draft PR carry-over** via branch 4 of `build-resolve-finding` only when the supplied `MAX_LOOPS` budget is exhausted. The local commit proceeds; the residuals travel with the change.
 - **NEVER** skip Phase 0 when any finding's route declares `action: "autofix"` or `action: "autofix-then-skill"`. Per-finding dispatch of a deterministic CLI fix is wasted LLM round-trips — Phase 0 collapses those into one batched call.
 - **NEVER** treat a Phase 0 cmd failure as fatal. If a cmd exits non-zero, the findings simply remain in the queue for Phase 1; Phase 0 is best-effort.
 - **NEVER** put shell metacharacters in a route `cmd` string. Route `cmd` values are split into an argv array by `read -ra` and invoked directly — `|`, `;`, `$()`, `>`, `<`, `&`, and backticks WILL break Phase 0. Routes are command + flags only. If a tool requires shell composition, write a wrapper script and put the wrapper path in `cmd`.
@@ -46,7 +48,7 @@ Your dispatch prompt provides:
 | `MAKATO_BUILD_ROOT` | string (absolute path) | yes | Absolute installed `makato-build` plugin root. Resolve suite-owned routes, parsers, and references from this root; never probe `REPO_ROOT/plugins/makato-build`. |
 | `FINDINGS` | `list[Finding]` | yes | Parsed sensor findings from `parse-sarif.py`. Each finding carries the canonical shape `{tool, rule, path, line, column, message, severity, autofix_available, raw}` — see [`../shared/finding-schema.md`](../shared/finding-schema.md) for the full contract. `fingerprint` is NOT a field on an incoming finding — the agent *derives* it per finding for deduplication (see below). |
 | `SPEC_KEY` | string | no | Spec key under `specs/`. Defaults to `sensor-harness-v1`. |
-| `MAX_LOOPS` | integer | no | Hard cap for Phase 1 outer iterations. Defaults to `5`. |
+| `MAX_LOOPS` | integer | no | Remaining Phase 1 repair-pass budget supplied by `build-sensors`; defaults to `5` when dispatched alone. A zero budget allows no Phase 1 passes. |
 | `RECOMMENDED_SKILLS` | `list[string]` | no | Array of `"plugin:skill-id"` strings forwarded from the parent task's `recommended_skills[]` field (agent-skill-routing #146). When present and non-empty, invoke each skill before Phase 0 to surface domain conventions relevant to the finding set. Forward to each `build-resolve-finding` dispatch as an additional input field so repair skills can benefit from the same context. Omit when absent — do NOT forward an empty array. |
 | `CI_CONTEXT` | `object \| null` | no | Advisory context from the caller when sensor-fixer is dispatched from a CI failure path (e.g. po-agent Step 6a). Fields: `check_name` (string), `run_id` (string), `ci_failure_type` (string). When `ci_failure_type == "sensor"` is set, sensor-fixer **skips `reparse_after_autofix`** after Phase 0 and instead re-invokes each distinct `FINDINGS[].tool` binary directly against the working tree to verify fixes (CI environments may not have pre-commit hooks installed). When absent or `null`, existing Phase 0 behaviour is byte-for-byte unchanged. Include in `build.jsonl` Phase 0 row when present (see § Audit log). |
 | `WORKTREE_PATH` | string | no | CI caller's isolated worktree. When supplied, require `REPO_ROOT == WORKTREE_PATH` and run all commands/edits there. |
@@ -160,7 +162,19 @@ fi
 
 ### Phase 1 — per-finding dispatch (loop 1..MAX_LOOPS)
 
-For each residual finding, dispatch `build-resolve-finding`. On success remove the finding from the queue. On failure at loop 2, the pseudocode below *intends* to tier-escalate to opus and retry. Continue until `pre-commit run --files "${touched_files[@]}"` exits 0 or `MAX_LOOPS` is exhausted. Route remaining residuals to draft PR carry-over.
+`MAX_LOOPS` is the remaining shared Phase 1 budget from `build-sensors`, or
+`5` when dispatched alone. Count each outer Phase 1 pass once in
+`loops_consumed`; Phase 0 does not consume this budget. If the supplied budget
+is zero, run no Phase 1 dispatches. Return `data.loops: loops_consumed` so
+`build-sensors` can subtract the passes used. Carry-over is allowed only when
+the supplied budget is exhausted; with `CI_CONTEXT`, preserve residuals for
+`build-fix-ci` and do not emit a carry-over.
+
+For each residual finding, dispatch `build-resolve-finding`. On success remove
+the finding from the queue. On failure at loop 2, the pseudocode below
+*intends* to tier-escalate to opus and retry. Continue until the repair check
+passes or the supplied budget is exhausted. Route remaining residuals to draft
+PR carry-over only when exhausted.
 
 With `CI_CONTEXT`, forward it and the resolved worktree/audit roots to every
 repair skill. Re-run the originating tools instead of assuming pre-commit is
@@ -179,58 +193,62 @@ this CI-specific rule overrides the local-commit carry-over policy above.
 
 ```bash
 # Pseudocode — sensor-fixer Phase 1
-for loop in $(seq 1 ${MAX_LOOPS}); do
-  for finding in "${findings[@]}"; do
-    # Build the dispatch bundle. Include repair_hint when the finding carries it;
-    # omit entirely when absent — never forward as null.
-    dispatch_bundle=(--finding "${finding}" --repo-root "${REPO_ROOT}" --attempt "${loop}")
-    dispatch_bundle+=(--makato-build-root "${MAKATO_BUILD_ROOT}")
-    if [[ -n "${CI_CONTEXT:-}" ]]; then
-      dispatch_bundle+=(--ci-context "${CI_CONTEXT}" --worktree-path "${WORKTREE_PATH}")
-      dispatch_bundle+=(--spec-folder "${SPEC_FOLDER}" --jsonl-path "${AUDIT_LOG}")
-    fi
-    if [[ -n "${finding.repair_hint:-}" ]]; then
-      dispatch_bundle+=(--repair-hint "${finding.repair_hint}")
-    fi
+loops_consumed=0
+if (( MAX_LOOPS > 0 && ${#findings[@]} > 0 )); then
+  for loop in $(seq 1 "${MAX_LOOPS}"); do
+    loops_consumed=$((loops_consumed + 1))
+    for finding in "${findings[@]}"; do
+      # Build the dispatch bundle. Include repair_hint when the finding carries it;
+      # omit entirely when absent — never forward as null.
+      dispatch_bundle=(--finding "${finding}" --repo-root "${REPO_ROOT}" --attempt "${loop}")
+      dispatch_bundle+=(--makato-build-root "${MAKATO_BUILD_ROOT}")
+      if [[ -n "${CI_CONTEXT:-}" ]]; then
+        dispatch_bundle+=(--ci-context "${CI_CONTEXT}" --worktree-path "${WORKTREE_PATH}")
+        dispatch_bundle+=(--spec-folder "${SPEC_FOLDER}" --jsonl-path "${AUDIT_LOG}")
+      fi
+      if [[ -n "${finding.repair_hint:-}" ]]; then
+        dispatch_bundle+=(--repair-hint "${finding.repair_hint}")
+      fi
 
-    # First attempt at this loop tier (sonnet)
-    result=$(dispatch build-resolve-finding "${dispatch_bundle[@]}")
+      # First attempt at this loop tier (sonnet)
+      result=$(dispatch build-resolve-finding "${dispatch_bundle[@]}")
 
-    if [[ "${result.outcome}" == "resolved" ]]; then
-      findings=remove(findings, finding)
-      resolved=$((resolved + 1))
-    elif [[ "${result.outcome}" == "failed" && ${loop} -eq 2 ]]; then
-      # Tier escalation: retry with opus on second loop failure
-      result=$(dispatch build-resolve-finding "${dispatch_bundle[@]}" --model "opus")
-      escalated=$((escalated + 1))
       if [[ "${result.outcome}" == "resolved" ]]; then
         findings=remove(findings, finding)
         resolved=$((resolved + 1))
+      elif [[ "${result.outcome}" == "failed" && ${loop} -eq 2 ]]; then
+        # Tier escalation: retry with opus on second loop failure
+        result=$(dispatch build-resolve-finding "${dispatch_bundle[@]}" --model "opus")
+        escalated=$((escalated + 1))
+        if [[ "${result.outcome}" == "resolved" ]]; then
+          findings=remove(findings, finding)
+          resolved=$((resolved + 1))
+        fi
       fi
+
+      # Append audit row for every dispatch decision.
+      # Include repair_hint_present flag so audit trail captures enrichment status.
+      append_jsonl "${AUDIT_LOG}" "$(jq -nc \
+        --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        --argjson loop ${loop} \
+        --arg action "${result.action}" \
+        --argjson finding "$(serialize ${finding})" \
+        --arg skill "${result.skill_used}" \
+        --argjson repair_hint_present "$([ -n "${finding.repair_hint:-}" ] && echo true || echo false)" \
+        '{ts: $ts, loop: $loop, action: $action, finding: $finding, skill: $skill, repair_hint_present: $repair_hint_present}')"
+
+      skills_used+=("${result.skill_used}")
+    done
+
+    # Re-run pre-commit on touched files only — fastest signal that we're done
+    if pre-commit run --files "${touched_files[@]}"; then
+      break
     fi
-
-    # Append audit row for every dispatch decision.
-    # Include repair_hint_present flag so audit trail captures enrichment status.
-    append_jsonl "${AUDIT_LOG}" "$(jq -nc \
-      --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-      --argjson loop ${loop} \
-      --arg action "${result.action}" \
-      --argjson finding "$(serialize ${finding})" \
-      --arg skill "${result.skill_used}" \
-      --argjson repair_hint_present "$([ -n "${finding.repair_hint:-}" ] && echo true || echo false)" \
-      '{ts: $ts, loop: $loop, action: $action, finding: $finding, skill: $skill, repair_hint_present: $repair_hint_present}')"
-
-    skills_used+=("${result.skill_used}")
   done
+fi
 
-  # Re-run pre-commit on touched files only — fastest signal that we're done
-  if pre-commit run --files "${touched_files[@]}"; then
-    break
-  fi
-done
-
-# Carry-over: residuals after MAX_LOOPS go to a draft PR, never block the user
-if [[ ${#findings[@]} -gt 0 && -z "${CI_CONTEXT:-}" ]]; then
+# Carry-over only when the supplied Phase 1 budget is exhausted.
+if [[ ${#findings[@]} -gt 0 && ${loops_consumed} -ge ${MAX_LOOPS} && -z "${CI_CONTEXT:-}" ]]; then
   dispatch build-resolve-finding \
     --carry-over \
     --residuals "${findings[@]}" \
@@ -299,7 +317,7 @@ Field mapping:
 | `tests_written` | `[]` — the harness itself does not write tests. |
 | `errors` | List of fingerprints (or `tool:rule:path:line` strings) for unresolved findings; `[]` on success. |
 | `tool_calls_used` | Phase 0 cmd invocations plus Phase 1 dispatches (not counting inner agent counts). |
-| `data` | `{ "loops": N, "resolved": N, "escalated": N, "residual": N, "phase0_resolved": N, "phase0_cmds_run": N, "skills_used": [...] }`. Include `"autofix-batched"` in `skills_used` when Phase 0 fired. |
+| `data` | `{ "loops": N, "resolved": N, "escalated": N, "residual": N, "phase0_resolved": N, "phase0_cmds_run": N, "skills_used": [...] }`. `loops` is the number of Phase 1 outer passes actually consumed; Phase 0 is excluded. Include `"autofix-batched"` in `skills_used` when Phase 0 fired. |
 
 ### Success
 

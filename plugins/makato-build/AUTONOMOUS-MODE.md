@@ -98,7 +98,6 @@ by a headless caller — track via the skill's own PR when the need arises.
 | `build-simplify`            | Step 5 — zero-findings confirmation                                                                  | Asks user to confirm zero findings                                   | Proceed without confirmation. Log `step: "review"` with `data.zero_findings: true`.                                                                                                                                                                                                                                                                                        |
 | `build-simplify`            | Step 7a — unverified-code-changes prompt (no test runner discovered AND ≥1 code-file change applied) | Prompts y/n before hand-off                                          | Skip prompt entirely; emit R1 with `data.test_suite_present: false` + `data.degraded_confidence: true` so the PO-agent routes the run for elevated scrutiny. See § _No-test-runner handling in `build-simplify` is a degraded-confidence path, not a HALT_.                                                                                                                |
 | `build-review`              | Step 5 — CRITICAL/MAJOR repair loop                                                                  | Dispatch coder and re-review within the configured repair-round cap; fail closed on exhaustion | Identical to interactive mode; no approval bypass. `MAKATO_MAX_REPAIR_ROUNDS` defaults to 3; unresolved findings exhaust to HALT-003. See § _CRITICAL and MAJOR block both review modes_. |
-| `build-implement-tdd`       | Step 7 — coverage-floor acknowledgement                                                              | May proceed on a structured, human-owned "acknowledged risk" entry   | No acknowledgement is possible — no human owns the risk. Log `threshold_met:false`, emit `log-bypass.sh … coverage-floor defer-to-gate5`, and defer authoritatively to `build-verify` Gate 5 (HALT-002). Never wave the miss through. See § _Coverage-floor acknowledgement is human-only; autonomous defers to Gate 5_.                                                   |
 
 ### Current-head CI repair ownership
 
@@ -251,27 +250,17 @@ autonomous-bypass event is emitted because manual mode now requires the same rep
 The PO-agent must run this gate before `build-verify`, rather than treating completed
 implementation tasks as approval.
 
-### Coverage-floor acknowledgement is human-only; autonomous defers to Gate 5
+### Coverage is a build-verify gate only
 
-`build-implement-tdd` Step 7 checks conditional coverage against the `design.md` threshold after all
-TDD tasks complete. On a miss it first tries to add targeted tests; if the gap survives, the two
-modes diverge — and neither is a silent proceed (#290):
-
-- **Interactive mode**: the gap may proceed only as a **structured, human-owned acknowledgement** —
-  a `coverage-acknowledged` JSONL entry recording `acknowledged_by` and `reason`. A free-form
-  "logged as a known risk" note is no longer sufficient; the acknowledgement must name who owns the
-  risk and why. Gate 5 in `build-verify` still re-checks coverage independently.
-- **Autonomous mode**: no acknowledgement is possible — there is no human to own the risk, so the
-  skill MUST NOT synthesise one. It logs `threshold_met:false`, emits
-  `log-bypass.sh … coverage-floor defer-to-gate5`, and defers authoritatively to **Gate 5** in
-  `build-verify`, which enforces `HALT-002` on `threshold_met:false` before `build-push-to-git`.
-  Step 7 is explicitly _not_ a gate itself in autonomous mode — it neither blocks the intra-build
-  flow nor waves the miss through; it hands the authoritative decision to the terminal gate. This
-  removes the "proceed-anyway" reading the old Step 7 wording invited.
-
-No new HALT code is introduced: the terminal enforcement remains `HALT-002` at Gate 5 (registered in
-`plugins/makato-orchestrate/halt-conditions.md`). Step 7's role is to stop pretending a miss can be
-silently acknowledged and to point unambiguously at that existing gate.
+Implementation skills never measure or acknowledge coverage (#290): `build-implement-tdd` and
+`build-implement-goal` forward the recorded baseline, the changed-file set, and any `design.md`
+threshold (as `COVERAGE_HINT`) to `build-verify`. Gate 5 reports coverage from the data Gates 3/4
+collected — it never re-runs the suites when gate-scout finds the split coverage commands — and
+enforces `HALT-002` on `threshold_met:false` only when the integration lane ran locally, so the data
+covers every lane. When CI owns the integration lane, the local unit-lane figure is advisory: a CI
+coverage gate (repaired by `build-fix-ci`) owns the threshold when one exists. With no
+implementation-time acknowledgement in either mode, autonomous mode has nothing to bypass and no
+`coverage-floor` bypass event exists.
 
 ## Cross-skill propagation
 
@@ -575,14 +564,17 @@ skill's output.
 These pipeline skills have no approval prompt to bypass; their normal execution
 and autonomous repair behavior still apply:
 
-- `build-sensors` — already halts on non-zero pre-commit exit; no human gate to bypass. Sensor-fixer
+- `build-sensors` — already halts on non-zero pre-commit exit; no human gate to bypass. Its
+  `max_loops` is the single sensor repair budget shared with every sensor-fixer dispatch; sensor-fixer
   escalates via tier-up to opus; no `AskUserQuestion` site.
-- `build-verify` — owns integration/full-suite gate verification and sends code-level failures
-  through the bounded coder verify-repair loop (`MAKATO_MAX_REPAIR_ROUNDS`, default `3`). It fails
-  closed with HALT-002 on exhaustion; Gate 0 sensor-fixer behavior is unchanged.
+- `build-verify` — owns whole-change gate verification and sends code-level failures through the
+  bounded coder verify-repair loop (`MAKATO_MAX_REPAIR_ROUNDS`, default `3`). It fails closed with
+  HALT-002 on exhaustion. Gate 0 uses CI's pre-commit scope; Gates 1/2 reuse Gate 0's hook results.
+  Integration tests run locally only when gate-scout finds no CI integration lane, and the coverage
+  threshold blocks locally only when they did; otherwise the PR's CI checks own them.
 - `build-implement-tdd` / `build-implement-goal` — their implementation loops already run
-  autonomously; TDD coders run targeted RED/GREEN checks only. `build-verify` owns whole-change
-  integration and full-suite verification.
+  autonomously; TDD coders and goal tasks run targeted tests only and reuse the branch's recorded
+  baseline. `build-verify` owns whole-change verification.
 - `build-grill-with-docs` runs review-style queries; its interactivity is the work itself.
 - `build-review` is mandatory before verify in the PO-agent pipeline. Its CRITICAL/MAJOR
   repair loop is capped by `MAKATO_MAX_REPAIR_ROUNDS` (default `3`) in both modes; exhaustion

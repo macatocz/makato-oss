@@ -9,10 +9,10 @@ description: >-
   build-verify gate mapping, and PO-agent board transition to Done. Trigger
   keywords: DoD, done criteria, task-complete, all-items-satisfied,
   board-transition-Done, workflow-state assertion.
-version: "2.5.0"
+version: "2.6.0"
 metadata:
   authors: [makato-build]
-  last_updated: "2026-08-05"
+  last_updated: "2026-10-17"
 ---
 
 # Definition of Done
@@ -68,13 +68,17 @@ its enforcer reports success in its R1 envelope (`status: "success"`) or the equ
 gate log entry in `specs/<key>-<slug>/build.jsonl`.
 
 1. **All unit + integration tests pass.** No new failures vs. the pre-session baseline
-   recorded at `build-implement-tdd` / `build-implement-goal` Step 3.
-   _Enforced by:_ `skills/build-verify/SKILL.md` Gates 3 and 4.
+   recorded at `build-implement-tdd` / `build-implement-goal` Step 3. Gate 4 is CI-owned
+   when gate-scout finds `integration_ci`; otherwise `build-verify` runs it locally.
+   _Enforced by:_ `skills/build-verify/SKILL.md` Gate 3 (Unit) and Gate 4 (Integration
+   locally or via its required CI check).
 
 2. **Conditional coverage ≥ threshold.** Default 90% conditional (branch) coverage; the
-   threshold is overridable per-story in `specs/<key>-<slug>/design.md`. Below threshold
-   triggers HALT-002.
-   _Enforced by:_ `skills/build-verify/SKILL.md` Gate 5.
+   threshold is overridable per-story in `specs/<key>-<slug>/design.md`. `build-verify`
+   Gate 5 blocks on it only when the integration lane ran locally; when Gate 4 is
+   CI-owned, the local unit-lane figure is advisory and a CI coverage gate
+   (`coverage_ci`) owns the threshold when one exists.
+   _Enforced by:_ `skills/build-verify/SKILL.md` Gate 5 (ownership matrix).
 
 3. **Zero lint errors.** Warnings are noted but do not fail the gate; errors do.
    Local-lint / CI-lint divergence is reconciled when `lint_ci_divergence: true`.

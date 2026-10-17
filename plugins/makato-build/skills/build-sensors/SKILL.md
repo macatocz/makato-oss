@@ -1,25 +1,24 @@
 ---
 name: build-sensors
 description: >-
-  Run pre-commit sensors against staged/all/changed files, parse findings via
-  shared/parse-sarif.py into the canonical Finding schema, and dispatch the
-  sensor-fixer agent in a bounded loop (MAX_LOOPS=5) until the working tree is
-  clean or the cap is hit. Implements gate-0 of the build pipeline. Use when:
-  pre-commit hook fails, verifying gate-0 on a build, or an autonomous fixer
-  needs to re-run sensors after edits. Trigger keywords: run sensors, verify
-  sensors, gate-0, pre-commit, sensor loop.
-version: "1.2.1"
-argument-hint: "scope=[staged|all|changed-vs-main] spec_key=<story-key>"
+  Run pre-commit sensors against staged, all, changed-vs-main, or branch files,
+  parse findings via shared/parse-sarif.py into the canonical Finding schema,
+  and dispatch sensor-fixer within one shared repair budget. Implements gate-0
+  of the build pipeline. Use when: pre-commit hook fails, verifying gate-0 on a
+  build, or an autonomous fixer needs to re-run sensors after edits. Trigger
+  keywords: run sensors, verify sensors, gate-0, pre-commit, sensor loop.
+version: "1.3.0"
+argument-hint: "scope=[staged|all|changed-vs-main|branch] spec_key=<story-key>"
 tools: Bash, Read, Edit, Write, Agent
 metadata:
   authors: [makato-build]
-  last_updated: "2026-08-05"
+  last_updated: "2026-10-17"
 ---
 
 # build-sensors
 
-Gate-0 sensor loop: run pre-commit, normalise findings to `list[Finding]`, dispatch
-`sensor-fixer`, re-run until clean or `MAX_LOOPS` reached.
+Gate-0 sensor loop: run pre-commit, normalise findings to `list[Finding]`, and dispatch
+`sensor-fixer` while one shared Phase 1 repair budget remains.
 
 ## Trigger phrases
 
@@ -32,9 +31,9 @@ Gate-0 sensor loop: run pre-commit, normalise findings to `list[Finding]`, dispa
 
 | Name | Type | Required | Default | Notes |
 |------|------|----------|---------|-------|
-| `scope` | enum: `staged` \| `all` \| `changed-vs-main` | no | `staged` | Selects which files pre-commit operates on. |
+| `scope` | enum: `staged` \| `all` \| `changed-vs-main` \| `branch` | no | `staged` | Selects which files pre-commit operates on. |
 | `spec_key` | string | yes | — | Used to locate `specs/<key>/build.jsonl`. |
-| `max_loops` | integer | no | `5` | Hard cap on fix-and-rerun iterations. |
+| `max_loops` | integer | no | `5` | Total Phase 1 repair-pass budget across all sensor-fixer dispatches in this invocation. |
 
 Before executing helper commands, resolve `MAKATO_BUILD_ROOT` from
 `CLAUDE_PLUGIN_ROOT`, `OMP_PLUGIN_ROOT`, or `PLUGIN_ROOT` (with the
@@ -78,8 +77,9 @@ Scope selection summary (full rationale and non-convergence playbook in the refe
 | Scope | Hook stage | Use when |
 |-------|-----------|----------|
 | `staged` | `pre-commit` | Running gate-0 immediately before committing — fastest path. |
-| `all` | `manual` | Mid-session full-branch clean check, or after sensor-fixer completes. |
-| `changed-vs-main` | `pre-push` | Final pre-push gate: everything the PR will add to the default branch. |
+| `all` | `manual` | Mid-session full-branch clean check, or when CI has no changed-file sensor scope. |
+| `changed-vs-main` | `pre-push` | Final pre-push gate for all files the PR adds to the default branch. |
+| `branch` | `manual` | Gate 0 when CI runs sensors on a changed-file diff; includes uncommitted and untracked work. |
 
 Execute the matching script block:
 
@@ -109,18 +109,39 @@ Execute the matching script block:
   pre-commit run --hook-stage pre-push --files "${FILES[@]}"
   ```
 
+- **`branch`:**
+  ```bash
+  DEFAULT_REF="$("$MAKATO_BUILD_ROOT/shared/default-branch.sh")"
+  BASE_SHA="$(git merge-base HEAD "$DEFAULT_REF")"
+  mapfile -t TRACKED < <(git diff --name-only --diff-filter=d "$BASE_SHA")
+  mapfile -t UNTRACKED < <(git ls-files --others --exclude-standard)
+  [ "${#UNTRACKED[@]}" -gt 0 ] && git add -N -- "${UNTRACKED[@]}"
+  FILES=("${TRACKED[@]}" "${UNTRACKED[@]}")
+  [ "${#FILES[@]}" -eq 0 ] && return_clean "no branch files changed" && exit 0
+  pre-commit run --hook-stage manual --files "${FILES[@]}"
+  ```
+
+  This matches CI's manual changed-file lane while including uncommitted work.
+  The empty-set guard MUST run before pre-commit; never let an empty `--files`
+  list degrade into an all-files run.
+
 ### Step 3 — Capture run output
 
-Persist stdout+stderr to `$REPO_ROOT/.pre-commit-trash/run-<ts>.log`.
+Persist stdout+stderr for each pre-commit run under
+`$REPO_ROOT/.pre-commit-trash/run-<ts>.log`; keep the last run's repo-relative
+path as `final_run_log`. Parse the final run's hook sections into
+`hooks: {"<hook id>":"passed|failed|skipped"}`. A hook absent from that run is
+not added to the map.
 
 ### Step 4 — Short-circuit on clean run
 
 If exit code == 0, emit this event through the build-log helper:
 ```json
-{"ts": "<ISO-8601>", "action": "sensors-clean", "scope": "<scope>", "loops": <n>}
+{"ts":"<ISO-8601>","action":"sensors-clean","scope":"<scope>","loops":<n>,"hooks":{"<hook id>":"passed"},"final_run_log":".pre-commit-trash/run-<ts>.log"}
 ```
-Return the Output R1 envelope with `data.ok: true`, the actual loop count, empty
-resolved/residual arrays and the repo-relative audit path.
+Return the Output R1 envelope with `data.ok: true`, the actual shared-budget
+units consumed, empty resolved/residual arrays, and the repo-relative audit and
+final-run paths.
 
 ### Step 5 — Collect and normalise findings
 
@@ -137,25 +158,36 @@ This shape is the sole contract between `build-sensors` and `sensor-fixer`.
 
 ### Step 6 — Dispatch `sensor-fixer`
 
+If residual findings remain and the shared budget is positive, dispatch with:
+
 ```json
-{"FINDINGS": [...], "REPO_ROOT": "...", "SPEC_KEY": "..."}
+{"FINDINGS":[...],"REPO_ROOT":"...","SPEC_KEY":"...","MAX_LOOPS":<remaining budget>}
 ```
 
-The agent edits the working tree and returns control.
+`MAX_LOOPS` is the remaining Phase 1 repair-pass budget, not a fresh per-dispatch
+allowance. `sensor-fixer.data.loops` reports the Phase 1 passes it consumed.
 
 ### Step 7 — Re-run loop
 
-Re-run pre-commit with the same scope (Steps 3–7) until:
-- the run is clean, or
-- `loops == MAX_LOOPS` (default `5`).
+After each fixer return, update:
+
+```text
+REMAINING_BUDGET = max(0, REMAINING_BUDGET - max(1, sensor_fixer.data.loops))
+LOOPS += max(1, sensor_fixer.data.loops)
+```
+
+Re-run pre-commit with the same scope and capture its output. If clean, finish.
+If findings remain and the budget is positive, dispatch sensor-fixer with that
+remaining budget. If findings remain at zero budget, return them as residuals
+without another dispatch. Initialize `REMAINING_BUDGET` from `max_loops` (default
+`5`) and `LOOPS` to `0`; clean sensor runs do not consume repair passes.
 
 ### Step 8 — Write outcome to build log
 
 Emit the outcome through the same build-log helper, never direct file appends.
 
 ```json
-{"ts": "<ISO-8601>", "action": "sensors-loop-complete", "scope": "<scope>",
- "loops": <n>, "resolved": [...], "residual": [...]}
+{"ts":"<ISO-8601>","action":"sensors-loop-complete","scope":"<scope>","loops":<n>,"resolved":[...],"residual":[...],"hooks":{"<hook id>":"passed|failed|skipped"},"final_run_log":".pre-commit-trash/run-<ts>.log"}
 ```
 
 ---
@@ -178,18 +210,24 @@ legacy fields. Use actual measured values in place of the example counts.
   "tool_calls_used": 0,
   "data": {
     "ok": true,
+    "scope": "branch",
     "loops": 0,
     "resolved": [],
     "residual": [],
+    "hooks": {"ruff":"passed","pyright":"passed"},
+    "final_run_log": ".pre-commit-trash/run-<ts>.log",
     "jsonl_path": "specs/<spec_key>/build.jsonl"
   }
 }
 ```
 
-`data.ok` is true only when the final pre-commit run exits 0. Setup or execution
+`data.ok` is true only when the final pre-commit run exits 0. `data.scope`,
+`data.hooks`, and `data.final_run_log` describe that final run; before any run,
+use an empty hooks map and `null` for `final_run_log`. `data.loops` is the total
+shared-budget units consumed across fixer dispatches. Setup or execution
 failures return `status: "failure"`, `data.ok: false` and non-empty `errors`.
-Residual findings at `MAX_LOOPS` return `partial` in ordinary sensor mode, or
-`failure` during CI repair; include every residual and never claim success.
+Residual findings at exhausted budget return `partial` in ordinary sensor mode,
+or `failure` during CI repair; include every residual and never claim success.
 
 ---
 
@@ -208,8 +246,8 @@ result. Use bash arrays (`"${FILES[@]}"`) and `mapfile` — see Step 2 scripts.
 
 **NEVER** call `pre-commit run --files ''` (empty FILES argument) without short-circuiting.
 WHY: an empty `--files` argument causes many hooks to scan all files or crash with an empty
-path error. Always check `[ "${#FILES[@]}" -eq 0 ]` before invoking pre-commit for `staged`
-and `changed-vs-main` scopes (Step 2 scripts include this guard).
+path error. Always check `[ "${#FILES[@]}" -eq 0 ]` before invoking pre-commit for
+`staged`, `changed-vs-main`, and `branch` scopes (Step 2 scripts include this guard).
 
 **NEVER** block the caller on residual findings after `MAX_LOOPS`.
 WHY: the orchestrator may have cross-issue context the sensor loop does not — a carry-over

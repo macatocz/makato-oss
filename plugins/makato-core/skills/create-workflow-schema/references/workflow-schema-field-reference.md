@@ -129,7 +129,7 @@ per branch.
 
 ### Custom artifact inserted mid-pipeline
 
-A `security-audit` artifact consuming source code and feeding `sensors`:
+A `security-audit` artifact consuming source code and feeding `push-to-git`:
 
 ```yaml
 - id: security-audit
@@ -139,13 +139,13 @@ A `security-audit` artifact consuming source code and feeding `sensors`:
   after: [implement-tdd, implement-goal]
 ```
 
-And update `sensors` to add `security-audit` to its `after:` list:
+And update `push-to-git` to add `security-audit` to its `after:` list:
 
 ```yaml
-- id: sensors
-  skill: build-sensors
+- id: push-to-git
+  skill: build-push-to-git
   required: true
-  description: "Run pre-commit sensors; dispatch sensor-fixer per finding"
+  description: "Create atomic conventional commits and push the feature branch"
   after: [verify, security-audit]
 ```
 

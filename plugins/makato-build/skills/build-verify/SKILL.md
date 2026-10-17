@@ -1,14 +1,14 @@
 ---
 name: build-verify
 description: >-
-  Run the whole-change quality gate pipeline — build, lint, unit tests,
-  integration tests, conditional coverage check. Code-level failures go to
-  bounded coder repair and independent re-review (default 3 rounds); structural
-  failures escalate to refine. Autonomous (--autonomous, dispatched by PO-agent)
-  or interactive. Use after review, before push-to-git. Triggers: verify,
-  quality-gate, all-gates, build-pass, tests-pass, lint-clean, coverage-check,
-  gate-pipeline, run-verify.
-version: "1.14.0"
+  Run the whole-change quality gate pipeline — build, lint, unit tests, and
+  locally or CI-owned integration and coverage checks. Code-level failures go
+  to bounded coder repair and independent re-review (default 3 rounds);
+  structural failures escalate to refine. Autonomous (--autonomous, dispatched
+  by PO-agent) or interactive. Use after review, before push-to-git. Triggers:
+  verify, quality-gate, all-gates, build-pass, tests-pass, lint-clean,
+  coverage-check, gate-pipeline, run-verify.
+version: "1.15.0"
 argument-hint: "[work-item-key]"
 allowed-tools: [Bash, Read]
 ---
@@ -16,13 +16,14 @@ allowed-tools: [Bash, Read]
 ## When to Use
 
 Use after `/review` and before `/push-to-git`. The code has been reviewed and simplified.
-This step answers: *"Does it actually work?"* — build succeeds, lint passes, all tests
-pass, coverage is met.
+This step answers: *"Does it actually work?"* — build succeeds, lint passes, unit tests
+pass, and integration/coverage are verified by the local gates or required CI checks.
 
-`build-verify` owns whole-change gate verification, including integration and
-full-suite work. TDD coders no longer run those suites per task; their RED/GREEN
-checks are targeted to the task. This skill consumes the Step 3 baseline from
-`build-implement-tdd` and never treats a caller's test run as coder verification.
+`build-verify` owns whole-change gate verification. It runs integration locally only
+when gate-scout finds no CI integration lane; otherwise the required CI check owns
+Gate 4. TDD coders run only task-targeted checks. This skill consumes the reusable
+baseline recorded by either implementation skill and never treats a caller's test
+run as coder verification.
 
 All audit writes use `"$MAKATO_BUILD_ROOT/shared/build-log.sh"`. Construct dynamic
 JSON with `jq -cn` and pass `"$ENTRY"` as one argument without another shell-parsing
@@ -45,10 +46,11 @@ bare `pytest` or `ruff` invocation uses the system Python, which lacks the locke
 dependencies → `ModuleNotFoundError` or a different package version produces a spurious
 pass or fail signal that does not reproduce in CI.
 
-**NEVER substitute `pre-commit run --files <subset>` for `--all-files` in Gate 0.**
-WHY: staged-subset scans miss repo-wide formatter nits and pre-existing debt that
-`--all-files` (the exact CI command) surfaces. The silent consequence is a CI-only
-failure — the build passes locally and goes red only after the PR is opened.
+**NEVER choose a Gate 0 scope narrower than the CI sensor lane.**
+WHY: a changed-file CI lane requires `branch` so the local scan covers the branch
+diff plus uncommitted work; an `--all-files` CI lane requires `all`. Selecting a
+smaller staged subset lets CI-only failures through, while scanning all files
+when CI scopes to the diff spends time on unrelated repository debt.
 
 **NEVER treat exit code 0 as a gate pass without error-count parsing (Gates 1 and 2).**
 WHY: pyright and ruff both have known exit-code bugs where errors are printed but exit
@@ -90,9 +92,10 @@ When dispatched by the PO-agent (`--autonomous` mode), this skill receives:
   `CLAUDE_PLUGIN_ROOT`, `OMP_PLUGIN_ROOT`, or `PLUGIN_ROOT` when the caller does
   not supply it; use it for suite-owned helpers and contract references.
 - `--autonomous` — activation flag.
-- `BASELINE_FAILURES` — the exact failure set recorded by
-  `build-implement-tdd` Step 3; preserve it when comparing whole-suite results
-  and dispatching coder repairs. Never capture a post-change run as the baseline.
+- `BASELINE_FAILURES` — `data.failures` from the reusable baseline row recorded by
+  `build-implement-tdd` or `build-implement-goal`; preserve it when comparing
+  whole-suite results and dispatching coder repairs. Never capture a post-change
+  run as the baseline.
 - `GATE_COMMANDS` — gate-scout's command map, with runner prefixes unchanged.
 - `PLAN_CONTEXT` — the resolved task list, acceptance criteria, and constraints.
 - `STORY_KEY` and `JSONL_PATH` — the work-item key and
@@ -111,18 +114,19 @@ Apply the workspace-isolation entry guard from `$MAKATO_BUILD_ROOT/AUTONOMOUS-MO
 #### `references/gate-definitions.md` — toolchain command tables
 
 **MANDATORY: load before Gate 1 (Step 4) or Gate 2 (Step 5) when** gate-scout returns a
-toolchain not covered by the three-path hook/missing-hook/legacy command selection — for
-example: Maven, Gradle, Go, Rust, Biome, or sqlfluff projects where the exact hook IDs,
-unit/integration split flags, or runner conventions are not obvious from gate-scout output.
+toolchain not covered by the four-path Gate-0 reuse/direct-hook/missing-hook/legacy
+command selection — for example: Maven, Gradle, Go, Rust, Biome, or sqlfluff projects
+where exact hook IDs, unit/integration split flags, or runner conventions are not
+obvious from gate-scout output.
 
 **Also load when** the unit/integration split convention for the detected toolchain is
 ambiguous and gate-scout does not populate a separate `unit_cmd` / `integration_cmd`.
 
 **Do NOT load** when gate-scout's `build_hook_cmd` or `lint_hook_cmd` is non-null and the
-three-path command selection in Steps 4–5 already resolved the command unambiguously — the
-hook is the authoritative CI-parity path and the reference adds no new information. Do NOT
-load for Python or JS/TS projects where the runner prefix and hook path are already
-populated in gate-scout output.
+four-path command selection in Steps 4–5 already resolved the command unambiguously —
+the hook is the authoritative CI-parity path and the reference adds no new information.
+Do NOT load for Python or JS/TS projects where the runner prefix and hook path are
+already populated in gate-scout output.
 
 ---
 
@@ -135,8 +139,8 @@ including bounded repair exhaustion.
 
 | # | DoD item | Enforced by | HALT on unmet (autonomous mode) |
 |---|----------|-------------|---------------------------------|
-| 1 | All tests pass | Gate 3 (Unit) + Gate 4 (Integration) | bounded coder verify-repair for new failures; exhaustion → HALT-002; structural escalation → `/build-refine` |
-| 2 | Coverage ≥ threshold | Gate 5 (Coverage) | bounded coder verify-repair; exhaustion → HALT-002; structural escalation → `/build-refine` |
+| 1 | All tests pass | Gate 3 (Unit) + Gate 4 (Integration; local or required CI check) | bounded coder verify-repair for local new failures; CI failures → `build-fix-ci`; exhaustion → HALT-002 |
+| 2 | Coverage ≥ threshold | Gate 5 (local threshold or required CI threshold) | bounded coder verify-repair for blocking local coverage gaps; CI-owned threshold is advisory locally; exhaustion → HALT-002 |
 | 3 | Lint clean | Gate 2 (Lint) | deterministic gate-scout autofix, then bounded coder verify-repair; exhaustion → HALT-002 |
 | 4 | Type-check clean | Gate 1 (Build) | bounded coder verify-repair; exhaustion → HALT-002; structural escalation → `/build-refine` |
 | 5 | No CRITICAL sensor findings | Gate 0 (Sensors) | HALT-001 (sensor-fixer exhausted) / HALT-004 (same finding 5×) |
@@ -182,7 +186,7 @@ Dispatch the `gate-scout` agent with:
 - `REPO_ROOT`: absolute path to the target repository root
 - `COVERAGE_HINT`: the coverage threshold extracted from `design.md` (or empty string if none declared)
 
-The agent scans config files (`package.json`, `pom.xml`, `Makefile`, `build.gradle`, `pyproject.toml`, etc.) and returns a structured command map with the exact build, lint, unit, integration, and coverage commands, and a `java_version_required` field for JVM projects. Use this command map for all subsequent gates — do not infer commands independently.
+The agent scans config files and CI definitions, then returns a structured command map with the exact build, lint, unit, integration, coverage, CI ownership, sensor scope, and JVM-version fields. Use this map for all subsequent gates — do not infer commands independently.
 
 **Artifact handoff guard:** Read `local://` or `artifact://` only when that
 exact URI was emitted by a preceding tool or agent in this run. Never invent a
@@ -190,11 +194,12 @@ placeholder such as `local://no-such`. If no URI was emitted, use the canonical
 repository path already resolved in Step 1; if that path is missing, report the
 missing artifact and stop the affected gate rather than probing guessed URIs.
 
-**Coverage command contract:** use `coverage` from the command map as an
-executable string only, and use `coverage_threshold` as separate metadata. Never
-execute a command containing a human-readable suffix such as
-`— threshold: 95%`. If a legacy gate-scout response contains that suffix, remove
-the suffix before execution and log the threshold separately.
+**Coverage command contract:** use `unit_coverage` for fresh unit collection,
+`integration_coverage` to append local integration coverage, and `coverage_report`
+to report collected data without running tests. Use `coverage` only as the legacy
+all-in-one fallback when the split commands are absent. Treat each command as an
+executable string and `coverage_threshold` as separate metadata; never execute a
+command containing a human-readable suffix such as `— threshold: 95%`.
 
 **Report-output contract:** test reports belong in the resolved spec folder, never in
 the repository root. gate-scout may copy CI report options such as
@@ -208,7 +213,7 @@ keep the basename. Leave the rest of the command, and report paths outside the
 workspace, unchanged. Gates 4 and 5 log the rewritten path as `junit_report`.
 
 **MANDATORY: load `references/gate-definitions.md`** if gate-scout returns a toolchain
-(Maven, Gradle, Go, Rust, Biome, sqlfluff) for which the three-path command selection in
+(Maven, Gradle, Go, Rust, Biome, sqlfluff) for which the four-path command selection in
 Steps 4–5 does not cover the exact hook IDs, split flags, or runner conventions. For
 Python/JS/TS with populated hook commands, skip the reference.
 
@@ -261,21 +266,22 @@ command, including its runner prefix. `failing` contains test IDs, file:line
 locations, or uncovered branch identifiers as applicable. Retain each gate's
 raw output in a per-run file under `$SPEC_FOLDER` and set `log_path` to that
 file's actual path; never invent an excerpt, failure, or path. Compare UNIT and
-INTEGRATION failures against the inherited `BASELINE_FAILURES`. A UNIT or
-mandatory INTEGRATION test becomes a finding only after its one allowed
-single-test flaky re-run still fails. Only mandatory INTEGRATION failures
-block; non-mandatory failures remain advisory. The loop starts with at least
-one gate finding; if a repair-delta review adds blockers after a gate re-check
-passes, continue the already-active loop with an empty `VERIFY_FINDINGS` array
-and those findings separately in `REVIEW_FINDINGS`.
+INTEGRATION failures against `BASELINE_FAILURES`. A UNIT test or mandatory
+local INTEGRATION test becomes a finding only after its one allowed single-test
+flaky re-run still fails. CI-owned integration is skipped locally; its required
+CI check is owned by `build-fix-ci`, not this coder loop. Only mandatory local
+INTEGRATION failures block; non-mandatory local failures remain advisory. The
+loop starts with at least one gate finding; if a repair-delta review adds
+blockers after a gate re-check passes, continue the already-active loop with an
+empty `VERIFY_FINDINGS` array and those findings separately in `REVIEW_FINDINGS`.
 
 Before creating a finding, separate code-attributable failures from command,
 tooling, external-service, and setup errors for every gate. Preserve the actual
 output and report environment/setup failures as blockers without coder dispatch;
 they are never passes or `VERIFY_FINDINGS`.
 
-Gate 0 remains separate: the existing sensor-fixer route is unchanged, and sensor
-findings never become `VERIFY_FINDINGS`.
+Gate 0 remains separate: sensor-fixer repairs use the shared Phase 1 budget from
+build-sensors; sensor findings never become coder `VERIFY_FINDINGS`.
 
 For each repair round:
 
@@ -290,7 +296,8 @@ For each repair round:
    paragraph from `$MAKATO_BUILD_ROOT/config/verification-ownership.md` at
    dispatch time and place it verbatim in the coder Task context. The coder runs
    targeted commands covering the supplied findings and tests touching repaired
-   files; build-verify owns integration/full-suite gates.
+   files; build-verify owns local integration/full-suite gates, while required
+   CI-owned integration checks remain with `build-fix-ci`.
 2. Require coder R1 `data.mode:"verify-repair"`, matching `repair_round`,
    `repaired_findings`, `unresolved_findings`, and `data.details.per_finding`. A
    successful response must report every supplied finding repaired, no
@@ -317,10 +324,12 @@ For each repair round:
    `REVIEW_FINDINGS` for the next round. Coder success is not a review or gate
    pass.
 4. Re-run gates under the existing scope rule: if production code changed,
-   start at BUILD and run the applicable gates forward; if changes are test-only,
+   start at BUILD and run applicable gates forward; if changes are test-only,
    test-data, or config-only, start at the first affected gate and run applicable
-   downstream gates. Coverage-driven test changes start at UNIT. Apply the
-   single flaky-test re-run rule again. Never count coder targeted tests as a
+   downstream gates. Any re-check that includes Gate 5 MUST start at Gate 3 to
+   collect fresh coverage data, then run the applicable Gate 4 lane before the
+   report. Coverage-driven test changes start at Gate 3. Apply the single
+   flaky-test re-run rule again. Never count coder targeted tests as a
    substitute for these gates.
 5. Log each completed independent re-check:
 
@@ -346,27 +355,33 @@ unresolved finding, or convert an environment blocker into a coder repair.
 
 ### Step 3 — Gate 0: SENSORS
 
-Run: `/makato-build:build-sensors all <key>`
+Select the scope from gate-scout:
 
-**CI parity — always `all`, never a staged/changed subset.** The `all` scope maps
-`build-sensors` onto `pre-commit run --hook-stage manual --all-files` — the *exact*
-command CI runs. A local pre-commit hook typically lints only staged/changed files, so a
-repo-wide lint finding (a formatter nit in a file the diff touched, or pre-existing debt in
-an untouched file that a repo-wide `--all-files` pass surfaces) passes locally and only goes
-red in CI. Gate 0 exists to close that gap: run it with `all` so `/build-verify` reproduces
-the CI lint surface **before** the PR is opened. Do NOT substitute a hand-run
-`pre-commit run --files …` here — that is the subset that lets CI-only failures through.
+- When `gate-scout.data.sensors_ci_scope == "changed"`, run
+  `/makato-build:build-sensors branch <key>`.
+- Otherwise (`"all-files"` or `"not found"`), run
+  `/makato-build:build-sensors all <key>`.
 
-Thread the resolved `<key>` (the work-item key from Step 1) as the `spec_key` positional
-argument — `build-sensors` marks it **required** and uses it to locate
-`specs/<key>-<slug>/build.jsonl`. Omitting it breaks the Gate-0 audit write (#229): the
-sensors run cannot append to the same `build.jsonl` as the rest of this session, and in
-autonomous mode the DoD Gate-0 record (item 5) is lost. The `<key>` here MUST be the
-identical key threaded into every `build-log.sh "<key>"` call elsewhere in this skill.
+This is never narrower than CI: `branch` mirrors a changed-file CI sensor lane
+and includes the current branch diff plus uncommitted/untracked work; `all`
+mirrors CI's `--all-files` lane or is the conservative fallback when scope is
+unknown. The selected scope is passed to build-sensors with the default shared
+repair budget of five Phase 1 passes for the whole Gate 0 invocation.
 
-Expected: exit 0 after sensor-fixer loop completes (loops <= MAX_LOOPS=5).
+Thread the resolved `<key>` (the work-item key from Step 1) as the `spec_key`
+positional argument — `build-sensors` marks it **required** and uses it to
+locate `specs/<key>-<slug>/build.jsonl`. Omitting it breaks the Gate-0 audit
+write (#229): sensors cannot append to the same `build.jsonl` as the rest of
+this session, and in autonomous mode the DoD Gate-0 record (item 5) is lost.
+The `<key>` here MUST be identical to the key threaded into every
+`build-log.sh "<key>"` call elsewhere in this skill.
 
-On residual: continue but log to specs/<key>/build.jsonl as `gate-0-residual` and add residual findings to the verify report. Do NOT block subsequent gates — sensor harness is autonomous, not blocking.
+Retain the R1 `data.scope`, `data.hooks`, and `data.final_run_log` from the
+final pre-commit run; Gates 1 and 2 use those first-pass results when their
+hook IDs are present. Expected: exit 0 after sensor-fixer completes within the
+shared budget. On residual, continue but log `gate-0-residual` and include the
+residuals in the verify report; the sensor loop returns the findings for
+orchestration rather than adding them to coder `VERIFY_FINDINGS`.
 
 ---
 
@@ -374,20 +389,31 @@ On residual: continue but log to specs/<key>/build.jsonl as `gate-0-residual` an
 
 Run the project's build command (compile / type-check).
 
-**Command selection — three paths:**
+**Command selection — Gate-0 reuse, direct hook, missing hook, or legacy fallback:**
 
-1. **Hook path** — `gate-scout.data.build_hook_cmd` is non-null: use it as the Gate 1
-   command. Log `data.gate_command_source: "hook"`. This is the authoritative CI-parity path.
+1. **Gate-0 hook path** — when `gate-scout.data.build_hook_cmd` is non-null,
+   extract its hook ID. On the first pass, use that hook's status from Gate 0
+   `data.hooks` and parse its section in `data.final_run_log` with the same
+   error-count rule below. Do not re-run the hook; log
+   `data.gate_command_source: "gate-0"`.
 
-2. **Missing-hook path** — `build_hook_cmd` is null and `gate-scout.data.build_hook_missing`
-   is `true`: emit WARN `"Gate 1: no type-check pre-commit hook found — skipping BUILD gate
-   (no authoritative command)"`. Record gate as `skipped` (not `pass`). Log
+2. **Direct hook re-run** — run the hook command when Gate 0's final run lacks
+   that hook ID or after a coder repair. Restrict it to Gate 0's scope:
+   `all` uses `--all-files`; `branch` uses `--files` with the merge-base branch
+   diff plus current untracked files registered with `git add -N`, as in Step 3.
+   Recompute this set after repair so newly changed/untracked files are included.
+   Use the hook ID from `build_hook_cmd` and log `data.gate_command_source: "hook"`.
+
+3. **Missing-hook path** — `build_hook_cmd` is null and
+   `gate-scout.data.build_hook_missing` is `true`: emit WARN
+   `"Gate 1: no type-check pre-commit hook found — skipping BUILD gate (no authoritative command)"`.
+   Record gate as `skipped` (not `pass`) and log
    `data.gate_command_source: "none"`. Do not fall back to a raw tool invocation.
 
-3. **Legacy fallback path** — `build_hook_cmd` is null and `build_hook_missing` is absent or
-   false (gate-scout pre-dates hook probing): fall back to `gate-scout.data.build` with WARN
-   `"Gate 1: gate-scout pre-dates hook probing — falling back to raw tool (non-authoritative)"`.
-   Log `data.gate_command_source: "raw"`.
+4. **Legacy fallback path** — `build_hook_cmd` is null and `build_hook_missing`
+   is absent or false (gate-scout predates hook probing): fall back to
+   `gate-scout.data.build` with the existing non-authoritative warning. Log
+   `data.gate_command_source: "raw"`.
 
 **Pre-flight no-hooks-matched guard:**
 
@@ -400,7 +426,8 @@ declaration on the hook.
 
 **Error-count parsing:**
 
-After running the Gate 1 command, parse stdout for the pyright error-count summary:
+After obtaining Gate 1 output (from Gate 0's final run or a direct command), parse
+the pyright error-count summary:
 
 - Pattern: `(\d+) errors?` (case-insensitive)
 - Gate passes when: exit code 0 **AND** parsed error count == 0 (or pattern absent — no errors reported)
@@ -416,7 +443,7 @@ pass.
 
 Log:
 ```
-{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-build","status":"ok"|"error"|"skipped","data":{"gate_command_source":"hook|raw|none","parsed_errors":<N>,"parsed_warnings":<N>}}
+{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-build","status":"ok"|"error"|"skipped","data":{"gate_command_source":"gate-0|hook|raw|none","parsed_errors":<N>,"parsed_warnings":<N>}}
 ```
 
 ---
@@ -425,30 +452,34 @@ Log:
 
 Run the project's lint command (static analysis / style enforcement).
 
-**Command selection — three paths:**
+**Command selection — Gate 0 reuse, direct hook, missing hook, or legacy fallback:**
 
-1. **Hook path** — `gate-scout.data.lint_hook_cmd` is non-null: use it as the Gate 2
-   command. Log `data.gate_command_source: "hook"`. This is the authoritative CI-parity path.
-   When `lint_hook_cmd` is non-null, the hook path IS the CI path — bypass the
-   `lint_ci_divergence` double-run check with informational note: "CI-parity via pre-commit
-   hook — lint_ci_divergence check bypassed." Only run `lint_ci_command` when `lint_hook_cmd`
-   is null (legacy fallback path).
+1. **Gate-0 hook path** — when `gate-scout.data.lint_hook_cmd` is non-null,
+   extract its hook ID. On the first pass, use that hook's status from Gate 0
+   `data.hooks` and parse its section in `data.final_run_log` with the same
+   error-count rule below. Do not re-run the hook; log
+   `data.gate_command_source: "gate-0"`. This Gate-0 result is the CI-parity
+   path, so do not run the `lint_ci_divergence` double-check.
 
-2. **Missing-hook path** — `lint_hook_cmd` is null and `gate-scout.data.lint_hook_missing`
-   is `true`: emit WARN `"Gate 2: no lint pre-commit hook found — skipping LINT gate
-   (no authoritative command)"`. Record gate as `skipped` (not `pass`). Log
+2. **Direct hook re-run** — run the hook command when Gate 0's final run lacks
+   that hook ID or after a coder repair. Restrict it to Gate 0's scope:
+   `all` uses `--all-files`; `branch` uses `--files` with the merge-base branch
+   diff plus current untracked files registered with `git add -N`, as in Step 3.
+   Recompute this set after repair so newly changed/untracked files are included.
+   Use the hook ID from `lint_hook_cmd` and log `data.gate_command_source: "hook"`.
+
+3. **Missing-hook path** — `lint_hook_cmd` is null and
+   `gate-scout.data.lint_hook_missing` is `true`: emit WARN
+   `"Gate 2: no lint pre-commit hook found — skipping LINT gate (no authoritative command)"`.
+   Record gate as `skipped` (not `pass`) and log
    `data.gate_command_source: "none"`. Do not fall back to a raw tool invocation.
 
-3. **Legacy fallback path** — `lint_hook_cmd` is null and `lint_hook_missing` is absent or
-   false (gate-scout pre-dates hook probing): fall back to `gate-scout.data.lint` with WARN
-   `"Gate 2: gate-scout pre-dates hook probing — falling back to raw tool (non-authoritative)"`.
-   Log `data.gate_command_source: "raw"`.
-
-   In the legacy fallback path, if `lint_ci_divergence: true`, run **both** the local lint
-   command (`lint`) and the CI lint command (`lint_ci_command`) and require both to pass. Emit
-   an informational note: "Running local lint and CI lint — commands differ." If
-   `lint_ci_command` is "not found" (CI config not readable), emit a WARNING: "[WARNING] Could
-   not verify CI lint config — ensure local lint rules match your CI pipeline."
+4. **Legacy fallback path** — `lint_hook_cmd` is null and `lint_hook_missing`
+   is absent or false (gate-scout predates hook probing): fall back to
+   `gate-scout.data.lint` with the existing non-authoritative warning. Log
+   `data.gate_command_source: "raw"`. If `lint_ci_divergence: true`, retain
+   the existing behavior: run both local and CI lint commands and require both
+   to pass. If the CI command is unavailable, emit the existing warning.
 
 **Pre-flight no-hooks-matched guard:**
 
@@ -459,8 +490,8 @@ no hooks — ruff hook may be missing 'manual' stage. Treating as skipped."` Rec
 
 **Error-count parsing:**
 
-After running the Gate 2 command, parse stdout for the ruff error-count summary:
-
+After obtaining Gate 2 output (from Gate 0's final run or a direct command), parse
+the ruff error-count summary:
 - Pattern: `Found (\d+) errors?`
 - Gate passes when: exit code 0 **AND** parsed error count == 0
 
@@ -471,34 +502,34 @@ command output and gate result for the coder and audit log.
 
 Log:
 ```
-{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-lint","status":"ok"|"error"|"skipped","data":{"gate_command_source":"hook|raw|none","parsed_errors":<N>,"parsed_warnings":<N>,"ci_divergence":<true|false>,"ci_lint_run":<true|false>}}
+{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-lint","status":"ok"|"error"|"skipped","data":{"gate_command_source":"gate-0|hook|raw|none","parsed_errors":<N>,"parsed_warnings":<N>,"ci_divergence":<true|false>,"ci_lint_run":<true|false>}}
 ```
 
 ---
 
 ### Step 6 — Gate 3: UNIT TESTS
 
-Run the unit test suite only — no integration tests.
+Run the unit suite only — no integration tests. When both
+`gate-scout.data.unit_coverage` and `gate-scout.data.coverage_report` are found,
+run `unit_coverage` instead of `unit`: it collects into a fresh coverage data
+set without reporting. Otherwise run `unit`. This is one unit-lane run; do not
+run the all-in-one `coverage` fallback here.
 
-Gate passes when there are zero new failures relative to the
-`BASELINE_FAILURES` captured by `build-implement-tdd` Step 3; pre-existing
-failures in that exact baseline do not count against this session. Record
-total, passed, failed, and skipped.
+Gate passes when there are zero new failures relative to `BASELINE_FAILURES`
+from the reusable baseline row; pre-existing failures in that exact baseline
+do not count. Record total, passed, failed, and skipped.
 
-Running unit tests in isolation means a failure here is attributable to a unit
-boundary. If the project's test runner does not distinguish unit from
-integration natively, use the naming convention or directory structure
-returned by gate-scout to filter.
-
-For each failed test with no source change since its prior run, re-run that
-single test once as the flaky-test check. If it passes, log the warning and
-continue; if it still fails and is new against `BASELINE_FAILURES`, add it as a
-`gate:"unit"` finding for Step 2a. Do not edit tests or source here.
+Use gate-scout's lane selector (directory, marker, or naming convention) to
+exclude integration tests. For a failed test with no source change since its
+prior run, apply the existing single-test flaky check; if coverage collection
+was used, run that one-test check without coverage collection so it cannot
+replace the fresh full-unit coverage data.
 
 **Re-run scope rule**: after coder repair, re-run from BUILD (Gate 1) if
-production code changed. For test-only or config-only repair, start from the
-first affected gate and run applicable downstream gates; BUILD and LINT do not
-need to re-run for test-file-only changes.
+production code changed. For test-only or config-only repair, start at the
+first affected gate and run applicable downstream gates; BUILD and LINT need
+not re-run for test-file-only changes. If Gate 5 must be checked again, start
+at Gate 3 to collect a fresh coverage data set.
 
 Log:
 ```
@@ -509,9 +540,10 @@ Log:
 
 ### Step 7 — Gate 4: INTEGRATION TESTS
 
-**Mandatory-gate determination.** Before running the suite, read `plan_analysis` from
-`workflow-state.json` (path: `specs/<key>-*/workflow-state-<N>.json`). The field is optional
-— absent on state files created before #581. Determine whether Gate 4 is mandatory:
+**Mandatory-gate determination.** Before selecting the owner, read
+`plan_analysis` from `workflow-state.json` (path:
+`specs/<key>-*/workflow-state-<N>.json`). The field is optional — absent on
+state files created before #581:
 
 ```
 MANDATORY = false  (default — backward-compatible non-blocking path)
@@ -523,70 +555,67 @@ if plan_analysis is present and not null:
         MANDATORY = true
 ```
 
-When `plan_analysis` is absent or null, `MANDATORY` stays `false` — Gate 4 runs the suite
-advisory (existing behavior unchanged, single-layer changes are never blocked).
+When `plan_analysis` is absent or null, `MANDATORY` stays `false`; non-mandatory
+local integration failures remain advisory, so single-layer changes are never
+blocked by this optional gate.
 
-Run the integration test suite only.
+If `gate-scout.data.integration_ci != "not found"`, CI owns Gate 4. Do not run
+integration tests locally. Log `status:"skipped"` with `owner:"ci"`, the
+`integration_ci` value as `ci_ref`, and the computed `mandatory` value. The
+required CI check is the gate; `build-fix-ci` owns its failure repair.
 
-Gate passes when there are zero new failures relative to the inherited
-`BASELINE_FAILURES`. Record total, passed, failed, and skipped.
+Otherwise run the integration lane locally, using `integration_coverage` when
+gate-scout found it and `integration` otherwise. The append command MUST append
+to Gate 3's fresh coverage data without reporting. Integration tests run against
+real dependencies; complete required setup first, and report setup failures
+without running tests against an incomplete environment or dispatching coder.
 
-Integration tests run against real dependencies. If the test environment
-requires setup (test database, docker-compose, required env vars), perform it
-first. If environment setup fails, report the blocker clearly and do not run
-tests against an incomplete environment or dispatch coder.
-
-Apply the single-test flaky check described in Step 2a to each candidate. A
-remaining failure is a blocking `gate:"integration"` finding only when
-`MANDATORY == true`; when `MANDATORY == false`, log the failure as advisory and
-continue to Gate 5 without coder dispatch.
-
-**Mandatory vs non-mandatory failure handling:**
-
-- When `MANDATORY == true` and Gate 4 fails, add the new baseline-relative
-  failures to `VERIFY_FINDINGS` and enter Step 2a.
-- When `MANDATORY == false` (default) and Gate 4 fails, the result is advisory
-  only; continue to Gate 5. Do not block the pipeline for single-layer changes.
-
-**Re-run scope rule**: after coder repair, re-run from BUILD (Gate 1) if
-production code changed. For integration-test-only, test-data, or environment
-config changes, start at INTEGRATION and run applicable downstream gates; do
-not re-run BUILD/LINT/UNIT.
+For local runs, compare failures against `BASELINE_FAILURES` and apply the
+single-test flaky check from Step 2a. A remaining failure blocks only when
+`MANDATORY == true`; otherwise log it as advisory and continue to Gate 5.
+After repair, rerun applicable downstream gates; if Gate 5 is needed, restart
+at Gate 3 so unit and local integration coverage are fresh.
 
 Log:
 ```
-{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-integration","status":"ok"|"error","data":{"total":<N>,"passed":<N>,"failed":<N>,"skipped":<N>,"mandatory":<bool>,"tracer_required":<bool|null>,"distinct_layer_count":<int|null>,"junit_report":"<repo-relative path>|null"}}
+{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-integration","status":"ok"|"error"|"skipped","data":{"owner":"local|ci","ci_ref":"<repo-relative CI file>:<line>|null","total":<N>,"passed":<N>,"failed":<N>,"skipped":<N>,"mandatory":<bool>,"tracer_required":<bool|null>,"distinct_layer_count":<int|null>,"junit_report":"<repo-relative path>|null"}}
 ```
 
 ---
 
 ### Step 8 — Gate 5: COVERAGE
 
-Run the exact executable string from `gate-scout.data.coverage` against the
-combined unit + integration results. `coverage_threshold` is metadata only and
-must never be part of the shell command.
+Gate 5 never re-runs tests when the split commands exist: Gate 3 (and a local
+Gate 4) already collected the data, so run only the report-only
+`coverage_report`. `coverage_threshold` is metadata only and must never be part
+of a shell command. Select the action from this matrix ("split" = both
+`unit_coverage` and `coverage_report` found):
 
-Check **conditional coverage** (branch/condition coverage, not line coverage): every
-branch of every conditional in the new code must be exercised by at least one test.
+| Split | Gate 4 owner | `coverage_ci` | Action | Threshold result |
+|---|---|---|---|---|
+| yes | local | any | `coverage_report` over unit + integration data | blocking (`enforced:true`) |
+| yes | ci | found | `coverage_report` over unit data | advisory; the required CI threshold check blocks |
+| yes | ci | not found | `coverage_report` over unit data | advisory; a miss logs `warn` — the local data lacks the CI-owned integration lane |
+| no | local | any | legacy all-in-one `coverage` command | blocking (`enforced:true`) |
+| no | ci | any | skip — never run the all-in-one command, it would run integration tests locally | not measured |
 
-If `coverage_threshold` is declared by gate-scout (or a story threshold was
-declared in `design.md`), compare the measured conditional coverage against the
-applicable threshold:
-- Below threshold → identify the specific uncovered branches and add them to
-  `VERIFY_FINDINGS` as `gate:"coverage"`; enter Step 2a. The coder adds targeted
-  tests, and build-verify re-runs from UNIT under the scope rule.
-- If the coder reports that filling the coverage gap requires rethinking the
-  implementation structure, return `partial` with
-  `data.escalation:"refine"` → `/build-refine`.
+Check **conditional coverage** (branch/condition coverage, not line coverage):
+every branch of every conditional in the new code must be exercised by at least
+one test. An advisory result reports the local figure, the measured `lanes`, and
+uncovered branches, but adds nothing to `VERIFY_FINDINGS`; a red CI threshold
+check is repaired by `build-fix-ci`. A blocking below-threshold result
+identifies uncovered branches and adds them to `VERIFY_FINDINGS` as
+`gate:"coverage"`; enter Step 2a. If the coder reports that filling the gap
+requires rethinking the implementation structure, return `partial` with
+`data.escalation:"refine"` → `/build-refine`.
 
-If no threshold was declared:
-- Report the coverage figure as advisory
-- Note uncovered branches for the user's awareness
-- Do not block the pipeline
+If no threshold was declared, report coverage and uncovered branches as
+advisory. Any re-check that includes Gate 5 MUST start at Gate 3 to ensure the
+report uses fresh data after repair.
 
 Log:
 ```
-{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-coverage","status":"ok"|"warn"|"error","data":{"conditional_coverage":"<X>%","threshold":"<Y>%|none","threshold_met":true|false,"junit_report":"<repo-relative path>|null"}}
+{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-coverage","status":"ok"|"warn"|"error"|"skipped","data":{"owner":"local|ci","ci_ref":"<repo-relative CI file>:<line>|null","lanes":["unit","integration"],"enforced":true|false,"conditional_coverage":"<X>%|not measured","threshold":"<Y>%|none","threshold_met":true|false|null,"junit_report":"<repo-relative path>|null"}}
 ```
 
 ---
@@ -706,9 +735,8 @@ Present the gate summary table:
 Gate 1  BUILD             ✓ PASS   0 errors, N warnings
 Gate 2  LINT              ✓ PASS   0 errors
 Gate 3  UNIT              ✓ PASS   N passed, 0 failed
-Gate 4  INTEGRATION       ✓ PASS   N passed, 0 failed
-Gate 5  COVERAGE          ✓ PASS   N% conditional (threshold: N%)
-Gate 6  RUNTIME HEALTH    ✓ PASS   exit 0 in Ns  (advisory — warn does not block)
+Gate 4  INTEGRATION       <PASS (local) | CI-OWNED (required check)>  N passed, 0 failed
+Gate 5  COVERAGE          <PASS (local threshold) | ADVISORY (CI threshold)>  N% conditional
 Advisory  SKILL-PROVENANCE  ⚠ WARN   N skills expected, M invoked (advisory only, never blocks)
 ```
 
@@ -740,6 +768,6 @@ records in `.makato/memory/{procedural,semantic}.jsonl`. `local` records stay on
 in the spec. Optional `--bundle` and `--label` preserve filtered recall metadata.
 Verify the captured record using `workflow-state.sh recall-lessons <owner/repo>`.
 
-Tell the user: *"All gates passed.*
+Tell the user: *"All locally owned gates passed; CI-owned required checks remain with CI.*
 *Pipeline remaining: `/build-push-to-git` → `/build-create-pr`*
 *Next: run `/build-push-to-git` to commit and push."*

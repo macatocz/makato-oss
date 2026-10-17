@@ -6,11 +6,11 @@ description: >-
   full suite, integration suite, coverage, and repo-wide lint. Tracer bullet
   for multi-layer stories. Autonomous loop. Use after refine to implement a
   story plan or run the core build loop.
-version: "1.16.0"
+version: "1.17.0"
 argument-hint: "[work-item-key]"
 allowed-tools: ["Bash", "Read"]
 metadata:
-  last_updated: "2026-10-16"
+  last_updated: "2026-10-17"
 ---
 
 # implement-tdd
@@ -161,23 +161,26 @@ Run:
 "$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO-8601-ms>","skill":"build-implement-tdd","story":"<key>","step":"session","status":"start","data":{"tdd_tasks":<N>,"goal_tasks_skipped":<N>}}'
 ```
 
-### Step 3 — Establish test baseline
+### Step 3 — Establish or reuse test baseline
 
-Load `$MAKATO_BUILD_ROOT/shared/baseline-guide.md`. Follow its instructions to
-establish the baseline and handle the broken baseline gate.
+Load `$MAKATO_BUILD_ROOT/shared/baseline-guide.md`. Follow its instructions
+to establish or reuse the branch-base baseline and handle the broken-baseline
+gate.
 
 If `GATE_COMMANDS` was not supplied, dispatch the registered `gate-scout`
-agent once with `REPO_ROOT` and `COVERAGE_HINT`, parse its R1 `data`, and store
-the command map for this session. Run the exact `data.unit` command (including
-`python_runner_prefix`) for the baseline. If `data.unit` is `"not found"`,
-record a degraded-confidence skip; never substitute a bare `pytest` command.
-Forward the same map to every coder dispatch.
+agent once and store its command map for this session. Compute the current
+`branch` and `base_sha` as specified in the baseline guide. Reuse the latest
+matching implementation baseline row when available; otherwise run the exact
+`data.unit` command (including `python_runner_prefix`) once. If `data.unit` is
+`"not found"`, record a degraded-confidence skip; never substitute a bare
+`pytest` command. `BASELINE_FAILURES` is the baseline row's `data.failures`.
+Forward the same gate-scout map to every coder dispatch.
 
 **Flakey test rule (ordinary implementation only)**: if a test fails but no source code was changed between runs, re-run that single test once before classifying. In CI recovery, follow ci-recovery.md instead: targeted failures remain obligations, and the coordinator owns any diagnosed transient rerun.
 
-Run: `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"baseline","status":"ok","data":{"pre_existing_failures":<N>,"baseline_mode":"<proceed|halted>"}}'`
+Run: `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"baseline","status":"ok","data":{"pre_existing_failures":<N>,"failures":["<test id>",...],"branch":"<git branch>","base_sha":"<git merge-base HEAD $DEFAULT_REF>","cmd":"<exact unit command>","reused":<bool>,"source_ts":"<source row ts>"|null,"baseline_mode":"<proceed|halted>"}}'`
 
-If `pre_existing_failures > 0` and user chose continue, also log a decision entry:
+If `pre_existing_failures > 0` and a fresh run continued, also log a decision entry:
 `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"baseline-gate","status":"decision","data":{"pre_existing_failures":<N>,"user_choice":"continue"}}'`
 
 ### Step 4 — Read implementation context (via plan-analyst agent)
