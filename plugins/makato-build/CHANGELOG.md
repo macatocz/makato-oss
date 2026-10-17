@@ -23,10 +23,12 @@ here on merge to main; release-please will date and version them at the next rel
 
 ### Changed — build-create-pr loads story-scoped spec context
 
-- **`build-create-pr` v1.12.3** selects one `stories.json` entry by work-item key or issue
-  number, filters `build.jsonl` to that story while retaining its gate/AC evidence, and
-  reads only referenced `prd.md`/`design.md` sections and the matching plan slice. The
-  single-story and `plan-only` fallbacks and `created-issues.json` Case 4 injection remain.
+- **`build-create-pr` v1.12.3** selects one `stories.json` story by work-item key or issue
+  number — legacy `key` arrays, and decompose v2.0 `stories[]` matched through the
+  `created-issues.json` title — filters `build.jsonl` to that story while retaining its
+  gate/AC evidence, and reads only referenced `prd.md`/`design.md` sections and the
+  matching plan slice. The single-story and `plan-only` fallbacks and `created-issues.json`
+  Case 4 injection remain.
 - **`test_skill_execution.py`** covers the interactive clean-context prompt and the unchanged
   headless runner-dispatch prompt.
 

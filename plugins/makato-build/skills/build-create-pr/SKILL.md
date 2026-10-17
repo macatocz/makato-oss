@@ -139,9 +139,13 @@ SPEC_FOLDER="$(
 JSONL_PATH="${JSONL_PATH:-$SPEC_FOLDER/build.jsonl}"
 ```
 
-If `stories.json` exists, select exactly one entry using the work-item key or
-issue number; never read/print the module-wide JSON array into context. The
-schema's canonical identifier is the selected record's `.key`:
+If `stories.json` exists, select exactly one story using the work-item key or
+issue number; never read/print the module-wide story list into context. Two
+shapes exist: a legacy top-level array whose entries carry `.key`, and the
+decompose v2.0 object (`{"version":"2.0","stories":[…]}`) whose stories carry
+no key. to-issues titles each issue `[<project>] <summary>`, so a v2.0 story is
+the one whose `summary` equals its `created-issues.json` title without that
+prefix (or whose `issue_number`/`githubIssue` is the issue number):
 
 ```bash
 ISSUE_NUMBER=""
@@ -151,16 +155,29 @@ fi
 STORY_JSON=""
 STORY_KEY="$KEY"
 if [[ -f "$SPEC_FOLDER/stories.json" ]]; then
-  STORY_MATCHES="$(jq -c --arg key "$KEY" --arg issue "$ISSUE_NUMBER" '
-    if $key == "" and length == 1 then . else
-      [ .[] | select(
-          .key == $key
-          or ($issue != "" and ((.key | tostring | endswith("-" + $issue))
-                                or (.key | tostring | endswith("#" + $issue))))
-          or ($issue != "" and (((.issue_number // .number // "") | tostring) == $issue))
-        )
-      ]
-    end' "$SPEC_FOLDER/stories.json")"
+  ISSUE_SUMMARY=""
+  if [[ -n "$ISSUE_NUMBER" && -f "$SPEC_FOLDER/created-issues.json" ]]; then
+    ISSUE_SUMMARY="$(jq -r --arg issue "$ISSUE_NUMBER" '
+      first(.issues[]? | select((.issue_number | tostring) == $issue)
+            | .title | sub("^\\[[^]]+\\] "; "")) // ""' \
+      "$SPEC_FOLDER/created-issues.json")"
+  fi
+  STORY_MATCHES="$(jq -c --arg key "$KEY" --arg issue "$ISSUE_NUMBER" \
+      --arg summary "$ISSUE_SUMMARY" '
+    (if type == "array" then . else .stories end) as $stories
+    | if ($stories | type) != "array" then error("stories.json has no story list")
+      elif $key == "" and ($stories | length) == 1 then $stories
+      else
+        [ $stories[] | select(
+            .key == $key
+            or ($issue != "" and (((.key // "") | tostring | endswith("-" + $issue))
+                                  or ((.key // "") | tostring | endswith("#" + $issue))))
+            or ($issue != "" and (((.issue_number // .number // .githubIssue // "")
+                                   | tostring) == $issue))
+            or ($summary != "" and .summary == $summary)
+          )
+        ]
+      end' "$SPEC_FOLDER/stories.json")"
   MATCH_COUNT="$(jq 'length' <<<"$STORY_MATCHES")"
 fi
 ```
@@ -174,12 +191,13 @@ PR or guess another story. With exactly one match, set:
 
 ```bash
 STORY_JSON="$(jq -c '.[0]' <<<"$STORY_MATCHES")"
-STORY_KEY="$(jq -r '.key' <<<"$STORY_JSON")"
+STORY_KEY="$(jq -r --arg key "$KEY" '.key // $key' <<<"$STORY_JSON")"
 ```
 
 When `stories.json` is absent, `STORY_KEY="$KEY"`; this keeps the existing
-plan-only fallback. Do not change the `created-issues.json` Case 4 issue-link
-behavior.
+plan-only fallback. A selected v2.0 story has no `.key`, so `STORY_KEY` also
+stays `$KEY`, the key its `build.jsonl` rows carry. Do not change the
+`created-issues.json` Case 4 issue-link behavior.
 
 Read only the selected story's inputs from `SPEC_FOLDER` (NOT under
 `$WORKTREE_PATH` — see the entry guard above):
@@ -305,8 +323,9 @@ PR title/body or create a second PR. Zero matches and no supplied existing PR
 
 Load `@references/pr-description-guide.md` (MANDATORY — see References table). Use `.github/PULL_REQUEST_TEMPLATE.md` (already read in Step 1) as the body structure — populate each of its sections from spec artifacts. This ensures the produced PR matches the template enforced by the project rather than a free-form body.
 
-**PR title**: `feat: <story title>` — use `STORY_JSON.title` from the selected
-story, or the current story's `plan.md` slice when no story record exists; if no
+**PR title**: `feat: <story title>` — use `STORY_JSON.title` (v2.0:
+`STORY_JSON.summary`) from the selected story, or the current story's
+`plan.md` slice when no story record exists; if no
 spec exists, derive from commit messages. Append ` (DCP-1234)` or ` (#42)` when a work item key is available. The full title must fit on one line in GitHub's PR list view: keep it under 72 characters total. Truncate or rephrase the story title if needed; never truncate the issue reference.
 
 **Title format rule**: the title MUST match `^(feat|fix|docs|refactor|test|chore|ci|build|perf|style|revert)(\([a-z0-9-]+\))?: .+$` — the same regex enforced by the CI `pr-title` check. Scope is optional; when present it must be a single `[a-z0-9-]` identifier (no commas, no slashes). For cross-plugin or repo-wide changes, omit the scope entirely (`fix: description`, not `fix(a,b,c): description`). Validate the title against this regex **before** calling `gh pr create` and fail with a clear error if it does not match — do not let CI catch it first.
@@ -323,9 +342,11 @@ current story's commit messages.
 **Links**: see Step 6 for issue tracker handling. When `created-issues.json` is present and valid, the Links section receives an auto-injected `Closes #N` line per artifact entry (in artifact order), deduped against any user-supplied `GH#N` reference — see Step 6 Case 4.
 
 **How to Test**: one numbered step per acceptance criterion, in this precedence order:
-1. **`stories.json` present** → one step per `acceptance_criteria` item in
-   `STORY_JSON` (the selected entry only). Keep the complete AC list and its
-   order; do not mix criteria from sibling stories.
+1. **`stories.json` present** → one step per acceptance criterion of
+   `STORY_JSON` (the selected entry only): its `acceptance_criteria` items, or
+   in v2.0 its `description.successScenarios[]` (AC-1, AC-2, … by index, as
+   build-refine numbers them). Keep the complete AC list and its order; do not
+   mix criteria from sibling stories.
 2. **No `stories.json`, but `spec_tier:plan-only`** (D11 enabler) → read `seed-manifest.json`
    `.spec_tier`; when it is `"plan-only"`, source the steps from `plan.md`
    `## Acceptance criteria` — one numbered step per non-empty acceptance item. This is the
