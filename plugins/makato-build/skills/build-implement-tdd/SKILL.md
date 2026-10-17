@@ -256,11 +256,11 @@ For each `mode: tdd` task in topological order, dispatch the per-task `task-file
 - `GATE_COMMANDS`: the authoritative gate-scout command map, including the
   runner prefix. Forward it verbatim so coder phases never fall back to
   system-Python commands.
-- `PRIOR_R1`: when the latest coder R1 mirrored in `build.jsonl` for this
-  `TASK_INDEX` is not `success` and its edits remain in the worktree (an
-  earlier unverified attempt in this run or a halted prior run), forward that
-  envelope verbatim so the coder adopts the edits and re-proves every phase.
-  Omit it otherwise.
+- `PRIOR_R1`: when an earlier coder R1 in this run for this `TASK_INDEX` was
+  unverified (see *On coder result*) and its edits remain in the worktree,
+  forward that envelope verbatim so the coder adopts the edits and re-proves
+  every phase. Omit it otherwise. Edits do not survive into a later run:
+  `worktree.sh create` refuses to resume a dirty worktree.
 
 **Serial dispatch**: dispatch at most one coder per worktree at a time, in topological order; the next coder starts only after the previous coder's R1 has been handled. Concurrent coders would share one worktree, so their phase runs would observe each other's half-finished edits and duplicate full-suite runs. `blockedBy` constrains the order: a task blocked by Task N is dispatched only after Task N's coder returns `status: "success"`.
 
