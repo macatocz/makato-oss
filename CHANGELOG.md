@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.171.0](https://github.com/macatocz/makato-oss/compare/v0.170.2...v0.171.0) (2026-10-17)
+
+
+### ✨ Features
+
+* **makato-build:** targeted implementation tests, CI-owned integration and coverage ([#164](https://github.com/macatocz/makato-oss/issues/164)) ([#167](https://github.com/macatocz/makato-oss/issues/167)) ([b22a2db](https://github.com/macatocz/makato-oss/commit/b22a2db6eb0821f45f757a38368df00d99fd030e))
+
 ## [0.170.2](https://github.com/macatocz/makato-oss/compare/v0.170.1...v0.170.2) (2026-10-17)
 
 
