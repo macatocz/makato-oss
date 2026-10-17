@@ -11,13 +11,6 @@ Changes are grouped by skill/component. Within each group, latest version on top
   instructions into `build-implement-tdd`/`build-implement-goal` context. On
   sagibeast#994 such an instruction made coders skip their phase gates, which
   halted the run.
-- **`scripts/loop.sh` dispatch, stall resume, and the HALT-007B resume
-  script** now tell the top-level session to put the MAKATO VERIFICATION
-  OWNERSHIP paragraph (`config/verification-ownership.md`) verbatim in the
-  po-agent's Task context. The po-agent copies it into each coder dispatch's
-  context. OMP renders Task context into the child's system prompt, the level
-  of its generic "skip builds/tests mid-flight" and subagent hand-off
-  guidance, which skill text alone did not override on sagibeast#994.
 
 ### Fixed — honour linked target roots for workflow state and lessons
 

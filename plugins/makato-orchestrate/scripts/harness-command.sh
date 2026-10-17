@@ -93,22 +93,6 @@ _harness_dispatch_args() {
 }
 
 # ---------------------------------------------------------------------------
-# _harness_po_agent_verification_clause — sentence appended to every top-level
-# po-agent dispatch prompt (fresh dispatch, stall resume, HALT-007B resume).
-# OMP renders a Task call's `context` into the child's system prompt, the same
-# level as its generic "skip builds/tests mid-flight" and subagent hand-off
-# guidance; skill text alone loses to that guidance (#141). The paragraph lives
-# in config/verification-ownership.md so every prompt carries identical text.
-# ---------------------------------------------------------------------------
-_HARNESS_VERIFICATION_OWNERSHIP_FILE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../config" && pwd)/verification-ownership.md"
-
-_harness_po_agent_verification_clause() {
-  local paragraph
-  paragraph="$(<"$_HARNESS_VERIFICATION_OWNERSHIP_FILE")" || return 1
-  printf '%s' "Put this paragraph verbatim in the po-agent's Task context (at the top of its prompt when the Task tool has no context field): ${paragraph}"
-}
-
-# ---------------------------------------------------------------------------
 # Standalone CLI — only active when this file is executed directly (not
 # sourced). Lets shell-stub unit tests assert command construction without
 # invoking a real model.

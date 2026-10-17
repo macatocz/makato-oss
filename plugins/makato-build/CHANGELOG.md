@@ -25,6 +25,15 @@ here on merge to main; release-please will date and version them at the next rel
   Coordinator test runs are never promoted to coder success.
 - **`agents/RETURN-CONTRACT.md`** and **`references/tdd-cycle-rules.md`** document
   the same ownership rule.
+- **`scripts/run-skill.py`** appends the new `config/verification-ownership.md`
+  policy to every workflow-skill OMP run's system prompt
+  (`--append-system-prompt`), and fails before launch if the file is missing.
+  OMP's Task-tool guidance ("skip build/lint/tests mid-flight") is
+  system-level, while the selected SKILL.md is user prompt. On sagibeast#994
+  the fresh `build-implement-tdd` coordinator therefore dispatched coders
+  edit-only, and after the text fixes it refused with
+  `DISPATCH_CONTRACT_CONFLICT`. The coordinator copies the policy into each
+  coder's Task context, which OMP also renders at system level.
 
 ### Fixed — target-checkout roots for worktree-dispatched skills and lessons
 

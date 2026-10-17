@@ -218,11 +218,6 @@ _emit_resume() {
   # re-evaluated later.
   local resume_perm_flag
   resume_perm_flag="$(_harness_permission_flag)"
-  local verification_clause
-  if ! verification_clause="$(_harness_po_agent_verification_clause)"; then
-    echo "context-handoff: cannot read $_HARNESS_VERIFICATION_OWNERSHIP_FILE" >&2
-    return 1
-  fi
 
   if [[ -n "$change_state_file" ]]; then
     # type:change resume — dispatch makato-change:orchestrate, NOT po-agent.
@@ -269,7 +264,7 @@ if [[ "\$STATE_PHASE" == "done" ]]; then
   exit 0
 fi
 
-exec env MAKATO_HEADLESS=1 MAKATO_TARGET_REPO_ROOT="$REPO_ROOT" MAKATO_ORCHESTRATE_ROOT="$MAKATO_ORCHESTRATE_ROOT" MAKATO_BUILD_ROOT="${MAKATO_BUILD_ROOT:-}" MAKATO_PLAN_ROOT="${MAKATO_PLAN_ROOT:-}" "$CLAUDE_BIN" $resume_perm_flag --resume "\$SESSION_ID" -p "Use the Task tool to dispatch the makato-orchestrate:po-agent subagent to resume driving GitHub issue #\$ISSUE to a merged PR. Pass MAKATO_TARGET_REPO_ROOT=$REPO_ROOT MAKATO_ORCHESTRATE_ROOT=$MAKATO_ORCHESTRATE_ROOT MAKATO_BUILD_ROOT=${MAKATO_BUILD_ROOT:-} MAKATO_PLAN_ROOT=${MAKATO_PLAN_ROOT:-}. The po-agent owns the outer loop, workflow-state, and all makato-build --autonomous dispatch; do not invoke makato-build or makato-plan skills directly from this session. ${verification_clause} Return the po-agent's final R1 envelope verbatim."
+exec env MAKATO_HEADLESS=1 MAKATO_TARGET_REPO_ROOT="$REPO_ROOT" MAKATO_ORCHESTRATE_ROOT="$MAKATO_ORCHESTRATE_ROOT" MAKATO_BUILD_ROOT="${MAKATO_BUILD_ROOT:-}" MAKATO_PLAN_ROOT="${MAKATO_PLAN_ROOT:-}" "$CLAUDE_BIN" $resume_perm_flag --resume "\$SESSION_ID" -p "Use the Task tool to dispatch the makato-orchestrate:po-agent subagent to resume driving GitHub issue #\$ISSUE to a merged PR. Pass MAKATO_TARGET_REPO_ROOT=$REPO_ROOT MAKATO_ORCHESTRATE_ROOT=$MAKATO_ORCHESTRATE_ROOT MAKATO_BUILD_ROOT=${MAKATO_BUILD_ROOT:-} MAKATO_PLAN_ROOT=${MAKATO_PLAN_ROOT:-}. The po-agent owns the outer loop, workflow-state, and all makato-build --autonomous dispatch; do not invoke makato-build or makato-plan skills directly from this session. Return the po-agent's final R1 envelope verbatim."
 EOF
   fi
   chmod +x "$RESUME_SCRIPT"
