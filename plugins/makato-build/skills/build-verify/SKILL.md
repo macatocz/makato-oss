@@ -1,15 +1,14 @@
 ---
 name: build-verify
 description: >-
-  Run the full quality gate pipeline — build, lint, unit tests,
-  integration tests, conditional coverage check. Each gate runs
-  separately so failures are attributable. Fixable failures are
-  fixed and gates re-run; structural failures escalate to refine.
-  Autonomous (--autonomous, dispatched by PO-agent) or interactive.
-  Use after review, before push-to-git. Triggers: verify, quality-gate,
-  all-gates, build-pass, tests-pass, lint-clean, coverage-check,
+  Run the whole-change quality gate pipeline — build, lint, unit tests,
+  integration tests, conditional coverage check. Code-level failures go to
+  bounded coder repair and independent re-review (default 3 rounds); structural
+  failures escalate to refine. Autonomous (--autonomous, dispatched by PO-agent)
+  or interactive. Use after review, before push-to-git. Triggers: verify,
+  quality-gate, all-gates, build-pass, tests-pass, lint-clean, coverage-check,
   gate-pipeline, run-verify.
-version: "1.13.0"
+version: "1.14.0"
 argument-hint: "[work-item-key]"
 allowed-tools: [Bash, Read]
 ---
@@ -19,6 +18,11 @@ allowed-tools: [Bash, Read]
 Use after `/review` and before `/push-to-git`. The code has been reviewed and simplified.
 This step answers: *"Does it actually work?"* — build succeeds, lint passes, all tests
 pass, coverage is met.
+
+`build-verify` owns whole-change gate verification, including integration and
+full-suite work. TDD coders no longer run those suites per task; their RED/GREEN
+checks are targeted to the task. This skill consumes the Step 3 baseline from
+`build-implement-tdd` and never treats a caller's test run as coder verification.
 
 All audit writes use `"$MAKATO_BUILD_ROOT/shared/build-log.sh"`. Construct dynamic
 JSON with `jq -cn` and pass `"$ENTRY"` as one argument without another shell-parsing
@@ -70,6 +74,12 @@ pre-existing lint debt as new failures. The re-run scope rule (Steps 6 and 7) ap
 run from BUILD only if production code changed; re-run from the failed gate only for test-
 only or environment-only fixes.
 
+**NEVER edit source to repair a code-level gate failure.** Only deterministic
+formatter/autofix commands supplied by gate-scout may edit files before coder
+dispatch. Remaining BUILD, LINT, UNIT, mandatory INTEGRATION, or blocking
+COVERAGE failures go through the bounded verify-repair loop below; environment
+and setup failures remain blockers.
+
 ## Input
 
 When dispatched by the PO-agent (`--autonomous` mode), this skill receives:
@@ -80,6 +90,13 @@ When dispatched by the PO-agent (`--autonomous` mode), this skill receives:
   `CLAUDE_PLUGIN_ROOT`, `OMP_PLUGIN_ROOT`, or `PLUGIN_ROOT` when the caller does
   not supply it; use it for suite-owned helpers and contract references.
 - `--autonomous` — activation flag.
+- `BASELINE_FAILURES` — the exact failure set recorded by
+  `build-implement-tdd` Step 3; preserve it when comparing whole-suite results
+  and dispatching coder repairs. Never capture a post-change run as the baseline.
+- `GATE_COMMANDS` — gate-scout's command map, with runner prefixes unchanged.
+- `PLAN_CONTEXT` — the resolved task list, acceptance criteria, and constraints.
+- `STORY_KEY` and `JSONL_PATH` — the work-item key and
+  `$SPEC_FOLDER/build.jsonl`.
 
 Interactive mode: `WORKTREE_PATH` is optional; fall back to `git rev-parse --show-toplevel` of the current `$PWD`.
 
@@ -113,15 +130,15 @@ populated in gate-scout output.
 
 The gates below collectively enforce the **Automated tier (13 items)** of
 `plugins/makato-build/skills/definition-of-done/SKILL.md`. Each row maps a DoD item to
-the gate that enforces it and the HALT code that fires when the item is unmet in
-autonomous mode and the failure is structural.
+the gate that enforces it and the corresponding fail-closed outcome in autonomous mode,
+including bounded repair exhaustion.
 
 | # | DoD item | Enforced by | HALT on unmet (autonomous mode) |
 |---|----------|-------------|---------------------------------|
-| 1 | All tests pass | Gate 3 (Unit) + Gate 4 (Integration) | structural → `/build-refine`; coverage-related → HALT-002 |
-| 2 | Coverage ≥ threshold | Gate 5 (Coverage) | HALT-002 |
-| 3 | Lint clean | Gate 2 (Lint) | fix-then-retry; structural lint debt → operator escalation |
-| 4 | Type-check clean | Gate 1 (Build) | fix-then-retry; structural → `/build-refine` |
+| 1 | All tests pass | Gate 3 (Unit) + Gate 4 (Integration) | bounded coder verify-repair for new failures; exhaustion → HALT-002; structural escalation → `/build-refine` |
+| 2 | Coverage ≥ threshold | Gate 5 (Coverage) | bounded coder verify-repair; exhaustion → HALT-002; structural escalation → `/build-refine` |
+| 3 | Lint clean | Gate 2 (Lint) | deterministic gate-scout autofix, then bounded coder verify-repair; exhaustion → HALT-002 |
+| 4 | Type-check clean | Gate 1 (Build) | bounded coder verify-repair; exhaustion → HALT-002; structural escalation → `/build-refine` |
 | 5 | No CRITICAL sensor findings | Gate 0 (Sensors) | HALT-001 (sensor-fixer exhausted) / HALT-004 (same finding 5×) |
 | 6 | Conventional commits | `build-push-to-git` (per-commit drafting) | denied push → HALT-005 |
 | 7 | Rebased on `origin/main` | `build-push-to-git` push deny-list | denied push → HALT-005 |
@@ -196,13 +213,123 @@ Resolve the correct `JAVA_HOME` path for the required version (e.g. via `$(dirna
 
 ---
 
-### Step 2 — Log session start
+### Step 2 — Resolve the repair-round cap and log session start
+
+Set `MAX_REPAIR_ROUNDS` from `MAKATO_MAX_REPAIR_ROUNDS`. It must be a positive
+integer; if unset, use `3`; if invalid, log a warning and use `3`. This cap
+applies to this build-verify loop only, independently of build-review. One round
+is a coder repair dispatch followed by independent diff review and the scoped
+gate re-check. Initialize `repair_rounds` to `0`.
+
+For an invalid value, log:
+
+```json
+{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"verify-repair","status":"warn","data":{"reason":"invalid MAKATO_MAX_REPAIR_ROUNDS","fallback":3}}
+```
 
 Run:
 
 ```bash
-"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"session","status":"start","data":{"coverage_threshold":"<X>%|none"}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"session","status":"start","data":{"coverage_threshold":"<X>%|none","max_repair_rounds":<MAX_REPAIR_ROUNDS>}}'
 ```
+
+---
+
+### Step 2a — Bounded coder verify-repair loop
+
+Build `VERIFY_FINDINGS` from every blocking code-level gate failure using this
+shape:
+
+```json
+{"id":"UNIT-test_name","gate":"unit","command":"<exact gate-scout command>","failing":["test_name"],"excerpt":"<relevant command output>","log_path":"<actual retained gate log>"}
+```
+
+Use one stable ID per finding; `gate` is exactly `build`, `lint`, `unit`,
+`integration`, or `coverage`; `command` is the exact executable gate-scout
+command, including its runner prefix. `failing` contains test IDs, file:line
+locations, or uncovered branch identifiers as applicable. Retain each gate's
+raw output in a per-run file under `$SPEC_FOLDER` and set `log_path` to that
+file's actual path; never invent an excerpt, failure, or path. Compare UNIT and
+INTEGRATION failures against the inherited `BASELINE_FAILURES`. A UNIT or
+mandatory INTEGRATION test becomes a finding only after its one allowed
+single-test flaky re-run still fails. Only mandatory INTEGRATION failures
+block; non-mandatory failures remain advisory. The loop starts with at least
+one gate finding; if a repair-delta review adds blockers after a gate re-check
+passes, continue the already-active loop with an empty `VERIFY_FINDINGS` array
+and those findings separately in `REVIEW_FINDINGS`.
+
+Before creating a finding, separate code-attributable failures from command,
+tooling, external-service, and setup errors for every gate. Preserve the actual
+output and report environment/setup failures as blockers without coder dispatch;
+they are never passes or `VERIFY_FINDINGS`.
+
+Gate 0 remains separate: the existing sensor-fixer route is unchanged, and sensor
+findings never become `VERIFY_FINDINGS`.
+
+For each repair round:
+
+1. Before each coder dispatch, capture the current changed/untracked file set and
+   contents as a pre-repair snapshot. Dispatch `coder` in verify-repair mode with
+   `VERIFY_FINDINGS`, `WORKTREE_PATH`, `REPO_ROOT`, `MAKATO_BUILD_ROOT`,
+   `JSONL_PATH`, `STORY_KEY`, `PLAN_CONTEXT`, `GATE_COMMANDS`,
+   `BASELINE_FAILURES`, `REPAIR_ROUND` (the next round number), and
+   `MAX_REPAIR_ROUNDS`. Include any blocking findings from the previous
+   independent diff review as a separate `REVIEW_FINDINGS` field; do not
+   mislabel review findings as gate failures. Read the verification-ownership
+   paragraph from `$MAKATO_BUILD_ROOT/config/verification-ownership.md` at
+   dispatch time and place it verbatim in the coder Task context. The coder runs
+   targeted commands covering the supplied findings and tests touching repaired
+   files; build-verify owns integration/full-suite gates.
+2. Require coder R1 `data.mode:"verify-repair"`, matching `repair_round`,
+   `repaired_findings`, `unresolved_findings`, and `data.details.per_finding`. A
+   successful response must report every supplied finding repaired, no
+   unresolved findings, and passed verification. Each finding entry must include
+   `id`, `root_cause`, `changes`, and a passed
+   `verification:{command,exit_code,result}`; changed paths must agree with the
+   actual worktree. If required details are missing or disagree with the
+   worktree, dispatch exactly one fresh continuation for this same round with
+   `PRIOR_R1` and `DETAILS_REQUEST:<missing or inconsistent items>`. A second
+   incomplete response is a failure. If coder reports a structural escalation,
+   log this round as `step:"verify-repair",status:"warn"` with the Step 5 fields
+   (`round`, `findings`, `repaired`, `unresolved`; `repaired:[]` and all
+   supplied IDs unresolved), then return R1 `partial` with
+   `data.escalation:"refine"` for the existing PO Step 4f route. On coder R1
+   failure or a second incomplete response, log the same fields with
+   `status:"error"` and return R1 `failure`; use `repaired:[]` and list every
+   supplied ID as unresolved. Environment/setup blockers do not enter coder
+   repair.
+3. After coder success, compute `REPAIR_DELTA` against the pre-repair snapshot
+   and dispatch the read-only `diff-reviewer` to independently review only that
+   delta against `PLAN_CONTEXT`. Supply `REPAIR_DELTA`, the pre-repair snapshot
+   and changed-file set, the current `WORKTREE_PATH`, `REPO_ROOT`, and prior
+   relevant findings. Retain any new CRITICAL/MAJOR findings as
+   `REVIEW_FINDINGS` for the next round. Coder success is not a review or gate
+   pass.
+4. Re-run gates under the existing scope rule: if production code changed,
+   start at BUILD and run the applicable gates forward; if changes are test-only,
+   test-data, or config-only, start at the first affected gate and run applicable
+   downstream gates. Coverage-driven test changes start at UNIT. Apply the
+   single flaky-test re-run rule again. Never count coder targeted tests as a
+   substitute for these gates.
+5. Log each completed independent re-check:
+
+   ```json
+   {"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"verify-repair","status":"ok|warn|error","data":{"round":<N>,"findings":["<IDs>"],"repaired":["<IDs>"],"unresolved":["<IDs>"]}}
+   ```
+
+   `findings`, `repaired`, and `unresolved` contain IDs for gate and independent
+   review findings. `repair_rounds` advances once when that round's first coder
+   dispatch starts; a details-only continuation remains in the same round.
+
+If the scoped gates and independent repair-delta review are clean, resume the
+normal pipeline at its first gate not yet run (Step 8b when Gate 5 coverage has
+already completed); continue the remaining steps before reporting success. If
+any gate failure or CRITICAL/MAJOR review finding remains after the final
+allowed round, fail closed: return R1 `failure` with `data.repair_rounds`,
+`data.repair_rounds_exhausted:true`, and `data.unresolved_findings`; log the
+final `verify-repair` record with `status:"error"`. The PO-agent maps this to
+HALT-002 and `needs-human-review`. Never suppress an assertion, accept an
+unresolved finding, or convert an environment blocker into a coder repair.
 
 ---
 
@@ -267,18 +394,14 @@ After running the Gate 1 command, parse stdout for the pyright error-count summa
 - Pattern: `(\d+) errors?` (case-insensitive)
 - Gate passes when: exit code 0 **AND** parsed error count == 0 (or pattern absent — no errors reported)
 - Warnings (`(\d+) warnings?`) are logged but do not block the gate
-- Exit code non-zero but parsed error count == 0: treat as pass with WARN (pre-commit infrastructure error, not a type error)
+- Exit code non-zero but parsed error count == 0: classify as an environment/setup blocker; do not treat it as a pass or create a coder finding
 - Exit code 0 but parsed error count > 0: treat as FAIL (false-positive exit code)
 
-On failure: classify.
-- **Fixable** — typo, missing import, wrong type annotation → fix, re-run BUILD
-- **Structural** — the chosen design doesn't fit the type system, fundamental interface
-  mismatch → stop, report, recommend `/refine`
-
-On any gate failure and retry, log:
-```
-{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-retry","status":"warn","data":{"gate":"build","attempt":<N>,"error":"<first error line>"}}
-```
+On a code-level failure, record a `gate:"build"` item in `VERIFY_FINDINGS`
+and enter Step 2a; do not edit source or locally retry the gate. A failed
+command caused by unavailable tooling or environment/setup is a blocker, not a
+coder finding. Preserve the gate result in the log, and do not count it as a
+pass.
 
 Log:
 ```
@@ -330,10 +453,10 @@ After running the Gate 2 command, parse stdout for the ruff error-count summary:
 - Pattern: `Found (\d+) errors?`
 - Gate passes when: exit code 0 **AND** parsed error count == 0
 
-Fix all lint errors before proceeding to tests — a lint failure that survives into a
-test run contaminates the test log and makes failures harder to attribute.
-
-On failure: fix lint errors, re-run LINT. Lint failures are almost always fixable.
+Run only deterministic formatter/autofix commands explicitly supplied by
+gate-scout. Any remaining code-level LINT failure becomes a `gate:"lint"`
+finding for Step 2a; do not edit source or locally retry LINT. Retain the
+command output and gate result for the coder and audit log.
 
 Log:
 ```
@@ -346,19 +469,25 @@ Log:
 
 Run the unit test suite only — no integration tests.
 
-Gate passes when: zero new failures vs. pre-session baseline (pre-existing failures do
-not count against this session). Record total, passed, failed, skipped.
+Gate passes when there are zero new failures relative to the
+`BASELINE_FAILURES` captured by `build-implement-tdd` Step 3; pre-existing
+failures in that exact baseline do not count against this session. Record
+total, passed, failed, and skipped.
 
-Running unit tests in isolation means a failure here is attributable to a unit boundary.
-If the project's test runner does not distinguish unit from integration natively, use
-the naming convention or directory structure returned by the gate-scout agent to filter.
+Running unit tests in isolation means a failure here is attributable to a unit
+boundary. If the project's test runner does not distinguish unit from
+integration natively, use the naming convention or directory structure
+returned by gate-scout to filter.
 
-On failure: classify.
-- **Flakey candidate** — test failed but no source code changed since last run → re-run the single failing test once. If it passes: log `status: warn, data: {gate: "unit", flaky_test: "<name>"}` and continue. If it fails again: classify below.
-- **Fixable** — wrong assertion value, missing mock, test setup error → fix, re-run UNIT
-- **Structural** — multiple tests fail because the interface contract was wrong → escalate
+For each failed test with no source change since its prior run, re-run that
+single test once as the flaky-test check. If it passes, log the warning and
+continue; if it still fails and is new against `BASELINE_FAILURES`, add it as a
+`gate:"unit"` finding for Step 2a. Do not edit tests or source here.
 
-**Re-run scope rule**: re-run from BUILD (Gate 1) if the fix touched production code. Re-run from the failed gate only (UNIT) if the fix was test-only or config — BUILD and LINT do not need to re-run for test-file changes.
+**Re-run scope rule**: after coder repair, re-run from BUILD (Gate 1) if
+production code changed. For test-only or config-only repair, start from the
+first affected gate and run applicable downstream gates; BUILD and LINT do not
+need to re-run for test-file-only changes.
 
 Log:
 ```
@@ -388,29 +517,30 @@ advisory (existing behavior unchanged, single-layer changes are never blocked).
 
 Run the integration test suite only.
 
-Gate passes when: zero new failures vs. baseline. Record total, passed, failed, skipped.
+Gate passes when there are zero new failures relative to the inherited
+`BASELINE_FAILURES`. Record total, passed, failed, and skipped.
 
-Integration tests run against real dependencies. If the test environment requires setup
-(test database, docker-compose, required env vars), perform it first. If environment
-setup fails, report the blocker clearly — do not attempt to run tests against an
-incomplete environment.
+Integration tests run against real dependencies. If the test environment
+requires setup (test database, docker-compose, required env vars), perform it
+first. If environment setup fails, report the blocker clearly and do not run
+tests against an incomplete environment or dispatch coder.
 
-On failure: classify.
-- **Flakey candidate** — test failed but no source code changed since last run → re-run the single failing test once. If it passes: log `status: warn, data: {gate: "integration", flaky_test: "<name>"}` and continue. If it fails again: classify below.
-- **Fixable** — wrong expected state, missing test data, environment not properly reset
-  → fix, re-run INTEGRATION
-- **Structural** — the implementation approach doesn't work against real dependencies
-  → stop, report, recommend `/refine`
+Apply the single-test flaky check described in Step 2a to each candidate. A
+remaining failure is a blocking `gate:"integration"` finding only when
+`MANDATORY == true`; when `MANDATORY == false`, log the failure as advisory and
+continue to Gate 5 without coder dispatch.
 
 **Mandatory vs non-mandatory failure handling:**
 
-- When `MANDATORY == true` and Gate 4 fails: treat as a **blocking failure** — same severity
-  as Gate 3 (Unit). Do not advance to Gate 5. Classify as Fixable or Structural per the rules
-  above and block accordingly.
-- When `MANDATORY == false` (default) and Gate 4 fails: **advisory only** — log the failure,
-  continue to Gate 5. Do not block the pipeline for single-layer changes.
+- When `MANDATORY == true` and Gate 4 fails, add the new baseline-relative
+  failures to `VERIFY_FINDINGS` and enter Step 2a.
+- When `MANDATORY == false` (default) and Gate 4 fails, the result is advisory
+  only; continue to Gate 5. Do not block the pipeline for single-layer changes.
 
-**Re-run scope rule**: re-run from BUILD (Gate 1) if the fix touched production code. Re-run from INTEGRATION only if the fix was test-only, test-data, or environment config — no need to re-run BUILD/LINT/UNIT for integration-test-only fixes.
+**Re-run scope rule**: after coder repair, re-run from BUILD (Gate 1) if
+production code changed. For integration-test-only, test-data, or environment
+config changes, start at INTEGRATION and run applicable downstream gates; do
+not re-run BUILD/LINT/UNIT.
 
 Log:
 ```
@@ -431,10 +561,12 @@ branch of every conditional in the new code must be exercised by at least one te
 If `coverage_threshold` is declared by gate-scout (or a story threshold was
 declared in `design.md`), compare the measured conditional coverage against the
 applicable threshold:
-- Below threshold → identify the specific uncovered branches, add targeted tests, re-run
-  from UNIT
-- If filling the coverage gap requires rethinking the implementation structure → STRUCTURAL
-  → escalate to `/refine`
+- Below threshold → identify the specific uncovered branches and add them to
+  `VERIFY_FINDINGS` as `gate:"coverage"`; enter Step 2a. The coder adds targeted
+  tests, and build-verify re-runs from UNIT under the scope rule.
+- If the coder reports that filling the coverage gap requires rethinking the
+  implementation structure, return `partial` with
+  `data.escalation:"refine"` → `/build-refine`.
 
 If no threshold was declared:
 - Report the coverage figure as advisory

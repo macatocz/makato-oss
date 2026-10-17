@@ -3,11 +3,11 @@ name: build-review
 description: >-
   Adversarial quality review of the branch diff — CRITICAL and MAJOR
   findings go to the coder for repair in both manual and autonomous modes;
-  re-review until no blocking findings remain. Auto-fixes mechanical issues.
-  Reports SUGGESTION and NITPICK findings. Use after simplify, before
-  verify. Trigger keywords: review, adversarial, diff-review, code-review,
-  quality-gate, build-review, check implementation.
-version: "1.7.1"
+  independently re-reviewed through a bounded repair loop (default 3 rounds).
+  Auto-fixes mechanical issues. Reports SUGGESTION and NITPICK findings. Use
+  after simplify, before verify. Trigger keywords: review, adversarial,
+  diff-review, code-review, quality-gate, build-review, check implementation.
+version: "1.8.0"
 argument-hint: "[work-item-key]"
 allowed-tools:
   - Bash
@@ -74,12 +74,25 @@ only spec reads and audit writes use the selected `REPO_ROOT`-rooted `SPEC_FOLDE
 
 ---
 
-### Step 2 — Log session start
+### Step 2 — Resolve the repair-round cap and log session start
+
+Set `MAX_REPAIR_ROUNDS` from `MAKATO_MAX_REPAIR_ROUNDS`. It must be a positive
+integer; if unset, use `3`; if invalid, warn and use `3`. This cap applies to
+coder repair dispatches in this build-review loop only. A repair round is one
+coder repair dispatch followed by an independent diff-reviewer re-review.
+Initialize `repair_rounds` to `0`. Mechanical fixes and any reviewer re-pass
+they require do not consume a coder repair round.
+
+When the value is invalid, log:
+
+```json
+{"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"repair-loop","status":"warn","data":{"reason":"invalid MAKATO_MAX_REPAIR_ROUNDS","fallback":3}}
+```
 
 Run:
 
 ```bash
-"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"session","status":"start","data":{"files_changed":<N>,"pass":1}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"session","status":"start","data":{"files_changed":<N>,"pass":1,"max_repair_rounds":<MAX_REPAIR_ROUNDS>}}'
 ```
 
 ---
@@ -164,26 +177,56 @@ Never turn an unreadable file or absent count into a zero-findings result.
    ```
 
 3. Dispatch **`coder` in review-repair mode**, not the reviewer and not a new planning
-   cycle. Pass `REVIEW_FINDINGS`, `PLAN_CONTEXT`, `STORY_KEY`, `JSONL_PATH`
-   (`$SPEC_FOLDER/build.jsonl`), `REPO_ROOT`, `MAKATO_BUILD_ROOT`, and `WORKTREE_PATH`.
-   Forward `GATE_COMMANDS` from implementation; if unavailable, obtain it once from
-   `gate-scout` with `REPO_ROOT=WORKTREE_PATH`. Forward available baseline/test evidence
-   without inventing a passing baseline. The coder must use the existing repair-mode
-   contract in `$MAKATO_BUILD_ROOT/agents/coder.md`, verify its repairs, and return R1.
-4. On coder success, log each verified repair with `step:"fix-blocking"`,
-   `status:"ok"`, and `data:{pass,severity,finding,file}`. Coder success is **not**
-   review approval. Return to Step 3, then Step 4 with an incremented pass counter,
-   refreshed file set, and `PRIOR_FINDINGS`. Recheck unresolved findings and newly
-   introduced defects against the actual uncommitted working tree.
-5. If the coder cannot complete a repair or verification, return a non-success R1
-   containing the unresolved findings and concrete blocker. Log terminal
-   `step:"session",status:"error"`; never emit a clean result or advance to verify/push.
+   cycle. Set `REPAIR_ROUND` to `repair_rounds + 1` and pass
+   `REPAIR_ROUND`, `MAX_REPAIR_ROUNDS`, `REVIEW_FINDINGS`, `PLAN_CONTEXT`,
+   `STORY_KEY`, `JSONL_PATH` (`$SPEC_FOLDER/build.jsonl`), `REPO_ROOT`,
+   `MAKATO_BUILD_ROOT`, and `WORKTREE_PATH`. Forward `GATE_COMMANDS` from
+   implementation; if unavailable, obtain it once from `gate-scout` with
+   `REPO_ROOT=WORKTREE_PATH`. Forward available baseline/test evidence without
+   inventing a passing baseline. The coder must use the existing repair-mode
+   contract in `$MAKATO_BUILD_ROOT/agents/coder.md`, verify its repairs, and
+   return R1.
+   Advance `repair_rounds` to `REPAIR_ROUND` when the first coder dispatch for
+   that round starts; a details-only continuation stays in that same round.
+4. Validate the coder R1's `data.mode`, matching `repair_round`,
+   `repaired_findings`, `unresolved_findings`, and `data.details.per_finding`.
+   A successful response must report every supplied finding repaired, no
+   unresolved findings, and passed verification. For each supplied finding,
+   require a matching per-finding entry with `id`, `root_cause`, `changes`, and
+   `verification:{command,exit_code,result}`; the reported changed paths must
+   agree with the actual working-tree changes. If required details are missing
+   or disagree with the tree, dispatch exactly one fresh coder continuation for
+   the same repair round with `PRIOR_R1` and
+   `DETAILS_REQUEST:<missing or inconsistent items>`. A second incomplete
+   response is a failure, not permission to infer what changed.
+5. On coder success, log each verified repair with `step:"fix-blocking"`,
+   `status:"ok"`, and `data:{pass,repair_round,severity,finding,file,details:
+   {per_finding:[<matching coder data.details.per_finding entry>]}}`. Copy that
+   matching per-finding entry verbatim; it is required evidence, not optional
+   prose. Coder success is **not** review approval. Return to Step 3, then
+   Step 4 with an incremented reviewer pass counter, refreshed file set, and
+   `PRIOR_FINDINGS`. Recheck unresolved findings and newly introduced defects
+   against the actual uncommitted working tree. This independent re-review
+   completes the current repair round.
+6. If the coder cannot complete a repair or verification, return a non-success
+   R1 containing the unresolved findings and concrete blocker. Log terminal
+   `step:"session",status:"error"`; never emit a clean result or advance to
+   verify/push.
 
-There is no fixed pass limit that permits unresolved findings through. Continue
-repair → review until a complete reviewer R1 reports `status:"success"`,
-`critical_count == 0`, and `major_count == 0`. SUGGESTION and NITPICK do not
-trigger repairs. No `major-autofix` bypass entry is emitted: both modes now
-require the same action, so no human approval gate is being bypassed.
+After each independent re-review, if CRITICAL or MAJOR findings remain and
+`repair_rounds == MAX_REPAIR_ROUNDS`, fail closed. Return R1 `failure` with
+`data.repair_rounds: MAX_REPAIR_ROUNDS`,
+`data.repair_rounds_exhausted:true`, and the unresolved findings. Log:
+
+```json
+{"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"repair-loop","status":"error","data":{"repair_rounds":<MAX_REPAIR_ROUNDS>,"repair_rounds_exhausted":true,"unresolved_findings":[{"id":"F1","severity":"MAJOR","file":"<path>","description":"<one line>"}]}}
+```
+
+When rounds remain, continue repair → review until a complete reviewer R1
+reports `status:"success"`, `critical_count == 0`, and `major_count == 0`.
+SUGGESTION and NITPICK do not trigger repairs. No `major-autofix` bypass entry
+is emitted: both modes require the same action, so no human approval gate is
+being bypassed.
 
 **If zero blocking findings on the first pass:**
 Use the merge-base-to-working-tree diff (`git diff "$REVIEW_BASE" --stat`) and the
@@ -215,9 +258,10 @@ After the first-pass recheck (when required), continue to Step 5.5.
 ### Step 5.5 — Final mechanical pass
 
 Re-apply Step 3 after the blocking loop. If this changes any file, increment the
-pass counter and return to Step 4: the final review must cover those edits too.
-Only an unchanged mechanical pass permits persisting Step 4a's verdicts and
-proceeding to Step 6.
+reviewer pass counter and return to Step 4; this mechanical re-pass and its
+reviewer re-dispatch do not increment `repair_rounds` or consume a coder repair
+round. Only a coder repair dispatch starts a repair round. Only an unchanged
+mechanical pass permits persisting Step 4a's verdicts and proceeding to Step 6.
 
 Log:
 ```

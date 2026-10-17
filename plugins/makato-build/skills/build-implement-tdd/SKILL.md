@@ -1,12 +1,12 @@
 ---
 name: build-implement-tdd
 description: >-
-  Execute a refined plan using TDD — RED failing tests, GREEN unit
-  passing, INTEGRATE real dependencies, VERIFY full suite per task.
-  Tracer bullet phase for multi-layer stories. Autonomous loop. Use
-  after refine to implement-tdd a story plan, implement tdd tasks, or
-  run the core build loop.
-version: "1.14.0"
+  Execute refined plans with targeted RED and GREEN test commands per task.
+  Build-review and build-verify own whole-change verification, including the
+  full suite, integration suite, coverage, and repo-wide lint. Tracer bullet
+  for multi-layer stories. Autonomous loop. Use after refine to implement a
+  story plan or run the core build loop.
+version: "1.15.0"
 argument-hint: "[work-item-key]"
 allowed-tools: ["Bash", "Read"]
 metadata:
@@ -116,10 +116,10 @@ story that already has real implementation. Running the tracer a second time wou
 real code with hardcoded stubs. The recovery mode is explicitly a subset of the normal walk
 (`ci-failure-recovery` decision JSONL is the gate). See § *CI-failure recovery mode*.
 
-**NEVER acknowledge a coverage miss silently in autonomous mode.** No human is at the prompt.
-Inventing an acknowledgement to continue is a contract violation that bypasses `build-verify`
-Gate 5 (`HALT-002`). Log `threshold_met:false`, emit the `log-bypass.sh` marker, and defer
-to Gate 5 — that is the authoritative coverage enforcement point.
+**NEVER run or acknowledge a coverage gate in this skill.** `build-verify` owns
+coverage Gate 5 and enforces HALT-002 when coverage is below threshold. Carry
+the Step 3 baseline and changed-file set to that gate; do not run coverage or
+emit a bypass marker here.
 
 **NEVER dispatch tasks outside topological order.** Even when two tasks appear independent,
 the `blockedBy` graph in `plan.md` encodes constraints the user set during refinement. Out-of-
@@ -217,19 +217,23 @@ Run: `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"bui
 
 #### TRACER TEST — Write one end-to-end integration test
 
-Write one integration test in the topmost layer's test file following the tracer integration test rules from `tdd-cycle-rules.md`. Run the test — it must pass before proceeding. Apply the fix-vs-escalate threshold from `tdd-cycle-rules.md`.
+Write one integration test in the topmost layer's test file following the
+tracer integration test rules from `tdd-cycle-rules.md`. Validate it only in
+the targeted check below.
 
 Run: `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"tracer-test","status":"ok","data":{"tracer_test_file":"<path>","tracer_test_name":"<name>","layers_covered":<N>}}'`
 
-#### TRACER VERIFY — Full suite gate
+#### TRACER TEST CHECK — Targeted test
 
-Run the full suite. Zero new failures allowed vs. the baseline from Step 3.
+Build one targeted command from `GATE_COMMANDS`, preserve its runner prefix,
+and run only the tracer integration test. It must pass before proceeding.
+Apply the fix-vs-escalate threshold from `tdd-cycle-rules.md`.
 
-Run: `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"tracer-verify","status":"ok","data":{"new_failures":0}}'`
+Run: `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"tracer-targeted-test","status":"ok","data":{"tracer_test_file":"<path>","tracer_test_name":"<name>","command":"<targeted command>","targeted_tests":1}}'`
 
-**Optional batched flush** (#118 / `AUTONOMOUS-MODE.md` § *Batched logging*): the three Step 5 rows (`tracer-stub` → `tracer-test` → `tracer-verify`) emit in tight succession at the end of the tracer phase. Skills MAY accumulate them into a heredoc and flush once via `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" --batch` instead of three separate single-entry calls — that swaps three `bash` + `git rev-parse` + `find specs/` chains for one. The cross-step batching rule applies: do NOT carry rows past the next step boundary; a Step 5 failure before the flush would lose the audit trail.
+**Optional batched flush** (#118 / `AUTONOMOUS-MODE.md` § *Batched logging*): the three Step 5 rows (`tracer-stub` → `tracer-test` → `tracer-targeted-test`) emit in tight succession at the end of the tracer phase. Skills MAY accumulate them into a heredoc and flush once via `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" --batch` instead of three separate single-entry calls — that swaps three `bash` + `git rev-parse` + `find specs/` chains for one. The cross-step batching rule applies: do NOT carry rows past the next step boundary; a Step 5 failure before the flush would lose the audit trail.
 
-### Step 6 — Execute RED → GREEN → INTEGRATE → VERIFY for each tdd task (via coder agent)
+### Step 6 — Execute targeted RED → GREEN for each tdd task (via coder agent)
 
 **Pre-flight: validate blockedBy graph.** Before dispatching any coder agent, perform a topological sort of all tdd tasks using their `blockedBy` fields. If a cycle is detected (Task A blocked by B, B blocked by A, or any longer chain), stop immediately:
 
@@ -245,24 +249,18 @@ For each `mode: tdd` task in topological order, dispatch the per-task `task-file
 - `PLAN_CONTEXT`: the full Plan Analysis output from Step 4 (glossary constraints, layer classification, tracer_required flag, reusable patterns)
 - `SCOUT_SUMMARY`: the `data` payload from the per-task scout dispatch (see § *Pre-flight scout dispatch*). Omit entirely when the scout returned `status: "failure"` — the fallback contract makes scout output advisory, not gating.
 - `TRACER_TEST_NAME`: name of the tracer integration test if `tracer_required = true` and it was written in Step 5; otherwise omit
-- `BASELINE_FAILURES`: pre-existing failure count from Step 3
 - `REPO_ROOT`: absolute path to the target repository root
 - `MAKATO_BUILD_ROOT`: absolute installed build-plugin root
-- `WORKTREE_PATH`: absolute filesystem path to the per-run git worktree (forwarded verbatim from this skill's input — see § *Input* and `AUTONOMOUS-MODE.md` § *WORKTREE_PATH*). The `coder` agent `cd`s into this path before its RED→GREEN→INTEGRATE→VERIFY cycle. In interactive mode without an enclosing PO-agent, forward the resolved `$(git rev-parse --show-toplevel)` so the agent's contract is identical in both modes.
+- `WORKTREE_PATH`: absolute per-run worktree path, forwarded verbatim (see § *Input* and `AUTONOMOUS-MODE.md` § *WORKTREE_PATH*). The coder enters this path before its targeted RED and GREEN commands. In interactive mode without a PO-agent, forward the resolved `$(git rev-parse --show-toplevel)`.
 - `CI_FAILURES`: forward the assigned structured diagnostics and full-log paths verbatim when present. The shared recovery contract makes every assigned failure a repair obligation, never an acceptable baseline.
 - `RECOMMENDED_SKILLS`: forwarded verbatim when the task object from `plan.md` carries a `recommended_skills[]` field (agent-skill-routing #146). When present and non-empty, the coder agent invokes each skill before Phase 1 RED (see `coder.md` § *Skill consultation prepend*). Omit this field from the dispatch bundle when the task's `recommended_skills` is absent — do NOT pass an empty array.
 - `TEST_ORACLE`: forwarded verbatim when the Plan Analysis (from `plan-analyst`, Step 4) carries a non-empty `## Acceptance Test Oracle` section. Pass the whole section (all scenarios with their `(maps to AC-N)` annotations); the coder filters it to the task's own `**Satisfies:**` AC links and implements the matching scenarios as its RED tests (see `coder.md` § *Test oracle*). Omit this field from the dispatch bundle when the plan has no Acceptance Test Oracle section — do NOT pass an empty value. Source is the Plan Analysis output, never a re-read of `plan.md` or `stories.json`.
 - `PRIOR_LESSONS`: forwarded verbatim when present in this skill's input bundle (see § *Input* and `plugins/makato-orchestrate/agents/po-agent.md`). A JSON array of the top-3 lessons recalled by the PO-agent (GAP-015 / #37). The coder reads them as advisory context, equal in weight to `SCOUT_SUMMARY` — they never override `PLAN_CONTEXT.Hard Constraints` (see `coder.md` § *Prior lessons*). Omit this field from the dispatch bundle when it is absent or `[]` — do NOT pass an empty array. Consumers tolerate a missing key and `[]` identically.
-- `GATE_COMMANDS`: the authoritative gate-scout command map, including the
-  runner prefix. Forward it verbatim so coder phases never fall back to
-  system-Python commands.
-- `PRIOR_R1`: when an earlier coder R1 in this run for this `TASK_INDEX` was
-  unverified (see *On coder result*) and its edits remain in the worktree,
-  forward that envelope verbatim so the coder adopts the edits and re-proves
-  every phase. Omit it otherwise. Edits do not survive into a later run:
-  `worktree.sh create` refuses to resume a dirty worktree.
+- `GATE_COMMANDS`: authoritative gate-scout command map; forward it verbatim so the coder builds one targeted command for RED and GREEN while preserving its runner prefix.
+- `PRIOR_R1`: when the coder R1 was partial or failed caller detail validation and its edits remain in the worktree, forward that envelope so the coder adopts its edits and re-proves RED, then runs GREEN. Omit otherwise. Edits do not survive into a later run: `worktree.sh create` refuses to resume a dirty worktree.
+- `DETAILS_REQUEST`: with `PRIOR_R1`, list every missing or inaccurate detail the coder must provide in the continuation R1.
 
-**Serial dispatch**: dispatch at most one coder per worktree at a time, in topological order; the next coder starts only after the previous coder's R1 has been handled. Concurrent coders would share one worktree, so their phase runs would observe each other's half-finished edits and duplicate full-suite runs. `blockedBy` constrains the order: a task blocked by Task N is dispatched only after Task N's coder returns `status: "success"`.
+**Serial dispatch**: dispatch at most one coder per worktree at a time, in topological order; the next coder starts only after the previous coder's R1 has been handled. Concurrent coders would share one worktree, so their commands could observe each other's half-finished edits or duplicate targeted runs. `blockedBy` constrains the order: a task blocked by Task N is dispatched only after Task N's coder returns `status: "success"`.
 
 #### Pre-flight scout dispatch (GAP-013 / #29)
 
@@ -338,21 +336,15 @@ No warning is logged — absence is not a scout failure, and the build pipeline
 remains operable without the orchestrate plugin. Reserve `scout-skipped` for
 the HALT-006 and scout R1 `failure` paths above.
 
-The coder agent runs the full RED→GREEN→INTEGRATE→VERIFY cycle for the task and appends JSONL entries directly to JSONL_PATH.
+Each coder writes the task's tests and production code, runs only targeted RED
+and GREEN commands, and appends its phase evidence to `build.jsonl`.
 
-**Verification ownership**: the coder dispatch delegates phase execution
-together with the edits. The dispatch prompt MUST tell the coder to run its
-phase commands from `GATE_COMMANDS`. It MUST NOT carry edit-only, no-test,
-"skip build/lint/tests mid-flight", or "caller verifies" instructions, whether
-they come from caller context or from the harness's generic delegation
-defaults. Those rules govern the coordinator's own redundant runs, never a
-coder's phase gates. Do not run a coder's phase gates yourself to fill a gap:
-coordinator test runs are never evidence for coder success. Under OMP,
-`run-skill.py` appends the MAKATO VERIFICATION OWNERSHIP paragraph
-(`config/verification-ownership.md`) to this run's system prompt; put it
-verbatim in each coder dispatch's Task `context`. OMP renders that field into
-the coder's system prompt, the level of its generic subagent hand-off
-guidance, which task text alone does not override.
+**Verification ownership**: the coder's Task `context` MUST contain the single
+paragraph in `$MAKATO_BUILD_ROOT/config/verification-ownership.md` verbatim,
+without markdown fences. Read it from that file; never paraphrase it.
+
+Under OMP, `run-skill.py` also appends the same policy to this run's system
+prompt. Task text alone does not override that generic hand-off guidance.
 
 **MANDATORY — load test conventions before first coder dispatch:** if the project has no
 established test conventions discoverable from the codebase (i.e. `PLAN_CONTEXT` or
@@ -365,11 +357,25 @@ plan-analyst already surfaced test conventions — redundant loading wastes cont
 
 The coder agent emits an R1 envelope as the final fenced ` ```json ` block in its message (see `plugins/makato-build/agents/RETURN-CONTRACT.md`). Parse the **last** `json`-fenced block via `JSON.parse()` — do not scrape the prose Output Format section. The R1 envelope is the authoritative contract.
 
-Map `r1.status` to action:
-- `r1.status == "success"` (with all four phases in `r1.data.phases_executed` whenever that key is present) — task complete; run the cross-task regression sweep (see § *Cross-task regression sweep* below), then proceed to the next task. The prose Output Format remains for human inspection; the R1 envelope drives the loop.
-- **Unverified result**: `r1.status == "partial"` where `verify` is missing from `r1.data.phases_executed` (or, when that key is absent, `r1.data.phase_reached != "verify"`), or a `success` with incomplete `phases_executed`. Do not resume the finished agent, and do not verify on its behalf. Dispatch exactly **one** fresh `coder` for the same `TASK_INDEX`, with the full Step 6 bundle plus `PRIOR_R1` set to this envelope. Log a `step: "coder-continuation"` `warn` entry with `data: {task, prior_status, phases_executed}`. Mirror the continuation's R1 and map it with these same rules. If the continuation is again unverified, treat it as `failure` with reason `"CODER_UNVERIFIED: task <N> phases not executed by coder after continuation"`.
-- `r1.status == "partial"` with VERIFY executed — VERIFY did not reach zero new failures. Treat as soft failure: log a warn entry, then stop the loop unless `r1.data.new_failures` is explicitly within an acknowledged threshold for this story. Recommend `/build-simplify` to triage.
-- `r1.status == "failure"` — structural escalation, or `VERIFICATION_UNAVAILABLE` when the coder could not run commands. The contents of `r1.errors[0]` (or `r1.summary` if empty) is the escalation reason. Stop the loop, report to user, recommend `/refine`.
+Validate each TDD R1 before accepting its status. `success` requires
+`phases_executed` to contain both `"red"` and `"green"`, complete mandatory
+`data.details`, RED and GREEN command entries with exit codes and results, and
+`changes` that match the actual worktree. A valid `success` completes the task;
+do not run a regression sweep or other tests in the coordinator.
+
+`partial` means RED ran but GREEN was not reached or targeted tests still fail.
+For either `partial` or invalid/missing details, dispatch exactly one fresh
+coder continuation for the same `TASK_INDEX`, with the full Step 6 bundle and
+`PRIOR_R1` set to the previous envelope. Add
+`DETAILS_REQUEST: <missing items>` when details are missing, command evidence is
+absent, or changed paths disagree with the worktree. The continuation must
+re-prove RED and run GREEN. Mirror its R1 and apply the same checks; if it is
+still partial or has invalid details, stop with `CODER_UNVERIFIED` or
+`CODER_DETAILS_INCOMPLETE`. Never run coder tests on its behalf.
+
+`failure` means a structural escalation or `VERIFICATION_UNAVAILABLE`. Use
+`r1.errors[0]` (or `r1.summary` if empty) as the reason, stop the loop, report
+the blocker, and recommend `/refine` for structural issues.
 
 If the R1 envelope cannot be parsed (missing block, invalid JSON, `schema != "r1"`): treat as `status: "failure"` with reason `"R1 contract violation"` and surface the raw message to the user for diagnosis.
 
@@ -379,49 +385,6 @@ After every coder dispatch (success or otherwise), mirror the R1 envelope into `
 "$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO-8601-ms>","skill":"build-implement-tdd","story":"<key>","step":"r1","status":"<r1.status>","task":<TASK_INDEX>,"data":<entire-r1-envelope-object>}'
 ```
 
-#### Cross-task regression sweep
-
-After a successful coder R1 and after mirroring it to `build.jsonl`, run the accumulated prior-task test sweep before patching workflow-state or dispatching the next task.
-
-**Initialization**: before the first task dispatches, initialize an empty list:
-`ACCUMULATED_TEST_FILES=()` — this is a session-scoped in-memory list, carried as a variable across all task iterations in this outer loop.
-
-**Per-task sweep logic** (runs on every `r1.status == "success"` result):
-
-1. **Snapshot prior tests** — capture the current `ACCUMULATED_TEST_FILES` as `ACCUMULATED_PRIOR_TEST_FILES` (the tests from tasks 1…N-1). This snapshot is what the sweep runs against for task N.
-
-2. **Guard** — if `ACCUMULATED_PRIOR_TEST_FILES` is empty (task 1 has no prior tasks), skip the sweep entirely and go directly to step 4. No JSONL entry is emitted for the skip.
-
-3. **Run sweep** — execute the unit test command (from `gate-scout` output, already available via `PLAN_CONTEXT`) with the accumulated prior-task test files as explicit arguments:
-   ```
-   <unit_command> <ACCUMULATED_PRIOR_TEST_FILES[0]> <ACCUMULATED_PRIOR_TEST_FILES[1]> …
-   ```
-   Count the sweep failure count. Compare against `BASELINE_FAILURES` (from Step 3):
-   - **Zero new failures** (`sweep_failures − BASELINE_FAILURES == 0`): sweep passes.
-     Flush to `build.jsonl` via `"$MAKATO_BUILD_ROOT/shared/build-log.sh"`:
-     ```bash
-     "$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"cross-task-verify","status":"ok","task":<TASK_INDEX>,"data":{"sweep_tests":<N>,"new_failures":0}}'
-     ```
-     You may batch-flush the `r1` mirror entry and this `cross-task-verify` entry together using `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" --batch` (see `AUTONOMOUS-MODE.md` § *Batched logging*) to minimize overhead.
-   - **New failures detected** (`sweep_failures > BASELINE_FAILURES`): apply the fix-vs-escalate threshold:
-     - *Fixable*: the regression is a straightforward consequence of the current task's changes. Fix the code in place, re-run the sweep, emit the JSONL on pass. Do not proceed until the sweep clears.
-     - *Structural*: cannot fix without changing the implementation approach. Emit:
-       ```bash
-       "$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"cross-task-verify","status":"error","task":<TASK_INDEX>,"data":{"sweep_tests":<N>,"new_failures":<M>}}'
-       ```
-       Stop the outer loop. Return R1 `status:"failure"` with `summary:"Cross-task regression detected at task <TASK_INDEX>: <M> new failure(s) in prior-task tests"`. Recommend `/refine`.
-
-4. **Accumulate** — after the sweep passes (or was skipped for task 1), add `r1.tests_written` to `ACCUMULATED_TEST_FILES` using set semantics (deduplicate by exact path). Tasks with an empty `tests_written:[]` contribute nothing.
-
-   ```
-   for path in r1.tests_written:
-     if path not in ACCUMULATED_TEST_FILES:
-       ACCUMULATED_TEST_FILES.append(path)
-   ```
-
-   The ordering (snapshot before sweep, accumulate after sweep) ensures the sweep for task N tests tasks 1…N-1 only — never task N's own tests.
-
-5. **Continue** — proceed to the `workflow-state.sh patch` call and next-task dispatch as before.
 
 When `r1.status == "success"`, also patch workflow-state so the PO-agent (GAP-006) can resume from accurate task state without re-parsing `build.jsonl`. The call is guarded — it skips silently when running in a consumer repo without the `makato-orchestrate` plugin present:
 
@@ -446,29 +409,15 @@ If the coder agent applied a fix within the RED→GREEN cycle (a decision to fix
 
 For stories where the tracer bullet ran (Step 5): each task's GREEN phase replaces the stub for its layer — the tracer integration test continues to pass throughout, evolving from stub-backed to real-implementation-backed. The coder agent enforces this via TRACER_TEST_NAME.
 
-### Step 7 — Final suite verification and conditional coverage check
+### Step 7 — Hand off to build-verify
 
-After all tdd tasks complete, run the full suite one final time.
-
-If `design.md` specifies a coverage threshold: check **conditional coverage** (branch/condition coverage) — not line coverage. Conditional coverage verifies that every branch of every condition has been exercised, which is the meaningful signal for logic-heavy TDD work. Line coverage alone can be satisfied without testing all branches of conditional logic.
-
-If conditional coverage is below threshold, first attempt to close the gap: identify uncovered branches and add targeted tests for those paths, then re-run. If coverage still falls short after that attempt, behaviour is **mode-dependent** — there is no silent-proceed path:
-
-- **Autonomous mode** (`--autonomous`, `task_id` in the dispatch bundle, or `$AGENT_ID` exported — see `plugins/makato-build/AUTONOMOUS-MODE.md` § *Activation triggers*): a coverage miss CANNOT be "acknowledged" — no human is at the prompt to own the risk. Do NOT invent an acknowledgement. Log the miss with `threshold_met:false` (below) and hand off; the terminal coverage gate is **Gate 5** in `build-verify`, which enforces `HALT-002` on `threshold_met:false` before `build-push-to-git`. Step 7 defers to Gate 5 authoritatively — it neither blocks the intra-build flow itself nor waves the miss through. To make the deferral explicit rather than implied, also emit the audit marker:
-
-  ```bash
-  "$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-implement-tdd "<key>" coverage-floor defer-to-gate5 "$TRIGGER"
-  ```
-
-- **Interactive mode**: the gap may proceed only as an **explicitly acknowledged risk**, recorded as a structured entry — not a free-form "logged as known risk" note. Capture who acknowledged it and why, so the acknowledgement is auditable:
-
-  ```bash
-  "$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"coverage-acknowledged","status":"decision","data":{"conditional_coverage":"<X>%","threshold":"<Y>%","acknowledged_by":"<user>","reason":"<one-line justification>"}}'
-  ```
-
-  An interactive acknowledgement is local to this build session; Gate 5 in `build-verify` still re-checks coverage independently and will HALT-002 if the miss is real.
-
-Run: `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-implement-tdd","story":"<key>","step":"final-verify","status":"ok","data":{"tdd_tasks_complete":<N>,"conditional_coverage":"<X>%","threshold_met":<true|false>}}'`
+Carry the Step 3 baseline result forward for `build-verify`. Build a
+deduplicated `CHANGED_FILES` set from the tracer stub and test paths written in
+Step 5, plus `files_changed` and `tests_written` from every accepted coder R1.
+Pass the Step 3 baseline and `CHANGED_FILES` to the downstream
+`build-verify` dispatch. Do not run a suite, integration suite, coverage, or
+repo-wide lint in this coordinator; `build-review` and `build-verify` own
+whole-change verification.
 
 ### Step 8 — Log session end and hand off
 
@@ -489,6 +438,7 @@ Decisions & warnings: <count>
 
 If no warn/decision entries exist: print "No decisions or warnings logged — clean run."
 
-Tell the user: "<N> TDD tasks implemented. Full suite passing. [If tracer bullet ran: Tracer bullet integration test persisted and fully backed by real implementation.]
+Tell the user:
+"<N> TDD tasks implemented with targeted RED/GREEN evidence; whole-change verification is pending `/build-verify`.
 Pipeline remaining: `/build-simplify` → `/build-review` → `/build-verify` → `/build-push-to-git` → `/build-create-pr`
 Next: run `/build-simplify` to check for unnecessary complexity, or `/build-implement-goal` if goal-mode tasks remain."

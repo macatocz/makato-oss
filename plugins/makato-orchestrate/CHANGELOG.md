@@ -5,6 +5,12 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Changed — bounded review and verify repair loops (#148)
+
+- **`po-agent` v1.2.0** narrates `build-verify` as gates plus a bounded coder
+  repair loop, documents `MAKATO_MAX_REPAIR_ROUNDS` (default 3), and maps
+  repair-round exhaustion to HALT-003 (review) and HALT-002 (verify).
+
 ### Fixed — po-agent no longer suppresses coder verification (#141)
 
 - **`po-agent` v1.1.3** must not pass edit-only or "no mid-flight verification"

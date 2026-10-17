@@ -2,8 +2,9 @@
 
 ## The Single-Session Constraint
 
-Every task list produced by /refine must be completable by an autonomous agent in a
-single session — from first file change through /verify passing. Plan accordingly.
+Every task list produced by /refine must fit an autonomous session: each coder
+finishes its targeted RED and GREEN work, then build-verify runs whole-change
+gates after implementation.
 
 **Target task count**: 2–6 tasks per story.
 - Fewer than 2: the story may need only one focused change; that is fine.
@@ -11,9 +12,9 @@ single session — from first file change through /verify passing. Plan accordin
 
 ## Per-Task Budget (one coder dispatch)
 
-Each task is executed by one `coder` dispatch with a fixed turn budget, and RED→GREEN→INTEGRATE→VERIFY
-must finish inside it. A task that exhausts the budget before RED leaves nothing behind. Keep every
-task inside **all** of these limits:
+Each task is executed by one `coder` dispatch with a fixed turn budget, and its
+RED → GREEN work must finish inside it. A task that exhausts the budget before
+RED leaves nothing behind. Keep every task inside **all** of these limits:
 
 | Limit | Maximum per task |
 |---|---|
