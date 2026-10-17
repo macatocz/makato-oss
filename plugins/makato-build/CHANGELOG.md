@@ -16,6 +16,18 @@ here on merge to main; release-please will date and version them at the next rel
   option such as `--junitxml=results.xml`, build-verify rewrites the path to
   `specs/<key>-<slug>/<stem>-<N>.xml` before running it, so verify no longer creates or
   overwrites a report in the checkout root. Gates 4 and 5 log the path as `junit_report`.
+### Changed — dependency-aware mixed-mode task scheduling (#153)
+
+- **`build-implement-tdd` v1.16.0** accepts `ASSIGNED_TASK_IDS` from the PO-agent and runs
+  exactly those tasks; a `blockedBy` task already `complete` in workflow-state (an earlier pass of
+  either mode) satisfies the dependency, and an invalid assignment returns `MISSING_INPUT`. The
+  tracer bullet is skipped once any plan task is complete, so stubs never replace accepted
+  implementation. The R1 reports `data.completed_task_ids`.
+- **`build-implement-goal` v1.8.0** gains the same `ASSIGNED_TASK_IDS` selection (dependencies
+  checked read-only through `ISSUE_NUMBER`/`MAKATO_ORCHESTRATE_ROOT`) and reports
+  `data.completed_task_ids`; the PO-agent records goal completion in `sub_tasks[]`.
+- **`build-refine` v1.15.0** and `plan-schema.md`: `runOrder` only chooses which mode runs first
+  among dependency-ready tasks; cross-mode `blockedBy` in either direction needs no exception.
 ### Changed — coders run targeted RED/GREEN; review and verify own testing with bounded repair loops (#148)
 
 - **`agents/coder.md`** TDD mode runs only RED and GREEN, on only the test files
