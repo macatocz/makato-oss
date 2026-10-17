@@ -5,6 +5,13 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Fixed — po-agent no longer suppresses coder verification (#141)
+
+- **`po-agent` v1.1.3** must not pass edit-only or "no mid-flight verification"
+  instructions into `build-implement-tdd`/`build-implement-goal` context. On
+  sagibeast#994 such an instruction made coders skip their phase gates, which
+  halted the run.
+
 ### Fixed — honour linked target roots for workflow state and lessons
 
 - **`shared/workflow-state.sh`**, **`shared/check-session-tail.sh`**, the state-root

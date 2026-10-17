@@ -6,7 +6,7 @@ description: >-
   Tracer bullet phase for multi-layer stories. Autonomous loop. Use
   after refine to implement-tdd a story plan, implement tdd tasks, or
   run the core build loop.
-version: "1.13.2"
+version: "1.14.0"
 argument-hint: "[work-item-key]"
 allowed-tools: ["Bash", "Read"]
 metadata:
@@ -256,8 +256,13 @@ For each `mode: tdd` task in topological order, dispatch the per-task `task-file
 - `GATE_COMMANDS`: the authoritative gate-scout command map, including the
   runner prefix. Forward it verbatim so coder phases never fall back to
   system-Python commands.
+- `PRIOR_R1`: when the latest coder R1 mirrored in `build.jsonl` for this
+  `TASK_INDEX` is not `success` and its edits remain in the worktree (an
+  earlier unverified attempt in this run or a halted prior run), forward that
+  envelope verbatim so the coder adopts the edits and re-proves every phase.
+  Omit it otherwise.
 
-**blockedBy enforcement**: before dispatching a task, check its `blockedBy` list. Do not dispatch a task concurrently with any task whose index appears in its `blockedBy` list. A task blocked by Task N must wait until Task N's coder agent returns `status: complete` before being dispatched.
+**Serial dispatch**: dispatch at most one coder per worktree at a time, in topological order; the next coder starts only after the previous coder's R1 has been handled. Concurrent coders would share one worktree, so their phase runs would observe each other's half-finished edits and duplicate full-suite runs. `blockedBy` constrains the order: a task blocked by Task N is dispatched only after Task N's coder returns `status: "success"`.
 
 #### Pre-flight scout dispatch (GAP-013 / #29)
 
@@ -335,6 +340,15 @@ the HALT-006 and scout R1 `failure` paths above.
 
 The coder agent runs the full RED→GREEN→INTEGRATE→VERIFY cycle for the task and appends JSONL entries directly to JSONL_PATH.
 
+**Verification ownership**: the coder dispatch delegates phase execution
+together with the edits. The dispatch prompt MUST tell the coder to run its
+phase commands from `GATE_COMMANDS`. It MUST NOT carry edit-only, no-test,
+"skip build/lint/tests mid-flight", or "caller verifies" instructions, whether
+they come from caller context or from the harness's generic delegation
+defaults. Those rules govern the coordinator's own redundant runs, never a
+coder's phase gates. Do not run a coder's phase gates yourself to fill a gap:
+coordinator test runs are never evidence for coder success.
+
 **MANDATORY — load test conventions before first coder dispatch:** if the project has no
 established test conventions discoverable from the codebase (i.e. `PLAN_CONTEXT` or
 `SCOUT_SUMMARY` returns no test-style hints), load @references/test-writing-guide.md
@@ -347,9 +361,10 @@ plan-analyst already surfaced test conventions — redundant loading wastes cont
 The coder agent emits an R1 envelope as the final fenced ` ```json ` block in its message (see `plugins/makato-build/agents/RETURN-CONTRACT.md`). Parse the **last** `json`-fenced block via `JSON.parse()` — do not scrape the prose Output Format section. The R1 envelope is the authoritative contract.
 
 Map `r1.status` to action:
-- `r1.status == "success"` — task complete; run the cross-task regression sweep (see § *Cross-task regression sweep* below), then proceed to the next task. The prose Output Format remains for human inspection; the R1 envelope drives the loop.
-- `r1.status == "partial"` — VERIFY did not reach zero new failures. Treat as soft failure: log a warn entry, then stop the loop unless `r1.data.new_failures` is explicitly within an acknowledged threshold for this story. Recommend `/build-simplify` to triage.
-- `r1.status == "failure"` — structural escalation. The contents of `r1.errors[0]` (or `r1.summary` if empty) is the escalation reason. Stop the loop, report to user, recommend `/refine`.
+- `r1.status == "success"` (with all four phases in `r1.data.phases_executed` whenever that key is present) — task complete; run the cross-task regression sweep (see § *Cross-task regression sweep* below), then proceed to the next task. The prose Output Format remains for human inspection; the R1 envelope drives the loop.
+- **Unverified result**: `r1.status == "partial"` where `verify` is missing from `r1.data.phases_executed` (or, when that key is absent, `r1.data.phase_reached != "verify"`), or a `success` with incomplete `phases_executed`. Do not resume the finished agent, and do not verify on its behalf. Dispatch exactly **one** fresh `coder` for the same `TASK_INDEX`, with the full Step 6 bundle plus `PRIOR_R1` set to this envelope. Log a `step: "coder-continuation"` `warn` entry with `data: {task, prior_status, phases_executed}`. Mirror the continuation's R1 and map it with these same rules. If the continuation is again unverified, treat it as `failure` with reason `"CODER_UNVERIFIED: task <N> phases not executed by coder after continuation"`.
+- `r1.status == "partial"` with VERIFY executed — VERIFY did not reach zero new failures. Treat as soft failure: log a warn entry, then stop the loop unless `r1.data.new_failures` is explicitly within an acknowledged threshold for this story. Recommend `/build-simplify` to triage.
+- `r1.status == "failure"` — structural escalation, or `VERIFICATION_UNAVAILABLE` when the coder could not run commands. The contents of `r1.errors[0]` (or `r1.summary` if empty) is the escalation reason. Stop the loop, report to user, recommend `/refine`.
 
 If the R1 envelope cannot be parsed (missing block, invalid JSON, `schema != "r1"`): treat as `status: "failure"` with reason `"R1 contract violation"` and surface the raw message to the user for diagnosis.
 
