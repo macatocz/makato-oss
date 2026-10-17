@@ -47,6 +47,10 @@ The VERIFY contract has two levels. Both gates must clear before a task is marke
 Run unit + integration + all pre-existing tests. Compare failure count to baseline.
 Any new failure blocks progression to the next task.
 
+Level 1 is satisfied only by commands the coder itself ran. A coordinator's
+test run never satisfies it: an unverified coder result gets one fresh-coder
+continuation (see `build-implement-tdd/SKILL.md` § *On coder result*).
+
 #### Level 2 — Cross-task regression sweep (outer loop, between tasks)
 
 **Gate:** After each task's coder R1 returns `status:"success"`, the outer loop

@@ -69,6 +69,7 @@ def layout(tmp_path: Path) -> Layout:
     change = plugins / "makato-change"
     schema = build / "config" / "default-workflow-schema.yml"
     _write_yaml(schema, _built_in())
+    (build / "config" / "verification-ownership.md").write_text("MAKATO VERIFICATION OWNERSHIP: test policy.\n", encoding="utf-8")
     for root, name in (
         (build, "build-review"),
         (build, "build-verify"),
@@ -364,6 +365,12 @@ def test_missing_installed_plugin_reports_its_root_variable(layout: Layout) -> N
 def test_missing_skill_file_is_an_error_not_an_empty_prompt(layout: Layout) -> None:
     (layout.build / "skills" / "build-review" / "SKILL.md").unlink()
     with pytest.raises(SkillExecutionError, match="Cannot read skill file.*SKILL.md"):
+        _command(layout)
+
+
+def test_missing_verification_policy_fails_before_launch(layout: Layout) -> None:
+    (layout.build / "config" / "verification-ownership.md").unlink()
+    with pytest.raises(SkillExecutionError, match="Cannot read verification ownership policy"):
         _command(layout)
 
 
