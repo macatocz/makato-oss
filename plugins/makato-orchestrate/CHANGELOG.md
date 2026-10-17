@@ -17,6 +17,20 @@ Changes are grouped by skill/component. Within each group, latest version on top
   state file (which redid accepted tasks and reset `structural_halt_cycles`).
 - **`halt-conditions.md`** HALT-008/HALT-STRUCTURAL and HALT-015 recoveries
   now name the `--resume` command instead of an unreachable "resume".
+### Changed — dependency-aware mixed-mode task scheduling (#153)
+
+- **`scripts/task_schedule.py`** (new, stdlib-only): `next` prints the next
+  dependency-ready mode group (the `runOrder`-preferred ready mode and its ready
+  closure) or `complete`; `sync` aligns `sub_tasks[]` with the plan, refreshing
+  unfinished rows and never altering accepted ones. Invalid plan graphs exit 2.
+- **`po-agent` v1.3.0** builds and re-syncs `sub_tasks[]` through
+  `task_schedule.py` (Steps 3 and 4c; HALT-006 on an invalid graph) and
+  dispatches one group per Step 4 pass with `ASSIGNED_TASK_IDS`, so mixed plans
+  with cross-mode dependencies (`tdd → goal → tdd`) run unattended instead of
+  ending in `unsupported-mixed-mode-scheduling`. A `success` R1 must report
+  exactly the assigned IDs in `data.completed_task_ids`; the PO records goal
+  completions itself, so the `sub_tasks[]` carve-out stays limited to
+  `build-implement-tdd`.
 
 ### Changed — bounded review and verify repair loops (#148)
 

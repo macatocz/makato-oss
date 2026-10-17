@@ -4,7 +4,7 @@ description: >-
   Bridge a shaped Jira story, GitHub issue, or any work unit to an implementation plan — tasks, file
   targets, unit/integration test strategy, acceptance mapping. Use to start a build session before
   implement-tdd or implement-goal.
-version: "1.14.1"
+version: "1.15.0"
 
 argument-hint: "[work-item-key] [--autonomous]"
 allowed-tools:
@@ -438,10 +438,12 @@ decision.)
 Decide: `implement-tdd` or `implement-goal`? Record the decision and a one-line rationale in the
 plan. If the story spans both modes, mark each task individually with its mode.
 
-**Mixed-mode sequencing rule**: when a plan contains both `tdd` and `goal` tasks, TDD tasks
-(logic/service layer) run before goal tasks (UI/config) unless a goal task is a structural
-prerequisite for a TDD task. Encode this as `runOrder: [tdd, goal]` in the plan frontmatter. If a
-goal task is a prerequisite, note the exception in the Scope Flags section.
+**Mixed-mode sequencing rule**: record every real dependency in `blockedBy`, including
+cross-mode ones in either direction. The PO-agent schedules dependency-ready mode groups
+(`scripts/task_schedule.py`, #153), so a goal task that is a structural prerequisite of a TDD
+task (or the reverse) needs no exception or reordering. `runOrder` in the plan frontmatter
+(default `[tdd, goal]`: logic/service before UI/config) only chooses which mode runs first when
+both have ready tasks; it never overrides `blockedBy`.
 
 ### Step 8 — Break story into implementation tasks
 
