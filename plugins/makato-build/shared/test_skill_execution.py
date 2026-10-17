@@ -336,11 +336,21 @@ def test_context_is_verbatim_and_skill_arguments_never_become_harness_flags(layo
     assert not (layout.repo / "injected").exists()
 
 
-def test_interactive_mode_keeps_interviews_and_does_not_force_headless(layout: Layout) -> None:
+def test_interactive_mode_keeps_interviews_and_requires_clean_context_handoffs(layout: Layout) -> None:
     command, env, _ = _command(layout, "--interactive")
     assert "--print" not in command[:-1]
     assert "--interactive" in _metadata(command[-1])["next_skill_command_prefix"]
     assert "MAKATO_HEADLESS" not in env or env["MAKATO_HEADLESS"] == os.environ.get("MAKATO_HEADLESS")
+    assert "Do NOT invoke MAKATO_SKILL_RUNNER" in command[-1]
+    assert "Next (clean context)" in command[-1]
+    assert "MUST launch a separate process through MAKATO_SKILL_RUNNER" not in command[-1]
+
+
+def test_print_mode_keeps_runner_dispatch_contract(layout: Layout) -> None:
+    command, _, _ = _command(layout)
+    assert "--print" in command[:-1]
+    assert "MUST launch a separate process through MAKATO_SKILL_RUNNER" in command[-1]
+    assert "Do NOT invoke MAKATO_SKILL_RUNNER" not in command[-1]
 
 
 def test_installed_non_sibling_plugin_roots_can_be_explicit(layout: Layout) -> None:

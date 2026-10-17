@@ -32,8 +32,9 @@ def parser() -> argparse.ArgumentParser:
         epilog=(
             "Place launcher options before plugin:skill and skill arguments after --. "
             "Default --print mode reports missing inputs instead of inventing decisions; "
-            "use --interactive for user interviews. OMP sessions are ephemeral. "
-            "Concrete models remain configured through OMP modelRoles."
+            "--interactive only omits --print and does not connect an agent tool shell "
+            "to a user-facing TTY. OMP sessions are ephemeral. Concrete models remain "
+            "configured through OMP modelRoles."
         ),
     )
     result.add_argument("--repo-root", required=True, type=Path)
@@ -84,7 +85,12 @@ def _plugin_roots(environ: Mapping[str, str]) -> dict[str, Path]:
 
 def _prompt(metadata: dict[str, Any], skill_text: str, context: str) -> str:
     if metadata["interactive"]:
-        input_contract = "This is interactive: ask the user for missing required inputs or decisions according to the selected skill's own interview/approval contract."
+        input_contract = (
+            "This run uses interactive mode, but its launcher may not have a user-facing "
+            "TTY. Ask the user only when they can answer directly; otherwise report exact "
+            "missing inputs/decisions and return a clean-context handoff. Never assume "
+            "approval."
+        )
     else:
         input_contract = (
             "This is non-interactive OMP --print mode. If required inputs, approvals, "
@@ -92,18 +98,33 @@ def _prompt(metadata: dict[str, Any], skill_text: str, context: str) -> str:
             "inputs. Do not fabricate answers, pick recommended options, assume approval, "
             "or create artifacts that depend on an unanswered decision."
         )
+    if metadata["interactive"]:
+        dispatch_contract = (
+            "- This run is marked interactive, but a nested OMP process may not be visible "
+            "to the user or have a user-facing TTY. Execute only the selected skill. Do NOT "
+            "invoke MAKATO_SKILL_RUNNER or launch a subsequent workflow skill through a "
+            "same-session Skill call. Complete this skill's own work, persist any required "
+            "next-step inputs in the spec folder or build.jsonl, and end with an explicit "
+            "clean-context instruction such as `Next (clean context): /handoff (or /new), "
+            "then /skill:<name> <args>`. Name any input the user must pass if it is not "
+            "persisted. There is no implicit parent conversation.\n"
+        )
+    else:
+        dispatch_contract = (
+            "- Any subsequent workflow skill in makato-plan, makato-change, or makato-build "
+            "MUST launch a separate process through MAKATO_SKILL_RUNNER. Use the provided "
+            "next_skill_command_prefix, append its qualified plugin:skill and -- arguments, "
+            "and supply a closed context file containing everything that next skill needs. "
+            "There is no implicit parent conversation. Do not execute subsequent workflow "
+            "skills inline or via a same-session model-switching extension.\n"
+        )
     return (
         "Execute exactly one makato workflow skill in this fresh OMP process.\n\n"
         "Dispatch contract:\n"
         "- The selected skill is already resolved. Execute its instructions INLINE now, "
         "using the exact SKILL.md and base directory below. Do not invoke a skill loader "
         "or relaunch this selected skill: MAKATO_SKILL_RESOLVED marks this dispatch.\n"
-        "- Any subsequent workflow skill in makato-plan, makato-change, or makato-build "
-        "MUST launch a separate process through MAKATO_SKILL_RUNNER. Use the provided "
-        "next_skill_command_prefix, append its qualified plugin:skill and -- arguments, "
-        "and supply a closed context file containing everything that next skill needs. "
-        "There is no implicit parent conversation. Do not execute subsequent workflow "
-        "skills inline or via a same-session model-switching extension.\n"
+        f"{dispatch_contract}"
         "- Consulting reference material or another skill solely as a reference remains "
         "inline. Regular helper agents retain their own declared role/model settings; "
         "this workflow skill's role does not override them.\n"

@@ -8,11 +8,20 @@ Format: `type(scope): description` — conventional commit style, ≤72 chars to
 - **scope**: the primary module, service, or component touched (e.g. `invoice`, `auth`, `deals-view`)
 - **description**: imperative, no period — what the PR delivers, not what files changed
 
-Derive from `stories.json` story title or the first line of `plan.md`. If neither exists, synthesize from the commit messages.
+Derive from the selected `stories.json` entry's title or the current story's `plan.md` slice. If neither exists, synthesize from that story's commit messages.
+
+## Spec Context Boundaries
+
+Use the selected story entry and its plan/task slice only; never include sibling stories'
+acceptance criteria, tasks, or implementation context. Read `prd.md` and `design.md`
+only by explicit section references in the selected story or its plan, and extract only
+those referenced sections (including their nested content). Do not load either
+module-wide document in full. Filter `build.jsonl` to the selected story before using
+its AC verdicts or gate/session evidence; keep all rows for that story available.
 
 ## Description of Changes — What Changed
 
-One bullet per completed plan task. Each bullet: task title + one sentence on the specific change.
+One bullet per completed plan task in the selected story's plan slice. Each bullet: task title + one sentence on the specific change; never include sibling-story tasks.
 
 **Good:** `- Add status field to Invoice entity — new `status` column in schema, mapped via JPA`
 **Vague:** `- Updated Invoice` or `- Backend changes`
@@ -28,7 +37,8 @@ Three lines:
 
 ## How to Test
 
-One numbered step per acceptance criterion from `stories.json`. Each step must be concrete:
+One numbered step per acceptance criterion from the selected `stories.json` entry only.
+Keep the complete criteria list in its original order. Each step must be concrete:
 - Name the exact command to run or action to take
 - State the input or precondition
 - State the expected observable output

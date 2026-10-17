@@ -5,11 +5,11 @@ description: >-
   implementation mode, initializes the build log, and kicks off /build-refine. Use when starting a
   new story build, beginning the makato-build workflow, running build-start on a work item, or
   starting local work without a ticket.
-version: "1.11.1"
+version: "1.11.2"
 argument-hint: "[work-item-key]"
 allowed-tools: [Bash]
 metadata:
-  last_updated: "2026-08-15"
+  last_updated: "2026-10-17"
 ---
 
 # build-start
@@ -19,28 +19,19 @@ metadata:
 This boundary applies only when the resolved `MAKATO_HARNESS_MODE` is `omp`.
 For `claude` and other non-OMP harnesses, keep the native invocations below unchanged.
 
-Execute workflow skills from makato-build, makato-plan and makato-change in separate
-OMP runs through `python3 "$MAKATO_SKILL_RUNNER"`, not inline Skill/Task calls.
-Resolve the runner from `$MAKATO_BUILD_ROOT/scripts/run-skill.py` if not already
-exported; if neither path is available, report the missing makato-build runtime.
-This rule applies to every skill dispatch below, including retries and follow-on
-skills. It does not replace ordinary helper-agent dispatch or reference reads.
+For headless/autonomous OMP runs, keep the existing separate-process dispatch
+through `python3 "$MAKATO_SKILL_RUNNER"`; resolve the runner from
+`$MAKATO_BUILD_ROOT/scripts/run-skill.py` if needed. Preserve the complete current
+context bundle, wait for completion, and apply the existing result/artifact checks.
+Nonzero exit is a dispatch failure; never fall back to inline execution. This does
+not change skill-specific autonomous activation.
 
-For each invocation, write a context file containing the complete current bundle
-(REPO_ROOT, WORKTREE_PATH, issue/key, artifact paths, decisions, and step-specific
-inputs). The new session has no parent conversation history. Run:
-
-```bash
-python3 "$MAKATO_SKILL_RUNNER" --repo-root "$REPO_ROOT" \
-  --cwd "${WORKTREE_PATH:-$REPO_ROOT}" --context-file "$CONTEXT_FILE" \
-  makato-build:build-refine -- "$KEY" --autonomous
-```
-
-Replace the skill and its arguments for the selected phase. Wait for completion,
-then apply the existing result/artifact checks. Nonzero exit is a dispatch failure;
-never silently fall back to inline execution. Human-driven interviews use
-`--interactive` before the skill name. The selected current skill executes its own
-body inline; it must not launch itself again merely to apply this policy.
+In a human-driven OMP session, run `build-start` inline and do not launch
+`build-refine` through the runner or a same-session Skill call. The selected current
+skill executes its own body inline; it must not launch itself again merely to apply
+this policy. The new session has no parent conversation history, so record all
+required choices in the spec folder or `build.jsonl` before handing off. This rule
+does not replace ordinary helper-agent dispatch or reference reads.
 
 
 ## Mindset
@@ -555,7 +546,16 @@ Run:
 "$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-start","story":"<key>","step":"session-end","status":"ok","data":{"next":"build-refine","worktree_path":"<absolute-worktree-path>"}}'
 ```
 
-Invoke `/build-refine <key>` with the resolved `WORKTREE_PATH`.
+For a human-driven OMP session, do not invoke `build-refine` in this context.
+Finish with the clean-context instruction:
+
+> Next (clean context): `/handoff` (or `/new`), then `/skill:build-refine <key>`.
+
+Continue in the resolved `WORKTREE_PATH`; the work-item key and selected build
+configuration are recorded in the spec folder and `build.jsonl`. If the next
+session is not already in that worktree, include `WORKTREE_PATH=<absolute path>`.
+Headless/autonomous runs keep the existing runner-based dispatch and result checks
+above; non-OMP harnesses keep their native invocation.
 
 ## Anti-Patterns
 
