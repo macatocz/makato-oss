@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.170.2](https://github.com/macatocz/makato-oss/compare/v0.170.1...v0.170.2) (2026-10-17)
+
+
+### 🐛 Bug Fixes
+
+* **repo:** keep interactive OMP handoffs in clean contexts ([#165](https://github.com/macatocz/makato-oss/issues/165)) ([12600d6](https://github.com/macatocz/makato-oss/commit/12600d6af134acd9e4482fa0e4de889b52533450))
+
 ## [0.170.1](https://github.com/macatocz/makato-oss/compare/v0.170.0...v0.170.1) (2026-10-17)
 
 
