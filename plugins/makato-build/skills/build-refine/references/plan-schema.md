@@ -18,8 +18,9 @@ All fields are required unless marked optional.
 **Mode:** tdd | goal | mixed
 **Rationale:** <one sentence: why this mode for this story>
 **runOrder:** [tdd, goal] | [goal, tdd] | N/A
-  (for mixed-mode plans: the order in which mode-groups are executed. TDD tasks precede
-  goal tasks unless a goal task is a structural prerequisite. N/A for single-mode plans.)
+  (for mixed-mode plans: which mode runs first when both have dependency-ready tasks. The
+  PO-agent turns cross-mode `blockedBy` into pass boundaries; runOrder never overrides it.
+  N/A for single-mode plans.)
 
 ## Tasks
 <task list — one entry per task, see Task Schema below>
