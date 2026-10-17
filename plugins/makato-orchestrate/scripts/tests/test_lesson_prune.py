@@ -58,7 +58,7 @@ def _sha256(path: str) -> str:
 
 def _classify(
     memory_dir: str,
-    today_override: str = "",
+    today_override: str = "2026-07-20",
     head_override: str = "",
     agents_contents: list[str] | None = None,
 ) -> list[dict]:

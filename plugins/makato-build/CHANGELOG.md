@@ -10,6 +10,18 @@ here on merge to main; release-please will date and version them at the next rel
 
 ## [Unreleased]
 
+### Fixed — durable project learning (port of #123 from `development`)
+
+- **`shared/write-lessons.sh`** accepts `--issue N` (plus `--bundle`/`--label` recall
+  metadata) and immediately persists generalizable procedures and facts into the
+  selected checkout’s `.makato/memory/`, including interactive worktree sessions. Pass
+  `--issue N` when several issues share one spec folder. Preserve issue/filter
+  metadata; report promotion failures (exit 3) while retaining raw evidence.
+- **`shared/write-lessons.sh`** resolves an exact `specs/<key>/` first, then a unique
+  `specs/<key>-*/` match; ambiguous keys exit 2 instead of appending to the first match.
+- **`build-verify` v1.13.1** and **`build-push-to-git` v1.7.2** require an
+  evidence-based learning review at completion/handoff. Replace source-text tests
+  with real CLI coverage.
 ### Fixed — coder verification ownership and unverified-result continuation (#141)
 
 - **`agents/coder.md`** now owns every phase command it reports. Edit-only or

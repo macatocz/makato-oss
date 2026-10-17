@@ -1,32 +1,7 @@
 #!/usr/bin/env bash
-# Smoke tests for write-lessons.sh (#473 — build-lane lesson and fact write).
-#
-# write-lessons.sh is a PURE WRITER: it appends exactly one JSONL lesson record
-# to specs/<key>-*/change-lessons.jsonl. The record shape must match what
-# promote-lessons.sh (S2/#471) reads from change-lessons.jsonl as "source B":
-# fields {ts, tier, text, tags, scope, key, repo}. The writer NEVER touches
-# .makato/memory/ — promotion is documentation-agent's job (via promote-lessons.sh).
-#
-# The tests build a throwaway git sandbox so the script's target-root override,
-# common-dir fallback, and `git remote get-url origin` resolution use real plumbing.
-#
-# Coverage:
-#   T1  — script exists at expected path
-#   T2  — shebang is #!/usr/bin/env bash
-#   T3  — appending a procedural record produces a valid JSON line
-#   T4  — record contains all required fields: ts, tier, text, tags, scope, key, repo
-#   T5  — semantic record with scope=generalizable preserves tier=semantic
-#   T6  — no write to .makato/memory/ during a write-lessons call
-#   T7  — REPO_ROOT worktree pattern (git-common-dir) is present in the script
-#   T8  — multiple appends grow the file line-count monotonically (append, not overwrite)
-#   T9  — invalid tier (episodic) exits non-zero and appends nothing
-#   T10 — invalid scope (global) exits non-zero and appends nothing
-#   T11 — build-verify SKILL.md documents the write-lessons.sh call-site
-#   T12 — build-push-to-git SKILL.md documents the write-lessons.sh call-site
-#   T13 — build-address-pr-comments SKILL.md documents the write-lessons.sh call-site
-#   T14 — target override writes in linked target; unset env preserves main
-#   T15 — invalid MAKATO_TARGET_REPO_ROOT fails clearly
-# Exit code: number of failures; 0 = all green.
+# Behavioral smoke tests for source capture, validation, ambiguous spec keys, and
+# target-root selection.
+# Full capture/persist/recall behavior: tests/test_capture_memory.py.
 
 set -u
 
@@ -61,30 +36,7 @@ _mk_sandbox() {
 
 CL_REL() { echo "specs/$1-some-slug/change-lessons.jsonl"; }
 
-# ===========================================================================
-# T1 — script exists
-# ===========================================================================
-echo "T1: write-lessons.sh exists"
-if [[ -f "$WRITE_LESSONS" ]]; then
-  _pass "found at $WRITE_LESSONS"
-else
-  _fail "missing at $WRITE_LESSONS"
-  # Nothing else can run without the script — bail with the count so far.
-  echo ""
-  echo "$FAIL test(s) failed."
-  exit "$FAIL"
-fi
 
-# ===========================================================================
-# T2 — shebang
-# ===========================================================================
-echo "T2: shebang is #!/usr/bin/env bash"
-FIRST_LINE="$(head -1 "$WRITE_LESSONS")"
-if [[ "$FIRST_LINE" == "#!/usr/bin/env bash" ]]; then
-  _pass "$FIRST_LINE"
-else
-  _fail "unexpected shebang: $FIRST_LINE"
-fi
 
 # ===========================================================================
 # T3 — appending a procedural record produces a valid JSON line
@@ -162,35 +114,8 @@ else
 fi
 rm -rf "$SB"
 
-# ===========================================================================
-# T6 — no write to .makato/memory/ during a call
-# ===========================================================================
-echo "T6: .makato/memory/ untouched"
-KEY="473-makato-build-lane-lesson-and-fact-write"
-SB="$(_mk_sandbox "$KEY")"
-BEFORE="$(cat "$SB/.makato/memory/procedural.jsonl" "$SB/.makato/memory/semantic.jsonl" | wc -c | tr -d ' ')"
-(
-  cd "$SB" || exit 1
-  bash "$WRITE_LESSONS" "$KEY" semantic generalizable \
-    "This must not land in .makato/memory" "shell" >/dev/null 2>&1
-)
-AFTER="$(cat "$SB/.makato/memory/procedural.jsonl" "$SB/.makato/memory/semantic.jsonl" | wc -c | tr -d ' ')"
-if [[ "$BEFORE" == "0" ]] && [[ "$AFTER" == "0" ]]; then
-  _pass ".makato/memory/ files remain empty (0 bytes)"
-else
-  _fail ".makato/memory/ changed: before=$BEFORE after=$AFTER"
-fi
-rm -rf "$SB"
-
-# ===========================================================================
-# T7 — REPO_ROOT worktree pattern present (git-common-dir)
-# ===========================================================================
-echo "T7: git-common-dir REPO_ROOT pattern present"
-if grep -q 'git.*rev-parse.*--git-common-dir' "$WRITE_LESSONS"; then
-  _pass "git rev-parse --git-common-dir present"
-else
-  _fail "git-common-dir REPO_ROOT resolution missing (worktree contract)"
-fi
+# Capture-time durable routing and linked-worktree behavior are exercised by
+# tests/test_capture_memory.py.
 
 # ===========================================================================
 # T8 — multiple appends grow line count monotonically
@@ -205,11 +130,16 @@ SB="$(_mk_sandbox "$KEY")"
   bash "$WRITE_LESSONS" "$KEY" semantic generalizable "third" "c" >/dev/null 2>&1
 )
 CL="$SB/$(CL_REL "$KEY")"
-LINES="$(wc -l < "$CL" | tr -d ' ')"
-if [[ "$LINES" == "3" ]]; then
-  _pass "3 appends → 3 lines"
+if python3 - "$CL" <<'PY'
+import json, sys
+records = [json.loads(line) for line in open(sys.argv[1])]
+assert [record["text"] for record in records] == ["first", "second", "third"]
+assert [record["tier"] for record in records] == ["procedural", "procedural", "semantic"]
+PY
+then
+  _pass "later captures preserve earlier source evidence"
 else
-  _fail "expected 3 lines, got $LINES"
+  _fail "capture overwrote or changed source evidence"
 fi
 rm -rf "$SB"
 
@@ -251,43 +181,33 @@ else
 fi
 rm -rf "$SB"
 
-# ===========================================================================
-# T11 — build-verify SKILL.md documents the call-site
-# ===========================================================================
-echo "T11: build-verify SKILL.md documents write-lessons.sh call-site"
-BV_SKILL="$SCRIPT_DIR/../skills/build-verify/SKILL.md"
-if [[ -f "$BV_SKILL" ]] && grep -q 'write-lessons.sh' "$BV_SKILL"; then
-  _pass "call-site documented in build-verify SKILL.md"
-else
-  _fail "write-lessons.sh call-site missing from build-verify SKILL.md"
-fi
+
 
 # ===========================================================================
-# T12 — build-push-to-git SKILL.md documents the call-site
+# T14 — ambiguous prefix matches are rejected without writing to either folder
 # ===========================================================================
-echo "T12: build-push-to-git SKILL.md documents write-lessons.sh call-site"
-BP_SKILL="$SCRIPT_DIR/../skills/build-push-to-git/SKILL.md"
-if [[ -f "$BP_SKILL" ]] && grep -q 'write-lessons.sh' "$BP_SKILL"; then
-  _pass "call-site documented in build-push-to-git SKILL.md"
+echo "T14: ambiguous spec folders are rejected without appending"
+KEY="473-makato-build-lane-lesson-and-fact-write"
+SB="$(_mk_sandbox "$KEY")"
+mkdir -p "$SB/specs/${KEY}-another-slug"
+RC=0
+(
+  cd "$SB" || exit 1
+  bash "$WRITE_LESSONS" "$KEY" procedural local "must not be misrouted" "shell" >/dev/null 2>&1
+) || RC=$?
+FIRST="$SB/specs/${KEY}-some-slug/change-lessons.jsonl"
+SECOND="$SB/specs/${KEY}-another-slug/change-lessons.jsonl"
+if [[ "$RC" -ne 0 && ! -e "$FIRST" && ! -e "$SECOND" ]]; then
+  _pass "ambiguous prefix rejected (rc=$RC), no folder receives a record"
 else
-  _fail "write-lessons.sh call-site missing from build-push-to-git SKILL.md"
+  _fail "ambiguous prefix not rejected safely: rc=$RC, files=$FIRST $SECOND"
 fi
+rm -rf "$SB"
 
 # ===========================================================================
-# T13: build-address-pr-comments records write-lessons.sh call-site
+# T15 — target-root override and common-dir fallback from a nested worktree
 # ===========================================================================
-echo "T13: build-address-pr-comments SKILL.md documents write-lessons.sh call-site"
-ADDRESS_SKILL_MD="$SCRIPT_DIR/../skills/build-address-pr-comments/SKILL.md"
-if [[ -f "$ADDRESS_SKILL_MD" ]] && grep -q 'write-lessons.sh' "$ADDRESS_SKILL_MD"; then
-  _pass "call-site documented in build-address-pr-comments SKILL.md"
-else
-  _fail "write-lessons.sh call-site missing from build-address-pr-comments SKILL.md"
-fi
-
-# ===========================================================================
-# T14 — target-root override and common-dir fallback from a nested worktree
-# ===========================================================================
-echo "T14: target-root override writes lessons to selected linked checkout"
+echo "T15: target-root override writes lessons to selected linked checkout"
 ROOT_CASE_TMP="$(mktemp -d)"
 trap 'rm -rf "$ROOT_CASE_TMP"' EXIT
 ROOT_CASE_MAIN="$ROOT_CASE_TMP/main"
@@ -343,9 +263,9 @@ else
 fi
 
 # ===========================================================================
-# T15 — an invalid explicit target is rejected before lesson lookup
+# T16 — an invalid explicit target is rejected before lesson lookup
 # ===========================================================================
-echo "T15: invalid MAKATO_TARGET_REPO_ROOT fails clearly"
+echo "T16: invalid MAKATO_TARGET_REPO_ROOT fails clearly"
 ROOT_NOT_DIR="$ROOT_CASE_TMP/not-a-directory"
 printf 'not a directory\n' > "$ROOT_NOT_DIR"
 ROOT_INVALID_RC=0
@@ -365,7 +285,7 @@ fi
 # ---------------------------------------------------------------------------
 echo ""
 if [[ "$FAIL" -eq 0 ]]; then
-  echo "All 15 tests passed."
+  echo "All capture smoke checks passed."
 else
   echo "$FAIL test(s) failed."
 fi

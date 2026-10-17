@@ -8,7 +8,7 @@ description: >-
   validation summary table. Use when: setting up makato for the first time,
   HALT-006 fires with no config, developer joins project, onboarding makato,
   init wizard, first-time setup, configure makato, no .claude/config.json.
-version: "1.1.0"
+version: "1.1.1"
 argument-hint: ""
 allowed-tools: Bash Read
 metadata:
@@ -246,6 +246,30 @@ Print:
 > "[init] .claude/config.json written ✓  (project: <PROJECT_NAME>)"
 
 ---
+
+### Step 1.6 — Install the project learning contract
+
+Preserve existing instructions and add a concise project-memory section to
+`AGENTS.md` (or its existing authority if `CLAUDE.md` is a symlink). This is
+required for ordinary sessions, not just autonomous PO-agent runs:
+
+- At session start, read the main git checkout’s `.makato/memory/procedural.jsonl`
+  and `semantic.jsonl`, or use the installed orchestrate `recall-lessons` helper.
+  Missing stores mean no prior memory, not a reason to fabricate entries.
+- Before completion or handoff, review verified discoveries and capture reusable
+  procedures (`procedural`) and technical facts (`semantic`) through the installed
+  build `shared/write-lessons.sh`, from the consumer checkout. Create a task spec
+  folder if this is an ad-hoc task; pass `--issue N` for shared feature specs.
+- A successful generalizable capture must appear in the main checkout’s
+  `.makato/memory/` and be recallable immediately; no merge is required. Retain
+  source records and report nonzero persistence errors.
+- No useful new learning is legitimate: record a reason in the task audit or
+  handoff. Never invent lessons, copy secrets, or silently treat host-specific
+  OMP/Claude memory as the project store.
+
+Resolve helper roots from the installed plugin locations, never assume the
+consumer repo has a `plugins/` directory. Keep the policy harness-independent;
+re-running init must update the existing section rather than duplicate it.
 
 ### Phase 2 — Optional Configuration
 

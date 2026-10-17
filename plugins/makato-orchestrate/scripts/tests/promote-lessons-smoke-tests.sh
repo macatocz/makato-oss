@@ -7,7 +7,7 @@
 # Scenarios:
 #   T1: generalizable record from workflow-state is promoted
 #   T2: local scope record is skipped
-#   T3: duplicate bumps occurrences (no new line)
+#   T3: replay is idempotent; a distinct capture increases occurrences
 #   T4: change-lessons.jsonl source is read
 #   T5: empty sources — script exits 0, procedural.jsonl untouched
 #   T6: record with absent scope field is skipped
@@ -86,9 +86,9 @@ echo "=== T2: local scope skipped ==="
 pass "T2: local scope skipped"
 
 # ---------------------------------------------------------------------------
-# T3: duplicate bumps occurrences, no new line appended
+# T3: replays retain occurrences; a distinct capture increases it without a new line
 # ---------------------------------------------------------------------------
-echo "=== T3: duplicate bumps occurrences ==="
+echo "=== T3: idempotent replay and distinct capture counting ==="
 (
   D="$SANDBOX/t3"
   mkdir -p "$D"
@@ -107,9 +107,23 @@ echo "=== T3: duplicate bumps occurrences ==="
   LINES_AFTER_2=$(grep -c . "$MEM" || echo 0)
   [[ "$LINES_AFTER_2" -eq 1 ]] || fail "T3: expected still 1 line after dedup, got $LINES_AFTER_2"
   OCC=$(python3 -c "import json; d=json.loads(open('$MEM').read().strip()); print(d['occurrences'])")
-  [[ "$OCC" -eq 2 ]] || fail "T3: expected occurrences==2, got $OCC"
+  [[ "$OCC" -eq 1 ]] || fail "T3: replay must retain occurrences==1, got $OCC"
+  python3 - "$D/specs/test-300/workflow-state-300.json" <<'PYEOF'
+import json
+import sys
+from pathlib import Path
+
+state_path = Path(sys.argv[1])
+state = json.loads(state_path.read_text())
+state["lessons_learned"].append({**state["lessons_learned"][0], "ts": "2026-01-02T00:00:00Z"})
+state_path.write_text(json.dumps(state))
+PYEOF
+  MAKATO_PROMOTE_REPO_OVERRIDE="test/repo" \
+    bash "$SCRIPT" 300 "$D/specs" "$MEM"
+  OCC=$(python3 -c "import json; d=json.loads(open('$MEM').read().strip()); print(d['occurrences'])")
+  [[ "$OCC" -eq 2 ]] || fail "T3: distinct capture must increase occurrences to 2, got $OCC"
 )
-pass "T3: duplicate bumps occurrences"
+pass "T3: replay is idempotent and a distinct capture increases occurrences"
 
 # ---------------------------------------------------------------------------
 # T4: change-lessons.jsonl source is read
