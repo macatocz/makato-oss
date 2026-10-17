@@ -196,6 +196,17 @@ execute a command containing a human-readable suffix such as
 `— threshold: 95%`. If a legacy gate-scout response contains that suffix, remove
 the suffix before execution and log the threshold separately.
 
+**Report-output contract:** test reports belong in the resolved spec folder, never in
+the repository root. gate-scout may copy CI report options such as
+`--junitxml=results.xml`. CI writes them into a disposable runner workspace, but run
+verbatim from `WORKTREE_PATH` they create or overwrite a file in the checkout root.
+Before executing any gate command, rewrite every test-report path that is relative or
+inside `WORKTREE_PATH` (`--junitxml=<path>`, `--junitxml <path>`, `--junit-xml=<path>`)
+to `<spec-folder>/<stem>-<ISSUE_NUMBER><ext>`. For example, `--junitxml=results.xml`
+becomes `--junitxml=specs/<key>-<slug>/results-<N>.xml`. Without an `ISSUE_NUMBER`,
+keep the basename. Leave the rest of the command, and report paths outside the
+workspace, unchanged. Gates 4 and 5 log the rewritten path as `junit_report`.
+
 **MANDATORY: load `references/gate-definitions.md`** if gate-scout returns a toolchain
 (Maven, Gradle, Go, Rust, Biome, sqlfluff) for which the three-path command selection in
 Steps 4–5 does not cover the exact hook IDs, split flags, or runner conventions. For
@@ -544,7 +555,7 @@ not re-run BUILD/LINT/UNIT.
 
 Log:
 ```
-{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-integration","status":"ok"|"error","data":{"total":<N>,"passed":<N>,"failed":<N>,"skipped":<N>,"mandatory":<bool>,"tracer_required":<bool|null>,"distinct_layer_count":<int|null>}}
+{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-integration","status":"ok"|"error","data":{"total":<N>,"passed":<N>,"failed":<N>,"skipped":<N>,"mandatory":<bool>,"tracer_required":<bool|null>,"distinct_layer_count":<int|null>,"junit_report":"<repo-relative path>|null"}}
 ```
 
 ---
@@ -575,7 +586,7 @@ If no threshold was declared:
 
 Log:
 ```
-{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-coverage","status":"ok"|"warn"|"error","data":{"conditional_coverage":"<X>%","threshold":"<Y>%|none","threshold_met":true|false}}
+{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-coverage","status":"ok"|"warn"|"error","data":{"conditional_coverage":"<X>%","threshold":"<Y>%|none","threshold_met":true|false,"junit_report":"<repo-relative path>|null"}}
 ```
 
 ---

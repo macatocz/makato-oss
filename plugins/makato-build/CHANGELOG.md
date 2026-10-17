@@ -10,6 +10,12 @@ here on merge to main; release-please will date and version them at the next rel
 
 ## [Unreleased]
 
+### Fixed — build-verify: test reports stay in the spec folder (v1.14.0)
+
+- Step 1 adds a report-output contract. When a gate command copied from CI carries a JUnit
+  option such as `--junitxml=results.xml`, build-verify rewrites the path to
+  `specs/<key>-<slug>/<stem>-<N>.xml` before running it, so verify no longer creates or
+  overwrites a report in the checkout root. Gates 4 and 5 log the path as `junit_report`.
 ### Changed — coders run targeted RED/GREEN; review and verify own testing with bounded repair loops (#148)
 
 - **`agents/coder.md`** TDD mode runs only RED and GREEN, on only the test files
