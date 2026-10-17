@@ -5,11 +5,11 @@ description: >-
   makato-build pipeline — 13 automated items enforced by build-verify,
   build-sensors, build-push-to-git, and the coder agent; 6 manual items asserted
   by the PO-agent from workflow-state. Use as the single source of truth that
-  answers "is this task done?" — referenced from coder VERIFY, build-verify gate
-  mapping, and PO-agent board transition to Done. Trigger keywords: DoD, done
-  criteria, task-complete, all-items-satisfied, board-transition-Done,
-  workflow-state assertion.
-version: "2.4.0"
+  answers "is this task done?" — referenced from coder R1/logging evidence,
+  build-verify gate mapping, and PO-agent board transition to Done. Trigger
+  keywords: DoD, done criteria, task-complete, all-items-satisfied,
+  board-transition-Done, workflow-state assertion.
+version: "2.5.0"
 metadata:
   authors: [makato-build]
   last_updated: "2026-08-05"
@@ -21,8 +21,8 @@ metadata:
 
 A canonical, versioned, machine-checkable list of done criteria shared across the
 makato-build pipeline and the makato-orchestrate PO-agent. Without this skill, the same
-DoD knowledge was duplicated across `agents/coder.md` (VERIFY phase prose),
-`skills/build-verify/SKILL.md` (gate descriptions), and the PO-agent's task-completion
+DoD knowledge was duplicated across `agents/coder.md` (targeted RED/GREEN test and R1
+evidence), `skills/build-verify/SKILL.md` (gate descriptions), and the PO-agent's task-completion
 heuristics — drifting independently and forcing humans to re-derive what "done" means
 each time. This skill is the **single source of truth** those consumers reference.
 
@@ -45,7 +45,8 @@ authoritative checklist: only when every item is satisfied is the task marked
 
 **MANDATORY** — load before evaluating task-completion in any of these situations:
 
-- **Coder VERIFY phase**: before asserting that automated-tier items are satisfied
+- **Coder R1 evidence**: before reporting targeted RED/GREEN results or DoD-related
+  items recorded by the coder
 - **build-verify gate mapping**: before mapping DoD item numbers to gate outcomes or HALT
   codes
 - **PO-agent board transition**: before reading `workflow-state.json` to confirm all 6
@@ -68,8 +69,7 @@ gate log entry in `specs/<key>-<slug>/build.jsonl`.
 
 1. **All unit + integration tests pass.** No new failures vs. the pre-session baseline
    recorded at `build-implement-tdd` / `build-implement-goal` Step 3.
-   _Enforced by:_ `agents/coder.md` VERIFY phase; `skills/build-verify/SKILL.md` Gates 3
-   and 4.
+   _Enforced by:_ `skills/build-verify/SKILL.md` Gates 3 and 4.
 
 2. **Conditional coverage ≥ threshold.** Default 90% conditional (branch) coverage; the
    threshold is overridable per-story in `specs/<key>-<slug>/design.md`. Below threshold
@@ -305,8 +305,8 @@ The following consumers reference this skill as their authoritative checklist. A
 to item count, numbering, or wording in this file is a contract change for all of them
 and requires a coordinated update.
 
-- `plugins/makato-build/agents/coder.md` § Phase 4 — VERIFY: enforces Automated-tier
-  items 1, 10, 11.
+- `plugins/makato-build/agents/coder.md` § Output Contract (R1): enforces Automated-tier
+  items 10 and 11; item 1 is enforced by build-verify.
 - `plugins/makato-build/skills/build-verify/SKILL.md` § Definition-of-Done — Automated
   Tier Mapping: maps each of items 1–13 to its gate and the HALT code that fires when
   the item is unmet in autonomous mode.

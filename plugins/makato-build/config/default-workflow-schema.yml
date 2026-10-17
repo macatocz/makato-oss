@@ -74,7 +74,7 @@ artifacts:
   - id: implement-tdd
     skill: build-implement-tdd
     required: false
-    description: "TDD inner loop: RED → GREEN → INTEGRATE → VERIFY per task"
+    description: "TDD inner loop: targeted RED → GREEN per task; build-verify owns whole-change gates"
     after: [refine]
 
   - id: implement-goal

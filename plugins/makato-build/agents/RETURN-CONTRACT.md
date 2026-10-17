@@ -65,26 +65,51 @@ If `schema != "r1"` or the JSON does not parse: the caller MUST treat the dispat
 
 ### `coder.md` (model: sonnet, mutates files)
 
-- `status: "success"` — RED, GREEN, INTEGRATE, VERIFY all executed by this coder dispatch; new failures vs `BASELINE_FAILURES` = 0.
-- `status: "partial"` — agent executed at least GREEN but VERIFY was not executed or shows new failures. Caller applies the build-implement-tdd partial handling (one fresh-coder continuation for unverified results).
-- `status: "failure"` — structural blocker hit (escalates to `/refine`), or `VERIFICATION_UNAVAILABLE` when phase commands could not run.
-- `files_changed` — every production-code path the coder edited or created.
-- `tests_written` — every new or extended test file path.
-- `errors` — failure reason if `status: "failure"`; otherwise `[]`.
-- `data` keys: `{ "phase_reached": "red|green|integrate|verify", "phases_executed": ["red|green|integrate|verify", …], "unit_tests": N, "integration_tests": N, "new_failures": N, "escalation": "none|refine", "task_index": N }`; `continued_from_partial: true` when dispatched with `PRIOR_R1`.
-- Verification ownership: only phases whose commands this coder ran count toward `phases_executed` and `success`. A caller never promotes its own test runs, or an earlier coder's claims, into coder success.
+- TDD `status: "success"` — this coder ran targeted RED and GREEN commands;
+  RED failed for the intended reason, every locally runnable targeted test
+  passed in GREEN, and `data.details` is complete and matches the worktree.
+- TDD `status: "partial"` — RED ran, but GREEN was not reached or targeted tests
+  still fail. The caller dispatches one fresh continuation with `PRIOR_R1`.
+- TDD `status: "failure"` — a structural blocker requires `/refine`
+  (`data.escalation:"refine"`), or no targeted command can run
+  (`VERIFICATION_UNAVAILABLE`).
+- TDD `files_changed` — every production-code path actually edited or created.
+- TDD `tests_written` — every new or extended test file path.
+- TDD `errors` — `[]` on success; the concrete blocker on failure.
+- TDD `data` keys: `{ "phase_reached":"red|green", "phases_executed":["red","green"], "targeted_tests":N, "escalation":"none|refine", "task_index":N, "details":{ "changes":[{"path":"<path>","summary":"<purpose>"}], "tests":[{"path":"<path>","covers":"<behavior>"}], "commands":[{"phase":"red|green","command":"<targeted command>","exit_code":N,"result":"<one-line result>"}], "assumptions":[], "risks":[], "deferred_to_verify":[] } }`. `targeted_tests` counts test cases in the targeted command.
+- TDD `data.details` is mandatory and contains every actual changed path,
+  added or changed test file, and targeted command run. `changes`, `tests`, and
+  `commands` must not be empty; only `assumptions`, `risks`, and
+  `deferred_to_verify` may be empty.
+- A touched test that cannot run because a required external service is
+  unavailable appears in `details.deferred_to_verify` with its reason; that
+  alone does not fail the task. If no targeted command can run, return
+  `failure` with `VERIFICATION_UNAVAILABLE: <reason>`.
+- Every TDD R1 includes command evidence for RED and GREEN in
+  `data.details.commands` when both commands ran. A caller does not accept
+  missing details, missing RED or GREEN command evidence, or `changes` that
+  disagree with the worktree. It dispatches exactly one fresh continuation for
+  the same task with `PRIOR_R1` and `DETAILS_REQUEST: <missing items>`. A second
+  detail-less R1 is `failure`. Caller test runs or earlier coder claims never
+  substitute for this dispatch's evidence.
+- Add `continued_from_partial: true` to `data` whenever the coder receives
+  `PRIOR_R1`.
 
-For `REVIEW_FINDINGS` dispatches from `build-review`, use the review-repair variant:
-`success` means every supplied finding was repaired and verified; `partial`/`failure`
-keep unresolved findings in `errors`. The `data` payload is
-`{ "mode": "review-repair", "repaired_findings": ["<ID>"], "unresolved_findings": [] }`
-instead of the task-phase payload. No task index is required. Coder success does not
-approve the review; the caller must obtain a fresh clean `diff-reviewer` R1.
-
-CI recovery via either implementation skill supplies `CI_FAILURES`. Its result
-adds `resolved_checks`, `unresolved_checks` and `verification` to `data`.
-Success requires all assigned failures repaired and locally verified, not merely
-zero new failures relative to an already-red baseline.
+For a repair dispatch with `REVIEW_FINDINGS`, `VERIFY_FINDINGS`, or both, use
+`data.mode:"review-repair"` for review-only and `"verify-repair"` for a
+verification-loop dispatch. If both are supplied, report
+`data.mode:"verify-repair"` and cover every supplied finding.
+Both modes require `data.repair_round`, `data.repaired_findings`,
+`data.unresolved_findings`, and `data.details:{per_finding:[{id,root_cause,
+changes:[{path,summary}],verification:{command,exit_code,result}}],
+assumptions:[],risks:[]}`. Include one `per_finding` result for every supplied
+finding. For verify-repair, `VERIFY_FINDINGS` entries have `id`, `gate`,
+`command`, `failing`, `excerpt`, and `log_path`. `success` requires every
+supplied finding to be repaired and its verification command to pass.
+Structural escalation is `partial` with
+`data.escalation:"refine"`; unresolved findings remain listed. Coder success
+does not approve a review or a verify gate: each caller independently
+re-checks the repair.
 
 ### `build-fix-ci` (skill, owns remote CI repair)
 
@@ -196,31 +221,55 @@ invoking PR creation or nesting another CI coordinator.
 
 ## Examples
 
-### Example — `coder` success
+### Example — `coder` TDD success
 
 ```json
 {
   "schema": "r1",
   "agent": "coder",
   "status": "success",
-  "summary": "Implemented OrderRepository.findByCustomer with unit + integration coverage; 0 new failures.",
-  "files_changed": [
-    "src/main/java/com/example/order/OrderRepository.java",
-    "src/main/java/com/example/order/OrderRepositoryImpl.java"
-  ],
-  "tests_written": [
-    "src/test/java/com/example/order/OrderRepositoryTest.java",
-    "src/test/java/com/example/order/OrderRepositoryIntegrationTest.java"
-  ],
+  "summary": "Task 3 implemented; targeted RED and GREEN passed.",
+  "files_changed": ["src/main/java/com/example/order/OrderRepository.java"],
+  "tests_written": ["src/test/java/com/example/order/OrderRepositoryTest.java"],
   "errors": [],
-  "tool_calls_used": 31,
+  "tool_calls_used": 28,
   "data": {
-    "phase_reached": "verify",
-    "unit_tests": 4,
-    "integration_tests": 2,
-    "new_failures": 0,
+    "phase_reached": "green",
+    "phases_executed": ["red", "green"],
+    "targeted_tests": 1,
     "escalation": "none",
-    "task_index": 3
+    "task_index": 3,
+    "details": {
+      "changes": [
+        {
+          "path": "src/main/java/com/example/order/OrderRepository.java",
+          "summary": "Implemented customer lookup."
+        }
+      ],
+      "tests": [
+        {
+          "path": "src/test/java/com/example/order/OrderRepositoryTest.java",
+          "covers": "Customer lookup returns matching orders."
+        }
+      ],
+      "commands": [
+        {
+          "phase": "red",
+          "command": "uv run pytest src/test/java/com/example/order/OrderRepositoryTest.java",
+          "exit_code": 1,
+          "result": "1 failed: expected no matches before implementation."
+        },
+        {
+          "phase": "green",
+          "command": "uv run pytest src/test/java/com/example/order/OrderRepositoryTest.java",
+          "exit_code": 0,
+          "result": "1 passed."
+        }
+      ],
+      "assumptions": [],
+      "risks": [],
+      "deferred_to_verify": []
+    }
   }
 }
 ```

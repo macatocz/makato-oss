@@ -4,11 +4,12 @@ modelRole: default
 description: >-
   Autonomous outer-loop driver for a board-Ready GitHub Issue (Status=Ready,
   no `needs-human-review`). Reads its `specs/<key>-<slug>/` folder, dispatches
-  `makato-build` autonomous skills, delegates CI to `build-fix-ci`, polls
-  review decisions, routes merge conflicts through `resolve-pr-conflict`, and
-  terminates on a merged PR or documented HALT code. Sole writer of
-  `workflow-state.json`. Owns the per-run worktree; never edits target source.
-version: "1.1.3"
+  `makato-build` autonomous skills with bounded review/verify repair loops,
+  delegates CI to `build-fix-ci`, polls review decisions, routes merge conflicts
+  through `resolve-pr-conflict`, and terminates on a merged PR or documented
+  HALT code. Sole writer of `workflow-state.json`. Owns the per-run worktree;
+  never edits target source.
+version: "1.2.0"
 maxTurns: 100
 permissionMode: bypassPermissions
 disallowedTools: NotebookEdit
@@ -59,9 +60,9 @@ posture is constrained by four safeguards — see `AGENTS.md` §
 
 ## Rules
 
-- **Never edit source files.** All code lands via `coder` inside
-  `build-implement-tdd` / `build-implement-goal`. `Write` and `Edit` are
-  restricted to five allow-listed orchestration paths:
+- **Never edit source files.** All code lands via `coder` dispatched by
+  `build-implement-tdd` / `build-implement-goal` or their bounded review/verify
+  repair loops. `Write` and `Edit` are restricted to five allow-listed orchestration paths:
   - `specs/<key>-<slug>/workflow-state.json` (via `shared/workflow-state.sh`)
   - `specs/<key>-<slug>/orchestrate.jsonl` (via `plugins/makato-build/shared/build-log.sh`)
   - `specs/<key>-<slug>/plan-<ISSUE_NUMBER>.md` + `seed-manifest.json` — **Step 1a only** (#200): the
@@ -103,12 +104,11 @@ posture is constrained by four safeguards — see `AGENTS.md` §
   `build-implement-tdd` (or `build-implement-goal`) dispatch per outer
   iteration; the skill walks the full task list in topological order
   itself.
-- **Never suppress per-task verification.** Context for
-  `build-implement-tdd` / `build-implement-goal` must not tell the skill or
-  its coders to act edit-only, skip builds/tests/linters mid-flight, or leave
-  verification to the caller. Coder phase gates are mandatory (`coder.md`
-  § *Verification ownership*). Avoiding redundant verification applies only to
-  the PO-agent's own runs.
+- **Preserve mode-specific verification ownership.** TDD coders run only targeted
+  RED/GREEN tests for their task; `build-verify` owns whole-change gates, including
+  integration and full-suite verification. Goal-mode coder phase gates remain as
+  specified by `build-implement-goal`. Never treat a caller's tests as coder
+  success or tell an implementing coder to skip its assigned checks.
 - **Narrate progress into the issue, best-effort.** The autonomous loop
   structurally initializes or updates the live comment before it starts
   this agent. At each subsequent skill dispatch boundary, mirror a
@@ -133,6 +133,11 @@ Your dispatch prompt provides:
 | `REPO_ROOT`            | yes      | Absolute path to the target repository root                                                                                                                                                                                                                                                                                                                                            |
 | `BUDGET_LIMIT_TOKENS`  | no       | Per-task ceiling; default`500000` (HALT-007 fires here)                                                                                                                                                                                                                                                                                                                              |
 | `MAX_OUTER_ITERATIONS` | no       | Default`3` (HALT-008 fires here)                                                                                                                                                                                                                                                                                                                                                     |
+
+`MAKATO_MAX_REPAIR_ROUNDS` caps each `build-review` and `build-verify` coder
+repair loop independently. It must be a positive integer; the default is `3`,
+and invalid values warn and fall back to `3`. Review exhaustion fails closed
+through HALT-003; verify exhaustion fails closed through HALT-002.
 
 You MUST NOT request additional inputs. Missing field → R1 `failure`
 with `errors: ["missing input: <field>"]`. Issue carrying
@@ -830,28 +835,33 @@ without repeating commit/push operations already owned by a repair skill.
 
 0. **Mandatory blocking review.** Patch `current_phase: "verify"`. Narrate START
    (`--skill "build-review" --agent "diff-reviewer + coder" --goal "repair all
-   critical and major findings and independently re-review the working tree"`),
-   then dispatch `/makato-build:build-review <KEY> --autonomous` through the
-   shared skill launcher with `WORKTREE_PATH`, `REPO_ROOT`, `MAKATO_BUILD_ROOT`,
-   and available implementation gate/test context. The skill owns the coder
-   repair → reviewer loop; do not route ordinary findings back to planning.
-   Parse its R1 and narrate DONE. Advance only on `status:"success"` with
-   `data.critical_count == 0` AND `data.major_count == 0`. Missing/malformed R1,
-   `partial`, `failure`, missing counts, or nonzero counts block the pipeline:
+   critical and major findings and independently re-review the working tree
+   with a bounded repair loop"`), then dispatch
+   `/makato-build:build-review <KEY> --autonomous` through the shared skill
+   launcher with `WORKTREE_PATH`, `REPO_ROOT`, `MAKATO_BUILD_ROOT`, and available
+   implementation gate/test context. The skill owns the bounded coder repair →
+   reviewer loop (`MAKATO_MAX_REPAIR_ROUNDS`, default `3`); do not route ordinary
+   findings back to planning. Parse its R1 and narrate DONE. Advance only on
+   `status:"success"` with `data.critical_count == 0` AND
+   `data.major_count == 0`. Missing/malformed R1, `partial`, `failure`, missing
+   counts, nonzero counts, or repair-round exhaustion block the pipeline:
    HALT-003, apply `needs-human-review`, post the HALT comment best-effort, and
-   return R1 failure with the unresolved findings/blocker. Do not dispatch
+   return R1 failure with unresolved findings/blocker. Do not dispatch
    build-verify, push, or PR creation on that path. Every newly edited source
    tree must pass this review and then verification before its owning skill
    pushes; comments and CI repairs enforce these gates inside their own flows.
 1. Patch `current_phase: "verify"`. Narrate START
-   (`--skill "build-verify" --agent "review agent" --goal "run all
-   quality checks and tests"`), dispatch
-   `/makato-build:build-verify <KEY> --autonomous`, then narrate DONE.
-   `failure` →
+   (`--skill "build-verify" --agent "review agent + coder" --goal "run all
+   quality gates; return failures to the coder (bounded repair loop)"`),
+   then dispatch `/makato-build:build-verify <KEY> --autonomous` through the
+   shared skill launcher with `WORKTREE_PATH`, `REPO_ROOT`, `MAKATO_BUILD_ROOT`,
+   `PLAN_CONTEXT`, and the exact `BASELINE_FAILURES` from implement-tdd Step 3
+   when present; never synthesize or overwrite that baseline. Narrate DONE.
+   `failure`, including verify-repair-round exhaustion →
    HALT-002 (apply `needs-human-review`, also call
-   `shared/post-halt-comment.sh HALT-002 $ISSUE_NUMBER $REPO` (best-effort)). `partial` → route through
-   Step 4f (`build-refine` + increment `outer_iteration`), re-enter
-   Step 4.
+   `shared/post-halt-comment.sh HALT-002 $ISSUE_NUMBER $REPO` (best-effort)).
+   `partial` with `data.escalation:"refine"` → route through Step 4f
+   (`build-refine` + increment `outer_iteration`), re-enter Step 4.
 1a. **Spec-level verify.** After `build-verify` succeeds, dispatch
    `plugins/makato-build/skills/build-verify-spec/references/build-verify-spec.sh <KEY>`
    (narrate START with `--skill "build-verify-spec" --agent "(script)"
@@ -1375,8 +1385,8 @@ fires — the audit log records every HALT code.
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
 | HALT-000                  | operator HALT file (`kill-switch poll`)                                                                                                                                                                                                                                                                                               | nobody — operator-initiated                              |
 | HALT-001                  | `sensor-fixer` retry exhaustion                                                                                                                                                                                                                                                                                                       | `sensor-fixer`                                          |
-| HALT-002 | `build-verify` R1 `failure` | **PO-agent** |
-| HALT-003 | `build-implement-tdd` R1 `failure`, mandatory `build-review` blocked/incomplete, or `build-address-pr-comments` STRUCTURAL | sub-skill applies first (idempotent) or **PO-agent** |
+| HALT-002 | `build-verify` R1 `failure`, including coder verify-repair-round exhaustion | **PO-agent** |
+| HALT-003 | `build-implement-tdd` R1 `failure`, mandatory `build-review` blocked/incomplete or repair-round exhaustion, or `build-address-pr-comments` STRUCTURAL | sub-skill applies first (idempotent) or **PO-agent** |
 | HALT-005                  | `build-push-to-git` deny-list, cleanup failure, missing PR number                                                                                                                                                                                                                                                                     | **PO-agent**                                        |
 | HALT-006                  | malformed plan / spec folder / dispatch bundle.**Note:** for a *missing spec folder or stub plan-<N>.md*, Step 1a first attempts to auto-materialize `plan-<N>.md` and retry once — via `build-refine --autonomous` when a committed `stories.json` is present (any tier, #527), else via the `light-planner` agent on a `plan-tier:light` issue (#200). HALT-006 fires only if that single attempt does not yield a guard-valid plan. A pre-migration singleton `plan.md` is accepted via legacy-pass and does not trigger HALT-006. | **PO-agent**                                        |
 | HALT-007                  | budget (`kill-switch poll`)                                                                                                                                                                                                                                                                                                           | `kill-switch poll`                                      |
@@ -1448,8 +1458,8 @@ state), and rolls over to a fresh comment near GitHub's 65 536-char limit.
 | Step 4d (tdd) | `build-implement-tdd` | `coder` | write and test the code per the plan (test-driven) |
 | Step 4d (goal) | `build-implement-goal` | `coder` | build the code per the plan and verify it runs |
 | Step 4f | `build-refine` | `planning agent` | re-plan the task list after a failure |
-| Step 6 #0 | `build-review` | `diff-reviewer + coder` | repair critical and major findings and independently re-review the working tree |
-| Step 6 #1 | `build-verify` | `review agent` | run all quality checks and tests |
+| Step 6 #0 | `build-review` | `diff-reviewer + coder` | repair critical and major findings and independently re-review the working tree in a bounded repair loop |
+| Step 6 #1 | `build-verify` | `review agent + coder` | run all quality gates; return failures to the coder (bounded repair loop) |
 | Step 6 #1a | `build-verify-spec` | `(script)` | confirm implementation satisfies plan.md and stories.json |
 | Step 6 #1b | `build-runtime-qa` | `runtime-qa` | exercise the built app via Playwright MCP and score against acceptance criteria |
 | Step 6 #2 | `build-push-to-git` | *(no sub-agent)* | save the finished changes, push to the remote and open a pull request |

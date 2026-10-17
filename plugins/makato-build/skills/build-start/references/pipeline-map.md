@@ -24,9 +24,10 @@ Reference for `/start` Step 3: implementation mode selection and full pipeline o
 - Event handling or workflow transitions
 - Anything where the *contract* can be written as a test before the code exists
 
-TDD cycle per task: **RED** (write failing unit + integration tests) → **GREEN** (unit
-tests pass) → **INTEGRATE** (integration tests pass against real dependencies) → **VERIFY**
-(full suite passes).
+TDD cycle per task: **RED** (write failing task tests) → **GREEN** (minimum
+implementation passes the same targeted test files). `build-review` owns the
+independent diff review; `build-verify` owns whole-change integration, full
+suite, coverage, lint, and other gates.
 
 ### Choose Goal when the story primarily involves:
 - UI components (the component must render before tests can assert on it)

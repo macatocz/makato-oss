@@ -97,7 +97,7 @@ by a headless caller — track via the skill's own PR when the need arises.
 | `build-simplify`            | Step 5 — per-finding approval                                                                        | Asks user to approve/reject each SIMPLIFY finding                    | Auto-approve every `SIMPLIFY` finding (apply in Step 6). KEEP findings remain KEEP (no action). ESCALATE findings are not auto-applied — they are logged and surfaced in the R1 envelope so the PO-agent can decide whether to open a `/build-refine` session for the structural piece.                                                                                    |
 | `build-simplify`            | Step 5 — zero-findings confirmation                                                                  | Asks user to confirm zero findings                                   | Proceed without confirmation. Log `step: "review"` with `data.zero_findings: true`.                                                                                                                                                                                                                                                                                        |
 | `build-simplify`            | Step 7a — unverified-code-changes prompt (no test runner discovered AND ≥1 code-file change applied) | Prompts y/n before hand-off                                          | Skip prompt entirely; emit R1 with `data.test_suite_present: false` + `data.degraded_confidence: true` so the PO-agent routes the run for elevated scrutiny. See § _No-test-runner handling in `build-simplify` is a degraded-confidence path, not a HALT_.                                                                                                                |
-| `build-review`              | Step 5 — CRITICAL/MAJOR repair loop                                                                  | Dispatch coder and re-review until both blocking counts are zero     | Identical to interactive mode; no approval bypass. See § _CRITICAL and MAJOR block both review modes_.                                                                                                                                                                                                                                                                     |
+| `build-review`              | Step 5 — CRITICAL/MAJOR repair loop                                                                  | Dispatch coder and re-review within the configured repair-round cap; fail closed on exhaustion | Identical to interactive mode; no approval bypass. `MAKATO_MAX_REPAIR_ROUNDS` defaults to 3; unresolved findings exhaust to HALT-003. See § _CRITICAL and MAJOR block both review modes_. |
 | `build-implement-tdd`       | Step 7 — coverage-floor acknowledgement                                                              | May proceed on a structured, human-owned "acknowledged risk" entry   | No acknowledgement is possible — no human owns the risk. Log `threshold_met:false`, emit `log-bypass.sh … coverage-floor defer-to-gate5`, and defer authoritatively to `build-verify` Gate 5 (HALT-002). Never wave the miss through. See § _Coverage-floor acknowledgement is human-only; autonomous defers to Gate 5_.                                                   |
 
 ### Current-head CI repair ownership
@@ -244,11 +244,12 @@ reviewer again. The reviewer inspects the current worktree, including uncommitte
 repairs and untracked additions, and retains unresolved prior findings.
 
 Only a complete independent review with `critical_count == 0` and `major_count == 0`
-permits verify/push. A blocked repair or incomplete review returns non-success;
-there is no pass limit that allows unresolved findings through. SUGGESTION and
-NITPICK remain informational. No `major-autofix` autonomous-bypass event is emitted
-because manual mode now requires the same repair. The PO-agent must run this gate
-before `build-verify`, rather than treating completed implementation tasks as approval.
+permits verify/push. A blocked repair or incomplete review returns non-success. After
+`MAKATO_MAX_REPAIR_ROUNDS` (default `3`), unresolved CRITICAL/MAJOR findings fail closed
+to HALT-003. SUGGESTION and NITPICK remain informational. No `major-autofix`
+autonomous-bypass event is emitted because manual mode now requires the same repair.
+The PO-agent must run this gate before `build-verify`, rather than treating completed
+implementation tasks as approval.
 
 ### Coverage-floor acknowledgement is human-only; autonomous defers to Gate 5
 
@@ -403,11 +404,19 @@ The second cohort also reads spec artefacts and therefore resolves `REPO_ROOT` s
   Plan reads via `REPO_ROOT`.
 - `build-address-pr-comments` — `gh pr` calls + per-comment fix-apply operate from `WORKTREE_PATH`.
   Spec artefact reads via `REPO_ROOT`.
-- `coder` agent — receives `WORKTREE_PATH` in its input bundle; `cd`s before
-  RED→GREEN→INTEGRATE→VERIFY. In autonomous mode, the agent MUST HALT R1 `failure` with
-  `MISSING_INPUT: WORKTREE_PATH required in autonomous mode` when the field is empty — silently
-  falling back to the main checkout defeats Layer 1 isolation. Detection: any of `$AGENT_ID`, an
-  `AUTONOMOUS_MODE` field in the dispatch bundle, or the absence of an interactive prompt context.
+- `coder` agent — receives `WORKTREE_PATH` in its input bundle and `cd`s
+  before working. In TDD mode it executes RED/GREEN only: write or extend the
+  task's tests, then run only the test files this coder added or changed (plus
+  `TRACER_TEST_NAME` when set) with one targeted command built from
+  `GATE_COMMANDS`, preserving any runner prefix. Confirm the RED failure is for
+  the intended reason; in GREEN, add minimum production code and rerun the same
+  command; all targeted tests must pass. It does not run INTEGRATE, full-suite
+  VERIFY, coverage, or repo-wide lint; `build-verify` owns whole-change
+  verification. In autonomous mode, the agent MUST HALT R1
+  `failure` with `MISSING_INPUT: WORKTREE_PATH required in autonomous mode`
+  when the field is empty — silently falling back to the main checkout defeats
+  Layer 1 isolation. Detection: any of `$AGENT_ID`, an `AUTONOMOUS_MODE` field
+  in the dispatch bundle, or the absence of an interactive prompt context.
 
 The PO-agent's Step 2b creates the worktree and Step 6 #6 cleans it up; see
 `plugins/makato-orchestrate/agents/po-agent.md` § _Worktree Lifecycle_ for the full lifecycle.
@@ -561,18 +570,23 @@ In interactive mode this envelope is OPTIONAL — interactive output is for a hu
 suffices. In autonomous mode it is MANDATORY and must be the final `json`-fenced block in the
 skill's output.
 
-## Skills NOT in scope
+## Skills with no separate approval gate
 
-These pipeline skills are explicitly excluded from autonomous-mode wiring:
+These pipeline skills have no approval prompt to bypass; their normal execution
+and autonomous repair behavior still apply:
 
 - `build-sensors` — already halts on non-zero pre-commit exit; no human gate to bypass. Sensor-fixer
   escalates via tier-up to opus; no `AskUserQuestion` site.
-- `build-verify` — already halts on gate failure; no human gate to bypass.
-- `build-implement-tdd` / `build-implement-goal` — the inner per-task loop already runs
-  autonomously; there is no approval gate between RED/GREEN/INTEGRATE/VERIFY phases.
+- `build-verify` — owns integration/full-suite gate verification and sends code-level failures
+  through the bounded coder verify-repair loop (`MAKATO_MAX_REPAIR_ROUNDS`, default `3`). It fails
+  closed with HALT-002 on exhaustion; Gate 0 sensor-fixer behavior is unchanged.
+- `build-implement-tdd` / `build-implement-goal` — their implementation loops already run
+  autonomously; TDD coders run targeted RED/GREEN checks only. `build-verify` owns whole-change
+  integration and full-suite verification.
 - `build-grill-with-docs` runs review-style queries; its interactivity is the work itself.
 - `build-review` is mandatory before verify in the PO-agent pipeline. Its CRITICAL/MAJOR
-  repair loop is identical in both modes and cannot be skipped as an approval bypass.
+  repair loop is capped by `MAKATO_MAX_REPAIR_ROUNDS` (default `3`) in both modes; exhaustion
+  fails closed to HALT-003 and the loop cannot be skipped as an approval bypass.
 - `build-resolve-finding` — driven by sensor-fixer with deterministic branches already.
 - `build-start` — the entry skill; it must remain interactive because it captures the implementation
   mode and confirms branch state. The PO-agent does not invoke `build-start` — it invokes the

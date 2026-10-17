@@ -5,6 +5,12 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Changed — bounded review and verify repair loops (#148)
+
+- **`po-agent` v1.2.0** narrates `build-verify` as gates plus a bounded coder
+  repair loop, documents `MAKATO_MAX_REPAIR_ROUNDS` (default 3), and maps
+  repair-round exhaustion to HALT-003 (review) and HALT-002 (verify).
+
 ### Fixed — durable project learning (port of #123 from `development`)
 
 - Fix slug-only spec discovery and main-checkout destinations for both memory tiers.
