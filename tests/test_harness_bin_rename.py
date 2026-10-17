@@ -18,6 +18,7 @@ LOOP_SH = REPO_ROOT / "plugins" / "makato-orchestrate" / "scripts" / "loop.sh"
 FUNCTIONS_SH = REPO_ROOT / "plugins" / "makato-orchestrate" / "scripts" / "functions.sh"
 HARNESS_COMMAND_SH = REPO_ROOT / "plugins" / "makato-orchestrate" / "scripts" / "harness-command.sh"
 CONTEXT_HANDOFF_SH = REPO_ROOT / "plugins" / "makato-orchestrate" / "scripts" / "context-handoff.sh"
+OMP_DISPATCH_CONFIG = REPO_ROOT / "plugins" / "makato-orchestrate" / "config" / "omp-dispatch.yml"
 
 
 def _dispatch_lines(path: Path) -> list[str]:
@@ -145,7 +146,7 @@ def test_harness_command_sh_dispatch_args_includes_resume():
     )
     assert result.returncode == 0, f"harness-command.sh dispatch-args failed: {result.stderr}"
     lines = result.stdout.splitlines()
-    assert lines == ["--yolo", "--resume", "sess-123", "-p", "hello prompt"], lines
+    assert lines == ["--yolo", "--config", str(OMP_DISPATCH_CONFIG), "--resume", "sess-123", "-p", "hello prompt"], lines
 
 
 def test_harness_command_sh_dispatch_args_no_resume_omits_flag():
@@ -158,8 +159,32 @@ def test_harness_command_sh_dispatch_args_no_resume_omits_flag():
     )
     assert result.returncode == 0, f"harness-command.sh dispatch-args failed: {result.stderr}"
     lines = result.stdout.splitlines()
-    assert lines == ["--yolo", "-p", "hello prompt"], lines
+    assert lines == ["--yolo", "--config", str(OMP_DISPATCH_CONFIG), "-p", "hello prompt"], lines
     assert "--resume" not in lines
+
+
+def test_omp_dispatch_overlay_disables_auto_resume():
+    """OMP dispatches must start fresh: `omp -p` otherwise continues the cwd's latest (operator) session."""
+    import yaml
+
+    assert yaml.safe_load(OMP_DISPATCH_CONFIG.read_text()) == {"autoResume": False}
+
+
+def test_claude_mode_dispatch_args_omit_omp_overlay():
+    """Claude Code has no OMP config overlay; claude-mode args must stay flag + optional resume + prompt."""
+    import os
+
+    env = os.environ.copy()
+    env["MAKATO_HARNESS_MODE"] = "claude"
+    result = subprocess.run(
+        ["bash", str(HARNESS_COMMAND_SH), "dispatch-args", "hello prompt", "sess-123"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        env=env,
+    )
+    assert result.returncode == 0, f"harness-command.sh dispatch-args failed: {result.stderr}"
+    assert result.stdout.splitlines() == ["--dangerously-skip-permissions", "--resume", "sess-123", "-p", "hello prompt"]
 
 
 def test_functions_sh_sources_shared_harness_adapter():

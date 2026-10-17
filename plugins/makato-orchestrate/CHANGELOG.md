@@ -11,6 +11,18 @@ Changes are grouped by skill/component. Within each group, latest version on top
   repair loop, documents `MAKATO_MAX_REPAIR_ROUNDS` (default 3), and maps
   repair-round exhaustion to HALT-003 (review) and HALT-002 (verify).
 
+### Fixed — durable project learning (port of #123 from `development`)
+
+- Fix slug-only spec discovery and main-checkout destinations for both memory tiers.
+  Make promotion replay-idempotent and lock concurrent store updates; preserve
+  provenance and fail without replacing data on malformed input.
+- Include raw captures in per-issue summaries, support classified workflow lessons,
+  and normalize/filter recall consistently with captured metadata.
+- **`scripts/promote-lessons.sh`** honours `MAKATO_TARGET_REPO_ROOT` for its default
+  stores and provenance (`repo_sha`), matching `write-lessons.sh` and
+  `workflow-state.sh`; **`po-agent` v1.1.3** replays promotion as an idempotent
+  recovery pass after its final freshness gate. **`workflow-state` skill v1.7.1** and
+  **`documentation-agent` v1.1.1** document immediate persistence.
 ### Fixed — po-agent no longer suppresses coder verification (#141)
 
 - **`po-agent` v1.1.3** must not pass edit-only or "no mid-flight verification"

@@ -113,10 +113,10 @@ def _make_workflow_state(issue_number: int = 349, with_critical: bool = True) ->
         "merge_conflict_cycles": 0,
         "ci_failure_cycles": 0,
         "halt_audit": [
-            {"code": "HALT-003", "ts": now, "data": {"reason": "critical diff finding"}},
-            {"code": "HALT-STRUCTURAL", "ts": now, "data": {"escalation": "refine"}},
+            {"code": "HALT-003", "ts": now, "data": {"reason": "critical diff finding"}, "retryable": False, "origin": "human"},
+            {"code": "HALT-STRUCTURAL", "ts": now, "data": {"escalation": "refine"}, "retryable": False, "origin": "human"},
             {"code": "HALT-010", "ts": now, "data": {"human_review_cycles": 3}},
-            {"code": "HALT-008", "ts": now, "data": {"origin": "outer_iteration", "reason": "budget exhausted"}},
+            {"code": "HALT-008", "ts": now, "data": {"origin": "outer_iteration", "reason": "budget exhausted"}, "retryable": True, "origin": "auto", "retry_after_secs": 60},
             {"code": "HALT-007", "ts": now, "data": {"reason": "cost ceiling"}},
             {"code": "HALT-008", "ts": now, "data": {"origin": "merge_conflict", "reason": "irreconcilable"}},
         ],
@@ -472,6 +472,23 @@ class TestMainIntegration(unittest.TestCase):
         merge_008 = [e for e in data["halt_history"] if e["code"] == "HALT-008" and e["data"].get("origin") == "merge_conflict"]
         self.assertEqual(len(merge_008), 0)
         self.assertEqual(len(data["halt_history"]), 4)
+
+    def test_halt_history_keeps_halt_classification_fields(self) -> None:
+        """Structural entries carrying retryable/origin (as po-agent writes them) round-trip into halt_history."""
+        rc = self._run_main()
+        self.assertEqual(rc, 0)
+        data = json.loads(Path(self.spec_dir, "reshape-request.json").read_text())
+        by_code = {e["code"]: e for e in data["halt_history"]}
+        self.assertEqual((by_code["HALT-STRUCTURAL"]["retryable"], by_code["HALT-STRUCTURAL"]["origin"]), (False, "human"))
+        self.assertEqual(by_code["HALT-008"]["retry_after_secs"], 60)
+        self.assertNotIn("origin", by_code["HALT-010"])
+
+    def test_halt_history_item_schema_accepts_every_halt_audit_field(self) -> None:
+        """Every field a valid workflow-state halt_audit entry may carry is allowed in halt_history."""
+        state_schema_path = Path(_REPO_ROOT, "plugins", "makato-orchestrate", "skills", "workflow-state", "references", "workflow-state.schema.json")
+        halt_audit_item = json.loads(state_schema_path.read_text())["properties"]["halt_audit"]["items"]
+        halt_history_item = json.loads(Path(_SCHEMA_PATH).read_text())["properties"]["halt_history"]["items"]
+        self.assertEqual(set(halt_audit_item["properties"]), set(halt_history_item["properties"]))
 
     def test_lessons_trail_halt_only_from_file(self) -> None:
         """T6: reshape-request.json lessons_trail only trigger=='halt'."""

@@ -7,7 +7,7 @@ description: >-
   Use after a PR has been created and reviewers have left feedback.
   Triggers: PR comments, review feedback, address comments, reviewer feedback,
   resolve review, re-review, address PR review.
-version: "1.0.4"
+version: "1.0.5"
 metadata:
   last_updated: "2026-08-05"
 allowed-tools:
@@ -328,15 +328,21 @@ PR Status: Ready for re-review
 PR URL: <link>
 ```
 
-### Step 9: Record Lessons (optional)
+### Step 9: Review and persist learning
 
-After a successful resolve-review cycle, the agent MAY record noteworthy lessons
-discovered while addressing review feedback. Only record if genuinely useful for
-a future session.
+**Required learning review:** before handing off (including a failed or paused run),
+review discoveries and persist every evidence-backed reusable procedure or technical
+fact. Record each discovery once; do not invent lessons to fill a quota. If none
+qualify, log `learning-review` with `status: ok` and a concrete `no_new_lessons` reason.
+The writer immediately promotes `generalizable` records into the main checkout’s
+`.makato/memory/`; it does not wait for a merge or CI. Run from the consumer repo,
+not the plugin checkout. Pass `--issue <N>` for shared feature spec folders.
+A nonzero write is a persistence failure: retain the raw source and report it,
+not a successful or empty learning review.
 
 ```bash
-MAKATO_ROOT=$(git rev-parse --show-toplevel)
-"$MAKATO_ROOT/plugins/makato-build/shared/write-lessons.sh" \
+# MAKATO_BUILD_ROOT is the installed plugin root, not the consumer checkout.
+"$MAKATO_BUILD_ROOT/shared/write-lessons.sh" \
   "<issue-key>" \
   "<tier: procedural | semantic>" \
   "<scope: generalizable | local>" \
@@ -344,10 +350,8 @@ MAKATO_ROOT=$(git rev-parse --show-toplevel)
   "[tags_csv]"
 ```
 
-This appends one JSONL record to `specs/<issue-key>-*/change-lessons.jsonl`.
-The record shape is `{ts, tier, text, tags, scope, key, repo}` — the seven
-fields `promote-lessons.sh` reads when lifting generalizable records into
-`.makato/memory/`.
+This retains source evidence in `specs/<issue-key>/change-lessons.jsonl` and
+immediately persists generalizable records into the main checkout’s `.makato/memory/`.
 
 **When to record:**
 - A recurring reviewer concern signaling a project convention not captured in docs
@@ -359,4 +363,4 @@ fields `promote-lessons.sh` reads when lifting generalizable records into
 - Trivial observations obvious from the code
 - PII, credentials, or internal service details
 
-If nothing noteworthy arose, skip this step entirely.
+If nothing qualifies, record an explicit `no_new_lessons` reason; never fabricate a lesson.

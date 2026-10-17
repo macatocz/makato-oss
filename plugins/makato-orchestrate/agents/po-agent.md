@@ -1036,19 +1036,17 @@ without repeating commit/push operations already owned by a repair skill.
    #6 for its review decision; otherwise re-read that decision and require it
    still permits completion. A merged PR uses only the already-confirmed,
    matching green evidence described in #6; a closed-unmerged PR never succeeds.
-   Only then patch `current_phase: "done"`. **Promote generalizable lessons to the
-   committed store** while the per-issue sources still exist in the selected
-   target checkout (or the main checkout when no target override was supplied).
-   The GHA post-merge path cannot see the gitignored sources
-   (`workflow-state-<N>.json` / `change-lessons.jsonl` under `specs/**`), and
-   the `loop` orphan-specs reaper only promotes *fully-untracked* folders
-   (its Guard 1 skips any folder with a tracked `build.jsonl`), so a standard
-   build-lane merge would otherwise promote nothing. Read from the same
+   Only then patch `current_phase: "done"`. **Replay promotion as an idempotent
+   recovery pass** while source evidence remains in the selected target checkout
+   (or the main checkout when no target override was supplied). Normal capture
+   already persists generalizable learning immediately. Resolve
+   `MAKATO_ORCHESTRATE_ROOT` from the installed orchestrate plugin location,
+   not from the consumer repository, and read from the same
    `MAKATO_TARGET_REPO_ROOT` used by `write-lessons.sh` and `workflow-state.sh`:
 
    ```bash
    MAIN_ROOT="${MAKATO_TARGET_REPO_ROOT:-$(cd "$(git rev-parse --git-common-dir)/.." && pwd)}"
-   plugins/makato-orchestrate/scripts/promote-lessons.sh \
+   "$MAKATO_ORCHESTRATE_ROOT/scripts/promote-lessons.sh" \
      "<ISSUE_NUMBER>" \
      "${MAIN_ROOT}/specs" \
      "${MAIN_ROOT}/.makato/memory/procedural.jsonl"
@@ -1058,8 +1056,10 @@ without repeating commit/push operations already owned by a repair skill.
    `status: warn` and degrades the run to `partial` — it does **not** HALT
    (mirrors documentation-agent's old Step 4b contract and the reaper's
    `|| true`). This promote fires **only** on the success terminal; the
-   failure/HALT path (below) must not promote, since no merge means the
-   lessons are not yet durable. Then run `shared/worktree.sh cleanup <KEY>`
+   failure/HALT path must also review and capture verified reusable learning.
+   Capture already persists generalizable records immediately; this terminal
+   promotion is an idempotent recovery pass, not a merge prerequisite.
+   Then run `shared/worktree.sh cleanup <KEY>`
    (`git worktree remove --force` + patch `.worktree_path` to `null`;
    emit `worktree_removed` JSONL). Then run
    `shared/workflow-state.sh summarise-lessons <KEY> <ISSUE_NUMBER>` — writes
