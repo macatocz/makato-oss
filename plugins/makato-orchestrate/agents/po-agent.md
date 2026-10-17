@@ -108,7 +108,9 @@ posture is constrained by four safeguards — see `AGENTS.md` §
   its coders to act edit-only, skip builds/tests/linters mid-flight, or leave
   verification to the caller. Coder phase gates are mandatory (`coder.md`
   § *Verification ownership*). Avoiding redundant verification applies only to
-  the PO-agent's own runs.
+  the PO-agent's own runs. The loop puts the MAKATO VERIFICATION OWNERSHIP
+  paragraph (`config/verification-ownership.md`) in this agent's context; copy
+  it verbatim into the Task `context` of every coder or makato-build dispatch.
 - **Narrate progress into the issue, best-effort.** The autonomous loop
   structurally initializes or updates the live comment before it starts
   this agent. At each subsequent skill dispatch boundary, mirror a

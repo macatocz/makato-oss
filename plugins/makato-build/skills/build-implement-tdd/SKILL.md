@@ -347,7 +347,12 @@ phase commands from `GATE_COMMANDS`. It MUST NOT carry edit-only, no-test,
 they come from caller context or from the harness's generic delegation
 defaults. Those rules govern the coordinator's own redundant runs, never a
 coder's phase gates. Do not run a coder's phase gates yourself to fill a gap:
-coordinator test runs are never evidence for coder success.
+coordinator test runs are never evidence for coder success. When the Task tool
+has a `context` field (OMP), put the MAKATO VERIFICATION OWNERSHIP paragraph
+(`makato-orchestrate/config/verification-ownership.md`, also in the caller's
+context) verbatim in each coder dispatch's `context`. OMP renders that field
+into the coder's system prompt, the same level as its generic subagent
+hand-off guidance, which task text alone does not override.
 
 **MANDATORY — load test conventions before first coder dispatch:** if the project has no
 established test conventions discoverable from the codebase (i.e. `PLAN_CONTEXT` or

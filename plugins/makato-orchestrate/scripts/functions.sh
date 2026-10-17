@@ -1813,7 +1813,12 @@ _stall_resume() {
   $sleep_cmd "$backoff" 2>/dev/null || true
 
   # Resume the session from the worktree directory.
-  local resume_prompt="Use the Task tool to dispatch the makato-orchestrate:po-agent subagent to resume driving GitHub issue #${issue} to a merged PR. The po-agent owns the outer loop, workflow-state, and all makato-build --autonomous dispatch; do not invoke makato-build or makato-plan skills directly from this session. Return the po-agent's final R1 envelope verbatim."
+  local verification_clause
+  if ! verification_clause="$(_harness_po_agent_verification_clause)"; then
+    echo "loop: stall-resume #${issue}: cannot read $_HARNESS_VERIFICATION_OWNERSHIP_FILE" >&2
+    return 1
+  fi
+  local resume_prompt="Use the Task tool to dispatch the makato-orchestrate:po-agent subagent to resume driving GitHub issue #${issue} to a merged PR. The po-agent owns the outer loop, workflow-state, and all makato-build --autonomous dispatch; do not invoke makato-build or makato-plan skills directly from this session. ${verification_clause} Return the po-agent's final R1 envelope verbatim."
   (
     cd "$worktree_dir" 2>/dev/null || true
     _harness_dispatch_args "$resume_prompt" "$_resume_sid"
@@ -3945,7 +3950,13 @@ cmd_dispatch() {
       dispatch_prompt="Use the Skill tool to invoke the makato-change:orchestrate skill with args '${key} --autonomous'. Required env: ISSUE_NUMBER=${issue} ISSUE_KEY=${key} REPO=${MAKATO_LOOP_DISPATCH_REPO:-} REPO_ROOT=${REPO_ROOT} MAKATO_TARGET_REPO_ROOT=${REPO_ROOT}. First cd to REPO_ROOT; all target-repository paths and git commands must run there. The skill owns the analyze→design→execute→resolve-review loop and writes change-state-${issue}.json + a workflow-state-${issue}.json loop-compat stub. Return R1 envelope verbatim."
     fi
   else
-    dispatch_prompt="Use the Task tool to dispatch the makato-orchestrate:po-agent subagent to drive GitHub issue #${issue} to a merged PR. Pass the po-agent's required inputs verbatim: ISSUE_NUMBER=${issue} KEY=${key} REPO=${MAKATO_LOOP_DISPATCH_REPO:-} BRANCH=${branch} REPO_ROOT=${REPO_ROOT} MAKATO_TARGET_REPO_ROOT=${REPO_ROOT} MAKATO_BUILD_ROOT=${MAKATO_BUILD_ROOT:-} MAKATO_ORCHESTRATE_ROOT=${MAKATO_ORCHESTRATE_ROOT:-} MAKATO_PLAN_ROOT=${MAKATO_PLAN_ROOT:-}. The po-agent owns the outer loop, workflow-state, and all makato-build --autonomous dispatch; do not invoke makato-build or makato-plan skills directly from this session. Return the po-agent's final R1 envelope verbatim."
+    local verification_clause
+    if ! verification_clause="$(_harness_po_agent_verification_clause)"; then
+      echo "loop: dispatch #${issue}: cannot read $_HARNESS_VERIFICATION_OWNERSHIP_FILE" >&2
+      _patch_status '.active_workflow' 'null'
+      return 1
+    fi
+    dispatch_prompt="Use the Task tool to dispatch the makato-orchestrate:po-agent subagent to drive GitHub issue #${issue} to a merged PR. Pass the po-agent's required inputs verbatim: ISSUE_NUMBER=${issue} KEY=${key} REPO=${MAKATO_LOOP_DISPATCH_REPO:-} BRANCH=${branch} REPO_ROOT=${REPO_ROOT} MAKATO_TARGET_REPO_ROOT=${REPO_ROOT} MAKATO_BUILD_ROOT=${MAKATO_BUILD_ROOT:-} MAKATO_ORCHESTRATE_ROOT=${MAKATO_ORCHESTRATE_ROOT:-} MAKATO_PLAN_ROOT=${MAKATO_PLAN_ROOT:-}. The po-agent owns the outer loop, workflow-state, and all makato-build --autonomous dispatch; do not invoke makato-build or makato-plan skills directly from this session. ${verification_clause} Return the po-agent's final R1 envelope verbatim."
   fi
 
   if [[ -n "$log_file" ]]; then
