@@ -6,7 +6,7 @@ description: >-
   full suite, integration suite, coverage, and repo-wide lint. Tracer bullet
   for multi-layer stories. Autonomous loop. Use after refine to implement a
   story plan or run the core build loop.
-version: "1.15.0"
+version: "1.16.0"
 argument-hint: "[work-item-key]"
 allowed-tools: ["Bash", "Read"]
 metadata:
@@ -43,6 +43,7 @@ Optional fields (autonomous mode):
 
 - `CI_FAILURES` — structured failed-check diagnostics from `build-fix-ci`: head SHA, check identity, run/job/attempt, summary and private full-log path. Activates CI recovery; never replace these with a truncated log tail.
 - `CI_TASK_INDICES` — selected task indices in this skill's mode, including previously completed tasks that now require repair.
+- `ASSIGNED_TASK_IDS` — JSON array of 1-based plan task indices the PO-agent assigns to this pass (#153). When present it is the complete selection; see Step 1.
 - `PRIOR_LESSONS` — JSON array of top-3 lessons recalled by the PO-agent (GAP-015 / #37). May be empty; consumers MUST tolerate `[]` and a missing key identically. Forwarded verbatim to each per-task `coder` dispatch in Step 6 as advisory context.
 - `GATE_COMMANDS` — optional gate-scout R1 `data` command map. When absent,
   dispatch gate-scout once before the baseline and use its `unit`,
@@ -148,9 +149,9 @@ Resolve `MAKATO_BUILD_ROOT` from the installed-plugin-root contract in
 `plan.md` from that resolved folder. If it does not exist: stop and tell the
 user to run `/refine` first.
 
-Extract all tasks where `mode: tdd`. If none exist: stop and tell the user all tasks are goal-mode — run `/implement-goal` instead.
+When `ASSIGNED_TASK_IDS` is supplied, select exactly those tasks. Read `sub_tasks[]` once via `"$MAKATO_ORCHESTRATE_ROOT/shared/workflow-state.sh" read "<key>" "<issue>"`. Each assigned task must be `mode: tdd` and not yet `complete`, and each of its `blockedBy` entries must be `complete` there (an earlier pass of either mode) or assigned to this pass. Otherwise stop before Step 2 and return R1 `failure` with `data.halt_code: "MISSING_INPUT"` naming the invalid IDs; never add or drop tasks.
 
-If the plan is mixed mode: note the goal-mode tasks and confirm scope with the user — "Tasks [N, M] are goal-mode and will be skipped here — run /implement-goal for those after this session."
+Without `ASSIGNED_TASK_IDS`, extract all tasks where `mode: tdd`. If none exist: stop and tell the user all tasks are goal-mode — run `/implement-goal` instead. If the plan is mixed mode: note the goal-mode tasks and confirm scope with the user — "Tasks [N, M] are goal-mode and will be skipped here — run /implement-goal for those after this session."
 
 ### Step 2 — Log session start
 
@@ -205,6 +206,8 @@ Run: `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"bui
 
 Skip this step entirely if `tracer_required = false` (set in Step 4). Proceed directly to Step 6.
 
+Also skip it when any plan task is already `complete` in workflow-state (a later scheduled pass or a resumed run): stubs would replace accepted implementation. Log `step:"tracer-skipped", status:"warn", data:{reason:"prior-tasks-complete"}` and omit `TRACER_TEST_NAME` from coder dispatches.
+
 Load @references/tdd-cycle-rules.md — the Tracer Bullet Phase section governs all decisions in this step.
 
 Identify the topmost layer in the plan. Tie-break order: ui > controller > service > repository > persistence. If none of these standard layers are detected (e.g. microservice, event-driven, CLI tool), use the public entry point of the module as the topmost layer.
@@ -235,13 +238,13 @@ Run: `"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"bui
 
 ### Step 6 — Execute targeted RED → GREEN for each tdd task (via coder agent)
 
-**Pre-flight: validate blockedBy graph.** Before dispatching any coder agent, perform a topological sort of all tdd tasks using their `blockedBy` fields. If a cycle is detected (Task A blocked by B, B blocked by A, or any longer chain), stop immediately:
+**Pre-flight: validate blockedBy graph.** Before dispatching any coder agent, perform a topological sort of the selected tasks using their `blockedBy` fields. If a cycle is detected (Task A blocked by B, B blocked by A, or any longer chain), stop immediately:
 
 > "Circular dependency detected in plan.md: Task <A> → Task <B> → … → Task <A>. Fix the `blockedBy` fields in `plan.md` to remove the cycle, then re-run `/build-implement-tdd`."
 
 Only proceed once the dependency graph is confirmed acyclic.
 
-For each `mode: tdd` task in topological order, dispatch the per-task `task-file-scout` agent first (GAP-013 / #29) — see § *Pre-flight scout dispatch* below — then dispatch the `coder` agent with:
+For each selected task in topological order, dispatch the per-task `task-file-scout` agent first (GAP-013 / #29) — see § *Pre-flight scout dispatch* below — then dispatch the `coder` agent with:
 - `TASK`: the task object (title, files, unit test spec, integration test spec, AC links, mode, blockedBy, commitMessage)
 - `TASK_INDEX`: 1-based index of the task within the plan
 - `STORY_KEY`: the work item key (e.g. DCP-1234)
@@ -260,7 +263,7 @@ For each `mode: tdd` task in topological order, dispatch the per-task `task-file
 - `PRIOR_R1`: when the coder R1 was partial or failed caller detail validation and its edits remain in the worktree, forward that envelope so the coder adopts its edits and re-proves RED, then runs GREEN. Omit otherwise. Edits do not survive into a later run: `worktree.sh create` refuses to resume a dirty worktree.
 - `DETAILS_REQUEST`: with `PRIOR_R1`, list every missing or inaccurate detail the coder must provide in the continuation R1.
 
-**Serial dispatch**: dispatch at most one coder per worktree at a time, in topological order; the next coder starts only after the previous coder's R1 has been handled. Concurrent coders would share one worktree, so their commands could observe each other's half-finished edits or duplicate targeted runs. `blockedBy` constrains the order: a task blocked by Task N is dispatched only after Task N's coder returns `status: "success"`.
+**Serial dispatch**: dispatch at most one coder per worktree at a time, in topological order; the next coder starts only after the previous coder's R1 has been handled. Concurrent coders would share one worktree, so their commands could observe each other's half-finished edits or duplicate targeted runs. `blockedBy` constrains the order: a task blocked by Task N is dispatched only after Task N's coder returns `status: "success"` in this pass, or when Task N is already `complete` in workflow-state.
 
 #### Pre-flight scout dispatch (GAP-013 / #29)
 
@@ -424,8 +427,10 @@ whole-change verification.
 Run:
 
 ```bash
-"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO-8601-ms>","skill":"build-implement-tdd","story":"<key>","step":"session","status":"ok","data":{"tdd_tasks":<N>,"goal_tasks_pending":<N>}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO-8601-ms>","skill":"build-implement-tdd","story":"<key>","step":"session","status":"ok","data":{"tdd_tasks":<N>,"completed_task_ids":[<IDs>],"goal_tasks_pending":<N>}}'
 ```
+
+**Autonomous R1.** End with an R1 envelope (`agent: "build-implement-tdd"`) per `RETURN-CONTRACT.md`. `data.completed_task_ids` lists every plan ID accepted in this pass; `status: "success"` requires it to cover the whole selection (`ASSIGNED_TASK_IDS` when supplied).
 
 **Session summary**: read `build.jsonl` for this story and collect all entries where `status` is `"warn"` or `"decision"`. Print a compact summary:
 

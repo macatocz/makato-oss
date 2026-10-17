@@ -5,7 +5,7 @@ description: >-
   runtime, write tests after. Autonomous. Use after refine for UI,
   config, or migration work, or when implement-goal tasks remain
   from a mixed plan.
-version: "1.7.1"
+version: "1.8.0"
 argument-hint: "[work-item-key]"
 allowed-tools: [Bash]
 metadata:
@@ -39,6 +39,8 @@ When dispatched by the PO-agent (`--autonomous` mode), this skill receives a con
 - `CI_FAILURES` — optional structured failed checks from `build-fix-ci` (head SHA, run/job/attempt, summary, full private log path).
 - `CI_TASK_INDICES` — affected goal task indices, including completed tasks needing repair.
 - `CI_RECOVERY_TASK` — optional scoped CI-configuration/metadata task supplied by `build-fix-ci` when no original task covers the diagnosed failure; contains concrete diagnosis, files, constraints and verification command, never a new product requirement.
+- `ASSIGNED_TASK_IDS` — JSON array of 1-based plan task indices the PO-agent assigns to this pass (#153). When present it is the complete selection; see Step 1.
+- `ISSUE_NUMBER`, `MAKATO_ORCHESTRATE_ROOT` — supplied with `ASSIGNED_TASK_IDS`; used read-only to check dependencies. The PO-agent, not this skill, records goal-task completion in `sub_tasks[]` from `data.completed_task_ids`.
 
 When invoked by a developer interactively, `WORKTREE_PATH` is optional. If unset, the skill falls back to `git rev-parse --show-toplevel` of the current `$PWD`.
 
@@ -85,14 +87,22 @@ Resolve `SPEC_FOLDER` with
 then read `plan.md` from that folder. If the plan does not exist, stop and tell
 the user to run `/refine` first.
 
-Unless `CI_RECOVERY_TASK` is supplied, extract assigned tasks where `mode: goal`.
-If that selection is empty, recovery mode returns failure with its unresolved
-CI failures; ordinary mode stops with "All tasks in this plan are tdd-mode.
-Run /implement-tdd instead." A nonempty selection continues below.
+Select this pass's tasks:
 
-In a mixed plan, autonomous mode selects only assigned goal tasks and logs the
-selection without prompting. Interactive mode asks whether to proceed with goal
-tasks only. A supplied `CI_RECOVERY_TASK` is the explicit selection for this pass.
+- `CI_RECOVERY_TASK` supplied — that task is the explicit selection.
+- `CI_FAILURES` supplied — `CI_TASK_INDICES` as described in *CI-failure recovery mode*.
+- `ASSIGNED_TASK_IDS` supplied — exactly those tasks. Read `sub_tasks[]` once via
+  `"$MAKATO_ORCHESTRATE_ROOT/shared/workflow-state.sh" read "<key>" "<ISSUE_NUMBER>"`.
+  Each assigned task must be `mode: goal` and not yet `complete`, and each of its
+  `blockedBy` entries must be `complete` there (an earlier pass of either mode) or
+  assigned to this pass. Otherwise return R1 `failure` with
+  `data.halt_code: "MISSING_INPUT"` naming the invalid IDs; never add or drop tasks.
+- Otherwise — every `mode: goal` task. Interactive mode on a mixed plan asks whether
+  to proceed with goal tasks only.
+
+An empty selection in recovery mode returns failure with its unresolved CI failures;
+ordinary mode stops with "All tasks in this plan are tdd-mode. Run /implement-tdd
+instead." A nonempty selection continues below.
 
 ---
 
@@ -152,7 +162,7 @@ Log:
 
 ### Step 5 — Execute per-task goal loop (autonomous)
 
-Repeat for each `mode: goal` task in plan order. Each task runs all four phases before
+Repeat for each selected task in plan order (dependencies first). Each task runs all four phases before
 moving to the next task.
 
 #### ⚙ BUILD
@@ -325,12 +335,13 @@ Top-level R1 envelope fields follow `plugins/makato-build/agents/RETURN-CONTRACT
   "tool_calls_used": 0,
   "data": {
     "tasks_completed": 0,
+    "completed_task_ids": [],
     "halt_code": null
   }
 }
 ```
 
-`agent` is `"build-implement-goal"`. `summary` is `"N goal tasks complete; 0 new failures."` on success.
+`agent` is `"build-implement-goal"`. `summary` is `"N goal tasks complete; 0 new failures."` on success. `data.completed_task_ids` lists the plan IDs whose four phases passed in this pass; `status: "success"` requires it to cover the whole selection (`ASSIGNED_TASK_IDS` when supplied).
 
 ### HALT Codes
 
