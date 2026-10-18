@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.171.1](https://github.com/macatocz/makato-oss/compare/v0.171.0...v0.171.1) (2026-10-18)
+
+
+### 🐛 Bug Fixes
+
+* scope PR closing links to the current work item ([#163](https://github.com/macatocz/makato-oss/issues/163)) ([#170](https://github.com/macatocz/makato-oss/issues/170)) ([6990a1d](https://github.com/macatocz/makato-oss/commit/6990a1d18cf02ba11d960820765876bf9a4ca94d))
+
 ## [0.171.0](https://github.com/macatocz/makato-oss/compare/v0.170.2...v0.171.0) (2026-10-17)
 
 
