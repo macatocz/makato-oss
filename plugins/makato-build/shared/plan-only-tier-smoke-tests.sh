@@ -21,7 +21,6 @@
 #   T5  — build-refine HALTs with MISSING_ACCEPTANCE when the section is
 #         absent OR empty, treating both identically.
 #   T6  — halt-codes.md registers MISSING_ACCEPTANCE for build-refine.
-#   T7  — build-refine version bumped past 1.7.2.
 #   T8  — seed-issue documents optional spec_tier + schema_version "2" and
 #         states absence preserves legacy behavior.
 #   T9  — build-create-pr How-to-Test has a plan-only branch reading plan.md
@@ -108,16 +107,6 @@ if grep -qE 'MISSING_ACCEPTANCE' "$HALT_CODES" \
   _pass "MISSING_ACCEPTANCE registered against build-refine"
 else
   _fail "halt-codes.md missing MISSING_ACCEPTANCE / not tied to build-refine"
-fi
-
-# ----- T7: build-refine version bumped -----
-echo "T7: build-refine version bumped past 1.7.2"
-if grep -qE '^version: "1\.7\.2"' "$REFINE_MD"; then
-  _fail "build-refine still at 1.7.2 — version not bumped for the plan-only feature"
-elif grep -qE '^version: "1\.[89]|^version: "[2-9]' "$REFINE_MD"; then
-  _pass "build-refine version bumped"
-else
-  _fail "build-refine version line unexpected — check frontmatter"
 fi
 
 # ----- T8: seed-issue documents optional spec_tier + schema_version 2 -----

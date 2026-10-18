@@ -5,6 +5,12 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Fixed — preserve the work-item issue at PR dispatch (#163)
+
+- **`po-agent` v1.3.2** forwards `ISSUE_NUMBER` through `build-push-to-git` and the
+  conflict-recovery `build-create-pr` dispatch. A shared spec-folder key no longer loses the
+  current issue before the scoped Closes selector runs.
+
 ### Changed — verify baseline comes from either implementation mode (#164)
 
 - **`po-agent` v1.3.1** — `BASELINE_FAILURES` forwarded to `build-verify` is `data.failures` of

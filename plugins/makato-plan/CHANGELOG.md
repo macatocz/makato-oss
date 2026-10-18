@@ -5,6 +5,12 @@ Changes are grouped by skill/agent/component. Within each group, latest version 
 
 ## [Unreleased]
 
+### Fixed — story-scoped PR handoff guidance (#163)
+
+- **`to-issues` skill v3.11.1** and its README recommend `build-create-pr <key> --issue N`:
+  the PR closes only that work item, not every issue in the feature artifact. An unresolved
+  shared folder produces a warning and no artifact-derived closing links.
+
 ### Fixed — host-qualified gh project-scope remediation
 
 - **`issue-to-project` skill v2.8.1** — pre-flight check 4 now prints

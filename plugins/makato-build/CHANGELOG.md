@@ -10,6 +10,25 @@ here on merge to main; release-please will date and version them at the next rel
 
 ## [Unreleased]
 
+### Fixed — build-create-pr: scope Closes injection to the current issue (#163) (v1.13.0)
+
+- **`build-create-pr` v1.13.0** selects only the current work item's artifact entry using
+  `ISSUE_NUMBER` / `--issue N` or a GitHub-style key. Shared folders with no resolved current
+  issue inject nothing and log `closes-injection` / `warn`; sibling issues stay open.
+- **`shared/closes_injection.py`** validates and selects links deterministically, deduplicates
+  the current issue, and reports the actual artifact-derived count (0 or 1). Missing or invalid
+  artifacts remain nonblocking; an unavailable schema uses structural checks with an advisory.
+- The shared folder resolver accepts `GH#N` consistently with the selector. Optional artifact
+  title lookup failures no longer abort independently identifiable story selection (D21).
+- **`build-push-to-git` v1.7.4** forwards `ISSUE_NUMBER` to PR creation, including the
+  clean-context interactive handoff. PR guidance documents the scoped behavior and real count.
+- A two-issue, real-schema CLI regression covers selection, unresolved shared folders, stale
+  workflow state, explicit input precedence, single-issue compatibility, and invalid artifacts.
+  The dev environment now declares `jsonschema` so this schema coverage runs after a fresh sync.
+- Removed four obsolete smoke assertions about an issue-number citation, a historical version
+  range, cross-task sweep wording, and same-line canonical-signal prose. Remaining checks stay
+  intact; runtime selection and audit behavior are covered by the new regression and smoke run.
+
 ### Added — coverage raise: edge-case tests for the lowest-covered files (#164)
 
 - **New `shared/coverage-raise-guide.md`** — below the threshold on data that covers every lane,

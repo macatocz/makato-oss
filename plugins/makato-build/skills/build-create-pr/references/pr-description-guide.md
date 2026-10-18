@@ -78,10 +78,11 @@ If none found: check `No`. Do not write "None detected" — just check the box.
 
 | Situation                                                  | What to write                                                                                                                |
 | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| GitHub issue reference provided (`GH#42`)                  | `Closes #42` or `Fixes #42` (embed in PR body before creating)                                                               |
-| `specs/<slug>/created-issues.json` present and schema-valid | One `Closes #N` per artifact entry in artifact order; dedupe against any user-supplied `GH#N` (artifact wins ties)            |
-| Artifact malformed or schema-invalid                       | Skip injection; log `[build-create-pr] WARNING: ... — continuing without Closes injection`; never block PR creation          |
-| No reference                                               | `N/A`                                                                                                                        |
+| GitHub issue resolved (`ISSUE_NUMBER`, `--issue N`, or `GH#N`) | `Closes #N` before creating; explicit issue takes precedence over the key |
+| `created-issues.json` valid | Only `CLOSES_PLAN.closes`: current issue, or unambiguous single-issue fallback; dedupe with the explicit link (artifact wins) |
+| Shared folder, current issue unknown | No artifact injection; log `step:"closes-injection"`, `status:"warn"`, `closes_injected:0` |
+| Artifact malformed or schema-invalid | No artifact injection; warn and preserve explicit linking; never block PR creation |
+| No reference or selected artifact link | `N/A` |
 
 ## AI-Assisted Checklist
 

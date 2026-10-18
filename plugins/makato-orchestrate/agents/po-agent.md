@@ -9,7 +9,7 @@ description: >-
   through `resolve-pr-conflict`, and terminates on a merged PR or documented
   HALT code. Sole writer of `workflow-state.json`. Owns the per-run worktree;
   never edits target source.
-version: "1.3.1"
+version: "1.3.2"
 maxTurns: 100
 permissionMode: bypassPermissions
 disallowedTools: NotebookEdit
@@ -912,7 +912,7 @@ without repeating commit/push operations already owned by a repair skill.
    with findings → proceed (MAJOR/ADVISORY are advisory). Narrate DONE after R1.
 2. Patch `current_phase:"pr"`. Narrate START and dispatch
    `/makato-build:build-push-to-git <KEY> --autonomous` through the skill
-   launcher with `WORKTREE_PATH`, `REPO_ROOT`, `REPO`,
+   launcher with `ISSUE_NUMBER`, `WORKTREE_PATH`, `REPO_ROOT`, `REPO`,
    `MAKATO_BUILD_ROOT`, optional sibling roots, `SPEC_FOLDER`, and
    `JSONL_PATH`. Its normal handoff invokes idempotent `build-create-pr`,
    which waits for `build-fix-ci`. Wait for the complete chain and narrate
@@ -1114,7 +1114,8 @@ without repeating commit/push operations already owned by a repair skill.
      invalidate the previous green SHA and enter #4's shared CI gate directly.
      If the first push failed before any PR existed, use the exact-branch
      open-PR lookup: reuse its one match and enter #4; a successful zero-match
-     lookup dispatches idempotent `build-create-pr`, which waits for the same
+     lookup dispatches idempotent `build-create-pr` with `ISSUE_NUMBER` and the
+     same workspace/plugin/spec context as Step 6 #2. It waits for the same
      gate, then consume its R1 at #3/#4. Failed/ambiguous lookup blocks.
    - `partial` or missing/malformed R1 → no success handoff; retain the
      worktree and return non-success (HALT-005 unless a specific code exists).
