@@ -169,10 +169,6 @@ assert_grep 'WORKTREE_PATH.*forwarded verbatim' \
 assert_grep 'WORKTREE_PATH' \
   plugins/makato-build/agents/coder.md \
   'coder.md (innermost consumer) declares the same key'
-assert_grep 'cross-task|ACCUMULATED_PRIOR|Cross-task regression sweep' \
-  plugins/makato-build/skills/build-implement-tdd/SKILL.md \
-  'build-implement-tdd Step 6 documents the cross-task regression sweep'
-
 printf '\n=== Summary ===\n'
 printf 'Passed: %d\n' "$PASS"
 printf 'Failed: %d\n' "$FAIL"

@@ -5,7 +5,7 @@ description: >-
   and push the feature branch to remote. One commit per logical task,
   individually bisectable. Confirms push before affecting remote.
   Use after verify, before create-pr.
-version: "1.7.3"
+version: "1.7.4"
 argument-hint: "[work-item-key] [--autonomous]"
 allowed-tools: [Bash]
 metadata:
@@ -37,6 +37,8 @@ Before `git push`, every commit can be rebased, amended, or dropped with no team
 When dispatched by the PO-agent (`--autonomous` mode):
 
 - `<work-item-key>` — positional argument.
+- `ISSUE_NUMBER` — current GitHub work-item number from the PO-agent. Preserve
+  it when handing off to `build-create-pr`; the key may be a shared feature slug.
 - `WORKTREE_PATH` — absolute filesystem path to the per-run git worktree. **Mandatory in autonomous mode** (see `plugins/makato-build/AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract*). All `git` invocations below run with `git -C "$WORKTREE_PATH"` (or after `cd "$WORKTREE_PATH"`) so the commit lands on the worktree's branch and `git push` targets the right ref. Pushing from the main checkout would push the wrong branch — a contract violation.
 - `REPO` — target `OWNER/REPO`; forward unchanged (resolve from origin
   when absent).
@@ -298,8 +300,9 @@ If option A, do not invoke `build-create-pr` in this session. Finish with:
 > Next (clean context): `/handoff` (or `/new`), then `/skill:build-create-pr <key>`.
 
 Reuse the pushed feature worktree. The work-item key, branch, commit, and build
-record remain available in the spec folder and GitHub; if the new session is not
-already in this worktree, include `WORKTREE_PATH=<absolute path>`.
+record remain available in the spec folder and GitHub; include `--issue N` in
+the clean-context create-pr command when `ISSUE_NUMBER` is known. If the new
+session is not already in this worktree, include `WORKTREE_PATH=<absolute path>`.
 
 If option B, tell the user to run `/skill:build-create-pr <key>` in a fresh
 context when ready, with the same `WORKTREE_PATH` note. Do not execute the skill
@@ -309,8 +312,9 @@ In **normal autonomous mode**, skip the prompt and dispatch
 `makato-build:build-create-pr` with the work-item-key through the downstream
 skill boundary above. `AGENT_ID` carries activation; do not forward the
 `--autonomous` CLI flag. `WORKTREE_PATH` must be forwarded verbatim in the
-context bundle with `REPO_ROOT`, `REPO`, `MAKATO_BUILD_ROOT`, optional sibling
-roots, `SPEC_FOLDER`, `JSONL_PATH`, and any known `EXISTING_PR_NUMBER`. Log
+context bundle with `ISSUE_NUMBER`, `REPO_ROOT`, `REPO`, `MAKATO_BUILD_ROOT`,
+optional sibling roots, `SPEC_FOLDER`, `JSONL_PATH`, and any known
+`EXISTING_PR_NUMBER`. Log
 `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-push-to-git "<key>" create-pr-handoff invoke-create-pr "$AGENT_ID"`.
 
 Wait for `build-create-pr`, which itself waits for `build-fix-ci`. Copy

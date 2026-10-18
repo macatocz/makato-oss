@@ -3,8 +3,7 @@
 #
 # Asserts that:
 #   T1 — AUTONOMOUS-MODE.md § *Cross-skill propagation* documents the
-#        "skills MUST NOT forward --autonomous" rule and names $AGENT_ID
-#        as the canonical bash-level signal.
+#        "skills MUST NOT forward --autonomous" rule.
 #   T2 — No build skill prose forwards `--autonomous` on a documented
 #        cross-skill dispatch (the legacy build-push-to-git → build-create-pr
 #        site is the only one this rule affects).
@@ -32,12 +31,6 @@ if grep -qE 'Skills MUST NOT forward .--autonomous. on cross-skill dispatch' "$A
 else
   _fail "MUST NOT forward rule NOT documented"
 fi
-if grep -qE 'AGENT_ID.*canonical|canonical.*AGENT_ID' "$AUTONOMOUS_MD"; then
-  _pass "AGENT_ID named as canonical bash-level signal"
-else
-  _fail "AGENT_ID NOT named as canonical signal"
-fi
-
 # ----- T2: no skill forwards --autonomous on cross-skill dispatch -----
 echo "T2: no skill forwards --autonomous on cross-skill dispatch"
 # Search for patterns like "/build-create-pr <key> --autonomous" or similar

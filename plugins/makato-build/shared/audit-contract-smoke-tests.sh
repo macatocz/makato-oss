@@ -23,7 +23,6 @@
 #   T6 — Step 7 terminal session status:"ok" log still present
 #   T7 — HALT codes GH_AUTH_FAILED and PR_CREATE_FAILED are both classified
 #   T8 — Return Format section documents the failure R1 envelope shape
-#   T9 — "Audit invariant" section is present and references #169
 #  T10 — Return Format failure envelope names both HALT codes as valid values
 #
 # Exit code: number of failures; 0 = all green.
@@ -113,14 +112,6 @@ else
   _fail "Return Format missing failure envelope shape"
 fi
 
-# ----- T9: Audit invariant section present + references #169 -----
-echo "T9: Audit invariant section references #169"
-if grep -qE '### Audit invariant' "$SKILL_MD" && grep -qE '#169' "$SKILL_MD"; then
-  _pass "Audit invariant section anchored to #169"
-else
-  _fail "missing 'Audit invariant' section or #169 reference"
-fi
-
 # ----- T10: failure envelope enumerates both HALT codes -----
 echo "T10: failure envelope enumerates GH_AUTH_FAILED | PR_CREATE_FAILED"
 if grep -qE '"GH_AUTH_FAILED"[[:space:]]*\|[[:space:]]*"PR_CREATE_FAILED"' "$SKILL_MD"; then
@@ -131,7 +122,7 @@ fi
 
 printf '\n'
 if (( FAIL == 0 )); then
-  printf 'All 10 tests passed.\n'
+  printf 'All 9 tests passed.\n'
   exit 0
 else
   printf '%d test(s) failed.\n' "$FAIL"

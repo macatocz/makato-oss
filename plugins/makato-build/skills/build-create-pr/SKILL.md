@@ -6,8 +6,8 @@ description: >-
   to How to Test, design decisions surface in the description, Jira
   story is linked. Presents draft for user approval before opening.
   Autonomous runs reuse an open PR and wait for build-fix-ci before handoff.
-version: "1.12.3"
-argument-hint: "[work-item-key] [--autonomous]"
+version: "1.13.0"
+argument-hint: "[work-item-key] [--issue N] [--autonomous]"
 allowed-tools:
   - Bash
   - Read
@@ -31,6 +31,9 @@ Use after `/push-to-git` (branch is on remote) and before `/address-pr-comments`
 When dispatched by the PO-agent (`--autonomous` mode):
 
 - `<work-item-key>` — positional argument (optional; see Step 1a fallback).
+- `ISSUE_NUMBER` — current GitHub work-item number from the PO-agent; interactive
+  `--issue N` supplies the same input. A positive integer, not the spec-folder
+  slug. Forward it unchanged; a shared folder can contain many work items.
 - `WORKTREE_PATH` — absolute filesystem path to the per-run git worktree. **Mandatory in autonomous mode** (see `plugins/makato-build/AUTONOMOUS-MODE.md` § *WORKTREE_PATH — workspace-isolation contract*). `gh pr create` and any `git` invocation MUST run from `WORKTREE_PATH` so the PR resolves the correct branch — running from the main checkout would open a PR against the wrong (or no) branch.
 - `MAKATO_BUILD_ROOT` — absolute installed build-plugin root, resolved from
   the runner plugin-root variables when not supplied.
@@ -148,8 +151,9 @@ the one whose `summary` equals its `created-issues.json` title without that
 prefix (or whose `issue_number`/`githubIssue` is the issue number):
 
 ```bash
-ISSUE_NUMBER=""
-if [[ -n "$KEY" && "$KEY" =~ ^([[:alpha:]][[:alnum:]]*[-#])?#?([0-9]+)$ ]]; then
+ISSUE_INPUT="${ISSUE_NUMBER:-}"
+ISSUE_NUMBER="$ISSUE_INPUT"
+if [[ -z "$ISSUE_INPUT" && -n "$KEY" && "$KEY" =~ ^([[:alpha:]][[:alnum:]]*[-#])?#?([0-9]+)$ ]]; then
   ISSUE_NUMBER="${BASH_REMATCH[2]}"
 fi
 STORY_JSON=""
@@ -157,10 +161,12 @@ STORY_KEY="$KEY"
 if [[ -f "$SPEC_FOLDER/stories.json" ]]; then
   ISSUE_SUMMARY=""
   if [[ -n "$ISSUE_NUMBER" && -f "$SPEC_FOLDER/created-issues.json" ]]; then
-    ISSUE_SUMMARY="$(jq -r --arg issue "$ISSUE_NUMBER" '
+    if ! ISSUE_SUMMARY="$(jq -r --arg issue "$ISSUE_NUMBER" '
       first(.issues[]? | select((.issue_number | tostring) == $issue)
             | .title | sub("^\\[[^]]+\\] "; "")) // ""' \
-      "$SPEC_FOLDER/created-issues.json")"
+      "$SPEC_FOLDER/created-issues.json")"; then
+      ISSUE_SUMMARY=""
+    fi
   fi
   STORY_MATCHES="$(jq -c --arg key "$KEY" --arg issue "$ISSUE_NUMBER" \
       --arg summary "$ISSUE_SUMMARY" '
@@ -182,9 +188,12 @@ if [[ -f "$SPEC_FOLDER/stories.json" ]]; then
 fi
 ```
 
+The artifact title lookup is advisory: if it fails, keep the empty summary
+and select by the story’s own key/issue number. The Closes helper below reports
+artifact problems without blocking independently identifiable stories (D21).
 If there is no work-item key and `stories.json` contains multiple entries, ask
 for the exact key, then repeat the selection. A single-story file remains usable
-without an issue link. If jq fails, or the selected key/issue number matches
+without an issue link. If `stories.json` parsing fails, or selection matches
 zero or multiple entries, log a terminal `session` error with
 `halt_code:"MISSING_INPUT"`, return R1 `status:"failure"`, and do not draft a
 PR or guess another story. With exactly one match, set:
@@ -196,8 +205,7 @@ STORY_KEY="$(jq -r --arg key "$KEY" '.key // $key' <<<"$STORY_JSON")"
 
 When `stories.json` is absent, `STORY_KEY="$KEY"`; this keeps the existing
 plan-only fallback. A selected v2.0 story has no `.key`, so `STORY_KEY` also
-stays `$KEY`, the key its `build.jsonl` rows carry. Do not change the
-`created-issues.json` Case 4 issue-link behavior.
+stays `$KEY`, the key its `build.jsonl` rows carry.
 
 Read only the selected story's inputs from `SPEC_FOLDER` (NOT under
 `$WORKTREE_PATH` — see the entry guard above):
@@ -214,12 +222,12 @@ Read only the selected story's inputs from `SPEC_FOLDER` (NOT under
 - `$REPO_ROOT/.github/PULL_REQUEST_TEMPLATE.md` — the project's required PR template.
 - `created-issues.json` — handoff artifact emitted by `/makato-plan:to-issues` (optional).
 
-When `created-issues.json` exists and `MAKATO_PLAN_ROOT` is available, validate
-it against `$MAKATO_PLAN_ROOT/skills/to-issues/references/created-issues.schema.json`.
-When the optional plan root is unavailable, parse the artifact for issue-link
-injection, log an advisory `artifact-schema-unavailable` warning, and continue
-without schema validation. Never probe `$REPO_ROOT/plugins/makato-plan` as a
-fallback.
+Use the deterministic Closes selector below. It validates the artifact against
+`$MAKATO_PLAN_ROOT/skills/to-issues/references/created-issues.schema.json` when
+available. Without the schema or jsonschema dependency, it checks the artifact's
+`issues[]` structure and positive integer issue numbers, emits an advisory
+`artifact-schema-unavailable` warning, and continues without schema validation.
+Never probe `$REPO_ROOT/plugins/makato-plan` as a fallback.
 
 ```bash
 ARTIFACT_PATH="$SPEC_FOLDER/created-issues.json"
@@ -227,57 +235,23 @@ SCHEMA_PATH=""
 if [[ -n "${MAKATO_PLAN_ROOT:-}" ]]; then
   SCHEMA_PATH="$MAKATO_PLAN_ROOT/skills/to-issues/references/created-issues.schema.json"
 fi
-
-if [[ -f "$ARTIFACT_PATH" ]]; then
-  python3 - "$ARTIFACT_PATH" "$SCHEMA_PATH" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-artifact_path = Path(sys.argv[1])
-schema_path = Path(sys.argv[2]) if sys.argv[2] else None
-
-def warn(error):
-    print(
-        "[build-create-pr] WARNING: %s — continuing without Closes injection"
-        % error
-    )
-    raise SystemExit(0)
-
-try:
-    with artifact_path.open(encoding="utf-8") as artifact_file:
-        artifact = json.load(artifact_file)
-except (OSError, json.JSONDecodeError) as error:
-    warn("created-issues.json is unreadable (%s)" % error)
-
-if schema_path is None:
-    warn("artifact-schema-unavailable")
-
-try:
-    import jsonschema
-except ImportError:
-    warn("jsonschema is unavailable")
-
-try:
-    with schema_path.open(encoding="utf-8") as schema_file:
-        schema = json.load(schema_file)
-    jsonschema.validate(artifact, schema)
-except (
-    OSError,
-    json.JSONDecodeError,
-    jsonschema.exceptions.SchemaError,
-    jsonschema.exceptions.ValidationError,
-) as error:
-    warn("created-issues.json failed schema validation (%s)" % error)
-
-print("[build-create-pr] artifact valid: %d issues" % len(artifact["issues"]))
-PY
-fi
+CLOSES_PLAN="$(python3 "$MAKATO_BUILD_ROOT/shared/closes_injection.py" \
+  "$ARTIFACT_PATH" --schema "$SCHEMA_PATH" --key "$KEY" --issue "$ISSUE_INPUT")"
 ```
 
-If validation fails (invalid JSON or schema mismatch), log a single warning:
-`[build-create-pr] WARNING: specs/<slug>/created-issues.json is malformed (<error>) — continuing without Closes injection`
-…and proceed with the current v1.2.0 behavior. Never block PR creation on artifact problems (D21).
+Pass the original `ISSUE_INPUT`, not the story-selection regex's derived value:
+Jira keys such as `DCP-1234` do not identify GitHub issue #1234. The helper
+resolves the explicit issue first, then `GH#N`, `gh-N`, `#N`, or bare `N`
+(case-insensitive GH). Never infer the current issue from workflow-state files;
+a shared folder may retain only a sibling's stale state.
+
+`CLOSES_PLAN` contains `issue`, selected artifact issue numbers in `closes`,
+`closes_injected`, `artifact_status` (`valid|missing|malformed`),
+`artifact_issues`, `artifact_warning`, and `scope_warning`. Warnings are also
+printed to stderr. Invalid JSON or a schema mismatch yields no artifact links;
+missing/malformed artifacts never block PR creation (D21). A nonzero helper exit
+means invalid invocation/input: follow the `MISSING_INPUT` failure path above.
+Use the returned plan in Step 6; never independently iterate the raw artifact.
 
 Resolve the integration target with `DEFAULT_REF="$("$MAKATO_BUILD_ROOT/shared/default-branch.sh")"` (returns e.g. `origin/main`); run `git fetch origin --quiet` first so the comparison reflects the latest integration tip. Then run `git log "$DEFAULT_REF..HEAD" --oneline` to see the commits included in this PR. Never compare against the bare local `main` — a stale local `main` reports commits from already-merged PRs (#98).
 
@@ -339,7 +313,9 @@ current story's commit messages.
 
 **Goal Alignment**: plugin name, goal statement (read `AGENTS.md` in the target repo), one sentence connecting this story to the goal.
 
-**Links**: see Step 6 for issue tracker handling. When `created-issues.json` is present and valid, the Links section receives an auto-injected `Closes #N` line per artifact entry (in artifact order), deduped against any user-supplied `GH#N` reference — see Step 6 Case 4.
+**Links**: see Step 6 for issue tracker handling. Use `CLOSES_PLAN.closes` for
+artifact injection: only the current issue, never sibling entries. Dedupe
+against the explicit GitHub link per Case 4.
 
 **How to Test**: one numbered step per acceptance criterion, in this precedence order:
 1. **`stories.json` present** → one step per acceptance criterion of
@@ -416,8 +392,9 @@ Apply any edits the user requests. Re-present if edits alter the title or more t
 
 In **autonomous mode**, skip the prompt: proceed directly to Step 5 with the draft as-rendered. Log `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-create-pr "<key>" pr-draft-approval open-pr-as-drafted "<agent_id|cli_flag|task_id_bundle>"`. The PR body is populated from the selected story/plan slice, only referenced
 `prd.md`/`design.md` sections, the project template, and the current story's
-`build.jsonl` rows — no human authoring is required. The `created-issues.json`
-auto-`Closes` injection in Step 6 Case 4 remains the canonical issue-link source.
+`build.jsonl` rows — no human authoring is required. Step 6 Case 4 scopes the
+canonical artifact link to the dispatched `ISSUE_NUMBER`; an unresolved shared
+folder contributes no `Closes` lines and emits a warning.
 
 ---
 
@@ -540,19 +517,51 @@ Use the Jira MCP `create_remote_link` tool after the PR is created:
 
 If the Jira MCP is not configured, skip and note it in the log.
 
-**Case 2 — GitHub issue reference provided (e.g. GH#42):**
-Add `Closes #42` (or `Fixes #42`) to the PR body's Links section *before* calling `gh pr create` in Step 5. GitHub auto-closes the issue on merge. No separate API call needed.
+**Case 2 — GitHub issue resolved (explicit `ISSUE_NUMBER` / `--issue N` or GitHub key):**
+Use `CLOSES_PLAN.issue`, which gives the explicit input precedence over the key.
+Add `Closes #N` to the Links section *before* Step 5. This explicit link remains
+valid when the artifact is missing, malformed, or does not list N. Never add a
+second link for a conflicting key. GitHub auto-closes N on merge; no API call.
 
-**Case 3 — No issue reference provided:**
-Skip linking entirely. Do not ask the user to supply one. Log `"issue_linked": false` and proceed.
+**Case 3 — No issue reference provided and no Case 4 link selected:**
+Skip linking. Do not ask the user to supply a reference. Log `"issue_linked": false`.
 
-**Case 4 — `created-issues.json` present and schema-valid:**
+**Case 4 — `created-issues.json` valid (schema-validated when available):**
 
-For each entry in `issues[]`, add `Closes #<issue_number>` to the PR body's Links section in artifact order, before calling `gh pr create` in Step 5.
+Render only `CLOSES_PLAN.closes` as `Closes #N` lines before Step 5:
 
-**Dedupe rule (D20):** if Case 2 already added a `Closes #N` for the same issue number (because the user passed `GH#N`), do not duplicate — the artifact entry wins by being canonical; the user-supplied reference is dropped from the Links section to avoid two lines pointing at the same issue.
+- Resolved current issue N: select only entries whose `issue_number == N`.
+  If N is absent, inject nothing from the artifact; Case 2 still applies.
+- Unresolved current issue: retain the legacy single-issue fallback only when
+  the artifact and per-issue plan/workflow-state filenames identify one issue.
+  Several distinct issues mean a **shared spec folder**: inject nothing, warn,
+  and continue. Never choose the first entry, latest plan, or stale state file.
+- Missing, malformed, or schema-invalid artifact: no artifact injection (D21).
+  Keep Cases 1–3 behavior; artifact problems never block PR creation.
 
-**No artifact, malformed artifact, or schema-invalid artifact (D21):** skip injection entirely. Log a warning (as in Step 1) and create the PR with the current Step 6 Case 1–3 behavior. Never block PR creation on artifact problems.
+**Dedupe (D20):** if Case 2 names the selected artifact issue, render one line,
+with the artifact as canonical source. Duplicate artifact entries also yield
+one line. `closes_injected` counts artifact-derived lines, not `artifact_issues`
+or unrelated explicit links: it is 0 or 1. After interactive edits, count only
+selected artifact links retained in the final approved body.
+
+When `scope_warning` is non-null, append this row once while drafting the Links
+section (before Step 5, not on the reused-PR path):
+
+```bash
+if jq -e '.scope_warning != null' >/dev/null <<<"$CLOSES_PLAN"; then
+  "$MAKATO_BUILD_ROOT/shared/build-log.sh" "$KEY" "$(
+    jq -c --arg key "$KEY" '{
+      ts: (now | strftime("%Y-%m-%dT%H:%M:%S.000Z")),
+      skill: "build-create-pr", story: $key, step: "closes-injection", status: "warn",
+      data: {artifact_issues, closes_injected, issue, reason: .scope_warning}
+    }' <<<"$CLOSES_PLAN"
+  )"
+fi
+```
+
+For an unresolved shared folder the row has `issue:null` and
+`closes_injected:0`; the warning recommends supplying `--issue N`.
 
 ---
 
@@ -593,6 +602,9 @@ Emit exactly one terminal session event after this decision. On success:
 
 Use actual JSON `"green"` for `CI_STATUS_JSON` on autonomous success;
 interactive success uses JSON `null` for both CI status and repair cycles.
+Use the actual artifact-derived count from Step 6 for `closes_injected`, and
+`CLOSES_PLAN.artifact_status` for `artifact_status`; never log the artifact size
+as the injected count.
 
 For a reused PR, retain existing link metadata when known; do not claim links
 were newly injected. On a CI-blocked/failed result, log the same known PR/CI
@@ -639,6 +651,10 @@ WHY: `gh pr create` errors split into recoverable (auth token expired, network b
 **NEVER run `git log` or `gh pr create` from `REPO_ROOT` in autonomous mode when `WORKTREE_PATH` is set.**
 WHY: in the autonomous loop each story runs in a dedicated `git worktree add` at `WORKTREE_PATH`. That worktree has its own `HEAD` pointing to the feature branch. Running `gh pr create` from the main checkout instead opens a PR against whatever branch the main checkout is on, not the story branch — this silently creates a PR against `main` from `main` (or the previous story's branch), which GitHub may accept but is irreversible without force-closing.
 
+**NEVER inject `Closes` for sibling issues in a shared spec folder.**
+WHY: to-issues emits one artifact per feature, not per PR. GitHub closes every
+referenced issue on merge; using all entries closes unfinished sibling stories.
+
 ---
 
 ## Autonomous Execution
@@ -653,7 +669,9 @@ In autonomous mode:
 - **PR body is fully autogenerated** from the selected story/plan slice,
   referenced `prd.md`/`design.md` sections, `.github/PULL_REQUEST_TEMPLATE.md`,
   and this story's workflow-state rows. No human authoring.
-- **Auto-inject `Closes #<n>`** lines from `created-issues.json` per Step 6 Case 4 — this is the canonical issue-link source in autonomous mode.
+- **Auto-inject only the current issue’s `Closes #N`** from `created-issues.json`
+  per Step 6 Case 4, selected by `ISSUE_NUMBER`. Unknown issue in a shared folder
+  means no artifact injection, not permission to close the entire feature.
 - **Render the AC Verification block** from the last `build.jsonl` `step:"ac-verification"` entry (Step 3) so the post-merge `documentation-agent` can flip verified AC checkboxes. Omit the block entirely when no such entry exists.
 - **Log every bypass** to `build.jsonl` via
   `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh"` with the `autonomous_bypass`
@@ -691,6 +709,8 @@ Top-level R1 envelope fields follow `plugins/makato-build/agents/RETURN-CONTRACT
 `agent` is `"build-create-pr"`. Autonomous success means the current PR
 HEAD is green, not merely that a PR exists. Interactive mode uses
 `ci_status:null` and `repair_cycles:0` because no CI gate ran.
+`closes_injected` is the actual artifact-derived count defined in Step 6 (0 or 1),
+not the number of issues in `created-issues.json`.
 
 **On CI-gate non-success:** keep the known `github_pr_number`, `pr_url`, and
 all returned CI fields in `data`; propagate the shared skill's errors and

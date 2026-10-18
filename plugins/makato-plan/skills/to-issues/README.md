@@ -212,7 +212,9 @@ Full contract lives in [`references/label-taxonomy.md`](./references/label-taxon
 
 - **`/makato-plan:decompose`** — produces the `stories.json` this skill consumes. The `metadata` block on each story is where severity/phase/effort/priority/points come from.
 - **`/makato-plan:issue-to-project`** — the natural successor. Reads `created-issues.json`, lands issues on a GitHub Projects v2 board, writes Priority and Estimate fields from `priority:*` and `points:*` labels.
-- **`/makato-build:build-create-pr`** — opens a PR for implementation work and auto-injects `Closes #N` lines from `created-issues.json`.
+- **`/makato-build:build-create-pr <key> --issue N`** — opens a PR for one work item and injects
+  only its `Closes #N` from `created-issues.json`, never links that close sibling issues.
+  An unresolved current issue in a shared spec folder produces a warning and no artifact links.
 
 ## See also
 

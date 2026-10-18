@@ -29,6 +29,7 @@ dev = [
   "PyYAML>=6.0",
   "defusedxml>=0.7.1",
   "langfuse>=5.0.1,<6",
+  "jsonschema>=4.0",
 ]
 
 [tool.pytest.ini_options]

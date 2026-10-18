@@ -10,7 +10,7 @@ description: >-
   managing issue lifecycle/status transitions (use makato-orchestrate), or editing issues
   after creation (use gh issue edit directly).
 license: MIT
-version: "3.11.0"
+version: "3.11.1"
 argument-hint: "[optional: feature slug] [--dry-run] [--interactive|--autonomous] [--repo owner/repo] [--store <id>]"
 allowed-tools: Bash(gh *) Bash(git *) Bash(python3 *) Read Write Grep Glob
 hooks: ["convert to issues", "break into issues", "create github issues", "turn this into tickets", "issue breakdown", "create implementation tickets", "decompose into issues", "publish stories", "create issues from stories.json"]
@@ -433,7 +433,7 @@ Print the final summary:
 [to-issues] Created N issues for slug '<slug>' on github.com/$TARGET_REPO.
 [to-issues] Artifact: specs/<slug>/created-issues.json
 [to-issues] Staged (git add): specs/<slug>/stories.json, specs/<slug>/created-issues.json — commit them so the autonomous build-refine lane can consume stories.json on a fresh clone (#527).
-[to-issues] Next: implement the work and run /makato-build:build-create-pr — it will auto-inject Closes #N for each issue when you create the PR.
+[to-issues] Next: implement one work item and run /makato-build:build-create-pr <key> --issue N — it injects Closes #N only for that work item, never sibling issues in the shared artifact.
 ```
 
 ## Anti-patterns

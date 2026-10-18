@@ -33,7 +33,7 @@ def _normalise_key(key: str) -> str:
     value = key.strip()
     if value.startswith("#"):
         value = value[1:]
-    if value.lower().startswith("gh-"):
+    if value.lower().startswith(("gh-", "gh#")):
         value = value[3:]
     return value
 
