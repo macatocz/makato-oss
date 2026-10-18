@@ -5,6 +5,23 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Added — PO-owned review loop (ADR-0014)
+
+- **PO-agent Step 6 #0 — the PO-agent decides when review is done.** Before `build-verify`, the
+  PO-agent runs `build-review --round <N>` once per round and calls
+  `makato-build/shared/review_gate.py reconcile` after each; only a gate `CONTINUE` starts
+  another round, `SUCCESS` proceeds to verify, `STOP` fires HALT-003 with
+  `data.review_stop_reason`. Previously the autonomous pipeline went from implementation
+  straight to `build-verify` with no adversarial review. Kill-switch, budget and progress
+  comment now run between review rounds.
+- **Resumable review rounds.** New `resume_point` value `review-round:<N>`; a context handoff
+  mid-review resumes at the next unreconciled round with the ledger intact.
+- **workflow-state.** Optional `review_rounds`, `review_stagnant_rounds`, `review_last_decision`
+  (initialised by `workflow-state.sh init`; old state files still validate).
+- **Allow-list.** PO-agent may write `specs/<key>-*/review-ledger.json`, only via
+  `review_gate.py` (`po-agent.md`, `never-patterns.md` NEVER 4, `AGENTS.md`).
+- **HALT-003** documents the five review-gate stop reasons (`halt-conditions.md`).
+
 ### Fixed — durable project learning
 
 - Fix slug-only spec discovery and main-checkout destinations for both memory tiers.

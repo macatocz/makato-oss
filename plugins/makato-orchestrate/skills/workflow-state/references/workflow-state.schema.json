@@ -103,7 +103,7 @@
     },
     "resume_point": {
       "type": ["string", "null"],
-      "description": "Opaque hint for the session-status hook — identifies where to resume (e.g. 'task:3', 'build-verify', 'pr-comments'). Null when not resumable."
+      "description": "Opaque hint for the session-status hook — identifies where to resume (e.g. 'task:3', 'build-verify', 'pr-comments', 'review-round:2'). Null when not resumable."
     },
     "budget_consumed_tokens": {
       "type": "integer",
@@ -199,6 +199,27 @@
       "type": "integer",
       "minimum": 0,
       "description": "Count of times the issue was labelled needs-human-review during this run."
+    },
+    "review_rounds": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "PO-owned review loop (Step 6 #0): number of build-review --round dispatches reconciled by shared/review_gate.py. The ledger (specs/<key>-*/review-ledger.json) is authoritative; this is a reporting mirror."
+    },
+    "review_stagnant_rounds": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Consecutive review rounds without a drop in the open blocking-finding score, mirrored from the review ledger. NO_PROGRESS fires at MAKATO_MAX_STAGNANT_ROUNDS (default 2)."
+    },
+    "review_last_decision": {
+      "type": ["object", "null"],
+      "description": "Last review_gate.py decision mirrored from the review ledger: {round, decision: SUCCESS|CONTINUE|STOP, reason, revision}. Null before the first review round.",
+      "properties": {
+        "round": {"type": "integer", "minimum": 0},
+        "decision": {"enum": ["SUCCESS", "CONTINUE", "STOP"]},
+        "reason": {"type": "string"},
+        "revision": {"type": ["string", "null"]}
+      },
+      "required": ["round", "decision", "reason"]
     },
     "github_pr_number": {
       "type": ["integer", "null"],

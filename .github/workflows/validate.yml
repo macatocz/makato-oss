@@ -91,6 +91,9 @@ jobs:
       - name: Finding-schema contract smoke test (#230)
         run: ./plugins/makato-build/shared/finding-schema-smoke-test.sh
 
+      - name: Review gate unit tests (PO-owned review loop, ADR-0014)
+        run: python3 -m pytest plugins/makato-build/shared/test_review_gate.py -q
+
       - name: gate-scout hook-commands smoke tests (#450)
         run: ./plugins/makato-build/shared/gate-scout-hook-commands-smoke-tests.sh
 

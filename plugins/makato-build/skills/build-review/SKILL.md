@@ -7,13 +7,13 @@ description: >-
   SUGGESTION and NITPICK findings. Autonomous. Use after simplify, before
   verify. Trigger keywords: review, adversarial, diff-review, code-review,
   quality-gate, build-review, check implementation.
-version: "1.5.0"
+version: "1.6.0"
 model: opus
-argument-hint: "[work-item-key]"
+argument-hint: "[work-item-key] [--round <N>]"
 allowed-tools:
   - Bash
 metadata:
-  last_updated: "2026-08-05"
+  last_updated: "2026-10-18"
 ---
 **Do NOT load this skill when:** reviewing human PR comments (use `build-address-pr-comments`); simplifying complexity without correctness review (use `build-simplify`). Load this skill when the implementation loop has completed and a full adversarial review + CRITICAL fix loop is needed before verify.
 
@@ -30,6 +30,81 @@ Non-obvious rules that cannot be inferred from context:
 3. **`ac_verdicts[]` transport: `build.jsonl` is the only durable record.** `workflow-state.json` is gitignored and never reaches the post-merge GHA runner. `build.jsonl` is the only cross-environment path the `build-create-pr` PR-body renderer and the `documentation-agent` checkpoint flipper can read. Write the verdict entry on the final clean pass — not on intermediate passes, not to any other file.
 4. **MAJOR is mode-gated, not severity-downgraded.** In autonomous mode, a MAJOR finding that reaches a PR without human review is a gating failure (#290). In interactive mode, MAJOR is advisory. Never silently drop a MAJOR or reclassify it as SUGGESTION to avoid triggering the fix loop.
 5. **`diff-reviewer` is the sole verdict judge.** `build-review` and `build-create-pr` are transport-only — they copy `ac_verdicts[]` verbatim. Re-evaluating verdicts here diverges silently from the diff-reviewer's reasoning and corrupts the downstream Issue checkbox chain.
+6. **`--round <N>` means one round, never a loop.** When the PO-agent passes `--round`, this skill repairs only the findings the review ledger hands it, runs one independent review, and returns. Whether another round happens is decided by `shared/review_gate.py` in the PO-agent, never here. See § *Round mode*.
+
+---
+
+## Round mode (`--round <N>`) — PO-agent owned loop
+
+Used only by the PO-agent (Step 6 #0). Without `--round`, skip this section and run the
+**Workflow** below unchanged (interactive use and other callers keep the in-skill loop).
+
+Inputs (context bundle): `STORY_KEY`, `ROUND` (from `--round`), `REVIEW_LEDGER` (absolute path to
+`specs/<key>-*/review-ledger.json`), `WORKTREE_PATH`, `REPO_ROOT`, `MAKATO_BUILD_ROOT`.
+Set `GATE="$MAKATO_BUILD_ROOT/shared/review_gate.py"` and `SPEC_FOLDER="$(dirname "$REVIEW_LEDGER")"`.
+Run everything inside `WORKTREE_PATH`.
+
+**RM1 — Precondition (hard stop).** Before any dispatch or edit:
+
+```bash
+python3 "$GATE" assert-round --ledger "$REVIEW_LEDGER" --round "$ROUND"
+```
+
+Non-zero exit (missing ledger, terminal decision, or a round number other than the next allowed
+one) → log `step:"session",status:"error"` with `data.halt_code:"MISSING_INPUT"` and return R1
+`failure` with `errors: ["MISSING_INPUT: review round <N> not allowed by review ledger"]` and
+`data.halt_code: "MISSING_INPUT"`. Dispatch nothing, edit nothing.
+
+**RM2 — Context.** Log session start with `data:{round:<N>,mode:"round"}`. Read `plan.md`
+acceptance criteria as in Step 1. Read the round's repair set and review base:
+
+```bash
+python3 "$GATE" repair-set --ledger "$REVIEW_LEDGER"   # {round, repair_ids, findings, review_base}
+```
+
+`REVIEW_BASE` = its `review_base`. `CHANGED_FILES` = the deduplicated union of
+`git diff --name-only "$REVIEW_BASE"` and `git ls-files --others --exclude-standard`,
+excluding `specs/`.
+
+**RM3 — Repair (round ≥ 1 only).** For each finding in `findings`, in the given order, fix it in
+place exactly as Step 5 fixes a blocking finding (production code for logic issues, a test for
+missing coverage), guided by its `evidence`, `expected` and `acceptance_criteria`. Fix only those
+IDs — no unrelated refactoring, never edit `review-ledger.json` or `workflow-state.json`. Log
+`step:"blocking-finding"` before and `step:"fix-blocking"` after each, with `data.finding` = the
+ledger `id`. A finding you cannot fix → log `step:"repair-skipped",status:"warn"` with the blocker
+and continue; the gate counts the attempt either way. Run the targeted tests for touched files
+when a runner is known and log the result (`build-verify` still owns the full suite).
+
+**RM4 — Mechanical fixes.** Apply Step 3.
+
+**RM5 — Fingerprint the tree the reviewer will read.**
+
+```bash
+REVISION="$(python3 "$GATE" fingerprint --worktree "$PWD" --base "$REVIEW_BASE" \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')"
+```
+
+**RM6 — One independent review.** Load `@references/review-criteria.md`, then dispatch
+`diff-reviewer` with `STORY_KEY`, `PASS_NUMBER = ROUND + 1`, `CHANGED_FILES`, `PLAN_CONTEXT`,
+`REPO_ROOT`, `REVIEW_BASE`, and `PRIOR_FINDINGS` = the `unresolved` list from
+`python3 "$GATE" decide --ledger "$REVIEW_LEDGER"` (empty on round 0). A `partial` result →
+re-dispatch once for the missing files; still `partial` → keep it (the gate stops the loop).
+The Step 5 zero-findings recheck rules apply unchanged.
+
+**RM7 — Final mechanical pass.** Re-apply Step 3. If it changed files, recompute `REVISION` (RM5)
+and repeat RM6 once without repairs; if the second pass changes files again, return the reviewer's
+R1 with `status:"partial"` — never return a revision the reviewer did not read.
+
+**RM8 — Persist.** Write the reviewer's R1 verbatim to `$SPEC_FOLDER/review-round-<N>.json`.
+When the reviewer returned `success`, persist `ac_verdicts[]` exactly as Step 4a. Log
+`step:"review-round"` with `data:{round,critical,major,repaired_ids,repair_skipped_ids}` and a
+terminal `step:"session"` (`ok` for `success`/`failure`, `error` for `partial`).
+
+**RM9 — Return.** R1 with `agent:"build-review"`, `status` = the reviewer's status, `errors` = the
+reviewer's `errors`, and `data` = the reviewer's `data` (verbatim: counts, `findings`,
+`verified_prior_ids`, `ac_verdicts`) plus `round:<N>`, `review_revision:"$REVISION"`,
+`repaired_ids`, `repair_skipped_ids`. Do not loop back to RM3, do not call
+`review_gate.py reconcile`, and do not decide what happens next.
 
 ---
 
@@ -215,6 +290,12 @@ Tell the user:
 ### NEVER diff against bare local `main` — WHY: PR-bleed
 
 `git diff main...HEAD` uses the local `main` tip. If local `main` lags `origin/main` by even one merged PR, that PR's commits appear in the diff as if the author wrote them. The diff-reviewer then emits findings on code outside the story scope. Those findings trigger fix loops on the wrong code, and the ac_verdicts written to `build.jsonl` reference ACs the author never implemented. Three-dot syntax with a prefetch is the only correct form (#98).
+
+### NEVER loop in round mode — WHY: the gate owns termination
+
+With `--round`, the next round exists only if `review_gate.py` returned `CONTINUE` to the
+PO-agent. A second repair or review inside the same invocation bypasses the round, attempt and
+stagnation limits the ledger enforces, and makes `review-round-<N>.json` disagree with the tree.
 
 ### NEVER commit during this skill — WHY: atomic-commit model
 
