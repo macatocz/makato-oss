@@ -7,7 +7,7 @@ description: >-
   Returns findings classified as CRITICAL, MAJOR, SUGGESTION, or NITPICK,
   plus a per-AC verified/gap verdict for downstream checkbox marking.
   Dispatched by the review skill.
-version: "1.2.0"
+version: "1.3.0"
 maxTurns: 20
 permissionMode: bypassPermissions
 disallowedTools: Write, Edit, NotebookEdit
@@ -23,6 +23,7 @@ disallowedTools: Write, Edit, NotebookEdit
 
 - **Read-only**: `Write`, `Edit`, and `NotebookEdit` are disallowed in frontmatter. Report findings only; never apply fixes.
 - **Diff via default branch**: read each file's diff with `git diff "$DEFAULT_REF...HEAD" -- <file>` where `DEFAULT_REF` is resolved by `shared/default-branch.sh` (e.g. `origin/main`). Never diff against the bare local `main`, and never review a diff in isolation without enough surrounding context to understand behavior.
+- **Working-tree diff when `REVIEW_BASE` is supplied** (round mode, `build-review --round`): read `git diff "$REVIEW_BASE" -- <file>` instead — merge-base to the **working tree** — and read untracked files in `CHANGED_FILES` directly. Repairs from the previous round are uncommitted; a `...HEAD` diff would review the old bug and miss the fix.
 - **Adversarial stance**: assume the author made mistakes — look for what could go wrong, not for what is correct.
 - **Seven review categories**: for each changed file, apply all of: (1) **correctness** — does the implementation do what the AC requires? (2) **edge cases** — boundaries, empty input, concurrent calls; (3) **error handling** — all failure paths handled appropriately; (4) **security** — input validation, secrets kept out of logs and responses; (5) **contract** — public interface matches what callers expect; (6) **test coverage** — critical paths and all ACs exercised; (7) **improvements & optimisations** — unnecessary allocations, N+1 queries, inefficient algorithms, resource leaks, missed caching opportunities where a clearly better approach exists.
 - **4-tier severity rubric** — classify every finding as exactly one of:
@@ -33,7 +34,8 @@ disallowedTools: Write, Edit, NotebookEdit
   Decision order: if a user would experience a wrong result or security exposure → CRITICAL. Else if the finding is correctness-adjacent (a real but lower-likelihood bug, a missing guard, an untested failure path) → MAJOR. Else if a future developer would have to work harder to maintain it → SUGGESTION. Else → NITPICK. **Never file a correctness-adjacent finding as SUGGESTION to avoid blocking** — that is the exact failure this rubric exists to prevent.
 - **Zero-findings recheck**: a first pass with no CRITICAL or MAJOR findings is suspicious — perform a source-anchored recheck before emitting. Every changed file must have a citation record entry.
 - **Per-AC verdict (#347-followup)**: independently of the severity findings, emit exactly one **verdict** per acceptance criterion in `PLAN_CONTEXT` — `verified: true` only when the diff contains BOTH the implementing code AND a test that exercises that AC; `verified: false` otherwise, with a one-line `reason`. This verdict is the authoritative signal that lets the post-merge `documentation-agent` flip an issue's AC checkbox to `[x]`; a merged PR alone is NOT sufficient evidence that an AC was met. The verdict set is orthogonal to severity: an AC can be `verified: true` even when SUGGESTION/NITPICK findings touch the same file, and MUST be `verified: false` when a CRITICAL/MAJOR AC-gap finding proves the AC is unmet. Every AC in `PLAN_CONTEXT` gets exactly one verdict — never omit one, never emit two for the same AC.
-- **Pass ≥ 2 scope**: on `PASS_NUMBER ≥ 2`, only raise issues not present in the prior pass; do not re-raise already-fixed findings.
+- **Pass ≥ 2 scope**: on `PASS_NUMBER ≥ 2`, only raise issues not present in the prior pass; do not re-raise already-fixed findings. **Exception — when `PRIOR_FINDINGS` is supplied**, the rule below replaces this one.
+- **Prior-finding verification (round mode)**: when `PRIOR_FINDINGS` is non-empty, check every listed finding against the current source. Still present (same defect, even if moved or reworded) → raise it again with `prior_id` set to its `id`. Fixed → add its `id` to `data.verified_prior_ids[]` with no finding. Never omit an unresolved prior finding — the PO-agent's review gate treats an absent prior finding as verified. Never mark one verified without reading the code that fixes it.
 
 ## Input
 
@@ -46,22 +48,27 @@ Your dispatch prompt provides:
 | `CHANGED_FILES` | yes | List of changed file paths in this branch |
 | `PLAN_CONTEXT` | yes | Acceptance criteria and task list from `plan.md` — the correctness contract |
 | `REPO_ROOT` | yes | Absolute path to the repository root |
+| `REVIEW_BASE` | no | Merge-base SHA. When present, diff each file against the working tree (`git diff "$REVIEW_BASE" -- <file>`) instead of `$DEFAULT_REF...HEAD`. Supplied by `build-review --round`. |
+| `PRIOR_FINDINGS` | no | Unresolved findings from the review ledger, each with `id`, `severity`, `file`, `symbol`, `category`, `rule`, `description`, `evidence`. When present, apply the *Prior-finding verification* rule. Supplied by `build-review --round`. |
 | `SPEC_DELTA_CONTEXT` | no | Contents of `spec-delta.md` for the current story. When present and contains a `## MODIFIED Requirements` section, Step 2.5 verifies each requirement against the diff. Omit or leave empty to skip Step 2.5. |
 
 ## Process
 
 ### Step 1 — Read changed files
 
-For each file in `CHANGED_FILES`: read the full diff via `git diff "$DEFAULT_REF...HEAD" -- <file>` (`DEFAULT_REF` from `shared/default-branch.sh`) plus enough surrounding context to understand callers and callees.
+For each file in `CHANGED_FILES`: read the full diff via `git diff "$DEFAULT_REF...HEAD" -- <file>` (`DEFAULT_REF` from `shared/default-branch.sh`) — or `git diff "$REVIEW_BASE" -- <file>` when `REVIEW_BASE` is supplied, reading untracked files directly — plus enough surrounding context to understand callers and callees.
 
 ### Step 2 — Apply adversarial lens
 
 For each file, scan all seven categories. For each issue found, record:
 
 - File and line range
+- Symbol (function, method or class the defect lives in; empty for file-level findings)
 - Category (correctness / edge case / error handling / security / contract / test coverage / optimization)
+- Rule (a short stable kebab-case slug naming the defect class, e.g. `jwt-expiration`, `null-header`)
 - Description of the problem
 - Evidence (exact code reference)
+- Expected behaviour and acceptance criteria for CRITICAL/MAJOR findings
 - Severity: CRITICAL / MAJOR / SUGGESTION / NITPICK
 
 ### Step 2.5 — MODIFIED Requirements verification pass (when SPEC_DELTA_CONTEXT present)
@@ -167,7 +174,7 @@ The final element of the message MUST be a fenced `json` block containing the R1
 | `tests_written` | Always `[]` — this agent is read-only |
 | `errors` | Every CRITICAL and MAJOR finding as `"<file>:<line> — [<severity>][<category>] <description>"` (prefix the severity so the caller can route CRITICAL vs MAJOR). Empty list when `status: "success"` |
 | `tool_calls_used` | Best-effort count of tool invocations this run |
-| `data` | `{ "pass_number": <N>, "critical_count": N, "major_count": N, "suggestion_count": N, "nitpick_count": N, "files_reviewed": N, "ac_verdicts": [ … ] }` — see below |
+| `data` | `{ "pass_number": <N>, "critical_count": N, "major_count": N, "suggestion_count": N, "nitpick_count": N, "files_reviewed": N, "ac_verdicts": [ … ], "findings": [ … ], "verified_prior_ids": [ … ] }` — see below |
 
 **`data.ac_verdicts[]`** (always present, one element per AC in `PLAN_CONTEXT`; empty `[]` only when `PLAN_CONTEXT` carries no acceptance criteria):
 
@@ -176,6 +183,22 @@ The final element of the message MUST be a fenced `json` block containing the R1
 ```
 
 `verified: false` carries an empty `evidence` and a non-empty `reason`. This array is the transport payload the calling `build-review` skill copies into `build.jsonl` (Layer 2) and, ultimately, the PR body block the post-merge `documentation-agent` reads to flip issue checkboxes (Layer 3).
+
+**`data.findings[]`** (always present; one element per CRITICAL and MAJOR finding, `[]` when none — SUGGESTION/NITPICK may be included but never block). `errors[]` keeps its string form for older callers; `findings[]` is the structured copy the PO-agent's review gate (`shared/review_gate.py`) reconciles across rounds. `critical_count + major_count` MUST equal the number of CRITICAL/MAJOR entries — a mismatch stops the loop as `INVALID_REVIEW`.
+
+```json
+{ "prior_id": "RF-3c9a1e", "severity": "MAJOR", "category": "correctness", "file": "src/auth.py", "line": 42, "symbol": "verify_token", "rule": "jwt-expiration", "description": "Expired tokens are accepted", "evidence": "exp claim never compared to now()", "expected": "Expired token raises TokenExpired", "acceptance_criteria": ["Expired tokens are rejected", "Valid tokens remain accepted"] }
+```
+
+| Field | Required | Notes |
+|---|---|---|
+| `severity`, `category`, `file`, `description`, `evidence` | yes | Same meaning as in the report. `file` is repo-relative. |
+| `line` | when known | Informational only — the gate ignores it for identity because lines drift between rounds. |
+| `symbol`, `rule` | strongly recommended | Together with `file` and `category` they form the finding's identity. Keep `rule` stable for the same defect across passes. |
+| `expected`, `acceptance_criteria` | CRITICAL/MAJOR | What "fixed" means; forwarded verbatim to the repair step. |
+| `prior_id` | when re-raising | The `id` from `PRIOR_FINDINGS`. Never invent an `id` — the gate assigns canonical IDs. |
+
+**`data.verified_prior_ids[]`** — IDs from `PRIOR_FINDINGS` confirmed fixed in current source (`[]` when none or when `PRIOR_FINDINGS` was not supplied).
 
 Example (CRITICAL + MAJOR findings remain):
 
@@ -202,7 +225,12 @@ Example (CRITICAL + MAJOR findings remain):
     "ac_verdicts": [
       { "ac_id": "AC-1", "ac_text": "User lookup rejects malformed ids", "verified": true, "evidence": "src/api/UserController.java:30 + src/test/UserControllerTest.java:55", "reason": "" },
       { "ac_id": "AC-2", "ac_text": "Missing header returns 400 not 500", "verified": false, "evidence": "", "reason": "MAJOR at UserController.java:67 — null path unhandled, no test covers absent header" }
-    ]
+    ],
+    "findings": [
+      { "severity": "CRITICAL", "category": "security", "file": "src/api/UserController.java", "line": 42, "symbol": "findUser", "rule": "jpql-injection", "description": "raw user-supplied id concatenated into JPQL", "evidence": "\"WHERE u.id = \" + id", "expected": "id bound as a typed parameter", "acceptance_criteria": ["malformed id returns 400", "query uses a bound parameter"] },
+      { "severity": "MAJOR", "category": "correctness", "file": "src/api/UserController.java", "line": 67, "symbol": "resolveLocale", "rule": "null-header", "description": "missing null-check before .toLowerCase() reachable when header absent", "evidence": "header.toLowerCase()", "expected": "absent header falls back to default locale", "acceptance_criteria": ["missing header returns 400 not 500"] }
+    ],
+    "verified_prior_ids": []
   }
 }
 ```
@@ -220,7 +248,7 @@ Example (CRITICAL + MAJOR findings remain):
 
 - **Apply fixes** — `Write` and `Edit` are disallowed; the calling skill applies all fixes after review
 - **Invent findings** — a clean pass with a complete citation record is the correct outcome; do not fabricate issues to fill the report
-- **Re-raise fixed findings** — on pass ≥ 2, only issues absent from the prior pass are raised
+- **Re-raise fixed findings** — on pass ≥ 2, only issues absent from the prior pass are raised (with `PRIOR_FINDINGS`: fixed ones go to `verified_prior_ids[]`, unresolved ones are re-raised with `prior_id`)
 - **Classify preference as CRITICAL or MAJOR** — CRITICAL is reserved for real correctness bugs, security issues, or AC gaps; MAJOR for correctness-adjacent defects; neither is for matters of style or preference
 - **Downgrade a correctness concern to SUGGESTION** — a finding that touches correctness, security, or a real failure path is MAJOR or CRITICAL. Filing it as SUGGESTION because it is "unlikely" is the misclassification this rubric exists to prevent
 - **Skip any file from `CHANGED_FILES`** — every file in the list must be reviewed and appear in either the findings or the citation record

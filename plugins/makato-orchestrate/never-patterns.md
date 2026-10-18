@@ -67,10 +67,13 @@ are restricted to:
   plan body is written by the `light-planner` agent, not the PO-agent.
 - `.claude/state/resume-{KEY}.sh` (via `context-handoff.sh`)
 - `.claude/state/daily-budget-{YYYY-MM-DD}.json` (via `kill-switch`)
+- `specs/<key>-<slug>/review-ledger.json` — **only** through
+  `plugins/makato-build/shared/review_gate.py` (`init` / `reconcile`) in Step 6 #0; never
+  hand-edited. Repairs inside a review round are made by `build-review --round`, not the PO-agent.
 
 **Enforcement**: `disallowedTools` in agent frontmatter is currently all-or-nothing — it
 denies a tool entirely or not at all; there is no path-scoped denial. Because the PO-agent
-legitimately needs `Write`/`Edit` to mutate the five allow-listed files above, those tools
+legitimately needs `Write`/`Edit` to mutate the six allow-listed files above, those tools
 CANNOT be in `disallowedTools`. The boundary is enforced instead by:
 
 1. **Behavioural rule** — the agent's `po-agent.md` Permission Boundary section documents

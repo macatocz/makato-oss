@@ -10,6 +10,21 @@ here on merge to main; release-please will date and version them at the next rel
 
 ## [Unreleased]
 
+### Added — PO-owned review loop (ADR-0014)
+
+- **`shared/review_gate.py` (+ `test_review_gate.py`, 30 cases).** Deterministic review gate and
+  finding ledger (`specs/<key>-*/review-ledger.json`). Stable finding IDs from
+  `file|symbol|category|rule`, per-finding attempts, verified/reopened status, open-score
+  stagnation, working-tree fingerprint (excludes `specs/`). Returns `SUCCESS` / `CONTINUE` /
+  `STOP` with reasons `MAX_ROUNDS`, `NO_PROGRESS`, `NO_ACTIONABLE_FINDINGS`, `STALE_REVIEW`,
+  `INVALID_REVIEW`. Limits: `MAKATO_MAX_REPAIR_ROUNDS` (3), `MAKATO_MAX_FINDING_ATTEMPTS` (2),
+  `MAKATO_MAX_STAGNANT_ROUNDS` (2), frozen at `init`.
+- **`build-review` 1.6.0 — `--round <N>` mode.** One repair-then-review round per dispatch, guarded
+  by `review_gate.py assert-round` (refuses with `MISSING_INPUT`). Reviews merge-base to working
+  tree so uncommitted repairs are seen. Default (no `--round`) path unchanged.
+- **`diff-reviewer` 1.3.0.** Optional `REVIEW_BASE` and `PRIOR_FINDINGS` inputs; R1 gains
+  structured `data.findings[]` and `data.verified_prior_ids[]` (`errors[]` strings kept).
+
 ### Fixed — durable project learning
 
 - Capture now immediately persists generalizable procedures and facts into the main

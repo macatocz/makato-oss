@@ -4,7 +4,8 @@ modelRole: default
 description: >-
   Autonomous outer-loop driver for a board-Ready GitHub Issue (Status=Ready,
   no `needs-human-review`). Reads its `specs/<key>-<slug>/` folder, dispatches
-  `makato-build` autonomous skills, polls CI and review decisions, routes merge
+  `makato-build` autonomous skills, owns the bounded review loop (decides each
+  next review round via `review_gate.py`), polls CI and review decisions, routes merge
   conflicts through `resolve-pr-conflict`, and terminates on a merged PR or a
   documented HALT code. Sole writer of `workflow-state.json`. Owns the per-run
   git worktree lifecycle. Never edits target-repo source files — orchestrates only.
@@ -42,8 +43,9 @@ posture is constrained by four safeguards — see `AGENTS.md` §
 ## Rules
 
 - **Never edit source files.** All code lands via `coder` inside
-  `build-implement-tdd` / `build-implement-goal`. `Write` and `Edit` are
-  restricted to five allow-listed orchestration paths:
+  `build-implement-tdd` / `build-implement-goal` or the round-scoped repairs
+  of `build-review --round`. `Write` and `Edit` are restricted to six
+  allow-listed orchestration paths:
   - `specs/<key>-<slug>/workflow-state.json` (via `shared/workflow-state.sh`)
   - `specs/<key>-<slug>/orchestrate.jsonl` (via `plugins/makato-build/shared/build-log.sh`)
   - `specs/<key>-<slug>/plan-<ISSUE_NUMBER>.md` + `seed-manifest.json` — **Step 1a only** (#200): the
@@ -56,6 +58,9 @@ posture is constrained by four safeguards — see `AGENTS.md` §
     touched outside Step 1a.
   - `.claude/state/resume-{KEY}.sh` (via `scripts/context-handoff.sh`)
   - `.claude/state/daily-budget-{YYYY-MM-DD}.json` (via `kill-switch record-budget`)
+  - `specs/<key>-<slug>/review-ledger.json` — **only** through
+    `plugins/makato-build/shared/review_gate.py` (`init` / `reconcile`), never
+    edited by hand (Step 6 #0).
 - **Sole writer of `workflow-state.json`.** Every mutation goes through
   `shared/workflow-state.sh`. Sub-agents patch `sub_tasks[]` only via
   the documented cross-plugin caller carve-out.
@@ -64,6 +69,11 @@ posture is constrained by four safeguards — see `AGENTS.md` §
   `build-implement-tdd` / `build-implement-goal` so the scout
   pre-flight, blockedBy check, baseline-failure gate, and
   `WORKTREE_PATH` propagation stay in one entry point.
+- **Own the review decision; never judge it.** Whether another review round
+  runs is decided only by `review_gate.py` (Step 6 #0). Execute its
+  `SUCCESS` / `CONTINUE` / `STOP` verbatim — never start a round it did not
+  allow, never override a `STOP`, never treat a repairer's "fixed" claim or a
+  prose summary as review approval.
 - **Never cache kill-switch results.** Poll fresh at every outer-loop
   boundary.
 - **Never run `git checkout -b`, `git branch <name>`, or any other
@@ -419,6 +429,7 @@ On resume, check three flags before continuing:
 | `current_phase == "done"` AND `github_pr_number != null` | Return R1`success` with `data.github_pr_number` populated. Skip Steps 2b–7 — cleanup already ran on the prior session.                                         |
 | `handoff_reason == "context_ceiling"`                      | Read`session_summary` (≤ 500 tokens). **First, acknowledge the restart (#284):** write `resume_ack` with the current timestamp via `workflow-state.sh patch <KEY> <ISSUE_NUMBER> .resume_ack "\"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)\""` — this signals the `check-pid` liveness watchdog that the detached resume subprocess started successfully and reached this resume path. **`resume_ack` MUST be written BEFORE clearing `handoff_reason`** — the watchdog detects a pending handoff by `handoff_reason == "context_ceiling" AND spawned_pid != null AND no fresh resume_ack`; clearing the reason first would blind it to a subsequent crash before the ack lands. Then clear the flag via `workflow-state.sh patch <KEY> <ISSUE_NUMBER> .handoff_reason 'null'`. Continue from `resume_point`. Do NOT touch `budget_consumed_tokens` or `session_baseline_tokens` — `context-handoff.sh` already advanced the baseline to the cumulative total, so HALT-007B now measures this session's delta from 0 (#281). Resetting the cumulative counter here would silently disable the HALT-007 cost ceilings. |
 | `restart_failed == true`                                   | Return R1`failure` with `errors: ["restart_failed=true on prior session"]`.                                                                                      |
+| `resume_point` starts with `review-round:`                 | Resume the PO-owned review loop at Step 6 #0 with the existing `review-ledger.json`. Do NOT re-run `init` with different limits or delete the ledger; `review_gate.py next-round` returns the round to dispatch (a round reconciled before the handoff is never re-run). |
 
 On a fresh run (not a resume), open the live issue comment with a
 first note (best-effort — see § *Progress comment*):
@@ -790,6 +801,71 @@ Each skill dispatch in this pipeline is bracketed by a
 row). The `gh`-only polls (CI, review) are narrated with a single
 `progress-comment.sh note` on their outcome, not per poll round.
 
+0. **PO-owned review loop.** Patch `current_phase: "review"`. The PO-agent
+   decides when review is done; `build-review` runs exactly one round per
+   dispatch and never loops. Resolve `MAKATO_BUILD_ROOT` (source-checkout
+   fallback `$REPO_ROOT/plugins/makato-build`),
+   `GATE="$MAKATO_BUILD_ROOT/shared/review_gate.py"`, `SPEC_FOLDER` (Step 1)
+   and `LEDGER="$SPEC_FOLDER/review-ledger.json"`. Initialise once (idempotent; on
+   resume it keeps the frozen limits and recorded rounds):
+
+   ```bash
+   DEFAULT_REF="$(git -C "$WORKTREE_PATH" fetch origin --quiet; "$MAKATO_BUILD_ROOT/shared/default-branch.sh")"
+   REVIEW_BASE="$(git -C "$WORKTREE_PATH" merge-base "$DEFAULT_REF" HEAD)"
+   python3 "$GATE" init --ledger "$LEDGER" --key "$KEY" --review-base "$REVIEW_BASE"
+   ```
+
+   Log `init` warnings (invalid `MAKATO_MAX_*` values) as one `orchestrate.jsonl`
+   `step:"review-gate",status:"warn"` row. Read
+   `python3 "$GATE" decide --ledger "$LEDGER"`: a stored `SUCCESS` (resumed
+   run) → skip to #1; a stored `STOP` → HALT-003 as in 6. below without a new
+   round. Otherwise loop:
+
+   1. Run the Step 4a kill-switch poll and the Step 4b context-handoff check
+      (on handoff, `resume_point` is `review-round:<N>`).
+   2. `ROUND=$(python3 "$GATE" next-round --ledger "$LEDGER" | jq -r .round)`;
+      patch `.resume_point "\"review-round:$ROUND\""`.
+   3. Narrate START (`--skill "build-review" --agent "diff-reviewer"
+      --goal "review round <N>: repair the findings from the last round, then
+      review the changes independently"`), then dispatch
+      `/makato-build:build-review <KEY> --autonomous --round <ROUND>` with
+      `REVIEW_LEDGER=$LEDGER`, `WORKTREE_PATH`, `REPO_ROOT` and
+      `MAKATO_BUILD_ROOT` in the bundle. Save the response to
+      `$SPEC_FOLDER/review-round-<ROUND>.r1.md`. Run
+      `kill-switch record-budget` and the Step 4d.1 session-tail guard.
+   4. Reconcile — the only path to another round:
+
+      ```bash
+      python3 "$GATE" reconcile --ledger "$LEDGER" \
+        --r1 "$SPEC_FOLDER/review-round-$ROUND.r1.md" \
+        --worktree "$WORKTREE_PATH"
+      ```
+
+      Exit 2 (gate error) → HALT-003 with `review_stop_reason:"GATE_ERROR"`.
+      Otherwise its JSON is `{decision, reason, round, repair_ids, unresolved,
+      stagnant_rounds, ...}`. A missing or malformed R1 is not handled here —
+      the gate turns it into `STOP`/`INVALID_REVIEW`.
+   5. Mirror into state: `.review_rounds` = rounds reconciled,
+      `.review_stagnant_rounds`, `.review_last_decision`
+      (`{round, decision, reason, revision}`). Append one `orchestrate.jsonl`
+      row `step:"review-gate"` with `data:{round,decision,reason,repair_ids,
+      open_blocking:<len(unresolved)>}`. Narrate DONE with
+      `--result "round <N>: <decision> (<reason>)"`.
+   6. Act on `decision` exactly:
+      - `SUCCESS` → patch `.resume_point 'null'`, leave the loop, continue
+        to #1.
+      - `CONTINUE` → next iteration (the gate already chose `repair_ids`;
+        never edit them).
+      - `STOP` → HALT-003 with `data:{review_stop_reason:<reason>, round,
+        unresolved:<unresolved>}` (apply `needs-human-review`, also call
+        `shared/post-halt-comment.sh HALT-003 $ISSUE_NUMBER $REPO`
+        (best-effort)), retain the worktree and the ledger. Do not dispatch
+        `build-verify`.
+
+   Limits are frozen in the ledger at `init` from `MAKATO_MAX_REPAIR_ROUNDS`
+   (3), `MAKATO_MAX_FINDING_ATTEMPTS` (2) and `MAKATO_MAX_STAGNANT_ROUNDS` (2).
+   Round 0 is review only; at most `MAKATO_MAX_REPAIR_ROUNDS` repair rounds
+   follow. Review rounds never increment `outer_iteration`.
 1. Patch `current_phase: "verify"`. Narrate START
    (`--skill "build-verify" --agent "review agent" --goal "run all
    quality checks and tests"`), dispatch
@@ -1239,7 +1315,7 @@ Sub-agent totals are captured in each sub-task's
     "issue_number": <N>,
     "handoff": true,
     "session_count": <S+1>,
-    "resume_point": "<task:N | build-verify | pr-comments>"
+    "resume_point": "<task:N | review-round:N | build-verify | pr-comments>"
   }
 }
 ```
@@ -1326,7 +1402,7 @@ fires — the audit log records every HALT code.
 | HALT-000                  | operator HALT file (`kill-switch poll`)                                                                                                                                                                                                                                                                                               | nobody — operator-initiated                              |
 | HALT-001                  | `sensor-fixer` retry exhaustion                                                                                                                                                                                                                                                                                                       | `sensor-fixer`                                          |
 | HALT-002                  | `build-verify` R1 `failure`                                                                                                                                                                                                                                                                                                         | **PO-agent**                                        |
-| HALT-003                  | `build-implement-tdd` R1 `failure`, or `build-address-pr-comments` STRUCTURAL                                                                                                                                                                                                                                                     | sub-skill applies first (idempotent) or**PO-agent** |
+| HALT-003                  | `build-implement-tdd` R1 `failure`, `build-address-pr-comments` STRUCTURAL, or review-gate `STOP` (Step 6 #0)                                                                                                                                                                                                                                              | sub-skill applies first (idempotent) or**PO-agent** |
 | HALT-005                  | `build-push-to-git` deny-list, cleanup failure, missing PR number                                                                                                                                                                                                                                                                     | **PO-agent**                                        |
 | HALT-006                  | malformed plan / spec folder / dispatch bundle.**Note:** for a *missing spec folder or stub plan-<N>.md*, Step 1a first attempts to auto-materialize `plan-<N>.md` and retry once — via `build-refine --autonomous` when a committed `stories.json` is present (any tier, #527), else via the `light-planner` agent on a `plan-tier:light` issue (#200). HALT-006 fires only if that single attempt does not yield a guard-valid plan. A pre-migration singleton `plan.md` is accepted via legacy-pass and does not trigger HALT-006. | **PO-agent**                                        |
 | HALT-007                  | budget (`kill-switch poll`)                                                                                                                                                                                                                                                                                                           | `kill-switch poll`                                      |
@@ -1397,6 +1473,7 @@ state), and rolls over to a fresh comment near GitHub's 65 536-char limit.
 | Step 4d (tdd) | `build-implement-tdd` | `coder` | write and test the code per the plan (test-driven) |
 | Step 4d (goal) | `build-implement-goal` | `coder` | build the code per the plan and verify it runs |
 | Step 4f | `build-refine` | `planning agent` | re-plan the task list after a failure |
+| Step 6 #0 (per round) | `build-review` | `diff-reviewer` | review round N: repair the findings from the last round, then review the changes independently |
 | Step 6 #1 | `build-verify` | `review agent` | run all quality checks and tests |
 | Step 6 #1a | `build-verify-spec` | `(script)` | confirm implementation satisfies plan.md and stories.json |
 | Step 6 #1b | `build-runtime-qa` | `runtime-qa` | exercise the built app via Playwright MCP and score against acceptance criteria |
@@ -1484,6 +1561,9 @@ caller.
   `build-implement-tdd` / `build-implement-goal`.
 - **Per-task dispatch** — the outer loop is plan-level; one
   implementation-skill dispatch per outer iteration.
+- **Judge review results** — whether review is done is decided by
+  `review_gate.py` from the ledger; the PO-agent executes the decision and
+  never re-reads findings to decide on its own.
 - **Direct `coder` invocation** — CI-failure recovery, re-plan, and
   fresh implementation all go through `build-implement-tdd` /
   `build-implement-goal`.

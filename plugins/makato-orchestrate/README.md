@@ -67,6 +67,9 @@ The outer loop is entered via the `loop` skill and exits on a merged PR or a doc
    │    build-implement-tdd /                     │
    │      build-implement-goal  → R1 envelope     │
    │    resolve-pr-conflict     → on push reject  │
+   │    build-review --round N  → one review round│
+   │      review_gate.py        → SUCCESS/        │
+   │                              CONTINUE/STOP   │
    │    build-verify                              │
    │    build-push-to-git                         │
    │    build-create-pr         → PR number       │
@@ -206,7 +209,7 @@ See `agents/po-agent.md` § *Progress comment* for the per-skill agent/goal map.
 | Direction | Plugin | What flows |
 |-----------|--------|-----------|
 | Consumes from | makato-plan | specs/\<key\>/stories.json, created-issues.json, and plan.md — must exist before PO-agent dispatch. Does not invoke makato-plan skills; planning must complete before orchestration begins. |
-| Dispatches to | makato-build | build-refine -> build-implement-tdd (or build-implement-goal) -> build-verify -> build-push-to-git -> build-create-pr -> build-address-pr-comments, all with --autonomous. Uses inject-context (via scout) and build-log.sh shared helper for orchestrate.jsonl entries. |
+| Dispatches to | makato-build | build-refine -> build-implement-tdd (or build-implement-goal) -> build-review --round (PO-owned review loop, ADR-0014) -> build-verify -> build-push-to-git -> build-create-pr -> build-address-pr-comments, all with --autonomous. Uses inject-context (via scout) and build-log.sh shared helper for orchestrate.jsonl entries. |
 | Complements | makato-plan | Syncs GitHub Projects v2 board lifecycle transitions (In Progress -> In review -> Done) via issue-to-project sync-lifecycle when the PO-agent's lifecycle milestones fire. On HALT, PO-agent applies needs-human-review label; issue-to-project keeps the board in sync. |
 
 ## Prerequisites / MCP Servers
