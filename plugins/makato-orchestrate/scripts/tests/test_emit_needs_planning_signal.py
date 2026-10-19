@@ -128,16 +128,21 @@ def _run_in_sandbox(
 
     _write_state(spec_dir, ISSUE_NUM, cycles)
     config_writer(config_file)
+    # build-log.sh resolves specs/ from the target repo root (default: the cwd's git
+    # common dir), so without a sandboxed root every emitted audit row would land in
+    # this repository's tracked specs/<KEY>/build.jsonl.
+    subprocess.run(["git", "init", "--quiet", str(tmp_path)], check=True)
 
     script = os.path.join(_SCRIPTS, "emit_needs_planning_signal.py")
     env = os.environ.copy()
+    env["MAKATO_TARGET_REPO_ROOT"] = str(tmp_path)
     env["MAKATO_EMIT_NPS_SPECS_DIR"] = specs_dir
     env["MAKATO_EMIT_NPS_CONFIG_FILE"] = config_file
     env["MAKATO_EMIT_NPS_GH_DRY_RUN"] = "1"
     env["MAKATO_STRUCTURAL_RESHAPE_THRESHOLD"] = threshold
-    # Remove any stale test hooks from parent env.
-    for hook in ["MAKATO_EMIT_NPS_GH_ITEM_ID", "MAKATO_EMIT_NPS_GH_ITEM_ADD_RESULT", "MAKATO_EMIT_NPS_GH_ITEM_ADD_FAIL"]:
-        env.pop(hook, None)
+    # Drop stale test hooks and specs overrides inherited from the parent env.
+    for name in ["MAKATO_EMIT_NPS_GH_ITEM_ID", "MAKATO_EMIT_NPS_GH_ITEM_ADD_RESULT", "MAKATO_EMIT_NPS_GH_ITEM_ADD_FAIL", "MAKATO_SPECS_DIR", "SPECS_DIR"]:
+        env.pop(name, None)
     if env_extra:
         env.update(env_extra)
 

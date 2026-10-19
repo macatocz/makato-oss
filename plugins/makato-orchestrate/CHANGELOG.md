@@ -5,6 +5,14 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Fixed — needs-planning signal tests no longer write the repo's build logs
+
+- **`scripts/tests/test_emit_needs_planning_signal.py`** runs each emitter call in its own
+  temporary git repo with `MAKATO_TARGET_REPO_ROOT` pointing at it and the specs-dir
+  overrides removed. Before, `build-log.sh` resolved `specs/` from the checkout's git
+  directory, so every pytest run appended six rows to the tracked
+  `specs/348-makato-orchestrate-emit-a-durable-needs/build.jsonl`.
+
 ### Fixed — preserve the work-item issue at PR dispatch (#163)
 
 - **`po-agent` v1.3.2** forwards `ISSUE_NUMBER` through `build-push-to-git` and the
