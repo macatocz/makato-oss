@@ -162,7 +162,7 @@ fi
   echo '{"type":"system","subtype":"init"}'
   echo '{"type":"assistant","tool_use":{"name":"Skill","input":{"skill":"build-implement-tdd"}}}'
   echo '{"type":"assistant","tool_use":{"name":"Task","input":{"subagent_type":"coder"}}}'
-  echo '{"type":"assistant","tool_use":{"name":"Bash","input":{"command":"python3.14 -m pytest -q"}}}'
+  echo '{"type":"assistant","tool_use":{"name":"Bash","input":{"command":"python3.15 -m pytest -q"}}}'
   echo '{"type":"assistant","tool_use":{"name":"Write","input":{"path":"tests/integration/autonomous-pr-loop-e2e.sh"}}}'
   echo "{\"type\":\"result\",\"subtype\":\"success\",\"session_id\":\"$SESSION_ID\"}"
 } | tee -a "$STREAM_LOG"

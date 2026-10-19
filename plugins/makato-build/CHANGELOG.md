@@ -10,6 +10,12 @@ here on merge to main; release-please will date and version them at the next rel
 
 ## [Unreleased]
 
+### Changed — `shared/skill_execution.py`: annotate the safe YAML load for bandit
+
+- The workflow-schema `yaml.load` call is marked `# nosec B506` with the reason: its loader
+  subclasses `yaml.SafeLoader`, which bandit does not recognise. Behaviour is unchanged; the
+  repo's bandit gate now blocks medium-severity findings, and this was its only false positive.
+
 ### Fixed — build-create-pr: scope Closes injection to the current issue (#163) (v1.13.0)
 
 - **`build-create-pr` v1.13.0** selects only the current work item's artifact entry using

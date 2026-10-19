@@ -8,6 +8,11 @@
 # contains long auto-generated lines (skill docs, JSONL payloads, etc.).
 line-length = 200
 
+# Ruff formats Python code fences inside Markdown by default. The repo's
+# Markdown is skill/agent prose whose snippets are illustrative, not code to
+# reformat, so ruff stays on real Python files.
+extend-exclude = ["*.md"]
+
 [per-file-target-version]
 # Distributed CLI runs with the target repository's python3, not our test venv.
 "plugins/makato-build/shared/ci_checks.py" = "py310"

@@ -21,7 +21,7 @@
 name = "makato-smoke-tests"
 version = "0.0.0"
 description = "Internal pytest harness for makato skill smoke tests. Not published."
-requires-python = ">=3.14"
+requires-python = ">=3.15"
 
 [dependency-groups]
 dev = [
@@ -117,3 +117,8 @@ select = ["E", "F", "W", "I"]
 # idiom throughout this repo and is not used as a security guard in
 # production code.
 skips = ["B101"]
+# Test code legitimately spawns subprocesses and uses fixed temp paths, and
+# test-fixtures/ holds deliberately vulnerable samples for build-fix-security.
+# Entries match as path substrings and as globs, so "*/test_*.py" also covers
+# the test modules that sit next to the code they test.
+exclude_dirs = ["tests", "test-fixtures", "*/test_*.py"]

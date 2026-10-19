@@ -1,5 +1,5 @@
 {
-  "name": "makato (Python 3.14 / uv)",
-  "image": "ghcr.io/astral-sh/uv:python3.14-bookworm",
+  "name": "makato (Python 3.15 / uv)",
+  "image": "ghcr.io/astral-sh/uv:python3.15-trixie",
   "postCreateCommand": "uv sync"
 }

@@ -23,9 +23,9 @@ Each plugin owns one phase of that workflow. Install the ones you need; skip the
   Issues.
 - **`gh` CLI** authenticated (`gh auth login`) — required by `makato-plan`, `makato-build`, and
   `makato-orchestrate` for issue and PR operations.
-- **Python 3.14+** — only if you plan to run the repo's smoke tests or contribute to plugins that
+- **Python 3.15+** — only if you plan to run the repo's smoke tests or contribute to plugins that
   ship pytest fixtures (`makato-build`, `makato-sagibeast`). Pinned in `pyproject.toml`
-  (`requires-python = ">=3.14"`) and in the audit CI workflows.
+  (`requires-python = ">=3.15"`) and in the audit CI workflows.
 - **A selected model profile** — every agent role routes through one of three provider profiles
   declared in [`config/model-profiles.yml`](config/model-profiles.yml): `qwen-vllm` (local or
   remote OpenAI-compatible vLLM — the checked-in default, no credential), `openai` (native
@@ -163,7 +163,7 @@ alongside Gate 6 for visibility only — a missing or unreachable optional servi
 reported as `SKIP`/`WARN`, never as silently healthy, and never blocks Gate 6.
 
 On Apple Silicon, `scripts/macos-setup.sh` reports (or, with `--install`, installs) every
-client-side tool a profile needs — Homebrew Bash ≥5, Python 3.14, Node.js, `gh`, `jq`, OMP,
+client-side tool a profile needs — Homebrew Bash ≥5, Python 3.15, Node.js, `gh`, `jq`, OMP,
 Docker Desktop — then checks/installs the selected profile. It never installs CUDA/vLLM:
 
 ```bash

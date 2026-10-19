@@ -44,7 +44,7 @@ bash scripts/macos-setup.sh --dry-run   # report-only: what's missing, nothing i
 `scripts/macos-setup.sh`:
 
 - Refuses to run on a non-Darwin host, and warns (does not fail) on non-`arm64` Macs.
-- Reports (or, with `--install`, Homebrew-installs) Bash ≥4, Python 3.14, Node.js, `gh`,
+- Reports (or, with `--install`, Homebrew-installs) Bash ≥4, Python 3.15, Node.js, `gh`,
   `jq`, OMP (`oh-my-pi`), and Docker Desktop.
 - Checks (or installs) the selected model profile via `scripts/select-model-profile.sh`
   — default `qwen-vllm`, override with `--profile` or `MAKATO_MODEL_PROFILE`.

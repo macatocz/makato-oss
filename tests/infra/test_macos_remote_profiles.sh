@@ -89,7 +89,7 @@ build_full_toolchain_path() {
   mkdir -p "$dir"
   local tool real skip
   for tool in dirname head chmod mkdir ln rm cat \
-              brew bash python3 python3.14 node gh jq docker omp npx curl ssh; do
+              brew bash python3 python3.15 node gh jq docker omp npx curl ssh; do
     skip=false
     for e in "${exclude[@]:-}"; do
       [[ "$tool" == "$e" ]] && skip=true

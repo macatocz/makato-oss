@@ -71,7 +71,8 @@ def _read_schema(path: Path) -> Mapping[str, Any]:
     except (OSError, UnicodeError) as exc:
         raise SkillExecutionError(f"Cannot read workflow schema {path}: {exc}") from exc
     try:
-        data = yaml.load(text, Loader=_UniqueSafeLoader)
+        # _UniqueSafeLoader subclasses yaml.SafeLoader; bandit only recognises the stock safe loader names.
+        data = yaml.load(text, Loader=_UniqueSafeLoader)  # nosec B506
     except yaml.YAMLError as exc:
         raise SkillExecutionError(f"{path}: invalid YAML: {exc}") from exc
     return _mapping({} if data is None else data, str(path))
