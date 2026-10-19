@@ -17,6 +17,8 @@ extend-exclude = ["*.md"]
 # Distributed CLI runs with the target repository's python3, not our test venv.
 "plugins/makato-build/shared/ci_checks.py" = "py310"
 "plugins/makato-build/shared/test_ci_checks.py" = "py310"
+# infra/bootstrap-vllm.sh runs the resolver with the vLLM venv's Python 3.12.
+"scripts/resolve-model-profile.py" = "py312"
 
 [lint]
 select = ["E", "F", "W", "I"]

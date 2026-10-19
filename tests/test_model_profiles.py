@@ -564,6 +564,25 @@ def test_profile_install_merges_without_dropping_user_settings(tmp_path: pathlib
     assert stat.S_IMODE(models_file.stat().st_mode) == 0o600
 
 
+def test_qwen_vllm_merge_leaves_infra_omp_files_unchanged(tmp_path: pathlib.Path) -> None:
+    """infra/bootstrap-vllm.sh installs the infra OMP files verbatim on a fresh box and merges the qwen-vllm profile on re-runs.
+
+    The merge must change no value, or a re-provisioned box would route differently from a fresh one.
+    """
+    import yaml  # noqa: PLC0415
+
+    infra_files = {"config.yml": REPO_ROOT / "infra" / "omp-config.yml", "models.yml": REPO_ROOT / "infra" / "omp-models.yml"}
+    for name, source in infra_files.items():
+        (tmp_path / name).write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+
+    result = _selector(["qwen-vllm"], tmp_path)
+    assert result.returncode == 0, result.stderr
+
+    for name, source in infra_files.items():
+        merged = yaml.safe_load((tmp_path / name).read_text(encoding="utf-8"))
+        assert merged == yaml.safe_load(source.read_text(encoding="utf-8")), f"merging qwen-vllm changes {source.relative_to(REPO_ROOT)}"
+
+
 def test_agents_only_merges_only_agent_overrides(tmp_path: pathlib.Path) -> None:
     """--agents-only leaves modelRoles, tools and models.yml alone, and warns about roles the agents use that modelRoles lacks."""
     import yaml  # noqa: PLC0415

@@ -27,9 +27,11 @@ default_profile: qwen-vllm
 profiles:
   # Local or remote OpenAI-compatible vLLM endpoint (Qwen3 tool format).
   # This is the checked-in default — infra/omp-models.yml and
-  # infra/omp-config.yml already ship this routing verbatim for the remote
-  # Linux/vast.ai deployment path (infra/bootstrap-vllm.sh); this profile
-  # entry mirrors that same contract for scripts/select-model-profile.sh.
+  # infra/omp-config.yml ship this routing verbatim for a fresh remote
+  # Linux/vast.ai box, and infra/bootstrap-vllm.sh merges this profile entry
+  # (via scripts/select-model-profile.sh) on re-runs. The two must agree
+  # (enforced by tests/test_model_profiles.py::
+  # test_qwen_vllm_merge_leaves_infra_omp_files_unchanged).
   qwen-vllm:
     provider: local
     description: "Local or remote OpenAI-compatible vLLM endpoint. No credentials required."

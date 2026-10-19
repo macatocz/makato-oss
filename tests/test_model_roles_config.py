@@ -221,7 +221,8 @@ def test_omp_config_yml_maps_every_canonical_role() -> None:
     """infra/omp-config.yml modelRoles: must map every canonical role.
 
     Task 2 extends the checked-in OMP role-routing document (installed verbatim
-    onto remote Linux/vLLM boxes by infra/bootstrap-vllm.sh) beyond the legacy
+    on fresh remote Linux/vLLM boxes by infra/bootstrap-vllm.sh; re-runs merge
+    the qwen-vllm profile via scripts/select-model-profile.sh) beyond the legacy
     default/opus/sonnet/haiku/smol/slow/plan subset to cover every canonical
     Makato role, while retaining the legacy aliases for existing consumers.
     """
@@ -249,8 +250,9 @@ def test_omp_config_yml_maps_every_canonical_role() -> None:
 def test_omp_config_yml_agent_overrides_mirror_agent_roles() -> None:
     """infra/omp-config.yml task.agentModelOverrides must equal {agent: "@<role>"} from config/agent-roles.yml.
 
-    infra/bootstrap-vllm.sh installs this file verbatim on remote boxes, so it
-    must carry the same agent → role routing the installer writes.
+    infra/bootstrap-vllm.sh installs this file verbatim on a fresh remote box
+    (a re-run merges via the installer instead), so it must carry the same
+    agent → role routing the installer writes.
     """
     _, agents = _agent_roles()
     data = _load_yaml(OMP_CONFIG_YML)

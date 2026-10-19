@@ -5,8 +5,9 @@
 #
 # modelRoles declares every canonical Makato model role (see
 # tests/test_model_roles_config.py EXPECTED_ROLES), all routed to the
-# checked-in local-vLLM default (local/open) so this file continues to work
-# unchanged for infra/bootstrap-vllm.sh's unconditional remote-Linux install.
+# checked-in local-vLLM default (local/open). infra/bootstrap-vllm.sh installs
+# this file verbatim on a fresh remote Linux box and merges the qwen-vllm
+# profile into the existing config.yml on re-runs.
 # The legacy opus/sonnet/haiku aliases are retained so existing consumers
 # that still read those Claude-tier names directly keep working — see
 # tests/test_model_roles_config.py::test_omp_config_yml_maps_every_canonical_role.

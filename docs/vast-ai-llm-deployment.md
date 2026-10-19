@@ -21,8 +21,9 @@ declared in [`config/model-profiles.yml`](../config/model-profiles.yml) (`base_u
 http://localhost:8100/v1`, no credential, `tool_format: qwen3`) — the same profile
 `scripts/select-model-profile.sh` and `scripts/resolve-model-profile.py` validate
 elsewhere in the suite. `infra/omp-models.yml` / `infra/omp-config.yml` (installed by
-`infra/bootstrap-vllm.sh` below) mirror that profile's provider/role documents verbatim,
-so there is nothing extra to run here to "activate" the profile.
+`infra/bootstrap-vllm.sh` below) mirror that profile's provider/role documents verbatim
+(test-enforced), so there is nothing extra to run here to "activate" the profile; a
+bootstrap re-run merges the profile into existing OMP files rather than overwriting them.
 `infra/omp-config.yml` also carries `task.agentModelOverrides`, routing every makato
 subagent to its shared `"@<role>"` alias and mirroring
 [`config/agent-roles.yml`](../config/agent-roles.yml) (test-enforced).
@@ -331,8 +332,25 @@ The second pass:
 1. Creates `/root/vllm-venv` with Python 3.12 and vLLM 0.27.1.
 2. Downloads the complete gated model snapshot.
 3. Installs and enables `vllm.service`.
-4. Installs `infra/omp-models.yml` as `/root/.omp/agent/models.yml`.
-5. Installs `infra/omp-config.yml` as `/root/.omp/agent/config.yml`.
+4. If the `omp` binary is present, installs `infra/omp-models.yml` as
+   `/root/.omp/agent/models.yml` and `infra/omp-config.yml` as
+   `/root/.omp/agent/config.yml` (overridable via `OMP_MODELS_DEST` / `OMP_CONFIG_DEST`),
+   verbatim with comments, for each file that is absent or empty.
+5. If either file already existed, runs `scripts/select-model-profile.sh qwen-vllm`
+   against them with the vLLM venv's Python (which has PyYAML). This restores only the
+   keys the `qwen-vllm` profile owns — `providers.local.{baseUrl,apiKey,models}` in
+   `models.yml`; the canonical `modelRoles` keys, `tools.format` and the makato agent
+   keys of `task.agentModelOverrides` in `config.yml` — and keeps every other setting
+   (other providers and their API keys, custom roles, legacy opus/sonnet/haiku aliases,
+   other agents' overrides, unrelated settings). YAML comments in a merged file are not
+   kept. A merge the resolver refuses (for example, unparseable YAML) leaves both files
+   untouched and only logs a warning, so vLLM still starts.
+
+A re-run therefore restores the `qwen-vllm` routing; to route elsewhere afterwards, run
+`scripts/select-model-profile.sh <profile>`.
+`tests/test_model_profiles.py::test_qwen_vllm_merge_leaves_infra_omp_files_unchanged`
+enforces that merging `qwen-vllm` into the checked-in infra files changes nothing, so
+fresh and re-run boxes route identically.
 
 OMP v18 reads only provider definitions from `models.yml`. It reads
 `modelRoles` and `tools.format` from `config.yml`; putting those settings in
