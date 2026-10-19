@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.172.0](https://github.com/macatocz/makato-oss/compare/v0.171.1...v0.172.0) (2026-10-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* agent frontmatter no longer carries `modelRole:`. Agents added to the repo need an entry in config/agent-roles.yml and the matching `model:` alias. Every profile must map the new `orchestrator` role, and the installer merges into existing OMP files instead of replacing them (merging needs PyYAML).
+
+### ✨ Features
+
+* route every makato agent through a shared model role ([#173](https://github.com/macatocz/makato-oss/issues/173)) ([e749e20](https://github.com/macatocz/makato-oss/commit/e749e203f2f5a90f3d97e611aff5bfaa7e78e193))
+
 ## [0.171.1](https://github.com/macatocz/makato-oss/compare/v0.171.0...v0.171.1) (2026-10-18)
 
 
