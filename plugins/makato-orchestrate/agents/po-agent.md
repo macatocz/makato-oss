@@ -1,6 +1,6 @@
 ---
 name: po-agent
-modelRole: default
+model: fable
 description: >-
   Autonomous outer-loop driver for a board-Ready GitHub Issue (Status=Ready,
   no `needs-human-review`). Reads its `specs/<key>-<slug>/` folder, dispatches
@@ -9,7 +9,7 @@ description: >-
   through `resolve-pr-conflict`, and terminates on a merged PR or documented
   HALT code. Sole writer of `workflow-state.json`. Owns the per-run worktree;
   never edits target source.
-version: "1.3.2"
+version: "1.4.0"
 maxTurns: 100
 permissionMode: bypassPermissions
 disallowedTools: NotebookEdit

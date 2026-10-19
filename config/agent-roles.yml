@@ -1,0 +1,58 @@
+# config/agent-roles.yml — the shared model role each makato subagent runs on.
+#
+# Agents of the same pipeline phase share one role, so a phase keeps one model
+# (and its prompt cache) instead of switching model per agent. po-agent alone
+# has the dedicated `orchestrator` role: the outer loop gets the strongest model.
+#
+# OMP: it discards a Claude-format plugin agent's frontmatter `model:`, so
+#   scripts/select-model-profile.sh merges `agents` into
+#   ~/.omp/agent/config.yml as `task.agentModelOverrides.<agent>: "@<role>"`.
+#   Concrete models stay in `modelRoles`, so change them in OMP /model → Roles;
+#   saving a model in /agents replaces that agent's "@<role>" with a fixed model.
+# Claude Code: each agent's frontmatter `model:` must equal
+#   `claude_aliases[<role>]` (enforced by tests/test_model_roles_config.py).
+#
+# Every role must be a canonical role (scripts/resolve-model-profile.py
+# EXPECTED_ROLES). Keep this file to nested mappings of scalars so the
+# resolver's stdlib fallback parser reads it without PyYAML.
+
+claude_aliases:
+  orchestrator: fable
+  plan: opus
+  advisor: opus
+  designer: opus
+  task: inherit
+  commit: sonnet
+  smol: haiku
+
+agents:
+  # makato-build
+  coder: task
+  sensor-fixer: task
+  runtime-qa: task
+  diff-reviewer: advisor
+  gate-scout: smol
+  knowledge-scout: smol
+  plan-analyst: smol
+  # makato-change
+  change-implementer: task
+  code-reviewer: advisor
+  requirements-diff-analyzer: advisor
+  code-explorer: smol
+  test-analyzer: smol
+  quality-guard: smol
+  gherkin-scenario-elaborator: commit
+  # makato-orchestrate
+  po-agent: orchestrator
+  light-planner: plan
+  task-file-scout: smol
+  context-summariser: smol
+  documentation-agent: commit
+  # makato-plan
+  dev-reviewer: advisor
+  po-reviewer: advisor
+  qa-reviewer: advisor
+  acceptance-writer: commit
+  doc-writer: commit
+  context-scout: smol
+  prototype-builder: designer

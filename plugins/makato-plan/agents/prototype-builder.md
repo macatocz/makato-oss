@@ -1,6 +1,6 @@
 ---
 name: prototype-builder
-modelRole: designer
+model: opus
 description: >-
   Generate high-fidelity interactive HTML prototypes from design context and UX decisions.
   Creative agent for visual UI generation. Reusable across all makato-plan skills.

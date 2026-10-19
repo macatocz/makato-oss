@@ -1,13 +1,13 @@
 ---
 name: diff-reviewer
-modelRole: advisor
+model: opus
 description: >-
   Adversarially review a branch diff against acceptance criteria — finds
   correctness bugs, edge cases, security issues, and contract violations.
   Returns findings classified as CRITICAL, MAJOR, SUGGESTION, or NITPICK,
   plus a per-AC verified/gap verdict for downstream checkbox marking.
   Dispatched by the review skill.
-version: "1.3.0"
+version: "1.4.0"
 maxTurns: 20
 permissionMode: bypassPermissions
 disallowedTools: Write, Edit, NotebookEdit

@@ -182,7 +182,7 @@ dependency. Part of the Phase-1 harness-independence milestone.
 | Variable | Env override | Default | Meaning |
 | --- | --- | --- | --- |
 | `MAKATO_OPEN_ENDPOINT_URL` | `MAKATO_OPEN_ENDPOINT_URL` | *(empty)* | Base URL of the cloud open-model API (e.g. `https://api.openai.com/v1` or any OpenAI-compatible endpoint). When non-empty, `loop.sh` exports it as `ANTHROPIC_BASE_URL` so the harness CLI routes all LLM calls through this endpoint. Empty = use harness default (closed API). |
-| `MAKATO_OPEN_MODEL_ROLES` | `MAKATO_OPEN_MODEL_ROLES` | `sonnet,haiku,opus` | Comma-separated list of oh-my-pi modelRole tiers expected to route through `MAKATO_OPEN_ENDPOINT_URL`. Informational in Phase 1 (the roles are wired via issue #5 frontmatter); reserved for role-specific routing helpers added in later sequences. |
+| `MAKATO_OPEN_MODEL_ROLES` | `MAKATO_OPEN_MODEL_ROLES` | `sonnet,haiku,opus` | Comma-separated list of canonical Makato model roles expected to route through `MAKATO_OPEN_ENDPOINT_URL`. Informational in Phase 1 (agents reach their roles via the repo's `config/agent-roles.yml` — OMP `task.agentModelOverrides` — and Claude Code `model:` aliases); reserved for role-specific routing helpers added in later sequences. |
 
 **Runtime behaviour:** `loop.sh` evaluates the config after `parse-config.py` and then runs:
 
@@ -193,9 +193,10 @@ fi
 ```
 
 Every `$CLAUDE_BIN` subprocess (po-agent, seed-issue, refine) inherits
-`ANTHROPIC_BASE_URL`, which the harness respects as its API base. No changes
-to sub-agent frontmatter are required — the modelRole wiring from issue #5 is
-the only other half of this composition.
+`ANTHROPIC_BASE_URL`, which the harness respects as its API base. The other
+half of this composition is per-agent role routing: `scripts/select-model-profile.sh`
+merges `config/agent-roles.yml` into OMP `task.agentModelOverrides` (`"@<role>"`),
+and Claude Code reads each agent's `model:` alias.
 
 ## Persistent volume (issue #8 — Vast.ai preemption survival)
 

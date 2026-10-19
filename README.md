@@ -129,7 +129,8 @@ makato's autonomous roles route through one of three provider profiles declared 
 | `apple-ollama` | Local Apple Silicon `ollama serve` (`http://localhost:11434/v1`) | none | `openai` |
 
 Preview a profile — structural validation only, never touches disk, never requires a
-credential:
+credential. `--dry-run` prints only the fragments that would be merged, never the contents
+of your existing files:
 
 ```bash
 python3 scripts/resolve-model-profile.py openai --emit summary
@@ -138,13 +139,31 @@ bash scripts/select-model-profile.sh qwen-vllm --dry-run
 bash scripts/select-model-profile.sh apple-ollama --dry-run
 ```
 
-Install a profile for real — writes `~/.omp/agent/{models,config}.yml`. `OPENAI_API_KEY` is
-required only here, only for `openai`, and its value is never echoed to stdout/stderr/logs:
+Install a profile for real — merges into `~/.omp/agent/config.yml` and
+`~/.omp/agent/models.yml` instead of overwriting them. In `config.yml` only the canonical
+`modelRoles` keys, `tools.format` and the makato agent keys under `task.agentModelOverrides`
+change; in `models.yml` it updates only the profile's own provider entry (`baseUrl`, `apiKey`,
+`models`). Custom roles (e.g. `review`), other agents' overrides, other keys in that provider
+entry, other providers and unrelated settings are preserved. Both files are validated before
+either is written. Merging into an existing file needs PyYAML (`python3 -m pip install
+pyyaml`, or point `MAKATO_PYTHON_BIN` at a Python that has it); YAML comments in a merged
+file are not preserved. `OPENAI_API_KEY` is required only here, only for `openai`, is written
+only into `models.yml` (mode `600`), and its value is never echoed to stdout/stderr/logs:
 
 ```bash
 OPENAI_API_KEY=sk-... bash scripts/select-model-profile.sh openai
 bash scripts/select-model-profile.sh qwen-vllm       # no credential needed
 bash scripts/select-model-profile.sh apple-ollama    # no credential needed
+```
+
+If you pick models yourself in OMP `/model` → Roles, route makato's agents through those
+roles without installing a profile. `--agents-only` merges only the agent → `"@<role>"`
+overrides into `config.yml`, leaves `modelRoles`, `tools` and `models.yml` untouched, and
+needs no credential:
+
+```bash
+bash scripts/select-model-profile.sh --agents-only --dry-run   # preview the overrides
+bash scripts/select-model-profile.sh --agents-only
 ```
 
 Before dispatching the PO-agent, run the mandatory Gate 6 runtime preflight for the active
@@ -173,6 +192,34 @@ bash scripts/macos-setup.sh --install --profile openai
 
 See [`docs/macos-openai-qwen.md`](docs/macos-openai-qwen.md) for the full Mac quick-start,
 optional-service setup, and a troubleshooting matrix.
+
+### Agent model roles
+
+Every makato subagent runs on one shared model role declared in
+[`config/agent-roles.yml`](config/agent-roles.yml). Agents of the same pipeline phase share a
+role, so the model — and its prompt cache — does not switch between them. `po-agent` alone
+has the dedicated `orchestrator` role so the outer loop gets the strongest model.
+
+| Role | Claude Code `model:` | Agents |
+| --- | --- | --- |
+| `orchestrator` | `fable` | po-agent |
+| `task` | `inherit` | coder, sensor-fixer, runtime-qa, change-implementer |
+| `advisor` | `opus` | diff-reviewer, code-reviewer, requirements-diff-analyzer, dev-reviewer, po-reviewer, qa-reviewer |
+| `smol` | `haiku` | gate-scout, knowledge-scout, plan-analyst, code-explorer, test-analyzer, quality-guard, task-file-scout, context-summariser, context-scout |
+| `commit` | `sonnet` | gherkin-scenario-elaborator, documentation-agent, acceptance-writer, doc-writer |
+| `plan` | `opus` | light-planner |
+| `designer` | `opus` | prototype-builder |
+
+- **OMP** reads `task.agentModelOverrides: {<agent>: "@<role>"}` in `~/.omp/agent/config.yml`,
+  merged by `scripts/select-model-profile.sh`; the concrete model for each role lives only in
+  OMP `modelRoles`.
+- **Claude Code** reads the agent's frontmatter `model:` alias, which
+  `tests/test_model_roles_config.py` keeps in sync with the role's alias.
+
+Change models in OMP `/model` → Roles, not in `/agents`: saving an agent's model there
+replaces its `@role` alias with a fixed model. Skills are separate — a skill's model comes
+from workflow-schema `skill_execution.role` (see
+[`docs/workflow-schema.md`](docs/workflow-schema.md)); SKILL.md never sets `model:`.
 
 ## Support boundaries
 

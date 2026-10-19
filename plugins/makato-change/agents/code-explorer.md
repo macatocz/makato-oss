@@ -1,6 +1,6 @@
 ---
 name: code-explorer
-modelRole: smol
+model: haiku
 description: >-
   Read-only codebase discovery agent for change requests. Given REPO_ROOT,
   FEATURE_KEYWORDS, and REQUESTED_CHANGES, discovers affected files,

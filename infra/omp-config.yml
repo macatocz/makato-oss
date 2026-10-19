@@ -3,17 +3,22 @@
 # omp v18 reads role routing and tool formatting from ~/.omp/agent/config.yml,
 # separately from provider definitions in ~/.omp/agent/models.yml.
 #
-# modelRoles declares every one of Makato's 10 canonical model roles (see
+# modelRoles declares every canonical Makato model role (see
 # tests/test_model_roles_config.py EXPECTED_ROLES), all routed to the
 # checked-in local-vLLM default (local/open) so this file continues to work
 # unchanged for infra/bootstrap-vllm.sh's unconditional remote-Linux install.
 # The legacy opus/sonnet/haiku aliases are retained so existing consumers
 # that still read those Claude-tier names directly keep working — see
-# tests/test_model_roles_config.py::test_omp_config_yml_has_all_ten_roles.
+# tests/test_model_roles_config.py::test_omp_config_yml_maps_every_canonical_role.
 #
-# To route a different provider (OpenAI, Apple/Ollama, remote Qwen), use
-# scripts/select-model-profile.sh <profile> to regenerate this file from
-# config/model-profiles.yml instead of hand-editing it.
+# task.agentModelOverrides routes each makato subagent to its shared role and
+# must mirror config/agent-roles.yml (enforced by
+# tests/test_model_roles_config.py).
+#
+# To route a different provider (OpenAI, Apple/Ollama, remote Qwen) on an
+# installed box, run scripts/select-model-profile.sh <profile>: it merges the
+# profile from config/model-profiles.yml into the installed config instead of
+# hand-editing it.
 modelRoles:
   default: local/open
   task: local/open
@@ -26,6 +31,7 @@ modelRoles:
   commit: local/open
   slow: local/open
   vision: local/open
+  orchestrator: local/open
   # Legacy Claude-tier aliases retained for backward compatibility (issue #5).
   opus: local/open
   sonnet: local/open
@@ -33,3 +39,32 @@ modelRoles:
 
 tools:
   format: qwen3
+
+task:
+  agentModelOverrides:
+    coder: "@task"
+    sensor-fixer: "@task"
+    runtime-qa: "@task"
+    diff-reviewer: "@advisor"
+    gate-scout: "@smol"
+    knowledge-scout: "@smol"
+    plan-analyst: "@smol"
+    change-implementer: "@task"
+    code-reviewer: "@advisor"
+    requirements-diff-analyzer: "@advisor"
+    code-explorer: "@smol"
+    test-analyzer: "@smol"
+    quality-guard: "@smol"
+    gherkin-scenario-elaborator: "@commit"
+    po-agent: "@orchestrator"
+    light-planner: "@plan"
+    task-file-scout: "@smol"
+    context-summariser: "@smol"
+    documentation-agent: "@commit"
+    dev-reviewer: "@advisor"
+    po-reviewer: "@advisor"
+    qa-reviewer: "@advisor"
+    acceptance-writer: "@commit"
+    doc-writer: "@commit"
+    context-scout: "@smol"
+    prototype-builder: "@designer"

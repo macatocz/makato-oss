@@ -69,7 +69,9 @@ skill_execution:
 - `role` is a provider-neutral OMP role name. The loader emits it uppercase; the launcher passes its
   lowercase alias (`PLAN` → `@plan`). Any valid configured role is allowed. `DEFAULT` uses
   `@default`; `PLAN` uses the built-in `@plan` role. `REVIEW` is a custom role: users must configure
-  `modelRoles.review` themselves. Makato does not create or change global OMP configuration.
+  `modelRoles.review` themselves. The skill dispatcher does not create or change global OMP
+  configuration; the profile installer (`scripts/select-model-profile.sh`) is an explicit user
+  action that merges into it.
 - `effort` accepts `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `auto`, and `inherit`.
   `inherit` omits the thinking flag; other values are passed as the per-run thinking selection.
 - A project may contain only `skill_execution` to adjust execution without copying the artifact
@@ -90,9 +92,10 @@ modelRoles:
 
 `modelRoles.review` is not a built-in alias. Choose model selectors supported by your OMP
 installation and save this yourself (for example, through `/models` or the intended global/project
-config). The skill resolver never writes global or project OMP model settings. Existing per-agent
-settings such as `modelRole` in agent frontmatter remain separate: per-skill settings select the
-outer skill's model and do not rewrite the models used for agents that skill dispatches.
+config). The skill resolver never writes global or project OMP model settings. Nested agents keep
+their own shared role from `config/agent-roles.yml` (OMP `task.agentModelOverrides`, Claude Code
+`model:` alias): per-skill settings select the outer skill's model and do not rewrite the models
+used for agents that skill dispatches.
 
 A normal file read or direct slash-skill invocation does not inspect this schema or switch the
 current conversation's model. For headless/autonomous OMP workflow dispatches, use `run-skill.py`;
@@ -304,8 +307,9 @@ The launcher resolves the role and effort, then starts OMP using `--model @role`
 `--thinking LEVEL` unless effort is `inherit`, and supplies `--plugin-dir PATH`, `--cwd PATH`, and
 `--print` in default non-interactive mode. Concrete model selectors remain in the user's OMP
 `modelRoles` config; the runner does not edit global/project OMP settings. A `REVIEW` entry maps to
-`@review` only when the user has configured that custom role. Existing per-agent `modelRole`
-settings remain separate from the outer skill's per-skill settings.
+`@review` only when the user has configured that custom role. Nested agents keep their own shared
+role from `config/agent-roles.yml` (OMP `task.agentModelOverrides`, Claude Code `model:` alias);
+the outer skill's per-skill settings do not rewrite them.
 
 `MAKATO_BUILD_ROOT` identifies the installed makato-build plugin directory, not the target
 project. The launcher infers sibling makato-plan/makato-change directories in a checkout;

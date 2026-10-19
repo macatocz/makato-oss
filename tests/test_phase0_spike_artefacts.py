@@ -4,7 +4,7 @@ Validates that the three committed spike documents exist, are non-empty, and
 contain the required sections per the acceptance criteria of issue #3:
 
 - D16 flipped from PENDING to RESOLVED
-- Migration scope count matches the `grep -r "^model:" plugins/` audit
+- Migration scope counts documented in q5
 - filterBrowser workaround documented
 - Phase-detection contract resolved (Option B chosen)
 - omp absence documented with gate disposition
@@ -93,36 +93,6 @@ def test_q5_documents_makato_harness_bin_seam():
     phase0 = (DOCS_DIR / "phase-0-spike-results.md").read_text()
     combined = q5 + phase0
     assert "MAKATO_HARNESS_BIN" in combined or "MAKATO_CLAUDE_BIN" in combined, "The dispatch seam rename (MAKATO_CLAUDE_BIN → MAKATO_HARNESS_BIN) must be documented"
-
-
-def test_q5_count_matches_grep_audit():
-    """Verify the modelRole migration is complete: 0 model: remain, 25 modelRole: present.
-
-    Pre-migration (Phase-0 spike): 25 agent .md files had ``model:`` frontmatter.
-    Post-migration (issue #5): all 25 use ``modelRole:`` — no provider name in code.
-    AC-1: grep audit must return zero results for model: in agent frontmatter.
-    """
-    import subprocess
-
-    # AC-1: zero model: haiku/sonnet/opus/claude- in any agent frontmatter
-    old_result = subprocess.run(
-        ["grep", "-r", "^model:", "plugins/", "--include=*.md", "-l"],
-        capture_output=True,
-        text=True,
-        cwd=REPO_ROOT,
-    )
-    old_agent_files = [f for f in old_result.stdout.strip().splitlines() if "/agents/" in f and "RETURN-CONTRACT" not in f]
-    assert len(old_agent_files) == 0, f"Expected 0 agent .md files with model: frontmatter after migration, found {len(old_agent_files)}: {old_agent_files}"
-
-    # Positive check: all 25 agents now carry modelRole:
-    new_result = subprocess.run(
-        ["grep", "-r", "^modelRole:", "plugins/", "--include=*.md", "-l"],
-        capture_output=True,
-        text=True,
-        cwd=REPO_ROOT,
-    )
-    new_agent_files = [f for f in new_result.stdout.strip().splitlines() if "/agents/" in f and "RETURN-CONTRACT" not in f]
-    assert len(new_agent_files) == 25, f"Expected 25 agent .md files with modelRole: frontmatter, found {len(new_agent_files)}: {new_agent_files}"
 
 
 # ---------------------------------------------------------------------------

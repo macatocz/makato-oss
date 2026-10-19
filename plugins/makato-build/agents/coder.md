@@ -1,7 +1,7 @@
 ---
 name: coder
-modelRole: task
-version: "1.2.0"
+model: inherit
+version: "1.3.0"
 description: >-
   Execute one TDD task with targeted RED/GREEN evidence, or repair blocking
   review or verification findings. Dispatched by build-implement-tdd per task,

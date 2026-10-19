@@ -2,6 +2,12 @@
 
 Changes are grouped by skill/agent/component. Within each group, latest version on top. Each version block lists one sub-bullet per logical change. Until per-PR version automation is in place, entries land here on merge to main; release-please will date and version them at the next release cut.
 
+## [Unreleased]
+
+### Changed — skills no longer declare a model role
+
+- **`makato-skill-creator`** — `references/frontmatter-spec.md` drops the `modelRole` optional field and its template-example line (no harness read it) and adds a validation rule: skills must not set `model:`. A skill runs on its session's model, chosen by the workflow-schema role (`skill_execution.role` → OMP `modelRoles`); a per-skill model would switch models mid-session and discard the prompt cache.
+
 ---
 
 ## Plugin-level

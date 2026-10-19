@@ -10,6 +10,20 @@ here on merge to main; release-please will date and version them at the next rel
 
 ## [Unreleased]
 
+### Changed — route subagents through shared model roles
+
+- Removed the `modelRole:` frontmatter key from every agent; no harness read it. Each agent now
+  declares a Claude Code `model:` alias derived from its shared role in `config/agent-roles.yml`.
+  Under OMP the same role reaches the agent via `task.agentModelOverrides` (`"@<role>"`), which
+  `scripts/select-model-profile.sh` merges into the OMP config.
+- **`coder` v1.3.0** — role `task`, `model: inherit`.
+- **`sensor-fixer` v1.1.0** — role `task`, `model: inherit`.
+- **`runtime-qa`** — role `task` (was `default`), `model: inherit`.
+- **`diff-reviewer` v1.4.0** — role `advisor`, `model: opus`.
+- **`gate-scout` v1.7.0** — role `smol`, `model: haiku`.
+- **`knowledge-scout`** — role `smol`, `model: haiku`.
+- **`plan-analyst`** — role `smol`, `model: haiku`.
+
 ### Changed — `shared/skill_execution.py`: annotate the safe YAML load for bandit
 
 - The workflow-schema `yaml.load` call is marked `# nosec B506` with the reason: its loader

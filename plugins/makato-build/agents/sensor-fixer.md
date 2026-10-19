@@ -1,6 +1,6 @@
 ---
 name: sensor-fixer
-version: "1.0.0"
+version: "1.1.0"
 description: >-
   Outer loop that reads parsed sensor findings, runs a batched
   deterministic-autofix pre-pass (Phase 0) for routes with action
@@ -10,7 +10,7 @@ description: >-
   for the same finding (NOT yet wired — see Phase 1 note); writes JSONL audit
   to specs/<key>/build.jsonl. Triggered by build-sensors on non-zero
   pre-commit exit.
-modelRole: task
+model: inherit
 maxTurns: 20
 ---
 

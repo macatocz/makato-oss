@@ -2,24 +2,25 @@
 # provider-neutral model routing (AC-1, local-openai-gpt-macos-compatibility).
 #
 # scripts/resolve-model-profile.py validates and resolves entries here.
-# scripts/select-model-profile.sh installs the resolved profile into OMP's
+# scripts/select-model-profile.sh merges the resolved profile into OMP's
 # runtime configuration (~/.omp/agent/{models,config}.yml, overridable via
-# OMP_MODELS_FILE / OMP_CONFIG_FILE).
+# OMP_MODELS_FILE / OMP_CONFIG_FILE) without dropping unrelated settings.
 #
 # Credential contract: `api_key_env` names the environment variable a profile
 # needs at INSTALL time — never at parse/validate time, and its VALUE never
 # appears in this file, in resolver output, or in any --dry-run document.
-# scripts/select-model-profile.sh substitutes the real value directly into the
-# on-disk ~/.omp/agent/models.yml only during a real (non---dry-run) install;
-# it is never echoed to stdout, stderr, or any log. An empty `api_key_env`
-# means the profile needs no credential (local/offline endpoints).
+# Only a real (non---dry-run) install reads the value, writing it straight into
+# the on-disk ~/.omp/agent/models.yml (mode 600); it is never echoed to stdout,
+# stderr, or any log. An empty `api_key_env` means the profile needs no
+# credential (local/offline endpoints).
 #
-# Every profile MUST declare all ten canonical Makato model roles (mirrors
-# tests/test_model_roles_config.py EXPECTED_ROLES): default, task, smol,
-# tiny, plan, advisor, designer, commit, slow, vision. Selecting a different
-# profile changes provider/model routing ONLY — role names and skill/agent
-# permissions live in plugins/*/agents/*.md and plugins/*/skills/*/SKILL.md
-# and are never touched by this file or the resolver/selector scripts.
+# Every profile MUST declare every canonical Makato model role (mirrors
+# scripts/resolve-model-profile.py EXPECTED_ROLES): default, task, smol,
+# tiny, plan, advisor, designer, commit, slow, vision, orchestrator.
+# `orchestrator` is dedicated to the po-agent outer loop, so map it to the
+# profile's strongest model. Selecting a different profile changes
+# provider/model routing ONLY — which role each agent uses lives in
+# config/agent-roles.yml and is never touched by this file.
 
 default_profile: qwen-vllm
 
@@ -49,6 +50,7 @@ profiles:
       commit: open
       slow: open
       vision: open
+      orchestrator: open
 
   # Native OpenAI API (api.openai.com).
   openai:
@@ -71,6 +73,7 @@ profiles:
       commit: gpt-4o-mini
       slow: o1
       vision: gpt-4o
+      orchestrator: o1
 
   # Apple Silicon local OpenAI-compatible backend (e.g. `ollama serve`).
   apple-ollama:
@@ -93,3 +96,4 @@ profiles:
       commit: llama3.2
       slow: llama3.1
       vision: llama3.2
+      orchestrator: llama3.1

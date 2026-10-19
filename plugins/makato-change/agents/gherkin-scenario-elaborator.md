@@ -1,5 +1,6 @@
 ---
 name: gherkin-scenario-elaborator
+model: sonnet
 description: >-
   Expand terse Gherkin outlines (scenario titles or bullet-form steps) into
   full Given / When / Then scenarios with concrete preconditions, actions, and

@@ -108,8 +108,8 @@ vars:
 # --- LLM-judge evaluator (issue #13 / sequence 11) ---
 # Name of the Langfuse native LLM-as-a-judge evaluator that scores step outputs.
 # The closed-model endpoint URL and its API key are Langfuse instance secrets — not
-# stored here. The modelRole→endpoint table (routing one role to the closed endpoint)
-# lands in the models: block added by issue #5.
+# stored here. The model-role→endpoint table (routing one role to the closed endpoint)
+# lives in the models: block below.
 - { var: LANGFUSE_JUDGE_EVALUATOR_NAME, env: LANGFUSE_JUDGE_EVALUATOR_NAME, default: "" }
 - { var: LANGFUSE_JUDGE_SCORE_NAME,     env: LANGFUSE_JUDGE_SCORE_NAME,     default: "quality" }
 
@@ -120,9 +120,10 @@ vars:
 #   routes through this endpoint. Empty string = use harness default (closed API).
 #   Default points at the vast.ai vLLM instance on port 8100 (port 8000 is taken
 #   by the SAGIBEAST fastapi-brain container). Override via env to switch endpoints.
-# MAKATO_OPEN_MODEL_ROLES: comma-separated list of oh-my-pi modelRole tiers that
+# MAKATO_OPEN_MODEL_ROLES: comma-separated list of canonical Makato model roles that
 #   should route through MAKATO_OPEN_ENDPOINT_URL. Informational in Phase 1 —
-#   the roles are already wired by issue #5 frontmatter changes; this var documents
+#   agents reach their roles via the repo's config/agent-roles.yml (OMP
+#   task.agentModelOverrides) and Claude Code `model:` aliases; this var documents
 #   the expected set and can gate role-specific routing helpers added later.
 - { var: MAKATO_OPEN_ENDPOINT_URL, env: MAKATO_OPEN_ENDPOINT_URL, default: "http://localhost:8100/v1", export: true }
 - { var: MAKATO_OPEN_MODEL_ROLES,  env: MAKATO_OPEN_MODEL_ROLES,  default: "sonnet,haiku,opus" }
@@ -154,7 +155,9 @@ vars:
 - { var: MAKATO_LOOP_MIRROR,       env: MAKATO_LOOP_MIRROR,       default: "1" }
 
 # --- Model-role → endpoint routing (issue #5) ---
-# The ten canonical oh-my-pi modelRole tiers. Each carries the base_url its
+# The canonical Makato model roles (agents reach them via the repo's
+# config/agent-roles.yml → OMP task.agentModelOverrides, and via Claude Code
+# `model:` aliases). Each carries the base_url its
 # LLM calls route through. At Phase-1 start every role points at the open
 # (local) vLLM endpoint — no closed-provider URL appears here. The LLM-judge
 # closed role (issue #13 / sequence 11) is layered on later by re-pointing one
@@ -170,3 +173,4 @@ models:
   commit:   { base_url: "http://127.0.0.1:8100/v1" }
   slow:     { base_url: "http://127.0.0.1:8100/v1" }
   vision:   { base_url: "http://127.0.0.1:8100/v1" }
+  orchestrator: { base_url: "http://127.0.0.1:8100/v1" }

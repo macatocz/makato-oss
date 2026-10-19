@@ -1,7 +1,7 @@
 ---
 name: gate-scout
-modelRole: smol
-version: "1.6.0"
+model: haiku
+version: "1.7.0"
 description: >-
   Discover the repository's build, lint, unit test, integration, coverage, CI
   ownership, sensor-scope, and runtime-health commands without executing them.

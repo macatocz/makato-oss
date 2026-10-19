@@ -12,7 +12,6 @@
 
 | Field | Type | Rules |
 |-------|------|-------|
-| `modelRole` | string | Canonical provider-neutral model role — one of `default`, `task`, `smol`, `tiny`, `plan`, `advisor`, `designer`, `commit`, `slow`, `vision`. Routing from role to a concrete model is resolved at runtime by `config/model-profiles.yml` + `scripts/resolve-model-profile.py`, so the same skill works unchanged across the `openai`, `qwen-vllm`, and `apple-ollama` profiles. Do NOT use the legacy Claude-only `model: opus\|sonnet\|haiku` field — it hard-codes a single closed-model provider (see `tests/test_model_roles_config.py`). |
 | `argument-hint` | string | Hint shown in autocomplete (e.g., `[issue-number]`) |
 | `disable-model-invocation` | boolean | Prevent Claude from auto-invoking |
 | `user-invocable` | boolean | Hide from `/` menu if false |
@@ -27,7 +26,6 @@
 name: my-skill-name
 description: One-line description with trigger words inline. Use when user wants to do X or says Y.
 version: "1.0.0"
-modelRole: advisor
 argument-hint: "[target]"
 ---
 ```
@@ -46,6 +44,7 @@ The `description` field is how Claude decides when to load the skill. Follow Ant
 - `name` must exactly match the directory name containing SKILL.md
 - `version` must be valid semver (MAJOR.MINOR.PATCH) wrapped in quotes
 - `description` should be concise and include trigger words inline
+- Do not set `model:` — a skill runs on its session's model, chosen by the workflow-schema role (`skill_execution.role` → OMP `modelRoles`); a per-skill model would also switch models mid-session and discard the prompt cache. `tests/test_model_roles_config.py` rejects any `model:` or `modelRole:` key in SKILL.md frontmatter.
 
 ## Common Mistakes
 

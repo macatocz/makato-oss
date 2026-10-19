@@ -178,11 +178,12 @@ jobs:
             python3 scripts/resolve-model-profile.py "$profile" --emit summary
           done
 
-      - name: select-model-profile.sh --dry-run for every profile
+      - name: select-model-profile.sh --dry-run for every profile and --agents-only
         run: |
           for profile in openai qwen-vllm apple-ollama; do
             bash scripts/select-model-profile.sh "$profile" --dry-run
           done
+          bash scripts/select-model-profile.sh --agents-only --dry-run
 
       - name: macos-setup.sh --dry-run (tool + profile readiness report)
         env:
@@ -212,6 +213,7 @@ jobs:
             commit: local/open
             slow: local/open
             vision: local/open
+            orchestrator: local/open
           tools:
             format: qwen3
           EOF

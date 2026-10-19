@@ -5,6 +5,13 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Changed — nested agents route through shared model roles
+
+- **`create-workflow-schema`** — `references/workflow-schema-field-reference.md` no longer cites
+  agent-frontmatter `modelRole` (no harness read it): nested agents keep their own role from
+  `config/agent-roles.yml` (OMP `task.agentModelOverrides`; Claude Code `model:` alias), and
+  `skill_execution` configuration does not rewrite them.
+
 ### Changed — default pipeline has no post-verify sensors artifact (#164)
 
 - **`create-workflow-schema` v1.3.1** — guidance and the field-reference example place custom

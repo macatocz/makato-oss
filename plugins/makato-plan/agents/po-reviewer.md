@@ -1,6 +1,6 @@
 ---
 name: po-reviewer
-modelRole: advisor
+model: opus
 description: >-
   Product Owner perspective for Three Amigos story review.
   Challenges value delivery, scope boundaries, user outcomes, and phase assignment.

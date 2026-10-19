@@ -1,6 +1,6 @@
 ---
 name: dev-reviewer
-modelRole: advisor
+model: opus
 description: >-
   Lead Developer perspective for Three Amigos story review.
   Challenges technical feasibility, dependencies, estimates, and implementation risk.

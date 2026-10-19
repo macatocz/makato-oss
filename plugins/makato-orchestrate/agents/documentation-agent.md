@@ -1,6 +1,6 @@
 ---
 name: documentation-agent
-modelRole: commit
+model: sonnet
 description: >-
   Post-merge documentation agent. Triggered by `workflows/post-merge.yml`
   (GHA) once per merged PR to the default branch. Reads the merged diff and
@@ -11,7 +11,7 @@ description: >-
   `gh issue close`, advances the Projects v2 board to Done via
   `issue-to-project sync-lifecycle`, and emits a docs-coverage warning when
   source diff outpaces docs diff by 2x. Never edits source files.
-version: "1.1.1"
+version: "1.2.0"
 maxTurns: 30
 permissionMode: bypassPermissions
 disallowedTools: NotebookEdit

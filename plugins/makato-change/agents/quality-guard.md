@@ -1,6 +1,6 @@
 ---
 name: quality-guard
-modelRole: smol
+model: haiku
 description: >-
   Run quality checks (lint, format, tests, coverage) after implementation.
   Discovers commands from project config, executes them, and reports pass/fail
@@ -8,7 +8,7 @@ description: >-
 maxTurns: 10
 permissionMode: bypassPermissions
 disallowedTools: Write, Edit, NotebookEdit, WebSearch
-version: "1.2.0"
+version: "1.3.0"
 ---
 
 <!-- markdownlint-disable MD013 -->
