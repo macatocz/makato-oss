@@ -21,8 +21,12 @@ declared in [`config/model-profiles.yml`](../config/model-profiles.yml) (`base_u
 http://localhost:8100/v1`, no credential, `tool_format: qwen3`) — the same profile
 `scripts/select-model-profile.sh` and `scripts/resolve-model-profile.py` validate
 elsewhere in the suite. `infra/omp-models.yml` / `infra/omp-config.yml` (installed by
-`infra/bootstrap-vllm.sh` below) mirror that profile's provider/role documents verbatim,
-so there is nothing extra to run here to "activate" the profile.
+`infra/bootstrap-vllm.sh` below) mirror that profile's provider/role documents verbatim
+(test-enforced), so there is nothing extra to run here to "activate" the profile; a
+bootstrap re-run merges the profile into existing OMP files rather than overwriting them.
+`infra/omp-config.yml` also carries `task.agentModelOverrides`, routing every makato
+subagent to its shared `"@<role>"` alias and mirroring
+[`config/agent-roles.yml`](../config/agent-roles.yml) (test-enforced).
 
 To point a client (including a Mac) at this box instead of running everything on it, see
 [`docs/macos-openai-qwen.md`](./macos-openai-qwen.md) § *Remote Linux/Qwen (client-side
@@ -36,9 +40,10 @@ MAKATO_MODEL_PROFILE=qwen-vllm VLLM_API_BASE=http://localhost:8100 \
 
 If you instead want this box to serve as an autonomous *orchestrator* against `api.openai.com`
 or a local profile, install a different profile with `scripts/select-model-profile.sh
-<profile>` — see the root [`README.md`](../README.md#provider-switching) for the full
-profile-switch command set. Nothing below this section assumes a profile other than
-`qwen-vllm`.
+<profile>`; it merges that profile's roles, tool format, provider and agent-role overrides
+into the existing OMP config and preserves everything else — see the root
+[`README.md`](../README.md#provider-switching) for the full profile-switch command set.
+Nothing below this section assumes a profile other than `qwen-vllm`.
 
 ## Supported configuration
 
@@ -327,8 +332,25 @@ The second pass:
 1. Creates `/root/vllm-venv` with Python 3.12 and vLLM 0.27.1.
 2. Downloads the complete gated model snapshot.
 3. Installs and enables `vllm.service`.
-4. Installs `infra/omp-models.yml` as `/root/.omp/agent/models.yml`.
-5. Installs `infra/omp-config.yml` as `/root/.omp/agent/config.yml`.
+4. If the `omp` binary is present, installs `infra/omp-models.yml` as
+   `/root/.omp/agent/models.yml` and `infra/omp-config.yml` as
+   `/root/.omp/agent/config.yml` (overridable via `OMP_MODELS_DEST` / `OMP_CONFIG_DEST`),
+   verbatim with comments, for each file that is absent or empty.
+5. If either file already existed, runs `scripts/select-model-profile.sh qwen-vllm`
+   against them with the vLLM venv's Python (which has PyYAML). This restores only the
+   keys the `qwen-vllm` profile owns — `providers.local.{baseUrl,apiKey,models}` in
+   `models.yml`; the canonical `modelRoles` keys, `tools.format` and the makato agent
+   keys of `task.agentModelOverrides` in `config.yml` — and keeps every other setting
+   (other providers and their API keys, custom roles, legacy opus/sonnet/haiku aliases,
+   other agents' overrides, unrelated settings). YAML comments in a merged file are not
+   kept. A merge the resolver refuses (for example, unparseable YAML) leaves both files
+   untouched and only logs a warning, so vLLM still starts.
+
+A re-run therefore restores the `qwen-vllm` routing; to route elsewhere afterwards, run
+`scripts/select-model-profile.sh <profile>`.
+`tests/test_model_profiles.py::test_qwen_vllm_merge_leaves_infra_omp_files_unchanged`
+enforces that merging `qwen-vllm` into the checked-in infra files changes nothing, so
+fresh and re-run boxes route identically.
 
 OMP v18 reads only provider definitions from `models.yml`. It reads
 `modelRoles` and `tools.format` from `config.yml`; putting those settings in
@@ -600,9 +622,10 @@ the version-controlled files.
 whichever profile `MAKATO_MODEL_PROFILE` names (default `qwen-vllm`) against
 `config/model-profiles.yml` — they do not themselves install a profile. If you
 repoint this box at `openai` or `apple-ollama` with `scripts/select-model-profile.sh
-<profile>`, update `MAKATO_MODEL_PROFILE` in `/etc/makato/target-loop.env` to match,
-or the loop's Gate 6 preflight will report a role/tool-format mismatch against the
-still-installed `qwen-vllm` OMP config. See the root
+<profile>` (which merges that profile into the existing `/root/.omp/agent` config),
+update `MAKATO_MODEL_PROFILE` in `/etc/makato/target-loop.env` to match, or the loop's
+Gate 6 preflight will report a role/tool-format mismatch against the installed
+profile's OMP config. See the root
 [`README.md`](../README.md#provider-switching) for the full profile-switch commands
 and [`docs/macos-openai-qwen.md`](./macos-openai-qwen.md) for the Mac-client
 counterpart of this box.
@@ -628,10 +651,10 @@ checking the daemon's minimum API.
 | `infra/vllm-serve.sh` | CUDA discovery and vLLM launch wrapper |
 | `infra/vllm.service` | Boot-persistent vLLM endpoint |
 | `infra/omp-models.yml` | OMP local provider and model limits |
-| `infra/omp-config.yml` | OMP role routing and qwen3 tool format |
+| `infra/omp-config.yml` | OMP role routing, agent-role overrides, and qwen3 tool format |
 | `config/model-profiles.yml` | Canonical `openai` \| `qwen-vllm` \| `apple-ollama` profile declarations this box's OMP config mirrors |
 | `scripts/resolve-model-profile.py` | Structural profile validation (never emits a credential value) |
-| `scripts/select-model-profile.sh` | Installs (or `--dry-run` previews) a profile into `~/.omp/agent/{models,config}.yml` |
+| `scripts/select-model-profile.sh` | Merges (or `--dry-run` previews) a profile and the agent-role overrides into `~/.omp/agent/{models,config}.yml` |
 | `scripts/preflight-omp-context.sh` | Profile-aware endpoint/auth/tool-format runtime gate |
 | `scripts/preflight-model-runtime.sh` | Gate 6 — wraps `preflight-omp-context.sh` + the advisory optional-service checks |
 | `scripts/preflight-optional-services.sh` | Advisory Playwright MCP / Langfuse / Postgres / Temporal / Sagibeast checks (PASS/SKIP/WARN, never blocks) |

@@ -89,7 +89,7 @@ build_full_toolchain_path() {
   mkdir -p "$dir"
   local tool real skip
   for tool in dirname head chmod mkdir ln rm cat \
-              brew bash python3 python3.14 node gh jq docker omp npx curl ssh; do
+              brew bash python3 python3.15 node gh jq docker omp npx curl ssh; do
     skip=false
     for e in "${exclude[@]:-}"; do
       [[ "$tool" == "$e" ]] && skip=true
@@ -116,13 +116,11 @@ EOF
 }
 
 write_omp_fixture() {
-  # $1=dir $2=provider $3=tool_format, writes models.yml/config.yml for the
-  # 10 canonical roles all routed to "$provider/<placeholder>" — the exact
-  # role model IDs don't matter for these tests since only tools.format and
-  # the "<provider>/" role prefix are asserted by preflight-omp-context.sh's
-  # generalized check (it re-derives the expected per-role model from the
-  # resolved profile itself, so we mirror config/model-profiles.yml here).
-  local dir="$1" provider="$2" fmt="$3"
+  # $1=dir $2=provider, writes models.yml with one model under
+  # providers.<provider>, carrying the context/output budgets that
+  # preflight-omp-context.sh reads from that provider's entry; config.yml
+  # comes from write_omp_config_for_profile.
+  local dir="$1" provider="$2"
   local context_window=65536 max_tokens=8192
   case "$provider" in
     openai)
@@ -283,7 +281,7 @@ PREFLIGHT_CTX="$REPO_ROOT/scripts/preflight-omp-context.sh"
 
 # -- qwen-vllm: deep context-window probe, backward-compatible default --
 QWEN_OMP="$SCRATCH_DIR/omp-qwen"
-write_omp_fixture "$QWEN_OMP" "local" "qwen3"
+write_omp_fixture "$QWEN_OMP" "local"
 write_omp_config_for_profile "$QWEN_OMP" "qwen-vllm"
 QWEN_CURL_BIN="$SCRATCH_DIR/qwen-curl-bin"
 mkdir -p "$QWEN_CURL_BIN"
@@ -295,7 +293,7 @@ assert_contains "qwen-vllm: reports context_length" "$OUT" "context_length=65536
 
 # -- openai: credential present, endpoint reachable --
 OPENAI_OMP="$SCRATCH_DIR/omp-openai"
-write_omp_fixture "$OPENAI_OMP" "openai" "openai"
+write_omp_fixture "$OPENAI_OMP" "openai"
 write_omp_config_for_profile "$OPENAI_OMP" "openai"
 STATUS_CURL_BIN="$SCRATCH_DIR/status-curl-bin"
 mkdir -p "$STATUS_CURL_BIN"
@@ -315,7 +313,7 @@ assert_contains "openai, missing credential: value not shown" "$OUT" "value not 
 
 # -- apple-ollama: no credential required --
 OLLAMA_OMP="$SCRATCH_DIR/omp-ollama"
-write_omp_fixture "$OLLAMA_OMP" "ollama" "openai"
+write_omp_fixture "$OLLAMA_OMP" "ollama"
 write_omp_config_for_profile "$OLLAMA_OMP" "apple-ollama"
 OUT="$(PATH="$STATUS_CURL_BIN:$PATH" OMP_MODELS_FILE="$OLLAMA_OMP/models.yml" OMP_CONFIG_FILE="$OLLAMA_OMP/config.yml" \
   MAKATO_MODEL_PROFILE=apple-ollama bash "$PREFLIGHT_CTX" 2>&1)" && RC=0 || RC=$?
@@ -338,13 +336,45 @@ assert_contains "openai, unreachable endpoint: names it unreachable" "$OUT" "unr
 
 # -- tool_format mismatch (OMP config declares the wrong tools.format) --
 MISMATCH_OMP="$SCRATCH_DIR/omp-mismatch"
-write_omp_fixture "$MISMATCH_OMP" "openai" "openai"
+write_omp_fixture "$MISMATCH_OMP" "openai"
 write_omp_config_for_profile "$MISMATCH_OMP" "openai"
 sed -i.bak 's/format: openai/format: qwen3/' "$MISMATCH_OMP/config.yml" && rm -f "$MISMATCH_OMP/config.yml.bak"
 OUT="$(PATH="$STATUS_CURL_BIN:$PATH" OMP_MODELS_FILE="$MISMATCH_OMP/models.yml" OMP_CONFIG_FILE="$MISMATCH_OMP/config.yml" \
   MAKATO_MODEL_PROFILE=openai OPENAI_API_KEY="sk-TESTONLY-3" bash "$PREFLIGHT_CTX" 2>&1)" && RC=0 || RC=$?
 assert_eq "tool_format mismatch: exit 1" "1" "$RC"
 assert_contains "tool_format mismatch: names tools.format" "$OUT" "tools.format"
+
+# -- installer-merged OMP files: each check reads only its own YAML block --
+# select-model-profile.sh merges into the user's files, so same-named keys in
+# other blocks (a fallback chain's `default`, another provider's budgets,
+# another section's `format`) can precede the ones preflight must read.
+MERGED_OMP="$SCRATCH_DIR/omp-merged"
+mkdir -p "$MERGED_OMP"
+cat > "$MERGED_OMP/config.yml" <<'EOF'
+retry:
+  fallbackChains:
+    default: decoy/fallback
+lint:
+  format: decoy
+modelRoles:
+  web: decoy/web
+EOF
+cat > "$MERGED_OMP/models.yml" <<'EOF'
+providers:
+  decoy:
+    models:
+      - id: tiny
+        contextWindow: 1024
+        maxTokens: 999999
+EOF
+OMP_MODELS_FILE="$MERGED_OMP/models.yml" OMP_CONFIG_FILE="$MERGED_OMP/config.yml" OPENAI_API_KEY="sk-TESTONLY-4" \
+  bash "$REPO_ROOT/scripts/select-model-profile.sh" openai >/dev/null 2>&1 && RC=0 || RC=$?
+assert_eq "merge openai into OMP files with decoy blocks: exit 0" "0" "$RC"
+OUT="$(PATH="$STATUS_CURL_BIN:$PATH" OMP_MODELS_FILE="$MERGED_OMP/models.yml" OMP_CONFIG_FILE="$MERGED_OMP/config.yml" \
+  MAKATO_MODEL_PROFILE=openai OPENAI_API_KEY="sk-TESTONLY-4" bash "$PREFLIGHT_CTX" 2>&1)" && RC=0 || RC=$?
+assert_eq "merged OMP files with decoy blocks: exit 0" "0" "$RC"
+assert_contains "merged OMP files: budgets come from the profile's provider" "$OUT" "contextWindow=128000, maxTokens=16384"
+assert_contains "merged OMP files: tools.format comes from the tools block" "$OUT" "tools.format=openai"
 
 # =============================================================================
 # Suite 5: scripts/preflight-model-runtime.sh — Gate 6 orchestrator

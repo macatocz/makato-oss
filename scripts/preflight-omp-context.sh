@@ -31,9 +31,53 @@ CONFIG_FILE="infra/vllm-serve.yaml"
 OMP_MODELS_FILE="${OMP_MODELS_FILE:-${HOME:-/root}/.omp/agent/models.yml}"
 OMP_CONFIG_FILE="${OMP_CONFIG_FILE:-${HOME:-/root}/.omp/agent/config.yml}"
 
-# The ten canonical Makato model roles (mirrors scripts/resolve-model-profile.py
-# EXPECTED_ROLES — kept in sync manually since this is a shell script).
-EXPECTED_ROLES=(default task smol tiny plan advisor designer commit slow vision)
+# The canonical Makato model roles (mirrors scripts/resolve-model-profile.py
+# EXPECTED_ROLES — a copy on purpose, since this is a shell script).
+EXPECTED_ROLES=(default task smol tiny plan advisor designer commit slow vision orchestrator)
+
+# Print the scalar value of the first `<key>:` inside the block reached by the
+# space-separated top-level key path (e.g. "providers local"). With --direct,
+# only the block's immediate children count. Scoping matters because the
+# installer merges into the user's files, so other blocks (other providers,
+# retry.fallbackChains.default, ...) can carry same-named keys earlier on.
+# Reads block-style YAML only — the layout the installer and PyYAML write.
+omp_yaml_get() {
+  local direct=0
+  if [ "$1" = "--direct" ]; then
+    direct=1
+    shift
+  fi
+  awk -v path="$2" -v key="$3" -v direct="$direct" '
+    BEGIN { depth = split(path, levels, " "); matched = 0; child_indent[0] = 0 }
+    /^[[:space:]]*(#|$)/ { next }
+    {
+      match($0, /^ */)
+      indent = RLENGTH
+      line = substr($0, indent + 1)
+      sub(/[[:space:]]+#.*$/, "", line)
+      sub(/[[:space:]]+$/, "", line)
+      while (matched > 0 && indent <= level_indent[matched]) matched--
+      if (matched < depth) {
+        if (child_indent[matched] < 0) child_indent[matched] = indent
+        if (indent == child_indent[matched] && line == levels[matched + 1] ":") {
+          matched++
+          level_indent[matched] = indent
+          child_indent[matched] = -1
+        }
+        next
+      }
+      if (child_indent[depth] < 0) child_indent[depth] = indent
+      if (direct && indent != child_indent[depth]) next
+      sub(/^- +/, "", line)
+      if (index(line, key ":") != 1) next
+      value = substr(line, length(key) + 2)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+      if (value ~ /^".*"$/ || value ~ /^\047.*\047$/) value = substr(value, 2, length(value) - 2)
+      print value
+      exit
+    }
+  ' "$1"
+}
 
 MAKATO_MODEL_PROFILE="${MAKATO_MODEL_PROFILE:-qwen-vllm}"
 PROFILE="$MAKATO_MODEL_PROFILE"
@@ -190,10 +234,10 @@ fi
 
 # Validate the installed OMP model budgets as well as the provider response.
 # This catches stale or hand-edited runtime files before dispatch.
-omp_context=$(sed -nE 's/^[[:space:]]*contextWindow:[[:space:]]*([0-9]+).*/\1/p' "$OMP_MODELS_FILE" | head -1)
-omp_output=$(sed -nE 's/^[[:space:]]*maxTokens:[[:space:]]*([0-9]+).*/\1/p' "$OMP_MODELS_FILE" | head -1)
-if [ -z "$omp_context" ] || [ -z "$omp_output" ]; then
-  echo "ERROR: ${OMP_MODELS_FILE} must define OMP fields contextWindow and maxTokens" >&2
+omp_context=$(omp_yaml_get "$OMP_MODELS_FILE" "providers ${PROVIDER}" contextWindow)
+omp_output=$(omp_yaml_get "$OMP_MODELS_FILE" "providers ${PROVIDER}" maxTokens)
+if ! [[ "$omp_context" =~ ^[0-9]+$ && "$omp_output" =~ ^[0-9]+$ ]]; then
+  echo "ERROR: ${OMP_MODELS_FILE} must define numeric OMP fields contextWindow and maxTokens under providers.${PROVIDER}" >&2
   exit 1
 fi
 if [ "$omp_context" -lt "$REQUIRED" ]; then
@@ -205,7 +249,7 @@ if [ "$omp_output" -gt "$MAX_OUTPUT" ]; then
   exit 1
 fi
 
-omp_tool_format=$(sed -nE 's/^[[:space:]]*format:[[:space:]]*([^#[:space:]]+).*/\1/p' "$OMP_CONFIG_FILE" | head -1)
+omp_tool_format=$(omp_yaml_get --direct "$OMP_CONFIG_FILE" tools format)
 if [ "$omp_tool_format" != "$TOOL_FORMAT" ]; then
   echo "ERROR: OMP tools.format must be '${TOOL_FORMAT}' for profile '${PROFILE}' in ${OMP_CONFIG_FILE} (got '${omp_tool_format:-missing}')" >&2
   exit 1
@@ -224,7 +268,7 @@ for role in "${EXPECTED_ROLES[@]}"; do
     exit 1
   fi
   expected="${PROVIDER}/${expected_model}"
-  actual=$(sed -nE "s/^[[:space:]]*${role}:[[:space:]]*([^#[:space:]]+).*/\\1/p" "$OMP_CONFIG_FILE" | head -1)
+  actual=$(omp_yaml_get --direct "$OMP_CONFIG_FILE" modelRoles "$role")
   if [ "$actual" != "$expected" ]; then
     echo "ERROR: OMP role '${role}' must map to '${expected}' for profile '${PROFILE}' in ${OMP_CONFIG_FILE} (got '${actual:-missing}')" >&2
     exit 1

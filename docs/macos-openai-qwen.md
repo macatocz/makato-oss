@@ -44,7 +44,7 @@ bash scripts/macos-setup.sh --dry-run   # report-only: what's missing, nothing i
 `scripts/macos-setup.sh`:
 
 - Refuses to run on a non-Darwin host, and warns (does not fail) on non-`arm64` Macs.
-- Reports (or, with `--install`, Homebrew-installs) Bash ≥4, Python 3.14, Node.js, `gh`,
+- Reports (or, with `--install`, Homebrew-installs) Bash ≥4, Python 3.15, Node.js, `gh`,
   `jq`, OMP (`oh-my-pi`), and Docker Desktop.
 - Checks (or installs) the selected model profile via `scripts/select-model-profile.sh`
   — default `qwen-vllm`, override with `--profile` or `MAKATO_MODEL_PROFILE`.
@@ -97,14 +97,14 @@ put it in a repository file, fixture, or `build.jsonl`.
 ```bash
 bash scripts/select-model-profile.sh openai --dry-run   # preview — no key needed
 export OPENAI_API_KEY=sk-...                             # your shell session only
-bash scripts/select-model-profile.sh openai              # writes ~/.omp/agent/{models,config}.yml
+bash scripts/select-model-profile.sh openai              # merges into ~/.omp/agent/{models,config}.yml
 MAKATO_MODEL_PROFILE=openai bash scripts/preflight-model-runtime.sh
 ```
 
-`scripts/resolve-model-profile.py` and `scripts/select-model-profile.sh` never read or
-print `OPENAI_API_KEY`'s value — only whether it is set. The value is substituted directly
-into `~/.omp/agent/models.yml` (mode `600`) at install time and is never echoed to stdout,
-stderr, or any log.
+Nothing ever prints `OPENAI_API_KEY`'s value — not `scripts/resolve-model-profile.py`,
+`scripts/select-model-profile.sh`, nor the preflight scripts, which check only whether it is
+set. The value is read only during a real install (never by `--dry-run`) and written straight
+into `~/.omp/agent/models.yml` (mode `600`).
 
 ## Remote Linux/Qwen (client-side from a Mac)
 
@@ -163,6 +163,9 @@ not require it to be running for any of the three model profiles above.
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
 | `ERROR: profile 'openai' requires credential env var OPENAI_API_KEY to be set before install (value not shown)` | `OPENAI_API_KEY` unset in the shell running `select-model-profile.sh`/`preflight-omp-context.sh` | `export OPENAI_API_KEY=sk-...` in that shell first; the message never reveals a value because none is ever read until this exact check |
+| `ERROR: PyYAML is required to merge into the existing <path>; install it (python3 -m pip install pyyaml) or set MAKATO_PYTHON_BIN to a Python that has it` | `~/.omp/agent/config.yml` or `models.yml` already exists and the installer's Python lacks PyYAML, so it cannot merge into it | `python3 -m pip install pyyaml`, or `export MAKATO_PYTHON_BIN=/path/to/python3` pointing at a Python that has it; then rerun the install |
+| `ERROR: refusing to merge into <path>: '<dotted.key>' is not a mapping` | The named key in the existing file (e.g. `modelRoles`, `task.agentModelOverrides`, `providers`) holds a scalar or list, so the installer will not overwrite it | Edit `<path>` so `<dotted.key>` is a YAML mapping (or remove it), then rerun; nothing was written |
+| `WARN: <path> has no modelRoles entry for <roles>; agents routed to them need it — set it in OMP /model → Roles` | `--agents-only` (or a profile without those roles) routed agents to `@<role>` aliases your `config.yml` does not define | Set each listed role in OMP `/model` → Roles (not `/agents`), or install a profile that defines it |
 | `ERROR: endpoint unreachable — http://localhost:11434/v1/models` | `ollama serve` is not running, or the wrong port/profile is selected | Start Ollama (`ollama serve` / `open -a Ollama`); confirm `MAKATO_APPLE_OLLAMA_BASE_URL` if overridden |
 | `ERROR: endpoint unreachable — http://localhost:8100/v1/models` | Remote vLLM box down, SSH tunnel not open, or `VLLM_API_BASE` pointing at the wrong host | Re-open the tunnel; `systemctl status vllm` on the remote box (see `docs/vast-ai-llm-deployment.md`) |
 | `ERROR: OMP tools.format must be 'openai' for profile 'apple-ollama' ... (got 'qwen3')` (or similar) | `~/.omp/agent/config.yml` still reflects a previously-installed profile | Rerun `bash scripts/select-model-profile.sh <intended-profile>` (a real install, not `--dry-run`) |

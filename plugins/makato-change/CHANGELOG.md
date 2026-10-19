@@ -3,6 +3,21 @@
 
 ## [Unreleased]
 
+### Changed — route subagents through shared model roles
+
+- Removed `modelRole:` from agent frontmatter; no harness read it. Each agent now
+  declares a Claude Code `model:` alias derived from its shared role in the repo's
+  `config/agent-roles.yml`. Under OMP the same role reaches the agent via
+  `task.agentModelOverrides` (`"@<role>"`), which `scripts/select-model-profile.sh`
+  merges into the OMP config.
+- **`change-implementer` agent v1.1.0**: `task` → `model: inherit`.
+- **`quality-guard` agent v1.3.0**: `smol` → `model: haiku`.
+- **`code-reviewer`** and **`requirements-diff-analyzer`** agents: `advisor` →
+  `model: opus`.
+- **`code-explorer`** and **`test-analyzer`** agents: `smol` → `model: haiku`.
+- **`gherkin-scenario-elaborator`** agent: newly assigned the `commit` role (it had
+  no `modelRole`) → `model: sonnet`.
+
 ### Fixed — interactive orchestrate handoffs use clean contexts
 
 - **`orchestrate` skill v1.6.2** persists the selected phase and returns an explicit

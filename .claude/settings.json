@@ -384,7 +384,15 @@
     "plugin-dev@claude-plugins-official": true,
     "general@impact-claude-market": true,
     "impact-concur@impact-claude-market": true,
-    "impact-python@impact-claude-market": true
+    "impact-python@impact-claude-market": true,
+    "impacto-build@impacto-suite": false,
+    "impacto-change@impacto-suite": false,
+    "impacto-core@impacto-suite": false,
+    "impacto-doc@impacto-suite": false,
+    "impacto-fix@impacto-suite": false,
+    "impacto-orchestrate@impacto-suite": false,
+    "impacto-plan@impacto-suite": false,
+    "impacto-ux@impacto-suite": false
   },
   "extraKnownMarketplaces": {
     "makato-suite": {

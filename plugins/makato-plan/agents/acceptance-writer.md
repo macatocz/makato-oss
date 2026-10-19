@@ -1,6 +1,6 @@
 ---
 name: acceptance-writer
-modelRole: commit
+model: sonnet
 description: >-
   Refines draft Gherkin scenarios from decompose into polished acceptance test
   cases. Produces 3-5 high-level, manually testable scenarios per story in

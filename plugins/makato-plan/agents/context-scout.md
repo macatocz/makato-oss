@@ -1,6 +1,6 @@
 ---
 name: context-scout
-modelRole: tiny
+model: haiku
 description: >-
   Scan context/{REPO_NAME}/ directories for files relevant to a given feature.
   Read-only discovery agent reusable across all makato-plan skills.

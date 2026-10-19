@@ -1,6 +1,6 @@
 ---
 name: qa-reviewer
-modelRole: advisor
+model: opus
 description: >-
   QA Engineer perspective for Three Amigos story review.
   Challenges testability, identifies edge cases, produces draft Gherkin scenarios.

@@ -16,7 +16,8 @@
 #   4. Model weights (~27 GB FP8) into the HF cache — skipped if already present.
 #   5. systemd unit install + enable, so the endpoint auto-starts on every boot.
 #   6. omp provider + settings config — installs infra/omp-{models,config}.yml
-#      to ~/.omp/agent/ when the oh-my-pi harness is present (skipped otherwise).
+#      to ~/.omp/agent/ on a fresh box, or merges the qwen-vllm profile into the
+#      existing files, when the oh-my-pi harness is present (skipped otherwise).
 #
 # The full "why" behind the version pins and workarounds is in
 # docs/vast-ai-llm-deployment.md.
@@ -151,10 +152,30 @@ systemctl enable vllm.service
 OMP_MODELS_DEST="${OMP_MODELS_DEST:-/root/.omp/agent/models.yml}"
 OMP_CONFIG_DEST="${OMP_CONFIG_DEST:-/root/.omp/agent/config.yml}"
 if command -v omp >/dev/null 2>&1; then
-    log "omp phase: installing provider config at $OMP_MODELS_DEST"
-    install -D -m 0644 "$MAKATO_HOME/infra/omp-models.yml" "$OMP_MODELS_DEST"
-    log "omp phase: installing role/tool settings at $OMP_CONFIG_DEST"
-    install -D -m 0644 "$MAKATO_HOME/infra/omp-config.yml" "$OMP_CONFIG_DEST"
+    omp_existing=false
+    if [ -s "$OMP_MODELS_DEST" ]; then
+        omp_existing=true
+    else
+        log "omp phase: installing provider config at $OMP_MODELS_DEST"
+        install -D -m 0644 "$MAKATO_HOME/infra/omp-models.yml" "$OMP_MODELS_DEST"
+    fi
+    if [ -s "$OMP_CONFIG_DEST" ]; then
+        omp_existing=true
+    else
+        log "omp phase: installing role/tool settings at $OMP_CONFIG_DEST"
+        install -D -m 0644 "$MAKATO_HOME/infra/omp-config.yml" "$OMP_CONFIG_DEST"
+    fi
+    if [ "$omp_existing" = true ]; then
+        # Overwriting would discard settings added on the box since the last run, so restore
+        # only the keys the qwen-vllm profile owns via the installer's merge. The vLLM venv's
+        # Python already has the PyYAML the merge needs. A refused merge (the resolver prints
+        # why and writes nothing) must not keep the vLLM endpoint from starting below.
+        log "omp phase: merging the qwen-vllm profile into the existing OMP config (other settings kept)"
+        if ! MAKATO_PYTHON_BIN="$VLLM_VENV/bin/python" OMP_MODELS_FILE="$OMP_MODELS_DEST" OMP_CONFIG_FILE="$OMP_CONFIG_DEST" \
+            bash "$MAKATO_HOME/scripts/select-model-profile.sh" qwen-vllm; then
+            log "omp phase: WARNING merge refused — $OMP_MODELS_DEST and $OMP_CONFIG_DEST left untouched; fix them and re-run"
+        fi
+    fi
 else
     log "omp phase: omp not installed — skip (install the harness, then re-run to provision OMP config)"
 fi

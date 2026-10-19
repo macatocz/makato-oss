@@ -20,7 +20,7 @@
 # scaffolds the tests/ tree.
 
 default_language_version:
-  python: python3.14
+  python: python3.15
 
 default_stages: [pre-commit]
 
@@ -65,9 +65,9 @@ repos:
   # 16 .py files in repo: parse-sarif.py + makato-sagibeast extractor.
   # -----------------------------------------------------------------------
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.4
+    rev: v0.17.1
     hooks:
-      - id: ruff
+      - id: ruff-check
         args: [--fix, --exit-non-zero-on-fix]
         stages: [pre-commit, manual]
       - id: ruff-format
@@ -170,20 +170,22 @@ repos:
   # report 0 errors when no .py files are touched by the push.
   # -----------------------------------------------------------------------
   - repo: https://github.com/RobertCraigie/pyright-python
-    rev: v1.1.389
+    rev: v1.1.414
     hooks:
       - id: pyright
         stages: [pre-push, manual]
 
   # -----------------------------------------------------------------------
   # Python security — slow lane (pre-push only)
+  # Medium and high severity block the push; low findings (subprocess use,
+  # try/except/pass in harness hooks) are advisory.
   # -----------------------------------------------------------------------
   - repo: https://github.com/PyCQA/bandit
-    rev: 1.8.0
+    rev: 1.9.4
     hooks:
       - id: bandit
         stages: [pre-push]
-        args: [-c, pyproject.toml]
+        args: [-c, pyproject.toml, --severity-level, medium]
         additional_dependencies: ["bandit[toml]"]
 
   # -----------------------------------------------------------------------
@@ -239,12 +241,14 @@ repos:
   # Pytest fast lane (pre-commit, guarded no-op for greenfield)
   # context/standards/testing.md:154-159
   # Becomes meaningful when #64 Part B scaffolds tests/unit/.
+  # `uv run` executes in the project venv (.python-version interpreter + dev
+  # group) instead of whatever pytest happens to be first on PATH.
   # -----------------------------------------------------------------------
   - repo: local
     hooks:
       - id: pytest-fast
         name: pytest fast lane (unit only)
-        entry: bash -c 'if [ -d tests/unit ] && find tests/unit -name "test_*.py" -print -quit | grep -q .; then pytest tests/unit -q --no-header; fi'
+        entry: bash -c 'if [ -d tests/unit ] && find tests/unit -name "test_*.py" -print -quit | grep -q .; then uv run pytest tests/unit -q --no-header; fi'
         language: system
         pass_filenames: false
         stages: [pre-commit]
@@ -252,12 +256,13 @@ repos:
   # -----------------------------------------------------------------------
   # Pytest slow lane (pre-push, guarded no-op for greenfield)
   # context/standards/testing.md:160-164
+  # Same project-venv `uv run` as pytest-fast.
   # -----------------------------------------------------------------------
   - repo: local
     hooks:
       - id: pytest-slow
         name: pytest slow lane (unit + property + integration)
-        entry: bash -c 'if [ -d tests ] && find tests -name "test_*.py" -print -quit | grep -q .; then pytest -q --no-header; fi'
+        entry: bash -c 'if [ -d tests ] && find tests -name "test_*.py" -print -quit | grep -q .; then uv run pytest -q --no-header; fi'
         language: system
         pass_filenames: false
         stages: [pre-push]

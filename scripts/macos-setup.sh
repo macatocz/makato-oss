@@ -4,7 +4,7 @@
 #
 # Reports (and, with --install, installs via Homebrew) the tools an Apple
 # Silicon client needs — Homebrew Bash (>=4; the macOS-shipped /bin/bash is
-# 3.2 and unsupported by this repo's scripts), Python 3.14, Node.js, gh, jq,
+# 3.2 and unsupported by this repo's scripts), Python 3.15, Node.js, gh, jq,
 # OMP (oh-my-pi), and Docker Desktop — then checks/installs the selected
 # model profile via scripts/select-model-profile.sh.
 #
@@ -165,7 +165,7 @@ else
 fi
 
 # ── Required tools ─────────────────────────────────────────────────────────────
-check_tool "Python 3.14" python3.14 "python@3.14" "python3.14 --version" || true
+check_tool "Python 3.15" python3.15 "python@3.15" "python3.15 --version" || true
 check_tool "Node.js"     node       "node"         "node --version"       || true
 check_tool "GitHub CLI"  gh         "gh"           "gh --version"         || true
 check_tool "jq"          jq         "jq"           "jq --version"         || true

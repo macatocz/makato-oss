@@ -1,6 +1,6 @@
 ---
 name: doc-writer
-modelRole: commit
+model: sonnet
 description: >-
   Generate styled HTML review documents and write canonical markdown artifacts
   from structured input. Reusable across all makato-plan skills.

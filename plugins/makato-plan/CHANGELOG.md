@@ -5,6 +5,14 @@ Changes are grouped by skill/agent/component. Within each group, latest version 
 
 ## [Unreleased]
 
+### Changed — route subagents through shared model roles
+
+- Removed the `modelRole:` frontmatter from every agent; no harness read it. Each agent now declares a Claude Code `model:` alias derived from its shared role in `config/agent-roles.yml`. Under OMP, the same role reaches the agent via `task.agentModelOverrides` (`"@<role>"`), which `scripts/select-model-profile.sh` merges into the OMP config.
+- **`dev-reviewer`**, **`po-reviewer`**, **`qa-reviewer`** — role `advisor` → `model: opus`.
+- **`acceptance-writer`**, **`doc-writer`** — role `commit` → `model: sonnet`.
+- **`context-scout`** — role `smol` (was `tiny`) → `model: haiku`.
+- **`prototype-builder`** — role `designer` → `model: opus`.
+
 ### Fixed — story-scoped PR handoff guidance (#163)
 
 - **`to-issues` skill v3.11.1** and its README recommend `build-create-pr <key> --issue N`:

@@ -1,7 +1,7 @@
 ---
 name: change-implementer
-modelRole: task
-version: "1.0.0"
+model: inherit
+version: "1.1.0"
 description: >-
   Implement the file modifications for a change request in an isolated
   context. Receives the approved design artifact plus repository context and

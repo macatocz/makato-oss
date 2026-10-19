@@ -1,6 +1,6 @@
 ---
 name: test-analyzer
-modelRole: smol
+model: haiku
 description: >-
   Discover and analyze all tests (unit, integration, E2E, contract, etc.)
   affected by change request. Map tests to affected functionality, classify

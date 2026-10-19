@@ -59,9 +59,9 @@ override, if present.
 
 Direct file reads and slash-skill invocations do not switch the active model; use
 `plugins/makato-build/scripts/run-skill.py` for schema-aware dispatch. See `docs/workflow-schema.md`
-for the launcher command and OMP `modelRoles` example. Skill execution configuration is separate
-from existing per-agent model settings (such as `modelRole` in agent frontmatter); it does not
-rewrite or replace the models selected for nested agents.
+for the launcher command and OMP `modelRoles` example. Nested agents keep their own role from
+`config/agent-roles.yml` — under OMP via `task.agentModelOverrides` (`"@<role>"`), under Claude
+Code via the agent's `model:` alias; skill execution configuration does not rewrite them.
 
 ---
 

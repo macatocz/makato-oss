@@ -5,6 +5,31 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Changed — route subagents through shared model roles
+
+- Dropped the `modelRole:` frontmatter key: neither OMP nor Claude Code read it. Each agent
+  now declares a Claude Code `model:` alias taken from its shared role in the repo's
+  `config/agent-roles.yml`. Under OMP the same role reaches the agent through
+  `task.agentModelOverrides` (`"@<role>"`), which `scripts/select-model-profile.sh` merges
+  into the OMP config.
+- **`po-agent` v1.4.0** — role `orchestrator` (was `default`), `model: fable`, so the outer loop
+  gets the strongest model.
+- **`light-planner`** — role `plan`, `model: opus`.
+- **`task-file-scout`** — role `smol` (was `tiny`), `model: haiku`.
+- **`context-summariser`** — role `smol` (was `tiny`), `model: haiku`.
+- **`documentation-agent` v1.2.0** — role `commit`, `model: sonnet`.
+- **`config/config.yml`** — the `models:` block adds the `orchestrator` role. The role
+  comments in `config.yml` and `config.md` now describe the new routing instead of
+  frontmatter `modelRole` wiring.
+
+### Fixed — needs-planning signal tests no longer write the repo's build logs
+
+- **`scripts/tests/test_emit_needs_planning_signal.py`** runs each emitter call in its own
+  temporary git repo with `MAKATO_TARGET_REPO_ROOT` pointing at it and the specs-dir
+  overrides removed. Before, `build-log.sh` resolved `specs/` from the checkout's git
+  directory, so every pytest run appended six rows to the tracked
+  `specs/348-makato-orchestrate-emit-a-durable-needs/build.jsonl`.
+
 ### Fixed — preserve the work-item issue at PR dispatch (#163)
 
 - **`po-agent` v1.3.2** forwards `ISSUE_NUMBER` through `build-push-to-git` and the
