@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.173.1](https://github.com/macatocz/makato-oss/compare/v0.173.0...v0.173.1) (2026-10-23)
+
+
+### 🐛 Bug Fixes
+
+* checkpoint OMP skill runs and publish issue progress ([#181](https://github.com/macatocz/makato-oss/issues/181)) ([47499b4](https://github.com/macatocz/makato-oss/commit/47499b41362b67941d1b40bbc6d9a0f41bf8a5bc))
+
 ## [0.173.0](https://github.com/macatocz/makato-oss/compare/v0.172.0...v0.173.0) (2026-10-23)
 
 
