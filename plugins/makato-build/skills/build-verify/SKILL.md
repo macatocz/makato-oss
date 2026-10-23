@@ -228,15 +228,15 @@ Python/JS/TS with populated hook commands, skip the reference.
 python3 "$MAKATO_BUILD_ROOT/shared/pytest_accel.py" rewrite --repo-root "$WORKTREE_PATH" \
   --runner-prefix "<python_runner_prefix, empty when none>" --command "<gate command>" \
   --lane unit|integration --purpose full|record|affected
-# {"command":"…","serial_command":"…","accelerated":true,"plugins":["xdist"],"reason":"…","testmon_baseline":false,"warnings":[]}
+# {"command":"…","serial_command":"…","accelerated":true,"plugins":["xdist","pytest-cov"],"reason":"…","testmon_baseline":false,"testmon_bootstrap":false,"warnings":[]}
 ```
 
-The helper adds `-n <workers>` (pytest-xdist) and, for `record`/`affected`, `--testmon-noselect`/`--testmon` (pytest-testmon). It returns the command unchanged, with the reason, whenever parallel workers would not be safe — a Coverage.py `coverage run` (its workers are unmeasured), a compound shell command, `--pdb`, an existing `-n`, `MAKATO_PYTEST_ACCEL=off`. Rules:
+The helper adds `-n <workers>` (pytest-xdist) and, for `record`/`affected`, `--testmon-noselect`/`--testmon` (pytest-testmon). A Coverage.py `coverage run [--append] [--source=…] [--branch] [--rcfile=…] -m pytest …` is translated to `python -m pytest -n <workers> --cov… --cov-report=` (pytest-cov merges the worker data into the same `.coverage` file, so `coverage_report` is unchanged). It returns the command unchanged, with the reason, whenever the rewrite would not be safe — a Coverage.py option with no pytest-cov counterpart (`--include`, `--omit`, `--parallel-mode`, `--data-file`, …), `parallel`/`concurrency` in the project's coverage config, a compound shell command, `--pdb`, an existing `-n`, `MAKATO_PYTEST_WORKERS=1`, `MAKATO_PYTEST_ACCEL=off`. Rules:
 
 - Run `command` verbatim; never compose or edit it. `MAKATO_PYTEST_WORKERS` (`auto`, a number, or `1` to disable) is read by the helper.
 - Exit code 1 is a normal test failure — apply the `BASELINE_FAILURES` comparison and the single-test flaky re-run below, and run that single test with the original test ID and no helper. Exit code 2, 3 or 4, or a `worker 'gwN' crashed` failure, is an infrastructure failure, not a test result: re-run `serial_command` once, treat that result as the gate result, and log `accel_fallback:true`.
 - `purpose:"affected"` (testmon) selects only tests whose code changed since the baseline. It is triage for Step 2a, never a gate pass; Gates 3 and 4 always run in full.
-- A `reason` saying a plugin is not installed means the run is unaccelerated. uv-managed projects never hit this — the helper overlays the plugin with `uv run --with`. For other runners, interactive mode may offer once to run `pytest_accel.py install --repo-root "$WORKTREE_PATH" --runner-prefix "<prefix>"`; autonomous mode never installs packages.
+- A `reason` saying a plugin is not installed means the run is unaccelerated. uv-managed projects never hit this — the helper overlays the plugin with `uv run --with`. For other runners, interactive mode may offer once to run the exact `pytest_accel.py install --repo-root "$WORKTREE_PATH" --runner-prefix "<prefix>" [--plugins …]` command the `reason` names (a Coverage.py project needs `pytest-cov`); autonomous mode never installs packages.
 - Log `accelerated`, `plugins` and `accel_reason` (the helper's `reason`) with the gate entry.
 
 **Extra linters**: if `lint_js` or `lint_sql` are present and not `"not found"`, run them as additional LINT-gate commands alongside the primary `lint` command. Each must pass independently; a failure in any is a LINT-gate failure. Log each under its own `data.linter` key.
@@ -383,8 +383,12 @@ For each repair round:
    `accelerated:true` and `testmon` in `plugins`, run it. A failure that survives
    the `BASELINE_FAILURES` comparison and the single-test flaky re-run is an
    unresolved finding of this round: skip the remaining full gates — they cannot
-   pass — and start the next round with it. A pass, or "no tests ran", proves
-   nothing about the whole suite: run Gate 3 in full next.
+   pass — and start the next round with it. Judge the run by the failing test
+   IDs only: testmon's counts describe its selection (it runs one of several
+   parametrizations, and under `-n` one per worker), not the suite. With
+   `testmon_bootstrap:true` there is no baseline yet, so this triage runs the
+   whole suite once and records it; later rounds are incremental. A pass, or
+   "no tests ran", proves nothing about the whole suite: run Gate 3 in full next.
 5. Log each completed independent re-check:
 
    ```json
@@ -570,10 +574,12 @@ set without reporting. Otherwise run `unit`. This is one unit-lane run; do not
 run the all-in-one `coverage` fallback here.
 
 Run the chosen command through the Step 1 helper with `--lane unit --purpose
-record`. This run is the authoritative one, so it may also seed the testmon
-baseline that Step 2a's incremental triage selects against; for a coverage run
-the helper declines testmon, and it declines workers wherever they would leave
-coverage unmeasured.
+record`. A plain `pytest` command is recorded as the testmon baseline that Step
+2a's incremental triage selects against. A Coverage.py `unit_coverage` command is
+translated to `python -m pytest -n <workers> --cov` (pytest-cov), which writes
+the same `.coverage` data for the later `coverage report`; testmon cannot record
+while coverage is measured, so the first triage of a repair loop records the
+baseline instead.
 
 Gate passes when there are zero new failures relative to `BASELINE_FAILURES`
 from the reusable baseline row; pre-existing failures in that exact baseline

@@ -17,6 +17,8 @@ if str(_HERE) not in sys.path:
 import pytest_accel  # noqa: E402
 
 PLAIN_ENV = {"PATH": "/usr/bin"}
+# `coverage run` never fails on a threshold (`coverage report` does); pytest-cov would exit 1 on the project's fail_under, which reads as a test failure.
+NO_THRESHOLD = "--cov-fail-under=0"
 
 
 def _plugin(importable: bool, via: str = "environment", reason: str = "") -> dict:
@@ -68,14 +70,105 @@ class XdistRewriteTests(AccelTestCase):
 
         self.assertEqual(shlex.split(result["command"]), ["pytest", "-n", "auto", "--cov=pkg", "--cov-report=term-missing"])
 
-    def test_coverage_py_runner_stays_serial_because_workers_would_go_unmeasured(self) -> None:
+    def test_coverage_py_runner_becomes_pytest_cov_so_workers_are_measured(self) -> None:
         self.seed()
 
-        for command in ("coverage run -m pytest", "coverage run --source=src -m pytest tests/unit", "uv run coverage run -m pytest"):
+        for command, expected in (
+            ("coverage run -m pytest", ["python3", "-m", "pytest", "-n", "auto", "--cov", NO_THRESHOLD, "--cov-report="]),
+            ("coverage run -m pytest tests/unit -q", ["python3", "-m", "pytest", "-n", "auto", "--cov", NO_THRESHOLD, "--cov-report=", "tests/unit", "-q"]),
+            ("coverage run --append -m pytest tests/unit", ["python3", "-m", "pytest", "-n", "auto", "--cov", "--cov-append", NO_THRESHOLD, "--cov-report=", "tests/unit"]),
+            ("coverage run --source=src,lib --branch -m pytest", ["python3", "-m", "pytest", "-n", "auto", "--cov=src", "--cov=lib", "--cov-branch", NO_THRESHOLD, "--cov-report="]),
+            ("coverage run --source src --rcfile cov.ini -m pytest", ["python3", "-m", "pytest", "-n", "auto", "--cov=src", "--cov-config=cov.ini", NO_THRESHOLD, "--cov-report="]),
+            ("python -m coverage run -m pytest", ["python", "-m", "pytest", "-n", "auto", "--cov", NO_THRESHOLD, "--cov-report="]),
+            ("COVERAGE_FILE=.cov coverage run -m pytest", ["COVERAGE_FILE=.cov", "python3", "-m", "pytest", "-n", "auto", "--cov", NO_THRESHOLD, "--cov-report="]),
+        ):
+            result = self.rewrite(command)
+            self.assertTrue(result["accelerated"], command)
+            self.assertEqual(shlex.split(result["command"]), expected, command)
+            self.assertEqual(result["serial_command"], command)
+            self.assertEqual(result["plugins"], ["xdist", "pytest-cov"], command)
+
+    def test_translation_keeps_the_runner_prefix_and_the_module_form_that_puts_the_cwd_on_sys_path(self) -> None:
+        self.seed(xdist=_plugin(True, via="uv-with"), runner_prefix="uv run")
+
+        parts = shlex.split(self.rewrite("uv run coverage run -m pytest tests/unit", runner_prefix="uv run")["command"])
+
+        self.assertEqual(parts[:2], ["uv", "run"])
+        self.assertEqual(parts[parts.index("python") :], ["python", "-m", "pytest", "-n", "auto", "--cov", NO_THRESHOLD, "--cov-report=", "tests/unit"])
+        self.assertEqual({parts[index + 1] for index, part in enumerate(parts) if part == "--with"}, {"pytest-xdist"})
+
+    def test_coverage_translation_needs_pytest_cov_and_workers_otherwise_the_run_is_untouched(self) -> None:
+        command = "coverage run -m pytest tests/unit"
+        self.seed()
+        for env, expected in (({**PLAIN_ENV, "MAKATO_PYTEST_WORKERS": "1"}, "xdist off"), ({**PLAIN_ENV, "MAKATO_PYTEST_ACCEL": "off"}, "MAKATO_PYTEST_ACCEL=off")):
+            result = self.rewrite(command, env=env)
+            self.assertFalse(result["accelerated"])
+            self.assertEqual(result["command"], command)
+            self.assertIn(expected, result["reason"])
+
+        (pytest_accel.state_dir(self.repo) / "detect.json").write_text(
+            json.dumps({"repo_root": self.repo, "runner_prefix": "", "xdist": _plugin(True), "testmon": _plugin(True), "pytest-cov": _plugin(False)}), encoding="utf-8"
+        )
+        result = self.rewrite(command)
+        self.assertFalse(result["accelerated"])
+        self.assertEqual(result["command"], command)
+        self.assertEqual(result["plugins"], [])
+        self.assertIn("install --plugins pytest-cov", result["reason"])
+
+    def test_coverage_options_without_a_pytest_cov_counterpart_keep_the_run_as_it_is(self) -> None:
+        self.seed()
+
+        for command in (
+            "coverage run --include=src/* -m pytest",
+            "coverage run --omit=tests/* -m pytest",
+            "coverage run --parallel-mode -m pytest",
+            "coverage run --concurrency=multiprocessing -m pytest",
+            "coverage run --data-file=.cov -m pytest",
+            "coverage run --source -m pytest",
+            "coverage run script.py",
+            "coverage run -m pytest --cov=src",
+            "coverage report -m",
+        ):
             result = self.rewrite(command)
             self.assertFalse(result["accelerated"], command)
             self.assertEqual(result["command"], command)
-            self.assertIn("Coverage.py", result["reason"])
+
+    def test_a_project_coverage_config_with_parallel_or_concurrency_keeps_the_run_as_it_is(self) -> None:
+        self.seed()
+        command = "coverage run -m pytest"
+        config = Path(self.repo) / "pyproject.toml"
+
+        for body, refused in (
+            ("[tool.coverage.run]\nparallel = true\n", True),
+            ('[tool.coverage.run]\nconcurrency = ["multiprocessing"]\n', True),
+            ("[tool.coverage.run]\nparallel = false\nsource = ['pkg']\n", False),
+            ("[tool.coverage.run]\nbranch = true\n", False),
+        ):
+            config.write_text(body, encoding="utf-8")
+            self.assertEqual(not self.rewrite(command)["accelerated"], refused, body)
+
+        rc = Path(self.repo) / "ci.cfg"
+        rc.write_text("[run]\nparallel = True\n", encoding="utf-8")
+        config.write_text("[tool.coverage.run]\nbranch = true\n", encoding="utf-8")
+        self.assertFalse(self.rewrite("coverage run --rcfile=ci.cfg -m pytest")["accelerated"], "an explicit --rcfile replaces the discovered config")
+        self.assertTrue(self.rewrite(command)["accelerated"])
+
+    def test_a_coverage_run_is_never_asked_to_triage(self) -> None:
+        self.seed()
+
+        result = self.rewrite("coverage run -m pytest", purpose="affected")
+
+        self.assertFalse(result["accelerated"])
+        self.assertIn("never a Coverage.py command", result["reason"])
+
+    def test_recording_through_a_coverage_run_cannot_seed_testmon(self) -> None:
+        self.seed(baseline=False)
+
+        result = self.rewrite("coverage run -m pytest tests/unit", purpose="record")
+
+        self.assertEqual(result["plugins"], ["xdist", "pytest-cov"])
+        self.assertNotIn("testmon", result["command"])
+        self.assertIn("first affected triage records the baseline", result["reason"])
 
     def test_compound_shell_commands_are_left_alone(self) -> None:
         self.seed()
@@ -171,6 +264,16 @@ class UvRunnerTests(AccelTestCase):
 
         self.assertEqual(shlex.split(result["command"]), ["uv", "run", "--with", "pytest", "python", "-m", "pytest", "-n", "auto", "tests/unit"])
 
+    def test_a_with_coverage_option_value_is_not_mistaken_for_the_coverage_command(self) -> None:
+        self.seed(xdist=_plugin(True, via="uv-with"))
+
+        translated = shlex.split(self.rewrite("uv run --with pytest --with coverage coverage run -m pytest tests/unit")["command"])
+        self.assertEqual(translated[translated.index("python") :], ["python", "-m", "pytest", "-n", "auto", "--cov", NO_THRESHOLD, "--cov-report=", "tests/unit"])
+        self.assertIn("coverage", translated[: translated.index("python")], "the --with coverage overlay must be kept")
+
+        plain = self.rewrite("uv run --with coverage pytest tests/unit", purpose="affected")
+        self.assertEqual(plain["plugins"], ["xdist", "testmon"], "a plain pytest command carrying --with coverage is not a Coverage.py command")
+
 
 class TestmonRewriteTests(AccelTestCase):
     def test_full_purpose_never_uses_testmon(self) -> None:
@@ -196,19 +299,23 @@ class TestmonRewriteTests(AccelTestCase):
         self.assertNotIn("testmon", self.rewrite("pytest --cov=pkg", purpose="record")["plugins"])
         self.assertNotIn("testmon", self.rewrite("pytest tests/integration", lane="integration", purpose="record", env={**PLAIN_ENV, "MAKATO_PYTEST_XDIST_INTEGRATION": "1"})["plugins"])
 
-    def test_affected_without_a_recorded_baseline_is_not_incremental(self) -> None:
+    def test_affected_without_a_baseline_bootstraps_one_recording_run(self) -> None:
         self.seed(baseline=False)
 
         result = self.rewrite("pytest tests/unit", purpose="affected")
 
-        self.assertEqual(result["plugins"], ["xdist"])
+        self.assertEqual(result["plugins"], ["xdist", "testmon"])
+        self.assertTrue(result["testmon_bootstrap"])
         self.assertFalse(result["testmon_baseline"])
-        self.assertIn("no baseline recorded yet", result["reason"])
+        self.assertIn("runs and records every test once", result["reason"])
 
     def test_baseline_flag_reports_a_recorded_baseline(self) -> None:
         self.seed()
 
-        self.assertTrue(self.rewrite("pytest tests/unit", purpose="affected")["testmon_baseline"])
+        result = self.rewrite("pytest tests/unit", purpose="affected")
+
+        self.assertTrue(result["testmon_baseline"])
+        self.assertFalse(result["testmon_bootstrap"])
 
     def test_affected_purpose_selects_incrementally_with_a_private_data_file(self) -> None:
         self.seed()

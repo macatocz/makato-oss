@@ -14,8 +14,17 @@ the command to fall back to. The rules below rest on behaviour verified against
 pytest 9, pytest-xdist 3, pytest-testmon 2.2 and pytest-cov 7:
 
 * ``coverage run -m pytest -n N`` measures nothing — the xdist workers are separate
-  processes — so Coverage.py runners are never parallelised; pytest-cov is, because it
-  merges worker data itself.
+  processes — so a Coverage.py runner is translated instead: ``python -m pytest --cov
+  -n N`` with pytest-cov, which merges the worker data into the same ``.coverage`` file,
+  leaving a later ``coverage report`` unchanged (identical figures and missing lines
+  were checked across a fresh unit run plus an appended integration run, with
+  ``--source``/``--branch`` and with config-file sources). ``python -m`` is kept
+  because ``coverage run -m`` and ``python -m`` put the working directory on
+  ``sys.path`` and the ``pytest`` executable does not. ``--cov-fail-under=0`` is added
+  because ``coverage run`` never fails on a threshold (``coverage report`` does) while
+  pytest-cov would exit 1 on the project's ``fail_under`` and read as a test failure.
+  Options pytest-cov has no counterpart for, and ``parallel``/``concurrency`` in the
+  project's coverage config, keep the command as it is.
 * ``--testmon`` needs pytest's cacheprovider (``-p no:cacheprovider`` crashes it), is
   switched off by ``-m``/``-k`` unless ``--testmon-forceselect`` is used, deselects
   tests (so it must never feed a coverage figure), and does not see changes to
@@ -25,6 +34,9 @@ pytest 9, pytest-xdist 3, pytest-testmon 2.2 and pytest-cov 7:
   executed code changed (new, failed and unrecorded tests are always selected). It
   follows executed function bodies; state only visible through import-time attribute
   reads is not tracked, so a selection is a triage signal, never a pass for a gate.
+* testmon is switched off while coverage is measured, so a coverage run can never
+  seed the baseline: the first ``affected`` triage of a session records it, which
+  means it runs every test once (``testmon_bootstrap`` in the result).
 * testmon's data file defaults to ``./.testmondata`` — an untracked file in the
   worktree that review and push would pick up — so it is redirected into the git dir.
 """
@@ -35,6 +47,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -54,6 +67,8 @@ LAST_RUN_OPTIONS = frozenset({"--lf", "--ff", "--last-failed", "--failed-first",
 RUNNER_VALUE_OPTIONS = frozenset({"--with", "--with-editable", "--with-requirements", "--group", "--only-group", "--no-group", "--extra", "--package", "--python", "--project", "--directory"})
 PROBE_TIMEOUT_SECONDS = 180
 TRUTHY = ("1", "true", "yes", "on")
+COVERAGE_CONFIG_FILES = (".coveragerc", "setup.cfg", "tox.ini", "pyproject.toml")
+COVERAGE_UNSUPPORTED_CONFIG = re.compile(r"^\s*(?:parallel\s*=\s*(?:true|yes|on|1)\b|concurrency\s*=\s*[\w\[\"'])", re.IGNORECASE | re.MULTILINE)
 
 
 def _testmon_datafile(repo_root: str) -> Path:
@@ -201,30 +216,89 @@ def _with_dist(tokens: list[str], dist: str) -> list[str]:
     return tokens
 
 
-def _pytest_index(tokens: list[str]) -> int | None:
-    """Index of the pytest executable/module token, skipping values of runner options such as ``--with pytest``."""
+def _tool_index(tokens: list[str], names: tuple[str, ...]) -> int | None:
+    """Index of the first executable/module token called one of ``names``, skipping values of runner options such as ``--with pytest``."""
     for index, token in enumerate(tokens):
-        if Path(token).name in ("pytest", "py.test") and (index == 0 or tokens[index - 1] not in RUNNER_VALUE_OPTIONS):
+        if Path(token).name in names and (index == 0 or tokens[index - 1] not in RUNNER_VALUE_OPTIONS):
             return index
     return None
 
 
+def _coverage_parallel_configured(repo_root: str, rcfile: str | None) -> bool:
+    """True when the Coverage.py config uses parallel mode or a concurrency setting (a crude text check: a false positive only keeps the run as it is)."""
+    for name in (rcfile,) if rcfile else COVERAGE_CONFIG_FILES:
+        try:
+            if COVERAGE_UNSUPPORTED_CONFIG.search((Path(repo_root) / name).read_text(encoding="utf-8")):
+                return True
+        except (OSError, UnicodeDecodeError):  # fmt: skip
+            continue
+    return False
+
+
+def _translate_coverage_run(tokens: list[str], cov_at: int, pytest_at: int, repo_root: str) -> tuple[list[str], list[str]] | str:
+    """Map ``<runner> coverage run <flags> -m pytest`` onto (interpreter tokens, pytest-cov flags); a string is the reason it cannot be mapped.
+
+    ``python -m pytest`` rather than the ``pytest`` executable: ``coverage run -m`` and ``python -m`` both put the working directory on ``sys.path``.
+    """
+    if tokens[cov_at + 1 : cov_at + 2] != ["run"] or tokens[pytest_at - 1] != "-m":
+        return "Coverage.py invocation is not of the form `coverage run ... -m pytest`"
+    given = tokens[cov_at + 2 : pytest_at - 1]
+    flags: list[str] = []
+    sources: list[str] = []
+    rcfile: str | None = None
+    index = 0
+    while index < len(given):
+        token = given[index]
+        name, has_value, value = token.partition("=")
+        if token in ("--append", "-a"):
+            flags.append("--cov-append")
+        elif token == "--branch":
+            flags.append("--cov-branch")
+        elif name in ("--source", "--rcfile"):
+            if not has_value:
+                index += 1
+                if index >= len(given):
+                    return f"coverage run option {token} is missing its value"
+                value = given[index]
+            if name == "--source":
+                sources += [item for item in value.split(",") if item]
+            else:
+                rcfile = value
+        else:
+            return f"coverage run option {token} has no pytest-cov counterpart"
+        index += 1
+    if _coverage_parallel_configured(repo_root, rcfile):
+        return "Coverage.py config sets parallel or concurrency, which pytest-cov does not reproduce"
+    cov_flags = [f"--cov={item}" for item in sources] or ["--cov"]
+    if rcfile:
+        cov_flags.append(f"--cov-config={rcfile}")
+    cov_flags += flags
+    if cov_at and tokens[cov_at - 1] == "-m":
+        interpreter = tokens[: cov_at - 1]
+    else:
+        runner = any("=" not in token for token in tokens[:cov_at])
+        interpreter = [*tokens[:cov_at], "python" if runner else "python3"]
+    return interpreter, cov_flags
+
+
 def rewrite(repo_root: str, command: str, lane: str, purpose: str, runner_prefix: str, env: dict[str, str] | None = None) -> dict[str, Any]:
-    """Return {command, serial_command, accelerated, plugins, reason, warnings} for one gate command."""
+    """Return {command, serial_command, accelerated, plugins, reason, warnings, testmon_baseline, testmon_bootstrap} for one gate command."""
     env = dict(os.environ) if env is None else env
     plugins: list[str] = []
     warnings: list[str] = []
     notes: list[str] = []
+    bootstrap = False
 
     def outcome(rendered: str, accelerated: bool, reason: str) -> dict[str, Any]:
         return {
             "command": rendered,
             "serial_command": command,
             "accelerated": accelerated,
-            "plugins": plugins,
+            "plugins": plugins if accelerated else [],
             "lane": lane,
             "purpose": purpose,
             "testmon_baseline": _testmon_datafile(repo_root).exists(),
+            "testmon_bootstrap": bootstrap and accelerated,
             "reason": reason,
             "warnings": warnings,
         }
@@ -237,14 +311,25 @@ def rewrite(repo_root: str, command: str, lane: str, purpose: str, runner_prefix
         return outcome(command, False, f"unparseable command: {exc}")
     if _has_shell_control(command):
         return outcome(command, False, "compound shell command; only a single pytest invocation is rewritten")
-    pytest_at = _pytest_index(tokens)
+    pytest_at = _tool_index(tokens, ("pytest", "py.test"))
     if pytest_at is None:
         return outcome(command, False, "not a pytest command")
-    if any(Path(token).name == "coverage" for token in tokens[:pytest_at]):
-        return outcome(command, False, "Coverage.py runner: xdist workers are separate processes and would not be measured")
     options = tokens[pytest_at + 1 :]
     if any(token in ("--pdb", "--trace") for token in options):
         return outcome(command, False, "interactive debugger option")
+
+    cov_at = _tool_index(tokens[:pytest_at], ("coverage",))
+    cov_head: list[str] = []
+    cov_flags: list[str] = []
+    if cov_at is not None:
+        if purpose == "affected":
+            return outcome(command, False, "triage runs the plain unit command, never a Coverage.py command")
+        if _has_coverage_option(options):
+            return outcome(command, False, "pytest-cov options on a Coverage.py run: measured twice")
+        translated = _translate_coverage_run(tokens, cov_at, pytest_at, repo_root)
+        if isinstance(translated, str):
+            return outcome(command, False, translated)
+        cov_head, cov_flags = translated
 
     workers, warning = resolve_workers(env.get("MAKATO_PYTEST_WORKERS"))
     if warning:
@@ -269,8 +354,20 @@ def rewrite(repo_root: str, command: str, lane: str, purpose: str, runner_prefix
     else:
         notes.append(f"xdist not installed ({report['xdist']['reason'] or 'not importable'}); run pytest_accel.py install --plugins xdist")
 
+    if cov_at is not None:
+        if "xdist" not in plugins:
+            return outcome(command, False, "; ".join(notes) or "no workers: the Coverage.py run stays as it is")
+        if not report["pytest-cov"]["importable"]:
+            return outcome(command, False, f"pytest-cov not installed ({report['pytest-cov']['reason'] or 'not importable'}); run pytest_accel.py install --plugins pytest-cov")
+        plugins.append("pytest-cov")
+        if report["pytest-cov"]["via"] == "uv-with":
+            overlays.append(PLUGINS["pytest-cov"]["dist"])
+        notes.append("Coverage.py run translated to python -m pytest --cov: pytest-cov measures the workers and writes the same data file")
+
     if purpose in ("record", "affected"):
-        if lane != "unit":
+        if cov_at is not None:
+            notes.append("testmon skipped: it cannot record while coverage is measured; the first affected triage records the baseline")
+        elif lane != "unit":
             notes.append("testmon skipped: only the unit lane is tracked incrementally")
         elif _has_coverage_option(options):
             notes.append("testmon skipped: a coverage run must execute every test")
@@ -278,13 +375,14 @@ def rewrite(repo_root: str, command: str, lane: str, purpose: str, runner_prefix
             notes.append("testmon skipped: it needs pytest's cacheprovider")
         elif purpose == "affected" and LAST_RUN_OPTIONS.intersection(options):
             notes.append("testmon skipped: the command already selects by last-run state")
-        elif purpose == "affected" and not _testmon_datafile(repo_root).exists():
-            notes.append("testmon skipped: no baseline recorded yet; an earlier --purpose record run creates it")
         elif report["testmon"]["importable"]:
             if purpose == "record":
                 flags.append("--testmon-noselect")
             else:
                 flags.append("--testmon-forceselect" if _has_selector(options) else "--testmon")
+                if not _testmon_datafile(repo_root).exists():
+                    bootstrap = True
+                    notes.append("testmon baseline bootstrap: none recorded yet, so this triage runs and records every test once")
             plugins.append("testmon")
             if report["testmon"]["via"] == "uv-with":
                 overlays.append(PLUGINS["testmon"]["dist"])
@@ -294,7 +392,10 @@ def rewrite(repo_root: str, command: str, lane: str, purpose: str, runner_prefix
     if not flags:
         return outcome(command, False, "; ".join(notes) or "nothing to accelerate")
 
-    rewritten = [*tokens[: pytest_at + 1], *flags, *options]
+    if cov_at is not None:
+        rewritten = [*cov_head, "-m", "pytest", *flags, *cov_flags, "--cov-fail-under=0", "--cov-report=", *options]
+    else:
+        rewritten = [*tokens[: pytest_at + 1], *flags, *options]
     for dist in overlays:
         rewritten = _with_dist(rewritten, dist)
     rendered = shlex.join(rewritten)

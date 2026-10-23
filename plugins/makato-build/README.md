@@ -203,8 +203,10 @@ Manual PR creation still returns after opening the PR.
 - `shared/test_review_scope.py` — Tests for review_scope.py against real temporary git repositories.
 - `shared/pytest_accel.py` — Makes gate-scout's pytest commands parallel (pytest-xdist) and, for repair
   triage, incremental (pytest-testmon). `detect`, `install`, `rewrite` and `reset`; `rewrite` returns
-  the accelerated command plus the `serial_command` to fall back to, and refuses wherever workers
-  would be unsafe (`coverage run`, compound shell commands, `--pdb`). Controlled by
+  the accelerated command plus the `serial_command` to fall back to. A Coverage.py
+  `coverage run … -m pytest` is translated to `python -m pytest -n N --cov` (pytest-cov), which writes
+  the same `.coverage` data; options without a pytest-cov counterpart, `parallel`/`concurrency` in the
+  coverage config, compound shell commands and `--pdb` keep the command as it is. Controlled by
   `MAKATO_PYTEST_ACCEL=off`, `MAKATO_PYTEST_WORKERS` and `MAKATO_PYTEST_XDIST_INTEGRATION=1`.
 - `shared/test_pytest_accel.py` — Tests for pytest_accel.py rewrite rules and state handling.
 - `shared/parse-sarif.py` — Normalise diagnostic output from various linters/checkers (including

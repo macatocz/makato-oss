@@ -40,11 +40,18 @@ least five times — 28 h wall clock for about 7 h of active work.
   snapshots through a throw-away git index (the real index and tree are never touched), the repair
   delta with its neighbours, and the pass-scheduling state machine.
 - **`shared/pytest_accel.py`** (new) — `detect` / `install` / `rewrite` / `reset`. Adds
-  `-n <workers>` to a single plain `pytest` or `pytest --cov` command and, for triage, testmon. It
-  never touches `coverage run -m pytest` (xdist workers would go unmeasured), compound shell
-  commands, `--pdb` or an existing `-n`. uv projects get the plugins through an ephemeral
-  `uv run --with`; other runners opt in with `pytest_accel.py install`. Neither touches the target
-  project's manifest or lockfile; testmon's database lives in the git dir.
+  `-n <workers>` to a single `pytest` command and, for triage, testmon. A Coverage.py
+  `coverage run [--append] [--source] [--branch] [--rcfile] -m pytest` — which `-n` would leave
+  unmeasured — is translated to `python -m pytest -n <workers> --cov…` (pytest-cov), writing the same
+  `.coverage` data so `coverage report` is unchanged (identical figures and missing lines verified
+  across a fresh unit run plus an appended integration run; `--cov-fail-under=0` keeps the threshold
+  with `coverage report`, as under `coverage run`). Coverage options with no pytest-cov
+  counterpart, `parallel`/`concurrency` in the coverage config, compound shell commands, `--pdb` and
+  an existing `-n` keep the command as it is. testmon cannot record under coverage, so the first
+  triage of a repair loop records the baseline (it runs the suite once). uv projects get the
+  plugins through an ephemeral `uv run --with`; other runners opt in with
+  `pytest_accel.py install`. Neither touches the target project's manifest or lockfile; testmon's
+  database lives in the git dir.
 - New environment variables: `MAKATO_REVIEW_SCOPE` (`delta` default, `full` restores a full review on
   every pass), `MAKATO_PYTEST_ACCEL=off`, `MAKATO_PYTEST_WORKERS` (`auto`, a number, or `1`),
   `MAKATO_PYTEST_XDIST_INTEGRATION=1`.
