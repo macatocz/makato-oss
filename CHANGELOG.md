@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.173.0](https://github.com/macatocz/makato-oss/compare/v0.172.0...v0.173.0) (2026-10-23)
+
+
+### ✨ Features
+
+* **makato-build:** autonomous grill asks all open questions via ticket and resumes on answer ([#179](https://github.com/macatocz/makato-oss/issues/179)) ([709c113](https://github.com/macatocz/makato-oss/commit/709c1137e90409c6df0cb366302645e545ace78b))
+* **makato-build:** delta re-review with a final full pass and parallel/incremental pytest ([#176](https://github.com/macatocz/makato-oss/issues/176)) ([92a7ac3](https://github.com/macatocz/makato-oss/commit/92a7ac3133418f927f68cf07b7592e6fef6fdfdb))
+
+
+### 🐛 Bug Fixes
+
+* **makato-build:** repair four stale checks and run them in CI ([#177](https://github.com/macatocz/makato-oss/issues/177)) ([e4166c1](https://github.com/macatocz/makato-oss/commit/e4166c1da7ece308d1432cb0aa7b431a1a7dac5c))
+* **makato-orchestrate:** run context-handoff smoke tests in the session checkout ([#178](https://github.com/macatocz/makato-oss/issues/178)) ([730ff9a](https://github.com/macatocz/makato-oss/commit/730ff9a396bd0e0dabdaa6802e5ddc2a76ab84d0))
+
 ## [0.172.0](https://github.com/macatocz/makato-oss/compare/v0.171.1...v0.172.0) (2026-10-19)
 
 
