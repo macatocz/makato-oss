@@ -68,6 +68,14 @@ The harness uses `MAKATO_LOOP_GH_OVERRIDE` to inject a canned `item-list` fixtur
 45. **Orphaned-In-progress reconciliation — dry-run no mutation (To, #368).** `MAKATO_LOOP_RECONCILE_DRYRUN=1`; board has orphaned #603; reconcile test file stays empty; log contains `would reconcile`.
 46. **Orphaned-In-progress reconciliation — toggle-off no-op (Tp, #368).** `MAKATO_LOOP_RECONCILE_ON_POLL=0`; board has orphaned #604; function returns 0 without walking candidates.
 
+## Parked-on-Questions Scenarios (`grill-awaiting-answers-smoke-tests.sh`, T1–T7)
+
+Issues parked by `build-grill-with-docs --autonomous` on one batched questions comment (card `Blocked` + `awaiting-answers-<N>.json`). T1 marker detection; T2/T3 the in-progress and stale reconcilers leave a parked issue alone (each with an unparked control that IS reconciled); T4 the worktree reaper skips a parked issue's worktree; T5 the per-tick resume pass (waiting → untouched, answered/expired → `dispatch <N> --resume` with the observed card status, closed → marker retired, unreachable board → stays parked, resume budget → exactly one escalation, re-park → budget restarts, `MAKATO_LOOP_AWAITING_RESUME_DISABLE=1` → off); T6 `dispatch --resume` passes the Tier-2 in-flight gate for a parked state while a plain dispatch does not; T7 a full `run --once` tick resumes a parked issue with an empty Ready queue.
+
+```bash
+plugins/makato-orchestrate/scripts/tests/grill-awaiting-answers-smoke-tests.sh
+```
+
 ## Reshape Pass Scenarios (T-reshape-*, #350)
 
 47. **Reshape pass — flag disabled (T-reshape-disabled, #350).** `MAKATO_LOOP_RESHAPE_ENABLED=0` (or unset): `_reshape_pass` returns 0 immediately, no dispatch, no label write.

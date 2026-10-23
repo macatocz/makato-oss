@@ -9,7 +9,7 @@ description: >-
   through `resolve-pr-conflict`, and terminates on a merged PR or documented
   HALT code. Sole writer of `workflow-state.json`. Owns the per-run worktree;
   never edits target source.
-version: "1.4.0"
+version: "1.5.0"
 maxTurns: 100
 permissionMode: bypassPermissions
 disallowedTools: NotebookEdit
@@ -446,6 +446,7 @@ On resume, check three flags before continuing:
 | `current_phase == "done"` AND `github_pr_number != null` | Return R1`success` with `data.github_pr_number` populated. Skip Steps 2b–7 — cleanup already ran on the prior session.                                         |
 | `handoff_reason == "context_ceiling"`                      | Read`session_summary` (≤ 500 tokens). **First, acknowledge the restart (#284):** write `resume_ack` with the current timestamp via `workflow-state.sh patch <KEY> <ISSUE_NUMBER> .resume_ack "\"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)\""` — this signals the `check-pid` liveness watchdog that the detached resume subprocess started successfully and reached this resume path. **`resume_ack` MUST be written BEFORE clearing `handoff_reason`** — the watchdog detects a pending handoff by `handoff_reason == "context_ceiling" AND spawned_pid != null AND no fresh resume_ack`; clearing the reason first would blind it to a subsequent crash before the ack lands. Then clear the flag via `workflow-state.sh patch <KEY> <ISSUE_NUMBER> .handoff_reason 'null'`. Continue from `resume_point`. Do NOT touch `budget_consumed_tokens` or `session_baseline_tokens` — `context-handoff.sh` already advanced the baseline to the cumulative total, so HALT-007B now measures this session's delta from 0 (#281). Resetting the cumulative counter here would silently disable the HALT-007 cost ceilings. |
 | `restart_failed == true`                                   | Return R1`failure` with `errors: ["restart_failed=true on prior session"]`.                                                                                      |
+| `resume_point == "grill-awaiting-answers"`                  | The run parked at Step 2d on a batched questions comment. Do NOT rebuild anything: continue at Step 2b (worktree), Step 2c, then Step 2d, which re-dispatches the grill so it runs its resume step (reads the answers, or takes the recommended options when the card was moved back without replies). |
 
 **PR resume routing:** after restoring the worktree and lesson context in
 Steps 2b/2c, an existing `github_pr_number` with phase `pr`/review or
@@ -570,9 +571,56 @@ else
 fi
 ```
 
+### Step 2d — Grill gate (terminology and open decisions)
+
+Runs on a fresh run and on a resume with `resume_point == "grill-awaiting-answers"`;
+skipped on every other resume (it already ran) and when `MAKATO_GRILL_MODE=skip`. The
+grill aligns the plan's domain terms with the codebase and settles the open decisions
+the refine step left behind; it is the only place a run may need a human before code is
+written, so it asks **once, in one batch**, and never prompts.
+
+Run it when the spec folder's `glossary.md` has 3 or more terms or the plan touches
+domain-specific field names (entity fields, API paths, enum values — the same test
+`build-refine` Step 12 states); skip infra/config-only plans with a `step:"grill-gate"`
+`status:"ok"` entry (`data.skipped:"no-domain-terms"`).
+
+Dispatch `/makato-build:build-grill-with-docs <KEY> --autonomous` with
+`ISSUE_NUMBER`, `REPO`, `WORKTREE_PATH`, and `MAKATO_GRILL_MODE` (when set) in the
+context bundle. Then apply Step 4d.1's audit-tail guard and act on R1:
+
+| R1 | Action |
+| --- | --- |
+| `success` | Log `step:"grill-gate"` `status:"ok"`, patch `.resume_point` to `null` when it was `"grill-awaiting-answers"`, continue to Step 3. |
+| `partial` with `data.awaiting_answers: true` | **Park the run** (below). |
+| `failure` / unparseable, no HALT code | The grill is an alignment step, not a gate: log `step:"grill-gate"` `status:"warn"` with the first error, note it in the issue comment, continue to Step 3. |
+| `failure` with a HALT code, or audit-tail verdict `silent`/`error` | Route exactly as Step 4e / Step 4d.1 do for any `build-*` dispatch. |
+
+**Park the run.** The skill has posted ONE comment with every open question (each with
+its options and a recommendation), moved the card to **Blocked**, and written
+`awaiting-answers-<ISSUE_NUMBER>.json` in the spec folder. This is a normal wait, not a
+failure and not a HALT: apply NO `needs-human-review`, call NO `append-halt`, NO
+`post-halt-comment.sh`, NO `bump-structural-halt`, and do NOT retain or remove the
+worktree (the resumed run continues in it). Then:
+
+```bash
+shared/workflow-state.sh patch <KEY> <ISSUE_NUMBER> .current_phase '"refine"'
+shared/workflow-state.sh patch <KEY> <ISSUE_NUMBER> .resume_point '"grill-awaiting-answers"'
+shared/progress-comment.sh note <KEY> <ISSUE_NUMBER> <REPO> \
+  --text "Paused: <Q> open questions are posted on this issue. Answer them there and move the card back to Ready or In progress; the run resumes by itself." 2>/dev/null || true
+```
+
+Skip Steps 3–6, append the session-end entry with `status:"warn"`, `terminal_state:"partial"`
+and `data.awaiting_answers:true`, and return R1 `partial` (§ *R1 return envelope*, "Partial —
+parked on questions"). While the marker exists, the loop's orphan reconcilers, stall-resume,
+`promote-ready` and the worktree reaper leave the issue alone, and `loop.sh` re-dispatches it
+with `--resume` once the card is back in Ready or In progress (`MAKATO_QUESTIONS_MAX_WAIT_SECS`
+expires the wait). A follow-up round (an answer that opens a new question) parks the run
+again the same way, at most `MAKATO_GRILL_MAX_QUESTION_ROUNDS` times in total.
+
 ### Step 3 — Build the sub-task list (fresh run only)
 
-Skip on resume. Align `sub_tasks[]` with `plan-<ISSUE_NUMBER>.md` through the
+Skip on resume, unless `sub_tasks` is empty — a run that parked at Step 2d resumes here with
+nothing built yet. Align `sub_tasks[]` with `plan-<ISSUE_NUMBER>.md` through the
 scheduler helper (#153), which reads every `### Task N:` entry under `## Tasks`:
 
 ```bash
@@ -1312,6 +1360,30 @@ Sub-agent totals are captured in each sub-task's
 }
 ```
 
+### Partial — parked on questions
+
+```json
+{
+  "schema": "r1",
+  "agent": "po-agent",
+  "status": "partial",
+  "summary": "Issue #<N> parked at the grill gate: <Q> questions posted, card Blocked, awaiting answers.",
+  "files_changed": [],
+  "tests_written": [],
+  "errors": [],
+  "tool_calls_used": <int>,
+  "data": {
+    "issue_number": <N>,
+    "github_pr_number": null,
+    "awaiting_answers": true,
+    "round": <R>,
+    "questions": <Q>,
+    "comment_url": "<url-of-the-questions-comment>",
+    "resume_point": "grill-awaiting-answers"
+  }
+}
+```
+
 ### Failure — HALT fired
 
 ```json
@@ -1415,6 +1487,7 @@ fires — the audit log records every HALT code.
 | HALT-006                  | malformed plan / spec folder / dispatch bundle.**Note:** for a *missing spec folder or stub plan-<N>.md*, Step 1a first attempts to auto-materialize `plan-<N>.md` and retry once — via `build-refine --autonomous` when a committed `stories.json` is present (any tier, #527), else via the `light-planner` agent on a `plan-tier:light` issue (#200). HALT-006 fires only if that single attempt does not yield a guard-valid plan. A pre-migration singleton `plan.md` is accepted via legacy-pass and does not trigger HALT-006. | **PO-agent**                                        |
 | HALT-007                  | budget (`kill-switch poll`)                                                                                                                                                                                                                                                                                                           | `kill-switch poll`                                      |
 | HALT-007B                 | context ceiling (`kill-switch handoff`)                                                                                                                                                                                                                                                                                               | nobody — R1`partial`, no label                         |
+| awaiting answers (not a HALT) | `build-grill-with-docs` parked the run on one batched questions comment (Step 2d); card Blocked + `awaiting-answers-<N>.json` | nobody — R1 `partial`, no label, no code |
 | HALT-008 (outer-iter)     | `outer_iteration >= 3` (`kill-switch poll`)                                                                                                                                                                                                                                                                                         | `kill-switch poll`                                      |
 | HALT-008 (merge-conflict) | `merge_conflict_cycles >= MAX` (`resolve-pr-conflict`) | `resolve-pr-conflict` |
 | HALT-005 (shared CI) | Shared `build-fix-ci` operator-escalation result; preserve returned CI_* in R1 and audit it as `source_halt_code` | **PO-agent** |

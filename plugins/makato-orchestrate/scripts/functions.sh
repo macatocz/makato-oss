@@ -1000,6 +1000,120 @@ _reconcile_issue_closed() {
   return 1
 }
 
+# _issue_awaiting_answers <issue> [specs-dir] — return 0 when build-grill-with-docs parked this issue on a
+# human-questions comment (an awaiting-answers-<issue>.json marker in a spec folder). The card is Blocked on
+# purpose (and In progress again once the human moved it back): the orphan reconcilers, stall-resume and
+# promote-ready leave it alone — only the answers resume it (_resume_answered_questions).
+_issue_awaiting_answers() {
+  local issue="$1" dir="${2:-$SPECS_DIR}"
+  [[ -d "$dir" ]] || return 1
+  [[ -n "$(find "$dir" -maxdepth 2 -name "awaiting-answers-${issue}.json" 2>/dev/null | head -1)" ]]
+}
+
+# _awaiting_resume_escalate <issue> <repo> <attempts> — a parked issue was resumed AWAITING_RESUME_MAX times and
+# is parked again without ever advancing: stop re-dispatching it and hand it to a human (needs-human-review + HALT-014 comment).
+_awaiting_resume_escalate() {
+  local issue="$1" repo="${2:-}" attempts="$3"
+  echo "loop: awaiting-answers — #$issue resumed ${attempts}x without moving on → needs-human-review (HALT-014)" >&2
+  if [[ -n "${MAKATO_LOOP_AWAITING_TEST_FILE:-}" ]]; then
+    echo "escalate #${issue}" >>"$MAKATO_LOOP_AWAITING_TEST_FILE"
+    return 0
+  fi
+  local -a repo_flag=()
+  [[ -n "$repo" ]] && repo_flag=(--repo "$repo")
+  gh issue edit "$issue" "${repo_flag[@]}" --add-label needs-human-review >/dev/null 2>&1 || true
+  _post_halt_comment "HALT-014" "$issue" "$repo" \
+    --reason "The questions on this issue were answered and the run was resumed ${attempts} times, but it keeps parking again without progress." \
+    --what-to-fix "Read the latest run log in the spec folder and fix the cause, delete the stale awaiting-answers-${issue}.json marker, remove needs-human-review, then resume with: loop dispatch ${issue} --resume." || true
+}
+
+# _resume_answered_questions — per-tick pass: resume the first parked issue whose questions were answered.
+# A parked issue has an awaiting-answers-<N>.json marker (build-grill-with-docs, shared/human_questions.py) and a
+# Blocked card; the human answers in the issue and moves the card to Ready or In progress. That card is not in the
+# Ready poll as Blocked, so this pass asks the helper (`status`) for each marker and re-dispatches with --resume
+# when it reports answered (or expired, MAKATO_QUESTIONS_MAX_WAIT_SECS). Closed issues retire their marker.
+# Sets _LOOP_RESUMED_ISSUE to the issue it dispatched ("" = none). One dispatch per tick (the loop is single-threaded).
+# Test seams: MAKATO_HUMAN_QUESTIONS (helper path), MAKATO_LOOP_AWAITING_TEST_FILE (escalations).
+_LOOP_RESUMED_ISSUE=""
+_resume_answered_questions() {
+  _LOOP_RESUMED_ISSUE=""
+  [[ "${AWAITING_RESUME_DISABLE:-0}" != "1" ]] || return 0
+  [[ -d "$SPECS_DIR" ]] || return 0
+
+  # Retire attempt counters whose marker is gone (round finished, ticket closed or resolved).
+  local counter counter_issue
+  for counter in "$STATE_DIR"/awaiting-resume-*.count; do
+    [[ -f "$counter" ]] || continue
+    counter_issue="${counter##*/awaiting-resume-}"
+    counter_issue="${counter_issue%.count}"
+    _issue_awaiting_answers "$counter_issue" || rm -f "$counter"
+  done
+
+  local markers
+  markers="$(find "$SPECS_DIR" -maxdepth 2 -name 'awaiting-answers-*.json' 2>/dev/null | sort)"
+  [[ -n "$markers" ]] || return 0
+  local helper="${MAKATO_HUMAN_QUESTIONS:-$MAKATO_BUILD_ROOT/shared/human_questions.py}"
+  if [[ ! -f "$helper" ]]; then
+    echo "loop: WARN — awaiting-answers markers exist but $helper is missing; cannot resume parked issues" >&2
+    return 0
+  fi
+
+  local marker spec_dir issue repo status_json state board_status count_file attempts
+  while IFS= read -r marker; do
+    [[ -n "$marker" ]] || continue
+    spec_dir="$(dirname "$marker")"
+    issue="$(jq -r '.issue // empty' "$marker" 2>/dev/null || true)"
+    [[ "$issue" =~ ^[0-9]+$ ]] || continue
+    repo="$(jq -r '.repo // empty' "$marker" 2>/dev/null || true)"
+    count_file="$STATE_DIR/awaiting-resume-${issue}.count"
+
+    if ! status_json="$(python3 "$helper" status --spec-dir "$spec_dir" --issue "$issue" 2>/dev/null)"; then
+      echo "loop: awaiting-answers — #$issue status check failed (GitHub unreachable?); retrying next tick" >&2
+      continue
+    fi
+    state="$(jq -r '.state // empty' <<<"$status_json" 2>/dev/null || true)"
+    board_status="$(jq -r '.board_status // empty' <<<"$status_json" 2>/dev/null || true)"
+    case "$state" in
+      waiting)
+        # Still parked (or parked again for a follow-up round): the next answer gets a fresh resume budget.
+        rm -f "$count_file"
+        continue ;;
+      closed)
+        echo "loop: awaiting-answers — #$issue was closed while waiting for answers; retiring the marker" >&2
+        python3 "$helper" resolve --spec-dir "$spec_dir" --issue "$issue" >/dev/null 2>&1 || true
+        rm -f "$count_file"
+        continue ;;
+      answered|expired) ;;
+      *)
+        echo "loop: awaiting-answers — #$issue state='${state:-?}' (board not observable); leaving it parked" >&2
+        continue ;;
+    esac
+
+    attempts=0
+    [[ -f "$count_file" ]] && attempts="$(cat "$count_file" 2>/dev/null || echo 0)"
+    [[ "$attempts" =~ ^[0-9]+$ ]] || attempts=0
+    if (( attempts >= AWAITING_RESUME_MAX )); then
+      if (( attempts == AWAITING_RESUME_MAX )); then
+        _awaiting_resume_escalate "$issue" "$repo" "$attempts"
+        printf '%s\n' "$((attempts + 1))" >"$count_file"
+      fi
+      continue
+    fi
+    mkdir -p "$STATE_DIR"
+    printf '%s\n' "$((attempts + 1))" >"$count_file"
+
+    [[ -n "$repo" ]] || repo="${MAKATO_LOOP_DISPATCH_REPO:-}"
+    [[ -n "$repo" ]] || repo="$(_derive_reap_repo 2>/dev/null || true)"
+    echo "loop: awaiting-answers — #$issue ${state} (board '${board_status:-?}') → resuming (attempt $((attempts + 1))/${AWAITING_RESUME_MAX})" >&2
+    _LOOP_RESUMED_ISSUE="$issue"
+    MAKATO_LOOP_DISPATCH_REPO="$repo" \
+    MAKATO_LOOP_ITEM_STATUS="$board_status" \
+      cmd_dispatch "$issue" --resume || true
+    return 0
+  done <<<"$markers"
+  return 0
+}
+
 # _reconcile_has_human_review_label <issue> <repo> — dedup guard for the stale reconciler (#786).
 # Returns 0 (label present → caller must skip) when needs-human-review is already set;
 # returns 1 (absent or unknown) otherwise. Prevents 6-8× duplicate comments on already-
@@ -1090,6 +1204,12 @@ _reconcile_orphaned_in_progress() {
     # Skip if a live (non-done) workflow-state exists for this issue.
     if echo "$in_flight" | grep -qx "$n"; then
       echo "loop: reconcile-orphaned — #$n has live workflow-state, skipping" >&2
+      continue
+    fi
+
+    # Parked on human questions (awaiting-answers marker): the card is meant to wait, not an orphan.
+    if _issue_awaiting_answers "$n" "$reconcile_specs_dir"; then
+      echo "loop: reconcile-orphaned — #$n is awaiting answers to its questions, skipping" >&2
       continue
     fi
 
@@ -1230,6 +1350,12 @@ _reconcile_orphaned_stale() {
     # Terminal-state guard (#616 follow-up): closed issue is finished, not a dead orphan.
     if _reconcile_issue_closed "$issue_n" "$_rs_repo"; then
       echo "loop: reconcile-stale — #$issue_n is CLOSED, skipping (terminal state, not an orphan)" >&2
+      continue
+    fi
+
+    # Parked on human questions (awaiting-answers marker): waiting on a human is not a dead session.
+    if _issue_awaiting_answers "$issue_n" "$scan_specs_dir"; then
+      echo "loop: reconcile-stale — #$issue_n is awaiting answers to its questions, skipping" >&2
       continue
     fi
 
@@ -3147,6 +3273,29 @@ _reap_is_retained() {
   [[ -n "$match" ]]
 }
 
+# _reap_is_awaiting_answers <realpath> — return 0 when the workflow-state that owns this worktree sits in a spec
+# folder with an awaiting-answers marker: the issue is parked on human questions (possibly for days; its owner
+# pid is long dead) and its worktree holds the refined plan the resumed run continues from.
+_reap_is_awaiting_answers() {
+  local target="$1"
+  [[ -d "$SPECS_DIR" ]] || return 1
+  local match
+  match="$(find "$SPECS_DIR" -maxdepth 2 \
+      \( -name 'workflow-state-*.json' -o -name 'workflow-state.json' \) \
+      -print0 2>/dev/null |
+    while IFS= read -r -d '' f; do
+      local wp rp
+      wp="$(jq -r '.worktree_path // empty' "$f" 2>/dev/null || true)"
+      [[ -n "$wp" ]] || continue
+      rp="$(_realpath "$wp")"
+      [[ "$rp" == "$target" ]] || continue
+      if [[ -n "$(find "$(dirname "$f")" -maxdepth 1 -name 'awaiting-answers-*.json' 2>/dev/null | head -1)" ]]; then
+        echo "match"; break
+      fi
+    done)"
+  [[ -n "$match" ]]
+}
+
 # _realpath <path> — canonicalise path (resolves macOS /var→/private/var); matches worktree.sh helper.
 _realpath() {
   python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$1" 2>/dev/null || printf '%s\n' "$1"
@@ -3273,6 +3422,10 @@ _reap_merged_worktrees() {
     # Guard 7: retained via workflow-state.
     if _reap_is_retained "$rp"; then
       echo "loop: reap skip $rp (worktree_retained=true)" >&2; return 0
+    fi
+    # Guard 7b: parked on human questions (awaiting-answers marker beside its workflow-state).
+    if _reap_is_awaiting_answers "$rp"; then
+      echo "loop: reap skip $rp (awaiting answers to its questions)" >&2; return 0
     fi
     # Guard 8: branch must have LANDED (merged PR or ancestor of base); Guard 9 can authorise without landing.
     local landed=""
@@ -4065,7 +4218,8 @@ cmd_dispatch() {
         # Stall-resume (#531): incomplete/errored exit without a HALT code → attempt --resume re-entry.
         local _dispatch_verdict
         _dispatch_verdict="$(_parse_dispatch_result "$log_file")"
-        if [[ "$_dispatch_verdict" == "incomplete" || "$_dispatch_verdict" == "errored" ]]; then
+        # A parked issue (awaiting-answers marker) exited on purpose: the answers, not a restart, resume it.
+        if [[ "$_dispatch_verdict" == "incomplete" || "$_dispatch_verdict" == "errored" ]] && ! _issue_awaiting_answers "$issue"; then
           # Skip resume when HALT code already emitted — HALT classification path owns the issue.
           local _spec_dir_r=""
           local _wf_r
