@@ -8,6 +8,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -95,7 +96,21 @@ def _resolve(layout: Layout, skill: str = "build-review", **kwargs: Any) -> dict
 
 def _environment(layout: Layout) -> dict[str, str]:
     env = dict(os.environ)
-    for key in ("MAKATO_PLAN_ROOT", "MAKATO_CHANGE_ROOT", "MAKATO_HARNESS_BIN"):
+    for key in (
+        "MAKATO_PLAN_ROOT",
+        "MAKATO_CHANGE_ROOT",
+        "MAKATO_HARNESS_BIN",
+        "KEY",
+        "ISSUE_NUMBER",
+        "REPO",
+        "MAKATO_ORCHESTRATE_ROOT",
+        "MAKATO_ORCHESTRATE_SHARED",
+        "MAKATO_TARGET_REPO_ROOT",
+        "MAKATO_PROGRESS_COMMENT_DISABLE",
+        "MAKATO_PC_GH_STUB",
+        "MAKATO_PC_GH_FAIL",
+        "SPECS_DIR",
+    ):
         env.pop(key, None)
     env["MAKATO_BUILD_ROOT"] = str(layout.build)
     return env
@@ -460,6 +475,132 @@ def test_missing_harness_reports_127(layout: Layout) -> None:
     )
     assert result.returncode == 127
     assert "cannot launch harness" in result.stderr
+
+
+def _progress_environment(layout: Layout) -> dict[str, str]:
+    env = _environment(layout)
+    orchestrate = _HERE.parents[1] / "makato-orchestrate"
+    stub = layout.repo / "github comments"
+    stub.mkdir()
+    env.update(
+        {
+            "KEY": "shared-feature",
+            "ISSUE_NUMBER": "321",
+            "REPO": "example/work-items",
+            "MAKATO_ORCHESTRATE_ROOT": str(orchestrate),
+            "MAKATO_PC_GH_STUB": str(stub),
+            "SPECS_DIR": str(layout.repo / "specs"),
+        }
+    )
+    subprocess.run(
+        ["bash", str(orchestrate / "shared" / "workflow-state.sh"), "init", env["KEY"], env["REPO"], "feat/progress", env["ISSUE_NUMBER"]],
+        cwd=layout.repo,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return env
+
+
+def _launch(layout: Layout, env: dict[str, str], harness: str, skill: str = "makato-build:build-review", *options: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, str(_RUNNER_PATH), "--repo-root", str(layout.repo), "--harness", harness, *options, skill],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_launcher_brackets_each_skill_in_the_same_issue_comment(layout: Layout) -> None:
+    env = _progress_environment(layout)
+    harness = layout.repo / "observe-progress"
+    harness.write_text(
+        f"#!{sys.executable}\n"
+        "import os\nfrom pathlib import Path\n"
+        "comments = list(Path(os.environ['MAKATO_PC_GH_STUB']).glob('comment-*.md'))\n"
+        "assert len(comments) == 1, 'START must be published before execution'\n"
+        "body = comments[0].read_text()\n"
+        "assert 'START: build-review' in body and 'DONE: build-review' not in body\n"
+        "print('skill output remains unchanged')\n",
+        encoding="utf-8",
+    )
+    harness.chmod(0o755)
+    first = _launch(layout, env, str(harness))
+    assert first.returncode == 0, first.stderr
+    assert first.stdout == "skill output remains unchanged\n"
+    second = _launch(layout, env, shutil.which("false") or "false", "makato-plan:create-prd")
+    assert second.returncode == 1, second.stderr
+    comments = list(Path(env["MAKATO_PC_GH_STUB"]).glob("comment-*.md"))
+    assert len(comments) == 1
+    body = comments[0].read_text()
+    assert body.index("START: build-review") < body.index("DONE: build-review") < body.index("START: create-prd") < body.index("DONE: create-prd")
+    assert "process exited 0" in body and "process exited 1" in body
+    state = json.loads((layout.repo / "specs" / env["KEY"] / "workflow-state-321.json").read_text())
+    assert comments[0].name == f"comment-{state['progress_comment_id']}.md"
+
+
+@pytest.mark.parametrize("case", ["disabled", "dry-run", "github-unavailable"])
+def test_progress_cannot_change_execution_or_dry_run(layout: Layout, case: str) -> None:
+    env = _progress_environment(layout)
+    options = ("--dry-run",) if case == "dry-run" else ()
+    if case == "disabled":
+        env["MAKATO_PROGRESS_COMMENT_DISABLE"] = "1"
+    if case == "github-unavailable":
+        env["MAKATO_PC_GH_FAIL"] = "1"
+    result = _launch(layout, env, shutil.which("false") or "false", "makato-build:build-review", *options)
+    assert result.returncode == (0 if case == "dry-run" else 1), result.stderr
+    assert not list(Path(env["MAKATO_PC_GH_STUB"]).glob("comment-*.md"))
+    if case == "github-unavailable":
+        assert "WARN" in result.stderr
+
+
+def test_progress_records_launch_failure_without_claiming_skill_success(layout: Layout) -> None:
+    env = _progress_environment(layout)
+    result = _launch(layout, env, "/nonexistent/harness")
+    assert result.returncode == 127
+    comments = list(Path(env["MAKATO_PC_GH_STUB"]).glob("comment-*.md"))
+    assert len(comments) == 1
+    body = comments[0].read_text()
+    assert "START: build-review" in body and "DONE: build-review" in body
+    assert "could not launch" in body
+
+
+def test_progress_forwards_termination_and_records_the_signal(layout: Layout) -> None:
+    env = _progress_environment(layout)
+    ready = layout.repo / "child-ready"
+    harness = layout.repo / "wait-for-termination"
+    harness.write_text(
+        f"#!{sys.executable}\nimport os, time\nfrom pathlib import Path\nPath({str(ready)!r}).write_text(str(os.getpid()))\ntime.sleep(60)\n",
+        encoding="utf-8",
+    )
+    harness.chmod(0o755)
+    process = subprocess.Popen(
+        [sys.executable, str(_RUNNER_PATH), "--repo-root", str(layout.repo), "--harness", str(harness), "makato-build:build-review"],
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        deadline = time.monotonic() + 10
+        while not ready.exists() and process.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert ready.exists(), "skill did not reach its running state"
+        process.terminate()
+        stdout, stderr = process.communicate(timeout=10)
+        assert process.returncode == 143, (stdout, stderr)
+        child_pid = int(ready.read_text())
+        with pytest.raises(ProcessLookupError):
+            os.kill(child_pid, 0)
+        comments = list(Path(env["MAKATO_PC_GH_STUB"]).glob("comment-*.md"))
+        assert len(comments) == 1
+        assert "process terminated by signal 15" in comments[0].read_text()
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.communicate()
 
 
 def test_declared_custom_artifact_override_does_not_block_builtin_dispatch(layout: Layout) -> None:

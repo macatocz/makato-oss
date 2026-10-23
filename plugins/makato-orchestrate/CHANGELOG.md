@@ -35,6 +35,21 @@ spec folder — and is neither a HALT nor an orphan.
 - **`loop` v2.6.0**, **`promote-ready` v1.4.0**, **`workflow-state` v1.7.2** — document the resume pass,
   the skip and the `grill-awaiting-answers` resume point.
 
+### Fixed — reliable per-skill issue progress (po-agent v1.5.1)
+
+- Export the issue identity and installed orchestrate root for every OMP launch.
+  The shared launcher now owns START/DONE for all workflow skills, retries, and
+  follow-on runs; the agent adds validated R1 summaries as notes instead of
+  duplicating lifecycle entries. Claude-native narration remains unchanged.
+
+### Fixed — bound PO-agent implementation runs and prevent launcher timeouts
+
+- The scheduler selects exactly one dependency-ready task per implementation dispatch,
+  respecting runOrder. The PO-agent checkpoints each result before selecting another task,
+  including independent and same-mode tasks.
+- po-agent v1.5.1 requires OMP workflow-skill launches to use Bash timeout: 0; positive
+  deadlines were clamped at one hour. Existing inactivity watchdogs and kill switches remain.
+
 ### Changed — route subagents through shared model roles
 
 - Dropped the `modelRole:` frontmatter key: neither OMP nor Claude Code read it. Each agent

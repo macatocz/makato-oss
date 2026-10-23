@@ -106,6 +106,16 @@ has an autonomous mode that never prompts and never blocks a headless session.
 - **`build-refine` v1.15.1**, **`build-start` v1.11.3** — hand-off text / pipeline map point out that
   the po-agent runs the grill autonomously.
 
+### Fixed — post per-skill GitHub progress at the OMP launcher boundary
+
+- `run-skill.py` publishes START before each issue-backed skill execution and DONE
+  after its process exits, rather than relying on optional model-issued helper calls.
+  The existing live comment and workflow-state writer are reused; GitHub failures
+  remain non-fatal and dry-run/opt-out remain side-effect free.
+- Stream contents, exit status, and SIGINT/SIGTERM propagation are preserved. DONE
+  records process outcome, not R1 success. Coordinators add validated result notes
+  without duplicating lifecycle entries; issue context is inherited by child runs.
+
 ### Changed — route subagents through shared model roles
 
 - Removed the `modelRole:` frontmatter key from every agent; no harness read it. Each agent now

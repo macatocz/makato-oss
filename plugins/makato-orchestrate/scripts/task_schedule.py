@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
-"""Dependency-aware task scheduling for PO-agent implementation passes (#153).
+"""Dependency-aware one-task-per-dispatch scheduling for the PO-agent (#153).
 
-``next`` prints the next dispatchable mode group as JSON:
+The next command prints the next dependency-ready task as JSON:
 
-    {"status": "ready", "mode": "goal", "skill": "build-implement-goal", "task_ids": [6, 11, 12]}
+    {"status": "ready", "mode": "goal", "skill": "build-implement-goal", "task_ids": [6]}
     {"status": "complete", "task_ids": []}
 
-The group's mode is the first ``runOrder`` mode with a dependency-ready task; the
-group is the ready closure of that mode, so same-mode chains run in one pass while
-cross-mode dependencies become pass boundaries.
+The task is the first dependency-ready task in the first ready mode from
+runOrder. Each task gets its own implementation run and durable workflow-state
+checkpoint, including same-mode dependency chains.
 
-``sync`` prints ``sub_tasks[]`` aligned with the plan: accepted (``complete``) rows
+The sync command prints sub_tasks[] aligned with the plan: accepted (complete) rows
 are kept verbatim; every other row takes the plan's current title and mode; new plan
-tasks are appended as ``pending``. A plan that drops an accepted task is rejected.
+tasks are appended as pending. A plan that drops an accepted task is rejected.
 
-Both commands read the plan from ``--plan`` and workflow-state JSON from ``--state``
-(``-`` for stdin). An invalid plan or state exits 2 with the reason on stderr.
+Both commands read the plan from --plan and workflow-state JSON from --state
+(- for stdin). An invalid plan or state exits 2 with the reason on stderr.
 """
 
 from __future__ import annotations
@@ -131,8 +131,8 @@ def _is_complete(row: dict[str, Any] | None) -> bool:
     return bool(row) and row.get("status") == "complete"
 
 
-def next_group(plan: Plan, rows: dict[int, dict[str, Any]]) -> dict[str, Any]:
-    """Return the next ready mode group, or ``complete`` when every plan task is."""
+def next_task(plan: Plan, rows: dict[int, dict[str, Any]]) -> dict[str, Any]:
+    """Return one next dependency-ready task, or complete when all are done."""
     done = {task.id for task in plan.tasks if _is_complete(rows.get(task.id))}
     pending = [task for task in plan.tasks if task.id not in done]
     if not pending:
@@ -140,15 +140,8 @@ def next_group(plan: Plan, rows: dict[int, dict[str, Any]]) -> dict[str, Any]:
     # An acyclic graph always has a pending task whose dependencies are all done.
     ready_modes = {task.mode for task in pending if done.issuperset(task.blocked_by)}
     mode = next(mode for mode in plan.run_order if mode in ready_modes)
-    group: list[int] = []
-    grew = True
-    while grew:
-        grew = False
-        for task in pending:
-            if task.mode == mode and task.id not in group and done.union(group).issuperset(task.blocked_by):
-                group.append(task.id)
-                grew = True
-    return {"status": "ready", "mode": mode, "skill": SKILLS[mode], "task_ids": sorted(group)}
+    task = next(task for task in pending if task.mode == mode and done.issuperset(task.blocked_by))
+    return {"status": "ready", "mode": mode, "skill": SKILLS[mode], "task_ids": [task.id]}
 
 
 def sync_sub_tasks(plan: Plan, rows: dict[int, dict[str, Any]]) -> list[dict[str, Any]]:
@@ -183,7 +176,7 @@ def main(argv: list[str] | None = None) -> int:
             with open(args.state, encoding="utf-8") as handle:
                 state = json.load(handle)
         rows = _rows_by_id(state)
-        result: Any = next_group(plan, rows) if args.command == "next" else sync_sub_tasks(plan, rows)
+        result: Any = next_task(plan, rows) if args.command == "next" else sync_sub_tasks(plan, rows)
     except (OSError, json.JSONDecodeError, PlanError) as exc:
         print(f"task_schedule: {exc}", file=sys.stderr)
         return 2

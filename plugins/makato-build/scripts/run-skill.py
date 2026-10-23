@@ -6,6 +6,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
+import subprocess
 import sys
 from collections.abc import Mapping
 from pathlib import Path
@@ -125,6 +127,11 @@ def _prompt(metadata: dict[str, Any], skill_text: str, context: str) -> str:
         "using the exact SKILL.md and base directory below. Do not invoke a skill loader "
         "or relaunch this selected skill: MAKATO_SKILL_RESOLVED marks this dispatch.\n"
         f"{dispatch_contract}"
+        "- The launcher owns GitHub START/DONE for workflow skills dispatched through "
+        "MAKATO_SKILL_RUNNER; do not surround those launches with manual START/DONE calls. "
+        "When MAKATO_SKILL_PROGRESS_MANAGED matches this selected skill, its own entries "
+        "are managed too. Use progress-comment.sh note for semantic result summaries or "
+        "intermediate updates. Preserve reporting for native/non-launcher dispatches.\n"
         "- Consulting reference material or another skill solely as a reference remains "
         "inline. Regular helper agents retain their own declared role/model settings; "
         "this workflow skill's role does not override them.\n"
@@ -234,6 +241,93 @@ def build_command(args: argparse.Namespace, environ: Mapping[str, str]) -> tuple
     return command, child_env, execution
 
 
+def _progress_target(environ: dict[str, str]) -> list[str] | None:
+    if environ.get("MAKATO_PROGRESS_COMMENT_DISABLE") == "1":
+        return None
+    identity = [environ.get(name, "") for name in ("KEY", "ISSUE_NUMBER", "REPO")]
+    if not any(identity):
+        return None
+    if not all(identity):
+        print("run-skill: WARN — issue progress requires exported KEY, ISSUE_NUMBER and REPO", file=sys.stderr)
+        return None
+    try:
+        shared = environ.get("MAKATO_ORCHESTRATE_SHARED")
+        if not shared:
+            root = environ.get("MAKATO_ORCHESTRATE_ROOT")
+            if not root:
+                resolved = subprocess.run(
+                    ["bash", str(Path(environ["MAKATO_BUILD_ROOT"]) / "shared" / "runtime-context.sh"), "plugin-root", "makato-orchestrate"],
+                    env=environ,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                root = resolved.stdout.strip()
+            shared = str(Path(root) / "shared")
+        helper = Path(shared) / "progress-comment.sh"
+        if not helper.is_file():
+            raise FileNotFoundError(helper)
+    except (OSError, subprocess.CalledProcessError) as exc:
+        print(f"run-skill: WARN — cannot resolve issue progress helper: {exc}", file=sys.stderr)
+        return None
+    environ["MAKATO_ORCHESTRATE_SHARED"] = str(helper.parent.resolve())
+    return [str(helper.resolve()), *identity]
+
+
+def _post_progress(target: list[str], environ: dict[str, str], event: str, *fields: str) -> None:
+    try:
+        result = subprocess.run(
+            ["bash", target[0], event, *target[1:], *fields],
+            cwd=environ["REPO_ROOT"],
+            env=environ,
+            stdout=subprocess.DEVNULL,
+            check=False,
+        )
+        if result.returncode:
+            print(f"run-skill: WARN — progress {event} exited {result.returncode}; continuing", file=sys.stderr)
+    except OSError as exc:
+        print(f"run-skill: WARN — progress {event} failed: {exc}; continuing", file=sys.stderr)
+
+
+def _run_with_progress(command: list[str], environ: dict[str, str], execution: dict[str, str], target: list[str]) -> int:
+    skill = environ["MAKATO_SKILL_RESOLVED"].split(":", 1)[1]
+    environ["MAKATO_SKILL_PROGRESS_MANAGED"] = environ["MAKATO_SKILL_RESOLVED"]
+    _post_progress(
+        target,
+        environ,
+        "start",
+        "--skill",
+        skill,
+        "--agent",
+        execution["role"].lower(),
+        "--input",
+        f"issue #{environ['ISSUE_NUMBER']}, spec {environ['KEY']}",
+        "--goal",
+        f"execute {skill} and return its skill result",
+    )
+    outcome = "could not launch skill process"
+    summary = "No skill result was produced."
+    try:
+        process = subprocess.Popen(command, cwd=environ["PWD"], env=environ)
+        previous = {}
+
+        def forward(signum: int, _frame: Any) -> None:
+            process.send_signal(signum)
+
+        try:
+            for signum in (signal.SIGINT, signal.SIGTERM):
+                previous[signum] = signal.signal(signum, forward)
+            status = process.wait()
+        finally:
+            for signum, handler in previous.items():
+                signal.signal(signum, handler)
+        outcome = f"process exited {status}" if status >= 0 else f"process terminated by signal {-status}"
+        summary = "R1 and artifact checks remain authoritative; process exit alone is not skill success."
+        return status if status >= 0 else 128 - status
+    finally:
+        _post_progress(target, environ, "done", "--skill", skill, "--result", outcome, "--summary", summary)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
@@ -244,6 +338,9 @@ def main(argv: list[str] | None = None) -> int:
             }
             print(json.dumps({"argv": command, "execution": execution, "env": visible_env}, ensure_ascii=False, indent=2))
             return 0
+        target = _progress_target(child_env)
+        if target is not None:
+            return _run_with_progress(command, child_env, execution, target)
         os.chdir(child_env["PWD"])
         os.execvpe(command[0], command, child_env)
     except SkillExecutionError as exc:

@@ -316,6 +316,20 @@ project. The launcher infers sibling makato-plan/makato-change directories in a 
 for separately cached installations, set `MAKATO_PLAN_ROOT` and `MAKATO_CHANGE_ROOT`
 explicitly. Child runs inherit these roots and `MAKATO_SKILL_RUNNER`.
 
+For GitHub-backed runs, export `KEY`, `ISSUE_NUMBER`, `REPO` (the issue's
+`owner/repository`), and `MAKATO_ORCHESTRATE_ROOT` before launching. The launcher
+uses the installed `shared/progress-comment.sh` to append START and DONE to the
+same live issue comment for each execution, including failures and retries. An
+explicit `MAKATO_ORCHESTRATE_SHARED` is also supported; otherwise the existing
+runtime resolver discovers the orchestrate plugin when no root was supplied.
+Child runs inherit the reporting context. Do not duplicate these lifecycle entries
+manually; use `note` for validated R1 summaries or intermediate progress. DONE
+reports the process outcome, not semantic skill success; the coordinator still
+validates R1 and artifacts. Reporting preserves stdout/stderr and exit status,
+forwards SIGINT/SIGTERM, and never makes a GitHub failure fatal. Local runs without
+issue context and `--dry-run` do not post; `MAKATO_PROGRESS_COMMENT_DISABLE=1`
+explicitly disables reporting. Partial issue context logs an actionable warning.
+
 A fresh process has no parent conversation. Pass a complete UTF-8 context file containing
 the issue/key, repository/worktree paths, artifact paths, decisions, and step-specific inputs.
 In default `--print` mode, the launcher includes the selected skill verbatim and tells any
