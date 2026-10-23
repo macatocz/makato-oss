@@ -10,6 +10,24 @@ here on merge to main; release-please will date and version them at the next rel
 
 ## [Unreleased]
 
+### Fixed — four checks that failed on `main` are green and now run in CI
+
+`headless-guard-smoke-tests.sh`, `pr-comments-smoke-tests.sh`, `tdd-verify-phase-smoke-tests.sh` and
+`scripts/check-no-hardcoded-model.sh` were not wired into `validate.yml`, so refactors broke them
+unnoticed. Each failure was a stale assertion, not a product bug:
+
+- **`headless-guard-smoke-tests.sh`** — T5 expected `exec env MAKATO_HEADLESS=1 "$CLAUDE_BIN"`; the
+  resume script now passes further `MAKATO_*` assignments between them. The pattern allows them and
+  still requires `MAKATO_HEADLESS=1` on the line that launches `$CLAUDE_BIN`.
+- **`pr-comments-smoke-tests.sh`** — 12 assertions followed wording from before the `plan.md`
+  `task[].Files[]` rename, the `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh"` call form and the merged
+  HALT-003 table rows; they now match the current text. Usage path corrected.
+- **`tdd-verify-phase-smoke-tests.sh`** — asserted the cross-task regression sweep that #149 removed
+  on purpose (coders run targeted RED/GREEN, `build-verify` owns whole-change gates). Rewritten to
+  the current contract and to fail if the sweep (`cross-task-verify`) comes back.
+- **`check-no-hardcoded-model.sh`** — see `makato-core` (`analyze-log` v1.0.1, schema examples).
+- All four are now steps of `validate-structure` in `.github/workflows/validate.yml`.
+
 ### Changed — route subagents through shared model roles
 
 - Removed the `modelRole:` frontmatter key from every agent; no harness read it. Each agent now

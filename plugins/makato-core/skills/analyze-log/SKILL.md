@@ -4,7 +4,7 @@ description: >-
   Render a human-readable audit report from build.jsonl — audit trail, per-phase
   time totals, token breakdown, model distribution, deduplicated critical findings.
   Use when debugging an autonomous run or reviewing build session performance.
-version: "1.0.0"
+version: "1.0.1"
 argument-hint: "[story-key | path/to/build.jsonl] [--since <date>] [--save] [--output <path>] [--jira]"
 allowed-tools: Bash Read Write Grep Glob
 metadata:

@@ -116,8 +116,10 @@ fi
 echo "T5: context-handoff.sh resume script exports MAKATO_HEADLESS=1"
 HANDOFF_SH="$REPO_ROOT/plugins/makato-orchestrate/scripts/context-handoff.sh"
 # The resume script is a heredoc — MAKATO_HEADLESS must appear on the
-# `exec` line inside that heredoc so it lands in the emitted script.
-if grep -qE 'exec[[:space:]]+env[[:space:]]+MAKATO_HEADLESS=1[[:space:]]+"\$CLAUDE_BIN"' "$HANDOFF_SH"; then
+# `exec env …` line inside that heredoc (alongside the other MAKATO_*
+# assignments the resume needs) so it lands in the emitted script, and
+# that line must go on to launch "$CLAUDE_BIN".
+if grep -qE 'exec[[:space:]]+env[[:space:]]+([^"]*[[:space:]])?MAKATO_HEADLESS=1[[:space:]].*"\$CLAUDE_BIN"' "$HANDOFF_SH"; then
   _pass "context-handoff.sh resume script exports MAKATO_HEADLESS=1"
 else
   _fail "context-handoff.sh resume script does NOT export MAKATO_HEADLESS=1"

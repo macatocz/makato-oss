@@ -20,10 +20,11 @@ Every skill emits `session` start and end entries:
 
 ### Step Entries
 
-Intermediate steps within a session:
+Intermediate steps within a session. The `model` field is not written by the emitting skill:
+`build-log.sh` copies it from the session-start entry, so it appears on every stored entry.
 
 ```json
-{"ts": "...", "skill": "build-coder", "story": "ISSUE-1234", "step": "red", "task": 1, "status": "ok", "model": "sonnet", "data": {...}}
+{"ts": "...", "skill": "build-coder", "story": "ISSUE-1234", "step": "red", "task": 1, "status": "ok", "model": "<from session start>", "data": {...}}
 ```
 
 ### Telemetry Entries
@@ -31,7 +32,7 @@ Intermediate steps within a session:
 Token usage data (when available):
 
 ```json
-{"ts": "...", "skill": "...", "story": "...", "step": "telemetry", "data": {"input_tokens": 1234, "output_tokens": 567, "model": "sonnet"}}
+{"ts": "...", "skill": "...", "story": "...", "step": "telemetry", "data": {"input_tokens": 1234, "output_tokens": 567, "model": "<model id>"}}
 ```
 
 ### Critical Finding Entries

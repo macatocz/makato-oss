@@ -146,6 +146,18 @@ jobs:
       - name: harness-audit smoke tests (makato-contribute)
         run: ./plugins/makato-contribute/scripts/tests/harness-audit-smoke-tests.sh
 
+      - name: headless-guard smoke tests (makato-build)
+        run: ./plugins/makato-build/shared/headless-guard-smoke-tests.sh
+
+      - name: build-address-pr-comments autonomous-mode smoke tests (makato-build)
+        run: ./plugins/makato-build/shared/pr-comments-smoke-tests.sh
+
+      - name: TDD verification contract smoke tests (makato-build)
+        run: ./plugins/makato-build/shared/tdd-verify-phase-smoke-tests.sh
+
+      - name: No hardcoded model in per-step log templates
+        run: bash scripts/check-no-hardcoded-model.sh
+
       - name: makato-flow diagram drift check (#428)
         run: python3 scripts/generate-flow-diagram.py --check
 
