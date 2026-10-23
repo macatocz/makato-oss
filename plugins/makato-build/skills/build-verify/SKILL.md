@@ -2,13 +2,15 @@
 name: build-verify
 description: >-
   Run the whole-change quality gate pipeline — build, lint, unit tests, and
-  locally or CI-owned integration and coverage checks. Code-level failures go
-  to bounded coder repair and independent re-review (default 3 rounds);
-  structural failures escalate to refine. Autonomous (--autonomous, dispatched
-  by PO-agent) or interactive. Use after review, before push-to-git. Triggers:
+  locally or CI-owned integration and coverage checks. Pytest gates run in
+  parallel (pytest-xdist) and repair re-checks triage incrementally
+  (pytest-testmon) through shared/pytest_accel.py. Code-level failures go to
+  bounded coder repair and delta re-review (default 3 rounds); structural
+  failures escalate to refine. Autonomous (--autonomous, dispatched by
+  PO-agent) or interactive. Use after review, before push-to-git. Triggers:
   verify, quality-gate, all-gates, build-pass, tests-pass, lint-clean,
   coverage-check, gate-pipeline, run-verify.
-version: "1.16.0"
+version: "1.17.0"
 argument-hint: "[work-item-key]"
 allowed-tools: [Bash, Read]
 ---
@@ -220,6 +222,23 @@ Python/JS/TS with populated hook commands, skip the reference.
 
 **Python runner prefix**: if `python_runner_prefix` is present and not `"none"` (e.g. `uv run`, `poetry run`), the gate-scout commands already include it. Run them verbatim — do NOT strip the prefix and do NOT re-add it. A bare `pytest`/`ruff` invocation in a lockfile-managed project resolves against the system Python and fails with `ModuleNotFoundError`.
 
+**Parallel and incremental pytest**: before running a pytest-based Gate 3 or Gate 4 command, pass it through the helper and run what it returns instead:
+
+```bash
+python3 "$MAKATO_BUILD_ROOT/shared/pytest_accel.py" rewrite --repo-root "$WORKTREE_PATH" \
+  --runner-prefix "<python_runner_prefix, empty when none>" --command "<gate command>" \
+  --lane unit|integration --purpose full|record|affected
+# {"command":"…","serial_command":"…","accelerated":true,"plugins":["xdist","pytest-cov"],"reason":"…","testmon_baseline":false,"testmon_bootstrap":false,"warnings":[]}
+```
+
+The helper adds `-n <workers>` (pytest-xdist) and, for `record`/`affected`, `--testmon-noselect`/`--testmon` (pytest-testmon). A Coverage.py `coverage run [--append] [--source=…] [--branch] [--rcfile=…] -m pytest …` is translated to `python -m pytest -n <workers> --cov… --cov-report=` (pytest-cov merges the worker data into the same `.coverage` file, so `coverage_report` is unchanged). It returns the command unchanged, with the reason, whenever the rewrite would not be safe — a Coverage.py option with no pytest-cov counterpart (`--include`, `--omit`, `--parallel-mode`, `--data-file`, …), `parallel`/`concurrency` in the project's coverage config, a compound shell command, `--pdb`, an existing `-n`, `MAKATO_PYTEST_WORKERS=1`, `MAKATO_PYTEST_ACCEL=off`. Rules:
+
+- Run `command` verbatim; never compose or edit it. `MAKATO_PYTEST_WORKERS` (`auto`, a number, or `1` to disable) is read by the helper.
+- Exit code 1 is a normal test failure — apply the `BASELINE_FAILURES` comparison and the single-test flaky re-run below, and run that single test with the original test ID and no helper. Exit code 2, 3 or 4, or a `worker 'gwN' crashed` failure, is an infrastructure failure, not a test result: re-run `serial_command` once, treat that result as the gate result, and log `accel_fallback:true`.
+- `purpose:"affected"` (testmon) selects only tests whose code changed since the baseline. It is triage for Step 2a, never a gate pass; Gates 3 and 4 always run in full.
+- A `reason` saying a plugin is not installed means the run is unaccelerated. uv-managed projects never hit this — the helper overlays the plugin with `uv run --with`. For other runners, interactive mode may offer once to run the exact `pytest_accel.py install --repo-root "$WORKTREE_PATH" --runner-prefix "<prefix>" [--plugins …]` command the `reason` names (a Coverage.py project needs `pytest-cov`); autonomous mode never installs packages.
+- Log `accelerated`, `plugins` and `accel_reason` (the helper's `reason`) with the gate entry.
+
 **Extra linters**: if `lint_js` or `lint_sql` are present and not `"not found"`, run them as additional LINT-gate commands alongside the primary `lint` command. Each must pass independently; a failure in any is a LINT-gate failure. Log each under its own `data.linter` key.
 
 **JVM version check** (Maven/Gradle projects only): if `java_version_required` is present in the gate-scout output, run `java -version` and compare the major version. If they differ, emit a WARNING:
@@ -242,6 +261,13 @@ For an invalid value, log:
 
 ```json
 {"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"verify-repair","status":"warn","data":{"reason":"invalid MAKATO_MAX_REPAIR_ROUNDS","fallback":3}}
+```
+
+Resolve the diff base once, and clear acceleration state left by an earlier session:
+
+```bash
+REVIEW_BASE="$(cd "$WORKTREE_PATH" && git merge-base "$("$MAKATO_BUILD_ROOT/shared/default-branch.sh")" HEAD)"
+python3 "$MAKATO_BUILD_ROOT/shared/pytest_accel.py" reset --repo-root "$WORKTREE_PATH"
 ```
 
 Run:
@@ -288,8 +314,11 @@ build-sensors; sensor findings never become coder `VERIFY_FINDINGS`.
 
 For each repair round:
 
-1. Before each coder dispatch, capture the current changed/untracked file set and
-   contents as a pre-repair snapshot. Dispatch `coder` in verify-repair mode with
+1. Before each coder dispatch, snapshot the working tree (changed and untracked
+   files with their contents) — `PRE_REPAIR_SNAPSHOT="$(python3
+   "$MAKATO_BUILD_ROOT/shared/review_scope.py" snapshot --worktree
+   "$WORKTREE_PATH" | python3 -c 'import json,sys; print(json.load(sys.stdin)["snapshot"])')"`.
+   Dispatch `coder` in verify-repair mode with
    `VERIFY_FINDINGS`, `WORKTREE_PATH`, `REPO_ROOT`, `MAKATO_BUILD_ROOT`,
    `JSONL_PATH`, `STORY_KEY`, `PLAN_CONTEXT`, `GATE_COMMANDS`,
    `BASELINE_FAILURES`, `REPAIR_ROUND` (the next round number), and
@@ -319,13 +348,25 @@ For each repair round:
    `status:"error"` and return R1 `failure`; use `repaired:[]` and list every
    supplied ID as unresolved. Environment/setup blockers do not enter coder
    repair.
-3. After coder success, compute `REPAIR_DELTA` against the pre-repair snapshot
-   and dispatch the read-only `diff-reviewer` to independently review only that
-   delta against `PLAN_CONTEXT`. Supply `REPAIR_DELTA`, the pre-repair snapshot
-   and changed-file set, the current `WORKTREE_PATH`, `REPO_ROOT`, and prior
-   relevant findings. Retain any new CRITICAL/MAJOR findings as
-   `REVIEW_FINDINGS` for the next round. Coder success is not a review or gate
-   pass.
+3. After coder success, measure the repair against the snapshot and dispatch the
+   read-only `diff-reviewer` to independently review it against `PLAN_CONTEXT`:
+
+   ```bash
+   python3 "$MAKATO_BUILD_ROOT/shared/review_scope.py" delta --worktree "$WORKTREE_PATH" \
+     --review-base "$REVIEW_BASE" --snapshot "$PRE_REPAIR_SNAPSHOT"
+   python3 "$MAKATO_BUILD_ROOT/shared/review_scope.py" decide --event repaired \
+     --last-scope full --full-since-repair true --repair-rounds "$repair_rounds" \
+     --scope-ratio <scope_ratio from the delta output>
+   ```
+
+   Supply the `delta` JSON as `REPAIR_DELTA`, `REVIEW_SCOPE` equal to the
+   decision's `next` (`delta`, or `full` when the repair plus its neighbours
+   already cover most of the change or `MAKATO_REVIEW_SCOPE=full`), the current
+   `WORKTREE_PATH`, `REPO_ROOT`, `REVIEW_BASE`, and prior relevant findings. Omit
+   `PRIOR_AC_VERDICTS`; build-review already owns the AC verdicts. If either helper
+   fails, dispatch with `REVIEW_SCOPE: full`. Retain any new CRITICAL/MAJOR
+   findings as `REVIEW_FINDINGS` for the next round. Coder success is not a
+   review or gate pass.
 4. Re-run gates under the existing scope rule: if production code changed,
    start at BUILD and run applicable gates forward; if changes are test-only,
    test-data, or config-only, start at the first affected gate and run applicable
@@ -335,6 +376,19 @@ For each repair round:
    `$MAKATO_BUILD_ROOT/shared/coverage-raise-guide.md` specifies. Apply the single
    flaky-test re-run rule again. Never count coder targeted tests as a
    substitute for these gates.
+
+   **Incremental triage.** When Gate 3 is in the re-check set, first ask for the
+   incremental form of the plain `unit` command (never `unit_coverage`) with
+   `--lane unit --purpose affected` (Step 1 helper) and, only when the result has
+   `accelerated:true` and `testmon` in `plugins`, run it. A failure that survives
+   the `BASELINE_FAILURES` comparison and the single-test flaky re-run is an
+   unresolved finding of this round: skip the remaining full gates — they cannot
+   pass — and start the next round with it. Judge the run by the failing test
+   IDs only: testmon's counts describe its selection (it runs one of several
+   parametrizations, and under `-n` one per worker), not the suite. With
+   `testmon_bootstrap:true` there is no baseline yet, so this triage runs the
+   whole suite once and records it; later rounds are incremental. A pass, or
+   "no tests ran", proves nothing about the whole suite: run Gate 3 in full next.
 5. Log each completed independent re-check:
 
    ```json
@@ -519,6 +573,14 @@ run `unit_coverage` instead of `unit`: it collects into a fresh coverage data
 set without reporting. Otherwise run `unit`. This is one unit-lane run; do not
 run the all-in-one `coverage` fallback here.
 
+Run the chosen command through the Step 1 helper with `--lane unit --purpose
+record`. A plain `pytest` command is recorded as the testmon baseline that Step
+2a's incremental triage selects against. A Coverage.py `unit_coverage` command is
+translated to `python -m pytest -n <workers> --cov` (pytest-cov), which writes
+the same `.coverage` data for the later `coverage report`; testmon cannot record
+while coverage is measured, so the first triage of a repair loop records the
+baseline instead.
+
 Gate passes when there are zero new failures relative to `BASELINE_FAILURES`
 from the reusable baseline row; pre-existing failures in that exact baseline
 do not count. Record total, passed, failed, and skipped.
@@ -538,7 +600,7 @@ round (Gate 5 below).
 
 Log:
 ```
-{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-unit","status":"ok"|"error","data":{"total":<N>,"passed":<N>,"failed":<N>,"skipped":<N>}}
+{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-unit","status":"ok"|"error","data":{"total":<N>,"passed":<N>,"failed":<N>,"skipped":<N>,"accelerated":<bool>,"plugins":["xdist"|"testmon"],"accel_reason":"<helper reason>|null","accel_fallback":<bool>}}
 ```
 
 ---
@@ -575,6 +637,11 @@ to Gate 3's fresh coverage data without reporting. Integration tests run against
 real dependencies; complete required setup first, and report setup failures
 without running tests against an incomplete environment or dispatching coder.
 
+Run the chosen command through the Step 1 helper with `--lane integration
+--purpose full`. Integration tests share real databases and ports, so the helper
+adds workers to this lane only when `MAKATO_PYTEST_XDIST_INTEGRATION=1`;
+otherwise it returns the command unchanged.
+
 For local runs, compare failures against `BASELINE_FAILURES` and apply the
 single-test flaky check from Step 2a. A remaining failure blocks only when
 `MANDATORY == true`; otherwise log it as advisory and continue to Gate 5.
@@ -583,7 +650,7 @@ at Gate 3 so unit and local integration coverage are fresh.
 
 Log:
 ```
-{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-integration","status":"ok"|"error"|"skipped","data":{"owner":"local|ci","ci_ref":"<repo-relative CI file>:<line>|null","total":<N>,"passed":<N>,"failed":<N>,"skipped":<N>,"mandatory":<bool>,"tracer_required":<bool|null>,"distinct_layer_count":<int|null>,"junit_report":"<repo-relative path>|null"}}
+{"ts":"<ISO8601>","skill":"build-verify","story":"<key>","step":"gate-integration","status":"ok"|"error"|"skipped","data":{"owner":"local|ci","ci_ref":"<repo-relative CI file>:<line>|null","total":<N>,"passed":<N>,"failed":<N>,"skipped":<N>,"mandatory":<bool>,"tracer_required":<bool|null>,"distinct_layer_count":<int|null>,"junit_report":"<repo-relative path>|null","accelerated":<bool>,"plugins":["xdist"],"accel_reason":"<helper reason>|null","accel_fallback":<bool>}}
 ```
 
 ---

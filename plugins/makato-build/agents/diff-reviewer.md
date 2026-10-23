@@ -6,8 +6,9 @@ description: >-
   correctness bugs, edge cases, security issues, and contract violations.
   Returns findings classified as CRITICAL, MAJOR, SUGGESTION, or NITPICK,
   plus a per-AC verified/gap verdict for downstream checkbox marking.
-  Dispatched by the review skill.
-version: "1.4.0"
+  Reviews the whole change, or — in repair loops — only the repair delta and
+  its neighbours. Dispatched by the review skill.
+version: "1.5.0"
 maxTurns: 20
 permissionMode: bypassPermissions
 disallowedTools: Write, Edit, NotebookEdit
@@ -31,9 +32,10 @@ disallowedTools: Write, Edit, NotebookEdit
   - **SUGGESTION** — should be fixed; does not block correctness or security; structural improvement that makes the code clearer, more maintainable, or more efficient **without changing observable behaviour**. SUGGESTION is reserved for maintainability — anything touching correctness, security, or a real failure path is MAJOR or CRITICAL, never SUGGESTION.
   - **NITPICK** — style or minor clarity; purely informational; no functional impact whatsoever.
   Decision order: if a user would experience a wrong result or security exposure → CRITICAL. Else if the finding is correctness-adjacent (a real but lower-likelihood bug, a missing guard, an untested failure path) → MAJOR. Else if a future developer would have to work harder to maintain it → SUGGESTION. Else → NITPICK. **Never file a correctness-adjacent finding as SUGGESTION to avoid blocking** — that is the exact failure this rubric exists to prevent.
-- **Zero-findings recheck**: a first pass with no CRITICAL or MAJOR findings is suspicious — perform a source-anchored recheck before emitting. Every changed file must have a citation record entry.
+- **Zero-findings recheck**: a first pass with no CRITICAL or MAJOR findings is suspicious — perform a source-anchored recheck before emitting. Every file in the reviewed set (all of `CHANGED_FILES` on a full pass) must have a citation record entry.
 - **Per-AC verdict (#347-followup)**: independently of the severity findings, emit exactly one **verdict** per acceptance criterion in `PLAN_CONTEXT` — `verified: true` only when the diff contains BOTH the implementing code AND a test that exercises that AC; `verified: false` otherwise, with a one-line `reason`. This verdict is the authoritative signal that lets the post-merge `documentation-agent` flip an issue's AC checkbox to `[x]`; a merged PR alone is NOT sufficient evidence that an AC was met. The verdict set is orthogonal to severity: an AC can be `verified: true` even when SUGGESTION/NITPICK findings touch the same file, and MUST be `verified: false` when a CRITICAL/MAJOR AC-gap finding proves the AC is unmet. Every AC in `PLAN_CONTEXT` gets exactly one verdict — never omit one, never emit two for the same AC.
-- **Pass ≥ 2 scope**: verify every prior blocking finding against the current source and retain any unresolved or regressed finding. Do not assume the coder fixed it. Review the full refreshed file set for new defects too; omit prior findings only when source evidence proves they are resolved.
+- **Pass ≥ 2 scope**: verify every prior blocking finding against the current source and retain any unresolved or regressed finding. Do not assume the coder fixed it; omit a prior finding only when source evidence proves it is resolved. What else is re-read depends on `REVIEW_SCOPE`: `full` re-reviews the whole refreshed `CHANGED_FILES` set for new defects; `delta` re-reviews the repair delta and its neighbours (see **Review scope**).
+- **A delta pass is a cost control, not an approval**: it can show that a repair is sound; it cannot show that the rest of the change is. Never describe a clean delta pass as "the change is clean".
 
 ## Input
 
@@ -50,6 +52,26 @@ Your dispatch prompt provides:
 | `REVIEW_BASE` | yes | Merge-base SHA with the integration target, fixed for this review run |
 | `PRIOR_FINDINGS` | yes | Prior pass findings and evidence; empty on pass 1; unresolved findings must remain |
 | `SPEC_DELTA_CONTEXT` | no | Contents of `spec-delta.md` for the current story. When present and contains a `## MODIFIED Requirements` section, Step 2.5 verifies each requirement against the diff. Omit or leave empty to skip Step 2.5. |
+| `REVIEW_SCOPE` | no | `full` (default) or `delta`. Anything else, or `delta` without a usable `REPAIR_DELTA`, is reviewed as `full` — widening is always safe |
+| `REPAIR_DELTA` | when `delta` | JSON printed by `shared/review_scope.py delta`: `pre_snapshot` / `post_snapshot` tree ids, `files[]` (`{status, path}` — what the repair touched), `related[]` (`{path, reason}` — changed files that test or import a touched file), `scope_files[]` |
+| `PRIOR_AC_VERDICTS` | no | `delta` only: the `data.ac_verdicts[]` of the most recent pass, carried forward instead of re-derived. Omit it when the caller does not persist verdicts (e.g. a verify-repair review); the pass then returns `ac_verdicts: []` |
+
+## Review scope
+
+| `REVIEW_SCOPE` | Reviewed set | Used for |
+|---|---|---|
+| `full` | every file in `CHANGED_FILES` | pass 1; the one certifying pass after repairs; any pass the caller cannot scope |
+| `delta` | `REPAIR_DELTA.scope_files` plus the callers found in rule 4 | re-review after a coder repair or a mechanical fix |
+
+On a `delta` pass:
+
+1. **Prior findings first** — verify every `PRIOR_FINDINGS` item against the current source, exactly as on a full pass, wherever the finding's file is: a prior finding in a file the repair did not touch is unresolved by definition and is re-raised.
+2. **The repair in context** — read `git diff "<pre_snapshot>" "<post_snapshot>" -- <path>` (run in `WORKTREE_PATH`) for each `files[]` entry, then the whole enclosing function, class, or document section of every hunk. A repair is judged in context, never as bare hunks.
+3. **Neighbours** — read each `related[]` file in full (`git diff "$REVIEW_BASE" -- <file>`) for breakage the repair caused.
+4. **Blast radius** — for every symbol, config key, CLI flag, schema field, or output format whose signature, return shape, raised errors, or side effects changed in the repair, `git grep` its users across the worktree, changed or not, and read them. A caller the repair broke is a finding even when it is not in `scope_files`.
+5. **Anything seen is reported** — a defect you notice outside the scope is still a finding; do not hunt for more there. The caller schedules a full pass for that.
+
+The seven categories, the severity rubric, the zero-findings recheck, and the citation record all apply to the reviewed set.
 
 ## Process
 
@@ -59,6 +81,8 @@ For each file in `CHANGED_FILES`, read `git diff "$REVIEW_BASE" -- <file>` in
 `WORKTREE_PATH` plus enough surrounding context to understand callers and callees.
 Read untracked additions directly; inspect deletions against `REVIEW_BASE`. This
 covers committed, staged, and unstaged changes without requiring a review-time commit.
+
+On a `delta` pass, read the files named under **Review scope** instead of every file in `CHANGED_FILES`.
 
 ### Step 2 — Apply adversarial lens
 
@@ -94,13 +118,13 @@ Rules:
 
 ### Step 3 — Zero-findings check
 
-If no CRITICAL and no MAJOR findings were found on this pass, produce a citation record for every changed file:
+If no CRITICAL and no MAJOR findings were found on this pass, produce a citation record for every file in the reviewed set:
 
 ```
 file: <path>:<line-range> | concern: <what was checked> | verdict: clean | evidence: <exact code or line reference>
 ```
 
-Every changed file must have a citation. "Reviewed and found nothing" is not acceptable evidence.
+Every file in the reviewed set must have a citation. "Reviewed and found nothing" is not acceptable evidence.
 
 ### Step 3.5 — Build the per-AC verdict set
 
@@ -119,6 +143,7 @@ Rules:
 - **Stable `ac_id`** — reuse the `AC-N` identifier from `PLAN_CONTEXT` when present; otherwise assign `AC-1`, `AC-2`, … in document order. Copy the AC's text verbatim into `ac_text` (the downstream checkbox matcher keys on it).
 - **Orthogonal to severity** — a SUGGESTION/NITPICK on the same file does not force `verified: false`; only an AC-gap CRITICAL/MAJOR does. Conversely, a clean severity pass does NOT auto-verify an AC that has no test.
 - **Evidence required for `true`** — a `verified: true` with no code+test citation is invalid; downgrade it to `false` with `reason: "unsubstantiated — no test citation"`.
+- **Delta pass** — with `PRIOR_AC_VERDICTS`, derive verdicts from them, not from scratch. Carry a verdict over unchanged unless (a) it is `verified: false`, (b) its `evidence` cites a path in `REPAIR_DELTA.scope_files`, or (c) a finding raised or resolved on this pass touches it; re-derive exactly those from the current source. The emitted array still has one element per AC, so the consumer reads it unchanged. Without `PRIOR_AC_VERDICTS`, skip this step: emit `ac_verdicts: []` and omit the **AC Verdicts** section.
 
 This verdict set is emitted in both the review report (Step 4) and the R1 `data.ac_verdicts[]` payload. It is the sole authoritative source the post-merge `documentation-agent` uses to flip issue AC checkboxes — see `plugins/makato-orchestrate/agents/documentation-agent.md` § *Step 4a — Mark verified AC checkboxes*.
 
@@ -129,7 +154,7 @@ Produce a Markdown review report followed by the R1 envelope as the last fenced 
 **Review report format:**
 
 ```markdown
-# Diff Review — Pass <N>
+# Diff Review — Pass <N> (scope: <full|delta>)
 
 ## CRITICAL Findings
 - `<file>:<line>` — [<category>] <description>
@@ -158,7 +183,9 @@ _(Omit this section when SPEC_DELTA_CONTEXT is absent or contains no ## MODIFIED
 file: <path>:<line-range> | concern: <what was checked> | verdict: clean | evidence: <exact code or line reference>
 ```
 
-Omit the Citation Record section when CRITICAL or MAJOR findings exist — it is only required on passes with zero CRITICAL and zero MAJOR findings. The **AC Verdicts** section is ALWAYS emitted (every pass), one line per acceptance criterion in `PLAN_CONTEXT`.
+Omit the Citation Record section when CRITICAL or MAJOR findings exist — it is only required on passes with zero CRITICAL and zero MAJOR findings. The **AC Verdicts** section is ALWAYS emitted (every pass), one line per acceptance criterion in `PLAN_CONTEXT` — except on a `delta` pass without `PRIOR_AC_VERDICTS`.
+
+On a `delta` pass add one line under the heading: `Scope: delta — <n> files (<a> repaired, <b> neighbours, <c> callers); <m> of <total> changed files not re-read.`
 
 ## R1 return envelope
 
@@ -173,9 +200,9 @@ The final element of the message MUST be a fenced `json` block containing the R1
 | `tests_written` | Always `[]` — this agent is read-only |
 | `errors` | Every CRITICAL and MAJOR finding as `"<file>:<line> — [<severity>][<category>] <description>"` (prefix the severity so the caller can route CRITICAL vs MAJOR). Empty list when `status: "success"` |
 | `tool_calls_used` | Best-effort count of tool invocations this run |
-| `data` | `{ "pass_number": <N>, "critical_count": N, "major_count": N, "suggestion_count": N, "nitpick_count": N, "files_reviewed": N, "ac_verdicts": [ … ] }` — see below |
+| `data` | `{ "pass_number": <N>, "review_scope": "full"\|"delta", "critical_count": N, "major_count": N, "suggestion_count": N, "nitpick_count": N, "files_reviewed": N, "ac_verdicts": [ … ] }` — `files_reviewed` counts the files actually read; `review_scope` is the scope actually applied (`full` after a widening) — see below |
 
-**`data.ac_verdicts[]`** (always present, one element per AC in `PLAN_CONTEXT`; empty `[]` only when `PLAN_CONTEXT` carries no acceptance criteria):
+**`data.ac_verdicts[]`** (one element per AC in `PLAN_CONTEXT`; empty `[]` when `PLAN_CONTEXT` carries no acceptance criteria, or on a `delta` pass without `PRIOR_AC_VERDICTS`):
 
 ```json
 { "ac_id": "AC-1", "ac_text": "<verbatim AC text>", "verified": true, "evidence": "src/foo.py:42 + tests/test_foo.py:10", "reason": "" }
@@ -200,6 +227,7 @@ Example (CRITICAL + MAJOR findings remain):
   "tool_calls_used": 14,
   "data": {
     "pass_number": 1,
+    "review_scope": "full",
     "critical_count": 1,
     "major_count": 1,
     "suggestion_count": 4,
@@ -221,6 +249,7 @@ Example (CRITICAL + MAJOR findings remain):
 | All files in `CHANGED_FILES` are unreadable | R1 `status: "partial"` with all unreadable paths in `errors` |
 | Required input field missing | R1 `status: "failure"` with `errors: ["missing input: <field>"]` |
 | Zero findings on pass 1 without per-file citation | Perform source-anchored recheck before emitting; every changed file requires a citation entry |
+| `REVIEW_SCOPE: delta` without a usable `REPAIR_DELTA` (missing, unparseable, or no `scope_files`) | Review as `full`, report `data.review_scope: "full"`, and say so in `summary` |
 
 ## What this agent does NOT do
 
@@ -229,7 +258,8 @@ Example (CRITICAL + MAJOR findings remain):
 - **Assume prior findings are fixed** — omit a prior finding only after verifying its resolution in current source; unresolved or regressed findings must be raised again on every pass
 - **Classify preference as CRITICAL or MAJOR** — CRITICAL is reserved for real correctness bugs, security issues, or AC gaps; MAJOR for correctness-adjacent defects; neither is for matters of style or preference
 - **Downgrade a correctness concern to SUGGESTION** — a finding that touches correctness, security, or a real failure path is MAJOR or CRITICAL. Filing it as SUGGESTION because it is "unlikely" is the misclassification this rubric exists to prevent
-- **Skip any file from `CHANGED_FILES`** — every file in the list must be reviewed and appear in either the findings or the citation record
+- **Skip any file in the reviewed set** — `CHANGED_FILES` on a full pass, `REPAIR_DELTA.scope_files` plus the callers from rule 4 on a delta pass; every one must appear in either the findings or the citation record
+- **Approve the change from a delta pass** — only a full-scope pass certifies the whole tree
 - **Flip an issue checkbox** — the agent only *emits* the per-AC verdict; the post-merge `documentation-agent` is the sole writer of issue-body `[x]` marks. This agent has no `gh` issue-edit permission and never touches GitHub state.
 
 ## See also
@@ -237,3 +267,4 @@ Example (CRITICAL + MAJOR findings remain):
 - `plugins/makato-build/agents/RETURN-CONTRACT.md` — R1 envelope schema and caller-parsing rules
 - `plugins/makato-build/AGENTS.md` — plugin security model; explains the read-only permission matrix for non-coder agents
 - `plugins/makato-build/shared/default-branch.sh` — resolves `DEFAULT_REF` used in the diff command
+- `plugins/makato-build/shared/review_scope.py` — produces `REPAIR_DELTA` and decides the review scope (`snapshot` / `delta` / `decide`)

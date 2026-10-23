@@ -27,6 +27,84 @@ unnoticed. Each failure was a stale assertion, not a product bug:
   the current contract and to fail if the sweep (`cross-task-verify`) comes back.
 - **`check-no-hardcoded-model.sh`** — see `makato-core` (`analyze-log` v1.0.1, schema examples).
 - All four are now steps of `validate-structure` in `.github/workflows/validate.yml`.
+### Changed — build-review/build-verify: delta re-review with a final full pass, parallel and incremental pytest
+
+Why: on sagibeast#1277 (47 files, +17,689/−159) `build-review` ran 10 passes and re-read all 45
+changed files on every one (`files_reviewed: 45` each time), three repair loops exhausted the
+round cap, and `build-verify` re-ran the whole serial unit suite (~4,880 tests, 463–610 s) at
+least five times — 28 h wall clock for about 7 h of active work.
+
+- **`build-review` v1.9.0** — pass 1 reviews the whole change; after a coder repair the re-review
+  covers the repair delta plus the changed files that test or reference it
+  (`REVIEW_SCOPE: delta`, `REPAIR_DELTA`, `PRIOR_AC_VERDICTS`). A delta pass proves the repair, not
+  the change, so when the last repair has only been delta-reviewed one `final-full` pass certifies
+  the whole tree before the skill proceeds. Scope is decided by `shared/review_scope.py decide`;
+  helper failure or a delta covering ≥ 60 % of the change degrades to a full review, never a
+  narrower one. `MAKATO_MAX_REPAIR_ROUNDS` and the HALT-003 exhaustion rule are unchanged. The
+  session record and R1 gain `full_passes` / `delta_passes`.
+- **`diff-reviewer` v1.5.0** — accepts `REVIEW_SCOPE`, `REPAIR_DELTA` and `PRIOR_AC_VERDICTS`. On a
+  delta pass it re-checks prior findings first, reads the repair hunks with their enclosing
+  function and the neighbour files, and `git grep`s callers of changed signatures. Anything it sees is
+  reported; a delta pass without a usable `REPAIR_DELTA` is reviewed as full. R1 `data` gains
+  `review_scope`; `files_reviewed` counts files actually read.
+- **`build-verify` v1.17.0** — Gate 3 and Gate 4 pytest commands go through
+  `shared/pytest_accel.py rewrite` (pytest-xdist workers; integration only with
+  `MAKATO_PYTEST_XDIST_INTEGRATION=1`). A repair re-check first runs a pytest-testmon triage of
+  the unit lane against the baseline recorded by Gate 3 — a failing triage ends the round early, a
+  passing one never replaces the full gate. Verify-repair re-reviews use `review_scope.py` for the
+  snapshot and delta. Accelerated runs that hit an infrastructure failure re-run `serial_command`.
+- **`shared/review_scope.py`** (new) — `snapshot` / `delta` / `decide`: exact working-tree
+  snapshots through a throw-away git index (the real index and tree are never touched), the repair
+  delta with its neighbours, and the pass-scheduling state machine.
+- **`shared/pytest_accel.py`** (new) — `detect` / `install` / `rewrite` / `reset`. Adds
+  `-n <workers>` to a single `pytest` command and, for triage, testmon. A Coverage.py
+  `coverage run [--append] [--source] [--branch] [--rcfile] -m pytest` — which `-n` would leave
+  unmeasured — is translated to `python -m pytest -n <workers> --cov…` (pytest-cov), writing the same
+  `.coverage` data so `coverage report` is unchanged (identical figures and missing lines verified
+  across a fresh unit run plus an appended integration run; `--cov-fail-under=0` keeps the threshold
+  with `coverage report`, as under `coverage run`). Coverage options with no pytest-cov
+  counterpart, `parallel`/`concurrency` in the coverage config, compound shell commands, `--pdb` and
+  an existing `-n` keep the command as it is. testmon cannot record under coverage, so the first
+  triage of a repair loop records the baseline (it runs the suite once). uv projects get the
+  plugins through an ephemeral `uv run --with`; other runners opt in with
+  `pytest_accel.py install`. Neither touches the target project's manifest or lockfile; testmon's
+  database lives in the git dir.
+- New environment variables: `MAKATO_REVIEW_SCOPE` (`delta` default, `full` restores a full review on
+  every pass), `MAKATO_PYTEST_ACCEL=off`, `MAKATO_PYTEST_WORKERS` (`auto`, a number, or `1`),
+  `MAKATO_PYTEST_XDIST_INTEGRATION=1`.
+- **`agents/RETURN-CONTRACT.md`** documents the new diff-reviewer and build-review `data` keys.
+- The repo's own harness gains `pytest-xdist` and `pytest-testmon` in the dev dependency group and
+  CI runs `pytest -n auto` (907 tests: 53 s serial → 11 s on a local multi-core machine).
+### Added — autonomous `build-grill-with-docs` asks every open question through the ticket
+
+Autonomous GitHub-issue runs (`build-refine` → … → `build-create-pr`) used to stall at
+`build-grill-with-docs`, whose alignment interview only worked by asking the user in chat. It now
+has an autonomous mode that never prompts and never blocks a headless session.
+
+- **`build-grill-with-docs` v1.10.0** — `--autonomous` (also `$AGENT_ID` / context-bundle
+  `task_id`; `MAKATO_HEADLESS=1` without a trigger → `MISSING_INPUT`). Settled, cheap-to-reverse or
+  unanswerable questions are **decided** with the recommended option (marked `assumed` in
+  `decisions.md`, listed in R1 `data.assumed`). Every remaining question is asked **at once** in ONE
+  issue comment — lettered options, exactly one recommendation each — the card moves to **Blocked**
+  and the skill returns R1 `partial` with `data.awaiting_answers`. The human answers in the issue and
+  moves the card back to **Ready** or **In progress**; the resumed run collects the replies (the
+  recommended option fills any gap) and asks again only when an answer creates new questions, at most
+  `MAKATO_GRILL_MAX_QUESTION_ROUNDS` (default 3) rounds. `MAKATO_GRILL_MODE=decide` never asks; no
+  `ISSUE_NUMBER`, an unobservable board or a refused board write also fall back to deciding. ADRs are
+  written without an approval prompt when all three ADR criteria hold; a missing ADR directory means
+  skip-ADRs. Bypass gates: `term-resolution`, `adr-dir-missing`, `questions-unavailable`.
+- **`shared/human_questions.py`** (+ `test_human_questions.py`) — stdlib helper behind the skill:
+  `post` (block the card first, then comment, then write `awaiting-answers-<N>.json`), `status` /
+  `wait`, `collect` (only replies after the question comment; `Q1: B`, `all: recommended`, free text),
+  `resolve`. Exit codes distinguish waiting, expired, closed, unobservable board and round limit.
+
+### Changed — grill documentation and HALT origins
+
+- **`halt-codes.md`** — `MISSING_INPUT` origins include `build-grill-with-docs` (headless guard).
+- **`AUTONOMOUS-MODE.md`** — grill gate rows in the default-taking table, a new § _Open questions:
+  the ticket is the human channel_, and the stale "its interactivity is the work itself" bullet is gone.
+- **`build-refine` v1.15.1**, **`build-start` v1.11.3** — hand-off text / pipeline map point out that
+  the po-agent runs the grill autonomously.
 
 ### Changed — route subagents through shared model roles
 

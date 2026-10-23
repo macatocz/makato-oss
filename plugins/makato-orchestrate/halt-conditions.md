@@ -14,13 +14,14 @@ Silent termination is a contract violation.
 
 ## HALT taxonomy
 
-There are two HALT categories. The distinction is **load-bearing** and drives whether the issue
-gets the `needs-human-review` label:
+There are two HALT categories, plus one wait state that is not a HALT. The distinction is
+**load-bearing** and drives whether the issue gets the `needs-human-review` label:
 
 | Category | Meaning | Issue labelled `needs-human-review`? | Next operator action |
 |----------|---------|--------------------------------------|----------------------|
 | **Hard stop** | Mission cannot continue without human judgement. Cost ceilings, structural blockers, kill-switches. | **Yes** | Investigate; re-invoke `loop --autonomous` manually after fix. |
 | **Soft handoff** (HALT-007B only) | Mission CAN continue — the current Claude session just can't carry it any further. Quality control, not cost control. | **No** | None. A fresh subprocess restarts automatically via `resume-{KEY}.sh`. |
+| **Awaiting answers** (not a HALT, no code) | The run needs a human decision BEFORE any code is written (`build-grill-with-docs --autonomous`, po-agent Step 2d). It asked everything in one batched issue comment and parked. | **No** | Answer the comment, then move the card back to **Ready** or **In progress**. The loop resumes the run by itself. |
 
 ## Code table
 
@@ -72,6 +73,24 @@ began*, so it evaluates the delta `budget_consumed_tokens - session_baseline_tok
 touching the cumulative counter, so a resumed session starts with a fresh context budget while
 the cost ceiling keeps accruing. Resetting `budget_consumed_tokens` itself (the naive fix) would
 have silently disabled the HALT-007 per-task and daily cost ceilings.
+
+## Awaiting answers — a parked run is not a HALT
+
+When the grill gate has open questions that cost something to guess, the run does not HALT: the
+skill posts ONE comment (every question, its options, a recommendation), moves the card to **Blocked**,
+writes `awaiting-answers-<N>.json` into the spec folder and returns R1 `partial`
+(`data.awaiting_answers: true`). There is no code, no `halt_audit[]` entry, no `needs-human-review`,
+no structural-HALT counter bump and the worktree stays untouched (the plan lives in it).
+
+While the marker exists the loop leaves the issue alone — `_reconcile_orphaned_in_progress`,
+`_reconcile_orphaned_stale` (HALT-015), stall-resume (HALT-014), `promote-ready.sh` and the worktree
+reaper all skip it — and each tick `_resume_answered_questions` asks
+`makato-build/shared/human_questions.py status` whether the human moved the card back to Ready or In
+progress (or `MAKATO_QUESTIONS_MAX_WAIT_SECS` expired). If so it re-dispatches with `dispatch --resume`.
+A run that is resumed `AWAITING_RESUME_MAX` times without ever parking again or finishing the gate is
+escalated with `needs-human-review` and a HALT-014 (no-progress) comment. Answers that open new
+questions park the run again, at most `MAKATO_GRILL_MAX_QUESTION_ROUNDS` times; the last round takes the
+recommended options. Settings: `config/config.md` § *Parked-on-questions resume*.
 
 ## Audit shape
 

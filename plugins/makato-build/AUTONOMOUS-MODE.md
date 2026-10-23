@@ -98,6 +98,36 @@ by a headless caller — track via the skill's own PR when the need arises.
 | `build-simplify`            | Step 5 — zero-findings confirmation                                                                  | Asks user to confirm zero findings                                   | Proceed without confirmation. Log `step: "review"` with `data.zero_findings: true`.                                                                                                                                                                                                                                                                                        |
 | `build-simplify`            | Step 7a — unverified-code-changes prompt (no test runner discovered AND ≥1 code-file change applied) | Prompts y/n before hand-off                                          | Skip prompt entirely; emit R1 with `data.test_suite_present: false` + `data.degraded_confidence: true` so the PO-agent routes the run for elevated scrutiny. See § _No-test-runner handling in `build-simplify` is a degraded-confidence path, not a HALT_.                                                                                                                |
 | `build-review`              | Step 5 — CRITICAL/MAJOR repair loop                                                                  | Dispatch coder and re-review within the configured repair-round cap; fail closed on exhaustion | Identical to interactive mode; no approval bypass. `MAKATO_MAX_REPAIR_ROUNDS` defaults to 3; unresolved findings exhaust to HALT-003. See § _CRITICAL and MAJOR block both review modes_. |
+| `build-grill-with-docs`     | Step 1 — work-item-key prompt                                                                        | Asks for key                                                         | If no arg passed: HALT `MISSING_INPUT`. If arg passed: use it.                                                                                                                                                                                                                                                                                                             |
+| `build-grill-with-docs`     | Step 5a — alignment interview (term conflicts, fuzzy/overloaded names, ADR-worthy choices)           | Asks the user one question at a time, with a recommendation each     | Settled or cheap-to-reverse → take the recommended option (`gate: "term-resolution"`, `default_taken: "take-recommended"`), `assumed` in `decisions.md` + `data.assumed`. Costly and unsettled → ONE batched comment on the issue (lettered options, one recommendation each), card → `Blocked`, marker `awaiting-answers-<N>.json`, R1 `partial` with `data.awaiting_answers`; this is a park, not a HALT. Human answers + moves the card to `Ready`/`In progress` → `loop` resumes. No board / no `ISSUE_NUMBER` / refused board write / round cap (`MAKATO_GRILL_MAX_QUESTION_ROUNDS`, default 3) / `MAKATO_GRILL_MODE=decide` → take the recommendation (`gate: "questions-unavailable"`). |
+| `build-grill-with-docs`     | Step 1 — ADR directory missing                                                                       | Asks which directory to use                                          | Skip ADR writing (`gate: "adr-dir-missing"`, `default_taken: "skip-adrs"`); the decisions stay in `decisions.md`.                                                                                                                                                                                                                                                          |
+| `build-grill-with-docs`     | Step 7 — ADR approval                                                                                | Asks whether to write each ADR                                       | Write the ADR when the decision is hard to reverse, surprising and a real trade-off; no approval prompt.                                                                                                                                                                                                                                                                  |
+
+### Open questions: the ticket is the human channel (`build-grill-with-docs`)
+
+An autonomous run never prompts in chat, but some questions are not the agent's to settle. For those the
+skill uses the ticket the way an interactive session uses the chat — the same question shape (lettered
+options, exactly one recommendation), asked **once, all at the same time**:
+
+1. Settled, cheap-to-reverse or unanswerable questions are **decided**: the recommended option is taken,
+   marked `assumed` in `decisions.md` and listed in `data.assumed` for review.
+2. Every remaining question goes into ONE comment (`shared/human_questions.py post`); the card is moved to
+   **Blocked** and `awaiting-answers-<N>.json` is written to the spec folder. The skill returns R1
+   `partial` with `data.awaiting_answers`. This is a **park, not a HALT**: no `needs-human-review`, no HALT
+   code, the worktree and workflow-state are retained (`current_phase: "refine"`, `resume_point:
+   "grill-awaiting-answers"`).
+3. The human replies in the issue (`Q1: B`, `all: recommended`) and moves the card to **Ready** or **In
+   progress** — that move is the "I answered" signal. `loop` notices it on its next tick
+   (`_resume_answered_questions`) and resumes the run with `--resume`; the skill collects the replies
+   (`shared/human_questions.py collect`), applies them and carries on.
+4. A follow-up round is asked only when an answer creates new questions, at most
+   `MAKATO_GRILL_MAX_QUESTION_ROUNDS` (default 3) rounds; after that the recommendations are taken.
+
+Fallbacks that keep the run moving: no `ISSUE_NUMBER`, an unobservable board or a refused board write →
+decide instead of wait; `MAKATO_GRILL_MODE=decide` forces decide-recommended everywhere (the po-agent skips
+the grill gate altogether under `MAKATO_GRILL_MODE=skip`); a wait longer than `MAKATO_QUESTIONS_MAX_WAIT_SECS` expires and the run resumes with the
+recommendations. See `plugins/makato-orchestrate/halt-conditions.md` § _Awaiting answers_ for the loop-side
+rules (guards, resume budget, escalation).
 
 ### Current-head CI repair ownership
 
@@ -240,7 +270,11 @@ not be downgraded to SUGGESTION merely because the failure path is unlikely.
 In **both manual and autonomous mode**, `build-review` dispatches the coder with
 every CRITICAL/MAJOR finding, verifies the repairs, and dispatches the read-only
 reviewer again. The reviewer inspects the current worktree, including uncommitted
-repairs and untracked additions, and retains unresolved prior findings.
+repairs and untracked additions, and retains unresolved prior findings. The first pass
+covers the whole change; a re-review after a repair covers the repair delta and its
+neighbours (`MAKATO_REVIEW_SCOPE`, default `delta`; `full` reviews everything every
+pass). A clean delta pass never ends the gate: one further full pass must certify the
+tree after the last repair, and its findings enter the same capped repair loop.
 
 Only a complete independent review with `critical_count == 0` and `major_count == 0`
 permits verify/push. A blocked repair or incomplete review returns non-success. After
@@ -576,7 +610,6 @@ and autonomous repair behavior still apply:
 - `build-implement-tdd` / `build-implement-goal` — their implementation loops already run
   autonomously; TDD coders and goal tasks run targeted tests only and reuse the branch's recorded
   baseline. `build-verify` owns whole-change verification.
-- `build-grill-with-docs` runs review-style queries; its interactivity is the work itself.
 - `build-review` is mandatory before verify in the PO-agent pipeline. Its CRITICAL/MAJOR
   repair loop is capped by `MAKATO_MAX_REPAIR_ROUNDS` (default `3`) in both modes; exhaustion
   fails closed to HALT-003 and the loop cannot be skipped as an approval bypass.

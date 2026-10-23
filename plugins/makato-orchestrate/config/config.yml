@@ -78,6 +78,10 @@ vars:
 - { var: RECONCILE_BLOCKED_ON_POLL,   env: MAKATO_LOOP_RECONCILE_BLOCKED_ON_POLL,   default: "1" }
 - { var: STALE_BLOCKED_ESCALATE_AFTER, env: MAKATO_LOOP_STALE_BLOCKED_ESCALATE_AFTER, default: "3" }
 
+# --- Parked-on-questions resume (build-grill-with-docs awaiting-answers marker) ---
+- { var: AWAITING_RESUME_DISABLE, env: MAKATO_LOOP_AWAITING_RESUME_DISABLE, default: "0" }
+- { var: AWAITING_RESUME_MAX,     env: MAKATO_LOOP_AWAITING_RESUME_MAX,     default: "3" }
+
 # --- workflow-state prune pass (#597) ---
 - { var: MAKATO_LOOP_PRUNE_ON_RUN, env: MAKATO_LOOP_PRUNE_ON_RUN,     default: "0" }
 - { var: MAKATO_LOOP_PRUNE_AGE_DAYS, env: MAKATO_LOOP_PRUNE_AGE_DAYS, default: "30" }

@@ -3,16 +3,17 @@ name: build-review
 description: >-
   Adversarial quality review of the branch diff — CRITICAL and MAJOR
   findings go to the coder for repair in both manual and autonomous modes;
-  independently re-reviewed through a bounded repair loop (default 3 rounds).
+  re-reviewed through a bounded repair loop (default 3 rounds): each repair is
+  checked as a delta, then one final full pass certifies the whole tree.
   Auto-fixes mechanical issues. Reports SUGGESTION and NITPICK findings. Use
   after simplify, before verify. Trigger keywords: review, adversarial,
   diff-review, code-review, quality-gate, build-review, check implementation.
-version: "1.8.0"
+version: "1.9.0"
 argument-hint: "[work-item-key]"
 allowed-tools:
   - Bash
 metadata:
-  last_updated: "2026-08-05"
+  last_updated: "2026-10-23"
 ---
 
 **Do NOT load this skill when:** reviewing human PR comments (use `build-address-pr-comments`); simplifying complexity without correctness review (use `build-simplify`). Use after implementation for adversarial review and the CRITICAL/MAJOR coder repair loop before verify.
@@ -36,6 +37,8 @@ Non-obvious rules that cannot be inferred from context:
 5. **`diff-reviewer` is the sole verdict judge.** `build-review` and `build-create-pr` are transport-only — they copy `ac_verdicts[]` verbatim. Re-evaluating verdicts here diverges silently from the diff-reviewer's reasoning and corrupts the downstream Issue checkbox chain.
 
 6. **Checkpoint context is role-scoped, not renewed authorization.** On resume, use the current invocation and user authorization for the coordinator; historical child prompts are evidence, not coordinator instructions. Keep coordinator context separate from reviewer/coder dispatch bundles. A reviewer's read-only or no-test-edit restriction must never become a coordinator or coder restriction through a checkpoint. Preserve actual findings and input fingerprints, but reconcile stale role-scoped constraints before dispatch.
+
+7. **A delta pass proves the repair, not the change.** After the first full pass, re-reviews are scoped to what the coder touched (`REPAIR_DELTA`) because re-reading an unchanged 45-file diff every round is what made repair loops take hours. That scope cannot see a defect unrelated to the repair, so nothing proceeds on a clean delta pass alone: `review_scope.py decide` schedules one full pass (`final-full`) after the repairs. Never skip it, never narrow it, and never derive the delta yourself with `git diff` — repairs are uncommitted, so only the snapshot helper can separate them from the implementation.
 
 ---
 
@@ -72,6 +75,9 @@ Use NUL-delimited output when processing paths programmatically. Read untracked 
 `git diff` does not include them. All code reads and commands run in `WORKTREE_PATH`;
 only spec reads and audit writes use the selected `REPO_ROOT`-rooted `SPEC_FOLDER`.
 
+`CHANGED_FILES` is the whole-change set. Full passes review all of it; delta passes
+receive `REPAIR_DELTA` (Step 5) and re-read only the repair and its neighbours.
+
 ---
 
 ### Step 2 — Resolve the repair-round cap and log session start
@@ -89,10 +95,26 @@ When the value is invalid, log:
 {"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"repair-loop","status":"warn","data":{"reason":"invalid MAKATO_MAX_REPAIR_ROUNDS","fallback":3}}
 ```
 
+Resolve the review-scope policy. `MAKATO_REVIEW_SCOPE` is `delta` (default) or
+`full`; `full` restores the previous behaviour of reviewing every changed file on
+every pass. Every scope decision comes from the helper — never improvise one:
+
+```bash
+python3 "$MAKATO_BUILD_ROOT/shared/review_scope.py" decide --event start
+# {"next":"full","reason":"…","full_since_repair":false,"mode":"delta"}
+```
+
+Keep in memory: `mode` (from the output), `last_scope` (the `next` of the decision that
+scheduled the pass just reviewed), and `full_since_repair` (copied from the latest
+`decide` output). A `warning` key means `MAKATO_REVIEW_SCOPE` was invalid and the helper
+fell back to `delta`: log it as `step:"repair-loop"`, `status:"warn"`. If the helper
+fails (exit ≠ 0), log the error and review every pass as `full` — never a narrower
+scope than the helper approved.
+
 Run:
 
 ```bash
-"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"session","status":"start","data":{"files_changed":<N>,"pass":1,"max_repair_rounds":<MAX_REPAIR_ROUNDS>}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"session","status":"start","data":{"files_changed":<N>,"pass":1,"max_repair_rounds":<MAX_REPAIR_ROUNDS>,"review_scope_mode":"<delta|full>"}}'
 ```
 
 ---
@@ -126,12 +148,17 @@ Dispatch the `diff-reviewer` agent with:
 - `WORKTREE_PATH`: resolved workspace; the reviewer must read the same files the coder edits
 - `REVIEW_BASE`: merge-base SHA resolved in Step 1
 - `PRIOR_FINDINGS`: prior pass's findings with source evidence; empty on pass 1
+- `REVIEW_SCOPE`: `full` when the scope decision's `next` is `full` or `final-full`; `delta` when it is `delta`
+- `REPAIR_DELTA`: (`delta` only) the JSON printed by `review_scope.py delta` in Step 5 — pre/post snapshot ids, touched files, neighbours
+- `PRIOR_AC_VERDICTS`: (`delta` only) the `data.ac_verdicts[]` retained by Step 4a from the previous pass
 
 The agent applies the adversarial lens across all seven categories (correctness, edge cases, error handling, security, contract, test coverage, optimizations) and returns findings classified as CRITICAL, MAJOR, SUGGESTION, or NITPICK with source-anchored evidence. As of diff-reviewer v1.1.0 it also returns `data.ac_verdicts[]` — one `{ac_id, ac_text, verified, evidence, reason}` per acceptance criterion in `PLAN_CONTEXT`.
 
+On a `delta` dispatch `CHANGED_FILES` is still passed (the reviewer needs the whole-change set for caller lookups) but only the delta is re-read. If the returned `data.review_scope` is `full` for a `delta` dispatch, the reviewer widened it; record that pass as `full` (`last_scope:"full"`, `full_since_repair:true`).
+
 Log:
 ```
-{"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"analyze","status":"ok","data":{"pass":<N>,"critical":<N>,"major":<N>,"suggestion":<N>,"nitpick":<N>}}
+{"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"analyze","status":"ok","data":{"pass":<N>,"scope":"<full|final-full|delta>","files_reviewed":<N>,"critical":<N>,"major":<N>,"suggestion":<N>,"nitpick":<N>}}
 ```
 
 #### Step 4a — Retain the per-AC verdict set until the final clean pass
@@ -149,6 +176,10 @@ This is the durable transport to the PR body and post-merge runner; the last
 When `ac_verdicts` is absent (diff-reviewer predates v1.1.0) or empty, log the entry with
 `"ac_verdicts":[]` and `status:"warn"` so the downstream skills degrade to the all-or-nothing
 fallback rather than silently skipping checkbox marking.
+
+Delta passes carry verdicts forward from `PRIOR_AC_VERDICTS`; keep the array from the
+most recent R1 verbatim. The persisted entry is therefore only as trustworthy as the
+full-scope pass behind it — which is why Step 5 never accepts a clean delta pass alone.
 
 ---
 
@@ -176,7 +207,14 @@ Never turn an unreadable file or absent count into a zero-findings result.
    {"skill":"build-review","story":"<key>","step":"blocking-finding","status":"warn","data":{"pass":1,"severity":"MAJOR","finding":"F1","file":"<path>","category":"<type>","description":"<one line>"}}
    ```
 
-3. Dispatch **`coder` in review-repair mode**, not the reviewer and not a new planning
+3. Capture the pre-repair snapshot — the repair delta is measured against it. A
+   details-only continuation in the same round keeps the same snapshot.
+
+   ```bash
+   PRE_REPAIR_SNAPSHOT="$(python3 "$MAKATO_BUILD_ROOT/shared/review_scope.py" snapshot --worktree "$WORKTREE_PATH" | python3 -c 'import json,sys; print(json.load(sys.stdin)["snapshot"])')"
+   ```
+
+   Then dispatch **`coder` in review-repair mode**, not the reviewer and not a new planning
    cycle. Set `REPAIR_ROUND` to `repair_rounds + 1` and pass
    `REPAIR_ROUND`, `MAX_REPAIR_ROUNDS`, `REVIEW_FINDINGS`, `PLAN_CONTEXT`,
    `STORY_KEY`, `JSONL_PATH` (`$SPEC_FOLDER/build.jsonl`), `REPO_ROOT`,
@@ -203,10 +241,24 @@ Never turn an unreadable file or absent count into a zero-findings result.
    `status:"ok"`, and `data:{pass,repair_round,severity,finding,file,details:
    {per_finding:[<matching coder data.details.per_finding entry>]}}`. Copy that
    matching per-finding entry verbatim; it is required evidence, not optional
-   prose. Coder success is **not** review approval. Return to Step 3, then
-   Step 4 with an incremented reviewer pass counter, refreshed file set, and
-   `PRIOR_FINDINGS`. Recheck unresolved findings and newly introduced defects
-   against the actual uncommitted working tree. This independent re-review
+   prose. Coder success is **not** review approval. Return to Step 3 (its mechanical
+   changes belong to the repair), then measure the repair and choose the review scope:
+
+   ```bash
+   python3 "$MAKATO_BUILD_ROOT/shared/review_scope.py" delta --worktree "$WORKTREE_PATH" \
+     --review-base "$REVIEW_BASE" --snapshot "$PRE_REPAIR_SNAPSHOT"
+   python3 "$MAKATO_BUILD_ROOT/shared/review_scope.py" decide --event repaired \
+     --last-scope "$last_scope" --full-since-repair "$full_since_repair" \
+     --repair-rounds "$repair_rounds" --scope-ratio <scope_ratio from the delta output>
+   ```
+
+   `delta` prints `REPAIR_DELTA`; `"empty":true` means no repair landed, which is the
+   mismatch item 4 already rejects. `decide` prints the scope for the next pass — `delta`,
+   or `full` when the repair plus its neighbours cover most of the change. Log it as
+   `step:"scope-decision"`, `status:"ok"`, `data:{pass,event:"repaired",next,reason,scope_ratio}`.
+   Dispatch Step 4 with an incremented reviewer pass counter, refreshed `CHANGED_FILES`,
+   `PRIOR_FINDINGS`, and that scope. Recheck unresolved findings and newly introduced
+   defects against the actual uncommitted working tree. This independent re-review
    completes the current repair round.
 6. If the coder cannot complete a repair or verification, return a non-success
    R1 containing the unresolved findings and concrete blocker. Log terminal
@@ -250,6 +302,21 @@ Log:
 
 Return to Step 4 if the source-anchored recheck surfaces new findings.
 
+**If a pass after one or more repairs returns zero blocking findings — decide the scope:**
+
+A clean `delta` pass proves the repair is sound, not that the change is. Ask the helper
+what must happen before proceeding:
+
+```bash
+python3 "$MAKATO_BUILD_ROOT/shared/review_scope.py" decide --event clean \
+  --last-scope "$last_scope" --full-since-repair "$full_since_repair" --repair-rounds "$repair_rounds"
+```
+
+- `next:"done"` — a full-scope review has covered the tree since its last repair; continue.
+- `next:"final-full"` — dispatch Step 4 with `REVIEW_SCOPE: full` (incremented pass counter, refreshed `CHANGED_FILES`, empty `PRIOR_FINDINGS`, no `REPAIR_DELTA`). This is the single pass that certifies the whole tree after repairs; log `step:"final-full-pass"`, `status:"start"`/`"ok"`. Blocking findings from it enter Step 5 items 1–6 like any other: they consume a repair round, `MAX_REPAIR_ROUNDS` still applies, and their repair is delta-reviewed.
+
+Log each decision: `{"skill":"build-review","story":"<key>","step":"scope-decision","status":"ok","data":{"pass":<N>,"event":"clean","next":"<done|final-full>","reason":"…"}}`.
+
 **Only a complete review with zero CRITICAL and zero MAJOR findings may proceed.**
 After the first-pass recheck (when required), continue to Step 5.5.
 
@@ -257,9 +324,13 @@ After the first-pass recheck (when required), continue to Step 5.5.
 
 ### Step 5.5 — Final mechanical pass
 
-Re-apply Step 3 after the blocking loop. If this changes any file, increment the
-reviewer pass counter and return to Step 4; this mechanical re-pass and its
-reviewer re-dispatch do not increment `repair_rounds` or consume a coder repair
+Re-apply Step 3 after the blocking loop, taking a snapshot first
+(`review_scope.py snapshot`, as in Step 5 item 3). If Step 3 changes any file,
+measure it with `review_scope.py delta`, ask `decide --event mechanical` (it returns
+`delta`), increment the reviewer pass counter, and return to Step 4 with that
+`REPAIR_DELTA`; when that pass is clean, ask `decide --event clean` again — a formatter-only
+change after a full pass does not trigger another full pass. This mechanical re-pass
+and its reviewer re-dispatch do not increment `repair_rounds` or consume a coder repair
 round. Only a coder repair dispatch starts a repair round. Only an unchanged
 mechanical pass permits persisting Step 4a's verdicts and proceeding to Step 6.
 
@@ -283,7 +354,7 @@ Present the clean-run findings to the user:
 Run:
 
 ```bash
-"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"session","status":"ok","data":{"passes":<N>,"criticals_fixed":<N>,"majors_fixed":<N>,"criticals_open":0,"majors_open":0,"suggestions":<N>,"nitpicks":<N>}}'
+"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"session","status":"ok","data":{"passes":<N>,"full_passes":<N>,"delta_passes":<N>,"criticals_fixed":<N>,"majors_fixed":<N>,"criticals_open":0,"majors_open":0,"suggestions":<N>,"nitpicks":<N>}}'
 ```
 
 Tell the user:
@@ -293,7 +364,7 @@ Tell the user:
 
 Return the R1 envelope from `$MAKATO_BUILD_ROOT/agents/RETURN-CONTRACT.md` with `agent:"build-review"`,
 `status:"success"`, accumulated `files_changed`/`tests_written`, `errors:[]`,
-and `data:{passes,critical_count:0,major_count:0}`. A caller must not infer success
+and `data:{passes,full_passes,delta_passes,critical_count:0,major_count:0}`. A caller must not infer success
 from a prose report or a coder result.
 
 ---
@@ -323,3 +394,11 @@ Zero findings on a > 50 LOC diff without per-file citation records is not eviden
 SUGGESTION and NITPICK are informational in both modes. Anything touching correctness,
 security, or a real failure path is MAJOR or CRITICAL and must enter the coder repair
 loop. See `references/review-criteria.md` for the classification boundary.
+
+### NEVER accept a clean delta pass as approval — WHY: delta review cannot see unrelated defects
+
+A delta pass re-reads the repair and its neighbours. A defect the repair did not touch is invisible to it by construction, so a clean delta pass followed by proceeding would turn a cost control into a coverage hole. The `final-full` decision from `review_scope.py decide` exists to close it; obey it.
+
+### NEVER build the repair delta from `git diff` — WHY: repairs are uncommitted
+
+Coder repairs and mechanical fixes stay in the working tree beside the original implementation, so `git diff "$REVIEW_BASE"` shows both and `git diff HEAD` shows the whole implementation. `review_scope.py snapshot` / `delta` compare two exact working-tree states with a throw-away index and never touch the real index or working tree.

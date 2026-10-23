@@ -56,3 +56,7 @@ implement and simplify.
 with codebase domain language. Produces `_Code_:` annotations in `glossary.md` in the spec folder
 and ADRs for hard-to-reverse decisions. Skip for straightforward stories where the plan
 terminology clearly maps to the codebase.
+
+Autonomous runs (po-agent) never prompt here: `--autonomous` decides what it can with the recommended
+option and asks the remaining costly questions in ONE comment on the issue, parking the card in
+`Blocked` until a human answers and moves it back to `Ready` / `In progress`.

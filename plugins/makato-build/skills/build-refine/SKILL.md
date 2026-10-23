@@ -4,7 +4,7 @@ description: >-
   Bridge a shaped Jira story, GitHub issue, or any work unit to an implementation plan — tasks, file
   targets, unit/integration test strategy, acceptance mapping. Use to start a build session before
   implement-tdd or implement-goal.
-version: "1.15.0"
+version: "1.15.1"
 
 argument-hint: "[work-item-key] [--autonomous]"
 allowed-tools:
@@ -641,6 +641,11 @@ the codebase, or proceed directly with `/implement-tdd` or `/implement-goal`."
 
 Skip `/build-grill-with-docs` for infra/config-only changes (no domain-model files touched). State
 the recommendation inline.
+
+In autonomous mode this skill does not dispatch the grill: it only states the recommendation. The po-agent
+applies the same test and runs `/build-grill-with-docs <key>` in autonomous mode itself (po-agent Step 2d),
+which decides what it can and asks any remaining costly question through the issue — one batched comment,
+card parked in `Blocked` until a human answers (`$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` § _Open questions_).
 
 ## Anti-Patterns
 

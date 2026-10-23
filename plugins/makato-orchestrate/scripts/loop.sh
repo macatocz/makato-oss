@@ -398,6 +398,17 @@ cmd_run() {
       fi
     fi
 
+    # Pre-poll resume of parked issues: build-grill-with-docs parks an issue on ONE batched questions comment
+    # (card -> Blocked, awaiting-answers-<N>.json in the spec folder). A Blocked card never shows up in the Ready
+    # poll, so ask the helper whether the human moved it back (Ready / In progress) and resume it with
+    # `dispatch --resume`. Skipped under --dry-run. Best-effort. Toggle via MAKATO_LOOP_AWAITING_RESUME_DISABLE.
+    if [[ "${AWAITING_RESUME_DISABLE}" != "1" && -z "$dry_run" ]]; then
+      _resume_answered_questions || true
+      if [[ -n "${_LOOP_RESUMED_ISSUE:-}" ]]; then
+        dispatched_issues+=("$_LOOP_RESUMED_ISSUE")
+      fi
+    fi
+
     local queue queue_depth poll_rc
     # #289: capture cmd_poll's exit code. A non-zero rc means the board poll
     # FAILED (rate-limit / transient API error after all retries) — this is
@@ -687,6 +698,22 @@ if [[ "$SUBCMD" == _test-* ]]; then
     #   MAKATO_LOOP_RECONCILE_LABEL_TEST_FILE, MAKATO_ORPHAN_STALE_SECS.
     # (#616).
     _test-reconcile-stale) _reconcile_orphaned_stale "$@" ;;
+    # _test-resume-answered — exercise _resume_answered_questions (parked-on-questions resume pass).
+    # cmd_dispatch is replaced by a recorder appending "dispatch <args> repo=<r> status=<s>" to
+    # MAKATO_LOOP_AWAITING_TEST_FILE (escalations land in the same file); MAKATO_HUMAN_QUESTIONS
+    # points at a stub helper, SPECS_DIR / MAKATO_LOOP_STATE_DIR at the fixtures.
+    _test-resume-answered)
+      cmd_dispatch() {
+        echo "dispatch $* repo=${MAKATO_LOOP_DISPATCH_REPO:-} status=${MAKATO_LOOP_ITEM_STATUS:-}" \
+          >>"${MAKATO_LOOP_AWAITING_TEST_FILE:?MAKATO_LOOP_AWAITING_TEST_FILE required}"
+      }
+      _resume_answered_questions "$@"
+      echo "resumed=${_LOOP_RESUMED_ISSUE:-}"
+      ;;
+    # _test-issue-awaiting-answers <issue> [specs-dir] — exit 0 when a parked marker exists.
+    _test-issue-awaiting-answers) _issue_awaiting_answers "$@" ;;
+    # _test-reap-awaiting <realpath> — exit 0 when the worktree's issue is parked on questions (reaper guard 7b).
+    _test-reap-awaiting) _reap_is_awaiting_answers "$@" ;;
     # _test-post-halt-comment <HALT_CODE> <ISSUE> <REPO> — exercise the
     # _post_halt_comment script-resolution directly. Regression guard for #744:
     # the helper must resolve post-halt-comment.sh next to this script (plugin

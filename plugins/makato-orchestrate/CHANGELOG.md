@@ -5,6 +5,36 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Added — parked-on-questions issues: loop resume, guards and po-agent grill gate
+
+Companion to the autonomous `build-grill-with-docs` (makato-build): an issue that waits for answers
+to ONE batched questions comment is *parked* — card `Blocked`, `awaiting-answers-<N>.json` in the
+spec folder — and is neither a HALT nor an orphan.
+
+- **`po-agent` v1.5.0** — new Step 2d, the grill gate (after refine, only for plans that touch domain
+  terms): dispatches `build-grill-with-docs --autonomous`, and on R1 `partial` with
+  `data.awaiting_answers` parks the run (`current_phase: "refine"`, `resume_point:
+  "grill-awaiting-answers"`, no label, no HALT, worktree retained). Resumes at the same gate.
+- **`scripts/loop.sh` / `functions.sh`** — `_resume_answered_questions` runs every tick before the
+  board poll: for each marker it asks `human_questions.py status`; `answered` (card moved back to
+  Ready / In progress) or `expired` → `dispatch <N> --resume`; `closed` → marker retired; unreachable
+  board → stays parked. After `MAKATO_LOOP_AWAITING_RESUME_MAX` (default 3) resumes without ever being
+  seen waiting again the issue is labelled `needs-human-review` with a HALT-014 comment. Switch off
+  with `MAKATO_LOOP_AWAITING_RESUME_DISABLE=1`. `_issue_awaiting_answers` guards the orphaned-
+  `In progress` and stale reconcilers, stall-resume and the merged-worktree reaper.
+- **`scripts/promote-ready.sh`** — a parked issue is reported as skipped (`awaiting-answers`) instead of
+  being promoted on the human's behalf.
+- **`scripts/tests/grill-awaiting-answers-smoke-tests.sh`** (CI-wired) and `T-AWAIT-PARKED` in
+  `promote-ready-smoke-tests.sh`.
+- **`config/config.yml` / `config.md`** — `AWAITING_RESUME_DISABLE`, `AWAITING_RESUME_MAX`; the
+  `MAKATO_GRILL_*` / `MAKATO_QUESTIONS_*` knobs are documented.
+
+### Changed — docs for the parked state
+
+- **`halt-conditions.md`** — taxonomy row + § _Awaiting answers — a parked run is not a HALT_.
+- **`loop` v2.6.0**, **`promote-ready` v1.4.0**, **`workflow-state` v1.7.2** — document the resume pass,
+  the skip and the `grill-awaiting-answers` resume point.
+
 ### Changed — route subagents through shared model roles
 
 - Dropped the `modelRole:` frontmatter key: neither OMP nor Claude Code read it. Each agent
@@ -21,6 +51,17 @@ Changes are grouped by skill/component. Within each group, latest version on top
 - **`config/config.yml`** — the `models:` block adds the `orchestrator` role. The role
   comments in `config.yml` and `config.md` now describe the new routing instead of
   frontmatter `modelRole` wiring.
+
+### Fixed — context-handoff smoke tests run in the session checkout, not the main one
+
+- **`scripts/tests/context-handoff-smoke-tests.sh`** pins `MAKATO_TARGET_REPO_ROOT` to the
+  checkout that contains the working directory. Before, `workflow-state.sh` resolved the main
+  checkout through `--git-common-dir` while the test's sandbox, resume script and change-state
+  globs stayed in the session's worktree, so from a linked worktree T2 failed and the test left
+  `specs/gap-004-handoff-smoke/` in the main checkout. In a main checkout nothing changes. An
+  inherited `MAKATO_TARGET_REPO_ROOT` no longer redirects the test into another repository. The
+  production default (`--git-common-dir`, so per-run worktrees share state with the checkout the
+  loop scans, #282) is untouched.
 
 ### Fixed — needs-planning signal tests no longer write the repo's build logs
 
