@@ -5,7 +5,7 @@ description: >-
   implementation mode, initializes the build log, and kicks off /build-refine. Use when starting a
   new story build, beginning the makato-build workflow, running build-start on a work item, or
   starting local work without a ticket.
-version: "1.11.2"
+version: "1.11.3"
 argument-hint: "[work-item-key]"
 allowed-tools: [Bash]
 metadata:

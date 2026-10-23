@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Smoke tests for scripts/context-handoff.sh — the HALT-007B proactive
-# handoff path (GAP-004 / #30). Run from the makato repo root.
+# handoff path (GAP-004 / #30). Run from any checkout or linked worktree of the
+# makato repo; it operates on the checkout that contains the working directory.
 #
 # Usage:
 #   plugins/makato-orchestrate/scripts/tests/context-handoff-smoke-tests.sh
@@ -39,6 +40,15 @@
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
+# Run in the context of THIS session's checkout. Without the pin,
+# workflow-state.sh resolves the shared main checkout through --git-common-dir
+# (the per-run-worktree contract, #282), so a test started from a linked
+# worktree wrote its state into the main checkout's specs/ while SANDBOX, the
+# resume script and change-state globs stayed in the worktree. In the main
+# checkout both roots are the same directory, so nothing changes there. Set
+# unconditionally: an inherited target root must not redirect a smoke test
+# into another repository.
+export MAKATO_TARGET_REPO_ROOT="$REPO_ROOT"
 WS="$REPO_ROOT/plugins/makato-orchestrate/shared/workflow-state.sh"
 HANDOFF="$REPO_ROOT/plugins/makato-orchestrate/scripts/context-handoff.sh"
 KEY="gap-004-handoff-smoke"

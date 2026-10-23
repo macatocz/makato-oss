@@ -15,7 +15,7 @@ description: >-
   `plan.md` collision, #173). `--dry-run` / `plan` prints the
   recommendation without touching the board. `--json` emits machine-readable
   plan output consumed by `loop`'s `_dependency_order` helper.
-version: "1.3.0"
+version: "1.4.0"
 argument-hint: "[SLUG] [--dry-run] [--yes] [--json]"
 allowed-tools: Bash(plugins/makato-orchestrate/scripts/promote-ready.sh *) Bash(gh project *) Bash(jq *) Bash(python3 *) Read
 metadata:
@@ -206,6 +206,13 @@ or touching the board, but no error is surfaced to the caller.
   `Todo`/`Blocked` since the snapshot, the promotion is skipped rather than
   rolling the card backward. So it can never race
   `issue-to-project sync-lifecycle` or the loop claim.
+- **Parked-on-questions issues are never promoted.** An issue with an
+  `awaiting-answers-<n>.json` marker in any spec folder (left by
+  `build-grill-with-docs --autonomous` after it posted one batched questions
+  comment and moved the card to `Blocked`) is reported under `skipped` with
+  status `awaiting-answers`. Promoting a `Blocked` card on the human's
+  behalf would answer the questions for them; only the human moving the card
+  back to `Ready` / `In progress` does, and `loop` then resumes the run.
 - **Wave-by-wave is the operating model.** `loop` is FIFO single-threaded
   per worktree, so promoting more issues only lengthens its queue (safe),
   but queue *order* is not honored. Promote the next wave only after the

@@ -98,7 +98,7 @@ makato-build closes the loop from ideation to merged code.
 | ------------------------------------------ | ------------------------------------------------------------ | -------------------------------------------------------------------------- |
 | build-start                                | Work item key or local design.md                             | Validated session state; hands off to build-refine                         |
 | build-refine                               | GitHub Issue + spec folder (prd.md, design.md, decisions.md) | plan.md with tasks, file targets, test strategy                            |
-| build-grill-with-docs (optional)           | plan.md + spec folder + codebase                             | Enriched glossary.md; ADRs for hard-to-reverse decisions                   |
+| build-grill-with-docs (optional)           | plan.md + spec folder + codebase                             | Enriched glossary.md; ADRs for hard-to-reverse decisions. `--autonomous`: decides what it can, asks the rest in ONE issue comment and parks the card in Blocked until answered |
 | build-implement-tdd / build-implement-goal | plan.md with tasks                                           | Working code + tests; build.jsonl entries                                  |
 | build-simplify                             | Branch diff vs main + plan.md                                | Simplified working tree                                                    |
 | build-review | Current working-tree diff from integration merge-base + plan.md | CRITICAL/MAJOR repaired by coder and re-reviewed in both modes; SUGGESTION/NITPICK report |
@@ -187,6 +187,12 @@ Manual PR creation still returns after opening the PR.
   integration target, avoiding stale local branch issues.
 - `shared/log-bypass.sh` — Append a canonical autonomous_bypass JSONL entry to build.jsonl when a
   skill takes an autonomous default instead of prompting the user.
+- `shared/human_questions.py` — Batched human-questions helper for `build-grill-with-docs --autonomous`:
+  `post` writes ONE issue comment with every open question (options + recommendation), moves the
+  board card to Blocked and writes `awaiting-answers-<N>.json`; `status`/`wait` watch the card
+  (moved back to Ready or In progress = answered); `collect` merges the replies per question (the
+  recommended option fills the gaps); `resolve` retires the marker. Stdlib only, Python 3.9+.
+- `shared/test_human_questions.py` — Unit + lifecycle tests for human_questions.py against a fake GitHub.
 - `shared/inject_context.py` — Python implementation of the inject-context bundle resolver — given
   changed file paths and context-bundles.yml, returns ordered rule-file paths for knowledge-scout.
 - `shared/test_inject_context.py` — Unit tests for inject_context.py.
