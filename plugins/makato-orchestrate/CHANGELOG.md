@@ -52,6 +52,17 @@ spec folder — and is neither a HALT nor an orphan.
   comments in `config.yml` and `config.md` now describe the new routing instead of
   frontmatter `modelRole` wiring.
 
+### Fixed — context-handoff smoke tests run in the session checkout, not the main one
+
+- **`scripts/tests/context-handoff-smoke-tests.sh`** pins `MAKATO_TARGET_REPO_ROOT` to the
+  checkout that contains the working directory. Before, `workflow-state.sh` resolved the main
+  checkout through `--git-common-dir` while the test's sandbox, resume script and change-state
+  globs stayed in the session's worktree, so from a linked worktree T2 failed and the test left
+  `specs/gap-004-handoff-smoke/` in the main checkout. In a main checkout nothing changes. An
+  inherited `MAKATO_TARGET_REPO_ROOT` no longer redirects the test into another repository. The
+  production default (`--git-common-dir`, so per-run worktrees share state with the checkout the
+  loop scans, #282) is untouched.
+
 ### Fixed — needs-planning signal tests no longer write the repo's build logs
 
 - **`scripts/tests/test_emit_needs_planning_signal.py`** runs each emitter call in its own
