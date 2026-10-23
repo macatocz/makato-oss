@@ -14,7 +14,7 @@ description: >-
   or running a single dispatch cycle with --once. Trigger keywords:
   autonomous, polling, board, Ready, unattended, GAP-007, loop run,
   dispatch queue.
-version: "2.5.0"
+version: "2.6.0"
 argument-hint: "[--status <NAME>] [--interval <S>] [--dry-run] [--once] [--force]"
 allowed-tools: [Bash]
 metadata:
@@ -396,6 +396,21 @@ Each outer iteration of `run` performs the following steps in order:
    failure logs a WARN and never blocks the tick) and toggle-able via
    `MAKATO_LOOP_RECONCILE_ON_POLL=0`. Skipped under `--dry-run`. Also
    available standalone as `loop reconcile-orphaned`.
+3.8. **Pre-poll resume of parked-on-questions issues.**
+   `_resume_answered_questions` scans `$SPECS_DIR/*/awaiting-answers-<N>.json`
+   — the marker `build-grill-with-docs --autonomous` leaves after posting ONE
+   batched questions comment and moving the card to `Blocked` (the issue is
+   *parked*, not HALTed; the reconcilers, stall-resume, promote-ready and the
+   worktree reaper all skip it). For each marker it asks
+   `shared/human_questions.py status`: `waiting` → nothing; `closed` → the
+   marker is retired; `answered` (the human moved the card back to `Ready` or
+   `In progress`) or `expired` (`MAKATO_QUESTIONS_MAX_WAIT_SECS` elapsed) →
+   `cmd_dispatch <N> --resume`, claiming from the card's observed status. At
+   most one issue is resumed per tick, and an issue resumed
+   `MAKATO_LOOP_AWAITING_RESUME_MAX` times (default 3) without ever being
+   seen waiting again is labelled `needs-human-review` with a HALT-014
+   comment. Best-effort (an unreachable board leaves it parked). Toggle with
+   `MAKATO_LOOP_AWAITING_RESUME_DISABLE=1`. Skipped under `--dry-run`.
 4. **Board poll.** `GH_HOST=<host> gh project item-list <number>
    --owner <owner> --format json --limit 9999` runs and is filtered in
    two steps via `jq`:

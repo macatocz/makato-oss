@@ -119,6 +119,9 @@ jobs:
       - name: dependency-aware promote-ready smoke tests (#268)
         run: ./plugins/makato-orchestrate/scripts/tests/promote-ready-smoke-tests.sh
 
+      - name: parked-on-questions loop smoke tests (autonomous build-grill-with-docs)
+        run: ./plugins/makato-orchestrate/scripts/tests/grill-awaiting-answers-smoke-tests.sh
+
       - name: workflow-state smoke tests (#173/#284/#317/#347)
         run: ./plugins/makato-orchestrate/skills/workflow-state/references/smoke-tests.sh
 

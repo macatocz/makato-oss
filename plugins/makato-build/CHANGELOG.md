@@ -10,6 +10,37 @@ here on merge to main; release-please will date and version them at the next rel
 
 ## [Unreleased]
 
+### Added — autonomous `build-grill-with-docs` asks every open question through the ticket
+
+Autonomous GitHub-issue runs (`build-refine` → … → `build-create-pr`) used to stall at
+`build-grill-with-docs`, whose alignment interview only worked by asking the user in chat. It now
+has an autonomous mode that never prompts and never blocks a headless session.
+
+- **`build-grill-with-docs` v1.10.0** — `--autonomous` (also `$AGENT_ID` / context-bundle
+  `task_id`; `MAKATO_HEADLESS=1` without a trigger → `MISSING_INPUT`). Settled, cheap-to-reverse or
+  unanswerable questions are **decided** with the recommended option (marked `assumed` in
+  `decisions.md`, listed in R1 `data.assumed`). Every remaining question is asked **at once** in ONE
+  issue comment — lettered options, exactly one recommendation each — the card moves to **Blocked**
+  and the skill returns R1 `partial` with `data.awaiting_answers`. The human answers in the issue and
+  moves the card back to **Ready** or **In progress**; the resumed run collects the replies (the
+  recommended option fills any gap) and asks again only when an answer creates new questions, at most
+  `MAKATO_GRILL_MAX_QUESTION_ROUNDS` (default 3) rounds. `MAKATO_GRILL_MODE=decide` never asks; no
+  `ISSUE_NUMBER`, an unobservable board or a refused board write also fall back to deciding. ADRs are
+  written without an approval prompt when all three ADR criteria hold; a missing ADR directory means
+  skip-ADRs. Bypass gates: `term-resolution`, `adr-dir-missing`, `questions-unavailable`.
+- **`shared/human_questions.py`** (+ `test_human_questions.py`) — stdlib helper behind the skill:
+  `post` (block the card first, then comment, then write `awaiting-answers-<N>.json`), `status` /
+  `wait`, `collect` (only replies after the question comment; `Q1: B`, `all: recommended`, free text),
+  `resolve`. Exit codes distinguish waiting, expired, closed, unobservable board and round limit.
+
+### Changed — grill documentation and HALT origins
+
+- **`halt-codes.md`** — `MISSING_INPUT` origins include `build-grill-with-docs` (headless guard).
+- **`AUTONOMOUS-MODE.md`** — grill gate rows in the default-taking table, a new § _Open questions:
+  the ticket is the human channel_, and the stale "its interactivity is the work itself" bullet is gone.
+- **`build-refine` v1.15.1**, **`build-start` v1.11.3** — hand-off text / pipeline map point out that
+  the po-agent runs the grill autonomously.
+
 ### Changed — route subagents through shared model roles
 
 - Removed the `modelRole:` frontmatter key from every agent; no harness read it. Each agent now

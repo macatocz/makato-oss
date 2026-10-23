@@ -48,6 +48,10 @@ Full variable table for `loop.sh`, `loop-fleet.sh`, and `loop-supervisor.sh`.
 | `MAKATO_LOOP_BLOCK_TEST_FILE` | unset | Test-only: path to a file that `_auto_seed_block_full` appends `block #<n>` to instead of calling `gh project item-edit` to set `Blocked`. Keeps S4/S5 block smoke tests offline. |
 | `MAKATO_LOOP_AUTOSEED_SPEC_ROOT` | unset | Test-only: override the `SPECS_DIR` root used by `_auto_seed_block_full` when creating spec-folder stubs. Tests redirect to a temp directory to avoid polluting `specs/`. |
 | `MAKATO_LOOP_RECONCILE_ON_POLL` | `1` | Set to `0` to disable the orphaned-`In progress` reconciliation pass entirely (#368). |
+| `MAKATO_LOOP_AWAITING_RESUME_DISABLE` | `0` | Set to `1` to switch off the per-tick resume pass for issues parked on a batched questions comment by `build-grill-with-docs --autonomous` (`awaiting-answers-<N>.json`). Parked issues then stay parked until dispatched by hand. |
+| `MAKATO_LOOP_AWAITING_RESUME_MAX` | `3` | Times a parked issue is resumed without ever being seen waiting again before it is labelled `needs-human-review` with a HALT-014 comment (stops a resume → re-park loop). |
+| `MAKATO_HUMAN_QUESTIONS` | unset | Test-only: path to a stand-in for `shared/human_questions.py`, called by the resume pass as `<script> status\|resolve --issue <N> …`. |
+| `MAKATO_LOOP_AWAITING_TEST_FILE` | unset | Test-only: file the resume pass appends `dispatch <N> --resume repo=… status=…` / `escalate #<N>` to instead of dispatching/labelling (used with `_test-resume-answered`). |
 | `MAKATO_LOOP_RECONCILE_BLOCKED_ON_POLL` | `1` | Set to `0` to disable the pre-poll `reconcile-blocked` pass that heals stale `blocked-by:N` / `status:blocked` labels every tick (#32). |
 | `MAKATO_LOOP_STALE_BLOCKED_ESCALATE_AFTER` | `3` | Consecutive dispatch-gate skips of the same `status:blocked` card with unresolved blockers before it is escalated to `needs-human-review` (#32). |
 | `MAKATO_RECONCILE_RETRY_SLEEP` | `2` | Backoff base (seconds) for `_gh_label_remove_with_retry` in `promote-ready.sh` reconcile (2s→4s; set `0` in tests). Bounded label-removal retry replaces the silent swallow on rate-limit (#32). |

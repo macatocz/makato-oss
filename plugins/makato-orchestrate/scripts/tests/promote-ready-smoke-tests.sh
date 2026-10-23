@@ -564,5 +564,36 @@ grep -q "reconcile: WARN — could not remove label" "$SB_ERR" || fail "T-SB-3: 
   || fail "T-SB-3: expected >=3 retry attempts, got $(grep -c -- '--remove-label blocked-by:563' "$SB_LOG")"
 pass "rate-limit triggers bounded retry and logs WARN on exhaustion (no silent swallow)"
 
+echo "=== T-AWAIT-PARKED: a Blocked card parked on human questions is never promoted to Ready ==="
+# Blocked is promotable in general (a stale Blocked card whose blockers are Done). A card build-grill-with-docs
+# parked on a questions comment is Blocked ON PURPOSE: only the human's answer — or the loop's resume pass — may move it.
+BOARD_PARKED="$SANDBOX/board-parked.json"
+cat >"$BOARD_PARKED" <<'EOF'
+{"items":[
+ {"id":"it1","content":{"type":"Issue","number":1},"status":"Done"},
+ {"id":"it2","content":{"type":"Issue","number":2},"status":"Blocked"},
+ {"id":"it3","content":{"type":"Issue","number":3},"status":"Todo"}
+]}
+EOF
+MARKER="$SPECS/1-alpha/awaiting-answers-2.json"
+OUT="$(MAKATO_PROMOTE_GH_OVERRIDE="$BOARD_PARKED" "$PR" plan --json alpha 2>/dev/null)"
+jq -e '.ready[] | select(.issue == 2)' <<<"$OUT" >/dev/null 2>&1 \
+  || fail "control: unparked Blocked #2 (blocker #1 Done) should be promotable: $OUT"
+echo '{"issue":2,"round":1}' >"$MARKER"
+OUT="$(MAKATO_PROMOTE_GH_OVERRIDE="$BOARD_PARKED" "$PR" plan --json alpha 2>/dev/null)"
+if jq -e '.ready[] | select(.issue == 2)' <<<"$OUT" >/dev/null 2>&1; then
+  fail "parked #2 must not be promoted: $OUT"
+fi
+jq -e '.skipped[] | select(.issue == 2 and .status == "awaiting-answers")' <<<"$OUT" >/dev/null 2>&1 \
+  || fail "parked #2 should be reported as skipped/awaiting-answers: $OUT"
+: >"$EDITLOG"
+MAKATO_PROMOTE_GH_OVERRIDE="$BOARD_PARKED" MAKATO_PROMOTE_EDIT_TEST_FILE="$EDITLOG" MAKATO_PROMOTE_YES=1 \
+  "$PR" run alpha >/dev/null 2>&1 || true
+if grep -qE '(^|[^0-9])2([^0-9]|$)' "$EDITLOG"; then
+  fail "live promote wrote parked #2 to the board: $(cat "$EDITLOG")"
+fi
+rm -f "$MARKER"
+pass "marker present: #2 skipped (awaiting-answers), not promoted by plan or run; marker gone: promotable again"
+
 echo
-echo "=== ALL PROMOTE-READY SMOKE TESTS PASSED (T1–T13, T-pjson-valid, T-pjson-collision, T-VCR-6–T-VCR-9, T-reconcile-1–T-reconcile-3, T-SB-1–T-SB-3, T-PROMOTE-CLOSED-SKIP, T-PROMOTE-CLOSED-SKIP-TODO) ==="
+echo "=== ALL PROMOTE-READY SMOKE TESTS PASSED (T1–T13, T-pjson-valid, T-pjson-collision, T-VCR-6–T-VCR-9, T-reconcile-1–T-reconcile-3, T-SB-1–T-SB-3, T-PROMOTE-CLOSED-SKIP, T-PROMOTE-CLOSED-SKIP-TODO, T-AWAIT-PARKED) ==="

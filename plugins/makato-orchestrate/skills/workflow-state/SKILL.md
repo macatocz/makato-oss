@@ -13,7 +13,7 @@ description: >-
   over `build.jsonl` — the audit log captures forensics, this skill
   captures live loop state (sub-task graph, current phase, budget, HALT
   audit, structured lessons learned).
-version: "1.7.1"
+version: "1.7.2"
 argument-hint: "<subcommand> <key|repo> [<issue>] [args…]"
 allowed-tools: []
 ---
@@ -82,7 +82,7 @@ Top-level fields:
 | `issue_number` | integer ≥ 1 | GitHub Issue number |
 | `sub_tasks` | array | ordered; see *sub_tasks shape* |
 | `current_phase` | string \| null | `refine` \| `implement` \| `verify` \| `pr` \| `done` |
-| `resume_point` | string \| null | Resume hint; `ci-poll` re-enters the shared CI gate for the saved PR, never PR creation. |
+| `resume_point` | string \| null | Resume hint; `ci-poll` re-enters the shared CI gate for the saved PR, never PR creation. `grill-awaiting-answers` (with `current_phase: "refine"`) marks a run parked on a batched questions comment (`awaiting-answers-<N>.json` in the spec folder) — not a HALT; `loop` resumes it once a human moves the card back to Ready / In progress. |
 | `budget_consumed_tokens` | integer ≥ 0 | cumulative; updated after each dispatch; never reset (HALT-007 cost ceilings evaluate this total) |
 | `session_baseline_tokens` | integer ≥ 0 | `budget_consumed_tokens` at the current session's start (#281); HALT-007B evaluates the delta `consumed - baseline` and sets this to `consumed` on each handoff so a resumed session's context budget restarts at 0. Optional for pre-#281 in-flight state (readers default 0) |
 | `budget_limit_tokens` | integer ≥ 1 | HALT-007 fires at ceiling (cost control) |

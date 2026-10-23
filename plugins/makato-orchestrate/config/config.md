@@ -128,6 +128,28 @@ directly in `functions.sh`).
 | `RECONCILE_BLOCKED_ON_POLL` | `MAKATO_LOOP_RECONCILE_BLOCKED_ON_POLL` | `1` | `0` disables the pre-poll `reconcile-blocked` pass that heals stale `blocked-by:N` / `status:blocked` labels every tick (#32). |
 | `STALE_BLOCKED_ESCALATE_AFTER` | `MAKATO_LOOP_STALE_BLOCKED_ESCALATE_AFTER` | `3` | Consecutive gate skips of the same `status:blocked` card with unresolved blockers before it is escalated to `needs-human-review` (anti-starvation, #32). |
 
+## Parked-on-questions resume
+
+`build-grill-with-docs --autonomous` parks an issue on one batched questions comment: the card moves to
+Blocked and an `awaiting-answers-<N>.json` marker is written to the spec folder. Every tick the loop asks
+`makato-build/shared/human_questions.py status` about each marker; when the human has moved the card back to
+Ready or In progress (or the wait expired) it re-dispatches the issue with `dispatch --resume`. The orphan
+reconcilers, stall-resume and `promote-ready.sh` skip a parked issue.
+
+| Variable | Env override | Default | Meaning |
+| --- | --- | --- | --- |
+| `AWAITING_RESUME_DISABLE` | `MAKATO_LOOP_AWAITING_RESUME_DISABLE` | `0` | `1` disables the pre-poll resume pass (parked issues then wait for `dispatch --resume`). |
+| `AWAITING_RESUME_MAX` | `MAKATO_LOOP_AWAITING_RESUME_MAX` | `3` | Resumes of one parked issue without it ever being seen waiting again before it is escalated to `needs-human-review` (HALT-014). |
+
+Read by the grill skill and the helper (not by `loop.sh`), set them in the environment that launches the loop:
+
+| Environment variable | Default | Meaning |
+| --- | --- | --- |
+| `MAKATO_GRILL_MODE` | `ask` | `ask` = unsettled costly questions go to the issue and the run parks; `decide` = take every recommended option and never park; `skip` = po-agent does not run the grill. |
+| `MAKATO_GRILL_MAX_QUESTION_ROUNDS` | `3` | Rounds of questions per issue; follow-up rounds only ask what an answer opened up. |
+| `MAKATO_QUESTIONS_ANSWER_STATUSES` | `Ready,In progress` | Board Status values that mean "answered" when the card leaves Blocked. |
+| `MAKATO_QUESTIONS_MAX_WAIT_SECS` | `0` | `0` = wait forever; otherwise after this many seconds the recommended options are taken and the run continues. |
+
 ## workflow-state prune pass (#597)
 
 | Variable | Env override | Default | Meaning |

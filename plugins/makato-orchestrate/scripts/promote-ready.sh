@@ -181,20 +181,24 @@ _collect_graph_files() {
 #                                                 # after collision guard
 #     "deferred_collision": [{issue, slug, folder, collides_with}],
 #     "blocked":  [{issue, slug, pending_blockers}],
-#     "skipped":  [{issue, slug, status}],      # already Ready/InProgress/…
+#     "skipped":  [{issue, slug, status}],      # already Ready/InProgress/…, or
+#                                                 # status "awaiting-answers"
 #     "warnings": ["…"]
 #   }
 #
 # "Ready to promote now" = issue whose board status ∈ {todo, blocked, ""}
 # (off-board) AND EVERY blocked_by predecessor is Done. Forward-only: issues
 # already at ready/in progress/in review/done are never re-promoted (skipped).
+# An issue parked on a human-questions comment (an `awaiting-answers-<N>.json`
+# marker in any specs/*/ folder, written by build-grill-with-docs) is skipped
+# even when its card reads Blocked: the human moves it back, not this pass.
 # Collision guard: among ready candidates sharing a folder, keep the lowest
 # issue number, defer the rest.
 # ---------------------------------------------------------------------------
 _compute_plan() {
   local board_json="$1"; shift
-  BOARD_JSON="$board_json" python3 - "$@" <<'PY'
-import json, os, sys, re
+  BOARD_JSON="$board_json" PROMOTE_SPECS_DIR="$SPECS_DIR" python3 - "$@" <<'PY'
+import glob, json, os, sys, re
 
 board_raw = os.environ.get("BOARD_JSON", '{"items":[]}')
 
@@ -390,6 +394,9 @@ for n in sorted(nodes):
         # Unknown board status name — be conservative, skip with a warning.
         warnings.append("issue #%s has unrecognized board status %r; skipping" % (n, st))
         skipped.append({"issue": n, "slug": nd["slug"], "status": st})
+        continue
+    if glob.glob(os.path.join(os.environ.get("PROMOTE_SPECS_DIR", ""), "*", "awaiting-answers-%d.json" % n)):
+        skipped.append({"issue": n, "slug": nd["slug"], "status": "awaiting-answers"})
         continue
     pend = pending_blockers(nd)
     if pend:
