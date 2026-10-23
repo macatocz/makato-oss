@@ -9,7 +9,7 @@ description: >-
   through `resolve-pr-conflict`, and terminates on a merged PR or documented
   HALT code. Sole writer of `workflow-state.json`. Owns the per-run worktree;
   never edits target source.
-version: "1.5.0"
+version: "1.5.1"
 maxTurns: 100
 permissionMode: bypassPermissions
 disallowedTools: NotebookEdit
@@ -33,11 +33,43 @@ In OMP mode, execute workflow skills from makato-build, makato-plan, and makato-
 For each invocation, write a context file containing the complete current bundle (repository/worktree roots, issue/key, artifact paths, decisions, and step-specific inputs). The new session has no parent conversation history. Run:
 
 ```bash
+export KEY ISSUE_NUMBER REPO MAKATO_ORCHESTRATE_ROOT
 python3 "$MAKATO_SKILL_RUNNER" --repo-root "$REPO_ROOT" \
   --cwd "${WORKTREE_PATH:-$REPO_ROOT}" --context-file "$CONTEXT_FILE" \
   --harness "$CLAUDE_BIN" --approval-mode yolo \
   makato-build:build-refine -- "$KEY" --autonomous
 ```
+
+### GitHub progress ownership
+
+Before each launch, export `KEY`, `ISSUE_NUMBER`, `REPO`, and the exact installed
+`MAKATO_ORCHESTRATE_ROOT`. Putting them only in the context file is not sufficient.
+`run-skill.py` calls `shared/progress-comment.sh` before execution and after process
+exit, including nonzero exits, launch failures, and forwarded SIGINT/SIGTERM.
+All workflow skills, retries, and follow-on launches use this same boundary.
+
+In OMP mode, do not make the manual `start`/`done` calls shown elsewhere below;
+the launcher owns those pairs. After validating R1, append a `note` with the skill's
+status and plain-English summary. Process exit 0 is not an R1 success verdict.
+Setup, intermediate, and HALT notes remain the PO-agent's responsibility. GitHub
+failures warn but never block the workflow; `MAKATO_PROGRESS_COMMENT_DISABLE=1`
+remains a silent opt-out. Claude-native dispatch retains its explicit narration.
+
+### Launcher deadline
+
+Every OMP workflow-skill launcher invocation MUST explicitly set the Bash tool parameter
+`timeout: 0`. Do not omit it or substitute a large positive value: omission defaults to 300 seconds,
+and OMP clamps positive Bash timeouts to 3600 seconds even when `tools.maxTimeout` is `0`.
+
+- Use `async: true` when background dispatch is available, then await the completion notification.
+  Backgrounding alone does not disable a positive deadline.
+- When invoking or awaiting the launcher through `eval`, set the enclosing eval timeout to `0` too.
+- This removes only the launcher tool deadline. Preserve the existing kill-switches, inactivity
+  watchdogs, review-wait limits, and post-dispatch R1/session-tail checks. Never infer inactivity
+  solely from an unfinished workflow session.
+
+This contract applies to every phase, retry, and follow-on workflow-skill dispatch in this agent.
+It does not change timeouts for ordinary helper commands or the Claude-native dispatch path.
 
 Replace the skill and its arguments for the selected phase. Wait for completion, then apply the existing result/artifact checks. Nonzero exit is a dispatch failure; never silently fall back to inline execution. Human-driven interviews use `--interactive` before the skill name. The selected current skill executes its own body inline; it must not launch itself again merely to apply this policy.
 
@@ -100,10 +132,11 @@ posture is constrained by four safeguards — see `AGENTS.md` §
 - **Never request additional inputs.** The dispatch bundle is closed;
   missing/invalid input → immediate R1 `failure` (dispatch error, not
   runtime HALT).
-- **Outer loop is plan-level, not task-level.** Each Step 4 pass dispatches
-  one `build-implement-tdd` or `build-implement-goal` run for the next
-  dependency-ready mode group chosen by `scripts/task_schedule.py` (#153);
-  the skill walks its assigned tasks in topological order itself.
+- **One-task implementation dispatch.** The outer loop remains plan-level, but
+  each Step 4 pass dispatches exactly one dependency-ready task using the mode
+  selected by `scripts/task_schedule.py` and `ASSIGNED_TASK_IDS` as a singleton.
+  Persist its result before selecting the next task; implementation skills must
+  not walk or batch multiple plan tasks in one run.
 - **Preserve mode-specific verification ownership.** TDD coders run only targeted
   RED/GREEN tests for their task; `build-verify` owns whole-change gates, including
   integration and full-suite verification. Goal-mode coder phase gates remain as
@@ -636,8 +669,8 @@ HALT-006 exactly as in Step 4c. Patch `current_phase: "implement"`.
 
 ### Step 4 — Outer loop (plan-level retry)
 
-Each pass dispatches ONE implementation skill for ONE dependency-ready mode
-group (#153); the skill walks only its assigned tasks.
+Each pass dispatches ONE implementation skill for ONE dependency-ready task
+(#153); the result is checkpointed before the next task is selected.
 
 ```text
 outer_iteration = current value (resumed) or 0 (fresh).
@@ -646,9 +679,9 @@ repeat:
     Step 4a: kill-switch poll <KEY>          # HALT gate
     Step 4b: kill-switch handoff <KEY>       # context-ceiling gate
     Step 4c: sync sub_tasks, validate graph  # pre-flight
-    Step 4d: next group; complete → break → Step 6; else dispatch its skill
+    Step 4d: next task; complete → break → Step 6; else dispatch its skill
     Step 4e: apply R1 to state
-    if r1 success: continue                   # next group, same outer_iteration
+    if r1 success: continue                   # next task, same outer_iteration
     else if r1 escalates to refine: Step 4f → increment outer_iteration
     else: break → HALT
 ```
@@ -694,36 +727,35 @@ loop.
    `shared/post-halt-comment.sh HALT-006 $ISSUE_NUMBER $REPO` (best-effort), R1
    `failure`.
 
-#### Step 4d — Dispatch the next task group
+#### Step 4d — Dispatch the next dependency-ready task
 
-Select the group with the scheduler helper (#153):
+Select one task with the scheduler helper (#153):
 
 ```bash
-GROUP="$(shared/workflow-state.sh read <KEY> <ISSUE_NUMBER> \
-  | python3 scripts/task_schedule.py next --plan "<SPEC_FOLDER>/plan-<ISSUE_NUMBER>.md" --state -)"
+NEXT_TASK="$(shared/workflow-state.sh read <KEY> <ISSUE_NUMBER> \
+  | python3 scripts/task_schedule.py next \
+      --plan "<SPEC_FOLDER>/plan-<ISSUE_NUMBER>.md" --state -)"
 ```
 
 - `{"status":"complete"}` — every plan task is complete; go to Step 6.
-- `{"status":"ready","mode":…,"skill":…,"task_ids":[…]}` — dispatch
+- `{"status":"ready","mode":…,"skill":…,"task_ids":[N]}` — dispatch
   `/makato-build:<skill> <KEY> --autonomous` with `ASSIGNED_TASK_IDS` set to
-  `task_ids`.
+  that single task ID.
 
-The group is the ready closure of the first `runOrder` mode that has a
-dependency-ready task: same-mode chains run in one pass and every cross-mode
-`blockedBy` becomes a pass boundary, so a pure-mode plan is still one pass.
-Never hand-pick, merge or reorder groups, and never count a task skipped by
-another mode's pass as complete.
+The scheduler returns the first dependency-ready task in the first ready mode
+from `runOrder`, preserving plan order within that mode. It never batches
+independent tasks or advances through same-mode dependencies in one run. The
+next task is selected only after the current result is persisted and Step 4
+re-enters. Never hand-pick or reorder tasks.
 
 Every dispatch context bundle carries:
 
-- `WORKTREE_PATH` — resolve via `shared/worktree.sh path <KEY>`.
-  Consumers `cd` into it before any file operation. See § *Worktree
-  lifecycle*.
-- `ASSIGNED_TASK_IDS` — the group's `task_ids` (JSON array of 1-based plan
-  indices). The skill runs exactly these tasks and reports them in
-  `data.completed_task_ids`.
-- `PRIOR_LESSONS` — the Step 2c JSON array (may be `[]`). Advisory
-  context; never triggers HALT, never overrides `plan-<ISSUE_NUMBER>.md`.
+- `WORKTREE_PATH` — resolve via `shared/worktree.sh path <KEY>`. Consumers `cd` into it
+  before any file operation. See § Worktree lifecycle.
+- `ASSIGNED_TASK_IDS` — `task_ids`, a JSON array containing exactly one 1-based plan
+  index. The skill runs exactly that task and reports it in `data.completed_task_ids`.
+- `PRIOR_LESSONS` — the Step 2c JSON array (may be `[]`). Advisory context; never
+  triggers HALT, never overrides `plan-<ISSUE_NUMBER>.md`.
 
 The implementation skill dispatches per-task scout + coder internally.
 The PO-agent does NOT dispatch either directly. A scout failure
@@ -799,7 +831,7 @@ Aggregate handling:
 
 | `r1.status`                                    | Action                                                                                                |
 | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
-| `success`                                      | Group complete only when `data.completed_task_ids` equals `ASSIGNED_TASK_IDS` as a set; otherwise handle as `partial`. For each listed ID whose row is not yet `complete`, patch `.sub_tasks[<id-1>].status` to `"complete"` and `.agent_result` to the R1 envelope. Re-enter Step 4 for the next group without incrementing `outer_iteration`. |
+| `success` | Success requires `data.completed_task_ids` to equal `ASSIGNED_TASK_IDS` as a set; otherwise handle as `partial`. For the single listed ID, if its row is not already `complete`, patch its `status` to `complete` and `agent_result` to the R1 envelope. Re-enter Step 4 for the next task without incrementing `outer_iteration`. |
 | `partial`                                      | At least one task incomplete. Go to Step 4f (Step 4c handles stuck`in_progress` on next iteration). |
 | `failure` with `data.escalation == "refine"` | Go to Step 4f.                                                                                        |
 | `failure` (other)                              | HALT-003, apply`needs-human-review`, also call `shared/post-halt-comment.sh HALT-003 $ISSUE_NUMBER $REPO` (best-effort), R1 `failure`.                                                |

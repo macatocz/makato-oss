@@ -55,23 +55,29 @@ def _next(tmp_path: Path, plan: str, complete: set[int]) -> dict[str, Any]:
 
 def _passes(tmp_path: Path, plan: str) -> list[tuple[str, list[int]]]:
     complete: set[int] = set()
-    passes: list[tuple[str, list[int]]] = []
-    while (group := _next(tmp_path, plan, complete))["status"] == "ready":
-        passes.append((group["mode"], group["task_ids"]))
-        complete.update(group["task_ids"])
-    return passes
+    tasks: list[tuple[str, list[int]]] = []
+    while (task := _next(tmp_path, plan, complete))["status"] == "ready":
+        tasks.append((task["mode"], task["task_ids"]))
+        complete.update(task["task_ids"])
+    return tasks
 
 
-def test_mixed_plan_alternates_modes_at_cross_mode_dependencies(tmp_path: Path) -> None:
+def test_mixed_plan_dispatches_one_ready_task_per_pass(tmp_path: Path) -> None:
     plan = _plan([(1, "tdd", "[]"), (2, "goal", "[1]"), (3, "tdd", "[2]"), (4, "tdd", "[1]"), (5, "goal", "[3]")])
 
-    assert _passes(tmp_path, plan) == [("tdd", [1, 4]), ("goal", [2]), ("tdd", [3]), ("goal", [5])]
+    assert _passes(tmp_path, plan) == [
+        ("tdd", [1]),
+        ("tdd", [4]),
+        ("goal", [2]),
+        ("tdd", [3]),
+        ("goal", [5]),
+    ]
 
 
-def test_single_mode_dependency_chain_runs_in_one_pass(tmp_path: Path) -> None:
+def test_single_mode_dependency_chain_dispatches_one_task_per_pass(tmp_path: Path) -> None:
     plan = _plan([(1, "tdd", "[]"), (2, "tdd", "[1]"), (3, "tdd", "[2]")], run_order="N/A")
 
-    assert _passes(tmp_path, plan) == [("tdd", [1, 2, 3])]
+    assert _passes(tmp_path, plan) == [("tdd", [1]), ("tdd", [2]), ("tdd", [3])]
 
 
 @pytest.mark.parametrize("placement", ["body", "frontmatter"])
@@ -82,9 +88,10 @@ def test_single_mode_dependency_chain_runs_in_one_pass(tmp_path: Path) -> None:
 def test_run_order_chooses_among_ready_modes(tmp_path: Path, placement: str, run_order: str, expected_mode: str) -> None:
     plan = _plan([(1, "tdd", "[]"), (2, "goal", "[]")], run_order=run_order, placement=placement)
 
-    group = _next(tmp_path, plan, complete=set())
+    task = _next(tmp_path, plan, complete=set())
 
-    assert (group["mode"], group["skill"]) == (expected_mode, f"build-implement-{expected_mode}")
+    expected_task_id = 2 if expected_mode == "goal" else 1
+    assert (task["mode"], task["skill"], task["task_ids"]) == (expected_mode, f"build-implement-{expected_mode}", [expected_task_id])
 
 
 def test_unfinished_tasks_are_rescheduled_but_accepted_ones_are_not(tmp_path: Path) -> None:
@@ -93,7 +100,7 @@ def test_unfinished_tasks_are_rescheduled_but_accepted_ones_are_not(tmp_path: Pa
 
     result = _run(tmp_path, "next", plan, rows)
 
-    assert json.loads(result.stdout)["task_ids"] == [2, 3]
+    assert json.loads(result.stdout)["task_ids"] == [2]
 
 
 def test_all_tasks_complete_reports_complete(tmp_path: Path) -> None:
