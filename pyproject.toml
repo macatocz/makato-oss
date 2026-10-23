@@ -30,6 +30,8 @@ dev = [
   "defusedxml>=0.7.1",
   "langfuse>=5.0.1,<6",
   "jsonschema>=4.0",
+  "pytest-xdist>=3.5",
+  "pytest-testmon>=2.1",
 ]
 
 [tool.pytest.ini_options]

@@ -240,7 +240,11 @@ not be downgraded to SUGGESTION merely because the failure path is unlikely.
 In **both manual and autonomous mode**, `build-review` dispatches the coder with
 every CRITICAL/MAJOR finding, verifies the repairs, and dispatches the read-only
 reviewer again. The reviewer inspects the current worktree, including uncommitted
-repairs and untracked additions, and retains unresolved prior findings.
+repairs and untracked additions, and retains unresolved prior findings. The first pass
+covers the whole change; a re-review after a repair covers the repair delta and its
+neighbours (`MAKATO_REVIEW_SCOPE`, default `delta`; `full` reviews everything every
+pass). A clean delta pass never ends the gate: one further full pass must certify the
+tree after the last repair, and its findings enter the same capped repair loop.
 
 Only a complete independent review with `critical_count == 0` and `major_count == 0`
 permits verify/push. A blocked repair or incomplete review returns non-success. After
