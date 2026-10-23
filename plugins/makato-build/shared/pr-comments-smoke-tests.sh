@@ -4,7 +4,7 @@
 # Read-only structural assertions over the skill, the shared template, and the
 # cross-doc references. No `gh` calls, no test PR, no network. Run via:
 #
-#   bash plugins/makato-build/skills/build-address-pr-comments/shared/pr-comments-smoke-tests.sh
+#   bash plugins/makato-build/shared/pr-comments-smoke-tests.sh
 #
 # Exit code: 0 on PASS, 1 on first FAIL.
 
@@ -74,11 +74,11 @@ assert "SKILL.md description mentions --autonomous safety"   contains_F "$SKILL_
 
 # --- C. AC2 — SHOULD-FIX scope guard ---------------------------------------
 
-assert "SKILL.md references plan.md task[].file_targets[] for scope guard" \
-  contains_F "$SKILL_MD" "task[].file_targets[]"
+assert "SKILL.md references plan.md task[].Files[] for scope guard" \
+  contains_F "$SKILL_MD" 'task[].Files[]'
 assert "SKILL.md logs should-fix-scope-guard gate" \
   contains_F "$SKILL_MD" 'should-fix-scope-guard'
-assert "SKILL.md surfaces DEFERRED tier in Step 5"  contains_F "$SKILL_MD" "marked DEFERRED"
+assert "SKILL.md surfaces DEFERRED tier in Step 5"  contains_F "$SKILL_MD" "mark the comment DEFERRED"
 assert "Template defines [DEFERRED] marker section"  contains_F "$TEMPLATE_MD" "SHOULD-FIX (deferred — autonomous-only)"
 assert "Template uses [DEFERRED] bracket marker"     contains_F "$TEMPLATE_MD" "[DEFERRED]"
 
@@ -88,13 +88,13 @@ assert "SKILL.md has Step 5a — STRUCTURAL HALT-003"    contains_F "$SKILL_MD" 
 assert "SKILL.md sequence: summary reply → label → log → HALT" \
   contains_F "$SKILL_MD" "post-reply → label → log → HALT"
 assert "SKILL.md applies needs-human-review on PR + issue"    contains_F "$SKILL_MD" 'gh pr edit "$PR_NUMBER" --add-label needs-human-review'
-assert "SKILL.md exits with data.halt_code HALT-003"    contains_F "$SKILL_MD" '"halt_code": "HALT-003"'
+assert "SKILL.md exits with data.halt_code HALT-003"    contains_F "$SKILL_MD" 'data.halt_code: "HALT-003"'
 assert "Template has STRUCTURAL MUST-FIX section"       contains_F "$TEMPLATE_MD" "STRUCTURAL MUST-FIX (autonomous HALT — AC3)"
 assert "Template uses [STRUCTURAL] bracket marker"      contains_F "$TEMPLATE_MD" "[STRUCTURAL]"
 assert "halt-conditions.md HALT-003 lists build-address-pr-comments" \
-  contains_F "$HALT_MD" "build-address-pr-comments\` (autonomous mode) detects one or more STRUCTURAL"
-assert "po-agent.md Label application table has HALT-003 variant row" \
-  contains_F "$PO_AGENT_MD" "HALT-003 (variant)"
+  contains_F "$HALT_MD" "STRUCTURAL MUST-FIX comments from autonomous \`build-address-pr-comments\` (\`STRUCTURAL_BLOCKER\`)"
+assert "po-agent.md Label application table has a HALT-003 row for pr-comments STRUCTURAL" \
+  contains_F "$PO_AGENT_MD" "or \`build-address-pr-comments\` STRUCTURAL"
 
 # --- E. AC4 — OUT-OF-SCOPE carry-over -------------------------------------
 
@@ -129,16 +129,17 @@ done
 
 # Every per-gate bypass must emit an autonomous_bypass entry. Spot-check the
 # four GAP-011 gates land in SKILL.md alongside the canonical helper call.
-# Post-#116: gates are passed as positional args to log-bypass.sh, not as
+# Post-#116: gates are passed as positional args to the log-bypass.sh helper
+# (invoked as "$MAKATO_BUILD_ROOT/shared/log-bypass.sh"), not as
 # inline JSON `"gate":"<name>"` literals.
-assert "SKILL.md logs comment-classification bypass"     contains_F "$SKILL_MD" 'log-bypass.sh build-address-pr-comments "<key>" comment-classification'
-assert "SKILL.md logs should-fix-scope-guard bypass"     contains_F "$SKILL_MD" 'log-bypass.sh build-address-pr-comments "<key>" should-fix-scope-guard'
-assert "SKILL.md logs out-of-scope-carry-over bypass"    contains_F "$SKILL_MD" 'log-bypass.sh build-address-pr-comments "<key>" out-of-scope-carry-over'
-assert "SKILL.md logs structural-must-fix bypass"        contains_F "$SKILL_MD" 'log-bypass.sh build-address-pr-comments "<key>" structural-must-fix'
-assert "SKILL.md logs structural-halt-summary bypass"    contains_F "$SKILL_MD" 'log-bypass.sh build-address-pr-comments "<key>" structural-halt-summary'
-assert "SKILL.md logs sensor-bot-classification bypass"  contains_F "$SKILL_MD" 'log-bypass.sh build-address-pr-comments "<key>" sensor-bot-classification'
+assert "SKILL.md logs comment-classification bypass"     contains_F "$SKILL_MD" 'log-bypass.sh" build-address-pr-comments "<key>" comment-classification'
+assert "SKILL.md logs should-fix-scope-guard bypass"     contains_F "$SKILL_MD" 'log-bypass.sh" build-address-pr-comments "<key>" should-fix-scope-guard'
+assert "SKILL.md logs out-of-scope-carry-over bypass"    contains_F "$SKILL_MD" 'log-bypass.sh" build-address-pr-comments "<key>" out-of-scope-carry-over'
+assert "SKILL.md logs structural-must-fix bypass"        contains_F "$SKILL_MD" 'log-bypass.sh" build-address-pr-comments "<key>" structural-must-fix'
+assert "SKILL.md logs structural-halt-summary bypass"    contains_F "$SKILL_MD" 'log-bypass.sh" build-address-pr-comments "<key>" structural-halt-summary'
+assert "SKILL.md logs sensor-bot-classification bypass"  contains_F "$SKILL_MD" 'log-bypass.sh" build-address-pr-comments "<key>" sensor-bot-classification'
 assert "SKILL.md routes autonomous_bypass through log-bypass.sh helper" \
-  contains_F "$SKILL_MD" 'log-bypass.sh build-address-pr-comments'
+  contains_F "$SKILL_MD" 'shared/log-bypass.sh" build-address-pr-comments'
 
 # --- I. AUTONOMOUS-MODE.md per-gate table currency -------------------------
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Smoke tests for the TDD VERIFY phase contract (#285).
-# Validates the static documentation contract: build-implement-tdd Step 6
-# documents the cross-task regression sweep, tdd-cycle-rules.md documents
-# both the per-task and cross-task VERIFY gates, and the session-end
-# verification step (Step 7) is preserved as a distinct gate.
+# Smoke tests for the TDD verification contract (#148/#149, supersedes #285).
+# Validates the static documentation contract: coders run only targeted
+# RED/GREEN commands, the build-implement-tdd coordinator accepts a valid R1
+# without running a suite or a cross-task regression sweep, carries the Step 3
+# baseline forward, and hands whole-change verification to build-verify.
 #
 # These are documentation/grep smoke tests rather than runtime tests because
 # the consumer half is implemented as instructions to the LLM that drives each
@@ -31,59 +31,72 @@ assert_grep() {
   fi
 }
 
+# The cross-task regression sweep was removed on purpose (#149); its return
+# would silently re-add a whole-suite run to every TDD session.
+assert_no_grep() {
+  local pattern="$1"
+  local path="$2"
+  local label="$3"
+  if grep -qiE "$pattern" "$REPO_ROOT/$path"; then
+    FAIL=$((FAIL + 1))
+    FAILURES+=("$label — pattern '$pattern' unexpectedly found in $path")
+    printf '  ✗ %s\n' "$label"
+  else
+    PASS=$((PASS + 1))
+    printf '  ✓ %s\n' "$label"
+  fi
+}
+
 SKILL_MD="plugins/makato-build/skills/build-implement-tdd/SKILL.md"
 RULES_MD="plugins/makato-build/skills/build-implement-tdd/references/tdd-cycle-rules.md"
 
-printf '\n=== T1: Step 6 documents the cross-task regression sweep ===\n'
-# build-implement-tdd/SKILL.md Step 6 must name the cross-task regression sweep.
-# Acceptable phrasings: "cross-task", "ACCUMULATED_PRIOR", "accumulated.*test.*files"
-assert_grep 'cross-task|ACCUMULATED_PRIOR|accumulated.*test.*files' \
+printf '\n=== T1: the coordinator accepts a valid coder R1 without running tests ===\n'
+assert_grep 'do not run a regression sweep or other tests in the coordinator' \
   "$SKILL_MD" \
-  'build-implement-tdd SKILL.md documents the cross-task regression sweep'
+  'build-implement-tdd SKILL.md forbids a regression sweep in the coordinator'
 
-# The sweep section heading must be present so future readers can locate it.
-assert_grep 'Cross-task regression sweep' \
+assert_no_grep 'cross-task-verify|ACCUMULATED_PRIOR' \
   "$SKILL_MD" \
-  'build-implement-tdd SKILL.md has a Cross-task regression sweep section heading'
+  'build-implement-tdd SKILL.md has no cross-task sweep step or accumulated-test-file set'
 
-printf '\n=== T2: Step 6 uses BASELINE_FAILURES in the sweep gate ===\n'
-# The sweep applies the same gate formula as per-task VERIFY.
-# BASELINE_FAILURES must appear in the sweep context (not just the step-3 baseline).
+printf '\n=== T2: the Step 3 baseline is established once and carried forward ===\n'
 assert_grep 'BASELINE_FAILURES' \
   "$SKILL_MD" \
-  'build-implement-tdd SKILL.md references BASELINE_FAILURES in the sweep gate'
+  'build-implement-tdd SKILL.md defines BASELINE_FAILURES from the baseline row'
 
-# The cross-task-verify JSONL step name must be explicitly documented.
-assert_grep 'cross-task-verify' \
+assert_grep 'Carry the Step 3 baseline result forward for .build-verify.' \
   "$SKILL_MD" \
-  'build-implement-tdd SKILL.md documents the cross-task-verify JSONL step name'
+  'build-implement-tdd SKILL.md Step 7 carries the baseline forward to build-verify'
 
-printf '\n=== T3: tdd-cycle-rules.md documents both Level 1 and Level 2 VERIFY ===\n'
-# Level 1 (per-task) gate must still reference zero new failures.
-assert_grep 'Zero new failures|zero new failures' \
+printf '\n=== T3: tdd-cycle-rules.md documents targeted RED and GREEN only ===\n'
+assert_grep '^### RED' \
   "$RULES_MD" \
-  'tdd-cycle-rules.md documents Level 1 per-task zero-new-failures gate'
+  'tdd-cycle-rules.md documents the RED phase'
 
-# Level 2 (cross-task) gate must be present.
-assert_grep 'cross-task|Level 2|Cross-task' \
+assert_grep '^### GREEN' \
   "$RULES_MD" \
-  'tdd-cycle-rules.md documents Level 2 cross-task VERIFY gate'
+  'tdd-cycle-rules.md documents the GREEN phase'
 
-# Task 1 skip rule must be documented so readers know the first sweep is for task 2+.
-assert_grep 'Task 1 skip|task 1|first task' \
+assert_grep 'run(s)? only targeted commands' \
   "$RULES_MD" \
-  'tdd-cycle-rules.md documents the Task 1 skip rule'
+  'tdd-cycle-rules.md limits the coder to targeted commands'
 
-printf '\n=== T4: Step 7 final-suite gate is preserved as a distinct step ===\n'
-# The session-end full-suite run (Step 7) must still exist and must be
-# named distinctly from the per-task cross-task sweep to avoid confusion.
-assert_grep 'Step 7' \
+assert_grep 'do not run those gates or a cross-task' \
+  "$RULES_MD" \
+  'tdd-cycle-rules.md states the coder and coordinator run no cross-task regression sweep'
+
+printf '\n=== T4: whole-change verification is handed to build-verify ===\n'
+assert_grep '^### Step 7 — Hand off to build-verify' \
   "$SKILL_MD" \
-  'build-implement-tdd SKILL.md retains Step 7 final-suite verification'
+  'build-implement-tdd SKILL.md Step 7 is the build-verify hand-off'
 
-assert_grep 'Final suite verification|final-verify|final suite' \
+assert_grep 'Do not run a suite, integration suite, coverage, or' \
   "$SKILL_MD" \
-  'build-implement-tdd SKILL.md Step 7 names the final-suite gate distinctly'
+  'build-implement-tdd SKILL.md Step 7 forbids suite, coverage and lint in the coordinator'
+
+assert_grep 'build-verify. owns build, lint,' \
+  "$RULES_MD" \
+  'tdd-cycle-rules.md assigns whole-change gates to build-verify'
 
 printf '\n=== Summary ===\n'
 printf 'Passed: %d\n' "$PASS"
@@ -95,4 +108,4 @@ if (( FAIL > 0 )); then
   done
   exit 1
 fi
-printf '\nAll TDD VERIFY phase contract checks passed.\n'
+printf '\nAll TDD verification contract checks passed.\n'

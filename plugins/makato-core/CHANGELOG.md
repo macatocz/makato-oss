@@ -5,6 +5,13 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Fixed — `check-no-hardcoded-model.sh` passes again
+
+- **`analyze-log` v1.0.1** — `references/log-schema.md` examples show `model` as a placeholder
+  (`<from session start>`, `<model id>`) instead of a literal `"sonnet"`: `build-log.sh` injects the
+  field from the session-start entry, and the literal tripped `scripts/check-no-hardcoded-model.sh`,
+  which has failed on `main` since it was added.
+
 ### Changed — nested agents route through shared model roles
 
 - **`create-workflow-schema`** — `references/workflow-schema-field-reference.md` no longer cites
