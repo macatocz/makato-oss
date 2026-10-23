@@ -129,7 +129,7 @@ invoking PR creation or nesting another CI coordinator.
 - `status: "partial"` — review could not cover all CHANGED_FILES (e.g. a file could not be read).
 - `files_changed: []`, `tests_written: []` (agent is read-only).
 - `errors` — every CRITICAL and MAJOR finding as `"<file>:<line> — [<severity>][<category>] <description>"` (severity prefix lets the caller route CRITICAL vs MAJOR). Empty when `status: "success"`.
-- `data` keys: `{ "pass_number": N, "critical_count": N, "major_count": N, "suggestion_count": N, "nitpick_count": N, "files_reviewed": N }`.
+- `data` keys: `{ "pass_number": N, "review_scope": "full"|"delta", "critical_count": N, "major_count": N, "suggestion_count": N, "nitpick_count": N, "files_reviewed": N }` — `review_scope` is the scope actually applied (`full` after a widening); `files_reviewed` counts the files actually read.
 
 ### `build-review` (skill, owns the repair loop)
 
@@ -138,7 +138,9 @@ invoking PR creation or nesting another CI coordinator.
 - `partial`/`failure` means review or repair remains incomplete; `errors` identifies
   unresolved findings or the concrete blocker. Neither status permits verify or push.
 - `files_changed` and `tests_written` accumulate actual repairs across passes.
-- `data` includes `passes` (the review pass counter), plus `critical_count` and
+- `data` includes `passes` (the review pass counter), `full_passes` and `delta_passes`
+  (how many passes reviewed the whole change versus only a repair delta; `success`
+  requires that the last repair was followed by a full pass), plus `critical_count` and
   `major_count` from the final reviewer R1. Without a complete reviewer result,
   report the blocker instead of fabricated zero counts. Both modes use this gate.
 
@@ -291,6 +293,7 @@ invoking PR creation or nesting another CI coordinator.
   "tool_calls_used": 14,
   "data": {
     "pass_number": 1,
+    "review_scope": "full",
     "critical_count": 1,
     "major_count": 1,
     "suggestion_count": 4,
