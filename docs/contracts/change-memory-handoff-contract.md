@@ -69,6 +69,11 @@ procedural destination is supplied, the default semantic store is its sibling. N
 includes slug-only folders containing the matching `workflow-state-N.json`, not just numeric folder
 names. Exact slug lookup supports ad-hoc work with no GitHub issue. Explicit issue identity prevents
 cross-issue attribution in shared feature directories.
+Folder-scoped promotion accepts legacy records whose issue cannot be resolved: it preserves
+their source path, task key, and event identity without inventing `source_issue` or an event
+`issue_number`. Numeric issue-scoped promotion warns and skips those ambiguous records while
+still processing correctly attributed records. Missing historical attribution does not block
+capture-time persistence of a new lesson.
 
 Sources are `workflow-state-N.json` → `lessons_learned[]` and `change-lessons.jsonl`. Only
 `scope: generalizable` is promoted. Semantic records go to `semantic.jsonl`; procedural and legacy
@@ -99,6 +104,9 @@ Recall merges live workflow lessons with durable memory, normalizes GitHub remot
 slugs, applies optional bundle/label filters, and ranks by scope, occurrences, and recency.
 `MAKATO_MEMORY_ROOT` and `SPECS_DIR` provide explicit isolated roots for tests. Existing malformed
 durable lines are ignored by recall; promotion fails rather than overwriting malformed storage.
+Lesson payloads reach jq through temporary files, not command-line arguments, so store growth does
+not hit the process argument-size limit. Unexpected read or processing failures return nonzero
+with diagnostics; they are not reported as a successful empty recall.
 
 Summaries include both workflow lessons and raw captures for the requested issue. Malformed sources
 or ambiguous attribution fail instead of replacing a report with a false-empty success. Genuine

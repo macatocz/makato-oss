@@ -282,6 +282,58 @@ _cleanup_sandbox "$SB_D"
 SB_D=""
 
 # ===========================================================================
+# Scenario E — shared multi-workflow spec with a legacy unattributed record
+#   A legacy generalizable record without issue_number sits beside two
+#   workflow-state files. A correctly attributed write (--issue) must capture
+#   and promote with exit 0 (never exit 3); the legacy record is promoted with
+#   UNKNOWN attribution (no invented issue); numeric promotion skips it.
+# ===========================================================================
+echo ""
+echo "=== Scenario E: shared spec with legacy unattributed lesson ==="
+
+SB_E=""
+SB_E="$(_mk_sandbox "900-e2e-shared")"
+trap '_cleanup_sandbox "$SB_E"' EXIT
+
+if (
+  cd "$SB_E" || exit 1
+  SPEC="specs/900-e2e-shared-e2e-test"
+  MEM="$SB_E/.makato/memory/procedural.jsonl"
+  printf '{"lessons_learned":[]}\n' > "$SPEC/workflow-state-900.json"
+  printf '{"lessons_learned":[]}\n' > "$SPEC/workflow-state-901.json"
+  printf '%s\n' '{"scope":"generalizable","tier":"procedural","text":"legacy shared lesson","tags":["e2e"],"key":"900-e2e-shared-e2e-test"}' > "$SPEC/change-lessons.jsonl"
+
+  if ! bash "$WRITE_LESSONS" "900-e2e-shared" procedural generalizable \
+    "attributed shared lesson" "e2e" --issue 901 2>/dev/null; then
+    echo "  write-lessons.sh failed (expected exit 0, promotion must not exit 3)" >&2
+    exit 1
+  fi
+
+  python3 - "$MEM" <<'PY' || exit 1
+import json, sys
+records = {r["text"]: r for r in map(json.loads, open(sys.argv[1]).read().splitlines())}
+assert set(records) == {"legacy shared lesson", "attributed shared lesson"}, sorted(records)
+assert records["attributed shared lesson"]["source_issue"] == 901
+assert "source_issue" not in records["legacy shared lesson"], "attribution invented"
+assert all(r["occurrences"] == 1 for r in records.values())
+PY
+
+  # Replay by spec key and by numeric issue must be idempotent.
+  BEFORE="$(cat "$MEM")"
+  MAKATO_PROMOTE_REPO_OVERRIDE="macatocz/makato" bash "$PROMOTE_LESSONS" "900-e2e-shared-e2e-test" "$SB_E/specs" "$MEM" "$SB_E/.makato/memory/semantic.jsonl" 2>/dev/null || exit 1
+  MAKATO_PROMOTE_REPO_OVERRIDE="macatocz/makato" bash "$PROMOTE_LESSONS" "901" "$SB_E/specs" "$MEM" "$SB_E/.makato/memory/semantic.jsonl" 2>/dev/null || exit 1
+  [[ "$(cat "$MEM")" == "$BEFORE" ]] || { echo "  replay changed the store" >&2; exit 1; }
+); then
+  _pass "legacy unattributed + new attributed lessons promote without exit 3"
+else
+  _fail "shared-spec legacy mixture broken (see above)"
+fi
+
+trap - EXIT
+_cleanup_sandbox "$SB_E"
+SB_E=""
+
+# ===========================================================================
 # Summary
 # ===========================================================================
 echo ""

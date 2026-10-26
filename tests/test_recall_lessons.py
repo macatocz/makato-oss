@@ -8,8 +8,11 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
+
+import pytest
 
 WORKTREE = Path(__file__).parent.parent
 WS = WORKTREE / "plugins" / "makato-orchestrate" / "shared" / "workflow-state.sh"
@@ -33,20 +36,16 @@ class TestRecallLessonsBackwardCompat:
     """AC-2: 2-arg call recall-lessons <REPO> [N] still works unchanged."""
 
     def test_two_arg_call_returns_empty_json_array_for_unknown_repo(self, tmp_path):
-        # Ensure at least an empty result for a brand-new repo slug
-        result = _run_ws("recall-lessons", "macatocz/nonexistent-470-test-repo", "3")
+        specs = tmp_path / "specs"
+        specs.mkdir()
+        result = _run_ws(
+            "recall-lessons",
+            "macatocz/nonexistent-470-test-repo",
+            "3",
+            env={"SPECS_DIR": str(specs), "MAKATO_MEMORY_ROOT": str(tmp_path)},
+        )
         assert result.returncode == 0, f"stderr: {result.stderr}"
-        data = json.loads(result.stdout)
-        assert isinstance(data, list)
-
-    def test_two_arg_call_returns_lessons_for_known_repo(self, tmp_path):
-        """2-arg recall with no bundle/label filters returns all lessons for the repo."""
-        # This test uses the live specs/ folder's workflow-state files — it just
-        # confirms the call signature still works without errors.
-        result = _run_ws("recall-lessons", "macatocz/makato", "3")
-        assert result.returncode == 0, f"rc={result.returncode} stderr={result.stderr}"
-        data = json.loads(result.stdout)
-        assert isinstance(data, list)
+        assert json.loads(result.stdout) == []
 
 
 class TestRecallLessonsNoMemoryStore:
@@ -394,3 +393,175 @@ class TestRecallLessonsMetadataSources:
                 "Procedural captured lesson",
                 "Semantic captured fact",
             }
+
+
+class TestRecallLessonsLargeInputs:
+    """Memory/workflow-state volumes beyond the exec argv limit must not break recall."""
+
+    REPO = "macatocz/test-large-recall"
+
+    def _build_large_inputs(self, tmp_path: Path) -> tuple[Path, Path]:
+        memory_dir = tmp_path / ".makato" / "memory"
+        memory_dir.mkdir(parents=True)
+        specs = tmp_path / "specs"
+        (specs / "spec-a").mkdir(parents=True)
+        (specs / "spec-b").mkdir(parents=True)
+        pad = "p" * 2000
+        with (memory_dir / "semantic.jsonl").open("w", encoding="utf-8") as fh:
+            for i in range(2500):  # ~5 MB
+                fh.write(
+                    json.dumps(
+                        {
+                            "repo": self.REPO,
+                            "bundle": "python" if i % 2 else "infra",
+                            "scope": "local",
+                            "occurrences": 1,
+                            "ts": f"2026-01-01T00:{i // 60 % 60:02d}:{i % 60:02d}Z",
+                            "description": f"store-{i}",
+                            "pad": pad,
+                        }
+                    )
+                    + "\n"
+                )
+                if i % 700 == 0:
+                    fh.write("{ malformed\n")
+            fh.write(
+                json.dumps(
+                    {
+                        "repo": self.REPO,
+                        "bundle": "python",
+                        "scope": "generalizable",
+                        "occurrences": 5,
+                        "ts": "2025-01-01T00:00:00Z",
+                        "description": "store-top",
+                    }
+                )
+                + "\n"
+            )
+        for spec, count in (("spec-a", 1500), ("spec-b", 1)):
+            lessons = [
+                {
+                    "description": f"ws-{spec}-{i}",
+                    "scope": "local",
+                    "occurrences": 1,
+                    "cycle": 0,
+                    "ts": "2025-06-01T00:00:00Z",
+                    "bundle": "python",
+                    "pad": pad,
+                }
+                for i in range(count)
+            ]
+            lessons.append(
+                {
+                    "description": f"ws-hot-{spec}",
+                    "scope": "generalizable",
+                    "occurrences": 3,
+                    "ts": "2026-03-01T00:00:00Z" if spec == "spec-b" else "2026-02-01T00:00:00Z",
+                    "bundle": "python",
+                }
+            )
+            (specs / spec / "workflow-state-1.json").write_text(json.dumps({"repo": self.REPO, "lessons_learned": lessons}), encoding="utf-8")
+        # A different repo's state must stay excluded.
+        (specs / "spec-b" / "workflow-state-2.json").write_text(
+            json.dumps(
+                {
+                    "repo": "someone/else",
+                    "lessons_learned": [{"description": "foreign", "scope": "generalizable", "occurrences": 99}],
+                }
+            ),
+            encoding="utf-8",
+        )
+        return specs, memory_dir
+
+    def test_multi_megabyte_sources_are_merged_filtered_sorted_and_limited(self, tmp_path):
+        specs, memory_dir = self._build_large_inputs(tmp_path)
+        assert (memory_dir / "semantic.jsonl").stat().st_size > 4_000_000
+        assert sum(p.stat().st_size for p in specs.rglob("workflow-state-*.json")) > 2_000_000
+        env = {"SPECS_DIR": str(specs), "MAKATO_MEMORY_ROOT": str(tmp_path)}
+
+        result = _run_ws("recall-lessons", self.REPO, "4", env=env)
+
+        assert result.returncode == 0, result.stderr
+        assert [d["description"] for d in json.loads(result.stdout)] == [
+            "store-top",  # occurrences 5
+            "ws-hot-spec-b",  # occurrences 3, newer ts wins the tie
+            "ws-hot-spec-a",
+            "store-2499",  # local, newest ts among occurrences-1 ties
+        ]
+
+        filtered = _run_ws("recall-lessons", self.REPO, "2", "--bundles", "infra", env=env)
+
+        assert filtered.returncode == 0, filtered.stderr
+        assert [d["description"] for d in json.loads(filtered.stdout)] == ["store-2498", "store-2496"]
+
+
+class TestRecallLessonsCollectionFailures:
+    """Unexpected collection/jq failures must be visible, never an empty success."""
+
+    REPO = "macatocz/test-recall-failures"
+
+    def test_malformed_workflow_state_file_fails_nonzero_with_stderr(self, tmp_path):
+        specs = tmp_path / "specs" / "spec-a"
+        specs.mkdir(parents=True)
+        (specs / "workflow-state-1.json").write_text("{ not json", encoding="utf-8")
+
+        result = _run_ws(
+            "recall-lessons",
+            self.REPO,
+            env={"SPECS_DIR": str(tmp_path / "specs"), "MAKATO_MEMORY_ROOT": str(tmp_path)},
+        )
+
+        assert result.returncode != 0
+        assert result.stdout.strip() == ""
+        assert "parse error" in result.stderr
+        assert "failed collecting workflow-state lessons" in result.stderr
+
+    def test_unreadable_memory_file_fails_nonzero_with_stderr(self, tmp_path):
+        memory_dir = tmp_path / ".makato" / "memory"
+        memory_dir.mkdir(parents=True)
+        store = memory_dir / "semantic.jsonl"
+        store.write_text(json.dumps({"repo": self.REPO, "description": "hidden"}) + "\n", encoding="utf-8")
+        store.chmod(0)
+        try:
+            if os.access(store, os.R_OK):
+                pytest.skip("file permissions not enforced for this user")
+            result = _run_ws(
+                "recall-lessons",
+                self.REPO,
+                env={"SPECS_DIR": str(tmp_path / "specs"), "MAKATO_MEMORY_ROOT": str(tmp_path)},
+            )
+        finally:
+            store.chmod(0o644)
+
+        assert result.returncode != 0
+        assert result.stdout.strip() == ""
+        assert "semantic.jsonl" in result.stderr
+
+    def test_final_jq_failure_is_not_swallowed(self, tmp_path):
+        memory_dir = tmp_path / ".makato" / "memory"
+        memory_dir.mkdir(parents=True)
+        (memory_dir / "semantic.jsonl").write_text(json.dumps({"repo": self.REPO, "description": "ok"}) + "\n", encoding="utf-8")
+        real_jq = shutil.which("jq")
+        assert real_jq
+        shim_dir = tmp_path / "shim"
+        shim_dir.mkdir()
+        shim = shim_dir / "jq"
+        shim.write_text(
+            f'#!/bin/bash\nfor a in "$@"; do\n  if [[ "$a" == --slurpfile ]]; then echo "forced jq failure" >&2; exit 5; fi\ndone\nexec "{real_jq}" "$@"\n',
+            encoding="utf-8",
+        )
+        shim.chmod(0o755)
+
+        result = _run_ws(
+            "recall-lessons",
+            self.REPO,
+            env={
+                "PATH": f"{shim_dir}{os.pathsep}{os.environ['PATH']}",
+                "SPECS_DIR": str(tmp_path / "specs"),
+                "MAKATO_MEMORY_ROOT": str(tmp_path),
+            },
+        )
+
+        assert result.returncode == 5
+        assert result.stdout.strip() == ""
+        assert "forced jq failure" in result.stderr

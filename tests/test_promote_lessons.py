@@ -503,18 +503,97 @@ def test_numeric_lookup_finds_slug_state_and_filters_shared_raw_issues(tmp_path)
     assert {record["occurrences"] for record in _records(memory)} == {1}
 
 
-def test_ambiguous_shared_raw_source_is_not_attributed_or_discarded(tmp_path):
-    specs = tmp_path / "specs"
-    folder = specs / "admin-console"
-    memory = tmp_path / "procedural.jsonl"
-    raw = _write_raw(folder, [{"scope": "generalizable", "text": "Owner is unknown", "key": "admin-console"}])
+def _shared_spec(tmp_path, raw_records):
+    folder = tmp_path / "specs" / "admin-console"
     for issue in (887, 888):
+        folder.mkdir(parents=True, exist_ok=True)
         (folder / f"workflow-state-{issue}.json").write_text(json.dumps({"issue_number": issue, "lessons_learned": []}))
+    raw = _write_raw(folder, raw_records)
+    return tmp_path / "specs", raw
+
+
+LEGACY = {"scope": "generalizable", "text": "Owner is unknown", "key": "admin-console"}
+ATTRIBUTED = {"scope": "generalizable", "text": "Owner is known", "key": "admin-console", "issue_number": 888, "event_id": "new-888"}
+
+
+def test_spec_key_promotion_keeps_legacy_unattributed_beside_attributed(tmp_path):
+    specs, raw = _shared_spec(tmp_path, [LEGACY, ATTRIBUTED])
+    memory = tmp_path / "procedural.jsonl"
     before = raw.read_bytes()
-    result = _run("887", str(specs), str(memory))
-    assert result.returncode != 0
-    assert "issue_number" in result.stderr
+
+    result = _run("admin-console", str(specs), str(memory))
+    assert result.returncode == 0, result.stderr
+    records = {record["text"]: record for record in _records(memory)}
+    assert set(records) == {"Owner is unknown", "Owner is known"}
+    legacy, known = records["Owner is unknown"], records["Owner is known"]
+    # Unknown attribution is never invented, but path/key provenance remains.
+    assert "source_issue" not in legacy
+    assert all("issue_number" not in event for event in legacy["source_events"])
+    assert legacy["source_key"] == "admin-console"
+    assert legacy["source_events"][0]["path"] == "admin-console/change-lessons.jsonl"
+    assert legacy["source_events"][0]["key"] == "admin-console"
+    assert known["source_issue"] == 888
+    assert known["source_events"][0]["issue_number"] == 888
     assert raw.read_bytes() == before
+
+    # Replay is idempotent for both attributed and legacy records.
+    snapshot = memory.read_text()
+    assert _run("admin-console", str(specs), str(memory)).returncode == 0
+    assert memory.read_text() == snapshot
+    assert {record["occurrences"] for record in _records(memory)} == {1}
+
+
+def test_numeric_promotion_skips_ambiguous_legacy_with_warning_but_promotes_attributed(tmp_path):
+    specs, raw = _shared_spec(tmp_path, [LEGACY, ATTRIBUTED, {**ATTRIBUTED, "text": "Other issue", "issue_number": 887, "event_id": "new-887"}])
+    memory = tmp_path / "procedural.jsonl"
+    before = raw.read_bytes()
+
+    result = _run("888", str(specs), str(memory))
+    assert result.returncode == 0, result.stderr
+    assert "warning" in result.stderr and "admin-console/change-lessons.jsonl" in result.stderr
+    assert [record["text"] for record in _records(memory)] == ["Owner is known"]
+    assert _records(memory)[0]["source_issue"] == 888
+    assert raw.read_bytes() == before
+
+    # Another numeric issue must not claim the legacy record either.
+    result = _run("887", str(specs), str(memory))
+    assert result.returncode == 0, result.stderr
+    assert {record["text"] for record in _records(memory)} == {"Owner is known", "Other issue"}
+    assert "Owner is unknown" not in memory.read_text()
+
+
+def test_numeric_promotion_with_only_ambiguous_legacy_warns_and_writes_nothing(tmp_path):
+    specs, _ = _shared_spec(tmp_path, [LEGACY])
+    memory = tmp_path / "procedural.jsonl"
+    result = _run("887", str(specs), str(memory))
+    assert result.returncode == 0, result.stderr
+    assert "warning" in result.stderr
+    assert not memory.exists() or memory.read_text() == ""
+
+
+def test_legacy_attribution_does_not_fall_back_to_folder_name_in_shared_spec(tmp_path):
+    folder = tmp_path / "specs" / "887-admin-console"
+    for issue in (887, 888):
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / f"workflow-state-{issue}.json").write_text(json.dumps({"lessons_learned": []}))
+    _write_raw(folder, [{**LEGACY, "key": "887-admin-console"}])
+    memory = tmp_path / "procedural.jsonl"
+
+    result = _run("887", str(tmp_path / "specs"), str(memory))
+    assert result.returncode == 0, result.stderr
+    assert not memory.exists() or memory.read_text() == ""
+    result = _run("887-admin-console", str(tmp_path / "specs"), str(memory))
+    assert result.returncode == 0, result.stderr
+    assert "source_issue" not in _records(memory)[0]
+
+
+def test_invalid_explicit_issue_still_fails_in_shared_spec_with_legacy_records(tmp_path):
+    specs, raw = _shared_spec(tmp_path, [LEGACY, {**ATTRIBUTED, "issue_number": "abc"}])
+    memory = tmp_path / "procedural.jsonl"
+    for key in ("admin-console", "888"):
+        result = _run(key, str(specs), str(memory))
+        assert result.returncode != 0
+        assert "issue_number must be a positive integer" in result.stderr
     assert not memory.exists() or memory.read_text() == ""
 
 
