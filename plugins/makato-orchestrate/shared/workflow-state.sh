@@ -921,19 +921,30 @@ PYEOF
     fi
 
     # ----------------------------------------------------------------
-    # Step 1: Collect lessons from workflow-state-*.json files (live state).
+    # Both capture sources are streamed through temp files (never argv): a
+    # large memory store or workflow-state set would overflow the exec
+    # argument limit if passed to jq via --argjson. Unexpected collection or
+    # jq failures exit nonzero with stderr rather than degrading to [].
     # ----------------------------------------------------------------
-    WS_LESSONS="[]"
+    RECALL_TMP="$(mktemp -d "${TMPDIR:-/tmp}/workflow-state-recall.XXXXXX")"
+    trap 'rm -rf "$RECALL_TMP"' EXIT
+    WS_LESSONS_FILE="$RECALL_TMP/ws.jsonl"
+    STORE_LESSONS_FILE="$RECALL_TMP/store.jsonl"
+    : > "$WS_LESSONS_FILE"
+    : > "$STORE_LESSONS_FILE"
+
+    # ----------------------------------------------------------------
+    # Step 1: Collect lessons from workflow-state-*.json files (live state).
+    # find -exec ... {} + runs jq only when files exist and batches under the
+    # argv limit; -c emits one lesson per line so batches concatenate safely.
+    # ----------------------------------------------------------------
     if [[ -d "$SPECS_DIR" ]]; then
-      # xargs -0 with no input is a no-op; guard for empty find result.
-      MATCH_FILES="$(find "$SPECS_DIR" -mindepth 2 -maxdepth 2 -type f -name 'workflow-state-*.json' 2>/dev/null || true)"
-      if [[ -n "$MATCH_FILES" ]]; then
-        # shellcheck disable=SC2016 # $repo is a jq variable, not a shell variable.
-        WS_LESSONS="$(echo "$MATCH_FILES" | tr '\n' '\0' | xargs -0 jq -s \
-          --arg repo "$REPO" \
-          '[.[] | select(.repo == $repo) | (.lessons_learned // [])[]]' \
-          2>/dev/null || echo "[]")"
-      fi
+      # shellcheck disable=SC2016 # $repo is a jq variable, not a shell variable.
+      find "$SPECS_DIR" -mindepth 2 -maxdepth 2 -type f -name 'workflow-state-*.json' \
+        -exec jq -c --arg repo "$REPO" \
+          'select(.repo == $repo) | (.lessons_learned // [])[]' {} + \
+        > "$WS_LESSONS_FILE" \
+        || { echo "workflow-state: recall-lessons failed collecting workflow-state lessons from $SPECS_DIR" >&2; exit 1; }
     fi
 
     # ----------------------------------------------------------------
@@ -941,36 +952,30 @@ PYEOF
     # Read each *.jsonl file in MEMORY_DIR line by line, skipping
     # malformed lines (AC-4 / #470). Missing directory is AC-3 (return []).
     # ----------------------------------------------------------------
-    STORE_LESSONS="[]"
     if [[ -d "$MEMORY_DIR" ]]; then
-      # Read all *.jsonl files; python3 handles the malformed-line skip.
-      STORE_LESSONS="$(python3 - "$MEMORY_DIR" "$REPO" <<'PYEOF'
-import sys, json, glob, pathlib, os
+      python3 - "$MEMORY_DIR" "$REPO" > "$STORE_LESSONS_FILE" <<'PYEOF' \
+        || { echo "workflow-state: recall-lessons failed collecting memory-store lessons from $MEMORY_DIR" >&2; exit 1; }
+import sys, json, glob, os
 
 memory_dir = sys.argv[1]
 repo = sys.argv[2]
 
-lessons = []
 for fpath in sorted(glob.glob(os.path.join(memory_dir, "*.jsonl"))):
-    try:
-        with open(fpath) as fh:
-            for line in fh:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    obj = json.loads(line)
-                    if isinstance(obj, dict) and obj.get("repo") == repo:
-                        lessons.append(obj)
-                except (json.JSONDecodeError, ValueError):
-                    # AC-4: skip malformed lines silently
-                    pass
-    except OSError:
-        pass
-
-print(json.dumps(lessons))
+    # Binary read: undecodable bytes surface as ValueError on the line, so
+    # they are skipped as malformed instead of aborting the whole store.
+    with open(fpath, "rb") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except ValueError:
+                # AC-4: skip malformed lines silently
+                continue
+            if isinstance(obj, dict) and obj.get("repo") == repo:
+                sys.stdout.write(json.dumps(obj) + "\n")
 PYEOF
-      )" || STORE_LESSONS="[]"
     fi
 
     # ----------------------------------------------------------------
@@ -984,8 +989,8 @@ PYEOF
     # then scope+occurrences as the primary stable key.
     # ----------------------------------------------------------------
     jq -n \
-      --argjson ws      "$WS_LESSONS" \
-      --argjson store   "$STORE_LESSONS" \
+      --slurpfile ws    "$WS_LESSONS_FILE" \
+      --slurpfile store "$STORE_LESSONS_FILE" \
       --argjson bundles "$BUNDLES_JSON" \
       --argjson labels  "$LABELS_JSON" \
       --argjson n       "$LIMIT" \
@@ -1019,7 +1024,7 @@ PYEOF
           ((.cycle // 0) * -1)
         ])
       | .[0:$n]
-      ' 2>/dev/null || echo "[]"
+      '
     ;;
 
   # -------------------------------------------------------------------------

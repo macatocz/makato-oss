@@ -5,6 +5,14 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Fixed — durable lesson promotion and recall (workflow-state 1.7.3)
+
+- Stream recall payloads through temporary files instead of passing whole stores as jq arguments;
+  report unexpected read/processing failures rather than silently returning `[]`.
+- Promote legacy lessons with unresolved issue attribution by exact spec key without inventing
+  issue numbers. Numeric promotion warns and skips ambiguous lessons while retaining correctly
+  attributed captures, so old records no longer block immediate persistence of new lessons.
+
 ### Added — parked-on-questions issues: loop resume, guards and po-agent grill gate
 
 Companion to the autonomous `build-grill-with-docs` (makato-build): an issue that waits for answers
