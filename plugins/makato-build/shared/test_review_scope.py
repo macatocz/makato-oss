@@ -82,6 +82,37 @@ class RepairDeltaTests(unittest.TestCase):
 
         self.assertEqual(_run(self.repo, "status", "--porcelain=v1"), before)
 
+    def test_materialized_snapshot_holds_untracked_files_and_leaves_the_live_tree_alone(self) -> None:
+        _run(self.repo, "add", "src/pkg/freeze.py")
+        before = _run(self.repo, "status", "--porcelain=v1")
+        pre = review_scope.snapshot(str(self.repo))
+        target = Path(self._tmp.name + "-bg")
+        self.addCleanup(lambda: review_scope.release(str(self.repo), str(target)))
+
+        made = review_scope.materialize(str(self.repo), pre, str(target))
+        _write(self.repo, "src/pkg/unrelated.py", "VALUE = 2\n")
+
+        self.assertEqual(made["path"], str(target))
+        self.assertIn("src/pkg/unrelated.py", _run(target, "diff", "--name-only", self.base).split())
+        self.assertEqual((target / "src/pkg/unrelated.py").read_text(encoding="utf-8"), "VALUE = 1\n")
+        self.assertEqual(_run(target, "status", "--porcelain=v1"), "")
+        _write(self.repo, "src/pkg/unrelated.py", "VALUE = 1\n")
+        self.assertEqual(_run(self.repo, "status", "--porcelain=v1"), before)
+
+    def test_release_removes_the_checkout_and_tolerates_a_second_call(self) -> None:
+        target = Path(self._tmp.name + "-bg")
+        review_scope.materialize(str(self.repo), review_scope.snapshot(str(self.repo)), str(target))
+
+        review_scope.release(str(self.repo), str(target))
+        review_scope.release(str(self.repo), str(target))
+
+        self.assertFalse(target.exists())
+        self.assertNotIn(str(target), _run(self.repo, "worktree", "list"))
+
+    def test_materialize_refuses_an_existing_target(self) -> None:
+        with self.assertRaises(review_scope.ScopeError):
+            review_scope.materialize(str(self.repo), review_scope.snapshot(str(self.repo)), self._tmp.name)
+
     def test_repair_that_adds_or_deletes_files_is_in_the_delta(self) -> None:
         pre = review_scope.snapshot(str(self.repo))
         _write(self.repo, "src/pkg/guard.py", "def check():\n    return True\n")
@@ -171,8 +202,11 @@ class DecideTests(unittest.TestCase):
     def decide(self, event: str, last_scope: str = "none", full_since_repair: bool = False, repair_rounds: int = 0, scope_ratio: float | None = None, mode: str = "delta") -> dict:
         return review_scope.decide(event, mode, last_scope, full_since_repair, repair_rounds, scope_ratio)
 
-    def run_loop(self, reviews: list[bool], scope_ratio: float = 0.2, mode: str = "delta") -> tuple[list[str], bool]:
-        """Run the caller loop: ``reviews[i]`` is whether review i comes back clean. Returns (scopes reviewed, accepted)."""
+    def run_loop(self, reviews: list[bool], scope_ratio: float = 0.2, mode: str = "delta", background_from: int | None = None) -> tuple[list[str], bool]:
+        """Run the caller loop: ``reviews[i]`` is whether review i comes back clean. Returns (scopes reviewed, accepted).
+
+        ``background_from``: from that repair round on, a background full pass of the pre-repair tree completes in every round.
+        """
         scopes: list[str] = []
         state = self.decide("start", mode=mode)
         repair_rounds = 0
@@ -186,10 +220,14 @@ class DecideTests(unittest.TestCase):
             else:
                 repair_rounds += 1
                 state = self.decide("repaired", last_scope=scopes[-1], full_since_repair=full_since_repair, repair_rounds=repair_rounds, scope_ratio=scope_ratio, mode=mode)
+                if background_from is not None and repair_rounds >= background_from:
+                    covered = self.decide("background-full", full_since_repair=bool(state["full_since_repair"]), repair_rounds=repair_rounds, mode=mode)
+                    scopes.append("background-full")
+                    state = {**state, "full_since_repair": covered["full_since_repair"]}
         return scopes, False
 
-    def drive(self, reviews: list[bool], scope_ratio: float = 0.2, mode: str = "delta") -> list[str]:
-        return self.run_loop(reviews, scope_ratio, mode)[0]
+    def drive(self, reviews: list[bool], scope_ratio: float = 0.2, mode: str = "delta", background_from: int | None = None) -> list[str]:
+        return self.run_loop(reviews, scope_ratio, mode, background_from)[0]
 
     def test_first_pass_is_always_full(self) -> None:
         self.assertEqual(self.decide("start")["next"], "full")
@@ -213,11 +251,23 @@ class DecideTests(unittest.TestCase):
         self.assertEqual(self.drive([False, False, True], mode="full"), ["full", "full", "full"])
 
     def test_a_repaired_tree_is_never_accepted_without_a_full_pass_after_the_first_repair(self) -> None:
-        for length in range(1, 9):
-            for outcomes in itertools.product([True, False], repeat=length):
-                scopes, accepted = self.run_loop(list(outcomes))
-                if accepted and len(scopes) > 1:
-                    self.assertTrue(any(scope in ("full", "final-full") for scope in scopes[1:]), f"accepted {scopes} for outcomes {outcomes}")
+        for background_from in (None, 2, 3):
+            for length in range(1, 9):
+                for outcomes in itertools.product([True, False], repeat=length):
+                    scopes, accepted = self.run_loop(list(outcomes), background_from=background_from)
+                    if accepted and len(scopes) > 1:
+                        self.assertTrue(any(scope in ("full", "final-full", "background-full") for scope in scopes[1:]), f"accepted {scopes} for outcomes {outcomes}")
+
+    def test_a_background_full_pass_from_round_two_replaces_the_final_full_pass(self) -> None:
+        self.assertEqual(self.drive([False, False, True], background_from=2), ["full", "delta", "background-full", "delta"])
+
+    def test_background_full_cannot_certify_before_the_second_repair(self) -> None:
+        with self.assertRaises(review_scope.ScopeError):
+            self.decide("background-full", repair_rounds=1)
+        self.assertTrue(self.decide("background-full", repair_rounds=2)["full_since_repair"])
+
+    def test_background_full_changes_nothing_in_legacy_full_mode(self) -> None:
+        self.assertFalse(self.decide("background-full", repair_rounds=3, mode="full")["full_since_repair"])
 
     def test_mechanical_changes_get_a_delta_review(self) -> None:
         self.assertEqual(self.decide("mechanical", last_scope="full", full_since_repair=True, repair_rounds=2)["next"], "delta")
