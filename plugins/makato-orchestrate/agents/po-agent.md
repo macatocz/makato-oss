@@ -9,7 +9,7 @@ description: >-
   through `resolve-pr-conflict`, and terminates on a merged PR or documented
   HALT code. Sole writer of `workflow-state.json`. Owns the per-run worktree;
   never edits target source.
-version: "1.5.1"
+version: "1.6.0"
 maxTurns: 100
 permissionMode: bypassPermissions
 disallowedTools: NotebookEdit
@@ -169,8 +169,12 @@ Your dispatch prompt provides:
 
 `MAKATO_MAX_REPAIR_ROUNDS` caps each `build-review` and `build-verify` coder
 repair loop independently. It must be a positive integer; the default is `3`,
-and invalid values warn and fall back to `3`. Review exhaustion fails closed
-through HALT-003; verify exhaustion fails closed through HALT-002.
+and invalid values warn and fall back to `3`. For `build-review` it is a soft
+cap: the loop may run on up to `MAKATO_MAX_REPAIR_ROUNDS_HARD` (default `8`,
+never below the soft cap) only while the number of new blocking findings keeps
+falling, and a finding that returns after its redesign round stops the loop.
+Review exhaustion fails closed through HALT-003; verify exhaustion (fixed cap)
+fails closed through HALT-002.
 
 You MUST NOT request additional inputs. Missing field → R1 `failure`
 with `errors: ["missing input: <field>"]`. Issue carrying
@@ -942,7 +946,8 @@ without repeating commit/push operations already owned by a repair skill.
    `/makato-build:build-review <KEY> --autonomous` through the shared skill
    launcher with `WORKTREE_PATH`, `REPO_ROOT`, `MAKATO_BUILD_ROOT`, and available
    implementation gate/test context. The skill owns the bounded coder repair →
-   reviewer loop (`MAKATO_MAX_REPAIR_ROUNDS`, default `3`); do not route ordinary
+   reviewer loop (soft cap `MAKATO_MAX_REPAIR_ROUNDS`, default `3`; hard cap
+   `MAKATO_MAX_REPAIR_ROUNDS_HARD`, default `8`); do not route ordinary
    findings back to planning. Parse its R1 and narrate DONE. Advance only on
    `status:"success"` with `data.critical_count == 0` AND
    `data.major_count == 0`. Missing/malformed R1, `partial`, `failure`, missing
