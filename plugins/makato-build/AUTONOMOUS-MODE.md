@@ -276,10 +276,30 @@ neighbours (`MAKATO_REVIEW_SCOPE`, default `delta`; `full` reviews everything ev
 pass). A clean delta pass never ends the gate: one further full pass must certify the
 tree after the last repair, and its findings enter the same capped repair loop.
 
+A full or final-full pass on a large change (over 400 changed lines or over 15 files) is
+split by lens: one `diff-reviewer` per lens (`security-privacy`, `state-concurrency`,
+`error-handling`, `resources-performance`, `contract-ac`) runs in parallel and
+`shared/review_loop.py merge` combines their results into one R1. `MAKATO_REVIEW_LENSES`
+(`auto` default, `on`, `off`) overrides the threshold; delta passes always use one reviewer.
+Every CRITICAL/MAJOR finding states the invariant that must hold and all sites where it must
+hold, and the coder repairs the invariant on every site with a regression test over them, so a
+finding does not return in a sibling location. A CRITICAL finding, or a finding that already
+came back once, gets a design pre-check first: the coder returns a plan without editing and a
+`diff-reviewer` (`REVIEW_MODE: repair-plan`) approves or revises it; the pre-check does not use
+up a repair round. Findings on disjoint files are repaired by parallel coders. From the second
+repair round, a background full pass reviews a materialized snapshot of the pre-repair tree
+concurrently with the repair, so late full-pass findings surface a round earlier; it never reads
+the live worktree.
+
 Only a complete independent review with `critical_count == 0` and `major_count == 0`
-permits verify/push. A blocked repair or incomplete review returns non-success. After
-`MAKATO_MAX_REPAIR_ROUNDS` (default `3`), unresolved CRITICAL/MAJOR findings fail closed
-to HALT-003. SUGGESTION and NITPICK remain informational. No `major-autofix`
+permits verify/push. A blocked repair or incomplete review returns non-success. The repair
+loop is capped by convergence, not by a fixed count. `MAKATO_MAX_REPAIR_ROUNDS` (default `3`)
+is a soft cap and `MAKATO_MAX_REPAIR_ROUNDS_HARD` (default `8`) the hard cap. Past the soft cap
+the loop continues only while the number of new blockers per round falls; the hard cap always
+stops it. A finding that is raised again after two repair claims is escalated to a redesign
+(design pre-check) on its next round, and a further return stops the loop as a recurring
+finding. Any stop, and exhaustion of either cap, leaves unresolved CRITICAL/MAJOR findings and
+fails closed to HALT-003. SUGGESTION and NITPICK remain informational. No `major-autofix`
 autonomous-bypass event is emitted because manual mode now requires the same repair.
 The PO-agent must run this gate before `build-verify`, rather than treating completed
 implementation tasks as approval.

@@ -6,11 +6,15 @@ implementation that was already there. This helper makes that boundary exact wit
 git plumbing only (a throw-away index; the real index and working tree are never
 touched):
 
-    snapshot  print a tree id of the current working-tree state
-    delta     compare a pre-repair snapshot with now: the files the repair touched
-              plus the changed files that import them or test them
-    decide    the scope state machine: which review (full / delta / final-full /
-              done) comes next
+    snapshot     print a tree id of the current working-tree state
+    delta        compare a pre-repair snapshot with now: the files the repair touched
+                 plus the changed files that import them or test them
+    decide       the scope state machine: which review (full / delta / final-full /
+                 done) comes next
+    materialize  check a snapshot out into a detached linked worktree, so a
+                 background reviewer reads a frozen tree while the repair edits
+                 the live one
+    release      remove a materialized checkout again
 
 Delta review is a cost control, not a coverage waiver: it cannot see a defect that
 is unrelated to the repair, so the machine always demands one full-scope pass after
@@ -89,6 +93,25 @@ def snapshot_delta(worktree: str, pre: str, post: str) -> list[dict[str, str]]:
     raw = _git(worktree, "diff-tree", "-r", "--no-renames", "--name-status", "-z", pre, post)
     tokens = _nul_split(raw)
     return [{"status": tokens[i], "path": tokens[i + 1]} for i in range(0, len(tokens) - 1, 2)]
+
+
+def materialize(worktree: str, snapshot_tree: str, path: str) -> dict[str, str]:
+    """Check ``snapshot_tree`` out at ``path`` as a detached linked worktree; the live worktree is untouched."""
+    if os.path.exists(path):
+        raise ScopeError(f"materialize target exists: {path}")
+    commit = _git(worktree, "commit-tree", snapshot_tree, "-p", "HEAD", "-m", "makato review snapshot").decode().strip()
+    _git(worktree, "worktree", "add", "--detach", path, commit)
+    return {"path": path, "commit": commit}
+
+
+def release(worktree: str, path: str) -> None:
+    """Remove a materialized checkout; an already-removed one is not an error."""
+    try:
+        _git(worktree, "worktree", "remove", "--force", path)
+    except ScopeError:
+        if os.path.exists(path):
+            raise
+        _git(worktree, "worktree", "prune")
 
 
 def _read_text(worktree: str, path: str) -> str | None:
@@ -188,6 +211,12 @@ def decide(event: str, mode: str, last_scope: str, full_since_repair: bool, repa
 
     if event == "start":
         return result("full", "first pass reviews the whole change")
+    if event == "background-full":
+        if mode == "full":
+            return {"next": "none", "reason": "legacy full mode", "full_since_repair": full_since_repair}
+        if repair_rounds < 2:
+            raise ScopeError("background-full needs repair_rounds >= 2")
+        return {"next": "none", "reason": "a background full pass covered the tree after an earlier repair", "full_since_repair": True}
     if mode == "full":
         return result("done", "legacy full mode: clean pass") if event == "clean" else result("full", "legacy full mode: every pass is full")
     if event == "mechanical":
@@ -217,6 +246,15 @@ def _main(argv: list[str]) -> int:
     snap = sub.add_parser("snapshot", help="print a tree id of the working-tree state")
     snap.add_argument("--worktree", required=True)
 
+    mat = sub.add_parser("materialize", help="check a snapshot out into a detached linked worktree")
+    mat.add_argument("--worktree", required=True)
+    mat.add_argument("--snapshot", required=True, help="snapshot tree id")
+    mat.add_argument("--path", required=True, help="new checkout path; must not exist")
+
+    rel = sub.add_parser("release", help="remove a materialized checkout")
+    rel.add_argument("--worktree", required=True)
+    rel.add_argument("--path", required=True)
+
     delta = sub.add_parser("delta", help="repair delta between a pre-repair snapshot and now")
     delta.add_argument("--worktree", required=True)
     delta.add_argument("--review-base", required=True)
@@ -224,7 +262,7 @@ def _main(argv: list[str]) -> int:
     delta.add_argument("--max-related", type=int, default=DEFAULT_MAX_RELATED)
 
     nxt = sub.add_parser("decide", help="next review scope")
-    nxt.add_argument("--event", required=True, choices=("start", "repaired", "mechanical", "clean"))
+    nxt.add_argument("--event", required=True, choices=("start", "repaired", "mechanical", "clean", "background-full"))
     nxt.add_argument("--mode", default=None, help="delta|full; defaults to $MAKATO_REVIEW_SCOPE")
     nxt.add_argument("--last-scope", default="none", choices=("none", "full", "delta", "final-full"))
     nxt.add_argument("--full-since-repair", default="false")
@@ -237,6 +275,11 @@ def _main(argv: list[str]) -> int:
             print(json.dumps({"snapshot": snapshot(args.worktree)}))
         elif args.command == "delta":
             print(json.dumps(build_delta(args.worktree, args.review_base, args.snapshot, args.max_related)))
+        elif args.command == "materialize":
+            print(json.dumps(materialize(args.worktree, args.snapshot, args.path)))
+        elif args.command == "release":
+            release(args.worktree, args.path)
+            print(json.dumps({"released": True}))
         else:
             mode, warning = resolve_mode(args.mode if args.mode is not None else os.environ.get("MAKATO_REVIEW_SCOPE"))
             outcome = decide(args.event, mode, args.last_scope, _bool(args.full_since_repair), args.repair_rounds, args.scope_ratio)

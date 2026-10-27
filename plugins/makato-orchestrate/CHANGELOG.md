@@ -5,6 +5,13 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ## [Unreleased]
 
+### Changed — po-agent build-review cap semantics (po-agent v1.6.0)
+
+- `MAKATO_MAX_REPAIR_ROUNDS` is now the soft cap of the `build-review` repair loop; it may extend up
+  to `MAKATO_MAX_REPAIR_ROUNDS_HARD` (default `8`) while new blockers keep falling, and a finding that
+  recurs after its redesign round stops the loop. Exhaustion still ends in HALT-003. The
+  `build-verify` cap (fixed, HALT-002) is unchanged.
+
 ### Fixed — durable lesson promotion and recall (workflow-state 1.7.3)
 
 - Stream recall payloads through temporary files instead of passing whole stores as jq arguments;
