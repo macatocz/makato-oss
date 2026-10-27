@@ -111,6 +111,29 @@ Structural escalation is `partial` with
 does not approve a review or a verify gate: each caller independently
 re-checks the repair.
 
+Review-repair dispatches add the following (all additive; verify-repair is unchanged).
+Repairs are invariant-level: each `REVIEW_FINDINGS` entry carries an `invariant` and
+`sites`, and the coder fixes the invariant on every site.
+
+- `per_finding[]` gains `sites_covered:[{file,line}]` and
+  `sites_not_applicable:[{file,line,reason}]`. Every `sites` entry of the finding appears in one
+  of them; the caller rejects a `per_finding` result that leaves a site unaccounted for.
+- `per_finding[].needs_files:["<path>"]` — set when `ALLOWED_FILES` forbids an edit the
+  finding needs. The finding stays in `unresolved_findings` and the caller runs one sequential
+  continuation without `ALLOWED_FILES`. Without `ALLOWED_FILES` the field is omitted.
+- A finding that no longer reproduces on the current tree is listed in `repaired_findings` with
+  `root_cause:"already resolved: <how>"` and a `verification` command that proves it.
+- `REPAIR_PHASE: plan` (default `apply`) makes no edits and runs no tests. R1 `status:"success"`,
+  `files_changed` and `tests_written` are `[]`, and
+  `data:{"mode":"review-repair","phase":"plan","repair_round":N,"plans":[{"id":"<finding id>",
+  "invariant":"<rule>","sites":[{"file","line"}],"approach":"<how>",
+  "compatibility":{"persisted_state":"<…>","versioning":"<…>","migration":"<…>"},
+  "user_visible":"<…>","tests":["<test that proves the invariant>"]}]}`. The plan result has no
+  `repaired_findings` or `unresolved_findings`. The caller confirms the worktree snapshot is
+  unchanged; otherwise the plan phase is `failure`.
+- `REPAIR_PHASE: apply` with `APPROVED_PLANS` (and optional `PLAN_CONSTRAINTS`) returns the
+  usual repair R1 and lists any deviation from the approved plan in `data.details.assumptions`.
+
 ### `build-fix-ci` (skill, owns remote CI repair)
 
 `data` contains `github_pr_number`, `head_sha`, `ci_status`
@@ -130,6 +153,23 @@ invoking PR creation or nesting another CI coordinator.
 - `files_changed: []`, `tests_written: []` (agent is read-only).
 - `errors` — every CRITICAL and MAJOR finding as `"<file>:<line> — [<severity>][<category>] <description>"` (severity prefix lets the caller route CRITICAL vs MAJOR). Empty when `status: "success"`.
 - `data` keys: `{ "pass_number": N, "review_scope": "full"|"delta", "critical_count": N, "major_count": N, "suggestion_count": N, "nitpick_count": N, "files_reviewed": N }` — `review_scope` is the scope actually applied (`full` after a widening); `files_reviewed` counts the files actually read.
+- `data.lens` — the `LENS` the reviewer was dispatched with (`security-privacy`,
+  `state-concurrency`, `error-handling`, `resources-performance` or `contract-ac`), or `null` for a
+  whole-change review. A lens reviewer reports only its own concerns; only `contract-ac` emits
+  `ac_verdicts`, the other lenses return `[]`.
+- `data.findings[]` — every finding of every severity as `{"id":"<prior id>|new","severity",
+  "category","lens","invariant","file","line","sites":[{"file","line","note"}],"evidence",
+  "description"}`. For CRITICAL and MAJOR, `invariant` (one sentence stating the rule that must
+  hold) and `sites` (every place, changed or not, where it must hold; at least one, the primary
+  location included) are mandatory; `build-review` rejects a blocking finding without them. A
+  re-raised prior finding keeps its `id`; a new one uses `"new"`. `errors[]` stays as above, so
+  `build-verify` and other `errors[]` consumers are unaffected.
+- `REVIEW_MODE: repair-plan` (inputs `REVIEW_FINDINGS` + `REPAIR_PLANS`; default `diff`) reviews
+  the coder's plans, not the diff:
+  `data:{"review_mode":"repair-plan","plan_verdicts":[{"id","verdict":"approve|revise",
+  "required_changes":["<…>"]}],"critical_count":0,"major_count":0,"findings":[]}`, with no
+  citation record and no `ac_verdicts`. `status:"success"` only when every plan is `approve`,
+  otherwise `failure`. The caller reads `plan_verdicts`.
 
 ### `build-review` (skill, owns the repair loop)
 
@@ -143,6 +183,12 @@ invoking PR creation or nesting another CI coordinator.
   requires that the last repair was followed by a full pass), plus `critical_count` and
   `major_count` from the final reviewer R1. Without a complete reviewer result,
   report the blocker instead of fabricated zero counts. Both modes use this gate.
+- Repair-round exhaustion is `failure` with `data.repair_rounds_exhausted:true` and
+  `data.exhaustion_reason`: `recurring_finding` (a finding returned after its redesign round),
+  `hard_cap` (`MAKATO_MAX_REPAIR_ROUNDS_HARD` reached) or `not_converging` (past
+  `MAKATO_MAX_REPAIR_ROUNDS` with no drop in new blockers). `errors` lists the unresolved
+  findings. On success `data` also carries `background_passes`, `lens_split_passes` and
+  `repair_plan_reviews` (counts).
 
 ### `sensor-fixer.md` (model: sonnet)
 

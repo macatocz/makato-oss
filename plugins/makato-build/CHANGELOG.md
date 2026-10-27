@@ -10,6 +10,46 @@ here on merge to main; release-please will date and version them at the next rel
 
 ## [Unreleased]
 
+### Added — build-review: lens-split full review, invariant findings, repair planning, background full pass
+
+Why: sagibeast#1279 needed 14 review passes and 13 repair rounds (about 26 h) for 29 blocking
+findings. The first full pass was one reviewer over 59 files, delta passes hid existing defects until
+late full passes, repairs fixed single cases so one finding returned four times, and a fixed round cap
+needed a manual raise.
+
+- **Lens-split full review** — a full or final-full pass over more than 400 changed lines or more than
+  15 files runs one `diff-reviewer` per lens (`security-privacy`, `state-concurrency`,
+  `error-handling`, `resources-performance`, `contract-ac`) in parallel; their R1 results are merged
+  into one. `MAKATO_REVIEW_LENSES=auto|on|off` (default `auto`).
+- **Invariant findings** — every CRITICAL/MAJOR finding states the `invariant` that must hold and every
+  `sites` entry where it must hold. The coder repairs the invariant on all sites with a regression test
+  over them and reports `sites_covered` / `sites_not_applicable`.
+- **Repair-plan pre-check** — for CRITICAL findings and findings that returned after a repair, the
+  coder first returns a plan (`REPAIR_PHASE: plan`, no edits) and a `diff-reviewer`
+  (`REVIEW_MODE: repair-plan`) approves or revises it before the repair is applied. It does not use up
+  a repair round.
+- **Background full pass** — from repair round 2 a full pass reviews a materialized snapshot of the
+  pre-repair tree concurrently with the repair; it never reads the live worktree.
+- **Partitioned parallel repairs** — findings on disjoint files are repaired by parallel coders
+  restricted by `ALLOWED_FILES`.
+- **`shared/review_loop.py`** (new, with `shared/test_review_loop.py`) — `init` / `lenses` / `merge` /
+  `repaired` / `next` / `partition` / `background`: finding history per story kept in the git dir,
+  lens-result merging with stable finding ids, the convergence rule, repair partitioning.
+  **`shared/review_scope.py`** gains `materialize` / `release` and the `background-full` event.
+- **Agent versions** — `diff-reviewer` v1.6.0 (`LENS`, `REVIEW_MODE`, `REPAIR_PLANS`, `data.lens`,
+  `data.findings[]`), `coder` v1.4.0 (`REPAIR_PHASE`, `APPROVED_PLANS`, `PLAN_CONSTRAINTS`,
+  `PLAN_FEEDBACK`, `ALLOWED_FILES`); `build-verify` and the `errors[]` consumers are unchanged.
+
+### Changed — build-review: convergence cap replaces the fixed repair-round cap (`build-review` v1.10.0)
+
+- `MAKATO_MAX_REPAIR_ROUNDS` (default `3`) is a soft cap for `build-review`: past it the loop
+  continues only while the count of new blockers per round falls. New `MAKATO_MAX_REPAIR_ROUNDS_HARD`
+  (default `8`, never below the soft cap) always stops it.
+- A finding that is raised again after two repair claims is escalated to a redesign (repair-plan
+  pre-check); one more return stops the loop as a recurring finding. Exhaustion still fails closed to
+  HALT-003; R1 `data` gains `exhaustion_reason` (`recurring_finding` | `hard_cap` | `not_converging`).
+- `build-verify` keeps its fixed `MAKATO_MAX_REPAIR_ROUNDS` cap and HALT-002.
+
 ### Fixed — four checks that failed on `main` are green and now run in CI
 
 `headless-guard-smoke-tests.sh`, `pr-comments-smoke-tests.sh`, `tdd-verify-phase-smoke-tests.sh` and
