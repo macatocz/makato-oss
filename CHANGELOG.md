@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.174.0](https://github.com/macatocz/makato-oss/compare/v0.173.1...v0.174.0) (2026-10-27)
+
+
+### ✨ Features
+
+* **makato-build:** converge build-review repair loop ([#185](https://github.com/macatocz/makato-oss/issues/185)) ([732e52f](https://github.com/macatocz/makato-oss/commit/732e52fa8f19064bc40e78659670e097a290bceb))
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** repair lesson promotion and recall ([#183](https://github.com/macatocz/makato-oss/issues/183)) ([740e2a5](https://github.com/macatocz/makato-oss/commit/740e2a5cbfb3366761135e234f454c4b4ea5d7b7))
+
 ## [0.173.1](https://github.com/macatocz/makato-oss/compare/v0.173.0...v0.173.1) (2026-10-23)
 
 
