@@ -1,7 +1,7 @@
 ---
 name: coder
 model: inherit
-version: "1.3.0"
+version: "1.4.0"
 description: >-
   Execute one TDD task with targeted RED/GREEN evidence, or repair blocking
   review or verification findings. Dispatched by build-implement-tdd per task,
@@ -54,13 +54,64 @@ missing lines stays unresolved.
    `step:"verify-repair"`, `status:"ok"` or `"error"`, and the finding results.
 5. Return R1 `data` with `mode`, `repair_round`, `repaired_findings`,
    `unresolved_findings`, and `details:{per_finding:[{id,root_cause,changes,
-   verification:{command,exit_code,result}}],assumptions:[],risks:[]}`.
+   verification:{command,exit_code,result},sites_covered,sites_not_applicable}],assumptions:[],risks:[]}`.
    Include one `per_finding` entry for every supplied finding. `success` requires
    every supplied finding to be repaired and its verification command to pass.
    A structural escalation returns `partial` with
    `data.escalation:"refine"`; unresolved findings remain listed.
    This repair result is not approval: `build-review` independently re-reviews,
    and `build-verify` independently reruns its gates.
+
+### Invariant-level repair
+
+A `REVIEW_FINDINGS` item from the review loop carries an `invariant` (the rule that must hold) and `sites` (every `{file,line}` where it must hold, changed and unchanged files alike). Repair the invariant, not the reported symptom:
+
+- Make the invariant hold on every `sites` entry, not only at the primary location. Read each site; fix it, or establish that it already holds.
+- Add one regression test that verifies the invariant across all the sites — parametrized over the sites, or a single end-to-end pass through them. A test that exercises only the primary site does not prove the invariant. For a docs/config finding, exercise the affected command or workflow on each site instead.
+- Account for every site in the finding's `per_finding` entry: `"sites_covered":[{"file","line"}]` for sites the repair and its test cover (including sites that already satisfied the invariant), and `"sites_not_applicable":[{"file","line","reason"}]` only for sites where the invariant cannot apply (dead code, a test-only path), with a concrete `reason`. Every `sites` entry of the finding appears in exactly one of the two lists, with `file` and `line` as given in the finding.
+- A finding with no `sites` (every `VERIFY_FINDINGS` item, or a legacy review finding) is repaired as before; both site lists are then `[]`.
+
+### Repair phases (`REPAIR_PHASE`)
+
+Optional repair inputs, all absent by default (absence preserves the single-phase repair above):
+
+| Field | Description |
+|---|---|
+| `REPAIR_PHASE` | `plan` or `apply` (default `apply`). Applies to `REVIEW_FINDINGS` dispatches; ignored when `VERIFY_FINDINGS` is supplied |
+| `APPROVED_PLANS` | `apply` only: the reviewed `plans[]` to implement |
+| `PLAN_CONSTRAINTS` | `apply` only: unmet `required_changes` from the plan review that bind the implementation |
+| `PLAN_FEEDBACK` | `plan` only: the plan reviewer's `required_changes` for plans it sent back for revision, together with the previous `plans[]` |
+| `ALLOWED_FILES` | `apply` only: list of repo-relative paths this dispatch may edit (see **Partitioned repair**) |
+
+**`REPAIR_PHASE: plan`** — design only. Make NO edits, write NO tests, create NO files, and do not append to `build.jsonl` (the caller logs the plan phase). Read the sources and `git grep` the sites as needed, then return R1 `status:"success"` with `files_changed:[]`, `tests_written:[]`, and:
+
+```json
+{ "mode": "review-repair", "phase": "plan", "repair_round": 2,
+  "plans": [ { "id": "F-001", "invariant": "<rule that must hold>",
+    "sites": [ { "file": "src/a.py", "line": 10 } ],
+    "approach": "<how the invariant will be made to hold on every site>",
+    "compatibility": { "persisted_state": "<effect on stored data, or none>", "versioning": "<effect on versioned artifacts, or none>", "migration": "<migration or tolerance for old data, or none>" },
+    "user_visible": "<changed messages, labels, or behaviour, or none>",
+    "tests": [ "<test that fails while any site violates the invariant>" ] } ] }
+```
+
+Return one plan per supplied finding, every `sites` entry of the finding included. With `PLAN_FEEDBACK`, return the complete revised `plans[]`: address every `required_changes` item for the plans it names, and return the other plans unchanged.
+
+**`REPAIR_PHASE: apply`** (the default) — the repair workflow above. With `APPROVED_PLANS`, implement exactly the approved plan for each finding, honouring every `PLAN_CONSTRAINTS` item. If the source forces a departure from a plan or a constraint, make the smallest departure and record it in `details.assumptions`.
+
+### Partitioned repair (`ALLOWED_FILES`)
+
+When `ALLOWED_FILES` is supplied, other coders are repairing disjoint findings in the same worktree at the same time. Edit only:
+
+- files listed in `ALLOWED_FILES`;
+- new files you create;
+- existing test files paired with a listed file — stem `test_<stem>`, `<stem>_test`, `<stem>.test`, or `<stem>.spec`, where `<stem>` is the listed file's name without its extension.
+
+If a finding needs another existing file, leave it in `unresolved_findings`, make no edit to that file, and add `"needs_files":["<path>"]` to its `per_finding` entry. The caller repairs it in a later sequential dispatch. Do not stage or commit anything, and do not run commands that rewrite the worktree outside these files (formatters or fixers over the whole tree).
+
+### Already-resolved findings
+
+When a finding no longer reproduces on the current tree (for example an earlier edit in the same round fixed it), do not invent a change. List it in `repaired_findings` with `root_cause:"already resolved: <what resolves it>"`, an empty `changes`, and a `verification` command that proves the invariant holds on every site; its sites are accounted for as usual.
 
 ## Rules
 
@@ -415,11 +466,15 @@ For a repair dispatch with `REVIEW_FINDINGS`, `VERIFY_FINDINGS`, or both,
 "details":{"per_finding":[{"id":"<ID>","root_cause":"<cause>",
 "changes":[{"path":"<path>","summary":"<change>"}],
 "verification":{"command":"<targeted command>","exit_code":N,
-"result":"<one-line result>"}}], "assumptions":[], "risks":[] } }`.
+"result":"<one-line result>"},
+"sites_covered":[{"file":"<path>","line":N}],
+"sites_not_applicable":[{"file":"<path>","line":N,"reason":"<why>"}],
+"needs_files":["<path>"]}], "assumptions":[], "risks":[] } }`.
 Include an entry for every supplied finding. `success` requires every finding
 repaired and its verification command passed. Keep unresolved IDs in
 `unresolved_findings`; a structural escalation returns `partial` with
 `data.escalation:"refine"`.
+`sites_covered` and `sites_not_applicable` are required for every `per_finding` entry whose finding carries `sites` (`[]` otherwise); `needs_files` appears only on an entry left unresolved under `ALLOWED_FILES`. A `REPAIR_PHASE: plan` dispatch returns the plan result defined in § *Repair phases* instead of this one.
 
 Example — TDD success:
 
