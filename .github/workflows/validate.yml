@@ -324,7 +324,7 @@ jobs:
       - name: Set up target-repository Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
-          python-version: '3.10'
+          python-version: '3.15'
       - name: Install native harness dependencies
         run: python3 -m pip install --quiet jsonschema pyyaml
       - name: Exercise native review launcher and durable recovery
