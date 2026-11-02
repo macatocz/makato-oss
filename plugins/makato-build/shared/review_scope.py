@@ -24,9 +24,11 @@ the first repair before a clean result may be accepted (``final-full``).
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import tempfile
@@ -39,6 +41,25 @@ MAX_TEXT_BYTES = 2_000_000
 GENERIC_STEMS = frozenset({"index", "main", "types", "utils", "config", "constants", "mod", "lib"})
 JS_SUFFIXES = frozenset({".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"})
 TEST_SUFFIXES = (".test", ".spec", "_test", "_spec")
+REVIEW_CONTRACT_VERSION = 2
+REVIEW_CONTRACT_PATHS = (
+    "agents/RETURN-CONTRACT.md",
+    "agents/coder.md",
+    "agents/diff-reviewer.md",
+    "config/default-workflow-schema.yml",
+    "config/verification-ownership.md",
+    "skills/build-review/SKILL.md",
+    "skills/build-review/references/mechanical-fixes.md",
+    "skills/build-review/references/review-criteria.md",
+    "skills/build-review/references/review-loop.md",
+    "shared/review_eval.py",
+    "shared/review_loop.py",
+    "shared/review_runtime.py",
+    "shared/skill_execution.py",
+    "shared/review_scope.py",
+    "scripts/run-skill.py",
+    "AUTONOMOUS-MODE.md",
+)
 
 
 class ScopeError(RuntimeError):
@@ -64,9 +85,92 @@ def _nul_split(data: bytes) -> list[str]:
 
 def changed_files(worktree: str, review_base: str) -> list[str]:
     """CHANGED_FILES as build-review defines it: merge-base diff plus untracked files."""
-    tracked = _nul_split(_git(worktree, "diff", "--name-only", "-z", review_base))
+    tracked = _nul_split(_git(worktree, "diff", "--name-only", "--no-renames", "-z", review_base))
     untracked = _nul_split(_git(worktree, "ls-files", "--others", "--exclude-standard", "-z"))
     return sorted(set(tracked) | set(untracked))
+
+
+def fingerprint(
+    worktree: str,
+    review_base: str,
+    *,
+    context_paths: list[str] | None = None,
+    contract_paths: list[str] | None = None,
+    evidence_root: str | None = None,
+    contract_root: str | None = None,
+) -> dict[str, object]:
+    """Hash branch bytes plus explicit context/spec/contract files."""
+    base_oid = _git(worktree, "rev-parse", "--verify", f"{review_base}^{{commit}}").decode().strip()
+    tracked = _nul_split(_git(worktree, "diff", "--name-only", "--no-renames", "-z", review_base))
+    untracked = _nul_split(_git(worktree, "ls-files", "--others", "--exclude-standard", "-z"))
+    changed = sorted(set(tracked) | set(untracked))
+    context = sorted(set(context_paths or []))
+    contracts = sorted(set(contract_paths or []))
+    evidence_root = evidence_root or worktree
+    contract_root = contract_root or evidence_root
+    manifest_files: list[dict[str, object]] = []
+
+    def add_file(root: str, relative: str, source: str, *, is_changed: bool, is_context: bool, is_contract: bool) -> None:
+        pure = PurePosixPath(relative)
+        if pure.is_absolute() or ".." in pure.parts:
+            raise ScopeError(f"fingerprint path must be repository-relative: {relative!r}")
+        full = os.path.join(root, *pure.parts)
+        if os.path.islink(full) and not (is_context or is_contract):
+            digest = hashlib.sha256(os.readlink(full).encode("utf-8", errors="surrogateescape")).hexdigest()
+            mode = stat.S_IMODE(os.lstat(full).st_mode)
+            kind = "symlink"
+        elif os.path.isfile(full):
+            before = os.stat(full)
+            hasher = hashlib.sha256()
+            with open(full, "rb") as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    hasher.update(chunk)
+            after = os.stat(full)
+            if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_mode) != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_mode):
+                raise ScopeError(f"fingerprint file changed while being read: {relative!r}")
+            digest = hasher.hexdigest()
+            mode = stat.S_IMODE(after.st_mode)
+            kind = "file"
+        elif is_context or is_contract:
+            raise ScopeError(f"fingerprint context or contract file is missing: {relative!r}")
+        else:
+            digest, mode, kind = hashlib.sha256(b"").hexdigest(), None, "deleted"
+        manifest_files.append(
+            {
+                "path": f"{source}:{relative}",
+                "kind": kind,
+                "mode": mode,
+                "sha256": digest,
+                "changed": is_changed,
+                "context": is_context,
+                "contract": is_contract,
+            }
+        )
+
+    for relative in changed:
+        add_file(worktree, relative, "worktree", is_changed=True, is_context=False, is_contract=False)
+    for relative in context:
+        add_file(evidence_root, relative, "context", is_changed=False, is_context=True, is_contract=False)
+    for relative in contracts:
+        add_file(contract_root, relative, "contract", is_changed=False, is_context=False, is_contract=True)
+    manifest = {
+        "schema": "review-input-fingerprint-v1",
+        "review_contract_version": REVIEW_CONTRACT_VERSION,
+        "base": base_oid,
+        "changed_files": changed,
+        "context_paths": context,
+        "contract_paths": contracts,
+        "files": manifest_files,
+    }
+    encoded = json.dumps(manifest, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    digest = hashlib.sha256(encoded).hexdigest()
+    return {
+        "sha256": digest,
+        "review_base": base_oid,
+        "files": [entry["path"] for entry in manifest_files],
+        "manifest_sha256": digest,
+        "manifest": manifest,
+    }
 
 
 def snapshot(worktree: str) -> str:
@@ -177,7 +281,7 @@ def build_delta(worktree: str, review_base: str, pre: str, max_related: int = DE
     changed = changed_files(worktree, review_base)
     delta_paths = [item["path"] for item in files]
     related, truncated = related_files(worktree, [item["path"] for item in files if item["status"] != "D"], changed, max_related)
-    scope_files = sorted(set(delta_paths) | {item["path"] for item in related})
+    scope_files = sorted(set(changed)) if truncated else sorted(set(delta_paths) | {item["path"] for item in related})
     total = len(changed)
     return {
         "pre_snapshot": pre,

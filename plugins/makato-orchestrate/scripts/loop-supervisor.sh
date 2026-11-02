@@ -282,6 +282,11 @@ if [[ "${_do_restart:-0}" == "1" ]]; then
       _append_audit "reconcile_abort" "reconcile_poison_pill" "$PID_STATUS" "$AUDIT_STALE"
       exit 0
     fi
+    if [[ "$RECONCILE_EXIT" -eq 4 ]]; then
+      echo "loop-supervisor: reconcile-before-resume blocked recovery (exit 4) — skipping restart" >&2
+      _append_audit "reconcile_abort" "review_runtime_blocked" "$PID_STATUS" "$AUDIT_STALE"
+      exit 4
+    fi
     # Exit 0 (CI green) or 2 (CI failed) → fall through to restart
   fi
 

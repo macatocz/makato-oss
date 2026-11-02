@@ -4,8 +4,7 @@ description: >-
   Bridge a shaped Jira story, GitHub issue, or any work unit to an implementation plan — tasks, file
   targets, unit/integration test strategy, acceptance mapping. Use to start a build session before
   implement-tdd or implement-goal.
-version: "1.15.1"
-
+version: "1.16.0"
 argument-hint: "[work-item-key] [--autonomous]"
 allowed-tools:
   - Bash
@@ -37,24 +36,23 @@ When dispatched by the PO-agent on a re-plan cycle (`--autonomous` mode):
 - `<work-item-key>` — positional argument.
 - `WORKTREE_PATH` — absolute filesystem path to the per-run git worktree. **Mandatory in autonomous
   mode** (see `plugins/makato-build/AUTONOMOUS-MODE.md` § _WORKTREE_PATH — workspace-isolation
-  contract_). Plan writes use the target root selected by
-  `MAKATO_TARGET_REPO_ROOT`, or the common-dir fallback when unset; `WORKTREE_PATH`
-  remains the implementation workspace.
-- `MAKATO_BUILD_ROOT` — absolute installed build-plugin root. Resolve from
-  `CLAUDE_PLUGIN_ROOT`, `OMP_PLUGIN_ROOT`, or `PLUGIN_ROOT` when the caller does
-  not supply it; use it for all suite-owned helpers and contract references.
+  contract_). Plan writes use the target root selected by `MAKATO_TARGET_REPO_ROOT`, or the
+  common-dir fallback when unset; `WORKTREE_PATH` remains the implementation workspace.
+- `MAKATO_BUILD_ROOT` — absolute installed build-plugin root. Resolve from `CLAUDE_PLUGIN_ROOT`,
+  `OMP_PLUGIN_ROOT`, or `PLUGIN_ROOT` when the caller does not supply it; use it for all suite-owned
+  helpers and contract references.
 - `--autonomous` — activation flag.
 
 Interactive mode: `WORKTREE_PATH` may be supplied to resume the worktree created by `build-start`.
 If it is unset, this skill creates the worktree after resolving the spec folder in Step 2.
-`MAKATO_TARGET_REPO_ROOT` selects the specs root; `WORKTREE_PATH` remains the
-implementation checkout.
+`MAKATO_TARGET_REPO_ROOT` selects the specs root; `WORKTREE_PATH` remains the implementation
+checkout.
 
 ### Workspace-isolation entry guard
 
-Apply the workspace-isolation entry guard from `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` § _WORKTREE_PATH —
-workspace-isolation contract_ and § _Falsy-check pattern_ before Step 1. In autonomous mode an empty
-`WORKTREE_PATH` is a HALT with
+Apply the workspace-isolation entry guard from `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` §
+_WORKTREE_PATH — workspace-isolation contract_ and § _Falsy-check pattern_ before Step 1. In
+autonomous mode an empty `WORKTREE_PATH` is a HALT with
 `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]`; in interactive mode an
 existing path must be valid, while an unset path is created in Step 2.
 
@@ -84,8 +82,8 @@ Sanitize for use as a filesystem path component: replace `#` and spaces with `-`
 
 ### Step 1a — Mode detection
 
-Load `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` for the activation contract (§ _Activation triggers_) and the
-per-gate default table.
+Load `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` for the activation contract (§ _Activation triggers_)
+and the per-gate default table.
 
 The skill runs in `--interactive` mode by default; the canonical activation triggers for
 `--autonomous` mode are listed in `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` § _Activation triggers_.
@@ -118,7 +116,11 @@ no `$AGENT_ID` in the env, no `task_id` in the context bundle), the skill MUST H
 signal is:
 
 - Write `build.jsonl` entry:
-  `{step:"session", status:"error", data:{halt_code:"MISSING_INPUT", message:"build-refine invoked in a headless context (MAKATO_HEADLESS=1) without any autonomous trigger — Step 1 or Step 11 would deadlock on AskUserQuestion. Set --autonomous on the CLI, export $AGENT_ID, or supply a context bundle with task_id."}}`.
+
+  ```text
+  {step:"session", status:"error", data:{halt_code:"MISSING_INPUT", message:"build-refine invoked in a headless context (MAKATO_HEADLESS=1) without any autonomous trigger — Step 1 or Step 11 would deadlock on AskUserQuestion. Set --autonomous on the CLI, export $AGENT_ID, or supply a context bundle with task_id."}}
+  ```
+
 - Return an R1 envelope with `status: "failure"`,
   `errors: ["MISSING_INPUT: headless-without-autonomous"]`, and `data.halt_code: "MISSING_INPUT"`.
 - Do not proceed to Step 2.
@@ -145,7 +147,7 @@ their side of the boundary.
 
 Check that a spec folder exists using the following two-step resolution order:
 
-```
+```text
 Resolution order:
 1. `ls specs/<key>-*/ 2>/dev/null | head -1`   (prefix-match, canonical)
 2. `[[ -d specs/<key>/ ]]`                       (exact-match fallback)
@@ -178,10 +180,11 @@ test -n "$WORKTREE_PATH" && test -d "$WORKTREE_PATH"
 ```
 
 If the wrapper fails or returns an invalid path, stop immediately. Never continue against the main
-checkout. If `WORKTREE_PATH` was supplied, validate that it is a registered worktree and use it unchanged.
+checkout. If `WORKTREE_PATH` was supplied, validate that it is a registered worktree and use it
+unchanged.
 
-Keep `REPO_ROOT` at `MAKATO_TARGET_REPO_ROOT` or the common-dir root when unset;
-pass `WORKTREE_PATH` to code consumers.
+Keep `REPO_ROOT` at `MAKATO_TARGET_REPO_ROOT` or the common-dir root when unset; pass
+`WORKTREE_PATH` to code consumers.
 
 Log the resolved absolute path:
 
@@ -281,9 +284,10 @@ Run:
 If the key is not found in stories.json:
 
 - **Interactive mode**: report it and ask the user to confirm the key (`AskUserQuestion`).
-- **Autonomous mode** (per `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` § _Activation triggers_): do NOT prompt — the
-  po-agent's `materialize-refine` dispatch (#527) supplies the key it resolved, and a key-miss here
-  means the committed `stories.json` has no matching story. HALT with `MISSING_ARTIFACTS`: append
+- **Autonomous mode** (per `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` § _Activation triggers_): do NOT
+  prompt — the po-agent's `materialize-refine` dispatch (#527) supplies the key it resolved, and a
+  key-miss here means the committed `stories.json` has no matching story. HALT with
+  `MISSING_ARTIFACTS`: append
   `{"ts":"…","skill":"build-refine","story":"<key>","step":"extract-story","status":"error","data":{"halt_code":"MISSING_ARTIFACTS","reason":"unknown-key"}}`
   to `build.jsonl`, log the bypass via
   `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh" build-refine "<key>" confirm-key halt "<agent_id|cli_flag|task_id_bundle>"`,
@@ -297,14 +301,14 @@ ticket, prefer `stories.json` — it captures the shaped and refined version of 
 
 **Local-work path** (`local-` prefix, no `spec_tier:plan-only`): no stories.json. The goal from
 `design.md` serves as the story description. Generate one synthetic acceptance criterion: _"AC-1:
-<goal statement> is implemented and all tests pass."_ Note in the plan that this story has no formal
-ACs and the done-condition is self-evident from the goal.
+\<goal statement\> is implemented and all tests pass."_ Note in the plan that this story has no
+formal ACs and the done-condition is self-evident from the goal.
 
 **Plan-only path** (`spec_tier:plan-only`): `plan-<ISSUE_NUMBER>.md` is the authoritative source. Do
 NOT generate a synthetic AC-1 — real acceptance criteria exist in the plan. Read the
 `## Acceptance criteria` section of `plan-<ISSUE_NUMBER>.md` and extract each non-empty list item
-(or line) as AC-1, AC-2, … by order. The plan-only path and the "AC from plan-<N>.md, not synthetic"
-behavior land together — one without the other is incorrect.
+(or line) as AC-1, AC-2, … by order. The plan-only path and the "AC from `plan-<N>.md`, not
+synthetic" behavior land together — one without the other is incorrect.
 
 **Empty-or-missing guard (plan-only only):** if `plan-<ISSUE_NUMBER>.md` has no
 `## Acceptance criteria` heading, OR the section exists but contains no non-empty acceptance items
@@ -401,21 +405,16 @@ them. If neither file exists: proceed without them.
 Using the story description and architecture context as a guide, read the target codebase from
 `$WORKTREE_PATH` to identify:
 
-Before issuing any file reads, classify every candidate path from the spec or
-plan:
+Before issuing any file reads, classify every candidate path from the spec or plan:
 
-- A `create` target is expected not to exist yet. Do not pass it to `Read`,
-  `tool.read`, or any parallel read batch; inspect its nearest existing caller,
-  sibling, or test instead.
-- Resolve candidates with `Glob` when available, or an explicit regular-file
-  check under `$WORKTREE_PATH` first, then build the read list from confirmed
-  paths only.
-- If an expected existing/modified path is absent, record it as a warning and
-  continue with the readable files. A single missing path must not abort the
-  entire exploration.
-- In OMP JavaScript cells, never construct `Promise.all` directly from raw plan
-  paths. Filter the list before mapping it to `tool.read`; use independent reads
-  or tolerate an empty filtered list.
+- A `create` target is expected not to exist yet. Do not pass it to `Read`, `tool.read`, or any
+  parallel read batch; inspect its nearest existing caller, sibling, or test instead.
+- Resolve candidates with `Glob` when available, or an explicit regular-file check under
+  `$WORKTREE_PATH` first, then build the read list from confirmed paths only.
+- If an expected existing/modified path is absent, record it as a warning and continue with the
+  readable files. A single missing path must not abort the entire exploration.
+- In OMP JavaScript cells, never construct `Promise.all` directly from raw plan paths. Filter the
+  list before mapping it to `tool.read`; use independent reads or tolerate an empty filtered list.
 
 1. Files and components most likely to be created or modified.
 2. Existing patterns and best practices in use — error handling conventions, naming patterns,
@@ -438,12 +437,12 @@ decision.)
 Decide: `implement-tdd` or `implement-goal`? Record the decision and a one-line rationale in the
 plan. If the story spans both modes, mark each task individually with its mode.
 
-**Mixed-mode sequencing rule**: record every real dependency in `blockedBy`, including
-cross-mode ones in either direction. The PO-agent schedules dependency-ready mode groups
-(`scripts/task_schedule.py`, #153), so a goal task that is a structural prerequisite of a TDD
-task (or the reverse) needs no exception or reordering. `runOrder` in the plan frontmatter
-(default `[tdd, goal]`: logic/service before UI/config) only chooses which mode runs first when
-both have ready tasks; it never overrides `blockedBy`.
+**Mixed-mode sequencing rule**: record every real dependency in `blockedBy`, including cross-mode
+ones in either direction. The PO-agent schedules dependency-ready mode groups
+(`scripts/task_schedule.py`, #153), so a goal task that is a structural prerequisite of a TDD task
+(or the reverse) needs no exception or reordering. `runOrder` in the plan frontmatter (default
+`[tdd, goal]`: logic/service before UI/config) only chooses which mode runs first when both have
+ready tasks; it never overrides `blockedBy`.
 
 ### Step 8 — Break story into implementation tasks
 
@@ -462,6 +461,14 @@ Produce an ordered task list. Each task must specify:
   depend on at compile time. Empty list `[]` means no hard dependency. This field must be populated
   for any task whose files cannot compile without a prior task's output (e.g. a test stub that
   references a class created by a prior task).
+- **reviewRisk**: `normal`, or comma-separated `auth`, `money`, `persistence`, `public-contract`
+  labels for the actual boundary changed. These request earlier review, not a lower severity or
+  fewer review categories.
+- **atomicGroup**: `none` only when the task ends at an independently reviewable compatible
+  contract; otherwise a shared cutover group name for every schema/writer/reader task that must
+  finish together. Use `unknown` when that boundary cannot be established. Do not declare `none`
+  merely to satisfy the checkpoint cadence. Omitted/unknown boundaries defer interim checkpoints;
+  final whole-branch review is always required.
 - **commitMessage**: a conventional commit message draft for this task (e.g.
   `feat(invoice): add OrderStatus enum`). Pre-populated by refine; confirmed and may be adjusted in
   `/build-push-to-git`.
@@ -477,8 +484,8 @@ If present and non-empty, copy it verbatim into the corresponding plan task unde
 `recommended_skills`. The downstream coder then prepends skill consultation instructions before
 implementing the task. If absent — do NOT add an empty array; omit the field.
 
-**Per-task budget**: every task must fit one `coder` dispatch. Check each task against the limits
-in `task-sizing-guide.md` § _Per-Task Budget_ (at most 4 production files, 1 new module, 3 routes or
+**Per-task budget**: every task must fit one `coder` dispatch. Check each task against the limits in
+`task-sizing-guide.md` § _Per-Task Budget_ (at most 4 production files, 1 new module, 3 routes or
 commands in one concern, 2 integration scenario groups, 2 ACs and 2 external boundaries) and split
 any task that exceeds one before continuing. Splitting takes precedence over the task-count target.
 
@@ -491,7 +498,7 @@ limits: record the scope risk in the plan's decisions.
 a relative path that resolves within the repository root. Reject any path that begins with `/` or
 contains `..` segments. If an invalid path is found — stop and report it:
 
-> "Invalid file target in task <N>: `<path>`. All file targets must be relative paths within the
+> "Invalid file target in task \<N\>: `<path>`. All file targets must be relative paths within the
 > repository root. Please correct the spec's design.md and re-run /build-refine."
 
 **Runtime verification elicitation**: after producing the task list, determine whether this story
@@ -549,9 +556,11 @@ in the resolved spec folder. If the file exists:
   refined output from Steps 7-9, keeping the existing structure but replacing or extending
   individual sections with the refined analysis. Do not overwrite the `## Story` metadata block. Log
   the decision:
+
   ```bash
   "$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"…","skill":"build-refine","story":"<key>","step":"write-plan","status":"ok","data":{"tasks":<N>,"oracle_scenarios":<M>,"plan_file":"<path>","enriched_existing":true}}'
   ```
+
 - If the file does not exist, or is a stub (empty `## Tasks`, or placeholder-only content): proceed
   with the normal write (existing behavior). `enriched_existing` is `false` in the JSONL.
 
@@ -614,7 +623,7 @@ accurate? Any tasks missing, wrong files, or scope concerns?"
 If the user requests changes: update `plan-<ISSUE_NUMBER>.md` in the spec folder and ask again. Each
 revision appends:
 
-```
+```text
 {"ts":"…","skill":"build-refine","story":"<key>","step":"plan-revision","status":"ok","data":{"revision":<N>}}
 ```
 
@@ -642,10 +651,11 @@ the codebase, or proceed directly with `/implement-tdd` or `/implement-goal`."
 Skip `/build-grill-with-docs` for infra/config-only changes (no domain-model files touched). State
 the recommendation inline.
 
-In autonomous mode this skill does not dispatch the grill: it only states the recommendation. The po-agent
-applies the same test and runs `/build-grill-with-docs <key>` in autonomous mode itself (po-agent Step 2d),
-which decides what it can and asks any remaining costly question through the issue — one batched comment,
-card parked in `Blocked` until a human answers (`$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` § _Open questions_).
+In autonomous mode this skill does not dispatch the grill: it only states the recommendation. The
+po-agent applies the same test and runs `/build-grill-with-docs <key>` in autonomous mode itself
+(po-agent Step 2d), which decides what it can and asks any remaining costly question through the
+issue — one batched comment, card parked in `Blocked` until a human answers
+(`$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md` § _Open questions_).
 
 ## Anti-Patterns
 
@@ -696,8 +706,8 @@ coverage-blind implementation.
 
 ### NEVER use `pwd` or relative paths for REPO_ROOT in autonomous mode
 
-**WHY:** A per-run worktree is not always the target checkout; use
-`MAKATO_TARGET_REPO_ROOT` when set or preserve common-dir sharing otherwise.
+**WHY:** A per-run worktree is not always the target checkout; use `MAKATO_TARGET_REPO_ROOT` when
+set or preserve common-dir sharing otherwise.
 
 ## Autonomous Execution
 
@@ -707,9 +717,8 @@ In autonomous mode:
 
 - **Never prompt the user** — the Step 1 work-item-key gate and the Step 11 plan-review gate are
   bypassed per the rules above.
-- **Log every bypass** to `build.jsonl` via
-  `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh"` with the `autonomous_bypass` event
-  schema documented in `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md`.
+- **Log every bypass** to `build.jsonl` via `"$MAKATO_BUILD_ROOT/shared/log-bypass.sh"` with the
+  `autonomous_bypass` event schema documented in `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md`.
 - **Emit an R1 envelope** as the final `json`-fenced block of the skill's output (schema:
   `plugins/makato-build/agents/RETURN-CONTRACT.md`).
 

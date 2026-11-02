@@ -9,7 +9,8 @@
 #   (c) PR open + CI still running        → bounded poll then exit 2
 #   (d) PR absent / ambiguous (poison-pill) → board-reset + exit 1
 #
-# When phase is anything other than "pr", exits 0 immediately (nothing to reconcile).
+# For implement/verify/review phases, reconcile a durable review attempt before restart.
+# A blocked or ambiguous runtime returns 4; other non-PR phases remain no-ops.
 #
 # Usage:
 #   reconcile-before-resume.sh [--workflow-state <path>] [--repo <owner/name>]
@@ -31,6 +32,7 @@
 #   1 — poison-pill: PR absent/ambiguous; board-reset performed
 #   2 — PR open but CI failed/timed-out (resume in fix mode)
 #   3 — usage error or unreadable workflow-state
+#   4 — durable review recovery blocked; never restart another writer
 
 set -euo pipefail
 
@@ -41,7 +43,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # ---------------------------------------------------------------------------
 _DEFAULT_WF_DIR="${MAKATO_PV_WORKFLOW_STATE_DIR:-${MAKATO_PERSISTENT_VOLUME_ROOT:-~/.makato-pv}/workflow-state}"
 # Expand leading tilde
-[[ "$_DEFAULT_WF_DIR" == "~/"* ]] && _DEFAULT_WF_DIR="$HOME/${_DEFAULT_WF_DIR:2}"
+[[ "$_DEFAULT_WF_DIR" == \~/* ]] && _DEFAULT_WF_DIR="$HOME/${_DEFAULT_WF_DIR:2}"
 [[ "$_DEFAULT_WF_DIR" == "~" ]]   && _DEFAULT_WF_DIR="$HOME"
 
 WF_STATE="${_DEFAULT_WF_DIR}/workflow-state.json"
@@ -90,6 +92,59 @@ if [[ -z "$CURRENT_PHASE" || "$CURRENT_PHASE" == "null" ]]; then
 fi
 
 if [[ "$CURRENT_PHASE" != "pr" ]]; then
+  if [[ "$CURRENT_PHASE" == "implement" || "$CURRENT_PHASE" == "verify" || "$CURRENT_PHASE" == "review" ]]; then
+    WORKTREE_PATH="$(jq -r '.worktree_path // empty' "$WF_STATE" 2>/dev/null || true)"
+    WF_ROOT="$(git -C "$(dirname "$WF_STATE")" rev-parse --show-toplevel 2>/dev/null || true)"
+    if [[ -n "$WORKTREE_PATH" ]]; then
+      if [[ ! -d "$WORKTREE_PATH" ]]; then
+        echo "reconcile-before-resume: review recovery blocked; saved worktree is unavailable: '$WORKTREE_PATH'" >&2
+        _audit "review_runtime_blocked" "worktree_missing" "${CURRENT_ISSUE:-null}"
+        exit 4
+      fi
+    else
+      WORKTREE_PATH="$WF_ROOT"
+    fi
+    if [[ -z "$WORKTREE_PATH" || ! -d "$WORKTREE_PATH" ]]; then
+      echo "reconcile-before-resume: review recovery blocked; no current worktree is available" >&2
+      _audit "review_runtime_blocked" "worktree_unavailable" "${CURRENT_ISSUE:-null}"
+      exit 4
+    fi
+    BUILD_ROOT="${MAKATO_BUILD_ROOT:-$SCRIPT_DIR/../../makato-build}"
+    RUNTIME_CLI="$BUILD_ROOT/shared/review_runtime.py"
+    if [[ ! -f "$RUNTIME_CLI" ]]; then
+      echo "reconcile-before-resume: review recovery blocked; runtime CLI not found at '$RUNTIME_CLI'" >&2
+      _audit "review_runtime_blocked" "runtime_cli_missing" "${CURRENT_ISSUE:-null}"
+      exit 4
+    fi
+    if ! RECOVERY_JSON="$(python3 "$RUNTIME_CLI" recover-worktree --worktree "$WORKTREE_PATH")"; then
+      echo "reconcile-before-resume: review recovery blocked; runtime reconciliation failed" >&2
+      _audit "review_runtime_blocked" "runtime_reconcile_failed" "${CURRENT_ISSUE:-null}"
+      exit 4
+    fi
+    RECOVERY_DECISION="$(printf '%s' "$RECOVERY_JSON" | jq -r '.decision // empty' 2>/dev/null || true)"
+    RECOVERY_REASON="$(printf '%s' "$RECOVERY_JSON" | jq -r '.reason // empty' 2>/dev/null || true)"
+    case "$RECOVERY_DECISION" in
+      not_found)
+        echo "reconcile-before-resume: no outstanding review runtime; normal phase resume" >&2
+        exit 0
+        ;;
+      running|completed)
+        echo "reconcile-before-resume: review runtime reconciled decision=$RECOVERY_DECISION; resume the PO-agent with the same authorized attempt" >&2
+        _audit "review_runtime_reconciled" "$RECOVERY_DECISION" "${CURRENT_ISSUE:-null}"
+        exit 0
+        ;;
+      blocked)
+        echo "reconcile-before-resume: review runtime is blocked: ${RECOVERY_REASON:-no reason supplied}" >&2
+        _audit "review_runtime_blocked" "${RECOVERY_REASON:-unknown}" "${CURRENT_ISSUE:-null}"
+        exit 4
+        ;;
+      *)
+        echo "reconcile-before-resume: review runtime returned unknown decision '$RECOVERY_DECISION'" >&2
+        _audit "review_runtime_blocked" "unknown_decision" "${CURRENT_ISSUE:-null}"
+        exit 4
+        ;;
+    esac
+  fi
   echo "reconcile-before-resume: current_phase='$CURRENT_PHASE' (not pr) — skip" >&2
   exit 0
 fi

@@ -10,30 +10,57 @@ here on merge to main; release-please will date and version them at the next rel
 
 ## [Unreleased]
 
+### Changed — lossless, durable review with quality-gated optimization
+
+- Preserve raw reviewer envelopes and distinct invariant constituents instead of deduplicating by
+  nearby source lines. Persist convergence/gate decisions, repair history and independent
+  dispositions; a second contradicted repair requires redesign.
+- Bind review evidence to source, callers, untracked files, specifications and contract identity. A
+  final fresh full pass, per-AC/citation evidence and mechanical no-change proof remain mandatory.
+- Add durable review process receipts, fenced reconciliation and safe cancellation through
+  `review_runtime.py` and the workflow launcher. Waiting-client loss does not cancel the child;
+  missing or ambiguous writer results never authorize a blind retry. Persist a worktree-wide owner
+  fence across worker death, and allow signal-free retirement of never-started or provably dead
+  attempts without touching unrelated processes.
+- Send clearly local repairs directly to the coder; reserve reviewed plans for architectural,
+  cross-boundary and recurring invariant repairs. Independently confirm new blocking findings.
+- Add `review_eval.py` for paired full-workflow measurement, independent oracle assessment and
+  holdout/recovery qualification. Deep sampling stays off without matching qualification evidence;
+  deterministic regression tests are not evidence of LLM recall or a measured speedup. Bind the
+  immutable baseline implementation/prompts and executable adapters, and reject stochastic clean
+  retries without repair or undercounted invariant recurrences.
+- Checkpoints are nonfinal completed-task reviews, not approval of future ACs. Incompatible legacy
+  ledgers stop for explicit evidence-preserving migration rather than resetting repair caps.
+- Emit explicit `reviewRisk`/`atomicGroup` task metadata from build-refine so safe checkpoint
+  boundaries are planned rather than guessed. Route CI/comment repair reviews through the same
+  durable final-review protocol; checkpoint receipts cannot satisfy a pre-push approval gate.
+- Preserve Python 3.10 syntax for native review helpers and add a separate launcher/recovery
+  compatibility job alongside the Python 3.15 regression suite.
+
 ### Added — build-review: lens-split full review, invariant findings, repair planning, background full pass
 
 Why: sagibeast#1279 needed 14 review passes and 13 repair rounds (about 26 h) for 29 blocking
-findings. The first full pass was one reviewer over 59 files, delta passes hid existing defects until
-late full passes, repairs fixed single cases so one finding returned four times, and a fixed round cap
-needed a manual raise.
+findings. The first full pass was one reviewer over 59 files, delta passes hid existing defects
+until late full passes, repairs fixed single cases so one finding returned four times, and a fixed
+round cap needed a manual raise.
 
-- **Lens-split full review** — a full or final-full pass over more than 400 changed lines or more than
-  15 files runs one `diff-reviewer` per lens (`security-privacy`, `state-concurrency`,
+- **Lens-split full review** — a full or final-full pass over more than 400 changed lines or more
+  than 15 files runs one `diff-reviewer` per lens (`security-privacy`, `state-concurrency`,
   `error-handling`, `resources-performance`, `contract-ac`) in parallel; their R1 results are merged
   into one. `MAKATO_REVIEW_LENSES=auto|on|off` (default `auto`).
-- **Invariant findings** — every CRITICAL/MAJOR finding states the `invariant` that must hold and every
-  `sites` entry where it must hold. The coder repairs the invariant on all sites with a regression test
-  over them and reports `sites_covered` / `sites_not_applicable`.
+- **Invariant findings** — every CRITICAL/MAJOR finding states the `invariant` that must hold and
+  every `sites` entry where it must hold. The coder repairs the invariant on all sites with a
+  regression test over them and reports `sites_covered` / `sites_not_applicable`.
 - **Repair-plan pre-check** — for CRITICAL findings and findings that returned after a repair, the
   coder first returns a plan (`REPAIR_PHASE: plan`, no edits) and a `diff-reviewer`
-  (`REVIEW_MODE: repair-plan`) approves or revises it before the repair is applied. It does not use up
-  a repair round.
+  (`REVIEW_MODE: repair-plan`) approves or revises it before the repair is applied. It does not use
+  up a repair round.
 - **Background full pass** — from repair round 2 a full pass reviews a materialized snapshot of the
   pre-repair tree concurrently with the repair; it never reads the live worktree.
 - **Partitioned parallel repairs** — findings on disjoint files are repaired by parallel coders
   restricted by `ALLOWED_FILES`.
-- **`shared/review_loop.py`** (new, with `shared/test_review_loop.py`) — `init` / `lenses` / `merge` /
-  `repaired` / `next` / `partition` / `background`: finding history per story kept in the git dir,
+- **`shared/review_loop.py`** (new, with `shared/test_review_loop.py`) — `init` / `lenses` / `merge`
+  / `repaired` / `next` / `partition` / `background`: finding history per story kept in the git dir,
   lens-result merging with stable finding ids, the convergence rule, repair partitioning.
   **`shared/review_scope.py`** gains `materialize` / `release` and the `background-full` event.
 - **Agent versions** — `diff-reviewer` v1.6.0 (`LENS`, `REVIEW_MODE`, `REPAIR_PLANS`, `data.lens`,
@@ -43,11 +70,12 @@ needed a manual raise.
 ### Changed — build-review: convergence cap replaces the fixed repair-round cap (`build-review` v1.10.0)
 
 - `MAKATO_MAX_REPAIR_ROUNDS` (default `3`) is a soft cap for `build-review`: past it the loop
-  continues only while the count of new blockers per round falls. New `MAKATO_MAX_REPAIR_ROUNDS_HARD`
-  (default `8`, never below the soft cap) always stops it.
+  continues only while the count of new blockers per round falls. New
+  `MAKATO_MAX_REPAIR_ROUNDS_HARD` (default `8`, never below the soft cap) always stops it.
 - A finding that is raised again after two repair claims is escalated to a redesign (repair-plan
-  pre-check); one more return stops the loop as a recurring finding. Exhaustion still fails closed to
-  HALT-003; R1 `data` gains `exhaustion_reason` (`recurring_finding` | `hard_cap` | `not_converging`).
+  pre-check); one more return stops the loop as a recurring finding. Exhaustion still fails closed
+  to HALT-003; R1 `data` gains `exhaustion_reason` (`recurring_finding` | `hard_cap` |
+  `not_converging`).
 - `build-verify` keeps its fixed `MAKATO_MAX_REPAIR_ROUNDS` cap and HALT-002.
 
 ### Fixed — four checks that failed on `main` are green and now run in CI
@@ -67,94 +95,97 @@ unnoticed. Each failure was a stale assertion, not a product bug:
   the current contract and to fail if the sweep (`cross-task-verify`) comes back.
 - **`check-no-hardcoded-model.sh`** — see `makato-core` (`analyze-log` v1.0.1, schema examples).
 - All four are now steps of `validate-structure` in `.github/workflows/validate.yml`.
+
 ### Changed — build-review/build-verify: delta re-review with a final full pass, parallel and incremental pytest
 
 Why: on sagibeast#1277 (47 files, +17,689/−159) `build-review` ran 10 passes and re-read all 45
-changed files on every one (`files_reviewed: 45` each time), three repair loops exhausted the
-round cap, and `build-verify` re-ran the whole serial unit suite (~4,880 tests, 463–610 s) at
-least five times — 28 h wall clock for about 7 h of active work.
+changed files on every one (`files_reviewed: 45` each time), three repair loops exhausted the round
+cap, and `build-verify` re-ran the whole serial unit suite (~4,880 tests, 463–610 s) at least five
+times — 28 h wall clock for about 7 h of active work.
 
 - **`build-review` v1.9.0** — pass 1 reviews the whole change; after a coder repair the re-review
-  covers the repair delta plus the changed files that test or reference it
-  (`REVIEW_SCOPE: delta`, `REPAIR_DELTA`, `PRIOR_AC_VERDICTS`). A delta pass proves the repair, not
-  the change, so when the last repair has only been delta-reviewed one `final-full` pass certifies
-  the whole tree before the skill proceeds. Scope is decided by `shared/review_scope.py decide`;
-  helper failure or a delta covering ≥ 60 % of the change degrades to a full review, never a
-  narrower one. `MAKATO_MAX_REPAIR_ROUNDS` and the HALT-003 exhaustion rule are unchanged. The
-  session record and R1 gain `full_passes` / `delta_passes`.
+  covers the repair delta plus the changed files that test or reference it (`REVIEW_SCOPE: delta`,
+  `REPAIR_DELTA`, `PRIOR_AC_VERDICTS`). A delta pass proves the repair, not the change, so when the
+  last repair has only been delta-reviewed one `final-full` pass certifies the whole tree before the
+  skill proceeds. Scope is decided by `shared/review_scope.py decide`; helper failure or a delta
+  covering ≥ 60 % of the change degrades to a full review, never a narrower one.
+  `MAKATO_MAX_REPAIR_ROUNDS` and the HALT-003 exhaustion rule are unchanged. The session record and
+  R1 gain `full_passes` / `delta_passes`.
 - **`diff-reviewer` v1.5.0** — accepts `REVIEW_SCOPE`, `REPAIR_DELTA` and `PRIOR_AC_VERDICTS`. On a
-  delta pass it re-checks prior findings first, reads the repair hunks with their enclosing
-  function and the neighbour files, and `git grep`s callers of changed signatures. Anything it sees is
+  delta pass it re-checks prior findings first, reads the repair hunks with their enclosing function
+  and the neighbour files, and `git grep`s callers of changed signatures. Anything it sees is
   reported; a delta pass without a usable `REPAIR_DELTA` is reviewed as full. R1 `data` gains
   `review_scope`; `files_reviewed` counts files actually read.
 - **`build-verify` v1.17.0** — Gate 3 and Gate 4 pytest commands go through
   `shared/pytest_accel.py rewrite` (pytest-xdist workers; integration only with
-  `MAKATO_PYTEST_XDIST_INTEGRATION=1`). A repair re-check first runs a pytest-testmon triage of
-  the unit lane against the baseline recorded by Gate 3 — a failing triage ends the round early, a
+  `MAKATO_PYTEST_XDIST_INTEGRATION=1`). A repair re-check first runs a pytest-testmon triage of the
+  unit lane against the baseline recorded by Gate 3 — a failing triage ends the round early, a
   passing one never replaces the full gate. Verify-repair re-reviews use `review_scope.py` for the
   snapshot and delta. Accelerated runs that hit an infrastructure failure re-run `serial_command`.
-- **`shared/review_scope.py`** (new) — `snapshot` / `delta` / `decide`: exact working-tree
-  snapshots through a throw-away git index (the real index and tree are never touched), the repair
-  delta with its neighbours, and the pass-scheduling state machine.
+- **`shared/review_scope.py`** (new) — `snapshot` / `delta` / `decide`: exact working-tree snapshots
+  through a throw-away git index (the real index and tree are never touched), the repair delta with
+  its neighbours, and the pass-scheduling state machine.
 - **`shared/pytest_accel.py`** (new) — `detect` / `install` / `rewrite` / `reset`. Adds
   `-n <workers>` to a single `pytest` command and, for triage, testmon. A Coverage.py
   `coverage run [--append] [--source] [--branch] [--rcfile] -m pytest` — which `-n` would leave
-  unmeasured — is translated to `python -m pytest -n <workers> --cov…` (pytest-cov), writing the same
-  `.coverage` data so `coverage report` is unchanged (identical figures and missing lines verified
-  across a fresh unit run plus an appended integration run; `--cov-fail-under=0` keeps the threshold
-  with `coverage report`, as under `coverage run`). Coverage options with no pytest-cov
+  unmeasured — is translated to `python -m pytest -n <workers> --cov…` (pytest-cov), writing the
+  same `.coverage` data so `coverage report` is unchanged (identical figures and missing lines
+  verified across a fresh unit run plus an appended integration run; `--cov-fail-under=0` keeps the
+  threshold with `coverage report`, as under `coverage run`). Coverage options with no pytest-cov
   counterpart, `parallel`/`concurrency` in the coverage config, compound shell commands, `--pdb` and
   an existing `-n` keep the command as it is. testmon cannot record under coverage, so the first
-  triage of a repair loop records the baseline (it runs the suite once). uv projects get the
-  plugins through an ephemeral `uv run --with`; other runners opt in with
-  `pytest_accel.py install`. Neither touches the target project's manifest or lockfile; testmon's
-  database lives in the git dir.
-- New environment variables: `MAKATO_REVIEW_SCOPE` (`delta` default, `full` restores a full review on
-  every pass), `MAKATO_PYTEST_ACCEL=off`, `MAKATO_PYTEST_WORKERS` (`auto`, a number, or `1`),
+  triage of a repair loop records the baseline (it runs the suite once). uv projects get the plugins
+  through an ephemeral `uv run --with`; other runners opt in with `pytest_accel.py install`. Neither
+  touches the target project's manifest or lockfile; testmon's database lives in the git dir.
+- New environment variables: `MAKATO_REVIEW_SCOPE` (`delta` default, `full` restores a full review
+  on every pass), `MAKATO_PYTEST_ACCEL=off`, `MAKATO_PYTEST_WORKERS` (`auto`, a number, or `1`),
   `MAKATO_PYTEST_XDIST_INTEGRATION=1`.
 - **`agents/RETURN-CONTRACT.md`** documents the new diff-reviewer and build-review `data` keys.
 - The repo's own harness gains `pytest-xdist` and `pytest-testmon` in the dev dependency group and
   CI runs `pytest -n auto` (907 tests: 53 s serial → 11 s on a local multi-core machine).
+
 ### Added — autonomous `build-grill-with-docs` asks every open question through the ticket
 
 Autonomous GitHub-issue runs (`build-refine` → … → `build-create-pr`) used to stall at
 `build-grill-with-docs`, whose alignment interview only worked by asking the user in chat. It now
 has an autonomous mode that never prompts and never blocks a headless session.
 
-- **`build-grill-with-docs` v1.10.0** — `--autonomous` (also `$AGENT_ID` / context-bundle
-  `task_id`; `MAKATO_HEADLESS=1` without a trigger → `MISSING_INPUT`). Settled, cheap-to-reverse or
+- **`build-grill-with-docs` v1.10.0** — `--autonomous` (also `$AGENT_ID` / context-bundle `task_id`;
+  `MAKATO_HEADLESS=1` without a trigger → `MISSING_INPUT`). Settled, cheap-to-reverse or
   unanswerable questions are **decided** with the recommended option (marked `assumed` in
   `decisions.md`, listed in R1 `data.assumed`). Every remaining question is asked **at once** in ONE
   issue comment — lettered options, exactly one recommendation each — the card moves to **Blocked**
-  and the skill returns R1 `partial` with `data.awaiting_answers`. The human answers in the issue and
-  moves the card back to **Ready** or **In progress**; the resumed run collects the replies (the
-  recommended option fills any gap) and asks again only when an answer creates new questions, at most
-  `MAKATO_GRILL_MAX_QUESTION_ROUNDS` (default 3) rounds. `MAKATO_GRILL_MODE=decide` never asks; no
-  `ISSUE_NUMBER`, an unobservable board or a refused board write also fall back to deciding. ADRs are
-  written without an approval prompt when all three ADR criteria hold; a missing ADR directory means
-  skip-ADRs. Bypass gates: `term-resolution`, `adr-dir-missing`, `questions-unavailable`.
+  and the skill returns R1 `partial` with `data.awaiting_answers`. The human answers in the issue
+  and moves the card back to **Ready** or **In progress**; the resumed run collects the replies (the
+  recommended option fills any gap) and asks again only when an answer creates new questions, at
+  most `MAKATO_GRILL_MAX_QUESTION_ROUNDS` (default 3) rounds. `MAKATO_GRILL_MODE=decide` never asks;
+  no `ISSUE_NUMBER`, an unobservable board or a refused board write also fall back to deciding. ADRs
+  are written without an approval prompt when all three ADR criteria hold; a missing ADR directory
+  means skip-ADRs. Bypass gates: `term-resolution`, `adr-dir-missing`, `questions-unavailable`.
 - **`shared/human_questions.py`** (+ `test_human_questions.py`) — stdlib helper behind the skill:
   `post` (block the card first, then comment, then write `awaiting-answers-<N>.json`), `status` /
-  `wait`, `collect` (only replies after the question comment; `Q1: B`, `all: recommended`, free text),
-  `resolve`. Exit codes distinguish waiting, expired, closed, unobservable board and round limit.
+  `wait`, `collect` (only replies after the question comment; `Q1: B`, `all: recommended`, free
+  text), `resolve`. Exit codes distinguish waiting, expired, closed, unobservable board and round
+  limit.
 
 ### Changed — grill documentation and HALT origins
 
 - **`halt-codes.md`** — `MISSING_INPUT` origins include `build-grill-with-docs` (headless guard).
 - **`AUTONOMOUS-MODE.md`** — grill gate rows in the default-taking table, a new § _Open questions:
-  the ticket is the human channel_, and the stale "its interactivity is the work itself" bullet is gone.
-- **`build-refine` v1.15.1**, **`build-start` v1.11.3** — hand-off text / pipeline map point out that
-  the po-agent runs the grill autonomously.
+  the ticket is the human channel_, and the stale "its interactivity is the work itself" bullet is
+  gone.
+- **`build-refine` v1.15.1**, **`build-start` v1.11.3** — hand-off text / pipeline map point out
+  that the po-agent runs the grill autonomously.
 
 ### Fixed — post per-skill GitHub progress at the OMP launcher boundary
 
-- `run-skill.py` publishes START before each issue-backed skill execution and DONE
-  after its process exits, rather than relying on optional model-issued helper calls.
-  The existing live comment and workflow-state writer are reused; GitHub failures
-  remain non-fatal and dry-run/opt-out remain side-effect free.
-- Stream contents, exit status, and SIGINT/SIGTERM propagation are preserved. DONE
-  records process outcome, not R1 success. Coordinators add validated result notes
-  without duplicating lifecycle entries; issue context is inherited by child runs.
+- `run-skill.py` publishes START before each issue-backed skill execution and DONE after its process
+  exits, rather than relying on optional model-issued helper calls. The existing live comment and
+  workflow-state writer are reused; GitHub failures remain non-fatal and dry-run/opt-out remain
+  side-effect free.
+- Stream contents, exit status, and SIGINT/SIGTERM propagation are preserved. DONE records process
+  outcome, not R1 success. Coordinators add validated result notes without duplicating lifecycle
+  entries; issue context is inherited by child runs.
 
 ### Changed — route subagents through shared model roles
 
@@ -173,40 +204,40 @@ has an autonomous mode that never prompts and never blocks a headless session.
 ### Changed — `shared/skill_execution.py`: annotate the safe YAML load for bandit
 
 - The workflow-schema `yaml.load` call is marked `# nosec B506` with the reason: its loader
-  subclasses `yaml.SafeLoader`, which bandit does not recognise. Behaviour is unchanged; the
-  repo's bandit gate now blocks medium-severity findings, and this was its only false positive.
+  subclasses `yaml.SafeLoader`, which bandit does not recognise. Behaviour is unchanged; the repo's
+  bandit gate now blocks medium-severity findings, and this was its only false positive.
 
 ### Fixed — build-create-pr: scope Closes injection to the current issue (#163) (v1.13.0)
 
 - **`build-create-pr` v1.13.0** selects only the current work item's artifact entry using
-  `ISSUE_NUMBER` / `--issue N` or a GitHub-style key. Shared folders with no resolved current
-  issue inject nothing and log `closes-injection` / `warn`; sibling issues stay open.
-- **`shared/closes_injection.py`** validates and selects links deterministically, deduplicates
-  the current issue, and reports the actual artifact-derived count (0 or 1). Missing or invalid
+  `ISSUE_NUMBER` / `--issue N` or a GitHub-style key. Shared folders with no resolved current issue
+  inject nothing and log `closes-injection` / `warn`; sibling issues stay open.
+- **`shared/closes_injection.py`** validates and selects links deterministically, deduplicates the
+  current issue, and reports the actual artifact-derived count (0 or 1). Missing or invalid
   artifacts remain nonblocking; an unavailable schema uses structural checks with an advisory.
-- The shared folder resolver accepts `GH#N` consistently with the selector. Optional artifact
-  title lookup failures no longer abort independently identifiable story selection (D21).
-- **`build-push-to-git` v1.7.4** forwards `ISSUE_NUMBER` to PR creation, including the
-  clean-context interactive handoff. PR guidance documents the scoped behavior and real count.
+- The shared folder resolver accepts `GH#N` consistently with the selector. Optional artifact title
+  lookup failures no longer abort independently identifiable story selection (D21).
+- **`build-push-to-git` v1.7.4** forwards `ISSUE_NUMBER` to PR creation, including the clean-context
+  interactive handoff. PR guidance documents the scoped behavior and real count.
 - A two-issue, real-schema CLI regression covers selection, unresolved shared folders, stale
-  workflow state, explicit input precedence, single-issue compatibility, and invalid artifacts.
-  The dev environment now declares `jsonschema` so this schema coverage runs after a fresh sync.
-- Removed four obsolete smoke assertions about an issue-number citation, a historical version
-  range, cross-task sweep wording, and same-line canonical-signal prose. Remaining checks stay
-  intact; runtime selection and audit behavior are covered by the new regression and smoke run.
+  workflow state, explicit input precedence, single-issue compatibility, and invalid artifacts. The
+  dev environment now declares `jsonschema` so this schema coverage runs after a fresh sync.
+- Removed four obsolete smoke assertions about an issue-number citation, a historical version range,
+  cross-task sweep wording, and same-line canonical-signal prose. Remaining checks stay intact;
+  runtime selection and audit behavior are covered by the new regression and smoke run.
 
 ### Added — coverage raise: edge-case tests for the lowest-covered files (#164)
 
 - **New `shared/coverage-raise-guide.md`** — below the threshold on data that covers every lane,
-  each round ranks files lowest coverage first and selects up to 5 to close the gap. The repair
-  adds test-only edge-case tests that assert behavior, and reports unreachable lines rather than
+  each round ranks files lowest coverage first and selects up to 5 to close the gap. The repair adds
+  test-only edge-case tests that assert behavior, and reports unreachable lines rather than
   suppressing them. It never ranks from unit-only data: when CI owns integration, that data ranks
   integration-covered code lowest.
-- **`build-verify` v1.16.0** — when Gate 5 enforces the threshold, a miss runs coverage-raise
-  rounds (coder verify-repair) within `MAKATO_MAX_REPAIR_ROUNDS`, re-measuring by appending only
-  the new test files; exhaustion → HALT-002. Coverage misses no longer escalate to refine.
-- **`build-fix-ci` v1.1.0** — new coverage-threshold route: when CI's coverage gate fails, rank
-  from the run's combined coverage data and dispatch a goal-mode coverage-raise recovery task
+- **`build-verify` v1.16.0** — when Gate 5 enforces the threshold, a miss runs coverage-raise rounds
+  (coder verify-repair) within `MAKATO_MAX_REPAIR_ROUNDS`, re-measuring by appending only the new
+  test files; exhaustion → HALT-002. Coverage misses no longer escalate to refine.
+- **`build-fix-ci` v1.1.0** — new coverage-threshold route: when CI's coverage gate fails, rank from
+  the run's combined coverage data and dispatch a goal-mode coverage-raise recovery task
   (`shared/ci-recovery.md`, **`build-implement-goal` v1.10.0**).
 - **`coder` v1.2.0** — accepts `coverage` findings and reports unreachable lines.
 - **`gate-scout` v1.6.0** — new `coverage_append`; `coverage_report` lists files lowest coverage
@@ -226,145 +257,136 @@ has an autonomous mode that never prompts and never blocks a headless session.
   matching `proceed` row (`reused:true`, `source_ts`) instead of re-running the unit suite.
   `BASELINE_FAILURES` is that row's `data.failures`.
 - **`build-simplify` v1.5.0** — no upfront suite run; zero applied simplifications run no tests;
-  otherwise only tests exercising the touched files, with backup-based attribution of
-  pre-existing failures. Step 3 regains its heading.
+  otherwise only tests exercising the touched files, with backup-based attribution of pre-existing
+  failures. Step 3 regains its heading.
 - **`gate-scout` v1.5.0** — new `sensors_ci_scope`, `integration_ci`, `coverage_ci`, and split
   `unit_coverage` / `integration_coverage` / `coverage_report` commands (`coverage` stays the
   fallback).
-- **`build-verify` v1.15.0** — Gate 0 uses CI's pre-commit scope; Gates 1/2 take hook results
-  from Gate 0's final run and re-run a hook only after repair; Gate 3 collects coverage; Gate 4
-  is skipped locally (`owner:"ci"`) when CI runs the integration lane; Gate 5 reports the
-  collected data without re-running tests and blocks only when the integration lane ran locally.
+- **`build-verify` v1.15.0** — Gate 0 uses CI's pre-commit scope; Gates 1/2 take hook results from
+  Gate 0's final run and re-run a hook only after repair; Gate 3 collects coverage; Gate 4 is
+  skipped locally (`owner:"ci"`) when CI runs the integration lane; Gate 5 reports the collected
+  data without re-running tests and blocks only when the integration lane ran locally.
 - **`build-sensors` v1.3.0** — new `branch` scope (merge-base diff plus untracked files, manual
-  stage); `max_loops` is one repair budget shared by every sensor-fixer dispatch; R1 adds
-  `scope`, `hooks` and `final_run_log`. **`sensor-fixer` v1.0.0** consumes the remaining budget.
+  stage); `max_loops` is one repair budget shared by every sensor-fixer dispatch; R1 adds `scope`,
+  `hooks` and `final_run_log`. **`sensor-fixer` v1.0.0** consumes the remaining budget.
 - **`config/default-workflow-schema.yml`** — the post-verify `sensors` artifact is removed;
   `push-to-git` follows `verify` (Gate 0 is the sensor sweep).
 - **`config/verification-ownership.md`**, **`definition-of-done` v2.6.0**, `AUTONOMOUS-MODE.md`,
-  README, AGENTS.md and `docs/workflow-schema.md` describe the same ownership. Removed the
-  stale TDD coverage-floor gate description.
+  README, AGENTS.md and `docs/workflow-schema.md` describe the same ownership. Removed the stale TDD
+  coverage-floor gate description.
 - Tests: removed `test_full_arc_runner_discovered_emits_baseline_cmd` and the
   verify-sensors-spec-key T2/T3 wording assertions; the schema smoke test no longer requires
   `sensors`.
+
 ### Fixed — interactive OMP skill handoffs use clean contexts
 
-- `AGENTS.md`, `scripts/run-skill.py`, and `docs/workflow-schema.md` distinguish
-  human-driven interactive runs from headless `--print` dispatch: interactive prompts
-  never launch the next workflow skill; the headless runner contract and existing
-  autonomous activation remain unchanged.
-- **`build-start` v1.11.2**, **`build-push-to-git` v1.7.3**, and
-  **`build-address-pr-comments` v1.7.2** finish interactive handoffs with explicit
-  `/handoff`/`/new` plus `/skill:` instructions. Address-comments records a resumable
-  gate checkpoint, so review and verify run in clean contexts before the saved work is pushed.
+- `AGENTS.md`, `scripts/run-skill.py`, and `docs/workflow-schema.md` distinguish human-driven
+  interactive runs from headless `--print` dispatch: interactive prompts never launch the next
+  workflow skill; the headless runner contract and existing autonomous activation remain unchanged.
+- **`build-start` v1.11.2**, **`build-push-to-git` v1.7.3**, and **`build-address-pr-comments`
+  v1.7.2** finish interactive handoffs with explicit `/handoff`/`/new` plus `/skill:` instructions.
+  Address-comments records a resumable gate checkpoint, so review and verify run in clean contexts
+  before the saved work is pushed.
 
 ### Changed — build-create-pr loads story-scoped spec context
 
-- **`build-create-pr` v1.12.3** selects one `stories.json` story by work-item key or issue
-  number — legacy `key` arrays, and decompose v2.0 `stories[]` matched through the
-  `created-issues.json` title — filters `build.jsonl` to that story while retaining its
-  gate/AC evidence, and reads only referenced `prd.md`/`design.md` sections and the
-  matching plan slice. The single-story and `plan-only` fallbacks and `created-issues.json`
-  Case 4 injection remain.
+- **`build-create-pr` v1.12.3** selects one `stories.json` story by work-item key or issue number —
+  legacy `key` arrays, and decompose v2.0 `stories[]` matched through the `created-issues.json`
+  title — filters `build.jsonl` to that story while retaining its gate/AC evidence, and reads only
+  referenced `prd.md`/`design.md` sections and the matching plan slice. The single-story and
+  `plan-only` fallbacks and `created-issues.json` Case 4 injection remain.
 - **`test_skill_execution.py`** covers the interactive clean-context prompt and the unchanged
   headless runner-dispatch prompt.
 
 ### Fixed — build-verify: test reports stay in the spec folder (v1.14.0)
 
-- Step 1 adds a report-output contract. When a gate command copied from CI carries a JUnit
-  option such as `--junitxml=results.xml`, build-verify rewrites the path to
-  `specs/<key>-<slug>/<stem>-<N>.xml` before running it, so verify no longer creates or
-  overwrites a report in the checkout root. Gates 4 and 5 log the path as `junit_report`.
+- Step 1 adds a report-output contract. When a gate command copied from CI carries a JUnit option
+  such as `--junitxml=results.xml`, build-verify rewrites the path to
+  `specs/<key>-<slug>/<stem>-<N>.xml` before running it, so verify no longer creates or overwrites a
+  report in the checkout root. Gates 4 and 5 log the path as `junit_report`.
+
 ### Changed — dependency-aware mixed-mode task scheduling (#153)
 
-- **`build-implement-tdd` v1.16.0** accepts `ASSIGNED_TASK_IDS` from the PO-agent and runs
-  exactly those tasks; a `blockedBy` task already `complete` in workflow-state (an earlier pass of
-  either mode) satisfies the dependency, and an invalid assignment returns `MISSING_INPUT`. The
-  tracer bullet is skipped once any plan task is complete, so stubs never replace accepted
-  implementation. The R1 reports `data.completed_task_ids`.
+- **`build-implement-tdd` v1.16.0** accepts `ASSIGNED_TASK_IDS` from the PO-agent and runs exactly
+  those tasks; a `blockedBy` task already `complete` in workflow-state (an earlier pass of either
+  mode) satisfies the dependency, and an invalid assignment returns `MISSING_INPUT`. The tracer
+  bullet is skipped once any plan task is complete, so stubs never replace accepted implementation.
+  The R1 reports `data.completed_task_ids`.
 - **`build-implement-goal` v1.8.0** gains the same `ASSIGNED_TASK_IDS` selection (dependencies
   checked read-only through `ISSUE_NUMBER`/`MAKATO_ORCHESTRATE_ROOT`) and reports
   `data.completed_task_ids`; the PO-agent records goal completion in `sub_tasks[]`.
 - **`build-refine` v1.15.0** and `plan-schema.md`: `runOrder` only chooses which mode runs first
   among dependency-ready tasks; cross-mode `blockedBy` in either direction needs no exception.
+
 ### Changed — coders run targeted RED/GREEN; review and verify own testing with bounded repair loops (#148)
 
-- **`agents/coder.md`** TDD mode runs only RED and GREEN, on only the test files
-  the task added or changed (plus the tracer test). INTEGRATE, full-suite
-  VERIFY, coverage and repo-wide lint move to `build-verify`. Every R1 must carry
-  `data.details` (changes, tests, commands with exit codes and results,
-  assumptions, risks, `deferred_to_verify`). Repair mode accepts
-  `REVIEW_FINDINGS` or `VERIFY_FINDINGS` with `REPAIR_ROUND`/`MAX_REPAIR_ROUNDS`
-  and reports per-finding root cause, change and verification.
-- **`build-implement-tdd` v1.15.0** drops the per-task cross-task regression
-  sweep and the final full-suite run, hands the baseline and changed-file set
-  to `build-verify`, and re-asks the coder once (`DETAILS_REQUEST`) when R1
-  details or RED/GREEN command evidence are missing.
-- **`build-review` v1.8.0** caps coder repair → independent re-review at
-  `MAKATO_MAX_REPAIR_ROUNDS` (default 3); unresolved CRITICAL/MAJOR findings fail
-  closed (HALT-003).
-- **`build-verify` v1.14.0** no longer edits source for code-level gate failures:
-  it sends `VERIFY_FINDINGS` to the coder, re-reviews the repair delta with
-  `diff-reviewer`, re-runs the scoped gates, and fails closed (HALT-002) after
-  `MAKATO_MAX_REPAIR_ROUNDS` rounds.
-- **`config/verification-ownership.md`**, **`agents/RETURN-CONTRACT.md`**,
-  `definition-of-done`, `AUTONOMOUS-MODE.md`, the README and the TDD reference
-  guides describe the same contract. On sagibeast#994 each serial coder ran the
-  complete verification suite for its own task (10–15 min per task, 26 tasks).
+- **`agents/coder.md`** TDD mode runs only RED and GREEN, on only the test files the task added or
+  changed (plus the tracer test). INTEGRATE, full-suite VERIFY, coverage and repo-wide lint move to
+  `build-verify`. Every R1 must carry `data.details` (changes, tests, commands with exit codes and
+  results, assumptions, risks, `deferred_to_verify`). Repair mode accepts `REVIEW_FINDINGS` or
+  `VERIFY_FINDINGS` with `REPAIR_ROUND`/`MAX_REPAIR_ROUNDS` and reports per-finding root cause,
+  change and verification.
+- **`build-implement-tdd` v1.15.0** drops the per-task cross-task regression sweep and the final
+  full-suite run, hands the baseline and changed-file set to `build-verify`, and re-asks the coder
+  once (`DETAILS_REQUEST`) when R1 details or RED/GREEN command evidence are missing.
+- **`build-review` v1.8.0** caps coder repair → independent re-review at `MAKATO_MAX_REPAIR_ROUNDS`
+  (default 3); unresolved CRITICAL/MAJOR findings fail closed (HALT-003).
+- **`build-verify` v1.14.0** no longer edits source for code-level gate failures: it sends
+  `VERIFY_FINDINGS` to the coder, re-reviews the repair delta with `diff-reviewer`, re-runs the
+  scoped gates, and fails closed (HALT-002) after `MAKATO_MAX_REPAIR_ROUNDS` rounds.
+- **`config/verification-ownership.md`**, **`agents/RETURN-CONTRACT.md`**, `definition-of-done`,
+  `AUTONOMOUS-MODE.md`, the README and the TDD reference guides describe the same contract. On
+  sagibeast#994 each serial coder ran the complete verification suite for its own task (10–15 min
+  per task, 26 tasks).
 
 ### Fixed — durable project learning (port of #123 from `development`)
 
-- **`shared/write-lessons.sh`** accepts `--issue N` (plus `--bundle`/`--label` recall
-  metadata) and immediately persists generalizable procedures and facts into the
-  selected checkout’s `.makato/memory/`, including interactive worktree sessions. Pass
-  `--issue N` when several issues share one spec folder. Preserve issue/filter
-  metadata; report promotion failures (exit 3) while retaining raw evidence.
+- **`shared/write-lessons.sh`** accepts `--issue N` (plus `--bundle`/`--label` recall metadata) and
+  immediately persists generalizable procedures and facts into the selected checkout’s
+  `.makato/memory/`, including interactive worktree sessions. Pass `--issue N` when several issues
+  share one spec folder. Preserve issue/filter metadata; report promotion failures (exit 3) while
+  retaining raw evidence.
 - **`shared/write-lessons.sh`** resolves an exact `specs/<key>/` first, then a unique
   `specs/<key>-*/` match; ambiguous keys exit 2 instead of appending to the first match.
-- **`build-verify` v1.13.1** and **`build-push-to-git` v1.7.2** require an
-  evidence-based learning review at completion/handoff. Replace source-text tests
-  with real CLI coverage.
+- **`build-verify` v1.13.1** and **`build-push-to-git` v1.7.2** require an evidence-based learning
+  review at completion/handoff. Replace source-text tests with real CLI coverage.
 
 ### Fixed — coder verification ownership and unverified-result continuation (#141)
 
-- **`agents/coder.md`** now owns every phase command it reports. Edit-only or
-  "skip tests mid-flight" dispatch instructions no longer narrow its contract,
-  and commands that cannot run return `failure` `VERIFICATION_UNAVAILABLE`
-  instead of `partial`. The R1 now reports `data.phases_executed`. A new optional
-  `PRIOR_R1` input adopts an earlier unverified attempt's edits and re-proves RED
-  by temporarily stashing that task's production paths.
-- **`build-implement-tdd` v1.14.0** dispatches coders one at a time per
-  worktree and forbids suppressing coder verification. An unverified coder R1
-  gets exactly one fresh-coder continuation (`PRIOR_R1`) instead of halting with
-  CODER_PARTIAL; a second unverified result fails as `CODER_UNVERIFIED`.
-  Coordinator test runs are never promoted to coder success.
-- **`agents/RETURN-CONTRACT.md`** and **`references/tdd-cycle-rules.md`** document
-  the same ownership rule.
-- **`scripts/run-skill.py`** appends the new `config/verification-ownership.md`
-  policy to every workflow-skill OMP run's system prompt
-  (`--append-system-prompt`), and fails before launch if the file is missing.
-  OMP's Task-tool guidance ("skip build/lint/tests mid-flight") is
-  system-level, while the selected SKILL.md is user prompt. On sagibeast#994
-  the fresh `build-implement-tdd` coordinator therefore dispatched coders
-  edit-only, and after the text fixes it refused with
-  `DISPATCH_CONTRACT_CONFLICT`. The coordinator copies the policy into each
-  coder's Task context, which OMP also renders at system level.
+- **`agents/coder.md`** now owns every phase command it reports. Edit-only or "skip tests
+  mid-flight" dispatch instructions no longer narrow its contract, and commands that cannot run
+  return `failure` `VERIFICATION_UNAVAILABLE` instead of `partial`. The R1 now reports
+  `data.phases_executed`. A new optional `PRIOR_R1` input adopts an earlier unverified attempt's
+  edits and re-proves RED by temporarily stashing that task's production paths.
+- **`build-implement-tdd` v1.14.0** dispatches coders one at a time per worktree and forbids
+  suppressing coder verification. An unverified coder R1 gets exactly one fresh-coder continuation
+  (`PRIOR_R1`) instead of halting with CODER_PARTIAL; a second unverified result fails as
+  `CODER_UNVERIFIED`. Coordinator test runs are never promoted to coder success.
+- **`agents/RETURN-CONTRACT.md`** and **`references/tdd-cycle-rules.md`** document the same
+  ownership rule.
+- **`scripts/run-skill.py`** appends the new `config/verification-ownership.md` policy to every
+  workflow-skill OMP run's system prompt (`--append-system-prompt`), and fails before launch if the
+  file is missing. OMP's Task-tool guidance ("skip build/lint/tests mid-flight") is system-level,
+  while the selected SKILL.md is user prompt. On sagibeast#994 the fresh `build-implement-tdd`
+  coordinator therefore dispatched coders edit-only, and after the text fixes it refused with
+  `DISPATCH_CONTRACT_CONFLICT`. The coordinator copies the policy into each coder's Task context,
+  which OMP also renders at system level.
 
 ### Fixed — target-checkout roots for worktree-dispatched skills and lessons
 
 - **`shared/write-lessons.sh`** now writes per-issue lesson summaries under
-  `MAKATO_TARGET_REPO_ROOT` when set and preserves common-dir sharing otherwise;
-  a nested linked/per-run worktree regression covers both cases.
+  `MAKATO_TARGET_REPO_ROOT` when set and preserves common-dir sharing otherwise; a nested
+  linked/per-run worktree regression covers both cases.
 - **`build-verify-spec.sh`** resolves spec artifacts from the selected target root even when
   `REPO_ROOT` is already inherited, with linked/per-run worktree regression coverage.
-- **`build-address-pr-comments` v1.7.1**, **`build-coordinate-repos` v1.0.1**,
-  **`build-create-pr` v1.12.2**, **`build-grill-with-docs` v1.9.1**,
-  **`build-implement-goal` v1.7.1**, **`build-implement-tdd` v1.13.2**,
-  **`build-push-to-git` v1.7.1**, **`build-refine` v1.14.1**,
-  **`build-review` v1.7.1**, **`build-runtime-qa` v1.0.3**, and
-  **`build-simplify` v1.4.3** — spec/audit root instructions honor the
-  override while preserving each skill's existing fallback behavior.
-- `AUTONOMOUS-MODE.md` now documents the selected target root and its unchanged
-  unset-override sharing fallback.
+- **`build-address-pr-comments` v1.7.1**, **`build-coordinate-repos` v1.0.1**, **`build-create-pr`
+  v1.12.2**, **`build-grill-with-docs` v1.9.1**, **`build-implement-goal` v1.7.1**,
+  **`build-implement-tdd` v1.13.2**, **`build-push-to-git` v1.7.1**, **`build-refine` v1.14.1**,
+  **`build-review` v1.7.1**, **`build-runtime-qa` v1.0.3**, and **`build-simplify` v1.4.3** —
+  spec/audit root instructions honor the override while preserving each skill's existing fallback
+  behavior.
+- `AUTONOMOUS-MODE.md` now documents the selected target root and its unchanged unset-override
+  sharing fallback.
 
 ### Changed — build-refine: per-task budget (v1.14.0)
 
@@ -376,121 +398,119 @@ has an autonomous mode that never prompts and never blocks a headless session.
 ### Changed — coder agent: turn budget 30 → 100
 
 - Raise `agents/coder.md` `maxTurns` from 30 to 100 (matching `po-agent`). A full
-  RED→GREEN→INTEGRATE→VERIFY task spanning schema, storage, routes and integration tests
-  exhausted its budget before writing its first failing test (sagibeast #1274 Task 3).
+  RED→GREEN→INTEGRATE→VERIFY task spanning schema, storage, routes and integration tests exhausted
+  its budget before writing its first failing test (sagibeast #1274 Task 3).
 
 ### Fixed — build-implement-tdd: installed task-file-scout discovery (v1.13.1)
 
 - When `MAKATO_ORCHESTRATE_ROOT` is unset, resolve the orchestrate plugin with
   `shared/runtime-context.sh plugin-root makato-orchestrate` (source sibling or OMP registry)
-  instead of skipping the scout. Interactive sessions never set the variable, so the scout was
-  never dispatched there. An absent orchestrate plugin still skips the scout without a
-  `scout-skipped` warning.
+  instead of skipping the scout. Interactive sessions never set the variable, so the scout was never
+  dispatched there. An absent orchestrate plugin still skips the scout without a `scout-skipped`
+  warning.
 
 ### Fixed — host-qualified gh project-scope remediation
 
-- **`build-start` skill v1.11.1** and **`build-create-pr` skill v1.12.1** — when a board update fails
-  because the gh token lacks the `project` scope, log
-  `gh auth refresh --hostname $HOST --scopes project,read:project` and the device-login URL
-  instead of a generic WARN. `build-start` no longer discards `gh project item-list` stderr, so a
-  scope failure is no longer reported as "issue not found on board".
+- **`build-start` skill v1.11.1** and **`build-create-pr` skill v1.12.1** — when a board update
+  fails because the gh token lacks the `project` scope, log
+  `gh auth refresh --hostname $HOST --scopes project,read:project` and the device-login URL instead
+  of a generic WARN. `build-start` no longer discards `gh project item-list` stderr, so a scope
+  failure is no longer reported as "issue not found on board".
 
 ### Changed — lightweight skill model roles
 
-- Set makato-build:build-push-to-git and makato-build:build-create-pr to the built-in OMP
-  `COMMIT` role (`@commit`), retaining inherited effort.
+- Set makato-build:build-push-to-git and makato-build:build-create-pr to the built-in OMP `COMMIT`
+  role (`@commit`), retaining inherited effort.
 - Set makato-build:build-sensors, makato-build:inject-context, makato-build:inject-skills,
   makato-plan:issue-to-project, and makato-plan:manage-stores to the OMP `TINY` role (`@tiny`),
   retaining inherited effort.
 
 ### Added — autonomous current-head CI repair
 
-- Added `build-fix-ci` and executable all-check inspection with exact run/job/attempt
-  diagnostics. Unknown, missing, pending and inaccessible checks never pass silently.
-- Autonomous PR creation waits for CI repair; existing-PR repair pushes do not
-  recreate PRs or recurse. Review/comment repairs are reviewed and verified first.
-- Added structured CI recovery to TDD and goal mode, including completed-task,
-  configuration and metadata repair. Sensor residuals remain blocking in CI.
-- Nested security/type repair receives explicit CI context: suppression, ignore
-  and carry-over paths cannot turn unresolved CI failures into success.
-- The stdlib inspector supports Python 3.10 and private logs under normal-clone
-  git metadata; caller audits project sanitized fields instead of private paths.
-- Resolve inspector test fixture roots before path comparisons so macOS symlinked
-  temporary directories retain the same private-log containment checks as Linux.
-- Replaced the fixed three-round CI ceiling with progress-based termination and
-  an optional explicit cap; private checkpoints preserve interrupted work.
-- Reconcile completed child results before resuming stale running checkpoints;
-  consume host completion events instead of global waits, and return headless
-  permission/configuration blockers without waiting for impossible prompt updates.
-  Source-child restrictions remain role-scoped rather than leaking to the coordinator.
-- Restore reproducible repository type checking with declared test dependencies,
-  `.venv` and shared-module resolution, accurate `tmp_path` annotations, and
-  explicit narrowing of optional build signals before assertions.
-- Keep intentionally vulnerable security fixtures under a dedicated expected-findings
-  gate, with missing/extra/incomplete scans rejected; use explicit synthetic values
-  in parser redaction tests rather than realistic secret strings.
-- Pin existing action versions to verified immutable commits and apply the mechanical
-  formatting required by repository-wide verification.
-- Serialize build audit entries compactly after timestamp, model and trace metadata
-  handling, escaping Unicode separators so line-oriented consumers retain every
-  event; add regression coverage for pretty JSON and metadata injection. Preserve authorized test-repair scope
-  when constructing child contexts instead of inventing blanket editing bans.
-- Keep saved reviewer/coder context separate from coordinator authorization on
-  resume, so a historical read-only review prompt cannot prohibit authorized repairs.
-- Reject malformed single-event audit input instead of appending corrupt records;
-  preserve prior events and cover the failure path with a regression. Require sensor
-  results to use the full fenced R1 contract, and avoid nested-shell JSON quoting.
+- Added `build-fix-ci` and executable all-check inspection with exact run/job/attempt diagnostics.
+  Unknown, missing, pending and inaccessible checks never pass silently.
+- Autonomous PR creation waits for CI repair; existing-PR repair pushes do not recreate PRs or
+  recurse. Review/comment repairs are reviewed and verified first.
+- Added structured CI recovery to TDD and goal mode, including completed-task, configuration and
+  metadata repair. Sensor residuals remain blocking in CI.
+- Nested security/type repair receives explicit CI context: suppression, ignore and carry-over paths
+  cannot turn unresolved CI failures into success.
+- The stdlib inspector supports Python 3.10 and private logs under normal-clone git metadata; caller
+  audits project sanitized fields instead of private paths.
+- Resolve inspector test fixture roots before path comparisons so macOS symlinked temporary
+  directories retain the same private-log containment checks as Linux.
+- Replaced the fixed three-round CI ceiling with progress-based termination and an optional explicit
+  cap; private checkpoints preserve interrupted work.
+- Reconcile completed child results before resuming stale running checkpoints; consume host
+  completion events instead of global waits, and return headless permission/configuration blockers
+  without waiting for impossible prompt updates. Source-child restrictions remain role-scoped rather
+  than leaking to the coordinator.
+- Restore reproducible repository type checking with declared test dependencies, `.venv` and
+  shared-module resolution, accurate `tmp_path` annotations, and explicit narrowing of optional
+  build signals before assertions.
+- Keep intentionally vulnerable security fixtures under a dedicated expected-findings gate, with
+  missing/extra/incomplete scans rejected; use explicit synthetic values in parser redaction tests
+  rather than realistic secret strings.
+- Pin existing action versions to verified immutable commits and apply the mechanical formatting
+  required by repository-wide verification.
+- Serialize build audit entries compactly after timestamp, model and trace metadata handling,
+  escaping Unicode separators so line-oriented consumers retain every event; add regression coverage
+  for pretty JSON and metadata injection. Preserve authorized test-repair scope when constructing
+  child contexts instead of inventing blanket editing bans.
+- Keep saved reviewer/coder context separate from coordinator authorization on resume, so a
+  historical read-only review prompt cannot prohibit authorized repairs.
+- Reject malformed single-event audit input instead of appending corrupt records; preserve prior
+  events and cover the failure path with a regression. Require sensor results to use the full fenced
+  R1 contract, and avoid nested-shell JSON quoting.
 
 ### Fixed — blocking review repair in both execution modes
 
-- `build-review` now sends every CRITICAL and MAJOR finding to the coder in manual
-  and autonomous runs, then independently re-reviews until both counts are zero.
-  Incomplete reviews and blocked repairs never permit verify/push.
-- Review the merge-base-to-working-tree diff and untracked additions on every pass;
-  retain unresolved findings instead of suppressing them on subsequent passes.
-- Added the coder review-repair dispatch contract; final mechanical edits also
-  require re-review before per-AC verdicts are persisted.
-- Removed prompt-wording assertions from the default-branch smoke suite while
-  retaining its executable stale-main regression and helper checks.
+- `build-review` now sends every CRITICAL and MAJOR finding to the coder in manual and autonomous
+  runs, then independently re-reviews until both counts are zero. Incomplete reviews and blocked
+  repairs never permit verify/push.
+- Review the merge-base-to-working-tree diff and untracked additions on every pass; retain
+  unresolved findings instead of suppressing them on subsequent passes.
+- Added the coder review-repair dispatch contract; final mechanical edits also require re-review
+  before per-AC verdicts are persisted.
+- Removed prompt-wording assertions from the default-branch smoke suite while retaining its
+  executable stale-main regression and helper checks.
 
 ### Added — Per-skill roles and reasoning effort
 
 - Use `xhigh` for build-review, stress-test-artifact, and all five makato-change skills.
-- Added provider-neutral `skill_execution` defaults and overrides for all skills in
-  makato-build, makato-plan, and makato-change, separate from the artifact DAG.
-- Added `scripts/run-skill.py` to launch a fresh OMP process using `@default`, `@plan`,
-  or `@review`, with explicit effort or inherited model-role thinking settings.
+- Added provider-neutral `skill_execution` defaults and overrides for all skills in makato-build,
+  makato-plan, and makato-change, separate from the artifact DAG.
+- Added `scripts/run-skill.py` to launch a fresh OMP process using `@default`, `@plan`, or
+  `@review`, with explicit effort or inherited model-role thinking settings.
 - Project overrides merge field by field; workflow-schema loading accepts execution-only
   configuration while preserving the built-in pipeline. Concrete providers stay in OMP.
-- Removed Claude-specific skill model hints and documented the cross-plugin launcher,
-  explicit context handoff, interactive interviews, and installed-plugin root overrides.
+- Removed Claude-specific skill model hints and documented the cross-plugin launcher, explicit
+  context handoff, interactive interviews, and installed-plugin root overrides.
 
 ### Changed — build-runtime-qa: Verified local runtime origin (v1.0.2)
 
-- Pass an optional `MAKATO_RUNTIME_URL` to runtime-qa; verify the provider
-  port map and local response before using localhost, avoiding false app-down
-  findings when the public address has no hairpin route.
-- Record inaccessible browser transport/TLS as an explicit unverified skip,
-  without disabling TLS verification globally or claiming AC coverage.
+- Pass an optional `MAKATO_RUNTIME_URL` to runtime-qa; verify the provider port map and local
+  response before using localhost, avoiding false app-down findings when the public address has no
+  hairpin route.
+- Record inaccessible browser transport/TLS as an explicit unverified skip, without disabling TLS
+  verification globally or claiming AC coverage.
 
 ### Fixed — runner-neutral helper paths and greenfield exploration
 
-- `build-create-pr` now resolves `SPEC_FOLDER` explicitly and validates
-  `created-issues.json` only against an available `MAKATO_PLAN_ROOT` schema;
-  unreadable or malformed artifacts remain advisory and never probe
-  `"$REPO_ROOT/plugins/makato-plan"`.
-- Active makato-build skills use `MAKATO_BUILD_ROOT` for suite-owned logging,
-  worktree, default-branch, and lesson helpers. `build-grill-with-docs` uses
-  the optional `MAKATO_ORCHESTRATE_ROOT` for workflow-state updates instead of
-  a consumer-CWD-relative cross-plugin path.
-- Removed legacy OMP two-level eager-load references to
-  `AUTONOMOUS-MODE.md` and documented the installed plugin roots used by build
-  skills.
-- `build-refine`, `build-explore`, and `task-file-scout` now filter planned
-  `create` targets and absent paths before `Read`/`tool.read` batches, avoiding
-  unchecked OMP `Promise.all` failures when greenfield files are not present.
-- Runtime path smoke coverage now checks the missing-file preflight contract and
-  additional suite-owned helper paths.
+- `build-create-pr` now resolves `SPEC_FOLDER` explicitly and validates `created-issues.json` only
+  against an available `MAKATO_PLAN_ROOT` schema; unreadable or malformed artifacts remain advisory
+  and never probe `"$REPO_ROOT/plugins/makato-plan"`.
+- Active makato-build skills use `MAKATO_BUILD_ROOT` for suite-owned logging, worktree,
+  default-branch, and lesson helpers. `build-grill-with-docs` uses the optional
+  `MAKATO_ORCHESTRATE_ROOT` for workflow-state updates instead of a consumer-CWD-relative
+  cross-plugin path.
+- Removed legacy OMP two-level eager-load references to `AUTONOMOUS-MODE.md` and documented the
+  installed plugin roots used by build skills.
+- `build-refine`, `build-explore`, and `task-file-scout` now filter planned `create` targets and
+  absent paths before `Read`/`tool.read` batches, avoiding unchecked OMP `Promise.all` failures when
+  greenfield files are not present.
+- Runtime path smoke coverage now checks the missing-file preflight contract and additional
+  suite-owned helper paths.
 
 ### Fixed — ADR lookup, artifact handoff, and coverage command contracts
 
@@ -505,30 +525,27 @@ has an autonomous mode that never prompts and never blocks a headless session.
 - `build-start` and `build-refine` now create or resume an interactive git worktree through
   `shared/interactive-worktree.sh`; interactive sessions no longer fall back to the main checkout,
   while autonomous sessions still fail closed when `WORKTREE_PATH` is missing.
+
 ### Changed — external consumer-repository runtime and spec resolution
 
-Build skills now resolve installed plugin roots through OMP/Claude runner
-variables instead of assuming the target repository CWD is the plugin root.
-The shared spec resolver maps numeric issue keys to slug folders emitted by
-`makato-plan:to-issues`, rejects ambiguous matches, and keeps audit logs in the
-resolved folder. Gate-scout command maps are forwarded to implementation/test
-phases, optional passport/cross-plugin artifacts degrade explicitly, and
-`build-log.sh` repairs malformed timestamps with a warning. Added external-CWD,
-numeric-issue, and runtime-reference smoke coverage.
+Build skills now resolve installed plugin roots through OMP/Claude runner variables instead of
+assuming the target repository CWD is the plugin root. The shared spec resolver maps numeric issue
+keys to slug folders emitted by `makato-plan:to-issues`, rejects ambiguous matches, and keeps audit
+logs in the resolved folder. Gate-scout command maps are forwarded to implementation/test phases,
+optional passport/cross-plugin artifacts degrade explicitly, and `build-log.sh` repairs malformed
+timestamps with a warning. Added external-CWD, numeric-issue, and runtime-reference smoke coverage.
 
 ### Docs — provider-neutral autonomous compatibility (`AUTONOMOUS-MODE.md`)
 
-`AUTONOMOUS-MODE.md` § *Defensive-headless guard* now documents the harness-neutral
-dispatch adapter (`plugins/makato-orchestrate/scripts/harness-command.sh`,
-local-openai-gpt-macos-compatibility Task 3) instead of a literal
-`claude --dangerously-skip-permissions -p …` invocation — both `loop.sh`'s
-`cmd_dispatch` and `context-handoff.sh`'s `_emit_resume` build their permission flag
+`AUTONOMOUS-MODE.md` § _Defensive-headless guard_ now documents the harness-neutral dispatch adapter
+(`plugins/makato-orchestrate/scripts/harness-command.sh`, local-openai-gpt-macos-compatibility
+Task 3) instead of a literal `claude --dangerously-skip-permissions -p …` invocation — both
+`loop.sh`'s `cmd_dispatch` and `context-handoff.sh`'s `_emit_resume` build their permission flag
 from the explicit `MAKATO_HARNESS_MODE` switch (`omp` default → `--yolo`; `claude` →
-`--dangerously-skip-permissions`), never inferred from `MAKATO_HARNESS_BIN`'s name. Also
-clarifies that the `MAKATO_HEADLESS=1` headless-caller contract is independent of which
-model profile (`config/model-profiles.yml`: `openai` | `qwen-vllm` | `apple-ollama`,
-selected via `MAKATO_MODEL_PROFILE`) is active. Documentation only — no skill/script
-behavior change.
+`--dangerously-skip-permissions`), never inferred from `MAKATO_HARNESS_BIN`'s name. Also clarifies
+that the `MAKATO_HEADLESS=1` headless-caller contract is independent of which model profile
+(`config/model-profiles.yml`: `openai` | `qwen-vllm` | `apple-ollama`, selected via
+`MAKATO_MODEL_PROFILE`) is active. Documentation only — no skill/script behavior change.
 
 ### Changed — script smoke tests relocated to `scripts/tests/` + wired into CI
 
@@ -1070,9 +1087,10 @@ into `knowledge-scout` Step 0.
 
 Companion to `makato-orchestrate`'s per-issue workflow-state layout change. `build-implement-tdd`'s
 Step 6 workflow-state patch calls now thread the PO-agent's `ISSUE_NUMBER` into the new positional
-#3 required by `plugins/makato-orchestrate/shared/workflow-state.sh`. The guard on the caller path
-(`[[ -x "$MAKATO_ROOT/shared/workflow-state.sh" ]]`) is preserved unchanged — consumer repos without
-the orchestrate plugin see no behaviour change; the patch block is skipped silently as before.
+argument 3 required by `plugins/makato-orchestrate/shared/workflow-state.sh`. The guard on the
+caller path (`[[ -x "$MAKATO_ROOT/shared/workflow-state.sh" ]]`) is preserved unchanged — consumer
+repos without the orchestrate plugin see no behaviour change; the patch block is skipped silently as
+before.
 
 - **`skills/build-implement-tdd/SKILL.md`** — Step 6 § _R1 mirror + state patch_ code block updated.
   Both `patch` calls now take `"<key>" "<issue>"` before the jq path. Prose clarifies that the issue

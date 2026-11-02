@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import signal
@@ -16,6 +17,7 @@ from typing import Any
 _BUILD_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_BUILD_ROOT / "shared"))
 
+from review_runtime import RuntimeErrorState, accept, authorize_child, launch, reconcile, status, wait_for_result  # noqa: E402
 from skill_execution import (  # noqa: E402
     SkillExecutionError,
     resolve_execution,
@@ -57,6 +59,25 @@ def parser() -> argparse.ArgumentParser:
         choices=("always-ask", "write", "yolo"),
         help="explicit OMP permission override; omitted by default",
     )
+    result.add_argument("--review-runtime-state", type=Path, help="private review checkpoint (default derives from --review-ledger-state)")
+    result.add_argument("--review-ledger-state", type=Path, help="review_loop ledger required for gated durable build-review")
+    result.add_argument("--attempt-id", help="stable durable attempt identifier")
+    result.add_argument("--input-fingerprint", help="expected SHA-256 of current review input; gate recomputes it")
+    result.add_argument(
+        "--gate-event",
+        choices=("initial", "review", "confirm", "repair-local", "redesign", "certify"),
+        help="review stage being gated before launch; checkpoint certification requires post-review evidence",
+    )
+    result.add_argument("--next-action", choices=("review", "confirm", "repair-local", "redesign", "certify"), help="assert the current review gate action; omitted lets the durable gate select it")
+    result.add_argument("--review-worktree", type=Path, help="worktree used to recompute the review fingerprint")
+    result.add_argument("--review-base", help="merge-base used by the review fingerprint")
+    result.add_argument("--review-soft-cap", type=int)
+    result.add_argument("--review-hard-cap", type=int)
+    result.add_argument("--review-context-path", dest="review_context_paths", action="append", default=[], help="repository-relative context path included in the live fingerprint; repeatable")
+    result.add_argument("--review-contract-path", dest="review_contract_paths", action="append", default=[], help="plugin-relative review contract path included in the live fingerprint; repeatable")
+    result.add_argument("--review-evidence-root", type=Path, help="root containing repository context paths")
+    result.add_argument("--review-expected-ac-ids", help="non-empty comma-separated authoritative acceptance criteria IDs")
+    result.add_argument("--runtime-child", action="store_true", help=argparse.SUPPRESS)
     result.add_argument("skill", help="qualified plugin:skill name")
     result.add_argument("skill_args", nargs=argparse.REMAINDER)
     return result
@@ -158,6 +179,153 @@ def _prompt(metadata: dict[str, Any], skill_text: str, context: str) -> str:
     )
 
 
+def _runtime_child_argv(args: argparse.Namespace) -> list[str]:
+    """Re-enter this launcher in its normal mode inside the durable supervisor."""
+    child = [sys.executable, str(Path(__file__).resolve()), "--runtime-child", "--repo-root", str(args.repo_root.expanduser().resolve())]
+    if args.cwd is not None:
+        child.extend(["--cwd", str(args.cwd.expanduser().resolve())])
+    if args.context_file is not None:
+        child.extend(["--context-file", str(args.context_file.expanduser().resolve())])
+    if args.harness is not None:
+        child.extend(["--harness", args.harness])
+    for config in args.config:
+        child.extend(["--config", str(config.expanduser().resolve())])
+    if args.approval_mode is not None:
+        child.extend(["--approval-mode", args.approval_mode])
+    if args.interactive:
+        child.append("--interactive")
+    child.append(args.skill)
+    skill_args = list(args.skill_args)
+    if skill_args and skill_args[0] == "--":
+        skill_args.pop(0)
+    if skill_args:
+        child.extend(["--", *skill_args])
+    return child
+
+
+def _durable_review(
+    args: argparse.Namespace,
+    command: list[str],
+    child_env: dict[str, str],
+) -> dict[str, Any]:
+    required = {
+        "--review-ledger-state": args.review_ledger_state,
+        "--attempt-id": args.attempt_id,
+        "--input-fingerprint": args.input_fingerprint,
+        "--gate-event": args.gate_event,
+        "--review-worktree": args.review_worktree,
+        "--review-base": args.review_base,
+    }
+    missing = [name for name, value in required.items() if value is None]
+    if missing:
+        raise RuntimeErrorState("durable build-review requires " + ", ".join(missing))
+    if args.skill != "makato-build:build-review":
+        raise RuntimeErrorState("durable review runtime is restricted to makato-build:build-review")
+    ledger_path = args.review_ledger_state.expanduser().resolve()
+    runtime_path = args.review_runtime_state.expanduser().resolve() if args.review_runtime_state else ledger_path.parent / ledger_path.stem / "runtime.json"
+    expected_runtime_path = ledger_path.parent / ledger_path.stem / "runtime.json"
+    if runtime_path != expected_runtime_path:
+        raise RuntimeErrorState("runtime checkpoint must be the private per-ledger runtime.json path")
+    if not args.review_context_paths or not args.review_contract_paths:
+        raise RuntimeErrorState("durable build-review requires explicit context and contract fingerprint paths")
+    evidence_root = args.review_evidence_root.expanduser().resolve() if args.review_evidence_root else Path(child_env["REPO_ROOT"]).resolve()
+    if Path(child_env["WORKTREE_PATH"]).resolve() != args.review_worktree.expanduser().resolve():
+        raise RuntimeErrorState("durable review worktree differs from the launcher's actual WORKTREE_PATH")
+    expected_ac_ids = None
+    if args.review_expected_ac_ids is not None:
+        expected_ac_ids = [value.strip() for value in args.review_expected_ac_ids.split(",")]
+        if not all(expected_ac_ids) or len(set(expected_ac_ids)) != len(expected_ac_ids):
+            raise RuntimeErrorState("--review-expected-ac-ids requires distinct non-empty IDs")
+    invocation_sha = hashlib.sha256(json.dumps(command, ensure_ascii=False).encode("utf-8")).hexdigest()
+    existing = status(runtime_path, args.attempt_id)
+    receipt = launch(
+        state_path=runtime_path,
+        ledger_state=ledger_path,
+        attempt_id=args.attempt_id,
+        role=args.skill,
+        fingerprint=args.input_fingerprint,
+        expected_epoch=existing["epoch"],
+        next_action=args.next_action,
+        gate_event=args.gate_event,
+        worktree=args.review_worktree,
+        review_base=args.review_base,
+        command=_runtime_child_argv(args),
+        cwd=child_env["PWD"],
+        env=child_env,
+        soft_cap=args.review_soft_cap,
+        hard_cap=args.review_hard_cap,
+        context_path=args.context_file,
+        invocation_sha256=invocation_sha,
+        context_paths=args.review_context_paths,
+        contract_paths=args.review_contract_paths,
+        evidence_root=evidence_root,
+        expected_ac_ids=expected_ac_ids or (),
+    )
+    attempt = receipt.get("attempt") or {}
+    if attempt.get("state") == "blocked" or (receipt.get("decision") == "blocked" and attempt.get("state") != "completed"):
+        raise RuntimeErrorState(receipt.get("reason") or attempt.get("protocol_error") or "durable review attempt is blocked")
+    try:
+        wait_timeout = float(os.environ.get("MAKATO_REVIEW_RUNTIME_WAIT_SECS", "3600"))
+    except ValueError as exc:
+        raise RuntimeErrorState("MAKATO_REVIEW_RUNTIME_WAIT_SECS must be numeric") from exc
+    completed = wait_for_result(runtime_path, args.attempt_id, wait_timeout)
+    if completed.get("timed_out"):
+        raise RuntimeErrorState(f"review attempt {args.attempt_id} is still running; timeout did not cancel it—resume the same attempt")
+    if (completed.get("attempt") or {}).get("state") != "completed":
+        failed_attempt = completed.get("attempt") or {}
+        raise RuntimeErrorState(f"review attempt cannot be accepted: {failed_attempt.get('protocol_error') or failed_attempt.get('state')}")
+    gate = reconcile(
+        state_path=runtime_path,
+        attempt_id=args.attempt_id,
+        expected_epoch=completed["epoch"],
+        gate_event=args.gate_event,
+        worktree=args.review_worktree,
+        review_base=args.review_base,
+        fingerprint=args.input_fingerprint,
+        soft_cap=args.review_soft_cap,
+        hard_cap=args.review_hard_cap,
+        invocation_sha256=invocation_sha,
+    )
+    if gate.get("decision") == "blocked" and (gate.get("attempt") or {}).get("state") != "completed":
+        raise RuntimeErrorState(gate.get("reason") or "current review gate blocked result recovery")
+    accepted = accept(
+        state_path=runtime_path,
+        attempt_id=args.attempt_id,
+        expected_epoch=gate["epoch"],
+        invocation_sha256=invocation_sha,
+    )
+    return accepted["result"]
+
+
+def _authorize_runtime_child(args: argparse.Namespace, command: list[str], child_env: dict[str, str]) -> None:
+    runtime_state = os.environ.get("MAKATO_REVIEW_RUNTIME_STATE")
+    attempt_id = os.environ.get("MAKATO_REVIEW_ATTEMPT_ID")
+    run_identity = os.environ.get("MAKATO_REVIEW_RUN_ID")
+    expected_sha = os.environ.get("MAKATO_REVIEW_INVOCATION_SHA256")
+    expected_epoch = os.environ.get("MAKATO_REVIEW_RUNTIME_EPOCH")
+    if not runtime_state or not attempt_id or not run_identity or not expected_sha or not expected_epoch:
+        raise RuntimeErrorState("--runtime-child requires an identity-bound durable runtime environment")
+    try:
+        ownership_epoch = int(expected_epoch)
+    except ValueError as exc:
+        raise RuntimeErrorState("runtime child has an invalid durable ownership epoch") from exc
+    actual_sha = hashlib.sha256(json.dumps(command, ensure_ascii=False).encode("utf-8")).hexdigest()
+    if actual_sha != expected_sha:
+        raise RuntimeErrorState("runtime child command differs from its authorized invocation")
+    gate = authorize_child(
+        state_path=runtime_state,
+        attempt_id=attempt_id,
+        run_identity=run_identity,
+        invocation_sha256=actual_sha,
+        context_path=args.context_file,
+        expected_epoch=ownership_epoch,
+    )
+    child_env["MAKATO_REVIEW_NEXT_ACTION"] = str(gate["next_action"])
+    child_env["MAKATO_REVIEW_GATE_ID"] = str(gate.get("gate_id") or "")
+    child_env["MAKATO_REVIEW_INPUT_FINGERPRINT"] = str(gate.get("input_fingerprint") or "")
+    child_env["MAKATO_REVIEW_GATE_JSON"] = json.dumps(gate, ensure_ascii=False, sort_keys=True)
+
+
 def build_command(args: argparse.Namespace, environ: Mapping[str, str]) -> tuple[list[str], dict[str, str], dict[str, str]]:
     """Build argv and child environment without shell parsing or process creation."""
     repo_root = args.repo_root.expanduser().resolve()
@@ -196,6 +364,7 @@ def build_command(args: argparse.Namespace, environ: Mapping[str, str]) -> tuple
         {
             "REPO_ROOT": str(repo_root),
             "PWD": str(cwd),
+            "WORKTREE_PATH": environ.get("WORKTREE_PATH") or str(cwd),
             "MAKATO_SKILL_RUNNER": runner,
             "MAKATO_SKILL_RESOLVED": skill,
             "MAKATO_HARNESS_BIN": harness,
@@ -218,7 +387,7 @@ def build_command(args: argparse.Namespace, environ: Mapping[str, str]) -> tuple
         "execution": execution,
         "repo_root": str(repo_root),
         "cwd": str(cwd),
-        "WORKTREE_PATH": environ.get("WORKTREE_PATH"),
+        "WORKTREE_PATH": child_env["WORKTREE_PATH"],
         "skill_args": skill_args,
         "interactive": args.interactive,
         "next_skill_command_prefix": next_prefix,
@@ -332,17 +501,44 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
         command, child_env, execution = build_command(args, os.environ)
+        durable_flags = (
+            args.review_runtime_state,
+            args.review_ledger_state,
+            args.attempt_id,
+            args.input_fingerprint,
+            args.gate_event,
+            args.next_action,
+            args.review_worktree,
+            args.review_base,
+            args.review_soft_cap,
+            args.review_hard_cap,
+            args.review_context_paths,
+            args.review_contract_paths,
+            args.review_evidence_root,
+            args.review_expected_ac_ids,
+        )
+        if args.runtime_child:
+            if any(value is not None and value != [] for value in durable_flags):
+                raise RuntimeErrorState("runtime child cannot override durable launch authorization")
+            _authorize_runtime_child(args, command, child_env)
         if args.dry_run:
             visible_env = {
                 key: value for key, value in child_env.items() if key in {*_PLUGINS.values(), "REPO_ROOT", "WORKTREE_PATH", "PWD", "MAKATO_SKILL_RUNNER", "MAKATO_SKILL_RESOLVED", "MAKATO_HARNESS_BIN"}
             }
             print(json.dumps({"argv": command, "execution": execution, "env": visible_env}, ensure_ascii=False, indent=2))
             return 0
+        if not args.runtime_child and any(value is not None and value != [] for value in durable_flags):
+            envelope = _durable_review(args, command, child_env)
+            print(json.dumps(envelope, ensure_ascii=False, sort_keys=True))
+            return 0
         target = _progress_target(child_env)
         if target is not None:
             return _run_with_progress(command, child_env, execution, target)
         os.chdir(child_env["PWD"])
         os.execvpe(command[0], command, child_env)
+    except RuntimeErrorState as exc:
+        print(f"run-skill: {exc}", file=sys.stderr)
+        return 2
     except SkillExecutionError as exc:
         print(f"run-skill: {exc}", file=sys.stderr)
         return 2

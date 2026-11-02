@@ -1,0 +1,47 @@
+{
+  "schema": "review-performance-baseline-v1",
+  "source_commit": "b467bac6139f2137e22d4ef17ae3062e9d1bfa36",
+  "source_release": "0.174.0",
+  "source_branch": "feat/build-review-performance",
+  "legacy_checkout_commit": "7d498712dcf66bf2a8fc76f665ba5c7a39221a28",
+  "modern_helpers": [
+    "plugins/makato-build/shared/review_loop.py",
+    "plugins/makato-build/shared/review_scope.py"
+  ],
+  "verification_commands": [
+    ".venv/bin/python -m pytest -q plugins/makato-build/shared/test_review_loop.py plugins/makato-build/shared/test_review_scope.py plugins/makato-build/shared/test_review_runtime.py plugins/makato-build/shared/test_review_eval.py plugins/makato-build/scripts/tests/test_run_skill_runtime.py plugins/makato-build/shared/test_skill_execution.py plugins/makato-orchestrate/scripts/tests/test_task_schedule.py",
+    "bash scripts/check-skill-frontmatter.sh plugins/makato-build/skills/build-review",
+    "bash scripts/check-plugin-structure.sh plugins/makato-build",
+    "bash scripts/check-plugin-structure.sh plugins/makato-orchestrate"
+  ],
+  "incident_sources": [
+    {
+      "issue": "macatocz/sagibeast#1280",
+      "source": "user analysis and retained build.jsonl lines779-850, reviewer and repair receipts",
+      "known_blockers": ["P1", "DOMAIN-1", "DOMAIN-2", "UI-1", "UI-2", "UI-3", "UI-4"],
+      "measured_wall_seconds": 8238.522,
+      "oracle_boundaries": "real PostgreSQL replay/writer probes; UI controlled transport is not backend authentication proof",
+      "qualification_ready": false,
+      "missing": ["content-addressed original pre-repair snapshots for every case", "expert-adjudicated clean holdout"]
+    },
+    {
+      "issue": "macatocz/sagibeast#1281",
+      "source": "user-supplied authoritative analysis; not rerun to confirm",
+      "reported_unique_findings": 39,
+      "reported_passes": 12,
+      "reported_repairs": 8,
+      "reported_wall_seconds_approx": 237600,
+      "reported_wait_intervals_sum_seconds": 133200,
+      "wait_union_measured": false,
+      "known_invariant": "F-039: every rejected upload has the required audit effect across all refusal and rollback paths",
+      "qualification_ready": false,
+      "missing": ["original raw39 findings and their severity adjudication", "full pre-fix snapshot and oracle mapping", "known-clean independent holdout", "exact historical model and prompt versions"]
+    }
+  ],
+  "llm_benchmark": {
+    "executed": false,
+    "reason": "Do not replace unavailable original case evidence with synthetic production-quality claims.",
+    "sampling_default": "off",
+    "expected_speedup": "not measured;15-20h remains an unverified hypothesis"
+  }
+}

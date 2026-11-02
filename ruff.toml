@@ -17,6 +17,15 @@ extend-exclude = ["*.md"]
 # Distributed CLI runs with the target repository's python3, not our test venv.
 "plugins/makato-build/shared/ci_checks.py" = "py310"
 "plugins/makato-build/shared/test_ci_checks.py" = "py310"
+# Native review/recovery scripts and their standalone smoke also support Python 3.10.
+"plugins/makato-build/shared/review_*.py" = "py310"
+"plugins/makato-build/shared/test_review_*.py" = "py310"
+"plugins/makato-build/shared/skill_execution.py" = "py310"
+"plugins/makato-build/scripts/run-skill.py" = "py310"
+"plugins/makato-build/scripts/tests/test_run_skill_runtime.py" = "py310"
+"plugins/makato-build/scripts/tests/review_runtime_child.py" = "py310"
+"plugins/makato-orchestrate/scripts/task_schedule.py" = "py310"
+"plugins/makato-orchestrate/scripts/tests/test_task_schedule.py" = "py310"
 # infra/bootstrap-vllm.sh runs the resolver with the vLLM venv's Python 3.12.
 "scripts/resolve-model-profile.py" = "py312"
 

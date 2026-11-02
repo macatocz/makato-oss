@@ -254,33 +254,40 @@ echo "T9: alive + active_workflow.stalled=true + stale dispatch + queued items â
 }
 
 # ---------------------------------------------------------------------------
-# T10: path re-homing contract (issue #6 / AC-2) with the HALT_FILE carve-out.
-# STATE_DIR MUST honour MAKATO_LOOP_STATE_DIR (re-homed off $HOME). HALT_FILE is
-# the documented exception: it stays operator-global (~/.claude/HALT) so a single
-# HALT file stops every loop/fleet/supervisor on the host (HALT-000). Sources the
-# path-init block from loop.sh with MAKATO_LOOP_STATE_DIR set and MAKATO_HALT_FILE
-# unset, then asserts both halves of the contract.
+# T10: path re-homing and operator-global HALT through the real loop CLI.
+# A configured state root supplies status; its HALT file must not stop the loop.
+# Only the default operator-global HALT in the controlled HOME stops it.
 # ---------------------------------------------------------------------------
 echo "T10: STATE_DIR re-homed under configured root; HALT_FILE stays operator-global"
 {
   sb="$(new_sandbox)"
   LOOP_SH="$SCRIPT_DIR/../loop.sh"
-
-  # Extract the path-init block (lines between "Runtime-derived paths" and the
-  # next "# ---" comment) and source it with a controlled env, explicitly
-  # unset MAKATO_HALT_FILE to exercise the default-path branch.
-  read -r state_result halt_result < <(
-    cd "$SCRIPT_DIR/../../../.."   # repo root for git rev-parse
-    unset MAKATO_HALT_FILE
-    export MAKATO_LOOP_STATE_DIR="$sb/state"
-    eval "$(awk '/Runtime-derived paths/{found=1;next} found && /^# ---/{exit} found{print}' "$LOOP_SH")"
-    echo "$STATE_DIR $HALT_FILE"
-  )
-
-  if [[ "$state_result" == "$sb/state" && "$halt_result" == *"/.claude/HALT" ]]; then
-    pass "T10 STATE_DIR re-homed to configured root; HALT_FILE remains operator-global (HALT-000 carve-out)"
+  mkdir -p "$sb/home/.claude" "$sb/state"
+  printf '{"path_probe":"configured-state-root"}\n' > "$sb/state/loop-status.json"
+  run_test_loop() {
+    (
+      unset MAKATO_HALT_FILE
+      export HOME="$sb/home"
+      export MAKATO_LOOP_STATE_DIR="$sb/state"
+      MAKATO_TARGET_REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
+      export MAKATO_TARGET_REPO_ROOT
+      export MAKATO_LOOP_CONFIG="$sb/absent-config.json"
+      bash "$LOOP_SH" "$@"
+    )
+  }
+  status_rc=0
+  status_json="$(run_test_loop status)" || status_rc=$?
+  touch "$sb/state/HALT"
+  state_halt_rc=0
+  run_test_loop check-halt > "$sb/state-halt-output" 2>&1 || state_halt_rc=$?
+  touch "$sb/home/.claude/HALT"
+  global_halt_rc=0
+  run_test_loop check-halt > "$sb/global-halt-output" 2>&1 || global_halt_rc=$?
+  if [[ "$status_rc" -eq 0 && "$state_halt_rc" -eq 0 && "$global_halt_rc" -eq 1 ]] &&
+      jq -e '.path_probe == "configured-state-root"' <<<"$status_json" >/dev/null; then
+    pass "T10 configured status path and operator-global HALT"
   else
-    fail "T10" "expected STATE_DIR=$sb/state and global HALT_FILE; got STATE_DIR='$state_result' HALT_FILE='$halt_result'"
+    fail "T10" "status=$status_rc state-HALT=$state_halt_rc global-HALT=$global_halt_rc status-json=$status_json"
   fi
   rm -rf "$sb"
 }

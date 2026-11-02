@@ -1,8 +1,7 @@
-"""Behavioral tests for repair-delta review scoping against real throwaway git repositories."""
+"""Behavioral tests for review-delta and fingerprint behavior in disposable git repositories."""
 
 from __future__ import annotations
 
-import itertools
 import subprocess
 import sys
 import tempfile
@@ -17,7 +16,7 @@ import review_scope  # noqa: E402
 
 
 def _run(repo: Path, *args: str) -> str:
-    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, check=True).stdout
+    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, check=True).stdout.strip()
 
 
 def _write(repo: Path, relative: str, content: str) -> None:
@@ -32,7 +31,8 @@ class RepairDeltaTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
-        self.repo = Path(self._tmp.name)
+        self.repo = Path(self._tmp.name) / "repo"
+        self.repo.mkdir()
         _run(self.repo, "init", "-q", "-b", "main")
         _run(self.repo, "config", "user.email", "t@example.invalid")
         _run(self.repo, "config", "user.name", "t")
@@ -40,7 +40,7 @@ class RepairDeltaTests(unittest.TestCase):
         _write(self.repo, "README.md", "base\n")
         _run(self.repo, "add", "-A")
         _run(self.repo, "commit", "-qm", "base")
-        self.base = _run(self.repo, "rev-parse", "HEAD").strip()
+        self.base = _run(self.repo, "rev-parse", "HEAD")
 
         _write(self.repo, "src/pkg/evidence.py", "def f():\n    return 11\n")
         _write(self.repo, "src/pkg/freeze.py", "from pkg.evidence import f\n\n\ndef h():\n    return f()\n")
@@ -51,7 +51,7 @@ class RepairDeltaTests(unittest.TestCase):
     def delta(self, pre: str) -> dict:
         return review_scope.build_delta(str(self.repo), self.base, pre)
 
-    def test_delta_is_the_repair_not_the_implementation(self) -> None:
+    def test_delta_is_the_coder_repair_not_the_preexisting_implementation(self) -> None:
         pre = review_scope.snapshot(str(self.repo))
         _write(self.repo, "src/pkg/evidence.py", "def f():\n    return 11  # guarded\n")
 
@@ -61,7 +61,7 @@ class RepairDeltaTests(unittest.TestCase):
         self.assertFalse(delta["empty"])
         self.assertEqual(delta["changed_files_total"], 5)
 
-    def test_neighbours_that_import_or_test_the_repaired_file_join_the_scope(self) -> None:
+    def test_neighbouring_callers_and_tests_join_the_repair_scope(self) -> None:
         pre = review_scope.snapshot(str(self.repo))
         _write(self.repo, "src/pkg/evidence.py", "def f():\n    return 11  # guarded\n")
 
@@ -74,20 +74,22 @@ class RepairDeltaTests(unittest.TestCase):
         self.assertNotIn("tests/test_freeze.py", delta["scope_files"])
         self.assertEqual(delta["scope_files"], ["src/pkg/evidence.py", "src/pkg/freeze.py", "tests/test_evidence.py"])
 
-    def test_snapshotting_leaves_index_and_worktree_untouched(self) -> None:
+    def test_snapshot_preserves_the_real_index_and_worktree(self) -> None:
         _run(self.repo, "add", "src/pkg/freeze.py")
-        before = _run(self.repo, "status", "--porcelain=v1")
+        before_status = _run(self.repo, "status", "--porcelain=v1")
+        before_index = _run(self.repo, "write-tree")
 
         review_scope.snapshot(str(self.repo))
 
-        self.assertEqual(_run(self.repo, "status", "--porcelain=v1"), before)
+        self.assertEqual(_run(self.repo, "status", "--porcelain=v1"), before_status)
+        self.assertEqual(_run(self.repo, "write-tree"), before_index)
 
-    def test_materialized_snapshot_holds_untracked_files_and_leaves_the_live_tree_alone(self) -> None:
+    def test_materialized_snapshot_holds_untracked_files_and_leaves_live_tree_untouched(self) -> None:
         _run(self.repo, "add", "src/pkg/freeze.py")
         before = _run(self.repo, "status", "--porcelain=v1")
         pre = review_scope.snapshot(str(self.repo))
         target = Path(self._tmp.name + "-bg")
-        self.addCleanup(lambda: review_scope.release(str(self.repo), str(target)))
+        self.addCleanup(lambda: review_scope.release(str(self.repo), str(target)) if target.exists() else None)
 
         made = review_scope.materialize(str(self.repo), pre, str(target))
         _write(self.repo, "src/pkg/unrelated.py", "VALUE = 2\n")
@@ -99,7 +101,7 @@ class RepairDeltaTests(unittest.TestCase):
         _write(self.repo, "src/pkg/unrelated.py", "VALUE = 1\n")
         self.assertEqual(_run(self.repo, "status", "--porcelain=v1"), before)
 
-    def test_release_removes_the_checkout_and_tolerates_a_second_call(self) -> None:
+    def test_release_removes_materialized_checkout_and_tolerates_a_second_call(self) -> None:
         target = Path(self._tmp.name + "-bg")
         review_scope.materialize(str(self.repo), review_scope.snapshot(str(self.repo)), str(target))
 
@@ -111,9 +113,9 @@ class RepairDeltaTests(unittest.TestCase):
 
     def test_materialize_refuses_an_existing_target(self) -> None:
         with self.assertRaises(review_scope.ScopeError):
-            review_scope.materialize(str(self.repo), review_scope.snapshot(str(self.repo)), self._tmp.name)
+            review_scope.materialize(str(self.repo), review_scope.snapshot(str(self.repo)), str(self._tmp.name))
 
-    def test_repair_that_adds_or_deletes_files_is_in_the_delta(self) -> None:
+    def test_added_and_deleted_repair_files_appear_in_snapshot_delta(self) -> None:
         pre = review_scope.snapshot(str(self.repo))
         _write(self.repo, "src/pkg/guard.py", "def check():\n    return True\n")
         (self.repo / "src/pkg/unrelated.py").unlink()
@@ -122,7 +124,7 @@ class RepairDeltaTests(unittest.TestCase):
 
         self.assertEqual({(item["status"], item["path"]) for item in delta["files"]}, {("A", "src/pkg/guard.py"), ("D", "src/pkg/unrelated.py")})
 
-    def test_untouched_tree_gives_an_empty_delta(self) -> None:
+    def test_untouched_tree_has_an_empty_delta(self) -> None:
         pre = review_scope.snapshot(str(self.repo))
 
         delta = self.delta(pre)
@@ -137,7 +139,7 @@ class RepairDeltaTests(unittest.TestCase):
 
         self.assertTrue(self.delta(pre)["empty"])
 
-    def test_documents_that_mention_a_repaired_script_are_neighbours(self) -> None:
+    def test_changed_reference_documents_join_scope_but_unrelated_docs_do_not(self) -> None:
         _write(self.repo, "scripts/claims-freeze-smoke.sh", "echo ok\n")
         _write(self.repo, "docs/inner-loop.md", "Run `scripts/claims-freeze-smoke.sh` before pushing.\n")
         _write(self.repo, "docs/other.md", "No script here.\n")
@@ -149,24 +151,141 @@ class RepairDeltaTests(unittest.TestCase):
         self.assertIn("docs/inner-loop.md", delta["scope_files"])
         self.assertNotIn("docs/other.md", delta["scope_files"])
 
-    def test_scope_ratio_is_the_share_of_the_whole_change(self) -> None:
+    def test_scope_ratio_uses_the_whole_branch_change_as_denominator(self) -> None:
         pre = review_scope.snapshot(str(self.repo))
         _write(self.repo, "src/pkg/unrelated.py", "VALUE = 2\n")
 
         self.assertEqual(self.delta(pre)["scope_ratio"], round(1 / 5, 3))
 
-    def test_related_list_is_capped_and_reports_truncation(self) -> None:
+    def test_related_file_limit_reports_truncation_and_prioritizes_test_pairs(self) -> None:
         for number in range(4):
             _write(self.repo, f"src/pkg/user{number}.py", "from pkg.evidence import f\n")
         _write(self.repo, "src/pkg/evidence.py", "def f():\n    return 12\n")
-        _write(self.repo, "src/pkg/evidence.py", "def f():\n    return 12\n")
 
-        related, truncated = review_scope.related_files(str(self.repo), ["src/pkg/evidence.py"], review_scope.changed_files(str(self.repo), self.base), max_related=3)
+        related, truncated = review_scope.related_files(
+            str(self.repo),
+            ["src/pkg/evidence.py"],
+            review_scope.changed_files(str(self.repo), self.base),
+            max_related=3,
+        )
 
         self.assertEqual(len(related), 3)
         self.assertTrue(truncated)
-        self.assertEqual(related[0]["path"], "tests/test_evidence.py", "test pairs outrank plain references")
-        self.assertEqual(len(related), 3)
+        self.assertEqual(related[0]["path"], "tests/test_evidence.py")
+
+
+class FingerprintTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.repo = Path(self._tmp.name) / "repo"
+        self.repo.mkdir()
+        _run(self.repo, "init", "-q", "-b", "main")
+        _run(self.repo, "config", "user.email", "t@example.invalid")
+        _run(self.repo, "config", "user.name", "t")
+        _write(self.repo, "src/pkg/evidence.py", "def f():\n    return 1\n")
+        _write(self.repo, "README.md", "base\n")
+        _write(self.repo, ".gitignore", "generated/\n.venv/\n")
+        _run(self.repo, "add", "-A")
+        _run(self.repo, "commit", "-qm", "base")
+        self.base = _run(self.repo, "rev-parse", "HEAD")
+        _write(self.repo, "src/pkg/evidence.py", "def f():\n    return 11\n")
+        _write(self.repo, "src/pkg/freeze.py", "from pkg.evidence import f\n\n\ndef h():\n    return f()\n")
+
+    def test_source_caller_untracked_context_and_contract_bytes_change_review_fingerprint(self) -> None:
+        evidence_root = Path(self._tmp.name) / "evidence"
+        _write(evidence_root, "specs/review-input.md", "The review must cover current callers.\n")
+        _write(evidence_root, "contracts/return-contract.md", "R1 findings preserve each constituent.\n")
+        context = ["specs/review-input.md"]
+        contracts = ["contracts/return-contract.md"]
+
+        def fingerprint() -> str:
+            return str(
+                review_scope.fingerprint(
+                    str(self.repo),
+                    self.base,
+                    context_paths=context,
+                    contract_paths=contracts,
+                    evidence_root=str(evidence_root),
+                )["sha256"]
+            )
+
+        original = fingerprint()
+        source_before = (self.repo / "src/pkg/evidence.py").read_text(encoding="utf-8")
+        _write(self.repo, "src/pkg/evidence.py", source_before + "# source mutation\n")
+        self.assertNotEqual(fingerprint(), original)
+        _write(self.repo, "src/pkg/evidence.py", source_before)
+        self.assertEqual(fingerprint(), original)
+
+        caller_before = (self.repo / "src/pkg/freeze.py").read_text(encoding="utf-8")
+        _write(self.repo, "src/pkg/freeze.py", caller_before + "# caller mutation\n")
+        self.assertNotEqual(fingerprint(), original)
+        _write(self.repo, "src/pkg/freeze.py", caller_before)
+        self.assertEqual(fingerprint(), original)
+
+        _write(self.repo, "untracked/late-caller.py", "from pkg.evidence import f\n")
+        untracked_fingerprint = fingerprint()
+        self.assertNotEqual(untracked_fingerprint, original)
+        self.assertIn(
+            "worktree:untracked/late-caller.py",
+            review_scope.fingerprint(
+                str(self.repo),
+                self.base,
+                context_paths=context,
+                contract_paths=contracts,
+                evidence_root=str(evidence_root),
+            )["files"],
+        )
+        (self.repo / "untracked/late-caller.py").unlink()
+        self.assertEqual(fingerprint(), original)
+
+        _write(evidence_root, "specs/review-input.md", "The review must cover callers and dependencies.\n")
+        self.assertNotEqual(fingerprint(), original)
+        _write(evidence_root, "specs/review-input.md", "The review must cover current callers.\n")
+        self.assertEqual(fingerprint(), original)
+
+        _write(evidence_root, "contracts/return-contract.md", "R1 findings preserve raw evidence and every constituent.\n")
+        self.assertNotEqual(fingerprint(), original)
+
+    def test_ignored_generated_data_does_not_pollute_fingerprint_but_explicit_plan_does(self) -> None:
+        generated = self.repo / "generated"
+        _write(generated, "build.jsonl", '{"event":"review"}\n')
+        _write(self.repo, ".venv/cache.pyc", "generated cache\n")
+        unscoped_before = review_scope.fingerprint(str(self.repo), self.base)["sha256"]
+        _write(generated, "build.jsonl", '{"event":"another review"}\n')
+        _write(self.repo, ".venv/cache.pyc", "new cache bytes\n")
+        self.assertEqual(review_scope.fingerprint(str(self.repo), self.base)["sha256"], unscoped_before)
+
+        _write(generated, "plan.md", "expected behavior A\n")
+        explicit_before = review_scope.fingerprint(str(self.repo), self.base, context_paths=["generated/plan.md"], evidence_root=str(self.repo))["sha256"]
+        _write(generated, "plan.md", "expected behavior B\n")
+        explicit_after = review_scope.fingerprint(str(self.repo), self.base, context_paths=["generated/plan.md"], evidence_root=str(self.repo))["sha256"]
+        self.assertNotEqual(explicit_after, explicit_before)
+
+        _write(self.repo, "src/pkg/meaningful-untracked.py", "def caller():\n    return 1\n")
+        with_untracked = review_scope.fingerprint(str(self.repo), self.base, context_paths=["generated/plan.md"], evidence_root=str(self.repo))["sha256"]
+        self.assertNotEqual(with_untracked, explicit_after)
+
+    def test_symlinked_context_and_contract_bind_target_bytes_and_reject_a_missing_target(self) -> None:
+        evidence = Path(self._tmp.name) / "evidence"
+        evidence.mkdir()
+        link = evidence / "input.md"
+        link.symlink_to("target.md")
+        for source in ("context", "contract"):
+            with self.subTest(source=source):
+                _write(evidence, "target.md", "required invariant A\n")
+                kwargs = {
+                    "context_paths": ["input.md"] if source == "context" else [],
+                    "contract_paths": ["input.md"] if source == "contract" else [],
+                    "evidence_root": str(evidence),
+                    "contract_root": str(evidence),
+                }
+                before = review_scope.fingerprint(str(self.repo), self.base, **kwargs)["sha256"]
+                _write(evidence, "target.md", "required invariant B\n")
+                self.assertNotEqual(review_scope.fingerprint(str(self.repo), self.base, **kwargs)["sha256"], before)
+                (evidence / "target.md").unlink()
+                with self.assertRaises(review_scope.ScopeError):
+                    review_scope.fingerprint(str(self.repo), self.base, **kwargs)
 
 
 class ReferencePatternTests(unittest.TestCase):
@@ -189,109 +308,13 @@ class ReferencePatternTests(unittest.TestCase):
         self.assertTrue(self.matches("src/pkg/evidence.py", "from pkg import evidence\n"))
         self.assertTrue(self.matches("src/pkg/evidence.py", "import pkg.evidence as ev\n"))
 
-    def test_python_name_does_not_match_a_longer_module_or_a_comment(self) -> None:
+    def test_python_name_does_not_match_a_longer_module_or_comment(self) -> None:
         self.assertFalse(self.matches("src/pkg/evidence.py", "from pkg.evidence_store import f\n"))
         self.assertFalse(self.matches("src/pkg/evidence.py", "# see evidence for details\nx = 1\n"))
 
     def test_generic_python_module_names_need_their_package(self) -> None:
         self.assertTrue(self.matches("src/claims/utils.py", "from claims.utils import clean\n"))
         self.assertFalse(self.matches("src/claims/utils.py", "from other.utils import clean\n"))
-
-
-class DecideTests(unittest.TestCase):
-    def decide(self, event: str, last_scope: str = "none", full_since_repair: bool = False, repair_rounds: int = 0, scope_ratio: float | None = None, mode: str = "delta") -> dict:
-        return review_scope.decide(event, mode, last_scope, full_since_repair, repair_rounds, scope_ratio)
-
-    def run_loop(self, reviews: list[bool], scope_ratio: float = 0.2, mode: str = "delta", background_from: int | None = None) -> tuple[list[str], bool]:
-        """Run the caller loop: ``reviews[i]`` is whether review i comes back clean. Returns (scopes reviewed, accepted).
-
-        ``background_from``: from that repair round on, a background full pass of the pre-repair tree completes in every round.
-        """
-        scopes: list[str] = []
-        state = self.decide("start", mode=mode)
-        repair_rounds = 0
-        for clean in reviews:
-            scopes.append(str(state["next"]))
-            full_since_repair = bool(state["full_since_repair"])
-            if clean:
-                state = self.decide("clean", last_scope=scopes[-1], full_since_repair=full_since_repair, repair_rounds=repair_rounds, mode=mode)
-                if state["next"] == "done":
-                    return scopes, True
-            else:
-                repair_rounds += 1
-                state = self.decide("repaired", last_scope=scopes[-1], full_since_repair=full_since_repair, repair_rounds=repair_rounds, scope_ratio=scope_ratio, mode=mode)
-                if background_from is not None and repair_rounds >= background_from:
-                    covered = self.decide("background-full", full_since_repair=bool(state["full_since_repair"]), repair_rounds=repair_rounds, mode=mode)
-                    scopes.append("background-full")
-                    state = {**state, "full_since_repair": covered["full_since_repair"]}
-        return scopes, False
-
-    def drive(self, reviews: list[bool], scope_ratio: float = 0.2, mode: str = "delta", background_from: int | None = None) -> list[str]:
-        return self.run_loop(reviews, scope_ratio, mode, background_from)[0]
-
-    def test_first_pass_is_always_full(self) -> None:
-        self.assertEqual(self.decide("start")["next"], "full")
-
-    def test_a_clean_first_pass_needs_nothing_more(self) -> None:
-        self.assertEqual(self.drive([True]), ["full"])
-
-    def test_repairs_are_delta_reviewed_then_certified_by_one_full_pass(self) -> None:
-        self.assertEqual(self.drive([False, False, True, True]), ["full", "delta", "delta", "final-full"])
-
-    def test_clean_delta_directly_after_the_first_repair_still_requires_the_full_pass(self) -> None:
-        self.assertEqual(self.drive([False, True, True]), ["full", "delta", "final-full"])
-
-    def test_findings_from_the_certifying_pass_are_repaired_and_delta_reviewed_only(self) -> None:
-        self.assertEqual(self.drive([False, True, False, True]), ["full", "delta", "final-full", "delta"])
-
-    def test_wide_repairs_fall_back_to_a_full_pass_which_then_certifies(self) -> None:
-        self.assertEqual(self.drive([False, True], scope_ratio=0.75), ["full", "full"])
-
-    def test_legacy_full_mode_reviews_everything_every_time(self) -> None:
-        self.assertEqual(self.drive([False, False, True], mode="full"), ["full", "full", "full"])
-
-    def test_a_repaired_tree_is_never_accepted_without_a_full_pass_after_the_first_repair(self) -> None:
-        for background_from in (None, 2, 3):
-            for length in range(1, 9):
-                for outcomes in itertools.product([True, False], repeat=length):
-                    scopes, accepted = self.run_loop(list(outcomes), background_from=background_from)
-                    if accepted and len(scopes) > 1:
-                        self.assertTrue(any(scope in ("full", "final-full", "background-full") for scope in scopes[1:]), f"accepted {scopes} for outcomes {outcomes}")
-
-    def test_a_background_full_pass_from_round_two_replaces_the_final_full_pass(self) -> None:
-        self.assertEqual(self.drive([False, False, True], background_from=2), ["full", "delta", "background-full", "delta"])
-
-    def test_background_full_cannot_certify_before_the_second_repair(self) -> None:
-        with self.assertRaises(review_scope.ScopeError):
-            self.decide("background-full", repair_rounds=1)
-        self.assertTrue(self.decide("background-full", repair_rounds=2)["full_since_repair"])
-
-    def test_background_full_changes_nothing_in_legacy_full_mode(self) -> None:
-        self.assertFalse(self.decide("background-full", repair_rounds=3, mode="full")["full_since_repair"])
-
-    def test_mechanical_changes_get_a_delta_review(self) -> None:
-        self.assertEqual(self.decide("mechanical", last_scope="full", full_since_repair=True, repair_rounds=2)["next"], "delta")
-
-    def test_mechanical_change_after_a_clean_first_pass_needs_no_final_full_pass(self) -> None:
-        self.assertEqual(self.decide("clean", last_scope="delta", full_since_repair=False, repair_rounds=0)["next"], "done")
-
-    def test_impossible_event_for_the_state_is_an_error(self) -> None:
-        with self.assertRaises(review_scope.ScopeError):
-            self.decide("clean", last_scope="none")
-
-
-class ModeResolutionTests(unittest.TestCase):
-    def test_default_is_delta(self) -> None:
-        self.assertEqual(review_scope.resolve_mode(None), ("delta", None))
-        self.assertEqual(review_scope.resolve_mode("  "), ("delta", None))
-
-    def test_full_is_honoured_case_insensitively(self) -> None:
-        self.assertEqual(review_scope.resolve_mode("FULL"), ("full", None))
-
-    def test_invalid_value_falls_back_to_delta_with_a_warning(self) -> None:
-        mode, warning = review_scope.resolve_mode("everything")
-        self.assertEqual(mode, "delta")
-        self.assertIn("MAKATO_REVIEW_SCOPE", warning or "")
 
 
 if __name__ == "__main__":
