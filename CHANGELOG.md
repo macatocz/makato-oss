@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.175.0](https://github.com/macatocz/makato-oss/compare/v0.174.0...v0.175.0) (2026-11-02)
+
+
+### ✨ Features
+
+* **review:** add durable quality-gated review optimization ([#186](https://github.com/macatocz/makato-oss/issues/186)) ([63a1e68](https://github.com/macatocz/makato-oss/commit/63a1e68a790d87149de365d1bf3c5b2b72c4d1f4))
+
 ## [0.174.0](https://github.com/macatocz/makato-oss/compare/v0.173.1...v0.174.0) (2026-10-27)
 
 
