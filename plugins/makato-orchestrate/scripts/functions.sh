@@ -4117,11 +4117,14 @@ cmd_dispatch() {
   # launched from an installed suite checkout, so ambient CWD/git discovery is
   # not a safe repository selector.
   export MAKATO_TARGET_REPO_ROOT="$REPO_ROOT"
-  MAKATO_ORCHESTRATE_SHARED="${MAKATO_ORCHESTRATE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}/shared"
-  if [[ -d "$MAKATO_ORCHESTRATE_SHARED" ]]; then
-    export MAKATO_ORCHESTRATE_SHARED
+  MAKATO_ORCHESTRATE_ROOT="${MAKATO_ORCHESTRATE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+  export MAKATO_ORCHESTRATE_ROOT
+  local orchestrate_shared="$MAKATO_ORCHESTRATE_ROOT/shared"
+  if [[ -d "$orchestrate_shared" ]]; then
+    export MAKATO_ORCHESTRATE_SHARED="$orchestrate_shared"
   else
-    echo "[loop WARN] MAKATO_ORCHESTRATE_SHARED path not found: $MAKATO_ORCHESTRATE_SHARED" >&2
+    unset MAKATO_ORCHESTRATE_SHARED
+    echo "[loop WARN] MAKATO_ORCHESTRATE_SHARED path not found: $orchestrate_shared" >&2
   fi
 
   local dispatch_prompt

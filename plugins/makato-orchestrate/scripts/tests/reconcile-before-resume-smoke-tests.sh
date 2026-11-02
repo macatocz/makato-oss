@@ -11,11 +11,13 @@
 #   T-RBR-3  phase=pr, CI in_progress stub with zero timeout → exit 2 + branch=c in audit
 #   T-RBR-4  phase=pr, no open PR → exit 1 + poison_pill_detected + workflow-state cleared
 #   T-RBR-5  phase=build (not pr) → exit 0 immediately, no audit entry written
+#   T-RBR-6  blocked review runtime → exit 4 and preserve blocked reason in audit
+#   T-RBR-7  running review runtime → normal authorized resume with audit
 #
 # Loop-supervisor integration:
-#   T-SUP-1  MAKATO_RECONCILE_SCRIPT exits 0 → supervisor emits action=restart (DRY_RUN)
-#   T-SUP-2  MAKATO_RECONCILE_SCRIPT exits 1 → supervisor emits action=reconcile_abort
-
+#   T-SUP-1  reconcile exits 0 → supervisor emits action=restart (DRY_RUN)
+#   T-SUP-2  reconcile exits 1 → supervisor emits action=reconcile_abort
+#   T-SUP-3  reconcile exits 4 → supervisor refuses restart and propagates exit 4
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -72,12 +74,21 @@ run_reconcile() {
   return "$_rc"
 }
 
+make_runtime_stub() {
+  local path="$1" decision="$2" reason="$3"
+  cat > "$path" <<PYEOF
+import json
+print(json.dumps({"decision": "$decision", "reason": "$reason"}))
+PYEOF
+}
+
 # Run loop-supervisor with a stub reconcile script.
 run_supervisor_with_reconcile() {
   local sb="$1" reconcile_exit="$2"
   local stub; stub="$(mktemp)"
   printf '#!/usr/bin/env bash\nexit %d\n' "$reconcile_exit" > "$stub"
   chmod +x "$stub"
+  local supervisor_exit=0
 
   MAKATO_REPO_ROOT="$sb" \
   MAKATO_LOOP_STATE_DIR="$sb/state" \
@@ -88,12 +99,12 @@ run_supervisor_with_reconcile() {
   MAKATO_SUPERVISOR_AUDIT="$sb/state/audit.jsonl" \
   MAKATO_SUPERVISOR_GH_CMD="true" \
   MAKATO_SUPERVISOR_DRY_RUN=1 \
-    bash "$SUPERVISOR" 2>/dev/null
+    bash "$SUPERVISOR" 2>/dev/null || supervisor_exit=$?
 
   local action
   action="$(jq -r '.action' "$sb/state/audit.jsonl" 2>/dev/null | tail -1 || echo "")"
   rm -f "$stub"
-  printf '%s\n' "$action"
+  printf '%s:%s\n' "$action" "$supervisor_exit"
 }
 
 new_supervisor_sandbox() {
@@ -203,9 +214,10 @@ echo "T-RBR-5: phase=build (not pr) → exit 0, no audit entry written"
   wf="$(mktemp)"; audit="$(mktemp)"
   make_wf "$wf" build 8
 
+  rc=0
   MAKATO_RECONCILE_GH_CMD="true" \
   MAKATO_SUPERVISOR_AUDIT="$audit" \
-    rc=0; bash "$RECONCILE" --workflow-state "$wf" --repo "test/repo" 2>/dev/null || rc=$?
+    bash "$RECONCILE" --workflow-state "$wf" --repo "test/repo" 2>/dev/null || rc=$?
 
   entry_count="$(jq -s 'length' "$audit" 2>/dev/null || echo 0)"
 
@@ -218,14 +230,58 @@ echo "T-RBR-5: phase=build (not pr) → exit 0, no audit entry written"
 }
 
 # ---------------------------------------------------------------------------
+echo "T-RBR-6: phase=verify with blocked review runtime → exit 4 and audit reason"
+{
+  sb="$(mktemp -d)"
+  git init -q "$sb"
+  mkdir -p "$sb/state" "$sb/plugins/makato-build/shared"
+  wf="$sb/state/workflow-state.json"
+  printf '{"current_phase":"verify","issue_number":8,"worktree_path":"%s"}\n' "$sb" > "$wf"
+  make_runtime_stub "$sb/plugins/makato-build/shared/review_runtime.py" blocked cap_exhausted
+  audit="$sb/state/audit.jsonl"
+  rc=0
+  MAKATO_BUILD_ROOT="$sb/plugins/makato-build" MAKATO_SUPERVISOR_AUDIT="$audit" \
+    bash "$RECONCILE" --workflow-state "$wf" 2>/dev/null || rc=$?
+  reason="$(jq -r '.branch' "$audit" 2>/dev/null || echo missing)"
+  if [[ "$rc" -eq 4 && "$reason" == "cap_exhausted" ]]; then
+    pass "T-RBR-6"
+  else
+    fail "T-RBR-6" "exit=$rc (want 4), audit reason=$reason (want cap_exhausted)"
+  fi
+  rm -rf "$sb"
+}
+
+# ---------------------------------------------------------------------------
+echo "T-RBR-7: phase=review with running runtime → resume same attempt without skip"
+{
+  sb="$(mktemp -d)"
+  git init -q "$sb"
+  mkdir -p "$sb/state" "$sb/plugins/makato-build/shared"
+  wf="$sb/state/workflow-state.json"
+  printf '{"current_phase":"review","issue_number":8,"worktree_path":"%s"}\n' "$sb" > "$wf"
+  make_runtime_stub "$sb/plugins/makato-build/shared/review_runtime.py" running ""
+  audit="$sb/state/audit.jsonl"
+  rc=0
+  MAKATO_BUILD_ROOT="$sb/plugins/makato-build" MAKATO_SUPERVISOR_AUDIT="$audit" \
+    bash "$RECONCILE" --workflow-state "$wf" 2>/dev/null || rc=$?
+  decision="$(jq -r '.branch' "$audit" 2>/dev/null || echo missing)"
+  if [[ "$rc" -eq 0 && "$decision" == "running" ]]; then
+    pass "T-RBR-7"
+  else
+    fail "T-RBR-7" "exit=$rc (want 0), audit decision=$decision (want running)"
+  fi
+  rm -rf "$sb"
+}
+
+# ---------------------------------------------------------------------------
 echo "T-SUP-1: MAKATO_RECONCILE_SCRIPT exits 0 → supervisor emits action=restart"
 {
   sb="$(new_supervisor_sandbox)"
   action="$(run_supervisor_with_reconcile "$sb" 0)"
-  if [[ "$action" == "restart" ]]; then
+  if [[ "$action" == "restart:0" ]]; then
     pass "T-SUP-1"
   else
-    fail "T-SUP-1" "expected action=restart, got '$action'"
+    fail "T-SUP-1" "expected restart:0, got '$action'"
   fi
   rm -rf "$sb"
 }
@@ -235,10 +291,21 @@ echo "T-SUP-2: MAKATO_RECONCILE_SCRIPT exits 1 → supervisor emits action=recon
 {
   sb="$(new_supervisor_sandbox)"
   action="$(run_supervisor_with_reconcile "$sb" 1)"
-  if [[ "$action" == "reconcile_abort" ]]; then
+  if [[ "$action" == "reconcile_abort:0" ]]; then
     pass "T-SUP-2"
   else
-    fail "T-SUP-2" "expected action=reconcile_abort, got '$action'"
+    fail "T-SUP-2" "expected reconcile_abort:0, got '$action'"
+  fi
+  rm -rf "$sb"
+}
+echo "T-SUP-3: MAKATO_RECONCILE_SCRIPT exits 4 → supervisor blocks restart"
+{
+  sb="$(new_supervisor_sandbox)"
+  action="$(run_supervisor_with_reconcile "$sb" 4)"
+  if [[ "$action" == "reconcile_abort:4" ]]; then
+    pass "T-SUP-3"
+  else
+    fail "T-SUP-3" "expected reconcile_abort:4, got '$action'"
   fi
   rm -rf "$sb"
 }

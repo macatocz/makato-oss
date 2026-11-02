@@ -1,443 +1,418 @@
 # Review Loop
 
-Procedure for Step 5 of `SKILL.md`: one repair round. Run it whenever a merged review R1
-reports `critical_count > 0` or `major_count > 0`. One pass through round steps 1–9 is one
-repair round; round step 9 either returns to round step 1 or hands back to `SKILL.md` Step 5.
+Operational reference for `SKILL.md` Step 5. `review_loop.py` owns durable gate decisions and repair
+history; `review_scope.py` owns immutable snapshots and repair deltas. This document does not
+authorize bypassing a gate or replacing evidence with model-maintained counters.
 
-The round has this shape because one reviewer reads a large diff shallowly, because a repair
-that fixes one symptom lets the same defect come back, and because a fixed round limit stops
-a converging loop and lets a diverging one run. So findings are repaired as invariants on every
-site, hard repairs are planned before they are edited, the pre-repair tree gets a full review
-while the coder works, and the loop ends on convergence rather than on a count.
+## Durable state and fingerprint
 
-Every decision that can be computed comes from a helper — never improvise one:
+Before these commands, use `SKILL.md` Step 1 to select, canonicalize, and export the exact
+`MAKATO_BUILD_ROOT` and `MAKATO_ORCHESTRATE_ROOT`; manual/installed binding requires both explicitly.
+An exported `MAKATO_ORCHESTRATE_SHARED` must physically equal the selected orchestrate `shared`
+directory. Empty exports are unset. No runtime-context/cache/current-directory/consumer discovery
+may fill a durable binding. Only the launcher may use the fully proved source-checkout fallback
+specified in `AUTONOMOUS-MODE.md`; `review_loop.py` never rediscovers roots.
 
-- `$MAKATO_BUILD_ROOT/shared/review_loop.py` — finding history, merging, convergence,
-  partitioning, and the background-pass policy.
-- `$MAKATO_BUILD_ROOT/shared/review_scope.py` — snapshots, the repair delta, review scope, and
-  the background checkout.
-
-Each helper prints one JSON object on stdout. A usage or input error exits 2 with
-`review-loop: <message>` or `review-scope: <message>` on stderr.
-
----
-
-## State to keep
-
-Values from `SKILL.md` Steps 1–2 and from earlier rounds. Re-expand them in every command;
-shell variables do not persist between tool calls.
-
-- `MAKATO_BUILD_ROOT`, `WORKTREE_PATH`, `REPO_ROOT`, `SPEC_FOLDER`, `REVIEW_BASE` — Step 1.
-- `STATE` — the loop-state file from Step 2. Its directory also holds the reviewer R1 files
-  (`pass-<N>-<lens|single>.json`) and the round findings files (`round-<R>-findings.json`).
-- `repair_rounds` — coder repair rounds started in this run; `0` at the start.
-- `mode`, `last_scope`, `full_since_repair` — the review-scope bookkeeping from Step 2.
-- The reviewer pass counter — the next `PASS_NUMBER`. Every reviewer of one pass shares its
-  number; a background pass takes its own.
-- `REVIEW_FINDINGS` — the blocking findings this round repairs: the CRITICAL and MAJOR entries
-  of a merged R1's `data.findings[]`, unchanged (`id`, `severity`, `category`, `invariant`,
-  `file`, `line`, `evidence`, `description`, `sites`, `lenses`).
-- `redesign_ids` — from round step 1.
-- `PRE_REPAIR_SNAPSHOT`, `REPAIR_ROUND`, `BG_PATH`, and the background pass number — per round.
-- The Step 6 counters `background_passes`, `lens_split_passes`, and `repair_plan_reviews`.
-
----
-
-## Round step 1 — Decide whether another round may start
-
-Ask after every review that reports blockers — the first full pass, each re-review, a
-`final-full` pass — naming every blocking finding you are about to repair. A review with no
-blockers never calls `next` and writes no `convergence` entry; it goes to `decide --event clean`:
+Store the ledger in the worktree's private git directory, never in `workflow-state.json`:
 
 ```bash
-python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" next --state "$STATE" \
-  --repair-rounds "$repair_rounds" --open "<comma-separated IDs of REVIEW_FINDINGS, no spaces>"
-# {"continue":true,"reason":"within_soft_cap","redesign_ids":[],"recurring_ids":[],"new_by_round":{"0":3},"soft_cap":3,"hard_cap":8,"warnings":[]}
+LEDGER_DIR="$(git -C "$WORKTREE_PATH" rev-parse --absolute-git-dir)/makato-review-loop"
+STATE="$LEDGER_DIR/<key>.json"
+RUNTIME_STATE="$LEDGER_DIR/<key>/runtime.json"
+python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" init \
+  --state "$STATE" --story "$KEY" --review-base "$REVIEW_BASE"
 ```
 
-`next` reads `MAKATO_MAX_REPAIR_ROUNDS` (soft cap, default `3`) and
-`MAKATO_MAX_REPAIR_ROUNDS_HARD` (hard cap, default `8`) itself. A value that is not a positive
-integer falls back to its default, and a hard cap below the soft cap is raised to it; each
-correction is a `warnings` entry. Its rules, in this order:
+The runtime checkpoint is separate from the finding ledger. Use the canonical runtime helper and
+`run-skill.py` wrapper described in `AUTONOMOUS-MODE.md`; never write orchestration state from a
+reviewer or coder. Contract version 3 uses `review-input-fingerprint-v2`, ledger version 3,
+runtime version 2 (`review-runtime.v2`), and `review-eval-configuration-v2`. Old/incompatible
+schemas or physical binding mismatches fail closed, including directory replacement or
+reboot/remount identity changes. Never automatically migrate, delete/reinitialize, or reset
+counters/history/findings. The owner must preserve/export history and consumed repair-round/cap
+budget before an explicitly authorized new ledger.
 
-- `recurring_finding` — an open finding came back a third time after a repair, which is after
-  its redesign. Stop, whatever the caps.
-- `hard_cap` — `repair_rounds` reached the hard cap. Stop.
-- `within_soft_cap` — fewer rounds than the soft cap have run. Continue.
-- `converging` — the soft cap is reached, but the last round raised no new blockers, or fewer
-  than the round before. Continue.
-- `not_converging` — the soft cap is reached and the last round did not shrink the new
-  blockers. Stop.
+The ledger freezes `contract_root`, `orchestrate_root`, and
+`root_bindings:{build:{path,dev,ino},orchestrate:{path,dev,ino}}` atomically at first durable bind;
+every runtime attempt stores the same triple. These physical invocation identities are immutable.
+Every state-using command revalidates the executing build installation and both live bindings.
+All three fields are null in an unbound ledger. Generic no-contract state operations, including
+gate/merge, repaired, background, operational-log, checkpoint publication and receipt validation,
+remain legal while unbound, but authorize neither durable execution nor final certification.
+First actual durable gate/merge requires explicit `--contract-root` and `--orchestrate-root` and
+the full canonical closure; no closure check applies when `contract_paths` is absent and no
+binding exists.
 
-Log every decision: the helper's JSON plus `repair_rounds`. `warnings` stay inside this entry.
+Physical roots/devices/inodes are not hashed into review or qualification content identity.
+Canonical inventories include path, kind, mode, and SHA-256 with stable-read/root-identity checks.
+Explicitly selecting and rehashing relocated roots with identical bytes and kind/mode can reproduce
+content identity, but does not authorize rebinding an existing ledger. Permission changes
+invalidate configuration identity; metadata cannot assert source equivalence.
 
-```json
-{"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"convergence","status":"ok","data":{"continue":true,"reason":"within_soft_cap","redesign_ids":[],"recurring_ids":[],"new_by_round":{"0":3},"soft_cap":3,"hard_cap":8,"warnings":[],"repair_rounds":0}}
-```
+`init` persists validated soft/hard repair caps. Resumes retain them; omitted environment values
+preserve them and later environment/CLI limits may only lower them. A changed fingerprint never
+renews the budget or repair count. Raising a cap or importing an incompatible ledger requires
+explicitly authorized evidence-preserving migration, not deletion/reinitialization.
 
-**`continue:true`** — keep `redesign_ids`: those open findings have come back twice after a
-repair, so round step 4 must plan their next repair. Go on to round step 2.
+Pin the complete non-empty authoritative AC ID set at initial dispatch, including a task checkpoint.
+Later gates cannot replace/shrink that set, shrink context/contract coverage, or substitute the
+evidence/build/orchestrate roots. New context files extend the manifest and invalidate stale evidence.
 
-**`continue:false`** — fail closed. Log the stop, with `reason` copied from `next`
-(`recurring_finding`, `hard_cap`, or `not_converging`):
-
-```json
-{"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"repair-loop","status":"error","data":{"reason":"hard_cap","repair_rounds":<repair_rounds>,"repair_rounds_exhausted":true,"unresolved_findings":[{"id":"F-001","severity":"MAJOR","file":"<path>","description":"<one line>"}]}}
-```
-
-Then return R1 `failure` with `data.repair_rounds: <repair_rounds>`,
-`data.repair_rounds_exhausted:true`, `data.exhaustion_reason: "<reason>"`, and one `errors`
-entry per unresolved finding (`<file>:<line> — [<SEVERITY>][<category>] <description>`). Never
-turn exhaustion into a clean result and never raise a cap yourself. Autonomous callers map this
-failure to HALT-003.
-
----
-
-## Round step 2 — Retain the findings and take the pre-repair snapshot
-
-`REVIEW_FINDINGS` is the blocking part of the merged R1 in round 1, and the set assembled by
-round step 9 afterwards. Do not discard a finding because it appeared in an earlier pass. Log
-each one before repair:
-
-```json
-{"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"blocking-finding","status":"warn","data":{"pass":<N>,"severity":"MAJOR","finding":"F-001","file":"<path>","category":"<type>","description":"<one line>","invariant":"<the rule that must hold>","sites":[{"file":"<path>","line":<N>}]}}
-```
-
-Capture the snapshot the repair delta is measured against. A details-only continuation in the
-same round keeps the same snapshot:
+The run fingerprint covers current worktree/base bytes and the exact context/contract files
+selected at the bound roots, not physical root locations. Keep one reusable argument array for every
+initial/delta/final/delivery fingerprint and gate; merge receives the same roots and path arrays:
 
 ```bash
-PRE_REPAIR_SNAPSHOT="$(python3 "$MAKATO_BUILD_ROOT/shared/review_scope.py" snapshot --worktree "$WORKTREE_PATH" | python3 -c 'import json,sys; print(json.load(sys.stdin)["snapshot"])')"
+CONTEXT_ARGS=(--context-path "$SPEC_REL/plan.md")
+# Reuse CONTRACT_ARGS populated once from review_loop.py contract-paths in SKILL.md Step 2.
+# Plain paths select MAKATO_BUILD_ROOT; orchestrate:<rel> selects MAKATO_ORCHESTRATE_ROOT.
+GATE_ARGS=(--state "$STATE" --worktree "$WORKTREE_PATH" --review-base "$REVIEW_BASE"
+  --evidence-root "$REPO_ROOT" --contract-root "$MAKATO_BUILD_ROOT"
+  --orchestrate-root "$MAKATO_ORCHESTRATE_ROOT"
+  "${CONTEXT_ARGS[@]}" "${CONTRACT_ARGS[@]}")
 ```
 
-Set `REPAIR_ROUND` to `repair_rounds + 1`.
-
----
-
-## Round step 3 — Start the background full pass
-
-A delta pass cannot see a defect the repair did not touch, and the one full pass that can comes
-late. Reviewing the pre-repair tree in full while the coder works moves those findings forward
-without adding wall-clock time. Ask the helper:
+Include every supplied context path and the complete canonical contract inventory in both calls.
+`contract-paths` prints exactly the canonical JSON array in tuple order, without extra keys;
+never copy its list by hand. Plain build-relative POSIX paths and exactly `orchestrate:<rel>` are
+the only contract argument forms. Reject other namespaces/colons, empty components, absolute
+paths, `.`/`..`, backslashes, non-regular files, and below-root symlinks; canonicalize symlinked
+ancestors. Required entries use canonical shared paths, never the in-tree build-review/shared alias.
+Manifest labels are `contract:<rel>` for build inputs and `orchestrate:<rel>` for orchestrate;
+the canonical shared `contract_input`/`contract_inventory` dispatch is used for hashing and
+physical alias/source-map protection across both roots, never a second handwritten closure.
+Extra paths may extend, not replace, the closure. The launcher, runtime, first durable bind and
+completion gate reject partial lists; failure is not permission to omit an input. Compute the
+fingerprint:
 
 ```bash
-python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" background --state "$STATE" --repair-round "$REPAIR_ROUND"
-# {"run":true,"reason":"first background full pass"}
+python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" fingerprint \
+  --worktree "$WORKTREE_PATH" --review-base "$REVIEW_BASE" --evidence-root "$REPO_ROOT" \
+  --contract-root "$MAKATO_BUILD_ROOT" --orchestrate-root "$MAKATO_ORCHESTRATE_ROOT" \
+  "${CONTEXT_ARGS[@]}" "${CONTRACT_ARGS[@]}"
 ```
 
-**`run:false`** — go to round step 4. The helper says no in round 1 (the first full pass already
-reviewed the tree), under `MAKATO_REVIEW_SCOPE=full` (every pass is already full), and when the
-last background pass found nothing new. A `warning` key repeats the invalid
-`MAKATO_REVIEW_SCOPE` fallback that Step 2 already logged.
+Pass the emitted SHA-256 as `--fingerprint` to gate commands as an expected-value check, never as an
+authority. The gate recomputes the live fingerprint from `GATE_ARGS`. On any mismatch or helper
+error, stop non-successfully; do not trust stale citations, resume a stale child, or reset the
+state.
 
-**`run:true`** — the reviewers get their own checkout of the snapshot, so they never read files
-the coder is editing:
+## Persisted gate sequence
 
-1. Materialize the snapshot. The path must not exist yet.
-
-   ```bash
-   BG_PATH="${TMPDIR:-/tmp}/makato-bg-<key>-$REPAIR_ROUND"
-   python3 "$MAKATO_BUILD_ROOT/shared/review_scope.py" materialize --worktree "$WORKTREE_PATH" \
-     --snapshot "$PRE_REPAIR_SNAPSHOT" --path "$BG_PATH"
-   # {"path":"…","commit":"…"}
-   ```
-
-   If it fails (exit ≠ 0 — the path exists, or the repository forbids linked worktrees), log
-   `{"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"background-full-pass","status":"warn","data":{"repair_round":<R>,"reason":"<stderr>"}}`,
-   skip the background pass for this round, and go to round step 4. The `final-full` pass still
-   certifies the tree.
-2. Refresh `CHANGED_FILES` inside the checkout with
-   `git -C "$BG_PATH" diff --name-only "$REVIEW_BASE"`. The snapshot already holds the files
-   that are untracked in the live tree, so nothing is untracked there.
-3. Apply the lens policy of Step 4 to the checkout:
-
-   ```bash
-   python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" lenses --worktree "$BG_PATH" --review-base "$REVIEW_BASE"
-   ```
-
-4. Increment the reviewer pass counter — the background pass takes its own `PASS_NUMBER` — and
-   log the start:
-
-   ```json
-   {"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"background-full-pass","status":"start","data":{"repair_round":<R>,"pass":<BG pass>,"snapshot":"<PRE_REPAIR_SNAPSHOT>"}}
-   ```
-
-   Then dispatch the `diff-reviewer` agents as **background agents** and do not wait for them:
-   one per lens in a single message when `split:true`, otherwise one without `LENS`. The inputs
-   are those of Step 4 except `WORKTREE_PATH` = `BG_PATH`, `PRIOR_FINDINGS` empty,
-   `REVIEW_SCOPE: full`, and no `REPAIR_DELTA` or `PRIOR_AC_VERDICTS`; `REPO_ROOT`,
-   `REVIEW_BASE`, `PLAN_CONTEXT`, and `STORY_KEY` are unchanged. Each reviewer's R1 is saved to
-   `"$(dirname "$STATE")/pass-<BG pass>-<lens|single>.json"`.
-5. If the runner cannot run an agent in the background while you continue, run this review now,
-   to completion, before round step 4. It is then a sequential extra pass; round step 8 still
-   merges and releases it.
-
-Remember `BG_PATH` and the background pass number for round step 8. From the moment
-`materialize` succeeds, every exit from the round — a failure R1 included — first abandons the
-unfinished background reviewers and releases the checkout (round step 8, item 4).
-
----
-
-## Round step 4 — Design pre-check
-
-Run this step only when `REVIEW_FINDINGS` contains a CRITICAL finding or a finding whose ID is
-in `redesign_ids`; otherwise go to round step 5 without `APPROVED_PLANS`. A repair that fixes
-one symptom of a design defect is the repair that comes back. Checking the design first costs
-one coder dispatch and one reviewer dispatch, and it does **not** consume a repair round.
-
-1. **Plan.** Dispatch one `coder` in review-repair mode with `REPAIR_PHASE: plan`, every finding
-   of `REVIEW_FINDINGS` (the plans are reviewed together, so findings that share a design are
-   judged together), and the inputs of round step 5 (`REPAIR_ROUND`, `MAX_REPAIR_ROUNDS`,
-   `PLAN_CONTEXT`, `STORY_KEY`, `JSONL_PATH`, `REPO_ROOT`, `MAKATO_BUILD_ROOT`,
-   `WORKTREE_PATH`, `GATE_COMMANDS`). It edits nothing and returns `data.plans[]`, one plan per
-   finding. A plan phase that is not `success`, or that omits a finding, is a failed repair:
-   round step 6, **Failure**. Log:
-
-   ```json
-   {"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"repair-plan","status":"ok","data":{"repair_round":<R>,"ids":["F-001"]}}
-   ```
-
-2. **Prove the tree is untouched.** Run the `snapshot` command of round step 2 again. It must
-   print `PRE_REPAIR_SNAPSHOT`; otherwise return R1 `failure` with
-   `errors:["plan phase edited the worktree"]` and log terminal `step:"session"`,
-   `status:"error"`.
-3. **Review the plans.** Dispatch `diff-reviewer` with `REVIEW_MODE: repair-plan`, `STORY_KEY`,
-   `REPO_ROOT`, `WORKTREE_PATH`, `REVIEW_BASE`, `PLAN_CONTEXT`, `REVIEW_FINDINGS`, and
-   `REPAIR_PLANS` (the coder's `data.plans[]`). Its `data.plan_verdicts[]` holds one
-   `{id,verdict:"approve|revise",required_changes[]}` per plan. Count one `repair_plan_reviews`
-   and log:
-
-   ```json
-   {"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"repair-plan-review","status":"ok","data":{"repair_round":<R>,"iteration":1,"approved":["F-001"],"revise":[]}}
-   ```
-
-   A reviewer R1 that is missing, malformed, or `partial` is re-dispatched once. If it is still
-   unusable, log the same step with `status:"warn"` and a `reason`, and go to round step 5
-   without `APPROVED_PLANS` — a single-phase repair, which the re-review checks as usual.
-4. **Revise once.** If any plan got `revise`, dispatch the `coder` again with
-   `REPAIR_PHASE: plan` and `PLAN_FEEDBACK`: the `required_changes` of the `revise` verdicts, by
-   `id`, together with the previous `plans[]` — a fresh coder has not seen them and must return
-   the complete revised set. Then repeat items 2 and 3 with `"iteration":2`. There is no third
-   iteration.
-5. **Hand over to the apply phase.** `APPROVED_PLANS` is the latest `plans[]`. `PLAN_CONSTRAINTS`
-   holds the `required_changes` of every plan whose latest verdict is still `revise`, by `id`;
-   it is empty when every plan was approved. The apply coder implements the plans exactly and
-   records any departure in `details.assumptions`.
-
----
-
-## Round step 5 — Partition the findings and repair them
-
-Write the round's findings to a file and let the helper group them. Findings that share a site
-file stay in one group, so no two coders edit the same file:
+Before every reviewer/coder/manual-repair transition, follow the persisted `next_action`, `reason`,
+`gate_id`, and current fingerprint. The persisted gate is the only transition authority; never
+derive counters or convergence from model memory.
 
 ```bash
-# first write {"data":{"findings":[<the REVIEW_FINDINGS entries, unchanged>]}} to the file
-python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" partition \
-  --findings "$(dirname "$STATE")/round-$REPAIR_ROUND-findings.json" \
-  --ids "<comma-separated IDs of REVIEW_FINDINGS, no spaces>"
-# {"groups":[{"group":1,"ids":["F-001","F-003"],"files":["api.py","auth.py"]},{"group":2,"ids":["F-002"],"files":["loader.py"]}]}
+python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" gate "${GATE_ARGS[@]}" \
+  --event initial --fingerprint "$INPUT_FINGERPRINT" "${AC_GATE_ARGS[@]}"
 ```
 
-The helper returns at most four groups; beyond that it merges the groups with the fewest files.
-Log:
+Merge the complete reviewer batch with the same frozen roots and path coverage before persisting
+its full R1 as gate evidence. `PASS_SCOPE` is `full`, `delta`, `final-full`, or `background-full`;
+use the ledger-authorized pass/round, immutable snapshot, and actual R1 file array:
+
+```bash
+python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" merge \
+  --state "$STATE" --pass "$PASS_NUMBER" --scope "$PASS_SCOPE" --after-round "$AFTER_ROUND" \
+  --snapshot "$PASS_SNAPSHOT" --fingerprint "$INPUT_FINGERPRINT" \
+  --evidence-root "$REPO_ROOT" --contract-root "$MAKATO_BUILD_ROOT" \
+  --orchestrate-root "$MAKATO_ORCHESTRATE_ROOT" \
+  "${CONTEXT_ARGS[@]}" "${CONTRACT_ARGS[@]}" "${AC_GATE_ARGS[@]}" \
+  "${R1_FILES[@]}" >"$MERGED_R1"
+```
+
+Then record the review transition:
+
+```bash
+python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" gate "${GATE_ARGS[@]}" \
+  --event review --fingerprint "$INPUT_FINGERPRINT" --evidence "$MERGED_R1" \
+  "${AC_GATE_ARGS[@]}"
+```
+
+`AC_GATE_ARGS` supplies `--expected-ac-ids "$EXPECTED_AC_IDS"` for ordinary review, and the first
+non-empty authoritative list is immutable for this run. Empty or unknown IDs are not a zero-AC
+assertion; they block final completion. Omit `AC_GATE_ARGS` for the checkpoint event. The gate
+persists a reason and history for every transition; a clean-looking R1 alone is never authority.
+
+### Independent confirmation and repair authorization
+
+Every currently raised blocking constituent in the latest ordinary pass's `constituent_ids` is
+verified in one batched, read-only `diff-reviewer` confirmation dispatch against the same immutable
+snapshot and fingerprint. Historical repaired constituents not re-raised wait for independent
+`certify` closure; never relabel a real repaired bug as a false positive to advance confirmation.
+Store one disposition per `finding_id` and `constituent_id`: `confirmed`, `rejected`, or
+`uncertain`, with reachability, impact, introduction status, exact citations, and `repair_scope`
+(`local`, `architectural`, `cross-boundary`, or `unknown`). Uncertain/missing evidence blocks.
+Rejected constituents remain in the raw history and map to `false_positive`; no majority vote
+suppresses findings. A local repair is authorized only if all currently raised blocking constituents
+are independently confirmed `local`. Architectural, cross-boundary, or unknown scope requires a
+short plan and independent `repair-plan` review; a second unsuccessful return of the same invariant
+also requires redesign. Severity alone never selects planning.
+
+After a complete confirmation batch, persist it with `gate --event confirm` and follow the returned
+action. To reserve a bounded repair, call this **before** coder/manual edits, with no
+caller-supplied round, blocker IDs, or evidence:
+
+```bash
+python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" gate "${GATE_ARGS[@]}" \
+  --event repair-local --fingerprint "$INPUT_FINGERPRINT"
+```
+
+The returned `repair_attempt.round` and IDs authorize that one repair. Afterward record only IDs the
+coder/manual repair actually claims fixed. For a coder, use its actual unique native dispatch
+identity from R1 `data.coder_id`; never invent, rename, or reuse another agent's ID:
+
+```bash
+python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" repaired --state "$STATE" \
+  --round "$REPAIR_ATTEMPT_ROUND" --ids "$CLAIMED_IDS" --coder-id "$CODER_ID"
+```
+
+The claim does not approve the repair; the gate requests a fresh review. For redesign, obtain a
+no-edit plan and an independent `repair-plan` verdict, then persist the authorized transition before
+implementation:
+
+```bash
+python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" gate "${GATE_ARGS[@]}" \
+  --event redesign --fingerprint "$INPUT_FINGERPRINT"
+```
+
+When the gate requests closure, run a fresh final-full review on the current fingerprint and submit
+exhaustive independent dispositions for each blocking constituent:
 
 ```json
-{"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"repair-partition","status":"ok","data":{"repair_round":<R>,"groups":[{"group":1,"ids":["F-001","F-003"],"files":["api.py","auth.py"]}]}}
+{
+  "reviewer_id": "<independent reviewer dispatch>",
+  "independent": true,
+  "dispositions": [
+    {
+      "finding_id": "F-001",
+      "constituent_id": "F-001-C1",
+      "disposition": "fixed",
+      "evidence": "The reachable regression no longer occurs and its test passes",
+      "citations": [{ "file": "src/example.py", "line": 42 }]
+    }
+  ]
+}
 ```
 
-Dispatch **`coder` in review-repair mode** — not the reviewer and not a new planning cycle —
-with:
+Use only `fixed`, `false_positive`, or `uncertain`; every constituent needs non-empty evidence and
+citations. Uncertain or omitted closure blocks. Persist with `gate --event certify`; use the
+reviewer identity and evidence from the independent current-tree check.
 
-- `REPAIR_ROUND` and `MAX_REPAIR_ROUNDS` (the soft cap);
-- `REVIEW_FINDINGS`: the findings of its group;
-- `PLAN_CONTEXT`, `STORY_KEY`, `JSONL_PATH` (`$SPEC_FOLDER/build.jsonl`), `REPO_ROOT`,
-  `MAKATO_BUILD_ROOT`, and `WORKTREE_PATH`;
-- `GATE_COMMANDS` from implementation; if unavailable, obtain it once from `gate-scout` with
-  `REPO_ROOT=WORKTREE_PATH`. Forward available baseline/test evidence without inventing a
-  passing baseline;
-- `APPROVED_PLANS` and `PLAN_CONSTRAINTS` from round step 4, restricted to its finding IDs —
-  only when round step 4 ran.
+## Immutable scope, lens sampling, and no-change completion
 
-**One group:** a single coder, with no `ALLOWED_FILES`. **Several groups:** dispatch one coder
-per group in a single message so they run at the same time, each with `ALLOWED_FILES` = its
-group's `files`. All of them share `REPAIR_ROUND` and `PRE_REPAIR_SNAPSHOT`.
+Normalize mechanical edits before freezing a review tree. Materialize the immutable snapshot with
+`review_scope.py`; every reviewer, independent confirmation, and any independent smoke check that
+runs in parallel reads the exact same snapshot. No writer may edit it. Do not start a repair while
+read-only reviewers are still reading the live tree; either wait for their batch or isolate their
+snapshot and writer ownership. Final-full always reviews the complete current branch and every AC.
+Delta, background, or checkpoint evidence cannot replace it.
 
-Advance `repair_rounds` to `REPAIR_ROUND` when the first apply-phase coder dispatch of the round
-starts — the plan phase of round step 4 does not count. Each coder follows the repair-mode
-contract in `$MAKATO_BUILD_ROOT/agents/coder.md`: it repairs the invariant on every site of its
-findings, adds a regression test that proves the invariant across those sites, verifies its
-repairs, and returns R1.
+Every snapshot producer captures the complete raw tracked/untracked working tree, including
+Git-clean committed files, staged deletions, executable modes and symlinks. Materialization uses
+a no-checkout linked worktree and writes raw blobs directly: clean/smudge, text/eol and encoding
+transforms must not run again. The materializer verifies the complete byte/kind/mode inventory
+before returning success and leaves the source index untouched. Unsupported tree entries fail
+closed rather than producing a partial consumer. Git-clean raw baseline differences are included
+in checkpoint scope and must match the live source; stale snapshots are rejected.
 
----
+Every retained final-full reviewer independently cites the complete authoritative changed-file set
+with sufficient `files_reviewed`: either one unscoped reviewer or all five lenses, including each
+additional sample. Merged maximum counts and citation unions are summaries, not coverage authority.
+The same checks protect checkpoint and final gates, publication, receipt verification, first and
+repeated runtime acceptance, and completed-result reuse. Each boundary revalidates the full retained
+R1 contract, original run/pass/repair-round/input binding, raw finding occurrences, and derived
+status/coverage/lens/AC summaries. Missing, malformed or inconsistent raw evidence requires recovery
+or fresh review; neither a cached pass nor an earlier successful receipt can establish completion.
 
-## Round step 6 — Validate every coder result
+For pass sizing, use the live validated ledger bindings:
 
-For each coder R1, check `data.mode`, a matching `repair_round`, `repaired_findings`,
-`unresolved_findings`, and `data.details.per_finding`. A successful response reports every
-finding it was given repaired, none unresolved, and verification passed; the only accepted
-exception is a finding left unresolved with `needs_files` (below). For each supplied finding
-require a matching `per_finding` entry with `id`, `root_cause`, `changes`,
-`verification:{command,exit_code,result}`, `sites_covered`, and `sites_not_applicable` (both
-`[]` for a finding without `sites`). Every changed path a coder reports must appear in the
-actual working-tree changes.
+```bash
+python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" lenses \
+  --state "$STATE" --worktree "$WORKTREE_PATH" --review-base "$REVIEW_BASE" \
+  --contract-root "$MAKATO_BUILD_ROOT" --orchestrate-root "$MAKATO_ORCHESTRATE_ROOT" \
+  --mode "$MAKATO_REVIEW_LENSES" --profile standard --pass-kind "$RISK_SAMPLE_PHASE"
+```
 
-- **Site accounting.** Every entry of the finding's `sites` appears in `sites_covered` or in
-  `sites_not_applicable` (the latter with a concrete `reason`). A site in neither list, or a
-  finding repaired at its primary site with the others unexamined, is a missing detail.
-- **Already resolved.** A finding that no longer reproduces comes back in `repaired_findings`
-  with `root_cause:"already resolved: <what fixed it>"`, no `changes`, and a `verification`
-  command that proves it. That is a valid repair — usually a background finding that an earlier
-  repair fixed — and round step 7 claims it like any other.
-- **Missing or inconsistent details.** Dispatch exactly one fresh coder continuation for the same
-  repair round, with the same `ALLOWED_FILES`, `PRIOR_R1`, and
-  `DETAILS_REQUEST:<missing or inconsistent items>`. The allowance is per coder. A second
-  incomplete response from that coder is a failure, not permission to infer what changed.
-- **Partition integrity** (several coders only). Once every coder, details-only continuations
-  included, has finished, and before any `needs_files` continuation, measure the repair:
+Risk-sample duplication is OFF by default. Absent/unbound/invalid state or unresolved bindings keeps
+it OFF with `sampling_warning`; explicit root flags must match the validated bindings. A released
+`review-eval-v2` artifact may enable two samples only for error-handling and state/concurrency on the
+initial full pass and first re-review. Pass
+`--qualification PATH --config-fingerprint SHA256 --model PINNED --settings JSON` with
+`--profile deep`. The helper rederives current model/settings and canonical kind/mode/byte inventory
+at both exact bound roots and verifies the manifest/run/recovery artifact hashes and recomputed
+quality/performance/holdout/recovery gates;
+report booleans or a claimed fingerprint are not sufficient. The experiment must show marginal
+confirmed detections beyond baseline and lower whole-workflow time/tokens. Configuration identity is
+distinct from the live source/context `input_fingerprint`. `--mode off` never duplicates; sampling
+never replaces confirmation or final-full.
 
-  ```bash
-  python3 "$MAKATO_BUILD_ROOT/shared/review_scope.py" delta --worktree "$WORKTREE_PATH" \
-    --review-base "$REVIEW_BASE" --snapshot "$PRE_REPAIR_SNAPSHOT"
-  ```
+After the fresh successful final-full pass, run the mechanical check again and compute before/after
+snapshots and fingerprints. Completion evidence is exactly the live input fingerprint plus a
+no-change mechanical record:
 
-  Every `files[].path` must be a file in some group's `ALLOWED_FILES`, an existing test paired
-  with one (`test_<stem>`, `<stem>_test`, `<stem>.test`, `<stem>.spec`), or a new file a coder
-  reported in its `changes`. Anything else: return R1 `failure` with
-  `errors:["repair edited outside its partition: <paths>"]` and log terminal `step:"session"`,
-  `status:"error"`.
-- **`needs_files`.** A finding left unresolved with `per_finding[].needs_files:["<path>"]` needs a
-  file outside its partition. After the partition check, dispatch ONE sequential coder
-  continuation in the same round, with no `ALLOWED_FILES`, for those findings (and their plans),
-  passing `PRIOR_R1` of the coder that returned them — its partial edits stay in the tree.
-  Validate its R1 like any other.
-- **Failure.** A coder that still cannot complete a repair or its verification ends the run:
-  return a non-success R1 containing the unresolved findings and the concrete blocker, and log
-  terminal `step:"session"`, `status:"error"`. Never emit a clean result or advance to
-  verify/push.
+```json
+{
+  "input_fingerprint": "<current SHA-256>",
+  "mechanical": {
+    "no_change": true,
+    "evidence": "before_snapshot=<id>; after_snapshot=<id>; mechanical checks passed",
+    "before_fingerprint": "<current SHA-256>",
+    "after_fingerprint": "<current SHA-256>"
+  }
+}
+```
 
----
+Only identical snapshot IDs and fingerprints establish `no_change:true`. Then call
+`gate --event complete` with that evidence and `AC_GATE_ARGS`. The gate reads the final-full pass,
+all AC verdicts/citations, and constituent closures from the ledger. Missing/unknown evidence never
+completes.
 
-## Round step 7 — Record the repair, then re-review it independently
+## Certificate-bound audit publication
 
-1. Record the claims: every finding a coder reported repaired ("already resolved" ones included)
-   and nothing a coder left unresolved. A later review that raises a claimed finding again counts
-   as a recurrence.
+The successful `complete` or `checkpoint` gate preserves an immutable reviewed-input certificate:
+its full fingerprint manifest, pass, snapshot, closures, and any mechanical before/after proof.
+It also binds this story's canonical audit identity and existing byte prefix. Do not append raw
+`ac-verification` or terminal success session rows after that gate. Publish through the ledger:
 
-   ```bash
-   python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" repaired --state "$STATE" --round "$REPAIR_ROUND" \
-     --ids "<comma-separated IDs of the repaired findings, no spaces>"
-   # {"round":2,"ids":["F-001","F-003"]}
-   ```
+```bash
+AUDIT_PUBLICATION="$(python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" publish-audit \
+  --state "$STATE" --worktree "$WORKTREE_PATH" --review-base "$REVIEW_BASE")" || exit 1
+```
 
-2. Log each verified repair with `step:"fix-blocking"`, `status:"ok"`, and
-   `data:{pass,repair_round,severity,finding,file,sites_covered,details:{per_finding:[<matching
-   coder entry>]}}`. Copy the matching per-finding entry verbatim into `details.per_finding`, and
-   its `sites_covered` into `data.sites_covered`; both are required evidence, not optional prose.
-3. Coder success is **not** review approval. Run Step 3 of `SKILL.md` (its mechanical changes
-   belong to the repair), then measure the repair and choose the review scope:
+The Python API is `review_loop.publish_audit(state_path, worktree, review_base)`. Neither interface
+accepts a caller path, fingerprint, arbitrary rows, receipt, or success flag. It requires the
+persisted successful source certificate. Final publication generates the independent final-full
+`ac_verdicts[]` verbatim plus a minimal ledger-derived session row; checkpoint publication generates
+only the session row, never AC verdicts. Rows retain story, run, and pass identity and the public
+audit schema/privacy constraints.
 
-   ```bash
-   python3 "$MAKATO_BUILD_ROOT/shared/review_scope.py" delta --worktree "$WORKTREE_PATH" \
-     --review-base "$REVIEW_BASE" --snapshot "$PRE_REPAIR_SNAPSHOT"
-   python3 "$MAKATO_BUILD_ROOT/shared/review_scope.py" decide --event repaired \
-     --last-scope "$last_scope" --full-since-repair "$full_since_repair" \
-     --repair-rounds "$repair_rounds" --scope-ratio <scope_ratio from the delta output>
-   ```
+Canonical resolution uses `spec_folder.resolve_spec_folder` beneath the bound `evidence_root`'s
+`specs`, falling back to the worktree root only when no evidence root is bound. Never redirect
+publication to another worktree copy. Reject symlink components, containment violations, changed
+physical path/inode/mode, and physical aliases of any explicit context or contract input, including
+aliases across roots. The canonical audit must have exactly one hardlink, checked at capture,
+open, and immediately before append (including pending-intent replay); rejection must leave both
+canonical and collateral bytes untouched. Do not drop, rebind, or normalize protected inputs.
+An external audit still requires identity/prefix/transition verification even when source and
+delivery hashes are equal. Missing or ambiguous resolution leaves ordinary unchanged-tree gates
+unchanged but grants no publication exemption: a required publication must fail explicitly.
 
-   `delta` prints `REPAIR_DELTA`. `"empty":true` means no repair landed, the mismatch round step 6
-   rejects — unless every repaired finding was reported already resolved. `decide` prints the
-   scope for the next pass: `delta`, or `full` when the repair plus its neighbours cover most of
-   the change. Log it as `step:"scope-decision"`, `status:"ok"`,
-   `data:{pass,event:"repaired",next,reason,scope_ratio}`, set `last_scope` to `next`, and copy
-   `full_since_repair` from the output.
-4. Dispatch Step 4 of `SKILL.md` with an incremented reviewer pass counter, refreshed
-   `CHANGED_FILES`, `PRIOR_FINDINGS` (the `REVIEW_FINDINGS` entries, each with its `id`,
-   `invariant`, and `sites`), and that scope; a `full` scope is lens-split like any other. Merge
-   the result with `--after-round "$REPAIR_ROUND"`. Recheck unresolved findings and newly
-   introduced defects against the actual uncommitted working tree. This independent re-review
-   completes the repair round. Its blocking IDs are the live blockers for round step 9.
+Publication serializes writers and durably persists/fsyncs the exact intended append bytes before
+writing, freezing timestamps and statistics. On retry, reconcile the pending intent before requiring
+unchanged pre-publication equality. An unchanged prefix permits the intended append; an already
+complete intended tail permits receipt completion without duplicate rows. An interrupted partial
+write may be completed only when its bytes are a proven prefix of that exact intent; otherwise
+fail closed without truncating foreign bytes. Never invent new rows or timestamps to recover a
+pending publication.
 
----
+The result exposes `input_fingerprint` (the immutable reviewed anchor), `delivery_fingerprint`
+(the actual complete live hash), `audit_transition`, and `final_review`; checkpoint publication
+also returns `checkpoint_receipt`. Copy these fields verbatim. Never replace source fields, the
+anchor snapshot, constituent closures, or mechanical proof with delivery values.
 
-## Round step 8 — Finish the background pass
+Later gates, receipt verification, runtime acceptance, and completed-result reuse independently
+validate the persisted source certificate and transition against live inputs. Reconstruct expected
+rows from ledger evidence and bound run/pass, not caller receipt claims; recompute manifest hashes
+and check canonical identity, the entire unchanged prefix, exact appended tail, and live delivery.
+Only the derived canonical worktree audit entry and its necessary changed-file membership
+adjustment may normalize back to the reviewed prefix. Evaluate final-full coverage and mechanical
+evidence at that reviewed anchor, never against delivery-only additions. Every other manifest
+difference, unreceipted/extra/malformed tail, prefix rewrite/truncation, path substitution, or forged
+transition fails closed. Full fingerprint scope remains intact under the v2 manifest: no generic
+audit exclusions, untracking, or caller-authoritative hashes.
 
-Skip this step when round step 3 started no background pass. Otherwise wait for its reviewers,
-then do the following. Release the checkout (item 4) whatever happened.
+Any later operational write must occur before publication or outside **every protected manifest
+input**, not just outside `build.jsonl`. Even `orchestrate.jsonl` or another normally ignored log
+is protected if explicitly supplied as context. Do not mutate the delivery while accepting it.
 
-1. Merge the background reviewers' R1 files. `--after-round` is the round before this repair,
-   because the snapshot predates it. `--drop-ids` removes every finding this round repairs,
-   because the snapshot still contains those defects:
+During durable review, `build-log.sh` routes operational rows (including full R1 transport and
+progress success/warnings) through `operational-log` while `MAKATO_REVIEW_LEDGER_STATE` and
+`WORKTREE_PATH` are exported. The derived destination is
+`<worktree-git-dir>/makato-review-loop/<run-id>/operations.jsonl`, never canonical `build.jsonl`.
+The helper rejects physical aliases of protected context/contract/source paths, symlinks and
+hard-linked destinations before writing; there is no fallback to a protected audit on failure.
+Progress comment identities are cached in that private log without reading or patching
+workflow-state during review. Empty or failed cache reads never invoke legacy state migration;
+failures warn without falling back to protected state or canonical audit. Select the logger/cache
+reader from exact `MAKATO_BUILD_ROOT`, not a guessed orchestrate sibling, while retaining both
+frozen root bindings. Durable progress invokes the executing build's
+`verify-binding --state S --worktree W --build-root B --orchestrate-root O`, with O derived from
+its own physical helper directory, before transport/logging. This read-only command verifies the
+executing review_loop, passed roots, and any shared override, prints verified binding JSON on
+success, and never appends audit. On mismatch progress warns on stderr only, performs no GitHub
+call/private-log write, and exits 0; it never enters discovery or workflow-state branches.
+Durable build-log validates its own physical installation through its own review_loop before
+private ledger/audit writes, using the ledger's orchestrate binding rather than new helper flags.
+Its preexisting temporary model cache is outside that private-write promise. This is narration
+metadata, not a second orchestration-state writer.
 
-   ```bash
-   python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" merge --state "$STATE" --pass <BG pass> \
-     --scope background-full --after-round "$((REPAIR_ROUND - 1))" --snapshot "$PRE_REPAIR_SNAPSHOT" \
-     --drop-ids "<comma-separated IDs of this round's REVIEW_FINDINGS, no spaces>" \
-     "$(dirname "$STATE")"/pass-<BG pass>-*.json
-   ```
+## Task-boundary checkpoint
 
-   The helper also drops background findings within three lines of the recorded sites of those
-   IDs. The blocking findings that remain are the background blockers: defects of the pre-repair
-   tree that this round was not asked to repair. If `merge` exits 2, re-dispatch the reviewer it
-   names once, in `BG_PATH`. A second exit 2, or a `partial` merged R1, is an incomplete pass:
-   log `step:"background-full-pass"`, `status:"warn"`, `data:{repair_round,pass,reason}`, ignore
-   the pass, and skip items 2 and 3.
-2. Record the coverage. A completed background full pass reviewed a tree that already held an
-   earlier repair, so it can stand in for the `final-full` pass that `decide --event clean` would
-   otherwise schedule; repairs made after it are still delta-reviewed.
+A checkpoint is not final certification. The first checkpoint reviews the whole current
+completed-task diff against the merge-base tree; later checkpoints review the delta from the last
+accepted checkpoint snapshot plus affected callers and all applicable constraints/security rules.
+Future ACs stay provisional. Do not author final AC verdicts, mark future ACs passed, fabricate an
+empty delta, or write a final `ac-verification` entry.
 
-   ```bash
-   python3 "$MAKATO_BUILD_ROOT/shared/review_scope.py" decide --event background-full \
-     --last-scope "$last_scope" --full-since-repair "$full_since_repair" --repair-rounds "$REPAIR_ROUND"
-   # {"next":"none","reason":"a background full pass covered the tree after an earlier repair","full_since_repair":true,"mode":"delta"}
-   ```
+The gate derives `checkpoint_scope:{pre_snapshot,scope_files}` from retained source snapshots and
+fingerprint manifests, never caller-provided scope assertions. It includes deleted/untracked
+paths, affected callers/dependencies and previous invariant sites. Cite explicit inputs using
+their `context:`, `contract:` or `orchestrate:` manifest labels. Context/contract changes invalidate
+previous source coverage; uncertain/truncated impact expands scope. One unscoped reviewer or all
+five lenses must each cite the complete required set with sufficient `files_reviewed`; a positive
+count or an aggregate union masking an unread lens is insufficient.
 
-   Copy `full_since_repair` from the output and nothing else; `last_scope` belongs to the live
-   pass. The helper exits 2 below round 2, and the background pass never runs earlier.
-3. Log the result and update the counters (`background_passes` +1; `lens_split_passes` +1 when
-   the merged `data.lenses` is not empty). `critical` and `major` are the merged counts and
-   `new_blocking` the IDs of its blocking findings, all of them new because its reviewers had no
-   prior findings:
+Checkpoint snapshots store the raw reviewed bytes, not Git-cleaned blobs: text/eol attributes and
+clean filters must not change their identity. The gate overlays every branch-changed path, including
+committed paths whose raw working-tree bytes differ from their Git blobs. Manifest SHA-256 and
+kind/mode comparisons remain exact; even a raw change with an identical cleaned blob invalidates
+publication or acceptance and must appear in the next reviewed delta. Snapshot construction leaves
+the real index and source bytes untouched.
 
-   ```json
-   {"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"background-full-pass","status":"ok","data":{"repair_round":<R>,"pass":<BG pass>,"critical":<N>,"major":<N>,"new_blocking":["F-005"]}}
-   ```
+Once the latest fresh scoped pass has no unresolved blockers, submit evidence with non-empty
+summary/citations, current fingerprint, pass ID, task IDs, `scope:"delta"`,
+`checkpoint_verified:true`, `final_review:false`, reviewer identity/independence, and exhaustive
+constituent dispositions. Do not supply `snapshot` or `checkpoint_scope`; the gate derives both.
+Call `gate --event checkpoint` without expected AC IDs. It returns `next_action:"review"`, never
+`complete`, and a source receipt with the accepted snapshot. Then call `publish-audit` as above.
+Copy its returned `checkpoint_receipt` verbatim to R1 `data.checkpoint_receipt`, not the earlier
+gate receipt. The delivery copy retains the source `input_fingerprint` and `snapshot` and adds
+`delivery_fingerprint` and `audit_transition`. Also transport those publication fields at R1
+`data` level with `final_review:false` and `next_action:"review"`.
 
-4. Release the checkout — always, also after an error or an incomplete pass:
+The scheduler's actual selected installed script is hash-bound in the closure; the ledger's
+checkpoint command validates its own executing build installation and frozen roots, not the
+scheduler's process identity. The scheduler must independently validate the source certificate and
+audit transition against the ledger and actual live full delivery fingerprint before accepting IDs:
 
-   ```bash
-   python3 "$MAKATO_BUILD_ROOT/shared/review_scope.py" release --worktree "$WORKTREE_PATH" --path "$BG_PATH"
-   # {"released":true}
-   ```
+```bash
+DELIVERY_FINGERPRINT_JSON="$(python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" fingerprint \
+  --worktree "$WORKTREE_PATH" --review-base "$REVIEW_BASE" --evidence-root "$REPO_ROOT" \
+  --contract-root "$MAKATO_BUILD_ROOT" --orchestrate-root "$MAKATO_ORCHESTRATE_ROOT" \
+  "${CONTEXT_ARGS[@]}" "${CONTRACT_ARGS[@]}")" || exit 1
+DELIVERY_FINGERPRINT="$(printf '%s' "$DELIVERY_FINGERPRINT_JSON" |
+  python3 -c 'import json,sys; print(json.load(sys.stdin)["sha256"])')" || exit 1
+SOURCE_FINGERPRINT="$(printf '%s' "$AUDIT_PUBLICATION" |
+  python3 -c 'import json,sys; print(json.load(sys.stdin)["input_fingerprint"])')" || exit 1
+CHECKED_RECEIPT="$(python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" checkpoint-receipt --state "$STATE" \
+  --task-ids "$CHECKPOINT_TASK_IDS" --fingerprint "$SOURCE_FINGERPRINT" \
+  --pass-id "$PASS_ID" --worktree "$WORKTREE_PATH" --review-base "$REVIEW_BASE")" || exit 1
+printf '%s' "$CHECKED_RECEIPT" | python3 -c \
+  'import json,sys; assert json.load(sys.stdin)["delivery_fingerprint"] == sys.argv[1]' "$DELIVERY_FINGERPRINT" || exit 1
+```
 
----
+The argument is the reviewed source identity, never the delivery hash. The verifier independently
+checks the live publication and returns the exact delivery receipt; compare its delivery hash
+separately as above and the whole receipt verbatim before acceptance. An unpublished source
+receipt is never deliverable. Scope coverage is rederived again at publication and receipt
+validation, including repeated acceptance. The scheduler requires the scope's `pre_snapshot` to
+match its last accepted source snapshot (null initially). Missing historical scope evidence blocks
+for explicit evidence-preserving migration, never resetting roots, history or consumed repair
+budget. Persist the anchor snapshot for the next delta.
 
-## Round step 9 — Collect the open blockers
-
-The open blockers are the blocking IDs of the round step 7 re-review plus the background
-blockers of round step 8 (none when no background pass ran or when it was ignored).
-
-- **None open:** the round is complete. Return to `SKILL.md` Step 5 and continue with the
-  zero-findings flow (`decide --event clean`).
-- **Otherwise:** `REVIEW_FINDINGS` becomes the blocking entries of the two merged R1s, and the
-  round restarts at round step 1 with `--open` naming exactly those IDs.
-
-A defect that both passes report carries two IDs. Keep both: they share a site file, so
-`partition` puts them in one group, and the coder reports the second one already resolved.
-
----
-
-## When a helper fails
-
-- `init`, `repaired`, `next`, `merge` (after the one reviewer re-dispatch that Step 4 allows),
-  and the pre-repair `snapshot`: the round can no longer be tracked or proven. Log the error as
-  `step:"session"`, `status:"error"` and return a non-success R1. Never repair or certify
-  without the convergence decision.
-- `lenses`, `partition`: degrade to the simple form — one reviewer without `LENS`, one coder
-  without `ALLOWED_FILES` — and log the error as `step:"repair-loop"`, `status:"warn"`.
-- `background`, `materialize`: no background pass this round; log `step:"background-full-pass"`,
-  `status:"warn"`.
-- `release`: log a `warn`. The checkout is a plain detached worktree, so
-  `git -C "$WORKTREE_PATH" worktree remove --force "$BG_PATH"` removes it by hand.
-- `delta` and `decide`: as in Step 2 of `SKILL.md`, log the error and review every pass as
-  `full` — never a narrower scope than the helper approved.
+Publication, operational-log and checkpoint-receipt commands recover both roots from the validated
+ledger and internally forward them through every source/delivery recheck; they do not rediscover
+roots or accept root override flags. A later normal build-review still performs final-full, all AC
+judgments, mechanical no-change validation, the `complete` gate, and final audit publication.

@@ -14,6 +14,7 @@ on:
       - 'tests/infra/**'
       - '.github/scripts/**'
       - '.github/workflows/validate.yml'
+      - 'ruff.toml'
       - '.github/workflows/project-board-sync.yml'
       - 'docs/assets/makato-flow.html'
       - 'docs/assets/makato-flow.data.json'
@@ -31,6 +32,7 @@ on:
       - 'tests/infra/**'
       - '.github/scripts/**'
       - '.github/workflows/validate.yml'
+      - 'ruff.toml'
       - '.github/workflows/project-board-sync.yml'
       - 'docs/assets/makato-flow.html'
       - 'docs/assets/makato-flow.data.json'
@@ -91,6 +93,23 @@ jobs:
 
       - name: Finding-schema contract smoke test (#230)
         run: ./plugins/makato-build/shared/finding-schema-smoke-test.sh
+
+      - name: Review ledger, recovery, qualification and checkpoint regressions
+        run: >-
+          python3 -m pytest -q
+          plugins/makato-build/shared/test_review_loop.py
+          plugins/makato-build/shared/test_review_scope.py
+          plugins/makato-build/shared/test_review_runtime.py
+          plugins/makato-build/shared/test_review_eval.py
+          plugins/makato-build/shared/test_skill_execution.py
+          plugins/makato-build/scripts/tests/test_run_skill_runtime.py
+          plugins/makato-orchestrate/scripts/tests/test_task_schedule.py
+
+      - name: Review watchdog and resume compatibility smoke
+        run: |
+          bash plugins/makato-orchestrate/scripts/tests/loop-supervisor-smoke-tests.sh
+          bash plugins/makato-orchestrate/scripts/tests/reconcile-before-resume-smoke-tests.sh
+          bash plugins/makato-orchestrate/shared/check-session-tail-smoke-tests.sh
 
       - name: gate-scout hook-commands smoke tests (#450)
         run: ./plugins/makato-build/shared/gate-scout-hook-commands-smoke-tests.sh
@@ -297,3 +316,16 @@ jobs:
             echo "  Got: $PR_TITLE"
             exit 1
           fi
+
+  review-native-compat:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Set up target-repository Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.10'
+      - name: Install native harness dependencies
+        run: python3 -m pip install --quiet jsonschema pyyaml
+      - name: Exercise native review launcher and durable recovery
+        run: bash plugins/makato-build/shared/review-runtime-smoke-tests.sh
