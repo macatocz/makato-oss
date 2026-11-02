@@ -9,7 +9,10 @@
 # `key` remains the normalized-text + sorted-tags hash in durable stores; the
 # original story key is retained as source_key and in source_events[].key.
 # Explicit issue_number identifies raw records in shared specs. Legacy records
-# use an unambiguous story key or sole workflow-state identity; ambiguity fails.
+# use an unambiguous story key or sole workflow-state identity. In a shared spec
+# (multiple workflow-state files) a legacy record with none of these has UNKNOWN
+# attribution: spec-key promotion keeps it (no issue_number/source_issue invented;
+# path/key provenance retained); numeric promotion skips it with a stderr warning.
 # source_events identifies captures by event_id when supplied, otherwise by
 # source-relative path, raw-record fingerprint and identical-record ordinal.
 # Replays do not increase occurrences; distinct captures do. Existing occurrence
@@ -106,6 +109,7 @@ def source_candidates(specs, key, repo_slug):
         if issue is None and len(folders) > 1:
             raise ValueError(f"spec key {key!r} matches multiple folders; use an exact spec key")
     candidates = []
+    skipped = {}
     for folder in folders:
         state_paths = {int(match.group(1)): path for path in sorted(folder.glob("workflow-state-*.json"))
                        if (match := re.fullmatch(r"workflow-state-([0-9]+)\.json", path.name))}
@@ -138,15 +142,19 @@ def source_candidates(specs, key, repo_slug):
                     entry_issue = parse_issue(entry["issue_number"], path)
                     if state_issue is not None and entry_issue != state_issue:
                         raise ValueError(f"{path}: lesson issue_number conflicts with workflow-state identity")
+                unattributed = False
                 if entry_issue is None:
                     if entry.get("key") != folder.name or len(state_paths) <= 1:
                         entry_issue = issue_from_key(entry.get("key"))
                     if entry_issue is None and len(state_paths) == 1:
                         entry_issue = next(iter(state_paths))
                     if entry_issue is None and len(state_paths) > 1:
-                        raise ValueError(f"{path}: shared spec requires issue_number on each generalizable raw lesson")
-                    if entry_issue is None:
+                        unattributed = True
+                    if entry_issue is None and not unattributed:
                         entry_issue = issue_from_key(folder.name) if issue is None else issue
+                if unattributed and issue is not None:
+                    skipped[path] = skipped.get(path, 0) + 1
+                    continue
                 if issue is not None and entry_issue != issue:
                     continue
                 candidate = dict(entry)
@@ -174,6 +182,9 @@ def source_candidates(specs, key, repo_slug):
                     identity = [candidate["repo"], event["path"], fingerprint, repeated[fingerprint]]
                 event["id"] = digest(json.dumps(identity, separators=(",", ":")))
                 candidates.append((candidate, event))
+    for path, count in skipped.items():
+        print(f"promote-lessons: warning: skipped {count} legacy generalizable lesson(s) in {path.relative_to(specs)} "
+              f"without issue_number in a shared spec; ambiguous for issue {issue} (promote by spec key to keep them unattributed)", file=sys.stderr)
     return candidates
 
 

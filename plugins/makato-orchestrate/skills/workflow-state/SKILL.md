@@ -13,7 +13,7 @@ description: >-
   over `build.jsonl` — the audit log captures forensics, this skill
   captures live loop state (sub-task graph, current phase, budget, HALT
   audit, structured lessons learned).
-version: "1.7.0"
+version: "1.7.1"
 argument-hint: "<subcommand> <key|repo> [<issue>] [args…]"
 allowed-tools: []
 ---
@@ -248,6 +248,8 @@ Returns `[]` when no matching repo is found, `specs/` does not exist, and
 `.makato/memory/` is absent or empty for that repo. Malformed JSONL lines in the
 committed store are skipped silently (AC-4). See `MAKATO_MEMORY_ROOT` env var to
 override the committed store root in tests.
+Lesson payloads are streamed rather than passed as process arguments. Unexpected source-read or
+processing errors return nonzero with stderr diagnostics instead of a successful `[]`.
 
 ### `summarise-lessons <KEY> <ISSUE_NUMBER>`
 

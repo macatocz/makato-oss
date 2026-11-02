@@ -24,6 +24,11 @@ Changes are grouped by skill/component. Within each group, latest version on top
 
 ### Fixed — durable project learning
 
+- Stream recall payloads instead of passing whole stores as jq arguments; report unexpected
+  read/processing failures rather than silently returning `[]` (workflow-state 1.7.1).
+- Promote legacy lessons with unresolved issue attribution by exact spec key without inventing
+  issue numbers. Numeric promotion warns and skips ambiguous lessons while retaining correctly
+  attributed captures, so old records no longer block immediate persistence of new lessons.
 - Fix slug-only spec discovery and main-checkout destinations for both memory tiers.
   Make promotion replay-idempotent and lock concurrent store updates; preserve
   provenance and fail without replacing data on malformed input.
