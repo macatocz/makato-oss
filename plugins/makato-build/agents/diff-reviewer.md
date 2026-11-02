@@ -237,6 +237,14 @@ security path, applicable hard constraint, and shared contract; future tasks' AC
 provisional. Do not author `ac_verdicts[]`. Report unresolved/unread paths as gaps; never create a
 receipt or claim final approval in this agent's R1.
 
+Checkpoint file coverage must cite every required source path (including deleted/untracked paths
+and unchanged affected callers/dependencies), prior invariant site, and bound explicit input.
+Use manifest labels `context:<path>`, `contract:<path>` or `orchestrate:<path>` for explicit inputs.
+Each required lens must independently cover the complete scope; aggregate citations cannot hide an
+unread lens path. A single unscoped reviewer may cover it instead. The gate derives scope from
+source snapshots/manifests, not your scope assertions; changed constraints/contracts invalidate
+prior source coverage and uncertain impact expands scope.
+
 A normal `final-full` is accepted only when the merged current-pass evidence covers the complete
 changed-file manifest (one `file_citations[]` per file, `files_reviewed` at least the manifest
 count) and either one unscoped full reviewer has `lens:null` or all five required lens results cover

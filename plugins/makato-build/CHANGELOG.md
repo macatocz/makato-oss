@@ -15,13 +15,74 @@ here on merge to main; release-please will date and version them at the next rel
 - Preserve raw reviewer envelopes and distinct invariant constituents instead of deduplicating by
   nearby source lines. Persist convergence/gate decisions, repair history and independent
   dispositions; a second contradicted repair requires redesign.
+- Reserve only independently confirmed, currently open invariant IDs for repairs. Dismissed
+  distinct invariants retain their complete history without becoming unclaimable repair targets;
+  reservation reuse, round caps and recurrence accounting remain unchanged.
 - Bind review evidence to source, callers, untracked files, specifications and contract identity. A
   final fresh full pass, per-AC/citation evidence and mechanical no-change proof remain mandatory.
+- Add ledger-owned `publish-audit` for final AC/session rows and checkpoint session-only rows.
+  Preserve the immutable reviewed fingerprint and snapshot while exposing the actual full live
+  delivery fingerprint and independently verified canonical audit transition. Exact append-intent
+  replay prevents duplicate rows; unrelated input changes and unreceipted audit edits fail closed.
+  Preserve target-repository audit ownership and tracked audit/versioning policy.
+- Compute review dispatch identity after scheduler decision audit. Accept published checkpoint
+  receipts verbatim against live delivery while retaining their reviewed snapshot; completed-result
+  reuse revalidates source and delivery without launching another child. Post-publication
+  operational writes may not mutate any protected manifest input, including explicit log context.
+- Require independently verified publication on initial and repeated final/checkpoint acceptance;
+  remove source-only receipt and missing-delivery fallbacks. Checkpoint CLI examples identify
+  reviewed source separately from recomputed live delivery.
+- Derive checkpoint coverage from the first merge-base diff or prior published source snapshot,
+  including deletions, untracked files, affected callers/dependencies, invariant sites and explicit
+  context/contract inputs. Bind that scope to receipts and rederive it at publication and receipt
+  acceptance; counts, partial lens sets or caller-supplied scope cannot authorize unreviewed bytes.
+  Reject missing historical scope evidence without resetting ledger history or repair budgets.
+- Require complete changed-file counts and citations from every retained final-full reviewer,
+  including additional lens samples. The shared checkpoint/final coverage check is re-run for
+  publication, runtime acceptance and result reuse; another lens's aggregate cannot hide unread files.
+- Store checkpoint source blobs as raw working-tree bytes without text/eol or clean-filter
+  transformations, including already committed branch changes. Preserve strict manifest hashes,
+  source-mutation rejection, real-index isolation and raw subsequent-delta anchors.
+- Include raw baseline-byte and executable-mode changes hidden by Git clean filters in both the
+  fingerprint and authoritative changed-file scope. Stream Git-clean baseline blobs without
+  invoking a process per file; support SHA-1 and SHA-256 repositories.
+- Snapshot file-to-directory and directory-to-file replacements without retaining obsolete tree
+  entries or changing the caller's index.
+- Revalidate retained raw R1 contracts, original run/pass/input bindings, finding occurrences and
+  derived status/coverage/AC summaries at certification, publication, receipt verification,
+  runtime acceptance and reuse. Malformed or substituted evidence cannot authorize delivery.
+- Capture raw bytes for the complete tracked/untracked snapshot, including Git-clean committed
+  files and staged deletions. Materialize without checkout filters, verify the complete raw
+  inventory and executable/symlink modes, and preserve the live tree and real index.
+- Route review progress (including GitHub failures), comment-ID caching and full R1 transport to
+  checked private operational logs, retaining issue narration without post-publication protected
+  writes. Explicit context/contract aliases remain protected even for ignored logs.
+- Reject canonical audit hardlinks at capture/open and again before append, including intent replay,
+  before publication can change collateral reviewed inputs. Source-launcher regressions assert both
+  canonical and aliased bytes remain intact on rejection.
+- Keep empty/failed durable narration-cache reads away from legacy workflow-state migration.
+  Resolve private cache/log helpers through the active build plugin root even when orchestrate is
+  independently installed; retain one START/DONE comment and protected legacy path identity.
+- Bind the complete active build/orchestrate operational closure through one namespaced inventory.
+  Ledger v3 and runtime v2 freeze physical roots; contract v3/configuration v2 protect source
+  kind, mode and bytes. Reject missing, conflicting, changed or incompatible bindings without
+  resetting review history or repair budgets; qualification and sampling remain gated.
+- Honor a reviewer's known stable finding ID across paraphrased invariant wording, retaining
+  repair claims, every constituent and mandatory recurrence-driven redesign.
 - Add durable review process receipts, fenced reconciliation and safe cancellation through
   `review_runtime.py` and the workflow launcher. Waiting-client loss does not cancel the child;
   missing or ambiguous writer results never authorize a blind retry. Persist a worktree-wide owner
   fence across worker death, and allow signal-free retirement of never-started or provably dead
   attempts without touching unrelated processes.
+- Isolate the macOS process-inventory inspector from the supervised group so its own short-lived
+  process cannot indefinitely delay durable exit receipts or writer-fence retirement. Unknown
+  members still fail closed; controlled process-boundary regressions cover valid and empty results.
+- Reject reviewer envelopes missing mandatory R1 fields before persisting evidence. Emit complete
+  merged envelopes with reviewer tool counts and bounded error summaries while preserving raw
+  findings. Final AC completion requires retained text and explicit implementation and test roles.
+- Bind child authorization to its active attempt ownership epoch, not reconciliation metadata
+  updates. Coordinator epochs, explicit revocations, process identity and fresh gate checks remain
+  fail-closed; deterministic pre-authorization recovery exercises the real process/ledger boundary.
 - Send clearly local repairs directly to the coder; reserve reviewed plans for architectural,
   cross-boundary and recurring invariant repairs. Independently confirm new blocking findings.
 - Add `review_eval.py` for paired full-workflow measurement, independent oracle assessment and

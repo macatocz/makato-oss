@@ -24,8 +24,24 @@ from typing import Any
 import review_scope
 
 SCHEMA = "review-eval-v2"
-CONFIG_SCHEMA = "review-eval-configuration-v1"
-DEFAULT_SOURCE_ROOT = Path(__file__).resolve().parents[1]
+CONFIG_SCHEMA = "review-eval-configuration-v2"
+BASELINE_REQUIRED_CONTRACT_PATHS = (
+    "agents/RETURN-CONTRACT.md",
+    "agents/coder.md",
+    "agents/diff-reviewer.md",
+    "config/default-workflow-schema.yml",
+    "config/verification-ownership.md",
+    "skills/build-review/SKILL.md",
+    "skills/build-review/references/mechanical-fixes.md",
+    "skills/build-review/references/review-criteria.md",
+    "skills/build-review/references/review-loop.md",
+    "shared/spec_folder.py",
+    "shared/review_loop.py",
+    "shared/skill_execution.py",
+    "shared/review_scope.py",
+    "scripts/run-skill.py",
+    "AUTONOMOUS-MODE.md",
+)
 WORKFLOW_STAGES = ("initial-review", "repair", "re-review", "final-full")
 
 
@@ -63,34 +79,38 @@ def _nonnegative_int(value: object, name: str) -> int:
     return value
 
 
-def configuration(model: str, settings: dict[str, Any], source_root: str | Path | None = None) -> dict[str, Any]:
-    """Derive a stable release fingerprint from the exact model, settings, and canonical source files."""
+def configuration(
+    model: str,
+    settings: dict[str, Any],
+    source_root: str | Path | None = None,
+    *,
+    orchestrate_root: str | Path | None = None,
+) -> dict[str, Any]:
+    """Hash exact model/settings and canonical two-root source records, not physical identities."""
     if not isinstance(model, str) or not model.strip() or model != model.strip():
         raise EvalError("an exact nonempty pinned model name is required")
     if not isinstance(settings, dict):
         raise EvalError("explicit configuration settings must be a JSON object")
-    root = Path(source_root or DEFAULT_SOURCE_ROOT).resolve()
-    if not root.is_dir():
-        raise EvalError(f"configuration source root is unavailable: {root}")
-    inventory = []
-    for relative in review_scope.REVIEW_CONTRACT_PATHS:
-        path = root / relative
-        cursor = path
-        while cursor != root:
-            if cursor.is_symlink():
-                raise EvalError(f"configuration source is unavailable or not canonical: {relative}")
-            cursor = cursor.parent
-        resolved = path.resolve()
-        if not resolved.is_relative_to(root) or not resolved.is_file():
-            raise EvalError(f"configuration source is unavailable or not canonical: {relative}")
-        inventory.append({"path": relative, "sha256": _sha256(resolved.read_bytes())})
+    if not source_root or not orchestrate_root:
+        raise EvalError("explicit build and orchestrate configuration source roots are required")
+    try:
+        roots = review_scope.resolve_active_roots(source_root, {}, orchestrate_root)
+        inventory = review_scope.contract_inventory(roots["build"], orchestrate_root=roots["orchestrate"])
+    except review_scope.ScopeError as exc:
+        raise EvalError(f"configuration source inventory is unavailable or not canonical: {exc}") from exc
     payload = {"schema": CONFIG_SCHEMA, "model": model, "settings": settings, "source_inventory": inventory}
     return {**payload, "fingerprint": _sha256(_canonical_json(payload))}
 
 
-def configuration_fingerprint(model: str, settings: dict[str, Any], source_root: str | Path | None = None) -> str:
-    """Return a fingerprint derived from current release sources, never a caller-claimed digest."""
-    return configuration(model, settings, source_root)["fingerprint"]
+def configuration_fingerprint(
+    model: str,
+    settings: dict[str, Any],
+    source_root: str | Path | None = None,
+    *,
+    orchestrate_root: str | Path | None = None,
+) -> str:
+    """Return a fingerprint derived from both selected roots, never a caller-claimed digest."""
+    return configuration(model, settings, source_root, orchestrate_root=orchestrate_root)["fingerprint"]
 
 
 def _baseline_source(source_root: str | Path) -> dict:
@@ -98,8 +118,8 @@ def _baseline_source(source_root: str | Path) -> dict:
     if not isinstance(source_root, (str, Path)) or not str(source_root):
         raise EvalError("an explicit immutable baseline source root is required")
     root = Path(source_root).resolve()
-    # These two helpers were introduced after the pinned pre-change baseline.
-    required = set(review_scope.REVIEW_CONTRACT_PATHS) - {"shared/review_eval.py", "shared/review_runtime.py"}
+    # Post-baseline helpers cannot be required of the immutable old release.
+    required = BASELINE_REQUIRED_CONTRACT_PATHS
     if not root.is_dir() or any(not (root / relative).is_file() for relative in required):
         raise EvalError("baseline source root must contain the pre-change review contracts")
     inventory = []
@@ -143,7 +163,8 @@ def _baseline_link(path: Path, root: Path) -> dict:
 def _experiment_baseline(config: dict, source_root: str | Path) -> dict:
     baseline = _baseline_source(source_root)
     baseline_files = {item["path"]: item["sha256"] for item in baseline["source_inventory"] if "sha256" in item}
-    if all(baseline_files.get(item["path"]) == item["sha256"] for item in config["source_inventory"]):
+    candidate_files = {item["path"]: item["sha256"] for item in config["source_inventory"]}
+    if all(baseline_files.get(relative) == candidate_files.get(f"contract:{relative}") for relative in BASELINE_REQUIRED_CONTRACT_PATHS):
         raise EvalError("baseline and candidate review implementations are identical")
     return baseline
 
@@ -420,10 +441,11 @@ def run_pairs(
     source_root: str | Path | None = None,
     *,
     baseline_source_root: str | Path,
+    orchestrate_root: str | Path | None = None,
 ) -> dict:
     if type(repetitions) is not int or repetitions < 3:
         raise EvalError("need >=3 paired repetitions per case")
-    config = configuration(model, settings, source_root)
+    config = configuration(model, settings, source_root, orchestrate_root=orchestrate_root)
     baseline_source = _experiment_baseline(config, baseline_source_root)
     command_provenance = _experiment_commands({"baseline": baseline, "candidate": candidate, "assessor": assessor})
     commands = {name: record["argv"] for name, record in command_provenance.items()}
@@ -461,7 +483,8 @@ def run_pairs(
                             "repetition": repetition,
                             "model": model,
                             "configuration": config,
-                            "workflow_source_root": baseline_source["source_root"] if variant == "baseline" else str(Path(source_root or DEFAULT_SOURCE_ROOT).resolve()),
+                            "workflow_source_root": baseline_source["source_root"] if variant == "baseline" else str(Path(source_root).resolve()),
+                            **({"orchestrate_root": str(Path(orchestrate_root).resolve())} if variant == "candidate" else {}),
                             "workflow_source_fingerprint": baseline_source["fingerprint"] if variant == "baseline" else config["fingerprint"],
                             "configuration_fingerprint": config["fingerprint"],
                             "review_input": case["review_input"],
@@ -518,7 +541,7 @@ def run_pairs(
                             "assessment": assessment,
                         }
                     )
-    if configuration(model, settings, source_root) != config:
+    if configuration(model, settings, source_root, orchestrate_root=orchestrate_root) != config:
         raise EvalError("review configuration sources changed during paired runs")
     if _experiment_baseline(config, baseline_source_root) != baseline_source or _experiment_commands(commands) != command_provenance:
         raise EvalError("baseline sources or executable adapters changed during paired runs")
@@ -544,10 +567,20 @@ def _artifact_record(path: str | Path) -> dict[str, str]:
 
 
 def qualify(
-    manifest: dict, runs: dict, recoveries: dict, root: Path, corpus_digest: str, *, model: str, settings: dict[str, Any], source_root: str | Path | None, artifact_paths: dict[str, str | Path]
+    manifest: dict,
+    runs: dict,
+    recoveries: dict,
+    root: Path,
+    corpus_digest: str,
+    *,
+    model: str,
+    settings: dict[str, Any],
+    source_root: str | Path | None,
+    artifact_paths: dict[str, str | Path],
+    orchestrate_root: str | Path | None = None,
 ) -> dict:
     cases = validate_manifest(manifest, root)
-    config = configuration(model, settings, source_root)
+    config = configuration(model, settings, source_root, orchestrate_root=orchestrate_root)
     if runs.get("schema") != SCHEMA or runs.get("corpus_sha256") != corpus_digest:
         raise EvalError("run/corpus fingerprint mismatch")
     if runs.get("configuration_fingerprint") != config["fingerprint"] or runs.get("configuration") != config or runs.get("model") != model or runs.get("settings") != settings:
@@ -751,12 +784,14 @@ def qualify(
     }
 
 
-def verify_qualification(path: str | Path, expected_configuration_fingerprint: str, expected_model: str, *, source_root: str | Path | None = None, settings: dict[str, Any]) -> dict:
+def verify_qualification(
+    path: str | Path, expected_configuration_fingerprint: str, expected_model: str, *, source_root: str | Path | None = None, orchestrate_root: str | Path | None = None, settings: dict[str, Any]
+) -> dict:
     """Recompute current configuration, raw-artifact hashes, and policy instead of trusting report flags."""
     report = _read(path)
     if report.get("schema") != SCHEMA:
         raise EvalError("unsupported or unbound qualification report")
-    config = configuration(expected_model, settings, source_root)
+    config = configuration(expected_model, settings, source_root, orchestrate_root=orchestrate_root)
     if expected_configuration_fingerprint != config["fingerprint"]:
         raise EvalError("expected configuration fingerprint does not match current release sources/model/settings")
     if report.get("configuration_fingerprint") != config["fingerprint"] or report.get("configuration") != config:
@@ -776,7 +811,16 @@ def verify_qualification(path: str | Path, expected_configuration_fingerprint: s
     runs = _read(artifact_paths["runs"])
     recoveries = _read(artifact_paths["recoveries"])
     recomputed = qualify(
-        manifest, runs, recoveries, artifact_paths["manifest"].parent, artifacts["manifest"]["sha256"], model=expected_model, settings=settings, source_root=source_root, artifact_paths=artifact_paths
+        manifest,
+        runs,
+        recoveries,
+        artifact_paths["manifest"].parent,
+        artifacts["manifest"]["sha256"],
+        model=expected_model,
+        settings=settings,
+        source_root=source_root,
+        orchestrate_root=orchestrate_root,
+        artifact_paths=artifact_paths,
     )
     if _canonical_json(report) != _canonical_json(recomputed):
         raise EvalError("qualification report differs from recomputed raw evidence")
@@ -791,7 +835,8 @@ def main(argv: list[str] | None = None) -> int:
     config_cmd = sub.add_parser("configuration", help="derive current model/settings/source fingerprint")
     config_cmd.add_argument("--model", required=True)
     config_cmd.add_argument("--settings", required=True, type=json.loads)
-    config_cmd.add_argument("--source-root", type=Path, default=DEFAULT_SOURCE_ROOT)
+    config_cmd.add_argument("--source-root", type=Path, required=True)
+    config_cmd.add_argument("--orchestrate-root", type=Path, required=True)
     validate = sub.add_parser("validate")
     validate.add_argument("--manifest", required=True)
     run = sub.add_parser("run")
@@ -800,7 +845,8 @@ def main(argv: list[str] | None = None) -> int:
         run.add_argument(f"--{name}", required=True, type=json.loads, help="JSON argv array")
     run.add_argument("--model", required=True)
     run.add_argument("--settings", required=True, type=json.loads)
-    run.add_argument("--source-root", type=Path, default=DEFAULT_SOURCE_ROOT)
+    run.add_argument("--source-root", type=Path, required=True)
+    run.add_argument("--orchestrate-root", type=Path, required=True)
     run.add_argument("--baseline-source-root", required=True, type=Path, help="immutable exported pre-change build-plugin sources")
     run.add_argument("--repetitions", type=int, default=3)
     run.add_argument("--timeout", type=float, default=1800)
@@ -810,17 +856,19 @@ def main(argv: list[str] | None = None) -> int:
     check.add_argument("--recoveries", required=True)
     check.add_argument("--model", required=True)
     check.add_argument("--settings", required=True, type=json.loads)
-    check.add_argument("--source-root", type=Path, default=DEFAULT_SOURCE_ROOT)
+    check.add_argument("--source-root", type=Path, required=True)
+    check.add_argument("--orchestrate-root", type=Path, required=True)
     verify = sub.add_parser("verify")
     verify.add_argument("--qualification", required=True)
     verify.add_argument("--configuration-fingerprint", required=True)
     verify.add_argument("--model", required=True)
     verify.add_argument("--settings", required=True, type=json.loads)
-    verify.add_argument("--source-root", type=Path, default=DEFAULT_SOURCE_ROOT)
+    verify.add_argument("--source-root", type=Path, required=True)
+    verify.add_argument("--orchestrate-root", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
         if args.command == "configuration":
-            result = configuration(args.model, args.settings, args.source_root)
+            result = configuration(args.model, args.settings, args.source_root, orchestrate_root=args.orchestrate_root)
         elif args.command == "run":
             result = run_pairs(
                 args.manifest,
@@ -833,6 +881,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.timeout,
                 args.source_root,
                 baseline_source_root=args.baseline_source_root,
+                orchestrate_root=args.orchestrate_root,
             )
         elif args.command == "qualify":
             manifest_path = Path(args.manifest).resolve()
@@ -847,10 +896,11 @@ def main(argv: list[str] | None = None) -> int:
                 model=args.model,
                 settings=args.settings,
                 source_root=args.source_root,
+                orchestrate_root=args.orchestrate_root,
                 artifact_paths={"manifest": manifest_path, "runs": runs_path, "recoveries": recoveries_path},
             )
         elif args.command == "verify":
-            result = verify_qualification(args.qualification, args.configuration_fingerprint, args.model, source_root=args.source_root, settings=args.settings)
+            result = verify_qualification(args.qualification, args.configuration_fingerprint, args.model, source_root=args.source_root, orchestrate_root=args.orchestrate_root, settings=args.settings)
         else:
             path = Path(args.manifest).resolve()
             cases = validate_manifest(_read(path), path.parent)

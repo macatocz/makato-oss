@@ -25,8 +25,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator, Mapping, Sequence
 
-VERSION = 1
-SCHEMA = "review-runtime.v1"
+import review_scope
+
+VERSION = 2
+SCHEMA = "review-runtime.v2"
 DEFAULT_POLL_SECONDS = 0.1
 MAX_WAIT_SECONDS = 3600
 _STARTUP_TIMEOUT_SECONDS = 30.0
@@ -93,6 +95,38 @@ def _initial_state() -> dict[str, Any]:
     return {"version": VERSION, "epoch": 0, "next_action": "review", "attempts": {}, "updated_at": _now()}
 
 
+def _validate_attempt_binding(attempt: Mapping[str, Any]) -> dict[str, Any]:
+    """Check persisted identities against this executing installation, never load them."""
+    bindings = attempt.get("root_bindings")
+    if not isinstance(bindings, dict) or set(bindings) != {"build", "orchestrate"}:
+        raise RuntimeErrorState("runtime attempt requires complete root bindings")
+    for name, field in (("build", "contract_root"), ("orchestrate", "orchestrate_root")):
+        binding = bindings[name]
+        if (
+            not isinstance(binding, dict)
+            or set(binding) != {"path", "dev", "ino"}
+            or not isinstance(binding.get("path"), str)
+            or not binding["path"]
+            or any(type(binding.get(key)) is not int or binding[key] < 0 for key in ("dev", "ino"))
+            or attempt.get(field) != binding["path"]
+            or str(Path(binding["path"]).resolve()) != binding["path"]
+        ):
+            raise RuntimeErrorState("runtime attempt has an invalid root binding identity")
+    paths = attempt.get("contract_paths")
+    if not isinstance(paths, list) or any(not isinstance(item, str) for item in paths) or not set(review_scope.REVIEW_CONTRACT_PATHS).issubset(paths):
+        raise RuntimeErrorState("runtime attempt is missing the complete versioned review contract")
+    try:
+        roots = review_scope.resolve_active_roots(Path(__file__).resolve().parents[1], dict(os.environ), attempt["orchestrate_root"])
+        if roots["root_bindings"] != bindings:
+            raise RuntimeErrorState("executing installation or live root bindings differ from the frozen runtime attempt")
+        review_scope.contract_inventory(roots["build"], paths, orchestrate_root=roots["orchestrate"])
+        if review_scope.root_bindings(roots["build"], roots["orchestrate"]) != bindings:
+            raise RuntimeErrorState("runtime root bindings changed while validating")
+        return roots
+    except review_scope.ScopeError as exc:
+        raise RuntimeErrorState(str(exc)) from exc
+
+
 def _read_state(path: Path, *, absent_ok: bool = False) -> dict[str, Any]:
     try:
         raw = path.read_bytes()
@@ -116,6 +150,7 @@ def _read_state(path: Path, *, absent_ok: bool = False) -> dict[str, Any]:
             raise RuntimeErrorState("runtime checkpoint contains a malformed attempt")
         if attempt.get("attempt_id") != attempt_id or attempt.get("state") not in _ATTEMPT_STATES:
             raise RuntimeErrorState(f"runtime checkpoint attempt {attempt_id!r} has an unknown identity or state")
+        _validate_attempt_binding(attempt)
     return state
 
 
@@ -198,7 +233,15 @@ def _group_members(pgid: int, run_identity: str) -> tuple[list[int], bool]:
     members: list[int] = []
     all_owned = True
     if sys.platform == "darwin":
-        result = subprocess.run(["ps", "-axo", "pid=,pgid=,stat="], capture_output=True, text=True, timeout=2, check=False)
+        # Keep the short-lived inspector out of the group it is observing.
+        result = subprocess.run(
+            ["ps", "-axo", "pid=,pgid=,stat="],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+            start_new_session=True,
+        )
         if result.returncode:
             return [], False
         for line in result.stdout.splitlines():
@@ -274,9 +317,10 @@ def authorize_child(
         raise RuntimeErrorState(f"authorized context is unavailable: {exc}") from exc
     _assert_not_halted()
     with _locked(path, create=False) as state:
-        _require_epoch(state, expected_epoch)
+        # The attempt token fences its child; observation-only saves advance the
+        # coordinator epoch without transferring this attempt's ownership.
         attempt = state["attempts"].get(attempt_id)
-        if not isinstance(attempt, dict) or attempt.get("state") != "running" or attempt.get("ownership_epoch") != expected_epoch:
+        if not isinstance(attempt, dict) or attempt.get("state") != "running" or attempt.get("ownership_epoch") != expected_epoch or attempt.get("continuation_blocked_reason"):
             raise RuntimeErrorState("runtime child has no active fenced durable attempt")
         pid = attempt.get("pid")
         if (
@@ -303,6 +347,7 @@ def authorize_child(
             contract_paths=attempt.get("contract_paths"),
             evidence_root=attempt.get("evidence_root"),
             contract_root=attempt.get("contract_root"),
+            orchestrate_root=attempt["orchestrate_root"],
             expected_ac_ids=attempt.get("expected_ac_ids"),
         )
         if gate.get("next_action") != attempt.get("next_action") or gate.get("next_action") == "blocked":
@@ -368,6 +413,7 @@ def _gate(
     contract_paths: Sequence[str] | None = None,
     evidence_root: str | Path | None = None,
     contract_root: str | Path | None = None,
+    orchestrate_root: str | Path | None = None,
     expected_ac_ids: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     if event not in _GATE_EVENTS:
@@ -386,6 +432,8 @@ def _gate(
         command.extend(["--evidence-root", str(Path(evidence_root).expanduser().resolve())])
     if contract_root is not None:
         command.extend(["--contract-root", str(Path(contract_root).expanduser().resolve())])
+    if orchestrate_root is not None:
+        command.extend(["--orchestrate-root", str(Path(orchestrate_root).expanduser().resolve())])
     if expected_ac_ids:
         normalized_ac_ids = sorted(set(expected_ac_ids))
         if len(normalized_ac_ids) != len(expected_ac_ids) or any(not item.strip() for item in normalized_ac_ids):
@@ -684,6 +732,9 @@ def _reconcile_locked(state_path: Path, state: dict[str, Any], attempt: dict[str
 
 def _runtime_env(state_path: Path, ledger_state: Path, state: Mapping[str, Any], attempt: Mapping[str, Any], gate: Mapping[str, Any]) -> dict[str, str]:
     return {
+        "MAKATO_BUILD_ROOT": str(attempt["contract_root"]),
+        "MAKATO_ORCHESTRATE_ROOT": str(attempt["orchestrate_root"]),
+        "MAKATO_ORCHESTRATE_SHARED": str(Path(attempt["orchestrate_root"]) / "shared"),
         "MAKATO_REVIEW_RUNTIME_STATE": str(state_path),
         "MAKATO_REVIEW_LEDGER_STATE": str(ledger_state),
         "MAKATO_REVIEW_ATTEMPT_ID": str(attempt["attempt_id"]),
@@ -700,6 +751,7 @@ def _runtime_env(state_path: Path, ledger_state: Path, state: Mapping[str, Any],
 
 
 def _activate_waiting_worker(state_path: Path, state: dict[str, Any], attempt: dict[str, Any], gate: Mapping[str, Any]) -> None:
+    _validate_attempt_binding(attempt)
     attempt["gate_id"] = gate.get("gate_id")
     attempt["gate_reason"] = gate.get("reason")
     attempt["gate_fingerprint"] = gate.get("input_fingerprint")
@@ -756,6 +808,8 @@ def _public(
             "context_path",
             "context_sha256",
             "contract_root",
+            "orchestrate_root",
+            "root_bindings",
             "expected_ac_ids",
         )
         output["attempt"] = {key: attempt.get(key) for key in fields}
@@ -800,6 +854,7 @@ def launch(
     context_paths: Sequence[str] = (),
     contract_paths: Sequence[str] = (),
     evidence_root: str | Path | None = None,
+    orchestrate_root: str | Path | None = None,
     expected_ac_ids: Sequence[str] = (),
 ) -> dict[str, Any]:
     """Persist a launch receipt, then start exactly one detached supervised child."""
@@ -826,8 +881,16 @@ def launch(
     writer_directory = Path(git_dir.stdout.strip()) / "makato-review-loop"
     _private_dir(writer_directory)
     environment = os.environ if env is None else env
-    build_root = environment.get("MAKATO_BUILD_ROOT") or str(Path(__file__).resolve().parents[1])
-    contract_root_path = Path(build_root).expanduser().resolve()
+    try:
+        roots = review_scope.resolve_active_roots(Path(__file__).resolve().parents[1], dict(environment), orchestrate_root)
+        if not set(review_scope.REVIEW_CONTRACT_PATHS).issubset(contract_paths):
+            raise RuntimeErrorState("durable runtime requires the complete versioned review contract")
+        review_scope.contract_inventory(roots["build"], list(contract_paths), orchestrate_root=roots["orchestrate"])
+        if review_scope.root_bindings(roots["build"], roots["orchestrate"]) != roots["root_bindings"]:
+            raise RuntimeErrorState("active roots changed before runtime launch")
+    except review_scope.ScopeError as exc:
+        raise RuntimeErrorState(str(exc)) from exc
+    contract_root_path = Path(roots["build"])
     supplied_ac_ids = tuple(expected_ac_ids)
     if any(not isinstance(item, str) or not item.strip() for item in supplied_ac_ids):
         raise RuntimeErrorState("expected AC ids must be non-empty strings")
@@ -857,6 +920,8 @@ def launch(
             or existing.get("contract_paths") != sorted(set(contract_paths))
             or existing.get("evidence_root") != (str(Path(evidence_root).expanduser().resolve()) if evidence_root is not None else None)
             or existing.get("contract_root") != str(contract_root_path)
+            or existing.get("orchestrate_root") != roots["orchestrate"]
+            or existing.get("root_bindings") != roots["root_bindings"]
             or existing.get("expected_ac_ids") != list(normalized_ac_ids)
             or existing.get("context_path") != (str(Path(context_path).expanduser().resolve()) if context_path is not None else None)
             or existing.get("invocation_sha256") != (invocation_sha256 or hashlib.sha256(json.dumps(list(command), ensure_ascii=False).encode("utf-8")).hexdigest())
@@ -876,12 +941,11 @@ def launch(
             contract_paths=contract_paths,
             evidence_root=evidence_root,
             contract_root=contract_root_path,
+            orchestrate_root=roots["orchestrate"],
             expected_ac_ids=normalized_ac_ids,
         )
         if next_action is None:
             next_action = current_gate["next_action"]
-        if next_action not in _ACTIONS or not _allowed(role, next_action):
-            raise RuntimeErrorState(f"current review gate does not authorize a new {role} dispatch: {next_action}")
         if existing is not None:
             changed = _reconcile_locked(path, state, existing)
             if state.get("next_action") != current_gate["next_action"]:
@@ -909,6 +973,8 @@ def launch(
                 _save(path, state)
             decision = "blocked" if current_gate.get("next_action") == "blocked" or existing.get("state") == "blocked" else existing.get("state", "running")
             return _public(path, state, existing, decision=decision, gate=current_gate)
+        if next_action not in _ACTIONS or not _allowed(role, next_action):
+            raise RuntimeErrorState(f"current review gate does not authorize a new {role} dispatch: {next_action}")
         if current_gate["next_action"] != next_action:
             raise RuntimeErrorState(f"gate authorizes {current_gate['next_action']!r}, not requested {next_action!r}: {current_gate.get('reason', '')}")
         if current_gate["next_action"] == "blocked":
@@ -936,6 +1002,8 @@ def launch(
             "contract_paths": sorted(set(contract_paths)),
             "evidence_root": str(Path(evidence_root).expanduser().resolve()) if evidence_root is not None else None,
             "contract_root": str(contract_root_path),
+            "orchestrate_root": roots["orchestrate"],
+            "root_bindings": roots["root_bindings"],
             "expected_ac_ids": list(normalized_ac_ids),
             "soft_cap": soft_cap,
             "hard_cap": hard_cap,
@@ -955,11 +1023,13 @@ def launch(
             "accepted_at": None,
             "protocol_error": None,
         }
+        _validate_attempt_binding(attempt)
         state["attempts"][attempt_id] = attempt
         state["next_action"] = current_gate["next_action"]
         # This receipt is durable before the worker process can start.
         _save(path, state)
         child_env = dict(os.environ if env is None else env)
+        child_env.update(MAKATO_BUILD_ROOT=roots["build"], MAKATO_ORCHESTRATE_ROOT=roots["orchestrate"], MAKATO_ORCHESTRATE_SHARED=roots["shared"])
         child_env["MAKATO_REVIEW_RUN_ID"] = run_identity
         descriptor = {
             "attempt_id": attempt_id,
@@ -1020,6 +1090,7 @@ def launch(
             contract_paths=contract_paths,
             evidence_root=evidence_root,
             contract_root=contract_root_path,
+            orchestrate_root=roots["orchestrate"],
             expected_ac_ids=normalized_ac_ids,
         )
         if latest_gate.get("next_action") != next_action:
@@ -1075,6 +1146,7 @@ def reconcile(
     context_paths: Sequence[str] | None = None,
     contract_paths: Sequence[str] | None = None,
     evidence_root: str | Path | None = None,
+    orchestrate_root: str | Path | None = None,
     expected_ac_ids: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     """Observe/adopt one durable attempt; never relaunch or activate it."""
@@ -1084,6 +1156,12 @@ def reconcile(
         attempt = state["attempts"].get(attempt_id)
         if attempt is None:
             raise RuntimeErrorState(f"unknown attempt {attempt_id!r}; reconcile never launches")
+        if orchestrate_root is not None:
+            try:
+                if review_scope.root_bindings(attempt["contract_root"], orchestrate_root) != attempt["root_bindings"]:
+                    raise RuntimeErrorState("explicit orchestrate root differs from the frozen runtime attempt")
+            except review_scope.ScopeError as exc:
+                raise RuntimeErrorState(str(exc)) from exc
         current_fingerprint = None if _mutating_role(attempt["role"]) else (fingerprint or attempt.get("fingerprint"))
         event = gate_event or attempt.get("gate_event")
         gate = _gate(
@@ -1098,6 +1176,7 @@ def reconcile(
             contract_paths=contract_paths if contract_paths is not None else attempt.get("contract_paths"),
             evidence_root=evidence_root if evidence_root is not None else attempt.get("evidence_root"),
             contract_root=attempt.get("contract_root"),
+            orchestrate_root=attempt["orchestrate_root"],
             expected_ac_ids=expected_ac_ids if expected_ac_ids is not None else attempt.get("expected_ac_ids"),
         )
         invocation_matches = invocation_sha256 is None or invocation_sha256 == attempt.get("invocation_sha256")
@@ -1184,17 +1263,31 @@ def accept(
             contract_paths=attempt.get("contract_paths"),
             evidence_root=attempt.get("evidence_root"),
             contract_root=attempt.get("contract_root"),
+            orchestrate_root=attempt["orchestrate_root"],
             expected_ac_ids=attempt.get("expected_ac_ids"),
         )
         if result["status"] == "success" and attempt["role"].lower().removeprefix("makato-build:") in {"build-review", "review-coordinator"}:
             data = result["data"]
-            if data.get("input_fingerprint") != current_gate.get("input_fingerprint"):
-                raise RuntimeErrorState("successful review result is stale for the current worktree")
+            transition = current_gate.get("audit_transition")
+            delivery = current_gate.get("delivery_fingerprint")
+            if (
+                not isinstance(transition, dict)
+                or not transition
+                or not isinstance(delivery, str)
+                or not _FINGERPRINT.fullmatch(delivery)
+                or data.get("audit_transition") != transition
+                or data.get("delivery_fingerprint") != delivery
+            ):
+                raise RuntimeErrorState("successful review delivery does not match the independently verified audit transition")
             if data.get("final_review") is True:
+                if data.get("input_fingerprint") != current_gate.get("input_fingerprint"):
+                    raise RuntimeErrorState("successful review result is stale for the current worktree")
                 if current_gate["next_action"] != "complete":
                     raise RuntimeErrorState("successful review has not passed the current final-full gate")
             elif data.get("final_review") is False and isinstance(data.get("checkpoint_receipt"), dict):
                 receipt = data["checkpoint_receipt"]
+                if data.get("input_fingerprint") != receipt.get("input_fingerprint"):
+                    raise RuntimeErrorState("checkpoint result does not match its reviewed source anchor")
                 tasks = receipt.get("task_ids")
                 if not isinstance(tasks, list) or not tasks or any(not isinstance(task, str) or not task for task in tasks):
                     raise RuntimeErrorState("checkpoint receipt requires non-empty string task IDs")
@@ -1383,6 +1476,7 @@ def _parser() -> argparse.ArgumentParser:
     cmd.add_argument("--fingerprint-context-path", action="append", default=[])
     cmd.add_argument("--fingerprint-contract-path", action="append", default=[])
     cmd.add_argument("--evidence-root")
+    cmd.add_argument("--orchestrate-root")
     cmd.add_argument("--expected-ac-ids")
     cmd.add_argument("--invocation-sha256")
     cmd.add_argument("--cwd", default=os.getcwd())
@@ -1406,6 +1500,7 @@ def _parser() -> argparse.ArgumentParser:
         cmd.add_argument("--soft-cap", type=int)
         cmd.add_argument("--hard-cap", type=int)
         cmd.add_argument("--invocation-sha256")
+        cmd.add_argument("--orchestrate-root")
         cmd.add_argument("--expected-ac-ids")
 
     cmd = sub.add_parser("accept", help="idempotently accept a validated durable R1 result")
@@ -1452,6 +1547,7 @@ def main(argv: list[str] | None = None) -> int:
                 soft_cap=args.soft_cap,
                 hard_cap=args.hard_cap,
                 invocation_sha256=args.invocation_sha256,
+                orchestrate_root=args.orchestrate_root,
                 expected_ac_ids=None if args.expected_ac_ids is None else tuple(item.strip() for item in args.expected_ac_ids.split(",") if item.strip()),
             )
         elif args.command == "accept":
@@ -1484,9 +1580,13 @@ def main(argv: list[str] | None = None) -> int:
                 context_paths=args.fingerprint_context_path,
                 contract_paths=args.fingerprint_contract_path,
                 evidence_root=args.evidence_root,
+                orchestrate_root=args.orchestrate_root,
                 expected_ac_ids=tuple(item.strip() for item in args.expected_ac_ids.split(",") if item.strip()) if args.expected_ac_ids else (),
             )
     except (RuntimeErrorState, OSError, ValueError) as exc:
+        if args.command == "recover-worktree":
+            print(json.dumps({"schema": SCHEMA, "decision": "blocked", "reason": str(exc)}, sort_keys=True))
+            return 4
         print(f"review-runtime: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))

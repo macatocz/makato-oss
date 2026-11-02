@@ -31,6 +31,7 @@ from collections.abc import Iterable
 from functools import wraps
 from pathlib import Path
 
+import review_audit
 import review_eval
 import review_scope
 
@@ -45,7 +46,7 @@ SEVERITY_RANK = {"CRITICAL": 4, "MAJOR": 3, "SUGGESTION": 2, "NITPICK": 1}
 BLOCKING = ("CRITICAL", "MAJOR")
 REDESIGN_RECURRENCES = 2
 STOP_RECURRENCES = 3
-STATE_VERSION = 2
+STATE_VERSION = 3
 _ID_PATTERN = re.compile(r"^F-(\d+)$")
 _INVARIANT_PREFIX = "I-"
 _CONSTITUENT_PREFIX = "C-"
@@ -74,6 +75,44 @@ def _locked_state(func):
             os.close(descriptor)
 
     return wrapped
+
+
+def _verify_roots(state: dict, contract_root: str | None = None, orchestrate_root: str | None = None) -> dict:
+    """Validate frozen physical identity and the installation executing this command."""
+    bindings = state["root_bindings"]
+    if bindings is None:
+        if state["contract_root"] is not None or state["orchestrate_root"] is not None or state["contract_paths"]:
+            raise LoopError("unbound ledger has contract roots or inputs")
+        if contract_root is not None or orchestrate_root is not None:
+            raise LoopError("ledger has no bound active roots")
+        return {}
+    if set(bindings) != {"build", "orchestrate"}:
+        raise LoopError("invalid root bindings")
+    for name, field in (("build", "contract_root"), ("orchestrate", "orchestrate_root")):
+        binding = bindings[name]
+        if (
+            not isinstance(binding, dict)
+            or set(binding) != {"path", "dev", "ino"}
+            or not isinstance(binding["path"], str)
+            or not binding["path"]
+            or any(type(binding[key]) is not int or binding[key] < 0 for key in ("dev", "ino"))
+            or state[field] != binding["path"]
+            or str(Path(binding["path"]).resolve()) != binding["path"]
+        ):
+            raise LoopError("invalid root binding identity or canonical root")
+    if not set(review_scope.REVIEW_CONTRACT_PATHS).issubset(state["contract_paths"]):
+        raise LoopError("bound ledger is missing the complete versioned review contract")
+    try:
+        live = review_scope.resolve_active_roots(Path(__file__).resolve().parent.parent, dict(os.environ), state["orchestrate_root"])
+        if live["root_bindings"] != bindings:
+            raise LoopError("live root bindings differ from the frozen ledger")
+        if contract_root is not None and review_scope.root_bindings(contract_root, state["orchestrate_root"]) != bindings:
+            raise LoopError("explicit build root differs from the frozen ledger")
+        if orchestrate_root is not None and review_scope.root_bindings(state["contract_root"], orchestrate_root) != bindings:
+            raise LoopError("explicit orchestrate root differs from the frozen ledger")
+        return live
+    except review_scope.ScopeError as exc:
+        raise LoopError(str(exc)) from exc
 
 
 def _load_state(path: str) -> dict:
@@ -107,6 +146,8 @@ def _load_state(path: str) -> dict:
         "expected_ac_ids": (list, type(None)),
         "caps": dict,
         "contract_root": (str, type(None)),
+        "orchestrate_root": (str, type(None)),
+        "root_bindings": (dict, type(None)),
     }
     for field, expected in required.items():
         if field not in state or isinstance(state[field], bool) or not isinstance(state[field], expected):
@@ -193,6 +234,7 @@ def _load_state(path: str) -> dict:
         raise LoopError(f"corrupt loop state in {path}: repair attempt exceeds durable counter")
     if any(not isinstance(entry, dict) or not isinstance(entry.get("task_ids"), list) for entry in state["checkpoint_receipts"]):
         raise LoopError(f"corrupt loop state in {path}: invalid checkpoint receipt")
+    _verify_roots(state)
     return state
 
 
@@ -240,6 +282,8 @@ def _initial_state(story: str, review_base: str) -> dict:
         "contract_paths": [],
         "evidence_root": None,
         "contract_root": None,
+        "orchestrate_root": None,
+        "root_bindings": None,
         "expected_ac_ids": None,
     }
     _limits(state)
@@ -325,6 +369,10 @@ def lenses(
     config_fingerprint: str | None = None,
     model: str | None = None,
     settings: dict | None = None,
+    *,
+    state: str | None = None,
+    contract_root: str | None = None,
+    orchestrate_root: str | None = None,
 ) -> dict[str, object]:
     """Split a full pass and optionally qualify risk-lens duplicate sampling."""
     raw = mode if mode is not None else os.environ.get("MAKATO_REVIEW_LENSES")
@@ -335,6 +383,19 @@ def lenses(
         value = "auto"
     if profile not in ("standard", "deep") or pass_kind not in ("initial", "first-rereview", "later"):
         raise LoopError("profile must be standard|deep and pass-kind initial|first-rereview|later")
+    sampling_state = None
+    binding_error = None
+    if state is not None:
+        try:
+            sampling_state = _load_state(state)
+            _verify_roots(sampling_state, contract_root, orchestrate_root)
+            if not sampling_state["root_bindings"]:
+                raise LoopError("sampling requires a bound ledger")
+        except LoopError as exc:
+            binding_error = str(exc)
+            sampling_state = None
+    else:
+        binding_error = "sampling requires a bound ledger state"
     changed_lines = 0
     tracked: set[str] = set()
     fields = review_scope._nul_split(review_scope._git(worktree, "diff", "--numstat", "--no-renames", "-z", review_base))
@@ -351,16 +412,19 @@ def lenses(
     split = value == "on" or (value == "auto" and (changed_lines > SPLIT_MIN_CHANGED_LINES or changed_files > SPLIT_MIN_CHANGED_FILES))
     sample_counts = {lens: 1 for lens in LENSES}
     sampling_enabled = False
-    qualification_error = None
+    qualification_error = binding_error
     if value != "off" and profile == "deep" and pass_kind in ("initial", "first-rereview"):
         try:
+            if sampling_state is None:
+                raise LoopError(binding_error or "sampling requires valid live bindings")
             if not qualification or not config_fingerprint or not model or not isinstance(settings, dict):
                 raise LoopError("qualified Deep sampling requires bound evidence, pinned model and exact settings")
             review_eval.verify_qualification(
                 qualification,
                 config_fingerprint,
                 model,
-                source_root=Path(__file__).resolve().parent.parent,
+                source_root=Path(sampling_state["contract_root"]),
+                orchestrate_root=Path(sampling_state["orchestrate_root"]),
                 settings=settings,
             )
             for lens in ("error-handling", "state-concurrency"):
@@ -431,12 +495,23 @@ def _site(raw: object, where: str) -> dict:
 def _validated_findings(path: str, r1: dict) -> list[dict]:
     if r1.get("schema") != "r1":
         raise LoopError(f"{path}: schema must be 'r1'")
+    if r1.get("agent") != "diff-reviewer":
+        raise LoopError(f"{path}: agent must be 'diff-reviewer'")
+    summary = r1.get("summary")
+    if not isinstance(summary, str) or not summary.strip() or len(summary) > 240 or len(summary.splitlines()) != 1:
+        raise LoopError(f"{path}: summary must be one non-empty line of at most 240 characters")
+    for field in ("files_changed", "tests_written"):
+        if r1.get(field) != []:
+            raise LoopError(f"{path}: read-only reviewer {field} must be an empty list")
+    calls = r1.get("tool_calls_used")
+    if isinstance(calls, bool) or not isinstance(calls, int) or calls < 0:
+        raise LoopError(f"{path}: tool_calls_used must be a non-negative integer")
     status = r1.get("status")
     if status not in ("success", "failure", "partial"):
         raise LoopError(f"{path}: status must be success, failure, or partial")
-    errors = r1.get("errors", [])
-    if not isinstance(errors, list) or any(not isinstance(error, str) or not error.strip() for error in errors):
-        raise LoopError(f"{path}: errors must be a list of non-empty strings")
+    errors = r1.get("errors")
+    if not isinstance(errors, list) or any(not isinstance(error, str) or not error.strip() or len(error) > 240 for error in errors):
+        raise LoopError(f"{path}: errors must be a list of non-empty strings of at most 240 characters")
     data = r1.get("data")
     if not isinstance(data, dict) or not isinstance(data.get("findings"), list):
         raise LoopError(f"{path}: data.findings must be a list")
@@ -532,6 +607,7 @@ def merge(
     evidence_root: str | None = None,
     expected_ac_ids: list[str] | None = None,
     contract_root: str | None = None,
+    orchestrate_root: str | None = None,
 ) -> dict:
     """Merge validated R1 envelopes losslessly; only invariant identity groups findings."""
     state = _load_state(state_path)
@@ -559,7 +635,7 @@ def merge(
         raise LoopError("review input fingerprint must be a lowercase SHA-256")
     if state["current_fingerprint"] not in (None, fingerprint) and scope != "background-full":
         raise LoopError("review result is stale for the current input fingerprint")
-    _bind_inputs(state, context_paths, contract_paths, evidence_root, contract_root, expected_ac_ids)
+    _bind_inputs(state, context_paths, contract_paths, evidence_root, contract_root, expected_ac_ids, orchestrate_root)
     if scope != "background-full" or state["current_fingerprint"] is None:
         state["current_fingerprint"] = fingerprint
     state["max_repair_round"] = max(state["max_repair_round"], after_round)
@@ -581,7 +657,8 @@ def merge(
         )
         envelope_refs.append(envelope_id)
         for finding in findings:
-            invariant_id = _invariant_id(finding, finding.get("id"))
+            known_id = _known_id(finding, state)
+            invariant_id = state["findings"][known_id]["invariant_id"] if known_id is not None else _invariant_id(finding, finding.get("id"))
             constituent_id = _constituent_id(invariant_id, finding)
             entries.append(
                 {
@@ -734,21 +811,15 @@ def merge(
     merged.sort(key=lambda finding: (-SEVERITY_RANK[finding["severity"]], _id_key(finding["id"])))
     blocking = [finding for finding in merged if finding["severity"] in BLOCKING]
     counts = {severity: sum(1 for finding in merged if finding["severity"] == severity) for severity in SEVERITY_RANK}
-    statuses = [r1["status"] for _, r1, _ in validated]
-    status = "partial" if "partial" in statuses else ("failure" if "failure" in statuses or counts["CRITICAL"] + counts["MAJOR"] else "success")
-    contract = [r1 for _, r1, _ in validated if r1["data"].get("lens") == "contract-ac"]
-    if contract:
-        verdicts = [verdict for r1 in contract for verdict in (r1["data"].get("ac_verdicts") or [])]
-    elif len(inputs) == 1:
-        verdicts = inputs[0][1]["data"].get("ac_verdicts") or []
-    else:
-        verdicts = []
-    reviewed = [r1["data"].get("files_reviewed") for _, r1, _ in validated]
+    summary = _retained_summary([r1 for _, r1, _ in validated])
+    status = summary["status"]
     errors = [error for _, r1, _ in validated for error in r1.get("errors", [])]
     errors.extend(
-        f"{finding.get('file', finding['sites'][0]['file'] if finding['sites'] else '?')}:"
-        f"{finding.get('line', finding['sites'][0]['line'] if finding['sites'] else '?')} — "
-        f"[{finding['severity']}][{finding.get('category', 'unknown')}] {finding.get('description', '')}"
+        (
+            f"{finding.get('file', finding['sites'][0]['file'] if finding['sites'] else '?')}:"
+            f"{finding.get('line', finding['sites'][0]['line'] if finding['sites'] else '?')} — "
+            f"[{finding['severity']}][{finding.get('category', 'unknown')}] {finding.get('description', '')}"
+        )[:240]
         for finding in blocking
     )
     pass_record = {
@@ -759,16 +830,11 @@ def merge(
         "after_round": after_round,
         "snapshot": snapshot,
         "input_fingerprint": fingerprint,
-        "status": status,
+        **summary,
         "blocking": [finding["id"] for finding in blocking],
         "constituent_ids": sorted({entry["constituent_id"] for entry in entries if entry["finding"]["severity"] in BLOCKING}),
         "new_blocking": new_blocking,
         "raw_envelope_ids": envelope_refs,
-        "ac_verdicts": verdicts,
-        "files_reviewed": max((value for value in reviewed if isinstance(value, int) and not isinstance(value, bool)), default=0),
-        "file_citations": [citation for _, r1, _ in validated for citation in r1["data"]["file_citations"]],
-        "review_lenses": sorted({r1["data"]["lens"] for _, r1, _ in validated if r1["data"].get("lens")}),
-        "unscoped_full": len(validated) == 1 and validated[0][1]["data"].get("lens") is None,
     }
     state["passes"].append(pass_record)
     gate = _gate_decision(state, "review", None, state["current_fingerprint"])
@@ -782,6 +848,7 @@ def merge(
         "files_changed": [],
         "tests_written": [],
         "errors": errors,
+        "tool_calls_used": sum(r1["tool_calls_used"] for _, r1, _ in validated),
         "data": {
             "run_id": state["run_id"],
             "pass_id": f"P-{pass_number}",
@@ -794,9 +861,9 @@ def merge(
             "major_count": counts["MAJOR"],
             "suggestion_count": counts["SUGGESTION"],
             "nitpick_count": counts["NITPICK"],
-            "files_reviewed": max((value for value in reviewed if isinstance(value, int) and not isinstance(value, bool)), default=0),
+            "files_reviewed": summary["files_reviewed"],
             "findings": merged,
-            "ac_verdicts": verdicts,
+            "ac_verdicts": summary["ac_verdicts"],
             "raw_envelope_ids": envelope_refs,
             "next_action": gate["next_action"],
             "gate": gate,
@@ -955,11 +1022,16 @@ def _ac_complete(pass_record: dict, expected_ac_ids: list[str] | None) -> bool:
         if not isinstance(ac_id, str) or not ac_id.strip() or ac_id in seen:
             return False
         seen.add(ac_id)
+        if not isinstance(verdict.get("ac_text"), str) or not verdict["ac_text"].strip():
+            return False
         if not isinstance(verdict.get("evidence"), str) or not verdict["evidence"].strip():
             return False
         try:
             _valid_citations(verdict.get("citations"), "AC verdict")
         except LoopError:
+            return False
+        roles = [citation.get("role") for citation in verdict["citations"]]
+        if any(role not in ("implementation", "test") for role in roles) or "implementation" not in roles or "test" not in roles:
             return False
     return seen == set(expected_ac_ids)
 
@@ -980,7 +1052,30 @@ def _bind_inputs(
     evidence_root: str | None,
     contract_root: str | None,
     expected_ac_ids: list[str] | None,
+    orchestrate_root: str | None = None,
 ) -> None:
+    binding = state["root_bindings"]
+    if binding is not None:
+        _verify_roots(state, contract_root, orchestrate_root)
+        if contract_paths is not None:
+            try:
+                review_scope.contract_inventory(state["contract_root"], contract_paths, orchestrate_root=state["orchestrate_root"])
+            except review_scope.ScopeError as exc:
+                raise LoopError(str(exc)) from exc
+    elif contract_paths is not None or contract_root is not None or orchestrate_root is not None:
+        if not contract_root or not orchestrate_root:
+            raise LoopError("first durable bind requires explicit contract_root and orchestrate_root")
+        if not set(review_scope.REVIEW_CONTRACT_PATHS).issubset(contract_paths or []):
+            raise LoopError("durable bind requires the complete versioned review contract")
+        try:
+            resolved = review_scope.resolve_active_roots(Path(__file__).resolve().parent.parent, dict(os.environ), orchestrate_root)
+            binding = review_scope.root_bindings(contract_root, orchestrate_root)
+            if resolved["root_bindings"] != binding:
+                raise LoopError("contract root differs from the executing installation")
+            review_scope.contract_inventory(contract_root, contract_paths, orchestrate_root=orchestrate_root)
+        except review_scope.ScopeError as exc:
+            raise LoopError(str(exc)) from exc
+        state.update(contract_root=binding["build"]["path"], orchestrate_root=binding["orchestrate"]["path"], root_bindings=binding)
     for key, values in (("context_paths", context_paths), ("contract_paths", contract_paths)):
         if values is not None:
             if any(not isinstance(value, str) or not value.strip() for value in values):
@@ -988,12 +1083,11 @@ def _bind_inputs(
             if not set(state[key]).issubset(values):
                 raise LoopError(f"{key} cannot shrink during a review; explicit migration is required")
             state[key] = sorted(set(values))
-    for key, root in (("evidence_root", evidence_root), ("contract_root", contract_root)):
-        if root is not None:
-            resolved = str(Path(root).resolve())
-            if state.get(key) is not None and str(Path(state[key]).resolve()) != resolved:
-                raise LoopError(f"{key} changed; explicit migration is required")
-            state[key] = resolved
+    if evidence_root is not None:
+        resolved = str(Path(evidence_root).resolve())
+        if state["evidence_root"] is not None and str(Path(state["evidence_root"]).resolve()) != resolved:
+            raise LoopError("evidence_root changed; explicit migration is required")
+        state["evidence_root"] = resolved
     if expected_ac_ids is not None:
         if not expected_ac_ids or any(not isinstance(value, str) or not value.strip() for value in expected_ac_ids):
             raise LoopError("expected AC ids must be non-empty authoritative IDs")
@@ -1078,6 +1172,128 @@ def _reserve_repair_attempt(
     return attempt, None
 
 
+def _checkpoint_scope(state: dict, worktree: str, manifest: dict, snapshot: str, latest: dict) -> dict:
+    prior_ids = {entry["pass_id"] for entry in state["passes"] if entry["pass"] < latest["pass"]}
+    previous = next((cert for cert in reversed(state.get("audit_certificates", [])) if not cert["final_review"] and cert["pass_id"] in prior_ids), None)
+    if previous is not None and (previous.get("audit_transition") is None or "checkpoint_scope" not in previous["checkpoint_receipt"]):
+        raise LoopError("checkpoint scope history requires published evidence or explicit evidence-preserving migration")
+    sites = {site["file"] for finding in state["findings"].values() for constituent in finding["constituents"].values() for site in constituent["sites"]}
+    try:
+        return review_scope.checkpoint_scope(worktree, manifest, snapshot, previous=previous, invariant_paths=sites)
+    except review_scope.ScopeError as exc:
+        raise LoopError(f"checkpoint scope coverage cannot be derived: {exc}") from exc
+
+
+def _retained_summary(envelopes: list[dict]) -> dict:
+    """Derive certification fields only from the authoritative reviewer returns."""
+    contract = [r1 for r1 in envelopes if r1["data"].get("lens") == "contract-ac"]
+    if contract:
+        verdicts = [verdict for r1 in contract for verdict in (r1["data"].get("ac_verdicts") or [])]
+    elif len(envelopes) == 1:
+        verdicts = envelopes[0]["data"].get("ac_verdicts") or []
+    else:
+        verdicts = []
+    statuses = [r1["status"] for r1 in envelopes]
+    return {
+        "status": "partial" if "partial" in statuses else ("failure" if "failure" in statuses else "success"),
+        "ac_verdicts": verdicts,
+        "files_reviewed": max(r1["data"]["files_reviewed"] for r1 in envelopes),
+        "file_citations": [citation for r1 in envelopes for citation in r1["data"]["file_citations"]],
+        "review_lenses": sorted({r1["data"]["lens"] for r1 in envelopes if r1["data"].get("lens")}),
+        "unscoped_full": len(envelopes) == 1 and envelopes[0]["data"].get("lens") is None,
+    }
+
+
+def _validate_retained_reviews(state: dict) -> None:
+    """Revalidate R1, original bindings and every cached certification summary."""
+    raw = state["raw_envelopes"]
+    if any(isinstance(entry.get("envelope_id"), bool) for entry in raw) or [entry.get("envelope_id") for entry in raw] != list(range(1, len(raw) + 1)):
+        raise LoopError("retained review coverage has invalid raw envelope identities")
+    referenced = []
+    for record in state["passes"]:
+        where = f"retained {record['scope']} review coverage {record.get('pass_id')}"
+        if record.get("run_id") != state["run_id"] or record.get("pass_id") != f"P-{record['pass']}":
+            raise LoopError(f"{where}: original run/pass binding differs")
+        refs = record.get("raw_envelope_ids")
+        if not isinstance(refs, list) or not refs or any(isinstance(ref, bool) or not isinstance(ref, int) or ref < 1 or ref > len(raw) for ref in refs) or len(set(refs)) != len(refs):
+            raise LoopError(f"{where}: invalid raw envelope references")
+        referenced.extend(refs)
+        envelopes = []
+        findings = []
+        for ref in refs:
+            entry = raw[ref - 1]
+            r1 = entry["envelope"]
+            findings.extend(_validated_findings(where, r1))
+            if (
+                entry.get("run_id") != record["run_id"]
+                or entry.get("pass_id") != record["pass_id"]
+                or isinstance(entry.get("repair_round"), bool)
+                or entry.get("repair_round") != record["after_round"]
+                or entry.get("input_fingerprint") != record.get("input_fingerprint")
+                or entry.get("lens") != r1["data"].get("lens")
+                or any(r1["data"].get(key, record[key]) != record[key] for key in ("run_id", "pass_id", "input_fingerprint"))
+            ):
+                raise LoopError(f"{where}: raw R1 original input binding differs")
+            envelopes.append(r1)
+        summary = _retained_summary(envelopes)
+        if any(record.get(key) != value for key, value in summary.items()):
+            raise LoopError(f"{where}: cached pass summary differs from raw R1")
+        occurrences = []
+        blocking = {}
+        constituents = set()
+        for finding_id, finding in state["findings"].items():
+            for cid, constituent in finding["constituents"].items():
+                for occurrence in constituent["occurrences"]:
+                    if occurrence["pass"] != record["pass"]:
+                        continue
+                    if occurrence["input_fingerprint"] != record["input_fingerprint"] or occurrence["repair_round"] != record["after_round"] or not set(occurrence["envelope_ids"]).issubset(refs):
+                        raise LoopError(f"{where}: finding occurrence binding differs")
+                    item = occurrence["raw_finding"]
+                    occurrences.append(item)
+                    if item["severity"] in BLOCKING:
+                        constituents.add(cid)
+                        blocking[finding_id] = max(blocking.get(finding_id, 0), SEVERITY_RANK[item["severity"]])
+
+        def canonical(items: list[dict]) -> list[str]:
+            return sorted(json.dumps(item, sort_keys=True) for item in items)
+
+        if canonical(occurrences) != canonical(findings):
+            raise LoopError(f"{where}: retained findings differ from raw R1")
+        expected_blocking = sorted(blocking, key=lambda finding_id: (-blocking[finding_id], _id_key(finding_id)))
+        if record["blocking"] != expected_blocking or record["constituent_ids"] != sorted(constituents):
+            raise LoopError(f"{where}: cached blocking findings differ from raw R1")
+    if referenced != list(range(1, len(raw) + 1)):
+        raise LoopError("retained review coverage lost or reused raw R1 evidence")
+
+
+def _review_coverage(state: dict, latest: dict, required: set[str]) -> bool:
+    """Each retained independent reviewer must cover the authoritative scope."""
+    try:
+        _validate_retained_reviews(state)
+    except (LoopError, KeyError, TypeError, ValueError):
+        return False
+
+    def covers(data: dict) -> bool:
+        count = data.get("files_reviewed")
+        return isinstance(count, int) and not isinstance(count, bool) and count >= len(required) and required.issubset(item["file"] for item in data.get("file_citations", []))
+
+    if not covers(latest) or (not latest.get("unscoped_full") and set(latest.get("review_lenses", [])) != set(LENSES)):
+        return False
+    refs = latest.get("raw_envelope_ids", [])
+    envelopes = [entry["envelope"]["data"] for entry in state["raw_envelopes"] if entry["envelope_id"] in refs]
+    if not refs or len(set(refs)) != len(refs) or len(envelopes) != len(refs) or any(not covers(data) for data in envelopes):
+        return False
+    unscoped = len(envelopes) == 1 and envelopes[0].get("lens") is None
+    return latest.get("unscoped_full") == unscoped and (unscoped or {data.get("lens") for data in envelopes} == set(LENSES))
+
+
+def _checkpoint_coverage(state: dict, latest: dict, scope: dict | None) -> None:
+    if not isinstance(scope, dict) or not isinstance(scope.get("scope_files"), list) or not scope["scope_files"]:
+        raise LoopError("checkpoint requires authoritative source scope coverage")
+    if not _review_coverage(state, latest, set(scope["scope_files"])):
+        raise LoopError("checkpoint has incomplete file, citation or reviewer scope coverage")
+
+
 def _gate_decision(
     state: dict,
     event: str,
@@ -1098,6 +1314,7 @@ def _gate_decision(
     error: str | None = None
     latest = _latest_pass(state)
     try:
+        _validate_retained_reviews(state)
         if event in ("confirm", "certify") and evidence is not None:
             uncertainty = _apply_dispositions(state, event, evidence, fingerprint)
         if event == "checkpoint":
@@ -1117,8 +1334,7 @@ def _gate_decision(
                 raise LoopError("checkpoint evidence must reference the latest successful delta pass")
             if evidence.get("input_fingerprint") != fingerprint or latest.get("input_fingerprint") != fingerprint:
                 raise LoopError("checkpoint fingerprint is stale")
-            if not isinstance(latest.get("files_reviewed"), int) or latest["files_reviewed"] < 1:
-                raise LoopError("checkpoint requires mechanical review coverage of at least one file")
+            _checkpoint_coverage(state, latest, evidence.get("checkpoint_scope"))
             if latest.get("blocking"):
                 raise LoopError("checkpoint cannot pass with blocking findings")
             snapshot = evidence.get("snapshot")
@@ -1135,6 +1351,7 @@ def _gate_decision(
                 "checkpoint_verified": True,
                 "final_review": False,
                 "snapshot": snapshot,
+                "checkpoint_scope": evidence["checkpoint_scope"],
             }
             state.setdefault("checkpoint_receipts", []).append(receipt)
         if event == "complete" and evidence is not None:
@@ -1170,7 +1387,7 @@ def _gate_decision(
     attempt = None
     if uncertainty:
         action, reason = "blocked", "independent reviewer marked a constituent uncertain"
-    elif error and event in ("confirm", "certify", "complete", "checkpoint", "repair-local", "redesign"):
+    elif error:
         action, reason = "blocked", error
     elif event == "blocked":
         action, reason = "blocked", (evidence or {}).get("reason", "explicitly blocked")
@@ -1186,7 +1403,7 @@ def _gate_decision(
                     latest,
                     fingerprint,
                     mode,
-                    sorted(latest.get("blocking", []), key=_id_key),
+                    sorted({finding_id for finding_id, _, _ in _current_blocking_constituents(state, latest, fingerprint)}, key=_id_key),
                     soft_cap,
                     hard_cap,
                 )
@@ -1214,14 +1431,8 @@ def _gate_decision(
         action, reason = "certify", "final review fingerprint is missing or stale"
     elif not set(review_scope.REVIEW_CONTRACT_PATHS).issubset(state.get("contract_paths", [])):
         action, reason = "certify", "the complete versioned review contract must be included in the input manifest"
-    elif (
-        not isinstance(latest.get("files_reviewed"), int)
-        or isinstance(latest.get("files_reviewed"), bool)
-        or latest["files_reviewed"] < len(state.get("current_changed_files", []))
-        or not set(state.get("current_changed_files", [])).issubset(citation["file"] for citation in latest.get("file_citations", []))
-        or (not latest.get("unscoped_full") and set(latest.get("review_lenses", [])) != set(LENSES))
-    ):
-        action, reason = "certify", "final full pass has incomplete file, citation or review-lens coverage"
+    elif not _review_coverage(state, latest, set(state.get("current_changed_files", []))):
+        action, reason = "certify", "final full pass has incomplete file, citation or reviewer scope coverage"
     elif not _ac_complete(latest, state.get("expected_ac_ids")):
         action, reason = "certify", "final per-AC verdicts and citations are incomplete or do not match expected AC ids"
     elif (
@@ -1273,13 +1484,14 @@ def gate(
     evidence_root: str | None = None,
     expected_ac_ids: list[str] | None = None,
     contract_root: str | None = None,
+    orchestrate_root: str | None = None,
 ) -> dict:
     state = _load_state(state_path)
     if review_base != state["review_base"]:
         result = _gate_decision(state, "blocked", {"reason": "review base changed; explicit migration is required"}, state.get("current_fingerprint"))
         _save_state(state_path, state)
         return result
-    _bind_inputs(state, context_paths, contract_paths, evidence_root, contract_root, expected_ac_ids)
+    _bind_inputs(state, context_paths, contract_paths, evidence_root, contract_root, expected_ac_ids, orchestrate_root)
     root = state.get("evidence_root") or worktree
     try:
         current_input = review_scope.fingerprint(
@@ -1289,11 +1501,29 @@ def gate(
             contract_paths=state.get("contract_paths", []),
             evidence_root=root,
             contract_root=state.get("contract_root"),
+            orchestrate_root=state.get("orchestrate_root"),
         )
+        _verify_roots(state)
         current = current_input["sha256"]
         state["current_changed_files"] = current_input["manifest"]["changed_files"]
     except review_scope.ScopeError as exc:
         result = _gate_decision(state, "blocked", {"reason": f"cannot compute current fingerprint: {exc}"}, state.get("current_fingerprint"))
+        _save_state(state_path, state)
+        return result
+    delivery = None
+    certificate = review_audit.certificate(state)
+    if certificate is not None and certificate.get("audit_transition") is not None:
+        try:
+            delivery = review_audit.verify(state, certificate, worktree, current_input)
+        except review_audit.AuditError as exc:
+            # Source changes can start a new review; an unchanged delivery with
+            # broken external audit identity must not retain certification.
+            if current in (certificate["input_fingerprint"], certificate["audit_transition"].get("delivery_fingerprint")):
+                result = _gate_decision(state, "blocked", {"reason": str(exc)}, current)
+                _save_state(state_path, state)
+                return result
+    elif certificate is not None and certificate.get("intent") is not None:
+        result = _gate_decision(state, "blocked", {"reason": "pending audit publication must be reconciled"}, current)
         _save_state(state_path, state)
         return result
     if expected_fingerprint and expected_fingerprint != current:
@@ -1307,15 +1537,47 @@ def gate(
         event = "blocked"
     if event == "checkpoint" and evidence is not None:
         try:
-            evidence["snapshot"] = review_scope.snapshot(worktree)
-        except review_scope.ScopeError as exc:
+            evidence["snapshot"] = review_scope.snapshot(worktree, raw_paths=current_input["manifest"]["changed_files"])
+            evidence["checkpoint_scope"] = _checkpoint_scope(state, worktree, current_input["manifest"], evidence["snapshot"], _latest_pass(state))
+            if review_audit.fingerprint(state, worktree, review_base) != current_input:
+                raise LoopError("checkpoint source changed while deriving coverage")
+        except (review_scope.ScopeError, LoopError) as exc:
             result = _gate_decision(state, "blocked", {"reason": f"cannot snapshot checkpoint tree: {exc}"}, current)
             _save_state(state_path, state)
             return result
-    result = _gate_decision(state, event, evidence, current, soft_cap, hard_cap)
+    anchor = current
+    if delivery is not None and delivery["final_review"] and event in ("review", "initial", "complete") and evidence is None:
+        anchor = delivery["input_fingerprint"]
+        state["current_changed_files"] = certificate["manifest"]["changed_files"]
+    result = _gate_decision(state, event, evidence, anchor, soft_cap, hard_cap)
+    if (event == "complete" and result["next_action"] == "complete" and anchor == current) or "checkpoint_receipt" in result:
+        review_audit.capture(state, worktree, current_input, result)
     _save_state(state_path, state)
     result["current_fingerprint"] = current
+    if delivery is not None:
+        result["delivery_fingerprint"] = current
+        result["audit_transition"] = delivery["audit_transition"]
     return result
+
+
+@_locked_state
+def publish_audit(state_path: str, worktree: str, review_base: str) -> dict:
+    """Publish only rows derived from a durable successful review certificate."""
+    state = _load_state(state_path)
+    if review_base != state["review_base"]:
+        raise LoopError("review base changed; publication is stale")
+    try:
+        return review_audit.publish(state, state_path, worktree, review_base, _save_state)
+    except review_audit.AuditError as exc:
+        raise LoopError(str(exc)) from exc
+
+
+@_locked_state
+def operational_log(state_path: str, worktree: str, entry: dict | None = None) -> dict:
+    try:
+        return review_audit.operational_log(_load_state(state_path), worktree, entry)
+    except (review_audit.AuditError, OSError, ValueError) as exc:
+        raise LoopError(str(exc)) from exc
 
 
 @_locked_state
@@ -1330,35 +1592,17 @@ def checkpoint_receipt(
     state = _load_state(state_path)
     if review_base != state["review_base"]:
         raise LoopError("review base changed; checkpoint is stale")
-    current = review_scope.fingerprint(
-        worktree,
-        review_base,
-        context_paths=state.get("context_paths", []),
-        contract_paths=state.get("contract_paths", []),
-        evidence_root=state.get("evidence_root") or worktree,
-        contract_root=state.get("contract_root"),
-    )["sha256"]
-    expected_ids = list(task_ids)
-    matching_pass = next(
-        (
-            record
-            for record in state["passes"]
-            if record.get("pass_id") == pass_id and record.get("scope") == "delta" and record.get("status") == "success" and record.get("input_fingerprint") == current
-        ),
-        None,
-    )
-    if matching_pass is None or state.get("current_fingerprint") != current:
-        raise LoopError("checkpoint pass is stale or not a successful delta pass")
-    for receipt in reversed(state.get("checkpoint_receipts", [])):
-        if (
-            receipt.get("task_ids") == expected_ids
-            and receipt.get("input_fingerprint") == input_fingerprint == current
-            and receipt.get("pass_id") == pass_id
-            and receipt.get("checkpoint_verified") is True
-            and receipt.get("final_review") is False
-        ):
-            return receipt
-    raise LoopError("no matching persisted checkpoint receipt for current worktree")
+    certificate = review_audit.certificate(state)
+    if certificate is not None and isinstance(certificate.get("audit_transition"), dict):
+        try:
+            delivery = review_audit.verify(state, certificate, worktree, review_audit.fingerprint(state, worktree, review_base))
+        except review_audit.AuditError as exc:
+            raise LoopError(f"checkpoint is stale or invalid: {exc}") from exc
+        receipt = delivery.get("checkpoint_receipt")
+        if receipt is None or receipt["task_ids"] != task_ids or receipt["input_fingerprint"] != input_fingerprint or receipt["pass_id"] != pass_id:
+            raise LoopError("no matching published checkpoint receipt")
+        return receipt
+    raise LoopError("checkpoint requires a matching published canonical audit transition")
 
 
 @_locked_state
@@ -1498,9 +1742,24 @@ def background(state_path: str, repair_round: int, mode: str | None) -> dict[str
 # ---------------------------------------------------------------- CLI
 
 
+def verify_binding(state_path: str, worktree: str, build_root: str, orchestrate_root: str) -> dict:
+    """Read-only helper self-verification; never grants authority to an unbound ledger."""
+    state = _load_state(state_path)
+    roots = _verify_roots(state, build_root, orchestrate_root)
+    if not roots:
+        raise LoopError("binding verification requires a bound ledger")
+    return {"contract_root": roots["build"], "orchestrate_root": roots["orchestrate"], "shared": roots["shared"], "root_bindings": roots["root_bindings"]}
+
+
 def _main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("contract-paths", help="print the exact canonical contract argument array")
+    cmd = sub.add_parser("verify-binding", help="verify executing and frozen active roots without writes")
+    cmd.add_argument("--state", required=True)
+    cmd.add_argument("--worktree", required=True)
+    cmd.add_argument("--build-root", required=True)
+    cmd.add_argument("--orchestrate-root", required=True)
 
     cmd = sub.add_parser("init", help="create or resume the loop state")
     cmd.add_argument("--state", required=True)
@@ -1512,6 +1771,7 @@ def _main(argv: list[str]) -> int:
     cmd.add_argument("--review-base", required=True)
     cmd.add_argument("--evidence-root", default=None)
     cmd.add_argument("--contract-root", default=None)
+    cmd.add_argument("--orchestrate-root", default=None)
     cmd.add_argument("--context-path", action="append", default=[])
     cmd.add_argument("--contract-path", action="append", default=[])
 
@@ -1525,6 +1785,9 @@ def _main(argv: list[str]) -> int:
     cmd.add_argument("--config-fingerprint", default=None)
     cmd.add_argument("--model", default=None)
     cmd.add_argument("--settings", default=None, help="exact evaluation configuration settings as JSON")
+    cmd.add_argument("--state", default=None)
+    cmd.add_argument("--contract-root", default=None)
+    cmd.add_argument("--orchestrate-root", default=None)
 
     cmd = sub.add_parser("merge", help="merge reviewer R1 files and record the pass")
     cmd.add_argument("--state", required=True)
@@ -1537,6 +1800,7 @@ def _main(argv: list[str]) -> int:
     cmd.add_argument("--contract-path", action="append", default=None)
     cmd.add_argument("--evidence-root", default=None)
     cmd.add_argument("--contract-root", default=None)
+    cmd.add_argument("--orchestrate-root", default=None)
     cmd.add_argument("--expected-ac-ids", default=None)
     cmd.add_argument("r1_files", nargs="+")
 
@@ -1559,7 +1823,18 @@ def _main(argv: list[str]) -> int:
     cmd.add_argument("--contract-path", action="append", default=None)
     cmd.add_argument("--evidence-root", default=None)
     cmd.add_argument("--contract-root", default=None)
+    cmd.add_argument("--orchestrate-root", default=None)
     cmd.add_argument("--expected-ac-ids", default=None)
+
+    cmd = sub.add_parser("publish-audit", help="publish certificate-bound canonical review audit rows")
+    cmd.add_argument("--state", required=True)
+    cmd.add_argument("--worktree", required=True)
+    cmd.add_argument("--review-base", required=True)
+
+    cmd = sub.add_parser("operational-log", help="write/read private narration and R1 transport outside protected inputs")
+    cmd.add_argument("--state", required=True)
+    cmd.add_argument("--worktree", required=True)
+    cmd.add_argument("--entry", help="JSON object; omitted reads private progress comment identity")
 
     cmd = sub.add_parser("checkpoint-receipt", help="validate a persisted checkpoint receipt against current worktree")
     cmd.add_argument("--state", required=True)
@@ -1581,7 +1856,11 @@ def _main(argv: list[str]) -> int:
 
     args = parser.parse_args(argv)
     try:
-        if args.command == "init":
+        if args.command == "contract-paths":
+            result: object = list(review_scope.REVIEW_CONTRACT_PATHS)
+        elif args.command == "verify-binding":
+            result = verify_binding(args.state, args.worktree, args.build_root, args.orchestrate_root)
+        elif args.command == "init":
             result: object = init(args.state, args.story, args.review_base)
         elif args.command == "fingerprint":
             result = review_scope.fingerprint(
@@ -1591,6 +1870,7 @@ def _main(argv: list[str]) -> int:
                 contract_paths=args.contract_path,
                 evidence_root=args.evidence_root,
                 contract_root=args.contract_root,
+                orchestrate_root=args.orchestrate_root,
             )
         elif args.command == "lenses":
             result = lenses(
@@ -1603,6 +1883,9 @@ def _main(argv: list[str]) -> int:
                 args.config_fingerprint,
                 args.model,
                 None if args.settings is None else json.loads(args.settings),
+                state=args.state,
+                contract_root=args.contract_root,
+                orchestrate_root=args.orchestrate_root,
             )
         elif args.command == "merge":
             result = merge(
@@ -1618,6 +1901,7 @@ def _main(argv: list[str]) -> int:
                 evidence_root=args.evidence_root,
                 expected_ac_ids=None if args.expected_ac_ids is None else _ids(args.expected_ac_ids),
                 contract_root=args.contract_root,
+                orchestrate_root=args.orchestrate_root,
             )
         elif args.command == "repaired":
             result = repaired(args.state, args.repair_round, _ids(args.ids), args.coder_id)
@@ -1636,7 +1920,12 @@ def _main(argv: list[str]) -> int:
                 args.evidence_root,
                 None if args.expected_ac_ids is None else _ids(args.expected_ac_ids),
                 contract_root=args.contract_root,
+                orchestrate_root=args.orchestrate_root,
             )
+        elif args.command == "publish-audit":
+            result = publish_audit(args.state, args.worktree, args.review_base)
+        elif args.command == "operational-log":
+            result = operational_log(args.state, args.worktree, None if args.entry is None else json.loads(args.entry))
         elif args.command == "checkpoint-receipt":
             result = checkpoint_receipt(
                 args.state,

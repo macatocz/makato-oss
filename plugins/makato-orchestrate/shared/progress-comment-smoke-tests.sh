@@ -1,26 +1,48 @@
 #!/usr/bin/env bash
-# Smoke tests for shared/progress-comment.sh. Run from the makato repo root.
-# Fully offline: gh is stubbed via MAKATO_PC_GH_STUB (a scratch dir backing
-# fake comments as files); workflow-state.sh runs for real against a sandbox
-# spec folder under specs/ (gitignored). Cleans up on exit.
+# Smoke tests for shared/progress-comment.sh.
+# Fully offline: source helpers execute against an owned disposable consumer;
+# all workflow, audit, Git and transport state stays outside the source checkout.
 #
 # Usage: plugins/makato-orchestrate/shared/progress-comment-smoke-tests.sh
 set -euo pipefail
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
+# Git routing is inherited even by `git -C`; this fixture must never use a
+# caller's index, worktree, object database, hooks or repository configuration.
+for git_variable in "${!GIT_@}"; do
+  unset "$git_variable"
+done
+export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd -P)"
 PC="$REPO_ROOT/plugins/makato-orchestrate/shared/progress-comment.sh"
 WS="$REPO_ROOT/plugins/makato-orchestrate/shared/workflow-state.sh"
+# Pin the source helpers; an installed runner's ambient roots are not this fixture.
+export MAKATO_BUILD_ROOT="$REPO_ROOT/plugins/makato-build"
+export MAKATO_ORCHESTRATE_ROOT="$REPO_ROOT/plugins/makato-orchestrate"
+export MAKATO_ORCHESTRATE_SHARED="$MAKATO_ORCHESTRATE_ROOT/shared"
+FIXTURE_ROOT="$(mktemp -d)"
+cleanup() { rm -rf "$FIXTURE_ROOT"; }
+trap cleanup EXIT
+CONSUMER="$FIXTURE_ROOT/consumer"
+mkdir -p "$CONSUMER"
+git -C "$CONSUMER" init -q
+git -C "$CONSUMER" config user.email "progress-smoke@example.invalid"
+git -C "$CONSUMER" config user.name "Progress smoke"
+printf 'disposable consumer\n' > "$CONSUMER/README.md"
+git -C "$CONSUMER" add README.md
+git -C "$CONSUMER" commit -qm seed
+export MAKATO_TARGET_REPO_ROOT="$CONSUMER"
+export SPECS_DIR="$CONSUMER/specs"
+cd "$CONSUMER"
+unset MAKATO_REVIEW_LEDGER_STATE WORKTREE_PATH
 
 KEY="progress-comment-smoke"
 REPO="macatocz/test"
 ISSUE=999
-SANDBOX="$REPO_ROOT/specs/${KEY}"
-GH_STUB="$(mktemp -d)"
+SANDBOX="$CONSUMER/specs/${KEY}"
+GH_STUB="$FIXTURE_ROOT/github"
 export MAKATO_PC_GH_STUB="$GH_STUB"
 
-cleanup() { rm -rf "$SANDBOX" "$GH_STUB"; [[ -z "${ROOT_CASE_TMP:-}" ]] || rm -rf "$ROOT_CASE_TMP"; }
-trap cleanup EXIT
-cleanup 2>/dev/null || true
 mkdir -p "$SANDBOX" "$GH_STUB"
 
 pass=0
@@ -140,7 +162,8 @@ check "T11: plan-validated text present"       grep -q "Plan validated — proce
 check "T11: note line starts with HH:MM:SS"   grep -qE '^- [0-9]{2}:[0-9]{2}:[0-9]{2} \| Plan validated' <<<"$PV_BODY"
 
 echo "=== T12: comment id persists in a linked target root without WARN ==="
-ROOT_CASE_TMP="$(mktemp -d)"
+ROOT_CASE_TMP="$FIXTURE_ROOT/linked-target"
+mkdir -p "$ROOT_CASE_TMP"
 ROOT_CASE_MAIN="$ROOT_CASE_TMP/main"
 ROOT_CASE_TARGET="$ROOT_CASE_TMP/target"
 mkdir -p "$ROOT_CASE_MAIN"
@@ -171,6 +194,105 @@ check "T12: main checkout received no duplicate state file" test ! -e "$ROOT_MAI
 check "T12: root split produced no progress-comment WARN" \
   bash -c '! grep -q "WARN.*could not persist progress_comment_id" "$1"' _ "$ROOT_CASE_TMP/stderr"
 check "T12: associated comment was created" test -f "$GH_STUB/comment-$ROOT_COMMENT_ID.md"
+
+echo "=== T13: copied durable helpers verify themselves before transport or private writes ==="
+durable_bound_helpers() {
+  python3 - "$REPO_ROOT" <<'PY'
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+
+source = Path(sys.argv[1])
+with tempfile.TemporaryDirectory(prefix="makato-progress-binding-") as temporary:
+    root = Path(temporary)
+    build = root / "separate-build/install"
+    orchestrate = root / "separate-control/install"
+    for name, target in (("makato-build", build), ("makato-orchestrate", orchestrate)):
+        shutil.copytree(source / "plugins" / name, target, ignore=shutil.ignore_patterns("__pycache__"))
+    inactive = root / "inactive-orchestrate"
+    shutil.copytree(orchestrate, inactive)
+    repo = root / "consumer"
+    repo.mkdir()
+    github = root / "github"
+    github.mkdir()
+    env = {key: value for key, value in os.environ.items() if not key.startswith("MAKATO_") and key not in ("SPECS_DIR", "WORKTREE_PATH")}
+    env.update(MAKATO_BUILD_ROOT=str(build), MAKATO_ORCHESTRATE_ROOT=str(orchestrate),
+               MAKATO_ORCHESTRATE_SHARED=str(orchestrate / "shared"),
+               MAKATO_TARGET_REPO_ROOT=str(repo), MAKATO_PC_GH_STUB=str(github),
+               WORKTREE_PATH=str(repo))
+
+    def run(*argv, environment=None):
+        return subprocess.run(argv, cwd=repo, env=env if environment is None else environment,
+                              capture_output=True, text=True, timeout=20)
+
+    def checked(*argv):
+        result = run(*argv)
+        assert result.returncode == 0, result.stderr
+        return result.stdout
+
+    checked("git", "init", "-q")
+    checked("git", "config", "user.email", "progress-binding@example.invalid")
+    checked("git", "config", "user.name", "Progress binding smoke")
+    context = repo / "specs/SMOKE"
+    context.mkdir(parents=True)
+    audit = context / "build.jsonl"
+    audit.write_text("{}\n")
+    checked("git", "add", ".")
+    checked("git", "commit", "-qm", "base")
+    legacy = context / "workflow-state.json"
+    legacy.write_text('{"issue_number":186,"progress_comment_id":null}\n')
+    (repo / ".git/info/exclude").write_text("specs/SMOKE/workflow-state*.json\n")
+    state = repo / ".git/review.json"
+    loop = str(build / "shared/review_loop.py")
+    checked(sys.executable, loop, "init", "--state", str(state), "--story", "SMOKE", "--review-base", "HEAD")
+    contracts = json.loads(checked(sys.executable, loop, "contract-paths"))
+    checked(sys.executable, loop, "gate", "--state", str(state), "--event", "initial",
+            "--worktree", str(repo), "--review-base", "HEAD", "--context-path", "specs/SMOKE/workflow-state.json",
+            "--contract-root", str(build), "--orchestrate-root", str(orchestrate),
+            *[arg for path in contracts for arg in ("--contract-path", path)])
+    env["MAKATO_REVIEW_LEDGER_STATE"] = str(state)
+    helper = orchestrate / "shared/progress-comment.sh"
+    for arguments in (("start", "--skill", "build-review", "--goal", "actual binding"),
+                      ("done", "--skill", "build-review", "--result", "passed", "--summary", "actual binding")):
+        checked("bash", str(helper), arguments[0], "SMOKE", "186", "offline/review", *arguments[1:])
+    comments = list(github.glob("comment-*.md"))
+    assert len(comments) == 1
+    body = comments[0].read_text()
+    assert body.count("START: build-review") == body.count("DONE: build-review") == 1
+    # Empty exports are unset, not alternate physical identities (C6).
+    empty = run("bash", str(helper), "note", "SMOKE", "186", "offline/review", "--text", "empty exports",
+                environment=env | {"MAKATO_ORCHESTRATE_ROOT": "", "MAKATO_ORCHESTRATE_SHARED": ""})
+    assert empty.returncode == 0 and empty.stderr == "", empty.stderr
+    assert "empty exports" in comments[0].read_text()
+    operations = repo / ".git/makato-review-loop" / json.loads(state.read_text())["run_id"] / "operations.jsonl"
+    protected = {path: (path.read_bytes(), path.stat().st_ino, path.stat().st_mode) for path in (state, audit, legacy, operations)}
+    gh = root / "bin/gh"
+    gh.parent.mkdir()
+    gh.write_text('#!/bin/sh\nprintf "called\\n" >> "$TRANSPORT_CALLS"\nexit 1\n')
+    gh.chmod(0o755)
+    negative = env | {"PATH": f"{gh.parent}:{env['PATH']}", "TRANSPORT_CALLS": str(root / "transport-calls")}
+    negative.pop("MAKATO_PC_GH_STUB")
+    for executable, overrides in (
+        (inactive / "shared/progress-comment.sh", {}),
+        (helper, {"MAKATO_ORCHESTRATE_ROOT": str(inactive)}),
+        (helper, {"MAKATO_ORCHESTRATE_SHARED": str(inactive / "shared")}),
+        (helper, {"MAKATO_BUILD_ROOT": ""}),
+    ):
+        rejected = run("bash", str(executable), "note", "SMOKE", "186", "offline/review", "--text", "rejected",
+                       environment=negative | overrides)
+        assert rejected.returncode == 0 and rejected.stdout == "" and "WARN" in rejected.stderr, rejected
+        assert not (root / "transport-calls").exists(), "wrong binding reached transport"
+        for path, snapshot in protected.items():
+            assert (path.read_bytes(), path.stat().st_ino, path.stat().st_mode) == snapshot, path
+        assert not legacy.with_name("workflow-state-186.json").exists()
+        assert not legacy.with_name("workflow-state.json.superseded-by-186").exists()
+PY
+}
+check "T13: bound separate installs preserve private routing and reject inactive helpers" durable_bound_helpers
 
 echo ""
 echo "progress-comment smoke: $pass passed, $fail failed"

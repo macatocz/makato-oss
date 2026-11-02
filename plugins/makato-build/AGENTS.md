@@ -94,7 +94,7 @@ The `coder` agent runs with `permissionMode: bypassPermissions`. This is the onl
 - No `../` paths outside skill dir (except `../shared/` within this plugin)
 - References loaded at point of use, not front-loaded
 - Frontmatter required: name, description, version
-  - Every skill MUST append JSONL log entries to `specs/<story-key>-<slug>/build.jsonl` via the resolved plugin-root helper — minimum: session start, each major step, session end. See the Logging section in README.md for the schema.
+  - Every skill MUST append JSONL log entries to `specs/<story-key>-<slug>/build.jsonl` via the resolved plugin-root helper — minimum: session start, each major step, session end. Exception: after a successful review certificate, `build-review` MUST use `review_loop.py publish-audit --state PATH --worktree PATH --review-base REF` for canonical final AC/session rows or checkpoint session-only publication, never raw `build-log.sh` appends. The ledger derives rows and independently verifiable source/delivery receipts; this is not a generic logging or fingerprint exemption. See the Logging section in README.md for the schema.
   - Log every agent decision that deviates from the happy path using `status: "decision"` or `status: "warn"` — classification choices (fixable vs structural), escalations, gate retries, workarounds, and baseline-gate user choices. A future session reading `build.jsonl` must be able to reconstruct what went wrong and why.
   - Resolve the installed plugin root before invoking helpers. Use the runner-provided
     `CLAUDE_PLUGIN_ROOT`, `OMP_PLUGIN_ROOT`, or `PLUGIN_ROOT` (or the explicit
@@ -103,6 +103,11 @@ The `coder` agent runs with `permissionMode: bypassPermissions`. This is the onl
     CWD is the plugin root. The source-checkout fallback is
     `REPO_ROOT/plugins/makato-build`.
   - **`build.jsonl` is the only file under `specs/` that ships in-repo** (#99). The repo-root `.gitignore` excludes `specs/**/*` but re-includes `specs/**/build.jsonl` so the audit trail of every skill run is reviewable from a fresh checkout. Plan, stories, project-sync, fixtures, and every other artefact under `specs/<key>/` stay local. Treat `build.jsonl` as a committed evidence file: do not log secrets, credentials, file paths outside the repo, or any content you would not paste into a public PR.
+  - Certificate-bound `build-review` publication preserves that tracked audit/versioning policy.
+    Its reviewed `input_fingerprint` stays immutable; `delivery_fingerprint` is the complete live
+    hash after `publish-audit`. Acceptance independently verifies the source certificate and exact
+    canonical audit transition. Any other post-publication operational write must remain outside
+    every protected manifest input, including normally ignored logs explicitly supplied as context.
 
 ## File Structure
 

@@ -5,6 +5,8 @@
 # Usage:
 #   build-log.sh <key> '<json-object>'        # single entry (legacy)
 #   build-log.sh <key> --batch < entries.ndjson  # batch mode (#118): NDJSON on stdin
+# During durable review, exported MAKATO_REVIEW_LEDGER_STATE + WORKTREE_PATH route
+# operational entries through review_loop operational-log, never canonical audit.
 #
 # Batch mode reads newline-delimited JSON entries from stdin and appends all of
 # them in one shell invocation. Skills that emit 3-5 log rows per step can flush
@@ -88,30 +90,42 @@ else
   fi
 fi
 SPECS_DIR="${MAKATO_SPECS_DIR:-$REPO_ROOT/specs}"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+if [[ -z "${MAKATO_REVIEW_LEDGER_STATE:-}" ]]; then
+  # Resolve spec folder through the shared resolver. It supports the canonical
+  # key-prefix shape, legacy exact folders, and numeric issue-to-slug lookup.
+  SPEC_FOLDER=""
+  RESOLVE_ERROR="$(mktemp "${TMPDIR:-/tmp}/makato-spec-resolve.XXXXXX")"
+  trap 'rm -f "$RESOLVE_ERROR"' EXIT
 
-# Resolve spec folder through the shared resolver. It supports the canonical
-# key-prefix shape, legacy exact folders, and numeric issue-to-slug lookup.
-SPEC_FOLDER=""
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-RESOLVE_ERROR="$(mktemp "${TMPDIR:-/tmp}/makato-spec-resolve.XXXXXX")"
-trap 'rm -f "$RESOLVE_ERROR"' EXIT
-
-if [[ -d "$SPECS_DIR" ]] && SPEC_FOLDER="$(python3 "$HERE/spec_folder.py" "$REPO_ROOT" "$KEY" 2>"$RESOLVE_ERROR")"; then
-  :
-else
-  RESOLVE_STATUS=$?
-  if [[ "$RESOLVE_STATUS" -eq 3 ]]; then
-    cat "$RESOLVE_ERROR" >&2
-    exit 2
+  if [[ -d "$SPECS_DIR" ]] && SPEC_FOLDER="$(python3 "$HERE/spec_folder.py" "$REPO_ROOT" "$KEY" 2>"$RESOLVE_ERROR")"; then
+    :
+  else
+    RESOLVE_STATUS=$?
+    if [[ "$RESOLVE_STATUS" -eq 3 ]]; then
+      cat "$RESOLVE_ERROR" >&2
+      exit 2
+    fi
+    # Preserve the historical ability to create a first audit row before a
+    # spec is materialized, but never shadow an existing issue-backed folder.
+    SAFE_KEY="${KEY#\#}"
+    SPEC_FOLDER="$SPECS_DIR/$SAFE_KEY"
   fi
-  # Preserve the historical ability to create a first audit row before a
-  # spec is materialized, but never shadow an existing issue-backed folder.
-  SAFE_KEY="${KEY#\#}"
-  SPEC_FOLDER="$SPECS_DIR/$SAFE_KEY"
+
+  LOG_FILE="$SPEC_FOLDER/build.jsonl"
+  mkdir -p "$(dirname "$LOG_FILE")"
 fi
 
-LOG_FILE="$SPEC_FOLDER/build.jsonl"
-mkdir -p "$(dirname "$LOG_FILE")"
+_append_entry() {
+  if [[ -n "${MAKATO_REVIEW_LEDGER_STATE:-}" ]]; then
+    # The own-install ledger command validates frozen roots before private writes.
+    python3 "$HERE/review_loop.py" operational-log \
+      --state "$MAKATO_REVIEW_LEDGER_STATE" --worktree "${WORKTREE_PATH:?review worktree required}" \
+      --entry "$1" >/dev/null
+  else
+    printf '%s\n' "$1" >> "$LOG_FILE"
+  fi
+}
 
 # --- Model auto-injection (S4) ---
 # On session start, cache the model value. On subsequent calls, inject it
@@ -169,7 +183,7 @@ if [[ "$ENTRY_OR_FLAG" == "--batch" ]]; then
     if [[ -n "$TRACE_ID" ]]; then
       line="$(jq -ac --arg tid "$TRACE_ID" '. + {issue_trace_id: $tid}' <<<"$line")"
     fi
-    printf '%s\n' "$line" >> "$LOG_FILE"
+    _append_entry "$line"
   done
   exit 0
 fi
@@ -182,4 +196,4 @@ if [[ -n "$TRACE_ID" ]]; then
 fi
 # Auto-inject model field (S4)
 ENTRY_OR_FLAG="$(_inject_model "$ENTRY_OR_FLAG")"
-printf '%s\n' "$ENTRY_OR_FLAG" >> "$LOG_FILE"
+_append_entry "$ENTRY_OR_FLAG"

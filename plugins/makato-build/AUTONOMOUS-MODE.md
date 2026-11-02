@@ -264,41 +264,85 @@ every state transition, evidence receipt, repair attempt, and recurrence history
 worktree's private git directory at
 `$(git -C "$WORKTREE_PATH" rev-parse --absolute-git-dir)/makato-review-loop/<key>.json`; runtime
 state is separate at `<ledger-dir>/<key>/runtime.json`. Never use or mutate `workflow-state.json`
-for review-local receipts. An incompatible legacy ledger requires explicit migration; never reset
-its history or counters.
+for review-local receipts. Contract version 3 uses input manifest `review-input-fingerprint-v2`,
+ledger version 3, runtime version 2 (`review-runtime.v2`), and `review-eval-configuration-v2`.
+Old/incompatible schemas and changed physical root identities fail closed: no automatic
+migration/reset or renewed repair budget. The owner must preserve/export history and consumed
+repair-round/cap budget before an explicitly authorized new ledger.
 
-The autonomous launcher pins a complete expected AC list and the installed plugin's contract paths
-before dispatching the child. Context paths are repo-relative to `REPO_ROOT`; contract paths are
-plugin-relative to the active `MAKATO_BUILD_ROOT`, so installed plugins work in consuming
-repositories that have no `plugins/makato-build` directory:
+Before building the child command, the durable launcher resolves and freezes the executing build
+installation and selected orchestrate root, exporting `MAKATO_BUILD_ROOT`,
+`MAKATO_ORCHESTRATE_ROOT`, and matching `MAKATO_ORCHESTRATE_SHARED` in the command environment.
+An explicit build export must physically equal the launcher's own install. The CLI
+`--review-orchestrate-root` and environment selection must agree; a shared override must physically
+equal that orchestrate installation's `shared` directory. Empty exports count as unset.
+Durable prompt `metadata.plugin_roots` includes both plugins, without making orchestrate a new
+dispatchable plugin. The launcher and runtime child construct identical authorized command bytes;
+runtime-child re-entry cannot override these persisted roots, including through
+`--review-orchestrate-root`. Durable `--dry-run` resolves/exposes all three root exports without
+requiring an already bound ledger.
+
+Manual/installed binding requires an explicit `MAKATO_ORCHESTRATE_ROOT` before the first bind;
+never use runtime-context, cache globs, PWD, registry, or consumer vendored copies to fill it.
+Explicit installed roots need neither Git nor marketplace proof. A source/manual example selects
+`MAKATO_BUILD_ROOT=/checkout/plugins/makato-build` and
+`MAKATO_ORCHESTRATE_ROOT=/checkout/plugins/makato-orchestrate` explicitly; installed roots may live
+under unrelated parents/version directories. Canonicalize roots physically and freeze them across
+initial/delta/final review, delivery, recovery, and checkpoint acceptance.
+
+Only the launcher may omit explicit orchestrate selection for a source checkout, and only after
+all proofs pass: the executing build realpath is named `makato-build` below `plugins`; its suite
+equals Git's real top-level; `.claude-plugin/marketplace.json` and both plugin manifests are tracked;
+the marketplace is `makato-suite` with exactly `./plugins/makato-build` and
+`./plugins/makato-orchestrate` for those entries; both plugin names match; and the orchestrate
+sibling realpath is exactly `suite/plugins/makato-orchestrate` without below-suite symlinks.
+For those Git proof calls alone, remove `GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`,
+`GIT_INDEX_FILE`, and `GIT_CEILING_DIRECTORIES`. Linked-worktree `.git` files are valid. Tarball,
+rsync, and cache installs require explicit selection. Non-durable root discovery stays unchanged.
+
+The launcher pins the complete expected AC list and canonical contract closure before dispatch.
+Context paths are repo-relative to `REPO_ROOT`; plain contract paths select the active build root,
+and `orchestrate:<rel>` selects the frozen orchestrate root, independent of the consumer checkout.
+Consume the exact `contract-paths` JSON array in tuple order rather than maintaining another list:
 
 ```bash
+: "${MAKATO_BUILD_ROOT:?Explicit active build root required}"
+: "${MAKATO_ORCHESTRATE_ROOT:?Explicit active orchestrate root required}"
+MAKATO_BUILD_ROOT="$(cd "$MAKATO_BUILD_ROOT" && pwd -P)" || exit 1
+MAKATO_ORCHESTRATE_ROOT="$(cd "$MAKATO_ORCHESTRATE_ROOT" && pwd -P)" || exit 1
+export MAKATO_BUILD_ROOT MAKATO_ORCHESTRATE_ROOT
+export MAKATO_ORCHESTRATE_SHARED="${MAKATO_ORCHESTRATE_SHARED:-$MAKATO_ORCHESTRATE_ROOT/shared}"
+REVIEW_CONTRACT_PATHS_JSON="$(python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" contract-paths)" || exit 1
+REVIEW_CONTRACT_PATHS_TEXT="$(printf '%s' "$REVIEW_CONTRACT_PATHS_JSON" |
+  python3 -c 'import json,sys; print("\n".join(json.load(sys.stdin)))')" || exit 1
+mapfile -t REVIEW_CONTRACT_PATHS <<<"$REVIEW_CONTRACT_PATHS_TEXT"
+CONTRACT_ARGS=()
+REVIEW_CONTRACT_ARGS=()
+for path in "${REVIEW_CONTRACT_PATHS[@]}"; do
+  CONTRACT_ARGS+=(--contract-path "$path")
+  REVIEW_CONTRACT_ARGS+=(--review-contract-path "$path")
+done
+# CONTEXT_ARGS includes every source file actually supplied to PLAN_CONTEXT.
+FINGERPRINT_JSON="$(python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" fingerprint \
+  --worktree "$WORKTREE_PATH" --review-base "$REVIEW_BASE" --evidence-root "$REPO_ROOT" \
+  --contract-root "$MAKATO_BUILD_ROOT" --orchestrate-root "$MAKATO_ORCHESTRATE_ROOT" \
+  "${CONTEXT_ARGS[@]}" "${CONTRACT_ARGS[@]}")" || exit 1
+INPUT_FINGERPRINT="$(printf '%s' "$FINGERPRINT_JSON" |
+  python3 -c 'import json,sys; print(json.load(sys.stdin)["sha256"])')" || exit 1
 ATTEMPT_ID="$(printf '%s\0%s\0%s' "$KEY" initial "$INPUT_FINGERPRINT" | sha256sum | cut -c1-64)"
-"$MAKATO_SKILL_RUNNER" --repo-root "$REPO_ROOT" --cwd "$WORKTREE_PATH" \
+python3 "$MAKATO_SKILL_RUNNER" --repo-root "$REPO_ROOT" --cwd "$WORKTREE_PATH" \
   --context-file "$CONTEXT_FILE" --harness "$CLAUDE_BIN" --approval-mode yolo \
   --review-ledger-state "$STATE" --attempt-id "$ATTEMPT_ID" \
   --input-fingerprint "$INPUT_FINGERPRINT" --gate-event initial \
   --review-worktree "$WORKTREE_PATH" --review-base "$REVIEW_BASE" \
   --review-evidence-root "$REPO_ROOT" --review-expected-ac-ids "$EXPECTED_AC_IDS" \
   --review-context-path "$SPEC_REL/plan.md" \
-  --review-contract-path skills/build-review/SKILL.md \
-  --review-contract-path skills/build-review/references/review-loop.md \
-  --review-contract-path skills/build-review/references/review-criteria.md \
-  --review-contract-path skills/build-review/references/mechanical-fixes.md \
-  --review-contract-path agents/diff-reviewer.md \
-  --review-contract-path agents/coder.md \
-  --review-contract-path agents/RETURN-CONTRACT.md \
-  --review-contract-path AUTONOMOUS-MODE.md \
-  --review-contract-path config/default-workflow-schema.yml \
-  --review-contract-path config/verification-ownership.md \
-  --review-contract-path shared/review_loop.py \
-  --review-contract-path shared/review_scope.py \
-  --review-contract-path shared/review_runtime.py \
-  --review-contract-path shared/review_eval.py \
-  --review-contract-path shared/skill_execution.py \
-  --review-contract-path scripts/run-skill.py \
-  makato-build:build-review -- "$KEY" --autonomous [--checkpoint-task-ids "$IDS"]
+  --review-orchestrate-root "$MAKATO_ORCHESTRATE_ROOT" \
+  "${REVIEW_CONTRACT_ARGS[@]}" \
+  makato-build:build-review -- "$KEY" --autonomous
 ```
+
+For a checkpoint launch, append `--checkpoint-task-ids "$IDS"` to that command.
 
 Repeat `--review-context-path` for every file actually supplied to `PLAN_CONTEXT`, and keep the
 complete expected AC ID set pinned across all gates, including checkpoint launches. Omit
@@ -307,13 +351,29 @@ override. `initial` starts a coordinator; `checkpoint` is an evidence-bearing co
 successful delta pass, never a launcher event. `run-skill.py` bootstraps the initial gate using the
 active installed plugin root and passes its receipt to the child. The child validates the live
 fingerprint and resumes the returned stage; it must not repeat an initial full scan when `confirm`,
-repair, or `certify` is already next. Do not run a second initial gate out of band. Later core gates
-inherit the persisted `contract_root`; `--review-contract-path` remains relative to
-`MAKATO_BUILD_ROOT`.
+repair, or `certify` is already next. Do not run a second initial gate out of band. Every initial,
+delta, final, and delivery fingerprint forwards `--contract-root "$MAKATO_BUILD_ROOT"` and
+`--orchestrate-root "$MAKATO_ORCHESTRATE_ROOT"` with unchanged context/contract coverage.
+Gate and merge use those same flags and arrays; first durable binding requires both explicit roots
+and the full canonical closure. Launcher/runtime closure checks happen before any child executes.
+Plain `--review-contract-path` values select build; `orchestrate:<rel>` selects orchestrate.
+
+The ledger and each runtime attempt store `contract_root`, `orchestrate_root`, and
+`root_bindings:{build:{path,dev,ino},orchestrate:{path,dev,ino}}`. The first durable bind freezes
+these physical invocation identities atomically; every state-using command revalidates both live
+roots and the executing build installation. Unbound ledgers keep all three null and allow generic
+no-contract state/checkpoint operations, but never durable execution or final certification.
+Same bytes at another physical directory cannot rebind an existing invocation.
 
 The run-specific `input_fingerprint` binds branch bytes, merge base, spec/context, and exact review
-contracts. It is not the evaluation `configuration_fingerprint`, which identifies model, prompt,
-review contract, and policy across corpus snapshots. Never substitute one for the other.
+contracts. After successful `complete` or `checkpoint`, it remains the immutable reviewed anchor;
+`delivery_fingerprint` is the actual complete live hash after authorized audit publication. Neither
+is the evaluation `configuration_fingerprint`, which identifies model/settings and reproducible
+canonical path/kind/mode/SHA-256 inventory across corpus snapshots. Root paths/devices/inodes
+are excluded from that content identity; source kind and executable permissions are not.
+Explicitly selecting and rehashing relocated roots with identical bytes and kind/mode may
+reproduce it, but cannot authorize an existing ledger's physical binding change. Never substitute
+these identities or assert equivalence from metadata.
 
 `review_loop.py gate --state PATH` persists `initial`, `review`, `confirm`, `repair-local`,
 `redesign`, `certify`, `checkpoint`, `complete`, and `blocked` transitions with a reason. Its
@@ -345,10 +405,71 @@ read-only reviewers finish or have isolated snapshots. Every final run requires 
 review of the complete branch and all ACs, citations, independent blocker closure, and the
 mechanical no-change `complete` gate.
 
-Risk-sample duplication is OFF by default. `deep` requires a `review-eval-v2` report bound to actual
-manifest/run/recovery hashes, the current pinned model/settings/canonical source inventory, the
-immutable pre-change baseline tree and resolved executable/script bytes of all three adapters. The
-helper recomputes qualification, including whole-workflow cost, marginal recall, holdout coverage,
+After a successful source `complete` or `checkpoint` gate, publish through the ledger:
+
+```bash
+AUDIT_PUBLICATION="$(python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" publish-audit \
+  --state "$STATE" --worktree "$WORKTREE_PATH" --review-base "$REVIEW_BASE")" || exit 1
+```
+
+`review_loop.publish_audit(state_path, worktree, review_base)` and the CLI accept no caller audit
+path, fingerprint, rows, receipt, or success flag. Canonical resolution uses `spec_folder.py` beneath
+the bound evidence root's `specs` (fallback worktree), preserving target-repository audit ownership.
+Final publication copies only the persisted independent final-full AC verdicts verbatim and a
+minimal ledger-derived session row; checkpoint publication writes only the session row. It is the
+only authorized post-certificate audit mutation; do not call `build-log.sh` for those terminal rows,
+exclude/untrack audits, or rebind context/contract roots.
+
+Copy `input_fingerprint`, `delivery_fingerprint`, `audit_transition`, and `final_review` verbatim
+to R1. For checkpoints, copy the publication's `checkpoint_receipt` verbatim, not the earlier
+source gate receipt: its source fingerprint and snapshot remain unchanged, with delivery fields
+added. The scheduler receives the live delivery hash, passes the immutable source hash to
+`checkpoint-receipt`, compares the exact verified delivery receipt and its live delivery hash,
+and retains the reviewed snapshot for later delta scope. Missing publication is never acceptable,
+even if absent fields compare equal or an external audit leaves both hashes equal.
+The hash-bound scheduler script is the actual selected orchestrate copy; checkpoint-receipt
+validates its own executing build installation and persisted roots, not scheduler process identity.
+Publication, receipt verification and runtime acceptance pass both persisted roots through every
+internal source/delivery fingerprint; their state-based interfaces do not rediscover roots.
+
+Publication binds canonical physical identity and the unchanged audit prefix, durably records exact
+append intent before writing, and reconciles retries without duplicate rows. Independent acceptance
+checks source certification, ledger-derived rows/run/pass, prefix/exact tail, complete manifests,
+and live delivery. Only the canonical audit entry and its necessary changed-file membership
+adjustment may normalize to the reviewed prefix; coverage and mechanical proof stay at that anchor.
+Reject symlinks, path/inode/mode substitution, physical context/contract aliases across roots,
+and canonical audit hardlinks before writing, including after intent persistence on replay.
+Unreceipted tails and every other input change fail closed. Missing/ambiguous audit resolution
+grants no publication exemption. See `skills/build-review/references/review-loop.md` for crash
+replay rules.
+
+Scheduler policy audit precedes recomputation of launch fingerprint, context, and attempt identity.
+After publication, operational writes must stay outside **every protected manifest input**, not
+merely outside `build.jsonl`; an otherwise ignored `orchestrate.jsonl` is protected when supplied as
+context. Do not write into delivery inputs while accepting or reusing a review.
+
+During durable review, export `MAKATO_REVIEW_LEDGER_STATE="$STATE"` and `WORKTREE_PATH` for
+`build-log.sh`: operational progress/error/R1 rows go through `operational-log` to the derived
+private `<worktree-git-dir>/makato-review-loop/<run-id>/operations.jsonl`. Progress comment IDs
+use that private narration cache without reading or patching potentially protected workflow-state;
+empty or failed lookups must not invoke its legacy migration. Select private cache/log helpers
+from exact `MAKATO_BUILD_ROOT`, not a guessed sibling, while preserving both frozen root bindings.
+Before transport or private logging, progress calls that build's read-only
+`verify-binding --state S --worktree W --build-root B --orchestrate-root O`, using its own
+physical helper root for O and checking the shared export. On mismatch it warns on stderr only,
+does no GitHub/private-log write, and exits 0. It never reaches runtime-context or workflow-state.
+Build-log uses its own physical review_loop and bound state to verify both roots before private
+ledger/audit writes; no new helper root flags are needed. Its existing temporary model cache is
+outside that promise. Explicit context/contract aliases, symlink and hard-linked log destinations
+fail before private writes without canonical fallback. Dispatching callers use the same R1 routing.
+
+Risk-sample duplication is OFF by default. Invoke `lenses` with `--state "$STATE"` and matching
+`--contract-root "$MAKATO_BUILD_ROOT"` / `--orchestrate-root "$MAKATO_ORCHESTRATE_ROOT"`.
+Absent/unbound/invalid state or unresolved bindings keeps sampling OFF with `sampling_warning`.
+`deep` requires a `review-eval-v2` report bound to actual manifest/run/recovery hashes, the current
+pinned model/settings/canonical source inventory at both validated bound roots, the immutable
+pre-change baseline tree and resolved executable/script bytes of all three adapters. The helper
+recomputes qualification, including whole-workflow cost, marginal recall, holdout coverage,
 repetitions, recovery and transport safety; report booleans cannot opt in. If qualified, duplicate
 only error-handling and state/concurrency on the first full review and first re-review. Never
 replace mandatory reviewers, independent confirmation or final-full.
@@ -360,22 +481,44 @@ idempotent: wait/reconcile/accept the existing process and return its actual non
 start a duplicate coder. The runtime state and durable receipts remain review-local, separate from
 the ledger contents and workflow state.
 
+Every attempt carries the immutable physical build/orchestrate binding triple described above.
+Launch derives the build root from its own executing file, never environment authority; child
+authorization, reconcile, accept, direct runtime CLI and recovery verify executing-code agreement
+and both persisted live identities before acting. All gate calls, snapshots and reuse checks carry
+the exact orchestrate root. Recovery never dynamically loads code from a frozen root path.
+Schema/root mismatch blocks rather than silently creating a new runtime/ledger or resetting caps.
+Direct `review_runtime.py launch` must receive `--orchestrate-root "$MAKATO_ORCHESTRATE_ROOT"`;
+subsequent state-based operations use the persisted identities, not caller rediscovery.
+
 - `review_runtime.py status --state PATH [--attempt-id ID]` inspects the attempt.
 - `reconcile` and `resume` require the attempt ID and expected epoch and only reconcile an existing
   child; they do not launch or replay.
-- `accept` revalidates the receipt and fresh gate even for an already accepted result; successful
-  whole reviews require current final-full certification, and checkpoints require their durable
-  nonfinal receipt. A syntactically valid R1 is insufficient.
+- Coordinator operations compare the current runtime epoch. Child authorization instead compares
+  the captured attempt `ownership_epoch`: reconciliation of unchanged work may advance observation
+  metadata without transferring ownership. A revoked continuation, inactive/replaced attempt,
+  changed invocation/context, failed process identity, HALT, or ineligible fresh gate still denies
+  the child.
+- `accept` independently revalidates the source certificate, persisted audit transition, live full
+  delivery fingerprint, and durable R1 even for an already accepted result. Whole reviews require
+  final-full certification at the unchanged reviewed anchor; checkpoints require the exact published
+  delivery receipt. A syntactically valid R1 or source/delivery hash equality is insufficient.
+- Reconcile completed durable results before applying authorization for a new child. Reuse returns
+  the freshly validated existing result without activation or spawn; it is not permission to launch.
+  Preserve invocation/context identity, HALT checks and coordinator/child epoch fences. New or
+  waiting work still requires current action and activation authorization.
 - `recover-worktree --worktree PATH` discovers/reconciles one outstanding attempt only; it never
-  relaunches or replays it.
+  relaunches or replays it. Call the exact active build helper with frozen build/orchestrate/shared
+  exports. A wrong executing install returns blocked (exit 4), not execution from the frozen path;
+  existing non-durable sibling fallback remains unchanged.
 - A wait timeout is not cancellation: the child continues. Retry/wait only on the same attempt.
   Cancel only after explicit authorization and only the identity-checked owned process group.
 - A durable worktree ownership record fences orphaned writer groups even if their worker is
   SIGKILLed and its flock disappears. A new ledger cannot write until that group is provably gone.
   Authorized cancellation may retire a never-started or provably dead attempt without signalling;
   live ambiguous or unrelated processes remain protected.
-- Malformed or empty R1, stale input fingerprint, fenced epoch, or ambiguous writer state blocks
-  completion. Never infer success from process exit or boolean alone.
+- Malformed or empty R1, stale reviewed anchor or live delivery, invalid audit transition, fenced
+  epoch, or ambiguous writer state blocks completion. Never infer success from process exit or
+  boolean alone.
 - Before a new launch or resumed authorization, the **PO-agent** runs its existing kill-switch,
   approval and budget gates and records the returned work in its existing budget flow. Build
   skills/runtime never invoke the PO-only state-writing kill-switch or create a second budget

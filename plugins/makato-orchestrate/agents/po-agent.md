@@ -8,7 +8,7 @@ description: >-
   review decisions, routes merge conflicts through `resolve-pr-conflict`, and terminates on a merged
   PR or documented HALT code. Sole writer of `workflow-state.json`. Owns the per-run worktree; never
   edits target source.
-version: "1.7.0"
+version: "1.8.0"
 maxTurns: 100
 permissionMode: bypassPermissions
 disallowedTools: NotebookEdit
@@ -41,7 +41,7 @@ For each invocation, write a context file containing the complete current bundle
 session has no parent conversation history. Run:
 
 ```bash
-export KEY ISSUE_NUMBER REPO MAKATO_ORCHESTRATE_ROOT
+export KEY ISSUE_NUMBER REPO MAKATO_BUILD_ROOT MAKATO_ORCHESTRATE_ROOT MAKATO_ORCHESTRATE_SHARED
 python3 "$MAKATO_SKILL_RUNNER" --repo-root "$REPO_ROOT" \
   --cwd "${WORKTREE_PATH:-$REPO_ROOT}" --context-file "$CONTEXT_FILE" \
   --harness "$CLAUDE_BIN" --approval-mode yolo \
@@ -51,10 +51,16 @@ python3 "$MAKATO_SKILL_RUNNER" --repo-root "$REPO_ROOT" \
 ### GitHub progress ownership
 
 Before each launch, export `KEY`, `ISSUE_NUMBER`, `REPO`, and the exact installed
-`MAKATO_ORCHESTRATE_ROOT`. Putting them only in the context file is not sufficient. `run-skill.py`
-calls `shared/progress-comment.sh` before execution and after process exit, including nonzero exits,
-launch failures, and forwarded SIGINT/SIGTERM. All workflow skills, retries, and follow-on launches
-use this same boundary.
+`MAKATO_BUILD_ROOT` and `MAKATO_ORCHESTRATE_ROOT`, with matching `MAKATO_ORCHESTRATE_SHARED`.
+Select the roots independently; do not infer a sibling name or shared version directory. Durable
+review freezes these physical installations before command/prompt construction and retains them
+through every fingerprint, runtime/gate/merge, checkpoint, recovery, and delivery check.
+Manual/installed binding requires explicit orchestrate selection; only the launcher may use the
+fully proved source-checkout fallback in `AUTONOMOUS-MODE.md`. No durable cache, runtime-context,
+or consumer discovery may fill a missing binding. Putting roots only in the context file is not
+sufficient. `run-skill.py` calls `shared/progress-comment.sh` before execution and after process
+exit, including nonzero exits, launch failures, and forwarded SIGINT/SIGTERM. All workflow skills,
+retries, and follow-on launches use this same boundary.
 
 In OMP mode, do not make the manual `start`/`done` calls shown elsewhere below; the launcher owns
 those pairs. After validating R1, append a `note` with the skill's status and plain-English summary.
@@ -62,6 +68,20 @@ Process exit 0 is not an R1 success verdict. Setup, intermediate, and HALT notes
 PO-agent's responsibility. GitHub failures warn but never block the workflow;
 `MAKATO_PROGRESS_COMMENT_DISABLE=1` remains a silent opt-out. Claude-native dispatch retains its
 explicit narration.
+
+Durable build-review retains START/DONE and best-effort error narration, but its exported
+`MAKATO_REVIEW_LEDGER_STATE` routes progress/R1 operational rows through the ledger's private
+`operations.jsonl`, outside the canonical certificate-bound audit and every explicit protected
+input. Comment IDs created/rolled over during review stay in that private narration cache; do not
+read or patch workflow-state, even for empty/failed cache lookups: its read can migrate legacy state.
+Do not append canonical `r1`/progress rows after publication. A caller logging the returned envelope
+must export the same ledger state, worktree and frozen build/orchestrate/shared roots for
+`build-log.sh`. Build-log verifies its own physical build installation and ledger bindings before
+private ledger/audit writes. Progress verifies its own physical orchestrate root through
+`review_loop.py verify-binding --state S --worktree W --build-root B --orchestrate-root O` before
+transport/logging; mismatch warns on stderr only, makes no GitHub/private-log write, and exits 0.
+Protected-path/alias rejection warns for narration and never falls back to canonical audit,
+runtime-context discovery, or workflow-state.
 
 ### Launcher deadline
 
@@ -769,6 +789,12 @@ JSONL per guard invocation (regardless of verdict, for forensics):
 JSONL `status` maps verdict: `ok`→`ok`, `no-log`→`ok`, `error`→`warn` (when it did not raise beyond
 R1's already-known state), `silent`→`error`.
 
+For `build-review`, the successful terminal row is ledger-published. This guard reads it without
+appending into the reviewed delivery: write its own audit only outside every protected manifest
+input. `orchestrate.jsonl`, workflow state, or another normally ignored operational file is not
+exempt when explicitly supplied as review context. Perform required protected bookkeeping before
+publication, or fail closed rather than changing a certified delivery during acceptance/reuse.
+
 **Design invariants.**
 
 - The guard is additive. On `verdict:"ok"` it does not touch state, does not re-parse R1, does not
@@ -838,43 +864,48 @@ Checkpoint state is private to this worktree and separate from `workflow-state.j
 paths using the worktree's absolute git dir:
 
 ```bash
+: "${MAKATO_BUILD_ROOT:?Explicit active build root required}"
+: "${MAKATO_ORCHESTRATE_ROOT:?Explicit active orchestrate root required}"
+export MAKATO_BUILD_ROOT MAKATO_ORCHESTRATE_ROOT
+export MAKATO_ORCHESTRATE_SHARED="${MAKATO_ORCHESTRATE_SHARED:-$MAKATO_ORCHESTRATE_ROOT/shared}"
 GIT_DIR="$(git -C "$WORKTREE_PATH" rev-parse --absolute-git-dir)"
 REVIEW_STATE="$GIT_DIR/makato-review-loop/$KEY.json"
 REVIEW_RUNTIME_STATE="$GIT_DIR/makato-review-loop/$KEY/runtime.json"
 CHECKPOINT_STATE="$GIT_DIR/makato-review-loop/$KEY/accepted_checkpoints.json"
 ```
 
+Before a new policy audit or launch, reconcile any outstanding review attempt with
+`python3 "$MAKATO_BUILD_ROOT/shared/review_runtime.py" recover-worktree --worktree "$WORKTREE_PATH"`.
+Use the frozen build/orchestrate/shared exports already selected above. Recovery validates the
+executing build installation and both persisted physical bindings; a wrong executing install
+returns blocked (exit 4), never loading code from a frozen path or creating/resetting a ledger.
+Adopt running/completed work with its original attempt ID, launch fingerprint, invocation and
+context; do not append another decision or derive a new attempt from its published delivery.
+Completed-result reuse requires fresh durable R1, source-certificate and audit-transition
+verification, never activation or spawn. Preserve
+current HALT checks, invocation/context identity, coordinator/child ownership epochs and action
+fences; new or waiting work still requires launch/activation authorization.
+
 Compute the current review input fingerprint before asking the scheduler. Use the same merge base as
 build-review and the exact repo-relative files actually supplied to `PLAN_CONTEXT` (carry them in
 `REVIEW_CONTEXT_PATHS` from Step 1). Extract the complete authoritative non-empty story AC ID set
 into `REVIEW_EXPECTED_AC_IDS`, using explicit IDs or `AC-1`, `AC-2`, … in document order, exactly as
 build-review does. Never derive this set from only the completed tasks. Missing/ambiguous source
-context blocks dispatch. Contract paths below are relative to the active installed
-`MAKATO_BUILD_ROOT`, not the consuming repo:
+context blocks dispatch. Consume the canonical contract tuple once for this review invocation:
+plain paths select the frozen build root and `orchestrate:<rel>` selects the frozen orchestrate
+root, never the consuming repository:
 
 ```bash
-REVIEW_CONTRACT_PATHS=(
-  skills/build-review/SKILL.md
-  skills/build-review/references/review-loop.md
-  skills/build-review/references/review-criteria.md
-  skills/build-review/references/mechanical-fixes.md
-  agents/diff-reviewer.md
-  agents/coder.md
-  agents/RETURN-CONTRACT.md
-  AUTONOMOUS-MODE.md
-  config/default-workflow-schema.yml
-  config/verification-ownership.md
-  shared/review_loop.py
-  shared/review_scope.py
-  shared/review_runtime.py
-  shared/review_eval.py
-  shared/skill_execution.py
-  scripts/run-skill.py
-)
+REVIEW_CONTRACT_PATHS_JSON="$(python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" contract-paths)" || HALT
+REVIEW_CONTRACT_PATHS_TEXT="$(printf '%s' "$REVIEW_CONTRACT_PATHS_JSON" |
+  python3 -c 'import json,sys; print("\n".join(json.load(sys.stdin)))')" || HALT
+mapfile -t REVIEW_CONTRACT_PATHS <<<"$REVIEW_CONTRACT_PATHS_TEXT"
 FINGERPRINT_ARGS=()
 for path in "${REVIEW_CONTEXT_PATHS[@]}"; do FINGERPRINT_ARGS+=(--context-path "$path"); done
 for path in "${REVIEW_CONTRACT_PATHS[@]}"; do FINGERPRINT_ARGS+=(--contract-path "$path"); done
-REVIEW_RUNTIME_ARGS=(--review-evidence-root "$REPO_ROOT" --review-expected-ac-ids "$REVIEW_EXPECTED_AC_IDS")
+REVIEW_RUNTIME_ARGS=(--review-evidence-root "$REPO_ROOT"
+  --review-orchestrate-root "$MAKATO_ORCHESTRATE_ROOT"
+  --review-expected-ac-ids "$REVIEW_EXPECTED_AC_IDS")
 for path in "${REVIEW_CONTEXT_PATHS[@]}"; do REVIEW_RUNTIME_ARGS+=(--review-context-path "$path"); done
 for path in "${REVIEW_CONTRACT_PATHS[@]}"; do REVIEW_RUNTIME_ARGS+=(--review-contract-path "$path"); done
 DEFAULT_REF="$("$MAKATO_BUILD_ROOT/shared/default-branch.sh")"
@@ -882,7 +913,8 @@ REVIEW_BASE="$(git -C "$WORKTREE_PATH" merge-base "$DEFAULT_REF" HEAD)"
 REVIEW_FINGERPRINT_JSON="$(
   python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" fingerprint \
     --worktree "$WORKTREE_PATH" --review-base "$REVIEW_BASE" \
-    --evidence-root "$REPO_ROOT" --contract-root "$MAKATO_BUILD_ROOT" "${FINGERPRINT_ARGS[@]}"
+    --evidence-root "$REPO_ROOT" --contract-root "$MAKATO_BUILD_ROOT" \
+    --orchestrate-root "$MAKATO_ORCHESTRATE_ROOT" "${FINGERPRINT_ARGS[@]}"
 )" || HALT
 REVIEW_INPUT_FINGERPRINT="$(printf '%s' "$REVIEW_FINGERPRINT_JSON" | jq -er '.sha256')" || HALT
 ```
@@ -890,6 +922,16 @@ REVIEW_INPUT_FINGERPRINT="$(printf '%s' "$REVIEW_FINGERPRINT_JSON" | jq -er '.sh
 This is the per-run source/context `input_fingerprint`, not the evaluator's model/prompt
 `configuration_fingerprint`. If the context or contract file list cannot be resolved exactly, halt
 rather than fingerprinting a partial input.
+
+`contract-paths` emits exactly the canonical JSON array in tuple order, without extra keys; never
+maintain a handwritten replacement. The launcher/runtime/first durable bind rejects a partial
+closure before any child executes. Contract version 3 uses ledger version 3, runtime version 2
+(`review-runtime.v2`), input manifest `review-input-fingerprint-v2`, and
+`review-eval-configuration-v2`. Ledger/runtime physical bindings freeze canonical root paths plus
+directory dev/ino independently of reproducible path/kind/mode/byte inventory. Old schemas,
+root replacement/relocation or reboot/remount identity mismatch fail closed: preserve/export
+history and consumed repair-round/cap budget before any explicitly authorized new ledger; never
+automatically migrate/reset or renew caps.
 
 Ask the deterministic scheduler for a read-only decision using current state:
 
@@ -902,12 +944,28 @@ CHECKPOINT_DECISION="$(
 )"
 ```
 
-Append one `step:"review-checkpoint"` JSONL row for every policy decision with its `status` (`due`
-or `skipped`), `reason`, `completed_ids`, `pending_ids`, and `accepted_ids`. If `due` is false,
-re-enter Step 4 without dispatching build-review or writing checkpoint state. In particular,
+For a new decision, append one `step:"review-checkpoint"` JSONL row with its `status` (`due` or
+`skipped`), `reason`, `completed_ids`, `pending_ids`, and `accepted_ids`. If `due` is false, re-enter
+Step 4 without dispatching build-review or writing checkpoint state. In particular,
 `unchanged-fingerprint` skips an empty review while retaining new pending IDs for a later relevant
-diff. The scheduler never mutates `workflow-state.json`. If due, create a new complete build-review
-context from the existing current bundle and include these exact values from the scheduler result:
+diff. The scheduler never mutates `workflow-state.json`.
+
+If due, finish the decision audit and all protected pre-launch bookkeeping **before** recomputing
+the exact launch fingerprint. The policy's earlier observation is not dispatch authority:
+
+```bash
+REVIEW_FINGERPRINT_JSON="$(
+  python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" fingerprint \
+    --worktree "$WORKTREE_PATH" --review-base "$REVIEW_BASE" \
+    --evidence-root "$REPO_ROOT" --contract-root "$MAKATO_BUILD_ROOT" \
+    --orchestrate-root "$MAKATO_ORCHESTRATE_ROOT" "${FINGERPRINT_ARGS[@]}"
+)" || HALT
+REVIEW_INPUT_FINGERPRINT="$(printf '%s' "$REVIEW_FINGERPRINT_JSON" | jq -er '.sha256')" || HALT
+```
+
+Only now create the complete current build-review context and derive its attempt identity. Bind
+the new launch fingerprint in that context and the runner arguments; never reuse a pre-audit
+context/fingerprint/attempt identity. Include these exact values from the scheduler result:
 
 ```text
 CHECKPOINT_REASON = reason
@@ -917,7 +975,7 @@ CHECKPOINT_PENDING_TASK_IDS = pending_ids numeric array
 CHECKPOINT_ACCEPTED_TASK_IDS = accepted_ids numeric array
 CHECKPOINT_ACCEPTED_FINGERPRINT = accepted_fingerprint (null when none)
 REVIEW_CHECKPOINT_BASE_SNAPSHOT = accepted_snapshot, or git rev-parse "$REVIEW_BASE^{tree}" when null
-REVIEW_INPUT_FINGERPRINT = current input fingerprint above
+REVIEW_INPUT_FINGERPRINT = recomputed post-audit launch fingerprint
 ```
 
 Dispatch the actual `build-review` skill in checkpoint mode, with a unique attempt ID derived from
@@ -938,33 +996,48 @@ python3 "$MAKATO_SKILL_RUNNER" --repo-root "$REPO_ROOT" \
   --checkpoint-task-ids "$REVIEW_CHECKPOINT_TASK_IDS"
 ```
 
-Run the normal Step 4d.1 audit-tail guard after the skill dispatch, then recompute the fingerprint
-with the exact same arguments while the worktree is stable. Only an R1 `success` carrying
-`data.final_review:false` and a `data.checkpoint_receipt` with exactly the selected task IDs, the
-recomputed input fingerprint, `checkpoint_verified:true`, and `final_review:false` can be accepted.
-This post-review recomputation prevents accepting a receipt if review repairs changed the branch or
-context after launch. Pass the receipt verbatim to `task_schedule.py accept-checkpoint`; it verifies
-the receipt against the durable review ledger and recomputes the live worktree fingerprint before
-atomically writing `accepted_checkpoints.json`:
+Run the normal Step 4d.1 read-only audit-tail guard after the skill dispatch, keeping its operational
+writes outside every protected manifest input. Recompute the full live delivery fingerprint with
+the same arguments while the worktree is stable. Only R1 `success` with `data.final_review:false`
+and the exact selected task IDs can be accepted. Its published `checkpoint_receipt` keeps the
+reviewed source `input_fingerprint`, anchor `snapshot`, and derived
+`checkpoint_scope:{pre_snapshot,scope_files}`, adding the actual `delivery_fingerprint` and
+`audit_transition`; source and delivery hashes need not match. Do not overwrite source fields.
+The ledger rederives complete source/affected-input coverage at publication and receipt validation;
+the scheduler also requires the scope baseline to match its last accepted snapshot. Missing scope
+evidence blocks for explicit evidence-preserving migration, never a ledger/history/cap reset.
+
+Pass that publication-returned receipt verbatim to `task_schedule.py accept-checkpoint`, with
+`--fingerprint` set to the independently recomputed live delivery hash. The verifier validates the
+source checkpoint certificate and exact audit transition independently, even for an external audit
+whose source/delivery hashes are equal. It returns the delivery copy for exact receipt comparison
+before atomically writing `accepted_checkpoints.json`; retain the reviewed anchor snapshot for the
+next delta. Neither a stale source-only receipt nor an R1 success boolean is sufficient:
 
 ```bash
 REVIEW_FINGERPRINT_JSON="$(
   python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" fingerprint \
     --worktree "$WORKTREE_PATH" --review-base "$REVIEW_BASE" \
-    --evidence-root "$REPO_ROOT" --contract-root "$MAKATO_BUILD_ROOT" "${FINGERPRINT_ARGS[@]}"
+    --evidence-root "$REPO_ROOT" --contract-root "$MAKATO_BUILD_ROOT" \
+    --orchestrate-root "$MAKATO_ORCHESTRATE_ROOT" "${FINGERPRINT_ARGS[@]}"
 )" || HALT
-REVIEW_INPUT_FINGERPRINT="$(printf '%s' "$REVIEW_FINGERPRINT_JSON" | jq -er '.sha256')" || HALT
+REVIEW_DELIVERY_FINGERPRINT="$(printf '%s' "$REVIEW_FINGERPRINT_JSON" | jq -er '.sha256')" || HALT
 RECEIPT="$(jq -c '.data.checkpoint_receipt' <<<"$R1_JSON")"
 shared/workflow-state.sh read <KEY> <ISSUE_NUMBER> |
   python3 "$MAKATO_ORCHESTRATE_ROOT/scripts/task_schedule.py" accept-checkpoint \
     --plan "$PLAN_PATH" --state - \
     --checkpoint "$CHECKPOINT_STATE" \
-    --fingerprint "$REVIEW_INPUT_FINGERPRINT" \
+    --fingerprint "$REVIEW_DELIVERY_FINGERPRINT" \
     --task-ids "$REVIEW_CHECKPOINT_TASK_IDS" \
     --review-loop "$MAKATO_BUILD_ROOT/shared/review_loop.py" \
     --review-state "$REVIEW_STATE" --receipt "$RECEIPT" \
     --worktree "$WORKTREE_PATH" --review-base "$REVIEW_BASE"
 ```
+
+The actual selected `task_schedule.py` is hash-bound by the canonical closure. Its
+`--review-loop` checkpoint command verifies that build helper's own executing installation and
+both frozen ledger roots, not the scheduler's process identity. It forwards the ledger-bound roots
+through source/delivery rechecks; do not invent scheduler root flags or rediscover a sibling.
 
 Any failed/missing/mismatched receipt or failed verifier halts through the existing review failure
 route and does not accept task IDs. Checkpoint review does not set acceptance-criteria status,
@@ -1034,17 +1107,26 @@ and set `JSONL_PATH="$SPEC_FOLDER/build.jsonl"` for all downstream bundles.
 Fresh builds execute #0–#3. Existing-PR resumes and later repairs enter #4, without repeating
 commit/push operations already owned by a repair skill.
 
-0. **Mandatory blocking review.** Patch `current_phase: "verify"`. Narrate START
-   (`--skill "build-review" --agent "diff-reviewer + coder" --goal "repair all critical and major findings and independently re-review the working tree with a bounded repair loop"`),
-   then dispatch `/makato-build:build-review <KEY> --autonomous` through the durable launcher
-   protocol in `AUTONOMOUS-MODE.md` § Durable `build-review` gate and runtime. Resolve the state
-   paths, complete AC set, context/contract arguments and live fingerprint exactly as Step 4e.1,
-   even if no checkpoint was eligible. Before creating an attempt, run
-   `review_runtime.py recover-worktree`; adopt a running/completed attempt using its original
-   attempt ID, launch fingerprint, invocation and context rather than deriving a second writer from
-   the new tree. Reaccept an already accepted result only through the runtime's fresh gate; never
-   trust a cached `success` or repeat an initial scan after a restart. A new final-review invocation
-   uses:
+0. **Mandatory blocking review.** Before new-invocation bookkeeping or protected audit writes, run
+   `python3 "$MAKATO_BUILD_ROOT/shared/review_runtime.py" recover-worktree --worktree "$WORKTREE_PATH"`
+   with the unchanged frozen build/orchestrate/shared exports. A wrong executing build install
+   returns blocked (exit 4); recovery never loads code from the frozen root or resets old state.
+   Adopt outstanding running/completed work using its original attempt ID, launch fingerprint,
+   invocation and context. Reaccept an already accepted result only through fresh
+   source-certificate/audit-transition/live-delivery
+   validation; reuse never activates or spawns a child or grants new-dispatch authority. Preserve
+   HALT checks, invocation/context identity, coordinator/child epochs and waiting-worker action
+   authorization.
+
+   For a genuinely new invocation, patch `current_phase: "verify"` and narrate START
+   (`--skill "build-review" --agent "diff-reviewer + coder" --goal "repair all critical and major findings and independently re-review the working tree with a bounded repair loop"`).
+   Finish decision audit and all protected pre-launch bookkeeping, then recompute the exact full
+   launch fingerprint and create its context/attempt identity as Step 4e.1 requires, even when no
+   checkpoint was eligible. Run that section's root/contract/context argument setup even if no
+   checkpoint ran: consume `contract-paths` once, reuse it across all three fingerprints, and
+   include `--review-orchestrate-root "$MAKATO_ORCHESTRATE_ROOT"` in `REVIEW_RUNTIME_ARGS`.
+   Dispatch `/makato-build:build-review <KEY> --autonomous` through `AUTONOMOUS-MODE.md`'s durable
+   launcher protocol. A new final-review invocation uses:
 
    ```bash
    python3 "$MAKATO_SKILL_RUNNER" --repo-root "$REPO_ROOT" \
@@ -1061,10 +1143,14 @@ commit/push operations already owned by a repair skill.
    Omit `--next-action`: the fresh durable gate selects the stage, including direct final-full
    certification after a clean checkpoint. The skill owns the bounded coder repair → reviewer loop
    (soft cap `MAKATO_MAX_REPAIR_ROUNDS`, default `3`; hard cap `MAKATO_MAX_REPAIR_ROUNDS_HARD`,
-   default `8`); do not route ordinary findings back to planning. Parse its R1 and narrate DONE.
-   Advance only on `status:"success"` with `data.final_review == true`, the current input
-   fingerprint, `data.critical_count == 0` AND `data.major_count == 0`. A checkpoint receipt is
-   never final approval. Missing/malformed R1, `partial`, `failure`, missing counts, nonzero counts,
+   default `8`); do not route ordinary findings back to planning. Parse its R1 and narrate DONE only
+   outside every protected manifest input. Advance only on `status:"success"`,
+   `data.final_review == true`, `data.critical_count == 0`, and `data.major_count == 0`, with the
+   runtime independently verifying the immutable reviewed `input_fingerprint`, published
+   `audit_transition`, and `delivery_fingerprint` against the actual full live hash. Source and
+   delivery hashes need not match; do not rewrite the reviewed anchor or treat audit-only delivery
+   additions as newly reviewed source. A checkpoint receipt is never final approval.
+   Missing/malformed R1, `partial`, `failure`, missing counts, nonzero counts, invalid publication,
    or repair-round exhaustion block the pipeline: HALT-003, apply `needs-human-review`, post the
    HALT comment best-effort, and return R1 failure with unresolved findings/blocker. Do not dispatch
    build-verify, push, or PR creation on that path. Every newly edited source tree must pass this
@@ -1614,9 +1700,10 @@ progress-comment.sh note  <KEY> <ISSUE_NUMBER> <REPO> --text <t>
 ```
 
 `ISSUE_NUMBER` and `REPO` are the required Input-table fields, available throughout the run. The
-helper creates the live comment on first call, appends on every later call, persists only
-`.progress_comment_id` (via `shared/workflow-state.sh patch`, so the PO-agent stays the sole writer
-of state), and rolls over to a fresh comment near GitHub's 65 536-char limit.
+helper creates the live comment on first call, appends on every later call, and persists only
+`.progress_comment_id` via `shared/workflow-state.sh patch` outside durable review. Durable review
+instead uses its private narration cache exclusively, without mutating or migrating workflow-state.
+The helper rolls over to a fresh comment near GitHub's 65 536-char limit.
 
 **Contract invariants.**
 

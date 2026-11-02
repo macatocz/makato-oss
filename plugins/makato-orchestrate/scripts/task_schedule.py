@@ -374,6 +374,9 @@ def _verify_checkpoint_receipt(
         "checkpoint_verified",
         "final_review",
         "snapshot",
+        "delivery_fingerprint",
+        "audit_transition",
+        "checkpoint_scope",
     }
     if not required.issubset(receipt):
         raise PlanError(f"R1 checkpoint_receipt is missing {sorted(required - set(receipt))}")
@@ -381,13 +384,25 @@ def _verify_checkpoint_receipt(
         receipt["scope"] != "delta"
         or receipt["checkpoint_verified"] is not True
         or receipt["final_review"] is not False
-        or receipt["input_fingerprint"] != fingerprint
+        or receipt["delivery_fingerprint"] != fingerprint
+        or not isinstance(receipt["audit_transition"], dict)
+        or not receipt["audit_transition"]
         or not isinstance(receipt["pass_id"], str)
         or not receipt["pass_id"]
         or not isinstance(receipt["snapshot"], str)
         or not receipt["snapshot"]
     ):
         raise PlanError("R1 checkpoint_receipt is not a verified delta for the current fingerprint")
+    scope = receipt["checkpoint_scope"]
+    if (
+        not isinstance(scope, dict)
+        or set(scope) != {"pre_snapshot", "scope_files"}
+        or (scope["pre_snapshot"] is not None and (not isinstance(scope["pre_snapshot"], str) or not scope["pre_snapshot"]))
+        or not isinstance(scope["scope_files"], list)
+        or not scope["scope_files"]
+        or any(not isinstance(path, str) or not path for path in scope["scope_files"])
+    ):
+        raise PlanError("R1 checkpoint_receipt lacks authoritative scope coverage; migrate evidence explicitly")
     receipt_ids = receipt["task_ids"]
     if not isinstance(receipt_ids, list):
         raise PlanError("R1 checkpoint_receipt task_ids must be an array")
@@ -407,7 +422,7 @@ def _verify_checkpoint_receipt(
             "--task-ids",
             ",".join(str(task_id) for task_id in task_ids),
             "--fingerprint",
-            fingerprint,
+            receipt["input_fingerprint"],
             "--pass-id",
             receipt["pass_id"],
             "--worktree",
@@ -472,6 +487,8 @@ def accept_checkpoint(
                 "snapshot": checkpoint["snapshot"],
             }
 
+        if receipt["checkpoint_scope"]["pre_snapshot"] != checkpoint["snapshot"]:
+            raise PlanError("checkpoint scope baseline does not match the last accepted snapshot")
         if not decision["due"] or decision["task_ids"] != ordered_ids:
             raise PlanError("checkpoint decision changed; refusing to accept stale or unreviewed task IDs")
         accepted_ids = [task.id for task in plan.tasks if task.id in set(checkpoint["accepted_ids"]) | requested]

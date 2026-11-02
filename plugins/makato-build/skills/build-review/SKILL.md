@@ -9,7 +9,7 @@ description: >-
   stays off unless promoted by release evaluation. Use after simplify, before verify. Trigger
   keywords: review, adversarial, diff-review, code-review, quality-gate, build-review, check
   implementation.
-version: "1.11.0"
+version: "1.12.0"
 argument-hint: "[work-item-key] [--checkpoint-task-ids <comma-separated task ids>]"
 allowed-tools:
   - Bash
@@ -44,8 +44,9 @@ Non-obvious rules that cannot be inferred from context:
 3. **`ac_verdicts[]` transport: `build.jsonl` is the only durable record.** `workflow-state.json` is
    gitignored and never reaches the post-merge GHA runner. `build.jsonl` is the only
    cross-environment path the `build-create-pr` PR-body renderer and the `documentation-agent`
-   checkpoint flipper can read. Write the verdict entry on the final clean pass — not on
-   intermediate passes, not to any other file.
+   checkpoint flipper can read. After successful final completion, use ledger-owned `publish-audit`
+   to publish the final verdicts verbatim and session statistics; never append raw rows after
+   certification. Checkpoints publish session statistics only.
 
 4. **Both blocking tiers are mode-independent.** CRITICAL and MAJOR must be repaired and
    independently re-reviewed in manual and autonomous runs. Never defer a MAJOR to the user,
@@ -89,12 +90,24 @@ If no argument was passed, invoke `AskUserQuestion`:
 - question: _"Which work item are we reviewing?"_
 - hint: `e.g. #123 — or pass directly: /makato-build:build-review #123`
 
-Resolve `MAKATO_BUILD_ROOT` from the runner plugin-root variables. Apply the workspace entry guard
-in `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md`: `WORKTREE_PATH` is required in autonomous mode; manual
-mode defaults to the current git worktree. Missing autonomous workspace returns R1 failure, never a
-fallback to the main checkout.
+Resolve `MAKATO_BUILD_ROOT` from the runner plugin-root variables and freeze both active plugin
+roots before the first durable bind. Manual review requires explicit, non-empty
+`MAKATO_BUILD_ROOT` and `MAKATO_ORCHESTRATE_ROOT`, including in a source checkout; installed/cache
+roots need no Git checkout. Never fill the orchestrate binding from runtime-context, cache globs,
+the current directory, or consumer vendored copies. Only `run-skill.py` may select a source sibling
+after the complete Git/marketplace proof in `AUTONOMOUS-MODE.md`.
+
+Apply the workspace entry guard in `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md`: `WORKTREE_PATH` is
+required in autonomous mode; manual mode defaults to the current git worktree. Missing autonomous
+workspace returns R1 failure, never a fallback to the main checkout.
 
 ```bash
+: "${MAKATO_BUILD_ROOT:?Explicit active build root required}"
+: "${MAKATO_ORCHESTRATE_ROOT:?Explicit active orchestrate root required}"
+MAKATO_BUILD_ROOT="$(cd "$MAKATO_BUILD_ROOT" && pwd -P)" || exit 1
+MAKATO_ORCHESTRATE_ROOT="$(cd "$MAKATO_ORCHESTRATE_ROOT" && pwd -P)" || exit 1
+export MAKATO_BUILD_ROOT MAKATO_ORCHESTRATE_ROOT
+export MAKATO_ORCHESTRATE_SHARED="${MAKATO_ORCHESTRATE_SHARED:-$MAKATO_ORCHESTRATE_ROOT/shared}"
 cd "$WORKTREE_PATH"
 REPO_ROOT="${MAKATO_TARGET_REPO_ROOT:-$(cd "$(git rev-parse --git-common-dir)/.." && pwd)}"
 SPEC_FOLDER="$(python3 "$MAKATO_BUILD_ROOT/shared/spec_folder.py" "$REPO_ROOT" "<key>")"
@@ -173,19 +186,20 @@ checkpoint scope blocks receipt creation.
 
 `MAKATO_REVIEW_LENSES` is `auto` (default), `on`, or `off`: whether a full pass is split into one
 reviewer per lens. Log the effective mode and each helper-returned `sample_counts` value.
-`review_loop.py lenses` receives `--profile standard|deep` and
-`--pass-kind initial|first-rereview|later`. Use `standard` by default; risk-sample duplication is
-OFF.
+`review_loop.py lenses` receives `--state "$STATE"`, the frozen `--contract-root` and
+`--orchestrate-root`, `--profile standard|deep`, and `--pass-kind initial|first-rereview|later`.
+Use `standard` by default; absent/unbound/invalid state keeps sampling OFF with `sampling_warning`.
 
 No release-qualified `review-eval-v2` artifact is promoted for this configuration. Keep every
 `sample_counts` value at one. A future deep qualification requires verified source/config hashes,
 rollout eligibility, quality and workflow-performance passes, holdout verification, repeated corpus
 runs, and positive paired marginal recall benefit; no caller-supplied boolean or claimed fingerprint
-qualifies it. The configuration fingerprint is derived from exact model, explicit settings, and
-canonical prompt/helper source inventory; it is distinct from run `input_fingerprint`
-(branch/base/spec/context). The helper verifies the artifact against its live plugin source
-inventory and recalculates policy before enabling two samples for error-handling and
-state-concurrency on only the initial full pass and first re-review. Sampling never replaces
+qualifies it. The `review-eval-configuration-v2` fingerprint uses exact model/settings and the
+canonical path/kind/mode/SHA-256 inventory at both frozen roots; it excludes physical root
+locations/devices/inodes, not executable permissions. It is distinct from run `input_fingerprint`
+(branch/base/spec/context). Lenses verifies qualification against validated ledger bindings, never
+an assumed own-source root, before enabling two samples for error-handling and state-concurrency
+on only the initial full pass and first re-review. Sampling never replaces
 ordinary review, independent blocker confirmation, or mandatory final-full.
 
 Open the loop state. It records every finding with the passes that raised it and the repair rounds
@@ -206,6 +220,16 @@ invalidates stale review evidence but never resets counts. A legacy/incompatible
 migration fails with an explicit migration error; never reset it and continue. If `init` fails, log
 terminal `step:"session"`, `status:"error"` and return non-success: never review without the ledger.
 
+The contract is version 3; the ledger is version 3, the runtime is version 2
+(`review-runtime.v2`), and input manifests use `review-input-fingerprint-v2`. First durable
+`gate`/`merge` binds explicit build/orchestrate roots and the complete canonical closure atomically.
+The ledger and each runtime attempt freeze `contract_root`, `orchestrate_root`, and
+`root_bindings:{build:{path,dev,ino},orchestrate:{path,dev,ino}}`; these are invocation identities,
+not content-hash inputs. Every state operation checks the executing build installation and live
+bindings. Replacement, relocation, remount identity changes, or old schemas fail closed; never
+automatically migrate/reset state or renew repair caps. Preserve/export history and consumed budget
+before any explicitly authorized new ledger. Generic unbound state is not durable authorization.
+
 Compute the run input fingerprint before the first review and again before every state-changing
 dispatch and completion check. It binds the merge base, tracked/untracked worktree bytes, every
 spec/context file actually supplied to reviewers, and the review/runtime contract files:
@@ -222,27 +246,16 @@ for context_file in spec-delta.md glossary.md; do
   fi
 done
 # Add each other repo-relative source file actually supplied to PLAN_CONTEXT.
-CONTRACT_ARGS=(
-  --contract-path skills/build-review/SKILL.md
-  --contract-path skills/build-review/references/review-loop.md
-  --contract-path skills/build-review/references/review-criteria.md
-  --contract-path skills/build-review/references/mechanical-fixes.md
-  --contract-path agents/diff-reviewer.md
-  --contract-path agents/coder.md
-  --contract-path agents/RETURN-CONTRACT.md
-  --contract-path AUTONOMOUS-MODE.md
-  --contract-path config/default-workflow-schema.yml
-  --contract-path config/verification-ownership.md
-  --contract-path shared/review_loop.py
-  --contract-path shared/review_scope.py
-  --contract-path shared/review_runtime.py
-  --contract-path shared/review_eval.py
-  --contract-path shared/skill_execution.py
-  --contract-path scripts/run-skill.py
-)
+REVIEW_CONTRACT_PATHS_JSON="$(python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" contract-paths)" || exit 1
+REVIEW_CONTRACT_PATHS_TEXT="$(printf '%s' "$REVIEW_CONTRACT_PATHS_JSON" |
+  python3 -c 'import json,sys; print("\n".join(json.load(sys.stdin)))')" || exit 1
+mapfile -t REVIEW_CONTRACT_PATHS <<<"$REVIEW_CONTRACT_PATHS_TEXT"
+CONTRACT_ARGS=()
+for path in "${REVIEW_CONTRACT_PATHS[@]}"; do CONTRACT_ARGS+=(--contract-path "$path"); done
 FINGERPRINT_JSON="$(python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" fingerprint \
   --worktree "$WORKTREE_PATH" --review-base "$REVIEW_BASE" --evidence-root "$REPO_ROOT" \
-  --contract-root "$MAKATO_BUILD_ROOT" "${CONTEXT_ARGS[@]}" "${CONTRACT_ARGS[@]}")"
+  --contract-root "$MAKATO_BUILD_ROOT" --orchestrate-root "$MAKATO_ORCHESTRATE_ROOT" \
+  "${CONTEXT_ARGS[@]}" "${CONTRACT_ARGS[@]}")"
 INPUT_FINGERPRINT="$(printf '%s' "$FINGERPRINT_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)["sha256"])')"
 if [[ "$PLAN_CONTEXT_PRESENT" == "true" && -n "$EXPECTED_AC_IDS" ]]; then
   AC_GATE_ARGS=(--expected-ac-ids "$EXPECTED_AC_IDS")
@@ -252,8 +265,17 @@ else
 fi
 GATE_ARGS=(--state "$STATE" --worktree "$WORKTREE_PATH" --review-base "$REVIEW_BASE"
   --evidence-root "$REPO_ROOT" --contract-root "$MAKATO_BUILD_ROOT"
+  --orchestrate-root "$MAKATO_ORCHESTRATE_ROOT"
   "${CONTEXT_ARGS[@]}" "${CONTRACT_ARGS[@]}")
 ```
+
+`contract-paths` emits exactly the canonical `REVIEW_CONTRACT_PATHS` JSON array in tuple order;
+do not maintain a second handwritten inventory. Plain paths select the build root;
+`orchestrate:<rel>` selects the orchestrate root. Required inputs must be regular files contained
+below their canonical roots without below-root symlink components; additional contract paths
+cannot replace required entries. The launcher, runtime, and first durable bind reject an incomplete
+closure before a child executes. Reuse these roots and arrays for every initial, delta, final, and
+delivery fingerprint, merge, and gate; never rediscover or substitute roots on resume.
 
 If the fingerprint helper fails or any required context/contract path is unavailable, stop
 non-successfully; never omit an input to make the hash succeed. In autonomous mode the
@@ -359,6 +381,8 @@ worktree, review base, mode, profile, and risk-sample phase. Standard sampling:
 ```bash
 python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" lenses \
   --worktree "$WORKTREE_PATH" --review-base "$REVIEW_BASE" \
+  --state "$STATE" --contract-root "$MAKATO_BUILD_ROOT" \
+  --orchestrate-root "$MAKATO_ORCHESTRATE_ROOT" \
   --mode "$MAKATO_REVIEW_LENSES" --profile standard \
   --pass-kind "$RISK_SAMPLE_PHASE"
 ```
@@ -370,7 +394,7 @@ inventory:
 ```bash
 REVIEW_CONFIGURATION_JSON="$(python3 "$MAKATO_BUILD_ROOT/shared/review_eval.py" configuration \
   --model "$REVIEW_MODEL" --settings "$REVIEW_SETTINGS_JSON" \
-  --source-root "$MAKATO_BUILD_ROOT")"
+  --source-root "$MAKATO_BUILD_ROOT" --orchestrate-root "$MAKATO_ORCHESTRATE_ROOT")"
 REVIEW_CONFIGURATION_FINGERPRINT="$(printf '%s' "$REVIEW_CONFIGURATION_JSON" |
   python3 -c 'import json,sys; print(json.load(sys.stdin)["fingerprint"])')"
 ```
@@ -383,7 +407,7 @@ schema-v2 artifact is produced from real manifest, scanner runs, and recovery ev
 python3 "$MAKATO_BUILD_ROOT/shared/review_eval.py" qualify \
   --manifest "$EVAL_MANIFEST" --runs "$EVAL_RUNS" --recoveries "$EVAL_RECOVERIES" \
   --model "$REVIEW_MODEL" --settings "$REVIEW_SETTINGS_JSON" \
-  --source-root "$MAKATO_BUILD_ROOT"
+  --source-root "$MAKATO_BUILD_ROOT" --orchestrate-root "$MAKATO_ORCHESTRATE_ROOT"
 ```
 
 `lenses` re-derives and verifies the current model/settings/source inventory, artifact hashes, the
@@ -393,6 +417,8 @@ pinned pre-change baseline tree and resolved executable/script bytes of all thre
 ```bash
 python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" lenses \
   --worktree "$WORKTREE_PATH" --review-base "$REVIEW_BASE" \
+  --state "$STATE" --contract-root "$MAKATO_BUILD_ROOT" \
+  --orchestrate-root "$MAKATO_ORCHESTRATE_ROOT" \
   --mode "$MAKATO_REVIEW_LENSES" --profile deep \
   --pass-kind "$RISK_SAMPLE_PHASE" --qualification "$REVIEW_EVALUATION_ARTIFACT" \
   --config-fingerprint "$REVIEW_CONFIGURATION_FINGERPRINT" \
@@ -414,10 +440,12 @@ Long error-handling review may be divided only at coordinator-identified operati
 one shared coverage map, cross-slice relationships, and bounded resource budget. Do not claim
 automatic operation partitioning or add reviewers merely to increase count.
 
-Save each reviewer R1 to `"$(dirname "$STATE")/pass-<N>-<lens|single>.json"`, merge the whole batch,
-then call `review_loop.py gate --event review` with the merged evidence and current fingerprint. The
-helper's `next_action` and persisted `reason` decide the next step. Reject missing/malformed R1,
-`partial`, inconsistent severity counts, missing citations, or an R1 with errors as clean. Preserve
+Save each reviewer R1 to `"$(dirname "$STATE")/pass-<N>-<lens|single>.json"`, merge the whole batch
+using the reference's `merge` interface with both frozen roots and the same context/contract arrays,
+then call `review_loop.py gate --event review` with `GATE_ARGS`, merged evidence, and current
+fingerprint. The helper's `next_action` and persisted `reason` decide the next step. Reject
+missing/malformed R1, `partial`, inconsistent severity counts, missing citations, or an R1 with
+errors as clean. Preserve
 raw reviewer envelopes and every constituent finding. Merge only verified identical findings;
 proximity of lines/sites is never evidence that two invariants are the same and must not discard
 either.
@@ -458,9 +486,11 @@ intermediate evidence. A `final-full` pass freshly checks every AC against code 
 `ac-verification` entry and never marks any current or future AC passed.
 
 After the final mechanical no-change gate and `review_loop.py gate --event complete` returns
-`next_action:"complete"` for the same fingerprint, copy the final `ac_verdicts[]` verbatim into the
-`build.jsonl` `ac-verification` entry. Missing, empty, false, or uncited AC verdicts block final
-completion; never substitute a build-review judgment.
+`next_action:"complete"` at the reviewed fingerprint, use `publish-audit` (Step 5.5). The helper
+copies the persisted independent final-full `ac_verdicts[]` verbatim into the canonical
+`build.jsonl` `ac-verification` row and generates the session row. Missing, empty, false, or uncited
+AC verdicts block final completion; never substitute a build-review judgment or caller-authored
+rows.
 
 ---
 
@@ -480,7 +510,8 @@ authority; use its action at every boundary.
 - `review`: after merging a complete diff-reviewer pass;
 - `confirm`: after persisting a complete independent confirmation batch;
 - `repair-local`: before a gate-authorized bounded repair; it reserves the attempt and returns the
-  authoritative round and blocker IDs for the coder/manual repair;
+  authoritative round and currently open, independently confirmed blocker IDs for the coder/manual
+  repair. Dismissed distinct invariants retain history but receive no repair authority;
 - `redesign`: after an architectural, cross-boundary, unknown-scope, or recurrence plan is
   independently approved and before implementation;
 - `certify`: after the required fresh final-full result and independent closure evidence for every
@@ -628,23 +659,59 @@ python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" gate "${GATE_ARGS[@]}" \
   --event checkpoint --fingerprint "$INPUT_FINGERPRINT" --evidence "$CHECKPOINT_EVIDENCE"
 ```
 
-The gate recomputes and checks the fingerprint, latest successful delta pass, pass ID, citations,
-and constituent closure. The durable receipt contains `task_ids`, `input_fingerprint`, `pass_id`,
-`scope:"delta"`, `checkpoint_verified:true`, `final_review:false`, and the gate-injected `snapshot`;
-do not supply `snapshot` in checkpoint evidence. The gate returns `next_action:"review"` and never
-`complete`. Copy the receipt verbatim to the build-review R1 `data.checkpoint_receipt`, set
-`data.final_review:false`, and return `success` only if the gate validated it. Do not emit
-`ac-verification`. The scheduler must validate the receipt against the actual ledger and current
-fingerprint before accepting task IDs. Its authoritative validation command is:
+The gate recomputes the fingerprint, source snapshot and authoritative coverage: first completed-task
+diff against the merge-base, then delta from the prior published checkpoint source snapshot, plus
+affected callers/dependencies, previous invariant sites and bound context/contract inputs. Every
+required path needs a file citation and sufficient `files_reviewed`; use `context:<path>`,
+`contract:<path>` and `orchestrate:<path>` for explicit manifest inputs. One unscoped reviewer or
+all five lenses must each cover that complete scope. Scope assertions and positive counts alone
+are not proof. Context/contract changes invalidate previous source coverage; uncertain or truncated
+impact expands scope.
+
+The source receipt contains `task_ids`, `input_fingerprint`, `pass_id`, `scope:"delta"`,
+`checkpoint_verified:true`, `final_review:false`, the gate-injected `snapshot`, and
+`checkpoint_scope:{pre_snapshot,scope_files}`. Never supply snapshot or scope as authority; the
+gate derives both. `pre_snapshot` is null for the first checkpoint. The gate returns
+`next_action:"review"`, never `complete`. Then publish its session row through the ledger:
 
 ```bash
-python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" checkpoint-receipt --state "$STATE" \
-  --task-ids "$CHECKPOINT_TASK_IDS" --fingerprint "$INPUT_FINGERPRINT" \
-  --pass-id "$PASS_ID" --worktree "$WORKTREE_PATH" --review-base "$REVIEW_BASE"
+AUDIT_PUBLICATION="$(python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" publish-audit \
+  --state "$STATE" --worktree "$WORKTREE_PATH" --review-base "$REVIEW_BASE")" || exit 1
 ```
 
-The scheduler compares the returned receipt verbatim before accepting; R1 success alone is
-insufficient.
+Return `success` only after successful publication. Copy its `checkpoint_receipt` verbatim to R1
+`data.checkpoint_receipt`, not the earlier source receipt. This delivery copy preserves the reviewed
+`input_fingerprint` and `snapshot` and adds `delivery_fingerprint` and `audit_transition`; never
+rewrite source fields to the delivery hash. Also copy the publication's top-level
+`input_fingerprint`, `delivery_fingerprint`, `audit_transition`, and `final_review:false`, and set
+`data.next_action:"review"`. Checkpoints publish no `ac-verification` row.
+
+Publication and receipt validation independently reconstruct that scope from the retained source
+trees/manifests and recheck each reviewer's coverage. The scheduler also requires `pre_snapshot`
+to match its last accepted snapshot before advancing tasks. Missing historical scope evidence
+blocks for explicit evidence-preserving migration, never a ledger/cap reset. The authoritative
+validation command is:
+
+```bash
+DELIVERY_FINGERPRINT_JSON="$(python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" fingerprint \
+  --worktree "$WORKTREE_PATH" --review-base "$REVIEW_BASE" --evidence-root "$REPO_ROOT" \
+  --contract-root "$MAKATO_BUILD_ROOT" --orchestrate-root "$MAKATO_ORCHESTRATE_ROOT" \
+  "${CONTEXT_ARGS[@]}" "${CONTRACT_ARGS[@]}")" || exit 1
+DELIVERY_FINGERPRINT="$(printf '%s' "$DELIVERY_FINGERPRINT_JSON" |
+  python3 -c 'import json,sys; print(json.load(sys.stdin)["sha256"])')" || exit 1
+SOURCE_FINGERPRINT="$(printf '%s' "$AUDIT_PUBLICATION" |
+  python3 -c 'import json,sys; print(json.load(sys.stdin)["input_fingerprint"])')" || exit 1
+CHECKED_RECEIPT="$(python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" checkpoint-receipt --state "$STATE" \
+  --task-ids "$CHECKPOINT_TASK_IDS" --fingerprint "$SOURCE_FINGERPRINT" \
+  --pass-id "$PASS_ID" --worktree "$WORKTREE_PATH" --review-base "$REVIEW_BASE")" || exit 1
+printf '%s' "$CHECKED_RECEIPT" | python3 -c \
+  'import json,sys; assert json.load(sys.stdin)["delivery_fingerprint"] == sys.argv[1]' "$DELIVERY_FINGERPRINT" || exit 1
+```
+
+`--fingerprint` identifies the immutable reviewed source, not the delivery. The verifier
+independently checks the live transition; the separate comparison above binds its returned
+delivery to the recomputed full hash. The scheduler also compares the returned receipt verbatim
+before accepting; R1 success alone is insufficient. Preserve the source snapshot for the next delta.
 
 ---
 
@@ -660,7 +727,8 @@ trying completion again. Do not accept a formatter-only delta as final certifica
 fingerprint_current() {
   python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" fingerprint \
     --worktree "$WORKTREE_PATH" --review-base "$REVIEW_BASE" --evidence-root "$REPO_ROOT" \
-    --contract-root "$MAKATO_BUILD_ROOT" "${CONTEXT_ARGS[@]}" "${CONTRACT_ARGS[@]}" |
+    --contract-root "$MAKATO_BUILD_ROOT" --orchestrate-root "$MAKATO_ORCHESTRATE_ROOT" \
+    "${CONTEXT_ARGS[@]}" "${CONTRACT_ARGS[@]}" |
     python3 -c 'import json,sys; print(json.load(sys.stdin)["sha256"])'
 }
 FINAL_SNAPSHOT="$(python3 "$MAKATO_BUILD_ROOT/shared/review_scope.py" snapshot \
@@ -696,20 +764,47 @@ python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" gate "${GATE_ARGS[@]}" \
   "${AC_GATE_ARGS[@]}"
 ```
 
-Return final `success` only when this gate returns `next_action:"complete"` and the current
-fingerprint still matches. Otherwise follow its action or return blocked. The final `build.jsonl`
-`ac-verification` entry copies the diff-reviewer's final-full `ac_verdicts[]` verbatim; every AC
-must be `verified:true` with code and test citations. Checkpoint mode exits before this step.
+Final completion requires `next_action:"complete"` at the unchanged reviewed fingerprint.
+Otherwise follow the gate's action or return blocked. Then publish the ledger-owned final audit:
+
+```bash
+AUDIT_PUBLICATION="$(python3 "$MAKATO_BUILD_ROOT/shared/review_loop.py" publish-audit \
+  --state "$STATE" --worktree "$WORKTREE_PATH" --review-base "$REVIEW_BASE")" || exit 1
+```
+
+The operation derives the canonical story audit from the ledger-bound evidence root (fallback
+worktree), not a caller path. It takes no caller fingerprint, rows, receipt, or success flag.
+It publishes only the independent final-full AC verdicts verbatim and ledger-derived session
+statistics. Checkpoint mode publishes its session row in Step 5 and exits before this step.
+
+The canonical audit must be a single-link regular file. Reject hardlink aliases before any append,
+including retries after intent persistence; detecting collateral changes after writing is too late.
+Durable narration reads/writes only its private comment-ID cache, never workflow-state (even on
+empty/failed cache reads). Export the same frozen `MAKATO_BUILD_ROOT`,
+`MAKATO_ORCHESTRATE_ROOT`, and matching `MAKATO_ORCHESTRATE_SHARED`. The logger/cache reader is
+selected from the build root, not a guessed sibling, but both helpers must validate their own
+physical installation against the ledger before private ledger/audit writes or progress transport.
+Progress binding failure warns on stderr only and makes no GitHub/private-log write; it remains
+best effort. Durable progress never uses runtime-context discovery or workflow-state.
+
+Return final `success` only after publication and independent live certificate/transition
+validation. Keep the reviewed `input_fingerprint`, pass, closures, and mechanical before/after
+evidence immutable. Copy `input_fingerprint`, actual full live `delivery_fingerprint`,
+`audit_transition`, and `final_review:true` from the publication to R1. Source and delivery hashes
+need not be equal; delivery-only audit additions do not expand the anchor's review coverage.
+Every other source, untracked, base, context, or contract change invalidates acceptance. See
+`references/review-loop.md` for the publication and retry protocol.
 
 ---
 
 ### Step 6 — Present final report and hand off
 
 For a validated task checkpoint, report only the completed task IDs, scoped review result, remaining
-provisional ACs, and that final review is pending. Return the R1 success envelope with
-`data.checkpoint_receipt` copied verbatim from the gate, `data.final_review:false`, and
-`data.next_action:"review"`; do not report overall story completion or emit `ac-verification`. The
-scheduler must independently accept the receipt against the ledger and current fingerprint.
+provisional ACs, and that final review is pending. Return the R1 success envelope with the
+publication's `checkpoint_receipt` copied verbatim, its source/delivery fingerprints and
+`audit_transition`, `data.final_review:false`, and `data.next_action:"review"`; do not report
+overall story completion or emit `ac-verification`. The scheduler independently validates the
+source certificate, audit transition, and actual live delivery before accepting the receipt.
 
 For normal completion, present the clean-run findings to the user:
 
@@ -719,16 +814,11 @@ For normal completion, present the clean-run findings to the user:
   `/verify` if desired; they do not block.
 - **NITPICK findings** — list with file, line, description. Purely informational.
 
-Run:
-
-```bash
-"$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO8601>","skill":"build-review","story":"<key>","step":"session","status":"ok","data":{"passes":<N>,"full_passes":<N>,"delta_passes":<N>,"background_passes":<N>,"lens_split_passes":<N>,"repair_plan_reviews":<N>,"criticals_fixed":<N>,"majors_fixed":<N>,"criticals_open":0,"majors_open":0,"suggestions":<N>,"nitpicks":<N>}}'
-```
-
-`passes`, `full_passes`, and `delta_passes` count live-tree review passes; a lens-split pass is one
-pass. `background_passes` counts completed background full passes, `lens_split_passes` counts
-full-scope passes (live or background) merged from more than one lens reviewer, and
-`repair_plan_reviews` counts `diff-reviewer` dispatches in `REVIEW_MODE: repair-plan`.
+The successful `publish-audit` operation already wrote the terminal session row; do not call
+`build-log.sh` again here. Report only helper-generated ledger statistics, not caller-maintained
+counts. Preserve any additional operational audit before publication, or outside every protected
+manifest input. An `orchestrate.jsonl` or other normally untracked log is still protected when
+explicitly supplied as context. Never exclude or untrack audits to avoid invalidation.
 
 Tell the user: _"\<N\> criticals and \<N\> majors fixed across \<N\> passes. No blocking findings
 remain. \<N\> suggestions and \<N\> nitpicks noted above._ _Pipeline remaining: `/build-verify` →
@@ -740,7 +830,7 @@ Return the R1 envelope from `$MAKATO_BUILD_ROOT/agents/RETURN-CONTRACT.md` with
 `errors:[]`, and
 
 ```text
-data:{passes,full_passes,delta_passes,background_passes,lens_split_passes,repair_plan_reviews,critical_count:0,major_count:0,final_review:true,input_fingerprint:<current SHA-256>}
+data:{passes,full_passes,delta_passes,background_passes,lens_split_passes,repair_plan_reviews,critical_count:0,major_count:0,final_review:true,input_fingerprint:<immutable reviewed SHA-256>,delivery_fingerprint:<actual live full SHA-256>,audit_transition:<verbatim publication receipt>}
 ```
 
 A caller must not infer success from a prose report or a coder result.

@@ -5,6 +5,9 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -16,13 +19,45 @@ import review_scope  # noqa: E402
 
 MODEL = "test-model@1"
 SETTINGS = {"profile": "deep", "risk_lenses": ["error-handling", "state-concurrency"]}
+OLD_RELEASE_PATHS = (
+    "agents/RETURN-CONTRACT.md",
+    "agents/coder.md",
+    "agents/diff-reviewer.md",
+    "config/default-workflow-schema.yml",
+    "config/verification-ownership.md",
+    "skills/build-review/SKILL.md",
+    "skills/build-review/references/mechanical-fixes.md",
+    "skills/build-review/references/review-criteria.md",
+    "skills/build-review/references/review-loop.md",
+    "shared/spec_folder.py",
+    "shared/review_loop.py",
+    "shared/skill_execution.py",
+    "shared/review_scope.py",
+    "scripts/run-skill.py",
+    "AUTONOMOUS-MODE.md",
+)
 
 
-def _write_configuration_sources(root: Path) -> Path:
-    for relative in review_scope.REVIEW_CONTRACT_PATHS:
+def _write_configuration_sources(root: Path, orchestrate_root: Path) -> Path:
+    for argument in review_scope.REVIEW_CONTRACT_PATHS:
+        _, relative, selected = review_scope.contract_input(argument, root, orchestrate_root)
+        path = selected / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if relative == ".claude-plugin/plugin.json":
+            name = "makato-orchestrate" if selected == orchestrate_root.resolve() else "makato-build"
+            path.write_text(json.dumps({"name": name}), encoding="utf-8")
+        else:
+            path.write_text(f"fixture source: {argument}\n", encoding="utf-8")
+        path.chmod(0o644)
+    return root
+
+
+def _write_baseline_sources(root: Path) -> Path:
+    for relative in OLD_RELEASE_PATHS:
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(f"fixture source: {relative}\n", encoding="utf-8")
+        path.chmod(0o644)
     return root
 
 
@@ -48,8 +83,12 @@ def _workflow(finding_ids: list[str]) -> tuple[list[dict], dict, dict, list[dict
 
 @pytest.fixture
 def corpus(tmp_path):
+    return _make_corpus(tmp_path)
+
+
+def _make_corpus(tmp_path: Path, *, source_root: Path | None = None, orchestrate_root: Path | None = None) -> dict:
     source = tmp_path / "snapshot"
-    source.mkdir()
+    source.mkdir(parents=True)
     (source / "operation.py").write_text("def operation():\n    return False\n", encoding="utf-8")
     snapshot = {"path": "snapshot", "files": {"operation.py": hashlib.sha256((source / "operation.py").read_bytes()).hexdigest()}}
     cases = []
@@ -78,9 +117,12 @@ def corpus(tmp_path):
             }
         )
     manifest = {"schema": review_eval.SCHEMA, "cases": cases}
-    config_root = _write_configuration_sources(tmp_path / "release")
-    config = review_eval.configuration(MODEL, SETTINGS, config_root)
-    baseline_root = _write_configuration_sources(tmp_path / "baseline")
+    if source_root is None:
+        orchestrate_root = tmp_path / "separate-orchestrate"
+        source_root = _write_configuration_sources(tmp_path / "release", orchestrate_root)
+    config_root = source_root
+    config = review_eval.configuration(MODEL, SETTINGS, config_root, orchestrate_root=orchestrate_root)
+    baseline_root = _write_baseline_sources(tmp_path / "baseline")
     (baseline_root / "skills/build-review/SKILL.md").write_text("fixture pre-change review policy\n", encoding="utf-8")
     (baseline_root / "legacy-policy.py").write_text("PRE_CHANGE = True\n", encoding="utf-8")
     baseline_source = review_eval._baseline_source(baseline_root)
@@ -153,6 +195,7 @@ def corpus(tmp_path):
         "runs": runs,
         "recoveries": recoveries,
         "source_root": config_root,
+        "orchestrate_root": orchestrate_root,
         "config": config,
         "baseline_root": baseline_root,
         "commands": commands,
@@ -184,6 +227,7 @@ def check(corpus, refresh_digest: bool = True):
         model=MODEL,
         settings=SETTINGS,
         source_root=corpus["source_root"],
+        orchestrate_root=corpus["orchestrate_root"],
         artifact_paths=paths,
     )
 
@@ -201,9 +245,25 @@ def _record(corpus, case_id: str, variant: str, repetition: int = 0) -> dict:
 
 
 def test_configuration_fingerprint_uses_exact_model_settings_and_release_source_inventory(corpus):
-    config = review_eval.configuration(MODEL, SETTINGS, corpus["source_root"])
-    assert review_eval.configuration_fingerprint(MODEL, {**SETTINGS, "sample_count": 3}, corpus["source_root"]) != config["fingerprint"]
-    assert review_eval.configuration_fingerprint("another-model@1", SETTINGS, corpus["source_root"]) != config["fingerprint"]
+    config = review_eval.configuration(MODEL, SETTINGS, corpus["source_root"], orchestrate_root=corpus["orchestrate_root"])
+    assert review_eval.configuration_fingerprint(MODEL, {**SETTINGS, "sample_count": 3}, corpus["source_root"], orchestrate_root=corpus["orchestrate_root"]) != config["fingerprint"]
+    assert review_eval.configuration_fingerprint("another-model@1", SETTINGS, corpus["source_root"], orchestrate_root=corpus["orchestrate_root"]) != config["fingerprint"]
+
+
+def test_audit_helper_and_resolver_are_release_inputs_but_new_helper_is_not_required_of_baseline(tmp_path):
+    orchestrate = tmp_path / "orchestrate"
+    root = _write_configuration_sources(tmp_path / "release", orchestrate)
+    paths = {"shared/review_audit.py", "shared/spec_folder.py"}
+    assert paths.issubset(review_scope.REVIEW_CONTRACT_PATHS)
+    original = review_eval.configuration_fingerprint(MODEL, SETTINGS, root, orchestrate_root=orchestrate)
+    for relative in sorted(paths):
+        target = root / relative
+        before = target.read_bytes()
+        target.write_bytes(before + b"# changed\n")
+        assert review_eval.configuration_fingerprint(MODEL, SETTINGS, root, orchestrate_root=orchestrate) != original
+        target.write_bytes(before)
+    (root / "shared/review_audit.py").unlink()
+    assert review_eval._baseline_source(root)["fingerprint"]
 
 
 @pytest.mark.parametrize("relative", ["skills/build-review/SKILL.md", "legacy-policy.py"])
@@ -211,7 +271,7 @@ def test_changed_baseline_prompt_or_implementation_invalidates_qualification(cor
     report_path = _save_report(corpus)
     (corpus["baseline_root"] / relative).write_text("baseline changed after measurement\n", encoding="utf-8")
     with pytest.raises(review_eval.EvalError, match="baseline"):
-        review_eval.verify_qualification(report_path, corpus["config"]["fingerprint"], MODEL, source_root=corpus["source_root"], settings=SETTINGS)
+        review_eval.verify_qualification(report_path, corpus["config"]["fingerprint"], MODEL, source_root=corpus["source_root"], orchestrate_root=corpus["orchestrate_root"], settings=SETTINGS)
 
 
 @pytest.mark.parametrize("target", ["shared", "skills/build-review/SKILL.md"])
@@ -226,11 +286,11 @@ def test_internal_baseline_alias_is_usable_but_retargeting_invalidates_qualifica
     report = check(corpus)
     assert report["rollout_eligible"] is True
     report_path = _save_report(corpus, report)
-    review_eval.verify_qualification(report_path, corpus["config"]["fingerprint"], MODEL, source_root=corpus["source_root"], settings=SETTINGS)
+    review_eval.verify_qualification(report_path, corpus["config"]["fingerprint"], MODEL, source_root=corpus["source_root"], orchestrate_root=corpus["orchestrate_root"], settings=SETTINGS)
     alias.unlink()
     alias.symlink_to("agents")
     with pytest.raises(review_eval.EvalError, match="baseline"):
-        review_eval.verify_qualification(report_path, corpus["config"]["fingerprint"], MODEL, source_root=corpus["source_root"], settings=SETTINGS)
+        review_eval.verify_qualification(report_path, corpus["config"]["fingerprint"], MODEL, source_root=corpus["source_root"], orchestrate_root=corpus["orchestrate_root"], settings=SETTINGS)
 
 
 @pytest.mark.parametrize("target", ["../snapshot", "../absent", "review-alias"])
@@ -245,7 +305,7 @@ def test_changed_executable_adapter_invalidates_qualification(corpus, variant):
     report_path = _save_report(corpus)
     Path(corpus["commands"][variant][0]).write_text("#!/bin/sh\nexit 17\n", encoding="utf-8")
     with pytest.raises(review_eval.EvalError, match="provenance"):
-        review_eval.verify_qualification(report_path, corpus["config"]["fingerprint"], MODEL, source_root=corpus["source_root"], settings=SETTINGS)
+        review_eval.verify_qualification(report_path, corpus["config"]["fingerprint"], MODEL, source_root=corpus["source_root"], orchestrate_root=corpus["orchestrate_root"], settings=SETTINGS)
 
 
 def test_identical_baseline_candidate_commands_cannot_qualify(corpus):
@@ -527,6 +587,7 @@ def test_run_pairs_rejects_git_history_before_scanner_invocation(corpus, monkeyp
             30,
             corpus["source_root"],
             baseline_source_root=corpus["baseline_root"],
+            orchestrate_root=corpus["orchestrate_root"],
         )
     assert calls == []
 
@@ -549,7 +610,7 @@ def test_changed_raw_artifact_bytes_invalidate_bound_report(corpus):
         original = artifact_path.read_bytes()
         artifact_path.write_bytes(original + b" ")
         with pytest.raises(review_eval.EvalError, match=f"{name} artifact content changed"):
-            review_eval.verify_qualification(report_path, corpus["config"]["fingerprint"], MODEL, source_root=corpus["source_root"], settings=SETTINGS)
+            review_eval.verify_qualification(report_path, corpus["config"]["fingerprint"], MODEL, source_root=corpus["source_root"], orchestrate_root=corpus["orchestrate_root"], settings=SETTINGS)
         artifact_path.write_bytes(original)
 
 
@@ -570,7 +631,7 @@ def test_forged_report_booleans_are_recomputed_from_raw_evidence(corpus):
     forged["recall_benefit"] = True
     report_path.write_text(json.dumps(forged, sort_keys=True), encoding="utf-8")
     with pytest.raises(review_eval.EvalError, match="recomputed raw evidence"):
-        review_eval.verify_qualification(report_path, corpus["config"]["fingerprint"], MODEL, source_root=corpus["source_root"], settings=SETTINGS)
+        review_eval.verify_qualification(report_path, corpus["config"]["fingerprint"], MODEL, source_root=corpus["source_root"], orchestrate_root=corpus["orchestrate_root"], settings=SETTINGS)
 
 
 def test_stale_or_arbitrarily_claimed_configuration_fingerprint_is_rejected(corpus):
@@ -579,15 +640,15 @@ def test_stale_or_arbitrarily_claimed_configuration_fingerprint_is_rejected(corp
     source = corpus["source_root"] / "agents" / "diff-reviewer.md"
     source.write_text("changed current release contract", encoding="utf-8")
     with pytest.raises(review_eval.EvalError, match="does not match current release"):
-        review_eval.verify_qualification(report_path, corpus["config"]["fingerprint"], MODEL, source_root=corpus["source_root"], settings=SETTINGS)
+        review_eval.verify_qualification(report_path, corpus["config"]["fingerprint"], MODEL, source_root=corpus["source_root"], orchestrate_root=corpus["orchestrate_root"], settings=SETTINGS)
     with pytest.raises(review_eval.EvalError, match="does not match current release"):
-        review_eval.verify_qualification(report_path, "a" * 64, MODEL, source_root=corpus["source_root"], settings=SETTINGS)
+        review_eval.verify_qualification(report_path, "a" * 64, MODEL, source_root=corpus["source_root"], orchestrate_root=corpus["orchestrate_root"], settings=SETTINGS)
 
 
 def test_qualification_verification_returns_only_recomputed_bound_report(corpus):
     result = check(corpus)
     report_path = _save_report(corpus, result)
-    verified = review_eval.verify_qualification(report_path, corpus["config"]["fingerprint"], MODEL, source_root=corpus["source_root"], settings=SETTINGS)
+    verified = review_eval.verify_qualification(report_path, corpus["config"]["fingerprint"], MODEL, source_root=corpus["source_root"], orchestrate_root=corpus["orchestrate_root"], settings=SETTINGS)
     assert verified["rollout_eligible"] is True
 
 
@@ -638,6 +699,7 @@ def test_run_pairs_isolates_mutable_scanner_tree_from_assessor_snapshot(corpus, 
         30,
         corpus["source_root"],
         baseline_source_root=corpus["baseline_root"],
+        orchestrate_root=corpus["orchestrate_root"],
     )
     assert (corpus["root"] / "snapshot" / "operation.py").read_text(encoding="utf-8") == original
     assert {(payload["case_id"], payload["variant"], payload["repetition"]) for payload in scanner_calls} == {
@@ -659,3 +721,287 @@ def test_new_untracked_snapshot_file_invalidates_old_measurements(corpus):
     (corpus["root"] / "snapshot" / "new_dependency.py").write_text("unreviewed context", encoding="utf-8")
     with pytest.raises(review_eval.EvalError, match="file inventory changed"):
         check(corpus)
+
+
+def _refresh_configuration(corpus):
+    config = review_eval.configuration(MODEL, SETTINGS, corpus["source_root"], orchestrate_root=corpus["orchestrate_root"])
+    corpus["config"] = config
+    corpus["runs"]["configuration"] = config
+    corpus["runs"]["configuration_fingerprint"] = config["fingerprint"]
+    corpus["recoveries"]["configuration_fingerprint"] = config["fingerprint"]
+    for record in corpus["runs"]["runs"]:
+        record["configuration_fingerprint"] = config["fingerprint"]
+        if record["variant"] == "candidate":
+            record["workflow_source_fingerprint"] = config["fingerprint"]
+
+
+@pytest.mark.parametrize(
+    "argument",
+    [
+        "shared/build-log.sh",
+        "shared/review_scope.py",
+        "shared/default-branch.sh",
+        "orchestrate:shared/progress-comment.sh",
+        "orchestrate:scripts/task_schedule.py",
+    ],
+)
+@pytest.mark.parametrize("mutation", ["bytes", "mode", "directory", "symlink"])
+def test_active_installed_source_changes_invalidate_configuration_and_qualification(corpus, argument, mutation):
+    build = Path(review_eval.__file__).resolve().parents[1]
+    orchestrate = build.parent / "makato-orchestrate"
+    _, relative, original_root = review_scope.contract_input(argument, build, orchestrate)
+    _, _, selected = review_scope.contract_input(argument, corpus["source_root"], corpus["orchestrate_root"])
+    target = selected / relative
+    shutil.copy2(original_root / relative, target)
+    _refresh_configuration(corpus)
+    report = _save_report(corpus)
+    before = corpus["config"]["fingerprint"]
+    if mutation == "bytes":
+        target.write_bytes(target.read_bytes() + b"\n# active installed source changed\n")
+    elif mutation == "mode":
+        target.chmod(target.stat().st_mode ^ 0o100)
+    else:
+        contents = target.read_bytes()
+        target.unlink()
+        if mutation == "directory":
+            target.mkdir()
+        else:
+            outside = corpus["root"] / "outside-source"
+            outside.write_bytes(contents)
+            target.symlink_to(outside)
+    if mutation in ("bytes", "mode"):
+        changed = review_eval.configuration_fingerprint(MODEL, SETTINGS, corpus["source_root"], orchestrate_root=corpus["orchestrate_root"])
+        assert changed != before
+    else:
+        with pytest.raises(review_eval.EvalError, match="canonical|regular|symlink"):
+            review_eval.configuration(MODEL, SETTINGS, corpus["source_root"], orchestrate_root=corpus["orchestrate_root"])
+    with pytest.raises(review_eval.EvalError, match="configuration|canonical"):
+        review_eval.verify_qualification(report, before, MODEL, source_root=corpus["source_root"], orchestrate_root=corpus["orchestrate_root"], settings=SETTINGS)
+
+
+def test_configuration_records_kind_mode_and_hash_without_physical_root_identity(corpus):
+    inventory = corpus["config"]["source_inventory"]
+    assert len(inventory) == len(review_scope.REVIEW_CONTRACT_PATHS)
+    for argument, record in zip(review_scope.REVIEW_CONTRACT_PATHS, inventory, strict=True):
+        label, relative, selected = review_scope.contract_input(argument, corpus["source_root"], corpus["orchestrate_root"])
+        target = selected / relative
+        assert record == {"path": f"{label}:{relative}", "kind": "file", "mode": 0o644, "sha256": hashlib.sha256(target.read_bytes()).hexdigest()}
+    assert set(corpus["config"]) == {"schema", "model", "settings", "source_inventory", "fingerprint"}
+    assert str(corpus["root"]) not in json.dumps(corpus["config"])
+
+
+def test_inactive_decoy_mutation_is_irrelevant_and_relocated_content_is_reproducible(corpus, monkeypatch):
+    report = _save_report(corpus)
+    relocated_build = corpus["root"] / "relocated-build"
+    relocated_orchestrate = corpus["root"] / "relocated-orchestrate"
+    shutil.copytree(corpus["source_root"], relocated_build)
+    shutil.copytree(corpus["orchestrate_root"], relocated_orchestrate)
+    monkeypatch.setenv("MAKATO_BUILD_ROOT", str(relocated_build))
+    monkeypatch.setenv("MAKATO_ORCHESTRATE_ROOT", str(relocated_orchestrate))
+    monkeypatch.setenv("MAKATO_ORCHESTRATE_SHARED", str(relocated_orchestrate / "shared"))
+    decoy = relocated_orchestrate / "shared/progress-comment.sh"
+    before = decoy.read_bytes()
+    decoy.write_bytes(before + b"inactive\n")
+    active = review_eval.configuration(MODEL, SETTINGS, corpus["source_root"], orchestrate_root=corpus["orchestrate_root"])
+    assert active == corpus["config"]
+    assert review_eval.verify_qualification(report, active["fingerprint"], MODEL, source_root=corpus["source_root"], orchestrate_root=corpus["orchestrate_root"], settings=SETTINGS)["rollout_eligible"]
+    decoy.write_bytes(before)
+    assert review_scope.root_bindings(relocated_build, relocated_orchestrate) != review_scope.root_bindings(corpus["source_root"], corpus["orchestrate_root"])
+    assert review_eval.configuration(MODEL, SETTINGS, relocated_build, orchestrate_root=relocated_orchestrate) == active
+    assert review_eval.verify_qualification(report, active["fingerprint"], MODEL, source_root=relocated_build, orchestrate_root=relocated_orchestrate, settings=SETTINGS)["rollout_eligible"]
+
+
+@pytest.mark.parametrize("name", ["source_root", "orchestrate_root"])
+@pytest.mark.parametrize("problem", ["missing", "empty", "absent", "file", "wrong-manifest"])
+def test_configuration_requires_both_explicit_valid_roots_despite_valid_exports(corpus, monkeypatch, name, problem):
+    monkeypatch.setenv("MAKATO_BUILD_ROOT", str(corpus["source_root"]))
+    monkeypatch.setenv("MAKATO_ORCHESTRATE_ROOT", str(corpus["orchestrate_root"]))
+    roots = {key: corpus[key] for key in ("source_root", "orchestrate_root")}
+    if problem == "missing":
+        roots[name] = None
+    elif problem == "empty":
+        roots[name] = ""
+    elif problem == "absent":
+        roots[name] = corpus["root"] / "absent"
+    elif problem == "file":
+        roots[name] = corpus["root"] / "not-a-directory"
+        roots[name].write_text("not a root")
+    else:
+        (roots[name] / ".claude-plugin/plugin.json").write_text('{"name":"inactive-decoy"}')
+    with pytest.raises(review_eval.EvalError, match="root|manifest"):
+        review_eval.configuration(MODEL, SETTINGS, **roots)
+
+
+@pytest.mark.parametrize("argument", ["../escape", "orchestrate:../escape", "/escape", "orchestrate:shared//escape", "unknown:shared/escape"])
+def test_configuration_rejects_contract_traversal_in_shared_dispatcher(corpus, monkeypatch, argument):
+    monkeypatch.setattr(review_scope, "REVIEW_CONTRACT_PATHS", (*review_scope.REVIEW_CONTRACT_PATHS, argument))
+    with pytest.raises(review_eval.EvalError, match="invalid contract path"):
+        review_eval.configuration(MODEL, SETTINGS, corpus["source_root"], orchestrate_root=corpus["orchestrate_root"])
+
+
+@pytest.mark.parametrize("relative", OLD_RELEASE_PATHS)
+def test_unavailable_old_baseline_input_is_still_rejected(corpus, relative):
+    (corpus["baseline_root"] / relative).unlink()
+    with pytest.raises(review_eval.EvalError, match="pre-change review contracts"):
+        check(corpus)
+
+
+def test_frozen_old_export_needs_no_new_candidate_or_namespaced_inputs(corpus):
+    baseline = review_eval._baseline_source(corpus["baseline_root"])
+    assert {record["path"] for record in baseline["source_inventory"]} == {*OLD_RELEASE_PATHS, "legacy-policy.py"}
+    assert check(corpus)["rollout_eligible"] is True
+    target = corpus["baseline_root"] / "skills/build-review/SKILL.md"
+    target.write_bytes((corpus["source_root"] / "skills/build-review/SKILL.md").read_bytes())
+    with pytest.raises(review_eval.EvalError, match="identical"):
+        review_eval._experiment_baseline(corpus["config"], corpus["baseline_root"])
+
+
+def _write_eval_adapters(corpus, *, mutate: str | None = None) -> dict:
+    records = {(record["case_id"], record["variant"], record["repetition"]): record for record in corpus["runs"]["runs"]}
+    adapter = corpus["root"] / "policy-adapter.py"
+    adapter.write_text(
+        "import json, sys, time\n"
+        "from pathlib import Path\n"
+        f"sys.path.insert(0, {str(Path(review_eval.__file__).resolve().parent)!r})\n"
+        "import review_eval\n"
+        f"records = {records!r}\n"
+        f"mutate = {mutate!r}\n"
+        "payload = json.load(sys.stdin)\n"
+        "variant = sys.argv[1]\n"
+        "record = records[(payload['case_id'], payload['variant'], payload['repetition'])]\n"
+        "if variant == 'assessor':\n"
+        "    assert 'oracle' in payload and 'configuration' not in payload\n"
+        "    result = record['assessment']\n"
+        "else:\n"
+        "    assert 'oracle' not in payload and 'findings' not in payload\n"
+        "    if variant == 'candidate':\n"
+        "        config = review_eval.configuration(payload['model'], payload['configuration']['settings'], payload['workflow_source_root'], orchestrate_root=payload['orchestrate_root'])\n"
+        "        assert config == payload['configuration']\n"
+        "        fingerprint = config['fingerprint']\n"
+        "        if mutate and payload['case_id'] == 'blocker' and payload['repetition'] == 2:\n"
+        "            target = Path(payload['orchestrate_root']) / 'shared/progress-comment.sh'\n"
+        "            if mutate == 'bytes':\n"
+        "                target.write_bytes(target.read_bytes() + b'\\n# changed during run\\n')\n"
+        "            else:\n"
+        "                target.chmod(target.stat().st_mode ^ 0o100)\n"
+        "    else:\n"
+        "        assert 'orchestrate_root' not in payload\n"
+        "        fingerprint = review_eval._baseline_source(payload['workflow_source_root'])['fingerprint']\n"
+        "        time.sleep(0.03)\n"
+        "    assert fingerprint == payload['workflow_source_fingerprint']\n"
+        "    result = {key: record[key] for key in ("
+        "'model', 'configuration_fingerprint', 'workflow_source_fingerprint', 'tokens', "
+        "'workflow_complete', 'workflow_history', 'workflow_stats', 'repair_output', 'review')}\n"
+        "print(json.dumps(result))\n",
+        encoding="utf-8",
+    )
+    return {name: [sys.executable, str(adapter), name] for name in ("baseline", "candidate", "assessor")}
+
+
+def _eval_cli(corpus, *arguments: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, str(Path(review_eval.__file__).resolve()), *arguments],
+        cwd=corpus["root"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+    )
+
+
+def _configuration_flags(corpus) -> list[str]:
+    return ["--model", MODEL, "--settings", json.dumps(SETTINGS), "--source-root", str(corpus["source_root"]), "--orchestrate-root", str(corpus["orchestrate_root"])]
+
+
+def test_real_cli_run_qualify_verify_propagates_both_selected_roots(corpus):
+    paths = _write_inputs(corpus)
+    commands = _write_eval_adapters(corpus)
+    flags = _configuration_flags(corpus)
+    configured = _eval_cli(corpus, "configuration", *flags)
+    assert configured.returncode == 0, configured.stderr
+    assert json.loads(configured.stdout) == corpus["config"]
+    measured = _eval_cli(
+        corpus,
+        "run",
+        "--manifest",
+        str(paths["manifest"]),
+        "--baseline-source-root",
+        str(corpus["baseline_root"]),
+        *flags,
+        *[argument for name, command in commands.items() for argument in (f"--{name}", json.dumps(command))],
+    )
+    assert measured.returncode == 0, measured.stderr
+    runs = json.loads(measured.stdout)
+    assert runs["configuration"] == corpus["config"]
+    assert len(runs["runs"]) == 18
+    paths["runs"].write_text(measured.stdout)
+    qualified = _eval_cli(corpus, "qualify", "--manifest", str(paths["manifest"]), "--runs", str(paths["runs"]), "--recoveries", str(paths["recoveries"]), *flags)
+    assert qualified.returncode == 0, qualified.stderr
+    report = json.loads(qualified.stdout)
+    assert report["rollout_eligible"] is True
+    report_path = _save_report(corpus, report)
+    verified = _eval_cli(corpus, "verify", "--qualification", str(report_path), "--configuration-fingerprint", corpus["config"]["fingerprint"], *flags)
+    assert verified.returncode == 0, verified.stderr
+    assert json.loads(verified.stdout) == report
+    (corpus["orchestrate_root"] / "shared/progress-comment.sh").write_text("changed after qualification\n")
+    stale = _eval_cli(corpus, "verify", "--qualification", str(report_path), "--configuration-fingerprint", corpus["config"]["fingerprint"], *flags)
+    assert stale.returncode == 2
+    assert "current release" in stale.stderr
+
+
+@pytest.mark.parametrize("mutation", ["bytes", "mode"])
+def test_run_pairs_rechecks_active_orchestrate_root_after_actual_adapter_execution(corpus, mutation):
+    paths = _write_inputs(corpus)
+    commands = _write_eval_adapters(corpus, mutate=mutation)
+    with pytest.raises(review_eval.EvalError, match="configuration sources changed during paired runs"):
+        review_eval.run_pairs(
+            paths["manifest"],
+            commands["baseline"],
+            commands["candidate"],
+            commands["assessor"],
+            MODEL,
+            SETTINGS,
+            3,
+            30,
+            corpus["source_root"],
+            baseline_source_root=corpus["baseline_root"],
+            orchestrate_root=corpus["orchestrate_root"],
+        )
+
+
+@pytest.mark.parametrize("command", ["configuration", "run", "qualify", "verify"])
+@pytest.mark.parametrize("missing", ["--source-root", "--orchestrate-root"])
+def test_all_configuration_cli_commands_require_explicit_root_flags(corpus, command, missing):
+    paths = _write_inputs(corpus)
+    flags = _configuration_flags(corpus)
+    index = flags.index(missing)
+    del flags[index : index + 2]
+    required = {
+        "configuration": [],
+        "run": [
+            "--manifest",
+            str(paths["manifest"]),
+            "--baseline-source-root",
+            str(corpus["baseline_root"]),
+            "--baseline",
+            json.dumps(corpus["commands"]["baseline"]),
+            "--candidate",
+            json.dumps(corpus["commands"]["candidate"]),
+            "--assessor",
+            json.dumps(corpus["commands"]["assessor"]),
+        ],
+        "qualify": ["--manifest", str(paths["manifest"]), "--runs", str(paths["runs"]), "--recoveries", str(paths["recoveries"])],
+        "verify": ["--qualification", "report.json", "--configuration-fingerprint", corpus["config"]["fingerprint"]],
+    }
+    result = _eval_cli(corpus, command, *required[command], *flags)
+    assert result.returncode == 2
+    assert missing in result.stderr and "required" in result.stderr
+
+
+def test_immutable_old_export_is_accepted_without_candidate_files(tmp_path):
+    baseline_root = _write_baseline_sources(tmp_path / "immutable-old-release")
+    legacy = baseline_root / "legacy-policy.py"
+    legacy.write_text("PRE_CHANGE = True\n", encoding="utf-8")
+    baseline = review_eval._baseline_source(baseline_root)
+    assert {item["path"] for item in baseline["source_inventory"]} == {*OLD_RELEASE_PATHS, "legacy-policy.py"}
+    assert next(item["sha256"] for item in baseline["source_inventory"] if item["path"] == "legacy-policy.py") == hashlib.sha256(legacy.read_bytes()).hexdigest()

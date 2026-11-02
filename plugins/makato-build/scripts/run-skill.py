@@ -18,6 +18,7 @@ _BUILD_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_BUILD_ROOT / "shared"))
 
 from review_runtime import RuntimeErrorState, accept, authorize_child, launch, reconcile, status, wait_for_result  # noqa: E402
+from review_scope import REVIEW_CONTRACT_PATHS, ScopeError, resolve_active_roots  # noqa: E402
 from skill_execution import (  # noqa: E402
     SkillExecutionError,
     resolve_execution,
@@ -76,6 +77,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--review-context-path", dest="review_context_paths", action="append", default=[], help="repository-relative context path included in the live fingerprint; repeatable")
     result.add_argument("--review-contract-path", dest="review_contract_paths", action="append", default=[], help="plugin-relative review contract path included in the live fingerprint; repeatable")
     result.add_argument("--review-evidence-root", type=Path, help="root containing repository context paths")
+    result.add_argument("--review-orchestrate-root", type=Path, help="exact active orchestrate installation for durable review")
     result.add_argument("--review-expected-ac-ids", help="non-empty comma-separated authoritative acceptance criteria IDs")
     result.add_argument("--runtime-child", action="store_true", help=argparse.SUPPRESS)
     result.add_argument("skill", help="qualified plugin:skill name")
@@ -228,6 +230,8 @@ def _durable_review(
         raise RuntimeErrorState("runtime checkpoint must be the private per-ledger runtime.json path")
     if not args.review_context_paths or not args.review_contract_paths:
         raise RuntimeErrorState("durable build-review requires explicit context and contract fingerprint paths")
+    if not set(REVIEW_CONTRACT_PATHS).issubset(args.review_contract_paths):
+        raise RuntimeErrorState("durable build-review requires the complete versioned review contract")
     evidence_root = args.review_evidence_root.expanduser().resolve() if args.review_evidence_root else Path(child_env["REPO_ROOT"]).resolve()
     if Path(child_env["WORKTREE_PATH"]).resolve() != args.review_worktree.expanduser().resolve():
         raise RuntimeErrorState("durable review worktree differs from the launcher's actual WORKTREE_PATH")
@@ -259,6 +263,7 @@ def _durable_review(
         context_paths=args.review_context_paths,
         contract_paths=args.review_contract_paths,
         evidence_root=evidence_root,
+        orchestrate_root=child_env["MAKATO_ORCHESTRATE_ROOT"],
         expected_ac_ids=expected_ac_ids or (),
     )
     attempt = receipt.get("attempt") or {}
@@ -334,6 +339,8 @@ def build_command(args: argparse.Namespace, environ: Mapping[str, str]) -> tuple
         if not path.is_dir():
             raise SkillExecutionError(f"{label} is not a directory: {path}")
     roots = _plugin_roots(environ)
+    if args.runtime_child or any(value is not None and value != [] for value in _durable_flags(args)):
+        roots["makato-orchestrate"] = Path(environ["MAKATO_ORCHESTRATE_ROOT"])
     schema = roots["makato-build"] / "config" / "default-workflow-schema.yml"
     if ":" not in args.skill:
         raise SkillExecutionError("run-skill requires a qualified plugin:skill name, for example makato-build:build-review")
@@ -421,7 +428,12 @@ def _progress_target(environ: dict[str, str]) -> list[str] | None:
         return None
     try:
         shared = environ.get("MAKATO_ORCHESTRATE_SHARED")
-        if not shared:
+        if environ.get("MAKATO_REVIEW_LEDGER_STATE") or environ.get("MAKATO_REVIEW_RUNTIME_STATE"):
+            if not shared or not environ.get("MAKATO_ORCHESTRATE_ROOT"):
+                raise OSError("durable progress requires frozen orchestrate root and shared directory")
+            roots = resolve_active_roots(_BUILD_ROOT, environ, environ["MAKATO_ORCHESTRATE_ROOT"])
+            shared = roots["shared"]
+        elif not shared:
             root = environ.get("MAKATO_ORCHESTRATE_ROOT")
             if not root:
                 resolved = subprocess.run(
@@ -436,7 +448,7 @@ def _progress_target(environ: dict[str, str]) -> list[str] | None:
         helper = Path(shared) / "progress-comment.sh"
         if not helper.is_file():
             raise FileNotFoundError(helper)
-    except (OSError, subprocess.CalledProcessError) as exc:
+    except (OSError, subprocess.CalledProcessError, ScopeError) as exc:
         print(f"run-skill: WARN — cannot resolve issue progress helper: {exc}", file=sys.stderr)
         return None
     environ["MAKATO_ORCHESTRATE_SHARED"] = str(helper.parent.resolve())
@@ -497,33 +509,56 @@ def _run_with_progress(command: list[str], environ: dict[str, str], execution: d
         _post_progress(target, environ, "done", "--skill", skill, "--result", outcome, "--summary", summary)
 
 
+def _durable_flags(args: argparse.Namespace) -> tuple[Any, ...]:
+    return (
+        args.review_runtime_state,
+        args.review_ledger_state,
+        args.attempt_id,
+        args.input_fingerprint,
+        args.gate_event,
+        args.next_action,
+        args.review_worktree,
+        args.review_base,
+        args.review_soft_cap,
+        args.review_hard_cap,
+        args.review_context_paths,
+        args.review_contract_paths,
+        args.review_evidence_root,
+        args.review_orchestrate_root,
+        args.review_expected_ac_ids,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
-        command, child_env, execution = build_command(args, os.environ)
-        durable_flags = (
-            args.review_runtime_state,
-            args.review_ledger_state,
-            args.attempt_id,
-            args.input_fingerprint,
-            args.gate_event,
-            args.next_action,
-            args.review_worktree,
-            args.review_base,
-            args.review_soft_cap,
-            args.review_hard_cap,
-            args.review_context_paths,
-            args.review_contract_paths,
-            args.review_evidence_root,
-            args.review_expected_ac_ids,
-        )
+        durable_flags = _durable_flags(args)
+        durable = args.runtime_child or any(value is not None and value != [] for value in durable_flags)
+        if args.runtime_child and any(value is not None and value != [] for value in durable_flags):
+            raise RuntimeErrorState("runtime child cannot override durable launch authorization")
+        environment = dict(os.environ)
+        if durable:
+            roots = resolve_active_roots(_BUILD_ROOT, environment, args.review_orchestrate_root)
+            environment.update(MAKATO_BUILD_ROOT=roots["build"], MAKATO_ORCHESTRATE_ROOT=roots["orchestrate"], MAKATO_ORCHESTRATE_SHARED=roots["shared"])
+        command, child_env, execution = build_command(args, environment)
         if args.runtime_child:
-            if any(value is not None and value != [] for value in durable_flags):
-                raise RuntimeErrorState("runtime child cannot override durable launch authorization")
             _authorize_runtime_child(args, command, child_env)
         if args.dry_run:
             visible_env = {
-                key: value for key, value in child_env.items() if key in {*_PLUGINS.values(), "REPO_ROOT", "WORKTREE_PATH", "PWD", "MAKATO_SKILL_RUNNER", "MAKATO_SKILL_RESOLVED", "MAKATO_HARNESS_BIN"}
+                key: value
+                for key, value in child_env.items()
+                if key
+                in {
+                    *_PLUGINS.values(),
+                    "MAKATO_ORCHESTRATE_ROOT",
+                    "MAKATO_ORCHESTRATE_SHARED",
+                    "REPO_ROOT",
+                    "WORKTREE_PATH",
+                    "PWD",
+                    "MAKATO_SKILL_RUNNER",
+                    "MAKATO_SKILL_RESOLVED",
+                    "MAKATO_HARNESS_BIN",
+                }
             }
             print(json.dumps({"argv": command, "execution": execution, "env": visible_env}, ensure_ascii=False, indent=2))
             return 0
@@ -536,7 +571,7 @@ def main(argv: list[str] | None = None) -> int:
             return _run_with_progress(command, child_env, execution, target)
         os.chdir(child_env["PWD"])
         os.execvpe(command[0], command, child_env)
-    except RuntimeErrorState as exc:
+    except (RuntimeErrorState, ScopeError) as exc:
         print(f"run-skill: {exc}", file=sys.stderr)
         return 2
     except SkillExecutionError as exc:

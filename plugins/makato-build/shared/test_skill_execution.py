@@ -96,6 +96,9 @@ def _resolve(layout: Layout, skill: str = "build-review", **kwargs: Any) -> dict
 
 def _environment(layout: Layout) -> dict[str, str]:
     env = dict(os.environ)
+    for key in tuple(env):
+        if key.startswith("MAKATO_REVIEW_"):
+            env.pop(key)
     for key in (
         "MAKATO_PLAN_ROOT",
         "MAKATO_CHANGE_ROOT",
@@ -131,6 +134,70 @@ def _metadata(prompt: str) -> dict[str, Any]:
     body = prompt.split("Resolved dispatch metadata (JSON):\n", 1)[1]
     result, _ = json.JSONDecoder().raw_decode(body)
     return result
+
+
+def test_orchestrate_metadata_is_durable_only_and_not_dispatchable(layout: Layout) -> None:
+    env = _environment(layout)
+    orchestrate = layout.repo.parent / "installed-orchestrate"
+    env["MAKATO_ORCHESTRATE_ROOT"] = str(orchestrate)
+    ordinary, _, _ = _command(layout, env=env)
+    outer, _, _ = _command(layout, "--review-orchestrate-root", str(orchestrate), env=env)
+    child, _, _ = _command(layout, "--runtime-child", env=env)
+    assert "makato-orchestrate" not in _metadata(ordinary[-1])["plugin_roots"]
+    assert _metadata(outer[-1])["plugin_roots"]["makato-orchestrate"] == str(orchestrate)
+    assert outer == child
+    assert "makato-orchestrate" not in _RUNNER._PLUGINS
+    with pytest.raises(SkillExecutionError, match="Unknown skill 'makato-orchestrate:loop'"):
+        _command(layout, skill="makato-orchestrate:loop", env=env)
+
+
+def test_durable_main_freezes_roots_before_build_command(layout: Layout, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+    build = _HERE.parent
+    orchestrate = _HERE.parents[1] / "makato-orchestrate"
+    for key in tuple(os.environ):
+        if key.startswith("MAKATO_REVIEW_") or key in ("MAKATO_BUILD_ROOT", "MAKATO_ORCHESTRATE_ROOT", "MAKATO_ORCHESTRATE_SHARED"):
+            monkeypatch.delenv(key)
+    native = _RUNNER.build_command
+    observed = []
+
+    def build_frozen(args, environ):
+        observed.append({key: environ[key] for key in ("MAKATO_BUILD_ROOT", "MAKATO_ORCHESTRATE_ROOT", "MAKATO_ORCHESTRATE_SHARED")})
+        return native(args, environ)
+
+    monkeypatch.setattr(_RUNNER, "build_command", build_frozen)
+    assert _RUNNER.main(["--repo-root", str(layout.repo), "--dry-run", "--review-orchestrate-root", str(orchestrate), "makato-build:build-review"]) == 0
+    output = json.loads(capsys.readouterr().out)
+    expected = {"MAKATO_BUILD_ROOT": str(build), "MAKATO_ORCHESTRATE_ROOT": str(orchestrate), "MAKATO_ORCHESTRATE_SHARED": str(orchestrate / "shared")}
+    assert observed == [expected]
+    assert {key: output["env"][key] for key in expected} == expected
+    assert _metadata(output["argv"][-1])["plugin_roots"]["makato-orchestrate"] == str(orchestrate)
+
+
+@pytest.mark.parametrize("missing", [None, "MAKATO_ORCHESTRATE_ROOT", "MAKATO_ORCHESTRATE_SHARED"])
+def test_durable_progress_never_discovers_runtime_context(layout: Layout, monkeypatch: pytest.MonkeyPatch, missing: str | None) -> None:
+    orchestrate = _HERE.parents[1] / "makato-orchestrate"
+    env = _environment(layout)
+    env.update(
+        MAKATO_BUILD_ROOT=str(_HERE.parent),
+        MAKATO_ORCHESTRATE_ROOT=str(orchestrate),
+        MAKATO_ORCHESTRATE_SHARED=str(orchestrate / "shared"),
+        MAKATO_REVIEW_LEDGER_STATE=str(layout.repo / "ledger.json"),
+        KEY="DURABLE",
+        ISSUE_NUMBER="186",
+        REPO="offline/test",
+    )
+    if missing:
+        env.pop(missing)
+
+    def forbid_discovery(*args, **kwargs):
+        raise AssertionError("durable progress called runtime-context")
+
+    monkeypatch.setattr(_RUNNER.subprocess, "run", forbid_discovery)
+    target = _RUNNER._progress_target(env)
+    if missing:
+        assert target is None
+    else:
+        assert target == [str(orchestrate / "shared/progress-comment.sh"), "DURABLE", "186", "offline/test"]
 
 
 def test_builtin_role_and_effort_are_independent(layout: Layout) -> None:

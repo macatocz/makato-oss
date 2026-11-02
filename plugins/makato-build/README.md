@@ -265,23 +265,26 @@ a scanner or waiting-cell deadline:
 ```bash
 REVIEW_CONFIGURATION_JSON="$(python3 "$MAKATO_BUILD_ROOT/shared/review_eval.py" configuration \
   --model "$EXACT_MODEL_VERSION" --settings "$REVIEW_SETTINGS_JSON" \
-  --source-root "$MAKATO_BUILD_ROOT")"
+  --source-root "$MAKATO_BUILD_ROOT" --orchestrate-root "$MAKATO_ORCHESTRATE_ROOT")"
 REVIEW_CONFIG_FINGERPRINT="$(printf '%s' "$REVIEW_CONFIGURATION_JSON" | jq -er '.fingerprint')"
 python3 "$MAKATO_BUILD_ROOT/shared/review_eval.py" validate --manifest "$EVAL_MANIFEST"
 python3 "$MAKATO_BUILD_ROOT/shared/review_eval.py" run \
   --manifest "$EVAL_MANIFEST" --baseline "$BASELINE_ARGV_JSON" \
   --candidate "$CANDIDATE_ARGV_JSON" --assessor "$ASSESSOR_ARGV_JSON" \
   --model "$EXACT_MODEL_VERSION" --settings "$REVIEW_SETTINGS_JSON" \
-  --source-root "$MAKATO_BUILD_ROOT" --baseline-source-root "$BASELINE_BUILD_ROOT" \
+  --source-root "$MAKATO_BUILD_ROOT" --orchestrate-root "$MAKATO_ORCHESTRATE_ROOT" \
+  --baseline-source-root "$BASELINE_BUILD_ROOT" \
   --repetitions 3 --timeout "$EVAL_TIMEOUT_SECS" \
   > "$PAIRED_RUNS_JSON"
 python3 "$MAKATO_BUILD_ROOT/shared/review_eval.py" qualify \
   --manifest "$EVAL_MANIFEST" --runs "$PAIRED_RUNS_JSON" --recoveries "$RECOVERY_EVIDENCE_JSON" \
   --model "$EXACT_MODEL_VERSION" --settings "$REVIEW_SETTINGS_JSON" \
-  --source-root "$MAKATO_BUILD_ROOT" > "$QUALIFICATION_JSON"
+  --source-root "$MAKATO_BUILD_ROOT" --orchestrate-root "$MAKATO_ORCHESTRATE_ROOT" \
+  > "$QUALIFICATION_JSON"
 python3 "$MAKATO_BUILD_ROOT/shared/review_eval.py" verify \
   --qualification "$QUALIFICATION_JSON" --configuration-fingerprint "$REVIEW_CONFIG_FINGERPRINT" \
-  --model "$EXACT_MODEL_VERSION" --settings "$REVIEW_SETTINGS_JSON" --source-root "$MAKATO_BUILD_ROOT"
+  --model "$EXACT_MODEL_VERSION" --settings "$REVIEW_SETTINGS_JSON" \
+  --source-root "$MAKATO_BUILD_ROOT" --orchestrate-root "$MAKATO_ORCHESTRATE_ROOT"
 ```
 
 Check every command's exit status. Failed qualification exits 1; invalid/missing evidence exits 2.
@@ -289,8 +292,12 @@ Keep the three raw artifact files with the report. `verify` and Deep lens routin
 paths/content, rederive the active model/settings/source inventory, rerun qualification, and compare
 the entire report. Editing a report's booleans cannot enable sampling. The canonical inventory in
 `review_scope.REVIEW_CONTRACT_PATHS` includes reviewer/coder/return contracts, review
-instructions/references, workflow and verification policy, evaluator, gate, scope/runtime helpers
-and the launcher. Missing or stale sources invalidate qualification.
+instructions/references, workflow and verification policy, evaluator, gate, scope/runtime helpers,
+launcher and the active build/orchestrate operational closure. Obtain the exact namespaced list
+with `review_loop.py contract-paths`; do not maintain a second inventory. Configuration v2 hashes
+source kind, mode and bytes, not installation paths or inodes. Missing or stale inputs invalidate
+qualification. Live ledger v3 and runtime v2 separately freeze both physical root identities;
+changing installations requires owner-authorized recovery preserving consumed repair budgets.
 
 `BASELINE_BUILD_ROOT` is an immutable export of the pinned **pre-change build plugin**, not the
 candidate checkout or a consumer snapshot. Its full source/prompt inventory is hashed (excluding Git
@@ -424,8 +431,10 @@ Runtime roots:
 - `MAKATO_PLAN_ROOT` is optional. When present, build-create-pr uses it for `created-issues.json`
   schema validation; when absent, that advisory check is skipped rather than probing the consumer
   repository.
-- `MAKATO_ORCHESTRATE_ROOT` is optional for cross-plugin workflow-state integration. When absent,
-  build-grill-with-docs skips its best-effort state update.
+- `MAKATO_ORCHESTRATE_ROOT` is required for durable review and qualification. Manual/installed
+  flows supply the exact active root explicitly; only the launcher can infer it from a verified
+  Git/marketplace source layout. `MAKATO_ORCHESTRATE_SHARED`, when set, must match that root.
+  Outside durable review it remains optional for best-effort workflow-state integration.
 
 ## Installation
 

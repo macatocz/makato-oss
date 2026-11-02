@@ -15,11 +15,33 @@ lists one sub-bullet per logical change.
 - The PO-agent dispatches checkpoint-mode build-review and accepts only a matching durable ledger
   receipt for the current fingerprint. Accepted task IDs and snapshot live in a private review-local
   checkpoint, not new fields or a second writer of workflow-state.
+- Require ledger-reconstructed checkpoint scope coverage and a baseline matching the scheduler's
+  last accepted source snapshot before advancing tasks. Repeated acceptance still revalidates
+  coverage and audit delivery; incomplete legacy receipts fail closed without resetting history.
 - Skip redundant no-diff checkpoints with an explicit reason. A checkpoint never marks future ACs
   verified; final whole-branch full review and all-AC certification remain mandatory.
 - Reconcile outstanding native review workers before watchdog restart and preserve original attempt
   identity across repair edits. Refuse restart on ambiguous ownership or blocked gates. Exercise
   loop state-root/global-HALT behavior through the actual CLI, not extracted source text.
+- Reject unpublished checkpoint receipts instead of falling back to their source fingerprint.
+  Durable review progress and R1 transport use checked private operational logs and comment-ID
+  caching, preserving START/DONE/error narration without mutating protected audit or state inputs.
+- Never fall back to a mutating workflow-state read when a durable review's private comment cache
+  is empty or fails. Protected legacy state retains its original bytes, inode and path.
+- Resolve narration logging and comment-ID caching through the exported active `MAKATO_BUILD_ROOT`,
+  preserving one START/DONE comment for independently versioned orchestrate installations. Missing
+  helpers and failed private cache reads warn rather than silently dropping narration audit rows.
+- Carry the exact active orchestrate root with its shared directory into durable review.
+  Narration self-validates frozen build/orchestrate bindings before transport or private writes;
+  inactive sibling installations cannot certify the executing operational helpers.
+- Revalidate authoritative retained reviewer contracts and derived summaries before first or
+  repeated checkpoint acceptance; a previously accepted receipt cannot hide damaged raw evidence.
+- Run progress-comment smoke against an owned temporary consumer, with isolated Git, workflow,
+  audit and transport state. Cleanup removes only that fixture root, preserving tracked historical
+  audit rows and unrelated source edits/index entries.
+- Clear inherited Git routing variables before fixture initialization and isolate global/system Git
+  configuration, preserving the caller's index, repository configuration and object database even
+  when absolute Git environment overrides are inherited.
 
 ### Changed — po-agent build-review cap semantics (po-agent v1.6.0)
 

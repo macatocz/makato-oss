@@ -47,6 +47,14 @@ def main() -> None:
         current = review_loop.gate(state, "review", str(worktree), "HEAD", expected_ac_ids=["AC-1"])
         fingerprint = current["input_fingerprint"]
         paths = review_scope.changed_files(str(worktree), "HEAD")
+        if mode == "checkpoint":
+            bound = json.loads(Path(state).read_text())
+            paths = sorted(
+                set(paths)
+                | {"test_src.py"}
+                | {"context:" + path for path in bound["context_paths"]}
+                | {path if path.startswith("orchestrate:") else "contract:" + path for path in bound["contract_paths"]}
+            )
         proof = {"file": "src.py", "line": 1}
         assert runpy.run_path(str(worktree / "src.py"))["value"] == (3 if mode == "certified" else 2)
         reviewer = {
@@ -64,12 +72,17 @@ def main() -> None:
             },
         }
         if mode == "certified":
+            runpy.run_path(str(worktree / "test_src.py"))["test_value"]()
             reviewer["data"]["ac_verdicts"] = [
                 {
                     "ac_id": "AC-1",
+                    "ac_text": "src.py returns value 3.",
                     "verified": True,
-                    "evidence": "Executed src.py and observed value == 3",
-                    "citations": [proof],
+                    "evidence": "Executed src.py and test_src.py::test_value; value == 3",
+                    "citations": [
+                        {**proof, "role": "implementation"},
+                        {"file": "test_src.py", "line": 4, "role": "test"},
+                    ],
                 }
             ]
         ledger = json.loads(Path(state).read_text())
@@ -123,6 +136,8 @@ def main() -> None:
                 "final_review": False,
                 "checkpoint_receipt": checkpoint["checkpoint_receipt"],
             }
+        if os.environ.get("HARNESS_PUBLISH_AUDIT", "1") != "0":
+            envelope["data"] = review_loop.publish_audit(state, str(worktree), "HEAD")
     print("```json")
     print(json.dumps(envelope))
     print("```")

@@ -14,17 +14,16 @@
 #
 # DESIGN
 # ------
-# - ONE live comment. Its numeric id lives in workflow-state.json under
-#   .progress_comment_id (the ONLY new state field). The comment body itself is
-#   the source of truth for the narration; state holds just the id, so the
-#   narration survives a resume / context-handoff — a fresh session reads the id
-#   and re-fetches the body from GitHub before appending.
+# - ONE live comment. Ordinary runs persist its numeric id in workflow-state.json;
+#   durable review persists it only in the private operational log. The comment
+#   body itself is the source of truth for narration. A fresh session reads its
+#   cached id and re-fetches the body from GitHub before appending.
 # - Best-effort, NEVER fatal. Any gh / state failure logs a WARN to stderr,
 #   emits a `progress-comment` JSONL row with status "warn", and exits 0. This
 #   layer must never block a run or trip a HALT.
-# - State is still mutated ONLY through workflow-state.sh. Both the loop's
-#   structural pre-dispatch guard and the PO-agent use this helper as a thin
-#   caller, so no second workflow-state writer is introduced.
+# - Ordinary comment-ID state access uses workflow-state.sh. Durable review
+#   reads and caches narration identity privately through review_loop operational-log;
+#   even an empty/failed lookup must not invoke a migrating workflow-state read.
 #
 # USAGE
 #   progress-comment.sh start <KEY> <ISSUE> <REPO> \
@@ -51,9 +50,41 @@ KEY="${2:-}"
 ISSUE="${3:-}"
 REPO="${4:-}"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 WORKFLOW_STATE="$SCRIPT_DIR/workflow-state.sh"
-BUILD_LOG="$SCRIPT_DIR/../../makato-build/shared/build-log.sh"
+
+# Prefer the exact active build root; installed plugins need not be siblings.
+# With no override, mirror workflow-state.sh's source/cache/target discovery.
+_resolve_build_plugin_root() {
+  local candidate source_orchestrate_root cache_parent
+  if [[ -n "${MAKATO_BUILD_ROOT:-}" ]]; then
+    [[ -f "$MAKATO_BUILD_ROOT/.claude-plugin/plugin.json" ]] || return 1
+    printf '%s\n' "$MAKATO_BUILD_ROOT"
+    return 0
+  fi
+  source_orchestrate_root="${MAKATO_ORCHESTRATE_ROOT:-$SCRIPT_DIR/..}"
+  cache_parent="$(cd "$SCRIPT_DIR/../.." && pwd)"
+  for candidate in \
+    "$(dirname "$source_orchestrate_root")/makato-build" \
+    "$cache_parent/makato-build" \
+    "$cache_parent"/makato-suite___makato-build___* \
+    "${MAKATO_TARGET_REPO_ROOT:-${REPO_ROOT:-$PWD}}/plugins/makato-build"; do
+    if [[ -f "$candidate/.claude-plugin/plugin.json" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+if [[ -n "${MAKATO_REVIEW_LEDGER_STATE:-}" ]]; then
+  # Durable narration never discovers another installation on the caller's behalf.
+  BUILD_ROOT="${MAKATO_BUILD_ROOT:-}"
+else
+  BUILD_ROOT="$(_resolve_build_plugin_root || true)"
+fi
+BUILD_LOG="${BUILD_ROOT:+$BUILD_ROOT/shared/build-log.sh}"
+REVIEW_LOOP="${BUILD_ROOT:+$BUILD_ROOT/shared/review_loop.py}"
 
 MAX_BODY="${MAKATO_PC_MAX_BODY:-60000}"
 
@@ -78,7 +109,10 @@ print(datetime.now(timezone.utc).strftime('%H:%M:%S'))"
 # ---------------------------------------------------------------------------
 _log() {
   local status="$1" event="$2" detail="$3"
-  [[ -x "$BUILD_LOG" ]] || return 0
+  if [[ ! -f "$BUILD_LOG" ]]; then
+    echo "progress-comment: WARN — active build logger is unavailable" >&2
+    return 0
+  fi
   local ts entry
   ts="$(_now)"
   entry="$(jq -cn \
@@ -86,7 +120,8 @@ _log() {
     --arg status "$status" --arg event "$event" --arg detail "$detail" \
     '{ts:$ts, skill:"progress-comment", issue:$issue, step:"progress-comment",
       status:$status, data:{event:$event, detail:$detail}}' 2>/dev/null)" || return 0
-  bash "$BUILD_LOG" "$KEY" "$entry" >/dev/null 2>&1 || true
+  bash "$BUILD_LOG" "$KEY" "$entry" >/dev/null 2>&1 \
+    || echo "progress-comment: WARN — could not append narration audit row" >&2
 }
 
 _warn() {
@@ -144,9 +179,20 @@ _gh_update() {
 }
 
 # ---------------------------------------------------------------------------
-# State access — read/write .progress_comment_id via workflow-state.sh only.
+# State access — ordinary workflow-state or exclusively private durable cache.
 # ---------------------------------------------------------------------------
 _read_comment_id() {
+  if [[ -n "${MAKATO_REVIEW_LEDGER_STATE:-}" ]]; then
+    local private_id
+    if [[ ! -f "$REVIEW_LOOP" ]] || ! private_id="$(python3 "$REVIEW_LOOP" operational-log \
+      --state "$MAKATO_REVIEW_LEDGER_STATE" --worktree "${WORKTREE_PATH:?}" 2>/dev/null \
+      | jq -r '.progress_comment_id // empty')"; then
+      _warn "could not read private progress comment identity" read-id
+      private_id=""
+    fi
+    printf '%s\n' "$private_id"
+    return 0
+  fi
   [[ -x "$WORKFLOW_STATE" ]] || { echo ""; return 0; }
   bash "$WORKFLOW_STATE" read "$KEY" "$ISSUE" 2>/dev/null \
     | jq -r '.progress_comment_id // empty' 2>/dev/null || echo ""
@@ -154,6 +200,14 @@ _read_comment_id() {
 
 _save_comment_id() {
   local id="$1"
+  if [[ -n "${MAKATO_REVIEW_LEDGER_STATE:-}" ]]; then
+    local entry
+    entry="$(jq -cn --arg ts "$(_now)" --arg id "$id" \
+      '{ts:$ts,skill:"progress-comment",step:"progress-comment-id",status:"ok",data:{comment_id:$id}}')"
+    bash "$BUILD_LOG" "$KEY" "$entry" >/dev/null 2>&1 \
+      || _warn "could not persist private progress comment identity" save-id
+    return 0
+  fi
   [[ -x "$WORKFLOW_STATE" ]] || return 0
   bash "$WORKFLOW_STATE" patch "$KEY" "$ISSUE" .progress_comment_id "$id" \
     >/dev/null 2>&1 || _warn "could not persist progress_comment_id=$id to state" save-id
@@ -237,6 +291,19 @@ _require_positionals() {
 # Early opt-out — a full, silent no-op.
 if [[ "${MAKATO_PROGRESS_COMMENT_DISABLE:-}" == "1" ]]; then
   exit 0
+fi
+
+# A binding failure is stderr-only: even warning logs are protected private writes.
+# Pass this helper's physical installation, not an exported claim about its origin.
+if [[ -n "${MAKATO_REVIEW_LEDGER_STATE:-}" ]]; then
+  if [[ -z "$BUILD_ROOT" || -z "${WORKTREE_PATH:-}" ]] || \
+    ! python3 "$REVIEW_LOOP" verify-binding \
+      --state "$MAKATO_REVIEW_LEDGER_STATE" --worktree "$WORKTREE_PATH" \
+      --build-root "$BUILD_ROOT" --orchestrate-root "$(cd "$SCRIPT_DIR/.." && pwd -P)" \
+      >/dev/null 2>&1; then
+    echo "progress-comment: WARN — active root binding verification failed" >&2
+    exit 0
+  fi
 fi
 
 case "$SUB" in

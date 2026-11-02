@@ -172,6 +172,10 @@ nesting another CI coordinator.
 - `status:"partial"` — immutable scope or source coverage is incomplete, or a confirmation is
   uncertain. Neither status permits clean completion.
 - `files_changed:[]`, `tests_written:[]`; this agent is read-only.
+- Merge validates every mandatory outer R1 field before recording reviewer evidence, including
+  read-only path arrays and a non-negative integer `tool_calls_used` (not a boolean). Merged
+  envelopes retain the sum of reviewer tool counts and bounded error summaries; full findings and
+  raw evidence remain unabridged in the ledger.
 - `errors[]` contains every blocking CRITICAL/MAJOR finding or concrete protocol/coverage gap.
 - Ordinary `data` includes `pass_number`, `pass_kind`, actual `review_scope`
   (`full|delta|checkpoint`), actual unique native `reviewer_id`, exact `input_fingerprint`, severity
@@ -197,8 +201,10 @@ nesting another CI coordinator.
 - Checkpoint has `data.final_review:false` and `data.ac_verdicts:[]`; the reviewer never authors a
   checkpoint receipt. The persisted gate is the sole receipt author.
 - Only `diff-reviewer` authors AC judgments. Final-full rechecks every AC against code and tests;
-  every `verified:true` includes exact implementation and test citations. Downstream skills
-  transport the verdict array verbatim.
+  every `verified:true` retains non-empty, verbatim `ac_text` and exact implementation and test
+  citations. Each citation has a positive integer `line`, a `file`, and an explicit
+  `role:"implementation"` or `role:"test"`; both roles are required. Generic or one-sided citations
+  cannot complete the final gate. Downstream skills transport the verdict array verbatim.
 - `data.lens` is the supplied lens or `null`. Only `contract-ac` emits ordinary-pass AC judgments;
   other lenses return `[]`.
 - `REVIEW_MODE: repair-plan` judges the coder plan, not the diff:
@@ -209,25 +215,90 @@ nesting another CI coordinator.
 
 ### `build-review` (skill, owns the repair loop)
 
-- Normal `success` requires a non-empty authoritative expected-AC set and non-empty pinned
-  contract-path set, fresh complete final-full review of the current branch and every AC, zero
+- Normal `success` requires a non-empty authoritative expected-AC set and the complete canonical
+  contract-path closure, fresh complete final-full review of the current branch and every AC, zero
   CRITICAL/MAJOR blockers, independent closure of every blocker constituent, and a successful
-  no-change `gate --event complete`. Every `verified:true` AC has code and test citations. A clean
-  delta, coder success, or mechanical change is not completion.
-- Checkpoint `success` is scoped and non-final: `data.checkpoint_receipt` is copied verbatim from
-  successful `gate --event checkpoint`, `data.final_review:false`, and `data.next_action:"review"`.
-  It emits no final `ac-verification`, claims no future AC passed, and does not authorize
-  verify/push. The scheduler validates the receipt against the actual ledger and current
-  fingerprint.
+  no-change `gate --event complete`, followed by successful ledger-owned `publish-audit`.
+  Every `verified:true` AC has code and test citations. A clean delta, coder success, or mechanical
+  change is not completion.
+- Contract version 3 uses ledger version 3, runtime version 2 (`review-runtime.v2`),
+  `review-input-fingerprint-v2`, and `review-eval-configuration-v2`; the R1 envelope stays `"r1"`.
+  Consume `review_loop.py contract-paths` as its exact JSON array in canonical tuple order, not a
+  handwritten inventory. Plain paths select build and `orchestrate:<rel>` selects orchestrate.
+  Additional inputs cannot replace required entries; launcher/runtime/first durable bind enforce
+  closure before any child executes.
+- First durable gate/merge requires explicit frozen `contract_root` and `orchestrate_root`.
+  Manual/installed callers must select/export `MAKATO_BUILD_ROOT` and `MAKATO_ORCHESTRATE_ROOT`;
+  only the launcher may use the fully Git/marketplace-proved source-checkout fallback. No durable
+  runtime-context/cache/consumer discovery is allowed. Fingerprint, merge, and gate forward
+  `--contract-root B --orchestrate-root O`; launcher uses `--review-orchestrate-root O` and direct
+  runtime launch uses `--orchestrate-root O`. Lenses uses `--state S` and both matching roots;
+  absent/unbound/invalid binding keeps sampling OFF with `sampling_warning`.
+- Ledger and runtime attempts freeze `contract_root`, `orchestrate_root`, and
+  `root_bindings:{build:{path,dev,ino},orchestrate:{path,dev,ino}}` atomically. Every state command
+  revalidates executing-code agreement and both live physical identities; identical bytes at a
+  relocated/replaced directory do not authorize rebinding. Generic no-contract ledgers keep all
+  three null and allow state/checkpoint operations, but neither durable execution nor final
+  certification. Content identity is separately reproducible path/kind/mode/SHA-256 inventory:
+  root paths/devices/inodes are not hashed, while source kind and executable permissions are.
+  No old-state, identity/reboot/remount mismatch, or changed fingerprint authorizes automatic
+  migration/reset or a fresh repair-cap budget. Preserve/export history and consumed budget before
+  an explicitly authorized new ledger.
+- `publish-audit --state PATH --worktree PATH --review-base REF` derives the canonical audit from
+  the bound evidence root (fallback worktree); callers supply no audit path, fingerprint, rows,
+  receipt, or success flag. It transports the persisted independent final-full AC verdicts verbatim
+  and generates session statistics; checkpoints publish only a session row. Never perform a raw
+  post-certificate success append or broadly exclude/untrack audits.
+  The canonical audit must have exactly one hardlink; reject aliases before append, including
+  pending-intent replay, without changing either canonical or collateral input bytes.
+  Publication/receipt/recovery interfaces use validated ledger bindings and forward both roots
+  through all internal source/delivery rechecks; they never rediscover or accept replacement roots.
+- Checkpoint `success` is scoped and non-final: copy `data.checkpoint_receipt` verbatim from
+  `publish-audit` after successful `gate --event checkpoint`, not directly from that gate.
+  The returned delivery receipt preserves its reviewed `input_fingerprint`, `snapshot` and derived
+  `checkpoint_scope:{pre_snapshot,scope_files}`, adding `delivery_fingerprint` and `audit_transition`.
+  Scope includes source delta, affected callers/dependencies, prior invariant sites and explicit
+  context/contract manifest labels; complete per-reviewer citation/count and lens coverage is
+  rederived at publication and receipt validation. Missing scope evidence fails closed without
+  resetting history/caps. Set `data.final_review:false` and
+  `data.next_action:"review"`. It emits no final `ac-verification`, claims no future AC passed, and
+  does not authorize verify/push. The scheduler independently validates the source certificate and
+  transition against the ledger and actual live delivery hash, compares the exact returned delivery
+  receipt, requires its scope baseline to match the last accepted snapshot (null initially), and
+  retains the anchor snapshot for the next delta.
+  The scheduler's actual installed script is hash-bound; the checkpoint command verifies its own
+  executing build installation and frozen roots, not scheduler process identity.
 - `partial`/`failure` means review or repair remains incomplete; `errors` identifies unresolved
   findings or the concrete blocker. Neither permits verify or push.
 - `files_changed` and `tests_written` accumulate actual repairs across passes.
-- Normal `data` includes `passes`, `full_passes`, `delta_passes`, final severity counts,
-  `final_review:true`, and current `input_fingerprint`. Report counters only from durable history;
-  never fabricate zero counts when a reviewer result is missing.
-- Gate cap exhaustion, HALT, timeout, uncertain evidence, incompatible state, or stale fingerprint
-  fails closed with the persisted reason and unresolved constituents. Never reset counters, bypass
-  approval, or treat a non-success reviewer/coder R1 as clean.
+- Normal and checkpoint `data` transport the publication's immutable reviewed `input_fingerprint`,
+  actual full live `delivery_fingerprint`, `audit_transition`, and `final_review` verbatim. Normal
+  `data` also includes `passes`, `full_passes`, `delta_passes`, final severity counts, and
+  `final_review:true`. Report counters only from durable history; never fabricate zero counts when
+  a reviewer result is missing.
+- Source and delivery fingerprints need not be equal. Acceptance/reuse independently validates the
+  source certificate, canonical audit identity/prefix/exact ledger-derived append, complete
+  manifests, and live delivery before evaluating coverage and mechanical proof at the unchanged
+  reviewed anchor. External audit transitions are verified even when both hashes are equal.
+  Delivery-only audit additions do not expand final-full coverage obligations. All other protected
+  source/untracked/base/context/contract differences fail closed; operational writes after
+  publication must remain outside every protected manifest input, including logs named as context.
+  Durable narration must not read/migrate workflow-state on empty/failed private cache lookups.
+  Resolve private logger/cache helpers from the exact active build root, not orchestrate's parent.
+  Both helpers remain bound to the frozen build/orchestrate/shared identities: progress invokes
+  read-only `verify-binding --state S --worktree W --build-root B --orchestrate-root O` using its
+  own physical orchestrate root before transport/logging. Mismatch warns on stderr only, makes no
+  GitHub/private-log write, and exits 0. Build-log verifies via its own physical review_loop and
+  ledger before private ledger/audit writes; its preexisting temporary model cache is outside that
+  promise. Neither durable helper uses discovery or workflow-state as a fallback.
+- Completed-result reuse revalidates durable R1 and live certificate/transition without activating or
+  spawning a child. It is not new-dispatch authority; retain invocation/context identity, HALT,
+  coordinator/child epoch fencing, and activation authorization for new or waiting work.
+- Gate cap exhaustion, HALT, timeout, uncertain evidence, incompatible state/root binding, stale
+  fingerprint, or invalid audit transition fails closed with the persisted reason and unresolved
+  constituents. Wrong-install runtime recovery returns blocked (exit 4), never dynamically executing
+  code from a frozen root. Never reset counters, bypass approval, or treat a non-success
+  reviewer/coder R1 as clean.
 
 ### `sensor-fixer.md` (model: sonnet)
 
@@ -439,16 +510,24 @@ naming unreadable files. The scout is advisory — a scout failure must never bl
 ## Audit-log integration
 
 After emitting the R1 block, the agent (or, where the agent does not have Bash, the dispatching
-skill) MUST also append the envelope as a single JSONL line to `specs/<key>-*/build.jsonl` via
-`"$MAKATO_BUILD_ROOT/shared/build-log.sh"`, with `step: "r1"`:
+skill) MUST also log the envelope as a single JSONL line with `step:"r1"` via
+`"$MAKATO_BUILD_ROOT/shared/build-log.sh"`.
 
 ```bash
 "$MAKATO_BUILD_ROOT/shared/build-log.sh" "<key>" '{"ts":"<ISO>","skill":"<dispatching-skill>","story":"<key>","step":"r1","status":"<r1.status>","data":<entire-r1-envelope>}'
 ```
 
-This keeps the existing JSONL audit shape (`ts`/`skill`/`story`/`step`/`status`/`data`) while
-preserving the full R1 envelope verbatim under `data`. Downstream tooling that already reads
-`build.jsonl` does not need to be re-taught the line format.
+Ordinary steps append to `specs/<key>-*/build.jsonl`. During durable review, export
+`MAKATO_REVIEW_LEDGER_STATE="$STATE"` and `WORKTREE_PATH` with the same frozen
+`MAKATO_BUILD_ROOT`, `MAKATO_ORCHESTRATE_ROOT`, and matching `MAKATO_ORCHESTRATE_SHARED` for this
+command: the helper verifies its own installation against the ledger before routing operational/R1
+rows to the ledger run's private `operations.jsonl` through `operational-log`.
+This also applies when the dispatching caller logs an already published review result. Never
+append its envelope or progress rows to canonical audit after publication. Only `publish-audit`
+owns the certificate-bound canonical AC/session rows; no extra raw tail is authorized.
+Private logging refuses protected context/contract/source aliases (including otherwise ignored
+logs), symlink or hard-linked destinations and has no canonical fallback. The JSONL envelope
+shape remains unchanged; the full R1 envelope is preserved verbatim under `data`.
 
 ## Versioning
 
