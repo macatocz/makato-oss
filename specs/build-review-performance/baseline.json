@@ -22,7 +22,19 @@
       "measured_wall_seconds": 8238.522,
       "oracle_boundaries": "real PostgreSQL replay/writer probes; UI controlled transport is not backend authentication proof",
       "qualification_ready": false,
-      "missing": ["content-addressed original pre-repair snapshots for every case", "expert-adjudicated clean holdout"]
+      "source_recovery": {
+        "pass": 1,
+        "git_commit": "d6cac18bd65ad1c4dfa4ea795f457648a02db745",
+        "original_manifest_sha256": "ad7621b762edbf47f57dd7b848737e6215233c3afa3765dfa616a3055fda8ce7",
+        "reviewed_files": 82,
+        "matching_git_files": 81,
+        "additional_exact_files_recovered_from_archived_patch": 1,
+        "all_reviewed_file_hashes_matched": true,
+        "execution_backed_oracle_recovered": "P1: preserved real-PostgreSQL 40P01 red and successful green",
+        "raw_distinct_blocker_ids_recovered": 7,
+        "later_pass_source_snapshots_verified": false
+      },
+      "missing": ["exact later-pass snapshots and independently adjudicated case/oracle mapping for every blocker", "independent clean and CRITICAL/MAJOR blocker holdout"]
     },
     {
       "issue": "macatocz/sagibeast#1281",
@@ -35,11 +47,17 @@
       "wait_union_measured": false,
       "known_invariant": "F-039: every rejected upload has the required audit effect across all refusal and rollback paths",
       "qualification_ready": false,
+      "raw_findings_with_severity_and_citations_recovered": 0,
+      "summary_only_ids_recovered": ["F-039"],
+      "archive_to_recover": "Mac repository .git/worktrees/macatocz-sagibeast-1281/makato-review-loop/",
       "missing": ["original raw39 findings and their severity adjudication", "full pre-fix snapshot and oracle mapping", "known-clean independent holdout", "exact historical model and prompt versions"]
     }
   ],
   "llm_benchmark": {
     "executed": false,
+    "source_only_shadow_executed": true,
+    "source_only_shadow_is_qualification": false,
+    "measured_shadow_model": "openai-codex/gpt-6.1-sol",
     "reason": "Do not replace unavailable original case evidence with synthetic production-quality claims.",
     "sampling_default": "off",
     "expected_speedup": "not measured;15-20h remains an unverified hypothesis"

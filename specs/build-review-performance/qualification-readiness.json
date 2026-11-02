@@ -1,0 +1,123 @@
+{
+  "schema": "review-qualification-readiness-v1",
+  "recorded_at": "2026-11-02T10:00:12.306411+00:00",
+  "status": "blocked",
+  "implementation_commit": "a57915360dd16894cb7089bd702af297ab86da8f",
+  "baseline_commit": "b467bac6139f2137e22d4ef17ae3062e9d1bfa36",
+  "branch": "feat/build-review-performance",
+  "source_recovery_1280": {
+    "pass1_reviewed_files": 82,
+    "matched_git_blobs": 81,
+    "exact_archived_patch_reconstruction": 1,
+    "matched_original_review_hashes": 82,
+    "manifest_sha256": "ad7621b762edbf47f57dd7b848737e6215233c3afa3765dfa616a3055fda8ce7",
+    "raw_distinct_blocker_ids": [
+      "P1",
+      "DOMAIN-1",
+      "DOMAIN-2",
+      "UI-1",
+      "UI-2",
+      "UI-3",
+      "UI-4"
+    ],
+    "later_pass_sources_complete": false,
+    "all_cases_expert_adjudicated": false
+  },
+  "source_recovery_1281": {
+    "reported_finding_count": 39,
+    "raw_findings_with_severity_and_citations_recovered": 0,
+    "summary_only_ids": [
+      "F-039"
+    ],
+    "archive_needed": ".git/worktrees/macatocz-sagibeast-1281/makato-review-loop/ on original Mac repository",
+    "pre_fix_working_trees_available": false,
+    "ssh_capability_hosts_configured": false,
+    "default_openssh_alias_config_found": false
+  },
+  "native_transport": {
+    "harness": "omp v18.11.1",
+    "workflow_model_alias": "@review",
+    "workflow_alias_error": "Model \"@review\" not found",
+    "explicit_current_model": "openai-codex/gpt-6.1-sol",
+    "explicit_model_transport_succeeded": true,
+    "authentication_changed": false
+  },
+  "exploratory_shadow": {
+    "case": "1280/P1",
+    "source_sha256": "8b7adb3feed42dad365eb6be259ce68571ce5c84b36222826cb3743b6f57523a",
+    "completed_samples_per_variant": 1,
+    "aborted_attempts_per_variant": 1,
+    "aborted_actual_tokens": null,
+    "thinking": "xhigh",
+    "runs_concurrent": true,
+    "baseline": {
+      "wall_seconds": 506.52,
+      "reported_tokens": 36821,
+      "oracle_match": "exact",
+      "oracle_severity": "MAJOR",
+      "reported_severity": "CRITICAL"
+    },
+    "candidate": {
+      "wall_seconds": 464.75,
+      "reported_tokens": 39393,
+      "oracle_match": "partial",
+      "oracle_severity": "MAJOR",
+      "reported_severity": "MAJOR"
+    },
+    "assessor": {
+      "separate_fresh_native_process": true,
+      "wall_seconds": 35.38,
+      "reported_tokens": 15555,
+      "input_oracle_not_given_to_scanners": true,
+      "rubric": "Exploratory post-hoc causal matching, not a preregistered release assessment."
+    },
+    "interpretation": "One source-only pair, not whole-workflow measurement: no repair, re-review, final-full, holdout or reliable speed/recall inference. Candidate covered a root-cause blocking path but omitted the reverse dependency, deadlock and transaction abort; additional findings remain unadjudicated."
+  },
+  "full_workflow_adapters": {
+    "integrated": false,
+    "required": "Bind real baseline/candidate review-repair-final-full runs and independent assessor to frozen per-case inputs; capture actual models, nested-agent usage, R1 and gate history, including failed attempts. Existing controlled test adapters are not LLM qualification."
+  },
+  "qualification_executed": false,
+  "pilot_executed": false,
+  "sampling_enabled": false,
+  "measured_speedup": null,
+  "live_sampling_gate": {
+    "requested_profile": "deep",
+    "qualification_rejected": "unsupported or unbound qualification report",
+    "sampling_enabled": false,
+    "samples_per_lens": 1,
+    "configuration_fingerprint": "bef4a9926476049164d754acaf9b13e6a8a8ea93d9d17af89ea8a34f147ca84b"
+  },
+  "private_evidence": [
+    {
+      "path": "/opt/sagibeast/specs/build-review-performance/qualification/transport-preflight.json",
+      "sha256": "1e04a02306a07036f9d58ae453eb504c212ea2829957c72b1974a47d46f23e02"
+    },
+    {
+      "path": "/opt/sagibeast/specs/build-review-performance/qualification/1280-source-coverage.json",
+      "sha256": "4a7856b399d81d901b7ef6d0fac4b2b273addb6fa474acf0eac2e3a95070606d"
+    },
+    {
+      "path": "/opt/sagibeast/specs/build-review-performance/qualification/1280-source-reconstruction.json",
+      "sha256": "ec9f70ef23bbc6001a6a89cac655eb3d0dc27cf9bfde8030be0b99ad7432d1e3"
+    },
+    {
+      "path": "/opt/sagibeast/specs/build-review-performance/qualification/1280-raw-inventory.json",
+      "sha256": "506bbba912c8f51b949ae33cc8ea6446185248205e9767e488f1cecd995e0ce1"
+    },
+    {
+      "path": "/opt/sagibeast/specs/build-review-performance/qualification/shadow-source-only/summary.json",
+      "sha256": "5a86483e64a64486932451543f6ae06ec822c147d619252af50177d8add65013"
+    },
+    {
+      "path": "/opt/sagibeast/specs/build-review-performance/qualification/sampling-gate-result.json",
+      "sha256": "3690b830f99292cc3897879a0173ea2728d45d111a8d26efdedc78fd29d89e09"
+    }
+  ],
+  "next_requirements": [
+    "Recover original 1281 raw envelopes and immutable pre-fix snapshots; summaries/final fixed trees are not substitutes.",
+    "Complete later-pass 1280 snapshot/oracle adjudication and freeze independent clean plus CRITICAL/MAJOR blocker holdout.",
+    "Integrate real case-specific full-workflow adapters with supported native model routing and complete token accounting.",
+    "Run at least three paired full workflows per frozen case and source-bound recovery qualification; resolve any quality gaps before a limited pilot."
+  ]
+}

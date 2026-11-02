@@ -379,9 +379,9 @@ commit ani push nejsou jejich důkazem.
   resume a worktree-wide writer fencing, potvrzení aktuálních raw blockerů nezávislým agentem,
   opravy invariantů a risk routing, delta review a bezpečné task checkpointy. Final-full, všechny
   AC, citace a mechanický důkaz nezměněného stromu zůstávají povinné.
-- **T7 implementační část hotová:** párový full-workflow runner, oddělený assessor/oracle,
-  zdrojově vázaná kvalifikace, fail-closed rollout, dokumentace, changelogy a CI. Skutečná LLM
-  kvalifikace a pilot jsou blokované chybějícím korpusem, nikoli nahrazené syntetickými výsledky.
+- **T7 eval infrastruktura implementovaná:** párový full-workflow runner, oddělení assessor/oracle,
+  zdrojově vázaná kvalifikace, fail-closed rollout, dokumentace, changelogy a CI. Napojení skutečných
+  case-specific LLM adaptérů, kvalifikace a pilot nejsou dokončené; stav po pokračování je v §10.
 
 ### Provedené ověření
 
@@ -404,3 +404,52 @@ modely/prompty a nezávislý clean/blocker holdout. Bez nich nelze poctivě prov
 evaluaci ani potvrdit doménové AC nad původními incidenty #1280/#1281. Experimentální sampling
 proto zůstává **vypnutý**; změřené zrychlení ani zachování LLM recall se netvrdí. Odhad 15–20 h
 zůstává hypotézou z §8.
+
+## 10. Pokračování po publikaci implementace
+
+Implementace je commitnutá a pushnutá jako
+`a57915360dd16894cb7089bd702af297ab86da8f` na `origin/feat/build-review-performance`.
+Podrobný index aktuálních důkazů a jejich hashů je v `qualification-readiness.json`.
+Soukromé zdroje Sagibeast, vstupy modelů a raw traces zůstávají mimo upstream checkout.
+
+### Obnovená data
+
+- #1280 pass 1: ověřeno **82/82 původních file hashů**. 81 odpovídá Git stromu
+  `d6cac18bd65ad1c4dfa4ea795f457648a02db745`; poslední soubor byl přesně rekonstruován přehráním
+  archivovaného simplification patche. Není to tvrzení o ověření pozdějších passů.
+- Dohledáno sedm distinct blocker ID v raw #1280 reportech. P1 má zachovaný PostgreSQL red/green
+  důkaz; historický incident nebyl znovu spouštěn.
+- #1281: lokálně není obnoven žádný z 39 raw nálezů se severity a citacemi. F-039 je zachovaný jen
+  ve shrnutích. Chybí původní Mac archiv `makato-review-loop` a pre-fix pracovní stromy; jejich
+  nahrazení finálním opraveným commitem by nebylo pravdivým replay.
+
+### Skutečný LLM shadow smoke
+
+Přes stávající OMP autentizaci proběhl source-only read-only pár baseline/kandidát nad P1 a
+samostatný assessor, model `openai-codex/gpt-6.1-sol`, effort `xhigh`. Oracle nebyl ve vstupech
+scannerů. Oba scannery dokončily jeden vzorek bez tool calls; assessor označil baseline za
+**exact**, kandidáta za **partial**: kandidát popsal relevantní blokování a příčinu, ale nedovodil
+obrácenou závislost, deadlockový cyklus a abort transakce. Baseline naopak nadhodnotila známou MAJOR
+severity na CRITICAL. Další nálezy nejsou bez caller/runtime kontextu adjudikované.
+
+První pokusy obou variant skončily po 180 s jako `aborted / Deadline exceeded`. Jsou zachované
+v evidenci; jejich nulové provider usage je neznámá spotřeba, nikoli bezplatný běh. Po zvýšení
+diagnostického deadlinu na 10 minut byly dokončené nové pokusy se stejnými vstupy a effortem.
+Nejde o „clean retry“ po dokončeném nálezu. Časy a tokeny jsou v indexu, ale jeden souběžný
+source-only pár bez oprav/final-full/holdoutu není odhadem výkonu ani LLM recall celého workflow.
+
+### Proč zatím není kvalifikace ani pilot
+
+Chybí kompletní #1281 korpus, pozdější #1280 snapshot/oracle mapování a nezávislý clean i
+CRITICAL/MAJOR blocker holdout. Dále je nutné napojit skutečné baseline/candidate/assessor adaptéry
+celého review–repair–final-full toku s měřením všech modelů, nested-agent tokenů a neúspěšných
+pokusů. Stávající controlled adaptéry v testech nejsou takovou integrací.
+
+Nativní launcher v tomto prostředí nerozpoznal `@review`; explicitní současný model fungoval bez
+změny autentizace či globálního nastavení. Model routing pro celý tok musí být před evaluací
+explicitně vyřešen, nikoli tiše nahrazen jiným modelem.
+
+Žádná source-only odpověď zde není kvalifikací. Skutečný `lenses --profile deep` odmítl readiness
+artefakt jako `unsupported or unbound qualification report`: sampling zůstal vypnutý a všech pět
+lensů mělo jeden vzorek. Omezený pilot se proto **nespustil**; změřené zrychlení ani zachování
+kvality se netvrdí.
