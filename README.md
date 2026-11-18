@@ -349,7 +349,7 @@ makato's autonomous skills call an open LLM endpoint served by **vLLM** on a vas
 See [`docs/vast-ai-llm-deployment.md`](docs/vast-ai-llm-deployment.md) for the full runbook —
 version pins, gotchas, and why the setup is the way it is.
 
-To bring up a fresh or migrated box in one command:
+To bring up a fresh dev box in one command:
 
 ```bash
 # full run — LLM + sagibeast stack + Cloudflare tunnel on your domain:
@@ -361,8 +361,10 @@ HF_TOKEN=hf_xxx ./scripts/vast-provision-all.sh <IP>
 
 The script auto-detects the SSH port from the vast.ai API, repairs the box, rsyncs the repos,
 bootstraps the vLLM endpoint (driver → reboot → venv → model → systemd), brings up the
-sagibeast compose stack, and prints the connection cheat-sheet. Run it any time — it is
-idempotent.
+sagibeast compose stack, and prints the connection cheat-sheet. Re-running it on the same dev box
+is idempotent. It refuses hosts that already carry a sagibeast install (`/etc/default/sagibeast`);
+to move a live deployment to another instance use the `sagibeast-migrate-instance` skill in
+[`makato-sagibeast`](plugins/makato-sagibeast/).
 
 ## Contributing
 

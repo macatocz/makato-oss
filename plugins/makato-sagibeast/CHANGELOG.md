@@ -6,6 +6,13 @@
 - **`dotx-schema-extractor` tests are collectable again from the repo-level `pytest` run.** `tests/conftest.py` now inserts the skill root (parent of `tests/`) at `sys.path[0]` so the sibling `scripts` package resolves (`from scripts.curation_* import ...`) — the previous conftest only added the `tests/` dir (for `fixtures`), leaving five test modules failing collection with `ModuleNotFoundError: No module named 'scripts.curation_*'` and interrupting the whole repo suite. Position-0 insertion wins over the many other bare `scripts/` dirs across the monorepo under pytest's prepend import mode.
 
 ### Added
+- `sagibeast-migrate-instance` 1.0.0 — operator runbook for moving a live Sagibeast deployment
+  between Vast.ai instances: one batched owner-decision round (hardware, move-don't-upgrade
+  release, cold-sync backup, custody, rotation, window, source destruction), parallel access setup,
+  target provisioning, `vast-host-move.sh` preflight/images/warm and cold sync, scripted cutover
+  with expected durations and rollback, post-cutover runners/reboot/cleanup, JSONL audit in the
+  host-move receipts directory, and `references/pitfalls.md` (symptom → cause → fix). Operator-gated,
+  so not registered in `config/skill-bundles.yml` or `task-skill-map.json`.
 - `sagibeast-refresh-runtime` 1.0.0 — safely refresh deployed code and recreate application
   services, workers and network dependents, with read-only inspection and runtime verification.
 - `config/skill-bundles.yml` (#145) — bundles `sagibeast-skills`, `sagibeast-word-templates`, `sagibeast-excel`, `sagibeast-pdf`, `sagibeast-testbox` route Word/PDF/Excel/YAML/SH files to the appropriate Sagibeast skills via the inject-skills resolver.
@@ -13,6 +20,16 @@
 - `sagibeast-create-testbox` skill — provision Multipass/EC2/Hetzner testbox VM for E2E parity
 
 ### Changed
+
+- `sagibeast-refresh-runtime` — **1.0.0 → 1.0.1**
+  - frozen runtime images must be rebuilt when `pyproject.toml`/`uv.lock` change (guard error
+    `FATAL: /app/pyproject.toml differs`); host moves point to `sagibeast-migrate-instance`
+- README skill catalog: versions aligned with SKILL.md (connect-testbox 1.1.0, create-testbox
+  2.0.0, excel 1.1.0, pdf 1.1.0); added `sagibeast-refresh-runtime` and `sagibeast-migrate-instance`
+  rows. AGENTS.md "What Belongs Here"/file structure list the deployment-operations skills.
+- Repo `scripts/vast-provision-all.sh` refuses hosts that carry `/etc/default/sagibeast`
+  (production or migrated installs); `docs/vast-ai-access.md` drops the stale instance table and
+  nightly-stop text and points to `sagibeast-migrate-instance`.
 
 - `sagibeast-connect-testbox` — **1.0.1 → 1.1.0**
   - added navigation table mapping goals to arguments/steps

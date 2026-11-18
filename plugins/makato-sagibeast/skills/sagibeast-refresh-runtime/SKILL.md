@@ -3,7 +3,7 @@ name: sagibeast-refresh-runtime
 description:
   "Refresh Sagibeast code and recreate containers to apply the latest solution. Use for redeploy
   Sagibeast, refresh code, restart stale containers, or apply newest changes."
-version: "1.0.0"
+version: "1.0.1"
 argument-hint: "[host] [revision] [--check-only]"
 allowed-tools: Read Glob Grep Bash
 ---
@@ -19,6 +19,7 @@ deployment appears successful but `/import`, chat, APIs, or workers run older co
 ## When NOT to Use
 
 - Provisioning a new host or establishing SSH access.
+- Moving a deployment to another Vast.ai instance → `sagibeast-migrate-instance`.
 - Kubernetes deployment, database recovery, or secret rotation.
 - Production rollout without an approved maintenance window and rollback procedure.
 - Merely creating this skill: authoring it does not authorize a deployment.
@@ -86,6 +87,11 @@ Classify every code-bearing service from the effective configuration, including 
 services when present. Rebuild services with local Docker build contexts; pull configured registry
 images when required by the deployment policy. Record image IDs/digests. Complete builds and pulls
 before replacing running services; stop if either fails.
+
+A frozen runtime image (Vast overlays pinning a prebuilt dependency image) bakes in the
+dependency set: when `pyproject.toml` or `uv.lock` changed in the revision delta, rebuild that
+image for the target SHA before recreating services. Its guard otherwise stops containers with
+`FATAL: /app/pyproject.toml differs`; never bypass the guard.
 
 Bind-mounted source still requires a fresh process even if its image is unchanged. Config/env or
 image changes require recreation, not `docker compose restart`. For a full refresh, recreate all
