@@ -68,44 +68,24 @@ ssh -i ~/.ssh/vast_makato -p <DIRECT_SSH_PORT> \
 # vLLM health: curl -sf http://localhost:8100/health
 ```
 
-## Current dev instance (example — verify before use)
-
-These are the values at the time of writing; **confirm with `vastai show instances`** as they
-change on every re-provision:
-
-| Field | Value |
-| --- | --- |
-| Instance ID | `47631745` |
-| GPU / host | RTX 4090 48 GB, UK |
-| Public IP | `45.81.32.13` |
-| Direct SSH port (→ `22/tcp`) | `10825` |
-| Console `:8080` → host port | `11940` |
-| Langfuse `:3000` → host port | `10488` |
-| vLLM `:8100` → host port | `12125` |
-
-```bash
-# direct SSH to the current instance
-ssh -i ~/.ssh/vast_makato -p 10825 root@45.81.32.13
-
-# tunnel console + Langfuse
-ssh -i ~/.ssh/vast_makato -p 10825 -L 8080:localhost:8080 -L 3000:localhost:3000 root@45.81.32.13
-```
-
 ## Lifecycle & cost control
 
-- The instance is **stopped nightly at 23:00 Europe/Prague** by a GitHub Action in the SAGIBEAST
-  repo (`.github/workflows/vast-nightly-stop.yml`). Compute billing pauses; the disk keeps
-  costing while the instance exists (data survives). **Start it manually each day:**
-
-  ```bash
-  vastai start instance <INSTANCE_ID>     # or the "Start" button in the vast.ai console
-  ```
-
-- A companion Action (`vast-cheap-scan.yml`) hourly-scans for a cheaper VM-capable RTX 4090 48 GB
-  host (all-in ≤ $0.60/h) and opens a GitHub issue when one appears.
+- The instance runs continuously; nothing stops it on a schedule. Billing (compute and disk)
+  continues while the instance exists.
+- A GitHub Action in the SAGIBEAST repo (`vast-cheap-scan.yml`) hourly-scans for a cheaper
+  VM-capable RTX 4090 48 GB host (all-in ≤ $0.60/h) and opens a GitHub issue when one appears.
 - To fully stop costs (including disk), **destroy** the instance — but then it must be
   re-provisioned and re-bootstrapped:
 
   ```bash
   vastai destroy instance <INSTANCE_ID>
   ```
+
+## Moving to a new instance
+
+Do not re-provision a box that serves real data with `scripts/vast-provision-all.sh` — it refuses
+hosts that carry `/etc/default/sagibeast`. To move a live deployment to another instance, follow
+the makato-sagibeast skill
+[`sagibeast-migrate-instance`](../plugins/makato-sagibeast/skills/sagibeast-migrate-instance/SKILL.md)
+(owner decisions up front, warm then cold sync with manifest proof, short cutover, source kept as
+rollback).

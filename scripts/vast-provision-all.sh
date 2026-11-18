@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # =============================================================================
 # vast-provision-all.sh — one-command bring-up of the FULL makato + sagibeast
-# stack on a fresh or migrated vast.ai GPU box. You give it the box's public IP;
+# stack on a FRESH vast.ai GPU dev box. You give it the box's public IP;
 # it does everything else and prints how to connect at the end.
+# It refuses hosts that already carry a sagibeast install (/etc/default/sagibeast):
+# use sagibeast's scripts/install-vast-instance.sh there, and the makato-sagibeast
+# skill `sagibeast-migrate-instance` to move a live deployment between instances.
 #
 # What it does (each step is idempotent — safe to re-run):
 #   0. Auto-discovers the SSH port from the vast.ai API by matching the IP
@@ -94,6 +97,12 @@ wait_for_ssh() {
 }
 
 ssh "${SSH_OPTS[@]}" "$TARGET" 'echo ok >/dev/null' 2>/dev/null || die "cannot SSH to $TARGET:$PORT with key $KEY"
+# Fresh dev boxes only: this script rsyncs repos without .git, overwrites the
+# stack/cloudflared units and runs compose directly — destructive on a real install.
+# Fails closed: an SSH error also aborts.
+ssh "${SSH_OPTS[@]}" "$TARGET" 'test ! -e /etc/default/sagibeast' || die "$TARGET has /etc/default/sagibeast (production or migrated install) or could not be checked. Refusing.
+  Moving a live deployment: use the makato-sagibeast skill 'sagibeast-migrate-instance'.
+  Provisioning sagibeast on a host: use sagibeast's scripts/install-vast-instance.sh."
 
 # ── Step 1: repair /etc/environment (vast re-injects a broken one on every boot) ─
 fix_env() {

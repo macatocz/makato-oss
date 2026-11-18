@@ -23,6 +23,7 @@ to handle contracts end-to-end.
 - Price evaluation — querying price databases and validating typical market prices
 - Sorting and classifying contract documents into structured categories
 - Testbox VM provisioning and connectivity for CMAI agents
+- Operating the Sagibeast Vast.ai deployment (runtime refresh, instance migration)
 
 ## What Does NOT Belong Here
 
@@ -83,19 +84,30 @@ Testbox environment management
 Use `/sagibeast-refresh-runtime [host] [revision] [--check-only]` to apply the latest
 Sagibeast code to an existing Compose deployment. It discovers the deployed checkout and
 upstream, preserves local changes and data, rebuilds images, recreates application services
-and network dependents, and verifies freshness and behavior. Version: 1.0.0.
+and network dependents, and verifies freshness and behavior. Version: 1.0.1.
 
 See [the refresh workflow](skills/sagibeast-refresh-runtime/SKILL.md).
+
+### Instance migration
+
+Use `/sagibeast-migrate-instance <source-ssh-alias> [phase]` to move a live deployment to a new
+Vast.ai instance: one owner-decision round, provisioning, preflight, warm then cold sync with
+manifest proof, a scripted cutover, and post-cutover runner/reboot/cleanup steps. Operator-gated;
+not registered for automatic routing. Version: 1.0.0.
+
+See [the migration runbook](skills/sagibeast-migrate-instance/SKILL.md).
 
 ### Skill catalog
 
 | Skill | Description | Input | Output | Version |
 |-------|-------------|-------|--------|---------|
 | [`dotx-schema-extractor`](skills/dotx-schema-extractor/SKILL.md) | Extract a JSON schema from a Word `.dotx` or `.docx` template by inventorying every variable field — content controls (SDT), MERGEFIELDs, DOCPROPERTY, plain-text placeholder patterns (`{{var}}`, `[VAR]`, `<VAR>`), colored-highlighted instructions, and Word comments. (interactive) | A `.dotx` or `.docx` Word template file path | JSON schema (`schema.json`) listing all fillable variable fields with key, label, kind, and optional repeats; plus an optional human-readable summary markdown | 1.0.0 |
-| [`manage-microsoft-excel`](skills/manage-microsoft-excel/SKILL.md) | Use any time a spreadsheet file is the primary input or output — open, read, edit, fix, or create `.xlsx`/`.xlsm`/`.csv`/`.tsv` files; add columns, compute formulas, reformat, chart, clean messy data, or convert between tabular formats. Deliverable must be a spreadsheet file. (interactive) | Existing `.xlsx`/`.xlsm`/`.csv`/`.tsv` file path, or description of a spreadsheet to create from scratch | Modified or newly created `.xlsx`/`.csv` spreadsheet with zero formula errors and professional formatting | 1.0.0 |
-| [`manage-pdf`](skills/manage-pdf/SKILL.md) | Handle any PDF operation — reading or extracting text/tables, combining or merging multiple PDFs, splitting, rotating pages, adding watermarks, creating new PDFs, filling PDF forms, encrypting/decrypting, extracting images, and OCR on scanned PDFs. (interactive) | One or more PDF file paths; optionally desired operation (merge, split, rotate, fill form, OCR, encrypt, extract) | Processed PDF file(s), extracted text/tables as text or structured data, or OCR'd searchable PDF | 1.0.0 |
-| [`sagibeast-connect-testbox`](skills/sagibeast-connect-testbox/SKILL.md) | Connect to or resume an existing sagibeast testbox VM — handles SSH session, port-forwarding, 1Password credential sync, k3d cluster bootstrap, step-ca trust, and IDE remote-dev setup (VSCode, JetBrains). (interactive) | Existing testbox VM provisioned via `sagibeast-create-testbox`; optional flags: `port-forward <local>:<remote>`, `--sync-creds`, `--k3d`, `--step-ca`, `--ide vscode`, `--ide jetbrains`, `--tmux` | Active SSH session, established port-forward tunnel, bootstrapped k3d cluster, or synced credentials depending on argument | 1.0.1 |
-| [`sagibeast-create-testbox`](skills/sagibeast-create-testbox/SKILL.md) | Provision a new sagibeast testbox VM (Multipass, EC2, or Hetzner) for E2E parity testing when Docker Compose on host is insufficient — cross-node ADR-0023 perimeter, team-shared long-running E2E rigs, or stable-egress-IP scenarios. (interactive) | Provider choice (Multipass / EC2 / Hetzner); optional: runtime, cpus, memGB, diskGB, os | Provisioned and configured testbox VM accessible via SSH as `sagibeast.testbox`; SSH config entry added to `~/.ssh/config` | 1.0.0 |
+| [`manage-microsoft-excel`](skills/manage-microsoft-excel/SKILL.md) | Use any time a spreadsheet file is the primary input or output — open, read, edit, fix, or create `.xlsx`/`.xlsm`/`.csv`/`.tsv` files; add columns, compute formulas, reformat, chart, clean messy data, or convert between tabular formats. Deliverable must be a spreadsheet file. (interactive) | Existing `.xlsx`/`.xlsm`/`.csv`/`.tsv` file path, or description of a spreadsheet to create from scratch | Modified or newly created `.xlsx`/`.csv` spreadsheet with zero formula errors and professional formatting | 1.1.0 |
+| [`manage-pdf`](skills/manage-pdf/SKILL.md) | Handle any PDF operation — reading or extracting text/tables, combining or merging multiple PDFs, splitting, rotating pages, adding watermarks, creating new PDFs, filling PDF forms, encrypting/decrypting, extracting images, and OCR on scanned PDFs. (interactive) | One or more PDF file paths; optionally desired operation (merge, split, rotate, fill form, OCR, encrypt, extract) | Processed PDF file(s), extracted text/tables as text or structured data, or OCR'd searchable PDF | 1.1.0 |
+| [`sagibeast-connect-testbox`](skills/sagibeast-connect-testbox/SKILL.md) | Connect to or resume an existing sagibeast testbox VM — handles SSH session, port-forwarding, 1Password credential sync, k3d cluster bootstrap, step-ca trust, and IDE remote-dev setup (VSCode, JetBrains). (interactive) | Existing testbox VM provisioned via `sagibeast-create-testbox`; optional flags: `port-forward <local>:<remote>`, `--sync-creds`, `--k3d`, `--step-ca`, `--ide vscode`, `--ide jetbrains`, `--tmux` | Active SSH session, established port-forward tunnel, bootstrapped k3d cluster, or synced credentials depending on argument | 1.1.0 |
+| [`sagibeast-create-testbox`](skills/sagibeast-create-testbox/SKILL.md) | Provision a new sagibeast testbox VM (Multipass, EC2, or Hetzner) for E2E parity testing when Docker Compose on host is insufficient — cross-node ADR-0023 perimeter, team-shared long-running E2E rigs, or stable-egress-IP scenarios. (interactive) | Provider choice (Multipass / EC2 / Hetzner); optional: runtime, cpus, memGB, diskGB, os | Provisioned and configured testbox VM accessible via SSH as `sagibeast.testbox`; SSH config entry added to `~/.ssh/config` | 2.0.0 |
+| [`sagibeast-migrate-instance`](skills/sagibeast-migrate-instance/SKILL.md) | Move a live Sagibeast deployment between Vast.ai instances: batched owner decisions, provisioning, preflight, warm/cold sync with manifest proof, scripted cutover, rollback, post-cutover steps. (interactive, operator-gated) | SSH alias of the source host, run on the target; optional phase to resume | Target serving the source's exact release and data; receipts and JSONL audit in one state directory; source stopped as rollback | 1.0.0 |
+| [`sagibeast-refresh-runtime`](skills/sagibeast-refresh-runtime/SKILL.md) | Refresh Sagibeast code on an existing Compose deployment and recreate application services, workers and network dependents; verify freshness and behavior. | Optional host, revision, `--check-only` | Deployed SHA, service actions, health and behavioral evidence | 1.0.1 |
 
 ## Notable Governance Files
 

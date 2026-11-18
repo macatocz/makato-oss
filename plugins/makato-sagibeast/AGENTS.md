@@ -26,6 +26,8 @@ Provide skills for the Sagibeast (CMAI) platform covering contract document proc
 - Citation and retrieval of contract knowledge from a vector database
 - Price evaluation — querying price databases and validating typical market prices
 - Sorting and classifying contract documents into structured categories
+- Testbox VM provisioning and connectivity for CMAI agents
+- Operating the Sagibeast Vast.ai deployment that hosts CMAI (runtime refresh, instance migration)
 
 ## What Does NOT Belong Here
 
@@ -62,7 +64,9 @@ plugins/makato-sagibeast/
 │   ├── manage-microsoft-excel/     # Excel document processing for contract data
 │   ├── manage-pdf/                 # PDF processing (OCR, extraction, redaction) for contracts
 │   ├── sagibeast-connect-testbox/  # Connect to an existing CMAI testbox VM
-│   └── sagibeast-create-testbox/   # Provision a new CMAI testbox VM
+│   ├── sagibeast-create-testbox/   # Provision a new CMAI testbox VM
+│   ├── sagibeast-migrate-instance/ # Move a live deployment between Vast.ai instances
+│   └── sagibeast-refresh-runtime/  # Refresh code and recreate containers on a deployment
 ├── AGENTS.md
 ├── CHANGELOG.md
 ├── CLAUDE.md
