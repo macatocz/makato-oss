@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.176.0](https://github.com/macatocz/makato-oss/compare/v0.175.0...v0.176.0) (2026-11-18)
+
+
+### ✨ Features
+
+* **makato-sagibeast:** add sagibeast-migrate-instance skill ([#191](https://github.com/macatocz/makato-oss/issues/191)) ([75379bb](https://github.com/macatocz/makato-oss/commit/75379bbcd623d8408572ac3cd2bff90419ce907b))
+
 ## [0.175.0](https://github.com/macatocz/makato-oss/compare/v0.174.0...v0.175.0) (2026-11-02)
 
 
