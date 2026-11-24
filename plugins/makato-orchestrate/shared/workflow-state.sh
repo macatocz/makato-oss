@@ -134,9 +134,8 @@ BUILD_LOG_SCRIPT="${BUILD_ROOT:+$BUILD_ROOT/shared/build-log.sh}"
 DEFAULT_SCHEMA_PATH="$SCRIPT_DIR/../skills/workflow-state/references/workflow-state.schema.json"
 SCHEMA_PATH="${SCHEMA_PATH:-$DEFAULT_SCHEMA_PATH}"
 
-# ---------------------------------------------------------------------------
-# Spec-folder resolution (duplicated from build-log.sh — intentional).
-# ---------------------------------------------------------------------------
+# Named keys retain their existing folder resolution; numeric issue keys use
+# the build plugin's shared resolver once the issue number has been validated.
 SPEC_FOLDER=""
 if [[ -d "$SPECS_DIR" ]]; then
   SPEC_FOLDER="$(find "$SPECS_DIR" -maxdepth 1 -type d -name "${KEY}-*" | head -1)"
@@ -184,7 +183,27 @@ _validate_issue_number() {
 # Called by every subcommand except recall-lessons after ISSUE_NUMBER is validated.
 # ---------------------------------------------------------------------------
 _resolve_state_file() {
-  local issue="$1"
+  local issue="$1" resolver="$BUILD_ROOT/shared/spec_folder.py" status
+  if [[ "$KEY" =~ ^(#|gh-)?([1-9][0-9]*)$ ]]; then
+    if [[ "${BASH_REMATCH[2]}" != "$issue" ]]; then
+      echo "workflow-state: key $KEY does not match issue $issue" >&2
+      return 1
+    fi
+    if [[ ! -f "$resolver" ]]; then
+      echo "workflow-state: numeric issue resolution requires makato-build's shared/spec_folder.py" >&2
+      return 1
+    fi
+    if SPEC_FOLDER="$(python3 "$resolver" "$REPO_ROOT" "$KEY" --issue-number "$issue" --specs-dir "$SPECS_DIR" 2>&1)"; then
+      :
+    else
+      status=$?
+      if [[ "$status" -ne 2 ]]; then
+        echo "$SPEC_FOLDER" >&2
+        return "$status"
+      fi
+      SPEC_FOLDER="$SPECS_DIR/${KEY#\#}"
+    fi
+  fi
   STATE_FILE="$SPEC_FOLDER/workflow-state-${issue}.json"
 }
 
@@ -201,8 +220,8 @@ _resolve_state_file() {
 _prepare_state_file() {
   local issue="$1"
   _validate_issue_number "$issue"
-  _migrate_legacy_state
   _resolve_state_file "$issue"
+  _migrate_legacy_state
 }
 
 # ---------------------------------------------------------------------------
