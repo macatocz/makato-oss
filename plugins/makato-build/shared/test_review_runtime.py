@@ -42,7 +42,7 @@ class ReviewRuntimeTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         subprocess.run(["git", "init", "-q", str(self.root)], check=True, capture_output=True)
         self.state = self.root / "runtime.json"
         self.ledger = self.root / "ledger.json"

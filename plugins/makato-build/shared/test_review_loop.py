@@ -126,7 +126,7 @@ class LoopTestCase(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
-        self.dir = Path(self._tmp.name)
+        self.dir = Path(self._tmp.name).resolve()
         self.build = self.dir / "install/makato-build"
         self.orch = self.dir / "independent/makato-orchestrate"
         for source, target in ((_HERE.parent, self.build), (_HERE.parents[1] / "makato-orchestrate", self.orch)):
@@ -1660,6 +1660,20 @@ class BackgroundReviewTests(LoopTestCase):
         self.assertTrue(review_loop.background(self.state, 2, "delta")["run"])
         self.merge([blocker], pass_number=2, scope="background-full", after_round=2)
         self.assertFalse(review_loop.background(self.state, 3, "delta")["run"])
+
+
+class AuditPathTests(LoopTestCase):
+    def test_ancestor_symlink_is_allowed_but_root_symlink_is_rejected(self) -> None:
+        _write(self.repo / "specs/GH-1/build.jsonl", "{}\n")
+        _write(self.repo / "specs/GH-1/plan-1.md", "Reviewed plan\n")
+        alias = self.dir / "alias"
+        alias.symlink_to(self.dir, target_is_directory=True)
+        state = {"story": "GH-1", "context_paths": [], "contract_paths": []}
+        path, relative, _ = review_loop.review_audit._resolve(state, str(alias / "worktree"))
+        self.assertEqual(path, self.repo / "specs/GH-1/build.jsonl")
+        self.assertEqual(relative, "specs/GH-1/build.jsonl")
+        with self.assertRaisesRegex(review_loop.review_audit.AuditError, "symlink"):
+            review_loop.review_audit._resolve(state, str(self.dir / "alias"))
 
 
 class AuditPublicationTests(LoopTestCase):

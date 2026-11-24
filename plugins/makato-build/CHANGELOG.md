@@ -15,6 +15,11 @@ here on merge to main; release-please will date and version them at the next rel
 - Check the build worktree instead of the original checkout, preserving unrelated local changes.
   A detached original checkout now uses the remote default branch rather than its stale HEAD.
 
+### Fixed — review audit paths on macOS
+
+- Resolve ancestor symlinks consistently when locating the canonical audit, while retaining
+  rejection of symlinked audit roots and components.
+
 ### Changed — lossless, durable review with quality-gated optimization
 
 - Preserve raw reviewer envelopes and distinct invariant constituents instead of deduplicating by
