@@ -98,7 +98,7 @@ if [[ -z "${MAKATO_REVIEW_LEDGER_STATE:-}" ]]; then
   RESOLVE_ERROR="$(mktemp "${TMPDIR:-/tmp}/makato-spec-resolve.XXXXXX")"
   trap 'rm -f "$RESOLVE_ERROR"' EXIT
 
-  if [[ -d "$SPECS_DIR" ]] && SPEC_FOLDER="$(python3 "$HERE/spec_folder.py" "$REPO_ROOT" "$KEY" 2>"$RESOLVE_ERROR")"; then
+  if [[ -d "$SPECS_DIR" ]] && SPEC_FOLDER="$(python3 "$HERE/spec_folder.py" "$REPO_ROOT" "$KEY" --specs-dir "$SPECS_DIR" 2>"$RESOLVE_ERROR")"; then
     :
   else
     RESOLVE_STATUS=$?

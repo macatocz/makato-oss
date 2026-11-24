@@ -10,6 +10,10 @@ here on merge to main; release-please will date and version them at the next rel
 
 ## [Unreleased]
 
+### Fixed — issue-backed spec audit resolution
+
+- Resolve audit logs against the configured specs directory, including issue-backed feature folders.
+
 ### Fixed — build-start preflight for isolated worktrees
 
 - Check the build worktree instead of the original checkout, preserving unrelated local changes.

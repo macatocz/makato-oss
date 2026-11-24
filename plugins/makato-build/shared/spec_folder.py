@@ -114,7 +114,9 @@ def _issue_matches(folder: Path, issue_number: str) -> bool:
     )
 
 
-def resolve_spec_folder(repo_root: Path, key: str, issue_number: str | None = None) -> Path:
+def resolve_spec_folder(
+    repo_root: Path, key: str, issue_number: str | None = None, specs_root: Path | None = None
+) -> Path:
     """Return the unique spec folder for *key*.
 
     Direct key matches remain the first choice for non-numeric keys. Numeric
@@ -123,7 +125,7 @@ def resolve_spec_folder(repo_root: Path, key: str, issue_number: str | None = No
     """
 
     root = Path(repo_root).resolve()
-    specs_root = root / "specs"
+    specs_root = Path(specs_root).resolve() if specs_root is not None else root / "specs"
     normalised = _normalise_key(key)
     issue_match = _ISSUE_KEY.match(normalised)
     issue = issue_number or (issue_match.group(1) if issue_match else None)
@@ -152,10 +154,11 @@ def _main(argv: list[str]) -> int:
     parser.add_argument("repo_root", type=Path)
     parser.add_argument("key")
     parser.add_argument("--issue-number")
+    parser.add_argument("--specs-dir", type=Path)
     args = parser.parse_args(argv)
 
     try:
-        print(resolve_spec_folder(args.repo_root, args.key, args.issue_number))
+        print(resolve_spec_folder(args.repo_root, args.key, args.issue_number, args.specs_dir))
     except SpecFolderAmbiguous as exc:
         print(f"spec-folder: {exc}", file=sys.stderr)
         return 3

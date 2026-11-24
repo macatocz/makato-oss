@@ -7,6 +7,11 @@ lists one sub-bullet per logical change.
 
 ## [Unreleased]
 
+### Fixed — issue-backed workflow state
+
+- Resolve numeric issue state to the same feature spec as the build audit; ambiguous matches and
+  mismatched issue keys fail without creating state. Numeric resolution requires makato-build.
+
 ### Added — dependency-coherent nonfinal review checkpoints
 
 - Extend the task scheduler with review checkpoints after roughly three completed tasks, earlier for
