@@ -86,8 +86,8 @@ contract from `$MAKATO_BUILD_ROOT/AUTONOMOUS-MODE.md`.
   `errors: ["MISSING_INPUT: WORKTREE_PATH required in autonomous mode"]` and do not run
   `git checkout`, tests, or file edits.
 - In interactive mode, an existing `WORKTREE_PATH` may be resumed. If it is unset, this skill
-  creates one after the work item and branch are known in Step 2c. Never fall back to the main
-  checkout for build work.
+  creates one after identifying the work item in Step 2. Never fall back to the main checkout
+  for build work.
 - In autonomous mode, `cd "$WORKTREE_PATH"` before any git, test, or build command. Derive
   `REPO_ROOT` from the worktree's common git directory for `specs/` and audit-log paths.
 
@@ -164,14 +164,33 @@ In **autonomous mode** (`--autonomous`): log the same entry above, then return R
 
 ### Step 2 — Git pre-flight
 
-Run these checks before touching any spec files:
+**Select the build worktree before checking git state.** Interactive sessions must not change the
+current checkout's branch. If `WORKTREE_PATH` is unset, prompt for a feature branch name (default:
+`feat/<key-lowercased>-build`) and set `REQUESTED_BRANCH`, then create or resume the worktree:
 
-**2a — Clean working tree**
+```bash
+MAKATO_BUILD_ROOT="${MAKATO_BUILD_ROOT:-${CLAUDE_PLUGIN_ROOT:-${OMP_PLUGIN_ROOT:-${PLUGIN_ROOT:-$(git rev-parse --show-toplevel)/plugins/makato-build}}}}"
+WORKTREE_OUTPUT="$(bash "$MAKATO_BUILD_ROOT/shared/interactive-worktree.sh" \
+  "$key" "" "${REQUESTED_BRANCH:-}")"
+WORKTREE_PATH="$(printf '%s\n' "$WORKTREE_OUTPUT" | tail -n 1)"
+test -n "$WORKTREE_PATH" && test -d "$WORKTREE_PATH"
+```
 
-Run `git status --porcelain`. If output is non-empty → stop. Tell the user:
+If the wrapper fails or returns an invalid path, stop. Never fall back to the main checkout.
+Log `worktree-created` or `worktree-resumed` with the returned absolute path. Warn if the
+original checkout is dirty: its uncommitted changes are **not included** in the build worktree
+and remain untouched. For a detached original checkout, the wrapper uses the remote default
+branch unless `MAKATO_WORKTREE_BASE_REF` explicitly selects another base.
 
-> "Working tree is dirty. Commit, stash, or discard your changes before starting a build session.
-> Run `git status` to see what's modified."
+**2a — Clean build worktree**
+
+Run `bash "$MAKATO_BUILD_ROOT/shared/check-build-worktree.sh" "$WORKTREE_PATH"`. If it fails,
+stop; preserve any existing changes and report the helper's error. The helper rejects the main
+checkout, protected or detached branches, and tracked or untracked changes in the build worktree.
+It ignores only the untracked `.loop-owner.pid` control file.
+
+On success, `cd "$WORKTREE_PATH"` and run the remaining git checks there. Do not reset or clean the
+original checkout as a substitute; do not write a plan or design before the checks pass.
 
 **2b — Fetch and check branch state**
 
@@ -200,29 +219,6 @@ exists:
    Continue anyway? [Y/n]"_. If no: stop. If yes: continue.
 5. If no `upstream` remote: skip this check silently.
 
-**2c — Branch selection**
-
-Interactive sessions must not mutate the current checkout's branch. If `WORKTREE_PATH` is already
-set, use the branch checked out there. Otherwise, prompt for a feature branch name (default:
-`feat/<key-lowercased>-build`) and set `REQUESTED_BRANCH`; do not run `git checkout`.
-
-### Step 2c.5 — Create or resume the interactive worktree
-
-Only in interactive mode, when `WORKTREE_PATH` is unset, run the checked-in bootstrap wrapper. It
-resolves the sibling `makato-orchestrate` helpers, initialises per-issue workflow state when needed,
-and creates the worktree without changing the main checkout:
-
-```bash
-MAKATO_BUILD_ROOT="${MAKATO_BUILD_ROOT:-${CLAUDE_PLUGIN_ROOT:-${OMP_PLUGIN_ROOT:-${PLUGIN_ROOT:-$(git rev-parse --show-toplevel)/plugins/makato-build}}}}"
-WORKTREE_OUTPUT="$(bash "$MAKATO_BUILD_ROOT/shared/interactive-worktree.sh" \
-  "$key" "" "${REQUESTED_BRANCH:-}")"
-WORKTREE_PATH="$(printf '%s\n' "$WORKTREE_OUTPUT" | tail -n 1)"
-test -n "$WORKTREE_PATH" && test -d "$WORKTREE_PATH"
-```
-
-If the wrapper fails or returns an invalid path, stop immediately. Never continue against the main
-checkout. Log `worktree-created` or `worktree-resumed` with the returned absolute path before
-continuing.
 
 ### Step 2d — Mark In Progress on project board
 
