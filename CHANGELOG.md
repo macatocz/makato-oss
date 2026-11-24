@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.176.1](https://github.com/macatocz/makato-oss/compare/v0.176.0...v0.176.1) (2026-11-24)
+
+
+### 🐛 Bug Fixes
+
+* **makato-build:** check isolated build worktree ([#193](https://github.com/macatocz/makato-oss/issues/193)) ([f2c9146](https://github.com/macatocz/makato-oss/commit/f2c914692f23c2eae6eba4f44f09f43ea73e35f7))
+* **makato:** resolve issue workflow state consistently ([#195](https://github.com/macatocz/makato-oss/issues/195)) ([13ed777](https://github.com/macatocz/makato-oss/commit/13ed777a1e3889b975ddf90d2903ed90b3b6464d))
+
 ## [0.176.0](https://github.com/macatocz/makato-oss/compare/v0.175.0...v0.176.0) (2026-11-18)
 
 
