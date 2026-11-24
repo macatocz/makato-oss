@@ -492,7 +492,7 @@ class ActiveRootTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.directory = Path(self.tmp.name)
+        self.directory = Path(self.tmp.name).resolve()
         self.build = self.directory / "installed/build"
         self.orch = self.directory / "independent/orchestrate"
         for source, target in ((_HERE.parent, self.build), (_HERE.parents[1] / "makato-orchestrate", self.orch)):

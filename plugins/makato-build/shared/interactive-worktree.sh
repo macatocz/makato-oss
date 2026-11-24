@@ -105,7 +105,7 @@ fi
 
 CURRENT_BRANCH="$(git branch --show-current)"
 BASE_REF="${MAKATO_WORKTREE_BASE_REF:-}"
-if [[ -z "$BASE_REF" && "$CURRENT_BRANCH" != "main" && "$CURRENT_BRANCH" != "master" ]]; then
+if [[ -z "$BASE_REF" && -n "$CURRENT_BRANCH" && "$CURRENT_BRANCH" != "main" && "$CURRENT_BRANCH" != "master" ]]; then
   BASE_REF="HEAD"
 fi
 

@@ -57,6 +57,9 @@ def fingerprint(state: dict, worktree: str, review_base: str) -> dict:
 def _resolve(state: dict, worktree: str) -> tuple[Path, str, list[dict]]:
     _check_roots(state)
     root = Path(state.get("evidence_root") or worktree).absolute()
+    if root.is_symlink():
+        raise AuditError("canonical audit has a symlink component")
+    root = root.resolve()
     try:
         path = resolve_spec_folder(root, state["story"]) / "build.jsonl"
         relative = path.relative_to(root).as_posix()
