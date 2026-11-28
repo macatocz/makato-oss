@@ -595,5 +595,18 @@ fi
 rm -f "$MARKER"
 pass "marker present: #2 skipped (awaiting-answers), not promoted by plan or run; marker gone: promotable again"
 
+echo "=== T-LARGE-BOARD: a board payload over the 128 KiB single-string exec limit still plans ==="
+# `gh project item-list --format json` carries every issue body; real boards exceed Linux MAX_ARG_STRLEN.
+BOARD_LARGE="$SANDBOX/board-large.json"
+python3 -c 'import json, sys
+d = json.load(open(sys.argv[1]))
+for it in d["items"]: it["content"]["body"] = "x" * 200000
+print(json.dumps(d))' "$BOARD" >"$BOARD_LARGE"
+OUT="$(MAKATO_PROMOTE_GH_OVERRIDE="$BOARD_LARGE" "$PR" plan --json alpha 2>&1)" \
+  || fail "large board must not crash the planner: $OUT"
+jq -e '.ready[] | select(.issue == 2)' <<<"$OUT" >/dev/null 2>&1 \
+  || fail "large board: #2 (blocker #1 Done) should be promotable: $OUT"
+pass "large board payload planned; #2 promotable"
+
 echo
-echo "=== ALL PROMOTE-READY SMOKE TESTS PASSED (T1–T13, T-pjson-valid, T-pjson-collision, T-VCR-6–T-VCR-9, T-reconcile-1–T-reconcile-3, T-SB-1–T-SB-3, T-PROMOTE-CLOSED-SKIP, T-PROMOTE-CLOSED-SKIP-TODO, T-AWAIT-PARKED) ==="
+echo "=== ALL PROMOTE-READY SMOKE TESTS PASSED (T1–T13, T-pjson-valid, T-pjson-collision, T-VCR-6–T-VCR-9, T-reconcile-1–T-reconcile-3, T-SB-1–T-SB-3, T-PROMOTE-CLOSED-SKIP, T-PROMOTE-CLOSED-SKIP-TODO, T-AWAIT-PARKED, T-LARGE-BOARD) ==="

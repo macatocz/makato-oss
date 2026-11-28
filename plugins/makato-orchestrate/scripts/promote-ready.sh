@@ -121,8 +121,9 @@ _read_board_json() {
     _board_via_graphql "$host" "$_pid" 2>/dev/null \
       || { _log "WARN — board poll failed (graphql); treating board as empty"; echo '{"items":[]}'; }
   else
+    # Bodies are unused here and dominate the payload; drop them at the source.
     GH_HOST="$host" gh project item-list "$number" --owner "$owner" \
-      --format json --limit 9999 2>/dev/null \
+      --format json --limit 9999 2>/dev/null | jq -c '.items[].content |= del(.body)' \
       || { _log "WARN — board poll failed (item-list); treating board as empty"; echo '{"items":[]}'; }
   fi
 }
@@ -197,10 +198,11 @@ _collect_graph_files() {
 # ---------------------------------------------------------------------------
 _compute_plan() {
   local board_json="$1"; shift
-  BOARD_JSON="$board_json" PROMOTE_SPECS_DIR="$SPECS_DIR" python3 - "$@" <<'PY'
+  # Board goes in on fd 3, not an env var: one env string is capped at 128 KiB (MAX_ARG_STRLEN).
+  PROMOTE_SPECS_DIR="$SPECS_DIR" python3 - "$@" 3<<<"$board_json" <<'PY'
 import glob, json, os, sys, re
 
-board_raw = os.environ.get("BOARD_JSON", '{"items":[]}')
+board_raw = os.fdopen(3).read()
 
 # --- board status + item id maps -----------------------------------------
 status_of = {}   # issue_number -> normalized lowercase status ("" if none)
