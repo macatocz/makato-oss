@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.176.2](https://github.com/macatocz/makato-oss/compare/v0.176.1...v0.176.2) (2026-11-28)
+
+
+### 🐛 Bug Fixes
+
+* **makato-orchestrate:** pass the board to the promote-ready planner on a file descriptor ([#196](https://github.com/macatocz/makato-oss/issues/196)) ([a3f01ec](https://github.com/macatocz/makato-oss/commit/a3f01ec291f5b611b2d0d8a30a277634f61c612e))
+
 ## [0.176.1](https://github.com/macatocz/makato-oss/compare/v0.176.0...v0.176.1) (2026-11-24)
 
 
